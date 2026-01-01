@@ -40,7 +40,8 @@ FOR each tile:
 
 # Phase 5 – Synthetische Frames
 cluster tiles into 15–30 synthetic frames
-WRITE syn_XX.fits
+ENSURE_DIR stacking.input_dir
+WRITE stacking.input_dir/syn_XX.fits
 
 # Phase 6 – Stacking der synthetischen Frames
 CALL stack_frames(engine=stacking.engine,
