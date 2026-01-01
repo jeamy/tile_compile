@@ -1,0 +1,57 @@
+LOAD config.yaml
+
+ASSERT linear_data
+ASSERT frames >= frames_min
+
+# Phase 1 – Registrierung
+# output: registration.output_dir
+CALL register_frames(engine=registration.engine,
+                     reference=registration.reference,
+                     allow_rotation=registration.allow_rotation,
+                     output_dir=registration.output_dir,
+                     registered_filename_pattern=registration.registered_filename_pattern)
+ASSERT star_matches >= min_star_matches
+
+LOAD_FRAMES_FROM_DIR registration.output_dir
+
+# Phase 2 – Globale Frame-Analyse
+FOR frame IN frames:
+    measure background, rms, gradient
+    compute G_f
+WRITE frame_quality.csv
+
+# Phase 3 – Tile-Setup
+estimate median_FWHM from star-tiles
+compute tile_size, overlap
+generate tile grid
+
+# Phase 4 – Tile-Analyse (Hauptlauf)
+FOR each tile:
+    FOR each frame:
+        extract tile
+        IF stars_detected >= min:
+            compute FWHM, roundness, contrast
+            compute L_star
+        ELSE:
+            compute gradient, rms, background
+            compute L_struct
+        compute W_f,t = G_f * L_f,t
+    reconstruct tile (weighted, windowed)
+
+# Phase 5 – Synthetische Frames
+cluster tiles into 15–30 synthetic frames
+WRITE syn_XX.fits
+
+# Phase 6 – Stacking der synthetischen Frames
+CALL stack_frames(engine=stacking.engine,
+                  method=stacking.method,
+                  input_dir=stacking.input_dir,
+                  input_pattern=stacking.input_pattern,
+                  output_file=stacking.output_file)
+
+# Phase 7 – Validierung
+GENERATE plots
+IF any abort condition met:
+    ABORT and mark run FAILED
+ELSE:
+    MARK run SUCCESS
