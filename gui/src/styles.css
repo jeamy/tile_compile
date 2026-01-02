@@ -80,10 +80,171 @@
   gap: 10px;
 }
 
+.input-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.input-row input {
+  flex: 1;
+}
+
+.input-row input,
+.input-row button {
+  height: 38px;
+}
+
+.input-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+button.small {
+  padding: 0.45em 0.8em;
+  font-size: 12px;
+}
+
+.field.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-wrap {
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  white-space: nowrap;
+}
+
+.table tbody tr:hover {
+  background: rgba(0, 0, 0, 0.03);
+  cursor: pointer;
+}
+
+.table tbody tr.selected {
+  background: rgba(36, 200, 219, 0.10);
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.status-pill.pending {
+  background: rgba(120, 120, 120, 0.12);
+}
+
+.status-pill.running {
+  background: rgba(60, 160, 255, 0.18);
+}
+
+.status-pill.success {
+  background: rgba(50, 200, 120, 0.18);
+}
+
+.status-pill.failed {
+  background: rgba(255, 80, 80, 0.18);
+}
+
+.status-pill.aborting {
+  background: rgba(255, 180, 60, 0.20);
+}
+
+.status-pill.aborted {
+  background: rgba(255, 140, 140, 0.16);
+}
+
 .status {
   margin-left: auto;
   font-size: 12px;
   opacity: 0.8;
+}
+
+.readonly {
+  padding: 0.6em 1.2em;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.03);
+  min-height: 2.4em;
+  display: flex;
+  align-items: center;
+}
+
+.monospace {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 12px;
+}
+
+.confirm {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 210, 0, 0.10);
+}
+
+.confirm-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.confirm-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.confirm-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.03);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.badge-ok {
+  background: rgba(0, 180, 80, 0.10);
+  border-color: rgba(0, 180, 80, 0.25);
+}
+
+.badge-bad {
+  background: rgba(220, 60, 60, 0.10);
+  border-color: rgba(220, 60, 60, 0.25);
 }
 
 .log {
@@ -98,6 +259,15 @@
     "Courier New", monospace;
   font-size: 12px;
   line-height: 18px;
+}
+
+.log-line {
+  padding: 2px 0;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.06);
+}
+
+.log-line:last-child {
+  border-bottom: none;
 }
 
 .logo {
@@ -131,6 +301,7 @@ h1 {
 }
 
 input,
+select,
 button {
   border-radius: 8px;
   border: 1px solid transparent;
@@ -161,6 +332,7 @@ button:active {
 }
 
 input,
+select,
 button {
   outline: none;
 }
@@ -191,11 +363,77 @@ button {
     border-color: rgba(255, 255, 255, 0.08);
   }
 
+  .table-wrap {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .table th,
+  .table td {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .table tbody tr.selected {
+    background: rgba(36, 200, 219, 0.16);
+  }
+
+  .status-pill {
+    border-color: rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .status-pill.pending {
+    background: rgba(160, 160, 160, 0.16);
+  }
+
+  .status-pill.running {
+    background: rgba(60, 160, 255, 0.22);
+  }
+
+  .status-pill.success {
+    background: rgba(50, 200, 120, 0.22);
+  }
+
+  .status-pill.failed {
+    background: rgba(255, 80, 80, 0.22);
+  }
+
+  .status-pill.aborting {
+    background: rgba(255, 180, 60, 0.24);
+  }
+
+  .status-pill.aborted {
+    background: rgba(255, 140, 140, 0.20);
+  }
+
+  .log-line {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .readonly {
+    background: rgba(0, 0, 0, 0.25);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .confirm {
+    background: rgba(255, 210, 0, 0.12);
+    border-color: rgba(255, 255, 255, 0.10);
+  }
+
+  .textarea {
+    background: rgba(0, 0, 0, 0.25);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
   a:hover {
     color: #24c8db;
   }
 
   input,
+  select,
   button {
     color: #ffffff;
     background-color: #0f0f0f98;

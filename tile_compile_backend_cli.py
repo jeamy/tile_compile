@@ -6,6 +6,10 @@ from tile_compile_backend.config_io import load_config_text, save_config_text
 from tile_compile_backend.schema import load_schema_json
 from tile_compile_backend.validate import validate_config_yaml_text
 from tile_compile_backend.scan import scan_input
+from tile_compile_backend.runs import list_runs
+from tile_compile_backend.logs import get_run_logs
+from tile_compile_backend.artifacts import list_artifacts
+from tile_compile_backend.status import get_run_status
 
 
 def _print_json(obj: object) -> None:
@@ -27,7 +31,16 @@ def cmd_load_config(args: argparse.Namespace) -> int:
 
 
 def cmd_save_config(args: argparse.Namespace) -> int:
-    save_config_text(args.path, args.yaml)
+    if args.stdin:
+        yaml_text = sys.stdin.read()
+    else:
+        yaml_text = args.yaml
+
+    if yaml_text is None:
+        sys.stderr.write("save-config requires YAML text either as argument or via --stdin\n")
+        return 2
+
+    save_config_text(args.path, yaml_text)
     _print_json({"path": args.path, "saved": True})
     return 0
 
@@ -36,7 +49,10 @@ def cmd_validate_config(args: argparse.Namespace) -> int:
     if args.path is not None:
         yaml_text = load_config_text(args.path)
     else:
-        yaml_text = args.yaml
+        if args.stdin:
+            yaml_text = sys.stdin.read()
+        else:
+            yaml_text = args.yaml
 
     result = validate_config_yaml_text(yaml_text=yaml_text, schema_path=args.schema)
     if args.path is not None:
@@ -56,6 +72,30 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0 if result.get("ok") else 1
 
 
+def cmd_list_runs(args: argparse.Namespace) -> int:
+    res = list_runs(args.runs_dir)
+    _print_json(res)
+    return 0
+
+
+def cmd_get_run_logs(args: argparse.Namespace) -> int:
+    res = get_run_logs(args.run_dir, tail=args.tail)
+    _print_json(res)
+    return 0
+
+
+def cmd_list_artifacts(args: argparse.Namespace) -> int:
+    res = list_artifacts(args.run_dir)
+    _print_json(res)
+    return 0
+
+
+def cmd_get_run_status(args: argparse.Namespace) -> int:
+    res = get_run_status(args.run_dir)
+    _print_json(res)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="tile_compile_backend_cli")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -69,13 +109,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_save = sub.add_parser("save-config")
     p_save.add_argument("path")
-    p_save.add_argument("yaml")
+    p_save.add_argument("yaml", nargs="?")
+    p_save.add_argument("--stdin", action="store_true")
     p_save.set_defaults(func=cmd_save_config)
 
     p_validate = sub.add_parser("validate-config")
     src = p_validate.add_mutually_exclusive_group(required=True)
     src.add_argument("--path")
     src.add_argument("--yaml")
+    p_validate.add_argument("--stdin", action="store_true")
     p_validate.add_argument(
         "--schema",
         default=None,
@@ -102,6 +144,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Compute per-frame sha256 checksums (can be slow)",
     )
     p_scan.set_defaults(func=cmd_scan)
+
+    p_list_runs = sub.add_parser("list-runs")
+    p_list_runs.add_argument("runs_dir")
+    p_list_runs.set_defaults(func=cmd_list_runs)
+
+    p_logs = sub.add_parser("get-run-logs")
+    p_logs.add_argument("run_dir")
+    p_logs.add_argument("--tail", type=int, default=None)
+    p_logs.set_defaults(func=cmd_get_run_logs)
+
+    p_art = sub.add_parser("list-artifacts")
+    p_art.add_argument("run_dir")
+    p_art.set_defaults(func=cmd_list_artifacts)
+
+    p_status = sub.add_parser("get-run-status")
+    p_status.add_argument("run_dir")
+    p_status.set_defaults(func=cmd_get_run_status)
 
     return p
 

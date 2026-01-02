@@ -139,6 +139,13 @@ def cmd_run(args) -> int:
     (run_dir / "artifacts").mkdir(parents=True, exist_ok=True)
     (run_dir / "outputs").mkdir(parents=True, exist_ok=True)
 
+    run_metadata = {
+        "run_id": run_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "color_mode_confirmed": args.color_mode_confirmed,
+    }
+    (run_dir / "run_metadata.json").write_bytes(_json_dumps_canonical(run_metadata))
+
     log_path = run_dir / "logs" / "run_events.jsonl"
     with log_path.open("w", encoding="utf-8") as log_fp:
         config_bytes = _read_bytes(config_path)
@@ -167,6 +174,7 @@ def cmd_run(args) -> int:
                 "frames_manifest_id": frames_manifest_id,
                 "frame_count": len(frames),
                 "dry_run": bool(args.dry_run),
+                "color_mode_confirmed": args.color_mode_confirmed,
             },
             log_fp,
         )
@@ -196,6 +204,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--pattern", default="*.fit*")
     p_run.add_argument("--runs-dir", default="runs")
     p_run.add_argument("--dry-run", action="store_true")
+    p_run.add_argument("--color-mode-confirmed", default=None)
     p_run.set_defaults(func=cmd_run)
 
     return p
