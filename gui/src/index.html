@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tile Compile GUI</title>
+    <script type="module" src="/main.js" defer></script>
+  </head>
+
+  <body>
+    <main class="container">
+      <header class="header">
+        <h1>Tile Compile</h1>
+        <div class="sub">Local single-host runner controller</div>
+      </header>
+
+      <section class="card">
+        <h2>Run</h2>
+
+        <div class="grid">
+          <label class="field">
+            <div class="field-label">Working directory</div>
+            <input id="working-dir" placeholder="/path/to/tile-compile" />
+          </label>
+
+          <label class="field">
+            <div class="field-label">Config</div>
+            <input id="config-path" placeholder="tile_compile.yaml" />
+          </label>
+
+          <label class="field">
+            <div class="field-label">Input dir</div>
+            <input id="input-dir" placeholder="/path/to/frames" />
+          </label>
+
+          <label class="field">
+            <div class="field-label">Runs dir</div>
+            <input id="runs-dir" placeholder="runs" />
+          </label>
+
+          <label class="field">
+            <div class="field-label">Pattern</div>
+            <input id="pattern" placeholder="*.fit*" />
+          </label>
+
+          <label class="field checkbox">
+            <input id="dry-run" type="checkbox" />
+            <span>Dry run</span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="start-run" type="button">Start</button>
+          <button id="stop-run" type="button" class="secondary" disabled>Stop</button>
+          <div class="status" id="run-status">idle</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Live log</h2>
+        <pre class="log" id="log"></pre>
+      </section>
+    </main>
+  </body>
+</html>
