@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime / outputs
+runs/
+outputs/
+artifacts/
+logs/
+*.log
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Node / frontend (Tauri)
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.yarnrc.yml
+
+# Tauri / Rust
+src-tauri/target/
+**/target/
+
+# Tauri bundling outputs
+**/src-tauri/gen/
+**/src-tauri/icons/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local env files
+*.local
+*.local.*
