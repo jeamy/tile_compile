@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tile-compile"
+version = "0.0.0"
+requires-python = ">=3.10"
+dependencies = [
+  "PyYAML>=6.0",
+  "astropy>=5.0",
+  "jsonschema>=4.18"
+]
+
+[project.scripts]
+tile-compile-backend = "tile_compile_backend_cli:main"
+
+[tool.setuptools]
+packages = ["tile_compile_backend"]
