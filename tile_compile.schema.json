@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tile_compile.schema.json",
+  "title": "tile_compile.yaml schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "pipeline",
+    "data",
+    "normalization",
+    "registration",
+    "global_metrics",
+    "tile",
+    "local_metrics",
+    "synthetic",
+    "reconstruction",
+    "stacking",
+    "validation",
+    "runtime_limits"
+  ],
+  "properties": {
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "abort_on_fail"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["production", "test"]
+        },
+        "abort_on_fail": { "type": "boolean" }
+      }
+    },
+
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_width",
+        "image_height",
+        "frames_min",
+        "frames_target",
+        "color_mode",
+        "linear_required"
+      ],
+      "properties": {
+        "image_width": { "type": "integer", "minimum": 1 },
+        "image_height": { "type": "integer", "minimum": 1 },
+        "frames_min": { "type": "integer", "minimum": 1 },
+        "frames_target": { "type": "integer", "minimum": 1 },
+        "color_mode": { "type": "string", "enum": ["OSC"] },
+        "linear_required": { "type": "boolean", "const": true }
+      }
+    },
+
+    "normalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "mode", "per_channel"],
+      "properties": {
+        "enabled": { "type": "boolean", "const": true },
+        "mode": { "type": "string", "enum": ["background", "median"] },
+        "per_channel": { "type": "boolean" }
+      }
+    },
+
+    "registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine",
+        "reference",
+        "output_dir",
+        "registered_filename_pattern",
+        "min_star_matches",
+        "allow_rotation"
+      ],
+      "properties": {
+        "engine": { "type": "string", "enum": ["siril"] },
+        "reference": { "type": "string", "enum": ["auto"] },
+        "output_dir": { "type": "string", "minLength": 1 },
+        "registered_filename_pattern": { "type": "string", "minLength": 1 },
+        "min_star_matches": { "type": "integer", "minimum": 1 },
+        "allow_rotation": { "type": "boolean" }
+      }
+    },
+
+    "global_metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["weights", "clamp"],
+      "properties": {
+        "weights": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["background", "noise", "gradient"],
+          "properties": {
+            "background": { "type": "number", "minimum": 0, "maximum": 1 },
+            "noise": { "type": "number", "minimum": 0, "maximum": 1 },
+            "gradient": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "clamp": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number" }
+        }
+      }
+    },
+
+    "tile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "size_factor",
+        "min_size",
+        "max_divisor",
+        "overlap_fraction",
+        "star_min_count"
+      ],
+      "properties": {
+        "size_factor": { "type": "integer", "minimum": 1 },
+        "min_size": { "type": "integer", "minimum": 1 },
+        "max_divisor": { "type": "integer", "minimum": 1 },
+        "overlap_fraction": { "type": "number", "minimum": 0, "maximum": 0.5 },
+        "star_min_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "local_metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clamp", "star_mode", "structure_mode"],
+      "properties": {
+        "clamp": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number" }
+        },
+        "star_mode": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fwhm_transform", "weights"],
+          "properties": {
+            "fwhm_transform": { "type": "string", "const": "log" },
+            "weights": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["fwhm", "roundness", "contrast"],
+              "properties": {
+                "fwhm": { "type": "number", "minimum": 0, "maximum": 1 },
+                "roundness": { "type": "number", "minimum": 0, "maximum": 1 },
+                "contrast": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            }
+          }
+        },
+        "structure_mode": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["metric", "background_weight", "metric_weight"],
+          "properties": {
+            "metric": { "type": "string", "const": "energy_over_sigma" },
+            "background_weight": { "type": "number", "minimum": 0, "maximum": 1 },
+            "metric_weight": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+
+    "synthetic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frames_min", "frames_max", "clustering"],
+      "properties": {
+        "frames_min": { "type": "integer", "minimum": 1 },
+        "frames_max": { "type": "integer", "minimum": 1 },
+        "clustering": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "vector"],
+          "properties": {
+            "mode": { "type": "string", "enum": ["state_vector"] },
+            "vector": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "global_weight",
+                  "tile_quality_mean",
+                  "tile_quality_variance",
+                  "background",
+                  "noise"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "frames_min": { "type": "integer" },
+              "frames_max": { "type": "integer" }
+            }
+          },
+          "then": {
+            "properties": {},
+            "description": "frames_max must be >= frames_min (enforced in backend cross-field checks)."
+          }
+        }
+      ]
+    },
+
+    "reconstruction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["weighting_function", "window_function", "tile_rescale"],
+      "properties": {
+        "weighting_function": { "type": "string", "const": "exponential" },
+        "window_function": { "type": "string", "const": "hanning" },
+        "tile_rescale": {
+          "type": "string",
+          "enum": ["median_after_background_subtraction"]
+        }
+      }
+    },
+
+    "stacking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine", "method", "input_dir", "input_pattern", "output_file"],
+      "properties": {
+        "engine": { "type": "string", "enum": ["siril"] },
+        "method": { "type": "string", "const": "average" },
+        "input_dir": { "type": "string", "minLength": 1 },
+        "input_pattern": { "type": "string", "minLength": 1 },
+        "output_file": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min_fwhm_improvement_percent",
+        "max_background_rms_increase_percent",
+        "min_tile_weight_variance",
+        "require_no_tile_pattern"
+      ],
+      "properties": {
+        "min_fwhm_improvement_percent": { "type": "number", "minimum": 0 },
+        "max_background_rms_increase_percent": { "type": "number", "minimum": 0 },
+        "min_tile_weight_variance": { "type": "number", "minimum": 0 },
+        "require_no_tile_pattern": { "type": "boolean" }
+      }
+    },
+
+    "runtime_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tile_analysis_max_factor_vs_stack", "hard_abort_hours"],
+      "properties": {
+        "tile_analysis_max_factor_vs_stack": { "type": "number", "minimum": 0 },
+        "hard_abort_hours": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}
