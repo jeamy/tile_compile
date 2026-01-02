@@ -10,48 +10,62 @@ data:
   color_mode: OSC
   linear_required: true
 
+normalization:
+  enabled: true
+  mode: background        # background | median
+  per_channel: true
+
 registration:
-  required: true
-  engine: siril                 # siril | relative | wcs_anchor
-  reference: auto               # auto | frame_index | path
+  engine: siril
+  reference: auto
   output_dir: registered
-  registered_filename_pattern: "[abcde]reg_{index:05d}.fit"
+  registered_filename_pattern: "reg_{index:05d}.fit"
   min_star_matches: 50
   allow_rotation: true
 
-global_frame_metrics:
-  enabled: true
-  background_weight: 0.4
-  rms_weight: 0.3
-  gradient_weight: 0.3
-  min_effective_weight: 0.05   # unter 5 % wird ein Frame praktisch ignoriert
+global_metrics:
+  weights:
+    background: 0.4
+    noise: 0.3
+    gradient: 0.3
+  clamp: [-3, 3]
 
-tile_geometry:
-  fwhm_scale_factor: 32        # Tile = 32 × mediane FWHM
-  tile_min_size: 64
-  tile_max_divisor: 6          # min(W,H)/6
+tile:
+  size_factor: 32
+  min_size: 64
+  max_divisor: 6
   overlap_fraction: 0.25
+  star_min_count: 3
 
-tile_analysis:
-  min_stars_per_tile: 3
-  use_star_metrics: true
-  use_structure_metrics: true
+local_metrics:
+  clamp: [-3, 3]
+  star_mode:
+    fwhm_transform: log
+    weights:
+      fwhm: 0.6
+      roundness: 0.2
+      contrast: 0.2
+  structure_mode:
+    metric: energy_over_sigma
+    background_weight: 0.3
+    metric_weight: 0.7
 
-tile_weights_star:
-  fwhm_weight: 0.6
-  roundness_weight: 0.2
-  contrast_weight: 0.2
-
-tile_weights_structure:
-  gradient_weight: 0.5
-  rms_weight: 0.25
-  background_weight: 0.25
+synthetic:
+  frames_min: 15
+  frames_max: 30
+  clustering:
+    mode: state_vector
+    vector:
+      - global_weight
+      - tile_quality_mean
+      - tile_quality_variance
+      - background
+      - noise
 
 reconstruction:
-  synthetic_frames_min: 15
-  synthetic_frames_max: 30
   weighting_function: exponential
   window_function: hanning
+  tile_rescale: median_after_background_subtraction
 
 stacking:
   engine: siril
@@ -64,6 +78,7 @@ validation:
   min_fwhm_improvement_percent: 5
   max_background_rms_increase_percent: 0
   min_tile_weight_variance: 0.1
+  require_no_tile_pattern: true
 
 runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0

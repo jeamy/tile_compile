@@ -1,58 +1,156 @@
+# ============================================================
+# TILE COMPILE – CLEAN BREAK PROC
+# ============================================================
+
 LOAD config.yaml
 
-ASSERT linear_data
-ASSERT frames >= frames_min
+# ------------------------------------------------------------
+# Preconditions
+# ------------------------------------------------------------
+ASSERT data.linear_required == true
+ASSERT frames.count >= data.frames_min
 
-# Phase 1 – Registrierung
-# output: registration.output_dir
-CALL register_frames(engine=registration.engine,
-                     reference=registration.reference,
-                     allow_rotation=registration.allow_rotation,
-                     output_dir=registration.output_dir,
-                     registered_filename_pattern=registration.registered_filename_pattern)
-ASSERT star_matches >= min_star_matches
+# ------------------------------------------------------------
+# Phase 1 – Registrierung (zwingend)
+# ------------------------------------------------------------
+CALL register_frames(
+    engine = registration.engine,
+    reference = registration.reference,
+    allow_rotation = registration.allow_rotation,
+    output_dir = registration.output_dir,
+    filename_pattern = registration.registered_filename_pattern
+)
 
-LOAD_FRAMES_FROM_DIR registration.output_dir
+ASSERT registration.star_matches >= registration.min_star_matches
 
-# Phase 2 – Globale Frame-Analyse
-FOR frame IN frames:
-    measure background, rms, gradient
-    compute G_f
-WRITE frame_quality.csv
+LOAD_FRAMES_FROM_DIR registration.output_dir AS registered_frames
 
-# Phase 3 – Tile-Setup
-estimate median_FWHM from star-tiles
-compute tile_size, overlap
-generate tile grid
+# ------------------------------------------------------------
+# Phase 2 – Globale Normalisierung (Pflicht, einmalig)
+# ------------------------------------------------------------
+ASSERT normalization.enabled == true
+FOR frame IN registered_frames:
+    APPLY global_linear_normalization(
+        mode = normalization.mode,
+        per_channel = normalization.per_channel
+    )
 
-# Phase 4 – Tile-Analyse (Hauptlauf)
-FOR each tile:
-    FOR each frame:
-        extract tile
-        IF stars_detected >= min:
-            compute FWHM, roundness, contrast
-            compute L_star
+# ------------------------------------------------------------
+# Phase 3 – Globale Frame-Metriken
+# ------------------------------------------------------------
+FOR frame IN registered_frames:
+    MEASURE global_background B_f (masked, robust)
+    MEASURE global_noise sigma_f
+    MEASURE global_gradient_energy E_f
+
+NORMALIZE {B_f, sigma_f, E_f} USING median + MAD
+COMPUTE Q_f WITH weights (background, noise, gradient)
+CLAMP Q_f TO global_metrics.clamp
+COMPUTE G_f = exp(Q_f)
+
+WRITE frame_metrics.csv
+
+# ------------------------------------------------------------
+# Phase 4 – Tile-Geometrie (seeing-adaptiv)
+# ------------------------------------------------------------
+ESTIMATE median_FWHM F FROM registered_frames
+    USING robust_star_sample
+
+COMPUTE tile_size T = clip(
+    tile.size_factor * F,
+    tile.min_size,
+    min(data.image_width, data.image_height) / tile.max_divisor
+)
+
+SET overlap = tile.overlap_fraction * T
+GENERATE tile_grid WITH overlap
+
+# ------------------------------------------------------------
+# Phase 5 – Lokale Tile-Metriken
+# ------------------------------------------------------------
+FOR each tile t IN tile_grid:
+
+    FOR each frame f IN registered_frames:
+        EXTRACT tile t FROM frame f
+
+        IF detected_stars >= tile.star_min_count:
+            MEASURE FWHM_f,t, roundness_f,t, contrast_f,t
+            NORMALIZE metrics USING median + MAD
+            COMPUTE Q_star_f,t USING log(FWHM)
+            SET Q_local_f,t = Q_star_f,t
         ELSE:
-            compute gradient, rms, background
-            compute L_struct
-        compute W_f,t = G_f * L_f,t
-    reconstruct tile (weighted, windowed)
+            MEASURE gradient_f,t, sigma_f,t, background_f,t
+            COMPUTE structure_metric = gradient_f,t / sigma_f,t
+            NORMALIZE metrics USING median + MAD
+            COMPUTE Q_struct_f,t
+            SET Q_local_f,t = Q_struct_f,t
 
-# Phase 5 – Synthetische Frames
-cluster tiles into 15–30 synthetic frames
-ENSURE_DIR stacking.input_dir
-WRITE stacking.input_dir/syn_XX.fits
+        CLAMP Q_local_f,t TO local_metrics.clamp
+        COMPUTE L_f,t = exp(Q_local_f,t)
+        COMPUTE W_f,t = G_f * L_f,t
 
-# Phase 6 – Stacking der synthetischen Frames
-CALL stack_frames(engine=stacking.engine,
-                  method=stacking.method,
-                  input_dir=stacking.input_dir,
-                  input_pattern=stacking.input_pattern,
-                  output_file=stacking.output_file)
+    RECONSTRUCT tile t USING:
+        weighted average
+        window_function
+        tile_median_rescale AFTER background subtraction
 
-# Phase 7 – Validierung
-GENERATE plots
-IF any abort condition met:
-    ABORT and mark run FAILED
+STORE reconstructed tiles
+
+# ------------------------------------------------------------
+# Phase 6 – Zustandsbasierte Clusterung (Frames!)
+# ------------------------------------------------------------
+FOR each frame f:
+    COMPUTE tile_quality_mean ⟨Q_tile⟩
+    COMPUTE tile_quality_variance Var(Q_tile)
+
+DEFINE state_vector v_f = [
+    G_f,
+    ⟨Q_tile⟩,
+    Var(Q_tile),
+    B_f,
+    sigma_f
+]
+
+CLUSTER frames BY v_f INTO k = [synthetic.frames_min, synthetic.frames_max]
+
+FOR each cluster c:
+    RECONSTRUCT one synthetic_frame_c
+    WRITE synthetic_frame_c TO stacking.input_dir
+
+# ------------------------------------------------------------
+# Phase 7 – Finales Stacking
+# ------------------------------------------------------------
+CALL stack_frames(
+    engine = stacking.engine,
+    method = stacking.method,
+    input_dir = stacking.input_dir,
+    input_pattern = stacking.input_pattern,
+    output_file = stacking.output_file
+)
+
+# ------------------------------------------------------------
+# Phase 8 – Validierung & Abbruch
+# ------------------------------------------------------------
+GENERATE validation_plots
+
+COMPUTE validation.tile_pattern_detected
+COMPUTE validation.fwhm_improvement_percent
+COMPUTE validation.background_rms_increase_percent
+COMPUTE validation.tile_weight_variance
+
+SET abort = false
+
+IF validation.require_no_tile_pattern == true AND validation.tile_pattern_detected == true:
+    SET abort = true
+IF validation.fwhm_improvement_percent < validation.min_fwhm_improvement_percent:
+    SET abort = true
+IF validation.background_rms_increase_percent > validation.max_background_rms_increase_percent:
+    SET abort = true
+IF validation.tile_weight_variance < validation.min_tile_weight_variance:
+    SET abort = true
+
+IF abort == true:
+    MARK run FAILED
+    ABORT
 ELSE:
     MARK run SUCCESS
