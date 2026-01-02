@@ -2,10 +2,33 @@
 use serde::Serialize;
 use serde_json::Value;
 use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Emitter, State};
+
+fn resolve_project_root(working_dir: &str) -> Result<PathBuf, String> {
+    let wd = Path::new(working_dir);
+    let candidates = [wd.to_path_buf(), wd.join("..")];
+    for c in candidates {
+        if c.join("tile_compile_backend_cli.py").exists() || c.join("tile_compile_runner.py").exists() {
+            return Ok(c);
+        }
+    }
+    Err(format!(
+        "could not locate project root from working_dir={working_dir} (expected tile_compile_backend_cli.py)"
+    ))
+}
+
+fn resolve_script(project_root: &Path, filename: &str) -> Result<PathBuf, String> {
+    let p = project_root.join(filename);
+    if p.exists() {
+        Ok(p)
+    } else {
+        Err(format!("missing script {filename} under project root {}", project_root.display()))
+    }
+}
 
 struct RunnerState {
     child: Arc<Mutex<Option<Child>>>,
@@ -57,9 +80,12 @@ fn start_run(
         return Err("run already in progress".to_string());
     }
 
+    let project_root = resolve_project_root(&working_dir)?;
+    let runner_script = resolve_script(&project_root, "tile_compile_runner.py")?;
+
     let mut cmd = Command::new("python3");
-    cmd.current_dir(&working_dir)
-        .arg("tile_compile_runner.py")
+    cmd.current_dir(&project_root)
+        .arg(runner_script)
         .arg("run")
         .arg("--config")
         .arg(config_path)
@@ -268,9 +294,11 @@ fn abort_run(state: State<'_, RunnerState>) -> Result<AbortRunResult, String> {
 
 #[tauri::command]
 fn scan_input(working_dir: String, input_path: String, frames_min: u32) -> Result<Value, String> {
+    let project_root = resolve_project_root(&working_dir)?;
+    let cli_script = resolve_script(&project_root, "tile_compile_backend_cli.py")?;
     let output = Command::new("python3")
-        .current_dir(&working_dir)
-        .arg("tile_compile_backend_cli.py")
+        .current_dir(&project_root)
+        .arg(cli_script)
         .arg("scan")
         .arg(input_path)
         .arg("--frames-min")
@@ -297,9 +325,11 @@ fn scan_input(working_dir: String, input_path: String, frames_min: u32) -> Resul
 
 #[tauri::command]
 fn get_schema(working_dir: String) -> Result<Value, String> {
+    let project_root = resolve_project_root(&working_dir)?;
+    let cli_script = resolve_script(&project_root, "tile_compile_backend_cli.py")?;
     let output = Command::new("python3")
-        .current_dir(&working_dir)
-        .arg("tile_compile_backend_cli.py")
+        .current_dir(&project_root)
+        .arg(cli_script)
         .arg("get-schema")
         .output()
         .map_err(|e| format!("failed to run get-schema: {e}"))?;
@@ -315,9 +345,11 @@ fn get_schema(working_dir: String) -> Result<Value, String> {
 
 #[tauri::command]
 fn load_config(working_dir: String, path: String) -> Result<Value, String> {
+    let project_root = resolve_project_root(&working_dir)?;
+    let cli_script = resolve_script(&project_root, "tile_compile_backend_cli.py")?;
     let output = Command::new("python3")
-        .current_dir(&working_dir)
-        .arg("tile_compile_backend_cli.py")
+        .current_dir(&project_root)
+        .arg(cli_script)
         .arg("load-config")
         .arg(path)
         .output()
@@ -334,12 +366,13 @@ fn load_config(working_dir: String, path: String) -> Result<Value, String> {
 
 #[tauri::command]
 fn save_config(working_dir: String, path: String, yaml_text: String) -> Result<Value, String> {
+    let project_root = resolve_project_root(&working_dir)?;
+    let cli_script = resolve_script(&project_root, "tile_compile_backend_cli.py")?;
     let mut child = Command::new("python3")
-        .current_dir(&working_dir)
-        .arg("tile_compile_backend_cli.py")
+        .current_dir(&project_root)
+        .arg(cli_script)
         .arg("save-config")
         .arg(path)
-        .arg("--stdin")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -376,9 +409,11 @@ fn validate_config(
     yaml_text: String,
     schema_path: Option<String>,
 ) -> Result<Value, String> {
+    let project_root = resolve_project_root(&working_dir)?;
+    let cli_script = resolve_script(&project_root, "tile_compile_backend_cli.py")?;
     let mut cmd = Command::new("python3");
-    cmd.current_dir(&working_dir)
-        .arg("tile_compile_backend_cli.py")
+    cmd.current_dir(&project_root)
+        .arg(cli_script)
         .arg("validate-config")
         .arg("--yaml")
         .arg("x")
@@ -419,9 +454,11 @@ fn validate_config(
 
 #[tauri::command]
 fn list_runs(working_dir: String, runs_dir: String) -> Result<Value, String> {
+    let project_root = resolve_project_root(&working_dir)?;
+    let cli_script = resolve_script(&project_root, "tile_compile_backend_cli.py")?;
     let output = Command::new("python3")
-        .current_dir(&working_dir)
-        .arg("tile_compile_backend_cli.py")
+        .current_dir(&project_root)
+        .arg(cli_script)
         .arg("list-runs")
         .arg(runs_dir)
         .output()
@@ -438,9 +475,11 @@ fn list_runs(working_dir: String, runs_dir: String) -> Result<Value, String> {
 
 #[tauri::command]
 fn get_run_logs(working_dir: String, run_dir: String, tail: Option<u32>) -> Result<Value, String> {
+    let project_root = resolve_project_root(&working_dir)?;
+    let cli_script = resolve_script(&project_root, "tile_compile_backend_cli.py")?;
     let mut cmd = Command::new("python3");
-    cmd.current_dir(&working_dir)
-        .arg("tile_compile_backend_cli.py")
+    cmd.current_dir(&project_root)
+        .arg(cli_script)
         .arg("get-run-logs")
         .arg(run_dir);
 
@@ -460,9 +499,11 @@ fn get_run_logs(working_dir: String, run_dir: String, tail: Option<u32>) -> Resu
 
 #[tauri::command]
 fn list_artifacts(working_dir: String, run_dir: String) -> Result<Value, String> {
+    let project_root = resolve_project_root(&working_dir)?;
+    let cli_script = resolve_script(&project_root, "tile_compile_backend_cli.py")?;
     let output = Command::new("python3")
-        .current_dir(&working_dir)
-        .arg("tile_compile_backend_cli.py")
+        .current_dir(&project_root)
+        .arg(cli_script)
         .arg("list-artifacts")
         .arg(run_dir)
         .output()
@@ -479,9 +520,11 @@ fn list_artifacts(working_dir: String, run_dir: String) -> Result<Value, String>
 
 #[tauri::command]
 fn get_run_status(working_dir: String, run_dir: String) -> Result<Value, String> {
+    let project_root = resolve_project_root(&working_dir)?;
+    let cli_script = resolve_script(&project_root, "tile_compile_backend_cli.py")?;
     let output = Command::new("python3")
-        .current_dir(&working_dir)
-        .arg("tile_compile_backend_cli.py")
+        .current_dir(&project_root)
+        .arg(cli_script)
         .arg("get-run-status")
         .arg(run_dir)
         .output()
