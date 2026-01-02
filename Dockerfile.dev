@@ -1,0 +1,20 @@
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies first (caching)
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
+
+# Copy prisma schema for client generation
+COPY prisma ./prisma/
+RUN npx prisma generate
+
+# Copy the rest of the application
+COPY . .
+
+# Expose port 3000
+EXPOSE 3000
+
+# Start the development server without Turbopack (unstable in Docker)
+CMD ["npx", "next", "dev"]

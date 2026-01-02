@@ -1,0 +1,380 @@
+# tile_compile.schema.yaml
+
+# Zweck:
+
+# - Validierung von tile_compile.yaml
+
+# - Grundlage für GUI-Editor
+
+# - Trennung von automatisch abgeleiteten Input-Metadaten
+
+# und explizit konfigurierbaren Methodik-Parametern
+
+schema_version: 2
+
+# ============================================================
+
+# PIPELINE
+
+# ============================================================
+
+pipeline:
+mode:
+type: enum
+values: [production, test]
+required: true
+editable: true
+
+abort_on_fail:
+type: boolean
+required: true
+editable: true
+
+# ============================================================
+
+# INPUT / DATEN (automatisch ermittelt)
+
+# Diese Felder werden aus dem Input-Verzeichnis bzw. FITS-
+
+# Headern gelesen und sind NICHT editierbar.
+
+# ============================================================
+
+input:
+image_width:
+type: integer
+source: fits_header
+editable: false
+description: "NAXIS1 – Bildbreite in Pixeln"
+
+image_height:
+type: integer
+source: fits_header
+editable: false
+description: "NAXIS2 – Bildhöhe in Pixeln"
+
+frames_detected:
+type: integer
+source: filesystem
+editable: false
+description: "Anzahl erkannter FITS-Dateien"
+
+color_mode:
+type: enum
+values: [OSC]
+source: fits_header
+editable: confirm
+description: "Aus FITS abgeleitet, vor Run bestätigbar"
+
+# ============================================================
+
+# INPUT-CONSTRAINTS (Methodik-relevant)
+
+# ============================================================
+
+input_constraints:
+frames_min:
+type: integer
+min: 1
+required: true
+editable: true
+description: "Mindestanzahl Frames, sonst Abbruch"
+
+# ============================================================
+
+# NORMALISIERUNG (Pflicht, Methodik-Zwang)
+
+# ============================================================
+
+normalization:
+enabled:
+type: boolean
+const: true
+editable: false
+
+mode:
+type: enum
+values: [background, median]
+required: true
+editable: true
+
+per_channel:
+type: boolean
+required: true
+editable: true
+
+# ============================================================
+
+# REGISTRIERUNG
+
+# ============================================================
+
+registration:
+engine:
+type: enum
+values: [siril]
+required: true
+editable: true
+
+reference:
+type: enum
+values: [auto]
+required: true
+editable: true
+
+output_dir:
+type: string
+required: true
+editable: true
+
+registered_filename_pattern:
+type: string
+required: true
+editable: true
+
+min_star_matches:
+type: integer
+min: 1
+required: true
+editable: true
+
+allow_rotation:
+type: boolean
+required: true
+editable: true
+
+# ============================================================
+
+# GLOBALE FRAME-METRIKEN
+
+# ============================================================
+
+global_metrics:
+weights:
+background:
+type: number
+min: 0
+max: 1
+required: true
+editable: true
+
+```
+noise:
+  type: number
+  min: 0
+  max: 1
+  required: true
+  editable: true
+
+gradient:
+  type: number
+  min: 0
+  max: 1
+  required: true
+  editable: true
+```
+
+clamp:
+type: array
+length: 2
+items: number
+required: true
+editable: true
+
+# ============================================================
+
+# TILE-GEOMETRIE (seeing-adaptiv)
+
+# ============================================================
+
+tile:
+size_factor:
+type: integer
+min: 1
+required: true
+editable: true
+
+min_size:
+type: integer
+min: 1
+required: true
+editable: true
+
+max_divisor:
+type: integer
+min: 1
+required: true
+editable: true
+
+overlap_fraction:
+type: number
+min: 0
+max: 0.5
+required: true
+editable: true
+
+star_min_count:
+type: integer
+min: 0
+required: true
+editable: true
+
+# ============================================================
+
+# LOKALE METRIKEN
+
+# ============================================================
+
+local_metrics:
+clamp:
+type: array
+length: 2
+items: number
+required: true
+editable: true
+
+star_mode:
+fwhm_transform:
+type: enum
+values: [log]
+const: log
+editable: false
+
+```
+weights:
+  fwhm:
+    type: number
+    min: 0
+    max: 1
+    required: true
+    editable: true
+
+  roundness:
+    type: number
+    min: 0
+    max: 1
+    required: true
+    editable: true
+
+  contrast:
+    type: number
+    min: 0
+    max: 1
+    required: true
+    editable: true
+```
+
+structure_mode:
+metric:
+type: enum
+values: [energy_over_sigma]
+const: energy_over_sigma
+editable: false
+
+```
+background_weight:
+  type: number
+  min: 0
+  max: 1
+  required: true
+  editable: true
+
+metric_weight:
+  type: number
+  min: 0
+  max: 1
+  required: true
+  editable: true
+```
+
+# ============================================================
+
+# SYNTHETISCHE FRAMES / CLUSTERING
+
+# ============================================================
+
+synthetic:
+frames_min:
+type: integer
+min: 1
+required: true
+editable: true
+
+frames_max:
+type: integer
+min: 1
+required: true
+editable: true
+
+# ============================================================
+
+# REKONSTRUKTION
+
+# ============================================================
+
+reconstruction:
+weighting_function:
+type: enum
+values: [exponential]
+const: exponential
+editable: false
+
+window_function:
+type: enum
+values: [hanning]
+const: hanning
+editable: false
+
+# ============================================================
+
+# STACKING
+
+# ============================================================
+
+stacking:
+engine:
+type: enum
+values: [siril]
+required: true
+editable: true
+
+method:
+type: enum
+values: [average]
+const: average
+editable: false
+
+output_file:
+type: string
+required: true
+editable: true
+
+# ============================================================
+
+# VALIDIERUNG
+
+# ============================================================
+
+validation:
+min_fwhm_improvement_percent:
+type: number
+min: 0
+required: true
+editable: true
+
+max_background_rms_increase_percent:
+type: number
+min: 0
+required: true
+editable: true
+
+min_tile_weight_variance:
+type: number
+min: 0
+required: true
+editable: true
+
+require_no_tile_pattern:
+type: boolean
+required: true
+editable: true
