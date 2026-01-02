@@ -39,10 +39,23 @@ Response:
   "image_width": 3840,
   "image_height": 2160,
   "frames_detected": 1032,
-  "color_mode": "OSC",
-  "frames_manifest_id": "sha256"
+  "color_mode": "UNKNOWN",
+  "requires_user_confirmation": true,
+  "color_mode_candidates": ["OSC"],
+  "frames_manifest_id": "sha256",
+  "warnings": [
+    {
+      "code": "color_mode_ambiguous",
+      "message": "BAYERPAT not found in FITS headers; color_mode requires user confirmation"
+    }
+  ]
 }
 ```
+
+Hinweis:
+
+* Wenn `requires_user_confirmation = true`, darf die GUI den Run nicht starten, bevor der Nutzer den Farbmodus bestätigt.
+* Der bestätigte Farbmodus fließt dann in die finale Konfiguration bzw. den Run-Request ein.
 
 ---
 

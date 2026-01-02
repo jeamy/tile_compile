@@ -92,6 +92,7 @@
       "properties": {
         "weights": {
           "type": "object",
+          "description": "Weights must be normalized (sum = 1.0). Enforced as a hard error by backend validation.",
           "additionalProperties": false,
           "required": ["background", "noise", "gradient"],
           "properties": {
@@ -147,6 +148,7 @@
             "fwhm_transform": { "type": "string", "const": "log" },
             "weights": {
               "type": "object",
+              "description": "Weights must be normalized (sum = 1.0). Enforced as a hard error by backend validation.",
               "additionalProperties": false,
               "required": ["fwhm", "roundness", "contrast"],
               "properties": {
@@ -163,8 +165,18 @@
           "required": ["metric", "background_weight", "metric_weight"],
           "properties": {
             "metric": { "type": "string", "const": "energy_over_sigma" },
-            "background_weight": { "type": "number", "minimum": 0, "maximum": 1 },
-            "metric_weight": { "type": "number", "minimum": 0, "maximum": 1 }
+            "background_weight": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Together with metric_weight must sum to 1.0. Enforced as a hard error by backend validation."
+            },
+            "metric_weight": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Together with background_weight must sum to 1.0. Enforced as a hard error by backend validation."
+            }
           }
         }
       }
@@ -183,6 +195,20 @@
           "required": ["mode", "vector"],
           "properties": {
             "mode": { "type": "string", "enum": ["state_vector"] },
+            "k_selection": {
+              "type": "string",
+              "enum": ["silhouette_auto"],
+              "description": "How k (number of clusters) is selected. Methodology expects silhouette-based automatic k selection.",
+              "default": "silhouette_auto"
+            },
+            "cluster_count_range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": { "type": "integer", "minimum": 1 },
+              "description": "Allowed k range for clustering. Methodology expects 15–30 clusters.",
+              "default": [15, 30]
+            },
             "vector": {
               "type": "array",
               "minItems": 1,
