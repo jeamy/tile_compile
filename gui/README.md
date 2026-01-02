@@ -41,6 +41,17 @@ npm install
 npm run dev
 ```
 
+## Usage (Scan → Confirm → Run)
+
+1. Use **Scan** to analyze the input directory.
+2. If the scan reports `color_mode = "UNKNOWN"` (e.g. missing FITS header `BAYERPAT`), you must confirm the color mode once.
+3. Only then **Start** is enabled.
+
+The confirmed value is passed as `color_mode_confirmed` and is written into the run folder:
+
+- `runs/<ts>_<run_id>/run_metadata.json`
+- `runs/<ts>_<run_id>/logs/run_events.jsonl` (`run_start.color_mode_confirmed`)
+
 ## Build
 
 ```text

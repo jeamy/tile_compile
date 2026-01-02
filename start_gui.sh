@@ -10,6 +10,8 @@ if [[ ! -d "${gui_dir}" ]]; then
   exit 1
 fi
 
+echo "Info: GUI workflow: Scan input first; if color mode is UNKNOWN you must confirm it before Start. The confirmation is stored as color_mode_confirmed in runs/<run_id>/run_metadata.json" >&2
+
 need_cmd() {
   local cmd="$1"
   if ! command -v "${cmd}" >/dev/null 2>&1; then

@@ -49,6 +49,18 @@ Normative phases (see Methodology v2):
 - **Synthetic frames**: `stacking.input_dir` (default: `synthetic/`)
 - **Final stack**: `stacking.output_file` (default: `stacked.fit`)
 
+## GUI preflight: input scan + color mode confirmation
+
+The GUI performs a deterministic input **scan** (FITS header based) before starting a run.
+
+- If `BAYERPAT` is missing, the scan result returns `color_mode = "UNKNOWN"` and requires a one-time user confirmation.
+- The confirmed value is passed to the runner as `color_mode_confirmed` and persisted for forensic reproducibility.
+
+Run metadata:
+
+- `runs/<ts>_<run_id>/run_metadata.json` contains `color_mode_confirmed`
+- `runs/<ts>_<run_id>/logs/run_events.jsonl` contains `run_start.color_mode_confirmed`
+
 ## Registration (pluggable API)
 
 Registration is modeled as a pluggable step:
