@@ -3,6 +3,22 @@ import { IPC, EVENTS } from "./constants.js";
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
+window.addEventListener("error", (e) => {
+  try {
+    appendLog(`[error] ${String(e?.message || e)}`);
+  } catch {
+    // ignore
+  }
+});
+
+window.addEventListener("unhandledrejection", (e) => {
+  try {
+    appendLog(`[error] unhandledrejection: ${String(e?.reason || e)}`);
+  } catch {
+    // ignore
+  }
+});
+
 function appendLog(text) {
   const el = document.querySelector("#log");
   el.textContent += text + "\n";
@@ -64,6 +80,23 @@ function setScanStatus(text) {
   document.querySelector("#scan-status").textContent = text;
 }
 
+function setScanMessage(kind, text) {
+  const el = document.querySelector("#scan-message");
+  if (!text) {
+    el.hidden = true;
+    el.textContent = "";
+    el.classList.remove("error");
+    el.classList.remove("warn");
+    return;
+  }
+  el.hidden = false;
+  el.textContent = text;
+  el.classList.remove("error");
+  el.classList.remove("warn");
+  if (kind === "error") el.classList.add("error");
+  if (kind === "warn") el.classList.add("warn");
+}
+
 function setConfigStatus(text) {
   document.querySelector("#config-status").textContent = text;
 }
@@ -90,29 +123,26 @@ let currentRunDir = null;
 
 function setStartAllowed(running) {
   const startBtn = document.querySelector("#start-run");
-  if (running) return;
-
-  if (!lastScanResult) {
+  if (running) {
     startBtn.disabled = true;
+    startBtn.dataset.blockedReason = "";
     return;
   }
 
-  if (!lastScanResult.ok) {
-    startBtn.disabled = true;
-    return;
-  }
-
-  if (lastScanResult.requires_user_confirmation && !confirmedColorMode) {
-    startBtn.disabled = true;
-    return;
-  }
-
-  if (!configValidatedOk) {
-    startBtn.disabled = true;
-    return;
-  }
-
+  // Keep the button clickable and explain missing prerequisites on click.
   startBtn.disabled = false;
+
+  let reason = "";
+  if (!lastScanResult) {
+    reason = "please run Scan first";
+  } else if (!lastScanResult.ok) {
+    reason = "scan has errors";
+  } else if (lastScanResult.requires_user_confirmation && !confirmedColorMode) {
+    reason = "please confirm color mode";
+  } else if (!configValidatedOk) {
+    reason = "please validate config";
+  }
+  startBtn.dataset.blockedReason = reason;
 }
 
 function setConfigValidateStatus(ok, text) {
@@ -165,21 +195,10 @@ function getFormValues() {
 
 async function startRun() {
   const args = getFormValues();
-  if (!lastScanResult) {
-    appendLog("[ui] please run Scan first");
-    return;
-  }
-  if (!lastScanResult.ok) {
-    appendLog("[ui] scan has errors; cannot start");
-    return;
-  }
-  if (lastScanResult.requires_user_confirmation && !confirmedColorMode) {
-    appendLog("[ui] please confirm color mode before starting");
-    return;
-  }
-
-  if (!configValidatedOk) {
-    appendLog("[ui] please validate config before starting");
+  const blockedReason = document.querySelector("#start-run")?.dataset?.blockedReason || "";
+  if (blockedReason) {
+    setStatus(`blocked: ${blockedReason}`);
+    appendLog(`[ui] ${blockedReason}`);
     return;
   }
 
@@ -211,14 +230,58 @@ async function stopRun() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-  document.querySelector("#working-dir").value ||= "..";
+  document.querySelector("#working-dir").value ||= "";
   document.querySelector("#config-path").value ||= "tile_compile.yaml";
   document.querySelector("#config-path-editor").value ||= "tile_compile.yaml";
-  document.querySelector("#runs-dir").value ||= "runs";
+  document.querySelector("#runs-dir").value ||= "";
   document.querySelector("#pattern").value ||= "*.fit*";
 
   document.querySelector("#scan-input-dir").value ||= "";
   document.querySelector("#scan-frames-min").value ||= "1";
+
+  try {
+    const defaults = await invoke(IPC.GET_DEFAULT_PATHS);
+    const pr = String(defaults.projectRoot || "");
+    const rd = String(defaults.runsDir || "runs");
+    document.querySelector("#working-dir").value ||= pr;
+    document.querySelector("#runs-dir").value ||= rd;
+  } catch (e) {
+    // Fallback: old behavior
+    document.querySelector("#working-dir").value ||= "..";
+    document.querySelector("#runs-dir").value ||= "runs";
+    appendLog(`[warning] get_default_paths failed: ${String(e)}`);
+  }
+
+  const persistGuiState = async () => {
+    const workingDir = (document.querySelector("#working-dir")?.value || "").trim();
+    if (!workingDir) return;
+    const lastInputDir =
+      (document.querySelector("#input-dir")?.value || "").trim() ||
+      (document.querySelector("#scan-input-dir")?.value || "").trim();
+    if (!lastInputDir) return;
+    try {
+      await invoke(IPC.SAVE_GUI_STATE, { workingDir, lastInputDir });
+    } catch (e) {
+      appendLog(`[warning] save_gui_state failed: ${String(e)}`);
+    }
+  };
+
+  const loadGuiState = async () => {
+    const workingDir = (document.querySelector("#working-dir")?.value || "").trim();
+    if (!workingDir) return;
+    try {
+      const st = await invoke(IPC.LOAD_GUI_STATE, { workingDir });
+      const last = st && typeof st.lastInputDir === "string" ? st.lastInputDir : "";
+      if (last && last.trim()) {
+        document.querySelector("#input-dir").value ||= last;
+        document.querySelector("#scan-input-dir").value ||= last;
+      }
+    } catch (e) {
+      appendLog(`[warning] load_gui_state failed: ${String(e)}`);
+    }
+  };
+
+  await loadGuiState();
 
   const pickDir = async (defaultPath) => {
     const openDialog = window.__TAURI__?.dialog?.open;
@@ -243,6 +306,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     const dir = await pickDir(current);
     if (!dir) return;
     document.querySelector("#scan-input-dir").value = dir;
+    await persistGuiState();
   });
 
   document.querySelector("#browse-input-dir").addEventListener("click", async () => {
@@ -251,6 +315,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!dir) return;
     document.querySelector("#input-dir").value = dir;
     document.querySelector("#scan-input-dir").value ||= dir;
+    await persistGuiState();
   });
 
   document.querySelector("#browse-working-dir").addEventListener("click", async () => {
@@ -258,6 +323,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     const dir = await pickDir(current);
     if (!dir) return;
     document.querySelector("#working-dir").value = dir;
+    await loadGuiState();
   });
 
   document.querySelector("#browse-runs-dir").addEventListener("click", async () => {
@@ -266,6 +332,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!dir) return;
     document.querySelector("#runs-dir").value = dir;
   });
+
+  document.querySelector("#input-dir").addEventListener("change", persistGuiState);
+  document.querySelector("#scan-input-dir").addEventListener("change", persistGuiState);
 
   setButtons(false);
   setConfigEditable(false);
@@ -483,10 +552,18 @@ window.addEventListener("DOMContentLoaded", async () => {
     const input_path = document.querySelector("#scan-input-dir").value || document.querySelector("#input-dir").value;
     const frames_min = Number(document.querySelector("#scan-frames-min").value || "1");
 
+    if (!String(input_path || "").trim()) {
+      setScanStatus("error");
+      setScanMessage("error", "Input dir is required.");
+      appendLog("[error] scan_input: input dir missing");
+      return;
+    }
+
     confirmedColorMode = null;
     lastScanResult = null;
     document.querySelector("#scan-results").hidden = true;
     document.querySelector("#color-confirm").hidden = true;
+    setScanMessage(null, null);
     setScanStatus("scanning...");
     appendLog("[ui] scan_input");
 
@@ -495,6 +572,16 @@ window.addEventListener("DOMContentLoaded", async () => {
       lastScanResult = res;
       renderScanResult(res);
       setScanStatus(res.ok ? "ok" : "error");
+
+      if (Array.isArray(res.errors) && res.errors.length) {
+        const first = res.errors[0];
+        setScanMessage("error", `${first.code ?? "error"}: ${first.message ?? ""}`.trim());
+      } else if (Array.isArray(res.warnings) && res.warnings.length) {
+        const first = res.warnings[0];
+        setScanMessage("warn", `${first.code ?? "warning"}: ${first.message ?? ""}`.trim());
+      } else {
+        setScanMessage(null, null);
+      }
 
       if (res.ok) {
         document.querySelector("#input-dir").value ||= input_path;
@@ -514,6 +601,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       setStartAllowed(false);
     } catch (e) {
       setScanStatus("error");
+      setScanMessage("error", String(e));
       appendLog(`[error] scan failed: ${String(e)}`);
       setStartAllowed(false);
     }

@@ -2,29 +2,137 @@
 use serde::Serialize;
 use serde_json::Value;
 use std::io::{BufRead, BufReader};
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Emitter, State};
 
-fn resolve_project_root(working_dir: &str) -> Result<PathBuf, String> {
-    let wd = Path::new(working_dir);
-    let candidates = [wd.to_path_buf(), wd.join("..")];
-    for c in candidates {
-        if c.join("tile_compile_backend_cli.py").exists() || c.join("tile_compile_runner.py").exists() {
-            return Ok(c);
+fn parse_json_stdout_or_error(output: &Output, ctx: &str) -> Result<Value, String> {
+    if let Ok(v) = serde_json::from_slice::<Value>(&output.stdout) {
+        return Ok(v);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let msg = if !stderr.trim().is_empty() {
+        stderr
+    } else if !stdout.trim().is_empty() {
+        stdout
+    } else {
+        format!("{ctx} failed")
+    };
+    Err(msg)
+}
+
+fn gui_state_path(project_root: &Path) -> PathBuf {
+    project_root.join("tile_compile_gui_state.json")
+}
+
+#[tauri::command]
+fn load_gui_state(working_dir: String) -> Result<Value, String> {
+    let pr = resolve_project_root(&working_dir)?;
+    let path = gui_state_path(&pr);
+    if !path.exists() {
+        return Ok(serde_json::json!({}));
+    }
+    let text = fs::read_to_string(&path)
+        .map_err(|e| format!("failed to read gui state {}: {e}", path.display()))?;
+    let v = serde_json::from_str::<Value>(&text)
+        .map_err(|e| format!("failed to parse gui state {} as JSON: {e}", path.display()))?;
+    let last = v
+        .get("lastInputDir")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            v.get("last_input_dir")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string())
+        });
+    let siril = v
+        .get("sirilExe")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            v.get("siril_exe")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string())
+        });
+    Ok(serde_json::json!({
+        "lastInputDir": last,
+        "sirilExe": siril
+    }))
+}
+
+#[tauri::command]
+fn save_gui_state(
+    working_dir: String,
+    last_input_dir: String,
+    siril_exe: Option<String>,
+) -> Result<Value, String> {
+    let pr = resolve_project_root(&working_dir)?;
+    let path = gui_state_path(&pr);
+    let mut payload = if path.exists() {
+        let text = fs::read_to_string(&path)
+            .map_err(|e| format!("failed to read gui state {}: {e}", path.display()))?;
+        serde_json::from_str::<Value>(&text)
+            .map_err(|e| format!("failed to parse gui state {} as JSON: {e}", path.display()))?
+    } else {
+        serde_json::json!({})
+    };
+
+    if let Value::Object(ref mut map) = payload {
+        map.insert("lastInputDir".to_string(), Value::String(last_input_dir));
+        if let Some(se) = siril_exe {
+            if !se.trim().is_empty() {
+                map.insert("sirilExe".to_string(), Value::String(se));
+            }
         }
     }
+    let text = serde_json::to_string_pretty(&payload)
+        .map_err(|e| format!("failed to serialize gui state JSON: {e}"))?;
+    fs::write(&path, text)
+        .map_err(|e| format!("failed to write gui state {}: {e}", path.display()))?;
+    Ok(serde_json::json!({"saved": true, "path": path.to_string_lossy().to_string()}))
+}
+
+#[tauri::command]
+fn get_default_paths() -> Result<Value, String> {
+    let cwd = std::env::current_dir().map_err(|e| format!("failed to get current dir: {e}"))?;
+    let cwd_s = cwd.to_string_lossy().to_string();
+    let project_root = resolve_project_root(&cwd_s)?;
+    Ok(serde_json::json!({
+        "projectRoot": project_root.to_string_lossy().to_string(),
+        "runsDir": "runs",
+    }))
+}
+
+fn resolve_project_root(working_dir: &str) -> Result<PathBuf, String> {
+    // working_dir is user-provided (often relative like ".."); normalize it.
+    let wd = fs::canonicalize(working_dir)
+        .map_err(|e| format!("invalid workingDir={working_dir}: {e}"))?;
+
+    // Walk upwards (wd, wd/.., wd/../.., ...) until we find the repo root marker.
+    // This allows selecting either the repo root or the gui/ folder.
+    let mut cur: Option<&Path> = Some(wd.as_path());
+    while let Some(p) = cur {
+        if p.join("tile_compile_backend_cli.py").exists() || p.join("tile_compile_runner.py").exists() {
+            return Ok(p.to_path_buf());
+        }
+        cur = p.parent();
+    }
+
     Err(format!(
-        "could not locate project root from working_dir={working_dir} (expected tile_compile_backend_cli.py)"
+        "could not locate project root starting from workingDir={} (expected tile_compile_backend_cli.py)",
+        wd.display()
     ))
 }
 
 fn resolve_script(project_root: &Path, filename: &str) -> Result<PathBuf, String> {
     let p = project_root.join(filename);
     if p.exists() {
-        Ok(p)
+        fs::canonicalize(&p)
+            .map_err(|e| format!("failed to resolve script path {}: {e}", p.display()))
     } else {
         Err(format!("missing script {filename} under project root {}", project_root.display()))
     }
@@ -306,21 +414,7 @@ fn scan_input(working_dir: String, input_path: String, frames_min: u32) -> Resul
         .output()
         .map_err(|e| format!("failed to run scan: {e}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let msg = if !stderr.trim().is_empty() {
-            stderr
-        } else if !stdout.trim().is_empty() {
-            stdout
-        } else {
-            format!("scan failed with exit code {:?}", output.status.code())
-        };
-        return Err(msg);
-    }
-
-    serde_json::from_slice::<Value>(&output.stdout)
-        .map_err(|e| format!("failed to parse scan output as JSON: {e}"))
+    parse_json_stdout_or_error(&output, "scan")
 }
 
 #[tauri::command]
@@ -548,6 +642,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            get_default_paths,
+            load_gui_state,
+            save_gui_state,
             start_run,
             stop_run,
             abort_run,

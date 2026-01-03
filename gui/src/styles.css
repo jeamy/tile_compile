@@ -80,6 +80,12 @@
   gap: 10px;
 }
 
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .input-row {
   display: flex;
   gap: 10px;
@@ -93,6 +99,8 @@
 .input-row input,
 .input-row button {
   height: 38px;
+  box-sizing: border-box;
+  min-height: 38px;
 }
 
 .input-row button {
@@ -100,11 +108,36 @@
   align-items: center;
   justify-content: center;
   line-height: 1;
+  padding: 0 12px;
+  align-self: stretch;
+}
+
+.input-row input {
+  padding: 0 12px;
 }
 
 button.small {
-  padding: 0.45em 0.8em;
   font-size: 12px;
+}
+
+.message {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  background: rgba(0, 0, 0, 0.03);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.message.error {
+  border-color: rgba(220, 60, 60, 0.25);
+  background: rgba(220, 60, 60, 0.10);
+}
+
+.message.warn {
+  border-color: rgba(255, 180, 60, 0.35);
+  background: rgba(255, 180, 60, 0.16);
 }
 
 .field.inline {
@@ -437,6 +470,21 @@ button {
   button {
     color: #ffffff;
     background-color: #0f0f0f98;
+  }
+
+  .message {
+    border-color: rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .message.error {
+    border-color: rgba(255, 120, 120, 0.30);
+    background: rgba(255, 80, 80, 0.18);
+  }
+
+  .message.warn {
+    border-color: rgba(255, 200, 120, 0.30);
+    background: rgba(255, 180, 60, 0.20);
   }
   button:active {
     background-color: #0f0f0f69;
