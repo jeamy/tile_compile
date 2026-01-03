@@ -3,27 +3,27 @@
 # Zweck: Geometrische Vorverarbeitung ONLY
 # ==================================================
 
-requires 1.2.0
-setcpu 0
-setmem 90
+requires 1.4.0
+setext fit
+setcpu 1
+setmem 0.9
 
 # Arbeitsverzeichnis enthält nur die OSC-FITS
-load seq
-
+link seq -out=seq
+ 
 # --------------------------------------------------
 # Debayer (NUR für Registrierung)
 # --------------------------------------------------
 # Bilinear = stabil, linear, ausreichend
-debayer seq -method bilinear
-
+ 
 # --------------------------------------------------
 # Registrierung
 # --------------------------------------------------
 # Registrierung erfolgt intern auf Luminanz
 # Keine Qualitätsprüfung, keine Selektion
-register seq -onepass -nocheck -drizzle=0
+register seq
 
 # --------------------------------------------------
 # Ende
 # --------------------------------------------------
-quit
+exit
