@@ -8,6 +8,7 @@ data:
   frames_min: 300
   frames_target: 1000
   color_mode: OSC
+  bayer_pattern: GBRG
   linear_required: true
 
 normalization:

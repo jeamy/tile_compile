@@ -1,0 +1,16 @@
+# ==================================================
+# Siril Linear Average Stack (Reference ONLY)
+# ==================================================
+
+requires 1.2.0
+setcpu 0
+setmem 90
+
+load seq
+
+# Reines lineares Mittel
+stack seq -method average -norm=none -rej=none
+
+save stacked_average_reference.fits
+
+quit

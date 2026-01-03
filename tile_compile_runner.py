@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from astropy.io import fits
 import yaml
 
 
@@ -151,7 +152,7 @@ def _safe_symlink_or_copy(src: Path, dst: Path) -> None:
     if dst.exists() or dst.is_symlink():
         return
     try:
-        os.symlink(str(src), str(dst))
+        os.link(str(src), str(dst))
         return
     except Exception:
         shutil.copy2(src, dst)
@@ -160,8 +161,42 @@ def _safe_symlink_or_copy(src: Path, dst: Path) -> None:
 def _siril_setext_from_suffix(suffix: str) -> str:
     s = (suffix or "").lower().lstrip(".")
     if s in {"fit", "fits", "fts"}:
-        return s
+        return "fit"
     return "fit"
+
+
+def _is_fits_image_path(p: Path) -> bool:
+    suf = p.suffix.lower()
+    return suf in {".fit", ".fits", ".fts"}
+
+
+def _fits_is_cfa(path: Path) -> Optional[bool]:
+    try:
+        hdr = fits.getheader(str(path), ext=0)
+    except Exception:
+        return None
+    naxis3 = hdr.get("NAXIS3")
+    try:
+        naxis3_i = int(naxis3) if naxis3 is not None else None
+    except Exception:
+        naxis3_i = None
+    if naxis3_i is not None and naxis3_i >= 3:
+        return False
+    return hdr.get("BAYERPAT") is not None
+
+
+def _fits_get_bayerpat(path: Path) -> Optional[str]:
+    try:
+        hdr = fits.getheader(str(path), ext=0)
+    except Exception:
+        return None
+    v = hdr.get("BAYERPAT")
+    if not isinstance(v, str):
+        return None
+    vv = v.strip().upper()
+    if vv in {"RGGB", "BGGR", "GBRG", "GRBG"}:
+        return vv
+    return None
 
 
 def _derive_prefix_from_pattern(pattern: str, default_prefix: str) -> str:
@@ -253,6 +288,8 @@ def _run_phases(
     outputs_dir = run_dir / "outputs"
     artifacts_dir = run_dir / "artifacts"
     work_dir = run_dir / "work"
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
     if dry_run:
@@ -277,6 +314,8 @@ def _run_phases(
 
     d = cfg.get("data") if isinstance(cfg.get("data"), dict) else {}
     frames_min = d.get("frames_min")
+    color_mode = str(d.get("color_mode") or "").strip().upper()
+    bayer_pattern = str(d.get("bayer_pattern") or "GBRG").strip().upper()
     try:
         frames_min_i = int(frames_min) if frames_min is not None else None
     except Exception:
@@ -330,15 +369,23 @@ def _run_phases(
     base = "light_"
     reg_work = work_dir / "registration"
     reg_work.mkdir(parents=True, exist_ok=True)
+    src_prefix = "src_"
+    src_ext = input_ext
     for i, src in enumerate(frames, start=1):
-        dst = reg_work / f"{base}{i:05d}.{input_ext}"
+        dst = reg_work / f"{src_prefix}{i:05d}.{src_ext}"
         _safe_symlink_or_copy(src, dst)
+
+    cfa_flag = _fits_is_cfa(frames[0]) if frames else None
+    header_bayerpat = _fits_get_bayerpat(frames[0]) if frames else None
+    debayer = bool(color_mode == "OSC" and cfa_flag is True)
+
+    prep_cmd = f"convert {base} -debayer" if debayer else f"link {base}"
 
     reg_script = "\n".join(
         [
             "requires 1.0",
             f"setext {input_ext}",
-            f"link {base}",
+            prep_cmd,
             f"register {base} -prefix={reg_prefix}",
             "exit",
             "",
@@ -353,23 +400,52 @@ def _run_phases(
         log_name="siril_registration.log",
     )
     if not ok:
-        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"siril": meta})
+        warn = None
+        if header_bayerpat is not None and header_bayerpat != bayer_pattern:
+            warn = "bayer_pattern mismatch (config vs header)"
+        _phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {
+                "siril": meta,
+                "debayer": debayer,
+                "bayer_pattern": bayer_pattern,
+                "bayer_pattern_header": header_bayerpat,
+                "cfa": cfa_flag,
+                "warning": warn,
+            },
+        )
         return False
 
     reg_out = outputs_dir / reg_out_name
     reg_out.mkdir(parents=True, exist_ok=True)
     moved = 0
     for fp in sorted([p for p in reg_work.iterdir() if p.is_file()]):
-        if fp.name.startswith(reg_prefix):
+        if fp.name.startswith(reg_prefix) and _is_fits_image_path(fp):
             shutil.move(str(fp), str(reg_out / fp.name))
             moved += 1
+    warn = None
+    if header_bayerpat is not None and header_bayerpat != bayer_pattern:
+        warn = "bayer_pattern mismatch (config vs header)"
     _phase_end(
         run_id,
         log_fp,
         phase_id,
         phase_name,
         "ok",
-        {"siril": meta, "output_dir": str(reg_out), "registered_count": moved},
+        {
+            "siril": meta,
+            "output_dir": str(reg_out),
+            "registered_count": moved,
+            "debayer": debayer,
+            "bayer_pattern": bayer_pattern,
+            "bayer_pattern_header": header_bayerpat,
+            "cfa": cfa_flag,
+            "warning": warn,
+        },
     )
 
     for phase_id, phase_name in [
@@ -391,7 +467,11 @@ def _run_phases(
     if _stop_requested(run_id, log_fp, phase_id, phase_name):
         return False
     reg_out_dir = outputs_dir / reg_out_name
-    registered_files = sorted([p for p in reg_out_dir.iterdir() if p.is_file()]) if reg_out_dir.exists() else []
+    registered_files = (
+        sorted([p for p in reg_out_dir.iterdir() if p.is_file() and _is_fits_image_path(p)])
+        if reg_out_dir.exists()
+        else []
+    )
     if not registered_files:
         _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "no registered frames found"})
         return False
@@ -406,7 +486,8 @@ def _run_phases(
         syn_max_i = int(syn_max) if syn_max is not None else 30
     except Exception:
         syn_max_i = 30
-    n = min(len(registered_files), syn_max_i)
+    use_all_registered = bool(stack_method == "average")
+    n = len(registered_files) if use_all_registered else min(len(registered_files), syn_max_i)
     if n < syn_min_i:
         _phase_end(
             run_id,
@@ -422,7 +503,14 @@ def _run_phases(
     for i, src in enumerate(registered_files[:n], start=1):
         dst = syn_out / f"{syn_prefix}{i:05d}.{syn_ext}"
         shutil.copy2(src, dst)
-    _phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"synthetic_dir": str(syn_out), "synthetic_count": n})
+    _phase_end(
+        run_id,
+        log_fp,
+        phase_id,
+        phase_name,
+        "ok",
+        {"synthetic_dir": str(syn_out), "synthetic_count": n, "use_all_registered": use_all_registered},
+    )
 
     phase_id = 9
     phase_name = "final_stacking"
@@ -438,27 +526,60 @@ def _run_phases(
 
     stack_work = work_dir / "stacking"
     stack_work.mkdir(parents=True, exist_ok=True)
-    syn_files = sorted([p for p in syn_out.iterdir() if p.is_file()])
+    syn_files = sorted([p for p in syn_out.iterdir() if p.is_file() and _is_fits_image_path(p)])
+    stack_src_prefix = "src_"
+    stack_src_ext = (syn_files[0].suffix or ".fit").lower().lstrip(".") if syn_files else "fit"
+    if stack_src_ext not in {"fit", "fits", "fts"}:
+        stack_src_ext = "fit"
     for i, src in enumerate(syn_files, start=1):
-        dst = stack_work / f"{syn_prefix}{i:05d}.{syn_ext}"
+        dst = stack_work / f"{stack_src_prefix}{i:05d}.{stack_src_ext}"
         _safe_symlink_or_copy(src, dst)
 
-    method_used = stack_method if stack_method in {"sum", "min", "max"} else "sum"
+    stack_method_norm = (stack_method or "").strip().lower()
+    if stack_method_norm == "average":
+        method_used = "average"
+    elif stack_method_norm == "mean":
+        method_used = "mean"
+    elif stack_method_norm in {"sum", "min", "max", "med", "median"}:
+        method_used = "med" if stack_method_norm in {"med", "median"} else stack_method_norm
+    else:
+        method_used = "sum"
     note = None
-    if method_used != stack_method:
-        note = "stacking.method not mapped; using Siril sum"
+    if method_used != stack_method_norm:
+        note = "stacking.method not mapped; using Siril sum" if method_used == "sum" else None
 
     out_name = Path(stack_output_file).name
-    stack_script = "\n".join(
-        [
-            "requires 1.0",
-            f"setext {syn_ext}",
-            f"link {syn_prefix}",
-            f"stack {syn_prefix} {method_used} -out={out_name}",
-            "exit",
-            "",
-        ]
-    )
+    stack_n = max(1, len(syn_files))
+    avg_scale = 1.0 / float(stack_n)
+    tmp_name = "__stack_sum_tmp.fit"
+    if method_used == "average":
+        stack_script = "\n".join(
+            [
+                "requires 1.0",
+                f"setext {syn_ext}",
+                f"link {syn_prefix}",
+                f"stack {syn_prefix} sum -out={tmp_name} -32b",
+                f"load {tmp_name}",
+                f"fmul {avg_scale}",
+                f"save {out_name}",
+                "exit",
+                "",
+            ]
+        )
+    else:
+        stack_args = method_used
+        if method_used == "mean":
+            stack_args = "mean 3 3"
+        stack_script = "\n".join(
+            [
+                "requires 1.0",
+                f"setext {syn_ext}",
+                f"link {syn_prefix}",
+                f"stack {syn_prefix} {stack_args} -out={out_name}",
+                "exit",
+                "",
+            ]
+        )
     ok, meta = _run_siril(
         siril_exe=siril_exe,
         work_dir=stack_work,

@@ -85,6 +85,8 @@ def scan_input(
     image_height: int | None = None
 
     has_bayerpat = False
+    bayer_pattern: str | None = None
+    bayer_pattern_inconsistent = False
 
     frames: list[dict[str, Any]] = []
 
@@ -141,8 +143,15 @@ def scan_input(
                     )
                 )
 
-        if hdr.get("BAYERPAT") is not None:
+        bpat = hdr.get("BAYERPAT")
+        if isinstance(bpat, str) and bpat.strip():
             has_bayerpat = True
+            bp = bpat.strip().upper()
+            if bp in {"RGGB", "BGGR", "GBRG", "GRBG"}:
+                if bayer_pattern is None:
+                    bayer_pattern = bp
+                elif bayer_pattern != bp:
+                    bayer_pattern_inconsistent = True
 
         entry: dict[str, Any] = {
             "file_name": p.name,
@@ -178,6 +187,15 @@ def scan_input(
                 message="BAYERPAT not found in FITS headers; color_mode requires user confirmation",
             )
         )
+    if bayer_pattern_inconsistent:
+        requires_user_confirmation = True
+        issues.append(
+            ScanIssue(
+                severity="warning",
+                code="bayer_pattern_inconsistent",
+                message="BAYERPAT differs across frames; bayer_pattern requires user confirmation",
+            )
+        )
 
     manifest_obj: dict[str, Any] = {
         "version": 1,
@@ -187,6 +205,7 @@ def scan_input(
         "image_height": int(image_height),
         "frames_detected": int(frames_detected),
         "color_mode": color_mode,
+        "bayer_pattern": bayer_pattern,
         "color_mode_candidates": color_mode_candidates,
         "requires_user_confirmation": bool(requires_user_confirmation),
         "with_checksums": bool(with_checksums),
@@ -213,6 +232,7 @@ def scan_input(
         "image_height": int(image_height),
         "frames_detected": int(frames_detected),
         "color_mode": color_mode,
+        "bayer_pattern": bayer_pattern,
         "color_mode_candidates": color_mode_candidates,
         "requires_user_confirmation": bool(requires_user_confirmation),
         "frames_manifest_id": frames_manifest_id,
