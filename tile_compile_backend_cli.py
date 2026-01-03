@@ -58,7 +58,9 @@ def cmd_validate_config(args: argparse.Namespace) -> int:
     if args.path is not None:
         result["path"] = args.path
     _print_json(result)
-    return 0 if result.get("valid") else 1
+    if args.strict_exit_codes:
+        return 0 if result.get("valid") else 1
+    return 0
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
@@ -69,7 +71,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
         with_checksums=args.with_checksums,
     )
     _print_json(result)
-    return 0 if result.get("ok") else 1
+    if args.strict_exit_codes:
+        return 0 if result.get("ok") else 1
+    return 0
 
 
 def cmd_list_runs(args: argparse.Namespace) -> int:
@@ -123,6 +127,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional path to tile_compile.schema.json (defaults to repo root tile_compile.schema.json)",
     )
+    p_validate.add_argument(
+        "--strict-exit-codes",
+        action="store_true",
+        help="Return exit code 1 when validation fails (CLI mode). Default: always 0 and rely on JSON result.",
+    )
     p_validate.set_defaults(func=cmd_validate_config)
 
     p_scan = sub.add_parser("scan")
@@ -142,6 +151,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--with-checksums",
         action="store_true",
         help="Compute per-frame sha256 checksums (can be slow)",
+    )
+    p_scan.add_argument(
+        "--strict-exit-codes",
+        action="store_true",
+        help="Return exit code 1 when scan ok=false (CLI mode). Default: always 0 and rely on JSON result.",
     )
     p_scan.set_defaults(func=cmd_scan)
 
