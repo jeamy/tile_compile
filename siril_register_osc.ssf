@@ -1,29 +1,15 @@
-# ==================================================
-# Siril OSC Registration Script (tile-compile)
-# Zweck: Geometrische Vorverarbeitung ONLY
-# ==================================================
-
 requires 1.4.0
 setext fit
 setcpu 1
 setmem 0.9
 
-# Arbeitsverzeichnis enthält nur die OSC-FITS
-link seq -out=seq
- 
-# --------------------------------------------------
-# Debayer (NUR für Registrierung)
-# --------------------------------------------------
-# Bilinear = stabil, linear, ausreichend
- 
-# --------------------------------------------------
-# Registrierung
-# --------------------------------------------------
-# Registrierung erfolgt intern auf Luminanz
-# Keine Qualitätsprüfung, keine Selektion
+# 1. Sequenz aus OSC-FITS erzeugen
+link . -out=seq
+
+# 2. Debayer (ersetzt Inhalt von seq!)
+convert seq -debayer
+
+# 3. Registrierung auf der debayerten aktiven Sequenz
 register seq
 
-# --------------------------------------------------
-# Ende
-# --------------------------------------------------
 exit
