@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -215,6 +216,171 @@ def _derive_prefix_from_pattern(pattern: str, default_prefix: str) -> str:
     return default_prefix
 
 
+def _validate_siril_script(path: Path) -> Tuple[bool, List[str]]:
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        return False, [f"failed to read script: {e}"]
+
+    lines: List[str] = []
+    for ln in raw.splitlines():
+        s = ln.strip()
+        if not s or s.startswith("#"):
+            continue
+        lines.append(s)
+    text = "\n".join(lines).lower()
+
+    violations: List[str] = []
+
+    if "-weight" in text:
+        violations.append("-weight")
+
+    if "-drizzle" in text and "-drizzle=0" not in text and "-drizzle 0" not in text:
+        violations.append("-drizzle")
+
+    if "-norm" in text and "-norm=none" not in text and "-norm none" not in text and "-nonorm" not in text:
+        violations.append("-norm")
+
+    if "-rej" in text and "-rej=none" not in text and "-rej none" not in text:
+        violations.append("-rej")
+
+    for tok in [
+        "autostretch",
+        "asinh",
+        "linstretch",
+        "logstretch",
+        "modasinh",
+        "mtf",
+        "histo",
+        "hist",
+        "wavelet",
+        "stretch",
+    ]:
+        if tok in text:
+            violations.append(tok)
+
+    for cmd in ["select", "unselect"]:
+        if re.search(rf"(^|\n){re.escape(cmd)}\b", text):
+            violations.append(cmd)
+
+    return len(violations) == 0, sorted(set(violations))
+
+
+def _run_siril_script(
+    siril_exe: str,
+    work_dir: Path,
+    script_path: Path,
+    artifacts_dir: Path,
+    log_name: str,
+    timeout_s: Optional[int] = None,
+    quiet: bool = True,
+) -> Tuple[bool, Dict[str, Any]]:
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    log_path = artifacts_dir / log_name
+
+    script_sha256 = None
+    try:
+        script_sha256 = _sha256_bytes(script_path.read_bytes())
+    except Exception:
+        script_sha256 = None
+
+    base_cmd = [siril_exe, "-d", str(work_dir), "-s", str(script_path)]
+    cmd = base_cmd + (["-q"] if quiet else [])
+
+    started = time.time()
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(work_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+        stdout = proc.stdout or ""
+        stderr = proc.stderr or ""
+
+        if quiet and proc.returncode != 0:
+            combined = (stdout + "\n" + stderr).lower()
+            if "unknown option -q" in combined or "unbekannte option -q" in combined:
+                cmd2 = base_cmd
+                proc2 = subprocess.run(
+                    cmd2,
+                    cwd=str(work_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_s,
+                )
+                stdout2 = proc2.stdout or ""
+                stderr2 = proc2.stderr or ""
+                log_path.write_text(
+                    "# attempt_with_q\n" + stdout + "\n" + stderr + "\n" + "# attempt_without_q\n" + stdout2 + "\n" + stderr2,
+                    encoding="utf-8",
+                )
+                return proc2.returncode == 0, {
+                    "cmd": cmd2,
+                    "returncode": proc2.returncode,
+                    "seconds": max(0.0, time.time() - started),
+                    "log_path": str(log_path),
+                    "script_path": str(script_path),
+                    "script_sha256": script_sha256,
+                    "retry": {"cmd": cmd, "returncode": proc.returncode},
+                }
+
+        log_path.write_text(stdout + "\n" + stderr, encoding="utf-8")
+        return proc.returncode == 0, {
+            "cmd": cmd,
+            "returncode": proc.returncode,
+            "seconds": max(0.0, time.time() - started),
+            "log_path": str(log_path),
+            "script_path": str(script_path),
+            "script_sha256": script_sha256,
+        }
+    except subprocess.TimeoutExpired as e:
+        log_path.write_text((e.stdout or "") + "\n" + (e.stderr or ""), encoding="utf-8")
+        return False, {
+            "cmd": cmd,
+            "returncode": None,
+            "seconds": max(0.0, time.time() - started),
+            "log_path": str(log_path),
+            "script_path": str(script_path),
+            "script_sha256": script_sha256,
+            "error": "timeout",
+        }
+    except Exception as e:
+        log_path.write_text(str(e), encoding="utf-8")
+        return False, {
+            "cmd": cmd,
+            "returncode": None,
+            "seconds": max(0.0, time.time() - started),
+            "log_path": str(log_path),
+            "script_path": str(script_path),
+            "script_sha256": script_sha256,
+            "error": str(e),
+        }
+
+
+def _extract_siril_save_targets(script_path: Path) -> List[str]:
+    try:
+        raw = script_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return []
+    targets: List[str] = []
+    for ln in raw.splitlines():
+        s = ln.strip()
+        if not s or s.startswith("#"):
+            continue
+        low = s.lower()
+        if not low.startswith("save "):
+            continue
+        rest = s.split(None, 1)[1].strip() if len(s.split(None, 1)) == 2 else ""
+        if not rest:
+            continue
+        target = Path(rest.strip().strip('"').strip("'")).name
+        if target:
+            targets.append(target)
+    return targets
+
+
 def _run_siril(
     siril_exe: str,
     work_dir: Path,
@@ -281,6 +447,7 @@ def _run_phases(
     log_fp,
     dry_run: bool,
     run_dir: Path,
+    project_root: Path,
     cfg: Dict[str, Any],
     frames: List[Path],
     siril_exe: Optional[str],
@@ -339,11 +506,21 @@ def _run_phases(
     reg_engine = str(registration_cfg.get("engine") or "")
     stack_engine = str(stacking_cfg.get("engine") or "")
 
-    input_ext = _siril_setext_from_suffix(frames[0].suffix if frames else ".fit")
+    reg_script_cfg = registration_cfg.get("siril_script")
+    reg_script_path = (
+        Path(str(reg_script_cfg)).expanduser().resolve()
+        if isinstance(reg_script_cfg, str) and reg_script_cfg.strip()
+        else (project_root / "siril_register_osc.ssf").resolve()
+    )
+    stack_script_cfg = stacking_cfg.get("siril_script")
+    stack_script_path = (
+        Path(str(stack_script_cfg)).expanduser().resolve()
+        if isinstance(stack_script_cfg, str) and stack_script_cfg.strip()
+        else (project_root / "siril_stack_average.ssf").resolve()
+    )
 
     reg_out_name = str(registration_cfg.get("output_dir") or "registered")
     reg_pattern = str(registration_cfg.get("registered_filename_pattern") or "reg_{index:05d}.fit")
-    reg_prefix = _derive_prefix_from_pattern(reg_pattern, "r_")
 
     syn_dir_name = str(stacking_cfg.get("input_dir") or "synthetic")
     syn_pattern = str(stacking_cfg.get("input_pattern") or "syn_*.fits")
@@ -366,43 +543,59 @@ def _run_phases(
         _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "siril executable not found"})
         return False
 
-    base = "light_"
-    reg_work = work_dir / "registration"
-    reg_work.mkdir(parents=True, exist_ok=True)
-    src_prefix = "src_"
-    src_ext = input_ext
-    for i, src in enumerate(frames, start=1):
-        dst = reg_work / f"{src_prefix}{i:05d}.{src_ext}"
-        _safe_symlink_or_copy(src, dst)
-
     cfa_flag = _fits_is_cfa(frames[0]) if frames else None
     header_bayerpat = _fits_get_bayerpat(frames[0]) if frames else None
-    debayer = bool(color_mode == "OSC" and cfa_flag is True)
+    warn = None
+    if header_bayerpat is not None and header_bayerpat != bayer_pattern:
+        warn = "bayer_pattern mismatch (config vs header)"
 
-    prep_cmd = f"convert {base} -debayer" if debayer else f"link {base}"
+    using_default_reg_script = not (isinstance(reg_script_cfg, str) and reg_script_cfg.strip())
+    if using_default_reg_script and (color_mode != "OSC" or cfa_flag is not True):
+        _phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {
+                "error": "default registration script requires OSC/CFA; set registration.siril_script for non-OSC inputs",
+                "color_mode": color_mode,
+                "cfa": cfa_flag,
+            },
+        )
+        return False
 
-    reg_script = "\n".join(
-        [
-            "requires 1.0",
-            f"setext {input_ext}",
-            prep_cmd,
-            f"register {base} -prefix={reg_prefix}",
-            "exit",
-            "",
-        ]
-    )
-    ok, meta = _run_siril(
+    if not reg_script_path.exists() or not reg_script_path.is_file():
+        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"registration script not found: {reg_script_path}"})
+        return False
+
+    ok_script, violations = _validate_siril_script(reg_script_path)
+    if not ok_script:
+        _phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {"error": "registration script violates policy", "script": str(reg_script_path), "violations": violations},
+        )
+        return False
+
+    reg_work = work_dir / "registration"
+    reg_work.mkdir(parents=True, exist_ok=True)
+    for i, src in enumerate(frames, start=1):
+        dst = reg_work / f"seq{i:05d}.fit"
+        _safe_symlink_or_copy(src, dst)
+
+    ok, meta = _run_siril_script(
         siril_exe=siril_exe,
         work_dir=reg_work,
-        script_text=reg_script,
+        script_path=reg_script_path,
         artifacts_dir=artifacts_dir,
-        script_name="siril_registration.ssf",
         log_name="siril_registration.log",
+        quiet=True,
     )
     if not ok:
-        warn = None
-        if header_bayerpat is not None and header_bayerpat != bayer_pattern:
-            warn = "bayer_pattern mismatch (config vs header)"
         _phase_end(
             run_id,
             log_fp,
@@ -411,7 +604,6 @@ def _run_phases(
             "error",
             {
                 "siril": meta,
-                "debayer": debayer,
                 "bayer_pattern": bayer_pattern,
                 "bayer_pattern_header": header_bayerpat,
                 "cfa": cfa_flag,
@@ -422,14 +614,26 @@ def _run_phases(
 
     reg_out = outputs_dir / reg_out_name
     reg_out.mkdir(parents=True, exist_ok=True)
+    registered = sorted([p for p in reg_work.iterdir() if p.is_file() and p.name.lower().startswith("r_") and _is_fits_image_path(p)])
+    if not registered:
+        _phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {"error": "no registered frames produced by Siril (expected r_*.fit*)", "siril": meta},
+        )
+        return False
+
     moved = 0
-    for fp in sorted([p for p in reg_work.iterdir() if p.is_file()]):
-        if fp.name.startswith(reg_prefix) and _is_fits_image_path(fp):
-            shutil.move(str(fp), str(reg_out / fp.name))
-            moved += 1
-    warn = None
-    if header_bayerpat is not None and header_bayerpat != bayer_pattern:
-        warn = "bayer_pattern mismatch (config vs header)"
+    for idx, src in enumerate(registered, start=1):
+        try:
+            dst_name = reg_pattern.format(index=idx)
+        except Exception:
+            dst_name = src.name
+        shutil.copy2(src, reg_out / dst_name)
+        moved += 1
     _phase_end(
         run_id,
         log_fp,
@@ -440,7 +644,6 @@ def _run_phases(
             "siril": meta,
             "output_dir": str(reg_out),
             "registered_count": moved,
-            "debayer": debayer,
             "bayer_pattern": bayer_pattern,
             "bayer_pattern_header": header_bayerpat,
             "cfa": cfa_flag,
@@ -527,82 +730,89 @@ def _run_phases(
     stack_work = work_dir / "stacking"
     stack_work.mkdir(parents=True, exist_ok=True)
     syn_files = sorted([p for p in syn_out.iterdir() if p.is_file() and _is_fits_image_path(p)])
-    stack_src_prefix = "src_"
-    stack_src_ext = (syn_files[0].suffix or ".fit").lower().lstrip(".") if syn_files else "fit"
-    if stack_src_ext not in {"fit", "fits", "fts"}:
-        stack_src_ext = "fit"
-    for i, src in enumerate(syn_files, start=1):
-        dst = stack_work / f"{stack_src_prefix}{i:05d}.{stack_src_ext}"
-        _safe_symlink_or_copy(src, dst)
 
-    stack_method_norm = (stack_method or "").strip().lower()
-    if stack_method_norm == "average":
-        method_used = "average"
-    elif stack_method_norm == "mean":
-        method_used = "mean"
-    elif stack_method_norm in {"sum", "min", "max", "med", "median"}:
-        method_used = "med" if stack_method_norm in {"med", "median"} else stack_method_norm
-    else:
-        method_used = "sum"
-    note = None
-    if method_used != stack_method_norm:
-        note = "stacking.method not mapped; using Siril sum" if method_used == "sum" else None
-
-    out_name = Path(stack_output_file).name
-    stack_n = max(1, len(syn_files))
-    avg_scale = 1.0 / float(stack_n)
-    tmp_name = "__stack_sum_tmp.fit"
-    if method_used == "average":
-        stack_script = "\n".join(
-            [
-                "requires 1.0",
-                f"setext {syn_ext}",
-                f"link {syn_prefix}",
-                f"stack {syn_prefix} sum -out={tmp_name} -32b",
-                f"load {tmp_name}",
-                f"fmul {avg_scale}",
-                f"save {out_name}",
-                "exit",
-                "",
-            ]
+    using_default_stack_script = not (isinstance(stack_script_cfg, str) and stack_script_cfg.strip())
+    if using_default_stack_script and stack_method != "average":
+        _phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {
+                "error": "default stacking script is only defined for stacking.method=average; set stacking.siril_script for other methods",
+                "stacking_method": stack_method,
+            },
         )
-    else:
-        stack_args = method_used
-        if method_used == "mean":
-            stack_args = "mean 3 3"
-        stack_script = "\n".join(
-            [
-                "requires 1.0",
-                f"setext {syn_ext}",
-                f"link {syn_prefix}",
-                f"stack {syn_prefix} {stack_args} -out={out_name}",
-                "exit",
-                "",
-            ]
-        )
-    ok, meta = _run_siril(
-        siril_exe=siril_exe,
-        work_dir=stack_work,
-        script_text=stack_script,
-        artifacts_dir=artifacts_dir,
-        script_name="siril_stacking.ssf",
-        log_name="siril_stacking.log",
-    )
-    if not ok:
-        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"siril": meta, "method": method_used})
+        return False
+    if not stack_script_path.exists() or not stack_script_path.is_file():
+        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"stacking script not found: {stack_script_path}"})
         return False
 
-    produced = _pick_output_file(
+    ok_script, violations = _validate_siril_script(stack_script_path)
+    if not ok_script:
+        _phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {"error": "stacking script violates policy", "script": str(stack_script_path), "violations": violations},
+        )
+        return False
+
+    for i, src in enumerate(syn_files, start=1):
+        dst = stack_work / f"seq{i:05d}.fit"
+        _safe_symlink_or_copy(src, dst)
+
+    before = sorted([p.name for p in stack_work.iterdir() if p.is_file()])
+    ok, meta = _run_siril_script(
+        siril_exe=siril_exe,
+        work_dir=stack_work,
+        script_path=stack_script_path,
+        artifacts_dir=artifacts_dir,
+        log_name="siril_stacking.log",
+        quiet=True,
+    )
+    if not ok:
+        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"siril": meta, "method": stack_method})
+        return False
+
+    after_files = sorted([p for p in stack_work.iterdir() if p.is_file()])
+    after_names = {p.name for p in after_files}
+    new_names = sorted(list(after_names.difference(set(before))))
+
+    save_targets = _extract_siril_save_targets(stack_script_path)
+    candidates: List[Path] = []
+    for name in save_targets:
+        candidates.extend(
+            [
+                stack_work / name,
+                stack_work / (name + ".fit"),
+                stack_work / (name + ".fits"),
+                stack_work / (name + ".fts"),
+                stack_work / (Path(name).stem + ".fit"),
+                stack_work / (Path(name).stem + ".fits"),
+                stack_work / (Path(name).stem + ".fts"),
+            ]
+        )
+    out_basename = Path(stack_output_file).name
+    candidates.extend(
         [
-            stack_work / out_name,
-            stack_work / (out_name + ".fit"),
-            stack_work / (out_name + ".fits"),
-            stack_work / (out_name + ".fts"),
-            stack_work / (Path(out_name).stem + ".fit"),
-            stack_work / (Path(out_name).stem + ".fits"),
-            stack_work / (Path(out_name).stem + ".fts"),
+            stack_work / out_basename,
+            stack_work / (out_basename + ".fit"),
+            stack_work / (out_basename + ".fits"),
+            stack_work / (out_basename + ".fts"),
+            stack_work / (Path(out_basename).stem + ".fit"),
+            stack_work / (Path(out_basename).stem + ".fits"),
+            stack_work / (Path(out_basename).stem + ".fts"),
         ]
     )
+    produced = _pick_output_file(candidates)
+    if produced is None and len(new_names) == 1:
+        lone = stack_work / new_names[0]
+        if lone.is_file() and _is_fits_image_path(lone):
+            produced = lone
     if produced is None:
         _phase_end(
             run_id,
@@ -610,16 +820,33 @@ def _run_phases(
             phase_id,
             phase_name,
             "error",
-            {"error": f"expected output not found (out={out_name})", "siril": meta, "method": method_used},
+            {
+                "error": "expected output not found",
+                "siril": meta,
+                "method": stack_method,
+                "save_targets": save_targets,
+                "new_files": new_names,
+            },
         )
         return False
+
+    if using_default_stack_script and stack_method == "average":
+        n_stack = len(syn_files)
+        if n_stack > 0:
+            try:
+                hdr = fits.getheader(str(produced), ext=0)
+                data = fits.getdata(str(produced), ext=0)
+                if data is not None:
+                    data_f = data.astype("float32", copy=False)
+                    data_f = data_f / float(n_stack)
+                    fits.writeto(str(produced), data_f, header=hdr, overwrite=True)
+            except Exception:
+                pass
 
     final_out = outputs_dir / Path(stack_output_file)
     final_out.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(produced), str(final_out))
-    extra: Dict[str, Any] = {"siril": meta, "method": method_used, "output": str(final_out)}
-    if note:
-        extra["note"] = note
+    extra: Dict[str, Any] = {"siril": meta, "method": stack_method, "output": str(final_out)}
     _phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
 
     phase_id = 10
@@ -744,6 +971,7 @@ def cmd_run(args) -> int:
             log_fp,
             dry_run=bool(args.dry_run),
             run_dir=run_dir,
+            project_root=project_root,
             cfg=cfg,
             frames=frames,
             siril_exe=siril_exe,
