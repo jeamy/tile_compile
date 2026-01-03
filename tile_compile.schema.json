@@ -49,6 +49,11 @@
         "frames_min": { "type": "integer", "minimum": 1 },
         "frames_target": { "type": "integer", "minimum": 1 },
         "color_mode": { "type": "string", "enum": ["OSC"] },
+        "bayer_pattern": {
+          "type": "string",
+          "enum": ["RGGB", "BGGR", "GBRG", "GRBG"],
+          "default": "GBRG"
+        },
         "linear_required": { "type": "boolean", "const": true }
       }
     },

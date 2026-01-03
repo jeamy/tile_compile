@@ -66,6 +66,14 @@ source: fits_header
 editable: confirm
 description: "Aus FITS abgeleitet, vor Run bestätigbar"
 
+bayer_pattern:
+type: enum
+values: [RGGB, BGGR, GBRG, GRBG]
+source: fits_header
+editable: confirm
+default: GBRG
+description: "BAYERPAT (Bayer-Muster) für OSC/CFA; wird für Debayer verwendet"
+
 # ============================================================
 
 # INPUT-CONSTRAINTS (Methodik-relevant)
