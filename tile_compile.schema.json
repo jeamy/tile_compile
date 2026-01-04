@@ -81,7 +81,7 @@
         "allow_rotation"
       ],
       "properties": {
-        "engine": { "type": "string", "enum": ["siril"] },
+        "engine": { "type": "string", "enum": ["siril", "opencv_cfa"] },
         "reference": { "type": "string", "enum": ["auto"] },
         "output_dir": { "type": "string", "minLength": 1 },
         "registered_filename_pattern": { "type": "string", "minLength": 1 },

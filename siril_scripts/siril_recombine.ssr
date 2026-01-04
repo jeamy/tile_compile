@@ -1,0 +1,10 @@
+# ================================================
+# Siril 1.4 – RGB Recombine
+# ================================================
+
+requires 1.4.0
+setext fit
+
+rgbcomp stack_R.fit stack_G.fit stack_B.fit stacked_RGB.fit
+
+exit

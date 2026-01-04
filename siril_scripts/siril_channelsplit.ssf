@@ -1,0 +1,16 @@
+# ================================================
+# Siril 1.4 – Channel Split
+# ================================================
+
+requires 1.4.0
+setext fit
+setcpu 1
+setmem 0.9
+
+# Sequenz aus registrierten Frames
+link r_lights -out=reg
+
+# RGB → R/G/B auftrennen
+split reg
+
+exit
