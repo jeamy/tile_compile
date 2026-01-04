@@ -1,7 +1,10 @@
-# Tile Compile – GUI-Spezifikation (Tauri Frontend)
 
-**Status:** normativ für GUI-Implementierung
+# Tile Compile – GUI-Spezifikation (Legacy: Tauri Frontend)
+
+**Status:** Legacy (nicht mehr normativ für neue GUI-Implementierung)
 **Gültigkeit:** kompatibel mit `tile_basierte_qualitatsrekonstruktion_methodik.md` (v2), `tile_compile.proc` (Clean Break), `tile_compile.yaml`
+
+**Aktueller Zielzustand:** Die neue GUI wird als **Python/Qt6** Desktop‑App in `gui/` implementiert; siehe `doc/plan_v2.md` §10.
 
 ---
 

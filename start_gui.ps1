@@ -17,19 +17,18 @@ function Require-Command([string]$Name) {
   }
 }
 
-Require-Command "npm"
-Require-Command "cargo"
-Require-Command "rustc"
+Require-Command "python"
 
-Write-Host "Info: GUI workflow: Scan input first; if color mode is UNKNOWN you must confirm it before Start. The confirmation is stored as color_mode_confirmed in runs/<run_id>/run_metadata.json"
+Write-Host "Info: starting Qt6 GUI (Python)."
 
-$NodeModules = Join-Path $GuiDir "node_modules"
-if (-not (Test-Path -LiteralPath $NodeModules -PathType Container)) {
-  Write-Error "node_modules missing in $GuiDir`nPlease run: cd gui; npm install"
+Set-Location $RepoRoot
+
+# No auto-install: if PySide6 is missing, error out with a clear message.
+try {
+  python -c "import PySide6" | Out-Null
+} catch {
+  Write-Error "Python dependency missing: PySide6`nPlease install it in your environment (e.g. venv) before running the GUI."
   exit 1
 }
 
-Set-Location $GuiDir
-
-# No auto-installations, just start dev server
-npm run dev
+python -m gui.main

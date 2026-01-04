@@ -9,34 +9,24 @@ if not exist "%GUI_DIR%\" (
   exit /b 1
 )
 
-echo Info: GUI workflow: Scan input first; if color mode is UNKNOWN you must confirm it before Start. The confirmation is stored as color_mode_confirmed in runs\^<run_id^>\run_metadata.json
+echo Info: starting Qt6 GUI (Python).
 
-where npm >nul 2>nul
+where python >nul 2>nul
 if errorlevel 1 (
-  echo ERROR: missing prerequisite: npm 1>&2
+  echo ERROR: missing prerequisite: python 1>&2
   exit /b 1
 )
 
-where cargo >nul 2>nul
+pushd "%REPO_ROOT%" >nul
+python -c "import PySide6" >nul 2>nul
 if errorlevel 1 (
-  echo ERROR: missing prerequisite: cargo 1>&2
+  echo ERROR: Python dependency missing: PySide6 1>&2
+  echo Please install it in your environment ^(e.g. venv^) before running the GUI. 1>&2
+  popd >nul
   exit /b 1
 )
 
-where rustc >nul 2>nul
-if errorlevel 1 (
-  echo ERROR: missing prerequisite: rustc 1>&2
-  exit /b 1
-)
-
-if not exist "%GUI_DIR%\node_modules\" (
-  echo ERROR: node_modules missing in %GUI_DIR% 1>&2
-  echo Please run: cd gui ^&^& npm install 1>&2
-  exit /b 1
-)
-
-pushd "%GUI_DIR%" >nul
-npm run dev
+python -m gui.main
 set "EXITCODE=%ERRORLEVEL%"
 popd >nul
 exit /b %EXITCODE%

@@ -1,4 +1,7 @@
-# Tile Compile GUI + Backend Plan (local single-host)
+
+# Tile Compile GUI + Backend Plan (Legacy: Tauri) (local single-host)
+
+**Status:** Legacy (für Root-GUI nicht mehr normativ). Aktueller Plan: `doc/plan_v2.md` (inkl. GUI v2 Python/Qt6).
 
 ## Ziel
 Eine lokale Desktop-GUI (Tauri), die eine deterministische Tile-Compile Pipeline orchestriert.

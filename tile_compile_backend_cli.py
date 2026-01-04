@@ -30,6 +30,58 @@ def cmd_get_schema(_: argparse.Namespace) -> int:
     return 0
 
 
+def _default_gui_state_path() -> Path:
+    return (Path(__file__).resolve().parent / "tile_compile_gui_state.json").resolve()
+
+
+def cmd_load_gui_state(args: argparse.Namespace) -> int:
+    p = Path(args.path).expanduser() if args.path is not None else _default_gui_state_path()
+    if not p.is_absolute():
+        p = p.resolve()
+
+    state: dict[str, Any] = {}
+    if p.exists() and p.is_file():
+        try:
+            raw = p.read_text(encoding="utf-8")
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                state = obj
+        except Exception:
+            state = {}
+
+    _print_json({"ok": True, "path": str(p), "state": state})
+    return 0
+
+
+def cmd_save_gui_state(args: argparse.Namespace) -> int:
+    p = Path(args.path).expanduser() if args.path is not None else _default_gui_state_path()
+    if not p.is_absolute():
+        p = p.resolve()
+
+    if args.stdin:
+        raw = sys.stdin.read()
+    else:
+        raw = args.json
+
+    if raw is None:
+        sys.stderr.write("save-gui-state requires JSON text either as argument or via --stdin\n")
+        return 2
+
+    try:
+        obj = json.loads(raw)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"save-gui-state: failed to parse JSON: {e}\n")
+        return 2
+
+    if not isinstance(obj, dict):
+        sys.stderr.write("save-gui-state: state must be a JSON object\n")
+        return 2
+
+    p.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _print_json({"ok": True, "path": str(p), "saved": True})
+    return 0
+
+
 def cmd_load_config(args: argparse.Namespace) -> int:
     yaml_text = load_config_text(args.path)
     _print_json({"path": args.path, "yaml": yaml_text})
@@ -371,6 +423,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_save.add_argument("yaml", nargs="?")
     p_save.add_argument("--stdin", action="store_true")
     p_save.set_defaults(func=cmd_save_config)
+
+    p_gui_load = sub.add_parser("load-gui-state")
+    p_gui_load.add_argument("--path", default=None)
+    p_gui_load.set_defaults(func=cmd_load_gui_state)
+
+    p_gui_save = sub.add_parser("save-gui-state")
+    p_gui_save.add_argument("--path", default=None)
+    p_gui_save.add_argument("json", nargs="?")
+    p_gui_save.add_argument("--stdin", action="store_true")
+    p_gui_save.set_defaults(func=cmd_save_gui_state)
 
     p_validate = sub.add_parser("validate-config")
     src = p_validate.add_mutually_exclusive_group(required=True)

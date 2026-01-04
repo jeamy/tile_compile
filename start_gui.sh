@@ -1,55 +1,57 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -e
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$(dirname "$0")" && pwd)"
+cd "${repo_root}"
 
-gui_dir="${repo_root}/gui"
+echo "Info: starting Qt6 GUI (Python)." >&2
 
-if [[ ! -d "${gui_dir}" ]]; then
-  echo "ERROR: gui directory not found: ${gui_dir}" >&2
-  exit 1
-fi
-
-echo "Info: GUI workflow: Scan input first; if color mode is UNKNOWN you must confirm it before Start. The confirmation is stored as color_mode_confirmed in runs/<run_id>/run_metadata.json" >&2
-
-need_cmd() {
-  local cmd="$1"
-  if ! command -v "${cmd}" >/dev/null 2>&1; then
-    echo "ERROR: missing prerequisite: ${cmd}" >&2
-    return 1
-  fi
+check_pyside6() {
+  local py="$1"
+  if [ -z "${py}" ]; then return 1; fi
+  if ! command -v "${py}" >/dev/null 2>&1; then return 1; fi
+  "${py}" -c "import PySide6" >/dev/null 2>&1
 }
 
-need_cmd npm
-need_cmd cargo
-need_cmd rustc
+python_bin=""
 
-# Wayland workaround (GTK/GDK protocol error 71 on some setups)
-if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
-  export GDK_BACKEND="${GDK_BACKEND:-x11}"
-  export WINIT_UNIX_BACKEND="${WINIT_UNIX_BACKEND:-x11}"
-  echo "Info: Wayland session detected -> forcing X11 backend: GDK_BACKEND=${GDK_BACKEND}, WINIT_UNIX_BACKEND=${WINIT_UNIX_BACKEND}" >&2
+if [ -n "${TILE_COMPILE_PYTHON:-}" ]; then
+  if check_pyside6 "${TILE_COMPILE_PYTHON}"; then
+    python_bin="${TILE_COMPILE_PYTHON}"
+  fi
 fi
 
-# WebKitGTK / GBM / dmabuf workaround (can crash on some Linux GPU/driver setups)
-# - Disables dmabuf renderer path which can trigger: "Failed to create GBM buffer ... invalid argument"
-export WEBKIT_DISABLE_DMABUF_RENDERER="${WEBKIT_DISABLE_DMABUF_RENDERER:-1}"
-
-# Optional hard fallback: force software rendering
-# Enable via: TILE_COMPILE_GUI_SOFTWARE=1 ./start_gui.sh
-if [[ "${TILE_COMPILE_GUI_SOFTWARE:-}" == "1" ]]; then
-  export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
-  export GDK_GL="${GDK_GL:-disable}"
-  echo "Info: software rendering enabled (LIBGL_ALWAYS_SOFTWARE=1, GDK_GL=disable)" >&2
+if [ -z "${python_bin}" ] && [ -x ".venv/bin/python" ]; then
+  if check_pyside6 ".venv/bin/python"; then
+    python_bin=".venv/bin/python"
+  fi
 fi
 
-cd "${gui_dir}"
+if [ -z "${python_bin}" ] && [ -x "venv/bin/python" ]; then
+  if check_pyside6 "venv/bin/python"; then
+    python_bin="venv/bin/python"
+  fi
+fi
 
-# No auto-install: user must run 'npm install' manually.
-if [[ ! -d "node_modules" ]]; then
-  echo "ERROR: node_modules missing in ${gui_dir}" >&2
-  echo "Please run: (cd gui && npm install)" >&2
+if [ -z "${python_bin}" ]; then
+  for interpreter in "python3.12" "python3" "python" "python3.11" "python3.10" "python3.9"; do
+    if check_pyside6 "${interpreter}"; then
+      python_bin="${interpreter}"
+      break
+    fi
+  done
+fi
+
+if [ -z "${python_bin}" ]; then
+  echo "ERROR: Python dependency missing: PySide6" >&2
+  echo "Please install it in your environment (e.g. venv) before running the GUI." >&2
   exit 1
 fi
 
-exec npm run dev
+if [ ! -f "gui/main.py" ]; then
+  echo "ERROR: gui/main.py not found" >&2
+  exit 1
+fi
+
+echo "Info: using python: ${python_bin}" >&2
+exec "${python_bin}" -m gui.main
