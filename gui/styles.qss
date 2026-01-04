@@ -1,0 +1,75 @@
+QWidget {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+}
+
+QMainWindow {
+  background: #f6f6f6;
+  color: #0f0f0f;
+}
+
+QGroupBox {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 20);
+  border-radius: 10px;
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+
+QGroupBox::title {
+  subcontrol-origin: margin;
+  left: 10px;
+  padding: 0 4px;
+  font-size: 15px;
+}
+
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox {
+  background: rgba(0, 0, 0, 6);
+  border: 1px solid rgba(0, 0, 0, 20);
+  border-radius: 8px;
+  padding: 8px;
+  min-height: 32px;
+  margin: 2px;
+}
+
+QTextEdit, QPlainTextEdit {
+  min-height: 110px;
+}
+
+QComboBox {
+  padding-right: 22px;
+}
+
+QPushButton {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 25);
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-height: 36px;
+  min-width: 90px;
+  margin: 2px;
+}
+
+QPushButton:hover {
+  border-color: #396cd8;
+}
+
+QPushButton:disabled {
+  opacity: 0.45;
+}
+
+QTableWidget {
+  background: rgba(0, 0, 0, 4);
+  border: 1px solid rgba(0, 0, 0, 20);
+  border-radius: 8px;
+}
+
+QHeaderView::section {
+  background: rgba(0, 0, 0, 8);
+  border: none;
+  padding: 6px;
+}
+
+QLabel#StatusLabel {
+  color: rgba(0, 0, 0, 160);
+}
