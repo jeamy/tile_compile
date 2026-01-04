@@ -17,12 +17,12 @@ normalization:
   per_channel: true
 
 registration:
-  engine: siril
+  engine: opencv_cfa
   reference: auto
+  allow_rotation: false   
+  min_star_matches: 10   
   output_dir: registered
   registered_filename_pattern: "reg_{index:05d}.fit"
-  min_star_matches: 50
-  allow_rotation: true
 
 global_metrics:
   weights:

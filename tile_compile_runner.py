@@ -14,7 +14,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from astropy.io import fits
+import numpy as np
 import yaml
+
+try:
+    import cv2  # type: ignore
+except Exception:  # noqa: BLE001
+    cv2 = None
 
 
 _STOP = False
@@ -56,6 +62,132 @@ def _read_bytes(path: Path) -> bytes:
 def _discover_frames(input_dir: Path, pattern: str):
     paths = sorted([p for p in input_dir.glob(pattern) if p.is_file()])
     return paths
+
+
+def _cfa_downsample_sum2x2(mosaic: np.ndarray) -> np.ndarray:
+    h, w = mosaic.shape[:2]
+    h2 = h - (h % 2)
+    w2 = w - (w % 2)
+    if h2 != h or w2 != w:
+        mosaic = mosaic[:h2, :w2]
+    a = mosaic[0::2, 0::2].astype("float32", copy=False)
+    b = mosaic[0::2, 1::2].astype("float32", copy=False)
+    c = mosaic[1::2, 0::2].astype("float32", copy=False)
+    d = mosaic[1::2, 1::2].astype("float32", copy=False)
+    return a + b + c + d
+
+
+def _opencv_prepare_ecc_image(img: np.ndarray) -> np.ndarray:
+    f = img.astype("float32", copy=False)
+    med = float(np.median(f))
+    f = f - med
+    sd = float(np.std(f))
+    if sd > 0:
+        f = f / sd
+    bg = cv2.GaussianBlur(f, (0, 0), 12.0)
+    f = f - bg
+    f = cv2.GaussianBlur(f, (0, 0), 1.0)
+    f = cv2.normalize(f, None, alpha=0.0, beta=1.0, norm_type=cv2.NORM_MINMAX)
+    return f
+
+
+def _opencv_count_stars(img01: np.ndarray) -> int:
+    corners = cv2.goodFeaturesToTrack(
+        img01,
+        maxCorners=1200,
+        qualityLevel=0.01,
+        minDistance=6,
+        blockSize=7,
+        useHarrisDetector=False,
+    )
+    return int(0 if corners is None else len(corners))
+
+
+def _opencv_ecc_warp(
+    moving01: np.ndarray,
+    ref01: np.ndarray,
+    allow_rotation: bool,
+    init_warp: Optional[np.ndarray] = None,
+) -> Tuple[np.ndarray, float]:
+    motion = cv2.MOTION_EUCLIDEAN if allow_rotation else cv2.MOTION_TRANSLATION
+    warp = (init_warp.copy() if init_warp is not None else np.eye(2, 3, dtype=np.float32)).astype(np.float32, copy=False)
+    criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 250, 1e-6)
+    cc, warp = cv2.findTransformECC(ref01, moving01, warp, motion, criteria, None, 5)
+    return warp, float(cc)
+
+
+def _opencv_phasecorr_translation(moving01: np.ndarray, ref01: np.ndarray) -> Tuple[float, float]:
+    win = cv2.createHanningWindow((ref01.shape[1], ref01.shape[0]), cv2.CV_32F)
+    (dx, dy), _ = cv2.phaseCorrelate(ref01.astype("float32", copy=False), moving01.astype("float32", copy=False), win)
+    return float(dx), float(dy)
+
+
+def _opencv_alignment_score(moving01: np.ndarray, ref01: np.ndarray) -> float:
+    a = moving01.astype("float32", copy=False)
+    b = ref01.astype("float32", copy=False)
+    am = float(np.mean(a))
+    bm = float(np.mean(b))
+    da = a - am
+    db = b - bm
+    denom = float(np.sqrt(np.sum(da * da) * np.sum(db * db)))
+    if denom <= 0:
+        return -1.0
+    return float(np.sum(da * db) / denom)
+
+
+def _opencv_best_translation_init(moving01: np.ndarray, ref01: np.ndarray) -> np.ndarray:
+    dx, dy = _opencv_phasecorr_translation(moving01, ref01)
+    candidates = [
+        np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32),
+        np.array([[1.0, 0.0, -dx], [0.0, 1.0, -dy]], dtype=np.float32),
+    ]
+    best = candidates[0]
+    best_score = -1e9
+    for M in candidates:
+        warped = cv2.warpAffine(
+            moving01,
+            M,
+            (ref01.shape[1], ref01.shape[0]),
+            flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+        s = _opencv_alignment_score(warped, ref01)
+        if s > best_score:
+            best_score = s
+            best = M
+    return best
+
+
+def _warp_cfa_mosaic_via_subplanes(mosaic: np.ndarray, warp: np.ndarray) -> np.ndarray:
+    h, w = mosaic.shape[:2]
+    h2 = h - (h % 2)
+    w2 = w - (w % 2)
+    if h2 != h or w2 != w:
+        mosaic = mosaic[:h2, :w2]
+        h, w = mosaic.shape[:2]
+    hh = h // 2
+    ww = w // 2
+    flags = cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP
+    border = cv2.BORDER_CONSTANT
+    border_val = 0
+
+    p00 = mosaic[0::2, 0::2].astype("float32", copy=False)
+    p01 = mosaic[0::2, 1::2].astype("float32", copy=False)
+    p10 = mosaic[1::2, 0::2].astype("float32", copy=False)
+    p11 = mosaic[1::2, 1::2].astype("float32", copy=False)
+
+    w00 = cv2.warpAffine(p00, warp, (ww, hh), flags=flags, borderMode=border, borderValue=border_val)
+    w01 = cv2.warpAffine(p01, warp, (ww, hh), flags=flags, borderMode=border, borderValue=border_val)
+    w10 = cv2.warpAffine(p10, warp, (ww, hh), flags=flags, borderMode=border, borderValue=border_val)
+    w11 = cv2.warpAffine(p11, warp, (ww, hh), flags=flags, borderMode=border, borderValue=border_val)
+
+    out = np.zeros((h, w), dtype=np.float32)
+    out[0::2, 0::2] = w00
+    out[0::2, 1::2] = w01
+    out[1::2, 0::2] = w10
+    out[1::2, 1::2] = w11
+    return out
 
 
 def _resolve_project_root(start: Path) -> Path:
@@ -370,14 +502,22 @@ def _extract_siril_save_targets(script_path: Path) -> List[str]:
         if not s or s.startswith("#"):
             continue
         low = s.lower()
-        if not low.startswith("save "):
+        if low.startswith("save "):
+            rest = s.split(None, 1)[1].strip() if len(s.split(None, 1)) == 2 else ""
+            if not rest:
+                continue
+            target = Path(rest.strip().strip('"').strip("'")).name
+            if target:
+                targets.append(target)
             continue
-        rest = s.split(None, 1)[1].strip() if len(s.split(None, 1)) == 2 else ""
-        if not rest:
-            continue
-        target = Path(rest.strip().strip('"').strip("'")).name
-        if target:
-            targets.append(target)
+
+        if low.startswith("stack ") and "-out=" in low:
+            m = re.search(r"-out=([^\s]+)", s)
+            if m:
+                out_arg = m.group(1).strip().strip('"').strip("'")
+                target = Path(out_arg).name
+                if target:
+                    targets.append(target)
     return targets
 
 
@@ -519,6 +659,17 @@ def _run_phases(
         else (project_root / "siril_stack_average.ssf").resolve()
     )
 
+    if not (isinstance(reg_script_cfg, str) and reg_script_cfg.strip()):
+        if not reg_script_path.exists():
+            alt = (project_root / "siril_scripts" / "siril_register_osc.ssf").resolve()
+            if alt.exists():
+                reg_script_path = alt
+    if not (isinstance(stack_script_cfg, str) and stack_script_cfg.strip()):
+        if not stack_script_path.exists():
+            alt = (project_root / "siril_scripts" / "siril_stack_average.ssf").resolve()
+            if alt.exists():
+                stack_script_path = alt
+
     reg_out_name = str(registration_cfg.get("output_dir") or "registered")
     reg_pattern = str(registration_cfg.get("registered_filename_pattern") or "reg_{index:05d}.fit")
 
@@ -536,120 +687,238 @@ def _run_phases(
     _phase_start(run_id, log_fp, phase_id, phase_name)
     if _stop_requested(run_id, log_fp, phase_id, phase_name):
         return False
-    if reg_engine != "siril":
-        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"registration.engine not supported: {reg_engine!r}"})
-        return False
-    if not siril_exe:
-        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "siril executable not found"})
-        return False
 
-    cfa_flag = _fits_is_cfa(frames[0]) if frames else None
-    header_bayerpat = _fits_get_bayerpat(frames[0]) if frames else None
-    warn = None
-    if header_bayerpat is not None and header_bayerpat != bayer_pattern:
-        warn = "bayer_pattern mismatch (config vs header)"
+    if reg_engine == "opencv_cfa":
+        if cv2 is None:
+            _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "opencv (cv2) not available; install python opencv to use registration.engine=opencv_cfa"})
+            return False
 
-    using_default_reg_script = not (isinstance(reg_script_cfg, str) and reg_script_cfg.strip())
-    if using_default_reg_script and (color_mode != "OSC" or cfa_flag is not True):
-        _phase_end(
-            run_id,
-            log_fp,
-            phase_id,
-            phase_name,
-            "error",
-            {
-                "error": "default registration script requires OSC/CFA; set registration.siril_script for non-OSC inputs",
-                "color_mode": color_mode,
-                "cfa": cfa_flag,
-            },
+        allow_rotation = bool(registration_cfg.get("allow_rotation"))
+        min_star_matches = registration_cfg.get("min_star_matches")
+        try:
+            min_star_matches_i = int(min_star_matches) if min_star_matches is not None else 1
+        except Exception:
+            min_star_matches_i = 1
+
+        reg_out = outputs_dir / reg_out_name
+        reg_out.mkdir(parents=True, exist_ok=True)
+
+        ref_idx = 0
+        ref_stars = -1
+        ref_lum01: Optional[np.ndarray] = None
+        ref_hdr = None
+        ref_path = None
+        for i, p in enumerate(frames):
+            try:
+                data = fits.getdata(str(p), ext=0)
+                if data is None:
+                    continue
+                lum = _cfa_downsample_sum2x2(np.asarray(data))
+                lum01 = _opencv_prepare_ecc_image(lum)
+                stars = _opencv_count_stars(lum01)
+                if stars > ref_stars:
+                    ref_stars = stars
+                    ref_idx = i
+                    ref_lum01 = lum01
+                    ref_hdr = fits.getheader(str(p), ext=0)
+                    ref_path = p
+            except Exception:
+                continue
+
+        if ref_lum01 is None or ref_stars < max(1, min_star_matches_i):
+            _phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {"error": "failed to select registration reference (insufficient stars)", "min_star_matches": min_star_matches_i, "best_star_count": ref_stars},
+            )
+            return False
+
+        corrs: List[float] = []
+        registered_count = 0
+        for idx, p in enumerate(frames):
+            try:
+                src_data = fits.getdata(str(p), ext=0)
+                if src_data is None:
+                    raise RuntimeError("no FITS data")
+                src_hdr = fits.getheader(str(p), ext=0)
+                mosaic = np.asarray(src_data)
+                lum = _cfa_downsample_sum2x2(mosaic)
+                lum01 = _opencv_prepare_ecc_image(lum)
+                stars = _opencv_count_stars(lum01)
+                if stars < max(1, min_star_matches_i):
+                    raise RuntimeError(f"insufficient stars: {stars} < {min_star_matches_i}")
+
+                if idx == ref_idx:
+                    warped = mosaic.astype("float32", copy=False)
+                    cc = 1.0
+                else:
+                    init = _opencv_best_translation_init(lum01, ref_lum01)
+                    try:
+                        warp, cc = _opencv_ecc_warp(lum01, ref_lum01, allow_rotation=allow_rotation, init_warp=init)
+                    except Exception:
+                        warp, cc = init, 0.0
+                    if not np.isfinite(cc) or cc < 0.15:
+                        warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
+                    warped = _warp_cfa_mosaic_via_subplanes(mosaic, warp)
+
+                try:
+                    dst_name = reg_pattern.format(index=registered_count + 1)
+                except Exception:
+                    dst_name = f"reg_{registered_count + 1:05d}.fit"
+                dst_path = reg_out / dst_name
+                fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=src_hdr, overwrite=True)
+                registered_count += 1
+                corrs.append(float(cc))
+            except Exception as e:
+                _phase_end(
+                    run_id,
+                    log_fp,
+                    phase_id,
+                    phase_name,
+                    "error",
+                    {
+                        "error": "opencv_cfa registration failed",
+                        "frame": str(p),
+                        "frame_index": idx,
+                        "reference_index": ref_idx,
+                        "reference_frame": str(ref_path) if ref_path is not None else None,
+                        "details": str(e),
+                    },
+                )
+                return False
+
+        extra: Dict[str, Any] = {
+            "engine": "opencv_cfa",
+            "output_dir": str(reg_out),
+            "registered_count": registered_count,
+            "reference_index": ref_idx,
+            "min_star_matches": min_star_matches_i,
+            "allow_rotation": allow_rotation,
+        }
+        if corrs:
+            extra["ecc_corr_min"] = float(min(corrs))
+            extra["ecc_corr_mean"] = float(sum(corrs) / len(corrs))
+        _phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
+
+    else:
+        if reg_engine != "siril":
+            _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"registration.engine not supported: {reg_engine!r}"})
+            return False
+        if not siril_exe:
+            _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "siril executable not found"})
+            return False
+
+
+        cfa_flag = _fits_is_cfa(frames[0]) if frames else None
+        header_bayerpat = _fits_get_bayerpat(frames[0]) if frames else None
+        warn = None
+        if header_bayerpat is not None and header_bayerpat != bayer_pattern:
+            warn = "bayer_pattern mismatch (config vs header)"
+
+        using_default_reg_script = not (isinstance(reg_script_cfg, str) and reg_script_cfg.strip())
+        if using_default_reg_script and (color_mode != "OSC" or cfa_flag is not True):
+            _phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {
+                    "error": "default registration script requires OSC/CFA; set registration.siril_script for non-OSC inputs",
+                    "color_mode": color_mode,
+                    "cfa": cfa_flag,
+                },
+            )
+            return False
+
+        if not reg_script_path.exists() or not reg_script_path.is_file():
+            _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"registration script not found: {reg_script_path}"})
+            return False
+
+        ok_script, violations = _validate_siril_script(reg_script_path)
+        if not ok_script:
+            _phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {"error": "registration script violates policy", "script": str(reg_script_path), "violations": violations},
+            )
+            return False
+
+        reg_work = work_dir / "registration"
+        reg_work.mkdir(parents=True, exist_ok=True)
+        for i, src in enumerate(frames, start=1):
+            dst = reg_work / f"seq{i:05d}.fit"
+            _safe_symlink_or_copy(src, dst)
+
+        ok, meta = _run_siril_script(
+            siril_exe=siril_exe,
+            work_dir=reg_work,
+            script_path=reg_script_path,
+            artifacts_dir=artifacts_dir,
+            log_name="siril_registration.log",
+            quiet=True,
         )
-        return False
+        if not ok:
+            _phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {
+                    "siril": meta,
+                    "bayer_pattern": bayer_pattern,
+                    "bayer_pattern_header": header_bayerpat,
+                    "cfa": cfa_flag,
+                    "warning": warn,
+                },
+            )
+            return False
 
-    if not reg_script_path.exists() or not reg_script_path.is_file():
-        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"registration script not found: {reg_script_path}"})
-        return False
+        reg_out = outputs_dir / reg_out_name
+        reg_out.mkdir(parents=True, exist_ok=True)
+        registered = sorted([p for p in reg_work.iterdir() if p.is_file() and p.name.lower().startswith("r_") and _is_fits_image_path(p)])
+        if not registered:
+            _phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {"error": "no registered frames produced by Siril (expected r_*.fit*)", "siril": meta},
+            )
+            return False
 
-    ok_script, violations = _validate_siril_script(reg_script_path)
-    if not ok_script:
+        moved = 0
+        for idx, src in enumerate(registered, start=1):
+            try:
+                dst_name = reg_pattern.format(index=idx)
+            except Exception:
+                dst_name = src.name
+            shutil.copy2(src, reg_out / dst_name)
+            moved += 1
         _phase_end(
             run_id,
             log_fp,
             phase_id,
             phase_name,
-            "error",
-            {"error": "registration script violates policy", "script": str(reg_script_path), "violations": violations},
-        )
-        return False
-
-    reg_work = work_dir / "registration"
-    reg_work.mkdir(parents=True, exist_ok=True)
-    for i, src in enumerate(frames, start=1):
-        dst = reg_work / f"seq{i:05d}.fit"
-        _safe_symlink_or_copy(src, dst)
-
-    ok, meta = _run_siril_script(
-        siril_exe=siril_exe,
-        work_dir=reg_work,
-        script_path=reg_script_path,
-        artifacts_dir=artifacts_dir,
-        log_name="siril_registration.log",
-        quiet=True,
-    )
-    if not ok:
-        _phase_end(
-            run_id,
-            log_fp,
-            phase_id,
-            phase_name,
-            "error",
+            "ok",
             {
                 "siril": meta,
+                "output_dir": str(reg_out),
+                "registered_count": moved,
                 "bayer_pattern": bayer_pattern,
                 "bayer_pattern_header": header_bayerpat,
                 "cfa": cfa_flag,
                 "warning": warn,
             },
         )
-        return False
-
-    reg_out = outputs_dir / reg_out_name
-    reg_out.mkdir(parents=True, exist_ok=True)
-    registered = sorted([p for p in reg_work.iterdir() if p.is_file() and p.name.lower().startswith("r_") and _is_fits_image_path(p)])
-    if not registered:
-        _phase_end(
-            run_id,
-            log_fp,
-            phase_id,
-            phase_name,
-            "error",
-            {"error": "no registered frames produced by Siril (expected r_*.fit*)", "siril": meta},
-        )
-        return False
-
-    moved = 0
-    for idx, src in enumerate(registered, start=1):
-        try:
-            dst_name = reg_pattern.format(index=idx)
-        except Exception:
-            dst_name = src.name
-        shutil.copy2(src, reg_out / dst_name)
-        moved += 1
-    _phase_end(
-        run_id,
-        log_fp,
-        phase_id,
-        phase_name,
-        "ok",
-        {
-            "siril": meta,
-            "output_dir": str(reg_out),
-            "registered_count": moved,
-            "bayer_pattern": bayer_pattern,
-            "bayer_pattern_header": header_bayerpat,
-            "cfa": cfa_flag,
-            "warning": warn,
-        },
-    )
 
     for phase_id, phase_name in [
         (2, "global_normalization"),
@@ -809,10 +1078,10 @@ def _run_phases(
         ]
     )
     produced = _pick_output_file(candidates)
-    if produced is None and len(new_names) == 1:
-        lone = stack_work / new_names[0]
-        if lone.is_file() and _is_fits_image_path(lone):
-            produced = lone
+    if produced is None:
+        new_fits = [stack_work / n for n in new_names if (stack_work / n).is_file() and _is_fits_image_path(stack_work / n)]
+        if len(new_fits) == 1:
+            produced = new_fits[0]
     if produced is None:
         _phase_end(
             run_id,

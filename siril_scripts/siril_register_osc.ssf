@@ -1,0 +1,19 @@
+# ================================================
+# Siril 1.4 – OSC Registration
+# ================================================
+
+requires 1.4.0
+setext fit
+setcpu 1
+setmem 0.9
+
+# Sequenz aus Lights erzeugen
+link . -out=lights
+
+# Debayer (Pflicht bei OSC in 1.4)
+convert lights -debayer
+
+# Registrierung auf aktiver Sequenz
+register lights
+
+exit
