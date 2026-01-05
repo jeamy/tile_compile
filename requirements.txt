@@ -2,6 +2,8 @@
 numpy>=1.24.0
 scipy>=1.10.0
 pandas>=2.0.0
+astroquery
+astropy>=5.2.0
 
 # Astronomical and Image Processing
 astropy>=5.2.0
