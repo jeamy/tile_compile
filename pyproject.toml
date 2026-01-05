@@ -1,19 +1,32 @@
+[tool.poetry]
+name = "tile_compile"
+version = "3.0.0"
+description = "Astronomical Image Reconstruction Toolkit"
+authors = ["Your Name <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+numpy = "^1.22.0"
+astropy = "^5.0"
+opencv-python = "^4.6.0"
+pyyaml = "^6.0"
+scikit-learn = "^1.2.0"
+jsonschema = "^4.17.3"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.2.0"
+pytest-cov = "^3.0.0"
+
+[tool.poetry.scripts]
+tile-compile = "tile_compile_runner:main"
+
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
 
-[project]
-name = "tile-compile"
-version = "0.0.1"
-requires-python = ">=3.11"
-dependencies = [
-  "PyYAML>=6.0",
-  "astropy>=5.0",
-  "jsonschema>=4.18"
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests"
 ]
-
-[project.scripts]
-tile-compile-backend = "tile_compile_backend_cli:main"
-
-[tool.setuptools]
-packages = ["tile_compile_backend"]

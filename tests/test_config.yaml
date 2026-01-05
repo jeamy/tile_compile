@@ -1,0 +1,67 @@
+# Test Configuration for Tile Compile Methodik v3
+
+# Global project settings
+project:
+  name: test_astronomical_reconstruction
+  version: 3.0
+
+# Data input configuration
+data:
+  frames_min: 50  # Minimum number of input frames
+  color_mode: OSC  # One-Shot Color
+  bayer_pattern: GBRG  # Typical GBRG Bayer pattern
+
+# Registration configuration
+registration:
+  engine: siril  # Use Siril for registration
+  allow_rotation: true
+  min_star_matches: 10
+  siril_script: siril_scripts/siril_register_osc.ssf
+
+# Metrics configuration
+metrics:
+  global:
+    background_level:
+      method: median
+      clamp: [-1, 1]
+    noise_level:
+      method: std
+      clamp: [0, 2]
+  tile:
+    size: 64
+    overlap: 0.25
+    fwhm_threshold: 3.0
+
+# Reconstruction configuration
+reconstruction:
+  method: tile_based
+  weights:
+    global_quality: 0.6
+    local_quality: 0.4
+  tile_blending:
+    method: hann_window
+
+# Stacking configuration
+stacking:
+  engine: siril
+  method: average
+  frame_selection: none  # No frame selection allowed
+
+# Synthetic frame generation
+synthetic:
+  frames_min: 15
+  frames_max: 30
+  method: linear_average
+
+# Policy constraints
+policy:
+  linearity_check: true
+  channel_independent: true
+  no_frame_selection: true
+
+# Logging and diagnostics
+logging:
+  level: INFO
+  output_dir: artifacts
+  metrics_output: metrics.json
+  reconstruction_output: reconstruction.fits

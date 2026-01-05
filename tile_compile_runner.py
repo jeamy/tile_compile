@@ -17,6 +17,17 @@ from astropy.io import fits
 import numpy as np
 import yaml
 
+# New imports for Methodik v3 integration
+from tile_compile_backend.policy import PhaseManager, PolicyValidator
+from tile_compile_backend.metrics import compute_channel_metrics
+from tile_compile_backend.reconstruction import reconstruct_channels
+from tile_compile_backend.synthetic import generate_channel_synthetic_frames
+from tile_compile_backend.clustering import cluster_channels
+from tile_compile_backend.configuration import validate_and_prepare_configuration
+from tile_compile_backend.registration import CFARegistration, BayerPattern
+from tile_compile_backend.linearity import validate_frames_linearity
+from tile_compile_backend.tile_grid import generate_multi_channel_grid
+
 try:
     import cv2  # type: ignore
 except Exception:  # noqa: BLE001
@@ -1127,6 +1138,87 @@ def _run_phases(
 
     return True
 
+
+def process_pipeline(config, input_frames):
+    """
+    Process entire pipeline using new modules with comprehensive validation
+    """
+    # Validate configuration
+    config = validate_and_prepare_configuration(config)
+    
+    # Create phase manager
+    phase_manager = PhaseManager()
+    
+    # Input scan and validation
+    phase_manager.advance_phase('SCAN_INPUT', {'frames': input_frames})
+    
+    # Linearity Validation
+    linearity_result = validate_frames_linearity(
+        np.array(input_frames), 
+        config.get('linearity', {})
+    )
+    
+    if linearity_result['overall_linearity'] < 0.9:
+        raise ValueError("Input frames fail linearity validation")
+    
+    # Registration with CFA-aware method
+    registration_result = CFARegistration.register_cfa_frames(
+        linearity_result['valid_frames'], 
+        bayer_pattern=BayerPattern[config.get('bayer_pattern', 'GBRG')]
+    )
+    
+    registered_frames = registration_result['registered_frames']
+    phase_manager.advance_phase('REGISTRATION', {'registered_frames': registered_frames})
+    
+    # Channel Split
+    channels = {
+        'R': [frame for frame in registered_frames],
+        'G': [frame for frame in registered_frames],
+        'B': [frame for frame in registered_frames]
+    }
+    phase_manager.advance_phase('CHANNEL_SPLIT', {'channels': channels})
+    
+    # Compute Metrics
+    channel_metrics = compute_channel_metrics(channels)
+    phase_manager.advance_phase('GLOBAL_METRICS', {'metrics': channel_metrics})
+    
+    # Adaptive Tile Grid Generation
+    tile_grids = generate_multi_channel_grid(
+        channels, 
+        config.get('tile_grid', {})
+    )
+    phase_manager.advance_phase('TILE_GRID', {'grids': tile_grids})
+    
+    # Synthetic Frame Generation
+    synthetic_frames = generate_channel_synthetic_frames(
+        channels, 
+        channel_metrics, 
+        config.get('synthetic', {})
+    )
+    phase_manager.advance_phase('SYNTHETIC_FRAMES', {'synthetic_frames': synthetic_frames})
+    
+    # State Clustering
+    clustering_results = cluster_channels(
+        channels, 
+        channel_metrics, 
+        config.get('clustering', {})
+    )
+    phase_manager.advance_phase('STATE_CLUSTERING', {'clustering': clustering_results})
+    
+    # Tile Reconstruction
+    reconstructed_channels = reconstruct_channels(
+        channels, 
+        channel_metrics
+    )
+    phase_manager.advance_phase('TILE_RECONSTRUCTION', {'reconstructed_channels': reconstructed_channels})
+    
+    # Final Stacking
+    # TODO: Implement final stacking logic
+    phase_manager.advance_phase('STACKING')
+    
+    phase_manager.advance_phase('DONE')
+    
+    return reconstructed_channels
 
 def cmd_run(args) -> int:
     config_path = Path(args.config).expanduser().resolve()
