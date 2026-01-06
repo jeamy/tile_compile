@@ -317,6 +317,21 @@ def _phase_end(
     _emit(ev, log_fp)
 
 
+def _phase_progress(run_id: str, log_fp, phase_id: int, phase_name: str, current: int, total: int, extra: Optional[Dict[str, Any]] = None):
+    ev: Dict[str, Any] = {
+        "type": "phase_progress",
+        "run_id": run_id,
+        "phase": phase_id,
+        "phase_name": phase_name,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "current": current,
+        "total": total,
+    }
+    if extra:
+        ev.update(extra)
+    _emit(ev, log_fp)
+
+
 def _stop_requested(run_id: str, log_fp, phase_id: int, phase_name: str) -> bool:
     if not _STOP:
         return False
@@ -1303,11 +1318,14 @@ def _run_phases(
     except Exception:
         w_con = 1.0 / 3.0
 
+    total_frames = sum(len(channels[ch]) for ch in ("R", "G", "B"))
+    processed_frames = 0
+    
     for ch in ("R", "G", "B"):
         q_local: List[List[float]] = []
         q_mean: List[float] = []
         q_var: List[float] = []
-        for f in channels[ch]:
+        for f_idx, f in enumerate(channels[ch]):
             tm = tile_calc.calculate_tile_metrics(f)
             fwhm = np.asarray(tm.get("fwhm") or [], dtype=np.float32)
             rnd = np.asarray(tm.get("roundness") or [], dtype=np.float32)
@@ -1325,6 +1343,10 @@ def _run_phases(
             q_local.append([float(x) for x in q.tolist()])
             q_mean.append(float(np.mean(q)) if q.size else 0.0)
             q_var.append(float(np.var(q)) if q.size else 0.0)
+            
+            processed_frames += 1
+            if processed_frames % 5 == 0 or processed_frames == total_frames:
+                _phase_progress(run_id, log_fp, phase_id, phase_name, processed_frames, total_frames, {"channel": ch})
 
         channel_metrics[ch]["tiles"] = {"Q_local": q_local, "tile_quality_mean": q_mean, "tile_quality_variance": q_var}
 
@@ -1342,7 +1364,9 @@ def _run_phases(
         hdr0 = fits.getheader(str(registered_files[0]), ext=0)
     except Exception:
         hdr0 = None
-    for ch in ("R", "G", "B"):
+    
+    channels_to_process = [ch for ch in ("R", "G", "B") if channels[ch]]
+    for ch_idx, ch in enumerate(channels_to_process, start=1):
         frs = channels[ch]
         gfc = np.asarray(channel_metrics[ch]["global"].get("G_f_c") or [], dtype=np.float32)
         if frs and gfc.size == len(frs) and float(np.sum(gfc)) > 0:
@@ -1359,6 +1383,8 @@ def _run_phases(
 
         out_path = outputs_dir / f"reconstructed_{ch}.fits"
         fits.writeto(str(out_path), reconstructed[ch].astype("float32", copy=False), header=hdr0, overwrite=True)
+        
+        _phase_progress(run_id, log_fp, phase_id, phase_name, ch_idx, len(channels_to_process), {"channel": ch})
 
     _phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"outputs": [f"reconstructed_{c}.fits" for c in ("R", "G", "B")]})
 

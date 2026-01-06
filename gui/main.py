@@ -266,7 +266,7 @@ class PhaseProgressWidget(QWidget):
             name_label.setToolTip(phase_desc)
             status_label = QLabel("pending")
             status_label.setObjectName("PhasePending")
-            status_label.setFixedWidth(80)
+            status_label.setMinimumWidth(120)
             status_label.setAlignment(Qt.AlignCenter)
             grid.addWidget(name_label, i, 0)
             grid.addWidget(status_label, i, 1)
@@ -287,7 +287,7 @@ class PhaseProgressWidget(QWidget):
         else:
             self.reduced_mode_label.setVisible(False)
 
-    def update_phase(self, phase_name: str, status: str):
+    def update_phase(self, phase_name: str, status: str, progress_current: int = 0, progress_total: int = 0):
         phase_id = None
         for pid, pname, _ in METHODIK_V3_PHASES:
             if pname == phase_name:
@@ -298,7 +298,11 @@ class PhaseProgressWidget(QWidget):
         label = self._phase_status_labels[phase_id]
         status_lower = status.lower()
         if status_lower == "running":
-            label.setText("running")
+            if progress_total > 0 and progress_current > 0:
+                percent = int(100 * progress_current / progress_total)
+                label.setText(f"{progress_current}/{progress_total} ({percent}%)")
+            else:
+                label.setText("running")
             label.setObjectName("PhaseRunning")
         elif status_lower in ("ok", "success"):
             label.setText("ok")
@@ -1450,6 +1454,11 @@ class MainWindow(QMainWindow):
                                 elif ev_type == "phase_start":
                                     phase_name = ev.get("phase_name", "")
                                     self.phase_progress.update_phase(phase_name, "running")
+                                elif ev_type == "phase_progress":
+                                    phase_name = ev.get("phase_name", "")
+                                    current = int(ev.get("current", 0))
+                                    total = int(ev.get("total", 0))
+                                    self.phase_progress.update_phase(phase_name, "running", current, total)
                                 elif ev_type == "phase_end":
                                     phase_name = ev.get("phase_name", "")
                                     ok = ev.get("ok", True)
