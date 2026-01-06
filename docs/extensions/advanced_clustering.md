@@ -1,7 +1,8 @@
 # Advanced State Clustering Techniques
 
 ## Current Methodology Limitations
-- Fixed cluster range (15-30 clusters)
+- Full mode cluster range (15–30 clusters; config: `synthetic.clustering.cluster_count_range`)
+- Reduced Mode behavior: skip clustering by default (config: `assumptions.reduced_mode_skip_clustering`), or optionally use a reduced range (default 5–10; config: `assumptions.reduced_mode_cluster_range`)
 - Static state vector definition
 - Limited dynamic adaptation
 

@@ -1,5 +1,16 @@
 # Potential Extensions for Astronomical Image Reconstruction
 
+## Methodik v3 constraints (assumptions & reduced mode)
+
+All extensions listed below must preserve the Methodik v3 invariants:
+
+- Linear data only (no stretch / non-linear operators)
+- No frame selection (pixel-level artifact rejection is allowed)
+- Channel-separated processing
+- Uniform exposure time within the configured tolerance (default: ±5%)
+
+Reduced Mode (default thresholds): if `frame_count < assumptions.frames_reduced_threshold` (200) and `>= assumptions.frames_min` (50), the pipeline skips `STATE_CLUSTERING` and `SYNTHETIC_FRAMES` and proceeds deterministically with direct tile-weighted reconstruction.
+
 ## 1. Machine Learning Enhanced Parameter Optimization
 
 ### Objective
@@ -44,8 +55,13 @@ Create a generalized framework supporting multiple astronomical instruments
 ## 3. Advanced State Clustering Techniques
 
 ### Current Methodology
-- 15-30 frame clusters
+- Full mode: 15–30 frame clusters (config: `synthetic.clustering.cluster_count_range`)
 - State vector based on global and local metrics
+
+### Reduced Mode behavior
+- Skip clustering by default (config: `assumptions.reduced_mode_skip_clustering`, default `true`)
+- Optional reduced range (config: `assumptions.reduced_mode_cluster_range`, default 5–10)
+- If clustering is skipped, synthetic frame generation is skipped
 
 ### Proposed Enhancements
 - Dynamical systems theory integration

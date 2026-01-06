@@ -1,136 +1,283 @@
 # ============================================================
-# TILE COMPILE – CLEAN BREAK PROC
+# FILE: tile_compile.proc
+# PURPOSE
+# - Human-readable, normative description of the Tile-Compile pipeline as specified by “Methodik v3”.
+# - Intended as documentation / reference for reviewers and contributors.
+# - Not used by the Python runner directly (the authoritative implementation is in tile_compile_runner.py),
+#   but it should stay consistent with the runner’s emitted phases and the schema.
+#
+# RELATED FILES
+# - tile_compile.yaml: Example configuration (user-editable inputs).
+# - tile_compile.schema.json: Machine-readable JSON Schema used for validation.
+# - tile_compile.schema.yaml: Human-oriented schema/editor metadata for the GUI.
+# ============================================================
+# TILE COMPILE – METHODIK V3 PROC
+# ============================================================
+# 
+# Normative pipeline specification aligned with:
+# - tile_basierte_qualitatsrekonstruktion_methodik_en.md (v3)
+# - tile_compile.schema.json
+#
+# Pipeline Phases (11 total):
+#   0. SCAN_INPUT
+#   1. REGISTRATION
+#   2. CHANNEL_SPLIT
+#   3. NORMALIZATION
+#   4. GLOBAL_METRICS
+#   5. TILE_GRID
+#   6. LOCAL_METRICS
+#   7. TILE_RECONSTRUCTION
+#   8. STATE_CLUSTERING
+#   9. SYNTHETIC_FRAMES
+#  10. STACKING
+#  11. DONE
 # ============================================================
 
 LOAD config.yaml
 
-# ------------------------------------------------------------
-# Preconditions
-# ------------------------------------------------------------
-ASSERT data.linear_required == true
-ASSERT frames.count >= data.frames_min
+# ============================================================
+# Phase 0 – SCAN_INPUT (Eingabe-Validierung)
+# ============================================================
+SCAN input_dir FOR frames MATCHING pattern
 
-# ------------------------------------------------------------
-# Phase 1 – Registrierung (zwingend)
-# ------------------------------------------------------------
+# Hard Assumptions (Methodik v3 §2.1)
+ASSERT data.linear_required == true
+    ERROR "Hard assumption violated: data must be linear"
+
+ASSERT frames.count >= assumptions.frames_min
+    ERROR "Hard assumption violated: frame count below minimum"
+
+# Soft Assumptions Check
+SET reduced_mode = (frames.count < assumptions.frames_reduced_threshold)
+
+IF reduced_mode:
+    LOG WARNING "Reduced Mode active: {frames.count} frames < {assumptions.frames_reduced_threshold}"
+    LOG WARNING "STATE_CLUSTERING and SYNTHETIC_FRAMES will be skipped"
+
+# ============================================================
+# Phase 1 – REGISTRATION (Frame-Registrierung)
+# ============================================================
 CALL register_frames(
     engine = registration.engine,
     reference = registration.reference,
     allow_rotation = registration.allow_rotation,
     output_dir = registration.output_dir,
-    filename_pattern = registration.registered_filename_pattern
+    filename_pattern = registration.registered_filename_pattern,
+    siril_script = registration.siril_script
 )
 
 ASSERT registration.star_matches >= registration.min_star_matches
+    ERROR "Registration failed: insufficient star matches"
+
+# Check registration residual (Methodik v3 §2.2)
+IF registration.residual_px > assumptions.registration_residual_max_px:
+    ABORT "Registration residual exceeds maximum"
+ELIF registration.residual_px > assumptions.registration_residual_warn_px:
+    LOG WARNING "Registration residual above warning threshold"
 
 LOAD_FRAMES_FROM_DIR registration.output_dir AS registered_frames
 
-# ------------------------------------------------------------
-# Phase 2 – Globale Normalisierung (Pflicht, einmalig)
-# ------------------------------------------------------------
+# ============================================================
+# Phase 2 – CHANNEL_SPLIT (Kanal-Trennung R/G/B)
+# ============================================================
+IF data.color_mode == "OSC":
+    FOR frame IN registered_frames:
+        DEBAYER frame USING data.bayer_pattern
+        SPLIT INTO channels {R, G, B}
+ELSE:
+    SET channels = {MONO}
+
+# ============================================================
+# Phase 3 – NORMALIZATION (Globale lineare Normalisierung)
+# ============================================================
+# Methodik v3 §4: mandatory, global, linear, exactly once, before metrics
 ASSERT normalization.enabled == true
-FOR frame IN registered_frames:
-    APPLY global_linear_normalization(
-        mode = normalization.mode,
-        per_channel = normalization.per_channel
-    )
 
-# ------------------------------------------------------------
-# Phase 3 – Globale Frame-Metriken
-# ------------------------------------------------------------
-FOR frame IN registered_frames:
-    MEASURE global_background B_f (masked, robust)
-    MEASURE global_noise sigma_f
-    MEASURE global_gradient_energy E_f
+FOR channel IN channels:
+    FOR frame IN registered_frames:
+        APPLY global_linear_normalization(
+            mode = normalization.mode,
+            per_channel = normalization.per_channel
+        )
+        # I'_f = I_f / B_f
 
-NORMALIZE {B_f, sigma_f, E_f} USING median + MAD
-COMPUTE Q_f WITH weights (background, noise, gradient)
-CLAMP Q_f TO global_metrics.clamp
-COMPUTE G_f = exp(Q_f)
+# ============================================================
+# Phase 4 – GLOBAL_METRICS (Globale Frame-Metriken)
+# ============================================================
+# Methodik v3 §5
+FOR channel IN channels:
+    FOR frame IN registered_frames:
+        MEASURE global_background B_f (masked, robust)
+        MEASURE global_noise sigma_f
+        MEASURE global_gradient_energy E_f
+
+    NORMALIZE {B_f, sigma_f, E_f} USING median + MAD
+    
+    # Q_f = α(-B̃_f) + β(-σ̃_f) + γ(Ẽ_f)
+    # with α + β + γ = 1 (mandatory)
+    ASSERT global_metrics.weights.background + global_metrics.weights.noise + global_metrics.weights.gradient == 1.0
+        ERROR "Weight normalization violated: α + β + γ must equal 1"
+    
+    COMPUTE Q_f WITH weights (background, noise, gradient)
+    CLAMP Q_f TO global_metrics.clamp  # [-3, +3]
+    COMPUTE G_f = exp(Q_f)
 
 WRITE frame_metrics.csv
 
-# ------------------------------------------------------------
-# Phase 4 – Tile-Geometrie (seeing-adaptiv)
-# ------------------------------------------------------------
+# ============================================================
+# Phase 5 – TILE_GRID (Seeing-adaptive Tile-Geometrie)
+# ============================================================
+# Methodik v3 §6
 ESTIMATE median_FWHM F FROM registered_frames
     USING robust_star_sample
+    REJECT outliers (high ellipticity, low SNR)
 
-COMPUTE tile_size T = clip(
+# Check star elongation (Methodik v3 §2.2)
+IF median_elongation > assumptions.elongation_max:
+    ABORT "Star elongation exceeds maximum"
+ELIF median_elongation > assumptions.elongation_warn:
+    LOG WARNING "Star elongation above warning threshold"
+
+# T_0 = s · F
+# T = floor(clip(T_0, T_min, floor(min(W, H) / D)))
+COMPUTE tile_size T = floor(clip(
     tile.size_factor * F,
     tile.min_size,
-    min(data.image_width, data.image_height) / tile.max_divisor
-)
+    floor(min(data.image_width, data.image_height) / tile.max_divisor)
+))
 
-SET overlap = tile.overlap_fraction * T
-GENERATE tile_grid WITH overlap
+# O = floor(o · T), S = T - O
+SET overlap O = floor(tile.overlap_fraction * T)
+SET stride S = T - O
+GENERATE tile_grid WITH T, O, S
 
-# ------------------------------------------------------------
-# Phase 5 – Lokale Tile-Metriken
-# ------------------------------------------------------------
-FOR each tile t IN tile_grid:
+# ============================================================
+# Phase 6 – LOCAL_METRICS (Lokale Tile-Metriken)
+# ============================================================
+# Methodik v3 §7
+FOR channel IN channels:
+    FOR each tile t IN tile_grid:
+        FOR each frame f IN registered_frames:
+            EXTRACT tile t FROM frame f
 
-    FOR each frame f IN registered_frames:
-        EXTRACT tile t FROM frame f
+            IF detected_stars >= tile.star_min_count:
+                # Case A: stars present
+                MEASURE FWHM_f,t, roundness_f,t, contrast_f,t
+                NORMALIZE metrics USING median + MAD
+                # Q_star = 0.6·(-log(FWHM)~) + 0.2·R~ + 0.2·C~
+                COMPUTE Q_star_f,t USING log(FWHM)
+                SET Q_local_f,t = Q_star_f,t
+            ELSE:
+                # Case B: no stars (structure mode)
+                MEASURE gradient_f,t, sigma_f,t, background_f,t
+                # Q_struct = 0.7·(E/σ)~ - 0.3·B~
+                COMPUTE structure_metric = gradient_f,t / sigma_f,t
+                NORMALIZE metrics USING median + MAD
+                COMPUTE Q_struct_f,t
+                SET Q_local_f,t = Q_struct_f,t
 
-        IF detected_stars >= tile.star_min_count:
-            MEASURE FWHM_f,t, roundness_f,t, contrast_f,t
-            NORMALIZE metrics USING median + MAD
-            COMPUTE Q_star_f,t USING log(FWHM)
-            SET Q_local_f,t = Q_star_f,t
+            CLAMP Q_local_f,t TO local_metrics.clamp  # [-3, +3]
+            COMPUTE L_f,t = exp(Q_local_f,t)
+            
+            # Effective weight (Methodik v3 §8)
+            COMPUTE W_f,t = G_f * L_f,t
+
+# ============================================================
+# Phase 7 – TILE_RECONSTRUCTION (Tile-weise Rekonstruktion)
+# ============================================================
+# Methodik v3 §9
+FOR channel IN channels:
+    FOR each tile t IN tile_grid:
+        COMPUTE D_t = sum(W_f,t for all f)
+        
+        IF D_t >= epsilon:
+            # Normal weighted reconstruction
+            # I_t(p) = Σ_f W_f,t · I_f(p) / Σ_f W_f,t
+            RECONSTRUCT tile t USING weighted_average
         ELSE:
-            MEASURE gradient_f,t, sigma_f,t, background_f,t
-            COMPUTE structure_metric = gradient_f,t / sigma_f,t
-            NORMALIZE metrics USING median + MAD
-            COMPUTE Q_struct_f,t
-            SET Q_local_f,t = Q_struct_f,t
+            # Fallback: unweighted mean (no frame selection!)
+            # I_t(p) = (1/N) Σ_f I_f(p)
+            RECONSTRUCT tile t USING unweighted_mean
+            MARK tile t AS fallback_used=true
+            LOG WARNING "Tile {t} using fallback reconstruction"
+        
+        APPLY window_function (hanning)
+        APPLY tile_median_rescale AFTER background_subtraction
 
-        CLAMP Q_local_f,t TO local_metrics.clamp
-        COMPUTE L_f,t = exp(Q_local_f,t)
-        COMPUTE W_f,t = G_f * L_f,t
+    OVERLAP_ADD reconstructed_tiles INTO channel_image
 
-    RECONSTRUCT tile t USING:
-        weighted average
-        window_function
-        tile_median_rescale AFTER background subtraction
+STORE reconstructed_channel_images
 
-STORE reconstructed tiles
+# ============================================================
+# Phase 8 – STATE_CLUSTERING (Zustandsbasiertes Clustering)
+# ============================================================
+# Methodik v3 §10
+IF reduced_mode AND assumptions.reduced_mode_skip_clustering:
+    LOG INFO "Skipping STATE_CLUSTERING (reduced mode)"
+    SKIP TO Phase 10
+ELSE:
+    FOR each frame f:
+        COMPUTE tile_quality_mean ⟨Q_tile⟩
+        COMPUTE tile_quality_variance Var(Q_tile)
 
-# ------------------------------------------------------------
-# Phase 6 – Zustandsbasierte Clusterung (Frames!)
-# ------------------------------------------------------------
-FOR each frame f:
-    COMPUTE tile_quality_mean ⟨Q_tile⟩
-    COMPUTE tile_quality_variance Var(Q_tile)
+    # State vector (Methodik v3 §10)
+    DEFINE state_vector v_f = [
+        G_f,
+        ⟨Q_tile⟩,
+        Var(Q_tile),
+        B_f,
+        sigma_f
+    ]
 
-DEFINE state_vector v_f = [
-    G_f,
-    ⟨Q_tile⟩,
-    Var(Q_tile),
-    B_f,
-    sigma_f
-]
+    IF reduced_mode:
+        SET k_range = assumptions.reduced_mode_cluster_range
+    ELSE:
+        SET k_range = synthetic.clustering.cluster_count_range  # [15, 30]
 
-CLUSTER frames BY v_f INTO k = [synthetic.frames_min, synthetic.frames_max]
+    CLUSTER frames BY v_f INTO k = k_range
+        USING k_selection = synthetic.clustering.k_selection
 
-FOR each cluster c:
-    RECONSTRUCT one synthetic_frame_c
-    WRITE synthetic_frame_c TO stacking.input_dir
+# ============================================================
+# Phase 9 – SYNTHETIC_FRAMES (Synthetische Qualitätsframes)
+# ============================================================
+# Methodik v3 §10
+IF reduced_mode AND assumptions.reduced_mode_skip_clustering:
+    LOG INFO "Skipping SYNTHETIC_FRAMES (reduced mode)"
+    # Direct tile-weighted stacking without synthetic frames
+    SKIP TO Phase 10
+ELSE:
+    FOR each cluster c:
+        RECONSTRUCT one synthetic_frame_c
+            USING linear_averaging of cluster members
+        WRITE synthetic_frame_c TO stacking.input_dir
 
-# ------------------------------------------------------------
-# Phase 7 – Finales Stacking
-# ------------------------------------------------------------
-CALL stack_frames(
-    engine = stacking.engine,
-    method = stacking.method,
-    input_dir = stacking.input_dir,
-    input_pattern = stacking.input_pattern,
-    output_file = stacking.output_file
-)
+# ============================================================
+# Phase 10 – STACKING (Finales lineares Stacking)
+# ============================================================
+# Methodik v3 §11: linear stacking, no additional weighting, no drizzle
+IF reduced_mode AND assumptions.reduced_mode_skip_clustering:
+    # Direct stacking of reconstructed tiles
+    CALL stack_frames(
+        engine = stacking.engine,
+        method = stacking.method,
+        input = reconstructed_channel_images,
+        output_file = stacking.output_file,
+        siril_script = stacking.siril_script
+    )
+ELSE:
+    CALL stack_frames(
+        engine = stacking.engine,
+        method = stacking.method,
+        input_dir = stacking.input_dir,
+        input_pattern = stacking.input_pattern,
+        output_file = stacking.output_file,
+        siril_script = stacking.siril_script
+    )
 
-# ------------------------------------------------------------
-# Phase 8 – Validierung & Abbruch
-# ------------------------------------------------------------
+# ============================================================
+# Phase 11 – DONE (Validierung & Abschluss)
+# ============================================================
+# Methodik v3 §12
 GENERATE validation_plots
 
 COMPUTE validation.tile_pattern_detected
@@ -140,14 +287,25 @@ COMPUTE validation.tile_weight_variance
 
 SET abort = false
 
+# Abort criteria (Methodik v3 §12)
 IF validation.require_no_tile_pattern == true AND validation.tile_pattern_detected == true:
     SET abort = true
+    LOG ERROR "Abort: tile pattern artifacts detected"
+
 IF validation.fwhm_improvement_percent < validation.min_fwhm_improvement_percent:
     SET abort = true
+    LOG ERROR "Abort: insufficient FWHM improvement"
+
 IF validation.background_rms_increase_percent > validation.max_background_rms_increase_percent:
     SET abort = true
+    LOG ERROR "Abort: background RMS increased"
+
 IF validation.tile_weight_variance < validation.min_tile_weight_variance:
     SET abort = true
+    LOG ERROR "Abort: insufficient tile weight variance"
+
+IF reduced_mode:
+    LOG WARNING "Run completed in Reduced Mode"
 
 IF abort == true:
     MARK run FAILED

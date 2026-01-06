@@ -1,5 +1,16 @@
 # Astronomical Image Reconstruction Methods Comparison
 
+## Methodik v3 scope (assumptions & reduced mode)
+
+This comparison assumes the Methodik v3 invariants:
+
+- Linear data only (no stretch / non-linear operators)
+- No frame selection (pixel-level artifact rejection is allowed)
+- Channel-separated processing
+- Uniform exposure time within the configured tolerance (default: ±5%)
+
+Reduced Mode (default thresholds): if `frame_count < assumptions.frames_reduced_threshold` (200) and `>= assumptions.frames_min` (50), the pipeline skips `STATE_CLUSTERING` and `SYNTHETIC_FRAMES` and proceeds deterministically with direct tile-weighted reconstruction.
+
 ## 1. Traditional Stacking Methods
 
 ### Conventional Approach
@@ -88,8 +99,9 @@
 
 ### 2. State-Based Clustering
 - Comprehensive frame state vector representation
-- 15-30 cluster approach
-- Synthetic frame generation
+- Full mode: 15–30 clusters (config: `synthetic.clustering.cluster_count_range`)
+- Reduced mode: skip clustering (default) or use a reduced range (config: `assumptions.reduced_mode_cluster_range`, default 5–10)
+- Synthetic frame generation is skipped when clustering is skipped
 
 ### 3. Computational Approach
 - Strictly linear pipeline

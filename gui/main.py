@@ -4,7 +4,9 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Dict
+
+import yaml
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -12,9 +14,11 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFrame,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -22,6 +26,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -32,6 +37,35 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+
+METHODIK_V3_PHASES = [
+    (0, "SCAN_INPUT", "Eingabe-Validierung"),
+    (1, "REGISTRATION", "Frame-Registrierung"),
+    (2, "CHANNEL_SPLIT", "Kanal-Trennung (R/G/B)"),
+    (3, "NORMALIZATION", "Globale lineare Normalisierung"),
+    (4, "GLOBAL_METRICS", "Globale Frame-Metriken (B, σ, E)"),
+    (5, "TILE_GRID", "Seeing-adaptive Tile-Geometrie"),
+    (6, "LOCAL_METRICS", "Lokale Tile-Metriken"),
+    (7, "TILE_RECONSTRUCTION", "Tile-weise Rekonstruktion"),
+    (8, "STATE_CLUSTERING", "Zustandsbasiertes Clustering"),
+    (9, "SYNTHETIC_FRAMES", "Synthetische Qualitätsframes"),
+    (10, "STACKING", "Finales lineares Stacking"),
+    (11, "DONE", "Abschluss"),
+]
+
+ASSUMPTIONS_DEFAULTS = {
+    "frames_min": 50,
+    "frames_optimal": 800,
+    "frames_reduced_threshold": 200,
+    "exposure_time_tolerance_percent": 5.0,
+    "registration_residual_warn_px": 0.5,
+    "registration_residual_max_px": 1.0,
+    "elongation_warn": 0.3,
+    "elongation_max": 0.4,
+    "reduced_mode_skip_clustering": True,
+    "reduced_mode_cluster_range": [5, 10],
+}
 
 
 def _resolve_project_root(start: Path) -> Path:
@@ -201,6 +235,292 @@ class RunnerProcess:
                 return
 
 
+class PhaseProgressWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._phase_labels: Dict[int, QLabel] = {}
+        self._phase_status_labels: Dict[int, QLabel] = {}
+        self._reduced_mode = False
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self.reduced_mode_label = QLabel("")
+        self.reduced_mode_label.setObjectName("ReducedModeWarning")
+        self.reduced_mode_label.setVisible(False)
+        layout.addWidget(self.reduced_mode_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(len(METHODIK_V3_PHASES))
+        self.progress_bar.setValue(0)
+        layout.addWidget(self.progress_bar)
+
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        for i, (phase_id, phase_name, phase_desc) in enumerate(METHODIK_V3_PHASES):
+            name_label = QLabel(f"{phase_id}. {phase_name}")
+            name_label.setToolTip(phase_desc)
+            status_label = QLabel("pending")
+            status_label.setObjectName("PhasePending")
+            status_label.setFixedWidth(80)
+            status_label.setAlignment(Qt.AlignCenter)
+            grid.addWidget(name_label, i, 0)
+            grid.addWidget(status_label, i, 1)
+            self._phase_labels[phase_id] = name_label
+            self._phase_status_labels[phase_id] = status_label
+
+        layout.addLayout(grid)
+        layout.addStretch(1)
+
+    def set_reduced_mode(self, enabled: bool, frame_count: int = 0):
+        self._reduced_mode = enabled
+        if enabled:
+            self.reduced_mode_label.setText(
+                f"⚠ Reduced Mode aktiv ({frame_count} Frames < 200)\n"
+                "STATE_CLUSTERING und SYNTHETIC_FRAMES werden übersprungen."
+            )
+            self.reduced_mode_label.setVisible(True)
+        else:
+            self.reduced_mode_label.setVisible(False)
+
+    def update_phase(self, phase_name: str, status: str):
+        phase_id = None
+        for pid, pname, _ in METHODIK_V3_PHASES:
+            if pname == phase_name:
+                phase_id = pid
+                break
+        if phase_id is None or phase_id not in self._phase_status_labels:
+            return
+        label = self._phase_status_labels[phase_id]
+        status_lower = status.lower()
+        if status_lower == "running":
+            label.setText("running")
+            label.setObjectName("PhaseRunning")
+        elif status_lower in ("ok", "success"):
+            label.setText("ok")
+            label.setObjectName("PhaseOk")
+        elif status_lower == "error":
+            label.setText("error")
+            label.setObjectName("PhaseError")
+        elif status_lower == "skipped":
+            label.setText("skipped")
+            label.setObjectName("PhaseSkipped")
+        else:
+            label.setText(status)
+            label.setObjectName("PhasePending")
+        label.setStyle(label.style())
+        completed = sum(1 for lbl in self._phase_status_labels.values()
+                       if lbl.text() in ("ok", "skipped", "error"))
+        self.progress_bar.setValue(completed)
+
+    def reset(self):
+        for phase_id, label in self._phase_status_labels.items():
+            label.setText("pending")
+            label.setObjectName("PhasePending")
+            label.setStyle(label.style())
+        self.progress_bar.setValue(0)
+        self.reduced_mode_label.setVisible(False)
+
+
+class AssumptionsWidget(QWidget):
+    assumptions_changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        hard_box = QGroupBox("Hard Assumptions (Verletzung → Abbruch)")
+        hard_layout = QVBoxLayout(hard_box)
+        hard_items = [
+            "Lineare Daten (kein Stretch, keine nicht-linearen Operatoren)",
+            "Keine Frame-Selektion (Pixel-Level Artefakt-Rejection erlaubt)",
+            "Kanal-getrennte Verarbeitung (kein Channel Coupling)",
+            "Strikt lineare Pipeline (keine Feedback-Loops)",
+        ]
+        for item in hard_items:
+            lbl = QLabel(f"• {item}")
+            lbl.setObjectName("HardAssumption")
+            lbl.setWordWrap(True)
+            hard_layout.addWidget(lbl)
+        exp_row = QHBoxLayout()
+        exp_row.addWidget(QLabel("• Einheitliche Belichtungszeit (Toleranz: ±"))
+        self.exposure_tolerance = QDoubleSpinBox()
+        self.exposure_tolerance.setRange(0.1, 20.0)
+        self.exposure_tolerance.setValue(ASSUMPTIONS_DEFAULTS["exposure_time_tolerance_percent"])
+        self.exposure_tolerance.setSuffix(" %)")
+        self.exposure_tolerance.setFixedWidth(100)
+        self.exposure_tolerance.valueChanged.connect(self.assumptions_changed.emit)
+        exp_row.addWidget(self.exposure_tolerance)
+        exp_row.addStretch(1)
+        hard_layout.addLayout(exp_row)
+        layout.addWidget(hard_box)
+
+        soft_box = QGroupBox("Soft Assumptions (mit Toleranzen)")
+        soft_layout = QFormLayout(soft_box)
+        soft_layout.setSpacing(8)
+        frame_row = QHBoxLayout()
+        self.frames_min = QSpinBox()
+        self.frames_min.setRange(1, 10000)
+        self.frames_min.setValue(ASSUMPTIONS_DEFAULTS["frames_min"])
+        self.frames_min.valueChanged.connect(self.assumptions_changed.emit)
+        self.frames_reduced = QSpinBox()
+        self.frames_reduced.setRange(1, 10000)
+        self.frames_reduced.setValue(ASSUMPTIONS_DEFAULTS["frames_reduced_threshold"])
+        self.frames_reduced.valueChanged.connect(self.assumptions_changed.emit)
+        self.frames_optimal = QSpinBox()
+        self.frames_optimal.setRange(1, 100000)
+        self.frames_optimal.setValue(ASSUMPTIONS_DEFAULTS["frames_optimal"])
+        self.frames_optimal.valueChanged.connect(self.assumptions_changed.emit)
+        frame_row.addWidget(QLabel("min:"))
+        frame_row.addWidget(self.frames_min)
+        frame_row.addWidget(QLabel("reduced:"))
+        frame_row.addWidget(self.frames_reduced)
+        frame_row.addWidget(QLabel("optimal:"))
+        frame_row.addWidget(self.frames_optimal)
+        frame_row.addStretch(1)
+        soft_layout.addRow("Frame-Anzahl", frame_row)
+        reg_row = QHBoxLayout()
+        self.reg_warn = QDoubleSpinBox()
+        self.reg_warn.setRange(0.01, 10.0)
+        self.reg_warn.setValue(ASSUMPTIONS_DEFAULTS["registration_residual_warn_px"])
+        self.reg_warn.setSuffix(" px")
+        self.reg_warn.setDecimals(2)
+        self.reg_warn.valueChanged.connect(self.assumptions_changed.emit)
+        self.reg_max = QDoubleSpinBox()
+        self.reg_max.setRange(0.01, 10.0)
+        self.reg_max.setValue(ASSUMPTIONS_DEFAULTS["registration_residual_max_px"])
+        self.reg_max.setSuffix(" px")
+        self.reg_max.setDecimals(2)
+        self.reg_max.valueChanged.connect(self.assumptions_changed.emit)
+        reg_row.addWidget(QLabel("warn:"))
+        reg_row.addWidget(self.reg_warn)
+        reg_row.addWidget(QLabel("max:"))
+        reg_row.addWidget(self.reg_max)
+        reg_row.addStretch(1)
+        soft_layout.addRow("Registrierungs-Residual", reg_row)
+        elong_row = QHBoxLayout()
+        self.elong_warn = QDoubleSpinBox()
+        self.elong_warn.setRange(0.01, 1.0)
+        self.elong_warn.setValue(ASSUMPTIONS_DEFAULTS["elongation_warn"])
+        self.elong_warn.setDecimals(2)
+        self.elong_warn.valueChanged.connect(self.assumptions_changed.emit)
+        self.elong_max = QDoubleSpinBox()
+        self.elong_max.setRange(0.01, 1.0)
+        self.elong_max.setValue(ASSUMPTIONS_DEFAULTS["elongation_max"])
+        self.elong_max.setDecimals(2)
+        self.elong_max.valueChanged.connect(self.assumptions_changed.emit)
+        elong_row.addWidget(QLabel("warn:"))
+        elong_row.addWidget(self.elong_warn)
+        elong_row.addWidget(QLabel("max:"))
+        elong_row.addWidget(self.elong_max)
+        elong_row.addStretch(1)
+        soft_layout.addRow("Stern-Elongation", elong_row)
+        layout.addWidget(soft_box)
+
+        implicit_box = QGroupBox("Implicit Assumptions (jetzt explizit)")
+        implicit_layout = QVBoxLayout(implicit_box)
+        implicit_items = [
+            "Stabile optische Konfiguration (Fokus, Feldkrümmung)",
+            "Tracking-Fehler < 1 Pixel pro Belichtung",
+            "Kein systematischer Drift während der Session",
+        ]
+        for item in implicit_items:
+            lbl = QLabel(f"• {item}")
+            lbl.setObjectName("ImplicitAssumption")
+            lbl.setWordWrap(True)
+            implicit_layout.addWidget(lbl)
+        layout.addWidget(implicit_box)
+
+        reduced_box = QGroupBox("Reduced Mode (50–199 Frames)")
+        reduced_layout = QFormLayout(reduced_box)
+        reduced_layout.setSpacing(8)
+        self.skip_clustering = QCheckBox("STATE_CLUSTERING und SYNTHETIC_FRAMES überspringen")
+        self.skip_clustering.setChecked(ASSUMPTIONS_DEFAULTS["reduced_mode_skip_clustering"])
+        self.skip_clustering.stateChanged.connect(self.assumptions_changed.emit)
+        reduced_layout.addRow("", self.skip_clustering)
+        cluster_row = QHBoxLayout()
+        self.cluster_min = QSpinBox()
+        self.cluster_min.setRange(1, 100)
+        self.cluster_min.setValue(ASSUMPTIONS_DEFAULTS["reduced_mode_cluster_range"][0])
+        self.cluster_min.valueChanged.connect(self.assumptions_changed.emit)
+        self.cluster_max = QSpinBox()
+        self.cluster_max.setRange(1, 100)
+        self.cluster_max.setValue(ASSUMPTIONS_DEFAULTS["reduced_mode_cluster_range"][1])
+        self.cluster_max.valueChanged.connect(self.assumptions_changed.emit)
+        cluster_row.addWidget(QLabel("min:"))
+        cluster_row.addWidget(self.cluster_min)
+        cluster_row.addWidget(QLabel("max:"))
+        cluster_row.addWidget(self.cluster_max)
+        cluster_row.addStretch(1)
+        reduced_layout.addRow("Cluster-Range (falls nicht übersprungen)", cluster_row)
+        self.reduced_mode_status = QLabel("")
+        self.reduced_mode_status.setObjectName("ReducedModeWarning")
+        self.reduced_mode_status.setVisible(False)
+        reduced_layout.addRow("", self.reduced_mode_status)
+        layout.addWidget(reduced_box)
+        layout.addStretch(1)
+
+    def get_assumptions(self) -> dict:
+        return {
+            "frames_min": self.frames_min.value(),
+            "frames_optimal": self.frames_optimal.value(),
+            "frames_reduced_threshold": self.frames_reduced.value(),
+            "exposure_time_tolerance_percent": self.exposure_tolerance.value(),
+            "registration_residual_warn_px": self.reg_warn.value(),
+            "registration_residual_max_px": self.reg_max.value(),
+            "elongation_warn": self.elong_warn.value(),
+            "elongation_max": self.elong_max.value(),
+            "reduced_mode_skip_clustering": self.skip_clustering.isChecked(),
+            "reduced_mode_cluster_range": [self.cluster_min.value(), self.cluster_max.value()],
+        }
+
+    def set_assumptions(self, assumptions: dict):
+        if "frames_min" in assumptions:
+            self.frames_min.setValue(int(assumptions["frames_min"]))
+        if "frames_optimal" in assumptions:
+            self.frames_optimal.setValue(int(assumptions["frames_optimal"]))
+        if "frames_reduced_threshold" in assumptions:
+            self.frames_reduced.setValue(int(assumptions["frames_reduced_threshold"]))
+        if "exposure_time_tolerance_percent" in assumptions:
+            self.exposure_tolerance.setValue(float(assumptions["exposure_time_tolerance_percent"]))
+        if "registration_residual_warn_px" in assumptions:
+            self.reg_warn.setValue(float(assumptions["registration_residual_warn_px"]))
+        if "registration_residual_max_px" in assumptions:
+            self.reg_max.setValue(float(assumptions["registration_residual_max_px"]))
+        if "elongation_warn" in assumptions:
+            self.elong_warn.setValue(float(assumptions["elongation_warn"]))
+        if "elongation_max" in assumptions:
+            self.elong_max.setValue(float(assumptions["elongation_max"]))
+        if "reduced_mode_skip_clustering" in assumptions:
+            self.skip_clustering.setChecked(bool(assumptions["reduced_mode_skip_clustering"]))
+        if "reduced_mode_cluster_range" in assumptions:
+            rng = assumptions["reduced_mode_cluster_range"]
+            if isinstance(rng, list) and len(rng) >= 2:
+                self.cluster_min.setValue(int(rng[0]))
+                self.cluster_max.setValue(int(rng[1]))
+
+    def update_reduced_mode_status(self, frame_count: int):
+        threshold = self.frames_reduced.value()
+        minimum = self.frames_min.value()
+        if frame_count < minimum:
+            self.reduced_mode_status.setText(f"⛔ Frame-Anzahl ({frame_count}) unter Minimum ({minimum})")
+            self.reduced_mode_status.setVisible(True)
+        elif frame_count < threshold:
+            self.reduced_mode_status.setText(f"⚠ Reduced Mode aktiv: {frame_count} Frames < {threshold}")
+            self.reduced_mode_status.setVisible(True)
+        else:
+            self.reduced_mode_status.setVisible(False)
+
+
 class MainWindow(QMainWindow):
     ui_call = Signal(object)
 
@@ -208,8 +528,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.project_root = project_root
         self.constants = _read_gui_constants(project_root)
-        self.setMinimumSize(900, 600)
-        self.resize(1200, 850)
+        self.setMinimumSize(1000, 700)
+        self.resize(1300, 900)
 
         self.backend = BackendClient(project_root, self.constants)
         self.runner = RunnerProcess()
@@ -220,10 +540,11 @@ class MainWindow(QMainWindow):
         self.current_run_id: Optional[str] = None
         self.current_run_dir: Optional[str] = None
         self._start_blocked_reason: str = ""
+        self._frame_count: int = 0
 
         self.ui_call.connect(self._ui_exec)
 
-        self.setWindowTitle("Tile Compile")
+        self.setWindowTitle("Tile Compile – Methodik v3")
         self._build_ui()
         self._load_styles()
 
@@ -244,7 +565,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(10)
 
         header = QHBoxLayout()
-        title = QLabel("Tile Compile")
+        title = QLabel("Tile Compile – Methodik v3")
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
         header.addWidget(title)
         header.addStretch(1)
@@ -328,6 +649,11 @@ class MainWindow(QMainWindow):
         scan_layout.addLayout(row3)
         scan_layout.addWidget(self.lbl_confirm_hint)
 
+        self.scan_reduced_mode_hint = QLabel("")
+        self.scan_reduced_mode_hint.setObjectName("ReducedModeWarning")
+        self.scan_reduced_mode_hint.setVisible(False)
+        scan_layout.addWidget(self.scan_reduced_mode_hint)
+
         scan_page_layout.addWidget(scan_box, 1)
         tabs.addTab(wrap_scroll(scan_page), "Scan")
 
@@ -367,9 +693,14 @@ class MainWindow(QMainWindow):
         self.lbl_cfg = QLabel("not validated")
         self.lbl_cfg.setObjectName("StatusLabel")
         
+        self.btn_apply_assumptions = QPushButton("Apply Assumptions")
+        self.btn_apply_assumptions.setMinimumHeight(30)
+        self.btn_apply_assumptions.setFixedWidth(140)
+        self.btn_apply_assumptions.setToolTip("Apply assumptions from Assumptions tab to config YAML")
         button_row.addWidget(self.btn_cfg_load)
         button_row.addWidget(self.btn_cfg_save)
         button_row.addWidget(self.btn_cfg_validate)
+        button_row.addWidget(self.btn_apply_assumptions)
         button_row.addWidget(self.lbl_cfg)
         button_row.addStretch(1)
         
@@ -386,6 +717,18 @@ class MainWindow(QMainWindow):
         cfg_page_layout.setSpacing(10)
         cfg_page_layout.addWidget(cfg_box, 1)
         tabs.addTab(wrap_scroll(cfg_page), "Configuration")
+
+        assumptions_page = QWidget()
+        assumptions_page_layout = QVBoxLayout(assumptions_page)
+        assumptions_page_layout.setContentsMargins(0, 0, 0, 0)
+        assumptions_page_layout.setSpacing(10)
+        assumptions_box = QGroupBox("Methodik v3 Assumptions")
+        assumptions_box_layout = QVBoxLayout(assumptions_box)
+        assumptions_box_layout.setContentsMargins(12, 18, 12, 12)
+        self.assumptions_widget = AssumptionsWidget()
+        assumptions_box_layout.addWidget(self.assumptions_widget)
+        assumptions_page_layout.addWidget(assumptions_box, 1)
+        tabs.addTab(wrap_scroll(assumptions_page), "Assumptions")
 
         run_box = QGroupBox("Run")
         run_layout = QVBoxLayout(run_box)
@@ -429,12 +772,29 @@ class MainWindow(QMainWindow):
         rr3.addWidget(self.lbl_run)
         run_layout.addLayout(rr3)
 
+        self.run_reduced_mode_hint = QLabel("")
+        self.run_reduced_mode_hint.setObjectName("ReducedModeWarning")
+        self.run_reduced_mode_hint.setVisible(False)
+        run_layout.addWidget(self.run_reduced_mode_hint)
+
         run_page = QWidget()
         run_page_layout = QVBoxLayout(run_page)
         run_page_layout.setContentsMargins(0, 0, 0, 0)
         run_page_layout.setSpacing(10)
         run_page_layout.addWidget(run_box, 1)
         tabs.addTab(wrap_scroll(run_page), "Run")
+
+        progress_page = QWidget()
+        progress_page_layout = QVBoxLayout(progress_page)
+        progress_page_layout.setContentsMargins(0, 0, 0, 0)
+        progress_page_layout.setSpacing(10)
+        progress_box = QGroupBox("Pipeline Progress (Methodik v3)")
+        progress_box_layout = QVBoxLayout(progress_box)
+        progress_box_layout.setContentsMargins(12, 18, 12, 12)
+        self.phase_progress = PhaseProgressWidget()
+        progress_box_layout.addWidget(self.phase_progress)
+        progress_page_layout.addWidget(progress_box, 1)
+        tabs.addTab(wrap_scroll(progress_page), "Pipeline Progress")
 
         current_box = QGroupBox("Current run")
         cur_layout = QVBoxLayout(current_box)
@@ -535,7 +895,10 @@ class MainWindow(QMainWindow):
         self.btn_cfg_save.clicked.connect(self._save_config)
         self.btn_cfg_validate.clicked.connect(self._validate_config)
         self.btn_browse_config.clicked.connect(self._browse_config)
+        self.btn_apply_assumptions.clicked.connect(self._apply_assumptions_to_config)
         self.config_yaml.textChanged.connect(self._on_config_edited)
+
+        self.assumptions_widget.assumptions_changed.connect(self._on_assumptions_changed)
 
         self.btn_start.clicked.connect(self._start_run)
         self.btn_abort.clicked.connect(self._abort_run)
@@ -678,10 +1041,52 @@ class MainWindow(QMainWindow):
         if (not is_running) and blocked:
             self.lbl_run.setText(f"blocked: {blocked}")
 
+        threshold = self.assumptions_widget.frames_reduced.value()
+        if self._frame_count > 0 and self._frame_count < threshold:
+            self.run_reduced_mode_hint.setText(
+                f"⚠ Reduced Mode: {self._frame_count} Frames < {threshold}\n"
+                "STATE_CLUSTERING und SYNTHETIC_FRAMES werden übersprungen."
+            )
+            self.run_reduced_mode_hint.setVisible(True)
+        else:
+            self.run_reduced_mode_hint.setVisible(False)
+
     def _on_config_edited(self) -> None:
         self.config_validated_ok = False
         self.lbl_cfg.setText("not validated")
         self._update_controls()
+
+    def _on_assumptions_changed(self) -> None:
+        if self._frame_count > 0:
+            self.assumptions_widget.update_reduced_mode_status(self._frame_count)
+        self._update_controls()
+
+    def _apply_assumptions_to_config(self) -> None:
+        self._append_live("[ui] apply assumptions to config")
+        yaml_text = self.config_yaml.toPlainText()
+        try:
+            cfg = yaml.safe_load(yaml_text) or {}
+        except Exception as e:
+            QMessageBox.warning(self, "YAML Parse Error", f"Cannot parse config YAML: {e}")
+            return
+        if not isinstance(cfg, dict):
+            cfg = {}
+        cfg["assumptions"] = self.assumptions_widget.get_assumptions()
+        new_yaml = yaml.dump(cfg, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        self.config_yaml.blockSignals(True)
+        self.config_yaml.setPlainText(new_yaml)
+        self.config_yaml.blockSignals(False)
+        self.config_validated_ok = False
+        self.lbl_cfg.setText("not validated (assumptions applied)")
+        self._update_controls()
+
+    def _extract_assumptions_from_yaml(self, yaml_text: str) -> None:
+        try:
+            cfg = yaml.safe_load(yaml_text)
+            if isinstance(cfg, dict) and "assumptions" in cfg:
+                self.assumptions_widget.set_assumptions(cfg["assumptions"])
+        except Exception:
+            pass
 
     def _force_layout_update(self) -> None:
         """Force layout update to fix initial rendering issues"""
@@ -718,11 +1123,13 @@ class MainWindow(QMainWindow):
 
         self.last_scan = None
         self.confirmed_color_mode = None
+        self._frame_count = 0
         self.color_mode_select.clear()
         self.lbl_confirm_hint.setText("")
         self.lbl_header.setText("scanning...")
         self.lbl_scan.setText("scanning...")
         self.scan_msg.setText("")
+        self.scan_reduced_mode_hint.setVisible(False)
         self._update_controls()
 
         frames_min = int(self.scan_frames_min.value())
@@ -796,6 +1203,25 @@ class MainWindow(QMainWindow):
                 if cm2 and cm2 != "UNKNOWN":
                     self.confirmed_color_mode = cm2
 
+            frames_detected = res.get("frames_detected", 0)
+            self._frame_count = frames_detected
+            threshold = self.assumptions_widget.frames_reduced.value()
+            minimum = self.assumptions_widget.frames_min.value()
+            if frames_detected < minimum:
+                self.scan_reduced_mode_hint.setText(
+                    f"⛔ Frame-Anzahl ({frames_detected}) unter Minimum ({minimum})"
+                )
+                self.scan_reduced_mode_hint.setVisible(True)
+            elif frames_detected < threshold:
+                self.scan_reduced_mode_hint.setText(
+                    f"⚠ Reduced Mode: {frames_detected} Frames < {threshold}\n"
+                    "STATE_CLUSTERING und SYNTHETIC_FRAMES werden übersprungen."
+                )
+                self.scan_reduced_mode_hint.setVisible(True)
+            else:
+                self.scan_reduced_mode_hint.setVisible(False)
+            self.assumptions_widget.update_reduced_mode_status(frames_detected)
+
             # Convenience: propagate input dir
             if res.get("ok"):
                 self.input_dir.setText(input_path)
@@ -850,12 +1276,14 @@ class MainWindow(QMainWindow):
             return self.backend.run_json(wd, args)
 
         def ok(res):
+            yaml_text = str(res.get("yaml") or "")
             self.config_yaml.blockSignals(True)
-            self.config_yaml.setPlainText(str(res.get("yaml") or ""))
+            self.config_yaml.setPlainText(yaml_text)
             self.config_yaml.blockSignals(False)
             self.config_validated_ok = False
             self.lbl_cfg.setText("not validated")
             self.lbl_header.setText("idle")
+            self._extract_assumptions_from_yaml(yaml_text)
             self._update_controls()
 
         def err(e: Exception):
@@ -963,6 +1391,11 @@ class MainWindow(QMainWindow):
         self.lbl_run.setText("starting...")
         self._append_live("[ui] start run")
 
+        self.phase_progress.reset()
+        threshold = self.assumptions_widget.frames_reduced.value()
+        if self._frame_count > 0 and self._frame_count < threshold:
+            self.phase_progress.set_reduced_mode(True, self._frame_count)
+
         cmd = self._runner_cmd() + [
             "--config",
             config_path,
@@ -1006,12 +1439,27 @@ class MainWindow(QMainWindow):
                     if prefix == "":
                         try:
                             ev = json.loads(s)
-                            if isinstance(ev, dict) and ev.get("type") == "run_start":
-                                self.current_run_id = str(ev.get("run_id") or "") or None
-                                paths = ev.get("paths") if isinstance(ev.get("paths"), dict) else {}
-                                self.current_run_dir = str(paths.get("run_dir") or "") or None
-                                self.lbl_run_id.setText(self.current_run_id or "-")
-                                self.lbl_run_dir.setText(self.current_run_dir or "-")
+                            if isinstance(ev, dict):
+                                ev_type = ev.get("type")
+                                if ev_type == "run_start":
+                                    self.current_run_id = str(ev.get("run_id") or "") or None
+                                    paths = ev.get("paths") if isinstance(ev.get("paths"), dict) else {}
+                                    self.current_run_dir = str(paths.get("run_dir") or "") or None
+                                    self.lbl_run_id.setText(self.current_run_id or "-")
+                                    self.lbl_run_dir.setText(self.current_run_dir or "-")
+                                elif ev_type == "phase_start":
+                                    phase_name = ev.get("phase_name", "")
+                                    self.phase_progress.update_phase(phase_name, "running")
+                                elif ev_type == "phase_end":
+                                    phase_name = ev.get("phase_name", "")
+                                    ok = ev.get("ok", True)
+                                    skipped = ev.get("skipped", False)
+                                    if skipped:
+                                        self.phase_progress.update_phase(phase_name, "skipped")
+                                    elif ok:
+                                        self.phase_progress.update_phase(phase_name, "ok")
+                                    else:
+                                        self.phase_progress.update_phase(phase_name, "error")
                         except Exception:
                             pass
 
