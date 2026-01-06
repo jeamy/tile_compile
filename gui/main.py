@@ -63,6 +63,7 @@ ASSUMPTIONS_DEFAULTS = {
     "registration_residual_max_px": 1.0,
     "elongation_warn": 0.3,
     "elongation_max": 0.4,
+    "tracking_error_max_px": 1.0,
     "reduced_mode_skip_clustering": True,
     "reduced_mode_cluster_range": [5, 10],
 }
@@ -431,17 +432,31 @@ class AssumptionsWidget(QWidget):
         layout.addWidget(soft_box)
 
         implicit_box = QGroupBox("Implicit Assumptions (jetzt explizit)")
-        implicit_layout = QVBoxLayout(implicit_box)
+        implicit_layout = QFormLayout(implicit_box)
+        implicit_layout.setSpacing(8)
+        
+        tracking_row = QHBoxLayout()
+        tracking_row.addWidget(QLabel("• Tracking-Fehler max:"))
+        self.tracking_error_max = QDoubleSpinBox()
+        self.tracking_error_max.setRange(0.1, 10.0)
+        self.tracking_error_max.setValue(ASSUMPTIONS_DEFAULTS["tracking_error_max_px"])
+        self.tracking_error_max.setSuffix(" px")
+        self.tracking_error_max.setDecimals(2)
+        self.tracking_error_max.setFixedWidth(120)
+        self.tracking_error_max.valueChanged.connect(self.assumptions_changed.emit)
+        tracking_row.addWidget(self.tracking_error_max)
+        tracking_row.addStretch(1)
+        implicit_layout.addRow("", tracking_row)
+        
         implicit_items = [
             "Stabile optische Konfiguration (Fokus, Feldkrümmung)",
-            "Tracking-Fehler < 1 Pixel pro Belichtung",
             "Kein systematischer Drift während der Session",
         ]
         for item in implicit_items:
             lbl = QLabel(f"• {item}")
             lbl.setObjectName("ImplicitAssumption")
             lbl.setWordWrap(True)
-            implicit_layout.addWidget(lbl)
+            implicit_layout.addRow("", lbl)
         layout.addWidget(implicit_box)
 
         reduced_box = QGroupBox("Reduced Mode (50–199 Frames)")
@@ -504,6 +519,8 @@ class AssumptionsWidget(QWidget):
             self.elong_warn.setValue(float(assumptions["elongation_warn"]))
         if "elongation_max" in assumptions:
             self.elong_max.setValue(float(assumptions["elongation_max"]))
+        if "tracking_error_max_px" in assumptions:
+            self.tracking_error_max.setValue(float(assumptions["tracking_error_max_px"]))
         if "reduced_mode_skip_clustering" in assumptions:
             self.skip_clustering.setChecked(bool(assumptions["reduced_mode_skip_clustering"]))
         if "reduced_mode_cluster_range" in assumptions:

@@ -142,6 +142,14 @@ assumptions:
     editable: true
     description: "Maximum allowed star elongation. Above this: abort."
 
+  tracking_error_max_px:
+    type: number
+    min: 0
+    default: 1.0
+    required: false
+    editable: true
+    description: "Maximum allowed tracking error per exposure in pixels (implicit assumption from Methodik v3 §1.3)."
+
   reduced_mode_skip_clustering:
     type: boolean
     default: true

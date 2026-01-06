@@ -1505,12 +1505,19 @@ def _run_phases(
 
     stack_work = work_dir / "stacking"
     stack_work.mkdir(parents=True, exist_ok=True)
-    stack_src_dir = outputs_dir / Path(stack_input_dir_name)
-    stack_files = (
-        sorted([p for p in stack_src_dir.glob(stack_input_pattern) if p.is_file() and _is_fits_image_path(p)])
-        if stack_src_dir.exists()
-        else []
-    )
+    
+    # In reduced mode with skipped synthetic frames, stack reconstructed channels directly
+    if reduced_mode and synthetic_skipped:
+        stack_src_dir = outputs_dir
+        stack_files = sorted([p for p in stack_src_dir.glob("reconstructed_*.fits") if p.is_file()])
+    else:
+        stack_src_dir = outputs_dir / Path(stack_input_dir_name)
+        stack_files = (
+            sorted([p for p in stack_src_dir.glob(stack_input_pattern) if p.is_file() and _is_fits_image_path(p)])
+            if stack_src_dir.exists()
+            else []
+        )
+    
     if not stack_files:
         _phase_end(
             run_id,
