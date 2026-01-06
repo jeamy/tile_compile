@@ -58,7 +58,7 @@ def run_siril_script(
     
     log_path = artifacts_dir / log_name
     
-    cmd = [siril_exe, "-s", str(script_path.resolve())]
+    cmd = [siril_exe, "-d", str(work_dir.resolve()), "-s", str(script_path.resolve())]
     
     start_time = time.time()
     try:
