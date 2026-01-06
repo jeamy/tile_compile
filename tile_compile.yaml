@@ -29,6 +29,7 @@ assumptions:
   registration_residual_max_px: 1.0
   elongation_warn: 0.3
   elongation_max: 0.4
+  tracking_error_max_px: 1.0
   reduced_mode_skip_clustering: true
   reduced_mode_cluster_range: [5, 10]
 
