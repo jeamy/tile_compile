@@ -1,6 +1,32 @@
 {
   "dataset_name": "M45_Pleiades",
   "total_frames": 0,
-  "quality_threshold": 0.7,
+  "quality_threshold": 0.3,
+  "methodik_v3_validation": {
+    "frame_count": 0,
+    "frames_min": 50,
+    "frames_optimal": 800,
+    "frames_reduced_threshold": 200,
+    "meets_minimum": false,
+    "reduced_mode": true,
+    "optimal_mode": false,
+    "warnings": [],
+    "errors": [
+      "Frame count (0) below minimum (50)"
+    ],
+    "methodik_v3_compliant_frames": 0,
+    "methodik_v3_compliance_rate": 0.0
+  },
+  "assumptions": {
+    "frames_min": 50,
+    "frames_optimal": 800,
+    "frames_reduced_threshold": 200,
+    "exposure_time_tolerance_percent": 5.0,
+    "registration_residual_warn_px": 0.5,
+    "registration_residual_max_px": 1.0,
+    "elongation_warn": 0.3,
+    "elongation_max": 0.4,
+    "tracking_error_max_px": 1.0
+  },
   "frames": []
 }

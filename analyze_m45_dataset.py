@@ -1,3 +1,15 @@
+"""
+M45 Dataset Analyzer
+
+Analyzes M45 (Pleiades) FITS frames for quality assessment:
+- Frame quality metrics (mean, std, SNR, dynamic range)
+- Statistical analysis across dataset
+- Visualization of quality distributions
+- Frame selection recommendations
+
+Used for pre-processing analysis before running the Methodik v3 pipeline.
+"""
+
 import os
 import numpy as np
 import matplotlib.pyplot as plt

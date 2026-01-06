@@ -36,8 +36,8 @@ metrics:
 reconstruction:
   method: tile_based
   weights:
-    global_quality: 0.6
-    local_quality: 0.4
+    global_quality: 0.2
+    local_quality: 0.1
   tile_blending:
     method: hann_window
 

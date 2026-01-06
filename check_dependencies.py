@@ -1,3 +1,16 @@
+"""
+Dependency Checker
+
+Checks and reports on installed Python packages and their versions:
+- Module availability check
+- Version reporting
+- Missing dependency detection
+- Package listing
+
+Used to verify the environment has all required dependencies
+for the Methodik v3 pipeline.
+"""
+
 import importlib
 import pkg_resources
 import sys
