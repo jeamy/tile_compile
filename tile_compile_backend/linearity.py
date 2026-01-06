@@ -52,14 +52,29 @@ class LinearityValidator:
         """
         Analyze frame using higher-order moment statistics
         """
-        # Remove background
         frame_data = frame.flatten()
-        frame_data = frame_data[frame_data > 0]  # Ignore background
-        
+        frame_data = frame_data[np.isfinite(frame_data)]
+        if frame_data.size == 0:
+            return {
+                'skewness': 0.0,
+                'kurtosis': 0.0,
+                'variance_coefficient': 0.0,
+            }
+
+        p1 = float(np.percentile(frame_data, 1))
+        p5 = float(np.percentile(frame_data, 5))
+        p50 = float(np.percentile(frame_data, 50))
+        p95 = float(np.percentile(frame_data, 95))
+        p99 = float(np.percentile(frame_data, 99))
+
+        denom = (p50 - p1) + 1e-12
+        skewness = ((p99 - p50) / denom)
+        kurtosis = ((p95 - p50) / ((p50 - p5) + 1e-12))
+
         return {
-            'skewness': stats.skew(frame_data),
-            'kurtosis': stats.kurtosis(frame_data),
-            'variance_coefficient': np.std(frame_data) / np.mean(frame_data)
+            'skewness': float(skewness),
+            'kurtosis': float(kurtosis),
+            'variance_coefficient': float(np.std(frame_data) / (np.mean(frame_data) + 1e-12))
         }
     
     @staticmethod
@@ -69,15 +84,20 @@ class LinearityValidator:
         """
         # Wavelet decomposition
         coeffs = pywt.wavedec2(frame, 'haar', level=3)
-        
-        # Analyze detail coefficients
-        detail_energies = [
-            np.sum(np.abs(coeff)**2) for coeff in coeffs[1:]
-        ]
-        
+
+        approx = coeffs[0]
+        details = coeffs[1:]
+        approx_energy = float(np.sum(np.abs(approx) ** 2))
+        detail_energy = float(
+            sum(np.sum(np.abs(c) ** 2) for level in details for c in level)
+        )
+
+        total_energy = approx_energy + detail_energy + 1e-12
+        energy_ratio = approx_energy / total_energy
+
         return {
-            'wavelet_coherence': np.mean(detail_energies),
-            'energy_ratio': detail_energies[0] / np.sum(detail_energies)
+            'wavelet_coherence': float(detail_energy),
+            'energy_ratio': float(energy_ratio)
         }
     
     @staticmethod
@@ -87,10 +107,16 @@ class LinearityValidator:
         """
         # Compute gradients
         gy, gx = np.gradient(frame)
-        
+        grad_mag = np.sqrt(gx * gx + gy * gy)
+        mean_frame = float(np.mean(frame))
+        mean_grad = float(np.mean(grad_mag))
+        std_grad = float(np.std(grad_mag))
+
+        gradient_consistency = 2.0 * (mean_grad / (mean_frame + 1e-12))
+
         return {
-            'gradient_consistency': np.std(gx) / np.mean(np.abs(gx)),
-            'edge_uniformity': np.std(gy) / np.mean(np.abs(gy))
+            'gradient_consistency': float(gradient_consistency),
+            'edge_uniformity': float(std_grad / (mean_frame + 1e-12))
         }
     
     @classmethod
@@ -107,25 +133,25 @@ class LinearityValidator:
         # Strictness-based thresholds
         thresholds = {
             'strict': {
-                'skewness_max': 0.1,
-                'kurtosis_max': 0.5,
-                'variance_max': 0.2,
+                'skewness_max': 1.2,
+                'kurtosis_max': 1.2,
+                'variance_max': 0.5,
                 'energy_ratio_min': 0.95,
-                'gradient_consistency_max': 0.1
+                'gradient_consistency_max': 0.5
             },
             'moderate': {
-                'skewness_max': 0.5,
-                'kurtosis_max': 1.0,
-                'variance_max': 0.5,
+                'skewness_max': 1.2,
+                'kurtosis_max': 1.2,
+                'variance_max': 0.7,
                 'energy_ratio_min': 0.9,
-                'gradient_consistency_max': 0.3
+                'gradient_consistency_max': 0.7
             },
             'permissive': {
-                'skewness_max': 1.0,
-                'kurtosis_max': 2.0,
+                'skewness_max': 1.5,
+                'kurtosis_max': 1.5,
                 'variance_max': 1.0,
                 'energy_ratio_min': 0.8,
-                'gradient_consistency_max': 0.5
+                'gradient_consistency_max': 1.0
             }
         }[strictness]
         

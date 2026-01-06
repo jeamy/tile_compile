@@ -19,16 +19,41 @@ Ab **Phase 2 (Tile‑Erzeugung)** sind beide Pfade **identisch**.
 
 ---
 
-## 1. Invariante Grundannahmen (verbindlich, unverändert)
+## 1. Invariante Grundannahmen (verbindlich)
+
+### 1.1 Harte Annahmen (Verstoß → Abbruch)
 
 * Daten sind **linear** (kein Stretch, keine nichtlinearen Operatoren)
-* große Anzahl Kurzbelichtungen (typ. ≥ 800 Frames)
-* vollständige Registrierung (Translation + Rotation, keine Residuen)
-* **keine Frame‑Selektion**
+* **keine Frame‑Selektion** (Artefakt‑Rejection auf Pixelebene erlaubt)
 * Verarbeitung **kanalgetrennt**
 * Pipeline ist **streng linear**, ohne Rückkopplungen
+* Einheitliche Belichtungszeit (Toleranz: ±5%)
 
-Ein Verstoß führt zum **Abbruch des Laufs**.
+### 1.2 Weiche Annahmen (mit Toleranzen)
+
+| Annahme | Optimal | Minimum | Reduced Mode |
+|---------|---------|---------|---------------|
+| Frame‑Anzahl | ≥ 800 | ≥ 50 | 50–199 |
+| Registrierungsresiduum | < 0.3 px | < 1.0 px | Warnung bei > 0.5 px |
+| Stern‑Elongation | < 0.2 | < 0.4 | Warnung bei > 0.3 |
+
+### 1.3 Implizite Annahmen (neu explizit)
+
+* Stabile optische Konfiguration (Fokus, Feldkrümmung)
+* Tracking‑Fehler < 1 Pixel pro Belichtung
+* Keine systematischen Drifts während der Session
+
+### 1.4 Reduced Mode (50–199 Frames)
+
+Bei Frame‑Anzahl unterhalb des Optimums aber oberhalb des Minimums:
+
+* Zustandsbasierte Clusterung (§3.7) wird **übersprungen**
+* Keine synthetischen Frames
+* Direktes tile‑gewichtetes Stacking
+* Cluster‑Anzahl wird auf 5–10 reduziert (falls dennoch aktiviert)
+* Validierungswarnung im Report
+
+Ein Verstoß gegen **harte Annahmen** führt zum **Abbruch des Laufs**.
 
 ---
 
@@ -189,6 +214,15 @@ Q_f,c = α(-B̃) + β(-σ̃) + γẼ
 G_f,c = exp(Q_f,c)
 ```
 
+Nebenbedingung (verbindlich):
+
+* α + β + γ = 1
+* Default: α = 0.4, β = 0.3, γ = 0.3
+
+Stabilitätsregel:
+
+* `Q_f,c` wird auf **[−3, +3]** geklemmt, bevor `exp(·)` angewendet wird.
+
 ---
 
 ## 3.3 Tile‑Erzeugung (entscheidender Punkt)
@@ -197,6 +231,38 @@ G_f,c = exp(Q_f,c)
 
 * identisches Tile‑Grid für alle Frames und Kanäle
 * seeing‑adaptiv
+
+Definitionen:
+
+* `W`, `H` – Bildbreite/-höhe in Pixel
+* `F` – robuste FWHM‑Schätzung in Pixel (z. B. Median über viele Sterne und Frames)
+* `s = tile.size_factor` – dimensionsloser Skalierungsfaktor
+* `T_min = tile.min_size`
+* `D = tile.max_divisor`
+* `o = tile.overlap_fraction` mit `0 ≤ o ≤ 0.5`
+
+Herleitung (kompakt, normativ):
+
+1. Ein seeing‑limitierter Stern besitzt eine charakteristische Skala `F` (FWHM). Um lokale Seeing‑/Fokus‑ und Strukturvariationen stabil zu messen, muss ein Tile **mehrere PSF‑Skalen** abdecken.
+2. Wir setzen daher die Tile‑Kantenlänge proportional zur PSF‑Skala:
+
+```
+T_0 = s · F
+```
+
+3. Zusätzlich erzwingen wir **untere** und **obere** Schranken:
+    - Untere Schranke: zu kleine Tiles sind instabil (zu wenig Sterne/Struktur, hohe Varianz)
+    - Obere Schranke: Tiles dürfen nicht zu groß werden, sonst verschwindet Lokalität
+
+ Normative Tile‑Size‑Formel:
+ 
+ ```
+ T = floor(clip(T_0, T_min, floor(min(W, H) / D)))
+ O = floor(o · T)
+ S = T − O
+ ```
+ 
+ wobei `clip(x, a, b) = min(max(x, a), b)`.
 
 ---
 
@@ -233,6 +299,28 @@ I_t,c(p) = Σ_f W_f,t,c · I_f,c(p) / Σ_f W_f,t,c
 * Overlap‑Add
 * Fensterfunktion
 * Tile‑Normalisierung **nach** Hintergrundsubtraktion
+
+Fallbacks für degenerierte / low‑weight Tiles (verbindlich):
+
+Definiere den Nenner
+
+```
+D_t,c = Σ_f W_f,t,c
+```
+
+und eine kleine Konstante `ε > 0`.
+
+* Wenn `D_t,c ≥ ε`: normale gewichtete Rekonstruktion.
+* Wenn `D_t,c < ε` (z. B. alle Gewichte numerisch ~0):
+  1. Rekonstruiere das Tile als **ungewichtetes Mittel** über **alle** Frames (kein Frame‑Selection):
+
+```
+I_t,c(p) = (1/N) · Σ_f I_f,c(p)
+```
+
+  2. Markiere das Tile als `fallback_used=true` (für Validation/Abort‑Entscheidung).
+
+Anmerkung: Diese Fallbacks sind streng linear und verletzen nicht das „keine Frame‑Selektion“‑Prinzip.
 
 ---
 
@@ -276,6 +364,41 @@ RGB‑ oder LRGB‑Kombination ist:
 
 ---
 
+## 4.1 Testfälle (normativ)
+
+Die folgenden Testfälle sind verbindlich. Ein Run gilt nur dann als methodikkonform, wenn diese Tests (automatisiert oder nachvollziehbar manuell) erfüllt sind.
+
+1. **Gewichtsnormierung global**
+    - **Given**: α, β, γ aus Konfiguration
+    - **Then**: α + β + γ = 1 (harte Fehlermeldung sonst)
+
+2. **Clamping vor Exponentialfunktion**
+    - **Given**: beliebige Metrik‑Werte, auch Ausreißer
+    - **Then**: `Q_f,c` und `Q_local` werden vor `exp(·)` auf [−3, +3] geklemmt
+
+3. **Tile‑Size‑Monotonie**
+    - **Given**: zwei seeing‑Schätzungen `F1 < F2`
+    - **Then**: `T(F1) ≤ T(F2)` (unter Berücksichtigung der Clamps)
+
+ 4. **Overlap‑Konsistenz**
+    - **Then**: `0 ≤ overlap_fraction ≤ 0.5` und `O = floor(o·T)`, `S = T−O` sind ganzzahlig und deterministisch
+
+5. **Low‑weight Tile Fallback**
+    - **Given**: Tile mit `D_t,c < ε`
+    - **Then**: Rekonstruktion nutzt ungewichtetes Mittel über **alle** Frames; Ergebnis enthält keine NaNs/Infs
+
+6. **Kanaltrennung / keine Kanal‑Kopplung**
+    - **Then**: Kein Metrik‑, Gewicht‑ oder Rekonstruktionsschritt mischt Informationen zwischen R/G/B
+
+7. **Keine Frame‑Selektion (invariante Regel)**
+    - **Then**: Jede Rekonstruktionsformel verwendet alle Frames; Abweichungen führen zum Abbruch
+
+8. **Determinismus**
+    - **Given**: gleiche Inputs (Frames + Config)
+    - **Then**: bit‑stabile oder numerisch stabile (Toleranz definiert) Outputs und identische Tile‑Geometrie
+
+---
+
 ## 5. Kernaussage v3
 
 * Registrierungspfad ist **austauschbar** (Siril oder CFA)
@@ -284,4 +407,3 @@ RGB‑ oder LRGB‑Kombination ist:
 * Kombination erfolgt **erst nach Abschluss der Methodik**
 
 Diese Spezifikation ist **normativ**. Abweichungen erfordern explizite Versionierung.
-

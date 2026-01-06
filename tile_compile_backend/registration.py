@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from typing import List, Tuple, Dict, Optional
+from typing import Any, List, Tuple, Dict, Optional
 from enum import Enum
 
 class BayerPattern(Enum):
@@ -112,7 +112,8 @@ class CFARegistration:
             frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
         
         # Gaussian blur to reduce noise
-        blurred = cv2.GaussianBlur(frame, (5, 5), 0)
+        frame_f32 = frame.astype(np.float32, copy=False)
+        blurred = cv2.GaussianBlur(frame_f32, (5, 5), 0)
         
         # Detect corners (potential stars)
         corners = cv2.goodFeaturesToTrack(
@@ -164,8 +165,8 @@ class CFARegistration:
         Estimate transformation for a single subplane
         """
         # Prepare images for ECC registration
-        ref_gray = cv2.normalize(ref_plane, None, 0, 1, cv2.NORM_MINMAX)
-        current_gray = cv2.normalize(current_plane, None, 0, 1, cv2.NORM_MINMAX)
+        ref_gray = cv2.normalize(ref_plane.astype(np.float32, copy=False), None, 0, 1, cv2.NORM_MINMAX)
+        current_gray = cv2.normalize(current_plane.astype(np.float32, copy=False), None, 0, 1, cv2.NORM_MINMAX)
         
         # Initial translation guess
         warp_mode = cv2.MOTION_TRANSLATION

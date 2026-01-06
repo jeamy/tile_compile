@@ -212,6 +212,155 @@ def validate_config_yaml_text(
                 )
             )
 
+    # ========================================================================
+    # Methodik v3 §4.1 Testfälle (normativ)
+    # ========================================================================
+
+    # Testfall 4: Overlap-Konsistenz
+    tile_overlap = _as_float(get_path(cfg, ["tile", "overlap_fraction"]))
+    if tile_overlap is not None:
+        if not (0 <= tile_overlap <= 0.5):
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="overlap_fraction_invalid",
+                    path="$.tile.overlap_fraction",
+                    message="overlap_fraction must be in [0, 0.5] per Methodik v3 §3.3",
+                )
+            )
+
+    # Testfall 3: Tile-Size Monotonie (via size_factor and min_size consistency)
+    tile_size_factor = _as_float(get_path(cfg, ["tile", "size_factor"]))
+    tile_min_size = _as_float(get_path(cfg, ["tile", "min_size"]))
+    tile_max_divisor = _as_float(get_path(cfg, ["tile", "max_divisor"]))
+    if tile_size_factor is not None and tile_size_factor <= 0:
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="tile_size_factor_invalid",
+                path="$.tile.size_factor",
+                message="size_factor must be > 0",
+            )
+        )
+    if tile_min_size is not None and tile_min_size < 1:
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="tile_min_size_invalid",
+                path="$.tile.min_size",
+                message="min_size must be >= 1",
+            )
+        )
+    if tile_max_divisor is not None and tile_max_divisor < 1:
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="tile_max_divisor_invalid",
+                path="$.tile.max_divisor",
+                message="max_divisor must be >= 1",
+            )
+        )
+
+    # Testfall 6: Kanaltrennung - warn if processing.channel_coupling is enabled
+    channel_coupling = get_path(cfg, ["processing", "channel_coupling"])
+    if channel_coupling is True:
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="channel_coupling_forbidden",
+                path="$.processing.channel_coupling",
+                message="Channel coupling is forbidden per Methodik v3 §1 (kanalgetrennt)",
+            )
+        )
+
+    # Testfall 7: Keine Frame-Selektion
+    frame_selection = get_path(cfg, ["processing", "frame_selection"])
+    if frame_selection is True:
+        issues.append(
+            ValidationIssue(
+                severity="error",
+                code="frame_selection_forbidden",
+                path="$.processing.frame_selection",
+                message="Frame selection is forbidden per Methodik v3 §1 (keine Frame-Selektion)",
+            )
+        )
+
+    # ========================================================================
+    # Methodik v3 §1.2 Assumption Tolerances
+    # ========================================================================
+    
+    assumptions = get_path(cfg, ["assumptions"])
+    if isinstance(assumptions, dict):
+        # Validate frames_min < frames_reduced_threshold < frames_optimal
+        frames_min = _as_float(assumptions.get("frames_min"))
+        frames_reduced = _as_float(assumptions.get("frames_reduced_threshold"))
+        frames_optimal = _as_float(assumptions.get("frames_optimal"))
+        
+        if frames_min is not None and frames_reduced is not None:
+            if frames_min >= frames_reduced:
+                issues.append(
+                    ValidationIssue(
+                        severity="error",
+                        code="frames_thresholds_invalid",
+                        path="$.assumptions",
+                        message=f"frames_min ({frames_min}) must be < frames_reduced_threshold ({frames_reduced})",
+                    )
+                )
+        
+        if frames_reduced is not None and frames_optimal is not None:
+            if frames_reduced >= frames_optimal:
+                issues.append(
+                    ValidationIssue(
+                        severity="error",
+                        code="frames_thresholds_invalid",
+                        path="$.assumptions",
+                        message=f"frames_reduced_threshold ({frames_reduced}) must be < frames_optimal ({frames_optimal})",
+                    )
+                )
+        
+        # Validate registration residual thresholds
+        reg_warn = _as_float(assumptions.get("registration_residual_warn_px"))
+        reg_max = _as_float(assumptions.get("registration_residual_max_px"))
+        if reg_warn is not None and reg_max is not None:
+            if reg_warn >= reg_max:
+                issues.append(
+                    ValidationIssue(
+                        severity="error",
+                        code="registration_thresholds_invalid",
+                        path="$.assumptions",
+                        message=f"registration_residual_warn_px ({reg_warn}) must be < registration_residual_max_px ({reg_max})",
+                    )
+                )
+        
+        # Validate elongation thresholds
+        elong_warn = _as_float(assumptions.get("elongation_warn"))
+        elong_max = _as_float(assumptions.get("elongation_max"))
+        if elong_warn is not None and elong_max is not None:
+            if elong_warn >= elong_max:
+                issues.append(
+                    ValidationIssue(
+                        severity="error",
+                        code="elongation_thresholds_invalid",
+                        path="$.assumptions",
+                        message=f"elongation_warn ({elong_warn}) must be < elongation_max ({elong_max})",
+                    )
+                )
+        
+        # Validate reduced mode cluster range
+        reduced_cluster_range = get_path(cfg, ["assumptions", "reduced_mode_cluster_range"])
+        if isinstance(reduced_cluster_range, list) and len(reduced_cluster_range) == 2:
+            a = _as_float(reduced_cluster_range[0])
+            b = _as_float(reduced_cluster_range[1])
+            if a is not None and b is not None and b < a:
+                issues.append(
+                    ValidationIssue(
+                        severity="error",
+                        code="reduced_mode_cluster_range_invalid",
+                        path="$.assumptions.reduced_mode_cluster_range",
+                        message="reduced_mode_cluster_range must satisfy [min, max] with max >= min",
+                    )
+                )
+
     valid = len([i for i in issues if i.severity == "error"]) == 0
     return {
         "valid": valid,

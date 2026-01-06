@@ -12,10 +12,11 @@ Diese Tabelle ist **normativ**. Jede Phase der Methodik v3 muss eindeutig einer 
 
 | Methodik v3 – Phase | Beschreibung | tile_compile.yaml – Sektion | Pflicht |
 |--------------------|--------------|-----------------------------|--------|
+| Assumptions | Invariante/Weiche Annahmen, Reduced Mode | `assumptions` | optional |
 | Phase 0 | Registrierung & Geometrie | `registration` | ja |
-| A.2.1 | Siril Debayer + Register | `registration.estimator.backend: siril`<br>`registration.application.mode: siril` | optional |
-| B.2.1 | CFA-Luminanz-Estimator | `registration.estimator.backend: cfa_luminance` | optional |
-| B.2.2 | CFA-aware Warp | `registration.application.mode: cfa_subplane` | optional |
+| A.2.1 | Siril Debayer + Register | `registration.engine: siril` | optional |
+| B.2.1 | CFA-Luminanz-Estimator | `registration.engine: opencv_cfa` | optional |
+| B.2.2 | CFA-aware Warp | `registration.engine: opencv_cfa` | optional |
 | Phase 1 | Kanaltrennung | implizit nach `registration` | ja |
 | Phase 2 | Globale Normalisierung | `normalization` | ja |
 | Phase 3 | Globale Frame-Metriken | `global_metrics` | ja |
@@ -108,6 +109,40 @@ FAILED
   * Fortschritt innerhalb der Phase
   * letzte abgeschlossene Phase
 * Abbruch ist **nur zwischen Phasen** zulässig.
+
+---
+
+## Teil 4 – Assumptions & Reduced Mode (Methodik v3 §1)
+
+### 4.1 Konfigurationssektion `assumptions`
+
+Diese Sektion ist optional. Wenn nicht gesetzt, gelten Backend-Defaults.
+
+Beispiel:
+
+```yaml
+assumptions:
+  frames_min: 50
+  frames_optimal: 800
+  frames_reduced_threshold: 200
+  exposure_time_tolerance_percent: 5
+  registration_residual_warn_px: 0.5
+  registration_residual_max_px: 1.0
+  elongation_warn: 0.3
+  elongation_max: 0.4
+  reduced_mode_skip_clustering: true
+  reduced_mode_cluster_range: [5, 10]
+```
+
+### 4.2 Reduced Mode Verhalten
+
+Wenn `frame_count < assumptions.frames_reduced_threshold` (und `>= frames_min`):
+
+* `STATE_CLUSTERING` wird übersprungen (oder optional mit reduziertem Cluster-Bereich)
+* `SYNTHETIC_FRAMES` wird übersprungen
+* Pipeline läuft deterministisch weiter mit direktem tile-gewichteten Output
+
+Diese Entscheidung ist im Phase-Output mit `reduced_mode=true` und `skipped=true` sichtbar.
 
 ---
 
