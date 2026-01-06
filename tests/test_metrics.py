@@ -1,3 +1,15 @@
+"""
+Test Suite: Metrics Calculation
+
+Tests Methodik v3 metrics computation:
+- Global frame metrics (G_f_c, Q_f, background, noise)
+- Tile-level metrics (FWHM, roundness, contrast)
+- Per-frame and per-channel metric arrays
+- Gradient energy calculation
+
+Validates that metrics are computed correctly according to Methodik v3 specification.
+"""
+
 import numpy as np
 import pytest
 from tile_compile_backend.metrics import MetricsCalculator, TileMetricsCalculator, compute_channel_metrics

@@ -1,3 +1,17 @@
+"""
+Test Suite: Configuration Management
+
+Tests the configuration management system for Methodik v3:
+- Default config generation
+- Config loading and validation
+- JSON schema generation
+- Deep config updates
+- Config merging and overrides
+
+These tests ensure the configuration system correctly handles
+tile_compile.yaml files and validates them against the schema.
+"""
+
 import os
 import json
 import yaml

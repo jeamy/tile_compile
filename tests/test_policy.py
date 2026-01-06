@@ -1,3 +1,15 @@
+"""
+Test Suite: Policy Validation
+
+Tests Methodik v3 policy enforcement:
+- Linearity validation (hard assumption)
+- Frame count validation
+- Channel separation verification
+- Phase progression testing
+
+Ensures the pipeline strictly adheres to Methodik v3 hard assumptions.
+"""
+
 import numpy as np
 import pytest
 from tile_compile_backend.policy import PolicyValidator, PhaseManager
