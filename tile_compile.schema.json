@@ -299,6 +299,78 @@
         "tile_analysis_max_factor_vs_stack": { "type": "number", "minimum": 0 },
         "hard_abort_hours": { "type": "number", "minimum": 0 }
       }
+    },
+
+    "assumptions": {
+      "type": "object",
+      "description": "Methodik v3 assumption tolerances and reduced mode configuration",
+      "additionalProperties": false,
+      "properties": {
+        "frames_min": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 50,
+          "description": "Hard minimum frame count. Below this: abort."
+        },
+        "frames_optimal": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 800,
+          "description": "Optimal frame count for full methodology."
+        },
+        "frames_reduced_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 200,
+          "description": "Below this (but above frames_min): reduced mode."
+        },
+        "exposure_time_tolerance_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 5,
+          "description": "Maximum allowed deviation in exposure time."
+        },
+        "registration_residual_warn_px": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.5,
+          "description": "Registration residual threshold for warning."
+        },
+        "registration_residual_max_px": {
+          "type": "number",
+          "minimum": 0,
+          "default": 1.0,
+          "description": "Maximum allowed registration residual. Above this: abort."
+        },
+        "elongation_warn": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.3,
+          "description": "Star elongation threshold for warning."
+        },
+        "elongation_max": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.4,
+          "description": "Maximum allowed star elongation. Above this: abort."
+        },
+        "reduced_mode_cluster_range": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "integer", "minimum": 1 },
+          "default": [5, 10],
+          "description": "Cluster count range for reduced mode."
+        },
+        "reduced_mode_skip_clustering": {
+          "type": "boolean",
+          "default": true,
+          "description": "Skip state clustering in reduced mode."
+        }
+      }
     }
   }
 }

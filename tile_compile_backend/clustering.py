@@ -116,6 +116,18 @@ class StateClustering:
         Find optimal number of clusters using silhouette score
         """
         from sklearn.metrics import silhouette_score
+
+        n_samples = int(data.shape[0])
+        if n_samples < 2:
+            return {
+                'n_clusters': 1,
+                'silhouette_score': -1
+            }
+
+        min_clusters = max(2, int(min_clusters))
+        max_clusters = int(max_clusters)
+        max_clusters = min(max_clusters, n_samples - 1)
+        min_clusters = min(min_clusters, max_clusters)
         
         best_score = -1
         best_n_clusters = min_clusters

@@ -11,14 +11,25 @@ class TestMetricsCalculator:
     def test_global_metrics(self):
         metrics = MetricsCalculator.calculate_global_metrics(self.frames)
         
+        # Methodik v3: Per-frame metrics as lists
         assert 'background_level' in metrics
         assert 'noise_level' in metrics
         assert 'gradient_energy' in metrics
+        assert 'G_f_c' in metrics  # Global quality index per frame
+        assert 'Q_f' in metrics    # Raw quality index
         
-        # Check reasonable ranges
-        assert -1 < metrics['background_level'] < 1
-        assert 0 < metrics['noise_level'] < 2
-        assert metrics['gradient_energy'] > 0
+        # Check per-frame arrays have correct length
+        n_frames = len(self.frames)
+        assert len(metrics['background_level']) == n_frames
+        assert len(metrics['noise_level']) == n_frames
+        assert len(metrics['gradient_energy']) == n_frames
+        assert len(metrics['G_f_c']) == n_frames
+        
+        # Check reasonable ranges for per-frame values
+        assert all(-2 < b < 2 for b in metrics['background_level'])
+        assert all(0 < n < 3 for n in metrics['noise_level'])
+        assert all(e > 0 for e in metrics['gradient_energy'])
+        assert all(g > 0 for g in metrics['G_f_c'])  # exp() is always positive
 
     def test_gradient_energy_calculation(self):
         frame = np.random.normal(0, 1, (100, 100))

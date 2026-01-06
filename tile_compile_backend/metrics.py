@@ -1,23 +1,92 @@
 import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any, Optional
+
+
+def _normalize_metric(values: np.ndarray) -> np.ndarray:
+    """Normalize metric values to z-scores (mean=0, std=1)."""
+    mean = np.mean(values)
+    std = np.std(values)
+    if std < 1e-12:
+        return np.zeros_like(values)
+    return (values - mean) / std
+
+
+def _clamp(x: np.ndarray, lo: float = -3.0, hi: float = 3.0) -> np.ndarray:
+    """Clamp values to [lo, hi] as per Methodik v3 §3.2."""
+    return np.clip(x, lo, hi)
+
 
 class MetricsCalculator:
-    @staticmethod
-    def calculate_global_metrics(frames: List[np.ndarray]) -> Dict[str, float]:
+    @classmethod
+    def calculate_global_metrics(
+        cls,
+        frames: List[np.ndarray],
+        weights: Optional[Dict[str, float]] = None,
+        clamp_range: Tuple[float, float] = (-3.0, 3.0)
+    ) -> Dict[str, Any]:
         """
-        Calculate global metrics for a channel
+        Calculate global metrics for a channel per Methodik v3 §3.2.
         
-        Metrics:
-        - Background level (B)
-        - Noise level (σ)
-        - Gradient energy
+        Metrics per frame f:
+        - B_f: Background level
+        - σ_f: Noise level  
+        - E_f: Gradient energy
+        
+        Quality index:
+            Q_f = α(-B̃_f) + β(-σ̃_f) + γ(Ẽ_f)
+            G_f = exp(clamp(Q_f, -3, 3))
+        
+        Args:
+            frames: List of frames for one channel
+            weights: Dict with keys 'background', 'noise', 'gradient' (must sum to 1)
+            clamp_range: Tuple (lo, hi) for clamping Q before exp()
+        
+        Returns:
+            Dict with per-frame metrics and quality indices
         """
-        metrics = {
-            'background_level': np.median([np.median(frame) for frame in frames]),
-            'noise_level': np.median([np.std(frame) for frame in frames]),
-            'gradient_energy': np.median([MetricsCalculator._calculate_gradient_energy(frame) for frame in frames])
+        weights = weights or {'background': 0.4, 'noise': 0.3, 'gradient': 0.3}
+        alpha = weights.get('background', 0.4)
+        beta = weights.get('noise', 0.3)
+        gamma = weights.get('gradient', 0.3)
+        
+        # Validate weight normalization (Methodik v3 §3.2 Nebenbedingung)
+        weight_sum = alpha + beta + gamma
+        if abs(weight_sum - 1.0) > 1e-6:
+            raise ValueError(f"Weights must sum to 1.0, got {weight_sum:.6f}")
+        
+        n_frames = len(frames)
+        
+        # Per-frame raw metrics
+        B_f = np.array([float(np.median(frame)) for frame in frames])
+        sigma_f = np.array([float(np.std(frame)) for frame in frames])
+        E_f = np.array([float(cls._calculate_gradient_energy(frame)) for frame in frames])
+        
+        # Normalize to z-scores (tilde notation in spec)
+        B_tilde = _normalize_metric(B_f)
+        sigma_tilde = _normalize_metric(sigma_f)
+        E_tilde = _normalize_metric(E_f)
+        
+        # Quality index: Q_f = α(-B̃) + β(-σ̃) + γẼ
+        # Lower background and noise are better (negative sign)
+        # Higher gradient energy is better (positive sign)
+        Q_f = alpha * (-B_tilde) + beta * (-sigma_tilde) + gamma * E_tilde
+        
+        # Clamp before exp() (Methodik v3 §3.2 Stabilitätsregel)
+        Q_f_clamped = _clamp(Q_f, clamp_range[0], clamp_range[1])
+        
+        # Global quality index
+        G_f = np.exp(Q_f_clamped)
+        
+        return {
+            'background_level': B_f.tolist(),
+            'noise_level': sigma_f.tolist(),
+            'gradient_energy': E_f.tolist(),
+            'Q_f': Q_f.tolist(),
+            'Q_f_clamped': Q_f_clamped.tolist(),
+            'G_f_c': G_f.tolist(),
+            'weights': {'alpha': alpha, 'beta': beta, 'gamma': gamma},
+            'n_frames': n_frames
         }
-        return metrics
     
     @staticmethod
     def _calculate_gradient_energy(frame: np.ndarray) -> float:

@@ -1,4 +1,4 @@
-# Tile‑based Quality Reconstruction for DSO – Methodology v2
+# Tile‑based Quality Reconstruction for DSO – Methodology v3
 
 **Status:** Reference specification (Single Source of Truth)
 **Applies to:** `tile_compile.proc` (Clean Break) + `tile_compile.yaml`
@@ -20,28 +20,54 @@ There is **no frame selection**. Every frame contributes according to its physic
 
 ## 2. Assumptions (mandatory)
 
-- Data are **linear** (no stretch, no non‑linear operators)
-- OSC data; processing is separated per color channel
-- full registration (translation + rotation, no residuals)
-- large number of short exposures (typically ≥ 800 frames)
-- no fixed pixel scale or resolution assumptions
+### 2.1 Hard assumptions (violation → abort)
 
-Violating these assumptions results in **aborting the run**.
+- Data are **linear** (no stretch, no non‑linear operators)
+- **No frame selection** (pixel-level artifact rejection is allowed)
+- Channel-separated processing (no channel coupling)
+- Strictly linear pipeline (no feedback loops)
+- Uniform exposure time across frames (tolerance: ±5%)
+
+### 2.2 Soft assumptions (with tolerances)
+
+| Assumption | Optimal | Minimum | Reduced mode |
+|-----------|---------|---------|--------------|
+| Frame count | ≥ 800 | ≥ 50 | 50–199 |
+| Registration residual | < 0.3 px | < 1.0 px | warning if > 0.5 px |
+| Star elongation | < 0.2 | < 0.4 | warning if > 0.3 |
+
+### 2.3 Implicit assumptions (now explicit)
+
+- Stable optical configuration (focus, field curvature)
+- Tracking error < 1 pixel per exposure
+- No systematic drift during the session
+
+### 2.4 Reduced mode (50–199 frames)
+
+If the frame count is below optimal but above minimum:
+
+- Skip state-based clustering
+- Skip synthetic frame generation
+- Perform direct tile-weighted stacking
+- Emit a validation warning in the report
+
+Violating **hard assumptions** results in **aborting the run**.
 
 ---
 
 ## 3. Full pipeline (normative)
 
 1. Registration of raw frames
-2. **Global linear normalization (mandatory, once)**
-3. Computation of global frame metrics
-4. seeing‑adaptive tile geometry
-5. Local tile metrics and weighting
-6. Tile‑wise reconstruction (overlap‑add)
-7. **State‑based clustering of frames**
-8. Reconstruction of synthetic quality frames
-9. Final linear stacking
-10. Validation and abort decision
+2. Channel split (R/G/B or mono)
+3. **Global linear normalization (mandatory, once)**
+4. Computation of global frame metrics
+5. Seeing‑adaptive tile geometry
+6. Local tile metrics and weighting
+7. Tile‑wise reconstruction (overlap‑add)
+8. **State‑based clustering of frames** (optional; skipped in reduced mode)
+9. Reconstruction of synthetic quality frames (optional; skipped in reduced mode)
+10. Final linear stacking
+11. Validation and abort decision
 
 The pipeline is **strictly linear**. There are no feedback loops.
 
@@ -100,7 +126,7 @@ Q_f = \alpha(-\tilde B_f) + \beta(-\tilde\sigma_f) + \gamma\tilde E_f
 
 with:
 
-- α + β + γ = 1
+- α + β + γ = 1 (mandatory)
 - default: α = 0.4, β = 0.3, γ = 0.3
 
 `Q_f` is clamped to **[−3, +3]**.
@@ -125,14 +151,35 @@ G_f = \exp(Q_f)
 
 ### Tile size
 
-[
-T = \mathrm{clip}(32 \cdot F,\; 64,\; \min(W,H)/6)
-]
+Definitions:
 
-- overlap: O = 0.25 · T
-- step size: S = T − O
+- `W`, `H` – image width/height in pixels
+- `F` – robust FWHM estimate in pixels (e.g. median across many stars and frames)
+- `s = tile.size_factor` – dimensionless scale factor
+- `T_min = tile.min_size`
+- `D = tile.max_divisor`
+- `o = tile.overlap_fraction` with `0 ≤ o ≤ 0.5`
 
-This definition is **resolution‑ and seeing‑invariant**.
+Derivation (compact, normative):
+
+1. A seeing‑limited star has a characteristic spatial scale `F` (FWHM). To measure local seeing/focus and structure robustly, a tile must cover **multiple PSF scales**.
+2. Therefore we choose the tile edge length proportional to `F`:
+
+```
+T_0 = s · F
+```
+
+3. We enforce lower/upper bounds for numerical stability and locality.
+
+Normative tile geometry:
+
+```
+T = floor(clip(T_0, T_min, floor(min(W, H) / D)))
+O = floor(o · T)
+S = T − O
+```
+
+where `clip(x,a,b) = min(max(x,a),b)`.
 
 ---
 
@@ -200,9 +247,23 @@ I_t(p) = \frac{\sum_f W_{f,t} I_f(p)}{\sum_f W_{f,t}}
 
 ### Stability rules
 
-- If Σ W_f,t < ε:
-  - invalidate the tile **or**
-  - fallback to an unweighted mean
+Define the denominator:
+
+[
+D_t = \sum_f W_{f,t}
+]
+
+with a small constant `ε > 0`.
+
+- If `D_t ≥ ε`: normal weighted reconstruction.
+- If `D_t < ε` (e.g. all weights numerically ~0):
+  1. reconstruct the tile using an **unweighted mean over all frames** (no frame selection):
+
+     [
+     I_t(p) = \frac{1}{N}\sum_f I_f(p)
+     ]
+
+  2. mark the tile as `fallback_used=true` (used by validation/abort decisions).
 
 ### Edge handling
 
@@ -275,6 +336,41 @@ Fallbacks (only under explicitly stable conditions):
 The method replaces the search for “best frames” with a **spatio‑temporal quality map**, using each piece of information exactly where it is physically valid.
 
 This specification is **normative**. Deviations require explicit versioning.
+
+---
+
+## 14. Test cases (normative)
+
+The following test cases are mandatory. A run is methodology‑conform only if these tests (automated or reproducible manual) are satisfied.
+
+1. **Global weight normalization**
+   - **Given**: α, β, γ from configuration
+   - **Then**: α + β + γ = 1 (hard error otherwise)
+
+2. **Clamping before exponential**
+   - **Given**: metric values including outliers
+   - **Then**: `Q_f` and `Q_local` are clamped to [−3, +3] before `exp(·)`
+
+3. **Tile size monotonicity**
+   - **Given**: two seeing estimates `F1 < F2`
+   - **Then**: `T(F1) ≤ T(F2)` (subject to clamping)
+
+4. **Overlap determinism**
+   - **Then**: `0 ≤ overlap_fraction ≤ 0.5` and `O = floor(o·T)`, `S = T−O` are integer and deterministic
+
+5. **Low‑weight tile fallback**
+   - **Given**: a tile with `D_t < ε`
+   - **Then**: reconstruction uses the unweighted mean over all frames; output contains no NaNs/Infs
+
+6. **Channel separation / no channel coupling**
+   - **Then**: no metric, weight, or reconstruction step mixes information between R/G/B
+
+7. **No frame selection (invariant)**
+   - **Then**: every reconstruction uses all frames; violations abort the run
+
+8. **Determinism**
+   - **Given**: identical inputs (frames + config)
+   - **Then**: stable outputs within a defined numeric tolerance and identical tile geometry
 
 ---
 

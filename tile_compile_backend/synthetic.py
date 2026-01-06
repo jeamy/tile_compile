@@ -82,6 +82,21 @@ class SyntheticFrameGenerator:
         # Compute weights based on noise level and background
         noise_levels = global_metrics.get('noise_level', np.ones(len(frames)))
         background_levels = global_metrics.get('background_level', np.zeros(len(frames)))
+
+        noise_levels = np.asarray(noise_levels)
+        background_levels = np.asarray(background_levels)
+        if noise_levels.ndim != 1:
+            noise_levels = np.ravel(noise_levels)
+        if background_levels.ndim != 1:
+            background_levels = np.ravel(background_levels)
+
+        n = len(frames)
+        if noise_levels.shape[0] < n:
+            noise_levels = np.pad(noise_levels, (0, n - noise_levels.shape[0]), mode='edge')
+        if background_levels.shape[0] < n:
+            background_levels = np.pad(background_levels, (0, n - background_levels.shape[0]), mode='edge')
+        noise_levels = noise_levels[:n]
+        background_levels = background_levels[:n]
         
         # Inverse of noise as weight (lower noise = higher weight)
         weights = 1 / (noise_levels + 1e-8)
@@ -108,6 +123,11 @@ class SyntheticFrameGenerator:
         
         # Get noise characteristics
         noise_level = metrics.get('global', {}).get('noise_level', 0.1)
+        noise_level = np.asarray(noise_level)
+        if noise_level.size > 1:
+            noise_level = float(np.mean(noise_level))
+        else:
+            noise_level = float(noise_level)
         
         # Generate multiple synthetic frames with noise
         synthetic_frames = []

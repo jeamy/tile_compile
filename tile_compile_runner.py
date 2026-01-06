@@ -18,15 +18,30 @@ import numpy as np
 import yaml
 
 # New imports for Methodik v3 integration
-from tile_compile_backend.policy import PhaseManager, PolicyValidator
-from tile_compile_backend.metrics import compute_channel_metrics
-from tile_compile_backend.reconstruction import reconstruct_channels
-from tile_compile_backend.synthetic import generate_channel_synthetic_frames
-from tile_compile_backend.clustering import cluster_channels
-from tile_compile_backend.configuration import validate_and_prepare_configuration
-from tile_compile_backend.registration import CFARegistration, BayerPattern
-from tile_compile_backend.linearity import validate_frames_linearity
-from tile_compile_backend.tile_grid import generate_multi_channel_grid
+try:
+    from tile_compile_backend.policy import PhaseManager, PolicyValidator
+    from tile_compile_backend.metrics import MetricsCalculator, TileMetricsCalculator, compute_channel_metrics
+    from tile_compile_backend.reconstruction import reconstruct_channels
+    from tile_compile_backend.synthetic import generate_channel_synthetic_frames
+    from tile_compile_backend.clustering import cluster_channels
+    from tile_compile_backend.configuration import validate_and_prepare_configuration
+    from tile_compile_backend.registration import CFARegistration, BayerPattern
+    from tile_compile_backend.linearity import validate_frames_linearity
+    from tile_compile_backend.tile_grid import generate_multi_channel_grid
+except Exception:
+    PhaseManager = None
+    PolicyValidator = None
+    MetricsCalculator = None
+    TileMetricsCalculator = None
+    compute_channel_metrics = None
+    reconstruct_channels = None
+    generate_channel_synthetic_frames = None
+    cluster_channels = None
+    validate_and_prepare_configuration = None
+    CFARegistration = None
+    BayerPattern = None
+    validate_frames_linearity = None
+    generate_multi_channel_grid = None
 
 try:
     import cv2  # type: ignore
@@ -35,6 +50,33 @@ except Exception:  # noqa: BLE001
 
 
 _STOP = False
+
+# Reduced mode thresholds (Methodik v3 §1.4)
+_FRAMES_MIN_DEFAULT = 50
+_FRAMES_OPTIMAL_DEFAULT = 800
+_FRAMES_REDUCED_THRESHOLD_DEFAULT = 200
+
+
+def _get_assumptions_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Get assumptions configuration with defaults."""
+    assumptions = cfg.get("assumptions") if isinstance(cfg.get("assumptions"), dict) else {}
+    return {
+        "frames_min": int(assumptions.get("frames_min", _FRAMES_MIN_DEFAULT)),
+        "frames_optimal": int(assumptions.get("frames_optimal", _FRAMES_OPTIMAL_DEFAULT)),
+        "frames_reduced_threshold": int(assumptions.get("frames_reduced_threshold", _FRAMES_REDUCED_THRESHOLD_DEFAULT)),
+        "reduced_mode_skip_clustering": bool(assumptions.get("reduced_mode_skip_clustering", True)),
+        "reduced_mode_cluster_range": assumptions.get("reduced_mode_cluster_range", [5, 10]),
+        "exposure_time_tolerance_percent": float(assumptions.get("exposure_time_tolerance_percent", 5.0)),
+        "registration_residual_warn_px": float(assumptions.get("registration_residual_warn_px", 0.5)),
+        "registration_residual_max_px": float(assumptions.get("registration_residual_max_px", 1.0)),
+        "elongation_warn": float(assumptions.get("elongation_warn", 0.3)),
+        "elongation_max": float(assumptions.get("elongation_max", 0.4)),
+    }
+
+
+def _is_reduced_mode(frame_count: int, assumptions: Dict[str, Any]) -> bool:
+    """Check if reduced mode should be activated (Methodik v3 §1.4)."""
+    return frame_count < assumptions["frames_reduced_threshold"]
 
 
 def _handle_signal(_signum, _frame):
@@ -593,6 +635,92 @@ def _pick_output_file(candidates: List[Path]) -> Optional[Path]:
     return None
 
 
+def _read_fits_float(path: Path) -> Tuple[np.ndarray, Any]:
+    hdr = fits.getheader(str(path), ext=0)
+    data = fits.getdata(str(path), ext=0)
+    if data is None:
+        raise RuntimeError("no FITS data")
+    return np.asarray(data).astype("float32", copy=False), hdr
+
+
+def _split_rgb_frame(data: np.ndarray) -> Dict[str, np.ndarray]:
+    if data.ndim == 2:
+        return {"R": data, "G": data, "B": data}
+    if data.ndim != 3:
+        raise RuntimeError(f"unsupported FITS data ndim={data.ndim}")
+    if data.shape[0] == 3:
+        return {"R": data[0, :, :], "G": data[1, :, :], "B": data[2, :, :]}
+    if data.shape[-1] == 3:
+        return {"R": data[:, :, 0], "G": data[:, :, 1], "B": data[:, :, 2]}
+    raise RuntimeError(f"unsupported RGB FITS layout: shape={data.shape}")
+
+
+def _split_cfa_channels(mosaic: np.ndarray, bayer_pattern: str) -> Dict[str, np.ndarray]:
+    bp = str(bayer_pattern or "GBRG").strip().upper()
+    h, w = mosaic.shape[:2]
+    h2 = h - (h % 2)
+    w2 = w - (w % 2)
+    if h2 != h or w2 != w:
+        mosaic = mosaic[:h2, :w2]
+
+    if bp == "RGGB":
+        r = mosaic[0::2, 0::2]
+        g1 = mosaic[0::2, 1::2]
+        g2 = mosaic[1::2, 0::2]
+        b = mosaic[1::2, 1::2]
+    elif bp == "BGGR":
+        b = mosaic[0::2, 0::2]
+        g1 = mosaic[0::2, 1::2]
+        g2 = mosaic[1::2, 0::2]
+        r = mosaic[1::2, 1::2]
+    elif bp == "GBRG":
+        g1 = mosaic[0::2, 0::2]
+        b = mosaic[0::2, 1::2]
+        r = mosaic[1::2, 0::2]
+        g2 = mosaic[1::2, 1::2]
+    elif bp == "GRBG":
+        g1 = mosaic[0::2, 0::2]
+        r = mosaic[0::2, 1::2]
+        b = mosaic[1::2, 0::2]
+        g2 = mosaic[1::2, 1::2]
+    else:
+        raise RuntimeError(f"unsupported bayer_pattern: {bp}")
+
+    g = (g1.astype("float32", copy=False) + g2.astype("float32", copy=False)) * 0.5
+    return {
+        "R": r.astype("float32", copy=False),
+        "G": g.astype("float32", copy=False),
+        "B": b.astype("float32", copy=False),
+    }
+
+
+def _normalize_frames(frames: List[np.ndarray], mode: str) -> Tuple[List[np.ndarray], float]:
+    if not frames:
+        return [], 0.0
+    meds = [float(np.median(f)) for f in frames]
+    target = float(np.median(np.asarray(meds, dtype=np.float32)))
+    out: List[np.ndarray] = []
+    m = str(mode or "background").strip().lower()
+    for f, med in zip(frames, meds):
+        if m == "median":
+            scale = (target / med) if med not in (0.0, -0.0) else 1.0
+            out.append((f * float(scale)).astype("float32", copy=False))
+        else:
+            out.append((f - (med - target)).astype("float32", copy=False))
+    return out, target
+
+
+def _to_uint8(img: np.ndarray) -> np.ndarray:
+    f = np.asarray(img).astype("float32", copy=False)
+    mn = float(np.min(f))
+    mx = float(np.max(f))
+    if not np.isfinite(mn) or not np.isfinite(mx) or mx <= mn:
+        return np.zeros(f.shape, dtype=np.uint8)
+    x = (f - mn) / (mx - mn)
+    x = np.clip(x, 0.0, 1.0)
+    return (x * 255.0).astype(np.uint8)
+
+
 def _run_phases(
     run_id: str,
     log_fp,
@@ -612,16 +740,18 @@ def _run_phases(
 
     if dry_run:
         phases = [
-            (1, "registration"),
-            (2, "global_normalization"),
-            (3, "global_metrics"),
-            (4, "tile_geometry"),
-            (5, "local_tile_metrics"),
-            (6, "tile_reconstruction"),
-            (7, "state_clustering"),
-            (8, "synthetic_frames"),
-            (9, "final_stacking"),
-            (10, "validation"),
+            (0, "SCAN_INPUT"),
+            (1, "REGISTRATION"),
+            (2, "CHANNEL_SPLIT"),
+            (3, "NORMALIZATION"),
+            (4, "GLOBAL_METRICS"),
+            (5, "TILE_GRID"),
+            (6, "LOCAL_METRICS"),
+            (7, "TILE_RECONSTRUCTION"),
+            (8, "STATE_CLUSTERING"),
+            (9, "SYNTHETIC_FRAMES"),
+            (10, "STACKING"),
+            (11, "DONE"),
         ]
         for phase_id, phase_name in phases:
             _phase_start(run_id, log_fp, phase_id, phase_name)
@@ -639,12 +769,12 @@ def _run_phases(
     except Exception:
         frames_min_i = None
     if frames_min_i is not None and frames_min_i > 0 and len(frames) < frames_min_i:
-        _phase_start(run_id, log_fp, 1, "registration")
+        _phase_start(run_id, log_fp, 0, "SCAN_INPUT")
         _phase_end(
             run_id,
             log_fp,
-            1,
-            "registration",
+            0,
+            "SCAN_INPUT",
             "error",
             {"error": f"frames.count={len(frames)} < data.frames_min={frames_min_i}"},
         )
@@ -684,17 +814,37 @@ def _run_phases(
     reg_out_name = str(registration_cfg.get("output_dir") or "registered")
     reg_pattern = str(registration_cfg.get("registered_filename_pattern") or "reg_{index:05d}.fit")
 
-    syn_dir_name = str(stacking_cfg.get("input_dir") or "synthetic")
-    syn_pattern = str(stacking_cfg.get("input_pattern") or "syn_*.fits")
-    syn_prefix = _derive_prefix_from_pattern(syn_pattern, "syn_")
-    syn_ext = _siril_setext_from_suffix(Path(syn_pattern).suffix or ".fits")
+    stack_input_dir_name = str(stacking_cfg.get("input_dir") or reg_out_name)
+    stack_input_pattern = str(stacking_cfg.get("input_pattern") or "reg_*.fit")
 
     stack_output_file = str(stacking_cfg.get("output_file") or "stacked.fit")
     stack_method_cfg = str(stacking_cfg.get("method") or "")
     stack_method = stack_method_cfg.strip().lower()
 
+    phase_id = 0
+    phase_name = "SCAN_INPUT"
+    _phase_start(run_id, log_fp, phase_id, phase_name)
+    if _stop_requested(run_id, log_fp, phase_id, phase_name):
+        return False
+    cfa_flag0 = _fits_is_cfa(frames[0]) if frames else None
+    header_bayerpat0 = _fits_get_bayerpat(frames[0]) if frames else None
+    _phase_end(
+        run_id,
+        log_fp,
+        phase_id,
+        phase_name,
+        "ok",
+        {
+            "frame_count": len(frames),
+            "color_mode": color_mode,
+            "bayer_pattern": bayer_pattern,
+            "bayer_pattern_header": header_bayerpat0,
+            "cfa": cfa_flag0,
+        },
+    )
+
     phase_id = 1
-    phase_name = "registration"
+    phase_name = "REGISTRATION"
     _phase_start(run_id, log_fp, phase_id, phase_name)
     if _stop_requested(run_id, log_fp, phase_id, phase_name):
         return False
@@ -931,72 +1081,392 @@ def _run_phases(
             },
         )
 
-    for phase_id, phase_name in [
-        (2, "global_normalization"),
-        (3, "global_metrics"),
-        (4, "tile_geometry"),
-        (5, "local_tile_metrics"),
-        (6, "tile_reconstruction"),
-        (7, "state_clustering"),
-    ]:
-        _phase_start(run_id, log_fp, phase_id, phase_name)
-        if _stop_requested(run_id, log_fp, phase_id, phase_name):
-            return False
-        _phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "not_implemented"})
+    reg_out_dir = outputs_dir / reg_out_name
+    registered_files = sorted([p for p in reg_out_dir.iterdir() if p.is_file() and _is_fits_image_path(p)]) if reg_out_dir.exists() else []
+    if not registered_files:
+        _phase_end(run_id, log_fp, 1, "REGISTRATION", "error", {"error": "no registered frames found"})
+        return False
 
-    phase_id = 8
-    phase_name = "synthetic_frames"
+    phase_id = 2
+    phase_name = "CHANNEL_SPLIT"
     _phase_start(run_id, log_fp, phase_id, phase_name)
     if _stop_requested(run_id, log_fp, phase_id, phase_name):
         return False
-    reg_out_dir = outputs_dir / reg_out_name
-    registered_files = (
-        sorted([p for p in reg_out_dir.iterdir() if p.is_file() and _is_fits_image_path(p)])
-        if reg_out_dir.exists()
-        else []
-    )
-    if not registered_files:
-        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "no registered frames found"})
-        return False
 
-    syn_min = synthetic_cfg.get("frames_min")
-    syn_max = synthetic_cfg.get("frames_max")
+    frames_target = d.get("frames_target")
     try:
-        syn_min_i = int(syn_min) if syn_min is not None else 15
+        frames_target_i = int(frames_target) if frames_target is not None else 0
     except Exception:
-        syn_min_i = 15
-    try:
-        syn_max_i = int(syn_max) if syn_max is not None else 30
-    except Exception:
-        syn_max_i = 30
-    use_all_registered = bool(stack_method == "average")
-    n = len(registered_files) if use_all_registered else min(len(registered_files), syn_max_i)
-    if n < syn_min_i:
-        _phase_end(
-            run_id,
-            log_fp,
-            phase_id,
-            phase_name,
-            "error",
-            {"error": f"registered_count={len(registered_files)} < synthetic.frames_min={syn_min_i}"},
-        )
-        return False
-    syn_out = outputs_dir / syn_dir_name
-    syn_out.mkdir(parents=True, exist_ok=True)
-    for i, src in enumerate(registered_files[:n], start=1):
-        dst = syn_out / f"{syn_prefix}{i:05d}.{syn_ext}"
-        shutil.copy2(src, dst)
+        frames_target_i = 0
+    analysis_count = len(registered_files) if frames_target_i <= 0 else min(len(registered_files), frames_target_i)
+
+    channels: Dict[str, List[np.ndarray]] = {"R": [], "G": [], "B": []}
+    cfa_registered = None
+    for p in registered_files[:analysis_count]:
+        data, _hdr = _read_fits_float(p)
+        is_cfa = (_fits_is_cfa(p) is True)
+        if cfa_registered is None:
+            cfa_registered = is_cfa
+        if is_cfa:
+            split = _split_cfa_channels(data, bayer_pattern)
+        else:
+            try:
+                split = _split_rgb_frame(data)
+            except Exception:
+                if data.ndim != 2:
+                    _phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": "unsupported registered frame layout for channel split", "frame": str(p), "shape": list(data.shape)},
+                    )
+                    return False
+                split = {"R": data, "G": data, "B": data}
+        channels["R"].append(split["R"])
+        channels["G"].append(split["G"])
+        channels["B"].append(split["B"])
+
     _phase_end(
         run_id,
         log_fp,
         phase_id,
         phase_name,
         "ok",
-        {"synthetic_dir": str(syn_out), "synthetic_count": n, "use_all_registered": use_all_registered},
+        {
+            "registered_dir": str(reg_out_dir),
+            "registered_count": len(registered_files),
+            "analysis_count": analysis_count,
+            "cfa": bool(cfa_registered),
+        },
+    )
+
+    phase_id = 3
+    phase_name = "NORMALIZATION"
+    _phase_start(run_id, log_fp, phase_id, phase_name)
+    if _stop_requested(run_id, log_fp, phase_id, phase_name):
+        return False
+
+    norm_cfg = cfg.get("normalization") if isinstance(cfg.get("normalization"), dict) else {}
+    norm_mode = str(norm_cfg.get("mode") or "background")
+    per_channel = bool(norm_cfg.get("per_channel", True))
+    norm_target: Optional[float] = None
+    if per_channel:
+        channels["R"], _ = _normalize_frames(channels["R"], norm_mode)
+        channels["G"], _ = _normalize_frames(channels["G"], norm_mode)
+        channels["B"], _ = _normalize_frames(channels["B"], norm_mode)
+    else:
+        meds = [float(np.median(f)) for ch in ("R", "G", "B") for f in channels[ch]]
+        norm_target = float(np.median(np.asarray(meds, dtype=np.float32))) if meds else None
+        out: Dict[str, List[np.ndarray]] = {"R": [], "G": [], "B": []}
+        for ch in ("R", "G", "B"):
+            for f in channels[ch]:
+                med = float(np.median(f))
+                if str(norm_mode).strip().lower() == "median":
+                    scale = (norm_target / med) if (norm_target is not None and med not in (0.0, -0.0)) else 1.0
+                    out[ch].append((f * float(scale)).astype("float32", copy=False))
+                else:
+                    out[ch].append((f - (med - float(norm_target or med))).astype("float32", copy=False))
+        channels = out
+
+    _phase_end(
+        run_id,
+        log_fp,
+        phase_id,
+        phase_name,
+        "ok",
+        {"mode": norm_mode, "per_channel": per_channel, "target_median": norm_target},
+    )
+
+    phase_id = 4
+    phase_name = "GLOBAL_METRICS"
+    _phase_start(run_id, log_fp, phase_id, phase_name)
+    if _stop_requested(run_id, log_fp, phase_id, phase_name):
+        return False
+
+    weights_cfg = cfg.get("global_metrics") if isinstance(cfg.get("global_metrics"), dict) else {}
+    w = weights_cfg.get("weights") if isinstance(weights_cfg.get("weights"), dict) else {}
+    try:
+        w_bg = float(w.get("background", 1.0 / 3.0))
+    except Exception:
+        w_bg = 1.0 / 3.0
+    try:
+        w_noise = float(w.get("noise", 1.0 / 3.0))
+    except Exception:
+        w_noise = 1.0 / 3.0
+    try:
+        w_grad = float(w.get("gradient", 1.0 / 3.0))
+    except Exception:
+        w_grad = 1.0 / 3.0
+
+    channel_metrics: Dict[str, Dict[str, Any]] = {}
+    for ch in ("R", "G", "B"):
+        frs = channels[ch]
+        bgs = [float(np.median(f)) for f in frs]
+        noises = [float(np.std(f)) for f in frs]
+        grads = [float(np.mean(np.hypot(*np.gradient(f.astype("float32", copy=False))))) for f in frs]
+
+        def _norm01(vals: List[float]) -> List[float]:
+            if not vals:
+                return []
+            a = np.asarray(vals, dtype=np.float32)
+            mn = float(np.min(a))
+            mx = float(np.max(a))
+            if not np.isfinite(mn) or not np.isfinite(mx) or mx <= mn:
+                return [0.0 for _ in vals]
+            return [float(x) for x in ((a - mn) / (mx - mn)).tolist()]
+
+        bg_n = _norm01(bgs)
+        noise_n = _norm01(noises)
+        grad_n = _norm01(grads)
+        gfc = [float(w_bg * (1.0 - b) + w_noise * (1.0 - n) + w_grad * g) for b, n, g in zip(bg_n, noise_n, grad_n)]
+
+        channel_metrics[ch] = {
+            "global": {
+                "background_level": bgs,
+                "noise_level": noises,
+                "gradient_energy": grads,
+                "G_f_c": gfc,
+            }
+        }
+
+    _phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"analysis_count": analysis_count})
+
+    phase_id = 5
+    phase_name = "TILE_GRID"
+    _phase_start(run_id, log_fp, phase_id, phase_name)
+    if _stop_requested(run_id, log_fp, phase_id, phase_name):
+        return False
+
+    tile_cfg = cfg.get("tile") if isinstance(cfg.get("tile"), dict) else {}
+    try:
+        min_tile_size = int(tile_cfg.get("min_size") or 32)
+    except Exception:
+        min_tile_size = 32
+    try:
+        max_divisor = int(tile_cfg.get("max_divisor") or 8)
+    except Exception:
+        max_divisor = 8
+    try:
+        overlap = float(tile_cfg.get("overlap_fraction") or 0.25)
+    except Exception:
+        overlap = 0.25
+
+    rep = {ch: channels[ch][0] for ch in ("R", "G", "B") if channels[ch]}
+    if not rep:
+        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "no frames for tile grid"})
+        return False
+    h0, w0 = next(iter(rep.values())).shape[:2]
+    max_tile_size = max(min_tile_size, int(min(h0, w0) // max(1, max_divisor)))
+    grid_cfg = {"min_tile_size": min_tile_size, "max_tile_size": max_tile_size, "overlap": overlap}
+
+    if generate_multi_channel_grid is None:
+        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "tile_grid backend not available"})
+        return False
+    tile_grids = generate_multi_channel_grid({k: _to_uint8(v) for k, v in rep.items()}, grid_cfg)
+    _phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"grid_cfg": grid_cfg})
+
+    phase_id = 6
+    phase_name = "LOCAL_METRICS"
+    _phase_start(run_id, log_fp, phase_id, phase_name)
+    if _stop_requested(run_id, log_fp, phase_id, phase_name):
+        return False
+
+    if TileMetricsCalculator is None:
+        _phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "metrics backend not available"})
+        return False
+
+    try:
+        tile_size_i = int(tile_grids.get("G", {}).get("tile_size") or tile_grids.get("R", {}).get("tile_size") or min_tile_size)
+    except Exception:
+        tile_size_i = min_tile_size
+    try:
+        overlap_i = float(tile_grids.get("G", {}).get("overlap") or overlap)
+    except Exception:
+        overlap_i = overlap
+    tile_calc = TileMetricsCalculator(tile_size=tile_size_i, overlap=overlap_i)
+
+    lm_cfg = cfg.get("local_metrics") if isinstance(cfg.get("local_metrics"), dict) else {}
+    star_mode = lm_cfg.get("star_mode") if isinstance(lm_cfg.get("star_mode"), dict) else {}
+    star_w = star_mode.get("weights") if isinstance(star_mode.get("weights"), dict) else {}
+    try:
+        w_fwhm = float(star_w.get("fwhm", 1.0 / 3.0))
+    except Exception:
+        w_fwhm = 1.0 / 3.0
+    try:
+        w_round = float(star_w.get("roundness", 1.0 / 3.0))
+    except Exception:
+        w_round = 1.0 / 3.0
+    try:
+        w_con = float(star_w.get("contrast", 1.0 / 3.0))
+    except Exception:
+        w_con = 1.0 / 3.0
+
+    for ch in ("R", "G", "B"):
+        q_local: List[List[float]] = []
+        q_mean: List[float] = []
+        q_var: List[float] = []
+        for f in channels[ch]:
+            tm = tile_calc.calculate_tile_metrics(f)
+            fwhm = np.asarray(tm.get("fwhm") or [], dtype=np.float32)
+            rnd = np.asarray(tm.get("roundness") or [], dtype=np.float32)
+            con = np.asarray(tm.get("contrast") or [], dtype=np.float32)
+            if fwhm.size == 0:
+                q = np.zeros((0,), dtype=np.float32)
+            else:
+                mn = float(np.min(fwhm))
+                mx = float(np.max(fwhm))
+                if mx > mn:
+                    inv_fwhm = 1.0 - (fwhm - mn) / (mx - mn)
+                else:
+                    inv_fwhm = np.ones_like(fwhm)
+                q = (w_fwhm * inv_fwhm + w_round * rnd + w_con * con).astype(np.float32, copy=False)
+            q_local.append([float(x) for x in q.tolist()])
+            q_mean.append(float(np.mean(q)) if q.size else 0.0)
+            q_var.append(float(np.var(q)) if q.size else 0.0)
+
+        channel_metrics[ch]["tiles"] = {"Q_local": q_local, "tile_quality_mean": q_mean, "tile_quality_variance": q_var}
+
+    _phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i})
+
+    phase_id = 7
+    phase_name = "TILE_RECONSTRUCTION"
+    _phase_start(run_id, log_fp, phase_id, phase_name)
+    if _stop_requested(run_id, log_fp, phase_id, phase_name):
+        return False
+
+    reconstructed: Dict[str, np.ndarray] = {}
+    hdr0 = None
+    try:
+        hdr0 = fits.getheader(str(registered_files[0]), ext=0)
+    except Exception:
+        hdr0 = None
+    for ch in ("R", "G", "B"):
+        frs = channels[ch]
+        gfc = np.asarray(channel_metrics[ch]["global"].get("G_f_c") or [], dtype=np.float32)
+        if frs and gfc.size == len(frs) and float(np.sum(gfc)) > 0:
+            wsum = float(np.sum(gfc))
+            w_norm = (gfc / wsum).astype(np.float32, copy=False)
+            out = np.zeros_like(frs[0], dtype=np.float32)
+            for f, ww in zip(frs, w_norm):
+                out += f.astype(np.float32, copy=False) * float(ww)
+            reconstructed[ch] = out
+        elif frs:
+            reconstructed[ch] = np.mean(np.asarray(frs, dtype=np.float32), axis=0).astype(np.float32, copy=False)
+        else:
+            reconstructed[ch] = np.zeros((1, 1), dtype=np.float32)
+
+        out_path = outputs_dir / f"reconstructed_{ch}.fits"
+        fits.writeto(str(out_path), reconstructed[ch].astype("float32", copy=False), header=hdr0, overwrite=True)
+
+    _phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"outputs": [f"reconstructed_{c}.fits" for c in ("R", "G", "B")]})
+
+    phase_id = 8
+    phase_name = "STATE_CLUSTERING"
+    _phase_start(run_id, log_fp, phase_id, phase_name)
+    if _stop_requested(run_id, log_fp, phase_id, phase_name):
+        return False
+
+    # Reduced mode check (Methodik v3 §1.4)
+    assumptions_cfg = _get_assumptions_config(cfg)
+    frame_count = len(registered_files)
+    reduced_mode = _is_reduced_mode(frame_count, assumptions_cfg)
+    
+    clustering_cfg = synthetic_cfg.get("clustering") if isinstance(synthetic_cfg.get("clustering"), dict) else {}
+    clustering_results = None
+    clustering_skipped = False
+    
+    if reduced_mode and assumptions_cfg["reduced_mode_skip_clustering"]:
+        # Skip clustering in reduced mode
+        clustering_skipped = True
+    elif cluster_channels is not None:
+        try:
+            # Adjust cluster range for reduced mode
+            if reduced_mode:
+                reduced_range = assumptions_cfg["reduced_mode_cluster_range"]
+                clustering_cfg = dict(clustering_cfg)
+                clustering_cfg["cluster_count_range"] = reduced_range
+            clustering_results = cluster_channels(channels, channel_metrics, clustering_cfg)
+        except Exception:
+            clustering_results = None
+
+    _phase_end(
+        run_id,
+        log_fp,
+        phase_id,
+        phase_name,
+        "ok",
+        {
+            "enabled": bool(clustering_results is not None),
+            "reduced_mode": reduced_mode,
+            "skipped": clustering_skipped,
+        },
     )
 
     phase_id = 9
-    phase_name = "final_stacking"
+    phase_name = "SYNTHETIC_FRAMES"
+    _phase_start(run_id, log_fp, phase_id, phase_name)
+    if _stop_requested(run_id, log_fp, phase_id, phase_name):
+        return False
+
+    syn_out = outputs_dir / "synthetic"
+    syn_out.mkdir(parents=True, exist_ok=True)
+    synthetic_channels: Optional[Dict[str, List[np.ndarray]]] = None
+    synthetic_count = 0
+    synthetic_skipped = False
+    
+    # Skip synthetic frames in reduced mode if clustering was skipped
+    if reduced_mode and clustering_skipped:
+        synthetic_skipped = True
+    else:
+        try:
+            metrics_for_syn: Dict[str, Dict[str, Any]] = {}
+            for ch in ("R", "G", "B"):
+                g = channel_metrics.get(ch, {}).get("global", {}) if isinstance(channel_metrics.get(ch), dict) else {}
+                t = channel_metrics.get(ch, {}).get("tiles", {}) if isinstance(channel_metrics.get(ch), dict) else {}
+                g2 = dict(g)
+                if "noise_level" in g2:
+                    g2["noise_level"] = np.asarray(g2["noise_level"], dtype=np.float32)
+                if "background_level" in g2:
+                    g2["background_level"] = np.asarray(g2["background_level"], dtype=np.float32)
+                metrics_for_syn[ch] = {"global": g2, "tiles": t}
+
+            if generate_channel_synthetic_frames is not None:
+                synthetic_channels = generate_channel_synthetic_frames(channels, metrics_for_syn, synthetic_cfg)
+        except Exception:
+            synthetic_channels = None
+
+        if synthetic_channels:
+            hdr_syn = None
+            try:
+                hdr_syn = fits.getheader(str(registered_files[0]), ext=0)
+            except Exception:
+                hdr_syn = None
+            for ch in ("R", "G", "B"):
+                frs = synthetic_channels.get(ch) or []
+                for i, f in enumerate(frs, start=1):
+                    outp = syn_out / f"syn_{ch}_{i:05d}.fits"
+                    fits.writeto(str(outp), np.asarray(f).astype("float32", copy=False), header=hdr_syn, overwrite=True)
+                synthetic_count = max(synthetic_count, len(frs))
+
+    _phase_end(
+        run_id,
+        log_fp,
+        phase_id,
+        phase_name,
+        "ok",
+        {
+            "synthetic_dir": str(syn_out),
+            "synthetic_count": synthetic_count,
+            "enabled": bool(synthetic_channels),
+            "reduced_mode": reduced_mode,
+            "skipped": synthetic_skipped,
+        },
+    )
+
+    phase_id = 10
+    phase_name = "STACKING"
     _phase_start(run_id, log_fp, phase_id, phase_name)
     if _stop_requested(run_id, log_fp, phase_id, phase_name):
         return False
@@ -1009,7 +1479,22 @@ def _run_phases(
 
     stack_work = work_dir / "stacking"
     stack_work.mkdir(parents=True, exist_ok=True)
-    syn_files = sorted([p for p in syn_out.iterdir() if p.is_file() and _is_fits_image_path(p)])
+    stack_src_dir = outputs_dir / Path(stack_input_dir_name)
+    stack_files = (
+        sorted([p for p in stack_src_dir.glob(stack_input_pattern) if p.is_file() and _is_fits_image_path(p)])
+        if stack_src_dir.exists()
+        else []
+    )
+    if not stack_files:
+        _phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {"error": "no stacking input frames found", "input_dir": str(stack_src_dir), "input_pattern": stack_input_pattern},
+        )
+        return False
 
     using_default_stack_script = not (isinstance(stack_script_cfg, str) and stack_script_cfg.strip())
     if using_default_stack_script and stack_method != "average":
@@ -1041,7 +1526,7 @@ def _run_phases(
         )
         return False
 
-    for i, src in enumerate(syn_files, start=1):
+    for i, src in enumerate(stack_files, start=1):
         dst = stack_work / f"seq{i:05d}.fit"
         _safe_symlink_or_copy(src, dst)
 
@@ -1111,7 +1596,7 @@ def _run_phases(
         return False
 
     if using_default_stack_script and stack_method == "average":
-        n_stack = len(syn_files)
+        n_stack = len(stack_files)
         if n_stack > 0:
             try:
                 hdr = fits.getheader(str(produced), ext=0)
@@ -1129,12 +1614,12 @@ def _run_phases(
     extra: Dict[str, Any] = {"siril": meta, "method": stack_method, "output": str(final_out)}
     _phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
 
-    phase_id = 10
-    phase_name = "validation"
+    phase_id = 11
+    phase_name = "DONE"
     _phase_start(run_id, log_fp, phase_id, phase_name)
     if _stop_requested(run_id, log_fp, phase_id, phase_name):
         return False
-    _phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "not_implemented"})
+    _phase_end(run_id, log_fp, phase_id, phase_name, "ok", {})
 
     return True
 
@@ -1338,12 +1823,13 @@ def cmd_run(args) -> int:
             siril_exe=siril_exe,
         )
 
+        status = "ok" if ok else ("stopped" if _STOP else "error")
         _emit(
             {
                 "type": "run_end",
                 "run_id": run_id,
                 "ts": datetime.now(timezone.utc).isoformat(),
-                "status": "ok" if ok else "stopped",
+                "status": status,
             },
             log_fp,
         )

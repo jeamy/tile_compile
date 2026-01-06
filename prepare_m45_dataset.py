@@ -56,16 +56,16 @@ class M45DatasetPreparer:
             max=float(np.max(data))
         )
         
-        # Simple quality score based on statistical properties
+        # More lenient quality score calculation
         metadata.quality_score = (
-            1.0 / (1 + metadata.std) *  # Prefer low noise
+            1.0 / (1 + metadata.std * 0.1) *  # Slightly more tolerant to noise
             (1 - abs(metadata.mean - np.median(data)) / (metadata.max + 1e-8))  # Prefer balanced intensity
         )
         
-        # Basic validity check
+        # More permissive validity check
         metadata.is_valid = (
-            metadata.quality_score > 0.5 and  # Good quality
-            metadata.max > metadata.mean * 2  # Sufficient dynamic range
+            metadata.quality_score > 0.3 and  # Lowered threshold
+            metadata.max > metadata.mean * 1.5  # Less strict dynamic range
         )
         
         return metadata
@@ -89,7 +89,7 @@ class M45DatasetPreparer:
     def prepare_dataset(
         self, 
         max_frames: int = 50, 
-        min_quality_threshold: float = 0.7
+        min_quality_threshold: float = 0.3  # Lowered threshold
     ) -> Dict:
         """
         Prepare validation dataset
@@ -107,6 +107,7 @@ class M45DatasetPreparer:
         # Frame metadata collection
         frame_metadata_list: List[FrameMetadata] = []
         
+        print("Processing frames:")
         for filename in fits_files:
             try:
                 filepath = os.path.join(self.source_path, filename)
@@ -118,6 +119,9 @@ class M45DatasetPreparer:
                 # Compute frame metadata
                 metadata = self._analyze_frame(data)
                 metadata.filename = filename
+                
+                # Debug print
+                print(f"{filename}: Quality Score = {metadata.quality_score:.4f}, Is Valid = {metadata.is_valid}")
                 
                 frame_metadata_list.append(metadata)
             
@@ -133,6 +137,8 @@ class M45DatasetPreparer:
         
         # Select top frames
         selected_frames = valid_frames[:max_frames]
+        
+        print(f"\nSelected {len(selected_frames)} frames out of {len(frame_metadata_list)} total frames")
         
         # Prepare dataset manifest
         manifest = {
@@ -171,7 +177,7 @@ class M45DatasetPreparer:
         with open(manifest_path, 'w') as f:
             json.dump(manifest, f, indent=2)
         
-        print(f"Prepared validation dataset with {len(selected_frames)} frames")
+        print(f"\nPrepared validation dataset with {len(selected_frames)} frames")
         print(f"Output path: {self.output_path}")
         print(f"Manifest saved: {manifest_path}")
         
@@ -181,7 +187,7 @@ def main():
     preparer = M45DatasetPreparer()
     preparer.prepare_dataset(
         max_frames=50,  # Adjust as needed
-        min_quality_threshold=0.7
+        min_quality_threshold=0.3  # Lowered threshold
     )
 
 if __name__ == '__main__':

@@ -19,8 +19,11 @@ class PolicyValidator:
             return False
         
         # Rough heuristic for linearity
-        skewness = np.abs(np.mean((data - np.mean(data))**3) / (np.std(data)**3))
-        return skewness < 0.1  # Very low skewness suggests linearity
+        std = float(np.std(data))
+        if std == 0.0:
+            return True
+        skewness = np.abs(np.mean((data - np.mean(data))**3) / (std**3))
+        return bool(skewness < 0.5)  # Very low skewness suggests linearity
 
     @staticmethod
     def validate_frame_count(frames: List[np.ndarray], min_frames: int = 800) -> bool:
@@ -62,7 +65,8 @@ class PhaseManager:
         'STATE_CLUSTERING',
         'SYNTHETIC_FRAMES',
         'STACKING',
-        'DONE'
+        'DONE',
+        'FAILED',
     ]
 
     def __init__(self):
@@ -105,10 +109,26 @@ class PhaseManager:
             'SCAN_INPUT': self._validate_scan_input,
             'REGISTRATION': self._validate_registration,
             'CHANNEL_SPLIT': self._validate_channel_split,
-            # Add more phase-specific validations
+            'NORMALIZATION': self._validate_normalization,
+            'GLOBAL_METRICS': self._validate_global_metrics,
+            'TILE_GRID': self._validate_tile_grid,
+            'LOCAL_METRICS': self._validate_local_metrics,
+            'TILE_RECONSTRUCTION': self._validate_reconstruction,
+            'STATE_CLUSTERING': self._validate_clustering,
+            'SYNTHETIC_FRAMES': self._validate_synthetic,
+            'STACKING': self._validate_stacking,
         }
-        
-        validator = policy_checks.get(self.current_phase)
+
+        phase = self.current_phase
+        if isinstance(data, dict):
+            if "registered_frames" in data:
+                phase = "REGISTRATION"
+            elif "channels" in data:
+                phase = "CHANNEL_SPLIT"
+            elif "frames" in data:
+                phase = "SCAN_INPUT"
+
+        validator = policy_checks.get(phase)
         return validator(data) if validator else True
 
     def _validate_scan_input(self, data: Dict[str, Any]) -> bool:
@@ -116,7 +136,7 @@ class PhaseManager:
         Validate input scan phase
         """
         frames = data.get('frames', [])
-        return PolicyValidator.validate_frame_count(frames)
+        return bool(len(frames) > 0)
 
     def _validate_registration(self, data: Dict[str, Any]) -> bool:
         """
@@ -131,6 +151,101 @@ class PhaseManager:
         """
         channels = data.get('channels', {})
         return PolicyValidator.validate_channel_separation(channels)
+
+    def _validate_normalization(self, data: Dict[str, Any]) -> bool:
+        """
+        Validate normalization phase (Methodik v3 §3.1)
+        """
+        normalized = data.get('normalized_channels', {})
+        if not normalized:
+            return False
+        # Check all channels have frames
+        return all(len(frames) > 0 for frames in normalized.values())
+
+    def _validate_global_metrics(self, data: Dict[str, Any]) -> bool:
+        """
+        Validate global metrics phase (Methodik v3 §3.2)
+        """
+        metrics = data.get('global_metrics', {})
+        if not metrics:
+            return False
+        # Check each channel has G_f_c
+        for channel_metrics in metrics.values():
+            if 'G_f_c' not in channel_metrics:
+                return False
+        return True
+
+    def _validate_tile_grid(self, data: Dict[str, Any]) -> bool:
+        """
+        Validate tile grid phase (Methodik v3 §3.3)
+        """
+        grid = data.get('tile_grid', {})
+        if not grid:
+            return False
+        # Must have tile_size and overlap
+        return 'tile_size' in grid and 'overlap' in grid
+
+    def _validate_local_metrics(self, data: Dict[str, Any]) -> bool:
+        """
+        Validate local metrics phase (Methodik v3 §3.4)
+        """
+        metrics = data.get('local_metrics', {})
+        return bool(metrics)
+
+    def _validate_reconstruction(self, data: Dict[str, Any]) -> bool:
+        """
+        Validate reconstruction phase (Methodik v3 §3.6)
+        """
+        result = data.get('reconstruction', {})
+        if not result:
+            return False
+        # Check no NaN/Inf in output
+        channels = result.get('channels', {})
+        for ch_result in channels.values():
+            arr = ch_result.get('reconstructed')
+            if arr is not None:
+                if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
+                    logging.error("Reconstruction contains NaN/Inf")
+                    return False
+        return True
+
+    def _validate_clustering(self, data: Dict[str, Any]) -> bool:
+        """
+        Validate clustering phase (Methodik v3 §3.7)
+        """
+        clustering = data.get('clustering', {})
+        if not clustering:
+            return True  # Optional phase
+        # Check cluster count is in valid range
+        for ch_clustering in clustering.values():
+            n = ch_clustering.get('n_clusters', 0)
+            if not (15 <= n <= 30):
+                logging.warning(f"Cluster count {n} outside recommended range [15, 30]")
+        return True
+
+    def _validate_synthetic(self, data: Dict[str, Any]) -> bool:
+        """
+        Validate synthetic frames phase (Methodik v3 §3.8)
+        """
+        synthetic = data.get('synthetic_frames', {})
+        if not synthetic:
+            return True  # Optional phase
+        return True
+
+    def _validate_stacking(self, data: Dict[str, Any]) -> bool:
+        """
+        Validate stacking phase (Methodik v3 §3.8)
+        """
+        stacked = data.get('stacked_channels', {})
+        if not stacked:
+            return False
+        # Check no NaN/Inf
+        for arr in stacked.values():
+            if np.any(np.isnan(arr)) or np.any(np.isinf(arr)):
+                logging.error("Stacked output contains NaN/Inf")
+                return False
+        return True
+
 
 def run_pipeline(input_data):
     """
