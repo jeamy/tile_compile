@@ -498,6 +498,7 @@ class AssumptionsWidget(QWidget):
             "registration_residual_max_px": self.reg_max.value(),
             "elongation_warn": self.elong_warn.value(),
             "elongation_max": self.elong_max.value(),
+            "tracking_error_max_px": self.tracking_error_max.value(),
             "reduced_mode_skip_clustering": self.skip_clustering.isChecked(),
             "reduced_mode_cluster_range": [self.cluster_min.value(), self.cluster_max.value()],
         }
@@ -519,8 +520,6 @@ class AssumptionsWidget(QWidget):
             self.elong_warn.setValue(float(assumptions["elongation_warn"]))
         if "elongation_max" in assumptions:
             self.elong_max.setValue(float(assumptions["elongation_max"]))
-        if "tracking_error_max_px" in assumptions:
-            self.tracking_error_max.setValue(float(assumptions["tracking_error_max_px"]))
         if "reduced_mode_skip_clustering" in assumptions:
             self.skip_clustering.setChecked(bool(assumptions["reduced_mode_skip_clustering"]))
         if "reduced_mode_cluster_range" in assumptions:

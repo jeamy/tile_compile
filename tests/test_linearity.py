@@ -1,3 +1,15 @@
+"""
+Test Suite: Linearity Enforcement
+
+Tests Methodik v3 linearity validation (hard assumption):
+- Linear frame detection
+- Non-linear stretch detection
+- Histogram clipping detection
+- Frame rejection based on linearity
+
+Ensures the pipeline rejects non-linear data as per Methodik v3 §1.1.
+"""
+
 import numpy as np
 import pytest
 from tile_compile_backend.linearity import LinearityValidator, validate_frames_linearity

@@ -1,3 +1,15 @@
+"""
+Test Suite: Reduced Mode Runner
+
+Tests Methodik v3 Reduced Mode functionality:
+- Phase skipping (STATE_CLUSTERING, SYNTHETIC_FRAMES)
+- Reduced cluster range application
+- Event emission verification
+- End-to-end pipeline execution with reduced mode
+
+Validates that Reduced Mode (< 200 frames) works correctly according to Methodik v3 §1.4.
+"""
+
 import io
 import json
 import shutil
@@ -6,7 +18,9 @@ from pathlib import Path
 import numpy as np
 from astropy.io import fits
 
-import tile_compile_runner as runner
+# Import from refactored runner structure
+from runner import phases_impl
+from runner import phases
 
 
 def _write_cfa_fits(path: Path, shape: tuple[int, int] = (32, 32), bayer_pattern: str = "GBRG") -> None:
@@ -50,8 +64,14 @@ def test_reduced_mode_skips_clustering_and_synthetic(tmp_path, monkeypatch):
             return True, {"returncode": 0}
         return True, {"returncode": 0}
 
-    monkeypatch.setattr(runner, "generate_multi_channel_grid", _stub_generate_multi_channel_grid)
-    monkeypatch.setattr(runner, "_run_siril_script", _stub_run_siril_script)
+    # Patch the backend functions that phases_impl uses
+    import sys
+    if 'tile_compile_backend.tile_grid' not in sys.modules:
+        sys.modules['tile_compile_backend.tile_grid'] = type(sys)('tile_compile_backend.tile_grid')
+    sys.modules['tile_compile_backend.tile_grid'].generate_multi_channel_grid = _stub_generate_multi_channel_grid
+    
+    from runner import siril_utils
+    monkeypatch.setattr(siril_utils, "run_siril_script", _stub_run_siril_script)
 
     cfg = {
         "data": {"frames_min": 1, "color_mode": "OSC", "bayer_pattern": "GBRG"},
@@ -67,7 +87,7 @@ def test_reduced_mode_skips_clustering_and_synthetic(tmp_path, monkeypatch):
     }
 
     log_fp = io.StringIO()
-    ok = runner._run_phases(
+    ok = phases_impl.run_phases_impl(
         run_id=run_id,
         log_fp=log_fp,
         dry_run=False,
@@ -76,6 +96,7 @@ def test_reduced_mode_skips_clustering_and_synthetic(tmp_path, monkeypatch):
         cfg=cfg,
         frames=frames,
         siril_exe="siril",
+        stop_flag=False,
     )
     assert ok is True
 
@@ -128,9 +149,18 @@ def test_reduced_mode_uses_reduced_cluster_range_when_not_skipping(tmp_path, mon
         seen["cluster_count_range"] = clustering_cfg.get("cluster_count_range")
         return {"R": {"n_clusters": 5}, "G": {"n_clusters": 5}, "B": {"n_clusters": 5}}
 
-    monkeypatch.setattr(runner, "generate_multi_channel_grid", _stub_generate_multi_channel_grid)
-    monkeypatch.setattr(runner, "_run_siril_script", _stub_run_siril_script)
-    monkeypatch.setattr(runner, "cluster_channels", _stub_cluster_channels)
+    # Patch the backend functions that phases_impl uses
+    import sys
+    if 'tile_compile_backend.tile_grid' not in sys.modules:
+        sys.modules['tile_compile_backend.tile_grid'] = type(sys)('tile_compile_backend.tile_grid')
+    sys.modules['tile_compile_backend.tile_grid'].generate_multi_channel_grid = _stub_generate_multi_channel_grid
+    
+    if 'tile_compile_backend.clustering' not in sys.modules:
+        sys.modules['tile_compile_backend.clustering'] = type(sys)('tile_compile_backend.clustering')
+    sys.modules['tile_compile_backend.clustering'].cluster_channels = _stub_cluster_channels
+    
+    from runner import siril_utils
+    monkeypatch.setattr(siril_utils, "run_siril_script", _stub_run_siril_script)
 
     cfg = {
         "data": {"frames_min": 1, "color_mode": "OSC", "bayer_pattern": "GBRG"},
@@ -151,7 +181,7 @@ def test_reduced_mode_uses_reduced_cluster_range_when_not_skipping(tmp_path, mon
     }
 
     log_fp = io.StringIO()
-    ok = runner._run_phases(
+    ok = phases_impl.run_phases_impl(
         run_id=run_id,
         log_fp=log_fp,
         dry_run=False,
@@ -160,6 +190,7 @@ def test_reduced_mode_uses_reduced_cluster_range_when_not_skipping(tmp_path, mon
         cfg=cfg,
         frames=frames,
         siril_exe="siril",
+        stop_flag=False,
     )
     assert ok is True
     assert seen.get("cluster_count_range") == [5, 10]
