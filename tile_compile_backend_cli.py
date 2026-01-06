@@ -1,3 +1,21 @@
+"""
+Tile-Compile Backend CLI
+
+Command-line interface for backend operations:
+- Config validation and schema checking
+- Input scanning and frame discovery
+- Run listing and status queries
+- Log retrieval and artifact listing
+- Config text manipulation
+
+This CLI provides utility commands used by the GUI and for
+manual pipeline management. All commands output JSON for
+easy parsing by the GUI.
+
+Usage:
+    python tile_compile_backend_cli.py <command> [args]
+"""
+
 import argparse
 import json
 import sys
