@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "tile_compile.schema.json",
   "title": "tile_compile.yaml schema",
+  "description": "Machine-readable JSON Schema for tile_compile.yaml. This schema defines the allowed configuration shape for a Tile-Compile run and is aligned with Methodik v3. Related files: tile_compile.yaml (example config), tile_compile.schema.yaml (GUI/editor-oriented schema metadata), tile_compile_runner.py (authoritative implementation).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -39,7 +40,6 @@
         "image_width",
         "image_height",
         "frames_min",
-        "frames_target",
         "color_mode",
         "linear_required"
       ],
@@ -47,7 +47,12 @@
         "image_width": { "type": "integer", "minimum": 1 },
         "image_height": { "type": "integer", "minimum": 1 },
         "frames_min": { "type": "integer", "minimum": 1 },
-        "frames_target": { "type": "integer", "minimum": 1 },
+        "frames_target": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Optional upper bound for how many frames are used for analysis steps (0 = use all)."
+        },
         "color_mode": { "type": "string", "enum": ["OSC"] },
         "bayer_pattern": {
           "type": "string",
@@ -86,7 +91,12 @@
         "output_dir": { "type": "string", "minLength": 1 },
         "registered_filename_pattern": { "type": "string", "minLength": 1 },
         "min_star_matches": { "type": "integer", "minimum": 1 },
-        "allow_rotation": { "type": "boolean" }
+        "allow_rotation": { "type": "boolean" },
+        "siril_script": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to a custom Siril registration script (empty = use default)."
+        }
       }
     },
 
@@ -270,7 +280,12 @@
         "method": { "type": "string", "const": "average" },
         "input_dir": { "type": "string", "minLength": 1 },
         "input_pattern": { "type": "string", "minLength": 1 },
-        "output_file": { "type": "string", "minLength": 1 }
+        "output_file": { "type": "string", "minLength": 1 },
+        "siril_script": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to a custom Siril stacking script (empty = use default)."
+        }
       }
     },
 

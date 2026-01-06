@@ -1,3 +1,13 @@
+# FILE: tile_compile.yaml
+# PURPOSE
+# - User-editable configuration for a Tile-Compile run.
+# - This file is validated against tile_compile.schema.json.
+# - Values should be aligned with “Methodik v3” (see doc/tile_basierte_qualitatsrekonstruktion_methodik_en.md).
+#
+# NOTES
+# - "assumptions" contains Methodik v3 tolerance thresholds and Reduced Mode behavior.
+# - The runner may derive additional input metadata at runtime (image size, frame count, etc.).
+
 pipeline:
   mode: production
   abort_on_fail: true
@@ -5,11 +15,22 @@ pipeline:
 data:
   image_width: 3840
   image_height: 2160
-  frames_min: 10
-  frames_target: 1000
+  frames_min: 50
   color_mode: OSC
   bayer_pattern: GBRG
   linear_required: true
+
+assumptions:
+  frames_min: 50
+  frames_optimal: 800
+  frames_reduced_threshold: 200
+  exposure_time_tolerance_percent: 5.0
+  registration_residual_warn_px: 0.5
+  registration_residual_max_px: 1.0
+  elongation_warn: 0.3
+  elongation_max: 0.4
+  reduced_mode_skip_clustering: true
+  reduced_mode_cluster_range: [5, 10]
 
 normalization:
   enabled: true
@@ -17,12 +38,13 @@ normalization:
   per_channel: true
 
 registration:
-  engine: opencv_cfa
+  engine: siril
   reference: auto
   allow_rotation: false   
   min_star_matches: 10   
   output_dir: registered
   registered_filename_pattern: "reg_{index:05d}.fit"
+  siril_script: ""  # empty = use default script
 
 global_metrics:
   weights:
@@ -74,6 +96,7 @@ stacking:
   input_dir: synthetic
   input_pattern: "syn_*.fits"
   output_file: stacked.fit
+  siril_script: ""  # empty = use default script
 
 validation:
   min_fwhm_improvement_percent: 5

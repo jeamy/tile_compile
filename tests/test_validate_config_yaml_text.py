@@ -164,3 +164,59 @@ def test_schema_missing_required_section_is_invalid() -> None:
     res = _validate(cfg)
     assert res["valid"] is False
     assert "schema_validation_error" in _codes(res)
+
+
+def test_assumptions_frames_thresholds_invalid_min_ge_reduced() -> None:
+    cfg = _base_cfg()
+    cfg["assumptions"] = {
+        "frames_min": 200,
+        "frames_reduced_threshold": 200,
+        "frames_optimal": 800,
+    }
+    res = _validate(cfg)
+    assert res["valid"] is False
+    assert "frames_thresholds_invalid" in _codes(res)
+
+
+def test_assumptions_frames_thresholds_invalid_reduced_ge_optimal() -> None:
+    cfg = _base_cfg()
+    cfg["assumptions"] = {
+        "frames_min": 50,
+        "frames_reduced_threshold": 900,
+        "frames_optimal": 800,
+    }
+    res = _validate(cfg)
+    assert res["valid"] is False
+    assert "frames_thresholds_invalid" in _codes(res)
+
+
+def test_assumptions_registration_thresholds_invalid() -> None:
+    cfg = _base_cfg()
+    cfg["assumptions"] = {
+        "registration_residual_warn_px": 1.0,
+        "registration_residual_max_px": 0.5,
+    }
+    res = _validate(cfg)
+    assert res["valid"] is False
+    assert "registration_thresholds_invalid" in _codes(res)
+
+
+def test_assumptions_elongation_thresholds_invalid() -> None:
+    cfg = _base_cfg()
+    cfg["assumptions"] = {
+        "elongation_warn": 0.5,
+        "elongation_max": 0.4,
+    }
+    res = _validate(cfg)
+    assert res["valid"] is False
+    assert "elongation_thresholds_invalid" in _codes(res)
+
+
+def test_assumptions_reduced_mode_cluster_range_invalid() -> None:
+    cfg = _base_cfg()
+    cfg["assumptions"] = {
+        "reduced_mode_cluster_range": [10, 5],
+    }
+    res = _validate(cfg)
+    assert res["valid"] is False
+    assert "reduced_mode_cluster_range_invalid" in _codes(res)
