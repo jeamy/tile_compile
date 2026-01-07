@@ -558,20 +558,48 @@ def run_phases_impl(
                     {"channel": ch, "frame": i},
                 )
 
-        def _norm01(vals: List[float]) -> List[float]:
+        def _norm_mad(vals: List[float]) -> List[float]:
+            """
+            Normalize using MAD (Median Absolute Deviation) - Methodik v3 §A.5
+            
+            Formula: x̃ = (x - median(x)) / (1.4826 · MAD(x))
+            
+            More robust against outliers than min/max normalization.
+            The factor 1.4826 makes MAD consistent with standard deviation for normal distributions.
+            """
             if not vals:
                 return []
             a = np.asarray(vals, dtype=np.float32)
-            mn = float(np.min(a))
-            mx = float(np.max(a))
-            if not np.isfinite(mn) or not np.isfinite(mx) or mx <= mn:
+            
+            # Compute median
+            med = float(np.median(a))
+            
+            # Compute MAD (Median Absolute Deviation)
+            mad = float(np.median(np.abs(a - med)))
+            
+            # Avoid division by zero
+            if not np.isfinite(mad) or mad < 1e-12:
                 return [0.0 for _ in vals]
-            return [float(x) for x in ((a - mn) / (mx - mn)).tolist()]
+            
+            # Normalize: x̃ = (x - median) / (1.4826 · MAD)
+            # Factor 1.4826 ≈ 1/Φ⁻¹(3/4) makes MAD consistent with σ for normal distributions
+            normalized = (a - med) / (1.4826 * mad)
+            
+            return [float(x) for x in normalized.tolist()]
 
-        bg_n = _norm01(bgs)
-        noise_n = _norm01(noises)
-        grad_n = _norm01(grads)
-        gfc = [float(w_bg * (1.0 - b) + w_noise * (1.0 - n) + w_grad * g) for b, n, g in zip(bg_n, noise_n, grad_n)]
+        # Normalize metrics using MAD (Methodik v3 §A.5)
+        bg_n = _norm_mad(bgs)
+        noise_n = _norm_mad(noises)
+        grad_n = _norm_mad(grads)
+        
+        # Compute quality scores Q_f (Methodik v3 §5)
+        q_f = [float(w_bg * (1.0 - b) + w_noise * (1.0 - n) + w_grad * g) for b, n, g in zip(bg_n, noise_n, grad_n)]
+        
+        # Clamp Q_f to [-3, +3] before exp() (Methodik v3 §5, §14 Test Case 2)
+        q_f_clamped = [float(np.clip(q, -3.0, 3.0)) for q in q_f]
+        
+        # Global weights G_f = exp(Q_f_clamped)
+        gfc = [float(np.exp(q)) for q in q_f_clamped]
 
         channel_metrics[ch] = {
             "global": {
@@ -675,7 +703,10 @@ def run_phases_impl(
                     inv_fwhm = 1.0 - (fwhm - mn) / (mx - mn)
                 else:
                     inv_fwhm = np.ones_like(fwhm)
-                q = (w_fwhm * inv_fwhm + w_round * rnd + w_con * con).astype(np.float32, copy=False)
+                # Compute local quality score Q_local (Methodik v3 §7)
+                q_raw = (w_fwhm * inv_fwhm + w_round * rnd + w_con * con).astype(np.float32, copy=False)
+                # Clamp Q_local to [-3, +3] before computing weights (Methodik v3 §7, §14 Test Case 2)
+                q = np.clip(q_raw, -3.0, 3.0)
             q_local.append([float(x) for x in q.tolist()])
             q_mean.append(float(np.mean(q)) if q.size else 0.0)
             q_var.append(float(np.var(q)) if q.size else 0.0)
@@ -701,20 +732,34 @@ def run_phases_impl(
     except Exception:
         hdr0 = None
     
+    # Epsilon for numerical stability (Methodik v3 §A.8)
+    epsilon = 1e-6
+    
     channels_to_process = [ch for ch in ("R", "G", "B") if channels[ch]]
     for ch_idx, ch in enumerate(channels_to_process, start=1):
         frs = channels[ch]
         gfc = np.asarray(channel_metrics[ch]["global"].get("G_f_c") or [], dtype=np.float32)
-        if frs and gfc.size == len(frs) and float(np.sum(gfc)) > 0:
+        
+        # Check if we have valid weights (Methodik v3 §9 Stability Rules)
+        if frs and gfc.size == len(frs):
             wsum = float(np.sum(gfc))
-            w_norm = (gfc / wsum).astype(np.float32, copy=False)
-            out = np.zeros_like(frs[0], dtype=np.float32)
-            for f, ww in zip(frs, w_norm):
-                out += f.astype(np.float32, copy=False) * float(ww)
-            reconstructed[ch] = out
+            
+            if wsum > epsilon:
+                # Normal weighted reconstruction
+                w_norm = (gfc / wsum).astype(np.float32, copy=False)
+                out = np.zeros_like(frs[0], dtype=np.float32)
+                for f, ww in zip(frs, w_norm):
+                    out += f.astype(np.float32, copy=False) * float(ww)
+                reconstructed[ch] = out
+            else:
+                # Fallback: unweighted mean (all weights numerically ~0)
+                # Methodik v3 §9: "reconstruct using unweighted mean over all frames"
+                reconstructed[ch] = np.mean(np.asarray(frs, dtype=np.float32), axis=0).astype(np.float32, copy=False)
         elif frs:
+            # No weights available, use unweighted mean
             reconstructed[ch] = np.mean(np.asarray(frs, dtype=np.float32), axis=0).astype(np.float32, copy=False)
         else:
+            # No frames available
             reconstructed[ch] = np.zeros((1, 1), dtype=np.float32)
 
         out_path = outputs_dir / f"reconstructed_{ch}.fits"
@@ -738,6 +783,7 @@ def run_phases_impl(
     clustering_cfg = synthetic_cfg.get("clustering") if isinstance(synthetic_cfg.get("clustering"), dict) else {}
     clustering_results = None
     clustering_skipped = False
+    clustering_fallback_used = False
     
     if reduced_mode and assumptions_cfg["reduced_mode_skip_clustering"]:
         # Skip clustering in reduced mode
@@ -750,8 +796,40 @@ def run_phases_impl(
                 clustering_cfg = dict(clustering_cfg)
                 clustering_cfg["cluster_count_range"] = reduced_range
             clustering_results = cluster_channels(channels, channel_metrics, clustering_cfg)
-        except Exception:
-            clustering_results = None
+        except Exception as e:
+            # Fallback: Quantile-based clustering (Methodik v3 §10)
+            # Group frames by quantiles of global quality G_f
+            try:
+                n_quantiles = clustering_cfg.get("fallback_quantiles", 15)
+                if reduced_mode:
+                    n_quantiles = min(n_quantiles, assumptions_cfg["reduced_mode_cluster_range"][1])
+                
+                clustering_results = {}
+                for ch in ("R", "G", "B"):
+                    if ch not in channels or not channels[ch]:
+                        continue
+                    gfc = channel_metrics.get(ch, {}).get("global", {}).get("G_f_c", [])
+                    if not gfc or len(gfc) != len(channels[ch]):
+                        continue
+                    
+                    # Compute quantile boundaries
+                    gfc_arr = np.asarray(gfc, dtype=np.float32)
+                    quantiles = np.linspace(0, 100, n_quantiles + 1)
+                    boundaries = np.percentile(gfc_arr, quantiles)
+                    
+                    # Assign frames to quantile bins
+                    cluster_labels = np.digitize(gfc_arr, boundaries[1:-1])
+                    
+                    clustering_results[ch] = {
+                        "cluster_labels": cluster_labels.tolist(),
+                        "n_clusters": n_quantiles,
+                        "method": "quantile_fallback",
+                        "quantile_boundaries": boundaries.tolist(),
+                    }
+                
+                clustering_fallback_used = True
+            except Exception:
+                clustering_results = None
 
     phase_end(
         run_id,
@@ -763,6 +841,7 @@ def run_phases_impl(
             "enabled": bool(clustering_results is not None),
             "reduced_mode": reduced_mode,
             "skipped": clustering_skipped,
+            "fallback_used": clustering_fallback_used,
         },
     )
 
