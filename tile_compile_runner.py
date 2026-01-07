@@ -131,16 +131,32 @@ def main():
         )
         
         # Run pipeline phases
-        success = run_phases(
-            run_id=run_id,
-            log_fp=log_fp,
-            dry_run=args.dry_run,
-            run_dir=run_dir,
-            project_root=project_root,
-            cfg=cfg,
-            frames=frames,
-            siril_exe=siril_exe,
-        )
+        try:
+            success = run_phases(
+                run_id=run_id,
+                log_fp=log_fp,
+                dry_run=args.dry_run,
+                run_dir=run_dir,
+                project_root=project_root,
+                cfg=cfg,
+                frames=frames,
+                siril_exe=siril_exe,
+            )
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            emit(
+                {
+                    "type": "run_error",
+                    "run_id": run_id,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "error": str(e),
+                    "traceback": tb,
+                },
+                log_fp,
+            )
+            print(f"Pipeline error: {e}\n{tb}", file=sys.stderr)
+            success = False
         
         # Emit run_end event
         emit(

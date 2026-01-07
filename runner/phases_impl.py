@@ -425,7 +425,8 @@ def run_phases_impl(
 
     channels: Dict[str, List[np.ndarray]] = {"R": [], "G": [], "B": []}
     cfa_registered = None
-    for p in registered_files[:analysis_count]:
+    total_split = max(1, analysis_count)
+    for idx, p in enumerate(registered_files[:analysis_count], start=1):
         data, _hdr = read_fits_float(p)
         is_cfa = (fits_is_cfa(p) is True)
         if cfa_registered is None:
@@ -450,6 +451,9 @@ def run_phases_impl(
         channels["R"].append(split["R"])
         channels["G"].append(split["G"])
         channels["B"].append(split["B"])
+
+        if idx % 5 == 0 or idx == total_split:
+            phase_progress(run_id, log_fp, phase_id, phase_name, idx, total_split, {})
 
     phase_end(
         run_id,
@@ -476,14 +480,19 @@ def run_phases_impl(
     per_channel = bool(norm_cfg.get("per_channel", True))
     norm_target: Optional[float] = None
     if per_channel:
+        phase_progress(run_id, log_fp, phase_id, phase_name, 0, 3, {"step": "per_channel"})
         channels["R"], _ = normalize_frames(channels["R"], norm_mode)
+        phase_progress(run_id, log_fp, phase_id, phase_name, 1, 3, {"channel": "R", "step": "per_channel"})
         channels["G"], _ = normalize_frames(channels["G"], norm_mode)
+        phase_progress(run_id, log_fp, phase_id, phase_name, 2, 3, {"channel": "G", "step": "per_channel"})
         channels["B"], _ = normalize_frames(channels["B"], norm_mode)
+        phase_progress(run_id, log_fp, phase_id, phase_name, 3, 3, {"channel": "B", "step": "per_channel"})
     else:
         meds = [float(np.median(f)) for ch in ("R", "G", "B") for f in channels[ch]]
         norm_target = float(np.median(np.asarray(meds, dtype=np.float32))) if meds else None
         out: Dict[str, List[np.ndarray]] = {"R": [], "G": [], "B": []}
-        for ch in ("R", "G", "B"):
+        phase_progress(run_id, log_fp, phase_id, phase_name, 0, 3, {"step": "global_target"})
+        for ch_idx, ch in enumerate(("R", "G", "B"), start=1):
             for f in channels[ch]:
                 med = float(np.median(f))
                 if str(norm_mode).strip().lower() == "median":
@@ -491,6 +500,7 @@ def run_phases_impl(
                     out[ch].append((f * float(scale)).astype("float32", copy=False))
                 else:
                     out[ch].append((f - (med - float(norm_target or med))).astype("float32", copy=False))
+            phase_progress(run_id, log_fp, phase_id, phase_name, ch_idx, 3, {"channel": ch, "step": "global_target"})
         channels = out
 
     phase_end(
@@ -524,11 +534,29 @@ def run_phases_impl(
         w_grad = 1.0 / 3.0
 
     channel_metrics: Dict[str, Dict[str, Any]] = {}
+    total_global = sum(len(channels[ch]) for ch in ("R", "G", "B"))
+    total_global = max(1, total_global)
+    processed_global = 0
     for ch in ("R", "G", "B"):
         frs = channels[ch]
-        bgs = [float(np.median(f)) for f in frs]
-        noises = [float(np.std(f)) for f in frs]
-        grads = [float(np.mean(np.hypot(*np.gradient(f.astype("float32", copy=False))))) for f in frs]
+        bgs: List[float] = []
+        noises: List[float] = []
+        grads: List[float] = []
+        for i, f in enumerate(frs, start=1):
+            bgs.append(float(np.median(f)))
+            noises.append(float(np.std(f)))
+            grads.append(float(np.mean(np.hypot(*np.gradient(f.astype("float32", copy=False))))))
+            processed_global += 1
+            if processed_global % 5 == 0 or processed_global == total_global:
+                phase_progress(
+                    run_id,
+                    log_fp,
+                    phase_id,
+                    phase_name,
+                    processed_global,
+                    total_global,
+                    {"channel": ch, "frame": i},
+                )
 
         def _norm01(vals: List[float]) -> List[float]:
             if not vals:
@@ -777,12 +805,25 @@ def run_phases_impl(
                 hdr_syn = fits.getheader(str(registered_files[0]), ext=0)
             except Exception:
                 hdr_syn = None
-            for ch in ("R", "G", "B"):
-                frs = synthetic_channels.get(ch) or []
-                for i, f in enumerate(frs, start=1):
-                    outp = syn_out / f"syn_{ch}_{i:05d}.fits"
-                    fits.writeto(str(outp), np.asarray(f).astype("float32", copy=False), header=hdr_syn, overwrite=True)
-                synthetic_count = max(synthetic_count, len(frs))
+            syn_r = synthetic_channels.get("R") or []
+            syn_g = synthetic_channels.get("G") or []
+            syn_b = synthetic_channels.get("B") or []
+            synthetic_count = max(len(syn_r), len(syn_g), len(syn_b))
+            for i in range(synthetic_count):
+                r = np.asarray(syn_r[i]).astype("float32", copy=False) if i < len(syn_r) else None
+                g = np.asarray(syn_g[i]).astype("float32", copy=False) if i < len(syn_g) else None
+                b = np.asarray(syn_b[i]).astype("float32", copy=False) if i < len(syn_b) else None
+                if r is None or g is None or b is None:
+                    continue
+                outp_rgb = syn_out / f"syn_{i+1:05d}.fits"
+                rgb = np.stack([r, g, b], axis=0)
+                fits.writeto(str(outp_rgb), rgb, header=hdr_syn, overwrite=True)
+                outp_r = syn_out / f"synR_{i+1:05d}.fits"
+                outp_g = syn_out / f"synG_{i+1:05d}.fits"
+                outp_b = syn_out / f"synB_{i+1:05d}.fits"
+                fits.writeto(str(outp_r), r, header=hdr_syn, overwrite=True)
+                fits.writeto(str(outp_g), g, header=hdr_syn, overwrite=True)
+                fits.writeto(str(outp_b), b, header=hdr_syn, overwrite=True)
 
     phase_end(
         run_id,
@@ -817,7 +858,24 @@ def run_phases_impl(
     # In reduced mode with skipped synthetic frames, stack reconstructed channels directly
     if reduced_mode and synthetic_skipped:
         stack_src_dir = outputs_dir
-        stack_files = sorted([p for p in stack_src_dir.glob("reconstructed_*.fits") if p.is_file()])
+        recon_r = outputs_dir / "reconstructed_R.fits"
+        recon_g = outputs_dir / "reconstructed_G.fits"
+        recon_b = outputs_dir / "reconstructed_B.fits"
+        rgb_path = outputs_dir / "reconstructed_rgb.fits"
+        if recon_r.is_file() and recon_g.is_file() and recon_b.is_file():
+            try:
+                hdr_rgb = fits.getheader(str(recon_r), ext=0)
+            except Exception:
+                hdr_rgb = None
+            try:
+                r = np.asarray(fits.getdata(str(recon_r), ext=0)).astype("float32", copy=False)
+                g = np.asarray(fits.getdata(str(recon_g), ext=0)).astype("float32", copy=False)
+                b = np.asarray(fits.getdata(str(recon_b), ext=0)).astype("float32", copy=False)
+                rgb = np.stack([r, g, b], axis=0)
+                fits.writeto(str(rgb_path), rgb, header=hdr_rgb, overwrite=True)
+            except Exception:
+                pass
+        stack_files = [rgb_path] if rgb_path.is_file() else sorted([p for p in stack_src_dir.glob("reconstructed_*.fits") if p.is_file()])
     else:
         stack_src_dir = outputs_dir / Path(stack_input_dir_name)
         stack_files = (
@@ -825,6 +883,10 @@ def run_phases_impl(
             if stack_src_dir.exists()
             else []
         )
+        if stack_files:
+            rgb_syn = [p for p in stack_files if re.match(r"^syn_\d{5}\.fits$", p.name)]
+            if rgb_syn:
+                stack_files = sorted(rgb_syn)
     
     if not stack_files:
         phase_end(
