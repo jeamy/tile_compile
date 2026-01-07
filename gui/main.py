@@ -1152,6 +1152,7 @@ class MainWindow(QMainWindow):
         self._frame_count = 0
         self.color_mode_select.clear()
         self.lbl_confirm_hint.setText("")
+        self.lbl_confirm_hint.setStyleSheet("")
         self.lbl_header.setText("scanning...")
         self.lbl_scan.setText("scanning...")
         self.scan_msg.setText("")
@@ -1220,14 +1221,19 @@ class MainWindow(QMainWindow):
             self.color_mode_select.blockSignals(False)
 
             if res.get("requires_user_confirmation"):
-                self.lbl_confirm_hint.setText("Scan could not determine color mode (missing/inconsistent BAYERPAT).")
+                self.lbl_confirm_hint.setText("⚠ Scan could not determine color mode (missing/inconsistent BAYERPAT). Please confirm manually.")
+                self.lbl_confirm_hint.setStyleSheet("color: orange; font-weight: bold;")
             else:
                 self.lbl_confirm_hint.setText("")
+                self.lbl_confirm_hint.setStyleSheet("")
 
             if res.get("ok") and (not res.get("requires_user_confirmation")):
                 cm2 = str(res.get("color_mode") or "").strip()
                 if cm2 and cm2 != "UNKNOWN":
                     self.confirmed_color_mode = cm2
+                    # Show auto-confirmed mode
+                    self.lbl_confirm_hint.setText(f"✓ Auto-detected: {cm2}")
+                    self.lbl_confirm_hint.setStyleSheet("color: green; font-weight: bold;")
 
             frames_detected = res.get("frames_detected", 0)
             self._frame_count = frames_detected
@@ -1269,6 +1275,15 @@ class MainWindow(QMainWindow):
         sel = self.color_mode_select.currentText().strip()
         self.confirmed_color_mode = sel or None
         self._append_live(f"[ui] confirmed color_mode={self.confirmed_color_mode}")
+        
+        # Visual feedback
+        if self.confirmed_color_mode:
+            self.lbl_confirm_hint.setText(f"✓ Confirmed: {self.confirmed_color_mode}")
+            self.lbl_confirm_hint.setStyleSheet("color: green; font-weight: bold;")
+        else:
+            self.lbl_confirm_hint.setText("")
+            self.lbl_confirm_hint.setStyleSheet("")
+        
         self._update_controls()
 
     def _load_config(self) -> None:
