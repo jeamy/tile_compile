@@ -297,6 +297,12 @@ class PhaseProgressWidget(QWidget):
         if phase_id is None or phase_id not in self._phase_status_labels:
             return
         label = self._phase_status_labels[phase_id]
+        
+        # Don't overwrite completed status (ok/error/skipped) with running
+        current_text = label.text()
+        if current_text in ("ok", "error", "skipped") and status.lower() == "running":
+            return
+        
         status_lower = status.lower()
         if status_lower == "running":
             if progress_total > 0 and progress_current > 0:
@@ -1454,41 +1460,43 @@ class MainWindow(QMainWindow):
                 if not s:
                     continue
 
-                def ui_append():
-                    self._append_live(f"{prefix}{s}")
-                    if prefix == "":
-                        try:
-                            ev = json.loads(s)
-                            if isinstance(ev, dict):
-                                ev_type = ev.get("type")
-                                if ev_type == "run_start":
-                                    self.current_run_id = str(ev.get("run_id") or "") or None
-                                    paths = ev.get("paths") if isinstance(ev.get("paths"), dict) else {}
-                                    self.current_run_dir = str(paths.get("run_dir") or "") or None
-                                    self.lbl_run_id.setText(self.current_run_id or "-")
-                                    self.lbl_run_dir.setText(self.current_run_dir or "-")
-                                elif ev_type == "phase_start":
-                                    phase_name = ev.get("phase_name", "")
-                                    self.phase_progress.update_phase(phase_name, "running")
-                                elif ev_type == "phase_progress":
-                                    phase_name = ev.get("phase_name", "")
-                                    current = int(ev.get("current", 0))
-                                    total = int(ev.get("total", 0))
-                                    self.phase_progress.update_phase(phase_name, "running", current, total)
-                                elif ev_type == "phase_end":
-                                    phase_name = ev.get("phase_name", "")
-                                    ok = ev.get("ok", True)
-                                    skipped = ev.get("skipped", False)
-                                    if skipped:
-                                        self.phase_progress.update_phase(phase_name, "skipped")
-                                    elif ok:
-                                        self.phase_progress.update_phase(phase_name, "ok")
-                                    else:
-                                        self.phase_progress.update_phase(phase_name, "error")
-                        except Exception:
-                            pass
+                def make_ui_append(line, pfx):
+                    def ui_append():
+                        self._append_live(f"{pfx}{line}")
+                        if pfx == "":
+                            try:
+                                ev = json.loads(line)
+                                if isinstance(ev, dict):
+                                    ev_type = ev.get("type")
+                                    if ev_type == "run_start":
+                                        self.current_run_id = str(ev.get("run_id") or "") or None
+                                        paths = ev.get("paths") if isinstance(ev.get("paths"), dict) else {}
+                                        self.current_run_dir = str(paths.get("run_dir") or "") or None
+                                        self.lbl_run_id.setText(self.current_run_id or "-")
+                                        self.lbl_run_dir.setText(self.current_run_dir or "-")
+                                        self.phase_progress.reset()
+                                    elif ev_type == "phase_start":
+                                        phase_name = ev.get("phase_name", "")
+                                        self.phase_progress.update_phase(phase_name, "running")
+                                    elif ev_type == "phase_progress":
+                                        phase_name = ev.get("phase_name", "")
+                                        current = int(ev.get("current", 0))
+                                        total = int(ev.get("total", 0))
+                                        self.phase_progress.update_phase(phase_name, "running", current, total)
+                                    elif ev_type == "phase_end":
+                                        phase_name = ev.get("phase_name", "")
+                                        status = str(ev.get("status") or "ok").lower()
+                                        if status == "skipped":
+                                            self.phase_progress.update_phase(phase_name, "skipped")
+                                        elif status in ("ok", "success"):
+                                            self.phase_progress.update_phase(phase_name, "ok")
+                                        else:
+                                            self.phase_progress.update_phase(phase_name, "error")
+                            except Exception:
+                                pass
+                    return ui_append
 
-                self.ui_call.emit(ui_append)
+                self.ui_call.emit(make_ui_append(s, prefix))
 
         if proc.stdout is not None:
             threading.Thread(target=read_stream, args=(proc.stdout, ""), daemon=True).start()
@@ -1503,6 +1511,7 @@ class MainWindow(QMainWindow):
                 self._update_controls()
                 self._refresh_runs()
                 self._refresh_current_status()
+                self._refresh_phase_status_from_logs()
 
             self.ui_call.emit(ui_end)
 
@@ -1573,6 +1582,7 @@ class MainWindow(QMainWindow):
         self._refresh_current_status()
         self._refresh_current_logs()
         self._refresh_current_artifacts()
+        self._refresh_phase_status_from_logs()
 
     def _refresh_current_status(self) -> None:
         if not self.current_run_dir:
@@ -1650,6 +1660,59 @@ class MainWindow(QMainWindow):
 
         def err(e: Exception):
             self._append_live(f"[ui] list-artifacts failed: {e}")
+
+        self._run_bg(do, ok, err)
+
+    def _refresh_phase_status_from_logs(self) -> None:
+        """Load phase status from event logs and update the phase progress widget."""
+        if not self.current_run_dir:
+            return
+
+        def do():
+            wd = Path(self.working_dir.text().strip() or str(self.project_root))
+            args = [self.constants["CLI"]["sub"]["GET_RUN_LOGS"], self.current_run_dir, "--tail", "1000"]
+            return self.backend.run_json(wd, args)
+
+        def ok(res):
+            events = res.get("events") if isinstance(res, dict) else []
+            if not isinstance(events, list):
+                return
+            
+            # Reset phase widget first
+            self.phase_progress.reset()
+            
+            # Track last status for each phase
+            phase_status: dict[str, tuple[str, int, int]] = {}  # phase_name -> (status, current, total)
+            
+            for ev in events:
+                if not isinstance(ev, dict):
+                    continue
+                ev_type = ev.get("type")
+                phase_name = ev.get("phase_name", "")
+                if not phase_name:
+                    continue
+                
+                if ev_type == "phase_start":
+                    phase_status[phase_name] = ("running", 0, 0)
+                elif ev_type == "phase_progress":
+                    current = int(ev.get("current", 0))
+                    total = int(ev.get("total", 0))
+                    phase_status[phase_name] = ("running", current, total)
+                elif ev_type == "phase_end":
+                    status = str(ev.get("status") or "ok").lower()
+                    if status == "skipped":
+                        phase_status[phase_name] = ("skipped", 0, 0)
+                    elif status in ("ok", "success"):
+                        phase_status[phase_name] = ("ok", 0, 0)
+                    else:
+                        phase_status[phase_name] = ("error", 0, 0)
+            
+            # Apply final status to widget
+            for phase_name, (status, current, total) in phase_status.items():
+                self.phase_progress.update_phase(phase_name, status, current, total)
+
+        def err(e: Exception):
+            self._append_live(f"[ui] refresh-phase-status failed: {e}")
 
         self._run_bg(do, ok, err)
 

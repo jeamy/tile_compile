@@ -22,7 +22,7 @@ data:
 
 assumptions:
   frames_min: 50
-  frames_optimal: 800
+  frames_optimal: 400
   frames_reduced_threshold: 200
   exposure_time_tolerance_percent: 5.0
   registration_residual_warn_px: 0.5
