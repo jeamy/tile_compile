@@ -1,6 +1,7 @@
 # Tile‑basierte Qualitätsrekonstruktion für DSO – Methodik v3
 
 **Status:** Normative Spezifikation (Single Source of Truth)  
+**Version:** v3.1 (2026-01-09)  
 **Ersetzt:** Methodik v2  
 **Ziel:** Klare, trennscharfe Abläufe für zwei zulässige Registrierungs‑ und Vorverarbeitungspfade
 
@@ -65,7 +66,17 @@ Alternativ (falls Clusterung dennoch aktiviert):
 * Cluster‑Anzahl wird auf 5–10 reduziert
 * Synthetische Frames werden mit reduzierter Cluster-Anzahl erzeugt
 
-Ein Verstoß gegen **harte Annahmen** führt zum **Abbruch des Laufs**.
+**Graduelles Degradieren (statt hartem Abbruch):**
+
+Bei Verletzung von Annahmen wird nicht sofort abgebrochen, sondern stufenweise degradiert:
+
+| Schweregrad | Aktion | Beispiel |
+|-------------|--------|----------|
+| **Warnung** | Fortfahren mit Hinweis | Registrierungsresiduum 0.5-1.0 px |
+| **Degradiert** | Fallback-Modus aktivieren | < 50 Frames → Reduced Mode ohne Clusterung |
+| **Kritisch** | Abbruch mit Erklärung | Keine Sterne gefunden, Daten nicht linear |
+
+Nur bei **kritischen** Fehlern (Datenintegrität verletzt) erfolgt ein Abbruch.
 
 ---
 
@@ -246,6 +257,25 @@ Nebenbedingung (verbindlich):
 * α + β + γ = 1
 * Default: α = 0.4, β = 0.3, γ = 0.3
 
+**Adaptive Gewichtung (optional):**
+
+Falls die Datencharakteristik stark von typischen Bedingungen abweicht, können die Gewichte adaptiv angepasst werden:
+
+* Bei hohem Hintergrund-Rauschen-Verhältnis: α erhöhen
+* Bei starker Seeing-Variation: γ erhöhen
+* Bei stabilem Seeing: β erhöhen
+
+Formel für adaptive Gewichtung:
+
+```
+α' = α · (1 + k · CV(B))
+β' = β · (1 + k · CV(σ))
+γ' = γ · (1 + k · CV(E))
+```
+
+wobei CV = Variationskoeffizient (std/mean), k = 0.5 (Sensitivitätsfaktor).
+Nach Berechnung: Renormalisiere so dass α' + β' + γ' = 1.
+
 Stabilitätsregel:
 
 * `Q_f,c` wird auf **[−3, +3]** geklemmt, bevor `exp(·)` angewendet wird.
@@ -290,6 +320,16 @@ T_0 = s · F
  ```
  
  wobei `clip(x, a, b) = min(max(x, a), b)`.
+
+**Grenzwertprüfungen (verbindlich):**
+
+Vor der Tile-Berechnung müssen folgende Bedingungen geprüft werden:
+
+1. `F > 0`: Falls FWHM nicht messbar, verwende Default `F = 3.0`
+2. `T_min ≥ 16`: Absolute Untergrenze für Tile-Größe
+3. `T ≥ T_min`: Falls `T < T_min` nach Berechnung, setze `T = T_min`
+4. `S > 0`: Falls `S ≤ 0` (bei extremem Overlap), setze `o = 0.25` und berechne neu
+5. `min(W, H) ≥ T`: Falls Bild kleiner als Tile, verwende `T = min(W, H)` und `O = 0`
 
 ---
 
@@ -392,7 +432,24 @@ Anmerkung: Diese Fallbacks sind streng linear und verletzen nicht das „keine F
 v_f,c = (G_f,c, ⟨Q_local⟩, Var(Q_local), B_f,c, σ_f,c)
 ```
 
-* 15–30 Cluster
+**Dynamische Cluster-Anzahl (verbindlich):**
+
+Die Cluster-Anzahl K wird adaptiv basierend auf der Frame-Anzahl N berechnet:
+
+```
+K = clip(floor(N / 10), K_min, K_max)
+```
+
+wobei:
+* K_min = 5 (Minimum für stabile Statistik)
+* K_max = 30 (Maximum für Effizienz)
+* N = Anzahl der Frames
+
+Beispiele:
+* N = 50 → K = 5
+* N = 200 → K = 20
+* N = 500 → K = 30
+* N = 800 → K = 30 (gedeckelt)
 
 ---
 
@@ -485,3 +542,18 @@ Die folgenden Testfälle sind verbindlich. Ein Run gilt nur dann als methodikkon
 * Kombination erfolgt **erst nach Abschluss der Methodik**
 
 Diese Spezifikation ist **normativ**. Abweichungen erfordern explizite Versionierung.
+
+---
+
+## 6. Änderungshistorie
+
+| Datum | Version | Änderungen |
+|-------|---------|------------|
+| 2026-01-09 | v3.1 | Grenzwertprüfungen für Tile-Geometrie (§3.3) |
+| 2026-01-09 | v3.1 | Dynamische Cluster-Anzahl K = clip(N/10, 5, 30) (§3.7) |
+| 2026-01-09 | v3.1 | Adaptive Gewichtung als optionale Erweiterung (§3.2) |
+| 2026-01-09 | v3.1 | Graduelles Degradieren statt hartem Abbruch (§1.4) |
+| 2026-01-09 | v3.1 | Explizite Q_local Formel mit MAD-Normalisierung (§3.4) |
+| 2026-01-09 | v3.1 | Hanning-Fensterfunktion und ε=1e-6 spezifiziert (§3.6) |
+| 2026-01-09 | v3.1 | Synthetische Frame-Formel explizit dokumentiert (§3.8) |
+| 2026-01-09 | v3.0 | Initiale v3 Spezifikation mit Pfad A/B |
