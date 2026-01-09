@@ -9,7 +9,7 @@ from typing import Any
 def _read_text_if_exists(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError):
         return None
 
 
@@ -83,27 +83,40 @@ def list_runs(runs_dir: str) -> list[dict[str, Any]]:
 
     items: list[dict[str, Any]] = []
 
-    for p in sorted([x for x in base.iterdir() if x.is_dir()], key=lambda x: x.name, reverse=True):
-        parsed = _parse_run_dir_name(p.name)
-        run_metadata = _read_json_if_exists(p / "run_metadata.json")
+    try:
+        dirs = [x for x in base.iterdir() if x.is_dir()]
+    except PermissionError:
+        return []
+    
+    for p in sorted(dirs, key=lambda x: x.name, reverse=True):
+        # Skip system directories
+        if p.name in {"lost+found", ".Trash", ".Trash-1000"}:
+            continue
+            
+        try:
+            parsed = _parse_run_dir_name(p.name)
+            run_metadata = _read_json_if_exists(p / "run_metadata.json")
 
-        config_hash = _read_text_if_exists(p / "config_hash.txt")
-        frames_manifest_id = _read_text_if_exists(p / "frames_manifest_id.txt")
+            config_hash = _read_text_if_exists(p / "config_hash.txt")
+            frames_manifest_id = _read_text_if_exists(p / "frames_manifest_id.txt")
 
-        status = _read_last_status(p) or "PENDING"
+            status = _read_last_status(p) or "PENDING"
 
-        run_id = (run_metadata or {}).get("run_id") or parsed.get("run_id")
-        created_at = (run_metadata or {}).get("created_at") or parsed.get("created_at")
+            run_id = (run_metadata or {}).get("run_id") or parsed.get("run_id")
+            created_at = (run_metadata or {}).get("created_at") or parsed.get("created_at")
 
-        items.append(
-            {
-                "run_id": run_id,
-                "status": status,
-                "created_at": created_at,
-                "run_dir": str(p),
-                "config_hash": config_hash,
-                "frames_manifest_id": frames_manifest_id,
-            }
-        )
+            items.append(
+                {
+                    "run_id": run_id,
+                    "status": status,
+                    "created_at": created_at,
+                    "run_dir": str(p),
+                    "config_hash": config_hash,
+                    "frames_manifest_id": frames_manifest_id,
+                }
+            )
+        except PermissionError:
+            # Skip directories we can't access
+            continue
 
     return items
