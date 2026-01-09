@@ -34,6 +34,7 @@ from tile_compile_backend.runs import list_runs
 from tile_compile_backend.logs import get_run_logs
 from tile_compile_backend.artifacts import list_artifacts
 from tile_compile_backend.status import get_run_status
+import subprocess
 
 
 def _print_json(obj: object) -> None:
@@ -420,9 +421,59 @@ def cmd_list_artifacts(args: argparse.Namespace) -> int:
 
 
 def cmd_get_run_status(args: argparse.Namespace) -> int:
-    res = get_run_status(args.run_dir)
-    _print_json(res)
+    run_dir = args.run_dir
+    result = get_run_status(run_dir)
+    _print_json(result)
     return 0
+
+
+def cmd_resume_run(args: argparse.Namespace) -> int:
+    """Resume a run from a specific phase by calling tile_compile_runner.py resume."""
+    run_dir = Path(args.run_dir).resolve()
+    
+    if not run_dir.exists() or not run_dir.is_dir():
+        _print_json({"ok": False, "error": f"Run directory not found: {run_dir}"})
+        return 1
+    
+    # Determine project root
+    if args.project_root:
+        project_root = Path(args.project_root).resolve()
+    else:
+        # Assume project root is two levels up from run directory
+        project_root = run_dir.parent.parent
+    
+    # Build command to run tile_compile_runner.py resume
+    runner_script = project_root / "tile_compile_runner.py"
+    if not runner_script.exists():
+        _print_json({"ok": False, "error": f"Runner script not found: {runner_script}"})
+        return 1
+    
+    cmd = [
+        sys.executable,
+        str(runner_script),
+        "resume",
+        "--run-dir", str(run_dir),
+        "--from-phase", str(args.from_phase),
+    ]
+    
+    if args.project_root:
+        cmd.extend(["--project-root", str(project_root)])
+    
+    # Execute the resume command
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        _print_json({
+            "ok": result.returncode == 0,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "run_dir": str(run_dir),
+            "from_phase": args.from_phase,
+        })
+        return result.returncode
+    except Exception as e:
+        _print_json({"ok": False, "error": str(e)})
+        return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -536,6 +587,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_status = sub.add_parser("get-run-status")
     p_status.add_argument("run_dir")
     p_status.set_defaults(func=cmd_get_run_status)
+
+    p_resume = sub.add_parser("resume-run")
+    p_resume.add_argument("run_dir", help="Path to existing run directory")
+    p_resume.add_argument("--from-phase", type=int, required=True, help="Phase number to resume from (0-11)")
+    p_resume.add_argument("--project-root", default=None, help="Project root directory (optional)")
+    p_resume.set_defaults(func=cmd_resume_run)
 
     return p
 

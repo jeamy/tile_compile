@@ -1,0 +1,569 @@
+# Phase 4: Lokale Tile-Metriken und Qualitätsanalyse
+
+## Übersicht
+
+Phase 4 berechnet für jedes Tile in jedem Frame lokale Qualitätsmetriken. Diese ermöglichen eine **räumlich adaptive** Rekonstruktion, die lokale Seeing-Variationen berücksichtigt.
+
+## Ziele
+
+1. Lokale Metriken pro Tile berechnen (FWHM, Rundheit, Kontrast)
+2. Tile-Typ-spezifische Analysen (Stern vs. Struktur)
+3. Lokale Qualitätsindizes berechnen
+4. Effektive Gewichte kombinieren (global × lokal)
+
+## Input
+
+```python
+# Aus Phase 2:
+normalized_frames[c][f][x, y]  # Normalisierte Frames
+global_weights[c][f]           # G_f,c
+
+# Aus Phase 3:
+tiles = [                      # Tile-Grid
+    {'id': 0, 'x': 0, 'y': 0, 'w': 64, 'h': 64, 'type': 'star'},
+    ...
+]
+```
+
+## Schritt 4.1: Tile-Extraktion
+
+### Prozess
+
+```
+┌─────────────────────────────────────────┐
+│  Frame f, Kanal c, Tile t               │
+│  I'_f,c[x,y] (normalized)               │
+│  tile = {x, y, w, h}                    │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Tile-Cutout extrahieren                │
+│                                          │
+│  tile_data = I'_f,c[y:y+h, x:x+w]      │
+│                                          │
+│  Shape: (h, w) = (64, 64)               │
+└─────────────────────────────────────────┘
+```
+
+### Visualisierung
+
+```
+Gesamtbild (512×512):          Tile-Cutout (64×64):
+
+┌────────────────────┐         ┌──────────┐
+│                    │         │  ★       │
+│    ┌──────────┐    │         │     ★    │
+│    │  ★       │    │   →     │          │
+│    │     ★    │    │         │    ★     │
+│    │          │    │         │          │
+│    │    ★     │    │         │  ★   ★   │
+│    │          │    │         │          │
+│    │  ★   ★   │    │         │      ★   │
+│    │          │    │         └──────────┘
+│    │      ★   │    │
+│    └──────────┘    │
+│                    │
+└────────────────────┘
+```
+
+## Schritt 4.2: Stern-Tile-Metriken
+
+### Für Tiles mit type='star'
+
+```
+┌─────────────────────────────────────────┐
+│  Tile-Cutout mit Sternen                │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Metrik 1: FWHM (lokales Seeing)        │
+│                                          │
+│  1. Finde Sterne im Tile                │
+│  2. Fitte PSF pro Stern                 │
+│  3. Berechne FWHM pro Stern             │
+│  4. Median über alle Sterne im Tile     │
+│                                          │
+│  FWHM_f,t,c = median(FWHM_stars)        │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Metrik 2: Rundheit (Tracking-Qualität) │
+│                                          │
+│  Pro Stern:                             │
+│    Berechne Elliptizität e = 1 - b/a    │
+│    wobei a, b = Halbachsen              │
+│                                          │
+│  roundness_f,t,c = 1 - median(e)        │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Metrik 3: Kontrast (SNR)               │
+│                                          │
+│  Pro Stern:                             │
+│    peak = max(PSF)                      │
+│    background = median(tile_data)       │
+│    noise = std(background_pixels)       │
+│                                          │
+│  contrast_f,t,c = (peak - bg) / noise   │
+│                 = median(contrasts)     │
+└─────────────────────────────────────────┘
+```
+
+### Detaillierte FWHM-Messung
+
+```
+Stern im Tile:
+
+Intensität (1D-Schnitt):
+    │
+    │      ╱‾‾‾╲
+    │     ╱     ╲
+Max │────●───────●────
+    │   ╱         ╲
+1/2 │──●───────────●──
+    │ ╱             ╲
+    │╱               ╲___
+    └──────────────────────► Position
+       │←── FWHM ──→│
+
+PSF-Fit (2D Gaussian):
+  PSF(x,y) = A·exp(-((x-x₀)²/σₓ² + (y-y₀)²/σᵧ²)/2)
+  
+  FWHM_x = 2.355 × σₓ
+  FWHM_y = 2.355 × σᵧ
+  FWHM = √(FWHM_x × FWHM_y)
+```
+
+### Rundheits-Berechnung
+
+```
+Elliptische PSF:
+
+    ╱───╲       a = große Halbachse
+   │  ●  │      b = kleine Halbachse
+    ╲───╱       
+    │←a→│       Elliptizität: e = 1 - b/a
+      ↕         Rundheit: r = b/a = 1 - e
+      b
+
+Perfekt rund:  a = b  →  e = 0, r = 1.0
+Elongiert:     a > b  →  e > 0, r < 1.0
+
+Beispiele:
+  r = 1.0  →  Perfekt rund (ideales Tracking)
+  r = 0.8  →  Leicht elongiert
+  r = 0.5  →  Stark elongiert (schlechtes Tracking)
+```
+
+### Kontrast-Berechnung
+
+```
+Tile mit Stern:
+
+┌────────────────────┐
+│ ░░░░░░░░░░░░░░░░░░ │  ← Hintergrund (bg)
+│ ░░░░░░░░░░░░░░░░░░ │
+│ ░░░░░░░███░░░░░░░░ │  ← Stern (peak)
+│ ░░░░░░█████░░░░░░░ │
+│ ░░░░░░░███░░░░░░░░ │
+│ ░░░░░░░░░░░░░░░░░░ │
+└────────────────────┘
+
+Kontrast = (peak - bg) / noise
+
+Hoher Kontrast:
+  • Heller Stern
+  • Niedriges Rauschen
+  → Gute Qualität
+
+Niedriger Kontrast:
+  • Schwacher Stern
+  • Hohes Rauschen
+  → Schlechte Qualität
+```
+
+## Schritt 4.3: Struktur-Tile-Metriken
+
+### Für Tiles mit type='structure' (Nebel)
+
+```
+┌─────────────────────────────────────────┐
+│  Tile-Cutout mit Nebelstruktur          │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Metrik 1: Energie/Rausch-Verhältnis    │
+│                                          │
+│  1. Berechne Gradientenergie E          │
+│     (wie in Phase 2, aber lokal)        │
+│                                          │
+│  2. Schätze lokales Rauschen σ          │
+│                                          │
+│  3. ENR_f,t,c = E / σ²                  │
+│     (Energy-to-Noise Ratio)             │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Metrik 2: Lokaler Hintergrund          │
+│                                          │
+│  B_local_f,t,c = median(tile_data)      │
+│                                          │
+│  (Hintergrundniveau im Tile)            │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Metrik 3: Strukturvarianz              │
+│                                          │
+│  var_f,t,c = std(tile_data)             │
+│                                          │
+│  (Variabilität der Struktur)            │
+└─────────────────────────────────────────┘
+```
+
+### Visualisierung: Nebel-Tile
+
+```
+Tile mit Nebelstruktur:
+
+┌────────────────────┐
+│ ░░░░░▒▒▒░░░░░░░░░░ │  ← Schwache Struktur
+│ ░░░░▒▓▓▓▒░░░░░░░░░ │
+│ ░░░▒▓███▓▒░░░░░░░░ │  ← Helle Nebelregion
+│ ░░░▒▓▓▓▓▒░░░░░░░░░ │
+│ ░░░░▒▒▒░░░░░░░░░░░ │
+│ ░░░░░░░░░░░░░░░░░░ │  ← Hintergrund
+└────────────────────┘
+
+Gradienten (Sobel):
+
+┌────────────────────┐
+│ ░░░░░████░░░░░░░░░ │  ← Hohe Gradienten
+│ ░░░░██░░██░░░░░░░░ │     an Kanten
+│ ░░░██░░░░██░░░░░░░ │
+│ ░░░██░░░░██░░░░░░░ │
+│ ░░░░██░░██░░░░░░░░ │
+│ ░░░░░████░░░░░░░░░ │
+└────────────────────┘
+
+E = mean(gradient²)  →  Strukturenergie
+σ = std(background)  →  Rauschen
+ENR = E / σ²         →  Signal-to-Noise
+```
+
+## Schritt 4.4: Lokaler Qualitätsindex
+
+### Formel (Stern-Tiles)
+
+```
+Q_local_f,t,c = w₁·FWHM̃ + w₂·r̃ + w₃·C̃
+
+wobei:
+  FWHM̃ = -(FWHM - μ) / σ     (negiert: kleiner ist besser)
+  r̃    = (roundness - μ) / σ  (größer ist besser)
+  C̃    = (contrast - μ) / σ   (größer ist besser)
+  
+  w₁ + w₂ + w₃ = 1
+  Default: w₁ = 0.5, w₂ = 0.3, w₃ = 0.2
+```
+
+### Formel (Struktur-Tiles)
+
+```
+Q_local_f,t,c = w₁·ENR̃ + w₂·(-B̃_local) + w₃·var̃
+
+wobei:
+  ENR̃      = (ENR - μ) / σ         (größer ist besser)
+  B̃_local  = (B_local - μ) / σ     (negiert: kleiner ist besser)
+  var̃      = (variance - μ) / σ    (größer ist besser)
+  
+  w₁ + w₂ + w₃ = 1
+  Default: w₁ = 0.5, w₂ = 0.3, w₃ = 0.2
+```
+
+### Prozess
+
+```
+┌─────────────────────────────────────────┐
+│  Metriken für alle Tiles:               │
+│  FWHM_f,t,c, roundness_f,t,c, ...       │
+│  (f = frames, t = tiles, c = channels)  │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Z-Score Normalisierung (pro Metrik)    │
+│                                          │
+│  μ_FWHM = mean(FWHM_f,t,c)              │
+│  σ_FWHM = std(FWHM_f,t,c)               │
+│  FWHM̃ = (FWHM - μ) / σ                 │
+│                                          │
+│  (analog für andere Metriken)           │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Gewichtete Kombination                 │
+│                                          │
+│  Q_local = Σ wᵢ · metric̃ᵢ              │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Clamping (Stabilität)                  │
+│                                          │
+│  Q_local = clip(Q_local, -3, +3)        │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Exponential Mapping                    │
+│                                          │
+│  L_f,t,c = exp(Q_local_f,t,c)           │
+│                                          │
+│  Wertebereich: [e⁻³, e³] ≈ [0.05, 20.1]│
+└─────────────────────────────────────────┘
+```
+
+## Schritt 4.5: Effektives Gewicht
+
+### Kombination: Global × Lokal
+
+```
+W_f,t,c = G_f,c × L_f,t,c
+
+wobei:
+  G_f,c   - Globales Frame-Gewicht (aus Phase 2)
+  L_f,t,c - Lokales Tile-Gewicht (aus Phase 4)
+  W_f,t,c - Effektives Gewicht für Tile t in Frame f
+```
+
+### Visualisierung
+
+```
+Frame f=10, Kanal R:
+
+Global Weight: G_10,R = 5.0  (gutes Frame)
+
+Lokale Weights (pro Tile):
+
+Tile-Grid mit L_10,t,R:
+
+┌──────┬──────┬──────┬──────┐
+│ 0.5  │ 2.0  │ 3.5  │ 1.0  │  ← Schlechtes Seeing links
+├──────┼──────┼──────┼──────┤
+│ 1.2  │ 8.0  │ 7.5  │ 2.5  │  ← Gutes Seeing Mitte
+├──────┼──────┼──────┼──────┤
+│ 0.8  │ 3.0  │ 4.0  │ 1.5  │
+└──────┴──────┴──────┴──────┘
+
+Effektive Weights: W = G × L
+
+┌──────┬──────┬──────┬──────┐
+│ 2.5  │ 10.0 │ 17.5 │ 5.0  │
+├──────┼──────┼──────┼──────┤
+│ 6.0  │ 40.0 │ 37.5 │ 12.5 │  ← Höchstes Gewicht
+├──────┼──────┼──────┼──────┤
+│ 4.0  │ 15.0 │ 20.0 │ 7.5  │
+└──────┴──────┴──────┴──────┘
+
+Interpretation:
+  • Tile (1,1): W = 40.0 → Beste Qualität
+  • Tile (0,0): W = 2.5  → Schlechteste Qualität
+```
+
+### Warum Global × Lokal?
+
+```
+Nur Global (G):
+  ┌─────────────────────────────┐
+  │ Gesamtes Frame gleich       │
+  │ gewichtet                   │
+  │ → Keine lokale Adaptivität  │
+  └─────────────────────────────┘
+
+Nur Lokal (L):
+  ┌─────────────────────────────┐
+  │ Frame-Qualität ignoriert    │
+  │ → Schlechte Frames können   │
+  │   hohe lokale Gewichte haben│
+  └─────────────────────────────┘
+
+Global × Lokal (W):
+  ┌─────────────────────────────┐
+  │ Beste Kombination:          │
+  │ • Gute Frames bevorzugt     │
+  │ • Lokale Variationen        │
+  │   berücksichtigt            │
+  └─────────────────────────────┘
+```
+
+## Schritt 4.6: Heatmap-Visualisierung
+
+### Gewichts-Heatmap pro Frame
+
+```python
+def visualize_tile_weights(frame_id, channel, tiles, weights):
+    # Erstelle Heatmap
+    heatmap = np.zeros((H, W))
+    
+    for tile, weight in zip(tiles, weights[frame_id]):
+        x, y, w, h = tile['x'], tile['y'], tile['w'], tile['h']
+        heatmap[y:y+h, x:x+w] = weight
+    
+    # Visualisierung
+    plt.imshow(heatmap, cmap='hot')
+    plt.colorbar(label='Weight W_f,t,c')
+    plt.title(f'Frame {frame_id}, Channel {channel}')
+```
+
+### Beispiel-Heatmap
+
+```
+Frame 42, R-Kanal:
+
+    Gewicht W_42,t,R
+    
+    │ 40│████████████░░░░░░░░░░░░
+    │ 35│████████████░░░░░░░░░░░░
+    │ 30│████████████████░░░░░░░░
+    │ 25│████████████████░░░░░░░░
+    │ 20│████████████████████░░░░
+    │ 15│████████████████████░░░░
+    │ 10│████████████████████████
+    │  5│████████████████████████
+    │  0│████████████████████████
+    └───┴────────────────────────
+    
+    Legende:
+    █ = Hohe Gewichte (gute Qualität)
+    ░ = Niedrige Gewichte (schlechte Qualität)
+    
+    → Rechts oben: Schlechtes lokales Seeing
+    → Mitte/Links: Gutes lokales Seeing
+```
+
+## Schritt 4.7: Validierung
+
+```python
+def validate_local_metrics(tiles, metrics, weights):
+    # Check 1: Metrik-Vollständigkeit
+    for f in range(N_frames):
+        for t in range(N_tiles):
+            for c in ['R', 'G', 'B']:
+                assert (f, t, c) in metrics, \
+                    f"Missing metrics for frame {f}, tile {t}, channel {c}"
+    
+    # Check 2: Positive Gewichte
+    for w in weights.values():
+        assert np.all(w > 0), "All weights must be positive"
+    
+    # Check 3: Clamping
+    for Q in [m['Q_local'] for m in metrics.values()]:
+        assert -3.0 <= Q <= 3.0, "Q_local not clamped"
+    
+    # Check 4: Kanalunabhängigkeit
+    # Keine Metrik mischt R/G/B
+    for tile_type in ['star', 'structure']:
+        assert metrics_independent_per_channel(tile_type)
+    
+    # Check 5: Determinismus
+    # Gleiche Inputs → gleiche Metriken
+    metrics_check = compute_local_metrics(frames, tiles)
+    assert metrics == metrics_check
+```
+
+## Output-Datenstruktur
+
+```python
+# Phase 4 Output
+{
+    'local_metrics': {
+        'R': {  # Pro Kanal
+            (f, t): {  # Pro Frame f, Tile t
+                'tile_id': int,
+                'frame_id': int,
+                'type': str,  # 'star' or 'structure'
+                
+                # Stern-Metriken (wenn type='star')
+                'fwhm': float,
+                'roundness': float,
+                'contrast': float,
+                'star_count': int,
+                
+                # Struktur-Metriken (wenn type='structure')
+                'enr': float,
+                'background_local': float,
+                'variance': float,
+                
+                # Qualitätsindex
+                'Q_local': float,  # clamped [-3, 3]
+                'L': float,        # exp(Q_local)
+            },
+            ...
+        },
+        'G': {...},
+        'B': {...},
+    },
+    'effective_weights': {
+        'R': np.ndarray,  # shape: (N_frames, N_tiles)
+        'G': np.ndarray,  # W_f,t,c = G_f,c × L_f,t,c
+        'B': np.ndarray,
+    },
+    'statistics': {
+        'R': {
+            'fwhm_mean': float, 'fwhm_std': float,
+            'roundness_mean': float, 'roundness_std': float,
+            'L_mean': float, 'L_std': float,
+            'W_mean': float, 'W_std': float,
+        },
+        'G': {...},
+        'B': {...},
+    }
+}
+```
+
+## Performance-Hinweise
+
+```python
+# Parallele Tile-Metrik-Berechnung
+def compute_tile_metrics_parallel(frames, tiles, channel):
+    from concurrent.futures import ProcessPoolExecutor
+    
+    # Chunking für bessere Cache-Nutzung
+    def process_chunk(chunk):
+        results = {}
+        for (f, t) in chunk:
+            tile_data = extract_tile(frames[f], tiles[t])
+            metrics = compute_metrics(tile_data, tiles[t]['type'])
+            results[(f, t)] = metrics
+        return results
+    
+    # Parallel processing
+    chunks = create_chunks(N_frames, N_tiles, chunk_size=1000)
+    with ProcessPoolExecutor() as executor:
+        results = executor.map(process_chunk, chunks)
+    
+    # Merge results
+    all_metrics = {}
+    for result in results:
+        all_metrics.update(result)
+    
+    return all_metrics
+
+# Memory-effiziente Speicherung
+# Sparse matrix für Gewichte (viele Tiles, wenige Frames)
+from scipy.sparse import csr_matrix
+
+weights_sparse = csr_matrix(weights)  # Komprimiert
+```
+
+## Nächste Phase
+
+→ **Phase 5: Tile-basierte Rekonstruktion**
