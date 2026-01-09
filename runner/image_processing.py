@@ -89,18 +89,27 @@ def compute_frame_medians(frames: list[np.ndarray]) -> tuple[list[float], float]
 
 
 def normalize_frame(frame: np.ndarray, frame_median: float, target_median: float, mode: str) -> np.ndarray:
-    """Normalize a single frame to target median.
+    """Normalize a single frame to target median per Methodik v3 §3.1.
+    
+    Methodik v3 specifies: I'_f = I_f / B_f (divisive normalization)
     
     Args:
         frame: Input frame
-        frame_median: Median of this frame
-        target_median: Target median to normalize to
-        mode: Normalization mode ("background" or other)
+        frame_median: Background level B_f of this frame
+        target_median: Target median (not used in v3 mode)
+        mode: Normalization mode ("background" for v3 divisive, "additive" for legacy)
     
     Returns:
         Normalized frame
     """
     if mode == "background":
+        # Methodik v3 §3.1: I'_f = I_f / B_f (divisive normalization)
+        if frame_median > 1e-10:
+            return (frame / frame_median).astype("float32", copy=False)
+        else:
+            return frame.astype("float32", copy=False)
+    elif mode == "additive":
+        # Legacy additive normalization
         return (frame - (frame_median - target_median)).astype("float32", copy=False)
     else:
         return frame.astype("float32", copy=False)
