@@ -965,15 +965,38 @@ def run_phases_impl(
     if fwhm_estimates:
         fwhm = float(np.median(fwhm_estimates))
     else:
-        fwhm = 10.0  # Default FWHM estimate in pixels
+        fwhm = 3.0  # Methodik v3 §3.3: Default FWHM if not measurable
+    
+    # Methodik v3 §3.3 Grenzwertprüfungen:
+    # 1. F > 0: Falls FWHM nicht messbar, verwende Default F = 3.0
+    if fwhm <= 0:
+        fwhm = 3.0
+    
+    # 2. T_min >= 16: Absolute Untergrenze für Tile-Größe
+    min_tile_size = max(16, min_tile_size)
     
     # Methodik v3 §3.3: T_0 = s · F, T = floor(clip(T_0, T_min, floor(min(W, H) / D)))
     T_0 = size_factor * fwhm
     T_max = int(min(h0, w0) // max(1, max_divisor))
-    tile_size = int(np.floor(np.clip(T_0, min_tile_size, T_max)))
     
-    # Methodik v3 §3.3: O = floor(o · T), S = T - O
-    overlap_px = int(np.floor(overlap * tile_size))
+    # 5. min(W, H) >= T: Falls Bild kleiner als Tile
+    if min(h0, w0) < min_tile_size:
+        tile_size = min(h0, w0)
+        overlap_px = 0
+    else:
+        tile_size = int(np.floor(np.clip(T_0, min_tile_size, T_max)))
+        # 3. T >= T_min: Falls T < T_min nach Berechnung
+        tile_size = max(tile_size, min_tile_size)
+        
+        # Methodik v3 §3.3: O = floor(o · T), S = T - O
+        overlap_px = int(np.floor(overlap * tile_size))
+        
+        # 4. S > 0: Falls S <= 0 (bei extremem Overlap)
+        step_size_check = tile_size - overlap_px
+        if step_size_check <= 0:
+            overlap = 0.25  # Reset to safe default
+            overlap_px = int(np.floor(overlap * tile_size))
+    
     step_size = tile_size - overlap_px
     
     grid_cfg = {
@@ -1328,10 +1351,15 @@ def run_phases_impl(
             clustering_results = cluster_channels(all_frames_for_clustering, channel_metrics, clustering_cfg)
             del all_frames_for_clustering
         except Exception as e:
-            # Fallback: Quantile-based clustering (Methodik v3 §10)
+            # Fallback: Quantile-based clustering (Methodik v3 §3.7)
             # Group frames by quantiles of global quality G_f
             try:
-                n_quantiles = clustering_cfg.get("fallback_quantiles", 15)
+                # Methodik v3 §3.7: Dynamische Cluster-Anzahl K = clip(floor(N/10), K_min, K_max)
+                num_frames = len(channel_files.get("R", []))
+                K_min = 5   # Minimum für stabile Statistik
+                K_max = 30  # Maximum für Effizienz
+                n_quantiles = int(np.clip(num_frames // 10, K_min, K_max))
+                
                 if reduced_mode:
                     n_quantiles = min(n_quantiles, assumptions_cfg["reduced_mode_cluster_range"][1])
                 
