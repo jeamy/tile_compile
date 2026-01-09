@@ -241,7 +241,9 @@ class PhaseProgressWidget(QWidget):
         super().__init__(parent)
         self._phase_labels: Dict[int, QLabel] = {}
         self._phase_status_labels: Dict[int, QLabel] = {}
+        self._phase_progress_bars: Dict[int, QProgressBar] = {}
         self._reduced_mode = False
+        self._last_error_text: str | None = None
         self._build_ui()
 
     def _build_ui(self):
@@ -265,16 +267,36 @@ class PhaseProgressWidget(QWidget):
         for i, (phase_id, phase_name, phase_desc) in enumerate(METHODIK_V3_PHASES):
             name_label = QLabel(f"{phase_id}. {phase_name}")
             name_label.setToolTip(phase_desc)
+            
             status_label = QLabel("pending")
             status_label.setObjectName("PhasePending")
-            status_label.setMinimumWidth(120)
+            status_label.setMinimumWidth(80)
             status_label.setAlignment(Qt.AlignCenter)
+            
+            progress_bar = QProgressBar()
+            progress_bar.setMinimum(0)
+            progress_bar.setMaximum(100)
+            progress_bar.setValue(0)
+            progress_bar.setTextVisible(True)
+            progress_bar.setFormat("%p%")
+            progress_bar.setMaximumHeight(18)
+            progress_bar.setVisible(False)
+            
             grid.addWidget(name_label, i, 0)
             grid.addWidget(status_label, i, 1)
+            grid.addWidget(progress_bar, i, 2)
+            
             self._phase_labels[phase_id] = name_label
             self._phase_status_labels[phase_id] = status_label
+            self._phase_progress_bars[phase_id] = progress_bar
 
         layout.addLayout(grid)
+
+        self.error_label = QLabel("")
+        self.error_label.setObjectName("PhaseErrorDetail")
+        self.error_label.setWordWrap(True)
+        self.error_label.setVisible(False)
+        layout.addWidget(self.error_label)
         layout.addStretch(1)
 
     def set_reduced_mode(self, enabled: bool, frame_count: int = 0):
@@ -296,7 +318,9 @@ class PhaseProgressWidget(QWidget):
                 break
         if phase_id is None or phase_id not in self._phase_status_labels:
             return
+        
         label = self._phase_status_labels[phase_id]
+        progress_bar = self._phase_progress_bars[phase_id]
         
         # Don't overwrite completed status (ok/error/skipped) with running
         current_text = label.text()
@@ -305,36 +329,63 @@ class PhaseProgressWidget(QWidget):
         
         status_lower = status.lower()
         if status_lower == "running":
-            if progress_total > 0 and progress_current > 0:
-                percent = int(100 * progress_current / progress_total)
-                label.setText(f"{progress_current}/{progress_total} ({percent}%)")
-            else:
-                label.setText("running")
+            label.setText("running")
             label.setObjectName("PhaseRunning")
+            
+            # Update progress bar
+            if progress_total > 0 and progress_current >= 0:
+                percent = int(100 * progress_current / progress_total)
+                progress_bar.setValue(percent)
+                progress_bar.setFormat(f"{progress_current}/{progress_total} ({percent}%)")
+                progress_bar.setVisible(True)
+            else:
+                progress_bar.setValue(0)
+                progress_bar.setFormat("running...")
+                progress_bar.setVisible(True)
         elif status_lower in ("ok", "success"):
             label.setText("ok")
             label.setObjectName("PhaseOk")
+            progress_bar.setVisible(False)
         elif status_lower == "error":
             label.setText("error")
             label.setObjectName("PhaseError")
+            progress_bar.setVisible(False)
         elif status_lower == "skipped":
             label.setText("skipped")
             label.setObjectName("PhaseSkipped")
+            progress_bar.setVisible(False)
         else:
             label.setText(status)
             label.setObjectName("PhasePending")
+            progress_bar.setVisible(False)
+        
         label.setStyle(label.style())
         completed = sum(1 for lbl in self._phase_status_labels.values()
                        if lbl.text() in ("ok", "skipped", "error"))
         self.progress_bar.setValue(completed)
 
+    def set_error_detail(self, phase_name: str, detail: str | None) -> None:
+        if not detail:
+            return
+        self._last_error_text = f"{phase_name}: {detail}"
+        self.error_label.setText(f"Abbruchgrund: {self._last_error_text}")
+        self.error_label.setVisible(True)
+        self.error_label.setStyle(self.error_label.style())
+
     def reset(self):
-        for phase_id, label in self._phase_status_labels.items():
+        for label in self._phase_status_labels.values():
             label.setText("pending")
             label.setObjectName("PhasePending")
             label.setStyle(label.style())
+        for progress_bar in self._phase_progress_bars.values():
+            progress_bar.setValue(0)
+            progress_bar.setVisible(False)
         self.progress_bar.setValue(0)
         self.reduced_mode_label.setVisible(False)
+        self._last_error_text = None
+        if hasattr(self, "error_label"):
+            self.error_label.setText("")
+            self.error_label.setVisible(False)
 
 
 class AssumptionsWidget(QWidget):
@@ -842,6 +893,8 @@ class MainWindow(QMainWindow):
         self.btn_refresh_status = QPushButton("Refresh status")
         self.btn_refresh_logs = QPushButton("Refresh logs")
         self.btn_refresh_artifacts = QPushButton("Refresh artifacts")
+        self.btn_resume_run = QPushButton("Resume from phase...")
+        self.btn_resume_run.setEnabled(False)
         self.logs_tail = QSpinBox()
         self.logs_tail.setMinimum(1)
         self.logs_tail.setMaximum(1000000)
@@ -850,6 +903,7 @@ class MainWindow(QMainWindow):
         self.logs_filter.setPlaceholderText("filter text")
         cur_btns.addWidget(self.btn_refresh_runs)
         cur_btns.addWidget(self.btn_refresh_status)
+        cur_btns.addWidget(self.btn_resume_run)
         cur_btns.addWidget(QLabel("Tail"))
         cur_btns.addWidget(self.logs_tail)
         cur_btns.addWidget(QLabel("Filter"))
@@ -936,6 +990,7 @@ class MainWindow(QMainWindow):
         self.btn_refresh_status.clicked.connect(self._refresh_current_status)
         self.btn_refresh_logs.clicked.connect(self._refresh_current_logs)
         self.btn_refresh_artifacts.clicked.connect(self._refresh_current_artifacts)
+        self.btn_resume_run.clicked.connect(self._resume_run)
         self.runs_table.cellClicked.connect(self._select_run)
 
         self.scan_input_dir.editingFinished.connect(self._persist_last_input_dir_from_ui)
@@ -945,6 +1000,52 @@ class MainWindow(QMainWindow):
         self.live_log.appendPlainText(text)
         sb = self.live_log.verticalScrollBar()
         sb.setValue(sb.maximum())
+
+    def _format_event_human(self, ev: dict) -> str:
+        ev_type = str(ev.get("type") or "")
+        ts = str(ev.get("ts") or "")
+        ts_short = ts[11:19] if len(ts) >= 19 else ts
+        phase = ev.get("phase")
+        phase_name = str(ev.get("phase_name") or "")
+
+        parts: list[str] = []
+        if ts_short:
+            parts.append(ts_short)
+        if ev_type:
+            parts.append(ev_type)
+        if phase_name:
+            if phase is not None:
+                parts.append(f"{phase}. {phase_name}")
+            else:
+                parts.append(phase_name)
+
+        status = ev.get("status")
+        if status is not None:
+            parts.append(f"status={status}")
+
+        current = ev.get("current")
+        total = ev.get("total")
+        if current is not None and total is not None:
+            try:
+                parts.append(f"{int(current)}/{int(total)}")
+            except Exception:
+                parts.append(f"{current}/{total}")
+
+        err = ev.get("error")
+        if err:
+            parts.append(f"error={err}")
+
+        reason = ev.get("reason")
+        if reason and not err:
+            parts.append(f"reason={reason}")
+
+        msg = ev.get("message")
+        if msg and not err:
+            parts.append(str(msg))
+
+        if parts:
+            return " | ".join(str(p) for p in parts)
+        return json.dumps(ev, ensure_ascii=False, sort_keys=True)
 
     def _ui_exec(self, fn) -> None:
         try:
@@ -1477,11 +1578,11 @@ class MainWindow(QMainWindow):
 
                 def make_ui_append(line, pfx):
                     def ui_append():
-                        self._append_live(f"{pfx}{line}")
                         if pfx == "":
                             try:
                                 ev = json.loads(line)
                                 if isinstance(ev, dict):
+                                    self._append_live(self._format_event_human(ev))
                                     ev_type = ev.get("type")
                                     if ev_type == "run_start":
                                         self.current_run_id = str(ev.get("run_id") or "") or None
@@ -1505,10 +1606,31 @@ class MainWindow(QMainWindow):
                                             self.phase_progress.update_phase(phase_name, "skipped")
                                         elif status in ("ok", "success"):
                                             self.phase_progress.update_phase(phase_name, "ok")
+                                            # Check for fallback warnings
+                                            fallback_reason = ev.get("fallback_reason")
+                                            if fallback_reason:
+                                                if phase_name == "SYNTHETIC_FRAMES":
+                                                    if fallback_reason == "reduced_mode":
+                                                        detail = "Reduced mode: synthetic frames skipped"
+                                                    elif fallback_reason == "no_synthetic_frames":
+                                                        detail = "No synthetic frames generated"
+                                                    else:
+                                                        detail = f"Fallback: {fallback_reason}"
+                                                    self.phase_progress.set_error_detail(phase_name, detail)
+                                                elif phase_name == "STACKING":
+                                                    if ev.get("used_reconstructed_fallback"):
+                                                        detail = "Using reconstructed frames (no synthetic frames available)"
+                                                        self.phase_progress.set_error_detail(phase_name, detail)
                                         else:
                                             self.phase_progress.update_phase(phase_name, "error")
+                                            detail = str(ev.get("error") or "").strip() or None
+                                            self.phase_progress.set_error_detail(phase_name, detail)
+                                else:
+                                    self._append_live(f"{pfx}{line}")
                             except Exception:
-                                pass
+                                self._append_live(f"{pfx}{line}")
+                        else:
+                            self._append_live(f"{pfx}{line}")
                     return ui_append
 
                 self.ui_call.emit(make_ui_append(s, prefix))
@@ -1539,6 +1661,56 @@ class MainWindow(QMainWindow):
         self.lbl_run.setText("aborting...")
         self.runner.stop()
         self._update_controls()
+
+    def _resume_run(self) -> None:
+        if not self.current_run_dir:
+            QMessageBox.warning(self, "Resume run", "No run selected")
+            return
+        
+        from PyQt5.QtWidgets import QInputDialog
+        phase_num, ok = QInputDialog.getInt(
+            self, 
+            "Resume from phase",
+            "Enter phase number to resume from (0-10):",
+            0, 0, 10, 1
+        )
+        
+        if not ok:
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "Confirm resume",
+            f"Resume run from phase {phase_num}?\n\nThis will re-execute all phases from {phase_num} onwards.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        self._append_live(f"[ui] resuming run from phase {phase_num}")
+        
+        def do():
+            wd = Path(self.working_dir.text().strip() or str(self.project_root))
+            args = ["resume-run", self.current_run_dir, "--from-phase", str(phase_num)]
+            self.ui_call.emit(lambda: self._log_backend_cmd(args))
+            return self.backend.run_json(wd, args, timeout_s=3600)
+        
+        def ok_cb(res):
+            if isinstance(res, dict) and res.get("ok"):
+                QMessageBox.information(self, "Resume complete", "Run resumed successfully")
+                self._refresh_current_status()
+                self._refresh_current_logs()
+            else:
+                error_msg = res.get("error", "Unknown error") if isinstance(res, dict) else str(res)
+                QMessageBox.warning(self, "Resume failed", f"Failed to resume run:\n{error_msg}")
+            self._append_live(f"[ui] resume completed")
+        
+        def err_cb(e: Exception):
+            QMessageBox.critical(self, "Resume failed", str(e))
+            self._append_live(f"[ui] resume failed: {e}")
+        
+        self._run_bg(do, ok_cb, err_cb)
 
     def _refresh_runs(self) -> None:
         runs_dir = self.runs_dir.text().strip() or "runs"
@@ -1594,6 +1766,10 @@ class MainWindow(QMainWindow):
         run_id = self.runs_table.item(row, 1).text() if self.runs_table.item(row, 1) else ""
         self.current_run_id = run_id or None
         self.lbl_run_id.setText(self.current_run_id or "-")
+        
+        # Enable resume button when a run is selected
+        self.btn_resume_run.setEnabled(bool(self.current_run_dir))
+        
         self._refresh_current_status()
         self._refresh_current_logs()
         self._refresh_current_artifacts()
@@ -1638,7 +1814,7 @@ class MainWindow(QMainWindow):
             for ev in events if isinstance(events, list) else []:
                 if not isinstance(ev, dict):
                     continue
-                s = json.dumps(ev, ensure_ascii=False, sort_keys=True)
+                s = self._format_event_human(ev)
                 if flt and flt not in s.lower():
                     continue
                 out_lines.append(s)
@@ -1698,6 +1874,7 @@ class MainWindow(QMainWindow):
             
             # Track last status for each phase
             phase_status: dict[str, tuple[str, int, int]] = {}  # phase_name -> (status, current, total)
+            last_error_by_phase: dict[str, str] = {}
             
             for ev in events:
                 if not isinstance(ev, dict):
@@ -1719,12 +1896,32 @@ class MainWindow(QMainWindow):
                         phase_status[phase_name] = ("skipped", 0, 0)
                     elif status in ("ok", "success"):
                         phase_status[phase_name] = ("ok", 0, 0)
+                        # Check for fallback warnings
+                        fallback_reason = ev.get("fallback_reason")
+                        if fallback_reason:
+                            if phase_name == "SYNTHETIC_FRAMES":
+                                if fallback_reason == "reduced_mode":
+                                    last_error_by_phase[phase_name] = "Reduced mode: synthetic frames skipped"
+                                elif fallback_reason == "no_synthetic_frames":
+                                    last_error_by_phase[phase_name] = "No synthetic frames generated"
+                                else:
+                                    last_error_by_phase[phase_name] = f"Fallback: {fallback_reason}"
+                            elif phase_name == "STACKING":
+                                if ev.get("used_reconstructed_fallback"):
+                                    last_error_by_phase[phase_name] = "Using reconstructed frames (no synthetic frames available)"
                     else:
                         phase_status[phase_name] = ("error", 0, 0)
+                        detail = str(ev.get("error") or "").strip()
+                        if detail:
+                            last_error_by_phase[phase_name] = detail
             
             # Apply final status to widget
             for phase_name, (status, current, total) in phase_status.items():
                 self.phase_progress.update_phase(phase_name, status, current, total)
+
+            if last_error_by_phase:
+                phase_name = next(reversed(last_error_by_phase.keys()))
+                self.phase_progress.set_error_detail(phase_name, last_error_by_phase.get(phase_name))
 
         def err(e: Exception):
             self._append_live(f"[ui] refresh-phase-status failed: {e}")

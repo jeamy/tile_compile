@@ -48,10 +48,22 @@ Ab **Phase 2 (Tile‑Erzeugung)** sind beide Pfade **identisch**.
 Bei Frame‑Anzahl unterhalb des Optimums aber oberhalb des Minimums:
 
 * Zustandsbasierte Clusterung (§3.7) wird **übersprungen**
-* Keine synthetischen Frames
-* Direktes tile‑gewichtetes Stacking
-* Cluster‑Anzahl wird auf 5–10 reduziert (falls dennoch aktiviert)
+* Keine synthetischen Frames (§3.8 wird übersprungen)
 * Validierungswarnung im Report
+
+**Workflow im Reduced Mode (verbindlich):**
+
+1. Schritte 1–7 werden normal ausgeführt (inkl. Tile-basierte Rekonstruktion)
+2. Schritte 8–9 werden übersprungen
+3. Schritt 10 stackt die **rekonstruierten Frames aus §3.6** direkt:
+
+```
+R_c = rekonstruiertes Bild aus §3.6
+```
+
+Alternativ (falls Clusterung dennoch aktiviert):
+* Cluster‑Anzahl wird auf 5–10 reduziert
+* Synthetische Frames werden mit reduzierter Cluster-Anzahl erzeugt
 
 Ein Verstoß gegen **harte Annahmen** führt zum **Abbruch des Laufs**.
 
@@ -188,13 +200,22 @@ Ergebnis:
 ## 3.1 Globale lineare Normalisierung (Pflicht)
 
 * exakt einmal
-* vor **jeder** Metrik
+* vor **jeder** Metrik (außer B_f, das für die Normalisierung benötigt wird)
 * getrennt pro Kanal
+
+**Reihenfolge (verbindlich):**
+
+1. B_f,c (Hintergrundniveau) wird auf **Rohdaten** berechnet
+2. Normalisierung: `I'_f = I_f / B_f`
+3. σ_f,c und E_f,c werden auf **normalisierten** Daten berechnet
 
 Formal:
 
 ```
-I'_f = I_f / B_f
+B_f,c = median(I_f,c)           # VOR Normalisierung
+I'_f,c = I_f,c / B_f,c          # Normalisierung
+σ_f,c = std(I'_f,c)             # NACH Normalisierung
+E_f,c = gradient_energy(I'_f,c) # NACH Normalisierung
 ```
 
 ---
@@ -203,15 +224,21 @@ I'_f = I_f / B_f
 
 Pro Frame *f* und Kanal *c*:
 
-* B_f,c – Hintergrundniveau
-* σ_f,c – Rauschen
-* E_f,c – Gradientenergie
+* B_f,c – Hintergrundniveau (auf Rohdaten, siehe §3.1)
+* σ_f,c – Rauschen (auf normalisierten Daten)
+* E_f,c – Gradientenergie (auf normalisierten Daten)
 
 Globaler Qualitätsindex:
 
 ```
-Q_f,c = α(-B̃) + β(-σ̃) + γẼ
+Q_f,c = α(-B̃) + β(-σ̃) + γẼ
 G_f,c = exp(Q_f,c)
+```
+
+wobei B̃, σ̃, Ẽ die MAD-normalisierten Werte sind:
+
+```
+x̃ = (x - median(x)) / (1.4826 · MAD(x))
 ```
 
 Nebenbedingung (verbindlich):
@@ -270,13 +297,37 @@ T_0 = s · F
 
 Für jedes Tile *t*, Frame *f*, Kanal *c*:
 
-* Stern‑Tiles: FWHM, Rundheit, Kontrast
-* Struktur‑Tiles: E/σ, Hintergrund
+**Stern‑Tiles** (Tiles mit ≥ `tile.star_min_count` Sternen):
 
-Lokaler Index:
+* FWHM_t,f,c – mittlere Halbwertsbreite der Sterne im Tile
+* R_t,f,c – Rundheit (1 = perfekt rund, 0 = elongiert)
+* C_t,f,c – Kontrast (Stern-Signal / Hintergrund)
+
+**Struktur‑Tiles** (Tiles ohne ausreichend Sterne):
+
+* (E/σ)_t,f,c – Signal-zu-Rausch-Verhältnis der Struktur
+* B_t,f,c – lokaler Hintergrund
+
+**Lokaler Qualitätsindex (verbindlich):**
+
+Für Stern-Tiles:
+```
+Q_local[f,t,c] = w_fwhm · (-FWHM̃) + w_round · R̃ + w_con · C̃
+```
+
+Für Struktur-Tiles:
+```
+Q_local[f,t,c] = w_struct · (Ẽ/σ̃) + w_bg · (-B̃)
+```
+
+Default-Gewichte:
+* Stern-Modus: w_fwhm = 0.6, w_round = 0.2, w_con = 0.2
+* Struktur-Modus: w_struct = 0.7, w_bg = 0.3
+
+**Lokales Gewicht:**
 
 ```
-Q_local[f,t,c]
+Q_local wird auf [-3, +3] geklemmt
 L_f,t,c = exp(Q_local)
 ```
 
@@ -296,11 +347,19 @@ W_f,t,c = G_f,c · L_f,t,c
 I_t,c(p) = Σ_f W_f,t,c · I_f,c(p) / Σ_f W_f,t,c
 ```
 
-* Overlap‑Add
-* Fensterfunktion
-* Tile‑Normalisierung **nach** Hintergrundsubtraktion
+**Overlap‑Add mit Fensterfunktion (verbindlich):**
 
-Fallbacks für degenerierte / low‑weight Tiles (verbindlich):
+* Fensterfunktion: **Hanning** (2D, separabel)
+* Formel: `w(x,y) = hann(x) · hann(y)` mit `hann(t) = 0.5 · (1 - cos(2πt))`
+
+**Tile‑Normalisierung (verbindlich):**
+
+Vor dem Overlap-Add wird jedes Tile normalisiert:
+
+1. Hintergrund subtrahieren: `T'_t = T_t - median(T_t)`
+2. Normalisieren: `T''_t = T'_t / median(|T'_t|)` (falls median > ε)
+
+**Fallbacks für degenerierte / low‑weight Tiles (verbindlich):**
 
 Definiere den Nenner
 
@@ -308,7 +367,7 @@ Definiere den Nenner
 D_t,c = Σ_f W_f,t,c
 ```
 
-und eine kleine Konstante `ε > 0`.
+und die Stabilitätskonstante `ε = 1e-6`.
 
 * Wenn `D_t,c ≥ ε`: normale gewichtete Rekonstruktion.
 * Wenn `D_t,c < ε` (z. B. alle Gewichte numerisch ~0):
@@ -339,8 +398,27 @@ v_f,c = (G_f,c, ⟨Q_local⟩, Var(Q_local), B_f,c, σ_f,c)
 
 ## 3.8 Synthetische Frames & finales Stacking
 
-* Rekonstruktion synthetischer Frames
-* lineares Stacking
+**Synthetische Frames (verbindlich):**
+
+Für jeden Cluster *k* (aus §3.7) wird ein synthetischer Frame erzeugt:
+
+```
+S_k,c = Σ_{f∈Cluster_k} G_f,c · I_f,c / Σ_{f∈Cluster_k} G_f,c
+```
+
+wobei I_f,c die **Original-Frames** (nicht rekonstruiert) sind.
+
+Ergebnis: 15–30 synthetische Frames pro Kanal (entsprechend der Cluster-Anzahl).
+
+**Finales Stacking (verbindlich):**
+
+Die synthetischen Frames werden linear gestackt:
+
+```
+R_c = (1/K) · Σ_k S_k,c
+```
+
+* lineares Stacking (ungewichtet)
 * **kein Drizzle**
 * **keine zusätzliche Gewichtung**
 
