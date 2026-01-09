@@ -218,6 +218,445 @@ def _write_quality_analysis_pngs(artifacts_dir: Path, channel_metrics: dict[str,
     return out_paths
 
 
+def _write_registration_artifacts(
+    artifacts_dir: Path,
+    registered_files: list[Path],
+    corrs: list[float] | None = None,
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return []
+
+    out_paths: list[str] = []
+
+    def _luminance_from_fits(p: Path) -> np.ndarray | None:
+        try:
+            data = fits.getdata(str(p), ext=0)
+            if data is None:
+                return None
+            a = np.asarray(data)
+            if a.ndim == 2:
+                return a.astype("float32", copy=False)
+            if a.ndim == 3:
+                if a.shape[-1] in (3, 4):
+                    return np.mean(a[..., :3].astype("float32", copy=False), axis=-1)
+                if a.shape[0] in (3, 4):
+                    return np.mean(a[:3, ...].astype("float32", copy=False), axis=0)
+            return a.astype("float32", copy=False)
+        except Exception:
+            return None
+
+    try:
+        if not registered_files:
+            return []
+        idxs = sorted(set([0, max(0, len(registered_files) // 2), max(0, len(registered_files) - 1)]))
+        ref = _luminance_from_fits(registered_files[idxs[0]])
+        if ref is None:
+            return []
+
+        fig, axes = plt.subplots(1, 1 + len(idxs), figsize=(4 * (1 + len(idxs)), 4))
+        if not isinstance(axes, np.ndarray):
+            axes = np.asarray([axes])
+        axes = axes.flatten()
+
+        axes[0].imshow(_to_uint8(ref), cmap="gray", interpolation="nearest")
+        axes[0].set_title("ref")
+        axes[0].set_axis_off()
+
+        for j, i in enumerate(idxs, start=1):
+            cur = _luminance_from_fits(registered_files[i])
+            if cur is None:
+                continue
+            if cur.shape != ref.shape:
+                cur = cur[: ref.shape[0], : ref.shape[1]]
+            diff = np.abs(cur.astype("float32", copy=False) - ref.astype("float32", copy=False))
+            axes[j].imshow(_to_uint8(diff), cmap="magma", interpolation="nearest")
+            axes[j].set_title(f"absdiff idx={i}")
+            axes[j].set_axis_off()
+
+        fig.tight_layout()
+        outp = artifacts_dir / "registration_absdiff_samples.png"
+        fig.savefig(str(outp), dpi=200)
+        plt.close(fig)
+        out_paths.append(str(outp))
+
+        if corrs:
+            c = np.asarray(corrs, dtype=np.float32)
+            fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+            ax.plot(np.arange(c.shape[0]), c, linewidth=1.0)
+            ax.set_title("ECC correlation over frames")
+            ax.set_xlabel("frame_index")
+            ax.set_ylabel("ecc_corr")
+            fig.tight_layout()
+            outp = artifacts_dir / "registration_ecc_corr_timeseries.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+            fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+            ax.hist(c, bins=40)
+            ax.set_title("ECC correlation histogram")
+            ax.set_xlabel("ecc_corr")
+            ax.set_ylabel("count")
+            fig.tight_layout()
+            outp = artifacts_dir / "registration_ecc_corr_hist.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+    except Exception:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return out_paths
+
+    return out_paths
+
+
+def _write_normalization_artifacts(
+    artifacts_dir: Path,
+    pre_norm_backgrounds: dict[str, list[float]],
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return []
+
+    out_paths: list[str] = []
+    try:
+        if not pre_norm_backgrounds:
+            return []
+        fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+        for ch in ("R", "G", "B"):
+            vals = pre_norm_backgrounds.get(ch) or []
+            if not vals:
+                continue
+            ax.plot(np.arange(len(vals)), np.asarray(vals, dtype=np.float32), linewidth=1.0, label=ch)
+        ax.set_title("Pre-normalization background B_f (median) per channel")
+        ax.set_xlabel("frame_index")
+        ax.set_ylabel("B_f")
+        ax.legend(loc="best")
+        fig.tight_layout()
+        outp = artifacts_dir / "normalization_background_timeseries.png"
+        fig.savefig(str(outp), dpi=200)
+        plt.close(fig)
+        out_paths.append(str(outp))
+    except Exception:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return out_paths
+
+    return out_paths
+
+
+def _write_global_metrics_artifacts(
+    artifacts_dir: Path,
+    channel_metrics: dict[str, dict[str, Any]],
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return []
+
+    out_paths: list[str] = []
+    try:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+        for ch in ("R", "G", "B"):
+            gfc = channel_metrics.get(ch, {}).get("global", {}).get("G_f_c")
+            if not gfc:
+                continue
+            g = np.asarray(gfc, dtype=np.float32)
+            ax.plot(np.arange(g.shape[0]), g, linewidth=1.0, label=ch)
+        ax.set_title("Global weight G_f,c over frames")
+        ax.set_xlabel("frame_index")
+        ax.set_ylabel("G_f,c")
+        ax.legend(loc="best")
+        fig.tight_layout()
+        outp = artifacts_dir / "global_weight_timeseries.png"
+        fig.savefig(str(outp), dpi=200)
+        plt.close(fig)
+        out_paths.append(str(outp))
+
+        fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+        for ch in ("R", "G", "B"):
+            gfc = channel_metrics.get(ch, {}).get("global", {}).get("G_f_c")
+            if not gfc:
+                continue
+            g = np.asarray(gfc, dtype=np.float32)
+            ax.hist(g, bins=40, alpha=0.5, label=ch)
+        ax.set_title("Histogram of global weights G_f,c")
+        ax.set_xlabel("G_f,c")
+        ax.set_ylabel("count")
+        ax.legend(loc="best")
+        fig.tight_layout()
+        outp = artifacts_dir / "global_weight_hist.png"
+        fig.savefig(str(outp), dpi=200)
+        plt.close(fig)
+        out_paths.append(str(outp))
+    except Exception:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return out_paths
+
+    return out_paths
+
+
+def _write_clustering_artifacts(
+    artifacts_dir: Path,
+    channel_metrics: dict[str, dict[str, Any]],
+    clustering_results: Any,
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return []
+
+    out_paths: list[str] = []
+
+    def _labels_for_channel(ch: str) -> list[int] | None:
+        if not clustering_results:
+            return None
+        if isinstance(clustering_results, dict) and ch in clustering_results and isinstance(clustering_results.get(ch), dict):
+            cr = clustering_results.get(ch) or {}
+            labels = cr.get("labels", cr.get("cluster_labels"))
+            if isinstance(labels, list):
+                return [int(x) for x in labels]
+        if isinstance(clustering_results, dict):
+            labels = clustering_results.get("labels", clustering_results.get("cluster_labels"))
+            if isinstance(labels, list):
+                return [int(x) for x in labels]
+        return None
+
+    try:
+        for ch in ("R", "G", "B"):
+            labels = _labels_for_channel(ch)
+            gfc = channel_metrics.get(ch, {}).get("global", {}).get("G_f_c")
+            if labels is None or not gfc or len(labels) != len(gfc):
+                continue
+            lab = np.asarray(labels, dtype=np.int32)
+            g = np.asarray(gfc, dtype=np.float32)
+            k = int(np.max(lab)) + 1 if lab.size else 0
+            if k <= 0:
+                continue
+            counts = np.bincount(lab, minlength=k)
+
+            fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+            ax0, ax1 = axes[0], axes[1]
+            ax0.bar(np.arange(k), counts)
+            ax0.set_title(f"Cluster sizes ({ch})")
+            ax0.set_xlabel("cluster_id")
+            ax0.set_ylabel("n_frames")
+
+            data = []
+            for ci in range(k):
+                vals = g[lab == ci]
+                if vals.size:
+                    data.append(vals)
+                else:
+                    data.append(np.asarray([0.0], dtype=np.float32))
+            ax1.boxplot(data, showfliers=False)
+            ax1.set_title(f"G_f,c per cluster ({ch})")
+            ax1.set_xlabel("cluster_id")
+            ax1.set_ylabel("G_f,c")
+            fig.tight_layout()
+            outp = artifacts_dir / f"clustering_summary_{ch}.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+    except Exception:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return out_paths
+
+    return out_paths
+
+
+def _write_tile_grid_pngs(
+    artifacts_dir: Path,
+    rep_frames: dict[str, "np.ndarray"],
+    tile_grids: dict[str, dict[str, Any]],
+    grid_cfg: dict[str, Any],
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return []
+
+    out_paths: list[str] = []
+
+    try:
+        tile_size = int(grid_cfg.get("tile_size") or 0)
+        step_size = int(grid_cfg.get("step_size") or 0)
+        if tile_size <= 0 or step_size <= 0:
+            return []
+
+        for ch, frame in rep_frames.items():
+            if frame is None:
+                continue
+            fig, ax = plt.subplots(1, 1, figsize=(12, 7))
+            ax.imshow(_to_uint8(frame), cmap="gray", interpolation="nearest")
+            h, w = frame.shape[:2]
+            for x in range(0, w - tile_size + 1, step_size):
+                ax.axvline(x, color="lime", linewidth=0.5, alpha=0.6)
+            ax.axvline(max(0, w - tile_size), color="lime", linewidth=0.5, alpha=0.6)
+            for y in range(0, h - tile_size + 1, step_size):
+                ax.axhline(y, color="lime", linewidth=0.5, alpha=0.6)
+            ax.axhline(max(0, h - tile_size), color="lime", linewidth=0.5, alpha=0.6)
+            ax.set_title(f"TILE_GRID overlay ({ch})")
+            ax.set_axis_off()
+            fig.tight_layout()
+            outp = artifacts_dir / f"tile_grid_overlay_{ch}.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+        try:
+            import json
+
+            meta_ch = "G" if "G" in tile_grids else (next(iter(tile_grids.keys())) if tile_grids else None)
+            grid_meta = tile_grids.get(meta_ch, {}).get("grid_metadata", {}) if meta_ch else {}
+            payload = {
+                "grid_cfg": grid_cfg,
+                "grid_metadata": grid_meta,
+            }
+            outj = artifacts_dir / "tile_grid.json"
+            outj.write_text(json.dumps(payload, indent=2))
+            out_paths.append(str(outj))
+        except Exception:
+            pass
+
+    except Exception:
+        return out_paths
+
+    return out_paths
+
+
+def _write_tile_quality_heatmaps(
+    artifacts_dir: Path,
+    channel_metrics: dict[str, dict[str, Any]],
+    grid_cfg: dict[str, Any],
+    image_shape: tuple[int, int],
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return []
+
+    out_paths: list[str] = []
+
+    try:
+        h0, w0 = image_shape
+        tile_size = int(grid_cfg.get("tile_size") or 0)
+        step_size = int(grid_cfg.get("step_size") or 0)
+        if tile_size <= 0 or step_size <= 0:
+            return []
+
+        n_tiles_y = max(1, (h0 - tile_size) // step_size + 1)
+        n_tiles_x = max(1, (w0 - tile_size) // step_size + 1)
+        n_tiles = n_tiles_y * n_tiles_x
+
+        for ch in ("R", "G", "B"):
+            q_local = channel_metrics.get(ch, {}).get("tiles", {}).get("Q_local", [])
+            l_local = channel_metrics.get(ch, {}).get("tiles", {}).get("L_local", [])
+            if not q_local:
+                continue
+            a = np.asarray(q_local, dtype=np.float32)
+            if a.ndim != 2 or a.shape[1] <= 0:
+                continue
+            if a.shape[1] != n_tiles:
+                continue
+            mean_per_tile = np.mean(a, axis=0)
+            grid = mean_per_tile.reshape((n_tiles_y, n_tiles_x))
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+            im = ax.imshow(grid, cmap="magma", interpolation="nearest")
+            ax.set_title(f"Tile mean Q_local ({ch})")
+            ax.set_xlabel("tile_x")
+            ax.set_ylabel("tile_y")
+            fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            fig.tight_layout()
+            outp = artifacts_dir / f"tile_quality_heatmap_{ch}.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+            var_per_tile = np.var(a, axis=0)
+            grid_v = var_per_tile.reshape((n_tiles_y, n_tiles_x))
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+            im = ax.imshow(grid_v, cmap="viridis", interpolation="nearest")
+            ax.set_title(f"Tile var Q_local ({ch})")
+            ax.set_xlabel("tile_x")
+            ax.set_ylabel("tile_y")
+            fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            fig.tight_layout()
+            outp = artifacts_dir / f"tile_quality_var_heatmap_{ch}.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+            if l_local:
+                b = np.asarray(l_local, dtype=np.float32)
+                if b.ndim == 2 and b.shape[1] == n_tiles:
+                    mean_l = np.mean(b, axis=0)
+                    grid_l = mean_l.reshape((n_tiles_y, n_tiles_x))
+                    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                    im = ax.imshow(grid_l, cmap="plasma", interpolation="nearest")
+                    ax.set_title(f"Tile mean L_local ({ch})")
+                    ax.set_xlabel("tile_x")
+                    ax.set_ylabel("tile_y")
+                    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                    fig.tight_layout()
+                    outp = artifacts_dir / f"tile_weight_heatmap_{ch}.png"
+                    fig.savefig(str(outp), dpi=200)
+                    plt.close(fig)
+                    out_paths.append(str(outp))
+
+                    var_l = np.var(b, axis=0)
+                    grid_lv = var_l.reshape((n_tiles_y, n_tiles_x))
+                    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                    im = ax.imshow(grid_lv, cmap="cividis", interpolation="nearest")
+                    ax.set_title(f"Tile var L_local ({ch})")
+                    ax.set_xlabel("tile_x")
+                    ax.set_ylabel("tile_y")
+                    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                    fig.tight_layout()
+                    outp = artifacts_dir / f"tile_weight_var_heatmap_{ch}.png"
+                    fig.savefig(str(outp), dpi=200)
+                    plt.close(fig)
+                    out_paths.append(str(outp))
+
+    except Exception:
+        return out_paths
+
+    return out_paths
+
+
 def run_phases_impl(
     run_id: str,
     log_fp,
@@ -599,6 +1038,11 @@ def run_phases_impl(
         phase_end(run_id, log_fp, 1, "REGISTRATION", "error", {"error": "no registered frames found"})
         return False
 
+    try:
+        _write_registration_artifacts(artifacts_dir, registered_files, corrs if isinstance(corrs, list) else None)
+    except Exception:
+        pass
+
     phase_id = 2
     phase_name = "CHANNEL_SPLIT"
     if should_skip_phase(phase_id):
@@ -763,6 +1207,11 @@ def run_phases_impl(
         {"mode": norm_mode, "per_channel": per_channel, "target_median": norm_target},
     )
 
+    try:
+        _write_normalization_artifacts(artifacts_dir, pre_norm_backgrounds)
+    except Exception:
+        pass
+
     phase_id = 4
     phase_name = "GLOBAL_METRICS"
     if should_skip_phase(phase_id):
@@ -925,6 +1374,11 @@ def run_phases_impl(
 
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"analysis_count": analysis_count})
 
+    try:
+        _write_global_metrics_artifacts(artifacts_dir, channel_metrics)
+    except Exception:
+        pass
+
     phase_id = 5
     phase_name = "TILE_GRID"
     if should_skip_phase(phase_id):
@@ -1056,6 +1510,10 @@ def run_phases_impl(
         "overlap_fraction": overlap,
     }
     tile_grids = generate_multi_channel_grid({k: _to_uint8(v) for k, v in rep.items()}, v3_grid_cfg)
+    try:
+        _write_tile_grid_pngs(artifacts_dir, rep, tile_grids, grid_cfg)
+    except Exception:
+        pass
     del rep
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"grid_cfg": grid_cfg, "fwhm_estimated": fwhm})
 
@@ -1156,6 +1614,11 @@ def run_phases_impl(
         }
 
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i})
+
+    try:
+        _write_tile_quality_heatmaps(artifacts_dir, channel_metrics, grid_cfg, (h0, w0))
+    except Exception:
+        pass
 
     phase_id = 7
     phase_name = "TILE_RECONSTRUCTION"
@@ -1287,6 +1750,56 @@ def run_phases_impl(
                 out = out / weight_sum
             
             reconstructed[ch] = out.astype(np.float32, copy=False)
+
+            try:
+                import matplotlib
+
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+
+                fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                im = ax.imshow(np.log1p(weight_sum.astype("float32", copy=False)), cmap="inferno", interpolation="nearest")
+                ax.set_title(f"log(1+weight_sum) ({ch})")
+                ax.set_axis_off()
+                fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                fig.tight_layout()
+                outp = artifacts_dir / f"reconstruction_weight_sum_{ch}.png"
+                fig.savefig(str(outp), dpi=200)
+                plt.close(fig)
+
+                fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                ax.imshow(_to_uint8(reconstructed[ch]), cmap="gray", interpolation="nearest")
+                ax.set_title(f"reconstructed preview ({ch})")
+                ax.set_axis_off()
+                fig.tight_layout()
+                outp = artifacts_dir / f"reconstruction_preview_{ch}.png"
+                fig.savefig(str(outp), dpi=200)
+                plt.close(fig)
+
+                n_vis = min(25, num_frames)
+                if n_vis > 0:
+                    mean_img = None
+                    for i0 in range(n_vis):
+                        ff = fits.getdata(str(channel_files[ch][i0])).astype("float32", copy=False)
+                        if mean_img is None:
+                            mean_img = np.zeros_like(ff, dtype=np.float32)
+                        mean_img += ff
+                        del ff
+                    mean_img = mean_img / float(n_vis)
+                    diff = np.abs(reconstructed[ch].astype("float32", copy=False) - mean_img.astype("float32", copy=False))
+                    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                    ax.imshow(_to_uint8(diff), cmap="magma", interpolation="nearest")
+                    ax.set_title(f"abs(recon - mean(first {n_vis})) ({ch})")
+                    ax.set_axis_off()
+                    fig.tight_layout()
+                    outp = artifacts_dir / f"reconstruction_absdiff_vs_mean_{ch}.png"
+                    fig.savefig(str(outp), dpi=200)
+                    plt.close(fig)
+            except Exception:
+                try:
+                    plt.close("all")
+                except Exception:
+                    pass
         else:
             # Fallback: Global weight only (no tile weights available)
             if gfc.size == num_frames:
@@ -1437,6 +1950,11 @@ def run_phases_impl(
         },
     )
 
+    try:
+        _write_clustering_artifacts(artifacts_dir, channel_metrics, clustering_results)
+    except Exception:
+        pass
+
     phase_id = 9
     phase_name = "SYNTHETIC_FRAMES"
     if should_skip_phase(phase_id):
@@ -1552,16 +2070,13 @@ def run_phases_impl(
             syn_b_paths = _synthetic_from_files("B")
             synthetic_count = max(len(syn_r_paths), len(syn_g_paths), len(syn_b_paths))
 
-            for i in range(synthetic_count):
-                outp_r = syn_out / f"synR_{i+1:05d}.fits"
-                outp_g = syn_out / f"synG_{i+1:05d}.fits"
-                outp_b = syn_out / f"synB_{i+1:05d}.fits"
-                if i < len(syn_r_paths):
-                    shutil.copy2(syn_r_paths[i], outp_r)
-                if i < len(syn_g_paths):
-                    shutil.copy2(syn_g_paths[i], outp_g)
-                if i < len(syn_b_paths):
-                    shutil.copy2(syn_b_paths[i], outp_b)
+            # Create combined RGB synthetic frames expected by stacking (syn_*.fits).
+            # Use the common count across channels.
+            common_n = min(len(syn_r_paths), len(syn_g_paths), len(syn_b_paths))
+            for i in range(common_n):
+                outp_r = syn_r_paths[i]
+                outp_g = syn_g_paths[i]
+                outp_b = syn_b_paths[i]
 
                 if outp_r.is_file() and outp_g.is_file() and outp_b.is_file():
                     r = fits.getdata(str(outp_r)).astype("float32", copy=False)
