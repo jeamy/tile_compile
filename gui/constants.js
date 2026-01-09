@@ -14,7 +14,8 @@ export const GUI_CONSTANTS_JSON = `{
       "LIST_RUNS": "list-runs",
       "GET_RUN_STATUS": "get-run-status",
       "GET_RUN_LOGS": "get-run-logs",
-      "LIST_ARTIFACTS": "list-artifacts"
+      "LIST_ARTIFACTS": "list-artifacts",
+      "RESUME_RUN": "resume-run"
     }
   },
   "RUNNER": {

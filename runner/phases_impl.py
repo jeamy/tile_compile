@@ -1,19 +1,41 @@
 """Main pipeline implementation (Methodik v3)."""
 
+# Standard library
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Third-party
 import numpy as np
 from astropy.io import fits
 
+# Local - core utilities
 from .assumptions import get_assumptions_config, is_reduced_mode
 from .events import phase_start, phase_end, phase_progress, stop_requested
 from .fits_utils import is_fits_image_path, read_fits_float, fits_is_cfa, fits_get_bayerpat
-from .image_processing import split_cfa_channels, split_rgb_frame, normalize_frames, warp_cfa_mosaic_via_subplanes, cfa_downsample_sum2x2
-from .opencv_registration import opencv_prepare_ecc_image, opencv_count_stars, opencv_ecc_warp, opencv_best_translation_init
-from .siril_utils import validate_siril_script, run_siril_script, extract_siril_save_targets
 from .utils import safe_symlink_or_copy, pick_output_file
+
+# Local - image processing (disk-based)
+from .image_processing import (
+    split_cfa_channels,
+    split_rgb_frame,
+    normalize_frame,
+    compute_frame_medians,
+    warp_cfa_mosaic_via_subplanes,
+    cfa_downsample_sum2x2,
+)
+
+# Local - registration
+from .opencv_registration import (
+    opencv_prepare_ecc_image,
+    opencv_count_stars,
+    opencv_ecc_warp,
+    opencv_best_translation_init,
+)
+
+# Local - Siril integration
+from .siril_utils import validate_siril_script, run_siril_script, extract_siril_save_targets
 
 try:
     import cv2
@@ -43,6 +65,159 @@ def _to_uint8(img: np.ndarray) -> np.ndarray:
     return (x * 255.0).astype(np.uint8)
 
 
+def _extract_siril_error_reason(log_file: str | None) -> str | None:
+    if not log_file:
+        return None
+
+    try:
+        p = Path(str(log_file)).expanduser()
+        if not p.exists() or not p.is_file():
+            return None
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return None
+
+    patterns = [
+        re.compile(r"Nicht genug Speicher.*", re.IGNORECASE),
+        re.compile(r"Nicht genug Speicherplatz.*", re.IGNORECASE),
+        re.compile(r"Out of memory.*", re.IGNORECASE),
+        re.compile(r"Script-Ausführung fehlgeschlagen.*", re.IGNORECASE),
+        re.compile(r"Fehlgeschlagen.*", re.IGNORECASE),
+        re.compile(r"abgebrochen.*", re.IGNORECASE),
+    ]
+    for raw in reversed(lines[-300:]):
+        s = raw.strip()
+        if not s:
+            continue
+        s = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", s)
+        s = re.sub(r"^\d+:\s*", "", s)
+        s = re.sub(r"^log:\s*", "", s, flags=re.IGNORECASE)
+        for pat in patterns:
+            if pat.search(s):
+                return s
+    return None
+
+
+def _write_quality_analysis_pngs(artifacts_dir: Path, channel_metrics: dict[str, dict[str, Any]]) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+    except Exception:
+        return []
+
+    def _vals(ch: str, *path: str) -> list[float]:
+        cur: Any = channel_metrics.get(ch, {})
+        for k in path:
+            if not isinstance(cur, dict):
+                return []
+            cur = cur.get(k)
+        if cur is None:
+            return []
+        if isinstance(cur, np.ndarray):
+            return [float(x) for x in cur.flatten().tolist()]
+        if isinstance(cur, list):
+            out: list[float] = []
+            for x in cur:
+                if isinstance(x, (int, float, np.number)):
+                    out.append(float(x))
+            return out
+        return []
+
+    out_paths: list[str] = []
+
+    def _ch_any(ch: str) -> bool:
+        return bool(
+            _vals(ch, "global", "background_level")
+            or _vals(ch, "global", "noise_level")
+            or _vals(ch, "global", "gradient_energy")
+            or _vals(ch, "global", "G_f_c")
+            or _vals(ch, "tiles", "tile_quality_mean")
+            or _vals(ch, "tiles", "tile_quality_variance")
+        )
+
+    channels = [ch for ch in ("R", "G", "B") if _ch_any(ch)]
+    if not channels:
+        return []
+
+    try:
+        rows = len(channels)
+        cols = 6
+        fig, axes = plt.subplots(rows, cols, figsize=(24, 5 * rows))
+        if rows == 1:
+            axes = np.expand_dims(axes, axis=0)
+
+        for r, ch in enumerate(channels):
+            bg = _vals(ch, "global", "background_level")
+            noise = _vals(ch, "global", "noise_level")
+            grad = _vals(ch, "global", "gradient_energy")
+            gfc = _vals(ch, "global", "G_f_c")
+            tq_mean = _vals(ch, "tiles", "tile_quality_mean")
+            tq_var = _vals(ch, "tiles", "tile_quality_variance")
+
+            ax = axes[r][0]
+            if gfc:
+                sns.histplot(gfc, kde=True, ax=ax)
+                ax.axvline(float(np.median(gfc)), color="r", linestyle="--")
+            ax.set_title(f"{ch}: G_f,c")
+
+            ax = axes[r][1]
+            if noise:
+                sns.histplot(noise, kde=True, ax=ax)
+                ax.axvline(float(np.median(noise)), color="r", linestyle="--")
+            ax.set_title(f"{ch}: Noise σ")
+
+            ax = axes[r][2]
+            if bg:
+                sns.histplot(bg, kde=True, ax=ax)
+                ax.axvline(float(np.median(bg)), color="r", linestyle="--")
+            ax.set_title(f"{ch}: Background B")
+
+            ax = axes[r][3]
+            if grad:
+                sns.histplot(grad, kde=True, ax=ax)
+                ax.axvline(float(np.median(grad)), color="r", linestyle="--")
+            ax.set_title(f"{ch}: Gradient E")
+
+            ax = axes[r][4]
+            if tq_mean:
+                sns.histplot(tq_mean, kde=True, ax=ax)
+                ax.axvline(float(np.median(tq_mean)), color="r", linestyle="--")
+            ax.set_title(f"{ch}: mean(Q_local)")
+
+            ax = axes[r][5]
+            if noise and gfc:
+                n = min(len(noise), len(gfc))
+                ax.scatter(noise[:n], gfc[:n], alpha=0.6)
+                ax.set_xlabel("σ")
+                ax.set_ylabel("G_f,c")
+                ax.set_title(f"{ch}: G_f,c vs σ")
+            elif tq_var and tq_mean:
+                n = min(len(tq_var), len(tq_mean))
+                ax.scatter(tq_var[:n], tq_mean[:n], alpha=0.6)
+                ax.set_xlabel("var(Q_local)")
+                ax.set_ylabel("mean(Q_local)")
+                ax.set_title(f"{ch}: mean vs var")
+            else:
+                ax.set_title(f"{ch}: scatter")
+
+        fig.tight_layout()
+        outp = artifacts_dir / "quality_analysis_combined.png"
+        fig.savefig(str(outp), dpi=200)
+        plt.close(fig)
+        out_paths.append(str(outp))
+    except Exception:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return out_paths
+
+    return out_paths
+
+
 def run_phases_impl(
     run_id: str,
     log_fp,
@@ -53,6 +228,7 @@ def run_phases_impl(
     frames: list[Path],
     siril_exe: str | None,
     stop_flag: bool,
+    resume_from_phase: Optional[int] = None,
 ) -> bool:
     outputs_dir = run_dir / "outputs"
     artifacts_dir = run_dir / "artifacts"
@@ -144,11 +320,21 @@ def run_phases_impl(
     stack_method_cfg = str(stacking_cfg.get("method") or "")
     stack_method = stack_method_cfg.strip().lower()
 
+    # Helper function to check if phase should be skipped during resume
+    def should_skip_phase(phase_num: int) -> bool:
+        if resume_from_phase is None:
+            return False
+        return phase_num < resume_from_phase
+
     phase_id = 0
     phase_name = "SCAN_INPUT"
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
     cfa_flag0 = fits_is_cfa(frames[0]) if frames else None
     header_bayerpat0 = fits_get_bayerpat(frames[0]) if frames else None
     phase_end(
@@ -168,11 +354,10 @@ def run_phases_impl(
 
     phase_id = 1
     phase_name = "REGISTRATION"
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
-
-    if reg_engine == "opencv_cfa":
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    elif reg_engine == "opencv_cfa":
         if cv2 is None:
             phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "opencv (cv2) not available; install python opencv to use registration.engine=opencv_cfa"})
             return False
@@ -349,6 +534,7 @@ def run_phases_impl(
             quiet=True,
         )
         if not ok:
+            reason = _extract_siril_error_reason(meta.get("log_file") if isinstance(meta, dict) else None)
             phase_end(
                 run_id,
                 log_fp,
@@ -356,6 +542,7 @@ def run_phases_impl(
                 phase_name,
                 "error",
                 {
+                    "error": reason or "siril registration failed",
                     "siril": meta,
                     "bayer_pattern": bayer_pattern,
                     "bayer_pattern_header": header_bayerpat,
@@ -412,9 +599,13 @@ def run_phases_impl(
 
     phase_id = 2
     phase_name = "CHANNEL_SPLIT"
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
 
     frames_target = d.get("frames_target")
     try:
@@ -423,7 +614,11 @@ def run_phases_impl(
         frames_target_i = 0
     analysis_count = len(registered_files) if frames_target_i <= 0 else min(len(registered_files), frames_target_i)
 
-    channels: Dict[str, List[np.ndarray]] = {"R": [], "G": [], "B": []}
+    # Write channel splits to disk to avoid OOM with large datasets
+    channels_dir = work_dir / "channels"
+    channels_dir.mkdir(parents=True, exist_ok=True)
+    channel_files: Dict[str, List[Path]] = {"R": [], "G": [], "B": []}
+    
     cfa_registered = None
     total_split = max(1, analysis_count)
     for idx, p in enumerate(registered_files[:analysis_count], start=1):
@@ -448,9 +643,15 @@ def run_phases_impl(
                     )
                     return False
                 split = {"R": data, "G": data, "B": data}
-        channels["R"].append(split["R"])
-        channels["G"].append(split["G"])
-        channels["B"].append(split["B"])
+        
+        # Write each channel to disk
+        for ch in ("R", "G", "B"):
+            ch_file = channels_dir / f"{ch}_{idx:05d}.fits"
+            fits.writeto(str(ch_file), split[ch], overwrite=True)
+            channel_files[ch].append(ch_file)
+        
+        # Free memory immediately
+        del data, split
 
         if idx % 5 == 0 or idx == total_split:
             phase_progress(run_id, log_fp, phase_id, phase_name, idx, total_split, {})
@@ -466,42 +667,90 @@ def run_phases_impl(
             "registered_count": len(registered_files),
             "analysis_count": analysis_count,
             "cfa": bool(cfa_registered),
+            "channels_dir": str(channels_dir),
         },
     )
 
     phase_id = 3
     phase_name = "NORMALIZATION"
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
 
     norm_cfg = cfg.get("normalization") if isinstance(cfg.get("normalization"), dict) else {}
     norm_mode = str(norm_cfg.get("mode") or "background")
     per_channel = bool(norm_cfg.get("per_channel", True))
     norm_target: Optional[float] = None
+    
+    # Methodik v3 §3.1: B_f (background) must be computed BEFORE normalization
+    # Store B_f values for use in GLOBAL_METRICS phase
+    pre_norm_backgrounds: Dict[str, List[float]] = {"R": [], "G": [], "B": []}
+    
+    # Memory-efficient normalization: load frames from disk, compute medians, normalize, write back
     if per_channel:
         phase_progress(run_id, log_fp, phase_id, phase_name, 0, 3, {"step": "per_channel"})
-        channels["R"], _ = normalize_frames(channels["R"], norm_mode)
-        phase_progress(run_id, log_fp, phase_id, phase_name, 1, 3, {"channel": "R", "step": "per_channel"})
-        channels["G"], _ = normalize_frames(channels["G"], norm_mode)
-        phase_progress(run_id, log_fp, phase_id, phase_name, 2, 3, {"channel": "G", "step": "per_channel"})
-        channels["B"], _ = normalize_frames(channels["B"], norm_mode)
-        phase_progress(run_id, log_fp, phase_id, phase_name, 3, 3, {"channel": "B", "step": "per_channel"})
-    else:
-        meds = [float(np.median(f)) for ch in ("R", "G", "B") for f in channels[ch]]
-        norm_target = float(np.median(np.asarray(meds, dtype=np.float32))) if meds else None
-        out: Dict[str, List[np.ndarray]] = {"R": [], "G": [], "B": []}
-        phase_progress(run_id, log_fp, phase_id, phase_name, 0, 3, {"step": "global_target"})
+        
         for ch_idx, ch in enumerate(("R", "G", "B"), start=1):
-            for f in channels[ch]:
-                med = float(np.median(f))
+            # Pass 1: Compute medians (B_f) BEFORE normalization (load one frame at a time)
+            medians = []
+            for ch_file in channel_files[ch]:
+                frame = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                medians.append(float(np.median(frame)))
+                del frame
+            
+            # Store B_f values for GLOBAL_METRICS phase
+            pre_norm_backgrounds[ch] = medians.copy()
+            
+            target = float(np.median(np.asarray(medians, dtype=np.float32))) if medians else 0.0
+            
+            # Pass 2: Normalize and write back (load one frame at a time)
+            for ch_file, med in zip(channel_files[ch], medians):
+                frame = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                normalized = normalize_frame(frame, med, target, norm_mode)
+                fits.writeto(str(ch_file), normalized, overwrite=True)
+                del frame, normalized
+            
+            phase_progress(run_id, log_fp, phase_id, phase_name, ch_idx, 3, {"channel": ch, "step": "per_channel"})
+    else:
+        # Global normalization across all channels
+        # Pass 1: Compute all medians (B_f) BEFORE normalization
+        all_medians = []
+        for ch in ("R", "G", "B"):
+            ch_medians = []
+            for ch_file in channel_files[ch]:
+                frame = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                med = float(np.median(frame))
+                all_medians.append(med)
+                ch_medians.append(med)
+                del frame
+            # Store B_f values for GLOBAL_METRICS phase
+            pre_norm_backgrounds[ch] = ch_medians
+        
+        norm_target = float(np.median(np.asarray(all_medians, dtype=np.float32))) if all_medians else None
+        
+        # Pass 2: Normalize each channel
+        phase_progress(run_id, log_fp, phase_id, phase_name, 0, 3, {"step": "global_target"})
+        med_idx = 0
+        for ch_idx, ch in enumerate(("R", "G", "B"), start=1):
+            for ch_file in channel_files[ch]:
+                frame = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                med = all_medians[med_idx]
+                med_idx += 1
+                
                 if str(norm_mode).strip().lower() == "median":
                     scale = (norm_target / med) if (norm_target is not None and med not in (0.0, -0.0)) else 1.0
-                    out[ch].append((f * float(scale)).astype("float32", copy=False))
+                    normalized = (frame * float(scale)).astype("float32", copy=False)
                 else:
-                    out[ch].append((f - (med - float(norm_target or med))).astype("float32", copy=False))
+                    normalized = (frame - (med - float(norm_target or med))).astype("float32", copy=False)
+                
+                fits.writeto(str(ch_file), normalized, overwrite=True)
+                del frame, normalized
+            
             phase_progress(run_id, log_fp, phase_id, phase_name, ch_idx, 3, {"channel": ch, "step": "global_target"})
-        channels = out
 
     phase_end(
         run_id,
@@ -514,38 +763,59 @@ def run_phases_impl(
 
     phase_id = 4
     phase_name = "GLOBAL_METRICS"
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
 
     weights_cfg = cfg.get("global_metrics") if isinstance(cfg.get("global_metrics"), dict) else {}
     w = weights_cfg.get("weights") if isinstance(weights_cfg.get("weights"), dict) else {}
+    # Methodik v3 §3.2: Default α=0.4, β=0.3, γ=0.3
     try:
-        w_bg = float(w.get("background", 1.0 / 3.0))
+        w_bg = float(w.get("background", 0.4))  # α
     except Exception:
-        w_bg = 1.0 / 3.0
+        w_bg = 0.4
     try:
-        w_noise = float(w.get("noise", 1.0 / 3.0))
+        w_noise = float(w.get("noise", 0.3))  # β
     except Exception:
-        w_noise = 1.0 / 3.0
+        w_noise = 0.3
     try:
-        w_grad = float(w.get("gradient", 1.0 / 3.0))
+        w_grad = float(w.get("gradient", 0.3))  # γ
     except Exception:
-        w_grad = 1.0 / 3.0
+        w_grad = 0.3
+    
+    # Methodik v3 §3.2: Validate α + β + γ = 1 (Test Case 1)
+    weight_sum = w_bg + w_noise + w_grad
+    if abs(weight_sum - 1.0) > 1e-6:
+        phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {"error": f"global_metrics weights must sum to 1.0 (α + β + γ = 1), got {weight_sum:.6f}", "weights": {"background": w_bg, "noise": w_noise, "gradient": w_grad}},
+        )
+        return False
 
     channel_metrics: Dict[str, Dict[str, Any]] = {}
-    total_global = sum(len(channels[ch]) for ch in ("R", "G", "B"))
+    total_global = sum(len(channel_files[ch]) for ch in ("R", "G", "B"))
     total_global = max(1, total_global)
     processed_global = 0
     for ch in ("R", "G", "B"):
-        frs = channels[ch]
-        bgs: List[float] = []
+        # Methodik v3 §3.1: Use B_f computed BEFORE normalization (stored in pre_norm_backgrounds)
+        # σ_f and E_f are computed on normalized data
+        bgs: List[float] = pre_norm_backgrounds.get(ch, [])
         noises: List[float] = []
         grads: List[float] = []
-        for i, f in enumerate(frs, start=1):
-            bgs.append(float(np.median(f)))
+        for i, ch_file in enumerate(channel_files[ch], start=1):
+            f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+            # B_f already stored from pre-normalization phase
             noises.append(float(np.std(f)))
             grads.append(float(np.mean(np.hypot(*np.gradient(f.astype("float32", copy=False))))))
+            del f
             processed_global += 1
             if processed_global % 5 == 0 or processed_global == total_global:
                 phase_progress(
@@ -557,6 +827,14 @@ def run_phases_impl(
                     total_global,
                     {"channel": ch, "frame": i},
                 )
+        
+        # Fallback if pre_norm_backgrounds not available (e.g., skipped normalization)
+        if not bgs or len(bgs) != len(channel_files[ch]):
+            bgs = []
+            for ch_file in channel_files[ch]:
+                f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                bgs.append(float(np.median(f)))
+                del f
 
         def _norm_mad(vals: List[float]) -> List[float]:
             """
@@ -592,8 +870,10 @@ def run_phases_impl(
         noise_n = _norm_mad(noises)
         grad_n = _norm_mad(grads)
         
-        # Compute quality scores Q_f (Methodik v3 §5)
-        q_f = [float(w_bg * (1.0 - b) + w_noise * (1.0 - n) + w_grad * g) for b, n, g in zip(bg_n, noise_n, grad_n)]
+        # Compute quality scores Q_f,c (Methodik v3 §3.2)
+        # Formula: Q_f,c = α*(-B̃) + β*(-σ̃) + γ*Ẽ
+        # Lower background and noise are better (negative), higher gradient is better (positive)
+        q_f = [float(w_bg * (-b) + w_noise * (-n) + w_grad * g) for b, n, g in zip(bg_n, noise_n, grad_n)]
         
         # Clamp Q_f to [-3, +3] before exp() (Methodik v3 §5, §14 Test Case 2)
         q_f_clamped = [float(np.clip(q, -3.0, 3.0)) for q in q_f]
@@ -614,43 +894,124 @@ def run_phases_impl(
 
     phase_id = 5
     phase_name = "TILE_GRID"
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
 
     tile_cfg = cfg.get("tile") if isinstance(cfg.get("tile"), dict) else {}
     try:
-        min_tile_size = int(tile_cfg.get("min_size") or 32)
+        min_tile_size = int(tile_cfg.get("min_size") or 64)  # Methodik v3 default
     except Exception:
-        min_tile_size = 32
+        min_tile_size = 64
     try:
-        max_divisor = int(tile_cfg.get("max_divisor") or 8)
+        max_divisor = int(tile_cfg.get("max_divisor") or 6)  # Methodik v3 default
     except Exception:
-        max_divisor = 8
+        max_divisor = 6
     try:
         overlap = float(tile_cfg.get("overlap_fraction") or 0.25)
     except Exception:
         overlap = 0.25
+    try:
+        size_factor = float(tile_cfg.get("size_factor") or 32)  # Methodik v3 default s
+    except Exception:
+        size_factor = 32
+    
+    # Methodik v3 §3.3: Validate overlap_fraction in [0, 0.5]
+    if not 0 <= overlap <= 0.5:
+        phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"overlap_fraction must be in [0, 0.5], got {overlap}"})
+        return False
 
-    rep = {ch: channels[ch][0] for ch in ("R", "G", "B") if channels[ch]}
+    # Load first frame from each channel to determine dimensions
+    rep = {}
+    for ch in ("R", "G", "B"):
+        if channel_files[ch]:
+            rep[ch] = fits.getdata(str(channel_files[ch][0])).astype("float32", copy=False)
     if not rep:
         phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "no frames for tile grid"})
         return False
     h0, w0 = next(iter(rep.values())).shape[:2]
-    max_tile_size = max(min_tile_size, int(min(h0, w0) // max(1, max_divisor)))
-    grid_cfg = {"min_tile_size": min_tile_size, "max_tile_size": max_tile_size, "overlap": overlap}
+    
+    # Methodik v3 §3.3: Estimate FWHM from star detection
+    # Use robust FWHM estimation across multiple frames
+    fwhm_estimates = []
+    try:
+        import cv2
+        for ch in ("R", "G", "B"):
+            if ch in rep:
+                img_u8 = _to_uint8(rep[ch])
+                # Detect stars using goodFeaturesToTrack
+                corners = cv2.goodFeaturesToTrack(img_u8, maxCorners=50, qualityLevel=0.01, minDistance=20)
+                if corners is not None and len(corners) > 3:
+                    # Estimate FWHM from star sizes (simplified: use gradient magnitude around stars)
+                    gy, gx = np.gradient(rep[ch].astype("float32", copy=False))
+                    grad_mag = np.sqrt(gx**2 + gy**2)
+                    for corner in corners[:20]:
+                        x, y = int(corner[0][0]), int(corner[0][1])
+                        if 10 < x < w0 - 10 and 10 < y < h0 - 10:
+                            patch = grad_mag[y-5:y+5, x-5:x+5]
+                            if patch.size > 0:
+                                # FWHM approximation from gradient spread
+                                fwhm_est = float(np.sum(patch > np.max(patch) * 0.5)) ** 0.5 * 2.0
+                                if 1.0 < fwhm_est < 50.0:
+                                    fwhm_estimates.append(fwhm_est)
+    except Exception:
+        pass
+    
+    # Use median FWHM or fallback to default
+    if fwhm_estimates:
+        fwhm = float(np.median(fwhm_estimates))
+    else:
+        fwhm = 10.0  # Default FWHM estimate in pixels
+    
+    # Methodik v3 §3.3: T_0 = s · F, T = floor(clip(T_0, T_min, floor(min(W, H) / D)))
+    T_0 = size_factor * fwhm
+    T_max = int(min(h0, w0) // max(1, max_divisor))
+    tile_size = int(np.floor(np.clip(T_0, min_tile_size, T_max)))
+    
+    # Methodik v3 §3.3: O = floor(o · T), S = T - O
+    overlap_px = int(np.floor(overlap * tile_size))
+    step_size = tile_size - overlap_px
+    
+    grid_cfg = {
+        "min_tile_size": min_tile_size, 
+        "max_tile_size": T_max, 
+        "overlap": overlap,
+        "fwhm": fwhm,
+        "size_factor": size_factor,
+        "tile_size": tile_size,
+        "overlap_px": overlap_px,
+        "step_size": step_size,
+    }
 
     if generate_multi_channel_grid is None:
         phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "tile_grid backend not available"})
         return False
-    tile_grids = generate_multi_channel_grid({k: _to_uint8(v) for k, v in rep.items()}, grid_cfg)
-    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"grid_cfg": grid_cfg})
+    
+    # Use V3 mode with computed FWHM
+    v3_grid_cfg = {
+        "fwhm": fwhm,
+        "size_factor": size_factor,
+        "min_size": min_tile_size,
+        "max_divisor": max_divisor,
+        "overlap_fraction": overlap,
+    }
+    tile_grids = generate_multi_channel_grid({k: _to_uint8(v) for k, v in rep.items()}, v3_grid_cfg)
+    del rep
+    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"grid_cfg": grid_cfg, "fwhm_estimated": fwhm})
 
     phase_id = 6
     phase_name = "LOCAL_METRICS"
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
 
     if TileMetricsCalculator is None:
         phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "metrics backend not available"})
@@ -669,61 +1030,86 @@ def run_phases_impl(
     lm_cfg = cfg.get("local_metrics") if isinstance(cfg.get("local_metrics"), dict) else {}
     star_mode = lm_cfg.get("star_mode") if isinstance(lm_cfg.get("star_mode"), dict) else {}
     star_w = star_mode.get("weights") if isinstance(star_mode.get("weights"), dict) else {}
+    # Methodik v3 §3.4: Default-Gewichte für Stern-Modus
     try:
-        w_fwhm = float(star_w.get("fwhm", 1.0 / 3.0))
+        w_fwhm = float(star_w.get("fwhm", 0.6))
     except Exception:
-        w_fwhm = 1.0 / 3.0
+        w_fwhm = 0.6
     try:
-        w_round = float(star_w.get("roundness", 1.0 / 3.0))
+        w_round = float(star_w.get("roundness", 0.2))
     except Exception:
-        w_round = 1.0 / 3.0
+        w_round = 0.2
     try:
-        w_con = float(star_w.get("contrast", 1.0 / 3.0))
+        w_con = float(star_w.get("contrast", 0.2))
     except Exception:
-        w_con = 1.0 / 3.0
+        w_con = 0.2
 
-    total_frames = sum(len(channels[ch]) for ch in ("R", "G", "B"))
+    total_frames = sum(len(channel_files[ch]) for ch in ("R", "G", "B"))
     processed_frames = 0
     
     for ch in ("R", "G", "B"):
         q_local: List[List[float]] = []
+        l_local: List[List[float]] = []  # Methodik v3 §3.4: L_f,t,c = exp(Q_local)
         q_mean: List[float] = []
         q_var: List[float] = []
-        for f_idx, f in enumerate(channels[ch]):
+        for f_idx, ch_file in enumerate(channel_files[ch]):
+            f = fits.getdata(str(ch_file)).astype("float32", copy=False)
             tm = tile_calc.calculate_tile_metrics(f)
             fwhm = np.asarray(tm.get("fwhm") or [], dtype=np.float32)
             rnd = np.asarray(tm.get("roundness") or [], dtype=np.float32)
             con = np.asarray(tm.get("contrast") or [], dtype=np.float32)
             if fwhm.size == 0:
                 q = np.zeros((0,), dtype=np.float32)
+                l = np.ones((0,), dtype=np.float32)
             else:
-                mn = float(np.min(fwhm))
-                mx = float(np.max(fwhm))
-                if mx > mn:
-                    inv_fwhm = 1.0 - (fwhm - mn) / (mx - mn)
-                else:
-                    inv_fwhm = np.ones_like(fwhm)
-                # Compute local quality score Q_local (Methodik v3 §7)
-                q_raw = (w_fwhm * inv_fwhm + w_round * rnd + w_con * con).astype(np.float32, copy=False)
-                # Clamp Q_local to [-3, +3] before computing weights (Methodik v3 §7, §14 Test Case 2)
+                # Methodik v3 §3.4: MAD-Normalisierung für alle Metriken
+                def _mad_norm(arr):
+                    """MAD-normalize array: x̃ = (x - median) / (1.4826 · MAD)"""
+                    med = float(np.median(arr))
+                    mad = float(np.median(np.abs(arr - med)))
+                    if mad < 1e-12:
+                        return np.zeros_like(arr)
+                    return (arr - med) / (1.4826 * mad)
+                
+                fwhm_n = _mad_norm(fwhm)  # FWHM̃
+                rnd_n = _mad_norm(rnd)    # R̃
+                con_n = _mad_norm(con)    # C̃
+                
+                # Methodik v3 §3.4: Q_local = w_fwhm·(-FWHM̃) + w_round·R̃ + w_con·C̃
+                # Negative FWHM because smaller FWHM is better
+                q_raw = (w_fwhm * (-fwhm_n) + w_round * rnd_n + w_con * con_n).astype(np.float32, copy=False)
+                # Clamp Q_local to [-3, +3] before exp() (Methodik v3 §3.4, Test Case 2)
                 q = np.clip(q_raw, -3.0, 3.0)
+                # Methodik v3 §3.4: L_f,t,c = exp(Q_local)
+                l = np.exp(q).astype(np.float32, copy=False)
             q_local.append([float(x) for x in q.tolist()])
+            l_local.append([float(x) for x in l.tolist()])
             q_mean.append(float(np.mean(q)) if q.size else 0.0)
             q_var.append(float(np.var(q)) if q.size else 0.0)
+            del f
             
             processed_frames += 1
             if processed_frames % 5 == 0 or processed_frames == total_frames:
                 phase_progress(run_id, log_fp, phase_id, phase_name, processed_frames, total_frames, {"channel": ch})
 
-        channel_metrics[ch]["tiles"] = {"Q_local": q_local, "tile_quality_mean": q_mean, "tile_quality_variance": q_var}
+        channel_metrics[ch]["tiles"] = {
+            "Q_local": q_local, 
+            "L_local": l_local,  # Methodik v3 §3.4: L_f,t,c = exp(Q_local)
+            "tile_quality_mean": q_mean, 
+            "tile_quality_variance": q_var
+        }
 
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i})
 
     phase_id = 7
     phase_name = "TILE_RECONSTRUCTION"
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
 
     reconstructed: Dict[str, np.ndarray] = {}
     hdr0 = None
@@ -732,48 +1118,174 @@ def run_phases_impl(
     except Exception:
         hdr0 = None
     
-    # Epsilon for numerical stability (Methodik v3 §A.8)
+    # Epsilon for numerical stability (Methodik v3 §3.6)
     epsilon = 1e-6
     
-    channels_to_process = [ch for ch in ("R", "G", "B") if channels[ch]]
+    # Get tile grid parameters for tile-based reconstruction
+    tile_size_recon = grid_cfg.get("tile_size", tile_size)
+    overlap_px_recon = grid_cfg.get("overlap_px", int(overlap * tile_size_recon))
+    step_recon = tile_size_recon - overlap_px_recon
+    
+    channels_to_process = [ch for ch in ("R", "G", "B") if channel_files[ch]]
     for ch_idx, ch in enumerate(channels_to_process, start=1):
-        frs = channels[ch]
         gfc = np.asarray(channel_metrics[ch]["global"].get("G_f_c") or [], dtype=np.float32)
+        l_local = channel_metrics[ch].get("tiles", {}).get("L_local", [])
         
-        # Check if we have valid weights (Methodik v3 §9 Stability Rules)
-        if frs and gfc.size == len(frs):
-            wsum = float(np.sum(gfc))
-            
-            if wsum > epsilon:
-                # Normal weighted reconstruction
-                w_norm = (gfc / wsum).astype(np.float32, copy=False)
-                out = np.zeros_like(frs[0], dtype=np.float32)
-                for f, ww in zip(frs, w_norm):
-                    out += f.astype(np.float32, copy=False) * float(ww)
-                reconstructed[ch] = out
-            else:
-                # Fallback: unweighted mean (all weights numerically ~0)
-                # Methodik v3 §9: "reconstruct using unweighted mean over all frames"
-                reconstructed[ch] = np.mean(np.asarray(frs, dtype=np.float32), axis=0).astype(np.float32, copy=False)
-        elif frs:
-            # No weights available, use unweighted mean
-            reconstructed[ch] = np.mean(np.asarray(frs, dtype=np.float32), axis=0).astype(np.float32, copy=False)
-        else:
-            # No frames available
+        num_frames = len(channel_files[ch])
+        
+        if num_frames == 0:
             reconstructed[ch] = np.zeros((1, 1), dtype=np.float32)
+            out_path = outputs_dir / f"reconstructed_{ch}.fits"
+            fits.writeto(str(out_path), reconstructed[ch], header=hdr0, overwrite=True)
+            phase_progress(run_id, log_fp, phase_id, phase_name, ch_idx, len(channels_to_process), {"channel": ch})
+            continue
+        
+        # Load first frame to get dimensions
+        first_frame = fits.getdata(str(channel_files[ch][0])).astype("float32", copy=False)
+        h0, w0 = first_frame.shape[:2]
+        del first_frame
+        
+        # Methodik v3 §3.5-3.6: Tile-based reconstruction with W_f,t,c = G_f,c · L_f,t,c
+        # I_t,c(p) = Σ_f W_f,t,c · I_f,c(p) / Σ_f W_f,t,c
+        
+        # Check if we have tile-level weights
+        has_tile_weights = (l_local and len(l_local) == num_frames and 
+                           all(isinstance(ll, list) and len(ll) > 0 for ll in l_local))
+        
+        if has_tile_weights and gfc.size == num_frames:
+            # Full tile-based reconstruction (Methodik v3 §3.6)
+            # Compute tile grid
+            n_tiles_y = max(1, (h0 - tile_size_recon) // step_recon + 1)
+            n_tiles_x = max(1, (w0 - tile_size_recon) // step_recon + 1)
+            n_tiles = n_tiles_y * n_tiles_x
+            
+            # Initialize output and weight accumulator
+            out = np.zeros((h0, w0), dtype=np.float32)
+            weight_sum = np.zeros((h0, w0), dtype=np.float32)
+            
+            # Hanning window for overlap-add (Methodik v3 §3.6)
+            hann_1d = np.hanning(tile_size_recon).astype(np.float32)
+            hann_2d = np.outer(hann_1d, hann_1d)
+            
+            # Process each frame
+            for f_idx, ch_file in enumerate(channel_files[ch]):
+                f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                g_f = float(gfc[f_idx]) if f_idx < gfc.size else 1.0
+                l_f = l_local[f_idx] if f_idx < len(l_local) else []
+                
+                # Process each tile
+                t_idx = 0
+                for ty in range(n_tiles_y):
+                    for tx in range(n_tiles_x):
+                        y0 = ty * step_recon
+                        x0 = tx * step_recon
+                        y1 = min(y0 + tile_size_recon, h0)
+                        x1 = min(x0 + tile_size_recon, w0)
+                        
+                        # Get tile weight L_f,t,c
+                        l_f_t = float(l_f[t_idx]) if t_idx < len(l_f) else 1.0
+                        
+                        # Methodik v3 §3.5: W_f,t,c = G_f,c · L_f,t,c
+                        w_f_t = g_f * l_f_t
+                        
+                        # Extract tile
+                        tile = f[y0:y1, x0:x1].copy()
+                        tile_h, tile_w = tile.shape
+                        
+                        # Methodik v3 §3.6: Tile-Normalisierung NACH Hintergrundsubtraktion
+                        tile_bg = float(np.median(tile))
+                        tile = tile - tile_bg  # Subtract background
+                        tile_median = float(np.median(np.abs(tile)))
+                        if tile_median > 1e-10:
+                            tile = tile / tile_median  # Normalize
+                        
+                        # Apply window function
+                        window = hann_2d[:tile_h, :tile_w]
+                        
+                        # Accumulate weighted tile
+                        out[y0:y1, x0:x1] += tile * w_f_t * window
+                        weight_sum[y0:y1, x0:x1] += w_f_t * window
+                        
+                        t_idx += 1
+                
+                del f
+            
+            # Normalize by weight sum (Methodik v3 §3.6)
+            # Fallback for low-weight regions: unweighted mean
+            low_weight_mask = weight_sum < epsilon
+            if np.any(low_weight_mask):
+                # Compute unweighted mean for fallback
+                fallback_sum = np.zeros((h0, w0), dtype=np.float32)
+                fallback_count = np.zeros((h0, w0), dtype=np.float32)
+                for ch_file in channel_files[ch]:
+                    f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                    fallback_sum += f
+                    fallback_count += 1.0
+                    del f
+                fallback_mean = fallback_sum / np.maximum(fallback_count, 1.0)
+                
+                # Apply fallback where weights are too low
+                weight_sum_safe = np.where(low_weight_mask, 1.0, weight_sum)
+                out = np.where(low_weight_mask, fallback_mean, out / weight_sum_safe)
+            else:
+                out = out / weight_sum
+            
+            reconstructed[ch] = out.astype(np.float32, copy=False)
+        else:
+            # Fallback: Global weight only (no tile weights available)
+            if gfc.size == num_frames:
+                wsum = float(np.sum(gfc))
+                if wsum > epsilon:
+                    w_norm = (gfc / wsum).astype(np.float32, copy=False)
+                    out = None
+                    for f_idx, ch_file in enumerate(channel_files[ch]):
+                        f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                        if out is None:
+                            out = np.zeros_like(f, dtype=np.float32)
+                        out += f * float(w_norm[f_idx])
+                        del f
+                    reconstructed[ch] = out
+                else:
+                    # Unweighted mean
+                    out = None
+                    count = 0
+                    for ch_file in channel_files[ch]:
+                        f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                        if out is None:
+                            out = np.zeros_like(f, dtype=np.float32)
+                        out += f
+                        count += 1
+                        del f
+                    reconstructed[ch] = (out / count).astype(np.float32, copy=False) if count > 0 else out
+            else:
+                # No weights: unweighted mean
+                out = None
+                count = 0
+                for ch_file in channel_files[ch]:
+                    f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                    if out is None:
+                        out = np.zeros_like(f, dtype=np.float32)
+                    out += f
+                    count += 1
+                    del f
+                reconstructed[ch] = (out / count).astype(np.float32, copy=False) if count > 0 else out
 
         out_path = outputs_dir / f"reconstructed_{ch}.fits"
         fits.writeto(str(out_path), reconstructed[ch].astype("float32", copy=False), header=hdr0, overwrite=True)
         
         phase_progress(run_id, log_fp, phase_id, phase_name, ch_idx, len(channels_to_process), {"channel": ch})
 
-    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"outputs": [f"reconstructed_{c}.fits" for c in ("R", "G", "B")]})
+    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"outputs": [f"reconstructed_{c}.fits" for c in ("R", "G", "B")], "tile_based": has_tile_weights if channels_to_process else False})
 
     phase_id = 8
     phase_name = "STATE_CLUSTERING"
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
 
     # Reduced mode check (Methodik v3 §1.4)
     assumptions_cfg = get_assumptions_config(cfg)
@@ -795,7 +1307,26 @@ def run_phases_impl(
                 reduced_range = assumptions_cfg["reduced_mode_cluster_range"]
                 clustering_cfg = dict(clustering_cfg)
                 clustering_cfg["cluster_count_range"] = reduced_range
-            clustering_results = cluster_channels(channels, channel_metrics, clustering_cfg)
+            
+            # DISK-BASED: Process ALL frames in chunks for clustering
+            chunk_size = 50  # ~15GB per chunk
+            num_frames = len(channel_files.get("R", []))
+            
+            # Load and process all frames in chunks
+            all_frames_for_clustering = {"R": [], "G": [], "B": []}
+            
+            for chunk_start in range(0, num_frames, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, num_frames)
+                
+                for ch in ("R", "G", "B"):
+                    for idx in range(chunk_start, chunk_end):
+                        if idx < len(channel_files[ch]):
+                            frame = fits.getdata(str(channel_files[ch][idx])).astype("float32", copy=False)
+                            all_frames_for_clustering[ch].append(frame)
+            
+            # Run clustering on all frames
+            clustering_results = cluster_channels(all_frames_for_clustering, channel_metrics, clustering_cfg)
+            del all_frames_for_clustering
         except Exception as e:
             # Fallback: Quantile-based clustering (Methodik v3 §10)
             # Group frames by quantiles of global quality G_f
@@ -806,10 +1337,10 @@ def run_phases_impl(
                 
                 clustering_results = {}
                 for ch in ("R", "G", "B"):
-                    if ch not in channels or not channels[ch]:
+                    if ch not in channel_files or not channel_files[ch]:
                         continue
                     gfc = channel_metrics.get(ch, {}).get("global", {}).get("G_f_c", [])
-                    if not gfc or len(gfc) != len(channels[ch]):
+                    if not gfc or len(gfc) != len(channel_files[ch]):
                         continue
                     
                     # Compute quantile boundaries
@@ -847,9 +1378,13 @@ def run_phases_impl(
 
     phase_id = 9
     phase_name = "SYNTHETIC_FRAMES"
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
 
     syn_out = outputs_dir / "synthetic"
     syn_out.mkdir(parents=True, exist_ok=True)
@@ -874,7 +1409,27 @@ def run_phases_impl(
                 metrics_for_syn[ch] = {"global": g2, "tiles": t}
 
             if generate_channel_synthetic_frames is not None:
-                synthetic_channels = generate_channel_synthetic_frames(channels, metrics_for_syn, synthetic_cfg)
+                # Load ALL frames for synthetic generation (required for clustering-based generation)
+                # Methodik v3 §3.8: One synthetic frame per cluster (15-30 clusters)
+                channels_all = {"R": [], "G": [], "B": []}
+                for ch in ("R", "G", "B"):
+                    for frame_path in channel_files[ch]:
+                        frame = fits.getdata(str(frame_path)).astype("float32", copy=False)
+                        channels_all[ch].append(frame)
+                
+                # Generate synthetic frames with clustering results
+                if any(channels_all.values()):
+                    synthetic_channels = generate_channel_synthetic_frames(
+                        channels_all, 
+                        metrics_for_syn, 
+                        synthetic_cfg,
+                        clustering_results
+                    )
+                else:
+                    synthetic_channels = None
+                
+                # Free memory
+                del channels_all
         except Exception:
             synthetic_channels = None
 
@@ -916,11 +1471,17 @@ def run_phases_impl(
             "enabled": bool(synthetic_channels),
             "reduced_mode": reduced_mode,
             "skipped": synthetic_skipped,
+            "fallback_reason": "reduced_mode" if (reduced_mode and synthetic_skipped) else ("no_synthetic_frames" if synthetic_count == 0 else None),
         },
     )
 
     phase_id = 10
     phase_name = "STACKING"
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+        return True
+    
     phase_start(run_id, log_fp, phase_id, phase_name)
     if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
         return False
@@ -934,8 +1495,13 @@ def run_phases_impl(
     stack_work = work_dir / "stacking"
     stack_work.mkdir(parents=True, exist_ok=True)
     
-    # In reduced mode with skipped synthetic frames, stack reconstructed channels directly
-    if reduced_mode and synthetic_skipped:
+    # Check if we should fallback to reconstructed frames
+    # This happens when:
+    # 1. Reduced mode with skipped synthetic frames, OR
+    # 2. Synthetic frames are disabled/not generated (synthetic_count == 0)
+    use_reconstructed_fallback = (reduced_mode and synthetic_skipped) or (synthetic_count == 0)
+    
+    if use_reconstructed_fallback:
         stack_src_dir = outputs_dir
         recon_r = outputs_dir / "reconstructed_R.fits"
         recon_g = outputs_dir / "reconstructed_G.fits"
@@ -1022,7 +1588,15 @@ def run_phases_impl(
         quiet=True,
     )
     if not ok:
-        phase_end(run_id, log_fp, phase_id, phase_name, "error", {"siril": meta, "method": stack_method})
+        reason = _extract_siril_error_reason(meta.get("log_file") if isinstance(meta, dict) else None)
+        phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {"error": reason or "siril stacking failed", "siril": meta, "method": stack_method},
+        )
         return False
 
     after_files = sorted([p for p in stack_work.iterdir() if p.is_file()])
@@ -1093,8 +1667,21 @@ def run_phases_impl(
     final_out = outputs_dir / Path(stack_output_file)
     final_out.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(produced), str(final_out))
-    extra: Dict[str, Any] = {"siril": meta, "method": stack_method, "output": str(final_out)}
+    extra: Dict[str, Any] = {
+        "siril": meta, 
+        "method": stack_method, 
+        "output": str(final_out),
+        "used_reconstructed_fallback": use_reconstructed_fallback,
+        "fallback_reason": "no_synthetic_frames" if use_reconstructed_fallback else None,
+    }
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
+
+    try:
+        out_pngs = _write_quality_analysis_pngs(artifacts_dir, channel_metrics)
+        if out_pngs:
+            phase_progress(run_id, log_fp, phase_id, phase_name, 1, 1, {"quality_pngs": out_pngs})
+    except Exception:
+        pass
 
     phase_id = 11
     phase_name = "DONE"
