@@ -75,19 +75,35 @@ def split_cfa_channels(mosaic: np.ndarray, bayer_pattern: str) -> dict[str, np.n
     }
 
 
-def normalize_frames(frames: list[np.ndarray], mode: str) -> tuple[list[np.ndarray], float]:
-    """Normalize frames to common background level."""
+def compute_frame_medians(frames: list[np.ndarray]) -> tuple[list[float], float]:
+    """Compute median for each frame and global target median.
+    
+    Returns:
+        (medians, target): List of per-frame medians and global target median
+    """
     if not frames:
         return [], 0.0
     meds = [float(np.median(f)) for f in frames]
     target = float(np.median(np.asarray(meds, dtype=np.float32)))
-    out = []
-    for f, m in zip(frames, meds):
-        if mode == "background":
-            out.append((f - (m - target)).astype("float32", copy=False))
-        else:
-            out.append(f)
-    return out, target
+    return meds, target
+
+
+def normalize_frame(frame: np.ndarray, frame_median: float, target_median: float, mode: str) -> np.ndarray:
+    """Normalize a single frame to target median.
+    
+    Args:
+        frame: Input frame
+        frame_median: Median of this frame
+        target_median: Target median to normalize to
+        mode: Normalization mode ("background" or other)
+    
+    Returns:
+        Normalized frame
+    """
+    if mode == "background":
+        return (frame - (frame_median - target_median)).astype("float32", copy=False)
+    else:
+        return frame.astype("float32", copy=False)
 
 
 def to_uint8(img: np.ndarray) -> np.ndarray:

@@ -1,19 +1,41 @@
 """Main pipeline implementation (Methodik v3)."""
 
+# Standard library
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Third-party
 import numpy as np
 from astropy.io import fits
 
+# Local - core utilities
 from .assumptions import get_assumptions_config, is_reduced_mode
 from .events import phase_start, phase_end, phase_progress, stop_requested
 from .fits_utils import is_fits_image_path, read_fits_float, fits_is_cfa, fits_get_bayerpat
-from .image_processing import split_cfa_channels, split_rgb_frame, normalize_frames, warp_cfa_mosaic_via_subplanes, cfa_downsample_sum2x2
-from .opencv_registration import opencv_prepare_ecc_image, opencv_count_stars, opencv_ecc_warp, opencv_best_translation_init
-from .siril_utils import validate_siril_script, run_siril_script, extract_siril_save_targets
 from .utils import safe_symlink_or_copy, pick_output_file
+
+# Local - image processing (disk-based)
+from .image_processing import (
+    split_cfa_channels,
+    split_rgb_frame,
+    normalize_frame,
+    compute_frame_medians,
+    warp_cfa_mosaic_via_subplanes,
+    cfa_downsample_sum2x2,
+)
+
+# Local - registration
+from .opencv_registration import (
+    opencv_prepare_ecc_image,
+    opencv_count_stars,
+    opencv_ecc_warp,
+    opencv_best_translation_init,
+)
+
+# Local - Siril integration
+from .siril_utils import validate_siril_script, run_siril_script, extract_siril_save_targets
 
 try:
     import cv2
@@ -423,7 +445,11 @@ def run_phases_impl(
         frames_target_i = 0
     analysis_count = len(registered_files) if frames_target_i <= 0 else min(len(registered_files), frames_target_i)
 
-    channels: Dict[str, List[np.ndarray]] = {"R": [], "G": [], "B": []}
+    # Write channel splits to disk to avoid OOM with large datasets
+    channels_dir = work_dir / "channels"
+    channels_dir.mkdir(parents=True, exist_ok=True)
+    channel_files: Dict[str, List[Path]] = {"R": [], "G": [], "B": []}
+    
     cfa_registered = None
     total_split = max(1, analysis_count)
     for idx, p in enumerate(registered_files[:analysis_count], start=1):
@@ -448,9 +474,15 @@ def run_phases_impl(
                     )
                     return False
                 split = {"R": data, "G": data, "B": data}
-        channels["R"].append(split["R"])
-        channels["G"].append(split["G"])
-        channels["B"].append(split["B"])
+        
+        # Write each channel to disk
+        for ch in ("R", "G", "B"):
+            ch_file = channels_dir / f"{ch}_{idx:05d}.fits"
+            fits.writeto(str(ch_file), split[ch], overwrite=True)
+            channel_files[ch].append(ch_file)
+        
+        # Free memory immediately
+        del data, split
 
         if idx % 5 == 0 or idx == total_split:
             phase_progress(run_id, log_fp, phase_id, phase_name, idx, total_split, {})
@@ -466,6 +498,7 @@ def run_phases_impl(
             "registered_count": len(registered_files),
             "analysis_count": analysis_count,
             "cfa": bool(cfa_registered),
+            "channels_dir": str(channels_dir),
         },
     )
 
@@ -479,29 +512,60 @@ def run_phases_impl(
     norm_mode = str(norm_cfg.get("mode") or "background")
     per_channel = bool(norm_cfg.get("per_channel", True))
     norm_target: Optional[float] = None
+    
+    # Memory-efficient normalization: load frames from disk, compute medians, normalize, write back
     if per_channel:
         phase_progress(run_id, log_fp, phase_id, phase_name, 0, 3, {"step": "per_channel"})
-        channels["R"], _ = normalize_frames(channels["R"], norm_mode)
-        phase_progress(run_id, log_fp, phase_id, phase_name, 1, 3, {"channel": "R", "step": "per_channel"})
-        channels["G"], _ = normalize_frames(channels["G"], norm_mode)
-        phase_progress(run_id, log_fp, phase_id, phase_name, 2, 3, {"channel": "G", "step": "per_channel"})
-        channels["B"], _ = normalize_frames(channels["B"], norm_mode)
-        phase_progress(run_id, log_fp, phase_id, phase_name, 3, 3, {"channel": "B", "step": "per_channel"})
-    else:
-        meds = [float(np.median(f)) for ch in ("R", "G", "B") for f in channels[ch]]
-        norm_target = float(np.median(np.asarray(meds, dtype=np.float32))) if meds else None
-        out: Dict[str, List[np.ndarray]] = {"R": [], "G": [], "B": []}
-        phase_progress(run_id, log_fp, phase_id, phase_name, 0, 3, {"step": "global_target"})
+        
         for ch_idx, ch in enumerate(("R", "G", "B"), start=1):
-            for f in channels[ch]:
-                med = float(np.median(f))
+            # Pass 1: Compute medians (load one frame at a time)
+            medians = []
+            for ch_file in channel_files[ch]:
+                frame = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                medians.append(float(np.median(frame)))
+                del frame
+            
+            target = float(np.median(np.asarray(medians, dtype=np.float32))) if medians else 0.0
+            
+            # Pass 2: Normalize and write back (load one frame at a time)
+            for ch_file, med in zip(channel_files[ch], medians):
+                frame = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                normalized = normalize_frame(frame, med, target, norm_mode)
+                fits.writeto(str(ch_file), normalized, overwrite=True)
+                del frame, normalized
+            
+            phase_progress(run_id, log_fp, phase_id, phase_name, ch_idx, 3, {"channel": ch, "step": "per_channel"})
+    else:
+        # Global normalization across all channels
+        # Pass 1: Compute all medians
+        all_medians = []
+        for ch in ("R", "G", "B"):
+            for ch_file in channel_files[ch]:
+                frame = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                all_medians.append(float(np.median(frame)))
+                del frame
+        
+        norm_target = float(np.median(np.asarray(all_medians, dtype=np.float32))) if all_medians else None
+        
+        # Pass 2: Normalize each channel
+        phase_progress(run_id, log_fp, phase_id, phase_name, 0, 3, {"step": "global_target"})
+        med_idx = 0
+        for ch_idx, ch in enumerate(("R", "G", "B"), start=1):
+            for ch_file in channel_files[ch]:
+                frame = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                med = all_medians[med_idx]
+                med_idx += 1
+                
                 if str(norm_mode).strip().lower() == "median":
                     scale = (norm_target / med) if (norm_target is not None and med not in (0.0, -0.0)) else 1.0
-                    out[ch].append((f * float(scale)).astype("float32", copy=False))
+                    normalized = (frame * float(scale)).astype("float32", copy=False)
                 else:
-                    out[ch].append((f - (med - float(norm_target or med))).astype("float32", copy=False))
+                    normalized = (frame - (med - float(norm_target or med))).astype("float32", copy=False)
+                
+                fits.writeto(str(ch_file), normalized, overwrite=True)
+                del frame, normalized
+            
             phase_progress(run_id, log_fp, phase_id, phase_name, ch_idx, 3, {"channel": ch, "step": "global_target"})
-        channels = out
 
     phase_end(
         run_id,
@@ -534,18 +598,19 @@ def run_phases_impl(
         w_grad = 1.0 / 3.0
 
     channel_metrics: Dict[str, Dict[str, Any]] = {}
-    total_global = sum(len(channels[ch]) for ch in ("R", "G", "B"))
+    total_global = sum(len(channel_files[ch]) for ch in ("R", "G", "B"))
     total_global = max(1, total_global)
     processed_global = 0
     for ch in ("R", "G", "B"):
-        frs = channels[ch]
         bgs: List[float] = []
         noises: List[float] = []
         grads: List[float] = []
-        for i, f in enumerate(frs, start=1):
+        for i, ch_file in enumerate(channel_files[ch], start=1):
+            f = fits.getdata(str(ch_file)).astype("float32", copy=False)
             bgs.append(float(np.median(f)))
             noises.append(float(np.std(f)))
             grads.append(float(np.mean(np.hypot(*np.gradient(f.astype("float32", copy=False))))))
+            del f
             processed_global += 1
             if processed_global % 5 == 0 or processed_global == total_global:
                 phase_progress(
@@ -632,7 +697,11 @@ def run_phases_impl(
     except Exception:
         overlap = 0.25
 
-    rep = {ch: channels[ch][0] for ch in ("R", "G", "B") if channels[ch]}
+    # Load first frame from each channel to determine dimensions
+    rep = {}
+    for ch in ("R", "G", "B"):
+        if channel_files[ch]:
+            rep[ch] = fits.getdata(str(channel_files[ch][0])).astype("float32", copy=False)
     if not rep:
         phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "no frames for tile grid"})
         return False
@@ -644,6 +713,7 @@ def run_phases_impl(
         phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "tile_grid backend not available"})
         return False
     tile_grids = generate_multi_channel_grid({k: _to_uint8(v) for k, v in rep.items()}, grid_cfg)
+    del rep
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"grid_cfg": grid_cfg})
 
     phase_id = 6
@@ -682,14 +752,15 @@ def run_phases_impl(
     except Exception:
         w_con = 1.0 / 3.0
 
-    total_frames = sum(len(channels[ch]) for ch in ("R", "G", "B"))
+    total_frames = sum(len(channel_files[ch]) for ch in ("R", "G", "B"))
     processed_frames = 0
     
     for ch in ("R", "G", "B"):
         q_local: List[List[float]] = []
         q_mean: List[float] = []
         q_var: List[float] = []
-        for f_idx, f in enumerate(channels[ch]):
+        for f_idx, ch_file in enumerate(channel_files[ch]):
+            f = fits.getdata(str(ch_file)).astype("float32", copy=False)
             tm = tile_calc.calculate_tile_metrics(f)
             fwhm = np.asarray(tm.get("fwhm") or [], dtype=np.float32)
             rnd = np.asarray(tm.get("roundness") or [], dtype=np.float32)
@@ -710,6 +781,7 @@ def run_phases_impl(
             q_local.append([float(x) for x in q.tolist()])
             q_mean.append(float(np.mean(q)) if q.size else 0.0)
             q_var.append(float(np.var(q)) if q.size else 0.0)
+            del f
             
             processed_frames += 1
             if processed_frames % 5 == 0 or processed_frames == total_frames:
@@ -735,32 +807,73 @@ def run_phases_impl(
     # Epsilon for numerical stability (Methodik v3 §A.8)
     epsilon = 1e-6
     
-    channels_to_process = [ch for ch in ("R", "G", "B") if channels[ch]]
+    channels_to_process = [ch for ch in ("R", "G", "B") if channel_files[ch]]
     for ch_idx, ch in enumerate(channels_to_process, start=1):
-        frs = channels[ch]
         gfc = np.asarray(channel_metrics[ch]["global"].get("G_f_c") or [], dtype=np.float32)
         
-        # Check if we have valid weights (Methodik v3 §9 Stability Rules)
-        if frs and gfc.size == len(frs):
+        # DISK-BASED: Process frames in chunks to avoid loading all 40GB at once
+        chunk_size = 100  # ~10GB per chunk instead of 40GB
+        num_frames = len(channel_files[ch])
+        
+        if num_frames == 0:
+            reconstructed[ch] = np.zeros((1, 1), dtype=np.float32)
+        elif gfc.size == num_frames:
             wsum = float(np.sum(gfc))
             
             if wsum > epsilon:
-                # Normal weighted reconstruction
+                # Weighted reconstruction in chunks
                 w_norm = (gfc / wsum).astype(np.float32, copy=False)
-                out = np.zeros_like(frs[0], dtype=np.float32)
-                for f, ww in zip(frs, w_norm):
-                    out += f.astype(np.float32, copy=False) * float(ww)
+                out = None
+                
+                for chunk_start in range(0, num_frames, chunk_size):
+                    chunk_end = min(chunk_start + chunk_size, num_frames)
+                    chunk_files = channel_files[ch][chunk_start:chunk_end]
+                    chunk_weights = w_norm[chunk_start:chunk_end]
+                    
+                    for ch_file, ww in zip(chunk_files, chunk_weights):
+                        f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                        if out is None:
+                            out = np.zeros_like(f, dtype=np.float32)
+                        out += f * float(ww)
+                        del f
+                
                 reconstructed[ch] = out
             else:
-                # Fallback: unweighted mean (all weights numerically ~0)
-                # Methodik v3 §9: "reconstruct using unweighted mean over all frames"
-                reconstructed[ch] = np.mean(np.asarray(frs, dtype=np.float32), axis=0).astype(np.float32, copy=False)
-        elif frs:
-            # No weights available, use unweighted mean
-            reconstructed[ch] = np.mean(np.asarray(frs, dtype=np.float32), axis=0).astype(np.float32, copy=False)
+                # Unweighted mean in chunks
+                out = None
+                count = 0
+                
+                for chunk_start in range(0, num_frames, chunk_size):
+                    chunk_end = min(chunk_start + chunk_size, num_frames)
+                    chunk_files = channel_files[ch][chunk_start:chunk_end]
+                    
+                    for ch_file in chunk_files:
+                        f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                        if out is None:
+                            out = np.zeros_like(f, dtype=np.float32)
+                        out += f
+                        count += 1
+                        del f
+                
+                reconstructed[ch] = (out / count).astype(np.float32, copy=False) if count > 0 else out
         else:
-            # No frames available
-            reconstructed[ch] = np.zeros((1, 1), dtype=np.float32)
+            # No weights: unweighted mean in chunks
+            out = None
+            count = 0
+            
+            for chunk_start in range(0, num_frames, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, num_frames)
+                chunk_files = channel_files[ch][chunk_start:chunk_end]
+                
+                for ch_file in chunk_files:
+                    f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                    if out is None:
+                        out = np.zeros_like(f, dtype=np.float32)
+                    out += f
+                    count += 1
+                    del f
+            
+            reconstructed[ch] = (out / count).astype(np.float32, copy=False) if count > 0 else out
 
         out_path = outputs_dir / f"reconstructed_{ch}.fits"
         fits.writeto(str(out_path), reconstructed[ch].astype("float32", copy=False), header=hdr0, overwrite=True)
@@ -795,7 +908,26 @@ def run_phases_impl(
                 reduced_range = assumptions_cfg["reduced_mode_cluster_range"]
                 clustering_cfg = dict(clustering_cfg)
                 clustering_cfg["cluster_count_range"] = reduced_range
-            clustering_results = cluster_channels(channels, channel_metrics, clustering_cfg)
+            
+            # DISK-BASED: Process ALL frames in chunks for clustering
+            chunk_size = 50  # ~15GB per chunk
+            num_frames = len(channel_files.get("R", []))
+            
+            # Load and process all frames in chunks
+            all_frames_for_clustering = {"R": [], "G": [], "B": []}
+            
+            for chunk_start in range(0, num_frames, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, num_frames)
+                
+                for ch in ("R", "G", "B"):
+                    for idx in range(chunk_start, chunk_end):
+                        if idx < len(channel_files[ch]):
+                            frame = fits.getdata(str(channel_files[ch][idx])).astype("float32", copy=False)
+                            all_frames_for_clustering[ch].append(frame)
+            
+            # Run clustering on all frames
+            clustering_results = cluster_channels(all_frames_for_clustering, channel_metrics, clustering_cfg)
+            del all_frames_for_clustering
         except Exception as e:
             # Fallback: Quantile-based clustering (Methodik v3 §10)
             # Group frames by quantiles of global quality G_f
@@ -806,10 +938,10 @@ def run_phases_impl(
                 
                 clustering_results = {}
                 for ch in ("R", "G", "B"):
-                    if ch not in channels or not channels[ch]:
+                    if ch not in channel_files or not channel_files[ch]:
                         continue
                     gfc = channel_metrics.get(ch, {}).get("global", {}).get("G_f_c", [])
-                    if not gfc or len(gfc) != len(channels[ch]):
+                    if not gfc or len(gfc) != len(channel_files[ch]):
                         continue
                     
                     # Compute quantile boundaries
@@ -874,7 +1006,40 @@ def run_phases_impl(
                 metrics_for_syn[ch] = {"global": g2, "tiles": t}
 
             if generate_channel_synthetic_frames is not None:
-                synthetic_channels = generate_channel_synthetic_frames(channels, metrics_for_syn, synthetic_cfg)
+                # DISK-BASED: Process ALL frames in chunks to avoid loading 120GB at once
+                chunk_size = 50  # ~15GB per chunk (50 frames × 3 channels × 95MB)
+                num_frames = len(channel_files.get("R", []))
+                
+                # Process in chunks and accumulate results
+                all_synthetic_results = {"R": [], "G": [], "B": []}
+                
+                for chunk_start in range(0, num_frames, chunk_size):
+                    chunk_end = min(chunk_start + chunk_size, num_frames)
+                    
+                    # Load chunk of frames
+                    channels_chunk = {"R": [], "G": [], "B": []}
+                    for ch in ("R", "G", "B"):
+                        for idx in range(chunk_start, chunk_end):
+                            if idx < len(channel_files[ch]):
+                                frame = fits.getdata(str(channel_files[ch][idx])).astype("float32", copy=False)
+                                channels_chunk[ch].append(frame)
+                    
+                    # Process chunk
+                    if any(channels_chunk.values()):
+                        chunk_synthetic = generate_channel_synthetic_frames(channels_chunk, metrics_for_syn, synthetic_cfg)
+                        if chunk_synthetic:
+                            for ch in ("R", "G", "B"):
+                                if ch in chunk_synthetic and chunk_synthetic[ch]:
+                                    all_synthetic_results[ch].extend(chunk_synthetic[ch])
+                    
+                    # Free chunk memory
+                    del channels_chunk
+                
+                # Combine all chunk results
+                if any(all_synthetic_results.values()):
+                    synthetic_channels = all_synthetic_results
+                else:
+                    synthetic_channels = None
         except Exception:
             synthetic_channels = None
 
