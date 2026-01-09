@@ -97,7 +97,7 @@ Ziel:
 
 | Modus | Produktion | Testmodus |
 |-----|------------|-----------|
-| Clusterung | k = 15–30 | **deaktiviert** |
+| Clusterung | K dynamisch: `K = clip(floor(N/10), 5, 30)` | **deaktiviert** |
 | synthetische Frames | ja | **nein** |
 
 Im Testmodus erfolgt **direkt das finale Stacking**.

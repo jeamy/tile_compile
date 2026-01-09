@@ -1,7 +1,23 @@
 # Tile‑based Quality Reconstruction for DSO – Methodology v3
 
 **Status:** Reference specification (Single Source of Truth)
+**Version:** v3.1 (2026-01-09)
+**Replaces:** Methodology v2
+**Objective:** Clear, unambiguous workflows for two allowed registration + preprocessing paths
 **Applies to:** `tile_compile.proc` (Clean Break) + `tile_compile.yaml`
+
+---
+
+## 0. Motivation for v3
+
+Methodology v2 defined the quality and reconstruction logic precisely, but left the **preprocessing path (OSC, registration, channel handling)** implicit.
+
+Methodology v3 makes this **explicit** and separates two **equivalent, but different** paths:
+
+- **A – Siril-based path** (proven, low risk)
+- **B – CFA-based path** (methodically maximally clean, higher implementation effort)
+
+From **Phase 2 (tile generation)** both paths are **identical**.
 
 ---
 
@@ -46,12 +62,34 @@ There is **no frame selection**. Every frame contributes according to its physic
 
 If the frame count is below optimal but above minimum:
 
-- Skip state-based clustering
-- Skip synthetic frame generation
-- Perform direct tile-weighted stacking
+- State-based clustering is skipped
+- Synthetic frames are skipped
 - Emit a validation warning in the report
 
-Violating **hard assumptions** results in **aborting the run**.
+**Reduced Mode workflow (binding):**
+
+1. Steps 1–7 are executed normally (incl. tile-based reconstruction)
+2. Steps 8–9 are skipped
+3. Step 10 stacks the **reconstructed result from step 7** directly
+
+```
+R_c = reconstructed image from step 7
+```
+
+Alternative (only if clustering is explicitly kept enabled):
+
+- reduce cluster count to 5–10
+- generate synthetic frames with reduced cluster count
+
+**Gradual degradation (instead of hard abort):**
+
+| Severity | Action | Example |
+|----------|--------|---------|
+| warning | continue with note | registration residual 0.5–1.0 px |
+| degraded | enable fallback mode | < 50 frames → reduced mode without clustering |
+| critical | abort with explanation | no stars found, data not linear |
+
+Only **critical** errors (data integrity violated) abort the run.
 
 ---
 
@@ -66,14 +104,118 @@ Violating **hard assumptions** results in **aborting the run**.
 7. Tile‑wise reconstruction (overlap‑add)
 8. **State‑based clustering of frames** (optional; skipped in reduced mode)
 9. Reconstruction of synthetic quality frames (optional; skipped in reduced mode)
-10. Final linear stacking
-11. Validation and abort decision
+10. Final linear stacking (per channel)
+11. **Combination (RGB / LRGB) – outside the methodology**
+12. Validation and abort decision
 
 The pipeline is **strictly linear**. There are no feedback loops.
 
 ---
 
-## 4. Global normalization (mandatory)
+# A. Siril-based path (reference, recommended)
+
+## A.1 Purpose and positioning
+
+The Siril path uses Siril’s **proven registration and debayer logic**. The methodology applies **only afterwards**.
+
+This path is:
+
+- stable
+- reproducible
+- low-risk
+- recommended for production
+
+---
+
+## A.2 Steps A.1–A.2 (Siril)
+
+### A.2.1 Debayer + registration (Siril)
+
+- input: raw OSC frames
+- Siril performs:
+  - debayer (interpolation)
+  - star detection
+  - transform estimation
+  - rotation / translation
+
+**Result:** registered, debayered RGB frames.
+
+---
+
+### A.2.2 Channel split (after registration)
+
+- RGB → R / G / B
+- from here: **no cross-channel operations**
+
+Rationale:
+
+> Cross-channel stacking coherently adds color-dependent resampling residuals.
+
+---
+
+## A.3 Hand-off to the common core
+
+From here all rules from methodology v2 apply unchanged, but **per channel**.
+
+Input:
+
+```
+R_frames[f][x,y]
+G_frames[f][x,y]
+B_frames[f][x,y]
+```
+
+---
+
+# B. CFA-based path (optional, experimental)
+
+## B.1 Purpose and positioning
+
+The CFA path avoids **any color-dependent interpolation before tile analysis**.
+
+It is methodically ideal, but:
+
+- more complex
+- more implementation-heavy
+- currently experimental
+
+---
+
+## B.2 Steps B.1–B.2 (CFA)
+
+### B.2.1 Registration on CFA luminance
+
+- CFA luminance derived from real samples (e.g., G-dominant or sum)
+- estimate exactly **one** transform per frame
+- robust methods (RANSAC / ECC)
+
+Important:
+
+> The transform is color-independent, but interpolation must be **CFA-aware**.
+
+---
+
+### B.2.2 CFA-aware transform
+
+- split CFA mosaic into 4 subplanes (R, G1, G2, B)
+- apply the identical transform to each subplane
+- **no interpolation across Bayer phases**
+- re-interleave to CFA
+
+Result: registered CFA frames without Bayer-phase mixing.
+
+---
+
+### B.2.3 Channel split
+
+- CFA → R / G / B (or G-only)
+- from here: identical to path A
+
+---
+
+# 3. Common core from phase 3 (A == B)
+
+## 3.1 Global normalization (mandatory)
 
 ### Purpose
 
@@ -84,7 +226,7 @@ Decouple photometric transparency fluctuations from quality metrics.
 - global
 - linear
 - exactly once
-- **before any metric computation**
+- **before any metric computation** (except B_f used for normalization)
 - separated per color channel
 
 ### Allowed methods
@@ -92,10 +234,19 @@ Decouple photometric transparency fluctuations from quality metrics.
 - background‑based scaling (masked, robust)
 - fallback: scaling by global median
 
+**Binding order:**
+
+1. compute B_f,c (background level) on **raw** data
+2. normalize: I'_f,c = I_f,c / B_f,c
+3. compute σ_f,c and E_f,c on **normalized** data
+
 Formally:
 
 ```
-I'_f = I_f / B_f
+B_f,c = median(I_f,c)            # BEFORE normalization
+I'_f,c = I_f,c / B_f,c           # normalization
+σ_f,c = std(I'_f,c)              # AFTER normalization
+E_f,c = gradient_energy(I'_f,c)  # AFTER normalization
 ```
 
 ### Forbidden
@@ -106,7 +257,7 @@ I'_f = I_f / B_f
 
 ---
 
-## 5. Global frame metrics
+## 3.2 Global frame metrics
 
 For each registered, normalized frame *f*, compute:
 
@@ -129,19 +280,59 @@ with:
 - α + β + γ = 1 (mandatory)
 - default: α = 0.4, β = 0.3, γ = 0.3
 
-`Q_f` is clamped to **[−3, +3]**.
+`Q_f,c` is clamped to **[−3, +3]** before exp(·).
 
 ### Global weight
 
 [
-G_f = \exp(Q_f)
+G_f,c = \exp(Q_f,c)
 ]
+
+### Adaptive weights
+
+If the data characteristics deviate strongly from typical conditions, weights can be adapted.
+
+**Algorithm (variance-based):**
+
+```
+1. Compute metric variances:
+   Var(B), Var(σ), Var(E)
+
+2. Weights from variance:
+   α' = Var(B) / (Var(B) + Var(σ) + Var(E))
+   β' = Var(σ) / (Var(B) + Var(σ) + Var(E))
+   γ' = Var(E) / (Var(B) + Var(σ) + Var(E))
+
+3. Apply constraints:
+   α', β', γ' = clip(α', β', γ', 0.1, 0.7)
+
+4. Renormalize:
+   α', β', γ' = normalize(α', β', γ') so that Σ = 1
+```
+
+**Properties:**
+
+- higher variance → higher weight
+- min 0.1, max 0.7 per weight (prevents extremes)
+- sum guaranteed = 1.0
+- fallback to default weights if Var = 0
+
+**Config:**
+
+```yaml
+global_metrics:
+  adaptive_weights: true
+  weights:
+    background: 0.4
+    noise: 0.3
+    gradient: 0.3
+```
 
 **Semantics:** `G_f` encodes only global atmospheric quality.
 
 ---
 
-## 6. Tile geometry (seeing‑adaptive)
+## 3.3 Tile geometry (seeing‑adaptive)
 
 ### FWHM estimation
 
@@ -181,9 +372,19 @@ S = T − O
 
 where `clip(x,a,b) = min(max(x,a),b)`.
 
+**Boundary checks (binding):**
+
+Before tile computation, enforce:
+
+1. `F > 0`: if FWHM not measurable, use default `F = 3.0`
+2. `T_min ≥ 16`: absolute lower bound for tile size
+3. `T ≥ T_min`: if `T < T_min` after computation, set `T = T_min`
+4. `S > 0`: if `S ≤ 0` (extreme overlap), set `o = 0.25` and recompute
+5. `min(W, H) ≥ T`: if image smaller than tile, use `T = min(W, H)` and `O = 0`
+
 ---
 
-## 7. Local tile metrics
+## 3.4 Local tile metrics
 
 For each tile *t* and each frame *f*:
 
@@ -227,7 +428,7 @@ L_{f,t} = \exp(Q_{local})
 
 ---
 
-## 8. Effective weight
+## 3.5 Effective weight
 
 [
 W_{f,t} = G_f \cdot L_{f,t}
@@ -237,7 +438,7 @@ W_{f,t} = G_f \cdot L_{f,t}
 
 ---
 
-## 9. Tile reconstruction
+## 3.6 Tile reconstruction
 
 For each pixel *p* in tile *t*:
 
@@ -265,20 +466,27 @@ with a small constant `ε > 0`.
 
   2. mark the tile as `fallback_used=true` (used by validation/abort decisions).
 
+### Overlap-add with window function (binding)
+
+- window function: **Hanning** (2D, separable)
+- definition: `w(x,y) = hann(x) · hann(y)` with `hann(t) = 0.5 · (1 - cos(2πt))`
+
 ### Edge handling
 
-- cosine or Hanning window
 - overlap‑add (no hard seams)
 
-### Tile normalization
+### Tile normalization (binding)
 
-- linear rescale to a common tile median
-- **after** background subtraction
-- **no** feedback into quality metrics
+Before overlap-add, normalize each tile:
+
+1. subtract background: `T'_t = T_t - median(T_t)`
+2. normalize: `T''_t = T'_t / median(|T'_t|)` (if median > ε)
+
+No feedback into quality metrics.
 
 ---
 
-## 10. Synthetic quality frames
+## 3.7 State-based clustering
 
 ### Principle
 
@@ -295,8 +503,25 @@ v_f = (G_f, \langle Q_{tile} \rangle, \mathrm{Var}(Q_{tile}), B_f, \sigma_f)
 ### Clustering
 
 - cluster **frames**, not tiles
-- k = 15–30 clusters
-- exactly one synthetic frame per cluster
+
+**Dynamic cluster count (binding):**
+
+```
+K = clip(floor(N / 10), K_min, K_max)
+```
+
+where:
+
+- K_min = 5
+- K_max = 30
+- N = number of frames
+
+Examples:
+
+- N = 50 → K = 5
+- N = 200 → K = 20
+- N = 500 → K = 30
+- N = 800 → K = 30 (capped)
 
 Fallbacks (only under explicitly stable conditions):
 
@@ -305,15 +530,35 @@ Fallbacks (only under explicitly stable conditions):
 
 ---
 
-## 11. Final stacking
+## 3.8 Synthetic frames and final stacking
 
-- linear stacking of synthetic frames
-- no additional weighting
-- no drizzle
+**Synthetic frames (binding):**
+
+For each cluster k:
+
+```
+S_k,c = Σ_{f∈Cluster_k} G_f,c · I_f,c / Σ_{f∈Cluster_k} G_f,c
+```
+
+where I_f,c are the **original frames** (not reconstructed).
+
+Result: 15–30 synthetic frames per channel (matching cluster count).
+
+**Final stacking (binding):**
+
+Synthetic frames are stacked linearly:
+
+```
+R_c = (1/K) · Σ_k S_k,c
+```
+
+- linear stacking (unweighted)
+- **no drizzle**
+- **no additional weighting**
 
 ---
 
-## 12. Validation and abort
+## 4. Validation and abort
 
 ### Success criteria
 
@@ -331,7 +576,7 @@ Fallbacks (only under explicitly stable conditions):
 
 ---
 
-## 13. Key statement
+## 5. Key statement
 
 The method replaces the search for “best frames” with a **spatio‑temporal quality map**, using each piece of information exactly where it is physically valid.
 
@@ -339,7 +584,7 @@ This specification is **normative**. Deviations require explicit versioning.
 
 ---
 
-## 14. Test cases (normative)
+## 6. Test cases (normative)
 
 The following test cases are mandatory. A run is methodology‑conform only if these tests (automated or reproducible manual) are satisfied.
 

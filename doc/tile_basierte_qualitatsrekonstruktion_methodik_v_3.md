@@ -257,24 +257,44 @@ Nebenbedingung (verbindlich):
 * α + β + γ = 1
 * Default: α = 0.4, β = 0.3, γ = 0.3
 
-**Adaptive Gewichtung (optional):**
+**Adaptive Gewichtung:**
 
-Falls die Datencharakteristik stark von typischen Bedingungen abweicht, können die Gewichte adaptiv angepasst werden:
+Falls die Datencharakteristik stark von typischen Bedingungen abweicht, können die Gewichte adaptiv angepasst werden.
 
-* Bei hohem Hintergrund-Rauschen-Verhältnis: α erhöhen
-* Bei starker Seeing-Variation: γ erhöhen
-* Bei stabilem Seeing: β erhöhen
-
-Formel für adaptive Gewichtung:
+**Algorithmus (varianzbasiert):**
 
 ```
-α' = α · (1 + k · CV(B))
-β' = β · (1 + k · CV(σ))
-γ' = γ · (1 + k · CV(E))
+1. Berechne Varianz der Metriken:
+   Var(B), Var(σ), Var(E)
+
+2. Gewichte basierend auf Varianz:
+   α' = Var(B) / (Var(B) + Var(σ) + Var(E))
+   β' = Var(σ) / (Var(B) + Var(σ) + Var(E))
+   γ' = Var(E) / (Var(B) + Var(σ) + Var(E))
+
+3. Constraints anwenden:
+   α', β', γ' = clip(α', β', γ', 0.1, 0.7)
+
+4. Renormalisieren:
+   α', β', γ' = normalize(α', β', γ') so dass Σ = 1
 ```
 
-wobei CV = Variationskoeffizient (std/mean), k = 0.5 (Sensitivitätsfaktor).
-Nach Berechnung: Renormalisiere so dass α' + β' + γ' = 1.
+**Eigenschaften:**
+* Je höher die Varianz einer Metrik, desto mehr Gewicht erhält sie
+* Minimum 0.1, Maximum 0.7 pro Gewicht (verhindert Extreme)
+* Summe garantiert = 1.0
+* Fallback auf Default-Gewichte bei Var = 0
+
+**Konfiguration:**
+
+```yaml
+global_metrics:
+  adaptive_weights: true  # Aktiviert dynamische Gewichtung
+  weights:                # Fallback-Werte
+    background: 0.4
+    noise: 0.3
+    gradient: 0.3
+```
 
 Stabilitätsregel:
 

@@ -2,7 +2,7 @@
 
 ## Übersicht
 
-Phase 7 ist die **finale Phase**: Die synthetischen Frames (oder Original-Frames im Reduced Mode) werden zu einem finalen Bild pro Kanal gestackt. Dies ist ein **einfaches lineares Stacking** ohne zusätzliche Gewichtung.
+Phase 7 ist die **finale Phase**: Die synthetischen Frames (oder die rekonstruierten Kanalbilder aus Phase 5 im Reduced Mode) werden zu einem finalen Bild pro Kanal gestackt. Dies ist ein **einfaches lineares Stacking** ohne zusätzliche Gewichtung.
 
 ## Ziele
 
@@ -18,7 +18,7 @@ Phase 7 ist die **finale Phase**: Die synthetischen Frames (oder Original-Frames
 
 ```
 Input: Synthetische Frames aus Phase 6
-  • K synthetische Frames (K = 15-30)
+  • K synthetische Frames (K dynamisch, siehe Phase 6)
   • Pro Kanal: F_synth[k][x,y], k = 0..K-1
   • Gewichte: W_synth[k]
 ```
@@ -26,10 +26,9 @@ Input: Synthetische Frames aus Phase 6
 ### Reduced Mode (50 ≤ N < 200 Frames)
 
 ```
-Input: Original-Frames (Phase 6 übersprungen)
-  • N Original-Frames
-  • Pro Kanal: I'_f[x,y], f = 0..N-1
-  • Gewichte: G_f (globale Gewichte aus Phase 2)
+Input: Rekonstruiertes Ergebnis aus Phase 5 (Phase 6 übersprungen)
+  • Pro Kanal: R_c[x,y] (Tile-basierte Rekonstruktion)
+  • Keine synthetischen Frames
 ```
 
 ## Schritt 7.1: Einfaches lineares Stacking
@@ -41,11 +40,11 @@ Normal Mode:
   I_final,c[x,y] = (1/K) · Σ_k F_synth,k,c[x,y]
 
 Reduced Mode:
-  I_final,c[x,y] = (1/N) · Σ_f I'_f,c[x,y]
+  I_final,c[x,y] = R_c[x,y]
 
 wobei:
-  • KEINE Gewichtung mehr (bereits in synthetischen Frames)
-  • Einfacher Durchschnitt
+  • Normal Mode: einfaches Mittel über synthetische Frames
+  • Reduced Mode: keine weitere Aggregation (direkte Ausgabe der Rekonstruktion)
   • Kanalweise (c ∈ {R, G, B})
 ```
 
@@ -80,8 +79,8 @@ Begründung:
 ┌─────────────────────────────────────────┐
 
 │  Input: Synthetische Frames (oder       │
-│         Original-Frames im Reduced Mode)│
-│  K Frames (oder N im Reduced Mode)      │
+│         Rekonstruktion aus Phase 5)     │
+│  K Frames (oder 1 Bild im Reduced Mode) │
 └────────────┬────────────────────────────┘
              │
              ▼
@@ -89,7 +88,7 @@ Begründung:
 │  Initialisierung                        │
 │                                          │
 │  accumulator = zeros(H, W)              │
-│  count = K (oder N)                     │
+│  count = K (Reduced Mode: kein Stack)   │
 └────────────┬────────────────────────────┘
              │
              ▼

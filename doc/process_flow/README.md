@@ -93,9 +93,9 @@ Jede Phase ist in einem separaten Dokument mit Diagrammen, Formeln und Beispiele
 ### [Phase 5: Tile-basierte Rekonstruktion](phase_5_tile_reconstruction.md)
 - **Gewichtete Rekonstruktion:** I_t,c = Σ W_f,t,c · I'_f,c / Σ W_f,t,c
 - Fallback für degenerierte Tiles
-- **Fensterfunktion** (Cosine-Taper)
+- **Fensterfunktion** (Hanning, 2D, separabel; verbindlich)
 - **Overlap-Add** für glatte Übergänge
-- Tile-Normalisierung (optional)
+- Tile-Normalisierung (verbindlich; nach Hintergrundsubtraktion)
 
 **Wichtige Konzepte:**
 - Herzstück der Methodik
@@ -109,7 +109,7 @@ Jede Phase ist in einem separaten Dokument mit Diagrammen, Formeln und Beispiele
 
 ### [Phase 6: Zustandsbasierte Clusterung und synthetische Frames](phase_6_clustering.md)
 - **Zustandsvektor:** v_f,c = (G, ⟨Q_local⟩, Var(Q_local), B, σ)
-- K-Means Clusterung (K = 15-30)
+- K-Means Clusterung (dynamisches K: K = clip(floor(N/10), 5, 30))
 - **Synthetische Frames** pro Cluster
 - Rauschreduktion durch Cluster-Stacking
 - Frame-Reduktion (N → K)
