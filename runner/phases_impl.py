@@ -358,6 +358,7 @@ def run_phases_impl(
         phase_start(run_id, log_fp, phase_id, phase_name)
         phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
     elif reg_engine == "opencv_cfa":
+        phase_start(run_id, log_fp, phase_id, phase_name)
         if cv2 is None:
             phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "opencv (cv2) not available; install python opencv to use registration.engine=opencv_cfa"})
             return False
@@ -473,6 +474,7 @@ def run_phases_impl(
         phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
 
     else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
         if reg_engine != "siril":
             phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"registration.engine not supported: {reg_engine!r}"})
             return False
@@ -1456,67 +1458,123 @@ def run_phases_impl(
         synthetic_skipped = True
     else:
         try:
-            metrics_for_syn: Dict[str, Dict[str, Any]] = {}
-            for ch in ("R", "G", "B"):
-                g = channel_metrics.get(ch, {}).get("global", {}) if isinstance(channel_metrics.get(ch), dict) else {}
-                t = channel_metrics.get(ch, {}).get("tiles", {}) if isinstance(channel_metrics.get(ch), dict) else {}
-                g2 = dict(g)
-                if "noise_level" in g2:
-                    g2["noise_level"] = np.asarray(g2["noise_level"], dtype=np.float32)
-                if "background_level" in g2:
-                    g2["background_level"] = np.asarray(g2["background_level"], dtype=np.float32)
-                metrics_for_syn[ch] = {"global": g2, "tiles": t}
-
-            if generate_channel_synthetic_frames is not None:
-                # Load ALL frames for synthetic generation (required for clustering-based generation)
-                # Methodik v3 §3.8: One synthetic frame per cluster (15-30 clusters)
-                channels_all = {"R": [], "G": [], "B": []}
-                for ch in ("R", "G", "B"):
-                    for frame_path in channel_files[ch]:
-                        frame = fits.getdata(str(frame_path)).astype("float32", copy=False)
-                        channels_all[ch].append(frame)
-                
-                # Generate synthetic frames with clustering results
-                if any(channels_all.values()):
-                    synthetic_channels = generate_channel_synthetic_frames(
-                        channels_all, 
-                        metrics_for_syn, 
-                        synthetic_cfg,
-                        clustering_results
-                    )
-                else:
-                    synthetic_channels = None
-                
-                # Free memory
-                del channels_all
-        except Exception:
-            synthetic_channels = None
-
-        if synthetic_channels:
             hdr_syn = None
             try:
                 hdr_syn = fits.getheader(str(registered_files[0]), ext=0)
             except Exception:
                 hdr_syn = None
-            syn_r = synthetic_channels.get("R") or []
-            syn_g = synthetic_channels.get("G") or []
-            syn_b = synthetic_channels.get("B") or []
-            synthetic_count = max(len(syn_r), len(syn_g), len(syn_b))
+
+            def _extract_labels_for_channel(ch_name: str) -> list[int] | None:
+                if not clustering_results:
+                    return None
+                if isinstance(clustering_results, dict) and ch_name in clustering_results and isinstance(clustering_results.get(ch_name), dict):
+                    cr = clustering_results.get(ch_name) or {}
+                    labels = cr.get("labels", cr.get("cluster_labels"))
+                    if isinstance(labels, list):
+                        return [int(x) for x in labels]
+                if isinstance(clustering_results, dict):
+                    labels = clustering_results.get("labels", clustering_results.get("cluster_labels"))
+                    if isinstance(labels, list):
+                        return [int(x) for x in labels]
+                return None
+
+            def _synthetic_from_files(ch_name: str) -> list[Path]:
+                labels = _extract_labels_for_channel(ch_name)
+                files = channel_files.get(ch_name) or []
+                if not files:
+                    return []
+
+                g = channel_metrics.get(ch_name, {}).get("global", {}) if isinstance(channel_metrics.get(ch_name), dict) else {}
+                gfc = g.get("G_f_c")
+                weights = np.asarray(gfc, dtype=np.float32) if gfc is not None else np.ones((len(files),), dtype=np.float32)
+                if weights.ndim != 1:
+                    weights = np.ravel(weights)
+                if weights.shape[0] < len(files):
+                    weights = np.pad(weights, (0, len(files) - weights.shape[0]), mode="edge")
+                weights = weights[: len(files)]
+
+                if labels is None or len(labels) != len(files):
+                    frames_min = int((synthetic_cfg or {}).get("frames_min", 15))
+                    frames_max = int((synthetic_cfg or {}).get("frames_max", 30))
+                    n_synthetic = min(frames_max, max(frames_min, len(files) // 10))
+                    n_synthetic = max(n_synthetic, frames_min)
+                    sorted_idx = np.argsort(weights)
+                    group_size = float(len(files)) / float(max(1, n_synthetic))
+                    labels = []
+                    for i in range(n_synthetic):
+                        start = int(i * group_size)
+                        end = int((i + 1) * group_size) if i < n_synthetic - 1 else len(files)
+                        grp = sorted_idx[start:end]
+                        for idx in grp.tolist():
+                            labels.append((i, int(idx)))
+                    labels_sorted = [0 for _ in range(len(files))]
+                    for lab, idx in labels:
+                        labels_sorted[int(idx)] = int(lab)
+                    labels = labels_sorted
+
+                cluster_ids = sorted(set(int(x) for x in labels))
+                sum_map: Dict[int, np.ndarray] = {}
+                wsum_map: Dict[int, float] = {}
+
+                total_n = max(1, len(files))
+                for idx, fp in enumerate(files):
+                    lab = int(labels[idx])
+                    w = float(weights[idx])
+                    if not np.isfinite(w) or w <= 0.0:
+                        continue
+                    frame = fits.getdata(str(fp)).astype("float32", copy=False)
+                    if lab not in sum_map:
+                        sum_map[lab] = np.zeros_like(frame, dtype=np.float32)
+                        wsum_map[lab] = 0.0
+                    sum_map[lab] += frame * w
+                    wsum_map[lab] += w
+                    del frame
+                    if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+                        phase_progress(run_id, log_fp, phase_id, phase_name, idx + 1, total_n, {"channel": ch_name})
+
+                out_paths: list[Path] = []
+                for out_idx, lab in enumerate(cluster_ids, start=1):
+                    acc = sum_map.get(lab)
+                    wsum = float(wsum_map.get(lab) or 0.0)
+                    if acc is None or wsum <= 1e-12:
+                        continue
+                    syn = (acc / wsum).astype("float32", copy=False)
+                    outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
+                    fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                    out_paths.append(outp)
+                    del syn
+                sum_map.clear()
+                wsum_map.clear()
+                return out_paths
+
+            syn_r_paths = _synthetic_from_files("R")
+            syn_g_paths = _synthetic_from_files("G")
+            syn_b_paths = _synthetic_from_files("B")
+            synthetic_count = max(len(syn_r_paths), len(syn_g_paths), len(syn_b_paths))
+
             for i in range(synthetic_count):
-                r = np.asarray(syn_r[i]).astype("float32", copy=False) if i < len(syn_r) else None
-                g = np.asarray(syn_g[i]).astype("float32", copy=False) if i < len(syn_g) else None
-                b = np.asarray(syn_b[i]).astype("float32", copy=False) if i < len(syn_b) else None
-                if r is None or g is None or b is None:
-                    continue
-                outp_rgb = syn_out / f"syn_{i+1:05d}.fits"
-                rgb = np.stack([r, g, b], axis=0)
-                fits.writeto(str(outp_rgb), rgb, header=hdr_syn, overwrite=True)
                 outp_r = syn_out / f"synR_{i+1:05d}.fits"
                 outp_g = syn_out / f"synG_{i+1:05d}.fits"
                 outp_b = syn_out / f"synB_{i+1:05d}.fits"
-                fits.writeto(str(outp_r), r, header=hdr_syn, overwrite=True)
-                fits.writeto(str(outp_g), g, header=hdr_syn, overwrite=True)
-                fits.writeto(str(outp_b), b, header=hdr_syn, overwrite=True)
+                if i < len(syn_r_paths):
+                    shutil.copy2(syn_r_paths[i], outp_r)
+                if i < len(syn_g_paths):
+                    shutil.copy2(syn_g_paths[i], outp_g)
+                if i < len(syn_b_paths):
+                    shutil.copy2(syn_b_paths[i], outp_b)
+
+                if outp_r.is_file() and outp_g.is_file() and outp_b.is_file():
+                    r = fits.getdata(str(outp_r)).astype("float32", copy=False)
+                    g = fits.getdata(str(outp_g)).astype("float32", copy=False)
+                    b = fits.getdata(str(outp_b)).astype("float32", copy=False)
+                    outp_rgb = syn_out / f"syn_{i+1:05d}.fits"
+                    rgb = np.stack([r, g, b], axis=0)
+                    fits.writeto(str(outp_rgb), rgb, header=hdr_syn, overwrite=True)
+                    del r, g, b, rgb
+
+            synthetic_channels = {"R": [], "G": [], "B": []}
+        except Exception:
+            synthetic_channels = None
 
     phase_end(
         run_id,
@@ -1726,6 +1784,14 @@ def run_phases_impl(
     final_out = outputs_dir / Path(stack_output_file)
     final_out.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(produced), str(final_out))
+    
+    try:
+        out_pngs = _write_quality_analysis_pngs(artifacts_dir, channel_metrics)
+        if out_pngs:
+            phase_progress(run_id, log_fp, phase_id, phase_name, 1, 1, {"quality_pngs": out_pngs})
+    except Exception:
+        pass
+    
     extra: Dict[str, Any] = {
         "siril": meta, 
         "method": stack_method, 
@@ -1734,13 +1800,6 @@ def run_phases_impl(
         "fallback_reason": "no_synthetic_frames" if use_reconstructed_fallback else None,
     }
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
-
-    try:
-        out_pngs = _write_quality_analysis_pngs(artifacts_dir, channel_metrics)
-        if out_pngs:
-            phase_progress(run_id, log_fp, phase_id, phase_name, 1, 1, {"quality_pngs": out_pngs})
-    except Exception:
-        pass
 
     phase_id = 11
     phase_name = "DONE"
