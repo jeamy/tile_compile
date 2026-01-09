@@ -193,7 +193,7 @@ B_f,c:
 ```
 ┌─────────────────────────────────────────┐
 │  Input: V' (normalisierte Vektoren)     │
-│         K (Anzahl Cluster, 15-30)       │
+│         K (dynamisch, siehe unten)      │
 └────────────┬────────────────────────────┘
              │
              ▼
@@ -253,29 +253,27 @@ PC2 │
    -2  -1   0   1   2
 
 Legende:
-  ● = Cluster 0 (K=15-30 Cluster insgesamt)
+  ● = Cluster 0 (K Cluster insgesamt)
   ○ = Cluster 1
   ░ = Cluster 2
   ▓ = Cluster 3
 ```
 
-### Cluster-Anzahl K
+### Cluster-Anzahl K (verbindlich)
 
 ```
-Empfohlene Werte:
-  N ≥ 800:  K = 25-30
-  N ≥ 400:  K = 20-25
-  N ≥ 200:  K = 15-20
-  N < 200:  Clusterung überspringen (Reduced Mode)
+K = clip(floor(N / 10), K_min, K_max)
 
-Begründung:
-  • Zu wenig Cluster (K < 15):
-    → Zu heterogene Cluster
-    → Wenig Rauschreduktion
-  
-  • Zu viele Cluster (K > 30):
-    → Zu wenig Frames pro Cluster
-    → Instabile synthetische Frames
+wobei:
+  K_min = 5
+  K_max = 30
+  N = Anzahl Frames
+
+Beispiele:
+  N = 50  → K = 5
+  N = 200 → K = 20
+  N = 500 → K = 30
+  N = 800 → K = 30 (gedeckelt)
 ```
 
 ## Schritt 6.4: Cluster-Validierung

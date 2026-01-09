@@ -773,6 +773,10 @@ def run_phases_impl(
 
     weights_cfg = cfg.get("global_metrics") if isinstance(cfg.get("global_metrics"), dict) else {}
     w = weights_cfg.get("weights") if isinstance(weights_cfg.get("weights"), dict) else {}
+    
+    # Methodik v3 §3.2: Check if adaptive weights are enabled
+    use_adaptive_weights = weights_cfg.get("adaptive_weights", False)
+    
     # Methodik v3 §3.2: Default α=0.4, β=0.3, γ=0.3
     try:
         w_bg = float(w.get("background", 0.4))  # α
@@ -870,6 +874,31 @@ def run_phases_impl(
         noise_n = _norm_mad(noises)
         grad_n = _norm_mad(grads)
         
+        # Methodik v3 §3.2: Adaptive Gewichtung 
+        # Dynamische Anpassung basierend auf Varianz der Metriken
+        if use_adaptive_weights and bgs and noises and grads:
+            bg_var = float(np.var(bgs)) if bgs else 0.0
+            noise_var = float(np.var(noises)) if noises else 0.0
+            grad_var = float(np.var(grads)) if grads else 0.0
+            total_var = bg_var + noise_var + grad_var
+            
+            if total_var > 1e-12:
+                # Gewichte basierend auf Varianz
+                w_bg_adaptive = bg_var / total_var
+                w_noise_adaptive = noise_var / total_var
+                w_grad_adaptive = grad_var / total_var
+                
+                # Constraints: min 0.1, max 0.7
+                w_bg_adaptive = float(np.clip(w_bg_adaptive, 0.1, 0.7))
+                w_noise_adaptive = float(np.clip(w_noise_adaptive, 0.1, 0.7))
+                w_grad_adaptive = float(np.clip(w_grad_adaptive, 0.1, 0.7))
+                
+                # Renormalisiere auf Summe = 1
+                adaptive_sum = w_bg_adaptive + w_noise_adaptive + w_grad_adaptive
+                w_bg = w_bg_adaptive / adaptive_sum
+                w_noise = w_noise_adaptive / adaptive_sum
+                w_grad = w_grad_adaptive / adaptive_sum
+        
         # Compute quality scores Q_f,c (Methodik v3 §3.2)
         # Formula: Q_f,c = α*(-B̃) + β*(-σ̃) + γ*Ẽ
         # Lower background and noise are better (negative), higher gradient is better (positive)
@@ -887,6 +916,8 @@ def run_phases_impl(
                 "noise_level": noises,
                 "gradient_energy": grads,
                 "G_f_c": gfc,
+                "weights_used": {"background": w_bg, "noise": w_noise, "gradient": w_grad},
+                "adaptive_weights_enabled": use_adaptive_weights,
             }
         }
 

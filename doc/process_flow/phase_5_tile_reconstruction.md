@@ -250,10 +250,10 @@ Lösung mit Fensterfunktion:
       ╲╱
 ```
 
-### Cosine-Fenster (Tukey-Fenster)
+### Hanning-Fenster (verbindlich)
 
 ```
-Fensterfunktion w(x):
+Fensterfunktion hann(x):
 
 1.0 │    ┌───────────────┐
 
@@ -264,19 +264,16 @@ Fensterfunktion w(x):
     0   O    T-O   T
     
     │←─ Fade-in ─→│←─ Plateau ─→│←─ Fade-out ─→│
-    
-Formel:
-  w(x) = 0.5 × (1 + cos(π × (x - O) / O))     für 0 ≤ x < O
-  w(x) = 1.0                                   für O ≤ x < T-O
-  w(x) = 0.5 × (1 + cos(π × (x - (T-O)) / O)) für T-O ≤ x < T
+    Formel (Hanning):
+   hann(t) = 0.5 · (1 - cos(2πt))
 ```
 
-### 2D-Fensterfunktion
+### 2D-Fensterfunktion (separabel)
 
 ```python
 def create_window_2d(tile_size, overlap):
     """
-    Erstellt 2D-Fensterfunktion (Cosine-Taper).
+    Erstellt 2D-Fensterfunktion (Hanning, separabel).
     
     Args:
         tile_size: Tile-Größe T
@@ -285,20 +282,10 @@ def create_window_2d(tile_size, overlap):
     Returns:
         window: 2D-Array (T, T) mit Fensterfunktion
     """
-    # 1D-Fenster
-    window_1d = np.ones(tile_size)
-    
-    # Fade-in (linker Rand)
-    for i in range(overlap):
-        alpha = i / overlap
-        window_1d[i] = 0.5 * (1 + np.cos(np.pi * (1 - alpha)))
-    
-    # Fade-out (rechter Rand)
-    for i in range(overlap):
-        alpha = i / overlap
-        window_1d[tile_size - 1 - i] = 0.5 * (1 + np.cos(np.pi * (1 - alpha)))
-    
-    # 2D durch äußeres Produkt
+    # 1D Hanning (klassisch, über ganze Tile-Länge)
+    t = np.linspace(0.0, 1.0, tile_size, endpoint=True)
+    window_1d = 0.5 * (1.0 - np.cos(2.0 * np.pi * t))
+    # 2D durch äußeres Produkt (separabel)
     window_2d = np.outer(window_1d, window_1d)
     
     return window_2d
