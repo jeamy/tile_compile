@@ -1012,6 +1012,41 @@ def run_phases_impl(
     use_dark = bool(calibration_cfg.get("use_dark"))
     use_flat = bool(calibration_cfg.get("use_flat"))
 
+    def _hdr_get_float(hdr: Any, keys: list[str]) -> float | None:
+        if hdr is None:
+            return None
+        for k in keys:
+            try:
+                if isinstance(hdr, dict):
+                    v = hdr.get(k)
+                else:
+                    v = hdr[k] if k in hdr else None
+            except Exception:
+                v = None
+            if v is None:
+                continue
+            try:
+                f = float(v)
+                if np.isfinite(f):
+                    return f
+            except Exception:
+                continue
+        return None
+
+    def _get_exposure_s(path: Path) -> float | None:
+        try:
+            hdr = fits.getheader(str(path), ext=0)
+        except Exception:
+            return None
+        return _hdr_get_float(hdr, ["EXPTIME", "EXPOSURE", "EXPOSURETIME", "EXP_TIME", "DURATION"])
+
+    def _get_ccd_temp_c(path: Path) -> float | None:
+        try:
+            hdr = fits.getheader(str(path), ext=0)
+        except Exception:
+            return None
+        return _hdr_get_float(hdr, ["CCD-TEMP", "CCD_TEMP", "CCD_TEMP_C", "SENSOR_T", "SENSORTEMP", "TEMP", "TEMPERAT"])
+
     def _collect_calib_files(dir_s: str | None, pattern: str) -> list[Path]:
         if not dir_s:
             return []
@@ -1055,8 +1090,105 @@ def run_phases_impl(
 
         if use_dark and dark_master is None:
             dark_files = _collect_calib_files(str(calibration_cfg.get("darks_dir") or "").strip() or None, cal_pattern)
-            phase_progress(run_id, log_fp, 0, "SCAN_INPUT", 0, max(1, len(dark_files)), {"substep": "dark_master"})
-            dm = build_master_mean(dark_files)
+
+            dark_auto_select = bool(calibration_cfg.get("dark_auto_select", True))
+            tol_pct = calibration_cfg.get("dark_match_exposure_tolerance_percent", 5.0)
+            try:
+                tol_pct_f = float(tol_pct)
+            except Exception:
+                tol_pct_f = 5.0
+            use_temp_match = bool(calibration_cfg.get("dark_match_use_temp", False))
+            temp_tol = calibration_cfg.get("dark_match_temp_tolerance_c", 2.0)
+            try:
+                temp_tol_f = float(temp_tol)
+            except Exception:
+                temp_tol_f = 2.0
+
+            selected_dark_files = dark_files
+            warnings: list[str] = []
+
+            light_exp_s: float | None = None
+            light_temp_c: float | None = None
+            try:
+                exp_vals: list[float] = []
+                temp_vals: list[float] = []
+                for p0 in frames[: min(10, len(frames))]:
+                    e0 = _get_exposure_s(p0)
+                    if e0 is not None and e0 > 0:
+                        exp_vals.append(float(e0))
+                    if use_temp_match:
+                        t0 = _get_ccd_temp_c(p0)
+                        if t0 is not None and np.isfinite(t0):
+                            temp_vals.append(float(t0))
+                if exp_vals:
+                    light_exp_s = float(np.median(np.asarray(exp_vals, dtype=np.float64)))
+                if temp_vals:
+                    light_temp_c = float(np.median(np.asarray(temp_vals, dtype=np.float64)))
+            except Exception:
+                pass
+
+            if dark_auto_select and dark_files:
+                if light_exp_s is None or not np.isfinite(light_exp_s) or light_exp_s <= 0:
+                    warnings.append("dark_auto_select: light exposure not found; using all darks")
+                else:
+                    try:
+                        cand: list[Path] = []
+                        cand_missing_temp: int = 0
+                        for dp in dark_files:
+                            de = _get_exposure_s(dp)
+                            if de is None or not np.isfinite(de) or de <= 0:
+                                continue
+                            rel_pct = abs(float(de) - float(light_exp_s)) / float(light_exp_s) * 100.0
+                            if rel_pct > tol_pct_f:
+                                continue
+                            if use_temp_match:
+                                if light_temp_c is None or not np.isfinite(light_temp_c):
+                                    cand.append(dp)
+                                    continue
+                                dt = _get_ccd_temp_c(dp)
+                                if dt is None or not np.isfinite(dt):
+                                    cand_missing_temp += 1
+                                    continue
+                                if abs(float(dt) - float(light_temp_c)) > temp_tol_f:
+                                    continue
+                            cand.append(dp)
+
+                        if use_temp_match and (light_temp_c is None or not np.isfinite(light_temp_c)):
+                            warnings.append("dark_match_use_temp=true but light CCD temp not found; matching by exposure only")
+                        if use_temp_match and cand_missing_temp > 0:
+                            warnings.append(f"dark_match_use_temp=true: skipped {cand_missing_temp} darks with missing temp header")
+
+                        if cand:
+                            selected_dark_files = cand
+                        else:
+                            warnings.append("dark_auto_select: no matching darks found within tolerance; using all darks")
+                            selected_dark_files = dark_files
+                    except Exception:
+                        warnings.append("dark_auto_select: selection failed; using all darks")
+                        selected_dark_files = dark_files
+
+            phase_progress(
+                run_id,
+                log_fp,
+                0,
+                "SCAN_INPUT",
+                0,
+                max(1, len(dark_files)),
+                {
+                    "substep": "dark_master",
+                    "dark_files_total": len(dark_files),
+                    "dark_files_selected": len(selected_dark_files) if selected_dark_files is not None else 0,
+                    "light_exposure_s": light_exp_s,
+                    "light_ccd_temp_c": light_temp_c,
+                    "dark_auto_select": dark_auto_select,
+                    "dark_match_exposure_tolerance_percent": tol_pct_f,
+                    "dark_match_use_temp": use_temp_match,
+                    "dark_match_temp_tolerance_c": temp_tol_f,
+                    "warnings": warnings,
+                },
+            )
+
+            dm = build_master_mean(selected_dark_files)
             dark_master = bias_correct_dark(dm, bias_master)
             if dark_master is not None:
                 fits.writeto(str(out_cal_dir / "master_dark.fit"), dark_master[0], header=dark_master[1], overwrite=True)
