@@ -15,6 +15,7 @@ from .assumptions import get_assumptions_config, is_reduced_mode
 from .events import phase_start, phase_end, phase_progress, stop_requested
 from .fits_utils import is_fits_image_path, read_fits_float, fits_is_cfa, fits_get_bayerpat
 from .utils import safe_symlink_or_copy, pick_output_file
+from .calibration import build_master_mean, bias_correct_dark, prepare_flat, apply_calibration
 
 # Local - image processing (disk-based)
 from .image_processing import (
@@ -818,6 +819,118 @@ def run_phases_impl(
             "cfa": cfa_flag0,
         },
     )
+
+    calibration_cfg = cfg.get("calibration") if isinstance(cfg.get("calibration"), dict) else {}
+    use_bias = bool(calibration_cfg.get("use_bias"))
+    use_dark = bool(calibration_cfg.get("use_dark"))
+    use_flat = bool(calibration_cfg.get("use_flat"))
+
+    def _collect_calib_files(dir_s: str | None, pattern: str) -> list[Path]:
+        if not dir_s:
+            return []
+        p = Path(str(dir_s)).expanduser()
+        if not p.is_absolute():
+            p = (project_root / p).resolve()
+        if not p.exists() or not p.is_dir():
+            return []
+        out = [q for q in p.glob(pattern) if q.is_file() and is_fits_image_path(q)]
+        out.sort(key=lambda x: x.name)
+        return out
+
+    def _load_master(path_s: str | None) -> tuple[np.ndarray, Any] | None:
+        if not path_s:
+            return None
+        p = Path(str(path_s)).expanduser()
+        if not p.is_absolute():
+            p = (project_root / p).resolve()
+        if not p.exists() or not p.is_file():
+            return None
+        try:
+            return read_fits_float(p)
+        except Exception:
+            return None
+
+    if resume_from_phase is None and (use_bias or use_dark or use_flat):
+        cal_pattern = str(calibration_cfg.get("pattern") or "*.fit*")
+        bias_master = _load_master(str(calibration_cfg.get("bias_master") or "").strip() or None) if use_bias else None
+        dark_master = _load_master(str(calibration_cfg.get("dark_master") or "").strip() or None) if use_dark else None
+        flat_master = _load_master(str(calibration_cfg.get("flat_master") or "").strip() or None) if use_flat else None
+
+        out_cal_dir = outputs_dir / "calibration"
+        out_cal_dir.mkdir(parents=True, exist_ok=True)
+
+        if use_bias and bias_master is None:
+            bias_files = _collect_calib_files(str(calibration_cfg.get("bias_dir") or "").strip() or None, cal_pattern)
+            phase_progress(run_id, log_fp, 0, "SCAN_INPUT", 0, max(1, len(bias_files)), {"substep": "bias_master"})
+            bias_master = build_master_mean(bias_files)
+            if bias_master is not None:
+                fits.writeto(str(out_cal_dir / "master_bias.fit"), bias_master[0], header=bias_master[1], overwrite=True)
+
+        if use_dark and dark_master is None:
+            dark_files = _collect_calib_files(str(calibration_cfg.get("darks_dir") or "").strip() or None, cal_pattern)
+            phase_progress(run_id, log_fp, 0, "SCAN_INPUT", 0, max(1, len(dark_files)), {"substep": "dark_master"})
+            dm = build_master_mean(dark_files)
+            dark_master = bias_correct_dark(dm, bias_master)
+            if dark_master is not None:
+                fits.writeto(str(out_cal_dir / "master_dark.fit"), dark_master[0], header=dark_master[1], overwrite=True)
+
+        if use_flat and flat_master is None:
+            flat_files = _collect_calib_files(str(calibration_cfg.get("flats_dir") or "").strip() or None, cal_pattern)
+            phase_progress(run_id, log_fp, 0, "SCAN_INPUT", 0, max(1, len(flat_files)), {"substep": "flat_master"})
+            fm = build_master_mean(flat_files)
+            flat_master = prepare_flat(fm, bias_master, dark_master)
+            if flat_master is not None:
+                fits.writeto(str(out_cal_dir / "master_flat.fit"), flat_master[0], header=flat_master[1], overwrite=True)
+
+        if (use_bias and bias_master is None) or (use_dark and dark_master is None) or (use_flat and flat_master is None):
+            phase_end(
+                run_id,
+                log_fp,
+                0,
+                "SCAN_INPUT",
+                "error",
+                {
+                    "error": "calibration requested but master frame could not be resolved",
+                    "use_bias": use_bias,
+                    "use_dark": use_dark,
+                    "use_flat": use_flat,
+                },
+            )
+            return False
+
+        out_lights = outputs_dir / "calibrated"
+        out_lights.mkdir(parents=True, exist_ok=True)
+        new_frames: list[Path] = []
+        total = len(frames)
+        for i, p in enumerate(frames):
+            phase_progress(run_id, log_fp, 0, "SCAN_INPUT", i, total, {"substep": "calibrate_lights"})
+            if stop_requested(run_id, log_fp, 0, "SCAN_INPUT", stop_flag):
+                return False
+            try:
+                img, hdr = read_fits_float(p)
+                cal = apply_calibration(
+                    img,
+                    bias_master[0] if (use_bias and bias_master is not None) else None,
+                    dark_master[0] if (use_dark and dark_master is not None) else None,
+                    flat_master[0] if (use_flat and flat_master is not None) else None,
+                    denom_eps=1e-6,
+                )
+                outp = out_lights / f"cal_{i+1:05d}.fit"
+                fits.writeto(str(outp), cal.astype("float32", copy=False), header=hdr, overwrite=True)
+                new_frames.append(outp)
+            except Exception as e:
+                phase_end(
+                    run_id,
+                    log_fp,
+                    0,
+                    "SCAN_INPUT",
+                    "error",
+                    {"error": "failed to calibrate frame", "frame": str(p), "details": str(e)},
+                )
+                return False
+
+        if new_frames:
+            frames = new_frames
 
     phase_id = 1
     phase_name = "REGISTRATION"

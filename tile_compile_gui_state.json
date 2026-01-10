@@ -1,3 +1,17 @@
 {
-  "lastInputDir": "/media/data/tile_compile_cache/M45_ligths_all"
+  "calibration": {
+    "use_bias": false,
+    "use_dark": true,
+    "use_flat": false,
+    "bias_use_master": false,
+    "dark_use_master": false,
+    "flat_use_master": false,
+    "bias_dir": "",
+    "darks_dir": "",
+    "flats_dir": "",
+    "bias_master": "",
+    "dark_master": "",
+    "flat_master": "",
+    "pattern": "*.fit*"
+  }
 }
