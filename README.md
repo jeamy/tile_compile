@@ -1,86 +1,102 @@
-# Tile Compile: Astronomical Image Reconstruction Toolkit
+# Tile-Compile
 
-## Prerequisites
+Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (Methodik v3).
+
+Given a directory of aligned (or alignable) FITS lights, it:
+
+- optionally **calibrates** lights (bias/dark/flat)
+- **registers** frames (Siril or OpenCV)
+- splits channels (OSC)
+- estimates **global + local (tile) quality metrics**
+- reconstructs an improved per-channel image based on tile weights
+- optionally clusters frame “states” and generates synthetic frames
+- produces a final stacked output plus a set of **diagnostic artifacts** (PNGs/JSON)
+
+## Quickstart
+
+### 1) Install Python dependencies
+
 - Python 3.8+
-- Poetry (dependency management)
 
-## Prerequisites
-- Python 3.8+
-- `venv` module (usually comes with Python)
-- pip
+Use your preferred environment manager. This repo contains helper scripts:
 
-## Installation Steps
-
-1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/tile_compile.git
-cd tile_compile
-```
-
-2. Set up virtual environment and install dependencies:
-```bash
-# Make setup script executable
-chmod +x setup_venv.sh
-
-# Run setup script
 ./setup_venv.sh
 ```
 
-3. Activate virtual environment:
-```bash
-# On Unix/macOS
-source .venv/bin/activate
+Then activate your environment:
 
-# On Windows
-.venv\Scripts\activate
-```
-
-## Development Workflow
-
-### Activate Environment
 ```bash
 source .venv/bin/activate
 ```
 
-### Run Tests
-```bash
-pytest tests/
-```
-
-### Run Validation
-```bash
-python -m validation.dataset_generator
-python -m validation.performance_benchmark
-python -m validation.comparative_analysis
-```
-
-### Deactivate Environment
-```bash
-deactivate
-```
-
-## Troubleshooting
-- Ensure Python 3.8+ is installed
-- Check that all system dependencies are met
-- Refer to requirements.txt for package details
-
-## Running Tests
+### 2) Run the GUI
 
 ```bash
-poetry run pytest
+./start_gui.sh
 ```
 
-## Running the Application
+In the GUI:
+
+- select input directory
+- optionally enable calibration and select bias/darks/flats (dir or master)
+- validate config, then run
+
+### 3) Run the CLI
+
+Example:
 
 ```bash
-poetry run tile-compile run --config config.yaml --input-dir /path/to/input
+python3 tile_compile_runner.py run \
+  --config tile_compile.yaml \
+  --input-dir /path/to/lights \
+  --runs-dir runs
 ```
 
-## Project Structure
-- `tile_compile_backend/`: Core backend modules
-- `tests/`: Test suite
-- `siril_scripts/`: Siril processing scripts
-- `docs/`: Documentation
+There is also a convenience wrapper:
 
-## Methodik v3 Compliance
-This toolkit implements the Tile-based Quality Reconstruction Methodology version 3.
+```bash
+./run-cli.sh
+```
+
+## Calibration (Bias/Darks/Flats)
+
+Calibration happens before registration.
+
+- If you provide a **master file** (`bias_master`, `dark_master`, `flat_master`), it is used directly.
+- If you provide a **directory** (`bias_dir`, `darks_dir`, `flats_dir`) and no master is set, Tile-Compile builds a master from the frames in that directory.
+- Built masters are written into the run under:
+  - `outputs/calibration/master_bias.fit`
+  - `outputs/calibration/master_dark.fit`
+  - `outputs/calibration/master_flat.fit`
+
+## Outputs
+
+Each run produces a self-contained directory structure (under `--runs-dir`), typically:
+
+- `outputs/`
+  - calibrated lights (if enabled)
+  - registered frames
+  - reconstructed outputs
+  - final stack
+- `artifacts/`
+  - PNGs and JSON diagnostics (quality plots, tile heatmaps, previews)
+- `work/`
+  - intermediate work directories (e.g. Siril work dirs)
+
+For detailed explanations of the artifacts/PNGs, see `doc/stats/`.
+
+## Tests
+
+```bash
+pytest
+```
+
+## Project structure
+
+- `runner/`: pipeline implementation and utilities
+- `gui/`: Qt GUI (PySide6)
+- `siril_scripts/`: default Siril scripts
+- `tile_compile_backend/`: shared backend modules
+- `tests/`: test suite
+- `doc/`: documentation

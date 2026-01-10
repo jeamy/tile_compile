@@ -1,0 +1,108 @@
+pipeline:
+  mode: production
+  abort_on_fail: true
+data:
+  image_width: 3840
+  image_height: 2160
+  frames_min: 50
+  color_mode: OSC
+  bayer_pattern: GBRG
+  linear_required: true
+calibration:
+  use_bias: false
+  use_dark: false
+  use_flat: false
+  bias_use_master: false
+  dark_use_master: false
+  flat_use_master: false
+  bias_dir: ''
+  darks_dir: ''
+  flats_dir: ''
+  bias_master: ''
+  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_5.000000_gain_40_bin_1_stack_20.fits
+  flat_master: ''
+  pattern: '*.fit*'
+assumptions:
+  frames_min: 50
+  frames_optimal: 400
+  frames_reduced_threshold: 200
+  exposure_time_tolerance_percent: 5.0
+  registration_residual_warn_px: 0.5
+  registration_residual_max_px: 1.0
+  elongation_warn: 0.3
+  elongation_max: 0.4
+  tracking_error_max_px: 1.0
+  reduced_mode_skip_clustering: true
+  reduced_mode_cluster_range:
+  - 5
+  - 10
+normalization:
+  enabled: true
+  mode: background
+  per_channel: true
+registration:
+  engine: siril
+  reference: auto
+  allow_rotation: false
+  min_star_matches: 10
+  output_dir: registered
+  registered_filename_pattern: reg_{index:05d}.fit
+  siril_script: ''
+global_metrics:
+  weights:
+    background: 0.4
+    noise: 0.3
+    gradient: 0.3
+  clamp:
+  - -3
+  - 3
+tile:
+  size_factor: 32
+  min_size: 64
+  max_divisor: 6
+  overlap_fraction: 0.25
+  star_min_count: 3
+local_metrics:
+  clamp:
+  - -3
+  - 3
+  star_mode:
+    fwhm_transform: log
+    weights:
+      fwhm: 0.6
+      roundness: 0.2
+      contrast: 0.2
+  structure_mode:
+    metric: energy_over_sigma
+    background_weight: 0.3
+    metric_weight: 0.7
+synthetic:
+  frames_min: 15
+  frames_max: 30
+  clustering:
+    mode: state_vector
+    vector:
+    - global_weight
+    - tile_quality_mean
+    - tile_quality_variance
+    - background
+    - noise
+reconstruction:
+  weighting_function: exponential
+  window_function: hanning
+  tile_rescale: median_after_background_subtraction
+stacking:
+  engine: siril
+  method: average
+  input_dir: synthetic
+  input_pattern: syn_*.fits
+  output_file: stacked.fit
+  siril_script: ''
+validation:
+  min_fwhm_improvement_percent: 5
+  max_background_rms_increase_percent: 0
+  min_tile_weight_variance: 0.1
+  require_no_tile_pattern: true
+runtime_limits:
+  tile_analysis_max_factor_vs_stack: 3.0
+  hard_abort_hours: 6
