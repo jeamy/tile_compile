@@ -22,6 +22,7 @@ from runner.assumptions import get_assumptions_config
 from runner.events import emit
 from runner.phases import run_phases
 from runner.phases_impl import run_phases_impl
+from generate_artifacts_report import generate_report
 from runner.utils import (
     copy_config,
     discover_frames,
@@ -129,6 +130,14 @@ def resume_run(args):
             )
             print(f"Pipeline error: {e}\n{tb}", file=sys.stderr)
             success = False
+
+        report_html = None
+        report_error = None
+        try:
+            report_html_path, _ = generate_report(run_dir)
+            report_html = str(report_html_path)
+        except Exception as e:
+            report_error = str(e)
         
         # Emit run_end event
         emit(
@@ -138,6 +147,8 @@ def resume_run(args):
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "success": success,
                 "status": "ok" if success else "error",
+                "report_html": report_html,
+                "report_error": report_error,
             },
             log_fp,
         )
@@ -284,6 +295,14 @@ def main():
             )
             print(f"Pipeline error: {e}\n{tb}", file=sys.stderr)
             success = False
+
+        report_html = None
+        report_error = None
+        try:
+            report_html_path, _ = generate_report(run_dir)
+            report_html = str(report_html_path)
+        except Exception as e:
+            report_error = str(e)
         
         # Emit run_end event
         emit(
@@ -292,6 +311,9 @@ def main():
                 "run_id": run_id,
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "success": success,
+                "status": "ok" if success else "error",
+                "report_html": report_html,
+                "report_error": report_error,
             },
             log_fp,
         )

@@ -1,8 +1,10 @@
 """Main pipeline implementation (Methodik v3)."""
 
 # Standard library
+import json
 import re
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -107,6 +109,191 @@ def _note_plotting_issue(artifacts_dir: Path, where: str, err: Exception) -> Non
             f.write(f"[{where}] {type(err).__name__}: {err}\n")
     except Exception:
         return
+
+
+def _deep_merge(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
+    for k, v in src.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            dst[k] = _deep_merge(dst[k], v)
+        else:
+            dst[k] = v
+    return dst
+
+
+def _flatten_evaluations(ev: Any) -> list[str]:
+    if ev is None:
+        return []
+    if isinstance(ev, list):
+        return [str(x) for x in ev if x is not None]
+    if isinstance(ev, dict):
+        out: list[str] = []
+        for _k, v in ev.items():
+            out.extend(_flatten_evaluations(v))
+        return out
+    return [str(ev)]
+
+
+def _infer_status_from_evaluations(ev: Any) -> str:
+    texts = _flatten_evaluations(ev)
+    s = "\n".join(texts).lower()
+    if any(k in s for k in ("error", "failed", "exception", "traceback")):
+        return "BAD"
+    if any(k in s for k in ("nan", "inf", "not finite")):
+        return "BAD"
+    if "warning" in s:
+        return "WARN"
+    if any(k in s for k in ("insufficient", "missing", "skipped", "fallback")):
+        return "WARN"
+    try:
+        m = re.search(r"low_weight_fraction=([0-9eE+\-\.]+)", s)
+        if m:
+            v = float(m.group(1))
+            if np.isfinite(v) and v >= 0.15:
+                return "WARN"
+    except Exception:
+        pass
+    return "OK"
+
+
+def _ensure_report_metrics_complete(artifacts_dir: Path) -> None:
+    try:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        p = artifacts_dir / "report_metrics.json"
+        cur: dict[str, Any] = {}
+        if p.exists() and p.is_file():
+            try:
+                obj = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+                if isinstance(obj, dict):
+                    cur = obj
+            except Exception:
+                cur = {}
+
+        art = cur.get("artifacts") if isinstance(cur.get("artifacts"), dict) else {}
+        if not isinstance(art, dict):
+            art = {}
+
+        patch_art: dict[str, Any] = {}
+        for fp in artifacts_dir.iterdir():
+            if not fp.is_file():
+                continue
+            suf = fp.suffix.lower()
+            if suf not in (".png", ".json"):
+                continue
+            fn = fp.name
+            entry = art.get(fn)
+            needs = False
+            if not isinstance(entry, dict):
+                needs = True
+            else:
+                ev = entry.get("evaluations")
+                if ev is None or ev == [] or ev == {}:
+                    needs = True
+            if not needs:
+                continue
+
+            eval_lines: list[str] = ["auto: artifact generated; no specific metrics recorded for this file"]
+            try:
+                eval_lines.append(f"size_bytes={int(fp.stat().st_size)}")
+            except Exception:
+                pass
+            patch_art[fn] = {
+                "phase": "DONE",
+                "evaluations": eval_lines,
+                "status": "WARN",
+            }
+
+        if patch_art:
+            _update_report_metrics(artifacts_dir, {"artifacts": patch_art})
+    except Exception:
+        return
+
+
+def _update_report_metrics(artifacts_dir: Path, patch: dict[str, Any]) -> None:
+    try:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        p = artifacts_dir / "report_metrics.json"
+        cur: dict[str, Any] = {}
+        if p.exists() and p.is_file():
+            try:
+                obj = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+                if isinstance(obj, dict):
+                    cur = obj
+            except Exception:
+                cur = {}
+        if "version" not in cur:
+            cur["version"] = 1
+        if "generated_ts" not in cur:
+            cur["generated_ts"] = datetime.now(timezone.utc).isoformat()
+        _deep_merge(cur, patch)
+
+        try:
+            art = cur.get("artifacts") if isinstance(cur.get("artifacts"), dict) else None
+            if isinstance(art, dict):
+                for _fn, entry in art.items():
+                    if not isinstance(entry, dict):
+                        continue
+                    if entry.get("status") in ("OK", "WARN", "BAD"):
+                        continue
+                    if "evaluations" in entry:
+                        entry["status"] = _infer_status_from_evaluations(entry.get("evaluations"))
+        except Exception:
+            pass
+
+        cur["generated_ts"] = datetime.now(timezone.utc).isoformat()
+        p.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        return
+
+
+def _basic_stats(vals: list[float]) -> dict[str, float]:
+    if not vals:
+        return {"n": 0.0}
+    a = np.asarray(vals, dtype=np.float64)
+    a = a[np.isfinite(a)]
+    if a.size == 0:
+        return {"n": 0.0}
+    return {
+        "n": float(a.size),
+        "min": float(np.min(a)),
+        "max": float(np.max(a)),
+        "median": float(np.median(a)),
+        "mean": float(np.mean(a)),
+        "std": float(np.std(a)),
+    }
+
+
+def _eval_timeseries(label: str, vals: list[float]) -> list[str]:
+    s = _basic_stats(vals)
+    if int(s.get("n", 0.0)) <= 1:
+        return [f"{label}: insufficient data"]
+    med = float(s.get("median") or 0.0)
+    span = float(s.get("max") or 0.0) - float(s.get("min") or 0.0)
+    rel = (span / abs(med)) if med not in (0.0, -0.0) else float("inf")
+    out = [
+        f"{label}: median={med:.4g}, min={float(s.get('min') or 0.0):.4g}, max={float(s.get('max') or 0.0):.4g}",
+        f"{label}: span/|median|={rel:.3g}",
+    ]
+    if np.isfinite(rel) and rel > 0.25:
+        out.append(f"warning: {label} varies strongly over time")
+    return out
+
+
+def _eval_weights(vals: list[float]) -> list[str]:
+    s = _basic_stats(vals)
+    if int(s.get("n", 0.0)) <= 1:
+        return ["G_f,c: insufficient data"]
+    med = float(s.get("median") or 0.0)
+    mn = float(s.get("min") or 0.0)
+    mx = float(s.get("max") or 0.0)
+    out = [f"G_f,c: median={med:.4g}, min={mn:.4g}, max={mx:.4g}"]
+    if med > 0:
+        low = sum(1 for x in vals if np.isfinite(x) and x < med * 0.2)
+        out.append(f"frames with very low weight (<0.2×median): {low}")
+    if mn > 0 and mx > 0:
+        out.append(f"max/min ratio: {mx / mn:.3g}")
+        if mx / mn > 50:
+            out.append("warning: extremely wide weight distribution")
+    return out
 
 
 def _write_quality_analysis_pngs(artifacts_dir: Path, channel_metrics: dict[str, dict[str, Any]]) -> list[str]:
@@ -1184,6 +1371,29 @@ def run_phases_impl(
     except Exception:
         pass
 
+    try:
+        reg_eval: dict[str, Any] = {
+            "registration_absdiff_samples.png": {
+                "phase": "REGISTRATION",
+                "evaluations": [f"registered_frames={len(registered_files)}"],
+            }
+        }
+        if isinstance(corrs, list) and corrs:
+            c = [float(x) for x in corrs if isinstance(x, (int, float, np.number))]
+            reg_eval["registration_ecc_corr_timeseries.png"] = {
+                "phase": "REGISTRATION",
+                "evaluations": _eval_timeseries("ecc_corr", c),
+                "data": {"ecc_corr": c},
+            }
+            reg_eval["registration_ecc_corr_hist.png"] = {
+                "phase": "REGISTRATION",
+                "evaluations": _eval_timeseries("ecc_corr", c),
+                "data": {"ecc_corr": c},
+            }
+        _update_report_metrics(artifacts_dir, {"artifacts": reg_eval})
+    except Exception:
+        pass
+
     phase_id = 2
     phase_name = "CHANNEL_SPLIT"
     if should_skip_phase(phase_id):
@@ -1350,6 +1560,25 @@ def run_phases_impl(
 
     try:
         _write_normalization_artifacts(artifacts_dir, pre_norm_backgrounds)
+    except Exception:
+        pass
+
+    try:
+        _update_report_metrics(
+            artifacts_dir,
+            {
+                "artifacts": {
+                    "normalization_background_timeseries.png": {
+                        "phase": "NORMALIZATION",
+                        "evaluations": {
+                            ch: _eval_timeseries(f"{ch} pre-norm background B_f", pre_norm_backgrounds.get(ch) or [])
+                            for ch in ("R", "G", "B")
+                        },
+                        "data": {"pre_norm_backgrounds": pre_norm_backgrounds},
+                    }
+                }
+            },
+        )
     except Exception:
         pass
 
@@ -1520,6 +1749,39 @@ def run_phases_impl(
     except Exception:
         pass
 
+    try:
+        eval_by_ch: dict[str, Any] = {}
+        for ch in ("R", "G", "B"):
+            g = channel_metrics.get(ch, {}).get("global", {}) if isinstance(channel_metrics.get(ch, {}), dict) else {}
+            b = g.get("background_level") if isinstance(g.get("background_level"), list) else []
+            n = g.get("noise_level") if isinstance(g.get("noise_level"), list) else []
+            e = g.get("gradient_energy") if isinstance(g.get("gradient_energy"), list) else []
+            gf = g.get("G_f_c") if isinstance(g.get("G_f_c"), list) else []
+            eval_by_ch[ch] = {
+                "global_weight": _eval_weights([float(x) for x in gf if isinstance(x, (int, float, np.number))]),
+                "noise": _eval_timeseries(f"{ch} noise σ_f", [float(x) for x in n if isinstance(x, (int, float, np.number))]),
+                "background": _eval_timeseries(f"{ch} background B_f", [float(x) for x in b if isinstance(x, (int, float, np.number))]),
+                "gradient": _eval_timeseries(f"{ch} gradient E_f", [float(x) for x in e if isinstance(x, (int, float, np.number))]),
+            }
+
+        _update_report_metrics(
+            artifacts_dir,
+            {
+                "artifacts": {
+                    "global_weight_timeseries.png": {
+                        "phase": "GLOBAL_METRICS",
+                        "evaluations": eval_by_ch,
+                    },
+                    "global_weight_hist.png": {
+                        "phase": "GLOBAL_METRICS",
+                        "evaluations": eval_by_ch,
+                    },
+                }
+            },
+        )
+    except Exception:
+        pass
+
     phase_id = 5
     phase_name = "TILE_GRID"
     if should_skip_phase(phase_id):
@@ -1656,6 +1918,43 @@ def run_phases_impl(
     except Exception:
         pass
     del rep
+
+    try:
+        _update_report_metrics(
+            artifacts_dir,
+            {
+                "artifacts": {
+                    "tile_grid.json": {
+                        "phase": "TILE_GRID",
+                        "data": {"grid_cfg": grid_cfg, "v3_grid_cfg": v3_grid_cfg},
+                        "evaluations": {
+                            "grid_cfg": [json.dumps(grid_cfg, ensure_ascii=False)],
+                        },
+                    }
+                }
+            },
+        )
+    except Exception:
+        pass
+
+    try:
+        overlay_eval = [f"tile_size={grid_cfg.get('tile_size')}", f"overlap_px={grid_cfg.get('overlap_px')}", f"step_size={grid_cfg.get('step_size')}" ]
+        _update_report_metrics(
+            artifacts_dir,
+            {
+                "artifacts": {
+                    **{
+                        f"tile_grid_overlay_{ch}.png": {
+                            "phase": "TILE_GRID",
+                            "evaluations": overlay_eval,
+                        }
+                        for ch in ("R", "G", "B")
+                    }
+                }
+            },
+        )
+    except Exception:
+        pass
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"grid_cfg": grid_cfg, "fwhm_estimated": fwhm})
 
     phase_id = 6
@@ -1758,6 +2057,65 @@ def run_phases_impl(
 
     try:
         _write_tile_quality_heatmaps(artifacts_dir, channel_metrics, grid_cfg, (h0, w0))
+    except Exception:
+        pass
+
+    try:
+        lm_art: dict[str, Any] = {}
+        tile_size_hm = int(grid_cfg.get("tile_size") or 0)
+        step_size_hm = int(grid_cfg.get("step_size") or 0)
+        if tile_size_hm > 0 and step_size_hm > 0:
+            n_tiles_y = max(1, (h0 - tile_size_hm) // step_size_hm + 1)
+            n_tiles_x = max(1, (w0 - tile_size_hm) // step_size_hm + 1)
+            n_tiles = n_tiles_y * n_tiles_x
+            for ch in ("R", "G", "B"):
+                q_local = channel_metrics.get(ch, {}).get("tiles", {}).get("Q_local", [])
+                l_local = channel_metrics.get(ch, {}).get("tiles", {}).get("L_local", [])
+                if not q_local:
+                    continue
+                a = np.asarray(q_local, dtype=np.float32)
+                if a.ndim != 2 or a.shape[1] != n_tiles:
+                    continue
+                mean_q = [float(x) for x in np.mean(a, axis=0).tolist()]
+                var_q = [float(x) for x in np.var(a, axis=0).tolist()]
+                ev_mean_q = _basic_stats(mean_q)
+                ev_var_q = _basic_stats(var_q)
+                lm_art[f"tile_quality_heatmap_{ch}.png"] = {
+                    "phase": "LOCAL_METRICS",
+                    "evaluations": [
+                        f"tiles={n_tiles} (x={n_tiles_x}, y={n_tiles_y})",
+                        f"mean(Q_local): median={float(ev_mean_q.get('median') or 0.0):.3g}, min={float(ev_mean_q.get('min') or 0.0):.3g}, max={float(ev_mean_q.get('max') or 0.0):.3g}",
+                    ],
+                }
+                lm_art[f"tile_quality_var_heatmap_{ch}.png"] = {
+                    "phase": "LOCAL_METRICS",
+                    "evaluations": [
+                        f"tiles={n_tiles} (x={n_tiles_x}, y={n_tiles_y})",
+                        f"var(Q_local): median={float(ev_var_q.get('median') or 0.0):.3g}, max={float(ev_var_q.get('max') or 0.0):.3g}",
+                    ],
+                }
+
+                if l_local:
+                    larr = np.asarray(l_local, dtype=np.float32)
+                    if larr.ndim == 2 and larr.shape[1] == n_tiles:
+                        mean_l = [float(x) for x in np.mean(larr, axis=0).tolist()]
+                        var_l = [float(x) for x in np.var(larr, axis=0).tolist()]
+                        ev_mean_l = _basic_stats(mean_l)
+                        ev_var_l = _basic_stats(var_l)
+                        lm_art[f"tile_weight_heatmap_{ch}.png"] = {
+                            "phase": "LOCAL_METRICS",
+                            "evaluations": [
+                                f"mean(L_local): median={float(ev_mean_l.get('median') or 0.0):.3g}, min={float(ev_mean_l.get('min') or 0.0):.3g}, max={float(ev_mean_l.get('max') or 0.0):.3g}",
+                            ],
+                        }
+                        lm_art[f"tile_weight_var_heatmap_{ch}.png"] = {
+                            "phase": "LOCAL_METRICS",
+                            "evaluations": [
+                                f"var(L_local): median={float(ev_var_l.get('median') or 0.0):.3g}, max={float(ev_var_l.get('max') or 0.0):.3g}",
+                            ],
+                        }
+        if lm_art:
+            _update_report_metrics(artifacts_dir, {"artifacts": lm_art})
     except Exception:
         pass
 
@@ -1908,6 +2266,28 @@ def run_phases_impl(
                 fig.savefig(str(outp), dpi=200)
                 plt.close(fig)
 
+                try:
+                    ws = weight_sum.astype("float32", copy=False)
+                    ws1 = ws[np.isfinite(ws)]
+                    ws_stats = _basic_stats([float(x) for x in ws1.flatten().tolist()])
+                    low_frac = float(np.mean(low_weight_mask.astype(np.float32))) if low_weight_mask is not None else 0.0
+                    _update_report_metrics(
+                        artifacts_dir,
+                        {
+                            "artifacts": {
+                                f"reconstruction_weight_sum_{ch}.png": {
+                                    "phase": "TILE_RECONSTRUCTION",
+                                    "evaluations": [
+                                        f"low_weight_fraction={low_frac:.3g}",
+                                        f"weight_sum: median={float(ws_stats.get('median') or 0.0):.3g}, max={float(ws_stats.get('max') or 0.0):.3g}",
+                                    ],
+                                }
+                            }
+                        },
+                    )
+                except Exception:
+                    pass
+
                 fig, ax = plt.subplots(1, 1, figsize=(10, 6))
                 ax.imshow(_to_uint8(reconstructed[ch]), cmap="gray", interpolation="nearest")
                 ax.set_title(f"reconstructed preview ({ch})")
@@ -1916,6 +2296,24 @@ def run_phases_impl(
                 outp = artifacts_dir / f"reconstruction_preview_{ch}.png"
                 fig.savefig(str(outp), dpi=200)
                 plt.close(fig)
+
+                try:
+                    rstats = _basic_stats([float(x) for x in reconstructed[ch].astype("float32", copy=False).flatten().tolist()])
+                    _update_report_metrics(
+                        artifacts_dir,
+                        {
+                            "artifacts": {
+                                f"reconstruction_preview_{ch}.png": {
+                                    "phase": "TILE_RECONSTRUCTION",
+                                    "evaluations": [
+                                        f"reconstructed: median={float(rstats.get('median') or 0.0):.3g}, std={float(rstats.get('std') or 0.0):.3g}",
+                                    ],
+                                }
+                            }
+                        },
+                    )
+                except Exception:
+                    pass
 
                 n_vis = min(25, num_frames)
                 if n_vis > 0:
@@ -1936,6 +2334,25 @@ def run_phases_impl(
                     outp = artifacts_dir / f"reconstruction_absdiff_vs_mean_{ch}.png"
                     fig.savefig(str(outp), dpi=200)
                     plt.close(fig)
+
+                    try:
+                        dstats = _basic_stats([float(x) for x in diff.astype("float32", copy=False).flatten().tolist()])
+                        _update_report_metrics(
+                            artifacts_dir,
+                            {
+                                "artifacts": {
+                                    f"reconstruction_absdiff_vs_mean_{ch}.png": {
+                                        "phase": "TILE_RECONSTRUCTION",
+                                        "evaluations": [
+                                            f"absdiff: median={float(dstats.get('median') or 0.0):.3g}, max={float(dstats.get('max') or 0.0):.3g}",
+                                            f"n_vis={n_vis}",
+                                        ],
+                                    }
+                                }
+                            },
+                        )
+                    except Exception:
+                        pass
             except Exception:
                 try:
                     plt.close("all")
@@ -2096,6 +2513,33 @@ def run_phases_impl(
     except Exception:
         pass
 
+    try:
+        cl_art: dict[str, Any] = {}
+        if isinstance(clustering_results, dict):
+            for ch in ("R", "G", "B"):
+                labels = None
+                if isinstance(clustering_results.get(ch), dict):
+                    labels = clustering_results.get(ch, {}).get("labels", clustering_results.get(ch, {}).get("cluster_labels"))
+                if labels is None:
+                    labels = clustering_results.get("labels", clustering_results.get("cluster_labels"))
+                if isinstance(labels, list) and labels:
+                    lab = np.asarray([int(x) for x in labels], dtype=np.int32)
+                    k = int(np.max(lab)) + 1 if lab.size else 0
+                    if k > 0:
+                        counts = np.bincount(lab, minlength=k)
+                        frac_max = float(np.max(counts) / float(np.sum(counts))) if np.sum(counts) > 0 else 0.0
+                        cl_art[f"clustering_summary_{ch}.png"] = {
+                            "phase": "STATE_CLUSTERING",
+                            "evaluations": [
+                                f"clusters={k}",
+                                f"largest_cluster_fraction={frac_max:.3g}",
+                            ],
+                        }
+        if cl_art:
+            _update_report_metrics(artifacts_dir, {"artifacts": cl_art})
+    except Exception:
+        pass
+
     phase_id = 9
     phase_name = "SYNTHETIC_FRAMES"
     if should_skip_phase(phase_id):
@@ -2253,6 +2697,10 @@ def run_phases_impl(
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
         phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+        try:
+            _ensure_report_metrics_complete(artifacts_dir)
+        except Exception:
+            pass
         return True
     
     phase_start(run_id, log_fp, phase_id, phase_name)
@@ -2446,8 +2894,23 @@ def run_phases_impl(
         if out_pngs:
             phase_progress(run_id, log_fp, phase_id, phase_name, 1, 1, {"quality_pngs": out_pngs})
     except Exception:
+        out_pngs = []
+
+    try:
+        qa_eval: dict[str, Any] = {}
+        eval_by_ch: dict[str, Any] = {}
+        for ch in ("R", "G", "B"):
+            g = channel_metrics.get(ch, {}).get("global", {}) if isinstance(channel_metrics.get(ch, {}), dict) else {}
+            gf = g.get("G_f_c") if isinstance(g.get("G_f_c"), list) else []
+            eval_by_ch[ch] = _eval_weights([float(x) for x in gf if isinstance(x, (int, float, np.number))])
+        qa_eval["quality_analysis_combined.png"] = {
+            "phase": "STACKING",
+            "evaluations": eval_by_ch,
+        }
+        _update_report_metrics(artifacts_dir, {"artifacts": qa_eval})
+    except Exception:
         pass
-    
+
     extra: Dict[str, Any] = {
         "siril": meta, 
         "method": stack_method, 
@@ -2462,6 +2925,10 @@ def run_phases_impl(
     phase_start(run_id, log_fp, phase_id, phase_name)
     if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
         return False
+    try:
+        _ensure_report_metrics_complete(artifacts_dir)
+    except Exception:
+        pass
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {})
 
     return True

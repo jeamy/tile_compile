@@ -2,7 +2,7 @@
 
 Quelle der Artefakte in diesem Run:
 
-- primär erzeugt unter: `/media/tc_ssd/20260109_223321_68ebfdd3/artifacts/`
+- primär erzeugt unter: `/tc_ssd/20260109_223321_68ebfdd3/artifacts/`
 - im Repo-Verzeichnis ist `doc/stats/data/` die kopierte Ausgabe (Run wurde offenbar auf SSD ausgelagert)
 
 Diese Seite erklärt **welche Daten** in den PNGs stecken und **wie du sie interpretierst**. Die Reihenfolge ist nach Pipeline-Phasen (siehe `runner/phases_impl.py`) sortiert.
@@ -216,7 +216,3 @@ Die LOCAL_METRICS Phase berechnet pro Frame und Tile `Q_local` und daraus `L_f,t
 
 ![](./quality_analysis_combined.png)
 
-## Hinweise zum Kopieren der Artefakte ins Repo
-
-Damit die Bilder in dieser Markdown-Seite angezeigt werden, müssen die Dateien aus
-`/media/tc_ssd/20260109_223321_68ebfdd3/artifacts/` nach `doc/stats/data/` kopiert werden.
