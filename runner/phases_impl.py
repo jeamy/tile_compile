@@ -98,6 +98,16 @@ def _extract_siril_error_reason(log_file: str | None) -> str | None:
     return None
 
 
+def _note_plotting_issue(artifacts_dir: Path, where: str, err: Exception) -> None:
+    try:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        fp = artifacts_dir / "plotting_issues.log"
+        with fp.open("a", encoding="utf-8", errors="replace") as f:
+            f.write(f"[{where}] {type(err).__name__}: {err}\n")
+    except Exception:
+        return
+
+
 def _write_quality_analysis_pngs(artifacts_dir: Path, channel_metrics: dict[str, dict[str, Any]]) -> list[str]:
     try:
         import matplotlib
@@ -105,7 +115,8 @@ def _write_quality_analysis_pngs(artifacts_dir: Path, channel_metrics: dict[str,
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import seaborn as sns
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "quality_analysis_import", e)
         return []
 
     def _vals(ch: str, *path: str) -> list[float]:
@@ -208,7 +219,8 @@ def _write_quality_analysis_pngs(artifacts_dir: Path, channel_metrics: dict[str,
         fig.savefig(str(outp), dpi=200)
         plt.close(fig)
         out_paths.append(str(outp))
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "quality_analysis_runtime", e)
         try:
             plt.close("all")
         except Exception:
@@ -228,7 +240,8 @@ def _write_registration_artifacts(
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "registration_import", e)
         return []
 
     out_paths: list[str] = []
@@ -308,7 +321,8 @@ def _write_registration_artifacts(
             plt.close(fig)
             out_paths.append(str(outp))
 
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "registration_runtime", e)
         try:
             plt.close("all")
         except Exception:
@@ -327,7 +341,8 @@ def _write_normalization_artifacts(
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "normalization_import", e)
         return []
 
     out_paths: list[str] = []
@@ -349,7 +364,8 @@ def _write_normalization_artifacts(
         fig.savefig(str(outp), dpi=200)
         plt.close(fig)
         out_paths.append(str(outp))
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "normalization_runtime", e)
         try:
             plt.close("all")
         except Exception:
@@ -368,7 +384,8 @@ def _write_global_metrics_artifacts(
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "global_metrics_import", e)
         return []
 
     out_paths: list[str] = []
@@ -406,7 +423,8 @@ def _write_global_metrics_artifacts(
         fig.savefig(str(outp), dpi=200)
         plt.close(fig)
         out_paths.append(str(outp))
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "global_metrics_runtime", e)
         try:
             plt.close("all")
         except Exception:
@@ -426,7 +444,8 @@ def _write_clustering_artifacts(
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "clustering_import", e)
         return []
 
     out_paths: list[str] = []
@@ -482,7 +501,8 @@ def _write_clustering_artifacts(
             plt.close(fig)
             out_paths.append(str(outp))
 
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "clustering_runtime", e)
         try:
             plt.close("all")
         except Exception:
@@ -503,7 +523,8 @@ def _write_tile_grid_pngs(
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "tile_grid_import", e)
         return []
 
     out_paths: list[str] = []
@@ -549,7 +570,8 @@ def _write_tile_grid_pngs(
         except Exception:
             pass
 
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "tile_grid_runtime", e)
         return out_paths
 
     return out_paths
@@ -566,7 +588,8 @@ def _write_tile_quality_heatmaps(
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "tile_heatmaps_import", e)
         return []
 
     out_paths: list[str] = []
@@ -651,7 +674,12 @@ def _write_tile_quality_heatmaps(
                     plt.close(fig)
                     out_paths.append(str(outp))
 
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "tile_heatmaps_runtime", e)
+        try:
+            plt.close("all")
+        except Exception:
+            pass
         return out_paths
 
     return out_paths
@@ -1426,25 +1454,25 @@ def run_phases_impl(
     # Use robust FWHM estimation across multiple frames
     fwhm_estimates = []
     try:
-        import cv2
-        for ch in ("R", "G", "B"):
-            if ch in rep:
-                img_u8 = _to_uint8(rep[ch])
-                # Detect stars using goodFeaturesToTrack
-                corners = cv2.goodFeaturesToTrack(img_u8, maxCorners=50, qualityLevel=0.01, minDistance=20)
-                if corners is not None and len(corners) > 3:
-                    # Estimate FWHM from star sizes (simplified: use gradient magnitude around stars)
-                    gy, gx = np.gradient(rep[ch].astype("float32", copy=False))
-                    grad_mag = np.sqrt(gx**2 + gy**2)
-                    for corner in corners[:20]:
-                        x, y = int(corner[0][0]), int(corner[0][1])
-                        if 10 < x < w0 - 10 and 10 < y < h0 - 10:
-                            patch = grad_mag[y-5:y+5, x-5:x+5]
-                            if patch.size > 0:
-                                # FWHM approximation from gradient spread
-                                fwhm_est = float(np.sum(patch > np.max(patch) * 0.5)) ** 0.5 * 2.0
-                                if 1.0 < fwhm_est < 50.0:
-                                    fwhm_estimates.append(fwhm_est)
+        if cv2 is not None:
+            for ch in ("R", "G", "B"):
+                if ch in rep:
+                    img_u8 = _to_uint8(rep[ch])
+                    # Detect stars using goodFeaturesToTrack
+                    corners = cv2.goodFeaturesToTrack(img_u8, maxCorners=50, qualityLevel=0.01, minDistance=20)
+                    if corners is not None and len(corners) > 3:
+                        # Estimate FWHM from star sizes (simplified: use gradient magnitude around stars)
+                        gy, gx = np.gradient(rep[ch].astype("float32", copy=False))
+                        grad_mag = np.sqrt(gx**2 + gy**2)
+                        for corner in corners[:20]:
+                            x, y = int(corner[0][0]), int(corner[0][1])
+                            if 10 < x < w0 - 10 and 10 < y < h0 - 10:
+                                patch = grad_mag[y-5:y+5, x-5:x+5]
+                                if patch.size > 0:
+                                    # FWHM approximation from gradient spread
+                                    fwhm_est = float(np.sum(patch > np.max(patch) * 0.5)) ** 0.5 * 2.0
+                                    if 1.0 < fwhm_est < 50.0:
+                                        fwhm_estimates.append(fwhm_est)
     except Exception:
         pass
     
