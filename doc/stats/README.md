@@ -5,7 +5,7 @@ Dieses Verzeichnis dokumentiert die im Runner generierten **PNG-Artefakte** (Plo
 ## Aufbau
 
 - `data/`:
-  - kopierte PNGs aus `data/` (bzw. aus dem tatsächlichen Arbeits-/SSD-Pfad, falls ausgelagert)
+  - kopierte PNGs aus einem run (bzw. aus dem tatsächlichen Arbeits-/SSD-Pfad, falls ausgelagert)
   - `README.md`: run-spezifische, phasen-sortierte Erklärung + eingebettete Bilder
 
 ## Namenskonventionen
