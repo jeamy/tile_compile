@@ -10,16 +10,16 @@ data:
   linear_required: true
 calibration:
   use_bias: false
-  use_dark: false
+  use_dark: true
   use_flat: false
   bias_use_master: false
   dark_use_master: false
   flat_use_master: false
   bias_dir: ''
-  darks_dir: ''
+  darks_dir: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/tele_exp_5_gain_60_bin_1_2026-01-10-13-37-20-011
   flats_dir: ''
   bias_master: ''
-  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_5.000000_gain_40_bin_1_stack_20.fits
+  dark_master: ''
   flat_master: ''
   pattern: '*.fit*'
 assumptions:

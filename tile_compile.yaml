@@ -22,11 +22,15 @@ data:
 
 calibration:
   use_bias: false
-  use_dark: false
+  use_dark: true
   use_flat: false
   bias_use_master: false
-  dark_use_master: false
+  dark_use_master: true
   flat_use_master: false
+  dark_auto_select: true
+  dark_match_exposure_tolerance_percent: 5.0
+  dark_match_use_temp: false
+  dark_match_temp_tolerance_c: 2.0
   bias_dir: ""
   darks_dir: ""
   flats_dir: ""
