@@ -14,7 +14,7 @@ from astropy.io import fits
 from .assumptions import get_assumptions_config, is_reduced_mode
 from .events import phase_start, phase_end, phase_progress, stop_requested
 from .fits_utils import is_fits_image_path, read_fits_float, fits_is_cfa, fits_get_bayerpat
-from .utils import safe_symlink_or_copy, pick_output_file
+from .utils import safe_symlink_or_copy, safe_hardlink_or_copy, pick_output_file
 from .calibration import build_master_mean, bias_correct_dark, prepare_flat, apply_calibration
 
 # Local - image processing (disk-based)
@@ -1154,7 +1154,7 @@ def run_phases_impl(
                 dst_name = reg_pattern.format(index=idx)
             except Exception:
                 dst_name = src.name
-            shutil.copy2(src, reg_out / dst_name)
+            safe_hardlink_or_copy(src, reg_out / dst_name)
             moved += 1
         phase_end(
             run_id,

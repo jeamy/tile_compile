@@ -6,6 +6,7 @@ General-purpose helpers for hashing, JSON serialization, file operations, etc.
 
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,16 @@ def safe_symlink_or_copy(src: Path, dst: Path) -> None:
         return
     try:
         dst.symlink_to(src.resolve())
+    except Exception:
+        shutil.copy2(src, dst)
+
+
+def safe_hardlink_or_copy(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists() or dst.is_symlink():
+        return
+    try:
+        os.link(str(src), str(dst))
     except Exception:
         shutil.copy2(src, dst)
 
