@@ -2592,47 +2592,43 @@ def run_phases_impl(
                 clustering_cfg = dict(clustering_cfg)
                 clustering_cfg["cluster_count_range"] = reduced_range
             
-            # DISK-BASED: Process ALL frames in chunks for clustering
-            chunk_size = 50  # ~15GB per chunk
             num_frames = len(channel_files.get("R", []))
-            total_chunks = max(1, (num_frames + chunk_size - 1) // chunk_size)
-            total_steps = max(1, total_chunks * 3 + 1)
+            total_ch = len([ch for ch in ("R", "G", "B") if channel_files.get(ch)])
+            total_steps = max(2, total_ch + 1)
             processed_steps = 0
-            
-            # Load and process all frames in chunks
-            all_frames_for_clustering = {"R": [], "G": [], "B": []}
-            
-            for chunk_start in range(0, num_frames, chunk_size):
-                chunk_end = min(chunk_start + chunk_size, num_frames)
-                
-                for ch in ("R", "G", "B"):
-                    for idx in range(chunk_start, chunk_end):
-                        if idx < len(channel_files[ch]):
-                            frame = fits.getdata(str(channel_files[ch][idx])).astype("float32", copy=False)
-                            all_frames_for_clustering[ch].append(frame)
 
-                    processed_steps += 1
-                    phase_progress(
-                        run_id,
-                        log_fp,
-                        phase_id,
-                        phase_name,
-                        processed_steps,
-                        total_steps,
-                        {
-                            "step": "load_frames",
-                            "channel": ch,
-                            "chunk": int(chunk_start // chunk_size) + 1,
-                            "chunks_total": total_chunks,
-                            "frames_total": num_frames,
-                        },
-                    )
-                    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-                        return False
-            
-            # Run clustering on all frames
-            clustering_results = cluster_channels(all_frames_for_clustering, channel_metrics, clustering_cfg)
-            del all_frames_for_clustering
+            phase_progress(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                processed_steps,
+                total_steps,
+                {"step": "cluster", "frames_total": num_frames},
+            )
+
+            # Provide lightweight placeholders to avoid loading FITS into RAM.
+            channels_for_clustering: Dict[str, List[np.ndarray]] = {}
+            for ch in ("R", "G", "B"):
+                n = len(channel_files.get(ch) or [])
+                if n <= 0:
+                    continue
+                placeholder = np.zeros((1, 1), dtype=np.float32)
+                channels_for_clustering[ch] = [placeholder] * n
+                processed_steps += 1
+                phase_progress(
+                    run_id,
+                    log_fp,
+                    phase_id,
+                    phase_name,
+                    processed_steps,
+                    total_steps,
+                    {"step": "cluster", "channel": ch, "frames_total": num_frames},
+                )
+                if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                    return False
+
+            clustering_results = cluster_channels(channels_for_clustering, channel_metrics, clustering_cfg)
 
             processed_steps = min(total_steps, processed_steps + 1)
             phase_progress(run_id, log_fp, phase_id, phase_name, processed_steps, total_steps, {"step": "cluster_done"})
@@ -2810,38 +2806,91 @@ def run_phases_impl(
                     labels = labels_sorted
 
                 cluster_ids = sorted(set(int(x) for x in labels))
-                sum_map: Dict[int, np.ndarray] = {}
-                wsum_map: Dict[int, float] = {}
+                sample = None
+                try:
+                    sample = fits.getdata(str(files[0])).astype("float32", copy=False)
+                    sample_bytes = int(sample.size) * 4
+                except Exception:
+                    sample_bytes = 0
+                finally:
+                    if sample is not None:
+                        del sample
 
-                total_n = max(1, len(files))
-                for idx, fp in enumerate(files):
-                    lab = int(labels[idx])
-                    w = float(weights[idx])
-                    if not np.isfinite(w) or w <= 0.0:
-                        continue
-                    frame = fits.getdata(str(fp)).astype("float32", copy=False)
-                    if lab not in sum_map:
-                        sum_map[lab] = np.zeros_like(frame, dtype=np.float32)
-                        wsum_map[lab] = 0.0
-                    sum_map[lab] += frame * w
-                    wsum_map[lab] += w
-                    del frame
-                    if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
-                        phase_progress(run_id, log_fp, phase_id, phase_name, idx + 1, total_n, {"channel": ch_name})
+                keep_all_acc = True
+                if sample_bytes > 0 and len(cluster_ids) > 0:
+                    est_bytes = int(sample_bytes) * int(len(cluster_ids))
+                    keep_all_acc = est_bytes <= 512 * 1024 * 1024
 
                 out_paths: list[Path] = []
-                for out_idx, lab in enumerate(cluster_ids, start=1):
-                    acc = sum_map.get(lab)
-                    wsum = float(wsum_map.get(lab) or 0.0)
-                    if acc is None or wsum <= 1e-12:
-                        continue
-                    syn = (acc / wsum).astype("float32", copy=False)
-                    outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
-                    fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
-                    out_paths.append(outp)
-                    del syn
-                sum_map.clear()
-                wsum_map.clear()
+                total_n = max(1, len(files))
+
+                if keep_all_acc:
+                    sum_map: Dict[int, np.ndarray] = {}
+                    wsum_map: Dict[int, float] = {}
+
+                    for idx, fp in enumerate(files):
+                        lab = int(labels[idx])
+                        w = float(weights[idx])
+                        if not np.isfinite(w) or w <= 0.0:
+                            continue
+                        frame = fits.getdata(str(fp)).astype("float32", copy=False)
+                        if lab not in sum_map:
+                            sum_map[lab] = np.zeros_like(frame, dtype=np.float32)
+                            wsum_map[lab] = 0.0
+                        sum_map[lab] += frame * w
+                        wsum_map[lab] += w
+                        del frame
+                        if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+                            phase_progress(run_id, log_fp, phase_id, phase_name, idx + 1, total_n, {"channel": ch_name})
+
+                    for out_idx, lab in enumerate(cluster_ids, start=1):
+                        acc = sum_map.get(lab)
+                        wsum = float(wsum_map.get(lab) or 0.0)
+                        if acc is None or wsum <= 1e-12:
+                            continue
+                        syn = (acc / wsum).astype("float32", copy=False)
+                        outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
+                        fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                        out_paths.append(outp)
+                        del syn
+                    sum_map.clear()
+                    wsum_map.clear()
+                else:
+                    total_clusters = max(1, len(cluster_ids))
+                    for out_idx, cluster_id in enumerate(cluster_ids, start=1):
+                        acc = None
+                        wsum = 0.0
+                        for idx, fp in enumerate(files):
+                            if int(labels[idx]) != int(cluster_id):
+                                continue
+                            w = float(weights[idx])
+                            if not np.isfinite(w) or w <= 0.0:
+                                continue
+                            frame = fits.getdata(str(fp)).astype("float32", copy=False)
+                            if acc is None:
+                                acc = np.zeros_like(frame, dtype=np.float32)
+                            acc += frame * w
+                            wsum += w
+                            del frame
+                            if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+                                phase_progress(
+                                    run_id,
+                                    log_fp,
+                                    phase_id,
+                                    phase_name,
+                                    idx + 1,
+                                    total_n,
+                                    {"channel": ch_name, "cluster": out_idx, "clusters_total": total_clusters},
+                                )
+
+                        if acc is None or wsum <= 1e-12:
+                            continue
+                        syn = (acc / wsum).astype("float32", copy=False)
+                        outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
+                        fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                        out_paths.append(outp)
+                        del syn, acc
+
                 return out_paths
 
             syn_r_paths = _synthetic_from_files("R")
