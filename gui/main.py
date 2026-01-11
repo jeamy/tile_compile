@@ -927,7 +927,7 @@ class MainWindow(QMainWindow):
 
         rr3 = QHBoxLayout()
         self.btn_start = QPushButton("Start")
-        self.btn_abort = QPushButton("Abort")
+        self.btn_abort = QPushButton("Stop")
         self.lbl_run = QLabel("idle")
         self.lbl_run.setObjectName("StatusLabel")
         rr3.addWidget(self.btn_start)
@@ -2116,8 +2116,8 @@ class MainWindow(QMainWindow):
     def _abort_run(self) -> None:
         if not self.runner.is_running():
             return
-        self._append_live("[ui] abort requested")
-        self.lbl_run.setText("aborting...")
+        self._append_live("[ui] stop requested")
+        self.lbl_run.setText("stopping...")
         self.runner.stop()
         self._update_controls()
 
