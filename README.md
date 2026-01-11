@@ -36,11 +36,54 @@ source .venv/bin/activate
 ./start_gui.sh
 ```
 
-In the GUI:
+## GUI workflow (recommended)
 
-- select input directory
-- optionally enable calibration and select bias/darks/flats (dir or master)
-- validate config, then run
+The GUI is organized into tabs. A typical end-to-end workflow looks like this:
+
+### 1) Scan
+
+- Pick an **Input dir** (your lights) and a file **pattern** (default `*.fit*`).
+- Click **Scan**.
+- Review what was detected (frame count, color mode hints).
+
+### 2) Select directories (optional calibration)
+
+If you want calibration (Bias/Darks/Flats), set it up before starting the run:
+
+- Enable **use_bias / use_dark / use_flat**.
+- Either select a **master** (`*_master`) or a **directory** (`*_dir`).
+- If you provide a directory and no master is set, Tile-Compile will build a master during the run.
+
+### 3) Configuration
+
+- Load `tile_compile.yaml` (or edit the YAML in the GUI).
+- Click **Validate config** to ensure the configuration is consistent.
+- Save if you want the file updated on disk.
+
+### 4) Assumptions
+
+- Use the **Assumptions** tab to apply opinionated defaults / heuristics.
+- Apply them to the config if desired.
+
+### 5) Run
+
+- Go to **Run** tab.
+- Set **Working dir** (where the GUI writes its effective config) and **Runs dir**.
+- Click **Start**.
+- Use **Stop** to terminate a running pipeline.
+
+### 6) Pipeline Progress
+
+- The **Pipeline Progress** tab shows the current phase and progress.
+- For phases with sub-steps, the progress bar shows the active substep (e.g. `calibrate_lights`, `cluster_frames`).
+
+### 7) Logs + Current run + Resume
+
+- The **Live log** tab shows the runner stdout stream.
+- The **Current run** tab lets you:
+  - refresh status/logs/artifacts
+  - inspect the current run dir
+  - **Resume from phase...** (re-run from a selected phase onward)
 
 ### 3) Run the CLI
 
@@ -83,6 +126,17 @@ Each run produces a self-contained directory structure (under `--runs-dir`), typ
   - PNGs and JSON diagnostics (quality plots, tile heatmaps, previews)
 - `work/`
   - intermediate work directories (e.g. Siril work dirs)
+
+### Common PNG artifacts
+
+The exact set depends on config and pipeline path, but typically you will find under `artifacts/`:
+
+- per-phase preview images (inputs/registered/reconstructed)
+- global and per-tile quality plots
+- tile heatmaps / weight maps
+- state clustering diagnostics (when enabled)
+
+Open `artifacts/report.html` for a clickable overview that links to the generated PNG/JSON files.
 
 For detailed explanations of the artifacts/PNGs, see `doc/stats/`.
 
