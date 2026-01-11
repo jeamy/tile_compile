@@ -9,6 +9,11 @@ Die Tile-basierte Qualitätsrekonstruktion besteht aus zwei gleichwertigen Vorve
 │                    INPUT: OSC RAW FRAMES                        │
 └────────────────────┬────────────────────────────────────────────┘
                      │
+             ┌────────▼────────┐
+             │  Calibration     │
+             │  (Bias/Dark/Flat)│
+             └────────┬────────┘
+                      │
          ┌───────────┴───────────┐
          │                       │
     ┌────▼─────┐          ┌─────▼────┐
@@ -42,6 +47,22 @@ Die Tile-basierte Qualitätsrekonstruktion besteht aus zwei gleichwertigen Vorve
          │  R.fit / G.fit / B.fit │
          └───────────────────────┘
 ```
+
+## Calibration (Bias/Dark/Flat) – Einordnung
+
+Die Kalibrierung passiert im Runner vor der Registrierung in **SCAN_INPUT**.
+
+Wenn `calibration.use_bias/use_dark/use_flat` aktiv sind:
+
+- Master-Frames werden entweder aus `*_master` geladen oder aus `*_dir` erzeugt.
+- Erzeugte Master (falls gebaut) liegen unter:
+  - `runs/<run_id>/outputs/calibration/master_bias.fit`
+  - `runs/<run_id>/outputs/calibration/master_dark.fit`
+  - `runs/<run_id>/outputs/calibration/master_flat.fit`
+- Kalibrierte Lights werden geschrieben nach:
+  - `runs/<run_id>/outputs/calibrated/cal_XXXXX.fit`
+
+Ab **PATH A / PATH B** arbeiten die Schritte dann auf diesen **kalibrierten** Frames.
 
 ## Path A: Siril-basiert (Empfohlen)
 
