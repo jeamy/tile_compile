@@ -498,10 +498,11 @@ stacking:
 
   method:
     type: enum
-    values: [average]
-    const: average
-    editable: false
-    description: "Mandatory: linear average per Methodik v3"
+    values: [average, rej]
+    default: rej
+    required: true
+    editable: true
+    description: "Stacking method: average = plain linear mean; rej = sigma-clipping rejection then linear mean"
 
   input_dir:
     type: string
