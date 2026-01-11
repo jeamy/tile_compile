@@ -794,16 +794,25 @@ def _write_tile_quality_heatmaps(
         n_tiles = n_tiles_y * n_tiles_x
 
         for ch in ("R", "G", "B"):
-            q_local = channel_metrics.get(ch, {}).get("tiles", {}).get("Q_local", [])
-            l_local = channel_metrics.get(ch, {}).get("tiles", {}).get("L_local", [])
-            if not q_local:
-                continue
-            a = np.asarray(q_local, dtype=np.float32)
-            if a.ndim != 2 or a.shape[1] <= 0:
-                continue
-            if a.shape[1] != n_tiles:
-                continue
-            mean_per_tile = np.mean(a, axis=0)
+            tiles = channel_metrics.get(ch, {}).get("tiles", {})
+            q_mean_tile = tiles.get("Q_local_tile_mean")
+            q_var_tile = tiles.get("Q_local_tile_var")
+            l_mean_tile = tiles.get("L_local_tile_mean")
+            l_var_tile = tiles.get("L_local_tile_var")
+
+            if isinstance(q_mean_tile, list) and len(q_mean_tile) == n_tiles:
+                mean_per_tile = np.asarray(q_mean_tile, dtype=np.float32)
+            else:
+                q_local = tiles.get("Q_local", [])
+                if not q_local:
+                    continue
+                a = np.asarray(q_local, dtype=np.float32)
+                if a.ndim != 2 or a.shape[1] <= 0:
+                    continue
+                if a.shape[1] != n_tiles:
+                    continue
+                mean_per_tile = np.mean(a, axis=0)
+
             grid = mean_per_tile.reshape((n_tiles_y, n_tiles_x))
             fig, ax = plt.subplots(1, 1, figsize=(10, 6))
             im = ax.imshow(grid, cmap="magma", interpolation="nearest")
@@ -817,7 +826,16 @@ def _write_tile_quality_heatmaps(
             plt.close(fig)
             out_paths.append(str(outp))
 
-            var_per_tile = np.var(a, axis=0)
+            if isinstance(q_var_tile, list) and len(q_var_tile) == n_tiles:
+                var_per_tile = np.asarray(q_var_tile, dtype=np.float32)
+            else:
+                q_local = tiles.get("Q_local", [])
+                if not q_local:
+                    continue
+                a = np.asarray(q_local, dtype=np.float32)
+                if a.ndim != 2 or a.shape[1] != n_tiles:
+                    continue
+                var_per_tile = np.var(a, axis=0)
             grid_v = var_per_tile.reshape((n_tiles_y, n_tiles_x))
             fig, ax = plt.subplots(1, 1, figsize=(10, 6))
             im = ax.imshow(grid_v, cmap="viridis", interpolation="nearest")
@@ -831,24 +849,23 @@ def _write_tile_quality_heatmaps(
             plt.close(fig)
             out_paths.append(str(outp))
 
-            if l_local:
-                b = np.asarray(l_local, dtype=np.float32)
-                if b.ndim == 2 and b.shape[1] == n_tiles:
-                    mean_l = np.mean(b, axis=0)
-                    grid_l = mean_l.reshape((n_tiles_y, n_tiles_x))
-                    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-                    im = ax.imshow(grid_l, cmap="plasma", interpolation="nearest")
-                    ax.set_title(f"Tile mean L_local ({ch})")
-                    ax.set_xlabel("tile_x")
-                    ax.set_ylabel("tile_y")
-                    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-                    fig.tight_layout()
-                    outp = artifacts_dir / f"tile_weight_heatmap_{ch}.png"
-                    fig.savefig(str(outp), dpi=200)
-                    plt.close(fig)
-                    out_paths.append(str(outp))
+            if isinstance(l_mean_tile, list) and len(l_mean_tile) == n_tiles:
+                mean_l = np.asarray(l_mean_tile, dtype=np.float32)
+                grid_l = mean_l.reshape((n_tiles_y, n_tiles_x))
+                fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                im = ax.imshow(grid_l, cmap="plasma", interpolation="nearest")
+                ax.set_title(f"Tile mean L_local ({ch})")
+                ax.set_xlabel("tile_x")
+                ax.set_ylabel("tile_y")
+                fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                fig.tight_layout()
+                outp = artifacts_dir / f"tile_weight_heatmap_{ch}.png"
+                fig.savefig(str(outp), dpi=200)
+                plt.close(fig)
+                out_paths.append(str(outp))
 
-                    var_l = np.var(b, axis=0)
+                if isinstance(l_var_tile, list) and len(l_var_tile) == n_tiles:
+                    var_l = np.asarray(l_var_tile, dtype=np.float32)
                     grid_lv = var_l.reshape((n_tiles_y, n_tiles_x))
                     fig, ax = plt.subplots(1, 1, figsize=(10, 6))
                     im = ax.imshow(grid_lv, cmap="cividis", interpolation="nearest")
@@ -2137,6 +2154,9 @@ def run_phases_impl(
         overlap_i = overlap
     tile_calc = TileMetricsCalculator(tile_size=tile_size_i, overlap=overlap_i)
 
+    lm_work = work_dir / "local_metrics"
+    lm_work.mkdir(parents=True, exist_ok=True)
+
     lm_cfg = cfg.get("local_metrics") if isinstance(cfg.get("local_metrics"), dict) else {}
     star_mode = lm_cfg.get("star_mode") if isinstance(lm_cfg.get("star_mode"), dict) else {}
     star_w = star_mode.get("weights") if isinstance(star_mode.get("weights"), dict) else {}
@@ -2158,10 +2178,17 @@ def run_phases_impl(
     processed_frames = 0
     
     for ch in ("R", "G", "B"):
-        q_local: List[List[float]] = []
-        l_local: List[List[float]] = []  # Methodik v3 §3.4: L_f,t,c = exp(Q_local)
         q_mean: List[float] = []
         q_var: List[float] = []
+
+        ch_l_dir = lm_work / f"L_local_{ch}"
+        ch_l_dir.mkdir(parents=True, exist_ok=True)
+
+        tile_sum_q: Optional[np.ndarray] = None
+        tile_sumsq_q: Optional[np.ndarray] = None
+        tile_sum_l: Optional[np.ndarray] = None
+        tile_sumsq_l: Optional[np.ndarray] = None
+        tile_count = 0
         for f_idx, ch_file in enumerate(channel_files[ch]):
             f = fits.getdata(str(ch_file)).astype("float32", copy=False)
             tm = tile_calc.calculate_tile_metrics(f)
@@ -2192,21 +2219,54 @@ def run_phases_impl(
                 q = np.clip(q_raw, -3.0, 3.0)
                 # Methodik v3 §3.4: L_f,t,c = exp(Q_local)
                 l = np.exp(q).astype(np.float32, copy=False)
-            q_local.append([float(x) for x in q.tolist()])
-            l_local.append([float(x) for x in l.tolist()])
             q_mean.append(float(np.mean(q)) if q.size else 0.0)
             q_var.append(float(np.var(q)) if q.size else 0.0)
+
+            if q.size:
+                if tile_sum_q is None:
+                    tile_sum_q = np.zeros_like(q, dtype=np.float32)
+                    tile_sumsq_q = np.zeros_like(q, dtype=np.float32)
+                    tile_sum_l = np.zeros_like(l, dtype=np.float32)
+                    tile_sumsq_l = np.zeros_like(l, dtype=np.float32)
+                tile_sum_q += q
+                tile_sumsq_q += q * q
+                tile_sum_l += l
+                tile_sumsq_l += l * l
+                tile_count += 1
+
+                try:
+                    np.save(str(ch_l_dir / f"L_{f_idx+1:05d}.npy"), l.astype(np.float32, copy=False))
+                except Exception:
+                    pass
             del f
             
             processed_frames += 1
             if processed_frames % 5 == 0 or processed_frames == total_frames:
                 phase_progress(run_id, log_fp, phase_id, phase_name, processed_frames, total_frames, {"channel": ch})
 
+        q_tile_mean: list[float] = []
+        q_tile_var: list[float] = []
+        l_tile_mean: list[float] = []
+        l_tile_var: list[float] = []
+        if tile_sum_q is not None and tile_sumsq_q is not None and tile_count > 0:
+            q_mu = (tile_sum_q / float(tile_count)).astype(np.float32, copy=False)
+            q_v = (tile_sumsq_q / float(tile_count) - q_mu * q_mu).astype(np.float32, copy=False)
+            q_tile_mean = [float(x) for x in q_mu.tolist()]
+            q_tile_var = [float(x) for x in q_v.tolist()]
+        if tile_sum_l is not None and tile_sumsq_l is not None and tile_count > 0:
+            l_mu = (tile_sum_l / float(tile_count)).astype(np.float32, copy=False)
+            l_v = (tile_sumsq_l / float(tile_count) - l_mu * l_mu).astype(np.float32, copy=False)
+            l_tile_mean = [float(x) for x in l_mu.tolist()]
+            l_tile_var = [float(x) for x in l_v.tolist()]
+
         channel_metrics[ch]["tiles"] = {
-            "Q_local": q_local, 
-            "L_local": l_local,  # Methodik v3 §3.4: L_f,t,c = exp(Q_local)
             "tile_quality_mean": q_mean, 
-            "tile_quality_variance": q_var
+            "tile_quality_variance": q_var,
+            "L_local_files_dir": str(ch_l_dir),
+            "Q_local_tile_mean": q_tile_mean,
+            "Q_local_tile_var": q_tile_var,
+            "L_local_tile_mean": l_tile_mean,
+            "L_local_tile_var": l_tile_var,
         }
 
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i})
@@ -2225,17 +2285,19 @@ def run_phases_impl(
             n_tiles_x = max(1, (w0 - tile_size_hm) // step_size_hm + 1)
             n_tiles = n_tiles_y * n_tiles_x
             for ch in ("R", "G", "B"):
-                q_local = channel_metrics.get(ch, {}).get("tiles", {}).get("Q_local", [])
-                l_local = channel_metrics.get(ch, {}).get("tiles", {}).get("L_local", [])
-                if not q_local:
+                tiles = channel_metrics.get(ch, {}).get("tiles", {})
+                q_mean_tile = tiles.get("Q_local_tile_mean")
+                q_var_tile = tiles.get("Q_local_tile_var")
+                l_mean_tile = tiles.get("L_local_tile_mean")
+                l_var_tile = tiles.get("L_local_tile_var")
+
+                if not (isinstance(q_mean_tile, list) and len(q_mean_tile) == n_tiles):
                     continue
-                a = np.asarray(q_local, dtype=np.float32)
-                if a.ndim != 2 or a.shape[1] != n_tiles:
+                if not (isinstance(q_var_tile, list) and len(q_var_tile) == n_tiles):
                     continue
-                mean_q = [float(x) for x in np.mean(a, axis=0).tolist()]
-                var_q = [float(x) for x in np.var(a, axis=0).tolist()]
-                ev_mean_q = _basic_stats(mean_q)
-                ev_var_q = _basic_stats(var_q)
+
+                ev_mean_q = _basic_stats([float(x) for x in q_mean_tile])
+                ev_var_q = _basic_stats([float(x) for x in q_var_tile])
                 lm_art[f"tile_quality_heatmap_{ch}.png"] = {
                     "phase": "LOCAL_METRICS",
                     "evaluations": [
@@ -2251,25 +2313,21 @@ def run_phases_impl(
                     ],
                 }
 
-                if l_local:
-                    larr = np.asarray(l_local, dtype=np.float32)
-                    if larr.ndim == 2 and larr.shape[1] == n_tiles:
-                        mean_l = [float(x) for x in np.mean(larr, axis=0).tolist()]
-                        var_l = [float(x) for x in np.var(larr, axis=0).tolist()]
-                        ev_mean_l = _basic_stats(mean_l)
-                        ev_var_l = _basic_stats(var_l)
-                        lm_art[f"tile_weight_heatmap_{ch}.png"] = {
-                            "phase": "LOCAL_METRICS",
-                            "evaluations": [
-                                f"mean(L_local): median={float(ev_mean_l.get('median') or 0.0):.3g}, min={float(ev_mean_l.get('min') or 0.0):.3g}, max={float(ev_mean_l.get('max') or 0.0):.3g}",
-                            ],
-                        }
-                        lm_art[f"tile_weight_var_heatmap_{ch}.png"] = {
-                            "phase": "LOCAL_METRICS",
-                            "evaluations": [
-                                f"var(L_local): median={float(ev_var_l.get('median') or 0.0):.3g}, max={float(ev_var_l.get('max') or 0.0):.3g}",
-                            ],
-                        }
+                if isinstance(l_mean_tile, list) and len(l_mean_tile) == n_tiles and isinstance(l_var_tile, list) and len(l_var_tile) == n_tiles:
+                    ev_mean_l = _basic_stats([float(x) for x in l_mean_tile])
+                    ev_var_l = _basic_stats([float(x) for x in l_var_tile])
+                    lm_art[f"tile_weight_heatmap_{ch}.png"] = {
+                        "phase": "LOCAL_METRICS",
+                        "evaluations": [
+                            f"mean(L_local): median={float(ev_mean_l.get('median') or 0.0):.3g}, min={float(ev_mean_l.get('min') or 0.0):.3g}, max={float(ev_mean_l.get('max') or 0.0):.3g}",
+                        ],
+                    }
+                    lm_art[f"tile_weight_var_heatmap_{ch}.png"] = {
+                        "phase": "LOCAL_METRICS",
+                        "evaluations": [
+                            f"var(L_local): median={float(ev_var_l.get('median') or 0.0):.3g}, max={float(ev_var_l.get('max') or 0.0):.3g}",
+                        ],
+                    }
         if lm_art:
             _update_report_metrics(artifacts_dir, {"artifacts": lm_art})
     except Exception:
@@ -2303,7 +2361,10 @@ def run_phases_impl(
     channels_to_process = [ch for ch in ("R", "G", "B") if channel_files[ch]]
     for ch_idx, ch in enumerate(channels_to_process, start=1):
         gfc = np.asarray(channel_metrics[ch]["global"].get("G_f_c") or [], dtype=np.float32)
-        l_local = channel_metrics[ch].get("tiles", {}).get("L_local", [])
+        tiles = channel_metrics[ch].get("tiles", {})
+        l_local = tiles.get("L_local", [])
+        l_local_files_dir_s = tiles.get("L_local_files_dir")
+        l_local_files_dir = Path(str(l_local_files_dir_s)).resolve() if l_local_files_dir_s else None
         
         num_frames = len(channel_files[ch])
         
@@ -2323,8 +2384,9 @@ def run_phases_impl(
         # I_t,c(p) = Σ_f W_f,t,c · I_f,c(p) / Σ_f W_f,t,c
         
         # Check if we have tile-level weights
-        has_tile_weights = (l_local and len(l_local) == num_frames and 
-                           all(isinstance(ll, list) and len(ll) > 0 for ll in l_local))
+        has_tile_weights = (l_local and len(l_local) == num_frames and all(isinstance(ll, list) and len(ll) > 0 for ll in l_local))
+        if not has_tile_weights and l_local_files_dir is not None and l_local_files_dir.exists():
+            has_tile_weights = True
         
         if has_tile_weights and gfc.size == num_frames:
             # Full tile-based reconstruction (Methodik v3 §3.6)
@@ -2345,7 +2407,16 @@ def run_phases_impl(
             for f_idx, ch_file in enumerate(channel_files[ch]):
                 f = fits.getdata(str(ch_file)).astype("float32", copy=False)
                 g_f = float(gfc[f_idx]) if f_idx < gfc.size else 1.0
-                l_f = l_local[f_idx] if f_idx < len(l_local) else []
+                if l_local and f_idx < len(l_local):
+                    l_f = l_local[f_idx]
+                elif l_local_files_dir is not None:
+                    try:
+                        l_arr = np.load(str(l_local_files_dir / f"L_{f_idx+1:05d}.npy"))
+                        l_f = [float(x) for x in np.asarray(l_arr, dtype=np.float32).tolist()]
+                    except Exception:
+                        l_f = []
+                else:
+                    l_f = []
                 
                 # Process each tile
                 t_idx = 0
@@ -2592,47 +2663,43 @@ def run_phases_impl(
                 clustering_cfg = dict(clustering_cfg)
                 clustering_cfg["cluster_count_range"] = reduced_range
             
-            # DISK-BASED: Process ALL frames in chunks for clustering
-            chunk_size = 50  # ~15GB per chunk
             num_frames = len(channel_files.get("R", []))
-            total_chunks = max(1, (num_frames + chunk_size - 1) // chunk_size)
-            total_steps = max(1, total_chunks * 3 + 1)
+            total_ch = len([ch for ch in ("R", "G", "B") if channel_files.get(ch)])
+            total_steps = max(2, total_ch + 1)
             processed_steps = 0
-            
-            # Load and process all frames in chunks
-            all_frames_for_clustering = {"R": [], "G": [], "B": []}
-            
-            for chunk_start in range(0, num_frames, chunk_size):
-                chunk_end = min(chunk_start + chunk_size, num_frames)
-                
-                for ch in ("R", "G", "B"):
-                    for idx in range(chunk_start, chunk_end):
-                        if idx < len(channel_files[ch]):
-                            frame = fits.getdata(str(channel_files[ch][idx])).astype("float32", copy=False)
-                            all_frames_for_clustering[ch].append(frame)
 
-                    processed_steps += 1
-                    phase_progress(
-                        run_id,
-                        log_fp,
-                        phase_id,
-                        phase_name,
-                        processed_steps,
-                        total_steps,
-                        {
-                            "step": "load_frames",
-                            "channel": ch,
-                            "chunk": int(chunk_start // chunk_size) + 1,
-                            "chunks_total": total_chunks,
-                            "frames_total": num_frames,
-                        },
-                    )
-                    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-                        return False
-            
-            # Run clustering on all frames
-            clustering_results = cluster_channels(all_frames_for_clustering, channel_metrics, clustering_cfg)
-            del all_frames_for_clustering
+            phase_progress(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                processed_steps,
+                total_steps,
+                {"step": "cluster", "frames_total": num_frames},
+            )
+
+            # Provide lightweight placeholders to avoid loading FITS into RAM.
+            channels_for_clustering: Dict[str, List[np.ndarray]] = {}
+            for ch in ("R", "G", "B"):
+                n = len(channel_files.get(ch) or [])
+                if n <= 0:
+                    continue
+                placeholder = np.zeros((1, 1), dtype=np.float32)
+                channels_for_clustering[ch] = [placeholder] * n
+                processed_steps += 1
+                phase_progress(
+                    run_id,
+                    log_fp,
+                    phase_id,
+                    phase_name,
+                    processed_steps,
+                    total_steps,
+                    {"step": "cluster", "channel": ch, "frames_total": num_frames},
+                )
+                if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                    return False
+
+            clustering_results = cluster_channels(channels_for_clustering, channel_metrics, clustering_cfg)
 
             processed_steps = min(total_steps, processed_steps + 1)
             phase_progress(run_id, log_fp, phase_id, phase_name, processed_steps, total_steps, {"step": "cluster_done"})
@@ -2810,38 +2877,91 @@ def run_phases_impl(
                     labels = labels_sorted
 
                 cluster_ids = sorted(set(int(x) for x in labels))
-                sum_map: Dict[int, np.ndarray] = {}
-                wsum_map: Dict[int, float] = {}
+                sample = None
+                try:
+                    sample = fits.getdata(str(files[0])).astype("float32", copy=False)
+                    sample_bytes = int(sample.size) * 4
+                except Exception:
+                    sample_bytes = 0
+                finally:
+                    if sample is not None:
+                        del sample
 
-                total_n = max(1, len(files))
-                for idx, fp in enumerate(files):
-                    lab = int(labels[idx])
-                    w = float(weights[idx])
-                    if not np.isfinite(w) or w <= 0.0:
-                        continue
-                    frame = fits.getdata(str(fp)).astype("float32", copy=False)
-                    if lab not in sum_map:
-                        sum_map[lab] = np.zeros_like(frame, dtype=np.float32)
-                        wsum_map[lab] = 0.0
-                    sum_map[lab] += frame * w
-                    wsum_map[lab] += w
-                    del frame
-                    if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
-                        phase_progress(run_id, log_fp, phase_id, phase_name, idx + 1, total_n, {"channel": ch_name})
+                keep_all_acc = True
+                if sample_bytes > 0 and len(cluster_ids) > 0:
+                    est_bytes = int(sample_bytes) * int(len(cluster_ids))
+                    keep_all_acc = est_bytes <= 512 * 1024 * 1024
 
                 out_paths: list[Path] = []
-                for out_idx, lab in enumerate(cluster_ids, start=1):
-                    acc = sum_map.get(lab)
-                    wsum = float(wsum_map.get(lab) or 0.0)
-                    if acc is None or wsum <= 1e-12:
-                        continue
-                    syn = (acc / wsum).astype("float32", copy=False)
-                    outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
-                    fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
-                    out_paths.append(outp)
-                    del syn
-                sum_map.clear()
-                wsum_map.clear()
+                total_n = max(1, len(files))
+
+                if keep_all_acc:
+                    sum_map: Dict[int, np.ndarray] = {}
+                    wsum_map: Dict[int, float] = {}
+
+                    for idx, fp in enumerate(files):
+                        lab = int(labels[idx])
+                        w = float(weights[idx])
+                        if not np.isfinite(w) or w <= 0.0:
+                            continue
+                        frame = fits.getdata(str(fp)).astype("float32", copy=False)
+                        if lab not in sum_map:
+                            sum_map[lab] = np.zeros_like(frame, dtype=np.float32)
+                            wsum_map[lab] = 0.0
+                        sum_map[lab] += frame * w
+                        wsum_map[lab] += w
+                        del frame
+                        if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+                            phase_progress(run_id, log_fp, phase_id, phase_name, idx + 1, total_n, {"channel": ch_name})
+
+                    for out_idx, lab in enumerate(cluster_ids, start=1):
+                        acc = sum_map.get(lab)
+                        wsum = float(wsum_map.get(lab) or 0.0)
+                        if acc is None or wsum <= 1e-12:
+                            continue
+                        syn = (acc / wsum).astype("float32", copy=False)
+                        outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
+                        fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                        out_paths.append(outp)
+                        del syn
+                    sum_map.clear()
+                    wsum_map.clear()
+                else:
+                    total_clusters = max(1, len(cluster_ids))
+                    for out_idx, cluster_id in enumerate(cluster_ids, start=1):
+                        acc = None
+                        wsum = 0.0
+                        for idx, fp in enumerate(files):
+                            if int(labels[idx]) != int(cluster_id):
+                                continue
+                            w = float(weights[idx])
+                            if not np.isfinite(w) or w <= 0.0:
+                                continue
+                            frame = fits.getdata(str(fp)).astype("float32", copy=False)
+                            if acc is None:
+                                acc = np.zeros_like(frame, dtype=np.float32)
+                            acc += frame * w
+                            wsum += w
+                            del frame
+                            if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+                                phase_progress(
+                                    run_id,
+                                    log_fp,
+                                    phase_id,
+                                    phase_name,
+                                    idx + 1,
+                                    total_n,
+                                    {"channel": ch_name, "cluster": out_idx, "clusters_total": total_clusters},
+                                )
+
+                        if acc is None or wsum <= 1e-12:
+                            continue
+                        syn = (acc / wsum).astype("float32", copy=False)
+                        outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
+                        fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                        out_paths.append(outp)
+                        del syn, acc
+
                 return out_paths
 
             syn_r_paths = _synthetic_from_files("R")
