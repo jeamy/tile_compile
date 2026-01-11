@@ -1,9 +1,10 @@
 # Tile‑basierte Qualitätsrekonstruktion für DSO – Methodik v3
 
-**Status:** Normative Spezifikation (Single Source of Truth)  
-**Version:** v3.1 (2026-01-09)  
-**Ersetzt:** Methodik v2  
-**Ziel:** Klare, trennscharfe Abläufe für zwei zulässige Registrierungs‑ und Vorverarbeitungspfade
+**Status:** Referenzspezifikation (Single Source of Truth)
+**Version:** v3.1 (2026-01-09)
+**Ersetzt:** Methodik v2
+**Ziel:** Klare, eindeutige Workflows für zwei zulässige Registrierungs‑ und Vorverarbeitungspfade
+**Gilt für:** `tile_compile.proc` (Clean Break) + `tile_compile.yaml`
 
 ---
 
@@ -20,9 +21,22 @@ Ab **Phase 2 (Tile‑Erzeugung)** sind beide Pfade **identisch**.
 
 ---
 
-## 1. Invariante Grundannahmen (verbindlich)
+## 1. Ziel
 
-### 1.1 Harte Annahmen (Verstoß → Abbruch)
+Ziel ist es, aus vollständig registrierten, linearen Kurzzeit‑Frames astronomischer Deep‑Sky‑Objekte ein **räumlich und zeitlich optimal gewichtetes Signal** zu rekonstruieren.
+
+Die Methode modelliert explizit zwei orthogonale Einflüsse:
+
+* **globale atmosphärische Qualität** (Transparenz, Dunst, Hintergrunddrift)
+* **lokale seeing‑ und strukturgetriebene Qualität** (Schärfe, Detailtragfähigkeit)
+
+Es gibt **keine Frame‑Selektion**. Jeder Frame trägt gemäß seinem physikalischen Informationsgehalt bei.
+
+---
+
+## 2. Annahmen (verbindlich)
+
+### 2.1 Harte Annahmen (Verstoß → Abbruch)
 
 * Daten sind **linear** (kein Stretch, keine nichtlinearen Operatoren)
 * **keine Frame‑Selektion** (Artefakt‑Rejection auf Pixelebene erlaubt)
@@ -30,7 +44,7 @@ Ab **Phase 2 (Tile‑Erzeugung)** sind beide Pfade **identisch**.
 * Pipeline ist **streng linear**, ohne Rückkopplungen
 * Einheitliche Belichtungszeit (Toleranz: ±5%)
 
-### 1.2 Weiche Annahmen (mit Toleranzen)
+### 2.2 Weiche Annahmen (mit Toleranzen)
 
 | Annahme | Optimal | Minimum | Reduced Mode |
 |---------|---------|---------|---------------|
@@ -38,13 +52,13 @@ Ab **Phase 2 (Tile‑Erzeugung)** sind beide Pfade **identisch**.
 | Registrierungsresiduum | < 0.3 px | < 1.0 px | Warnung bei > 0.5 px |
 | Stern‑Elongation | < 0.2 | < 0.4 | Warnung bei > 0.3 |
 
-### 1.3 Implizite Annahmen (neu explizit)
+### 2.3 Implizite Annahmen (neu explizit)
 
 * Stabile optische Konfiguration (Fokus, Feldkrümmung)
 * Tracking‑Fehler < 1 Pixel pro Belichtung
 * Keine systematischen Drifts während der Session
 
-### 1.4 Reduced Mode (50–199 Frames)
+### 2.4 Reduced Mode (50–199 Frames)
 
 Bei Frame‑Anzahl unterhalb des Optimums aber oberhalb des Minimums:
 
@@ -80,7 +94,7 @@ Nur bei **kritischen** Fehlern (Datenintegrität verletzt) erfolgt ein Abbruch.
 
 ---
 
-## 2. Gesamtpipeline (v3, normativ)
+## 3. Gesamtpipeline (normativ)
 
 Gemeinsame abstrakte Pipeline:
 
@@ -100,7 +114,7 @@ Gemeinsame abstrakte Pipeline:
 
 ---
 
-# A. Siril‑basierter Pfad (Referenz, empfohlen)
+# A. Siril-basierter Pfad (Referenz, empfohlen)
 
 ## A.1 Zweck und Einordnung
 
@@ -144,7 +158,7 @@ Begründung:
 
 ---
 
-## A.3 Übergabepunkt an die Methodik
+## A.3 Übergabe an den gemeinsamen Kern
 
 Ab hier gelten **alle Regeln aus Methodik v2 unverändert**, jedoch **kanalweise**.
 
@@ -158,7 +172,7 @@ B_frames[f][x,y]
 
 ---
 
-# B. CFA‑basierter Pfad (optional, experimentell)
+# B. CFA-basierter Pfad (optional, experimentell)
 
 ## B.1 Zweck und Einordnung
 
@@ -210,9 +224,27 @@ Ergebnis:
 
 ## 3.1 Globale lineare Normalisierung (Pflicht)
 
+### Zweck
+
+Entkopplung photometrischer Transparenzschwankungen von Qualitätsmetriken.
+
+### Anforderungen
+
+* global
+* linear
 * exakt einmal
 * vor **jeder** Metrik (außer B_f, das für die Normalisierung benötigt wird)
 * getrennt pro Kanal
+
+### Zulässige Methoden
+
+* hintergrundbasierte Skalierung (maskiert, robust)
+* Fallback: Skalierung über globalen Median
+
+### Verboten
+
+* Histogramm‑Stretch
+* asinh / log
 
 **Reihenfolge (verbindlich):**
 
@@ -239,23 +271,34 @@ Pro Frame *f* und Kanal *c*:
 * σ_f,c – Rauschen (auf normalisierten Daten)
 * E_f,c – Gradientenergie (auf normalisierten Daten)
 
-Globaler Qualitätsindex:
+### Normalisierung
 
-```
-Q_f,c = α(-B̃) + β(-σ̃) + γẼ
-G_f,c = exp(Q_f,c)
-```
+Alle Metriken werden robust über **Median + MAD** skaliert.
 
-wobei B̃, σ̃, Ẽ die MAD-normalisierten Werte sind:
+Formal (für einen Metrikwert `x`):
 
-```
-x̃ = (x - median(x)) / (1.4826 · MAD(x))
-```
+[
+\tilde x = \frac{x - \mathrm{median}(x)}{1.4826 \cdot \mathrm{MAD}(x)}
+]
 
-Nebenbedingung (verbindlich):
+### Globaler Qualitätsindex
 
-* α + β + γ = 1
+[
+Q_{f,c} = \alpha(-\tilde B_{f,c}) + \beta(-\tilde\sigma_{f,c}) + \gamma\tilde E_{f,c}
+]
+
+mit:
+
+* α + β + γ = 1 (verbindlich)
 * Default: α = 0.4, β = 0.3, γ = 0.3
+
+`Q_f,c` wird auf **[−3, +3]** geklemmt, bevor `exp(·)` angewendet wird.
+
+### Globales Gewicht
+
+[
+G_{f,c} = \exp(Q_{f,c})
+]
 
 **Adaptive Gewichtung:**
 
@@ -289,20 +332,18 @@ Falls die Datencharakteristik stark von typischen Bedingungen abweicht, können 
 
 ```yaml
 global_metrics:
-  adaptive_weights: true  # Aktiviert dynamische Gewichtung
-  weights:                # Fallback-Werte
+  adaptive_weights: true
+  weights:
     background: 0.4
     noise: 0.3
     gradient: 0.3
 ```
 
-Stabilitätsregel:
-
-* `Q_f,c` wird auf **[−3, +3]** geklemmt, bevor `exp(·)` angewendet wird.
+**Semantik:** `G_f` kodiert ausschließlich globale atmosphärische Qualität.
 
 ---
 
-## 3.3 Tile‑Erzeugung (entscheidender Punkt)
+## 3.3 Tile‑Geometrie (seeing‑adaptiv)
 
 > **Tiles werden NACH Registrierung und Kanaltrennung erzeugt, aber VOR jeder Kombination.**
 
@@ -371,14 +412,18 @@ Für jedes Tile *t*, Frame *f*, Kanal *c*:
 **Lokaler Qualitätsindex (verbindlich):**
 
 Für Stern-Tiles:
-```
-Q_local[f,t,c] = w_fwhm · (-FWHM̃) + w_round · R̃ + w_con · C̃
-```
+
+[
+Q_{star} = 0.6,(−\widetilde{\mathrm{FWHM}}) + 0.2,\tilde R + 0.2,\tilde C
+]
+
+Dabei ist `FWHM̃` die per MAD normalisierte FWHM (Median+MAD), **ohne** `log(FWHM)`.
 
 Für Struktur-Tiles:
-```
-Q_local[f,t,c] = w_struct · (Ẽ/σ̃) + w_bg · (-B̃)
-```
+
+[
+Q_{struct} = 0.7,\widetilde{(E/\sigma)} − 0.3,\tilde B
+]
 
 Default-Gewichte:
 * Stern-Modus: w_fwhm = 0.6, w_round = 0.2, w_con = 0.2
@@ -386,26 +431,51 @@ Default-Gewichte:
 
 **Lokales Gewicht:**
 
-```
-Q_local wird auf [-3, +3] geklemmt
-L_f,t,c = exp(Q_local)
-```
+Alle lokalen Qualitätswerte werden auf **[−3, +3]** geklemmt.
+
+[
+L_{f,t} = \exp(Q_{local})
+]
 
 ---
 
 ## 3.5 Effektives Gewicht
 
-```
-W_f,t,c = G_f,c · L_f,t,c
-```
+[
+W_{f,t} = G_f \cdot L_{f,t}
+]
+
+`G_f` und `L_f,t` repräsentieren orthogonale Informationsachsen.
 
 ---
 
-## 3.6 Tile‑basierte Rekonstruktion (kanalweise)
+## 3.6 Tile‑Rekonstruktion
 
-```
-I_t,c(p) = Σ_f W_f,t,c · I_f,c(p) / Σ_f W_f,t,c
-```
+Für jedes Pixel *p* im Tile *t*:
+
+[
+I_t(p) = \frac{\sum_f W_{f,t} I_f(p)}{\sum_f W_{f,t}}
+]
+
+### Stabilitätsregeln
+
+Definiere den Nenner:
+
+[
+D_t = \sum_f W_{f,t}
+]
+
+mit einer kleinen Konstante `ε > 0`.
+
+* Wenn `D_t ≥ ε`: normale gewichtete Rekonstruktion.
+* Wenn `D_t < ε` (z. B. alle Gewichte numerisch ~0):
+  1. Rekonstruiere das Tile als **ungewichtetes Mittel** über **alle** Frames (keine Frame‑Selektion):
+
+     [
+     I_t(p) = \frac{1}{N}\sum_f I_f(p)
+     ]
+
+  2. Markiere das Tile als `fallback_used=true` (für Validierungs-/Abbruch‑Entscheidungen).
 
 **Overlap‑Add mit Fensterfunktion (verbindlich):**
 
@@ -423,20 +493,11 @@ Vor dem Overlap-Add wird jedes Tile normalisiert:
 
 Definiere den Nenner
 
-```
-D_t,c = Σ_f W_f,t,c
-```
-
 und die Stabilitätskonstante `ε = 1e-6`.
 
 * Wenn `D_t,c ≥ ε`: normale gewichtete Rekonstruktion.
 * Wenn `D_t,c < ε` (z. B. alle Gewichte numerisch ~0):
-  1. Rekonstruiere das Tile als **ungewichtetes Mittel** über **alle** Frames (kein Frame‑Selection):
-
-```
-I_t,c(p) = (1/N) · Σ_f I_f,c(p)
-```
-
+  1. Rekonstruiere das Tile als **ungewichtetes Mittel** über **alle** Frames (keine Frame‑Selektion):
   2. Markiere das Tile als `fallback_used=true` (für Validation/Abort‑Entscheidung).
 
 Anmerkung: Diese Fallbacks sind streng linear und verletzen nicht das „keine Frame‑Selektion“‑Prinzip.
@@ -445,12 +506,21 @@ Anmerkung: Diese Fallbacks sind streng linear und verletzen nicht das „keine F
 
 ## 3.7 Zustandsbasierte Clusterung
 
-* Clusterung der Frames (nicht Tiles)
-* Zustandsvektor:
+### Prinzip
 
-```
-v_f,c = (G_f,c, ⟨Q_local⟩, Var(Q_local), B_f,c, σ_f,c)
-```
+Ein synthetischer Frame repräsentiert einen **physikalisch kohärenten Beobachtungszustand**, nicht ein Zeitintervall.
+
+### Zustandsvektor
+
+Für jedes Frame *f*:
+
+[
+v_f = (G_f, \langle Q_{tile} \rangle, \mathrm{Var}(Q_{tile}), B_f, \sigma_f)
+]
+
+### Clusterung
+
+* Clusterung der **Frames**, nicht Tiles
 
 **Dynamische Cluster-Anzahl (verbindlich):**
 
@@ -473,15 +543,15 @@ Beispiele:
 
 ---
 
-## 3.8 Synthetische Frames & finales Stacking
+## 3.8 Synthetische Frames und finales Stacking
 
 **Synthetische Frames (verbindlich):**
 
 Für jeden Cluster *k* (aus §3.7) wird ein synthetischer Frame erzeugt:
 
-```
-S_k,c = Σ_{f∈Cluster_k} G_f,c · I_f,c / Σ_{f∈Cluster_k} G_f,c
-```
+[
+S_{k,c} = \frac{\sum_{f\in Cluster_k} G_{f,c} \cdot I_{f,c}}{\sum_{f\in Cluster_k} G_{f,c}}
+]
 
 wobei I_f,c die **Original-Frames** (nicht rekonstruiert) sind.
 
@@ -491,27 +561,19 @@ Ergebnis: 15–30 synthetische Frames pro Kanal (entsprechend der Cluster-Anzahl
 
 Die synthetischen Frames werden linear gestackt:
 
-```
-R_c = (1/K) · Σ_k S_k,c
-```
+[
+R_c = \frac{1}{K} \cdot \sum_k S_{k,c}
+]
 
 * lineares Stacking (ungewichtet)
 * **kein Drizzle**
 * **keine zusätzliche Gewichtung**
 
-Ergebnis:
-
-```
-Rekonstruktion_R.fit
-Rekonstruktion_G.fit
-Rekonstruktion_B.fit
-```
-
 ---
 
-## 4. Kombination (explizit außerhalb der Methodik)
+## 3.9 Kombination (explizit außerhalb der Methodik)
 
-RGB‑ oder LRGB‑Kombination ist:
+RGB- oder LRGB-Kombination ist:
 
 * **kein Teil** der Qualitätsrekonstruktion
 * ein separater, nachgelagerter Schritt
@@ -519,7 +581,33 @@ RGB‑ oder LRGB‑Kombination ist:
 
 ---
 
-## 4.1 Testfälle (normativ)
+## 4. Validierung und Abbruch
+
+### Erfolgskriterien
+
+* mediane FWHM ↓ ≥ 5–10%
+* Feldhomogenität ↑
+* Hintergrund‑RMS ≤ klassisches Stacking
+* keine systematischen Tile‑Artefakte
+
+### Abbruchkriterien
+
+* < 30% der **signaltragenden Tiles** verwendbar
+* sehr geringe Streuung der Tile‑Gewichte
+* sichtbare Tiling‑/Seam‑Artefakte
+* Verletzung der Normalisierungsregeln
+
+---
+
+## 5. Kernsatz
+
+Die Methode ersetzt die Suche nach „besten Frames“ durch eine **räumlich‑zeitliche Qualitätskarte** und nutzt jedes Informationsstück genau dort, wo es physikalisch gültig ist.
+
+Diese Spezifikation ist **normativ**. Abweichungen erfordern explizite Versionierung.
+
+---
+
+## 6. Testfälle (normativ)
 
 Die folgenden Testfälle sind verbindlich. Ein Run gilt nur dann als methodikkonform, wenn diese Tests (automatisiert oder nachvollziehbar manuell) erfüllt sind.
 
@@ -554,18 +642,7 @@ Die folgenden Testfälle sind verbindlich. Ein Run gilt nur dann als methodikkon
 
 ---
 
-## 5. Kernaussage v3
-
-* Registrierungspfad ist **austauschbar** (Siril oder CFA)
-* Qualitäts‑ und Rekonstruktionslogik ist **einheitlich**
-* Tiles sind **kanalrein und lokal bewertet**
-* Kombination erfolgt **erst nach Abschluss der Methodik**
-
-Diese Spezifikation ist **normativ**. Abweichungen erfordern explizite Versionierung.
-
----
-
-## 6. Änderungshistorie
+## 7. Änderungshistorie
 
 | Datum | Version | Änderungen |
 |-------|---------|------------|
@@ -577,3 +654,373 @@ Diese Spezifikation ist **normativ**. Abweichungen erfordern explizite Versionie
 | 2026-01-09 | v3.1 | Hanning-Fensterfunktion und ε=1e-6 spezifiziert (§3.6) |
 | 2026-01-09 | v3.1 | Synthetische Frame-Formel explizit dokumentiert (§3.8) |
 | 2026-01-09 | v3.0 | Initiale v3 Spezifikation mit Pfad A/B |
+
+---
+
+## Anhang A – Implementierungsnotizen (nicht normativ, aber dringend empfohlen)
+
+Dieser Anhang präzisiert rechnerische und algorithmische Details, um **reproduzierbare, robuste Implementierungen** sicherzustellen. Er erweitert die Methodik ohne ihre Semantik zu ändern.
+
+### A.1 Hintergrundschätzung (global und lokal)
+
+**Ziel:** robuste Trennung von Signal und atmosphärischem Dunst.
+
+Empfohlenes Vorgehen:
+
+* grobe Objektmaske (z. B. Sigma‑Clip + Dilatation)
+* Hintergrund aus verbleibenden Pixeln berechnen
+* robuste Statistik (Median oder Biweight‑Location)
+
+Hinweis:
+
+> Der Hintergrund darf **keine strukturellen Gradienten** enthalten, die später in E oder E/σ einfließen.
+
+---
+
+### A.2 Rauschschätzung σ
+
+**Global:**
+
+* robuste Standardabweichung aus hintergrundmaskierten Pixeln
+* kein Smoothing vor der Schätzung
+
+**Lokal (Tile):**
+
+* gleiche Methode, aber auf Tile beschränkt
+* σ wird explizit als **Normalisierung** für Strukturmetriken verwendet
+
+---
+
+### A.3 Gradientenergie E
+
+**Empfohlene Definition:**
+
+E = mean(|∇I|²)
+
+Robustere Alternative:
+
+E = median(|∇I|²)
+
+Implementierungsnotizen:
+
+* Sobel‑ oder Scharr‑Operator
+* optional leichtes Pre‑Smoothing (σ ≤ 1 px), aber konsistent global & lokal
+* Randpixel verwerfen
+
+Wichtig:
+
+> Unterschiedliche Gradientdefinitionen ändern die Skala, **nicht** die Methodik – Skalierung wird durch MAD‑Normalisierung absorbiert.
+
+---
+
+### A.4 Sternauswahl für FWHM
+
+Empfohlene Kriterien:
+
+* SNR > Schwellwert
+* Elliptizität < 0.4
+* keine Sättigung
+
+FWHM:
+
+* Messung via PSF‑Fit oder Radialprofil
+* **kein** Log‑Transform; Verwendung der **MAD‑normalisierten FWHM** direkt als \widetilde{\mathrm{FWHM}}
+
+---
+
+### A.5 Normalisierung (Median + MAD)
+
+Für jede Metrik x:
+
+x̃ = (x − median(x)) / (1.4826 · MAD(x))
+
+Hinweise:
+
+* getrennt pro Metrik
+* getrennt für global vs lokal
+* Skalen nicht mischen
+
+---
+
+### A.6 Tile‑Normalisierung vor Overlap‑Add
+
+Vorgehen:
+
+1. lokalen Hintergrund schätzen und subtrahieren
+2. Tile auf gemeinsamen Median skalieren
+3. Fensterfunktion anwenden
+4. Overlap‑Add
+
+Guard:
+
+* wenn |median(tile_bgfree)| < ε_median, **nicht** skalieren (scale = 1.0)
+
+Ziel:
+
+* Patchwork‑Helligkeit vermeiden
+* Qualitätsmetriken nicht beeinflussen
+
+---
+
+### A.7 Clusterung
+
+Empfehlungen:
+
+* Standard: k‑means oder GMM
+* Feature‑Vektor standardisieren
+* mehrere Initialisierungen; beste Inertia/LLH wählen
+
+Warnung:
+
+> Zeitbasierte Clusterung ist **kein** Ersatz für Zustands‑Clusterung.
+
+---
+
+### A.8 Numerische Stabilität
+
+* ε im Nenner der Tile‑Rekonstruktion explizit setzen
+* exp(Q) clampen (z. B. Q ∈ [−3, 3])
+* Double‑Precision bevorzugen
+
+Empfohlene Defaults:
+
+* ε = 1e−6
+* ε_median = 1e−6
+
+---
+
+### A.9 Debug‑ und Diagnose‑Artefakte (empfohlen)
+
+Während der Entwicklung speichern:
+
+* Histogramme von Q_f und Q_local
+* 2D‑Maps der Tile‑Gewichte
+* Differenzbild rekonstruiert − klassisch
+
+Diese Artefakte sind nicht Teil der Produktion, aber essenziell für Verifikation.
+
+---
+
+## Anhang B – Validierungsplots (formal spezifiziert)
+
+Dieser Anhang definiert **verbindliche Validierungsartefakte**, um einen Run als **erfolgreich**, **grenzwertig** oder **fehlgeschlagen** einzustufen. Alle Plots müssen aus **produktionsrelevanten Daten** generiert werden.
+
+### B.1 FWHM‑Verteilung (vor / nach)
+
+**Typ:** Histogramm + Boxplot
+
+**Inputs:**
+
+* klassischer Referenzstack (oder Single Frames)
+* synthetische Qualitätsframes
+
+**Metriken:**
+
+* mediane FWHM
+* Interquartilsabstand
+
+**Akzeptanz:**
+
+* mediane FWHM‑Reduktion ≥ `validation.min_fwhm_improvement_percent`
+
+---
+
+### B.2 FWHM‑Feldkarte (2D)
+
+**Typ:** Heatmap über Bildkoordinaten
+
+**Inputs:**
+
+* lokale FWHM‑Messungen aus Stern‑Tiles
+
+**Ziel:**
+
+* Feldhomogenisierung
+* Reduktion von Rand‑Seeing/Rotationsartefakten
+
+**Warnsignal:**
+
+* harte Übergänge entlang Tile‑Grenzen
+
+---
+
+### B.3 Globaler Hintergrund vs Zeit
+
+**Typ:** Linienplot
+
+**Inputs:**
+
+* B_f (raw) = vor globaler Normalisierung (registrierte, aber noch nicht skalierten Frames)
+* effektiver Beitrag nach Gewichtung
+
+**Ziel:**
+
+* korrektes Down‑Weighting wolkiger Phasen
+
+---
+
+### B.4 Globale und lokale Gewichte über Zeit
+
+**Typ:** Scatter/Linie
+
+**Inputs:**
+
+* G_f
+* ⟨L_f,t⟩ pro Frame
+
+**Ziel:**
+
+* klare Trennung von Beobachtungszuständen
+
+---
+
+### B.5 Tile‑Gewichtsverteilung
+
+**Typ:** Histogramm
+
+**Inputs:**
+
+* W_f,t für alle Tiles
+
+**Akzeptanz:**
+
+* Varianz ≥ `validation.min_tile_weight_variance`
+
+---
+
+### B.6 Differenzbild
+
+**Typ:** Bild + Histogramm
+
+**Definition:**
+
+difference = Rekonstruktion − klassisches Stacking
+
+**Ziel:**
+
+* sichtbarer Detailgewinn
+* keine großskaligen systematischen Muster
+
+**Abbruch:**
+
+* periodische Tile‑Muster
+
+---
+
+### B.7 SNR vs Auflösung
+
+**Typ:** Scatter
+
+**Inputs:**
+
+* lokales SNR
+* lokale FWHM
+
+**Ziel:**
+
+* physikalisch plausibler Trade‑off
+* kein künstliches Überschärfen
+
+---
+
+## Anhang C – Komplexität und Performance‑Budget
+
+Dieser Anhang unterstützt Planung und Skalierung von Produktionsruns.
+
+### C.1 Rechenkomplexität (grobe Ordnung)
+
+Sei:
+
+* F = Anzahl Frames
+* T = Anzahl Tiles
+* P = Pixel pro Tile
+
+**Globale Metriken:** O(F · N_pixels)
+
+**Tile‑Analyse:** O(F · T · P)
+
+**Rekonstruktion:** O(T · F · P)
+
+Tile‑Analyse dominiert die Laufzeit.
+
+---
+
+### C.2 Speicherbedarf
+
+* ein Frame im RAM (float32): ~4 · W · H Bytes
+* Tile‑Puffer: ~T · P · sizeof(float)
+
+**Empfehlung:**
+
+* per Tile streamen
+* keine vollständige Frame‑Matrix im RAM halten
+
+---
+
+### C.3 I/O‑Strategie
+
+* Registrierung: ein Read/Write‑Durchlauf
+* Tile‑Analyse: sequentiellen Zugriff bevorzugen
+* synthetische Frames: explizit persistieren
+
+Vermeiden:
+
+* zufälligen Tile‑Zugriff auf rotierenden Platten
+
+---
+
+### C.4 Parallelisierung
+
+Geeignete Ebenen:
+
+* Tiles (embarrassingly parallel)
+* Frames innerhalb eines Tiles (optional)
+
+Hinweise:
+
+* globale Normalisierung ist pro Frame unabhängig und parallelisierbar (I/O kann limitieren)
+* Zustands‑Clusterung ist typischerweise nicht der Bottleneck; parallel optional
+
+Option: RabbitMQ‑basierte Parallelisierung
+
+Diese Option ist für spätere Implementierung vorgesehen und ermöglicht horizontale Skalierung über mehrere Worker.
+
+* Task‑Queue: RabbitMQ
+* Granularität:
+  * bevorzugt: **Tile‑Tasks** (ein Task = Tile t über alle Frames f)
+  * optional: Frame‑Tasks innerhalb eines Tiles (nur wenn lokale I/O schnell ist)
+* Ergebnisse:
+  * rekonstruiertes Tile‑Block + Summary‑Stats (z. B. ΣW, Tile‑Median nach Background‑Subtraktion)
+  * separater Kanal/Queue für Diagnose‑Artefakte
+* Aggregation:
+  * Master sammelt Tile‑Ergebnisse und führt deterministisches Overlap‑Add aus
+  * deterministische Seeds/Sortierung für Reproduzierbarkeit
+* Fehlertoleranz:
+  * idempotente Tasks (Tile kann neu berechnet werden)
+  * Dead‑Letter‑Queue für fehlgeschlagene Tiles
+
+---
+
+### C.5 Laufzeitabschätzung
+
+Für typische Werte:
+
+* F ≈ 1000
+* T ≈ 200–400
+* P ≈ (64–256)²
+
+Erwartung:
+
+* CPU (8–16 Cores): Stunden
+* GPU‑Beschleunigung: optional
+
+---
+
+### C.6 Abbruch bei Laufzeitlimit
+
+Die folgenden Limits sind verbindlich:
+
+* `runtime_limits.tile_analysis_max_factor_vs_stack`
+* `runtime_limits.hard_abort_hours`
+
+Bei Überschreitung: kontrollierter Abbruch.

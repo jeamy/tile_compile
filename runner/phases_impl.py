@@ -965,10 +965,15 @@ def run_phases_impl(
         else (project_root / "siril_register_osc.ssf").resolve()
     )
     stack_script_cfg = stacking_cfg.get("siril_script")
+    stack_method_cfg = str(stacking_cfg.get("method") or "")
+    stack_method = stack_method_cfg.strip().lower()
+    default_stack_script_name = "siril_stack_average.ssf"
+    if stack_method in ("rej", "rejection"):
+        default_stack_script_name = "siril_stack_rej.ssf"
     stack_script_path = (
         Path(str(stack_script_cfg)).expanduser().resolve()
         if isinstance(stack_script_cfg, str) and stack_script_cfg.strip()
-        else (project_root / "siril_stack_average.ssf").resolve()
+        else (project_root / default_stack_script_name).resolve()
     )
 
     if not (isinstance(reg_script_cfg, str) and reg_script_cfg.strip()):
@@ -978,7 +983,7 @@ def run_phases_impl(
                 reg_script_path = alt
     if not (isinstance(stack_script_cfg, str) and stack_script_cfg.strip()):
         if not stack_script_path.exists():
-            alt = (project_root / "siril_scripts" / "siril_stack_average.ssf").resolve()
+            alt = (project_root / "siril_scripts" / default_stack_script_name).resolve()
             if alt.exists():
                 stack_script_path = alt
 
@@ -989,8 +994,7 @@ def run_phases_impl(
     stack_input_pattern = str(stacking_cfg.get("input_pattern") or "reg_*.fit")
 
     stack_output_file = str(stacking_cfg.get("output_file") or "stacked.fit")
-    stack_method_cfg = str(stacking_cfg.get("method") or "")
-    stack_method = stack_method_cfg.strip().lower()
+    # stack_method was already parsed above to pick a default script.
 
     # Helper function to check if phase should be skipped during resume
     def should_skip_phase(phase_num: int) -> bool:

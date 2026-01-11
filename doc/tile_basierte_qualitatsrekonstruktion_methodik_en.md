@@ -269,6 +269,12 @@ For each registered, normalized frame *f*, compute:
 
 All metrics are robustly scaled using **median + MAD**.
 
+Formally (for a metric value `x`):
+
+[
+\tilde x = \frac{x - \mathrm{median}(x)}{1.4826 \cdot \mathrm{MAD}(x)}
+]
+
 ### Global quality score
 
 [
@@ -333,6 +339,8 @@ global_metrics:
 ---
 
 ## 3.3 Tile geometry (seeing‑adaptive)
+
+> Tiles are generated AFTER registration and channel split, but BEFORE any channel combination.
 
 ### FWHM estimation
 
@@ -399,7 +407,7 @@ For each tile *t* and each frame *f*:
 **Quality score (standard):**
 
 [
-Q_{star} = 0.6,(−\widetilde{\log(\mathrm{FWHM})}) + 0.2,\tilde R + 0.2,\tilde C
+Q_{star} = 0.6,(−\widetilde{\mathrm{FWHM}}) + 0.2,\tilde R + 0.2,\tilde C
 ]
 
 ### Case B – no stars in the tile
@@ -558,6 +566,16 @@ R_c = (1/K) · Σ_k S_k,c
 
 ---
 
+## 3.9 Combination (explicitly outside the methodology)
+
+RGB / LRGB combination is:
+
+- **not part** of tile-based quality reconstruction
+- a separate post-processing step
+- fully interchangeable
+
+---
+
 ## 4. Validation and abort
 
 ### Success criteria
@@ -616,6 +634,21 @@ The following test cases are mandatory. A run is methodology‑conform only if t
 8. **Determinism**
    - **Given**: identical inputs (frames + config)
    - **Then**: stable outputs within a defined numeric tolerance and identical tile geometry
+
+---
+
+## 7. Change history
+
+| Date | Version | Changes |
+|-------|---------|---------|
+| 2026-01-09 | v3.1 | Boundary checks for tile geometry (§3.3) |
+| 2026-01-09 | v3.1 | Dynamic cluster count K = clip(N/10, 5, 30) (§3.7) |
+| 2026-01-09 | v3.1 | Adaptive global weights as optional extension (§3.2) |
+| 2026-01-09 | v3.1 | Gradual degradation instead of hard abort (§2.4 / §4) |
+| 2026-01-09 | v3.1 | Explicit Q_local formula with MAD normalization (§3.4) |
+| 2026-01-09 | v3.1 | Hanning window function and ε=1e-6 specified (§3.6) |
+| 2026-01-09 | v3.1 | Synthetic frame formula explicitly documented (§3.8) |
+| 2026-01-09 | v3.0 | Initial v3 specification with path A/B |
 
 ---
 
@@ -686,7 +719,7 @@ Recommended criteria:
 FWHM:
 
 - measured via PSF fit or radial profile
-- apply **log(FWHM)** only after robust aggregation
+- do not apply a log transform; use **MAD-normalized FWHM** directly as \widetilde{\mathrm{FWHM}}
 
 ---
 
