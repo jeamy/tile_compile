@@ -324,7 +324,12 @@
       "required": ["engine", "method", "input_dir", "input_pattern", "output_file"],
       "properties": {
         "engine": { "type": "string", "enum": ["siril"] },
-        "method": { "type": "string", "const": "average" },
+        "method": {
+          "type": "string",
+          "enum": ["average", "rej"],
+          "default": "average",
+          "description": "Stacking method: 'average' for plain linear mean; 'rej' for sigma-clipping rejection followed by linear mean."
+        },
         "input_dir": { "type": "string", "minLength": 1 },
         "input_pattern": { "type": "string", "minLength": 1 },
         "output_file": { "type": "string", "minLength": 1 },

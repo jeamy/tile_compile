@@ -16,7 +16,7 @@ calibration:
   dark_use_master: false
   flat_use_master: false
   bias_dir: ''
-  darks_dir: /media/data/Astro/DwarfII/Astronomy/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/darks
+  darks_dir: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/tele_exp_1_gain_60_bin_1_2026-01-10-13-31-44-669
   flats_dir: ''
   bias_master: ''
   dark_master: ''

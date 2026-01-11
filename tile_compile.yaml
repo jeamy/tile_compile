@@ -108,9 +108,9 @@ reconstruction:
 
 stacking:
   engine: siril
-  method: average
-  input_dir: synthetic
-  input_pattern: "syn_*.fits"
+  method: rej
+  input_dir: registered
+  input_pattern: "reg_*.fit"
   output_file: stacked.fit
   siril_script: ""  # empty = use default script
 
