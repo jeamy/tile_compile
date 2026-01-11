@@ -310,7 +310,7 @@ class PhaseProgressWidget(QWidget):
         else:
             self.reduced_mode_label.setVisible(False)
 
-    def update_phase(self, phase_name: str, status: str, progress_current: int = 0, progress_total: int = 0):
+    def update_phase(self, phase_name: str, status: str, progress_current: int = 0, progress_total: int = 0, substep: str | None = None):
         phase_id = None
         for pid, pname, _ in METHODIK_V3_PHASES:
             if pname == phase_name:
@@ -336,11 +336,14 @@ class PhaseProgressWidget(QWidget):
             if progress_total > 0 and progress_current >= 0:
                 percent = int(100 * progress_current / progress_total)
                 progress_bar.setValue(percent)
-                progress_bar.setFormat(f"{progress_current}/{progress_total} ({percent}%)")
+                if substep:
+                    progress_bar.setFormat(f"{substep}: {progress_current}/{progress_total} ({percent}%)")
+                else:
+                    progress_bar.setFormat(f"{progress_current}/{progress_total} ({percent}%)")
                 progress_bar.setVisible(True)
             else:
                 progress_bar.setValue(0)
-                progress_bar.setFormat("running...")
+                progress_bar.setFormat(f"{substep}..." if substep else "running...")
                 progress_bar.setVisible(True)
         elif status_lower in ("ok", "success"):
             label.setText("ok")
@@ -652,6 +655,7 @@ class MainWindow(QMainWindow):
         root.addLayout(header)
 
         tabs = QTabWidget()
+        self.tabs = tabs
         root.addWidget(tabs, 1)
 
         def wrap_scroll(content: QWidget) -> QScrollArea:
@@ -696,6 +700,89 @@ class MainWindow(QMainWindow):
         
         scan_form.addRow("Input dir", input_row)
         scan_layout.addLayout(scan_form)
+
+        calib_box = QGroupBox("Calibration (Bias/Darks/Flats)")
+        calib_layout = QVBoxLayout(calib_box)
+        calib_layout.setContentsMargins(12, 12, 12, 12)
+        calib_layout.setSpacing(8)
+        calib_form = QFormLayout()
+        calib_form.setSpacing(8)
+        calib_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+
+        bias_row = QHBoxLayout()
+        self.cal_use_bias = QCheckBox("use")
+        self.cal_bias_dir = QLineEdit()
+        self.cal_bias_dir.setPlaceholderText("/path/to/bias")
+        self.btn_browse_bias_dir = QPushButton("Browse")
+        self.btn_browse_bias_dir.setFixedWidth(100)
+        bias_row.addWidget(self.cal_use_bias)
+        bias_row.addWidget(self.cal_bias_dir, 1)
+        bias_row.addWidget(self.btn_browse_bias_dir)
+        calib_form.addRow("Bias dir", bias_row)
+
+        biasm_row = QHBoxLayout()
+        self.cal_bias_use_master = QCheckBox("use master")
+        self.cal_bias_master = QLineEdit()
+        self.cal_bias_master.setPlaceholderText("/path/to/master_bias.fit (optional)")
+        self.btn_browse_bias_master = QPushButton("Browse")
+        self.btn_browse_bias_master.setFixedWidth(100)
+        biasm_row.addWidget(self.cal_bias_use_master)
+        biasm_row.addWidget(self.cal_bias_master, 1)
+        biasm_row.addWidget(self.btn_browse_bias_master)
+        calib_form.addRow("Bias master", biasm_row)
+
+        dark_row = QHBoxLayout()
+        self.cal_use_dark = QCheckBox("use")
+        self.cal_darks_dir = QLineEdit()
+        self.cal_darks_dir.setPlaceholderText("/path/to/darks")
+        self.btn_browse_darks_dir = QPushButton("Browse")
+        self.btn_browse_darks_dir.setFixedWidth(100)
+        dark_row.addWidget(self.cal_use_dark)
+        dark_row.addWidget(self.cal_darks_dir, 1)
+        dark_row.addWidget(self.btn_browse_darks_dir)
+        calib_form.addRow("Darks dir", dark_row)
+
+        darkm_row = QHBoxLayout()
+        self.cal_dark_use_master = QCheckBox("use master")
+        self.cal_dark_master = QLineEdit()
+        self.cal_dark_master.setPlaceholderText("/path/to/master_dark.fit (optional)")
+        self.btn_browse_dark_master = QPushButton("Browse")
+        self.btn_browse_dark_master.setFixedWidth(100)
+        darkm_row.addWidget(self.cal_dark_use_master)
+        darkm_row.addWidget(self.cal_dark_master, 1)
+        darkm_row.addWidget(self.btn_browse_dark_master)
+        calib_form.addRow("Dark master", darkm_row)
+
+        flat_row = QHBoxLayout()
+        self.cal_use_flat = QCheckBox("use")
+        self.cal_flats_dir = QLineEdit()
+        self.cal_flats_dir.setPlaceholderText("/path/to/flats")
+        self.btn_browse_flats_dir = QPushButton("Browse")
+        self.btn_browse_flats_dir.setFixedWidth(100)
+        flat_row.addWidget(self.cal_use_flat)
+        flat_row.addWidget(self.cal_flats_dir, 1)
+        flat_row.addWidget(self.btn_browse_flats_dir)
+        calib_form.addRow("Flats dir", flat_row)
+
+        flatm_row = QHBoxLayout()
+        self.cal_flat_use_master = QCheckBox("use master")
+        self.cal_flat_master = QLineEdit()
+        self.cal_flat_master.setPlaceholderText("/path/to/master_flat.fit (optional)")
+        self.btn_browse_flat_master = QPushButton("Browse")
+        self.btn_browse_flat_master.setFixedWidth(100)
+        flatm_row.addWidget(self.cal_flat_use_master)
+        flatm_row.addWidget(self.cal_flat_master, 1)
+        flatm_row.addWidget(self.btn_browse_flat_master)
+        calib_form.addRow("Flat master", flatm_row)
+
+        calib_layout.addLayout(calib_form)
+        self.calib_hint = QLabel(
+            "Hint: if 'use master' is unchecked, a master is built from the selected dir and written to outputs/calibration/master_*.fit"
+        )
+        self.calib_hint.setWordWrap(True)
+        self.calib_hint.setObjectName("StatusLabel")
+        calib_layout.addWidget(self.calib_hint)
+        scan_layout.addWidget(calib_box)
 
         row2 = QHBoxLayout()
         self.scan_frames_min = QSpinBox()
@@ -967,8 +1054,18 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
+        self._gui_state_save_timer = QTimer(self)
+        self._gui_state_save_timer.setSingleShot(True)
+        self._gui_state_save_timer.timeout.connect(self._save_gui_state_full)
+
         self.btn_scan.clicked.connect(self._scan)
         self.btn_browse_scan_dir.clicked.connect(self._browse_scan_dir)
+        self.btn_browse_bias_dir.clicked.connect(self._browse_bias_dir)
+        self.btn_browse_darks_dir.clicked.connect(self._browse_darks_dir)
+        self.btn_browse_flats_dir.clicked.connect(self._browse_flats_dir)
+        self.btn_browse_bias_master.clicked.connect(self._browse_bias_master)
+        self.btn_browse_dark_master.clicked.connect(self._browse_dark_master)
+        self.btn_browse_flat_master.clicked.connect(self._browse_flat_master)
         self.btn_confirm_color.clicked.connect(self._confirm_color)
 
         self.btn_cfg_load.clicked.connect(self._load_config)
@@ -993,8 +1090,32 @@ class MainWindow(QMainWindow):
         self.btn_resume_run.clicked.connect(self._resume_run)
         self.runs_table.cellClicked.connect(self._select_run)
 
+        self.tabs.currentChanged.connect(lambda *_: self._schedule_save_gui_state())
+
         self.scan_input_dir.editingFinished.connect(self._persist_last_input_dir_from_ui)
         self.input_dir.editingFinished.connect(self._persist_last_input_dir_from_ui)
+        self.working_dir.editingFinished.connect(lambda *_: self._schedule_save_gui_state())
+        self.runs_dir.editingFinished.connect(lambda *_: self._schedule_save_gui_state())
+        self.pattern.editingFinished.connect(lambda *_: self._schedule_save_gui_state())
+        self.dry_run.toggled.connect(lambda *_: self._schedule_save_gui_state())
+        self.scan_frames_min.valueChanged.connect(lambda *_: self._schedule_save_gui_state())
+        self.scan_with_checksums.toggled.connect(lambda *_: self._schedule_save_gui_state())
+        self.config_path.editingFinished.connect(lambda *_: self._schedule_save_gui_state())
+        self.logs_tail.valueChanged.connect(lambda *_: self._schedule_save_gui_state())
+        self.logs_filter.editingFinished.connect(lambda *_: self._schedule_save_gui_state())
+
+        self.cal_bias_dir.editingFinished.connect(self._persist_calibration_from_ui)
+        self.cal_darks_dir.editingFinished.connect(self._persist_calibration_from_ui)
+        self.cal_flats_dir.editingFinished.connect(self._persist_calibration_from_ui)
+        self.cal_bias_master.editingFinished.connect(self._persist_calibration_from_ui)
+        self.cal_dark_master.editingFinished.connect(self._persist_calibration_from_ui)
+        self.cal_flat_master.editingFinished.connect(self._persist_calibration_from_ui)
+        self.cal_use_bias.toggled.connect(lambda *_: self._persist_calibration_from_ui())
+        self.cal_use_dark.toggled.connect(lambda *_: self._persist_calibration_from_ui())
+        self.cal_use_flat.toggled.connect(lambda *_: self._persist_calibration_from_ui())
+        self.cal_bias_use_master.toggled.connect(lambda *_: self._persist_calibration_from_ui())
+        self.cal_dark_use_master.toggled.connect(lambda *_: self._persist_calibration_from_ui())
+        self.cal_flat_use_master.toggled.connect(lambda *_: self._persist_calibration_from_ui())
 
     def _append_live(self, text: str) -> None:
         self.live_log.appendPlainText(text)
@@ -1078,12 +1199,114 @@ class MainWindow(QMainWindow):
             self.scan_input_dir.setText(p)
             if not self.input_dir.text().strip():
                 self.input_dir.setText(p)
-            self._save_gui_state(last_input_dir=p)
+            self._schedule_save_gui_state()
+
+    def _browse_bias_dir(self) -> None:
+        start = self.cal_bias_dir.text().strip() or self.scan_input_dir.text().strip() or str(self.project_root)
+        p = QFileDialog.getExistingDirectory(self, "Select bias directory", start)
+        if p:
+            self.cal_bias_dir.setText(p)
+            self._persist_calibration_from_ui()
+
+    def _browse_darks_dir(self) -> None:
+        start = self.cal_darks_dir.text().strip() or self.scan_input_dir.text().strip() or str(self.project_root)
+        p = QFileDialog.getExistingDirectory(self, "Select darks directory", start)
+        if p:
+            self.cal_darks_dir.setText(p)
+            self._persist_calibration_from_ui()
+
+    def _browse_flats_dir(self) -> None:
+        start = self.cal_flats_dir.text().strip() or self.scan_input_dir.text().strip() or str(self.project_root)
+        p = QFileDialog.getExistingDirectory(self, "Select flats directory", start)
+        if p:
+            self.cal_flats_dir.setText(p)
+            self._persist_calibration_from_ui()
+
+    def _browse_bias_master(self) -> None:
+        start = self.cal_bias_master.text().strip() or str(self.project_root)
+        p, _ = QFileDialog.getOpenFileName(self, "Select master bias", start, "FITS Files (*.fit *.fits *.fts);;All Files (*)")
+        if p:
+            self.cal_bias_master.setText(p)
+            self._persist_calibration_from_ui()
+
+    def _browse_dark_master(self) -> None:
+        start = self.cal_dark_master.text().strip() or str(self.project_root)
+        p, _ = QFileDialog.getOpenFileName(self, "Select master dark", start, "FITS Files (*.fit *.fits *.fts);;All Files (*)")
+        if p:
+            self.cal_dark_master.setText(p)
+            self._persist_calibration_from_ui()
+
+    def _browse_flat_master(self) -> None:
+        start = self.cal_flat_master.text().strip() or str(self.project_root)
+        p, _ = QFileDialog.getOpenFileName(self, "Select master flat", start, "FITS Files (*.fit *.fits *.fts);;All Files (*)")
+        if p:
+            self.cal_flat_master.setText(p)
+            self._persist_calibration_from_ui()
+
+    def _collect_calibration_from_ui(self) -> dict[str, Any]:
+        use_bias = bool(self.cal_use_bias.isChecked())
+        use_dark = bool(self.cal_use_dark.isChecked())
+        use_flat = bool(self.cal_use_flat.isChecked())
+
+        bias_use_master = bool(self.cal_bias_use_master.isChecked())
+        dark_use_master = bool(self.cal_dark_use_master.isChecked())
+        flat_use_master = bool(self.cal_flat_use_master.isChecked())
+
+        bias_dir = self.cal_bias_dir.text().strip()
+        darks_dir = self.cal_darks_dir.text().strip()
+        flats_dir = self.cal_flats_dir.text().strip()
+        bias_master = self.cal_bias_master.text().strip()
+        dark_master = self.cal_dark_master.text().strip()
+        flat_master = self.cal_flat_master.text().strip()
+
+        if use_bias:
+            if bias_use_master:
+                bias_dir = ""
+            else:
+                bias_master = ""
+        if use_dark:
+            if dark_use_master:
+                darks_dir = ""
+            else:
+                dark_master = ""
+        if use_flat:
+            if flat_use_master:
+                flats_dir = ""
+            else:
+                flat_master = ""
+
+        return {
+            "use_bias": use_bias,
+            "use_dark": use_dark,
+            "use_flat": use_flat,
+            "bias_use_master": bias_use_master,
+            "dark_use_master": dark_use_master,
+            "flat_use_master": flat_use_master,
+            "bias_dir": bias_dir,
+            "darks_dir": darks_dir,
+            "flats_dir": flats_dir,
+            "bias_master": bias_master,
+            "dark_master": dark_master,
+            "flat_master": flat_master,
+            "pattern": "*.fit*",
+        }
+
+    def _effective_config_yaml_text(self) -> str:
+        yaml_text = self.config_yaml.toPlainText()
+        cfg_obj = yaml.safe_load(yaml_text) or {}
+        if not isinstance(cfg_obj, dict):
+            raise ValueError("config YAML root must be a mapping/object")
+        cfg_obj["calibration"] = self._collect_calibration_from_ui()
+        return yaml.dump(cfg_obj, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
     def _persist_last_input_dir_from_ui(self) -> None:
         p = self.scan_input_dir.text().strip() or self.input_dir.text().strip()
         if p:
-            self._save_gui_state(last_input_dir=p)
+            self._schedule_save_gui_state()
+
+    def _persist_calibration_from_ui(self) -> None:
+        self._schedule_save_gui_state()
+        self._update_controls()
 
     def _browse_input_dir(self) -> None:
         start = self.input_dir.text().strip() or self.scan_input_dir.text().strip() or str(self.project_root)
@@ -1092,7 +1315,7 @@ class MainWindow(QMainWindow):
             self.input_dir.setText(p)
             if not self.scan_input_dir.text().strip():
                 self.scan_input_dir.setText(p)
-            self._save_gui_state(last_input_dir=p)
+            self._schedule_save_gui_state()
 
     def _load_gui_state(self) -> None:
         def do():
@@ -1107,18 +1330,175 @@ class MainWindow(QMainWindow):
             state = res.get("state")
             if not isinstance(state, dict):
                 return
-            last = str(state.get("lastInputDir") or "").strip()
-            if last and not self.scan_input_dir.text().strip():
-                self.scan_input_dir.setText(last)
-            if last and not self.input_dir.text().strip():
-                self.input_dir.setText(last)
+            self._apply_gui_state(state)
 
         self._run_bg(do, ok)
 
-    def _save_gui_state(self, last_input_dir: str | None = None) -> None:
-        payload: dict[str, Any] = {}
-        if last_input_dir is not None:
-            payload["lastInputDir"] = last_input_dir
+    def _collect_gui_state(self) -> dict[str, Any]:
+        state: dict[str, Any] = {}
+        state["lastInputDir"] = self.scan_input_dir.text().strip() or self.input_dir.text().strip()
+        state["scanInputDir"] = self.scan_input_dir.text().strip()
+        state["inputDir"] = self.input_dir.text().strip()
+        state["workingDir"] = self.working_dir.text().strip()
+        state["runsDir"] = self.runs_dir.text().strip()
+        state["pattern"] = self.pattern.text().strip()
+        state["dryRun"] = bool(self.dry_run.isChecked())
+        state["scanFramesMin"] = int(self.scan_frames_min.value())
+        state["scanWithChecksums"] = bool(self.scan_with_checksums.isChecked())
+        state["confirmedColorMode"] = self.confirmed_color_mode
+        state["calibration"] = self._collect_calibration_from_ui()
+        state["configPath"] = self.config_path.text().strip()
+        state["configYaml"] = self.config_yaml.toPlainText()
+        state["configValidatedOk"] = bool(self.config_validated_ok)
+        state["assumptions"] = self.assumptions_widget.get_assumptions()
+        state["logsTail"] = int(self.logs_tail.value())
+        state["logsFilter"] = self.logs_filter.text().strip()
+        try:
+            state["activeTab"] = int(self.tabs.currentIndex())
+        except Exception:
+            state["activeTab"] = 0
+        return state
+
+    def _apply_gui_state(self, state: dict[str, Any]) -> None:
+        try:
+            self.tabs.blockSignals(True)
+            self.scan_input_dir.blockSignals(True)
+            self.input_dir.blockSignals(True)
+            self.working_dir.blockSignals(True)
+            self.runs_dir.blockSignals(True)
+            self.pattern.blockSignals(True)
+            self.dry_run.blockSignals(True)
+            self.scan_frames_min.blockSignals(True)
+            self.scan_with_checksums.blockSignals(True)
+            self.config_path.blockSignals(True)
+            self.config_yaml.blockSignals(True)
+            self.logs_tail.blockSignals(True)
+            self.logs_filter.blockSignals(True)
+            self.cal_use_bias.blockSignals(True)
+            self.cal_use_dark.blockSignals(True)
+            self.cal_use_flat.blockSignals(True)
+            self.cal_bias_use_master.blockSignals(True)
+            self.cal_dark_use_master.blockSignals(True)
+            self.cal_flat_use_master.blockSignals(True)
+            self.cal_bias_dir.blockSignals(True)
+            self.cal_darks_dir.blockSignals(True)
+            self.cal_flats_dir.blockSignals(True)
+            self.cal_bias_master.blockSignals(True)
+            self.cal_dark_master.blockSignals(True)
+            self.cal_flat_master.blockSignals(True)
+
+            scan_input_dir = str(state.get("scanInputDir") or "").strip()
+            input_dir = str(state.get("inputDir") or "").strip()
+            last = str(state.get("lastInputDir") or "").strip()
+            if scan_input_dir:
+                self.scan_input_dir.setText(scan_input_dir)
+            elif last and not self.scan_input_dir.text().strip():
+                self.scan_input_dir.setText(last)
+            if input_dir:
+                self.input_dir.setText(input_dir)
+            elif last and not self.input_dir.text().strip():
+                self.input_dir.setText(last)
+
+            self.working_dir.setText(str(state.get("workingDir") or "").strip() or str(self.project_root))
+            runs_dir = str(state.get("runsDir") or "").strip()
+            if runs_dir:
+                self.runs_dir.setText(runs_dir)
+            pattern = str(state.get("pattern") or "").strip()
+            if pattern:
+                self.pattern.setText(pattern)
+            self.dry_run.setChecked(bool(state.get("dryRun")))
+
+            try:
+                self.scan_frames_min.setValue(int(state.get("scanFramesMin") or self.scan_frames_min.value()))
+            except Exception:
+                pass
+            self.scan_with_checksums.setChecked(bool(state.get("scanWithChecksums")))
+
+            self.confirmed_color_mode = str(state.get("confirmedColorMode") or "").strip() or None
+            if self.confirmed_color_mode:
+                self.lbl_confirm_hint.setText(f"✓ Confirmed: {self.confirmed_color_mode}")
+                self.lbl_confirm_hint.setStyleSheet("color: green; font-weight: bold;")
+
+            cal = state.get("calibration") if isinstance(state.get("calibration"), dict) else {}
+            if isinstance(cal, dict):
+                self.cal_use_bias.setChecked(bool(cal.get("use_bias")))
+                self.cal_use_dark.setChecked(bool(cal.get("use_dark")))
+                self.cal_use_flat.setChecked(bool(cal.get("use_flat")))
+                self.cal_bias_use_master.setChecked(bool(cal.get("bias_use_master")))
+                self.cal_dark_use_master.setChecked(bool(cal.get("dark_use_master")))
+                self.cal_flat_use_master.setChecked(bool(cal.get("flat_use_master")))
+                self.cal_bias_dir.setText(str(cal.get("bias_dir") or "").strip())
+                self.cal_darks_dir.setText(str(cal.get("darks_dir") or "").strip())
+                self.cal_flats_dir.setText(str(cal.get("flats_dir") or "").strip())
+                self.cal_bias_master.setText(str(cal.get("bias_master") or "").strip())
+                self.cal_dark_master.setText(str(cal.get("dark_master") or "").strip())
+                self.cal_flat_master.setText(str(cal.get("flat_master") or "").strip())
+
+            cfg_path = str(state.get("configPath") or "").strip()
+            if cfg_path:
+                self.config_path.setText(cfg_path)
+
+            cfg_yaml = state.get("configYaml")
+            if isinstance(cfg_yaml, str) and cfg_yaml:
+                self.config_yaml.setPlainText(cfg_yaml)
+
+            self.config_validated_ok = bool(state.get("configValidatedOk"))
+            self.lbl_cfg.setText("validated" if self.config_validated_ok else "not validated")
+
+            assumptions = state.get("assumptions")
+            if isinstance(assumptions, dict):
+                self.assumptions_widget.set_assumptions(assumptions)
+
+            try:
+                self.logs_tail.setValue(int(state.get("logsTail") or self.logs_tail.value()))
+            except Exception:
+                pass
+            self.logs_filter.setText(str(state.get("logsFilter") or "").strip())
+
+            try:
+                tab_idx = int(state.get("activeTab") or 0)
+                if 0 <= tab_idx < self.tabs.count():
+                    self.tabs.setCurrentIndex(tab_idx)
+            except Exception:
+                pass
+
+        finally:
+            self.tabs.blockSignals(False)
+            self.scan_input_dir.blockSignals(False)
+            self.input_dir.blockSignals(False)
+            self.working_dir.blockSignals(False)
+            self.runs_dir.blockSignals(False)
+            self.pattern.blockSignals(False)
+            self.dry_run.blockSignals(False)
+            self.scan_frames_min.blockSignals(False)
+            self.scan_with_checksums.blockSignals(False)
+            self.config_path.blockSignals(False)
+            self.config_yaml.blockSignals(False)
+            self.logs_tail.blockSignals(False)
+            self.logs_filter.blockSignals(False)
+            self.cal_use_bias.blockSignals(False)
+            self.cal_use_dark.blockSignals(False)
+            self.cal_use_flat.blockSignals(False)
+            self.cal_bias_use_master.blockSignals(False)
+            self.cal_dark_use_master.blockSignals(False)
+            self.cal_flat_use_master.blockSignals(False)
+            self.cal_bias_dir.blockSignals(False)
+            self.cal_darks_dir.blockSignals(False)
+            self.cal_flats_dir.blockSignals(False)
+            self.cal_bias_master.blockSignals(False)
+            self.cal_dark_master.blockSignals(False)
+            self.cal_flat_master.blockSignals(False)
+
+        self._update_controls()
+
+    def _schedule_save_gui_state(self) -> None:
+        try:
+            self._gui_state_save_timer.start(500)
+        except Exception:
+            pass
+
+    def _save_gui_state_full(self) -> None:
+        payload = self._collect_gui_state()
 
         def do():
             wd = Path(self.project_root)
@@ -1128,11 +1508,22 @@ class MainWindow(QMainWindow):
 
         self._run_bg(do)
 
+    def closeEvent(self, event) -> None:
+        try:
+            payload = self._collect_gui_state()
+            wd = Path(self.project_root)
+            args = [self.constants["CLI"]["sub"]["SAVE_GUI_STATE"], "--stdin"]
+            self.backend.run_json(wd, args, stdin_text=json.dumps(payload, ensure_ascii=False), timeout_s=3.0)
+        except Exception:
+            pass
+        super().closeEvent(event)
+
     def _browse_working_dir(self) -> None:
         start = self.working_dir.text().strip() or str(self.project_root)
         p = QFileDialog.getExistingDirectory(self, "Select working directory", start)
         if p:
             self.working_dir.setText(p)
+            self._schedule_save_gui_state()
 
     def _browse_config(self) -> None:
         start = self.config_path.text().strip() or str(self.project_root)
@@ -1141,6 +1532,7 @@ class MainWindow(QMainWindow):
         p, _ = QFileDialog.getOpenFileName(self, "Select config YAML", start, "YAML Files (*.yaml *.yml);;All Files (*)")
         if p:
             self.config_path.setText(p)
+            self._schedule_save_gui_state()
 
     def _update_controls(self) -> None:
         needs_confirm = bool(self.last_scan and self.last_scan.get("requires_user_confirmation"))
@@ -1157,7 +1549,51 @@ class MainWindow(QMainWindow):
             blocked = "please confirm color mode"
         elif not self.config_validated_ok:
             blocked = "please validate config"
+        else:
+            cal = self._collect_calibration_from_ui()
+            if bool(cal.get("use_bias")):
+                if bool(cal.get("bias_use_master")) and not str(cal.get("bias_master") or "").strip():
+                    blocked = "calibration: bias enabled (master) but no bias_master set"
+                elif (not bool(cal.get("bias_use_master"))) and not str(cal.get("bias_dir") or "").strip():
+                    blocked = "calibration: bias enabled (dir) but no bias_dir set"
+            if not blocked and bool(cal.get("use_dark")):
+                if bool(cal.get("dark_use_master")) and not str(cal.get("dark_master") or "").strip():
+                    blocked = "calibration: dark enabled (master) but no dark_master set"
+                elif (not bool(cal.get("dark_use_master"))) and not str(cal.get("darks_dir") or "").strip():
+                    blocked = "calibration: dark enabled (dir) but no darks_dir set"
+            if not blocked and bool(cal.get("use_flat")):
+                if bool(cal.get("flat_use_master")) and not str(cal.get("flat_master") or "").strip():
+                    blocked = "calibration: flat enabled (master) but no flat_master set"
+                elif (not bool(cal.get("flat_use_master"))) and not str(cal.get("flats_dir") or "").strip():
+                    blocked = "calibration: flat enabled (dir) but no flats_dir set"
         self._start_blocked_reason = blocked
+
+        bias_on = bool(self.cal_use_bias.isChecked())
+        dark_on = bool(self.cal_use_dark.isChecked())
+        flat_on = bool(self.cal_use_flat.isChecked())
+
+        bias_master_on = bool(self.cal_bias_use_master.isChecked())
+        dark_master_on = bool(self.cal_dark_use_master.isChecked())
+        flat_master_on = bool(self.cal_flat_use_master.isChecked())
+
+        self.cal_bias_use_master.setEnabled(bias_on)
+        self.cal_dark_use_master.setEnabled(dark_on)
+        self.cal_flat_use_master.setEnabled(flat_on)
+
+        self.cal_bias_dir.setEnabled(bias_on and (not bias_master_on))
+        self.btn_browse_bias_dir.setEnabled(bias_on and (not bias_master_on))
+        self.cal_bias_master.setEnabled(bias_on and bias_master_on)
+        self.btn_browse_bias_master.setEnabled(bias_on and bias_master_on)
+
+        self.cal_darks_dir.setEnabled(dark_on and (not dark_master_on))
+        self.btn_browse_darks_dir.setEnabled(dark_on and (not dark_master_on))
+        self.cal_dark_master.setEnabled(dark_on and dark_master_on)
+        self.btn_browse_dark_master.setEnabled(dark_on and dark_master_on)
+
+        self.cal_flats_dir.setEnabled(flat_on and (not flat_master_on))
+        self.btn_browse_flats_dir.setEnabled(flat_on and (not flat_master_on))
+        self.cal_flat_master.setEnabled(flat_on and flat_master_on)
+        self.btn_browse_flat_master.setEnabled(flat_on and flat_master_on)
 
         is_running = self.runner.is_running()
         start_enabled = (not is_running) and (not blocked)
@@ -1182,11 +1618,13 @@ class MainWindow(QMainWindow):
         self.config_validated_ok = False
         self.lbl_cfg.setText("not validated")
         self._update_controls()
+        self._schedule_save_gui_state()
 
     def _on_assumptions_changed(self) -> None:
         if self._frame_count > 0:
             self.assumptions_widget.update_reduced_mode_status(self._frame_count)
         self._update_controls()
+        self._schedule_save_gui_state()
 
     def _apply_assumptions_to_config(self) -> None:
         self._append_live("[ui] apply assumptions to config")
@@ -1384,6 +1822,7 @@ class MainWindow(QMainWindow):
         else:
             self.lbl_confirm_hint.setText("")
             self.lbl_confirm_hint.setStyleSheet("")
+        self._schedule_save_gui_state()
         
         self._update_controls()
 
@@ -1521,7 +1960,7 @@ class MainWindow(QMainWindow):
             return
 
         input_dir = self.input_dir.text().strip() or self.scan_input_dir.text().strip()
-        config_path = self.config_path.text().strip() or "tile_compile.yaml"
+        _config_path_ui = self.config_path.text().strip() or "tile_compile.yaml"
         runs_dir = self.runs_dir.text().strip() or "runs"
         pattern = self.pattern.text().strip() or "*.fit*"
         dry_run = bool(self.dry_run.isChecked())
@@ -1538,9 +1977,29 @@ class MainWindow(QMainWindow):
         if self._frame_count > 0 and self._frame_count < threshold:
             self.phase_progress.set_reduced_mode(True, self._frame_count)
 
+        try:
+            eff_yaml = self._effective_config_yaml_text()
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Start failed", f"Cannot build effective config: {e}")
+            self.lbl_run.setText("error")
+            self._update_controls()
+            return
+
+        wd = Path(self.working_dir.text().strip() or str(self.project_root))
+        eff_dir = (wd / ".tile_compile" / "gui_configs")
+        eff_dir.mkdir(parents=True, exist_ok=True)
+        eff_config_path = (eff_dir / "effective_config.yaml").resolve()
+        try:
+            eff_config_path.write_text(eff_yaml, encoding="utf-8")
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.critical(self, "Start failed", f"Cannot write effective config: {e}")
+            self.lbl_run.setText("error")
+            self._update_controls()
+            return
+
         cmd = self._runner_cmd() + [
             "--config",
-            config_path,
+            str(eff_config_path),
             "--input-dir",
             input_dir,
             "--runs-dir",
@@ -1553,8 +2012,6 @@ class MainWindow(QMainWindow):
             cmd.append("--dry-run")
         if self.confirmed_color_mode:
             cmd.extend(["--color-mode-confirmed", self.confirmed_color_mode])
-
-        wd = Path(self.working_dir.text().strip() or str(self.project_root))
 
         try:
             proc = self.runner.start(cmd, wd)
@@ -1598,7 +2055,9 @@ class MainWindow(QMainWindow):
                                         phase_name = ev.get("phase_name", "")
                                         current = int(ev.get("current", 0))
                                         total = int(ev.get("total", 0))
-                                        self.phase_progress.update_phase(phase_name, "running", current, total)
+                                        substep = ev.get("substep")
+                                        substep_s = str(substep).strip() if isinstance(substep, str) and substep.strip() else None
+                                        self.phase_progress.update_phase(phase_name, "running", current, total, substep_s)
                                     elif ev_type == "phase_end":
                                         phase_name = ev.get("phase_name", "")
                                         status = str(ev.get("status") or "ok").lower()
@@ -1873,7 +2332,7 @@ class MainWindow(QMainWindow):
             self.phase_progress.reset()
             
             # Track last status for each phase
-            phase_status: dict[str, tuple[str, int, int]] = {}  # phase_name -> (status, current, total)
+            phase_status: dict[str, tuple[str, int, int, str | None]] = {}  # phase_name -> (status, current, total, substep)
             last_error_by_phase: dict[str, str] = {}
             
             for ev in events:
@@ -1883,19 +2342,28 @@ class MainWindow(QMainWindow):
                 phase_name = ev.get("phase_name", "")
                 if not phase_name:
                     continue
+
+                prev = phase_status.get(phase_name)
+                prev_status = prev[0] if prev else None
                 
                 if ev_type == "phase_start":
-                    phase_status[phase_name] = ("running", 0, 0)
+                    if prev_status in ("ok", "error", "skipped"):
+                        continue
+                    phase_status[phase_name] = ("running", 0, 0, None)
                 elif ev_type == "phase_progress":
+                    if prev_status in ("ok", "error", "skipped"):
+                        continue
                     current = int(ev.get("current", 0))
                     total = int(ev.get("total", 0))
-                    phase_status[phase_name] = ("running", current, total)
+                    substep = ev.get("substep")
+                    substep_s = str(substep).strip() if isinstance(substep, str) and substep.strip() else None
+                    phase_status[phase_name] = ("running", current, total, substep_s)
                 elif ev_type == "phase_end":
                     status = str(ev.get("status") or "ok").lower()
                     if status == "skipped":
-                        phase_status[phase_name] = ("skipped", 0, 0)
+                        phase_status[phase_name] = ("skipped", 0, 0, None)
                     elif status in ("ok", "success"):
-                        phase_status[phase_name] = ("ok", 0, 0)
+                        phase_status[phase_name] = ("ok", 0, 0, None)
                         # Check for fallback warnings
                         fallback_reason = ev.get("fallback_reason")
                         if fallback_reason:
@@ -1910,14 +2378,14 @@ class MainWindow(QMainWindow):
                                 if ev.get("used_reconstructed_fallback"):
                                     last_error_by_phase[phase_name] = "Using reconstructed frames (no synthetic frames available)"
                     else:
-                        phase_status[phase_name] = ("error", 0, 0)
+                        phase_status[phase_name] = ("error", 0, 0, None)
                         detail = str(ev.get("error") or "").strip()
                         if detail:
                             last_error_by_phase[phase_name] = detail
             
             # Apply final status to widget
-            for phase_name, (status, current, total) in phase_status.items():
-                self.phase_progress.update_phase(phase_name, status, current, total)
+            for phase_name, (status, current, total, substep_s) in phase_status.items():
+                self.phase_progress.update_phase(phase_name, status, current, total, substep_s)
 
             if last_error_by_phase:
                 phase_name = next(reversed(last_error_by_phase.keys()))
