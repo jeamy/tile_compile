@@ -1,8 +1,10 @@
 """Main pipeline implementation (Methodik v3)."""
 
 # Standard library
+import json
 import re
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -14,7 +16,8 @@ from astropy.io import fits
 from .assumptions import get_assumptions_config, is_reduced_mode
 from .events import phase_start, phase_end, phase_progress, stop_requested
 from .fits_utils import is_fits_image_path, read_fits_float, fits_is_cfa, fits_get_bayerpat
-from .utils import safe_symlink_or_copy, pick_output_file
+from .utils import safe_symlink_or_copy, safe_hardlink_or_copy, pick_output_file
+from .calibration import build_master_mean, bias_correct_dark, prepare_flat, apply_calibration
 
 # Local - image processing (disk-based)
 from .image_processing import (
@@ -98,6 +101,201 @@ def _extract_siril_error_reason(log_file: str | None) -> str | None:
     return None
 
 
+def _note_plotting_issue(artifacts_dir: Path, where: str, err: Exception) -> None:
+    try:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        fp = artifacts_dir / "plotting_issues.log"
+        with fp.open("a", encoding="utf-8", errors="replace") as f:
+            f.write(f"[{where}] {type(err).__name__}: {err}\n")
+    except Exception:
+        return
+
+
+def _deep_merge(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
+    for k, v in src.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            dst[k] = _deep_merge(dst[k], v)
+        else:
+            dst[k] = v
+    return dst
+
+
+def _flatten_evaluations(ev: Any) -> list[str]:
+    if ev is None:
+        return []
+    if isinstance(ev, list):
+        return [str(x) for x in ev if x is not None]
+    if isinstance(ev, dict):
+        out: list[str] = []
+        for _k, v in ev.items():
+            out.extend(_flatten_evaluations(v))
+        return out
+    return [str(ev)]
+
+
+def _infer_status_from_evaluations(ev: Any) -> str:
+    texts = _flatten_evaluations(ev)
+    s = "\n".join(texts).lower()
+    if any(k in s for k in ("error", "failed", "exception", "traceback")):
+        return "BAD"
+    if any(k in s for k in ("nan", "inf", "not finite")):
+        return "BAD"
+    if "warning" in s:
+        return "WARN"
+    if any(k in s for k in ("insufficient", "missing", "skipped", "fallback")):
+        return "WARN"
+    try:
+        m = re.search(r"low_weight_fraction=([0-9eE+\-\.]+)", s)
+        if m:
+            v = float(m.group(1))
+            if np.isfinite(v) and v >= 0.15:
+                return "WARN"
+    except Exception:
+        pass
+    return "OK"
+
+
+def _ensure_report_metrics_complete(artifacts_dir: Path) -> None:
+    try:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        p = artifacts_dir / "report_metrics.json"
+        cur: dict[str, Any] = {}
+        if p.exists() and p.is_file():
+            try:
+                obj = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+                if isinstance(obj, dict):
+                    cur = obj
+            except Exception:
+                cur = {}
+
+        art = cur.get("artifacts") if isinstance(cur.get("artifacts"), dict) else {}
+        if not isinstance(art, dict):
+            art = {}
+
+        patch_art: dict[str, Any] = {}
+        for fp in artifacts_dir.iterdir():
+            if not fp.is_file():
+                continue
+            suf = fp.suffix.lower()
+            if suf not in (".png", ".json"):
+                continue
+            fn = fp.name
+            entry = art.get(fn)
+            needs = False
+            if not isinstance(entry, dict):
+                needs = True
+            else:
+                ev = entry.get("evaluations")
+                if ev is None or ev == [] or ev == {}:
+                    needs = True
+            if not needs:
+                continue
+
+            eval_lines: list[str] = ["auto: artifact generated; no specific metrics recorded for this file"]
+            try:
+                eval_lines.append(f"size_bytes={int(fp.stat().st_size)}")
+            except Exception:
+                pass
+            patch_art[fn] = {
+                "phase": "DONE",
+                "evaluations": eval_lines,
+                "status": "WARN",
+            }
+
+        if patch_art:
+            _update_report_metrics(artifacts_dir, {"artifacts": patch_art})
+    except Exception:
+        return
+
+
+def _update_report_metrics(artifacts_dir: Path, patch: dict[str, Any]) -> None:
+    try:
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        p = artifacts_dir / "report_metrics.json"
+        cur: dict[str, Any] = {}
+        if p.exists() and p.is_file():
+            try:
+                obj = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+                if isinstance(obj, dict):
+                    cur = obj
+            except Exception:
+                cur = {}
+        if "version" not in cur:
+            cur["version"] = 1
+        if "generated_ts" not in cur:
+            cur["generated_ts"] = datetime.now(timezone.utc).isoformat()
+        _deep_merge(cur, patch)
+
+        try:
+            art = cur.get("artifacts") if isinstance(cur.get("artifacts"), dict) else None
+            if isinstance(art, dict):
+                for _fn, entry in art.items():
+                    if not isinstance(entry, dict):
+                        continue
+                    if entry.get("status") in ("OK", "WARN", "BAD"):
+                        continue
+                    if "evaluations" in entry:
+                        entry["status"] = _infer_status_from_evaluations(entry.get("evaluations"))
+        except Exception:
+            pass
+
+        cur["generated_ts"] = datetime.now(timezone.utc).isoformat()
+        p.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        return
+
+
+def _basic_stats(vals: list[float]) -> dict[str, float]:
+    if not vals:
+        return {"n": 0.0}
+    a = np.asarray(vals, dtype=np.float64)
+    a = a[np.isfinite(a)]
+    if a.size == 0:
+        return {"n": 0.0}
+    return {
+        "n": float(a.size),
+        "min": float(np.min(a)),
+        "max": float(np.max(a)),
+        "median": float(np.median(a)),
+        "mean": float(np.mean(a)),
+        "std": float(np.std(a)),
+    }
+
+
+def _eval_timeseries(label: str, vals: list[float]) -> list[str]:
+    s = _basic_stats(vals)
+    if int(s.get("n", 0.0)) <= 1:
+        return [f"{label}: insufficient data"]
+    med = float(s.get("median") or 0.0)
+    span = float(s.get("max") or 0.0) - float(s.get("min") or 0.0)
+    rel = (span / abs(med)) if med not in (0.0, -0.0) else float("inf")
+    out = [
+        f"{label}: median={med:.4g}, min={float(s.get('min') or 0.0):.4g}, max={float(s.get('max') or 0.0):.4g}",
+        f"{label}: span/|median|={rel:.3g}",
+    ]
+    if np.isfinite(rel) and rel > 0.25:
+        out.append(f"warning: {label} varies strongly over time")
+    return out
+
+
+def _eval_weights(vals: list[float]) -> list[str]:
+    s = _basic_stats(vals)
+    if int(s.get("n", 0.0)) <= 1:
+        return ["G_f,c: insufficient data"]
+    med = float(s.get("median") or 0.0)
+    mn = float(s.get("min") or 0.0)
+    mx = float(s.get("max") or 0.0)
+    out = [f"G_f,c: median={med:.4g}, min={mn:.4g}, max={mx:.4g}"]
+    if med > 0:
+        low = sum(1 for x in vals if np.isfinite(x) and x < med * 0.2)
+        out.append(f"frames with very low weight (<0.2×median): {low}")
+    if mn > 0 and mx > 0:
+        out.append(f"max/min ratio: {mx / mn:.3g}")
+        if mx / mn > 50:
+            out.append("warning: extremely wide weight distribution")
+    return out
+
+
 def _write_quality_analysis_pngs(artifacts_dir: Path, channel_metrics: dict[str, dict[str, Any]]) -> list[str]:
     try:
         import matplotlib
@@ -105,7 +303,8 @@ def _write_quality_analysis_pngs(artifacts_dir: Path, channel_metrics: dict[str,
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import seaborn as sns
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "quality_analysis_import", e)
         return []
 
     def _vals(ch: str, *path: str) -> list[float]:
@@ -208,7 +407,463 @@ def _write_quality_analysis_pngs(artifacts_dir: Path, channel_metrics: dict[str,
         fig.savefig(str(outp), dpi=200)
         plt.close(fig)
         out_paths.append(str(outp))
-    except Exception:
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "quality_analysis_runtime", e)
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return out_paths
+
+    return out_paths
+
+
+def _write_registration_artifacts(
+    artifacts_dir: Path,
+    registered_files: list[Path],
+    corrs: list[float] | None = None,
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "registration_import", e)
+        return []
+
+    out_paths: list[str] = []
+
+    def _luminance_from_fits(p: Path) -> np.ndarray | None:
+        try:
+            data = fits.getdata(str(p), ext=0)
+            if data is None:
+                return None
+            a = np.asarray(data)
+            if a.ndim == 2:
+                return a.astype("float32", copy=False)
+            if a.ndim == 3:
+                if a.shape[-1] in (3, 4):
+                    return np.mean(a[..., :3].astype("float32", copy=False), axis=-1)
+                if a.shape[0] in (3, 4):
+                    return np.mean(a[:3, ...].astype("float32", copy=False), axis=0)
+            return a.astype("float32", copy=False)
+        except Exception:
+            return None
+
+    try:
+        if not registered_files:
+            return []
+        idxs = sorted(set([0, max(0, len(registered_files) // 2), max(0, len(registered_files) - 1)]))
+        ref = _luminance_from_fits(registered_files[idxs[0]])
+        if ref is None:
+            return []
+
+        fig, axes = plt.subplots(1, 1 + len(idxs), figsize=(4 * (1 + len(idxs)), 4))
+        if not isinstance(axes, np.ndarray):
+            axes = np.asarray([axes])
+        axes = axes.flatten()
+
+        axes[0].imshow(_to_uint8(ref), cmap="gray", interpolation="nearest")
+        axes[0].set_title("ref")
+        axes[0].set_axis_off()
+
+        for j, i in enumerate(idxs, start=1):
+            cur = _luminance_from_fits(registered_files[i])
+            if cur is None:
+                continue
+            if cur.shape != ref.shape:
+                cur = cur[: ref.shape[0], : ref.shape[1]]
+            diff = np.abs(cur.astype("float32", copy=False) - ref.astype("float32", copy=False))
+            axes[j].imshow(_to_uint8(diff), cmap="magma", interpolation="nearest")
+            axes[j].set_title(f"absdiff idx={i}")
+            axes[j].set_axis_off()
+
+        fig.tight_layout()
+        outp = artifacts_dir / "registration_absdiff_samples.png"
+        fig.savefig(str(outp), dpi=200)
+        plt.close(fig)
+        out_paths.append(str(outp))
+
+        if corrs:
+            c = np.asarray(corrs, dtype=np.float32)
+            fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+            ax.plot(np.arange(c.shape[0]), c, linewidth=1.0)
+            ax.set_title("ECC correlation over frames")
+            ax.set_xlabel("frame_index")
+            ax.set_ylabel("ecc_corr")
+            fig.tight_layout()
+            outp = artifacts_dir / "registration_ecc_corr_timeseries.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+            fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+            ax.hist(c, bins=40)
+            ax.set_title("ECC correlation histogram")
+            ax.set_xlabel("ecc_corr")
+            ax.set_ylabel("count")
+            fig.tight_layout()
+            outp = artifacts_dir / "registration_ecc_corr_hist.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "registration_runtime", e)
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return out_paths
+
+    return out_paths
+
+
+def _write_normalization_artifacts(
+    artifacts_dir: Path,
+    pre_norm_backgrounds: dict[str, list[float]],
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "normalization_import", e)
+        return []
+
+    out_paths: list[str] = []
+    try:
+        if not pre_norm_backgrounds:
+            return []
+        fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+        for ch in ("R", "G", "B"):
+            vals = pre_norm_backgrounds.get(ch) or []
+            if not vals:
+                continue
+            ax.plot(np.arange(len(vals)), np.asarray(vals, dtype=np.float32), linewidth=1.0, label=ch)
+        ax.set_title("Pre-normalization background B_f (median) per channel")
+        ax.set_xlabel("frame_index")
+        ax.set_ylabel("B_f")
+        ax.legend(loc="best")
+        fig.tight_layout()
+        outp = artifacts_dir / "normalization_background_timeseries.png"
+        fig.savefig(str(outp), dpi=200)
+        plt.close(fig)
+        out_paths.append(str(outp))
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "normalization_runtime", e)
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return out_paths
+
+    return out_paths
+
+
+def _write_global_metrics_artifacts(
+    artifacts_dir: Path,
+    channel_metrics: dict[str, dict[str, Any]],
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "global_metrics_import", e)
+        return []
+
+    out_paths: list[str] = []
+    try:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+        for ch in ("R", "G", "B"):
+            gfc = channel_metrics.get(ch, {}).get("global", {}).get("G_f_c")
+            if not gfc:
+                continue
+            g = np.asarray(gfc, dtype=np.float32)
+            ax.plot(np.arange(g.shape[0]), g, linewidth=1.0, label=ch)
+        ax.set_title("Global weight G_f,c over frames")
+        ax.set_xlabel("frame_index")
+        ax.set_ylabel("G_f,c")
+        ax.legend(loc="best")
+        fig.tight_layout()
+        outp = artifacts_dir / "global_weight_timeseries.png"
+        fig.savefig(str(outp), dpi=200)
+        plt.close(fig)
+        out_paths.append(str(outp))
+
+        fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+        for ch in ("R", "G", "B"):
+            gfc = channel_metrics.get(ch, {}).get("global", {}).get("G_f_c")
+            if not gfc:
+                continue
+            g = np.asarray(gfc, dtype=np.float32)
+            ax.hist(g, bins=40, alpha=0.5, label=ch)
+        ax.set_title("Histogram of global weights G_f,c")
+        ax.set_xlabel("G_f,c")
+        ax.set_ylabel("count")
+        ax.legend(loc="best")
+        fig.tight_layout()
+        outp = artifacts_dir / "global_weight_hist.png"
+        fig.savefig(str(outp), dpi=200)
+        plt.close(fig)
+        out_paths.append(str(outp))
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "global_metrics_runtime", e)
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return out_paths
+
+    return out_paths
+
+
+def _write_clustering_artifacts(
+    artifacts_dir: Path,
+    channel_metrics: dict[str, dict[str, Any]],
+    clustering_results: Any,
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "clustering_import", e)
+        return []
+
+    out_paths: list[str] = []
+
+    def _labels_for_channel(ch: str) -> list[int] | None:
+        if not clustering_results:
+            return None
+        if isinstance(clustering_results, dict) and ch in clustering_results and isinstance(clustering_results.get(ch), dict):
+            cr = clustering_results.get(ch) or {}
+            labels = cr.get("labels", cr.get("cluster_labels"))
+            if isinstance(labels, list):
+                return [int(x) for x in labels]
+        if isinstance(clustering_results, dict):
+            labels = clustering_results.get("labels", clustering_results.get("cluster_labels"))
+            if isinstance(labels, list):
+                return [int(x) for x in labels]
+        return None
+
+    try:
+        for ch in ("R", "G", "B"):
+            labels = _labels_for_channel(ch)
+            gfc = channel_metrics.get(ch, {}).get("global", {}).get("G_f_c")
+            if labels is None or not gfc or len(labels) != len(gfc):
+                continue
+            lab = np.asarray(labels, dtype=np.int32)
+            g = np.asarray(gfc, dtype=np.float32)
+            k = int(np.max(lab)) + 1 if lab.size else 0
+            if k <= 0:
+                continue
+            counts = np.bincount(lab, minlength=k)
+
+            fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+            ax0, ax1 = axes[0], axes[1]
+            ax0.bar(np.arange(k), counts)
+            ax0.set_title(f"Cluster sizes ({ch})")
+            ax0.set_xlabel("cluster_id")
+            ax0.set_ylabel("n_frames")
+
+            data = []
+            for ci in range(k):
+                vals = g[lab == ci]
+                if vals.size:
+                    data.append(vals)
+                else:
+                    data.append(np.asarray([0.0], dtype=np.float32))
+            ax1.boxplot(data, showfliers=False)
+            ax1.set_title(f"G_f,c per cluster ({ch})")
+            ax1.set_xlabel("cluster_id")
+            ax1.set_ylabel("G_f,c")
+            fig.tight_layout()
+            outp = artifacts_dir / f"clustering_summary_{ch}.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "clustering_runtime", e)
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return out_paths
+
+    return out_paths
+
+
+def _write_tile_grid_pngs(
+    artifacts_dir: Path,
+    rep_frames: dict[str, "np.ndarray"],
+    tile_grids: dict[str, dict[str, Any]],
+    grid_cfg: dict[str, Any],
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "tile_grid_import", e)
+        return []
+
+    out_paths: list[str] = []
+
+    try:
+        tile_size = int(grid_cfg.get("tile_size") or 0)
+        step_size = int(grid_cfg.get("step_size") or 0)
+        if tile_size <= 0 or step_size <= 0:
+            return []
+
+        for ch, frame in rep_frames.items():
+            if frame is None:
+                continue
+            fig, ax = plt.subplots(1, 1, figsize=(12, 7))
+            ax.imshow(_to_uint8(frame), cmap="gray", interpolation="nearest")
+            h, w = frame.shape[:2]
+            for x in range(0, w - tile_size + 1, step_size):
+                ax.axvline(x, color="lime", linewidth=0.5, alpha=0.6)
+            ax.axvline(max(0, w - tile_size), color="lime", linewidth=0.5, alpha=0.6)
+            for y in range(0, h - tile_size + 1, step_size):
+                ax.axhline(y, color="lime", linewidth=0.5, alpha=0.6)
+            ax.axhline(max(0, h - tile_size), color="lime", linewidth=0.5, alpha=0.6)
+            ax.set_title(f"TILE_GRID overlay ({ch})")
+            ax.set_axis_off()
+            fig.tight_layout()
+            outp = artifacts_dir / f"tile_grid_overlay_{ch}.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+        try:
+            import json
+
+            meta_ch = "G" if "G" in tile_grids else (next(iter(tile_grids.keys())) if tile_grids else None)
+            grid_meta = tile_grids.get(meta_ch, {}).get("grid_metadata", {}) if meta_ch else {}
+            payload = {
+                "grid_cfg": grid_cfg,
+                "grid_metadata": grid_meta,
+            }
+            outj = artifacts_dir / "tile_grid.json"
+            outj.write_text(json.dumps(payload, indent=2))
+            out_paths.append(str(outj))
+        except Exception:
+            pass
+
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "tile_grid_runtime", e)
+        return out_paths
+
+    return out_paths
+
+
+def _write_tile_quality_heatmaps(
+    artifacts_dir: Path,
+    channel_metrics: dict[str, dict[str, Any]],
+    grid_cfg: dict[str, Any],
+    image_shape: tuple[int, int],
+) -> list[str]:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "tile_heatmaps_import", e)
+        return []
+
+    out_paths: list[str] = []
+
+    try:
+        h0, w0 = image_shape
+        tile_size = int(grid_cfg.get("tile_size") or 0)
+        step_size = int(grid_cfg.get("step_size") or 0)
+        if tile_size <= 0 or step_size <= 0:
+            return []
+
+        n_tiles_y = max(1, (h0 - tile_size) // step_size + 1)
+        n_tiles_x = max(1, (w0 - tile_size) // step_size + 1)
+        n_tiles = n_tiles_y * n_tiles_x
+
+        for ch in ("R", "G", "B"):
+            q_local = channel_metrics.get(ch, {}).get("tiles", {}).get("Q_local", [])
+            l_local = channel_metrics.get(ch, {}).get("tiles", {}).get("L_local", [])
+            if not q_local:
+                continue
+            a = np.asarray(q_local, dtype=np.float32)
+            if a.ndim != 2 or a.shape[1] <= 0:
+                continue
+            if a.shape[1] != n_tiles:
+                continue
+            mean_per_tile = np.mean(a, axis=0)
+            grid = mean_per_tile.reshape((n_tiles_y, n_tiles_x))
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+            im = ax.imshow(grid, cmap="magma", interpolation="nearest")
+            ax.set_title(f"Tile mean Q_local ({ch})")
+            ax.set_xlabel("tile_x")
+            ax.set_ylabel("tile_y")
+            fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            fig.tight_layout()
+            outp = artifacts_dir / f"tile_quality_heatmap_{ch}.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+            var_per_tile = np.var(a, axis=0)
+            grid_v = var_per_tile.reshape((n_tiles_y, n_tiles_x))
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+            im = ax.imshow(grid_v, cmap="viridis", interpolation="nearest")
+            ax.set_title(f"Tile var Q_local ({ch})")
+            ax.set_xlabel("tile_x")
+            ax.set_ylabel("tile_y")
+            fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            fig.tight_layout()
+            outp = artifacts_dir / f"tile_quality_var_heatmap_{ch}.png"
+            fig.savefig(str(outp), dpi=200)
+            plt.close(fig)
+            out_paths.append(str(outp))
+
+            if l_local:
+                b = np.asarray(l_local, dtype=np.float32)
+                if b.ndim == 2 and b.shape[1] == n_tiles:
+                    mean_l = np.mean(b, axis=0)
+                    grid_l = mean_l.reshape((n_tiles_y, n_tiles_x))
+                    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                    im = ax.imshow(grid_l, cmap="plasma", interpolation="nearest")
+                    ax.set_title(f"Tile mean L_local ({ch})")
+                    ax.set_xlabel("tile_x")
+                    ax.set_ylabel("tile_y")
+                    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                    fig.tight_layout()
+                    outp = artifacts_dir / f"tile_weight_heatmap_{ch}.png"
+                    fig.savefig(str(outp), dpi=200)
+                    plt.close(fig)
+                    out_paths.append(str(outp))
+
+                    var_l = np.var(b, axis=0)
+                    grid_lv = var_l.reshape((n_tiles_y, n_tiles_x))
+                    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                    im = ax.imshow(grid_lv, cmap="cividis", interpolation="nearest")
+                    ax.set_title(f"Tile var L_local ({ch})")
+                    ax.set_xlabel("tile_x")
+                    ax.set_ylabel("tile_y")
+                    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                    fig.tight_layout()
+                    outp = artifacts_dir / f"tile_weight_var_heatmap_{ch}.png"
+                    fig.savefig(str(outp), dpi=200)
+                    plt.close(fig)
+                    out_paths.append(str(outp))
+
+    except Exception as e:
+        _note_plotting_issue(artifacts_dir, "tile_heatmaps_runtime", e)
         try:
             plt.close("all")
         except Exception:
@@ -351,6 +1006,250 @@ def run_phases_impl(
             "cfa": cfa_flag0,
         },
     )
+
+    calibration_cfg = cfg.get("calibration") if isinstance(cfg.get("calibration"), dict) else {}
+    use_bias = bool(calibration_cfg.get("use_bias"))
+    use_dark = bool(calibration_cfg.get("use_dark"))
+    use_flat = bool(calibration_cfg.get("use_flat"))
+
+    def _hdr_get_float(hdr: Any, keys: list[str]) -> float | None:
+        if hdr is None:
+            return None
+        for k in keys:
+            try:
+                if isinstance(hdr, dict):
+                    v = hdr.get(k)
+                else:
+                    v = hdr[k] if k in hdr else None
+            except Exception:
+                v = None
+            if v is None:
+                continue
+            try:
+                f = float(v)
+                if np.isfinite(f):
+                    return f
+            except Exception:
+                continue
+        return None
+
+    def _get_exposure_s(path: Path) -> float | None:
+        try:
+            hdr = fits.getheader(str(path), ext=0)
+        except Exception:
+            return None
+        return _hdr_get_float(hdr, ["EXPTIME", "EXPOSURE", "EXPOSURETIME", "EXP_TIME", "DURATION"])
+
+    def _get_ccd_temp_c(path: Path) -> float | None:
+        try:
+            hdr = fits.getheader(str(path), ext=0)
+        except Exception:
+            return None
+        return _hdr_get_float(hdr, ["CCD-TEMP", "CCD_TEMP", "CCD_TEMP_C", "SENSOR_T", "SENSORTEMP", "TEMP", "TEMPERAT"])
+
+    def _collect_calib_files(dir_s: str | None, pattern: str) -> list[Path]:
+        if not dir_s:
+            return []
+        p = Path(str(dir_s)).expanduser()
+        if not p.is_absolute():
+            p = (project_root / p).resolve()
+        if not p.exists() or not p.is_dir():
+            return []
+        out = [q for q in p.glob(pattern) if q.is_file() and is_fits_image_path(q)]
+        out.sort(key=lambda x: x.name)
+        return out
+
+    def _load_master(path_s: str | None) -> tuple[np.ndarray, Any] | None:
+        if not path_s:
+            return None
+        p = Path(str(path_s)).expanduser()
+        if not p.is_absolute():
+            p = (project_root / p).resolve()
+        if not p.exists() or not p.is_file():
+            return None
+        try:
+            return read_fits_float(p)
+        except Exception:
+            return None
+
+    if resume_from_phase is None and (use_bias or use_dark or use_flat):
+        cal_pattern = str(calibration_cfg.get("pattern") or "*.fit*")
+        bias_master = _load_master(str(calibration_cfg.get("bias_master") or "").strip() or None) if use_bias else None
+        dark_master = _load_master(str(calibration_cfg.get("dark_master") or "").strip() or None) if use_dark else None
+        flat_master = _load_master(str(calibration_cfg.get("flat_master") or "").strip() or None) if use_flat else None
+
+        out_cal_dir = outputs_dir / "calibration"
+        out_cal_dir.mkdir(parents=True, exist_ok=True)
+
+        if use_bias and bias_master is None:
+            bias_files = _collect_calib_files(str(calibration_cfg.get("bias_dir") or "").strip() or None, cal_pattern)
+            phase_progress(run_id, log_fp, 0, "SCAN_INPUT", 0, max(1, len(bias_files)), {"substep": "bias_master"})
+            bias_master = build_master_mean(bias_files)
+            if bias_master is not None:
+                fits.writeto(str(out_cal_dir / "master_bias.fit"), bias_master[0], header=bias_master[1], overwrite=True)
+
+        if use_dark and dark_master is None:
+            dark_files = _collect_calib_files(str(calibration_cfg.get("darks_dir") or "").strip() or None, cal_pattern)
+
+            dark_auto_select = bool(calibration_cfg.get("dark_auto_select", True))
+            tol_pct = calibration_cfg.get("dark_match_exposure_tolerance_percent", 5.0)
+            try:
+                tol_pct_f = float(tol_pct)
+            except Exception:
+                tol_pct_f = 5.0
+            use_temp_match = bool(calibration_cfg.get("dark_match_use_temp", False))
+            temp_tol = calibration_cfg.get("dark_match_temp_tolerance_c", 2.0)
+            try:
+                temp_tol_f = float(temp_tol)
+            except Exception:
+                temp_tol_f = 2.0
+
+            selected_dark_files = dark_files
+            warnings: list[str] = []
+
+            light_exp_s: float | None = None
+            light_temp_c: float | None = None
+            try:
+                exp_vals: list[float] = []
+                temp_vals: list[float] = []
+                for p0 in frames[: min(10, len(frames))]:
+                    e0 = _get_exposure_s(p0)
+                    if e0 is not None and e0 > 0:
+                        exp_vals.append(float(e0))
+                    if use_temp_match:
+                        t0 = _get_ccd_temp_c(p0)
+                        if t0 is not None and np.isfinite(t0):
+                            temp_vals.append(float(t0))
+                if exp_vals:
+                    light_exp_s = float(np.median(np.asarray(exp_vals, dtype=np.float64)))
+                if temp_vals:
+                    light_temp_c = float(np.median(np.asarray(temp_vals, dtype=np.float64)))
+            except Exception:
+                pass
+
+            if dark_auto_select and dark_files:
+                if light_exp_s is None or not np.isfinite(light_exp_s) or light_exp_s <= 0:
+                    warnings.append("dark_auto_select: light exposure not found; using all darks")
+                else:
+                    try:
+                        cand: list[Path] = []
+                        cand_missing_temp: int = 0
+                        for dp in dark_files:
+                            de = _get_exposure_s(dp)
+                            if de is None or not np.isfinite(de) or de <= 0:
+                                continue
+                            rel_pct = abs(float(de) - float(light_exp_s)) / float(light_exp_s) * 100.0
+                            if rel_pct > tol_pct_f:
+                                continue
+                            if use_temp_match:
+                                if light_temp_c is None or not np.isfinite(light_temp_c):
+                                    cand.append(dp)
+                                    continue
+                                dt = _get_ccd_temp_c(dp)
+                                if dt is None or not np.isfinite(dt):
+                                    cand_missing_temp += 1
+                                    continue
+                                if abs(float(dt) - float(light_temp_c)) > temp_tol_f:
+                                    continue
+                            cand.append(dp)
+
+                        if use_temp_match and (light_temp_c is None or not np.isfinite(light_temp_c)):
+                            warnings.append("dark_match_use_temp=true but light CCD temp not found; matching by exposure only")
+                        if use_temp_match and cand_missing_temp > 0:
+                            warnings.append(f"dark_match_use_temp=true: skipped {cand_missing_temp} darks with missing temp header")
+
+                        if cand:
+                            selected_dark_files = cand
+                        else:
+                            warnings.append("dark_auto_select: no matching darks found within tolerance; using all darks")
+                            selected_dark_files = dark_files
+                    except Exception:
+                        warnings.append("dark_auto_select: selection failed; using all darks")
+                        selected_dark_files = dark_files
+
+            phase_progress(
+                run_id,
+                log_fp,
+                0,
+                "SCAN_INPUT",
+                0,
+                max(1, len(dark_files)),
+                {
+                    "substep": "dark_master",
+                    "dark_files_total": len(dark_files),
+                    "dark_files_selected": len(selected_dark_files) if selected_dark_files is not None else 0,
+                    "light_exposure_s": light_exp_s,
+                    "light_ccd_temp_c": light_temp_c,
+                    "dark_auto_select": dark_auto_select,
+                    "dark_match_exposure_tolerance_percent": tol_pct_f,
+                    "dark_match_use_temp": use_temp_match,
+                    "dark_match_temp_tolerance_c": temp_tol_f,
+                    "warnings": warnings,
+                },
+            )
+
+            dm = build_master_mean(selected_dark_files)
+            dark_master = bias_correct_dark(dm, bias_master)
+            if dark_master is not None:
+                fits.writeto(str(out_cal_dir / "master_dark.fit"), dark_master[0], header=dark_master[1], overwrite=True)
+
+        if use_flat and flat_master is None:
+            flat_files = _collect_calib_files(str(calibration_cfg.get("flats_dir") or "").strip() or None, cal_pattern)
+            phase_progress(run_id, log_fp, 0, "SCAN_INPUT", 0, max(1, len(flat_files)), {"substep": "flat_master"})
+            fm = build_master_mean(flat_files)
+            flat_master = prepare_flat(fm, bias_master, dark_master)
+            if flat_master is not None:
+                fits.writeto(str(out_cal_dir / "master_flat.fit"), flat_master[0], header=flat_master[1], overwrite=True)
+
+        if (use_bias and bias_master is None) or (use_dark and dark_master is None) or (use_flat and flat_master is None):
+            phase_end(
+                run_id,
+                log_fp,
+                0,
+                "SCAN_INPUT",
+                "error",
+                {
+                    "error": "calibration requested but master frame could not be resolved",
+                    "use_bias": use_bias,
+                    "use_dark": use_dark,
+                    "use_flat": use_flat,
+                },
+            )
+            return False
+
+        out_lights = outputs_dir / "calibrated"
+        out_lights.mkdir(parents=True, exist_ok=True)
+        new_frames: list[Path] = []
+        total = len(frames)
+        for i, p in enumerate(frames):
+            phase_progress(run_id, log_fp, 0, "SCAN_INPUT", i + 1, total, {"substep": "calibrate_lights"})
+            if stop_requested(run_id, log_fp, 0, "SCAN_INPUT", stop_flag):
+                return False
+            try:
+                img, hdr = read_fits_float(p)
+                cal = apply_calibration(
+                    img,
+                    bias_master[0] if (use_bias and bias_master is not None) else None,
+                    dark_master[0] if (use_dark and dark_master is not None) else None,
+                    flat_master[0] if (use_flat and flat_master is not None) else None,
+                    denom_eps=1e-6,
+                )
+                outp = out_lights / f"cal_{i+1:05d}.fit"
+                fits.writeto(str(outp), cal.astype("float32", copy=False), header=hdr, overwrite=True)
+                new_frames.append(outp)
+            except Exception as e:
+                phase_end(
+                    run_id,
+                    log_fp,
+                    0,
+                    "SCAN_INPUT",
+                    "error",
+                    {"error": "failed to calibrate frame", "frame": str(p), "details": str(e)},
+                )
+                return False
+
+        if new_frames:
+            frames = new_frames
 
     phase_id = 1
     phase_name = "REGISTRATION"
@@ -574,7 +1473,7 @@ def run_phases_impl(
                 dst_name = reg_pattern.format(index=idx)
             except Exception:
                 dst_name = src.name
-            shutil.copy2(src, reg_out / dst_name)
+            safe_hardlink_or_copy(src, reg_out / dst_name)
             moved += 1
         phase_end(
             run_id,
@@ -598,6 +1497,34 @@ def run_phases_impl(
     if not registered_files:
         phase_end(run_id, log_fp, 1, "REGISTRATION", "error", {"error": "no registered frames found"})
         return False
+
+    try:
+        _write_registration_artifacts(artifacts_dir, registered_files, corrs if isinstance(corrs, list) else None)
+    except Exception:
+        pass
+
+    try:
+        reg_eval: dict[str, Any] = {
+            "registration_absdiff_samples.png": {
+                "phase": "REGISTRATION",
+                "evaluations": [f"registered_frames={len(registered_files)}"],
+            }
+        }
+        if isinstance(corrs, list) and corrs:
+            c = [float(x) for x in corrs if isinstance(x, (int, float, np.number))]
+            reg_eval["registration_ecc_corr_timeseries.png"] = {
+                "phase": "REGISTRATION",
+                "evaluations": _eval_timeseries("ecc_corr", c),
+                "data": {"ecc_corr": c},
+            }
+            reg_eval["registration_ecc_corr_hist.png"] = {
+                "phase": "REGISTRATION",
+                "evaluations": _eval_timeseries("ecc_corr", c),
+                "data": {"ecc_corr": c},
+            }
+        _update_report_metrics(artifacts_dir, {"artifacts": reg_eval})
+    except Exception:
+        pass
 
     phase_id = 2
     phase_name = "CHANNEL_SPLIT"
@@ -763,6 +1690,30 @@ def run_phases_impl(
         {"mode": norm_mode, "per_channel": per_channel, "target_median": norm_target},
     )
 
+    try:
+        _write_normalization_artifacts(artifacts_dir, pre_norm_backgrounds)
+    except Exception:
+        pass
+
+    try:
+        _update_report_metrics(
+            artifacts_dir,
+            {
+                "artifacts": {
+                    "normalization_background_timeseries.png": {
+                        "phase": "NORMALIZATION",
+                        "evaluations": {
+                            ch: _eval_timeseries(f"{ch} pre-norm background B_f", pre_norm_backgrounds.get(ch) or [])
+                            for ch in ("R", "G", "B")
+                        },
+                        "data": {"pre_norm_backgrounds": pre_norm_backgrounds},
+                    }
+                }
+            },
+        )
+    except Exception:
+        pass
+
     phase_id = 4
     phase_name = "GLOBAL_METRICS"
     if should_skip_phase(phase_id):
@@ -925,6 +1876,44 @@ def run_phases_impl(
 
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"analysis_count": analysis_count})
 
+    try:
+        _write_global_metrics_artifacts(artifacts_dir, channel_metrics)
+    except Exception:
+        pass
+
+    try:
+        eval_by_ch: dict[str, Any] = {}
+        for ch in ("R", "G", "B"):
+            g = channel_metrics.get(ch, {}).get("global", {}) if isinstance(channel_metrics.get(ch, {}), dict) else {}
+            b = g.get("background_level") if isinstance(g.get("background_level"), list) else []
+            n = g.get("noise_level") if isinstance(g.get("noise_level"), list) else []
+            e = g.get("gradient_energy") if isinstance(g.get("gradient_energy"), list) else []
+            gf = g.get("G_f_c") if isinstance(g.get("G_f_c"), list) else []
+            eval_by_ch[ch] = {
+                "global_weight": _eval_weights([float(x) for x in gf if isinstance(x, (int, float, np.number))]),
+                "noise": _eval_timeseries(f"{ch} noise σ_f", [float(x) for x in n if isinstance(x, (int, float, np.number))]),
+                "background": _eval_timeseries(f"{ch} background B_f", [float(x) for x in b if isinstance(x, (int, float, np.number))]),
+                "gradient": _eval_timeseries(f"{ch} gradient E_f", [float(x) for x in e if isinstance(x, (int, float, np.number))]),
+            }
+
+        _update_report_metrics(
+            artifacts_dir,
+            {
+                "artifacts": {
+                    "global_weight_timeseries.png": {
+                        "phase": "GLOBAL_METRICS",
+                        "evaluations": eval_by_ch,
+                    },
+                    "global_weight_hist.png": {
+                        "phase": "GLOBAL_METRICS",
+                        "evaluations": eval_by_ch,
+                    },
+                }
+            },
+        )
+    except Exception:
+        pass
+
     phase_id = 5
     phase_name = "TILE_GRID"
     if should_skip_phase(phase_id):
@@ -972,25 +1961,25 @@ def run_phases_impl(
     # Use robust FWHM estimation across multiple frames
     fwhm_estimates = []
     try:
-        import cv2
-        for ch in ("R", "G", "B"):
-            if ch in rep:
-                img_u8 = _to_uint8(rep[ch])
-                # Detect stars using goodFeaturesToTrack
-                corners = cv2.goodFeaturesToTrack(img_u8, maxCorners=50, qualityLevel=0.01, minDistance=20)
-                if corners is not None and len(corners) > 3:
-                    # Estimate FWHM from star sizes (simplified: use gradient magnitude around stars)
-                    gy, gx = np.gradient(rep[ch].astype("float32", copy=False))
-                    grad_mag = np.sqrt(gx**2 + gy**2)
-                    for corner in corners[:20]:
-                        x, y = int(corner[0][0]), int(corner[0][1])
-                        if 10 < x < w0 - 10 and 10 < y < h0 - 10:
-                            patch = grad_mag[y-5:y+5, x-5:x+5]
-                            if patch.size > 0:
-                                # FWHM approximation from gradient spread
-                                fwhm_est = float(np.sum(patch > np.max(patch) * 0.5)) ** 0.5 * 2.0
-                                if 1.0 < fwhm_est < 50.0:
-                                    fwhm_estimates.append(fwhm_est)
+        if cv2 is not None:
+            for ch in ("R", "G", "B"):
+                if ch in rep:
+                    img_u8 = _to_uint8(rep[ch])
+                    # Detect stars using goodFeaturesToTrack
+                    corners = cv2.goodFeaturesToTrack(img_u8, maxCorners=50, qualityLevel=0.01, minDistance=20)
+                    if corners is not None and len(corners) > 3:
+                        # Estimate FWHM from star sizes (simplified: use gradient magnitude around stars)
+                        gy, gx = np.gradient(rep[ch].astype("float32", copy=False))
+                        grad_mag = np.sqrt(gx**2 + gy**2)
+                        for corner in corners[:20]:
+                            x, y = int(corner[0][0]), int(corner[0][1])
+                            if 10 < x < w0 - 10 and 10 < y < h0 - 10:
+                                patch = grad_mag[y-5:y+5, x-5:x+5]
+                                if patch.size > 0:
+                                    # FWHM approximation from gradient spread
+                                    fwhm_est = float(np.sum(patch > np.max(patch) * 0.5)) ** 0.5 * 2.0
+                                    if 1.0 < fwhm_est < 50.0:
+                                        fwhm_estimates.append(fwhm_est)
     except Exception:
         pass
     
@@ -1056,7 +2045,48 @@ def run_phases_impl(
         "overlap_fraction": overlap,
     }
     tile_grids = generate_multi_channel_grid({k: _to_uint8(v) for k, v in rep.items()}, v3_grid_cfg)
+    try:
+        _write_tile_grid_pngs(artifacts_dir, rep, tile_grids, grid_cfg)
+    except Exception:
+        pass
     del rep
+
+    try:
+        _update_report_metrics(
+            artifacts_dir,
+            {
+                "artifacts": {
+                    "tile_grid.json": {
+                        "phase": "TILE_GRID",
+                        "data": {"grid_cfg": grid_cfg, "v3_grid_cfg": v3_grid_cfg},
+                        "evaluations": {
+                            "grid_cfg": [json.dumps(grid_cfg, ensure_ascii=False)],
+                        },
+                    }
+                }
+            },
+        )
+    except Exception:
+        pass
+
+    try:
+        overlay_eval = [f"tile_size={grid_cfg.get('tile_size')}", f"overlap_px={grid_cfg.get('overlap_px')}", f"step_size={grid_cfg.get('step_size')}" ]
+        _update_report_metrics(
+            artifacts_dir,
+            {
+                "artifacts": {
+                    **{
+                        f"tile_grid_overlay_{ch}.png": {
+                            "phase": "TILE_GRID",
+                            "evaluations": overlay_eval,
+                        }
+                        for ch in ("R", "G", "B")
+                    }
+                }
+            },
+        )
+    except Exception:
+        pass
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"grid_cfg": grid_cfg, "fwhm_estimated": fwhm})
 
     phase_id = 6
@@ -1156,6 +2186,70 @@ def run_phases_impl(
         }
 
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i})
+
+    try:
+        _write_tile_quality_heatmaps(artifacts_dir, channel_metrics, grid_cfg, (h0, w0))
+    except Exception:
+        pass
+
+    try:
+        lm_art: dict[str, Any] = {}
+        tile_size_hm = int(grid_cfg.get("tile_size") or 0)
+        step_size_hm = int(grid_cfg.get("step_size") or 0)
+        if tile_size_hm > 0 and step_size_hm > 0:
+            n_tiles_y = max(1, (h0 - tile_size_hm) // step_size_hm + 1)
+            n_tiles_x = max(1, (w0 - tile_size_hm) // step_size_hm + 1)
+            n_tiles = n_tiles_y * n_tiles_x
+            for ch in ("R", "G", "B"):
+                q_local = channel_metrics.get(ch, {}).get("tiles", {}).get("Q_local", [])
+                l_local = channel_metrics.get(ch, {}).get("tiles", {}).get("L_local", [])
+                if not q_local:
+                    continue
+                a = np.asarray(q_local, dtype=np.float32)
+                if a.ndim != 2 or a.shape[1] != n_tiles:
+                    continue
+                mean_q = [float(x) for x in np.mean(a, axis=0).tolist()]
+                var_q = [float(x) for x in np.var(a, axis=0).tolist()]
+                ev_mean_q = _basic_stats(mean_q)
+                ev_var_q = _basic_stats(var_q)
+                lm_art[f"tile_quality_heatmap_{ch}.png"] = {
+                    "phase": "LOCAL_METRICS",
+                    "evaluations": [
+                        f"tiles={n_tiles} (x={n_tiles_x}, y={n_tiles_y})",
+                        f"mean(Q_local): median={float(ev_mean_q.get('median') or 0.0):.3g}, min={float(ev_mean_q.get('min') or 0.0):.3g}, max={float(ev_mean_q.get('max') or 0.0):.3g}",
+                    ],
+                }
+                lm_art[f"tile_quality_var_heatmap_{ch}.png"] = {
+                    "phase": "LOCAL_METRICS",
+                    "evaluations": [
+                        f"tiles={n_tiles} (x={n_tiles_x}, y={n_tiles_y})",
+                        f"var(Q_local): median={float(ev_var_q.get('median') or 0.0):.3g}, max={float(ev_var_q.get('max') or 0.0):.3g}",
+                    ],
+                }
+
+                if l_local:
+                    larr = np.asarray(l_local, dtype=np.float32)
+                    if larr.ndim == 2 and larr.shape[1] == n_tiles:
+                        mean_l = [float(x) for x in np.mean(larr, axis=0).tolist()]
+                        var_l = [float(x) for x in np.var(larr, axis=0).tolist()]
+                        ev_mean_l = _basic_stats(mean_l)
+                        ev_var_l = _basic_stats(var_l)
+                        lm_art[f"tile_weight_heatmap_{ch}.png"] = {
+                            "phase": "LOCAL_METRICS",
+                            "evaluations": [
+                                f"mean(L_local): median={float(ev_mean_l.get('median') or 0.0):.3g}, min={float(ev_mean_l.get('min') or 0.0):.3g}, max={float(ev_mean_l.get('max') or 0.0):.3g}",
+                            ],
+                        }
+                        lm_art[f"tile_weight_var_heatmap_{ch}.png"] = {
+                            "phase": "LOCAL_METRICS",
+                            "evaluations": [
+                                f"var(L_local): median={float(ev_var_l.get('median') or 0.0):.3g}, max={float(ev_var_l.get('max') or 0.0):.3g}",
+                            ],
+                        }
+        if lm_art:
+            _update_report_metrics(artifacts_dir, {"artifacts": lm_art})
+    except Exception:
+        pass
 
     phase_id = 7
     phase_name = "TILE_RECONSTRUCTION"
@@ -1287,6 +2381,115 @@ def run_phases_impl(
                 out = out / weight_sum
             
             reconstructed[ch] = out.astype(np.float32, copy=False)
+
+            try:
+                import matplotlib
+
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+
+                fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                im = ax.imshow(np.log1p(weight_sum.astype("float32", copy=False)), cmap="inferno", interpolation="nearest")
+                ax.set_title(f"log(1+weight_sum) ({ch})")
+                ax.set_axis_off()
+                fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                fig.tight_layout()
+                outp = artifacts_dir / f"reconstruction_weight_sum_{ch}.png"
+                fig.savefig(str(outp), dpi=200)
+                plt.close(fig)
+
+                try:
+                    ws = weight_sum.astype("float32", copy=False)
+                    ws1 = ws[np.isfinite(ws)]
+                    ws_stats = _basic_stats([float(x) for x in ws1.flatten().tolist()])
+                    low_frac = float(np.mean(low_weight_mask.astype(np.float32))) if low_weight_mask is not None else 0.0
+                    _update_report_metrics(
+                        artifacts_dir,
+                        {
+                            "artifacts": {
+                                f"reconstruction_weight_sum_{ch}.png": {
+                                    "phase": "TILE_RECONSTRUCTION",
+                                    "evaluations": [
+                                        f"low_weight_fraction={low_frac:.3g}",
+                                        f"weight_sum: median={float(ws_stats.get('median') or 0.0):.3g}, max={float(ws_stats.get('max') or 0.0):.3g}",
+                                    ],
+                                }
+                            }
+                        },
+                    )
+                except Exception:
+                    pass
+
+                fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                ax.imshow(_to_uint8(reconstructed[ch]), cmap="gray", interpolation="nearest")
+                ax.set_title(f"reconstructed preview ({ch})")
+                ax.set_axis_off()
+                fig.tight_layout()
+                outp = artifacts_dir / f"reconstruction_preview_{ch}.png"
+                fig.savefig(str(outp), dpi=200)
+                plt.close(fig)
+
+                try:
+                    rstats = _basic_stats([float(x) for x in reconstructed[ch].astype("float32", copy=False).flatten().tolist()])
+                    _update_report_metrics(
+                        artifacts_dir,
+                        {
+                            "artifacts": {
+                                f"reconstruction_preview_{ch}.png": {
+                                    "phase": "TILE_RECONSTRUCTION",
+                                    "evaluations": [
+                                        f"reconstructed: median={float(rstats.get('median') or 0.0):.3g}, std={float(rstats.get('std') or 0.0):.3g}",
+                                    ],
+                                }
+                            }
+                        },
+                    )
+                except Exception:
+                    pass
+
+                n_vis = min(25, num_frames)
+                if n_vis > 0:
+                    mean_img = None
+                    for i0 in range(n_vis):
+                        ff = fits.getdata(str(channel_files[ch][i0])).astype("float32", copy=False)
+                        if mean_img is None:
+                            mean_img = np.zeros_like(ff, dtype=np.float32)
+                        mean_img += ff
+                        del ff
+                    mean_img = mean_img / float(n_vis)
+                    diff = np.abs(reconstructed[ch].astype("float32", copy=False) - mean_img.astype("float32", copy=False))
+                    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                    ax.imshow(_to_uint8(diff), cmap="magma", interpolation="nearest")
+                    ax.set_title(f"abs(recon - mean(first {n_vis})) ({ch})")
+                    ax.set_axis_off()
+                    fig.tight_layout()
+                    outp = artifacts_dir / f"reconstruction_absdiff_vs_mean_{ch}.png"
+                    fig.savefig(str(outp), dpi=200)
+                    plt.close(fig)
+
+                    try:
+                        dstats = _basic_stats([float(x) for x in diff.astype("float32", copy=False).flatten().tolist()])
+                        _update_report_metrics(
+                            artifacts_dir,
+                            {
+                                "artifacts": {
+                                    f"reconstruction_absdiff_vs_mean_{ch}.png": {
+                                        "phase": "TILE_RECONSTRUCTION",
+                                        "evaluations": [
+                                            f"absdiff: median={float(dstats.get('median') or 0.0):.3g}, max={float(dstats.get('max') or 0.0):.3g}",
+                                            f"n_vis={n_vis}",
+                                        ],
+                                    }
+                                }
+                            },
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    plt.close("all")
+                except Exception:
+                    pass
         else:
             # Fallback: Global weight only (no tile weights available)
             if gfc.size == num_frames:
@@ -1437,6 +2640,38 @@ def run_phases_impl(
         },
     )
 
+    try:
+        _write_clustering_artifacts(artifacts_dir, channel_metrics, clustering_results)
+    except Exception:
+        pass
+
+    try:
+        cl_art: dict[str, Any] = {}
+        if isinstance(clustering_results, dict):
+            for ch in ("R", "G", "B"):
+                labels = None
+                if isinstance(clustering_results.get(ch), dict):
+                    labels = clustering_results.get(ch, {}).get("labels", clustering_results.get(ch, {}).get("cluster_labels"))
+                if labels is None:
+                    labels = clustering_results.get("labels", clustering_results.get("cluster_labels"))
+                if isinstance(labels, list) and labels:
+                    lab = np.asarray([int(x) for x in labels], dtype=np.int32)
+                    k = int(np.max(lab)) + 1 if lab.size else 0
+                    if k > 0:
+                        counts = np.bincount(lab, minlength=k)
+                        frac_max = float(np.max(counts) / float(np.sum(counts))) if np.sum(counts) > 0 else 0.0
+                        cl_art[f"clustering_summary_{ch}.png"] = {
+                            "phase": "STATE_CLUSTERING",
+                            "evaluations": [
+                                f"clusters={k}",
+                                f"largest_cluster_fraction={frac_max:.3g}",
+                            ],
+                        }
+        if cl_art:
+            _update_report_metrics(artifacts_dir, {"artifacts": cl_art})
+    except Exception:
+        pass
+
     phase_id = 9
     phase_name = "SYNTHETIC_FRAMES"
     if should_skip_phase(phase_id):
@@ -1552,16 +2787,13 @@ def run_phases_impl(
             syn_b_paths = _synthetic_from_files("B")
             synthetic_count = max(len(syn_r_paths), len(syn_g_paths), len(syn_b_paths))
 
-            for i in range(synthetic_count):
-                outp_r = syn_out / f"synR_{i+1:05d}.fits"
-                outp_g = syn_out / f"synG_{i+1:05d}.fits"
-                outp_b = syn_out / f"synB_{i+1:05d}.fits"
-                if i < len(syn_r_paths):
-                    shutil.copy2(syn_r_paths[i], outp_r)
-                if i < len(syn_g_paths):
-                    shutil.copy2(syn_g_paths[i], outp_g)
-                if i < len(syn_b_paths):
-                    shutil.copy2(syn_b_paths[i], outp_b)
+            # Create combined RGB synthetic frames expected by stacking (syn_*.fits).
+            # Use the common count across channels.
+            common_n = min(len(syn_r_paths), len(syn_g_paths), len(syn_b_paths))
+            for i in range(common_n):
+                outp_r = syn_r_paths[i]
+                outp_g = syn_g_paths[i]
+                outp_b = syn_b_paths[i]
 
                 if outp_r.is_file() and outp_g.is_file() and outp_b.is_file():
                     r = fits.getdata(str(outp_r)).astype("float32", copy=False)
@@ -1597,6 +2829,10 @@ def run_phases_impl(
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
         phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+        try:
+            _ensure_report_metrics_complete(artifacts_dir)
+        except Exception:
+            pass
         return True
     
     phase_start(run_id, log_fp, phase_id, phase_name)
@@ -1790,8 +3026,23 @@ def run_phases_impl(
         if out_pngs:
             phase_progress(run_id, log_fp, phase_id, phase_name, 1, 1, {"quality_pngs": out_pngs})
     except Exception:
+        out_pngs = []
+
+    try:
+        qa_eval: dict[str, Any] = {}
+        eval_by_ch: dict[str, Any] = {}
+        for ch in ("R", "G", "B"):
+            g = channel_metrics.get(ch, {}).get("global", {}) if isinstance(channel_metrics.get(ch, {}), dict) else {}
+            gf = g.get("G_f_c") if isinstance(g.get("G_f_c"), list) else []
+            eval_by_ch[ch] = _eval_weights([float(x) for x in gf if isinstance(x, (int, float, np.number))])
+        qa_eval["quality_analysis_combined.png"] = {
+            "phase": "STACKING",
+            "evaluations": eval_by_ch,
+        }
+        _update_report_metrics(artifacts_dir, {"artifacts": qa_eval})
+    except Exception:
         pass
-    
+
     extra: Dict[str, Any] = {
         "siril": meta, 
         "method": stack_method, 
@@ -1806,6 +3057,10 @@ def run_phases_impl(
     phase_start(run_id, log_fp, phase_id, phase_name)
     if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
         return False
+    try:
+        _ensure_report_metrics_complete(artifacts_dir)
+    except Exception:
+        pass
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {})
 
     return True

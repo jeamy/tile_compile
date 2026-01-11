@@ -63,6 +63,53 @@
       }
     },
 
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["use_bias", "use_dark", "use_flat"],
+      "properties": {
+        "use_bias": { "type": "boolean" },
+        "use_dark": { "type": "boolean" },
+        "use_flat": { "type": "boolean" },
+        "bias_use_master": { "type": "boolean", "default": false },
+        "dark_use_master": { "type": "boolean", "default": false },
+        "flat_use_master": { "type": "boolean", "default": false },
+        "dark_auto_select": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true and darks_dir contains mixed exposures/temps, auto-select a matching subset based on light frame headers before building master dark."
+        },
+        "dark_match_exposure_tolerance_percent": {
+          "type": "number",
+          "minimum": 0,
+          "default": 5.0,
+          "description": "Allowed exposure mismatch (percent) between lights and selected darks."
+        },
+        "dark_match_use_temp": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, also match darks by CCD temperature (if available in FITS headers)."
+        },
+        "dark_match_temp_tolerance_c": {
+          "type": "number",
+          "minimum": 0,
+          "default": 2.0,
+          "description": "Allowed CCD temperature mismatch (C) between lights and selected darks."
+        },
+        "bias_dir": { "type": "string", "default": "" },
+        "darks_dir": { "type": "string", "default": "" },
+        "flats_dir": { "type": "string", "default": "" },
+        "bias_master": { "type": "string", "default": "" },
+        "dark_master": { "type": "string", "default": "" },
+        "flat_master": { "type": "string", "default": "" },
+        "pattern": {
+          "type": "string",
+          "default": "*.fit*",
+          "description": "Glob pattern used to collect calibration frames from bias/darks/flats dirs."
+        }
+      }
+    },
+
     "normalization": {
       "type": "object",
       "additionalProperties": false,
