@@ -1,7 +1,7 @@
 {
   "lastInputDir": "/media/data/Astro/DwarfII/Astronomy/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/lights",
   "scanInputDir": "/media/data/Astro/DwarfII/Astronomy/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/lights",
-  "inputDir": "/media/data/Astro/DwarfII/Astronomy/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-06-21-02-38-899/lights",
+  "inputDir": "/media/data/Astro/DwarfII/Astronomy/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/lights",
   "workingDir": "/media/data/programming/tile-compile",
   "runsDir": "runs",
   "pattern": "*.fit*",

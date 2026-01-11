@@ -1222,7 +1222,7 @@ def run_phases_impl(
         new_frames: list[Path] = []
         total = len(frames)
         for i, p in enumerate(frames):
-            phase_progress(run_id, log_fp, 0, "SCAN_INPUT", i, total, {"substep": "calibrate_lights"})
+            phase_progress(run_id, log_fp, 0, "SCAN_INPUT", i + 1, total, {"substep": "calibrate_lights"})
             if stop_requested(run_id, log_fp, 0, "SCAN_INPUT", stop_flag):
                 return False
             try:
