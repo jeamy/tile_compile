@@ -990,27 +990,31 @@ def run_phases_impl(
         phase_start(run_id, log_fp, phase_id, phase_name)
         if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
             return False
-    cfa_flag0 = fits_is_cfa(frames[0]) if frames else None
-    header_bayerpat0 = fits_get_bayerpat(frames[0]) if frames else None
-    phase_end(
-        run_id,
-        log_fp,
-        phase_id,
-        phase_name,
-        "ok",
-        {
-            "frame_count": len(frames),
-            "color_mode": color_mode,
-            "bayer_pattern": bayer_pattern,
-            "bayer_pattern_header": header_bayerpat0,
-            "cfa": cfa_flag0,
-        },
-    )
+        cfa_flag0 = fits_is_cfa(frames[0]) if frames else None
+        header_bayerpat0 = fits_get_bayerpat(frames[0]) if frames else None
+        phase_progress(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            1,
+            1,
+            {
+                "substep": "scan",
+                "frame_count": len(frames),
+                "color_mode": color_mode,
+                "bayer_pattern": bayer_pattern,
+                "bayer_pattern_header": header_bayerpat0,
+                "cfa": cfa_flag0,
+            },
+        )
 
     calibration_cfg = cfg.get("calibration") if isinstance(cfg.get("calibration"), dict) else {}
     use_bias = bool(calibration_cfg.get("use_bias"))
     use_dark = bool(calibration_cfg.get("use_dark"))
     use_flat = bool(calibration_cfg.get("use_flat"))
+
+    calibrated_applied = False
 
     def _hdr_get_float(hdr: Any, keys: list[str]) -> float | None:
         if hdr is None:
@@ -1073,6 +1077,7 @@ def run_phases_impl(
             return None
 
     if resume_from_phase is None and (use_bias or use_dark or use_flat):
+        calibrated_applied = True
         cal_pattern = str(calibration_cfg.get("pattern") or "*.fit*")
         bias_master = _load_master(str(calibration_cfg.get("bias_master") or "").strip() or None) if use_bias else None
         dark_master = _load_master(str(calibration_cfg.get("dark_master") or "").strip() or None) if use_dark else None
@@ -1250,6 +1255,25 @@ def run_phases_impl(
 
         if new_frames:
             frames = new_frames
+
+    if not should_skip_phase(0):
+        cfa_flag0 = fits_is_cfa(frames[0]) if frames else None
+        header_bayerpat0 = fits_get_bayerpat(frames[0]) if frames else None
+        phase_end(
+            run_id,
+            log_fp,
+            0,
+            "SCAN_INPUT",
+            "ok",
+            {
+                "frame_count": len(frames),
+                "color_mode": color_mode,
+                "bayer_pattern": bayer_pattern,
+                "bayer_pattern_header": header_bayerpat0,
+                "cfa": cfa_flag0,
+                "calibrated": calibrated_applied,
+            },
+        )
 
     phase_id = 1
     phase_name = "REGISTRATION"
@@ -2555,6 +2579,7 @@ def run_phases_impl(
     clustering_results = None
     clustering_skipped = False
     clustering_fallback_used = False
+    phase_progress(run_id, log_fp, phase_id, phase_name, 0, 1, {"step": "start"})
     
     if reduced_mode and assumptions_cfg["reduced_mode_skip_clustering"]:
         # Skip clustering in reduced mode
@@ -2570,6 +2595,9 @@ def run_phases_impl(
             # DISK-BASED: Process ALL frames in chunks for clustering
             chunk_size = 50  # ~15GB per chunk
             num_frames = len(channel_files.get("R", []))
+            total_chunks = max(1, (num_frames + chunk_size - 1) // chunk_size)
+            total_steps = max(1, total_chunks * 3 + 1)
+            processed_steps = 0
             
             # Load and process all frames in chunks
             all_frames_for_clustering = {"R": [], "G": [], "B": []}
@@ -2582,10 +2610,32 @@ def run_phases_impl(
                         if idx < len(channel_files[ch]):
                             frame = fits.getdata(str(channel_files[ch][idx])).astype("float32", copy=False)
                             all_frames_for_clustering[ch].append(frame)
+
+                    processed_steps += 1
+                    phase_progress(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        processed_steps,
+                        total_steps,
+                        {
+                            "step": "load_frames",
+                            "channel": ch,
+                            "chunk": int(chunk_start // chunk_size) + 1,
+                            "chunks_total": total_chunks,
+                            "frames_total": num_frames,
+                        },
+                    )
+                    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                        return False
             
             # Run clustering on all frames
             clustering_results = cluster_channels(all_frames_for_clustering, channel_metrics, clustering_cfg)
             del all_frames_for_clustering
+
+            processed_steps = min(total_steps, processed_steps + 1)
+            phase_progress(run_id, log_fp, phase_id, phase_name, processed_steps, total_steps, {"step": "cluster_done"})
         except Exception as e:
             # Fallback: Quantile-based clustering (Methodik v3 §3.7)
             # Group frames by quantiles of global quality G_f
@@ -2600,11 +2650,18 @@ def run_phases_impl(
                     n_quantiles = min(n_quantiles, assumptions_cfg["reduced_mode_cluster_range"][1])
                 
                 clustering_results = {}
+                total_ch = 3
+                done_ch = 0
+                phase_progress(run_id, log_fp, phase_id, phase_name, 0, total_ch, {"step": "quantile_fallback"})
                 for ch in ("R", "G", "B"):
                     if ch not in channel_files or not channel_files[ch]:
+                        done_ch += 1
+                        phase_progress(run_id, log_fp, phase_id, phase_name, done_ch, total_ch, {"step": "quantile_fallback", "channel": ch, "skipped": True})
                         continue
                     gfc = channel_metrics.get(ch, {}).get("global", {}).get("G_f_c", [])
                     if not gfc or len(gfc) != len(channel_files[ch]):
+                        done_ch += 1
+                        phase_progress(run_id, log_fp, phase_id, phase_name, done_ch, total_ch, {"step": "quantile_fallback", "channel": ch, "skipped": True})
                         continue
                     
                     # Compute quantile boundaries
@@ -2621,6 +2678,11 @@ def run_phases_impl(
                         "method": "quantile_fallback",
                         "quantile_boundaries": boundaries.tolist(),
                     }
+
+                    done_ch += 1
+                    phase_progress(run_id, log_fp, phase_id, phase_name, done_ch, total_ch, {"step": "quantile_fallback", "channel": ch, "n_clusters": n_quantiles})
+                    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                        return False
                 
                 clustering_fallback_used = True
             except Exception:
