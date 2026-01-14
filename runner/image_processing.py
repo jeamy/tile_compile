@@ -137,21 +137,23 @@ def warp_cfa_mosaic_via_subplanes(mosaic: np.ndarray, warp: np.ndarray) -> np.nd
     if h2 != h or w2 != w:
         mosaic = mosaic[:h2, :w2]
     
-    a = mosaic[0::2, 0::2]
-    b = mosaic[0::2, 1::2]
-    c = mosaic[1::2, 0::2]
-    d = mosaic[1::2, 1::2]
+    a = mosaic[0::2, 0::2].astype("float32", copy=False)
+    b = mosaic[0::2, 1::2].astype("float32", copy=False)
+    c = mosaic[1::2, 0::2].astype("float32", copy=False)
+    d = mosaic[1::2, 1::2].astype("float32", copy=False)
     
-    warp_sub = warp.copy()
-    warp_sub[0, 2] /= 2.0
-    warp_sub[1, 2] /= 2.0
+    # NOTE: warp is already in subplane coordinates because it is estimated on
+    # cfa_downsample_sum2x2() output (half-resolution). Do not rescale translation.
+    # Per OpenCV ECC reference: use WARP_INVERSE_MAP flag (no manual matrix inversion).
+    warp_sub = warp.astype("float32", copy=False)
+    warp_flags = cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP
     
-    a_w = cv2.warpAffine(a, warp_sub, (a.shape[1], a.shape[0]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-    b_w = cv2.warpAffine(b, warp_sub, (b.shape[1], b.shape[0]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-    c_w = cv2.warpAffine(c, warp_sub, (c.shape[1], c.shape[0]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-    d_w = cv2.warpAffine(d, warp_sub, (d.shape[1], d.shape[0]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    a_w = cv2.warpAffine(a, warp_sub, (a.shape[1], a.shape[0]), flags=warp_flags, borderMode=cv2.BORDER_REPLICATE)
+    b_w = cv2.warpAffine(b, warp_sub, (b.shape[1], b.shape[0]), flags=warp_flags, borderMode=cv2.BORDER_REPLICATE)
+    c_w = cv2.warpAffine(c, warp_sub, (c.shape[1], c.shape[0]), flags=warp_flags, borderMode=cv2.BORDER_REPLICATE)
+    d_w = cv2.warpAffine(d, warp_sub, (d.shape[1], d.shape[0]), flags=warp_flags, borderMode=cv2.BORDER_REPLICATE)
     
-    out = np.zeros((h2, w2), dtype=mosaic.dtype)
+    out = np.zeros((h2, w2), dtype=np.float32)
     out[0::2, 0::2] = a_w
     out[0::2, 1::2] = b_w
     out[1::2, 0::2] = c_w
