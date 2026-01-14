@@ -23,8 +23,8 @@ Jede Phase ist in einem separaten Dokument mit Diagrammen, Formeln und Beispiele
 ---
 
 ### [Phase 1: Registrierung und Kanaltrennung](phase_1_registration.md)
-- **Path A:** Siril Debayer → Registration → Channel Split
-- **Path B:** CFA Luminance → Registration → CFA-aware Transform → Debayer → Channel Split
+- **Path A:** Siril Debayer → Registration → Channel Split (optional, legacy)
+- **Path B:** CFA Luminance → Registration (opencv_cfa) → CFA-aware Transform → Debayer → Channel Split
 - FWHM-Messung und Sternfindung
 - Transformationsschätzung (RANSAC/ECC)
 - Qualitätsmetriken (Registrierungsresiduum, Elongation)

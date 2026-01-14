@@ -552,17 +552,27 @@ where I_f,c are the **original frames** (not reconstructed).
 
 Result: 15–30 synthetic frames per channel (matching cluster count).
 
-**Final stacking (binding):**
+**Final stacking (binding, Python-only):**
 
-Synthetic frames are stacked linearly:
+Synthetic frames are stacked purely linearly in the backend. Optionally, a
+pixel-wise **sigma-clipping** step may be applied before computing the mean
+in order to suppress extreme outliers (e.g. cosmic rays). The normative
+result is:
 
 ```
-R_c = (1/K) · Σ_k S_k,c
+R_c = mean(S_c) = (1/K) · Σ_k S_k,c
 ```
 
-- linear stacking (unweighted)
+with:
+
+- linear stacking (unweighted in the state space – all weights are already
+  encoded in S_k,c)
 - **no drizzle**
-- **no additional weighting**
+- **no additional global weighting** in the final stacking step
+
+Whenever sigma-clipping is enabled, it must fall back to the **plain mean**
+where too few samples remain, thus preserving linearity and the “no frame
+selection” invariant.
 
 ---
 

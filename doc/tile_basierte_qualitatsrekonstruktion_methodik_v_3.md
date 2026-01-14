@@ -557,17 +557,28 @@ wobei I_f,c die **Original-Frames** (nicht rekonstruiert) sind.
 
 Ergebnis: 15–30 synthetische Frames pro Kanal (entsprechend der Cluster-Anzahl).
 
-**Finales Stacking (verbindlich):**
+**Finales Stacking (verbindlich, Python-only):**
 
-Die synthetischen Frames werden linear gestackt:
+Die synthetischen Frames werden im Backend rein linear gestackt. Optional kann
+vor dem Mittelwert ein **Sigma-Clipping auf Pixelebene** durchgeführt werden,
+um Ausreißer (z. B. kosmische Strahlung) zu unterdrücken. Die Normativität
+bezieht sich auf das Endergebnis:
 
 [
-R_c = \frac{1}{K} \cdot \sum_k S_{k,c}
+R_c = \operatorname{mean}(\mathcal{S}_c) = \frac{1}{K} \cdot \sum_k S_{k,c}
 ]
 
-* lineares Stacking (ungewichtet)
+mit:
+
+* linearem Stacking (ungewichtet im Sinne des Zustandsraums – alle Gewichte
+  sind bereits in S_{k,c} enthalten)
 * **kein Drizzle**
-* **keine zusätzliche Gewichtung**
+* **keine zusätzliche gewichtete Umverteilung** im Stacking-Schritt
+
+Sigma-Clipping (falls aktiviert) ist dabei als rein pixelebene Ausreißer-
+Rejektion mit anschließendem Fallback auf den **unveränderten Mittelwert**
+zu verstehen und verletzt weder Linearität noch das „keine Frame-Selektion“-
+Prinzip.
 
 ---
 

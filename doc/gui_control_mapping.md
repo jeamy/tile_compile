@@ -55,14 +55,14 @@
 
 ### Registrierung
 
-| Feld                                     | Typ    | Control       | Hinweise            |
-| ---------------------------------------- | ------ | ------------- | ------------------- |
-| registration.engine                      | enum   | Dropdown      | siril               |
-| registration.reference                   | enum   | Dropdown      | auto                |
-| registration.output_dir                  | string | Text Input    | relativ zum Projekt |
-| registration.registered_filename_pattern | string | Text Input    | Formatstring        |
-| registration.min_star_matches            | int    | Numeric Input | Validierung         |
-| registration.allow_rotation              | bool   | Toggle        | Alt-Az              |
+|| Feld                                     | Typ    | Control       | Hinweise                     |
+|| ---------------------------------------- | ------ | ------------- | ---------------------------- |
+|| registration.engine                      | enum   | Dropdown      | siril / opencv_cfa          |
+|| registration.reference                   | enum   | Dropdown      | auto                        |
+|| registration.output_dir                  | string | Text Input    | relativ zum Projekt         |
+|| registration.registered_filename_pattern | string | Text Input    | Formatstring                |
+|| registration.min_star_matches            | int    | Numeric Input | Validierung                 |
+|| registration.allow_rotation              | bool   | Toggle        | Alt-Az / Montierung beachten |
 
 ---
 
@@ -89,13 +89,11 @@
 
 ### Lokale Metriken
 
-| Feld                     | Typ   | Control     | Hinweise  |
-| ------------------------ | ----- | ----------- | --------- |
-| local_metrics.clamp      | array | Range Input | [-3,+3]   |
-| star_mode.fwhm_transform | enum  | Label       | const=log |
-| star_mode.weights.*      | float | Slider      | Summe = 1 |
-| structure_mode.metric    | enum  | Label       | const     |
-| structure_mode.*_weight  | float | Slider      | Summe = 1 |
+|| Feld                             | Typ   | Control     | Hinweise                                     |
+|| -------------------------------- | ----- | ----------- | -------------------------------------------- |
+|| local_metrics.clamp              | array | Range Input | [-3,+3]                                      |
+|| local_metrics.star_mode.weights.*| float | Slider      | Summe = 1 (FWHM/Rundheit/Kontrast)          |
+|| local_metrics.structure_mode.*_weight | float | Slider  | Summe = 1 (background_weight/metric_weight) |
 
 ---
 
@@ -119,11 +117,16 @@
 
 ### Stacking
 
-| Feld                 | Typ    | Control    | Hinweise |
-| -------------------- | ------ | ---------- | -------- |
-| stacking.engine      | enum   | Dropdown   | siril    |
-| stacking.method      | enum   | Label      | const    |
-| stacking.output_file | string | Text Input | FITS     |
+|| Feld                          | Typ    | Control       | Hinweise                                                      |
+|| ----------------------------- | ------ | ------------- | ------------------------------------------------------------- |
+|| stacking.method               | enum   | Dropdown      | average / rej (sigma-clipping)                               |
+|| stacking.input_dir            | string | Text Input    | typ. "synthetic" (Verzeichnis der syn_*.fits)                 |
+|| stacking.input_pattern        | string | Text Input    | z.B. "syn_*.fits"                                            |
+|| stacking.output_file          | string | Text Input    | Ziel-FITS (z.B. stacked.fit)                                 |
+|| stacking.sigma_clip.sigma_low | number | Numeric Input | Untere Sigma-Schwelle für Rejection (nur bei method=rej)     |
+|| stacking.sigma_clip.sigma_high| number | Numeric Input | Obere Sigma-Schwelle für Rejection (nur bei method=rej)      |
+|| stacking.sigma_clip.max_iters | integer| Numeric Input | Maximale Sigma-Clipping-Iterationen (nur bei method=rej)     |
+|| stacking.sigma_clip.min_fraction | number | Numeric Input | Minimale Frame-Fraktion vor Fallback auf Mittelwert        |
 
 ---
 
