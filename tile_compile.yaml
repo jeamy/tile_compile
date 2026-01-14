@@ -54,7 +54,7 @@ normalization:
   per_channel: true
 
 registration:
-  engine: opencv_cfa
+  engine: siril
   reference: auto
   allow_rotation: false   
   min_star_matches: 10   

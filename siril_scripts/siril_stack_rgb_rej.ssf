@@ -1,0 +1,15 @@
+# ==================================================
+# Siril Linear Average Stack with Rejection (RGB synthetic frames)
+# ==================================================
+
+requires 1.4.0
+setext fit
+setcpu 1
+setmem 0.9
+
+# Sigma-clipping rejection
+# (low_sigma high_sigma)
+link seq -out=seq
+stack seq rej 3 3 -norm=addscale -out=stacked.fit
+
+exit

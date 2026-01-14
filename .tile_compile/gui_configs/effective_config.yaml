@@ -47,7 +47,6 @@ registration:
   min_star_matches: 10
   output_dir: registered
   registered_filename_pattern: reg_{index:05d}.fit
-  siril_script: ''
 global_metrics:
   weights:
     background: 0.4
@@ -67,13 +66,11 @@ local_metrics:
   - -3
   - 3
   star_mode:
-    fwhm_transform: log
     weights:
       fwhm: 0.6
       roundness: 0.2
       contrast: 0.2
   structure_mode:
-    metric: energy_over_sigma
     background_weight: 0.3
     metric_weight: 0.7
 synthetic:
@@ -92,12 +89,15 @@ reconstruction:
   window_function: hanning
   tile_rescale: median_after_background_subtraction
 stacking:
-  engine: siril
-  method: average
+  method: rej
   input_dir: synthetic
   input_pattern: syn_*.fits
   output_file: stacked.fit
-  siril_script: ''
+  sigma_clip:
+    sigma_low: 4.0
+    sigma_high: 4.0
+    max_iters: 3
+    min_fraction: 0.5
 validation:
   min_fwhm_improvement_percent: 5
   max_background_rms_increase_percent: 0
