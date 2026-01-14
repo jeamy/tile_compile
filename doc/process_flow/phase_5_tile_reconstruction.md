@@ -430,44 +430,44 @@ def overlap_add(tiles_reconstructed, tiles, tile_size, overlap, H, W):
     return final
 ```
 
-## Schritt 5.5: Tile-Normalisierung (optional)
+## Schritt 5.5: Tile-Normalisierung (verbindlich)
 
-### Hintergrundsubtraktion pro Tile
+### Hintergrundsubtraktion und Skalierung pro Tile
 
 ```
 Problem:
-  • Tiles können unterschiedliche Hintergrundniveaus haben
-  • Führt zu Artefakten bei Overlap-Add
+  • Tiles können unterschiedliche Hintergrundniveaus und Amplituden haben
+  • Führt zu Helligkeits-Patchwork bei Overlap-Add
 
-Lösung:
-  • Subtrahiere lokalen Hintergrund NACH Rekonstruktion
-  • Vor Overlap-Add
+Lösung (gemäß Methodik v3.1, §3.6 / Anhang A.6):
+  • Subtrahiere lokalen Hintergrund NACH Rekonstruktion pro Tile
+  • Skaliere das Tile auf einen gemeinsamen Median der Absolutwerte
+  • Wende DANN die Fensterfunktion an und führe Overlap-Add durch
 ```
 
 ### Prozess
 
 ```python
-def normalize_tile_background(tile_recon, tile_type):
+def normalize_tile_background(tile_recon, epsilon_median=1e-6):
+    """Normiert ein rekonstruiertes Tile vor dem Overlap-Add.
+
+    1. Hintergrundschätzung via Median
+    2. Hintergrundsubtraktion
+    3. Skalierung auf gemeinsamen Median(|.|), falls numerisch stabil
     """
-    Normalisiert Hintergrund eines rekonstruierten Tiles.
-    
-    Args:
-        tile_recon: Rekonstruiertes Tile
-        tile_type: 'star', 'structure', oder 'background'
-    
-    Returns:
-        normalized: Normalisiertes Tile
-    """
-    if tile_type == 'background':
-        # Hintergrund-Tiles: Median subtrahieren
-        bg = np.median(tile_recon)
-        normalized = tile_recon - bg + 1.0  # +1.0 für Konsistenz
+    # 1. Hintergrundschätzung und Subtraktion
+    bg = np.median(tile_recon)
+    tile_bgfree = tile_recon - bg
+
+    # 2. Amplitudenskalierung
+    med_abs = np.median(np.abs(tile_bgfree))
+    if med_abs > epsilon_median:
+        tile_norm = tile_bgfree / med_abs
     else:
-        # Stern/Struktur-Tiles: Robuste Hintergrundschätzung
-        bg = sigma_clipped_mean(tile_recon, sigma=3, maxiters=3)
-        normalized = tile_recon - bg + 1.0
-    
-    return normalized
+        # Keine Skalierung bei zu kleinem Signal
+        tile_norm = tile_bgfree
+
+    return tile_norm
 ```
 
 ## Schritt 5.6: Validierung

@@ -239,10 +239,10 @@ Original Frame:        Gradient Magnitude:
 ```
 Q_f,c = α·(-B̃_f,c) + β·(-σ̃_f,c) + γ·Ẽ_f,c
 
-wobei:
-  B̃_f,c = (B_f,c - μ_B) / σ_B    (z-score)
-  σ̃_f,c = (σ_f,c - μ_σ) / σ_σ    (z-score)
-  Ẽ_f,c = (E_f,c - μ_E) / σ_E    (z-score)
+wobei (robuste Skalierung mit Median + MAD):
+  B̃_f,c = (B_f,c - median(B)) / (1.4826 · MAD(B))
+  σ̃_f,c = (σ_f,c - median(σ)) / (1.4826 · MAD(σ))
+  Ẽ_f,c = (E_f,c - median(E)) / (1.4826 · MAD(E))
   
   α + β + γ = 1  (Normierung)
   Default: α = 0.4, β = 0.3, γ = 0.3
@@ -258,13 +258,14 @@ wobei:
              │
              ▼
 ┌─────────────────────────────────────────┐
-│  Step 1: Z-Score Normalisierung         │
+│  Step 1: Robuste Normalisierung         │
 │                                          │
-│  μ_B = mean(B_f,c)                      │
-│  σ_B = std(B_f,c)                       │
-│  B̃_f,c = (B_f,c - μ_B) / σ_B           │
+│  median_B = median(B_f,c)               │
+│  MAD_B    = MAD(B_f,c)                  │
+│  B̃_f,c    = (B_f,c - median_B)
+│             / (1.4826 · MAD_B)          │
 │                                          │
-│  (analog für σ und E)                   │
+│  (analog für σ und E mit median + MAD)  │
 └────────────┬────────────────────────────┘
              │
              ▼
@@ -423,7 +424,7 @@ Frame 0 (R-Kanal):
   σ_0,R = 0.0012  (Rauschen)
   E_0,R = 0.0456  (Gradientenergie)
   
-  Nach Z-Score:
+  Nach robuster Skalierung (Median + MAD):
   B̃_0,R = -0.5
   σ̃_0,R = -1.2
   Ẽ_0,R = +1.8
@@ -458,10 +459,15 @@ def compute_global_metrics_batch(frames, channel):
     # Gradientenergie (vektorisiert)
     E = np.array([gradient_energy(f) for f in frames_norm])
     
-    # Z-Scores (vektorisiert)
-    B_z = (B - B.mean()) / B.std()
-    sigma_z = (sigma - sigma.mean()) / sigma.std()
-    E_z = (E - E.mean()) / E.std()
+    # Robuste Skalierung (Median + MAD, vgl. Methodik v3.1)
+    def robust_scale(x):
+        med = np.median(x)
+        mad = np.median(np.abs(x - med))
+        return (x - med) / (1.4826 * mad)
+
+    B_z = robust_scale(B)
+    sigma_z = robust_scale(sigma)
+    E_z = robust_scale(E)
     
     # Qualitätsindex
     Q = alpha * (-B_z) + beta * (-sigma_z) + gamma * E_z

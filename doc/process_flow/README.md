@@ -47,7 +47,7 @@ Jede Phase ist in einem separaten Dokument mit Diagrammen, Formeln und Beispiele
 
 **Wichtige Konzepte:**
 - Normalisierung erfolgt **exakt einmal**
-- Z-Score-Normalisierung der Metriken
+- Robuste Normalisierung der Metriken mit Median + MAD
 - Exponential-Mapping mit Clamping
 - Gewichtung: α·(-B̃) + β·(-σ̃) + γ·Ẽ
 
@@ -223,12 +223,15 @@ Die Methodik basiert auf folgenden **unveränderlichen Prinzipien**:
 - Phase 6 wird **übersprungen**
 - Keine Clusterung
 - Keine synthetischen Frames
-- Direktes Stacking der Original-Frames in Phase 7
-- Validierungswarnung im Report
+- Phase 5 erzeugt das rekonstruierte Bild R_c pro Kanal
+- Phase 7 übernimmt R_c direkt ohne weiteres Stacking
+- Validierungswarnung im Report ("Reduced Mode")
 
-### Minimum (N < 50 Frames)
-- **Abbruch** der Pipeline
-- Zu wenig Frames für stabile Statistiken
+### Degraded Mode (N < 50 Frames)
+- Pipeline läuft im Reduced Mode ohne Clusterung
+- Starke Degradation der Statistik (zu wenig Frames)
+- Lauf wird mit entsprechendem Warnlevel gekennzeichnet
+- Abbruch nur bei **kritischen** Fehlern (z.B. keine Sterne, Daten nicht linear)
 
 ## Qualitätsmetriken
 

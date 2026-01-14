@@ -24,7 +24,7 @@ Bei Frame-Anzahl 50-199:
 ## Input
 
 ```python
-# Aus Phase 2:
+# Aus Phase 2 (globale Metriken):
 global_metrics[c][f] = {
     'B': float,      # Hintergrund
     'sigma': float,  # Rauschen
@@ -32,14 +32,15 @@ global_metrics[c][f] = {
     'G': float,      # Globales Gewicht
 }
 
-# Aus Phase 4:
+# Aus Phase 4 (lokale Qualitätsindizes pro Frame/Tile):
 local_metrics[c][(f, t)] = {
     'Q_local': float,  # Lokaler Qualitätsindex
     'L': float,        # Lokales Gewicht
 }
 
-# Aus Phase 5:
-reconstructed_tiles[c][t]  # Rekonstruierte Tiles
+# Für die Rekonstruktion synthetischer Frames werden
+# die registrierten (ggf. global normalisierten) Frames verwendet:
+frames[c][f][y, x]  # Original-Frames pro Kanal
 ```
 
 ## Schritt 6.1: Zustandsvektor-Konstruktion
@@ -346,41 +347,30 @@ Statt alle m Frames einzeln zu stacken:
 
 ### Prozess
 
+Gemäß Methodik v3.1 (§3.8) werden synthetische Frames direkt
+aus den (registrierten, linear skalierten) Frames pro Kanal
+mit **globalen** Gewichten G_f,c gebildet – ohne erneute
+Tile-Rekonstruktion.
+
 ```
 ┌─────────────────────────────────────────┐
 │  Cluster k, Kanal c                     │
 │  Frames: {f₁, f₂, ..., f_m}            │
-│  Tiles: rekonstruierte Tiles aus Phase 5│
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
-│  Für jedes Tile t:                      │
+│  Gewichtetes Stacking über Frames       │
 │                                          │
-│  Sammle Tile-Daten aus allen Frames     │
-│  im Cluster:                            │
-│    tiles_cluster = [I_f,t,c for f in k] │
+│  Für jedes Pixel (x,y):                 │
+│    F_synth,k,c[x,y] =                   │
+│        Σ_{f ∈ Cluster_k} G_f,c · I_f,c[x,y]
+│        -----------------------------------
+│        Σ_{f ∈ Cluster_k} G_f,c          │
 │                                          │
-│  Berechne Gewichte:                     │
-│    weights = [W_f,t,c for f in k]       │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Gewichtetes Stacking pro Tile:         │
-│                                          │
-│  I_synth,t,c = Σ_f [W_f,t,c · I_f,t,c]  │
-│                / Σ_f W_f,t,c            │
-│                                          │
-│  (nur über Frames in Cluster k)         │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Overlap-Add (wie Phase 5):             │
-│                                          │
-│  Kombiniere alle Tiles zu synthetischem │
-│  Frame mit Fensterfunktion              │
+│  I_f,c[x,y] sind die registrierten      │
+│  Frames (pro Kanal), G_f,c die globalen │
+│  Gewichte aus Phase 2.                  │
 └────────────┬────────────────────────────┘
              │
              ▼
