@@ -204,7 +204,7 @@ Niedriger Kontrast:
 │                                          │
 │  2. Schätze lokales Rauschen σ          │
 │                                          │
-│  3. ENR_f,t,c = E / σ²                  │
+│  3. ENR_f,t,c = E / σ                   │
 │     (Energy-to-Noise Ratio)             │
 └────────────┬────────────────────────────┘
              │
@@ -262,29 +262,31 @@ ENR = E / σ²         →  Signal-to-Noise
 ### Formel (Stern-Tiles)
 
 ```
-Q_local_f,t,c = w₁·FWHM̃ + w₂·r̃ + w₃·C̃
+Q_local_f,t,c = 0.6 · (−FWHM̃_f,t,c) + 0.2 · r̃_f,t,c + 0.2 · C̃_f,t,c
 
-wobei:
-  FWHM̃ = -(FWHM - μ) / σ     (negiert: kleiner ist besser)
-  r̃    = (roundness - μ) / σ  (größer ist besser)
-  C̃    = (contrast - μ) / σ   (größer ist besser)
-  
-  w₁ + w₂ + w₃ = 1
-  Default: w₁ = 0.5, w₂ = 0.3, w₃ = 0.2
+wobei (robuste Skalierung mit Median + MAD über alle Stern-Tiles):
+  FWHM̃_f,t,c = (FWHM_f,t,c − median(FWHM))
+                / (1.4826 · MAD(FWHM))
+  r̃_f,t,c     = (roundness_f,t,c − median(roundness))
+                / (1.4826 · MAD(roundness))
+  C̃_f,t,c     = (contrast_f,t,c − median(contrast))
+                / (1.4826 · MAD(contrast))
+
+  Kleinere FWHM̃ sind besser (daher Vorzeichen − vor FWHM̃ im Q_local).
 ```
 
 ### Formel (Struktur-Tiles)
 
 ```
-Q_local_f,t,c = w₁·ENR̃ + w₂·(-B̃_local) + w₃·var̃
+Q_local_f,t,c = 0.7 · ENR̃_f,t,c − 0.3 · B̃_local,f,t,c
 
-wobei:
-  ENR̃      = (ENR - μ) / σ         (größer ist besser)
-  B̃_local  = (B_local - μ) / σ     (negiert: kleiner ist besser)
-  var̃      = (variance - μ) / σ    (größer ist besser)
-  
-  w₁ + w₂ + w₃ = 1
-  Default: w₁ = 0.5, w₂ = 0.3, w₃ = 0.2
+wobei (robuste Skalierung mit Median + MAD über alle Struktur-Tiles):
+  ENR̃_f,t,c      = (ENR_f,t,c − median(ENR))
+                    / (1.4826 · MAD(ENR))
+  B̃_local,f,t,c  = (B_local_f,t,c − median(B_local))
+                    / (1.4826 · MAD(B_local))
+
+  Ein expliziter Varianz-Term geht in v3.1 **nicht** in Q_local ein.
 ```
 
 ### Prozess
@@ -298,13 +300,15 @@ wobei:
              │
              ▼
 ┌─────────────────────────────────────────┐
-│  Z-Score Normalisierung (pro Metrik)    │
+│  Robuste Normalisierung (pro Metrik)    │
 │                                          │
-│  μ_FWHM = mean(FWHM_f,t,c)              │
-│  σ_FWHM = std(FWHM_f,t,c)               │
-│  FWHM̃ = (FWHM - μ) / σ                 │
+│  median_FWHM = median(FWHM_f,t,c)       │
+│  MAD_FWHM    = MAD(FWHM_f,t,c)          │
+│  FWHM̃       = (FWHM − median_FWHM)
+│                / (1.4826 · MAD_FWHM)    │
 │                                          │
-│  (analog für andere Metriken)           │
+│  (analog für andere Metriken mit
+│   Median + MAD)                          │
 └────────────┬────────────────────────────┘
              │
              ▼

@@ -385,8 +385,15 @@ def validate_phase1(frames_r, frames_g, frames_b, metadata):
     # Check 1: Frame count
     N = len(frames_r)
     assert N == len(frames_g) == len(frames_b)
-    assert N >= 50, "Minimum 50 frames required"
     checks.append(f"✓ Frame count: {N}")
+    
+    # Hinweis auf Moduswahl gemäß Methodik v3.1
+    if N < 50:
+        checks.append("⚠ Degraded Mode: < 50 Frames (stark reduzierte Statistik, kein Clustering)")
+    elif N < 200:
+        checks.append("⚠ Reduced Mode: 50–199 Frames (kein Clustering, keine synthetischen Frames)")
+    else:
+        checks.append("✓ Normal Mode: N ≥ 200 Frames")
     
     # Check 2: Dimensions
     H, W = frames_r[0].shape
