@@ -51,12 +51,16 @@ try:
     from tile_compile_backend.clustering import cluster_channels
     from tile_compile_backend.tile_grid import generate_multi_channel_grid
     from tile_compile_backend.linearity import validate_frames_linearity
+    from tile_compile_backend.sigma_clipping import SigmaClipConfig, sigma_clip_stack_nd, simple_mean_stack_nd
 except Exception:
     TileMetricsCalculator = None
     generate_channel_synthetic_frames = None
     cluster_channels = None
     generate_multi_channel_grid = None
     validate_frames_linearity = None
+    SigmaClipConfig = None
+    sigma_clip_stack_nd = None
+    simple_mean_stack_nd = None
 
 
 def _to_uint8(img: np.ndarray) -> np.ndarray:
@@ -3163,22 +3167,13 @@ def run_phases_impl(
     phase_start(run_id, log_fp, phase_id, phase_name)
     if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
         return False
-    if stack_engine != "siril":
-        phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"stacking.engine not supported: {stack_engine!r}"})
-        return False
-    if not siril_exe:
-        phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "siril executable not found"})
-        return False
 
-    stack_work = work_dir / "stacking"
-    stack_work.mkdir(parents=True, exist_ok=True)
-    
     # Check if we should fallback to reconstructed frames
     # This happens when:
     # 1. Reduced mode with skipped synthetic frames, OR
     # 2. Synthetic frames are disabled/not generated (synthetic_count == 0)
     use_reconstructed_fallback = (reduced_mode and synthetic_skipped) or (synthetic_count == 0)
-    
+
     if use_reconstructed_fallback:
         stack_src_dir = outputs_dir
         recon_r = outputs_dir / "reconstructed_R.fits"
@@ -3210,7 +3205,7 @@ def run_phases_impl(
             rgb_syn = [p for p in stack_files if re.match(r"^syn_\d{5}\.fits$", p.name)]
             if rgb_syn:
                 stack_files = sorted(rgb_syn)
-    
+
     if not stack_files:
         phase_end(
             run_id,
@@ -3222,130 +3217,84 @@ def run_phases_impl(
         )
         return False
 
-    using_default_stack_script = not (isinstance(stack_script_cfg, str) and stack_script_cfg.strip())
-    if using_default_stack_script and stack_method != "average":
+    # Pure-Python linear stacking (optional sigma-clipping for artifact removal).
+    #
+    # Behaviour:
+    # - If SigmaClipConfig / sigma_clip_stack_nd are available and
+    #   stacking.method == "rej", we apply sigma-clipping along the stack
+    #   axis and then take the mean of the surviving samples.
+    # - Otherwise we fall back to a simple unweighted mean over all
+    #   stacking input frames, which is Methodik-conform linear stacking.
+    
+    frames_list: list[np.ndarray] = []
+    for fp in stack_files:
+        try:
+            arr = np.asarray(fits.getdata(str(fp), ext=0)).astype("float32", copy=False)
+        except Exception:
+            continue
+        frames_list.append(arr)
+
+    if not frames_list:
         phase_end(
             run_id,
             log_fp,
             phase_id,
             phase_name,
             "error",
-            {
-                "error": "default stacking script is only defined for stacking.method=average; set stacking.siril_script for other methods",
-                "stacking_method": stack_method,
-            },
-        )
-        return False
-    if not stack_script_path.exists() or not stack_script_path.is_file():
-        phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"stacking script not found: {stack_script_path}"})
-        return False
-
-    ok_script, violations = validate_siril_script(stack_script_path)
-    if not ok_script:
-        phase_end(
-            run_id,
-            log_fp,
-            phase_id,
-            phase_name,
-            "error",
-            {"error": "stacking script violates policy", "script": str(stack_script_path), "violations": violations},
+            {"error": "failed to load stacking input frames", "input_dir": str(stack_src_dir)},
         )
         return False
 
-    for i, src in enumerate(stack_files, start=1):
-        dst = stack_work / f"seq{i:05d}.fit"
-        safe_symlink_or_copy(src, dst)
+    stack_arr = np.stack(frames_list, axis=0)
 
-    before = sorted([p.name for p in stack_work.iterdir() if p.is_file()])
-    ok, meta = run_siril_script(
-        siril_exe=siril_exe,
-        work_dir=stack_work,
-        script_path=stack_script_path,
-        artifacts_dir=artifacts_dir,
-        log_name="siril_stacking.log",
-        quiet=True,
-    )
-    if not ok:
-        reason = _extract_siril_error_reason(meta.get("log_file") if isinstance(meta, dict) else None)
-        phase_end(
-            run_id,
-            log_fp,
-            phase_id,
-            phase_name,
-            "error",
-            {"error": reason or "siril stacking failed", "siril": meta, "method": stack_method},
-        )
-        return False
-
-    after_files = sorted([p for p in stack_work.iterdir() if p.is_file()])
-    after_names = {p.name for p in after_files}
-    new_names = sorted(list(after_names.difference(set(before))))
-
-    save_targets = extract_siril_save_targets(stack_script_path)
-    candidates: List[Path] = []
-    for name in save_targets:
-        candidates.extend(
-            [
-                stack_work / name,
-                stack_work / (name + ".fit"),
-                stack_work / (name + ".fits"),
-                stack_work / (name + ".fts"),
-                stack_work / (Path(name).stem + ".fit"),
-                stack_work / (Path(name).stem + ".fits"),
-                stack_work / (Path(name).stem + ".fts"),
-            ]
-        )
-    out_basename = Path(stack_output_file).name
-    candidates.extend(
-        [
-            stack_work / out_basename,
-            stack_work / (out_basename + ".fit"),
-            stack_work / (out_basename + ".fits"),
-            stack_work / (out_basename + ".fts"),
-            stack_work / (Path(out_basename).stem + ".fit"),
-            stack_work / (Path(out_basename).stem + ".fits"),
-            stack_work / (Path(out_basename).stem + ".fts"),
-        ]
-    )
-    produced = pick_output_file(candidates)
-    if produced is None:
-        new_fits = [stack_work / n for n in new_names if (stack_work / n).is_file() and is_fits_image_path(stack_work / n)]
-        if len(new_fits) == 1:
-            produced = new_fits[0]
-    if produced is None:
-        phase_end(
-            run_id,
-            log_fp,
-            phase_id,
-            phase_name,
-            "error",
-            {
-                "error": "expected output not found",
-                "siril": meta,
-                "method": stack_method,
-                "save_targets": save_targets,
-                "new_files": new_names,
-            },
-        )
-        return False
-
-    if using_default_stack_script and stack_method == "average":
-        n_stack = len(stack_files)
-        if n_stack > 0:
-            try:
-                hdr = fits.getheader(str(produced), ext=0)
-                data = fits.getdata(str(produced), ext=0)
-                if data is not None:
-                    data_f = data.astype("float32", copy=False)
-                    data_f = data_f / float(n_stack)
-                    fits.writeto(str(produced), data_f, header=hdr, overwrite=True)
-            except Exception:
-                pass
+    # Map stacking configuration to sigma-clipping config if available.
+    use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
+    if use_sigma:
+        # Default values chosen to be moderately aggressive but safe; they
+        # can be overridden by a dedicated stacking / artifact_removal block
+        # in the configuration in the future.
+        sigma_cfg_dict: Dict[str, Any] = {
+            "sigma_low": 4.0,
+            "sigma_high": 4.0,
+            "max_iters": 3,
+            "min_fraction": 0.5,
+        }
+        try:
+            clipped_mean, mask, stats = sigma_clip_stack_nd(stack_arr, sigma_cfg_dict)
+            final_data = clipped_mean.astype("float32", copy=False)
+            sigma_stats = stats
+        except Exception as e:  # noqa: BLE001
+            # On any failure, fall back to simple mean stacking.
+            final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+            sigma_stats = {"error": str(e)}
+            use_sigma = False
+    else:
+        final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+        sigma_stats = {}
 
     final_out = outputs_dir / Path(stack_output_file)
     final_out.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(produced), str(final_out))
-    
+
+    # Use header from the first valid stacking input as template.
+    hdr_template = None
+    try:
+        hdr_template = fits.getheader(str(stack_files[0]), ext=0)
+    except Exception:
+        hdr_template = None
+
+    try:
+        fits.writeto(str(final_out), final_data, header=hdr_template, overwrite=True)
+    except Exception as e:  # noqa: BLE001
+        phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {"error": f"failed to write stacked output: {e}"},
+        )
+        return False
+
     try:
         out_pngs = _write_quality_analysis_pngs(artifacts_dir, channel_metrics)
         if out_pngs:
@@ -3369,11 +3318,13 @@ def run_phases_impl(
         pass
 
     extra: Dict[str, Any] = {
-        "siril": meta, 
-        "method": stack_method, 
+        "siril": None,
+        "method": stack_method,
         "output": str(final_out),
         "used_reconstructed_fallback": use_reconstructed_fallback,
         "fallback_reason": "no_synthetic_frames" if use_reconstructed_fallback else None,
+        "sigma_clipping_used": bool(use_sigma),
+        "sigma_stats": sigma_stats,
     }
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
 
