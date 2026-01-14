@@ -79,13 +79,16 @@ tile:
 local_metrics:
   clamp: [-3, 3]
   star_mode:
-    fwhm_transform: log
+    # FWHM, roundness und contrast werden gemäß Methodik v3.1 MAD-normalisiert;
+    # es gibt kein log-Transform mehr. Die Gewichte definieren direkt die
+    # Kombination Q_star = w_fwhm·(-FWHM̃) + w_round·R̃ + w_con·C̃.
     weights:
       fwhm: 0.6
       roundness: 0.2
       contrast: 0.2
   structure_mode:
-    metric: energy_over_sigma
+    # Strukturmodus nutzt ENR = E/σ und lokalen Hintergrund B_local:
+    #   Q_struct = metric_weight·ENR̃ − background_weight·B̃_local
     background_weight: 0.3
     metric_weight: 0.7
 

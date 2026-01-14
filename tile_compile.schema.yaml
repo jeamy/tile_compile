@@ -197,7 +197,7 @@ normalization:
 registration:
   engine:
     type: enum
-    values: [siril]
+    values: [siril, opencv_cfa]
     required: true
     editable: true
 
@@ -274,7 +274,13 @@ global_metrics:
     default: [-3, 3]
     required: true
     editable: true
-    description: "Clamp range for Q_f"
+    description: "Clamp range for Q_f before exp(·); Methodik v3.1 uses [-3, +3]"
+
+  adaptive_weights:
+    type: boolean
+    default: false
+    editable: true
+    description: "If true, adapt α/β/γ based on metric variances per Methodik v3.1 §3.2"
 
 # ============================================================
 # TILE-GEOMETRIE (seeing-adaptiv)
@@ -336,16 +342,11 @@ local_metrics:
     default: [-3, 3]
     required: true
     editable: true
-    description: "Clamp range for Q_local"
+    description: "Clamp range for Q_local (before exp); Methodik v3.1 uses [-3, +3]"
 
   star_mode:
-    fwhm_transform:
-      type: enum
-      values: [log]
-      const: log
-      editable: false
-      description: "Mandatory: log transform per Methodik v3"
-
+    # FWHM wird gemäß Spec v3.1 MAD-normalisiert (ohne log-Transform); dieses
+    # Feld bleibt bewusst leer, damit die GUI keine veraltete Option anbietet.
     weights:
       fwhm:
         type: number
@@ -374,13 +375,8 @@ local_metrics:
       _constraint: "fwhm + roundness + contrast = 1.0 (enforced by backend)"
 
   structure_mode:
-    metric:
-      type: enum
-      values: [energy_over_sigma]
-      const: energy_over_sigma
-      editable: false
-      description: "Mandatory: E/σ metric per Methodik v3"
-
+    # ENR (E/σ) und lokaler Hintergrund werden in der Implementierung gemäß Spec
+    # automatisch aus grad/noise/background berechnet.
     background_weight:
       type: number
       min: 0
