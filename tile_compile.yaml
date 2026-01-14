@@ -54,13 +54,12 @@ normalization:
   per_channel: true
 
 registration:
-  engine: siril
+  engine: opencv_cfa
   reference: auto
   allow_rotation: false   
   min_star_matches: 10   
   output_dir: registered
   registered_filename_pattern: "reg_{index:05d}.fit"
-  siril_script: ""  # empty = use default script
 
 global_metrics:
   weights:
@@ -110,12 +109,18 @@ reconstruction:
   tile_rescale: median_after_background_subtraction
 
 stacking:
-  engine: siril
   method: rej
-  input_dir: registered
-  input_pattern: "reg_*.fit"
+  # Default: stack synthetic RGB frames (syn_*.fits) produced in SYNTHETIC_FRAMES.
+  # In reduced mode or when no synthetic frames exist, the pipeline falls back
+  # to reconstructed_* channels automatically.
+  input_dir: synthetic
+  input_pattern: "syn_*.fits"
   output_file: stacked.fit
-  siril_script: ""  # empty = use default script
+  sigma_clip:
+    sigma_low: 4.0
+    sigma_high: 4.0
+    max_iters: 3
+    min_fraction: 0.5
 
 validation:
   min_fwhm_improvement_percent: 5

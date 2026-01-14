@@ -486,12 +486,6 @@ reconstruction:
 # ============================================================
 
 stacking:
-  engine:
-    type: enum
-    values: [siril]
-    required: true
-    editable: true
-
   method:
     type: enum
     values: [average, rej]
@@ -515,11 +509,44 @@ stacking:
     required: true
     editable: true
 
-  siril_script:
-    type: string
-    required: false
-    editable: true
-    description: "Custom Siril script path (empty = use default)"
+  sigma_clip:
+    # Optional fine-tuning of sigma-clipping when method = 'rej'. If omitted,
+    # conservative defaults are used (4σ, 3 iterations, min_fraction = 0.5).
+    sigma_low:
+      type: number
+      min: 0.1
+      max: 20.0
+      default: 4.0
+      required: false
+      editable: true
+      description: "Lower sigma threshold for rejection (z < -sigma_low)"
+
+    sigma_high:
+      type: number
+      min: 0.1
+      max: 20.0
+      default: 4.0
+      required: false
+      editable: true
+      description: "Upper sigma threshold for rejection (z > sigma_high)"
+
+    max_iters:
+      type: integer
+      min: 1
+      max: 10
+      default: 3
+      required: false
+      editable: true
+      description: "Maximum sigma-clipping iterations"
+
+    min_fraction:
+      type: number
+      min: 0.05
+      max: 1.0
+      default: 0.5
+      required: false
+      editable: true
+      description: "Minimum surviving frame fraction per pixel before falling back to unclipped mean"
 
 # ============================================================
 # VALIDIERUNG
