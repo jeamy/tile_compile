@@ -158,6 +158,61 @@ def test_weight_normalization():
     return True
 
 
+def test_sigma_clipping_backend():
+    """Test sigma-clipping stack implementation used for Python-only stacking."""
+    print("\n" + "=" * 60)
+    print("TEST 5: Sigma-Clipping Backend (sigma_clip_stack_nd)")
+    print("=" * 60)
+
+    try:
+        from tile_compile_backend.sigma_clipping import sigma_clip_stack_nd
+    except ImportError as e:  # pragma: no cover - backend not available
+        print(f"\n⚠️  Sigma-clipping test SKIPPED (import error: {e})")
+        return True
+
+    rng = np.random.default_rng(42)
+    base = np.full((16, 16), 100.0, dtype=np.float32)
+
+    frames = []
+    # 7 "good" frames with small noise
+    for _ in range(7):
+        frames.append(base + rng.normal(0.0, 1.0, base.shape).astype(np.float32))
+
+    # 1 frame with a strong cosmic-ray-like artifact at a single pixel
+    art = base + rng.normal(0.0, 1.0, base.shape).astype(np.float32)
+    art[8, 8] = 1000.0
+    frames.append(art)
+
+    stack = np.stack(frames, axis=0)
+
+    # Plain mean (no rejection)
+    plain_mean = stack.mean(axis=0)
+    plain_art_val = float(plain_mean[8, 8])
+
+    # Sigma-clipped mean
+    cfg = {
+        "sigma_low": 4.0,
+        "sigma_high": 4.0,
+        "max_iters": 3,
+        "min_fraction": 0.5,
+    }
+    clipped_mean, mask, stats = sigma_clip_stack_nd(stack, cfg)
+    clipped_art_val = float(clipped_mean[8, 8])
+
+    print(f"\nPlain mean at artifact pixel:   {plain_art_val:.3f}")
+    print(f"Sigma-clipped mean at pixel:   {clipped_art_val:.3f}")
+    print(f"Overall rejected_fraction:     {stats.get('rejected_fraction')}")
+
+    # The artifact pixel should be pulled significantly closer to the
+    # background level after clipping.
+    assert clipped_art_val < plain_art_val - 50.0, "Sigma clipping did not sufficiently reduce artifact influence"
+    assert 80.0 <= clipped_art_val <= 120.0, "Clipped value deviates too far from expected background"
+    assert 0.0 < float(stats.get("rejected_fraction", 0.0)) < 1.0, "Rejected fraction must be in (0,1)"
+
+    print("\n✅ Sigma-clipping backend test PASSED")
+    return True
+
+
 def main():
     """Run all tests"""
     print("\n" + "=" * 60)
@@ -169,6 +224,7 @@ def main():
         test_quantile_clustering,
         test_backend_clustering_fallback,
         test_weight_normalization,
+        test_sigma_clipping_backend,
     ]
     
     results = []

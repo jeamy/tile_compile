@@ -962,7 +962,6 @@ def run_phases_impl(
     synthetic_cfg = cfg.get("synthetic") if isinstance(cfg.get("synthetic"), dict) else {}
 
     reg_engine = str(registration_cfg.get("engine") or "")
-    stack_engine = str(stacking_cfg.get("engine") or "")
 
     reg_script_cfg = registration_cfg.get("siril_script")
     reg_script_path = (
@@ -970,28 +969,16 @@ def run_phases_impl(
         if isinstance(reg_script_cfg, str) and reg_script_cfg.strip()
         else (project_root / "siril_register_osc.ssf").resolve()
     )
-    stack_script_cfg = stacking_cfg.get("siril_script")
-    stack_method_cfg = str(stacking_cfg.get("method") or "")
-    stack_method = stack_method_cfg.strip().lower()
-    default_stack_script_name = "siril_stack_average.ssf"
-    if stack_method in ("rej", "rejection"):
-        default_stack_script_name = "siril_stack_rej.ssf"
-    stack_script_path = (
-        Path(str(stack_script_cfg)).expanduser().resolve()
-        if isinstance(stack_script_cfg, str) and stack_script_cfg.strip()
-        else (project_root / default_stack_script_name).resolve()
-    )
 
     if not (isinstance(reg_script_cfg, str) and reg_script_cfg.strip()):
         if not reg_script_path.exists():
             alt = (project_root / "siril_scripts" / "siril_register_osc.ssf").resolve()
             if alt.exists():
                 reg_script_path = alt
-    if not (isinstance(stack_script_cfg, str) and stack_script_cfg.strip()):
-        if not stack_script_path.exists():
-            alt = (project_root / "siril_scripts" / default_stack_script_name).resolve()
-            if alt.exists():
-                stack_script_path = alt
+
+    stack_method_cfg = str(stacking_cfg.get("method") or "")
+    stack_method = stack_method_cfg.strip().lower()
+    sigma_clip_cfg = stacking_cfg.get("sigma_clip") if isinstance(stacking_cfg.get("sigma_clip"), dict) else {}
 
     reg_out_name = str(registration_cfg.get("output_dir") or "registered")
     reg_pattern = str(registration_cfg.get("registered_filename_pattern") or "reg_{index:05d}.fit")
@@ -3250,14 +3237,12 @@ def run_phases_impl(
     # Map stacking configuration to sigma-clipping config if available.
     use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
     if use_sigma:
-        # Default values chosen to be moderately aggressive but safe; they
-        # can be overridden by a dedicated stacking / artifact_removal block
-        # in the configuration in the future.
+        # Merge user-provided sigma_clip config (if any) with conservative defaults.
         sigma_cfg_dict: Dict[str, Any] = {
-            "sigma_low": 4.0,
-            "sigma_high": 4.0,
-            "max_iters": 3,
-            "min_fraction": 0.5,
+            "sigma_low": float(sigma_clip_cfg.get("sigma_low", 4.0)),
+            "sigma_high": float(sigma_clip_cfg.get("sigma_high", 4.0)),
+            "max_iters": int(sigma_clip_cfg.get("max_iters", 3)),
+            "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
         }
         try:
             clipped_mean, mask, stats = sigma_clip_stack_nd(stack_arr, sigma_cfg_dict)

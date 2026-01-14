@@ -326,9 +326,8 @@
     "stacking": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["engine", "method", "input_dir", "input_pattern", "output_file"],
+      "required": ["method", "input_dir", "input_pattern", "output_file"],
       "properties": {
-        "engine": { "type": "string", "enum": ["siril"] },
         "method": {
           "type": "string",
           "enum": ["average", "rej"],
@@ -338,10 +337,40 @@
         "input_dir": { "type": "string", "minLength": 1 },
         "input_pattern": { "type": "string", "minLength": 1 },
         "output_file": { "type": "string", "minLength": 1 },
-        "siril_script": {
-          "type": "string",
-          "default": "",
-          "description": "Optional path to a custom Siril stacking script (empty = use default)."
+        "sigma_clip": {
+          "type": "object",
+          "description": "Optional sigma-clipping parameters used when stacking.method = 'rej'. If omitted, conservative defaults are used (4σ, 3 iterations, min_fraction=0.5).",
+          "additionalProperties": false,
+          "properties": {
+            "sigma_low": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 20.0,
+              "default": 4.0,
+              "description": "Lower sigma threshold for rejection (z < -sigma_low)."
+            },
+            "sigma_high": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 20.0,
+              "default": 4.0,
+              "description": "Upper sigma threshold for rejection (z > sigma_high)."
+            },
+            "max_iters": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 3,
+              "description": "Maximum sigma-clipping iterations."
+            },
+            "min_fraction": {
+              "type": "number",
+              "minimum": 0.05,
+              "maximum": 1.0,
+              "default": 0.5,
+              "description": "Minimum fraction of frames that must remain after clipping at a pixel; otherwise fallback to the unclipped mean at that location."
+            }
+          }
         }
       }
     },
