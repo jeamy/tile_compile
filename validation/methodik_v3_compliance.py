@@ -253,6 +253,124 @@ class MetodikV3ComplianceValidator:
         from datetime import datetime, timezone
         return datetime.now(timezone.utc).isoformat()
     
+    def validate_opencv_cfa_registration(self, image: np.ndarray, shifts: list[tuple[float, float]],
+                                           allow_rotation: bool = False,
+                                           noise_sigma: float = 0.0) -> Dict[str, Any]:
+        """QA-Test für registration.engine=opencv_cfa mit synthetischen Shifts.
+
+        Erzeugt aus einem Eingangsbild ein Set synthetischer CFA-Frames mit
+        bekannten Translationen (und optional Rotation), führt dann die
+        opencv_cfa-Registrierung darauf aus und vergleicht die geschätzten
+        ECC-Transformationen mit den Ground-Truth-Werten.
+
+        Args:
+            image: Basisbild (2D-Array) als float32/float64.
+            shifts: Liste von (dx, dy) in Pixeln relativ zur Referenz.
+            allow_rotation: Ob ECC Rotation schätzen darf (euclidean statt affine
+                            nur-Translation).
+            noise_sigma: optionale additive Gauß-Rauschstärke.
+
+        Returns:
+            Dict mit Fehlerstatistiken (RMSE, max-Fehler, Korrelationen).
+        """
+
+        from astropy.io import fits  # nur für Header/MOCK
+        from runner.opencv_registration import (
+            opencv_prepare_ecc_image,
+            opencv_best_translation_init,
+            opencv_ecc_warp,
+        )
+        from runner.image_processing import cfa_downsample_sum2x2, warp_cfa_mosaic_via_subplanes
+
+        base = np.asarray(image).astype("float32", copy=False)
+        H, W = base.shape
+
+        # Synthetische CFA-Mosaiks: einfache quadratische Replikation in 2x2
+        def make_cfa(img: np.ndarray) -> np.ndarray:
+            cfa = np.zeros_like(img, dtype="float32")
+            cfa[0::2, 0::2] = img[0::2, 0::2]  # R-plane
+            cfa[0::2, 1::2] = img[0::2, 1::2]  # G1
+            cfa[1::2, 0::2] = img[1::2, 0::2]  # G2
+            cfa[1::2, 1::2] = img[1::2, 1::2]  # B
+            return cfa
+
+        frames = []
+        gt_params: list[dict[str, float]] = []
+        for dx, dy in shifts:
+            # Wahrer Affinwarp (nur Translation/Rotation auf Intensitätsbild)
+            M = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
+            if allow_rotation and (dx != 0 or dy != 0):
+                # Kleine synthetische Rotation proportional zur Verschiebung
+                angle = 0.01 * np.hypot(dx, dy)
+                c = float(np.cos(angle))
+                s = float(np.sin(angle))
+                cx, cy = (W - 1) / 2.0, (H - 1) / 2.0
+                R = np.array([[c, -s, (1 - c) * cx + s * cy],
+                              [s,  c, (1 - c) * cy - s * cx]], dtype=np.float32)
+                M = R @ np.vstack([M, [0, 0, 1]])[:2, :]
+
+            warped = cv2.warpAffine(base, M, (W, H), flags=cv2.INTER_LINEAR)
+            if noise_sigma > 0.0:
+                warped = warped + np.random.normal(0.0, noise_sigma, warped.shape).astype("float32")
+
+            cfa = make_cfa(warped)
+            frames.append(cfa)
+            gt_params.append({"dx": float(dx), "dy": float(dy)})
+
+        # Referenzwahl wie im Runner: bestes Star-Count
+        ref_idx = 0
+        ref_stars = -1
+        ref_lum01 = None
+        for i, cfa in enumerate(frames):
+            lum = cfa_downsample_sum2x2(cfa)
+            lum01 = opencv_prepare_ecc_image(lum)
+            stars = int(cv2.goodFeaturesToTrack(lum01, maxCorners=1200, qualityLevel=0.01, minDistance=5, blockSize=7).shape[0])
+            if stars > ref_stars:
+                ref_stars = stars
+                ref_idx = i
+                ref_lum01 = lum01
+
+        est_params: list[dict[str, float]] = []
+        corr_coeffs: list[float] = []
+        for idx, cfa in enumerate(frames):
+            lum = cfa_downsample_sum2x2(cfa)
+            lum01 = opencv_prepare_ecc_image(lum)
+            if idx == ref_idx:
+                est_params.append({"dx": 0.0, "dy": 0.0})
+                corr_coeffs.append(1.0)
+                continue
+            init = opencv_best_translation_init(lum01, ref_lum01)
+            try:
+                warp, cc = opencv_ecc_warp(lum01, ref_lum01, allow_rotation=allow_rotation, init_warp=init)
+            except Exception:
+                warp, cc = init, 0.0
+            corr_coeffs.append(float(cc))
+            dx_est = float(warp[0, 2])
+            dy_est = float(warp[1, 2])
+            est_params.append({"dx": dx_est, "dy": dy_est})
+
+        # Fehlerstatistik
+        dx_err = []
+        dy_err = []
+        for gt, est in zip(gt_params, est_params):
+            dx_err.append(est["dx"] - gt["dx"])
+            dy_err.append(est["dy"] - gt["dy"])
+
+        dx_err = np.asarray(dx_err, dtype=np.float32)
+        dy_err = np.asarray(dy_err, dtype=np.float32)
+        rmse = float(np.sqrt(np.mean(dx_err**2 + dy_err**2)))
+        max_err = float(np.max(np.hypot(dx_err, dy_err)))
+
+        return {
+            "gt_params": gt_params,
+            "est_params": est_params,
+            "corr_coeffs": corr_coeffs,
+            "dx_err": dx_err.tolist(),
+            "dy_err": dy_err.tolist(),
+            "rmse": rmse,
+            "max_error": max_err,
+        }
+
     def generate_report(self, report: Dict[str, Any]):
         """
         Generate and save compliance report.

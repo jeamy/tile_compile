@@ -2,7 +2,7 @@
 
 ## Übersicht
 
-Phase 1 umfasst die geometrische Ausrichtung aller Frames und die Trennung in separate Farbkanäle. Diese Phase unterscheidet sich zwischen Path A (Siril) und Path B (CFA).
+Phase 1 umfasst die geometrische Ausrichtung aller Frames und die Trennung in separate Farbkanäle. Diese Phase unterscheidet sich zwischen Path A (Siril-basiert, optional/legacy) und Path B (CFA / opencv_cfa).
 
 ## Ziele
 
@@ -10,6 +10,11 @@ Phase 1 umfasst die geometrische Ausrichtung aller Frames und die Trennung in se
 2. Kanäle trennen (R, G, B)
 3. Linearität bewahren
 4. Keine Frame-Selektion
+5. Für `registration.engine=opencv_cfa`: eine einzige globale (euclidean/affine)
+   Transformation pro Frame, bestimmt über dichte ECC-Korrelation auf einer
+   CFA-Luminanz, mit CFA-aware Warping (Subplanes) – analog zur in Methodik
+   v3 beschriebenen Pfad-B-Anforderung „eine globale Transformation je Frame
+   + CFA-aware Interpolation, keine Bayer-Phasen-Mischung“.
 
 ## Path A: Siril-basierte Registrierung
 
