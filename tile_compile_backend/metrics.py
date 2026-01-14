@@ -112,39 +112,53 @@ class TileMetricsCalculator:
         self.overlap = overlap
     
     def calculate_tile_metrics(self, frame: np.ndarray) -> Dict[str, List[float]]:
-        """
-        Calculate metrics for each tile in a frame
+        """Calculate metrics for each tile in a frame.
+
+        The returned dictionary contains per-tile lists for:
+        - fwhm:            FWHM estimate (star-dominated tiles)
+        - roundness:       qualitative roundness metric
+        - contrast:        simple local contrast proxy
+        - background_level:local background B_local (median)
+        - noise_level:     local noise σ (std)
+        - gradient_energy: local gradient energy E (per Methodik v3 §3.4 / Anhang A.3)
         """
         tiles = self._generate_tiles(frame)
         
-        tile_metrics = {
-            'fwhm': [],           # Full Width at Half Maximum
-            'roundness': [],      # Star roundness
-            'contrast': [],       # Tile contrast
+        tile_metrics: Dict[str, List[float]] = {
+            'fwhm': [],            # Full Width at Half Maximum
+            'roundness': [],       # Star roundness
+            'contrast': [],        # Tile contrast
             'background_level': [],
-            'noise_level': []
+            'noise_level': [],
+            'gradient_energy': [], # Local gradient energy E
         }
         
         for tile in tiles:
-            tile_metrics['fwhm'].append(self._calculate_fwhm(tile))
-            tile_metrics['roundness'].append(self._calculate_roundness(tile))
-            tile_metrics['contrast'].append(self._calculate_contrast(tile))
-            tile_metrics['background_level'].append(np.median(tile))
-            tile_metrics['noise_level'].append(np.std(tile))
+            tile_fwhm = self._calculate_fwhm(tile)
+            tile_round = self._calculate_roundness(tile)
+            tile_con = self._calculate_contrast(tile)
+            tile_bg = float(np.median(tile))
+            tile_noise = float(np.std(tile))
+            tile_E = float(self._calculate_gradient_energy(tile))
+
+            tile_metrics['fwhm'].append(tile_fwhm)
+            tile_metrics['roundness'].append(tile_round)
+            tile_metrics['contrast'].append(tile_con)
+            tile_metrics['background_level'].append(tile_bg)
+            tile_metrics['noise_level'].append(tile_noise)
+            tile_metrics['gradient_energy'].append(tile_E)
         
         return tile_metrics
-    
+
     def _generate_tiles(self, frame: np.ndarray) -> List[np.ndarray]:
-        """
-        Generate overlapping tiles from a frame
-        """
+        """Generate overlapping tiles from a frame."""
         h, w = frame.shape
         step = int(self.tile_size * (1 - self.overlap))
         
-        tiles = []
+        tiles: List[np.ndarray] = []
         for y in range(0, h - self.tile_size + 1, step):
             for x in range(0, w - self.tile_size + 1, step):
-                tile = frame[y:y+self.tile_size, x:x+self.tile_size]
+                tile = frame[y:y + self.tile_size, x:x + self.tile_size]
                 tiles.append(tile)
         
         return tiles
@@ -174,10 +188,24 @@ class TileMetricsCalculator:
         return 1 / (1 + spread.mean())
     
     def _calculate_contrast(self, tile: np.ndarray) -> float:
+        """Calculate local contrast."""
+        t = tile.astype(np.float32, copy=False)
+        t_max = float(np.max(t))
+        t_min = float(np.min(t))
+        return (t_max - t_min) / (t_max + t_min + 1e-8)
+
+    def _calculate_gradient_energy(self, tile: np.ndarray) -> float:
+        """Calculate local gradient energy E for a tile.
+
+        Per Methodik v3 Anhang A.3 wird E typischerweise als Mittelwert von
+        |∇I|^2 definiert. Hier verwenden wir eine einfache Approximation mit
+        NumPy-Gradienten, die für die nachgelagerte MAD-Normalisierung ausreichend
+        ist.
         """
-        Calculate local contrast
-        """
-        return (np.max(tile) - np.min(tile)) / (np.max(tile) + np.min(tile) + 1e-8)
+        t = tile.astype(np.float32, copy=False)
+        gy, gx = np.gradient(t)
+        grad_sq = gx * gx + gy * gy
+        return float(np.mean(grad_sq))
 
 def compute_channel_metrics(channels: Dict[str, List[np.ndarray]]) -> Dict[str, Dict]:
     """

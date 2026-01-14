@@ -50,11 +50,13 @@ try:
     from tile_compile_backend.synthetic import generate_channel_synthetic_frames
     from tile_compile_backend.clustering import cluster_channels
     from tile_compile_backend.tile_grid import generate_multi_channel_grid
+    from tile_compile_backend.linearity import validate_frames_linearity
 except Exception:
     TileMetricsCalculator = None
     generate_channel_synthetic_frames = None
     cluster_channels = None
     generate_multi_channel_grid = None
+    validate_frames_linearity = None
 
 
 def _to_uint8(img: np.ndarray) -> np.ndarray:
@@ -1277,6 +1279,47 @@ def run_phases_impl(
         if new_frames:
             frames = new_frames
 
+    # Optional linearity validation (Methodik v3 §2.1 / §4)
+    linearity_cfg = cfg.get("linearity") if isinstance(cfg.get("linearity"), dict) else {}
+    linearity_enabled = bool(linearity_cfg.get("enabled", False))
+    if linearity_enabled and "validate_frames_linearity" in globals() and validate_frames_linearity is not None and frames:
+        try:
+            # Sample up to N frames for linearity check to limit cost
+            max_lin_frames = int(linearity_cfg.get("max_frames", 8))
+            if max_lin_frames <= 0:
+                max_lin_frames = 8
+            sample_paths = frames[: min(len(frames), max_lin_frames)]
+            sample_arrays: list[np.ndarray] = []
+            for p in sample_paths:
+                try:
+                    img, _hdr = read_fits_float(p)
+                    sample_arrays.append(img)
+                except Exception:
+                    continue
+            if sample_arrays:
+                arr = np.stack(sample_arrays, axis=0)
+                lin_result = validate_frames_linearity(arr, linearity_cfg)
+                overall = float(lin_result.get("overall_linearity", 1.0))
+                min_overall = float(linearity_cfg.get("min_overall_linearity", 0.9))
+                if overall < min_overall:
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        0,
+                        "SCAN_INPUT",
+                        "error",
+                        {
+                            "error": "linearity validation failed",
+                            "overall_linearity": overall,
+                            "min_overall_linearity": min_overall,
+                            "diagnostics": lin_result.get("diagnostics"),
+                        },
+                    )
+                    return False
+        except Exception:
+            # In case of unexpected validator failure, continue without hard abort
+            pass
+
     if not should_skip_phase(0):
         cfa_flag0 = fits_is_cfa(frames[0]) if frames else None
         header_bayerpat0 = fits_get_bayerpat(frames[0]) if frames else None
@@ -2178,99 +2221,175 @@ def run_phases_impl(
     except Exception:
         w_con = 0.2
 
+    # Struktur-Modus (Methodik v3 §3.4): ENR vs. Hintergrundgewicht
+    structure_mode = lm_cfg.get("structure_mode") if isinstance(lm_cfg.get("structure_mode"), dict) else {}
+    try:
+        w_struct = float(structure_mode.get("metric_weight", 0.7))
+    except Exception:
+        w_struct = 0.7
+    try:
+        w_bg_local = float(structure_mode.get("background_weight", 0.3))
+    except Exception:
+        w_bg_local = 0.3
+
     total_frames = sum(len(channel_files[ch]) for ch in ("R", "G", "B"))
     processed_frames = 0
     
     for ch in ("R", "G", "B"):
-        q_mean: List[float] = []
-        q_var: List[float] = []
+        ch_files = channel_files[ch]
+        if not ch_files:
+            continue
 
         ch_l_dir = lm_work / f"L_local_{ch}"
         ch_l_dir.mkdir(parents=True, exist_ok=True)
 
-        tile_sum_q: Optional[np.ndarray] = None
-        tile_sumsq_q: Optional[np.ndarray] = None
-        tile_sum_l: Optional[np.ndarray] = None
-        tile_sumsq_l: Optional[np.ndarray] = None
-        tile_count = 0
-        for f_idx, ch_file in enumerate(channel_files[ch]):
+        # Pass 1: Sammle rohe Tile-Metriken über alle Frames
+        per_frame_metrics: List[Dict[str, np.ndarray]] = []
+        n_tiles: Optional[int] = None
+        for f_idx, ch_file in enumerate(ch_files):
             f = fits.getdata(str(ch_file)).astype("float32", copy=False)
             tm = tile_calc.calculate_tile_metrics(f)
             fwhm = np.asarray(tm.get("fwhm") or [], dtype=np.float32)
             rnd = np.asarray(tm.get("roundness") or [], dtype=np.float32)
             con = np.asarray(tm.get("contrast") or [], dtype=np.float32)
-            if fwhm.size == 0:
-                q = np.zeros((0,), dtype=np.float32)
-                l = np.ones((0,), dtype=np.float32)
+            bg_local = np.asarray(tm.get("background_level") or [], dtype=np.float32)
+            noise_local = np.asarray(tm.get("noise_level") or [], dtype=np.float32)
+            grad_local = np.asarray(tm.get("gradient_energy") or [], dtype=np.float32)
+
+            if n_tiles is None:
+                n_tiles = int(fwhm.size)
             else:
-                # Methodik v3 §3.4: MAD-Normalisierung für alle Metriken
-                def _mad_norm(arr):
-                    """MAD-normalize array: x̃ = (x - median) / (1.4826 · MAD)"""
-                    med = float(np.median(arr))
-                    mad = float(np.median(np.abs(arr - med)))
-                    if mad < 1e-12:
-                        return np.zeros_like(arr)
-                    return (arr - med) / (1.4826 * mad)
-                
-                fwhm_n = _mad_norm(fwhm)  # FWHM̃
-                rnd_n = _mad_norm(rnd)    # R̃
-                con_n = _mad_norm(con)    # C̃
-                
-                # Methodik v3 §3.4: Q_local = w_fwhm·(-FWHM̃) + w_round·R̃ + w_con·C̃
-                # Negative FWHM because smaller FWHM is better
-                q_raw = (w_fwhm * (-fwhm_n) + w_round * rnd_n + w_con * con_n).astype(np.float32, copy=False)
-                # Clamp Q_local to [-3, +3] before exp() (Methodik v3 §3.4, Test Case 2)
-                q = np.clip(q_raw, -3.0, 3.0)
-                # Methodik v3 §3.4: L_f,t,c = exp(Q_local)
-                l = np.exp(q).astype(np.float32, copy=False)
-            q_mean.append(float(np.mean(q)) if q.size else 0.0)
-            q_var.append(float(np.var(q)) if q.size else 0.0)
+                # Falls ein Frame eine andere Tile-Anzahl hätte, brechen wir mit Fehler ab
+                if int(fwhm.size) != n_tiles:
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": "inconsistent tile count across frames in LOCAL_METRICS", "channel": ch},
+                    )
+                    return False
 
-            if q.size:
-                if tile_sum_q is None:
-                    tile_sum_q = np.zeros_like(q, dtype=np.float32)
-                    tile_sumsq_q = np.zeros_like(q, dtype=np.float32)
-                    tile_sum_l = np.zeros_like(l, dtype=np.float32)
-                    tile_sumsq_l = np.zeros_like(l, dtype=np.float32)
-                tile_sum_q += q
-                tile_sumsq_q += q * q
-                tile_sum_l += l
-                tile_sumsq_l += l * l
-                tile_count += 1
-
-                try:
-                    np.save(str(ch_l_dir / f"L_{f_idx+1:05d}.npy"), l.astype(np.float32, copy=False))
-                except Exception:
-                    pass
+            per_frame_metrics.append(
+                {
+                    "fwhm": fwhm,
+                    "roundness": rnd,
+                    "contrast": con,
+                    "bg_local": bg_local,
+                    "noise_local": noise_local,
+                    "grad_local": grad_local,
+                }
+            )
             del f
-            
+
             processed_frames += 1
             if processed_frames % 5 == 0 or processed_frames == total_frames:
-                phase_progress(run_id, log_fp, phase_id, phase_name, processed_frames, total_frames, {"channel": ch})
+                phase_progress(run_id, log_fp, phase_id, phase_name, processed_frames, total_frames, {"channel": ch, "step": "collect"})
 
-        q_tile_mean: list[float] = []
-        q_tile_var: list[float] = []
-        l_tile_mean: list[float] = []
-        l_tile_var: list[float] = []
-        if tile_sum_q is not None and tile_sumsq_q is not None and tile_count > 0:
-            q_mu = (tile_sum_q / float(tile_count)).astype(np.float32, copy=False)
-            q_v = (tile_sumsq_q / float(tile_count) - q_mu * q_mu).astype(np.float32, copy=False)
-            q_tile_mean = [float(x) for x in q_mu.tolist()]
-            q_tile_var = [float(x) for x in q_v.tolist()]
-        if tile_sum_l is not None and tile_sumsq_l is not None and tile_count > 0:
-            l_mu = (tile_sum_l / float(tile_count)).astype(np.float32, copy=False)
-            l_v = (tile_sumsq_l / float(tile_count) - l_mu * l_mu).astype(np.float32, copy=False)
-            l_tile_mean = [float(x) for x in l_mu.tolist()]
-            l_tile_var = [float(x) for x in l_v.tolist()]
+        if n_tiles is None or n_tiles <= 0 or not per_frame_metrics:
+            continue
+
+        n_frames_ch = len(per_frame_metrics)
+
+        # Baue Arrays der Form (F, T)
+        fwhm_all = np.zeros((n_frames_ch, n_tiles), dtype=np.float32)
+        rnd_all = np.zeros_like(fwhm_all)
+        con_all = np.zeros_like(fwhm_all)
+        bg_all = np.zeros_like(fwhm_all)
+        noise_all = np.zeros_like(fwhm_all)
+        grad_all = np.zeros_like(fwhm_all)
+
+        for i, mets in enumerate(per_frame_metrics):
+            fwhm_all[i, :] = mets["fwhm"]
+            rnd_all[i, :] = mets["roundness"]
+            con_all[i, :] = mets["contrast"]
+            bg_all[i, :] = mets["bg_local"]
+            noise_all[i, :] = mets["noise_local"]
+            grad_all[i, :] = mets["grad_local"]
+
+        # Heuristik: Stern-Tiles vs. Struktur-Tiles basierend auf Kontrast
+        # (einfach, aber genügt für Separate Behandlung gemäß Spec)
+        # Wir klassifizieren pro (Frame, Tile).
+        contrast_med = float(np.median(con_all)) if np.isfinite(con_all).any() else 0.0
+        contrast_thr = contrast_med * 1.5 if contrast_med > 0 else 0.0
+        star_mask = (con_all > contrast_thr)
+        struct_mask = ~star_mask
+
+        def _mad_norm_subset(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
+            """MAD-Normalisierung nur über die Elemente mit mask=True.
+
+            Werte außerhalb der Maske werden auf 0 gesetzt.
+            """
+            if not mask.any():
+                return np.zeros_like(values, dtype=np.float32)
+            subset = values[mask].astype(np.float32, copy=False)
+            med = float(np.median(subset))
+            mad = float(np.median(np.abs(subset - med)))
+            if mad < 1e-12 or not np.isfinite(mad):
+                out = np.zeros_like(values, dtype=np.float32)
+                return out
+            normed = (values.astype(np.float32, copy=False) - med) / (1.4826 * mad)
+            # Setze Bereiche außerhalb der Maske explizit auf 0
+            normed[~mask] = 0.0
+            return normed.astype(np.float32, copy=False)
+
+        # Stern-Modus: FWHM, Rundheit, Kontrast (nur auf star_mask)
+        fwhm_n = _mad_norm_subset(fwhm_all, star_mask)
+        rnd_n = _mad_norm_subset(rnd_all, star_mask)
+        con_n = _mad_norm_subset(con_all, star_mask)
+
+        # Struktur-Modus: ENR = E / σ, lokaler Hintergrund (nur auf struct_mask)
+        noise_safe = np.where(noise_all <= 0, 1e-6, noise_all.astype(np.float32, copy=False))
+        enr_all = grad_all.astype(np.float32, copy=False) / noise_safe
+        enr_n = _mad_norm_subset(enr_all, struct_mask)
+        bg_n = _mad_norm_subset(bg_all, struct_mask)
+
+        # Q_local gemäß Spec (Stern- bzw. Struktur-Formel)
+        q_local = np.zeros_like(fwhm_all, dtype=np.float32)
+        # Stern-Tiles
+        q_local[star_mask] = (
+            w_fwhm * (-fwhm_n[star_mask])
+            + w_round * rnd_n[star_mask]
+            + w_con * con_n[star_mask]
+        ).astype(np.float32, copy=False)
+        # Struktur-Tiles
+        q_local[struct_mask] = (
+            w_struct * enr_n[struct_mask]
+            - w_bg_local * bg_n[struct_mask]
+        ).astype(np.float32, copy=False)
+
+        # Clamping und lokale Gewichte
+        q_local = np.clip(q_local, -3.0, 3.0).astype(np.float32, copy=False)
+        l_local = np.exp(q_local).astype(np.float32, copy=False)
+
+        # Pro Frame: Mittelwert und Varianz von Q_local (für Clusterung / Analyse)
+        q_mean = [float(np.mean(q_local[i, :])) for i in range(n_frames_ch)]
+        q_var = [float(np.var(q_local[i, :])) for i in range(n_frames_ch)]
+
+        # Pro Tile: Mittelwert/Varianz über Frames (für Heatmaps)
+        q_tile_mean = [float(x) for x in np.mean(q_local, axis=0).astype(np.float32, copy=False).tolist()]
+        q_tile_var = [float(x) for x in np.var(q_local, axis=0).astype(np.float32, copy=False).tolist()]
+        l_tile_mean = [float(x) for x in np.mean(l_local, axis=0).astype(np.float32, copy=False).tolist()]
+        l_tile_var = [float(x) for x in np.var(l_local, axis=0).astype(np.float32, copy=False).tolist()]
+
+        # Schreibe L_local pro Frame auf Disk und (optional) speichere Q_local in channel_metrics
+        for f_idx in range(n_frames_ch):
+            try:
+                np.save(str(ch_l_dir / f"L_{f_idx+1:05d}.npy"), l_local[f_idx, :].astype(np.float32, copy=False))
+            except Exception:
+                pass
 
         channel_metrics[ch]["tiles"] = {
-            "tile_quality_mean": q_mean, 
+            "tile_quality_mean": q_mean,
             "tile_quality_variance": q_var,
             "L_local_files_dir": str(ch_l_dir),
             "Q_local_tile_mean": q_tile_mean,
             "Q_local_tile_var": q_tile_var,
             "L_local_tile_mean": l_tile_mean,
             "L_local_tile_var": l_tile_var,
+            # Vollständige Q_local-Matrix (Frames×Tiles) für tile-basierte Rekonstruktion
+            "Q_local": q_local.tolist(),
         }
 
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i})
@@ -2403,6 +2522,9 @@ def run_phases_impl(
             out = np.zeros((h0, w0), dtype=np.float32)
             weight_sum = np.zeros((h0, w0), dtype=np.float32)
             
+            # Per-Tile-Gesamtgewicht D_t,c (Methodik v3 §3.6)
+            D_tiles = np.zeros((n_tiles,), dtype=np.float64)
+            
             # Hanning window for overlap-add (Methodik v3 §3.6)
             hann_1d = np.hanning(tile_size_recon).astype(np.float32)
             hann_2d = np.outer(hann_1d, hann_1d)
@@ -2437,6 +2559,10 @@ def run_phases_impl(
                         # Methodik v3 §3.5: W_f,t,c = G_f,c · L_f,t,c
                         w_f_t = g_f * l_f_t
                         
+                        # Akkumuliere per-Tile-Gewicht D_t,c
+                        if np.isfinite(w_f_t) and w_f_t > 0.0:
+                            D_tiles[t_idx] += float(w_f_t)
+                        
                         # Extract tile
                         tile = f[y0:y1, x0:x1].copy()
                         tile_h, tile_w = tile.shape
@@ -2460,10 +2586,23 @@ def run_phases_impl(
                 del f
             
             # Normalize by weight sum (Methodik v3 §3.6)
-            # Fallback for low-weight regions: unweighted mean
-            low_weight_mask = weight_sum < epsilon
-            if np.any(low_weight_mask):
-                # Compute unweighted mean for fallback
+            # Fallback für Tiles mit sehr geringem Gesamtgewicht D_t,c
+            low_tile_mask = D_tiles < float(epsilon)
+            if np.any(low_tile_mask):
+                # Baue Pixelmaske der Low-Weight-Tiles
+                low_weight_mask = np.zeros((h0, w0), dtype=bool)
+                t_idx = 0
+                for ty in range(n_tiles_y):
+                    for tx in range(n_tiles_x):
+                        if low_tile_mask[t_idx]:
+                            y0 = ty * step_recon
+                            x0 = tx * step_recon
+                            y1 = min(y0 + tile_size_recon, h0)
+                            x1 = min(x0 + tile_size_recon, w0)
+                            low_weight_mask[y0:y1, x0:x1] = True
+                        t_idx += 1
+
+                # Compute unweighted mean for fallback (über alle Frames, wie in Spec)
                 fallback_sum = np.zeros((h0, w0), dtype=np.float32)
                 fallback_count = np.zeros((h0, w0), dtype=np.float32)
                 for ch_file in channel_files[ch]:
@@ -2473,7 +2612,7 @@ def run_phases_impl(
                     del f
                 fallback_mean = fallback_sum / np.maximum(fallback_count, 1.0)
                 
-                # Apply fallback where weights are too low
+                # Apply fallback in Low-Weight-Tiles
                 weight_sum_safe = np.where(low_weight_mask, 1.0, weight_sum)
                 out = np.where(low_weight_mask, fallback_mean, out / weight_sum_safe)
             else:
