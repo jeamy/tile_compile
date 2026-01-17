@@ -10,7 +10,7 @@ data:
   linear_required: true
 calibration:
   use_bias: false
-  use_dark: false
+  use_dark: true
   use_flat: false
   bias_use_master: false
   dark_use_master: false
@@ -43,8 +43,8 @@ normalization:
 registration:
   engine: opencv_cfa
   reference: auto
-  allow_rotation: false
-  min_star_matches: 10
+  allow_rotation: true
+  min_star_matches: 20
   output_dir: registered
   registered_filename_pattern: reg_{index:05d}.fit
 global_metrics:
@@ -95,8 +95,8 @@ stacking:
   input_pattern: syn_*.fits
   output_file: stacked.fit
   sigma_clip:
-    sigma_low: 2.5
-    sigma_high: 2.5
+    sigma_low: 3
+    sigma_high: 3
     max_iters: 3
     min_fraction: 0.5
 validation:

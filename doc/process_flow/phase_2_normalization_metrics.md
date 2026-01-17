@@ -33,10 +33,10 @@ frames[f][x, y]  # f = 0..N-1 (Frame-Index)
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 1: Sigma-Clipping                 │
-│                                          │
+│                                         │
 │  μ₀ = median(I_f,c)                     │
 │  σ₀ = MAD(I_f,c) * 1.4826               │
-│                                          │
+│                                         │
 │  Iteration (3x):                        │
 │    mask = |I - μ| < 3σ                  │
 │    μ = mean(I[mask])                    │
@@ -46,9 +46,9 @@ frames[f][x, y]  # f = 0..N-1 (Frame-Index)
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 2: Background Level               │
-│                                          │
+│                                         │
 │  B_f,c = μ_final                        │
-│                                          │
+│                                         │
 │  (Hintergrundniveau des Frames)         │
 └─────────────────────────────────────────┘
 ```
@@ -96,10 +96,10 @@ I'_f,c[x,y] = I_f,c[x,y] / B_f,c
              ▼
 ┌─────────────────────────────────────────┐
 │  Normalization                          │
-│                                          │
+│                                         │
 │  For each pixel (x,y):                  │
-│    I'_f,c[x,y] = I_f,c[x,y] / B_f,c    │
-│                                          │
+│    I'_f,c[x,y] = I_f,c[x,y] / B_f,c     │
+│                                         │
 │  Wertebereich nach Normalisierung:      │
 │  • Hintergrund ≈ 1.0                    │
 │  • Sterne/Nebel > 1.0                   │
@@ -134,19 +134,19 @@ Division:     I' = I / B
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 1: Hintergrund-Maske              │
-│                                          │
+│                                         │
 │  mask = (I'_f,c < threshold)            │
 │  threshold = 1.0 + 3*σ_initial          │
-│                                          │
+│                                         │
 │  → Nur Hintergrund-Pixel, keine Sterne  │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 2: Noise Estimation               │
-│                                          │
+│                                         │
 │  σ_f,c = std(I'_f,c[mask])              │
-│                                          │
+│                                         │
 │  (Standardabweichung im Hintergrund)    │
 └─────────────────────────────────────────┘
 ```
@@ -158,9 +158,9 @@ Frame mit Rauschen:
 
     Hintergrund-Region (mask=True):
     ┌─────────────────────┐
-    │ ░░▓░░▓▓░░░▓░░▓░░░░ │  ← Rauschen
-    │ ░▓░░░░▓░░▓░░░▓░░▓░ │     σ_f,c = std(diese Pixel)
-    │ ░░▓░░░░▓░░░▓░░░░▓░ │
+    │ ░░▓░░▓▓░░░▓░░▓░░░░  │  ← Rauschen
+    │ ░▓░░░░▓░░▓░░░▓░░▓░  │     σ_f,c = std(diese Pixel)
+    │ ░░▓░░░░▓░░░▓░░░░▓░  │
     └─────────────────────┘
     
     Stern-Region (mask=False):
@@ -187,11 +187,11 @@ Frame mit Rauschen:
              ▼
 ┌─────────────────────────────────────────┐
 │  Sobel Gradients                        │
-│                                          │
+│                                         │
 │  Gx = I' ⊗ [-1  0  1]                  │
 │            [-2  0  2]                   │
 │            [-1  0  1]                   │
-│                                          │
+│                                         │
 │  Gy = I' ⊗ [-1 -2 -1]                  │
 │            [ 0  0  0]                   │
 │            [ 1  2  1]                   │
@@ -200,16 +200,16 @@ Frame mit Rauschen:
              ▼
 ┌─────────────────────────────────────────┐
 │  Gradient Magnitude                     │
-│                                          │
-│  G[x,y] = √(Gx² + Gy²)                 │
+│                                         │
+│  G[x,y] = √(Gx² + Gy²)                  │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Gradient Energy                        │
-│                                          │
+│                                         │
 │  E_f,c = mean(G²)                       │
-│        = (1/N) Σ G[x,y]²               │
+│        = (1/N) Σ G[x,y]²                │
 └─────────────────────────────────────────┘
 ```
 
@@ -253,49 +253,49 @@ wobei (robuste Skalierung mit Median + MAD):
 ```
 ┌─────────────────────────────────────────┐
 │  Metriken für alle Frames:              │
-│  B_f,c, σ_f,c, E_f,c  (f = 0..N-1)     │
+│  B_f,c, σ_f,c, E_f,c  (f = 0..N-1)      │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 1: Robuste Normalisierung         │
-│                                          │
+│                                         │
 │  median_B = median(B_f,c)               │
 │  MAD_B    = MAD(B_f,c)                  │
-│  B̃_f,c    = (B_f,c - median_B)
+│  B̃_f,c    = (B_f,c - median_B)          │
 │             / (1.4826 · MAD_B)          │
-│                                          │
+│                                         │
 │  (analog für σ und E mit median + MAD)  │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 2: Gewichtete Kombination         │
-│                                          │
-│  Q_f,c = α·(-B̃) + β·(-σ̃) + γ·Ẽ        │
-│                                          │
+│                                         │
+│  Q_f,c = α·(-B̃) + β·(-σ̃) + γ·Ẽ          │
+│                                         │
 │  Vorzeichen:                            │
-│  • -B̃: Niedriger Hintergrund ist gut   │
-│  • -σ̃: Niedriges Rauschen ist gut      │
-│  • +Ẽ: Hohe Gradientenergie ist gut    │
+│  • -B̃: Niedriger Hintergrund ist gut    │
+│  • -σ̃: Niedriges Rauschen ist gut       │
+│  • +Ẽ: Hohe Gradientenergie ist gut     │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 3: Clamping (Stabilität)          │
-│                                          │
-│  Q_f,c = clip(Q_f,c, -3, +3)           │
-│                                          │
+│                                         │
+│  Q_f,c = clip(Q_f,c, -3, +3)            │
+│                                         │
 │  → Verhindert extreme Ausreißer         │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 4: Exponential Mapping            │
-│                                          │
+│                                         │
 │  G_f,c = exp(Q_f,c)                     │
-│                                          │
-│  Wertebereich: [e⁻³, e³] ≈ [0.05, 20.1]│
+│                                         │
+│  Wertebereich: [e⁻³, e³] ≈ [0.05, 20.1] │
 └─────────────────────────────────────────┘
 ```
 

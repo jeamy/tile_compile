@@ -39,9 +39,9 @@ tiles = [                      # Tile-Grid
              ▼
 ┌─────────────────────────────────────────┐
 │  Tile-Cutout extrahieren                │
-│                                          │
-│  tile_data = I'_f,c[y:y+h, x:x+w]      │
-│                                          │
+│                                         │
+│  tile_data = I'_f,c[y:y+h, x:x+w]       │
+│                                         │
 │  Shape: (h, w) = (64, 64)               │
 └─────────────────────────────────────────┘
 ```
@@ -55,11 +55,11 @@ Gesamtbild (512×512):          Tile-Cutout (64×64):
 │                    │         │  ★       │
 │    ┌──────────┐    │         │     ★    │
 │    │  ★       │    │   →     │          │
-│    │     ★    │    │         │    ★     │
+│    │     ★    │    │         │    ★    │
 │    │          │    │         │          │
-│    │    ★     │    │         │  ★   ★   │
+│    │    ★     │    │         │  ★   ★  │
 │    │          │    │         │          │
-│    │  ★   ★   │    │         │      ★   │
+│    │  ★   ★   │    │        │      ★  │
 │    │          │    │         └──────────┘
 │    │      ★   │    │
 │    └──────────┘    │
@@ -79,35 +79,35 @@ Gesamtbild (512×512):          Tile-Cutout (64×64):
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 1: FWHM (lokales Seeing)        │
-│                                          │
+│                                         │
 │  1. Finde Sterne im Tile                │
 │  2. Fitte PSF pro Stern                 │
 │  3. Berechne FWHM pro Stern             │
 │  4. Median über alle Sterne im Tile     │
-│                                          │
+│                                         │
 │  FWHM_f,t,c = median(FWHM_stars)        │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 2: Rundheit (Tracking-Qualität) │
-│                                          │
+│                                         │
 │  Pro Stern:                             │
 │    Berechne Elliptizität e = 1 - b/a    │
 │    wobei a, b = Halbachsen              │
-│                                          │
+│                                         │
 │  roundness_f,t,c = 1 - median(e)        │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 3: Kontrast (SNR)               │
-│                                          │
+│                                         │
 │  Pro Stern:                             │
 │    peak = max(PSF)                      │
 │    background = median(tile_data)       │
 │    noise = std(background_pixels)       │
-│                                          │
+│                                         │
 │  contrast_f,t,c = (peak - bg) / noise   │
 │                 = median(contrasts)     │
 └─────────────────────────────────────────┘
@@ -198,12 +198,12 @@ Niedriger Kontrast:
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 1: Energie/Rausch-Verhältnis    │
-│                                          │
+│                                         │
 │  1. Berechne Gradientenergie E          │
 │     (wie in Phase 2, aber lokal)        │
-│                                          │
+│                                         │
 │  2. Schätze lokales Rauschen σ          │
-│                                          │
+│                                         │
 │  3. ENR_f,t,c = E / σ                   │
 │     (Energy-to-Noise Ratio)             │
 └────────────┬────────────────────────────┘
@@ -211,18 +211,18 @@ Niedriger Kontrast:
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 2: Lokaler Hintergrund          │
-│                                          │
+│                                         │
 │  B_local_f,t,c = median(tile_data)      │
-│                                          │
+│                                         │
 │  (Hintergrundniveau im Tile)            │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 3: Strukturvarianz              │
-│                                          │
+│                                         │
 │  var_f,t,c = std(tile_data)             │
-│                                          │
+│                                         │
 │  (Variabilität der Struktur)            │
 └─────────────────────────────────────────┘
 ```

@@ -24,15 +24,15 @@ def json_dumps_canonical(obj: Any) -> bytes:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def read_bytes(path: Path) -> bytes:
+    """Read file as bytes."""
+    return path.read_bytes()
+
+
 def copy_config(config_path: Path, out_path: Path) -> None:
     """Copy configuration file to output directory."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(config_path, out_path)
-
-
-def read_bytes(path: Path) -> bytes:
-    """Read file as bytes."""
-    return path.read_bytes()
 
 
 def discover_frames(input_dir: Path, pattern: str) -> list[Path]:

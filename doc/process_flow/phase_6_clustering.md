@@ -72,9 +72,9 @@ wobei:
              ▼
 ┌─────────────────────────────────────────┐
 │  Berechne Tile-Statistiken              │
-│                                          │
+│                                         │
 │  Q_locals = [Q_local_f,t,c for all t]   │
-│                                          │
+│                                         │
 │  mean_Q = mean(Q_locals)                │
 │  var_Q = var(Q_locals)                  │
 └────────────┬────────────────────────────┘
@@ -82,13 +82,13 @@ wobei:
              ▼
 ┌─────────────────────────────────────────┐
 │  Konstruiere Zustandsvektor             │
-│                                          │
+│                                         │
 │  v_f,c = [G_f,c,                        │
 │           mean_Q,                       │
 │           var_Q,                        │
 │           B_f,c,                        │
 │           σ_f,c]                        │
-│                                          │
+│                                         │
 │  Shape: (5,)                            │
 └─────────────────────────────────────────┘
 ```
@@ -160,25 +160,25 @@ B_f,c:
 ```
 ┌─────────────────────────────────────────┐
 │  Zustandsvektoren für alle Frames:      │
-│  V = [v_0, v_1, ..., v_{N-1}]          │
+│  V = [v_0, v_1, ..., v_{N-1}]           │
 │  Shape: (N, 5)                          │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Pro Feature-Dimension d:               │
-│                                          │
+│                                         │
 │  μ_d = mean(V[:, d])                    │
 │  σ_d = std(V[:, d])                     │
-│                                          │
-│  V'[:, d] = (V[:, d] - μ_d) / σ_d      │
+│                                         │
+│  V'[:, d] = (V[:, d] - μ_d) / σ_d       │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Normalisierte Zustandsvektoren         │
-│  V' = [v'_0, v'_1, ..., v'_{N-1}]      │
-│                                          │
+│  V' = [v'_0, v'_1, ..., v'_{N-1}]       │
+│                                         │
 │  Alle Features haben:                   │
 │  • Mittelwert = 0                       │
 │  • Standardabweichung = 1               │
@@ -200,7 +200,7 @@ B_f,c:
              ▼
 ┌─────────────────────────────────────────┐
 │  Initialisierung (K-Means++)            │
-│                                          │
+│                                         │
 │  1. Wähle ersten Zentroid zufällig      │
 │  2. Für k=2..K:                         │
 │     Wähle nächsten Zentroid mit         │
@@ -211,15 +211,15 @@ B_f,c:
              ▼
 ┌─────────────────────────────────────────┐
 │  Iteration (bis Konvergenz):            │
-│                                          │
+│                                         │
 │  E-Step (Assignment):                   │
 │    Für jeden Frame f:                   │
-│      c_f = argmin_k ||v'_f - μ_k||²    │
-│                                          │
+│      c_f = argmin_k ||v'_f - μ_k||²     │
+│                                         │
 │  M-Step (Update):                       │
 │    Für jeden Cluster k:                 │
-│      μ_k = mean(v'_f für alle f mit c_f=k)│
-│                                          │
+│    μ_k = mean(v'_f für alle f mit c_f=k)│
+│                                         │
 │  Konvergenz wenn:                       │
 │    Keine Änderung in Assignments        │
 └────────────┬────────────────────────────┘
@@ -361,13 +361,13 @@ Tile-Rekonstruktion.
              ▼
 ┌─────────────────────────────────────────┐
 │  Gewichtetes Stacking über Frames       │
-│                                          │
+│                                         │
 │  Für jedes Pixel (x,y):                 │
 │    F_synth,k,c[x,y] =                   │
-│        Σ_{f ∈ Cluster_k} G_f,c · I_f,c[x,y]
-│        -----------------------------------
-│        Σ_{f ∈ Cluster_k} G_f,c          │
-│                                          │
+│     Σ_{f ∈ Cluster_k} G_f,c · I_f,c[x,y]│
+│     ----------------------------------- │ 
+│     Σ_{f ∈ Cluster_k} G_f,c             │
+│                                         │
 │  I_f,c[x,y] sind die registrierten      │
 │  Frames (pro Kanal), G_f,c die globalen │
 │  Gewichte aus Phase 2.                  │
@@ -377,7 +377,7 @@ Tile-Rekonstruktion.
 ┌─────────────────────────────────────────┐
 │  Output: Synthetisches Frame            │
 │  F_synth,k,c[x,y]                       │
-│                                          │
+│                                         │
 │  Repräsentiert Cluster k                │
 └─────────────────────────────────────────┘
 ```

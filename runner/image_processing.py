@@ -334,12 +334,22 @@ def warp_cfa_mosaic_via_subplanes(mosaic: np.ndarray, warp: np.ndarray) -> np.nd
     # cfa_downsample_sum2x2() output (half-resolution). Do not rescale translation.
     # NOTE: OpenCV expects this matrix to be applied with WARP_INVERSE_MAP.
     warp_sub = warp.astype("float32", copy=False)
+    a2 = warp_sub[:, :2]
+    t2 = warp_sub[:, 2]
+    delta_a = np.array([-0.25, -0.25], dtype=np.float32)
+    delta_b = np.array([0.25, -0.25], dtype=np.float32)
+    delta_c = np.array([-0.25, 0.25], dtype=np.float32)
+    delta_d = np.array([0.25, 0.25], dtype=np.float32)
+    warp_a = np.concatenate([a2, (t2 + a2 @ delta_a - delta_a)[:, None]], axis=1)
+    warp_b = np.concatenate([a2, (t2 + a2 @ delta_b - delta_b)[:, None]], axis=1)
+    warp_c = np.concatenate([a2, (t2 + a2 @ delta_c - delta_c)[:, None]], axis=1)
+    warp_d = np.concatenate([a2, (t2 + a2 @ delta_d - delta_d)[:, None]], axis=1)
     
     flags = cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP
-    a_w = cv2.warpAffine(a, warp_sub, (a.shape[1], a.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
-    b_w = cv2.warpAffine(b, warp_sub, (b.shape[1], b.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
-    c_w = cv2.warpAffine(c, warp_sub, (c.shape[1], c.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
-    d_w = cv2.warpAffine(d, warp_sub, (d.shape[1], d.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
+    a_w = cv2.warpAffine(a, warp_a, (a.shape[1], a.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
+    b_w = cv2.warpAffine(b, warp_b, (b.shape[1], b.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
+    c_w = cv2.warpAffine(c, warp_c, (c.shape[1], c.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
+    d_w = cv2.warpAffine(d, warp_d, (d.shape[1], d.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
     
     out = np.zeros((h2, w2), dtype=np.float32)
     out[0::2, 0::2] = a_w

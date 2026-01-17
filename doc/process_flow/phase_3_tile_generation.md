@@ -45,15 +45,13 @@ FWHM = Breite bei halber Maximalhöhe
 
 ```
 ┌─────────────────────────────────────────┐
-│
-
-  Normalized Frame I'_f,c[x,y]           │
+│  Normalized Frame I'_f,c[x,y]           │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 1: Sternfindung                   │
-│                                          │
+│                                         │
 │  • Threshold: I' > μ + 5σ               │
 │  • Lokale Maxima                        │
 │  • Mindestabstand zwischen Sternen      │
@@ -63,20 +61,20 @@ FWHM = Breite bei halber Maximalhöhe
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 2: PSF-Fitting pro Stern          │
-│                                          │
+│                                         │
 │  Gaussian 2D:                           │
-│  PSF(x,y) = A·exp(-((x-x₀)²+(y-y₀)²)   │
+│  PSF(x,y) = A·exp(-((x-x₀)²+(y-y₀)²)    │
 │                    /(2σ²))              │
-│                                          │
-│  Fit-Parameter: x₀, y₀, σ, A           │
+│                                         │
+│  Fit-Parameter: x₀, y₀, σ, A            │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 3: FWHM-Berechnung                │
-│                                          │
+│                                         │
 │  FWHM = 2.355 × σ                       │
-│                                          │
+│                                         │
 │  Qualitätsfilter:                       │
 │  • 1.0 < FWHM < 15.0 Pixel              │
 │  • Rundheit > 0.6                       │
@@ -120,9 +118,7 @@ Kontur bei halber Höhe:
 
 ```
 ┌─────────────────────────────────────────┐
-│
-
-  FWHM-Messungen:                        │
+│  FWHM-Messungen:                        │
 │  • Pro Frame: 50-500 Sterne             │
 │  • Pro Stern: 1 FWHM-Wert               │
 │  • Gesamt: N_frames × N_stars Werte     │
@@ -131,11 +127,11 @@ Kontur bei halber Höhe:
              ▼
 ┌─────────────────────────────────────────┐
 │  Robuste Statistik                      │
-│                                          │
+│                                         │
 │  1. Sammle alle FWHM-Werte              │
 │  2. Entferne Ausreißer (IQR-Methode)    │
 │  3. Berechne Median                     │
-│                                          │
+│                                         │
 │  F = median(FWHM_valid)                 │
 └─────────────────────────────────────────┘
 ```
@@ -213,7 +209,7 @@ Berechnung:
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 1: Seeing-adaptive Größe          │
-│                                          │
+│                                         │
 │  T_0 = s × F                            │
 │      = 8.0 × 3.2                        │
 │      = 25.6 px                          │
@@ -222,7 +218,7 @@ Berechnung:
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 2: Maximale Größe                 │
-│                                          │
+│                                         │
 │  T_max = floor(min(W, H) / D)           │
 │        = floor(min(4096, 2048) / 8)     │
 │        = floor(2048 / 8)                │
@@ -232,11 +228,11 @@ Berechnung:
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 3: Clamping                       │
-│                                          │
+│                                         │
 │  T_0 = 25.6 px                          │
 │  T_min = 64 px                          │
 │  T_max = 256 px                         │
-│                                          │
+│                                         │
 │  T = floor(clip(25.6, 64, 256))         │
 │    = floor(64)                          │
 │    = 64 px                              │
@@ -351,10 +347,10 @@ Ohne Overlap:                Mit Overlap:
              ▼
 ┌─────────────────────────────────────────┐
 │  Berechne Tile-Positionen               │
-│                                          │
+│                                         │
 │  x_positions = [0, S, 2S, 3S, ...]      │
 │    bis x + T ≤ W                        │
-│                                          │
+│                                         │
 │  y_positions = [0, S, 2S, 3S, ...]      │
 │    bis y + T ≤ H                        │
 └────────────┬────────────────────────────┘
@@ -362,7 +358,7 @@ Ohne Overlap:                Mit Overlap:
              ▼
 ┌─────────────────────────────────────────┐
 │  Erzeuge Tile-Grid                      │
-│                                          │
+│                                         │
 │  tiles = []                             │
 │  for y in y_positions:                  │
 │    for x in x_positions:                │
@@ -382,12 +378,12 @@ Bild (W=256, H=192):
 T=64, S=48 (O=16)
 
   0   48  96  144 192 240
-0 ┌───┬───┬───┬───┐
-  │ 0 │ 1 │ 2 │ 3 │
-48├───┼───┼───┼───┤
-  │ 4 │ 5 │ 6 │ 7 │
-96├───┼───┼───┼───┤
-  │ 8 │ 9 │10 │11 │
+0  ┌───┬───┬───┬───┐
+   │ 0 │ 1 │ 2 │ 3 │
+48 ├───┼───┼───┼───┤
+   │ 4 │ 5 │ 6 │ 7 │
+96 ├───┼───┼───┼───┤
+   │ 8 │ 9 │10 │11 │
 144└───┴───┴───┴───┘
 
 Tile-Count:
@@ -430,7 +426,7 @@ tile = {
              ▼
 ┌─────────────────────────────────────────┐
 │  Klassifikation:                        │
-│                                          │
+│                                         │
 │  if star_count ≥ 3:                     │
 │    type = 'star'                        │
 │  elif structure_energy > threshold:     │
@@ -445,12 +441,10 @@ tile = {
 ```
 Bild mit Tile-Grid und Klassifikation:
 
-┌────
-
-─────────────────────────────────┐
-│ ★  ★  │ ★     │       │       │     │
-│       │   ★   │       │       │     │
-│   ★   │       │       │       │     │
+┌─────────────────────────────────────┐
+│ ★  ★ │ ★    │       │       │     │
+│       │   ★  │       │       │     │
+│   ★   │      │       │       │     │
 ├───────┼───────┼───────┼───────┼─────┤
 │       │ ░░░░  │ ░░░░░ │       │     │
 │       │ ░███░ │ ░███░ │       │     │

@@ -77,9 +77,7 @@ Ab **PATH A / PATH B** arbeiten die Schritte dann auf diesen **kalibrierten** Fr
 ```
 ┌──────────────┐
 │  OSC Frames  │
-└───
-
-───┬───────┘
+└──────┬───────┘
        │
        ▼
 ┌──────────────────────┐
@@ -133,9 +131,7 @@ Ab **PATH A / PATH B** arbeiten die Schritte dann auf diesen **kalibrierten** Fr
 ```
 ┌──────────────┐
 │  OSC Frames  │
-│  (
-
-CFA Mosaic)│
+│  (CFA Mosaic)│
 └──────┬───────┘
        │
        ▼
