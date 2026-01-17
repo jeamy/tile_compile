@@ -9,6 +9,83 @@ from typing import Any
 import numpy as np
 
 
+def _local_median_3x3(data: np.ndarray) -> np.ndarray:
+    """Compute local median of 8 neighbors (excluding center) using pure NumPy.
+    
+    This is a simple implementation that pads the array and computes the median
+    of the 8 surrounding pixels for each position.
+    """
+    h, w = data.shape
+    # Pad with edge values
+    padded = np.pad(data, 1, mode='edge')
+    
+    # Collect all 8 neighbors
+    neighbors = np.stack([
+        padded[0:h, 0:w],      # top-left
+        padded[0:h, 1:w+1],    # top
+        padded[0:h, 2:w+2],    # top-right
+        padded[1:h+1, 0:w],    # left
+        # skip center
+        padded[1:h+1, 2:w+2],  # right
+        padded[2:h+2, 0:w],    # bottom-left
+        padded[2:h+2, 1:w+1],  # bottom
+        padded[2:h+2, 2:w+2],  # bottom-right
+    ], axis=0)
+    
+    return np.median(neighbors, axis=0).astype("float32")
+
+
+def cosmetic_correction(
+    data: np.ndarray,
+    sigma_threshold: float = 8.0,
+    hot_only: bool = True,
+) -> np.ndarray:
+    """Replace hot/cold pixels with median of neighbors.
+    
+    This MUST be applied BEFORE registration/warp to prevent hotpixels
+    from being interpolated and spread across the image ("walking noise").
+    
+    Args:
+        data: 2D image array (float32)
+        sigma_threshold: Pixels deviating more than this many robust sigmas
+                        from the local median are replaced.
+        hot_only: If True, only replace hot pixels (above threshold).
+                 If False, also replace cold pixels (below threshold).
+    
+    Returns:
+        Corrected image with hotpixels replaced by local median.
+    """
+    data = np.asarray(data).astype("float32", copy=True)
+    
+    # Compute robust statistics
+    med = np.median(data)
+    mad = np.median(np.abs(data - med))
+    robust_sigma = 1.4826 * mad
+    
+    if robust_sigma <= 0:
+        return data
+    
+    # Find hotpixels
+    threshold_hi = med + sigma_threshold * robust_sigma
+    hot_mask = data > threshold_hi
+    
+    if not hot_only:
+        threshold_lo = med - sigma_threshold * robust_sigma
+        cold_mask = data < threshold_lo
+        hot_mask = hot_mask | cold_mask
+    
+    if not np.any(hot_mask):
+        return data
+    
+    # Compute local median of 8 neighbors
+    local_median = _local_median_3x3(data)
+    
+    # Replace hotpixels with local median
+    data[hot_mask] = local_median[hot_mask]
+    
+    return data
+
+
 def cfa_downsample_sum2x2(mosaic: np.ndarray) -> np.ndarray:
     """Downsample CFA mosaic by summing 2x2 blocks."""
     h, w = mosaic.shape[:2]

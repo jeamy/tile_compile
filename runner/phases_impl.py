@@ -29,6 +29,7 @@ from .image_processing import (
     compute_frame_medians,
     warp_cfa_mosaic_via_subplanes,
     cfa_downsample_sum2x2,
+    cosmetic_correction,
 )
 
 # Local - registration
@@ -1687,8 +1688,12 @@ def run_phases_impl(
                 if stars < max(1, min_star_matches_i):
                     raise RuntimeError(f"insufficient stars: {stars} < {min_star_matches_i}")
 
+                # Apply cosmetic correction BEFORE warp to prevent hotpixels
+                # from being interpolated and spread across the image ("walking noise").
+                mosaic_clean = cosmetic_correction(mosaic, sigma_threshold=8.0, hot_only=True)
+
                 if idx == ref_idx:
-                    warped = mosaic.astype("float32", copy=False)
+                    warped = mosaic_clean.astype("float32", copy=False)
                     cc = 1.0
                     print(f"[DEBUG] Frame {idx} is REFERENCE: shape={mosaic.shape}, dtype={mosaic.dtype}, min={np.min(mosaic):.2f}, max={np.max(mosaic):.2f}, median={np.median(mosaic):.2f}")
                 else:
@@ -1701,8 +1706,8 @@ def run_phases_impl(
                     if not np.isfinite(cc) or cc < 0.15:
                         warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
                     print(f"[DEBUG] Frame {idx}: warp_matrix={warp.tolist()}, cc={cc:.4f}")
-                    print(f"[DEBUG] Frame {idx} BEFORE warp: shape={mosaic.shape}, dtype={mosaic.dtype}, min={np.min(mosaic):.2f}, max={np.max(mosaic):.2f}, median={np.median(mosaic):.2f}")
-                    warped = warp_cfa_mosaic_via_subplanes(mosaic, warp)
+                    print(f"[DEBUG] Frame {idx} BEFORE warp: shape={mosaic_clean.shape}, dtype={mosaic_clean.dtype}, min={np.min(mosaic_clean):.2f}, max={np.max(mosaic_clean):.2f}, median={np.median(mosaic_clean):.2f}")
+                    warped = warp_cfa_mosaic_via_subplanes(mosaic_clean, warp)
                     print(f"[DEBUG] Frame {idx} AFTER warp: shape={warped.shape}, dtype={warped.dtype}, min={np.min(warped):.2f}, max={np.max(warped):.2f}, median={np.median(warped):.2f}")
 
                 try:
