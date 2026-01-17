@@ -65,6 +65,7 @@ class PhaseManager:
         'STATE_CLUSTERING',
         'SYNTHETIC_FRAMES',
         'STACKING',
+        'DEBAYER',
         'DONE',
         'FAILED',
     ]

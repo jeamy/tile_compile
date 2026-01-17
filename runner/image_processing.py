@@ -36,8 +36,117 @@ def split_rgb_frame(data: np.ndarray) -> dict[str, np.ndarray]:
     raise RuntimeError(f"unsupported RGB FITS layout: shape={data.shape}")
 
 
+def demosaic_cfa(mosaic: np.ndarray, bayer_pattern: str) -> np.ndarray:
+    """Demosaic CFA/Bayer mosaic to full-resolution RGB using OpenCV.
+    
+    Args:
+        mosaic: 2D Bayer mosaic (H, W)
+        bayer_pattern: Bayer pattern (RGGB, BGGR, GBRG, GRBG)
+    
+    Returns:
+        RGB image (3, H, W) in float32
+    """
+    import cv2
+    
+    bp = str(bayer_pattern or "GBRG").strip().upper()
+    
+    # OpenCV Bayer pattern mapping
+    bayer_codes = {
+        "RGGB": cv2.COLOR_BAYER_RG2RGB,
+        "BGGR": cv2.COLOR_BAYER_BG2RGB,
+        "GBRG": cv2.COLOR_BAYER_GB2RGB,
+        "GRBG": cv2.COLOR_BAYER_GR2RGB,
+    }
+    
+    if bp not in bayer_codes:
+        bp = "GBRG"
+    
+    # Crop to even dimensions
+    h, w = mosaic.shape[:2]
+    h2 = h - (h % 2)
+    w2 = w - (w % 2)
+    if h2 != h or w2 != w:
+        mosaic = mosaic[:h2, :w2]
+    
+    # Normalize to 0-255 range for OpenCV uint8 demosaicing (more stable)
+    mosaic_min = np.min(mosaic)
+    mosaic_max = np.max(mosaic)
+    mosaic_range = mosaic_max - mosaic_min
+    
+    if mosaic_range > 0:
+        # Use uint16 to avoid heavy quantization artifacts in the final RGB.
+        # OpenCV's Bayer demosaicing supports 8-bit and 16-bit inputs.
+        mosaic_u16 = np.clip((mosaic - mosaic_min) / mosaic_range * 65535.0, 0.0, 65535.0).astype(np.uint16)
+    else:
+        mosaic_u16 = np.zeros_like(mosaic, dtype=np.uint16)
+    
+    # Demosaic to RGB (H, W, 3) using VNG algorithm for better quality
+    rgb_hwc = cv2.cvtColor(mosaic_u16, bayer_codes[bp])
+    
+    # Convert back to float32 in original range
+    rgb_hwc = rgb_hwc.astype(np.float32)
+    if mosaic_range > 0:
+        rgb_hwc = rgb_hwc / 65535.0 * mosaic_range + mosaic_min
+    
+    # Convert to (3, H, W) format
+    rgb = np.transpose(rgb_hwc, (2, 0, 1)).astype("float32", copy=False)
+    
+    return rgb
+
+
+def reassemble_cfa_mosaic(r_plane: np.ndarray, g_plane: np.ndarray, b_plane: np.ndarray, bayer_pattern: str) -> np.ndarray:
+    """Reassemble R, G, B subplanes back into a CFA/Bayer mosaic.
+    
+    This is the inverse operation of split_cfa_channels.
+    
+    Args:
+        r_plane: Red subplane (H/2, W/2)
+        g_plane: Green subplane (H/2, W/2) - averaged from G1+G2
+        b_plane: Blue subplane (H/2, W/2)
+        bayer_pattern: Bayer pattern (RGGB, BGGR, GBRG, GRBG)
+    
+    Returns:
+        CFA mosaic (H, W) in float32
+    """
+    bp = str(bayer_pattern or "GBRG").strip().upper()
+    
+    # Bayer pattern mapping
+    patterns = {
+        "RGGB": {"R": (0, 0), "G1": (0, 1), "G2": (1, 0), "B": (1, 1)},
+        "BGGR": {"B": (0, 0), "G1": (0, 1), "G2": (1, 0), "R": (1, 1)},
+        "GBRG": {"G1": (0, 0), "B": (0, 1), "R": (1, 0), "G2": (1, 1)},
+        "GRBG": {"G1": (0, 0), "R": (0, 1), "B": (1, 0), "G2": (1, 1)},
+    }
+    
+    if bp not in patterns:
+        bp = "GBRG"
+    
+    pat = patterns[bp]
+    r_pos = pat["R"]
+    b_pos = pat["B"]
+    g1_pos = pat["G1"]
+    g2_pos = pat["G2"]
+    
+    h2, w2 = r_plane.shape[:2]
+    h = h2 * 2
+    w = w2 * 2
+    
+    mosaic = np.zeros((h, w), dtype=np.float32)
+    mosaic[r_pos[0]::2, r_pos[1]::2] = r_plane
+    mosaic[b_pos[0]::2, b_pos[1]::2] = b_plane
+    mosaic[g1_pos[0]::2, g1_pos[1]::2] = g_plane
+    mosaic[g2_pos[0]::2, g2_pos[1]::2] = g_plane
+    
+    return mosaic
+
+
 def split_cfa_channels(mosaic: np.ndarray, bayer_pattern: str) -> dict[str, np.ndarray]:
-    """Split CFA/Bayer mosaic into R, G, B channels."""
+    """Split CFA/Bayer mosaic into R, G, B subplanes (half-resolution, no demosaicing).
+    
+    This extracts the raw Bayer subplanes without interpolation. Each channel
+    will be half the resolution of the input mosaic. Demosaicing happens later
+    after stacking.
+    """
     bp = str(bayer_pattern or "GBRG").strip().upper()
     h, w = mosaic.shape[:2]
     h2 = h - (h % 2)
@@ -105,6 +214,8 @@ def normalize_frame(frame: np.ndarray, frame_median: float, target_median: float
     if mode == "background":
         # Methodik v3 §3.1: I'_f = I_f / B_f (divisive normalization)
         if frame_median > 1e-10:
+            if target_median > 1e-10:
+                return (frame * (target_median / frame_median)).astype("float32", copy=False)
             return (frame / frame_median).astype("float32", copy=False)
         else:
             return frame.astype("float32", copy=False)
@@ -144,14 +255,14 @@ def warp_cfa_mosaic_via_subplanes(mosaic: np.ndarray, warp: np.ndarray) -> np.nd
     
     # NOTE: warp is already in subplane coordinates because it is estimated on
     # cfa_downsample_sum2x2() output (half-resolution). Do not rescale translation.
-    # Per OpenCV ECC reference: use WARP_INVERSE_MAP flag (no manual matrix inversion).
+    # NOTE: OpenCV expects this matrix to be applied with WARP_INVERSE_MAP.
     warp_sub = warp.astype("float32", copy=False)
-    warp_flags = cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP
     
-    a_w = cv2.warpAffine(a, warp_sub, (a.shape[1], a.shape[0]), flags=warp_flags, borderMode=cv2.BORDER_REPLICATE)
-    b_w = cv2.warpAffine(b, warp_sub, (b.shape[1], b.shape[0]), flags=warp_flags, borderMode=cv2.BORDER_REPLICATE)
-    c_w = cv2.warpAffine(c, warp_sub, (c.shape[1], c.shape[0]), flags=warp_flags, borderMode=cv2.BORDER_REPLICATE)
-    d_w = cv2.warpAffine(d, warp_sub, (d.shape[1], d.shape[0]), flags=warp_flags, borderMode=cv2.BORDER_REPLICATE)
+    flags = cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP
+    a_w = cv2.warpAffine(a, warp_sub, (a.shape[1], a.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
+    b_w = cv2.warpAffine(b, warp_sub, (b.shape[1], b.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
+    c_w = cv2.warpAffine(c, warp_sub, (c.shape[1], c.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
+    d_w = cv2.warpAffine(d, warp_sub, (d.shape[1], d.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
     
     out = np.zeros((h2, w2), dtype=np.float32)
     out[0::2, 0::2] = a_w

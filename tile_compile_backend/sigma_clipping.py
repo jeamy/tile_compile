@@ -22,8 +22,8 @@ class SigmaClipConfig:
     relative to the current mean.
     """
 
-    sigma_low: float = 4.0
-    sigma_high: float = 4.0
+    sigma_low: float = 3.0
+    sigma_high: float = 3.0
     max_iters: int = 3
     min_fraction: float = 0.5
 
@@ -33,9 +33,9 @@ class SigmaClipConfig:
         s_lo = float(self.sigma_low)
         s_hi = float(self.sigma_high)
         if not np.isfinite(s_lo) or s_lo <= 0.0:
-            s_lo = 4.0
+            s_lo = 3.0
         if not np.isfinite(s_hi) or s_hi <= 0.0:
-            s_hi = 4.0
+            s_hi = 3.0
 
         it = int(self.max_iters)
         if it <= 0:

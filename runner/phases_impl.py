@@ -22,6 +22,8 @@ from .calibration import build_master_mean, bias_correct_dark, prepare_flat, app
 # Local - image processing (disk-based)
 from .image_processing import (
     split_cfa_channels,
+    demosaic_cfa,
+    reassemble_cfa_mosaic,
     split_rgb_frame,
     normalize_frame,
     compute_frame_medians,
@@ -47,17 +49,32 @@ except Exception:
 
 try:
     from tile_compile_backend.metrics import TileMetricsCalculator
-    from tile_compile_backend.synthetic import generate_channel_synthetic_frames
-    from tile_compile_backend.clustering import cluster_channels
-    from tile_compile_backend.tile_grid import generate_multi_channel_grid
-    from tile_compile_backend.linearity import validate_frames_linearity
-    from tile_compile_backend.sigma_clipping import SigmaClipConfig, sigma_clip_stack_nd, simple_mean_stack_nd
 except Exception:
     TileMetricsCalculator = None
+
+try:
+    from tile_compile_backend.synthetic import generate_channel_synthetic_frames
+except Exception:
     generate_channel_synthetic_frames = None
+
+try:
+    from tile_compile_backend.clustering import cluster_channels
+except Exception:
     cluster_channels = None
+
+try:
+    from tile_compile_backend.tile_grid import generate_multi_channel_grid
+except Exception:
     generate_multi_channel_grid = None
+
+try:
+    from tile_compile_backend.linearity import validate_frames_linearity
+except Exception:
     validate_frames_linearity = None
+
+try:
+    from tile_compile_backend.sigma_clipping import SigmaClipConfig, sigma_clip_stack_nd, simple_mean_stack_nd
+except Exception:
     SigmaClipConfig = None
     sigma_clip_stack_nd = None
     simple_mean_stack_nd = None
@@ -928,7 +945,8 @@ def run_phases_impl(
             (8, "STATE_CLUSTERING"),
             (9, "SYNTHETIC_FRAMES"),
             (10, "STACKING"),
-            (11, "DONE"),
+            (11, "DEBAYER"),
+            (12, "DONE"),
         ]
         for phase_id, phase_name in phases:
             phase_start(run_id, log_fp, phase_id, phase_name)
@@ -960,6 +978,7 @@ def run_phases_impl(
     registration_cfg = cfg.get("registration") if isinstance(cfg.get("registration"), dict) else {}
     stacking_cfg = cfg.get("stacking") if isinstance(cfg.get("stacking"), dict) else {}
     synthetic_cfg = cfg.get("synthetic") if isinstance(cfg.get("synthetic"), dict) else {}
+    debayer_enabled = bool(cfg.get("debayer", True))
 
     reg_engine = str(registration_cfg.get("engine") or "")
 
@@ -994,6 +1013,275 @@ def run_phases_impl(
         if resume_from_phase is None:
             return False
         return phase_num < resume_from_phase
+
+    if resume_from_phase is not None and resume_from_phase >= 10:
+        stacked_path = None
+        stacked_hdr = None
+
+        if resume_from_phase <= 10:
+            phase_id = 10
+            phase_name = "STACKING"
+            phase_start(run_id, log_fp, phase_id, phase_name)
+            if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                return False
+
+            stack_src_dir = outputs_dir / Path(stack_input_dir_name)
+            syn_r = sorted([p for p in stack_src_dir.glob("synR_*.fits") if p.is_file() and is_fits_image_path(p)])
+            syn_g = sorted([p for p in stack_src_dir.glob("synG_*.fits") if p.is_file() and is_fits_image_path(p)])
+            syn_b = sorted([p for p in stack_src_dir.glob("synB_*.fits") if p.is_file() and is_fits_image_path(p)])
+            common_n = min(len(syn_r), len(syn_g), len(syn_b))
+
+            if common_n > 0:
+                syn_r = syn_r[:common_n]
+                syn_g = syn_g[:common_n]
+                syn_b = syn_b[:common_n]
+
+                def _stack_file_list(_files: list[Path]) -> tuple[np.ndarray, Dict[str, Any], bool]:
+                    _frames_list: list[np.ndarray] = []
+                    for _fp in _files:
+                        try:
+                            _arr = np.asarray(fits.getdata(str(_fp), ext=0)).astype("float32", copy=False)
+                        except Exception:
+                            continue
+                        _frames_list.append(_arr)
+                    if not _frames_list:
+                        return np.zeros((1, 1), dtype=np.float32), {"error": "failed to load frames"}, False
+                    _stack_arr = np.stack(_frames_list, axis=0)
+                    _use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
+                    _sigma_stats: Dict[str, Any] = {}
+                    if _use_sigma:
+                        _sigma_cfg_dict: Dict[str, Any] = {
+                            "sigma_low": float(sigma_clip_cfg.get("sigma_low", 4.0)),
+                            "sigma_high": float(sigma_clip_cfg.get("sigma_high", 4.0)),
+                            "max_iters": int(sigma_clip_cfg.get("max_iters", 3)),
+                            "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
+                        }
+                        try:
+                            _clipped_mean, _mask, _stats = sigma_clip_stack_nd(_stack_arr, _sigma_cfg_dict)
+                            _final = _clipped_mean.astype("float32", copy=False)
+                            _sigma_stats = _stats
+                        except Exception as e:  # noqa: BLE001
+                            _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                            _sigma_stats = {"error": str(e)}
+                            _use_sigma = False
+                    else:
+                        _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                    return _final, _sigma_stats, _use_sigma
+
+                try:
+                    hdr_template = fits.getheader(str(syn_r[0]), ext=0)
+                except Exception:
+                    hdr_template = None
+
+                r_final, r_stats, r_sigma = _stack_file_list(syn_r)
+                g_final, g_stats, g_sigma = _stack_file_list(syn_g)
+                b_final, b_stats, b_sigma = _stack_file_list(syn_b)
+
+                try:
+                    fits.writeto(str(outputs_dir / "stacked_R.fits"), r_final, header=hdr_template, overwrite=True)
+                    fits.writeto(str(outputs_dir / "stacked_G.fits"), g_final, header=hdr_template, overwrite=True)
+                    fits.writeto(str(outputs_dir / "stacked_B.fits"), b_final, header=hdr_template, overwrite=True)
+                except Exception:
+                    pass
+
+                final_data = reassemble_cfa_mosaic(r_final, g_final, b_final, bayer_pattern)
+                final_out = outputs_dir / Path(stack_output_file)
+                final_out.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    fits.writeto(str(final_out), final_data, header=hdr_template, overwrite=True)
+                except Exception as e:  # noqa: BLE001
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": f"failed to write stacked output: {e}"},
+                    )
+                    return False
+
+                extra: Dict[str, Any] = {
+                    "siril": None,
+                    "method": stack_method,
+                    "output": str(final_out),
+                    "used_reconstructed_fallback": False,
+                    "fallback_reason": None,
+                    "sigma_clipping_used": bool(r_sigma or g_sigma or b_sigma),
+                    "sigma_stats": {"R": r_stats, "G": g_stats, "B": b_stats},
+                }
+                phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
+
+                stacked_path = final_out
+                stacked_hdr = hdr_template
+            else:
+                stack_files = (
+                    sorted([p for p in stack_src_dir.glob(stack_input_pattern) if p.is_file() and is_fits_image_path(p)])
+                    if stack_src_dir.exists()
+                    else []
+                )
+                if stack_files:
+                    rgb_syn = [p for p in stack_files if re.match(r"^syn_\d{5}\.fits$", p.name)]
+                    if rgb_syn:
+                        stack_files = sorted(rgb_syn)
+
+                if not stack_files:
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": "no stacking input frames found", "input_dir": str(stack_src_dir), "input_pattern": stack_input_pattern},
+                    )
+                    return False
+
+                frames_list: list[np.ndarray] = []
+                for fp in stack_files:
+                    try:
+                        arr = np.asarray(fits.getdata(str(fp), ext=0)).astype("float32", copy=False)
+                    except Exception:
+                        continue
+                    frames_list.append(arr)
+
+                if not frames_list:
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": "failed to load stacking input frames", "input_dir": str(stack_src_dir)},
+                    )
+                    return False
+
+                stack_arr = np.stack(frames_list, axis=0)
+                use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
+                if use_sigma:
+                    sigma_cfg_dict: Dict[str, Any] = {
+                        "sigma_low": float(sigma_clip_cfg.get("sigma_low", 4.0)),
+                        "sigma_high": float(sigma_clip_cfg.get("sigma_high", 4.0)),
+                        "max_iters": int(sigma_clip_cfg.get("max_iters", 3)),
+                        "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
+                    }
+                    try:
+                        clipped_mean, mask, stats = sigma_clip_stack_nd(stack_arr, sigma_cfg_dict)
+                        final_data = clipped_mean.astype("float32", copy=False)
+                        sigma_stats = stats
+                    except Exception as e:  # noqa: BLE001
+                        final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+                        sigma_stats = {"error": str(e)}
+                        use_sigma = False
+                else:
+                    final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+                    sigma_stats = {}
+
+                final_out = outputs_dir / Path(stack_output_file)
+                final_out.parent.mkdir(parents=True, exist_ok=True)
+                hdr_template = None
+                try:
+                    hdr_template = fits.getheader(str(stack_files[0]), ext=0)
+                except Exception:
+                    hdr_template = None
+                try:
+                    fits.writeto(str(final_out), final_data, header=hdr_template, overwrite=True)
+                except Exception as e:  # noqa: BLE001
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": f"failed to write stacked output: {e}"},
+                    )
+                    return False
+
+                extra: Dict[str, Any] = {
+                    "siril": None,
+                    "method": stack_method,
+                    "output": str(final_out),
+                    "used_reconstructed_fallback": False,
+                    "fallback_reason": None,
+                    "sigma_clipping_used": bool(use_sigma),
+                    "sigma_stats": sigma_stats,
+                }
+                phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
+
+                stacked_path = final_out
+                stacked_hdr = hdr_template
+
+    # Fast-path: resume from DEBAYER (or later) without re-running earlier phases.
+    # This is especially useful when only debayering changes and stacked output already exists.
+    if resume_from_phase is not None and resume_from_phase >= 10:
+        if stacked_path is None:
+            try:
+                stacked_path = outputs_dir / Path(stack_output_file)
+                if stacked_path.is_file():
+                    try:
+                        stacked_hdr = fits.getheader(str(stacked_path), ext=0)
+                    except Exception:
+                        stacked_hdr = None
+                else:
+                    stacked_path = None
+            except Exception:
+                stacked_path = None
+                stacked_hdr = None
+
+        if resume_from_phase <= 11:
+            phase_id = 11
+            phase_name = "DEBAYER"
+            phase_start(run_id, log_fp, phase_id, phase_name)
+            if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                return False
+
+            if not debayer_enabled:
+                phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "disabled"})
+            else:
+                if stacked_path is None or not stacked_path.is_file():
+                    phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "missing stacked output for debayer"})
+                    return False
+
+                try:
+                    stacked_data = np.asarray(fits.getdata(str(stacked_path), ext=0)).astype("float32", copy=False)
+                except Exception as e:  # noqa: BLE001
+                    phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"failed to read stacked output: {e}"})
+                    return False
+
+                rgb_out = outputs_dir / "stacked_rgb.fits"
+                rgb = None
+                try:
+                    if stacked_data.ndim == 2:
+                        rgb = demosaic_cfa(stacked_data, bayer_pattern)
+                    elif stacked_data.ndim == 3:
+                        if stacked_data.shape[0] == 3:
+                            rgb = stacked_data
+                        elif stacked_data.shape[2] == 3:
+                            rgb = np.transpose(stacked_data, (2, 0, 1)).astype("float32", copy=False)
+                except Exception:
+                    rgb = None
+
+                if rgb is None:
+                    phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "not_applicable"})
+                else:
+                    try:
+                        fits.writeto(str(rgb_out), rgb, header=stacked_hdr, overwrite=True)
+                    except Exception as e:  # noqa: BLE001
+                        phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"failed to write debayer output: {e}"})
+                        return False
+                    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"output": str(rgb_out)})
+
+        if resume_from_phase <= 12:
+            phase_id = 12
+            phase_name = "DONE"
+            phase_start(run_id, log_fp, phase_id, phase_name)
+            if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                return False
+            try:
+                _ensure_report_metrics_complete(artifacts_dir)
+            except Exception:
+                pass
+            phase_end(run_id, log_fp, phase_id, phase_name, "ok", {})
+
+        return True
 
     phase_id = 0
     phase_name = "SCAN_INPUT"
@@ -1402,15 +1690,20 @@ def run_phases_impl(
                 if idx == ref_idx:
                     warped = mosaic.astype("float32", copy=False)
                     cc = 1.0
+                    print(f"[DEBUG] Frame {idx} is REFERENCE: shape={mosaic.shape}, dtype={mosaic.dtype}, min={np.min(mosaic):.2f}, max={np.max(mosaic):.2f}, median={np.median(mosaic):.2f}")
                 else:
                     init = opencv_best_translation_init(lum01, ref_lum01)
                     try:
                         warp, cc = opencv_ecc_warp(lum01, ref_lum01, allow_rotation=allow_rotation, init_warp=init)
-                    except Exception:
+                    except Exception as ex:
                         warp, cc = init, 0.0
+                        print(f"[DEBUG] Frame {idx}: ECC failed: {ex}")
                     if not np.isfinite(cc) or cc < 0.15:
                         warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
+                    print(f"[DEBUG] Frame {idx}: warp_matrix={warp.tolist()}, cc={cc:.4f}")
+                    print(f"[DEBUG] Frame {idx} BEFORE warp: shape={mosaic.shape}, dtype={mosaic.dtype}, min={np.min(mosaic):.2f}, max={np.max(mosaic):.2f}, median={np.median(mosaic):.2f}")
                     warped = warp_cfa_mosaic_via_subplanes(mosaic, warp)
+                    print(f"[DEBUG] Frame {idx} AFTER warp: shape={warped.shape}, dtype={warped.dtype}, min={np.min(warped):.2f}, max={np.max(warped):.2f}, median={np.median(warped):.2f}")
 
                 try:
                     dst_name = reg_pattern.format(index=registered_count + 1)
@@ -1635,7 +1928,9 @@ def run_phases_impl(
         if cfa_registered is None:
             cfa_registered = is_cfa
         if is_cfa:
-            split = split_cfa_channels(data, bayer_pattern)
+            # Prefer BAYERPAT from FITS header if available, fallback to config
+            bp_to_use = fits_get_bayerpat(p) or bayer_pattern
+            split = split_cfa_channels(data, bp_to_use)
         else:
             try:
                 split = split_rgb_frame(data)
@@ -3115,10 +3410,11 @@ def run_phases_impl(
                     r = fits.getdata(str(outp_r)).astype("float32", copy=False)
                     g = fits.getdata(str(outp_g)).astype("float32", copy=False)
                     b = fits.getdata(str(outp_b)).astype("float32", copy=False)
-                    outp_rgb = syn_out / f"syn_{i+1:05d}.fits"
-                    rgb = np.stack([r, g, b], axis=0)
-                    fits.writeto(str(outp_rgb), rgb, header=hdr_syn, overwrite=True)
-                    del r, g, b, rgb
+                    outp_cfa = syn_out / f"syn_{i+1:05d}.fits"
+                    # Reassemble subplanes back to CFA mosaic
+                    cfa_mosaic = reassemble_cfa_mosaic(r, g, b, bayer_pattern)
+                    fits.writeto(str(outp_cfa), cfa_mosaic, header=hdr_syn, overwrite=True)
+                    del r, g, b, cfa_mosaic
 
             synthetic_channels = {"R": [], "G": [], "B": []}
         except Exception:
@@ -3142,18 +3438,28 @@ def run_phases_impl(
 
     phase_id = 10
     phase_name = "STACKING"
+    stacked_path: Path | None = None
+    stacked_hdr = None
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
         phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
         try:
-            _ensure_report_metrics_complete(artifacts_dir)
+            stacked_path = outputs_dir / Path(stack_output_file)
+            if stacked_path.is_file():
+                try:
+                    stacked_hdr = fits.getheader(str(stacked_path), ext=0)
+                except Exception:
+                    stacked_hdr = None
+            else:
+                stacked_path = None
         except Exception:
-            pass
-        return True
+            stacked_path = None
+            stacked_hdr = None
     
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
+    if stacked_path is None:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
 
     # Check if we should fallback to reconstructed frames
     # This happens when:
@@ -3192,6 +3498,94 @@ def run_phases_impl(
             rgb_syn = [p for p in stack_files if re.match(r"^syn_\d{5}\.fits$", p.name)]
             if rgb_syn:
                 stack_files = sorted(rgb_syn)
+
+    if (use_reconstructed_fallback is False) and bool(cfa_registered) and stack_src_dir.exists():
+        syn_r = sorted([p for p in stack_src_dir.glob("synR_*.fits") if p.is_file() and is_fits_image_path(p)])
+        syn_g = sorted([p for p in stack_src_dir.glob("synG_*.fits") if p.is_file() and is_fits_image_path(p)])
+        syn_b = sorted([p for p in stack_src_dir.glob("synB_*.fits") if p.is_file() and is_fits_image_path(p)])
+        common_n = min(len(syn_r), len(syn_g), len(syn_b))
+        if common_n > 0:
+            syn_r = syn_r[:common_n]
+            syn_g = syn_g[:common_n]
+            syn_b = syn_b[:common_n]
+
+            def _stack_file_list(_files: list[Path]) -> tuple[np.ndarray, Dict[str, Any], bool]:
+                _frames_list: list[np.ndarray] = []
+                for _fp in _files:
+                    try:
+                        _arr = np.asarray(fits.getdata(str(_fp), ext=0)).astype("float32", copy=False)
+                    except Exception:
+                        continue
+                    _frames_list.append(_arr)
+                if not _frames_list:
+                    return np.zeros((1, 1), dtype=np.float32), {"error": "failed to load frames"}, False
+                _stack_arr = np.stack(_frames_list, axis=0)
+                _use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
+                _sigma_stats: Dict[str, Any] = {}
+                if _use_sigma:
+                    _sigma_cfg_dict: Dict[str, Any] = {
+                        "sigma_low": float(sigma_clip_cfg.get("sigma_low", 4.0)),
+                        "sigma_high": float(sigma_clip_cfg.get("sigma_high", 4.0)),
+                        "max_iters": int(sigma_clip_cfg.get("max_iters", 3)),
+                        "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
+                    }
+                    try:
+                        _clipped_mean, _mask, _stats = sigma_clip_stack_nd(_stack_arr, _sigma_cfg_dict)
+                        _final = _clipped_mean.astype("float32", copy=False)
+                        _sigma_stats = _stats
+                    except Exception as e:  # noqa: BLE001
+                        _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                        _sigma_stats = {"error": str(e)}
+                        _use_sigma = False
+                else:
+                    _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                return _final, _sigma_stats, _use_sigma
+
+            try:
+                hdr_template = fits.getheader(str(syn_r[0]), ext=0)
+            except Exception:
+                hdr_template = None
+
+            r_final, r_stats, r_sigma = _stack_file_list(syn_r)
+            g_final, g_stats, g_sigma = _stack_file_list(syn_g)
+            b_final, b_stats, b_sigma = _stack_file_list(syn_b)
+
+            try:
+                fits.writeto(str(outputs_dir / "stacked_R.fits"), r_final, header=hdr_template, overwrite=True)
+                fits.writeto(str(outputs_dir / "stacked_G.fits"), g_final, header=hdr_template, overwrite=True)
+                fits.writeto(str(outputs_dir / "stacked_B.fits"), b_final, header=hdr_template, overwrite=True)
+            except Exception:
+                pass
+
+            final_data = reassemble_cfa_mosaic(r_final, g_final, b_final, bayer_pattern)
+            final_out = outputs_dir / Path(stack_output_file)
+            final_out.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                fits.writeto(str(final_out), final_data, header=hdr_template, overwrite=True)
+            except Exception as e:  # noqa: BLE001
+                phase_end(
+                    run_id,
+                    log_fp,
+                    phase_id,
+                    phase_name,
+                    "error",
+                    {"error": f"failed to write stacked output: {e}"},
+                )
+                return False
+
+            extra: Dict[str, Any] = {
+                "siril": None,
+                "method": stack_method,
+                "output": str(final_out),
+                "used_reconstructed_fallback": False,
+                "fallback_reason": None,
+                "sigma_clipping_used": bool(r_sigma or g_sigma or b_sigma),
+                "sigma_stats": {"R": r_stats, "G": g_stats, "B": b_stats},
+            }
+            phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
+
+            stacked_path = final_out
+            stacked_hdr = hdr_template
 
     if not stack_files:
         phase_end(
@@ -3313,7 +3707,56 @@ def run_phases_impl(
     }
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
 
+    stacked_path = final_out
+    stacked_hdr = hdr_template
+
     phase_id = 11
+    phase_name = "DEBAYER"
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
+
+        if not debayer_enabled:
+            phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "disabled"})
+        else:
+            if stacked_path is None or not stacked_path.is_file():
+                phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "missing stacked output for debayer"})
+                return False
+
+            try:
+                stacked_data = np.asarray(fits.getdata(str(stacked_path), ext=0)).astype("float32", copy=False)
+            except Exception as e:  # noqa: BLE001
+                phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"failed to read stacked output: {e}"})
+                return False
+
+            rgb_out = outputs_dir / "stacked_rgb.fits"
+            rgb = None
+            try:
+                if stacked_data.ndim == 2:
+                    rgb = demosaic_cfa(stacked_data, bayer_pattern)
+                elif stacked_data.ndim == 3:
+                    if stacked_data.shape[0] == 3:
+                        rgb = stacked_data
+                    elif stacked_data.shape[2] == 3:
+                        rgb = np.transpose(stacked_data, (2, 0, 1)).astype("float32", copy=False)
+            except Exception:
+                rgb = None
+
+            if rgb is None:
+                phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "not_applicable"})
+            else:
+                try:
+                    fits.writeto(str(rgb_out), rgb, header=stacked_hdr, overwrite=True)
+                except Exception as e:  # noqa: BLE001
+                    phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"failed to write debayer output: {e}"})
+                    return False
+                phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"output": str(rgb_out)})
+
+    phase_id = 12
     phase_name = "DONE"
     phase_start(run_id, log_fp, phase_id, phase_name)
     if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):

@@ -480,6 +480,13 @@ reconstruction:
     editable: false
     description: "Mandatory: median rescale after background subtraction"
 
+debayer:
+  type: boolean
+  default: true
+  required: false
+  editable: true
+  description: "If true, debayer/demosaic the final stacked CFA mosaic and write stacked_rgb.fits"
+
 # ============================================================
 # STACKING
 # Methodik v3 §11
