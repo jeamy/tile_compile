@@ -51,7 +51,8 @@ METHODIK_V3_PHASES = [
     (8, "STATE_CLUSTERING", "Zustandsbasiertes Clustering"),
     (9, "SYNTHETIC_FRAMES", "Synthetische Qualitätsframes"),
     (10, "STACKING", "Finales lineares Stacking"),
-    (11, "DONE", "Abschluss"),
+    (11, "DEBAYER", "Debayer / Demosaicing"),
+    (12, "DONE", "Abschluss"),
 ]
 
 ASSUMPTIONS_DEFAULTS = {

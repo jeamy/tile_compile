@@ -10,7 +10,7 @@ data:
   linear_required: true
 calibration:
   use_bias: false
-  use_dark: true
+  use_dark: false
   use_flat: false
   bias_use_master: false
   dark_use_master: false
@@ -24,8 +24,8 @@ calibration:
   pattern: '*.fit*'
 assumptions:
   frames_min: 50
-  frames_optimal: 400
-  frames_reduced_threshold: 200
+  frames_optimal: 200
+  frames_reduced_threshold: 199
   exposure_time_tolerance_percent: 5.0
   registration_residual_warn_px: 0.5
   registration_residual_max_px: 1.0
@@ -41,7 +41,7 @@ normalization:
   mode: background
   per_channel: true
 registration:
-  engine: siril
+  engine: opencv_cfa
   reference: auto
   allow_rotation: false
   min_star_matches: 10
@@ -88,14 +88,15 @@ reconstruction:
   weighting_function: exponential
   window_function: hanning
   tile_rescale: median_after_background_subtraction
+debayer: true
 stacking:
   method: rej
   input_dir: synthetic
   input_pattern: syn_*.fits
   output_file: stacked.fit
   sigma_clip:
-    sigma_low: 4.0
-    sigma_high: 4.0
+    sigma_low: 2.5
+    sigma_high: 2.5
     max_iters: 3
     min_fraction: 0.5
 validation:

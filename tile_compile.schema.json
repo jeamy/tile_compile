@@ -318,9 +318,15 @@
         "window_function": { "type": "string", "const": "hanning" },
         "tile_rescale": {
           "type": "string",
-          "enum": ["median_after_background_subtraction"]
+          "const": "median_after_background_subtraction"
         }
       }
+    },
+
+    "debayer": {
+      "type": "boolean",
+      "default": true,
+      "description": "If true, run a debayer/demosaic step after stacking and write an RGB FITS (stacked_rgb.fits)."
     },
 
     "stacking": {
