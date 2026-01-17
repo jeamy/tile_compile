@@ -99,7 +99,7 @@ Begründung:
              ▼
 ┌─────────────────────────────────────────┐
 │  Initialisierung                        │
-│                                          │
+│                                         │
 │  accumulator = zeros(H, W)              │
 │  count = K (Reduced Mode: kein Stack)   │
 └────────────┬────────────────────────────┘
@@ -107,7 +107,7 @@ Begründung:
              ▼
 ┌─────────────────────────────────────────┐
 │  Akkumulation                           │
-│                                          │
+│                                         │
 │  for k in range(count):                 │
 │    accumulator += frames[k]             │
 └────────────┬────────────────────────────┘
@@ -115,7 +115,7 @@ Begründung:
              ▼
 ┌─────────────────────────────────────────┐
 │  Mittelwert                             │
-│                                          │
+│                                         │
 │  I_final = accumulator / count          │
 └────────────┬────────────────────────────┘
              │
@@ -633,12 +633,41 @@ def stack_all_channels_parallel(frames_dict):
     return {channel: stack for channel, stack in results}
 ```
 
+## Schritt 7.3: Debayer (CFA → RGB)
+
+Bei CFA-basierter Verarbeitung (Path B / opencv_cfa) wird nach dem Stacking ein finales Debayer durchgeführt, um das gestackte CFA-Mosaik in ein RGB-Bild zu konvertieren.
+
+```
+┌─────────────────────────────────────────┐
+│  Input: Gestacktes CFA-Mosaik           │
+│  stacked.fit (Bayer Pattern)            │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  OpenCV Demosaicing                     │
+│                                         │
+│  • Bayer-Pattern: GBRG (oder aus Header)│
+│  • Methode: cv2.COLOR_BAYER_*2RGB       │
+│  • 16-bit Zwischenformat für Qualität   │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Output: RGB-Bild                       │
+│  stacked_rgb.fits (3, H, W)             │
+└─────────────────────────────────────────┘
+```
+
+**Hinweis:** Bei Path A (Siril) ist das Debayer bereits vor der Registrierung erfolgt.
+
 ## Ende der Pipeline
 
 **Die Methodik ist mit Phase 7 abgeschlossen.**
 
 Die finalen FITS-Dateien sind:
+- `stacked.fit` - Gestacktes CFA-Mosaik (bei CFA-Verarbeitung)
+- `stacked_rgb.fits` - Finales RGB-Bild (3, H, W)
 - ✓ Linear
-- ✓ Kanalgetrennt
 - ✓ Optimal gewichtet
 - ✓ Bereit für weitere Verarbeitung (außerhalb der Methodik)

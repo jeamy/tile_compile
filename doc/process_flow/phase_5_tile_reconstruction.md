@@ -52,7 +52,7 @@ wobei:
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 1: Initialisierung                │
-│                                          │
+│                                         │
 │  numerator = zeros(h, w)                │
 │  denominator = zeros(h, w)              │
 └────────────┬────────────────────────────┘
@@ -60,11 +60,11 @@ wobei:
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 2: Akkumulation über alle Frames  │
-│                                          │
+│                                         │
 │  for f in range(N_frames):              │
-│    tile_data = I'_f,c[y:y+h, x:x+w]    │
+│    tile_data = I'_f,c[y:y+h, x:x+w]     │
 │    weight = W_f,t,c                     │
-│                                          │
+│                                         │
 │    numerator += weight × tile_data      │
 │    denominator += weight                │
 └────────────┬────────────────────────────┘
@@ -72,9 +72,9 @@ wobei:
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 3: Division                       │
-│                                          │
+│                                         │
 │  I_t,c = numerator / denominator        │
-│                                          │
+│                                         │
 │  (elementweise Division)                │
 └─────────────────────────────────────────┘
 ```
@@ -327,7 +327,7 @@ def create_window_2d(tile_size, overlap):
              ▼
 ┌─────────────────────────────────────────┐
 │  Initialisierung                        │
-│                                          │
+│                                         │
 │  output = zeros(H, W)                   │
 │  weight_sum = zeros(H, W)               │
 └────────────┬────────────────────────────┘
@@ -335,10 +335,10 @@ def create_window_2d(tile_size, overlap):
              ▼
 ┌─────────────────────────────────────────┐
 │  Für jedes Tile t:                      │
-│                                          │
+│                                         │
 │  x, y, w, h = tile['x'], ...            │
 │  tile_recon = I_t,c × window            │
-│                                          │
+│                                         │
 │  output[y:y+h, x:x+w] += tile_recon     │
 │  weight_sum[y:y+h, x:x+w] += window     │
 └────────────┬────────────────────────────┘
@@ -346,9 +346,9 @@ def create_window_2d(tile_size, overlap):
              ▼
 ┌─────────────────────────────────────────┐
 │  Normalisierung                         │
-│                                          │
+│                                         │
 │  final = output / weight_sum            │
-│                                          │
+│                                         │
 │  (elementweise Division)                │
 └─────────────────────────────────────────┘
 ```
