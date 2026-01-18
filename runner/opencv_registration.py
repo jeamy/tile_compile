@@ -87,24 +87,67 @@ def opencv_alignment_score(moving01: np.ndarray, ref01: np.ndarray) -> float:
     return float(np.sum(da * db) / denom)
 
 
-def opencv_best_translation_init(moving01: np.ndarray, ref01: np.ndarray) -> np.ndarray:
-    """Find best initial translation for ECC."""
+def opencv_best_translation_init(
+    moving01: np.ndarray,
+    ref01: np.ndarray,
+    rotation_sweep: bool = True,
+    rotation_range_deg: float = 5.0,
+    rotation_steps: int = 11,
+) -> np.ndarray:
+    """Find best initial warp (translation + optional rotation sweep) for ECC.
+    
+    Args:
+        moving01: Moving image (normalized 0-1)
+        ref01: Reference image (normalized 0-1)
+        rotation_sweep: If True, test multiple rotation angles around 0
+        rotation_range_deg: Max rotation angle to test (±degrees)
+        rotation_steps: Number of rotation angles to test (odd recommended)
+    
+    Returns:
+        Best initial warp matrix (2x3 affine)
+    """
     dx, dy = opencv_phasecorr_translation(moving01, ref01)
-    candidates = [
-        np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32),
-        np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32),
-        np.array([[1.0, 0.0, dx * 0.5], [0.0, 1.0, dy * 0.5]], dtype=np.float32),
-        np.array([[1.0, 0.0, dx * 2.0], [0.0, 1.0, dy * 2.0]], dtype=np.float32),
-    ]
     
     if cv2 is None:
-        return candidates[0]
+        return np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
+    
+    h, w = ref01.shape[:2]
+    cx, cy = w / 2.0, h / 2.0
+    
+    # Build candidate list: translations × rotations
+    translations = [
+        (dx, dy),
+        (0.0, 0.0),
+        (dx * 0.5, dy * 0.5),
+    ]
+    
+    if rotation_sweep:
+        # Test rotation angles from -range to +range
+        angles_deg = np.linspace(-rotation_range_deg, rotation_range_deg, rotation_steps)
+    else:
+        angles_deg = [0.0]
+    
+    candidates: list[np.ndarray] = []
+    for tx, ty in translations:
+        for angle_deg in angles_deg:
+            # Build rotation matrix around image center, then add translation
+            theta = np.deg2rad(angle_deg)
+            cos_t, sin_t = np.cos(theta), np.sin(theta)
+            # Rotation around center: R @ (p - c) + c + t
+            # = R @ p - R @ c + c + t
+            # Affine: [[cos, -sin, -cos*cx + sin*cy + cx + tx],
+            #          [sin,  cos, -sin*cx - cos*cy + cy + ty]]
+            warp = np.array([
+                [cos_t, -sin_t, -cos_t * cx + sin_t * cy + cx + tx],
+                [sin_t,  cos_t, -sin_t * cx - cos_t * cy + cy + ty],
+            ], dtype=np.float32)
+            candidates.append(warp)
     
     best = candidates[0]
     best_score = -1.0
     for cand in candidates:
         try:
-            warped = cv2.warpAffine(moving01, cand, (ref01.shape[1], ref01.shape[0]), flags=cv2.INTER_LINEAR)
+            warped = cv2.warpAffine(moving01, cand, (w, h), flags=cv2.INTER_LINEAR)
             score = opencv_alignment_score(warped, ref01)
             if score > best_score:
                 best_score = score

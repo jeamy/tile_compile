@@ -1751,16 +1751,12 @@ def run_phases_impl(
         ref_in_middle = middle_start <= ref_idx < middle_end
         print(f"[INFO] Reference frame selected: index={ref_idx}, stars={ref_stars}, in_middle_third={ref_in_middle}, middle_range=[{middle_start}, {middle_end})")
 
-        # Chain registration strategy:
-        # Instead of registering all frames to a single reference (which fails with field rotation),
-        # we register each frame to its neighbor and accumulate transformations.
-        # This minimizes drift per registration step and handles field rotation better.
-        #
-        # Process order: Start from reference, go outward in both directions
-        # ref-1 -> ref, ref-2 -> ref-1, ... (backward chain)
-        # ref+1 -> ref, ref+2 -> ref+1, ... (forward chain)
+        # Direct-to-reference registration strategy:
+        # Register all frames directly to the reference frame.
+        # This avoids drift accumulation that occurs with chain registration.
+        # The rotation sweep in opencv_best_translation_init handles field rotation.
         
-        print(f"[INFO] Chain registration: {len(frames)} frames, reference at index {ref_idx}")
+        print(f"[INFO] Direct-to-reference registration: {len(frames)} frames, reference at index {ref_idx}")
 
         def _compose_affine(step_warp: np.ndarray, prev_warp: np.ndarray) -> np.ndarray:
             step_3x3 = np.vstack([step_warp, [0, 0, 1]])
@@ -1890,10 +1886,10 @@ def run_phases_impl(
         processed += 1
         del ref_mosaic_clean
 
-        # Backward chain: ref-1, ref-2, ...
-        warp_next = identity_warp
-        lum_next01 = ref_lum01
-        for i in range(ref_idx - 1, -1, -1):
+        # Direct-to-reference registration: all frames against ref_lum01
+        for i in range(len(frames)):
+            if i == ref_idx:
+                continue  # Reference already saved
             if processed % 10 == 0 or processed == total_write:
                 phase_progress(run_id, log_fp, phase_id, phase_name, processed, total_write, {"substep": "write_registered"})
             try:
@@ -1901,15 +1897,15 @@ def run_phases_impl(
                 stars = opencv_count_stars(lum01)
                 if stars < max(1, min_star_matches_i):
                     print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
-                init = opencv_best_translation_init(lum01, lum_next01)
+                # Register directly against reference (not neighbor)
+                init = opencv_best_translation_init(lum01, ref_lum01)
                 try:
-                    step_warp, cc = opencv_ecc_warp(lum01, lum_next01, allow_rotation=allow_rotation, init_warp=init)
+                    warp_i, cc = opencv_ecc_warp(lum01, ref_lum01, allow_rotation=allow_rotation, init_warp=init)
                 except Exception as ex:
-                    step_warp, cc = init, 0.0
+                    warp_i, cc = init, 0.0
                     print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
                 if not np.isfinite(cc) or cc < 0.15:
-                    step_warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
-                warp_i = _compose_affine(step_warp, warp_next)
+                    warp_i, cc = init, float(cc if np.isfinite(cc) else 0.0)
                 warped = _warp_cfa(mosaic_clean, warp_i, out_shape_reg, offset_sub)
                 mask_warped = _warp_cfa_mask(np.ones_like(mosaic_clean, dtype=np.float32), warp_i, out_shape_reg, offset_sub)
                 try:
@@ -1925,50 +1921,6 @@ def run_phases_impl(
                 registered_count += 1
                 processed += 1
                 corrs.append(float(cc))
-                warp_next = warp_i
-                lum_next01 = lum01
-                del mosaic_clean, lum01, hdr, warped, mask_warped
-            except Exception as e:
-                print(f"[WARN] Frame {i}: failed to register: {e}")
-                continue
-
-        # Forward chain: ref+1, ref+2, ...
-        warp_prev = identity_warp
-        lum_prev01 = ref_lum01
-        for i in range(ref_idx + 1, len(frames)):
-            if processed % 10 == 0 or processed == total_write:
-                phase_progress(run_id, log_fp, phase_id, phase_name, processed, total_write, {"substep": "write_registered"})
-            try:
-                mosaic_clean, lum01, hdr = _load_clean_and_lum01(frames[i])
-                stars = opencv_count_stars(lum01)
-                if stars < max(1, min_star_matches_i):
-                    print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
-                init = opencv_best_translation_init(lum01, lum_prev01)
-                try:
-                    step_warp, cc = opencv_ecc_warp(lum01, lum_prev01, allow_rotation=allow_rotation, init_warp=init)
-                except Exception as ex:
-                    step_warp, cc = init, 0.0
-                    print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
-                if not np.isfinite(cc) or cc < 0.15:
-                    step_warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
-                warp_i = _compose_affine(step_warp, warp_prev)
-                warped = _warp_cfa(mosaic_clean, warp_i, out_shape_reg, offset_sub)
-                mask_warped = _warp_cfa_mask(np.ones_like(mosaic_clean, dtype=np.float32), warp_i, out_shape_reg, offset_sub)
-                try:
-                    dst_name = reg_pattern.format(index=i + 1)
-                except Exception:
-                    dst_name = f"reg_{i + 1:05d}.fit"
-                dst_path = reg_out / dst_name
-                fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=hdr, overwrite=True)
-                try:
-                    fits.writeto(str(reg_mask_dir / f"mask_{dst_path.name}"), mask_warped.astype("float32", copy=False), header=hdr, overwrite=True)
-                except Exception:
-                    pass
-                registered_count += 1
-                processed += 1
-                corrs.append(float(cc))
-                warp_prev = warp_i
-                lum_prev01 = lum01
                 del mosaic_clean, lum01, hdr, warped, mask_warped
             except Exception as e:
                 print(f"[WARN] Frame {i}: failed to register: {e}")
