@@ -33,10 +33,10 @@ frames[f][x, y]  # f = 0..N-1 (Frame-Index)
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 1: Sigma-Clipping                 │
-│                                          │
+│                                         │
 │  μ₀ = median(I_f,c)                     │
 │  σ₀ = MAD(I_f,c) * 1.4826               │
-│                                          │
+│                                         │
 │  Iteration (3x):                        │
 │    mask = |I - μ| < 3σ                  │
 │    μ = mean(I[mask])                    │
@@ -46,9 +46,9 @@ frames[f][x, y]  # f = 0..N-1 (Frame-Index)
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 2: Background Level               │
-│                                          │
+│                                         │
 │  B_f,c = μ_final                        │
-│                                          │
+│                                         │
 │  (Hintergrundniveau des Frames)         │
 └─────────────────────────────────────────┘
 ```
@@ -96,10 +96,10 @@ I'_f,c[x,y] = I_f,c[x,y] / B_f,c
              ▼
 ┌─────────────────────────────────────────┐
 │  Normalization                          │
-│                                          │
+│                                         │
 │  For each pixel (x,y):                  │
-│    I'_f,c[x,y] = I_f,c[x,y] / B_f,c    │
-│                                          │
+│    I'_f,c[x,y] = I_f,c[x,y] / B_f,c     │
+│                                         │
 │  Wertebereich nach Normalisierung:      │
 │  • Hintergrund ≈ 1.0                    │
 │  • Sterne/Nebel > 1.0                   │
@@ -134,19 +134,19 @@ Division:     I' = I / B
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 1: Hintergrund-Maske              │
-│                                          │
+│                                         │
 │  mask = (I'_f,c < threshold)            │
 │  threshold = 1.0 + 3*σ_initial          │
-│                                          │
+│                                         │
 │  → Nur Hintergrund-Pixel, keine Sterne  │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 2: Noise Estimation               │
-│                                          │
+│                                         │
 │  σ_f,c = std(I'_f,c[mask])              │
-│                                          │
+│                                         │
 │  (Standardabweichung im Hintergrund)    │
 └─────────────────────────────────────────┘
 ```
@@ -158,9 +158,9 @@ Frame mit Rauschen:
 
     Hintergrund-Region (mask=True):
     ┌─────────────────────┐
-    │ ░░▓░░▓▓░░░▓░░▓░░░░ │  ← Rauschen
-    │ ░▓░░░░▓░░▓░░░▓░░▓░ │     σ_f,c = std(diese Pixel)
-    │ ░░▓░░░░▓░░░▓░░░░▓░ │
+    │ ░░▓░░▓▓░░░▓░░▓░░░░  │  ← Rauschen
+    │ ░▓░░░░▓░░▓░░░▓░░▓░  │     σ_f,c = std(diese Pixel)
+    │ ░░▓░░░░▓░░░▓░░░░▓░  │
     └─────────────────────┘
     
     Stern-Region (mask=False):
@@ -187,11 +187,11 @@ Frame mit Rauschen:
              ▼
 ┌─────────────────────────────────────────┐
 │  Sobel Gradients                        │
-│                                          │
+│                                         │
 │  Gx = I' ⊗ [-1  0  1]                  │
 │            [-2  0  2]                   │
 │            [-1  0  1]                   │
-│                                          │
+│                                         │
 │  Gy = I' ⊗ [-1 -2 -1]                  │
 │            [ 0  0  0]                   │
 │            [ 1  2  1]                   │
@@ -200,16 +200,16 @@ Frame mit Rauschen:
              ▼
 ┌─────────────────────────────────────────┐
 │  Gradient Magnitude                     │
-│                                          │
-│  G[x,y] = √(Gx² + Gy²)                 │
+│                                         │
+│  G[x,y] = √(Gx² + Gy²)                  │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Gradient Energy                        │
-│                                          │
+│                                         │
 │  E_f,c = mean(G²)                       │
-│        = (1/N) Σ G[x,y]²               │
+│        = (1/N) Σ G[x,y]²                │
 └─────────────────────────────────────────┘
 ```
 
@@ -239,10 +239,10 @@ Original Frame:        Gradient Magnitude:
 ```
 Q_f,c = α·(-B̃_f,c) + β·(-σ̃_f,c) + γ·Ẽ_f,c
 
-wobei:
-  B̃_f,c = (B_f,c - μ_B) / σ_B    (z-score)
-  σ̃_f,c = (σ_f,c - μ_σ) / σ_σ    (z-score)
-  Ẽ_f,c = (E_f,c - μ_E) / σ_E    (z-score)
+wobei (robuste Skalierung mit Median + MAD):
+  B̃_f,c = (B_f,c - median(B)) / (1.4826 · MAD(B))
+  σ̃_f,c = (σ_f,c - median(σ)) / (1.4826 · MAD(σ))
+  Ẽ_f,c = (E_f,c - median(E)) / (1.4826 · MAD(E))
   
   α + β + γ = 1  (Normierung)
   Default: α = 0.4, β = 0.3, γ = 0.3
@@ -253,48 +253,49 @@ wobei:
 ```
 ┌─────────────────────────────────────────┐
 │  Metriken für alle Frames:              │
-│  B_f,c, σ_f,c, E_f,c  (f = 0..N-1)     │
+│  B_f,c, σ_f,c, E_f,c  (f = 0..N-1)      │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
-│  Step 1: Z-Score Normalisierung         │
-│                                          │
-│  μ_B = mean(B_f,c)                      │
-│  σ_B = std(B_f,c)                       │
-│  B̃_f,c = (B_f,c - μ_B) / σ_B           │
-│                                          │
-│  (analog für σ und E)                   │
+│  Step 1: Robuste Normalisierung         │
+│                                         │
+│  median_B = median(B_f,c)               │
+│  MAD_B    = MAD(B_f,c)                  │
+│  B̃_f,c    = (B_f,c - median_B)          │
+│             / (1.4826 · MAD_B)          │
+│                                         │
+│  (analog für σ und E mit median + MAD)  │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 2: Gewichtete Kombination         │
-│                                          │
-│  Q_f,c = α·(-B̃) + β·(-σ̃) + γ·Ẽ        │
-│                                          │
+│                                         │
+│  Q_f,c = α·(-B̃) + β·(-σ̃) + γ·Ẽ          │
+│                                         │
 │  Vorzeichen:                            │
-│  • -B̃: Niedriger Hintergrund ist gut   │
-│  • -σ̃: Niedriges Rauschen ist gut      │
-│  • +Ẽ: Hohe Gradientenergie ist gut    │
+│  • -B̃: Niedriger Hintergrund ist gut    │
+│  • -σ̃: Niedriges Rauschen ist gut       │
+│  • +Ẽ: Hohe Gradientenergie ist gut     │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 3: Clamping (Stabilität)          │
-│                                          │
-│  Q_f,c = clip(Q_f,c, -3, +3)           │
-│                                          │
+│                                         │
+│  Q_f,c = clip(Q_f,c, -3, +3)            │
+│                                         │
 │  → Verhindert extreme Ausreißer         │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Step 4: Exponential Mapping            │
-│                                          │
+│                                         │
 │  G_f,c = exp(Q_f,c)                     │
-│                                          │
-│  Wertebereich: [e⁻³, e³] ≈ [0.05, 20.1]│
+│                                         │
+│  Wertebereich: [e⁻³, e³] ≈ [0.05, 20.1] │
 └─────────────────────────────────────────┘
 ```
 
@@ -423,7 +424,7 @@ Frame 0 (R-Kanal):
   σ_0,R = 0.0012  (Rauschen)
   E_0,R = 0.0456  (Gradientenergie)
   
-  Nach Z-Score:
+  Nach robuster Skalierung (Median + MAD):
   B̃_0,R = -0.5
   σ̃_0,R = -1.2
   Ẽ_0,R = +1.8
@@ -458,10 +459,15 @@ def compute_global_metrics_batch(frames, channel):
     # Gradientenergie (vektorisiert)
     E = np.array([gradient_energy(f) for f in frames_norm])
     
-    # Z-Scores (vektorisiert)
-    B_z = (B - B.mean()) / B.std()
-    sigma_z = (sigma - sigma.mean()) / sigma.std()
-    E_z = (E - E.mean()) / E.std()
+    # Robuste Skalierung (Median + MAD, vgl. Methodik v3.1)
+    def robust_scale(x):
+        med = np.median(x)
+        mad = np.median(np.abs(x - med))
+        return (x - med) / (1.4826 * mad)
+
+    B_z = robust_scale(B)
+    sigma_z = robust_scale(sigma)
+    E_z = robust_scale(E)
     
     # Qualitätsindex
     Q = alpha * (-B_z) + beta * (-sigma_z) + gamma * E_z

@@ -24,7 +24,7 @@ Bei Frame-Anzahl 50-199:
 ## Input
 
 ```python
-# Aus Phase 2:
+# Aus Phase 2 (globale Metriken):
 global_metrics[c][f] = {
     'B': float,      # Hintergrund
     'sigma': float,  # Rauschen
@@ -32,14 +32,15 @@ global_metrics[c][f] = {
     'G': float,      # Globales Gewicht
 }
 
-# Aus Phase 4:
+# Aus Phase 4 (lokale Qualitätsindizes pro Frame/Tile):
 local_metrics[c][(f, t)] = {
     'Q_local': float,  # Lokaler Qualitätsindex
     'L': float,        # Lokales Gewicht
 }
 
-# Aus Phase 5:
-reconstructed_tiles[c][t]  # Rekonstruierte Tiles
+# Für die Rekonstruktion synthetischer Frames werden
+# die registrierten (ggf. global normalisierten) Frames verwendet:
+frames[c][f][y, x]  # Original-Frames pro Kanal
 ```
 
 ## Schritt 6.1: Zustandsvektor-Konstruktion
@@ -71,9 +72,9 @@ wobei:
              ▼
 ┌─────────────────────────────────────────┐
 │  Berechne Tile-Statistiken              │
-│                                          │
+│                                         │
 │  Q_locals = [Q_local_f,t,c for all t]   │
-│                                          │
+│                                         │
 │  mean_Q = mean(Q_locals)                │
 │  var_Q = var(Q_locals)                  │
 └────────────┬────────────────────────────┘
@@ -81,13 +82,13 @@ wobei:
              ▼
 ┌─────────────────────────────────────────┐
 │  Konstruiere Zustandsvektor             │
-│                                          │
+│                                         │
 │  v_f,c = [G_f,c,                        │
 │           mean_Q,                       │
 │           var_Q,                        │
 │           B_f,c,                        │
 │           σ_f,c]                        │
-│                                          │
+│                                         │
 │  Shape: (5,)                            │
 └─────────────────────────────────────────┘
 ```
@@ -159,25 +160,25 @@ B_f,c:
 ```
 ┌─────────────────────────────────────────┐
 │  Zustandsvektoren für alle Frames:      │
-│  V = [v_0, v_1, ..., v_{N-1}]          │
+│  V = [v_0, v_1, ..., v_{N-1}]           │
 │  Shape: (N, 5)                          │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Pro Feature-Dimension d:               │
-│                                          │
+│                                         │
 │  μ_d = mean(V[:, d])                    │
 │  σ_d = std(V[:, d])                     │
-│                                          │
-│  V'[:, d] = (V[:, d] - μ_d) / σ_d      │
+│                                         │
+│  V'[:, d] = (V[:, d] - μ_d) / σ_d       │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Normalisierte Zustandsvektoren         │
-│  V' = [v'_0, v'_1, ..., v'_{N-1}]      │
-│                                          │
+│  V' = [v'_0, v'_1, ..., v'_{N-1}]       │
+│                                         │
 │  Alle Features haben:                   │
 │  • Mittelwert = 0                       │
 │  • Standardabweichung = 1               │
@@ -199,7 +200,7 @@ B_f,c:
              ▼
 ┌─────────────────────────────────────────┐
 │  Initialisierung (K-Means++)            │
-│                                          │
+│                                         │
 │  1. Wähle ersten Zentroid zufällig      │
 │  2. Für k=2..K:                         │
 │     Wähle nächsten Zentroid mit         │
@@ -210,15 +211,15 @@ B_f,c:
              ▼
 ┌─────────────────────────────────────────┐
 │  Iteration (bis Konvergenz):            │
-│                                          │
+│                                         │
 │  E-Step (Assignment):                   │
 │    Für jeden Frame f:                   │
-│      c_f = argmin_k ||v'_f - μ_k||²    │
-│                                          │
+│      c_f = argmin_k ||v'_f - μ_k||²     │
+│                                         │
 │  M-Step (Update):                       │
 │    Für jeden Cluster k:                 │
-│      μ_k = mean(v'_f für alle f mit c_f=k)│
-│                                          │
+│    μ_k = mean(v'_f für alle f mit c_f=k)│
+│                                         │
 │  Konvergenz wenn:                       │
 │    Keine Änderung in Assignments        │
 └────────────┬────────────────────────────┘
@@ -346,48 +347,51 @@ Statt alle m Frames einzeln zu stacken:
 
 ### Prozess
 
+Gemäß Methodik v3.1 (§3.8) werden synthetische Frames direkt
+aus den (registrierten, linear skalierten) Frames pro Kanal
+mit **globalen** Gewichten G_f,c gebildet – ohne erneute
+Tile-Rekonstruktion.
+
+Optional kann die Erzeugung der synthetischen Frames tile‑basiert erfolgen, um lokale Qualitätsgewinne (L_f,t,c) in die synthetischen Frames zu propagieren. Aktivierung:
+
+`synthetic.weighting: tile_weighted` (Default: `global`).
+
+Tile‑basierte Variante (pro Tile t, im Cluster k):
+
+```
+W_f,t,c = G_f,c · L_f,t,c
+
+F_synth,k,t,c(p) = Σ_{f ∈ Cluster_k} W_f,t,c · I_f,c(p) / Σ_{f ∈ Cluster_k} W_f,t,c
+```
+
+Anschließend Overlap‑Add über alle Tiles (analog Phase 5).
+
 ```
 ┌─────────────────────────────────────────┐
 │  Cluster k, Kanal c                     │
 │  Frames: {f₁, f₂, ..., f_m}            │
-│  Tiles: rekonstruierte Tiles aus Phase 5│
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
-│  Für jedes Tile t:                      │
-│                                          │
-│  Sammle Tile-Daten aus allen Frames     │
-│  im Cluster:                            │
-│    tiles_cluster = [I_f,t,c for f in k] │
-│                                          │
-│  Berechne Gewichte:                     │
-│    weights = [W_f,t,c for f in k]       │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Gewichtetes Stacking pro Tile:         │
-│                                          │
-│  I_synth,t,c = Σ_f [W_f,t,c · I_f,t,c]  │
-│                / Σ_f W_f,t,c            │
-│                                          │
-│  (nur über Frames in Cluster k)         │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Overlap-Add (wie Phase 5):             │
-│                                          │
-│  Kombiniere alle Tiles zu synthetischem │
-│  Frame mit Fensterfunktion              │
+│  Gewichtetes Stacking über Frames       │
+│                                         │
+│  Für jedes Pixel (x,y):                 │
+│    F_synth,k,c[x,y] =                   │
+│     Σ_{f ∈ Cluster_k} G_f,c · I_f,c[x,y]│
+│     ----------------------------------- │ 
+│     Σ_{f ∈ Cluster_k} G_f,c             │
+│                                         │
+│  I_f,c[x,y] sind die registrierten      │
+│  Frames (pro Kanal), G_f,c die globalen │
+│  Gewichte aus Phase 2.                  │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Output: Synthetisches Frame            │
 │  F_synth,k,c[x,y]                       │
-│                                          │
+│                                         │
 │  Repräsentiert Cluster k                │
 └─────────────────────────────────────────┘
 ```
@@ -597,34 +601,17 @@ def cluster_frames_efficient(state_vectors, K):
     
     return cluster_assignments, kmeans.cluster_centers_
 
-# Parallele synthetische Frame-Rekonstruktion
-from concurrent.futures import ProcessPoolExecutor
+# Optionale tile-basierte synthetische Frame-Rekonstruktion (Pseudo-Code)
+# - global: gewichtetes Mittel pro Pixel mit G_f,c
+# - tile_weighted: pro Tile mit W_f,t,c = G_f,c · L_f,t,c und Overlap-Add (analog Phase 5)
 
-def reconstruct_synthetic_frames_parallel(clusters, tiles, frames, weights):
-    """
-    Rekonstruiert synthetische Frames parallel.
-    """
-    def reconstruct_cluster(cluster_id):
-        cluster = clusters[cluster_id]
-        frame_ids = cluster['frame_ids']
-        
-        # Rekonstruiere synthetisches Frame
-        synth_frame = reconstruct_from_tiles(
-            tiles, frames[frame_ids], weights[frame_ids]
-        )
-        
-        return cluster_id, synth_frame
-    
-    # Parallel processing
-    with ProcessPoolExecutor() as executor:
-        results = executor.map(reconstruct_cluster, range(len(clusters)))
-    
-    # Sortiere Ergebnisse
-    synthetic_frames = [None] * len(clusters)
-    for cluster_id, synth_frame in results:
-        synthetic_frames[cluster_id] = synth_frame
-    
-    return synthetic_frames
+def reconstruct_synthetic_frames(clusters, frames, G_f, L_f_t, cfg):
+    weighting = cfg['synthetic'].get('weighting', 'global')
+    if weighting == 'global':
+        return weighted_mean_per_cluster(clusters, frames, G_f)
+    if weighting == 'tile_weighted':
+        return tile_weighted_overlap_add_per_cluster(clusters, frames, G_f, L_f_t)
+    raise ValueError('unknown synthetic.weighting')
 ```
 
 ## Nächste Phase

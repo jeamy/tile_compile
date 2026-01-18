@@ -55,26 +55,3 @@ def read_fits_float(path: Path) -> tuple[np.ndarray, Any]:
     return np.asarray(data).astype("float32", copy=False), hdr
 
 
-def siril_setext_from_suffix(suffix: str) -> str:
-    """Convert file suffix to Siril SETEXT format."""
-    s = (suffix or "").lower().lstrip(".")
-    if s in {"fit", "fits", "fts"}:
-        return "fit"
-    return "fit"
-
-
-def derive_prefix_from_pattern(pattern: str, default_prefix: str) -> str:
-    """Derive filename prefix from glob pattern."""
-    s = str(pattern or "").strip()
-    if not s:
-        return default_prefix
-    s = s.replace("*", "").replace("?", "")
-    if not s:
-        return default_prefix
-    parts = s.split(".")
-    if len(parts) > 1:
-        s = ".".join(parts[:-1])
-    s = s.strip("_-")
-    if not s:
-        return default_prefix
-    return default_prefix

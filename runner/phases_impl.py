@@ -22,11 +22,14 @@ from .calibration import build_master_mean, bias_correct_dark, prepare_flat, app
 # Local - image processing (disk-based)
 from .image_processing import (
     split_cfa_channels,
+    demosaic_cfa,
+    reassemble_cfa_mosaic,
     split_rgb_frame,
     normalize_frame,
     compute_frame_medians,
     warp_cfa_mosaic_via_subplanes,
     cfa_downsample_sum2x2,
+    cosmetic_correction,
 )
 
 # Local - registration
@@ -47,14 +50,35 @@ except Exception:
 
 try:
     from tile_compile_backend.metrics import TileMetricsCalculator
-    from tile_compile_backend.synthetic import generate_channel_synthetic_frames
-    from tile_compile_backend.clustering import cluster_channels
-    from tile_compile_backend.tile_grid import generate_multi_channel_grid
 except Exception:
     TileMetricsCalculator = None
+
+try:
+    from tile_compile_backend.synthetic import generate_channel_synthetic_frames
+except Exception:
     generate_channel_synthetic_frames = None
+
+try:
+    from tile_compile_backend.clustering import cluster_channels
+except Exception:
     cluster_channels = None
+
+try:
+    from tile_compile_backend.tile_grid import generate_multi_channel_grid
+except Exception:
     generate_multi_channel_grid = None
+
+try:
+    from tile_compile_backend.linearity import validate_frames_linearity
+except Exception:
+    validate_frames_linearity = None
+
+try:
+    from tile_compile_backend.sigma_clipping import SigmaClipConfig, sigma_clip_stack_nd, simple_mean_stack_nd
+except Exception:
+    SigmaClipConfig = None
+    sigma_clip_stack_nd = None
+    simple_mean_stack_nd = None
 
 
 def _to_uint8(img: np.ndarray) -> np.ndarray:
@@ -922,7 +946,8 @@ def run_phases_impl(
             (8, "STATE_CLUSTERING"),
             (9, "SYNTHETIC_FRAMES"),
             (10, "STACKING"),
-            (11, "DONE"),
+            (11, "DEBAYER"),
+            (12, "DONE"),
         ]
         for phase_id, phase_name in phases:
             phase_start(run_id, log_fp, phase_id, phase_name)
@@ -954,9 +979,9 @@ def run_phases_impl(
     registration_cfg = cfg.get("registration") if isinstance(cfg.get("registration"), dict) else {}
     stacking_cfg = cfg.get("stacking") if isinstance(cfg.get("stacking"), dict) else {}
     synthetic_cfg = cfg.get("synthetic") if isinstance(cfg.get("synthetic"), dict) else {}
+    debayer_enabled = bool(cfg.get("debayer", True))
 
     reg_engine = str(registration_cfg.get("engine") or "")
-    stack_engine = str(stacking_cfg.get("engine") or "")
 
     reg_script_cfg = registration_cfg.get("siril_script")
     reg_script_path = (
@@ -964,28 +989,16 @@ def run_phases_impl(
         if isinstance(reg_script_cfg, str) and reg_script_cfg.strip()
         else (project_root / "siril_register_osc.ssf").resolve()
     )
-    stack_script_cfg = stacking_cfg.get("siril_script")
-    stack_method_cfg = str(stacking_cfg.get("method") or "")
-    stack_method = stack_method_cfg.strip().lower()
-    default_stack_script_name = "siril_stack_average.ssf"
-    if stack_method in ("rej", "rejection"):
-        default_stack_script_name = "siril_stack_rej.ssf"
-    stack_script_path = (
-        Path(str(stack_script_cfg)).expanduser().resolve()
-        if isinstance(stack_script_cfg, str) and stack_script_cfg.strip()
-        else (project_root / default_stack_script_name).resolve()
-    )
 
     if not (isinstance(reg_script_cfg, str) and reg_script_cfg.strip()):
         if not reg_script_path.exists():
             alt = (project_root / "siril_scripts" / "siril_register_osc.ssf").resolve()
             if alt.exists():
                 reg_script_path = alt
-    if not (isinstance(stack_script_cfg, str) and stack_script_cfg.strip()):
-        if not stack_script_path.exists():
-            alt = (project_root / "siril_scripts" / default_stack_script_name).resolve()
-            if alt.exists():
-                stack_script_path = alt
+
+    stack_method_cfg = str(stacking_cfg.get("method") or "")
+    stack_method = stack_method_cfg.strip().lower()
+    sigma_clip_cfg = stacking_cfg.get("sigma_clip") if isinstance(stacking_cfg.get("sigma_clip"), dict) else {}
 
     reg_out_name = str(registration_cfg.get("output_dir") or "registered")
     reg_pattern = str(registration_cfg.get("registered_filename_pattern") or "reg_{index:05d}.fit")
@@ -1001,6 +1014,275 @@ def run_phases_impl(
         if resume_from_phase is None:
             return False
         return phase_num < resume_from_phase
+
+    if resume_from_phase is not None and resume_from_phase >= 10:
+        stacked_path = None
+        stacked_hdr = None
+
+        if resume_from_phase <= 10:
+            phase_id = 10
+            phase_name = "STACKING"
+            phase_start(run_id, log_fp, phase_id, phase_name)
+            if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                return False
+
+            stack_src_dir = outputs_dir / Path(stack_input_dir_name)
+            syn_r = sorted([p for p in stack_src_dir.glob("synR_*.fits") if p.is_file() and is_fits_image_path(p)])
+            syn_g = sorted([p for p in stack_src_dir.glob("synG_*.fits") if p.is_file() and is_fits_image_path(p)])
+            syn_b = sorted([p for p in stack_src_dir.glob("synB_*.fits") if p.is_file() and is_fits_image_path(p)])
+            common_n = min(len(syn_r), len(syn_g), len(syn_b))
+
+            if common_n > 0:
+                syn_r = syn_r[:common_n]
+                syn_g = syn_g[:common_n]
+                syn_b = syn_b[:common_n]
+
+                def _stack_file_list(_files: list[Path]) -> tuple[np.ndarray, Dict[str, Any], bool]:
+                    _frames_list: list[np.ndarray] = []
+                    for _fp in _files:
+                        try:
+                            _arr = np.asarray(fits.getdata(str(_fp), ext=0)).astype("float32", copy=False)
+                        except Exception:
+                            continue
+                        _frames_list.append(_arr)
+                    if not _frames_list:
+                        return np.zeros((1, 1), dtype=np.float32), {"error": "failed to load frames"}, False
+                    _stack_arr = np.stack(_frames_list, axis=0)
+                    _use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
+                    _sigma_stats: Dict[str, Any] = {}
+                    if _use_sigma:
+                        _sigma_cfg_dict: Dict[str, Any] = {
+                            "sigma_low": float(sigma_clip_cfg.get("sigma_low", 4.0)),
+                            "sigma_high": float(sigma_clip_cfg.get("sigma_high", 4.0)),
+                            "max_iters": int(sigma_clip_cfg.get("max_iters", 3)),
+                            "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
+                        }
+                        try:
+                            _clipped_mean, _mask, _stats = sigma_clip_stack_nd(_stack_arr, _sigma_cfg_dict)
+                            _final = _clipped_mean.astype("float32", copy=False)
+                            _sigma_stats = _stats
+                        except Exception as e:  # noqa: BLE001
+                            _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                            _sigma_stats = {"error": str(e)}
+                            _use_sigma = False
+                    else:
+                        _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                    return _final, _sigma_stats, _use_sigma
+
+                try:
+                    hdr_template = fits.getheader(str(syn_r[0]), ext=0)
+                except Exception:
+                    hdr_template = None
+
+                r_final, r_stats, r_sigma = _stack_file_list(syn_r)
+                g_final, g_stats, g_sigma = _stack_file_list(syn_g)
+                b_final, b_stats, b_sigma = _stack_file_list(syn_b)
+
+                try:
+                    fits.writeto(str(outputs_dir / "stacked_R.fits"), r_final, header=hdr_template, overwrite=True)
+                    fits.writeto(str(outputs_dir / "stacked_G.fits"), g_final, header=hdr_template, overwrite=True)
+                    fits.writeto(str(outputs_dir / "stacked_B.fits"), b_final, header=hdr_template, overwrite=True)
+                except Exception:
+                    pass
+
+                final_data = reassemble_cfa_mosaic(r_final, g_final, b_final, bayer_pattern)
+                final_out = outputs_dir / Path(stack_output_file)
+                final_out.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    fits.writeto(str(final_out), final_data, header=hdr_template, overwrite=True)
+                except Exception as e:  # noqa: BLE001
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": f"failed to write stacked output: {e}"},
+                    )
+                    return False
+
+                extra: Dict[str, Any] = {
+                    "siril": None,
+                    "method": stack_method,
+                    "output": str(final_out),
+                    "used_reconstructed_fallback": False,
+                    "fallback_reason": None,
+                    "sigma_clipping_used": bool(r_sigma or g_sigma or b_sigma),
+                    "sigma_stats": {"R": r_stats, "G": g_stats, "B": b_stats},
+                }
+                phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
+
+                stacked_path = final_out
+                stacked_hdr = hdr_template
+            else:
+                stack_files = (
+                    sorted([p for p in stack_src_dir.glob(stack_input_pattern) if p.is_file() and is_fits_image_path(p)])
+                    if stack_src_dir.exists()
+                    else []
+                )
+                if stack_files:
+                    rgb_syn = [p for p in stack_files if re.match(r"^syn_\d{5}\.fits$", p.name)]
+                    if rgb_syn:
+                        stack_files = sorted(rgb_syn)
+
+                if not stack_files:
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": "no stacking input frames found", "input_dir": str(stack_src_dir), "input_pattern": stack_input_pattern},
+                    )
+                    return False
+
+                frames_list: list[np.ndarray] = []
+                for fp in stack_files:
+                    try:
+                        arr = np.asarray(fits.getdata(str(fp), ext=0)).astype("float32", copy=False)
+                    except Exception:
+                        continue
+                    frames_list.append(arr)
+
+                if not frames_list:
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": "failed to load stacking input frames", "input_dir": str(stack_src_dir)},
+                    )
+                    return False
+
+                stack_arr = np.stack(frames_list, axis=0)
+                use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
+                if use_sigma:
+                    sigma_cfg_dict: Dict[str, Any] = {
+                        "sigma_low": float(sigma_clip_cfg.get("sigma_low", 4.0)),
+                        "sigma_high": float(sigma_clip_cfg.get("sigma_high", 4.0)),
+                        "max_iters": int(sigma_clip_cfg.get("max_iters", 3)),
+                        "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
+                    }
+                    try:
+                        clipped_mean, mask, stats = sigma_clip_stack_nd(stack_arr, sigma_cfg_dict)
+                        final_data = clipped_mean.astype("float32", copy=False)
+                        sigma_stats = stats
+                    except Exception as e:  # noqa: BLE001
+                        final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+                        sigma_stats = {"error": str(e)}
+                        use_sigma = False
+                else:
+                    final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+                    sigma_stats = {}
+
+                final_out = outputs_dir / Path(stack_output_file)
+                final_out.parent.mkdir(parents=True, exist_ok=True)
+                hdr_template = None
+                try:
+                    hdr_template = fits.getheader(str(stack_files[0]), ext=0)
+                except Exception:
+                    hdr_template = None
+                try:
+                    fits.writeto(str(final_out), final_data, header=hdr_template, overwrite=True)
+                except Exception as e:  # noqa: BLE001
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": f"failed to write stacked output: {e}"},
+                    )
+                    return False
+
+                extra: Dict[str, Any] = {
+                    "siril": None,
+                    "method": stack_method,
+                    "output": str(final_out),
+                    "used_reconstructed_fallback": False,
+                    "fallback_reason": None,
+                    "sigma_clipping_used": bool(use_sigma),
+                    "sigma_stats": sigma_stats,
+                }
+                phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
+
+                stacked_path = final_out
+                stacked_hdr = hdr_template
+
+    # Fast-path: resume from DEBAYER (or later) without re-running earlier phases.
+    # This is especially useful when only debayering changes and stacked output already exists.
+    if resume_from_phase is not None and resume_from_phase >= 10:
+        if stacked_path is None:
+            try:
+                stacked_path = outputs_dir / Path(stack_output_file)
+                if stacked_path.is_file():
+                    try:
+                        stacked_hdr = fits.getheader(str(stacked_path), ext=0)
+                    except Exception:
+                        stacked_hdr = None
+                else:
+                    stacked_path = None
+            except Exception:
+                stacked_path = None
+                stacked_hdr = None
+
+        if resume_from_phase <= 11:
+            phase_id = 11
+            phase_name = "DEBAYER"
+            phase_start(run_id, log_fp, phase_id, phase_name)
+            if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                return False
+
+            if not debayer_enabled:
+                phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "disabled"})
+            else:
+                if stacked_path is None or not stacked_path.is_file():
+                    phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "missing stacked output for debayer"})
+                    return False
+
+                try:
+                    stacked_data = np.asarray(fits.getdata(str(stacked_path), ext=0)).astype("float32", copy=False)
+                except Exception as e:  # noqa: BLE001
+                    phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"failed to read stacked output: {e}"})
+                    return False
+
+                rgb_out = outputs_dir / "stacked_rgb.fits"
+                rgb = None
+                try:
+                    if stacked_data.ndim == 2:
+                        rgb = demosaic_cfa(stacked_data, bayer_pattern)
+                    elif stacked_data.ndim == 3:
+                        if stacked_data.shape[0] == 3:
+                            rgb = stacked_data
+                        elif stacked_data.shape[2] == 3:
+                            rgb = np.transpose(stacked_data, (2, 0, 1)).astype("float32", copy=False)
+                except Exception:
+                    rgb = None
+
+                if rgb is None:
+                    phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "not_applicable"})
+                else:
+                    try:
+                        fits.writeto(str(rgb_out), rgb, header=stacked_hdr, overwrite=True)
+                    except Exception as e:  # noqa: BLE001
+                        phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"failed to write debayer output: {e}"})
+                        return False
+                    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"output": str(rgb_out)})
+
+        if resume_from_phase <= 12:
+            phase_id = 12
+            phase_name = "DONE"
+            phase_start(run_id, log_fp, phase_id, phase_name)
+            if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                return False
+            try:
+                _ensure_report_metrics_complete(artifacts_dir)
+            except Exception:
+                pass
+            phase_end(run_id, log_fp, phase_id, phase_name, "ok", {})
+
+        return True
 
     phase_id = 0
     phase_name = "SCAN_INPUT"
@@ -1277,6 +1559,47 @@ def run_phases_impl(
         if new_frames:
             frames = new_frames
 
+    # Optional linearity validation (Methodik v3 §2.1 / §4)
+    linearity_cfg = cfg.get("linearity") if isinstance(cfg.get("linearity"), dict) else {}
+    linearity_enabled = bool(linearity_cfg.get("enabled", False))
+    if linearity_enabled and "validate_frames_linearity" in globals() and validate_frames_linearity is not None and frames:
+        try:
+            # Sample up to N frames for linearity check to limit cost
+            max_lin_frames = int(linearity_cfg.get("max_frames", 8))
+            if max_lin_frames <= 0:
+                max_lin_frames = 8
+            sample_paths = frames[: min(len(frames), max_lin_frames)]
+            sample_arrays: list[np.ndarray] = []
+            for p in sample_paths:
+                try:
+                    img, _hdr = read_fits_float(p)
+                    sample_arrays.append(img)
+                except Exception:
+                    continue
+            if sample_arrays:
+                arr = np.stack(sample_arrays, axis=0)
+                lin_result = validate_frames_linearity(arr, linearity_cfg)
+                overall = float(lin_result.get("overall_linearity", 1.0))
+                min_overall = float(linearity_cfg.get("min_overall_linearity", 0.9))
+                if overall < min_overall:
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        0,
+                        "SCAN_INPUT",
+                        "error",
+                        {
+                            "error": "linearity validation failed",
+                            "overall_linearity": overall,
+                            "min_overall_linearity": min_overall,
+                            "diagnostics": lin_result.get("diagnostics"),
+                        },
+                    )
+                    return False
+        except Exception:
+            # In case of unexpected validator failure, continue without hard abort
+            pass
+
     if not should_skip_phase(0):
         cfa_flag0 = fits_is_cfa(frames[0]) if frames else None
         header_bayerpat0 = fits_get_bayerpat(frames[0]) if frames else None
@@ -1317,29 +1640,48 @@ def run_phases_impl(
         reg_out = outputs_dir / reg_out_name
         reg_out.mkdir(parents=True, exist_ok=True)
 
-        ref_idx = 0
-        ref_stars = -1
-        ref_lum01: Optional[np.ndarray] = None
-        ref_hdr = None
-        ref_path = None
+        # Reference frame selection strategy:
+        # 1. Prefer frames in the middle third of the sequence (minimizes max drift distance)
+        # 2. Within that range, select the frame with the most detected stars (best quality)
+        # This prevents selecting a reference at the sequence edges which causes
+        # large drift distances and poor ECC convergence for distant frames.
+        n_frames = len(frames)
+        middle_start = n_frames // 3
+        middle_end = 2 * n_frames // 3
+        
+        frame_star_counts: List[tuple[int, int, Path]] = []  # (idx, stars, path)
+        total_ref_scan = max(1, len(frames))
         for i, p in enumerate(frames):
             try:
+                if (i + 1) % 10 == 0 or (i + 1) == total_ref_scan:
+                    phase_progress(run_id, log_fp, phase_id, phase_name, i + 1, total_ref_scan, {"substep": "reference_scan"})
                 data = fits.getdata(str(p), ext=0)
                 if data is None:
                     continue
                 lum = cfa_downsample_sum2x2(np.asarray(data))
                 lum01 = opencv_prepare_ecc_image(lum)
                 stars = opencv_count_stars(lum01)
-                if stars > ref_stars:
-                    ref_stars = stars
-                    ref_idx = i
-                    ref_lum01 = lum01
-                    ref_hdr = fits.getheader(str(p), ext=0)
-                    ref_path = p
+                frame_star_counts.append((i, stars, p))
             except Exception:
                 continue
+        
+        # Select reference: best frame in middle third, fallback to best overall
+        ref_idx = 0
+        ref_stars = -1
+        ref_path = None
+        
+        # Try middle third first
+        middle_candidates = [(i, s, p) for i, s, p in frame_star_counts if middle_start <= i < middle_end]
+        if middle_candidates:
+            best = max(middle_candidates, key=lambda x: x[1])
+            ref_idx, ref_stars, ref_path = best
+        
+        # Fallback to best overall if middle third has no valid frames
+        if ref_path is None and frame_star_counts:
+            best = max(frame_star_counts, key=lambda x: x[1])
+            ref_idx, ref_stars, ref_path = best
 
-        if ref_lum01 is None or ref_stars < max(1, min_star_matches_i):
+        if ref_path is None or ref_stars < max(1, min_star_matches_i):
             phase_end(
                 run_id,
                 log_fp,
@@ -1350,59 +1692,147 @@ def run_phases_impl(
             )
             return False
 
-        corrs: List[float] = []
+        # Log reference selection info
+        ref_in_middle = middle_start <= ref_idx < middle_end
+        print(f"[INFO] Reference frame selected: index={ref_idx}, stars={ref_stars}, in_middle_third={ref_in_middle}, middle_range=[{middle_start}, {middle_end})")
+
+        # Chain registration strategy:
+        # Instead of registering all frames to a single reference (which fails with field rotation),
+        # we register each frame to its neighbor and accumulate transformations.
+        # This minimizes drift per registration step and handles field rotation better.
+        #
+        # Process order: Start from reference, go outward in both directions
+        # ref-1 -> ref, ref-2 -> ref-1, ... (backward chain)
+        # ref+1 -> ref, ref+2 -> ref+1, ... (forward chain)
+        
+        print(f"[INFO] Chain registration: {len(frames)} frames, reference at index {ref_idx}")
+
+        def _compose_affine(step_warp: np.ndarray, prev_warp: np.ndarray) -> np.ndarray:
+            step_3x3 = np.vstack([step_warp, [0, 0, 1]])
+            prev_3x3 = np.vstack([prev_warp, [0, 0, 1]])
+            composed_3x3 = step_3x3 @ prev_3x3
+            return composed_3x3[:2, :].astype(np.float32)
+
+        def _load_clean_and_lum01(p: Path) -> tuple[np.ndarray, np.ndarray, Any]:
+            data = fits.getdata(str(p), ext=0)
+            if data is None:
+                raise RuntimeError("failed to read FITS data")
+            hdr = fits.getheader(str(p), ext=0)
+            mosaic = np.asarray(data)
+            mosaic_clean = cosmetic_correction(mosaic, sigma_threshold=8.0, hot_only=True)
+            lum = cfa_downsample_sum2x2(mosaic_clean)
+            lum01 = opencv_prepare_ecc_image(lum)
+            del data, mosaic
+            return mosaic_clean, lum01, hdr
+
+        identity_warp = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+        corrs: List[float] = [1.0]
+
+        # Apply accumulated warps and save registered frames
         registered_count = 0
-        for idx, p in enumerate(frames):
+        total_write = max(1, len(frames))
+        processed = 0
+
+        # Prepare reference
+        try:
+            ref_mosaic_clean, ref_lum01, ref_hdr = _load_clean_and_lum01(ref_path)
+        except Exception as e:
+            phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {"error": "failed to load reference frame", "frame": str(ref_path), "details": str(e)},
+            )
+            return False
+
+        try:
+            dst_name = reg_pattern.format(index=ref_idx + 1)
+        except Exception:
+            dst_name = f"reg_{ref_idx + 1:05d}.fit"
+        dst_path = reg_out / dst_name
+        fits.writeto(str(dst_path), ref_mosaic_clean.astype("float32", copy=False), header=ref_hdr, overwrite=True)
+        registered_count += 1
+        processed += 1
+        del ref_mosaic_clean
+
+        # Backward chain: ref-1, ref-2, ...
+        warp_next = identity_warp
+        lum_next01 = ref_lum01
+        for i in range(ref_idx - 1, -1, -1):
+            if processed % 10 == 0 or processed == total_write:
+                phase_progress(run_id, log_fp, phase_id, phase_name, processed, total_write, {"substep": "write_registered"})
             try:
-                src_data = fits.getdata(str(p), ext=0)
-                if src_data is None:
-                    raise RuntimeError("no FITS data")
-                src_hdr = fits.getheader(str(p), ext=0)
-                mosaic = np.asarray(src_data)
-                lum = cfa_downsample_sum2x2(mosaic)
-                lum01 = opencv_prepare_ecc_image(lum)
+                mosaic_clean, lum01, hdr = _load_clean_and_lum01(frames[i])
                 stars = opencv_count_stars(lum01)
                 if stars < max(1, min_star_matches_i):
-                    raise RuntimeError(f"insufficient stars: {stars} < {min_star_matches_i}")
-
-                if idx == ref_idx:
-                    warped = mosaic.astype("float32", copy=False)
-                    cc = 1.0
-                else:
-                    init = opencv_best_translation_init(lum01, ref_lum01)
-                    try:
-                        warp, cc = opencv_ecc_warp(lum01, ref_lum01, allow_rotation=allow_rotation, init_warp=init)
-                    except Exception:
-                        warp, cc = init, 0.0
-                    if not np.isfinite(cc) or cc < 0.15:
-                        warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
-                    warped = warp_cfa_mosaic_via_subplanes(mosaic, warp)
-
+                    print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
+                init = opencv_best_translation_init(lum01, lum_next01)
                 try:
-                    dst_name = reg_pattern.format(index=registered_count + 1)
+                    step_warp, cc = opencv_ecc_warp(lum01, lum_next01, allow_rotation=allow_rotation, init_warp=init)
+                except Exception as ex:
+                    step_warp, cc = init, 0.0
+                    print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
+                if not np.isfinite(cc) or cc < 0.15:
+                    step_warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
+                warp_i = _compose_affine(step_warp, warp_next)
+                warped = warp_cfa_mosaic_via_subplanes(mosaic_clean, warp_i)
+                try:
+                    dst_name = reg_pattern.format(index=i + 1)
                 except Exception:
-                    dst_name = f"reg_{registered_count + 1:05d}.fit"
+                    dst_name = f"reg_{i + 1:05d}.fit"
                 dst_path = reg_out / dst_name
-                fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=src_hdr, overwrite=True)
+                fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=hdr, overwrite=True)
                 registered_count += 1
+                processed += 1
                 corrs.append(float(cc))
+                warp_next = warp_i
+                lum_next01 = lum01
+                del mosaic_clean, lum01, hdr, warped
             except Exception as e:
-                phase_end(
-                    run_id,
-                    log_fp,
-                    phase_id,
-                    phase_name,
-                    "error",
-                    {
-                        "error": "opencv_cfa registration failed",
-                        "frame": str(p),
-                        "frame_index": idx,
-                        "reference_index": ref_idx,
-                        "reference_frame": str(ref_path) if ref_path is not None else None,
-                        "details": str(e),
-                    },
-                )
-                return False
+                print(f"[WARN] Frame {i}: failed to register: {e}")
+                continue
+
+        # Forward chain: ref+1, ref+2, ...
+        warp_prev = identity_warp
+        lum_prev01 = ref_lum01
+        for i in range(ref_idx + 1, len(frames)):
+            if processed % 10 == 0 or processed == total_write:
+                phase_progress(run_id, log_fp, phase_id, phase_name, processed, total_write, {"substep": "write_registered"})
+            try:
+                mosaic_clean, lum01, hdr = _load_clean_and_lum01(frames[i])
+                stars = opencv_count_stars(lum01)
+                if stars < max(1, min_star_matches_i):
+                    print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
+                init = opencv_best_translation_init(lum01, lum_prev01)
+                try:
+                    step_warp, cc = opencv_ecc_warp(lum01, lum_prev01, allow_rotation=allow_rotation, init_warp=init)
+                except Exception as ex:
+                    step_warp, cc = init, 0.0
+                    print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
+                if not np.isfinite(cc) or cc < 0.15:
+                    step_warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
+                warp_i = _compose_affine(step_warp, warp_prev)
+                warped = warp_cfa_mosaic_via_subplanes(mosaic_clean, warp_i)
+                try:
+                    dst_name = reg_pattern.format(index=i + 1)
+                except Exception:
+                    dst_name = f"reg_{i + 1:05d}.fit"
+                dst_path = reg_out / dst_name
+                fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                registered_count += 1
+                processed += 1
+                corrs.append(float(cc))
+                warp_prev = warp_i
+                lum_prev01 = lum01
+                del mosaic_clean, lum01, hdr, warped
+            except Exception as e:
+                print(f"[WARN] Frame {i}: failed to register: {e}")
+                continue
+
+        if processed < total_write:
+            phase_progress(run_id, log_fp, phase_id, phase_name, min(processed, total_write), total_write, {"substep": "write_registered"})
 
         extra: Dict[str, Any] = {
             "engine": "opencv_cfa",
@@ -1601,7 +2031,9 @@ def run_phases_impl(
         if cfa_registered is None:
             cfa_registered = is_cfa
         if is_cfa:
-            split = split_cfa_channels(data, bayer_pattern)
+            # Prefer BAYERPAT from FITS header if available, fallback to config
+            bp_to_use = fits_get_bayerpat(p) or bayer_pattern
+            split = split_cfa_channels(data, bp_to_use)
         else:
             try:
                 split = split_rgb_frame(data)
@@ -2158,6 +2590,17 @@ def run_phases_impl(
         overlap_i = overlap
     tile_calc = TileMetricsCalculator(tile_size=tile_size_i, overlap=overlap_i)
 
+    dn_cfg = cfg.get("tile_denoising") if isinstance(cfg.get("tile_denoising"), dict) else {}
+    dn_enabled = bool(dn_cfg.get("enabled", True))
+    try:
+        dn_kernel = int(dn_cfg.get("kernel_size", 15))
+    except Exception:
+        dn_kernel = 15
+    try:
+        dn_alpha = float(dn_cfg.get("alpha", 2.0))
+    except Exception:
+        dn_alpha = 2.0
+
     lm_work = work_dir / "local_metrics"
     lm_work.mkdir(parents=True, exist_ok=True)
 
@@ -2178,102 +2621,180 @@ def run_phases_impl(
     except Exception:
         w_con = 0.2
 
+    # Struktur-Modus (Methodik v3 §3.4): ENR vs. Hintergrundgewicht
+    structure_mode = lm_cfg.get("structure_mode") if isinstance(lm_cfg.get("structure_mode"), dict) else {}
+    try:
+        w_struct = float(structure_mode.get("metric_weight", 0.7))
+    except Exception:
+        w_struct = 0.7
+    try:
+        w_bg_local = float(structure_mode.get("background_weight", 0.3))
+    except Exception:
+        w_bg_local = 0.3
+
     total_frames = sum(len(channel_files[ch]) for ch in ("R", "G", "B"))
     processed_frames = 0
     
     for ch in ("R", "G", "B"):
-        q_mean: List[float] = []
-        q_var: List[float] = []
+        ch_files = channel_files[ch]
+        if not ch_files:
+            continue
 
         ch_l_dir = lm_work / f"L_local_{ch}"
         ch_l_dir.mkdir(parents=True, exist_ok=True)
 
-        tile_sum_q: Optional[np.ndarray] = None
-        tile_sumsq_q: Optional[np.ndarray] = None
-        tile_sum_l: Optional[np.ndarray] = None
-        tile_sumsq_l: Optional[np.ndarray] = None
-        tile_count = 0
-        for f_idx, ch_file in enumerate(channel_files[ch]):
+        # Pass 1: Sammle rohe Tile-Metriken über alle Frames
+        per_frame_metrics: List[Dict[str, np.ndarray]] = []
+        n_tiles: Optional[int] = None
+        for f_idx, ch_file in enumerate(ch_files):
             f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+            if dn_enabled:
+                f = tile_calc.denoise_frame_tiled(f, k=dn_kernel, alpha=dn_alpha)
             tm = tile_calc.calculate_tile_metrics(f)
             fwhm = np.asarray(tm.get("fwhm") or [], dtype=np.float32)
             rnd = np.asarray(tm.get("roundness") or [], dtype=np.float32)
             con = np.asarray(tm.get("contrast") or [], dtype=np.float32)
-            if fwhm.size == 0:
-                q = np.zeros((0,), dtype=np.float32)
-                l = np.ones((0,), dtype=np.float32)
+            bg_local = np.asarray(tm.get("background_level") or [], dtype=np.float32)
+            noise_local = np.asarray(tm.get("noise_level") or [], dtype=np.float32)
+            grad_local = np.asarray(tm.get("gradient_energy") or [], dtype=np.float32)
+
+            if n_tiles is None:
+                n_tiles = int(fwhm.size)
             else:
-                # Methodik v3 §3.4: MAD-Normalisierung für alle Metriken
-                def _mad_norm(arr):
-                    """MAD-normalize array: x̃ = (x - median) / (1.4826 · MAD)"""
-                    med = float(np.median(arr))
-                    mad = float(np.median(np.abs(arr - med)))
-                    if mad < 1e-12:
-                        return np.zeros_like(arr)
-                    return (arr - med) / (1.4826 * mad)
-                
-                fwhm_n = _mad_norm(fwhm)  # FWHM̃
-                rnd_n = _mad_norm(rnd)    # R̃
-                con_n = _mad_norm(con)    # C̃
-                
-                # Methodik v3 §3.4: Q_local = w_fwhm·(-FWHM̃) + w_round·R̃ + w_con·C̃
-                # Negative FWHM because smaller FWHM is better
-                q_raw = (w_fwhm * (-fwhm_n) + w_round * rnd_n + w_con * con_n).astype(np.float32, copy=False)
-                # Clamp Q_local to [-3, +3] before exp() (Methodik v3 §3.4, Test Case 2)
-                q = np.clip(q_raw, -3.0, 3.0)
-                # Methodik v3 §3.4: L_f,t,c = exp(Q_local)
-                l = np.exp(q).astype(np.float32, copy=False)
-            q_mean.append(float(np.mean(q)) if q.size else 0.0)
-            q_var.append(float(np.var(q)) if q.size else 0.0)
+                # Falls ein Frame eine andere Tile-Anzahl hätte, brechen wir mit Fehler ab
+                if int(fwhm.size) != n_tiles:
+                    phase_end(
+                        run_id,
+                        log_fp,
+                        phase_id,
+                        phase_name,
+                        "error",
+                        {"error": "inconsistent tile count across frames in LOCAL_METRICS", "channel": ch},
+                    )
+                    return False
 
-            if q.size:
-                if tile_sum_q is None:
-                    tile_sum_q = np.zeros_like(q, dtype=np.float32)
-                    tile_sumsq_q = np.zeros_like(q, dtype=np.float32)
-                    tile_sum_l = np.zeros_like(l, dtype=np.float32)
-                    tile_sumsq_l = np.zeros_like(l, dtype=np.float32)
-                tile_sum_q += q
-                tile_sumsq_q += q * q
-                tile_sum_l += l
-                tile_sumsq_l += l * l
-                tile_count += 1
-
-                try:
-                    np.save(str(ch_l_dir / f"L_{f_idx+1:05d}.npy"), l.astype(np.float32, copy=False))
-                except Exception:
-                    pass
+            per_frame_metrics.append(
+                {
+                    "fwhm": fwhm,
+                    "roundness": rnd,
+                    "contrast": con,
+                    "bg_local": bg_local,
+                    "noise_local": noise_local,
+                    "grad_local": grad_local,
+                }
+            )
             del f
-            
+
             processed_frames += 1
             if processed_frames % 5 == 0 or processed_frames == total_frames:
-                phase_progress(run_id, log_fp, phase_id, phase_name, processed_frames, total_frames, {"channel": ch})
+                phase_progress(run_id, log_fp, phase_id, phase_name, processed_frames, total_frames, {"channel": ch, "step": "collect"})
 
-        q_tile_mean: list[float] = []
-        q_tile_var: list[float] = []
-        l_tile_mean: list[float] = []
-        l_tile_var: list[float] = []
-        if tile_sum_q is not None and tile_sumsq_q is not None and tile_count > 0:
-            q_mu = (tile_sum_q / float(tile_count)).astype(np.float32, copy=False)
-            q_v = (tile_sumsq_q / float(tile_count) - q_mu * q_mu).astype(np.float32, copy=False)
-            q_tile_mean = [float(x) for x in q_mu.tolist()]
-            q_tile_var = [float(x) for x in q_v.tolist()]
-        if tile_sum_l is not None and tile_sumsq_l is not None and tile_count > 0:
-            l_mu = (tile_sum_l / float(tile_count)).astype(np.float32, copy=False)
-            l_v = (tile_sumsq_l / float(tile_count) - l_mu * l_mu).astype(np.float32, copy=False)
-            l_tile_mean = [float(x) for x in l_mu.tolist()]
-            l_tile_var = [float(x) for x in l_v.tolist()]
+        if n_tiles is None or n_tiles <= 0 or not per_frame_metrics:
+            continue
+
+        n_frames_ch = len(per_frame_metrics)
+
+        # Baue Arrays der Form (F, T)
+        fwhm_all = np.zeros((n_frames_ch, n_tiles), dtype=np.float32)
+        rnd_all = np.zeros_like(fwhm_all)
+        con_all = np.zeros_like(fwhm_all)
+        bg_all = np.zeros_like(fwhm_all)
+        noise_all = np.zeros_like(fwhm_all)
+        grad_all = np.zeros_like(fwhm_all)
+
+        for i, mets in enumerate(per_frame_metrics):
+            fwhm_all[i, :] = mets["fwhm"]
+            rnd_all[i, :] = mets["roundness"]
+            con_all[i, :] = mets["contrast"]
+            bg_all[i, :] = mets["bg_local"]
+            noise_all[i, :] = mets["noise_local"]
+            grad_all[i, :] = mets["grad_local"]
+
+        # Heuristik: Stern-Tiles vs. Struktur-Tiles basierend auf Kontrast
+        # (einfach, aber genügt für Separate Behandlung gemäß Spec)
+        # Wir klassifizieren pro (Frame, Tile).
+        contrast_med = float(np.median(con_all)) if np.isfinite(con_all).any() else 0.0
+        contrast_thr = contrast_med * 1.5 if contrast_med > 0 else 0.0
+        star_mask = (con_all > contrast_thr)
+        struct_mask = ~star_mask
+
+        def _mad_norm_subset(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
+            """MAD-Normalisierung nur über die Elemente mit mask=True.
+
+            Werte außerhalb der Maske werden auf 0 gesetzt.
+            """
+            if not mask.any():
+                return np.zeros_like(values, dtype=np.float32)
+            subset = values[mask].astype(np.float32, copy=False)
+            med = float(np.median(subset))
+            mad = float(np.median(np.abs(subset - med)))
+            if mad < 1e-12 or not np.isfinite(mad):
+                out = np.zeros_like(values, dtype=np.float32)
+                return out
+            normed = (values.astype(np.float32, copy=False) - med) / (1.4826 * mad)
+            # Setze Bereiche außerhalb der Maske explizit auf 0
+            normed[~mask] = 0.0
+            return normed.astype(np.float32, copy=False)
+
+        # Stern-Modus: FWHM, Rundheit, Kontrast (nur auf star_mask)
+        fwhm_n = _mad_norm_subset(fwhm_all, star_mask)
+        rnd_n = _mad_norm_subset(rnd_all, star_mask)
+        con_n = _mad_norm_subset(con_all, star_mask)
+
+        # Struktur-Modus: ENR = E / σ, lokaler Hintergrund (nur auf struct_mask)
+        noise_safe = np.where(noise_all <= 0, 1e-6, noise_all.astype(np.float32, copy=False))
+        enr_all = grad_all.astype(np.float32, copy=False) / noise_safe
+        enr_n = _mad_norm_subset(enr_all, struct_mask)
+        bg_n = _mad_norm_subset(bg_all, struct_mask)
+
+        # Q_local gemäß Spec (Stern- bzw. Struktur-Formel)
+        q_local = np.zeros_like(fwhm_all, dtype=np.float32)
+        # Stern-Tiles
+        q_local[star_mask] = (
+            w_fwhm * (-fwhm_n[star_mask])
+            + w_round * rnd_n[star_mask]
+            + w_con * con_n[star_mask]
+        ).astype(np.float32, copy=False)
+        # Struktur-Tiles
+        q_local[struct_mask] = (
+            w_struct * enr_n[struct_mask]
+            - w_bg_local * bg_n[struct_mask]
+        ).astype(np.float32, copy=False)
+
+        # Clamping und lokale Gewichte
+        q_local = np.clip(q_local, -3.0, 3.0).astype(np.float32, copy=False)
+        l_local = np.exp(q_local).astype(np.float32, copy=False)
+
+        # Pro Frame: Mittelwert und Varianz von Q_local (für Clusterung / Analyse)
+        q_mean = [float(np.mean(q_local[i, :])) for i in range(n_frames_ch)]
+        q_var = [float(np.var(q_local[i, :])) for i in range(n_frames_ch)]
+
+        # Pro Tile: Mittelwert/Varianz über Frames (für Heatmaps)
+        q_tile_mean = [float(x) for x in np.mean(q_local, axis=0).astype(np.float32, copy=False).tolist()]
+        q_tile_var = [float(x) for x in np.var(q_local, axis=0).astype(np.float32, copy=False).tolist()]
+        l_tile_mean = [float(x) for x in np.mean(l_local, axis=0).astype(np.float32, copy=False).tolist()]
+        l_tile_var = [float(x) for x in np.var(l_local, axis=0).astype(np.float32, copy=False).tolist()]
+
+        # Schreibe L_local pro Frame auf Disk und (optional) speichere Q_local in channel_metrics
+        for f_idx in range(n_frames_ch):
+            try:
+                np.save(str(ch_l_dir / f"L_{f_idx+1:05d}.npy"), l_local[f_idx, :].astype(np.float32, copy=False))
+            except Exception:
+                pass
 
         channel_metrics[ch]["tiles"] = {
-            "tile_quality_mean": q_mean, 
+            "tile_quality_mean": q_mean,
             "tile_quality_variance": q_var,
             "L_local_files_dir": str(ch_l_dir),
             "Q_local_tile_mean": q_tile_mean,
             "Q_local_tile_var": q_tile_var,
             "L_local_tile_mean": l_tile_mean,
             "L_local_tile_var": l_tile_var,
+            # Vollständige Q_local-Matrix (Frames×Tiles) für tile-basierte Rekonstruktion
+            "Q_local": q_local.tolist(),
         }
 
-    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i})
+    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i, "denoising_enabled": dn_enabled})
 
     try:
         _write_tile_quality_heatmaps(artifacts_dir, channel_metrics, grid_cfg, (h0, w0))
@@ -2403,6 +2924,9 @@ def run_phases_impl(
             out = np.zeros((h0, w0), dtype=np.float32)
             weight_sum = np.zeros((h0, w0), dtype=np.float32)
             
+            # Per-Tile-Gesamtgewicht D_t,c (Methodik v3 §3.6)
+            D_tiles = np.zeros((n_tiles,), dtype=np.float64)
+            
             # Hanning window for overlap-add (Methodik v3 §3.6)
             hann_1d = np.hanning(tile_size_recon).astype(np.float32)
             hann_2d = np.outer(hann_1d, hann_1d)
@@ -2437,6 +2961,10 @@ def run_phases_impl(
                         # Methodik v3 §3.5: W_f,t,c = G_f,c · L_f,t,c
                         w_f_t = g_f * l_f_t
                         
+                        # Akkumuliere per-Tile-Gewicht D_t,c
+                        if np.isfinite(w_f_t) and w_f_t > 0.0:
+                            D_tiles[t_idx] += float(w_f_t)
+                        
                         # Extract tile
                         tile = f[y0:y1, x0:x1].copy()
                         tile_h, tile_w = tile.shape
@@ -2460,10 +2988,12 @@ def run_phases_impl(
                 del f
             
             # Normalize by weight sum (Methodik v3 §3.6)
-            # Fallback for low-weight regions: unweighted mean
-            low_weight_mask = weight_sum < epsilon
-            if np.any(low_weight_mask):
-                # Compute unweighted mean for fallback
+            # Fallback für Tiles mit sehr geringem Gesamtgewicht D_t,c
+            low_tile_mask = D_tiles < float(epsilon)
+            low_weight_mask = None
+            need_fallback = bool(np.any(low_tile_mask)) or bool(np.any(weight_sum <= 0.0))
+            fallback_mean = None
+            if need_fallback:
                 fallback_sum = np.zeros((h0, w0), dtype=np.float32)
                 fallback_count = np.zeros((h0, w0), dtype=np.float32)
                 for ch_file in channel_files[ch]:
@@ -2472,12 +3002,29 @@ def run_phases_impl(
                     fallback_count += 1.0
                     del f
                 fallback_mean = fallback_sum / np.maximum(fallback_count, 1.0)
-                
-                # Apply fallback where weights are too low
-                weight_sum_safe = np.where(low_weight_mask, 1.0, weight_sum)
-                out = np.where(low_weight_mask, fallback_mean, out / weight_sum_safe)
-            else:
-                out = out / weight_sum
+
+            out_div = np.divide(out, weight_sum, out=np.zeros_like(out), where=weight_sum > 0.0)
+
+            if np.any(low_tile_mask):
+                low_weight_mask = np.zeros((h0, w0), dtype=bool)
+                t_idx = 0
+                for ty in range(n_tiles_y):
+                    for tx in range(n_tiles_x):
+                        if low_tile_mask[t_idx]:
+                            y0 = ty * step_recon
+                            x0 = tx * step_recon
+                            y1 = min(y0 + tile_size_recon, h0)
+                            x1 = min(x0 + tile_size_recon, w0)
+                            low_weight_mask[y0:y1, x0:x1] = True
+                        t_idx += 1
+
+            if need_fallback and fallback_mean is not None:
+                fill_mask = (weight_sum <= 0.0)
+                if low_weight_mask is not None:
+                    fill_mask = np.logical_or(fill_mask, low_weight_mask)
+                out_div = np.where(fill_mask, fallback_mean, out_div)
+
+            out = out_div
             
             reconstructed[ch] = out.astype(np.float32, copy=False)
 
@@ -2881,6 +3428,12 @@ def run_phases_impl(
                     labels = labels_sorted
 
                 cluster_ids = sorted(set(int(x) for x in labels))
+
+                syn_weighting = str((synthetic_cfg or {}).get("weighting") or "global").strip().lower()
+                tiles_cfg = channel_metrics.get(ch_name, {}).get("tiles", {}) if isinstance(channel_metrics.get(ch_name), dict) else {}
+                l_local_files_dir_s = tiles_cfg.get("L_local_files_dir") if isinstance(tiles_cfg, dict) else None
+                l_local_files_dir = Path(str(l_local_files_dir_s)).resolve() if l_local_files_dir_s else None
+                use_tile_weighting = bool(syn_weighting == "tile_weighted" and l_local_files_dir is not None and l_local_files_dir.exists())
                 sample = None
                 try:
                     sample = fits.getdata(str(files[0])).astype("float32", copy=False)
@@ -2899,72 +3452,191 @@ def run_phases_impl(
                 out_paths: list[Path] = []
                 total_n = max(1, len(files))
 
-                if keep_all_acc:
-                    sum_map: Dict[int, np.ndarray] = {}
-                    wsum_map: Dict[int, float] = {}
+                if use_tile_weighting:
+                    epsilon_syn = 1e-6
+                    sample = fits.getdata(str(files[0])).astype("float32", copy=False)
+                    h0, w0 = sample.shape[:2]
+                    del sample
 
-                    for idx, fp in enumerate(files):
-                        lab = int(labels[idx])
-                        w = float(weights[idx])
-                        if not np.isfinite(w) or w <= 0.0:
-                            continue
-                        frame = fits.getdata(str(fp)).astype("float32", copy=False)
-                        if lab not in sum_map:
-                            sum_map[lab] = np.zeros_like(frame, dtype=np.float32)
-                            wsum_map[lab] = 0.0
-                        sum_map[lab] += frame * w
-                        wsum_map[lab] += w
-                        del frame
-                        if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
-                            phase_progress(run_id, log_fp, phase_id, phase_name, idx + 1, total_n, {"channel": ch_name})
+                    try:
+                        _grid_cfg = grid_cfg if isinstance(grid_cfg, dict) else {}
+                    except NameError:
+                        _grid_cfg = {}
+                    tile_size_syn = int(_grid_cfg.get("tile_size") or 64)
+                    overlap_px_syn = int(_grid_cfg.get("overlap_px") or int(float(_grid_cfg.get("overlap") or 0.25) * tile_size_syn))
+                    step_syn = int(tile_size_syn - overlap_px_syn)
+                    if tile_size_syn <= 0 or step_syn <= 0:
+                        return []
 
-                    for out_idx, lab in enumerate(cluster_ids, start=1):
-                        acc = sum_map.get(lab)
-                        wsum = float(wsum_map.get(lab) or 0.0)
-                        if acc is None or wsum <= 1e-12:
-                            continue
-                        syn = (acc / wsum).astype("float32", copy=False)
-                        outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
-                        fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
-                        out_paths.append(outp)
-                        del syn
-                    sum_map.clear()
-                    wsum_map.clear()
-                else:
+                    n_tiles_y = max(1, (h0 - tile_size_syn) // step_syn + 1)
+                    n_tiles_x = max(1, (w0 - tile_size_syn) // step_syn + 1)
+                    n_tiles = int(n_tiles_y * n_tiles_x)
+
+                    hann_1d = np.hanning(tile_size_syn).astype(np.float32)
+                    hann_2d = np.outer(hann_1d, hann_1d)
+
                     total_clusters = max(1, len(cluster_ids))
                     for out_idx, cluster_id in enumerate(cluster_ids, start=1):
-                        acc = None
-                        wsum = 0.0
-                        for idx, fp in enumerate(files):
-                            if int(labels[idx]) != int(cluster_id):
-                                continue
-                            w = float(weights[idx])
-                            if not np.isfinite(w) or w <= 0.0:
-                                continue
+                        cluster_indices = [i for i, lab in enumerate(labels) if int(lab) == int(cluster_id)]
+                        if not cluster_indices:
+                            continue
+
+                        out = np.zeros((h0, w0), dtype=np.float32)
+                        weight_sum = np.zeros((h0, w0), dtype=np.float32)
+                        D_tiles = np.zeros((n_tiles,), dtype=np.float64)
+
+                        fallback_sum = np.zeros((h0, w0), dtype=np.float32)
+                        fallback_count = 0
+
+                        for idx_i, idx in enumerate(cluster_indices, start=1):
+                            fp = files[idx]
                             frame = fits.getdata(str(fp)).astype("float32", copy=False)
-                            if acc is None:
-                                acc = np.zeros_like(frame, dtype=np.float32)
-                            acc += frame * w
-                            wsum += w
+                            fallback_sum += frame
+                            fallback_count += 1
+
+                            g_w = float(weights[idx])
+                            if not np.isfinite(g_w) or g_w <= 0.0:
+                                del frame
+                                continue
+
+                            l_arr = None
+                            try:
+                                l_arr = np.asarray(np.load(str(l_local_files_dir / f"L_{idx+1:05d}.npy")), dtype=np.float32)
+                            except Exception:
+                                l_arr = None
+
+                            t_idx = 0
+                            for ty in range(n_tiles_y):
+                                y0 = ty * step_syn
+                                y1 = min(y0 + tile_size_syn, h0)
+                                for tx in range(n_tiles_x):
+                                    x0 = tx * step_syn
+                                    x1 = min(x0 + tile_size_syn, w0)
+                                    l_w = float(l_arr[t_idx]) if (l_arr is not None and t_idx < int(l_arr.size)) else 1.0
+                                    w_eff = g_w * l_w
+                                    if np.isfinite(w_eff) and w_eff > 0.0:
+                                        D_tiles[t_idx] += float(w_eff)
+                                        window = hann_2d[: (y1 - y0), : (x1 - x0)]
+                                        tile = frame[y0:y1, x0:x1].copy()
+                                        tile_bg = float(np.median(tile))
+                                        tile = tile - tile_bg
+                                        tile_median = float(np.median(np.abs(tile)))
+                                        if tile_median > 1e-10:
+                                            tile = tile / tile_median
+                                        out[y0:y1, x0:x1] += tile * float(w_eff) * window
+                                        weight_sum[y0:y1, x0:x1] += float(w_eff) * window
+                                    t_idx += 1
+
                             del frame
-                            if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+
+                            if (idx_i % 25) == 0 or idx_i == len(cluster_indices):
                                 phase_progress(
                                     run_id,
                                     log_fp,
                                     phase_id,
                                     phase_name,
-                                    idx + 1,
-                                    total_n,
+                                    idx_i,
+                                    max(1, len(cluster_indices)),
                                     {"channel": ch_name, "cluster": out_idx, "clusters_total": total_clusters},
                                 )
+                            if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                                return []
 
-                        if acc is None or wsum <= 1e-12:
-                            continue
-                        syn = (acc / wsum).astype("float32", copy=False)
+                        fallback_mean = fallback_sum / float(max(1, fallback_count))
+                        out_div = np.divide(out, weight_sum, out=np.zeros_like(out), where=weight_sum > 0.0)
+
+                        low_tile_mask = D_tiles < float(epsilon_syn)
+                        low_weight_mask = None
+                        if np.any(low_tile_mask):
+                            low_weight_mask = np.zeros((h0, w0), dtype=bool)
+                            t_idx = 0
+                            for ty in range(n_tiles_y):
+                                y0 = ty * step_syn
+                                y1 = min(y0 + tile_size_syn, h0)
+                                for tx in range(n_tiles_x):
+                                    x0 = tx * step_syn
+                                    x1 = min(x0 + tile_size_syn, w0)
+                                    if low_tile_mask[t_idx]:
+                                        low_weight_mask[y0:y1, x0:x1] = True
+                                    t_idx += 1
+
+                        fill_mask = (weight_sum <= 0.0)
+                        if low_weight_mask is not None:
+                            fill_mask = np.logical_or(fill_mask, low_weight_mask)
+                        out_div = np.where(fill_mask, fallback_mean, out_div)
+
+                        syn = out_div.astype("float32", copy=False)
                         outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
                         fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
                         out_paths.append(outp)
-                        del syn, acc
+                        del syn, out_div, out, weight_sum
+                else:
+                    if keep_all_acc:
+                        sum_map: Dict[int, np.ndarray] = {}
+                        wsum_map: Dict[int, float] = {}
+
+                        for idx, fp in enumerate(files):
+                            lab = int(labels[idx])
+                            w = float(weights[idx])
+                            if not np.isfinite(w) or w <= 0.0:
+                                continue
+                            frame = fits.getdata(str(fp)).astype("float32", copy=False)
+                            if lab not in sum_map:
+                                sum_map[lab] = np.zeros_like(frame, dtype=np.float32)
+                                wsum_map[lab] = 0.0
+                            sum_map[lab] += frame * w
+                            wsum_map[lab] += w
+                            del frame
+                            if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+                                phase_progress(run_id, log_fp, phase_id, phase_name, idx + 1, total_n, {"channel": ch_name})
+
+                        for out_idx, lab in enumerate(cluster_ids, start=1):
+                            acc = sum_map.get(lab)
+                            wsum = float(wsum_map.get(lab) or 0.0)
+                            if acc is None or wsum <= 1e-12:
+                                continue
+                            syn = (acc / wsum).astype("float32", copy=False)
+                            outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
+                            fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                            out_paths.append(outp)
+                            del syn
+                        sum_map.clear()
+                        wsum_map.clear()
+                    else:
+                        total_clusters = max(1, len(cluster_ids))
+                        for out_idx, cluster_id in enumerate(cluster_ids, start=1):
+                            acc = None
+                            wsum = 0.0
+                            for idx, fp in enumerate(files):
+                                if int(labels[idx]) != int(cluster_id):
+                                    continue
+                                w = float(weights[idx])
+                                if not np.isfinite(w) or w <= 0.0:
+                                    continue
+                                frame = fits.getdata(str(fp)).astype("float32", copy=False)
+                                if acc is None:
+                                    acc = np.zeros_like(frame, dtype=np.float32)
+                                acc += frame * w
+                                wsum += w
+                                del frame
+                                if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+                                    phase_progress(
+                                        run_id,
+                                        log_fp,
+                                        phase_id,
+                                        phase_name,
+                                        idx + 1,
+                                        total_n,
+                                        {"channel": ch_name, "cluster": out_idx, "clusters_total": total_clusters},
+                                    )
+
+                            if acc is None or wsum <= 1e-12:
+                                continue
+                            syn = (acc / wsum).astype("float32", copy=False)
+                            outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
+                            fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                            out_paths.append(outp)
+                            del syn, acc
 
                 return out_paths
 
@@ -2985,10 +3657,11 @@ def run_phases_impl(
                     r = fits.getdata(str(outp_r)).astype("float32", copy=False)
                     g = fits.getdata(str(outp_g)).astype("float32", copy=False)
                     b = fits.getdata(str(outp_b)).astype("float32", copy=False)
-                    outp_rgb = syn_out / f"syn_{i+1:05d}.fits"
-                    rgb = np.stack([r, g, b], axis=0)
-                    fits.writeto(str(outp_rgb), rgb, header=hdr_syn, overwrite=True)
-                    del r, g, b, rgb
+                    outp_cfa = syn_out / f"syn_{i+1:05d}.fits"
+                    # Reassemble subplanes back to CFA mosaic
+                    cfa_mosaic = reassemble_cfa_mosaic(r, g, b, bayer_pattern)
+                    fits.writeto(str(outp_cfa), cfa_mosaic, header=hdr_syn, overwrite=True)
+                    del r, g, b, cfa_mosaic
 
             synthetic_channels = {"R": [], "G": [], "B": []}
         except Exception:
@@ -3012,34 +3685,35 @@ def run_phases_impl(
 
     phase_id = 10
     phase_name = "STACKING"
+    stacked_path: Path | None = None
+    stacked_hdr = None
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
         phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
         try:
-            _ensure_report_metrics_complete(artifacts_dir)
+            stacked_path = outputs_dir / Path(stack_output_file)
+            if stacked_path.is_file():
+                try:
+                    stacked_hdr = fits.getheader(str(stacked_path), ext=0)
+                except Exception:
+                    stacked_hdr = None
+            else:
+                stacked_path = None
         except Exception:
-            pass
-        return True
+            stacked_path = None
+            stacked_hdr = None
     
-    phase_start(run_id, log_fp, phase_id, phase_name)
-    if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
-        return False
-    if stack_engine != "siril":
-        phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"stacking.engine not supported: {stack_engine!r}"})
-        return False
-    if not siril_exe:
-        phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "siril executable not found"})
-        return False
+    if stacked_path is None:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
 
-    stack_work = work_dir / "stacking"
-    stack_work.mkdir(parents=True, exist_ok=True)
-    
     # Check if we should fallback to reconstructed frames
     # This happens when:
     # 1. Reduced mode with skipped synthetic frames, OR
     # 2. Synthetic frames are disabled/not generated (synthetic_count == 0)
     use_reconstructed_fallback = (reduced_mode and synthetic_skipped) or (synthetic_count == 0)
-    
+
     if use_reconstructed_fallback:
         stack_src_dir = outputs_dir
         recon_r = outputs_dir / "reconstructed_R.fits"
@@ -3071,7 +3745,95 @@ def run_phases_impl(
             rgb_syn = [p for p in stack_files if re.match(r"^syn_\d{5}\.fits$", p.name)]
             if rgb_syn:
                 stack_files = sorted(rgb_syn)
-    
+
+    if (use_reconstructed_fallback is False) and bool(cfa_registered) and stack_src_dir.exists():
+        syn_r = sorted([p for p in stack_src_dir.glob("synR_*.fits") if p.is_file() and is_fits_image_path(p)])
+        syn_g = sorted([p for p in stack_src_dir.glob("synG_*.fits") if p.is_file() and is_fits_image_path(p)])
+        syn_b = sorted([p for p in stack_src_dir.glob("synB_*.fits") if p.is_file() and is_fits_image_path(p)])
+        common_n = min(len(syn_r), len(syn_g), len(syn_b))
+        if common_n > 0:
+            syn_r = syn_r[:common_n]
+            syn_g = syn_g[:common_n]
+            syn_b = syn_b[:common_n]
+
+            def _stack_file_list(_files: list[Path]) -> tuple[np.ndarray, Dict[str, Any], bool]:
+                _frames_list: list[np.ndarray] = []
+                for _fp in _files:
+                    try:
+                        _arr = np.asarray(fits.getdata(str(_fp), ext=0)).astype("float32", copy=False)
+                    except Exception:
+                        continue
+                    _frames_list.append(_arr)
+                if not _frames_list:
+                    return np.zeros((1, 1), dtype=np.float32), {"error": "failed to load frames"}, False
+                _stack_arr = np.stack(_frames_list, axis=0)
+                _use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
+                _sigma_stats: Dict[str, Any] = {}
+                if _use_sigma:
+                    _sigma_cfg_dict: Dict[str, Any] = {
+                        "sigma_low": float(sigma_clip_cfg.get("sigma_low", 4.0)),
+                        "sigma_high": float(sigma_clip_cfg.get("sigma_high", 4.0)),
+                        "max_iters": int(sigma_clip_cfg.get("max_iters", 3)),
+                        "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
+                    }
+                    try:
+                        _clipped_mean, _mask, _stats = sigma_clip_stack_nd(_stack_arr, _sigma_cfg_dict)
+                        _final = _clipped_mean.astype("float32", copy=False)
+                        _sigma_stats = _stats
+                    except Exception as e:  # noqa: BLE001
+                        _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                        _sigma_stats = {"error": str(e)}
+                        _use_sigma = False
+                else:
+                    _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                return _final, _sigma_stats, _use_sigma
+
+            try:
+                hdr_template = fits.getheader(str(syn_r[0]), ext=0)
+            except Exception:
+                hdr_template = None
+
+            r_final, r_stats, r_sigma = _stack_file_list(syn_r)
+            g_final, g_stats, g_sigma = _stack_file_list(syn_g)
+            b_final, b_stats, b_sigma = _stack_file_list(syn_b)
+
+            try:
+                fits.writeto(str(outputs_dir / "stacked_R.fits"), r_final, header=hdr_template, overwrite=True)
+                fits.writeto(str(outputs_dir / "stacked_G.fits"), g_final, header=hdr_template, overwrite=True)
+                fits.writeto(str(outputs_dir / "stacked_B.fits"), b_final, header=hdr_template, overwrite=True)
+            except Exception:
+                pass
+
+            final_data = reassemble_cfa_mosaic(r_final, g_final, b_final, bayer_pattern)
+            final_out = outputs_dir / Path(stack_output_file)
+            final_out.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                fits.writeto(str(final_out), final_data, header=hdr_template, overwrite=True)
+            except Exception as e:  # noqa: BLE001
+                phase_end(
+                    run_id,
+                    log_fp,
+                    phase_id,
+                    phase_name,
+                    "error",
+                    {"error": f"failed to write stacked output: {e}"},
+                )
+                return False
+
+            extra: Dict[str, Any] = {
+                "siril": None,
+                "method": stack_method,
+                "output": str(final_out),
+                "used_reconstructed_fallback": False,
+                "fallback_reason": None,
+                "sigma_clipping_used": bool(r_sigma or g_sigma or b_sigma),
+                "sigma_stats": {"R": r_stats, "G": g_stats, "B": b_stats},
+            }
+            phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
+
+            stacked_path = final_out
+            stacked_hdr = hdr_template
+
     if not stack_files:
         phase_end(
             run_id,
@@ -3083,130 +3845,82 @@ def run_phases_impl(
         )
         return False
 
-    using_default_stack_script = not (isinstance(stack_script_cfg, str) and stack_script_cfg.strip())
-    if using_default_stack_script and stack_method != "average":
+    # Pure-Python linear stacking (optional sigma-clipping for artifact removal).
+    #
+    # Behaviour:
+    # - If SigmaClipConfig / sigma_clip_stack_nd are available and
+    #   stacking.method == "rej", we apply sigma-clipping along the stack
+    #   axis and then take the mean of the surviving samples.
+    # - Otherwise we fall back to a simple unweighted mean over all
+    #   stacking input frames, which is Methodik-conform linear stacking.
+    
+    frames_list: list[np.ndarray] = []
+    for fp in stack_files:
+        try:
+            arr = np.asarray(fits.getdata(str(fp), ext=0)).astype("float32", copy=False)
+        except Exception:
+            continue
+        frames_list.append(arr)
+
+    if not frames_list:
         phase_end(
             run_id,
             log_fp,
             phase_id,
             phase_name,
             "error",
-            {
-                "error": "default stacking script is only defined for stacking.method=average; set stacking.siril_script for other methods",
-                "stacking_method": stack_method,
-            },
-        )
-        return False
-    if not stack_script_path.exists() or not stack_script_path.is_file():
-        phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"stacking script not found: {stack_script_path}"})
-        return False
-
-    ok_script, violations = validate_siril_script(stack_script_path)
-    if not ok_script:
-        phase_end(
-            run_id,
-            log_fp,
-            phase_id,
-            phase_name,
-            "error",
-            {"error": "stacking script violates policy", "script": str(stack_script_path), "violations": violations},
+            {"error": "failed to load stacking input frames", "input_dir": str(stack_src_dir)},
         )
         return False
 
-    for i, src in enumerate(stack_files, start=1):
-        dst = stack_work / f"seq{i:05d}.fit"
-        safe_symlink_or_copy(src, dst)
+    stack_arr = np.stack(frames_list, axis=0)
 
-    before = sorted([p.name for p in stack_work.iterdir() if p.is_file()])
-    ok, meta = run_siril_script(
-        siril_exe=siril_exe,
-        work_dir=stack_work,
-        script_path=stack_script_path,
-        artifacts_dir=artifacts_dir,
-        log_name="siril_stacking.log",
-        quiet=True,
-    )
-    if not ok:
-        reason = _extract_siril_error_reason(meta.get("log_file") if isinstance(meta, dict) else None)
-        phase_end(
-            run_id,
-            log_fp,
-            phase_id,
-            phase_name,
-            "error",
-            {"error": reason or "siril stacking failed", "siril": meta, "method": stack_method},
-        )
-        return False
-
-    after_files = sorted([p for p in stack_work.iterdir() if p.is_file()])
-    after_names = {p.name for p in after_files}
-    new_names = sorted(list(after_names.difference(set(before))))
-
-    save_targets = extract_siril_save_targets(stack_script_path)
-    candidates: List[Path] = []
-    for name in save_targets:
-        candidates.extend(
-            [
-                stack_work / name,
-                stack_work / (name + ".fit"),
-                stack_work / (name + ".fits"),
-                stack_work / (name + ".fts"),
-                stack_work / (Path(name).stem + ".fit"),
-                stack_work / (Path(name).stem + ".fits"),
-                stack_work / (Path(name).stem + ".fts"),
-            ]
-        )
-    out_basename = Path(stack_output_file).name
-    candidates.extend(
-        [
-            stack_work / out_basename,
-            stack_work / (out_basename + ".fit"),
-            stack_work / (out_basename + ".fits"),
-            stack_work / (out_basename + ".fts"),
-            stack_work / (Path(out_basename).stem + ".fit"),
-            stack_work / (Path(out_basename).stem + ".fits"),
-            stack_work / (Path(out_basename).stem + ".fts"),
-        ]
-    )
-    produced = pick_output_file(candidates)
-    if produced is None:
-        new_fits = [stack_work / n for n in new_names if (stack_work / n).is_file() and is_fits_image_path(stack_work / n)]
-        if len(new_fits) == 1:
-            produced = new_fits[0]
-    if produced is None:
-        phase_end(
-            run_id,
-            log_fp,
-            phase_id,
-            phase_name,
-            "error",
-            {
-                "error": "expected output not found",
-                "siril": meta,
-                "method": stack_method,
-                "save_targets": save_targets,
-                "new_files": new_names,
-            },
-        )
-        return False
-
-    if using_default_stack_script and stack_method == "average":
-        n_stack = len(stack_files)
-        if n_stack > 0:
-            try:
-                hdr = fits.getheader(str(produced), ext=0)
-                data = fits.getdata(str(produced), ext=0)
-                if data is not None:
-                    data_f = data.astype("float32", copy=False)
-                    data_f = data_f / float(n_stack)
-                    fits.writeto(str(produced), data_f, header=hdr, overwrite=True)
-            except Exception:
-                pass
+    # Map stacking configuration to sigma-clipping config if available.
+    use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
+    if use_sigma:
+        # Merge user-provided sigma_clip config (if any) with conservative defaults.
+        sigma_cfg_dict: Dict[str, Any] = {
+            "sigma_low": float(sigma_clip_cfg.get("sigma_low", 4.0)),
+            "sigma_high": float(sigma_clip_cfg.get("sigma_high", 4.0)),
+            "max_iters": int(sigma_clip_cfg.get("max_iters", 3)),
+            "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
+        }
+        try:
+            clipped_mean, mask, stats = sigma_clip_stack_nd(stack_arr, sigma_cfg_dict)
+            final_data = clipped_mean.astype("float32", copy=False)
+            sigma_stats = stats
+        except Exception as e:  # noqa: BLE001
+            # On any failure, fall back to simple mean stacking.
+            final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+            sigma_stats = {"error": str(e)}
+            use_sigma = False
+    else:
+        final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+        sigma_stats = {}
 
     final_out = outputs_dir / Path(stack_output_file)
     final_out.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(produced), str(final_out))
-    
+
+    # Use header from the first valid stacking input as template.
+    hdr_template = None
+    try:
+        hdr_template = fits.getheader(str(stack_files[0]), ext=0)
+    except Exception:
+        hdr_template = None
+
+    try:
+        fits.writeto(str(final_out), final_data, header=hdr_template, overwrite=True)
+    except Exception as e:  # noqa: BLE001
+        phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "error",
+            {"error": f"failed to write stacked output: {e}"},
+        )
+        return False
+
     try:
         out_pngs = _write_quality_analysis_pngs(artifacts_dir, channel_metrics)
         if out_pngs:
@@ -3230,15 +3944,66 @@ def run_phases_impl(
         pass
 
     extra: Dict[str, Any] = {
-        "siril": meta, 
-        "method": stack_method, 
+        "siril": None,
+        "method": stack_method,
         "output": str(final_out),
         "used_reconstructed_fallback": use_reconstructed_fallback,
         "fallback_reason": "no_synthetic_frames" if use_reconstructed_fallback else None,
+        "sigma_clipping_used": bool(use_sigma),
+        "sigma_stats": sigma_stats,
     }
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
 
+    stacked_path = final_out
+    stacked_hdr = hdr_template
+
     phase_id = 11
+    phase_name = "DEBAYER"
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+            return False
+
+        if not debayer_enabled:
+            phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "disabled"})
+        else:
+            if stacked_path is None or not stacked_path.is_file():
+                phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "missing stacked output for debayer"})
+                return False
+
+            try:
+                stacked_data = np.asarray(fits.getdata(str(stacked_path), ext=0)).astype("float32", copy=False)
+            except Exception as e:  # noqa: BLE001
+                phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"failed to read stacked output: {e}"})
+                return False
+
+            rgb_out = outputs_dir / "stacked_rgb.fits"
+            rgb = None
+            try:
+                if stacked_data.ndim == 2:
+                    rgb = demosaic_cfa(stacked_data, bayer_pattern)
+                elif stacked_data.ndim == 3:
+                    if stacked_data.shape[0] == 3:
+                        rgb = stacked_data
+                    elif stacked_data.shape[2] == 3:
+                        rgb = np.transpose(stacked_data, (2, 0, 1)).astype("float32", copy=False)
+            except Exception:
+                rgb = None
+
+            if rgb is None:
+                phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "not_applicable"})
+            else:
+                try:
+                    fits.writeto(str(rgb_out), rgb, header=stacked_hdr, overwrite=True)
+                except Exception as e:  # noqa: BLE001
+                    phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"failed to write debayer output: {e}"})
+                    return False
+                phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"output": str(rgb_out)})
+
+    phase_id = 12
     phase_name = "DONE"
     phase_start(run_id, log_fp, phase_id, phase_name)
     if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):

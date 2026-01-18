@@ -197,7 +197,7 @@ normalization:
 registration:
   engine:
     type: enum
-    values: [siril]
+    values: [siril, opencv_cfa]
     required: true
     editable: true
 
@@ -233,6 +233,37 @@ registration:
     required: false
     editable: true
     description: "Custom Siril script path (empty = use default)"
+
+# ============================================================
+# TILE DENOISING
+# Tile-basierte Rauschunterdrückung mit Soft-Threshold
+# ============================================================
+
+tile_denoising:
+  enabled:
+    type: boolean
+    default: false
+    required: false
+    editable: true
+    description: "Enable tile-based noise filtering (uses tile_size from tile_generation)"
+
+  kernel_size:
+    type: integer
+    min: 3
+    max: 63
+    default: 15
+    required: false
+    editable: true
+    description: "Box blur kernel size for background estimation (odd)"
+
+  alpha:
+    type: number
+    min: 0.5
+    max: 5.0
+    default: 2.0
+    required: false
+    editable: true
+    description: "Threshold multiplier (threshold = alpha * robust_sigma)"
 
 # ============================================================
 # GLOBALE FRAME-METRIKEN
@@ -274,7 +305,13 @@ global_metrics:
     default: [-3, 3]
     required: true
     editable: true
-    description: "Clamp range for Q_f"
+    description: "Clamp range for Q_f before exp(·); Methodik v3.1 uses [-3, +3]"
+
+  adaptive_weights:
+    type: boolean
+    default: false
+    editable: true
+    description: "If true, adapt α/β/γ based on metric variances per Methodik v3.1 §3.2"
 
 # ============================================================
 # TILE-GEOMETRIE (seeing-adaptiv)
@@ -336,16 +373,11 @@ local_metrics:
     default: [-3, 3]
     required: true
     editable: true
-    description: "Clamp range for Q_local"
+    description: "Clamp range for Q_local (before exp); Methodik v3.1 uses [-3, +3]"
 
   star_mode:
-    fwhm_transform:
-      type: enum
-      values: [log]
-      const: log
-      editable: false
-      description: "Mandatory: log transform per Methodik v3"
-
+    # FWHM wird gemäß Spec v3.1 MAD-normalisiert (ohne log-Transform); dieses
+    # Feld bleibt bewusst leer, damit die GUI keine veraltete Option anbietet.
     weights:
       fwhm:
         type: number
@@ -374,13 +406,8 @@ local_metrics:
       _constraint: "fwhm + roundness + contrast = 1.0 (enforced by backend)"
 
   structure_mode:
-    metric:
-      type: enum
-      values: [energy_over_sigma]
-      const: energy_over_sigma
-      editable: false
-      description: "Mandatory: E/σ metric per Methodik v3"
-
+    # ENR (E/σ) und lokaler Hintergrund werden in der Implementierung gemäß Spec
+    # automatisch aus grad/noise/background berechnet.
     background_weight:
       type: number
       min: 0
@@ -405,6 +432,14 @@ local_metrics:
 # ============================================================
 
 synthetic:
+  weighting:
+    type: enum
+    values: [global, tile_weighted]
+    default: global
+    required: false
+    editable: true
+    description: "Synthetic frame weighting mode: global uses G_f,c only; tile_weighted uses W_f,t,c = G_f,c · L_f,t,c"
+
   frames_min:
     type: integer
     min: 1
@@ -484,18 +519,19 @@ reconstruction:
     editable: false
     description: "Mandatory: median rescale after background subtraction"
 
+debayer:
+  type: boolean
+  default: true
+  required: false
+  editable: true
+  description: "If true, debayer/demosaic the final stacked CFA mosaic and write stacked_rgb.fits"
+
 # ============================================================
 # STACKING
 # Methodik v3 §11
 # ============================================================
 
 stacking:
-  engine:
-    type: enum
-    values: [siril]
-    required: true
-    editable: true
-
   method:
     type: enum
     values: [average, rej]
@@ -519,11 +555,44 @@ stacking:
     required: true
     editable: true
 
-  siril_script:
-    type: string
-    required: false
-    editable: true
-    description: "Custom Siril script path (empty = use default)"
+  sigma_clip:
+    # Optional fine-tuning of sigma-clipping when method = 'rej'. If omitted,
+    # conservative defaults are used (4σ, 3 iterations, min_fraction = 0.5).
+    sigma_low:
+      type: number
+      min: 0.1
+      max: 20.0
+      default: 4.0
+      required: false
+      editable: true
+      description: "Lower sigma threshold for rejection (z < -sigma_low)"
+
+    sigma_high:
+      type: number
+      min: 0.1
+      max: 20.0
+      default: 4.0
+      required: false
+      editable: true
+      description: "Upper sigma threshold for rejection (z > sigma_high)"
+
+    max_iters:
+      type: integer
+      min: 1
+      max: 10
+      default: 3
+      required: false
+      editable: true
+      description: "Maximum sigma-clipping iterations"
+
+    min_fraction:
+      type: number
+      min: 0.05
+      max: 1.0
+      default: 0.5
+      required: false
+      editable: true
+      description: "Minimum surviving frame fraction per pixel before falling back to unclipped mean"
 
 # ============================================================
 # VALIDIERUNG

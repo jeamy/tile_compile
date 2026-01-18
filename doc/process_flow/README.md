@@ -6,12 +6,30 @@ Diese Dokumentation beschreibt detailliert den Ablauf der **Tile-basierten Quali
 
 Jede Phase ist in einem separaten Dokument mit Diagrammen, Formeln und Beispielen dokumentiert.
 
+## Aktuelle Pipeline-Phasen (Implementierung)
+
+| Phase | Name | Beschreibung |
+|-------|------|--------------|
+| 0 | SCAN_INPUT | Input-Frames scannen, Bayer-Pattern erkennen |
+| 1 | REGISTRATION | Cosmetic Correction + ECC-Registration + Warp |
+| 2 | CHANNEL_SPLIT | CFA → R/G/B Kanaltrennung |
+| 3 | NORMALIZATION | Hintergrund-Normalisierung pro Kanal |
+| 4 | GLOBAL_METRICS | Globale Qualitätsmetriken (Background, Noise, Gradient) |
+| 5 | TILE_GRID | FWHM-basierte Tile-Grid-Erzeugung |
+| 6 | LOCAL_METRICS | Lokale Tile-Metriken |
+| 7 | TILE_RECONSTRUCTION | Gewichtete Tile-Rekonstruktion |
+| 8 | STATE_CLUSTERING | Zustandsbasierte Frame-Clusterung |
+| 9 | SYNTHETIC_FRAMES | Synthetische Frames pro Cluster |
+| 10 | STACKING | Sigma-Clipping Rejection Stacking |
+| 11 | DEBAYER | CFA → RGB Demosaicing |
+| 12 | DONE | Finalisierung und Report |
+
 ## Dokumenten-Struktur
 
 ### [Phase 0: Pipeline-Übersicht & Vorverarbeitungspfade](phase_0_overview.md)
 - Gesamtübersicht der Pipeline
-- **Path A: Siril-basiert** (empfohlen, produktionsreif)
-- **Path B: CFA-basiert** (experimentell, methodisch optimal)
+- **Path A: Siril-basiert** (legacy)
+- **Path B: CFA-basiert** (opencv_cfa, empfohlen)
 - Vergleich der beiden Pfade
 - Übergabepunkt an gemeinsamen Kern
 
@@ -23,13 +41,15 @@ Jede Phase ist in einem separaten Dokument mit Diagrammen, Formeln und Beispiele
 ---
 
 ### [Phase 1: Registrierung und Kanaltrennung](phase_1_registration.md)
-- **Path A:** Siril Debayer → Registration → Channel Split
-- **Path B:** CFA Luminance → Registration → CFA-aware Transform → Debayer → Channel Split
+- **Cosmetic Correction** (NEU): Hotpixel-Entfernung VOR Warp
+- **Path A:** Siril Debayer → Registration → Channel Split (legacy)
+- **Path B:** CFA Luminance → Registration (opencv_cfa) → CFA-aware Transform → Debayer → Channel Split
 - FWHM-Messung und Sternfindung
 - Transformationsschätzung (RANSAC/ECC)
 - Qualitätsmetriken (Registrierungsresiduum, Elongation)
 
 **Wichtige Konzepte:**
+- **Cosmetic Correction verhindert "Walking Noise"** durch Hotpixel-Interpolation vor Warp
 - Sub-Pixel-Registrierung
 - Kanalgetrennte Verarbeitung ab hier
 - Keine Farbmischung bei Resampling (Path B)
@@ -47,7 +67,7 @@ Jede Phase ist in einem separaten Dokument mit Diagrammen, Formeln und Beispiele
 
 **Wichtige Konzepte:**
 - Normalisierung erfolgt **exakt einmal**
-- Z-Score-Normalisierung der Metriken
+- Robuste Normalisierung der Metriken mit Median + MAD
 - Exponential-Mapping mit Clamping
 - Gewichtung: α·(-B̃) + β·(-σ̃) + γ·Ẽ
 
@@ -124,78 +144,101 @@ Jede Phase ist in einem separaten Dokument mit Diagrammen, Formeln und Beispiele
 
 ---
 
-### [Phase 7: Finales lineares Stacking](phase_7_final_stacking.md)
-- **Einfaches lineares Stacking:** I_final = (1/K) · Σ F_synth
-- Keine zusätzliche Gewichtung
+### [Phase 7: Finales Stacking](phase_7_final_stacking.md)
+- **Sigma-Clipping Rejection Stacking** (NEU)
+- Konfigurierbare Parameter: sigma_low, sigma_high, max_iters, min_fraction
 - FITS-Speicherung mit Metadaten
 - Qualitätskontrolle und Validierung
 - Statistik-Report
 
 **Wichtige Konzepte:**
 - Gewichtung bereits in synthetischen Frames
-- Einfacher Durchschnitt (linear)
+- **Sigma-Clipping entfernt verbleibende Ausreißer**
 - Kein Drizzle
 - RGB/LRGB-Kombination **außerhalb** der Methodik
 
-**Output:** Rekonstruktion_R.fit, Rekonstruktion_G.fit, Rekonstruktion_B.fit
+**Output:** stacked_R.fits, stacked_G.fits, stacked_B.fits, stacked.fit
 
 ---
 
-## Pipeline-Flussdiagramm
+## Pipeline-Flussdiagramm (Aktuell)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    OSC RAW FRAMES                       │
 └────────────────────┬────────────────────────────────────┘
                      │
-         ┌───────────┴───────────┐
-         │                       │
-    ┌────▼─────┐          ┌─────▼────┐
-    │ PATH A   │          │ PATH B   │
-    │ (Siril)  │          │ (CFA)    │
-    └────┬─────┘          └─────┬────┘
-         │                      │
-         └──────────┬───────────┘
-                    │
-         ┌──────────▼───────────┐
-         │ PHASE 1: Registration│
-         │ & Channel Separation │
-         └──────────┬───────────┘
-                    │
-         ┌──────────▼───────────┐
-         │ PHASE 2: Global      │
-         │ Normalization        │
-         └──────────┬───────────┘
-                    │
-         ┌──────────▼───────────┐
-         │ PHASE 3: Tile        │
-         │ Generation (FWHM)    │
-         └──────────┬───────────┘
-                    │
-         ┌──────────▼───────────┐
-         │ PHASE 4: Local       │
-         │ Tile Metrics         │
-         └──────────┬───────────┘
-                    │
-         ┌──────────▼───────────┐
-         │ PHASE 5: Tile-based  │
-         │ Reconstruction       │
-         └──────────┬───────────┘
-                    │
-         ┌──────────▼───────────┐
-         │ PHASE 6: Clustering  │
-         │ & Synthetic Frames   │
-         │ (if N ≥ 200)         │
-         └──────────┬───────────┘
-                    │
-         ┌──────────▼───────────┐
-         │ PHASE 7: Final       │
-         │ Linear Stacking      │
-         └──────────┬───────────┘
-                    │
-         ┌──────────▼───────────┐
-         │ R.fit / G.fit / B.fit│
-         └──────────────────────┘
+         ┌───────────▼───────────┐
+         │ PHASE 0: SCAN_INPUT   │
+         │ Bayer-Pattern erkennen│
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 1: REGISTRATION │
+         │ • Cosmetic Correction │
+         │ • ECC Alignment       │
+         │ • CFA-aware Warp      │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 2: CHANNEL_SPLIT│
+         │ CFA → R/G/B           │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 3: NORMALIZATION│
+         │ Background-Division   │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 4: GLOBAL_METRICS│
+         │ B, σ, E → G_f,c       │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 5: TILE_GRID    │
+         │ FWHM-basierte Tiles   │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 6: LOCAL_METRICS│
+         │ Tile-Qualität L_f,t,c │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 7: TILE_RECON   │
+         │ Gewichtete Rekonstrukt│
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 8: CLUSTERING   │
+         │ State-Vector K-Means  │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 9: SYNTHETIC    │
+         │ Frames pro Cluster    │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 10: STACKING    │
+         │ Sigma-Clip Rejection  │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 11: DEBAYER     │
+         │ CFA → RGB Demosaic    │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ PHASE 12: DONE        │
+         │ Report & Finalize     │
+         └───────────┬───────────┘
+                     │
+         ┌───────────▼───────────┐
+         │ stacked_rgb.fits      │
+         │ + Artifacts/Report    │
+         └───────────────────────┘
 ```
 
 ## Kernprinzipien
@@ -223,12 +266,15 @@ Die Methodik basiert auf folgenden **unveränderlichen Prinzipien**:
 - Phase 6 wird **übersprungen**
 - Keine Clusterung
 - Keine synthetischen Frames
-- Direktes Stacking der Original-Frames in Phase 7
-- Validierungswarnung im Report
+- Phase 5 erzeugt das rekonstruierte Bild R_c pro Kanal
+- Phase 7 übernimmt R_c direkt ohne weiteres Stacking
+- Validierungswarnung im Report ("Reduced Mode")
 
-### Minimum (N < 50 Frames)
-- **Abbruch** der Pipeline
-- Zu wenig Frames für stabile Statistiken
+### Degraded Mode (N < 50 Frames)
+- Pipeline läuft im Reduced Mode ohne Clusterung
+- Starke Degradation der Statistik (zu wenig Frames)
+- Lauf wird mit entsprechendem Warnlevel gekennzeichnet
+- Abbruch nur bei **kritischen** Fehlern (z.B. keine Sterne, Daten nicht linear)
 
 ## Qualitätsmetriken
 
@@ -271,6 +317,9 @@ Gewichte:
   L_f,t,c - Lokales Tile-Gewicht
   W_f,t,c - Effektives Gewicht (G × L)
   W_synth,k,c - Gewicht synthetisches Frame
+
+Synthetic Frames:
+  synthetic.weighting = global | tile_weighted
 
 Normalisierung:
   I_f,c - Original-Frame
@@ -318,6 +367,9 @@ Jedes Phasen-Dokument enthält **Performance-Hinweise**:
 
 ## Änderungshistorie
 
+- **2026-01-17**: Cosmetic Correction (Hotpixel-Entfernung vor Warp) hinzugefügt
+- **2026-01-17**: Sigma-Clipping Rejection Stacking dokumentiert
+- **2026-01-17**: Pipeline-Diagramm auf 13 Phasen aktualisiert
 - **2026-01-09**: Initiale Erstellung der detaillierten Process Flow Dokumentation
 - Basierend auf Methodik v3
 

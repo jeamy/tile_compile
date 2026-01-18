@@ -2,7 +2,16 @@
 
 ## Übersicht
 
-Phase 7 ist die **finale Phase**: Die synthetischen Frames (oder die rekonstruierten Kanalbilder aus Phase 5 im Reduced Mode) werden zu einem finalen Bild pro Kanal gestackt. Dies ist ein **einfaches lineares Stacking** ohne zusätzliche Gewichtung.
+Phase 7 ist die **finale Phase**: Die synthetischen Frames (oder die
+rekonstruierten Kanalbilder aus Phase 5 im Reduced Mode) werden in Python
+zu einem finalen Bild pro Kanal gestackt. Dies ist ein **einfaches lineares
+Stacking** ohne zusätzliche Gewichtung; optional kann ein Sigma-Clipping auf
+Pixelebene aktiviert werden.
+
+Hinweis: Die synthetischen Frames können je nach Konfiguration entweder
+klassisch (nur global gewichtet) oder tile‑basiert (W_f,t,c = G_f,c · L_f,t,c)
+erzeugt werden. Phase 7 bleibt in beiden Fällen unverändert: **einfacher
+Mittelwert** (ggf. mit Sigma‑Clipping).
 
 ## Ziele
 
@@ -36,8 +45,16 @@ Input: Rekonstruiertes Ergebnis aus Phase 5 (Phase 6 übersprungen)
 ### Normative Formel
 
 ```
-Normal Mode:
+Normal Mode (ohne explizites Clipping):
   I_final,c[x,y] = (1/K) · Σ_k F_synth,k,c[x,y]
+
+Normal Mode (mit Sigma-Clipping):
+  1. Für jedes Pixel (x,y): wende Sigma-Clipping über die K Werte an
+     und erhalte die Menge gültiger Werte V(x,y).
+  2. Falls |V(x,y)| ≥ min_fraction · K:
+         I_final,c[x,y] = mean_{v∈V(x,y)} v
+     sonst:
+         I_final,c[x,y] = (1/K) · Σ_k F_synth,k,c[x,y]
 
 Reduced Mode:
   I_final,c[x,y] = R_c[x,y]
@@ -48,7 +65,7 @@ wobei:
   • Kanalweise (c ∈ {R, G, B})
 ```
 
-### Warum keine Gewichtung?
+### Warum keine zusätzliche Gewichtung?
 
 ```
 ┌─────────────────────────────────────────┐
@@ -70,7 +87,8 @@ wobei:
 Begründung:
   • Synthetische Frames sind bereits optimal gewichtet
   • Weitere Gewichtung würde zu Doppel-Gewichtung führen
-  • Einfaches Mittel ist korrekt und linear
+  • Einfaches Mittel (ggf. nach lokalem Ausreißer-Clipping) ist korrekt
+    und bewahrt die Linearität
 ```
 
 ### Prozess
@@ -86,7 +104,7 @@ Begründung:
              ▼
 ┌─────────────────────────────────────────┐
 │  Initialisierung                        │
-│                                          │
+│                                         │
 │  accumulator = zeros(H, W)              │
 │  count = K (Reduced Mode: kein Stack)   │
 └────────────┬────────────────────────────┘
@@ -94,7 +112,7 @@ Begründung:
              ▼
 ┌─────────────────────────────────────────┐
 │  Akkumulation                           │
-│                                          │
+│                                         │
 │  for k in range(count):                 │
 │    accumulator += frames[k]             │
 └────────────┬────────────────────────────┘
@@ -102,7 +120,7 @@ Begründung:
              ▼
 ┌─────────────────────────────────────────┐
 │  Mittelwert                             │
-│                                          │
+│                                         │
 │  I_final = accumulator / count          │
 └────────────┬────────────────────────────┘
              │
@@ -181,7 +199,7 @@ def create_fits_header(channel, metadata):
     header['OVERLAP'] = metadata['tile_overlap']
     
     # Registrierung
-    header['REGPATH'] = metadata['registration_path']  # 'siril' or 'cfa'
+    header['REGPATH'] = metadata['registration_path']  # 'siril' or 'opencv_cfa'
     header['REGRES'] = metadata['registration_residual_median']
     
     # Normalisierung
@@ -298,7 +316,7 @@ def generate_statistics_report(images, metadata):
         report.append(f"  Synthetic Frames:  {metadata['synthetic_frame_count']}")
         report.append(f"  Reduction Ratio:   {metadata['reduction_ratio']:.1f}:1")
     
-    report.append(f"  Registration:      {metadata['registration_path']}")
+    report.append(f"  Registration:      {metadata['registration_path']} (siril / opencv_cfa)")
     report.append(f"  FWHM (median):     {metadata['fwhm_median']:.2f} px")
     report.append(f"  Tile Size:         {metadata['tile_size']} px")
     report.append(f"  Tile Overlap:      {metadata['tile_overlap']} px")
@@ -620,12 +638,41 @@ def stack_all_channels_parallel(frames_dict):
     return {channel: stack for channel, stack in results}
 ```
 
+## Schritt 7.3: Debayer (CFA → RGB)
+
+Bei CFA-basierter Verarbeitung (Path B / opencv_cfa) wird nach dem Stacking ein finales Debayer durchgeführt, um das gestackte CFA-Mosaik in ein RGB-Bild zu konvertieren.
+
+```
+┌─────────────────────────────────────────┐
+│  Input: Gestacktes CFA-Mosaik           │
+│  stacked.fit (Bayer Pattern)            │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  OpenCV Demosaicing                     │
+│                                         │
+│  • Bayer-Pattern: GBRG (oder aus Header)│
+│  • Methode: cv2.COLOR_BAYER_*2RGB       │
+│  • 16-bit Zwischenformat für Qualität   │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  Output: RGB-Bild                       │
+│  stacked_rgb.fits (3, H, W)             │
+└─────────────────────────────────────────┘
+```
+
+**Hinweis:** Bei Path A (Siril) ist das Debayer bereits vor der Registrierung erfolgt.
+
 ## Ende der Pipeline
 
 **Die Methodik ist mit Phase 7 abgeschlossen.**
 
 Die finalen FITS-Dateien sind:
+- `stacked.fit` - Gestacktes CFA-Mosaik (bei CFA-Verarbeitung)
+- `stacked_rgb.fits` - Finales RGB-Bild (3, H, W)
 - ✓ Linear
-- ✓ Kanalgetrennt
 - ✓ Optimal gewichtet
 - ✓ Bereit für weitere Verarbeitung (außerhalb der Methodik)

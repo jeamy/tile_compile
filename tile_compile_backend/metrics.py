@@ -11,6 +11,33 @@ def _normalize_metric(values: np.ndarray) -> np.ndarray:
     return (values - mean) / std
 
 
+def denoise_frame_tiled(
+    img: np.ndarray,
+    tile_size: int = 64,
+    overlap: float = 0.25,
+    k: int = 15,
+    alpha: float = 2.0
+) -> np.ndarray:
+    """Denoise an image tile-by-tile with overlap blending.
+    
+    Each tile is denoised independently with its own local noise estimate,
+    then tiles are blended together using linear weights in overlap regions.
+    This allows adaptive noise filtering that respects local signal characteristics.
+    
+    Args:
+        img: Input 2D image array
+        tile_size: Size of each tile (default 64)
+        overlap: Overlap fraction between tiles (default 0.25)
+        k: Box blur kernel size for tile background estimation (default 15)
+        alpha: Threshold multiplier (threshold = alpha * robust_sigma, default 2.0)
+    
+    Returns:
+        Denoised image as float32 array
+    """
+    calc = TileMetricsCalculator(tile_size=tile_size, overlap=overlap)
+    return calc.denoise_frame_tiled(img, k=k, alpha=alpha)
+
+
 def _clamp(x: np.ndarray, lo: float = -3.0, hi: float = 3.0) -> np.ndarray:
     """Clamp values to [lo, hi] as per Methodik v3 §3.2."""
     return np.clip(x, lo, hi)
@@ -110,41 +137,183 @@ class TileMetricsCalculator:
     def __init__(self, tile_size: int = 64, overlap: float = 0.25):
         self.tile_size = tile_size
         self.overlap = overlap
+
+    @staticmethod
+    def _robust_sigma(x: np.ndarray) -> float:
+        x = np.asarray(x, dtype=np.float32)
+        if x.size <= 0:
+            return 0.0
+        med = float(np.median(x))
+        mad = float(np.median(np.abs(x - med)))
+        sig = 1.4826 * mad
+        if not np.isfinite(sig) or sig < 1e-12:
+            sig = float(np.std(x))
+        return float(sig)
+
+    @staticmethod
+    def _box_blur_same(t: np.ndarray, k: int) -> np.ndarray:
+        t = np.asarray(t, dtype=np.float32)
+        h, w = t.shape
+        k = int(k)
+        if k < 3:
+            k = 3
+        if (k % 2) == 0:
+            k += 1
+        max_k = min(h, w)
+        if (max_k % 2) == 0:
+            max_k -= 1
+        if max_k < 3:
+            return t
+        if k > max_k:
+            k = max_k
+        pad = k // 2
+        a = np.pad(t, ((pad, pad), (pad, pad)), mode='reflect')
+        ii = np.cumsum(np.cumsum(a, axis=0), axis=1)
+        ii = np.pad(ii, ((1, 0), (1, 0)), mode='constant')
+        y0 = np.arange(0, h)
+        x0 = np.arange(0, w)
+        y1 = y0 + k
+        x1 = x0 + k
+        s = ii[np.ix_(y1, x1)] - ii[np.ix_(y0, x1)] - ii[np.ix_(y1, x0)] + ii[np.ix_(y0, x0)]
+        return (s / float(k * k)).astype(np.float32, copy=False)
+
+    @staticmethod
+    def _soft_threshold(x: np.ndarray, t: float) -> np.ndarray:
+        return np.sign(x) * np.maximum(np.abs(x) - t, 0.0)
+
+    def _tile_highpass(self, tile: np.ndarray) -> np.ndarray:
+        t = tile.astype(np.float32, copy=False)
+        bg = self._box_blur_same(t, 31)
+        return (t - bg).astype(np.float32, copy=False)
+
+    def denoise_tile(self, tile: np.ndarray, k: int = 15, alpha: float = 2.0) -> np.ndarray:
+        """Denoise a single tile using highpass + soft-threshold.
+        
+        Args:
+            tile: Input tile (2D array, typically 64x64)
+            k: Box blur kernel size for background estimation (smaller for tiles)
+            alpha: Threshold multiplier (threshold = alpha * robust_sigma)
+        
+        Returns:
+            Denoised tile preserving stars/structures above threshold
+        """
+        t = np.asarray(tile, dtype=np.float32)
+        bg = self._box_blur_same(t, k)
+        resid = t - bg
+        sig = self._robust_sigma(resid)
+        thr = alpha * sig
+        resid_dn = self._soft_threshold(resid, thr)
+        return (bg + resid_dn).astype(np.float32, copy=False)
+
+    def denoise_frame_tiled(
+        self,
+        frame: np.ndarray,
+        k: int = 15,
+        alpha: float = 2.0
+    ) -> np.ndarray:
+        """Denoise a frame tile-by-tile with overlap blending.
+        
+        Each tile is denoised independently with its own local noise estimate,
+        then tiles are blended together using linear weights in overlap regions.
+        
+        Args:
+            frame: Input image (2D array)
+            k: Box blur kernel size for tile background estimation
+            alpha: Threshold multiplier (threshold = alpha * robust_sigma)
+        
+        Returns:
+            Denoised frame with per-tile adaptive noise filtering
+        """
+        h, w = frame.shape
+        out = np.zeros((h, w), dtype=np.float32)
+        weight = np.zeros((h, w), dtype=np.float32)
+        
+        step = int(self.tile_size * (1 - self.overlap))
+        
+        tile_weight = self._make_tile_weight(self.tile_size)
+        
+        for y in range(0, h - self.tile_size + 1, step):
+            for x in range(0, w - self.tile_size + 1, step):
+                tile = frame[y:y + self.tile_size, x:x + self.tile_size].astype(np.float32)
+                dn_tile = self.denoise_tile(tile, k=k, alpha=alpha)
+                out[y:y + self.tile_size, x:x + self.tile_size] += dn_tile * tile_weight
+                weight[y:y + self.tile_size, x:x + self.tile_size] += tile_weight
+        
+        mask = weight > 0
+        out[mask] /= weight[mask]
+        out[~mask] = frame[~mask]
+        return out.astype(np.float32, copy=False)
+
+    @staticmethod
+    def _make_tile_weight(size: int) -> np.ndarray:
+        """Create a 2D linear blend weight for tile overlap."""
+        x = np.linspace(0, 1, size // 2)
+        x = np.concatenate([x, x[::-1]])
+        if len(x) < size:
+            x = np.append(x, x[-1])
+        w = np.outer(x, x)
+        return w.astype(np.float32)
+
+    def _tile_background_and_noise(self, tile: np.ndarray) -> tuple[float, float, np.ndarray]:
+        t = tile.astype(np.float32, copy=False)
+        resid = self._tile_highpass(t)
+        bg0 = float(np.median(t))
+        sigma0 = self._robust_sigma(resid)
+        thr = bg0 + 3.0 * sigma0
+        m = t <= thr
+        if not np.any(m):
+            m = np.ones_like(t, dtype=bool)
+        bg = float(np.median(t[m]))
+        sig = self._robust_sigma(resid[m])
+        return bg, float(sig), resid
     
     def calculate_tile_metrics(self, frame: np.ndarray) -> Dict[str, List[float]]:
-        """
-        Calculate metrics for each tile in a frame
+        """Calculate metrics for each tile in a frame.
+
+        The returned dictionary contains per-tile lists for:
+        - fwhm:            FWHM estimate (star-dominated tiles)
+        - roundness:       qualitative roundness metric
+        - contrast:        simple local contrast proxy
+        - background_level:local background B_local (median)
+        - noise_level:     local noise σ (std)
+        - gradient_energy: local gradient energy E (per Methodik v3 §3.4 / Anhang A.3)
         """
         tiles = self._generate_tiles(frame)
         
-        tile_metrics = {
-            'fwhm': [],           # Full Width at Half Maximum
-            'roundness': [],      # Star roundness
-            'contrast': [],       # Tile contrast
+        tile_metrics: Dict[str, List[float]] = {
+            'fwhm': [],            # Full Width at Half Maximum
+            'roundness': [],       # Star roundness
+            'contrast': [],        # Tile contrast
             'background_level': [],
-            'noise_level': []
+            'noise_level': [],
+            'gradient_energy': [], # Local gradient energy E
         }
         
         for tile in tiles:
-            tile_metrics['fwhm'].append(self._calculate_fwhm(tile))
-            tile_metrics['roundness'].append(self._calculate_roundness(tile))
-            tile_metrics['contrast'].append(self._calculate_contrast(tile))
-            tile_metrics['background_level'].append(np.median(tile))
-            tile_metrics['noise_level'].append(np.std(tile))
+            tile_fwhm = self._calculate_fwhm(tile)
+            tile_round = self._calculate_roundness(tile)
+            tile_con = self._calculate_contrast(tile)
+            tile_bg, tile_noise, resid = self._tile_background_and_noise(tile)
+            tile_E = float(self._calculate_gradient_energy(resid))
+
+            tile_metrics['fwhm'].append(tile_fwhm)
+            tile_metrics['roundness'].append(tile_round)
+            tile_metrics['contrast'].append(tile_con)
+            tile_metrics['background_level'].append(tile_bg)
+            tile_metrics['noise_level'].append(tile_noise)
+            tile_metrics['gradient_energy'].append(tile_E)
         
         return tile_metrics
-    
+
     def _generate_tiles(self, frame: np.ndarray) -> List[np.ndarray]:
-        """
-        Generate overlapping tiles from a frame
-        """
+        """Generate overlapping tiles from a frame."""
         h, w = frame.shape
         step = int(self.tile_size * (1 - self.overlap))
         
-        tiles = []
+        tiles: List[np.ndarray] = []
         for y in range(0, h - self.tile_size + 1, step):
             for x in range(0, w - self.tile_size + 1, step):
-                tile = frame[y:y+self.tile_size, x:x+self.tile_size]
+                tile = frame[y:y + self.tile_size, x:x + self.tile_size]
                 tiles.append(tile)
         
         return tiles
@@ -174,10 +343,24 @@ class TileMetricsCalculator:
         return 1 / (1 + spread.mean())
     
     def _calculate_contrast(self, tile: np.ndarray) -> float:
+        """Calculate local contrast."""
+        t = tile.astype(np.float32, copy=False)
+        t_max = float(np.max(t))
+        t_min = float(np.min(t))
+        return (t_max - t_min) / (t_max + t_min + 1e-8)
+
+    def _calculate_gradient_energy(self, tile: np.ndarray) -> float:
+        """Calculate local gradient energy E for a tile.
+
+        Per Methodik v3 Anhang A.3 wird E typischerweise als Mittelwert von
+        |∇I|^2 definiert. Hier verwenden wir eine einfache Approximation mit
+        NumPy-Gradienten, die für die nachgelagerte MAD-Normalisierung ausreichend
+        ist.
         """
-        Calculate local contrast
-        """
-        return (np.max(tile) - np.min(tile)) / (np.max(tile) + np.min(tile) + 1e-8)
+        t = tile.astype(np.float32, copy=False)
+        gy, gx = np.gradient(t)
+        grad_sq = gx * gx + gy * gy
+        return float(np.mean(grad_sq))
 
 def compute_channel_metrics(channels: Dict[str, List[np.ndarray]]) -> Dict[str, Dict]:
     """
