@@ -242,7 +242,7 @@ registration:
 tile_denoising:
   enabled:
     type: boolean
-    default: true
+    default: false
     required: false
     editable: true
     description: "Enable tile-based noise filtering (uses tile_size from tile_generation)"
@@ -432,6 +432,14 @@ local_metrics:
 # ============================================================
 
 synthetic:
+  weighting:
+    type: enum
+    values: [global, tile_weighted]
+    default: global
+    required: false
+    editable: true
+    description: "Synthetic frame weighting mode: global uses G_f,c only; tile_weighted uses W_f,t,c = G_f,c · L_f,t,c"
+
   frames_min:
     type: integer
     min: 1

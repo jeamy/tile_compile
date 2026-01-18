@@ -154,7 +154,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Enable tile-based noise filtering"
         },
         "kernel_size": {
@@ -281,6 +281,12 @@
       "additionalProperties": false,
       "required": ["frames_min", "frames_max", "clustering"],
       "properties": {
+        "weighting": {
+          "type": "string",
+          "enum": ["global", "tile_weighted"],
+          "default": "global",
+          "description": "Synthetic frame weighting mode: global uses G_f,c only; tile_weighted uses W_f,t,c = G_f,c · L_f,t,c"
+        },
         "frames_min": { "type": "integer", "minimum": 1 },
         "frames_max": { "type": "integer", "minimum": 1 },
         "clustering": {

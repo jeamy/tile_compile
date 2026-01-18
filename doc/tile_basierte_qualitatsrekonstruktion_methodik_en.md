@@ -612,6 +612,20 @@ S_k,c = Σ_{f∈Cluster_k} G_f,c · I_f,c / Σ_{f∈Cluster_k} G_f,c
 
 where I_f,c are the **original frames** (not reconstructed).
 
+**Optional (tile‑based, for quality propagation):**
+
+If tile‑level quality improvements (e.g. via tile noise filtering in §3.3.1) should be preserved all the way to the final stack, synthetic frame generation can optionally be performed tile‑wise. For each tile *t* inside a cluster, use the effective weights
+
+```
+W_f,t,c = G_f,c · L_f,t,c
+```
+
+and assemble the synthetic frame using the same overlap‑add reconstruction principle as in §3.6.
+
+Enable via:
+
+`synthetic.weighting: tile_weighted` (default: `global`).
+
 Result: 15–30 synthetic frames per channel (matching cluster count).
 
 **Final stacking (binding, Python-only):**

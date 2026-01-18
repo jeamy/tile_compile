@@ -14,15 +14,16 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 3. [Assumptions (Annahmen)](#assumptions-annahmen)
 4. [Normalization (Normalisierung)](#normalization-normalisierung)
 5. [Registration (Registrierung)](#registration-registrierung)
-6. [Global Metrics (Globale Metriken)](#global-metrics-globale-metriken)
-7. [Tile (Kachel-Geometrie)](#tile-kachel-geometrie)
-8. [Local Metrics (Lokale Metriken)](#local-metrics-lokale-metriken)
-9. [Synthetic (Synthetische Frames)](#synthetic-synthetische-frames)
-10. [Reconstruction (Rekonstruktion)](#reconstruction-rekonstruktion)
-11. [Debayer](#debayer)
-12. [Stacking](#stacking)
-13. [Validation (Validierung)](#validation-validierung)
-14. [Runtime Limits](#runtime-limits)
+6. [Tile Denoising (Tile-Rauschfilter)](#tile-denoising-tile-rauschfilter)
+7. [Global Metrics (Globale Metriken)](#global-metrics-globale-metriken)
+8. [Tile (Kachel-Geometrie)](#tile-kachel-geometrie)
+9. [Local Metrics (Lokale Metriken)](#local-metrics-lokale-metriken)
+10. [Synthetic (Synthetische Frames)](#synthetic-synthetische-frames)
+11. [Reconstruction (Rekonstruktion)](#reconstruction-rekonstruktion)
+12. [Debayer](#debayer)
+13. [Stacking](#stacking)
+14. [Validation (Validierung)](#validation-validierung)
+15. [Runtime Limits](#runtime-limits)
 
 ---
 
@@ -484,6 +485,53 @@ Einstellungen für die geometrische Ausrichtung gemäß Methodik v3 §3.
 
 ---
 
+## Tile Denoising (Tile-Rauschfilter)
+
+Optionale tile-basierte Rauschunterdrückung (Highpass + Soft-Threshold). Die Tile-Geometrie (tile_size/overlap) wird **nicht** separat konfiguriert, sondern aus der Tile-Grid-Berechnung abgeleitet.
+
+### `tile_denoising.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard** | false |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Aktiviert tile-basierte Rauschunterdrückung vor der Berechnung der lokalen Metriken.
+
+---
+
+### `tile_denoising.kernel_size`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | 3 - 63 |
+| **Standard** | 15 |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Kernel-Größe (ungerade) für die lokale Hintergrundschätzung pro Tile.
+
+---
+
+### `tile_denoising.alpha`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0.5 - 5.0 |
+| **Standard** | 2.0 |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Threshold-Multiplikator für Soft-Thresholding.
+
+Formel: `threshold = alpha × robust_sigma`.
+
+---
+
 ## Global Metrics (Globale Metriken)
 
 Gewichtung der globalen Frame-Qualitätsmetriken gemäß Methodik v3 §5.
@@ -757,6 +805,21 @@ Kachel-basierte Qualitätsmetriken gemäß Methodik v3 §7.
 ## Synthetic (Synthetische Frames)
 
 Clustering und synthetische Frame-Erzeugung gemäß Methodik v3 §10.
+
+### `synthetic.weighting`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | enum |
+| **Werte** | `global`, `tile_weighted` |
+| **Standard** | `global` |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Bestimmt, wie synthetische Frames pro Cluster gebildet werden.
+
+- **`global`**: klassisch, nur globale Gewichte `G_f,c`.
+- **`tile_weighted`**: tile-basiert mit effektiven Gewichten `W_f,t,c = G_f,c × L_f,t,c` und Overlap-Add (analog Rekonstruktion), um lokale Qualitätsgewinne in `syn_*.fits` zu propagieren.
 
 ### `synthetic.frames_min`
 

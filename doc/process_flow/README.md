@@ -318,6 +318,9 @@ Gewichte:
   W_f,t,c - Effektives Gewicht (G × L)
   W_synth,k,c - Gewicht synthetisches Frame
 
+Synthetic Frames:
+  synthetic.weighting = global | tile_weighted
+
 Normalisierung:
   I_f,c - Original-Frame
   I'_f,c - Normalisiertes Frame (I / B)

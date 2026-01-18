@@ -422,10 +422,11 @@ def overlap_add(tiles_reconstructed, tiles, tile_size, overlap, H, W):
         output[y:y+h, x:x+w] += tile_windowed
         weight_sum[y:y+h, x:x+w] += window
     
-    # Normalisierung
-    # Verhindere Division durch Null (sollte nicht vorkommen)
-    weight_sum = np.maximum(weight_sum, 1e-10)
-    final = output / weight_sum
+    # Normalisierung (robust)
+    # - elementweise Division nur dort, wo weight_sum > 0
+    # - übrige Pixel werden via Fallback (ungewichtetes Mittel über alle Frames) gefüllt
+    final = np.divide(output, weight_sum, out=np.zeros_like(output), where=weight_sum > 0.0)
+    final = np.where(weight_sum > 0.0, final, fallback_mean)
     
     return final
 ```
