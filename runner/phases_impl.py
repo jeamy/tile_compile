@@ -2990,8 +2990,22 @@ def run_phases_impl(
             # Normalize by weight sum (Methodik v3 §3.6)
             # Fallback für Tiles mit sehr geringem Gesamtgewicht D_t,c
             low_tile_mask = D_tiles < float(epsilon)
+            low_weight_mask = None
+            need_fallback = bool(np.any(low_tile_mask)) or bool(np.any(weight_sum <= 0.0))
+            fallback_mean = None
+            if need_fallback:
+                fallback_sum = np.zeros((h0, w0), dtype=np.float32)
+                fallback_count = np.zeros((h0, w0), dtype=np.float32)
+                for ch_file in channel_files[ch]:
+                    f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+                    fallback_sum += f
+                    fallback_count += 1.0
+                    del f
+                fallback_mean = fallback_sum / np.maximum(fallback_count, 1.0)
+
+            out_div = np.divide(out, weight_sum, out=np.zeros_like(out), where=weight_sum > 0.0)
+
             if np.any(low_tile_mask):
-                # Baue Pixelmaske der Low-Weight-Tiles
                 low_weight_mask = np.zeros((h0, w0), dtype=bool)
                 t_idx = 0
                 for ty in range(n_tiles_y):
@@ -3004,21 +3018,13 @@ def run_phases_impl(
                             low_weight_mask[y0:y1, x0:x1] = True
                         t_idx += 1
 
-                # Compute unweighted mean for fallback (über alle Frames, wie in Spec)
-                fallback_sum = np.zeros((h0, w0), dtype=np.float32)
-                fallback_count = np.zeros((h0, w0), dtype=np.float32)
-                for ch_file in channel_files[ch]:
-                    f = fits.getdata(str(ch_file)).astype("float32", copy=False)
-                    fallback_sum += f
-                    fallback_count += 1.0
-                    del f
-                fallback_mean = fallback_sum / np.maximum(fallback_count, 1.0)
-                
-                # Apply fallback in Low-Weight-Tiles
-                weight_sum_safe = np.where(low_weight_mask, 1.0, weight_sum)
-                out = np.where(low_weight_mask, fallback_mean, out / weight_sum_safe)
-            else:
-                out = out / weight_sum
+            if need_fallback and fallback_mean is not None:
+                fill_mask = (weight_sum <= 0.0)
+                if low_weight_mask is not None:
+                    fill_mask = np.logical_or(fill_mask, low_weight_mask)
+                out_div = np.where(fill_mask, fallback_mean, out_div)
+
+            out = out_div
             
             reconstructed[ch] = out.astype(np.float32, copy=False)
 
@@ -3422,6 +3428,12 @@ def run_phases_impl(
                     labels = labels_sorted
 
                 cluster_ids = sorted(set(int(x) for x in labels))
+
+                syn_weighting = str((synthetic_cfg or {}).get("weighting") or "global").strip().lower()
+                tiles_cfg = channel_metrics.get(ch_name, {}).get("tiles", {}) if isinstance(channel_metrics.get(ch_name), dict) else {}
+                l_local_files_dir_s = tiles_cfg.get("L_local_files_dir") if isinstance(tiles_cfg, dict) else None
+                l_local_files_dir = Path(str(l_local_files_dir_s)).resolve() if l_local_files_dir_s else None
+                use_tile_weighting = bool(syn_weighting == "tile_weighted" and l_local_files_dir is not None and l_local_files_dir.exists())
                 sample = None
                 try:
                     sample = fits.getdata(str(files[0])).astype("float32", copy=False)
@@ -3440,72 +3452,191 @@ def run_phases_impl(
                 out_paths: list[Path] = []
                 total_n = max(1, len(files))
 
-                if keep_all_acc:
-                    sum_map: Dict[int, np.ndarray] = {}
-                    wsum_map: Dict[int, float] = {}
+                if use_tile_weighting:
+                    epsilon_syn = 1e-6
+                    sample = fits.getdata(str(files[0])).astype("float32", copy=False)
+                    h0, w0 = sample.shape[:2]
+                    del sample
 
-                    for idx, fp in enumerate(files):
-                        lab = int(labels[idx])
-                        w = float(weights[idx])
-                        if not np.isfinite(w) or w <= 0.0:
-                            continue
-                        frame = fits.getdata(str(fp)).astype("float32", copy=False)
-                        if lab not in sum_map:
-                            sum_map[lab] = np.zeros_like(frame, dtype=np.float32)
-                            wsum_map[lab] = 0.0
-                        sum_map[lab] += frame * w
-                        wsum_map[lab] += w
-                        del frame
-                        if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
-                            phase_progress(run_id, log_fp, phase_id, phase_name, idx + 1, total_n, {"channel": ch_name})
+                    try:
+                        _grid_cfg = grid_cfg if isinstance(grid_cfg, dict) else {}
+                    except NameError:
+                        _grid_cfg = {}
+                    tile_size_syn = int(_grid_cfg.get("tile_size") or 64)
+                    overlap_px_syn = int(_grid_cfg.get("overlap_px") or int(float(_grid_cfg.get("overlap") or 0.25) * tile_size_syn))
+                    step_syn = int(tile_size_syn - overlap_px_syn)
+                    if tile_size_syn <= 0 or step_syn <= 0:
+                        return []
 
-                    for out_idx, lab in enumerate(cluster_ids, start=1):
-                        acc = sum_map.get(lab)
-                        wsum = float(wsum_map.get(lab) or 0.0)
-                        if acc is None or wsum <= 1e-12:
-                            continue
-                        syn = (acc / wsum).astype("float32", copy=False)
-                        outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
-                        fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
-                        out_paths.append(outp)
-                        del syn
-                    sum_map.clear()
-                    wsum_map.clear()
-                else:
+                    n_tiles_y = max(1, (h0 - tile_size_syn) // step_syn + 1)
+                    n_tiles_x = max(1, (w0 - tile_size_syn) // step_syn + 1)
+                    n_tiles = int(n_tiles_y * n_tiles_x)
+
+                    hann_1d = np.hanning(tile_size_syn).astype(np.float32)
+                    hann_2d = np.outer(hann_1d, hann_1d)
+
                     total_clusters = max(1, len(cluster_ids))
                     for out_idx, cluster_id in enumerate(cluster_ids, start=1):
-                        acc = None
-                        wsum = 0.0
-                        for idx, fp in enumerate(files):
-                            if int(labels[idx]) != int(cluster_id):
-                                continue
-                            w = float(weights[idx])
-                            if not np.isfinite(w) or w <= 0.0:
-                                continue
+                        cluster_indices = [i for i, lab in enumerate(labels) if int(lab) == int(cluster_id)]
+                        if not cluster_indices:
+                            continue
+
+                        out = np.zeros((h0, w0), dtype=np.float32)
+                        weight_sum = np.zeros((h0, w0), dtype=np.float32)
+                        D_tiles = np.zeros((n_tiles,), dtype=np.float64)
+
+                        fallback_sum = np.zeros((h0, w0), dtype=np.float32)
+                        fallback_count = 0
+
+                        for idx_i, idx in enumerate(cluster_indices, start=1):
+                            fp = files[idx]
                             frame = fits.getdata(str(fp)).astype("float32", copy=False)
-                            if acc is None:
-                                acc = np.zeros_like(frame, dtype=np.float32)
-                            acc += frame * w
-                            wsum += w
+                            fallback_sum += frame
+                            fallback_count += 1
+
+                            g_w = float(weights[idx])
+                            if not np.isfinite(g_w) or g_w <= 0.0:
+                                del frame
+                                continue
+
+                            l_arr = None
+                            try:
+                                l_arr = np.asarray(np.load(str(l_local_files_dir / f"L_{idx+1:05d}.npy")), dtype=np.float32)
+                            except Exception:
+                                l_arr = None
+
+                            t_idx = 0
+                            for ty in range(n_tiles_y):
+                                y0 = ty * step_syn
+                                y1 = min(y0 + tile_size_syn, h0)
+                                for tx in range(n_tiles_x):
+                                    x0 = tx * step_syn
+                                    x1 = min(x0 + tile_size_syn, w0)
+                                    l_w = float(l_arr[t_idx]) if (l_arr is not None and t_idx < int(l_arr.size)) else 1.0
+                                    w_eff = g_w * l_w
+                                    if np.isfinite(w_eff) and w_eff > 0.0:
+                                        D_tiles[t_idx] += float(w_eff)
+                                        window = hann_2d[: (y1 - y0), : (x1 - x0)]
+                                        tile = frame[y0:y1, x0:x1].copy()
+                                        tile_bg = float(np.median(tile))
+                                        tile = tile - tile_bg
+                                        tile_median = float(np.median(np.abs(tile)))
+                                        if tile_median > 1e-10:
+                                            tile = tile / tile_median
+                                        out[y0:y1, x0:x1] += tile * float(w_eff) * window
+                                        weight_sum[y0:y1, x0:x1] += float(w_eff) * window
+                                    t_idx += 1
+
                             del frame
-                            if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+
+                            if (idx_i % 25) == 0 or idx_i == len(cluster_indices):
                                 phase_progress(
                                     run_id,
                                     log_fp,
                                     phase_id,
                                     phase_name,
-                                    idx + 1,
-                                    total_n,
+                                    idx_i,
+                                    max(1, len(cluster_indices)),
                                     {"channel": ch_name, "cluster": out_idx, "clusters_total": total_clusters},
                                 )
+                            if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
+                                return []
 
-                        if acc is None or wsum <= 1e-12:
-                            continue
-                        syn = (acc / wsum).astype("float32", copy=False)
+                        fallback_mean = fallback_sum / float(max(1, fallback_count))
+                        out_div = np.divide(out, weight_sum, out=np.zeros_like(out), where=weight_sum > 0.0)
+
+                        low_tile_mask = D_tiles < float(epsilon_syn)
+                        low_weight_mask = None
+                        if np.any(low_tile_mask):
+                            low_weight_mask = np.zeros((h0, w0), dtype=bool)
+                            t_idx = 0
+                            for ty in range(n_tiles_y):
+                                y0 = ty * step_syn
+                                y1 = min(y0 + tile_size_syn, h0)
+                                for tx in range(n_tiles_x):
+                                    x0 = tx * step_syn
+                                    x1 = min(x0 + tile_size_syn, w0)
+                                    if low_tile_mask[t_idx]:
+                                        low_weight_mask[y0:y1, x0:x1] = True
+                                    t_idx += 1
+
+                        fill_mask = (weight_sum <= 0.0)
+                        if low_weight_mask is not None:
+                            fill_mask = np.logical_or(fill_mask, low_weight_mask)
+                        out_div = np.where(fill_mask, fallback_mean, out_div)
+
+                        syn = out_div.astype("float32", copy=False)
                         outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
                         fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
                         out_paths.append(outp)
-                        del syn, acc
+                        del syn, out_div, out, weight_sum
+                else:
+                    if keep_all_acc:
+                        sum_map: Dict[int, np.ndarray] = {}
+                        wsum_map: Dict[int, float] = {}
+
+                        for idx, fp in enumerate(files):
+                            lab = int(labels[idx])
+                            w = float(weights[idx])
+                            if not np.isfinite(w) or w <= 0.0:
+                                continue
+                            frame = fits.getdata(str(fp)).astype("float32", copy=False)
+                            if lab not in sum_map:
+                                sum_map[lab] = np.zeros_like(frame, dtype=np.float32)
+                                wsum_map[lab] = 0.0
+                            sum_map[lab] += frame * w
+                            wsum_map[lab] += w
+                            del frame
+                            if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+                                phase_progress(run_id, log_fp, phase_id, phase_name, idx + 1, total_n, {"channel": ch_name})
+
+                        for out_idx, lab in enumerate(cluster_ids, start=1):
+                            acc = sum_map.get(lab)
+                            wsum = float(wsum_map.get(lab) or 0.0)
+                            if acc is None or wsum <= 1e-12:
+                                continue
+                            syn = (acc / wsum).astype("float32", copy=False)
+                            outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
+                            fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                            out_paths.append(outp)
+                            del syn
+                        sum_map.clear()
+                        wsum_map.clear()
+                    else:
+                        total_clusters = max(1, len(cluster_ids))
+                        for out_idx, cluster_id in enumerate(cluster_ids, start=1):
+                            acc = None
+                            wsum = 0.0
+                            for idx, fp in enumerate(files):
+                                if int(labels[idx]) != int(cluster_id):
+                                    continue
+                                w = float(weights[idx])
+                                if not np.isfinite(w) or w <= 0.0:
+                                    continue
+                                frame = fits.getdata(str(fp)).astype("float32", copy=False)
+                                if acc is None:
+                                    acc = np.zeros_like(frame, dtype=np.float32)
+                                acc += frame * w
+                                wsum += w
+                                del frame
+                                if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
+                                    phase_progress(
+                                        run_id,
+                                        log_fp,
+                                        phase_id,
+                                        phase_name,
+                                        idx + 1,
+                                        total_n,
+                                        {"channel": ch_name, "cluster": out_idx, "clusters_total": total_clusters},
+                                    )
+
+                            if acc is None or wsum <= 1e-12:
+                                continue
+                            syn = (acc / wsum).astype("float32", copy=False)
+                            outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
+                            fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                            out_paths.append(outp)
+                            del syn, acc
 
                 return out_paths
 

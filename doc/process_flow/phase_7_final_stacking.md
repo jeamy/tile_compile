@@ -8,6 +8,11 @@ zu einem finalen Bild pro Kanal gestackt. Dies ist ein **einfaches lineares
 Stacking** ohne zusätzliche Gewichtung; optional kann ein Sigma-Clipping auf
 Pixelebene aktiviert werden.
 
+Hinweis: Die synthetischen Frames können je nach Konfiguration entweder
+klassisch (nur global gewichtet) oder tile‑basiert (W_f,t,c = G_f,c · L_f,t,c)
+erzeugt werden. Phase 7 bleibt in beiden Fällen unverändert: **einfacher
+Mittelwert** (ggf. mit Sigma‑Clipping).
+
 ## Ziele
 
 1. Lineares Stacking der synthetischen Frames

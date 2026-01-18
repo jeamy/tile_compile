@@ -617,6 +617,18 @@ S_{k,c} = \frac{\sum_{f\in Cluster_k} G_{f,c} \cdot I_{f,c}}{\sum_{f\in Cluster_
 
 wobei I_f,c die **Original-Frames** (nicht rekonstruiert) sind.
 
+**Optional (tile‑basiert, zur Qualitäts‑Propagation):**
+
+Wenn tile‑basierte Qualitätsverbesserungen (z. B. durch Tile‑Noise‑Filtering in §3.3.1) bis in den finalen Stack getragen werden sollen, kann die Erzeugung der synthetischen Frames alternativ tile‑basiert erfolgen. Dabei wird pro Tile *t* im Cluster der effektive Gewichtsvektor
+
+[
+W_{f,t,c} = G_{f,c} \cdot L_{f,t,c}
+]
+
+verwendet und das synthetische Frame analog zur Rekonstruktion (§3.6) per Overlap‑Add aus den Tile‑Ergebnissen zusammengesetzt. Aktivierung über:
+
+`synthetic.weighting: tile_weighted` (Default: `global`).
+
 Ergebnis: 15–30 synthetische Frames pro Kanal (entsprechend der Cluster-Anzahl).
 
 **Finales Stacking (verbindlich, Python-only):**

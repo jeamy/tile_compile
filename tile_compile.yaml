@@ -97,6 +97,7 @@ local_metrics:
     metric_weight: 0.7
 
 synthetic:
+  weighting: tile_weighted
   frames_min: 15
   frames_max: 30
   clustering:
