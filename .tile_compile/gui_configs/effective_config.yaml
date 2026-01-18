@@ -47,6 +47,10 @@ registration:
   min_star_matches: 20
   output_dir: registered
   registered_filename_pattern: reg_{index:05d}.fit
+tile_denoising:
+  enabled: true
+  kernel_size: 31
+  alpha: 1.5
 global_metrics:
   weights:
     background: 0.4
