@@ -3517,12 +3517,7 @@ def run_phases_impl(
                                     if np.isfinite(w_eff) and w_eff > 0.0:
                                         D_tiles[t_idx] += float(w_eff)
                                         window = hann_2d[: (y1 - y0), : (x1 - x0)]
-                                        tile = frame[y0:y1, x0:x1].copy()
-                                        tile_bg = float(np.median(tile))
-                                        tile = tile - tile_bg
-                                        tile_median = float(np.median(np.abs(tile)))
-                                        if tile_median > 1e-10:
-                                            tile = tile / tile_median
+                                        tile = frame[y0:y1, x0:x1]
                                         out[y0:y1, x0:x1] += tile * float(w_eff) * window
                                         weight_sum[y0:y1, x0:x1] += float(w_eff) * window
                                     t_idx += 1
