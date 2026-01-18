@@ -235,6 +235,37 @@ registration:
     description: "Custom Siril script path (empty = use default)"
 
 # ============================================================
+# TILE DENOISING
+# Tile-basierte Rauschunterdrückung mit Soft-Threshold
+# ============================================================
+
+tile_denoising:
+  enabled:
+    type: boolean
+    default: true
+    required: false
+    editable: true
+    description: "Enable tile-based noise filtering (uses tile_size from tile_generation)"
+
+  kernel_size:
+    type: integer
+    min: 3
+    max: 63
+    default: 15
+    required: false
+    editable: true
+    description: "Box blur kernel size for background estimation (odd)"
+
+  alpha:
+    type: number
+    min: 0.5
+    max: 5.0
+    default: 2.0
+    required: false
+    editable: true
+    description: "Threshold multiplier (threshold = alpha * robust_sigma)"
+
+# ============================================================
 # GLOBALE FRAME-METRIKEN
 # Methodik v3 §5
 # ============================================================

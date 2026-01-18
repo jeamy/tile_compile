@@ -1,7 +1,7 @@
 {
-  "lastInputDir": "/media/data/tile_compile_cache/M31_lights",
-  "scanInputDir": "/media/data/tile_compile_cache/M31_lights",
-  "inputDir": "/media/data/tile_compile_cache/M31_lights",
+  "lastInputDir": "/media/data/tile_compile_cache/M31_ligths_all",
+  "scanInputDir": "/media/data/tile_compile_cache/M31_ligths_all",
+  "inputDir": "/media/data/tile_compile_cache/M31_ligths_all",
   "workingDir": "/media/data/programming/tile-compile",
   "runsDir": "runs",
   "pattern": "*.fit*",

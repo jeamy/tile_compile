@@ -2590,6 +2590,17 @@ def run_phases_impl(
         overlap_i = overlap
     tile_calc = TileMetricsCalculator(tile_size=tile_size_i, overlap=overlap_i)
 
+    dn_cfg = cfg.get("tile_denoising") if isinstance(cfg.get("tile_denoising"), dict) else {}
+    dn_enabled = bool(dn_cfg.get("enabled", True))
+    try:
+        dn_kernel = int(dn_cfg.get("kernel_size", 15))
+    except Exception:
+        dn_kernel = 15
+    try:
+        dn_alpha = float(dn_cfg.get("alpha", 2.0))
+    except Exception:
+        dn_alpha = 2.0
+
     lm_work = work_dir / "local_metrics"
     lm_work.mkdir(parents=True, exist_ok=True)
 
@@ -2637,6 +2648,8 @@ def run_phases_impl(
         n_tiles: Optional[int] = None
         for f_idx, ch_file in enumerate(ch_files):
             f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+            if dn_enabled:
+                f = tile_calc.denoise_frame_tiled(f, k=dn_kernel, alpha=dn_alpha)
             tm = tile_calc.calculate_tile_metrics(f)
             fwhm = np.asarray(tm.get("fwhm") or [], dtype=np.float32)
             rnd = np.asarray(tm.get("roundness") or [], dtype=np.float32)
@@ -2781,7 +2794,7 @@ def run_phases_impl(
             "Q_local": q_local.tolist(),
         }
 
-    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i})
+    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i, "denoising_enabled": dn_enabled})
 
     try:
         _write_tile_quality_heatmaps(artifacts_dir, channel_metrics, grid_cfg, (h0, w0))
