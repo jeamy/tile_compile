@@ -392,6 +392,68 @@ Before tile computation, enforce:
 
 ---
 
+## 3.3.1 Tile‑based Noise Reduction (optional)
+
+**Purpose:** Before computing local metrics, adaptive noise reduction can be applied at the tile level. This reduces background noise while preserving stars and structures.
+
+**Algorithm: Highpass + Soft‑Threshold**
+
+For each tile *t* in frame *f*:
+
+1. **Background estimation:** Box blur with kernel size *k*
+   ```
+   B_t = box_blur(T_t, k)
+   ```
+
+2. **Residual (highpass):**
+   ```
+   R_t = T_t − B_t
+   ```
+
+3. **Robust noise estimation (MAD):**
+   ```
+   σ_t = 1.4826 · median(|R_t − median(R_t)|)
+   ```
+
+4. **Soft threshold:**
+   ```
+   τ = α · σ_t
+   R'_t = sign(R_t) · max(|R_t| − τ, 0)
+   ```
+
+5. **Reconstruction:**
+   ```
+   T'_t = B_t + R'_t
+   ```
+
+**Parameters:**
+
+| Parameter | Description | Default | Recommended |
+|-----------|-------------|---------|-------------|
+| `tile_denoising.enabled` | Enable denoising | false | true |
+| `tile_denoising.kernel_size` | Box blur kernel size *k* (odd) | 15 | 31 |
+| `tile_denoising.alpha` | Threshold multiplier *α* | 2.0 | 1.5 |
+
+**Overlap blending:**
+
+Since tiles overlap, denoised tiles are blended using linear weights:
+```
+w(x, y) = ramp(x) · ramp(y)
+```
+where `ramp` linearly increases from 0 (edge) to 1 (center).
+
+**Typical results (empirical):**
+
+| kernel | alpha | Noise reduction | Star preservation |
+|--------|-------|-----------------|-------------------|
+| 15 | 2.0 | ~75% | ~91% |
+| 31 | 1.5 | ~89% | ~93% |
+| 31 | 2.0 | ~89% | ~91% |
+
+**Recommendation:** `kernel_size=31, alpha=1.5` provides the best balance between noise reduction and signal preservation.
+
+---
+
 ## 3.4 Local tile metrics
 
 For each tile *t* and each frame *f*:

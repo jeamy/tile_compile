@@ -67,6 +67,83 @@ Gesamtbild (512×512):          Tile-Cutout (64×64):
 └────────────────────┘
 ```
 
+## Schritt 4.1.1: Tile-basierte Rauschunterdrückung (optional)
+
+Falls `tile_denoising.enabled = true`, wird vor der Metrik-Berechnung eine adaptive Rauschunterdrückung auf Tile-Ebene angewendet.
+
+### Algorithmus: Highpass + Soft-Threshold
+
+```
+┌─────────────────────────────────────────┐
+│  Tile T_t (z.B. 64×64)                  │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  1. Background-Schätzung                │
+│     B_t = box_blur(T_t, k)              │
+│     k = tile_denoising.kernel_size      │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  2. Residuum (Highpass)                 │
+│     R_t = T_t − B_t                     │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  3. Robuste Rauschschätzung (MAD)       │
+│     σ_t = 1.4826 · median(|R_t - med|)  │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  4. Soft-Threshold                      │
+│     τ = α · σ_t                         │
+│     R'_t = sign(R_t) · max(|R_t| − τ, 0)│
+│     α = tile_denoising.alpha            │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  5. Rekonstruktion                      │
+│     T'_t = B_t + R'_t                   │
+└─────────────────────────────────────────┘
+```
+
+### Overlap-Blending
+
+Da Tiles überlappen, werden die denoisten Tiles mit linearen Gewichten geblendet:
+
+```
+Gewichtsfunktion:           Blending-Beispiel:
+
+  1 ┤   ╱──╲                ┌───┬───┬───┐
+    │  ╱    ╲               │ A │A+B│ B │
+  0 ┼─╱      ╲──            ├───┼───┼───┤
+    0       64              │A+C│ALL│B+D│
+                            ├───┼───┼───┤
+  w(x,y) = ramp(x)·ramp(y)  │ C │C+D│ D │
+                            └───┴───┴───┘
+```
+
+### Konfiguration
+
+| Parameter | Beschreibung | Default | Empfohlen |
+|-----------|--------------|---------|-----------|
+| `tile_denoising.enabled` | Aktivierung | false | true |
+| `tile_denoising.kernel_size` | Box-Blur Kernelgröße | 15 | 31 |
+| `tile_denoising.alpha` | Threshold-Multiplikator | 2.0 | 1.5 |
+
+### Typische Ergebnisse
+
+| kernel | alpha | Noise-Red. | Stern-Erhalt |
+|--------|-------|------------|--------------|
+| 15 | 2.0 | ~75% | ~91% |
+| **31** | **1.5** | **~89%** | **~93%** |
+| 31 | 2.0 | ~89% | ~91% |
+
 ## Schritt 4.2: Stern-Tile-Metriken
 
 ### Für Tiles mit type='star'
