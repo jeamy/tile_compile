@@ -1649,40 +1649,39 @@ def run_phases_impl(
         middle_start = n_frames // 3
         middle_end = 2 * n_frames // 3
         
-        # First pass: collect star counts for all frames
-        frame_star_counts: List[tuple[int, int, np.ndarray, Any, Path]] = []  # (idx, stars, lum01, hdr, path)
+        frame_star_counts: List[tuple[int, int, Path]] = []  # (idx, stars, path)
+        total_ref_scan = max(1, len(frames))
         for i, p in enumerate(frames):
             try:
+                if (i + 1) % 10 == 0 or (i + 1) == total_ref_scan:
+                    phase_progress(run_id, log_fp, phase_id, phase_name, i + 1, total_ref_scan, {"substep": "reference_scan"})
                 data = fits.getdata(str(p), ext=0)
                 if data is None:
                     continue
                 lum = cfa_downsample_sum2x2(np.asarray(data))
                 lum01 = opencv_prepare_ecc_image(lum)
                 stars = opencv_count_stars(lum01)
-                hdr = fits.getheader(str(p), ext=0)
-                frame_star_counts.append((i, stars, lum01, hdr, p))
+                frame_star_counts.append((i, stars, p))
             except Exception:
                 continue
         
         # Select reference: best frame in middle third, fallback to best overall
         ref_idx = 0
         ref_stars = -1
-        ref_lum01: Optional[np.ndarray] = None
-        ref_hdr = None
         ref_path = None
         
         # Try middle third first
-        middle_candidates = [(i, s, l, h, p) for i, s, l, h, p in frame_star_counts if middle_start <= i < middle_end]
+        middle_candidates = [(i, s, p) for i, s, p in frame_star_counts if middle_start <= i < middle_end]
         if middle_candidates:
             best = max(middle_candidates, key=lambda x: x[1])
-            ref_idx, ref_stars, ref_lum01, ref_hdr, ref_path = best
+            ref_idx, ref_stars, ref_path = best
         
         # Fallback to best overall if middle third has no valid frames
-        if ref_lum01 is None and frame_star_counts:
+        if ref_path is None and frame_star_counts:
             best = max(frame_star_counts, key=lambda x: x[1])
-            ref_idx, ref_stars, ref_lum01, ref_hdr, ref_path = best
+            ref_idx, ref_stars, ref_path = best
 
-        if ref_lum01 is None or ref_stars < max(1, min_star_matches_i):
+        if ref_path is None or ref_stars < max(1, min_star_matches_i):
             phase_end(
                 run_id,
                 log_fp,
@@ -1706,10 +1705,12 @@ def run_phases_impl(
         # ref-1 -> ref, ref-2 -> ref-1, ... (backward chain)
         # ref+1 -> ref, ref+2 -> ref+1, ... (forward chain)
         
-        # First, load all frames and prepare luminance images
-        frame_data: List[tuple[Path, np.ndarray, np.ndarray, Any]] = []  # (path, mosaic_clean, lum01, header)
+        frame_data: List[tuple[Path, np.ndarray, Any]] = []  # (path, lum01, header)
+        total_prep = max(1, len(frames))
         for i, p in enumerate(frames):
             try:
+                if (i + 1) % 10 == 0 or (i + 1) == total_prep:
+                    phase_progress(run_id, log_fp, phase_id, phase_name, i + 1, total_prep, {"substep": "prepare_luminance"})
                 data = fits.getdata(str(p), ext=0)
                 if data is None:
                     continue
@@ -1721,7 +1722,8 @@ def run_phases_impl(
                 stars = opencv_count_stars(lum01)
                 if stars < max(1, min_star_matches_i):
                     print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
-                frame_data.append((p, mosaic_clean, lum01, hdr))
+                frame_data.append((p, lum01, hdr))
+                del data, mosaic, mosaic_clean
             except Exception as e:
                 print(f"[WARN] Frame {i}: failed to load: {e}")
                 continue
@@ -1732,7 +1734,7 @@ def run_phases_impl(
         
         # Find reference index in filtered frame_data
         ref_idx_filtered = -1
-        for i, (p, _, _, _) in enumerate(frame_data):
+        for i, (p, _, _) in enumerate(frame_data):
             if p == ref_path:
                 ref_idx_filtered = i
                 break
@@ -1750,8 +1752,8 @@ def run_phases_impl(
         
         # Backward chain: ref-1, ref-2, ...
         for i in range(ref_idx_filtered - 1, -1, -1):
-            prev_lum01 = frame_data[i + 1][2]
-            curr_lum01 = frame_data[i][2]
+            prev_lum01 = frame_data[i + 1][1]
+            curr_lum01 = frame_data[i][1]
             init = opencv_best_translation_init(curr_lum01, prev_lum01)
             try:
                 step_warp, cc = opencv_ecc_warp(curr_lum01, prev_lum01, allow_rotation=allow_rotation, init_warp=init)
@@ -1773,8 +1775,8 @@ def run_phases_impl(
         
         # Forward chain: ref+1, ref+2, ...
         for i in range(ref_idx_filtered + 1, len(frame_data)):
-            prev_lum01 = frame_data[i - 1][2]
-            curr_lum01 = frame_data[i][2]
+            prev_lum01 = frame_data[i - 1][1]
+            curr_lum01 = frame_data[i][1]
             init = opencv_best_translation_init(curr_lum01, prev_lum01)
             try:
                 step_warp, cc = opencv_ecc_warp(curr_lum01, prev_lum01, allow_rotation=allow_rotation, init_warp=init)
@@ -1794,13 +1796,24 @@ def run_phases_impl(
         
         # Apply accumulated warps and save registered frames
         registered_count = 0
-        for i, (p, mosaic, lum01, src_hdr) in enumerate(frame_data):
+        total_write = max(1, len(frame_data))
+        for i, (p, _lum01, src_hdr) in enumerate(frame_data):
+            if (i + 1) % 10 == 0 or (i + 1) == total_write:
+                phase_progress(run_id, log_fp, phase_id, phase_name, i + 1, total_write, {"substep": "write_registered"})
             warp = accumulated_warps[i]
+            try:
+                data = fits.getdata(str(p), ext=0)
+            except Exception:
+                continue
+            if data is None:
+                continue
+            mosaic = np.asarray(data)
+            mosaic_clean = cosmetic_correction(mosaic, sigma_threshold=8.0, hot_only=True)
             if i == ref_idx_filtered:
-                warped = mosaic.astype("float32", copy=False)
+                warped = mosaic_clean.astype("float32", copy=False)
                 print(f"[DEBUG] Frame {i} is REFERENCE")
             else:
-                warped = warp_cfa_mosaic_via_subplanes(mosaic, warp)
+                warped = warp_cfa_mosaic_via_subplanes(mosaic_clean, warp)
             
             try:
                 dst_name = reg_pattern.format(index=registered_count + 1)
@@ -1809,6 +1822,7 @@ def run_phases_impl(
             dst_path = reg_out / dst_name
             fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=src_hdr, overwrite=True)
             registered_count += 1
+            del data, mosaic, mosaic_clean, warped
 
         extra: Dict[str, Any] = {
             "engine": "opencv_cfa",

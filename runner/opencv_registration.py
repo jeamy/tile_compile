@@ -22,12 +22,18 @@ def opencv_prepare_ecc_image(img: np.ndarray) -> np.ndarray:
     f = img.astype("float32", copy=False)
     med = float(np.median(f))
     f = f - med
+    mad = float(np.median(np.abs(f)))
     sd = float(np.std(f))
-    if sd > 0:
-        f = f / sd
-    bg = cv2.GaussianBlur(f, (0, 0), 12.0)
-    f = f - bg
-    f = cv2.GaussianBlur(f, (0, 0), 1.0)
+    scale = (1.4826 * mad) if mad > 1e-12 else sd
+    if scale > 1e-12:
+        f = f / scale
+    
+    f = cv2.GaussianBlur(f, (0, 0), 0.8)
+    small = cv2.GaussianBlur(f, (0, 0), 1.2)
+    large = cv2.GaussianBlur(f, (0, 0), 6.0)
+    f = small - large
+    f = np.maximum(f, 0.0)
+    f = cv2.GaussianBlur(f, (0, 0), 0.6)
     f = cv2.normalize(f, None, alpha=0.0, beta=1.0, norm_type=cv2.NORM_MINMAX)
     return f
 
@@ -57,9 +63,41 @@ def opencv_ecc_warp(
     if cv2 is None:
         raise RuntimeError("OpenCV not available")
     
-    motion_type = cv2.MOTION_EUCLIDEAN if allow_rotation else cv2.MOTION_TRANSLATION
+    init = init_warp.astype("float32", copy=True)
+
+    if allow_rotation:
+        try:
+            criteria_t = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 120, 1e-5)
+            cc_t, warp_t = cv2.findTransformECC(
+                ref01,
+                moving01,
+                init,
+                cv2.MOTION_TRANSLATION,
+                criteria_t,
+                None,
+                7,
+            )
+            init = warp_t.astype("float32", copy=False)
+        except Exception:
+            cc_t = 0.0
+        try:
+            criteria_r = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 250, 5e-6)
+            cc_r, warp_r = cv2.findTransformECC(
+                ref01,
+                moving01,
+                init,
+                cv2.MOTION_EUCLIDEAN,
+                criteria_r,
+                None,
+                5,
+            )
+            return warp_r.astype(np.float32, copy=False), float(cc_r)
+        except Exception:
+            return init.astype(np.float32, copy=False), float(cc_t)
+    
+    motion_type = cv2.MOTION_TRANSLATION
     criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 200, 1e-6)
-    cc, warp = cv2.findTransformECC(ref01, moving01, init_warp, motion_type, criteria)
+    cc, warp = cv2.findTransformECC(ref01, moving01, init, motion_type, criteria, None, 7)
     return warp.astype(np.float32, copy=False), float(cc)
 
 
