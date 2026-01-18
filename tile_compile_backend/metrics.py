@@ -11,6 +11,33 @@ def _normalize_metric(values: np.ndarray) -> np.ndarray:
     return (values - mean) / std
 
 
+def denoise_frame_tiled(
+    img: np.ndarray,
+    tile_size: int = 64,
+    overlap: float = 0.25,
+    k: int = 15,
+    alpha: float = 2.0
+) -> np.ndarray:
+    """Denoise an image tile-by-tile with overlap blending.
+    
+    Each tile is denoised independently with its own local noise estimate,
+    then tiles are blended together using linear weights in overlap regions.
+    This allows adaptive noise filtering that respects local signal characteristics.
+    
+    Args:
+        img: Input 2D image array
+        tile_size: Size of each tile (default 64)
+        overlap: Overlap fraction between tiles (default 0.25)
+        k: Box blur kernel size for tile background estimation (default 15)
+        alpha: Threshold multiplier (threshold = alpha * robust_sigma, default 2.0)
+    
+    Returns:
+        Denoised image as float32 array
+    """
+    calc = TileMetricsCalculator(tile_size=tile_size, overlap=overlap)
+    return calc.denoise_frame_tiled(img, k=k, alpha=alpha)
+
+
 def _clamp(x: np.ndarray, lo: float = -3.0, hi: float = 3.0) -> np.ndarray:
     """Clamp values to [lo, hi] as per Methodik v3 §3.2."""
     return np.clip(x, lo, hi)
@@ -150,10 +177,82 @@ class TileMetricsCalculator:
         s = ii[np.ix_(y1, x1)] - ii[np.ix_(y0, x1)] - ii[np.ix_(y1, x0)] + ii[np.ix_(y0, x0)]
         return (s / float(k * k)).astype(np.float32, copy=False)
 
+    @staticmethod
+    def _soft_threshold(x: np.ndarray, t: float) -> np.ndarray:
+        return np.sign(x) * np.maximum(np.abs(x) - t, 0.0)
+
     def _tile_highpass(self, tile: np.ndarray) -> np.ndarray:
         t = tile.astype(np.float32, copy=False)
         bg = self._box_blur_same(t, 31)
         return (t - bg).astype(np.float32, copy=False)
+
+    def denoise_tile(self, tile: np.ndarray, k: int = 15, alpha: float = 2.0) -> np.ndarray:
+        """Denoise a single tile using highpass + soft-threshold.
+        
+        Args:
+            tile: Input tile (2D array, typically 64x64)
+            k: Box blur kernel size for background estimation (smaller for tiles)
+            alpha: Threshold multiplier (threshold = alpha * robust_sigma)
+        
+        Returns:
+            Denoised tile preserving stars/structures above threshold
+        """
+        t = np.asarray(tile, dtype=np.float32)
+        bg = self._box_blur_same(t, k)
+        resid = t - bg
+        sig = self._robust_sigma(resid)
+        thr = alpha * sig
+        resid_dn = self._soft_threshold(resid, thr)
+        return (bg + resid_dn).astype(np.float32, copy=False)
+
+    def denoise_frame_tiled(
+        self,
+        frame: np.ndarray,
+        k: int = 15,
+        alpha: float = 2.0
+    ) -> np.ndarray:
+        """Denoise a frame tile-by-tile with overlap blending.
+        
+        Each tile is denoised independently with its own local noise estimate,
+        then tiles are blended together using linear weights in overlap regions.
+        
+        Args:
+            frame: Input image (2D array)
+            k: Box blur kernel size for tile background estimation
+            alpha: Threshold multiplier (threshold = alpha * robust_sigma)
+        
+        Returns:
+            Denoised frame with per-tile adaptive noise filtering
+        """
+        h, w = frame.shape
+        out = np.zeros((h, w), dtype=np.float32)
+        weight = np.zeros((h, w), dtype=np.float32)
+        
+        step = int(self.tile_size * (1 - self.overlap))
+        
+        tile_weight = self._make_tile_weight(self.tile_size)
+        
+        for y in range(0, h - self.tile_size + 1, step):
+            for x in range(0, w - self.tile_size + 1, step):
+                tile = frame[y:y + self.tile_size, x:x + self.tile_size].astype(np.float32)
+                dn_tile = self.denoise_tile(tile, k=k, alpha=alpha)
+                out[y:y + self.tile_size, x:x + self.tile_size] += dn_tile * tile_weight
+                weight[y:y + self.tile_size, x:x + self.tile_size] += tile_weight
+        
+        mask = weight > 0
+        out[mask] /= weight[mask]
+        out[~mask] = frame[~mask]
+        return out.astype(np.float32, copy=False)
+
+    @staticmethod
+    def _make_tile_weight(size: int) -> np.ndarray:
+        """Create a 2D linear blend weight for tile overlap."""
+        x = np.linspace(0, 1, size // 2)
+        x = np.concatenate([x, x[::-1]])
+        if len(x) < size:
+            x = np.append(x, x[-1])
+        w = np.outer(x, x)
+        return w.astype(np.float32)
 
     def _tile_background_and_noise(self, tile: np.ndarray) -> tuple[float, float, np.ndarray]:
         t = tile.astype(np.float32, copy=False)

@@ -147,6 +147,33 @@
       }
     },
 
+    "tile_denoising": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Tile-based noise filtering using highpass + soft-threshold (uses tile_size from tile_generation)",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable tile-based noise filtering"
+        },
+        "kernel_size": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 63,
+          "default": 15,
+          "description": "Box blur kernel size for background estimation (odd)"
+        },
+        "alpha": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 5.0,
+          "default": 2.0,
+          "description": "Threshold multiplier (threshold = alpha * robust_sigma)"
+        }
+      }
+    },
+
     "global_metrics": {
       "type": "object",
       "additionalProperties": false,

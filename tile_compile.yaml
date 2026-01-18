@@ -61,6 +61,11 @@ registration:
   output_dir: registered
   registered_filename_pattern: "reg_{index:05d}.fit"
 
+tile_denoising:
+  enabled: true
+  kernel_size: 15
+  alpha: 2.0
+
 global_metrics:
   weights:
     background: 0.4
