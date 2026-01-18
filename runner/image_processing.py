@@ -4,7 +4,7 @@ Image processing utilities for the tile-compile runner.
 Functions for CFA/Bayer processing, channel splitting, normalization, and format conversion.
 """
 
-from typing import Any
+from typing import Any, Optional, Tuple
 
 import numpy as np
 
@@ -315,13 +315,26 @@ def to_uint8(img: np.ndarray) -> np.ndarray:
     return (x * 255.0).astype(np.uint8)
 
 
-def warp_cfa_mosaic_via_subplanes(mosaic: np.ndarray, warp: np.ndarray) -> np.ndarray:
+def warp_cfa_mosaic_via_subplanes(
+    mosaic: np.ndarray,
+    warp: np.ndarray,
+    out_shape: Optional[Tuple[int, int]] = None,
+    border_mode: str = "replicate",
+    border_value: float = 0.0,
+    interpolation: str = "linear",
+) -> np.ndarray:
     """Warp CFA mosaic by warping each Bayer plane separately."""
     import cv2
     
     h, w = mosaic.shape[:2]
+    if out_shape is None:
+        out_h, out_w = int(h), int(w)
+    else:
+        out_h, out_w = int(out_shape[0]), int(out_shape[1])
     h2 = h - (h % 2)
     w2 = w - (w % 2)
+    out_h2 = out_h - (out_h % 2)
+    out_w2 = out_w - (out_w % 2)
     if h2 != h or w2 != w:
         mosaic = mosaic[:h2, :w2]
     
@@ -345,13 +358,33 @@ def warp_cfa_mosaic_via_subplanes(mosaic: np.ndarray, warp: np.ndarray) -> np.nd
     warp_c = np.concatenate([a2, (t2 + a2 @ delta_c - delta_c)[:, None]], axis=1)
     warp_d = np.concatenate([a2, (t2 + a2 @ delta_d - delta_d)[:, None]], axis=1)
     
-    flags = cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP
-    a_w = cv2.warpAffine(a, warp_a, (a.shape[1], a.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
-    b_w = cv2.warpAffine(b, warp_b, (b.shape[1], b.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
-    c_w = cv2.warpAffine(c, warp_c, (c.shape[1], c.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
-    d_w = cv2.warpAffine(d, warp_d, (d.shape[1], d.shape[0]), flags=flags, borderMode=cv2.BORDER_REPLICATE)
+    interp = str(interpolation or "linear").strip().lower()
+    if interp in ("nearest", "nn"):
+        interp_cv = cv2.INTER_NEAREST
+    else:
+        interp_cv = cv2.INTER_LINEAR
+    flags = interp_cv | cv2.WARP_INVERSE_MAP
+    bm = str(border_mode or "replicate").strip().lower()
+    if bm in ("constant", "const", "black", "white"):
+        bm_cv = cv2.BORDER_CONSTANT
+        bv = float(border_value)
+        if bm == "white":
+            bv = float(border_value)
+    elif bm in ("reflect", "reflect101", "mirror"):
+        bm_cv = cv2.BORDER_REFLECT_101
+        bv = 0.0
+    else:
+        bm_cv = cv2.BORDER_REPLICATE
+        bv = 0.0
+
+    out_w_sub = max(1, out_w2 // 2)
+    out_h_sub = max(1, out_h2 // 2)
+    a_w = cv2.warpAffine(a, warp_a, (out_w_sub, out_h_sub), flags=flags, borderMode=bm_cv, borderValue=bv)
+    b_w = cv2.warpAffine(b, warp_b, (out_w_sub, out_h_sub), flags=flags, borderMode=bm_cv, borderValue=bv)
+    c_w = cv2.warpAffine(c, warp_c, (out_w_sub, out_h_sub), flags=flags, borderMode=bm_cv, borderValue=bv)
+    d_w = cv2.warpAffine(d, warp_d, (out_w_sub, out_h_sub), flags=flags, borderMode=bm_cv, borderValue=bv)
     
-    out = np.zeros((h2, w2), dtype=np.float32)
+    out = np.zeros((out_h2, out_w2), dtype=np.float32)
     out[0::2, 0::2] = a_w
     out[0::2, 1::2] = b_w
     out[1::2, 0::2] = c_w

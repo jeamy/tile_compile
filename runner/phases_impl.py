@@ -49,9 +49,10 @@ except Exception:
     cv2 = None
 
 try:
-    from tile_compile_backend.metrics import TileMetricsCalculator
+    from tile_compile_backend.metrics import TileMetricsCalculator, wiener_tile_filter
 except Exception:
     TileMetricsCalculator = None
+    wiener_tile_filter = None
 
 try:
     from tile_compile_backend.synthetic import generate_channel_synthetic_frames
@@ -1039,15 +1040,26 @@ def run_phases_impl(
 
                 def _stack_file_list(_files: list[Path]) -> tuple[np.ndarray, Dict[str, Any], bool]:
                     _frames_list: list[np.ndarray] = []
+                    _masks_list: list[np.ndarray] = []
                     for _fp in _files:
                         try:
                             _arr = np.asarray(fits.getdata(str(_fp), ext=0)).astype("float32", copy=False)
                         except Exception:
                             continue
                         _frames_list.append(_arr)
+                        try:
+                            _mp = stack_src_dir / "masks" / f"mask_{_fp.name}"
+                            if _mp.exists() and _mp.is_file():
+                                _m = np.asarray(fits.getdata(str(_mp), ext=0)).astype(bool, copy=False)
+                            else:
+                                _m = np.ones_like(_arr, dtype=bool)
+                        except Exception:
+                            _m = np.ones_like(_arr, dtype=bool)
+                        _masks_list.append(_m)
                     if not _frames_list:
                         return np.zeros((1, 1), dtype=np.float32), {"error": "failed to load frames"}, False
                     _stack_arr = np.stack(_frames_list, axis=0)
+                    _mask_arr = np.stack(_masks_list, axis=0) if _masks_list else None
                     _use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
                     _sigma_stats: Dict[str, Any] = {}
                     if _use_sigma:
@@ -1058,15 +1070,27 @@ def run_phases_impl(
                             "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
                         }
                         try:
-                            _clipped_mean, _mask, _stats = sigma_clip_stack_nd(_stack_arr, _sigma_cfg_dict)
+                            _clipped_mean, _mask, _stats = sigma_clip_stack_nd(_stack_arr, _sigma_cfg_dict, valid_mask=_mask_arr)
                             _final = _clipped_mean.astype("float32", copy=False)
                             _sigma_stats = _stats
                         except Exception as e:  # noqa: BLE001
-                            _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                            if simple_mean_stack_nd is not None:
+                                try:
+                                    _final = simple_mean_stack_nd(_stack_arr, valid_mask=_mask_arr).astype("float32", copy=False)
+                                except Exception:
+                                    _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                            else:
+                                _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
                             _sigma_stats = {"error": str(e)}
                             _use_sigma = False
                     else:
-                        _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                        if simple_mean_stack_nd is not None:
+                            try:
+                                _final = simple_mean_stack_nd(_stack_arr, valid_mask=_mask_arr).astype("float32", copy=False)
+                            except Exception:
+                                _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                        else:
+                            _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
                     return _final, _sigma_stats, _use_sigma
 
                 try:
@@ -1137,12 +1161,22 @@ def run_phases_impl(
                     return False
 
                 frames_list: list[np.ndarray] = []
+                masks_list: list[np.ndarray] = []
                 for fp in stack_files:
                     try:
                         arr = np.asarray(fits.getdata(str(fp), ext=0)).astype("float32", copy=False)
                     except Exception:
                         continue
                     frames_list.append(arr)
+                    try:
+                        mp = stack_src_dir / "masks" / f"mask_{fp.name}"
+                        if mp.exists() and mp.is_file():
+                            m = np.asarray(fits.getdata(str(mp), ext=0)).astype(bool, copy=False)
+                        else:
+                            m = np.ones_like(arr, dtype=bool)
+                    except Exception:
+                        m = np.ones_like(arr, dtype=bool)
+                    masks_list.append(m)
 
                 if not frames_list:
                     phase_end(
@@ -1156,6 +1190,7 @@ def run_phases_impl(
                     return False
 
                 stack_arr = np.stack(frames_list, axis=0)
+                mask_arr = np.stack(masks_list, axis=0) if masks_list else None
                 use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
                 if use_sigma:
                     sigma_cfg_dict: Dict[str, Any] = {
@@ -1165,15 +1200,27 @@ def run_phases_impl(
                         "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
                     }
                     try:
-                        clipped_mean, mask, stats = sigma_clip_stack_nd(stack_arr, sigma_cfg_dict)
+                        clipped_mean, mask, stats = sigma_clip_stack_nd(stack_arr, sigma_cfg_dict, valid_mask=mask_arr)
                         final_data = clipped_mean.astype("float32", copy=False)
                         sigma_stats = stats
                     except Exception as e:  # noqa: BLE001
-                        final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+                        if simple_mean_stack_nd is not None:
+                            try:
+                                final_data = simple_mean_stack_nd(stack_arr, valid_mask=mask_arr).astype("float32", copy=False)
+                            except Exception:
+                                final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+                        else:
+                            final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
                         sigma_stats = {"error": str(e)}
                         use_sigma = False
                 else:
-                    final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+                    if simple_mean_stack_nd is not None:
+                        try:
+                            final_data = simple_mean_stack_nd(stack_arr, valid_mask=mask_arr).astype("float32", copy=False)
+                        except Exception:
+                            final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+                    else:
+                        final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
                     sigma_stats = {}
 
                 final_out = outputs_dir / Path(stack_output_file)
@@ -1631,6 +1678,12 @@ def run_phases_impl(
             return False
 
         allow_rotation = bool(registration_cfg.get("allow_rotation"))
+        reg_border_mode = str(registration_cfg.get("border_mode") or "replicate")
+        try:
+            reg_border_value = float(registration_cfg.get("border_value", 0.0))
+        except Exception:
+            reg_border_value = 0.0
+        expand_canvas = bool(registration_cfg.get("expand_canvas", False))
         min_star_matches = registration_cfg.get("min_star_matches")
         try:
             min_star_matches_i = int(min_star_matches) if min_star_matches is not None else 1
@@ -1639,6 +1692,8 @@ def run_phases_impl(
 
         reg_out = outputs_dir / reg_out_name
         reg_out.mkdir(parents=True, exist_ok=True)
+        reg_mask_dir = reg_out / "masks"
+        reg_mask_dir.mkdir(parents=True, exist_ok=True)
 
         # Reference frame selection strategy:
         # 1. Prefer frames in the middle third of the sequence (minimizes max drift distance)
@@ -1713,6 +1768,60 @@ def run_phases_impl(
             composed_3x3 = step_3x3 @ prev_3x3
             return composed_3x3[:2, :].astype(np.float32)
 
+        def _warp_cfa(mosaic_clean: np.ndarray, warp_i: np.ndarray, out_shape: Optional[tuple[int, int]], offset_sub: Optional[np.ndarray]) -> np.ndarray:
+            bm = str(reg_border_mode or "replicate").strip().lower()
+            if bm in ("median", "background"):
+                bm_use = "constant"
+                bv_use = float(np.median(mosaic_clean))
+            else:
+                bm_use = bm
+                bv_use = float(reg_border_value)
+
+            if out_shape is None or offset_sub is None:
+                return warp_cfa_mosaic_via_subplanes(
+                    mosaic_clean,
+                    warp_i,
+                    out_shape=None,
+                    border_mode=bm_use,
+                    border_value=bv_use,
+                )
+
+            a2 = warp_i[:, :2]
+            t2 = warp_i[:, 2]
+            t2_adj = t2 - (a2 @ offset_sub)
+            warp_adj = np.concatenate([a2, t2_adj[:, None]], axis=1).astype(np.float32, copy=False)
+            return warp_cfa_mosaic_via_subplanes(
+                mosaic_clean,
+                warp_adj,
+                out_shape=out_shape,
+                border_mode=bm_use,
+                border_value=bv_use,
+            )
+
+        def _warp_cfa_mask(mask_mosaic: np.ndarray, warp_i: np.ndarray, out_shape: Optional[tuple[int, int]], offset_sub: Optional[np.ndarray]) -> np.ndarray:
+            if out_shape is None or offset_sub is None:
+                return warp_cfa_mosaic_via_subplanes(
+                    mask_mosaic,
+                    warp_i,
+                    out_shape=None,
+                    border_mode="constant",
+                    border_value=0.0,
+                    interpolation="nearest",
+                )
+
+            a2 = warp_i[:, :2]
+            t2 = warp_i[:, 2]
+            t2_adj = t2 - (a2 @ offset_sub)
+            warp_adj = np.concatenate([a2, t2_adj[:, None]], axis=1).astype(np.float32, copy=False)
+            return warp_cfa_mosaic_via_subplanes(
+                mask_mosaic,
+                warp_adj,
+                out_shape=out_shape,
+                border_mode="constant",
+                border_value=0.0,
+                interpolation="nearest",
+            )
+
         def _load_clean_and_lum01(p: Path) -> tuple[np.ndarray, np.ndarray, Any]:
             data = fits.getdata(str(p), ext=0)
             if data is None:
@@ -1747,12 +1856,36 @@ def run_phases_impl(
             )
             return False
 
+        out_shape_reg: Optional[tuple[int, int]] = None
+        offset_sub: Optional[np.ndarray] = None
+        if expand_canvas:
+            h0_m, w0_m = ref_mosaic_clean.shape[:2]
+            h0_m2 = int(h0_m - (h0_m % 2))
+            w0_m2 = int(w0_m - (w0_m % 2))
+            diag = float(np.sqrt(float(h0_m2 * h0_m2 + w0_m2 * w0_m2)))
+            out_side = int(np.ceil(diag))
+            if (out_side % 2) != 0:
+                out_side += 1
+            out_shape_reg = (out_side, out_side)
+            old_h_sub = max(1, h0_m2 // 2)
+            old_w_sub = max(1, w0_m2 // 2)
+            new_h_sub = max(1, out_side // 2)
+            new_w_sub = max(1, out_side // 2)
+            offset_sub = np.array([(new_w_sub - old_w_sub) * 0.5, (new_h_sub - old_h_sub) * 0.5], dtype=np.float32)
+
         try:
             dst_name = reg_pattern.format(index=ref_idx + 1)
         except Exception:
             dst_name = f"reg_{ref_idx + 1:05d}.fit"
         dst_path = reg_out / dst_name
-        fits.writeto(str(dst_path), ref_mosaic_clean.astype("float32", copy=False), header=ref_hdr, overwrite=True)
+        warped_ref = _warp_cfa(ref_mosaic_clean, identity_warp, out_shape_reg, offset_sub)
+        mask_ref = _warp_cfa_mask(np.ones_like(ref_mosaic_clean, dtype=np.float32), identity_warp, out_shape_reg, offset_sub)
+        fits.writeto(str(dst_path), warped_ref.astype("float32", copy=False), header=ref_hdr, overwrite=True)
+        try:
+            fits.writeto(str(reg_mask_dir / f"mask_{dst_path.name}"), mask_ref.astype("float32", copy=False), header=ref_hdr, overwrite=True)
+        except Exception:
+            pass
+        del warped_ref, mask_ref
         registered_count += 1
         processed += 1
         del ref_mosaic_clean
@@ -1777,19 +1910,24 @@ def run_phases_impl(
                 if not np.isfinite(cc) or cc < 0.15:
                     step_warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
                 warp_i = _compose_affine(step_warp, warp_next)
-                warped = warp_cfa_mosaic_via_subplanes(mosaic_clean, warp_i)
+                warped = _warp_cfa(mosaic_clean, warp_i, out_shape_reg, offset_sub)
+                mask_warped = _warp_cfa_mask(np.ones_like(mosaic_clean, dtype=np.float32), warp_i, out_shape_reg, offset_sub)
                 try:
                     dst_name = reg_pattern.format(index=i + 1)
                 except Exception:
                     dst_name = f"reg_{i + 1:05d}.fit"
                 dst_path = reg_out / dst_name
                 fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                try:
+                    fits.writeto(str(reg_mask_dir / f"mask_{dst_path.name}"), mask_warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                except Exception:
+                    pass
                 registered_count += 1
                 processed += 1
                 corrs.append(float(cc))
                 warp_next = warp_i
                 lum_next01 = lum01
-                del mosaic_clean, lum01, hdr, warped
+                del mosaic_clean, lum01, hdr, warped, mask_warped
             except Exception as e:
                 print(f"[WARN] Frame {i}: failed to register: {e}")
                 continue
@@ -1814,19 +1952,24 @@ def run_phases_impl(
                 if not np.isfinite(cc) or cc < 0.15:
                     step_warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
                 warp_i = _compose_affine(step_warp, warp_prev)
-                warped = warp_cfa_mosaic_via_subplanes(mosaic_clean, warp_i)
+                warped = _warp_cfa(mosaic_clean, warp_i, out_shape_reg, offset_sub)
+                mask_warped = _warp_cfa_mask(np.ones_like(mosaic_clean, dtype=np.float32), warp_i, out_shape_reg, offset_sub)
                 try:
                     dst_name = reg_pattern.format(index=i + 1)
                 except Exception:
                     dst_name = f"reg_{i + 1:05d}.fit"
                 dst_path = reg_out / dst_name
                 fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                try:
+                    fits.writeto(str(reg_mask_dir / f"mask_{dst_path.name}"), mask_warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                except Exception:
+                    pass
                 registered_count += 1
                 processed += 1
                 corrs.append(float(cc))
                 warp_prev = warp_i
                 lum_prev01 = lum01
-                del mosaic_clean, lum01, hdr, warped
+                del mosaic_clean, lum01, hdr, warped, mask_warped
             except Exception as e:
                 print(f"[WARN] Frame {i}: failed to register: {e}")
                 continue
@@ -2022,6 +2165,9 @@ def run_phases_impl(
     channels_dir = work_dir / "channels"
     channels_dir.mkdir(parents=True, exist_ok=True)
     channel_files: Dict[str, List[Path]] = {"R": [], "G": [], "B": []}
+    channel_mask_files: Dict[str, List[Path]] = {"R": [], "G": [], "B": []}
+    channel_masks_dir = work_dir / "channel_masks"
+    channel_masks_dir.mkdir(parents=True, exist_ok=True)
     
     cfa_registered = None
     total_split = max(1, analysis_count)
@@ -2030,10 +2176,23 @@ def run_phases_impl(
         is_cfa = (fits_is_cfa(p) is True)
         if cfa_registered is None:
             cfa_registered = is_cfa
+
+        mask_src = reg_out_dir / "masks" / f"mask_{p.name}"
+        mask_data = None
+        if mask_src.exists() and mask_src.is_file():
+            try:
+                mask_data = np.asarray(fits.getdata(str(mask_src), ext=0)).astype("float32", copy=False)
+            except Exception:
+                mask_data = None
         if is_cfa:
             # Prefer BAYERPAT from FITS header if available, fallback to config
             bp_to_use = fits_get_bayerpat(p) or bayer_pattern
             split = split_cfa_channels(data, bp_to_use)
+            if mask_data is None:
+                mask_split = {ch: np.ones_like(split[ch], dtype=np.float32) for ch in ("R", "G", "B")}
+            else:
+                ms = split_cfa_channels(mask_data, bp_to_use)
+                mask_split = {ch: (np.asarray(ms[ch], dtype=np.float32) >= 0.999).astype(np.float32, copy=False) for ch in ("R", "G", "B")}
         else:
             try:
                 split = split_rgb_frame(data)
@@ -2049,15 +2208,25 @@ def run_phases_impl(
                     )
                     return False
                 split = {"R": data, "G": data, "B": data}
+
+            if mask_data is None:
+                mask_split = {ch: np.ones_like(split[ch], dtype=np.float32) for ch in ("R", "G", "B")}
+            else:
+                vm = (mask_data.astype(np.float32, copy=False) >= 0.5)
+                mask_split = {ch: vm.astype(np.float32, copy=False) for ch in ("R", "G", "B")}
         
         # Write each channel to disk
         for ch in ("R", "G", "B"):
             ch_file = channels_dir / f"{ch}_{idx:05d}.fits"
             fits.writeto(str(ch_file), split[ch], overwrite=True)
             channel_files[ch].append(ch_file)
+
+            ch_mask_file = channel_masks_dir / f"mask_{ch}_{idx:05d}.fits"
+            fits.writeto(str(ch_mask_file), np.asarray(mask_split[ch], dtype=np.float32), overwrite=True)
+            channel_mask_files[ch].append(ch_mask_file)
         
         # Free memory immediately
-        del data, split
+        del data, split, mask_data, mask_split
 
         if idx % 5 == 0 or idx == total_split:
             phase_progress(run_id, log_fp, phase_id, phase_name, idx, total_split, {})
@@ -2103,9 +2272,16 @@ def run_phases_impl(
         for ch_idx, ch in enumerate(("R", "G", "B"), start=1):
             # Pass 1: Compute medians (B_f) BEFORE normalization (load one frame at a time)
             medians = []
-            for ch_file in channel_files[ch]:
+            for ch_file, ch_mask_file in zip(channel_files[ch], channel_mask_files[ch]):
                 frame = fits.getdata(str(ch_file)).astype("float32", copy=False)
-                medians.append(float(np.median(frame)))
+                try:
+                    vm = np.asarray(fits.getdata(str(ch_mask_file))).astype(bool, copy=False)
+                except Exception:
+                    vm = None
+                if vm is not None and np.any(vm):
+                    medians.append(float(np.median(frame[vm])))
+                else:
+                    medians.append(float(np.median(frame)))
                 del frame
             
             # Store B_f values for GLOBAL_METRICS phase
@@ -2127,9 +2303,16 @@ def run_phases_impl(
         all_medians = []
         for ch in ("R", "G", "B"):
             ch_medians = []
-            for ch_file in channel_files[ch]:
+            for ch_file, ch_mask_file in zip(channel_files[ch], channel_mask_files[ch]):
                 frame = fits.getdata(str(ch_file)).astype("float32", copy=False)
-                med = float(np.median(frame))
+                try:
+                    vm = np.asarray(fits.getdata(str(ch_mask_file))).astype(bool, copy=False)
+                except Exception:
+                    vm = None
+                if vm is not None and np.any(vm):
+                    med = float(np.median(frame[vm]))
+                else:
+                    med = float(np.median(frame))
                 all_medians.append(med)
                 ch_medians.append(med)
                 del frame
@@ -2244,11 +2427,25 @@ def run_phases_impl(
         bgs: List[float] = pre_norm_backgrounds.get(ch, [])
         noises: List[float] = []
         grads: List[float] = []
-        for i, ch_file in enumerate(channel_files[ch], start=1):
+        for i, (ch_file, ch_mask_file) in enumerate(zip(channel_files[ch], channel_mask_files[ch]), start=1):
             f = fits.getdata(str(ch_file)).astype("float32", copy=False)
+            try:
+                vm = np.asarray(fits.getdata(str(ch_mask_file))).astype(bool, copy=False)
+            except Exception:
+                vm = None
             # B_f already stored from pre-normalization phase
-            noises.append(float(np.std(f)))
-            grads.append(float(np.mean(np.hypot(*np.gradient(f.astype("float32", copy=False))))))
+            if vm is not None and np.any(vm):
+                noises.append(float(np.std(f[vm])))
+                gy, gx = np.gradient(f.astype("float32", copy=False))
+                mag = np.hypot(gx, gy)
+                vm2 = vm & np.roll(vm, 1, axis=0) & np.roll(vm, -1, axis=0) & np.roll(vm, 1, axis=1) & np.roll(vm, -1, axis=1)
+                if np.any(vm2):
+                    grads.append(float(np.mean(mag[vm2])))
+                else:
+                    grads.append(float(np.mean(mag[vm])))
+            else:
+                noises.append(float(np.std(f)))
+                grads.append(float(np.mean(np.hypot(*np.gradient(f.astype("float32", copy=False))))))
             del f
             processed_global += 1
             if processed_global % 5 == 0 or processed_global == total_global:
@@ -2265,9 +2462,16 @@ def run_phases_impl(
         # Fallback if pre_norm_backgrounds not available (e.g., skipped normalization)
         if not bgs or len(bgs) != len(channel_files[ch]):
             bgs = []
-            for ch_file in channel_files[ch]:
+            for ch_file, ch_mask_file in zip(channel_files[ch], channel_mask_files[ch]):
                 f = fits.getdata(str(ch_file)).astype("float32", copy=False)
-                bgs.append(float(np.median(f)))
+                try:
+                    vm = np.asarray(fits.getdata(str(ch_mask_file))).astype(bool, copy=False)
+                except Exception:
+                    vm = None
+                if vm is not None and np.any(vm):
+                    bgs.append(float(np.median(f[vm])))
+                else:
+                    bgs.append(float(np.median(f)))
                 del f
 
         def _norm_mad(vals: List[float]) -> List[float]:
@@ -2590,17 +2794,6 @@ def run_phases_impl(
         overlap_i = overlap
     tile_calc = TileMetricsCalculator(tile_size=tile_size_i, overlap=overlap_i)
 
-    dn_cfg = cfg.get("tile_denoising") if isinstance(cfg.get("tile_denoising"), dict) else {}
-    dn_enabled = bool(dn_cfg.get("enabled", True))
-    try:
-        dn_kernel = int(dn_cfg.get("kernel_size", 15))
-    except Exception:
-        dn_kernel = 15
-    try:
-        dn_alpha = float(dn_cfg.get("alpha", 2.0))
-    except Exception:
-        dn_alpha = 2.0
-
     lm_work = work_dir / "local_metrics"
     lm_work.mkdir(parents=True, exist_ok=True)
 
@@ -2637,6 +2830,7 @@ def run_phases_impl(
     
     for ch in ("R", "G", "B"):
         ch_files = channel_files[ch]
+        ch_mask_files = channel_mask_files[ch]
         if not ch_files:
             continue
 
@@ -2646,11 +2840,13 @@ def run_phases_impl(
         # Pass 1: Sammle rohe Tile-Metriken über alle Frames
         per_frame_metrics: List[Dict[str, np.ndarray]] = []
         n_tiles: Optional[int] = None
-        for f_idx, ch_file in enumerate(ch_files):
+        for f_idx, (ch_file, ch_mask_file) in enumerate(zip(ch_files, ch_mask_files)):
             f = fits.getdata(str(ch_file)).astype("float32", copy=False)
-            if dn_enabled:
-                f = tile_calc.denoise_frame_tiled(f, k=dn_kernel, alpha=dn_alpha)
-            tm = tile_calc.calculate_tile_metrics(f)
+            try:
+                vm = np.asarray(fits.getdata(str(ch_mask_file))).astype(bool, copy=False)
+            except Exception:
+                vm = None
+            tm = tile_calc.calculate_tile_metrics(f, valid_mask=vm)
             fwhm = np.asarray(tm.get("fwhm") or [], dtype=np.float32)
             rnd = np.asarray(tm.get("roundness") or [], dtype=np.float32)
             con = np.asarray(tm.get("contrast") or [], dtype=np.float32)
@@ -2794,7 +2990,7 @@ def run_phases_impl(
             "Q_local": q_local.tolist(),
         }
 
-    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i, "denoising_enabled": dn_enabled})
+    phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"tile_size": tile_size_i, "overlap": overlap_i})
 
     try:
         _write_tile_quality_heatmaps(artifacts_dir, channel_metrics, grid_cfg, (h0, w0))
@@ -2877,6 +3073,18 @@ def run_phases_impl(
     
     # Epsilon for numerical stability (Methodik v3 §3.6)
     epsilon = 1e-6
+    
+    # Wiener denoise configuration (applied after tile reconstruction, before final output)
+    wiener_cfg = cfg.get("wiener_denoise") if isinstance(cfg.get("wiener_denoise"), dict) else {}
+    wiener_enabled = bool(wiener_cfg.get("enabled", False))
+    try:
+        wiener_snr_threshold = float(wiener_cfg.get("snr_threshold", 5.0))
+    except Exception:
+        wiener_snr_threshold = 5.0
+    try:
+        wiener_q_min = float(wiener_cfg.get("q_min", -0.5))
+    except Exception:
+        wiener_q_min = -0.5
     
     # Get tile grid parameters for tile-based reconstruction
     tile_size_recon = grid_cfg.get("tile_size", tile_size)
@@ -3027,6 +3235,76 @@ def run_phases_impl(
             out = out_div
             
             reconstructed[ch] = out.astype(np.float32, copy=False)
+            
+            # Apply Wiener filter tile-wise if enabled (Wiener denoise.md spec)
+            if wiener_enabled and wiener_tile_filter is not None:
+                wiener_out = np.zeros_like(out)
+                wiener_weight = np.zeros_like(out)
+                hann_wiener = hann_2d
+                tiles_filtered = 0
+                t_idx = 0
+                for ty in range(n_tiles_y):
+                    for tx in range(n_tiles_x):
+                        y0 = ty * step_recon
+                        x0 = tx * step_recon
+                        y1 = min(y0 + tile_size_recon, h0)
+                        x1 = min(x0 + tile_size_recon, w0)
+                        
+                        tile = out[y0:y1, x0:x1].copy()
+                        tile_h, tile_w = tile.shape
+                        
+                        # Estimate tile noise (robust sigma)
+                        tile_med = float(np.median(tile))
+                        tile_mad = float(np.median(np.abs(tile - tile_med)))
+                        tile_sigma = 1.4826 * tile_mad if tile_mad > 1e-12 else float(np.std(tile))
+                        
+                        # Estimate SNR
+                        tile_signal = float(np.max(tile) - tile_med)
+                        tile_snr = tile_signal / tile_sigma if tile_sigma > 1e-12 else 999.0
+                        
+                        # Get Q_struct from local metrics if available
+                        q_struct = 0.0
+                        q_mean_tile = tiles.get("Q_local_tile_mean")
+                        if isinstance(q_mean_tile, list) and t_idx < len(q_mean_tile):
+                            v = q_mean_tile[t_idx]
+                            q_struct = float(v) if np.isfinite(v) else 0.0
+                        else:
+                            q_local = tiles.get("Q_local", [])
+                            if isinstance(q_local, list) and len(q_local) > 0:
+                                a = np.asarray(q_local, dtype=np.float32)
+                                if a.ndim == 2 and t_idx < a.shape[1]:
+                                    col = a[:, t_idx]
+                                    col = col[np.isfinite(col)]
+                                    q_struct = float(np.mean(col)) if col.size > 0 else 0.0
+                        
+                        # Detect star tiles (high contrast = likely stars)
+                        is_star = tile_snr > 10.0
+                        
+                        # Apply Wiener filter
+                        filtered_tile = wiener_tile_filter(
+                            tile,
+                            tile_sigma,
+                            snr_tile=tile_snr,
+                            q_struct_tile=q_struct,
+                            is_star_tile=is_star,
+                            snr_threshold=wiener_snr_threshold,
+                            q_min=wiener_q_min,
+                        )
+                        
+                        if not np.array_equal(filtered_tile, tile):
+                            tiles_filtered += 1
+                        
+                        window = hann_wiener[:tile_h, :tile_w]
+                        wiener_out[y0:y1, x0:x1] += filtered_tile * window
+                        wiener_weight[y0:y1, x0:x1] += window
+                        t_idx += 1
+                
+                # Normalize
+                wiener_mask = wiener_weight > 0
+                wiener_out[wiener_mask] /= wiener_weight[wiener_mask]
+                wiener_out[~wiener_mask] = out[~wiener_mask]
+                reconstructed[ch] = wiener_out.astype(np.float32, copy=False)
+                print(f"[INFO] Wiener denoise ({ch}): {tiles_filtered}/{n_tiles} tiles filtered")
 
             try:
                 import matplotlib
@@ -3364,6 +3642,8 @@ def run_phases_impl(
 
     syn_out = outputs_dir / "synthetic"
     syn_out.mkdir(parents=True, exist_ok=True)
+    syn_mask_dir = syn_out / "masks"
+    syn_mask_dir.mkdir(parents=True, exist_ok=True)
     synthetic_channels: Optional[Dict[str, List[np.ndarray]]] = None
     synthetic_count = 0
     synthetic_skipped = False
@@ -3396,6 +3676,8 @@ def run_phases_impl(
             def _synthetic_from_files(ch_name: str) -> list[Path]:
                 labels = _extract_labels_for_channel(ch_name)
                 files = channel_files.get(ch_name) or []
+                mask_files = channel_mask_files.get(ch_name) or []
+                use_masks = bool(len(mask_files) == len(files) and len(files) > 0)
                 if not files:
                     return []
 
@@ -3445,7 +3727,9 @@ def run_phases_impl(
                         del sample
 
                 keep_all_acc = True
-                if sample_bytes > 0 and len(cluster_ids) > 0:
+                if use_masks:
+                    keep_all_acc = False
+                elif sample_bytes > 0 and len(cluster_ids) > 0:
                     est_bytes = int(sample_bytes) * int(len(cluster_ids))
                     keep_all_acc = est_bytes <= 512 * 1024 * 1024
 
@@ -3486,13 +3770,24 @@ def run_phases_impl(
                         D_tiles = np.zeros((n_tiles,), dtype=np.float64)
 
                         fallback_sum = np.zeros((h0, w0), dtype=np.float32)
-                        fallback_count = 0
+                        fallback_count = np.zeros((h0, w0), dtype=np.float32)
 
                         for idx_i, idx in enumerate(cluster_indices, start=1):
                             fp = files[idx]
                             frame = fits.getdata(str(fp)).astype("float32", copy=False)
-                            fallback_sum += frame
-                            fallback_count += 1
+                            if use_masks:
+                                try:
+                                    vm = np.asarray(fits.getdata(str(mask_files[idx]), ext=0)).astype(bool, copy=False)
+                                except Exception:
+                                    vm = None
+                            else:
+                                vm = None
+                            if vm is not None:
+                                fallback_sum += frame * vm.astype(np.float32)
+                                fallback_count += vm.astype(np.float32)
+                            else:
+                                fallback_sum += frame
+                                fallback_count += 1.0
 
                             g_w = float(weights[idx])
                             if not np.isfinite(g_w) or g_w <= 0.0:
@@ -3518,8 +3813,13 @@ def run_phases_impl(
                                         D_tiles[t_idx] += float(w_eff)
                                         window = hann_2d[: (y1 - y0), : (x1 - x0)]
                                         tile = frame[y0:y1, x0:x1]
-                                        out[y0:y1, x0:x1] += tile * float(w_eff) * window
-                                        weight_sum[y0:y1, x0:x1] += float(w_eff) * window
+                                        if vm is not None:
+                                            vm_t = vm[y0:y1, x0:x1].astype(np.float32, copy=False)
+                                            out[y0:y1, x0:x1] += tile * float(w_eff) * window * vm_t
+                                            weight_sum[y0:y1, x0:x1] += float(w_eff) * window * vm_t
+                                        else:
+                                            out[y0:y1, x0:x1] += tile * float(w_eff) * window
+                                            weight_sum[y0:y1, x0:x1] += float(w_eff) * window
                                     t_idx += 1
 
                             del frame
@@ -3537,7 +3837,7 @@ def run_phases_impl(
                             if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
                                 return []
 
-                        fallback_mean = fallback_sum / float(max(1, fallback_count))
+                        fallback_mean = np.divide(fallback_sum, fallback_count, out=np.zeros_like(fallback_sum), where=fallback_count > 0.0)
                         out_div = np.divide(out, weight_sum, out=np.zeros_like(out), where=weight_sum > 0.0)
 
                         low_tile_mask = D_tiles < float(epsilon_syn)
@@ -3563,6 +3863,12 @@ def run_phases_impl(
                         syn = out_div.astype("float32", copy=False)
                         outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
                         fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                        try:
+                            syn_m = (weight_sum > 0.0).astype(np.float32, copy=False)
+                            fits.writeto(str(syn_mask_dir / f"mask_{outp.name}"), syn_m, header=hdr_syn, overwrite=True)
+                            del syn_m
+                        except Exception:
+                            pass
                         out_paths.append(outp)
                         del syn, out_div, out, weight_sum
                 else:
@@ -3601,7 +3907,7 @@ def run_phases_impl(
                         total_clusters = max(1, len(cluster_ids))
                         for out_idx, cluster_id in enumerate(cluster_ids, start=1):
                             acc = None
-                            wsum = 0.0
+                            wsum = None
                             for idx, fp in enumerate(files):
                                 if int(labels[idx]) != int(cluster_id):
                                     continue
@@ -3609,10 +3915,24 @@ def run_phases_impl(
                                 if not np.isfinite(w) or w <= 0.0:
                                     continue
                                 frame = fits.getdata(str(fp)).astype("float32", copy=False)
+                                if use_masks:
+                                    try:
+                                        vm = np.asarray(fits.getdata(str(mask_files[idx]), ext=0)).astype(bool, copy=False)
+                                    except Exception:
+                                        vm = None
+                                else:
+                                    vm = None
                                 if acc is None:
                                     acc = np.zeros_like(frame, dtype=np.float32)
-                                acc += frame * w
-                                wsum += w
+                                if wsum is None:
+                                    wsum = np.zeros_like(frame, dtype=np.float32)
+                                if vm is not None:
+                                    vmt = vm.astype(np.float32, copy=False)
+                                    acc += frame * w * vmt
+                                    wsum += w * vmt
+                                else:
+                                    acc += frame * w
+                                    wsum += w
                                 del frame
                                 if (idx + 1) % 25 == 0 or (idx + 1) == total_n:
                                     phase_progress(
@@ -3625,11 +3945,17 @@ def run_phases_impl(
                                         {"channel": ch_name, "cluster": out_idx, "clusters_total": total_clusters},
                                     )
 
-                            if acc is None or wsum <= 1e-12:
+                            if acc is None or wsum is None:
                                 continue
-                            syn = (acc / wsum).astype("float32", copy=False)
+                            syn = np.divide(acc, wsum, out=np.zeros_like(acc), where=np.asarray(wsum) > 1e-12).astype("float32", copy=False)
                             outp = syn_out / f"syn{ch_name}_{out_idx:05d}.fits"
                             fits.writeto(str(outp), syn, header=hdr_syn, overwrite=True)
+                            try:
+                                syn_m = (np.asarray(wsum) > 1e-12).astype(np.float32, copy=False)
+                                fits.writeto(str(syn_mask_dir / f"mask_{outp.name}"), syn_m, header=hdr_syn, overwrite=True)
+                                del syn_m
+                            except Exception:
+                                pass
                             out_paths.append(outp)
                             del syn, acc
 
@@ -3656,6 +3982,19 @@ def run_phases_impl(
                     # Reassemble subplanes back to CFA mosaic
                     cfa_mosaic = reassemble_cfa_mosaic(r, g, b, bayer_pattern)
                     fits.writeto(str(outp_cfa), cfa_mosaic, header=hdr_syn, overwrite=True)
+                    try:
+                        mrp = syn_mask_dir / f"mask_{outp_r.name}"
+                        mgp = syn_mask_dir / f"mask_{outp_g.name}"
+                        mbp = syn_mask_dir / f"mask_{outp_b.name}"
+                        if mrp.exists() and mgp.exists() and mbp.exists():
+                            mr = np.asarray(fits.getdata(str(mrp))).astype("float32", copy=False)
+                            mg = np.asarray(fits.getdata(str(mgp))).astype("float32", copy=False)
+                            mb = np.asarray(fits.getdata(str(mbp))).astype("float32", copy=False)
+                            m_cfa = reassemble_cfa_mosaic(mr, mg, mb, bayer_pattern)
+                            fits.writeto(str(syn_mask_dir / f"mask_{outp_cfa.name}"), m_cfa.astype("float32", copy=False), header=hdr_syn, overwrite=True)
+                            del mr, mg, mb, m_cfa
+                    except Exception:
+                        pass
                     del r, g, b, cfa_mosaic
 
             synthetic_channels = {"R": [], "G": [], "B": []}
@@ -3753,15 +4092,26 @@ def run_phases_impl(
 
             def _stack_file_list(_files: list[Path]) -> tuple[np.ndarray, Dict[str, Any], bool]:
                 _frames_list: list[np.ndarray] = []
+                _masks_list: list[np.ndarray] = []
                 for _fp in _files:
                     try:
                         _arr = np.asarray(fits.getdata(str(_fp), ext=0)).astype("float32", copy=False)
                     except Exception:
                         continue
                     _frames_list.append(_arr)
+                    try:
+                        _mp = stack_src_dir / "masks" / f"mask_{_fp.name}"
+                        if _mp.exists() and _mp.is_file():
+                            _m = np.asarray(fits.getdata(str(_mp), ext=0)).astype(bool, copy=False)
+                        else:
+                            _m = np.ones_like(_arr, dtype=bool)
+                    except Exception:
+                        _m = np.ones_like(_arr, dtype=bool)
+                    _masks_list.append(_m)
                 if not _frames_list:
                     return np.zeros((1, 1), dtype=np.float32), {"error": "failed to load frames"}, False
                 _stack_arr = np.stack(_frames_list, axis=0)
+                _mask_arr = np.stack(_masks_list, axis=0) if _masks_list else None
                 _use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
                 _sigma_stats: Dict[str, Any] = {}
                 if _use_sigma:
@@ -3772,15 +4122,27 @@ def run_phases_impl(
                         "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
                     }
                     try:
-                        _clipped_mean, _mask, _stats = sigma_clip_stack_nd(_stack_arr, _sigma_cfg_dict)
+                        _clipped_mean, _mask, _stats = sigma_clip_stack_nd(_stack_arr, _sigma_cfg_dict, valid_mask=_mask_arr)
                         _final = _clipped_mean.astype("float32", copy=False)
                         _sigma_stats = _stats
                     except Exception as e:  # noqa: BLE001
-                        _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                        if simple_mean_stack_nd is not None:
+                            try:
+                                _final = simple_mean_stack_nd(_stack_arr, valid_mask=_mask_arr).astype("float32", copy=False)
+                            except Exception:
+                                _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                        else:
+                            _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
                         _sigma_stats = {"error": str(e)}
                         _use_sigma = False
                 else:
-                    _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                    if simple_mean_stack_nd is not None:
+                        try:
+                            _final = simple_mean_stack_nd(_stack_arr, valid_mask=_mask_arr).astype("float32", copy=False)
+                        except Exception:
+                            _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
+                    else:
+                        _final = _stack_arr.mean(axis=0).astype("float32", copy=False)
                 return _final, _sigma_stats, _use_sigma
 
             try:
@@ -3850,12 +4212,22 @@ def run_phases_impl(
     #   stacking input frames, which is Methodik-conform linear stacking.
     
     frames_list: list[np.ndarray] = []
+    masks_list: list[np.ndarray] = []
     for fp in stack_files:
         try:
             arr = np.asarray(fits.getdata(str(fp), ext=0)).astype("float32", copy=False)
         except Exception:
             continue
         frames_list.append(arr)
+        try:
+            mp = stack_src_dir / "masks" / f"mask_{fp.name}"
+            if mp.exists() and mp.is_file():
+                m = np.asarray(fits.getdata(str(mp), ext=0)).astype(bool, copy=False)
+            else:
+                m = np.ones_like(arr, dtype=bool)
+        except Exception:
+            m = np.ones_like(arr, dtype=bool)
+        masks_list.append(m)
 
     if not frames_list:
         phase_end(
@@ -3869,6 +4241,7 @@ def run_phases_impl(
         return False
 
     stack_arr = np.stack(frames_list, axis=0)
+    mask_arr = np.stack(masks_list, axis=0) if masks_list else None
 
     # Map stacking configuration to sigma-clipping config if available.
     use_sigma = SigmaClipConfig is not None and sigma_clip_stack_nd is not None and stack_method == "rej"
@@ -3881,16 +4254,28 @@ def run_phases_impl(
             "min_fraction": float(sigma_clip_cfg.get("min_fraction", 0.5)),
         }
         try:
-            clipped_mean, mask, stats = sigma_clip_stack_nd(stack_arr, sigma_cfg_dict)
+            clipped_mean, mask, stats = sigma_clip_stack_nd(stack_arr, sigma_cfg_dict, valid_mask=mask_arr)
             final_data = clipped_mean.astype("float32", copy=False)
             sigma_stats = stats
         except Exception as e:  # noqa: BLE001
             # On any failure, fall back to simple mean stacking.
-            final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+            if simple_mean_stack_nd is not None:
+                try:
+                    final_data = simple_mean_stack_nd(stack_arr, valid_mask=mask_arr).astype("float32", copy=False)
+                except Exception:
+                    final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+            else:
+                final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
             sigma_stats = {"error": str(e)}
             use_sigma = False
     else:
-        final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+        if simple_mean_stack_nd is not None:
+            try:
+                final_data = simple_mean_stack_nd(stack_arr, valid_mask=mask_arr).astype("float32", copy=False)
+            except Exception:
+                final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
+        else:
+            final_data = stack_arr.mean(axis=0).astype("float32", copy=False)
         sigma_stats = {}
 
     final_out = outputs_dir / Path(stack_output_file)

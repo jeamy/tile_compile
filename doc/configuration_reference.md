@@ -14,7 +14,7 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 3. [Assumptions (Annahmen)](#assumptions-annahmen)
 4. [Normalization (Normalisierung)](#normalization-normalisierung)
 5. [Registration (Registrierung)](#registration-registrierung)
-6. [Tile Denoising (Tile-Rauschfilter)](#tile-denoising-tile-rauschfilter)
+6. [Wiener Denoise (Wiener-Rauschfilter)](#wiener-denoise-wiener-rauschfilter)
 7. [Global Metrics (Globale Metriken)](#global-metrics-globale-metriken)
 8. [Tile (Kachel-Geometrie)](#tile-kachel-geometrie)
 9. [Local Metrics (Lokale Metriken)](#local-metrics-lokale-metriken)
@@ -426,6 +426,50 @@ Einstellungen für die geometrische Ausrichtung gemäß Methodik v3 §3.
 
 ---
 
+### `registration.border_mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Randbehandlung beim Warping (nur relevant bei `engine: opencv_cfa`).
+
+- **`replicate`**: Randpixel werden repliziert (Standard)
+- **`reflect`**: Spiegelung am Rand (OpenCV reflect101)
+- **`constant`**: Konstanter Füllwert (siehe `registration.border_value`)
+- **`median`** / **`background`**: Konstanter Füllwert = Median des jeweiligen Frames (reduziert Einfluss auf Hintergrund)
+
+---
+
+### `registration.border_value`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Füllwert für `border_mode: constant`.
+
+---
+
+### `registration.expand_canvas`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Vergrößert das Ausgabecanvas beim Warping, damit bei Rotation keine Bilddaten an den Ecken abgeschnitten werden.
+
+- **`true`**: Ausgabe wird (quadratisch) vergrößert, fehlende Pixel werden gemäß `border_mode`/`border_value` gefüllt
+- **`false`**: Ausgabe bleibt in Originalgröße
+
+---
+
 ### `registration.min_star_matches`
 
 | Eigenschaft | Wert |
@@ -485,11 +529,16 @@ Einstellungen für die geometrische Ausrichtung gemäß Methodik v3 §3.
 
 ---
 
-## Tile Denoising (Tile-Rauschfilter)
+## Wiener Denoise (Wiener-Rauschfilter)
 
-Optionale tile-basierte Rauschunterdrückung (Highpass + Soft-Threshold). Die Tile-Geometrie (tile_size/overlap) wird **nicht** separat konfiguriert, sondern aus der Tile-Grid-Berechnung abgeleitet.
+Optionaler Wiener-Filter auf rekonstruierten Tiles. Wird **nach** Tile-Rekonstruktion und **vor** dem finalen Overlap-Add angewendet. Siehe `doc/Wiener denoise.md` für die normative Spezifikation.
 
-### `tile_denoising.enabled`
+**Eigenschaften:**
+- Linear, deterministisch, MSE-optimal
+- Keine Beeinflussung von Metriken oder Gewichten
+- Selektive Aktivierung basierend auf SNR und Strukturqualität
+
+### `wiener_denoise.enabled`
 
 | Eigenschaft | Wert |
 |-------------|------|
@@ -498,37 +547,35 @@ Optionale tile-basierte Rauschunterdrückung (Highpass + Soft-Threshold). Die Ti
 | **Erforderlich** | Nein |
 | **Editierbar** | Ja |
 
-**Zweck:** Aktiviert tile-basierte Rauschunterdrückung vor der Berechnung der lokalen Metriken.
+**Zweck:** Aktiviert Wiener-Filter auf rekonstruierten Tiles.
 
 ---
 
-### `tile_denoising.kernel_size`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | integer |
-| **Bereich** | 3 - 63 |
-| **Standard** | 15 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
-
-**Zweck:** Kernel-Größe (ungerade) für die lokale Hintergrundschätzung pro Tile.
-
----
-
-### `tile_denoising.alpha`
+### `wiener_denoise.snr_threshold`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0.5 - 5.0 |
-| **Standard** | 2.0 |
+| **Bereich** | 1.0 - 20.0 |
+| **Standard** | 5.0 |
 | **Erforderlich** | Nein |
 | **Editierbar** | Ja |
 
-**Zweck:** Threshold-Multiplikator für Soft-Thresholding.
+**Zweck:** SNR-Schwellwert. Tiles mit SNR ≥ diesem Wert werden **nicht** gefiltert (bereits gutes Signal).
 
-Formel: `threshold = alpha × robust_sigma`.
+---
+
+### `wiener_denoise.q_min`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | -3.0 - 0.0 |
+| **Standard** | -0.5 |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Minimale Strukturqualität. Tiles mit Q_struct ≤ diesem Wert werden **nicht** gefiltert (zu wenig Struktur).
 
 ---
 

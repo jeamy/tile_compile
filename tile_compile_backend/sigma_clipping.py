@@ -8,7 +8,7 @@ pipeline can implement artifact removal and stacking without Siril.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -55,6 +55,7 @@ class SigmaClipConfig:
 def sigma_clip_stack_nd(
     frames: np.ndarray,
     cfg: SigmaClipConfig | Dict[str, Any] | None = None,
+    valid_mask: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
     """Sigma-clip a stack of frames along axis 0.
 
@@ -95,9 +96,31 @@ def sigma_clip_stack_nd(
 
     # Work in float32 for memory/speed while keeping enough precision.
     f = f.astype("float32", copy=False)
-    mask = np.ones_like(f, dtype=bool)
 
-    total_samples = float(mask.size)
+    if valid_mask is not None:
+        vm = np.asarray(valid_mask).astype(bool, copy=False)
+        if vm.shape != f.shape:
+            raise ValueError(f"valid_mask shape {vm.shape} does not match frames shape {f.shape}")
+        mask = vm.copy()
+    else:
+        mask = np.ones_like(f, dtype=bool)
+
+    base_valid = mask.copy()
+    total_samples = float(base_valid.sum(dtype=np.int64))
+    if total_samples <= 0.0:
+        clipped_mean = np.zeros(f.shape[1:], dtype=np.float32)
+        stats: Dict[str, Any] = {
+            "frames": n_frames,
+            "iterations": 0,
+            "kept_fraction": 0.0,
+            "rejected_fraction": 0.0,
+            "min_fraction": float(cfg.min_fraction),
+            "sigma_low": float(cfg.sigma_low),
+            "sigma_high": float(cfg.sigma_high),
+            "error": "no valid samples (valid_mask is empty)",
+        }
+        return clipped_mean, mask, stats
+
     last_mask_sum = mask.sum(dtype=np.int64)
 
     for it in range(int(cfg.max_iters)):
@@ -136,14 +159,16 @@ def sigma_clip_stack_nd(
 
     # Where fewer than min_fraction of frames survived, fall back to the
     # simple mean over all frames (no rejection) to preserve linearity.
-    frac = counts_final.astype("float32") / float(n_frames)
+    counts_base = base_valid.sum(axis=0)
+    frac = counts_final.astype("float32") / np.maximum(counts_base.astype("float32"), 1.0)
     fallback_mask = frac < float(cfg.min_fraction)
     if np.any(fallback_mask):
-        full_mean = f.mean(axis=0)
+        counts_safe_base = np.maximum(counts_base, 1)
+        full_mean = f.sum(axis=0, where=base_valid) / counts_safe_base
         # Broadcast-safe assignment: only replace positions that failed.
         clipped_mean = np.where(fallback_mask, full_mean, clipped_mean)
 
-    rejected = (~mask).sum(dtype=np.int64)
+    rejected = (~mask & base_valid).sum(dtype=np.int64)
     stats: Dict[str, Any] = {
         "frames": n_frames,
         "iterations": int(cfg.max_iters),
@@ -157,7 +182,7 @@ def sigma_clip_stack_nd(
     return clipped_mean.astype("float32", copy=False), mask, stats
 
 
-def simple_mean_stack_nd(frames: np.ndarray) -> np.ndarray:
+def simple_mean_stack_nd(frames: np.ndarray, valid_mask: Optional[np.ndarray] = None) -> np.ndarray:
     """Compute an unweighted mean over frames along axis 0.
 
     This is used for the default "linear" stacking path where no rejection
@@ -167,4 +192,12 @@ def simple_mean_stack_nd(frames: np.ndarray) -> np.ndarray:
     f = np.asarray(frames).astype("float32", copy=False)
     if f.ndim < 2:
         raise ValueError("simple_mean_stack_nd expects an array of shape (N, ...) with N>=1")
-    return f.mean(axis=0).astype("float32", copy=False)
+    if valid_mask is None:
+        return f.mean(axis=0).astype("float32", copy=False)
+    vm = np.asarray(valid_mask).astype(bool, copy=False)
+    if vm.shape != f.shape:
+        raise ValueError(f"valid_mask shape {vm.shape} does not match frames shape {f.shape}")
+    counts = vm.sum(axis=0)
+    counts_safe = np.maximum(counts, 1)
+    out = f.sum(axis=0, where=vm) / counts_safe
+    return out.astype("float32", copy=False)
