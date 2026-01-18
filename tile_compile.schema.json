@@ -139,6 +139,9 @@
         "registered_filename_pattern": { "type": "string", "minLength": 1 },
         "min_star_matches": { "type": "integer", "minimum": 1 },
         "allow_rotation": { "type": "boolean" },
+        "border_mode": { "type": "string" },
+        "border_value": { "type": "number" },
+        "expand_canvas": { "type": "boolean" },
         "siril_script": {
           "type": "string",
           "default": "",
@@ -147,29 +150,29 @@
       }
     },
 
-    "tile_denoising": {
+    "wiener_denoise": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Tile-based noise filtering using highpass + soft-threshold (uses tile_size from tile_generation)",
+      "description": "Wiener filter on reconstructed tiles (after reconstruction, before overlap-add). See doc/Wiener denoise.md",
       "properties": {
         "enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable tile-based noise filtering"
+          "description": "Enable Wiener filter on reconstructed tiles (linear, MSE-optimal)"
         },
-        "kernel_size": {
-          "type": "integer",
-          "minimum": 3,
-          "maximum": 63,
-          "default": 15,
-          "description": "Box blur kernel size for background estimation (odd)"
-        },
-        "alpha": {
+        "snr_threshold": {
           "type": "number",
-          "minimum": 0.5,
-          "maximum": 5.0,
-          "default": 2.0,
-          "description": "Threshold multiplier (threshold = alpha * robust_sigma)"
+          "minimum": 1.0,
+          "maximum": 20.0,
+          "default": 5.0,
+          "description": "SNR threshold - tiles with SNR >= this are not filtered"
+        },
+        "q_min": {
+          "type": "number",
+          "minimum": -3.0,
+          "maximum": 0.0,
+          "default": -0.5,
+          "description": "Minimum structure quality - tiles with Q_struct <= this are not filtered"
         }
       }
     },

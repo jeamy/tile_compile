@@ -58,13 +58,16 @@ registration:
   reference: auto
   allow_rotation: true   
   min_star_matches: 20   
+  border_mode: constant  # replicate | reflect | constant | median
+  border_value: 0.0
+  expand_canvas: true
   output_dir: registered
   registered_filename_pattern: "reg_{index:05d}.fit"
 
-tile_denoising:
+wiener_denoise:
   enabled: true
-  kernel_size: 31
-  alpha: 1.5
+  snr_threshold: 5.0
+  q_min: -0.5
 
 global_metrics:
   weights:

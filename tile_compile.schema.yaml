@@ -228,6 +228,21 @@ registration:
     required: true
     editable: true
 
+  border_mode:
+    type: string
+    required: false
+    editable: true
+
+  border_value:
+    type: number
+    required: false
+    editable: true
+
+  expand_canvas:
+    type: boolean
+    required: false
+    editable: true
+
   siril_script:
     type: string
     required: false
@@ -235,35 +250,36 @@ registration:
     description: "Custom Siril script path (empty = use default)"
 
 # ============================================================
-# TILE DENOISING
-# Tile-basierte Rauschunterdrückung mit Soft-Threshold
+# WIENER TILE DENOISING
+# Wiener-Filter auf rekonstruierten Tiles (nach Tile-Rekonstruktion, vor Overlap-Add)
+# Siehe doc/Wiener denoise.md für normative Spezifikation
 # ============================================================
 
-tile_denoising:
+wiener_denoise:
   enabled:
     type: boolean
     default: false
     required: false
     editable: true
-    description: "Enable tile-based noise filtering (uses tile_size from tile_generation)"
+    description: "Enable Wiener filter on reconstructed tiles (linear, MSE-optimal)"
 
-  kernel_size:
-    type: integer
-    min: 3
-    max: 63
-    default: 15
-    required: false
-    editable: true
-    description: "Box blur kernel size for background estimation (odd)"
-
-  alpha:
+  snr_threshold:
     type: number
-    min: 0.5
-    max: 5.0
-    default: 2.0
+    min: 1.0
+    max: 20.0
+    default: 5.0
     required: false
     editable: true
-    description: "Threshold multiplier (threshold = alpha * robust_sigma)"
+    description: "SNR threshold - tiles with SNR >= this are not filtered"
+
+  q_min:
+    type: number
+    min: -3.0
+    max: 0.0
+    default: -0.5
+    required: false
+    editable: true
+    description: "Minimum structure quality - tiles with Q_struct <= this are not filtered"
 
 # ============================================================
 # GLOBALE FRAME-METRIKEN

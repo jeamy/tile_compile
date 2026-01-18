@@ -2,6 +2,69 @@ import numpy as np
 from typing import Dict, List, Tuple, Any, Optional
 
 
+def wiener_tile_filter(
+    tile: np.ndarray,
+    sigma: float,
+    *,
+    snr_tile: float,
+    q_struct_tile: float,
+    is_star_tile: bool,
+    snr_threshold: float = 5.0,
+    q_min: float = -0.5,
+    eps: float = 1e-12
+) -> np.ndarray:
+    """Apply Wiener filter to a reconstructed tile.
+    
+    This is a linear, MSE-optimal noise reduction filter applied ONLY to
+    reconstructed tiles (after tile reconstruction, before overlap-add).
+    See doc/Wiener denoise.md for normative specification.
+    
+    Args:
+        tile: Reconstructed tile (2D array)
+        sigma: Noise estimate for the tile
+        snr_tile: Signal-to-noise ratio of the tile
+        q_struct_tile: Structure quality metric of the tile
+        is_star_tile: Whether tile contains significant star signal
+        snr_threshold: Tiles with SNR >= this are not filtered (default 5.0)
+        q_min: Tiles with Q_struct <= this are not filtered (default -0.5)
+        eps: Numerical stability epsilon (default 1e-12)
+    
+    Returns:
+        Filtered tile (or original if filtering conditions not met)
+    """
+    if is_star_tile:
+        return tile
+    if snr_tile >= snr_threshold:
+        return tile
+    if q_struct_tile <= q_min:
+        return tile
+
+    t = np.asarray(tile, dtype=np.float64)
+    h, w = t.shape
+    
+    # Symmetric padding to reduce edge artifacts
+    pad_h, pad_w = h // 4, w // 4
+    padded = np.pad(t, ((pad_h, pad_h), (pad_w, pad_w)), mode='symmetric')
+    
+    # FFT
+    F = np.fft.fft2(padded)
+    
+    # Wiener filter: H(k) = max(|F(k)|² - σ², 0) / |F(k)|²
+    power = np.abs(F) ** 2
+    sigma_sq = sigma * sigma
+    H = np.maximum(power - sigma_sq, 0.0) / np.maximum(power, eps)
+    H = np.clip(H, 0.0, 1.0)
+    
+    # Apply filter and inverse FFT
+    F_filtered = H * F
+    filtered = np.real(np.fft.ifft2(F_filtered))
+    
+    # Crop back to original size
+    result = filtered[pad_h:pad_h + h, pad_w:pad_w + w]
+    
+    return result.astype(np.float32, copy=False)
+
+
 def _normalize_metric(values: np.ndarray) -> np.ndarray:
     """Normalize metric values to z-scores (mean=0, std=1)."""
     mean = np.mean(values)
@@ -9,33 +72,6 @@ def _normalize_metric(values: np.ndarray) -> np.ndarray:
     if std < 1e-12:
         return np.zeros_like(values)
     return (values - mean) / std
-
-
-def denoise_frame_tiled(
-    img: np.ndarray,
-    tile_size: int = 64,
-    overlap: float = 0.25,
-    k: int = 15,
-    alpha: float = 2.0
-) -> np.ndarray:
-    """Denoise an image tile-by-tile with overlap blending.
-    
-    Each tile is denoised independently with its own local noise estimate,
-    then tiles are blended together using linear weights in overlap regions.
-    This allows adaptive noise filtering that respects local signal characteristics.
-    
-    Args:
-        img: Input 2D image array
-        tile_size: Size of each tile (default 64)
-        overlap: Overlap fraction between tiles (default 0.25)
-        k: Box blur kernel size for tile background estimation (default 15)
-        alpha: Threshold multiplier (threshold = alpha * robust_sigma, default 2.0)
-    
-    Returns:
-        Denoised image as float32 array
-    """
-    calc = TileMetricsCalculator(tile_size=tile_size, overlap=overlap)
-    return calc.denoise_frame_tiled(img, k=k, alpha=alpha)
 
 
 def _clamp(x: np.ndarray, lo: float = -3.0, hi: float = 3.0) -> np.ndarray:
@@ -177,97 +213,45 @@ class TileMetricsCalculator:
         s = ii[np.ix_(y1, x1)] - ii[np.ix_(y0, x1)] - ii[np.ix_(y1, x0)] + ii[np.ix_(y0, x0)]
         return (s / float(k * k)).astype(np.float32, copy=False)
 
-    @staticmethod
-    def _soft_threshold(x: np.ndarray, t: float) -> np.ndarray:
-        return np.sign(x) * np.maximum(np.abs(x) - t, 0.0)
-
     def _tile_highpass(self, tile: np.ndarray) -> np.ndarray:
         t = tile.astype(np.float32, copy=False)
         bg = self._box_blur_same(t, 31)
         return (t - bg).astype(np.float32, copy=False)
 
-    def denoise_tile(self, tile: np.ndarray, k: int = 15, alpha: float = 2.0) -> np.ndarray:
-        """Denoise a single tile using highpass + soft-threshold.
-        
-        Args:
-            tile: Input tile (2D array, typically 64x64)
-            k: Box blur kernel size for background estimation (smaller for tiles)
-            alpha: Threshold multiplier (threshold = alpha * robust_sigma)
-        
-        Returns:
-            Denoised tile preserving stars/structures above threshold
-        """
-        t = np.asarray(tile, dtype=np.float32)
-        bg = self._box_blur_same(t, k)
-        resid = t - bg
-        sig = self._robust_sigma(resid)
-        thr = alpha * sig
-        resid_dn = self._soft_threshold(resid, thr)
-        return (bg + resid_dn).astype(np.float32, copy=False)
-
-    def denoise_frame_tiled(
+    def _tile_background_and_noise(
         self,
-        frame: np.ndarray,
-        k: int = 15,
-        alpha: float = 2.0
-    ) -> np.ndarray:
-        """Denoise a frame tile-by-tile with overlap blending.
-        
-        Each tile is denoised independently with its own local noise estimate,
-        then tiles are blended together using linear weights in overlap regions.
-        
-        Args:
-            frame: Input image (2D array)
-            k: Box blur kernel size for tile background estimation
-            alpha: Threshold multiplier (threshold = alpha * robust_sigma)
-        
-        Returns:
-            Denoised frame with per-tile adaptive noise filtering
-        """
-        h, w = frame.shape
-        out = np.zeros((h, w), dtype=np.float32)
-        weight = np.zeros((h, w), dtype=np.float32)
-        
-        step = int(self.tile_size * (1 - self.overlap))
-        
-        tile_weight = self._make_tile_weight(self.tile_size)
-        
-        for y in range(0, h - self.tile_size + 1, step):
-            for x in range(0, w - self.tile_size + 1, step):
-                tile = frame[y:y + self.tile_size, x:x + self.tile_size].astype(np.float32)
-                dn_tile = self.denoise_tile(tile, k=k, alpha=alpha)
-                out[y:y + self.tile_size, x:x + self.tile_size] += dn_tile * tile_weight
-                weight[y:y + self.tile_size, x:x + self.tile_size] += tile_weight
-        
-        mask = weight > 0
-        out[mask] /= weight[mask]
-        out[~mask] = frame[~mask]
-        return out.astype(np.float32, copy=False)
-
-    @staticmethod
-    def _make_tile_weight(size: int) -> np.ndarray:
-        """Create a 2D linear blend weight for tile overlap."""
-        x = np.linspace(0, 1, size // 2)
-        x = np.concatenate([x, x[::-1]])
-        if len(x) < size:
-            x = np.append(x, x[-1])
-        w = np.outer(x, x)
-        return w.astype(np.float32)
-
-    def _tile_background_and_noise(self, tile: np.ndarray) -> tuple[float, float, np.ndarray]:
+        tile: np.ndarray,
+        valid_mask: Optional[np.ndarray] = None,
+    ) -> tuple[float, float, np.ndarray]:
         t = tile.astype(np.float32, copy=False)
         resid = self._tile_highpass(t)
-        bg0 = float(np.median(t))
-        sigma0 = self._robust_sigma(resid)
+
+        if valid_mask is None:
+            bg0 = float(np.median(t))
+            sigma0 = self._robust_sigma(resid)
+            thr = bg0 + 3.0 * sigma0
+            m = t <= thr
+            if not np.any(m):
+                m = np.ones_like(t, dtype=bool)
+            bg = float(np.median(t[m]))
+            sig = self._robust_sigma(resid[m])
+            return bg, float(sig), resid
+
+        vm = np.asarray(valid_mask).astype(bool, copy=False)
+        if not np.any(vm):
+            return 0.0, 0.0, resid
+
+        bg0 = float(np.median(t[vm]))
+        sigma0 = self._robust_sigma(resid[vm])
         thr = bg0 + 3.0 * sigma0
-        m = t <= thr
+        m = (t <= thr) & vm
         if not np.any(m):
-            m = np.ones_like(t, dtype=bool)
+            m = vm
         bg = float(np.median(t[m]))
         sig = self._robust_sigma(resid[m])
         return bg, float(sig), resid
     
-    def calculate_tile_metrics(self, frame: np.ndarray) -> Dict[str, List[float]]:
+    def calculate_tile_metrics(self, frame: np.ndarray, valid_mask: Optional[np.ndarray] = None) -> Dict[str, List[float]]:
         """Calculate metrics for each tile in a frame.
 
         The returned dictionary contains per-tile lists for:
@@ -278,7 +262,12 @@ class TileMetricsCalculator:
         - noise_level:     local noise σ (std)
         - gradient_energy: local gradient energy E (per Methodik v3 §3.4 / Anhang A.3)
         """
-        tiles = self._generate_tiles(frame)
+        f = np.asarray(frame, dtype=np.float32)
+        vm = None
+        if valid_mask is not None:
+            vm = np.asarray(valid_mask).astype(bool, copy=False)
+            if vm.shape != f.shape:
+                raise ValueError(f"valid_mask shape {vm.shape} does not match frame shape {f.shape}")
         
         tile_metrics: Dict[str, List[float]] = {
             'fwhm': [],            # Full Width at Half Maximum
@@ -289,19 +278,25 @@ class TileMetricsCalculator:
             'gradient_energy': [], # Local gradient energy E
         }
         
-        for tile in tiles:
-            tile_fwhm = self._calculate_fwhm(tile)
-            tile_round = self._calculate_roundness(tile)
-            tile_con = self._calculate_contrast(tile)
-            tile_bg, tile_noise, resid = self._tile_background_and_noise(tile)
-            tile_E = float(self._calculate_gradient_energy(resid))
+        h, w = f.shape
+        step = int(self.tile_size * (1 - self.overlap))
+        for y in range(0, h - self.tile_size + 1, step):
+            for x in range(0, w - self.tile_size + 1, step):
+                tile = f[y : y + self.tile_size, x : x + self.tile_size]
+                tile_vm = vm[y : y + self.tile_size, x : x + self.tile_size] if vm is not None else None
 
-            tile_metrics['fwhm'].append(tile_fwhm)
-            tile_metrics['roundness'].append(tile_round)
-            tile_metrics['contrast'].append(tile_con)
-            tile_metrics['background_level'].append(tile_bg)
-            tile_metrics['noise_level'].append(tile_noise)
-            tile_metrics['gradient_energy'].append(tile_E)
+                tile_fwhm = self._calculate_fwhm(tile, tile_vm)
+                tile_round = self._calculate_roundness(tile, tile_vm)
+                tile_con = self._calculate_contrast(tile, tile_vm)
+                tile_bg, tile_noise, resid = self._tile_background_and_noise(tile, tile_vm)
+                tile_E = float(self._calculate_gradient_energy(resid, tile_vm))
+
+                tile_metrics['fwhm'].append(tile_fwhm)
+                tile_metrics['roundness'].append(tile_round)
+                tile_metrics['contrast'].append(tile_con)
+                tile_metrics['background_level'].append(tile_bg)
+                tile_metrics['noise_level'].append(tile_noise)
+                tile_metrics['gradient_energy'].append(tile_E)
         
         return tile_metrics
 
@@ -318,38 +313,62 @@ class TileMetricsCalculator:
         
         return tiles
     
-    def _calculate_fwhm(self, tile: np.ndarray) -> float:
+    def _calculate_fwhm(self, tile: np.ndarray, valid_mask: Optional[np.ndarray] = None) -> float:
         """
         Estimate Full Width at Half Maximum
         """
-        # Simplified FWHM estimation
-        peak = np.max(tile)
+        t = tile.astype(np.float32, copy=False)
+        if valid_mask is not None:
+            vm = np.asarray(valid_mask).astype(bool, copy=False)
+            if not np.any(vm):
+                return 0.0
+            peak = float(np.max(t[vm]))
+        else:
+            peak = float(np.max(t))
         half_max = peak / 2
         
         # Count pixels above half max
-        above_half_max = np.sum(tile >= half_max)
+        if valid_mask is not None:
+            vm = np.asarray(valid_mask).astype(bool, copy=False)
+            above_half_max = int(np.sum((t >= half_max) & vm))
+        else:
+            above_half_max = int(np.sum(t >= half_max))
         return np.sqrt(above_half_max / np.pi)
     
-    def _calculate_roundness(self, tile: np.ndarray) -> float:
+    def _calculate_roundness(self, tile: np.ndarray, valid_mask: Optional[np.ndarray] = None) -> float:
         """
         Calculate star roundness
         """
-        # Simplified roundness metric
-        max_val = np.max(tile)
-        max_indices = np.argwhere(tile == max_val)
+        t = tile.astype(np.float32, copy=False)
+        if valid_mask is not None:
+            vm = np.asarray(valid_mask).astype(bool, copy=False)
+            if not np.any(vm):
+                return 0.0
+            max_val = float(np.max(t[vm]))
+            max_indices = np.argwhere((t == max_val) & vm)
+        else:
+            max_val = float(np.max(t))
+            max_indices = np.argwhere(t == max_val)
         
         # Compute spread of maximum points
         spread = np.std(max_indices, axis=0)
         return 1 / (1 + spread.mean())
     
-    def _calculate_contrast(self, tile: np.ndarray) -> float:
+    def _calculate_contrast(self, tile: np.ndarray, valid_mask: Optional[np.ndarray] = None) -> float:
         """Calculate local contrast."""
         t = tile.astype(np.float32, copy=False)
-        t_max = float(np.max(t))
-        t_min = float(np.min(t))
+        if valid_mask is not None:
+            vm = np.asarray(valid_mask).astype(bool, copy=False)
+            if not np.any(vm):
+                return 0.0
+            t_max = float(np.max(t[vm]))
+            t_min = float(np.min(t[vm]))
+        else:
+            t_max = float(np.max(t))
+            t_min = float(np.min(t))
         return (t_max - t_min) / (t_max + t_min + 1e-8)
 
-    def _calculate_gradient_energy(self, tile: np.ndarray) -> float:
+    def _calculate_gradient_energy(self, tile: np.ndarray, valid_mask: Optional[np.ndarray] = None) -> float:
         """Calculate local gradient energy E for a tile.
 
         Per Methodik v3 Anhang A.3 wird E typischerweise als Mittelwert von
@@ -360,7 +379,15 @@ class TileMetricsCalculator:
         t = tile.astype(np.float32, copy=False)
         gy, gx = np.gradient(t)
         grad_sq = gx * gx + gy * gy
-        return float(np.mean(grad_sq))
+        if valid_mask is None:
+            return float(np.mean(grad_sq))
+        vm = np.asarray(valid_mask).astype(bool, copy=False)
+        if not np.any(vm):
+            return 0.0
+        vm2 = vm & np.roll(vm, 1, axis=0) & np.roll(vm, -1, axis=0) & np.roll(vm, 1, axis=1) & np.roll(vm, -1, axis=1)
+        if not np.any(vm2):
+            return float(np.mean(grad_sq[vm]))
+        return float(np.mean(grad_sq[vm2]))
 
 def compute_channel_metrics(channels: Dict[str, List[np.ndarray]]) -> Dict[str, Dict]:
     """
