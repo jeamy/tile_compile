@@ -1705,124 +1705,134 @@ def run_phases_impl(
         # ref-1 -> ref, ref-2 -> ref-1, ... (backward chain)
         # ref+1 -> ref, ref+2 -> ref+1, ... (forward chain)
         
-        frame_data: List[tuple[Path, np.ndarray, Any]] = []  # (path, lum01, header)
-        total_prep = max(1, len(frames))
-        for i, p in enumerate(frames):
+        print(f"[INFO] Chain registration: {len(frames)} frames, reference at index {ref_idx}")
+
+        def _compose_affine(step_warp: np.ndarray, prev_warp: np.ndarray) -> np.ndarray:
+            step_3x3 = np.vstack([step_warp, [0, 0, 1]])
+            prev_3x3 = np.vstack([prev_warp, [0, 0, 1]])
+            composed_3x3 = step_3x3 @ prev_3x3
+            return composed_3x3[:2, :].astype(np.float32)
+
+        def _load_clean_and_lum01(p: Path) -> tuple[np.ndarray, np.ndarray, Any]:
+            data = fits.getdata(str(p), ext=0)
+            if data is None:
+                raise RuntimeError("failed to read FITS data")
+            hdr = fits.getheader(str(p), ext=0)
+            mosaic = np.asarray(data)
+            mosaic_clean = cosmetic_correction(mosaic, sigma_threshold=8.0, hot_only=True)
+            lum = cfa_downsample_sum2x2(mosaic_clean)
+            lum01 = opencv_prepare_ecc_image(lum)
+            del data, mosaic
+            return mosaic_clean, lum01, hdr
+
+        identity_warp = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+        corrs: List[float] = [1.0]
+
+        # Apply accumulated warps and save registered frames
+        registered_count = 0
+        total_write = max(1, len(frames))
+        processed = 0
+
+        # Prepare reference
+        try:
+            ref_mosaic_clean, ref_lum01, ref_hdr = _load_clean_and_lum01(ref_path)
+        except Exception as e:
+            phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {"error": "failed to load reference frame", "frame": str(ref_path), "details": str(e)},
+            )
+            return False
+
+        try:
+            dst_name = reg_pattern.format(index=ref_idx + 1)
+        except Exception:
+            dst_name = f"reg_{ref_idx + 1:05d}.fit"
+        dst_path = reg_out / dst_name
+        fits.writeto(str(dst_path), ref_mosaic_clean.astype("float32", copy=False), header=ref_hdr, overwrite=True)
+        registered_count += 1
+        processed += 1
+        del ref_mosaic_clean
+
+        # Backward chain: ref-1, ref-2, ...
+        warp_next = identity_warp
+        lum_next01 = ref_lum01
+        for i in range(ref_idx - 1, -1, -1):
+            if processed % 10 == 0 or processed == total_write:
+                phase_progress(run_id, log_fp, phase_id, phase_name, processed, total_write, {"substep": "write_registered"})
             try:
-                if (i + 1) % 10 == 0 or (i + 1) == total_prep:
-                    phase_progress(run_id, log_fp, phase_id, phase_name, i + 1, total_prep, {"substep": "prepare_luminance"})
-                data = fits.getdata(str(p), ext=0)
-                if data is None:
-                    continue
-                hdr = fits.getheader(str(p), ext=0)
-                mosaic = np.asarray(data)
-                mosaic_clean = cosmetic_correction(mosaic, sigma_threshold=8.0, hot_only=True)
-                lum = cfa_downsample_sum2x2(mosaic_clean)
-                lum01 = opencv_prepare_ecc_image(lum)
+                mosaic_clean, lum01, hdr = _load_clean_and_lum01(frames[i])
                 stars = opencv_count_stars(lum01)
                 if stars < max(1, min_star_matches_i):
                     print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
-                frame_data.append((p, lum01, hdr))
-                del data, mosaic, mosaic_clean
+                init = opencv_best_translation_init(lum01, lum_next01)
+                try:
+                    step_warp, cc = opencv_ecc_warp(lum01, lum_next01, allow_rotation=allow_rotation, init_warp=init)
+                except Exception as ex:
+                    step_warp, cc = init, 0.0
+                    print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
+                if not np.isfinite(cc) or cc < 0.15:
+                    step_warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
+                warp_i = _compose_affine(step_warp, warp_next)
+                warped = warp_cfa_mosaic_via_subplanes(mosaic_clean, warp_i)
+                try:
+                    dst_name = reg_pattern.format(index=i + 1)
+                except Exception:
+                    dst_name = f"reg_{i + 1:05d}.fit"
+                dst_path = reg_out / dst_name
+                fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                registered_count += 1
+                processed += 1
+                corrs.append(float(cc))
+                warp_next = warp_i
+                lum_next01 = lum01
+                del mosaic_clean, lum01, hdr, warped
             except Exception as e:
-                print(f"[WARN] Frame {i}: failed to load: {e}")
+                print(f"[WARN] Frame {i}: failed to register: {e}")
                 continue
-        
-        if len(frame_data) < 2:
-            phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "insufficient valid frames for registration", "valid_frames": len(frame_data)})
-            return False
-        
-        # Find reference index in filtered frame_data
-        ref_idx_filtered = -1
-        for i, (p, _, _) in enumerate(frame_data):
-            if p == ref_path:
-                ref_idx_filtered = i
-                break
-        if ref_idx_filtered < 0:
-            ref_idx_filtered = len(frame_data) // 2
-        
-        print(f"[INFO] Chain registration: {len(frame_data)} valid frames, reference at filtered index {ref_idx_filtered}")
-        
-        # Compute accumulated warps using chain registration
-        # warp[i] transforms frame i to reference frame coordinate system
-        identity_warp = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
-        accumulated_warps: List[np.ndarray] = [identity_warp.copy() for _ in frame_data]
-        corrs: List[float] = [0.0] * len(frame_data)
-        corrs[ref_idx_filtered] = 1.0
-        
-        # Backward chain: ref-1, ref-2, ...
-        for i in range(ref_idx_filtered - 1, -1, -1):
-            prev_lum01 = frame_data[i + 1][1]
-            curr_lum01 = frame_data[i][1]
-            init = opencv_best_translation_init(curr_lum01, prev_lum01)
-            try:
-                step_warp, cc = opencv_ecc_warp(curr_lum01, prev_lum01, allow_rotation=allow_rotation, init_warp=init)
-            except Exception as ex:
-                step_warp, cc = init, 0.0
-                print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
-            if not np.isfinite(cc) or cc < 0.15:
-                step_warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
-            # Accumulate: warp[i] = step_warp composed with warp[i+1]
-            # For 2x3 affine: compose by matrix multiplication
-            prev_warp = accumulated_warps[i + 1]
-            # Convert to 3x3 for composition
-            step_3x3 = np.vstack([step_warp, [0, 0, 1]])
-            prev_3x3 = np.vstack([prev_warp, [0, 0, 1]])
-            composed_3x3 = step_3x3 @ prev_3x3
-            accumulated_warps[i] = composed_3x3[:2, :].astype(np.float32)
-            corrs[i] = float(cc)
-            print(f"[DEBUG] Chain backward {i}: step_cc={cc:.4f}")
-        
+
         # Forward chain: ref+1, ref+2, ...
-        for i in range(ref_idx_filtered + 1, len(frame_data)):
-            prev_lum01 = frame_data[i - 1][1]
-            curr_lum01 = frame_data[i][1]
-            init = opencv_best_translation_init(curr_lum01, prev_lum01)
+        warp_prev = identity_warp
+        lum_prev01 = ref_lum01
+        for i in range(ref_idx + 1, len(frames)):
+            if processed % 10 == 0 or processed == total_write:
+                phase_progress(run_id, log_fp, phase_id, phase_name, processed, total_write, {"substep": "write_registered"})
             try:
-                step_warp, cc = opencv_ecc_warp(curr_lum01, prev_lum01, allow_rotation=allow_rotation, init_warp=init)
-            except Exception as ex:
-                step_warp, cc = init, 0.0
-                print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
-            if not np.isfinite(cc) or cc < 0.15:
-                step_warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
-            # Accumulate: warp[i] = step_warp composed with warp[i-1]
-            prev_warp = accumulated_warps[i - 1]
-            step_3x3 = np.vstack([step_warp, [0, 0, 1]])
-            prev_3x3 = np.vstack([prev_warp, [0, 0, 1]])
-            composed_3x3 = step_3x3 @ prev_3x3
-            accumulated_warps[i] = composed_3x3[:2, :].astype(np.float32)
-            corrs[i] = float(cc)
-            print(f"[DEBUG] Chain forward {i}: step_cc={cc:.4f}")
-        
-        # Apply accumulated warps and save registered frames
-        registered_count = 0
-        total_write = max(1, len(frame_data))
-        for i, (p, _lum01, src_hdr) in enumerate(frame_data):
-            if (i + 1) % 10 == 0 or (i + 1) == total_write:
-                phase_progress(run_id, log_fp, phase_id, phase_name, i + 1, total_write, {"substep": "write_registered"})
-            warp = accumulated_warps[i]
-            try:
-                data = fits.getdata(str(p), ext=0)
-            except Exception:
+                mosaic_clean, lum01, hdr = _load_clean_and_lum01(frames[i])
+                stars = opencv_count_stars(lum01)
+                if stars < max(1, min_star_matches_i):
+                    print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
+                init = opencv_best_translation_init(lum01, lum_prev01)
+                try:
+                    step_warp, cc = opencv_ecc_warp(lum01, lum_prev01, allow_rotation=allow_rotation, init_warp=init)
+                except Exception as ex:
+                    step_warp, cc = init, 0.0
+                    print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
+                if not np.isfinite(cc) or cc < 0.15:
+                    step_warp, cc = init, float(cc if np.isfinite(cc) else 0.0)
+                warp_i = _compose_affine(step_warp, warp_prev)
+                warped = warp_cfa_mosaic_via_subplanes(mosaic_clean, warp_i)
+                try:
+                    dst_name = reg_pattern.format(index=i + 1)
+                except Exception:
+                    dst_name = f"reg_{i + 1:05d}.fit"
+                dst_path = reg_out / dst_name
+                fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                registered_count += 1
+                processed += 1
+                corrs.append(float(cc))
+                warp_prev = warp_i
+                lum_prev01 = lum01
+                del mosaic_clean, lum01, hdr, warped
+            except Exception as e:
+                print(f"[WARN] Frame {i}: failed to register: {e}")
                 continue
-            if data is None:
-                continue
-            mosaic = np.asarray(data)
-            mosaic_clean = cosmetic_correction(mosaic, sigma_threshold=8.0, hot_only=True)
-            if i == ref_idx_filtered:
-                warped = mosaic_clean.astype("float32", copy=False)
-                print(f"[DEBUG] Frame {i} is REFERENCE")
-            else:
-                warped = warp_cfa_mosaic_via_subplanes(mosaic_clean, warp)
-            
-            try:
-                dst_name = reg_pattern.format(index=registered_count + 1)
-            except Exception:
-                dst_name = f"reg_{registered_count + 1:05d}.fit"
-            dst_path = reg_out / dst_name
-            fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=src_hdr, overwrite=True)
-            registered_count += 1
-            del data, mosaic, mosaic_clean, warped
+
+        if processed < total_write:
+            phase_progress(run_id, log_fp, phase_id, phase_name, min(processed, total_write), total_write, {"substep": "write_registered"})
 
         extra: Dict[str, Any] = {
             "engine": "opencv_cfa",

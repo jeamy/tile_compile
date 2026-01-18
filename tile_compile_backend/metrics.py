@@ -110,6 +110,63 @@ class TileMetricsCalculator:
     def __init__(self, tile_size: int = 64, overlap: float = 0.25):
         self.tile_size = tile_size
         self.overlap = overlap
+
+    @staticmethod
+    def _robust_sigma(x: np.ndarray) -> float:
+        x = np.asarray(x, dtype=np.float32)
+        if x.size <= 0:
+            return 0.0
+        med = float(np.median(x))
+        mad = float(np.median(np.abs(x - med)))
+        sig = 1.4826 * mad
+        if not np.isfinite(sig) or sig < 1e-12:
+            sig = float(np.std(x))
+        return float(sig)
+
+    @staticmethod
+    def _box_blur_same(t: np.ndarray, k: int) -> np.ndarray:
+        t = np.asarray(t, dtype=np.float32)
+        h, w = t.shape
+        k = int(k)
+        if k < 3:
+            k = 3
+        if (k % 2) == 0:
+            k += 1
+        max_k = min(h, w)
+        if (max_k % 2) == 0:
+            max_k -= 1
+        if max_k < 3:
+            return t
+        if k > max_k:
+            k = max_k
+        pad = k // 2
+        a = np.pad(t, ((pad, pad), (pad, pad)), mode='reflect')
+        ii = np.cumsum(np.cumsum(a, axis=0), axis=1)
+        ii = np.pad(ii, ((1, 0), (1, 0)), mode='constant')
+        y0 = np.arange(0, h)
+        x0 = np.arange(0, w)
+        y1 = y0 + k
+        x1 = x0 + k
+        s = ii[np.ix_(y1, x1)] - ii[np.ix_(y0, x1)] - ii[np.ix_(y1, x0)] + ii[np.ix_(y0, x0)]
+        return (s / float(k * k)).astype(np.float32, copy=False)
+
+    def _tile_highpass(self, tile: np.ndarray) -> np.ndarray:
+        t = tile.astype(np.float32, copy=False)
+        bg = self._box_blur_same(t, 31)
+        return (t - bg).astype(np.float32, copy=False)
+
+    def _tile_background_and_noise(self, tile: np.ndarray) -> tuple[float, float, np.ndarray]:
+        t = tile.astype(np.float32, copy=False)
+        resid = self._tile_highpass(t)
+        bg0 = float(np.median(t))
+        sigma0 = self._robust_sigma(resid)
+        thr = bg0 + 3.0 * sigma0
+        m = t <= thr
+        if not np.any(m):
+            m = np.ones_like(t, dtype=bool)
+        bg = float(np.median(t[m]))
+        sig = self._robust_sigma(resid[m])
+        return bg, float(sig), resid
     
     def calculate_tile_metrics(self, frame: np.ndarray) -> Dict[str, List[float]]:
         """Calculate metrics for each tile in a frame.
@@ -137,9 +194,8 @@ class TileMetricsCalculator:
             tile_fwhm = self._calculate_fwhm(tile)
             tile_round = self._calculate_roundness(tile)
             tile_con = self._calculate_contrast(tile)
-            tile_bg = float(np.median(tile))
-            tile_noise = float(np.std(tile))
-            tile_E = float(self._calculate_gradient_energy(tile))
+            tile_bg, tile_noise, resid = self._tile_background_and_noise(tile)
+            tile_E = float(self._calculate_gradient_energy(resid))
 
             tile_metrics['fwhm'].append(tile_fwhm)
             tile_metrics['roundness'].append(tile_round)
