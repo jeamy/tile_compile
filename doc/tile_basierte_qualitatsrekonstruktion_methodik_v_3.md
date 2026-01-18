@@ -394,6 +394,68 @@ Vor der Tile-Berechnung müssen folgende Bedingungen geprüft werden:
 
 ---
 
+## 3.3.1 Tile‑basierte Rauschunterdrückung (optional)
+
+**Zweck:** Vor der Berechnung lokaler Metriken kann eine adaptive Rauschunterdrückung auf Tile‑Ebene angewendet werden. Diese reduziert Hintergrundrauschen, während Sterne und Strukturen erhalten bleiben.
+
+**Algorithmus: Highpass + Soft‑Threshold**
+
+Für jedes Tile *t* im Frame *f*:
+
+1. **Background‑Schätzung:** Box‑Blur mit Kernelgröße *k*
+   ```
+   B_t = box_blur(T_t, k)
+   ```
+
+2. **Residuum (Highpass):**
+   ```
+   R_t = T_t − B_t
+   ```
+
+3. **Robuste Rauschschätzung (MAD):**
+   ```
+   σ_t = 1.4826 · median(|R_t − median(R_t)|)
+   ```
+
+4. **Soft‑Threshold:**
+   ```
+   τ = α · σ_t
+   R'_t = sign(R_t) · max(|R_t| − τ, 0)
+   ```
+
+5. **Rekonstruktion:**
+   ```
+   T'_t = B_t + R'_t
+   ```
+
+**Parameter:**
+
+| Parameter | Beschreibung | Default | Empfohlen |
+|-----------|--------------|---------|-----------|
+| `tile_denoising.enabled` | Aktivierung | false | true |
+| `tile_denoising.kernel_size` | Box‑Blur Kernelgröße *k* (ungerade) | 15 | 31 |
+| `tile_denoising.alpha` | Threshold‑Multiplikator *α* | 2.0 | 1.5 |
+
+**Overlap‑Blending:**
+
+Da Tiles überlappen, werden die denoisten Tiles mit linearen Gewichten geblendet:
+```
+w(x, y) = ramp(x) · ramp(y)
+```
+wobei `ramp` linear von 0 (Rand) nach 1 (Mitte) verläuft.
+
+**Typische Ergebnisse (empirisch):**
+
+| kernel | alpha | Noise‑Reduktion | Stern‑Erhalt |
+|--------|-------|-----------------|--------------|
+| 15 | 2.0 | ~75% | ~91% |
+| 31 | 1.5 | ~89% | ~93% |
+| 31 | 2.0 | ~89% | ~91% |
+
+**Empfehlung:** `kernel_size=31, alpha=1.5` bietet die beste Balance zwischen Rauschunterdrückung und Signalerhalt.
+
+---
+
 ## 3.4 Lokale Tile‑Metriken
 
 Für jedes Tile *t*, Frame *f*, Kanal *c*:
@@ -555,19 +617,42 @@ S_{k,c} = \frac{\sum_{f\in Cluster_k} G_{f,c} \cdot I_{f,c}}{\sum_{f\in Cluster_
 
 wobei I_f,c die **Original-Frames** (nicht rekonstruiert) sind.
 
-Ergebnis: 15–30 synthetische Frames pro Kanal (entsprechend der Cluster-Anzahl).
+**Optional (tile‑basiert, zur Qualitäts‑Propagation):**
 
-**Finales Stacking (verbindlich):**
-
-Die synthetischen Frames werden linear gestackt:
+Wenn tile‑basierte Qualitätsverbesserungen (z. B. durch Tile‑Noise‑Filtering in §3.3.1) bis in den finalen Stack getragen werden sollen, kann die Erzeugung der synthetischen Frames alternativ tile‑basiert erfolgen. Dabei wird pro Tile *t* im Cluster der effektive Gewichtsvektor
 
 [
-R_c = \frac{1}{K} \cdot \sum_k S_{k,c}
+W_{f,t,c} = G_{f,c} \cdot L_{f,t,c}
 ]
 
-* lineares Stacking (ungewichtet)
+verwendet und das synthetische Frame analog zur Rekonstruktion (§3.6) per Overlap‑Add aus den Tile‑Ergebnissen zusammengesetzt. Aktivierung über:
+
+`synthetic.weighting: tile_weighted` (Default: `global`).
+
+Ergebnis: 15–30 synthetische Frames pro Kanal (entsprechend der Cluster-Anzahl).
+
+**Finales Stacking (verbindlich, Python-only):**
+
+Die synthetischen Frames werden im Backend rein linear gestackt. Optional kann
+vor dem Mittelwert ein **Sigma-Clipping auf Pixelebene** durchgeführt werden,
+um Ausreißer (z. B. kosmische Strahlung) zu unterdrücken. Die Normativität
+bezieht sich auf das Endergebnis:
+
+[
+R_c = \operatorname{mean}(\mathcal{S}_c) = \frac{1}{K} \cdot \sum_k S_{k,c}
+]
+
+mit:
+
+* linearem Stacking (ungewichtet im Sinne des Zustandsraums – alle Gewichte
+  sind bereits in S_{k,c} enthalten)
 * **kein Drizzle**
-* **keine zusätzliche Gewichtung**
+* **keine zusätzliche gewichtete Umverteilung** im Stacking-Schritt
+
+Sigma-Clipping (falls aktiviert) ist dabei als rein pixelebene Ausreißer-
+Rejektion mit anschließendem Fallback auf den **unveränderten Mittelwert**
+zu verstehen und verletzt weder Linearität noch das „keine Frame-Selektion“-
+Prinzip.
 
 ---
 

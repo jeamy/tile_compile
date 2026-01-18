@@ -15,7 +15,11 @@ class StateClustering:
         config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Perform state-based clustering of frames
+        Perform state-based clustering of frames.
+
+        Default behaviour follows Methodik v3 §3.7:
+        K = clip(floor(N/10), K_min, K_max), with K_min/K_max taken from
+        "cluster_count_range" or falling back to sensible defaults.
         
         Args:
             frames: List of input frames
@@ -29,26 +33,47 @@ class StateClustering:
         
         # Extract state vector features
         state_vectors = cls._compute_state_vectors(frames, metrics)
+        n_frames = int(state_vectors.shape[0])
         
         # Preprocessing
         scaler = StandardScaler()
         scaled_vectors = scaler.fit_transform(state_vectors)
         
-        # Clustering parameters
-        n_clusters = config.get('n_clusters', 20)
-        max_clusters = config.get('max_clusters', 30)
-        min_clusters = config.get('min_clusters', 15)
+        # Determine cluster count range (K_min, K_max)
+        range_cfg = config.get('cluster_count_range')
+        if isinstance(range_cfg, (list, tuple)) and len(range_cfg) == 2:
+            k_min, k_max = int(range_cfg[0]), int(range_cfg[1])
+        else:
+            # Backwards-compatible defaults if no explicit range is provided
+            k_min = int(config.get('min_clusters', 5))
+            k_max = int(config.get('max_clusters', 30))
         
-        # Adaptive cluster determination (optional)
-        best_clustering = cls._find_optimal_clustering(
-            scaled_vectors, 
-            min_clusters, 
-            max_clusters
-        )
+        k_min = max(1, k_min)
+        k_max = max(k_min, k_max)
+        
+        if n_frames <= 1:
+            final_n_clusters = 1
+            silhouette_score = -1.0
+        else:
+            # Methodik v3: K = clip(floor(N/10), K_min, K_max)
+            k_default = int(np.clip(n_frames // 10, k_min, k_max))
+            
+            if config.get('use_silhouette', False):
+                # Optional: refine K using silhouette score within [k_min, k_max]
+                best_clustering = cls._find_optimal_clustering(
+                    scaled_vectors, 
+                    k_min, 
+                    k_max,
+                )
+                final_n_clusters = int(best_clustering.get('n_clusters', k_default) or k_default)
+                silhouette_score = float(best_clustering.get('silhouette_score', -1.0))
+            else:
+                final_n_clusters = k_default
+                silhouette_score = -1.0
         
         # Perform clustering
         kmeans = KMeans(
-            n_clusters=best_clustering['n_clusters'], 
+            n_clusters=final_n_clusters, 
             n_init=10, 
             random_state=42
         )
@@ -64,8 +89,8 @@ class StateClustering:
             'cluster_labels': cluster_labels.tolist(),
             'cluster_centers': kmeans.cluster_centers_.tolist(),
             'cluster_stats': cluster_stats,
-            'n_clusters': best_clustering['n_clusters'],
-            'silhouette_score': best_clustering['silhouette_score']
+            'n_clusters': int(final_n_clusters),
+            'silhouette_score': float(silhouette_score)
         }
     
     @staticmethod

@@ -39,9 +39,9 @@ tiles = [                      # Tile-Grid
              ▼
 ┌─────────────────────────────────────────┐
 │  Tile-Cutout extrahieren                │
-│                                          │
-│  tile_data = I'_f,c[y:y+h, x:x+w]      │
-│                                          │
+│                                         │
+│  tile_data = I'_f,c[y:y+h, x:x+w]       │
+│                                         │
 │  Shape: (h, w) = (64, 64)               │
 └─────────────────────────────────────────┘
 ```
@@ -55,17 +55,94 @@ Gesamtbild (512×512):          Tile-Cutout (64×64):
 │                    │         │  ★       │
 │    ┌──────────┐    │         │     ★    │
 │    │  ★       │    │   →     │          │
-│    │     ★    │    │         │    ★     │
+│    │     ★    │    │         │    ★    │
 │    │          │    │         │          │
-│    │    ★     │    │         │  ★   ★   │
+│    │    ★     │    │         │  ★   ★  │
 │    │          │    │         │          │
-│    │  ★   ★   │    │         │      ★   │
+│    │  ★   ★   │    │        │      ★  │
 │    │          │    │         └──────────┘
 │    │      ★   │    │
 │    └──────────┘    │
 │                    │
 └────────────────────┘
 ```
+
+## Schritt 4.1.1: Tile-basierte Rauschunterdrückung (optional)
+
+Falls `tile_denoising.enabled = true`, wird vor der Metrik-Berechnung eine adaptive Rauschunterdrückung auf Tile-Ebene angewendet.
+
+### Algorithmus: Highpass + Soft-Threshold
+
+```
+┌─────────────────────────────────────────┐
+│  Tile T_t (z.B. 64×64)                  │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  1. Background-Schätzung                │
+│     B_t = box_blur(T_t, k)              │
+│     k = tile_denoising.kernel_size      │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  2. Residuum (Highpass)                 │
+│     R_t = T_t − B_t                     │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  3. Robuste Rauschschätzung (MAD)       │
+│     σ_t = 1.4826 · median(|R_t - med|)  │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  4. Soft-Threshold                      │
+│     τ = α · σ_t                         │
+│     R'_t = sign(R_t) · max(|R_t| − τ, 0)│
+│     α = tile_denoising.alpha            │
+└────────────┬────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────┐
+│  5. Rekonstruktion                      │
+│     T'_t = B_t + R'_t                   │
+└─────────────────────────────────────────┘
+```
+
+### Overlap-Blending
+
+Da Tiles überlappen, werden die denoisten Tiles mit linearen Gewichten geblendet:
+
+```
+Gewichtsfunktion:           Blending-Beispiel:
+
+  1 ┤   ╱──╲                ┌───┬───┬───┐
+    │  ╱    ╲               │ A │A+B│ B │
+  0 ┼─╱      ╲──            ├───┼───┼───┤
+    0       64              │A+C│ALL│B+D│
+                            ├───┼───┼───┤
+  w(x,y) = ramp(x)·ramp(y)  │ C │C+D│ D │
+                            └───┴───┴───┘
+```
+
+### Konfiguration
+
+| Parameter | Beschreibung | Default | Empfohlen |
+|-----------|--------------|---------|-----------|
+| `tile_denoising.enabled` | Aktivierung | false | true |
+| `tile_denoising.kernel_size` | Box-Blur Kernelgröße | 15 | 31 |
+| `tile_denoising.alpha` | Threshold-Multiplikator | 2.0 | 1.5 |
+
+### Typische Ergebnisse
+
+| kernel | alpha | Noise-Red. | Stern-Erhalt |
+|--------|-------|------------|--------------|
+| 15 | 2.0 | ~75% | ~91% |
+| **31** | **1.5** | **~89%** | **~93%** |
+| 31 | 2.0 | ~89% | ~91% |
 
 ## Schritt 4.2: Stern-Tile-Metriken
 
@@ -79,35 +156,35 @@ Gesamtbild (512×512):          Tile-Cutout (64×64):
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 1: FWHM (lokales Seeing)        │
-│                                          │
+│                                         │
 │  1. Finde Sterne im Tile                │
 │  2. Fitte PSF pro Stern                 │
 │  3. Berechne FWHM pro Stern             │
 │  4. Median über alle Sterne im Tile     │
-│                                          │
+│                                         │
 │  FWHM_f,t,c = median(FWHM_stars)        │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 2: Rundheit (Tracking-Qualität) │
-│                                          │
+│                                         │
 │  Pro Stern:                             │
 │    Berechne Elliptizität e = 1 - b/a    │
 │    wobei a, b = Halbachsen              │
-│                                          │
+│                                         │
 │  roundness_f,t,c = 1 - median(e)        │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 3: Kontrast (SNR)               │
-│                                          │
+│                                         │
 │  Pro Stern:                             │
 │    peak = max(PSF)                      │
 │    background = median(tile_data)       │
 │    noise = std(background_pixels)       │
-│                                          │
+│                                         │
 │  contrast_f,t,c = (peak - bg) / noise   │
 │                 = median(contrasts)     │
 └─────────────────────────────────────────┘
@@ -198,31 +275,31 @@ Niedriger Kontrast:
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 1: Energie/Rausch-Verhältnis    │
-│                                          │
+│                                         │
 │  1. Berechne Gradientenergie E          │
 │     (wie in Phase 2, aber lokal)        │
-│                                          │
+│                                         │
 │  2. Schätze lokales Rauschen σ          │
-│                                          │
-│  3. ENR_f,t,c = E / σ²                  │
+│                                         │
+│  3. ENR_f,t,c = E / σ                   │
 │     (Energy-to-Noise Ratio)             │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 2: Lokaler Hintergrund          │
-│                                          │
+│                                         │
 │  B_local_f,t,c = median(tile_data)      │
-│                                          │
+│                                         │
 │  (Hintergrundniveau im Tile)            │
 └────────────┬────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────┐
 │  Metrik 3: Strukturvarianz              │
-│                                          │
+│                                         │
 │  var_f,t,c = std(tile_data)             │
-│                                          │
+│                                         │
 │  (Variabilität der Struktur)            │
 └─────────────────────────────────────────┘
 ```
@@ -262,29 +339,31 @@ ENR = E / σ²         →  Signal-to-Noise
 ### Formel (Stern-Tiles)
 
 ```
-Q_local_f,t,c = w₁·FWHM̃ + w₂·r̃ + w₃·C̃
+Q_local_f,t,c = 0.6 · (−FWHM̃_f,t,c) + 0.2 · r̃_f,t,c + 0.2 · C̃_f,t,c
 
-wobei:
-  FWHM̃ = -(FWHM - μ) / σ     (negiert: kleiner ist besser)
-  r̃    = (roundness - μ) / σ  (größer ist besser)
-  C̃    = (contrast - μ) / σ   (größer ist besser)
-  
-  w₁ + w₂ + w₃ = 1
-  Default: w₁ = 0.5, w₂ = 0.3, w₃ = 0.2
+wobei (robuste Skalierung mit Median + MAD über alle Stern-Tiles):
+  FWHM̃_f,t,c = (FWHM_f,t,c − median(FWHM))
+                / (1.4826 · MAD(FWHM))
+  r̃_f,t,c     = (roundness_f,t,c − median(roundness))
+                / (1.4826 · MAD(roundness))
+  C̃_f,t,c     = (contrast_f,t,c − median(contrast))
+                / (1.4826 · MAD(contrast))
+
+  Kleinere FWHM̃ sind besser (daher Vorzeichen − vor FWHM̃ im Q_local).
 ```
 
 ### Formel (Struktur-Tiles)
 
 ```
-Q_local_f,t,c = w₁·ENR̃ + w₂·(-B̃_local) + w₃·var̃
+Q_local_f,t,c = 0.7 · ENR̃_f,t,c − 0.3 · B̃_local,f,t,c
 
-wobei:
-  ENR̃      = (ENR - μ) / σ         (größer ist besser)
-  B̃_local  = (B_local - μ) / σ     (negiert: kleiner ist besser)
-  var̃      = (variance - μ) / σ    (größer ist besser)
-  
-  w₁ + w₂ + w₃ = 1
-  Default: w₁ = 0.5, w₂ = 0.3, w₃ = 0.2
+wobei (robuste Skalierung mit Median + MAD über alle Struktur-Tiles):
+  ENR̃_f,t,c      = (ENR_f,t,c − median(ENR))
+                    / (1.4826 · MAD(ENR))
+  B̃_local,f,t,c  = (B_local_f,t,c − median(B_local))
+                    / (1.4826 · MAD(B_local))
+
+  Ein expliziter Varianz-Term geht in v3.1 **nicht** in Q_local ein.
 ```
 
 ### Prozess
@@ -298,13 +377,15 @@ wobei:
              │
              ▼
 ┌─────────────────────────────────────────┐
-│  Z-Score Normalisierung (pro Metrik)    │
+│  Robuste Normalisierung (pro Metrik)    │
 │                                          │
-│  μ_FWHM = mean(FWHM_f,t,c)              │
-│  σ_FWHM = std(FWHM_f,t,c)               │
-│  FWHM̃ = (FWHM - μ) / σ                 │
+│  median_FWHM = median(FWHM_f,t,c)       │
+│  MAD_FWHM    = MAD(FWHM_f,t,c)          │
+│  FWHM̃       = (FWHM − median_FWHM)
+│                / (1.4826 · MAD_FWHM)    │
 │                                          │
-│  (analog für andere Metriken)           │
+│  (analog für andere Metriken mit
+│   Median + MAD)                          │
 └────────────┬────────────────────────────┘
              │
              ▼

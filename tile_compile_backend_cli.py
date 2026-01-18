@@ -253,11 +253,8 @@ def cmd_validate_siril_scripts(args: argparse.Namespace) -> int:
     project_root = Path(__file__).resolve().parent
 
     registration_cfg = _get_path(cfg, ["registration"]) if isinstance(cfg.get("registration"), dict) else {}
-    stacking_cfg = _get_path(cfg, ["stacking"]) if isinstance(cfg.get("stacking"), dict) else {}
     if not isinstance(registration_cfg, dict):
         registration_cfg = {}
-    if not isinstance(stacking_cfg, dict):
-        stacking_cfg = {}
 
     reg_script_cfg = registration_cfg.get("siril_script")
     reg_is_default = not (isinstance(reg_script_cfg, str) and reg_script_cfg.strip())
@@ -267,17 +264,8 @@ def cmd_validate_siril_scripts(args: argparse.Namespace) -> int:
         else (project_root / "siril_register_osc.ssf").resolve()
     )
 
-    stack_script_cfg = stacking_cfg.get("siril_script")
-    stack_is_default = not (isinstance(stack_script_cfg, str) and stack_script_cfg.strip())
-    stack_script_path = (
-        Path(str(stack_script_cfg)).expanduser().resolve()
-        if isinstance(stack_script_cfg, str) and stack_script_cfg.strip()
-        else (project_root / "siril_stack_average.ssf").resolve()
-    )
-
     color_mode = _get_path(cfg, ["data", "color_mode"])
     bayer_pattern = _get_path(cfg, ["data", "bayer_pattern"])
-    stack_method = _get_path(cfg, ["stacking", "method"])
 
     if reg_is_default:
         if str(color_mode).upper() != "OSC":
@@ -293,7 +281,6 @@ def cmd_validate_siril_scripts(args: argparse.Namespace) -> int:
         )
 
     reg_exists = reg_script_path.exists() and reg_script_path.is_file()
-    stack_exists = stack_script_path.exists() and stack_script_path.is_file()
 
     reg_policy_ok = False
     reg_policy_violations: list[str] = []
@@ -306,19 +293,6 @@ def cmd_validate_siril_scripts(args: argparse.Namespace) -> int:
     else:
         errors.append(f"registration script not found: {reg_script_path}")
 
-    stack_policy_ok = False
-    stack_policy_violations: list[str] = []
-    save_targets: list[str] = []
-    if stack_exists:
-        stack_policy_ok, stack_policy_violations = _validate_siril_script(stack_script_path)
-        if not stack_policy_ok:
-            errors.append("stacking script violates policy: " + ", ".join(stack_policy_violations))
-        save_targets = _extract_siril_save_targets(stack_script_path)
-        if not save_targets:
-            warnings.append("stacking script contains no 'save' commands (output target cannot be inferred)")
-    else:
-        errors.append(f"stacking script not found: {stack_script_path}")
-
     result = {
         "ok": len(errors) == 0,
         "project_root": str(project_root),
@@ -330,15 +304,6 @@ def cmd_validate_siril_scripts(args: argparse.Namespace) -> int:
             "sha256": _sha256_file(reg_script_path) if reg_exists else None,
             "policy_ok": reg_policy_ok,
             "policy_violations": reg_policy_violations,
-        },
-        "stacking": {
-            "script_path": str(stack_script_path),
-            "script_is_default": stack_is_default,
-            "exists": stack_exists,
-            "sha256": _sha256_file(stack_script_path) if stack_exists else None,
-            "policy_ok": stack_policy_ok,
-            "policy_violations": stack_policy_violations,
-            "save_targets": save_targets,
         },
         "errors": errors,
         "warnings": warnings,

@@ -57,9 +57,10 @@ def opencv_ecc_warp(
     if cv2 is None:
         raise RuntimeError("OpenCV not available")
     
-    motion_type = cv2.MOTION_EUCLIDEAN if allow_rotation else cv2.MOTION_AFFINE
-    cc, warp = cv2.findTransformECC(ref01, moving01, init_warp, motion_type, maxCount=200, terminationEps=1e-6)
-    return warp, float(cc)
+    motion_type = cv2.MOTION_EUCLIDEAN if allow_rotation else cv2.MOTION_TRANSLATION
+    criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 200, 1e-6)
+    cc, warp = cv2.findTransformECC(ref01, moving01, init_warp, motion_type, criteria)
+    return warp.astype(np.float32, copy=False), float(cc)
 
 
 def opencv_phasecorr_translation(moving01: np.ndarray, ref01: np.ndarray) -> tuple[float, float]:

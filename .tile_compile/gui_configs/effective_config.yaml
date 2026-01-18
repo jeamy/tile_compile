@@ -24,8 +24,8 @@ calibration:
   pattern: '*.fit*'
 assumptions:
   frames_min: 50
-  frames_optimal: 400
-  frames_reduced_threshold: 200
+  frames_optimal: 200
+  frames_reduced_threshold: 199
   exposure_time_tolerance_percent: 5.0
   registration_residual_warn_px: 0.5
   registration_residual_max_px: 1.0
@@ -41,13 +41,16 @@ normalization:
   mode: background
   per_channel: true
 registration:
-  engine: siril
+  engine: opencv_cfa
   reference: auto
-  allow_rotation: false
-  min_star_matches: 10
+  allow_rotation: true
+  min_star_matches: 20
   output_dir: registered
   registered_filename_pattern: reg_{index:05d}.fit
-  siril_script: ''
+tile_denoising:
+  enabled: true
+  kernel_size: 31
+  alpha: 1.5
 global_metrics:
   weights:
     background: 0.4
@@ -67,16 +70,15 @@ local_metrics:
   - -3
   - 3
   star_mode:
-    fwhm_transform: log
     weights:
       fwhm: 0.6
       roundness: 0.2
       contrast: 0.2
   structure_mode:
-    metric: energy_over_sigma
     background_weight: 0.3
     metric_weight: 0.7
 synthetic:
+  weighting: tile_weighted
   frames_min: 15
   frames_max: 30
   clustering:
@@ -91,13 +93,17 @@ reconstruction:
   weighting_function: exponential
   window_function: hanning
   tile_rescale: median_after_background_subtraction
+debayer: true
 stacking:
-  engine: siril
-  method: average
+  method: rej
   input_dir: synthetic
   input_pattern: syn_*.fits
   output_file: stacked.fit
-  siril_script: ''
+  sigma_clip:
+    sigma_low: 3
+    sigma_high: 3
+    max_iters: 3
+    min_fraction: 0.5
 validation:
   min_fwhm_improvement_percent: 5
   max_background_rms_increase_percent: 0

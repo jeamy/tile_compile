@@ -156,7 +156,7 @@ class TileGridGenerator:
         
         # Detect stars
         stars = cv2.goodFeaturesToTrack(
-            frame.astype(np.uint8), 
+            np.asarray(frame, dtype=np.float32),
             maxCorners=100, 
             qualityLevel=0.01, 
             minDistance=10
