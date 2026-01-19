@@ -1,7 +1,7 @@
 {
-  "lastInputDir": "/media/data/tile_compile_cache/IC434_lights",
-  "scanInputDir": "/media/data/tile_compile_cache/IC434_lights",
-  "inputDir": "/media/data/tile_compile_cache/IC434_lights",
+  "lastInputDir": "/media/data/tile_compile_cache/IC434_ligths_all",
+  "scanInputDir": "/media/data/tile_compile_cache/IC434_ligths_all",
+  "inputDir": "/media/data/tile_compile_cache/IC434_ligths_all",
   "workingDir": "/media/data/programming/tile-compile",
   "runsDir": "runs",
   "pattern": "*.fit*",
@@ -30,7 +30,7 @@
   "assumptions": {
     "frames_min": 50,
     "frames_optimal": 200,
-    "frames_reduced_threshold": 204,
+    "frames_reduced_threshold": 199,
     "exposure_time_tolerance_percent": 5.0,
     "registration_residual_warn_px": 0.5,
     "registration_residual_max_px": 1.0,

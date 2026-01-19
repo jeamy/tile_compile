@@ -155,3 +155,139 @@ def opencv_best_translation_init(
         except Exception:
             pass
     return best
+
+
+def opencv_detect_stars(img01: np.ndarray, max_stars: int = 200) -> np.ndarray:
+    """Detect star positions using goodFeaturesToTrack.
+    
+    Args:
+        img01: Normalized image (0-1 range)
+        max_stars: Maximum number of stars to detect
+        
+    Returns:
+        Array of shape (N, 2) with (x, y) coordinates
+    """
+    if cv2 is None:
+        return np.zeros((0, 2), dtype=np.float32)
+    
+    corners = cv2.goodFeaturesToTrack(
+        img01,
+        maxCorners=max_stars,
+        qualityLevel=0.01,
+        minDistance=10,
+        blockSize=7,
+    )
+    if corners is None or len(corners) == 0:
+        return np.zeros((0, 2), dtype=np.float32)
+    
+    # corners is (N, 1, 2), reshape to (N, 2)
+    return corners.reshape(-1, 2).astype(np.float32)
+
+
+def opencv_star_match_ransac(
+    moving01: np.ndarray,
+    ref01: np.ndarray,
+    max_stars: int = 150,
+    ransac_threshold: float = 5.0,
+) -> tuple[np.ndarray | None, int]:
+    """Match stars between two images and compute affine transform with RANSAC.
+    
+    Uses nearest-neighbor matching with RANSAC to find robust transformation.
+    Works well when rotation between frames is moderate (<10°).
+    
+    Args:
+        moving01: Moving image (normalized 0-1)
+        ref01: Reference image (normalized 0-1)
+        max_stars: Maximum stars to detect per image
+        ransac_threshold: RANSAC inlier threshold in pixels
+        
+    Returns:
+        Tuple of (affine_matrix, num_inliers) or (None, 0) if failed
+    """
+    if cv2 is None:
+        return None, 0
+    
+    # Detect stars in both images
+    pts_mov = opencv_detect_stars(moving01, max_stars)
+    pts_ref = opencv_detect_stars(ref01, max_stars)
+    
+    if len(pts_mov) < 6 or len(pts_ref) < 6:
+        return None, 0
+    
+    # Build KD-tree style matching: for each moving star, find nearest in ref
+    # Use brute force for simplicity (fast enough for <200 stars)
+    from scipy.spatial import cKDTree
+    
+    tree_ref = cKDTree(pts_ref)
+    
+    # Find nearest neighbor for each moving point
+    distances, indices = tree_ref.query(pts_mov, k=1)
+    
+    # Filter by distance (reject matches that are too far)
+    max_match_dist = max(moving01.shape) * 0.15  # 15% of image size
+    valid_mask = distances < max_match_dist
+    
+    if np.sum(valid_mask) < 6:
+        return None, 0
+    
+    src_pts = pts_mov[valid_mask]
+    dst_pts = pts_ref[indices[valid_mask]]
+    
+    # Estimate affine transform with RANSAC
+    # cv2.estimateAffinePartial2D: rotation + translation + uniform scale
+    # cv2.estimateAffine2D: full affine (6 DOF)
+    # Use partial (4 DOF) for more robustness
+    transform, inliers = cv2.estimateAffinePartial2D(
+        src_pts.reshape(-1, 1, 2),
+        dst_pts.reshape(-1, 1, 2),
+        method=cv2.RANSAC,
+        ransacReprojThreshold=ransac_threshold,
+        maxIters=2000,
+        confidence=0.99,
+    )
+    
+    if transform is None:
+        return None, 0
+    
+    num_inliers = int(np.sum(inliers)) if inliers is not None else 0
+    return transform.astype(np.float32), num_inliers
+
+
+def opencv_register_stars(
+    moving01: np.ndarray,
+    ref01: np.ndarray,
+    fallback_to_ecc: bool = True,
+    allow_rotation: bool = True,
+) -> tuple[np.ndarray, float, str]:
+    """Register two images using star matching with RANSAC, with ECC fallback.
+    
+    Args:
+        moving01: Moving image (normalized 0-1)
+        ref01: Reference image (normalized 0-1)
+        fallback_to_ecc: If True, fall back to ECC if star matching fails
+        allow_rotation: Allow rotation in transformation
+        
+    Returns:
+        Tuple of (warp_matrix, confidence, method_used)
+        confidence is number of inliers for star matching, or ECC correlation
+    """
+    # Try star matching first
+    warp, num_inliers = opencv_star_match_ransac(moving01, ref01)
+    
+    if warp is not None and num_inliers >= 10:
+        # Good star match
+        return warp, float(num_inliers), "star_ransac"
+    
+    # Star matching failed or insufficient inliers, try ECC
+    if fallback_to_ecc:
+        init = opencv_best_translation_init(moving01, ref01, rotation_sweep=True)
+        try:
+            warp, cc = opencv_ecc_warp(moving01, ref01, allow_rotation=allow_rotation, init_warp=init)
+            return warp, cc, "ecc"
+        except Exception:
+            pass
+    
+    # Last resort: phase correlation only
+    dx, dy = opencv_phasecorr_translation(moving01, ref01)
+    warp = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
+    return warp, 0.0, "phase_corr"

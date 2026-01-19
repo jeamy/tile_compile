@@ -38,6 +38,7 @@ from .opencv_registration import (
     opencv_count_stars,
     opencv_ecc_warp,
     opencv_best_translation_init,
+    opencv_register_stars,
 )
 
 # Local - Siril integration
@@ -1887,8 +1888,14 @@ def run_phases_impl(
         processed += 1
         del ref_mosaic_clean
 
-        def _check_step_warp_sanity(step_warp: np.ndarray, max_translation: float = 50.0, max_rotation_deg: float = 2.0) -> bool:
-            """Check if step warp is sane (not a jump)."""
+        def _check_step_warp_sanity(step_warp: np.ndarray, max_translation: float = 30.0, max_rotation_deg: float = 1.0) -> bool:
+            """Check if step warp is sane (not a jump).
+            
+            For Alt/Az with field rotation, typical per-frame changes are:
+            - Translation: ~5-15px (tracking drift)
+            - Rotation: ~0.1-0.5° (field rotation rate)
+            Anything larger is likely a registration error.
+            """
             # Extract translation
             tx, ty = step_warp[0, 2], step_warp[1, 2]
             trans_mag = float(np.sqrt(tx * tx + ty * ty))
@@ -1903,10 +1910,31 @@ def run_phases_impl(
                 return False
             return True
 
-        def _interpolate_warp(prev_warp: np.ndarray) -> np.ndarray:
-            """Create a small interpolated step when ECC fails or jumps."""
-            # Use identity (no change) as fallback
-            return identity_warp.copy()
+        def _get_bright_centroid(img01: np.ndarray) -> tuple[float, float] | None:
+            """Get centroid of bright pixels."""
+            thresh = float(np.percentile(img01, 99))
+            mask = img01 > thresh
+            y, x = np.where(mask)
+            if len(y) > 10:
+                return float(np.mean(x)), float(np.mean(y))
+            return None
+
+        def _verify_warp_by_centroid(moving01: np.ndarray, ref01: np.ndarray, step_warp: np.ndarray, max_residual: float = 15.0) -> bool:
+            """Verify warp by checking if centroids align after transformation."""
+            mov_c = _get_bright_centroid(moving01)
+            ref_c = _get_bright_centroid(ref01)
+            if mov_c is None or ref_c is None:
+                return True  # Can't verify, assume OK
+            # Transform moving centroid
+            mx, my = mov_c
+            # Apply affine: [x', y'] = warp @ [x, y, 1]
+            tx_c = step_warp[0, 0] * mx + step_warp[0, 1] * my + step_warp[0, 2]
+            ty_c = step_warp[1, 0] * mx + step_warp[1, 1] * my + step_warp[1, 2]
+            # Check residual
+            dx = tx_c - ref_c[0]
+            dy = ty_c - ref_c[1]
+            residual = float(np.sqrt(dx * dx + dy * dy))
+            return residual < max_residual
 
         # Backward chain: ref-1, ref-2, ...
         warp_accum = identity_warp
@@ -1920,21 +1948,31 @@ def run_phases_impl(
                 stars = opencv_count_stars(lum01)
                 if stars < max(1, min_star_matches_i):
                     print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
-                # Chain: register against previous frame (neighbor)
-                init = opencv_best_translation_init(lum01, lum_prev01)
-                try:
-                    step_warp, cc = opencv_ecc_warp(lum01, lum_prev01, allow_rotation=allow_rotation, init_warp=init)
-                except Exception as ex:
-                    step_warp, cc = init, 0.0
-                    print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
-                # Check for jumps
-                if not np.isfinite(cc) or cc < 0.5:
-                    print(f"[WARN] Frame {i}: low ECC correlation ({cc:.3f}), using previous step")
-                    step_warp = prev_step_warp.copy()
-                elif not _check_step_warp_sanity(step_warp):
+                
+                # Chain: register against previous frame using star matching + RANSAC
+                step_warp, confidence, method = opencv_register_stars(
+                    lum01, lum_prev01, 
+                    fallback_to_ecc=True, 
+                    allow_rotation=allow_rotation
+                )
+                
+                # Validate result
+                if method == "star_ransac" and confidence < 8:
+                    # Too few inliers, use phase correlation fallback
+                    print(f"[WARN] Frame {i}: star match weak ({confidence:.0f} inliers), using phase corr")
+                    dx, dy = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=False)[0, 2], opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=False)[1, 2]
+                    step_warp = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
+                elif method == "ecc" and confidence < 0.7:
+                    print(f"[WARN] Frame {i}: ECC weak ({confidence:.3f}), using phase corr")
+                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=False)
+                    step_warp = init
+                
+                # Sanity check on step warp
+                if not _check_step_warp_sanity(step_warp):
                     tx, ty = step_warp[0, 2], step_warp[1, 2]
-                    print(f"[WARN] Frame {i}: jump detected (tx={tx:.1f}, ty={ty:.1f}), using previous step")
+                    print(f"[WARN] Frame {i}: warp sanity failed (tx={tx:.1f}, ty={ty:.1f}), using prev step")
                     step_warp = prev_step_warp.copy()
+                
                 # Accumulate transformation
                 warp_accum = _compose_affine(step_warp, warp_accum)
                 warped = _warp_cfa(mosaic_clean, warp_accum, out_shape_reg, offset_sub)
@@ -1951,7 +1989,7 @@ def run_phases_impl(
                     pass
                 registered_count += 1
                 processed += 1
-                corrs.append(float(cc))
+                corrs.append(float(confidence))
                 prev_step_warp = step_warp
                 lum_prev01 = lum01
                 del mosaic_clean, hdr, warped, mask_warped
@@ -1971,21 +2009,31 @@ def run_phases_impl(
                 stars = opencv_count_stars(lum01)
                 if stars < max(1, min_star_matches_i):
                     print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
-                # Chain: register against previous frame (neighbor)
-                init = opencv_best_translation_init(lum01, lum_prev01)
-                try:
-                    step_warp, cc = opencv_ecc_warp(lum01, lum_prev01, allow_rotation=allow_rotation, init_warp=init)
-                except Exception as ex:
-                    step_warp, cc = init, 0.0
-                    print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
-                # Check for jumps
-                if not np.isfinite(cc) or cc < 0.5:
-                    print(f"[WARN] Frame {i}: low ECC correlation ({cc:.3f}), using previous step")
-                    step_warp = prev_step_warp.copy()
-                elif not _check_step_warp_sanity(step_warp):
+                
+                # Chain: register against previous frame using star matching + RANSAC
+                step_warp, confidence, method = opencv_register_stars(
+                    lum01, lum_prev01, 
+                    fallback_to_ecc=True, 
+                    allow_rotation=allow_rotation
+                )
+                
+                # Validate result
+                if method == "star_ransac" and confidence < 8:
+                    # Too few inliers, use phase correlation fallback
+                    print(f"[WARN] Frame {i}: star match weak ({confidence:.0f} inliers), using phase corr")
+                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=False)
+                    step_warp = init
+                elif method == "ecc" and confidence < 0.7:
+                    print(f"[WARN] Frame {i}: ECC weak ({confidence:.3f}), using phase corr")
+                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=False)
+                    step_warp = init
+                
+                # Sanity check on step warp
+                if not _check_step_warp_sanity(step_warp):
                     tx, ty = step_warp[0, 2], step_warp[1, 2]
-                    print(f"[WARN] Frame {i}: jump detected (tx={tx:.1f}, ty={ty:.1f}), using previous step")
+                    print(f"[WARN] Frame {i}: warp sanity failed (tx={tx:.1f}, ty={ty:.1f}), using prev step")
                     step_warp = prev_step_warp.copy()
+                
                 # Accumulate transformation
                 warp_accum = _compose_affine(step_warp, warp_accum)
                 warped = _warp_cfa(mosaic_clean, warp_accum, out_shape_reg, offset_sub)
@@ -2002,7 +2050,7 @@ def run_phases_impl(
                     pass
                 registered_count += 1
                 processed += 1
-                corrs.append(float(cc))
+                corrs.append(float(confidence))
                 prev_step_warp = step_warp
                 lum_prev01 = lum01
                 del mosaic_clean, hdr, warped, mask_warped
