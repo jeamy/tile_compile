@@ -5,36 +5,43 @@ Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomi
 Given a directory of aligned (or alignable) FITS lights, it:
 
 - optionally **calibrates** lights (bias/dark/flat)
-- **registers** frames (Siril or OpenCV)
+- **registers** frames (OpenCV ECC)
 - splits channels (OSC)
 - estimates **global + local (tile) quality metrics**
 - reconstructs an improved per-channel image based on tile weights
-- optionally clusters frame “states” and generates synthetic frames
+- optionally clusters frame "states" and generates synthetic frames
 - produces a final stacked output plus a set of **diagnostic artifacts** (PNGs/JSON)
 
-## Quickstart
+## Versionen
 
-### 1) Install Python dependencies
+Das Projekt enthält zwei unabhängige Implementierungen:
 
-- Python 3.8+
+| Version | Verzeichnis | Status | Backend |
+|---------|-------------|--------|---------|
+| **Python** | `tile_compile_python/` | Stabil | Python + NumPy + OpenCV |
+| **C++** | `tile_compile_cpp/` | In Entwicklung | C++ + Eigen + OpenCV |
 
-Use your preferred environment manager. This repo contains helper scripts:
+Beide Versionen sind unabhängig voneinander lauffähig.
+
+## Quickstart (Python-Version)
 
 ```bash
-./setup_venv.sh
-```
+cd tile_compile_python
 
-Then activate your environment:
-
-```bash
+# Virtual Environment erstellen
+python3 -m venv .venv
 source .venv/bin/activate
-```
 
-### 2) Run the GUI
+# Abhängigkeiten installieren
+pip install -r requirements.txt
 
-```bash
+# GUI starten
 ./start_gui.sh
 ```
+
+## Quickstart (C++ Version - in Entwicklung)
+
+Siehe `tile_compile_cpp/README.md` und `doc/c-port/` für den Portierungsplan.
 
 ## GUI workflow (recommended)
 
@@ -148,9 +155,20 @@ pytest
 
 ## Project structure
 
-- `runner/`: pipeline implementation and utilities
-- `gui/`: Qt GUI (PySide6)
-- `siril_scripts/`: default Siril scripts
-- `tile_compile_backend/`: shared backend modules
-- `tests/`: test suite
-- `doc/`: documentation
+```
+tile-compile/
+├── tile_compile_python/    # Python-Implementierung (stabil)
+│   ├── gui/                # PyQt6 GUI
+│   ├── runner/             # Pipeline-Runner
+│   ├── tile_compile_backend/  # Backend-Module
+│   ├── tests/              # Unit-Tests
+│   └── start_gui.sh        # GUI starten
+├── tile_compile_cpp/       # C++ Implementierung (in Entwicklung)
+│   ├── gui/                # PyQt6 GUI (ruft C++ Backend)
+│   ├── build/              # Build-Verzeichnis
+│   └── start_gui.sh        # GUI starten
+├── doc/                    # Dokumentation
+│   ├── c-port/             # C++ Portierungsplan
+│   └── ...
+└── README.md
+```

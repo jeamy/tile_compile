@@ -1751,12 +1751,13 @@ def run_phases_impl(
         ref_in_middle = middle_start <= ref_idx < middle_end
         print(f"[INFO] Reference frame selected: index={ref_idx}, stars={ref_stars}, in_middle_third={ref_in_middle}, middle_range=[{middle_start}, {middle_end})")
 
-        # Direct-to-reference registration strategy:
-        # Register all frames directly to the reference frame.
-        # This avoids drift accumulation that occurs with chain registration.
-        # The rotation sweep in opencv_best_translation_init handles field rotation.
+        # Hybrid chain registration strategy:
+        # Register each frame to its neighbor (chain) for good local alignment,
+        # but periodically verify against reference and correct accumulated drift.
+        # This combines the benefits of chain registration (handles field rotation)
+        # with drift correction (prevents accumulation errors).
         
-        print(f"[INFO] Direct-to-reference registration: {len(frames)} frames, reference at index {ref_idx}")
+        print(f"[INFO] Hybrid chain registration: {len(frames)} frames, reference at index {ref_idx}")
 
         def _compose_affine(step_warp: np.ndarray, prev_warp: np.ndarray) -> np.ndarray:
             step_3x3 = np.vstack([step_warp, [0, 0, 1]])
@@ -1886,10 +1887,32 @@ def run_phases_impl(
         processed += 1
         del ref_mosaic_clean
 
-        # Direct-to-reference registration: all frames against ref_lum01
-        for i in range(len(frames)):
-            if i == ref_idx:
-                continue  # Reference already saved
+        def _check_step_warp_sanity(step_warp: np.ndarray, max_translation: float = 50.0, max_rotation_deg: float = 2.0) -> bool:
+            """Check if step warp is sane (not a jump)."""
+            # Extract translation
+            tx, ty = step_warp[0, 2], step_warp[1, 2]
+            trans_mag = float(np.sqrt(tx * tx + ty * ty))
+            if trans_mag > max_translation:
+                return False
+            # Extract rotation angle from 2x2 part
+            cos_t = step_warp[0, 0]
+            sin_t = step_warp[1, 0]
+            angle_rad = float(np.arctan2(sin_t, cos_t))
+            angle_deg = float(np.rad2deg(angle_rad))
+            if abs(angle_deg) > max_rotation_deg:
+                return False
+            return True
+
+        def _interpolate_warp(prev_warp: np.ndarray) -> np.ndarray:
+            """Create a small interpolated step when ECC fails or jumps."""
+            # Use identity (no change) as fallback
+            return identity_warp.copy()
+
+        # Backward chain: ref-1, ref-2, ...
+        warp_accum = identity_warp
+        lum_prev01 = ref_lum01
+        prev_step_warp = identity_warp
+        for i in range(ref_idx - 1, -1, -1):
             if processed % 10 == 0 or processed == total_write:
                 phase_progress(run_id, log_fp, phase_id, phase_name, processed, total_write, {"substep": "write_registered"})
             try:
@@ -1897,17 +1920,25 @@ def run_phases_impl(
                 stars = opencv_count_stars(lum01)
                 if stars < max(1, min_star_matches_i):
                     print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
-                # Register directly against reference (not neighbor)
-                init = opencv_best_translation_init(lum01, ref_lum01)
+                # Chain: register against previous frame (neighbor)
+                init = opencv_best_translation_init(lum01, lum_prev01)
                 try:
-                    warp_i, cc = opencv_ecc_warp(lum01, ref_lum01, allow_rotation=allow_rotation, init_warp=init)
+                    step_warp, cc = opencv_ecc_warp(lum01, lum_prev01, allow_rotation=allow_rotation, init_warp=init)
                 except Exception as ex:
-                    warp_i, cc = init, 0.0
+                    step_warp, cc = init, 0.0
                     print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
-                if not np.isfinite(cc) or cc < 0.15:
-                    warp_i, cc = init, float(cc if np.isfinite(cc) else 0.0)
-                warped = _warp_cfa(mosaic_clean, warp_i, out_shape_reg, offset_sub)
-                mask_warped = _warp_cfa_mask(np.ones_like(mosaic_clean, dtype=np.float32), warp_i, out_shape_reg, offset_sub)
+                # Check for jumps
+                if not np.isfinite(cc) or cc < 0.5:
+                    print(f"[WARN] Frame {i}: low ECC correlation ({cc:.3f}), using previous step")
+                    step_warp = prev_step_warp.copy()
+                elif not _check_step_warp_sanity(step_warp):
+                    tx, ty = step_warp[0, 2], step_warp[1, 2]
+                    print(f"[WARN] Frame {i}: jump detected (tx={tx:.1f}, ty={ty:.1f}), using previous step")
+                    step_warp = prev_step_warp.copy()
+                # Accumulate transformation
+                warp_accum = _compose_affine(step_warp, warp_accum)
+                warped = _warp_cfa(mosaic_clean, warp_accum, out_shape_reg, offset_sub)
+                mask_warped = _warp_cfa_mask(np.ones_like(mosaic_clean, dtype=np.float32), warp_accum, out_shape_reg, offset_sub)
                 try:
                     dst_name = reg_pattern.format(index=i + 1)
                 except Exception:
@@ -1921,7 +1952,60 @@ def run_phases_impl(
                 registered_count += 1
                 processed += 1
                 corrs.append(float(cc))
-                del mosaic_clean, lum01, hdr, warped, mask_warped
+                prev_step_warp = step_warp
+                lum_prev01 = lum01
+                del mosaic_clean, hdr, warped, mask_warped
+            except Exception as e:
+                print(f"[WARN] Frame {i}: failed to register: {e}")
+                continue
+
+        # Forward chain: ref+1, ref+2, ...
+        warp_accum = identity_warp
+        lum_prev01 = ref_lum01
+        prev_step_warp = identity_warp
+        for i in range(ref_idx + 1, len(frames)):
+            if processed % 10 == 0 or processed == total_write:
+                phase_progress(run_id, log_fp, phase_id, phase_name, processed, total_write, {"substep": "write_registered"})
+            try:
+                mosaic_clean, lum01, hdr = _load_clean_and_lum01(frames[i])
+                stars = opencv_count_stars(lum01)
+                if stars < max(1, min_star_matches_i):
+                    print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
+                # Chain: register against previous frame (neighbor)
+                init = opencv_best_translation_init(lum01, lum_prev01)
+                try:
+                    step_warp, cc = opencv_ecc_warp(lum01, lum_prev01, allow_rotation=allow_rotation, init_warp=init)
+                except Exception as ex:
+                    step_warp, cc = init, 0.0
+                    print(f"[DEBUG] Frame {i}: ECC failed: {ex}")
+                # Check for jumps
+                if not np.isfinite(cc) or cc < 0.5:
+                    print(f"[WARN] Frame {i}: low ECC correlation ({cc:.3f}), using previous step")
+                    step_warp = prev_step_warp.copy()
+                elif not _check_step_warp_sanity(step_warp):
+                    tx, ty = step_warp[0, 2], step_warp[1, 2]
+                    print(f"[WARN] Frame {i}: jump detected (tx={tx:.1f}, ty={ty:.1f}), using previous step")
+                    step_warp = prev_step_warp.copy()
+                # Accumulate transformation
+                warp_accum = _compose_affine(step_warp, warp_accum)
+                warped = _warp_cfa(mosaic_clean, warp_accum, out_shape_reg, offset_sub)
+                mask_warped = _warp_cfa_mask(np.ones_like(mosaic_clean, dtype=np.float32), warp_accum, out_shape_reg, offset_sub)
+                try:
+                    dst_name = reg_pattern.format(index=i + 1)
+                except Exception:
+                    dst_name = f"reg_{i + 1:05d}.fit"
+                dst_path = reg_out / dst_name
+                fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                try:
+                    fits.writeto(str(reg_mask_dir / f"mask_{dst_path.name}"), mask_warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                except Exception:
+                    pass
+                registered_count += 1
+                processed += 1
+                corrs.append(float(cc))
+                prev_step_warp = step_warp
+                lum_prev01 = lum01
+                del mosaic_clean, hdr, warped, mask_warped
             except Exception as e:
                 print(f"[WARN] Frame {i}: failed to register: {e}")
                 continue
