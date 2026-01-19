@@ -2001,6 +2001,8 @@ class MainWindow(QMainWindow):
         cmd = self._runner_cmd() + [
             "--config",
             str(eff_config_path),
+            "--project-root",
+            str(wd),
             "--input-dir",
             input_dir,
             "--runs-dir",
