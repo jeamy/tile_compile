@@ -1187,9 +1187,9 @@ class MainWindow(QMainWindow):
                     self.ui_call.emit(lambda: on_ok(res))
             except Exception as e:  # noqa: BLE001
                 if on_err is not None:
-                    self.ui_call.emit(lambda: on_err(e))
+                    self.ui_call.emit(lambda err=e: on_err(err))
                 else:
-                    self.ui_call.emit(lambda: self._append_live(f"[error] {e}"))
+                    self.ui_call.emit(lambda err=e: self._append_live(f"[error] {err}"))
 
         threading.Thread(target=worker, daemon=True).start()
 
