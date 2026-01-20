@@ -127,6 +127,113 @@ pip install -r requirements.txt
 
 Siehe `tile_compile_cpp/README.md` und `doc/c-port/` für den Portierungsplan.
 
+## GUI Bedienungsanleitung (Schritt-für-Schritt)
+
+Die GUI ist in Tabs organisiert, die den Pipeline-Phasen aus `doc/process_flow/` entsprechen. Ein typischer End-to-End-Ablauf:
+
+### 1) Scan (Phase 0)
+
+- **Tab:** Scan
+- **Eingaben:**
+  - **Input dir:** Verzeichnis mit deinen Lights (OSC RAW FITS)
+  - **Pattern:** `*.fit*` (Standard) oder passend zu deinen Dateien
+  - **Frames min:** Mindestanzahl Frames (Default 50)
+  - **Checksums:** optional, zur Integritätsprüfung
+- **Aktion:** Klicke **Scan**
+- **Ergebnis:** Zeigt erkannte Frames, Farbmodus (OSC/MONO) und Bayer-Pattern
+- **Wichtig:** Hier wird auch die Kalibrierung vorbereitet (falls aktiviert)
+
+### 2) Kalibrierung (Bias/Darks/Flats) – optional
+
+- **Tab:** Calibration
+- **Einstellungen:**
+  - **use_bias / use_dark / use_flat:** aktivieren, falls vorhanden
+  - **Master vs. Verzeichnis:** Entweder Master-Frames (`*_master`) oder Verzeichnisse (`*_dir`) auswählen
+  - Wenn Verzeichnis angegeben und kein Master vorhanden → Tile-Compile erzeugt Master während des Laufs
+- **Aktion:** Nach Auswahl werden die Pfade gespeichert
+- **Hinweis:** Kalibrierung läuft **vor** der Registrierung (Phase 1)
+
+### 3) Konfiguration (tile_compile.yaml)
+
+- **Tab:** Configuration
+- **Schritte:**
+  - Lade eine vorhandene `tile_compile.yaml` oder bearbeite die YAML direkt im GUI
+  - **Validate config:** Prüft Konsistenz und Schema
+  - **Save:** Schreibt die Konfiguration zurück auf die Festplatte
+- **Wichtige Felder:**
+  - `registration.engine`: `opencv_cfa` (default) oder `siril`
+  - `normalization.mode`: `background` oder `median`
+  - `global_metrics.weights`: α/β/γ (müssen 1.0 ergeben)
+  - `tile.*`: seeing-adaptive Tile-Parameter
+  - `stacking.method`: `rej` (Sigma-Clip) oder `average`
+
+### 4) Assumptions (Methodik v3 §2)
+
+- **Tab:** Assumptions
+- **Zweck:** Meinungsbasierte Defaults/Heuristiken anwenden
+- **Beispiele:**
+  - `frames_min`: Hard Minimum (unter 50 → Abbruch)
+  - `frames_optimal`: Optimale Frame-Anzahl (≥ 200 → Normal Mode)
+  - `registration_residual_warn_px` / `max_px`: Registrierungsqualität
+  - `elongation_warn/max`: Tracking-Qualität
+- **Aktion:** Werte anpassen und bei Bedarf **Apply to Config** klicken
+
+### 5) Run starten
+
+- **Tab:** Run
+- **Einstellungen:**
+  - **Working dir:** Schreibt die effektive Konfiguration für den Lauf
+  - **Runs dir:** Zielverzeichnis für Outputs (`runs/<run_id>/`)
+- **Aktion:** **Start**
+- **Hinweis:** Der Run wird im Hintergrund ausgeführt; Logs erscheinen im Tab *Live log*
+
+### 6) Pipeline Progress verfolgen
+
+- **Tab:** Pipeline Progress
+- **Anzeige:**
+  - Aktuelle Phase (z.B. `REGISTRATION`, `NORMALIZATION`, `TILE_GRID`, …)
+  - Fortschrittsbalken (falls Phase Sub-Steps hat)
+  - Status- und Fehlermeldungen
+- **Phasen im Detail (siehe `doc/process_flow/`):**
+  - **Phase 0:** SCAN_INPUT (Kalibrierung, falls aktiv)
+  - **Phase 1:** REGISTRATION (Cosmetic Correction + ECC/Warp)
+  - **Phase 2:** CHANNEL_SPLIT + NORMALIZATION
+  - **Phase 3:** GLOBAL_METRICS (B, σ, E → globale Gewichte)
+  - **Phase 4:** TILE_GRID (FWHM-basierte Tiles)
+  - **Phase 5:** LOCAL_METRICS (Tile-Qualität)
+  - **Phase 6:** TILE_RECONSTRUCTION (gewichtete Rekonstruktion)
+  - **Phase 7:** STATE_CLUSTERING + SYNTHETIC_FRAMES (nur bei ≥ 200 Frames)
+  - **Phase 8:** STACKING (Sigma-Clip)
+  - **Phase 9:** DEBAYER (CFA → RGB)
+  - **Phase 10:** DONE (Report)
+
+### 7) Live log + Current run + Resume
+
+- **Tab:** Live log
+  - Zeigt stdout/stderr des Runners in Echtzeit
+- **Tab:** Current run
+  - **Refresh:** Status, Logs, Artifacts neu laden
+  - **Inspect:** Run-Verzeichnis im Dateimanager öffnen
+  - **Resume from phase…:** Lauf ab einer ausgewählten Phase fortsetzen
+- **Hinweis:** Resume ist nützlich, wenn ein Lauf中途 abgebrochen wird und du ab einer bestimmten Phase neu starten willst
+
+### 8) Ergebnisse (Outputs)
+
+Nach erfolgreichem Lauf findest du unter `runs/<run_id>/`:
+
+- `outputs/`
+  - `calibrated/` (falls Kalibrierung aktiv)
+  - `registered/` (registrierte Frames)
+  - `reconstructed_*` (Kanäle nach Tile-Rekonstruktion)
+  - `stacked_R.fit`, `stacked_G.fit`, `stacked_B.fit`
+  - `stacked_rgb.fit` (nach Debayer)
+- `artifacts/`
+  - PNGs und JSON-Diagnostiken (Qualitätsplots, Tile-Heatmaps, Previews)
+- `work/`
+  - Temporäre Zwischenergebnisse (z.B. Siril-Work-Dirs)
+
+---
+
 ## GUI workflow (recommended)
 
 The GUI is organized into tabs. A typical end-to-end workflow looks like this:
