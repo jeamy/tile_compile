@@ -28,6 +28,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
 import yaml
@@ -48,6 +49,7 @@ from runner.tile_processor_v4 import (
     global_coarse_normalize,
     compute_global_weights,
 )
+from runner.v4_parallel import process_tile_job
 from runner.utils import (
     copy_config,
     discover_frames,
@@ -72,7 +74,7 @@ def load_frame(path: Path) -> Optional[np.ndarray]:
     except (ValueError, OSError) as e:
         # Fallback for FITS with BZERO/BSCALE/BLANK keywords
         if "memmap" in str(e).lower() or "BZERO" in str(e) or "BSCALE" in str(e):
-            print(f"[WARNING] FITS has BZERO/BSCALE keywords - using memmap=False (higher RAM usage): {path.name}")
+            # print(f"[WARNING] FITS has BZERO/BSCALE keywords - using memmap=False (higher RAM usage): {path.name}")
             try:
                 with fits.open(str(path), memmap=False) as hdul:
                     data = hdul[0].data
@@ -278,6 +280,12 @@ def run_v4_pipeline(
     
     cfg_obj = TileProcessorConfig(cfg)
     
+    # Validate parallel_tiles configuration
+    parallel_tiles = v4_cfg.get("parallel_tiles")
+    if parallel_tiles is None:
+        print("[WARNING] v4.parallel_tiles not configured, defaulting to 1 (serial)")
+        v4_cfg["parallel_tiles"] = 1
+    
     # Adaptive tile refinement configuration
     v4_cfg = cfg.get("v4", {})
     adaptive_cfg = v4_cfg.get("adaptive_tiles", {})
@@ -297,6 +305,17 @@ def run_v4_pipeline(
     rss_abort_mb = memory_limits_cfg.get("rss_abort_mb", 8192)
     proc = psutil.Process(os.getpid()) if psutil else None
     
+    # Get parallel configuration
+    parallel_tiles = v4_cfg.get("parallel_tiles", 1)
+    
+    # CI guard: check CPU core count
+    cpu_cores = os.cpu_count() or 1
+    if parallel_tiles > cpu_cores:
+        print(f"[WARNING] parallel_tiles ({parallel_tiles}) exceeds CPU cores ({cpu_cores}), capping to {cpu_cores}")
+        parallel_tiles = cpu_cores
+    
+    print(f"[Phase 6] Using {parallel_tiles} parallel workers")
+    
     # Multi-pass tile refinement loop
     for refine_pass in range(max_refine_passes + 1):
         if refine_pass > 0:
@@ -305,56 +324,118 @@ def run_v4_pipeline(
         warp_variances = []
         pass_results = []
         
+        # Prepare jobs for parallel execution
+        jobs = []
         for tid, bbox in enumerate(tiles):
-            # Memory monitoring
-            if proc and tid % 50 == 0:
-                rss_mb = proc.memory_info().rss / 1e6
-                if rss_mb > rss_abort_mb:
-                    phase_event(6, "TILE_RECONSTRUCTION_TLR", "error", {
-                        "error": "memory_limit_exceeded",
-                        "rss_mb": rss_mb,
-                        "limit_mb": rss_abort_mb,
-                    })
-                    raise RuntimeError(f"RSS limit exceeded: {rss_mb:.0f} MB > {rss_abort_mb} MB (v4)")
-                elif rss_mb > rss_warn_mb:
-                    print(f"[WARNING] High RSS usage: {rss_mb:.0f} MB (limit: {rss_abort_mb} MB)")
-            
-            # Emit progress event for GUI
-            from runner.events import phase_progress
-            total_progress = tid + 1 + (refine_pass * len(tiles))
-            total_tiles = len(tiles) * (max_refine_passes + 1)
-            phase_progress(
-                run_id=run_id,
-                log_fp=log_fp,
-                phase_id=6,
-                phase_name="TILE_RECONSTRUCTION_TLR",
-                current=total_progress,
-                total=total_tiles,
-            )
-            
-            if tid % 10 == 0:
-                print(f"  Tile {tid + 1}/{len(tiles)}...")
-            
-            tp = TileProcessor(
-                tile_id=tid,
-                bbox=bbox,
-                frame_paths=frame_paths,
-                global_weights=global_weights,
-                cfg=cfg_obj,
-            )
-            tile, warps = tp.run()
-            
-            meta = tp.get_metadata()
-            tile_metadata.append(meta)
-            
-            if tile is None:
-                all_results[bbox] = None
-                warp_variances.append(float("inf"))
-                continue
-            
-            all_results[bbox] = tile
-            warp_variances.append(meta["warp_variance"])
-            pass_results.append((bbox, tile, meta["warp_variance"]))
+            jobs.append((tid, bbox, frame_paths, global_weights, cfg))
+        
+        # Execute tiles in parallel
+        if parallel_tiles > 1:
+            print(f"  Processing {len(jobs)} tiles with {parallel_tiles} workers...")
+            with ProcessPoolExecutor(max_workers=parallel_tiles) as exe:
+                futures = [exe.submit(process_tile_job, j) for j in jobs]
+                
+                completed = 0
+                for f in as_completed(futures):
+                    tid, bbox, tile, warps = f.result()
+                    
+                    completed += 1
+                    
+                    # Memory monitoring
+                    if proc and completed % 50 == 0:
+                        rss_mb = proc.memory_info().rss / 1e6
+                        if rss_mb > rss_abort_mb:
+                            phase_event(6, "TILE_RECONSTRUCTION_TLR", "error", {
+                                "error": "memory_limit_exceeded",
+                                "rss_mb": rss_mb,
+                                "limit_mb": rss_abort_mb,
+                            })
+                            raise RuntimeError(f"RSS limit exceeded: {rss_mb:.0f} MB > {rss_abort_mb} MB (v4)")
+                        elif rss_mb > rss_warn_mb:
+                            print(f"[WARNING] High RSS usage: {rss_mb:.0f} MB (limit: {rss_abort_mb} MB)")
+                    
+                    # Emit progress event for GUI
+                    from runner.events import phase_progress
+                    total_progress = completed + (refine_pass * len(tiles))
+                    total_tiles = len(tiles) * (max_refine_passes + 1)
+                    phase_progress(
+                        run_id=run_id,
+                        log_fp=log_fp,
+                        phase_id=6,
+                        phase_name="TILE_RECONSTRUCTION_TLR",
+                        current=total_progress,
+                        total=total_tiles,
+                    )
+                    
+                    if completed % 10 == 0:
+                        print(f"  Completed {completed}/{len(tiles)} tiles...")
+                    
+                    # Store results
+                    if tile is None:
+                        all_results[bbox] = None
+                        warp_variances.append(float("inf"))
+                    else:
+                        all_results[bbox] = tile
+                        # Compute warp variance from warps
+                        if warps is not None and len(warps) > 0:
+                            warp_var = np.var([w[0] for w in warps]) + np.var([w[1] for w in warps])
+                        else:
+                            warp_var = 0.0
+                        warp_variances.append(warp_var)
+                        pass_results.append((bbox, tile, warp_var))
+        else:
+            # Serial fallback (parallel_tiles = 1)
+            print(f"  Processing {len(jobs)} tiles serially...")
+            for tid, bbox in enumerate(tiles):
+                # Memory monitoring
+                if proc and tid % 50 == 0:
+                    rss_mb = proc.memory_info().rss / 1e6
+                    if rss_mb > rss_abort_mb:
+                        phase_event(6, "TILE_RECONSTRUCTION_TLR", "error", {
+                            "error": "memory_limit_exceeded",
+                            "rss_mb": rss_mb,
+                            "limit_mb": rss_abort_mb,
+                        })
+                        raise RuntimeError(f"RSS limit exceeded: {rss_mb:.0f} MB > {rss_abort_mb} MB (v4)")
+                    elif rss_mb > rss_warn_mb:
+                        print(f"[WARNING] High RSS usage: {rss_mb:.0f} MB (limit: {rss_abort_mb} MB)")
+                
+                # Emit progress event for GUI
+                from runner.events import phase_progress
+                total_progress = tid + 1 + (refine_pass * len(tiles))
+                total_tiles = len(tiles) * (max_refine_passes + 1)
+                phase_progress(
+                    run_id=run_id,
+                    log_fp=log_fp,
+                    phase_id=6,
+                    phase_name="TILE_RECONSTRUCTION_TLR",
+                    current=total_progress,
+                    total=total_tiles,
+                )
+                
+                if tid % 10 == 0:
+                    print(f"  Tile {tid + 1}/{len(tiles)}...")
+                
+                tp = TileProcessor(
+                    tile_id=tid,
+                    bbox=bbox,
+                    frame_paths=frame_paths,
+                    global_weights=global_weights,
+                    cfg=cfg_obj,
+                )
+                tile, warps = tp.run()
+                
+                meta = tp.get_metadata()
+                tile_metadata.append(meta)
+                
+                if tile is None:
+                    all_results[bbox] = None
+                    warp_variances.append(float("inf"))
+                    continue
+                
+                all_results[bbox] = tile
+                warp_variances.append(meta["warp_variance"])
+                pass_results.append((bbox, tile, meta["warp_variance"]))
         
         # Adaptive refinement: split high-variance tiles
         if refine_pass < max_refine_passes and adaptive_enabled:
