@@ -117,15 +117,33 @@ class TileProcessor:
         self.correlations: List[float] = []
     
     def _load_tile(self, path: Path) -> Optional[np.ndarray]:
-        """Load tile region from FITS file (disk streaming)."""
+        """Load tile region from FITS file (disk streaming with memmap)."""
         try:
-            with fits.open(str(path)) as hdul:
+            with fits.open(str(path), memmap=True) as hdul:
                 data = hdul[0].data
                 if data is None:
                     return None
                 x0, y0, w, h = self.bbox
-                tile = data[y0:y0 + h, x0:x0 + w].astype(np.float32, copy=True)
+                tile = data[y0:y0 + h, x0:x0 + w].astype(np.float32, copy=False)
                 return tile
+        except (ValueError, OSError) as e:
+            # Fallback for FITS with BZERO/BSCALE/BLANK keywords
+            if "memmap" in str(e).lower() or "BZERO" in str(e) or "BSCALE" in str(e):
+                # Only warn once per TileProcessor instance
+                if not hasattr(self, '_memmap_warning_shown'):
+                    print(f"[WARNING] Tile {self.tile_id}: FITS has BZERO/BSCALE - using memmap=False (higher RAM)")
+                    self._memmap_warning_shown = True
+                try:
+                    with fits.open(str(path), memmap=False) as hdul:
+                        data = hdul[0].data
+                        if data is None:
+                            return None
+                        x0, y0, w, h = self.bbox
+                        tile = data[y0:y0 + h, x0:x0 + w].astype(np.float32, copy=True)
+                        return tile
+                except Exception:
+                    return None
+            return None
         except Exception:
             return None
     
@@ -148,18 +166,30 @@ class TileProcessor:
         stack = np.stack(tiles, axis=0)
         return np.median(stack, axis=0).astype(np.float32)
     
-    def run(self) -> Optional[np.ndarray]:
+    def run(self) -> Tuple[Optional[np.ndarray], List[np.ndarray]]:
         """Execute iterative tile reconstruction (Methodik v4 §5.2, §8).
         
         Returns:
-            Reconstructed tile or None if invalid
+            (reconstructed_tile, warps) or (None, []) if invalid
         """
         if cv2 is None:
             self.valid = False
-            return None
+            return None, []
         
-        ref = self._initial_reference()
+        # Initial reference (median of streamed tiles)
+        tiles = []
+        for path in self.frame_paths:
+            tile = self._load_tile(path)
+            if tile is not None:
+                tiles.append(tile)
+        if not tiles:
+            self.valid = False
+            return None, []
+        ref = np.median(np.stack(tiles, axis=0), axis=0).astype(np.float32)
+        del tiles
         
+        # Iterative refinement
+        final_warps = []
         for iteration in range(self.cfg.iterations):
             warped_tiles = []
             warps = []
@@ -192,10 +222,11 @@ class TileProcessor:
             # Check minimum valid frames (§8 stability)
             if len(warped_tiles) < self.cfg.min_valid_frames:
                 self.valid = False
-                return None
+                return None, []
             
             # Temporal smoothing of warps (§5.3)
             warps = smooth_warps_translation(warps, self.cfg.temporal_smoothing_window)
+            final_warps = warps
             
             # Weighted reconstruction (§8)
             stack = np.stack(warped_tiles, axis=0)
@@ -212,7 +243,7 @@ class TileProcessor:
         self.mean_correlation = float(np.mean(self.correlations)) if self.correlations else 0.0
         
         self.reference = ref
-        return ref
+        return ref, final_warps
     
     def get_metadata(self) -> Dict[str, Any]:
         """Get tile metadata for diagnostics and clustering."""

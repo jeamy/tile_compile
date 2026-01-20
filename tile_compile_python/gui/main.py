@@ -1122,7 +1122,7 @@ class MainWindow(QMainWindow):
         
         Colors:
         - [error] or ERROR: red
-        - [warn] or WARNING: yellow
+        - [warn] or WARNING: bright orange
         - [info] or [ui] or [backend] or [runner]: blue
         """
         # Detect log level and apply color
@@ -1130,18 +1130,20 @@ class MainWindow(QMainWindow):
         color = None
         
         if "[error]" in text_lower or "error:" in text_lower or text_lower.startswith("error"):
-            color = "#ff4444"  # red
+            color = "#ff3333"  # red (only for errors)
         elif "[warn]" in text_lower or "warning:" in text_lower or text_lower.startswith("warning"):
-            color = "#ffaa00"  # yellow/orange
+            color = "#ff9900"  # bright orange (not red!)
         elif any(prefix in text_lower for prefix in ["[info]", "[ui]", "[backend]", "[runner]", "[phase"]):
             color = "#4488ff"  # blue
         
         if color:
-            # Use HTML formatting for colored text
-            html_text = f'<span style="color: {color};">{text}</span>'
+            # Use HTML formatting for colored text with explicit color reset
+            html_text = f'<span style="color: {color};">{text}</span><span style="color: black;"></span>'
             self.live_log.appendHtml(html_text)
         else:
-            self.live_log.appendPlainText(text)
+            # Normal text in black
+            html_text = f'<span style="color: black;">{text}</span>'
+            self.live_log.appendHtml(html_text)
         
         sb = self.live_log.verticalScrollBar()
         sb.setValue(sb.maximum())
@@ -1820,7 +1822,7 @@ class MainWindow(QMainWindow):
             # Convenience: propagate input dir
             if res.get("ok"):
                 self.input_dir.setText(input_path)
-                self._save_gui_state(last_input_dir=input_path)
+                self._schedule_save_gui_state()
 
             self._update_controls()
 

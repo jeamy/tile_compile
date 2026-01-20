@@ -677,6 +677,137 @@ stacking:
       description: "Minimum surviving frame fraction per pixel before falling back to unclipped mean"
 
 # ============================================================
+# V4 SPECIFIC CONFIGURATION
+# Methodik v4 tile-local reconstruction parameters
+# ============================================================
+
+v4:
+  iterations:
+    type: integer
+    min: 1
+    max: 10
+    default: 3
+    required: false
+    editable: true
+    description: "Number of iterative reference refinement passes per tile"
+
+  beta:
+    type: number
+    min: 0.0
+    max: 20.0
+    default: 5.0
+    required: false
+    editable: true
+    description: "Registration quality weighting factor: R_ft = exp(beta * (cc - 1))"
+
+  min_valid_tile_fraction:
+    type: number
+    min: 0.0
+    max: 1.0
+    default: 0.3
+    required: false
+    editable: true
+    description: "Minimum fraction of valid tiles required for successful reconstruction"
+
+  adaptive_tiles:
+    enabled:
+      type: boolean
+      default: false
+      required: false
+      editable: true
+      description: "Enable adaptive tile refinement based on warp variance"
+
+    max_refine_passes:
+      type: integer
+      min: 0
+      max: 5
+      default: 2
+      required: false
+      editable: true
+      description: "Maximum number of tile refinement passes (0 = no refinement)"
+
+    refine_variance_threshold:
+      type: number
+      min: 0.0
+      max: 10.0
+      default: 0.25
+      required: false
+      editable: true
+      description: "Warp variance threshold for tile splitting: Var(dx) + Var(dy)"
+
+    min_tile_size_px:
+      type: integer
+      min: 32
+      max: 512
+      default: 64
+      required: false
+      editable: true
+      description: "Minimum tile size in pixels (no split below this)"
+
+  convergence:
+    enabled:
+      type: boolean
+      default: false
+      required: false
+      editable: true
+      description: "Enable convergence check for early stopping"
+
+    epsilon_rel:
+      type: number
+      min: 1.0e-6
+      max: 1.0e-1
+      default: 1.0e-3
+      required: false
+      editable: true
+      description: "Relative L2 norm threshold for convergence"
+
+  memory_limits:
+    rss_warn_mb:
+      type: integer
+      min: 512
+      default: 4096
+      required: false
+      editable: true
+      description: "Soft memory limit (MB) - warning only"
+
+    rss_abort_mb:
+      type: integer
+      min: 1024
+      default: 8192
+      required: false
+      editable: true
+      description: "Hard memory limit (MB) - abort run if exceeded"
+
+  diagnostics:
+    enabled:
+      type: boolean
+      default: true
+      required: false
+      editable: true
+      description: "Enable diagnostic artifact generation"
+
+    warp_field:
+      type: boolean
+      default: true
+      required: false
+      editable: true
+      description: "Save warp vector field per channel"
+
+    tile_invalid_map:
+      type: boolean
+      default: true
+      required: false
+      editable: true
+      description: "Save map of invalid tiles"
+
+    warp_variance_hist:
+      type: boolean
+      default: true
+      required: false
+      editable: true
+      description: "Save histogram of warp variances"
+
+# ============================================================
 # VALIDIERUNG
 # Methodik v4 §12
 # ============================================================
