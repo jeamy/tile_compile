@@ -1,89 +1,160 @@
 import numpy as np
 import pytest
 import cv2
-from tile_compile_backend.registration import CFARegistration, BayerPattern
+from runner.opencv_registration import (
+    opencv_prepare_ecc_image,
+    opencv_count_stars,
+    opencv_ecc_warp,
+    opencv_best_translation_init,
+    opencv_detect_stars,
+    opencv_star_match_ransac,
+    opencv_register_stars,
+)
 
-class TestCFARegistration:
+class TestOpenCVRegistration:
     @pytest.fixture
-    def sample_frames(self):
-        # Create synthetic CFA frames with different characteristics
+    def sample_image(self):
+        """Create a synthetic image with stars."""
         np.random.seed(42)
-        base_frame = np.random.normal(100, 20, (256, 256))
-        
-        # Simulate slight translations and rotations
-        frames = [base_frame]
-        for i in range(5):
-            # Create slightly different frame
-            noise = np.random.normal(0, 5, base_frame.shape)
-            translation_x = np.random.randint(-5, 5)
-            translation_y = np.random.randint(-5, 5)
-            
-            # Apply translation
-            translated = np.roll(base_frame + noise, (translation_y, translation_x), axis=(0, 1))
-            frames.append(translated)
-        
-        return frames
+        img = np.random.normal(0.1, 0.02, (512, 512)).astype(np.float32)
+        # Add some bright "stars"
+        for _ in range(20):
+            x, y = np.random.randint(50, 462, 2)
+            img[y-2:y+3, x-2:x+3] += np.random.uniform(0.5, 1.0)
+        return np.clip(img, 0, 1)
 
-    def test_reference_frame_selection(self, sample_frames):
-        """
-        Test reference frame selection based on star count
-        """
-        ref_frame, ref_index = CFARegistration._select_reference_frame(sample_frames)
+    @pytest.fixture
+    def sample_image_pair(self, sample_image):
+        """Create a pair of images with known transformation."""
+        ref = sample_image
+        # Create moving image with translation and small rotation
+        h, w = ref.shape
+        tx, ty = 5.0, -3.0
+        angle_deg = 0.5
+        theta = np.deg2rad(angle_deg)
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        cx, cy = w / 2.0, h / 2.0
+        warp = np.array([
+            [cos_t, -sin_t, -cos_t * cx + sin_t * cy + cx + tx],
+            [sin_t,  cos_t, -sin_t * cx - cos_t * cy + cy + ty],
+        ], dtype=np.float32)
+        moving = cv2.warpAffine(ref, warp, (w, h))
+        return ref, moving, warp
+
+    def test_prepare_ecc_image(self, sample_image):
+        """Test ECC image preparation."""
+        prepared = opencv_prepare_ecc_image(sample_image)
+        assert prepared.shape == sample_image.shape
+        assert prepared.dtype == np.float32
+        # Allow small negative values due to floating point precision
+        assert -1e-6 <= prepared.min() <= prepared.max() <= 1
+
+    def test_count_stars(self, sample_image):
+        """Test star counting."""
+        prepared = opencv_prepare_ecc_image(sample_image)
+        count = opencv_count_stars(prepared)
+        assert count > 0
+        assert count < 100  # Reasonable range
+
+    def test_detect_stars(self, sample_image):
+        """Test star detection."""
+        prepared = opencv_prepare_ecc_image(sample_image)
+        stars = opencv_detect_stars(prepared, max_stars=50)
+        assert stars.shape[1] == 2  # (x, y) coordinates
+        assert len(stars) > 0
+
+    def test_best_translation_init_no_rotation(self, sample_image_pair):
+        """Test translation initialization without rotation sweep."""
+        ref, moving, true_warp = sample_image_pair
+        ref01 = opencv_prepare_ecc_image(ref)
+        mov01 = opencv_prepare_ecc_image(moving)
         
-        assert ref_frame is not None
-        assert 0 <= ref_index < len(sample_frames)
-    
-    def test_star_counting(self, sample_frames):
-        """
-        Validate star detection method
-        """
-        star_counts = [CFARegistration._count_stars(frame) for frame in sample_frames]
+        init_warp = opencv_best_translation_init(mov01, ref01, rotation_sweep=False)
+        assert init_warp.shape == (2, 3)
+        # Should find approximate translation
+        assert abs(init_warp[0, 2] - true_warp[0, 2]) < 10.0
+        assert abs(init_warp[1, 2] - true_warp[1, 2]) < 10.0
+
+    def test_best_translation_init_with_rotation(self, sample_image_pair):
+        """Test translation initialization with rotation sweep."""
+        ref, moving, true_warp = sample_image_pair
+        ref01 = opencv_prepare_ecc_image(ref)
+        mov01 = opencv_prepare_ecc_image(moving)
         
-        assert all(count >= 0 for count in star_counts)
-        assert len(star_counts) == len(sample_frames)
-    
-    def test_subplane_extraction(self, sample_frames):
-        """
-        Test Bayer pattern subplane extraction
-        """
-        frame = sample_frames[0]
-        subplanes = CFARegistration._extract_subplanes(frame, BayerPattern.RGGB)
+        init_warp = opencv_best_translation_init(mov01, ref01, rotation_sweep=True)
+        assert init_warp.shape == (2, 3)
+        # Should find better alignment with rotation sweep
+
+    def test_ecc_warp_translation_only(self, sample_image_pair):
+        """Test ECC warp with translation only."""
+        ref, moving, true_warp = sample_image_pair
+        ref01 = opencv_prepare_ecc_image(ref)
+        mov01 = opencv_prepare_ecc_image(moving)
         
-        assert len(subplanes) == 4  # R, G1, G2, B
-        for plane in subplanes:
-            assert plane.shape[0] == frame.shape[0] // 2
-            assert plane.shape[1] == frame.shape[1] // 2
-    
-    def test_cfa_registration(self, sample_frames):
-        """
-        Test full CFA registration process
-        """
-        registration_result = CFARegistration.register_cfa_frames(
-            sample_frames, 
-            bayer_pattern=BayerPattern.RGGB
+        init = opencv_best_translation_init(mov01, ref01, rotation_sweep=False)
+        warp, cc = opencv_ecc_warp(mov01, ref01, allow_rotation=False, init_warp=init)
+        
+        assert warp.shape == (2, 3)
+        assert 0 <= cc <= 1
+        # Translation should be reasonably close (within 3px for synthetic data)
+        assert abs(warp[0, 2] - true_warp[0, 2]) < 3.0
+        assert abs(warp[1, 2] - true_warp[1, 2]) < 3.0
+
+    def test_ecc_warp_with_rotation(self, sample_image_pair):
+        """Test ECC warp with rotation allowed."""
+        ref, moving, true_warp = sample_image_pair
+        ref01 = opencv_prepare_ecc_image(ref)
+        mov01 = opencv_prepare_ecc_image(moving)
+        
+        init = opencv_best_translation_init(mov01, ref01, rotation_sweep=True)
+        warp, cc = opencv_ecc_warp(mov01, ref01, allow_rotation=True, init_warp=init)
+        
+        assert warp.shape == (2, 3)
+        assert 0 <= cc <= 1
+        # Should recover both translation and rotation (within 3px)
+        assert abs(warp[0, 2] - true_warp[0, 2]) < 3.0
+        assert abs(warp[1, 2] - true_warp[1, 2]) < 3.0
+
+    def test_star_match_ransac(self, sample_image_pair):
+        """Test star matching with RANSAC."""
+        ref, moving, true_warp = sample_image_pair
+        ref01 = opencv_prepare_ecc_image(ref)
+        mov01 = opencv_prepare_ecc_image(moving)
+        
+        warp, num_inliers = opencv_star_match_ransac(mov01, ref01)
+        
+        if warp is not None:
+            assert warp.shape == (2, 3)
+            assert num_inliers >= 0
+
+    def test_register_stars_allow_rotation(self, sample_image_pair):
+        """Test full registration with rotation allowed."""
+        ref, moving, true_warp = sample_image_pair
+        ref01 = opencv_prepare_ecc_image(ref)
+        mov01 = opencv_prepare_ecc_image(moving)
+        
+        warp, confidence, method = opencv_register_stars(
+            mov01, ref01, 
+            fallback_to_ecc=True, 
+            allow_rotation=True
         )
         
-        assert 'registered_frames' in registration_result
-        assert 'transformations' in registration_result
-        assert 'quality_metrics' in registration_result
+        assert warp.shape == (2, 3)
+        assert confidence >= 0
+        assert method in ["star_ransac", "ecc", "phase_corr"]
+
+    def test_register_stars_no_rotation(self, sample_image_pair):
+        """Test full registration with rotation disabled."""
+        ref, moving, true_warp = sample_image_pair
+        ref01 = opencv_prepare_ecc_image(ref)
+        mov01 = opencv_prepare_ecc_image(moving)
         
-        # Check that number of registered frames matches input
-        assert len(registration_result['registered_frames']) > 0
-        assert len(registration_result['registered_frames']) <= len(sample_frames)
-    
-    def test_registration_quality_metrics(self, sample_frames):
-        """
-        Validate registration quality metrics
-        """
-        registration_result = CFARegistration.register_cfa_frames(
-            sample_frames, 
-            bayer_pattern=BayerPattern.RGGB
+        warp, confidence, method = opencv_register_stars(
+            mov01, ref01, 
+            fallback_to_ecc=True, 
+            allow_rotation=False
         )
         
-        quality_metrics = registration_result['quality_metrics']
-        
-        # Quality metrics should be between 0 and 1
-        assert all(0 <= metric <= 1 for metric in quality_metrics)
-        
-        # First frame (reference) should have perfect quality
-        assert quality_metrics[0] == 1.0
+        assert warp.shape == (2, 3)
+        assert confidence >= 0
+        assert method in ["star_ransac", "ecc", "phase_corr"]

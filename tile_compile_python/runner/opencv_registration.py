@@ -280,7 +280,7 @@ def opencv_register_stars(
     
     # Star matching failed or insufficient inliers, try ECC
     if fallback_to_ecc:
-        init = opencv_best_translation_init(moving01, ref01, rotation_sweep=True)
+        init = opencv_best_translation_init(moving01, ref01, rotation_sweep=allow_rotation)
         try:
             warp, cc = opencv_ecc_warp(moving01, ref01, allow_rotation=allow_rotation, init_warp=init)
             return warp, cc, "ecc"
