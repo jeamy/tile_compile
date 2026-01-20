@@ -4,7 +4,6 @@ import seaborn as sns
 from skimage.metrics import structural_similarity as ssim
 from skimage.metrics import peak_signal_noise_ratio as psnr
 
-from tile_compile_backend.registration import CFARegistration
 import imageio
 import os
 from typing import List, Dict, Any
@@ -41,44 +40,8 @@ class ComparativeAnalysis:
         ]
         return [imageio.imread(path) for path in image_paths]
     
-    def compare_registration_methods(
-        self, 
-        input_frames: List[np.ndarray]
-    ) -> Dict[str, Any]:
-        """
-        Compare different registration methods
-        
-        Args:
-            input_frames: Frames to register
-        
-        Returns:
-            Comparative registration metrics
-        """
-        methods = {
-            'CFA_registration': CFARegistration.register_cfa_frames,
-            # Add more registration methods here
-        }
-        
-        results = {}
-        
-        for method_name, registration_func in methods.items():
-            start_time = time.time()
-            registered_result = registration_func(input_frames)
-            registration_time = time.time() - start_time
-            
-            registered_frames = registered_result['registered_frames']
-            
-            # Compute metrics
-            results[method_name] = {
-                'registration_time': registration_time,
-                'registered_frames_count': len(registered_frames),
-                'quality_metrics': self._compute_registration_quality(
-                    input_frames, 
-                    registered_frames
-                )
-            }
-        
-        return results
+    # NOTE: Legacy compare_registration_methods removed - use runner.opencv_registration instead
+    # def compare_registration_methods(...):
     
     def _compute_registration_quality(
         self, 

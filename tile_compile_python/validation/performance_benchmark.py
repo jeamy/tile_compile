@@ -5,7 +5,6 @@ import os
 from typing import List, Dict, Any
 from concurrent.futures import ProcessPoolExecutor
 
-from tile_compile_backend.registration import CFARegistration
 from tile_compile_backend.linearity import validate_frames_linearity
 from tile_compile_backend.metrics import compute_channel_metrics
 from tile_compile_backend.tile_grid import generate_multi_channel_grid
@@ -33,38 +32,8 @@ class PerformanceBenchmark:
         self.results = {}
         self.methodik_v3_results = {}
     
-    def benchmark_registration(
-        self, 
-        frames: List[np.ndarray], 
-        iterations: int = 10
-    ) -> Dict[str, Any]:
-        """
-        Benchmark CFA registration performance
-        
-        Args:
-            frames: Input frames
-            iterations: Number of benchmark iterations
-        
-        Returns:
-            Registration performance metrics
-        """
-        times = []
-        memory_usage = []
-        
-        for _ in range(iterations):
-            start_time = time.time()
-            result = CFARegistration.register_cfa_frames(frames)
-            end_time = time.time()
-            
-            times.append(end_time - start_time)
-            # TODO: Add actual memory tracking
-        
-        return {
-            'mean_time': np.mean(times),
-            'std_time': np.std(times),
-            'total_frames': len(frames),
-            'memory_usage': memory_usage
-        }
+    # NOTE: Legacy benchmark_registration removed - use runner.opencv_registration instead
+    # def benchmark_registration(...):
     
     def benchmark_linearity_validation(
         self, 

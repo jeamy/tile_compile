@@ -1960,11 +1960,11 @@ def run_phases_impl(
                 if method == "star_ransac" and confidence < 8:
                     # Too few inliers, use phase correlation fallback
                     print(f"[WARN] Frame {i}: star match weak ({confidence:.0f} inliers), using phase corr")
-                    dx, dy = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=False)[0, 2], opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=False)[1, 2]
-                    step_warp = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
+                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=allow_rotation)
+                    step_warp = init
                 elif method == "ecc" and confidence < 0.7:
                     print(f"[WARN] Frame {i}: ECC weak ({confidence:.3f}), using phase corr")
-                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=False)
+                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=allow_rotation)
                     step_warp = init
                 
                 # Sanity check on step warp
@@ -2021,11 +2021,11 @@ def run_phases_impl(
                 if method == "star_ransac" and confidence < 8:
                     # Too few inliers, use phase correlation fallback
                     print(f"[WARN] Frame {i}: star match weak ({confidence:.0f} inliers), using phase corr")
-                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=False)
+                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=allow_rotation)
                     step_warp = init
                 elif method == "ecc" and confidence < 0.7:
                     print(f"[WARN] Frame {i}: ECC weak ({confidence:.3f}), using phase corr")
-                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=False)
+                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=allow_rotation)
                     step_warp = init
                 
                 # Sanity check on step warp
