@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "tile_compile.schema.json",
-  "title": "tile_compile.yaml schema",
-  "description": "Machine-readable JSON Schema for tile_compile.yaml. This schema defines the allowed configuration shape for a Tile-Compile run and is aligned with Methodik v3. Related files: tile_compile.yaml (example config), tile_compile.schema.yaml (GUI/editor-oriented schema metadata), tile_compile_runner.py (authoritative implementation).",
+  "title": "tile_compile.yaml schema (Methodik v4)",
+  "description": "Machine-readable JSON Schema for tile_compile.yaml. Aligned with Methodik v4 (tile-wise local registration, no global registration). Related files: tile_compile.yaml (config), tile_compile.schema.yaml (GUI metadata), tile_compile_runner.py (implementation).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -123,29 +123,103 @@
 
     "registration": {
       "type": "object",
+      "description": "Methodik v4: Tile-wise Local Registration (TLR). No global registration phase.",
       "additionalProperties": false,
-      "required": [
-        "engine",
-        "reference",
-        "output_dir",
-        "registered_filename_pattern",
-        "min_star_matches",
-        "allow_rotation"
-      ],
+      "required": ["local_tiles"],
       "properties": {
-        "engine": { "type": "string", "enum": ["siril", "opencv_cfa"] },
-        "reference": { "type": "string", "enum": ["auto"] },
-        "output_dir": { "type": "string", "minLength": 1 },
-        "registered_filename_pattern": { "type": "string", "minLength": 1 },
-        "min_star_matches": { "type": "integer", "minimum": 1 },
-        "allow_rotation": { "type": "boolean" },
-        "border_mode": { "type": "string" },
-        "border_value": { "type": "number" },
-        "expand_canvas": { "type": "boolean" },
-        "siril_script": {
-          "type": "string",
-          "default": "",
-          "description": "Optional path to a custom Siril registration script (empty = use default)."
+        "local_tiles": {
+          "type": "object",
+          "description": "Tile-local registration parameters (Methodik v4 §5)",
+          "additionalProperties": false,
+          "required": ["model", "ecc_cc_min", "min_valid_frames"],
+          "properties": {
+            "model": {
+              "type": "string",
+              "enum": ["translation"],
+              "default": "translation",
+              "description": "Movement model - translation only (§5.1)"
+            },
+            "ecc_cc_min": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "default": 0.2,
+              "description": "Minimum ECC correlation to accept tile registration"
+            },
+            "min_valid_frames": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 10,
+              "description": "Minimum valid frames required per tile"
+            },
+            "reference_method": {
+              "type": "string",
+              "enum": ["median_time", "min_gradient"],
+              "default": "median_time",
+              "description": "Tile reference selection method"
+            },
+            "max_tile_size": {
+              "type": "integer",
+              "minimum": 32,
+              "maximum": 512,
+              "default": 128,
+              "description": "Hard limit for tile size (§4)"
+            },
+            "registration_quality_beta": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 20.0,
+              "default": 5.0,
+              "description": "Registration quality weight sensitivity β (§7)"
+            },
+            "max_iterations": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 3,
+              "description": "Iterative reference refinement iterations (§5.2)"
+            },
+            "temporal_smoothing_window": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 51,
+              "default": 11,
+              "description": "Temporal warp smoothing window (must be odd) (§5.3)"
+            },
+            "temporal_smoothing_polyorder": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "default": 3,
+              "description": "Polynomial order for Savitzky-Golay filter"
+            },
+            "enable_recursive_refinement": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable recursive tile refinement for high-variance tiles (§4)"
+            },
+            "refinement_variance_threshold": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 20.0,
+              "default": 4.0,
+              "description": "Max warp variance before tile is split"
+            },
+            "refinement_max_depth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4,
+              "default": 2,
+              "description": "Maximum recursion depth for tile refinement"
+            },
+            "variance_window_sigma": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 10.0,
+              "default": 2.0,
+              "description": "Scale parameter for variance-weighted overlap window ψ(var) (§9)"
+            }
+          }
         }
       }
     },
@@ -444,9 +518,38 @@
       }
     },
 
+    "v4": {
+      "type": "object",
+      "description": "Methodik v4 specific parameters",
+      "additionalProperties": false,
+      "properties": {
+        "iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3,
+          "description": "Iterative reconstruction iterations (§5.2)"
+        },
+        "beta": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 20.0,
+          "default": 5.0,
+          "description": "Registration quality weight sensitivity R_{f,t} = exp(β·(cc-1)) (§7)"
+        },
+        "min_valid_tile_fraction": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 1.0,
+          "default": 0.3,
+          "description": "Minimum fraction of valid tiles required (§12)"
+        }
+      }
+    },
+
     "assumptions": {
       "type": "object",
-      "description": "Methodik v3 assumption tolerances and reduced mode configuration",
+      "description": "Methodik v4 assumption tolerances and reduced mode configuration",
       "additionalProperties": false,
       "properties": {
         "frames_min": {
@@ -474,17 +577,17 @@
           "default": 5,
           "description": "Maximum allowed deviation in exposure time."
         },
-        "registration_residual_warn_px": {
+        "warp_variance_warn": {
           "type": "number",
           "minimum": 0,
-          "default": 0.5,
-          "description": "Registration residual threshold for warning."
+          "default": 2.0,
+          "description": "Warp variance threshold for warning (v4)."
         },
-        "registration_residual_max_px": {
+        "warp_variance_max": {
           "type": "number",
           "minimum": 0,
-          "default": 1.0,
-          "description": "Maximum allowed registration residual. Above this: abort."
+          "default": 8.0,
+          "description": "Maximum allowed warp variance per tile. Above this: tile marked invalid (v4)."
         },
         "elongation_warn": {
           "type": "number",
