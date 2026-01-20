@@ -142,13 +142,6 @@ assumptions:
     editable: true
     description: "Maximum allowed star elongation. Above this: abort."
 
-  tracking_error_max_px:
-    type: number
-    min: 0
-    default: 1.0
-    required: false
-    editable: true
-    description: "Maximum allowed tracking error per exposure in pixels (implicit assumption from Methodik v3 §1.3)."
 
   reduced_mode_skip_clustering:
     type: boolean
@@ -196,6 +189,14 @@ normalization:
 # ============================================================
 
 registration:
+  mode:
+    type: enum
+    values: [local_tiles]
+    default: local_tiles
+    required: true
+    editable: false
+    description: "Registration mode - v4 enforces local_tiles only"
+  
   local_tiles:
     type: object
     required: true
@@ -203,13 +204,6 @@ registration:
     description: "Tile-wise local registration parameters (Methodik v4)"
     
     properties:
-      model:
-        type: enum
-        values: [translation]
-        default: translation
-        required: true
-        editable: false
-        description: "Movement model - translation only (rotation absorbed locally)"
       
       ecc_cc_min:
         type: number
@@ -228,41 +222,6 @@ registration:
         editable: true
         description: "Minimum valid frames required per tile"
       
-      reference_method:
-        type: enum
-        values: [median_time, min_gradient]
-        default: median_time
-        required: true
-        editable: true
-        description: "Tile reference selection: median_time or min_gradient"
-      
-      max_tile_size:
-        type: integer
-        min: 32
-        max: 512
-        default: 128
-        required: false
-        editable: true
-        description: "Hard limit for tile size (important for field rotation)"
-      
-      registration_quality_beta:
-        type: number
-        min: 0.0
-        max: 20.0
-        default: 5.0
-        required: false
-        editable: true
-        description: "Registration quality weight sensitivity (Methodik v4 §7)"
-      
-      max_iterations:
-        type: integer
-        min: 1
-        max: 10
-        default: 3
-        required: false
-        editable: true
-        description: "Iterative reference refinement iterations (Methodik v4 §5.2)"
-      
       temporal_smoothing_window:
         type: integer
         min: 5
@@ -271,40 +230,6 @@ registration:
         required: false
         editable: true
         description: "Savitzky-Golay window for temporal warp smoothing (must be odd)"
-      
-      temporal_smoothing_polyorder:
-        type: integer
-        min: 1
-        max: 5
-        default: 3
-        required: false
-        editable: true
-        description: "Polynomial order for Savitzky-Golay filter"
-      
-      enable_recursive_refinement:
-        type: boolean
-        default: true
-        required: false
-        editable: true
-        description: "Enable recursive tile refinement for high-variance tiles (Methodik v4 §4)"
-      
-      refinement_variance_threshold:
-        type: number
-        min: 0.5
-        max: 20.0
-        default: 4.0
-        required: false
-        editable: true
-        description: "Max warp variance before tile is split into sub-tiles"
-      
-      refinement_max_depth:
-        type: integer
-        min: 1
-        max: 4
-        default: 2
-        required: false
-        editable: true
-        description: "Maximum recursion depth for tile refinement"
       
       variance_window_sigma:
         type: number
@@ -708,6 +633,15 @@ v4:
     required: false
     editable: true
     description: "Minimum fraction of valid tiles required for successful reconstruction"
+
+  parallel_tiles:
+    type: integer
+    min: 1
+    max: 32
+    default: 8
+    required: false
+    editable: true
+    description: "Number of parallel tile workers (1=serial, 8=default, max=CPU cores)"
 
   adaptive_tiles:
     enabled:

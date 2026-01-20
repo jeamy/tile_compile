@@ -125,20 +125,20 @@
       "type": "object",
       "description": "Methodik v4: Tile-wise Local Registration (TLR). No global registration phase.",
       "additionalProperties": false,
-      "required": ["local_tiles"],
+      "required": ["mode", "local_tiles"],
       "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["local_tiles"],
+          "default": "local_tiles",
+          "description": "Registration mode - v4 enforces local_tiles only"
+        },
         "local_tiles": {
           "type": "object",
           "description": "Tile-local registration parameters (Methodik v4 §5)",
           "additionalProperties": false,
-          "required": ["model", "ecc_cc_min", "min_valid_frames"],
+          "required": ["ecc_cc_min", "min_valid_frames"],
           "properties": {
-            "model": {
-              "type": "string",
-              "enum": ["translation"],
-              "default": "translation",
-              "description": "Movement model - translation only (§5.1)"
-            },
             "ecc_cc_min": {
               "type": "number",
               "minimum": 0.0,
@@ -152,65 +152,12 @@
               "default": 10,
               "description": "Minimum valid frames required per tile"
             },
-            "reference_method": {
-              "type": "string",
-              "enum": ["median_time", "min_gradient"],
-              "default": "median_time",
-              "description": "Tile reference selection method"
-            },
-            "max_tile_size": {
-              "type": "integer",
-              "minimum": 32,
-              "maximum": 512,
-              "default": 128,
-              "description": "Hard limit for tile size (§4)"
-            },
-            "registration_quality_beta": {
-              "type": "number",
-              "minimum": 0.0,
-              "maximum": 20.0,
-              "default": 5.0,
-              "description": "Registration quality weight sensitivity β (§7)"
-            },
-            "max_iterations": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 10,
-              "default": 3,
-              "description": "Iterative reference refinement iterations (§5.2)"
-            },
             "temporal_smoothing_window": {
               "type": "integer",
               "minimum": 5,
               "maximum": 51,
               "default": 11,
               "description": "Temporal warp smoothing window (must be odd) (§5.3)"
-            },
-            "temporal_smoothing_polyorder": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 5,
-              "default": 3,
-              "description": "Polynomial order for Savitzky-Golay filter"
-            },
-            "enable_recursive_refinement": {
-              "type": "boolean",
-              "default": true,
-              "description": "Enable recursive tile refinement for high-variance tiles (§4)"
-            },
-            "refinement_variance_threshold": {
-              "type": "number",
-              "minimum": 0.5,
-              "maximum": 20.0,
-              "default": 4.0,
-              "description": "Max warp variance before tile is split"
-            },
-            "refinement_max_depth": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 4,
-              "default": 2,
-              "description": "Maximum recursion depth for tile refinement"
             },
             "variance_window_sigma": {
               "type": "number",
@@ -539,10 +486,17 @@
         },
         "min_valid_tile_fraction": {
           "type": "number",
-          "minimum": 0.1,
+          "minimum": 0.0,
           "maximum": 1.0,
           "default": 0.3,
           "description": "Minimum fraction of valid tiles required (§12)"
+        },
+        "parallel_tiles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "default": 8,
+          "description": "Number of parallel tile workers (1=serial, 8=default, max=CPU cores)"
         },
         "adaptive_tiles": {
           "type": "object",

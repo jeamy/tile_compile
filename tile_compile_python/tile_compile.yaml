@@ -59,6 +59,7 @@ v4:
   iterations: 4                        # iterative reconstruction iterations (§5.2)
   beta: 6.0                            # R_{f,t} = exp(β·(cc-1)) sensitivity (§7)
   min_valid_tile_fraction: 0.3         # abort if < 30% valid tiles (§12)
+  parallel_tiles: 8                    # number of parallel tile workers (1=serial, 8=default)
   
   adaptive_tiles:
     enabled: true                      # enable adaptive tile refinement
@@ -71,8 +72,8 @@ v4:
     epsilon_rel: 1.0e-3                # relative L2 norm threshold
   
   memory_limits:
-    rss_warn_mb: 4096                  # soft limit (warning)
-    rss_abort_mb: 8192                 # hard limit (abort)
+    rss_warn_mb: 16384                  # soft limit (warning)
+    rss_abort_mb: 32768                 # hard limit (abort)
   
   diagnostics:
     enabled: true                      # generate diagnostic artifacts

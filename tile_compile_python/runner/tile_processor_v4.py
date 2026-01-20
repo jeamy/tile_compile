@@ -136,7 +136,7 @@ class TileProcessor:
             if "memmap" in str(e).lower() or "BZERO" in str(e) or "BSCALE" in str(e):
                 # Only warn once per TileProcessor instance
                 if not hasattr(self, '_memmap_warning_shown'):
-                    print(f"[WARNING] Tile {self.tile_id}: FITS has BZERO/BSCALE - using memmap=False (higher RAM)")
+                    # print(f"[WARNING] Tile {self.tile_id}: FITS has BZERO/BSCALE - using memmap=False (higher RAM)")
                     self._memmap_warning_shown = True
                 try:
                     with fits.open(str(path), memmap=False) as hdul:
