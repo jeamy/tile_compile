@@ -19,17 +19,15 @@ echo "  ✓ Siril files removed"
 # 2. Remove old registration module (replaced by tile_local_registration_v4.py)
 echo "[2/6] Cleaning up old TLR module..."
 if [ -f tile_compile_python/runner/tile_local_registration.py ]; then
-    mv tile_compile_python/runner/tile_local_registration.py \
-       tile_compile_python/runner/tile_local_registration_v3.py.backup
-    echo "  ✓ Old TLR backed up to tile_local_registration_v3.py.backup"
+    rm -f tile_compile_python/runner/tile_local_registration.py
+    echo "  ✓ Old TLR removed (use Git for rollback)"
 fi
 
 # 3. Remove legacy registration tests
 echo "[3/6] Removing legacy tests..."
 if [ -f tile_compile_python/tests/test_registration.py ]; then
-    mv tile_compile_python/tests/test_registration.py \
-       tile_compile_python/tests/test_registration_v3.py.backup
-    echo "  ✓ Old tests backed up"
+    rm -f tile_compile_python/tests/test_registration.py
+    echo "  ✓ Old tests removed (use Git for rollback)"
 fi
 
 # 4. Remove performance benchmarks that used old registration
@@ -65,10 +63,10 @@ No global registration engine (Siril or OpenCV-based) is needed.
 ### Legacy Registration Code
 - REGISTRATION phase in `phases_impl.py` (~550 lines removed)
 - Helper functions: `_compose_affine`, `_warp_cfa`, `_check_step_warp_sanity`
-- Old TLR v3 module → backed up as `tile_local_registration_v3.py.backup`
+- Old TLR v3 module removed (use Git for rollback)
 
 ### Legacy Tests
-- `tests/test_registration.py` → backed up as `test_registration_v3.py.backup`
+- `tests/test_registration.py` removed (use Git for rollback)
 
 ## New Components
 
@@ -131,17 +129,23 @@ registration:
 
 ## Rollback
 
-If needed, restore from Git:
-```bash
-git checkout tile_compile_python/runner/phases_impl.py
-git checkout tile_compile_python/runner/siril_utils.py
-# etc.
-```
+All changes are tracked in Git. To rollback:
 
-Backups are also available:
-- `phases_impl.py.backup`
-- `tile_local_registration_v3.py.backup`
-- `test_registration_v3.py.backup`
+```bash
+# View changes
+git status
+git diff
+
+# Rollback specific file
+git checkout HEAD -- tile_compile_python/runner/phases_impl.py
+
+# Rollback all changes
+git reset --hard HEAD
+
+# Rollback to specific commit
+git log --oneline
+git checkout <commit-hash>
+```
 EOF
 
 echo "  ✓ Summary created: MIGRATION_V4_SUMMARY.md"
