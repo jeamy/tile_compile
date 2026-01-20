@@ -9,7 +9,7 @@
 # - This file is documentation/editor metadata.
 # - The authoritative machine validation is tile_compile.schema.json + backend cross-field checks.
 #
-# Aligned with: Methodik v4 (doc/tile_basierte_qualitaetsrekonstruktion_methodik_v_4.md)
+# Aligned with: Methodology v4 (doc/tile_based_quality_reconstruction_methodology_v4.md)
 
 schema_version: 4
 
@@ -30,9 +30,9 @@ pipeline:
     editable: true
 
 # ============================================================
-# INPUT / DATEN (automatisch ermittelt)
-# Diese Felder werden aus dem Input-Verzeichnis bzw. FITS-
-# Headern gelesen und sind NICHT editierbar.
+# INPUT / DATA (automatically determined)
+# These fields are read from the input directory or FITS
+# headers and are NOT editable.
 # ============================================================
 
 input:
@@ -40,26 +40,26 @@ input:
     type: integer
     source: fits_header
     editable: false
-    description: "NAXIS1 – Bildbreite in Pixeln"
+    description: "NAXIS1 – Image width in pixels"
 
   image_height:
     type: integer
     source: fits_header
     editable: false
-    description: "NAXIS2 – Bildhöhe in Pixeln"
+    description: "NAXIS2 – Image height in pixels"
 
   frames_detected:
     type: integer
     source: filesystem
     editable: false
-    description: "Anzahl erkannter FITS-Dateien"
+    description: "Number of detected FITS files"
 
   color_mode:
     type: enum
     values: [OSC, MONO]
     source: fits_header
     editable: confirm
-    description: "Aus FITS abgeleitet, vor Run bestätigbar"
+    description: "Derived from FITS, confirmable before run"
 
   bayer_pattern:
     type: enum
@@ -67,7 +67,7 @@ input:
     source: fits_header
     editable: confirm
     default: GBRG
-    description: "BAYERPAT (Bayer-Muster) für OSC/CFA; wird für Debayer verwendet"
+    description: "BAYERPAT (Bayer pattern) for OSC/CFA; used for debayering"
 
 # ============================================================
 # ASSUMPTIONS (Methodik v4)

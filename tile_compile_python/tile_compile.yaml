@@ -8,6 +8,11 @@
 # - Methodik v4: Tile-wise Local Registration (TLR), no global registration.
 # - "assumptions" contains v4 tolerance thresholds and Reduced Mode behavior.
 # - The runner may derive additional input metadata at runtime (image size, frame count, etc.).
+#
+# V4 PRESETS (see doc/v_4_example_configs.md):
+# - Preset 1: EQ mount, calm seeing (iterations: 2, beta: 3.0, adaptive: off)
+# - Preset 2: Alt/Az, strong field rotation (iterations: 4, beta: 6.0, adaptive: on) [DEFAULT]
+# - Preset 3: Near pole, very unstable (iterations: 5, beta: 8.0, adaptive: on, aggressive)
 
 pipeline:
   mode: production
@@ -45,15 +50,35 @@ assumptions:
   warp_variance_max: 8.0               # v4: max warp variance (tile invalid above)
   elongation_warn: 0.3
   elongation_max: 0.4
-  tracking_error_max_px: 1.0
   reduced_mode_skip_clustering: true
   reduced_mode_cluster_range: [5, 10]
 
-# Methodik v4 specific parameters
+# Methodology v4 specific parameters
+# Current preset: 2 (Alt/Az, strong field rotation)
 v4:
-  iterations: 3                        # iterative reconstruction iterations (§5.2)
-  beta: 5.0                            # R_{f,t} = exp(β·(cc-1)) sensitivity (§7)
+  iterations: 4                        # iterative reconstruction iterations (§5.2)
+  beta: 6.0                            # R_{f,t} = exp(β·(cc-1)) sensitivity (§7)
   min_valid_tile_fraction: 0.3         # abort if < 30% valid tiles (§12)
+  
+  adaptive_tiles:
+    enabled: true                      # enable adaptive tile refinement
+    max_refine_passes: 3               # maximum refinement passes
+    refine_variance_threshold: 0.15    # variance threshold for splitting
+    min_tile_size_px: 64               # minimum tile size
+  
+  convergence:
+    enabled: false                     # early stopping on convergence
+    epsilon_rel: 1.0e-3                # relative L2 norm threshold
+  
+  memory_limits:
+    rss_warn_mb: 4096                  # soft limit (warning)
+    rss_abort_mb: 8192                 # hard limit (abort)
+  
+  diagnostics:
+    enabled: true                      # generate diagnostic artifacts
+    warp_field: true                   # save warp vector field
+    tile_invalid_map: true             # save invalid tile map
+    warp_variance_hist: true           # save variance statistics
 
 normalization:
   enabled: true
@@ -63,20 +88,12 @@ normalization:
 registration:
   # Methodik v4: Tile-wise Local Registration (TLR)
   # No global registration - each tile registers independently
+  mode: local_tiles
+  
   local_tiles:
-    model: translation                    # translation only (rotation absorbed locally)
     ecc_cc_min: 0.2                      # minimum ECC correlation to accept
     min_valid_frames: 10                 # minimum frames required per tile
-    reference_method: median_time        # median_time | min_gradient
-    max_tile_size: 128                   # hard limit for strong field rotation
-    registration_quality_beta: 5.0       # R_{f,t} weight sensitivity (§7)
-    max_iterations: 3                    # iterative reference refinement (§5.2)
     temporal_smoothing_window: 11        # Savitzky-Golay window (must be odd)
-    temporal_smoothing_polyorder: 3      # polynomial order for smoothing
-    # Experimental features (Methodik v4)
-    enable_recursive_refinement: true    # §4: split tiles with high warp variance
-    refinement_variance_threshold: 4.0   # max variance before refinement
-    refinement_max_depth: 2              # maximum recursion depth
     variance_window_sigma: 2.0           # ψ(var) scale parameter (§9)
 
 wiener_denoise:
@@ -101,15 +118,15 @@ tile:
 local_metrics:
   clamp: [-3, 3]
   star_mode:
-    # FWHM, roundness und contrast werden gemäß Methodik v3.1 MAD-normalisiert;
-    # es gibt kein log-Transform mehr. Die Gewichte definieren direkt die
-    # Kombination Q_star = w_fwhm·(-FWHM̃) + w_round·R̃ + w_con·C̃.
+    # FWHM, roundness and contrast are MAD-normalized according to Methodology v3.1;
+    # there is no log-transform anymore. The weights directly define the
+    # combination Q_star = w_fwhm·(-FWHM̃) + w_round·R̃ + w_con·C̃.
     weights:
       fwhm: 0.6
       roundness: 0.2
       contrast: 0.2
   structure_mode:
-    # Strukturmodus nutzt ENR = E/σ und lokalen Hintergrund B_local:
+    # Structure mode uses ENR = E/σ and local background B_local:
     #   Q_struct = metric_weight·ENR̃ − background_weight·B̃_local
     background_weight: 0.3
     metric_weight: 0.7
