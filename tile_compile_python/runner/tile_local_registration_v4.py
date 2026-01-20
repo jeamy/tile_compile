@@ -49,15 +49,21 @@ def _read_fits_tile(
         return None, None
 
 
-def estimate_tile_local_translation(
+def register_tile(
     moving_tile: np.ndarray,
     ref_tile: np.ndarray,
     ecc_cc_min: float = 0.2
 ) -> Tuple[Optional[np.ndarray], float]:
-    """Estimate translation-only transformation for a tile.
+    """Register a tile against reference (Methodik v4 §5.1).
     
+    Translation-only model: p' = p + (dx, dy)
     Uses Phase Correlation for initial estimate, then ECC refinement.
     
+    Args:
+        moving_tile: Tile to register
+        ref_tile: Reference tile
+        ecc_cc_min: Minimum ECC correlation threshold
+        
     Returns:
         (warp_matrix, correlation) or (None, 0.0) if failed
         warp_matrix is 2x3 translation-only: [[1, 0, dx], [0, 1, dy]]

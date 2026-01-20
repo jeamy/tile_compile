@@ -1118,7 +1118,31 @@ class MainWindow(QMainWindow):
         self.cal_flat_use_master.toggled.connect(lambda *_: self._persist_calibration_from_ui())
 
     def _append_live(self, text: str) -> None:
-        self.live_log.appendPlainText(text)
+        """Append text to live log with color formatting.
+        
+        Colors:
+        - [error] or ERROR: red
+        - [warn] or WARNING: yellow
+        - [info] or [ui] or [backend] or [runner]: blue
+        """
+        # Detect log level and apply color
+        text_lower = text.lower()
+        color = None
+        
+        if "[error]" in text_lower or "error:" in text_lower or text_lower.startswith("error"):
+            color = "#ff4444"  # red
+        elif "[warn]" in text_lower or "warning:" in text_lower or text_lower.startswith("warning"):
+            color = "#ffaa00"  # yellow/orange
+        elif any(prefix in text_lower for prefix in ["[info]", "[ui]", "[backend]", "[runner]", "[phase"]):
+            color = "#4488ff"  # blue
+        
+        if color:
+            # Use HTML formatting for colored text
+            html_text = f'<span style="color: {color};">{text}</span>'
+            self.live_log.appendHtml(html_text)
+        else:
+            self.live_log.appendPlainText(text)
+        
         sb = self.live_log.verticalScrollBar()
         sb.setValue(sb.maximum())
 

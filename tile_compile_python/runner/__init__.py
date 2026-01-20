@@ -1,10 +1,28 @@
 """
-Tile-Compile Runner Package
+Tile-Compile Runner Package - Methodik v4
 
-Modular implementation of the Methodik v3 pipeline runner.
-Split from the monolithic tile_compile_runner.py for better maintainability.
+Tile-centric reconstruction without global registration.
+All registration is tile-local.
 """
 
-from .phases import run_phases
+from .tile_processor_v4 import (
+    TileProcessor,
+    TileProcessorConfig,
+    overlap_add,
+    build_initial_tile_grid,
+    refine_tiles,
+    global_coarse_normalize,
+    compute_global_weights,
+)
+from .tile_local_registration_v4 import register_tile
 
-__all__ = ["run_phases"]
+__all__ = [
+    "TileProcessor",
+    "TileProcessorConfig",
+    "overlap_add",
+    "build_initial_tile_grid",
+    "refine_tiles",
+    "global_coarse_normalize",
+    "compute_global_weights",
+    "register_tile",
+]

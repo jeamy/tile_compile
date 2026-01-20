@@ -70,7 +70,7 @@ input:
     description: "BAYERPAT (Bayer-Muster) für OSC/CFA; wird für Debayer verwendet"
 
 # ============================================================
-# ASSUMPTIONS (Methodik v3 §2)
+# ASSUMPTIONS (Methodik v4)
 # Hard, Soft, and Implicit assumptions with tolerances
 # ============================================================
 
@@ -108,21 +108,21 @@ assumptions:
     editable: true
     description: "Maximum allowed deviation in exposure time (Hard assumption)."
 
-  registration_residual_warn_px:
+  warp_variance_warn:
     type: number
     min: 0
-    default: 0.5
+    default: 2.0
     required: false
     editable: true
-    description: "Registration residual threshold for warning."
+    description: "Warp variance threshold for warning (v4)."
 
-  registration_residual_max_px:
+  warp_variance_max:
     type: number
     min: 0
-    default: 1.0
+    default: 8.0
     required: false
     editable: true
-    description: "Maximum allowed registration residual. Above this: abort."
+    description: "Maximum allowed warp variance per tile. Above this: tile invalid (v4)."
 
   elongation_warn:
     type: number
@@ -168,7 +168,7 @@ assumptions:
 
 # ============================================================
 # NORMALISIERUNG (Pflicht, Methodik-Zwang)
-# Methodik v3 §4
+# Methodik v4 §3
 # ============================================================
 
 normalization:
@@ -176,7 +176,7 @@ normalization:
     type: boolean
     const: true
     editable: false
-    description: "Mandatory: must be true per Methodik v3"
+    description: "Mandatory: must be true per Methodik v4 §3"
 
   mode:
     type: enum
@@ -349,7 +349,7 @@ wiener_denoise:
 
 # ============================================================
 # GLOBALE FRAME-METRIKEN
-# Methodik v3 §5
+# Methodik v4 §7 (G_f weights)
 # ============================================================
 
 global_metrics:
@@ -397,7 +397,7 @@ global_metrics:
 
 # ============================================================
 # TILE-GEOMETRIE (seeing-adaptiv)
-# Methodik v3 §6
+# Methodik v4 §4
 # ============================================================
 
 tile:
@@ -444,7 +444,7 @@ tile:
 
 # ============================================================
 # LOKALE METRIKEN
-# Methodik v3 §7
+# Methodik v4 §6
 # ============================================================
 
 local_metrics:
@@ -510,7 +510,7 @@ local_metrics:
 
 # ============================================================
 # SYNTHETISCHE FRAMES / CLUSTERING
-# Methodik v3 §10
+# Methodik v4 §10
 # ============================================================
 
 synthetic:
@@ -576,7 +576,7 @@ synthetic:
 
 # ============================================================
 # REKONSTRUKTION
-# Methodik v3 §9
+# Methodik v4 §8-9
 # ============================================================
 
 reconstruction:
@@ -585,14 +585,14 @@ reconstruction:
     values: [exponential]
     const: exponential
     editable: false
-    description: "Mandatory: exponential weighting per Methodik v3"
+    description: "Mandatory: exponential weighting per Methodik v4 §8"
 
   window_function:
     type: enum
     values: [hanning]
     const: hanning
     editable: false
-    description: "Mandatory: Hanning window per Methodik v3"
+    description: "Mandatory: Hanning window per Methodik v4 §9"
 
   tile_rescale:
     type: enum
@@ -610,7 +610,7 @@ debayer:
 
 # ============================================================
 # STACKING
-# Methodik v3 §11
+# Methodik v4 §11
 # ============================================================
 
 stacking:
@@ -678,7 +678,7 @@ stacking:
 
 # ============================================================
 # VALIDIERUNG
-# Methodik v3 §12
+# Methodik v4 §12
 # ============================================================
 
 validation:

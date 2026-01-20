@@ -261,6 +261,44 @@ class TileGridGenerator:
 
         return min((covered_area / total_area) * 100, 100.0)
 
+def refine_tiles(
+    tiles: List[Tuple[int, int, int, int]],
+    warp_variances: List[float],
+    threshold: float = 4.0,
+    min_size: int = 64,
+) -> List[Tuple[int, int, int, int]]:
+    """Adaptive tile refinement (Methodik v4 §4).
+    
+    Split tiles with excessive warp variance.
+    
+    Args:
+        tiles: List of (x0, y0, w, h)
+        warp_variances: Variance per tile
+        threshold: Variance threshold for splitting
+        min_size: Minimum tile dimension (no split below this)
+        
+    Returns:
+        Refined tile list
+    """
+    refined = []
+    
+    for (x0, y0, w, h), var in zip(tiles, warp_variances):
+        if var < threshold or w <= min_size or h <= min_size:
+            refined.append((x0, y0, w, h))
+            continue
+        
+        # Split into 4 quadrants
+        hw, hh = w // 2, h // 2
+        refined.extend([
+            (x0, y0, hw, hh),
+            (x0 + hw, y0, w - hw, hh),
+            (x0, y0 + hh, hw, h - hh),
+            (x0 + hw, y0 + hh, w - hw, h - hh),
+        ])
+    
+    return refined
+
+
 def generate_multi_channel_grid(
     channels: Dict[str, np.ndarray], 
     config: Optional[Dict[str, Any]] = None
