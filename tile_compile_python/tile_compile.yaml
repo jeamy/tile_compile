@@ -57,11 +57,15 @@ registration:
   # Methodik v4: Tile-wise Local Registration (TLR)
   # No global registration - each tile registers independently
   local_tiles:
-    model: translation          # translation only (rotation absorbed locally)
-    ecc_cc_min: 0.2            # minimum ECC correlation to accept
-    min_valid_frames: 10       # minimum frames required per tile
-    reference_method: median_time  # median_time | min_gradient
-    max_tile_size: 128         # hard limit for strong field rotation
+    model: translation                    # translation only (rotation absorbed locally)
+    ecc_cc_min: 0.2                      # minimum ECC correlation to accept
+    min_valid_frames: 10                 # minimum frames required per tile
+    reference_method: median_time        # median_time | min_gradient
+    max_tile_size: 128                   # hard limit for strong field rotation
+    registration_quality_beta: 5.0       # R_{f,t} weight sensitivity (§7)
+    max_iterations: 3                    # iterative reference refinement (§5.2)
+    temporal_smoothing_window: 11        # Savitzky-Golay window (must be odd)
+    temporal_smoothing_polyorder: 3      # polynomial order for smoothing
 
 wiener_denoise:
   enabled: true

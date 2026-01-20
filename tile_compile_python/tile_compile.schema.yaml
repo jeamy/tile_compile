@@ -9,9 +9,9 @@
 # - This file is documentation/editor metadata.
 # - The authoritative machine validation is tile_compile.schema.json + backend cross-field checks.
 #
-# Aligned with: Methodik v3 (doc/tile_basierte_qualitatsrekonstruktion_methodik_en.md)
+# Aligned with: Methodik v4 (doc/tile_basierte_qualitaetsrekonstruktion_methodik_v_4.md)
 
-schema_version: 3
+schema_version: 4
 
 # ============================================================
 # PIPELINE
@@ -190,64 +190,96 @@ normalization:
     editable: true
 
 # ============================================================
-# REGISTRIERUNG
-# Methodik v3 §3 (Phase 1)
+# TILE-WISE LOCAL REGISTRATION (TLR)
+# Methodik v4 §5 - No global registration phase
+# Registration is integrated into tile reconstruction
 # ============================================================
 
 registration:
-  engine:
-    type: enum
-    values: [siril, opencv_cfa]
+  local_tiles:
+    type: object
     required: true
     editable: true
-
-  reference:
-    type: enum
-    values: [auto]
-    required: true
-    editable: true
-
-  output_dir:
-    type: string
-    required: true
-    editable: true
-
-  registered_filename_pattern:
-    type: string
-    required: true
-    editable: true
-
-  min_star_matches:
-    type: integer
-    min: 1
-    required: true
-    editable: true
-
-  allow_rotation:
-    type: boolean
-    required: true
-    editable: true
-
-  border_mode:
-    type: string
-    required: false
-    editable: true
-
-  border_value:
-    type: number
-    required: false
-    editable: true
-
-  expand_canvas:
-    type: boolean
-    required: false
-    editable: true
-
-  siril_script:
-    type: string
-    required: false
-    editable: true
-    description: "Custom Siril script path (empty = use default)"
+    description: "Tile-wise local registration parameters (Methodik v4)"
+    
+    properties:
+      model:
+        type: enum
+        values: [translation]
+        default: translation
+        required: true
+        editable: false
+        description: "Movement model - translation only (rotation absorbed locally)"
+      
+      ecc_cc_min:
+        type: number
+        min: 0.0
+        max: 1.0
+        default: 0.2
+        required: true
+        editable: true
+        description: "Minimum ECC correlation to accept tile registration"
+      
+      min_valid_frames:
+        type: integer
+        min: 1
+        default: 10
+        required: true
+        editable: true
+        description: "Minimum valid frames required per tile"
+      
+      reference_method:
+        type: enum
+        values: [median_time, min_gradient]
+        default: median_time
+        required: true
+        editable: true
+        description: "Tile reference selection: median_time or min_gradient"
+      
+      max_tile_size:
+        type: integer
+        min: 32
+        max: 512
+        default: 128
+        required: false
+        editable: true
+        description: "Hard limit for tile size (important for field rotation)"
+      
+      registration_quality_beta:
+        type: number
+        min: 0.0
+        max: 20.0
+        default: 5.0
+        required: false
+        editable: true
+        description: "Registration quality weight sensitivity (Methodik v4 §7)"
+      
+      max_iterations:
+        type: integer
+        min: 1
+        max: 10
+        default: 3
+        required: false
+        editable: true
+        description: "Iterative reference refinement iterations (Methodik v4 §5.2)"
+      
+      temporal_smoothing_window:
+        type: integer
+        min: 5
+        max: 51
+        default: 11
+        required: false
+        editable: true
+        description: "Savitzky-Golay window for temporal warp smoothing (must be odd)"
+      
+      temporal_smoothing_polyorder:
+        type: integer
+        min: 1
+        max: 5
+        default: 3
+        required: false
+        editable: true
+        description: "Polynomial order for Savitzky-Golay filter"
 
 # ============================================================
 # WIENER TILE DENOISING
