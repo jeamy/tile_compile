@@ -938,18 +938,17 @@ def run_phases_impl(
     if dry_run:
         phases = [
             (0, "SCAN_INPUT"),
-            (1, "REGISTRATION"),
-            (2, "CHANNEL_SPLIT"),
-            (3, "NORMALIZATION"),
-            (4, "GLOBAL_METRICS"),
-            (5, "TILE_GRID"),
-            (6, "LOCAL_METRICS"),
-            (7, "TILE_RECONSTRUCTION"),
-            (8, "STATE_CLUSTERING"),
-            (9, "SYNTHETIC_FRAMES"),
-            (10, "STACKING"),
-            (11, "DEBAYER"),
-            (12, "DONE"),
+            (1, "CHANNEL_SPLIT"),
+            (2, "NORMALIZATION"),
+            (3, "GLOBAL_METRICS"),
+            (4, "TILE_GRID"),
+            (5, "LOCAL_METRICS"),
+            (6, "TILE_RECONSTRUCTION_TLR"),  # Methodik v4: Tile-wise Local Registration
+            (7, "STATE_CLUSTERING"),
+            (8, "SYNTHETIC_FRAMES"),
+            (9, "STACKING"),
+            (10, "DEBAYER"),
+            (11, "DONE"),
         ]
         for phase_id, phase_name in phases:
             phase_start(run_id, log_fp, phase_id, phase_name)
@@ -1953,19 +1952,14 @@ def run_phases_impl(
                 step_warp, confidence, method = opencv_register_stars(
                     lum01, lum_prev01, 
                     fallback_to_ecc=True, 
-                    allow_rotation=allow_rotation
+                    allow_rotation=allow_rotation,
+                    min_star_matches=min_star_matches_i
                 )
                 
-                # Validate result
-                if method == "star_ransac" and confidence < 8:
-                    # Too few inliers, use phase correlation fallback
-                    print(f"[WARN] Frame {i}: star match weak ({confidence:.0f} inliers), using phase corr")
-                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=allow_rotation)
-                    step_warp = init
-                elif method == "ecc" and confidence < 0.7:
-                    print(f"[WARN] Frame {i}: ECC weak ({confidence:.3f}), using phase corr")
-                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=allow_rotation)
-                    step_warp = init
+                # Validate result - reject failed registrations
+                if method == "failed":
+                    print(f"[WARN] Frame {i}: registration failed, skipping frame")
+                    continue
                 
                 # Sanity check on step warp
                 if not _check_step_warp_sanity(step_warp):
@@ -2014,19 +2008,14 @@ def run_phases_impl(
                 step_warp, confidence, method = opencv_register_stars(
                     lum01, lum_prev01, 
                     fallback_to_ecc=True, 
-                    allow_rotation=allow_rotation
+                    allow_rotation=allow_rotation,
+                    min_star_matches=min_star_matches_i
                 )
                 
-                # Validate result
-                if method == "star_ransac" and confidence < 8:
-                    # Too few inliers, use phase correlation fallback
-                    print(f"[WARN] Frame {i}: star match weak ({confidence:.0f} inliers), using phase corr")
-                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=allow_rotation)
-                    step_warp = init
-                elif method == "ecc" and confidence < 0.7:
-                    print(f"[WARN] Frame {i}: ECC weak ({confidence:.3f}), using phase corr")
-                    init = opencv_best_translation_init(lum01, lum_prev01, rotation_sweep=allow_rotation)
-                    step_warp = init
+                # Validate result - reject failed registrations
+                if method == "failed":
+                    print(f"[WARN] Frame {i}: registration failed, skipping frame")
+                    continue
                 
                 # Sanity check on step warp
                 if not _check_step_warp_sanity(step_warp):

@@ -54,15 +54,14 @@ normalization:
   per_channel: true
 
 registration:
-  engine: opencv_cfa
-  reference: auto
-  allow_rotation: true   
-  min_star_matches: 20   
-  border_mode: constant  # replicate | reflect | constant | median
-  border_value: 0.0
-  expand_canvas: true
-  output_dir: registered
-  registered_filename_pattern: "reg_{index:05d}.fit"
+  # Methodik v4: Tile-wise Local Registration (TLR)
+  # No global registration - each tile registers independently
+  local_tiles:
+    model: translation          # translation only (rotation absorbed locally)
+    ecc_cc_min: 0.2            # minimum ECC correlation to accept
+    min_valid_frames: 10       # minimum frames required per tile
+    reference_method: median_time  # median_time | min_gradient
+    max_tile_size: 128         # hard limit for strong field rotation
 
 wiener_denoise:
   enabled: true
