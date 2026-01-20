@@ -24,6 +24,7 @@ import argparse
 import json
 import sys
 import uuid
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -31,6 +32,11 @@ from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 import yaml
 from astropy.io import fits
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 from runner.events import emit
 from runner.tile_processor_v4 import (
@@ -285,6 +291,12 @@ def run_v4_pipeline(
     all_results = {}
     tile_metadata = []
     
+    # Memory monitoring setup
+    memory_limits_cfg = v4_cfg.get("memory_limits", {})
+    rss_warn_mb = memory_limits_cfg.get("rss_warn_mb", 4096)
+    rss_abort_mb = memory_limits_cfg.get("rss_abort_mb", 8192)
+    proc = psutil.Process(os.getpid()) if psutil else None
+    
     # Multi-pass tile refinement loop
     for refine_pass in range(max_refine_passes + 1):
         if refine_pass > 0:
@@ -294,6 +306,19 @@ def run_v4_pipeline(
         pass_results = []
         
         for tid, bbox in enumerate(tiles):
+            # Memory monitoring
+            if proc and tid % 50 == 0:
+                rss_mb = proc.memory_info().rss / 1e6
+                if rss_mb > rss_abort_mb:
+                    phase_event(6, "TILE_RECONSTRUCTION_TLR", "error", {
+                        "error": "memory_limit_exceeded",
+                        "rss_mb": rss_mb,
+                        "limit_mb": rss_abort_mb,
+                    })
+                    raise RuntimeError(f"RSS limit exceeded: {rss_mb:.0f} MB > {rss_abort_mb} MB (v4)")
+                elif rss_mb > rss_warn_mb:
+                    print(f"[WARNING] High RSS usage: {rss_mb:.0f} MB (limit: {rss_abort_mb} MB)")
+            
             # Emit progress event for GUI
             from runner.events import phase_progress
             total_progress = tid + 1 + (refine_pass * len(tiles))
@@ -419,6 +444,41 @@ def run_v4_pipeline(
     meta_path = outputs_dir / "tile_metadata.json"
     with open(meta_path, "w") as f:
         json.dump(tile_metadata, f, indent=2, default=str)
+    
+    # Phase 11: Diagnostics (v4 YAML-controlled)
+    diagnostics_cfg = v4_cfg.get("diagnostics", {})
+    if diagnostics_cfg.get("enabled", True):
+        print("[Phase 11] Generating diagnostics...")
+        
+        if diagnostics_cfg.get("tile_invalid_map", True):
+            # Save map of invalid tiles
+            invalid_map = np.zeros(shape, dtype=np.uint8)
+            for meta in tile_metadata:
+                if not meta.get("valid", True):
+                    bbox = meta.get("bbox")
+                    if bbox:
+                        x0, y0, w, h = bbox
+                        invalid_map[y0:y0+h, x0:x0+w] = 255
+            invalid_map_path = outputs_dir / "tile_invalid_map.fits"
+            save_fits(invalid_map_path, invalid_map)
+            print(f"[Phase 11] Saved invalid tile map: {invalid_map_path}")
+        
+        if diagnostics_cfg.get("warp_variance_hist", True):
+            # Save warp variance histogram data
+            variances = [m.get("warp_variance", 0.0) for m in tile_metadata if m.get("valid", True)]
+            if variances:
+                hist_data = {
+                    "variances": variances,
+                    "mean": float(np.mean(variances)),
+                    "median": float(np.median(variances)),
+                    "std": float(np.std(variances)),
+                    "min": float(np.min(variances)),
+                    "max": float(np.max(variances)),
+                }
+                hist_path = outputs_dir / "warp_variance_stats.json"
+                with open(hist_path, "w") as f:
+                    json.dump(hist_data, f, indent=2)
+                print(f"[Phase 11] Saved warp variance stats: {hist_path}")
     
     phase_event(11, "DONE", "ok", {
         "output": str(output_path),

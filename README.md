@@ -1,6 +1,6 @@
 # Tile-Compile
 
-Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (Methodik v3).
+Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (Methodology v4).
 
 Given a directory of aligned (or alignable) FITS lights, it:
 
@@ -12,16 +12,33 @@ Given a directory of aligned (or alignable) FITS lights, it:
 - optionally clusters frame "states" and generates synthetic frames
 - produces a final stacked output plus a set of **diagnostic artifacts** (PNGs/JSON)
 
-## Versionen
+## Versions
 
-Das Projekt enthält zwei unabhängige Implementierungen:
+The project contains two independent implementations:
 
-| Version | Verzeichnis | Status | Backend |
-|---------|-------------|--------|---------|
-| **Python** | `tile_compile_python/` | Stabil | Python + NumPy + OpenCV |
-| **C++** | `tile_compile_cpp/` | In Entwicklung | C++ + Eigen + OpenCV |
+| Version | Directory | Status | Backend |
+|---------|-----------|--------|---------|
+| **Python** | `tile_compile_python/` | Stable (v4) | Python + NumPy + OpenCV |
+| **C++** | `tile_compile_cpp/` | In Development | C++ + Eigen + OpenCV |
 
-Beide Versionen sind unabhängig voneinander lauffähig.
+Both versions are independently executable.
+
+## Methodology v4 - Key Features
+
+**Tile-wise Local Registration (TLR)** - No global registration:
+- Each tile registers independently
+- Iterative reference refinement (2-5 iterations)
+- Adaptive tile splitting based on warp variance
+- Temporal smoothing of warps (Savitzky-Golay)
+- Memory-efficient disk streaming (memmap)
+- Production-ready OOM safety
+
+**Configuration Presets:**
+1. EQ mount, calm seeing (iterations: 2, beta: 3.0, adaptive: off)
+2. Alt/Az, strong field rotation (iterations: 4, beta: 6.0, adaptive: on) **[DEFAULT]**
+3. Near pole, very unstable (iterations: 5, beta: 8.0, adaptive: on, aggressive)
+
+See `doc/tile_based_quality_reconstruction_methodology_v4.md` for full specification.
 
 ## Quickstart (Python-Version)
 

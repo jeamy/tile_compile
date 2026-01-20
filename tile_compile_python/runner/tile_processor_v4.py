@@ -70,6 +70,11 @@ class TileProcessorConfig:
         self.iterations = int(v4_cfg.get("iterations", 3))
         self.beta = float(v4_cfg.get("beta", 5.0))
         
+        # Convergence
+        conv_cfg = v4_cfg.get("convergence", {})
+        self.convergence_enabled = bool(conv_cfg.get("enabled", False))
+        self.convergence_epsilon_rel = float(conv_cfg.get("epsilon_rel", 1.0e-3))
+        
         # Registration
         self.ecc_cc_min = float(reg_cfg.get("ecc_cc_min", 0.2))
         self.min_valid_frames = int(reg_cfg.get("min_valid_frames", 10))
@@ -188,8 +193,10 @@ class TileProcessor:
         ref = np.median(np.stack(tiles, axis=0), axis=0).astype(np.float32)
         del tiles
         
-        # Iterative refinement
+        # Iterative refinement with convergence check
         final_warps = []
+        prev_ref = None
+        
         for iteration in range(self.cfg.iterations):
             warped_tiles = []
             warps = []
@@ -233,6 +240,15 @@ class TileProcessor:
             w = np.asarray(weights, dtype=np.float64)
             w /= max(EPS, np.sum(w))
             ref = np.sum(stack * w[:, None, None], axis=0).astype(np.float32)
+            
+            # Convergence check (early stopping)
+            if self.cfg.convergence_enabled and prev_ref is not None:
+                diff = np.linalg.norm(ref - prev_ref)
+                norm = np.linalg.norm(prev_ref) + 1e-12
+                if diff / norm < self.cfg.convergence_epsilon_rel:
+                    break
+            
+            prev_ref = ref.copy()
             
             # Store for metadata
             self.warps = warps

@@ -861,6 +861,19 @@ class MainWindow(QMainWindow):
         self.btn_apply_assumptions.setMinimumHeight(30)
         self.btn_apply_assumptions.setFixedWidth(140)
         self.btn_apply_assumptions.setToolTip("Apply assumptions from Assumptions tab to config YAML")
+        
+        # v4 Preset dropdown
+        self.v4_preset_combo = QComboBox()
+        self.v4_preset_combo.addItem("Preset 1: EQ-Montierung, ruhiges Seeing", 1)
+        self.v4_preset_combo.addItem("Preset 2: Alt/Az, starke Feldrotation", 2)
+        self.v4_preset_combo.addItem("Preset 3: Polnähe, sehr instabil", 3)
+        self.v4_preset_combo.setCurrentIndex(1)  # Default: Preset 2
+        self.v4_preset_combo.setMinimumHeight(30)
+        self.v4_preset_combo.setFixedWidth(280)
+        self.v4_preset_combo.setToolTip("Wähle v4-Konfigurationspreset (siehe doc/v_4_example_configs.md)")
+        
+        button_row.addWidget(QLabel("v4 Preset:"))
+        button_row.addWidget(self.v4_preset_combo)
         button_row.addWidget(self.btn_cfg_load)
         button_row.addWidget(self.btn_cfg_save)
         button_row.addWidget(self.btn_cfg_validate)
@@ -1073,6 +1086,7 @@ class MainWindow(QMainWindow):
         self.btn_cfg_validate.clicked.connect(self._validate_config)
         self.btn_browse_config.clicked.connect(self._browse_config)
         self.btn_apply_assumptions.clicked.connect(self._apply_assumptions_to_config)
+        self.v4_preset_combo.currentIndexChanged.connect(self._apply_v4_preset)
         self.config_yaml.textChanged.connect(self._on_config_edited)
 
         self.assumptions_widget.assumptions_changed.connect(self._on_assumptions_changed)
@@ -1652,6 +1666,72 @@ class MainWindow(QMainWindow):
         self._update_controls()
         self._schedule_save_gui_state()
 
+    def _apply_v4_preset(self) -> None:
+        """Apply selected v4 preset to config YAML."""
+        preset_id = self.v4_preset_combo.currentData()
+        if preset_id is None:
+            return
+        
+        self._append_live(f"[ui] applying v4 preset {preset_id}")
+        
+        # Define presets (from doc/v_4_example_configs.md)
+        presets = {
+            1: {  # EQ-Montierung, ruhiges Seeing
+                "iterations": 2,
+                "beta": 3.0,
+                "adaptive_tiles": {"enabled": False}
+            },
+            2: {  # Alt/Az, starke Feldrotation (DEFAULT)
+                "iterations": 4,
+                "beta": 6.0,
+                "adaptive_tiles": {
+                    "enabled": True,
+                    "max_refine_passes": 3,
+                    "refine_variance_threshold": 0.15
+                }
+            },
+            3: {  # Polnähe, sehr instabil
+                "iterations": 5,
+                "beta": 8.0,
+                "adaptive_tiles": {
+                    "enabled": True,
+                    "max_refine_passes": 4,
+                    "refine_variance_threshold": 0.1
+                }
+            }
+        }
+        
+        preset = presets.get(preset_id)
+        if not preset:
+            return
+        
+        yaml_text = self.config_yaml.toPlainText()
+        try:
+            cfg = yaml.safe_load(yaml_text) or {}
+            if not isinstance(cfg, dict):
+                self._append_live("[ui] error: config is not a dict")
+                return
+            
+            # Update v4 section
+            if "v4" not in cfg:
+                cfg["v4"] = {}
+            
+            cfg["v4"]["iterations"] = preset["iterations"]
+            cfg["v4"]["beta"] = preset["beta"]
+            
+            if "adaptive_tiles" not in cfg["v4"]:
+                cfg["v4"]["adaptive_tiles"] = {}
+            
+            cfg["v4"]["adaptive_tiles"].update(preset["adaptive_tiles"])
+            
+            # Write back
+            new_yaml = yaml.dump(cfg, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            self.config_yaml.setPlainText(new_yaml)
+            self._append_live(f"[ui] v4 preset {preset_id} applied")
+            
+        except Exception as e:
+            self._append_live(f"[ui] error applying preset: {e}")
+    
     def _apply_assumptions_to_config(self) -> None:
         self._append_live("[ui] apply assumptions to config")
         yaml_text = self.config_yaml.toPlainText()

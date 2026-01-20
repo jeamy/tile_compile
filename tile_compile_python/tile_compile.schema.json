@@ -543,6 +543,104 @@
           "maximum": 1.0,
           "default": 0.3,
           "description": "Minimum fraction of valid tiles required (§12)"
+        },
+        "adaptive_tiles": {
+          "type": "object",
+          "description": "Adaptive tile refinement configuration",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable adaptive tile refinement based on warp variance"
+            },
+            "max_refine_passes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5,
+              "default": 2,
+              "description": "Maximum number of tile refinement passes"
+            },
+            "refine_variance_threshold": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 10.0,
+              "default": 0.25,
+              "description": "Warp variance threshold for tile splitting"
+            },
+            "min_tile_size_px": {
+              "type": "integer",
+              "minimum": 32,
+              "maximum": 512,
+              "default": 64,
+              "description": "Minimum tile size in pixels"
+            }
+          }
+        },
+        "convergence": {
+          "type": "object",
+          "description": "Convergence check configuration",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable convergence check for early stopping"
+            },
+            "epsilon_rel": {
+              "type": "number",
+              "minimum": 1.0e-6,
+              "maximum": 1.0e-1,
+              "default": 1.0e-3,
+              "description": "Relative L2 norm threshold for convergence"
+            }
+          }
+        },
+        "memory_limits": {
+          "type": "object",
+          "description": "Memory usage limits",
+          "additionalProperties": false,
+          "properties": {
+            "rss_warn_mb": {
+              "type": "integer",
+              "minimum": 512,
+              "default": 4096,
+              "description": "Soft memory limit (MB) - warning only"
+            },
+            "rss_abort_mb": {
+              "type": "integer",
+              "minimum": 1024,
+              "default": 8192,
+              "description": "Hard memory limit (MB) - abort run if exceeded"
+            }
+          }
+        },
+        "diagnostics": {
+          "type": "object",
+          "description": "Diagnostic artifact generation",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable diagnostic artifact generation"
+            },
+            "warp_field": {
+              "type": "boolean",
+              "default": true,
+              "description": "Save warp vector field per channel"
+            },
+            "tile_invalid_map": {
+              "type": "boolean",
+              "default": true,
+              "description": "Save map of invalid tiles"
+            },
+            "warp_variance_hist": {
+              "type": "boolean",
+              "default": true,
+              "description": "Save histogram of warp variances"
+            }
+          }
         }
       }
     },
