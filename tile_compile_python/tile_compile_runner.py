@@ -280,6 +280,9 @@ def run_v4_pipeline(
     
     cfg_obj = TileProcessorConfig(cfg)
     
+    # Get v4 configuration
+    v4_cfg = cfg.get("v4", {})
+    
     # Validate parallel_tiles configuration
     parallel_tiles = v4_cfg.get("parallel_tiles")
     if parallel_tiles is None:
@@ -287,7 +290,6 @@ def run_v4_pipeline(
         v4_cfg["parallel_tiles"] = 1
     
     # Adaptive tile refinement configuration
-    v4_cfg = cfg.get("v4", {})
     adaptive_cfg = v4_cfg.get("adaptive_tiles", {})
     adaptive_enabled = adaptive_cfg.get("enabled", False)
     max_refine_passes = adaptive_cfg.get("max_refine_passes", 0) if adaptive_enabled else 0
