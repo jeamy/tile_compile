@@ -66,6 +66,16 @@ v4:
     max_refine_passes: 3               # maximum refinement passes
     refine_variance_threshold: 0.15    # variance threshold for splitting
     min_tile_size_px: 64               # minimum tile size
+    
+    # Tile grid optimization (reduces tile count by 30-50%)
+    use_warp_probe: true               # pre-warp probe for gradient field
+    use_hierarchical: true             # hierarchical tile initialization
+    initial_tile_size: 256             # starting tile size for hierarchical
+    probe_window: 256                  # window size for warp probing
+    num_probe_frames: 5                # number of frames to probe (3-5)
+    gradient_sensitivity: 2.0          # s(x,y) = s0 / (1 + c·grad)
+    split_gradient_threshold: 0.3      # gradient threshold for splitting
+    hierarchical_max_depth: 3          # max recursion depth
   
   convergence:
     enabled: false                     # early stopping on convergence

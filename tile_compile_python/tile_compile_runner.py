@@ -49,6 +49,7 @@ from runner.tile_processor_v4 import (
     global_coarse_normalize,
     compute_global_weights,
 )
+from runner.adaptive_tile_grid import build_optimized_tile_grid
 from runner.v4_parallel import process_tile_job
 from runner.utils import (
     copy_config,
@@ -258,14 +259,25 @@ def run_v4_pipeline(
         "num_frames": len(global_weights),
     })
     
-    # Phase 4: TILE_GRID
+    # Phase 4: TILE_GRID (with optional adaptive optimization)
     phase_event(4, "TILE_GRID", "start")
     print("[Phase 4] Building tile grid...")
     
     shape = test_frame.shape[:2]
-    tiles = build_initial_tile_grid(shape, cfg)
+    v4_cfg = cfg.get("v4", {})
+    adaptive_cfg = v4_cfg.get("adaptive_tiles", {})
+    
+    if adaptive_cfg.get("use_warp_probe", False) or adaptive_cfg.get("use_hierarchical", False):
+        print("[Phase 4] Using adaptive tile grid optimization...")
+        tiles, gradient_field = build_optimized_tile_grid(shape, cfg, frame_paths)
+        if gradient_field is not None:
+            print(f"[Phase 4] Warp gradient field computed (max={np.max(gradient_field):.3f})")
+    else:
+        tiles = build_initial_tile_grid(shape, cfg)
+        gradient_field = None
+    
     print(f"[Phase 4] Generated {len(tiles)} tiles")
-    phase_event(4, "TILE_GRID", "ok", {"num_tiles": len(tiles)})
+    phase_event(4, "TILE_GRID", "ok", {"num_tiles": len(tiles), "adaptive": gradient_field is not None})
     
     # Free test frame
     del test_frame
