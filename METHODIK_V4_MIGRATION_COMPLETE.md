@@ -229,18 +229,24 @@ Alle neuen v4-Parameter mit Defaults hinzugefügt:
 
 ---
 
-## 📝 Backup & Rollback
+## 📝 Rollback via Git
 
-**Backups erstellt:**
-- `phases_impl.py.backup` (falls vorhanden)
-- `tile_local_registration_v3.py.backup`
-- `test_registration_v3.py.backup`
-
-**Rollback via Git:**
+**Rollback einzelner Dateien:**
 ```bash
 git checkout HEAD -- tile_compile_python/runner/phases_impl.py
 git checkout HEAD -- tile_compile_python/tile_compile.yaml
 git checkout HEAD -- tile_compile_python/tile_compile.schema.yaml
+```
+
+**Vollständiger Rollback:**
+```bash
+git reset --hard HEAD
+```
+
+**Zu spezifischem Commit zurück:**
+```bash
+git log --oneline --graph
+git checkout <commit-hash>
 ```
 
 ---

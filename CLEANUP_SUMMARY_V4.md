@@ -78,9 +78,6 @@
 **Alte TLR-Version:**
 - `tile_local_registration.py` wurde durch `tile_local_registration_v4.py` ersetzt
 
-**Alte Tests:**
-- `tests/test_registration.py` wurde durch `test_registration_v3.py` ersetzt
-
 ### ✅ 4. Schema aktualisiert
 
 **Datei:** `tile_compile.schema.yaml`
@@ -240,17 +237,21 @@ tile_local_registration.py (ersetzt durch v4)
 
 ## Rollback-Optionen
 
-**Via Git:**
+**Via Git (empfohlen):**
 ```bash
+# Zeige Änderungen
 git status
 git diff tile_compile_python/runner/phases_impl.py
-git checkout HEAD -- <file>
-```
 
-**Via Backups:**
-```bash
-cp runner/tile_local_registration_v3.py.backup runner/tile_local_registration.py
-cp tests/test_registration_v3.py.backup tests/test_registration.py
+# Einzelne Datei zurücksetzen
+git checkout HEAD -- tile_compile_python/runner/phases_impl.py
+
+# Alle Änderungen zurücksetzen
+git reset --hard HEAD
+
+# Zu spezifischem Commit zurück
+git log --oneline
+git checkout <commit-hash>
 ```
 
 ---
