@@ -179,6 +179,52 @@ def registration_quality_weight(cc: float, beta: float = 5.0) -> float:
     return float(np.exp(beta * (cc - 1.0)))
 
 
+def compute_warp_variance(warps: List[Optional[np.ndarray]]) -> float:
+    """Compute variance of warp translations (Methodik v4 §9, §10).
+    
+    Used for:
+    - Variance-weighted overlap-add window
+    - Extended state vector for clustering
+    
+    Args:
+        warps: List of 2x3 warp matrices
+        
+    Returns:
+        Combined variance of (dx, dy) translations
+    """
+    tx_list = []
+    ty_list = []
+    for warp in warps:
+        if warp is not None:
+            tx_list.append(warp[0, 2])
+            ty_list.append(warp[1, 2])
+    
+    if len(tx_list) < 2:
+        return 0.0
+    
+    var_x = float(np.var(tx_list))
+    var_y = float(np.var(ty_list))
+    return var_x + var_y
+
+
+def variance_window_weight(warp_variance: float, sigma: float = 2.0) -> float:
+    """Compute variance-based window weight ψ(var(Â)) (Methodik v4 §9).
+    
+    ψ(v) = exp(-v / (2·σ²))
+    
+    Low variance → high confidence → full window weight
+    High variance → low confidence → reduced window weight
+    
+    Args:
+        warp_variance: Combined (dx, dy) variance
+        sigma: Scale parameter
+        
+    Returns:
+        Weight factor in (0, 1]
+    """
+    return float(np.exp(-warp_variance / (2.0 * sigma * sigma)))
+
+
 def tile_local_register_and_reconstruct_iterative(
     frames: List[Path],
     tile_bounds: Tuple[int, int, int, int],
@@ -299,11 +345,19 @@ def tile_local_register_and_reconstruct_iterative(
         if iteration < max_iterations - 1:
             ref_tile = tile_reconstructed.copy()
     
-    # Return final reconstruction
+    # Compute extended metadata for clustering (Methodik v4 §10)
+    valid_correlations = [c for c in correlations if c > 0]
+    warp_var = compute_warp_variance(warps_smooth)
+    invalid_fraction = 1.0 - (valid_frames / n_frames) if n_frames > 0 else 1.0
+    
     metadata = {
         "iterations": max_iterations,
         "valid_frames": valid_frames,
-        "mean_correlation": float(np.mean([c for c in correlations if c > 0]))
+        "mean_correlation": float(np.mean(valid_correlations)) if valid_correlations else 0.0,
+        "warp_variance": warp_var,
+        "invalid_tile_fraction": invalid_fraction,
+        "correlations": correlations,
+        "warps": warps_smooth,
     }
     
     return tile_reconstructed, metadata
@@ -377,15 +431,20 @@ def tile_local_reconstruct_all_channels_v4(
                 print(f"[WARN] Tile {tile_idx} failed: {metadata.get('error', 'unknown')}")
                 continue
             
-            # Overlap-add with Hanning window (Methodik v4 §9)
+            # Overlap-add with variance-weighted Hanning window (Methodik v4 §9)
             th, tw = tile_recon.shape
             hann_1d_y = np.hanning(th).astype(np.float32)
             hann_1d_x = np.hanning(tw).astype(np.float32)
             hann_2d = np.outer(hann_1d_y, hann_1d_x)
             
+            # Apply variance-based window weight: w_t(p) = hann(p) · ψ(var(Â))
+            warp_var = metadata.get("warp_variance", 0.0)
+            psi = variance_window_weight(warp_var, sigma=2.0)
+            weighted_hann = hann_2d * psi
+            
             # Add to output
-            reconstructed[y0:y1, x0:x1] += tile_recon * hann_2d
-            overlap_count[y0:y1, x0:x1] += hann_2d
+            reconstructed[y0:y1, x0:x1] += tile_recon * weighted_hann
+            overlap_count[y0:y1, x0:x1] += weighted_hann
         
         # Normalize by overlap count
         mask = overlap_count > 1e-6
@@ -395,3 +454,209 @@ def tile_local_reconstruct_all_channels_v4(
         print(f"[TLR v4] Channel {channel} complete")
     
     return results
+
+
+def should_refine_tile(metadata: Dict, variance_threshold: float = 4.0) -> bool:
+    """Check if a tile should be recursively refined (Methodik v4 §4).
+    
+    Refinement criteria:
+    - High warp variance
+    - High PSF inhomogeneity (low mean correlation)
+    
+    Args:
+        metadata: Tile metadata from reconstruction
+        variance_threshold: Max acceptable warp variance
+        
+    Returns:
+        True if tile should be split into subtiles
+    """
+    warp_var = metadata.get("warp_variance", 0.0)
+    mean_cc = metadata.get("mean_correlation", 1.0)
+    
+    # High variance → unstable registration → refine
+    if warp_var > variance_threshold:
+        return True
+    
+    # Low correlation → poor PSF match → refine
+    if mean_cc < 0.5:
+        return True
+    
+    return False
+
+
+def split_tile_bounds(
+    tile_bounds: Tuple[int, int, int, int],
+    min_tile_size: int = 32
+) -> List[Tuple[int, int, int, int]]:
+    """Split a tile into 4 sub-tiles (Methodik v4 §4 recursive refinement).
+    
+    Args:
+        tile_bounds: (y0, y1, x0, x1)
+        min_tile_size: Minimum size below which no further splitting
+        
+    Returns:
+        List of 4 sub-tile bounds, or original if too small
+    """
+    y0, y1, x0, x1 = tile_bounds
+    th, tw = y1 - y0, x1 - x0
+    
+    # Don't split if already at minimum size
+    if th < 2 * min_tile_size or tw < 2 * min_tile_size:
+        return [tile_bounds]
+    
+    # Split into 4 quadrants
+    y_mid = y0 + th // 2
+    x_mid = x0 + tw // 2
+    
+    return [
+        (y0, y_mid, x0, x_mid),      # top-left
+        (y0, y_mid, x_mid, x1),      # top-right
+        (y_mid, y1, x0, x_mid),      # bottom-left
+        (y_mid, y1, x_mid, x1),      # bottom-right
+    ]
+
+
+def compute_post_warp_metrics(
+    warped_tile: np.ndarray,
+    ref_tile: np.ndarray
+) -> Dict[str, float]:
+    """Compute quality metrics after warp application (Methodik v4 §6).
+    
+    These metrics are computed on the warped (motion-corrected) tile,
+    providing more accurate quality assessment than pre-warp metrics.
+    
+    Args:
+        warped_tile: Tile after warp transformation
+        ref_tile: Reference tile for comparison
+        
+    Returns:
+        Dict with metric values
+    """
+    if warped_tile is None or ref_tile is None:
+        return {"fwhm": 0.0, "contrast": 0.0, "background": 0.0}
+    
+    # Local contrast (edge strength / noise)
+    try:
+        if cv2 is not None:
+            laplacian = cv2.Laplacian(warped_tile, cv2.CV_64F)
+            edge_strength = float(np.var(laplacian))
+        else:
+            edge_strength = 0.0
+    except Exception:
+        edge_strength = 0.0
+    
+    # Local background (robust median)
+    background = float(np.median(warped_tile))
+    
+    # Signal-to-noise proxy: (peak - background) / MAD
+    peak = float(np.percentile(warped_tile, 99))
+    mad = float(np.median(np.abs(warped_tile - background)))
+    snr_proxy = (peak - background) / (mad + 1e-6)
+    
+    return {
+        "contrast": edge_strength,
+        "background": background,
+        "snr_proxy": snr_proxy,
+    }
+
+
+def tile_local_reconstruct_with_refinement(
+    frames: List[Path],
+    tile_bounds: Tuple[int, int, int, int],
+    tile_idx: int,
+    weights_global: np.ndarray,
+    weights_local: np.ndarray,
+    config: dict,
+    max_depth: int = 2
+) -> Tuple[Optional[np.ndarray], Dict]:
+    """Tile reconstruction with recursive refinement (Methodik v4 §4).
+    
+    If a tile has high warp variance or poor correlation,
+    it is split into sub-tiles and processed recursively.
+    
+    Args:
+        frames: List of frame paths
+        tile_bounds: (y0, y1, x0, x1)
+        tile_idx: Tile index
+        weights_global: Global weights
+        weights_local: Local weights
+        config: Configuration
+        max_depth: Maximum recursion depth
+        
+    Returns:
+        (reconstructed_tile, metadata)
+    """
+    # First attempt: standard reconstruction
+    tile_recon, metadata = tile_local_register_and_reconstruct_iterative(
+        frames, tile_bounds, tile_idx, weights_global, weights_local, config
+    )
+    
+    if tile_recon is None:
+        return None, metadata
+    
+    # Check if refinement is needed
+    tlr_cfg = config.get("registration", {}).get("local_tiles", {})
+    enable_refinement = tlr_cfg.get("enable_recursive_refinement", True)
+    variance_threshold = float(tlr_cfg.get("refinement_variance_threshold", 4.0))
+    
+    if not enable_refinement or max_depth <= 0:
+        return tile_recon, metadata
+    
+    if not should_refine_tile(metadata, variance_threshold):
+        return tile_recon, metadata
+    
+    # Split tile and process sub-tiles
+    y0, y1, x0, x1 = tile_bounds
+    th, tw = y1 - y0, x1 - x0
+    sub_bounds = split_tile_bounds(tile_bounds, min_tile_size=32)
+    
+    if len(sub_bounds) == 1:
+        # Can't split further
+        return tile_recon, metadata
+    
+    print(f"[TLR v4] Refining tile {tile_idx} (variance={metadata.get('warp_variance', 0):.2f})")
+    
+    # Reconstruct each sub-tile
+    refined = np.zeros((th, tw), dtype=np.float32)
+    overlap = np.zeros((th, tw), dtype=np.float32)
+    
+    for sub_idx, sub_bound in enumerate(sub_bounds):
+        sy0, sy1, sx0, sx1 = sub_bound
+        sub_h, sub_w = sy1 - sy0, sx1 - sx0
+        
+        # Recursive call with reduced depth
+        sub_recon, sub_meta = tile_local_reconstruct_with_refinement(
+            frames, sub_bound, tile_idx * 4 + sub_idx,
+            weights_global, weights_local, config, max_depth - 1
+        )
+        
+        if sub_recon is None:
+            continue
+        
+        # Create Hanning window for sub-tile
+        hann_y = np.hanning(sub_h).astype(np.float32)
+        hann_x = np.hanning(sub_w).astype(np.float32)
+        hann_sub = np.outer(hann_y, hann_x)
+        
+        # Variance-weighted window
+        sub_var = sub_meta.get("warp_variance", 0.0)
+        psi = variance_window_weight(sub_var, sigma=2.0)
+        weighted_hann = hann_sub * psi
+        
+        # Map sub-tile coords to parent tile coords
+        rel_y0, rel_x0 = sy0 - y0, sx0 - x0
+        rel_y1, rel_x1 = rel_y0 + sub_h, rel_x0 + sub_w
+        
+        refined[rel_y0:rel_y1, rel_x0:rel_x1] += sub_recon * weighted_hann
+        overlap[rel_y0:rel_y1, rel_x0:rel_x1] += weighted_hann
+    
+    # Normalize
+    mask = overlap > 1e-6
+    if np.any(mask):
+        refined[mask] /= overlap[mask]
+        metadata["refined"] = True
+        metadata["sub_tiles"] = len(sub_bounds)
+        return refined, metadata
+    
+    # Refinement failed, return original
+    return tile_recon, metadata

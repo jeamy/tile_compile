@@ -39,20 +39,19 @@ from PySide6.QtWidgets import (
 )
 
 
-METHODIK_V3_PHASES = [
+METHODIK_V4_PHASES = [
     (0, "SCAN_INPUT", "Eingabe-Validierung"),
-    (1, "REGISTRATION", "Frame-Registrierung"),
-    (2, "CHANNEL_SPLIT", "Kanal-Trennung (R/G/B)"),
-    (3, "NORMALIZATION", "Globale lineare Normalisierung"),
-    (4, "GLOBAL_METRICS", "Globale Frame-Metriken (B, σ, E)"),
-    (5, "TILE_GRID", "Seeing-adaptive Tile-Geometrie"),
-    (6, "LOCAL_METRICS", "Lokale Tile-Metriken"),
-    (7, "TILE_RECONSTRUCTION", "Tile-weise Rekonstruktion"),
-    (8, "STATE_CLUSTERING", "Zustandsbasiertes Clustering"),
-    (9, "SYNTHETIC_FRAMES", "Synthetische Qualitätsframes"),
-    (10, "STACKING", "Finales lineares Stacking"),
-    (11, "DEBAYER", "Debayer / Demosaicing"),
-    (12, "DONE", "Abschluss"),
+    (1, "CHANNEL_SPLIT", "Kanal-Trennung (R/G/B)"),
+    (2, "NORMALIZATION", "Globale lineare Normalisierung"),
+    (3, "GLOBAL_METRICS", "Globale Frame-Metriken (B, σ, E)"),
+    (4, "TILE_GRID", "Seeing-adaptive Tile-Geometrie"),
+    (5, "LOCAL_METRICS", "Lokale Tile-Metriken"),
+    (6, "TILE_RECONSTRUCTION_TLR", "Tile-lokale Registrierung + Rekonstruktion"),
+    (7, "STATE_CLUSTERING", "Zustandsbasiertes Clustering"),
+    (8, "SYNTHETIC_FRAMES", "Synthetische Qualitätsframes"),
+    (9, "STACKING", "Finales lineares Stacking"),
+    (10, "DEBAYER", "Debayer / Demosaicing"),
+    (11, "DONE", "Abschluss"),
 ]
 
 ASSUMPTIONS_DEFAULTS = {
@@ -259,13 +258,13 @@ class PhaseProgressWidget(QWidget):
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(len(METHODIK_V3_PHASES))
+        self.progress_bar.setMaximum(len(METHODIK_V4_PHASES))
         self.progress_bar.setValue(0)
         layout.addWidget(self.progress_bar)
 
         grid = QGridLayout()
         grid.setSpacing(6)
-        for i, (phase_id, phase_name, phase_desc) in enumerate(METHODIK_V3_PHASES):
+        for i, (phase_id, phase_name, phase_desc) in enumerate(METHODIK_V4_PHASES):
             name_label = QLabel(f"{phase_id}. {phase_name}")
             name_label.setToolTip(phase_desc)
             
@@ -313,7 +312,7 @@ class PhaseProgressWidget(QWidget):
 
     def update_phase(self, phase_name: str, status: str, progress_current: int = 0, progress_total: int = 0, substep: str | None = None):
         phase_id = None
-        for pid, pname, _ in METHODIK_V3_PHASES:
+        for pid, pname, _ in METHODIK_V4_PHASES:
             if pname == phase_name:
                 phase_id = pid
                 break
@@ -625,7 +624,7 @@ class MainWindow(QMainWindow):
 
         self.ui_call.connect(self._ui_exec)
 
-        self.setWindowTitle("Tile Compile – Methodik v3")
+        self.setWindowTitle("Tile Compile – Methodik v4")
         self._build_ui()
         self._load_styles()
 
@@ -646,7 +645,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(10)
 
         header = QHBoxLayout()
-        title = QLabel("Tile Compile – Methodik v3")
+        title = QLabel("Tile Compile – Methodik v4")
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
         header.addWidget(title)
         header.addStretch(1)
@@ -887,7 +886,7 @@ class MainWindow(QMainWindow):
         assumptions_page_layout = QVBoxLayout(assumptions_page)
         assumptions_page_layout.setContentsMargins(0, 0, 0, 0)
         assumptions_page_layout.setSpacing(10)
-        assumptions_box = QGroupBox("Methodik v3 Assumptions")
+        assumptions_box = QGroupBox("Methodik v4 Assumptions")
         assumptions_box_layout = QVBoxLayout(assumptions_box)
         assumptions_box_layout.setContentsMargins(12, 18, 12, 12)
         self.assumptions_widget = AssumptionsWidget()
@@ -953,7 +952,7 @@ class MainWindow(QMainWindow):
         progress_page_layout = QVBoxLayout(progress_page)
         progress_page_layout.setContentsMargins(0, 0, 0, 0)
         progress_page_layout.setSpacing(10)
-        progress_box = QGroupBox("Pipeline Progress (Methodik v3)")
+        progress_box = QGroupBox("Pipeline Progress (Methodik v4)")
         progress_box_layout = QVBoxLayout(progress_box)
         progress_box_layout.setContentsMargins(12, 18, 12, 12)
         self.phase_progress = PhaseProgressWidget()

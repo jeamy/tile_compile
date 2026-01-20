@@ -30,18 +30,21 @@ Ein Verstoß führt zum **Abbruch des Laufs**.
 ## 2. Gesamtpipeline (v4, normativ)
 
 ```
-Frames laden
-→ globale Grobnormierung
-→ Tile‑Geometrie
-→ lokale Registrierung + lokale Metriken (iterativ)
-→ Tile‑Rekonstruktion (Overlap‑Add)
-→ Zustandsbasierte Clusterung
-→ synthetische Qualitätsframes
-→ finales lineares Stacking
-→ lokale & globale Validierung
+Phase 0:  SCAN_INPUT         – Frames laden, Metadaten extrahieren
+Phase 1:  CHANNEL_SPLIT      – OSC → R/G/B Kanaltrennung (CFA)
+Phase 2:  NORMALIZATION      – globale Grobnormierung
+Phase 3:  GLOBAL_METRICS     – Frame-Qualität berechnen
+Phase 4:  TILE_GRID          – Tile-Geometrie festlegen
+Phase 5:  LOCAL_METRICS      – lokale Tile-Qualität (vor Warp)
+Phase 6:  TILE_RECONSTRUCTION_TLR – lokale Registrierung + Rekonstruktion
+Phase 7:  STATE_CLUSTERING   – Zustandsbasierte Clusterung
+Phase 8:  SYNTHETIC_FRAMES   – synthetische Qualitätsframes
+Phase 9:  STACKING           – finales lineares Stacking
+Phase 10: DEBAYER            – Farbrekonstruktion (OSC)
+Phase 11: DONE               – Abschluss + Validierung
 ```
 
-**Wichtig:** Registrierung ist **kein separater Schritt** mehr, sondern Teil der Tile‑Rekonstruktion.
+**Wichtig:** Registrierung ist **kein separater Schritt** mehr, sondern integriert in Phase 6 (TILE_RECONSTRUCTION_TLR).
 
 ---
 
@@ -66,14 +69,18 @@ I'_f = I_f / B_f
 Initiale Tile‑Größe:
 
 ```
-T_0 = clip(32 · FWHM, 64, 128)
+T_0 = clip(32 · FWHM, 64, max_tile_size)
 ```
 
+- `max_tile_size`: Konfigurierbar (default: 128)
 - Überlappung ≥ 25 %
-- Tiles dürfen **rekursiv verfeinert** werden
+
+**Rekursive Verfeinerung (implementiert):**
+- Tiles werden bei hoher Warp-Varianz automatisch verfeinert
 - Verfeinerungskriterium:
-  - hohe Warp‑Varianz
-  - hohe PSF‑Inhomogenität
+  - `warp_variance > refinement_variance_threshold`
+  - `mean_correlation < 0.5`
+- Konfigurierbar: `enable_recursive_refinement`, `refinement_max_depth`
 
 ---
 
@@ -124,9 +131,14 @@ Empfohlen:
 
 ---
 
-## 6. Lokale Qualitätsmetriken (bewegungskorrigiert)
+## 6. Lokale Qualitätsmetriken
 
-Alle Metriken werden **nach Anwendung des lokalen Warps** berechnet.
+**Implementierung:**
+- Phase 5 (LOCAL_METRICS): Metriken **vor** der Registrierung
+- Phase 6 (TLR): Post-Warp Metriken via `compute_post_warp_metrics()`
+  - Kontrast (Laplacian-Varianz)
+  - Hintergrund (robuster Median)
+  - SNR-Proxy
 
 ### 6.1 Stern‑Tiles
 
@@ -189,34 +201,43 @@ Stabilitätsregeln:
 
 ---
 
-## 9. Overlap‑Add (erweitert)
+## 9. Overlap‑Add
 
-Fensterfunktion:
+**Implementierung (vollständig):**
 
 ```
-w_t(p) = hann(p) · ψ(var(Â_{f,t}))
+w_t(p) = hann(p) · ψ(var(Â_{f,t}))
 ```
 
-→ geringes Vertrauen = geringes Randgewicht
+mit:
+
+```
+ψ(v) = exp(-v / (2·σ²))
+```
+
+- Hohe Warp-Varianz → reduziertes Fenstergewicht
+- Konfigurierbar: `variance_window_sigma` (default: 2.0)
 
 ---
 
-## 10. Zustandsbasierte Clusterung (erweitert)
+## 10. Zustandsbasierte Clusterung
+
+**Implementierung (erweitert):**
 
 Zustandsvektor pro Frame:
 
 ```
-v_f = (G_f,
-       ⟨Q_{tile}⟩,
-       Var(Q_{tile}),
-       ⟨cc⟩,
-       Var(Â),
-       invalid_tile_fraction)
+v_f = (G_f, ⟨Q_{tile}⟩, Var(Q_{tile}), ⟨cc⟩, Var(Â), invalid_tile_fraction)
 ```
+
+Erweiterte Metadaten aus TLR:
+- `mean_correlation`: ⟨cc⟩ über alle Tiles
+- `warp_variance`: Var(Â) der Translationen
+- `invalid_tile_fraction`: Anteil ungültiger Tiles
 
 Clusterung:
 
-- k = 15–30
+- k = 15–30 (konfigurierbar)
 - pro Cluster ein synthetisches Frame
 
 ---
@@ -249,7 +270,25 @@ Abbruch:
 
 ---
 
-## 13. Kernaussage v4
+## 13. Konfigurationsparameter (v4)
+
+```yaml
+registration:
+  local_tiles:
+    model: translation                    # nur Translation (Pflicht)
+    ecc_cc_min: 0.2                      # min. ECC-Korrelation
+    min_valid_frames: 10                 # min. gültige Frames pro Tile
+    reference_method: median_time        # median_time | min_gradient
+    max_tile_size: 128                   # max. Tile-Größe
+    registration_quality_beta: 5.0       # β für R_{f,t}
+    max_iterations: 3                    # iterative Referenzbildung
+    temporal_smoothing_window: 11        # Savitzky-Golay Fenster (ungerade)
+    temporal_smoothing_polyorder: 3      # Polynom-Ordnung
+```
+
+---
+
+## 14. Kernaussage v4
 
 > Methodik v4 ersetzt globale Geometrie durch **lokal konsistente, zeitlich geglättete Rekonstruktion**.
 
