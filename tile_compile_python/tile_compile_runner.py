@@ -57,12 +57,25 @@ EPS = 1e-6
 
 
 def load_frame(path: Path) -> Optional[np.ndarray]:
-    """Load single FITS frame from disk."""
+    """Load single FITS frame from disk (memmap for memory efficiency)."""
     try:
-        with fits.open(str(path)) as hdul:
+        with fits.open(str(path), memmap=True) as hdul:
             data = hdul[0].data
             if data is not None:
-                return data.astype(np.float32)
+                return data.astype(np.float32, copy=False)
+    except (ValueError, OSError) as e:
+        # Fallback for FITS with BZERO/BSCALE/BLANK keywords
+        if "memmap" in str(e).lower() or "BZERO" in str(e) or "BSCALE" in str(e):
+            print(f"[WARNING] FITS has BZERO/BSCALE keywords - using memmap=False (higher RAM usage): {path.name}")
+            try:
+                with fits.open(str(path), memmap=False) as hdul:
+                    data = hdul[0].data
+                    if data is not None:
+                        return data.astype(np.float32, copy=True)
+            except Exception as e2:
+                print(f"[WARN] Failed to load {path}: {e2}")
+        else:
+            print(f"[WARN] Failed to load {path}: {e}")
     except Exception as e:
         print(f"[WARN] Failed to load {path}: {e}")
     return None
@@ -151,8 +164,16 @@ def run_v4_pipeline(
     # Get reference header
     ref_header = None
     try:
-        with fits.open(str(frame_paths[0])) as hdul:
+        with fits.open(str(frame_paths[0]), memmap=True) as hdul:
             ref_header = hdul[0].header.copy()
+    except (ValueError, OSError):
+        # Fallback for FITS with BZERO/BSCALE keywords
+        # print(f"[WARNING] Reference FITS has BZERO/BSCALE keywords - using memmap=False")
+        try:
+            with fits.open(str(frame_paths[0]), memmap=False) as hdul:
+                ref_header = hdul[0].header.copy()
+        except Exception:
+            pass
     except Exception:
         pass
     
@@ -245,36 +266,91 @@ def run_v4_pipeline(
     phase_event(5, "LOCAL_METRICS", "start")
     phase_event(5, "LOCAL_METRICS", "ok", {"note": "computed_during_tlr"})
     
-    # Phase 6: TILE_RECONSTRUCTION_TLR (disk streaming per tile)
+    # Phase 6: TILE_RECONSTRUCTION_TLR (disk streaming per tile with adaptive refinement)
     phase_event(6, "TILE_RECONSTRUCTION_TLR", "start")
     print("[Phase 6] Tile-local registration and reconstruction (disk streaming)...")
     
     cfg_obj = TileProcessorConfig(cfg)
-    results = []
-    valid_tiles = 0
+    
+    # Adaptive tile refinement configuration
+    v4_cfg = cfg.get("v4", {})
+    adaptive_cfg = v4_cfg.get("adaptive_tiles", {})
+    adaptive_enabled = adaptive_cfg.get("enabled", False)
+    max_refine_passes = adaptive_cfg.get("max_refine_passes", 0) if adaptive_enabled else 0
+    refine_variance_threshold = adaptive_cfg.get("refine_variance_threshold", 0.25)
+    min_tile_size = adaptive_cfg.get("min_tile_size_px", 64)
+    
+    print(f"[Phase 6] Adaptive refinement: {adaptive_enabled} (max passes: {max_refine_passes})")
+    
+    all_results = {}
     tile_metadata = []
     
-    for tid, bbox in enumerate(tiles):
-        if tid % 10 == 0:
-            print(f"  Tile {tid}/{len(tiles)}...")
+    # Multi-pass tile refinement loop
+    for refine_pass in range(max_refine_passes + 1):
+        if refine_pass > 0:
+            print(f"[Phase 6] Refinement pass {refine_pass}/{max_refine_passes}...")
         
-        tp = TileProcessor(
-            tile_id=tid,
-            bbox=bbox,
-            frame_paths=frame_paths,
-            global_weights=global_weights,
-            cfg=cfg_obj,
-        )
-        tile = tp.run()
+        warp_variances = []
+        pass_results = []
         
-        meta = tp.get_metadata()
-        tile_metadata.append(meta)
+        for tid, bbox in enumerate(tiles):
+            # Emit progress event for GUI
+            from runner.events import phase_progress
+            total_progress = tid + 1 + (refine_pass * len(tiles))
+            total_tiles = len(tiles) * (max_refine_passes + 1)
+            phase_progress(
+                run_id=run_id,
+                log_fp=log_fp,
+                phase_id=6,
+                phase_name="TILE_RECONSTRUCTION_TLR",
+                current=total_progress,
+                total=total_tiles,
+            )
+            
+            if tid % 10 == 0:
+                print(f"  Tile {tid + 1}/{len(tiles)}...")
+            
+            tp = TileProcessor(
+                tile_id=tid,
+                bbox=bbox,
+                frame_paths=frame_paths,
+                global_weights=global_weights,
+                cfg=cfg_obj,
+            )
+            tile, warps = tp.run()
+            
+            meta = tp.get_metadata()
+            tile_metadata.append(meta)
+            
+            if tile is None:
+                all_results[bbox] = None
+                warp_variances.append(float("inf"))
+                continue
+            
+            all_results[bbox] = tile
+            warp_variances.append(meta["warp_variance"])
+            pass_results.append((bbox, tile, meta["warp_variance"]))
         
-        if tile is None:
-            continue
-        
-        valid_tiles += 1
-        results.append((bbox, tile, meta["warp_variance"]))
+        # Adaptive refinement: split high-variance tiles
+        if refine_pass < max_refine_passes and adaptive_enabled:
+            from tile_compile_backend.tile_grid import refine_tiles
+            tiles_before = len(tiles)
+            tiles = refine_tiles(
+                tiles,
+                warp_variances,
+                threshold=refine_variance_threshold,
+                min_size=min_tile_size,
+            )
+            tiles_after = len(tiles)
+            if tiles_after > tiles_before:
+                print(f"[Phase 6] Refined {tiles_before} → {tiles_after} tiles (split {tiles_after - tiles_before})")
+            else:
+                print(f"[Phase 6] No tiles refined (converged)")
+                break
+    
+    # Collect final results
+    results = [(bbox, tile, var) for (bbox, tile, var) in pass_results]
+    valid_tiles = len([r for r in results if r[1] is not None])
     
     # Validity check (Methodik v4 §12)
     validity_threshold = cfg.get("v4", {}).get("min_valid_tile_fraction", 0.3)

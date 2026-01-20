@@ -22,20 +22,63 @@ try:
 except Exception:
     cv2 = None
 
-from .opencv_registration import (
-    opencv_prepare_ecc_image,
-    opencv_phasecorr_translation,
-    opencv_ecc_warp,
-)
+
+def opencv_prepare_ecc_image(img: np.ndarray) -> np.ndarray:
+    """Prepare image for ECC registration (normalize to 0-255 uint8)."""
+    if cv2 is None:
+        return img
+    img_f = img.astype(np.float32)
+    img_min = np.min(img_f)
+    img_max = np.max(img_f)
+    if img_max > img_min:
+        img_norm = ((img_f - img_min) / (img_max - img_min) * 255.0)
+        return img_norm.astype(np.uint8)
+    return np.zeros_like(img, dtype=np.uint8)
+
+
+def opencv_phasecorr_translation(img1: np.ndarray, img2: np.ndarray) -> Tuple[float, float]:
+    """Compute translation using phase correlation."""
+    if cv2 is None:
+        return 0.0, 0.0
+    try:
+        shift, _ = cv2.phaseCorrelate(img1.astype(np.float32), img2.astype(np.float32))
+        return float(shift[0]), float(shift[1])
+    except Exception:
+        return 0.0, 0.0
+
+
+def opencv_ecc_warp(
+    moving: np.ndarray,
+    reference: np.ndarray,
+    initial_warp: np.ndarray,
+    max_iterations: int = 50,
+    epsilon: float = 1e-4,
+) -> Tuple[Optional[np.ndarray], float]:
+    """Refine warp using ECC (Enhanced Correlation Coefficient)."""
+    if cv2 is None:
+        return None, 0.0
+    try:
+        warp = initial_warp.copy()
+        criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, max_iterations, epsilon)
+        cc, warp = cv2.findTransformECC(
+            reference,
+            moving,
+            warp,
+            motionType=cv2.MOTION_TRANSLATION,
+            criteria=criteria,
+        )
+        return warp, float(cc)
+    except Exception:
+        return None, 0.0
 
 
 def _read_fits_tile(
     path: Path,
     tile_bounds: Tuple[int, int, int, int]
 ) -> Tuple[Optional[np.ndarray], Optional[fits.Header]]:
-    """Read a tile region from a FITS file."""
+    """Read a tile region from a FITS file (memmap for memory efficiency)."""
     try:
-        with fits.open(str(path)) as hdul:
+        with fits.open(str(path), memmap=True) as hdul:
             data = hdul[0].data
             hdr = hdul[0].header
             
@@ -43,8 +86,25 @@ def _read_fits_tile(
                 return None, None
             
             y0, y1, x0, x1 = tile_bounds
-            tile = data[y0:y1, x0:x1].astype(np.float32, copy=True)
+            tile = data[y0:y1, x0:x1].astype(np.float32, copy=False)
             return tile, hdr
+    except (ValueError, OSError) as e:
+        # Fallback for FITS with BZERO/BSCALE/BLANK keywords
+        if "memmap" in str(e).lower() or "BZERO" in str(e) or "BSCALE" in str(e):
+            try:
+                with fits.open(str(path), memmap=False) as hdul:
+                    data = hdul[0].data
+                    hdr = hdul[0].header
+                    
+                    if data is None:
+                        return None, None
+                    
+                    y0, y1, x0, x1 = tile_bounds
+                    tile = data[y0:y1, x0:x1].astype(np.float32, copy=True)
+                    return tile, hdr
+            except Exception:
+                return None, None
+        return None, None
     except Exception:
         return None, None
 
@@ -396,8 +456,13 @@ def tile_local_reconstruct_all_channels_v4(
     if not first_channel:
         return results
     
-    with fits.open(str(first_channel[0])) as hdul:
-        h, w = hdul[0].data.shape
+    try:
+        with fits.open(str(first_channel[0]), memmap=True) as hdul:
+            h, w = hdul[0].data.shape
+    except (ValueError, OSError):
+        # Fallback for FITS with BZERO/BSCALE keywords
+        with fits.open(str(first_channel[0]), memmap=False) as hdul:
+            h, w = hdul[0].data.shape
     
     for channel in ["R", "G", "B"]:
         if channel not in frames_by_channel or not frames_by_channel[channel]:
