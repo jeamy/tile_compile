@@ -280,6 +280,40 @@ registration:
         required: false
         editable: true
         description: "Polynomial order for Savitzky-Golay filter"
+      
+      enable_recursive_refinement:
+        type: boolean
+        default: true
+        required: false
+        editable: true
+        description: "Enable recursive tile refinement for high-variance tiles (Methodik v4 §4)"
+      
+      refinement_variance_threshold:
+        type: number
+        min: 0.5
+        max: 20.0
+        default: 4.0
+        required: false
+        editable: true
+        description: "Max warp variance before tile is split into sub-tiles"
+      
+      refinement_max_depth:
+        type: integer
+        min: 1
+        max: 4
+        default: 2
+        required: false
+        editable: true
+        description: "Maximum recursion depth for tile refinement"
+      
+      variance_window_sigma:
+        type: number
+        min: 0.5
+        max: 10.0
+        default: 2.0
+        required: false
+        editable: true
+        description: "Scale parameter for variance-weighted overlap window ψ(var) (Methodik v4 §9)"
 
 # ============================================================
 # WIENER TILE DENOISING

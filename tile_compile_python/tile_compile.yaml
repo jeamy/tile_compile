@@ -66,6 +66,11 @@ registration:
     max_iterations: 3                    # iterative reference refinement (§5.2)
     temporal_smoothing_window: 11        # Savitzky-Golay window (must be odd)
     temporal_smoothing_polyorder: 3      # polynomial order for smoothing
+    # Experimental features (Methodik v4)
+    enable_recursive_refinement: true    # §4: split tiles with high warp variance
+    refinement_variance_threshold: 4.0   # max variance before refinement
+    refinement_max_depth: 2              # maximum recursion depth
+    variance_window_sigma: 2.0           # ψ(var) scale parameter (§9)
 
 wiener_denoise:
   enabled: true
