@@ -528,6 +528,58 @@
               "maximum": 512,
               "default": 64,
               "description": "Minimum tile size in pixels"
+            },
+            "use_warp_probe": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable pre-warp probe for gradient field estimation"
+            },
+            "use_hierarchical": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable hierarchical tile initialization"
+            },
+            "initial_tile_size": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 512,
+              "default": 256,
+              "description": "Starting tile size for hierarchical initialization"
+            },
+            "probe_window": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 512,
+              "default": 256,
+              "description": "Window size for warp probing"
+            },
+            "num_probe_frames": {
+              "type": "integer",
+              "minimum": 3,
+              "maximum": 10,
+              "default": 5,
+              "description": "Number of temporally distant frames to probe"
+            },
+            "gradient_sensitivity": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 10.0,
+              "default": 2.0,
+              "description": "Gradient sensitivity: s(x,y) = s0 / (1 + c·grad)"
+            },
+            "split_gradient_threshold": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "default": 0.3,
+              "description": "Gradient threshold for hierarchical splitting"
+            },
+            "hierarchical_max_depth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "default": 3,
+              "description": "Maximum recursion depth for hierarchical splitting"
             }
           }
         },

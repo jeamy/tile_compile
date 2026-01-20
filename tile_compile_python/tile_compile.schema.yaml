@@ -678,6 +678,74 @@ v4:
       editable: true
       description: "Minimum tile size in pixels (no split below this)"
 
+    use_warp_probe:
+      type: boolean
+      default: false
+      required: false
+      editable: true
+      description: "Enable pre-warp probe for gradient field estimation"
+
+    use_hierarchical:
+      type: boolean
+      default: false
+      required: false
+      editable: true
+      description: "Enable hierarchical tile initialization (start coarse, split where needed)"
+
+    initial_tile_size:
+      type: integer
+      min: 64
+      max: 512
+      default: 256
+      required: false
+      editable: true
+      description: "Starting tile size for hierarchical initialization"
+
+    probe_window:
+      type: integer
+      min: 64
+      max: 512
+      default: 256
+      required: false
+      editable: true
+      description: "Window size for warp probing"
+
+    num_probe_frames:
+      type: integer
+      min: 3
+      max: 10
+      default: 5
+      required: false
+      editable: true
+      description: "Number of temporally distant frames to probe (3-5 recommended)"
+
+    gradient_sensitivity:
+      type: number
+      min: 0.1
+      max: 10.0
+      default: 2.0
+      required: false
+      editable: true
+      description: "Gradient sensitivity: s(x,y) = s0 / (1 + c·grad)"
+
+    split_gradient_threshold:
+      type: number
+      min: 0.0
+      max: 1.0
+      default: 0.3
+      required: false
+      editable: true
+      description: "Gradient threshold for hierarchical splitting"
+
+    hierarchical_max_depth:
+      type: integer
+      min: 1
+      max: 5
+      default: 3
+      required: false
+      editable: true
+      description: "Maximum recursion depth for hierarchical splitting"
+
   convergence:
     enabled:
       type: boolean
