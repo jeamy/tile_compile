@@ -55,14 +55,6 @@ tar \
   --exclude='*.log' \
   --exclude='*.tmp' \
   -czf "$OUT" \
-  analyze_m45_dataset.py \
-  check_dependencies.py \
-  comprehensive_validation.sh \
-  download_reference_datasets.py \
-  generate_artifacts_report.py \
-  generate_datasets.py \
-  install_dependencies.sh \
-  prepare_m45_dataset.py \
   pyproject.toml \
   README.md \
   README_CONTEXT.md \
@@ -81,8 +73,6 @@ tar \
   gui \
   runner \
   tile_compile_backend \
-  siril_scripts \
-  tests \
   validation
 
 
