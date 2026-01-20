@@ -2250,7 +2250,7 @@ def run_phases_impl(
     channels_dir.mkdir(parents=True, exist_ok=True)
     channel_files: Dict[str, List[Path]] = {"R": [], "G": [], "B": []}
     channel_mask_files: Dict[str, List[Path]] = {"R": [], "G": [], "B": []}
-    channel_masks_dir = work_dir / "channel_masks"
+    channel_masks_dir = work_dir / "channels" / "masks"
     channel_masks_dir.mkdir(parents=True, exist_ok=True)
     
     cfa_registered = None
