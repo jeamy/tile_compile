@@ -2,6 +2,9 @@
 
 Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (Methodology v4).
 
+> **⚠️ EXPERIMENTAL & COMPUTATIONALLY INTENSIVE**  
+> This method uses iterative tile-local registration with adaptive refinement. Processing times can range from **minutes to hours** depending on dataset size and configuration. Recommended for high-quality reconstructions where computational cost is acceptable.
+
 Given a directory of aligned (or alignable) FITS lights, it:
 
 - optionally **calibrates** lights (bias/dark/flat)
@@ -34,11 +37,30 @@ Both versions are independently executable.
 - Production-ready OOM safety
 
 **Configuration Presets:**
-1. EQ mount, calm seeing (iterations: 2, beta: 3.0, adaptive: off)
-2. Alt/Az, strong field rotation (iterations: 4, beta: 6.0, adaptive: on) **[DEFAULT]**
-3. Near pole, very unstable (iterations: 5, beta: 8.0, adaptive: on, aggressive)
+1. EQ mount, calm seeing (iterations: 2, beta: 3.0, adaptive: off) - **Fastest**
+2. Alt/Az, strong field rotation (iterations: 4, beta: 6.0, adaptive: on) **[DEFAULT]** - **Balanced**
+3. Near pole, very unstable (iterations: 5, beta: 8.0, adaptive: on, aggressive) - **Highest quality, slowest**
 
 See `doc/tile_based_quality_reconstruction_methodology_v4.md` for full specification.
+
+## Performance Considerations
+
+**Processing Time Estimates:**
+- **Small dataset** (50-200 frames, 128×128 tiles): ~5-15 minutes
+- **Medium dataset** (200-500 frames, adaptive refinement): ~30-60 minutes  
+- **Large dataset** (500+ frames, aggressive refinement): ~1-3 hours
+
+**Memory Requirements:**
+- **Base**: ~50-100 MB (disk streaming)
+- **Parallel processing**: +50 MB per worker thread
+- **Adaptive refinement**: Additional memory for tile splitting
+
+**CPU Usage:**
+- **Single-threaded**: 1 core (default, safest)
+- **Multi-threaded**: Up to `v4.parallel_tiles` cores (default: 8)
+- **Recommendation**: Start with 1-2 cores, increase if stable
+
+---
 
 ## Quickstart (Python-Version)
 
