@@ -1021,7 +1021,7 @@ def run_phases_impl(
         stacked_hdr = None
 
         if resume_from_phase <= 10:
-            phase_id = 9
+            phase_id = 10
             phase_name = "STACKING"
             phase_start(run_id, log_fp, phase_id, phase_name)
             if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
@@ -1275,7 +1275,7 @@ def run_phases_impl(
                 stacked_hdr = None
 
         if resume_from_phase <= 11:
-            phase_id = 10
+            phase_id = 11
             phase_name = "DEBAYER"
             phase_start(run_id, log_fp, phase_id, phase_name)
             if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
@@ -1318,7 +1318,7 @@ def run_phases_impl(
                     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"output": str(rgb_out)})
 
         if resume_from_phase <= 12:
-            phase_id = 11
+            phase_id = 12
             phase_name = "DONE"
             phase_start(run_id, log_fp, phase_id, phase_name)
             if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
@@ -1666,14 +1666,558 @@ def run_phases_impl(
             },
         )
 
-
-    # Phase 1 (REGISTRATION) removed in Methodik v4
-    # Registration is now performed tile-wise locally during TILE_RECONSTRUCTION_TLR
-    
-    # For backward compatibility: use raw frames directly
-    registered_files = frames
-
     phase_id = 1
+    phase_name = "REGISTRATION"
+    if should_skip_phase(phase_id):
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
+    elif reg_engine == "opencv_cfa":
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if cv2 is None:
+            phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "opencv (cv2) not available; install python opencv to use registration.engine=opencv_cfa"})
+            return False
+
+        allow_rotation = bool(registration_cfg.get("allow_rotation"))
+        reg_border_mode = str(registration_cfg.get("border_mode") or "replicate")
+        try:
+            reg_border_value = float(registration_cfg.get("border_value", 0.0))
+        except Exception:
+            reg_border_value = 0.0
+        expand_canvas = bool(registration_cfg.get("expand_canvas", False))
+        min_star_matches = registration_cfg.get("min_star_matches")
+        try:
+            min_star_matches_i = int(min_star_matches) if min_star_matches is not None else 1
+        except Exception:
+            min_star_matches_i = 1
+
+        reg_out = outputs_dir / reg_out_name
+        reg_out.mkdir(parents=True, exist_ok=True)
+        reg_mask_dir = reg_out / "masks"
+        reg_mask_dir.mkdir(parents=True, exist_ok=True)
+
+        # Reference frame selection strategy:
+        # 1. Prefer frames in the middle third of the sequence (minimizes max drift distance)
+        # 2. Within that range, select the frame with the most detected stars (best quality)
+        # This prevents selecting a reference at the sequence edges which causes
+        # large drift distances and poor ECC convergence for distant frames.
+        n_frames = len(frames)
+        middle_start = n_frames // 3
+        middle_end = 2 * n_frames // 3
+        
+        frame_star_counts: List[tuple[int, int, Path]] = []  # (idx, stars, path)
+        total_ref_scan = max(1, len(frames))
+        for i, p in enumerate(frames):
+            try:
+                if (i + 1) % 10 == 0 or (i + 1) == total_ref_scan:
+                    phase_progress(run_id, log_fp, phase_id, phase_name, i + 1, total_ref_scan, {"substep": "reference_scan"})
+                data = fits.getdata(str(p), ext=0)
+                if data is None:
+                    continue
+                lum = cfa_downsample_sum2x2(np.asarray(data))
+                lum01 = opencv_prepare_ecc_image(lum)
+                stars = opencv_count_stars(lum01)
+                frame_star_counts.append((i, stars, p))
+            except Exception:
+                continue
+        
+        # Select reference: best frame in middle third, fallback to best overall
+        ref_idx = 0
+        ref_stars = -1
+        ref_path = None
+        
+        # Try middle third first
+        middle_candidates = [(i, s, p) for i, s, p in frame_star_counts if middle_start <= i < middle_end]
+        if middle_candidates:
+            best = max(middle_candidates, key=lambda x: x[1])
+            ref_idx, ref_stars, ref_path = best
+        
+        # Fallback to best overall if middle third has no valid frames
+        if ref_path is None and frame_star_counts:
+            best = max(frame_star_counts, key=lambda x: x[1])
+            ref_idx, ref_stars, ref_path = best
+
+        if ref_path is None or ref_stars < max(1, min_star_matches_i):
+            phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {"error": "failed to select registration reference (insufficient stars)", "min_star_matches": min_star_matches_i, "best_star_count": ref_stars},
+            )
+            return False
+
+        # Log reference selection info
+        ref_in_middle = middle_start <= ref_idx < middle_end
+        print(f"[INFO] Reference frame selected: index={ref_idx}, stars={ref_stars}, in_middle_third={ref_in_middle}, middle_range=[{middle_start}, {middle_end})")
+
+        # Hybrid chain registration strategy:
+        # Register each frame to its neighbor (chain) for good local alignment,
+        # but periodically verify against reference and correct accumulated drift.
+        # This combines the benefits of chain registration (handles field rotation)
+        # with drift correction (prevents accumulation errors).
+        
+        print(f"[INFO] Hybrid chain registration: {len(frames)} frames, reference at index {ref_idx}")
+
+        def _compose_affine(step_warp: np.ndarray, prev_warp: np.ndarray) -> np.ndarray:
+            step_3x3 = np.vstack([step_warp, [0, 0, 1]])
+            prev_3x3 = np.vstack([prev_warp, [0, 0, 1]])
+            composed_3x3 = step_3x3 @ prev_3x3
+            return composed_3x3[:2, :].astype(np.float32)
+
+        def _warp_cfa(mosaic_clean: np.ndarray, warp_i: np.ndarray, out_shape: Optional[tuple[int, int]], offset_sub: Optional[np.ndarray]) -> np.ndarray:
+            bm = str(reg_border_mode or "replicate").strip().lower()
+            if bm in ("median", "background"):
+                bm_use = "constant"
+                bv_use = float(np.median(mosaic_clean))
+            else:
+                bm_use = bm
+                bv_use = float(reg_border_value)
+
+            if out_shape is None or offset_sub is None:
+                return warp_cfa_mosaic_via_subplanes(
+                    mosaic_clean,
+                    warp_i,
+                    out_shape=None,
+                    border_mode=bm_use,
+                    border_value=bv_use,
+                )
+
+            a2 = warp_i[:, :2]
+            t2 = warp_i[:, 2]
+            t2_adj = t2 - (a2 @ offset_sub)
+            warp_adj = np.concatenate([a2, t2_adj[:, None]], axis=1).astype(np.float32, copy=False)
+            return warp_cfa_mosaic_via_subplanes(
+                mosaic_clean,
+                warp_adj,
+                out_shape=out_shape,
+                border_mode=bm_use,
+                border_value=bv_use,
+            )
+
+        def _warp_cfa_mask(mask_mosaic: np.ndarray, warp_i: np.ndarray, out_shape: Optional[tuple[int, int]], offset_sub: Optional[np.ndarray]) -> np.ndarray:
+            if out_shape is None or offset_sub is None:
+                return warp_cfa_mosaic_via_subplanes(
+                    mask_mosaic,
+                    warp_i,
+                    out_shape=None,
+                    border_mode="constant",
+                    border_value=0.0,
+                    interpolation="nearest",
+                )
+
+            a2 = warp_i[:, :2]
+            t2 = warp_i[:, 2]
+            t2_adj = t2 - (a2 @ offset_sub)
+            warp_adj = np.concatenate([a2, t2_adj[:, None]], axis=1).astype(np.float32, copy=False)
+            return warp_cfa_mosaic_via_subplanes(
+                mask_mosaic,
+                warp_adj,
+                out_shape=out_shape,
+                border_mode="constant",
+                border_value=0.0,
+                interpolation="nearest",
+            )
+
+        def _load_clean_and_lum01(p: Path) -> tuple[np.ndarray, np.ndarray, Any]:
+            data = fits.getdata(str(p), ext=0)
+            if data is None:
+                raise RuntimeError("failed to read FITS data")
+            hdr = fits.getheader(str(p), ext=0)
+            mosaic = np.asarray(data)
+            mosaic_clean = cosmetic_correction(mosaic, sigma_threshold=8.0, hot_only=True)
+            lum = cfa_downsample_sum2x2(mosaic_clean)
+            lum01 = opencv_prepare_ecc_image(lum)
+            del data, mosaic
+            return mosaic_clean, lum01, hdr
+
+        identity_warp = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+        corrs: List[float] = [1.0]
+
+        # Apply accumulated warps and save registered frames
+        registered_count = 0
+        total_write = max(1, len(frames))
+        processed = 0
+
+        # Prepare reference
+        try:
+            ref_mosaic_clean, ref_lum01, ref_hdr = _load_clean_and_lum01(ref_path)
+        except Exception as e:
+            phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {"error": "failed to load reference frame", "frame": str(ref_path), "details": str(e)},
+            )
+            return False
+
+        out_shape_reg: Optional[tuple[int, int]] = None
+        offset_sub: Optional[np.ndarray] = None
+        if expand_canvas:
+            h0_m, w0_m = ref_mosaic_clean.shape[:2]
+            h0_m2 = int(h0_m - (h0_m % 2))
+            w0_m2 = int(w0_m - (w0_m % 2))
+            diag = float(np.sqrt(float(h0_m2 * h0_m2 + w0_m2 * w0_m2)))
+            out_side = int(np.ceil(diag))
+            if (out_side % 2) != 0:
+                out_side += 1
+            out_shape_reg = (out_side, out_side)
+            old_h_sub = max(1, h0_m2 // 2)
+            old_w_sub = max(1, w0_m2 // 2)
+            new_h_sub = max(1, out_side // 2)
+            new_w_sub = max(1, out_side // 2)
+            offset_sub = np.array([(new_w_sub - old_w_sub) * 0.5, (new_h_sub - old_h_sub) * 0.5], dtype=np.float32)
+
+        try:
+            dst_name = reg_pattern.format(index=ref_idx + 1)
+        except Exception:
+            dst_name = f"reg_{ref_idx + 1:05d}.fit"
+        dst_path = reg_out / dst_name
+        warped_ref = _warp_cfa(ref_mosaic_clean, identity_warp, out_shape_reg, offset_sub)
+        mask_ref = _warp_cfa_mask(np.ones_like(ref_mosaic_clean, dtype=np.float32), identity_warp, out_shape_reg, offset_sub)
+        fits.writeto(str(dst_path), warped_ref.astype("float32", copy=False), header=ref_hdr, overwrite=True)
+        try:
+            fits.writeto(str(reg_mask_dir / f"mask_{dst_path.name}"), mask_ref.astype("float32", copy=False), header=ref_hdr, overwrite=True)
+        except Exception:
+            pass
+        del warped_ref, mask_ref
+        registered_count += 1
+        processed += 1
+        del ref_mosaic_clean
+
+        def _check_step_warp_sanity(step_warp: np.ndarray, max_translation: float = 30.0, max_rotation_deg: float = 1.0) -> bool:
+            """Check if step warp is sane (not a jump).
+            
+            For Alt/Az with field rotation, typical per-frame changes are:
+            - Translation: ~5-15px (tracking drift)
+            - Rotation: ~0.1-0.5° (field rotation rate)
+            Anything larger is likely a registration error.
+            """
+            # Extract translation
+            tx, ty = step_warp[0, 2], step_warp[1, 2]
+            trans_mag = float(np.sqrt(tx * tx + ty * ty))
+            if trans_mag > max_translation:
+                return False
+            # Extract rotation angle from 2x2 part
+            cos_t = step_warp[0, 0]
+            sin_t = step_warp[1, 0]
+            angle_rad = float(np.arctan2(sin_t, cos_t))
+            angle_deg = float(np.rad2deg(angle_rad))
+            if abs(angle_deg) > max_rotation_deg:
+                return False
+            return True
+
+        def _get_bright_centroid(img01: np.ndarray) -> tuple[float, float] | None:
+            """Get centroid of bright pixels."""
+            thresh = float(np.percentile(img01, 99))
+            mask = img01 > thresh
+            y, x = np.where(mask)
+            if len(y) > 10:
+                return float(np.mean(x)), float(np.mean(y))
+            return None
+
+        def _verify_warp_by_centroid(moving01: np.ndarray, ref01: np.ndarray, step_warp: np.ndarray, max_residual: float = 15.0) -> bool:
+            """Verify warp by checking if centroids align after transformation."""
+            mov_c = _get_bright_centroid(moving01)
+            ref_c = _get_bright_centroid(ref01)
+            if mov_c is None or ref_c is None:
+                return True  # Can't verify, assume OK
+            # Transform moving centroid
+            mx, my = mov_c
+            # Apply affine: [x', y'] = warp @ [x, y, 1]
+            tx_c = step_warp[0, 0] * mx + step_warp[0, 1] * my + step_warp[0, 2]
+            ty_c = step_warp[1, 0] * mx + step_warp[1, 1] * my + step_warp[1, 2]
+            # Check residual
+            dx = tx_c - ref_c[0]
+            dy = ty_c - ref_c[1]
+            residual = float(np.sqrt(dx * dx + dy * dy))
+            return residual < max_residual
+
+        # Backward chain: ref-1, ref-2, ...
+        warp_accum = identity_warp
+        lum_prev01 = ref_lum01
+        prev_step_warp = identity_warp
+        for i in range(ref_idx - 1, -1, -1):
+            if processed % 10 == 0 or processed == total_write:
+                phase_progress(run_id, log_fp, phase_id, phase_name, processed, total_write, {"substep": "write_registered"})
+            try:
+                mosaic_clean, lum01, hdr = _load_clean_and_lum01(frames[i])
+                stars = opencv_count_stars(lum01)
+                if stars < max(1, min_star_matches_i):
+                    print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
+                
+                # Chain: register against previous frame using star matching + RANSAC
+                step_warp, confidence, method = opencv_register_stars(
+                    lum01, lum_prev01, 
+                    fallback_to_ecc=True, 
+                    allow_rotation=allow_rotation,
+                    min_star_matches=min_star_matches_i
+                )
+                
+                # Validate result - reject failed registrations
+                if method == "failed":
+                    print(f"[WARN] Frame {i}: registration failed, skipping frame")
+                    continue
+                
+                # Sanity check on step warp
+                if not _check_step_warp_sanity(step_warp):
+                    tx, ty = step_warp[0, 2], step_warp[1, 2]
+                    print(f"[WARN] Frame {i}: warp sanity failed (tx={tx:.1f}, ty={ty:.1f}), using prev step")
+                    step_warp = prev_step_warp.copy()
+                
+                # Accumulate transformation
+                warp_accum = _compose_affine(step_warp, warp_accum)
+                warped = _warp_cfa(mosaic_clean, warp_accum, out_shape_reg, offset_sub)
+                mask_warped = _warp_cfa_mask(np.ones_like(mosaic_clean, dtype=np.float32), warp_accum, out_shape_reg, offset_sub)
+                try:
+                    dst_name = reg_pattern.format(index=i + 1)
+                except Exception:
+                    dst_name = f"reg_{i + 1:05d}.fit"
+                dst_path = reg_out / dst_name
+                fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                try:
+                    fits.writeto(str(reg_mask_dir / f"mask_{dst_path.name}"), mask_warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                except Exception:
+                    pass
+                registered_count += 1
+                processed += 1
+                corrs.append(float(confidence))
+                prev_step_warp = step_warp
+                lum_prev01 = lum01
+                del mosaic_clean, hdr, warped, mask_warped
+            except Exception as e:
+                print(f"[WARN] Frame {i}: failed to register: {e}")
+                continue
+
+        # Forward chain: ref+1, ref+2, ...
+        warp_accum = identity_warp
+        lum_prev01 = ref_lum01
+        prev_step_warp = identity_warp
+        for i in range(ref_idx + 1, len(frames)):
+            if processed % 10 == 0 or processed == total_write:
+                phase_progress(run_id, log_fp, phase_id, phase_name, processed, total_write, {"substep": "write_registered"})
+            try:
+                mosaic_clean, lum01, hdr = _load_clean_and_lum01(frames[i])
+                stars = opencv_count_stars(lum01)
+                if stars < max(1, min_star_matches_i):
+                    print(f"[WARN] Frame {i}: insufficient stars ({stars} < {min_star_matches_i}), continuing")
+                
+                # Chain: register against previous frame using star matching + RANSAC
+                step_warp, confidence, method = opencv_register_stars(
+                    lum01, lum_prev01, 
+                    fallback_to_ecc=True, 
+                    allow_rotation=allow_rotation,
+                    min_star_matches=min_star_matches_i
+                )
+                
+                # Validate result - reject failed registrations
+                if method == "failed":
+                    print(f"[WARN] Frame {i}: registration failed, skipping frame")
+                    continue
+                
+                # Sanity check on step warp
+                if not _check_step_warp_sanity(step_warp):
+                    tx, ty = step_warp[0, 2], step_warp[1, 2]
+                    print(f"[WARN] Frame {i}: warp sanity failed (tx={tx:.1f}, ty={ty:.1f}), using prev step")
+                    step_warp = prev_step_warp.copy()
+                
+                # Accumulate transformation
+                warp_accum = _compose_affine(step_warp, warp_accum)
+                warped = _warp_cfa(mosaic_clean, warp_accum, out_shape_reg, offset_sub)
+                mask_warped = _warp_cfa_mask(np.ones_like(mosaic_clean, dtype=np.float32), warp_accum, out_shape_reg, offset_sub)
+                try:
+                    dst_name = reg_pattern.format(index=i + 1)
+                except Exception:
+                    dst_name = f"reg_{i + 1:05d}.fit"
+                dst_path = reg_out / dst_name
+                fits.writeto(str(dst_path), warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                try:
+                    fits.writeto(str(reg_mask_dir / f"mask_{dst_path.name}"), mask_warped.astype("float32", copy=False), header=hdr, overwrite=True)
+                except Exception:
+                    pass
+                registered_count += 1
+                processed += 1
+                corrs.append(float(confidence))
+                prev_step_warp = step_warp
+                lum_prev01 = lum01
+                del mosaic_clean, hdr, warped, mask_warped
+            except Exception as e:
+                print(f"[WARN] Frame {i}: failed to register: {e}")
+                continue
+
+        if processed < total_write:
+            phase_progress(run_id, log_fp, phase_id, phase_name, min(processed, total_write), total_write, {"substep": "write_registered"})
+
+        extra: Dict[str, Any] = {
+            "engine": "opencv_cfa",
+            "output_dir": str(reg_out),
+            "registered_count": registered_count,
+            "reference_index": ref_idx,
+            "min_star_matches": min_star_matches_i,
+            "allow_rotation": allow_rotation,
+        }
+        if corrs:
+            extra["ecc_corr_min"] = float(min(corrs))
+            extra["ecc_corr_mean"] = float(sum(corrs) / len(corrs))
+        phase_end(run_id, log_fp, phase_id, phase_name, "ok", extra)
+
+    else:
+        phase_start(run_id, log_fp, phase_id, phase_name)
+        if reg_engine != "siril":
+            phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"registration.engine not supported: {reg_engine!r}"})
+            return False
+        if not siril_exe:
+            phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": "siril executable not found"})
+            return False
+
+
+        cfa_flag = fits_is_cfa(frames[0]) if frames else None
+        header_bayerpat = fits_get_bayerpat(frames[0]) if frames else None
+        warn = None
+        if header_bayerpat is not None and header_bayerpat != bayer_pattern:
+            warn = "bayer_pattern mismatch (config vs header)"
+
+        using_default_reg_script = not (isinstance(reg_script_cfg, str) and reg_script_cfg.strip())
+        if using_default_reg_script and (color_mode != "OSC" or cfa_flag is not True):
+            phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {
+                    "error": "default registration script requires OSC/CFA; set registration.siril_script for non-OSC inputs",
+                    "color_mode": color_mode,
+                    "cfa": cfa_flag,
+                },
+            )
+            return False
+
+        if not reg_script_path.exists() or not reg_script_path.is_file():
+            phase_end(run_id, log_fp, phase_id, phase_name, "error", {"error": f"registration script not found: {reg_script_path}"})
+            return False
+
+        ok_script, violations = validate_siril_script(reg_script_path)
+        if not ok_script:
+            phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {"error": "registration script violates policy", "script": str(reg_script_path), "violations": violations},
+            )
+            return False
+
+        reg_work = work_dir / "registration"
+        reg_work.mkdir(parents=True, exist_ok=True)
+        for i, src in enumerate(frames, start=1):
+            dst = reg_work / f"seq{i:05d}.fit"
+            safe_symlink_or_copy(src, dst)
+
+        ok, meta = run_siril_script(
+            siril_exe=siril_exe,
+            work_dir=reg_work,
+            script_path=reg_script_path,
+            artifacts_dir=artifacts_dir,
+            log_name="siril_registration.log",
+            quiet=True,
+        )
+        if not ok:
+            reason = _extract_siril_error_reason(meta.get("log_file") if isinstance(meta, dict) else None)
+            phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {
+                    "error": reason or "siril registration failed",
+                    "siril": meta,
+                    "bayer_pattern": bayer_pattern,
+                    "bayer_pattern_header": header_bayerpat,
+                    "cfa": cfa_flag,
+                    "warning": warn,
+                },
+            )
+            return False
+
+        reg_out = outputs_dir / reg_out_name
+        reg_out.mkdir(parents=True, exist_ok=True)
+        registered = sorted([p for p in reg_work.iterdir() if p.is_file() and p.name.lower().startswith("r_") and is_fits_image_path(p)])
+        if not registered:
+            phase_end(
+                run_id,
+                log_fp,
+                phase_id,
+                phase_name,
+                "error",
+                {"error": "no registered frames produced by Siril (expected r_*.fit*)", "siril": meta},
+            )
+            return False
+
+        moved = 0
+        for idx, src in enumerate(registered, start=1):
+            try:
+                dst_name = reg_pattern.format(index=idx)
+            except Exception:
+                dst_name = src.name
+            safe_hardlink_or_copy(src, reg_out / dst_name)
+            moved += 1
+        phase_end(
+            run_id,
+            log_fp,
+            phase_id,
+            phase_name,
+            "ok",
+            {
+                "siril": meta,
+                "output_dir": str(reg_out),
+                "registered_count": moved,
+                "bayer_pattern": bayer_pattern,
+                "bayer_pattern_header": header_bayerpat,
+                "cfa": cfa_flag,
+                "warning": warn,
+            },
+        )
+
+    reg_out_dir = outputs_dir / reg_out_name
+    registered_files = sorted([p for p in reg_out_dir.iterdir() if p.is_file() and is_fits_image_path(p)]) if reg_out_dir.exists() else []
+    if not registered_files:
+        phase_end(run_id, log_fp, 1, "REGISTRATION", "error", {"error": "no registered frames found"})
+        return False
+
+    try:
+        _write_registration_artifacts(artifacts_dir, registered_files, corrs if isinstance(corrs, list) else None)
+    except Exception:
+        pass
+
+    try:
+        reg_eval: dict[str, Any] = {
+            "registration_absdiff_samples.png": {
+                "phase": "REGISTRATION",
+                "evaluations": [f"registered_frames={len(registered_files)}"],
+            }
+        }
+        if isinstance(corrs, list) and corrs:
+            c = [float(x) for x in corrs if isinstance(x, (int, float, np.number))]
+            reg_eval["registration_ecc_corr_timeseries.png"] = {
+                "phase": "REGISTRATION",
+                "evaluations": _eval_timeseries("ecc_corr", c),
+                "data": {"ecc_corr": c},
+            }
+            reg_eval["registration_ecc_corr_hist.png"] = {
+                "phase": "REGISTRATION",
+                "evaluations": _eval_timeseries("ecc_corr", c),
+                "data": {"ecc_corr": c},
+            }
+        _update_report_metrics(artifacts_dir, {"artifacts": reg_eval})
+    except Exception:
+        pass
+
+    phase_id = 2
     phase_name = "CHANNEL_SPLIT"
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
@@ -1775,7 +2319,7 @@ def run_phases_impl(
         },
     )
 
-    phase_id = 2
+    phase_id = 3
     phase_name = "NORMALIZATION"
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
@@ -1903,7 +2447,7 @@ def run_phases_impl(
     except Exception:
         pass
 
-    phase_id = 3
+    phase_id = 4
     phase_name = "GLOBAL_METRICS"
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
@@ -2124,7 +2668,7 @@ def run_phases_impl(
     except Exception:
         pass
 
-    phase_id = 4
+    phase_id = 5
     phase_name = "TILE_GRID"
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
@@ -2299,7 +2843,7 @@ def run_phases_impl(
         pass
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"grid_cfg": grid_cfg, "fwhm_estimated": fwhm})
 
-    phase_id = 5
+    phase_id = 6
     phase_name = "LOCAL_METRICS"
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
@@ -2583,8 +3127,8 @@ def run_phases_impl(
     except Exception:
         pass
 
-    phase_id = 6
-    phase_name = "TILE_RECONSTRUCTION_TLR"
+    phase_id = 7
+    phase_name = "TILE_RECONSTRUCTION"
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
         phase_end(run_id, log_fp, phase_id, phase_name, "skipped", {"reason": "resume_from_phase", "resume_from": resume_from_phase})
@@ -2989,7 +3533,7 @@ def run_phases_impl(
 
     phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"outputs": [f"reconstructed_{c}.fits" for c in ("R", "G", "B")], "tile_based": has_tile_weights if channels_to_process else False})
 
-    phase_id = 7
+    phase_id = 8
     phase_name = "STATE_CLUSTERING"
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
@@ -3159,7 +3703,7 @@ def run_phases_impl(
     except Exception:
         pass
 
-    phase_id = 8
+    phase_id = 9
     phase_name = "SYNTHETIC_FRAMES"
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
@@ -3546,7 +4090,7 @@ def run_phases_impl(
         },
     )
 
-    phase_id = 9
+    phase_id = 10
     phase_name = "STACKING"
     stacked_path: Path | None = None
     stacked_hdr = None
@@ -3866,7 +4410,7 @@ def run_phases_impl(
     stacked_path = final_out
     stacked_hdr = hdr_template
 
-    phase_id = 10
+    phase_id = 11
     phase_name = "DEBAYER"
     if should_skip_phase(phase_id):
         phase_start(run_id, log_fp, phase_id, phase_name)
@@ -3912,7 +4456,7 @@ def run_phases_impl(
                     return False
                 phase_end(run_id, log_fp, phase_id, phase_name, "ok", {"output": str(rgb_out)})
 
-    phase_id = 11
+    phase_id = 12
     phase_name = "DONE"
     phase_start(run_id, log_fp, phase_id, phase_name)
     if stop_requested(run_id, log_fp, phase_id, phase_name, stop_flag):
