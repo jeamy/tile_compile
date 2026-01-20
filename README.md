@@ -25,6 +25,72 @@ Beide Versionen sind unabhängig voneinander lauffähig.
 
 ## Quickstart (Python-Version)
 
+### System prerequisites (important)
+
+If you use a Python that was built without certain system libraries (common with `pyenv`), you may hit errors like:
+
+- `ModuleNotFoundError: No module named '_bz2'`
+- `ModuleNotFoundError: No module named '_ctypes'`
+
+These are **missing stdlib extension modules** and mean your Python interpreter was compiled without the required OS development packages.
+
+#### Linux (Fedora)
+
+Install build dependencies (covers `_bz2`, `_ctypes`, SSL, zlib, lzma, sqlite, tkinter, etc.):
+
+```bash
+sudo dnf install -y \
+  gcc make \
+  bzip2-devel libffi-devel \
+  zlib-devel xz-devel \
+  openssl-devel \
+  readline-devel sqlite-devel tk-devel
+```
+
+If you use `pyenv`, rebuild your Python after installing the packages and then recreate the project venv.
+
+#### Linux (Ubuntu/Debian)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential \
+  libbz2-dev libffi-dev \
+  zlib1g-dev liblzma-dev \
+  libssl-dev \
+  libreadline-dev libsqlite3-dev tk-dev
+```
+
+#### macOS (Homebrew)
+
+```bash
+brew install openssl@3 readline sqlite3 xz zlib bzip2 libffi tcl-tk
+```
+
+If you use `pyenv` on macOS, ensure `pyenv install` sees these libraries (often works automatically with Homebrew).
+
+#### Windows
+
+- **Recommended**: install Python from python.org (it includes `bz2` and `ctypes`).
+- Use a venv and install dependencies via `pip` (see below).
+- For PySide6/Qt: ensure you run on 64-bit Python.
+
+### Python setup (venv)
+
+#### Python package dependencies
+
+The Python implementation consists of:
+
+- backend/runner dependencies (scientific stack, FITS IO, registration)
+- optional GUI dependency (Qt via PySide6)
+
+At minimum you need the packages from `tile_compile_python/requirements.txt`.
+
+Notes:
+
+- The backend uses OpenCV (`cv2`). If your environment does not already provide it, install `opencv-python`.
+- The GUI uses Qt via `PySide6`.
+
 ```bash
 cd tile_compile_python
 
@@ -37,6 +103,24 @@ pip install -r requirements.txt
 
 # GUI starten
 ./start_gui.sh
+```
+
+### Python setup (pyenv users)
+
+If you use `pyenv` and hit `_bz2` / `_ctypes` errors, rebuild the interpreter after installing the OS packages above:
+
+```bash
+pyenv uninstall 3.12.12
+pyenv install 3.12.12
+```
+
+Then recreate the project venv (important):
+
+```bash
+rm -rf .venv
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ## Quickstart (C++ Version - in Entwicklung)

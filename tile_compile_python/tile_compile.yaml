@@ -128,8 +128,8 @@ stacking:
   input_pattern: "syn_*.fits"
   output_file: stacked.fit
   sigma_clip:
-    sigma_low: 3
-    sigma_high: 3
+    sigma_low: 2
+    sigma_high: 2
     max_iters: 3
     min_fraction: 0.5
 

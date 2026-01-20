@@ -12,6 +12,7 @@ scikit-image>=0.21.0
 imageio[all]>=2.31.0
 pillow>=9.5.0
 matplotlib>=3.7.0
+opencv-python
 
 # Machine Learning & Clustering
 scikit-learn>=1.2.0
@@ -34,3 +35,6 @@ memory-profiler>=0.61.0
 setuptools>=67.0.0
 wheel>=0.40.0
 typing-extensions>=4.6.0
+
+# Gui
+PySide6>=6.6
