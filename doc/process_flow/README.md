@@ -1,167 +1,64 @@
-# Process Flow Documentation - Tile-basierte Qualitätsrekonstruktion
+# Process Flow Documentation - Tile-basierte Qualitätsrekonstruktion v4
 
 ## Übersicht
 
-Diese Dokumentation beschreibt detailliert den Ablauf der **Tile-basierten Qualitätsrekonstruktion für DSO (Deep Sky Objects)** gemäß Methodik v3.
+Diese Dokumentation beschreibt detailliert den Ablauf der **Tile-basierten Qualitätsrekonstruktion für DSO (Deep Sky Objects)** gemäß **Methodik v4**.
 
 Jede Phase ist in einem separaten Dokument mit Diagrammen, Formeln und Beispielen dokumentiert.
 
-## Aktuelle Pipeline-Phasen (Implementierung)
+## Aktuelle Pipeline-Phasen (v4 Implementierung)
 
 | Phase | Name | Beschreibung |
 |-------|------|--------------|
 | 0 | SCAN_INPUT | Input-Frames scannen, Bayer-Pattern erkennen |
-| 1 | REGISTRATION | Cosmetic Correction + ECC-Registration + Warp |
-| 2 | CHANNEL_SPLIT | CFA → R/G/B Kanaltrennung |
-| 3 | NORMALIZATION | Hintergrund-Normalisierung pro Kanal |
-| 4 | GLOBAL_METRICS | Globale Qualitätsmetriken (Background, Noise, Gradient) |
-| 5 | TILE_GRID | FWHM-basierte Tile-Grid-Erzeugung |
-| 6 | LOCAL_METRICS | Lokale Tile-Metriken |
-| 7 | TILE_RECONSTRUCTION | Gewichtete Tile-Rekonstruktion |
-| 8 | STATE_CLUSTERING | Zustandsbasierte Frame-Clusterung |
-| 9 | SYNTHETIC_FRAMES | Synthetische Frames pro Cluster |
-| 10 | STACKING | Sigma-Clipping Rejection Stacking |
-| 11 | DEBAYER | CFA → RGB Demosaicing |
-| 12 | DONE | Finalisierung und Report |
+| 1 | CHANNEL_SPLIT | CFA → R/G/B Kanaltrennung (deferred to tile processing) |
+| 2 | NORMALIZATION | Hintergrund-Normalisierung (applied during tile loading) |
+| 3 | GLOBAL_METRICS | Globale Qualitätsmetriken (Background, Noise, Gradient) |
+| 4 | TILE_GRID | Adaptive/Hierarchische Tile-Grid-Erzeugung |
+| 5 | LOCAL_METRICS | Lokale Tile-Metriken (computed during TLR) |
+| 6 | TILE_RECONSTRUCTION_TLR | **Tile-Local Registration & Reconstruction** |
+| 7 | STATE_CLUSTERING | Zustandsbasierte Frame-Clusterung |
+| 8 | SYNTHETIC_FRAMES | Synthetische Frames pro Cluster |
+| 9 | STACKING | Sigma-Clipping Rejection Stacking |
 
-## Dokumenten-Struktur
+## Kernunterschiede zu v3
 
-### [Phase 0: Pipeline-Übersicht & Vorverarbeitungspfade](phase_0_overview.md)
-- Gesamtübersicht der Pipeline
-- **Path A: Siril-basiert** (legacy)
-- **Path B: CFA-basiert** (opencv_cfa, empfohlen)
-- Vergleich der beiden Pfade
-- Übergabepunkt an gemeinsamen Kern
+### 1. **Tile-Local Registration (TLR)** statt Global Registration
+- **v3**: Globale ECC-Registrierung aller Frames → ein Warp-Feld pro Frame
+- **v4**: **Jedes Tile registriert sich lokal** → Warp-Feld pro Tile/Frame
+- **Vorteil**: Feldrotation, differentielle atmosphärische Refraktion, lokale Seeing-Variationen werden korrekt behandelt
 
-**Wichtige Konzepte:**
-- Zwei gleichwertige Vorverarbeitungspfade
-- Ab Phase 2 identische Verarbeitung
-- Debayer-Zeitpunkt unterschiedlich
+### 2. **Iterative Reconstruction** pro Tile
+- **v3**: Gewichtete Rekonstruktion in einem Durchgang
+- **v4**: Iterative Verfeinerung (4 Iterationen):
+  1. Initiale Warp-Schätzung
+  2. Cross-Correlation-basierte Frame-Gewichtung
+  3. Rekonstruktion mit gewichteten, gewarpten Frames
+  4. Wiederhole bis Konvergenz
 
----
+### 3. **Adaptive Tile Refinement**
+- **v3**: Statisches FWHM-basiertes Grid
+- **v4**: Multi-Pass Refinement:
+  - **Pass 0**: Initiales Grid (hierarchisch oder warp-probe-basiert)
+  - **Pass 1-3**: Splitte Tiles mit hoher Warp-Varianz
+  - **Ergebnis**: 30-50% weniger Tiles bei gleicher/besserer Qualität
 
-### [Phase 1: Registrierung und Kanaltrennung](phase_1_registration.md)
-- **Cosmetic Correction** (NEU): Hotpixel-Entfernung VOR Warp
-- **Path A:** Siril Debayer → Registration → Channel Split (legacy)
-- **Path B:** CFA Luminance → Registration (opencv_cfa) → CFA-aware Transform → Debayer → Channel Split
-- FWHM-Messung und Sternfindung
-- Transformationsschätzung (RANSAC/ECC)
-- Qualitätsmetriken (Registrierungsresiduum, Elongation)
+### 4. **Hierarchisches/Warp-Probe Grid**
+- **v3**: Uniformes Grid basierend auf globalem FWHM
+- **v4**: 
+  - **Warp Probe**: Analysiert Warp-Gradienten vor Tile-Erstellung
+  - **Hierarchical**: Rekursive Unterteilung in Hochgradienten-Regionen
+  - **Adaptive Tile-Größe**: s(x,y) = s₀ / (1 + c·grad)
 
-**Wichtige Konzepte:**
-- **Cosmetic Correction verhindert "Walking Noise"** durch Hotpixel-Interpolation vor Warp
-- Sub-Pixel-Registrierung
-- Kanalgetrennte Verarbeitung ab hier
-- Keine Farbmischung bei Resampling (Path B)
+### 5. **Keine globale Normalisierung**
+- **v3**: Globale Background-Division in Phase 3
+- **v4**: Normalisierung während Tile-Loading (on-the-fly)
 
-**Output:** 3 separate Kanal-Stacks (R, G, B)
+### 6. **Deferred Channel Split**
+- **v3**: Channel Split nach Registration (Phase 2)
+- **v4**: Channel Split während Tile-Processing (keine separate Phase)
 
----
-
-### [Phase 2: Globale Normalisierung und Frame-Metriken](phase_2_normalization_metrics.md)
-- Hintergrundschätzung (Sigma-Clipping)
-- **Globale Normalisierung** (Division durch Hintergrund)
-- Rauschschätzung
-- Gradientenergie (Sobel-Operator)
-- **Globaler Qualitätsindex** Q_f,c und Gewicht G_f,c
-
-**Wichtige Konzepte:**
-- Normalisierung erfolgt **exakt einmal**
-- Robuste Normalisierung der Metriken mit Median + MAD
-- Exponential-Mapping mit Clamping
-- Gewichtung: α·(-B̃) + β·(-σ̃) + γ·Ẽ
-
-**Output:** Normalisierte Frames + globale Gewichte
-
----
-
-### [Phase 3: Tile-Erzeugung (FWHM-basiert)](phase_3_tile_generation.md)
-- **FWHM-Messung** (Full Width Half Maximum)
-- PSF-Fitting (2D Gaussian)
-- Robuste FWHM-Schätzung (Median)
-- **Seeing-adaptive Tile-Größe:** T = clip(s·F, T_min, T_max)
-- Overlap-Berechnung
-- Tile-Grid-Erzeugung
-- Tile-Klassifikation (Stern/Struktur/Hintergrund)
-
-**Wichtige Konzepte:**
-- FWHM = Maß für Seeing-Qualität
-- Tile-Größe proportional zu FWHM
-- Overlap für glatte Übergänge
-- Einheitliches Grid für alle Frames/Kanäle
-
-**Output:** Tile-Grid + FWHM-Statistiken
-
----
-
-### [Phase 4: Lokale Tile-Metriken und Qualitätsanalyse](phase_4_local_metrics.md)
-- **Stern-Tile-Metriken:** FWHM, Rundheit, Kontrast
-- **Struktur-Tile-Metriken:** ENR, lokaler Hintergrund, Varianz
-- Lokaler Qualitätsindex Q_local
-- **Effektives Gewicht:** W_f,t,c = G_f,c × L_f,t,c
-
-**Wichtige Konzepte:**
-- Lokale Seeing-Variationen erfassen
-- Tile-Typ-spezifische Metriken
-- Kombination global × lokal
-- Heatmap-Visualisierung möglich
-
-**Output:** Lokale Gewichte pro Tile/Frame
-
----
-
-### [Phase 5: Tile-basierte Rekonstruktion](phase_5_tile_reconstruction.md)
-- **Gewichtete Rekonstruktion:** I_t,c = Σ W_f,t,c · I'_f,c / Σ W_f,t,c
-- Fallback für degenerierte Tiles
-- **Fensterfunktion** (Hanning, 2D, separabel; verbindlich)
-- **Overlap-Add** für glatte Übergänge
-- Tile-Normalisierung (verbindlich; nach Hintergrundsubtraktion)
-
-**Wichtige Konzepte:**
-- Herzstück der Methodik
-- Jedes Tile separat rekonstruiert
-- Weiche Übergänge durch Windowing
-- Keine Frame-Selektion (alle Frames verwendet)
-
-**Output:** Rekonstruierte Tiles → finales Bild pro Kanal
-
----
-
-### [Phase 6: Zustandsbasierte Clusterung und synthetische Frames](phase_6_clustering.md)
-- **Zustandsvektor:** v_f,c = (G, ⟨Q_local⟩, Var(Q_local), B, σ)
-- K-Means Clusterung (dynamisches K: K = clip(floor(N/10), 5, 30))
-- **Synthetische Frames** pro Cluster
-- Rauschreduktion durch Cluster-Stacking
-- Frame-Reduktion (N → K)
-
-**Wichtige Konzepte:**
-- Frames nach Qualitätszustand gruppieren
-- Synthetische Frames = "ideale" Frames pro Zustand
-- Nur bei N ≥ 200 (sonst Reduced Mode)
-- Gewichtserhaltung
-
-**Output:** K synthetische Frames (statt N Original-Frames)
-
----
-
-### [Phase 7: Finales Stacking](phase_7_final_stacking.md)
-- **Sigma-Clipping Rejection Stacking** (NEU)
-- Konfigurierbare Parameter: sigma_low, sigma_high, max_iters, min_fraction
-- FITS-Speicherung mit Metadaten
-- Qualitätskontrolle und Validierung
-- Statistik-Report
-
-**Wichtige Konzepte:**
-- Gewichtung bereits in synthetischen Frames
-- **Sigma-Clipping entfernt verbleibende Ausreißer**
-- Kein Drizzle
-- RGB/LRGB-Kombination **außerhalb** der Methodik
-
-**Output:** stacked_R.fits, stacked_G.fits, stacked_B.fits, stacked.fit
-
----
-
-## Pipeline-Flussdiagramm (Aktuell)
+## Pipeline-Flussdiagramm (v4)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -171,129 +68,261 @@ Jede Phase ist in einem separaten Dokument mit Diagrammen, Formeln und Beispiele
          ┌───────────▼───────────┐
          │ PHASE 0: SCAN_INPUT   │
          │ Bayer-Pattern erkennen│
+         │ Frame-Metadaten       │
          └───────────┬───────────┘
                      │
          ┌───────────▼───────────┐
-         │ PHASE 1: REGISTRATION │
-         │ • Cosmetic Correction │
-         │ • ECC Alignment       │
-         │ • CFA-aware Warp      │
+         │ PHASE 1: CHANNEL_SPLIT│
+         │ (deferred)            │
          └───────────┬───────────┘
                      │
          ┌───────────▼───────────┐
-         │ PHASE 2: CHANNEL_SPLIT│
-         │ CFA → R/G/B           │
+         │ PHASE 2: NORMALIZATION│
+         │ (applied during load) │
          └───────────┬───────────┘
                      │
          ┌───────────▼───────────┐
-         │ PHASE 3: NORMALIZATION│
-         │ Background-Division   │
-         └───────────┬───────────┘
-                     │
-         ┌───────────▼───────────┐
-         │ PHASE 4: GLOBAL_METRICS│
+         │ PHASE 3: GLOBAL_METRICS│
          │ B, σ, E → G_f,c       │
          └───────────┬───────────┘
                      │
          ┌───────────▼───────────┐
-         │ PHASE 5: TILE_GRID    │
-         │ FWHM-basierte Tiles   │
+         │ PHASE 4: TILE_GRID    │
+         │ • Warp Probe          │
+         │ • Hierarchical Init   │
+         │ • Adaptive Sizing     │
          └───────────┬───────────┘
                      │
          ┌───────────▼───────────┐
-         │ PHASE 6: LOCAL_METRICS│
-         │ Tile-Qualität L_f,t,c │
+         │ PHASE 5: LOCAL_METRICS│
+         │ (computed in TLR)     │
          └───────────┬───────────┘
                      │
          ┌───────────▼───────────┐
-         │ PHASE 7: TILE_RECON   │
-         │ Gewichtete Rekonstrukt│
+         │ PHASE 6: TLR          │
+         │ ┌─────────────────┐   │
+         │ │ FOR EACH TILE:  │   │
+         │ │ • Load Frames   │   │
+         │ │ • Debayer       │   │
+         │ │ • Normalize     │   │
+         │ │ • Iterative:    │   │
+         │ │   - Warp Estim. │   │
+         │ │   - CC Weights  │   │
+         │ │   - Reconstruct │   │
+         │ │ • 4 Iterations  │   │
+         │ └─────────────────┘   │
+         │                       │
+         │ Multi-Pass Refinement:│
+         │ • Pass 0: Initial     │
+         │ • Pass 1-3: Split     │
+         │   high-variance tiles │
          └───────────┬───────────┘
                      │
          ┌───────────▼───────────┐
-         │ PHASE 8: CLUSTERING   │
+         │ PHASE 7: CLUSTERING   │
          │ State-Vector K-Means  │
          └───────────┬───────────┘
                      │
          ┌───────────▼───────────┐
-         │ PHASE 9: SYNTHETIC    │
+         │ PHASE 8: SYNTHETIC    │
          │ Frames pro Cluster    │
          └───────────┬───────────┘
                      │
          ┌───────────▼───────────┐
-         │ PHASE 10: STACKING    │
+         │ PHASE 9: STACKING     │
          │ Sigma-Clip Rejection  │
          └───────────┬───────────┘
                      │
          ┌───────────▼───────────┐
-         │ PHASE 11: DEBAYER     │
-         │ CFA → RGB Demosaic    │
-         └───────────┬───────────┘
-                     │
-         ┌───────────▼───────────┐
-         │ PHASE 12: DONE        │
-         │ Report & Finalize     │
-         └───────────┬───────────┘
-                     │
-         ┌───────────▼───────────┐
-         │ stacked_rgb.fits      │
+         │ stacked_R/G/B.fits    │
          │ + Artifacts/Report    │
          └───────────────────────┘
 ```
 
-## Kernprinzipien
+## Dokumenten-Struktur
+
+### [Phase 0: Pipeline-Übersicht & Input-Scanning](phase_0_overview.md)
+- Gesamtübersicht der v4-Pipeline
+- Input-Frame-Scanning
+- Bayer-Pattern-Erkennung
+- Frame-Metadaten-Extraktion
+- Vergleich v3 vs v4
+
+**Wichtige Konzepte:**
+- Keine globale Registration mehr
+- Tile-Local Registration (TLR) als Kern
+- Deferred Processing (Channel Split, Normalization)
+
+---
+
+### [Phase 1-2: Deferred Processing](phase_1_deferred.md)
+- Channel Split (während Tile-Loading)
+- Normalisierung (während Tile-Loading)
+- On-the-fly Debayering
+
+**Wichtige Konzepte:**
+- Kein separater Registrierungsschritt
+- Frames bleiben in CFA-Format bis Tile-Processing
+- Memory-effizient
+
+---
+
+### [Phase 3: Globale Frame-Metriken](phase_3_global_metrics.md)
+- Hintergrundschätzung (Sigma-Clipping)
+- Rauschschätzung
+- Gradientenergie (Sobel-Operator)
+- **Globaler Qualitätsindex** Q_f,c und Gewicht G_f,c
+
+**Wichtige Konzepte:**
+- Robuste Normalisierung mit Median + MAD
+- Exponential-Mapping mit Clamping
+- Gewichtung: α·(-B̃) + β·(-σ̃) + γ·Ẽ
+
+**Output:** Globale Gewichte G_f,c pro Frame/Kanal
+
+---
+
+### [Phase 4: Adaptive Tile-Grid-Erzeugung](phase_4_tile_grid.md)
+- **Warp Probe**: Gradient-Field-Analyse
+- **Hierarchical Initialization**: Rekursive Unterteilung
+- **Adaptive Tile-Größe**: s(x,y) = s₀ / (1 + c·grad)
+- Tile-Grid-Optimierung (30-50% Reduktion)
+
+**Wichtige Konzepte:**
+- Warp-Gradienten bestimmen Tile-Dichte
+- Hierarchische Rekursion (max_depth=3)
+- Gradient-Sensitivity-Parameter
+- Minimale Tile-Größe (64px)
+
+**Output:** Optimiertes Tile-Grid
+
+---
+
+### [Phase 5: Lokale Metriken (in TLR integriert)](phase_5_local_metrics.md)
+- **Computed during TLR** (keine separate Phase)
+- Warp-Varianz pro Tile
+- Cross-Correlation pro Frame/Tile
+- Lokale Qualitätsindizes
+
+**Wichtige Konzepte:**
+- Metriken während iterativer Rekonstruktion
+- Warp-Varianz = Splitting-Kriterium
+- CC-basierte Frame-Gewichtung
+
+---
+
+### [Phase 6: Tile-Local Registration & Reconstruction (TLR)](phase_6_tlr.md)
+- **Kernphase der v4-Methodik**
+- Iterative Rekonstruktion (4 Iterationen)
+- Lokale Warp-Schätzung pro Tile
+- Cross-Correlation-basierte Gewichtung: R_{f,t} = exp(β·(cc-1))
+- Multi-Pass Adaptive Refinement
+
+**Wichtige Konzepte:**
+- Jedes Tile unabhängig
+- Disk-Streaming (memory-effizient)
+- Iterative Verfeinerung
+- Adaptive Tile-Splitting
+
+**Output:** Rekonstruierte Tiles → finales Bild pro Kanal
+
+---
+
+### [Phase 7: Zustandsbasierte Clusterung](phase_7_clustering.md)
+- **Zustandsvektor:** v_f,c = (G, ⟨Q_local⟩, Var(Q_local), B, σ)
+- K-Means Clusterung (dynamisches K)
+- Frame-Reduktion (N → K)
+
+**Wichtige Konzepte:**
+- Frames nach Qualitätszustand gruppieren
+- Nur bei N ≥ 200 (sonst Reduced Mode)
+- Gewichtserhaltung
+
+**Output:** K Cluster-Zuordnungen
+
+---
+
+### [Phase 8: Synthetische Frames](phase_8_synthetic.md)
+- Synthetische Frames pro Cluster
+- Rauschreduktion durch Cluster-Stacking
+- Gewichtserhaltung
+
+**Wichtige Konzepte:**
+- "Ideale" Frames pro Zustand
+- Frame-Reduktion für finales Stacking
+- Gewichtete Kombination
+
+**Output:** K synthetische Frames (statt N Original-Frames)
+
+---
+
+### [Phase 9: Finales Stacking](phase_9_stacking.md)
+- **Sigma-Clipping Rejection Stacking**
+- Konfigurierbare Parameter
+- FITS-Speicherung mit Metadaten
+- Qualitätskontrolle und Validierung
+
+**Wichtige Konzepte:**
+- Gewichtung bereits in synthetischen Frames
+- Sigma-Clipping entfernt verbleibende Ausreißer
+- Kein Drizzle
+
+**Output:** stacked_R.fits, stacked_G.fits, stacked_B.fits
+
+---
+
+## Kernprinzipien (v4)
 
 Die Methodik basiert auf folgenden **unveränderlichen Prinzipien**:
 
 1. **Linearität**: Keine nichtlinearen Operationen (kein Stretch)
 2. **Keine Frame-Selektion**: Alle Frames werden verwendet
 3. **Kanalgetrennt**: R, G, B unabhängig verarbeitet
-4. **Streng linear**: Keine Rückkopplungen in der Pipeline
-5. **Deterministisch**: Gleiche Inputs → gleiche Outputs
-6. **Tile-basiert**: Lokale Qualitätsbewertung
-7. **Gewichtet**: Global × Lokal
-8. **Seeing-adaptiv**: Tile-Größe basiert auf FWHM
+4. **Tile-Local Registration**: Keine globale Registrierung
+5. **Iterative Reconstruction**: 4 Iterationen pro Tile
+6. **Deterministisch**: Gleiche Inputs → gleiche Outputs
+7. **Adaptive Tiles**: Warp-Gradienten bestimmen Tile-Dichte
+8. **Memory-effizient**: Disk-Streaming, deferred processing
 
 ## Modi
 
 ### Normal Mode (N ≥ 200 Frames)
-- Alle 7 Phasen werden durchlaufen
+- Alle Phasen werden durchlaufen
 - Clusterung aktiv
 - Synthetische Frames werden erzeugt
 - Optimale Rauschreduktion
 
 ### Reduced Mode (50 ≤ N < 200 Frames)
-- Phase 6 wird **übersprungen**
+- Phase 7-8 werden **übersprungen**
 - Keine Clusterung
 - Keine synthetischen Frames
-- Phase 5 erzeugt das rekonstruierte Bild R_c pro Kanal
-- Phase 7 übernimmt R_c direkt ohne weiteres Stacking
+- Phase 6 erzeugt das rekonstruierte Bild R_c pro Kanal
+- Phase 9 übernimmt R_c direkt
 - Validierungswarnung im Report ("Reduced Mode")
 
 ### Degraded Mode (N < 50 Frames)
-- Pipeline läuft im Reduced Mode ohne Clusterung
-- Starke Degradation der Statistik (zu wenig Frames)
+- Pipeline läuft im Reduced Mode
+- Starke Degradation der Statistik
 - Lauf wird mit entsprechendem Warnlevel gekennzeichnet
-- Abbruch nur bei **kritischen** Fehlern (z.B. keine Sterne, Daten nicht linear)
+- Abbruch nur bei **kritischen** Fehlern
 
 ## Qualitätsmetriken
 
-### Globale Metriken (Phase 2)
+### Globale Metriken (Phase 3)
 - **B_f,c**: Hintergrundniveau (niedriger = besser)
 - **σ_f,c**: Rauschen (niedriger = besser)
 - **E_f,c**: Gradientenergie (höher = besser)
 - **G_f,c**: Globales Gewicht = exp(Q_f,c)
 
-### Lokale Metriken (Phase 4)
-- **FWHM**: Seeing-Qualität (niedriger = besser)
-- **Rundheit**: Tracking-Qualität (höher = besser)
-- **Kontrast**: Signal-to-Noise (höher = besser)
-- **L_f,t,c**: Lokales Gewicht = exp(Q_local)
+### Lokale Metriken (Phase 6, während TLR)
+- **Warp-Varianz**: Variabilität der Warp-Vektoren
+- **Cross-Correlation**: Frame-Tile-Übereinstimmung
+- **R_{f,t}**: Frame-Gewicht = exp(β·(cc-1))
 
 ### Effektives Gewicht
-- **W_f,t,c = G_f,c × L_f,t,c**
+- **W_f,t,c = G_f,c × R_{f,t}**
 - Kombiniert globale und lokale Qualität
-- Verwendet in Phase 5 für Tile-Rekonstruktion
+- Verwendet in Phase 6 für Tile-Rekonstruktion
 
 ## Mathematische Notation
 
@@ -303,28 +332,32 @@ Indizes:
   t - Tile-Index (0..T-1)
   c - Kanal (R, G, B)
   k - Cluster-Index (0..K-1)
+  i - Iterations-Index (0..I-1)
   p - Pixel-Position (x, y)
 
 Dimensionen:
   N - Anzahl Original-Frames
   K - Anzahl Cluster/synthetische Frames
   T - Anzahl Tiles
+  I - Anzahl Iterationen (4)
   W, H - Bildbreite/-höhe
-  F - FWHM (Pixel)
 
 Gewichte:
   G_f,c - Globales Frame-Gewicht
-  L_f,t,c - Lokales Tile-Gewicht
-  W_f,t,c - Effektives Gewicht (G × L)
-  W_synth,k,c - Gewicht synthetisches Frame
+  R_{f,t} - Lokales Frame-Gewicht (CC-basiert)
+  W_f,t,c - Effektives Gewicht (G × R)
 
-Synthetic Frames:
-  synthetic.weighting = global | tile_weighted
+TLR-Parameter:
+  β - CC-Sensitivität (6.0 für Alt/Az)
+  iterations - Anzahl Iterationen (4)
+  refine_variance_threshold - Splitting-Schwelle (0.15)
+  max_refine_passes - Max Refinement-Passes (3)
 
-Normalisierung:
-  I_f,c - Original-Frame
-  I'_f,c - Normalisiertes Frame (I / B)
-  B_f,c - Hintergrundniveau
+Adaptive Tiles:
+  s(x,y) - Tile-Größe an Position (x,y)
+  s₀ - Basis-Tile-Größe (256)
+  c - Gradient-Sensitivität (2.0)
+  grad - Lokaler Warp-Gradient
 ```
 
 ## Validierung
@@ -334,45 +367,41 @@ Jede Phase enthält **normative Testfälle**:
 - ✓ Gewichtsnormierung (α + β + γ = 1)
 - ✓ Clamping vor Exponentialfunktion
 - ✓ Tile-Size-Monotonie
-- ✓ Overlap-Konsistenz
-- ✓ Low-weight Tile Fallback
+- ✓ Warp-Varianz-Konvergenz
+- ✓ CC-basierte Gewichtung
+- ✓ Iterative Konvergenz
 - ✓ Kanaltrennung (keine Kanal-Kopplung)
 - ✓ Keine Frame-Selektion
-- ✓ Determinismus
+- ✓ Deterministismus
 
 ## Performance-Optimierungen
 
-Jedes Phasen-Dokument enthält **Performance-Hinweise**:
-
-- Vektorisierte Operationen (NumPy)
-- Parallele Verarbeitung (ThreadPoolExecutor, ProcessPoolExecutor)
-- Memory-effiziente Implementierungen
-- GPU-Beschleunigung (optional, CuPy)
-- Caching und Memoization
+- **Disk-Streaming**: Frames on-demand laden
+- **Parallele Tile-Verarbeitung**: 8 Workers (konfigurierbar)
+- **Memory-Limits**: RSS-Monitoring mit Abort-Schwelle
+- **Adaptive Refinement**: Nur problematische Tiles splitten
+- **Deferred Processing**: Channel Split/Normalisierung on-the-fly
 
 ## Verwendung
 
 1. **Lesen Sie Phase 0** für Gesamtübersicht
-2. **Wählen Sie Vorverarbeitungspfad** (A oder B)
-3. **Folgen Sie den Phasen sequenziell** (1-7)
+2. **Verstehen Sie TLR** (Phase 6) - das Herzstück
+3. **Folgen Sie den Phasen sequenziell** (0-9)
 4. **Beachten Sie Validierungschecks** in jeder Phase
 5. **Prüfen Sie Output-Datenstrukturen** am Ende jeder Phase
 
 ## Referenzen
 
-- **Normative Spezifikation**: `/doc/tile_basierte_qualitatsrekonstruktion_methodik_v_3.md`
+- **Normative Spezifikation**: `/doc/tile_basierte_qualitaetsrekonstruktion_methodik_v4.md`
+- **Konfiguration**: `/doc/configuration_reference_v4.md`
 - **Implementierung**: `/tile_compile_backend/` und `/runner/`
 - **Tests**: `/tests/`
-- **Validierung**: `/validation/`
 
 ## Änderungshistorie
 
-- **2026-01-17**: Cosmetic Correction (Hotpixel-Entfernung vor Warp) hinzugefügt
-- **2026-01-17**: Sigma-Clipping Rejection Stacking dokumentiert
-- **2026-01-17**: Pipeline-Diagramm auf 13 Phasen aktualisiert
-- **2026-01-09**: Initiale Erstellung der detaillierten Process Flow Dokumentation
-- Basierend auf Methodik v3
+- **2026-01-21**: Initiale Erstellung der v4 Process Flow Dokumentation
+- Basierend auf Methodik v4 und v3 Process Flow Struktur
 
 ---
 
-**Hinweis**: Diese Dokumentation ist **deskriptiv** und erklärt die normative Spezifikation. Bei Widersprüchen gilt die normative Spezifikation in `tile_basierte_qualitatsrekonstruktion_methodik_v_3.md`.
+**Hinweis**: Diese Dokumentation ist **deskriptiv** und erklärt die normative Spezifikation. Bei Widersprüchen gilt die normative Spezifikation in `tile_basierte_qualitaetsrekonstruktion_methodik_v4.md`.

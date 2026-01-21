@@ -29,6 +29,7 @@ logs/
 
 # GUI state files
 .tile_compile/
+tile_compile_python/tile_compile_gui_state.json
 tile_compile_gui_state.json
 
 # Build artifacts (Python)
