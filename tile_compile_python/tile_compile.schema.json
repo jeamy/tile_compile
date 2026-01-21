@@ -165,6 +165,13 @@
               "maximum": 10.0,
               "default": 2.0,
               "description": "Scale parameter for variance-weighted overlap window ψ(var) (§9)"
+            },
+            "max_warp_delta_px": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 10.0,
+              "default": 0.3,
+              "description": "Maximum allowed deviation from median warp translation (px). Frames exceeding this are rejected per tile."
             }
           }
         }
@@ -647,6 +654,11 @@
               "description": "Save histogram of warp variances"
             }
           }
+        },
+        "debug_tile_registration": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug output for tile registration (prints per-frame warp translations and consistency info)"
         }
       }
     },

@@ -91,6 +91,8 @@ v4:
     tile_invalid_map: true             # save invalid tile map
     warp_variance_hist: true           # save variance statistics
 
+  debug_tile_registration: true       # print per-tile warp consistency debug info
+
 normalization:
   enabled: true
   mode: background        # background | median
@@ -102,8 +104,9 @@ registration:
   mode: local_tiles
   
   local_tiles:
+    max_warp_delta_px: 0.3
     ecc_cc_min: 0.2                      # minimum ECC correlation to accept
-    min_valid_frames: 10                 # minimum frames required per tile
+    min_valid_frames: 2                 # minimum frames required per tile
     temporal_smoothing_window: 11        # Savitzky-Golay window (must be odd)
     variance_window_sigma: 2.0           # ψ(var) scale parameter (§9)
 

@@ -81,9 +81,13 @@ class TileProcessorConfig:
         self.ecc_cc_min = float(reg_cfg.get("ecc_cc_min", 0.2))
         self.min_valid_frames = int(reg_cfg.get("min_valid_frames", 10))
         self.temporal_smoothing_window = int(reg_cfg.get("temporal_smoothing_window", 5))
+        self.max_warp_delta_px = float(reg_cfg.get("max_warp_delta_px", 0.3))
         
         # Variance window (§9)
         self.variance_window_sigma = float(reg_cfg.get("variance_window_sigma", 2.0))
+
+        # Debug
+        self.debug_tile_registration = bool(v4_cfg.get("debug_tile_registration", False))
 
         self.color_mode = str(data_cfg.get("color_mode", "MONO") or "MONO").strip().upper()
         self.bayer_pattern = str(data_cfg.get("bayer_pattern", "GBRG") or "GBRG").strip().upper()
@@ -251,6 +255,31 @@ class TileProcessor:
                 R_ft = float(np.exp(self.cfg.beta * (cc - 1.0)))
                 weights.append(Gf * R_ft)
             
+            # v4 FIX: Warp consistency check (prevents double stars)
+            if len(warps) == 0:
+                self.valid = False
+                return None, []
+
+            translations = np.array(
+                [(w_[0, 2], w_[1, 2]) for w_ in warps],
+                dtype=np.float32,
+            )
+            median_shift = np.median(translations, axis=0)
+            deltas = np.linalg.norm(translations - median_shift[None, :], axis=1)
+
+            max_delta = self.cfg.max_warp_delta_px
+            valid_mask = deltas <= max_delta
+
+            if self.cfg.debug_tile_registration:
+                for i, (dx, dy) in enumerate(translations):
+                    print(f"Tile {self.tile_id} Frame {i}: dx={dx:+.3f} dy={dy:+.3f} cc={correlations[i]:.3f} delta={deltas[i]:.3f}")
+                print(f"Tile {self.tile_id}: median dx={median_shift[0]:+.3f} dy={median_shift[1]:+.3f}, kept {int(valid_mask.sum())}/{len(valid_mask)}")
+
+            warped_tiles = [t for t, ok in zip(warped_tiles, valid_mask) if ok]
+            warps = [w_ for w_, ok in zip(warps, valid_mask) if ok]
+            correlations = [c for c, ok in zip(correlations, valid_mask) if ok]
+            weights = [wt for wt, ok in zip(weights, valid_mask) if ok]
+
             # Check minimum valid frames (§8 stability)
             if len(warped_tiles) < self.cfg.min_valid_frames:
                 self.valid = False
