@@ -1,8 +1,8 @@
 {
-  "lastInputDir": "/home/mux/Bilder/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/selected",
-  "scanInputDir": "/home/mux/Bilder/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/selected",
-  "inputDir": "/home/mux/Bilder/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/selected",
-  "workingDir": "/home/mux/programme/tile_compile/tile_compile_python",
+  "lastInputDir": "/media/data/tile_compile_cache/IC434_lights",
+  "scanInputDir": "/media/data/tile_compile_cache/IC434_lights",
+  "inputDir": "/media/data/tile_compile_cache/IC434_lights",
+  "workingDir": "/home/lux/programming/tile-compile/tile_compile_python",
   "runsDir": "runs",
   "pattern": "*.fit*",
   "dryRun": false,
@@ -35,7 +35,7 @@
     "registration_residual_warn_px": 0.5,
     "registration_residual_max_px": 1.0,
     "elongation_warn": 0.3,
-    "elongation_max": 0.01,
+    "elongation_max": 0.4,
     "tracking_error_max_px": 1.0,
     "reduced_mode_skip_clustering": true,
     "reduced_mode_cluster_range": [
@@ -45,5 +45,5 @@
   },
   "logsTail": 200,
   "logsFilter": "",
-  "activeTab": 4
+  "activeTab": 7
 }

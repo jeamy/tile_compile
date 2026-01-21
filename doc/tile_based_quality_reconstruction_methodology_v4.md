@@ -1,4 +1,4 @@
-# Tile-Based Quality Reconstruction for DSO – Methodology v4
+    # Tile-Based Quality Reconstruction for DSO – Methodology v4
 
 **Status:** Normative Reference (experimental reference implementation)\
 **Replaces:** Methodology v2, v3\

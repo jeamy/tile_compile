@@ -100,6 +100,64 @@ def cfa_downsample_sum2x2(mosaic: np.ndarray) -> np.ndarray:
     return a + b + c + d
 
 
+def cfa_green_mask(shape: tuple[int, int], bayer_pattern: str) -> np.ndarray:
+    h, w = int(shape[0]), int(shape[1])
+    bp = str(bayer_pattern or "GBRG").strip().upper()
+    if bp in ("RGGB", "BGGR"):
+        g0 = (0, 1)
+        g1 = (1, 0)
+    else:
+        g0 = (0, 0)
+        g1 = (1, 1)
+    m = np.zeros((h, w), dtype=bool)
+    m[g0[0]::2, g0[1]::2] = True
+    m[g1[0]::2, g1[1]::2] = True
+    return m
+
+
+def cfa_green_proxy(mosaic: np.ndarray, bayer_pattern: str) -> np.ndarray:
+    x = np.asarray(mosaic).astype("float32", copy=False)
+    h, w = x.shape[:2]
+    gm = cfa_green_mask((h, w), bayer_pattern)
+
+    x_pad = np.pad(x, 1, mode="edge")
+    gm_pad = np.pad(gm.astype(np.float32, copy=False), 1, mode="edge")
+    g_pad = x_pad * gm_pad
+
+    sum4 = (
+        g_pad[0:h, 1:w + 1]
+        + g_pad[2:h + 2, 1:w + 1]
+        + g_pad[1:h + 1, 0:w]
+        + g_pad[1:h + 1, 2:w + 2]
+    )
+    cnt4 = (
+        gm_pad[0:h, 1:w + 1]
+        + gm_pad[2:h + 2, 1:w + 1]
+        + gm_pad[1:h + 1, 0:w]
+        + gm_pad[1:h + 1, 2:w + 2]
+    )
+    avg = sum4 / np.maximum(cnt4, 1.0)
+
+    out = np.empty((h, w), dtype=np.float32)
+    out[gm] = x[gm]
+    out[~gm] = avg[~gm]
+    return out
+
+
+def cfa_green_proxy_downsample2x2(mosaic: np.ndarray, bayer_pattern: str) -> np.ndarray:
+    p = cfa_green_proxy(mosaic, bayer_pattern)
+    h, w = p.shape[:2]
+    h2 = h - (h % 2)
+    w2 = w - (w % 2)
+    if h2 != h or w2 != w:
+        p = p[:h2, :w2]
+    a = p[0::2, 0::2].astype("float32", copy=False)
+    b = p[0::2, 1::2].astype("float32", copy=False)
+    c = p[1::2, 0::2].astype("float32", copy=False)
+    d = p[1::2, 1::2].astype("float32", copy=False)
+    return 0.25 * (a + b + c + d)
+
+
 def split_rgb_frame(data: np.ndarray) -> dict[str, np.ndarray]:
     """Split RGB FITS frame into R, G, B channels."""
     if data.ndim == 2:

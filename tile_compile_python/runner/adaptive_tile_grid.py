@@ -234,6 +234,7 @@ def build_hierarchical_tile_grid(
     """Build hierarchical tile grid with recursive splitting.
     
     Starts with coarse tiles and splits only where gradient is high.
+    Sub-tiles maintain overlap for proper blending.
     
     Args:
         shape: Image (height, width)
@@ -267,39 +268,63 @@ def build_hierarchical_tile_grid(
     else:
         grad_norm = np.zeros_like(gradient_field)
     
-    def _split_tile(x0: int, y0: int, tw: int, th: int, depth: int) -> List[Tuple[int, int, int, int]]:
-        """Recursively split tile if gradient is high."""
-        if depth >= max_depth or tw <= min_tile_size or th <= min_tile_size:
-            return [(x0, y0, tw, th)]
+    def _generate_subtiles_with_overlap(
+        x0: int, y0: int, tw: int, th: int, tile_size: int, overlap_frac: float
+    ) -> List[Tuple[int, int, int, int]]:
+        """Generate overlapping sub-tiles within a region."""
+        overlap_px = int(tile_size * overlap_frac)
+        step = max(1, tile_size - overlap_px)
         
-        # Sample gradient in tile region
+        subtiles = []
+        for sy in range(y0, y0 + th - tile_size + 1, step):
+            for sx in range(x0, x0 + tw - tile_size + 1, step):
+                subtiles.append((sx, sy, tile_size, tile_size))
+        
+        # Handle edge tiles
+        if not subtiles:
+            subtiles.append((x0, y0, min(tw, tile_size), min(th, tile_size)))
+        
+        return subtiles
+    
+    def _split_region(x0: int, y0: int, tw: int, th: int, depth: int) -> List[Tuple[int, int, int, int]]:
+        """Recursively split region if gradient is high, generating overlapping tiles."""
+        # Calculate tile size for this depth
+        tile_size = max(min_tile_size, initial_tile_size >> depth)
+        
+        if depth >= max_depth or tw <= min_tile_size * 2 or th <= min_tile_size * 2:
+            # Generate overlapping tiles at this level
+            return _generate_subtiles_with_overlap(x0, y0, tw, th, tile_size, base_overlap)
+        
+        # Sample gradient in region
         y1 = min(y0 + th, h)
         x1 = min(x0 + tw, w)
-        tile_grad = np.mean(grad_norm[y0:y1, x0:x1])
+        region_grad = np.mean(grad_norm[y0:y1, x0:x1])
         
-        if tile_grad < split_threshold:
-            return [(x0, y0, tw, th)]
+        if region_grad < split_threshold:
+            # Low gradient - use larger tiles with overlap
+            return _generate_subtiles_with_overlap(x0, y0, tw, th, tile_size, base_overlap)
         
-        # Split into 4 quadrants
+        # High gradient - split into 4 quadrants and recurse
         hw, hh = tw // 2, th // 2
         result = []
-        result.extend(_split_tile(x0, y0, hw, hh, depth + 1))
-        result.extend(_split_tile(x0 + hw, y0, tw - hw, hh, depth + 1))
-        result.extend(_split_tile(x0, y0 + hh, hw, th - hh, depth + 1))
-        result.extend(_split_tile(x0 + hw, y0 + hh, tw - hw, th - hh, depth + 1))
+        result.extend(_split_region(x0, y0, hw + int(hw * base_overlap), hh + int(hh * base_overlap), depth + 1))
+        result.extend(_split_region(x0 + hw - int(hw * base_overlap), y0, tw - hw + int(hw * base_overlap), hh + int(hh * base_overlap), depth + 1))
+        result.extend(_split_region(x0, y0 + hh - int(hh * base_overlap), hw + int(hw * base_overlap), th - hh + int(hh * base_overlap), depth + 1))
+        result.extend(_split_region(x0 + hw - int(hw * base_overlap), y0 + hh - int(hh * base_overlap), tw - hw + int(hw * base_overlap), th - hh + int(hh * base_overlap), depth + 1))
         return result
     
-    # Start with coarse grid
-    tiles = []
-    step = int(initial_tile_size * (1 - base_overlap))
+    # Generate tiles for entire image
+    tiles = _split_region(0, 0, w, h, 0)
     
-    for y0 in range(0, h - min_tile_size + 1, step):
-        for x0 in range(0, w - min_tile_size + 1, step):
-            tw = min(initial_tile_size, w - x0)
-            th = min(initial_tile_size, h - y0)
-            tiles.extend(_split_tile(x0, y0, tw, th, 0))
+    # Deduplicate tiles (may have overlapping regions from recursive calls)
+    seen = set()
+    unique_tiles = []
+    for tile in tiles:
+        if tile not in seen:
+            seen.add(tile)
+            unique_tiles.append(tile)
     
-    return tiles
+    return unique_tiles
 
 
 def compute_adaptive_overlap(

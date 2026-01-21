@@ -137,29 +137,33 @@ def register_tile(
     
     # Phase correlation for initial translation
     dx, dy = opencv_phasecorr_translation(mov_prep, ref_prep)
+
+    h, w = moving_tile.shape[:2]
+    max_shift = 0.5 * float(min(h, w))
+    dx = float(np.clip(dx, -max_shift, max_shift))
+    dy = float(np.clip(dy, -max_shift, max_shift))
     
-    # Initialize translation-only warp
+    # Initialize translation-only warp.
+    # NOTE: downstream uses cv2.WARP_INVERSE_MAP, so the sign is positive here.
     init_warp = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
     
     # ECC refinement (TRANSLATION mode only)
     try:
         warp, cc = opencv_ecc_warp(
-            mov_prep, ref_prep,
-            allow_rotation=False,  # Translation only
-            init_warp=init_warp
+            moving=mov_prep,
+            reference=ref_prep,
+            initial_warp=init_warp,
         )
+
+        if warp is None:
+            return init_warp, 0.0
         
-        # Validate correlation
         if cc < ecc_cc_min:
-            return None, 0.0
-        
-        return warp, cc
+            return warp, float(cc)
+        return warp, float(cc)
         
     except Exception:
-        # ECC failed, use phase correlation result
-        if abs(dx) < 50 and abs(dy) < 50:  # Sanity check
-            return init_warp, 0.5  # Assign moderate confidence
-        return None, 0.0
+        return init_warp, 0.0
 
 
 def smooth_warps_temporal(
@@ -288,7 +292,10 @@ def variance_window_weight(warp_variance: float, sigma: float = 2.0) -> float:
     Returns:
         Weight factor in (0, 1]
     """
-    return float(np.exp(-warp_variance / (2.0 * sigma * sigma)))
+    w = float(np.exp(-warp_variance / (2.0 * sigma * sigma)))
+    if w < 1e-3:
+        return 1e-3
+    return w
 
 
 def tile_local_register_and_reconstruct_iterative(
