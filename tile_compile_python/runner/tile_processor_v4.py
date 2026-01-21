@@ -22,6 +22,7 @@ from .tile_local_registration_v4 import (
     compute_warp_variance,
     variance_window_weight,
 )
+from .image_processing import cfa_green_proxy_downsample2x2, warp_cfa_mosaic_via_subplanes
 from astropy.io import fits
 
 EPS = 1e-6
@@ -65,6 +66,7 @@ class TileProcessorConfig:
     def __init__(self, cfg: Dict[str, Any]):
         v4_cfg = cfg.get("v4", {})
         reg_cfg = cfg.get("registration", {}).get("local_tiles", {})
+        data_cfg = cfg.get("data", {})
         
         # v4 specific
         self.iterations = int(v4_cfg.get("iterations", 3))
@@ -82,6 +84,9 @@ class TileProcessorConfig:
         
         # Variance window (§9)
         self.variance_window_sigma = float(reg_cfg.get("variance_window_sigma", 2.0))
+
+        self.color_mode = str(data_cfg.get("color_mode", "MONO") or "MONO").strip().upper()
+        self.bayer_pattern = str(data_cfg.get("bayer_pattern", "GBRG") or "GBRG").strip().upper()
 
 
 class TileProcessor:
@@ -157,7 +162,20 @@ class TileProcessor:
         if cv2 is None:
             return tile
         h, w = tile.shape[:2]
-        return cv2.warpAffine(tile, warp, (w, h), flags=cv2.INTER_LINEAR)
+ 
+        if self.cfg.color_mode == "OSC":
+            out = warp_cfa_mosaic_via_subplanes(
+                tile,
+                warp,
+                out_shape=(h, w),
+                border_mode="replicate",
+                interpolation="linear",
+            )
+            if out.shape[0] != h or out.shape[1] != w:
+                out = out[:h, :w]
+            return out
+ 
+        return cv2.warpAffine(tile, warp, (w, h), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
     
     def _initial_reference(self) -> np.ndarray:
         """Compute initial reference from temporal median (§5.2)."""
@@ -207,10 +225,17 @@ class TileProcessor:
                 tile = self._load_tile(path)
                 if tile is None:
                     continue
-                
+
+                if self.cfg.color_mode == "OSC":
+                    moving_reg = cfa_green_proxy_downsample2x2(tile, self.cfg.bayer_pattern)
+                    ref_reg = cfa_green_proxy_downsample2x2(ref, self.cfg.bayer_pattern)
+                else:
+                    moving_reg = tile
+                    ref_reg = ref
+
                 warp, cc = register_tile(
-                    tile,
-                    ref,
+                    moving_reg,
+                    ref_reg,
                     ecc_cc_min=self.cfg.ecc_cc_min,
                 )
                 
