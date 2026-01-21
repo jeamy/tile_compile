@@ -1,14 +1,14 @@
 {
-  "lastInputDir": "",
-  "scanInputDir": "",
-  "inputDir": "",
-  "workingDir": "/media/data/programming/tile-compile/tile_compile_python",
+  "lastInputDir": "/home/mux/Bilder/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/selected",
+  "scanInputDir": "/home/mux/Bilder/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/selected",
+  "inputDir": "/home/mux/Bilder/DWARF_RAW_M 31_EXP_10_GAIN_80_2024-10-07-20-51-46-987/selected",
+  "workingDir": "/home/mux/programme/tile_compile/tile_compile_python",
   "runsDir": "runs",
   "pattern": "*.fit*",
   "dryRun": false,
   "scanFramesMin": 1,
   "scanWithChecksums": false,
-  "confirmedColorMode": null,
+  "confirmedColorMode": "OSC",
   "calibration": {
     "use_bias": false,
     "use_dark": false,
@@ -25,17 +25,17 @@
     "pattern": "*.fit*"
   },
   "configPath": "tile_compile.yaml",
-  "configYaml": "",
-  "configValidatedOk": false,
+  "configYaml": "# FILE: tile_compile.yaml\n# PURPOSE\n# - User-editable configuration for a Tile-Compile run.\n# - This file is validated against tile_compile.schema.json.\n# - Values aligned with Methodik v4 (doc/tile_basierte_qualitaetsrekonstruktion_methodik_v_4.md).\n#\n# NOTES\n# - Methodik v4: Tile-wise Local Registration (TLR), no global registration.\n# - \"assumptions\" contains v4 tolerance thresholds and Reduced Mode behavior.\n# - The runner may derive additional input metadata at runtime (image size, frame count, etc.).\n#\n# V4 PRESETS (see doc/v_4_example_configs.md):\n# - Preset 1: EQ mount, calm seeing (iterations: 2, beta: 3.0, adaptive: off)\n# - Preset 2: Alt/Az, strong field rotation (iterations: 4, beta: 6.0, adaptive: on) [DEFAULT]\n# - Preset 3: Near pole, very unstable (iterations: 5, beta: 8.0, adaptive: on, aggressive)\n\npipeline:\n  mode: production\n  abort_on_fail: true\n\ndata:\n  image_width: 3840\n  image_height: 2160\n  frames_min: 50\n  color_mode: OSC\n  bayer_pattern: GBRG\n  linear_required: true\n\ncalibration:\n  use_bias: false\n  use_dark: true\n  use_flat: false\n  bias_use_master: false\n  dark_use_master: true\n  flat_use_master: false\n  bias_dir: \"\"\n  darks_dir: \"\"\n  flats_dir: \"\"\n  bias_master: \"\"\n  dark_master: \"\"\n  flat_master: \"\"\n  pattern: \"*.fit*\"\n\nassumptions:\n  frames_min: 50\n  frames_optimal: 200\n  frames_reduced_threshold: 199\n  exposure_time_tolerance_percent: 5.0\n  warp_variance_warn: 2.0              # v4: warp variance warning threshold\n  warp_variance_max: 8.0               # v4: max warp variance (tile invalid above)\n  elongation_warn: 0.3\n  elongation_max: 0.4\n  reduced_mode_skip_clustering: true\n  reduced_mode_cluster_range: [5, 10]\n\n# Methodology v4 specific parameters\n# Current preset: 2 (Alt/Az, strong field rotation)\nv4:\n  iterations: 4                        # iterative reconstruction iterations (§5.2)\n  beta: 6.0                            # R_{f,t} = exp(β·(cc-1)) sensitivity (§7)\n  min_valid_tile_fraction: 0.3         # abort if < 30% valid tiles (§12)\n  parallel_tiles: 8                    # number of parallel tile workers (1=serial, 8=default)\n  \n  adaptive_tiles:\n    enabled: true                      # enable adaptive tile refinement\n    max_refine_passes: 3               # maximum refinement passes\n    refine_variance_threshold: 0.15    # variance threshold for splitting\n    min_tile_size_px: 64               # minimum tile size\n    \n    # Tile grid optimization (reduces tile count by 30-50%)\n    use_warp_probe: true               # pre-warp probe for gradient field\n    use_hierarchical: true             # hierarchical tile initialization\n    initial_tile_size: 256             # starting tile size for hierarchical\n    probe_window: 256                  # window size for warp probing\n    num_probe_frames: 5                # number of frames to probe (3-5)\n    gradient_sensitivity: 2.0          # s(x,y) = s0 / (1 + c·grad)\n    split_gradient_threshold: 0.3      # gradient threshold for splitting\n    hierarchical_max_depth: 3          # max recursion depth\n  \n  convergence:\n    enabled: false                     # early stopping on convergence\n    epsilon_rel: 1.0e-3                # relative L2 norm threshold\n  \n  memory_limits:\n    rss_warn_mb: 16384                  # soft limit (warning)\n    rss_abort_mb: 32768                 # hard limit (abort)\n  \n  diagnostics:\n    enabled: true                      # generate diagnostic artifacts\n    warp_field: true                   # save warp vector field\n    tile_invalid_map: true             # save invalid tile map\n    warp_variance_hist: true           # save variance statistics\n\nnormalization:\n  enabled: true\n  mode: background        # background | median\n  per_channel: true\n\nregistration:\n  # Methodik v4: Tile-wise Local Registration (TLR)\n  # No global registration - each tile registers independently\n  mode: local_tiles\n  \n  local_tiles:\n    ecc_cc_min: 0.2                      # minimum ECC correlation to accept\n    min_valid_frames: 10                 # minimum frames required per tile\n    temporal_smoothing_window: 11        # Savitzky-Golay window (must be odd)\n    variance_window_sigma: 2.0           # ψ(var) scale parameter (§9)\n\nwiener_denoise:\n  enabled: true\n  snr_threshold: 5.0\n  q_min: -0.5\n\nglobal_metrics:\n  weights:\n    background: 0.4\n    noise: 0.3\n    gradient: 0.3\n  clamp: [-3, 3]\n\ntile:\n  size_factor: 32\n  min_size: 64\n  max_divisor: 6\n  overlap_fraction: 0.25\n  star_min_count: 3\n\nlocal_metrics:\n  clamp: [-3, 3]\n  star_mode:\n    # FWHM, roundness and contrast are MAD-normalized according to Methodology v3.1;\n    # there is no log-transform anymore. The weights directly define the\n    # combination Q_star = w_fwhm·(-FWHM̃) + w_round·R̃ + w_con·C̃.\n    weights:\n      fwhm: 0.6\n      roundness: 0.2\n      contrast: 0.2\n  structure_mode:\n    # Structure mode uses ENR = E/σ and local background B_local:\n    #   Q_struct = metric_weight·ENR̃ − background_weight·B̃_local\n    background_weight: 0.3\n    metric_weight: 0.7\n\nsynthetic:\n  weighting: tile_weighted\n  frames_min: 15\n  frames_max: 30\n  clustering:\n    mode: state_vector\n    vector:\n      - global_weight\n      - tile_quality_mean\n      - tile_quality_variance\n      - background\n      - noise\n\nreconstruction:\n  weighting_function: exponential\n  window_function: hanning\n  tile_rescale: median_after_background_subtraction\n\ndebayer: true\n\nstacking:\n  method: rej\n  # Default: stack synthetic RGB frames (syn_*.fits) produced in SYNTHETIC_FRAMES.\n  # In reduced mode or when no synthetic frames exist, the pipeline falls back\n  # to reconstructed_* channels automatically.\n  input_dir: synthetic\n  input_pattern: \"syn_*.fits\"\n  output_file: stacked.fit\n  sigma_clip:\n    sigma_low: 2\n    sigma_high: 2\n    max_iters: 3\n    min_fraction: 0.5\n\nvalidation:\n  min_fwhm_improvement_percent: 5\n  max_background_rms_increase_percent: 0\n  min_tile_weight_variance: 0.1\n  require_no_tile_pattern: true\n\nruntime_limits:\n  tile_analysis_max_factor_vs_stack: 3.0\n  hard_abort_hours: 6\n",
+  "configValidatedOk": true,
   "assumptions": {
     "frames_min": 50,
-    "frames_optimal": 800,
-    "frames_reduced_threshold": 200,
+    "frames_optimal": 200,
+    "frames_reduced_threshold": 199,
     "exposure_time_tolerance_percent": 5.0,
     "registration_residual_warn_px": 0.5,
     "registration_residual_max_px": 1.0,
     "elongation_warn": 0.3,
-    "elongation_max": 0.4,
+    "elongation_max": 0.01,
     "tracking_error_max_px": 1.0,
     "reduced_mode_skip_clustering": true,
     "reduced_mode_cluster_range": [
@@ -45,5 +45,5 @@
   },
   "logsTail": 200,
   "logsFilter": "",
-  "activeTab": 0
+  "activeTab": 4
 }

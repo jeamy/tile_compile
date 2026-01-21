@@ -330,6 +330,10 @@ def run_v4_pipeline(
     
     print(f"[Phase 6] Using {parallel_tiles} parallel workers")
     
+    # Track cumulative progress across all refinement passes
+    cumulative_tiles_processed = 0
+    initial_tile_count = len(tiles)
+    
     # Multi-pass tile refinement loop
     for refine_pass in range(max_refine_passes + 1):
         if refine_pass > 0:
@@ -370,8 +374,8 @@ def run_v4_pipeline(
                     
                     # Emit progress event for GUI
                     from runner.events import phase_progress
-                    total_progress = completed + (refine_pass * len(tiles))
-                    total_tiles = len(tiles) * (max_refine_passes + 1)
+                    total_progress = cumulative_tiles_processed + completed
+                    total_tiles = initial_tile_count * (max_refine_passes + 1)
                     phase_progress(
                         run_id=run_id,
                         log_fp=log_fp,
@@ -416,8 +420,8 @@ def run_v4_pipeline(
                 
                 # Emit progress event for GUI
                 from runner.events import phase_progress
-                total_progress = tid + 1 + (refine_pass * len(tiles))
-                total_tiles = len(tiles) * (max_refine_passes + 1)
+                total_progress = cumulative_tiles_processed + tid + 1
+                total_tiles = initial_tile_count * (max_refine_passes + 1)
                 phase_progress(
                     run_id=run_id,
                     log_fp=log_fp,
@@ -450,6 +454,9 @@ def run_v4_pipeline(
                 all_results[bbox] = tile
                 warp_variances.append(meta["warp_variance"])
                 pass_results.append((bbox, tile, meta["warp_variance"]))
+        
+        # Update cumulative progress after this pass
+        cumulative_tiles_processed += len(tiles)
         
         # Adaptive refinement: split high-variance tiles
         if refine_pass < max_refine_passes and adaptive_enabled:
