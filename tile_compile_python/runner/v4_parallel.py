@@ -14,7 +14,7 @@ def process_tile_job(args):
         args: tuple of (tile_id, bbox, frame_paths, global_weights, cfg)
     
     Returns:
-        tuple: (tile_id, bbox, tile_img, warps)
+        tuple: (tile_id, bbox, tile_img, warps, metadata)
     """
     tile_id, bbox, frame_paths, global_weights, cfg = args
     
@@ -30,5 +30,7 @@ def process_tile_job(args):
     )
     
     tile_img, warps = tp.run()
+
+    meta = tp.get_metadata()
     
-    return tile_id, bbox, tile_img, warps
+    return tile_id, bbox, tile_img, warps, meta

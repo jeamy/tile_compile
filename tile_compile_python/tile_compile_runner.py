@@ -333,11 +333,14 @@ def run_v4_pipeline(
     # Track cumulative progress across all refinement passes
     cumulative_tiles_processed = 0
     initial_tile_count = len(tiles)
+    total_tiles_planned = initial_tile_count * (max_refine_passes + 1)
     
     # Multi-pass tile refinement loop
     for refine_pass in range(max_refine_passes + 1):
         if refine_pass > 0:
             print(f"[Phase 6] Refinement pass {refine_pass}/{max_refine_passes}...")
+
+        tiles_processed_this_pass = len(tiles)
         
         warp_variances = []
         pass_results = []
@@ -355,7 +358,7 @@ def run_v4_pipeline(
                 
                 completed = 0
                 for f in as_completed(futures):
-                    tid, bbox, tile, warps = f.result()
+                    tid, bbox, tile, warps, meta = f.result()
                     
                     completed += 1
                     
@@ -375,7 +378,7 @@ def run_v4_pipeline(
                     # Emit progress event for GUI
                     from runner.events import phase_progress
                     total_progress = cumulative_tiles_processed + completed
-                    total_tiles = initial_tile_count * (max_refine_passes + 1)
+                    total_tiles = total_tiles_planned
                     phase_progress(
                         run_id=run_id,
                         log_fp=log_fp,
@@ -383,6 +386,10 @@ def run_v4_pipeline(
                         phase_name="TILE_RECONSTRUCTION_TLR",
                         current=total_progress,
                         total=total_tiles,
+                        extra={
+                            "refine_pass": refine_pass,
+                            "passes_total": (max_refine_passes + 1),
+                        },
                     )
                     
                     if completed % 10 == 0:
@@ -401,6 +408,35 @@ def run_v4_pipeline(
                             warp_var = 0.0
                         warp_variances.append(warp_var)
                         pass_results.append((bbox, tile, warp_var))
+
+                    # Persist per-tile debug info (only when enabled)
+                    try:
+                        if isinstance(meta, dict):
+                            meta_slim = dict(meta)
+                            debug_events = meta_slim.pop("debug_events", None)
+                            tile_metadata.append(meta_slim)
+
+                            v4_cfg = cfg.get("v4", {})
+                            if bool(v4_cfg.get("debug_tile_registration", False)):
+                                if isinstance(debug_events, list) and debug_events:
+                                    for dev in debug_events:
+                                        if not isinstance(dev, dict):
+                                            continue
+                                        dev_payload = dict(dev)
+                                        debug_type = dev_payload.pop("type", "tile_registration_debug")
+                                        ev = {
+                                            "type": "tile_debug",
+                                            "run_id": run_id,
+                                            "phase": 6,
+                                            "phase_name": "TILE_RECONSTRUCTION_TLR",
+                                            "refine_pass": refine_pass,
+                                            "passes_total": (max_refine_passes + 1),
+                                            "debug_type": debug_type,
+                                        }
+                                        ev.update(dev_payload)
+                                        emit(ev, log_fp)
+                    except Exception:
+                        pass
         else:
             # Serial fallback (parallel_tiles = 1)
             print(f"  Processing {len(jobs)} tiles serially...")
@@ -421,7 +457,7 @@ def run_v4_pipeline(
                 # Emit progress event for GUI
                 from runner.events import phase_progress
                 total_progress = cumulative_tiles_processed + tid + 1
-                total_tiles = initial_tile_count * (max_refine_passes + 1)
+                total_tiles = total_tiles_planned
                 phase_progress(
                     run_id=run_id,
                     log_fp=log_fp,
@@ -429,6 +465,10 @@ def run_v4_pipeline(
                     phase_name="TILE_RECONSTRUCTION_TLR",
                     current=total_progress,
                     total=total_tiles,
+                    extra={
+                        "refine_pass": refine_pass,
+                        "passes_total": (max_refine_passes + 1),
+                    },
                 )
                 
                 if tid % 10 == 0:
@@ -444,7 +484,32 @@ def run_v4_pipeline(
                 tile, warps = tp.run()
                 
                 meta = tp.get_metadata()
-                tile_metadata.append(meta)
+                meta_slim = dict(meta) if isinstance(meta, dict) else {"tile_id": tid, "bbox": bbox}
+                debug_events = meta_slim.pop("debug_events", None)
+                tile_metadata.append(meta_slim)
+
+                # Persist per-tile debug info (only when enabled)
+                try:
+                    if bool(cfg.get("v4", {}).get("debug_tile_registration", False)):
+                        if isinstance(debug_events, list) and debug_events:
+                            for dev in debug_events:
+                                if not isinstance(dev, dict):
+                                    continue
+                                dev_payload = dict(dev)
+                                debug_type = dev_payload.pop("type", "tile_registration_debug")
+                                ev = {
+                                    "type": "tile_debug",
+                                    "run_id": run_id,
+                                    "phase": 6,
+                                    "phase_name": "TILE_RECONSTRUCTION_TLR",
+                                    "refine_pass": refine_pass,
+                                    "passes_total": (max_refine_passes + 1),
+                                    "debug_type": debug_type,
+                                }
+                                ev.update(dev_payload)
+                                emit(ev, log_fp)
+                except Exception:
+                    pass
                 
                 if tile is None:
                     all_results[bbox] = None
@@ -456,7 +521,7 @@ def run_v4_pipeline(
                 pass_results.append((bbox, tile, meta["warp_variance"]))
         
         # Update cumulative progress after this pass
-        cumulative_tiles_processed += len(tiles)
+        cumulative_tiles_processed += tiles_processed_this_pass
         
         # Adaptive refinement: split high-variance tiles
         if refine_pass < max_refine_passes and adaptive_enabled:
@@ -470,6 +535,11 @@ def run_v4_pipeline(
             )
             tiles_after = len(tiles)
             if tiles_after > tiles_before:
+                # New tiles increase the remaining work for subsequent passes.
+                # Remaining passes exclude the current pass (already processed).
+                additional_tiles = tiles_after - tiles_before
+                remaining_passes = max_refine_passes - refine_pass
+                total_tiles_planned += additional_tiles * remaining_passes
                 print(f"[Phase 6] Refined {tiles_before} → {tiles_after} tiles (split {tiles_after - tiles_before})")
             else:
                 print(f"[Phase 6] No tiles refined (converged)")
@@ -494,7 +564,9 @@ def run_v4_pipeline(
     
     phase_event(6, "TILE_RECONSTRUCTION_TLR", "ok", {
         "valid_tiles": valid_tiles,
-        "total_tiles": len(tiles),
+        "total_tiles": total_tiles_planned,
+        "processed_tiles": cumulative_tiles_processed,
+        "final_tile_count": len(tiles),
     })
     
     # Phase 7: STATE_CLUSTERING (simplified)
