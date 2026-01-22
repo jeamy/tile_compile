@@ -22,6 +22,7 @@ tile_compile_cpp/cmake-build-*/
 
 # Runtime / outputs
 runs/
+/runs/
 outputs/
 artifacts/
 logs/

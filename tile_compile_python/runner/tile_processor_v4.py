@@ -94,11 +94,7 @@ class TileProcessorConfig:
 
 
 class TileProcessor:
-    """Tile-local reconstruction operator (Methodik v4).
-    
-    Processes a single tile through iterative registration and reconstruction.
-    No global coordinate system - each tile is self-contained.
-    """
+    """Process a single tile with disk streaming and tile-local registration."""
     
     def __init__(
         self,
@@ -129,6 +125,7 @@ class TileProcessor:
         self.mean_correlation = 0.0
         self.warps: List[Optional[np.ndarray]] = []
         self.correlations: List[float] = []
+        self.debug_events: List[Dict[str, Any]] = []
     
     def _load_tile(self, path: Path) -> Optional[np.ndarray]:
         """Load tile region from FITS file (disk streaming with memmap)."""
@@ -271,9 +268,36 @@ class TileProcessor:
             valid_mask = deltas <= max_delta
 
             if self.cfg.debug_tile_registration:
+                def _r4(v) -> float:
+                    return float(round(float(v), 4))
                 for i, (dx, dy) in enumerate(translations):
-                    print(f"Tile {self.tile_id} Frame {i}: dx={dx:+.3f} dy={dy:+.3f} cc={correlations[i]:.3f} delta={deltas[i]:.3f}")
-                print(f"Tile {self.tile_id}: median dx={median_shift[0]:+.3f} dy={median_shift[1]:+.3f}, kept {int(valid_mask.sum())}/{len(valid_mask)}")
+                    self.debug_events.append(
+                        {
+                            "type": "tile_registration_debug",
+                            "tile_id": self.tile_id,
+                            "iteration": iteration,
+                            "frame_index": int(i),
+                            "dx": _r4(dx),
+                            "dy": _r4(dy),
+                            "cc": _r4(correlations[i]) if i < len(correlations) else 0.0,
+                            "delta": _r4(deltas[i]),
+                            "median_dx": _r4(median_shift[0]),
+                            "median_dy": _r4(median_shift[1]),
+                            "max_warp_delta_px": _r4(max_delta),
+                        }
+                    )
+                self.debug_events.append(
+                    {
+                        "type": "tile_registration_debug_summary",
+                        "tile_id": self.tile_id,
+                        "iteration": iteration,
+                        "median_dx": _r4(median_shift[0]),
+                        "median_dy": _r4(median_shift[1]),
+                        "kept_frames": int(valid_mask.sum()),
+                        "total_frames": int(len(valid_mask)),
+                        "max_warp_delta_px": _r4(max_delta),
+                    }
+                )
 
             warped_tiles = [t for t, ok in zip(warped_tiles, valid_mask) if ok]
             warps = [w_ for w_, ok in zip(warps, valid_mask) if ok]
@@ -324,6 +348,7 @@ class TileProcessor:
             "warp_variance": self.warp_variance,
             "mean_correlation": self.mean_correlation,
             "valid_frames": len(self.warps),
+            "debug_events": self.debug_events,
         }
 
 

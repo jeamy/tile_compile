@@ -10,24 +10,30 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 ## Inhaltsverzeichnis
 
 1. [Pipeline](#pipeline)
-2. [Input (automatisch ermittelt)](#input-automatisch-ermittelt)
-3. [Assumptions (Annahmen)](#assumptions-annahmen)
-4. [v4 (Methodik v4 Parameter)](#v4-methodik-v4-parameter)
-5. [Normalization (Normalisierung)](#normalization-normalisierung)
-6. [Registration (Tile-Local Registration)](#registration-tile-local-registration)
-7. [Global Metrics (Globale Metriken)](#global-metrics-globale-metriken)
-8. [Tile (Kachel-Geometrie)](#tile-kachel-geometrie)
-9. [Synthetic (Synthetische Frames)](#synthetic-synthetische-frames)
-10. [Debayer](#debayer)
-11. [Stacking](#stacking)
-12. [Validation (Validierung)](#validation-validierung)
-13. [Runtime Limits](#runtime-limits)
+2. [Data](#data)
+3. [Calibration (Kalibrierung)](#calibration-kalibrierung)
+4. [Assumptions (Annahmen)](#assumptions-annahmen)
+5. [v4 (Methodik v4 Parameter)](#v4-methodik-v4-parameter)
+6. [Normalization (Normalisierung)](#normalization-normalisierung)
+7. [Registration (Tile-Local Registration)](#registration-tile-local-registration)
+8. [Wiener Denoise](#wiener-denoise)
+9. [Global Metrics (Globale Metriken)](#global-metrics-globale-metriken)
+10. [Tile (Kachel-Geometrie)](#tile-kachel-geometrie)
+11. [Local Metrics (Lokale Metriken)](#local-metrics-lokale-metriken)
+12. [Synthetic (Synthetische Frames)](#synthetic-synthetische-frames)
+13. [Reconstruction (Rekonstruktion)](#reconstruction-rekonstruktion)
+14. [Debayer](#debayer)
+15. [Stacking](#stacking)
+16. [Validation (Validierung)](#validation-validierung)
+17. [Runtime Limits](#runtime-limits)
 
 ---
 
 ## Pipeline
 
 Grundlegende Pipeline-Einstellungen.
+
+Key: `pipeline`
 
 ### `pipeline.mode`
 
@@ -60,27 +66,26 @@ Grundlegende Pipeline-Einstellungen.
 
 ---
 
-## Input (automatisch ermittelt)
+## Data
 
-Diese Felder werden automatisch aus den FITS-Headern und dem Dateisystem ermittelt. Sie sind **nicht editierbar**, können aber vor dem Run bestätigt werden.
+Diese Felder sind im Schema als Teil von `data` definiert. In der Praxis werden sie oft durch Scan/Metadaten gesetzt (oder vom Benutzer vorgegeben), müssen aber für die Validierung vorhanden sein.
 
-### `input.color_mode`
+### `data.color_mode`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | enum |
-| **Werte** | `OSC`, `MONO` |
-| **Quelle** | FITS-Header |
-| **Editierbar** | Bestätigung möglich |
+| **Werte (Schema)** | `OSC` |
+| **Quelle** | Scan/Metadaten |
+| **Editierbar** | Nein |
 
 **Zweck:** Farbmodus der Kamera.
 
 - **`OSC`** (One-Shot-Color): Farbkamera mit Bayer-Matrix (CFA)
-- **`MONO`**: Monochrome Kamera ohne Farbfilter
 
 ---
 
-### `input.bayer_pattern`
+### `data.bayer_pattern`
 
 | Eigenschaft | Wert |
 |-------------|------|
@@ -94,9 +99,153 @@ Diese Felder werden automatisch aus den FITS-Headern und dem Dateisystem ermitte
 
 ---
 
+### `data.image_width` / `data.image_height`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Erforderlich** | Ja |
+
+**Zweck:** Bildabmessungen in Pixeln.
+
+---
+
+### `data.frames_min`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Erforderlich** | Ja |
+
+**Zweck:** Mindestanzahl Frames (für `data`/Vorlauf). Zusätzlich existiert `assumptions.frames_min` als methodischer Abbruch-Schwellenwert.
+
+---
+
+### `data.frames_target`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 0 |
+| **Standard (Schema)** | 0 |
+
+**Zweck:** Optionales Limit, wie viele Frames für Analyse-Schritte verwendet werden (0 = alle).
+
+---
+
+### `data.linear_required`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Konstant** | true |
+
+**Zweck:** Methodik v4 erfordert lineare Daten.
+
+---
+
+## Calibration (Kalibrierung)
+
+Kalibrierungs-Parameter (Bias/Dark/Flat). Diese werden in der GUI zusätzlich aus UI-Feldern in das YAML injiziert.
+
+Key: `calibration`
+
+### `calibration.use_bias` / `calibration.use_dark` / `calibration.use_flat`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Erforderlich** | Ja |
+
+**Zweck:** Aktiviert die jeweiligen Kalibrierungsstufen.
+
+---
+
+### `calibration.bias_use_master` / `calibration.dark_use_master` / `calibration.flat_use_master`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard (Schema)** | false |
+
+**Zweck:** Wenn `true`, wird ein bestehendes Master-File verwendet statt es aus einem Verzeichnis zu bauen.
+
+---
+
+### `calibration.dark_auto_select`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard (Schema)** | true |
+
+**Zweck:** Auto-Auswahl eines passenden Dark-Subsets bei gemischten Darks (Exposure/Temp) bevor ein Master Dark gebaut wird.
+
+---
+
+### `calibration.dark_match_exposure_tolerance_percent`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0 |
+| **Standard (Schema)** | 5.0 |
+
+**Zweck:** Erlaubte Abweichung der Belichtungszeit (in %) zwischen Lights und ausgewählten Darks.
+
+---
+
+### `calibration.dark_match_use_temp` / `calibration.dark_match_temp_tolerance_c`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean / number |
+| **Standard (Schema)** | false / 2.0 |
+
+**Zweck:** Optionales Temperature-Matching für Darks.
+
+---
+
+### `calibration.bias_dir` / `calibration.darks_dir` / `calibration.flats_dir`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Standard (Schema)** | "" |
+
+**Zweck:** Verzeichnisse für Kalibrierungsframes (wenn nicht per Master-File).
+
+---
+
+### `calibration.bias_master` / `calibration.dark_master` / `calibration.flat_master`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Standard (Schema)** | "" |
+
+**Zweck:** Pfade zu Master-Kalibrierungsfiles.
+
+---
+
+### `calibration.pattern`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Standard (tile_compile.yaml)** | `*.fit*` |
+
+**Zweck:** Glob-Pattern, mit dem Bias/Dark/Flat Frames in den Verzeichnissen gesammelt werden.
+
+---
+
 ## Assumptions (Annahmen)
 
 Konfigurierbare Schwellenwerte und Annahmen gemäß Methodik v4.
+
+Key: `assumptions`
 
 ### `assumptions.frames_min`
 
@@ -193,9 +342,101 @@ Konfigurierbare Schwellenwerte und Annahmen gemäß Methodik v4.
 
 ---
 
+### `assumptions.exposure_time_tolerance_percent`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0 |
+| **Standard (Schema)** | 5.0 |
+
+**Zweck:** Toleranz (in %) für Belichtungszeit-Abweichungen bei Annahmen/Matching.
+
+---
+
+### `assumptions.tracking_error_max_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0 |
+| **Standard (Schema)** | 5.0 |
+
+**Zweck:** Maximal tolerierter Tracking-Fehler (in Pixeln) als Plausibilitäts-/Abbruchkriterium.
+
+---
+
+### `assumptions.reduced_mode_skip_clustering`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard (Schema)** | false |
+
+**Zweck:** Wenn `true`, wird Clustering im Reduced-Mode übersprungen.
+
+---
+
+### `assumptions.reduced_mode_cluster_range`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | array [2 integers] |
+| **Standard (Schema)** | [2, 6] |
+
+**Zweck:** Cluster-Anzahlbereich im Reduced-Mode.
+
+---
+
+## Linearity
+
+Optionaler Linearitäts-Check.
+
+Key: `linearity`
+
+### `linearity.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard (Schema)** | false |
+
+---
+
+### `linearity.strictness`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | enum |
+| **Werte (Schema)** | `soft`, `hard` |
+| **Standard (Schema)** | `soft` |
+
+---
+
+### `linearity.min_overall_linearity`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Standard (Schema)** | 0.95 |
+
+---
+
+### `linearity.max_frames`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Standard (Schema)** | 2000 |
+
+---
+
 ## v4 (Methodik v4 Parameter)
 
 Zentrale Konfiguration für Tile-wise Local Registration (TLR).
+
+Key: `v4`
 
 ### `v4.iterations`
 
@@ -252,6 +493,18 @@ Zentrale Konfiguration für Tile-wise Local Registration (TLR).
 **Verhalten:** Wenn < 30% der Tiles gültig sind, wird die Pipeline abgebrochen.
 
 ---
+
+### `v4.parallel_tiles`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | 1 - 32 |
+| **Standard (tile_compile.yaml)** | 8 |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Anzahl paralleler Tile-Worker.
 
 ### `v4.adaptive_tiles`
 
@@ -319,6 +572,104 @@ Adaptive Tile-Verfeinerung basierend auf Warp-Varianz (Methodik v4 §4).
 | **Editierbar** | Ja |
 
 **Zweck:** Minimale Tile-Größe in Pixeln (kein Split unterhalb dieser Größe).
+
+---
+
+#### `v4.adaptive_tiles.use_warp_probe`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard (tile_compile.yaml)** | true |
+| **Editierbar** | Ja |
+
+**Zweck:** Aktiviert die optionale **Warp Probe** in der Phase `TILE_GRID`.
+
+**Bedeutung:** Vor dem finalen Tile-Grid wird mit wenigen Frames ein grobes Warp-/Gradient-Feld geschätzt, um die Tile-Dichte positionsabhängig anzupassen.
+
+---
+
+#### `v4.adaptive_tiles.use_hierarchical`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard (tile_compile.yaml)** | true |
+| **Editierbar** | Ja |
+
+**Zweck:** Hierarchische Tile-Initialisierung (coarse → split wo nötig).
+
+---
+
+#### `v4.adaptive_tiles.initial_tile_size`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | 64 - 512 |
+| **Standard (tile_compile.yaml)** | 256 |
+
+**Zweck:** Start-Tile-Größe für hierarchische Initialisierung.
+
+---
+
+#### `v4.adaptive_tiles.probe_window`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | 64 - 512 |
+| **Standard (tile_compile.yaml)** | 256 |
+
+**Zweck:** Fenstergröße für Warp-Probe.
+
+---
+
+#### `v4.adaptive_tiles.num_probe_frames`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | 3 - 10 |
+| **Standard (tile_compile.yaml)** | 5 |
+
+**Zweck:** Anzahl zeitlich verteilter Frames für die Warp-Probe.
+
+---
+
+#### `v4.adaptive_tiles.gradient_sensitivity`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0.1 - 10.0 |
+| **Standard (tile_compile.yaml)** | 2.0 |
+
+**Zweck:** Sensitivität der Tile-Größenanpassung anhand des Warp-Gradienten: `s(x,y) = s0 / (1 + c·grad)`.
+
+---
+
+#### `v4.adaptive_tiles.split_gradient_threshold`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0.0 - 1.0 |
+| **Standard (tile_compile.yaml)** | 0.3 |
+
+**Zweck:** Schwellwert für hierarchisches Splitting anhand des Gradienten.
+
+---
+
+#### `v4.adaptive_tiles.hierarchical_max_depth`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | 1 - 5 |
+| **Standard (tile_compile.yaml)** | 3 |
+
+**Zweck:** Maximale Rekursionstiefe beim hierarchischen Splitting.
 
 ---
 
@@ -397,6 +748,18 @@ Diagnose-Artefakt-Generierung.
 
 ---
 
+#### `v4.diagnostics.warp_field`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard (tile_compile.yaml)** | true |
+| **Editierbar** | Ja |
+
+**Zweck:** Speichert Warp-Vektorfelder (Diagnose).
+
+---
+
 #### `v4.diagnostics.tile_invalid_map`
 
 | Eigenschaft | Wert |
@@ -421,9 +784,22 @@ Diagnose-Artefakt-Generierung.
 
 ---
 
+### `v4.debug_tile_registration`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard (tile_compile.yaml)** | true |
+
+**Zweck:** Aktiviert ausführliche Debug-Ausgaben zur Tile-Registration (Konsistenzprüfungen).
+
+---
+
 ## Normalization (Normalisierung)
 
 Pflicht-Einstellungen gemäß Methodik v4.
+
+Key: `normalization`
 
 ### `normalization.enabled`
 
@@ -469,6 +845,10 @@ Pflicht-Einstellungen gemäß Methodik v4.
 
 Einstellungen für Tile-wise Local Registration (TLR) gemäß Methodik v4 §5.
 
+Key: `registration`
+
+Sub-Key: `registration.local_tiles`
+
 ### `registration.mode`
 
 | Eigenschaft | Wert |
@@ -491,6 +871,19 @@ Einstellungen für Tile-wise Local Registration (TLR) gemäß Methodik v4 §5.
 | **Editierbar** | Ja |
 
 **Zweck:** Minimale ECC-Korrelation für gültige lokale Registrierung.
+
+---
+
+### `registration.local_tiles.max_warp_delta_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0.0 - 10.0 |
+| **Standard (tile_compile.yaml)** | 0.3 |
+| **Editierbar** | Ja |
+
+**Zweck:** Maximale erlaubte Abweichung der Frame-Translation vom Median (in Pixeln). Frames darüber werden für das Tile verworfen.
 
 ---
 
@@ -533,17 +926,123 @@ Einstellungen für Tile-wise Local Registration (TLR) gemäß Methodik v4 §5.
 
 ---
 
+## Wiener Denoise
+
+Optionaler Wiener-Filter auf rekonstruierten Tiles (nach Rekonstruktion, vor Overlap-Add).
+
+Key: `wiener_denoise`
+
+### `wiener_denoise.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard** | false |
+| **Editierbar** | Ja |
+
+**Zweck:** Aktiviert Wiener-Denoising.
+
+---
+
+### `wiener_denoise.snr_threshold`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich (Schema)** | 1.0 - 20.0 |
+| **Standard (Schema)** | 5.0 |
+
+**Zweck:** Tiles mit SNR >= Schwelle werden nicht gefiltert.
+
+---
+
+### `wiener_denoise.q_min`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0.0 - 1.0 |
+| **Standard** | 0.5 |
+| **Editierbar** | Ja |
+
+**Zweck:** Minimaler Wiener-Parameter.
+
+---
+
+### `wiener_denoise.q_max`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0.0 - 1.0 |
+| **Standard** | 1.0 |
+| **Editierbar** | Ja |
+
+**Zweck:** Maximaler Wiener-Parameter.
+
+---
+
+### `wiener_denoise.q_step`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0.0 - 1.0 |
+| **Standard** | 0.1 |
+| **Editierbar** | Ja |
+
+**Zweck:** Schrittweite für Wiener-Parameter.
+
+---
+
+### `wiener_denoise.min_snr`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0.0 - 10.0 |
+| **Standard** | 2.0 |
+| **Editierbar** | Ja |
+
+**Zweck:** Minimaler SNR für Wiener-Denoising.
+
+---
+
+### `wiener_denoise.max_iterations`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Standard** | 10 |
+| **Editierbar** | Ja |
+
+**Zweck:** Maximale Anzahl Iterationen für Wiener-Denoising.
+
+---
+
 ## Global Metrics (Globale Metriken)
 
 Gewichtung der globalen Frame-Qualitätsmetriken gemäß Methodik v4 §6.
+
+Key: `global_metrics`
+
+### `global_metrics.adaptive_weights`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Standard (Schema)** | false |
+
+**Zweck:** Aktiviert adaptive Gewichtung der globalen Metriken (statt fixer `global_metrics.weights.*`).
 
 ### `global_metrics.weights`
 
 | Komponente | Standard | Beschreibung |
 |------------|----------|--------------|
-| **background** | 0.4 | Gewicht für Hintergrund-Metrik |
-| **noise** | 0.3 | Gewicht für Rausch-Metrik |
-| **gradient** | 0.3 | Gewicht für Gradienten-Metrik |
+| **`global_metrics.weights.background`** | 0.4 | Gewicht für Hintergrund-Metrik |
+| **`global_metrics.weights.noise`** | 0.3 | Gewicht für Rausch-Metrik |
+| **`global_metrics.weights.gradient`** | 0.3 | Gewicht für Gradienten-Metrik |
 
 **Formel:** Q_f = α·(-B̃) + β·(-σ̃) + γ·Ẽ
 
@@ -567,6 +1066,8 @@ Gewichtung der globalen Frame-Qualitätsmetriken gemäß Methodik v4 §6.
 ## Tile (Kachel-Geometrie)
 
 Seeing-adaptive Kachel-Erzeugung gemäß Methodik v4 §3.
+
+Key: `tile`
 
 ### `tile.size_factor`
 
@@ -621,9 +1122,75 @@ Seeing-adaptive Kachel-Erzeugung gemäß Methodik v4 §3.
 
 ---
 
+### `tile.star_min_count`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Standard** | 10 |
+| **Editierbar** | Ja |
+
+**Zweck:** Mindestanzahl erkannter Sterne pro Tile, um Star-Stats zu berechnen.
+
+---
+
+## Local Metrics (Lokale Metriken)
+
+Lokale Qualitätsmetriken und Gewichtung (wird in v4 im Rahmen der Tile-Verarbeitung genutzt).
+
+Key: `local_metrics`
+
+Required Keys:
+
+- `local_metrics.star_mode`
+- `local_metrics.structure_mode`
+
+### `local_metrics.clamp`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | array [2 numbers] |
+| **Standard (tile_compile.yaml)** | [-3, 3] |
+
+**Zweck:** Clamp-Bereich für Q_local vor exp(·).
+
+---
+
+### `local_metrics.star_mode.weights`
+
+| Komponente | Standard (tile_compile.yaml) |
+|------------|------------------------------|
+| **`local_metrics.star_mode.weights.fwhm`** | 0.6 |
+| **`local_metrics.star_mode.weights.roundness`** | 0.2 |
+| **`local_metrics.star_mode.weights.contrast`** | 0.2 |
+
+**Zweck:** Gewichtung der Stern-basierten lokalen Metrik. Constraint: Summe = 1.0 (Backend-Check).
+
+---
+
+### `local_metrics.structure_mode.background_weight` / `local_metrics.structure_mode.metric_weight`
+
+| Komponente | Standard (tile_compile.yaml) |
+|------------|------------------------------|
+| **background_weight** | 0.3 |
+| **metric_weight** | 0.7 |
+
+**Zweck:** Gewichtung des Struktur-Modus. Constraint: Summe = 1.0 (Backend-Check).
+
+---
+
 ## Synthetic (Synthetische Frames)
 
 Clustering und synthetische Frame-Erzeugung gemäß Methodik v4 §10.
+
+Key: `synthetic`
+
+Required Keys:
+
+- `synthetic.clustering`
+- `synthetic.clustering.mode`
+- `synthetic.clustering.vector`
 
 ### `synthetic.weighting`
 
@@ -631,7 +1198,7 @@ Clustering und synthetische Frame-Erzeugung gemäß Methodik v4 §10.
 |-------------|------|
 | **Typ** | enum |
 | **Werte** | `global`, `tile_weighted` |
-| **Standard** | `tile_weighted` |
+| **Standard (tile_compile.yaml)** | `tile_weighted` |
 | **Editierbar** | Ja |
 
 **Zweck:** Bestimmt, wie synthetische Frames pro Cluster gebildet werden.
@@ -641,11 +1208,65 @@ Clustering und synthetische Frame-Erzeugung gemäß Methodik v4 §10.
 
 ---
 
+### `synthetic.clustering.cluster_count_range`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | array [2 integer] |
+| **Standard (Schema)** | [15, 30] |
+
+**Zweck:** Erlaubter k-Bereich für Clustering (wird i.d.R. automatisch über Silhouette ausgewählt).
+
+---
+
+### `synthetic.clustering.k_selection`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | enum |
+| **Werte (Schema)** | `auto`, `fixed` |
+| **Standard (Schema)** | `auto` |
+
+**Zweck:** Strategie zur Auswahl von K innerhalb von `synthetic.clustering.cluster_count_range`.
+
+---
+
+## Reconstruction (Rekonstruktion)
+
+Diese Sektion ist im Schema als `reconstruction` definiert und aktuell methodisch fest verdrahtet.
+
+### `reconstruction.weighting_function`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | enum |
+| **Konstant** | `exponential` |
+
+---
+
+### `reconstruction.window_function`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | enum |
+| **Konstant** | `hanning` |
+
+---
+
+### `reconstruction.tile_rescale`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | enum |
+| **Konstant** | `median_after_background_subtraction` |
+
+---
+
 ### `synthetic.frames_min` / `synthetic.frames_max`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Standard** | 15 / 30 |
+| **Standard (tile_compile.yaml)** | 15 / 30 |
 
 **Zweck:** Minimale/Maximale Anzahl synthetischer Frames.
 
@@ -672,13 +1293,15 @@ Clustering und synthetische Frame-Erzeugung gemäß Methodik v4 §10.
 
 Finales Stacking gemäß Methodik v4 §11.
 
+Key: `stacking`
+
 ### `stacking.method`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | enum |
 | **Werte** | `average`, `rej` |
-| **Standard** | `rej` |
+| **Standard (tile_compile.yaml)** | `rej` |
 
 **Zweck:** Stacking-Methode.
 
@@ -686,20 +1309,58 @@ Finales Stacking gemäß Methodik v4 §11.
 
 ---
 
+### `stacking.input_dir`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Erforderlich** | Ja |
+| **Standard (tile_compile.yaml)** | `synthetic` |
+
+**Zweck:** Eingabe-Verzeichnis relativ zum Run-Output (z.B. `synthetic`).
+
+---
+
+### `stacking.input_pattern`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Erforderlich** | Ja |
+| **Standard (tile_compile.yaml)** | `syn_*.fits` |
+
+**Zweck:** Glob-Pattern der zu stackenden Frames.
+
+---
+
+### `stacking.output_file`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Erforderlich** | Ja |
+| **Standard (tile_compile.yaml)** | `stacked.fit` |
+
+**Zweck:** Name des finalen Stack-Outputs.
+
+---
+
 ### `stacking.sigma_clip`
 
 | Parameter | Standard | Beschreibung |
 |-----------|----------|--------------|
-| **sigma_low** | 2.0 | Unterer Sigma-Schwellenwert |
-| **sigma_high** | 2.0 | Oberer Sigma-Schwellenwert |
-| **max_iters** | 3 | Maximale Iterationen |
-| **min_fraction** | 0.5 | Minimale überlebende Frame-Fraktion |
+| **`stacking.sigma_clip.sigma_low`** | 2.0 | Unterer Sigma-Schwellenwert |
+| **`stacking.sigma_clip.sigma_high`** | 2.0 | Oberer Sigma-Schwellenwert |
+| **`stacking.sigma_clip.max_iters`** | 3 | Maximale Iterationen |
+| **`stacking.sigma_clip.min_fraction`** | 0.5 | Minimale überlebende Frame-Fraktion |
 
 ---
 
 ## Validation (Validierung)
 
 Qualitätsprüfungen gemäß Methodik v4 §12.
+
+Key: `validation`
 
 ### `validation.min_fwhm_improvement_percent`
 
@@ -708,6 +1369,26 @@ Qualitätsprüfungen gemäß Methodik v4 §12.
 | **Standard** | 5 |
 
 **Zweck:** Minimale FWHM-Verbesserung in Prozent.
+
+---
+
+### `validation.max_background_rms_increase_percent`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Standard (tile_compile.yaml)** | 0 |
+
+**Zweck:** Maximal erlaubte Zunahme des Hintergrund-RMS in Prozent.
+
+---
+
+### `validation.min_tile_weight_variance`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Standard (tile_compile.yaml)** | 0.1 |
+
+**Zweck:** Minimale Varianz der Tile-Gewichte (Schutz gegen degenerierte Gewichtung).
 
 ---
 
@@ -722,6 +1403,18 @@ Qualitätsprüfungen gemäß Methodik v4 §12.
 ---
 
 ## Runtime Limits
+
+### `runtime_limits.tile_analysis_max_factor_vs_stack`
+
+Key: `runtime_limits`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Standard (tile_compile.yaml)** | 3.0 |
+
+**Zweck:** Limit-Faktor für Analyse-/Tile-Phasen relativ zur erwarteten Stack-Zeit.
+
+---
 
 ### `runtime_limits.hard_abort_hours`
 
