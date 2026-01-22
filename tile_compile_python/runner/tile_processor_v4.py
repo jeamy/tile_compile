@@ -356,6 +356,7 @@ def overlap_add(
     results: List[Tuple[Tuple[int, int, int, int], np.ndarray, float]],
     output_shape: Tuple[int, int],
     variance_sigma: float = 2.0,
+    overlap_fraction: float = 0.25,
 ) -> np.ndarray:
     """Overlap-add tile reconstruction with Hanning window (Methodik v4 §9).
     
@@ -372,24 +373,84 @@ def overlap_add(
     h, w = output_shape
     output = np.zeros((h, w), dtype=np.float64)
     weight_sum = np.zeros((h, w), dtype=np.float64)
+
+    bboxes = [bbox for bbox, _tile, _warp_var in results]
     
-    for bbox, tile, warp_var in results:
+    for i, (bbox, tile, warp_var) in enumerate(results):
         x0, y0, tw, th = bbox
         
-        # 2D Hanning window
-        hann_y = np.hanning(th).astype(np.float64)
-        hann_x = np.hanning(tw).astype(np.float64)
-        hann_2d = np.outer(hann_y, hann_x)
+        window = np.ones((th, tw), dtype=np.float64)
+
+        x1 = x0 + tw
+        y1 = y0 + th
+
+        max_ov_x = int(round(tw * overlap_fraction))
+        max_ov_y = int(round(th * overlap_fraction))
+
+        left_factor = np.ones((th, tw), dtype=np.float64)
+        right_factor = np.ones((th, tw), dtype=np.float64)
+        top_factor = np.ones((th, tw), dtype=np.float64)
+        bottom_factor = np.ones((th, tw), dtype=np.float64)
+
+        for j, obox in enumerate(bboxes):
+            if j == i:
+                continue
+            ox0, oy0, ow, oh = obox
+            ox1 = ox0 + ow
+            oy1 = oy0 + oh
+
+            x_overlap = not (ox1 <= x0 or ox0 >= x1)
+            y_overlap = not (oy1 <= y0 or oy0 >= y1)
+
+            if y_overlap:
+                ys0 = max(y0, oy0) - y0
+                ys1 = min(y1, oy1) - y0
+                if ys1 > ys0:
+                    if ox0 < x0 < ox1:
+                        ov = min(int(ox1 - x0), tw, max_ov_x)
+                        if ov >= 2:
+                            denom = max(1, ov - 1)
+                            taper_x = 0.5 * (1.0 - np.cos(np.pi * np.arange(ov) / denom))
+                            patch = left_factor[ys0:ys1, :ov]
+                            left_factor[ys0:ys1, :ov] = np.minimum(patch, taper_x[np.newaxis, :])
+                    if ox0 < x1 < ox1:
+                        ov = min(int(x1 - ox0), tw, max_ov_x)
+                        if ov >= 2:
+                            denom = max(1, ov - 1)
+                            taper_x = 0.5 * (1.0 - np.cos(np.pi * np.arange(ov) / denom))
+                            patch = right_factor[ys0:ys1, -ov:]
+                            right_factor[ys0:ys1, -ov:] = np.minimum(patch, taper_x[::-1][np.newaxis, :])
+
+            if x_overlap:
+                xs0 = max(x0, ox0) - x0
+                xs1 = min(x1, ox1) - x0
+                if xs1 > xs0:
+                    if oy0 < y0 < oy1:
+                        ov = min(int(oy1 - y0), th, max_ov_y)
+                        if ov >= 2:
+                            denom = max(1, ov - 1)
+                            taper_y = 0.5 * (1.0 - np.cos(np.pi * np.arange(ov) / denom))
+                            patch = top_factor[:ov, xs0:xs1]
+                            top_factor[:ov, xs0:xs1] = np.minimum(patch, taper_y[:, np.newaxis])
+                    if oy0 < y1 < oy1:
+                        ov = min(int(y1 - oy0), th, max_ov_y)
+                        if ov >= 2:
+                            denom = max(1, ov - 1)
+                            taper_y = 0.5 * (1.0 - np.cos(np.pi * np.arange(ov) / denom))
+                            patch = bottom_factor[-ov:, xs0:xs1]
+                            bottom_factor[-ov:, xs0:xs1] = np.minimum(patch, taper_y[::-1][:, np.newaxis])
+
+        window *= left_factor
+        window *= right_factor
+        window *= top_factor
+        window *= bottom_factor
         
-        # Variance-based window weight: ψ(v) = exp(-v/(2σ²))
         psi = variance_window_weight(warp_var, variance_sigma)
-        weighted_hann = hann_2d * psi
-        
-        # Add to output
-        output[y0:y0 + th, x0:x0 + tw] += tile.astype(np.float64) * weighted_hann
-        weight_sum[y0:y0 + th, x0:x0 + tw] += weighted_hann
+        weighted_window = window * psi
+
+        output[y0:y0 + th, x0:x0 + tw] += tile.astype(np.float64) * weighted_window
+        weight_sum[y0:y0 + th, x0:x0 + tw] += weighted_window
     
-    # Normalize
     mask = weight_sum > EPS
     output[mask] /= weight_sum[mask]
     
@@ -431,8 +492,19 @@ def build_initial_tile_grid(
     step = tile_size - overlap_px
     
     tiles = []
-    for y0 in range(0, h - tile_size + 1, step):
-        for x0 in range(0, w - tile_size + 1, step):
+    
+    # Generate regular grid
+    y_positions = list(range(0, h - tile_size + 1, step))
+    x_positions = list(range(0, w - tile_size + 1, step))
+    
+    # Add edge tiles if needed to cover full image
+    if y_positions and y_positions[-1] + tile_size < h:
+        y_positions.append(h - tile_size)
+    if x_positions and x_positions[-1] + tile_size < w:
+        x_positions.append(w - tile_size)
+    
+    for y0 in y_positions:
+        for x0 in x_positions:
             tiles.append((x0, y0, tile_size, tile_size))
     
     return tiles
