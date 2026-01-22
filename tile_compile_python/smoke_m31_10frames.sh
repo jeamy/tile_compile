@@ -77,6 +77,6 @@ echo "[smoke] config=${CONFIG_OUT}"
 python3 "${PROJECT_ROOT}/tile_compile_python/tile_compile_runner.py" run \
   --config "${CONFIG_OUT}" \
   --input-dir "${INPUT_DIR}" \
-  --runs-dir "${RUNS_DIR}" \
+  --runs-dir "${BUNDLE_DIR}" \
   --project-root "${PROJECT_ROOT}" \
   --pattern "${PATTERN}"
