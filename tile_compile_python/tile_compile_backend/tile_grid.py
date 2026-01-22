@@ -266,6 +266,7 @@ def refine_tiles(
     warp_variances: List[float],
     threshold: float = 4.0,
     min_size: int = 64,
+    overlap_fraction: float = 0.25,
 ) -> List[Tuple[int, int, int, int]]:
     """Adaptive tile refinement (Methodik v4 §4).
     
@@ -287,13 +288,34 @@ def refine_tiles(
             refined.append((x0, y0, w, h))
             continue
         
-        # Split into 4 quadrants
         hw, hh = w // 2, h // 2
+        if hw < min_size or hh < min_size:
+            refined.append((x0, y0, w, h))
+            continue
+
+        ovx = max(0, int(round(hw * overlap_fraction)))
+        ovy = max(0, int(round(hh * overlap_fraction)))
+
+        x1 = x0 + w
+        y1 = y0 + h
+
+        tl_x0, tl_y0 = x0, y0
+        tl_x1, tl_y1 = min(x0 + hw + ovx, x1), min(y0 + hh + ovy, y1)
+
+        tr_x0, tr_y0 = max(x0 + hw - ovx, x0), y0
+        tr_x1, tr_y1 = x1, min(y0 + hh + ovy, y1)
+
+        bl_x0, bl_y0 = x0, max(y0 + hh - ovy, y0)
+        bl_x1, bl_y1 = min(x0 + hw + ovx, x1), y1
+
+        br_x0, br_y0 = max(x0 + hw - ovx, x0), max(y0 + hh - ovy, y0)
+        br_x1, br_y1 = x1, y1
+
         refined.extend([
-            (x0, y0, hw, hh),
-            (x0 + hw, y0, w - hw, hh),
-            (x0, y0 + hh, hw, h - hh),
-            (x0 + hw, y0 + hh, w - hw, h - hh),
+            (tl_x0, tl_y0, tl_x1 - tl_x0, tl_y1 - tl_y0),
+            (tr_x0, tr_y0, tr_x1 - tr_x0, tr_y1 - tr_y0),
+            (bl_x0, bl_y0, bl_x1 - bl_x0, bl_y1 - bl_y0),
+            (br_x0, br_y0, br_x1 - br_x0, br_y1 - br_y0),
         ])
     
     return refined

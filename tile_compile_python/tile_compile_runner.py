@@ -530,12 +530,16 @@ def run_v4_pipeline(
         # Adaptive refinement: split high-variance tiles
         if refine_pass < max_refine_passes and adaptive_enabled:
             from tile_compile_backend.tile_grid import refine_tiles
+            tile_cfg = cfg.get("tile", {})
+            tile_grid_cfg = cfg.get("tile_grid", {})
+            overlap_fraction = float(tile_cfg.get("overlap_fraction", tile_grid_cfg.get("overlap_fraction", 0.25)))
             tiles_before = len(tiles)
             tiles = refine_tiles(
                 tiles,
                 warp_variances,
                 threshold=refine_variance_threshold,
                 min_size=min_tile_size,
+                overlap_fraction=overlap_fraction,
             )
             tiles_after = len(tiles)
             if tiles_after > tiles_before:
@@ -587,7 +591,10 @@ def run_v4_pipeline(
     print("[Phase 9] Overlap-add reconstruction...")
     
     variance_sigma = cfg.get("registration", {}).get("local_tiles", {}).get("variance_window_sigma", 2.0)
-    final = overlap_add(results, shape, variance_sigma)
+    tile_cfg = cfg.get("tile", {})
+    tile_grid_cfg = cfg.get("tile_grid", {})
+    overlap_fraction = float(tile_cfg.get("overlap_fraction", tile_grid_cfg.get("overlap_fraction", 0.25)))
+    final = overlap_add(results, shape, variance_sigma, overlap_fraction=overlap_fraction)
     
     # Save result
     output_path = outputs_dir / "stacked.fits"
