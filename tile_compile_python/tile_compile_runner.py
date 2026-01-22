@@ -60,7 +60,11 @@ from runner.utils import (
 )
 from runner.fits_utils import fits_is_cfa, fits_get_bayerpat
 from runner.image_processing import split_cfa_channels, demosaic_cfa
-from generate_artifacts_report import generate_report
+try:
+    from generate_artifacts_report import generate_report
+except Exception:  # noqa: BLE001
+    def generate_report(_run_dir):
+        raise RuntimeError("generate_artifacts_report is not available")
 
 EPS = 1e-6
 
