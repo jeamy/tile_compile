@@ -317,18 +317,28 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
     result["errors"] = json::array();
     result["warnings"] = json::array();
     result["color_mode"] = "UNKNOWN";
-    result["bayer_pattern"] = "";
+    result["bayer_pattern"] = nullptr;
     result["color_mode_candidates"] = json::array();
     result["requires_user_confirmation"] = false;
+    result["image_width"] = 0;
+    result["image_height"] = 0;
     
     if (!fs::exists(p)) {
-        result["errors"].push_back("Input path does not exist: " + input_path);
+        json err;
+        err["severity"] = "error";
+        err["code"] = "input_path_not_found";
+        err["message"] = "Input path does not exist: " + input_path;
+        result["errors"].push_back(err);
         print_json(result);
         return 0;
     }
     
     if (!fs::is_directory(p)) {
-        result["errors"].push_back("Input path is not a directory: " + input_path);
+        json err;
+        err["severity"] = "error";
+        err["code"] = "input_path_not_directory";
+        err["message"] = "Input path is not a directory: " + input_path;
+        result["errors"].push_back(err);
         print_json(result);
         return 0;
     }
@@ -336,42 +346,128 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
     auto files = find_fits_files(p);
     result["frames_detected"] = static_cast<int>(files.size());
     
-    // Detect color mode from FITS headers
+    if (static_cast<int>(files.size()) < frames_min) {
+        json err;
+        err["severity"] = "error";
+        err["code"] = "too_few_frames";
+        err["message"] = "frames_detected (" + std::to_string(files.size()) + 
+                        ") < frames_min (" + std::to_string(frames_min) + ")";
+        result["errors"].push_back(err);
+    }
+    
+    // Scan FITS headers
+    int image_width = 0;
+    int image_height = 0;
+    bool has_bayerpat = false;
+    std::string bayer_pattern;
+    bool bayer_pattern_inconsistent = false;
     std::map<std::string, int> bayerpat_counts;
-    std::string first_bayerpat;
-    bool bayerpat_consistent = true;
     
     for (const auto& f : files) {
         json frame;
-        frame["path"] = f.string();
-        frame["filename"] = f.filename().string();
-        frame["size_bytes"] = static_cast<int64_t>(fs::file_size(f));
+        frame["file_name"] = f.filename().string();
+        frame["abs_path"] = f.string();
         
-        // Try to read BAYERPAT from FITS header (simplified - would need cfitsio)
-        // For now, we'll detect based on filename patterns or assume MONO
-        // This is a placeholder - real implementation needs FITS header reading
+        if (with_checksums) {
+            frame["sha256"] = compute_sha256_file(f);
+        }
+        
+        // Read FITS header
+        FitsHeaderInfo info = read_fits_header_info(f);
+        
+        if (info.read_error) {
+            json err;
+            err["severity"] = "error";
+            err["code"] = "fits_read_error";
+            err["message"] = "Failed to read FITS header for " + f.filename().string() + ": " + info.error_msg;
+            result["errors"].push_back(err);
+            continue;
+        }
+        
+        if (info.naxis1 <= 0 || info.naxis2 <= 0) {
+            json err;
+            err["severity"] = "error";
+            err["code"] = "fits_missing_axis";
+            err["message"] = "Missing or invalid NAXIS1/NAXIS2 in FITS header for " + f.filename().string();
+            result["errors"].push_back(err);
+            continue;
+        }
+        
+        // Check dimension consistency
+        if (image_width == 0) {
+            image_width = info.naxis1;
+            image_height = info.naxis2;
+        } else {
+            if (info.naxis1 != image_width || info.naxis2 != image_height) {
+                json err;
+                err["severity"] = "error";
+                err["code"] = "inconsistent_image_dimensions";
+                err["message"] = "Inconsistent image size: expected " + std::to_string(image_width) + "x" + 
+                                std::to_string(image_height) + ", got " + std::to_string(info.naxis1) + "x" + 
+                                std::to_string(info.naxis2) + " in " + f.filename().string();
+                result["errors"].push_back(err);
+            }
+        }
+        
+        // Track BAYERPAT
+        if (info.has_bayerpat) {
+            has_bayerpat = true;
+            const std::string& bp = info.bayerpat;
+            
+            // Check if it's a valid Bayer pattern
+            if (bp == "RGGB" || bp == "BGGR" || bp == "GBRG" || bp == "GRBG") {
+                bayerpat_counts[bp]++;
+                
+                if (bayer_pattern.empty()) {
+                    bayer_pattern = bp;
+                } else if (bayer_pattern != bp) {
+                    bayer_pattern_inconsistent = true;
+                }
+            }
+        }
         
         result["frames"].push_back(frame);
     }
     
+    result["image_width"] = image_width;
+    result["image_height"] = image_height;
+    
     // Determine color mode
-    if (!files.empty()) {
-        // For now, default to MONO with user confirmation
-        // Real implementation would read FITS headers
-        result["color_mode"] = "MONO";
-        result["color_mode_candidates"].push_back("MONO");
-        result["color_mode_candidates"].push_back("RGB");
-        result["color_mode_candidates"].push_back("RGGB");
-        result["color_mode_candidates"].push_back("BGGR");
-        result["color_mode_candidates"].push_back("GRBG");
-        result["color_mode_candidates"].push_back("GBRG");
-        result["requires_user_confirmation"] = true;
-        result["warnings"].push_back("Color mode detection not fully implemented - please confirm manually");
+    bool requires_user_confirmation = false;
+    std::string color_mode = "OSC";
+    std::vector<std::string> candidates = {"OSC"};
+    
+    if (!has_bayerpat) {
+        requires_user_confirmation = true;
+        color_mode = "UNKNOWN";
+        json warn;
+        warn["severity"] = "warning";
+        warn["code"] = "color_mode_ambiguous";
+        warn["message"] = "BAYERPAT not found in FITS headers; color_mode requires user confirmation";
+        result["warnings"].push_back(warn);
     }
     
-    if (static_cast<int>(files.size()) < frames_min) {
-        result["errors"].push_back("Not enough frames: found " + std::to_string(files.size()) + 
-                                   ", minimum required: " + std::to_string(frames_min));
+    if (bayer_pattern_inconsistent) {
+        requires_user_confirmation = true;
+        json warn;
+        warn["severity"] = "warning";
+        warn["code"] = "bayer_pattern_inconsistent";
+        warn["message"] = "BAYERPAT differs across frames; bayer_pattern requires user confirmation";
+        result["warnings"].push_back(warn);
+    }
+    
+    result["color_mode"] = color_mode;
+    result["bayer_pattern"] = bayer_pattern.empty() ? nullptr : json(bayer_pattern);
+    result["color_mode_candidates"] = json(candidates);
+    result["requires_user_confirmation"] = requires_user_confirmation;
+    
+    // Check if we have any readable frames
+    if (image_width == 0 || image_height == 0) {
+        json err;
+        err["severity"] = "error";
+        err["code"] = "no_readable_frames";
+        err["message"] = "No readable FITS frames found";
+        result["errors"].push_back(err);
     }
     
     if (result["errors"].empty()) {
