@@ -297,8 +297,18 @@ void MainWindow::on_start_run_clicked() {
     append_live("[ui] start run");
     phase_progress_->reset();
     
+    // Get runner executable path from constants (relative to exe dir)
+    std::string runner_exe = "./tile_compile_runner";
+    if (constants_.contains("RUNNER") && constants_["RUNNER"].contains("executable")) {
+        runner_exe = constants_["RUNNER"]["executable"].get<std::string>();
+    }
+    
+    // Resolve relative to executable directory
+    QString exe_dir = QCoreApplication::applicationDirPath();
+    QString runner_path = exe_dir + "/" + QString::fromStdString(runner_exe);
+    
     QStringList cmd;
-    cmd << QString::fromStdString(project_root_ + "/build/tile_compile_runner");
+    cmd << runner_path;
     cmd << "run";
     cmd << "--config" << config_tab->get_config_path();
     cmd << "--input-dir" << input_dir;
@@ -361,18 +371,18 @@ void MainWindow::handle_runner_stdout(const QString &line) {
                                                  QString::fromStdString(current_run_dir_));
             }
         } else if (ev_type == "phase_start") {
-            const std::string phase_name = ev.value("name", "");
+            const std::string phase_name = ev.value("phase_name", "");
             phase_progress_->update_phase(phase_name, "running");
             append_live(QString("[phase_start] %1").arg(QString::fromStdString(phase_name)));
         } else if (ev_type == "phase_progress") {
-            const std::string phase_name = ev.value("name", "");
+            const std::string phase_name = ev.value("phase_name", "");
             const int current = ev.value("current", 0);
             const int total = ev.value("total", 0);
             const std::string substep = ev.value("substep", "");
             const std::string pass_info = ev.value("pass", "");
             phase_progress_->update_phase(phase_name, "running", current, total, substep, pass_info);
         } else if (ev_type == "phase_end") {
-            const std::string phase_name = ev.value("name", "");
+            const std::string phase_name = ev.value("phase_name", "");
             const std::string status = ev.value("status", "ok");
             phase_progress_->update_phase(phase_name, status);
             append_live(QString("[phase_end] %1 status=%2")

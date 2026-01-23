@@ -72,6 +72,7 @@ set(LIB_SOURCES
     src/io/config.cpp
     src/image/processing.cpp
     src/image/calibration.cpp
+    src/image/cfa_processing.cpp
     src/registration/registration.cpp
     src/metrics/metrics.cpp
     src/metrics/tile_metrics.cpp
