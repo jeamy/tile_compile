@@ -56,6 +56,87 @@ static std::string read_stdin() {
     return ss.str();
 }
 
+static std::string compute_sha256_file(const fs::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) return "";
+    
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+    
+    char buffer[8192];
+    while (file.read(buffer, sizeof(buffer)) || file.gcount() > 0) {
+        SHA256_Update(&ctx, buffer, file.gcount());
+    }
+    
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_Final(hash, &ctx);
+    
+    std::ostringstream oss;
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
+        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    }
+    return oss.str();
+}
+
+struct FitsHeaderInfo {
+    int naxis1 = 0;
+    int naxis2 = 0;
+    std::string bayerpat;
+    bool has_bayerpat = false;
+    bool read_error = false;
+    std::string error_msg;
+};
+
+static FitsHeaderInfo read_fits_header_info(const fs::path& path) {
+    FitsHeaderInfo info;
+    fitsfile* fptr = nullptr;
+    int status = 0;
+    
+    if (fits_open_file(&fptr, path.string().c_str(), READONLY, &status)) {
+        info.read_error = true;
+        info.error_msg = "Cannot open FITS file";
+        return info;
+    }
+    
+    int naxis = 0;
+    long naxes[3] = {0, 0, 0};
+    int bitpix = 0;
+    
+    fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
+    if (status || naxis < 2) {
+        info.read_error = true;
+        info.error_msg = "Cannot read FITS image parameters";
+        fits_close_file(fptr, &status);
+        return info;
+    }
+    
+    info.naxis1 = static_cast<int>(naxes[0]);
+    info.naxis2 = static_cast<int>(naxes[1]);
+    
+    // Try to read BAYERPAT keyword
+    char bayerpat[FLEN_VALUE];
+    char comment[FLEN_COMMENT];
+    int bp_status = 0;
+    fits_read_key(fptr, TSTRING, "BAYERPAT", bayerpat, comment, &bp_status);
+    
+    if (bp_status == 0) {
+        std::string bp_str(bayerpat);
+        // Trim whitespace and quotes
+        bp_str.erase(0, bp_str.find_first_not_of(" \t\n\r'\""));
+        bp_str.erase(bp_str.find_last_not_of(" \t\n\r'\"") + 1);
+        
+        if (!bp_str.empty()) {
+            info.has_bayerpat = true;
+            info.bayerpat = bp_str;
+            // Convert to uppercase
+            std::transform(info.bayerpat.begin(), info.bayerpat.end(), info.bayerpat.begin(), ::toupper);
+        }
+    }
+    
+    fits_close_file(fptr, &status);
+    return info;
+}
+
 // ============================================================================
 // get-schema
 // ============================================================================
