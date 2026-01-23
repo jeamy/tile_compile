@@ -4,6 +4,9 @@ project(tile_compile VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
 
 # Build type
 if(NOT CMAKE_BUILD_TYPE)
@@ -38,6 +41,9 @@ endif()
 
 # OpenSSL for SHA256
 find_package(OpenSSL REQUIRED)
+
+# Qt6 Widgets (GUI)
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 # Optional: spdlog for logging
 find_package(spdlog QUIET)
@@ -118,6 +124,40 @@ if(CLI11_FOUND)
     target_compile_definitions(tile_compile_cli PRIVATE HAVE_CLI11)
 endif()
 
+# Qt6 GUI executable
+set(GUI_SOURCES
+    gui_cpp/main.cpp
+    gui_cpp/MainWindow.cpp
+    gui_cpp/PhaseProgressWidget.cpp
+    gui_cpp/AssumptionsWidget.cpp
+    gui_cpp/BackendClient.cpp
+    gui_cpp/RunnerProcess.cpp
+    gui_cpp/GuiConstants.cpp
+    gui_cpp/tabs/ScanTab.cpp
+    gui_cpp/tabs/ConfigTab.cpp
+    gui_cpp/tabs/RunTab.cpp
+    gui_cpp/tabs/CurrentRunTab.cpp
+    gui_cpp/tabs/HistoryTab.cpp
+)
+
+add_executable(tile_compile_gui ${GUI_SOURCES})
+target_include_directories(tile_compile_gui PRIVATE gui_cpp)
+target_link_libraries(tile_compile_gui PRIVATE tile_compile_lib Qt6::Widgets)
+
+# Copy GUI resource files to build directory
+configure_file(${CMAKE_SOURCE_DIR}/gui_cpp/constants.js ${CMAKE_BINARY_DIR}/gui_cpp/constants.js COPYONLY)
+configure_file(${CMAKE_SOURCE_DIR}/gui_cpp/styles.qss ${CMAKE_BINARY_DIR}/gui_cpp/styles.qss COPYONLY)
+
+# Also copy to same directory as executable for release
+add_custom_command(TARGET tile_compile_gui POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/gui_cpp/constants.js
+        $<TARGET_FILE_DIR:tile_compile_gui>/gui_cpp/constants.js
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/gui_cpp/styles.qss
+        $<TARGET_FILE_DIR:tile_compile_gui>/gui_cpp/styles.qss
+)
+
 # Tests (optional)
 option(BUILD_TESTS "Build unit tests" ON)
 if(BUILD_TESTS)
@@ -137,7 +177,7 @@ if(BUILD_TESTS)
 endif()
 
 # Install targets
-install(TARGETS tile_compile_runner tile_compile_cli
+install(TARGETS tile_compile_runner tile_compile_cli tile_compile_gui
     RUNTIME DESTINATION bin
 )
 

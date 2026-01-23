@@ -231,6 +231,10 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
     result["frames"] = json::array();
     result["errors"] = json::array();
     result["warnings"] = json::array();
+    result["color_mode"] = "UNKNOWN";
+    result["bayer_pattern"] = "";
+    result["color_mode_candidates"] = json::array();
+    result["requires_user_confirmation"] = false;
     
     if (!fs::exists(p)) {
         result["errors"].push_back("Input path does not exist: " + input_path);
@@ -247,12 +251,37 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
     auto files = find_fits_files(p);
     result["frames_detected"] = static_cast<int>(files.size());
     
+    // Detect color mode from FITS headers
+    std::map<std::string, int> bayerpat_counts;
+    std::string first_bayerpat;
+    bool bayerpat_consistent = true;
+    
     for (const auto& f : files) {
         json frame;
         frame["path"] = f.string();
         frame["filename"] = f.filename().string();
         frame["size_bytes"] = static_cast<int64_t>(fs::file_size(f));
+        
+        // Try to read BAYERPAT from FITS header (simplified - would need cfitsio)
+        // For now, we'll detect based on filename patterns or assume MONO
+        // This is a placeholder - real implementation needs FITS header reading
+        
         result["frames"].push_back(frame);
+    }
+    
+    // Determine color mode
+    if (!files.empty()) {
+        // For now, default to MONO with user confirmation
+        // Real implementation would read FITS headers
+        result["color_mode"] = "MONO";
+        result["color_mode_candidates"].push_back("MONO");
+        result["color_mode_candidates"].push_back("RGB");
+        result["color_mode_candidates"].push_back("RGGB");
+        result["color_mode_candidates"].push_back("BGGR");
+        result["color_mode_candidates"].push_back("GRBG");
+        result["color_mode_candidates"].push_back("GBRG");
+        result["requires_user_confirmation"] = true;
+        result["warnings"].push_back("Color mode detection not fully implemented - please confirm manually");
     }
     
     if (static_cast<int>(files.size()) < frames_min) {
