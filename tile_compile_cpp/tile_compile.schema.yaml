@@ -1,0 +1,862 @@
+# FILE: tile_compile.schema.yaml
+# PURPOSE
+# - Human-oriented schema for tile_compile.yaml.
+# - Used as a basis for GUI/editor presentation (field types, editability, defaults, descriptions).
+# - Complements tile_compile.schema.json (machine-readable validation).
+# - Separates auto-derived input metadata (non-editable) from explicitly configurable Methodik parameters.
+#
+# SCOPE
+# - This file is documentation/editor metadata.
+# - The authoritative machine validation is tile_compile.schema.json + backend cross-field checks.
+#
+# Aligned with: Methodology v4 (doc/tile_based_quality_reconstruction_methodology_v4.md)
+
+schema_version: 4
+
+# ============================================================
+# PIPELINE
+# ============================================================
+
+pipeline:
+  mode:
+    type: enum
+    values: [production, test]
+    required: true
+    editable: true
+
+  abort_on_fail:
+    type: boolean
+    required: true
+    editable: true
+
+# ============================================================
+# INPUT / DATA (automatically determined)
+# These fields are read from the input directory or FITS
+# headers and are NOT editable.
+# ============================================================
+
+input:
+  image_width:
+    type: integer
+    source: fits_header
+    editable: false
+    description: "NAXIS1 – Image width in pixels"
+
+  image_height:
+    type: integer
+    source: fits_header
+    editable: false
+    description: "NAXIS2 – Image height in pixels"
+
+  frames_detected:
+    type: integer
+    source: filesystem
+    editable: false
+    description: "Number of detected FITS files"
+
+  color_mode:
+    type: enum
+    values: [OSC, MONO]
+    source: fits_header
+    editable: confirm
+    description: "Derived from FITS, confirmable before run"
+
+  bayer_pattern:
+    type: enum
+    values: [RGGB, BGGR, GBRG, GRBG]
+    source: fits_header
+    editable: confirm
+    default: GBRG
+    description: "BAYERPAT (Bayer pattern) for OSC/CFA; used for debayering"
+
+# ============================================================
+# ASSUMPTIONS (Methodik v4)
+# Hard, Soft, and Implicit assumptions with tolerances
+# ============================================================
+
+assumptions:
+  frames_min:
+    type: integer
+    min: 1
+    default: 50
+    required: false
+    editable: true
+    description: "Hard minimum frame count. Below this: abort."
+
+  frames_optimal:
+    type: integer
+    min: 1
+    default: 800
+    required: false
+    editable: true
+    description: "Optimal frame count for full methodology."
+
+  frames_reduced_threshold:
+    type: integer
+    min: 1
+    default: 200
+    required: false
+    editable: true
+    description: "Below this (but above frames_min): reduced mode."
+
+  exposure_time_tolerance_percent:
+    type: number
+    min: 0
+    max: 100
+    default: 5
+    required: false
+    editable: true
+    description: "Maximum allowed deviation in exposure time (Hard assumption)."
+
+  warp_variance_warn:
+    type: number
+    min: 0
+    default: 2.0
+    required: false
+    editable: true
+    description: "Warp variance threshold for warning (v4)."
+
+  warp_variance_max:
+    type: number
+    min: 0
+    default: 8.0
+    required: false
+    editable: true
+    description: "Maximum allowed warp variance per tile. Above this: tile invalid (v4)."
+
+  elongation_warn:
+    type: number
+    min: 0
+    max: 1
+    default: 0.3
+    required: false
+    editable: true
+    description: "Star elongation threshold for warning."
+
+  elongation_max:
+    type: number
+    min: 0
+    max: 1
+    default: 0.4
+    required: false
+    editable: true
+    description: "Maximum allowed star elongation. Above this: abort."
+
+
+  reduced_mode_skip_clustering:
+    type: boolean
+    default: true
+    required: false
+    editable: true
+    description: "Skip STATE_CLUSTERING and SYNTHETIC_FRAMES in reduced mode."
+
+  reduced_mode_cluster_range:
+    type: array
+    length: 2
+    items: integer
+    default: [5, 10]
+    required: false
+    editable: true
+    description: "Cluster count range for reduced mode (if not skipped)."
+
+# ============================================================
+# NORMALISIERUNG (Pflicht, Methodik-Zwang)
+# Methodik v4 §3
+# ============================================================
+
+normalization:
+  enabled:
+    type: boolean
+    const: true
+    editable: false
+    description: "Mandatory: must be true per Methodik v4 §3"
+
+  mode:
+    type: enum
+    values: [background, median]
+    required: true
+    editable: true
+
+  per_channel:
+    type: boolean
+    required: true
+    editable: true
+
+# ============================================================
+# TILE-WISE LOCAL REGISTRATION (TLR)
+# Methodik v4 §5 - No global registration phase
+# Registration is integrated into tile reconstruction
+# ============================================================
+
+registration:
+  mode:
+    type: enum
+    values: [local_tiles]
+    default: local_tiles
+    required: true
+    editable: false
+    description: "Registration mode - v4 enforces local_tiles only"
+  
+  local_tiles:
+    type: object
+    required: true
+    editable: true
+    description: "Tile-wise local registration parameters (Methodik v4)"
+    
+    properties:
+      
+      ecc_cc_min:
+        type: number
+        min: 0.0
+        max: 1.0
+        default: 0.2
+        required: true
+        editable: true
+        description: "Minimum ECC correlation to accept tile registration"
+      
+      min_valid_frames:
+        type: integer
+        min: 1
+        default: 10
+        required: true
+        editable: true
+        description: "Minimum valid frames required per tile"
+      
+      temporal_smoothing_window:
+        type: integer
+        min: 5
+        max: 51
+        default: 11
+        required: false
+        editable: true
+        description: "Savitzky-Golay window for temporal warp smoothing (must be odd)"
+      
+      variance_window_sigma:
+        type: number
+        min: 0.5
+        max: 10.0
+        default: 2.0
+        required: false
+        editable: true
+        description: "Scale parameter for variance-weighted overlap window ψ(var) (Methodik v4 §9)"
+
+# ============================================================
+# WIENER TILE DENOISING
+# Wiener-Filter auf rekonstruierten Tiles (nach Tile-Rekonstruktion, vor Overlap-Add)
+# Siehe doc/Wiener denoise.md für normative Spezifikation
+# ============================================================
+
+wiener_denoise:
+  enabled:
+    type: boolean
+    default: false
+    required: false
+    editable: true
+    description: "Enable Wiener filter on reconstructed tiles (linear, MSE-optimal)"
+
+  snr_threshold:
+    type: number
+    min: 1.0
+    max: 20.0
+    default: 5.0
+    required: false
+    editable: true
+    description: "SNR threshold - tiles with SNR >= this are not filtered"
+
+  q_min:
+    type: number
+    min: -3.0
+    max: 0.0
+    default: -0.5
+    required: false
+    editable: true
+    description: "Minimum structure quality - tiles with Q_struct <= this are not filtered"
+
+# ============================================================
+# GLOBALE FRAME-METRIKEN
+# Methodik v4 §7 (G_f weights)
+# ============================================================
+
+global_metrics:
+  weights:
+    background:
+      type: number
+      min: 0
+      max: 1
+      required: true
+      editable: true
+      description: "Weight α for background metric"
+
+    noise:
+      type: number
+      min: 0
+      max: 1
+      required: true
+      editable: true
+      description: "Weight β for noise metric"
+
+    gradient:
+      type: number
+      min: 0
+      max: 1
+      required: true
+      editable: true
+      description: "Weight γ for gradient metric"
+
+    _constraint: "α + β + γ = 1.0 (enforced by backend)"
+
+  clamp:
+    type: array
+    length: 2
+    items: number
+    default: [-3, 3]
+    required: true
+    editable: true
+    description: "Clamp range for Q_f before exp(·); Methodik v3.1 uses [-3, +3]"
+
+  adaptive_weights:
+    type: boolean
+    default: false
+    editable: true
+    description: "If true, adapt α/β/γ based on metric variances per Methodik v3.1 §3.2"
+
+# ============================================================
+# TILE-GEOMETRIE (seeing-adaptiv)
+# Methodik v4 §4
+# ============================================================
+
+tile:
+  size_factor:
+    type: integer
+    min: 1
+    default: 32
+    required: true
+    editable: true
+    description: "Factor s: T_0 = s · FWHM"
+
+  min_size:
+    type: integer
+    min: 1
+    default: 64
+    required: true
+    editable: true
+    description: "Minimum tile size T_min"
+
+  max_divisor:
+    type: integer
+    min: 1
+    default: 6
+    required: true
+    editable: true
+    description: "Maximum divisor D: T_max = min(W,H) / D"
+
+  overlap_fraction:
+    type: number
+    min: 0
+    max: 0.5
+    default: 0.25
+    required: true
+    editable: true
+    description: "Overlap fraction o: O = o · T"
+
+  star_min_count:
+    type: integer
+    min: 0
+    default: 3
+    required: true
+    editable: true
+    description: "Minimum stars for star-based local metrics"
+
+# ============================================================
+# LOKALE METRIKEN
+# Methodik v4 §6
+# ============================================================
+
+local_metrics:
+  clamp:
+    type: array
+    length: 2
+    items: number
+    default: [-3, 3]
+    required: true
+    editable: true
+    description: "Clamp range for Q_local (before exp); Methodik v3.1 uses [-3, +3]"
+
+  star_mode:
+    # FWHM wird gemäß Spec v3.1 MAD-normalisiert (ohne log-Transform); dieses
+    # Feld bleibt bewusst leer, damit die GUI keine veraltete Option anbietet.
+    weights:
+      fwhm:
+        type: number
+        min: 0
+        max: 1
+        default: 0.6
+        required: true
+        editable: true
+
+      roundness:
+        type: number
+        min: 0
+        max: 1
+        default: 0.2
+        required: true
+        editable: true
+
+      contrast:
+        type: number
+        min: 0
+        max: 1
+        default: 0.2
+        required: true
+        editable: true
+
+      _constraint: "fwhm + roundness + contrast = 1.0 (enforced by backend)"
+
+  structure_mode:
+    # ENR (E/σ) und lokaler Hintergrund werden in der Implementierung gemäß Spec
+    # automatisch aus grad/noise/background berechnet.
+    background_weight:
+      type: number
+      min: 0
+      max: 1
+      default: 0.3
+      required: true
+      editable: true
+
+    metric_weight:
+      type: number
+      min: 0
+      max: 1
+      default: 0.7
+      required: true
+      editable: true
+
+    _constraint: "background_weight + metric_weight = 1.0 (enforced by backend)"
+
+# ============================================================
+# SYNTHETISCHE FRAMES / CLUSTERING
+# Methodik v4 §10
+# ============================================================
+
+synthetic:
+  weighting:
+    type: enum
+    values: [global, tile_weighted]
+    default: global
+    required: false
+    editable: true
+    description: "Synthetic frame weighting mode: global uses G_f,c only; tile_weighted uses W_f,t,c = G_f,c · L_f,t,c"
+
+  frames_min:
+    type: integer
+    min: 1
+    default: 15
+    required: true
+    editable: true
+    description: "Minimum synthetic frames (k_min)"
+
+  frames_max:
+    type: integer
+    min: 1
+    default: 30
+    required: true
+    editable: true
+    description: "Maximum synthetic frames (k_max)"
+
+  clustering:
+    mode:
+      type: enum
+      values: [state_vector]
+      const: state_vector
+      editable: false
+
+    k_selection:
+      type: enum
+      values: [silhouette_auto]
+      default: silhouette_auto
+      editable: false
+      description: "Automatic k selection via silhouette score"
+
+    cluster_count_range:
+      type: array
+      length: 2
+      items: integer
+      default: [15, 30]
+      required: true
+      editable: true
+      description: "Allowed k range for clustering"
+
+    vector:
+      type: array
+      items: enum
+      values:
+        - global_weight
+        - tile_quality_mean
+        - tile_quality_variance
+        - background
+        - noise
+      required: true
+      editable: true
+      description: "State vector components"
+
+# ============================================================
+# REKONSTRUKTION
+# Methodik v4 §8-9
+# ============================================================
+
+reconstruction:
+  weighting_function:
+    type: enum
+    values: [exponential]
+    const: exponential
+    editable: false
+    description: "Mandatory: exponential weighting per Methodik v4 §8"
+
+  window_function:
+    type: enum
+    values: [hanning]
+    const: hanning
+    editable: false
+    description: "Mandatory: Hanning window per Methodik v4 §9"
+
+  tile_rescale:
+    type: enum
+    values: [median_after_background_subtraction]
+    const: median_after_background_subtraction
+    editable: false
+    description: "Mandatory: median rescale after background subtraction"
+
+debayer:
+  type: boolean
+  default: true
+  required: false
+  editable: true
+  description: "If true, debayer/demosaic the final stacked CFA mosaic and write stacked_rgb.fits"
+
+# ============================================================
+# STACKING
+# Methodik v4 §11
+# ============================================================
+
+stacking:
+  method:
+    type: enum
+    values: [average, rej]
+    default: rej
+    required: true
+    editable: true
+    description: "Stacking method: average = plain linear mean; rej = sigma-clipping rejection then linear mean"
+
+  input_dir:
+    type: string
+    required: true
+    editable: true
+
+  input_pattern:
+    type: string
+    required: true
+    editable: true
+
+  output_file:
+    type: string
+    required: true
+    editable: true
+
+  sigma_clip:
+    # Optional fine-tuning of sigma-clipping when method = 'rej'. If omitted,
+    # conservative defaults are used (4σ, 3 iterations, min_fraction = 0.5).
+    sigma_low:
+      type: number
+      min: 0.1
+      max: 20.0
+      default: 4.0
+      required: false
+      editable: true
+      description: "Lower sigma threshold for rejection (z < -sigma_low)"
+
+    sigma_high:
+      type: number
+      min: 0.1
+      max: 20.0
+      default: 4.0
+      required: false
+      editable: true
+      description: "Upper sigma threshold for rejection (z > sigma_high)"
+
+    max_iters:
+      type: integer
+      min: 1
+      max: 10
+      default: 3
+      required: false
+      editable: true
+      description: "Maximum sigma-clipping iterations"
+
+    min_fraction:
+      type: number
+      min: 0.05
+      max: 1.0
+      default: 0.5
+      required: false
+      editable: true
+      description: "Minimum surviving frame fraction per pixel before falling back to unclipped mean"
+
+# ============================================================
+# V4 SPECIFIC CONFIGURATION
+# Methodik v4 tile-local reconstruction parameters
+# ============================================================
+
+v4:
+  iterations:
+    type: integer
+    min: 1
+    max: 10
+    default: 3
+    required: false
+    editable: true
+    description: "Number of iterative reference refinement passes per tile"
+
+  beta:
+    type: number
+    min: 0.0
+    max: 20.0
+    default: 5.0
+    required: false
+    editable: true
+    description: "Registration quality weighting factor: R_ft = exp(beta * (cc - 1))"
+
+  min_valid_tile_fraction:
+    type: number
+    min: 0.0
+    max: 1.0
+    default: 0.3
+    required: false
+    editable: true
+    description: "Minimum fraction of valid tiles required for successful reconstruction"
+
+  parallel_tiles:
+    type: integer
+    min: 1
+    max: 32
+    default: 8
+    required: false
+    editable: true
+    description: "Number of parallel tile workers (1=serial, 8=default, max=CPU cores)"
+
+  adaptive_tiles:
+    enabled:
+      type: boolean
+      default: false
+      required: false
+      editable: true
+      description: "Enable adaptive tile refinement based on warp variance"
+
+    max_refine_passes:
+      type: integer
+      min: 0
+      max: 5
+      default: 2
+      required: false
+      editable: true
+      description: "Maximum number of tile refinement passes (0 = no refinement)"
+
+    refine_variance_threshold:
+      type: number
+      min: 0.0
+      max: 10.0
+      default: 0.25
+      required: false
+      editable: true
+      description: "Warp variance threshold for tile splitting: Var(dx) + Var(dy)"
+
+    min_tile_size_px:
+      type: integer
+      min: 32
+      max: 512
+      default: 64
+      required: false
+      editable: true
+      description: "Minimum tile size in pixels (no split below this)"
+
+    use_warp_probe:
+      type: boolean
+      default: false
+      required: false
+      editable: true
+      description: "Enable pre-warp probe for gradient field estimation"
+
+    use_hierarchical:
+      type: boolean
+      default: false
+      required: false
+      editable: true
+      description: "Enable hierarchical tile initialization (start coarse, split where needed)"
+
+    initial_tile_size:
+      type: integer
+      min: 64
+      max: 512
+      default: 256
+      required: false
+      editable: true
+      description: "Starting tile size for hierarchical initialization"
+
+    probe_window:
+      type: integer
+      min: 64
+      max: 512
+      default: 256
+      required: false
+      editable: true
+      description: "Window size for warp probing"
+
+    num_probe_frames:
+      type: integer
+      min: 3
+      max: 10
+      default: 5
+      required: false
+      editable: true
+      description: "Number of temporally distant frames to probe (3-5 recommended)"
+
+    gradient_sensitivity:
+      type: number
+      min: 0.1
+      max: 10.0
+      default: 2.0
+      required: false
+      editable: true
+      description: "Gradient sensitivity: s(x,y) = s0 / (1 + c·grad)"
+
+    split_gradient_threshold:
+      type: number
+      min: 0.0
+      max: 1.0
+      default: 0.3
+      required: false
+      editable: true
+      description: "Gradient threshold for hierarchical splitting"
+
+    hierarchical_max_depth:
+      type: integer
+      min: 1
+      max: 5
+      default: 3
+      required: false
+      editable: true
+      description: "Maximum recursion depth for hierarchical splitting"
+
+  convergence:
+    enabled:
+      type: boolean
+      default: false
+      required: false
+      editable: true
+      description: "Enable convergence check for early stopping"
+
+    epsilon_rel:
+      type: number
+      min: 1.0e-6
+      max: 1.0e-1
+      default: 1.0e-3
+      required: false
+      editable: true
+      description: "Relative L2 norm threshold for convergence"
+
+  memory_limits:
+    rss_warn_mb:
+      type: integer
+      min: 512
+      default: 4096
+      required: false
+      editable: true
+      description: "Soft memory limit (MB) - warning only"
+
+    rss_abort_mb:
+      type: integer
+      min: 1024
+      default: 8192
+      required: false
+      editable: true
+      description: "Hard memory limit (MB) - abort run if exceeded"
+
+  diagnostics:
+    enabled:
+      type: boolean
+      default: true
+      required: false
+      editable: true
+      description: "Enable diagnostic artifact generation"
+
+    warp_field:
+      type: boolean
+      default: true
+      required: false
+      editable: true
+      description: "Save warp vector field per channel"
+
+    tile_invalid_map:
+      type: boolean
+      default: true
+      required: false
+      editable: true
+      description: "Save map of invalid tiles"
+
+    warp_variance_hist:
+      type: boolean
+      default: true
+      required: false
+      editable: true
+      description: "Save histogram of warp variances"
+
+# ============================================================
+# VALIDIERUNG
+# Methodik v4 §12
+# ============================================================
+
+validation:
+  min_fwhm_improvement_percent:
+    type: number
+    min: 0
+    default: 5
+    required: true
+    editable: true
+
+  max_background_rms_increase_percent:
+    type: number
+    min: 0
+    default: 0
+    required: true
+    editable: true
+
+  min_tile_weight_variance:
+    type: number
+    min: 0
+    default: 0.1
+    required: true
+    editable: true
+
+  require_no_tile_pattern:
+    type: boolean
+    default: true
+    required: true
+    editable: true
+
+# ============================================================
+# RUNTIME LIMITS
+# ============================================================
+
+runtime_limits:
+  tile_analysis_max_factor_vs_stack:
+    type: number
+    min: 0
+    default: 3.0
+    required: true
+    editable: true
+
+  hard_abort_hours:
+    type: number
+    min: 0
+    default: 6
+    required: true
+    editable: true
