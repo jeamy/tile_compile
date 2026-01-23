@@ -1,0 +1,59 @@
+#pragma once
+
+#include "tile_compile/core/types.hpp"
+
+#include <string>
+
+namespace tile_compile::image {
+
+/**
+ * Create green mask for CFA pattern (Methodik v4).
+ */
+Matrix2Df cfa_green_mask(int height, int width, const std::string& bayer_pattern);
+
+/**
+ * Compute green proxy from CFA mosaic (interpolate non-green pixels).
+ */
+Matrix2Df cfa_green_proxy(const Matrix2Df& mosaic, const std::string& bayer_pattern);
+
+/**
+ * Downsample CFA mosaic using green proxy (half resolution).
+ * Used for registration of OSC data.
+ */
+Matrix2Df cfa_green_proxy_downsample2x2(const Matrix2Df& mosaic, const std::string& bayer_pattern);
+
+/**
+ * Warp CFA mosaic by warping each Bayer subplane separately.
+ * This preserves Bayer pattern integrity during warping.
+ */
+Matrix2Df warp_cfa_mosaic_via_subplanes(
+    const Matrix2Df& mosaic,
+    const WarpMatrix& warp,
+    int out_height = -1,
+    int out_width = -1,
+    const std::string& border_mode = "replicate",
+    const std::string& interpolation = "linear"
+);
+
+/**
+ * Split CFA mosaic into R, G, B subplanes (half resolution).
+ */
+struct CFAChannels {
+    Matrix2Df R;
+    Matrix2Df G;
+    Matrix2Df B;
+};
+
+CFAChannels split_cfa_channels(const Matrix2Df& mosaic, const std::string& bayer_pattern);
+
+/**
+ * Reassemble R, G, B subplanes back into CFA mosaic.
+ */
+Matrix2Df reassemble_cfa_mosaic(
+    const Matrix2Df& r_plane,
+    const Matrix2Df& g_plane, 
+    const Matrix2Df& b_plane,
+    const std::string& bayer_pattern
+);
+
+} // namespace tile_compile::image

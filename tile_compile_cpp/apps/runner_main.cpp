@@ -3,6 +3,7 @@
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/metrics/tile_metrics.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
@@ -653,7 +654,11 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         std::vector<float> final_weights;
 
         for (int iter = 0; iter < iterations; ++iter) {
-            Matrix2Df ref_ecc = registration::prepare_ecc_image(ref_tile);
+            // For OSC: use green proxy for registration (Methodik v4)
+            Matrix2Df ref_reg = (detected_mode == ColorMode::OSC) 
+                ? image::cfa_green_proxy_downsample2x2(ref_tile, detected_bayer_str)
+                : ref_tile;
+            Matrix2Df ref_ecc = registration::prepare_ecc_image(ref_reg);
 
             std::vector<std::pair<float, float>> translations;
             std::vector<float> correlations;
@@ -671,10 +676,14 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                     continue;
                 }
 
-                Matrix2Df mov_ecc = registration::prepare_ecc_image(mov_tile);
+                // For OSC: use green proxy for registration (Methodik v4)
+                Matrix2Df mov_reg = (detected_mode == ColorMode::OSC)
+                    ? image::cfa_green_proxy_downsample2x2(mov_tile, detected_bayer_str)
+                    : mov_tile;
+                Matrix2Df mov_ecc = registration::prepare_ecc_image(mov_reg);
 
                 auto [dx, dy] = registration::phasecorr_translation(mov_ecc, ref_ecc);
-                float max_shift = 0.5f * static_cast<float>(std::min(mov_tile.rows(), mov_tile.cols()));
+                float max_shift = 0.5f * static_cast<float>(std::min(mov_reg.rows(), mov_reg.cols()));
                 dx = std::max(-max_shift, std::min(max_shift, dx));
                 dy = std::max(-max_shift, std::min(max_shift, dy));
 
@@ -707,7 +716,11 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 WarpMatrix final_warp = registration::identity_warp();
                 final_warp(0, 2) = final_dx;
                 final_warp(1, 2) = final_dy;
-                Matrix2Df mov_warped = registration::apply_warp(mov_tile, final_warp);
+                
+                // For OSC: use CFA-aware warping to preserve Bayer pattern (Methodik v4)
+                Matrix2Df mov_warped = (detected_mode == ColorMode::OSC)
+                    ? image::warp_cfa_mosaic_via_subplanes(mov_tile, final_warp, mov_tile.rows(), mov_tile.cols())
+                    : registration::apply_warp(mov_tile, final_warp);
                 warped_tiles.push_back(mov_warped);
 
                 // W_{f,t} = G_f · R_{f,t} where R_{f,t} = exp(β·(cc-1))

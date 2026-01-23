@@ -36,7 +36,7 @@ void EventEmitter::phase_start(const std::string& run_id, Phase phase,
                                const std::string& name, std::ostream& out) {
     json event = base_event("phase_start", run_id);
     event["phase"] = phase_to_int(phase);
-    event["name"] = name;
+    event["phase_name"] = name;
     emit(event, out);
 }
 
@@ -44,8 +44,14 @@ void EventEmitter::phase_progress(const std::string& run_id, Phase phase, float 
                                   const std::string& message, std::ostream& out) {
     json event = base_event("phase_progress", run_id);
     event["phase"] = phase_to_int(phase);
+    event["phase_name"] = phase_to_string(phase);
+    // Convert float progress to current/total for GUI compatibility
+    int current = static_cast<int>(progress * 100);
+    int total = 100;
+    event["current"] = current;
+    event["total"] = total;
     event["progress"] = progress;
-    event["message"] = message;
+    event["substep"] = message;
     emit(event, out);
 }
 
@@ -53,6 +59,7 @@ void EventEmitter::phase_end(const std::string& run_id, Phase phase,
                              const std::string& status, const json& extra, std::ostream& out) {
     json event = base_event("phase_end", run_id);
     event["phase"] = phase_to_int(phase);
+    event["phase_name"] = phase_to_string(phase);
     event["status"] = status;
     for (auto& [key, value] : extra.items()) {
         event[key] = value;
