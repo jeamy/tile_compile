@@ -19,6 +19,7 @@ tile_compile_cpp/cmake-build-*/
 *.a
 *.so
 *.dylib
+.cache
 
 # Runtime / outputs
 runs/
