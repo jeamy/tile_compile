@@ -39,20 +39,19 @@ from PySide6.QtWidgets import (
 )
 
 
-METHODIK_V3_PHASES = [
+METHODIK_V4_PHASES = [
     (0, "SCAN_INPUT", "Eingabe-Validierung"),
-    (1, "REGISTRATION", "Frame-Registrierung"),
-    (2, "CHANNEL_SPLIT", "Kanal-Trennung (R/G/B)"),
-    (3, "NORMALIZATION", "Globale lineare Normalisierung"),
-    (4, "GLOBAL_METRICS", "Globale Frame-Metriken (B, σ, E)"),
-    (5, "TILE_GRID", "Seeing-adaptive Tile-Geometrie"),
-    (6, "LOCAL_METRICS", "Lokale Tile-Metriken"),
-    (7, "TILE_RECONSTRUCTION", "Tile-weise Rekonstruktion"),
-    (8, "STATE_CLUSTERING", "Zustandsbasiertes Clustering"),
-    (9, "SYNTHETIC_FRAMES", "Synthetische Qualitätsframes"),
-    (10, "STACKING", "Finales lineares Stacking"),
-    (11, "DEBAYER", "Debayer / Demosaicing"),
-    (12, "DONE", "Abschluss"),
+    (1, "CHANNEL_SPLIT", "Kanal-Trennung (R/G/B)"),
+    (2, "NORMALIZATION", "Globale lineare Normalisierung"),
+    (3, "GLOBAL_METRICS", "Globale Frame-Metriken (B, σ, E)"),
+    (4, "TILE_GRID", "Seeing-adaptive Tile-Geometrie"),
+    (5, "LOCAL_METRICS", "Lokale Tile-Metriken"),
+    (6, "TILE_RECONSTRUCTION_TLR", "Tile-lokale Registrierung + Rekonstruktion"),
+    (7, "STATE_CLUSTERING", "Zustandsbasiertes Clustering"),
+    (8, "SYNTHETIC_FRAMES", "Synthetische Qualitätsframes"),
+    (9, "STACKING", "Finales lineares Stacking"),
+    (10, "DEBAYER", "Debayer / Demosaicing"),
+    (11, "DONE", "Abschluss"),
 ]
 
 ASSUMPTIONS_DEFAULTS = {
@@ -76,10 +75,16 @@ def _resolve_project_root(start: Path) -> Path:
         p = p.parent
     p = p.resolve()
     while True:
+        # Python backend repo markers
         if (p / "tile_compile_runner.py").exists() and (p / "tile_compile_backend_cli.py").exists():
             return p
+
+        # C++ GUI repo markers (this file lives under tile_compile_cpp/gui/main.py)
+        if (p / "gui" / "constants.js").exists() and ((p / "start_gui.sh").exists() or (p / "CMakeLists.txt").exists()):
+            return p
         if p.parent == p:
-            return start.resolve()
+            # Fallback to a directory path (never return a .py file as project_root)
+            return (start.parent if start.is_file() else start).resolve()
         p = p.parent
 
 
@@ -112,10 +117,25 @@ class BackendClient:
     def _backend_cmd(self) -> list[str]:
         cli = self.constants.get("CLI", {})
         backend_bin = str(cli.get("backend_bin") or "").strip()
-        backend_fallback = str(cli.get("backend_fallback") or "tile_compile_backend_cli.py").strip()
+        backend_fallback_raw = cli.get("backend_fallback")
+        backend_fallback = None if backend_fallback_raw is None else str(backend_fallback_raw).strip()
 
-        if backend_bin and _which(backend_bin):
-            return [backend_bin]
+        if backend_bin:
+            backend_bin_path = Path(backend_bin)
+            if backend_bin_path.is_absolute() and backend_bin_path.exists():
+                return [str(backend_bin_path)]
+            if not backend_bin_path.is_absolute():
+                candidate = (self.project_root / backend_bin_path).resolve()
+                if candidate.exists():
+                    return [str(candidate)]
+            if _which(backend_bin):
+                return [backend_bin]
+
+        if not backend_fallback:
+            raise RuntimeError(
+                "backend executable not found. Set GUI constants CLI.backend_bin to an existing path (e.g. build/tile_compile_cli)"
+            )
+
         script = str((self.project_root / backend_fallback).resolve())
 
         def can_import_backend_deps(py: str) -> bool:
@@ -259,13 +279,13 @@ class PhaseProgressWidget(QWidget):
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(len(METHODIK_V3_PHASES))
+        self.progress_bar.setMaximum(len(METHODIK_V4_PHASES))
         self.progress_bar.setValue(0)
         layout.addWidget(self.progress_bar)
 
         grid = QGridLayout()
         grid.setSpacing(6)
-        for i, (phase_id, phase_name, phase_desc) in enumerate(METHODIK_V3_PHASES):
+        for i, (phase_id, phase_name, phase_desc) in enumerate(METHODIK_V4_PHASES):
             name_label = QLabel(f"{phase_id}. {phase_name}")
             name_label.setToolTip(phase_desc)
             
@@ -313,7 +333,7 @@ class PhaseProgressWidget(QWidget):
 
     def update_phase(self, phase_name: str, status: str, progress_current: int = 0, progress_total: int = 0, substep: str | None = None):
         phase_id = None
-        for pid, pname, _ in METHODIK_V3_PHASES:
+        for pid, pname, _ in METHODIK_V4_PHASES:
             if pname == phase_name:
                 phase_id = pid
                 break
@@ -625,12 +645,56 @@ class MainWindow(QMainWindow):
 
         self.ui_call.connect(self._ui_exec)
 
-        self.setWindowTitle("Tile Compile – Methodik v3")
+        self.setWindowTitle("Tile Compile – Methodik v4")
         self._build_ui()
         self._load_styles()
 
         self._update_controls()
+        self._ensure_startup_paths()
         self._load_gui_state()
+
+    def _default_config_path(self) -> Path:
+        return (self.project_root / "tile_compile.yaml").resolve()
+
+    def _load_default_config_preset2(self) -> None:
+        cfg_path = self._default_config_path()
+        if cfg_path.exists() and cfg_path.is_file():
+            try:
+                self.config_path.setText(str(cfg_path))
+                self.config_yaml.setPlainText(cfg_path.read_text(encoding="utf-8"))
+                self.config_validated_ok = False
+                self.lbl_cfg.setText("not validated")
+            except Exception:
+                pass
+
+    def _ensure_startup_paths(self) -> None:
+        wd_raw = self.working_dir.text().strip()
+        wd = Path(wd_raw) if wd_raw else None
+        if wd is None or not wd.exists() or not wd.is_dir():
+            self.working_dir.setText(str(Path.cwd()))
+            wd = Path.cwd()
+
+        inp_raw = self.input_dir.text().strip()
+        if inp_raw and not Path(inp_raw).exists():
+            self.input_dir.setText(str(wd))
+        elif not inp_raw:
+            self.input_dir.setText(str(wd))
+
+        scan_raw = self.scan_input_dir.text().strip()
+        if scan_raw and not Path(scan_raw).exists():
+            self.scan_input_dir.setText(str(wd))
+        elif not scan_raw:
+            self.scan_input_dir.setText(str(wd))
+
+        cfg_raw = self.config_path.text().strip()
+        cfg_path = Path(cfg_raw) if cfg_raw else None
+        if cfg_path is not None and not cfg_path.is_absolute():
+            cfg_path = wd / cfg_path
+        if cfg_path is None or not cfg_path.exists() or not cfg_path.is_file():
+            self._load_default_config_preset2()
+
+        self._schedule_save_gui_state()
+        self._update_controls()
 
     def _load_styles(self) -> None:
         p = self.project_root / "gui" / "styles.qss"
@@ -646,7 +710,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(10)
 
         header = QHBoxLayout()
-        title = QLabel("Tile Compile – Methodik v3")
+        title = QLabel("Tile Compile – Methodik v4")
         title.setStyleSheet("font-size: 18px; font-weight: 600;")
         header.addWidget(title)
         header.addStretch(1)
@@ -862,6 +926,19 @@ class MainWindow(QMainWindow):
         self.btn_apply_assumptions.setMinimumHeight(30)
         self.btn_apply_assumptions.setFixedWidth(140)
         self.btn_apply_assumptions.setToolTip("Apply assumptions from Assumptions tab to config YAML")
+        
+        # v4 Preset dropdown
+        self.v4_preset_combo = QComboBox()
+        self.v4_preset_combo.addItem("Preset 1: EQ-Montierung, ruhiges Seeing", 1)
+        self.v4_preset_combo.addItem("Preset 2: Alt/Az, starke Feldrotation", 2)
+        self.v4_preset_combo.addItem("Preset 3: Polnähe, sehr instabil", 3)
+        self.v4_preset_combo.setCurrentIndex(1)  # Default: Preset 2
+        self.v4_preset_combo.setMinimumHeight(30)
+        self.v4_preset_combo.setFixedWidth(280)
+        self.v4_preset_combo.setToolTip("Wähle v4-Konfigurationspreset (siehe doc/v_4_example_configs.md)")
+        
+        button_row.addWidget(QLabel("v4 Preset:"))
+        button_row.addWidget(self.v4_preset_combo)
         button_row.addWidget(self.btn_cfg_load)
         button_row.addWidget(self.btn_cfg_save)
         button_row.addWidget(self.btn_cfg_validate)
@@ -887,7 +964,7 @@ class MainWindow(QMainWindow):
         assumptions_page_layout = QVBoxLayout(assumptions_page)
         assumptions_page_layout.setContentsMargins(0, 0, 0, 0)
         assumptions_page_layout.setSpacing(10)
-        assumptions_box = QGroupBox("Methodik v3 Assumptions")
+        assumptions_box = QGroupBox("Methodik v4 Assumptions")
         assumptions_box_layout = QVBoxLayout(assumptions_box)
         assumptions_box_layout.setContentsMargins(12, 18, 12, 12)
         self.assumptions_widget = AssumptionsWidget()
@@ -953,7 +1030,7 @@ class MainWindow(QMainWindow):
         progress_page_layout = QVBoxLayout(progress_page)
         progress_page_layout.setContentsMargins(0, 0, 0, 0)
         progress_page_layout.setSpacing(10)
-        progress_box = QGroupBox("Pipeline Progress (Methodik v3)")
+        progress_box = QGroupBox("Pipeline Progress (Methodik v4)")
         progress_box_layout = QVBoxLayout(progress_box)
         progress_box_layout.setContentsMargins(12, 18, 12, 12)
         self.phase_progress = PhaseProgressWidget()
@@ -1074,6 +1151,7 @@ class MainWindow(QMainWindow):
         self.btn_cfg_validate.clicked.connect(self._validate_config)
         self.btn_browse_config.clicked.connect(self._browse_config)
         self.btn_apply_assumptions.clicked.connect(self._apply_assumptions_to_config)
+        self.v4_preset_combo.currentIndexChanged.connect(self._apply_v4_preset)
         self.config_yaml.textChanged.connect(self._on_config_edited)
 
         self.assumptions_widget.assumptions_changed.connect(self._on_assumptions_changed)
@@ -1627,6 +1705,72 @@ class MainWindow(QMainWindow):
         self._update_controls()
         self._schedule_save_gui_state()
 
+    def _apply_v4_preset(self) -> None:
+        """Apply selected v4 preset to config YAML."""
+        preset_id = self.v4_preset_combo.currentData()
+        if preset_id is None:
+            return
+        
+        self._append_live(f"[ui] applying v4 preset {preset_id}")
+        
+        # Define presets (from doc/v_4_example_configs.md)
+        presets = {
+            1: {  # EQ-Montierung, ruhiges Seeing
+                "iterations": 2,
+                "beta": 3.0,
+                "adaptive_tiles": {"enabled": False}
+            },
+            2: {  # Alt/Az, starke Feldrotation (DEFAULT)
+                "iterations": 4,
+                "beta": 6.0,
+                "adaptive_tiles": {
+                    "enabled": True,
+                    "max_refine_passes": 3,
+                    "refine_variance_threshold": 0.15
+                }
+            },
+            3: {  # Polnähe, sehr instabil
+                "iterations": 5,
+                "beta": 8.0,
+                "adaptive_tiles": {
+                    "enabled": True,
+                    "max_refine_passes": 4,
+                    "refine_variance_threshold": 0.1
+                }
+            }
+        }
+        
+        preset = presets.get(preset_id)
+        if not preset:
+            return
+        
+        yaml_text = self.config_yaml.toPlainText()
+        try:
+            cfg = yaml.safe_load(yaml_text) or {}
+            if not isinstance(cfg, dict):
+                self._append_live("[ui] error: config is not a dict")
+                return
+            
+            # Update v4 section
+            if "v4" not in cfg:
+                cfg["v4"] = {}
+            
+            cfg["v4"]["iterations"] = preset["iterations"]
+            cfg["v4"]["beta"] = preset["beta"]
+            
+            if "adaptive_tiles" not in cfg["v4"]:
+                cfg["v4"]["adaptive_tiles"] = {}
+            
+            cfg["v4"]["adaptive_tiles"].update(preset["adaptive_tiles"])
+            
+            # Write back
+            new_yaml = yaml.dump(cfg, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            self.config_yaml.setPlainText(new_yaml)
+            self._append_live(f"[ui] v4 preset {preset_id} applied")
+            
+        except Exception as e:
+            self._append_live(f"[ui] error applying preset: {e}")
+    
     def _apply_assumptions_to_config(self) -> None:
         self._append_live("[ui] apply assumptions to config")
         yaml_text = self.config_yaml.toPlainText()

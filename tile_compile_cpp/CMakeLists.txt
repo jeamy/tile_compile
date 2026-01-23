@@ -74,6 +74,7 @@ set(LIB_SOURCES
     src/reconstruction/reconstruction.cpp
     src/synthetic/synthetic.cpp
     src/pipeline/phases.cpp
+    src/pipeline/adaptive_tile_grid.cpp
     src/pipeline/pipeline.cpp
 )
 
