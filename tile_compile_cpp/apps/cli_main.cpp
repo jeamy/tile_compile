@@ -1,8 +1,10 @@
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/io/fits_io.hpp"
 
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
+#include <fitsio.h>
 
 #include <algorithm>
 #include <chrono>
@@ -11,10 +13,12 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <openssl/sha.h>
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
