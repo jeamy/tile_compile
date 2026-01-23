@@ -3,6 +3,8 @@ import signal
 import subprocess
 import sys
 import threading
+import os
+import time
 from pathlib import Path
 from typing import Any, Optional, Dict
 
@@ -69,36 +71,33 @@ ASSUMPTIONS_DEFAULTS = {
 }
 
 
+PROGRAM_START_CWD = Path(os.getcwd()).resolve()
+
+
 def _resolve_project_root(start: Path) -> Path:
     p = start
     if p.is_file():
         p = p.parent
     p = p.resolve()
     while True:
-        # Python backend repo markers
         if (p / "tile_compile_runner.py").exists() and (p / "tile_compile_backend_cli.py").exists():
             return p
-
-        # C++ GUI repo markers (this file lives under tile_compile_cpp/gui/main.py)
-        if (p / "gui" / "constants.js").exists() and ((p / "start_gui.sh").exists() or (p / "CMakeLists.txt").exists()):
-            return p
         if p.parent == p:
-            # Fallback to a directory path (never return a .py file as project_root)
-            return (start.parent if start.is_file() else start).resolve()
+            return start.resolve()
         p = p.parent
 
 
 def _read_gui_constants(project_root: Path) -> dict:
-    js_path = project_root / "gui" / "constants.js"
+    js_path = "constants.js"
     raw = js_path.read_text(encoding="utf-8")
     key = "GUI_CONSTANTS_JSON"
     i = raw.find(key)
     if i < 0:
-        raise RuntimeError("GUI_CONSTANTS_JSON not found in gui/constants.js")
+        raise RuntimeError("GUI_CONSTANTS_JSON not found in constants.js")
     start = raw.find("`", i)
     end = raw.find("`", start + 1)
     if start < 0 or end < 0:
-        raise RuntimeError("failed to parse gui/constants.js")
+        raise RuntimeError("failed to parse constants.js")
     payload = raw[start + 1 : end]
     return json.loads(payload)
 
@@ -117,25 +116,10 @@ class BackendClient:
     def _backend_cmd(self) -> list[str]:
         cli = self.constants.get("CLI", {})
         backend_bin = str(cli.get("backend_bin") or "").strip()
-        backend_fallback_raw = cli.get("backend_fallback")
-        backend_fallback = None if backend_fallback_raw is None else str(backend_fallback_raw).strip()
+        backend_fallback = str(cli.get("backend_fallback") or "tile_compile_backend_cli.py").strip()
 
-        if backend_bin:
-            backend_bin_path = Path(backend_bin)
-            if backend_bin_path.is_absolute() and backend_bin_path.exists():
-                return [str(backend_bin_path)]
-            if not backend_bin_path.is_absolute():
-                candidate = (self.project_root / backend_bin_path).resolve()
-                if candidate.exists():
-                    return [str(candidate)]
-            if _which(backend_bin):
-                return [backend_bin]
-
-        if not backend_fallback:
-            raise RuntimeError(
-                "backend executable not found. Set GUI constants CLI.backend_bin to an existing path (e.g. build/tile_compile_cli)"
-            )
-
+        if backend_bin and _which(backend_bin):
+            return [backend_bin]
         script = str((self.project_root / backend_fallback).resolve())
 
         def can_import_backend_deps(py: str) -> bool:
@@ -240,6 +224,7 @@ class RunnerProcess:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
+                start_new_session=True,
             )
             return self._proc
 
@@ -248,13 +233,46 @@ class RunnerProcess:
             p = self._proc
         if p is None or p.poll() is not None:
             return
-        try:
-            p.send_signal(signal.SIGINT)
-        except Exception:
+
+        def _signal_group(sig: signal.Signals) -> bool:
+            try:
+                os.killpg(p.pid, sig)
+                return True
+            except Exception:
+                return False
+
+        # Try graceful shutdown first.
+        if not _signal_group(signal.SIGINT):
+            try:
+                p.send_signal(signal.SIGINT)
+            except Exception:
+                pass
+
+        t0 = time.time()
+        while time.time() - t0 < 2.0:
+            if p.poll() is not None:
+                return
+            time.sleep(0.05)
+
+        # Escalate to terminate.
+        if not _signal_group(signal.SIGTERM):
             try:
                 p.terminate()
             except Exception:
+                pass
+
+        t0 = time.time()
+        while time.time() - t0 < 2.0:
+            if p.poll() is not None:
                 return
+            time.sleep(0.05)
+
+        # Hard kill.
+        _signal_group(signal.SIGKILL)
+        try:
+            p.kill()
+        except Exception:
+            pass
 
 
 class PhaseProgressWidget(QWidget):
@@ -331,7 +349,7 @@ class PhaseProgressWidget(QWidget):
         else:
             self.reduced_mode_label.setVisible(False)
 
-    def update_phase(self, phase_name: str, status: str, progress_current: int = 0, progress_total: int = 0, substep: str | None = None):
+    def update_phase(self, phase_name: str, status: str, progress_current: int = 0, progress_total: int = 0, substep: str | None = None, pass_info: str | None = None):
         phase_id = None
         for pid, pname, _ in METHODIK_V4_PHASES:
             if pname == phase_name:
@@ -357,14 +375,25 @@ class PhaseProgressWidget(QWidget):
             if progress_total > 0 and progress_current >= 0:
                 percent = int(100 * progress_current / progress_total)
                 progress_bar.setValue(percent)
+                prefix_parts = []
+                if pass_info:
+                    prefix_parts.append(pass_info)
                 if substep:
-                    progress_bar.setFormat(f"{substep}: {progress_current}/{progress_total} ({percent}%)")
+                    prefix_parts.append(substep)
+                prefix = ": ".join(prefix_parts) if prefix_parts else ""
+                if prefix:
+                    progress_bar.setFormat(f"{prefix}: {progress_current}/{progress_total} ({percent}%)")
                 else:
                     progress_bar.setFormat(f"{progress_current}/{progress_total} ({percent}%)")
                 progress_bar.setVisible(True)
             else:
                 progress_bar.setValue(0)
-                progress_bar.setFormat(f"{substep}..." if substep else "running...")
+                if pass_info and substep:
+                    progress_bar.setFormat(f"{pass_info}: {substep}...")
+                elif pass_info:
+                    progress_bar.setFormat(f"{pass_info}...")
+                else:
+                    progress_bar.setFormat(f"{substep}..." if substep else "running...")
                 progress_bar.setVisible(True)
         elif status_lower in ("ok", "success"):
             label.setText("ok")
@@ -671,8 +700,8 @@ class MainWindow(QMainWindow):
         wd_raw = self.working_dir.text().strip()
         wd = Path(wd_raw) if wd_raw else None
         if wd is None or not wd.exists() or not wd.is_dir():
-            self.working_dir.setText(str(Path.cwd()))
-            wd = Path.cwd()
+            self.working_dir.setText(str(PROGRAM_START_CWD))
+            wd = PROGRAM_START_CWD
 
         inp_raw = self.input_dir.text().strip()
         if inp_raw and not Path(inp_raw).exists():
@@ -697,7 +726,7 @@ class MainWindow(QMainWindow):
         self._update_controls()
 
     def _load_styles(self) -> None:
-        p = self.project_root / "gui" / "styles.qss"
+        p = self.project_root / "styles.qss"
         try:
             self.setStyleSheet(p.read_text(encoding="utf-8"))
         except Exception:
@@ -1197,7 +1226,33 @@ class MainWindow(QMainWindow):
         self.cal_flat_use_master.toggled.connect(lambda *_: self._persist_calibration_from_ui())
 
     def _append_live(self, text: str) -> None:
-        self.live_log.appendPlainText(text)
+        """Append text to live log with color formatting.
+        
+        Colors:
+        - [error] or ERROR: red
+        - [warn] or WARNING: bright orange
+        - [info] or [ui] or [backend] or [runner]: blue
+        """
+        # Detect log level and apply color
+        text_lower = text.lower()
+        color = None
+        
+        if "[error]" in text_lower or "error:" in text_lower or text_lower.startswith("error"):
+            color = "#ff3333"  # red (only for errors)
+        elif "[warn]" in text_lower or "warning:" in text_lower or text_lower.startswith("warning"):
+            color = "#ff9900"  # bright orange (not red!)
+        elif any(prefix in text_lower for prefix in ["[info]", "[ui]", "[backend]", "[runner]", "[phase"]):
+            color = "#4488ff"  # blue
+        
+        if color:
+            # Use HTML formatting for colored text with explicit color reset
+            html_text = f'<span style="color: {color};">{text}</span><span style="color: black;"></span>'
+            self.live_log.appendHtml(html_text)
+        else:
+            # Normal text in black
+            html_text = f'<span style="color: black;">{text}</span>'
+            self.live_log.appendHtml(html_text)
+        
         sb = self.live_log.verticalScrollBar()
         sb.setValue(sb.maximum())
 
@@ -1207,6 +1262,62 @@ class MainWindow(QMainWindow):
         ts_short = ts[11:19] if len(ts) >= 19 else ts
         phase = ev.get("phase")
         phase_name = str(ev.get("phase_name") or "")
+
+        if ev_type == "tile_debug":
+            parts: list[str] = []
+            if ts_short:
+                parts.append(ts_short)
+            parts.append(ev_type)
+            if phase_name:
+                if phase is not None:
+                    parts.append(f"{phase}. {phase_name}")
+                else:
+                    parts.append(phase_name)
+
+            try:
+                rp = ev.get("refine_pass")
+                pt = ev.get("passes_total")
+                if rp is not None and pt is not None:
+                    rp_i = int(rp)
+                    pt_i = int(pt)
+                    if pt_i > 0:
+                        parts.append(f"pass={rp_i + 1}/{pt_i}")
+            except Exception:
+                pass
+
+            tile_id = ev.get("tile_id")
+            if tile_id is not None:
+                parts.append(f"tile={tile_id}")
+
+            iteration = ev.get("iteration")
+            if iteration is not None:
+                parts.append(f"iter={iteration}")
+
+            debug_type = str(ev.get("debug_type") or "").strip()
+            if debug_type:
+                parts.append(debug_type)
+
+            if debug_type == "tile_registration_debug_summary":
+                kept = ev.get("kept_frames")
+                total = ev.get("total_frames")
+                if kept is not None and total is not None:
+                    parts.append(f"kept={kept}/{total}")
+                if ev.get("median_dx") is not None and ev.get("median_dy") is not None:
+                    parts.append(f"median=({ev.get('median_dx')},{ev.get('median_dy')})")
+                if ev.get("max_warp_delta_px") is not None:
+                    parts.append(f"max_delta={ev.get('max_warp_delta_px')}")
+            else:
+                frame_index = ev.get("frame_index")
+                if frame_index is not None:
+                    parts.append(f"frame={frame_index}")
+                if ev.get("dx") is not None and ev.get("dy") is not None:
+                    parts.append(f"d=({ev.get('dx')},{ev.get('dy')})")
+                if ev.get("cc") is not None:
+                    parts.append(f"cc={ev.get('cc')}")
+                if ev.get("delta") is not None:
+                    parts.append(f"delta={ev.get('delta')}")
+
+            return " | ".join(str(p) for p in parts)
 
         parts: list[str] = []
         if ts_short:
@@ -1265,9 +1376,9 @@ class MainWindow(QMainWindow):
                     self.ui_call.emit(lambda: on_ok(res))
             except Exception as e:  # noqa: BLE001
                 if on_err is not None:
-                    self.ui_call.emit(lambda: on_err(e))
+                    self.ui_call.emit(lambda err=e: on_err(err))
                 else:
-                    self.ui_call.emit(lambda: self._append_live(f"[error] {e}"))
+                    self.ui_call.emit(lambda err=e: self._append_live(f"[error] {err}"))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1478,7 +1589,7 @@ class MainWindow(QMainWindow):
             elif last and not self.input_dir.text().strip():
                 self.input_dir.setText(last)
 
-            self.working_dir.setText(str(state.get("workingDir") or "").strip() or str(self.project_root))
+            self.working_dir.setText(str(state.get("workingDir") or "").strip() or "")
             runs_dir = str(state.get("runsDir") or "").strip()
             if runs_dir:
                 self.runs_dir.setText(runs_dir)
@@ -1569,6 +1680,7 @@ class MainWindow(QMainWindow):
             self.cal_flat_master.blockSignals(False)
 
         self._update_controls()
+        self._ensure_startup_paths()
 
     def _schedule_save_gui_state(self) -> None:
         try:
@@ -1588,6 +1700,10 @@ class MainWindow(QMainWindow):
         self._run_bg(do)
 
     def closeEvent(self, event) -> None:
+        try:
+            self.runner.stop()
+        except Exception:
+            pass
         try:
             payload = self._collect_gui_state()
             wd = Path(self.project_root)
@@ -1941,7 +2057,7 @@ class MainWindow(QMainWindow):
             # Convenience: propagate input dir
             if res.get("ok"):
                 self.input_dir.setText(input_path)
-                self._save_gui_state(last_input_dir=input_path)
+                self._schedule_save_gui_state()
 
             self._update_controls()
 
@@ -1987,11 +2103,9 @@ class MainWindow(QMainWindow):
             config_path = wd / config_path
             
         if not config_path.exists():
-            self.lbl_cfg.setText("error")
+            self._append_live(f"[warn] config file not found: {config_path} -> using default preset 2")
+            self._load_default_config_preset2()
             self.lbl_header.setText("idle")
-            err_msg = f"Config file not found: {config_path}"
-            self._append_live(f"[error] {err_msg}")
-            QMessageBox.critical(self, "Load config failed", err_msg)
             self._update_controls()
             return
 
@@ -2145,6 +2259,8 @@ class MainWindow(QMainWindow):
         cmd = self._runner_cmd() + [
             "--config",
             str(eff_config_path),
+            "--project-root",
+            str(wd),
             "--input-dir",
             input_dir,
             "--runs-dir",
@@ -2202,7 +2318,16 @@ class MainWindow(QMainWindow):
                                         total = int(ev.get("total", 0))
                                         substep = ev.get("substep")
                                         substep_s = str(substep).strip() if isinstance(substep, str) and substep.strip() else None
-                                        self.phase_progress.update_phase(phase_name, "running", current, total, substep_s)
+                                        pass_info = None
+                                        if phase_name == "TILE_RECONSTRUCTION_TLR":
+                                            try:
+                                                rp = int(ev.get("refine_pass", 0))
+                                                pt = int(ev.get("passes_total", 0))
+                                                if pt > 0:
+                                                    pass_info = f"Pass {rp + 1}/{pt}"
+                                            except Exception:
+                                                pass_info = None
+                                        self.phase_progress.update_phase(phase_name, "running", current, total, substep_s, pass_info)
                                     elif ev_type == "phase_end":
                                         phase_name = ev.get("phase_name", "")
                                         status = str(ev.get("status") or "ok").lower()
@@ -2477,7 +2602,7 @@ class MainWindow(QMainWindow):
             self.phase_progress.reset()
             
             # Track last status for each phase
-            phase_status: dict[str, tuple[str, int, int, str | None]] = {}  # phase_name -> (status, current, total, substep)
+            phase_status: dict[str, tuple[str, int, int, str | None, str | None]] = {}  # phase_name -> (status, current, total, substep, pass_info)
             last_error_by_phase: dict[str, str] = {}
             
             for ev in events:
@@ -2494,7 +2619,7 @@ class MainWindow(QMainWindow):
                 if ev_type == "phase_start":
                     if prev_status in ("ok", "error", "skipped"):
                         continue
-                    phase_status[phase_name] = ("running", 0, 0, None)
+                    phase_status[phase_name] = ("running", 0, 0, None, None)
                 elif ev_type == "phase_progress":
                     if prev_status in ("ok", "error", "skipped"):
                         continue
@@ -2502,13 +2627,22 @@ class MainWindow(QMainWindow):
                     total = int(ev.get("total", 0))
                     substep = ev.get("substep")
                     substep_s = str(substep).strip() if isinstance(substep, str) and substep.strip() else None
-                    phase_status[phase_name] = ("running", current, total, substep_s)
+                    pass_info = None
+                    if phase_name == "TILE_RECONSTRUCTION_TLR":
+                        try:
+                            rp = int(ev.get("refine_pass", 0))
+                            pt = int(ev.get("passes_total", 0))
+                            if pt > 0:
+                                pass_info = f"Pass {rp + 1}/{pt}"
+                        except Exception:
+                            pass_info = None
+                    phase_status[phase_name] = ("running", current, total, substep_s, pass_info)
                 elif ev_type == "phase_end":
                     status = str(ev.get("status") or "ok").lower()
                     if status == "skipped":
-                        phase_status[phase_name] = ("skipped", 0, 0, None)
+                        phase_status[phase_name] = ("skipped", 0, 0, None, None)
                     elif status in ("ok", "success"):
-                        phase_status[phase_name] = ("ok", 0, 0, None)
+                        phase_status[phase_name] = ("ok", 0, 0, None, None)
                         # Check for fallback warnings
                         fallback_reason = ev.get("fallback_reason")
                         if fallback_reason:
@@ -2523,14 +2657,14 @@ class MainWindow(QMainWindow):
                                 if ev.get("used_reconstructed_fallback"):
                                     last_error_by_phase[phase_name] = "Using reconstructed frames (no synthetic frames available)"
                     else:
-                        phase_status[phase_name] = ("error", 0, 0, None)
+                        phase_status[phase_name] = ("error", 0, 0, None, None)
                         detail = str(ev.get("error") or "").strip()
                         if detail:
                             last_error_by_phase[phase_name] = detail
             
             # Apply final status to widget
-            for phase_name, (status, current, total, substep_s) in phase_status.items():
-                self.phase_progress.update_phase(phase_name, status, current, total, substep_s)
+            for phase_name, (status, current, total, substep_s, pass_info) in phase_status.items():
+                self.phase_progress.update_phase(phase_name, status, current, total, substep_s, pass_info)
 
             if last_error_by_phase:
                 phase_name = next(reversed(last_error_by_phase.keys()))
