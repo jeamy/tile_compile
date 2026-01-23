@@ -1,6 +1,6 @@
 export const GUI_CONSTANTS_JSON = `{
   "CLI": {
-    "backend_bin": "../build/tile_compile_cli",
+    "backend_bin": "build/tile_compile_cli",
     "backend_fallback": null,
     "sub": {
       "LOAD_GUI_STATE": "load-gui-state",
@@ -18,7 +18,7 @@ export const GUI_CONSTANTS_JSON = `{
     }
   },
   "RUNNER": {
-    "executable": "../build/tile_compile_runner",
+    "executable": "build/tile_compile_runner",
     "run_subcommand": "run"
   },
   "BACKEND": "cpp"

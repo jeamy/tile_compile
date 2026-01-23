@@ -28,7 +28,11 @@ bool is_fits_image_path(const fs::path& path);
 
 std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path);
 
+Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width, int height);
+
 void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHeader& header);
+
+void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B, const FitsHeader& header);
 
 BayerPattern detect_bayer_pattern(const FitsHeader& header);
 

@@ -179,6 +179,63 @@ std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path) {
     return {data, header};
 }
 
+Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width, int height) {
+    fitsfile* fptr = nullptr;
+    int status = 0;
+
+    if (fits_open_file(&fptr, path.string().c_str(), READONLY, &status)) {
+        throw FitsError("Cannot open FITS file: " + path.string());
+    }
+
+    int naxis = 0;
+    long naxes[3] = {0, 0, 0};
+    int bitpix = 0;
+
+    fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
+    if (status || naxis < 2) {
+        fits_close_file(fptr, &status);
+        throw FitsError("Cannot read FITS image parameters: " + path.string());
+    }
+
+    int img_w = static_cast<int>(naxes[0]);
+    int img_h = static_cast<int>(naxes[1]);
+
+    int rx0 = std::max(0, x0);
+    int ry0 = std::max(0, y0);
+    int rx1 = std::min(img_w, x0 + width);
+    int ry1 = std::min(img_h, y0 + height);
+
+    int rw = std::max(0, rx1 - rx0);
+    int rh = std::max(0, ry1 - ry0);
+
+    if (rw <= 0 || rh <= 0) {
+        fits_close_file(fptr, &status);
+        return Matrix2Df();
+    }
+
+    std::vector<float> buffer(static_cast<size_t>(rw) * static_cast<size_t>(rh));
+
+    long fpixel[2] = {static_cast<long>(rx0 + 1), static_cast<long>(ry0 + 1)};
+    long lpixel[2] = {static_cast<long>(rx0 + rw), static_cast<long>(ry0 + rh)};
+    long inc[2] = {1, 1};
+
+    fits_read_subset(fptr, TFLOAT, fpixel, lpixel, inc, nullptr, buffer.data(), nullptr, &status);
+    fits_close_file(fptr, &status);
+
+    if (status) {
+        throw FitsError("Cannot read FITS ROI pixel data: " + path.string());
+    }
+
+    Matrix2Df data(rh, rw);
+    for (int yy = 0; yy < rh; ++yy) {
+        for (int xx = 0; xx < rw; ++xx) {
+            data(yy, xx) = buffer[static_cast<size_t>(yy) * static_cast<size_t>(rw) + static_cast<size_t>(xx)];
+        }
+    }
+
+    return data;
+}
+
 void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHeader& header) {
     fitsfile* fptr = nullptr;
     int status = 0;
@@ -196,32 +253,45 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
         fits_close_file(fptr, &status);
         throw FitsError("Cannot create FITS image: " + path.string());
     }
+
+    auto should_skip_key = [](const std::string& key) -> bool {
+        return key == "SIMPLE" || key == "BITPIX" || key == "NAXIS" || key == "NAXIS1" || key == "NAXIS2" ||
+               key == "EXTEND";
+    };
     
     for (const auto& [key, value] : header.string_values) {
         if (key.size() <= 8) {
+            if (should_skip_key(key)) continue;
             fits_update_key(fptr, TSTRING, key.c_str(), 
                            const_cast<char*>(value.c_str()), nullptr, &status);
+            if (status) status = 0;
         }
     }
     
     for (const auto& [key, value] : header.numeric_values) {
         if (key.size() <= 8) {
+            if (should_skip_key(key)) continue;
             double val = value;
             fits_update_key(fptr, TDOUBLE, key.c_str(), &val, nullptr, &status);
+            if (status) status = 0;
         }
     }
     
     for (const auto& [key, value] : header.int_values) {
         if (key.size() <= 8) {
+            if (should_skip_key(key)) continue;
             int val = value;
             fits_update_key(fptr, TINT, key.c_str(), &val, nullptr, &status);
+            if (status) status = 0;
         }
     }
     
     for (const auto& [key, value] : header.bool_values) {
         if (key.size() <= 8) {
+            if (should_skip_key(key)) continue;
             int val = value ? 1 : 0;
             fits_update_key(fptr, TLOGICAL, key.c_str(), &val, nullptr, &status);
+            if (status) status = 0;
         }
     }
     
@@ -233,10 +303,90 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
     }
     
     long fpixel[2] = {1, 1};
-    fits_write_pix(fptr, TFLOAT, fpixel, data.size(), buffer.data(), &status);
+    long nelem = static_cast<long>(data.size());
+    fits_write_pix(fptr, TFLOAT, fpixel, nelem, buffer.data(), &status);
     if (status) {
         fits_close_file(fptr, &status);
         throw FitsError("Cannot write FITS pixel data: " + path.string());
+    }
+    
+    fits_close_file(fptr, &status);
+}
+
+void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B, const FitsHeader& header) {
+    if (R.rows() != G.rows() || R.rows() != B.rows() || R.cols() != G.cols() || R.cols() != B.cols()) {
+        throw FitsError("RGB channel dimensions must match");
+    }
+
+    fitsfile* fptr = nullptr;
+    int status = 0;
+    
+    std::string filepath = "!" + path.string();
+    
+    if (fits_create_file(&fptr, filepath.c_str(), &status)) {
+        throw FitsError("Cannot create FITS file: " + path.string());
+    }
+    
+    // Create 3D image cube: NAXIS1=width, NAXIS2=height, NAXIS3=3 (RGB planes)
+    long naxes[3] = {R.cols(), R.rows(), 3};
+    
+    fits_create_img(fptr, FLOAT_IMG, 3, naxes, &status);
+    if (status) {
+        fits_close_file(fptr, &status);
+        throw FitsError("Cannot create FITS RGB image: " + path.string());
+    }
+
+    auto should_skip_key = [](const std::string& key) -> bool {
+        return key == "SIMPLE" || key == "BITPIX" || key == "NAXIS" || 
+               key == "NAXIS1" || key == "NAXIS2" || key == "NAXIS3" || key == "EXTEND";
+    };
+    
+    for (const auto& [key, value] : header.string_values) {
+        if (key.size() <= 8 && !should_skip_key(key)) {
+            fits_update_key(fptr, TSTRING, key.c_str(), const_cast<char*>(value.c_str()), nullptr, &status);
+            if (status) status = 0;
+        }
+    }
+    
+    for (const auto& [key, value] : header.numeric_values) {
+        if (key.size() <= 8 && !should_skip_key(key)) {
+            double val = value;
+            fits_update_key(fptr, TDOUBLE, key.c_str(), &val, nullptr, &status);
+            if (status) status = 0;
+        }
+    }
+    
+    // Write R plane (z=1)
+    std::vector<float> buffer(static_cast<size_t>(R.size()));
+    for (long y = 0; y < R.rows(); ++y) {
+        for (long x = 0; x < R.cols(); ++x) {
+            buffer[static_cast<size_t>(y * R.cols() + x)] = R(y, x);
+        }
+    }
+    long fpixel_r[3] = {1, 1, 1};
+    fits_write_pix(fptr, TFLOAT, fpixel_r, static_cast<long>(R.size()), buffer.data(), &status);
+    
+    // Write G plane (z=2)
+    for (long y = 0; y < G.rows(); ++y) {
+        for (long x = 0; x < G.cols(); ++x) {
+            buffer[static_cast<size_t>(y * G.cols() + x)] = G(y, x);
+        }
+    }
+    long fpixel_g[3] = {1, 1, 2};
+    fits_write_pix(fptr, TFLOAT, fpixel_g, static_cast<long>(G.size()), buffer.data(), &status);
+    
+    // Write B plane (z=3)
+    for (long y = 0; y < B.rows(); ++y) {
+        for (long x = 0; x < B.cols(); ++x) {
+            buffer[static_cast<size_t>(y * B.cols() + x)] = B(y, x);
+        }
+    }
+    long fpixel_b[3] = {1, 1, 3};
+    fits_write_pix(fptr, TFLOAT, fpixel_b, static_cast<long>(B.size()), buffer.data(), &status);
+    
+    if (status) {
+        fits_close_file(fptr, &status);
+        throw FitsError("Cannot write FITS RGB pixel data: " + path.string());
     }
     
     fits_close_file(fptr, &status);
