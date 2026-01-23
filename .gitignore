@@ -12,32 +12,30 @@ ENV/
 .coverage
 htmlcov/
 
+# C++ build
+tile_compile_cpp/build/
+tile_compile_cpp/cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+
 # Runtime / outputs
 runs/
+/runs/
 outputs/
 artifacts/
 logs/
 *.log
 
-# Build artifacts
-build/
+# GUI state files
+.tile_compile/
+tile_compile_python/tile_compile_gui_state.json
+tile_compile_gui_state.json
+
+# Build artifacts (Python)
 dist/
 *.egg-info/
-
-# Node / frontend (Tauri)
-node_modules/
-.pnpm-store/
-.npm/
-.yarn/
-.yarnrc.yml
-
-# Tauri / Rust
-src-tauri/target/
-**/target/
-
-# Tauri bundling outputs
-**/src-tauri/gen/
-**/src-tauri/icons/
 
 # OS / editors
 .DS_Store
@@ -47,6 +45,10 @@ Thumbs.db
 .idea/
 .vscode/
 
+*.tar.gz
+
 # Local env files
 *.local
 *.local.*
+
+
