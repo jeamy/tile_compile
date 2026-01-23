@@ -9,10 +9,13 @@
 #include "tile_compile/registration/registration.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <opencv2/opencv.hpp>
@@ -590,12 +593,32 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     int temporal_smoothing_window = cfg.registration.local_tiles.temporal_smoothing_window;
     float max_warp_delta_px = cfg.registration.local_tiles.max_warp_delta_px;
     float variance_sigma = cfg.registration.local_tiles.variance_window_sigma;
+    
+    // Parallel processing configuration
+    int parallel_tiles = cfg.v4.parallel_tiles;
+    int cpu_cores = std::thread::hardware_concurrency();
+    if (cpu_cores == 0) cpu_cores = 1;
+    if (parallel_tiles > cpu_cores) {
+        std::cout << "[WARNING] parallel_tiles (" << parallel_tiles << ") exceeds CPU cores (" 
+                  << cpu_cores << "), capping to " << cpu_cores << std::endl;
+        parallel_tiles = cpu_cores;
+    }
+    if (parallel_tiles < 1) parallel_tiles = 1;
+    
+    std::cout << "[Phase 6] Using " << parallel_tiles << " parallel workers for " 
+              << tiles_phase56.size() << " tiles" << std::endl;
 
     std::vector<int> tile_valid_counts(tiles_phase56.size(), 0);
     std::vector<float> tile_warp_variances(tiles_phase56.size(), 0.0f);
     std::vector<float> tile_mean_correlations(tiles_phase56.size(), 0.0f);
+    
+    // Thread-safe structures for parallel processing
+    std::mutex recon_mutex;
+    std::atomic<size_t> tiles_completed{0};
+    std::atomic<size_t> tiles_failed{0};
 
-    for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+    // Worker function for parallel tile processing
+    auto process_tile = [&](size_t ti) {
         const Tile& t = tiles_phase56[ti];
 
         // Initial reference: median of all tiles (simplified: use first frame)
@@ -607,12 +630,18 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 Matrix2Df sample = extract_tile(img, t);
                 if (sample.size() > 0) tile_samples.push_back(sample);
             }
-            if (tile_samples.empty()) continue;
+            if (tile_samples.empty()) {
+                tiles_failed++;
+                return;
+            }
             // Use first sample as initial reference
             ref_tile = tile_samples[0];
         }
 
-        if (ref_tile.size() <= 0) continue;
+        if (ref_tile.size() <= 0) {
+            tiles_failed++;
+            return;
+        }
 
         std::vector<float> hann_x = make_hann_1d(ref_tile.cols());
         std::vector<float> hann_y = make_hann_1d(ref_tile.rows());
@@ -790,7 +819,10 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         int valid = static_cast<int>(final_warped_tiles.size());
         tile_valid_counts[ti] = valid;
 
-        if (valid < std::max(1, min_valid_frames)) continue;
+        if (valid < std::max(1, min_valid_frames)) {
+            tiles_failed++;
+            return;
+        }
 
         // Compute warp variance for this tile
         float warp_var = compute_warp_variance(final_translations);
@@ -805,7 +837,10 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         // Final weighted sum
         float wsum = 0.0f;
         for (float w : final_weights) wsum += w;
-        if (wsum <= 0.0f) continue;
+        if (wsum <= 0.0f) {
+            tiles_failed++;
+            return;
+        }
 
         Matrix2Df tile_rec = Matrix2Df::Zero(ref_tile.rows(), ref_tile.cols());
         for (size_t i = 0; i < final_warped_tiles.size(); ++i) {
@@ -815,25 +850,63 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         // Variance window weight ψ(var) (Methodik v4 §9)
         float psi = variance_window_weight(warp_var, variance_sigma);
 
-        // Overlap-add into full image with variance-weighted Hanning window
-        int x0 = std::max(0, t.x);
-        int y0 = std::max(0, t.y);
-        for (int yy = 0; yy < tile_rec.rows(); ++yy) {
-            for (int xx = 0; xx < tile_rec.cols(); ++xx) {
-                int iy = y0 + yy;
-                int ix = x0 + xx;
-                if (iy < 0 || iy >= recon.rows() || ix < 0 || ix >= recon.cols()) continue;
+        // Overlap-add into full image with variance-weighted Hanning window (thread-safe)
+        {
+            std::lock_guard<std::mutex> lock(recon_mutex);
+            int x0 = std::max(0, t.x);
+            int y0 = std::max(0, t.y);
+            for (int yy = 0; yy < tile_rec.rows(); ++yy) {
+                for (int xx = 0; xx < tile_rec.cols(); ++xx) {
+                    int iy = y0 + yy;
+                    int ix = x0 + xx;
+                    if (iy < 0 || iy >= recon.rows() || ix < 0 || ix >= recon.cols()) continue;
 
-                float win = hann_y[static_cast<size_t>(yy)] * hann_x[static_cast<size_t>(xx)] * psi;
-                recon(iy, ix) += tile_rec(yy, xx) * win;
-                weight_sum(iy, ix) += win;
+                    float win = hann_y[static_cast<size_t>(yy)] * hann_x[static_cast<size_t>(xx)] * psi;
+                    recon(iy, ix) += tile_rec(yy, xx) * win;
+                    weight_sum(iy, ix) += win;
+                }
             }
         }
-
-        const float p = tiles_phase56.empty() ? 1.0f : static_cast<float>(ti + 1) / static_cast<float>(tiles_phase56.size());
-        emitter.phase_progress(run_id, Phase::TILE_RECONSTRUCTION_TLR, p,
-                               "tile_recon " + std::to_string(ti + 1) + "/" + std::to_string(tiles_phase56.size()),
-                               log_file);
+        
+        // Update progress (thread-safe)
+        tiles_completed++;
+        size_t completed = tiles_completed.load();
+        if (completed % std::max(size_t(1), tiles_phase56.size() / 20) == 0 || completed == tiles_phase56.size()) {
+            const float p = tiles_phase56.empty() ? 1.0f : static_cast<float>(completed) / static_cast<float>(tiles_phase56.size());
+            emitter.phase_progress(run_id, Phase::TILE_RECONSTRUCTION_TLR, p,
+                                   "tile_recon " + std::to_string(completed) + "/" + std::to_string(tiles_phase56.size()),
+                                   log_file);
+        }
+    };
+    
+    // Execute tiles in parallel or serial based on parallel_tiles setting
+    if (parallel_tiles > 1) {
+        std::cout << "  Processing " << tiles_phase56.size() << " tiles with " << parallel_tiles << " workers..." << std::endl;
+        
+        std::vector<std::thread> workers;
+        std::atomic<size_t> next_tile{0};
+        
+        for (int w = 0; w < parallel_tiles; ++w) {
+            workers.emplace_back([&]() {
+                while (true) {
+                    size_t ti = next_tile.fetch_add(1);
+                    if (ti >= tiles_phase56.size()) break;
+                    process_tile(ti);
+                }
+            });
+        }
+        
+        for (auto& worker : workers) {
+            worker.join();
+        }
+        
+        std::cout << "  Completed " << tiles_completed.load() << " tiles (" 
+                  << tiles_failed.load() << " failed)" << std::endl;
+    } else {
+        std::cout << "  Processing " << tiles_phase56.size() << " tiles serially..." << std::endl;
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+            process_tile(ti);
+        }
     }
 
     cv::setNumThreads(prev_cv_threads_recon);

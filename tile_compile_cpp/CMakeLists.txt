@@ -82,6 +82,9 @@ set(LIB_SOURCES
     src/pipeline/phases.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/pipeline/pipeline.cpp
+    src/runner/events.cpp
+    src/runner/utils.cpp
+    src/runner/fits_utils.cpp
 )
 
 # Main library
