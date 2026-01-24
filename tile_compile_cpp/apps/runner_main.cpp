@@ -32,6 +32,29 @@ namespace {
 using tile_compile::Matrix2Df;
 using tile_compile::ColorMode;
 
+class TeeBuf : public std::streambuf {
+public:
+    TeeBuf(std::streambuf* a, std::streambuf* b) : a_(a), b_(b) {}
+
+protected:
+    int overflow(int c) override {
+        if (c == EOF) return EOF;
+        const int ra = a_ ? a_->sputc(static_cast<char>(c)) : c;
+        const int rb = b_ ? b_->sputc(static_cast<char>(c)) : c;
+        return (ra == EOF || rb == EOF) ? EOF : c;
+    }
+
+    int sync() override {
+        int ra = a_ ? a_->pubsync() : 0;
+        int rb = b_ ? b_->pubsync() : 0;
+        return (ra == 0 && rb == 0) ? 0 : -1;
+    }
+
+private:
+    std::streambuf* a_;
+    std::streambuf* b_;
+};
+
 struct NormalizationScales {
     bool is_osc = false;
     float scale_mono = 1.0f;
@@ -296,12 +319,15 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     
     core::copy_config(cfg_path, run_dir / "config.yaml");
     
-    std::ofstream log_file(run_dir / "logs" / "run_events.jsonl");
+    std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl");
+    TeeBuf tee_buf(std::cout.rdbuf(), event_log_file.rdbuf());
+    std::ostream log_file(&tee_buf);
     
     core::EventEmitter emitter;
     emitter.run_start(run_id, {
         {"config_path", config_path},
         {"input_dir", input_dir},
+        {"run_dir", run_dir.string()},
         {"frames_discovered", frames.size()},
         {"dry_run", dry_run}
     }, log_file);
