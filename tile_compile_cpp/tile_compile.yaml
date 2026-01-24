@@ -43,8 +43,8 @@ calibration:
 
 assumptions:
   frames_min: 50
-  frames_optimal: 200
-  frames_reduced_threshold: 199
+  frames_optimal: 300
+  frames_reduced_threshold: 200
   exposure_time_tolerance_percent: 5.0
   warp_variance_warn: 2.0              # v4: warp variance warning threshold
   warp_variance_max: 8.0               # v4: max warp variance (tile invalid above)
@@ -56,10 +56,11 @@ assumptions:
 # Methodology v4 specific parameters
 # Current preset: 2 (Alt/Az, strong field rotation)
 v4:
-  iterations: 4                        # iterative reconstruction iterations (§5.2)
+  iterations: 3                       # iterative reconstruction iterations (§5.2)
   beta: 6.0                            # R_{f,t} = exp(β·(cc-1)) sensitivity (§7)
   min_valid_tile_fraction: 0.3         # abort if < 30% valid tiles (§12)
   parallel_tiles: 8                    # number of parallel tile workers (1=serial, 8=default)
+  debug_tile_registration: true       # print per-tile warp consistency debug info
   
   adaptive_tiles:
     enabled: true                      # enable adaptive tile refinement
@@ -90,8 +91,6 @@ v4:
     warp_field: true                   # save warp vector field
     tile_invalid_map: true             # save invalid tile map
     warp_variance_hist: true           # save variance statistics
-
-  debug_tile_registration: false       # print per-tile warp consistency debug info
 
 normalization:
   enabled: true
@@ -188,3 +187,4 @@ validation:
 runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0
   hard_abort_hours: 6
+

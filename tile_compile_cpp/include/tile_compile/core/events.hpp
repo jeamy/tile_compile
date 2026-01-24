@@ -19,6 +19,9 @@ public:
     void phase_start(const std::string& run_id, Phase phase, const std::string& name, std::ostream& out);
     void phase_progress(const std::string& run_id, Phase phase, float progress, 
                         const std::string& message, std::ostream& out);
+    void phase_progress_counts(const std::string& run_id, Phase phase, int current, int total,
+                               const std::string& substep, const std::string& pass,
+                               std::ostream& out);
     void phase_end(const std::string& run_id, Phase phase, const std::string& status,
                    const json& extra, std::ostream& out);
     
