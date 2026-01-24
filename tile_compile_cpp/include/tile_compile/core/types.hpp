@@ -94,13 +94,24 @@ struct FrameMetrics {
     float quality_score;   // Combined quality score
 };
 
+// Tile type
+enum class TileType {
+    STAR,
+    STRUCTURE
+};
+
 // Tile metrics (local)
 struct TileMetrics {
-    float fwhm;           // Full Width at Half Maximum
-    float roundness;      // Star roundness (0-1)
-    float contrast;       // Local contrast
-    float sharpness;      // Sharpness metric
-    float quality_score;  // Combined local quality
+    float fwhm;            // STAR: FWHM estimate
+    float roundness;       // STAR: roundness proxy
+    float contrast;        // STAR: contrast proxy
+    float sharpness;       // reserved
+    float background;      // STRUCTURE: background proxy
+    float noise;           // STRUCTURE: noise proxy
+    float gradient_energy; // STRUCTURE: gradient energy proxy
+    int star_count;        // STAR-vs-STRUCTURE classifier
+    TileType type;         // STAR or STRUCTURE
+    float quality_score;   // Q_local (clipped)
 };
 
 // Channel metrics container
