@@ -4,6 +4,7 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QPushButton>
 
 namespace tile_compile::gui {
 
@@ -18,8 +19,8 @@ constexpr double ELONGATION_WARN = 0.3;
 constexpr double ELONGATION_MAX = 0.4;
 constexpr double TRACKING_ERROR_MAX_PX = 1.0;
 constexpr bool REDUCED_MODE_SKIP_CLUSTERING = true;
-constexpr int REDUCED_MODE_CLUSTER_MIN = 5;
-constexpr int REDUCED_MODE_CLUSTER_MAX = 10;
+constexpr int REDUCED_MODE_CLUSTER_MIN = 15;
+constexpr int REDUCED_MODE_CLUSTER_MAX = 30;
 }
 
 AssumptionsWidget::AssumptionsWidget(QWidget *parent) : QWidget(parent) {
@@ -30,6 +31,16 @@ void AssumptionsWidget::build_ui() {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(12);
+
+    auto *reset_row = new QHBoxLayout();
+    reset_row->addStretch(1);
+    auto *btn_reset = new QPushButton("Default");
+    connect(btn_reset, &QPushButton::clicked, this, [this]() {
+        reset_to_defaults();
+        emit assumptions_changed();
+    });
+    reset_row->addWidget(btn_reset);
+    layout->addLayout(reset_row);
 
     auto *hard_box = new QGroupBox("Hard Assumptions (Verletzung → Abbruch)");
     auto *hard_layout = new QVBoxLayout(hard_box);
@@ -207,6 +218,47 @@ void AssumptionsWidget::build_ui() {
     reduced_layout->addRow("", reduced_mode_status_);
     layout->addWidget(reduced_box);
     layout->addStretch(1);
+}
+
+void AssumptionsWidget::reset_to_defaults() {
+    exposure_tolerance_->blockSignals(true);
+    frames_min_->blockSignals(true);
+    frames_reduced_->blockSignals(true);
+    frames_optimal_->blockSignals(true);
+    reg_warn_->blockSignals(true);
+    reg_max_->blockSignals(true);
+    elong_warn_->blockSignals(true);
+    elong_max_->blockSignals(true);
+    tracking_error_max_->blockSignals(true);
+    skip_clustering_->blockSignals(true);
+    cluster_min_->blockSignals(true);
+    cluster_max_->blockSignals(true);
+
+    exposure_tolerance_->setValue(EXPOSURE_TIME_TOLERANCE_PERCENT);
+    frames_min_->setValue(FRAMES_MIN);
+    frames_reduced_->setValue(FRAMES_REDUCED_THRESHOLD);
+    frames_optimal_->setValue(FRAMES_OPTIMAL);
+    reg_warn_->setValue(REGISTRATION_RESIDUAL_WARN_PX);
+    reg_max_->setValue(REGISTRATION_RESIDUAL_MAX_PX);
+    elong_warn_->setValue(ELONGATION_WARN);
+    elong_max_->setValue(ELONGATION_MAX);
+    tracking_error_max_->setValue(TRACKING_ERROR_MAX_PX);
+    skip_clustering_->setChecked(REDUCED_MODE_SKIP_CLUSTERING);
+    cluster_min_->setValue(REDUCED_MODE_CLUSTER_MIN);
+    cluster_max_->setValue(REDUCED_MODE_CLUSTER_MAX);
+
+    exposure_tolerance_->blockSignals(false);
+    frames_min_->blockSignals(false);
+    frames_reduced_->blockSignals(false);
+    frames_optimal_->blockSignals(false);
+    reg_warn_->blockSignals(false);
+    reg_max_->blockSignals(false);
+    elong_warn_->blockSignals(false);
+    elong_max_->blockSignals(false);
+    tracking_error_max_->blockSignals(false);
+    skip_clustering_->blockSignals(false);
+    cluster_min_->blockSignals(false);
+    cluster_max_->blockSignals(false);
 }
 
 nlohmann::json AssumptionsWidget::get_assumptions() const {

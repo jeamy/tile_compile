@@ -60,7 +60,8 @@ v4:
   beta: 6.0                            # R_{f,t} = exp(β·(cc-1)) sensitivity (§7)
   min_valid_tile_fraction: 0.3         # abort if < 30% valid tiles (§12)
   parallel_tiles: 8                    # number of parallel tile workers (1=serial, 8=default)
-  
+  debug_tile_registration: false       # print per-tile warp consistency debug info
+
   adaptive_tiles:
     enabled: true                      # enable adaptive tile refinement
     max_refine_passes: 3               # maximum refinement passes
@@ -90,8 +91,6 @@ v4:
     warp_field: true                   # save warp vector field
     tile_invalid_map: true             # save invalid tile map
     warp_variance_hist: true           # save variance statistics
-
-  debug_tile_registration: false       # print per-tile warp consistency debug info
 
 normalization:
   enabled: true

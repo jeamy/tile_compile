@@ -310,7 +310,14 @@ void MainWindow::on_start_run_clicked() {
     QStringList cmd;
     cmd << runner_path;
     cmd << "run";
-    cmd << "--config" << config_tab->get_config_path();
+    const QString config_yaml = config_tab->get_config_yaml();
+    const bool use_stdin_config = !config_yaml.trimmed().isEmpty();
+    if (use_stdin_config) {
+        cmd << "--config" << "-";
+        cmd << "--stdin";
+    } else {
+        cmd << "--config" << config_tab->get_config_path();
+    }
     cmd << "--input-dir" << input_dir;
     cmd << "--runs-dir" << run_tab->get_runs_dir();
     cmd << "--pattern" << run_tab->get_pattern();
@@ -326,7 +333,8 @@ void MainWindow::on_start_run_clicked() {
     append_live(QString("[runner] %1").arg(cmd.join(" ")));
     
     try {
-        runner_->start(cmd, QString::fromStdString(run_tab->get_working_dir().toStdString()));
+        runner_->start(cmd, QString::fromStdString(run_tab->get_working_dir().toStdString()),
+                      use_stdin_config ? config_yaml : QString());
         update_controls();
     } catch (const std::exception &e) {
         QMessageBox::critical(this, "Start failed", e.what());

@@ -21,6 +21,7 @@ class AssumptionsWidget : public QWidget {
     nlohmann::json get_assumptions() const;
     void set_assumptions(const nlohmann::json &assumptions);
     void update_reduced_mode_status(int frame_count);
+    void reset_to_defaults();
 
   signals:
     void assumptions_changed();

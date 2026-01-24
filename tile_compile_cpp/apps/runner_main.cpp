@@ -15,6 +15,7 @@
 #include <iostream>
 #include <fstream>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -279,27 +280,44 @@ void print_usage() {
 
 int run_command(const std::string& config_path, const std::string& input_dir,
                 const std::string& runs_dir, const std::string& project_root,
-                bool dry_run, int max_frames, int max_tiles) {
+                bool dry_run, int max_frames, int max_tiles, bool config_from_stdin) {
     using namespace tile_compile;
     
     fs::path cfg_path(config_path);
     fs::path in_dir(input_dir);
     fs::path runs(runs_dir);
-    fs::path proj_root = project_root.empty() ? 
-        core::resolve_project_root(cfg_path) : fs::path(project_root);
-    
-    if (!fs::exists(cfg_path)) {
-        std::cerr << "Error: Config file not found: " << config_path << std::endl;
-        return 1;
-    }
+
+    const bool use_stdin_config = config_from_stdin || (config_path == "-");
+    fs::path proj_root;
     
     if (!fs::exists(in_dir)) {
         std::cerr << "Error: Input directory not found: " << input_dir << std::endl;
         return 1;
     }
-    
-    config::Config cfg = config::Config::load(cfg_path);
-    cfg.validate();
+
+    config::Config cfg;
+    std::string cfg_text;
+    if (use_stdin_config) {
+        std::ostringstream ss;
+        ss << std::cin.rdbuf();
+        cfg_text = ss.str();
+        if (cfg_text.empty()) {
+            std::cerr << "Error: --stdin provided but no config YAML received" << std::endl;
+            return 1;
+        }
+        YAML::Node node = YAML::Load(cfg_text);
+        cfg = config::Config::from_yaml(node);
+        cfg.validate();
+        proj_root = project_root.empty() ? fs::current_path() : fs::path(project_root);
+    } else {
+        if (!fs::exists(cfg_path)) {
+            std::cerr << "Error: Config file not found: " << config_path << std::endl;
+            return 1;
+        }
+        cfg = config::Config::load(cfg_path);
+        cfg.validate();
+        proj_root = project_root.empty() ? core::resolve_project_root(cfg_path) : fs::path(project_root);
+    }
     
     auto frames = core::discover_frames(in_dir, "*.fit*");
     std::sort(frames.begin(), frames.end());
@@ -316,12 +334,24 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     fs::create_directories(run_dir / "logs");
     fs::create_directories(run_dir / "outputs");
     fs::create_directories(run_dir / "artifacts");
-    
-    core::copy_config(cfg_path, run_dir / "config.yaml");
+
+    if (use_stdin_config) {
+        std::ofstream out(run_dir / "config.yaml", std::ios::out);
+        out << cfg_text;
+    } else {
+        core::copy_config(cfg_path, run_dir / "config.yaml");
+    }
     
     std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl");
     TeeBuf tee_buf(std::cout.rdbuf(), event_log_file.rdbuf());
     std::ostream log_file(&tee_buf);
+
+    const bool debug_tile_reg = cfg.v4.debug_tile_registration;
+    std::ofstream debug_log_file;
+    std::mutex debug_log_mutex;
+    if (debug_tile_reg) {
+        debug_log_file.open(run_dir / "logs" / "debug.log", std::ios::out);
+    }
     
     core::EventEmitter emitter;
     emitter.run_start(run_id, {
@@ -1057,9 +1087,16 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                       },
                       log_file);
 
+    const bool reduced_mode = (static_cast<int>(frames.size()) < cfg.assumptions.frames_reduced_threshold);
+    const bool skip_clustering_in_reduced = (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
+
     // Phase 6: TILE_RECONSTRUCTION_TLR (Methodik v4 compliant)
     // Features: iterative refinement, temporal smoothing, variance window
     emitter.phase_start(run_id, Phase::TILE_RECONSTRUCTION_TLR, "TILE_RECONSTRUCTION_TLR", log_file);
+
+    const int passes_total = std::max(1, cfg.v4.iterations);
+    const int total_tiles_planned = static_cast<int>(tiles_phase56.size()) * passes_total;
+    std::atomic<int> cumulative_tiles_processed{0};
 
     // Helper: compute warp variance (Methodik v4 §9, §10)
     auto compute_warp_variance = [](const std::vector<std::pair<float, float>>& translations) -> float {
@@ -1112,6 +1149,8 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     Matrix2Df recon = Matrix2Df::Zero(first_img.rows(), first_img.cols());
     Matrix2Df weight_sum = Matrix2Df::Zero(first_img.rows(), first_img.cols());
 
+    bool run_validation_failed = false;
+
     const int prev_cv_threads_recon = cv::getNumThreads();
     cv::setNumThreads(1);
 
@@ -1149,6 +1188,18 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     // Worker function for parallel tile processing
     auto process_tile = [&](size_t ti) {
         const Tile& t = tiles_phase56[ti];
+
+        auto dbg = [&](const std::string& s) {
+            if (!debug_tile_reg || !debug_log_file.is_open()) return;
+            std::lock_guard<std::mutex> lock(debug_log_mutex);
+            debug_log_file << s << "\n";
+        };
+
+        dbg("tile=" + std::to_string(ti) +
+            " x=" + std::to_string(t.x) +
+            " y=" + std::to_string(t.y) +
+            " w=" + std::to_string(t.width) +
+            " h=" + std::to_string(t.height));
 
         // Initial reference: median of all tiles (simplified: use first frame)
         Matrix2Df ref_tile;
@@ -1201,6 +1252,8 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 Matrix2Df mov_tile = extract_tile(img, t);
                 if (mov_tile.size() <= 0 || mov_tile.rows() != ref_tile.rows() || mov_tile.cols() != ref_tile.cols()) {
                     tile_size_mismatches++;
+                    dbg("tile=" + std::to_string(ti) + " iter=" + std::to_string(iter) +
+                        " fi=" + std::to_string(fi) + " reject=size_mismatch");
                     continue;
                 }
 
@@ -1235,6 +1288,16 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                     ecc_failures++;
                     // Continue with phase correlation result (cc=0.0)
                 }
+
+                dbg("tile=" + std::to_string(ti) +
+                    " iter=" + std::to_string(iter) +
+                    " fi=" + std::to_string(fi) +
+                    " init_dx=" + std::to_string(dx) +
+                    " init_dy=" + std::to_string(dy) +
+                    " ecc_success=" + std::string(rr.success ? "1" : "0") +
+                    " cc=" + std::to_string(cc) +
+                    " final_dx=" + std::to_string(final_dx) +
+                    " final_dy=" + std::to_string(final_dy));
 
                 translations.push_back({final_dx, final_dy});
                 correlations.push_back(cc);
@@ -1294,6 +1357,16 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                         (translations[i].second - median_dy) * (translations[i].second - median_dy));
                     if (delta > max_warp_delta_px) {
                         valid_mask[i] = false;
+                        if (i < frame_indices.size()) {
+                            dbg("tile=" + std::to_string(ti) +
+                                " iter=" + std::to_string(iter) +
+                                " fi=" + std::to_string(frame_indices[i]) +
+                                " reject=warp_delta" +
+                                " delta=" + std::to_string(delta) +
+                                " max=" + std::to_string(max_warp_delta_px) +
+                                " median_dx=" + std::to_string(median_dx) +
+                                " median_dy=" + std::to_string(median_dy));
+                        }
                     }
                 }
 
@@ -1314,6 +1387,11 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 correlations = filtered_correlations;
                 warped_tiles = filtered_warped;
                 weights = filtered_weights;
+                {
+                    dbg("tile=" + std::to_string(ti) +
+                        " iter=" + std::to_string(iter) +
+                        " warp_consistency_kept=" + std::to_string(translations.size()));
+                }
             }
 
             // Filter by ECC correlation threshold (but keep phase correlation fallbacks with cc=0)
@@ -1331,6 +1409,15 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                         filtered_correlations.push_back(correlations[i]);
                         filtered_warped.push_back(warped_tiles[i]);
                         filtered_weights.push_back(weights[i]);
+                    } else {
+                        if (i < frame_indices.size()) {
+                            dbg("tile=" + std::to_string(ti) +
+                                " iter=" + std::to_string(iter) +
+                                " fi=" + std::to_string(frame_indices[i]) +
+                                " reject=ecc_cc" +
+                                " cc=" + std::to_string(correlations[i]) +
+                                " min=" + std::to_string(ecc_cc_min));
+                        }
                     }
                 }
                 translations = filtered_translations;
@@ -1362,6 +1449,17 @@ int run_command(const std::string& config_path, const std::string& input_dir,
             final_correlations = correlations;
             final_warped_tiles = warped_tiles;
             final_weights = weights;
+
+            // Per-iteration progress (Python legacy style)
+            const int global_done = cumulative_tiles_processed.fetch_add(1) + 1;
+            emitter.phase_progress_counts(
+                run_id,
+                Phase::TILE_RECONSTRUCTION_TLR,
+                global_done,
+                total_tiles_planned,
+                "Tile " + std::to_string(static_cast<int>(ti) + 1) + " von " + std::to_string(static_cast<int>(tiles_phase56.size())),
+                "Iteration " + std::to_string(iter + 1) + " von " + std::to_string(passes_total),
+                log_file);
         }
 
         int valid = static_cast<int>(final_warped_tiles.size());
@@ -1400,6 +1498,12 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         // Variance window weight ψ(var) (Methodik v4 §9)
         float psi = variance_window_weight(warp_var, variance_sigma);
 
+        dbg("tile=" + std::to_string(ti) +
+            " valid_frames=" + std::to_string(valid) +
+            " warp_var=" + std::to_string(warp_var) +
+            " mean_cc=" + std::to_string(mean_cc) +
+            " psi=" + std::to_string(psi));
+
         // Overlap-add into full image with variance-weighted Hanning window (thread-safe)
         {
             std::lock_guard<std::mutex> lock(recon_mutex);
@@ -1418,15 +1522,8 @@ int run_command(const std::string& config_path, const std::string& input_dir,
             }
         }
         
-        // Update progress (thread-safe)
+        // Update per-tile completion stats (legacy progress is per-iteration)
         tiles_completed++;
-        size_t completed = tiles_completed.load();
-        if (completed % std::max(size_t(1), tiles_phase56.size() / 20) == 0 || completed == tiles_phase56.size()) {
-            const float p = tiles_phase56.empty() ? 1.0f : static_cast<float>(completed) / static_cast<float>(tiles_phase56.size());
-            emitter.phase_progress(run_id, Phase::TILE_RECONSTRUCTION_TLR, p,
-                                   "tile_recon " + std::to_string(completed) + "/" + std::to_string(tiles_phase56.size()),
-                                   log_file);
-        }
     };
     
     // Execute tiles in parallel or serial based on parallel_tiles setting
@@ -1460,6 +1557,11 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     }
 
     cv::setNumThreads(prev_cv_threads_recon);
+
+    if (debug_tile_reg && debug_log_file.is_open()) {
+        std::lock_guard<std::mutex> lock(debug_log_mutex);
+        debug_log_file.flush();
+    }
 
     // Normalize reconstruction
     for (int i = 0; i < recon.size(); ++i) {
@@ -1506,71 +1608,84 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     // Phase 7: STATE_CLUSTERING (Methodik v4 §10)
     emitter.phase_start(run_id, Phase::STATE_CLUSTERING, "STATE_CLUSTERING", log_file);
 
-    // Build state vectors for clustering: [G_f, mean_local_quality, var_local_quality, background, noise]
-    int n_frames_cluster = static_cast<int>(frames.size());
-    std::vector<std::vector<float>> state_vectors(static_cast<size_t>(n_frames_cluster));
-
-    std::vector<float> G_for_cluster(static_cast<size_t>(n_frames_cluster), 1.0f);
-
-    for (size_t fi = 0; fi < frames.size(); ++fi) {
-        float G_f = (fi < static_cast<size_t>(global_weights.size())) ? global_weights[static_cast<int>(fi)] : 1.0f;
-        float bg = (fi < frame_metrics.size()) ? frame_metrics[fi].background : 0.0f;
-        float noise = (fi < frame_metrics.size()) ? frame_metrics[fi].noise : 0.0f;
-
-        // Compute mean/var of local tile quality for this frame
-        float mean_local = 0.0f, var_local = 0.0f;
-        if (fi < local_metrics.size() && !local_metrics[fi].empty()) {
-            for (const auto& tm : local_metrics[fi]) {
-                mean_local += tm.quality_score;
-            }
-            mean_local /= static_cast<float>(local_metrics[fi].size());
-            for (const auto& tm : local_metrics[fi]) {
-                float diff = tm.quality_score - mean_local;
-                var_local += diff * diff;
-            }
-            var_local /= static_cast<float>(local_metrics[fi].size());
-        }
-
-        state_vectors[fi] = {G_f, mean_local, var_local, bg, noise};
-        G_for_cluster[fi] = G_f;
+    // Reduced Mode: optionally skip clustering/synthetic frames when N is small
+    bool use_synthetic_frames = true;
+    std::vector<int> cluster_labels(static_cast<size_t>(frames.size()), 0);
+    int n_clusters = 1;
+    if (skip_clustering_in_reduced) {
+        use_synthetic_frames = false;
+        emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "skipped",
+                          {{"reason", "reduced_mode"},
+                           {"frame_count", static_cast<int>(frames.size())},
+                           {"frames_reduced_threshold", cfg.assumptions.frames_reduced_threshold}},
+                          log_file);
     }
 
-    std::vector<std::vector<float>> X = state_vectors;
-    if (n_frames_cluster > 0) {
-        const size_t D = 5;
-        std::vector<float> means(D, 0.0f);
-        std::vector<float> stds(D, 0.0f);
+    if (!skip_clustering_in_reduced) {
+        // Build state vectors for clustering: [G_f, mean_local_quality, var_local_quality, background, noise]
+        const int n_frames_cluster = static_cast<int>(frames.size());
+        std::vector<std::vector<float>> state_vectors(static_cast<size_t>(n_frames_cluster));
 
-        for (size_t d = 0; d < D; ++d) {
-            double sum = 0.0;
-            for (size_t i = 0; i < X.size(); ++i) sum += static_cast<double>(X[i][d]);
-            means[d] = static_cast<float>(sum / static_cast<double>(X.size()));
-            double var = 0.0;
-            for (size_t i = 0; i < X.size(); ++i) {
-                double diff = static_cast<double>(X[i][d]) - static_cast<double>(means[d]);
-                var += diff * diff;
+        std::vector<float> G_for_cluster(static_cast<size_t>(n_frames_cluster), 1.0f);
+
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+            float G_f = (fi < static_cast<size_t>(global_weights.size())) ? global_weights[static_cast<int>(fi)] : 1.0f;
+            float bg = (fi < frame_metrics.size()) ? frame_metrics[fi].background : 0.0f;
+            float noise = (fi < frame_metrics.size()) ? frame_metrics[fi].noise : 0.0f;
+
+            // Compute mean/var of local tile quality for this frame
+            float mean_local = 0.0f, var_local = 0.0f;
+            if (fi < local_metrics.size() && !local_metrics[fi].empty()) {
+                for (const auto& tm : local_metrics[fi]) {
+                    mean_local += tm.quality_score;
+                }
+                mean_local /= static_cast<float>(local_metrics[fi].size());
+                for (const auto& tm : local_metrics[fi]) {
+                    float diff = tm.quality_score - mean_local;
+                    var_local += diff * diff;
+                }
+                var_local /= static_cast<float>(local_metrics[fi].size());
             }
-            var /= std::max<double>(1.0, static_cast<double>(X.size()));
-            stds[d] = static_cast<float>(std::sqrt(std::max(0.0, var)));
+
+            state_vectors[fi] = {G_f, mean_local, var_local, bg, noise};
+            G_for_cluster[fi] = G_f;
         }
 
-        const float eps = 1.0e-12f;
-        for (size_t i = 0; i < X.size(); ++i) {
+        std::vector<std::vector<float>> X = state_vectors;
+        if (n_frames_cluster > 0) {
+            const size_t D = 5;
+            std::vector<float> means(D, 0.0f);
+            std::vector<float> stds(D, 0.0f);
+
             for (size_t d = 0; d < D; ++d) {
-                float sd = stds[d];
-                X[i][d] = (sd > eps) ? ((X[i][d] - means[d]) / sd) : 0.0f;
+                double sum = 0.0;
+                for (size_t i = 0; i < X.size(); ++i) sum += static_cast<double>(X[i][d]);
+                means[d] = static_cast<float>(sum / static_cast<double>(X.size()));
+                double var = 0.0;
+                for (size_t i = 0; i < X.size(); ++i) {
+                    double diff = static_cast<double>(X[i][d]) - static_cast<double>(means[d]);
+                    var += diff * diff;
+                }
+                var /= std::max<double>(1.0, static_cast<double>(X.size()));
+                stds[d] = static_cast<float>(std::sqrt(std::max(0.0, var)));
+            }
+
+            const float eps = 1.0e-12f;
+            for (size_t i = 0; i < X.size(); ++i) {
+                for (size_t d = 0; d < D; ++d) {
+                    float sd = stds[d];
+                    X[i][d] = (sd > eps) ? ((X[i][d] - means[d]) / sd) : 0.0f;
+                }
             }
         }
-    }
 
-    // Determine cluster count: K = clip(floor(N/10), K_min, K_max)
-    int k_min = cfg.clustering.cluster_count_range[0];
-    int k_max = cfg.clustering.cluster_count_range[1];
-    int k_default = std::max(k_min, std::min(k_max, n_frames_cluster / 10));
+        // Determine cluster count: K = clip(floor(N/10), K_min, K_max)
+        int k_min = cfg.clustering.cluster_count_range[0];
+        int k_max = cfg.clustering.cluster_count_range[1];
+        int k_default = std::max(k_min, std::min(k_max, n_frames_cluster / 10));
 
-    // Simple k-means clustering
-    std::vector<int> cluster_labels(static_cast<size_t>(n_frames_cluster), 0);
-    int n_clusters = std::min(k_default, n_frames_cluster);
+        // Simple k-means clustering
+        n_clusters = std::min(k_default, n_frames_cluster);
 
     std::string clustering_method = "kmeans";
 
@@ -1670,8 +1785,9 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         core::write_text(run_dir / "artifacts" / "state_clustering.json", artifact.dump(2));
     }
 
-    emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "ok",
-                      {{"n_clusters", n_clusters}}, log_file);
+        emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "ok",
+                          {{"n_clusters", n_clusters}}, log_file);
+    }
 
     // Phase 8: SYNTHETIC_FRAMES (Methodik v4 §11)
     emitter.phase_start(run_id, Phase::SYNTHETIC_FRAMES, "SYNTHETIC_FRAMES", log_file);
@@ -1680,72 +1796,95 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     int synth_min = cfg.synthetic.frames_min;
     int synth_max = cfg.synthetic.frames_max;
 
-    for (int c = 0; c < n_clusters; ++c) {
-        Matrix2Df sum = Matrix2Df::Zero(first_img.rows(), first_img.cols());
-        double wsum = 0.0;
-        int count = 0;
-
-        for (size_t fi = 0; fi < frames.size(); ++fi) {
-            if (cluster_labels[fi] != c) continue;
-            if (fi >= static_cast<size_t>(global_weights.size())) continue;
-
-            float w = global_weights[static_cast<int>(fi)];
-            if (!(w > 0.0f) || !std::isfinite(w)) continue;
-
-            auto [img, _hdr] = load_frame_normalized(fi);
-            if (img.size() <= 0) continue;
-
-            sum += img * w;
-            wsum += static_cast<double>(w);
-            count++;
-        }
-
-        if (count >= synth_min && wsum > 0.0) {
-            synthetic_frames.push_back(sum / static_cast<float>(wsum));
-        }
-
-        if (static_cast<int>(synthetic_frames.size()) >= synth_max) break;
-    }
-
-    if (synthetic_frames.empty()) {
-        emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "error",
-                          {{"error", "SYNTHETIC_FRAMES: no synthetic frames"}},
+    if (!use_synthetic_frames) {
+        emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "skipped",
+                          {{"reason", "reduced_mode"},
+                           {"frame_count", static_cast<int>(frames.size())},
+                           {"frames_reduced_threshold", cfg.assumptions.frames_reduced_threshold}},
                           log_file);
-        emitter.run_end(run_id, false, "error", log_file);
-        return 1;
+    } else {
+        for (int c = 0; c < n_clusters; ++c) {
+            Matrix2Df sum = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+            double wsum = 0.0;
+            int count = 0;
+
+            for (size_t fi = 0; fi < frames.size(); ++fi) {
+                if (cluster_labels[fi] != c) continue;
+                if (fi >= static_cast<size_t>(global_weights.size())) continue;
+
+                float w = global_weights[static_cast<int>(fi)];
+                if (!(w > 0.0f) || !std::isfinite(w)) continue;
+
+                auto [img, _hdr] = load_frame_normalized(fi);
+                if (img.size() <= 0) continue;
+
+                sum += img * w;
+                wsum += static_cast<double>(w);
+                count++;
+            }
+
+            if (count >= synth_min && wsum > 0.0) {
+                synthetic_frames.push_back(sum / static_cast<float>(wsum));
+            }
+
+            if (static_cast<int>(synthetic_frames.size()) >= synth_max) break;
+        }
+
+        if (synthetic_frames.empty()) {
+            // If there are not enough frames to satisfy frames_min, treat as a valid skip.
+            if (static_cast<int>(frames.size()) < synth_min) {
+                use_synthetic_frames = false;
+                emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "skipped",
+                                  {{"reason", "insufficient_frames"},
+                                   {"frame_count", static_cast<int>(frames.size())},
+                                   {"frames_min", synth_min}},
+                                  log_file);
+            } else {
+                emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "error",
+                                  {{"error", "SYNTHETIC_FRAMES: no synthetic frames"}},
+                                  log_file);
+                emitter.run_end(run_id, false, "error", log_file);
+                return 1;
+            }
+        }
     }
 
-    // Save synthetic frames
-    for (size_t si = 0; si < synthetic_frames.size(); ++si) {
-        std::string fname = "synthetic_" + std::to_string(si) + ".fit";
-        io::write_fits_float(run_dir / "outputs" / fname, synthetic_frames[si], first_hdr);
-    }
+    if (use_synthetic_frames) {
+        // Save synthetic frames
+        for (size_t si = 0; si < synthetic_frames.size(); ++si) {
+            std::string fname = "synthetic_" + std::to_string(si) + ".fit";
+            io::write_fits_float(run_dir / "outputs" / fname, synthetic_frames[si], first_hdr);
+        }
 
-    {
-        core::json artifact;
-        artifact["num_synthetic"] = static_cast<int>(synthetic_frames.size());
-        artifact["frames_min"] = synth_min;
-        artifact["frames_max"] = synth_max;
-        core::write_text(run_dir / "artifacts" / "synthetic_frames.json", artifact.dump(2));
-    }
+        {
+            core::json artifact;
+            artifact["num_synthetic"] = static_cast<int>(synthetic_frames.size());
+            artifact["frames_min"] = synth_min;
+            artifact["frames_max"] = synth_max;
+            core::write_text(run_dir / "artifacts" / "synthetic_frames.json", artifact.dump(2));
+        }
 
-    emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "ok",
-                      {{"num_synthetic", static_cast<int>(synthetic_frames.size())}}, log_file);
+        emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "ok",
+                          {{"num_synthetic", static_cast<int>(synthetic_frames.size())}}, log_file);
+    }
 
     // Phase 9: STACKING (final overlap-add already done in Phase 6)
     emitter.phase_start(run_id, Phase::STACKING, "STACKING", log_file);
 
-    recon = Matrix2Df::Zero(synthetic_frames[0].rows(), synthetic_frames[0].cols());
-    for (const auto& sf : synthetic_frames) {
-        recon += sf;
+    if (use_synthetic_frames) {
+        recon = Matrix2Df::Zero(synthetic_frames[0].rows(), synthetic_frames[0].cols());
+        for (const auto& sf : synthetic_frames) {
+            recon += sf;
+        }
+        recon /= static_cast<float>(synthetic_frames.size());
     }
-    recon /= static_cast<float>(synthetic_frames.size());
 
     io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon, first_hdr);
     io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon, first_hdr);
 
     emitter.phase_end(run_id, Phase::STACKING, "ok",
-                      {{"note", "overlap_add_done_in_phase6"}}, log_file);
+                      {{"note", use_synthetic_frames ? "overlap_add_done_in_phase6" : "reduced_mode_reuse_phase6"}},
+                      log_file);
 
     {
         bool validation_ok = true;
@@ -1885,9 +2024,10 @@ int run_command(const std::string& config_path, const std::string& input_dir,
 
         core::write_text(run_dir / "artifacts" / "validation.json", v.dump(2));
 
+        // Do not abort here: we still want to run DEBAYER so GUI gets outputs.
+        // We will mark the run as validation_failed at the end.
         if (!validation_ok) {
-            emitter.run_end(run_id, false, "validation_failed", log_file);
-            return 1;
+            run_validation_failed = true;
         }
     }
 
@@ -1971,6 +2111,13 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     emitter.phase_start(run_id, Phase::DONE, "DONE", log_file);
     emitter.phase_end(run_id, Phase::DONE, "ok", {}, log_file);
 
+    if (run_validation_failed) {
+        emitter.run_end(run_id, false, "validation_failed", log_file);
+        
+        std::cout << "Pipeline completed with validation_failed" << std::endl;
+        return 1;
+    }
+
     emitter.run_end(run_id, true, "ok", log_file);
     
     std::cout << "Pipeline completed successfully" << std::endl;
@@ -1985,6 +2132,7 @@ int main(int argc, char* argv[]) {
     bool dry_run = false;
     int max_frames = 0;
     int max_tiles = 0;
+    bool config_from_stdin = false;
     
     auto run_cmd = app.add_subcommand("run", "Run the pipeline");
     run_cmd->add_option("--config", config_path, "Path to config.yaml")->required();
@@ -1994,11 +2142,12 @@ int main(int argc, char* argv[]) {
     run_cmd->add_option("--max-frames", max_frames, "Limit number of frames (0 = no limit)");
     run_cmd->add_option("--max-tiles", max_tiles, "Limit number of tiles in Phase 5/6 (0 = no limit)");
     run_cmd->add_flag("--dry-run", dry_run, "Dry run");
+    run_cmd->add_flag("--stdin", config_from_stdin, "Read config YAML from stdin (use with --config -)");
     
     CLI11_PARSE(app, argc, argv);
     
     if (run_cmd->parsed()) {
-        return run_command(config_path, input_dir, runs_dir, project_root, dry_run, max_frames, max_tiles);
+        return run_command(config_path, input_dir, runs_dir, project_root, dry_run, max_frames, max_tiles, config_from_stdin);
     }
     
     print_usage();
@@ -2014,6 +2163,7 @@ int main(int argc, char* argv[]) {
     bool dry_run = false;
     int max_frames = 0;
     int max_tiles = 0;
+    bool config_from_stdin = false;
     
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
@@ -2024,6 +2174,7 @@ int main(int argc, char* argv[]) {
         else if (arg == "--max-frames" && i + 1 < argc) max_frames = std::stoi(argv[++i]);
         else if (arg == "--max-tiles" && i + 1 < argc) max_tiles = std::stoi(argv[++i]);
         else if (arg == "--dry-run") dry_run = true;
+        else if (arg == "--stdin") config_from_stdin = true;
     }
     
     if (command == "run") {
@@ -2031,7 +2182,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "Error: --config, --input-dir, and --runs-dir are required" << std::endl;
             return 1;
         }
-        return run_command(config_path, input_dir, runs_dir, project_root, dry_run, max_frames, max_tiles);
+        return run_command(config_path, input_dir, runs_dir, project_root, dry_run, max_frames, max_tiles, config_from_stdin);
     }
     
     print_usage();

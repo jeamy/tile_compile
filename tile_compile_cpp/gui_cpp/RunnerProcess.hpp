@@ -14,7 +14,7 @@ class RunnerProcess : public QObject {
     explicit RunnerProcess(QObject *parent = nullptr);
 
     bool is_running() const;
-    void start(const QStringList &cmd, const QString &cwd);
+    void start(const QStringList &cmd, const QString &cwd, const QString &stdin_data = QString());
     void stop();
 
   signals:

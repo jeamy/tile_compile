@@ -17,25 +17,37 @@ bool RunnerProcess::is_running() const {
     return proc_ && proc_->state() == QProcess::Running;
 }
 
-void RunnerProcess::start(const QStringList &cmd, const QString &cwd) {
+void RunnerProcess::start(const QStringList &cmd, const QString &cwd, const QString &stdin_data) {
     if (is_running()) {
         throw std::runtime_error("runner already running");
     }
-    
+
     if (cmd.isEmpty()) {
         throw std::runtime_error("empty command");
     }
-    
+
     proc_->setWorkingDirectory(cwd);
     proc_->setProcessChannelMode(QProcess::SeparateChannels);
-    
+
     const QString program = cmd[0];
     const QStringList args = cmd.mid(1);
-    
+
     proc_->start(program, args);
-    
+
     if (!proc_->waitForStarted(3000)) {
         throw std::runtime_error("failed to start runner process");
+    }
+
+    if (!stdin_data.isEmpty()) {
+        const QByteArray bytes = stdin_data.toUtf8();
+        qint64 written = 0;
+        while (written < bytes.size()) {
+            const qint64 w = proc_->write(bytes.constData() + written, bytes.size() - written);
+            if (w <= 0) break;
+            written += w;
+            proc_->waitForBytesWritten(3000);
+        }
+        proc_->closeWriteChannel();
     }
 }
 

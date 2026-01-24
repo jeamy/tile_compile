@@ -55,6 +55,24 @@ void EventEmitter::phase_progress(const std::string& run_id, Phase phase, float 
     emit(event, out);
 }
 
+void EventEmitter::phase_progress_counts(const std::string& run_id, Phase phase, int current, int total,
+                                         const std::string& substep, const std::string& pass,
+                                         std::ostream& out) {
+    json event = base_event("phase_progress", run_id);
+    event["phase"] = phase_to_int(phase);
+    event["phase_name"] = phase_to_string(phase);
+    event["current"] = current;
+    event["total"] = total;
+    if (total > 0) {
+        event["progress"] = static_cast<float>(current) / static_cast<float>(total);
+    } else {
+        event["progress"] = 0.0f;
+    }
+    if (!substep.empty()) event["substep"] = substep;
+    if (!pass.empty()) event["pass"] = pass;
+    emit(event, out);
+}
+
 void EventEmitter::phase_end(const std::string& run_id, Phase phase, 
                              const std::string& status, const json& extra, std::ostream& out) {
     json event = base_event("phase_end", run_id);
