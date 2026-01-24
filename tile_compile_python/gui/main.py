@@ -88,7 +88,9 @@ def _resolve_project_root(start: Path) -> Path:
 
 
 def _read_gui_constants(project_root: Path) -> dict:
-    js_path = "constants.js"
+    js_path = project_root / "gui" / "constants.js"
+    if not js_path.exists():
+        js_path = Path(__file__).resolve().parent / "constants.js"
     raw = js_path.read_text(encoding="utf-8")
     key = "GUI_CONSTANTS_JSON"
     i = raw.find(key)
@@ -727,6 +729,7 @@ class MainWindow(QMainWindow):
 
     def _load_styles(self) -> None:
         p = self.project_root / "styles.qss"
+        # p = self.project_root / gui / "styles.qss"
         try:
             self.setStyleSheet(p.read_text(encoding="utf-8"))
         except Exception:
