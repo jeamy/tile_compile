@@ -28,6 +28,7 @@ outputs/
 artifacts/
 logs/
 *.log
+build/
 
 # GUI state files
 .tile_compile/
