@@ -8,11 +8,13 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <regex>
 #include <sstream>
@@ -137,6 +139,116 @@ static FitsHeaderInfo read_fits_header_info(const fs::path& path) {
     return info;
 }
 
+static json compute_fits_stats_buffer(const std::vector<float>& buf) {
+    double mean = 0.0;
+    double m2 = 0.0;
+    int64_t n = 0;
+
+    float min_v = std::numeric_limits<float>::infinity();
+    float max_v = -std::numeric_limits<float>::infinity();
+    int64_t n_nan = 0;
+    int64_t n_inf = 0;
+    int64_t n_zero = 0;
+
+    for (float v : buf) {
+        if (std::isnan(v)) {
+            n_nan++;
+            continue;
+        }
+        if (!std::isfinite(v)) {
+            n_inf++;
+            continue;
+        }
+
+        if (v == 0.0f) n_zero++;
+        if (v < min_v) min_v = v;
+        if (v > max_v) max_v = v;
+
+        n++;
+        const double x = static_cast<double>(v);
+        const double delta = x - mean;
+        mean += delta / static_cast<double>(n);
+        const double delta2 = x - mean;
+        m2 += delta * delta2;
+    }
+
+    json j;
+    j["count"] = n;
+    j["nan"] = n_nan;
+    j["inf"] = n_inf;
+    j["zero"] = n_zero;
+    j["min"] = (n > 0) ? min_v : 0.0f;
+    j["max"] = (n > 0) ? max_v : 0.0f;
+    j["mean"] = (n > 0) ? mean : 0.0;
+    j["stddev"] = (n > 1) ? std::sqrt(m2 / static_cast<double>(n - 1)) : 0.0;
+    return j;
+}
+
+static json fits_stats_file(const fs::path& path) {
+    json result;
+    result["path"] = path.string();
+
+    fitsfile* fptr = nullptr;
+    int status = 0;
+    if (fits_open_file(&fptr, path.string().c_str(), READONLY, &status)) {
+        result["ok"] = false;
+        result["error"] = "Cannot open FITS file";
+        return result;
+    }
+
+    int naxis = 0;
+    long naxes[3] = {0, 0, 0};
+    int bitpix = 0;
+    fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
+    if (status || naxis < 2) {
+        fits_close_file(fptr, &status);
+        result["ok"] = false;
+        result["error"] = "Cannot read FITS image parameters";
+        return result;
+    }
+
+    result["ok"] = true;
+    result["bitpix"] = bitpix;
+    result["naxis"] = naxis;
+    result["naxes"] = json::array();
+    for (int i = 0; i < naxis; ++i) result["naxes"].push_back(static_cast<int64_t>(naxes[i]));
+
+    long width = naxes[0];
+    long height = naxes[1];
+    long depth = (naxis >= 3) ? naxes[2] : 1;
+    const int64_t plane_pixels = static_cast<int64_t>(width) * static_cast<int64_t>(height);
+    const int64_t total_pixels = plane_pixels * static_cast<int64_t>(depth);
+    result["pixels"] = total_pixels;
+
+    std::vector<float> buffer(static_cast<size_t>(total_pixels));
+    long fpixel[3] = {1, 1, 1};
+    if (fits_read_pix(fptr, TFLOAT, fpixel, static_cast<long>(total_pixels), nullptr, buffer.data(), nullptr, &status)) {
+        fits_close_file(fptr, &status);
+        result["ok"] = false;
+        result["error"] = "Cannot read FITS pixel data";
+        return result;
+    }
+    fits_close_file(fptr, &status);
+
+    result["stats"] = compute_fits_stats_buffer(buffer);
+
+    if (depth > 1) {
+        result["per_plane_stats"] = json::array();
+        for (long z = 0; z < depth; ++z) {
+            const int64_t start = static_cast<int64_t>(z) * plane_pixels;
+            const int64_t end = start + plane_pixels;
+            std::vector<float> plane;
+            plane.reserve(static_cast<size_t>(plane_pixels));
+            for (int64_t i = start; i < end; ++i) plane.push_back(buffer[static_cast<size_t>(i)]);
+            json pj = compute_fits_stats_buffer(plane);
+            pj["plane"] = z;
+            result["per_plane_stats"].push_back(pj);
+        }
+    }
+
+    return result;
+}
+
 // ============================================================================
 // get-schema
 // ============================================================================
@@ -167,6 +279,11 @@ int cmd_load_gui_state(const std::string& path_arg) {
     result["path"] = p.string();
     result["state"] = state;
     print_json(result);
+    return 0;
+}
+
+int cmd_fits_stats(const std::string& path) {
+    print_json(fits_stats_file(fs::path(path)));
     return 0;
 }
 
@@ -672,7 +789,8 @@ void print_usage() {
               << "  list-runs <runs_dir>            List pipeline runs\n"
               << "  get-run-status <run_dir>        Get status of a run\n"
               << "  get-run-logs <run_dir> [--tail N]  Get run logs\n"
-              << "  list-artifacts <run_dir>        List artifacts in run directory\n";
+              << "  list-artifacts <run_dir>        List artifacts in run directory\n"
+              << "  fits-stats <path>               Print basic statistics for a FITS image\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -804,6 +922,15 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         return cmd_list_artifacts(run_dir);
+    }
+
+    if (command == "fits-stats") {
+        std::string path = get_positional(0);
+        if (path.empty()) {
+            std::cerr << "fits-stats requires a path argument\n";
+            return 1;
+        }
+        return cmd_fits_stats(path);
     }
     
     std::cerr << "Unknown command: " << command << std::endl;

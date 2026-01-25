@@ -627,6 +627,49 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         core::write_text(run_dir / "artifacts" / "normalization.json", artifact.dump(2));
     }
 
+    auto median_finite_positive = [&](const std::vector<float>& v, float fallback) -> float {
+        std::vector<float> p;
+        p.reserve(v.size());
+        for (float x : v) {
+            if (std::isfinite(x) && x > 0.0f) p.push_back(x);
+        }
+        if (p.empty()) return fallback;
+        return median_of(p);
+    };
+
+    const float output_pedestal = 32768.0f;
+    const float output_bg_mono = median_finite_positive(B_mono, 1.0f);
+    const float output_bg_r = median_finite_positive(B_r, 1.0f);
+    const float output_bg_g = median_finite_positive(B_g, 1.0f);
+    const float output_bg_b = median_finite_positive(B_b, 1.0f);
+
+    auto apply_output_scaling_inplace = [&](Matrix2Df& img, int origin_x, int origin_y) {
+        if (img.size() <= 0) return;
+        if (detected_mode != ColorMode::OSC) {
+            img *= output_bg_mono;
+            img.array() += output_pedestal;
+            return;
+        }
+
+        int r_row, r_col, b_row, b_col;
+        bayer_offsets(detected_bayer_str, r_row, r_col, b_row, b_col);
+        for (int y = 0; y < img.rows(); ++y) {
+            const int gy = origin_y + y;
+            for (int x = 0; x < img.cols(); ++x) {
+                const int gx = origin_x + x;
+                const int py = gy & 1;
+                const int px = gx & 1;
+                if (py == r_row && px == r_col) {
+                    img(y, x) = img(y, x) * output_bg_r + output_pedestal;
+                } else if (py == b_row && px == b_col) {
+                    img(y, x) = img(y, x) * output_bg_b + output_pedestal;
+                } else {
+                    img(y, x) = img(y, x) * output_bg_g + output_pedestal;
+                }
+            }
+        }
+    };
+
     emitter.phase_end(run_id, Phase::NORMALIZATION, "ok",
                       {
                           {"num_frames", static_cast<int>(frames.size())},
@@ -1926,7 +1969,9 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         // Save synthetic frames
         for (size_t si = 0; si < synthetic_frames.size(); ++si) {
             std::string fname = "synthetic_" + std::to_string(si) + ".fit";
-            io::write_fits_float(run_dir / "outputs" / fname, synthetic_frames[si], first_hdr);
+            Matrix2Df out = synthetic_frames[si];
+            apply_output_scaling_inplace(out, 0, 0);
+            io::write_fits_float(run_dir / "outputs" / fname, out, first_hdr);
         }
 
         {
@@ -1952,8 +1997,10 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         recon /= static_cast<float>(synthetic_frames.size());
     }
 
-    io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon, first_hdr);
-    io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon, first_hdr);
+    Matrix2Df recon_out = recon;
+    apply_output_scaling_inplace(recon_out, 0, 0);
+    io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, first_hdr);
+    io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out, first_hdr);
 
     emitter.phase_end(run_id, Phase::STACKING, "ok",
                       {{"note", use_synthetic_frames ? "overlap_add_done_in_phase6" : "reduced_mode_reuse_phase6"}},
@@ -2166,12 +2213,21 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         }
 
         // Save individual RGB channels
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R, first_hdr);
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G, first_hdr);
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B, first_hdr);
+        Matrix2Df R_out = R;
+        Matrix2Df G_out = G;
+        Matrix2Df B_out = B;
+        R_out *= output_bg_r;
+        G_out *= output_bg_g;
+        B_out *= output_bg_b;
+        R_out.array() += output_pedestal;
+        G_out.array() += output_pedestal;
+        B_out.array() += output_pedestal;
+        io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out, first_hdr);
+        io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G_out, first_hdr);
+        io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_out, first_hdr);
 
         // Save stacked_rgb.fits as 3-plane RGB cube (NAXIS3=3)
-        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits", R, G, B, first_hdr);
+        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits", R_out, G_out, B_out, first_hdr);
 
         emitter.phase_end(run_id, Phase::DEBAYER, "ok",
                           {{"mode", "OSC"}, {"bayer_pattern", bayer_pattern_to_string(detected_bayer)},
