@@ -61,6 +61,10 @@ v4:
   min_valid_tile_fraction: 0.3         # abort if < 30% valid tiles (§12)
   parallel_tiles: 8                    # number of parallel tile workers (1=serial, 8=default)
   debug_tile_registration: true       # print per-tile warp consistency debug info
+
+  phase6_io:
+    mode: roi                          # roi | lru | full
+    lru_capacity: 16                   # frames per thread (only used if mode=lru)
   
   adaptive_tiles:
     enabled: true                      # enable adaptive tile refinement

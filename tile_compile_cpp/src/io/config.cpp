@@ -105,6 +105,12 @@ Config Config::from_yaml(const YAML::Node& node) {
         if (v["parallel_tiles"]) cfg.v4.parallel_tiles = v["parallel_tiles"].as<int>();
         if (v["debug_tile_registration"]) cfg.v4.debug_tile_registration = v["debug_tile_registration"].as<bool>();
 
+        if (v["phase6_io"]) {
+            auto p6 = v["phase6_io"];
+            if (p6["mode"]) cfg.v4.phase6_io.mode = p6["mode"].as<std::string>();
+            if (p6["lru_capacity"]) cfg.v4.phase6_io.lru_capacity = p6["lru_capacity"].as<int>();
+        }
+
         if (v["adaptive_tiles"]) {
             auto at = v["adaptive_tiles"];
             if (at["enabled"]) cfg.v4.adaptive_tiles.enabled = at["enabled"].as<bool>();
@@ -342,6 +348,8 @@ YAML::Node Config::to_yaml() const {
     node["v4"]["min_valid_tile_fraction"] = v4.min_valid_tile_fraction;
     node["v4"]["parallel_tiles"] = v4.parallel_tiles;
     node["v4"]["debug_tile_registration"] = v4.debug_tile_registration;
+    node["v4"]["phase6_io"]["mode"] = v4.phase6_io.mode;
+    node["v4"]["phase6_io"]["lru_capacity"] = v4.phase6_io.lru_capacity;
     node["v4"]["adaptive_tiles"]["enabled"] = v4.adaptive_tiles.enabled;
     node["v4"]["adaptive_tiles"]["max_refine_passes"] = v4.adaptive_tiles.max_refine_passes;
     node["v4"]["adaptive_tiles"]["refine_variance_threshold"] = v4.adaptive_tiles.refine_variance_threshold;
@@ -497,6 +505,13 @@ void Config::validate() const {
     }
     if (v4.parallel_tiles < 1 || v4.parallel_tiles > 32) {
         throw ValidationError("v4.parallel_tiles must be in [1,32]");
+    }
+
+    if (v4.phase6_io.mode != "roi" && v4.phase6_io.mode != "lru" && v4.phase6_io.mode != "full") {
+        throw ValidationError("v4.phase6_io.mode must be 'roi', 'lru', or 'full'");
+    }
+    if (v4.phase6_io.lru_capacity < 0 || v4.phase6_io.lru_capacity > 512) {
+        throw ValidationError("v4.phase6_io.lru_capacity must be in [0,512]");
     }
 
     if (v4.adaptive_tiles.max_refine_passes < 0 || v4.adaptive_tiles.max_refine_passes > 5) {

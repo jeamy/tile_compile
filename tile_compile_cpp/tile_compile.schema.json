@@ -477,6 +477,25 @@
       "description": "Methodik v4 specific parameters",
       "additionalProperties": false,
       "properties": {
+        "phase6_io": {
+          "type": "object",
+          "description": "Phase 6 IO strategy: roi=tile ROI reads, lru=per-thread full-frame LRU cache, full=always read full frames",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["roi", "lru", "full"],
+              "default": "roi"
+            },
+            "lru_capacity": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 512,
+              "default": 16,
+              "description": "Per-thread LRU capacity (frames) used when mode=lru"
+            }
+          }
+        },
         "iterations": {
           "type": "integer",
           "minimum": 1,
