@@ -62,6 +62,11 @@ struct AssumptionsConfig {
 };
 
 struct V4Config {
+    struct Phase6IoConfig {
+        std::string mode = "roi"; // roi | lru | full
+        int lru_capacity = 16;     // frames per thread (only for mode=lru)
+    } phase6_io;
+
     struct AdaptiveTilesConfig {
         bool enabled = false;
         int max_refine_passes = 2;

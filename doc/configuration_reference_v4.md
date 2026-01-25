@@ -506,6 +506,50 @@ Key: `v4`
 
 **Zweck:** Anzahl paralleler Tile-Worker.
 
+---
+
+### `v4.phase6_io`
+
+Konfiguration der I/O-Strategie in **Phase 6 (TILE_RECONSTRUCTION_TLR)**.
+
+Key: `v4.phase6_io`
+
+#### `v4.phase6_io.mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | enum |
+| **Werte** | `roi`, `lru`, `full` |
+| **Standard** | `roi` |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Legt fest, wie Frames/Tiles in Phase 6 geladen werden.
+
+- **`roi`**: liest pro Tile direkt nur das ROI aus der FITS-Datei (schnell bei großen Frames).
+- **`lru`**: per-thread LRU-Cache hält voll normalisierte Full-Frames im RAM (reduziert wiederholtes Lesen/Normalisieren).
+- **`full`**: immer Full-Frames laden (Legacy-Verhalten; langsamste Option).
+
+**Empfehlung:**
+- Default: `roi`
+- `lru` bei sehr schnellem Storage/hoher RAM-Reserve oder wenn du Debug/Full-Frame Zugriff bevorzugst.
+
+#### `v4.phase6_io.lru_capacity`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | 0 - 512 |
+| **Standard** | 16 |
+| **Erforderlich** | Nein |
+| **Editierbar** | Ja |
+
+**Zweck:** Anzahl Frames, die **pro Worker-Thread** im LRU-Cache gehalten werden.
+
+**Hinweise:**
+- nur relevant bei `v4.phase6_io.mode: lru`
+- `0` deaktiviert den Cache
+
 ### `v4.adaptive_tiles`
 
 Adaptive Tile-Verfeinerung basierend auf Warp-Varianz (Methodik v4 §4).

@@ -12,12 +12,15 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <fstream>
+#include <list>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <opencv2/opencv.hpp>
@@ -1166,6 +1169,9 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     const float max_warp_delta_px = cfg.registration.local_tiles.max_warp_delta_px;
     const float variance_sigma = cfg.registration.local_tiles.variance_window_sigma;
 
+    const std::string phase6_io_mode = cfg.v4.phase6_io.mode;
+    const int phase6_lru_capacity = cfg.v4.phase6_io.lru_capacity;
+
     // Parallel processing configuration
     int parallel_tiles = cfg.v4.parallel_tiles;
     int cpu_cores = std::thread::hardware_concurrency();
@@ -1189,8 +1195,49 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     std::atomic<size_t> tiles_completed{0};
     std::atomic<size_t> tiles_failed{0};
 
+    class FrameLruCache {
+    public:
+        explicit FrameLruCache(size_t capacity) : capacity_(capacity) {}
+
+        const Matrix2Df& get_or_load(size_t key, const std::function<Matrix2Df()>& loader) {
+            if (capacity_ == 0) {
+                scratch_ = loader();
+                return scratch_;
+            }
+
+            auto it = map_.find(key);
+            if (it != map_.end()) {
+                lru_.splice(lru_.begin(), lru_, it->second);
+                return it->second->value;
+            }
+
+            Matrix2Df value = loader();
+            lru_.push_front(Node{key, std::move(value)});
+            map_[key] = lru_.begin();
+
+            if (lru_.size() > capacity_) {
+                auto last = std::prev(lru_.end());
+                map_.erase(last->key);
+                lru_.pop_back();
+            }
+
+            return lru_.begin()->value;
+        }
+
+    private:
+        struct Node {
+            size_t key;
+            Matrix2Df value;
+        };
+
+        size_t capacity_ = 0;
+        std::list<Node> lru_;
+        std::unordered_map<size_t, std::list<Node>::iterator> map_;
+        Matrix2Df scratch_;
+    };
+
     // Worker function for parallel tile processing
-    auto process_tile = [&](size_t ti) {
+    auto process_tile = [&](size_t ti, FrameLruCache& frame_cache) {
         const Tile& t = tiles_phase56[ti];
 
         auto dbg = [&](const std::string& s) {
@@ -1205,13 +1252,34 @@ int run_command(const std::string& config_path, const std::string& input_dir,
             " w=" + std::to_string(t.width) +
             " h=" + std::to_string(t.height));
 
+        auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
+            const int rx0 = std::max(0, t.x);
+            const int ry0 = std::max(0, t.y);
+            if (phase6_io_mode == "roi") {
+                Matrix2Df tile_img = io::read_fits_region_float(frames[fi], rx0, ry0, t.width, t.height);
+                apply_normalization_inplace(tile_img, norm_scales[fi], detected_mode, detected_bayer_str, rx0, ry0);
+                return tile_img;
+            }
+            if (phase6_io_mode == "lru") {
+                const Matrix2Df& full = frame_cache.get_or_load(fi, [&]() {
+                    auto frame_pair = io::read_fits_float(frames[fi]);
+                    Matrix2Df img = frame_pair.first;
+                    apply_normalization_inplace(img, norm_scales[fi], detected_mode, detected_bayer_str, 0, 0);
+                    return img;
+                });
+                return extract_tile(full, t);
+            }
+
+            auto [img, _hdr] = load_frame_normalized(fi);
+            return extract_tile(img, t);
+        };
+
         // Initial reference: median of all tiles (simplified: use first frame)
         Matrix2Df ref_tile;
         {
             std::vector<Matrix2Df> tile_samples;
             for (size_t fi = 0; fi < std::min(frames.size(), size_t(5)); ++fi) {
-                auto [img, _hdr] = load_frame_normalized(fi);
-                Matrix2Df sample = extract_tile(img, t);
+                Matrix2Df sample = load_tile_normalized(fi);
                 if (sample.size() > 0) tile_samples.push_back(sample);
             }
             if (tile_samples.empty()) {
@@ -1252,8 +1320,7 @@ int run_command(const std::string& config_path, const std::string& input_dir,
             int ecc_failures = 0;
             int tile_size_mismatches = 0;
             for (size_t fi = 0; fi < frames.size(); ++fi) {
-                auto [img, _hdr] = load_frame_normalized(fi);
-                Matrix2Df mov_tile = extract_tile(img, t);
+                Matrix2Df mov_tile = load_tile_normalized(fi);
                 if (mov_tile.size() <= 0 || mov_tile.rows() != ref_tile.rows() || mov_tile.cols() != ref_tile.cols()) {
                     tile_size_mismatches++;
                     dbg("tile=" + std::to_string(ti) + " iter=" + std::to_string(iter) +
@@ -1539,10 +1606,11 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         
         for (int w = 0; w < parallel_tiles; ++w) {
             workers.emplace_back([&]() {
+                FrameLruCache frame_cache((phase6_io_mode == "lru") ? static_cast<size_t>(std::max(0, phase6_lru_capacity)) : 0);
                 while (true) {
                     size_t ti = next_tile.fetch_add(1);
                     if (ti >= tiles_phase56.size()) break;
-                    process_tile(ti);
+                    process_tile(ti, frame_cache);
                 }
             });
         }
@@ -1555,8 +1623,9 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                   << tiles_failed.load() << " failed)" << std::endl;
     } else {
         std::cout << "  Processing " << tiles_phase56.size() << " tiles serially..." << std::endl;
+        FrameLruCache frame_cache((phase6_io_mode == "lru") ? static_cast<size_t>(std::max(0, phase6_lru_capacity)) : 0);
         for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-            process_tile(ti);
+            process_tile(ti, frame_cache);
         }
     }
 

@@ -616,6 +616,24 @@ v4:
     editable: true
     description: "Number of iterative reference refinement passes per tile"
 
+  phase6_io:
+    mode:
+      type: enum
+      values: [roi, lru, full]
+      default: roi
+      required: false
+      editable: true
+      description: "Phase 6 IO strategy: roi=tile ROI reads, lru=per-thread full-frame LRU cache, full=always read full frames"
+
+    lru_capacity:
+      type: integer
+      min: 0
+      max: 512
+      default: 16
+      required: false
+      editable: true
+      description: "Per-thread LRU capacity (frames) used when v4.phase6_io.mode=lru"
+
   beta:
     type: number
     min: 0.0
