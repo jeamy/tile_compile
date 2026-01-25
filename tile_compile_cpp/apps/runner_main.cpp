@@ -21,6 +21,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <opencv2/opencv.hpp>
@@ -762,9 +763,13 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         std::vector<float> fwhms;
         for (size_t pi = 0; pi < n_probe; ++pi) {
             size_t fi = (n_probe <= 1) ? 0 : (pi * (frames.size() - 1)) / (n_probe - 1);
-            auto frame_pair = io::read_fits_float(frames[fi]);
-            Matrix2Df img = frame_pair.first;
-            apply_normalization_inplace(img, norm_scales[fi], detected_mode, detected_bayer_str, 0, 0);
+            const int roi_w = std::min(width, 1024);
+            const int roi_h = std::min(height, 1024);
+            const int roi_x0 = std::max(0, (width - roi_w) / 2);
+            const int roi_y0 = std::max(0, (height - roi_h) / 2);
+
+            Matrix2Df img = io::read_fits_region_float(frames[fi], roi_x0, roi_y0, roi_w, roi_h);
+            apply_normalization_inplace(img, norm_scales[fi], detected_mode, detected_bayer_str, roi_x0, roi_y0);
             cv::Mat img_cv(img.rows(), img.cols(), CV_32F, const_cast<float*>(img.data()));
             cv::Mat blur;
             cv::blur(img_cv, blur, cv::Size(31, 31), cv::Point(-1, -1), cv::BORDER_REFLECT_101);
@@ -978,13 +983,31 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     std::vector<std::vector<float>> local_weights;
     local_weights.resize(frames.size());
 
+    const std::string phase5_io_mode = cfg.v4.phase6_io.mode;
+
     for (size_t fi = 0; fi < frames.size(); ++fi) {
-        auto [img, _hdr] = load_frame_normalized(fi);
         local_metrics[fi].reserve(tiles_phase56.size());
         local_weights[fi].reserve(tiles_phase56.size());
 
+        Matrix2Df img;
+        if (phase5_io_mode != "roi") {
+            auto pair = load_frame_normalized(fi);
+            img = std::move(pair.first);
+        }
+
         for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-            Matrix2Df tile_img = extract_tile(img, tiles_phase56[ti]);
+            const Tile& t = tiles_phase56[ti];
+            Matrix2Df tile_img;
+
+            if (phase5_io_mode == "roi") {
+                const int rx0 = std::max(0, t.x);
+                const int ry0 = std::max(0, t.y);
+                tile_img = io::read_fits_region_float(frames[fi], rx0, ry0, t.width, t.height);
+                apply_normalization_inplace(tile_img, norm_scales[fi], detected_mode, detected_bayer_str, rx0, ry0);
+            } else {
+                tile_img = extract_tile(img, t);
+            }
+
             if (tile_img.size() <= 0) {
                 TileMetrics z;
                 z.fwhm = 0.0f;
@@ -1001,6 +1024,7 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 local_weights[fi].push_back(1.0f);
                 continue;
             }
+
             TileMetrics tm = metrics::calculate_tile_metrics(tile_img);
             local_metrics[fi].push_back(tm);
             local_weights[fi].push_back(1.0f);
