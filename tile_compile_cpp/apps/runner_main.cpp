@@ -634,23 +634,27 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     emitter.phase_start(run_id, Phase::GLOBAL_METRICS, "GLOBAL_METRICS", log_file);
 
     std::vector<FrameMetrics> frame_metrics;
-    frame_metrics.reserve(frames.size());
+    frame_metrics.resize(frames.size());
 
     for (size_t i = 0; i < frames.size(); ++i) {
         const auto& path = frames[i];
         try {
-            int roi = std::min(1024, std::min(width, height));
-            int x0 = std::max(0, (width - roi) / 2);
-            int y0 = std::max(0, (height - roi) / 2);
-            Matrix2Df roi_img = io::read_fits_region_float(path, x0, y0, roi, roi);
-            if (roi_img.size() <= 0) {
+            auto frame_pair = io::read_fits_float(path);
+            Matrix2Df img = frame_pair.first;
+            if (img.size() <= 0) {
                 emitter.warning(run_id,
-                                "GLOBAL_METRICS: empty ROI for " + path.filename().string(),
+                                "GLOBAL_METRICS: empty frame for " + path.filename().string(),
                                 log_file);
-                continue;
+                FrameMetrics m;
+                m.background = 0.0f;
+                m.noise = 0.0f;
+                m.gradient_energy = 0.0f;
+                m.quality_score = 1.0f;
+                frame_metrics[i] = m;
+            } else {
+                apply_normalization_inplace(img, norm_scales[i], detected_mode, detected_bayer_str, 0, 0);
+                frame_metrics[i] = metrics::calculate_frame_metrics(img);
             }
-            apply_normalization_inplace(roi_img, norm_scales[i], detected_mode, detected_bayer_str, x0, y0);
-            frame_metrics.push_back(metrics::calculate_frame_metrics(roi_img));
         } catch (const std::exception& e) {
             emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "error", {{"error", e.what()}}, log_file);
             emitter.run_end(run_id, false, "error", log_file);
