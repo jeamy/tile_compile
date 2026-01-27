@@ -578,6 +578,7 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     }
 
     core::json linearity_info;
+    std::vector<size_t> rejected_indices;
     if (cfg.linearity.enabled) {
         auto indices = sample_indices(frames.size(), cfg.linearity.max_frames);
         int failed = 0;
@@ -594,6 +595,7 @@ int run_command(const std::string& config_path, const std::string& input_dir,
             score_sum += res.is_linear ? 1.0f : 0.0f;
             if (!res.is_linear) {
                 failed++;
+                rejected_indices.push_back(idx);
                 if (failed_names.size() < 5) {
                     failed_names.push_back(frames[idx].filename().string());
                 }
@@ -610,14 +612,6 @@ int run_command(const std::string& config_path, const std::string& input_dir,
             linearity_info["failed_frame_names"] = failed_names;
         }
 
-        if (overall_linearity + 1.0e-6f < cfg.linearity.min_overall_linearity) {
-            core::json err;
-            err["error"] = "linearity_check_failed";
-            err["linearity"] = linearity_info;
-            emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", err, log_file);
-            emitter.run_end(run_id, false, "error", log_file);
-            return 1;
-        }
         if (failed > 0) {
             emitter.warning(run_id,
                             "Linearity check: " + std::to_string(failed) +
@@ -626,12 +620,56 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                             log_file);
         }
     } else {
-        core::json err;
-        err["error"] = "linearity_check_required";
-        err["reason"] = "Methodik v4 requires linearity validation";
-        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", err, log_file);
-        emitter.run_end(run_id, false, "error", log_file);
-        return 1;
+        emitter.warning(run_id, "Linearity check disabled by config; continuing without enforcement.", log_file);
+        linearity_info["enabled"] = false;
+    }
+
+    if (!rejected_indices.empty()) {
+        std::sort(rejected_indices.begin(), rejected_indices.end());
+        rejected_indices.erase(std::unique(rejected_indices.begin(), rejected_indices.end()), rejected_indices.end());
+        linearity_info["rejected_indices"] = core::json::array();
+        linearity_info["rejected_names"] = core::json::array();
+        for (size_t idx : rejected_indices) {
+            linearity_info["rejected_indices"].push_back(static_cast<int>(idx));
+            if (idx < frames.size()) {
+                linearity_info["rejected_names"].push_back(frames[idx].filename().string());
+            }
+        }
+
+        std::vector<fs::path> filtered;
+        filtered.reserve(frames.size());
+        for (size_t i = 0; i < frames.size(); ++i) {
+            if (!std::binary_search(rejected_indices.begin(), rejected_indices.end(), i)) {
+                filtered.push_back(frames[i]);
+            }
+        }
+        frames = std::move(filtered);
+
+        if (frames.empty()) {
+            core::json err;
+            err["error"] = "no_frames_after_linearity_filter";
+            err["linearity"] = linearity_info;
+            emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", err, log_file);
+            emitter.run_end(run_id, false, "error", log_file);
+            return 1;
+        }
+
+        // Re-read first frame/meta if the first frame was rejected.
+        try {
+            std::tie(width, height, naxis) = io::get_fits_dimensions(frames.front());
+            auto first = io::read_fits_float(frames.front());
+            first_frame = std::move(first.first);
+            first_header = std::move(first.second);
+            detected_mode = io::detect_color_mode(first_header, naxis);
+            detected_bayer = io::detect_bayer_pattern(first_header);
+            detected_mode_str = color_mode_to_string(detected_mode);
+            detected_bayer_str = bayer_pattern_to_string(detected_bayer);
+        } catch (const std::exception& e) {
+            emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", {{"error", e.what()}, {"input_dir", input_dir}}, log_file);
+            emitter.run_end(run_id, false, "error", log_file);
+            std::cerr << "Error during SCAN_INPUT (re-read after linearity filter): " << e.what() << std::endl;
+            return 1;
+        }
     }
 
     core::json scan_extra = {
