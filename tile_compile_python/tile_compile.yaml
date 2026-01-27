@@ -143,13 +143,20 @@ local_metrics:
     #   Q_struct = metric_weight·ENR̃ − background_weight·B̃_local
     background_weight: 0.3
     metric_weight: 0.7
+    
+linearity:
+  enabled: true
+  max_frames: 6              # weniger Sampling => weniger Rejects
+  min_overall_linearity: 0.75
+  strictness: relaxed
 
 synthetic:
   weighting: tile_weighted
-  frames_min: 15
+  frames_min: 5
   frames_max: 30
   clustering:
     mode: state_vector
+    cluster_count_range: [10, 20]
     vector:
       - global_weight
       - tile_quality_mean
