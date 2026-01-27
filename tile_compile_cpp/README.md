@@ -56,6 +56,15 @@ Die GUI benötigt Python mit PySide6 (kann aus der Python-Version verwendet werd
 ./start_gui.sh
 ```
 
+## Optional: Matplotlib für Report-Previews
+
+Für die Artefakt-Reports können (optional) Log-Previews und Histogramme aus FITS erzeugt werden.
+Dafür wird `matplotlib` im Python-Umfeld benötigt.
+
+```bash
+python3 -m pip install matplotlib
+```
+
 ## CLI verwenden (nach Build)
 
 ```bash

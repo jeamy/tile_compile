@@ -14,6 +14,10 @@ try:
     from astropy.io import fits
 except Exception:  # pragma: no cover
     fits = None
+try:  # Optional preview generation
+    import matplotlib.pyplot as plt
+except Exception:  # pragma: no cover
+    plt = None
 
 
 @dataclass
@@ -97,6 +101,69 @@ def _read_fits_float(path: Path) -> np.ndarray | None:
         return a.astype(np.float32, copy=False)
     except Exception:
         return None
+
+
+def _try_write_fits_preview_png(
+    fits_path: Path,
+    png_path: Path,
+    *,
+    log_scale: bool = True,
+    title: str | None = None,
+) -> bool:
+    if plt is None:
+        return False
+    data = _read_fits_float(fits_path)
+    if data is None or data.ndim != 2:
+        return False
+    a = np.asarray(data, dtype=np.float32, copy=False)
+    a = np.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0)
+    if log_scale:
+        a = np.log1p(np.maximum(a, 0.0))
+    vmin = float(np.percentile(a, 1.0))
+    vmax = float(np.percentile(a, 99.0))
+    if not np.isfinite(vmin) or not np.isfinite(vmax) or vmax <= vmin:
+        vmin, vmax = float(np.min(a)), float(np.max(a))
+        if not np.isfinite(vmin) or not np.isfinite(vmax) or vmax <= vmin:
+            vmin, vmax = 0.0, 1.0
+    plt.figure(figsize=(6, 4), dpi=150)
+    plt.imshow(a, cmap="magma", vmin=vmin, vmax=vmax)
+    plt.axis("off")
+    if title:
+        plt.title(title, fontsize=9)
+    plt.tight_layout(pad=0.1)
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(png_path, bbox_inches="tight", pad_inches=0.0)
+    plt.close()
+    return True
+
+
+def _try_write_hist_png(fits_path: Path, png_path: Path, *, title: str | None = None) -> bool:
+    if plt is None:
+        return False
+    data = _read_fits_float(fits_path)
+    if data is None or data.ndim != 2:
+        return False
+    a = np.asarray(data, dtype=np.float32, copy=False).ravel()
+    a = a[np.isfinite(a)]
+    if a.size == 0:
+        return False
+    lo = float(np.percentile(a, 1.0))
+    hi = float(np.percentile(a, 99.0))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        lo, hi = float(np.min(a)), float(np.max(a))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return False
+    plt.figure(figsize=(5.5, 4), dpi=150)
+    plt.hist(a, bins=200, range=(lo, hi), color="#7aa2f7", alpha=0.85)
+    plt.xlabel("value")
+    plt.ylabel("count")
+    if title:
+        plt.title(title, fontsize=9)
+    plt.tight_layout()
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(png_path)
+    plt.close()
+    return True
 
 
 def _try_load_report_metrics(artifacts_dir: Path) -> dict[str, Any] | None:
@@ -459,6 +526,23 @@ def _make_card(title: str, rel_path: str, eval_lines: list[str], status: str | N
     )
 
 
+def _make_link_card(title: str, rel_path: str, eval_lines: list[str], status: str | None = None) -> str:
+    ev = "".join([f"<li>{_escape_html(x)}</li>" for x in eval_lines if x])
+    st = str(status or "").strip().upper()
+    cls = ""
+    badge = ""
+    if st in ("OK", "WARN", "BAD"):
+        cls = f" status-{st.lower()}"
+        badge = f"<span class=\"badge {st.lower()}\">{_escape_html(st)}</span>"
+    return (
+        f"<div class=\"card{cls}\">"
+        f"<div class=\"headerline\"><h3>{_escape_html(title)}</h3>{badge}</div>"
+        f"<div class=\"links\"><a href=\"{_escape_html(rel_path)}\">open</a></div>"
+        f"<ul class=\"eval\">{ev}</ul>"
+        "</div>"
+    )
+
+
 def _read_config(run_dir: Path) -> dict[str, Any]:
     p = run_dir / "config.yaml"
     if not p.exists() or not p.is_file():
@@ -607,6 +691,29 @@ def _known_artifacts() -> list[tuple[str, list[str]]]:
                 "registration_ecc_corr_hist.png",
             ],
         ),
+        (
+            "VALIDATION",
+            [
+                "fwhm_heatmap.fits",
+                "warp_dx.fits",
+                "warp_dy.fits",
+                "invalid_tile_map.fits",
+                "tile_validation_maps.json",
+            ],
+        ),
+        (
+            "VALIDATION_PREVIEW",
+            [
+                "fwhm_heatmap_log.png",
+                "fwhm_heatmap_hist.png",
+                "warp_dx_log.png",
+                "warp_dx_hist.png",
+                "warp_dy_log.png",
+                "warp_dy_hist.png",
+                "invalid_tile_map_log.png",
+                "invalid_tile_map_hist.png",
+            ],
+        ),
     ]
 
 
@@ -627,6 +734,24 @@ def generate_report(run_dir: Path) -> tuple[Path, Path]:
 
     tile_grid = _try_load_tile_grid(artifacts_dir)
     report_metrics = _try_load_report_metrics(artifacts_dir)
+
+    # Generate validation previews (log image + histogram) if FITS maps exist.
+    if plt is not None:
+        for base in ("fwhm_heatmap", "warp_dx", "warp_dy", "invalid_tile_map"):
+            fpath = artifacts_dir / f"{base}.fits"
+            if not fpath.exists():
+                continue
+            _try_write_fits_preview_png(
+                fpath,
+                artifacts_dir / f"{base}_log.png",
+                log_scale=True,
+                title=f"{base} (log1p)",
+            )
+            _try_write_hist_png(
+                fpath,
+                artifacts_dir / f"{base}_hist.png",
+                title=f"{base} histogram",
+            )
 
     # If runtime metrics exist, prefer them and avoid post-hoc recomputation.
     global_metrics: dict[str, ChannelGlobal] = {}
@@ -694,6 +819,23 @@ def generate_report(run_dir: Path) -> tuple[Path, Path]:
                     f"<div class=\"kv\">{_escape_html('\n'.join(eval_lines))}</div>"
                     "</div>"
                 )
+                continue
+            if fn.endswith(".fits"):
+                eval_lines = ["FITS artifact present"]
+                st = None
+                if report_metrics is not None:
+                    art = report_metrics.get("artifacts") if isinstance(report_metrics.get("artifacts"), dict) else {}
+                    entry = art.get(fn) if isinstance(art.get(fn), dict) else None
+                    if isinstance(entry, dict):
+                        st = entry.get("status")
+                        ev = entry.get("evaluations")
+                        if isinstance(ev, list):
+                            eval_lines = [str(x) for x in ev] or eval_lines
+                if report_metrics is None:
+                    eval_lines = ["missing artifacts/report_metrics.json (legacy run)."]
+                if st is None:
+                    st = _infer_status_from_eval_lines(eval_lines)
+                cards.append(_make_link_card(fn, fn, eval_lines, status=st))
                 continue
 
             eval_lines: list[str] = []

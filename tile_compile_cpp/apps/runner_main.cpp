@@ -625,6 +625,13 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                                 std::to_string(overall_linearity) + ")",
                             log_file);
         }
+    } else {
+        core::json err;
+        err["error"] = "linearity_check_required";
+        err["reason"] = "Methodik v4 requires linearity validation";
+        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", err, log_file);
+        emitter.run_end(run_id, false, "error", log_file);
+        return 1;
     }
 
     core::json scan_extra = {
@@ -1184,13 +1191,33 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         tiles_phase56.resize(static_cast<size_t>(max_tiles));
     }
 
+    int refine_pass = 0;
+    const int max_refine_passes = cfg.v4.adaptive_tiles.max_refine_passes;
+    const float refine_variance_threshold = cfg.v4.adaptive_tiles.refine_variance_threshold;
+    const float refine_cc_threshold = 0.5f;
+    const int refine_min_tile_size = std::max(cfg.v4.adaptive_tiles.min_tile_size_px, cfg.tile.min_size);
+
+    std::vector<std::vector<TileMetrics>> local_metrics;
+    std::vector<std::vector<float>> local_weights;
+    std::vector<float> tile_fwhm_median;
+    std::vector<int> tile_valid_counts;
+    std::vector<float> tile_warp_variances;
+    std::vector<float> tile_mean_correlations;
+    std::vector<float> tile_post_contrast;
+    std::vector<float> tile_post_background;
+    std::vector<float> tile_post_snr;
+    std::vector<float> tile_mean_dx;
+    std::vector<float> tile_mean_dy;
+    std::vector<std::atomic<int>> frame_valid_tile_counts;
+    Matrix2Df recon;
+    Matrix2Df weight_sum;
+
+    while (true) {
     // Phase 5: LOCAL_METRICS (compute tile metrics per frame)
     emitter.phase_start(run_id, Phase::LOCAL_METRICS, "LOCAL_METRICS", log_file);
 
-    std::vector<std::vector<TileMetrics>> local_metrics;
-    local_metrics.resize(frames.size());
-    std::vector<std::vector<float>> local_weights;
-    local_weights.resize(frames.size());
+    local_metrics.assign(frames.size(), {});
+    local_weights.assign(frames.size(), {});
 
     const std::string phase5_io_mode = cfg.v4.phase6_io.mode;
 
@@ -1370,6 +1397,21 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                       },
                       log_file);
 
+    // Precompute per-tile median FWHM (for FWHM heatmap validation artifact)
+    tile_fwhm_median.assign(tiles_phase56.size(), 0.0f);
+    if (!local_metrics.empty()) {
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+            std::vector<float> fwhms;
+            fwhms.reserve(local_metrics.size());
+            for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
+                if (ti < local_metrics[fi].size()) {
+                    fwhms.push_back(local_metrics[fi][ti].fwhm);
+                }
+            }
+            tile_fwhm_median[ti] = fwhms.empty() ? 0.0f : median_of(fwhms);
+        }
+    }
+
     const bool reduced_mode = (static_cast<int>(frames.size()) < cfg.assumptions.frames_reduced_threshold);
     const bool skip_clustering_in_reduced = (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
 
@@ -1401,6 +1443,59 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         return var_x + var_y;
     };
 
+    // Helper: robust median (local)
+    auto median_local = [](std::vector<float>& v) -> float {
+        if (v.empty()) return 0.0f;
+        const size_t n = v.size();
+        const size_t mid = n / 2;
+        std::nth_element(v.begin(), v.begin() + mid, v.end());
+        const float hi = v[mid];
+        if ((n % 2) == 1) return hi;
+        std::nth_element(v.begin(), v.begin() + (mid - 1), v.end());
+        const float lo = v[mid - 1];
+        return 0.5f * (lo + hi);
+    };
+
+    // Helper: MAD around median
+    auto mad_local = [&](const std::vector<float>& v, float med) -> float {
+        if (v.empty()) return 0.0f;
+        std::vector<float> dev;
+        dev.reserve(v.size());
+        for (float x : v) dev.push_back(std::fabs(x - med));
+        float mad = median_local(dev);
+        return 1.4826f * mad;
+    };
+
+    // Helper: post-warp metrics (Methodik v4 §6)
+    auto compute_post_warp_metrics = [&](const Matrix2Df& warped) -> std::tuple<float, float, float> {
+        if (warped.size() <= 0) return {0.0f, 0.0f, 0.0f};
+        cv::Mat wcv(warped.rows(), warped.cols(), CV_32F, const_cast<float*>(warped.data()));
+        cv::Mat lap;
+        cv::Laplacian(wcv, lap, CV_32F);
+        cv::Scalar mean, stddev;
+        cv::meanStdDev(lap, mean, stddev);
+        float contrast = static_cast<float>(stddev[0] * stddev[0]);
+
+        std::vector<float> px;
+        px.reserve(static_cast<size_t>(warped.size()));
+        for (Eigen::Index k = 0; k < warped.size(); ++k) {
+            px.push_back(warped.data()[k]);
+        }
+        float background = median_local(px);
+
+        float snr = 0.0f;
+        if (!px.empty()) {
+            const size_t n = px.size();
+            size_t idx = static_cast<size_t>(std::floor(0.99 * static_cast<double>(n - 1)));
+            std::nth_element(px.begin(), px.begin() + idx, px.end());
+            float p99 = px[idx];
+            float mad = mad_local(px, background);
+            snr = (p99 - background) / (mad + 1.0e-6f);
+        }
+
+        return {contrast, background, snr};
+    };
+
     // Helper: variance window weight ψ(var) (Methodik v4 §9)
     auto variance_window_weight = [](float warp_variance, float sigma) -> float {
         float w = std::exp(-warp_variance / (2.0f * sigma * sigma));
@@ -1429,8 +1524,8 @@ int run_command(const std::string& config_path, const std::string& input_dir,
 
     // Get first frame for dimensions
     auto [first_img, first_hdr] = load_frame_normalized(0);
-    Matrix2Df recon = Matrix2Df::Zero(first_img.rows(), first_img.cols());
-    Matrix2Df weight_sum = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+    recon = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+    weight_sum = Matrix2Df::Zero(first_img.rows(), first_img.cols());
 
     bool run_validation_failed = false;
 
@@ -1462,9 +1557,17 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     std::cout << "[Phase 6] Using " << parallel_tiles << " parallel workers for " 
               << tiles_phase56.size() << " tiles" << std::endl;
 
-    std::vector<int> tile_valid_counts(tiles_phase56.size(), 0);
-    std::vector<float> tile_warp_variances(tiles_phase56.size(), 0.0f);
-    std::vector<float> tile_mean_correlations(tiles_phase56.size(), 0.0f);
+    tile_valid_counts.assign(tiles_phase56.size(), 0);
+    tile_warp_variances.assign(tiles_phase56.size(), 0.0f);
+    tile_mean_correlations.assign(tiles_phase56.size(), 0.0f);
+    tile_post_contrast.assign(tiles_phase56.size(), 0.0f);
+    tile_post_background.assign(tiles_phase56.size(), 0.0f);
+    tile_post_snr.assign(tiles_phase56.size(), 0.0f);
+    tile_mean_dx.assign(tiles_phase56.size(), 0.0f);
+    tile_mean_dy.assign(tiles_phase56.size(), 0.0f);
+    frame_valid_tile_counts.clear();
+    frame_valid_tile_counts.resize(frames.size());
+    for (auto& c : frame_valid_tile_counts) c.store(0);
 
     // Thread-safe structures for parallel processing
     std::mutex recon_mutex;
@@ -1550,11 +1653,12 @@ int run_command(const std::string& config_path, const std::string& input_dir,
             return extract_tile(img, t);
         };
 
-        // Initial reference: median of all tiles (simplified: use first frame)
+        // Initial reference: temporal median of tile stack (Methodik v4 §5.2)
         Matrix2Df ref_tile;
         {
             std::vector<Matrix2Df> tile_samples;
-            for (size_t fi = 0; fi < std::min(frames.size(), size_t(5)); ++fi) {
+            tile_samples.reserve(frames.size());
+            for (size_t fi = 0; fi < frames.size(); ++fi) {
                 Matrix2Df sample = load_tile_normalized(fi);
                 if (sample.size() > 0) tile_samples.push_back(sample);
             }
@@ -1562,8 +1666,23 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 tiles_failed++;
                 return;
             }
-            // Use first sample as initial reference
-            ref_tile = tile_samples[0];
+
+            const int rows = tile_samples[0].rows();
+            const int cols = tile_samples[0].cols();
+            ref_tile = Matrix2Df::Zero(rows, cols);
+
+            std::vector<float> vals;
+            vals.reserve(tile_samples.size());
+            for (int y = 0; y < rows; ++y) {
+                for (int x = 0; x < cols; ++x) {
+                    vals.clear();
+                    for (const auto& s : tile_samples) {
+                        if (s.rows() != rows || s.cols() != cols) continue;
+                        vals.push_back(s(y, x));
+                    }
+                    ref_tile(y, x) = vals.empty() ? 0.0f : median_of(vals);
+                }
+            }
         }
 
         if (ref_tile.size() <= 0) {
@@ -1580,6 +1699,7 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         std::vector<Matrix2Df> final_warped_tiles;
         std::vector<float> final_weights;
 
+        std::vector<size_t> final_frame_indices;
         for (int iter = 0; iter < iterations; ++iter) {
             // For OSC: use green proxy for registration (Methodik v4)
             Matrix2Df ref_reg = (detected_mode == ColorMode::OSC) 
@@ -1668,7 +1788,8 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 float G_f = (fi < static_cast<size_t>(global_weights.size()))
                                 ? global_weights[static_cast<int>(fi)]
                                 : 1.0f;
-                weights.push_back(G_f * L_ft);
+                float R_ft = std::exp(cfg.v4.beta * (cc - 1.0f));
+                weights.push_back(G_f * L_ft * R_ft);
             }
 
             if (translations.empty()) {
@@ -1722,18 +1843,21 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 std::vector<float> filtered_correlations;
                 std::vector<Matrix2Df> filtered_warped;
                 std::vector<float> filtered_weights;
+                std::vector<size_t> filtered_indices;
                 for (size_t i = 0; i < valid_mask.size(); ++i) {
                     if (valid_mask[i]) {
                         filtered_translations.push_back(translations[i]);
                         filtered_correlations.push_back(correlations[i]);
                         filtered_warped.push_back(warped_tiles[i]);
                         filtered_weights.push_back(weights[i]);
+                        if (i < frame_indices.size()) filtered_indices.push_back(frame_indices[i]);
                     }
                 }
                 translations = filtered_translations;
                 correlations = filtered_correlations;
                 warped_tiles = filtered_warped;
                 weights = filtered_weights;
+                frame_indices = filtered_indices;
                 {
                     dbg("tile=" + std::to_string(ti) +
                         " iter=" + std::to_string(iter) +
@@ -1748,6 +1872,7 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 std::vector<float> filtered_correlations;
                 std::vector<Matrix2Df> filtered_warped;
                 std::vector<float> filtered_weights;
+                std::vector<size_t> filtered_indices;
                 for (size_t i = 0; i < correlations.size(); ++i) {
                     // Keep if: (1) ECC succeeded with good correlation, OR (2) phase correlation fallback
                     bool keep = (correlations[i] >= ecc_cc_min) || (correlations[i] == 0.0f);
@@ -1756,6 +1881,7 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                         filtered_correlations.push_back(correlations[i]);
                         filtered_warped.push_back(warped_tiles[i]);
                         filtered_weights.push_back(weights[i]);
+                        if (i < frame_indices.size()) filtered_indices.push_back(frame_indices[i]);
                     } else {
                         if (i < frame_indices.size()) {
                             dbg("tile=" + std::to_string(ti) +
@@ -1771,6 +1897,7 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 correlations = filtered_correlations;
                 warped_tiles = filtered_warped;
                 weights = filtered_weights;
+                frame_indices = filtered_indices;
             }
 
             if (static_cast<int>(warped_tiles.size()) < min_valid_frames) break;
@@ -1796,6 +1923,10 @@ int run_command(const std::string& config_path, const std::string& input_dir,
             final_correlations = correlations;
             final_warped_tiles = warped_tiles;
             final_weights = weights;
+            // Store frame indices for final iteration
+            // (needed for per-frame invalid tile fraction)
+            // Note: frame_indices already filtered alongside translations.
+            final_frame_indices = frame_indices;
 
             // Per-iteration progress (Python legacy style)
             const int global_done = cumulative_tiles_processed.fetch_add(1) + 1;
@@ -1827,6 +1958,27 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         mean_cc /= static_cast<float>(final_correlations.size());
         tile_mean_correlations[ti] = mean_cc;
 
+        // Compute mean translation for warp vector field
+        if (!final_translations.empty()) {
+            double sum_dx = 0.0;
+            double sum_dy = 0.0;
+            for (const auto& [dx, dy] : final_translations) {
+                sum_dx += static_cast<double>(dx);
+                sum_dy += static_cast<double>(dy);
+            }
+            tile_mean_dx[ti] = static_cast<float>(sum_dx / static_cast<double>(final_translations.size()));
+            tile_mean_dy[ti] = static_cast<float>(sum_dy / static_cast<double>(final_translations.size()));
+        }
+
+        // Update per-frame valid tile counts (for invalid_tile_fraction per frame)
+        if (!final_frame_indices.empty()) {
+            for (size_t fi : final_frame_indices) {
+                if (fi < frame_valid_tile_counts.size()) {
+                    frame_valid_tile_counts[fi].fetch_add(1);
+                }
+            }
+        }
+
         // Final weighted sum
         float wsum = 0.0f;
         for (float w : final_weights) wsum += w;
@@ -1844,6 +1996,26 @@ int run_command(const std::string& config_path, const std::string& input_dir,
 
         // Variance window weight ψ(var) (Methodik v4 §9)
         float psi = variance_window_weight(warp_var, variance_sigma);
+
+        // Post-warp metrics (Methodik v4 §6)
+        {
+            double sum_contrast = 0.0;
+            double sum_background = 0.0;
+            double sum_snr = 0.0;
+            int count = 0;
+            for (const auto& wt : final_warped_tiles) {
+                auto [c, b, s] = compute_post_warp_metrics(wt);
+                sum_contrast += static_cast<double>(c);
+                sum_background += static_cast<double>(b);
+                sum_snr += static_cast<double>(s);
+                ++count;
+            }
+            if (count > 0) {
+                tile_post_contrast[ti] = static_cast<float>(sum_contrast / static_cast<double>(count));
+                tile_post_background[ti] = static_cast<float>(sum_background / static_cast<double>(count));
+                tile_post_snr[ti] = static_cast<float>(sum_snr / static_cast<double>(count));
+            }
+        }
 
         dbg("tile=" + std::to_string(ti) +
             " valid_frames=" + std::to_string(valid) +
@@ -1938,10 +2110,16 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         artifact["tile_valid_counts"] = core::json::array();
         artifact["tile_warp_variances"] = core::json::array();
         artifact["tile_mean_correlations"] = core::json::array();
+        artifact["tile_post_contrast"] = core::json::array();
+        artifact["tile_post_background"] = core::json::array();
+        artifact["tile_post_snr_proxy"] = core::json::array();
         for (size_t i = 0; i < tiles_phase56.size(); ++i) {
             artifact["tile_valid_counts"].push_back(tile_valid_counts[i]);
             artifact["tile_warp_variances"].push_back(tile_warp_variances[i]);
             artifact["tile_mean_correlations"].push_back(tile_mean_correlations[i]);
+            artifact["tile_post_contrast"].push_back(tile_post_contrast[i]);
+            artifact["tile_post_background"].push_back(tile_post_background[i]);
+            artifact["tile_post_snr_proxy"].push_back(tile_post_snr[i]);
         }
         core::write_text(run_dir / "artifacts" / "tile_reconstruction_tlr.json", artifact.dump(2));
     }
@@ -1953,6 +2131,140 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                                                         [&](int c) { return c >= min_valid_frames; })},
                       },
                       log_file);
+
+    // Adaptive refinement (Methodik v4 §4): split tiles with high warp variance or low correlation
+    {
+        bool refined = false;
+        std::vector<Tile> refined_tiles;
+        if (adaptive_enabled && refine_pass < max_refine_passes) {
+            refined_tiles.reserve(tiles_phase56.size() * 2);
+            const float refine_overlap_frac = std::min(std::max(cfg.tile.overlap_fraction, 0.0f), 0.5f);
+            for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+                const Tile& t = tiles_phase56[ti];
+                const bool too_small = (t.width < 2 * refine_min_tile_size) || (t.height < 2 * refine_min_tile_size);
+                const bool need_refine = (tile_warp_variances[ti] > refine_variance_threshold) ||
+                                         (tile_mean_correlations[ti] < refine_cc_threshold);
+                if (!need_refine || too_small) {
+                    refined_tiles.push_back(t);
+                    continue;
+                }
+                int hw = t.width / 2;
+                int hh = t.height / 2;
+                if (hw <= 0 || hh <= 0) {
+                    refined_tiles.push_back(t);
+                    continue;
+                }
+                refined = true;
+                const int ovx = static_cast<int>(std::floor(refine_overlap_frac * static_cast<float>(hw)));
+                const int ovy = static_cast<int>(std::floor(refine_overlap_frac * static_cast<float>(hh)));
+                const int x0 = t.x;
+                const int y0 = t.y;
+                const int x1 = t.x + t.width;
+                const int y1 = t.y + t.height;
+
+                auto clamp_tile = [&](int tx0, int ty0, int tx1, int ty1) {
+                    tx0 = std::max(x0, tx0);
+                    ty0 = std::max(y0, ty0);
+                    tx1 = std::min(x1, tx1);
+                    ty1 = std::min(y1, ty1);
+                    int tw = std::max(1, tx1 - tx0);
+                    int th = std::max(1, ty1 - ty0);
+                    refined_tiles.push_back(Tile{tx0, ty0, tw, th, -1, -1});
+                };
+
+                clamp_tile(x0, y0, x0 + hw + ovx, y0 + hh + ovy);
+                clamp_tile(x0 + hw - ovx, y0, x1, y0 + hh + ovy);
+                clamp_tile(x0, y0 + hh - ovy, x0 + hw + ovx, y1);
+                clamp_tile(x0 + hw - ovx, y0 + hh - ovy, x1, y1);
+            }
+        }
+
+        if (refined) {
+            tiles_phase56 = std::move(refined_tiles);
+            refine_pass++;
+            continue;
+        }
+    }
+
+    // Build validation artifacts (Methodik v4 §12): FWHM heatmap, warp vector fields, invalid tile map
+    {
+        auto add_tile_value = [&](Matrix2Df& sum, Matrix2Df& cnt, const Tile& t, float val) {
+            int x0 = std::max(0, t.x);
+            int y0 = std::max(0, t.y);
+            int x1 = std::min(sum.cols(), t.x + t.width);
+            int y1 = std::min(sum.rows(), t.y + t.height);
+            for (int y = y0; y < y1; ++y) {
+                for (int x = x0; x < x1; ++x) {
+                    sum(y, x) += val;
+                    cnt(y, x) += 1.0f;
+                }
+            }
+        };
+
+        Matrix2Df fwhm_sum = Matrix2Df::Zero(recon.rows(), recon.cols());
+        Matrix2Df fwhm_cnt = Matrix2Df::Zero(recon.rows(), recon.cols());
+        Matrix2Df dx_sum = Matrix2Df::Zero(recon.rows(), recon.cols());
+        Matrix2Df dx_cnt = Matrix2Df::Zero(recon.rows(), recon.cols());
+        Matrix2Df dy_sum = Matrix2Df::Zero(recon.rows(), recon.cols());
+        Matrix2Df dy_cnt = Matrix2Df::Zero(recon.rows(), recon.cols());
+        Matrix2Df invalid_sum = Matrix2Df::Zero(recon.rows(), recon.cols());
+        Matrix2Df invalid_cnt = Matrix2Df::Zero(recon.rows(), recon.cols());
+
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+            const Tile& t = tiles_phase56[ti];
+            add_tile_value(fwhm_sum, fwhm_cnt, t, tile_fwhm_median[ti]);
+            add_tile_value(dx_sum, dx_cnt, t, tile_mean_dx[ti]);
+            add_tile_value(dy_sum, dy_cnt, t, tile_mean_dy[ti]);
+            float invalid = (tile_valid_counts[ti] < min_valid_frames) ? 1.0f : 0.0f;
+            add_tile_value(invalid_sum, invalid_cnt, t, invalid);
+        }
+
+        auto finalize_map = [&](Matrix2Df& sum, const Matrix2Df& cnt) {
+            for (int i = 0; i < sum.size(); ++i) {
+                float c = cnt.data()[i];
+                sum.data()[i] = (c > 0.0f) ? (sum.data()[i] / c) : 0.0f;
+            }
+        };
+
+        finalize_map(fwhm_sum, fwhm_cnt);
+        finalize_map(dx_sum, dx_cnt);
+        finalize_map(dy_sum, dy_cnt);
+        finalize_map(invalid_sum, invalid_cnt);
+
+        try {
+            io::write_fits_float(run_dir / "artifacts" / "fwhm_heatmap.fits", fwhm_sum, first_hdr);
+            io::write_fits_float(run_dir / "artifacts" / "warp_dx.fits", dx_sum, first_hdr);
+            io::write_fits_float(run_dir / "artifacts" / "warp_dy.fits", dy_sum, first_hdr);
+            io::write_fits_float(run_dir / "artifacts" / "invalid_tile_map.fits", invalid_sum, first_hdr);
+        } catch (...) {
+            emitter.warning(run_id, "Validation artifacts write failed (heatmap/vector/invalid maps)", log_file);
+        }
+
+        // Per-tile JSON artifacts for downstream diagnostics
+        try {
+            core::json j;
+            j["num_tiles"] = static_cast<int>(tiles_phase56.size());
+            j["tiles"] = core::json::array();
+            for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+                const Tile& t = tiles_phase56[ti];
+                j["tiles"].push_back({
+                    {"x", t.x},
+                    {"y", t.y},
+                    {"width", t.width},
+                    {"height", t.height},
+                    {"fwhm_median", tile_fwhm_median[ti]},
+                    {"warp_dx_mean", tile_mean_dx[ti]},
+                    {"warp_dy_mean", tile_mean_dy[ti]},
+                    {"invalid", (tile_valid_counts[ti] < min_valid_frames) ? 1 : 0}
+                });
+            }
+            core::write_text(run_dir / "artifacts" / "tile_validation_maps.json", j.dump(2));
+        } catch (...) {
+            emitter.warning(run_id, "Validation tile JSON artifact write failed", log_file);
+        }
+    }
+    break;
+    }
 
     // Phase 7: STATE_CLUSTERING (Methodik v4 §10)
     emitter.phase_start(run_id, Phase::STATE_CLUSTERING, "STATE_CLUSTERING", log_file);
@@ -1971,11 +2283,34 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     }
 
     if (!skip_clustering_in_reduced) {
-        // Build state vectors for clustering: [G_f, mean_local_quality, var_local_quality, background, noise]
+        // Build state vectors for clustering (Methodik v4 §10):
+        // [G_f, mean_local_quality, var_local_quality, mean_cc_tiles, mean_warp_var_tiles, invalid_tile_fraction]
         const int n_frames_cluster = static_cast<int>(frames.size());
         std::vector<std::vector<float>> state_vectors(static_cast<size_t>(n_frames_cluster));
 
         std::vector<float> G_for_cluster(static_cast<size_t>(n_frames_cluster), 1.0f);
+
+        float mean_cc_tiles = 0.0f;
+        float mean_warp_var_tiles = 0.0f;
+        if (!tiles_phase56.empty()) {
+            double sum_cc = 0.0;
+            double sum_var = 0.0;
+            for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+                sum_cc += static_cast<double>(tile_mean_correlations[ti]);
+                sum_var += static_cast<double>(tile_warp_variances[ti]);
+            }
+            mean_cc_tiles = static_cast<float>(sum_cc / static_cast<double>(tiles_phase56.size()));
+            mean_warp_var_tiles = static_cast<float>(sum_var / static_cast<double>(tiles_phase56.size()));
+        }
+
+        std::vector<float> frame_invalid_fraction(frames.size(), 0.0f);
+        if (!tiles_phase56.empty()) {
+            for (size_t fi = 0; fi < frames.size(); ++fi) {
+                int valid_tiles_for_frame = frame_valid_tile_counts[fi].load();
+                float frac_valid = static_cast<float>(valid_tiles_for_frame) / static_cast<float>(tiles_phase56.size());
+                frame_invalid_fraction[fi] = 1.0f - std::min(std::max(frac_valid, 0.0f), 1.0f);
+            }
+        }
 
         for (size_t fi = 0; fi < frames.size(); ++fi) {
             float G_f = (fi < static_cast<size_t>(global_weights.size())) ? global_weights[static_cast<int>(fi)] : 1.0f;
@@ -1996,13 +2331,20 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 var_local /= static_cast<float>(local_metrics[fi].size());
             }
 
-            state_vectors[fi] = {G_f, mean_local, var_local, bg, noise};
+            state_vectors[fi] = {
+                G_f,
+                mean_local,
+                var_local,
+                mean_cc_tiles,
+                mean_warp_var_tiles,
+                frame_invalid_fraction[fi]
+            };
             G_for_cluster[fi] = G_f;
         }
 
         std::vector<std::vector<float>> X = state_vectors;
         if (n_frames_cluster > 0) {
-            const size_t D = 5;
+            const size_t D = 6;
             std::vector<float> means(D, 0.0f);
             std::vector<float> stds(D, 0.0f);
 
@@ -2038,12 +2380,12 @@ int run_command(const std::string& config_path, const std::string& input_dir,
 
     std::string clustering_method = "kmeans";
 
-    if (n_clusters > 1 && n_frames_cluster > 1) {
-        // Initialize cluster centers (k-means++ style: just pick evenly spaced frames)
-        std::vector<std::vector<float>> centers(static_cast<size_t>(n_clusters));
-        for (int c = 0; c < n_clusters; ++c) {
-            int idx = (c * n_frames_cluster) / n_clusters;
-            centers[static_cast<size_t>(c)] = X[static_cast<size_t>(idx)];
+        if (n_clusters > 1 && n_frames_cluster > 1) {
+            // Initialize cluster centers (k-means++ style: just pick evenly spaced frames)
+            std::vector<std::vector<float>> centers(static_cast<size_t>(n_clusters));
+            for (int c = 0; c < n_clusters; ++c) {
+                int idx = (c * n_frames_cluster) / n_clusters;
+                centers[static_cast<size_t>(c)] = X[static_cast<size_t>(idx)];
         }
 
         // K-means iterations
@@ -2068,7 +2410,7 @@ int run_command(const std::string& config_path, const std::string& input_dir,
 
             // Update centers
             std::vector<std::vector<float>> new_centers(static_cast<size_t>(n_clusters),
-                                                        std::vector<float>(5, 0.0f));
+                                                        std::vector<float>(6, 0.0f));
             std::vector<int> counts(static_cast<size_t>(n_clusters), 0);
             for (size_t fi = 0; fi < X.size(); ++fi) {
                 int c = cluster_labels[fi];

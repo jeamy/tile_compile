@@ -125,6 +125,7 @@ class TileProcessor:
         self.mean_correlation = 0.0
         self.warps: List[Optional[np.ndarray]] = []
         self.correlations: List[float] = []
+        self.valid_frame_indices: List[int] = []
         self.debug_events: List[Dict[str, Any]] = []
     
     def _load_tile(self, path: Path) -> Optional[np.ndarray]:
@@ -222,7 +223,8 @@ class TileProcessor:
             weights = []
             correlations = []
             
-            for path, Gf in zip(self.frame_paths, self.global_weights):
+            frame_indices = []
+            for fi, (path, Gf) in enumerate(zip(self.frame_paths, self.global_weights)):
                 tile = self._load_tile(path)
                 if tile is None:
                     continue
@@ -247,6 +249,7 @@ class TileProcessor:
                 warped_tiles.append(warped)
                 warps.append(warp)
                 correlations.append(cc)
+                frame_indices.append(fi)
                 
                 # W_{f,t} = G_f · R_{f,t} where R_{f,t} = exp(β·(cc-1))
                 R_ft = float(np.exp(self.cfg.beta * (cc - 1.0)))
@@ -303,6 +306,7 @@ class TileProcessor:
             warps = [w_ for w_, ok in zip(warps, valid_mask) if ok]
             correlations = [c for c, ok in zip(correlations, valid_mask) if ok]
             weights = [wt for wt, ok in zip(weights, valid_mask) if ok]
+            frame_indices = [fi for fi, ok in zip(frame_indices, valid_mask) if ok]
 
             # Check minimum valid frames (§8 stability)
             if len(warped_tiles) < self.cfg.min_valid_frames:
@@ -312,6 +316,7 @@ class TileProcessor:
             # Temporal smoothing of warps (§5.3)
             warps = smooth_warps_translation(warps, self.cfg.temporal_smoothing_window)
             final_warps = warps
+            self.valid_frame_indices = frame_indices
             
             # Weighted reconstruction (§8)
             stack = np.stack(warped_tiles, axis=0)
@@ -348,6 +353,7 @@ class TileProcessor:
             "warp_variance": self.warp_variance,
             "mean_correlation": self.mean_correlation,
             "valid_frames": len(self.warps),
+            "valid_frame_indices": self.valid_frame_indices,
             "debug_events": self.debug_events,
         }
 
