@@ -90,6 +90,158 @@ float robust_sigma_mad(std::vector<float>& pixels) {
     return 1.4826f * mad;
 }
 
+struct LinearityThresholds {
+    float skewness_max = 1.2f;
+    float kurtosis_max = 1.2f;
+    float variance_max = 0.5f;
+    float energy_ratio_min = 0.95f;
+    float gradient_consistency_max = 0.5f;
+};
+
+struct LinearityFrameResult {
+    bool is_linear = false;
+    float score = 0.0f;
+    float skewness = 0.0f;
+    float kurtosis = 0.0f;
+    float variance_coeff = 0.0f;
+    float energy_ratio = 0.0f;
+    float gradient_consistency = 0.0f;
+    bool moment_ok = false;
+    bool spectral_ok = false;
+    bool spatial_ok = false;
+};
+
+static LinearityThresholds linearity_thresholds_for(const std::string& strictness) {
+    if (strictness == "moderate") {
+        return {1.2f, 1.2f, 0.7f, 0.9f, 0.7f};
+    }
+    if (strictness == "permissive") {
+        return {1.5f, 1.5f, 1.0f, 0.8f, 1.0f};
+    }
+    return {1.2f, 1.2f, 0.5f, 0.95f, 0.5f};
+}
+
+static std::vector<size_t> sample_indices(size_t count, int max_frames) {
+    std::vector<size_t> out;
+    if (count == 0 || max_frames <= 0) return out;
+    size_t n = std::min(count, static_cast<size_t>(max_frames));
+    if (n == 1) {
+        out.push_back(0);
+        return out;
+    }
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        float t = static_cast<float>(i) / static_cast<float>(n - 1);
+        size_t idx = static_cast<size_t>(std::round(t * static_cast<float>(count - 1)));
+        if (out.empty() || out.back() != idx) {
+            out.push_back(idx);
+        }
+    }
+    return out;
+}
+
+static float percentile_from_sorted(const std::vector<float>& sorted, float pct) {
+    if (sorted.empty()) return 0.0f;
+    float clamped = std::min(std::max(pct, 0.0f), 100.0f);
+    float pos = (clamped / 100.0f) * static_cast<float>(sorted.size() - 1);
+    size_t idx = static_cast<size_t>(std::round(pos));
+    idx = std::min(idx, sorted.size() - 1);
+    return sorted[idx];
+}
+
+static LinearityFrameResult validate_linearity_frame(const Matrix2Df& img, const std::string& strictness) {
+    LinearityFrameResult out;
+    if (img.size() <= 0) return out;
+
+    cv::Mat cv_img(img.rows(), img.cols(), CV_32F, const_cast<float*>(img.data()));
+    cv::Mat small = cv_img;
+
+    const int max_dim = 256;
+    if (cv_img.rows > max_dim || cv_img.cols > max_dim) {
+        float scale = static_cast<float>(max_dim) / static_cast<float>(std::max(cv_img.rows, cv_img.cols));
+        cv::resize(cv_img, small, cv::Size(), scale, scale, cv::INTER_AREA);
+    }
+
+    std::vector<float> values;
+    values.reserve(static_cast<size_t>(small.rows) * static_cast<size_t>(small.cols));
+    for (int y = 0; y < small.rows; ++y) {
+        const float* row = small.ptr<float>(y);
+        for (int x = 0; x < small.cols; ++x) {
+            float v = row[x];
+            if (std::isfinite(v)) values.push_back(v);
+        }
+    }
+
+    if (values.empty()) {
+        return out;
+    }
+
+    double mean = 0.0;
+    double m2 = 0.0;
+    for (size_t i = 0; i < values.size(); ++i) {
+        double x = static_cast<double>(values[i]);
+        double delta = x - mean;
+        mean += delta / static_cast<double>(i + 1);
+        double delta2 = x - mean;
+        m2 += delta * delta2;
+    }
+    double var = (values.size() > 1) ? (m2 / static_cast<double>(values.size() - 1)) : 0.0;
+    double stddev = std::sqrt(std::max(0.0, var));
+
+    std::vector<float> sorted = values;
+    std::sort(sorted.begin(), sorted.end());
+    float p1 = percentile_from_sorted(sorted, 1.0f);
+    float p5 = percentile_from_sorted(sorted, 5.0f);
+    float p50 = percentile_from_sorted(sorted, 50.0f);
+    float p95 = percentile_from_sorted(sorted, 95.0f);
+    float p99 = percentile_from_sorted(sorted, 99.0f);
+
+    float denom_skew = (p50 - p1) + 1.0e-12f;
+    float denom_kurt = (p50 - p5) + 1.0e-12f;
+    out.skewness = (p99 - p50) / denom_skew;
+    out.kurtosis = (p95 - p50) / denom_kurt;
+    out.variance_coeff = static_cast<float>(stddev / (std::fabs(mean) + 1.0e-12));
+
+    cv::Mat gx, gy, mag;
+    cv::Sobel(small, gx, CV_32F, 1, 0, 3);
+    cv::Sobel(small, gy, CV_32F, 0, 1, 3);
+    cv::magnitude(gx, gy, mag);
+    double mean_grad = cv::mean(mag)[0];
+    double mean_frame = cv::mean(small)[0];
+    out.gradient_consistency = static_cast<float>(2.0 * (mean_grad / (std::fabs(mean_frame) + 1.0e-12)));
+
+    out.energy_ratio = 0.0f;
+    if (small.rows >= 8 && small.cols >= 8) {
+        cv::Mat dft;
+        cv::dft(small, dft, cv::DFT_COMPLEX_OUTPUT);
+        std::vector<cv::Mat> planes;
+        cv::split(dft, planes);
+        cv::Mat mag2 = planes[0].mul(planes[0]) + planes[1].mul(planes[1]);
+        double total_energy = cv::sum(mag2)[0];
+        int r = std::max(1, std::min(mag2.rows, mag2.cols) / 8);
+        double low_energy = 0.0;
+        low_energy += cv::sum(mag2(cv::Rect(0, 0, r, r)))[0];
+        low_energy += cv::sum(mag2(cv::Rect(0, mag2.rows - r, r, r)))[0];
+        low_energy += cv::sum(mag2(cv::Rect(mag2.cols - r, 0, r, r)))[0];
+        low_energy += cv::sum(mag2(cv::Rect(mag2.cols - r, mag2.rows - r, r, r)))[0];
+        if (total_energy > 0.0) {
+            out.energy_ratio = static_cast<float>(low_energy / total_energy);
+        }
+    }
+
+    LinearityThresholds th = linearity_thresholds_for(strictness);
+    out.moment_ok = (std::fabs(out.skewness) < th.skewness_max) &&
+                    (std::fabs(out.kurtosis) < th.kurtosis_max) &&
+                    (out.variance_coeff < th.variance_max);
+    out.spectral_ok = (out.energy_ratio >= th.energy_ratio_min);
+    out.spatial_ok = (out.gradient_consistency < th.gradient_consistency_max);
+
+    out.score = (static_cast<float>(out.moment_ok) + static_cast<float>(out.spectral_ok) +
+                 static_cast<float>(out.spatial_ok)) / 3.0f;
+    out.is_linear = out.moment_ok && out.spectral_ok && out.spatial_ok;
+    return out;
+}
+
 float estimate_fwhm_from_patch(const cv::Mat& patch) {
     if (patch.empty()) return 0.0f;
     std::vector<float> v;
@@ -375,7 +527,7 @@ int run_command(const std::string& config_path, const std::string& input_dir,
 
     if (dry_run) {
         emitter.phase_start(run_id, Phase::SCAN_INPUT, "SCAN_INPUT", log_file);
-        emitter.phase_end(run_id, Phase::SCAN_INPUT, "skipped", {{"reason", "dry_run"}}, log_file);
+        emitter.phase_end(run_id, Phase::SCAN_INPUT, "skipped", {{"reason", "dry_run"}, {"input_dir", input_dir}}, log_file);
 
         std::cout << "Dry run - no processing" << std::endl;
         emitter.run_end(run_id, true, "ok", log_file);
@@ -390,16 +542,19 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     int naxis = 0;
     ColorMode detected_mode = ColorMode::MONO;
     BayerPattern detected_bayer = BayerPattern::UNKNOWN;
+    Matrix2Df first_frame;
+    io::FitsHeader first_header;
 
     try {
         std::tie(width, height, naxis) = io::get_fits_dimensions(frames.front());
         auto first = io::read_fits_float(frames.front());
-        const auto& header = first.second;
+        first_frame = std::move(first.first);
+        first_header = std::move(first.second);
 
-        detected_mode = io::detect_color_mode(header, naxis);
-        detected_bayer = io::detect_bayer_pattern(header);
+        detected_mode = io::detect_color_mode(first_header, naxis);
+        detected_bayer = io::detect_bayer_pattern(first_header);
     } catch (const std::exception& e) {
-        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", {{"error", e.what()}}, log_file);
+        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", {{"error", e.what()}, {"input_dir", input_dir}}, log_file);
         emitter.run_end(run_id, false, "error", log_file);
         std::cerr << "Error during SCAN_INPUT: " << e.what() << std::endl;
         return 1;
@@ -422,15 +577,69 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                         log_file);
     }
 
-    emitter.phase_end(run_id, Phase::SCAN_INPUT, "ok",
-                      {
-                          {"frames_scanned", frames.size()},
-                          {"image_width", width},
-                          {"image_height", height},
-                          {"color_mode", detected_mode_str},
-                          {"bayer_pattern", detected_bayer_str},
-                      },
-                      log_file);
+    core::json linearity_info;
+    if (cfg.linearity.enabled) {
+        auto indices = sample_indices(frames.size(), cfg.linearity.max_frames);
+        int failed = 0;
+        float score_sum = 0.0f;
+        std::vector<std::string> failed_names;
+        for (size_t idx : indices) {
+            Matrix2Df frame_img;
+            if (idx == 0) {
+                frame_img = first_frame;
+            } else {
+                frame_img = io::read_fits_float(frames[idx]).first;
+            }
+            LinearityFrameResult res = validate_linearity_frame(frame_img, cfg.linearity.strictness);
+            score_sum += res.is_linear ? 1.0f : 0.0f;
+            if (!res.is_linear) {
+                failed++;
+                if (failed_names.size() < 5) {
+                    failed_names.push_back(frames[idx].filename().string());
+                }
+            }
+        }
+
+        float overall_linearity = indices.empty() ? 0.0f : (score_sum / static_cast<float>(indices.size()));
+        linearity_info["enabled"] = true;
+        linearity_info["sampled_frames"] = static_cast<int>(indices.size());
+        linearity_info["overall_linearity"] = overall_linearity;
+        linearity_info["min_overall_linearity"] = cfg.linearity.min_overall_linearity;
+        linearity_info["failed_frames"] = failed;
+        if (!failed_names.empty()) {
+            linearity_info["failed_frame_names"] = failed_names;
+        }
+
+        if (overall_linearity + 1.0e-6f < cfg.linearity.min_overall_linearity) {
+            core::json err;
+            err["error"] = "linearity_check_failed";
+            err["linearity"] = linearity_info;
+            emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", err, log_file);
+            emitter.run_end(run_id, false, "error", log_file);
+            return 1;
+        }
+        if (failed > 0) {
+            emitter.warning(run_id,
+                            "Linearity check: " + std::to_string(failed) +
+                                " sampled frames flagged non-linear (overall_linearity=" +
+                                std::to_string(overall_linearity) + ")",
+                            log_file);
+        }
+    }
+
+    core::json scan_extra = {
+        {"input_dir", input_dir},
+        {"frames_scanned", frames.size()},
+        {"image_width", width},
+        {"image_height", height},
+        {"color_mode", detected_mode_str},
+        {"bayer_pattern", detected_bayer_str},
+    };
+    if (!linearity_info.is_null()) {
+        scan_extra["linearity"] = linearity_info;
+    }
+
+    emitter.phase_end(run_id, Phase::SCAN_INPUT, "ok", scan_extra, log_file);
 
     // Phase 1: CHANNEL_SPLIT (metadata-only; actual split happens later)
     emitter.phase_start(run_id, Phase::CHANNEL_SPLIT, "CHANNEL_SPLIT", log_file);

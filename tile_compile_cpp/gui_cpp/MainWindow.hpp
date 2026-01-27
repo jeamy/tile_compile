@@ -67,6 +67,8 @@ class MainWindow : public QMainWindow {
     std::string current_run_dir_;
     std::string start_blocked_reason_;
     int frame_count_ = 0;
+
+    QString last_scan_input_dir_;
     
     QTabWidget *tabs_ = nullptr;
     QLabel *lbl_header_ = nullptr;

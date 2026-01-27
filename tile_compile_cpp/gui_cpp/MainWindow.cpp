@@ -94,9 +94,13 @@ void MainWindow::build_ui() {
         lbl_header_->setText(status);
     });
     connect(scan_tab_, &ScanTab::input_dir_changed, this, [this](const QString &dir) {
-        if (run_tab_ && run_tab_->get_input_dir().isEmpty()) {
-            run_tab_->set_input_dir(dir);
+        if (run_tab_) {
+            const QString current_run_dir = run_tab_->get_input_dir();
+            if (current_run_dir.isEmpty() || (!last_scan_input_dir_.isEmpty() && current_run_dir == last_scan_input_dir_)) {
+                run_tab_->set_input_dir(dir);
+            }
         }
+        last_scan_input_dir_ = dir;
         schedule_save_gui_state();
     });
     connect(scan_tab_, &ScanTab::update_controls_requested, this, &MainWindow::update_controls);
@@ -288,10 +292,26 @@ void MainWindow::on_start_run_clicked() {
         return;
     }
     
-    const QString input_dir = run_tab->get_input_dir();
+    QString input_dir = run_tab->get_input_dir();
     if (input_dir.isEmpty()) {
         QMessageBox::warning(this, "Start run", "Input dir is required");
         return;
+    }
+
+    const QString scan_input_dir = scan_tab->get_scan_input_dir();
+    if (!scan_input_dir.isEmpty() && scan_input_dir != input_dir) {
+        const auto resp = QMessageBox::question(
+            this,
+            "Input dir mismatch",
+            QString("Scan input dir (%1) differs from Run input dir (%2).\n\nUse Scan input dir for this run?")
+                .arg(scan_input_dir)
+                .arg(input_dir),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::Yes);
+        if (resp == QMessageBox::Yes) {
+            run_tab->set_input_dir(scan_input_dir);
+            input_dir = scan_input_dir;
+        }
     }
     
     append_live("[ui] start run");
@@ -530,7 +550,11 @@ void MainWindow::apply_gui_state(const nlohmann::json &state) {
     tabs_->blockSignals(true);
     
     if (state.contains("scanInputDir") && scan_tab_) {
-        scan_tab_->set_input_dir_from_scan(QString::fromStdString(state["scanInputDir"].get<std::string>()));
+        const QString scan_dir = QString::fromStdString(state["scanInputDir"].get<std::string>());
+        scan_tab_->set_input_dir_from_scan(scan_dir);
+        if (!scan_dir.isEmpty()) {
+            last_scan_input_dir_ = scan_dir;
+        }
     }
     
     if (state.contains("calibration") && scan_tab_) {
@@ -547,7 +571,11 @@ void MainWindow::apply_gui_state(const nlohmann::json &state) {
     
     if (run_tab_) {
         if (state.contains("inputDir")) {
-            run_tab_->set_input_dir(QString::fromStdString(state["inputDir"].get<std::string>()));
+            const QString run_dir = QString::fromStdString(state["inputDir"].get<std::string>());
+            run_tab_->set_input_dir(run_dir);
+            if (last_scan_input_dir_.isEmpty() && !run_dir.isEmpty()) {
+                last_scan_input_dir_ = run_dir;
+            }
         }
         if (state.contains("workingDir")) {
             run_tab_->set_working_dir(QString::fromStdString(state["workingDir"].get<std::string>()));

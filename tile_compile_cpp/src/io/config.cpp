@@ -3,7 +3,6 @@
 
 #include <cmath>
 #include <fstream>
-#include <sstream>
 
 namespace tile_compile::config {
 
@@ -52,6 +51,16 @@ Config Config::from_yaml(const YAML::Node& node) {
         if (d["color_mode"]) cfg.data.color_mode = d["color_mode"].as<std::string>();
         if (d["bayer_pattern"]) cfg.data.bayer_pattern = d["bayer_pattern"].as<std::string>();
         if (d["linear_required"]) cfg.data.linear_required = d["linear_required"].as<bool>();
+    }
+
+    if (node["linearity"]) {
+        auto l = node["linearity"];
+        if (l["enabled"]) cfg.linearity.enabled = l["enabled"].as<bool>();
+        if (l["max_frames"]) cfg.linearity.max_frames = l["max_frames"].as<int>();
+        if (l["min_overall_linearity"]) {
+            cfg.linearity.min_overall_linearity = l["min_overall_linearity"].as<float>();
+        }
+        if (l["strictness"]) cfg.linearity.strictness = l["strictness"].as<std::string>();
     }
 
     if (node["calibration"]) {
@@ -312,6 +321,11 @@ YAML::Node Config::to_yaml() const {
     node["data"]["bayer_pattern"] = data.bayer_pattern;
     node["data"]["linear_required"] = data.linear_required;
 
+    node["linearity"]["enabled"] = linearity.enabled;
+    node["linearity"]["max_frames"] = linearity.max_frames;
+    node["linearity"]["min_overall_linearity"] = linearity.min_overall_linearity;
+    node["linearity"]["strictness"] = linearity.strictness;
+
     node["calibration"]["use_bias"] = calibration.use_bias;
     node["calibration"]["use_dark"] = calibration.use_dark;
     node["calibration"]["use_flat"] = calibration.use_flat;
@@ -467,6 +481,17 @@ void Config::validate() const {
     }
     if (!data.linear_required) {
         throw ValidationError("data.linear_required must be true (Methodik v4)");
+    }
+
+    if (linearity.max_frames < 1) {
+        throw ValidationError("linearity.max_frames must be >= 1");
+    }
+    if (linearity.min_overall_linearity < 0.0f || linearity.min_overall_linearity > 1.0f) {
+        throw ValidationError("linearity.min_overall_linearity must be in [0,1]");
+    }
+    if (linearity.strictness != "strict" && linearity.strictness != "moderate" &&
+        linearity.strictness != "permissive") {
+        throw ValidationError("linearity.strictness must be 'strict', 'moderate', or 'permissive'");
     }
 
     if (assumptions.frames_min < 1) {
@@ -711,6 +736,15 @@ std::string get_schema_json() {
         "color_mode": {"type": "string"},
         "bayer_pattern": {"type": "string"},
         "linear_required": {"type": "boolean"}
+      }
+    },
+    "linearity": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "max_frames": {"type": "integer", "minimum": 1},
+        "min_overall_linearity": {"type": "number", "minimum": 0, "maximum": 1},
+        "strictness": {"type": "string", "enum": ["strict", "moderate", "permissive"]}
       }
     },
     "v4": {

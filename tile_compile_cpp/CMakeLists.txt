@@ -148,6 +148,11 @@ add_executable(tile_compile_gui ${GUI_SOURCES})
 target_include_directories(tile_compile_gui PRIVATE gui_cpp)
 target_link_libraries(tile_compile_gui PRIVATE tile_compile_lib Qt6::Widgets)
 
+set_target_properties(tile_compile_gui PROPERTIES
+    AUTOMOC_PATH_PREFIX OFF
+    AUTOMOC_MOC_OPTIONS "-p;${CMAKE_SOURCE_DIR}/gui_cpp/"
+)
+
 # Copy GUI resource files to build directory
 configure_file(${CMAKE_SOURCE_DIR}/gui_cpp/constants.js ${CMAKE_BINARY_DIR}/gui_cpp/constants.js COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/gui_cpp/styles.qss ${CMAKE_BINARY_DIR}/gui_cpp/styles.qss COPYONLY)
