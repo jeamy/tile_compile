@@ -222,6 +222,11 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
         weights[i] = std::exp(qc);
     }
 
+    float sum = weights.sum();
+    if (std::isfinite(sum) && sum > 1.0e-12f) {
+        weights /= sum;
+    }
+
     return weights;
 }
 

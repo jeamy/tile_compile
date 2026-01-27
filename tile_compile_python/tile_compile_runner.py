@@ -215,12 +215,13 @@ def run_v4_pipeline(
     # Linearity validation (Methodik v4 hard assumption)
     linearity_cfg = cfg.get("linearity", {}) if isinstance(cfg.get("linearity"), dict) else {}
     linearity_enabled = bool(linearity_cfg.get("enabled", True))
+    rejected_indices: set[int] = set()
+    linearity_info = {
+        "enabled": bool(linearity_enabled),
+        "sampled_frames": 0,
+    }
     if not linearity_enabled:
-        phase_event(0, "SCAN_INPUT", "error", {
-            "error": "linearity_check_required",
-            "reason": "Methodik v4 requires linearity validation",
-        })
-        return False
+        print("[Phase 0] Linearity check disabled by config; continuing without enforcement.")
 
     max_frames = int(linearity_cfg.get("max_frames", 10))
     min_overall = float(linearity_cfg.get("min_overall_linearity", 0.9))
@@ -236,39 +237,76 @@ def run_v4_pipeline(
 
     indices = _sample_indices(len(frame_paths), max_frames)
     sampled_frames = []
+    sampled_indices = []
     failed_names = []
-    for idx in indices:
-        frame = load_frame(frame_paths[idx])
-        if frame is None:
-            failed_names.append(str(frame_paths[idx].name))
-            continue
-        sampled_frames.append(frame)
+    if linearity_enabled:
+        for idx in indices:
+            frame = load_frame(frame_paths[idx])
+            if frame is None:
+                failed_names.append(str(frame_paths[idx].name))
+                rejected_indices.add(int(idx))
+                continue
+            sampled_frames.append(frame)
+            sampled_indices.append(int(idx))
 
-    linearity_info = {
-        "enabled": True,
-        "sampled_frames": len(sampled_frames),
-        "min_overall_linearity": min_overall,
-        "strictness": strictness,
-    }
+        linearity_info.update({
+            "sampled_frames": len(sampled_frames),
+            "min_overall_linearity": min_overall,
+            "strictness": strictness,
+        })
+        if failed_names:
+            linearity_info["failed_frame_names"] = failed_names[:5]
 
-    if sampled_frames:
+    if linearity_enabled and sampled_frames:
         frames_arr = np.asarray(sampled_frames, dtype=np.float32)
         result = validate_frames_linearity(frames_arr, {"strictness": strictness})
         overall = float(result.get("overall_linearity", 0.0))
         linearity_info["overall_linearity"] = overall
+        # Include per-frame diagnostics for debugging
+        if isinstance(result.get("results"), list):
+            diag = []
+            for i, r in enumerate(result["results"]):
+                if not isinstance(r, dict):
+                    continue
+                entry = {
+                    "frame_index": int(sampled_indices[i]) if i < len(sampled_indices) else i,
+                    "is_linear": bool(r.get("is_linear", False)),
+                    "linearity_score": float(r.get("linearity_score", 0.0)),
+                    "moment_test": r.get("moment_test"),
+                    "spectral_test": r.get("spectral_test"),
+                    "spatial_test": r.get("spatial_test"),
+                    "diagnostics": r.get("diagnostics"),
+                }
+                diag.append(entry)
+                if not entry["is_linear"]:
+                    rejected_indices.add(int(entry["frame_index"]))
+            linearity_info["frame_diagnostics"] = diag
         if overall + 1e-6 < min_overall:
-            linearity_info["failed_frame_names"] = failed_names[:5]
+            print("[Phase 0] Linearity check below threshold; rejecting flagged frames and continuing.")
+    elif linearity_enabled and not sampled_frames:
+        print("[Phase 0] Linearity check: no sampled frames could be validated; continuing without rejection.")
+
+    if rejected_indices:
+        rejected_names = [str(frame_paths[i].name) for i in sorted(rejected_indices) if 0 <= i < len(frame_paths)]
+        linearity_info["rejected_indices"] = sorted(rejected_indices)
+        linearity_info["rejected_names"] = rejected_names
+        print(f"[Phase 0] Linearity rejected {len(rejected_indices)} frames; excluding from run.")
+        frame_paths = [p for i, p in enumerate(frame_paths) if i not in rejected_indices]
+        if not frame_paths:
             phase_event(0, "SCAN_INPUT", "error", {
-                "error": "linearity_check_failed",
+                "error": "no_frames_after_linearity_filter",
                 "linearity": linearity_info,
             })
             return False
-    else:
-        phase_event(0, "SCAN_INPUT", "error", {
-            "error": "linearity_check_failed",
-            "linearity": {"enabled": True, "sampled_frames": 0},
-        })
-        return False
+        is_cfa = fits_is_cfa(frame_paths[0])
+        bayer_pattern = fits_get_bayerpat(frame_paths[0]) if is_cfa else None
+        detected_mode = "OSC" if is_cfa else "MONO"
+        if color_mode_confirmed and color_mode_confirmed != detected_mode:
+            detected_mode = color_mode_confirmed
+        test_frame = load_frame(frame_paths[0])
+        if test_frame is None:
+            phase_event(0, "SCAN_INPUT", "error", {"error": "cannot_load_first_frame"})
+            return False
     
     # Get reference header
     ref_header = None
@@ -290,6 +328,7 @@ def run_v4_pipeline(
         "frames_scanned": len(frame_paths),
         "color_mode": detected_mode,
         "bayer_pattern": bayer_pattern,
+        "linearity": linearity_info,
     })
     
     # Phase 1: CHANNEL_SPLIT (metadata only - actual split happens during tile processing)

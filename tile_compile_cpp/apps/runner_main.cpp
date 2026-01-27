@@ -1196,6 +1196,8 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     const float refine_variance_threshold = cfg.v4.adaptive_tiles.refine_variance_threshold;
     const float refine_cc_threshold = 0.5f;
     const int refine_min_tile_size = std::max(cfg.v4.adaptive_tiles.min_tile_size_px, cfg.tile.min_size);
+    const bool reduced_mode = (static_cast<int>(frames.size()) < cfg.assumptions.frames_reduced_threshold);
+    const bool skip_clustering_in_reduced = (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
 
     std::vector<std::vector<TileMetrics>> local_metrics;
     std::vector<std::vector<float>> local_weights;
@@ -1208,9 +1210,19 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     std::vector<float> tile_post_snr;
     std::vector<float> tile_mean_dx;
     std::vector<float> tile_mean_dy;
-    std::vector<std::atomic<int>> frame_valid_tile_counts;
+    std::vector<std::atomic<int>> frame_valid_tile_counts(frames.size());
     Matrix2Df recon;
     Matrix2Df weight_sum;
+
+    Matrix2Df first_img;
+    io::FitsHeader first_hdr;
+    {
+        auto first_pair = load_frame_normalized(0);
+        first_img = std::move(first_pair.first);
+        first_hdr = std::move(first_pair.second);
+    }
+
+    bool run_validation_failed = false;
 
     while (true) {
     // Phase 5: LOCAL_METRICS (compute tile metrics per frame)
@@ -1522,12 +1534,8 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         warps = smoothed;
     };
 
-    // Get first frame for dimensions
-    auto [first_img, first_hdr] = load_frame_normalized(0);
     recon = Matrix2Df::Zero(first_img.rows(), first_img.cols());
     weight_sum = Matrix2Df::Zero(first_img.rows(), first_img.cols());
-
-    bool run_validation_failed = false;
 
     const int prev_cv_threads_recon = cv::getNumThreads();
     cv::setNumThreads(1);
@@ -1565,8 +1573,6 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     tile_post_snr.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dx.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dy.assign(tiles_phase56.size(), 0.0f);
-    frame_valid_tile_counts.clear();
-    frame_valid_tile_counts.resize(frames.size());
     for (auto& c : frame_valid_tile_counts) c.store(0);
 
     // Thread-safe structures for parallel processing
@@ -2191,8 +2197,8 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         auto add_tile_value = [&](Matrix2Df& sum, Matrix2Df& cnt, const Tile& t, float val) {
             int x0 = std::max(0, t.x);
             int y0 = std::max(0, t.y);
-            int x1 = std::min(sum.cols(), t.x + t.width);
-            int y1 = std::min(sum.rows(), t.y + t.height);
+            int x1 = std::min<int>(static_cast<int>(sum.cols()), t.x + t.width);
+            int y1 = std::min<int>(static_cast<int>(sum.rows()), t.y + t.height);
             for (int y = y0; y < y1; ++y) {
                 for (int x = x0; x < x1; ++x) {
                     sum(y, x) += val;
