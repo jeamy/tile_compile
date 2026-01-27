@@ -863,6 +863,9 @@ def run_v4_pipeline(
     synth_min = int(synth_cfg.get("frames_min", 3))
     synth_max = int(synth_cfg.get("frames_max", 30))
     synthetic_frames = []
+    cluster_sizes = [0] * n_clusters
+    cluster_wsum = [0.0] * n_clusters
+    cluster_used = [0] * n_clusters
 
     for c in range(n_clusters):
         acc = None
@@ -871,6 +874,7 @@ def run_v4_pipeline(
         for fi, path in enumerate(frame_paths):
             if cluster_labels[fi] != c:
                 continue
+            cluster_sizes[c] += 1
             frame = load_frame(path)
             if frame is None:
                 continue
@@ -887,6 +891,8 @@ def run_v4_pipeline(
                 acc += frame_n * w
             wsum += w
             count += 1
+        cluster_wsum[c] = float(wsum)
+        cluster_used[c] = int(count)
         if acc is not None and count >= synth_min and wsum > 0.0:
             synthetic_frames.append((acc / wsum).astype(np.float32))
         if len(synthetic_frames) >= synth_max:
@@ -895,12 +901,27 @@ def run_v4_pipeline(
     if synthetic_frames:
         for si, sf in enumerate(synthetic_frames):
             save_fits(outputs_dir / f"synthetic_{si}.fits", sf, ref_header)
-        phase_event(8, "SYNTHETIC_FRAMES", "ok", {"num_synthetic": len(synthetic_frames)})
+        phase_event(8, "SYNTHETIC_FRAMES", "ok", {
+            "num_synthetic": len(synthetic_frames),
+            "cluster_sizes": cluster_sizes,
+            "cluster_used": cluster_used,
+            "cluster_wsum": cluster_wsum,
+            "frames_min": synth_min,
+            "frames_max": synth_max,
+        })
     else:
         if n_frames_cluster < synth_min:
             phase_event(8, "SYNTHETIC_FRAMES", "skipped", {"reason": "insufficient_frames"})
         else:
-            phase_event(8, "SYNTHETIC_FRAMES", "error", {"error": "no_synthetic_frames"})
+            # No synthetic frames: fallback to overlap-add result (no abort).
+            phase_event(8, "SYNTHETIC_FRAMES", "skipped", {
+                "reason": "no_synthetic_frames",
+                "cluster_sizes": cluster_sizes,
+                "cluster_used": cluster_used,
+                "cluster_wsum": cluster_wsum,
+                "frames_min": synth_min,
+                "frames_max": synth_max,
+            })
     
     # Phase 9: STACKING (overlap-add or synthetic mean)
     phase_event(9, "STACKING", "start")
