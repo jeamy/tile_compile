@@ -1,7 +1,5 @@
 #pragma once
 
-#include "tile_compile/core/types.hpp"
-
 #include <yaml-cpp/yaml.h>
 #include <array>
 #include <filesystem>
@@ -25,6 +23,13 @@ struct DataConfig {
     std::string color_mode = "OSC";
     std::string bayer_pattern = "GBRG";
     bool linear_required = true;
+};
+
+struct LinearityConfig {
+    bool enabled = true;
+    int max_frames = 8;
+    float min_overall_linearity = 0.9f;
+    std::string strictness = "strict"; // strict | moderate | permissive
 };
 
 struct CalibrationConfig {
@@ -219,6 +224,7 @@ struct RuntimeLimitsConfig {
 struct Config {
     PipelineConfig pipeline;
     DataConfig data;
+    LinearityConfig linearity;
     CalibrationConfig calibration;
     AssumptionsConfig assumptions;
     V4Config v4;

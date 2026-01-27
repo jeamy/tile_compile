@@ -94,7 +94,6 @@ WarpGradientField compute_warp_gradient_field(const std::vector<fs::path>& frame
     out.grid_h = grid_h;
     out.grid_w = grid_w;
 
-    const fs::path ref_path = frame_paths[out.probe_indices[0]];
     const int n_probe_pairs = static_cast<int>(out.probe_indices.size()) - 1;
 
     std::vector<float> dx_vals(static_cast<size_t>(grid_h * grid_w * n_probe_pairs), 0.0f);
@@ -108,23 +107,18 @@ WarpGradientField compute_warp_gradient_field(const std::vector<fs::path>& frame
             int y0 = gi * step;
             int x0 = gj * step;
 
-            Matrix2Df ref = load_frame_region_safe(ref_path, x0, y0, probe_window, probe_window,
-                                                  image_width, image_height);
-            if (ref.size() <= 0) {
-                ++processed;
-                if (progress_cb) progress_cb(static_cast<float>(processed) / static_cast<float>(total_cells));
-                continue;
-            }
-
-            cv::Mat ref_cv(ref.rows(), ref.cols(), CV_32F, const_cast<float*>(ref.data()));
-
             for (int pi = 0; pi < n_probe_pairs; ++pi) {
+                const fs::path ref_path = frame_paths[out.probe_indices[pi]];
                 const fs::path mov_path = frame_paths[out.probe_indices[pi + 1]];
+                Matrix2Df ref = load_frame_region_safe(ref_path, x0, y0, probe_window, probe_window,
+                                                      image_width, image_height);
                 Matrix2Df mov = load_frame_region_safe(mov_path, x0, y0, probe_window, probe_window,
                                                       image_width, image_height);
-                if (mov.size() <= 0 || mov.rows() != ref.rows() || mov.cols() != ref.cols()) {
+                if (ref.size() <= 0 || mov.size() <= 0 || mov.rows() != ref.rows() || mov.cols() != ref.cols()) {
                     continue;
                 }
+
+                cv::Mat ref_cv(ref.rows(), ref.cols(), CV_32F, const_cast<float*>(ref.data()));
 
                 cv::Mat mov_cv(mov.rows(), mov.cols(), CV_32F, const_cast<float*>(mov.data()));
 
