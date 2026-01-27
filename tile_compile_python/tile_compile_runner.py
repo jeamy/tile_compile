@@ -60,6 +60,7 @@ from runner.utils import (
 )
 from runner.fits_utils import fits_is_cfa, fits_get_bayerpat
 from runner.image_processing import split_cfa_channels, demosaic_cfa
+from tile_compile_backend.linearity import validate_frames_linearity
 try:
     from generate_artifacts_report import generate_report
 except Exception:  # noqa: BLE001
@@ -67,6 +68,43 @@ except Exception:  # noqa: BLE001
         raise RuntimeError("generate_artifacts_report is not available")
 
 EPS = 1e-6
+
+
+def _robust_norm(v: np.ndarray) -> np.ndarray:
+    if v.size == 0:
+        return np.zeros_like(v)
+    med = float(np.median(v))
+    mad = float(np.median(np.abs(v - med)))
+    if not np.isfinite(mad) or mad < 1e-12:
+        return np.zeros_like(v)
+    return (v - med) / float(1.4826 * mad)
+
+
+def _tile_metrics_simple(tile: np.ndarray) -> tuple[float, float, float]:
+    """Compute simple tile metrics: fwhm proxy, roundness proxy, contrast proxy."""
+    t = tile.astype(np.float32, copy=False)
+    if t.size == 0:
+        return 0.0, 0.0, 0.0
+    t_max = float(np.max(t))
+    t_min = float(np.min(t))
+    if not np.isfinite(t_max) or not np.isfinite(t_min):
+        return 0.0, 0.0, 0.0
+    half_max = 0.5 * t_max
+    count = int(np.sum(t >= half_max))
+    fwhm = float(np.sqrt(count / np.pi)) if count > 0 else 0.0
+
+    eps = max(1.0e-12, abs(t_max) * 1.0e-6)
+    ys, xs = np.where(np.abs(t - t_max) <= eps)
+    if xs.size == 0:
+        roundness = 0.0
+    else:
+        sx = float(np.std(xs))
+        sy = float(np.std(ys))
+        spread = 0.5 * (sx + sy)
+        roundness = 1.0 / (1.0 + spread)
+
+    contrast = float((t_max - t_min) / (t_max + t_min + 1.0e-8))
+    return fwhm, roundness, contrast
 
 
 def load_frame(path: Path) -> Optional[np.ndarray]:
@@ -172,6 +210,64 @@ def run_v4_pipeline(
     test_frame = load_frame(frame_paths[0])
     if test_frame is None:
         phase_event(0, "SCAN_INPUT", "error", {"error": "cannot_load_first_frame"})
+        return False
+
+    # Linearity validation (Methodik v4 hard assumption)
+    linearity_cfg = cfg.get("linearity", {}) if isinstance(cfg.get("linearity"), dict) else {}
+    linearity_enabled = bool(linearity_cfg.get("enabled", True))
+    if not linearity_enabled:
+        phase_event(0, "SCAN_INPUT", "error", {
+            "error": "linearity_check_required",
+            "reason": "Methodik v4 requires linearity validation",
+        })
+        return False
+
+    max_frames = int(linearity_cfg.get("max_frames", 10))
+    min_overall = float(linearity_cfg.get("min_overall_linearity", 0.9))
+    strictness = str(linearity_cfg.get("strictness", "strict"))
+
+    def _sample_indices(n: int, k: int) -> list[int]:
+        if n <= 0:
+            return []
+        k = max(1, min(k, n))
+        if k == 1:
+            return [0]
+        return [int(round(i * (n - 1) / (k - 1))) for i in range(k)]
+
+    indices = _sample_indices(len(frame_paths), max_frames)
+    sampled_frames = []
+    failed_names = []
+    for idx in indices:
+        frame = load_frame(frame_paths[idx])
+        if frame is None:
+            failed_names.append(str(frame_paths[idx].name))
+            continue
+        sampled_frames.append(frame)
+
+    linearity_info = {
+        "enabled": True,
+        "sampled_frames": len(sampled_frames),
+        "min_overall_linearity": min_overall,
+        "strictness": strictness,
+    }
+
+    if sampled_frames:
+        frames_arr = np.asarray(sampled_frames, dtype=np.float32)
+        result = validate_frames_linearity(frames_arr, {"strictness": strictness})
+        overall = float(result.get("overall_linearity", 0.0))
+        linearity_info["overall_linearity"] = overall
+        if overall + 1e-6 < min_overall:
+            linearity_info["failed_frame_names"] = failed_names[:5]
+            phase_event(0, "SCAN_INPUT", "error", {
+                "error": "linearity_check_failed",
+                "linearity": linearity_info,
+            })
+            return False
+    else:
+        phase_event(0, "SCAN_INPUT", "error", {
+            "error": "linearity_check_failed",
+            "linearity": {"enabled": True, "sampled_frames": 0},
+        })
         return False
     
     # Get reference header
@@ -577,16 +673,197 @@ def run_v4_pipeline(
         "final_tile_count": len(tiles),
     })
     
-    # Phase 7: STATE_CLUSTERING (simplified)
+    # Phase 7: STATE_CLUSTERING (Methodik v4 §10)
     phase_event(7, "STATE_CLUSTERING", "start")
-    # TODO: Full clustering implementation
-    phase_event(7, "STATE_CLUSTERING", "ok", {"note": "simplified"})
-    
-    # Phase 8: SYNTHETIC_FRAMES (simplified)
+
+    n_frames_cluster = len(frame_paths)
+    cluster_labels = [0] * n_frames_cluster
+    n_clusters = 1
+
+    # Compute mean/var local quality per frame (approx, pre-warp)
+    lm_cfg = cfg.get("local_metrics", {}) if isinstance(cfg.get("local_metrics"), dict) else {}
+    sm = lm_cfg.get("star_mode", {}) if isinstance(lm_cfg.get("star_mode"), dict) else {}
+    w = sm.get("weights", {}) if isinstance(sm.get("weights"), dict) else {}
+    wf = float(w.get("fwhm", 0.6))
+    wr = float(w.get("roundness", 0.2))
+    wc = float(w.get("contrast", 0.2))
+    s = wf + wr + wc
+    if s > 1e-12:
+        wf, wr, wc = wf / s, wr / s, wc / s
+
+    mean_local_q = []
+    var_local_q = []
+    for fi, path in enumerate(frame_paths):
+        frame = load_frame(path)
+        if frame is None:
+            mean_local_q.append(0.0)
+            var_local_q.append(0.0)
+            continue
+        q_vals = []
+        for (x0, y0, tw, th) in tiles:
+            tile = frame[y0:y0 + th, x0:x0 + tw]
+            fwhm, rnd, con = _tile_metrics_simple(tile)
+            q_vals.append((fwhm, rnd, con))
+        if not q_vals:
+            mean_local_q.append(0.0)
+            var_local_q.append(0.0)
+            continue
+        fwhm_arr = _robust_norm(np.array([q[0] for q in q_vals], dtype=np.float32))
+        rnd_arr = _robust_norm(np.array([q[1] for q in q_vals], dtype=np.float32))
+        con_arr = _robust_norm(np.array([q[2] for q in q_vals], dtype=np.float32))
+        q = wf * (-fwhm_arr) + wr * rnd_arr + wc * con_arr
+        q = np.clip(q, -3.0, 3.0)
+        mean_local_q.append(float(np.mean(q)))
+        var_local_q.append(float(np.var(q)))
+
+    # Tile metadata-derived globals
+    mean_cc_tiles = 0.0
+    mean_warp_var_tiles = 0.0
+    if tile_metadata:
+        mean_cc_tiles = float(np.mean([m.get("mean_correlation", 0.0) for m in tile_metadata]))
+        mean_warp_var_tiles = float(np.mean([m.get("warp_variance", 0.0) for m in tile_metadata]))
+
+    # Per-frame invalid tile fraction
+    invalid_tile_fraction = [0.0] * n_frames_cluster
+    if tile_metadata:
+        counts = [0] * n_frames_cluster
+        for m in tile_metadata:
+            if not m.get("valid", False):
+                continue
+            for fi in m.get("valid_frame_indices", []) or []:
+                if 0 <= fi < n_frames_cluster:
+                    counts[fi] += 1
+        total_tiles = max(1, len(tile_metadata))
+        invalid_tile_fraction = [1.0 - (c / total_tiles) for c in counts]
+
+    # Build state vectors: [G_f, mean_local_q, var_local_q, mean_cc_tiles, mean_warp_var_tiles, invalid_tile_fraction]
+    X = []
+    for fi in range(n_frames_cluster):
+        G_f = global_weights[fi] if fi < len(global_weights) else 1.0
+        X.append([
+            float(G_f),
+            float(mean_local_q[fi]),
+            float(var_local_q[fi]),
+            float(mean_cc_tiles),
+            float(mean_warp_var_tiles),
+            float(invalid_tile_fraction[fi]),
+        ])
+
+    # Normalize features (z-score)
+    if n_frames_cluster > 0:
+        Xnp = np.asarray(X, dtype=np.float32)
+        means = np.mean(Xnp, axis=0)
+        stds = np.std(Xnp, axis=0)
+        stds = np.where(stds < 1e-12, 1.0, stds)
+        Xnp = (Xnp - means) / stds
+        X = Xnp.tolist()
+
+    # Cluster count
+    cl_cfg = cfg.get("clustering", {}) if isinstance(cfg.get("clustering"), dict) else {}
+    cr = cl_cfg.get("cluster_count_range", [15, 30])
+    try:
+        k_min = int(cr[0])
+        k_max = int(cr[1])
+    except Exception:
+        k_min, k_max = 15, 30
+    k_default = max(k_min, min(k_max, n_frames_cluster // 10 if n_frames_cluster > 0 else 1))
+    n_clusters = min(k_default, n_frames_cluster) if n_frames_cluster > 0 else 1
+
+    # K-means clustering
+    if n_clusters > 1 and n_frames_cluster > 1:
+        centers = []
+        for c in range(n_clusters):
+            idx = (c * n_frames_cluster) // n_clusters
+            centers.append(X[idx])
+        for _ in range(20):
+            # assign
+            for i in range(n_frames_cluster):
+                best_c = 0
+                best_d = float("inf")
+                for c in range(n_clusters):
+                    d = 0.0
+                    for j in range(len(X[i])):
+                        diff = X[i][j] - centers[c][j]
+                        d += diff * diff
+                    if d < best_d:
+                        best_d = d
+                        best_c = c
+                cluster_labels[i] = best_c
+            # update
+            new_centers = [[0.0] * len(X[0]) for _ in range(n_clusters)]
+            counts = [0] * n_clusters
+            for i in range(n_frames_cluster):
+                c = cluster_labels[i]
+                counts[c] += 1
+                for j in range(len(X[0])):
+                    new_centers[c][j] += X[i][j]
+            for c in range(n_clusters):
+                if counts[c] > 0:
+                    new_centers[c] = [v / counts[c] for v in new_centers[c]]
+            centers = new_centers
+
+    # Fallback: quantile by G_f if degenerate
+    if n_clusters > 1:
+        counts = [0] * n_clusters
+        for lbl in cluster_labels:
+            if 0 <= lbl < n_clusters:
+                counts[lbl] += 1
+        if any(c <= 0 for c in counts):
+            order = sorted([(global_weights[i] if i < len(global_weights) else 0.0, i) for i in range(n_frames_cluster)])
+            for r, (_w, idx) in enumerate(order):
+                label = int((r * n_clusters) / max(1, len(order)))
+                if label >= n_clusters:
+                    label = n_clusters - 1
+                cluster_labels[idx] = label
+
+    phase_event(7, "STATE_CLUSTERING", "ok", {"n_clusters": n_clusters})
+
+    # Phase 8: SYNTHETIC_FRAMES (Methodik v4 §11)
     phase_event(8, "SYNTHETIC_FRAMES", "start")
-    phase_event(8, "SYNTHETIC_FRAMES", "ok", {"note": "skipped_in_v4_simple"})
+    synth_cfg = cfg.get("synthetic", {}) if isinstance(cfg.get("synthetic"), dict) else {}
+    synth_min = int(synth_cfg.get("frames_min", 3))
+    synth_max = int(synth_cfg.get("frames_max", 30))
+    synthetic_frames = []
+
+    for c in range(n_clusters):
+        acc = None
+        wsum = 0.0
+        count = 0
+        for fi, path in enumerate(frame_paths):
+            if cluster_labels[fi] != c:
+                continue
+            frame = load_frame(path)
+            if frame is None:
+                continue
+            bg = float(np.median(frame))
+            if bg < EPS:
+                bg = 1.0
+            frame_n = (frame / bg).astype(np.float32)
+            w = float(global_weights[fi]) if fi < len(global_weights) else 1.0
+            if not np.isfinite(w) or w <= 0.0:
+                continue
+            if acc is None:
+                acc = frame_n * w
+            else:
+                acc += frame_n * w
+            wsum += w
+            count += 1
+        if acc is not None and count >= synth_min and wsum > 0.0:
+            synthetic_frames.append((acc / wsum).astype(np.float32))
+        if len(synthetic_frames) >= synth_max:
+            break
+
+    if synthetic_frames:
+        for si, sf in enumerate(synthetic_frames):
+            save_fits(outputs_dir / f"synthetic_{si}.fits", sf, ref_header)
+        phase_event(8, "SYNTHETIC_FRAMES", "ok", {"num_synthetic": len(synthetic_frames)})
+    else:
+        if n_frames_cluster < synth_min:
+            phase_event(8, "SYNTHETIC_FRAMES", "skipped", {"reason": "insufficient_frames"})
+        else:
+            phase_event(8, "SYNTHETIC_FRAMES", "error", {"error": "no_synthetic_frames"})
     
-    # Phase 9: STACKING (overlap-add)
+    # Phase 9: STACKING (overlap-add or synthetic mean)
     phase_event(9, "STACKING", "start")
     print("[Phase 9] Overlap-add reconstruction...")
     
@@ -595,6 +872,9 @@ def run_v4_pipeline(
     tile_grid_cfg = cfg.get("tile_grid", {})
     overlap_fraction = float(tile_cfg.get("overlap_fraction", tile_grid_cfg.get("overlap_fraction", 0.25)))
     final = overlap_add(results, shape, variance_sigma, overlap_fraction=overlap_fraction)
+
+    if synthetic_frames:
+        final = np.mean(np.stack(synthetic_frames, axis=0), axis=0).astype(np.float32)
     
     # Save result
     output_path = outputs_dir / "stacked.fits"
