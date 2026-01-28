@@ -178,6 +178,7 @@ Config Config::from_yaml(const YAML::Node& node) {
                 cfg.registration.local_tiles.temporal_smoothing_window = lt["temporal_smoothing_window"].as<int>();
             }
             if (lt["variance_window_sigma"]) cfg.registration.local_tiles.variance_window_sigma = lt["variance_window_sigma"].as<float>();
+            if (lt["allow_rotation"]) cfg.registration.local_tiles.allow_rotation = lt["allow_rotation"].as<bool>();
         }
     }
 
@@ -249,6 +250,13 @@ Config Config::from_yaml(const YAML::Node& node) {
         if (s["weighting"]) cfg.synthetic.weighting = s["weighting"].as<std::string>();
         if (s["frames_min"]) cfg.synthetic.frames_min = s["frames_min"].as<int>();
         if (s["frames_max"]) cfg.synthetic.frames_max = s["frames_max"].as<int>();
+        if (s["auto_skip"]) {
+            auto as = s["auto_skip"];
+            if (as["enabled"]) cfg.synthetic.auto_skip.enabled = as["enabled"].as<bool>();
+            if (as["min_eligible_clusters"]) cfg.synthetic.auto_skip.min_eligible_clusters = as["min_eligible_clusters"].as<int>();
+            if (as["min_cluster_weight_spread"]) cfg.synthetic.auto_skip.min_cluster_weight_spread = as["min_cluster_weight_spread"].as<float>();
+            if (as["min_cluster_quality_spread"]) cfg.synthetic.auto_skip.min_cluster_quality_spread = as["min_cluster_quality_spread"].as<float>();
+        }
     }
 
     if (node["reconstruction"]) {
@@ -395,6 +403,7 @@ YAML::Node Config::to_yaml() const {
     node["registration"]["local_tiles"]["min_valid_frames"] = registration.local_tiles.min_valid_frames;
     node["registration"]["local_tiles"]["temporal_smoothing_window"] = registration.local_tiles.temporal_smoothing_window;
     node["registration"]["local_tiles"]["variance_window_sigma"] = registration.local_tiles.variance_window_sigma;
+    node["registration"]["local_tiles"]["allow_rotation"] = registration.local_tiles.allow_rotation;
 
     node["wiener_denoise"]["enabled"] = wiener_denoise.enabled;
     node["wiener_denoise"]["snr_threshold"] = wiener_denoise.snr_threshold;
@@ -438,6 +447,10 @@ YAML::Node Config::to_yaml() const {
     node["synthetic"]["weighting"] = synthetic.weighting;
     node["synthetic"]["frames_min"] = synthetic.frames_min;
     node["synthetic"]["frames_max"] = synthetic.frames_max;
+    node["synthetic"]["auto_skip"]["enabled"] = synthetic.auto_skip.enabled;
+    node["synthetic"]["auto_skip"]["min_eligible_clusters"] = synthetic.auto_skip.min_eligible_clusters;
+    node["synthetic"]["auto_skip"]["min_cluster_weight_spread"] = synthetic.auto_skip.min_cluster_weight_spread;
+    node["synthetic"]["auto_skip"]["min_cluster_quality_spread"] = synthetic.auto_skip.min_cluster_quality_spread;
 
     node["reconstruction"]["weighting_function"] = reconstruction.weighting_function;
     node["reconstruction"]["window_function"] = reconstruction.window_function;
@@ -678,6 +691,15 @@ void Config::validate() const {
     }
     if (synthetic.frames_max < synthetic.frames_min) {
         throw ValidationError("synthetic.frames_max must be >= frames_min");
+    }
+    if (synthetic.auto_skip.min_eligible_clusters < 1) {
+        throw ValidationError("synthetic.auto_skip.min_eligible_clusters must be >= 1");
+    }
+    if (synthetic.auto_skip.min_cluster_weight_spread < 0.0f) {
+        throw ValidationError("synthetic.auto_skip.min_cluster_weight_spread must be >= 0");
+    }
+    if (synthetic.auto_skip.min_cluster_quality_spread < 0.0f) {
+        throw ValidationError("synthetic.auto_skip.min_cluster_quality_spread must be >= 0");
     }
 
     if (reconstruction.weighting_function != "exponential") {

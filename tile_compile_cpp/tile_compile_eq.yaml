@@ -36,14 +36,14 @@ assumptions:
   - 5
   - 10
 v4:
-  iterations: 4
-  beta: 6.0
+  iterations: 2
+  beta: 3.0
   min_valid_tile_fraction: 0.3
   parallel_tiles: 8
   debug_tile_registration: false
   adaptive_tiles:
-    enabled: true
-    max_refine_passes: 4
+    enabled: false
+    max_refine_passes: 0
     refine_variance_threshold: 0.1
     min_tile_size_px: 48
     use_warp_probe: true
@@ -72,10 +72,10 @@ normalization:
 registration:
   mode: local_tiles
   local_tiles:
-    max_warp_delta_px: 0.3
-    ecc_cc_min: 0.4
+    max_warp_delta_px: 0.2
+    ecc_cc_min: 0.25
     min_valid_frames: 3
-    temporal_smoothing_window: 15
+    temporal_smoothing_window: 9
     variance_window_sigma: 2.0
 wiener_denoise:
   enabled: true
@@ -91,7 +91,7 @@ global_metrics:
   - 3
 tile:
   size_factor: 32
-  min_size: 48
+  min_size: 64
   max_divisor: 6
   overlap_fraction: 0.25
   star_min_count: 3
@@ -114,13 +114,13 @@ linearity:
   strictness: moderate
 synthetic:
   weighting: tile_weighted
-  frames_min: 3
+  frames_min: 5
   frames_max: 30
   clustering:
     mode: state_vector
     cluster_count_range:
-    - 8
-    - 12
+    - 10
+    - 16
     vector:
     - global_weight
     - tile_quality_mean

@@ -124,6 +124,7 @@ struct RegistrationConfig {
         int min_valid_frames = 10;
         int temporal_smoothing_window = 11;
         float variance_window_sigma = 2.0f;
+        bool allow_rotation = false;
     } local_tiles;
 
     std::string mode = "local_tiles";
@@ -184,6 +185,13 @@ struct ClusteringConfig {
 };
 
 struct SyntheticConfig {
+    struct AutoSkipConfig {
+        bool enabled = false;
+        int min_eligible_clusters = 2;
+        float min_cluster_weight_spread = 0.05f;
+        float min_cluster_quality_spread = 0.2f;
+    } auto_skip;
+
     std::string weighting = "global";
     int frames_min = 15;
     int frames_max = 30;

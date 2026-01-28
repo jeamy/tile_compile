@@ -37,14 +37,14 @@ assumptions:
   - 10
 v4:
   iterations: 4
-  beta: 6.0
+  beta: 5.0
   min_valid_tile_fraction: 0.3
   parallel_tiles: 8
   debug_tile_registration: false
   adaptive_tiles:
     enabled: true
     max_refine_passes: 4
-    refine_variance_threshold: 0.1
+    refine_variance_threshold: 0.12
     min_tile_size_px: 48
     use_warp_probe: true
     use_hierarchical: true
@@ -72,10 +72,10 @@ normalization:
 registration:
   mode: local_tiles
   local_tiles:
-    max_warp_delta_px: 0.3
-    ecc_cc_min: 0.4
+    max_warp_delta_px: 0.35
+    ecc_cc_min: 0.3
     min_valid_frames: 3
-    temporal_smoothing_window: 15
+    temporal_smoothing_window: 17
     variance_window_sigma: 2.0
 wiener_denoise:
   enabled: true
@@ -110,8 +110,8 @@ local_metrics:
 linearity:
   enabled: true
   max_frames: 6
-  min_overall_linearity: 0.75
-  strictness: moderate
+  min_overall_linearity: 0.7
+  strictness: permissive
 synthetic:
   weighting: tile_weighted
   frames_min: 3
@@ -130,8 +130,8 @@ synthetic:
   auto_skip:
     enabled: true
     min_eligible_clusters: 2
-    min_cluster_weight_spread: 0.05
-    min_cluster_quality_spread: 0.2
+    min_cluster_weight_spread: 0.03
+    min_cluster_quality_spread: 0.15
 reconstruction:
   weighting_function: exponential
   window_function: hanning

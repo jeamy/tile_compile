@@ -73,7 +73,7 @@ registration:
   mode: local_tiles
   local_tiles:
     max_warp_delta_px: 0.3
-    ecc_cc_min: 0.4
+    ecc_cc_min: 0.35
     min_valid_frames: 3
     temporal_smoothing_window: 15
     variance_window_sigma: 2.0
