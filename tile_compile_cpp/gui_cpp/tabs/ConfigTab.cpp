@@ -13,6 +13,8 @@
 #include <yaml-cpp/yaml.h>
 #include <thread>
 #include <filesystem>
+#include <unordered_map>
+#include <vector>
 
 namespace tile_compile::gui {
 
@@ -63,10 +65,14 @@ void ConfigTab::build_ui() {
     btn_apply_assumptions_->setFixedWidth(140);
     
     v4_preset_combo_ = new QComboBox();
+    v4_preset_combo_->addItem("Default (tile_compile.yaml)", 0);
     v4_preset_combo_->addItem("Preset 1: EQ-Montierung, ruhiges Seeing", 1);
     v4_preset_combo_->addItem("Preset 2: Alt/Az, starke Feldrotation", 2);
     v4_preset_combo_->addItem("Preset 3: Polnähe, sehr instabil", 3);
-    v4_preset_combo_->setCurrentIndex(1);
+    v4_preset_combo_->addItem("Preset 4: Smart-Teleskop (DWARF II / SeeStar)", 4);
+    v4_preset_combo_->addItem("Preset 5: DWARF II", 5);
+    v4_preset_combo_->addItem("Preset 6: ZWO SeeStar", 6);
+    v4_preset_combo_->setCurrentIndex(0);
     v4_preset_combo_->setMinimumHeight(30);
     v4_preset_combo_->setFixedWidth(280);
     
@@ -290,13 +296,57 @@ void ConfigTab::on_apply_v4_preset() {
     emit log_message(QString("[ui] applying v4 preset %1").arg(preset_id));
     
     try {
+        const std::unordered_map<int, std::string> preset_files = {
+            {0, "tile_compile.yaml"},
+            {1, "tile_compile_eq.yaml"},
+            {2, "tile_compile_altaz.yaml"},
+            {3, "tile_compile_polar.yaml"},
+            {4, "tile_compile_smart.yaml"},
+            {5, "tile_compile_dwarf.yaml"},
+            {6, "tile_compile_seestar.yaml"},
+        };
+
+        auto load_preset_file = [&](const std::string &fname) -> bool {
+            std::vector<std::filesystem::path> candidates = {
+                std::filesystem::current_path() / fname,
+                std::filesystem::path(project_root_) / fname,
+                std::filesystem::path(project_root_) / "build" / fname,
+            };
+            for (const auto &path : candidates) {
+                if (!std::filesystem::exists(path)) continue;
+                QFile f(QString::fromStdString(path.string()));
+                if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+                QTextStream in(&f);
+                const QString text = in.readAll();
+                config_yaml_->blockSignals(true);
+                config_yaml_->setPlainText(text);
+                config_yaml_->blockSignals(false);
+                config_validated_ok_ = false;
+                lbl_cfg_->setText("not validated (preset)");
+                extract_assumptions_from_yaml(text);
+                emit config_edited();
+                emit update_controls_requested();
+                emit log_message(QString("[ui] v4 preset %1 loaded: %2")
+                                     .arg(preset_id)
+                                     .arg(QString::fromStdString(path.string())));
+                return true;
+            }
+            return false;
+        };
+
+        auto preset_it = preset_files.find(preset_id);
+        if (preset_it != preset_files.end() && load_preset_file(preset_it->second)) {
+            return;
+        }
+
+        // Fallback: apply legacy v4-only tweaks (if preset files not found)
         const QString yaml_text = config_yaml_->toPlainText();
         YAML::Node cfg = yaml_text.isEmpty() ? YAML::Node(YAML::NodeType::Map) : YAML::Load(yaml_text.toStdString());
-        
+
         if (!cfg["v4"]) {
             cfg["v4"] = YAML::Node(YAML::NodeType::Map);
         }
-        
+
         if (preset_id == 1) {
             cfg["v4"]["iterations"] = 2;
             cfg["v4"]["beta"] = 3.0;
@@ -314,12 +364,12 @@ void ConfigTab::on_apply_v4_preset() {
             cfg["v4"]["adaptive_tiles"]["max_refine_passes"] = 4;
             cfg["v4"]["adaptive_tiles"]["refine_variance_threshold"] = 0.1;
         }
-        
+
         YAML::Emitter out;
         out << cfg;
-        
+
         config_yaml_->setPlainText(QString::fromStdString(out.c_str()));
-        emit log_message(QString("[ui] v4 preset %1 applied").arg(preset_id));
+        emit log_message(QString("[ui] v4 preset %1 applied (fallback)").arg(preset_id));
         
     } catch (const std::exception &e) {
         emit log_message(QString("[ui] error applying preset: %1").arg(e.what()));

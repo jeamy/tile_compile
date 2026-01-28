@@ -240,6 +240,13 @@ registration:
         editable: true
         description: "Scale parameter for variance-weighted overlap window ψ(var) (Methodik v4 §9)"
 
+      allow_rotation:
+        type: boolean
+        default: false
+        required: false
+        editable: true
+        description: "Allow local rotation (ECC Euclidean) instead of translation-only"
+
 # ============================================================
 # WIENER TILE DENOISING
 # Wiener-Filter auf rekonstruierten Tiles (nach Tile-Rekonstruktion, vor Overlap-Add)
@@ -463,6 +470,38 @@ synthetic:
     editable: true
     description: "Maximum synthetic frames (k_max)"
 
+  auto_skip:
+    enabled:
+      type: boolean
+      default: false
+      required: false
+      editable: true
+      description: "Auto-skip Phase 8 when clustering offers no measurable gain"
+
+    min_eligible_clusters:
+      type: integer
+      min: 1
+      default: 2
+      required: false
+      editable: true
+      description: "Minimum number of clusters with size >= frames_min"
+
+    min_cluster_weight_spread:
+      type: float
+      min: 0
+      default: 0.05
+      required: false
+      editable: true
+      description: "Minimum spread of per-cluster weight sum to justify Phase 8"
+
+    min_cluster_quality_spread:
+      type: float
+      min: 0
+      default: 0.2
+      required: false
+      editable: true
+      description: "Minimum spread of mean local quality across clusters to justify Phase 8"
+
   clustering:
     mode:
       type: enum
@@ -615,6 +654,24 @@ v4:
     required: false
     editable: true
     description: "Number of iterative reference refinement passes per tile"
+
+  phase6_io:
+    mode:
+      type: enum
+      values: [roi, lru, full]
+      default: roi
+      required: false
+      editable: true
+      description: "Phase 6 IO strategy: roi=tile ROI reads, lru=per-thread full-frame LRU cache, full=always read full frames"
+
+    lru_capacity:
+      type: integer
+      min: 0
+      max: 512
+      default: 16
+      required: false
+      editable: true
+      description: "Per-thread LRU capacity (frames) used when v4.phase6_io.mode=lru"
 
   beta:
     type: number

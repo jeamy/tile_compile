@@ -167,6 +167,21 @@ add_custom_command(TARGET tile_compile_gui POST_BUILD
         $<TARGET_FILE_DIR:tile_compile_gui>/gui_cpp/styles.qss
 )
 
+# Copy preset YAMLs into build directory
+foreach(_cfg
+    tile_compile.yaml
+    tile_compile_eq.yaml
+    tile_compile_altaz.yaml
+    tile_compile_polar.yaml
+    tile_compile_smart.yaml
+    tile_compile_dwarf.yaml
+    tile_compile_seestar.yaml
+    tile_compile.schema.yaml
+    tile_compile.schema.json
+)
+    configure_file(${CMAKE_SOURCE_DIR}/${_cfg} ${CMAKE_BINARY_DIR}/${_cfg} COPYONLY)
+endforeach()
+
 # Tests (optional)
 option(BUILD_TESTS "Build unit tests" ON)
 if(BUILD_TESTS)

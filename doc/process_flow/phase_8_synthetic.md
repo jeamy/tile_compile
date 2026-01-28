@@ -1,305 +1,83 @@
-# Phase 8: Synthetische Frames
+# Phase 8: Synthetic Frames (C++)
 
-## Übersicht
+## Ziel
 
-Phase 8 ist **identisch zu v3**. Aus jedem Cluster wird ein **synthetisches Frame** erzeugt durch gewichtetes Stacking der Cluster-Mitglieder.
+Pro Cluster wird ein **synthetisches Frame** erzeugt – **nicht** durch simples Mittel, sondern durch **TLR‑Rekonstruktion** aus den Cluster‑Frames.
 
-Diese Phase wird nur im **Normal Mode** (N ≥ 200 Frames) ausgeführt.
+## Verhältnis zu Phase 6 (wichtig)
 
-## Ziele
+Phase 8 **ersetzt Phase 6 nicht**. Es ist eine **zusätzliche** Rekonstruktion auf **Cluster‑Subsets**:
 
-1. Frame-Reduktion: N → K (typisch 200 → 20)
-2. Rauschreduktion durch Cluster-Stacking
-3. Gewichtserhaltung
-4. Vorbereitung für finales Stacking (Phase 9)
+- **Phase 6** erzeugt ein **Gesamtbild** aus **allen** Frames (TLR über alle Frames).
+- **Phase 8** erzeugt **mehrere** synthetische Frames, jeweils aus **homogenen Clustern**.
 
-## Konzept
+Das ist **bewusste Mehrarbeit**: Die Cluster trennen Seeing/Drift/Qualität, wodurch spätere Stacks weniger Misch‑Artefakte enthalten.
 
-```
-Cluster k mit Frames {f₁, f₂, ..., f_m}:
-  
-  Synthetisches Frame:
-    I_synth,k = Σ W_f · I_f / Σ W_f
-    
-  Synthetisches Gewicht:
-    W_synth,k = Σ W_f
-```
+## C++‑Implementierung
 
-## Implementierung
+**Referenz:** `tile_compile_cpp/apps/runner_main.cpp` (Phase 8)
 
-### Synthetisches Frame pro Cluster
+### Ablauf
 
-```python
-def create_synthetic_frame(
-    cluster_frames: List[np.ndarray],
-    cluster_weights: np.ndarray,
-    weighting_mode: str = 'global'
-) -> Tuple[np.ndarray, float]:
-    """
-    Erzeugt synthetisches Frame aus Cluster.
-    
-    Args:
-        cluster_frames: Liste von Frames im Cluster
-        cluster_weights: Gewichte der Frames
-        weighting_mode: 'global' oder 'tile_weighted'
-    
-    Returns:
-        (synthetic_frame, synthetic_weight)
-    """
-    # Normalize weights
-    weights_norm = cluster_weights / np.sum(cluster_weights)
-    
-    # Weighted stack
-    synthetic = np.zeros_like(cluster_frames[0], dtype=np.float32)
-    for frame, weight in zip(cluster_frames, weights_norm):
-        synthetic += weight * frame
-    
-    # Synthetic weight (sum of original weights)
-    synthetic_weight = np.sum(cluster_weights)
-    
-    return synthetic, synthetic_weight
-```
+1. **Cluster‑Auswahl**
+   - Für jedes Cluster die zugehörigen Frames sammeln.
+   - Wenn `cluster_size < synthetic.frames_min` → Cluster wird übersprungen.
 
-### Alle Cluster verarbeiten
+2. **TLR‑Rekonstruktion je Cluster**
+   - `reconstruct_tlr_subset(use_frame)`
+   - identischer Ablauf wie Phase 6 (per‑Tile ECC, Gewichtung, Hanning‑Overlap)
 
-```python
-def create_synthetic_frames(
-    frames: np.ndarray,           # [N × H × W]
-    cluster_labels: np.ndarray,   # [N]
-    global_weights: np.ndarray,   # [N]
-    K: int
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Erzeugt synthetische Frames für alle Cluster.
-    
-    Args:
-        frames: Original-Frames
-        cluster_labels: Cluster-Zuordnungen
-        global_weights: Globale Frame-Gewichte
-        K: Anzahl Cluster
-    
-    Returns:
-        (synthetic_frames, synthetic_weights)
-          synthetic_frames: [K × H × W]
-          synthetic_weights: [K]
-    """
-    H, W = frames.shape[1], frames.shape[2]
-    
-    synthetic_frames = np.zeros((K, H, W), dtype=np.float32)
-    synthetic_weights = np.zeros(K, dtype=np.float32)
-    
-    for k in range(K):
-        # Get frames in this cluster
-        mask = cluster_labels == k
-        cluster_frame_indices = np.where(mask)[0]
-        
-        # Extract frames and weights
-        cluster_frames = frames[cluster_frame_indices]
-        cluster_weights = global_weights[cluster_frame_indices]
-        
-        # Create synthetic frame
-        synthetic, synth_weight = create_synthetic_frame(
-            cluster_frames,
-            cluster_weights
-        )
-        
-        synthetic_frames[k] = synthetic
-        synthetic_weights[k] = synth_weight
-        
-        print(f"Cluster {k}: {len(cluster_frame_indices)} frames "
-              f"→ synthetic (weight: {synth_weight:.2f})")
-    
-    return synthetic_frames, synthetic_weights
-```
+3. **Abbruchlogik**
+   - Wenn keine synthetischen Frames und `frames < frames_min` → Phase 8 **skip**.
+   - Sonst **error** (Spezifikation verlangt synthetische Frames, wenn möglich).
 
-## Weighting Modes
+4. **Artefakte**
+   - `outputs/synthetic_*.fit`
+   - `artifacts/synthetic_frames.json`
 
-### Mode 1: Global Weighting (Standard)
+## Progress‑Darstellung
 
-```python
-# Verwende globale Gewichte G_f,c aus Phase 3
-synthetic_weight = Σ G_f,c  (für alle f in Cluster k)
-```
+Phase 8 meldet pro Cluster Fortschritt:
+- „Cluster X von N“
+- „synthetic S/T“ (S erzeugt, T Ziel nach frames_min/frames_max)
 
-**Vorteil:** Einfach, konsistent mit globaler Qualitätsbewertung
+## Wann bringt Phase 8 zusätzlichen Gewinn?
 
-### Mode 2: Tile-Weighted
+Phase 8 ist dann ein **klarer Zusatzgewinn**, wenn sich die Frames **messbar in mehrere Zustände aufteilen**. Praktische Indikatoren:
 
-```python
-# Verwende mittlere effektive Gewichte aus TLR
-W_eff,f = mean over tiles (G_f,c · R_{f,t})
-synthetic_weight = Σ W_eff,f  (für alle f in Cluster k)
-```
+- **Mehrere Cluster mit ausreichender Größe** (`cluster_size >= synthetic.frames_min`)
+- **Hohe Varianz** in `mean_local_quality` / `var_local_quality` und/oder `mean_warp_var_tiles`
+- **Deutlich unterschiedliche `G_f`‑Gewichte** zwischen Clustern
 
-**Vorteil:** Berücksichtigt lokale Qualität (TLR-Ergebnisse)
+Typische Szenarien mit Gewinn:
+- **Alt/Az‑Feldrotation** und lokale Drift
+- **Stark schwankendes Seeing**
+- **Smart‑Teleskope** mit kurzen Belichtungen und wechselndem SNR
 
-## Rauschreduktion
+Wenig zusätzlicher Gewinn:
+- Sehr **konstante** Frames (kaum Cluster‑Trennung)
+- **Nur 1 Cluster** mit ausreichend Frames
+- `frames < synthetic.frames_min`
 
-### SNR-Verbesserung
+## Programmgesteuerte Entscheidung (optional)
 
-```
-SNR_synth = SNR_single · √m
+Die Pipeline **kann** Phase 8 automatisch auslassen, wenn Clustering keinen Mehrwert zeigt. Sinnvolle Heuristiken:
 
-wobei:
-  m = Anzahl Frames im Cluster
-  SNR_single = Signal-to-Noise eines einzelnen Frames
-```
+1. **Cluster‑Vielfalt**: Wenn nur 1 Cluster `>= frames_min` existiert → Phase 8 auslassen.\n2. **Qualitäts‑Spread**: Wenn die Spannweite von `G_f` oder `mean_local_quality` zwischen Clustern unter einem Schwellwert liegt → Phase 8 auslassen.\n3. **Warp‑Varianz**: Wenn `mean_warp_var_tiles` über alle Cluster ähnlich ist → Phase 8 auslassen.\n
+Diese Entscheidung kann in Phase 7 getroffen werden (nach `state_clustering.json`), bevor Phase 8 startet. Aktuell ist Phase 8 **immer aktiv**, außer im Reduced‑Mode oder bei `frames < frames_min`.
 
-**Beispiel:**
-- Cluster mit 10 Frames: SNR-Verbesserung = √10 ≈ 3.16×
-- 20 Cluster à 10 Frames: Gesamt-SNR ≈ 3.16× besser als Einzelframe
+## C++‑Skizze
 
-### Effektive Integration Time
-
-```
-t_eff,synth = Σ (W_f · t_exp,f) / W_synth
-
-wobei:
-  t_exp,f = Belichtungszeit von Frame f
-  W_f = Gewicht von Frame f
-```
-
-## Validierung
-
-```python
-def validate_synthetic_frames(
-    synthetic_frames: np.ndarray,
-    synthetic_weights: np.ndarray,
-    original_weights: np.ndarray,
-    K: int
-):
-    """
-    Validiert synthetische Frames.
-    """
-    checks = []
-    
-    # Check 1: K synthetic frames created
-    assert len(synthetic_frames) == K
-    assert len(synthetic_weights) == K
-    checks.append(f"✓ {K} synthetic frames created")
-    
-    # Check 2: Weight conservation
-    total_original_weight = np.sum(original_weights)
-    total_synthetic_weight = np.sum(synthetic_weights)
-    weight_ratio = total_synthetic_weight / total_original_weight
-    
-    assert 0.95 < weight_ratio < 1.05, f"Weight not conserved: {weight_ratio}"
-    checks.append(f"✓ Weight conserved: {weight_ratio:.3f}")
-    
-    # Check 3: No NaN/Inf
-    for k in range(K):
-        assert not np.any(np.isnan(synthetic_frames[k]))
-        assert not np.any(np.isinf(synthetic_frames[k]))
-    checks.append("✓ No NaN/Inf in synthetic frames")
-    
-    # Check 4: Reasonable dynamic range
-    for k in range(K):
-        min_val = np.min(synthetic_frames[k])
-        max_val = np.max(synthetic_frames[k])
-        assert min_val >= 0, f"Negative values in synthetic frame {k}"
-        assert max_val < 65536, f"Overflow in synthetic frame {k}"
-    checks.append("✓ Reasonable dynamic range")
-    
-    return checks
-```
-
-## Visualisierung
-
-```python
-def visualize_synthetic_frames(
-    synthetic_frames: np.ndarray,
-    synthetic_weights: np.ndarray,
-    output_dir: str
-):
-    """
-    Visualisiert synthetische Frames.
-    """
-    import matplotlib.pyplot as plt
-    
-    K = len(synthetic_frames)
-    
-    # Grid layout
-    cols = int(np.ceil(np.sqrt(K)))
-    rows = int(np.ceil(K / cols))
-    
-    fig, axes = plt.subplots(rows, cols, figsize=(cols*3, rows*3))
-    axes = axes.flatten() if K > 1 else [axes]
-    
-    for k in range(K):
-        # Normalize for display
-        frame = synthetic_frames[k]
-        p1, p99 = np.percentile(frame, [1, 99])
-        frame_norm = np.clip((frame - p1) / (p99 - p1), 0, 1)
-        
-        # Plot
-        axes[k].imshow(frame_norm, cmap='gray')
-        axes[k].set_title(f'Cluster {k}\nWeight: {synthetic_weights[k]:.1f}')
-        axes[k].axis('off')
-    
-    # Hide unused subplots
-    for k in range(K, len(axes)):
-        axes[k].axis('off')
-    
-    plt.tight_layout()
-    plt.savefig(f'{output_dir}/synthetic_frames.png', dpi=150)
-```
-
-## Modi
-
-### Normal Mode (N ≥ 200)
-
-```python
-if N >= 200 and cluster_labels is not None:
-    # Create synthetic frames
-    synthetic_frames, synthetic_weights = create_synthetic_frames(
-        frames, cluster_labels, global_weights, K
-    )
-    
-    print(f"Created {K} synthetic frames from {N} original frames")
-    print(f"Frame reduction: {N/K:.1f}×")
-```
-
-### Reduced Mode (50 ≤ N < 200)
-
-```python
-if 50 <= N < 200:
-    # No clustering, no synthetic frames
-    # Use original frames directly in Phase 9
-    synthetic_frames = frames
-    synthetic_weights = global_weights
-    
-    print(f"Reduced Mode: Using {N} original frames (no synthetic)")
-```
-
-## Output-Datenstruktur
-
-```python
-# Phase 8 Output
-{
-    'synthetic_frames': {
-        'R': np.ndarray,  # [K × H × W]
-        'G': np.ndarray,  # [K × H × W]
-        'B': np.ndarray,  # [K × H × W]
-    },
-    'synthetic_weights': {
-        'R': np.ndarray,  # [K]
-        'G': np.ndarray,  # [K]
-        'B': np.ndarray,  # [K]
-    },
-    'num_synthetic': int,  # K
+```cpp
+for (cluster c) {
+  mark_frames(use_frame);
+  if (count < frames_min) continue;
+  syn = reconstruct_tlr_subset(use_frame);
+  synthetic_frames.push_back(syn);
 }
 ```
 
-## Konfiguration
+## Parameter (Auszug)
 
-```yaml
-synthetic:
-  weighting: global  # or 'tile_weighted'
-  
-  # Nur im Normal Mode (N >= 200)
-  enabled: true
-```
-
-## Nächste Phase
-
-→ **Phase 9: Finales Stacking** (stackt K synthetische Frames mit Sigma-Clipping)
+- `synthetic.frames_min`, `synthetic.frames_max`
+- `synthetic.clustering.cluster_count_range`
