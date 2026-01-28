@@ -230,19 +230,31 @@ Config Config::from_yaml(const YAML::Node& node) {
         }
     }
 
-    if (node["clustering"]) {
-        auto cl = node["clustering"];
-        if (cl["mode"]) cfg.clustering.mode = cl["mode"].as<std::string>();
-        if (cl["k_selection"]) cfg.clustering.k_selection = cl["k_selection"].as<std::string>();
-        if (cl["use_silhouette"]) cfg.clustering.use_silhouette = cl["use_silhouette"].as<bool>();
-        if (cl["fallback_quantiles"]) cfg.clustering.fallback_quantiles = cl["fallback_quantiles"].as<int>();
+    auto read_clustering = [&](const YAML::Node& cl, ClusteringConfig& out) {
+        if (cl["mode"]) out.mode = cl["mode"].as<std::string>();
+        if (cl["k_selection"]) out.k_selection = cl["k_selection"].as<std::string>();
+        if (cl["use_silhouette"]) out.use_silhouette = cl["use_silhouette"].as<bool>();
+        if (cl["fallback_quantiles"]) out.fallback_quantiles = cl["fallback_quantiles"].as<int>();
         if (cl["vector"] && cl["vector"].IsSequence()) {
-            cfg.clustering.vector.clear();
+            out.vector.clear();
             for (const auto& it : cl["vector"]) {
-                cfg.clustering.vector.push_back(it.as<std::string>());
+                out.vector.push_back(it.as<std::string>());
             }
         }
-        read_int_pair(cl["cluster_count_range"], cfg.clustering.cluster_count_range);
+        read_int_pair(cl["cluster_count_range"], out.cluster_count_range);
+    };
+
+    bool synthetic_clustering_set = false;
+    if (node["synthetic"] && node["synthetic"]["clustering"]) {
+        read_clustering(node["synthetic"]["clustering"], cfg.synthetic.clustering);
+        synthetic_clustering_set = true;
+    }
+    if (node["clustering"]) {
+        read_clustering(node["clustering"], cfg.clustering);
+        if (!synthetic_clustering_set) {
+            cfg.synthetic.clustering = cfg.clustering;
+            synthetic_clustering_set = true;
+        }
     }
 
     if (node["synthetic"]) {
@@ -257,6 +269,9 @@ Config Config::from_yaml(const YAML::Node& node) {
             if (as["min_cluster_weight_spread"]) cfg.synthetic.auto_skip.min_cluster_weight_spread = as["min_cluster_weight_spread"].as<float>();
             if (as["min_cluster_quality_spread"]) cfg.synthetic.auto_skip.min_cluster_quality_spread = as["min_cluster_quality_spread"].as<float>();
         }
+    }
+    if (synthetic_clustering_set) {
+        cfg.clustering = cfg.synthetic.clustering;
     }
 
     if (node["reconstruction"]) {
@@ -434,16 +449,6 @@ YAML::Node Config::to_yaml() const {
     node["local_metrics"]["structure_mode"]["background_weight"] = local_metrics.structure_mode.background_weight;
     node["local_metrics"]["structure_mode"]["metric_weight"] = local_metrics.structure_mode.metric_weight;
 
-    node["clustering"]["mode"] = clustering.mode;
-    node["clustering"]["k_selection"] = clustering.k_selection;
-    node["clustering"]["use_silhouette"] = clustering.use_silhouette;
-    node["clustering"]["fallback_quantiles"] = clustering.fallback_quantiles;
-    node["clustering"]["cluster_count_range"].push_back(clustering.cluster_count_range[0]);
-    node["clustering"]["cluster_count_range"].push_back(clustering.cluster_count_range[1]);
-    for (const auto& key : clustering.vector) {
-        node["clustering"]["vector"].push_back(key);
-    }
-
     node["synthetic"]["weighting"] = synthetic.weighting;
     node["synthetic"]["frames_min"] = synthetic.frames_min;
     node["synthetic"]["frames_max"] = synthetic.frames_max;
@@ -451,6 +456,15 @@ YAML::Node Config::to_yaml() const {
     node["synthetic"]["auto_skip"]["min_eligible_clusters"] = synthetic.auto_skip.min_eligible_clusters;
     node["synthetic"]["auto_skip"]["min_cluster_weight_spread"] = synthetic.auto_skip.min_cluster_weight_spread;
     node["synthetic"]["auto_skip"]["min_cluster_quality_spread"] = synthetic.auto_skip.min_cluster_quality_spread;
+    node["synthetic"]["clustering"]["mode"] = synthetic.clustering.mode;
+    node["synthetic"]["clustering"]["k_selection"] = synthetic.clustering.k_selection;
+    node["synthetic"]["clustering"]["use_silhouette"] = synthetic.clustering.use_silhouette;
+    node["synthetic"]["clustering"]["fallback_quantiles"] = synthetic.clustering.fallback_quantiles;
+    node["synthetic"]["clustering"]["cluster_count_range"].push_back(synthetic.clustering.cluster_count_range[0]);
+    node["synthetic"]["clustering"]["cluster_count_range"].push_back(synthetic.clustering.cluster_count_range[1]);
+    for (const auto& key : synthetic.clustering.vector) {
+        node["synthetic"]["clustering"]["vector"].push_back(key);
+    }
 
     node["reconstruction"]["weighting_function"] = reconstruction.weighting_function;
     node["reconstruction"]["window_function"] = reconstruction.window_function;
@@ -676,11 +690,12 @@ void Config::validate() const {
         }
     }
 
-    if (clustering.cluster_count_range[0] < 1 || clustering.cluster_count_range[1] < clustering.cluster_count_range[0]) {
-        throw ValidationError("clustering.cluster_count_range must be [min,max] with min>=1 and max>=min");
+    if (synthetic.clustering.cluster_count_range[0] < 1 ||
+        synthetic.clustering.cluster_count_range[1] < synthetic.clustering.cluster_count_range[0]) {
+        throw ValidationError("synthetic.clustering.cluster_count_range must be [min,max] with min>=1 and max>=min");
     }
-    if (clustering.k_selection != "auto" && clustering.k_selection != "fixed") {
-        throw ValidationError("clustering.k_selection must be 'auto' or 'fixed'");
+    if (synthetic.clustering.k_selection != "auto" && synthetic.clustering.k_selection != "fixed") {
+        throw ValidationError("synthetic.clustering.k_selection must be 'auto' or 'fixed'");
     }
 
     if (synthetic.weighting != "global" && synthetic.weighting != "tile_weighted") {

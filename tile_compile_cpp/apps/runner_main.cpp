@@ -90,6 +90,141 @@ float robust_sigma_mad(std::vector<float>& pixels) {
     return 1.4826f * mad;
 }
 
+Matrix2Df wiener_tile_filter(
+    const Matrix2Df& tile,
+    float sigma,
+    float snr_tile,
+    float q_struct_tile,
+    bool is_star_tile,
+    const tile_compile::config::WienerDenoiseConfig& cfg) {
+    if (!cfg.enabled) return tile;
+    if (is_star_tile) return tile;
+    if (!(sigma > 0.0f)) return tile;
+    if (snr_tile >= cfg.snr_threshold) return tile;
+    if (q_struct_tile <= cfg.q_min) return tile;
+
+    const int h = static_cast<int>(tile.rows());
+    const int w = static_cast<int>(tile.cols());
+    if (h <= 0 || w <= 0) return tile;
+
+    const int pad_h = std::max(1, h / 4);
+    const int pad_w = std::max(1, w / 4);
+
+    cv::Mat tile_cv(h, w, CV_32F, const_cast<float*>(tile.data()));
+    cv::Mat padded;
+    cv::copyMakeBorder(tile_cv, padded, pad_h, pad_h, pad_w, pad_w, cv::BORDER_REFLECT_101);
+
+    cv::Mat F;
+    cv::dft(padded, F, cv::DFT_COMPLEX_OUTPUT);
+
+    std::vector<cv::Mat> planes(2);
+    cv::split(F, planes);
+    cv::Mat power = planes[0].mul(planes[0]) + planes[1].mul(planes[1]);
+
+    const float sigma_sq = sigma * sigma;
+    const float eps = 1.0e-12f;
+    cv::Mat H = power - sigma_sq;
+    cv::threshold(H, H, 0.0, 0.0, cv::THRESH_TOZERO);
+    cv::Mat denom = power + eps;
+    cv::divide(H, denom, H);
+    cv::min(H, 1.0, H);
+    cv::max(H, 0.0, H);
+
+    planes[0] = planes[0].mul(H);
+    planes[1] = planes[1].mul(H);
+    cv::merge(planes, F);
+
+    cv::Mat filtered;
+    cv::dft(F, filtered, cv::DFT_INVERSE | cv::DFT_SCALE | cv::DFT_REAL_OUTPUT);
+
+    cv::Mat cropped = filtered(cv::Rect(pad_w, pad_h, w, h));
+    Matrix2Df out(h, w);
+    if (cropped.isContinuous()) {
+        std::memcpy(out.data(), cropped.ptr<float>(), static_cast<size_t>(out.size()) * sizeof(float));
+    } else {
+        for (int r = 0; r < h; ++r) {
+            const float* src = cropped.ptr<float>(r);
+            float* dst = out.data() + static_cast<size_t>(r) * static_cast<size_t>(w);
+            std::memcpy(dst, src, static_cast<size_t>(w) * sizeof(float));
+        }
+    }
+    return out;
+}
+
+Matrix2Df sigma_clip_stack(
+    const std::vector<Matrix2Df>& frames,
+    float sigma_low,
+    float sigma_high,
+    int max_iters,
+    float min_fraction) {
+    if (frames.empty()) return Matrix2Df();
+    const int rows = frames[0].rows();
+    const int cols = frames[0].cols();
+    Matrix2Df out(rows, cols);
+    const int n = static_cast<int>(frames.size());
+    const int min_keep = std::max(1, static_cast<int>(std::ceil(min_fraction * n)));
+
+    std::vector<float> values;
+    values.reserve(static_cast<size_t>(n));
+    std::vector<uint8_t> keep(static_cast<size_t>(n), 1);
+
+    for (int idx = 0; idx < out.size(); ++idx) {
+        values.clear();
+        for (int i = 0; i < n; ++i) {
+            values.push_back(frames[static_cast<size_t>(i)].data()[idx]);
+            keep[static_cast<size_t>(i)] = 1;
+        }
+
+        int kept = n;
+        for (int iter = 0; iter < max_iters; ++iter) {
+            if (kept <= 1) break;
+            double sum = 0.0;
+            double sumsq = 0.0;
+            for (int i = 0; i < n; ++i) {
+                if (!keep[static_cast<size_t>(i)]) continue;
+                float v = values[static_cast<size_t>(i)];
+                sum += static_cast<double>(v);
+                sumsq += static_cast<double>(v) * static_cast<double>(v);
+            }
+            double mean = sum / static_cast<double>(kept);
+            double var = sumsq / static_cast<double>(kept) - mean * mean;
+            double std = (var > 0.0) ? std::sqrt(var) : 0.0;
+            if (!(std > 0.0)) break;
+
+            int new_kept = 0;
+            const double lo = mean - static_cast<double>(sigma_low) * std;
+            const double hi = mean + static_cast<double>(sigma_high) * std;
+            for (int i = 0; i < n; ++i) {
+                if (!keep[static_cast<size_t>(i)]) continue;
+                float v = values[static_cast<size_t>(i)];
+                if (v < lo || v > hi) {
+                    keep[static_cast<size_t>(i)] = 0;
+                } else {
+                    new_kept++;
+                }
+            }
+
+            if (new_kept < min_keep) break;
+            kept = new_kept;
+        }
+
+        double sum = 0.0;
+        int count = 0;
+        for (int i = 0; i < n; ++i) {
+            if (!keep[static_cast<size_t>(i)]) continue;
+            sum += static_cast<double>(values[static_cast<size_t>(i)]);
+            count++;
+        }
+        if (count <= 0) {
+            for (int i = 0; i < n; ++i) sum += static_cast<double>(values[static_cast<size_t>(i)]);
+            count = n;
+        }
+        out.data()[idx] = static_cast<float>(sum / static_cast<double>(count));
+    }
+
+    return out;
+}
+
 struct LinearityThresholds {
     float skewness_max = 1.2f;
     float kurtosis_max = 1.2f;
@@ -1248,6 +1383,8 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     std::vector<float> tile_post_snr;
     std::vector<float> tile_mean_dx;
     std::vector<float> tile_mean_dy;
+    std::vector<float> tile_quality_median;
+    std::vector<uint8_t> tile_is_star;
     std::vector<std::atomic<int>> frame_valid_tile_counts(frames.size());
     Matrix2Df recon;
     Matrix2Df weight_sum;
@@ -1458,6 +1595,25 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                           {"num_tiles", static_cast<int>(tiles_phase56.size())},
                       },
                       log_file);
+
+    // Precompute per-tile median quality and type (for Wiener denoise gating)
+    tile_quality_median.assign(tiles_phase56.size(), 0.0f);
+    tile_is_star.assign(tiles_phase56.size(), 0);
+    if (!local_metrics.empty()) {
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+            std::vector<float> qs;
+            qs.reserve(local_metrics.size());
+            for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
+                if (ti < local_metrics[fi].size()) {
+                    qs.push_back(local_metrics[fi][ti].quality_score);
+                }
+            }
+            tile_quality_median[ti] = qs.empty() ? 0.0f : median_of(qs);
+            if (!local_metrics[0].empty() && ti < local_metrics[0].size()) {
+                tile_is_star[ti] = (local_metrics[0][ti].type == TileType::STAR) ? 1 : 0;
+            }
+        }
+    }
 
     // Precompute per-tile median FWHM (for FWHM heatmap validation artifact)
     tile_fwhm_median.assign(tiles_phase56.size(), 0.0f);
@@ -2065,6 +2221,21 @@ int run_command(const std::string& config_path, const std::string& input_dir,
             }
         }
 
+        if (cfg.wiener_denoise.enabled) {
+            std::vector<float> px;
+            px.reserve(static_cast<size_t>(tile_rec.size()));
+            for (Eigen::Index k = 0; k < tile_rec.size(); ++k) {
+                px.push_back(tile_rec.data()[k]);
+            }
+            float sigma = robust_sigma_mad(px);
+            float snr_tile = tile_post_snr[ti];
+            float q_struct_tile = (ti < tile_quality_median.size()) ? tile_quality_median[ti] : 0.0f;
+            bool is_star_tile = (ti < tile_is_star.size()) ? (tile_is_star[ti] != 0) : false;
+            if (sigma > 0.0f) {
+                tile_rec = wiener_tile_filter(tile_rec, sigma, snr_tile, q_struct_tile, is_star_tile, cfg.wiener_denoise);
+            }
+        }
+
         dbg("tile=" + std::to_string(ti) +
             " valid_frames=" + std::to_string(valid) +
             " warp_var=" + std::to_string(warp_var) +
@@ -2654,6 +2825,33 @@ int run_command(const std::string& config_path, const std::string& input_dir,
                 }
             }
 
+            if (cfg.wiener_denoise.enabled) {
+                std::vector<float> px;
+                px.reserve(static_cast<size_t>(tile_rec.size()));
+                for (Eigen::Index k = 0; k < tile_rec.size(); ++k) {
+                    px.push_back(tile_rec.data()[k]);
+                }
+                float sigma = robust_sigma_mad(px);
+                float snr_tile = 0.0f;
+                if (!px.empty()) {
+                    std::vector<float> tmp = px;
+                    float bg = median_of(tmp);
+                    for (float& v : tmp) v = std::fabs(v - bg);
+                    float mad = median_of(tmp);
+                    float denom = 1.4826f * mad + 1.0e-6f;
+                    std::vector<float> sorted = px;
+                    size_t idx = static_cast<size_t>(std::floor(0.99 * static_cast<double>(sorted.size() - 1)));
+                    std::nth_element(sorted.begin(), sorted.begin() + idx, sorted.end());
+                    float p99 = sorted[idx];
+                    snr_tile = (p99 - bg) / denom;
+                }
+                float q_struct_tile = (ti < tile_quality_median.size()) ? tile_quality_median[ti] : 0.0f;
+                bool is_star_tile = (ti < tile_is_star.size()) ? (tile_is_star[ti] != 0) : false;
+                if (sigma > 0.0f) {
+                    tile_rec = wiener_tile_filter(tile_rec, sigma, snr_tile, q_struct_tile, is_star_tile, cfg.wiener_denoise);
+                }
+            }
+
             int x0 = std::max(0, t.x);
             int y0 = std::max(0, t.y);
             for (int yy = 0; yy < tile_rec.rows(); ++yy) {
@@ -2794,8 +2992,8 @@ int run_command(const std::string& config_path, const std::string& input_dir,
         }
 
         // Determine cluster count: K = clip(floor(N/10), K_min, K_max)
-        int k_min = cfg.clustering.cluster_count_range[0];
-        int k_max = cfg.clustering.cluster_count_range[1];
+        int k_min = cfg.synthetic.clustering.cluster_count_range[0];
+        int k_max = cfg.synthetic.clustering.cluster_count_range[1];
         int k_default = std::max(k_min, std::min(k_max, n_frames_cluster / 10));
 
         // Simple k-means clustering
@@ -3066,11 +3264,20 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     emitter.phase_start(run_id, Phase::STACKING, "STACKING", log_file);
 
     if (use_synthetic_frames) {
-        recon = Matrix2Df::Zero(synthetic_frames[0].rows(), synthetic_frames[0].cols());
-        for (const auto& sf : synthetic_frames) {
-            recon += sf;
+        if (cfg.stacking.method == "rej") {
+            recon = sigma_clip_stack(
+                synthetic_frames,
+                cfg.stacking.sigma_clip.sigma_low,
+                cfg.stacking.sigma_clip.sigma_high,
+                cfg.stacking.sigma_clip.max_iters,
+                cfg.stacking.sigma_clip.min_fraction);
+        } else {
+            recon = Matrix2Df::Zero(synthetic_frames[0].rows(), synthetic_frames[0].cols());
+            for (const auto& sf : synthetic_frames) {
+                recon += sf;
+            }
+            recon /= static_cast<float>(synthetic_frames.size());
         }
-        recon /= static_cast<float>(synthetic_frames.size());
     }
 
     Matrix2Df recon_out = recon;

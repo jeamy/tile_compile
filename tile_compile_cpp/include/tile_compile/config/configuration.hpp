@@ -192,6 +192,7 @@ struct SyntheticConfig {
         float min_cluster_quality_spread = 0.2f;
     } auto_skip;
 
+    ClusteringConfig clustering;
     std::string weighting = "global";
     int frames_min = 15;
     int frames_max = 30;
@@ -242,6 +243,7 @@ struct Config {
     GlobalMetricsConfig global_metrics;
     TileConfig tile;
     LocalMetricsConfig local_metrics;
+    // Legacy: clustering is now configured under synthetic.clustering
     ClusteringConfig clustering;
     SyntheticConfig synthetic;
     ReconstructionConfig reconstruction;
