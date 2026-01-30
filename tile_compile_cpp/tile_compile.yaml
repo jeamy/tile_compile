@@ -40,7 +40,7 @@ v4:
   beta: 6.0
   min_valid_tile_fraction: 0.3
   parallel_tiles: 8
-  debug_tile_registration: false
+  debug_tile_registration: true
   adaptive_tiles:
     enabled: true
     max_refine_passes: 4
@@ -77,7 +77,7 @@ registration:
     min_valid_frames: 3
     temporal_smoothing_window: 15
     variance_window_sigma: 2.0
-    allow_rotation: true
+    allow_rotation: false
 wiener_denoise:
   enabled: true
   snr_threshold: 5.0
@@ -92,7 +92,7 @@ global_metrics:
   - 3
 tile:
   size_factor: 32
-  min_size: 48
+  min_size: 64
   max_divisor: 6
   overlap_fraction: 0.25
   star_min_count: 3

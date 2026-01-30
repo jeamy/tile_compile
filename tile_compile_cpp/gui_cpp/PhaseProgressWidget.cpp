@@ -18,14 +18,15 @@ constexpr PhaseInfo METHODIK_V4_PHASES[] = {
     {1, "CHANNEL_SPLIT", "Kanal-Trennung (R/G/B)"},
     {2, "NORMALIZATION", "Globale lineare Normalisierung"},
     {3, "GLOBAL_METRICS", "Globale Frame-Metriken (B, σ, E)"},
-    {4, "TILE_GRID", "Seeing-adaptive Tile-Geometrie"},
-    {5, "LOCAL_METRICS", "Lokale Tile-Metriken"},
-    {6, "TILE_RECONSTRUCTION_TLR", "Tile-lokale Registrierung + Rekonstruktion"},
-    {7, "STATE_CLUSTERING", "Zustandsbasiertes Clustering"},
-    {8, "SYNTHETIC_FRAMES", "Synthetische Qualitätsframes"},
-    {9, "STACKING", "Finales lineares Stacking"},
-    {10, "DEBAYER", "Debayer / Demosaicing"},
-    {11, "DONE", "Abschluss"},
+    {4, "GLOBAL_REGISTRATION", "Globale Registrierung (dx/dy)"},
+    {5, "TILE_GRID", "Seeing-adaptive Tile-Geometrie"},
+    {6, "LOCAL_METRICS", "Lokale Tile-Metriken"},
+    {7, "TILE_RECONSTRUCTION_TLR", "Tile-lokale Registrierung + Rekonstruktion"},
+    {8, "STATE_CLUSTERING", "Zustandsbasiertes Clustering"},
+    {9, "SYNTHETIC_FRAMES", "Synthetische Qualitätsframes"},
+    {10, "STACKING", "Finales lineares Stacking"},
+    {11, "DEBAYER", "Debayer / Demosaicing"},
+    {12, "DONE", "Abschluss"},
 };
 
 constexpr int NUM_PHASES = sizeof(METHODIK_V4_PHASES) / sizeof(METHODIK_V4_PHASES[0]);
