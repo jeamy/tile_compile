@@ -40,7 +40,7 @@ v4:
   beta: 8.0
   min_valid_tile_fraction: 0.3
   parallel_tiles: 8
-  debug_tile_registration: false
+  debug_tile_registration: true
   adaptive_tiles:
     enabled: true
     max_refine_passes: 5
@@ -72,13 +72,13 @@ normalization:
 registration:
   mode: local_tiles
   local_tiles:
-    max_warp_delta_px: 0.2
+    max_warp_delta_px: 1.0
     ecc_cc_min: 0.4
-    min_valid_frames: 3
+    min_valid_frames: 12
     temporal_smoothing_window: 17
     variance_window_sigma: 2.0
 wiener_denoise:
-  enabled: true
+  enabled: false
   snr_threshold: 5.0
   q_min: -0.5
 global_metrics:
@@ -114,7 +114,7 @@ linearity:
   strictness: moderate
 synthetic:
   weighting: tile_weighted
-  frames_min: 3
+  frames_min: 8
   frames_max: 30
   clustering:
     mode: state_vector
@@ -138,7 +138,7 @@ reconstruction:
   tile_rescale: median_after_background_subtraction
 debayer: true
 stacking:
-  method: rej
+  method: average
   input_dir: synthetic
   input_pattern: syn_*.fits
   output_file: stacked.fit

@@ -155,7 +155,8 @@ enum class Phase {
     SYNTHETIC_FRAMES = 8,
     STACKING = 9,
     DEBAYER = 10,
-    DONE = 11
+    DONE = 11,
+    GLOBAL_REGISTRATION = 12
 };
 
 inline std::string phase_to_string(Phase phase) {
@@ -164,6 +165,7 @@ inline std::string phase_to_string(Phase phase) {
         case Phase::CHANNEL_SPLIT: return "CHANNEL_SPLIT";
         case Phase::NORMALIZATION: return "NORMALIZATION";
         case Phase::GLOBAL_METRICS: return "GLOBAL_METRICS";
+        case Phase::GLOBAL_REGISTRATION: return "GLOBAL_REGISTRATION";
         case Phase::TILE_GRID: return "TILE_GRID";
         case Phase::LOCAL_METRICS: return "LOCAL_METRICS";
         case Phase::TILE_RECONSTRUCTION_TLR: return "TILE_RECONSTRUCTION_TLR";
@@ -181,7 +183,7 @@ inline int phase_to_int(Phase phase) {
 }
 
 inline Phase int_to_phase(int i) {
-    if (i >= 0 && i <= 11) {
+    if (i >= 0 && i <= 12) {
         return static_cast<Phase>(i);
     }
     return Phase::SCAN_INPUT;
