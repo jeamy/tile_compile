@@ -6,29 +6,30 @@
 
 namespace tile_compile::config {
 
-static bool is_odd(int v) {
-    return (v % 2) != 0;
-}
+namespace {
 
-static void read_float_pair(const YAML::Node& n, std::array<float, 2>& out) {
+bool is_between_0_1(float v) { return v >= 0.0f && v <= 1.0f; }
+
+void read_float_pair(const YAML::Node& n, std::array<float, 2>& out) {
     if (n && n.IsSequence() && n.size() == 2) {
         out[0] = n[0].as<float>();
         out[1] = n[1].as<float>();
     }
 }
 
-static void read_int_pair(const YAML::Node& n, std::array<int, 2>& out) {
+void read_int_pair(const YAML::Node& n, std::array<int, 2>& out) {
     if (n && n.IsSequence() && n.size() == 2) {
         out[0] = n[0].as<int>();
         out[1] = n[1].as<int>();
     }
 }
 
+} // namespace
+
 Config Config::load(const fs::path& path) {
     if (!fs::exists(path)) {
         throw ConfigError("Config file not found: " + path.string());
     }
-    
     YAML::Node node = YAML::LoadFile(path.string());
     return from_yaml(node);
 }
@@ -57,9 +58,7 @@ Config Config::from_yaml(const YAML::Node& node) {
         auto l = node["linearity"];
         if (l["enabled"]) cfg.linearity.enabled = l["enabled"].as<bool>();
         if (l["max_frames"]) cfg.linearity.max_frames = l["max_frames"].as<int>();
-        if (l["min_overall_linearity"]) {
-            cfg.linearity.min_overall_linearity = l["min_overall_linearity"].as<float>();
-        }
+        if (l["min_overall_linearity"]) cfg.linearity.min_overall_linearity = l["min_overall_linearity"].as<float>();
         if (l["strictness"]) cfg.linearity.strictness = l["strictness"].as<std::string>();
     }
 
@@ -77,7 +76,6 @@ Config Config::from_yaml(const YAML::Node& node) {
         }
         if (c["dark_match_use_temp"]) cfg.calibration.dark_match_use_temp = c["dark_match_use_temp"].as<bool>();
         if (c["dark_match_temp_tolerance_c"]) cfg.calibration.dark_match_temp_tolerance_c = c["dark_match_temp_tolerance_c"].as<float>();
-
         if (c["bias_dir"]) cfg.calibration.bias_dir = c["bias_dir"].as<std::string>();
         if (c["darks_dir"]) cfg.calibration.darks_dir = c["darks_dir"].as<std::string>();
         if (c["flats_dir"]) cfg.calibration.flats_dir = c["flats_dir"].as<std::string>();
@@ -95,68 +93,10 @@ Config Config::from_yaml(const YAML::Node& node) {
         if (a["exposure_time_tolerance_percent"]) {
             cfg.assumptions.exposure_time_tolerance_percent = a["exposure_time_tolerance_percent"].as<float>();
         }
-        if (a["warp_variance_warn"]) cfg.assumptions.warp_variance_warn = a["warp_variance_warn"].as<float>();
-        if (a["warp_variance_max"]) cfg.assumptions.warp_variance_max = a["warp_variance_max"].as<float>();
-        if (a["elongation_warn"]) cfg.assumptions.elongation_warn = a["elongation_warn"].as<float>();
-        if (a["elongation_max"]) cfg.assumptions.elongation_max = a["elongation_max"].as<float>();
-        if (a["tracking_error_max_px"]) cfg.assumptions.tracking_error_max_px = a["tracking_error_max_px"].as<float>();
         if (a["reduced_mode_skip_clustering"]) {
             cfg.assumptions.reduced_mode_skip_clustering = a["reduced_mode_skip_clustering"].as<bool>();
         }
         read_int_pair(a["reduced_mode_cluster_range"], cfg.assumptions.reduced_mode_cluster_range);
-    }
-
-    if (node["v4"]) {
-        auto v = node["v4"];
-        if (v["iterations"]) cfg.v4.iterations = v["iterations"].as<int>();
-        if (v["beta"]) cfg.v4.beta = v["beta"].as<float>();
-        if (v["min_valid_tile_fraction"]) cfg.v4.min_valid_tile_fraction = v["min_valid_tile_fraction"].as<float>();
-        if (v["parallel_tiles"]) cfg.v4.parallel_tiles = v["parallel_tiles"].as<int>();
-        if (v["debug_tile_registration"]) cfg.v4.debug_tile_registration = v["debug_tile_registration"].as<bool>();
-
-        if (v["phase6_io"]) {
-            auto p6 = v["phase6_io"];
-            if (p6["mode"]) cfg.v4.phase6_io.mode = p6["mode"].as<std::string>();
-            if (p6["lru_capacity"]) cfg.v4.phase6_io.lru_capacity = p6["lru_capacity"].as<int>();
-        }
-
-        if (v["adaptive_tiles"]) {
-            auto at = v["adaptive_tiles"];
-            if (at["enabled"]) cfg.v4.adaptive_tiles.enabled = at["enabled"].as<bool>();
-            if (at["max_refine_passes"]) cfg.v4.adaptive_tiles.max_refine_passes = at["max_refine_passes"].as<int>();
-            if (at["refine_variance_threshold"]) {
-                cfg.v4.adaptive_tiles.refine_variance_threshold = at["refine_variance_threshold"].as<float>();
-            }
-            if (at["min_tile_size_px"]) cfg.v4.adaptive_tiles.min_tile_size_px = at["min_tile_size_px"].as<int>();
-            if (at["use_warp_probe"]) cfg.v4.adaptive_tiles.use_warp_probe = at["use_warp_probe"].as<bool>();
-            if (at["use_hierarchical"]) cfg.v4.adaptive_tiles.use_hierarchical = at["use_hierarchical"].as<bool>();
-            if (at["initial_tile_size"]) cfg.v4.adaptive_tiles.initial_tile_size = at["initial_tile_size"].as<int>();
-            if (at["probe_window"]) cfg.v4.adaptive_tiles.probe_window = at["probe_window"].as<int>();
-            if (at["num_probe_frames"]) cfg.v4.adaptive_tiles.num_probe_frames = at["num_probe_frames"].as<int>();
-            if (at["gradient_sensitivity"]) cfg.v4.adaptive_tiles.gradient_sensitivity = at["gradient_sensitivity"].as<float>();
-            if (at["split_gradient_threshold"]) cfg.v4.adaptive_tiles.split_gradient_threshold = at["split_gradient_threshold"].as<float>();
-            if (at["hierarchical_max_depth"]) cfg.v4.adaptive_tiles.hierarchical_max_depth = at["hierarchical_max_depth"].as<int>();
-        }
-
-        if (v["convergence"]) {
-            auto cc = v["convergence"];
-            if (cc["enabled"]) cfg.v4.convergence.enabled = cc["enabled"].as<bool>();
-            if (cc["epsilon_rel"]) cfg.v4.convergence.epsilon_rel = cc["epsilon_rel"].as<float>();
-        }
-
-        if (v["memory_limits"]) {
-            auto ml = v["memory_limits"];
-            if (ml["rss_warn_mb"]) cfg.v4.memory_limits.rss_warn_mb = ml["rss_warn_mb"].as<int>();
-            if (ml["rss_abort_mb"]) cfg.v4.memory_limits.rss_abort_mb = ml["rss_abort_mb"].as<int>();
-        }
-
-        if (v["diagnostics"]) {
-            auto di = v["diagnostics"];
-            if (di["enabled"]) cfg.v4.diagnostics.enabled = di["enabled"].as<bool>();
-            if (di["warp_field"]) cfg.v4.diagnostics.warp_field = di["warp_field"].as<bool>();
-            if (di["tile_invalid_map"]) cfg.v4.diagnostics.tile_invalid_map = di["tile_invalid_map"].as<bool>();
-            if (di["warp_variance_hist"]) cfg.v4.diagnostics.warp_variance_hist = di["warp_variance_hist"].as<bool>();
-        }
     }
 
     if (node["normalization"]) {
@@ -168,18 +108,13 @@ Config Config::from_yaml(const YAML::Node& node) {
 
     if (node["registration"]) {
         auto r = node["registration"];
-        if (r["mode"]) cfg.registration.mode = r["mode"].as<std::string>();
-        if (r["local_tiles"]) {
-            auto lt = r["local_tiles"];
-            if (lt["max_warp_delta_px"]) cfg.registration.local_tiles.max_warp_delta_px = lt["max_warp_delta_px"].as<float>();
-            if (lt["ecc_cc_min"]) cfg.registration.local_tiles.ecc_cc_min = lt["ecc_cc_min"].as<float>();
-            if (lt["min_valid_frames"]) cfg.registration.local_tiles.min_valid_frames = lt["min_valid_frames"].as<int>();
-            if (lt["temporal_smoothing_window"]) {
-                cfg.registration.local_tiles.temporal_smoothing_window = lt["temporal_smoothing_window"].as<int>();
-            }
-            if (lt["variance_window_sigma"]) cfg.registration.local_tiles.variance_window_sigma = lt["variance_window_sigma"].as<float>();
-            if (lt["allow_rotation"]) cfg.registration.local_tiles.allow_rotation = lt["allow_rotation"].as<bool>();
-        }
+        if (r["engine"]) cfg.registration.engine = r["engine"].as<std::string>();
+        if (r["allow_rotation"]) cfg.registration.allow_rotation = r["allow_rotation"].as<bool>();
+        if (r["max_rotation_deg"]) cfg.registration.max_rotation_deg = r["max_rotation_deg"].as<float>();
+        if (r["star_topk"]) cfg.registration.star_topk = r["star_topk"].as<int>();
+        if (r["star_min_inliers"]) cfg.registration.star_min_inliers = r["star_min_inliers"].as<int>();
+        if (r["star_inlier_tol_px"]) cfg.registration.star_inlier_tol_px = r["star_inlier_tol_px"].as<float>();
+        if (r["star_dist_bin_px"]) cfg.registration.star_dist_bin_px = r["star_dist_bin_px"].as<float>();
     }
 
     if (node["wiener_denoise"]) {
@@ -230,55 +165,22 @@ Config Config::from_yaml(const YAML::Node& node) {
         }
     }
 
-    auto read_clustering = [&](const YAML::Node& cl, ClusteringConfig& out) {
-        if (cl["mode"]) out.mode = cl["mode"].as<std::string>();
-        if (cl["k_selection"]) out.k_selection = cl["k_selection"].as<std::string>();
-        if (cl["use_silhouette"]) out.use_silhouette = cl["use_silhouette"].as<bool>();
-        if (cl["fallback_quantiles"]) out.fallback_quantiles = cl["fallback_quantiles"].as<int>();
-        if (cl["vector"] && cl["vector"].IsSequence()) {
-            out.vector.clear();
-            for (const auto& it : cl["vector"]) {
-                out.vector.push_back(it.as<std::string>());
-            }
-        }
-        read_int_pair(cl["cluster_count_range"], out.cluster_count_range);
-    };
-
-    bool synthetic_clustering_set = false;
-    if (node["synthetic"] && node["synthetic"]["clustering"]) {
-        read_clustering(node["synthetic"]["clustering"], cfg.synthetic.clustering);
-        synthetic_clustering_set = true;
-    }
-    if (node["clustering"]) {
-        read_clustering(node["clustering"], cfg.clustering);
-        if (!synthetic_clustering_set) {
-            cfg.synthetic.clustering = cfg.clustering;
-            synthetic_clustering_set = true;
-        }
-    }
-
     if (node["synthetic"]) {
         auto s = node["synthetic"];
         if (s["weighting"]) cfg.synthetic.weighting = s["weighting"].as<std::string>();
         if (s["frames_min"]) cfg.synthetic.frames_min = s["frames_min"].as<int>();
         if (s["frames_max"]) cfg.synthetic.frames_max = s["frames_max"].as<int>();
-        if (s["auto_skip"]) {
-            auto as = s["auto_skip"];
-            if (as["enabled"]) cfg.synthetic.auto_skip.enabled = as["enabled"].as<bool>();
-            if (as["min_eligible_clusters"]) cfg.synthetic.auto_skip.min_eligible_clusters = as["min_eligible_clusters"].as<int>();
-            if (as["min_cluster_weight_spread"]) cfg.synthetic.auto_skip.min_cluster_weight_spread = as["min_cluster_weight_spread"].as<float>();
-            if (as["min_cluster_quality_spread"]) cfg.synthetic.auto_skip.min_cluster_quality_spread = as["min_cluster_quality_spread"].as<float>();
+        if (s["clustering"]) {
+            auto cl = s["clustering"];
+            if (cl["mode"]) cfg.synthetic.clustering.mode = cl["mode"].as<std::string>();
+            read_int_pair(cl["cluster_count_range"], cfg.synthetic.clustering.cluster_count_range);
         }
-    }
-    if (synthetic_clustering_set) {
-        cfg.clustering = cfg.synthetic.clustering;
     }
 
     if (node["reconstruction"]) {
         auto r = node["reconstruction"];
         if (r["weighting_function"]) cfg.reconstruction.weighting_function = r["weighting_function"].as<std::string>();
         if (r["window_function"]) cfg.reconstruction.window_function = r["window_function"].as<std::string>();
-        if (r["tile_rescale"]) cfg.reconstruction.tile_rescale = r["tile_rescale"].as<std::string>();
     }
 
     if (node["debayer"]) cfg.debayer = node["debayer"].as<bool>();
@@ -371,54 +273,21 @@ YAML::Node Config::to_yaml() const {
     node["assumptions"]["frames_optimal"] = assumptions.frames_optimal;
     node["assumptions"]["frames_reduced_threshold"] = assumptions.frames_reduced_threshold;
     node["assumptions"]["exposure_time_tolerance_percent"] = assumptions.exposure_time_tolerance_percent;
-    node["assumptions"]["warp_variance_warn"] = assumptions.warp_variance_warn;
-    node["assumptions"]["warp_variance_max"] = assumptions.warp_variance_max;
-    node["assumptions"]["elongation_warn"] = assumptions.elongation_warn;
-    node["assumptions"]["elongation_max"] = assumptions.elongation_max;
-    node["assumptions"]["tracking_error_max_px"] = assumptions.tracking_error_max_px;
     node["assumptions"]["reduced_mode_skip_clustering"] = assumptions.reduced_mode_skip_clustering;
     node["assumptions"]["reduced_mode_cluster_range"].push_back(assumptions.reduced_mode_cluster_range[0]);
     node["assumptions"]["reduced_mode_cluster_range"].push_back(assumptions.reduced_mode_cluster_range[1]);
-
-    node["v4"]["iterations"] = v4.iterations;
-    node["v4"]["beta"] = v4.beta;
-    node["v4"]["min_valid_tile_fraction"] = v4.min_valid_tile_fraction;
-    node["v4"]["parallel_tiles"] = v4.parallel_tiles;
-    node["v4"]["debug_tile_registration"] = v4.debug_tile_registration;
-    node["v4"]["phase6_io"]["mode"] = v4.phase6_io.mode;
-    node["v4"]["phase6_io"]["lru_capacity"] = v4.phase6_io.lru_capacity;
-    node["v4"]["adaptive_tiles"]["enabled"] = v4.adaptive_tiles.enabled;
-    node["v4"]["adaptive_tiles"]["max_refine_passes"] = v4.adaptive_tiles.max_refine_passes;
-    node["v4"]["adaptive_tiles"]["refine_variance_threshold"] = v4.adaptive_tiles.refine_variance_threshold;
-    node["v4"]["adaptive_tiles"]["min_tile_size_px"] = v4.adaptive_tiles.min_tile_size_px;
-    node["v4"]["adaptive_tiles"]["use_warp_probe"] = v4.adaptive_tiles.use_warp_probe;
-    node["v4"]["adaptive_tiles"]["use_hierarchical"] = v4.adaptive_tiles.use_hierarchical;
-    node["v4"]["adaptive_tiles"]["initial_tile_size"] = v4.adaptive_tiles.initial_tile_size;
-    node["v4"]["adaptive_tiles"]["probe_window"] = v4.adaptive_tiles.probe_window;
-    node["v4"]["adaptive_tiles"]["num_probe_frames"] = v4.adaptive_tiles.num_probe_frames;
-    node["v4"]["adaptive_tiles"]["gradient_sensitivity"] = v4.adaptive_tiles.gradient_sensitivity;
-    node["v4"]["adaptive_tiles"]["split_gradient_threshold"] = v4.adaptive_tiles.split_gradient_threshold;
-    node["v4"]["adaptive_tiles"]["hierarchical_max_depth"] = v4.adaptive_tiles.hierarchical_max_depth;
-    node["v4"]["convergence"]["enabled"] = v4.convergence.enabled;
-    node["v4"]["convergence"]["epsilon_rel"] = v4.convergence.epsilon_rel;
-    node["v4"]["memory_limits"]["rss_warn_mb"] = v4.memory_limits.rss_warn_mb;
-    node["v4"]["memory_limits"]["rss_abort_mb"] = v4.memory_limits.rss_abort_mb;
-    node["v4"]["diagnostics"]["enabled"] = v4.diagnostics.enabled;
-    node["v4"]["diagnostics"]["warp_field"] = v4.diagnostics.warp_field;
-    node["v4"]["diagnostics"]["tile_invalid_map"] = v4.diagnostics.tile_invalid_map;
-    node["v4"]["diagnostics"]["warp_variance_hist"] = v4.diagnostics.warp_variance_hist;
 
     node["normalization"]["enabled"] = normalization.enabled;
     node["normalization"]["mode"] = normalization.mode;
     node["normalization"]["per_channel"] = normalization.per_channel;
 
-    node["registration"]["mode"] = registration.mode;
-    node["registration"]["local_tiles"]["max_warp_delta_px"] = registration.local_tiles.max_warp_delta_px;
-    node["registration"]["local_tiles"]["ecc_cc_min"] = registration.local_tiles.ecc_cc_min;
-    node["registration"]["local_tiles"]["min_valid_frames"] = registration.local_tiles.min_valid_frames;
-    node["registration"]["local_tiles"]["temporal_smoothing_window"] = registration.local_tiles.temporal_smoothing_window;
-    node["registration"]["local_tiles"]["variance_window_sigma"] = registration.local_tiles.variance_window_sigma;
-    node["registration"]["local_tiles"]["allow_rotation"] = registration.local_tiles.allow_rotation;
+    node["registration"]["engine"] = registration.engine;
+    node["registration"]["allow_rotation"] = registration.allow_rotation;
+    node["registration"]["max_rotation_deg"] = registration.max_rotation_deg;
+    node["registration"]["star_topk"] = registration.star_topk;
+    node["registration"]["star_min_inliers"] = registration.star_min_inliers;
+    node["registration"]["star_inlier_tol_px"] = registration.star_inlier_tol_px;
+    node["registration"]["star_dist_bin_px"] = registration.star_dist_bin_px;
 
     node["wiener_denoise"]["enabled"] = wiener_denoise.enabled;
     node["wiener_denoise"]["snr_threshold"] = wiener_denoise.snr_threshold;
@@ -452,23 +321,12 @@ YAML::Node Config::to_yaml() const {
     node["synthetic"]["weighting"] = synthetic.weighting;
     node["synthetic"]["frames_min"] = synthetic.frames_min;
     node["synthetic"]["frames_max"] = synthetic.frames_max;
-    node["synthetic"]["auto_skip"]["enabled"] = synthetic.auto_skip.enabled;
-    node["synthetic"]["auto_skip"]["min_eligible_clusters"] = synthetic.auto_skip.min_eligible_clusters;
-    node["synthetic"]["auto_skip"]["min_cluster_weight_spread"] = synthetic.auto_skip.min_cluster_weight_spread;
-    node["synthetic"]["auto_skip"]["min_cluster_quality_spread"] = synthetic.auto_skip.min_cluster_quality_spread;
     node["synthetic"]["clustering"]["mode"] = synthetic.clustering.mode;
-    node["synthetic"]["clustering"]["k_selection"] = synthetic.clustering.k_selection;
-    node["synthetic"]["clustering"]["use_silhouette"] = synthetic.clustering.use_silhouette;
-    node["synthetic"]["clustering"]["fallback_quantiles"] = synthetic.clustering.fallback_quantiles;
     node["synthetic"]["clustering"]["cluster_count_range"].push_back(synthetic.clustering.cluster_count_range[0]);
     node["synthetic"]["clustering"]["cluster_count_range"].push_back(synthetic.clustering.cluster_count_range[1]);
-    for (const auto& key : synthetic.clustering.vector) {
-        node["synthetic"]["clustering"]["vector"].push_back(key);
-    }
 
     node["reconstruction"]["weighting_function"] = reconstruction.weighting_function;
     node["reconstruction"]["window_function"] = reconstruction.window_function;
-    node["reconstruction"]["tile_rescale"] = reconstruction.tile_rescale;
 
     node["debayer"] = debayer;
 
@@ -506,124 +364,60 @@ void Config::validate() const {
     if (data.frames_target < 0) {
         throw ValidationError("data.frames_target must be >= 0");
     }
-    if (!data.linear_required) {
-        throw ValidationError("data.linear_required must be true (Methodik v4)");
+    if (data.color_mode != "OSC" && data.color_mode != "MONO" && data.color_mode != "RGB") {
+        throw ValidationError("data.color_mode must be OSC, MONO, or RGB");
+    }
+    if (data.linear_required && data.color_mode == "RGB") {
+        throw ValidationError("data.linear_required should be false for already debayered RGB data");
     }
 
     if (linearity.max_frames < 1) {
         throw ValidationError("linearity.max_frames must be >= 1");
     }
-    if (linearity.min_overall_linearity < 0.0f || linearity.min_overall_linearity > 1.0f) {
+    if (!is_between_0_1(linearity.min_overall_linearity)) {
         throw ValidationError("linearity.min_overall_linearity must be in [0,1]");
     }
-    if (linearity.strictness != "strict" && linearity.strictness != "moderate" &&
-        linearity.strictness != "permissive") {
+    if (linearity.strictness != "strict" && linearity.strictness != "moderate" && linearity.strictness != "permissive") {
         throw ValidationError("linearity.strictness must be 'strict', 'moderate', or 'permissive'");
     }
 
-    if (assumptions.frames_min < 1) {
-        throw ValidationError("assumptions.frames_min must be >= 1");
-    }
-    if (assumptions.frames_optimal < 1) {
-        throw ValidationError("assumptions.frames_optimal must be >= 1");
-    }
-    if (assumptions.frames_reduced_threshold < 1) {
-        throw ValidationError("assumptions.frames_reduced_threshold must be >= 1");
-    }
+    if (assumptions.frames_min < 1) throw ValidationError("assumptions.frames_min must be >= 1");
+    if (assumptions.frames_optimal < 1) throw ValidationError("assumptions.frames_optimal must be >= 1");
     if (assumptions.frames_reduced_threshold < assumptions.frames_min) {
         throw ValidationError("assumptions.frames_reduced_threshold must be >= assumptions.frames_min");
     }
-    if (assumptions.exposure_time_tolerance_percent < 0) {
+    if (assumptions.exposure_time_tolerance_percent < 0.0f) {
         throw ValidationError("assumptions.exposure_time_tolerance_percent must be >= 0");
     }
-    if (assumptions.warp_variance_warn < 0 || assumptions.warp_variance_max < 0) {
-        throw ValidationError("assumptions.warp_variance_warn/max must be >= 0");
-    }
-    if (assumptions.elongation_warn < 0 || assumptions.elongation_warn > 1 || assumptions.elongation_max < 0 || assumptions.elongation_max > 1) {
-        throw ValidationError("assumptions.elongation_warn/max must be in [0,1]");
-    }
-    if (assumptions.reduced_mode_cluster_range[0] < 1 || assumptions.reduced_mode_cluster_range[1] < assumptions.reduced_mode_cluster_range[0]) {
+    if (assumptions.reduced_mode_cluster_range[0] < 1 ||
+        assumptions.reduced_mode_cluster_range[1] < assumptions.reduced_mode_cluster_range[0]) {
         throw ValidationError("assumptions.reduced_mode_cluster_range must be [min,max] with min>=1 and max>=min");
     }
 
-    if (v4.iterations < 1 || v4.iterations > 10) {
-        throw ValidationError("v4.iterations must be in [1,10]");
-    }
-    if (v4.beta < 0.0f || v4.beta > 20.0f) {
-        throw ValidationError("v4.beta must be in [0,20]");
-    }
-    if (v4.min_valid_tile_fraction < 0.0f || v4.min_valid_tile_fraction > 1.0f) {
-        throw ValidationError("v4.min_valid_tile_fraction must be in [0,1]");
-    }
-    if (v4.parallel_tiles < 1 || v4.parallel_tiles > 32) {
-        throw ValidationError("v4.parallel_tiles must be in [1,32]");
-    }
-
-    if (v4.phase6_io.mode != "roi" && v4.phase6_io.mode != "lru" && v4.phase6_io.mode != "full") {
-        throw ValidationError("v4.phase6_io.mode must be 'roi', 'lru', or 'full'");
-    }
-    if (v4.phase6_io.lru_capacity < 0 || v4.phase6_io.lru_capacity > 512) {
-        throw ValidationError("v4.phase6_io.lru_capacity must be in [0,512]");
-    }
-
-    if (v4.adaptive_tiles.max_refine_passes < 0 || v4.adaptive_tiles.max_refine_passes > 5) {
-        throw ValidationError("v4.adaptive_tiles.max_refine_passes must be in [0,5]");
-    }
-    if (v4.adaptive_tiles.refine_variance_threshold < 0.0f) {
-        throw ValidationError("v4.adaptive_tiles.refine_variance_threshold must be >= 0");
-    }
-    if (v4.adaptive_tiles.min_tile_size_px < 32 || v4.adaptive_tiles.min_tile_size_px > 512) {
-        throw ValidationError("v4.adaptive_tiles.min_tile_size_px must be in [32,512]");
-    }
-    if (v4.adaptive_tiles.initial_tile_size < 64 || v4.adaptive_tiles.initial_tile_size > 512) {
-        throw ValidationError("v4.adaptive_tiles.initial_tile_size must be in [64,512]");
-    }
-    if (v4.adaptive_tiles.probe_window < 64 || v4.adaptive_tiles.probe_window > 512) {
-        throw ValidationError("v4.adaptive_tiles.probe_window must be in [64,512]");
-    }
-    if (v4.adaptive_tiles.num_probe_frames < 3 || v4.adaptive_tiles.num_probe_frames > 10) {
-        throw ValidationError("v4.adaptive_tiles.num_probe_frames must be in [3,10]");
-    }
-    if (v4.adaptive_tiles.gradient_sensitivity < 0.1f || v4.adaptive_tiles.gradient_sensitivity > 10.0f) {
-        throw ValidationError("v4.adaptive_tiles.gradient_sensitivity must be in [0.1,10]");
-    }
-    if (v4.adaptive_tiles.split_gradient_threshold < 0.0f || v4.adaptive_tiles.split_gradient_threshold > 1.0f) {
-        throw ValidationError("v4.adaptive_tiles.split_gradient_threshold must be in [0,1]");
-    }
-    if (v4.adaptive_tiles.hierarchical_max_depth < 1 || v4.adaptive_tiles.hierarchical_max_depth > 5) {
-        throw ValidationError("v4.adaptive_tiles.hierarchical_max_depth must be in [1,5]");
-    }
-    if (v4.convergence.epsilon_rel <= 0.0f) {
-        throw ValidationError("v4.convergence.epsilon_rel must be > 0");
-    }
-    if (v4.memory_limits.rss_warn_mb < 1 || v4.memory_limits.rss_abort_mb < v4.memory_limits.rss_warn_mb) {
-        throw ValidationError("v4.memory_limits.rss_warn_mb must be >=1 and rss_abort_mb must be >= rss_warn_mb");
-    }
-
     if (!normalization.enabled) {
-        throw ValidationError("normalization.enabled must be true (Methodik v4)");
+        throw ValidationError("normalization.enabled must be true for Methodik v3");
     }
     if (normalization.mode != "background" && normalization.mode != "median") {
         throw ValidationError("normalization.mode must be 'background' or 'median'");
     }
 
-    if (registration.mode != "local_tiles") {
-        throw ValidationError("registration.mode must be 'local_tiles' (Methodik v4)");
+    if (registration.engine != "opencv_cfa" &&
+        registration.engine != "opencv_logpolar" &&
+        registration.engine != "opencv_feature" &&
+        registration.engine != "star_similarity") {
+        throw ValidationError("registration.engine must be 'star_similarity', 'opencv_cfa', 'opencv_logpolar', or 'opencv_feature'");
     }
-    if (registration.local_tiles.max_warp_delta_px < 0.0f) {
-        throw ValidationError("registration.local_tiles.max_warp_delta_px must be >= 0");
+    if (registration.max_rotation_deg < 0.0f || registration.max_rotation_deg > 180.0f) {
+        throw ValidationError("registration.max_rotation_deg must be in [0,180]");
     }
-    if (registration.local_tiles.ecc_cc_min < 0.0f || registration.local_tiles.ecc_cc_min > 1.0f) {
-        throw ValidationError("registration.local_tiles.ecc_cc_min must be in [0,1]");
+    if (registration.star_topk < 3) {
+        throw ValidationError("registration.star_topk must be >= 3");
     }
-    if (registration.local_tiles.min_valid_frames < 1) {
-        throw ValidationError("registration.local_tiles.min_valid_frames must be >= 1");
+    if (registration.star_min_inliers < 2) {
+        throw ValidationError("registration.star_min_inliers must be >= 2");
     }
-    if (registration.local_tiles.temporal_smoothing_window < 3 || !is_odd(registration.local_tiles.temporal_smoothing_window)) {
-        throw ValidationError("registration.local_tiles.temporal_smoothing_window must be odd and >= 3");
-    }
-    if (registration.local_tiles.variance_window_sigma < 0.0f) {
-        throw ValidationError("registration.local_tiles.variance_window_sigma must be >= 0");
+    if (registration.star_inlier_tol_px <= 0.0f || registration.star_dist_bin_px <= 0.0f) {
+        throw ValidationError("registration.star_inlier_tol_px and star_dist_bin_px must be > 0");
     }
 
     if (wiener_denoise.q_max < 0.0f || wiener_denoise.q_max > 1.0f) {
@@ -639,92 +433,63 @@ void Config::validate() const {
         throw ValidationError("wiener_denoise.max_iterations must be >= 1");
     }
 
-    if (global_metrics.weights.background < 0 || global_metrics.weights.background > 1) {
-        throw ValidationError("global_metrics.weights.background must be between 0 and 1");
-    }
-    if (global_metrics.weights.noise < 0 || global_metrics.weights.noise > 1) {
-        throw ValidationError("global_metrics.weights.noise must be between 0 and 1");
-    }
-    if (global_metrics.weights.gradient < 0 || global_metrics.weights.gradient > 1) {
-        throw ValidationError("global_metrics.weights.gradient must be between 0 and 1");
-    }
-    {
-        const float sum = global_metrics.weights.background + global_metrics.weights.noise + global_metrics.weights.gradient;
+    auto check_weight_sum = [](float a, float b, float c, const char* name) {
+        const float sum = a + b + c;
         if (std::fabs(sum - 1.0f) > 1.0e-3f) {
-            throw ValidationError("global_metrics.weights.* must sum to 1.0");
+            throw ValidationError(std::string(name) + " must sum to 1.0");
         }
+    };
+
+    if (!is_between_0_1(global_metrics.weights.background) ||
+        !is_between_0_1(global_metrics.weights.noise) ||
+        !is_between_0_1(global_metrics.weights.gradient)) {
+        throw ValidationError("global_metrics.weights.* must be between 0 and 1");
     }
+    check_weight_sum(global_metrics.weights.background, global_metrics.weights.noise, global_metrics.weights.gradient,
+                     "global_metrics.weights");
     if (global_metrics.clamp[0] >= global_metrics.clamp[1]) {
         throw ValidationError("global_metrics.clamp must be [min,max] with min < max");
     }
 
-    if (tile.size_factor <= 0) {
-        throw ValidationError("tile.size_factor must be positive");
-    }
-    if (tile.min_size <= 0) {
-        throw ValidationError("tile.min_size must be positive");
-    }
-    if (tile.max_divisor <= 0) {
-        throw ValidationError("tile.max_divisor must be positive");
-    }
+    if (tile.size_factor <= 0) throw ValidationError("tile.size_factor must be positive");
+    if (tile.min_size <= 0) throw ValidationError("tile.min_size must be positive");
+    if (tile.max_divisor <= 0) throw ValidationError("tile.max_divisor must be positive");
     if (tile.overlap_fraction < 0 || tile.overlap_fraction > 0.5f) {
         throw ValidationError("tile.overlap_fraction must be between 0 and 0.5");
     }
-    if (tile.star_min_count < 1) {
-        throw ValidationError("tile.star_min_count must be >= 1");
-    }
+    if (tile.star_min_count < 0) throw ValidationError("tile.star_min_count must be >= 0");
 
     if (local_metrics.clamp[0] >= local_metrics.clamp[1]) {
         throw ValidationError("local_metrics.clamp must be [min,max] with min < max");
     }
-    {
-        const float sum = local_metrics.star_mode.weights.fwhm + local_metrics.star_mode.weights.roundness + local_metrics.star_mode.weights.contrast;
-        if (std::fabs(sum - 1.0f) > 1.0e-3f) {
-            throw ValidationError("local_metrics.star_mode.weights.* must sum to 1.0");
-        }
-    }
-    {
-        const float sum = local_metrics.structure_mode.background_weight + local_metrics.structure_mode.metric_weight;
-        if (std::fabs(sum - 1.0f) > 1.0e-3f) {
-            throw ValidationError("local_metrics.structure_mode weights must sum to 1.0");
-        }
+    check_weight_sum(local_metrics.star_mode.weights.fwhm,
+                     local_metrics.star_mode.weights.roundness,
+                     local_metrics.star_mode.weights.contrast,
+                     "local_metrics.star_mode.weights");
+    if (std::fabs(local_metrics.structure_mode.background_weight + local_metrics.structure_mode.metric_weight - 1.0f) > 1.0e-3f) {
+        throw ValidationError("local_metrics.structure_mode weights must sum to 1.0");
     }
 
     if (synthetic.clustering.cluster_count_range[0] < 1 ||
         synthetic.clustering.cluster_count_range[1] < synthetic.clustering.cluster_count_range[0]) {
         throw ValidationError("synthetic.clustering.cluster_count_range must be [min,max] with min>=1 and max>=min");
     }
-    if (synthetic.clustering.k_selection != "auto" && synthetic.clustering.k_selection != "fixed") {
-        throw ValidationError("synthetic.clustering.k_selection must be 'auto' or 'fixed'");
+    if (synthetic.clustering.mode != "kmeans" && synthetic.clustering.mode != "quantile") {
+        throw ValidationError("synthetic.clustering.mode must be 'kmeans' or 'quantile'");
     }
-
     if (synthetic.weighting != "global" && synthetic.weighting != "tile_weighted") {
         throw ValidationError("synthetic.weighting must be 'global' or 'tile_weighted'");
     }
-    if (synthetic.frames_min < 1) {
-        throw ValidationError("synthetic.frames_min must be at least 1");
-    }
+    if (synthetic.frames_min < 1) throw ValidationError("synthetic.frames_min must be at least 1");
     if (synthetic.frames_max < synthetic.frames_min) {
         throw ValidationError("synthetic.frames_max must be >= frames_min");
     }
-    if (synthetic.auto_skip.min_eligible_clusters < 1) {
-        throw ValidationError("synthetic.auto_skip.min_eligible_clusters must be >= 1");
-    }
-    if (synthetic.auto_skip.min_cluster_weight_spread < 0.0f) {
-        throw ValidationError("synthetic.auto_skip.min_cluster_weight_spread must be >= 0");
-    }
-    if (synthetic.auto_skip.min_cluster_quality_spread < 0.0f) {
-        throw ValidationError("synthetic.auto_skip.min_cluster_quality_spread must be >= 0");
-    }
 
-    if (reconstruction.weighting_function != "exponential") {
-        throw ValidationError("reconstruction.weighting_function must be 'exponential'");
+    if (reconstruction.weighting_function != "linear") {
+        throw ValidationError("reconstruction.weighting_function must be 'linear'");
     }
     if (reconstruction.window_function != "hanning") {
         throw ValidationError("reconstruction.window_function must be 'hanning'");
-    }
-    if (reconstruction.tile_rescale != "median_after_background_subtraction") {
-        throw ValidationError("reconstruction.tile_rescale must be 'median_after_background_subtraction'");
     }
 
     if (stacking.method != "average" && stacking.method != "rej") {
@@ -736,7 +501,7 @@ void Config::validate() const {
     if (stacking.sigma_clip.max_iters < 1) {
         throw ValidationError("stacking.sigma_clip.max_iters must be >= 1");
     }
-    if (stacking.sigma_clip.min_fraction < 0.0f || stacking.sigma_clip.min_fraction > 1.0f) {
+    if (!is_between_0_1(stacking.sigma_clip.min_fraction)) {
         throw ValidationError("stacking.sigma_clip.min_fraction must be in [0,1]");
     }
 
@@ -756,85 +521,36 @@ std::string get_schema_json() {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
-    "pipeline": {
-      "type": "object",
-      "properties": {
-        "mode": {"type": "string", "enum": ["production", "test"]},
-        "abort_on_fail": {"type": "boolean"}
-      }
-    },
-    "data": {
-      "type": "object",
-      "properties": {
-        "image_width": {"type": "integer", "minimum": 1},
-        "image_height": {"type": "integer", "minimum": 1},
-        "frames_min": {"type": "integer", "minimum": 1},
-        "frames_target": {"type": "integer", "minimum": 0},
-        "color_mode": {"type": "string"},
-        "bayer_pattern": {"type": "string"},
-        "linear_required": {"type": "boolean"}
-      }
-    },
-    "linearity": {
-      "type": "object",
-      "properties": {
-        "enabled": {"type": "boolean"},
-        "max_frames": {"type": "integer", "minimum": 1},
-        "min_overall_linearity": {"type": "number", "minimum": 0, "maximum": 1},
-        "strictness": {"type": "string", "enum": ["strict", "moderate", "permissive"]}
-      }
-    },
-    "v4": {
-      "type": "object",
-      "properties": {
-        "iterations": {"type": "integer", "minimum": 1, "maximum": 10},
-        "beta": {"type": "number", "minimum": 0, "maximum": 20},
-        "min_valid_tile_fraction": {"type": "number", "minimum": 0, "maximum": 1},
-        "parallel_tiles": {"type": "integer", "minimum": 1, "maximum": 32},
-        "debug_tile_registration": {"type": "boolean"}
-      }
-    },
-    "global_metrics": {
-      "type": "object",
-      "properties": {
-        "adaptive_weights": {"type": "boolean"},
-        "weights": {
-          "type": "object",
-          "properties": {
-            "background": {"type": "number", "minimum": 0, "maximum": 1},
-            "noise": {"type": "number", "minimum": 0, "maximum": 1},
-            "gradient": {"type": "number", "minimum": 0, "maximum": 1}
-          }
-        },
-        "clamp": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
-      }
-    },
-    "tile": {
-      "type": "object",
-      "properties": {
-        "size_factor": {"type": "integer", "minimum": 1},
-        "min_size": {"type": "integer", "minimum": 1},
-        "max_divisor": {"type": "integer", "minimum": 1},
-        "overlap_fraction": {"type": "number", "minimum": 0, "maximum": 0.5},
-        "star_min_count": {"type": "integer", "minimum": 1}
-      }
-    },
-    "registration": {
-      "type": "object",
-      "properties": {
-        "mode": {"type": "string", "enum": ["local_tiles"]},
-        "local_tiles": {
-          "type": "object",
-          "properties": {
-            "max_warp_delta_px": {"type": "number", "minimum": 0},
-            "ecc_cc_min": {"type": "number", "minimum": 0, "maximum": 1},
-            "min_valid_frames": {"type": "integer", "minimum": 1},
-            "temporal_smoothing_window": {"type": "integer", "minimum": 3},
-            "variance_window_sigma": {"type": "number", "minimum": 0}
-          }
-        }
-      }
-    }
+    "pipeline": { "type": "object",
+      "properties": { "mode": { "type": "string", "enum": ["production","test"] },
+                      "abort_on_fail": { "type": "boolean" } } },
+    "data": { "type": "object",
+      "properties": { "image_width": {"type":"integer","minimum":1},
+                      "image_height": {"type":"integer","minimum":1},
+                      "frames_min": {"type":"integer","minimum":1},
+                      "frames_target": {"type":"integer","minimum":0},
+                      "color_mode": {"type":"string","enum":["OSC","MONO","RGB"]},
+                      "bayer_pattern": {"type":"string"},
+                      "linear_required": {"type":"boolean"} } },
+    "normalization": { "type": "object",
+      "properties": { "enabled": {"type":"boolean"},
+                      "mode": {"type":"string","enum":["background","median"]},
+                      "per_channel": {"type":"boolean"} } },
+    "registration": { "type": "object",
+      "properties": { "engine": {"type":"string","enum":["star_similarity","opencv_cfa","opencv_logpolar","opencv_feature"]},
+                      "allow_rotation": {"type":"boolean"},
+                      "max_rotation_deg": {"type":"number","minimum":0,"maximum":180},
+                      "star_topk": {"type":"integer","minimum":3},
+                      "star_min_inliers": {"type":"integer","minimum":2},
+                      "star_inlier_tol_px": {"type":"number","minimum":0},
+                      "star_dist_bin_px": {"type":"number","minimum":0} } },
+    "synthetic": { "type": "object",
+      "properties": { "weighting": {"type":"string"},
+                      "frames_min": {"type":"integer","minimum":1},
+                      "frames_max": {"type":"integer","minimum":1},
+                      "clustering": { "type":"object",
+                        "properties": { "mode": {"type":"string"},
+                                        "cluster_count_range": { "type":"array","minItems":2,"maxItems":2,"items":{"type":"integer","minimum":1} } } } } }
   }
 })";
 }

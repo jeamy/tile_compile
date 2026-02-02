@@ -57,58 +57,8 @@ struct AssumptionsConfig {
     int frames_optimal = 800;
     int frames_reduced_threshold = 200;
     float exposure_time_tolerance_percent = 5.0f;
-    float warp_variance_warn = 2.0f;
-    float warp_variance_max = 8.0f;
-    float elongation_warn = 0.3f;
-    float elongation_max = 0.4f;
-    float tracking_error_max_px = 5.0f;
-    bool reduced_mode_skip_clustering = false;
-    std::array<int, 2> reduced_mode_cluster_range{2, 6};
-};
-
-struct V4Config {
-    struct Phase6IoConfig {
-        std::string mode = "roi"; // roi | lru | full
-        int lru_capacity = 16;     // frames per thread (only for mode=lru)
-    } phase6_io;
-
-    struct AdaptiveTilesConfig {
-        bool enabled = false;
-        int max_refine_passes = 2;
-        float refine_variance_threshold = 0.25f;
-        int min_tile_size_px = 64;
-        bool use_warp_probe = true;
-        bool use_hierarchical = true;
-        int initial_tile_size = 256;
-        int probe_window = 256;
-        int num_probe_frames = 5;
-        float gradient_sensitivity = 2.0f;
-        float split_gradient_threshold = 0.3f;
-        int hierarchical_max_depth = 3;
-    } adaptive_tiles;
-
-    struct ConvergenceConfig {
-        bool enabled = false;
-        float epsilon_rel = 1.0e-3f;
-    } convergence;
-
-    struct MemoryLimitsConfig {
-        int rss_warn_mb = 4096;
-        int rss_abort_mb = 8192;
-    } memory_limits;
-
-    struct DiagnosticsConfig {
-        bool enabled = true;
-        bool warp_field = true;
-        bool tile_invalid_map = true;
-        bool warp_variance_hist = true;
-    } diagnostics;
-
-    int iterations = 3;
-    float beta = 5.0f;
-    float min_valid_tile_fraction = 0.3f;
-    int parallel_tiles = 8;
-    bool debug_tile_registration = true;
+    bool reduced_mode_skip_clustering = true;
+    std::array<int, 2> reduced_mode_cluster_range{5, 10};
 };
 
 struct NormalizationConfig {
@@ -118,16 +68,13 @@ struct NormalizationConfig {
 };
 
 struct RegistrationConfig {
-    struct LocalTilesConfig {
-        float max_warp_delta_px = 0.3f;
-        float ecc_cc_min = 0.2f;
-        int min_valid_frames = 10;
-        int temporal_smoothing_window = 11;
-        float variance_window_sigma = 2.0f;
-        bool allow_rotation = false;
-    } local_tiles;
-
-    std::string mode = "local_tiles";
+    std::string engine = "star_similarity"; // star_similarity | opencv_feature | opencv_logpolar | opencv_cfa
+    bool allow_rotation = true;
+    float max_rotation_deg = 30.0f;
+    int star_topk = 120;
+    int star_min_inliers = 6;
+    float star_inlier_tol_px = 2.5f;
+    float star_dist_bin_px = 2.5f;
 };
 
 struct WienerDenoiseConfig {
@@ -175,33 +122,19 @@ struct LocalMetricsConfig {
     std::array<float, 2> clamp{-3.0f, 3.0f};
 };
 
-struct ClusteringConfig {
-    std::string mode = "state_vector";
-    std::vector<std::string> vector;
-    std::array<int, 2> cluster_count_range{5, 30};
-    std::string k_selection = "auto";
-    bool use_silhouette = false;
-    int fallback_quantiles = 15;
-};
-
 struct SyntheticConfig {
-    struct AutoSkipConfig {
-        bool enabled = false;
-        int min_eligible_clusters = 2;
-        float min_cluster_weight_spread = 0.05f;
-        float min_cluster_quality_spread = 0.2f;
-    } auto_skip;
-
-    ClusteringConfig clustering;
+    struct ClusteringConfig {
+        std::string mode = "kmeans";
+        std::array<int, 2> cluster_count_range{5, 30};
+    } clustering;
     std::string weighting = "global";
-    int frames_min = 15;
+    int frames_min = 5;
     int frames_max = 30;
 };
 
 struct ReconstructionConfig {
-    std::string weighting_function = "exponential";
+    std::string weighting_function = "linear";
     std::string window_function = "hanning";
-    std::string tile_rescale = "median_after_background_subtraction";
 };
 
 struct StackingConfig {
@@ -236,15 +169,12 @@ struct Config {
     LinearityConfig linearity;
     CalibrationConfig calibration;
     AssumptionsConfig assumptions;
-    V4Config v4;
     NormalizationConfig normalization;
     RegistrationConfig registration;
     WienerDenoiseConfig wiener_denoise;
     GlobalMetricsConfig global_metrics;
     TileConfig tile;
     LocalMetricsConfig local_metrics;
-    // Legacy: clustering is now configured under synthetic.clustering
-    ClusteringConfig clustering;
     SyntheticConfig synthetic;
     ReconstructionConfig reconstruction;
     bool debayer = true;

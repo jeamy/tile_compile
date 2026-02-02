@@ -74,6 +74,7 @@ set(LIB_SOURCES
     src/image/calibration.cpp
     src/image/cfa_processing.cpp
     src/registration/registration.cpp
+    src/registration/global_registration.cpp
     src/metrics/metrics.cpp
     src/metrics/tile_metrics.cpp
     src/clustering/clustering.cpp
@@ -170,12 +171,6 @@ add_custom_command(TARGET tile_compile_gui POST_BUILD
 # Copy preset YAMLs into build directory
 foreach(_cfg
     tile_compile.yaml
-    tile_compile_eq.yaml
-    tile_compile_altaz.yaml
-    tile_compile_polar.yaml
-    tile_compile_smart.yaml
-    tile_compile_dwarf.yaml
-    tile_compile_seestar.yaml
     tile_compile.schema.yaml
     tile_compile.schema.json
 )

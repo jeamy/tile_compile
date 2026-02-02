@@ -226,51 +226,9 @@ std::vector<Tile> build_adaptive_tile_grid(int image_width,
                                           int image_height,
                                           const config::Config& cfg,
                                           const WarpGradientField* gradient_field) {
-    const auto& at = cfg.v4.adaptive_tiles;
-
-    int min_tile_size = std::max(cfg.tile.min_size, at.min_tile_size_px);
-    int max_tile_size = at.initial_tile_size;
-    float overlap_frac = cfg.tile.overlap_fraction;
-    float gradient_sensitivity = at.gradient_sensitivity;
-
-    if (image_width <= 0 || image_height <= 0) return {};
-    if (max_tile_size < min_tile_size) max_tile_size = min_tile_size;
-
-    if (image_width < min_tile_size || image_height < min_tile_size) {
-        return {Tile{0, 0, image_width, image_height, -1, -1}};
-    }
-
-    cv::Mat grad_norm;
-    if (gradient_field && gradient_field->grid.size() > 0) {
-        grad_norm = make_norm_gradient_fullres(*gradient_field, image_width, image_height);
-    } else {
-        grad_norm = cv::Mat::zeros(image_height, image_width, CV_32F);
-    }
-
-    int base_size = max_tile_size;
-    int step = static_cast<int>(std::floor(static_cast<float>(base_size) * (1.0f - overlap_frac)));
-    step = std::max(1, step);
-
-    std::vector<Tile> tiles;
-    for (int y0 = 0; y0 <= image_height - min_tile_size; y0 += step) {
-        for (int x0 = 0; x0 <= image_width - min_tile_size; x0 += step) {
-            int cy = std::min(y0 + base_size / 2, image_height - 1);
-            int cx = std::min(x0 + base_size / 2, image_width - 1);
-
-            float local_grad = grad_norm.at<float>(cy, cx);
-            float adaptive_size_f = static_cast<float>(base_size) / (1.0f + gradient_sensitivity * local_grad);
-            int tile_size = static_cast<int>(std::round(adaptive_size_f));
-            tile_size = std::min(std::max(tile_size, min_tile_size), max_tile_size);
-
-            int tw = std::min(tile_size, image_width - x0);
-            int th = std::min(tile_size, image_height - y0);
-            if (tw >= min_tile_size && th >= min_tile_size) {
-                tiles.push_back(Tile{x0, y0, tw, th, -1, -1});
-            }
-        }
-    }
-
-    return tiles;
+    (void)gradient_field;
+    int tile_size = cfg.tile.min_size;
+    return build_initial_tile_grid(image_width, image_height, tile_size, cfg.tile.overlap_fraction);
 }
 
 static cv::Mat make_integral_from_gradient_grid(const WarpGradientField& gf,
@@ -433,53 +391,8 @@ std::vector<Tile> build_hierarchical_tile_grid(int image_width,
                                               int image_height,
                                               const config::Config& cfg,
                                               const WarpGradientField* gradient_field) {
-    const auto& at = cfg.v4.adaptive_tiles;
-
-    int min_tile_size = cfg.tile.min_size;
-    int initial_tile_size = at.initial_tile_size;
-    float split_threshold = at.split_gradient_threshold;
-    float overlap_frac = cfg.tile.overlap_fraction;
-    int max_depth = at.hierarchical_max_depth;
-
-    std::vector<Tile> tiles;
-
-    cv::Mat grad_integral;
-    if (gradient_field && gradient_field->grid.size() > 0) {
-        grad_integral = make_integral_from_gradient_grid(*gradient_field, image_width, image_height);
-    } else {
-        // No gradient info => all regions appear low gradient
-        cv::Mat zeros = cv::Mat::zeros(image_height, image_width, CV_32F);
-        cv::integral(zeros, grad_integral, CV_64F);
-    }
-
-    split_region(tiles, grad_integral, image_width, image_height,
-                 0, 0, image_width, image_height,
-                 0, max_depth,
-                 min_tile_size, initial_tile_size, split_threshold, overlap_frac);
-
-    // Deduplicate
-    std::sort(tiles.begin(), tiles.end(), [](const Tile& a, const Tile& b) {
-        if (a.y != b.y) return a.y < b.y;
-        if (a.x != b.x) return a.x < b.x;
-        if (a.width != b.width) return a.width < b.width;
-        return a.height < b.height;
-    });
-
-    tiles.erase(std::unique(tiles.begin(), tiles.end(), [](const Tile& a, const Tile& b) {
-        return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
-    }), tiles.end());
-
-    // Clamp to image bounds
-    for (auto& t : tiles) {
-        if (t.x < 0) t.x = 0;
-        if (t.y < 0) t.y = 0;
-        if (t.x + t.width > image_width) t.width = std::max(1, image_width - t.x);
-        if (t.y + t.height > image_height) t.height = std::max(1, image_height - t.y);
-        t.row = -1;
-        t.col = -1;
-    }
-
-    return tiles;
+    (void)gradient_field;
+    return build_initial_tile_grid(image_width, image_height, cfg.tile.min_size, cfg.tile.overlap_fraction);
 }
 
 } // namespace tile_compile::pipeline
