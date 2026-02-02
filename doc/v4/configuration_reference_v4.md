@@ -1470,7 +1470,7 @@ Key: `runtime_limits`
 
 ---
 
-## v4 Presets
+## Presets
 
 Siehe `doc/v_4_example_configs.md` für vorkonfigurierte Presets:
 

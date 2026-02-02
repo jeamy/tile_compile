@@ -66,17 +66,11 @@ void ConfigTab::build_ui() {
     
     v4_preset_combo_ = new QComboBox();
     v4_preset_combo_->addItem("Default (tile_compile.yaml)", 0);
-    v4_preset_combo_->addItem("Preset 1: EQ-Montierung, ruhiges Seeing", 1);
-    v4_preset_combo_->addItem("Preset 2: Alt/Az, starke Feldrotation", 2);
-    v4_preset_combo_->addItem("Preset 3: Polnähe, sehr instabil", 3);
-    v4_preset_combo_->addItem("Preset 4: Smart-Teleskop (DWARF II / SeeStar)", 4);
-    v4_preset_combo_->addItem("Preset 5: DWARF II", 5);
-    v4_preset_combo_->addItem("Preset 6: ZWO SeeStar", 6);
     v4_preset_combo_->setCurrentIndex(0);
     v4_preset_combo_->setMinimumHeight(30);
     v4_preset_combo_->setFixedWidth(280);
     
-    button_row->addWidget(new QLabel("v4 Preset:"));
+    button_row->addWidget(new QLabel("Preset:"));
     button_row->addWidget(v4_preset_combo_);
     button_row->addWidget(btn_cfg_load_);
     button_row->addWidget(btn_cfg_save_);
@@ -293,17 +287,11 @@ void ConfigTab::on_apply_assumptions_clicked() {
 
 void ConfigTab::on_apply_v4_preset() {
     const int preset_id = v4_preset_combo_->currentData().toInt();
-    emit log_message(QString("[ui] applying v4 preset %1").arg(preset_id));
+    emit log_message(QString("[ui] applying preset %1").arg(preset_id));
     
     try {
         const std::unordered_map<int, std::string> preset_files = {
             {0, "tile_compile.yaml"},
-            {1, "tile_compile_eq.yaml"},
-            {2, "tile_compile_altaz.yaml"},
-            {3, "tile_compile_polar.yaml"},
-            {4, "tile_compile_smart.yaml"},
-            {5, "tile_compile_dwarf.yaml"},
-            {6, "tile_compile_seestar.yaml"},
         };
 
         auto load_preset_file = [&](const std::string &fname) -> bool {
@@ -326,7 +314,7 @@ void ConfigTab::on_apply_v4_preset() {
                 extract_assumptions_from_yaml(text);
                 emit config_edited();
                 emit update_controls_requested();
-                emit log_message(QString("[ui] v4 preset %1 loaded: %2")
+                emit log_message(QString("[ui] reset %1 loaded: %2")
                                      .arg(preset_id)
                                      .arg(QString::fromStdString(path.string())));
                 return true;
@@ -369,7 +357,7 @@ void ConfigTab::on_apply_v4_preset() {
         out << cfg;
 
         config_yaml_->setPlainText(QString::fromStdString(out.c_str()));
-        emit log_message(QString("[ui] v4 preset %1 applied (fallback)").arg(preset_id));
+        emit log_message(QString("[ui] preset %1 applied (fallback)").arg(preset_id));
         
     } catch (const std::exception &e) {
         emit log_message(QString("[ui] error applying preset: %1").arg(e.what()));
