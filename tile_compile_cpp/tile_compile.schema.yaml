@@ -156,6 +156,26 @@ properties:
       weighting_function: {type: string, enum: [linear]}
       window_function: {type: string, enum: [hanning]}
   debayer: {type: boolean}
+  astrometry:
+    type: object
+    properties:
+      enabled: {type: boolean}
+      astap_bin: {type: string}
+      astap_data_dir: {type: string}
+      search_radius: {type: integer, minimum: 1, maximum: 360}
+  pcc:
+    type: object
+    properties:
+      enabled: {type: boolean}
+      source: {type: string, enum: [auto, siril, vizier_gaia, vizier_apass]}
+      mag_limit: {type: number, minimum: 1, maximum: 22}
+      mag_bright_limit: {type: number, minimum: 0, maximum: 15}
+      aperture_radius_px: {type: number, exclusiveMinimum: 0}
+      annulus_inner_px: {type: number, exclusiveMinimum: 0}
+      annulus_outer_px: {type: number, exclusiveMinimum: 0}
+      min_stars: {type: integer, minimum: 3}
+      sigma_clip: {type: number, exclusiveMinimum: 0}
+      siril_catalog_dir: {type: string}
   stacking:
     type: object
     properties:

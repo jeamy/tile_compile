@@ -3,7 +3,6 @@
 #include <array>
 #include <filesystem>
 #include <string>
-#include <vector>
 #include <yaml-cpp/yaml.h>
 
 namespace tile_compile::config {
@@ -157,6 +156,26 @@ struct StackingConfig {
   bool output_stretch = true;
 };
 
+struct AstrometryConfig {
+  bool enabled = false;
+  std::string astap_bin;          // empty = default path
+  std::string astap_data_dir;     // empty = default path
+  int search_radius = 180;        // degrees (180 = blind solve)
+};
+
+struct PCCConfig {
+  bool enabled = false;
+  std::string source = "auto";    // auto | siril | vizier_gaia | vizier_apass
+  float mag_limit = 14.0f;
+  float mag_bright_limit = 6.0f;
+  float aperture_radius_px = 8.0f;
+  float annulus_inner_px = 12.0f;
+  float annulus_outer_px = 18.0f;
+  int min_stars = 10;
+  float sigma_clip = 2.5f;
+  std::string siril_catalog_dir;  // empty = default path
+};
+
 struct ValidationConfig {
   float min_fwhm_improvement_percent = 5.0f;
   float max_background_rms_increase_percent = 0.0f;
@@ -185,6 +204,8 @@ struct Config {
   SyntheticConfig synthetic;
   ReconstructionConfig reconstruction;
   bool debayer = true;
+  AstrometryConfig astrometry;
+  PCCConfig pcc;
   StackingConfig stacking;
   ValidationConfig validation;
   RuntimeLimitsConfig runtime_limits;

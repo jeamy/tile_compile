@@ -283,6 +283,42 @@ Config Config::from_yaml(const YAML::Node &node) {
   if (node["debayer"])
     cfg.debayer = node["debayer"].as<bool>();
 
+  if (node["astrometry"]) {
+    auto a = node["astrometry"];
+    if (a["enabled"])
+      cfg.astrometry.enabled = a["enabled"].as<bool>();
+    if (a["astap_bin"])
+      cfg.astrometry.astap_bin = a["astap_bin"].as<std::string>();
+    if (a["astap_data_dir"])
+      cfg.astrometry.astap_data_dir = a["astap_data_dir"].as<std::string>();
+    if (a["search_radius"])
+      cfg.astrometry.search_radius = a["search_radius"].as<int>();
+  }
+
+  if (node["pcc"]) {
+    auto p = node["pcc"];
+    if (p["enabled"])
+      cfg.pcc.enabled = p["enabled"].as<bool>();
+    if (p["source"])
+      cfg.pcc.source = p["source"].as<std::string>();
+    if (p["mag_limit"])
+      cfg.pcc.mag_limit = p["mag_limit"].as<float>();
+    if (p["mag_bright_limit"])
+      cfg.pcc.mag_bright_limit = p["mag_bright_limit"].as<float>();
+    if (p["aperture_radius_px"])
+      cfg.pcc.aperture_radius_px = p["aperture_radius_px"].as<float>();
+    if (p["annulus_inner_px"])
+      cfg.pcc.annulus_inner_px = p["annulus_inner_px"].as<float>();
+    if (p["annulus_outer_px"])
+      cfg.pcc.annulus_outer_px = p["annulus_outer_px"].as<float>();
+    if (p["min_stars"])
+      cfg.pcc.min_stars = p["min_stars"].as<int>();
+    if (p["sigma_clip"])
+      cfg.pcc.sigma_clip = p["sigma_clip"].as<float>();
+    if (p["siril_catalog_dir"])
+      cfg.pcc.siril_catalog_dir = p["siril_catalog_dir"].as<std::string>();
+  }
+
   if (node["stacking"]) {
     auto st = node["stacking"];
     if (st["method"])
@@ -462,6 +498,22 @@ YAML::Node Config::to_yaml() const {
   node["reconstruction"]["window_function"] = reconstruction.window_function;
 
   node["debayer"] = debayer;
+
+  node["astrometry"]["enabled"] = astrometry.enabled;
+  node["astrometry"]["astap_bin"] = astrometry.astap_bin;
+  node["astrometry"]["astap_data_dir"] = astrometry.astap_data_dir;
+  node["astrometry"]["search_radius"] = astrometry.search_radius;
+
+  node["pcc"]["enabled"] = pcc.enabled;
+  node["pcc"]["source"] = pcc.source;
+  node["pcc"]["mag_limit"] = pcc.mag_limit;
+  node["pcc"]["mag_bright_limit"] = pcc.mag_bright_limit;
+  node["pcc"]["aperture_radius_px"] = pcc.aperture_radius_px;
+  node["pcc"]["annulus_inner_px"] = pcc.annulus_inner_px;
+  node["pcc"]["annulus_outer_px"] = pcc.annulus_outer_px;
+  node["pcc"]["min_stars"] = pcc.min_stars;
+  node["pcc"]["sigma_clip"] = pcc.sigma_clip;
+  node["pcc"]["siril_catalog_dir"] = pcc.siril_catalog_dir;
 
   node["stacking"]["method"] = stacking.method;
   node["stacking"]["sigma_clip"]["sigma_low"] = stacking.sigma_clip.sigma_low;
@@ -771,6 +823,22 @@ std::string get_schema_json() {
       "properties": { "weighting_function":{"type":"string","enum":["linear"]},
                       "window_function":{"type":"string","enum":["hanning"]} } },
     "debayer": {"type":"boolean"},
+    "astrometry": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "astap_bin":{"type":"string"},
+                      "astap_data_dir":{"type":"string"},
+                      "search_radius":{"type":"integer","minimum":1,"maximum":360} } },
+    "pcc": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "source":{"type":"string","enum":["auto","siril","vizier_gaia","vizier_apass"]},
+                      "mag_limit":{"type":"number","minimum":1,"maximum":22},
+                      "mag_bright_limit":{"type":"number","minimum":0,"maximum":15},
+                      "aperture_radius_px":{"type":"number","exclusiveMinimum":0},
+                      "annulus_inner_px":{"type":"number","exclusiveMinimum":0},
+                      "annulus_outer_px":{"type":"number","exclusiveMinimum":0},
+                      "min_stars":{"type":"integer","minimum":3},
+                      "sigma_clip":{"type":"number","exclusiveMinimum":0},
+                      "siril_catalog_dir":{"type":"string"} } },
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},
                       "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},

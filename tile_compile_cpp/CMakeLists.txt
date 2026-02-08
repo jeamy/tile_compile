@@ -43,7 +43,7 @@ endif()
 find_package(OpenSSL REQUIRED)
 
 # Qt6 Widgets (GUI)
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 
 # Optional: spdlog for logging
 find_package(spdlog QUIET)
@@ -81,6 +81,9 @@ set(LIB_SOURCES
     src/reconstruction/reconstruction.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/pipeline/pipeline.cpp
+    src/astrometry/wcs.cpp
+    src/astrometry/gaia_catalog.cpp
+    src/astrometry/photometric_color_cal.cpp
 )
 
 # Main library
@@ -137,11 +140,13 @@ set(GUI_SOURCES
     gui_cpp/tabs/RunTab.cpp
     gui_cpp/tabs/CurrentRunTab.cpp
     gui_cpp/tabs/HistoryTab.cpp
+    gui_cpp/tabs/AstrometryTab.cpp
+    gui_cpp/tabs/PCCTab.cpp
 )
 
 add_executable(tile_compile_gui ${GUI_SOURCES})
 target_include_directories(tile_compile_gui PRIVATE gui_cpp)
-target_link_libraries(tile_compile_gui PRIVATE tile_compile_lib Qt6::Widgets)
+target_link_libraries(tile_compile_gui PRIVATE tile_compile_lib Qt6::Widgets Qt6::Network)
 
 set_target_properties(tile_compile_gui PROPERTIES
     AUTOMOC_PATH_PREFIX OFF
