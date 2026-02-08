@@ -167,6 +167,7 @@ properties:
           sigma_high: {type: number, exclusiveMinimum: 0}
           max_iters: {type: integer, minimum: 1}
           min_fraction: {type: number, minimum: 0, maximum: 1}
+      output_stretch: {type: boolean}
   validation:
     type: object
     properties:
