@@ -3,7 +3,7 @@
 # pack_tile_compile_cpp_snapshot.sh
 #
 # Creates a clean C++ project snapshot archive for review / analysis.
-# Designed for tile_compile C++ implementation (Methodik v4).
+# Designed for tile_compile C++ implementation (Methodik v3).
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
@@ -25,13 +25,13 @@ if [[ ! -f README_CONTEXT.md ]]; then
 
 Project: tile_compile_cpp
 Purpose: C++ implementation of
-         Tile-basierte Qualitätsrekonstruktion für DSO – Methodik v4
+         Tile-basierte Qualitätsrekonstruktion für DSO – Methodik v3
 
 Key points:
 - C++17 with Qt6 GUI
 - OpenCV for image processing
 - cfitsio for FITS file I/O
-- Tile-local registration (v4) is authoritative
+- Tile-local registration is supported
 - Performance-optimized implementation
 
 Entry points:

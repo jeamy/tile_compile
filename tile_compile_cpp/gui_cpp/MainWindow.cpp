@@ -30,7 +30,7 @@ MainWindow::MainWindow(const std::string &project_root, QWidget *parent)
     
     setMinimumSize(1000, 700);
     resize(1300, 900);
-    setWindowTitle("Tile Compile – Methodik v4");
+    setWindowTitle("Tile Compile – Methodik v3");
     
     build_ui();
     load_styles();
@@ -55,7 +55,7 @@ void MainWindow::build_ui() {
     root->setSpacing(10);
     
     auto *header = new QHBoxLayout();
-    auto *title = new QLabel("Tile Compile – Methodik v4");
+    auto *title = new QLabel("Tile Compile – Methodik v3");
     title->setStyleSheet("font-size: 18px; font-weight: 600;");
     header->addWidget(title);
     header->addStretch(1);
@@ -130,7 +130,7 @@ void MainWindow::build_ui() {
     auto *assumptions_page_layout = new QVBoxLayout(assumptions_page);
     assumptions_page_layout->setContentsMargins(0, 0, 0, 0);
     assumptions_page_layout->setSpacing(10);
-    auto *assumptions_box = new QGroupBox("Methodik v4 Assumptions");
+    auto *assumptions_box = new QGroupBox("Methodik v3 Assumptions");
     auto *assumptions_box_layout = new QVBoxLayout(assumptions_box);
     assumptions_box_layout->setContentsMargins(12, 18, 12, 12);
     assumptions_box_layout->addWidget(assumptions_widget_);
@@ -157,7 +157,7 @@ void MainWindow::build_ui() {
     auto *progress_page_layout = new QVBoxLayout(progress_page);
     progress_page_layout->setContentsMargins(0, 0, 0, 0);
     progress_page_layout->setSpacing(10);
-    auto *progress_box = new QGroupBox("Pipeline Progress (Methodik v4)");
+    auto *progress_box = new QGroupBox("Pipeline Progress (Methodik v3)");
     auto *progress_box_layout = new QVBoxLayout(progress_box);
     progress_box_layout->setContentsMargins(12, 18, 12, 12);
     phase_progress_ = new PhaseProgressWidget();

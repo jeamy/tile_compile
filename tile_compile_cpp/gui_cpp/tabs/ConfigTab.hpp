@@ -5,8 +5,6 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QTextEdit>
-#include <QComboBox>
-#include <memory>
 #include <string>
 
 #include <nlohmann/json.hpp>
@@ -43,7 +41,6 @@ class ConfigTab : public QWidget {
     void on_save_config_clicked();
     void on_validate_config_clicked();
     void on_apply_assumptions_clicked();
-    void on_apply_v4_preset();
     void on_browse_config();
     void on_config_text_changed();
 
@@ -61,7 +58,6 @@ class ConfigTab : public QWidget {
     QPushButton *btn_cfg_save_ = nullptr;
     QPushButton *btn_cfg_validate_ = nullptr;
     QPushButton *btn_apply_assumptions_ = nullptr;
-    QComboBox *v4_preset_combo_ = nullptr;
     QLabel *lbl_cfg_ = nullptr;
     QTextEdit *config_yaml_ = nullptr;
 };

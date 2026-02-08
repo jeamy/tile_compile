@@ -1,4 +1,5 @@
 #include "tile_compile/core/types.hpp"
+#include "tile_compile/core/utils.hpp"
 
 #include <opencv2/opencv.hpp>
 
@@ -9,28 +10,6 @@
 namespace tile_compile::metrics {
 
 namespace {
-
-float median_of(std::vector<float>& v) {
-    if (v.empty()) return 0.0f;
-    const size_t n = v.size();
-    const size_t mid = n / 2;
-    std::nth_element(v.begin(), v.begin() + mid, v.end());
-    const float hi = v[mid];
-    if ((n % 2) == 1) {
-        return hi;
-    }
-    std::nth_element(v.begin(), v.begin() + (mid - 1), v.end());
-    const float lo = v[mid - 1];
-    return 0.5f * (lo + hi);
-}
-
-float robust_sigma_mad(std::vector<float>& pixels) {
-    if (pixels.empty()) return 0.0f;
-    float med = median_of(pixels);
-    for (float& x : pixels) x = std::fabs(x - med);
-    float mad = median_of(pixels);
-    return 1.4826f * mad;
-}
 
 std::vector<float> collect_pixels(const Matrix2Df& m) {
     std::vector<float> out;
@@ -130,7 +109,7 @@ TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
     cv::Mat resid = tile_cv - bg_cv;
 
     std::vector<float> px = collect_pixels(tile);
-    float bg0 = median_of(px);
+    float bg0 = core::median_of(px);
 
     std::vector<float> resid_px;
     resid_px.reserve(static_cast<size_t>(resid.rows) * static_cast<size_t>(resid.cols));
@@ -140,7 +119,7 @@ TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
             resid_px.push_back(row[x]);
         }
     }
-    float sigma0 = robust_sigma_mad(resid_px);
+    float sigma0 = core::robust_sigma_mad(resid_px);
     if (!(sigma0 > 0.0f)) {
         double sum = 0.0;
         for (float v : resid_px) sum += static_cast<double>(v);
@@ -175,8 +154,8 @@ TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
         resid_bg = resid_px;
     }
 
-    m.background = median_of(bg_vals);
-    m.noise = robust_sigma_mad(resid_bg);
+    m.background = core::median_of(bg_vals);
+    m.noise = core::robust_sigma_mad(resid_bg);
 
     cv::Mat gx, gy;
     cv::Sobel(resid, gx, CV_32F, 1, 0, 3);
@@ -193,7 +172,7 @@ TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
             grad_vals.push_back(row[x]);
         }
     }
-    m.gradient_energy = grad_vals.empty() ? 0.0f : median_of(grad_vals);
+    m.gradient_energy = grad_vals.empty() ? 0.0f : core::median_of(grad_vals);
 
     try {
         cv::Mat resid_u8;

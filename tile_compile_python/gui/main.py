@@ -959,21 +959,15 @@ class MainWindow(QMainWindow):
         self.btn_apply_assumptions.setFixedWidth(140)
         self.btn_apply_assumptions.setToolTip("Apply assumptions from Assumptions tab to config YAML")
         
-        # v4 Preset dropdown
+        # Preset dropdown (v3 only: default)
         self.v4_preset_combo = QComboBox()
         self.v4_preset_combo.addItem("Default (tile_compile.yaml)", 0)
-        self.v4_preset_combo.addItem("Preset 1: EQ-Montierung, ruhiges Seeing", 1)
-        self.v4_preset_combo.addItem("Preset 2: Alt/Az, starke Feldrotation", 2)
-        self.v4_preset_combo.addItem("Preset 3: Polnähe, sehr instabil", 3)
-        self.v4_preset_combo.addItem("Preset 4: Smart-Teleskop (DWARF II / SeeStar)", 4)
-        self.v4_preset_combo.addItem("Preset 5: DWARF II", 5)
-        self.v4_preset_combo.addItem("Preset 6: ZWO SeeStar", 6)
-        self.v4_preset_combo.setCurrentIndex(0)  # Default: load tile_compile.yaml
+        self.v4_preset_combo.setCurrentIndex(0)
         self.v4_preset_combo.setMinimumHeight(30)
         self.v4_preset_combo.setFixedWidth(280)
-        self.v4_preset_combo.setToolTip("Wähle v4-Konfigurationspreset (siehe doc/v_4_example_configs.md)")
+        self.v4_preset_combo.setToolTip("Wähle Konfigurationspreset (v3)")
         
-        button_row.addWidget(QLabel("v4 Preset:"))
+        button_row.addWidget(QLabel("Preset:"))
         button_row.addWidget(self.v4_preset_combo)
         button_row.addWidget(self.btn_cfg_load)
         button_row.addWidget(self.btn_cfg_save)
@@ -1829,42 +1823,21 @@ class MainWindow(QMainWindow):
         self._schedule_save_gui_state()
 
     def _apply_v4_preset(self) -> None:
-        """Apply selected v4 preset to config YAML."""
+        """Apply selected preset to config YAML."""
         preset_id = self.v4_preset_combo.currentData()
         if preset_id is None:
             return
         
-        self._append_live(f"[ui] applying v4 preset {preset_id}")
+        self._append_live(f"[ui] applying preset {preset_id}")
         
-        # Default preset: load stored tile_compile.yaml (Python)
-        if preset_id == 0:
-            default_path = Path(self.project_root) / "tile_compile_python" / "tile_compile.yaml"
-            try:
-                text = default_path.read_text(encoding="utf-8")
-                self.config_yaml.setPlainText(text)
-                self._append_live(f"[ui] loaded default config: {default_path}")
-            except Exception as e:
-                self._append_live(f"[ui] error loading default config: {e}")
-            return
-
+        # Only default preset remains
+        default_path = Path(self.project_root) / "tile_compile_python" / "tile_compile.yaml"
         try:
-            preset_files = {
-                1: "tile_compile_eq.yaml",
-                2: "tile_compile_altaz.yaml",
-                3: "tile_compile_polar.yaml",
-                4: "tile_compile_smart.yaml",
-                5: "tile_compile_dwarf.yaml",
-                6: "tile_compile_seestar.yaml",
-            }
-            preset_file = preset_files.get(preset_id)
-            if not preset_file:
-                return
-            preset_path = Path(self.project_root) / "tile_compile_python" / preset_file
-            text = preset_path.read_text(encoding="utf-8")
+            text = default_path.read_text(encoding="utf-8")
             self.config_yaml.setPlainText(text)
-            self._append_live(f"[ui] v4 preset {preset_id} loaded: {preset_path}")
+            self._append_live(f"[ui] loaded default config: {default_path}")
         except Exception as e:
-            self._append_live(f"[ui] error applying preset: {e}")
+            self._append_live(f"[ui] error loading default config: {e}")
     
     def _apply_assumptions_to_config(self) -> None:
         self._append_live("[ui] apply assumptions to config")

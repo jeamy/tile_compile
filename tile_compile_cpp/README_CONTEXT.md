@@ -2,13 +2,13 @@
 
 Project: tile_compile_cpp
 Purpose: C++ implementation of
-         Tile-basierte Qualitätsrekonstruktion für DSO – Methodik v4
+         Tile-basierte Qualitätsrekonstruktion für DSO – Methodik v3
 
 Key points:
 - C++17 with Qt6 GUI
 - OpenCV for image processing
 - cfitsio for FITS file I/O
-- Tile-local registration (v4) is authoritative
+- Tile-local registration is supported
 - Performance-optimized implementation
 
 Entry points:

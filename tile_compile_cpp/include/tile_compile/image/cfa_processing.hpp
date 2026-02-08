@@ -7,7 +7,7 @@
 namespace tile_compile::image {
 
 /**
- * Create green mask for CFA pattern (Methodik v4).
+ * Create green mask for CFA pattern.
  */
 Matrix2Df cfa_green_mask(int height, int width, const std::string& bayer_pattern);
 
@@ -55,5 +55,13 @@ Matrix2Df reassemble_cfa_mosaic(
     const Matrix2Df& b_plane,
     const std::string& bayer_pattern
 );
+
+/**
+ * Get Bayer pixel offsets for R and B channels.
+ * r_row/r_col: row/col parity (0 or 1) of R pixels
+ * b_row/b_col: row/col parity (0 or 1) of B pixels
+ */
+void bayer_offsets(const std::string& bayer_pattern,
+                   int& r_row, int& r_col, int& b_row, int& b_col);
 
 } // namespace tile_compile::image

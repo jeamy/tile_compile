@@ -1,4 +1,5 @@
 #include "tile_compile/core/types.hpp"
+#include "tile_compile/core/utils.hpp"
 #include <opencv2/opencv.hpp>
 #include <cmath>
 #include <cstring>
@@ -6,45 +7,6 @@
 #include <algorithm>
 
 namespace tile_compile::metrics {
-
-namespace {
-
-float median_of(std::vector<float>& v) {
-    if (v.empty()) return 0.0f;
-    const size_t n = v.size();
-    const size_t mid = n / 2;
-    std::nth_element(v.begin(), v.begin() + mid, v.end());
-    const float hi = v[mid];
-    if ((n % 2) == 1) {
-        return hi;
-    }
-    std::nth_element(v.begin(), v.begin() + (mid - 1), v.end());
-    const float lo = v[mid - 1];
-    return 0.5f * (lo + hi);
-}
-
-float stddev_of(const std::vector<float>& v) {
-    if (v.size() < 2) return 0.0f;
-    double sum = 0.0;
-    for (float x : v) sum += static_cast<double>(x);
-    const double mean = sum / static_cast<double>(v.size());
-    double var = 0.0;
-    for (float x : v) {
-        const double d = static_cast<double>(x) - mean;
-        var += d * d;
-    }
-    var /= static_cast<double>(v.size());
-    if (var <= 0.0) return 0.0f;
-    return static_cast<float>(std::sqrt(var));
-}
-
-float robust_sigma_mad(std::vector<float>& pixels) {
-    if (pixels.empty()) return 0.0f;
-    float med = median_of(pixels);
-    for (float& x : pixels) x = std::fabs(x - med);
-    float mad = median_of(pixels);
-    return 1.4826f * mad;
-}
 
 cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame, float k_sigma, int dilate_radius) {
     const int h = frame.rows;
@@ -60,8 +22,8 @@ cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame, float k_sigma, 
         }
     }
 
-    float mu = median_of(vals);
-    float sigma = robust_sigma_mad(vals);
+    float mu = core::median_of(vals);
+    float sigma = core::robust_sigma_mad(vals);
     if (!(sigma > 0.0f)) {
         return cv::Mat1b(h, w, uint8_t(1));
     }
@@ -95,6 +57,8 @@ cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame, float k_sigma, 
     return bg;
 }
 
+namespace {
+
 std::vector<float> collect_masked_pixels(const Matrix2Df& frame, const cv::Mat1b& mask) {
     std::vector<float> out;
     out.reserve(static_cast<size_t>(frame.size()));
@@ -110,14 +74,14 @@ std::vector<float> collect_masked_pixels(const Matrix2Df& frame, const cv::Mat1b
 float masked_median(const Matrix2Df& frame, const cv::Mat1b& mask) {
     std::vector<float> px = collect_masked_pixels(frame, mask);
     if (px.empty()) return 0.0f;
-    return median_of(px);
+    return core::median_of(px);
 }
 
 float masked_sigma_mad(const Matrix2Df& frame, const cv::Mat1b& mask, float center) {
     std::vector<float> px = collect_masked_pixels(frame, mask);
     if (px.empty()) return 0.0f;
     for (float& x : px) x = std::fabs(x - center);
-    float mad = median_of(px);
+    float mad = core::median_of(px);
     return 1.4826f * mad;
 }
 
@@ -126,9 +90,9 @@ VectorXf robust_normalize_median_mad(const VectorXf& v) {
     std::vector<float> vals;
     vals.reserve(static_cast<size_t>(v.size()));
     for (int i = 0; i < v.size(); ++i) vals.push_back(v[i]);
-    float med = median_of(vals);
+    float med = core::median_of(vals);
     for (float& x : vals) x = std::fabs(x - med);
-    float mad = median_of(vals);
+    float mad = core::median_of(vals);
     float sigma_robust = 1.4826f * mad;
     if (!(sigma_robust > 0.0f)) {
         return VectorXf::Zero(v.size());
@@ -191,7 +155,7 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
                 if (mrow[x] != 0) gvals.push_back(row[x]);
             }
         }
-        m.gradient_energy = gvals.empty() ? 0.0f : median_of(gvals);
+        m.gradient_energy = gvals.empty() ? 0.0f : core::median_of(gvals);
     }
     
     m.quality_score = 1.0f;
@@ -228,6 +192,47 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
     }
 
     return weights;
+}
+
+float estimate_fwhm_from_patch(const cv::Mat& patch) {
+    if (patch.empty()) return 0.0f;
+    std::vector<float> v;
+    v.reserve(static_cast<size_t>(patch.rows) * static_cast<size_t>(patch.cols));
+    for (int y = 0; y < patch.rows; ++y) {
+        const float* row = patch.ptr<float>(y);
+        for (int x = 0; x < patch.cols; ++x) {
+            v.push_back(row[x]);
+        }
+    }
+    if (v.empty()) return 0.0f;
+    float bg = core::median_of(v);
+    float sigma = core::robust_sigma_mad(v);
+
+    double maxv = 0.0;
+    cv::minMaxLoc(patch, nullptr, &maxv);
+    if (!(maxv > 0.0)) return 0.0f;
+    if (maxv <= static_cast<double>(bg) + 3.0 * static_cast<double>(sigma))
+        return 0.0f;
+
+    cv::Mat p = patch - bg;
+    cv::threshold(p, p, 0.0, 0.0, cv::THRESH_TOZERO);
+    double peak = 0.0;
+    cv::minMaxLoc(p, nullptr, &peak);
+    if (!(peak > 0.0)) return 0.0f;
+    double half = 0.5 * peak;
+
+    int cnt = 0;
+    for (int y = 0; y < p.rows; ++y) {
+        const float* row = p.ptr<float>(y);
+        for (int x = 0; x < p.cols; ++x) {
+            if (static_cast<double>(row[x]) >= half) {
+                ++cnt;
+            }
+        }
+    }
+    if (cnt <= 0) return 0.0f;
+    return static_cast<float>(
+        std::sqrt(static_cast<double>(cnt) / 3.14159265358979323846));
 }
 
 } // namespace tile_compile::metrics
