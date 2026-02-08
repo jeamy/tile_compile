@@ -148,6 +148,17 @@ std::vector<StarPhotometry> measure_stars(
 }
 
 // ─── Color matrix fitting ───────────────────────────────────────────────
+//
+// PCC computes per-channel scale factors so that the instrumental color
+// ratios (R/G, B/G) match the catalog color ratios.  This is a diagonal
+// correction — no channel mixing — which preserves the image's color
+// structure while adjusting the white balance to a photometric reference.
+//
+// For each star:  ratio_inst_r = flux_r / flux_g
+//                 ratio_cat_r  = cat_r  / cat_g
+//                 correction_r = ratio_cat_r / ratio_inst_r
+// The per-channel scale is the sigma-clipped median of these corrections.
+// Green is the reference channel (scale_g = 1.0).
 
 PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
                            const PCCConfig &config) {
@@ -170,116 +181,74 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
         return res;
     }
 
-    // Normalize instrumental and catalog fluxes to green channel
-    // This makes the fit scale-invariant
-    auto normalize = [&valid](std::vector<double> &r, std::vector<double> &g,
-                              std::vector<double> &b, bool catalog) {
-        double sum_g = 0;
-        for (const auto *s : valid) {
-            sum_g += catalog ? s->cat_g : s->flux_g;
-        }
-        double scale = (sum_g > 0) ? valid.size() / sum_g : 1.0;
-        r.resize(valid.size());
-        g.resize(valid.size());
-        b.resize(valid.size());
-        for (size_t i = 0; i < valid.size(); ++i) {
-            if (catalog) {
-                r[i] = valid[i]->cat_r * scale;
-                g[i] = valid[i]->cat_g * scale;
-                b[i] = valid[i]->cat_b * scale;
-            } else {
-                r[i] = valid[i]->flux_r * scale;
-                g[i] = valid[i]->flux_g * scale;
-                b[i] = valid[i]->flux_b * scale;
+    // For each star, compute the per-channel correction factor
+    // correction_c = (cat_c / cat_g) / (inst_c / inst_g)
+    //              = (cat_c * inst_g) / (cat_g * inst_c)
+    std::vector<double> corr_r, corr_b;
+    corr_r.reserve(valid.size());
+    corr_b.reserve(valid.size());
+
+    for (const auto *s : valid) {
+        double cr = (s->cat_r * s->flux_g) / (s->cat_g * s->flux_r);
+        double cb = (s->cat_b * s->flux_g) / (s->cat_g * s->flux_b);
+        // Sanity: reject extreme corrections
+        if (cr > 0.1 && cr < 10.0) corr_r.push_back(cr);
+        if (cb > 0.1 && cb < 10.0) corr_b.push_back(cb);
+    }
+
+    if (static_cast<int>(corr_r.size()) < config.min_stars ||
+        static_cast<int>(corr_b.size()) < config.min_stars) {
+        res.error_message = "Not enough stars with valid color ratios";
+        return res;
+    }
+
+    // Iterative sigma-clipped median
+    auto sigma_clipped_median = [&](std::vector<double> &vals, double sigma) -> double {
+        for (int iter = 0; iter < 5; ++iter) {
+            std::sort(vals.begin(), vals.end());
+            double med = vals[vals.size() / 2];
+            double mad = 0;
+            for (double v : vals) mad += std::abs(v - med);
+            mad /= vals.size();
+            double threshold = sigma * mad * 1.4826;  // MAD to sigma
+            if (threshold < 1e-10) break;
+            std::vector<double> kept;
+            for (double v : vals) {
+                if (std::abs(v - med) <= threshold) kept.push_back(v);
             }
+            if (static_cast<int>(kept.size()) < config.min_stars) break;
+            vals = kept;
         }
+        std::sort(vals.begin(), vals.end());
+        return vals[vals.size() / 2];
     };
 
-    std::vector<double> inst_r, inst_g, inst_b;
-    std::vector<double> cat_r, cat_g, cat_b;
-    normalize(inst_r, inst_g, inst_b, false);
-    normalize(cat_r, cat_g, cat_b, true);
+    double scale_r = sigma_clipped_median(corr_r, config.sigma_clip);
+    double scale_b = sigma_clipped_median(corr_b, config.sigma_clip);
+    double scale_g = 1.0;  // Green is reference
 
-    // Iterative sigma-clipped least squares
-    // Fit: [cat_r, cat_g, cat_b]^T = M * [inst_r, inst_g, inst_b]^T
-    // We fit each output channel independently: cat_c = m_c0*inst_r + m_c1*inst_g + m_c2*inst_b
+    // Build diagonal color matrix
+    res.matrix = {{{scale_r, 0, 0}, {0, scale_g, 0}, {0, 0, scale_b}}};
+    res.n_stars_used = static_cast<int>(std::min(corr_r.size(), corr_b.size()));
+    res.residual_rms = 0.0;
 
-    int n = static_cast<int>(valid.size());
-    std::vector<bool> inlier(n, true);
-
-    ColorMatrix best_matrix = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
-    double best_rms = 1e30;
-    int n_used = n;
-
-    for (int iter = 0; iter < 5; ++iter) {
-        // Count inliers
-        int ni = 0;
-        for (int i = 0; i < n; ++i) if (inlier[i]) ++ni;
-        if (ni < config.min_stars) break;
-
-        // Build system: A * x = b for each output channel
-        Eigen::MatrixXd A(ni, 3);
-        Eigen::VectorXd b_r(ni), b_g(ni), b_b(ni);
-
-        int row = 0;
-        for (int i = 0; i < n; ++i) {
-            if (!inlier[i]) continue;
-            A(row, 0) = inst_r[i];
-            A(row, 1) = inst_g[i];
-            A(row, 2) = inst_b[i];
-            b_r(row) = cat_r[i];
-            b_g(row) = cat_g[i];
-            b_b(row) = cat_b[i];
-            ++row;
-        }
-
-        // Solve via least squares
-        Eigen::Vector3d x_r = A.colPivHouseholderQr().solve(b_r);
-        Eigen::Vector3d x_g = A.colPivHouseholderQr().solve(b_g);
-        Eigen::Vector3d x_b = A.colPivHouseholderQr().solve(b_b);
-
-        best_matrix = {{{x_r(0), x_r(1), x_r(2)},
-                        {x_g(0), x_g(1), x_g(2)},
-                        {x_b(0), x_b(1), x_b(2)}}};
-
-        // Compute residuals
-        std::vector<double> residuals(n, 0.0);
-        double sum_sq = 0.0;
-        int count = 0;
-        for (int i = 0; i < n; ++i) {
-            if (!inlier[i]) continue;
-            double pr = x_r(0) * inst_r[i] + x_r(1) * inst_g[i] + x_r(2) * inst_b[i];
-            double pg = x_g(0) * inst_r[i] + x_g(1) * inst_g[i] + x_g(2) * inst_b[i];
-            double pb = x_b(0) * inst_r[i] + x_b(1) * inst_g[i] + x_b(2) * inst_b[i];
-            double dr = pr - cat_r[i];
-            double dg = pg - cat_g[i];
-            double db = pb - cat_b[i];
-            residuals[i] = std::sqrt(dr * dr + dg * dg + db * db);
-            sum_sq += residuals[i] * residuals[i];
+    // Compute RMS of color ratio residuals
+    double sum_sq = 0;
+    int count = 0;
+    for (const auto *s : valid) {
+        double cr = (s->cat_r * s->flux_g) / (s->cat_g * s->flux_r);
+        double cb = (s->cat_b * s->flux_g) / (s->cat_g * s->flux_b);
+        if (cr > 0.1 && cr < 10.0 && cb > 0.1 && cb < 10.0) {
+            sum_sq += (cr - scale_r) * (cr - scale_r) + (cb - scale_b) * (cb - scale_b);
             ++count;
         }
-
-        best_rms = (count > 0) ? std::sqrt(sum_sq / count) : 0.0;
-        n_used = count;
-
-        // Sigma clip
-        if (iter < 4 && best_rms > 0) {
-            for (int i = 0; i < n; ++i) {
-                if (inlier[i] && residuals[i] > config.sigma_clip * best_rms) {
-                    inlier[i] = false;
-                }
-            }
-        }
     }
+    res.residual_rms = (count > 0) ? std::sqrt(sum_sq / count) : 0.0;
 
-    res.matrix = best_matrix;
-    res.n_stars_used = n_used;
-    res.residual_rms = best_rms;
-    res.success = (n_used >= config.min_stars);
-    if (!res.success) {
-        res.error_message = "Too few stars after sigma clipping (" +
-                            std::to_string(n_used) + ")";
-    }
+    res.success = true;
+    std::cerr << "[PCC] Scale factors: R=" << scale_r
+              << " G=" << scale_g << " B=" << scale_b
+              << " (" << res.n_stars_used << " stars)" << std::endl;
     return res;
 }
 

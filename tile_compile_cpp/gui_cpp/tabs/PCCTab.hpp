@@ -11,6 +11,8 @@
 #include <QProgressBar>
 #include <QGroupBox>
 #include <string>
+#include "tile_compile/core/types.hpp"
+#include "tile_compile/io/fits_io.hpp"
 
 namespace tile_compile::gui {
 
@@ -62,6 +64,8 @@ class PCCTab : public QWidget {
 
     // State
     bool pcc_ok_ = false;
+    tile_compile::Matrix2Df pcc_R_, pcc_G_, pcc_B_;
+    tile_compile::io::FitsHeader pcc_hdr_;
 };
 
 } // namespace tile_compile::gui

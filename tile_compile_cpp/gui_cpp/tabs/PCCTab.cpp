@@ -149,19 +149,24 @@ void PCCTab::build_ui() {
         QFileInfo fi(fits_path);
         QString default_name = fi.completeBaseName() + "_pcc." + fi.suffix();
         QString save_path = QFileDialog::getSaveFileName(
-            this, "Save PCC-Corrected FITS", fi.dir().filePath(default_name),
+            this, "Save PCC-Corrected RGB FITS", fi.dir().filePath(default_name),
             "FITS files (*.fits *.fit *.fts);;All files (*)");
         if (save_path.isEmpty()) return;
 
         try {
-            // Re-run PCC and save (we re-read to avoid keeping large matrices in memory)
-            auto [data_r, hdr_r] = io::read_fits_float(fits_path.toStdString());
-            // For RGB cube, we need the individual channels
-            // For now, point user to the runner output
-            append_log("[PCC] Use the automatic pipeline for saving corrected files.");
-            append_log("[PCC] Corrected files are saved as pcc_R/G/B.fit and stacked_rgb_pcc.fits in the run directory.");
+            io::write_fits_rgb(save_path.toStdString(), pcc_R_, pcc_G_, pcc_B_, pcc_hdr_);
+            append_log("[PCC] Saved corrected RGB: " + save_path);
+
+            // Also save individual channels alongside
+            QFileInfo sfi(save_path);
+            QString base = sfi.dir().filePath(sfi.completeBaseName());
+            io::write_fits_float((base + "_R.fit").toStdString(), pcc_R_, pcc_hdr_);
+            io::write_fits_float((base + "_G.fit").toStdString(), pcc_G_, pcc_hdr_);
+            io::write_fits_float((base + "_B.fit").toStdString(), pcc_B_, pcc_hdr_);
+            append_log("[PCC] Saved channels: " + base + "_R/G/B.fit");
         } catch (const std::exception &e) {
             QMessageBox::critical(this, "Save Error", e.what());
+            append_log(QString("[PCC] Save error: %1").arg(e.what()));
         }
     });
 }
@@ -178,13 +183,43 @@ void PCCTab::on_browse_fits() {
         "FITS files (*.fits *.fit *.fts);;All files (*)");
     if (!path.isEmpty()) {
         edt_fits_path_->setText(path);
-        // Auto-detect .wcs file
+        // Auto-detect .wcs file: try exact name, then _solved variant
         QFileInfo fi(path);
-        QString wcs_path = fi.dir().filePath(fi.completeBaseName() + ".wcs");
-        if (QFileInfo::exists(wcs_path)) {
-            edt_wcs_path_->setText(wcs_path);
-            append_log("[PCC] Auto-detected WCS: " + wcs_path);
+        QString base = fi.completeBaseName();
+        QString dir = fi.dir().path();
+        QString suffix = fi.suffix();
+
+        QStringList candidates = {
+            dir + "/" + base + ".wcs",
+            dir + "/" + base + "_solved.wcs",
+        };
+        // If name ends with _solved, also try without
+        if (base.endsWith("_solved")) {
+            candidates.append(dir + "/" + base.left(base.length() - 7) + ".wcs");
         }
+
+        bool found = false;
+        for (const QString &wcs_path : candidates) {
+            if (QFileInfo::exists(wcs_path)) {
+                edt_wcs_path_->setText(wcs_path);
+                append_log("[PCC] Auto-detected WCS: " + wcs_path);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            append_log("[PCC] No .wcs file found. Please select one manually or run Plate Solve first.");
+        }
+
+        // Check if file is mono (warn user)
+        try {
+            auto [w, h, naxis] = io::get_fits_dimensions(path.toStdString());
+            if (naxis < 3) {
+                append_log("[PCC] WARNING: Selected FITS appears to be mono (NAXIS=" +
+                           QString::number(naxis) + "). PCC needs an RGB color image!");
+                append_log("[PCC] If this is a _solved file, select the original RGB FITS instead.");
+            }
+        } catch (...) {}
     }
 }
 
@@ -324,22 +359,13 @@ void PCCTab::on_run_pcc() {
             }
             lbl_matrix_->setText(mat_str);
 
-            // Save corrected files
-            QString pcc_r = base_dir + "/pcc_R.fit";
-            QString pcc_g = base_dir + "/pcc_G.fit";
-            QString pcc_b = base_dir + "/pcc_B.fit";
-            QString pcc_rgb = base_dir + "/stacked_rgb_pcc.fits";
+            // Store corrected data for Save button
+            pcc_R_ = R;
+            pcc_G_ = G;
+            pcc_B_ = B;
+            pcc_hdr_ = hdr;
 
-            io::write_fits_float(pcc_r.toStdString(), R, hdr);
-            io::write_fits_float(pcc_g.toStdString(), G, hdr);
-            io::write_fits_float(pcc_b.toStdString(), B, hdr);
-            io::write_fits_rgb(pcc_rgb.toStdString(), R, G, B, hdr);
-
-            append_log("[PCC] Success! Corrected files saved:");
-            append_log("  " + pcc_r);
-            append_log("  " + pcc_g);
-            append_log("  " + pcc_b);
-            append_log("  " + pcc_rgb);
+            append_log("[PCC] Success! Use 'Save Corrected' to write the result.");
         } else {
             append_log("[PCC] Fit failed: " + QString::fromStdString(result.error_message));
             append_log(QString("[PCC] Stars matched: %1").arg(result.n_stars_matched));

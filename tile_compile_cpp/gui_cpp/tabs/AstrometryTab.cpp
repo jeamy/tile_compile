@@ -1,4 +1,5 @@
 #include "tabs/AstrometryTab.hpp"
+#include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/io/fits_io.hpp"
 
 #include <QVBoxLayout>
@@ -504,44 +505,26 @@ void AstrometryTab::parse_wcs(const QString &fits_path) {
     else
         wcs_path += ".wcs";
 
-    QFile wcs_file(wcs_path);
-    if (!wcs_file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        append_log("[astap] Warning: Could not read WCS file: " + wcs_path);
+    if (!QFileInfo::exists(wcs_path)) {
+        append_log("[astap] Warning: WCS file not found: " + wcs_path);
         return;
     }
 
-    const QString wcs_content = QString::fromUtf8(wcs_file.readAll());
-    double naxis1 = 0, naxis2 = 0, cdelt1 = 0;
-
-    for (const QString &line : wcs_content.split('\n')) {
-        const QString t = line.trimmed();
-        if (t.startsWith("CRVAL1")) {
-            const QString val = t.section('=', 1).section('/', 0, 0).trimmed();
-            lbl_ra_->setText(val + " deg");
-        } else if (t.startsWith("CRVAL2")) {
-            const QString val = t.section('=', 1).section('/', 0, 0).trimmed();
-            lbl_dec_->setText(val + " deg");
-        } else if (t.startsWith("CDELT1")) {
-            bool ok = false;
-            double cdelt = t.section('=', 1).section('/', 0, 0).trimmed().toDouble(&ok);
-            if (ok) {
-                cdelt1 = cdelt;
-                double arcsec_per_px = std::abs(cdelt) * 3600.0;
-                lbl_scale_->setText(QString::number(arcsec_per_px, 'f', 2) + " arcsec/px");
-            }
-        } else if (t.startsWith("CROTA2")) {
-            const QString val = t.section('=', 1).section('/', 0, 0).trimmed();
-            lbl_rotation_->setText(val + " deg");
-        } else if (t.startsWith("NAXIS1")) {
-            naxis1 = t.section('=', 1).section('/', 0, 0).trimmed().toDouble();
-        } else if (t.startsWith("NAXIS2")) {
-            naxis2 = t.section('=', 1).section('/', 0, 0).trimmed().toDouble();
-        }
+    // Use locale-independent lib parser (std::from_chars)
+    auto wcs = tile_compile::astrometry::parse_wcs_file(wcs_path.toStdString());
+    if (!wcs.valid()) {
+        append_log("[astap] Warning: Could not parse valid WCS from: " + wcs_path);
+        return;
     }
 
-    if (naxis1 > 0 && naxis2 > 0 && std::abs(cdelt1) > 0) {
-        double fov_w = naxis1 * std::abs(cdelt1);
-        double fov_h = naxis2 * std::abs(cdelt1);
+    lbl_ra_->setText(QString::number(wcs.crval1, 'f', 6) + " deg");
+    lbl_dec_->setText(QString::number(wcs.crval2, 'f', 6) + " deg");
+    lbl_scale_->setText(QString::number(wcs.pixel_scale_arcsec(), 'f', 2) + " arcsec/px");
+    lbl_rotation_->setText(QString::number(wcs.rotation_deg(), 'f', 2) + " deg");
+
+    double fov_w = wcs.fov_width_deg();
+    double fov_h = wcs.fov_height_deg();
+    if (fov_w > 0 && fov_h > 0) {
         lbl_fov_->setText(QString("%1 x %2 deg")
                               .arg(fov_w, 0, 'f', 2)
                               .arg(fov_h, 0, 'f', 2));
@@ -606,43 +589,33 @@ void AstrometryTab::on_save_solved() {
     if (save_path.isEmpty()) return;
 
     try {
-        // Read original FITS
-        auto [data, hdr] = tile_compile::io::read_fits_float(
-            fits_path.toStdString());
+        // Read original FITS as RGB cube (preserves color)
+        auto rgb = tile_compile::io::read_fits_rgb(fits_path.toStdString());
+        auto &hdr = rgb.header;
 
-        // Parse WCS keywords from .wcs file and inject into header
-        QFile wcs_file(last_wcs_path_);
-        if (wcs_file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            const QString wcs_content = QString::fromUtf8(wcs_file.readAll());
-            for (const QString &line : wcs_content.split('\n')) {
-                const QString t = line.trimmed();
-                if (t.isEmpty() || t.startsWith("END")) continue;
-                const QString key = t.section('=', 0, 0).trimmed();
-                const QString val_raw = t.section('=', 1).section('/', 0, 0).trimmed();
-                if (key.isEmpty() || val_raw.isEmpty()) continue;
-
-                // Try numeric first
-                bool ok = false;
-                if (key == "NAXIS1" || key == "NAXIS2" || key == "NAXIS") {
-                    int iv = val_raw.toInt(&ok);
-                    if (ok) hdr.int_values[key.toStdString()] = iv;
-                } else {
-                    double dv = val_raw.toDouble(&ok);
-                    if (ok) {
-                        hdr.numeric_values[key.toStdString()] = dv;
-                    } else {
-                        // String value (strip quotes)
-                        QString sv = val_raw;
-                        if (sv.startsWith("'") && sv.endsWith("'"))
-                            sv = sv.mid(1, sv.length() - 2).trimmed();
-                        hdr.string_values[key.toStdString()] = sv.toStdString();
-                    }
-                }
-            }
+        // Inject WCS keywords from the lib parser (locale-independent)
+        auto wcs = tile_compile::astrometry::parse_wcs_file(
+            last_wcs_path_.toStdString());
+        if (wcs.valid()) {
+            hdr.numeric_values["CRVAL1"] = wcs.crval1;
+            hdr.numeric_values["CRVAL2"] = wcs.crval2;
+            hdr.numeric_values["CRPIX1"] = wcs.crpix1;
+            hdr.numeric_values["CRPIX2"] = wcs.crpix2;
+            hdr.numeric_values["CD1_1"]  = wcs.cd1_1;
+            hdr.numeric_values["CD1_2"]  = wcs.cd1_2;
+            hdr.numeric_values["CD2_1"]  = wcs.cd2_1;
+            hdr.numeric_values["CD2_2"]  = wcs.cd2_2;
+            hdr.string_values["CTYPE1"]  = "RA---TAN";
+            hdr.string_values["CTYPE2"]  = "DEC--TAN";
+            hdr.string_values["CUNIT1"]  = "deg";
+            hdr.string_values["CUNIT2"]  = "deg";
+            hdr.numeric_values["EQUINOX"] = 2000.0;
+            hdr.bool_values["PLTSOLVD"] = true;
         }
 
-        // Write solved FITS
-        tile_compile::io::write_fits_float(save_path.toStdString(), data, hdr);
+        // Write solved FITS as RGB cube
+        tile_compile::io::write_fits_rgb(save_path.toStdString(),
+                                         rgb.R, rgb.G, rgb.B, hdr);
 
         // Also copy .wcs file alongside the saved FITS
         QFileInfo save_fi(save_path);
