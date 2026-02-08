@@ -1,640 +1,222 @@
-# Phase 5: Tile-basierte Rekonstruktion
+# TILE_RECONSTRUCTION — Parallele gewichtete Tile-Rekonstruktion
+
+> **C++ Implementierung:** `runner_main.cpp` Zeilen 1381–1647
+> **Phase-Enum:** `Phase::TILE_RECONSTRUCTION`
 
 ## Übersicht
 
-Phase 5 ist das **Herzstück** der Methodik: Jedes Tile wird separat rekonstruiert durch gewichtetes Stacking aller Frames, wobei die effektiven Gewichte W_f,t,c die Qualität jedes Frames für jedes Tile widerspiegeln.
-
-## Ziele
-
-1. Gewichtete Rekonstruktion pro Tile
-2. Overlap-Add für glatte Übergänge
-3. Fensterfunktion zur Artefakt-Vermeidung
-4. Fallback-Strategie für degenerierte Tiles
-5. Kanalweise Verarbeitung (keine Farbmischung)
-
-## Input
-
-```python
-# Aus Phase 2:
-normalized_frames[c][f][x, y]  # Normalisierte Frames
-
-# Aus Phase 3:
-tiles = [...]  # Tile-Grid
-
-# Aus Phase 4:
-effective_weights[c][f, t]  # W_f,t,c = G_f,c × L_f,t,c
-```
-
-## Schritt 5.1: Gewichtete Tile-Rekonstruktion
-
-### Normative Formel
+Phase 7 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruiert als gewichtetes Mittel über alle Frames, wobei das effektive Gewicht `W_f,t = G_f × L_f,t` die Frame-Qualität (global) und die lokale Tile-Qualität kombiniert. Die rekonstruierten Tiles werden mittels **Hanning-Overlap-Add** zu einem nahtlosen Gesamtbild zusammengefügt.
 
 ```
-Für jedes Tile t, Kanal c, Pixel p innerhalb des Tiles:
-
-I_t,c(p) = Σ_f [W_f,t,c · I'_f,c(p)] / Σ_f W_f,t,c
-
-wobei:
-  I_t,c(p)   - Rekonstruiertes Tile an Position p
-  W_f,t,c    - Effektives Gewicht (Frame f, Tile t, Kanal c)
-  I'_f,c(p)  - Normalisierter Frame f an Position p
-  Σ_f        - Summe über alle Frames
+┌──────────────────────────────────────────────────────┐
+│  Für jedes Tile t (parallel mit N Threads):          │
+│                                                      │
+│  1. Tile aus jedem pre-warped Frame extrahieren      │
+│  2. Effektives Gewicht W_f,t = G_f × L_f,t          │
+│  3. Gewichtetes Mittel:                              │
+│     tile_rec = Σ W_f,t · tile_f / Σ W_f,t           │
+│  4. Per-Tile Background-Normalisierung               │
+│  5. Post-Metriken (Contrast, BG, SNR)               │
+│  6. Hanning-Window × tile_rec → Overlap-Add          │
+│                                                      │
+│  Danach:                                             │
+│  7. recon(y,x) /= weight_sum(y,x)                   │
+└──────────────────────────────────────────────────────┘
 ```
 
-### Prozess
+## 1. Parallele Tile-Verarbeitung
 
-```
-┌─────────────────────────────────────────┐
-│  Tile t, Kanal c                        │
-│  Position: (x, y, w, h)                 │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 1: Initialisierung                │
-│                                         │
-│  numerator = zeros(h, w)                │
-│  denominator = zeros(h, w)              │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 2: Akkumulation über alle Frames  │
-│                                         │
-│  for f in range(N_frames):              │
-│    tile_data = I'_f,c[y:y+h, x:x+w]     │
-│    weight = W_f,t,c                     │
-│                                         │
-│    numerator += weight × tile_data      │
-│    denominator += weight                │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 3: Division                       │
-│                                         │
-│  I_t,c = numerator / denominator        │
-│                                         │
-│  (elementweise Division)                │
-└─────────────────────────────────────────┘
+```cpp
+const int prev_cv_threads = cv::getNumThreads();
+cv::setNumThreads(1);  // Verhindert OpenCV Thread-Contention
+
+int parallel_tiles = 4;
+int cpu_cores = std::thread::hardware_concurrency();
+if (parallel_tiles > cpu_cores) parallel_tiles = cpu_cores;
+
+std::vector<std::thread> workers;
+std::atomic<size_t> next_tile{0};
+for (int w = 0; w < parallel_tiles; ++w) {
+    workers.emplace_back([&]() {
+        while (true) {
+            size_t ti = next_tile.fetch_add(1);
+            if (ti >= tiles_phase56.size()) break;
+            process_tile(ti);
+        }
+    });
+}
 ```
 
-### Visualisierung: Gewichtetes Stacking
+- **Worker-Pool**: Bis zu `parallel_tiles` std::threads (default 4, capped auf CPU-Cores)
+- **Work-Stealing**: Atomarer Tile-Index-Counter
+- **OpenCV-Threads deaktiviert**: `cv::setNumThreads(1)` verhindert verschachtelte Parallelisierung
+- **Thread-Safety**: `recon_mutex` schützt den globalen Overlap-Add-Accumulator
 
-```
-Frame 0 (W=2.0):        Frame 1 (W=5.0):        Frame 2 (W=1.0):
-┌──────────┐            ┌──────────┐            ┌──────────┐
-│  ★       │            │  ★       │            │  ★       │
-│     ★    │            │     ★    │            │     ★    │
-│          │  ×2.0      │          │  ×5.0      │          │  ×1.0
-│    ★     │            │    ★     │            │    ★     │
-│          │            │          │            │          │
-│  ★   ★   │            │  ★   ★   │            │  ★   ★   │
-└──────────┘            └──────────┘            └──────────┘
-      │                       │                       │
-      └───────────┬───────────┴───────────┬───────────┘
-                  │                       │
-                  ▼                       ▼
-          Numerator = 2.0×F0 + 5.0×F1 + 1.0×F2
-          Denominator = 2.0 + 5.0 + 1.0 = 8.0
-                  │
-                  ▼
-          Rekonstruktion = Numerator / 8.0
-                  │
-                  ▼
-            ┌──────────┐
-            │  ★       │  ← Frame 1 dominiert
-            │     ★    │     (höchstes Gewicht)
-            │          │
-            │    ★     │
-            │          │
-            │  ★   ★   │
-            └──────────┘
+## 2. Tile-Extraktion und Gewichtung
+
+```cpp
+auto process_tile = [&](size_t ti) {
+    const Tile &t = tiles_phase56[ti];
+
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+        Matrix2Df tile_img = extract_tile(prewarped_frames[fi], t);
+        if (tile_img.rows() != t.height || tile_img.cols() != t.width) continue;
+
+        warped_tiles.push_back(tile_img);
+        float G_f = global_weights[fi];
+        float L_ft = local_weights[fi][ti];
+        weights.push_back(G_f * L_ft);
+    }
+};
 ```
 
-### Beispiel-Berechnung (einzelnes Pixel)
+- Tiles werden aus **pre-warped Frames** extrahiert (Phase 5)
+- Nur Tiles mit korrekten Dimensionen werden akzeptiert
+- **Effektives Gewicht**: `W_f,t = G_f × L_f,t`
+  - `G_f`: Globales Frame-Gewicht (Phase 3)
+  - `L_f,t`: Lokales Tile-Gewicht (Phase 6)
 
-```
-Pixel (32, 32) in Tile t=5, Kanal R:
+## 3. Gewichtetes Mittel
 
-Frame  │ I'_f,R(32,32) │ W_f,5,R │ Beitrag
-───────┼───────────────┼─────────┼──────────
-  0    │    0.0234     │   2.0   │  0.0468
-  1    │    0.0256     │   5.0   │  0.1280
-  2    │    0.0198     │   1.0   │  0.0198
-  3    │    0.0245     │   3.5   │  0.0858
-  ...  │     ...       │   ...   │   ...
- 799   │    0.0221     │   2.8   │  0.0619
-───────┴───────────────┴─────────┴──────────
-Summe  │               │  2847.3 │ 67.234
+```cpp
+float wsum = 0.0f;
+for (float w : weights) wsum += w;
+if (wsum <= 0.0f) wsum = 1.0f;
 
-Rekonstruktion:
-I_5,R(32,32) = 67.234 / 2847.3 = 0.0236
-```
-
-## Schritt 5.2: Fallback für degenerierte Tiles
-
-### Problem
-
-```
-Degeneriertes Tile:
-  • Alle Gewichte ≈ 0
-  • Denominator ≈ 0
-  • Division durch Null!
-  
-Ursachen:
-  • Tile außerhalb des Objekts (nur Hintergrund)
-  • Alle Frames haben schlechte Qualität in diesem Tile
-  • Artefakte (Satellit, Flugzeug)
+Matrix2Df tile_rec = Matrix2Df::Zero(t.height, t.width);
+for (size_t i = 0; i < warped_tiles.size(); ++i) {
+    tile_rec += warped_tiles[i] * (weights[i] / wsum);
+}
 ```
 
-### Lösung (normativ)
-
 ```
-┌─────────────────────────────────────────┐
-│  Berechne Denominator D_t,c             │
-│  D_t,c = Σ_f W_f,t,c                    │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Check: D_t,c ≥ ε ?                     │
-│  (ε = kleine Konstante, z.B. 1e-6)      │
-└────────────┬────────────────────────────┘
-             │
-       ┌─────┴─────┐
-       │           │
-    Ja │           │ Nein
-       ▼           ▼
-┌──────────┐  ┌──────────────────────┐
-│ Normale  │  │ Fallback:            │
-│ Rekon-   │  │ Ungewichtetes Mittel │
-│ struktion│  │                      │
-│          │  │ I_t,c = (1/N)·Σ_f I_f│
-│          │  │                      │
-│          │  │ Markiere:            │
-│          │  │ fallback_used = true │
-└──────────┘  └──────────────────────┘
+tile_t = Σ_f (W_f,t · tile_f,t) / Σ_f W_f,t
 ```
 
-### Implementierung
+- Gewichtete Summe, normiert durch Gesamtgewicht
+- Bei `wsum = 0`: Fallback auf gleichmäßige Gewichtung (1.0)
+- Alle Frames werden verwendet (v3: keine Frame-Selektion)
 
-```python
-def reconstruct_tile(frames, weights, tile, epsilon=1e-6):
-    """
-    Rekonstruiert ein einzelnes Tile.
-    
-    Args:
-        frames: Liste von normalisierten Frames
-        weights: Array von Gewichten W_f,t,c
-        tile: Tile-Dictionary mit Position
-        epsilon: Schwellwert für Fallback
-    
-    Returns:
-        reconstructed: Rekonstruiertes Tile
-        fallback_used: Boolean, ob Fallback verwendet wurde
-    """
-    h, w = tile['h'], tile['w']
-    x, y = tile['x'], tile['y']
-    
-    # Initialisierung
-    numerator = np.zeros((h, w), dtype=np.float32)
-    denominator = 0.0
-    
-    # Akkumulation
-    for f, frame in enumerate(frames):
-        tile_data = frame[y:y+h, x:x+w]
-        weight = weights[f]
-        
-        numerator += weight * tile_data
-        denominator += weight
-    
-    # Check für Fallback
-    if denominator >= epsilon:
-        # Normale Rekonstruktion
-        reconstructed = numerator / denominator
-        fallback_used = False
-    else:
-        # Fallback: Ungewichtetes Mittel
-        reconstructed = np.zeros((h, w), dtype=np.float32)
-        for frame in frames:
-            tile_data = frame[y:y+h, x:x+w]
-            reconstructed += tile_data
-        reconstructed /= len(frames)
-        fallback_used = True
-    
-    return reconstructed, fallback_used
+## 4. Per-Tile Background-Normalisierung
+
+```cpp
+// Methodik v3 §A.6
+std::vector<float> rec_px(tile_rec.size());
+std::memcpy(rec_px.data(), tile_rec.data(), sizeof(float) * rec_px.size());
+float tile_bg = core::median_of(rec_px);
+
+Matrix2Df ref_tile = extract_tile(prewarped_frames[global_ref_idx], t);
+float ref_bg = core::median_of(ref_px);
+
+float offset = ref_bg - tile_bg;
+if (std::isfinite(offset) && std::fabs(offset) < 0.5f) {
+    for (Eigen::Index k = 0; k < tile_rec.size(); ++k)
+        tile_rec.data()[k] += offset;
+}
 ```
 
-## Schritt 5.3: Fensterfunktion (Windowing)
+- **Zweck**: Verhindert sichtbare Tile-Grenzen durch unterschiedliche Background-Levels
+- **Referenz**: Background des Referenz-Frames im gleichen Tile-Bereich
+- **Offset**: Differenz Referenz-BG − Rekonstruktions-BG → addiert
+- **Safety**: Nur wenn Offset endlich und < 0.5 (verhindert Artefakte bei problematischen Tiles)
 
-### Zweck
+## 5. Post-Warp-Metriken
 
-```
-Problem ohne Fensterfunktion:
-
-Tile-Grenzen:
-┌────────┬────────┐
-│  Tile0 │ Tile1  │  ← Harte Kante bei Overlap
-└────────┴────────┘
-         ↑
-    Sichtbare Artefakte!
-
-Lösung mit Fensterfunktion:
-
-┌────────┬────────┐
-│  Tile0 │ Tile1  │  ← Weicher Übergang
-└────────┴────────┘
-    ╲    ╱
-     ╲  ╱  ← Gewichtete Mischung
-      ╲╱
+```cpp
+auto [contrast, background, snr] = compute_post_warp_metrics(tile_rec);
+tile_post_contrast[ti] = contrast;
+tile_post_background[ti] = background;
+tile_post_snr[ti] = snr;
 ```
 
-### Hanning-Fenster (verbindlich)
+| Metrik | Berechnung | Bedeutung |
+|--------|-----------|-----------|
+| **Contrast** | Varianz des Laplacian | Struktur-Detailgehalt |
+| **Background** | Median aller Pixel | Hintergrundniveau |
+| **SNR** | (P99 − Median) / MAD | Signal-to-Noise Proxy |
 
-```
-Fensterfunktion hann(x):
+Diese Metriken werden im Artifact `tile_reconstruction.json` gespeichert und in der Report-Heatmap visualisiert.
 
-1.0 │    ┌───────────────┐
+## 6. Hanning-Overlap-Add
 
-    │   ╱                 ╲
-0.5 │  ╱                   ╲
-    │ ╱                     ╲
-0.0 └─────────────────────────
-    0   O    T-O   T
-    
-    │←─ Fade-in ─→│←─ Plateau ─→│←─ Fade-out ─→│
-    Formel (Hanning):
-   hann(t) = 0.5 · (1 - cos(2πt))
-```
+```cpp
+std::vector<float> hann_x = make_hann_1d(t.width);
+std::vector<float> hann_y = make_hann_1d(t.height);
 
-### 2D-Fensterfunktion (separabel)
-
-```python
-def create_window_2d(tile_size, overlap):
-    """
-    Erstellt 2D-Fensterfunktion (Hanning, separabel).
-    
-    Args:
-        tile_size: Tile-Größe T
-        overlap: Overlap-Größe O
-    
-    Returns:
-        window: 2D-Array (T, T) mit Fensterfunktion
-    """
-    # 1D Hanning (klassisch, über ganze Tile-Länge)
-    t = np.linspace(0.0, 1.0, tile_size, endpoint=True)
-    window_1d = 0.5 * (1.0 - np.cos(2.0 * np.pi * t))
-    # 2D durch äußeres Produkt (separabel)
-    window_2d = np.outer(window_1d, window_1d)
-    
-    return window_2d
-```
-
-### Visualisierung: 2D-Fenster
-
-```
-2D-Fensterfunktion (64×64, O=16):
-
-    1.0 │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-        │ ░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░
-        │ ░░▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒░░
-        │ ░░▒▓████████████████████████▓▒░░
-        │ ░░▒▓████████████████████████▓▒░░
-        │ ░░▒▓████████████████████████▓▒░░
-        │ ░░▒▓████████████████████████▓▒░░
-        │ ░░▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒░░
-        │ ░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░
-    0.0 │ ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-    
-    Legende:
-    █ = 1.0 (volle Gewichtung)
-    ▓ = 0.75
-    ▒ = 0.5
-    ░ = 0.25
-```
-
-## Schritt 5.4: Overlap-Add
-
-### Prozess
-
-```
-┌─────────────────────────────────────────┐
-│  Rekonstruierte Tiles (mit Fenster)     │
-│  I_t,c × window_t                       │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Initialisierung                        │
-│                                         │
-│  output = zeros(H, W)                   │
-│  weight_sum = zeros(H, W)               │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Für jedes Tile t:                      │
-│                                         │
-│  x, y, w, h = tile['x'], ...            │
-│  tile_recon = I_t,c × window            │
-│                                         │
-│  output[y:y+h, x:x+w] += tile_recon     │
-│  weight_sum[y:y+h, x:x+w] += window     │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Normalisierung                         │
-│                                         │
-│  final = output / weight_sum            │
-│                                         │
-│  (elementweise Division)                │
-└─────────────────────────────────────────┘
-```
-
-### Visualisierung: Overlap-Add
-
-```
-Schritt 1: Tile 0 platzieren
-┌────────────────┐
-│ ░░▒▒▓▓████▓▓▒▒ │  ← Mit Fenster
-│ ░░▒▒▓▓████▓▓▒▒ │
-└────────────────┘
-
-Schritt 2: Tile 1 addieren (mit Overlap)
-┌────────────────┐
-│ ░░▒▒▓▓████▓▓▒▒ │
-│ ░░▒▒▓▓████▓▓▒▒ │
-└────────────────┘
-        ┌────────────────┐
-        │ ░░▒▒▓▓████▓▓▒▒ │  ← Überlappend
-        │ ░░▒▒▓▓████▓▓▒▒ │
-        └────────────────┘
-
-Overlap-Region:
-┌────────────────┬────────────────┐
-│ ░░▒▒▓▓████▓▓▒▒ │ ░░▒▒▓▓████▓▓▒▒ │
-│ ░░▒▒▓▓████▓▓▒▒ │ ░░▒▒▓▓████▓▓▒▒ │
-└────────────────┴────────────────┘
-        │←─ O ─→│
-        
-In Overlap-Region:
-  output = Tile0 × w0 + Tile1 × w1
-  weight_sum = w0 + w1
-  final = output / weight_sum
-  
-  → Weicher Übergang!
-```
-
-### Implementierung
-
-```python
-def overlap_add(tiles_reconstructed, tiles, tile_size, overlap, H, W):
-    """
-    Kombiniert rekonstruierte Tiles mit Overlap-Add.
-    
-    Args:
-        tiles_reconstructed: Liste von rekonstruierten Tiles
-        tiles: Tile-Positionen
-        tile_size: T
-        overlap: O
-        H, W: Output-Dimensionen
-    
-    Returns:
-        final: Finales rekonstruiertes Bild (H, W)
-    """
-    # Fensterfunktion
-    window = create_window_2d(tile_size, overlap)
-    
-    # Initialisierung
-    output = np.zeros((H, W), dtype=np.float32)
-    weight_sum = np.zeros((H, W), dtype=np.float32)
-    
-    # Overlap-Add
-    for tile, tile_recon in zip(tiles, tiles_reconstructed):
-        x, y, w, h = tile['x'], tile['y'], tile['w'], tile['h']
-        
-        # Fenster anwenden
-        tile_windowed = tile_recon * window
-        
-        # Addieren
-        output[y:y+h, x:x+w] += tile_windowed
-        weight_sum[y:y+h, x:x+w] += window
-    
-    # Normalisierung (robust)
-    # - elementweise Division nur dort, wo weight_sum > 0
-    # - übrige Pixel werden via Fallback (ungewichtetes Mittel über alle Frames) gefüllt
-    final = np.divide(output, weight_sum, out=np.zeros_like(output), where=weight_sum > 0.0)
-    final = np.where(weight_sum > 0.0, final, fallback_mean)
-    
-    return final
-```
-
-## Schritt 5.5: Tile-Normalisierung (verbindlich)
-
-### Hintergrundsubtraktion und Skalierung pro Tile
-
-```
-Problem:
-  • Tiles können unterschiedliche Hintergrundniveaus und Amplituden haben
-  • Führt zu Helligkeits-Patchwork bei Overlap-Add
-
-Lösung (gemäß Methodik v3.1, §3.6 / Anhang A.6):
-  • Subtrahiere lokalen Hintergrund NACH Rekonstruktion pro Tile
-  • Skaliere das Tile auf einen gemeinsamen Median der Absolutwerte
-  • Wende DANN die Fensterfunktion an und führe Overlap-Add durch
-```
-
-### Prozess
-
-```python
-def normalize_tile_background(tile_recon, epsilon_median=1e-6):
-    """Normiert ein rekonstruiertes Tile vor dem Overlap-Add.
-
-    1. Hintergrundschätzung via Median
-    2. Hintergrundsubtraktion
-    3. Skalierung auf gemeinsamen Median(|.|), falls numerisch stabil
-    """
-    # 1. Hintergrundschätzung und Subtraktion
-    bg = np.median(tile_recon)
-    tile_bgfree = tile_recon - bg
-
-    # 2. Amplitudenskalierung
-    med_abs = np.median(np.abs(tile_bgfree))
-    if med_abs > epsilon_median:
-        tile_norm = tile_bgfree / med_abs
-    else:
-        # Keine Skalierung bei zu kleinem Signal
-        tile_norm = tile_bgfree
-
-    return tile_norm
-```
-
-## Schritt 5.6: Validierung
-
-```python
-def validate_reconstruction(reconstructed, tiles, metadata):
-    # Check 1: Keine NaN/Inf
-    assert not np.any(np.isnan(reconstructed)), "NaN in reconstruction"
-    assert not np.any(np.isinf(reconstructed)), "Inf in reconstruction"
-    
-    # Check 2: Positive Werte
-    assert np.all(reconstructed >= 0), "Negative values in reconstruction"
-    
-    # Check 3: Fallback-Statistik
-    fallback_count = sum(m['fallback_used'] for m in metadata)
-    fallback_ratio = fallback_count / len(tiles)
-    
-    if fallback_ratio > 0.1:
-        print(f"⚠ Warning: {fallback_ratio:.1%} tiles used fallback")
-    
-    # Check 4: Kanalunabhängigkeit
-    # Rekonstruktion von R, G, B ist unabhängig
-    assert no_channel_mixing()
-    
-    # Check 5: Determinismus
-    # Gleiche Inputs → gleiche Rekonstruktion
-    recon_check = reconstruct(frames, weights, tiles)
-    assert np.allclose(reconstructed, recon_check, rtol=1e-5)
-```
-
-## Output-Datenstruktur
-
-```python
-# Phase 5 Output
 {
-    'reconstructed': {
-        'R': np.ndarray,  # shape: (H, W), dtype: float32
-        'G': np.ndarray,
-        'B': np.ndarray,
-    },
-    'tile_metadata': [
-        {
-            'tile_id': int,
-            'fallback_used': bool,
-            'weight_sum': float,
-            'mean_value': float,
-            'std_value': float,
-        },
-        ...
-    ],
-    'statistics': {
-        'R': {
-            'mean': float,
-            'std': float,
-            'min': float,
-            'max': float,
-            'fallback_tiles': int,
-            'fallback_ratio': float,
-        },
-        'G': {...},
-        'B': {...},
+    std::lock_guard<std::mutex> lock(recon_mutex);
+    for (int yy = 0; yy < tile_rec.rows(); ++yy) {
+        for (int xx = 0; xx < tile_rec.cols(); ++xx) {
+            int iy = y0 + yy;
+            int ix = x0 + xx;
+            float win = hann_y[yy] * hann_x[xx];
+            recon(iy, ix) += tile_rec(yy, xx) * win;
+            weight_sum(iy, ix) += win;
+        }
     }
 }
 ```
 
-## Performance-Hinweise
+### Hanning-Fenster (1D)
 
-```python
-# Vektorisierte Rekonstruktion
-def reconstruct_all_tiles_vectorized(frames, weights, tiles):
-    """
-    Rekonstruiert alle Tiles parallel (vektorisiert).
-    """
-    N_frames, H, W = frames.shape
-    N_tiles = len(tiles)
-    T = tiles[0]['w']  # Annahme: alle Tiles gleich groß
-    
-    # Pre-allocate
-    tiles_recon = np.zeros((N_tiles, T, T), dtype=np.float32)
-    
-    # Batch-Verarbeitung
-    for t, tile in enumerate(tiles):
-        x, y = tile['x'], tile['y']
-        
-        # Extrahiere alle Tile-Daten auf einmal
-        tile_stack = frames[:, y:y+T, x:x+T]  # (N_frames, T, T)
-        
-        # Gewichtete Summe (vektorisiert)
-        w = weights[:, t]  # (N_frames,)
-        numerator = np.sum(w[:, None, None] * tile_stack, axis=0)
-        denominator = np.sum(w)
-        
-        # Rekonstruktion
-        if denominator > 1e-6:
-            tiles_recon[t] = numerator / denominator
-        else:
-            tiles_recon[t] = np.mean(tile_stack, axis=0)
-    
-    return tiles_recon
-
-# GPU-Beschleunigung (optional)
-import cupy as cp
-
-def reconstruct_tiles_gpu(frames, weights, tiles):
-    """
-    GPU-beschleunigte Tile-Rekonstruktion.
-    """
-    # Transfer zu GPU
-    frames_gpu = cp.asarray(frames)
-    weights_gpu = cp.asarray(weights)
-    
-    # Rekonstruktion auf GPU
-    tiles_recon_gpu = reconstruct_all_tiles_vectorized(
-        frames_gpu, weights_gpu, tiles
-    )
-    
-    # Transfer zurück zu CPU
-    tiles_recon = cp.asnumpy(tiles_recon_gpu)
-    
-    return tiles_recon
+```cpp
+w[i] = 0.5 × (1 − cos(2π × i / (n−1)))
 ```
 
-## Beispiel-Workflow
+- **2D separabel**: `win(y,x) = hann_y[y] × hann_x[x]`
+- Werte am Rand ≈ 0, in der Mitte = 1
+- **Overlap-Add**: Überlappende Tiles summieren sich zu ~1.0
 
-```python
-# Kompletter Rekonstruktions-Workflow
-def phase5_reconstruction(frames, global_weights, local_weights, tiles, config):
-    """
-    Phase 5: Tile-basierte Rekonstruktion.
-    """
-    H, W = frames[0].shape
-    T = config['tile_size']
-    O = config['overlap']
-    
-    # Effektive Gewichte
-    W_eff = global_weights[:, None] * local_weights  # (N_frames, N_tiles)
-    
-    # Rekonstruiere alle Tiles
-    tiles_recon = []
-    metadata = []
-    
-    for t, tile in enumerate(tiles):
-        recon, fallback = reconstruct_tile(
-            frames, W_eff[:, t], tile
-        )
-        
-        # Optional: Hintergrund-Normalisierung
-        if config.get('normalize_tile_background', False):
-            recon = normalize_tile_background(recon, tile['type'])
-        
-        tiles_recon.append(recon)
-        metadata.append({
-            'tile_id': t,
-            'fallback_used': fallback,
-            'weight_sum': np.sum(W_eff[:, t]),
-        })
-    
-    # Overlap-Add
-    final = overlap_add(tiles_recon, tiles, T, O, H, W)
-    
-    # Validierung
-    validate_reconstruction(final, tiles, metadata)
-    
-    return final, metadata
+### Normalisierung
+
+```cpp
+for (int i = 0; i < recon.size(); ++i) {
+    float ws = weight_sum.data()[i];
+    if (ws > 1.0e-12f) {
+        recon.data()[i] /= ws;
+    } else {
+        recon.data()[i] = first_img.data()[i];  // Fallback: Referenz-Frame
+    }
+}
 ```
+
+- Division durch akkumulierte Fenstergewichte
+- **Fallback**: Pixel ohne Tile-Abdeckung (z.B. schmale Ränder) → Referenz-Frame-Pixel
+
+## Datenstrukturen
+
+| Variable | Typ | Beschreibung |
+|----------|-----|-------------|
+| `recon` | Matrix2Df | Rekonstruiertes Gesamtbild (W×H) |
+| `weight_sum` | Matrix2Df | Akkumulierte Fenstergewichte |
+| `tile_valid_counts[ti]` | int | Anzahl gültiger Frames pro Tile |
+| `tile_mean_correlations[ti]` | float | Mittlere Korrelation (=1.0, global warp) |
+| `tile_post_contrast[ti]` | float | Post-Contrast pro Tile |
+| `tile_post_background[ti]` | float | Post-Background pro Tile |
+| `tile_post_snr[ti]` | float | Post-SNR pro Tile |
+
+## Artifact: `tile_reconstruction.json`
+
+```json
+{
+  "num_frames": 100,
+  "num_tiles": 1200,
+  "tile_valid_counts": [100, 100, 99, ...],
+  "tile_mean_correlations": [1.0, 1.0, 1.0, ...],
+  "tile_post_contrast": [0.0012, 0.0015, ...],
+  "tile_post_background": [1.001, 1.002, ...],
+  "tile_post_snr_proxy": [45.2, 38.7, ...]
+}
+```
+
+## Fehlerbehandlung
+
+| Situation | Verhalten |
+|-----------|-----------|
+| Leeres Tile (keine gültigen Frames) | `tiles_failed++`, Tile übersprungen |
+| weight_sum = 0 an Pixel | Fallback: Referenz-Frame-Pixel |
+| offset nicht finite oder > 0.5 | BG-Normalisierung übersprungen |
 
 ## Nächste Phase
 
-→ **Phase 6: Zustandsbasierte Clusterung und synthetische Frames**
+→ **Phase 8: STATE_CLUSTERING — Zustandsbasierte Clusterung**

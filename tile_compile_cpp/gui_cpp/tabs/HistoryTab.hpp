@@ -5,17 +5,15 @@
 #include <QTableWidget>
 #include <string>
 
-#include <nlohmann/json.hpp>
-
 namespace tile_compile::gui {
-
-class BackendClient;
 
 class HistoryTab : public QWidget {
     Q_OBJECT
 
   public:
-    explicit HistoryTab(BackendClient *backend, QWidget *parent = nullptr);
+    explicit HistoryTab(QWidget *parent = nullptr);
+
+    void set_runs_dir(const QString &runs_dir);
 
   signals:
     void run_selected(const QString &run_id, const QString &run_dir);
@@ -27,10 +25,9 @@ class HistoryTab : public QWidget {
 
   private:
     void build_ui();
-    void populate_runs_table(const nlohmann::json &runs);
 
-    BackendClient *backend_;
-    
+    QString runs_dir_;
+
     QPushButton *btn_refresh_runs_ = nullptr;
     QTableWidget *runs_table_ = nullptr;
 };

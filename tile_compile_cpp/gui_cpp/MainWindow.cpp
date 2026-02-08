@@ -166,16 +166,20 @@ void MainWindow::build_ui() {
     tabs_->addTab(wrap_scroll(progress_page), "Pipeline Progress");
     
     // Current Run Tab
-    current_run_tab_ = new CurrentRunTab(backend_.get(), this);
+    current_run_tab_ = new CurrentRunTab(this);
     tabs_->addTab(wrap_scroll(current_run_tab_), "Current run");
     connect(current_run_tab_, &CurrentRunTab::resume_run_requested, this, &MainWindow::on_resume_run_clicked);
     connect(current_run_tab_, &CurrentRunTab::log_message, this, &MainWindow::append_live);
     
     // History Tab
-    history_tab_ = new HistoryTab(backend_.get(), this);
+    history_tab_ = new HistoryTab(this);
     tabs_->addTab(wrap_scroll(history_tab_), "Run history");
     connect(history_tab_, &HistoryTab::run_selected, current_run_tab_, &CurrentRunTab::set_current_run);
     connect(history_tab_, &HistoryTab::log_message, this, &MainWindow::append_live);
+    connect(run_tab_, &RunTab::working_dir_changed, this, [this]() {
+        update_history_runs_dir();
+    });
+    update_history_runs_dir();
     
     // Live log Tab
     auto *live_page = new QWidget();
@@ -626,6 +630,20 @@ void MainWindow::apply_gui_state(const nlohmann::json &state) {
     
     tabs_->blockSignals(false);
     update_controls();
+}
+
+void MainWindow::update_history_runs_dir() {
+    if (!run_tab_ || !history_tab_) return;
+    const QString working_dir = run_tab_->get_working_dir();
+    const QString runs_dir = run_tab_->get_runs_dir();
+    if (working_dir.isEmpty() || runs_dir.isEmpty()) return;
+
+    namespace fs = std::filesystem;
+    fs::path runs_path(runs_dir.toStdString());
+    if (runs_path.is_relative()) {
+        runs_path = fs::path(working_dir.toStdString()) / runs_path;
+    }
+    history_tab_->set_runs_dir(QString::fromStdString(runs_path.string()));
 }
 
 void MainWindow::ensure_startup_paths() {
