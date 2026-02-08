@@ -429,7 +429,8 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
 
     auto should_skip_key = [](const std::string& key) -> bool {
         return key == "SIMPLE" || key == "BITPIX" || key == "NAXIS" || 
-               key == "NAXIS1" || key == "NAXIS2" || key == "NAXIS3" || key == "EXTEND";
+               key == "NAXIS1" || key == "NAXIS2" || key == "NAXIS3" || key == "EXTEND" ||
+               key == "BAYERPAT";
     };
     
     for (const auto& [key, value] : header.string_values) {

@@ -1,5 +1,6 @@
 #include "tile_compile/astrometry/wcs.hpp"
 
+#include <charconv>
 #include <cmath>
 #include <fstream>
 #include <string>
@@ -43,11 +44,11 @@ static double parse_fits_double(const std::string &val_str) {
         s = s.substr(1, s.size() - 2);
         while (!s.empty() && s.back() == ' ') s.pop_back();
     }
-    try {
-        return std::stod(s);
-    } catch (...) {
-        return 0.0;
-    }
+    // Use std::from_chars — locale-independent (always uses '.' as decimal sep)
+    double result = 0.0;
+    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), result);
+    if (ec != std::errc()) return 0.0;
+    return result;
 }
 
 WCS parse_wcs_file(const std::string &path) {
