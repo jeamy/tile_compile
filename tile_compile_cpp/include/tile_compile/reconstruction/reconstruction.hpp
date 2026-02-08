@@ -21,4 +21,7 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
                            float sigma_low, float sigma_high,
                            int max_iters, float min_fraction);
 
+// Generate a 1D Hann (raised cosine) window of length n.
+std::vector<float> make_hann_1d(int n);
+
 } // namespace tile_compile::reconstruction

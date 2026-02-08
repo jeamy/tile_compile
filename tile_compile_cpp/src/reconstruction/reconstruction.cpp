@@ -18,27 +18,11 @@ Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
     Matrix2Df result = Matrix2Df::Zero(h, w);
     Matrix2Df weight_sum = Matrix2Df::Zero(h, w);
 
-    auto hann_1d = [](int n) -> std::vector<float> {
-        std::vector<float> out;
-        if (n <= 0) return out;
-        out.resize(static_cast<size_t>(n), 1.0f);
-        if (n == 1) {
-            out[0] = 1.0f;
-            return out;
-        }
-        const float pi = 3.14159265358979323846f;
-        for (int i = 0; i < n; ++i) {
-            float x = static_cast<float>(i) / static_cast<float>(n - 1);
-            out[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * pi * x));
-        }
-        return out;
-    };
-    
     for (size_t t = 0; t < grid.tiles.size(); ++t) {
         const Tile& tile = grid.tiles[t];
 
-        const std::vector<float> wx = hann_1d(tile.width);
-        const std::vector<float> wy = hann_1d(tile.height);
+        const std::vector<float> wx = make_hann_1d(tile.width);
+        const std::vector<float> wy = make_hann_1d(tile.height);
         
         for (size_t f = 0; f < frames.size(); ++f) {
             float weight = tile_weights[f][t];
@@ -195,6 +179,23 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
     }
 
     return out;
+}
+
+std::vector<float> make_hann_1d(int n) {
+    std::vector<float> w;
+    if (n <= 0)
+        return w;
+    w.resize(static_cast<size_t>(n));
+    if (n == 1) {
+        w[0] = 1.0f;
+        return w;
+    }
+    const float pi = 3.14159265358979323846f;
+    for (int i = 0; i < n; ++i) {
+        float x = static_cast<float>(i) / static_cast<float>(n - 1);
+        w[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * pi * x));
+    }
+    return w;
 }
 
 } // namespace tile_compile::reconstruction

@@ -363,4 +363,35 @@ std::vector<size_t> sample_indices(size_t count, int max_samples) {
     return out;
 }
 
+void robust_zscore(const std::vector<float>& v, std::vector<float>& out) {
+    out.assign(v.size(), 0.0f);
+    if (v.empty())
+        return;
+    std::vector<float> tmp = v;
+    float med = median_of(tmp);
+    for (float& x : tmp)
+        x = std::fabs(x - med);
+    float mad = median_of(tmp);
+    float sigma = 1.4826f * mad;
+    if (!(sigma > 0.0f)) {
+        std::fill(out.begin(), out.end(), 0.0f);
+        return;
+    }
+    for (size_t i = 0; i < v.size(); ++i) {
+        out[i] = (v[i] - med) / sigma;
+    }
+}
+
+float median_finite_positive(const std::vector<float>& v, float fallback) {
+    std::vector<float> p;
+    p.reserve(v.size());
+    for (float x : v) {
+        if (std::isfinite(x) && x > 0.0f)
+            p.push_back(x);
+    }
+    if (p.empty())
+        return fallback;
+    return median_of(p);
+}
+
 } // namespace tile_compile::core

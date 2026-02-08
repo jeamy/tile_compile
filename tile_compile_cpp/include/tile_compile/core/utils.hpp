@@ -45,6 +45,12 @@ float percentile_from_sorted(const std::vector<float>& sorted, float pct);
 float estimate_background_sigma_clip(std::vector<float> pixels);
 std::vector<size_t> sample_indices(size_t count, int max_samples);
 
+// Robust z-score normalization: (x - median) / (1.4826 * MAD)
+void robust_zscore(const std::vector<float>& v, std::vector<float>& out);
+
+// Median of finite positive values, with fallback
+float median_finite_positive(const std::vector<float>& v, float fallback);
+
 // String utilities
 std::string to_lower(const std::string& s);
 bool ends_with(const std::string& str, const std::string& suffix);

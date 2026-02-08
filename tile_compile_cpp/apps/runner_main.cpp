@@ -4,6 +4,7 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/image/normalization.hpp"
+#include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/linearity.hpp"
 #include "tile_compile/metrics/metrics.hpp"
@@ -39,7 +40,6 @@ namespace {
 
 using tile_compile::ColorMode;
 using tile_compile::Matrix2Df;
-using tile_compile::RegistrationResult;
 using tile_compile::Tile;
 using tile_compile::WarpMatrix;
 
@@ -579,53 +579,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                      artifact.dump(2));
   }
 
-  auto median_finite_positive = [&](const std::vector<float> &v,
-                                    float fallback) -> float {
-    std::vector<float> p;
-    p.reserve(v.size());
-    for (float x : v) {
-      if (std::isfinite(x) && x > 0.0f)
-        p.push_back(x);
-    }
-    if (p.empty())
-      return fallback;
-    return core::median_of(p);
-  };
-
   const float output_pedestal = 32768.0f;
-  const float output_bg_mono = median_finite_positive(B_mono, 1.0f);
-  const float output_bg_r = median_finite_positive(B_r, 1.0f);
-  const float output_bg_g = median_finite_positive(B_g, 1.0f);
-  const float output_bg_b = median_finite_positive(B_b, 1.0f);
-
-  auto apply_output_scaling_inplace = [&](Matrix2Df &img, int origin_x,
-                                          int origin_y) {
-    if (img.size() <= 0)
-      return;
-    if (detected_mode != ColorMode::OSC) {
-      img *= output_bg_mono;
-      img.array() += output_pedestal;
-      return;
-    }
-
-    int r_row, r_col, b_row, b_col;
-    image::bayer_offsets(detected_bayer_str, r_row, r_col, b_row, b_col);
-    for (int y = 0; y < img.rows(); ++y) {
-      const int gy = origin_y + y;
-      for (int x = 0; x < img.cols(); ++x) {
-        const int gx = origin_x + x;
-        const int py = gy & 1;
-        const int px = gx & 1;
-        if (py == r_row && px == r_col) {
-          img(y, x) = img(y, x) * output_bg_r + output_pedestal;
-        } else if (py == b_row && px == b_col) {
-          img(y, x) = img(y, x) * output_bg_b + output_pedestal;
-        } else {
-          img(y, x) = img(y, x) * output_bg_g + output_pedestal;
-        }
-      }
-    }
-  };
+  const float output_bg_mono = core::median_finite_positive(B_mono, 1.0f);
+  const float output_bg_r = core::median_finite_positive(B_r, 1.0f);
+  const float output_bg_g = core::median_finite_positive(B_g, 1.0f);
+  const float output_bg_b = core::median_finite_positive(B_b, 1.0f);
 
   emitter.phase_end(run_id, Phase::NORMALIZATION, "ok",
                     {
@@ -827,36 +785,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     return {img, frame_pair.second};
   };
 
-  auto extract_tile = [&](const Matrix2Df &img, const Tile &t) -> Matrix2Df {
-    int cols = static_cast<int>(img.cols());
-    int rows = static_cast<int>(img.rows());
-    int x0 = std::max(0, t.x);
-    int y0 = std::max(0, t.y);
-    int x1 = std::min(cols, t.x + t.width);
-    int y1 = std::min(rows, t.y + t.height);
-    int tw = std::max(0, x1 - x0);
-    int th = std::max(0, y1 - y0);
-    if (tw <= 0 || th <= 0)
-      return Matrix2Df();
-    return img.block(y0, x0, th, tw);
-  };
+  // extract_tile is now image::extract_tile (canonical module function)
 
-  auto make_hann_1d = [&](int n) -> std::vector<float> {
-    std::vector<float> w;
-    if (n <= 0)
-      return w;
-    w.resize(static_cast<size_t>(n));
-    if (n == 1) {
-      w[0] = 1.0f;
-      return w;
-    }
-    const float pi = 3.14159265358979323846f;
-    for (int i = 0; i < n; ++i) {
-      float x = static_cast<float>(i) / static_cast<float>(n - 1);
-      w[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * pi * x));
-    }
-    return w;
-  };
+  // make_hann_1d is now reconstruction::make_hann_1d (canonical module function)
 
   std::vector<Tile> tiles_phase56 = tiles;
   if (max_tiles > 0 && tiles_phase56.size() > static_cast<size_t>(max_tiles)) {
@@ -890,14 +821,6 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
   // Config parameters (v3: single global registration, no tile-ECC)
   int min_valid_frames = 1;
-  const bool allow_rotation =
-      cfg.registration.allow_rotation; // Alt/Az field rotation
-  const int star_topk = std::max(3, cfg.registration.star_topk);
-  const int star_min_inliers = std::max(2, cfg.registration.star_min_inliers);
-  const float star_inlier_tol_px =
-      std::max(0.1f, cfg.registration.star_inlier_tol_px);
-  const float star_dist_bin_px =
-      std::max(0.1f, cfg.registration.star_dist_bin_px);
 
   emitter.phase_start(run_id, Phase::REGISTRATION, "REGISTRATION", log_file);
 
@@ -980,69 +903,29 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                 global_frame_warps[fi] = registration::identity_warp();
                 global_frame_cc[fi] = 0.0f;
               } else {
-                bool reg_done = false;
+                // Delegate to canonical cascade in module
+                auto sfr = registration::register_single_frame(
+                    mov_reg, ref_reg, cfg.registration);
 
-                // Cascaded registration with robust fallbacks.
-                // v3: ALL frames must be used — failed registration gets
-                // identity warp with score 0, NOT excluded.
-                auto accept_result = [&](const RegistrationResult &fr) {
-                  global_frame_cc[fi] = fr.correlation;
-                  WarpMatrix w_full = fr.warp;
+                if (sfr.reg.success) {
+                  global_frame_cc[fi] = sfr.reg.correlation;
+                  WarpMatrix w_full = sfr.reg.warp;
                   w_full(0, 2) *= global_reg_scale;
                   w_full(1, 2) *= global_reg_scale;
                   global_frame_warps[fi] = w_full;
-                  reg_done = true;
-                };
-
-                // 1) Triangle star matching (rotation-invariant, primary)
-                if (!reg_done) {
-                  RegistrationResult fr =
-                      registration::triangle_star_matching(
-                          mov_reg, ref_reg, allow_rotation,
-                          star_topk, star_min_inliers,
-                          star_inlier_tol_px);
-                  if (fr.success) {
-                    accept_result(fr);
-                  }
-                }
-
-                // 2) Star pair matching (fast for small shifts)
-                if (!reg_done) {
-                  RegistrationResult fr =
-                      registration::star_registration_similarity(
-                          mov_reg, ref_reg, allow_rotation,
-                          star_topk, star_min_inliers,
-                          star_inlier_tol_px, star_dist_bin_px);
-                  if (fr.success) {
-                    accept_result(fr);
-                  }
-                }
-
-                // 3) AKAZE feature matching
-                if (!reg_done) {
-                  RegistrationResult fr =
-                      registration::feature_registration_similarity(
-                          mov_reg, ref_reg, allow_rotation);
-                  if (fr.success) {
-                    accept_result(fr);
-                  }
-                }
-
-                // 4) Hybrid phase correlation + ECC
-                if (!reg_done) {
-                  RegistrationResult fr =
-                      registration::hybrid_phase_ecc(
-                          mov_reg, ref_reg, allow_rotation);
-                  if (fr.success && fr.correlation >= 0.15f) {
-                    accept_result(fr);
-                  }
-                }
-
-                // 5) Fallback: identity warp with score 0 (frame still
-                //    included per v3 no-frame-selection rule)
-                if (!reg_done) {
+                } else {
                   global_frame_warps[fi] = registration::identity_warp();
                   global_frame_cc[fi] = 0.0f;
+                }
+
+                // Per-frame logging
+                if (fi < 5 || fi == frames.size() - 1 ||
+                    (fi % 50 == 0)) {
+                  std::cerr << "[REG] frame " << fi << "/" << frames.size()
+                            << " method=" << sfr.method_used
+                            << " ncc_id=" << sfr.ncc_identity
+                            << " cc=" << global_frame_cc[fi]
+                            << std::endl;
                 }
               }
             }
@@ -1095,13 +978,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
               if (img.size() <= 0)
                 continue;
 
-              Matrix2Df out_img;
-              if (detected_mode == ColorMode::OSC) {
-                out_img = image::warp_cfa_mosaic_via_subplanes(
-                    img, w, img.rows(), img.cols());
-              } else {
-                out_img = registration::apply_warp(img, w);
-              }
+              Matrix2Df out_img = image::apply_global_warp(img, w,
+                                                          detected_mode);
 
               std::ostringstream name;
               name << "frame_" << std::setw(4) << std::setfill('0') << fi
@@ -1149,11 +1027,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
     if (is_identity) {
       prewarped_frames[fi] = std::move(img);
-    } else if (detected_mode == ColorMode::OSC) {
-      prewarped_frames[fi] = image::warp_cfa_mosaic_via_subplanes(
-          img, w, img.rows(), img.cols());
     } else {
-      prewarped_frames[fi] = registration::apply_warp(img, w);
+      prewarped_frames[fi] = image::apply_global_warp(img, w, detected_mode);
     }
   }
 
@@ -1173,7 +1048,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
         const Tile &t = tiles_phase56[ti];
-        Matrix2Df tile_img = extract_tile(prewarped_frames[fi], t);
+        Matrix2Df tile_img = image::extract_tile(prewarped_frames[fi], t);
 
         if (tile_img.size() <= 0) {
           TileMetrics z;
@@ -1207,25 +1082,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     }
 
     {
-      auto robust_tilde = [&](const std::vector<float> &v,
-                              std::vector<float> &out) {
-        out.assign(v.size(), 0.0f);
-        if (v.empty())
-          return;
-        std::vector<float> tmp = v;
-        float med = core::median_of(tmp);
-        for (float &x : tmp)
-          x = std::fabs(x - med);
-        float mad = core::median_of(tmp);
-        float sigma = 1.4826f * mad;
-        if (!(sigma > 0.0f)) {
-          std::fill(out.begin(), out.end(), 0.0f);
-          return;
-        }
-        for (size_t i = 0; i < v.size(); ++i) {
-          out[i] = (v[i] - med) / sigma;
-        }
-      };
+      // robust_tilde is now core::robust_zscore (canonical module function)
 
       auto clip3 = [&](float x) -> float {
         return std::min(std::max(x, cfg.local_metrics.clamp[0]),
@@ -1272,12 +1129,12 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                                        : TileType::STRUCTURE;
 
         std::vector<float> fwhm_t, r_t, c_t, b_t, s_t, e_t;
-        robust_tilde(fwhm_log, fwhm_t);
-        robust_tilde(roundness, r_t);
-        robust_tilde(contrast, c_t);
-        robust_tilde(bg, b_t);
-        robust_tilde(noise, s_t);
-        robust_tilde(energy, e_t);
+        core::robust_zscore(fwhm_log, fwhm_t);
+        core::robust_zscore(roundness, r_t);
+        core::robust_zscore(contrast, c_t);
+        core::robust_zscore(bg, b_t);
+        core::robust_zscore(noise, s_t);
+        core::robust_zscore(energy, e_t);
 
         for (size_t fi = 0; fi < n_frames; ++fi) {
           TileMetrics &tm = local_metrics[fi][ti];
@@ -1463,7 +1320,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
       auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
         // Extract tile from pre-warped full frame (already normalized + warped)
-        return extract_tile(prewarped_frames[fi], t);
+        return image::extract_tile(prewarped_frames[fi], t);
       };
 
       std::vector<Matrix2Df> warped_tiles;
@@ -1491,8 +1348,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         return;
       }
 
-      std::vector<float> hann_x = make_hann_1d(t.width);
-      std::vector<float> hann_y = make_hann_1d(t.height);
+      std::vector<float> hann_x = reconstruction::make_hann_1d(t.width);
+      std::vector<float> hann_y = reconstruction::make_hann_1d(t.height);
 
       float wsum = 0.0f;
       for (float w : weights)
@@ -1904,24 +1761,15 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       warped.reserve(frames.size());
       weights_subset.reserve(frames.size());
 
-      auto apply_global_full = [&](const Matrix2Df &img,
-                                   size_t fi) -> Matrix2Df {
-        if (fi >= global_frame_warps.size())
-          return img;
-        const auto &w = global_frame_warps[fi];
-        if (detected_mode == ColorMode::OSC) {
-          return image::warp_cfa_mosaic_via_subplanes(img, w, img.rows(),
-                                                      img.cols());
-        }
-        return registration::apply_warp(img, w);
-      };
-
       for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
         if (!frame_mask[fi])
           continue;
         auto pair = load_frame_normalized(fi);
         Matrix2Df img = std::move(pair.first);
-        img = apply_global_full(img, fi);
+        if (fi < global_frame_warps.size()) {
+          img = image::apply_global_warp(img, global_frame_warps[fi],
+                                         detected_mode);
+        }
         warped.push_back(std::move(img));
         float w = (fi < static_cast<size_t>(global_weights.size()))
                       ? global_weights[static_cast<int>(fi)]
@@ -2032,7 +1880,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       for (size_t si = 0; si < synthetic_frames.size(); ++si) {
         std::string fname = "synthetic_" + std::to_string(si) + ".fit";
         Matrix2Df out = synthetic_frames[si];
-        apply_output_scaling_inplace(out, 0, 0);
+        image::apply_output_scaling_inplace(out, 0, 0, detected_mode,
+            detected_bayer_str, output_bg_mono, output_bg_r, output_bg_g,
+            output_bg_b, output_pedestal);
         io::write_fits_float(run_dir / "outputs" / fname, out, first_hdr);
       }
 
@@ -2072,7 +1922,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     }
 
     Matrix2Df recon_out = recon;
-    apply_output_scaling_inplace(recon_out, 0, 0);
+    image::apply_output_scaling_inplace(recon_out, 0, 0, detected_mode,
+        detected_bayer_str, output_bg_mono, output_bg_r, output_bg_g,
+        output_bg_b, output_pedestal);
     io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out,
                          first_hdr);
     io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out,

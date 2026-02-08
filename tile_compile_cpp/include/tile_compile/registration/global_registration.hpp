@@ -31,6 +31,23 @@ GlobalRegistrationOutput register_frames_to_reference(
     const VectorXf* global_weights_opt = nullptr
 );
 
+// Single-frame registration result (canonical cascade output)
+struct SingleFrameRegResult {
+    RegistrationResult reg;         // warp (R→M direction), correlation, success
+    std::string method_used;        // "triangle" | "star_pair" | "trail_endpoint" |
+                                    // "akaze" | "robust_phase_ecc" | "hybrid_phase_ecc" |
+                                    // "identity"
+    float ncc_identity = 0.0f;      // NCC before warp (identity baseline)
+    float ncc_warped   = 0.0f;      // NCC after warp
+};
+
+// Canonical single-frame registration cascade.
+// Runs all cascade stages with NCC validation.
+// mov and ref are proxy-resolution images (already downsampled).
+SingleFrameRegResult register_single_frame(
+    const Matrix2Df& mov, const Matrix2Df& ref,
+    const config::RegistrationConfig& rcfg);
+
 // Sub-functions (canonical implementations — do NOT duplicate in runner)
 Matrix2Df downsample2x2_mean(const Matrix2Df& in);
 WarpMatrix scale_translation_warp(const WarpMatrix& w, float scale);
