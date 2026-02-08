@@ -10,6 +10,8 @@
 #include <QMessageBox>
 #include <QFile>
 #include <QTextStream>
+#include <QDir>
+#include <QSplitter>
 #include <yaml-cpp/yaml.h>
 #include <thread>
 #include <filesystem>
@@ -72,10 +74,13 @@ void ConfigTab::build_ui() {
     cfg_form->addRow("", button_row);
     cfg_layout->addLayout(cfg_form);
     
+    // Structured path/settings editors
+    build_paths_ui(cfg_layout);
+
     config_yaml_ = new QTextEdit();
     config_yaml_->setAcceptRichText(false);
     config_yaml_->setPlaceholderText("# YAML config...");
-    cfg_layout->addWidget(config_yaml_);
+    cfg_layout->addWidget(config_yaml_, 1);
     
     layout->addWidget(cfg_box, 1);
     
@@ -288,6 +293,9 @@ void ConfigTab::on_browse_config() {
 void ConfigTab::on_config_text_changed() {
     config_validated_ok_ = false;
     lbl_cfg_->setText("not validated");
+    if (!syncing_paths_) {
+        sync_paths_from_yaml(config_yaml_->toPlainText());
+    }
     emit config_edited();
     emit update_controls_requested();
 }
@@ -321,11 +329,226 @@ void ConfigTab::set_config_yaml(const QString &yaml) {
     config_yaml_->blockSignals(true);
     config_yaml_->setPlainText(yaml);
     config_yaml_->blockSignals(false);
+    sync_paths_from_yaml(yaml);
 }
 
 void ConfigTab::set_config_validated(bool validated) {
     config_validated_ok_ = validated;
     lbl_cfg_->setText(validated ? "ok" : "not validated");
+}
+
+void ConfigTab::build_paths_ui(QVBoxLayout *parent) {
+    // Helper: create a path row with browse button
+    auto make_path_row = [this](QLineEdit *&edt, const QString &placeholder, bool is_dir) {
+        auto *row = new QHBoxLayout();
+        edt = new QLineEdit();
+        edt->setPlaceholderText(placeholder);
+        edt->setMinimumHeight(26);
+        row->addWidget(edt, 1);
+        auto *btn = new QPushButton("...");
+        btn->setFixedSize(30, 26);
+        row->addWidget(btn);
+        connect(btn, &QPushButton::clicked, this, [this, edt, is_dir]() {
+            on_browse_path(edt, is_dir);
+        });
+        connect(edt, &QLineEdit::editingFinished, this, &ConfigTab::on_path_editor_changed);
+        return row;
+    };
+
+    // === Astrometry Section ===
+    auto *astro_box = new QGroupBox("Astrometry");
+    auto *astro_form = new QFormLayout(astro_box);
+    astro_form->setSpacing(6);
+    astro_form->setContentsMargins(8, 14, 8, 8);
+
+    chk_astro_enabled_ = new QCheckBox("Enabled");
+    astro_form->addRow("", chk_astro_enabled_);
+    connect(chk_astro_enabled_, &QCheckBox::toggled, this, &ConfigTab::on_path_editor_changed);
+
+    astro_form->addRow("ASTAP binary:", make_path_row(edt_astap_bin_,
+        "(default: ~/.local/share/tile_compile/astap/astap_cli)", false));
+    astro_form->addRow("ASTAP data dir:", make_path_row(edt_astap_data_dir_,
+        "(default: ~/.local/share/tile_compile/astap/)", true));
+
+    spn_astro_search_radius_ = new QSpinBox();
+    spn_astro_search_radius_->setRange(1, 360);
+    spn_astro_search_radius_->setValue(180);
+    spn_astro_search_radius_->setSuffix(" deg");
+    astro_form->addRow("Search radius:", spn_astro_search_radius_);
+    connect(spn_astro_search_radius_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &ConfigTab::on_path_editor_changed);
+
+    parent->addWidget(astro_box);
+
+    // === PCC Section ===
+    auto *pcc_box = new QGroupBox("Photometric Color Calibration (PCC)");
+    auto *pcc_form = new QFormLayout(pcc_box);
+    pcc_form->setSpacing(6);
+    pcc_form->setContentsMargins(8, 14, 8, 8);
+
+    chk_pcc_enabled_ = new QCheckBox("Enabled");
+    pcc_form->addRow("", chk_pcc_enabled_);
+    connect(chk_pcc_enabled_, &QCheckBox::toggled, this, &ConfigTab::on_path_editor_changed);
+
+    cmb_pcc_source_ = new QComboBox();
+    cmb_pcc_source_->addItems({"auto", "siril", "vizier_gaia", "vizier_apass"});
+    pcc_form->addRow("Source:", cmb_pcc_source_);
+    connect(cmb_pcc_source_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &ConfigTab::on_path_editor_changed);
+
+    pcc_form->addRow("Siril catalog dir:", make_path_row(edt_siril_catalog_dir_,
+        "(default: ~/.local/share/siril/siril_cat1_healpix8_xpsamp/)", true));
+
+    auto make_dspin = [this](QDoubleSpinBox *&spn, double min, double max, double val,
+                             int decimals, const QString &suffix) {
+        spn = new QDoubleSpinBox();
+        spn->setRange(min, max);
+        spn->setValue(val);
+        spn->setDecimals(decimals);
+        if (!suffix.isEmpty()) spn->setSuffix(suffix);
+        connect(spn, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                this, &ConfigTab::on_path_editor_changed);
+    };
+
+    make_dspin(spn_pcc_mag_limit_, 1.0, 22.0, 14.0, 1, " mag");
+    pcc_form->addRow("Mag limit (faint):", spn_pcc_mag_limit_);
+
+    make_dspin(spn_pcc_mag_bright_, 0.0, 15.0, 6.0, 1, " mag");
+    pcc_form->addRow("Mag limit (bright):", spn_pcc_mag_bright_);
+
+    make_dspin(spn_pcc_aperture_, 1.0, 50.0, 8.0, 1, " px");
+    pcc_form->addRow("Aperture radius:", spn_pcc_aperture_);
+
+    make_dspin(spn_pcc_ann_inner_, 1.0, 80.0, 12.0, 1, " px");
+    pcc_form->addRow("Annulus inner:", spn_pcc_ann_inner_);
+
+    make_dspin(spn_pcc_ann_outer_, 2.0, 100.0, 18.0, 1, " px");
+    pcc_form->addRow("Annulus outer:", spn_pcc_ann_outer_);
+
+    spn_pcc_min_stars_ = new QSpinBox();
+    spn_pcc_min_stars_->setRange(3, 500);
+    spn_pcc_min_stars_->setValue(10);
+    pcc_form->addRow("Min stars:", spn_pcc_min_stars_);
+    connect(spn_pcc_min_stars_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &ConfigTab::on_path_editor_changed);
+
+    make_dspin(spn_pcc_sigma_, 1.0, 10.0, 2.5, 1, " σ");
+    pcc_form->addRow("Sigma clip:", spn_pcc_sigma_);
+
+    parent->addWidget(pcc_box);
+}
+
+void ConfigTab::on_browse_path(QLineEdit *target, bool directory) {
+    QString start = target->text().trimmed();
+    if (start.isEmpty()) start = QDir::homePath();
+
+    QString result;
+    if (directory) {
+        result = QFileDialog::getExistingDirectory(this, "Select directory", start);
+    } else {
+        result = QFileDialog::getOpenFileName(this, "Select file", start);
+    }
+    if (!result.isEmpty()) {
+        target->setText(result);
+        on_path_editor_changed();
+    }
+}
+
+void ConfigTab::on_path_editor_changed() {
+    if (syncing_paths_) return;
+    sync_paths_to_yaml();
+}
+
+void ConfigTab::sync_paths_to_yaml() {
+    syncing_paths_ = true;
+    try {
+        const QString yaml_text = config_yaml_->toPlainText();
+        YAML::Node cfg = yaml_text.trimmed().isEmpty()
+            ? YAML::Node(YAML::NodeType::Map)
+            : YAML::Load(yaml_text.toStdString());
+
+        // Astrometry
+        cfg["astrometry"]["enabled"] = chk_astro_enabled_->isChecked();
+        cfg["astrometry"]["astap_bin"] = edt_astap_bin_->text().trimmed().toStdString();
+        cfg["astrometry"]["astap_data_dir"] = edt_astap_data_dir_->text().trimmed().toStdString();
+        cfg["astrometry"]["search_radius"] = spn_astro_search_radius_->value();
+
+        // PCC
+        cfg["pcc"]["enabled"] = chk_pcc_enabled_->isChecked();
+        cfg["pcc"]["source"] = cmb_pcc_source_->currentText().toStdString();
+        cfg["pcc"]["siril_catalog_dir"] = edt_siril_catalog_dir_->text().trimmed().toStdString();
+        cfg["pcc"]["mag_limit"] = spn_pcc_mag_limit_->value();
+        cfg["pcc"]["mag_bright_limit"] = spn_pcc_mag_bright_->value();
+        cfg["pcc"]["aperture_radius_px"] = spn_pcc_aperture_->value();
+        cfg["pcc"]["annulus_inner_px"] = spn_pcc_ann_inner_->value();
+        cfg["pcc"]["annulus_outer_px"] = spn_pcc_ann_outer_->value();
+        cfg["pcc"]["min_stars"] = spn_pcc_min_stars_->value();
+        cfg["pcc"]["sigma_clip"] = spn_pcc_sigma_->value();
+
+        YAML::Emitter out;
+        out << cfg;
+        config_yaml_->blockSignals(true);
+        config_yaml_->setPlainText(QString::fromStdString(out.c_str()));
+        config_yaml_->blockSignals(false);
+
+        config_validated_ok_ = false;
+        lbl_cfg_->setText("not validated");
+        emit config_edited();
+        emit update_controls_requested();
+    } catch (...) {
+        // Ignore YAML errors during sync
+    }
+    syncing_paths_ = false;
+}
+
+void ConfigTab::sync_paths_from_yaml(const QString &yaml_text) {
+    if (syncing_paths_) return;
+    syncing_paths_ = true;
+    try {
+        const YAML::Node cfg = YAML::Load(yaml_text.toStdString());
+
+        auto set_text = [](QLineEdit *edt, const YAML::Node &n) {
+            if (n && n.IsScalar()) edt->setText(QString::fromStdString(n.as<std::string>()));
+        };
+        auto set_bool = [](QCheckBox *chk, const YAML::Node &n) {
+            if (n) chk->setChecked(n.as<bool>());
+        };
+        auto set_int = [](QSpinBox *spn, const YAML::Node &n) {
+            if (n) spn->setValue(n.as<int>());
+        };
+        auto set_dbl = [](QDoubleSpinBox *spn, const YAML::Node &n) {
+            if (n) spn->setValue(n.as<double>());
+        };
+
+        if (cfg["astrometry"]) {
+            auto a = cfg["astrometry"];
+            set_bool(chk_astro_enabled_, a["enabled"]);
+            set_text(edt_astap_bin_, a["astap_bin"]);
+            set_text(edt_astap_data_dir_, a["astap_data_dir"]);
+            set_int(spn_astro_search_radius_, a["search_radius"]);
+        }
+
+        if (cfg["pcc"]) {
+            auto p = cfg["pcc"];
+            set_bool(chk_pcc_enabled_, p["enabled"]);
+            if (p["source"] && p["source"].IsScalar()) {
+                int idx = cmb_pcc_source_->findText(
+                    QString::fromStdString(p["source"].as<std::string>()));
+                if (idx >= 0) cmb_pcc_source_->setCurrentIndex(idx);
+            }
+            set_text(edt_siril_catalog_dir_, p["siril_catalog_dir"]);
+            set_dbl(spn_pcc_mag_limit_, p["mag_limit"]);
+            set_dbl(spn_pcc_mag_bright_, p["mag_bright_limit"]);
+            set_dbl(spn_pcc_aperture_, p["aperture_radius_px"]);
+            set_dbl(spn_pcc_ann_inner_, p["annulus_inner_px"]);
+            set_dbl(spn_pcc_ann_outer_, p["annulus_outer_px"]);
+            set_int(spn_pcc_min_stars_, p["min_stars"]);
+            set_dbl(spn_pcc_sigma_, p["sigma_clip"]);
+        }
+    } catch (...) {
+        // Ignore parse errors
+    }
+    syncing_paths_ = false;
 }
 
 }

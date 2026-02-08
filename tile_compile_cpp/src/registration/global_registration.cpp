@@ -8,7 +8,9 @@
 #include <opencv2/opencv.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <iostream>
 #include <limits>
 #include <numeric>
 #include <unordered_map>
@@ -1225,6 +1227,11 @@ static float compute_ncc(const Matrix2Df &a, const Matrix2Df &b) {
 SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
                                            const Matrix2Df &ref,
                                            const config::RegistrationConfig &rcfg) {
+  // Thread-safe diagnostic counter (only log first few calls)
+  static std::atomic<int> diag_counter{0};
+  const int diag_id = diag_counter.fetch_add(1);
+  const bool diag = (diag_id < 3);
+
   SingleFrameRegResult out;
   out.reg.warp = identity_warp();
   out.reg.success = false;
@@ -1233,15 +1240,37 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
   out.ncc_identity = compute_ncc(mov, ref);
   out.ncc_warped = out.ncc_identity;
 
+  if (diag) {
+    auto stars_ref = detect_stars_simple(ref, rcfg.star_topk);
+    auto stars_mov = detect_stars_simple(mov, rcfg.star_topk);
+    std::cerr << "[REG-DIAG#" << diag_id << "] ncc_identity=" << out.ncc_identity
+              << " stars_ref=" << stars_ref.size()
+              << " stars_mov=" << stars_mov.size()
+              << " img=" << mov.rows() << "x" << mov.cols()
+              << std::endl;
+  }
+
   bool accepted = false;
 
   // Try a cascade method and validate with NCC
   auto try_method = [&](RegistrationResult rr,
                         const std::string &method) -> bool {
-    if (!rr.success)
+    if (!rr.success) {
+      if (diag) {
+        std::cerr << "[REG-DIAG#" << diag_id << "] " << method
+                  << " FAIL: " << rr.error_message << std::endl;
+      }
       return false;
+    }
     Matrix2Df warped = apply_warp(mov, rr.warp);
     float ncc = compute_ncc(warped, ref);
+    if (diag) {
+      std::cerr << "[REG-DIAG#" << diag_id << "] " << method
+                << " success=" << rr.success << " ncc_warped=" << ncc
+                << " threshold=" << (out.ncc_identity + 0.01f)
+                << " tx=" << rr.warp(0,2) << " ty=" << rr.warp(1,2)
+                << std::endl;
+    }
     if (ncc < out.ncc_identity + 0.01f)
       return false; // warp doesn't improve alignment — reject
     out.reg = rr;

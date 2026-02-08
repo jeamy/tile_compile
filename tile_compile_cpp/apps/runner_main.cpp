@@ -13,6 +13,9 @@
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/registration/global_registration.hpp"
 #include "tile_compile/registration/registration.hpp"
+#include "tile_compile/astrometry/wcs.hpp"
+#include "tile_compile/astrometry/gaia_catalog.hpp"
+#include "tile_compile/astrometry/photometric_color_cal.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -48,6 +51,7 @@ namespace image = tile_compile::image;
 namespace metrics = tile_compile::metrics;
 namespace reconstruction = tile_compile::reconstruction;
 namespace registration = tile_compile::registration;
+namespace astro = tile_compile::astrometry;
 
 class TeeBuf : public std::streambuf {
 public:
@@ -880,6 +884,16 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         }
         Matrix2Df ref_ecc = registration::prepare_ecc_image(ref_reg);
 
+        // Diagnostic: proxy image stats
+        {
+          float rmin = ref_reg.minCoeff();
+          float rmax = ref_reg.maxCoeff();
+          float rmean = ref_reg.mean();
+          std::cerr << "[REG-DIAG] ref_reg " << ref_reg.rows() << "x" << ref_reg.cols()
+                    << " min=" << rmin << " max=" << rmax << " mean=" << rmean
+                    << std::endl;
+        }
+
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (static_cast<int>(fi) == global_ref_idx) {
             global_frame_warps[fi] = registration::identity_warp();
@@ -898,6 +912,17 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                                       ? image::cfa_green_proxy_downsample2x2(
                                             mov_full, detected_bayer_str)
                                       : registration::downsample2x2_mean(mov_full);
+              // Diagnostic: first few moving frames
+              if (fi < 3) {
+                float mmin = mov_reg.minCoeff();
+                float mmax = mov_reg.maxCoeff();
+                float mmean = mov_reg.mean();
+                std::cerr << "[REG-DIAG] mov_reg[" << fi << "] "
+                          << mov_reg.rows() << "x" << mov_reg.cols()
+                          << " min=" << mmin << " max=" << mmax
+                          << " mean=" << mmean << std::endl;
+              }
+
               if (mov_reg.rows() != ref_reg.rows() ||
                   mov_reg.cols() != ref_reg.cols()) {
                 global_frame_warps[fi] = registration::identity_warp();
@@ -1004,6 +1029,34 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     global_reg_extra["reason"] = "no_frames";
   }
 
+  // Build frame usability mask: exclude frames that failed registration
+  std::vector<bool> frame_usable(frames.size(), true);
+  int n_usable = 0;
+  int n_excluded_identity = 0;
+  int n_excluded_negative = 0;
+  for (size_t fi = 0; fi < frames.size(); ++fi) {
+    if (static_cast<int>(fi) == global_ref_idx) {
+      frame_usable[fi] = true;
+      ++n_usable;
+    } else if (global_frame_cc[fi] > 0.0f) {
+      frame_usable[fi] = true;
+      ++n_usable;
+    } else if (global_frame_cc[fi] < 0.0f) {
+      frame_usable[fi] = false;
+      ++n_excluded_negative;
+    } else {
+      frame_usable[fi] = false;
+      ++n_excluded_identity;
+    }
+  }
+  std::cerr << "[REG-FILTER] " << n_usable << "/" << frames.size()
+            << " frames usable, " << n_excluded_identity
+            << " excluded (identity fallback), " << n_excluded_negative
+            << " excluded (negative cc)" << std::endl;
+  global_reg_extra["frames_usable"] = n_usable;
+  global_reg_extra["frames_excluded_identity"] = n_excluded_identity;
+  global_reg_extra["frames_excluded_negative"] = n_excluded_negative;
+
   emitter.phase_end(run_id, Phase::REGISTRATION, global_reg_status,
                     global_reg_extra, log_file);
 
@@ -1013,6 +1066,10 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   // exist, causing CFA pattern corruption (colored tile rectangles).
   std::vector<Matrix2Df> prewarped_frames(frames.size());
   for (size_t fi = 0; fi < frames.size(); ++fi) {
+    if (!frame_usable[fi]) {
+      prewarped_frames[fi] = Matrix2Df();
+      continue;
+    }
     auto pair = load_frame_normalized(fi);
     Matrix2Df img = std::move(pair.first);
     if (img.size() <= 0) {
@@ -1046,6 +1103,25 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       local_metrics[fi].reserve(tiles_phase56.size());
       local_weights[fi].reserve(tiles_phase56.size());
 
+      if (!frame_usable[fi]) {
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+          TileMetrics z;
+          z.fwhm = 0.0f;
+          z.roundness = 0.0f;
+          z.contrast = 0.0f;
+          z.sharpness = 0.0f;
+          z.background = 0.0f;
+          z.noise = 0.0f;
+          z.gradient_energy = 0.0f;
+          z.star_count = 0;
+          z.type = TileType::STRUCTURE;
+          z.quality_score = 0.0f;
+          local_metrics[fi].push_back(z);
+          local_weights[fi].push_back(0.0f);
+        }
+        continue;
+      }
+
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
         const Tile &t = tiles_phase56[ti];
         Matrix2Df tile_img = image::extract_tile(prewarped_frames[fi], t);
@@ -1063,7 +1139,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           z.type = TileType::STRUCTURE;
           z.quality_score = 0.0f;
           local_metrics[fi].push_back(z);
-          local_weights[fi].push_back(1.0f);
+          local_weights[fi].push_back(0.0f);
           continue;
         }
 
@@ -1111,7 +1187,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         energy.reserve(n_frames);
         star_counts.reserve(n_frames);
 
+        // Only collect metrics from usable frames for z-score computation
+        std::vector<size_t> usable_indices;
+        usable_indices.reserve(n_frames);
         for (size_t fi = 0; fi < n_frames; ++fi) {
+          if (!frame_usable[fi])
+            continue;
+          usable_indices.push_back(fi);
           const TileMetrics &tm = local_metrics[fi][ti];
           fwhm_log.push_back(std::log(std::max(tm.fwhm, 1.0e-6f)));
           roundness.push_back(tm.roundness);
@@ -1123,7 +1205,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         }
 
         std::vector<float> sc_tmp = star_counts;
-        float sc_med = core::median_of(sc_tmp);
+        float sc_med = sc_tmp.empty() ? 0.0f : core::median_of(sc_tmp);
         const TileType tile_type = (sc_med >= static_cast<float>(star_thr))
                                        ? TileType::STAR
                                        : TileType::STRUCTURE;
@@ -1136,26 +1218,29 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         core::robust_zscore(noise, s_t);
         core::robust_zscore(energy, e_t);
 
-        for (size_t fi = 0; fi < n_frames; ++fi) {
+        // Assign z-score-based weights to usable frames
+        for (size_t ui = 0; ui < usable_indices.size(); ++ui) {
+          size_t fi = usable_indices[ui];
           TileMetrics &tm = local_metrics[fi][ti];
           tm.type = tile_type;
 
           float q = 0.0f;
           if (tile_type == TileType::STAR) {
-            q = cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_t[fi]) +
-                cfg.local_metrics.star_mode.weights.roundness * (r_t[fi]) +
-                cfg.local_metrics.star_mode.weights.contrast * (c_t[fi]);
+            q = cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_t[ui]) +
+                cfg.local_metrics.star_mode.weights.roundness * (r_t[ui]) +
+                cfg.local_metrics.star_mode.weights.contrast * (c_t[ui]);
           } else {
-            float denom = s_t[fi];
-            float ratio = (std::fabs(denom) > eps) ? (e_t[fi] / denom) : 0.0f;
+            float denom = s_t[ui];
+            float ratio = (std::fabs(denom) > eps) ? (e_t[ui] / denom) : 0.0f;
             q = cfg.local_metrics.structure_mode.metric_weight * ratio +
-                cfg.local_metrics.structure_mode.background_weight * (-b_t[fi]);
+                cfg.local_metrics.structure_mode.background_weight * (-b_t[ui]);
           }
 
           q = clip3(q);
           tm.quality_score = q;
           local_weights[fi][ti] = std::exp(q);
         }
+        // Excluded frames keep weight=0 and zero metrics from earlier
       }
 
       core::json artifact;
@@ -1203,6 +1288,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         std::vector<float> qs;
         qs.reserve(local_metrics.size());
         for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
+          if (!frame_usable[fi]) continue;
           if (ti < local_metrics[fi].size()) {
             qs.push_back(local_metrics[fi][ti].quality_score);
           }
@@ -1222,6 +1308,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         std::vector<float> fwhms;
         fwhms.reserve(local_metrics.size());
         for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
+          if (!frame_usable[fi]) continue;
           if (ti < local_metrics[fi].size()) {
             fwhms.push_back(local_metrics[fi][ti].fwhm);
           }
@@ -1230,7 +1317,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
-    const bool reduced_mode = (static_cast<int>(frames.size()) <
+    const bool reduced_mode = (n_usable <
                                cfg.assumptions.frames_reduced_threshold);
     const bool skip_clustering_in_reduced =
         (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
@@ -1329,6 +1416,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       weights.reserve(frames.size());
 
       for (size_t fi = 0; fi < frames.size(); ++fi) {
+        if (!frame_usable[fi])
+          continue;
         Matrix2Df tile_img = load_tile_normalized(fi);
         if (tile_img.rows() != t.height || tile_img.cols() != t.width)
           continue;
@@ -1732,7 +1821,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       weights_subset.reserve(frames.size());
 
       for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
-        if (!frame_mask[fi])
+        if (!frame_mask[fi] || !frame_usable[fi])
           continue;
         auto pair = load_frame_normalized(fi);
         Matrix2Df img = std::move(pair.first);
@@ -2074,17 +2163,23 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     // Phase 10: DEBAYER (for OSC data)
     emitter.phase_start(run_id, Phase::DEBAYER, "DEBAYER", log_file);
 
+    Matrix2Df R_out, G_out, B_out;
+    bool have_rgb = false;
+    fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
+
     if (detected_mode == ColorMode::OSC) {
       auto debayer = image::debayer_nearest_neighbor(recon, detected_bayer);
 
-      Matrix2Df R_out = debayer.R;
-      Matrix2Df G_out = debayer.G;
-      Matrix2Df B_out = debayer.B;
-      // Use green channel as reference for all channels (neutral white balance).
-      // Per-channel bg values reflect camera spectral response, not true color.
-      R_out *= output_bg_g;
+      R_out = debayer.R;
+      G_out = debayer.G;
+      B_out = debayer.B;
+      have_rgb = true;
+      // Restore per-channel background levels to undo the per-channel
+      // normalization (scale_r=1/bg_r etc.).  This preserves the camera's
+      // native color response and produces a neutral sky background.
+      R_out *= output_bg_r;
       G_out *= output_bg_g;
-      B_out *= output_bg_g;
+      B_out *= output_bg_b;
       R_out.array() += output_pedestal;
       G_out.array() += output_pedestal;
       B_out.array() += output_pedestal;
@@ -2137,7 +2232,169 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                         log_file);
     }
 
-    // Phase 11: DONE
+    // Phase 11: ASTROMETRY (plate solve via ASTAP)
+    emitter.phase_start(run_id, Phase::ASTROMETRY, "ASTROMETRY", log_file);
+
+    astro::WCS wcs;
+    bool have_wcs = false;
+
+    if (!cfg.astrometry.enabled) {
+      emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                        {{"reason", "disabled"}}, log_file);
+    } else if (!have_rgb) {
+      emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                        {{"reason", "no_rgb_data"}}, log_file);
+    } else {
+      // Determine ASTAP paths (config or defaults)
+      std::string astap_data = cfg.astrometry.astap_data_dir;
+      if (astap_data.empty()) {
+        const char *home = std::getenv("HOME");
+        if (home) astap_data = std::string(home) + "/.local/share/tile_compile/astap";
+      }
+      std::string astap_bin = cfg.astrometry.astap_bin;
+      if (astap_bin.empty()) astap_bin = astap_data + "/astap_cli";
+
+      if (!fs::exists(astap_bin)) {
+        emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                          {{"reason", "astap_not_found"},
+                           {"astap_bin", astap_bin}}, log_file);
+      } else {
+        // Run ASTAP plate solve on stacked_rgb.fits
+        std::string cmd = astap_bin + " -f " +
+            stacked_rgb_path.string() +
+            " -d " + astap_data +
+            " -r " + std::to_string(cfg.astrometry.search_radius);
+
+        std::cerr << "[ASTROMETRY] Running: " << cmd << std::endl;
+        int ret = std::system(cmd.c_str());
+
+        // ASTAP writes a .wcs file next to the input
+        fs::path wcs_path = stacked_rgb_path;
+        wcs_path.replace_extension(".wcs");
+
+        if (ret == 0 && fs::exists(wcs_path)) {
+          try {
+            wcs = astro::parse_wcs_file(wcs_path.string());
+            have_wcs = wcs.valid();
+          } catch (const std::exception &e) {
+            std::cerr << "[ASTROMETRY] WCS parse error: " << e.what() << std::endl;
+          }
+        }
+
+        if (have_wcs) {
+          // Copy .wcs to run artifacts directory
+          fs::path wcs_artifact = run_dir / "artifacts" / "stacked_rgb.wcs";
+          try {
+            fs::copy_file(wcs_path, wcs_artifact,
+                          fs::copy_options::overwrite_existing);
+            std::cerr << "[ASTROMETRY] WCS saved to " << wcs_artifact << std::endl;
+          } catch (const std::exception &e) {
+            std::cerr << "[ASTROMETRY] Could not copy .wcs: " << e.what() << std::endl;
+          }
+
+          emitter.phase_end(run_id, Phase::ASTROMETRY, "ok",
+                            {{"ra", wcs.crval1},
+                             {"dec", wcs.crval2},
+                             {"pixel_scale_arcsec", wcs.pixel_scale_arcsec()},
+                             {"rotation_deg", wcs.rotation_deg()},
+                             {"fov_w_deg", wcs.fov_width_deg()},
+                             {"fov_h_deg", wcs.fov_height_deg()},
+                             {"wcs_file", wcs_artifact.string()}},
+                            log_file);
+        } else {
+          emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                            {{"reason", "solve_failed"},
+                             {"exit_code", ret}}, log_file);
+        }
+      }
+    }
+
+    // Phase 12: PCC (Photometric Color Calibration)
+    emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
+
+    if (!cfg.pcc.enabled) {
+      emitter.phase_end(run_id, Phase::PCC, "skipped",
+                        {{"reason", "disabled"}}, log_file);
+    } else if (!have_wcs) {
+      emitter.phase_end(run_id, Phase::PCC, "skipped",
+                        {{"reason", "no_wcs"}}, log_file);
+    } else if (!have_rgb) {
+      emitter.phase_end(run_id, Phase::PCC, "skipped",
+                        {{"reason", "no_rgb_data"}}, log_file);
+    } else {
+      // Determine catalog directory
+      std::string cat_dir = cfg.pcc.siril_catalog_dir;
+      if (cat_dir.empty()) cat_dir = astro::default_siril_gaia_catalog_dir();
+
+      if (!astro::is_siril_gaia_catalog_available(cat_dir)) {
+        emitter.phase_end(run_id, Phase::PCC, "skipped",
+                          {{"reason", "catalog_not_found"},
+                           {"catalog_dir", cat_dir}}, log_file);
+      } else {
+        // Cone search centered on WCS reference point
+        double search_r = wcs.search_radius_deg();
+        std::cerr << "[PCC] Querying Siril Gaia catalog at RA="
+                  << wcs.crval1 << " Dec=" << wcs.crval2
+                  << " r=" << search_r << " deg" << std::endl;
+
+        auto stars = astro::siril_gaia_cone_search(
+            cat_dir, wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
+
+        std::cerr << "[PCC] Found " << stars.size() << " catalog stars" << std::endl;
+
+        if (stars.empty()) {
+          emitter.phase_end(run_id, Phase::PCC, "skipped",
+                            {{"reason", "no_catalog_stars"},
+                             {"search_radius_deg", search_r}}, log_file);
+        } else {
+          // Build PCC config from pipeline config
+          astro::PCCConfig pcc_cfg;
+          pcc_cfg.aperture_radius_px = cfg.pcc.aperture_radius_px;
+          pcc_cfg.annulus_inner_px = cfg.pcc.annulus_inner_px;
+          pcc_cfg.annulus_outer_px = cfg.pcc.annulus_outer_px;
+          pcc_cfg.mag_limit = cfg.pcc.mag_limit;
+          pcc_cfg.mag_bright_limit = cfg.pcc.mag_bright_limit;
+          pcc_cfg.min_stars = cfg.pcc.min_stars;
+          pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
+
+          auto result = astro::run_pcc(R_out, G_out, B_out, wcs, stars, pcc_cfg);
+
+          if (result.success) {
+            // Save PCC-corrected RGB as separate files (originals stay intact)
+            io::write_fits_float(run_dir / "outputs" / "pcc_R.fit",
+                                 R_out, first_hdr);
+            io::write_fits_float(run_dir / "outputs" / "pcc_G.fit",
+                                 G_out, first_hdr);
+            io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
+                                 B_out, first_hdr);
+            io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
+                               R_out, G_out, B_out, first_hdr);
+
+            core::json matrix_json = core::json::array();
+            for (int r = 0; r < 3; ++r) {
+              matrix_json.push_back({result.matrix[r][0],
+                                     result.matrix[r][1],
+                                     result.matrix[r][2]});
+            }
+
+            emitter.phase_end(run_id, Phase::PCC, "ok",
+                              {{"stars_matched", result.n_stars_matched},
+                               {"stars_used", result.n_stars_used},
+                               {"residual_rms", result.residual_rms},
+                               {"matrix", matrix_json}},
+                              log_file);
+          } else {
+            emitter.phase_end(run_id, Phase::PCC, "skipped",
+                              {{"reason", "fit_failed"},
+                               {"error", result.error_message},
+                               {"stars_matched", result.n_stars_matched}},
+                              log_file);
+          }
+        }
+      }
+    }
+
+    // Phase 13: DONE
     emitter.phase_start(run_id, Phase::DONE, "DONE", log_file);
     emitter.phase_end(run_id, Phase::DONE, "ok", {}, log_file);
 

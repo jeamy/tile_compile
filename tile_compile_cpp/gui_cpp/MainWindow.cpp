@@ -5,6 +5,7 @@
 #include "tabs/RunTab.hpp"
 #include "tabs/CurrentRunTab.hpp"
 #include "tabs/HistoryTab.hpp"
+#include "tabs/AstrometryTab.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -180,6 +181,16 @@ void MainWindow::build_ui() {
         update_history_runs_dir();
     });
     update_history_runs_dir();
+    
+    // Astrometry Tab
+    astrometry_tab_ = new AstrometryTab(project_root_, this);
+    tabs_->addTab(wrap_scroll(astrometry_tab_), "Astrometry");
+    connect(astrometry_tab_, &AstrometryTab::log_message, this, &MainWindow::append_live);
+
+    // PCC Tab
+    pcc_tab_ = new PCCTab(project_root_, this);
+    tabs_->addTab(wrap_scroll(pcc_tab_), "PCC");
+    connect(pcc_tab_, &PCCTab::log_message, this, &MainWindow::append_live);
     
     // Live log Tab
     auto *live_page = new QWidget();

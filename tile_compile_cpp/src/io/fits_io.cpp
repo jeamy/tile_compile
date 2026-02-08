@@ -179,6 +179,97 @@ std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path) {
     return {data, header};
 }
 
+RGBImage read_fits_rgb(const fs::path& path) {
+    fitsfile* fptr = nullptr;
+    int status = 0;
+
+    if (fits_open_file(&fptr, path.string().c_str(), READONLY, &status)) {
+        throw FitsError("Cannot open FITS file: " + path.string());
+    }
+
+    int naxis = 0;
+    long naxes[3] = {0, 0, 0};
+    int bitpix = 0;
+
+    fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
+    if (status) {
+        fits_close_file(fptr, &status);
+        throw FitsError("Cannot read FITS image parameters: " + path.string());
+    }
+
+    if (naxis < 2) {
+        fits_close_file(fptr, &status);
+        throw FitsError("FITS file has less than 2 dimensions: " + path.string());
+    }
+
+    long w = naxes[0];
+    long h = naxes[1];
+    long nplanes = (naxis >= 3) ? naxes[2] : 1;
+    long npixels = w * h;
+
+    RGBImage result;
+    result.width = static_cast<int>(w);
+    result.height = static_cast<int>(h);
+
+    // Read header (same as read_fits_float)
+    int nkeys = 0;
+    fits_get_hdrspace(fptr, &nkeys, nullptr, &status);
+    for (int i = 1; i <= nkeys; ++i) {
+        char card[FLEN_CARD];
+        fits_read_record(fptr, i, card, &status);
+        if (status) { status = 0; continue; }
+        char keyname[FLEN_KEYWORD];
+        int keylen = 0;
+        fits_get_keyname(card, keyname, &keylen, &status);
+        if (status) { status = 0; continue; }
+        std::string key(keyname);
+        if (key.empty() || key == "COMMENT" || key == "HISTORY" || key == "END") continue;
+        char dtype;
+        fits_get_keytype(card, &dtype, &status);
+        if (status) { status = 0; continue; }
+        char value[FLEN_VALUE], comment[FLEN_COMMENT];
+        fits_parse_value(card, value, comment, &status);
+        if (status) { status = 0; continue; }
+        std::string val_str(value);
+        val_str.erase(0, val_str.find_first_not_of(" '"));
+        val_str.erase(val_str.find_last_not_of(" '") + 1);
+        switch (dtype) {
+            case 'C': result.header.set(key, val_str); break;
+            case 'L': result.header.set(key, val_str == "T" || val_str == "1"); break;
+            case 'I': try { result.header.set(key, std::stoi(val_str)); } catch (...) { result.header.set(key, val_str); } break;
+            case 'F': try { result.header.set(key, std::stod(val_str)); } catch (...) { result.header.set(key, val_str); } break;
+            default: result.header.set(key, val_str); break;
+        }
+    }
+
+    auto read_plane = [&](long plane) -> Matrix2Df {
+        std::vector<float> buf(static_cast<size_t>(npixels));
+        long fpixel[3] = {1, 1, plane};
+        int st = 0;
+        fits_read_pix(fptr, TFLOAT, fpixel, npixels, nullptr, buf.data(), nullptr, &st);
+        if (st) throw FitsError("Cannot read FITS plane " + std::to_string(plane) + ": " + path.string());
+        Matrix2Df mat(h, w);
+        for (long y = 0; y < h; ++y)
+            for (long x = 0; x < w; ++x)
+                mat(y, x) = buf[static_cast<size_t>(y * w + x)];
+        return mat;
+    };
+
+    if (nplanes >= 3) {
+        result.R = read_plane(1);
+        result.G = read_plane(2);
+        result.B = read_plane(3);
+    } else {
+        // Mono image — duplicate to all channels
+        result.R = read_plane(1);
+        result.G = result.R;
+        result.B = result.R;
+    }
+
+    fits_close_file(fptr, &status);
+    return result;
+}
+
 Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width, int height) {
     fitsfile* fptr = nullptr;
     int status = 0;
