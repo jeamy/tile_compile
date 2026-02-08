@@ -78,7 +78,7 @@ calibration:
 assumptions:
   frames_min: 50                    # Hard Minimum für Pipeline
   frames_optimal: 800               # Informativ, Warnung bei Unterschreitung
-  frames_reduced_threshold: 200     # < threshold → Reduced Mode
+  frames_reduced_threshold: 150     # < threshold → Reduced Mode
   exposure_time_tolerance_percent: 5.0
   reduced_mode_skip_clustering: true  # true = kein Clustering im Reduced Mode
   reduced_mode_cluster_range: [5, 10] # [k_min, k_max] für Reduced Mode
@@ -227,3 +227,4 @@ validation:
 runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0  # Max. Zeitfaktor Tile-Analyse vs. Stack
   hard_abort_hours: 6.0                   # Hard Limit in Stunden
+
