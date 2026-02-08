@@ -19,4 +19,9 @@ float estimate_fwhm_from_patch(const cv::Mat& patch);
 cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame,
                                            float k_sigma, int dilate_radius);
 
+// Measure median FWHM from an image by detecting star-like features and
+// fitting Gaussian profiles. Returns 0 if fewer than min_stars are found.
+float measure_fwhm_from_image(const Matrix2Df& img, int max_corners = 400,
+                              int patch_radius = 10, size_t min_stars = 25);
+
 } // namespace tile_compile::metrics

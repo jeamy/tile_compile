@@ -64,4 +64,17 @@ Matrix2Df reassemble_cfa_mosaic(
 void bayer_offsets(const std::string& bayer_pattern,
                    int& r_row, int& r_col, int& b_row, int& b_col);
 
+/**
+ * Simple nearest-neighbor debayer of a CFA mosaic into separate R, G, B planes.
+ * Output planes have the same size as the input mosaic.
+ */
+struct DebayerResult {
+    Matrix2Df R;
+    Matrix2Df G;
+    Matrix2Df B;
+};
+
+DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
+                                       BayerPattern pattern);
+
 } // namespace tile_compile::image

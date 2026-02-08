@@ -235,4 +235,41 @@ float estimate_fwhm_from_patch(const cv::Mat& patch) {
         std::sqrt(static_cast<double>(cnt) / 3.14159265358979323846));
 }
 
+float measure_fwhm_from_image(const Matrix2Df& img, int max_corners,
+                              int patch_radius, size_t min_stars) {
+    if (img.size() <= 0) return 0.0f;
+    const int patch_sz = 2 * patch_radius + 1;
+    cv::Mat img_cv(img.rows(), img.cols(), CV_32F,
+                   const_cast<float*>(img.data()));
+    cv::Mat blur;
+    cv::blur(img_cv, blur, cv::Size(31, 31), cv::Point(-1, -1),
+             cv::BORDER_REFLECT_101);
+    cv::Mat resid = img_cv - blur;
+
+    std::vector<cv::Point2f> corners;
+    try {
+        cv::goodFeaturesToTrack(resid, corners, max_corners, 0.01, 6);
+    } catch (...) {
+        corners.clear();
+    }
+
+    std::vector<float> fwhms;
+    for (const auto& p : corners) {
+        int cx = static_cast<int>(std::round(p.x));
+        int cy = static_cast<int>(std::round(p.y));
+        int x0 = cx - patch_radius;
+        int y0 = cy - patch_radius;
+        if (x0 < 0 || y0 < 0 || (x0 + patch_sz) > img_cv.cols ||
+            (y0 + patch_sz) > img_cv.rows)
+            continue;
+        cv::Mat patch = img_cv(cv::Rect(x0, y0, patch_sz, patch_sz));
+        float f = estimate_fwhm_from_patch(patch);
+        if (f > 0.0f && std::isfinite(f))
+            fwhms.push_back(f);
+    }
+
+    if (fwhms.size() < min_stars) return 0.0f;
+    return core::median_of(fwhms);
+}
+
 } // namespace tile_compile::metrics

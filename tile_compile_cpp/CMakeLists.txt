@@ -71,22 +71,16 @@ set(LIB_SOURCES
     src/io/fits_io.cpp
     src/io/config.cpp
     src/image/processing.cpp
-    src/image/calibration.cpp
     src/image/cfa_processing.cpp
+    src/image/normalization.cpp
     src/registration/registration.cpp
     src/registration/global_registration.cpp
     src/metrics/metrics.cpp
     src/metrics/tile_metrics.cpp
-    src/clustering/clustering.cpp
-    src/clustering/kmeans.cpp
+    src/metrics/linearity.cpp
     src/reconstruction/reconstruction.cpp
-    src/synthetic/synthetic.cpp
-    src/pipeline/phases.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/pipeline/pipeline.cpp
-    src/runner/events.cpp
-    src/runner/utils.cpp
-    src/runner/fits_utils.cpp
 )
 
 # Main library
