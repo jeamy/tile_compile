@@ -1,0 +1,40 @@
+# Core Scientific Computing
+numpy>=1.24.0
+scipy>=1.10.0
+pandas>=2.0.0
+astroquery
+astropy>=5.2.0
+
+# Astronomical and Image Processing
+astropy>=5.2.0
+photutils>=1.6.0
+scikit-image>=0.21.0
+imageio[all]>=2.31.0
+pillow>=9.5.0
+matplotlib>=3.7.0
+opencv-python
+
+# Machine Learning & Clustering
+scikit-learn>=1.2.0
+
+# Visualization
+seaborn>=0.12.0
+
+# Configuration & Validation
+pyyaml>=6.0
+jsonschema>=4.17.0
+
+# Development & Testing
+pytest>=7.3.0
+pytest-cov>=4.0.0
+
+# Optional Tools
+memory-profiler>=0.61.0
+
+# Build and Compatibility
+setuptools>=67.0.0
+wheel>=0.40.0
+typing-extensions>=4.6.0
+
+# Gui
+PySide6>=6.6
