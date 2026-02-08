@@ -2080,9 +2080,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       Matrix2Df R_out = debayer.R;
       Matrix2Df G_out = debayer.G;
       Matrix2Df B_out = debayer.B;
-      R_out *= output_bg_r;
+      // Use green channel as reference for all channels (neutral white balance).
+      // Per-channel bg values reflect camera spectral response, not true color.
+      R_out *= output_bg_g;
       G_out *= output_bg_g;
-      B_out *= output_bg_b;
+      B_out *= output_bg_g;
       R_out.array() += output_pedestal;
       G_out.array() += output_pedestal;
       B_out.array() += output_pedestal;
