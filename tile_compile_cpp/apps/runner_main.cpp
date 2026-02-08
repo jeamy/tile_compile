@@ -1351,49 +1351,19 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       std::vector<float> hann_x = reconstruction::make_hann_1d(t.width);
       std::vector<float> hann_y = reconstruction::make_hann_1d(t.height);
 
-      float wsum = 0.0f;
-      for (float w : weights)
-        wsum += w;
-      if (wsum <= 0.0f)
-        wsum = 1.0f;
-
-      Matrix2Df tile_rec = Matrix2Df::Zero(t.height, t.width);
-      for (size_t i = 0; i < warped_tiles.size(); ++i) {
-        tile_rec += warped_tiles[i] * (weights[i] / wsum);
-      }
+      // Per-pixel weighted sigma-clipped stacking (rejects star trails)
+      Matrix2Df tile_rec = reconstruction::sigma_clip_weighted_tile(
+          warped_tiles, weights,
+          cfg.stacking.sigma_clip.sigma_low,
+          cfg.stacking.sigma_clip.sigma_high,
+          cfg.stacking.sigma_clip.max_iters,
+          cfg.stacking.sigma_clip.min_fraction);
 
       tile_valid_counts[ti] = static_cast<int>(warped_tiles.size());
       tile_warp_variances[ti] = 0.0f;
       tile_mean_correlations[ti] = 1.0f;
       tile_mean_dx[ti] = 0.0f;
       tile_mean_dy[ti] = 0.0f;
-
-      // v3 §A.6: per-tile background normalization before overlap-add
-      // Subtract tile background and rescale to reference tile level
-      {
-        std::vector<float> rec_px(static_cast<size_t>(tile_rec.size()));
-        std::memcpy(rec_px.data(), tile_rec.data(),
-                    sizeof(float) * rec_px.size());
-        float tile_bg = core::median_of(rec_px);
-
-        // Reference tile background from ref frame (already pre-warped)
-        Matrix2Df ref_tile = load_tile_normalized(
-            static_cast<size_t>(global_ref_idx));
-        float ref_bg = 0.0f;
-        if (ref_tile.size() > 0) {
-          std::vector<float> ref_px(static_cast<size_t>(ref_tile.size()));
-          std::memcpy(ref_px.data(), ref_tile.data(),
-                      sizeof(float) * ref_px.size());
-          ref_bg = core::median_of(ref_px);
-        }
-
-        float offset = ref_bg - tile_bg;
-        if (std::isfinite(offset) && std::fabs(offset) < 0.5f) {
-          for (Eigen::Index k = 0; k < tile_rec.size(); ++k) {
-            tile_rec.data()[k] += offset;
-          }
-        }
-      }
 
       auto [c, b, s] = compute_post_warp_metrics(tile_rec);
       tile_post_contrast[ti] = c;

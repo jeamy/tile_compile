@@ -181,6 +181,94 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
     return out;
 }
 
+Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
+                                   const std::vector<float>& weights,
+                                   float sigma_low, float sigma_high,
+                                   int max_iters, float min_fraction) {
+    if (tiles.empty()) return Matrix2Df();
+    const int rows = tiles[0].rows();
+    const int cols = tiles[0].cols();
+    Matrix2Df out(rows, cols);
+    const int n = static_cast<int>(tiles.size());
+    const int min_keep = std::max(1, static_cast<int>(std::ceil(min_fraction * n)));
+
+    std::vector<float> values(static_cast<size_t>(n));
+    std::vector<float> w_local(static_cast<size_t>(n));
+    std::vector<uint8_t> keep(static_cast<size_t>(n));
+
+    for (int idx = 0; idx < out.size(); ++idx) {
+        for (int i = 0; i < n; ++i) {
+            values[static_cast<size_t>(i)] = tiles[static_cast<size_t>(i)].data()[idx];
+            keep[static_cast<size_t>(i)] = 1;
+            w_local[static_cast<size_t>(i)] = weights[static_cast<size_t>(i)];
+        }
+
+        int kept = n;
+        for (int iter = 0; iter < max_iters; ++iter) {
+            if (kept <= 1) break;
+            // Compute weighted mean and stddev
+            double wsum = 0.0, wmean = 0.0;
+            for (int i = 0; i < n; ++i) {
+                if (!keep[static_cast<size_t>(i)]) continue;
+                double wi = static_cast<double>(w_local[static_cast<size_t>(i)]);
+                wsum += wi;
+                wmean += wi * static_cast<double>(values[static_cast<size_t>(i)]);
+            }
+            if (!(wsum > 0.0)) break;
+            wmean /= wsum;
+
+            double var = 0.0;
+            for (int i = 0; i < n; ++i) {
+                if (!keep[static_cast<size_t>(i)]) continue;
+                double wi = static_cast<double>(w_local[static_cast<size_t>(i)]);
+                double d = static_cast<double>(values[static_cast<size_t>(i)]) - wmean;
+                var += wi * d * d;
+            }
+            double sd = (var > 0.0) ? std::sqrt(var / wsum) : 0.0;
+            if (!(sd > 0.0)) break;
+
+            const double lo = wmean - static_cast<double>(sigma_low) * sd;
+            const double hi = wmean + static_cast<double>(sigma_high) * sd;
+            int new_kept = 0;
+            for (int i = 0; i < n; ++i) {
+                if (!keep[static_cast<size_t>(i)]) continue;
+                double v = static_cast<double>(values[static_cast<size_t>(i)]);
+                if (v < lo || v > hi) {
+                    keep[static_cast<size_t>(i)] = 0;
+                } else {
+                    new_kept++;
+                }
+            }
+            if (new_kept < min_keep) break;
+            if (new_kept == kept) break; // converged
+            kept = new_kept;
+        }
+
+        // Final weighted mean of kept values
+        double wsum = 0.0, wmean = 0.0;
+        for (int i = 0; i < n; ++i) {
+            if (!keep[static_cast<size_t>(i)]) continue;
+            double wi = static_cast<double>(w_local[static_cast<size_t>(i)]);
+            wsum += wi;
+            wmean += wi * static_cast<double>(values[static_cast<size_t>(i)]);
+        }
+        if (wsum > 0.0) {
+            out.data()[idx] = static_cast<float>(wmean / wsum);
+        } else {
+            // Fallback: use all values
+            wsum = 0.0; wmean = 0.0;
+            for (int i = 0; i < n; ++i) {
+                double wi = static_cast<double>(w_local[static_cast<size_t>(i)]);
+                wsum += wi;
+                wmean += wi * static_cast<double>(values[static_cast<size_t>(i)]);
+            }
+            out.data()[idx] = (wsum > 0.0) ? static_cast<float>(wmean / wsum) : 0.0f;
+        }
+    }
+
+    return out;
+}
+
 std::vector<float> make_hann_1d(int n) {
     std::vector<float> w;
     if (n <= 0)
