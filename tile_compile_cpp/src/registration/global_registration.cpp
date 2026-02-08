@@ -275,6 +275,10 @@ std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk) {
   return stars;
 }
 
+// =====================================================================
+// Similarity helpers (used by trail, star pair, and triangle matching)
+// =====================================================================
+
 struct SimilarityResult {
   bool ok = false;
   float scale = 1.0f;
@@ -343,6 +347,374 @@ bool similarity_from_pairs(const Eigen::Vector2f &m1, const Eigen::Vector2f &m2,
   R << ct, -st, st, ct;
   t = r1 - scale * (R * m1);
   return true;
+}
+
+// =====================================================================
+// Trail endpoint detection: finds bright endpoints of star trails
+// using morphological operations. Works when stars are smeared into arcs.
+// =====================================================================
+
+static std::vector<StarPoint>
+detect_trail_endpoints(const Matrix2Df &img, int topk) {
+  const int h = img.rows();
+  const int w = img.cols();
+  if (h < 10 || w < 10)
+    return {};
+
+  cv::Mat f(h, w, CV_32F, const_cast<float *>(img.data()));
+
+  // Estimate background and threshold
+  std::vector<float> pixels;
+  pixels.reserve(static_cast<size_t>(img.size()));
+  for (int y = 0; y < h; ++y) {
+    const float *row = img.data() + static_cast<size_t>(y) * w;
+    pixels.insert(pixels.end(), row, row + w);
+  }
+  float med = core::median_of(pixels);
+  float sigma = core::robust_sigma_mad(pixels);
+  if (sigma < 1.0e-6f)
+    sigma = 1.0f;
+
+  // White top-hat: extract bright thin structures (trails)
+  cv::Mat tophat;
+  cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(15, 15));
+  cv::morphologyEx(f, tophat, cv::MORPH_TOPHAT, kernel);
+
+  // Threshold the top-hat result to isolate trails
+  float trail_thresh = med + 2.0f * sigma;
+  cv::Mat binary;
+  cv::threshold(tophat, binary, static_cast<double>(trail_thresh - med), 255.0,
+                cv::THRESH_BINARY);
+  binary.convertTo(binary, CV_8U);
+
+  // Morphological thinning: erode to find trail skeleton endpoints
+  // Use successive erosion with small kernel to approximate skeleton
+  cv::Mat thin;
+  cv::Mat thin_kernel =
+      cv::getStructuringElement(cv::MORPH_CROSS, cv::Size(3, 3));
+  cv::erode(binary, thin, thin_kernel, cv::Point(-1, -1), 1);
+
+  // Find contours of the thinned trails
+  std::vector<std::vector<cv::Point>> contours;
+  cv::findContours(binary, contours, cv::RETR_EXTERNAL,
+                   cv::CHAIN_APPROX_NONE);
+
+  // Extract endpoints: start and end of each contour (trail)
+  std::vector<StarPoint> endpoints;
+  endpoints.reserve(contours.size() * 2);
+  for (const auto &contour : contours) {
+    if (contour.size() < 5)
+      continue; // skip tiny noise blobs
+
+    // Trail endpoints are the first and last points of the contour
+    // Use the brightest end as the primary endpoint
+    auto get_brightness = [&](const cv::Point &pt) -> float {
+      if (pt.y >= 0 && pt.y < h && pt.x >= 0 && pt.x < w)
+        return img(pt.y, pt.x);
+      return 0.0f;
+    };
+
+    // Find the two points in the contour that are farthest apart
+    // (these are the trail endpoints)
+    float max_dist = 0.0f;
+    int idx_a = 0, idx_b = 0;
+    const int step = std::max(1, static_cast<int>(contour.size()) / 20);
+    for (int i = 0; i < static_cast<int>(contour.size()); i += step) {
+      for (int j = i + 1; j < static_cast<int>(contour.size()); j += step) {
+        float dx = static_cast<float>(contour[j].x - contour[i].x);
+        float dy = static_cast<float>(contour[j].y - contour[i].y);
+        float d = dx * dx + dy * dy;
+        if (d > max_dist) {
+          max_dist = d;
+          idx_a = i;
+          idx_b = j;
+        }
+      }
+    }
+
+    // Refine: centroid of small neighborhood around each endpoint
+    auto refine_endpoint = [&](const cv::Point &pt) -> StarPoint {
+      const int r = 2;
+      float wsum = 0.0f, xs = 0.0f, ys = 0.0f;
+      for (int dy = -r; dy <= r; ++dy) {
+        for (int dx = -r; dx <= r; ++dx) {
+          int py = pt.y + dy;
+          int px = pt.x + dx;
+          if (py < 0 || py >= h || px < 0 || px >= w)
+            continue;
+          float val = img(py, px) - med;
+          if (val <= 0.0f)
+            continue;
+          wsum += val;
+          xs += static_cast<float>(px) * val;
+          ys += static_cast<float>(py) * val;
+        }
+      }
+      StarPoint sp;
+      if (wsum > 0.0f) {
+        sp.x = xs / wsum;
+        sp.y = ys / wsum;
+        sp.flux = wsum;
+      } else {
+        sp.x = static_cast<float>(pt.x);
+        sp.y = static_cast<float>(pt.y);
+        sp.flux = get_brightness(pt);
+      }
+      return sp;
+    };
+
+    StarPoint ep_a = refine_endpoint(contour[idx_a]);
+    StarPoint ep_b = refine_endpoint(contour[idx_b]);
+
+    // Only add the brighter endpoint (trail start = shutter open position)
+    if (ep_a.flux >= ep_b.flux) {
+      endpoints.push_back(ep_a);
+    } else {
+      endpoints.push_back(ep_b);
+    }
+  }
+
+  // Sort by flux and keep topk
+  std::sort(endpoints.begin(), endpoints.end(),
+            [](const StarPoint &a, const StarPoint &b) {
+              return a.flux > b.flux;
+            });
+  if (static_cast<int>(endpoints.size()) > topk)
+    endpoints.resize(static_cast<size_t>(topk));
+
+  return endpoints;
+}
+
+RegistrationResult
+trail_endpoint_registration(const Matrix2Df &mov, const Matrix2Df &ref,
+                            bool allow_rotation, int topk_stars,
+                            int min_inliers, float inlier_tol_px,
+                            float dist_bin_px) {
+  RegistrationResult res;
+  res.warp = identity_warp();
+  res.success = false;
+  res.correlation = 0.0f;
+
+  auto mov_eps = detect_trail_endpoints(mov, topk_stars);
+  auto ref_eps = detect_trail_endpoints(ref, topk_stars);
+
+  // If trail detection found enough points, also try combining with
+  // regular star detection for a richer point set
+  auto mov_stars = detect_stars_simple(mov, topk_stars);
+  auto ref_stars = detect_stars_simple(ref, topk_stars);
+  mov_eps.insert(mov_eps.end(), mov_stars.begin(), mov_stars.end());
+  ref_eps.insert(ref_eps.end(), ref_stars.begin(), ref_stars.end());
+
+  if (mov_eps.size() < 3 || ref_eps.size() < 3) {
+    res.error_message = "too_few_trail_endpoints";
+    return res;
+  }
+
+  // Use star_registration_similarity logic with the combined point set
+  // (pair-distance matching)
+  struct Pair {
+    int i, j;
+    float dist;
+  };
+  std::vector<Pair> ref_pairs, mov_pairs;
+
+  auto build_pairs = [](const std::vector<StarPoint> &stars,
+                        std::vector<Pair> &out) {
+    const int n = static_cast<int>(stars.size());
+    out.reserve(static_cast<size_t>(n) * static_cast<size_t>(n) / 2);
+    for (int i = 0; i < n; ++i) {
+      for (int j = i + 1; j < n; ++j) {
+        float dx = stars[j].x - stars[i].x;
+        float dy = stars[j].y - stars[i].y;
+        float d = std::sqrt(dx * dx + dy * dy);
+        if (d > 1.0f)
+          out.push_back({i, j, d});
+      }
+    }
+    std::sort(out.begin(), out.end(),
+              [](const Pair &a, const Pair &b) { return a.dist > b.dist; });
+    const size_t limit = std::min<size_t>(out.size(), 800);
+    out.resize(limit);
+  };
+
+  build_pairs(ref_eps, ref_pairs);
+  build_pairs(mov_eps, mov_pairs);
+  if (ref_pairs.empty() || mov_pairs.empty()) {
+    res.error_message = "no_trail_pairs";
+    return res;
+  }
+
+  std::unordered_map<int, std::vector<Pair>> ref_bucket;
+  ref_bucket.reserve(ref_pairs.size() * 2);
+  for (const auto &p : ref_pairs) {
+    int key = static_cast<int>(std::round(p.dist / dist_bin_px));
+    ref_bucket[key].push_back(p);
+  }
+
+  SimilarityResult best;
+  int attempts = 0;
+  for (const auto &pm : mov_pairs) {
+    int key = static_cast<int>(std::round(pm.dist / dist_bin_px));
+    for (int dk = -1; dk <= 1; ++dk) {
+      auto it = ref_bucket.find(key + dk);
+      if (it == ref_bucket.end())
+        continue;
+      for (const auto &pr : it->second) {
+        ++attempts;
+        float scale = 1.0f;
+        float theta = 0.0f;
+        Eigen::Vector2f t;
+        const Eigen::Vector2f m1(mov_eps[pm.i].x, mov_eps[pm.i].y);
+        const Eigen::Vector2f m2(mov_eps[pm.j].x, mov_eps[pm.j].y);
+        const Eigen::Vector2f r1(ref_eps[pr.i].x, ref_eps[pr.i].y);
+        const Eigen::Vector2f r2(ref_eps[pr.j].x, ref_eps[pr.j].y);
+        if (!similarity_from_pairs(m1, m2, r1, r2, allow_rotation, scale,
+                                   theta, t))
+          continue;
+        if (!std::isfinite(scale) || scale < 0.5f || scale > 2.0f)
+          continue;
+        SimilarityResult sr = score_similarity(mov_eps, ref_eps, scale, theta,
+                                               t, inlier_tol_px * 2.0f);
+        if (!sr.ok)
+          continue;
+        if (sr.inliers > best.inliers ||
+            (sr.inliers == best.inliers && sr.mean_err < best.mean_err)) {
+          best = sr;
+        }
+      }
+    }
+    if (attempts > 4000 && best.inliers >= min_inliers)
+      break;
+  }
+
+  if (best.inliers >= std::max(2, min_inliers / 2) &&
+      best.mean_err < inlier_tol_px * 3.0f) {
+    res.success = true;
+    res.correlation = static_cast<float>(best.inliers) /
+                      static_cast<float>(std::max<size_t>(1, mov_eps.size()));
+    float s_fw = best.scale;
+    float th_fw = best.theta;
+    float tx_fw = best.t.x();
+    float ty_fw = best.t.y();
+    float c_fw = std::cos(th_fw);
+    float sn_fw = std::sin(th_fw);
+    float s_inv = 1.0f / s_fw;
+    float c_inv = c_fw;
+    float sn_inv = -sn_fw;
+    float a00 = s_inv * c_inv;
+    float a01 = s_inv * -sn_inv;
+    float a10 = s_inv * sn_inv;
+    float a11 = s_inv * c_inv;
+    float tx_inv = -(a00 * tx_fw + a01 * ty_fw);
+    float ty_inv = -(a10 * tx_fw + a11 * ty_fw);
+    res.warp << a00, a01, tx_inv, a10, a11, ty_inv;
+  } else {
+    res.error_message = "no_trail_consensus";
+  }
+  return res;
+}
+
+// =====================================================================
+// Robust multi-scale Phase+ECC with gradient pre-processing
+// Handles nebula/cloud gradients and large rotations better.
+// =====================================================================
+
+static Matrix2Df gradient_preprocess(const Matrix2Df &img) {
+  cv::Mat f(img.rows(), img.cols(), CV_32F,
+            const_cast<float *>(img.data()));
+  // Laplacian of Gaussian: removes low-frequency gradients (nebula, clouds)
+  // while preserving high-frequency structure (stars, edges)
+  cv::Mat blurred;
+  cv::GaussianBlur(f, blurred, cv::Size(0, 0), 2.0);
+  cv::Mat laplacian;
+  cv::Laplacian(blurred, laplacian, CV_32F, 3);
+
+  // Normalize to [0,1]
+  double minV, maxV;
+  cv::minMaxLoc(laplacian, &minV, &maxV);
+  if (maxV - minV < 1e-10)
+    maxV = minV + 1.0;
+  cv::Mat norm = (laplacian - minV) / (maxV - minV);
+
+  Matrix2Df result(img.rows(), img.cols());
+  std::memcpy(result.data(), norm.data,
+              static_cast<size_t>(img.size()) * sizeof(float));
+  return result;
+}
+
+RegistrationResult robust_phase_ecc(const Matrix2Df &mov,
+                                    const Matrix2Df &ref,
+                                    bool allow_rotation) {
+  RegistrationResult res;
+  res.warp = identity_warp();
+  res.success = false;
+  res.correlation = 0.0f;
+
+  // Gradient pre-processing: removes nebula/cloud gradients
+  Matrix2Df mov_grad = gradient_preprocess(mov);
+  Matrix2Df ref_grad = gradient_preprocess(ref);
+
+  // Multi-scale pyramid: coarse-to-fine for large displacements/rotations
+  // Level 2 (4x downsampled) → Level 1 (2x) → Level 0 (original)
+  std::vector<Matrix2Df> mov_pyr = {mov_grad};
+  std::vector<Matrix2Df> ref_pyr = {ref_grad};
+
+  // Build 2 pyramid levels
+  for (int level = 0; level < 2; ++level) {
+    mov_pyr.push_back(downsample2x2_mean(mov_pyr.back()));
+    ref_pyr.push_back(downsample2x2_mean(ref_pyr.back()));
+  }
+
+  // Start from coarsest level
+  WarpMatrix current_warp = identity_warp();
+
+  for (int level = static_cast<int>(mov_pyr.size()) - 1; level >= 0; --level) {
+    const Matrix2Df &m = mov_pyr[static_cast<size_t>(level)];
+    const Matrix2Df &r = ref_pyr[static_cast<size_t>(level)];
+
+    Matrix2Df m_ecc = prepare_ecc_image(m);
+    Matrix2Df r_ecc = prepare_ecc_image(r);
+
+    if (level == static_cast<int>(mov_pyr.size()) - 1) {
+      // Coarsest level: estimate initial translation + rotation
+      auto [dx, dy] = phasecorr_translation(m_ecc, r_ecc);
+      current_warp(0, 2) = dx;
+      current_warp(1, 2) = dy;
+
+      if (allow_rotation) {
+        cv::Mat r_cv(r_ecc.rows(), r_ecc.cols(), CV_32F,
+                     const_cast<float *>(r_ecc.data()));
+        cv::Mat m_cv(m_ecc.rows(), m_ecc.cols(), CV_32F,
+                     const_cast<float *>(m_ecc.data()));
+        float rot = estimate_rotation_logpolar(r_cv, m_cv);
+        float th = rot * 3.14159265f / 180.0f;
+        float ct = std::cos(th);
+        float st = std::sin(th);
+        float cx = static_cast<float>(m_ecc.cols()) * 0.5f;
+        float cy = static_cast<float>(m_ecc.rows()) * 0.5f;
+        float tx_rot = cx * (1.0f - ct) + cy * st;
+        float ty_rot = cy * (1.0f - ct) - cx * st;
+        current_warp << ct, -st, dx + tx_rot, st, ct, dy + ty_rot;
+      }
+    } else {
+      // Scale warp from previous (coarser) level to current level
+      current_warp(0, 2) *= 2.0f;
+      current_warp(1, 2) *= 2.0f;
+    }
+
+    // ECC refinement at this level
+    int iters = (level == 0) ? 200 : 100;
+    float eps = (level == 0) ? 1e-6f : 1e-4f;
+    RegistrationResult level_res =
+        ecc_warp(m_ecc, r_ecc, allow_rotation, current_warp, iters, eps);
+    if (level_res.success) {
+      current_warp = level_res.warp;
+      res = level_res;
+    }
+    // If ECC fails at coarse level, still try finer levels with current seed
+  }
+
+  return res;
 }
 
 RegistrationResult
@@ -870,7 +1242,18 @@ register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
 
     // 2) Fallback cascade if primary failed
     if (!rr.success) {
+      // Trail endpoint detection: works when stars are smeared into arcs
+      rr = trail_endpoint_registration(
+          mov_p, ref_p, rcfg.allow_rotation, rcfg.star_topk,
+          rcfg.star_min_inliers, rcfg.star_inlier_tol_px,
+          rcfg.star_dist_bin_px);
+    }
+    if (!rr.success) {
       rr = feature_registration_similarity(mov_p, ref_p, rcfg.allow_rotation);
+    }
+    if (!rr.success) {
+      // Robust multi-scale Phase+ECC with gradient pre-processing
+      rr = robust_phase_ecc(mov_p, ref_p, rcfg.allow_rotation);
     }
     if (!rr.success) {
       rr = hybrid_phase_ecc(mov_p, ref_p, rcfg.allow_rotation);

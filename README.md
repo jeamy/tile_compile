@@ -1,404 +1,206 @@
 # Tile-Compile
 
-Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (Methodology v4).
+Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer Bildstapel (Methodik v3).
 
-> **⚠️ EXPERIMENTAL & COMPUTATIONALLY INTENSIVE**  
-> This method uses iterative tile-local registration with adaptive refinement. Processing times can range from **minutes to hours** depending on dataset size and configuration. Recommended for high-quality reconstructions where computational cost is acceptable.
-
-Given a directory of aligned (or alignable) FITS lights, it:
+Given a directory of FITS lights, it:
 
 - optionally **calibrates** lights (bias/dark/flat)
-- **registers** frames (OpenCV ECC)
-- splits channels (OSC)
+- **registers** frames via a robust 6-stage cascade (star matching, trail detection, feature matching, phase+ECC)
 - estimates **global + local (tile) quality metrics**
-- reconstructs an improved per-channel image based on tile weights
+- reconstructs an improved image based on tile-weighted overlap-add
 - optionally clusters frame "states" and generates synthetic frames
-- produces a final stacked output plus a set of **diagnostic artifacts** (PNGs/JSON)
+- **sigma-clip stacks** the result
+- **debayers** OSC data (nearest-neighbor demosaic)
+- produces a final stacked output plus **diagnostic artifacts** (JSON)
 
 ## Versions
 
-The project contains two independent implementations:
-
 | Version | Directory | Status | Backend |
 |---------|-----------|--------|---------|
-| **Python** | `tile_compile_python/` | Stable (v4) | Python + NumPy + OpenCV |
-| **C++** | `tile_compile_cpp/` | In Development | C++ + Eigen + OpenCV |
+| **C++** | `tile_compile_cpp/` | **Active** (v3) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
+| **Python** | `tile_compile_python/` | Legacy (v4) | Python + NumPy + OpenCV |
 
-Both versions are independently executable.
+Die **C++ Version** ist die aktive Implementierung. Die Python-Version ist als Referenz vorhanden.
 
-## Methodology v4 - Key Features
+## Methodik v3 — Kernfeatures
 
-**Tile-wise Local Registration (TLR)** - No global registration:
-- Each tile registers independently
-- Iterative reference refinement (2-5 iterations)
-- Adaptive tile splitting based on warp variance
-- Temporal smoothing of warps (Savitzky-Golay)
-- Memory-efficient disk streaming (memmap)
-- Production-ready OOM safety
+### Pipeline-Phasen
 
-**Configuration Presets:**
-1. EQ mount, calm seeing (iterations: 2, beta: 3.0, adaptive: off) - **Fastest**
-2. Alt/Az, strong field rotation (iterations: 4, beta: 6.0, adaptive: on) **[DEFAULT]** - **Balanced**
-3. Near pole, very unstable (iterations: 5, beta: 8.0, adaptive: on, aggressive) - **Highest quality, slowest**
+| Phase | Name | Beschreibung |
+|-------|------|-------------|
+| 0 | SCAN_INPUT | Frame-Erkennung, FITS-Header, Bayer-Pattern, Linearitätsprüfung |
+| 1 | REGISTRATION | 6-stufige Kaskade + CFA-aware Pre-Warping |
+| 2 | NORMALIZATION | Hintergrund-basierte Normalisierung (kanalweise) |
+| 3 | GLOBAL_METRICS | B/σ/E → gewichtete globale Qualitäts-Scores |
+| 4 | TILE_GRID | FWHM-adaptive Tile-Geometrie |
+| 5 | LOCAL_METRICS | Stern- und Struktur-basierte Tile-Qualität |
+| 6 | TILE_RECONSTRUCTION | Gewichtete Overlap-Add mit Hanning-Fenster |
+| 7 | STATE_CLUSTERING | K-Means Clustering + synthetische Frames |
+| 8 | STACKING | Sigma-Clip oder Mean-Stacking |
+| 9 | DEBAYER | Nearest-Neighbor Demosaic (OSC → RGB) |
+| 10 | DONE | Validierung + Report |
 
-See `doc/tile_based_quality_reconstruction_methodology_v4.md` for full specification.
+Detaillierte Dokumentation: `doc/v3/process_flow/`
 
-## Performance Considerations
+### Registrierung — 6-stufige Kaskade
 
-**Processing Time Estimates:**
-- **Small dataset** (50-200 frames, 128×128 tiles): ~5-15 minutes
-- **Medium dataset** (200-500 frames, adaptive refinement): ~30-60 minutes  
-- **Large dataset** (500+ frames, aggressive refinement): ~1-3 hours
+Die Registrierung ist robust gegen schwierige Bedingungen:
 
-**Memory Requirements:**
-- **Base**: ~50-100 MB (disk streaming)
-- **Parallel processing**: +50 MB per worker thread
-- **Adaptive refinement**: Additional memory for tile splitting
+| Stufe | Methode | Funktioniert bei |
+|-------|---------|-----------------|
+| 1 | **Triangle Star Matching** | Punktsterne, ≥6 Sterne, Feldrotation |
+| 2 | **Trail Endpoint Detection** | Star Trails (Alt/Az Feldrotation) |
+| 3 | **AKAZE Feature Matching** | Allgemeine Bildfeatures |
+| 4 | **Robust Phase+ECC** | Nebel/Wolken + große Rotation (Multi-Scale + LoG) |
+| 5 | **Hybrid Phase+ECC** | Fallback ohne Sterne |
+| 6 | **Identity Fallback** | Letzte Rettung (CC=0, Frame bleibt) |
 
-**CPU Usage:**
-- **Single-threaded**: 1 core (default, safest)
-- **Multi-threaded**: Up to `v4.parallel_tiles` cores (default: 8)
-- **Recommendation**: Start with 1-2 cores, increase if stable
+### Konfiguration
 
----
+Alle Einstellungen in `tile_compile.yaml`. Schema-Validierung via `tile_compile.schema.json` / `.yaml`.
 
-## Quickstart (Python-Version)
+Referenz: `doc/v3/configuration_reference.md`
 
-### System prerequisites (important)
+## Quickstart (C++ Version)
 
-If you use a Python that was built without certain system libraries (common with `pyenv`), you may hit errors like:
+### Build-Voraussetzungen
 
-- `ModuleNotFoundError: No module named '_bz2'`
-- `ModuleNotFoundError: No module named '_ctypes'`
+- **CMake** ≥ 3.20
+- **C++17** Compiler (GCC 11+, Clang 14+)
+- **OpenCV** ≥ 4.5
+- **Eigen3**
+- **cfitsio**
+- **yaml-cpp**
+- **nlohmann-json**
 
-These are **missing stdlib extension modules** and mean your Python interpreter was compiled without the required OS development packages.
-
-#### Linux (Fedora)
-
-Install build dependencies (covers `_bz2`, `_ctypes`, SSL, zlib, lzma, sqlite, tkinter, etc.):
-
-```bash
-sudo dnf install -y \
-  gcc make \
-  bzip2-devel libffi-devel \
-  zlib-devel xz-devel \
-  openssl-devel \
-  readline-devel sqlite-devel tk-devel
-```
-
-If you use `pyenv`, rebuild your Python after installing the packages and then recreate the project venv.
-
-#### Linux (Ubuntu/Debian)
+### Build
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y \
-  build-essential \
-  libbz2-dev libffi-dev \
-  zlib1g-dev liblzma-dev \
-  libssl-dev \
-  libreadline-dev libsqlite3-dev tk-dev
+cd tile_compile_cpp
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j$(nproc)
 ```
 
-#### macOS (Homebrew)
+### CLI Runner
 
 ```bash
-brew install openssl@3 readline sqlite3 xz zlib bzip2 libffi tcl-tk
+./tile_compile_runner \
+  --config ../tile_compile.yaml \
+  --input-dir /path/to/lights \
+  --runs-dir /path/to/runs
 ```
 
-If you use `pyenv` on macOS, ensure `pyenv install` sees these libraries (often works automatically with Homebrew).
+### CLI Scan (Frame-Erkennung)
 
-#### Windows
+```bash
+./tile_compile_cli scan \
+  --input-dir /path/to/lights \
+  --pattern "*.fits"
+```
 
-- **Recommended**: install Python from python.org (it includes `bz2` and `ctypes`).
-- Use a venv and install dependencies via `pip` (see below).
-- For PySide6/Qt: ensure you run on 64-bit Python.
+### GUI (Qt6)
 
-### Python setup (venv)
+```bash
+./tile_compile_gui
+```
 
-#### Python package dependencies
-
-The Python implementation consists of:
-
-- backend/runner dependencies (scientific stack, FITS IO, registration)
-- optional GUI dependency (Qt via PySide6)
-
-At minimum you need the packages from `tile_compile_python/requirements.txt`.
-
-Notes:
-
-- The backend uses OpenCV (`cv2`). If your environment does not already provide it, install `opencv-python`.
-- The GUI uses Qt via `PySide6`.
+## Quickstart (Python-Version, Legacy)
 
 ```bash
 cd tile_compile_python
-
-# Virtual Environment erstellen
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Abhängigkeiten installieren
 pip install -r requirements.txt
-
-# GUI starten
 ./start_gui.sh
 ```
 
-### Python setup (pyenv users)
+## GUI Bedienungsanleitung
 
-If you use `pyenv` and hit `_bz2` / `_ctypes` errors, rebuild the interpreter after installing the OS packages above:
-
-```bash
-pyenv uninstall 3.12.12
-pyenv install 3.12.12
-```
-
-Then recreate the project venv (important):
-
-```bash
-rm -rf .venv
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-## Quickstart (C++ Version - in Entwicklung)
-
-Siehe `tile_compile_cpp/README.md` und `doc/c-port/` für den Portierungsplan.
-
-## GUI Bedienungsanleitung (Schritt-für-Schritt)
-
-Die GUI ist in Tabs organisiert, die den Pipeline-Phasen aus `doc/process_flow/` entsprechen. Ein typischer End-to-End-Ablauf:
-
-### 1) Scan (Phase 0)
-
-- **Tab:** Scan
-- **Eingaben:**
-  - **Input dir:** Verzeichnis mit deinen Lights (OSC RAW FITS)
-  - **Pattern:** `*.fit*` (Standard) oder passend zu deinen Dateien
-  - **Frames min:** Mindestanzahl Frames (Default 50)
-  - **Checksums:** optional, zur Integritätsprüfung
-- **Aktion:** Klicke **Scan**
-- **Ergebnis:** Zeigt erkannte Frames, Farbmodus (OSC/MONO) und Bayer-Pattern
-- **Wichtig:** Hier wird auch die Kalibrierung vorbereitet (falls aktiviert)
-
-### 2) Kalibrierung (Bias/Darks/Flats) – optional
-
-- **Tab:** Calibration
-- **Einstellungen:**
-  - **use_bias / use_dark / use_flat:** aktivieren, falls vorhanden
-  - **Master vs. Verzeichnis:** Entweder Master-Frames (`*_master`) oder Verzeichnisse (`*_dir`) auswählen
-  - Wenn Verzeichnis angegeben und kein Master vorhanden → Tile-Compile erzeugt Master während des Laufs
-- **Aktion:** Nach Auswahl werden die Pfade gespeichert
-- **Hinweis:** Kalibrierung läuft **vor** der Registrierung (Phase 1)
-
-### 3) Konfiguration (tile_compile.yaml)
-
-- **Tab:** Configuration
-- **Schritte:**
-  - Lade eine vorhandene `tile_compile.yaml` oder bearbeite die YAML direkt im GUI
-  - **Validate config:** Prüft Konsistenz und Schema
-  - **Save:** Schreibt die Konfiguration zurück auf die Festplatte
-- **Wichtige Felder:**
-  - `registration.engine`: `opencv_cfa` (default) oder `siril`
-  - `normalization.mode`: `background` oder `median`
-  - `global_metrics.weights`: α/β/γ (müssen 1.0 ergeben)
-  - `tile.*`: seeing-adaptive Tile-Parameter
-  - `stacking.method`: `rej` (Sigma-Clip) oder `average`
-
-### 4) Assumptions (Methodik v3 §2)
-
-- **Tab:** Assumptions
-- **Zweck:** Meinungsbasierte Defaults/Heuristiken anwenden
-- **Beispiele:**
-  - `frames_min`: Hard Minimum (unter 50 → Abbruch)
-  - `frames_optimal`: Optimale Frame-Anzahl (≥ 200 → Normal Mode)
-  - `registration_residual_warn_px` / `max_px`: Registrierungsqualität
-  - `elongation_warn/max`: Tracking-Qualität
-- **Aktion:** Werte anpassen und bei Bedarf **Apply to Config** klicken
-
-### 5) Run starten
-
-- **Tab:** Run
-- **Einstellungen:**
-  - **Working dir:** Schreibt die effektive Konfiguration für den Lauf
-  - **Runs dir:** Zielverzeichnis für Outputs (`runs/<run_id>/`)
-- **Aktion:** **Start**
-- **Hinweis:** Der Run wird im Hintergrund ausgeführt; Logs erscheinen im Tab *Live log*
-
-### 6) Pipeline Progress verfolgen
-
-- **Tab:** Pipeline Progress
-- **Anzeige:**
-  - Aktuelle Phase (z.B. `REGISTRATION`, `NORMALIZATION`, `TILE_GRID`, …)
-  - Fortschrittsbalken (falls Phase Sub-Steps hat)
-  - Status- und Fehlermeldungen
-- **Phasen im Detail (siehe `doc/process_flow/`):**
-  - **Phase 0:** SCAN_INPUT (Kalibrierung, falls aktiv)
-  - **Phase 1:** REGISTRATION (Cosmetic Correction + ECC/Warp)
-  - **Phase 2:** CHANNEL_SPLIT + NORMALIZATION
-  - **Phase 3:** GLOBAL_METRICS (B, σ, E → globale Gewichte)
-  - **Phase 4:** TILE_GRID (FWHM-basierte Tiles)
-  - **Phase 5:** LOCAL_METRICS (Tile-Qualität)
-  - **Phase 6:** TILE_RECONSTRUCTION (gewichtete Rekonstruktion)
-  - **Phase 7:** STATE_CLUSTERING + SYNTHETIC_FRAMES (nur bei ≥ 200 Frames)
-  - **Phase 8:** STACKING (Sigma-Clip)
-  - **Phase 9:** DEBAYER (CFA → RGB)
-  - **Phase 10:** DONE (Report)
-
-### 7) Live log + Current run + Resume
-
-- **Tab:** Live log
-  - Zeigt stdout/stderr des Runners in Echtzeit
-- **Tab:** Current run
-  - **Refresh:** Status, Logs, Artifacts neu laden
-  - **Inspect:** Run-Verzeichnis im Dateimanager öffnen
-  - **Resume from phase…:** Lauf ab einer ausgewählten Phase fortsetzen
-- **Hinweis:** Resume ist nützlich, wenn ein Lauf中途 abgebrochen wird und du ab einer bestimmten Phase neu starten willst
-
-### 8) Ergebnisse (Outputs)
-
-Nach erfolgreichem Lauf findest du unter `runs/<run_id>/`:
-
-- `outputs/`
-  - `calibrated/` (falls Kalibrierung aktiv)
-  - `registered/` (registrierte Frames)
-  - `reconstructed_*` (Kanäle nach Tile-Rekonstruktion)
-  - `stacked_R.fit`, `stacked_G.fit`, `stacked_B.fit`
-  - `stacked_rgb.fit` (nach Debayer)
-- `artifacts/`
-  - PNGs und JSON-Diagnostiken (Qualitätsplots, Tile-Heatmaps, Previews)
-- `work/`
-  - Temporäre Zwischenergebnisse (z.B. Siril-Work-Dirs)
-
----
-
-## GUI workflow (recommended)
-
-The GUI is organized into tabs. A typical end-to-end workflow looks like this:
+Die GUI ist in Tabs organisiert:
 
 ### 1) Scan
 
-- Pick an **Input dir** (your lights) and a file **pattern** (default `*.fit*`).
-- Click **Scan**.
-- Review what was detected (frame count, color mode hints).
+- **Input dir:** Verzeichnis mit FITS Lights
+- **Pattern:** `*.fit*` (Standard)
+- Klicke **Scan** → zeigt erkannte Frames, Farbmodus (OSC/MONO), Bayer-Pattern
 
-### 2) Select directories (optional calibration)
+### 2) Kalibrierung (optional)
 
-If you want calibration (Bias/Darks/Flats), set it up before starting the run:
+- **use_bias / use_dark / use_flat** aktivieren
+- Master-Frames oder Verzeichnisse auswählen
+- Kalibrierung läuft vor der Registrierung
 
-- Enable **use_bias / use_dark / use_flat**.
-- Either select a **master** (`*_master`) or a **directory** (`*_dir`).
-- If you provide a directory and no master is set, Tile-Compile will build a master during the run.
+### 3) Konfiguration
 
-### 3) Configuration
+- Lade `tile_compile.yaml` oder bearbeite direkt im GUI
+- **Validate config** prüft Schema-Konsistenz
+- **Wichtige Felder:**
+  - `registration.engine`: `triangle_star_matching` (Default)
+  - `normalization.mode`: `background` oder `median`
+  - `global_metrics.weights`: α=0.4, β=0.3, γ=0.3 (Summe = 1.0)
+  - `tile.size_factor`: FWHM-basierte Tile-Größe (Default: 32)
+  - `stacking.method`: `rej` (Sigma-Clip) oder `average`
 
-- Load `tile_compile.yaml` (or edit the YAML in the GUI).
-- Click **Validate config** to ensure the configuration is consistent.
-- Save if you want the file updated on disk.
+### 4) Run starten
 
-### 4) Assumptions
+- **Runs dir:** Zielverzeichnis für Outputs (`runs/<run_id>/`)
+- Klicke **Start** → Pipeline läuft im Hintergrund
+- **Pipeline Progress** zeigt aktuelle Phase + Fortschritt
 
-- Use the **Assumptions** tab to apply opinionated defaults / heuristics.
-- Apply them to the config if desired.
+### 5) Ergebnisse
 
-### 5) Run
+Nach erfolgreichem Lauf unter `runs/<run_id>/`:
 
-- Go to **Run** tab.
-- Set **Working dir** (where the GUI writes its effective config) and **Runs dir**.
-- Click **Start**.
-- Use **Stop** to terminate a running pipeline.
-
-### 6) Pipeline Progress
-
-- The **Pipeline Progress** tab shows the current phase and progress.
-- For phases with sub-steps, the progress bar shows the active substep (e.g. `calibrate_lights`, `cluster_frames`).
-
-### 7) Logs + Current run + Resume
-
-- The **Live log** tab shows the runner stdout stream.
-- The **Current run** tab lets you:
-  - refresh status/logs/artifacts
-  - inspect the current run dir
-  - **Resume from phase...** (re-run from a selected phase onward)
-
-### 3) Run the CLI
-
-Example:
-
-```bash
-python3 tile_compile_runner.py run \
-  --config tile_compile.yaml \
-  --input-dir /path/to/lights \
-  --runs-dir runs
-```
-
-There is also a convenience wrapper:
-
-```bash
-./run-cli.sh
-```
+- `outputs/`
+  - `registered/` — registrierte Frames (falls `write_registered_frames: true`)
+  - `synthetic_*.fit` — synthetische Frames
+  - `stacked.fit` — finaler Stack (Mono)
+  - `stacked_rgb.fits` — finaler Stack (RGB, nach Debayer)
+- `artifacts/`
+  - `global_metrics.json` — globale Qualitätsmetriken
+  - `global_registration.json` — Warp-Matrizen + Correlation-Scores
+  - `tile_grid.json` — Tile-Geometrie
+  - `local_metrics.json` — lokale Tile-Metriken
+  - `clustering.json` — Cluster-Zuordnungen
+  - `synthetic_frames.json` — synthetische Frame-Info
+  - `validation.json` — FWHM-Verbesserung, Tile-Pattern-Check
 
 ## Calibration (Bias/Darks/Flats)
 
-Calibration happens before registration.
+- Master-Frames (`bias_master`, `dark_master`, `flat_master`) werden direkt verwendet
+- Verzeichnisse (`bias_dir`, `darks_dir`, `flats_dir`) → Master wird automatisch erzeugt
+- `dark_auto_select: true` → automatische Dark-Zuordnung nach Belichtungszeit (±5%)
 
-- If you provide a **master file** (`bias_master`, `dark_master`, `flat_master`), it is used directly.
-- If you provide a **directory** (`bias_dir`, `darks_dir`, `flats_dir`) and no master is set, Tile-Compile builds a master from the frames in that directory.
-- Built masters are written into the run under:
-  - `outputs/calibration/master_bias.fit`
-  - `outputs/calibration/master_dark.fit`
-  - `outputs/calibration/master_flat.fit`
+## Projektstruktur
 
-## Outputs
-
-Each run produces a self-contained directory structure (under `--runs-dir`), typically:
-
-- `outputs/`
-  - calibrated lights (if enabled)
-  - registered frames
-  - reconstructed outputs
-  - final stack
-- `artifacts/`
-  - PNGs and JSON diagnostics (quality plots, tile heatmaps, previews)
-- `work/`
-  - intermediate work directories (e.g. Siril work dirs)
-
-### Common PNG artifacts
-
-The exact set depends on config and pipeline path, but typically you will find under `artifacts/`:
-
-- per-phase preview images (inputs/registered/reconstructed)
-- global and per-tile quality plots
-- tile heatmaps / weight maps
-- state clustering diagnostics (when enabled)
-
-Open `artifacts/report.html` for a clickable overview that links to the generated PNG/JSON files.
-
-For detailed explanations of the artifacts/PNGs, see `doc/stats/`.
+```
+tile-compile/
+├── tile_compile_cpp/           # C++ Implementierung (aktiv)
+│   ├── apps/                   # Runner + CLI
+│   ├── include/tile_compile/   # Header (config, core, image, metrics, registration, reconstruction)
+│   ├── src/                    # Implementierung
+│   ├── gui_cpp/                # Qt6 GUI
+│   ├── tests/                  # Unit-Tests
+│   ├── tile_compile.yaml       # Default-Konfiguration
+│   ├── tile_compile.schema.json
+│   └── tile_compile.schema.yaml
+├── tile_compile_python/        # Python Implementierung (Legacy)
+│   ├── gui/                    # PyQt6 GUI
+│   ├── runner/                 # Pipeline-Runner
+│   └── tile_compile_backend/   # Backend-Module
+├── doc/
+│   ├── v3/
+│   │   ├── process_flow/       # Pipeline-Phasen-Dokumentation
+│   │   └── configuration_reference.md
+│   └── ...
+├── runs/                       # Run-Outputs
+└── README.md
+```
 
 ## Tests
 
 ```bash
-pytest
-```
-
-## Project structure
-
-```
-tile-compile/
-├── tile_compile_python/    # Python-Implementierung (stabil)
-│   ├── gui/                # PyQt6 GUI
-│   ├── runner/             # Pipeline-Runner
-│   ├── tile_compile_backend/  # Backend-Module
-│   ├── tests/              # Unit-Tests
-│   └── start_gui.sh        # GUI starten
-├── tile_compile_cpp/       # C++ Implementierung (in Entwicklung)
-│   ├── gui/                # PyQt6 GUI (ruft C++ Backend)
-│   ├── build/              # Build-Verzeichnis
-│   └── start_gui.sh        # GUI starten
-├── doc/                    # Dokumentation
-│   ├── c-port/             # C++ Portierungsplan
-│   └── ...
-└── README.md
+cd tile_compile_cpp/build
+ctest --output-on-failure
 ```

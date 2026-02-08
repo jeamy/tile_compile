@@ -55,6 +55,15 @@ RegistrationResult hybrid_phase_ecc(
     const Matrix2Df& mov, const Matrix2Df& ref,
     bool allow_rotation);
 
+RegistrationResult trail_endpoint_registration(
+    const Matrix2Df& mov, const Matrix2Df& ref,
+    bool allow_rotation, int topk_stars, int min_inliers,
+    float inlier_tol_px, float dist_bin_px);
+
+RegistrationResult robust_phase_ecc(
+    const Matrix2Df& mov, const Matrix2Df& ref,
+    bool allow_rotation);
+
 float estimate_rotation_logpolar(const cv::Mat& ref, const cv::Mat& mov);
 
 } // namespace tile_compile::registration
