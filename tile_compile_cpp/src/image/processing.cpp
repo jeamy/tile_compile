@@ -149,4 +149,18 @@ Matrix2Df cosmetic_correction(const Matrix2Df& frame, float sigma_threshold, boo
     return result;
 }
 
+Matrix2Df extract_tile(const Matrix2Df& img, const Tile& t) {
+    int cols = static_cast<int>(img.cols());
+    int rows = static_cast<int>(img.rows());
+    int x0 = std::max(0, t.x);
+    int y0 = std::max(0, t.y);
+    int x1 = std::min(cols, t.x + t.width);
+    int y1 = std::min(rows, t.y + t.height);
+    int tw = std::max(0, x1 - x0);
+    int th = std::max(0, y1 - y0);
+    if (tw <= 0 || th <= 0)
+        return Matrix2Df();
+    return img.block(y0, x0, th, tw);
+}
+
 } // namespace tile_compile::image

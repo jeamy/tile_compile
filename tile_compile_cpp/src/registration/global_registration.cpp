@@ -44,6 +44,24 @@ WarpMatrix scale_translation_warp(const WarpMatrix &w, float scale) {
   return out;
 }
 
+// Invert a 2×3 affine warp matrix: given M→R, return R→M (or vice versa).
+static WarpMatrix invert_warp_2x3(const WarpMatrix &w) {
+  const float a00 = w(0, 0), a01 = w(0, 1), tx = w(0, 2);
+  const float a10 = w(1, 0), a11 = w(1, 1), ty = w(1, 2);
+  const float det = a00 * a11 - a01 * a10;
+  if (std::fabs(det) < 1e-12f)
+    return w; // degenerate — return as-is
+  const float inv_det = 1.0f / det;
+  WarpMatrix inv;
+  inv(0, 0) = a11 * inv_det;
+  inv(0, 1) = -a01 * inv_det;
+  inv(1, 0) = -a10 * inv_det;
+  inv(1, 1) = a00 * inv_det;
+  inv(0, 2) = -(inv(0, 0) * tx + inv(0, 1) * ty);
+  inv(1, 2) = -(inv(1, 0) * tx + inv(1, 1) * ty);
+  return inv;
+}
+
 // --- Sub-functions (exported via header) ---
 
 // Estimate rotation (deg) between ref and mov using log-polar phase correlation
@@ -243,22 +261,57 @@ std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk) {
       if (!is_max)
         continue;
 
+      // Compute flux-weighted centroid and hot pixel / elongation metrics
+      // in a 5×5 neighborhood for better discrimination
+      const int hw = 2; // half-width for analysis
       float wsum = 0.0f;
       float xs = 0.0f;
       float ys = 0.0f;
-      for (int dy = -1; dy <= 1; ++dy) {
+      float central_flux = row[x] - med;
+      if (central_flux < 0.0f)
+        central_flux = 0.0f;
+      float Ixx = 0.0f, Iyy = 0.0f, Ixy = 0.0f;
+      for (int dy = -hw; dy <= hw; ++dy) {
+        if (y + dy < 0 || y + dy >= h)
+          continue;
         const float *r2 = img.data() + static_cast<size_t>(y + dy) * w;
-        for (int dx = -1; dx <= 1; ++dx) {
+        for (int dx = -hw; dx <= hw; ++dx) {
+          if (x + dx < 0 || x + dx >= w)
+            continue;
           const float val = r2[x + dx] - med;
           if (val <= 0.0f)
             continue;
           wsum += val;
           xs += (static_cast<float>(x + dx) * val);
           ys += (static_cast<float>(y + dy) * val);
+          Ixx += static_cast<float>(dx * dx) * val;
+          Iyy += static_cast<float>(dy * dy) * val;
+          Ixy += static_cast<float>(dx * dy) * val;
         }
       }
       if (wsum <= 0.0f)
         continue;
+
+      // Hot pixel rejection: real stars spread flux over multiple pixels.
+      // Hot pixels concentrate >80% in the central pixel.
+      const float concentration = central_flux / wsum;
+      if (concentration > 0.8f)
+        continue;
+
+      // Roundness filter via second moments: reject elongated sources
+      if (Ixx + Iyy > 1e-6f) {
+        float trace = Ixx + Iyy;
+        float det2 = Ixx * Iyy - Ixy * Ixy;
+        float disc = trace * trace - 4.0f * det2;
+        if (disc < 0.0f) disc = 0.0f;
+        float sqrt_disc = std::sqrt(disc);
+        float lam1 = (trace + sqrt_disc) * 0.5f;
+        float lam2 = (trace - sqrt_disc) * 0.5f;
+        float roundness = (lam1 > 1e-6f) ? (lam2 / lam1) : 0.0f;
+        if (roundness < 0.15f)
+          continue; // too elongated (trail or artifact)
+      }
+
       StarPoint s;
       s.x = xs / wsum;
       s.y = ys / wsum;
@@ -714,6 +767,11 @@ RegistrationResult robust_phase_ecc(const Matrix2Df &mov,
     // If ECC fails at coarse level, still try finer levels with current seed
   }
 
+  // ECC returns forward warp (M→R); invert to R→M for WARP_INVERSE_MAP
+  if (res.success) {
+    res.warp = invert_warp_2x3(res.warp);
+  }
+
   return res;
 }
 
@@ -1126,8 +1184,148 @@ RegistrationResult hybrid_phase_ecc(const Matrix2Df &mov, const Matrix2Df &ref,
   }
 
   res = ecc_warp(mov_ecc, ref_ecc, allow_rotation, init, 200, 1e-6f);
+
+  // ECC returns forward warp (M→R); invert to R→M for WARP_INVERSE_MAP
+  if (res.success) {
+    res.warp = invert_warp_2x3(res.warp);
+  }
+
   return res;
 }
+
+// =====================================================================
+// Canonical single-frame registration cascade with NCC validation
+// =====================================================================
+
+static float compute_ncc(const Matrix2Df &a, const Matrix2Df &b) {
+  const int n = a.size();
+  if (n <= 0 || n != b.size())
+    return 0.0f;
+  const float *da = a.data();
+  const float *db = b.data();
+  double ma = 0, mb = 0;
+  for (int i = 0; i < n; ++i) {
+    ma += da[i];
+    mb += db[i];
+  }
+  ma /= n;
+  mb /= n;
+  double sab = 0, saa = 0, sbb = 0;
+  for (int i = 0; i < n; ++i) {
+    double va = da[i] - ma;
+    double vb = db[i] - mb;
+    sab += va * vb;
+    saa += va * va;
+    sbb += vb * vb;
+  }
+  double den = std::sqrt(saa * sbb);
+  return (den > 1e-10) ? static_cast<float>(sab / den) : 0.0f;
+}
+
+SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
+                                           const Matrix2Df &ref,
+                                           const config::RegistrationConfig &rcfg) {
+  SingleFrameRegResult out;
+  out.reg.warp = identity_warp();
+  out.reg.success = false;
+  out.reg.correlation = 0.0f;
+  out.method_used = "identity";
+  out.ncc_identity = compute_ncc(mov, ref);
+  out.ncc_warped = out.ncc_identity;
+
+  bool accepted = false;
+
+  // Try a cascade method and validate with NCC
+  auto try_method = [&](RegistrationResult rr,
+                        const std::string &method) -> bool {
+    if (!rr.success)
+      return false;
+    Matrix2Df warped = apply_warp(mov, rr.warp);
+    float ncc = compute_ncc(warped, ref);
+    if (ncc < out.ncc_identity + 0.01f)
+      return false; // warp doesn't improve alignment — reject
+    out.reg = rr;
+    out.reg.correlation = ncc;
+    out.method_used = method;
+    out.ncc_warped = ncc;
+    return true;
+  };
+
+  // 1) Primary engine
+  if (!accepted) {
+    if (rcfg.engine == "triangle_star_matching" ||
+        rcfg.engine == "star_similarity" || rcfg.engine.empty()) {
+      accepted = try_method(
+          triangle_star_matching(mov, ref, rcfg.allow_rotation,
+                                rcfg.star_topk, rcfg.star_min_inliers,
+                                rcfg.star_inlier_tol_px),
+          "triangle");
+      if (!accepted) {
+        accepted = try_method(
+            star_registration_similarity(
+                mov, ref, rcfg.allow_rotation, rcfg.star_topk,
+                rcfg.star_min_inliers, rcfg.star_inlier_tol_px,
+                rcfg.star_dist_bin_px),
+            "star_pair");
+      }
+    } else if (rcfg.engine == "opencv_feature") {
+      accepted = try_method(
+          feature_registration_similarity(mov, ref, rcfg.allow_rotation),
+          "akaze");
+    } else if (rcfg.engine == "hybrid_phase_ecc") {
+      accepted = try_method(
+          hybrid_phase_ecc(mov, ref, rcfg.allow_rotation),
+          "hybrid_phase_ecc");
+    } else {
+      // Default: triangle
+      accepted = try_method(
+          triangle_star_matching(mov, ref, rcfg.allow_rotation,
+                                rcfg.star_topk, rcfg.star_min_inliers,
+                                rcfg.star_inlier_tol_px),
+          "triangle");
+    }
+  }
+
+  // 2) Fallback cascade
+  if (!accepted) {
+    accepted = try_method(
+        trail_endpoint_registration(mov, ref, rcfg.allow_rotation,
+                                    rcfg.star_topk, rcfg.star_min_inliers,
+                                    rcfg.star_inlier_tol_px,
+                                    rcfg.star_dist_bin_px),
+        "trail_endpoint");
+  }
+  if (!accepted) {
+    accepted = try_method(
+        feature_registration_similarity(mov, ref, rcfg.allow_rotation),
+        "akaze");
+  }
+  if (!accepted) {
+    accepted = try_method(
+        robust_phase_ecc(mov, ref, rcfg.allow_rotation),
+        "robust_phase_ecc");
+  }
+  if (!accepted) {
+    accepted = try_method(
+        hybrid_phase_ecc(mov, ref, rcfg.allow_rotation),
+        "hybrid_phase_ecc");
+  }
+
+  // 3) Final fallback: identity
+  if (!accepted) {
+    out.reg.warp = identity_warp();
+    out.reg.correlation = 0.0f;
+    out.reg.success = false;
+    out.method_used = "identity";
+    out.ncc_warped = out.ncc_identity;
+  }
+
+  return out;
+}
+
+// =====================================================================
+// Multi-frame registration (uses register_single_frame internally)
+// =====================================================================
 
 GlobalRegistrationOutput
 register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
@@ -1198,11 +1396,6 @@ register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
 
   const Matrix2Df ref_p = proxy[static_cast<size_t>(out.ref_idx)];
 
-  // Prepare ECC images once for ref
-  const Matrix2Df ref_ecc = prepare_ecc_image(ref_p);
-  cv::Mat ref_cv(ref_ecc.rows(), ref_ecc.cols(), CV_32F,
-                 const_cast<float *>(ref_ecc.data()));
-
   for (int i = 0; i < n; ++i) {
     if (i == out.ref_idx) {
       out.success[static_cast<size_t>(i)] = true;
@@ -1213,64 +1406,20 @@ register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
 
     const Matrix2Df mov_p = proxy[static_cast<size_t>(i)];
 
-    RegistrationResult rr;
+    // Delegate to canonical single-frame cascade
+    SingleFrameRegResult sfr = register_single_frame(mov_p, ref_p, rcfg);
 
-    // Cascaded registration: try primary engine, then fallbacks.
-    // v3: ALL frames must be used — failed registration gets identity warp.
-
-    // 1) Primary engine
-    if (rcfg.engine == "triangle_star_matching" ||
-        rcfg.engine == "star_similarity") {
-      rr = triangle_star_matching(mov_p, ref_p, rcfg.allow_rotation,
-                                  rcfg.star_topk, rcfg.star_min_inliers,
-                                  rcfg.star_inlier_tol_px);
-      if (!rr.success) {
-        rr = star_registration_similarity(
-            mov_p, ref_p, rcfg.allow_rotation,
-            rcfg.star_topk, rcfg.star_min_inliers, rcfg.star_inlier_tol_px,
-            rcfg.star_dist_bin_px);
-      }
-    } else if (rcfg.engine == "opencv_feature") {
-      rr = feature_registration_similarity(mov_p, ref_p, rcfg.allow_rotation);
-    } else if (rcfg.engine == "hybrid_phase_ecc") {
-      rr = hybrid_phase_ecc(mov_p, ref_p, rcfg.allow_rotation);
+    if (sfr.reg.success) {
+      out.success[static_cast<size_t>(i)] = true;
+      out.scores[static_cast<size_t>(i)] = sfr.reg.correlation;
+      out.warps_fullres[static_cast<size_t>(i)] =
+          scale_translation_warp(sfr.reg.warp, out.downsample_scale);
     } else {
-      rr = triangle_star_matching(mov_p, ref_p, rcfg.allow_rotation,
-                                  rcfg.star_topk, rcfg.star_min_inliers,
-                                  rcfg.star_inlier_tol_px);
-    }
-
-    // 2) Fallback cascade if primary failed
-    if (!rr.success) {
-      // Trail endpoint detection: works when stars are smeared into arcs
-      rr = trail_endpoint_registration(
-          mov_p, ref_p, rcfg.allow_rotation, rcfg.star_topk,
-          rcfg.star_min_inliers, rcfg.star_inlier_tol_px,
-          rcfg.star_dist_bin_px);
-    }
-    if (!rr.success) {
-      rr = feature_registration_similarity(mov_p, ref_p, rcfg.allow_rotation);
-    }
-    if (!rr.success) {
-      // Robust multi-scale Phase+ECC with gradient pre-processing
-      rr = robust_phase_ecc(mov_p, ref_p, rcfg.allow_rotation);
-    }
-    if (!rr.success) {
-      rr = hybrid_phase_ecc(mov_p, ref_p, rcfg.allow_rotation);
-    }
-
-    if (!rr.success) {
       out.warps_fullres[static_cast<size_t>(i)] = identity_warp();
       out.scores[static_cast<size_t>(i)] = 0.0f;
       out.success[static_cast<size_t>(i)] = false;
-      out.errors[static_cast<size_t>(i)] = rr.error_message;
-      continue;
+      out.errors[static_cast<size_t>(i)] = sfr.reg.error_message;
     }
-
-    out.success[static_cast<size_t>(i)] = true;
-    out.scores[static_cast<size_t>(i)] = rr.correlation;
-    out.warps_fullres[static_cast<size_t>(i)] =
-        scale_translation_warp(rr.warp, out.downsample_scale);
   }
 
   return out;
