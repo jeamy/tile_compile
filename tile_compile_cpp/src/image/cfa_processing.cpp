@@ -308,4 +308,61 @@ void bayer_offsets(const std::string& bayer_pattern,
     }
 }
 
+DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
+                                       BayerPattern pattern) {
+    const int h = static_cast<int>(mosaic.rows());
+    const int w = static_cast<int>(mosaic.cols());
+
+    DebayerResult out;
+    out.R = Matrix2Df::Zero(h, w);
+    out.G = Matrix2Df::Zero(h, w);
+    out.B = Matrix2Df::Zero(h, w);
+
+    int r_row = 1, r_col = 0;
+    int b_row = 0, b_col = 1;
+    if (pattern == BayerPattern::RGGB) {
+        r_row = 0; r_col = 0;
+        b_row = 1; b_col = 1;
+    } else if (pattern == BayerPattern::BGGR) {
+        r_row = 1; r_col = 1;
+        b_row = 0; b_col = 0;
+    } else if (pattern == BayerPattern::GRBG) {
+        r_row = 0; r_col = 1;
+        b_row = 1; b_col = 0;
+    }
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            int y2 = y & ~1;
+            int x2 = x & ~1;
+
+            float r_val =
+                mosaic(std::min(y2 + r_row, h - 1), std::min(x2 + r_col, w - 1));
+            float b_val =
+                mosaic(std::min(y2 + b_row, h - 1), std::min(x2 + b_col, w - 1));
+
+            float g_val;
+            if ((y + x) % 2 == 0) {
+                g_val = mosaic(y, x);
+            } else {
+                int gy1 = (y % 2 == r_row) ? y : y;
+                int gx1 = (x % 2 == r_col) ? x + 1 : x - 1;
+                int gy2 = (y % 2 == r_row) ? y + 1 : y - 1;
+                int gx2 = (x % 2 == r_col) ? x : x;
+                gx1 = std::max(0, std::min(w - 1, gx1));
+                gx2 = std::max(0, std::min(w - 1, gx2));
+                gy1 = std::max(0, std::min(h - 1, gy1));
+                gy2 = std::max(0, std::min(h - 1, gy2));
+                g_val = (mosaic(gy1, gx1) + mosaic(gy2, gx2)) * 0.5f;
+            }
+
+            out.R(y, x) = r_val;
+            out.G(y, x) = g_val;
+            out.B(y, x) = b_val;
+        }
+    }
+
+    return out;
+}
+
 } // namespace tile_compile::image
