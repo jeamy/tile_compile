@@ -212,6 +212,8 @@ stacking:
     max_iters: 3             # Max. Clipping-Iterationen
     min_fraction: 0.5        # Min. überlebende Frame-Fraktion (Fallback: unclipped mean)
 
+  output_stretch: true       # Lineares Stretching auf vollen 16-bit Bereich (0..65535)
+
 # =========================
 # Validation
 # =========================

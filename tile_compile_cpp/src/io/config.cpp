@@ -298,6 +298,8 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (sc["min_fraction"])
         cfg.stacking.sigma_clip.min_fraction = sc["min_fraction"].as<float>();
     }
+    if (st["output_stretch"])
+      cfg.stacking.output_stretch = st["output_stretch"].as<bool>();
   }
 
   if (node["validation"]) {
@@ -467,6 +469,7 @@ YAML::Node Config::to_yaml() const {
   node["stacking"]["sigma_clip"]["max_iters"] = stacking.sigma_clip.max_iters;
   node["stacking"]["sigma_clip"]["min_fraction"] =
       stacking.sigma_clip.min_fraction;
+  node["stacking"]["output_stretch"] = stacking.output_stretch;
 
   node["validation"]["min_fwhm_improvement_percent"] =
       validation.min_fwhm_improvement_percent;
@@ -770,7 +773,8 @@ std::string get_schema_json() {
     "debayer": {"type":"boolean"},
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},
-                      "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}} } },
+                      "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},
+                      "output_stretch":{"type":"boolean"} } },
     "validation": { "type":"object",
       "properties": { "min_fwhm_improvement_percent":{"type":"number"},
                       "max_background_rms_increase_percent":{"type":"number"},

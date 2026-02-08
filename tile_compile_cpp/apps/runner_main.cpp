@@ -1891,10 +1891,37 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
+    // Post-stack cosmetic correction: remove residual hot pixels
+    // that survived sigma-clipped stacking (especially with few frames)
+    recon = image::cosmetic_correction(recon, 5.0f, true);
+
     Matrix2Df recon_out = recon;
     image::apply_output_scaling_inplace(recon_out, 0, 0, detected_mode,
         detected_bayer_str, output_bg_mono, output_bg_r, output_bg_g,
         output_bg_b, output_pedestal);
+
+    // Linear stretch to full 16-bit range [0..65535]
+    if (cfg.stacking.output_stretch) {
+      float vmin = std::numeric_limits<float>::max();
+      float vmax = std::numeric_limits<float>::lowest();
+      for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
+        float v = recon_out.data()[k];
+        if (std::isfinite(v)) {
+          if (v < vmin) vmin = v;
+          if (v > vmax) vmax = v;
+        }
+      }
+      float range = vmax - vmin;
+      if (range > 1.0e-6f) {
+        float scale = 65535.0f / range;
+        for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
+          recon_out.data()[k] = (recon_out.data()[k] - vmin) * scale;
+        }
+        std::cout << "[Stacking] Output stretch: [" << vmin << ".." << vmax
+                  << "] -> [0..65535]" << std::endl;
+      }
+    }
+
     io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out,
                          first_hdr);
     io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out,
@@ -2059,6 +2086,33 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       R_out.array() += output_pedestal;
       G_out.array() += output_pedestal;
       B_out.array() += output_pedestal;
+
+      // Linear stretch RGB to full 16-bit range (joint min/max preserves color)
+      if (cfg.stacking.output_stretch) {
+        float vmin = std::numeric_limits<float>::max();
+        float vmax = std::numeric_limits<float>::lowest();
+        for (auto *ch : {&R_out, &G_out, &B_out}) {
+          for (Eigen::Index k = 0; k < ch->size(); ++k) {
+            float v = ch->data()[k];
+            if (std::isfinite(v)) {
+              if (v < vmin) vmin = v;
+              if (v > vmax) vmax = v;
+            }
+          }
+        }
+        float range = vmax - vmin;
+        if (range > 1.0e-6f) {
+          float scale = 65535.0f / range;
+          for (auto *ch : {&R_out, &G_out, &B_out}) {
+            for (Eigen::Index k = 0; k < ch->size(); ++k) {
+              ch->data()[k] = (ch->data()[k] - vmin) * scale;
+            }
+          }
+          std::cout << "[Debayer] RGB output stretch: [" << vmin << ".." << vmax
+                    << "] -> [0..65535]" << std::endl;
+        }
+      }
+
       io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
                            first_hdr);
       io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G_out,

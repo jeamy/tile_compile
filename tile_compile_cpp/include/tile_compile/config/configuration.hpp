@@ -154,6 +154,7 @@ struct StackingConfig {
   } sigma_clip;
 
   std::string method = "rej";
+  bool output_stretch = true;
 };
 
 struct ValidationConfig {
