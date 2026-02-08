@@ -1,484 +1,261 @@
-# Phase 2: Globale Normalisierung und Frame-Metriken
+# NORMALIZATION + GLOBAL_METRICS — Hintergrund-Normalisierung und globale Gewichtung
+
+> **C++ Implementierung:** `runner_main.cpp` Zeilen 385–717
+> **Phase-Enums:** `Phase::NORMALIZATION` (L385–L634), `Phase::GLOBAL_METRICS` (L636–L717)
 
 ## Übersicht
 
-Phase 2 normalisiert alle Frames kanalweise und berechnet globale Qualitätsmetriken. Diese Phase ist **identisch** für beide Vorverarbeitungspfade (A und B).
-
-## Ziele
-
-1. Lineare Normalisierung aller Frames (Hintergrundsubtraktion)
-2. Berechnung globaler Frame-Metriken (Rauschen, Gradientenergie)
-3. Berechnung globaler Qualitätsindizes
-4. Vorbereitung für Tile-basierte Analyse
-
-## Input
-
-```python
-# Pro Kanal (R, G, B):
-frames[f][x, y]  # f = 0..N-1 (Frame-Index)
-                 # x, y = Pixel-Koordinaten
-                 # Wertebereich: [0, 1] (linear)
-```
-
-## Schritt 2.1: Hintergrundschätzung
-
-### Methode: Robuste Statistik
+Diese beiden Phasen berechnen für jeden Frame die Hintergrund-Normalisierung und daraus abgeleitete globale Qualitätsmetriken. Das Ergebnis sind Normalisierungsfaktoren (`NormalizationScales`) und globale Frame-Gewichte (`G_f`).
 
 ```
-┌─────────────────────────────────────────┐
-│  Frame f, Kanal c                       │
-│  I_f,c[x,y]                             │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 1: Sigma-Clipping                 │
-│                                         │
-│  μ₀ = median(I_f,c)                     │
-│  σ₀ = MAD(I_f,c) * 1.4826               │
-│                                         │
-│  Iteration (3x):                        │
-│    mask = |I - μ| < 3σ                  │
-│    μ = mean(I[mask])                    │
-│    σ = std(I[mask])                     │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 2: Background Level               │
-│                                         │
-│  B_f,c = μ_final                        │
-│                                         │
-│  (Hintergrundniveau des Frames)         │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  NORMALIZATION (Phase 2)                             │
+│                                                      │
+│  Für jeden Frame f:                                  │
+│  1. Frame laden (FITS → Matrix2Df)                   │
+│  2. Grob-Normalisierung (Median aller Pixel)         │
+│  3. Sigma-Clip Background-Maske erstellen            │
+│  4. OSC: Kanalgetrennte BG-Schätzung (R,G,B)        │
+│     MONO: Einzelne BG-Schätzung                      │
+│  5. Scale = 1 / Background                           │
+│                                                      │
+│  Output: NormalizationScales[N], B_mono/B_r/B_g/B_b  │
+└──────────────────────────┬───────────────────────────┘
+                           │
+┌──────────────────────────▼───────────────────────────┐
+│  GLOBAL_METRICS (Phase 3)                            │
+│                                                      │
+│  Für jeden Frame f:                                  │
+│  1. Frame laden + normalisieren                      │
+│  2. calculate_frame_metrics() → B_f, σ_f, E_f       │
+│  3. calculate_global_weights() → G_f                 │
+│                                                      │
+│  Output: FrameMetrics[N], VectorXf global_weights    │
+└──────────────────────────────────────────────────────┘
 ```
 
-**MAD (Median Absolute Deviation):**
-```
-MAD = median(|X - median(X)|)
-σ ≈ MAD * 1.4826  (für Normalverteilung)
-```
+## Phase 2: NORMALIZATION — Detaillierter Ablauf
 
-### Visualisierung
+### Schritt 1: Frame laden
 
-```
-Pixel-Histogramm:
-    
-    │     ╱╲
-    │    ╱  ╲
-    │   ╱    ╲___________
-    │  ╱    Sky Background
-    │ ╱      ↑
-    │╱       B_f,c
-    └─────────────────────► Pixel Value
-    
-    Sterne und Nebel →  Rechter Tail
-    Hintergrund      →  Peak bei B_f,c
+```cpp
+auto frame_pair = io::read_fits_float(path);
+const Matrix2Df &img = frame_pair.first;
 ```
 
-## Schritt 2.2: Globale Normalisierung
+Jeder Frame wird einzeln von Disk geladen (Memory-effizient). Die Normalisierung berechnet nur die Skalierungsfaktoren — die eigentliche Normalisierung wird **lazy** bei Bedarf angewendet.
 
-### Formel (normativ)
+### Schritt 2: Grob-Normalisierung für Masken-Berechnung
 
-```
-I'_f,c[x,y] = I_f,c[x,y] / B_f,c
-```
-
-**Wichtig:** Diese Normalisierung wird **exakt einmal** durchgeführt, **vor jeder Metrik**.
-
-### Prozess
-
-```
-┌─────────────────────────────────────────┐
-│  Input: I_f,c[x,y], B_f,c               │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Normalization                          │
-│                                         │
-│  For each pixel (x,y):                  │
-│    I'_f,c[x,y] = I_f,c[x,y] / B_f,c     │
-│                                         │
-│  Wertebereich nach Normalisierung:      │
-│  • Hintergrund ≈ 1.0                    │
-│  • Sterne/Nebel > 1.0                   │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Output: I'_f,c[x,y] (normalized)       │
-└─────────────────────────────────────────┘
+```cpp
+const float b0 = core::median_of(all);  // Median aller Pixel
+const float coarse_scale = (b0 > eps_b) ? (1.0f / b0) : 1.0f;
+Matrix2Df coarse_norm = img * coarse_scale;
 ```
 
-### Warum Division statt Subtraktion?
+- Median aller Pixel als grober Background-Schätzer
+- Division durch Median → grob auf ~1.0 normalisiert
+- Nur für die Berechnung der Sigma-Clip-Maske verwendet
 
-```
-Subtraktion:  I' = I - B
-  Problem: Absolute Skala, nicht vergleichbar
+### Schritt 3: Sigma-Clipping Background-Maske
 
-Division:     I' = I / B
-  Vorteil: Relative Skala, frames vergleichbar
-  Hintergrund = 1.0 für alle Frames
-```
-
-## Schritt 2.3: Rauschschätzung
-
-### Methode: Robuste Standardabweichung
-
-```
-┌─────────────────────────────────────────┐
-│  Normalized Frame I'_f,c[x,y]           │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 1: Hintergrund-Maske              │
-│                                         │
-│  mask = (I'_f,c < threshold)            │
-│  threshold = 1.0 + 3*σ_initial          │
-│                                         │
-│  → Nur Hintergrund-Pixel, keine Sterne  │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 2: Noise Estimation               │
-│                                         │
-│  σ_f,c = std(I'_f,c[mask])              │
-│                                         │
-│  (Standardabweichung im Hintergrund)    │
-└─────────────────────────────────────────┘
+```cpp
+const cv::Mat1b bg_mask = metrics::build_background_mask_sigma_clip(coarse_cv, 3.0f, 3);
 ```
 
-### Visualisierung
+- **3σ Sigma-Clipping** mit 3 Iterationen
+- Maske markiert Pixel die zum Background gehören (1) vs. Sterne/Objekte (0)
+- Wird auf dem grob-normalisierten Bild berechnet
 
-```
-Frame mit Rauschen:
+### Schritt 4a: OSC — Kanalgetrennte Background-Schätzung
 
-    Hintergrund-Region (mask=True):
-    ┌─────────────────────┐
-    │ ░░▓░░▓▓░░░▓░░▓░░░░  │  ← Rauschen
-    │ ░▓░░░░▓░░▓░░░▓░░▓░  │     σ_f,c = std(diese Pixel)
-    │ ░░▓░░░░▓░░░▓░░░░▓░  │
-    └─────────────────────┘
-    
-    Stern-Region (mask=False):
-    ┌─────────────────────┐
-    │         ███         │  ← Ausgeschlossen
-    │        █████        │     (zu hell)
-    │       ███████       │
-    └─────────────────────┘
-```
+Bei OSC-Daten wird der Background **pro Bayer-Kanal** geschätzt:
 
-**Interpretation:**
-- Niedriges σ → Gutes Seeing, wenig Rauschen
-- Hohes σ → Schlechtes Seeing oder kurze Belichtung
+```cpp
+int r_row, r_col, b_row, b_col;
+image::bayer_offsets(detected_bayer_str, r_row, r_col, b_row, b_col);
 
-## Schritt 2.4: Gradientenergie
-
-### Methode: Sobel-Operator
-
-```
-┌─────────────────────────────────────────┐
-│  Normalized Frame I'_f,c[x,y]           │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Sobel Gradients                        │
-│                                         │
-│  Gx = I' ⊗ [-1  0  1]                  │
-│            [-2  0  2]                   │
-│            [-1  0  1]                   │
-│                                         │
-│  Gy = I' ⊗ [-1 -2 -1]                  │
-│            [ 0  0  0]                   │
-│            [ 1  2  1]                   │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Gradient Magnitude                     │
-│                                         │
-│  G[x,y] = √(Gx² + Gy²)                  │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Gradient Energy                        │
-│                                         │
-│  E_f,c = mean(G²)                       │
-│        = (1/N) Σ G[x,y]²                │
-└─────────────────────────────────────────┘
-```
-
-### Visualisierung
-
-```
-Original Frame:        Gradient Magnitude:
-                      
-    ░░░░░░░░░░            ░░░░░░░░░░
-    ░░░░██░░░░            ░░░████░░░
-    ░░░████░░░    →       ░░██░░██░░
-    ░░░░██░░░░            ░░░████░░░
-    ░░░░░░░░░░            ░░░░░░░░░░
-    
-    Scharfer Stern        Hohe Gradienten an Kanten
-    → Hohe E_f,c          → Gute Schärfe
-```
-
-**Interpretation:**
-- Hohe E → Scharfe Strukturen, gutes Seeing
-- Niedrige E → Unscharfe Strukturen, schlechtes Seeing
-
-## Schritt 2.5: Globaler Qualitätsindex
-
-### Formel (normativ)
-
-```
-Q_f,c = α·(-B̃_f,c) + β·(-σ̃_f,c) + γ·Ẽ_f,c
-
-wobei (robuste Skalierung mit Median + MAD):
-  B̃_f,c = (B_f,c - median(B)) / (1.4826 · MAD(B))
-  σ̃_f,c = (σ_f,c - median(σ)) / (1.4826 · MAD(σ))
-  Ẽ_f,c = (E_f,c - median(E)) / (1.4826 · MAD(E))
-  
-  α + β + γ = 1  (Normierung)
-  Default: α = 0.4, β = 0.3, γ = 0.3
-```
-
-### Prozess
-
-```
-┌─────────────────────────────────────────┐
-│  Metriken für alle Frames:              │
-│  B_f,c, σ_f,c, E_f,c  (f = 0..N-1)      │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 1: Robuste Normalisierung         │
-│                                         │
-│  median_B = median(B_f,c)               │
-│  MAD_B    = MAD(B_f,c)                  │
-│  B̃_f,c    = (B_f,c - median_B)          │
-│             / (1.4826 · MAD_B)          │
-│                                         │
-│  (analog für σ und E mit median + MAD)  │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 2: Gewichtete Kombination         │
-│                                         │
-│  Q_f,c = α·(-B̃) + β·(-σ̃) + γ·Ẽ          │
-│                                         │
-│  Vorzeichen:                            │
-│  • -B̃: Niedriger Hintergrund ist gut    │
-│  • -σ̃: Niedriges Rauschen ist gut       │
-│  • +Ẽ: Hohe Gradientenergie ist gut     │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 3: Clamping (Stabilität)          │
-│                                         │
-│  Q_f,c = clip(Q_f,c, -3, +3)            │
-│                                         │
-│  → Verhindert extreme Ausreißer         │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Step 4: Exponential Mapping            │
-│                                         │
-│  G_f,c = exp(Q_f,c)                     │
-│                                         │
-│  Wertebereich: [e⁻³, e³] ≈ [0.05, 20.1] │
-└─────────────────────────────────────────┘
-```
-
-### Visualisierung
-
-```
-Qualitätsindex über Frames:
-
-G_f,c
-  │
-20│                    ●
-  │              ●         ●
-10│        ●                   ●
-  │    ●     ●     ●     ●         ●
- 5│  ●                               ●
-  │●                                   ●
- 1├─────────────────────────────────────►
-  0   10   20   30   40   50   60   70  Frame f
-  
-  Hohe Peaks → Beste Frames (gutes Seeing)
-  Niedrige Werte → Schlechte Frames
-```
-
-### Interpretation der Gewichte
-
-```
-α = 0.4  (Hintergrund)
-  → Frames mit niedrigem Hintergrund bevorzugen
-  → Dunkler Himmel = bessere Bedingungen
-
-β = 0.3  (Rauschen)
-  → Frames mit niedrigem Rauschen bevorzugen
-  → Weniger Rauschen = bessere Daten
-
-γ = 0.3  (Gradientenergie)
-  → Frames mit scharfen Strukturen bevorzugen
-  → Hohe Schärfe = gutes Seeing
-```
-
-## Schritt 2.6: Validierung
-
-### Checks
-
-```python
-def validate_phase2(frames, metrics):
-    # Check 1: Gewichtsnormierung
-    alpha, beta, gamma = config['weights']
-    assert abs(alpha + beta + gamma - 1.0) < 1e-6, \
-        "Weights must sum to 1.0"
-    
-    # Check 2: Clamping
-    for f in range(len(frames)):
-        Q = metrics[f]['Q']
-        assert -3.0 <= Q <= 3.0, \
-            f"Q[{f}] = {Q} not clamped to [-3, 3]"
-    
-    # Check 3: Positive weights
-    for f in range(len(frames)):
-        G = metrics[f]['G']
-        assert G > 0, f"G[{f}] = {G} must be positive"
-    
-    # Check 4: No NaN/Inf
-    for f in range(len(frames)):
-        for key in ['B', 'sigma', 'E', 'Q', 'G']:
-            val = metrics[f][key]
-            assert not np.isnan(val), f"{key}[{f}] is NaN"
-            assert not np.isinf(val), f"{key}[{f}] is Inf"
-    
-    # Check 5: Reasonable ranges
-    B_vals = [m['B'] for m in metrics]
-    assert all(0 < b < 2 for b in B_vals), \
-        "Background levels unreasonable"
-    
-    sigma_vals = [m['sigma'] for m in metrics]
-    assert all(s > 0 for s in sigma_vals), \
-        "Noise must be positive"
-    
-    E_vals = [m['E'] for m in metrics]
-    assert all(e >= 0 for e in E_vals), \
-        "Gradient energy must be non-negative"
-```
-
-## Output-Datenstruktur
-
-```python
-# Phase 2 Output
-{
-    'normalized_frames': {
-        'R': np.ndarray,  # shape: (N, H, W), dtype: float32
-        'G': np.ndarray,  # normalized by B_f,c
-        'B': np.ndarray,
-    },
-    'global_metrics': {
-        'R': [  # Liste von N Dictionaries
-            {
-                'frame_id': int,
-                'B': float,      # Hintergrundniveau
-                'sigma': float,  # Rauschen
-                'E': float,      # Gradientenergie
-                'Q': float,      # Qualitätsindex (clamped)
-                'G': float,      # Globales Gewicht exp(Q)
-            },
-            ...
-        ],
-        'G': [...],  # analog
-        'B': [...],  # analog
-    },
-    'statistics': {
-        'R': {
-            'B_mean': float, 'B_std': float,
-            'sigma_mean': float, 'sigma_std': float,
-            'E_mean': float, 'E_std': float,
-            'G_mean': float, 'G_std': float,
-        },
-        'G': {...},
-        'B': {...},
+// Pixel nach Bayer-Position sortieren, nur Background-Maske berücksichtigen
+for (int y = 0; y < img.rows(); ++y) {
+    const int py = y & 1;
+    for (int x = 0; x < img.cols(); ++x) {
+        if (bg_mask(y,x) == 0) continue;
+        const int px = x & 1;
+        if (py == r_row && px == r_col)      pr_bg.push_back(v);  // Red
+        else if (py == b_row && px == b_col) pb_bg.push_back(v);  // Blue
+        else                                  pg_bg.push_back(v);  // Green
     }
+}
+
+float br = core::median_of(pr_bg);  // Background Red
+float bg = core::median_of(pg_bg);  // Background Green
+float bb = core::median_of(pb_bg);  // Background Blue
+```
+
+- **Bayer-Offsets** bestimmen welche Pixel R, G oder B sind
+- Background wird als **Median der maskierten Pixel** pro Kanal berechnet
+- **Fallback**: Wenn Median ≤ ε, wird `estimate_background_sigma_clip()` auf alle Kanal-Pixel angewendet
+- **Fehler**: Wenn Background für irgendeinen Kanal ≤ ε → Pipeline bricht ab
+
+Skalierungsfaktoren:
+```cpp
+s.scale_r = 1.0f / br;
+s.scale_g = 1.0f / bg;
+s.scale_b = 1.0f / bb;
+```
+
+### Schritt 4b: MONO — Einzelne Background-Schätzung
+
+```cpp
+// Nur Background-maskierte Pixel verwenden
+float b = core::median_of(p_bg);
+// Fallback: Sigma-Clip auf alle Pixel
+if (!(b > eps_b))
+    b = core::estimate_background_sigma_clip(all_pixels);
+s.scale_mono = 1.0f / b;
+```
+
+### Schritt 5: Output-Skalierung vorbereiten
+
+Nach der Normalisierung werden Median-Background-Werte für die spätere Output-Skalierung berechnet:
+
+```cpp
+const float output_pedestal = 32768.0f;
+const float output_bg_mono = median_finite_positive(B_mono, 1.0f);
+const float output_bg_r    = median_finite_positive(B_r, 1.0f);
+const float output_bg_g    = median_finite_positive(B_g, 1.0f);
+const float output_bg_b    = median_finite_positive(B_b, 1.0f);
+```
+
+Diese Werte werden in Phase 10 (STACKING) und Phase 11 (DEBAYER) verwendet, um die normalisierten Daten zurück in physikalische Einheiten zu konvertieren.
+
+### Lazy Normalisierung
+
+Die eigentliche Normalisierung wird **nicht** sofort auf die Frames angewendet. Stattdessen wird die Lambda-Funktion `load_frame_normalized()` verwendet:
+
+```cpp
+auto load_frame_normalized = [&](size_t frame_index) -> pair<Matrix2Df, FitsHeader> {
+    auto frame_pair = io::read_fits_float(frames[frame_index]);
+    Matrix2Df img = frame_pair.first;
+    image::apply_normalization_inplace(img, norm_scales[frame_index],
+                                       detected_mode, detected_bayer_str, 0, 0);
+    return {img, frame_pair.second};
+};
+```
+
+`apply_normalization_inplace` multipliziert jeden Pixel mit dem entsprechenden Skalierungsfaktor (OSC: kanalgetrennt nach Bayer-Offset, MONO: einheitlich).
+
+## Phase 3: GLOBAL_METRICS — Detaillierter Ablauf
+
+### Frame-Metriken berechnen
+
+```cpp
+for (size_t i = 0; i < frames.size(); ++i) {
+    auto frame_pair = io::read_fits_float(path);
+    Matrix2Df img = frame_pair.first;
+    image::apply_normalization_inplace(img, norm_scales[i], ...);
+    frame_metrics[i] = metrics::calculate_frame_metrics(img);
 }
 ```
 
-## Beispiel-Metriken
+`calculate_frame_metrics()` berechnet pro Frame:
 
-```
-Frame 0 (R-Kanal):
-  B_0,R = 0.0234  (Hintergrund)
-  σ_0,R = 0.0012  (Rauschen)
-  E_0,R = 0.0456  (Gradientenergie)
-  
-  Nach robuster Skalierung (Median + MAD):
-  B̃_0,R = -0.5
-  σ̃_0,R = -1.2
-  Ẽ_0,R = +1.8
-  
-  Qualitätsindex:
-  Q_0,R = 0.4·(0.5) + 0.3·(1.2) + 0.3·(1.8)
-        = 0.2 + 0.36 + 0.54
-        = 1.1
-  
-  Globales Gewicht:
-  G_0,R = exp(1.1) ≈ 3.0
-  
-  → Überdurchschnittlich gutes Frame
+| Metrik | Symbol | Beschreibung | Berechnung |
+|--------|--------|-------------|------------|
+| **Background** | B_f | Hintergrundniveau | Median nach Normalisierung |
+| **Noise** | σ_f | Rausch-Level | Robust σ (MAD-basiert) |
+| **Gradient Energy** | E_f | Strukturenergie | Sobel-Gradient Magnitude |
+| **Quality Score** | Q_f | Qualitätsindex | Intern berechnet |
+
+### Globale Gewichte berechnen
+
+```cpp
+VectorXf global_weights = metrics::calculate_global_weights(
+    frame_metrics,
+    cfg.global_metrics.weights.background,  // α (default 0.4)
+    cfg.global_metrics.weights.noise,       // β (default 0.3)
+    cfg.global_metrics.weights.gradient,    // γ (default 0.3)
+    cfg.global_metrics.clamp[0],            // clamp_lo (default -3)
+    cfg.global_metrics.clamp[1]);           // clamp_hi (default +3)
 ```
 
-## Performance-Hinweise
+#### Gewichtsberechnung
 
-```python
-# Effiziente Implementierung
-def compute_global_metrics_batch(frames, channel):
-    N = len(frames)
-    
-    # Vektorisierte Hintergrundschätzung
-    B = np.array([sigma_clipped_mean(f) for f in frames])
-    
-    # Normalisierung (broadcast)
-    frames_norm = frames / B[:, None, None]
-    
-    # Rauschen (vektorisiert)
-    sigma = np.array([estimate_noise(f) for f in frames_norm])
-    
-    # Gradientenergie (vektorisiert)
-    E = np.array([gradient_energy(f) for f in frames_norm])
-    
-    # Robuste Skalierung (Median + MAD, vgl. Methodik v3.1)
-    def robust_scale(x):
-        med = np.median(x)
-        mad = np.median(np.abs(x - med))
-        return (x - med) / (1.4826 * mad)
+1. **MAD-Normalisierung** jeder Metrik über alle Frames:
+   ```
+   x̃_f = (x_f - median(x)) / (1.4826 · MAD(x))
+   ```
 
-    B_z = robust_scale(B)
-    sigma_z = robust_scale(sigma)
-    E_z = robust_scale(E)
-    
-    # Qualitätsindex
-    Q = alpha * (-B_z) + beta * (-sigma_z) + gamma * E_z
-    Q = np.clip(Q, -3, 3)
-    
-    # Gewichte
-    G = np.exp(Q)
-    
-    return frames_norm, B, sigma, E, Q, G
+2. **Qualitäts-Score** als gewichtete Linearkombination:
+   ```
+   Q_f = α · (-B̃_f) + β · (-σ̃_f) + γ · Ẽ_f
+   ```
+   - Niedriger Background = besser (negiert)
+   - Niedriges Rauschen = besser (negiert)
+   - Hohe Gradient-Energie = besser (nicht negiert)
+
+3. **Clamping und Exponential-Mapping**:
+   ```
+   G_f = exp(clip(Q_f, clamp_lo, clamp_hi))
+   ```
+   - Clamp verhindert extreme Gewichte
+   - exp() stellt sicher, dass alle Gewichte > 0
+
+## Konfigurationsparameter
+
+| Parameter | Beschreibung | Default |
+|-----------|-------------|---------|
+| `normalization.enabled` | Normalisierung aktivieren (Pflicht) | `true` |
+| `global_metrics.weights.background` | α — Background-Gewicht | 0.4 |
+| `global_metrics.weights.noise` | β — Noise-Gewicht | 0.3 |
+| `global_metrics.weights.gradient` | γ — Gradient-Gewicht | 0.3 |
+| `global_metrics.clamp` | [lo, hi] Clamping-Bereich | [-3, +3] |
+| `global_metrics.adaptive_weights` | Adaptive Gewichtung | `false` |
+
+**Gewichts-Normierung:** α + β + γ = 1.0 (wird von `cfg.validate()` geprüft)
+
+## Artifact: `normalization.json`
+
+```json
+{
+  "mode": "OSC",
+  "bayer_pattern": "RGGB",
+  "B_mono": [0.0, 0.0, ...],
+  "B_r": [1234.5, 1230.1, ...],
+  "B_g": [1567.2, 1560.8, ...],
+  "B_b": [1100.3, 1098.7, ...]
+}
 ```
+
+## Artifact: `global_metrics.json`
+
+```json
+{
+  "metrics": [
+    {
+      "background": 1.002,
+      "noise": 0.0045,
+      "gradient_energy": 0.123,
+      "quality_score": 0.85,
+      "global_weight": 2.34
+    },
+    ...
+  ],
+  "weights": {"background": 0.4, "noise": 0.3, "gradient": 0.3},
+  "clamp": [-3.0, 3.0],
+  "adaptive_weights": false
+}
+```
+
+## Fehlerbehandlung
+
+| Fehler | Verhalten |
+|--------|-----------|
+| Normalisierung disabled | phase_end(error), Pipeline-Abbruch |
+| Background ≤ ε (Kanal) | phase_end(error), Pipeline-Abbruch |
+| Frame nicht lesbar | phase_end(error), Pipeline-Abbruch |
+| Leerer Frame | Warnung, Dummy-Metriken (B=0, σ=0, E=0, Q=1) |
 
 ## Nächste Phase
 
-→ **Phase 3: Tile-Erzeugung (FWHM-basiert)**
+→ **Phase 4: TILE_GRID — Seeing-adaptive Tile-Erzeugung**

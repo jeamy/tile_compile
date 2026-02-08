@@ -1,619 +1,210 @@
-# Phase 6: Zustandsbasierte Clusterung und synthetische Frames
+# STATE_CLUSTERING — Zustandsbasierte Frame-Clusterung
+
+> **C++ Implementierung:** `runner_main.cpp` Zeilen 1649–1892
+> **Phase-Enum:** `Phase::STATE_CLUSTERING`
 
 ## Übersicht
 
-Phase 6 gruppiert Frames basierend auf ihren Qualitätszuständen und rekonstruiert **synthetische Frames** pro Cluster. Dies reduziert Rauschen und erhöht die Effizienz des finalen Stackings.
+Phase 8 gruppiert Frames nach ihrem **Qualitätszustand** mittels K-Means-Clusterung auf einem 6-dimensionalen Zustandsvektor. Frames mit ähnlicher Qualität werden einem gemeinsamen Cluster zugeordnet. In der nächsten Phase (SYNTHETIC_FRAMES) wird pro Cluster ein synthetischer Frame erzeugt — dies reduziert die Frame-Anzahl von N auf K bei gleichzeitiger Rauschreduktion.
 
-## Ziele
-
-1. Frames in Cluster gruppieren (basierend auf Qualitätszustand)
-2. Synthetische Frames pro Cluster rekonstruieren
-3. Frame-Anzahl reduzieren (N → K Cluster)
-4. Rauschen reduzieren durch Cluster-Stacking
-5. Vorbereitung für finales lineares Stacking
-
-## Wichtig: Reduced Mode
+**Reduced Mode:** Bei `N < frames_reduced_threshold` wird diese Phase **übersprungen**.
 
 ```
-Bei Frame-Anzahl 50-199:
-  → Clusterung wird ÜBERSPRUNGEN
-  → Direkt zu Phase 7 (finales Stacking)
-  → Keine synthetischen Frames
+┌──────────────────────────────────────────────────────┐
+│  1. Zustandsvektor pro Frame berechnen               │
+│     v_f = [G_f, mean_Q, var_Q, CC̄, WarpVar̄, inv_f]  │
+│                                                      │
+│  2. z-Score Normalisierung (6 Dimensionen)           │
+│                                                      │
+│  3. K bestimmen: K = clip(N/10, k_min, k_max)       │
+│                                                      │
+│  4. K-Means Clusterung (20 Iterationen)              │
+│     • Initialisierung: gleichmäßig verteilte Frames  │
+│     • Assign-Labels → Update-Centers → repeat        │
+│                                                      │
+│  5. Degenerations-Check                              │
+│     • Leere Cluster? → Quantile-Fallback             │
+│                                                      │
+│  Output: cluster_labels[N], cluster_sizes[K]         │
+└──────────────────────────────────────────────────────┘
 ```
 
-## Input
+## Reduced Mode
 
-```python
-# Aus Phase 2 (globale Metriken):
-global_metrics[c][f] = {
-    'B': float,      # Hintergrund
-    'sigma': float,  # Rauschen
-    'E': float,      # Gradientenergie
-    'G': float,      # Globales Gewicht
-}
+```cpp
+const bool reduced_mode = (frames.size() < cfg.assumptions.frames_reduced_threshold);
+const bool skip_clustering = (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
 
-# Aus Phase 4 (lokale Qualitätsindizes pro Frame/Tile):
-local_metrics[c][(f, t)] = {
-    'Q_local': float,  # Lokaler Qualitätsindex
-    'L': float,        # Lokales Gewicht
-}
-
-# Für die Rekonstruktion synthetischer Frames werden
-# die registrierten (ggf. global normalisierten) Frames verwendet:
-frames[c][f][y, x]  # Original-Frames pro Kanal
-```
-
-## Schritt 6.1: Zustandsvektor-Konstruktion
-
-### Formel (normativ)
-
-```
-Für jeden Frame f, Kanal c:
-
-v_f,c = (G_f,c, ⟨Q_local⟩_f,c, Var(Q_local)_f,c, B_f,c, σ_f,c)
-
-wobei:
-  G_f,c              - Globales Gewicht
-  ⟨Q_local⟩_f,c      - Mittelwert der lokalen Q über alle Tiles
-  Var(Q_local)_f,c   - Varianz der lokalen Q über alle Tiles
-  B_f,c              - Hintergrundniveau
-  σ_f,c              - Rauschen
-```
-
-### Prozess
-
-```
-┌─────────────────────────────────────────┐
-│  Frame f, Kanal c                       │
-│  Global: G, B, σ, E                     │
-│  Lokal: Q_local für alle Tiles          │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Berechne Tile-Statistiken              │
-│                                         │
-│  Q_locals = [Q_local_f,t,c for all t]   │
-│                                         │
-│  mean_Q = mean(Q_locals)                │
-│  var_Q = var(Q_locals)                  │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Konstruiere Zustandsvektor             │
-│                                         │
-│  v_f,c = [G_f,c,                        │
-│           mean_Q,                       │
-│           var_Q,                        │
-│           B_f,c,                        │
-│           σ_f,c]                        │
-│                                         │
-│  Shape: (5,)                            │
-└─────────────────────────────────────────┘
-```
-
-### Visualisierung: Zustandsraum
-
-```
-Zustandsvektor-Komponenten:
-
-1. G_f,c (Globales Gewicht):
-   │
-20│  ●        ●
-  │     ●         ●
-10│  ●    ●    ●     ●
-  │●                   ●
-  └─────────────────────► Frame f
-  
-2. ⟨Q_local⟩ (Mittlere lokale Qualität):
-   │
- 2│      ●    ●
-  │  ●     ●      ●
- 0│     ●    ●       ●
-  │  ●                 ●
--2│●                     ●
-  └─────────────────────► Frame f
-  
-3. Var(Q_local) (Lokale Variabilität):
-   │
- 2│●                     ●
-  │  ●                 ●
- 1│     ●    ●    ●
-  │        ●    ●
- 0│           ●
-  └─────────────────────► Frame f
-  
-Interpretation:
-  • Hohe Var → Inhomogenes Seeing (unterschiedliche Tile-Qualitäten)
-  • Niedrige Var → Homogenes Seeing (gleichmäßige Qualität)
-```
-
-### Warum diese Komponenten?
-
-```
-G_f,c:
-  → Gesamtqualität des Frames
-  → Hauptkriterium für Clusterung
-
-⟨Q_local⟩:
-  → Durchschnittliche lokale Qualität
-  → Ergänzt globale Sicht
-
-Var(Q_local):
-  → Seeing-Homogenität
-  → Frames mit ähnlicher Variabilität zusammen
-
-B_f,c:
-  → Himmelshintergrund
-  → Gruppiert Frames mit ähnlichen Bedingungen
-
-σ_f,c:
-  → Rauschcharakteristik
-  → Frames mit ähnlichem Rauschen zusammen
-```
-
-## Schritt 6.2: Feature-Normalisierung
-
-### Z-Score-Normalisierung
-
-```
-┌─────────────────────────────────────────┐
-│  Zustandsvektoren für alle Frames:      │
-│  V = [v_0, v_1, ..., v_{N-1}]           │
-│  Shape: (N, 5)                          │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Pro Feature-Dimension d:               │
-│                                         │
-│  μ_d = mean(V[:, d])                    │
-│  σ_d = std(V[:, d])                     │
-│                                         │
-│  V'[:, d] = (V[:, d] - μ_d) / σ_d       │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Normalisierte Zustandsvektoren         │
-│  V' = [v'_0, v'_1, ..., v'_{N-1}]       │
-│                                         │
-│  Alle Features haben:                   │
-│  • Mittelwert = 0                       │
-│  • Standardabweichung = 1               │
-└─────────────────────────────────────────┘
-```
-
-**Wichtig:** Normalisierung verhindert, dass Features mit großen Werten die Clusterung dominieren.
-
-## Schritt 6.3: K-Means Clusterung
-
-### Algorithmus
-
-```
-┌─────────────────────────────────────────┐
-│  Input: V' (normalisierte Vektoren)     │
-│         K (dynamisch, siehe unten)      │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Initialisierung (K-Means++)            │
-│                                         │
-│  1. Wähle ersten Zentroid zufällig      │
-│  2. Für k=2..K:                         │
-│     Wähle nächsten Zentroid mit         │
-│     Wahrscheinlichkeit ∝ D²             │
-│     (D = Distanz zu nächstem Zentroid)  │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Iteration (bis Konvergenz):            │
-│                                         │
-│  E-Step (Assignment):                   │
-│    Für jeden Frame f:                   │
-│      c_f = argmin_k ||v'_f - μ_k||²     │
-│                                         │
-│  M-Step (Update):                       │
-│    Für jeden Cluster k:                 │
-│    μ_k = mean(v'_f für alle f mit c_f=k)│
-│                                         │
-│  Konvergenz wenn:                       │
-│    Keine Änderung in Assignments        │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Output: Cluster-Zuordnungen            │
-│  cluster_id[f] = k  (k = 0..K-1)        │
-└─────────────────────────────────────────┘
-```
-
-### Visualisierung: 2D-Projektion
-
-```
-Zustandsraum (2D-Projektion via PCA):
-
-PC2 │
-    │     ●●●         Cluster 0 (beste Frames)
-  2 │    ●●●●●        • Hohes G
-    │     ●●●         • Niedriges σ
-    │                 • Homogenes Seeing
-  1 │  ○○○○○
-    │ ○○○○○○○         Cluster 1 (gute Frames)
-  0 ├─────────────────
-    │      ░░░        Cluster 2 (mittlere Frames)
- -1 │    ░░░░░
-    │     ░░░
-    │                 Cluster 3 (schlechte Frames)
- -2 │   ▓▓▓           • Niedriges G
-    │  ▓▓▓▓▓          • Hohes σ
-    └─────────────────────────────► PC1
-   -2  -1   0   1   2
-
-Legende:
-  ● = Cluster 0 (K Cluster insgesamt)
-  ○ = Cluster 1
-  ░ = Cluster 2
-  ▓ = Cluster 3
-```
-
-### Cluster-Anzahl K (verbindlich)
-
-```
-K = clip(floor(N / 10), K_min, K_max)
-
-wobei:
-  K_min = 5
-  K_max = 30
-  N = Anzahl Frames
-
-Beispiele:
-  N = 50  → K = 5
-  N = 200 → K = 20
-  N = 500 → K = 30
-  N = 800 → K = 30 (gedeckelt)
-```
-
-## Schritt 6.4: Cluster-Validierung
-
-### Qualitätskriterien
-
-```python
-def validate_clusters(cluster_assignments, state_vectors, K):
-    """
-    Validiert Cluster-Qualität.
-    """
-    # Check 1: Alle Cluster besetzt
-    unique_clusters = set(cluster_assignments)
-    assert len(unique_clusters) == K, \
-        f"Only {len(unique_clusters)}/{K} clusters populated"
-    
-    # Check 2: Minimale Cluster-Größe
-    for k in range(K):
-        cluster_size = sum(c == k for c in cluster_assignments)
-        assert cluster_size >= 3, \
-            f"Cluster {k} has only {cluster_size} frames (min: 3)"
-    
-    # Check 3: Intra-Cluster-Kohäsion
-    for k in range(K):
-        cluster_frames = [i for i, c in enumerate(cluster_assignments) if c == k]
-        cluster_vecs = state_vectors[cluster_frames]
-        
-        # Durchschnittliche Intra-Cluster-Distanz
-        intra_dist = np.mean([
-            np.linalg.norm(v1 - v2)
-            for v1 in cluster_vecs
-            for v2 in cluster_vecs
-        ])
-        
-        # Sollte klein sein (kohäsive Cluster)
-        assert intra_dist < 5.0, \
-            f"Cluster {k} has high intra-distance: {intra_dist:.2f}"
-    
-    # Check 4: Inter-Cluster-Separation
-    centroids = []
-    for k in range(K):
-        cluster_frames = [i for i, c in enumerate(cluster_assignments) if c == k]
-        centroid = np.mean(state_vectors[cluster_frames], axis=0)
-        centroids.append(centroid)
-    
-    min_separation = min([
-        np.linalg.norm(c1 - c2)
-        for i, c1 in enumerate(centroids)
-        for j, c2 in enumerate(centroids)
-        if i < j
-    ])
-    
-    # Sollte groß sein (gut separierte Cluster)
-    assert min_separation > 0.5, \
-        f"Clusters poorly separated: {min_separation:.2f}"
-```
-
-## Schritt 6.5: Synthetische Frame-Rekonstruktion
-
-### Konzept
-
-```
-Cluster k mit Frames {f₁, f₂, ..., f_m}:
-
-Statt alle m Frames einzeln zu stacken:
-  → Rekonstruiere 1 synthetisches Frame pro Cluster
-  → Repräsentiert den "idealen" Frame dieses Zustands
-  → Reduziert Rauschen durch Averaging
-```
-
-### Prozess
-
-Gemäß Methodik v3.1 (§3.8) werden synthetische Frames direkt
-aus den (registrierten, linear skalierten) Frames pro Kanal
-mit **globalen** Gewichten G_f,c gebildet – ohne erneute
-Tile-Rekonstruktion.
-
-Optional kann die Erzeugung der synthetischen Frames tile‑basiert erfolgen, um lokale Qualitätsgewinne (L_f,t,c) in die synthetischen Frames zu propagieren. Aktivierung:
-
-`synthetic.weighting: tile_weighted` (Default: `global`).
-
-Tile‑basierte Variante (pro Tile t, im Cluster k):
-
-```
-W_f,t,c = G_f,c · L_f,t,c
-
-F_synth,k,t,c(p) = Σ_{f ∈ Cluster_k} W_f,t,c · I_f,c(p) / Σ_{f ∈ Cluster_k} W_f,t,c
-```
-
-Anschließend Overlap‑Add über alle Tiles (analog Phase 5).
-
-```
-┌─────────────────────────────────────────┐
-│  Cluster k, Kanal c                     │
-│  Frames: {f₁, f₂, ..., f_m}            │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Gewichtetes Stacking über Frames       │
-│                                         │
-│  Für jedes Pixel (x,y):                 │
-│    F_synth,k,c[x,y] =                   │
-│     Σ_{f ∈ Cluster_k} G_f,c · I_f,c[x,y]│
-│     ----------------------------------- │ 
-│     Σ_{f ∈ Cluster_k} G_f,c             │
-│                                         │
-│  I_f,c[x,y] sind die registrierten      │
-│  Frames (pro Kanal), G_f,c die globalen │
-│  Gewichte aus Phase 2.                  │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Output: Synthetisches Frame            │
-│  F_synth,k,c[x,y]                       │
-│                                         │
-│  Repräsentiert Cluster k                │
-└─────────────────────────────────────────┘
-```
-
-### Visualisierung
-
-```
-Cluster 0 (5 Frames):
-
-Frame 0:  Frame 1
-
-:  Frame 2:  Frame 3:  Frame 4:
-┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐
-│  ★   │  │  ★   │  │  ★   │  │  ★   │  │  ★   │
-│    ★ │  │    ★ │  │    ★ │  │    ★ │  │    ★ │
-│      │  │      │  │      │  │      │  │      │
-│  ★   │  │  ★   │  │  ★   │  │  ★   │  │  ★   │
-└──────┘  └──────┘  └──────┘  └──────┘  └──────┘
-  W=5.2     W=4.8     W=5.5     W=4.9     W=5.1
-
-           │
-           ▼ Gewichtetes Stacking
-           │
-    ┌──────────────┐
-    │  Synthetisch │
-    │      ★       │  ← Rauschen reduziert
-    │        ★     │  ← Sterne schärfer
-    │              │
-    │      ★       │
-    └──────────────┘
-    
-    Rauschreduktion: σ_synth ≈ σ_original / √m
-    (m = Anzahl Frames im Cluster)
-```
-
-### Gewicht des synthetischen Frames
-
-```
-Für finales Stacking (Phase 7):
-
-W_synth,k,c = Σ_f∈k W_f,c
-
-wobei:
-  W_f,c = G_f,c (globales Gewicht aus Phase 2)
-  
-Interpretation:
-  • Synthetisches Frame repräsentiert alle Frames im Cluster
-  • Gewicht = Summe der Original-Gewichte
-  • Cluster mit mehr/besseren Frames → höheres Gewicht
-```
-
-## Schritt 6.6: Cluster-Statistiken
-
-### Pro Cluster
-
-```python
-cluster_stats = {
-    'cluster_id': int,
-    'frame_count': int,
-    'frame_ids': List[int],
-    
-    # Zustandsvektor-Statistiken
-    'mean_G': float,
-    'mean_B': float,
-    'mean_sigma': float,
-    'mean_Q_local': float,
-    'var_Q_local': float,
-    
-    # Synthetisches Frame
-    'synthetic_weight': float,  # W_synth
-    'synthetic_mean': float,
-    'synthetic_std': float,
-    
-    # Qualität
-    'intra_cluster_distance': float,
-    'centroid': np.ndarray,  # (5,)
+if (skip_clustering) {
+    use_synthetic_frames = false;
+    emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "skipped",
+                      {{"reason", "reduced_mode"}, ...});
 }
 ```
 
-### Visualisierung: Cluster-Übersicht
+Wenn `reduced_mode_skip_clustering = true` und N < Threshold:
+- Phase wird als "skipped" markiert
+- Alle Frames erhalten Label 0 (ein Cluster)
+- Synthetische Frames werden **nicht** erzeugt
+- TILE_RECONSTRUCTION-Ergebnis wird direkt als finales Bild verwendet
 
-```
-Cluster-Statistiken (K=20):
+## 1. Zustandsvektor (6D)
 
-Cluster │ Frames │ Mean G │ Mean σ │ W_synth │ Quality
-────────┼────────┼────────┼────────┼─────────┼─────────
-   0    │   45   │  8.2   │ 0.012  │  369.0  │ ★★★★★
-   1    │   52   │  7.8   │ 0.013  │  405.6  │ ★★★★★
-   2    │   38   │  6.5   │ 0.015  │  247.0  │ ★★★★
-   3    │   41   │  6.1   │ 0.016  │  250.1  │ ★★★★
-   4    │   35   │  5.2   │ 0.018  │  182.0  │ ★★★
-  ...   │  ...   │  ...   │  ...   │   ...   │  ...
-  18    │   28   │  1.8   │ 0.035  │   50.4  │ ★
-  19    │   25   │  1.2   │ 0.042  │   30.0  │ ★
+Pro Frame wird ein 6-dimensionaler Zustandsvektor berechnet:
 
-Gesamt: 800 Frames → 20 synthetische Frames
-Reduktion: 40:1
-```
-
-## Schritt 6.7: Validierung
-
-```python
-def validate_synthetic_frames(synthetic_frames, clusters, original_frames):
-    # Check 1: Anzahl synthetischer Frames
-    K = len(clusters)
-    assert len(synthetic_frames) == K, \
-        f"Expected {K} synthetic frames, got {len(synthetic_frames)}"
-    
-    # Check 2: Keine NaN/Inf
-    for k, frame in enumerate(synthetic_frames):
-        assert not np.any(np.isnan(frame)), f"NaN in synthetic frame {k}"
-        assert not np.any(np.isinf(frame)), f"Inf in synthetic frame {k}"
-    
-    # Check 3: Rauschreduktion
-    for k, cluster in enumerate(clusters):
-        original_noise = np.mean([
-            estimate_noise(original_frames[f])
-            for f in cluster['frame_ids']
-        ])
-        synthetic_noise = estimate_noise(synthetic_frames[k])
-        
-        expected_reduction = np.sqrt(cluster['frame_count'])
-        actual_reduction = original_noise / synthetic_noise
-        
-        # Sollte ungefähr √m sein
-        assert 0.5 * expected_reduction < actual_reduction < 2.0 * expected_reduction, \
-            f"Unexpected noise reduction in cluster {k}"
-    
-    # Check 4: Gewichtserhaltung
-    total_original_weight = sum(G_f for all frames)
-    total_synthetic_weight = sum(W_synth for all clusters)
-    
-    assert np.isclose(total_original_weight, total_synthetic_weight, rtol=0.01), \
-        "Weight not conserved in synthetic frames"
-    
-    # Check 5: Kanalunabhängigkeit
-    assert no_channel_mixing_in_clustering()
+```cpp
+state_vectors[fi] = {
+    G_f,                    // Globales Gewicht (Phase 3)
+    mean_local,             // Mittelwert lokaler Qualitäts-Scores
+    var_local,              // Varianz lokaler Qualitäts-Scores
+    mean_cc_tiles,          // Mittlere Tile-Korrelation (global)
+    mean_warp_var_tiles,    // Mittlere Warp-Varianz (global)
+    frame_invalid_fraction  // Anteil ungültiger Tiles
+};
 ```
 
-## Output-Datenstruktur
+| Dimension | Symbol | Quelle | Beschreibung |
+|-----------|--------|--------|-------------|
+| 0 | G_f | Phase 3 | Globales Frame-Gewicht |
+| 1 | ⟨Q_local⟩_f | Phase 6 | Mittelwert der lokalen Tile-Quality-Scores |
+| 2 | Var(Q_local)_f | Phase 6 | Varianz der lokalen Tile-Quality-Scores |
+| 3 | CC̄_tiles | Phase 7 | Mittlere Tile-Korrelation (über alle Tiles) |
+| 4 | WarpVar̄ | Phase 7 | Mittlere Warp-Varianz (über alle Tiles) |
+| 5 | inv_frac_f | Phase 7 | Anteil ungültiger Tiles am Gesamtgrid |
 
-```python
-# Phase 6 Output
-{
-    'clustering': {
-        'method': 'kmeans',
-        'n_clusters': int,  # K
-        'state_vector_dim': 5,
-        'cluster_assignments': np.ndarray,  # (N_frames,)
-    },
-    'clusters': [
-        {
-            'cluster_id': int,
-            'frame_count': int,
-            'frame_ids': List[int],
-            'centroid': np.ndarray,  # (5,)
-            'intra_distance': float,
-            'mean_G': float,
-            'mean_sigma': float,
-            'synthetic_weight': float,
-        },
-        ...  # K Cluster
-    ],
-    'synthetic_frames': {
-        'R': np.ndarray,  # shape: (K, H, W)
-        'G': np.ndarray,
-        'B': np.ndarray,
-    },
-    'synthetic_weights': {
-        'R': np.ndarray,  # shape: (K,)
-        'G': np.ndarray,
-        'B': np.ndarray,
-    },
-    'statistics': {
-        'original_frame_count': int,  # N
-        'synthetic_frame_count': int,  # K
-        'reduction_ratio': float,  # N/K
-        'total_weight_original': float,
-        'total_weight_synthetic': float,
-        'mean_noise_reduction': float,
+### Mean/Varianz lokaler Qualität
+
+```cpp
+float mean_local = 0.0f, var_local = 0.0f;
+for (const auto &tm : local_metrics[fi])
+    mean_local += tm.quality_score;
+mean_local /= local_metrics[fi].size();
+for (const auto &tm : local_metrics[fi]) {
+    float diff = tm.quality_score - mean_local;
+    var_local += diff * diff;
+}
+var_local /= local_metrics[fi].size();
+```
+
+## 2. z-Score Normalisierung
+
+```cpp
+const size_t D = 6;
+std::vector<float> means(D, 0.0f);
+std::vector<float> stds(D, 0.0f);
+
+// Mean + Std pro Dimension
+for (size_t d = 0; d < D; ++d) {
+    means[d] = sum(X[*][d]) / N;
+    stds[d] = sqrt(var(X[*][d]));
+}
+
+// Normalisierung
+for (size_t i = 0; i < X.size(); ++i)
+    for (size_t d = 0; d < D; ++d)
+        X[i][d] = (stds[d] > eps) ? ((X[i][d] - means[d]) / stds[d]) : 0.0f;
+```
+
+- Alle 6 Dimensionen werden auf Mittelwert=0, Standardabweichung=1 normalisiert
+- Verhindert, dass eine Dimension die Clusterung dominiert
+- Bei std=0 (konstante Dimension): wird auf 0 gesetzt
+
+## 3. Cluster-Anzahl K
+
+```cpp
+int k_min = cfg.synthetic.clustering.cluster_count_range[0];
+int k_max = cfg.synthetic.clustering.cluster_count_range[1];
+int k_default = std::max(k_min, std::min(k_max, n_frames / 10));
+n_clusters = std::min(k_default, n_frames);
+```
+
+```
+K = clip(floor(N / 10), k_min, k_max)
+```
+
+| N Frames | k_min=3, k_max=30 | K |
+|----------|-------------------|---|
+| 50 | clip(5, 3, 30) | 5 |
+| 100 | clip(10, 3, 30) | 10 |
+| 200 | clip(20, 3, 30) | 20 |
+| 500 | clip(50, 3, 30) | 30 |
+
+## 4. K-Means Clusterung
+
+```cpp
+// Initialisierung: gleichmäßig verteilte Frames als Zentren
+for (int c = 0; c < n_clusters; ++c) {
+    int idx = (c * n_frames) / n_clusters;
+    centers[c] = X[idx];
+}
+
+// 20 Iterationen
+for (int iter = 0; iter < 20; ++iter) {
+    // Assign: jeder Frame zum nächsten Zentrum
+    for (size_t fi = 0; fi < X.size(); ++fi) {
+        float best_dist = MAX;
+        for (int c = 0; c < n_clusters; ++c) {
+            float dist = euclidean_distance_sq(X[fi], centers[c]);
+            if (dist < best_dist) { best_dist = dist; cluster_labels[fi] = c; }
+        }
+    }
+    // Update: neue Zentren als Mittelwert der Cluster-Mitglieder
+    for (int c = 0; c < n_clusters; ++c) {
+        centers[c] = mean(X[fi] where cluster_labels[fi] == c);
     }
 }
 ```
 
-## Performance-Hinweise
+- **Initialisierung**: Gleichmäßig verteilte Frames (nicht k-means++)
+- **Distanzmetrik**: Euklidische Distanz im 6D-Raum (nach z-Normalisierung)
+- **20 Iterationen** (fest, kein Konvergenzcheck)
+- **Methode**: `"kmeans"`
 
-```python
-# Effiziente K-Means-Implementierung
-from sklearn.cluster import MiniBatchKMeans
+## 5. Degenerations-Fallback
 
-def cluster_frames_efficient(state_vectors, K):
-    """
-    Effiziente Clusterung mit Mini-Batch K-Means.
-    """
-    # Mini-Batch K-Means (schneller für große N)
-    kmeans = MiniBatchKMeans(
-        n_clusters=K,
-        init='k-means++',
-        max_iter=100,
-        batch_size=100,
-        random_state=42,  # Reproduzierbarkeit
-        n_init=10,
-    )
-    
-    # Fit
-    cluster_assignments = kmeans.fit_predict(state_vectors)
-    
-    return cluster_assignments, kmeans.cluster_centers_
+```cpp
+bool degenerate = false;
+for (int c = 0; c < n_clusters; ++c) {
+    if (counts[c] <= 0) { degenerate = true; break; }
+}
 
-# Optionale tile-basierte synthetische Frame-Rekonstruktion (Pseudo-Code)
-# - global: gewichtetes Mittel pro Pixel mit G_f,c
-# - tile_weighted: pro Tile mit W_f,t,c = G_f,c · L_f,t,c und Overlap-Add (analog Phase 5)
+if (degenerate && n_clusters > 1) {
+    clustering_method = "quantile";
+    // Sortiere Frames nach G_f, verteile gleichmäßig auf Cluster
+    std::sort(order.begin(), order.end(), by_global_weight);
+    for (size_t r = 0; r < order.size(); ++r) {
+        int label = (r * n_clusters) / order.size();
+        cluster_labels[order[r].second] = label;
+    }
+}
+```
 
-def reconstruct_synthetic_frames(clusters, frames, G_f, L_f_t, cfg):
-    weighting = cfg['synthetic'].get('weighting', 'global')
-    if weighting == 'global':
-        return weighted_mean_per_cluster(clusters, frames, G_f)
-    if weighting == 'tile_weighted':
-        return tile_weighted_overlap_add_per_cluster(clusters, frames, G_f, L_f_t)
-    raise ValueError('unknown synthetic.weighting')
+Wenn K-Means zu **leeren Clustern** führt (z.B. bei sehr homogenen Daten):
+- **Quantile-Fallback**: Frames werden nach globalem Gewicht `G_f` sortiert und gleichmäßig auf K Cluster verteilt
+- Jeder Cluster enthält dann N/K Frames
+- Methode wird als `"quantile"` im Artifact vermerkt
+
+## Konfigurationsparameter
+
+| Parameter | Beschreibung | Default |
+|-----------|-------------|---------|
+| `synthetic.clustering.cluster_count_range` | [k_min, k_max] | [3, 30] |
+| `assumptions.frames_reduced_threshold` | Threshold für Reduced Mode | 200 |
+| `assumptions.reduced_mode_skip_clustering` | Clustering in Reduced Mode überspringen | `true` |
+
+## Artifact: `state_clustering.json`
+
+```json
+{
+  "n_clusters": 10,
+  "k_min": 3,
+  "k_max": 30,
+  "method": "kmeans",
+  "cluster_labels": [0, 0, 1, 2, 0, 3, ...],
+  "cluster_sizes": [12, 8, 15, 10, ...]
+}
 ```
 
 ## Nächste Phase
 
-→ **Phase 7: Finales lineares Stacking**
+→ **Phase 9: SYNTHETIC_FRAMES — Synthetische Frame-Erzeugung**

@@ -87,6 +87,7 @@ class MainWindow : public QMainWindow {
     
     QString format_event_human(const nlohmann::json &ev) const;
     void ensure_startup_paths();
+    void update_history_runs_dir();
 };
 
 }
