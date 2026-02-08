@@ -37,6 +37,14 @@ float compute_mad(const Matrix2Df& data);
 float compute_robust_sigma(const Matrix2Df& data);
 float compute_percentile(const VectorXf& data, float percentile);
 
+// Statistical utilities (canonical implementations — do NOT duplicate)
+float median_of(std::vector<float>& v);
+float stddev_of(const std::vector<float>& v);
+float robust_sigma_mad(std::vector<float>& pixels);
+float percentile_from_sorted(const std::vector<float>& sorted, float pct);
+float estimate_background_sigma_clip(std::vector<float> pixels);
+std::vector<size_t> sample_indices(size_t count, int max_samples);
+
 // String utilities
 std::string to_lower(const std::string& s);
 bool ends_with(const std::string& str, const std::string& suffix);

@@ -1,8 +1,8 @@
 # =========================
 # Allgemein
 # =========================
-run_dir: ./run
-log_level: info   # trace | debug | info | warn | error
+run_dir: ./run_hybrid_test
+log_level: info
 
 # =========================
 # Data
@@ -30,52 +30,40 @@ pipeline:
 # =========================
 input:
   pattern: "./data/*.fits"
-  sort: numeric          # numeric | lexicographic
-  max_frames: 0          # 0 = alle
+  sort: numeric
+  max_frames: 0
 
 # =========================
 # Global Metrics
 # =========================
 global_metrics:
   enabled: true
-
-  # Gewichtung der Qualitätskomponenten
   weights:
     background: 0.25
     noise: 0.45
     gradient_energy: 0.30
-
-  # Clamping zur Robustheit gegen Ausreißer
   clamp:
     background: [0.0, 1.0]
     noise: [0.0, 1.0]
     gradient_energy: [0.0, 1.0]
 
 # =========================
-# Registrierung
+# Registrierung - HYBRID ENGINE
 # =========================
 registration:
   enabled: true
-
-  # Engine-Auswahl
-  #   triangle_star_matching  — Dreiecks-Asterismus (rotation-invariant, empfohlen für Alt/Az)
-  #   star_similarity         — Stern-Paar-Matching (schnell bei kleinen Versätzen)
-  #   hybrid_phase_ecc        — Phasenkorrelation + ECC (ohne Sternerkennung)
-  # Intern wird immer eine Kaskade durchlaufen: triangle → star_pair → AKAZE → phase+ECC → identity
-  engine: triangle_star_matching
-
-  # Rotation (Alt/Az-Feldrotation)
-  allow_rotation: true
-
-  # Robustheit
+  engine: hybrid_phase_ecc
+  reference_policy: global_weight
+  downsample_factor: 2
+  max_translation_px: 64
+  allow_rotation: false
+  max_rotation_deg: 5.0
+  ecc:
+    enabled: true
+    iterations: 50
+    epsilon: 1.0e-5
   min_score: 0.05
   fallback_to_identity: true
-
-  # Star-Parameter (für triangle_star_matching und star_similarity)
-  star_topk: 60             # Top-K hellste Sterne für Matching
-  star_min_inliers: 6       # Mindest-Inlier für RANSAC-Konsens
-  star_inlier_tol_px: 3.0   # Toleranz für Inlier-Zuordnung (Pixel, Proxy-Skala)
-  star_dist_bin_px: 10.0    # Bin-Breite für Paar-Abstands-Matching
 
 # =========================
 # Output
@@ -83,9 +71,6 @@ registration:
 output:
   registered_dir: registered
   artifacts_dir: artifacts
-
   write_registered_frames: true
   write_global_metrics: true
   write_global_registration: true
-
-

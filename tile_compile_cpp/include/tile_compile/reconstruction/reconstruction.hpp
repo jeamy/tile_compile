@@ -1,5 +1,6 @@
 #pragma once
 
+#include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/types.hpp"
 
 #include <vector>
@@ -9,5 +10,15 @@ namespace tile_compile::reconstruction {
 Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
                             const TileGrid& grid,
                             const std::vector<std::vector<float>>& tile_weights);
+
+// Wiener denoising filter for a single tile
+Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
+                             float q_struct_tile, bool is_star_tile,
+                             const config::WienerDenoiseConfig& cfg);
+
+// Sigma-clipped mean stack of multiple frames
+Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
+                           float sigma_low, float sigma_high,
+                           int max_iters, float min_fraction);
 
 } // namespace tile_compile::reconstruction

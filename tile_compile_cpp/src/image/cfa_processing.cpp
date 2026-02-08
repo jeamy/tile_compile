@@ -150,10 +150,12 @@ Matrix2Df warp_cfa_mosaic_via_subplanes(
     cv::Mat c_cv(sub_h, sub_w, CV_32F, c.data());
     cv::Mat d_cv(sub_h, sub_w, CV_32F, d.data());
     
-    // Warp matrix components
+    // Warp matrix components — rotation/scale stay the same,
+    // but translation must be halved because subplanes are half-resolution.
     float a2_00 = warp(0, 0), a2_01 = warp(0, 1);
     float a2_10 = warp(1, 0), a2_11 = warp(1, 1);
-    float t_x = warp(0, 2), t_y = warp(1, 2);
+    float t_x = warp(0, 2) * 0.5f;
+    float t_y = warp(1, 2) * 0.5f;
     
     // Compute delta shifts for each subplane
     // delta_a = [-0.25, -0.25], delta_b = [0.25, -0.25], etc.
@@ -286,6 +288,24 @@ Matrix2Df reassemble_cfa_mosaic(
     }
     
     return mosaic;
+}
+
+void bayer_offsets(const std::string& bayer_pattern,
+                   int& r_row, int& r_col, int& b_row, int& b_col) {
+    std::string bp = bayer_pattern;
+    std::transform(bp.begin(), bp.end(), bp.begin(), ::toupper);
+    r_row = 1; r_col = 0;
+    b_row = 0; b_col = 1;
+    if (bp == "RGGB") {
+        r_row = 0; r_col = 0;
+        b_row = 1; b_col = 1;
+    } else if (bp == "BGGR") {
+        r_row = 1; r_col = 1;
+        b_row = 0; b_col = 0;
+    } else if (bp == "GRBG") {
+        r_row = 0; r_col = 1;
+        b_row = 1; b_col = 0;
+    }
 }
 
 } // namespace tile_compile::image

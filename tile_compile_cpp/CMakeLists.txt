@@ -74,6 +74,7 @@ set(LIB_SOURCES
     src/image/calibration.cpp
     src/image/cfa_processing.cpp
     src/registration/registration.cpp
+    src/registration/global_registration.cpp
     src/metrics/metrics.cpp
     src/metrics/tile_metrics.cpp
     src/clustering/clustering.cpp
@@ -167,20 +168,19 @@ add_custom_command(TARGET tile_compile_gui POST_BUILD
         $<TARGET_FILE_DIR:tile_compile_gui>/gui_cpp/styles.qss
 )
 
-# Copy preset YAMLs into build directory
-foreach(_cfg
-    tile_compile.yaml
-    tile_compile_eq.yaml
-    tile_compile_altaz.yaml
-    tile_compile_polar.yaml
-    tile_compile_smart.yaml
-    tile_compile_dwarf.yaml
-    tile_compile_seestar.yaml
-    tile_compile.schema.yaml
-    tile_compile.schema.json
+# Copy config/schema files to build directory on every build
+add_custom_command(TARGET tile_compile_runner POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/tile_compile.yaml
+        ${CMAKE_BINARY_DIR}/tile_compile.yaml
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/tile_compile.schema.yaml
+        ${CMAKE_BINARY_DIR}/tile_compile.schema.yaml
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/tile_compile.schema.json
+        ${CMAKE_BINARY_DIR}/tile_compile.schema.json
+    COMMENT "Copying config/schema files to build directory"
 )
-    configure_file(${CMAKE_SOURCE_DIR}/${_cfg} ${CMAKE_BINARY_DIR}/${_cfg} COPYONLY)
-endforeach()
 
 # Tests (optional)
 option(BUILD_TESTS "Build unit tests" ON)
