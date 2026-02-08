@@ -154,9 +154,6 @@ struct StackingConfig {
   } sigma_clip;
 
   std::string method = "rej";
-  std::string input_dir = "synthetic";
-  std::string input_pattern = "syn_*.fits";
-  std::string output_file = "stacked.fit";
 };
 
 struct ValidationConfig {

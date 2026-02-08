@@ -203,9 +203,6 @@
       "type": "object",
       "properties": {
         "method": { "type": "string", "enum": ["rej", "average"] },
-        "input_dir": { "type": "string" },
-        "input_pattern": { "type": "string" },
-        "output_file": { "type": "string" },
         "sigma_clip": {
           "type": "object",
           "properties": {

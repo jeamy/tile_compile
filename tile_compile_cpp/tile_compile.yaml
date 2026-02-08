@@ -113,7 +113,7 @@ registration:
 
   # Star-Parameter (für triangle_star_matching und star_similarity)
   star_topk: 120               # Top-K hellste Sterne für Matching (C++ Default: 120)
-  star_min_inliers: 6         # Mindest-Inlier für RANSAC-Konsens
+  star_min_inliers: 4         # Mindest-Inlier für RANSAC-Konsens
   star_inlier_tol_px: 3.0     # Toleranz für Inlier-Zuordnung in Pixel (C++ Default: 2.5)
   star_dist_bin_px: 5.0       # Bin-Breite für Paar-Abstands-Matching (C++ Default: 2.5)
 
@@ -205,9 +205,6 @@ debayer: true                # true = Nearest-Neighbor Demosaic → stacked_rgb.
 # =========================
 stacking:
   method: rej                # rej | average
-  input_dir: synthetic
-  input_pattern: "syn_*.fits"
-  output_file: stacked.fit
 
   sigma_clip:
     sigma_low: 2.0           # Unterer Sigma-Schwellenwert

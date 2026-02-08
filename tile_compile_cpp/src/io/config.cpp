@@ -287,12 +287,6 @@ Config Config::from_yaml(const YAML::Node &node) {
     auto st = node["stacking"];
     if (st["method"])
       cfg.stacking.method = st["method"].as<std::string>();
-    if (st["input_dir"])
-      cfg.stacking.input_dir = st["input_dir"].as<std::string>();
-    if (st["input_pattern"])
-      cfg.stacking.input_pattern = st["input_pattern"].as<std::string>();
-    if (st["output_file"])
-      cfg.stacking.output_file = st["output_file"].as<std::string>();
     if (st["sigma_clip"]) {
       auto sc = st["sigma_clip"];
       if (sc["sigma_low"])
@@ -468,9 +462,6 @@ YAML::Node Config::to_yaml() const {
   node["debayer"] = debayer;
 
   node["stacking"]["method"] = stacking.method;
-  node["stacking"]["input_dir"] = stacking.input_dir;
-  node["stacking"]["input_pattern"] = stacking.input_pattern;
-  node["stacking"]["output_file"] = stacking.output_file;
   node["stacking"]["sigma_clip"]["sigma_low"] = stacking.sigma_clip.sigma_low;
   node["stacking"]["sigma_clip"]["sigma_high"] = stacking.sigma_clip.sigma_high;
   node["stacking"]["sigma_clip"]["max_iters"] = stacking.sigma_clip.max_iters;
@@ -779,9 +770,6 @@ std::string get_schema_json() {
     "debayer": {"type":"boolean"},
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},
-                      "input_dir":{"type":"string"},
-                      "input_pattern":{"type":"string"},
-                      "output_file":{"type":"string"},
                       "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}} } },
     "validation": { "type":"object",
       "properties": { "min_fwhm_improvement_percent":{"type":"number"},
