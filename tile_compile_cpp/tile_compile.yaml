@@ -5,51 +5,91 @@ run_dir: ./run
 log_level: info   # trace | debug | info | warn | error
 
 # =========================
-# Data
-# =========================
-data:
-  image_width: 3840
-  image_height: 2160
-  frames_min: 50
-  color_mode: OSC
-  bayer_pattern: GBRG
-  linear_required: true
-
-# =========================
 # Pipeline
 # =========================
 pipeline:
-  abort_on_fail: false
-  phases:
-    - scan_input
-    - registration
-    - done
+  mode: production         # production | test
+  abort_on_fail: false     # true = Abbruch bei kritischen Fehlern
+
+# =========================
+# Output
+# =========================
+output:
+  registered_dir: registered
+  artifacts_dir: artifacts
+  write_registered_frames: true    # false = nur im Speicher (spart Disk)
+  write_global_metrics: true
+  write_global_registration: true
+
+# =========================
+# Data
+# =========================
+data:
+  image_width: 3840        # 0 = automatisch aus FITS-Header
+  image_height: 2160       # 0 = automatisch aus FITS-Header
+  frames_min: 50           # Erwartete Mindestanzahl (0 = keine Prüfung)
+  frames_target: 0         # Erwartete Zielanzahl (0 = kein Ziel, informativ)
+  color_mode: OSC          # OSC | MONO | RGB
+  bayer_pattern: GBRG      # RGGB | BGGR | GBRG | GRBG
+  linear_required: true    # true = nicht-lineare Frames werden entfernt
 
 # =========================
 # Input
 # =========================
 input:
   pattern: "./data/*.fits"
-  sort: numeric          # numeric | lexicographic
-  max_frames: 0          # 0 = alle
+  sort: numeric            # numeric | lexicographic
+  max_frames: 0            # 0 = alle
 
 # =========================
-# Global Metrics
+# Linearity
 # =========================
-global_metrics:
+linearity:
   enabled: true
+  max_frames: 8            # Stichprobengröße für Linearitätsprüfung
+  min_overall_linearity: 0.9   # 0.0–1.0, Mindest-Score
+  strictness: strict       # strict | moderate | permissive
 
-  # Gewichtung der Qualitätskomponenten
-  weights:
-    background: 0.25
-    noise: 0.45
-    gradient_energy: 0.30
+# =========================
+# Calibration
+# =========================
+calibration:
+  use_bias: false
+  use_dark: false
+  use_flat: false
+  bias_use_master: false
+  dark_use_master: false
+  flat_use_master: false
+  dark_auto_select: true
+  dark_match_exposure_tolerance_percent: 5.0
+  dark_match_use_temp: false
+  dark_match_temp_tolerance_c: 2.0
+  bias_dir: ""
+  darks_dir: ""
+  flats_dir: ""
+  bias_master: ""
+  dark_master: ""
+  flat_master: ""
+  pattern: "*.fit*"
 
-  # Clamping zur Robustheit gegen Ausreißer
-  clamp:
-    background: [0.0, 1.0]
-    noise: [0.0, 1.0]
-    gradient_energy: [0.0, 1.0]
+# =========================
+# Assumptions
+# =========================
+assumptions:
+  frames_min: 50                    # Hard Minimum für Pipeline
+  frames_optimal: 800               # Informativ, Warnung bei Unterschreitung
+  frames_reduced_threshold: 200     # < threshold → Reduced Mode
+  exposure_time_tolerance_percent: 5.0
+  reduced_mode_skip_clustering: true  # true = kein Clustering im Reduced Mode
+  reduced_mode_cluster_range: [5, 10] # [k_min, k_max] für Reduced Mode
+
+# =========================
+# Normalization
+# =========================
+normalization:
+  enabled: true            # Pflicht (muss true sein)
+  mode: background         # background | median
+  per_channel: true        # true = kanalweise Normalisierung (empfohlen für OSC)
 
 # =========================
 # Registrierung
@@ -72,20 +112,121 @@ registration:
   fallback_to_identity: true
 
   # Star-Parameter (für triangle_star_matching und star_similarity)
-  star_topk: 60             # Top-K hellste Sterne für Matching
-  star_min_inliers: 6       # Mindest-Inlier für RANSAC-Konsens
-  star_inlier_tol_px: 3.0   # Toleranz für Inlier-Zuordnung (Pixel, Proxy-Skala)
-  star_dist_bin_px: 10.0    # Bin-Breite für Paar-Abstands-Matching
+  star_topk: 120               # Top-K hellste Sterne für Matching (C++ Default: 120)
+  star_min_inliers: 6         # Mindest-Inlier für RANSAC-Konsens
+  star_inlier_tol_px: 3.0     # Toleranz für Inlier-Zuordnung in Pixel (C++ Default: 2.5)
+  star_dist_bin_px: 5.0       # Bin-Breite für Paar-Abstands-Matching (C++ Default: 2.5)
 
 # =========================
-# Output
+# Wiener Denoise
 # =========================
-output:
-  registered_dir: registered
-  artifacts_dir: artifacts
+wiener_denoise:
+  enabled: true             # true = Wiener-Filter auf rekonstruierten Tiles
+  snr_threshold: 5.0         # Tiles mit SNR ≥ threshold werden nicht gefiltert
+  q_min: -0.5               # Min. Strukturqualität (darunter kein Filter)
+  q_max: 1.0                # Max. Strukturqualität
+  q_step: 0.1               # Schrittweite für Parameter-Suche
+  min_snr: 2.0              # Min. SNR für Filteranwendung
+  max_iterations: 10         # Max. Iterationen für Wiener-Optimierung
 
-  write_registered_frames: true
-  write_global_metrics: true
-  write_global_registration: true
+# =========================
+# Global Metrics
+# =========================
+global_metrics:
+  enabled: true
+  adaptive_weights: false    # true = Gewichte automatisch anpassen
 
+  # Gewichtung der Qualitätskomponenten (Summe = 1.0)
+  weights:
+    background: 0.4         # α — Bestrafung heller Hintergrund (C++ Default: 0.4)
+    noise: 0.3              # β — Bestrafung Rauschen (C++ Default: 0.3)
+    gradient_energy: 0.30    # γ — Bevorzugung Gradientenenergie (C++ Default: 0.3)
 
+  # Clamping zur Robustheit gegen Ausreißer
+  clamp:
+    background: [0.0, 1.0]
+    noise: [0.0, 1.0]
+    gradient_energy: [0.0, 1.0]
+
+# =========================
+# Tile (Kachel-Geometrie)
+# =========================
+tile:
+  size_factor: 32            # T₀ = size_factor × FWHM
+  min_size: 64               # Minimale Tile-Größe in Pixel
+  max_divisor: 6             # T_max = min(W,H) / max_divisor
+  overlap_fraction: 0.25     # 0.0–0.5, Überlappung zwischen Tiles
+  star_min_count: 8         # Min. Sterne für STAR-Tile-Klassifikation (Default: 10)
+
+# =========================
+# Local Metrics
+# =========================
+local_metrics:
+  clamp: [-3.0, 3.0]        # Clamp für Q_local vor exp()
+
+  # Stern-basierte Metriken (Summe = 1.0)
+  star_mode:
+    weights:
+      fwhm: 0.6             # Gewicht FWHM (niedriger = besser)
+      roundness: 0.2         # Gewicht Sternrundheit
+      contrast: 0.2          # Gewicht lokaler Kontrast
+
+  # Struktur-basierte Metriken (Summe = 1.0)
+  structure_mode:
+    metric_weight: 0.7       # Gewicht ENR (Edge-to-Noise Ratio)
+    background_weight: 0.3   # Gewicht Hintergrund
+
+# =========================
+# Synthetic (Synthetische Frames)
+# =========================
+synthetic:
+  weighting: global          # global | tile_weighted
+  frames_min: 5              # Min. Cluster-Größe für synth. Frame
+  frames_max: 30             # Max. Anzahl synthetischer Frames / Cluster
+
+  clustering:
+    mode: kmeans             # kmeans | quantile
+    cluster_count_range: [5, 30]  # [k_min, k_max]
+
+# =========================
+# Reconstruction
+# =========================
+reconstruction:
+  weighting_function: linear   # fest (linear)
+  window_function: hanning     # fest (Hanning Overlap-Add)
+
+# =========================
+# Debayer
+# =========================
+debayer: true                # true = Nearest-Neighbor Demosaic → stacked_rgb.fits
+
+# =========================
+# Stacking
+# =========================
+stacking:
+  method: rej                # rej | average
+  input_dir: synthetic
+  input_pattern: "syn_*.fits"
+  output_file: stacked.fit
+
+  sigma_clip:
+    sigma_low: 2.0           # Unterer Sigma-Schwellenwert
+    sigma_high: 2.0          # Oberer Sigma-Schwellenwert
+    max_iters: 3             # Max. Clipping-Iterationen
+    min_fraction: 0.5        # Min. überlebende Frame-Fraktion (Fallback: unclipped mean)
+
+# =========================
+# Validation
+# =========================
+validation:
+  min_fwhm_improvement_percent: 5.0       # Min. FWHM-Verbesserung in %
+  max_background_rms_increase_percent: 0.0  # Max. BG-RMS-Erhöhung (0 = nicht geprüft)
+  min_tile_weight_variance: 0.1           # Min. normalisierte Varianz der Tile-Gewichte
+  require_no_tile_pattern: true           # Sobel-Gradient Tile-Pattern-Check
+
+# =========================
+# Runtime Limits
+# =========================
+runtime_limits:
+  tile_analysis_max_factor_vs_stack: 3.0  # Max. Zeitfaktor Tile-Analyse vs. Stack
+  hard_abort_hours: 6.0                   # Hard Limit in Stunden
