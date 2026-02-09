@@ -930,7 +930,7 @@ def _gen_timeline(artifacts_dir: Path, events: list[dict]) -> tuple[list[str], l
 
     for ev in events:
         t = ev.get("type", "")
-        ts = ev.get("timestamp", "")
+        ts = ev.get("ts", ev.get("timestamp", ""))
         pn = ev.get("phase_name", "")
         if t == "phase_start" and pn:
             phase_starts[pn] = ts
@@ -1129,7 +1129,7 @@ def generate_report(run_dir: Path) -> Path:
         detail = run_start.get("detail", run_start)
         meta_lines.append(f"input_dir: {detail.get('input_dir', '?')}")
         meta_lines.append(f"frames: {detail.get('frames_discovered', '?')}")
-        meta_lines.append(f"timestamp: {run_start.get('timestamp', '?')}")
+        meta_lines.append(f"timestamp: {run_start.get('ts', run_start.get('timestamp', '?'))}")
     if run_end:
         meta_lines.append(f"final status: {run_end.get('status', '?')}")
 

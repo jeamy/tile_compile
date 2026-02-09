@@ -118,11 +118,11 @@ astrometry:
   search_radius: 183
 pcc:
   enabled: true
-  source: vizier_apass
+  source: siril
   mag_limit: 14
   mag_bright_limit: 4
-  aperture_radius_px: 10
-  annulus_inner_px: 11
+  aperture_radius_px: 8
+  annulus_inner_px: 10
   annulus_outer_px: 16
   mag_bright_limit: 6
   min_stars: 3
