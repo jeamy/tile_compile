@@ -94,10 +94,3 @@ tile_compile_cpp/
 └── start_gui.sh            # GUI-Startscript
 ```
 
-## Dokumentation
-
-Siehe `../doc/c-port/` für:
-- Portierungsplan
-- Modul-Mapping Python → C++
-- Abhängigkeiten
-- Zeitplan

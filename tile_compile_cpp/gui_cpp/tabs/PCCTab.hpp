@@ -10,6 +10,9 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QGroupBox>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QFile>
 #include <string>
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/io/fits_io.hpp"
@@ -29,10 +32,17 @@ class PCCTab : public QWidget {
     void on_browse_fits();
     void on_browse_wcs();
     void on_run_pcc();
+    void on_download_catalog();
+    void on_cancel_download();
 
   private:
     void build_ui();
     void append_log(const QString &msg);
+    void update_catalog_status();
+    QString siril_catalog_dir() const;
+    void download_next_chunk();
+    void on_chunk_download_progress(qint64 received, qint64 total);
+    void on_chunk_download_finished();
 
     std::string project_root_;
 
@@ -55,6 +65,18 @@ class PCCTab : public QWidget {
     QLabel *lbl_stars_used_ = nullptr;
     QLabel *lbl_residual_ = nullptr;
     QLabel *lbl_matrix_ = nullptr;
+
+    // Catalog download
+    QLabel *lbl_catalog_status_ = nullptr;
+    QPushButton *btn_download_catalog_ = nullptr;
+    QPushButton *btn_cancel_download_ = nullptr;
+    QProgressBar *progress_download_ = nullptr;
+    QNetworkAccessManager *nam_ = nullptr;
+    QNetworkReply *current_reply_ = nullptr;
+    QFile *download_file_ = nullptr;
+    std::vector<int> chunks_to_download_;
+    int current_chunk_idx_ = 0;
+    bool download_cancelled_ = false;
 
     // Controls
     QPushButton *btn_run_ = nullptr;

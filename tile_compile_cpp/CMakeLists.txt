@@ -42,8 +42,8 @@ endif()
 # OpenSSL for SHA256
 find_package(OpenSSL REQUIRED)
 
-# Qt6 Widgets (GUI)
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
+# Qt6 Core + Network for lib (HTTP queries), Widgets for GUI
+find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets)
 
 # Optional: spdlog for logging
 find_package(spdlog QUIET)
@@ -95,6 +95,8 @@ target_link_libraries(tile_compile_lib PUBLIC
     ${CFITSIO_LIBRARIES}
     ${YAML_CPP_LIBRARIES}
     OpenSSL::Crypto
+    Qt6::Core
+    Qt6::Network
 )
 
 if(nlohmann_json_FOUND)

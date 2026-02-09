@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -11,14 +12,16 @@ constexpr int XPSAMPLED_LEN = 343;
 constexpr double XPSAMPLED_WL_START = 336.0;  // nm
 constexpr double XPSAMPLED_WL_STEP  = 2.0;    // nm
 
-// A star entry from the Siril Gaia DR3 XP-sampled catalog
+// A star entry used for PCC.  May come from different catalog sources.
 struct GaiaStar {
     double ra;          // degrees
     double dec;         // degrees
-    float  mag;         // G magnitude
-    float  pmra;        // proper motion RA (mas/yr)
-    float  pmdec;       // proper motion Dec (mas/yr)
+    float  mag;         // G magnitude (or V magnitude for APASS)
+    float  pmra  = 0;   // proper motion RA (mas/yr)
+    float  pmdec = 0;   // proper motion Dec (mas/yr)
+    float  teff  = 0;   // effective temperature (K), 0 = unknown
     std::vector<float> xp_flux;  // XP sampled spectrum (343 bins, physical flux)
+                                 // empty if source is not Siril XP-sampled
 };
 
 // Packed on-disk record (701 bytes)
@@ -71,5 +74,42 @@ std::vector<GaiaStar> siril_gaia_cone_search(
 double synthetic_flux(const std::vector<float> &xp_flux,
                       const std::vector<double> &filter_wl,
                       const std::vector<double> &filter_tx);
+
+// ─── VizieR online catalog queries ──────────────────────────────────────
+//
+// These perform synchronous HTTP GET requests to the VizieR TAP service.
+// They return GaiaStar entries with teff populated (no xp_flux).
+// On network error or timeout, they return an empty vector.
+
+// Query Gaia DR3 via VizieR TAP.  Returns stars with valid Teff.
+// Uses teff_gspphot from gaiadr3.astrophysical_parameters.
+std::vector<GaiaStar> vizier_gaia_cone_search(
+    double ra_center, double dec_center,
+    double radius_deg, double mag_limit = 16.0);
+
+// Query APASS DR9 via VizieR TAP.  Returns stars with Teff estimated
+// from Johnson B-V color index.
+std::vector<GaiaStar> vizier_apass_cone_search(
+    double ra_center, double dec_center,
+    double radius_deg, double mag_limit = 16.0);
+
+// Convert Johnson B-V color index to effective temperature (K).
+// Uses the Ballesteros (2012) formula.
+double bv_to_teff(double bv);
+
+// ─── Siril catalog download ─────────────────────────────────────────────
+
+// Download URL pattern for Siril Gaia XP-sampled catalog chunks.
+// Total ~21 GB across 48 chunk files.
+std::string siril_catalog_chunk_url(int chunk_id);
+
+// Download a single chunk file to the given directory.
+// Returns true on success.  progress_cb is called with (bytes_done, bytes_total).
+bool download_siril_catalog_chunk(
+    int chunk_id, const std::string &dest_dir,
+    std::function<void(size_t, size_t)> progress_cb = nullptr);
+
+// Check which chunk IDs (0-47) are missing from the catalog directory.
+std::vector<int> missing_siril_catalog_chunks(const std::string &catalog_dir);
 
 } // namespace tile_compile::astrometry
