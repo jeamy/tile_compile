@@ -2336,13 +2336,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
               std::cerr << "[ASTROMETRY] Could not update stacked_rgb.fits: " << e.what() << std::endl;
             }
             // Also save a separate solved copy
-            try {
-              fs::path solved_path = run_dir / "outputs" / "stacked_rgb_solved.fits";
-              io::write_fits_rgb(solved_path, R_out, G_out, B_out, first_hdr);
-              std::cerr << "[ASTROMETRY] Solved copy saved to " << solved_path << std::endl;
-            } catch (const std::exception &e) {
-              std::cerr << "[ASTROMETRY] Could not write stacked_rgb_solved.fits: " << e.what() << std::endl;
-            }
+            // try {
+            //   fs::path solved_path = run_dir / "outputs" / "stacked_rgb_solved.fits";
+            //   io::write_fits_rgb(solved_path, R_out, G_out, B_out, first_hdr);
+            //   std::cerr << "[ASTROMETRY] Solved copy saved to " << solved_path << std::endl;
+            // } catch (const std::exception &e) {
+            //   std::cerr << "[ASTROMETRY] Could not write stacked_rgb_solved.fits: " << e.what() << std::endl;
+            // }
           }
 
           // Copy .wcs to run artifacts directory
