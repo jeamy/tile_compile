@@ -38,7 +38,9 @@ Die **C++ Version** ist die aktive Implementierung. Die Python-Version ist als R
 | 7 | STATE_CLUSTERING | K-Means Clustering + synthetische Frames |
 | 8 | STACKING | Sigma-Clip oder Mean-Stacking |
 | 9 | DEBAYER | Nearest-Neighbor Demosaic (OSC → RGB) |
-| 10 | DONE | Validierung + Report |
+| 10 | ASTROMETRY | Plate Solving via ASTAP (WCS-Koordinaten) |
+| 11 | PCC | Photometric Color Calibration (Farbkalibrierung) |
+| 12 | DONE | Validierung + Report |
 
 Detaillierte Dokumentation: `doc/v3/process_flow/`
 
@@ -148,7 +150,72 @@ Die GUI ist in Tabs organisiert:
 - Klicke **Start** → Pipeline läuft im Hintergrund
 - **Pipeline Progress** zeigt aktuelle Phase + Fortschritt
 
-### 5) Ergebnisse
+### 5) Astrometrie (Plate Solving)
+
+Der **Astrometry-Tab** löst die Himmelskoordinaten des gestackten Bildes:
+
+- **FITS-Datei:** Das gestackte RGB-FITS auswählen (`stacked_rgb.fits`)
+- **Star Database:** ASTAP-Sterndatenbank herunterladen (D50 empfohlen, ~200 MB)
+  - D05 = Tycho2 (hell, schnell)
+  - D20 = Gaia DR2 bis Mag 20
+  - D50 = Gaia DR2 bis Mag 50 (empfohlen für Deep-Sky)
+- **Solve** → ASTAP Plate Solve (blind, Vollhimmel)
+- **Ergebnis:** RA/Dec, Pixel-Skala (arcsec/px), Rotation, FOV
+- **Save Solved** → speichert die FITS-Datei **als RGB-Cube mit WCS-Headern**
+  - Die `_solved.fits` enthält die originalen Farbdaten + WCS-Koordinaten
+  - Eine `.wcs`-Datei wird daneben kopiert
+
+> **Hinweis:** ASTAP konvertiert intern zu Mono für das Solving. Die "Save Solved"-Funktion liest das Original-RGB und schreibt es mit den gelösten WCS-Headern neu. Das Ergebnis ist ein RGB-Farbbild mit Koordinaten.
+
+### 6) Photometric Color Calibration (PCC)
+
+Der **PCC-Tab** kalibriert die Farbbalance anhand von Gaia-Katalogdaten:
+
+- **FITS-Datei:** Die `_solved.fits` aus dem Astrometry-Tab auswählen (RGB + WCS)
+- **WCS-Datei:** Wird automatisch erkannt (`_solved.wcs`)
+- **Katalog:** Lokaler Gaia-Katalog (CSV) oder Siril-Katalog (siehe unten)
+
+#### PCC-Einstellungen
+
+| Parameter | Default | Beschreibung |
+|-----------|---------|-------------|
+| Aperture radius | 8 px | Apertur-Radius für Sternphotometrie |
+| Annulus inner | 12 px | Innerer Radius des Himmelsrings |
+| Annulus outer | 18 px | Äußerer Radius des Himmelsrings |
+| Mag limit (faint) | 14.0 | Schwächster Katalogstern |
+| Mag limit (bright) | 6.0 | Hellster Katalogstern (Sättigung vermeiden) |
+| Min stars | 10 | Minimum Sterne für zuverlässigen Fit |
+| Sigma clip | 2.5 | Sigma-Clipping für Ausreißer |
+
+#### PCC-Algorithmus
+
+PCC berechnet **diagonale Skalierungsfaktoren** (R, G, B) — keine Kanalmischung:
+
+1. Katalogsterne werden per WCS auf Pixelkoordinaten projiziert
+2. Aperturphotometrie misst instrumentelle Flüsse (R/G/B) pro Stern
+3. Synthetische Katalogflüsse werden aus Gaia XP-Spektren berechnet
+4. Pro Stern: `correction_R = (cat_R/cat_G) / (inst_R/inst_G)`
+5. Sigma-clipped Median → `scale_R`, `scale_B` (Green = Referenz, scale_G = 1.0)
+6. Ergebnis: Diagonale Farbkorrekturmatrix `diag(scale_R, 1.0, scale_B)`
+
+#### Verwendung von Siril-Katalogdaten
+
+Falls kein lokaler Gaia-Katalog vorhanden ist, können **Siril-exportierte Katalogdaten** verwendet werden:
+
+1. In **Siril**: Bild öffnen → `Image Analysis` → `Photometric Color Calibration`
+2. Siril lädt automatisch Katalogdaten von VizieR für das Bildfeld
+3. Die Katalogdaten als CSV exportieren (RA, Dec, Mag, Flux)
+4. In Tile-Compile PCC-Tab als Katalogdatei auswählen
+
+Alternativ kann Tile-Compile den Katalog direkt aus einer lokalen Gaia-CSV laden (Format: `ra,dec,phot_g_mean_mag,bp_rp,...`).
+
+#### PCC-Ergebnis
+
+- **Save Corrected** → speichert das farbkalibrierte RGB-FITS am gewählten Pfad
+- Zusätzlich werden Einzelkanal-Dateien gespeichert (`_R.fit`, `_G.fit`, `_B.fit`)
+- Die Korrekturmatrix und Statistiken werden im Log angezeigt
+
+### 7) Ergebnisse
 
 Nach erfolgreichem Lauf unter `runs/<run_id>/`:
 
@@ -157,6 +224,8 @@ Nach erfolgreichem Lauf unter `runs/<run_id>/`:
   - `synthetic_*.fit` — synthetische Frames
   - `stacked.fit` — finaler Stack (Mono)
   - `stacked_rgb.fits` — finaler Stack (RGB, nach Debayer)
+  - `stacked_rgb_solved.fits` — RGB mit WCS-Headern (nach Astrometrie)
+  - `stacked_rgb_pcc.fits` — farbkalibriertes RGB (nach PCC)
 - `artifacts/`
   - `global_metrics.json` — globale Qualitätsmetriken
   - `global_registration.json` — Warp-Matrizen + Correlation-Scores

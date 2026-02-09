@@ -17,6 +17,8 @@
 #include "tile_compile/astrometry/gaia_catalog.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
 
+#include <QCoreApplication>
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -2282,6 +2284,34 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         }
 
         if (have_wcs) {
+          // Inject WCS keywords into first_hdr so all subsequent
+          // FITS outputs (PCC etc.) inherit the astrometric solution.
+          // ASTAP does not write WCS into FLOAT_IMG FITS (BITPIX=-32).
+          first_hdr.numeric_values["CRVAL1"] = wcs.crval1;
+          first_hdr.numeric_values["CRVAL2"] = wcs.crval2;
+          first_hdr.numeric_values["CRPIX1"] = wcs.crpix1;
+          first_hdr.numeric_values["CRPIX2"] = wcs.crpix2;
+          first_hdr.numeric_values["CD1_1"]  = wcs.cd1_1;
+          first_hdr.numeric_values["CD1_2"]  = wcs.cd1_2;
+          first_hdr.numeric_values["CD2_1"]  = wcs.cd2_1;
+          first_hdr.numeric_values["CD2_2"]  = wcs.cd2_2;
+          first_hdr.numeric_values["EQUINOX"] = 2000.0;
+          first_hdr.string_values["CTYPE1"]  = "RA---TAN";
+          first_hdr.string_values["CTYPE2"]  = "DEC--TAN";
+          first_hdr.string_values["CUNIT1"]  = "deg";
+          first_hdr.string_values["CUNIT2"]  = "deg";
+          first_hdr.bool_values["PLTSOLVD"] = true;
+
+          // Re-write stacked_rgb.fits with WCS keywords
+          if (have_rgb) {
+            try {
+              io::write_fits_rgb(stacked_rgb_path, R_out, G_out, B_out, first_hdr);
+              std::cerr << "[ASTROMETRY] WCS keywords written to " << stacked_rgb_path << std::endl;
+            } catch (const std::exception &e) {
+              std::cerr << "[ASTROMETRY] Could not update stacked_rgb.fits: " << e.what() << std::endl;
+            }
+          }
+
           // Copy .wcs to run artifacts directory
           fs::path wcs_artifact = run_dir / "artifacts" / "stacked_rgb.wcs";
           try {
@@ -2322,74 +2352,117 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       emitter.phase_end(run_id, Phase::PCC, "skipped",
                         {{"reason", "no_rgb_data"}}, log_file);
     } else {
-      // Determine catalog directory
-      std::string cat_dir = cfg.pcc.siril_catalog_dir;
-      if (cat_dir.empty()) cat_dir = astro::default_siril_gaia_catalog_dir();
+      // Catalog source selection with fallback
+      // auto: siril → vizier_gaia → vizier_apass
+      double search_r = wcs.search_radius_deg();
+      std::string source = cfg.pcc.source;
+      std::string used_source;
+      std::vector<astro::GaiaStar> stars;
 
-      if (!astro::is_siril_gaia_catalog_available(cat_dir)) {
-        emitter.phase_end(run_id, Phase::PCC, "skipped",
-                          {{"reason", "catalog_not_found"},
-                           {"catalog_dir", cat_dir}}, log_file);
-      } else {
-        // Cone search centered on WCS reference point
-        double search_r = wcs.search_radius_deg();
+      auto try_siril = [&]() -> bool {
+        std::string cat_dir = cfg.pcc.siril_catalog_dir;
+        if (cat_dir.empty()) cat_dir = astro::default_siril_gaia_catalog_dir();
+        if (!astro::is_siril_gaia_catalog_available(cat_dir)) return false;
         std::cerr << "[PCC] Querying Siril Gaia catalog at RA="
                   << wcs.crval1 << " Dec=" << wcs.crval2
                   << " r=" << search_r << " deg" << std::endl;
-
-        auto stars = astro::siril_gaia_cone_search(
+        stars = astro::siril_gaia_cone_search(
             cat_dir, wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
+        if (!stars.empty()) { used_source = "siril"; return true; }
+        return false;
+      };
 
-        std::cerr << "[PCC] Found " << stars.size() << " catalog stars" << std::endl;
+      auto try_vizier_gaia = [&]() -> bool {
+        std::cerr << "[PCC] Querying VizieR Gaia DR3 at RA="
+                  << wcs.crval1 << " Dec=" << wcs.crval2
+                  << " r=" << search_r << " deg" << std::endl;
+        stars = astro::vizier_gaia_cone_search(
+            wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
+        if (!stars.empty()) { used_source = "vizier_gaia"; return true; }
+        return false;
+      };
 
-        if (stars.empty()) {
-          emitter.phase_end(run_id, Phase::PCC, "skipped",
-                            {{"reason", "no_catalog_stars"},
-                             {"search_radius_deg", search_r}}, log_file);
-        } else {
-          // Build PCC config from pipeline config
-          astro::PCCConfig pcc_cfg;
-          pcc_cfg.aperture_radius_px = cfg.pcc.aperture_radius_px;
-          pcc_cfg.annulus_inner_px = cfg.pcc.annulus_inner_px;
-          pcc_cfg.annulus_outer_px = cfg.pcc.annulus_outer_px;
-          pcc_cfg.mag_limit = cfg.pcc.mag_limit;
-          pcc_cfg.mag_bright_limit = cfg.pcc.mag_bright_limit;
-          pcc_cfg.min_stars = cfg.pcc.min_stars;
-          pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
+      auto try_vizier_apass = [&]() -> bool {
+        std::cerr << "[PCC] Querying VizieR APASS DR9 at RA="
+                  << wcs.crval1 << " Dec=" << wcs.crval2
+                  << " r=" << search_r << " deg" << std::endl;
+        stars = astro::vizier_apass_cone_search(
+            wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
+        if (!stars.empty()) { used_source = "vizier_apass"; return true; }
+        return false;
+      };
 
-          auto result = astro::run_pcc(R_out, G_out, B_out, wcs, stars, pcc_cfg);
-
-          if (result.success) {
-            // Save PCC-corrected RGB as separate files (originals stay intact)
-            io::write_fits_float(run_dir / "outputs" / "pcc_R.fit",
-                                 R_out, first_hdr);
-            io::write_fits_float(run_dir / "outputs" / "pcc_G.fit",
-                                 G_out, first_hdr);
-            io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
-                                 B_out, first_hdr);
-            io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
-                               R_out, G_out, B_out, first_hdr);
-
-            core::json matrix_json = core::json::array();
-            for (int r = 0; r < 3; ++r) {
-              matrix_json.push_back({result.matrix[r][0],
-                                     result.matrix[r][1],
-                                     result.matrix[r][2]});
-            }
-
-            emitter.phase_end(run_id, Phase::PCC, "ok",
-                              {{"stars_matched", result.n_stars_matched},
-                               {"stars_used", result.n_stars_used},
-                               {"residual_rms", result.residual_rms},
-                               {"matrix", matrix_json}},
-                              log_file);
-          } else {
-            emitter.phase_end(run_id, Phase::PCC, "skipped",
-                              {{"reason", "fit_failed"},
-                               {"error", result.error_message},
-                               {"stars_matched", result.n_stars_matched}},
-                              log_file);
+      if (source == "siril") {
+        try_siril();
+      } else if (source == "vizier_gaia") {
+        try_vizier_gaia();
+      } else if (source == "vizier_apass") {
+        try_vizier_apass();
+      } else {
+        // auto: try all sources in order
+        if (!try_siril()) {
+          std::cerr << "[PCC] Siril catalog not available, trying VizieR Gaia..." << std::endl;
+          if (!try_vizier_gaia()) {
+            std::cerr << "[PCC] VizieR Gaia failed, trying VizieR APASS..." << std::endl;
+            try_vizier_apass();
           }
+        }
+      }
+
+      std::cerr << "[PCC] Found " << stars.size() << " catalog stars"
+                << " (source: " << (used_source.empty() ? "none" : used_source) << ")"
+                << std::endl;
+
+      if (stars.empty()) {
+        emitter.phase_end(run_id, Phase::PCC, "skipped",
+                          {{"reason", "no_catalog_stars"},
+                           {"search_radius_deg", search_r},
+                           {"source", source}}, log_file);
+      } else {
+        // Build PCC config from pipeline config
+        astro::PCCConfig pcc_cfg;
+        pcc_cfg.aperture_radius_px = cfg.pcc.aperture_radius_px;
+        pcc_cfg.annulus_inner_px = cfg.pcc.annulus_inner_px;
+        pcc_cfg.annulus_outer_px = cfg.pcc.annulus_outer_px;
+        pcc_cfg.mag_limit = cfg.pcc.mag_limit;
+        pcc_cfg.mag_bright_limit = cfg.pcc.mag_bright_limit;
+        pcc_cfg.min_stars = cfg.pcc.min_stars;
+        pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
+
+        auto result = astro::run_pcc(R_out, G_out, B_out, wcs, stars, pcc_cfg);
+
+        if (result.success) {
+          // Save PCC-corrected RGB as separate files (originals stay intact)
+          io::write_fits_float(run_dir / "outputs" / "pcc_R.fit",
+                               R_out, first_hdr);
+          io::write_fits_float(run_dir / "outputs" / "pcc_G.fit",
+                               G_out, first_hdr);
+          io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
+                               B_out, first_hdr);
+          io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
+                             R_out, G_out, B_out, first_hdr);
+
+          core::json matrix_json = core::json::array();
+          for (int r = 0; r < 3; ++r) {
+            matrix_json.push_back({result.matrix[r][0],
+                                   result.matrix[r][1],
+                                   result.matrix[r][2]});
+          }
+
+          emitter.phase_end(run_id, Phase::PCC, "ok",
+                            {{"stars_matched", result.n_stars_matched},
+                             {"stars_used", result.n_stars_used},
+                             {"residual_rms", result.residual_rms},
+                             {"matrix", matrix_json},
+                             {"source", used_source}},
+                            log_file);
+        } else {
+          emitter.phase_end(run_id, Phase::PCC, "skipped",
+                            {{"reason", "fit_failed"},
+                             {"error", result.error_message},
+                             {"stars_matched", result.n_stars_matched},
+                             {"source", used_source}},
+                            log_file);
         }
       }
     }
@@ -2414,6 +2487,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 } // anonymous namespace
 
 int main(int argc, char *argv[]) {
+  QCoreApplication qapp(argc, argv);  // needed for Qt6::Network event loop
+
 #ifdef HAVE_CLI11
   CLI::App app{"Tile-Compile Runner (C++)"};
 

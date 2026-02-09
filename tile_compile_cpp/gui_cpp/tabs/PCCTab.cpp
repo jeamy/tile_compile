@@ -13,6 +13,8 @@
 #include <QDir>
 #include <QMessageBox>
 #include <QScrollBar>
+#include <QStandardPaths>
+#include <QProcess>
 
 namespace tile_compile::gui {
 
@@ -21,7 +23,9 @@ namespace io = tile_compile::io;
 
 PCCTab::PCCTab(const std::string &project_root, QWidget *parent)
     : QWidget(parent), project_root_(project_root) {
+    nam_ = new QNetworkAccessManager(this);
     build_ui();
+    update_catalog_status();
 }
 
 void PCCTab::build_ui() {
@@ -54,10 +58,45 @@ void PCCTab::build_ui() {
     input_form->addRow("WCS file:", wcs_row);
 
     cmb_source_ = new QComboBox();
-    cmb_source_->addItems({"auto (Siril local)", "siril", "vizier_gaia", "vizier_apass"});
+    cmb_source_->addItems({"siril", "vizier_gaia", "vizier_apass"});
     input_form->addRow("Catalog source:", cmb_source_);
 
     root->addWidget(input_box);
+
+    // === Siril Gaia Catalog Section ===
+    auto *cat_box = new QGroupBox("Siril Gaia DR3 Catalog");
+    auto *cat_layout = new QVBoxLayout(cat_box);
+    cat_layout->setSpacing(6);
+
+    lbl_catalog_status_ = new QLabel("Checking...");
+    lbl_catalog_status_->setWordWrap(true);
+    cat_layout->addWidget(lbl_catalog_status_);
+
+    auto *cat_btn_row = new QHBoxLayout();
+    btn_download_catalog_ = new QPushButton("Download Missing Chunks");
+    cat_btn_row->addWidget(btn_download_catalog_);
+    btn_cancel_download_ = new QPushButton("Cancel");
+    btn_cancel_download_->setEnabled(false);
+    cat_btn_row->addWidget(btn_cancel_download_);
+    cat_btn_row->addStretch(1);
+    cat_layout->addLayout(cat_btn_row);
+
+    progress_download_ = new QProgressBar();
+    progress_download_->setVisible(false);
+    cat_layout->addWidget(progress_download_);
+
+    auto *cat_info = new QLabel(
+        "<small>The Siril Gaia DR3 XP-Sampled catalog (~21 GB total, 48 chunks) "
+        "provides the best PCC results. For quick tests, use VizieR online sources instead.</small>");
+    cat_info->setWordWrap(true);
+    cat_layout->addWidget(cat_info);
+
+    root->addWidget(cat_box);
+
+    connect(btn_download_catalog_, &QPushButton::clicked, this, &PCCTab::on_download_catalog);
+    connect(btn_cancel_download_, &QPushButton::clicked, this, &PCCTab::on_cancel_download);
+    connect(cmb_source_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) { update_catalog_status(); });
 
     // === Parameters Section ===
     auto *param_box = new QGroupBox("Parameters");
@@ -278,31 +317,40 @@ void PCCTab::on_run_pcc() {
                        .arg(wcs.crpix1, 0, 'f', 1)
                        .arg(wcs.crpix2, 0, 'f', 1));
 
-        // Determine catalog
-        std::string cat_dir = astro::default_siril_gaia_catalog_dir();
-        if (!astro::is_siril_gaia_catalog_available(cat_dir)) {
-            append_log("[PCC] Error: Siril Gaia catalog not found at: " +
-                       QString::fromStdString(cat_dir));
-            append_log("[PCC] Install the catalog or configure the path in the Config tab.");
-            progress_->setVisible(false);
-            return;
-        }
-
-        // Cone search
+        // Determine catalog source
         double search_r = wcs.search_radius_deg();
-        append_log(QString("[PCC] Querying catalog: RA=%1 Dec=%2 r=%3 deg mag<%4")
+        double mag_lim = spn_mag_limit_->value();
+        QString source = cmb_source_->currentText();
+
+        append_log(QString("[PCC] Querying %1: RA=%2 Dec=%3 r=%4 deg mag<%5")
+                       .arg(source)
                        .arg(wcs.crval1, 0, 'f', 2)
                        .arg(wcs.crval2, 0, 'f', 2)
                        .arg(search_r, 0, 'f', 2)
-                       .arg(spn_mag_limit_->value(), 0, 'f', 1));
+                       .arg(mag_lim, 0, 'f', 1));
 
-        auto stars = astro::siril_gaia_cone_search(
-            cat_dir, wcs.crval1, wcs.crval2, search_r, spn_mag_limit_->value());
+        std::vector<astro::GaiaStar> stars;
+
+        if (source == "siril") {
+            std::string cat_dir = siril_catalog_dir().toStdString();
+            if (!astro::is_siril_gaia_catalog_available(cat_dir)) {
+                append_log("[PCC] Error: Siril Gaia catalog not found at: " +
+                           QString::fromStdString(cat_dir));
+                append_log("[PCC] Download it first or switch to a VizieR source.");
+                progress_->setVisible(false);
+                return;
+            }
+            stars = astro::siril_gaia_cone_search(cat_dir, wcs.crval1, wcs.crval2, search_r, mag_lim);
+        } else if (source == "vizier_gaia") {
+            stars = astro::vizier_gaia_cone_search(wcs.crval1, wcs.crval2, search_r, mag_lim);
+        } else if (source == "vizier_apass") {
+            stars = astro::vizier_apass_cone_search(wcs.crval1, wcs.crval2, search_r, mag_lim);
+        }
 
         append_log(QString("[PCC] Found %1 catalog stars").arg(stars.size()));
 
         if (stars.empty()) {
-            append_log("[PCC] No catalog stars found in field.");
+            append_log("[PCC] No catalog stars found. Try a different source.");
             progress_->setVisible(false);
             return;
         }
@@ -375,6 +423,188 @@ void PCCTab::on_run_pcc() {
     }
 
     progress_->setVisible(false);
+}
+
+QString PCCTab::siril_catalog_dir() const {
+    return QDir::homePath() + "/.local/share/siril/siril_cat1_healpix8_xpsamp";
+}
+
+void PCCTab::update_catalog_status() {
+    const QString dir = siril_catalog_dir();
+    auto missing = astro::missing_siril_catalog_chunks(dir.toStdString());
+    int installed = 48 - static_cast<int>(missing.size());
+
+    bool is_siril = (cmb_source_->currentText() == "siril");
+    bool downloading = (current_reply_ != nullptr);
+
+    if (installed == 48) {
+        lbl_catalog_status_->setText(
+            QString("Installed \u2713 \u2014 48/48 chunks in %1").arg(dir));
+        lbl_catalog_status_->setStyleSheet("color: green; font-weight: bold;");
+        btn_download_catalog_->setEnabled(false);
+    } else if (installed > 0) {
+        lbl_catalog_status_->setText(
+            QString("Partial \u2014 %1/48 chunks installed in %2 (%3 missing)")
+                .arg(installed).arg(dir).arg(missing.size()));
+        lbl_catalog_status_->setStyleSheet("color: orange; font-weight: bold;");
+        btn_download_catalog_->setEnabled(!downloading);
+    } else {
+        lbl_catalog_status_->setText(
+            QString("Not installed \u2014 %1").arg(dir));
+        lbl_catalog_status_->setStyleSheet("color: red; font-weight: bold;");
+        btn_download_catalog_->setEnabled(!downloading);
+    }
+
+    // Disable Run PCC if siril selected but catalog missing
+    if (is_siril && installed == 0) {
+        btn_run_->setToolTip("Download the Siril catalog first, or switch to a VizieR source.");
+    } else {
+        btn_run_->setToolTip("");
+    }
+}
+
+void PCCTab::on_download_catalog() {
+    const QString dir = siril_catalog_dir();
+    auto missing = astro::missing_siril_catalog_chunks(dir.toStdString());
+    if (missing.empty()) {
+        append_log("[PCC] All 48 catalog chunks already installed.");
+        return;
+    }
+
+    chunks_to_download_ = missing;
+    current_chunk_idx_ = 0;
+    download_cancelled_ = false;
+
+    btn_download_catalog_->setEnabled(false);
+    btn_cancel_download_->setEnabled(true);
+    progress_download_->setRange(0, static_cast<int>(missing.size()));
+    progress_download_->setValue(0);
+    progress_download_->setVisible(true);
+
+    append_log(QString("[PCC] Downloading %1 missing catalog chunks to %2 ...")
+                   .arg(missing.size()).arg(dir));
+
+    download_next_chunk();
+}
+
+void PCCTab::on_cancel_download() {
+    download_cancelled_ = true;
+    if (current_reply_) {
+        current_reply_->abort();
+    }
+    btn_cancel_download_->setEnabled(false);
+    append_log("[PCC] Download cancelled.");
+}
+
+void PCCTab::download_next_chunk() {
+    if (download_cancelled_ || current_chunk_idx_ >= static_cast<int>(chunks_to_download_.size())) {
+        // Done or cancelled
+        progress_download_->setVisible(false);
+        btn_download_catalog_->setEnabled(true);
+        btn_cancel_download_->setEnabled(false);
+        update_catalog_status();
+        if (!download_cancelled_) {
+            append_log("[PCC] All chunks downloaded successfully.");
+        }
+        return;
+    }
+
+    int chunk_id = chunks_to_download_[current_chunk_idx_];
+    std::string url = astro::siril_catalog_chunk_url(chunk_id);
+    QString dest_dir = siril_catalog_dir();
+    QDir().mkpath(dest_dir);
+
+    char bz2_fname[128];
+    std::snprintf(bz2_fname, sizeof(bz2_fname),
+                  "siril_cat1_healpix8_xpsamp_%d.dat.bz2", chunk_id);
+    QString bz2_path = dest_dir + "/" + bz2_fname;
+
+    append_log(QString("[PCC] Chunk %1/%2: downloading chunk_%3 ...")
+                   .arg(current_chunk_idx_ + 1)
+                   .arg(chunks_to_download_.size())
+                   .arg(chunk_id));
+
+    download_file_ = new QFile(bz2_path, this);
+    if (!download_file_->open(QIODevice::WriteOnly)) {
+        append_log("[PCC] ERROR: Cannot write to " + bz2_path);
+        delete download_file_;
+        download_file_ = nullptr;
+        return;
+    }
+
+    QNetworkRequest req(QUrl(QString::fromStdString(url)));
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
+    req.setHeader(QNetworkRequest::UserAgentHeader, "TileCompile/1.0");
+
+    current_reply_ = nam_->get(req);
+    connect(current_reply_, &QNetworkReply::downloadProgress,
+            this, &PCCTab::on_chunk_download_progress);
+    connect(current_reply_, &QNetworkReply::readyRead, this, [this]() {
+        if (download_file_ && current_reply_)
+            download_file_->write(current_reply_->readAll());
+    });
+    connect(current_reply_, &QNetworkReply::finished,
+            this, &PCCTab::on_chunk_download_finished);
+}
+
+void PCCTab::on_chunk_download_progress(qint64 received, qint64 total) {
+    // Update progress: base = chunks done, fraction = current chunk progress
+    int base = current_chunk_idx_;
+    double frac = (total > 0) ? static_cast<double>(received) / total : 0;
+    int total_chunks = static_cast<int>(chunks_to_download_.size());
+    progress_download_->setRange(0, total_chunks * 100);
+    progress_download_->setValue(static_cast<int>((base + frac) * 100));
+}
+
+void PCCTab::on_chunk_download_finished() {
+    if (!current_reply_) return;
+
+    bool ok = (current_reply_->error() == QNetworkReply::NoError);
+
+    if (download_file_) {
+        download_file_->write(current_reply_->readAll());
+        download_file_->close();
+    }
+
+    QString bz2_path;
+    if (download_file_) {
+        bz2_path = download_file_->fileName();
+        delete download_file_;
+        download_file_ = nullptr;
+    }
+
+    current_reply_->deleteLater();
+    current_reply_ = nullptr;
+
+    if (!ok || download_cancelled_) {
+        if (!download_cancelled_)
+            append_log("[PCC] Download failed for chunk.");
+        if (!bz2_path.isEmpty())
+            QFile::remove(bz2_path);
+        progress_download_->setVisible(false);
+        btn_download_catalog_->setEnabled(true);
+        btn_cancel_download_->setEnabled(false);
+        update_catalog_status();
+        return;
+    }
+
+    // Decompress .bz2 → .dat
+    append_log("[PCC] Decompressing " + QFileInfo(bz2_path).fileName() + " ...");
+    QProcess bzip2;
+    bzip2.start("bzip2", {"-dk", bz2_path});
+    bzip2.waitForFinished(300000);  // 5 min max per chunk
+
+    if (bzip2.exitCode() != 0) {
+        append_log("[PCC] bzip2 decompression failed: " +
+                   QString::fromUtf8(bzip2.readAllStandardError()).trimmed());
+        QFile::remove(bz2_path);
+    } else {
+        QFile::remove(bz2_path);  // remove .bz2 after successful decompress
+    }
+
+    ++current_chunk_idx_;
+    download_next_chunk();
 }
 
 } // namespace tile_compile::gui

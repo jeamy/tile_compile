@@ -9,7 +9,16 @@
 #include <iostream>
 #include <regex>
 #include <set>
+#include <sstream>
 #include <vector>
+
+#include <QCoreApplication>
+#include <QEventLoop>
+#include <QFile>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QUrl>
 
 namespace tile_compile::astrometry {
 
@@ -404,6 +413,329 @@ double synthetic_flux(const std::vector<float> &xp_flux,
     }
 
     return (norm > 0) ? total / norm : 0.0;
+}
+
+// ─── Qt Network helpers ──────────────────────────────────────────────────
+
+// Ensure a QCoreApplication exists (needed for Qt event loop).
+// Runner and GUI already create one; for standalone tests we create a minimal one.
+static void ensure_qapp() {
+    if (!QCoreApplication::instance()) {
+        static int argc = 1;
+        static char arg0[] = "tile_compile";
+        static char *argv[] = { arg0, nullptr };
+        new QCoreApplication(argc, argv);
+    }
+}
+
+// Synchronous HTTP GET using Qt6::Network.  Returns response body, empty on error.
+static std::string http_get(const std::string &url, int timeout_sec = 30) {
+    ensure_qapp();
+
+    QNetworkAccessManager mgr;
+    QNetworkRequest req(QUrl(QString::fromStdString(url)));
+    req.setHeader(QNetworkRequest::UserAgentHeader, "tile_compile/1.0");
+    req.setTransferTimeout(timeout_sec * 1000);
+
+    QNetworkReply *reply = mgr.get(req);
+
+    // Block until finished
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        std::cerr << "[PCC] HTTP GET failed: "
+                  << reply->errorString().toStdString()
+                  << " url=" << url << std::endl;
+        reply->deleteLater();
+        return {};
+    }
+
+    // Follow redirects (Qt6 handles most automatically, but just in case)
+    QByteArray data = reply->readAll();
+    reply->deleteLater();
+    return std::string(data.constData(), data.size());
+}
+
+// Synchronous HTTP download to file with progress callback.
+static bool http_download(const std::string &url, const std::string &dest_path,
+                          int timeout_sec = 3600,
+                          std::function<void(size_t, size_t)> progress_cb = nullptr) {
+    ensure_qapp();
+
+    QNetworkAccessManager mgr;
+    QNetworkRequest req(QUrl(QString::fromStdString(url)));
+    req.setHeader(QNetworkRequest::UserAgentHeader, "tile_compile/1.0");
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
+    req.setTransferTimeout(timeout_sec * 1000);
+
+    QNetworkReply *reply = mgr.get(req);
+
+    QFile outfile(QString::fromStdString(dest_path));
+    if (!outfile.open(QIODevice::WriteOnly)) {
+        reply->abort();
+        reply->deleteLater();
+        return false;
+    }
+
+    // Connect progress
+    if (progress_cb) {
+        QObject::connect(reply, &QNetworkReply::downloadProgress,
+            [&](qint64 received, qint64 total) {
+                if (total > 0)
+                    progress_cb(static_cast<size_t>(received),
+                                static_cast<size_t>(total));
+            });
+    }
+
+    // Write data as it arrives
+    QObject::connect(reply, &QNetworkReply::readyRead, [&]() {
+        outfile.write(reply->readAll());
+    });
+
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    // Write any remaining data
+    outfile.write(reply->readAll());
+    outfile.close();
+
+    bool ok = (reply->error() == QNetworkReply::NoError);
+    if (!ok) {
+        std::cerr << "[PCC] Download failed: "
+                  << reply->errorString().toStdString() << std::endl;
+        QFile::remove(QString::fromStdString(dest_path));
+    }
+    reply->deleteLater();
+    return ok;
+}
+
+// ─── BV → Teff conversion ───────────────────────────────────────────────
+
+double bv_to_teff(double bv) {
+    // Ballesteros (2012) formula:
+    // T = 4600 * (1/(0.92*BV + 1.7) + 1/(0.92*BV + 0.62))
+    // Valid for -0.4 < BV < 2.0
+    bv = std::max(-0.4, std::min(2.0, bv));
+    double t = 4600.0 * (1.0 / (0.92 * bv + 1.7) + 1.0 / (0.92 * bv + 0.62));
+    return (t >= 2000 && t <= 50000) ? t : 0.0;
+}
+
+// ─── VizieR Gaia DR3 cone search ────────────────────────────────────────
+
+// Parse a VizieR asu-tsv response into fields per data line.
+// Skips #-comments, header, units, and separator lines.
+// Calls row_cb(fields) for each data row.
+static void parse_vizier_tsv(
+    const std::string &tsv,
+    int expected_cols,
+    std::function<void(const std::vector<std::string>&)> row_cb) {
+
+    std::istringstream iss(tsv);
+    std::string line;
+    int non_comment_lines = 0;  // count header + units + separator
+
+    while (std::getline(iss, line)) {
+        if (line.empty() || line[0] == '#') continue;
+
+        ++non_comment_lines;
+        // Line 1 = column names, 2 = units, 3 = separator (---)
+        if (non_comment_lines <= 3) continue;
+
+        // Split by tab
+        std::vector<std::string> fields;
+        std::istringstream ls(line);
+        std::string field;
+        while (std::getline(ls, field, '\t'))
+            fields.push_back(field);
+
+        if (static_cast<int>(fields.size()) >= expected_cols)
+            row_cb(fields);
+    }
+}
+
+// Trim whitespace from both ends
+static std::string trim(const std::string &s) {
+    size_t start = s.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return {};
+    size_t end = s.find_last_not_of(" \t\r\n");
+    return s.substr(start, end - start + 1);
+}
+
+std::vector<GaiaStar> vizier_gaia_cone_search(
+    double ra_center, double dec_center,
+    double radius_deg, double mag_limit) {
+
+    std::vector<GaiaStar> results;
+
+    // VizieR ASU-TSV endpoint for Gaia DR3
+    // Table I/355/gaiadr3: RA_ICRS, DE_ICRS, Gmag, Teff
+    std::ostringstream url;
+    url << "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?"
+        << "-source=I/355/gaiadr3"
+        << "&-c=" << ra_center << "%20" << dec_center
+        << "&-c.rd=" << radius_deg
+        << "&-out=RA_ICRS,DE_ICRS,Gmag,Teff"
+        << "&-out.max=10000"
+        << "&Gmag=<" << mag_limit;
+
+    std::cerr << "[PCC] VizieR Gaia query..." << std::endl;
+    std::string tsv = http_get(url.str(), 60);
+    if (tsv.empty()) {
+        std::cerr << "[PCC] VizieR Gaia query returned empty response" << std::endl;
+        return results;
+    }
+
+    parse_vizier_tsv(tsv, 4, [&](const std::vector<std::string> &f) {
+        try {
+            std::string teff_s = trim(f[3]);
+            if (teff_s.empty()) return;  // no Teff for this star
+
+            GaiaStar s;
+            s.ra   = std::stod(trim(f[0]));
+            s.dec  = std::stod(trim(f[1]));
+            s.mag  = static_cast<float>(std::stod(trim(f[2])));
+            s.teff = static_cast<float>(std::stod(teff_s));
+            if (s.teff > 1000 && s.teff < 50000)
+                results.push_back(s);
+        } catch (...) {}
+    });
+
+    std::cerr << "[PCC] VizieR Gaia: " << results.size()
+              << " stars with Teff" << std::endl;
+    return results;
+}
+
+// ─── VizieR APASS DR9 cone search ───────────────────────────────────────
+
+std::vector<GaiaStar> vizier_apass_cone_search(
+    double ra_center, double dec_center,
+    double radius_deg, double mag_limit) {
+
+    std::vector<GaiaStar> results;
+
+    // APASS DR9: table II/336/apass9
+    // Fields: RAJ2000, DEJ2000, Vmag, Bmag
+    std::ostringstream url;
+    url << "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?"
+        << "-source=II/336/apass9"
+        << "&-c=" << ra_center << "%20" << dec_center
+        << "&-c.rd=" << radius_deg
+        << "&-out=RAJ2000,DEJ2000,Vmag,Bmag"
+        << "&-out.max=10000"
+        << "&Vmag=<" << mag_limit;
+
+    std::cerr << "[PCC] VizieR APASS query..." << std::endl;
+    std::string tsv = http_get(url.str(), 60);
+    if (tsv.empty()) {
+        std::cerr << "[PCC] VizieR APASS query returned empty response" << std::endl;
+        return results;
+    }
+
+    parse_vizier_tsv(tsv, 4, [&](const std::vector<std::string> &f) {
+        try {
+            std::string vmag_s = trim(f[2]);
+            std::string bmag_s = trim(f[3]);
+            if (vmag_s.empty() || bmag_s.empty()) return;
+
+            double vmag = std::stod(vmag_s);
+            double bmag = std::stod(bmag_s);
+            double bv = bmag - vmag;
+
+            GaiaStar s;
+            s.ra   = std::stod(trim(f[0]));
+            s.dec  = std::stod(trim(f[1]));
+            s.mag  = static_cast<float>(vmag);
+            s.teff = static_cast<float>(bv_to_teff(bv));
+            if (s.teff > 1000)
+                results.push_back(s);
+        } catch (...) {}
+    });
+
+    std::cerr << "[PCC] VizieR APASS: " << results.size()
+              << " stars with Teff" << std::endl;
+    return results;
+}
+
+// ─── Siril catalog download ─────────────────────────────────────────────
+
+static constexpr int SIRIL_CATALOG_NUM_CHUNKS = 48;
+static const char *SIRIL_ZENODO_BASE =
+    "https://zenodo.org/records/14738271/files/";
+
+std::string siril_catalog_chunk_url(int chunk_id) {
+    char buf[256];
+    std::snprintf(buf, sizeof(buf),
+                  "%ssiril_cat1_healpix8_xpsamp_%d.dat.bz2?download=1",
+                  SIRIL_ZENODO_BASE, chunk_id);
+    return std::string(buf);
+}
+
+std::vector<int> missing_siril_catalog_chunks(const std::string &catalog_dir) {
+    std::vector<int> missing;
+    for (int i = 0; i < SIRIL_CATALOG_NUM_CHUNKS; ++i) {
+        char fname[128];
+        std::snprintf(fname, sizeof(fname),
+                      "siril_cat1_healpix8_xpsamp_%d.dat", i);
+        if (!fs::exists(catalog_dir + "/" + fname))
+            missing.push_back(i);
+    }
+    return missing;
+}
+
+bool download_siril_catalog_chunk(
+    int chunk_id, const std::string &dest_dir,
+    std::function<void(size_t, size_t)> progress_cb) {
+
+    if (chunk_id < 0 || chunk_id >= SIRIL_CATALOG_NUM_CHUNKS) return false;
+
+    // Ensure destination directory exists
+    fs::create_directories(dest_dir);
+
+    std::string url = siril_catalog_chunk_url(chunk_id);
+
+    // Download .bz2 to temp file
+    char bz2_fname[128];
+    std::snprintf(bz2_fname, sizeof(bz2_fname),
+                  "siril_cat1_healpix8_xpsamp_%d.dat.bz2", chunk_id);
+    std::string bz2_path = dest_dir + "/" + bz2_fname;
+
+    char dat_fname[128];
+    std::snprintf(dat_fname, sizeof(dat_fname),
+                  "siril_cat1_healpix8_xpsamp_%d.dat", chunk_id);
+    std::string dat_path = dest_dir + "/" + dat_fname;
+
+    // Skip if already exists
+    if (fs::exists(dat_path)) {
+        std::cerr << "[PCC] Chunk " << chunk_id << " already exists" << std::endl;
+        return true;
+    }
+
+    std::cerr << "[PCC] Downloading chunk " << chunk_id << "..." << std::endl;
+
+    if (!http_download(url, bz2_path, 3600, progress_cb)) {
+        fs::remove(bz2_path);
+        return false;
+    }
+
+    // Decompress .bz2 → .dat using system bzip2
+    std::string cmd = "bzip2 -dk \"" + bz2_path + "\"";
+    int ret = std::system(cmd.c_str());
+    if (ret != 0) {
+        std::cerr << "[PCC] bzip2 decompress failed for chunk " << chunk_id << std::endl;
+        fs::remove(bz2_path);
+        return false;
+    }
+
+    // Remove .bz2 after successful decompression
+    fs::remove(bz2_path);
+
+    std::cerr << "[PCC] Chunk " << chunk_id << " downloaded and decompressed"
+              << std::endl;
+    return true;
 }
 
 } // namespace tile_compile::astrometry
