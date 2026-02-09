@@ -11,6 +11,8 @@ Given a directory of FITS lights, it:
 - optionally clusters frame "states" and generates synthetic frames
 - **sigma-clip stacks** the result
 - **debayers** OSC data (nearest-neighbor demosaic)
+- **plate-solves** via ASTAP (astrometry → WCS coordinates)
+- **photometric color calibration** (PCC) against star catalogs (Siril Gaia DR3 XP / VizieR Gaia DR3 / VizieR APASS DR9)
 - produces a final stacked output plus **diagnostic artifacts** (JSON)
 
 ## Versions
@@ -18,9 +20,6 @@ Given a directory of FITS lights, it:
 | Version | Directory | Status | Backend |
 |---------|-----------|--------|---------|
 | **C++** | `tile_compile_cpp/` | **Active** (v3) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
-| **Python** | `tile_compile_python/` | Legacy (v4) | Python + NumPy + OpenCV |
-
-Die **C++ Version** ist die aktive Implementierung. Die Python-Version ist als Referenz vorhanden.
 
 ## Methodik v3 — Kernfeatures
 

@@ -121,9 +121,10 @@ pcc:
   source: vizier_apass
   mag_limit: 14
   mag_bright_limit: 4
-  aperture_radius_px: 6
+  aperture_radius_px: 10
   annulus_inner_px: 11
   annulus_outer_px: 16
+  mag_bright_limit: 6
   min_stars: 3
   sigma_clip: 2.5
   siril_catalog_dir: ""
