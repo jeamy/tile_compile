@@ -169,11 +169,39 @@ Der **Astrometry-Tab** löst die Himmelskoordinaten des gestackten Bildes:
 
 ### 6) Photometric Color Calibration (PCC)
 
-Der **PCC-Tab** kalibriert die Farbbalance anhand von Gaia-Katalogdaten:
+Der **PCC-Tab** kalibriert die Farbbalance anhand von Sternkatalog-Photometrie:
 
 - **FITS-Datei:** Die `_solved.fits` aus dem Astrometry-Tab auswählen (RGB + WCS)
 - **WCS-Datei:** Wird automatisch erkannt (`_solved.wcs`)
-- **Katalog:** Lokaler Gaia-Katalog (CSV) oder Siril-Katalog (siehe unten)
+- **Catalog source:** Katalogquelle auswählen (siehe unten)
+
+#### Katalogquellen
+
+| Quelle | Typ | Beschreibung |
+|--------|-----|-------------|
+| **siril** | Lokal | Siril Gaia DR3 XP-Sampled Katalog (~21 GB, 48 HEALPix-Chunks) |
+| **vizier_gaia** | Online | VizieR Gaia DR3 Cone Search (RA, Dec, Gmag, Teff) |
+| **vizier_apass** | Online | VizieR APASS DR9 Cone Search (B-V → Teff via Ballesteros 2012) |
+
+##### Siril Gaia DR3 Katalog (empfohlen)
+
+Der **Siril Gaia DR3 XP-Sampled Katalog** liefert die besten PCC-Ergebnisse, da er vollständige XP-Spektren (343 Wellenlängen-Bins, 336–1020 nm) pro Stern enthält. Die Daten werden als HEALPix Level-8 Binärdateien gespeichert:
+
+- **Speicherort:** `~/.local/share/siril/siril_cat1_healpix8_xpsamp/`
+- **Download:** Direkt aus der GUI über den Button **"Download Missing Chunks"** — die 48 `.dat.bz2`-Dateien werden von [Zenodo](https://zenodo.org/records/14738271) heruntergeladen und automatisch mit `bzip2` entpackt
+- **Format:** Binäres Siril-Katalogformat mit Half-Float (IEEE 754 binary16) XP-Spektren, skalierter RA/Dec/Mag, HEALPix NESTED Indexierung
+- **Cone Search:** HEALPix Disc-Query → nur relevante Chunks werden gelesen
+
+> **Hinweis:** Dieser Katalog ist identisch mit dem, den Siril für seine eigene PCC verwendet. Falls Siril bereits installiert ist und den Katalog heruntergeladen hat, erkennt Tile-Compile die vorhandenen Dateien automatisch.
+
+##### VizieR Online-Quellen (schneller Start)
+
+Für schnelle Tests ohne lokalen Katalog-Download:
+
+- **vizier_gaia:** Fragt VizieR Gaia DR3 (`I/355/gaiadr3`) ab — liefert RA, Dec, Gmag und Teff direkt. Nur Sterne mit bekannter Teff werden verwendet.
+- **vizier_apass:** Fragt VizieR APASS DR9 (`II/336/apass9`) ab — liefert B- und V-Magnitude. Teff wird über die Ballesteros (2012) Formel aus B-V berechnet.
+
+Beide Online-Quellen sind auf 10.000 Sterne pro Abfrage limitiert.
 
 #### PCC-Einstellungen
 
@@ -192,22 +220,11 @@ Der **PCC-Tab** kalibriert die Farbbalance anhand von Gaia-Katalogdaten:
 PCC berechnet **diagonale Skalierungsfaktoren** (R, G, B) — keine Kanalmischung:
 
 1. Katalogsterne werden per WCS auf Pixelkoordinaten projiziert
-2. Aperturphotometrie misst instrumentelle Flüsse (R/G/B) pro Stern
-3. Synthetische Katalogflüsse werden aus Gaia XP-Spektren berechnet
+2. Aperturphotometrie misst instrumentelle Flüsse (R/G/B) pro Stern (Apertur + Sky-Annulus)
+3. Erwartete Sternfarbe wird aus **Teff** berechnet (Planck-Schwarzkörper → lineare sRGB-Konversion). Bei Siril-Katalog alternativ aus XP-Spektren via Filterkurven-Integration.
 4. Pro Stern: `correction_R = (cat_R/cat_G) / (inst_R/inst_G)`
 5. Sigma-clipped Median → `scale_R`, `scale_B` (Green = Referenz, scale_G = 1.0)
 6. Ergebnis: Diagonale Farbkorrekturmatrix `diag(scale_R, 1.0, scale_B)`
-
-#### Verwendung von Siril-Katalogdaten
-
-Falls kein lokaler Gaia-Katalog vorhanden ist, können **Siril-exportierte Katalogdaten** verwendet werden:
-
-1. In **Siril**: Bild öffnen → `Image Analysis` → `Photometric Color Calibration`
-2. Siril lädt automatisch Katalogdaten von VizieR für das Bildfeld
-3. Die Katalogdaten als CSV exportieren (RA, Dec, Mag, Flux)
-4. In Tile-Compile PCC-Tab als Katalogdatei auswählen
-
-Alternativ kann Tile-Compile den Katalog direkt aus einer lokalen Gaia-CSV laden (Format: `ra,dec,phot_g_mean_mag,bp_rp,...`).
 
 #### PCC-Ergebnis
 
