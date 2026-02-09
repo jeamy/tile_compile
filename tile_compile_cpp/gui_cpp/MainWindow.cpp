@@ -110,7 +110,7 @@ void MainWindow::build_ui() {
     // Configuration Tab
     assumptions_widget_ = new AssumptionsWidget(this);
     config_tab_ = new ConfigTab(backend_.get(), assumptions_widget_, project_root_, this);
-    tabs_->addTab(wrap_scroll(config_tab_), "Configuration");
+    tabs_->addTab(config_tab_, "Configuration");
     connect(config_tab_, &ConfigTab::config_edited, this, [this]() {
         config_validated_ok_ = false;
         update_controls();
@@ -298,14 +298,13 @@ void MainWindow::on_start_run_clicked() {
         return;
     }
     
-    auto *scan_tab = qobject_cast<ScanTab*>(tabs_->widget(0)->findChild<ScanTab*>());
-    auto *config_tab = qobject_cast<ConfigTab*>(tabs_->widget(1)->findChild<ConfigTab*>());
-    auto *run_tab = qobject_cast<RunTab*>(tabs_->widget(3)->findChild<RunTab*>());
-    
-    if (!scan_tab || !config_tab || !run_tab) {
+    if (!scan_tab_ || !config_tab_ || !run_tab_) {
         QMessageBox::critical(this, "Start run", "Internal error: tabs not found");
         return;
     }
+    auto *scan_tab = scan_tab_;
+    auto *config_tab = config_tab_;
+    auto *run_tab = run_tab_;
     
     QString input_dir = run_tab->get_input_dir();
     if (input_dir.isEmpty()) {
@@ -408,7 +407,7 @@ void MainWindow::handle_runner_stdout(const QString &line) {
             phase_progress_->reset();
             append_live(QString("[run_start] run_id=%1").arg(QString::fromStdString(current_run_id_)));
             
-            auto *current_run_tab = qobject_cast<CurrentRunTab*>(tabs_->widget(5)->findChild<CurrentRunTab*>());
+            auto *current_run_tab = current_run_tab_;
             if (current_run_tab) {
                 current_run_tab->set_current_run(QString::fromStdString(current_run_id_), 
                                                  QString::fromStdString(current_run_dir_));
@@ -658,9 +657,8 @@ void MainWindow::update_history_runs_dir() {
 }
 
 void MainWindow::ensure_startup_paths() {
-    auto *run_tab = qobject_cast<RunTab*>(tabs_->widget(3)->findChild<RunTab*>());
-    if (run_tab && run_tab->get_working_dir().isEmpty()) {
-        run_tab->set_working_dir(QString::fromStdString(project_root_));
+    if (run_tab_ && run_tab_->get_working_dir().isEmpty()) {
+        run_tab_->set_working_dir(QString::fromStdString(project_root_));
     }
 }
 

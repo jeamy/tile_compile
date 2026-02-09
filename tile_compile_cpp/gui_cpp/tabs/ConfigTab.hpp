@@ -10,6 +10,8 @@
 #include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QVBoxLayout>
+#include <QSplitter>
+#include <QScrollArea>
 #include <string>
 
 #include <nlohmann/json.hpp>

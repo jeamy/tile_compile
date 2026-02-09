@@ -24,4 +24,22 @@ cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame,
 float measure_fwhm_from_image(const Matrix2Df& img, int max_corners = 400,
                               int patch_radius = 10, size_t min_stars = 25);
 
+// Per-frame star metrics (Siril-style diagnostics)
+struct FrameStarMetrics {
+    float fwhm;         // median FWHM (px)
+    float fwhm_x;       // median FWHM in X direction (px)
+    float fwhm_y;       // median FWHM in Y direction (px)
+    float roundness;     // median roundness = fwhm_y / fwhm_x
+    float wfwhm;        // weighted FWHM = fwhm * (n_ref_stars / n_stars)
+    int   star_count;    // number of detected stars with valid FWHM
+};
+
+// Measure per-frame star metrics: FWHM, roundness, wFWHM, star count.
+// ref_star_count is the star count of the reference frame (for wFWHM).
+// If ref_star_count <= 0, wfwhm = fwhm.
+FrameStarMetrics measure_frame_stars(const Matrix2Df& img,
+                                     int ref_star_count = 0,
+                                     int max_corners = 400,
+                                     int patch_radius = 10);
+
 } // namespace tile_compile::metrics
