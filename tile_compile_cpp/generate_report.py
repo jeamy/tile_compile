@@ -428,6 +428,54 @@ def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[
     if _plot_histogram(gw, "Global weight distribution", "weight", _fig_path(artifacts_dir, fn), color="#ffb86c"):
         pngs.append(fn)
 
+    # --- Siril-style per-frame star metrics ---
+    fwhm = [m.get("fwhm", 0) for m in metrics]
+    wfwhm = [m.get("wfwhm", 0) for m in metrics]
+    roundness = [m.get("roundness", 0) for m in metrics]
+    star_count = [m.get("star_count", 0) for m in metrics]
+
+    # FWHM timeseries
+    fn = "global_fwhm.png"
+    if _plot_timeseries(fwhm, "FWHM per frame", "FWHM (px)", _fig_path(artifacts_dir, fn), color="#bd93f9"):
+        pngs.append(fn)
+
+    # wFWHM timeseries (weighted by star count)
+    fn = "global_wfwhm.png"
+    if _plot_timeseries(wfwhm, "Weighted FWHM per frame (wFWHM)", "wFWHM (px)", _fig_path(artifacts_dir, fn), color="#ff79c6"):
+        pngs.append(fn)
+
+    # Roundness timeseries
+    fn = "global_roundness.png"
+    if _plot_timeseries(roundness, "Star roundness per frame (FWHMy/FWHMx)", "roundness", _fig_path(artifacts_dir, fn), color="#8be9fd"):
+        pngs.append(fn)
+
+    # Star count timeseries
+    fn = "global_star_count.png"
+    if _plot_timeseries(star_count, "Detected stars per frame", "stars", _fig_path(artifacts_dir, fn), color="#f1fa8c"):
+        pngs.append(fn)
+
+    # FWHM vs Roundness scatter (Siril-style)
+    if plt is not None and fwhm and roundness:
+        fn = "global_fwhm_vs_roundness.png"
+        a_fwhm = np.asarray(fwhm, dtype=np.float64)
+        a_round = np.asarray(roundness, dtype=np.float64)
+        mask = (a_fwhm > 0) & (a_round > 0) & np.isfinite(a_fwhm) & np.isfinite(a_round)
+        if np.sum(mask) > 2:
+            fig, ax = plt.subplots(figsize=(5.5, 4.5), dpi=150)
+            sc = ax.scatter(a_fwhm[mask], a_round[mask],
+                            c=np.arange(len(a_fwhm))[mask], cmap="plasma",
+                            s=14, alpha=0.8, edgecolors="none")
+            fig.colorbar(sc, ax=ax, label="frame #", shrink=0.8)
+            ax.axhline(1.0, color="gray", lw=0.5, ls="--", alpha=0.5)
+            ax.set_xlabel("FWHM (px)", fontsize=9)
+            ax.set_ylabel("Roundness (FWHMy/FWHMx)", fontsize=9)
+            ax.set_title("FWHM vs Roundness", fontsize=10)
+            ax.tick_params(labelsize=8)
+            fig.tight_layout()
+            fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
+            plt.close(fig)
+            pngs.append(fn)
+
     # Stats
     s = _basic_stats(gw)
     if s["n"]:
@@ -438,6 +486,18 @@ def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[
             evals.append(f"frames with very low weight (<0.2×median): {low}")
             if s["max"] / s["min"] > 50:
                 evals.append("WARNING: extremely wide weight distribution")
+
+    s_fwhm = _basic_stats([f for f in fwhm if f > 0])
+    if s_fwhm["n"]:
+        evals.append(f"FWHM: median={s_fwhm['median']:.2f} px, range=[{s_fwhm['min']:.2f}, {s_fwhm['max']:.2f}]")
+    s_round = _basic_stats([r for r in roundness if r > 0])
+    if s_round["n"]:
+        evals.append(f"roundness: median={s_round['median']:.3f}, range=[{s_round['min']:.3f}, {s_round['max']:.3f}]")
+        if s_round["median"] < 0.7:
+            evals.append("WARNING: low roundness — possible tracking/guiding issue or elongated stars")
+    s_stars = _basic_stats([float(c) for c in star_count if c > 0])
+    if s_stars["n"]:
+        evals.append(f"star count: median={s_stars['median']:.0f}, range=[{s_stars['min']:.0f}, {s_stars['max']:.0f}]")
 
     return pngs, evals
 

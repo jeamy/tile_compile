@@ -107,16 +107,6 @@ cmake --build . -j$(nproc)
 ./tile_compile_gui
 ```
 
-## Quickstart (Python-Version, Legacy)
-
-```bash
-cd tile_compile_python
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-./start_gui.sh
-```
-
 ## GUI Bedienungsanleitung
 
 Die GUI ist in Tabs organisiert:
@@ -244,13 +234,116 @@ Nach erfolgreichem Lauf unter `runs/<run_id>/`:
   - `stacked_rgb_solved.fits` — RGB mit WCS-Headern (nach Astrometrie)
   - `stacked_rgb_pcc.fits` — farbkalibriertes RGB (nach PCC)
 - `artifacts/`
-  - `global_metrics.json` — globale Qualitätsmetriken
+  - `global_metrics.json` — globale Qualitätsmetriken + Siril-style Sternmetriken
   - `global_registration.json` — Warp-Matrizen + Correlation-Scores
   - `tile_grid.json` — Tile-Geometrie
   - `local_metrics.json` — lokale Tile-Metriken
   - `clustering.json` — Cluster-Zuordnungen
   - `synthetic_frames.json` — synthetische Frame-Info
   - `validation.json` — FWHM-Verbesserung, Tile-Pattern-Check
+  - `report.html` + `report.css` — HTML-Report mit allen Diagrammen
+  - `*.png` — Diagnose-Diagramme (siehe unten)
+
+### 8) Diagnose-Report (`generate_report.py`)
+
+Erzeugt einen HTML-Report mit matplotlib-Diagrammen für einen abgeschlossenen Pipeline-Lauf.
+
+```bash
+python3 generate_report.py /path/to/runs/<run_id>
+```
+
+**Ausgabe:** `<run_dir>/artifacts/report.html` + `report.css` + `*.png`
+
+**Abhängigkeiten:** `numpy`, `matplotlib` (Pflicht für Plots), `pyyaml` (optional, für Config-Anzeige)
+
+#### Datenquellen
+
+Das Script liest folgende JSON-Artifacts aus `<run_dir>/artifacts/`:
+
+| Artifact | Inhalt |
+|----------|--------|
+| `normalization.json` | Hintergrundlevel pro Frame (Mono/OSC R/G/B) |
+| `global_metrics.json` | Frame-Qualität: background, noise, gradient, global_weight + Siril-Metriken (fwhm, wfwhm, roundness, star_count) |
+| `global_registration.json` | Warp-Matrizen (tx, ty, a00, a01), Correlation-Scores |
+| `tile_grid.json` | Tile-Geometrie (x, y, width, height), Bildgröße, Seeing-FWHM |
+| `local_metrics.json` | Pro-Tile-pro-Frame: FWHM, quality_score, local_weight, contrast, star_count, tile_type |
+| `tile_reconstruction.json` | Pro-Tile: valid_counts, mean_correlation, post_contrast, post_snr |
+| `state_clustering.json` | Cluster-Zuordnungen, Cluster-Größen |
+| `synthetic_frames.json` | Synthetische Frame-Info |
+| `validation.json` | FWHM-Verbesserung, Tile-Pattern-Check |
+| `logs/run_events.jsonl` | Phase-Start/End-Timestamps für Timeline |
+
+#### Report-Sektionen und Diagramme
+
+| Sektion | Diagramme | Beschreibung |
+|---------|-----------|-------------|
+| **Pipeline Timeline** | `pipeline_timeline.png` | Horizontales Balkendiagramm der Phasendauern |
+| **Normalization** | `norm_background_*.png` | Hintergrundlevel-Verlauf (Mono oder R/G/B) |
+| **Global Metrics** | `global_background.png` | Hintergrund pro Frame |
+| | `global_noise.png` | Rauschpegel pro Frame |
+| | `global_gradient.png` | Gradient-Energie pro Frame |
+| | `global_weight_timeseries.png` | Qualitätsgewicht G(f) pro Frame |
+| | `global_weight_hist.png` | Gewichtsverteilung (Histogramm) |
+| | `global_fwhm.png` | Median-FWHM pro Frame (Seeing-Verlauf) |
+| | `global_wfwhm.png` | Gewichtetes FWHM (bestraft Frames mit wenig Sternen) |
+| | `global_roundness.png` | Sternrundheit FWHMy/FWHMx (1.0 = perfekt rund) |
+| | `global_star_count.png` | Erkannte Sterne pro Frame |
+| | `global_fwhm_vs_roundness.png` | Scatter-Plot FWHM vs Roundness (farbcodiert nach Frame-Nr.) |
+| **Tile Grid** | `tile_grid_overlay.png` | Tile-Raster auf Bildkoordinaten |
+| **Registration** | `registration_overview.png` | 3-Panel: Translation-Scatter, TX/TY-Verlauf, CC-Verlauf |
+| | `registration_cc_hist.png` | Correlation-Histogramm |
+| | `registration_rotation.png` | Rotationswinkel pro Frame |
+| | `registration_scale.png` | Skalierungsfaktor pro Frame |
+| **Local Metrics** | `local_fwhm_quality_spatial.png` | Spatial-Heatmaps: FWHM, Quality, Quality-Varianz |
+| | `local_weight_contrast_spatial.png` | Spatial-Heatmaps: Weight, Weight-Varianz, Contrast |
+| | `local_fwhm_spatial.png` | Große FWHM-Heatmap |
+| | `local_weight_spatial.png` | Große Weight-Heatmap |
+| | `local_stars_spatial.png` | Sternanzahl-Heatmap |
+| | `local_tile_type_map.png` | Tile-Typ-Karte (STAR vs STRUCTURE) |
+| | `local_quality_weight_per_frame.png` | Mittlere Tile-Qualität + Weight pro Frame |
+| **Reconstruction** | `recon_spatial_overview.png` | 3-Panel: Valid-Counts, CC, SNR (spatial) |
+| | `recon_valid_counts_spatial.png` | Frames pro Tile (Nutzungskarte) |
+| | `recon_cc_spatial.png` | Mittlere Correlation pro Tile |
+| | `recon_snr_spatial.png` | Post-Reconstruction SNR pro Tile |
+| | `recon_contrast_bg_spatial.png` | Post-Contrast + Background (spatial) |
+| | `recon_*_hist.png` | Histogramme: Valid-Counts, CC, SNR |
+| **Clustering** | `clustering_sizes.png` | Cluster-Größen (Balken) |
+| | `clustering_labels.png` | Cluster-Label pro Frame |
+| **Validation** | `validation_summary.png` | Balkendiagramm: FWHM-Improvement, Weight-Varianz, Pattern-Ratio |
+
+#### Architektur
+
+```
+generate_report.py
+├── Helpers:        _read_json, _read_jsonl, _basic_stats, _escape_html
+├── Chart-Generatoren (benötigen matplotlib):
+│   ├── _plot_timeseries()         — Zeitreihe mit Median-Linie
+│   ├── _plot_histogram()          — Histogramm mit p1/p99-Clipping
+│   ├── _plot_multi_timeseries()   — Mehrere Zeitreihen überlagert (R/G/B)
+│   ├── _plot_heatmap_2d()         — 2D-Heatmap (Grid)
+│   ├── _plot_spatial_tile_heatmap() — Tile-Werte auf Bildkoordinaten
+│   ├── _plot_spatial_tile_multi() — Mehrere Spatial-Heatmaps nebeneinander
+│   ├── _plot_bar()                — Balkendiagramm
+│   └── _plot_warp_scatter()       — 3-Panel Registration-Übersicht
+├── Sektions-Generatoren:
+│   ├── _gen_normalization()       → norm_background_*.png
+│   ├── _gen_global_metrics()      → global_*.png (inkl. Siril-Plots)
+│   ├── _gen_tile_grid()           → tile_grid_overlay.png
+│   ├── _gen_registration()        → registration_*.png
+│   ├── _gen_local_metrics()       → local_*.png
+│   ├── _gen_reconstruction()      → recon_*.png
+│   ├── _gen_clustering()          → clustering_*.png
+│   ├── _gen_synthetic()           → (nur Text)
+│   ├── _gen_validation()          → validation_summary.png
+│   └── _gen_timeline()            → pipeline_timeline.png
+├── HTML/CSS-Ausgabe:
+│   ├── _write_css()               — Dark-Theme CSS (Tokyo Night)
+│   ├── _make_card_html()          — Card mit PNGs + Statistik-Liste
+│   └── _write_html()             — Kompletter HTML-Report
+└── generate_report() / main()     — Orchestrierung
+```
+
+Jeder Sektions-Generator gibt `(png_files, eval_lines)` zurück. Die eval_lines enthalten Statistiken und Warnungen (z.B. `WARNING: low roundness`). Wenn `matplotlib` nicht installiert ist, werden nur die Textauswertungen ohne Diagramme generiert.
 
 ## Calibration (Bias/Darks/Flats)
 
@@ -268,6 +361,7 @@ tile-compile/
 │   ├── src/                    # Implementierung
 │   ├── gui_cpp/                # Qt6 GUI
 │   ├── tests/                  # Unit-Tests
+│   ├── generate_report.py       # Diagnose-Report-Generator (Siril-style Plots)
 │   ├── tile_compile.yaml       # Default-Konfiguration
 │   ├── tile_compile.schema.json
 │   └── tile_compile.schema.yaml

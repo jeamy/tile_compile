@@ -603,7 +603,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
   std::vector<FrameMetrics> frame_metrics;
   frame_metrics.resize(frames.size());
+  std::vector<metrics::FrameStarMetrics> frame_star_metrics;
+  frame_star_metrics.resize(frames.size());
+  int ref_star_count = 0;
 
+  // First pass: compute metrics + star metrics for all frames
   for (size_t i = 0; i < frames.size(); ++i) {
     const auto &path = frames[i];
     try {
@@ -620,10 +624,12 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         m.gradient_energy = 0.0f;
         m.quality_score = 1.0f;
         frame_metrics[i] = m;
+        frame_star_metrics[i] = metrics::FrameStarMetrics{};
       } else {
         image::apply_normalization_inplace(img, norm_scales[i], detected_mode,
                                     detected_bayer_str, 0, 0);
         frame_metrics[i] = metrics::calculate_frame_metrics(img);
+        frame_star_metrics[i] = metrics::measure_frame_stars(img, 0);
       }
     } catch (const std::exception &e) {
       emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "error",
@@ -643,6 +649,19 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                            log_file);
   }
 
+  // Determine reference star count (max) and recompute wFWHM
+  for (const auto &sm : frame_star_metrics) {
+    if (sm.star_count > ref_star_count) ref_star_count = sm.star_count;
+  }
+  if (ref_star_count > 0) {
+    for (auto &sm : frame_star_metrics) {
+      if (sm.star_count > 0 && sm.fwhm > 0) {
+        sm.wfwhm = sm.fwhm * static_cast<float>(ref_star_count) /
+                   static_cast<float>(sm.star_count);
+      }
+    }
+  }
+
   VectorXf global_weights = metrics::calculate_global_weights(
       frame_metrics, cfg.global_metrics.weights.background,
       cfg.global_metrics.weights.noise, cfg.global_metrics.weights.gradient,
@@ -660,6 +679,12 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       m["global_weight"] = (i < static_cast<size_t>(global_weights.size()))
                                ? global_weights[static_cast<int>(i)]
                                : 0.0f;
+      m["fwhm"] = frame_star_metrics[i].fwhm;
+      m["fwhm_x"] = frame_star_metrics[i].fwhm_x;
+      m["fwhm_y"] = frame_star_metrics[i].fwhm_y;
+      m["roundness"] = frame_star_metrics[i].roundness;
+      m["wfwhm"] = frame_star_metrics[i].wfwhm;
+      m["star_count"] = frame_star_metrics[i].star_count;
       artifact["metrics"].push_back(m);
     }
 

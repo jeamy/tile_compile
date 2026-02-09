@@ -28,42 +28,43 @@ ConfigTab::ConfigTab(BackendClient *backend, AssumptionsWidget *assumptions_widg
 
 void ConfigTab::build_ui() {
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(10);
-    
-    auto *cfg_box = new QGroupBox("Configuration");
-    auto *cfg_layout = new QVBoxLayout(cfg_box);
-    cfg_layout->setContentsMargins(12, 18, 12, 12);
-    cfg_layout->setSpacing(10);
-    
-    auto *cfg_form = new QFormLayout();
-    cfg_form->setSpacing(10);
-    
+    layout->setContentsMargins(4, 4, 4, 4);
+    layout->setSpacing(6);
+
+    // --- Top bar: config path + action buttons ---
+    auto *top_bar = new QWidget();
+    auto *top_layout = new QVBoxLayout(top_bar);
+    top_layout->setContentsMargins(8, 6, 8, 6);
+    top_layout->setSpacing(6);
+
     auto *config_row = new QHBoxLayout();
+    auto *lbl_path = new QLabel("Config:");
+    lbl_path->setFixedWidth(50);
     config_path_ = new QLineEdit("tile_compile.yaml");
-    config_path_->setMinimumHeight(30);
+    config_path_->setMinimumHeight(28);
     auto *btn_browse_config = new QPushButton("Browse");
-    btn_browse_config->setMinimumHeight(30);
-    btn_browse_config->setFixedWidth(100);
-    config_row->addWidget(config_path_);
+    btn_browse_config->setMinimumHeight(28);
+    btn_browse_config->setFixedWidth(80);
+    config_row->addWidget(lbl_path);
+    config_row->addWidget(config_path_, 1);
     config_row->addWidget(btn_browse_config);
-    cfg_form->addRow("Config path", config_row);
-    
+    top_layout->addLayout(config_row);
+
     auto *button_row = new QHBoxLayout();
     btn_cfg_load_ = new QPushButton("Load");
-    btn_cfg_load_->setMinimumHeight(30);
-    btn_cfg_load_->setFixedWidth(100);
+    btn_cfg_load_->setMinimumHeight(28);
+    btn_cfg_load_->setFixedWidth(80);
     btn_cfg_save_ = new QPushButton("Save");
-    btn_cfg_save_->setMinimumHeight(30);
-    btn_cfg_save_->setFixedWidth(100);
+    btn_cfg_save_->setMinimumHeight(28);
+    btn_cfg_save_->setFixedWidth(80);
     btn_cfg_validate_ = new QPushButton("Validate");
-    btn_cfg_validate_->setMinimumHeight(30);
-    btn_cfg_validate_->setFixedWidth(100);
+    btn_cfg_validate_->setMinimumHeight(28);
+    btn_cfg_validate_->setFixedWidth(80);
+    btn_apply_assumptions_ = new QPushButton("Apply Assumptions");
+    btn_apply_assumptions_->setMinimumHeight(28);
+    btn_apply_assumptions_->setFixedWidth(130);
     lbl_cfg_ = new QLabel("not validated");
     lbl_cfg_->setObjectName("StatusLabel");
-    btn_apply_assumptions_ = new QPushButton("Apply Assumptions");
-    btn_apply_assumptions_->setMinimumHeight(30);
-    btn_apply_assumptions_->setFixedWidth(140);
 
     button_row->addWidget(btn_cfg_load_);
     button_row->addWidget(btn_cfg_save_);
@@ -71,19 +72,50 @@ void ConfigTab::build_ui() {
     button_row->addWidget(btn_apply_assumptions_);
     button_row->addWidget(lbl_cfg_);
     button_row->addStretch(1);
-    cfg_form->addRow("", button_row);
-    cfg_layout->addLayout(cfg_form);
-    
-    // Structured path/settings editors
-    build_paths_ui(cfg_layout);
+    top_layout->addLayout(button_row);
+
+    layout->addWidget(top_bar);
+
+    // --- Horizontal splitter: left = settings, right = YAML editor ---
+    auto *splitter = new QSplitter(Qt::Horizontal);
+    splitter->setChildrenCollapsible(false);
+
+    // Left panel: scrollable settings
+    auto *left_widget = new QWidget();
+    auto *left_layout = new QVBoxLayout(left_widget);
+    left_layout->setContentsMargins(0, 0, 0, 0);
+    left_layout->setSpacing(8);
+    build_paths_ui(left_layout);
+    left_layout->addStretch(1);
+
+    auto *scroll = new QScrollArea();
+    scroll->setWidget(left_widget);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setMinimumWidth(320);
+
+    // Right panel: YAML editor
+    auto *right_widget = new QWidget();
+    auto *right_layout = new QVBoxLayout(right_widget);
+    right_layout->setContentsMargins(0, 0, 0, 0);
+    right_layout->setSpacing(4);
+    auto *yaml_label = new QLabel("YAML Editor");
+    yaml_label->setStyleSheet("font-weight: bold; font-size: 12px; color: #7aa2f7;");
+    right_layout->addWidget(yaml_label);
 
     config_yaml_ = new QTextEdit();
     config_yaml_->setAcceptRichText(false);
     config_yaml_->setPlaceholderText("# YAML config...");
-    cfg_layout->addWidget(config_yaml_, 1);
-    
-    layout->addWidget(cfg_box, 1);
-    
+    config_yaml_->setStyleSheet("QTextEdit { font-family: monospace; font-size: 12px; }");
+    right_layout->addWidget(config_yaml_, 1);
+
+    splitter->addWidget(scroll);
+    splitter->addWidget(right_widget);
+    splitter->setStretchFactor(0, 2);
+    splitter->setStretchFactor(1, 3);
+
+    layout->addWidget(splitter, 1);
+
     connect(btn_cfg_load_, &QPushButton::clicked, this, &ConfigTab::on_load_config_clicked);
     connect(btn_cfg_save_, &QPushButton::clicked, this, &ConfigTab::on_save_config_clicked);
     connect(btn_cfg_validate_, &QPushButton::clicked, this, &ConfigTab::on_validate_config_clicked);

@@ -115,16 +115,16 @@ astrometry:
   enabled: true
   astap_bin: ""
   astap_data_dir: ""
-  search_radius: 186
+  search_radius: 183
 pcc:
   enabled: true
-  source: auto
+  source: vizier_apass
   mag_limit: 14
-  mag_bright_limit: 5
-  aperture_radius_px: 8
-  annulus_inner_px: 12
-  annulus_outer_px: 17
-  min_stars: 8
+  mag_bright_limit: 4
+  aperture_radius_px: 6
+  annulus_inner_px: 11
+  annulus_outer_px: 16
+  min_stars: 3
   sigma_clip: 2.5
   siril_catalog_dir: ""
 stacking:
