@@ -347,7 +347,7 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
 
     auto should_skip_key = [](const std::string& key) -> bool {
         return key == "SIMPLE" || key == "BITPIX" || key == "NAXIS" || key == "NAXIS1" || key == "NAXIS2" ||
-               key == "EXTEND";
+               key == "EXTEND" || key == "BZERO" || key == "BSCALE";
     };
     
     for (const auto& [key, value] : header.string_values) {
@@ -430,7 +430,7 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
     auto should_skip_key = [](const std::string& key) -> bool {
         return key == "SIMPLE" || key == "BITPIX" || key == "NAXIS" || 
                key == "NAXIS1" || key == "NAXIS2" || key == "NAXIS3" || key == "EXTEND" ||
-               key == "BAYERPAT";
+               key == "BAYERPAT" || key == "BZERO" || key == "BSCALE";
     };
     
     for (const auto& [key, value] : header.string_values) {

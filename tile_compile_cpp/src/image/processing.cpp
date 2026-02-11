@@ -111,6 +111,7 @@ Matrix2Df normalize_frame(const Matrix2Df& frame, float target_background,
 }
 
 Matrix2Df cosmetic_correction(const Matrix2Df& frame, float sigma_threshold, bool correct_hot) {
+    if (frame.size() == 0) return frame;
     Matrix2Df result = frame;
     int h = frame.rows();
     int w = frame.cols();
