@@ -112,11 +112,17 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
 Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
                            float sigma_low, float sigma_high,
                            int max_iters, float min_fraction) {
-    if (frames.empty()) return Matrix2Df();
-    const int rows = frames[0].rows();
-    const int cols = frames[0].cols();
+    // Filter out empty (0×0) frames (e.g. empty synthetic cluster outputs)
+    std::vector<std::reference_wrapper<const Matrix2Df>> valid;
+    valid.reserve(frames.size());
+    for (const auto& f : frames) {
+        if (f.size() > 0) valid.emplace_back(f);
+    }
+    if (valid.empty()) return Matrix2Df();
+    const int rows = valid[0].get().rows();
+    const int cols = valid[0].get().cols();
     Matrix2Df out(rows, cols);
-    const int n = static_cast<int>(frames.size());
+    const int n = static_cast<int>(valid.size());
     const int min_keep = std::max(1, static_cast<int>(std::ceil(min_fraction * n)));
 
     std::vector<float> values;
@@ -126,7 +132,7 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
     for (int idx = 0; idx < out.size(); ++idx) {
         values.clear();
         for (int i = 0; i < n; ++i) {
-            values.push_back(frames[static_cast<size_t>(i)].data()[idx]);
+            values.push_back(valid[static_cast<size_t>(i)].get().data()[idx]);
             keep[static_cast<size_t>(i)] = 1;
         }
 

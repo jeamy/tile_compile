@@ -585,7 +585,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                      artifact.dump(2));
   }
 
-  const float output_pedestal = 32768.0f;
+  const float output_pedestal = 0.0f;
   const float output_bg_mono = core::median_finite_positive(B_mono, 1.0f);
   const float output_bg_r = core::median_finite_positive(B_r, 1.0f);
   const float output_bg_g = core::median_finite_positive(B_g, 1.0f);
@@ -1922,7 +1922,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           if (cluster_labels[fi] != c)
             continue;
           use_frame[fi] = 1;
-          count++;
+          if (frame_usable[fi])
+            count++;
         }
         clusters_done++;
         emitter.phase_progress_counts(
@@ -1935,7 +1936,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         if (count < synth_min)
           continue;
         Matrix2Df syn = reconstruct_subset(use_frame);
-        synthetic_frames.push_back(syn);
+        if (syn.size() == 0)
+          continue;
+        synthetic_frames.push_back(std::move(syn));
         synth_done = static_cast<int>(synthetic_frames.size());
         if (static_cast<int>(synthetic_frames.size()) >= synth_max)
           break;
@@ -1991,19 +1994,31 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     emitter.phase_start(run_id, Phase::STACKING, "STACKING", log_file);
 
     if (use_synthetic_frames) {
-      if (cfg.stacking.method == "rej") {
-        recon = reconstruction::sigma_clip_stack(synthetic_frames,
-                                 cfg.stacking.sigma_clip.sigma_low,
-                                 cfg.stacking.sigma_clip.sigma_high,
-                                 cfg.stacking.sigma_clip.max_iters,
-                                 cfg.stacking.sigma_clip.min_fraction);
-      } else {
-        recon = Matrix2Df::Zero(synthetic_frames[0].rows(),
-                                synthetic_frames[0].cols());
-        for (const auto &sf : synthetic_frames) {
-          recon += sf;
+      // Filter out empty (0×0) synthetic frames (empty cluster outputs)
+      std::vector<Matrix2Df> valid_synth;
+      valid_synth.reserve(synthetic_frames.size());
+      for (auto &sf : synthetic_frames) {
+        if (sf.size() > 0) valid_synth.push_back(std::move(sf));
+      }
+      std::cerr << "[STACKING] " << valid_synth.size() << " / "
+                << synthetic_frames.size() << " non-empty synthetic frames"
+                << std::endl;
+
+      if (!valid_synth.empty()) {
+        if (cfg.stacking.method == "rej") {
+          recon = reconstruction::sigma_clip_stack(valid_synth,
+                                   cfg.stacking.sigma_clip.sigma_low,
+                                   cfg.stacking.sigma_clip.sigma_high,
+                                   cfg.stacking.sigma_clip.max_iters,
+                                   cfg.stacking.sigma_clip.min_fraction);
+        } else {
+          recon = Matrix2Df::Zero(valid_synth[0].rows(),
+                                  valid_synth[0].cols());
+          for (const auto &sf : valid_synth) {
+            recon += sf;
+          }
+          recon /= static_cast<float>(valid_synth.size());
         }
-        recon /= static_cast<float>(synthetic_frames.size());
       }
     }
 
@@ -2191,6 +2206,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     emitter.phase_start(run_id, Phase::DEBAYER, "DEBAYER", log_file);
 
     Matrix2Df R_out, G_out, B_out;
+    Matrix2Df R_disk, G_disk, B_disk;
     bool have_rgb = false;
     fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
 
@@ -2211,11 +2227,16 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       G_out.array() += output_pedestal;
       B_out.array() += output_pedestal;
 
+      // Keep a separate copy for on-disk outputs (may be stretched for viewing)
+      R_disk = R_out;
+      G_disk = G_out;
+      B_disk = B_out;
+
       // Linear stretch RGB to full 16-bit range (joint min/max preserves color)
       if (cfg.stacking.output_stretch) {
         float vmin = std::numeric_limits<float>::max();
         float vmax = std::numeric_limits<float>::lowest();
-        for (auto *ch : {&R_out, &G_out, &B_out}) {
+        for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
           for (Eigen::Index k = 0; k < ch->size(); ++k) {
             float v = ch->data()[k];
             if (std::isfinite(v)) {
@@ -2227,7 +2248,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         float range = vmax - vmin;
         if (range > 1.0e-6f) {
           float scale = 65535.0f / range;
-          for (auto *ch : {&R_out, &G_out, &B_out}) {
+          for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
             for (Eigen::Index k = 0; k < ch->size(); ++k) {
               ch->data()[k] = (ch->data()[k] - vmin) * scale;
             }
@@ -2237,16 +2258,16 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         }
       }
 
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_disk,
                            first_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G_out,
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G_disk,
                            first_hdr);
-      io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_out,
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_disk,
                            first_hdr);
 
       // Save stacked_rgb.fits as 3-plane RGB cube (NAXIS3=3)
-      io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits", R_out, G_out,
-                         B_out, first_hdr);
+      io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits", R_disk, G_disk,
+                         B_disk, first_hdr);
 
       emitter.phase_end(
           run_id, Phase::DEBAYER, "ok",
@@ -2330,7 +2351,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           // Re-write stacked_rgb.fits with WCS keywords
           if (have_rgb) {
             try {
-              io::write_fits_rgb(stacked_rgb_path, R_out, G_out, B_out, first_hdr);
+              io::write_fits_rgb(stacked_rgb_path, R_disk, G_disk, B_disk, first_hdr);
               std::cerr << "[ASTROMETRY] WCS keywords written to " << stacked_rgb_path << std::endl;
             } catch (const std::exception &e) {
               std::cerr << "[ASTROMETRY] Could not update stacked_rgb.fits: " << e.what() << std::endl;
@@ -2466,14 +2487,39 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
         if (result.success) {
           // Save PCC-corrected RGB as separate files (originals stay intact)
+          Matrix2Df R_pcc_disk = R_out;
+          Matrix2Df G_pcc_disk = G_out;
+          Matrix2Df B_pcc_disk = B_out;
+          if (cfg.stacking.output_stretch) {
+            float vmin = std::numeric_limits<float>::max();
+            float vmax = std::numeric_limits<float>::lowest();
+            for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
+              for (Eigen::Index k = 0; k < ch->size(); ++k) {
+                float v = ch->data()[k];
+                if (std::isfinite(v)) {
+                  if (v < vmin) vmin = v;
+                  if (v > vmax) vmax = v;
+                }
+              }
+            }
+            float range = vmax - vmin;
+            if (range > 1.0e-6f) {
+              float scale = 65535.0f / range;
+              for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
+                for (Eigen::Index k = 0; k < ch->size(); ++k) {
+                  ch->data()[k] = (ch->data()[k] - vmin) * scale;
+                }
+              }
+            }
+          }
           io::write_fits_float(run_dir / "outputs" / "pcc_R.fit",
-                               R_out, first_hdr);
+                               R_pcc_disk, first_hdr);
           io::write_fits_float(run_dir / "outputs" / "pcc_G.fit",
-                               G_out, first_hdr);
+                               G_pcc_disk, first_hdr);
           io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
-                               B_out, first_hdr);
+                               B_pcc_disk, first_hdr);
           io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
-                             R_out, G_out, B_out, first_hdr);
+                             R_pcc_disk, G_pcc_disk, B_pcc_disk, first_hdr);
 
           core::json matrix_json = core::json::array();
           for (int r = 0; r < 3; ++r) {
