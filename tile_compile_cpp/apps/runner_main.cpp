@@ -25,6 +25,7 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <random>
 #include <set>
 #include <sstream>
 #include <string>
@@ -1475,6 +1476,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     std::atomic<size_t> tiles_completed{0};
     std::atomic<size_t> tiles_failed{0};
 
+    // Pre-compute Hanning windows once for the uniform tile size (all tiles
+    // share the same dimensions), avoiding redundant recomputation per tile.
+    const std::vector<float> shared_hann_x = reconstruction::make_hann_1d(uniform_tile_size);
+    const std::vector<float> shared_hann_y = reconstruction::make_hann_1d(uniform_tile_size);
+
     // Worker function for parallel tile processing (v3: global warp only, no
     // local ECC)
     auto process_tile = [&](size_t ti) {
@@ -1485,8 +1491,15 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         return image::extract_tile(prewarped_frames[fi], t);
       };
 
-      std::vector<float> hann_x = reconstruction::make_hann_1d(t.width);
-      std::vector<float> hann_y = reconstruction::make_hann_1d(t.height);
+      // Use shared pre-computed windows for uniform tiles; compute only for
+      // non-uniform edge tiles (rare).  Both ternary arms must be lvalues to
+      // avoid copying the shared vector.
+      std::vector<float> hann_x_local;
+      std::vector<float> hann_y_local;
+      if (t.width != uniform_tile_size) hann_x_local = reconstruction::make_hann_1d(t.width);
+      if (t.height != uniform_tile_size) hann_y_local = reconstruction::make_hann_1d(t.height);
+      const std::vector<float> &hann_x = (t.width == uniform_tile_size) ? shared_hann_x : hann_x_local;
+      const std::vector<float> &hann_y = (t.height == uniform_tile_size) ? shared_hann_y : hann_y_local;
 
       std::vector<float> weights;
       weights.reserve(frames.size());
@@ -1507,11 +1520,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
         std::vector<size_t> valid_frames;
         std::vector<float> weights_valid;
+        std::vector<Matrix2Df> valid_mosaics;
         valid_frames.reserve(frames.size());
         weights_valid.reserve(frames.size());
+        valid_mosaics.reserve(frames.size());
 
-        // First pass: determine which frames provide a valid tile and compute
-        // weights once. Also count valid tiles per frame exactly once.
+        // Single pass: extract tiles, determine validity, compute weights,
+        // and cache mosaics to avoid re-extraction during per-channel stacking.
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (!frame_has_data[fi])
             continue;
@@ -1520,6 +1535,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
             continue;
 
           valid_frames.push_back(fi);
+          valid_mosaics.push_back(std::move(tile_mosaic));
           frame_valid_tile_counts[fi].fetch_add(1);
 
           float G_f = (fi < static_cast<size_t>(global_weights.size()))
@@ -1539,15 +1555,10 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
         auto stack_channel = [&](int which) -> Matrix2Df {
           std::vector<Matrix2Df> chan_tiles;
-          chan_tiles.reserve(valid_frames.size());
+          chan_tiles.reserve(valid_mosaics.size());
 
-          for (size_t k = 0; k < valid_frames.size(); ++k) {
-            const size_t fi = valid_frames[k];
-            Matrix2Df tile_mosaic = load_tile_normalized(fi);
-            if (tile_mosaic.rows() != t.height || tile_mosaic.cols() != t.width)
-              return Matrix2Df();
-
-            auto deb = image::debayer_nearest_neighbor(tile_mosaic, detected_bayer,
+          for (size_t k = 0; k < valid_mosaics.size(); ++k) {
+            auto deb = image::debayer_nearest_neighbor(valid_mosaics[k], detected_bayer,
                                                        origin_x, origin_y);
             if (which == 0) {
               chan_tiles.push_back(std::move(deb.R));
@@ -1568,6 +1579,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         tile_rec_R = stack_channel(0);
         tile_rec_G = stack_channel(1);
         tile_rec_B = stack_channel(2);
+        valid_mosaics.clear();
 
         if (tile_rec_R.size() <= 0 || tile_rec_G.size() <= 0 ||
             tile_rec_B.size() <= 0) {
@@ -1894,13 +1906,36 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       std::string clustering_method = "kmeans";
 
       if (n_clusters > 1 && n_frames_cluster > 1) {
-        // Initialize cluster centers (k-means++ style: just pick evenly spaced
-        // frames)
-        std::vector<std::vector<float>> centers(
-            static_cast<size_t>(n_clusters));
-        for (int c = 0; c < n_clusters; ++c) {
-          int idx = (c * n_frames_cluster) / n_clusters;
-          centers[static_cast<size_t>(c)] = X[static_cast<size_t>(idx)];
+        // K-means++ initialization: pick first center uniformly at random,
+        // then each subsequent center with probability proportional to D(x)²
+        // (squared distance to nearest existing center).
+        std::mt19937 rng(42); // fixed seed for reproducibility
+        std::vector<std::vector<float>> centers;
+        centers.reserve(static_cast<size_t>(n_clusters));
+
+        // First center: pick middle frame (deterministic, reproducible)
+        centers.push_back(X[static_cast<size_t>(n_frames_cluster / 2)]);
+
+        std::vector<double> min_dist_sq(X.size(),
+                                         std::numeric_limits<double>::max());
+        for (int c = 1; c < n_clusters; ++c) {
+          // Update min distances to nearest center (only need to check latest)
+          const auto &last_center = centers.back();
+          for (size_t fi = 0; fi < X.size(); ++fi) {
+            double d2 = 0.0;
+            for (size_t d = 0; d < X[fi].size(); ++d) {
+              double diff = static_cast<double>(X[fi][d]) -
+                            static_cast<double>(last_center[d]);
+              d2 += diff * diff;
+            }
+            if (d2 < min_dist_sq[fi])
+              min_dist_sq[fi] = d2;
+          }
+          // Sample next center with probability proportional to D(x)²
+          std::discrete_distribution<size_t> dist(min_dist_sq.begin(),
+                                                   min_dist_sq.end());
+          size_t next = dist(rng);
+          centers.push_back(X[next]);
         }
 
         // K-means iterations
