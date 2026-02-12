@@ -1,247 +1,213 @@
-# Phase 0: Pipeline Overview & Preprocessing Paths
+# Phase 0: SCAN_INPUT — Input-Scan, Erkennung und Linearitätsprüfung
 
-## Gesamtübersicht
+> **C++ Implementierung:** `runner_main.cpp` Zeilen 196–368
+> **Phase-Enum:** `Phase::SCAN_INPUT`
 
-Die Tile-basierte Qualitätsrekonstruktion besteht aus zwei gleichwertigen Vorverarbeitungspfaden (A und B), die ab Phase 2 in eine gemeinsame Pipeline münden.
+## Übersicht
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    INPUT: OSC RAW FRAMES                        │
-└────────────────────┬────────────────────────────────────────────┘
-                     │
-             ┌────────▼────────┐
-             │  Calibration     │
-             │  (Bias/Dark/Flat)│
-             └────────┬────────┘
-                      │
-         ┌───────────┴───────────┐
-         │                       │
-    ┌────▼─────┐          ┌─────▼────┐
-    │  PATH A  │          │  PATH B  │
-    │  SIRIL   │          │   CFA    │
-    └────┬─────┘          └─────┬────┘
-         │                      │
-         │  Debayer +           │  CFA-Luminanz
-         │  Registration        │  Registration
-         │                      │
-         │  ┌────────────────┐  │
-         │  │ Channel Split  │  │
-         │  └────────────────┘  │
-         │                      │
-         └──────────┬───────────┘
-                    │
-    ┌───────────────▼────────────────┐
-    │   GEMEINSAMER KERN (Phase 2+)  │
-    │                                │
-    │  • Global Normalization        │
-    │  • Frame Metrics               │
-    │  • Tile Generation             │
-    │  • Local Tile Metrics          │
-    │  • Tile Reconstruction         │
-    │  • Clustering                  │
-    │  • Synthetic Frames            │
-    │  • Final Stacking              │
-    └────────────────┬───────────────┘
-                     │
-         ┌───────────▼───────────┐
-         │  R.fit / G.fit / B.fit │
-         └───────────────────────┘
-```
-
-## Calibration (Bias/Dark/Flat) – Einordnung
-
-Die Kalibrierung passiert im Runner vor der Registrierung in **SCAN_INPUT**.
-
-Wenn `calibration.use_bias/use_dark/use_flat` aktiv sind:
-
-- Master-Frames werden entweder aus `*_master` geladen oder aus `*_dir` erzeugt.
-- Erzeugte Master (falls gebaut) liegen unter:
-  - `runs/<run_id>/outputs/calibration/master_bias.fit`
-  - `runs/<run_id>/outputs/calibration/master_dark.fit`
-  - `runs/<run_id>/outputs/calibration/master_flat.fit`
-- Kalibrierte Lights werden geschrieben nach:
-  - `runs/<run_id>/outputs/calibrated/cal_XXXXX.fit`
-
-Ab **PATH A / PATH B** arbeiten die Schritte dann auf diesen **kalibrierten** Frames.
-
-## Path A: Siril-basiert (Empfohlen)
-
-### Eigenschaften
-- **Status**: Produktionsreif, bewährt
-- **Risiko**: Gering
-- **Komplexität**: Niedrig
-- **Empfehlung**: Standard für alle Produktionsläufe
-
-### Ablauf
+Phase 0 ist die Eingangsphase der Pipeline. Sie liest den ersten Frame, erkennt den Bildmodus und das Bayer-Pattern, führt eine optionale Linearitätsprüfung durch und bereitet die Run-Infrastruktur vor.
 
 ```
-┌──────────────┐
-│  OSC Frames  │
-└──────┬───────┘
-       │
-       ▼
-┌──────────────────────┐
-│  Siril Debayer       │
-│  (Interpolation)     │
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│  Siril Registration  │
-│  • Star Detection    │
-│  • Transform Estim.  │
-│  • Rotation/Trans.   │
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│  Registered RGB      │
-│  (3 channels/frame)  │
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│  Channel Separation  │
-│  RGB → R, G, B       │
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│  To Phase 2          │
-│  (3 channel stacks)  │
-└──────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│          INPUT: Verzeichnis mit FITS-Frames (*.fit*)        │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  1. Frame-Discovery          │
+              │     core::discover_frames()  │
+              │     Sortierung + Limit       │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  2. Run-Verzeichnis anlegen  │
+              │     runs/<run_id>/           │
+              │     ├── logs/                │
+              │     ├── outputs/             │
+              │     └── artifacts/           │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  3. Erster Frame lesen       │
+              │     • Dimensionen (W×H)      │
+              │     • NAXIS                  │
+              │     • FITS-Header            │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  4. Modus-Erkennung          │
+              │     • MONO vs. OSC           │
+              │     • Bayer-Pattern          │
+              │       (RGGB, GRBG, etc.)     │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  5. Linearitätsprüfung       │
+              │     • Stichprobe samplen     │
+              │     • validate_linearity()   │
+              │     • Rejection oder Warnung │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  OUTPUT:                     │
+              │  • frames[] (validiert)      │
+              │  • ColorMode, BayerPattern   │
+              │  • width, height             │
+              │  • linearity_info JSON       │
+              └─────────────────────────────┘
 ```
 
-### Kritische Punkte
+## Detaillierter Ablauf
 
-1. **Debayer vor Registration**: Siril interpoliert zuerst, dann registriert
-2. **Eine Transformation pro Frame**: Geometrisch konsistent
-3. **Kanaltrennung NACH Registration**: Verhindert farbabhängige Resampling-Residuen
+### 1. Frame-Discovery und Sortierung
 
-## Path B: CFA-basiert (Experimentell)
-
-### Eigenschaften
-- **Status**: Experimentell
-- **Risiko**: Höher (neue Implementierung)
-- **Komplexität**: Hoch
-- **Vorteil**: Methodisch maximal sauber, keine Farbinterpolation vor Tile-Analyse
-
-### Ablauf
-
-```
-┌──────────────┐
-│  OSC Frames  │
-│  (CFA Mosaic)│
-└──────┬───────┘
-       │
-       ▼
-┌──────────────────────┐
-│  CFA Luminance       │
-│  Extraction          │
-│  (G-dominant/Sum)    │
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│  Registration on     │
-│  CFA Luminance       │
-│  • RANSAC/ECC        │
-│  • Single Transform  │
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│  CFA-aware Transform │
-│  • Split to 4 planes │
-│  • R, G1, G2, B      │
-│  • Same transform    │
-│  • Re-interleave     │
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│  Registered CFA      │
-│  (no color mixing)   │
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│  Debayer/Extract     │
-│  CFA → R, G, B       │
-└──────┬───────────────┘
-       │
-       ▼
-┌──────────────────────┐
-│  To Phase 2          │
-│  (3 channel stacks)  │
-└──────────────────────┘
+```cpp
+auto frames = core::discover_frames(in_dir, "*.fit*");
+std::sort(frames.begin(), frames.end());
+if (max_frames > 0 && frames.size() > max_frames)
+    frames.resize(max_frames);
 ```
 
-### Kritische Punkte
+- Sucht alle Dateien im Input-Verzeichnis die `*.fit*` matchen (FITS, FIT, FITS)
+- Sortiert alphabetisch für deterministische Reihenfolge
+- Optional: Beschränkung auf `--max-frames` Frames (Debug/Test)
+- **Abbruch** wenn keine Frames gefunden
 
-1. **CFA-Luminanz**: Muss repräsentativ sein (G-Kanal dominant)
-2. **Subplane-Zerlegung**: Keine Interpolation zwischen Bayer-Phasen
-3. **Identische Transformation**: Farbunabhängig, aber CFA-aware Resampling
+### 2. Run-Infrastruktur
 
-## Vergleich der Pfade
-
-| Aspekt | Path A (Siril) | Path B (CFA) |
-|--------|----------------|--------------|
-| **Interpolation** | Vor Registration | Nach Registration |
-| **Farbmischung** | Möglich bei Resampling | Vermieden |
-| **Komplexität** | Niedrig | Hoch |
-| **Implementierung** | Extern (Siril) | Custom |
-| **Validierung** | Jahrelang erprobt | Experimentell |
-| **Produktionsreife** | ✓ | In Entwicklung |
-
-## Übergabepunkt an gemeinsamen Kern
-
-Beide Pfade liefern **identische Datenstrukturen**:
-
-```python
-# Pro Kanal (R, G, B):
-frames[f][x, y]  # f = Frame-Index
-                 # x, y = Pixel-Koordinaten
-                 # Alle Frames geometrisch aligned
+```cpp
+std::string run_id = core::get_run_id();  // Zeitstempel-basierte ID
+fs::path run_dir = runs / run_id;
+fs::create_directories(run_dir / "logs");
+fs::create_directories(run_dir / "outputs");
+fs::create_directories(run_dir / "artifacts");
 ```
 
-### Garantien am Übergabepunkt
+- Eindeutige Run-ID (Zeitstempel-basiert)
+- Konfiguration wird als `config.yaml` in den Run-Ordner kopiert
+- Event-Log-Datei: `run_events.jsonl` (TeeBuf → stdout + Datei gleichzeitig)
 
-1. ✓ Alle Frames geometrisch registriert
-2. ✓ Kanäle getrennt (R, G, B)
-3. ✓ Linear (kein Stretch)
-4. ✓ Einheitliche Geometrie pro Kanal
-5. ✓ Keine Frame-Selektion durchgeführt
+### 3. Erster Frame — Dimensionen und Header
 
-## Konfiguration
-
-```yaml
-preprocessing:
-  path: "siril"  # oder "cfa"
-  
-  siril:
-    debayer_method: "VNG"  # oder "AHD", "Bilinear"
-    registration_method: "stars"
-    
-  cfa:
-    luminance_method: "g_dominant"  # oder "sum", "weighted"
-    registration_method: "ecc"  # oder "ransac"
-    subplane_interpolation: "lanczos3"
+```cpp
+auto [width, height, naxis] = io::get_fits_dimensions(frames.front());
+auto first = io::read_fits_float(frames.front());
+first_frame = std::move(first.first);    // Matrix2Df (Eigen)
+first_header = std::move(first.second);  // FitsHeader
 ```
 
-## Validierung
+- Liest den **ersten Frame** vollständig ein
+- Extrahiert Bildbreite, Bildhöhe und NAXIS
+- Speichert den Frame als `first_frame` für spätere Verwendung
+- Speichert den FITS-Header für Output-Dateien
 
-Nach Abschluss von Phase 0/1 werden folgende Checks durchgeführt:
+### 4. Farbmodus-Erkennung
+
+```cpp
+detected_mode = io::detect_color_mode(first_header, naxis);
+detected_bayer = io::detect_bayer_pattern(first_header);
+```
+
+| Modus | Erkennung | Verhalten |
+|-------|-----------|-----------|
+| **MONO** | NAXIS=2 oder kein BAYERPAT | Einzelkanal-Verarbeitung |
+| **OSC** | NAXIS=2 + BAYERPAT vorhanden | CFA-aware Verarbeitung |
+
+- **Konfig-Override**: Wenn `data.color_mode` in config gesetzt, wird bei Abweichung gewarnt
+- **Bayer-Pattern**: RGGB, GRBG, GBRG, BGGR — wird aus FITS-Header `BAYERPAT` gelesen
+- Bei unbekanntem Pattern: Warnung, Fallback auf RGGB
+
+### 5. Linearitätsprüfung
+
+Die Linearitätsprüfung validiert, dass die Frames **keine nichtlinearen Operationen** (Stretch, Curves) erfahren haben.
+
+```cpp
+if (cfg.linearity.enabled || cfg.data.linear_required) {
+    auto indices = core::sample_indices(frames.size(), cfg.linearity.max_frames);
+    for (size_t idx : indices) {
+        auto res = metrics::validate_linearity_frame(frame_img, cfg.linearity.strictness);
+        if (!res.is_linear) {
+            rejected_indices.push_back(idx);
+        }
+    }
+}
+```
+
+#### Konfigurationsparameter
+
+| Parameter | Beschreibung | Default |
+|-----------|-------------|---------|
+| `linearity.enabled` | Linearitätsprüfung aktivieren | `true` |
+| `linearity.max_frames` | Maximale Stichprobengröße | 10 |
+| `linearity.strictness` | Strictness-Level für Validierung | 0.5 |
+| `linearity.min_overall_linearity` | Mindest-Linearitäts-Score | 0.8 |
+| `data.linear_required` | Nicht-lineare Frames entfernen | `true` |
+
+#### Verhalten bei nicht-linearen Frames
+
+| `linear_required` | Verhalten |
+|--------------------|-----------|
+| `true` | Nicht-lineare Frames werden aus `frames[]` **entfernt** |
+| `false` | Warnung, Frames bleiben in der Pipeline |
+
+- Bei `linear_required=true` und **alle** Frames rejected: Pipeline bricht mit Error ab
+- Linearity-Info wird als JSON in das `scan_extra` Event geschrieben
+
+#### Linearity-Info JSON
+
+```json
+{
+  "enabled": true,
+  "sampled_frames": 10,
+  "overall_linearity": 0.9,
+  "min_overall_linearity": 0.8,
+  "failed_frames": 1,
+  "failed_frame_names": ["frame_0023.fit"],
+  "flagged_indices": [23],
+  "action": "removed",
+  "frames_remaining": 99
+}
+```
+
+## CHANNEL_SPLIT (Phase 1 — Metadaten-Phase)
+
+Direkt nach SCAN_INPUT wird `Phase::CHANNEL_SPLIT` emittiert. In der C++ Implementierung ist dies eine **reine Metadaten-Phase** — die eigentliche Kanaltrennung erfolgt **deferred** während der Normalisierung und Tile-Verarbeitung.
+
+```cpp
+if (detected_mode == ColorMode::OSC) {
+    extra["mode"] = "OSC";
+    extra["channels"] = {"R", "G", "B"};
+    extra["bayer_pattern"] = detected_bayer_str;
+    extra["note"] = "deferred_to_tile_processing";
+} else {
+    extra["mode"] = "MONO";
+    extra["channels"] = {"L"};
+}
+```
+
+Bei OSC-Daten bleibt das CFA-Mosaik bis zum Debayer in Phase 11 intakt. Die kanalgetrennte Verarbeitung geschieht implizit über Bayer-Offsets in der Normalisierung.
+
+## Fehlerbehandlung
+
+| Fehler | Verhalten |
+|--------|-----------|
+| Input-Verzeichnis existiert nicht | Sofortiger Abbruch (return 1) |
+| Keine FITS-Frames gefunden | Sofortiger Abbruch (return 1) |
+| Erster Frame nicht lesbar | phase_end(error) → run_end(error) → return 1 |
+| Alle Frames non-linear | phase_end(error) → run_end(error) → return 1 |
+| Config/Header Mismatch | Warnung, Pipeline läuft weiter |
+
+## Event-Emitter-Aufrufe
 
 ```
-✓ Frame count >= 50 (minimum)
-✓ All frames same dimensions
-✓ All frames registered (residuum < 1.0 px)
-✓ Channels separated (R, G, B)
-✓ Data is linear (no stretch detected)
-✓ No NaN/Inf values
+run_start(run_id, {config_path, input_dir, run_dir, frames_discovered, dry_run})
+phase_start(SCAN_INPUT)
+  [warnings: linearity, mode mismatch]
+phase_end(SCAN_INPUT, "ok", {input_dir, frames_scanned, image_width, image_height,
+                              color_mode, bayer_pattern, linearity})
+phase_start(CHANNEL_SPLIT)
+phase_end(CHANNEL_SPLIT, "ok", {mode, channels, bayer_pattern})
 ```
 
 ## Nächste Phase
 
-→ **Phase 2: Globale Normalisierung und Frame-Metriken**
+→ **Phase 2: NORMALIZATION — Hintergrund-Normalisierung**

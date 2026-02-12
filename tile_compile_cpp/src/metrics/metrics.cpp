@@ -1,4 +1,6 @@
+#include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/core/types.hpp"
+#include "tile_compile/core/utils.hpp"
 #include <opencv2/opencv.hpp>
 #include <cmath>
 #include <cstring>
@@ -6,45 +8,6 @@
 #include <algorithm>
 
 namespace tile_compile::metrics {
-
-namespace {
-
-float median_of(std::vector<float>& v) {
-    if (v.empty()) return 0.0f;
-    const size_t n = v.size();
-    const size_t mid = n / 2;
-    std::nth_element(v.begin(), v.begin() + mid, v.end());
-    const float hi = v[mid];
-    if ((n % 2) == 1) {
-        return hi;
-    }
-    std::nth_element(v.begin(), v.begin() + (mid - 1), v.end());
-    const float lo = v[mid - 1];
-    return 0.5f * (lo + hi);
-}
-
-float stddev_of(const std::vector<float>& v) {
-    if (v.size() < 2) return 0.0f;
-    double sum = 0.0;
-    for (float x : v) sum += static_cast<double>(x);
-    const double mean = sum / static_cast<double>(v.size());
-    double var = 0.0;
-    for (float x : v) {
-        const double d = static_cast<double>(x) - mean;
-        var += d * d;
-    }
-    var /= static_cast<double>(v.size());
-    if (var <= 0.0) return 0.0f;
-    return static_cast<float>(std::sqrt(var));
-}
-
-float robust_sigma_mad(std::vector<float>& pixels) {
-    if (pixels.empty()) return 0.0f;
-    float med = median_of(pixels);
-    for (float& x : pixels) x = std::fabs(x - med);
-    float mad = median_of(pixels);
-    return 1.4826f * mad;
-}
 
 cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame, float k_sigma, int dilate_radius) {
     const int h = frame.rows;
@@ -60,8 +23,8 @@ cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame, float k_sigma, 
         }
     }
 
-    float mu = median_of(vals);
-    float sigma = robust_sigma_mad(vals);
+    float mu = core::median_of(vals);
+    float sigma = core::robust_sigma_mad(vals);
     if (!(sigma > 0.0f)) {
         return cv::Mat1b(h, w, uint8_t(1));
     }
@@ -95,6 +58,8 @@ cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame, float k_sigma, 
     return bg;
 }
 
+namespace {
+
 std::vector<float> collect_masked_pixels(const Matrix2Df& frame, const cv::Mat1b& mask) {
     std::vector<float> out;
     out.reserve(static_cast<size_t>(frame.size()));
@@ -110,14 +75,14 @@ std::vector<float> collect_masked_pixels(const Matrix2Df& frame, const cv::Mat1b
 float masked_median(const Matrix2Df& frame, const cv::Mat1b& mask) {
     std::vector<float> px = collect_masked_pixels(frame, mask);
     if (px.empty()) return 0.0f;
-    return median_of(px);
+    return core::median_of(px);
 }
 
 float masked_sigma_mad(const Matrix2Df& frame, const cv::Mat1b& mask, float center) {
     std::vector<float> px = collect_masked_pixels(frame, mask);
     if (px.empty()) return 0.0f;
     for (float& x : px) x = std::fabs(x - center);
-    float mad = median_of(px);
+    float mad = core::median_of(px);
     return 1.4826f * mad;
 }
 
@@ -126,9 +91,9 @@ VectorXf robust_normalize_median_mad(const VectorXf& v) {
     std::vector<float> vals;
     vals.reserve(static_cast<size_t>(v.size()));
     for (int i = 0; i < v.size(); ++i) vals.push_back(v[i]);
-    float med = median_of(vals);
+    float med = core::median_of(vals);
     for (float& x : vals) x = std::fabs(x - med);
-    float mad = median_of(vals);
+    float mad = core::median_of(vals);
     float sigma_robust = 1.4826f * mad;
     if (!(sigma_robust > 0.0f)) {
         return VectorXf::Zero(v.size());
@@ -191,7 +156,7 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
                 if (mrow[x] != 0) gvals.push_back(row[x]);
             }
         }
-        m.gradient_energy = gvals.empty() ? 0.0f : median_of(gvals);
+        m.gradient_energy = gvals.empty() ? 0.0f : core::median_of(gvals);
     }
     
     m.quality_score = 1.0f;
@@ -222,12 +187,208 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
         weights[i] = std::exp(qc);
     }
 
-    float sum = weights.sum();
-    if (std::isfinite(sum) && sum > 1.0e-12f) {
-        weights /= sum;
+    // NOTE: Do NOT normalize weights to sum=1.
+    // Methodology v3 defines G_f = exp(Q_f) with clamping; the absolute scale is
+    // meaningful for diagnostics and must not depend on the number of frames.
+    return weights;
+}
+
+// Fit 1D Gaussian sigma from a profile slice through the peak.
+// Uses weighted second-moment around the peak for sub-pixel accuracy.
+// Returns FWHM = 2.3548 * sigma.  Returns 0 if invalid.
+static float fit_1d_fwhm(const float* data, int len, int peak_idx, float bg) {
+    if (len < 3 || peak_idx < 0 || peak_idx >= len) return 0.0f;
+    double peak_val = static_cast<double>(data[peak_idx]) - static_cast<double>(bg);
+    if (peak_val <= 0.0) return 0.0f;
+
+    // Weighted second moment: sigma^2 = sum(w_i * (i - peak)^2) / sum(w_i)
+    double sum_w = 0.0, sum_wd2 = 0.0;
+    for (int i = 0; i < len; ++i) {
+        double w = std::max(0.0, static_cast<double>(data[i]) - static_cast<double>(bg));
+        double d = static_cast<double>(i - peak_idx);
+        sum_w += w;
+        sum_wd2 += w * d * d;
+    }
+    if (sum_w <= 0.0) return 0.0f;
+    double sigma2 = sum_wd2 / sum_w;
+    if (sigma2 <= 0.0) return 0.0f;
+    double sigma = std::sqrt(sigma2);
+    // FWHM = 2 * sqrt(2 * ln(2)) * sigma ≈ 2.3548 * sigma
+    double fwhm = 2.3548200450309493 * sigma;
+    return (fwhm > 0.2 && fwhm < 50.0) ? static_cast<float>(fwhm) : 0.0f;
+}
+
+float estimate_fwhm_from_patch(const cv::Mat& patch) {
+    if (patch.empty()) return 0.0f;
+    std::vector<float> v;
+    v.reserve(static_cast<size_t>(patch.rows) * static_cast<size_t>(patch.cols));
+    for (int y = 0; y < patch.rows; ++y) {
+        const float* row = patch.ptr<float>(y);
+        for (int x = 0; x < patch.cols; ++x) {
+            v.push_back(row[x]);
+        }
+    }
+    if (v.empty()) return 0.0f;
+    float bg = core::median_of(v);
+    float sigma = core::robust_sigma_mad(v);
+
+    double maxv = 0.0;
+    cv::minMaxLoc(patch, nullptr, &maxv);
+    if (!(maxv > 0.0)) return 0.0f;
+    if (maxv <= static_cast<double>(bg) + 3.0 * static_cast<double>(sigma))
+        return 0.0f;
+
+    cv::Point peak_loc;
+    cv::minMaxLoc(patch, nullptr, nullptr, nullptr, &peak_loc);
+
+    // 1D Gaussian fits in X and Y through peak, return geometric mean
+    std::vector<float> slice_x(patch.cols), slice_y(patch.rows);
+    for (int x = 0; x < patch.cols; ++x)
+        slice_x[x] = patch.at<float>(peak_loc.y, x);
+    for (int y = 0; y < patch.rows; ++y)
+        slice_y[y] = patch.at<float>(y, peak_loc.x);
+
+    float fx = fit_1d_fwhm(slice_x.data(), patch.cols, peak_loc.x, bg);
+    float fy = fit_1d_fwhm(slice_y.data(), patch.rows, peak_loc.y, bg);
+    if (fx > 0.0f && fy > 0.0f)
+        return std::sqrt(fx * fy);
+    if (fx > 0.0f) return fx;
+    if (fy > 0.0f) return fy;
+    return 0.0f;
+}
+
+float measure_fwhm_from_image(const Matrix2Df& img, int max_corners,
+                              int patch_radius, size_t min_stars) {
+    if (img.size() <= 0) return 0.0f;
+    const int patch_sz = 2 * patch_radius + 1;
+    cv::Mat img_cv(img.rows(), img.cols(), CV_32F,
+                   const_cast<float*>(img.data()));
+    cv::Mat blur;
+    cv::blur(img_cv, blur, cv::Size(31, 31), cv::Point(-1, -1),
+             cv::BORDER_REFLECT_101);
+    cv::Mat resid = img_cv - blur;
+
+    std::vector<cv::Point2f> corners;
+    try {
+        cv::goodFeaturesToTrack(resid, corners, max_corners, 0.01, 6);
+    } catch (...) {
+        corners.clear();
     }
 
-    return weights;
+    std::vector<float> fwhms;
+    for (const auto& p : corners) {
+        int cx = static_cast<int>(std::round(p.x));
+        int cy = static_cast<int>(std::round(p.y));
+        int x0 = cx - patch_radius;
+        int y0 = cy - patch_radius;
+        if (x0 < 0 || y0 < 0 || (x0 + patch_sz) > img_cv.cols ||
+            (y0 + patch_sz) > img_cv.rows)
+            continue;
+        cv::Mat patch = img_cv(cv::Rect(x0, y0, patch_sz, patch_sz));
+        float f = estimate_fwhm_from_patch(patch);
+        if (f > 0.0f && std::isfinite(f))
+            fwhms.push_back(f);
+    }
+
+    if (fwhms.size() < min_stars) return 0.0f;
+    return core::median_of(fwhms);
+}
+
+// Estimate FWHM separately in X and Y from a patch using 1D Gaussian fits.
+// Returns {fwhm_x, fwhm_y}. Both 0 if invalid.
+static std::pair<float, float> estimate_fwhm_xy(const cv::Mat& patch) {
+    if (patch.empty()) return {0.0f, 0.0f};
+
+    std::vector<float> v;
+    v.reserve(static_cast<size_t>(patch.rows) * static_cast<size_t>(patch.cols));
+    for (int y = 0; y < patch.rows; ++y) {
+        const float* row = patch.ptr<float>(y);
+        for (int x = 0; x < patch.cols; ++x)
+            v.push_back(row[x]);
+    }
+    if (v.empty()) return {0.0f, 0.0f};
+    float bg = core::median_of(v);
+    float sigma = core::robust_sigma_mad(v);
+
+    double maxv = 0.0;
+    cv::minMaxLoc(patch, nullptr, &maxv);
+    if (!(maxv > 0.0)) return {0.0f, 0.0f};
+    if (maxv <= static_cast<double>(bg) + 3.0 * static_cast<double>(sigma))
+        return {0.0f, 0.0f};
+
+    cv::Point peak_loc;
+    cv::minMaxLoc(patch, nullptr, nullptr, nullptr, &peak_loc);
+
+    // Extract 1D slices through peak
+    std::vector<float> slice_x(patch.cols), slice_y(patch.rows);
+    for (int x = 0; x < patch.cols; ++x)
+        slice_x[x] = patch.at<float>(peak_loc.y, x);
+    for (int y = 0; y < patch.rows; ++y)
+        slice_y[y] = patch.at<float>(y, peak_loc.x);
+
+    float fx = fit_1d_fwhm(slice_x.data(), patch.cols, peak_loc.x, bg);
+    float fy = fit_1d_fwhm(slice_y.data(), patch.rows, peak_loc.y, bg);
+    return {fx, fy};
+}
+
+FrameStarMetrics measure_frame_stars(const Matrix2Df& img,
+                                     int ref_star_count,
+                                     int max_corners,
+                                     int patch_radius) {
+    FrameStarMetrics result{};
+
+    if (img.size() <= 0) return result;
+    const int patch_sz = 2 * patch_radius + 1;
+    cv::Mat img_cv(img.rows(), img.cols(), CV_32F,
+                   const_cast<float*>(img.data()));
+    cv::Mat blur;
+    cv::blur(img_cv, blur, cv::Size(31, 31), cv::Point(-1, -1),
+             cv::BORDER_REFLECT_101);
+    cv::Mat resid = img_cv - blur;
+
+    std::vector<cv::Point2f> corners;
+    try {
+        cv::goodFeaturesToTrack(resid, corners, max_corners, 0.01, 6);
+    } catch (...) {
+        corners.clear();
+    }
+
+    std::vector<float> fwhms, fwhms_x, fwhms_y, roundnesses;
+    for (const auto& pt : corners) {
+        int cx = static_cast<int>(std::round(pt.x));
+        int cy = static_cast<int>(std::round(pt.y));
+        int x0 = cx - patch_radius;
+        int y0 = cy - patch_radius;
+        if (x0 < 0 || y0 < 0 || (x0 + patch_sz) > img_cv.cols ||
+            (y0 + patch_sz) > img_cv.rows)
+            continue;
+        cv::Mat patch = img_cv(cv::Rect(x0, y0, patch_sz, patch_sz));
+        auto [fx, fy] = estimate_fwhm_xy(patch);
+        if (fx > 0.0f && fy > 0.0f && std::isfinite(fx) && std::isfinite(fy)) {
+            fwhms_x.push_back(fx);
+            fwhms_y.push_back(fy);
+            float f = std::sqrt(fx * fy);  // geometric mean
+            fwhms.push_back(f);
+            roundnesses.push_back(fy / fx);
+        }
+    }
+
+    result.star_count = static_cast<int>(fwhms.size());
+    if (result.star_count > 0) {
+        result.fwhm = core::median_of(fwhms);
+        result.fwhm_x = core::median_of(fwhms_x);
+        result.fwhm_y = core::median_of(fwhms_y);
+        result.roundness = core::median_of(roundnesses);
+        if (ref_star_count > 0) {
+            result.wfwhm = result.fwhm *
+                static_cast<float>(ref_star_count) /
+                static_cast<float>(result.star_count);
+        } else {
+            result.wfwhm = result.fwhm;
+        }
+    }
+
+    return result;
 }
 
 } // namespace tile_compile::metrics

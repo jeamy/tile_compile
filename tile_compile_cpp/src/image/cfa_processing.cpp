@@ -150,10 +150,12 @@ Matrix2Df warp_cfa_mosaic_via_subplanes(
     cv::Mat c_cv(sub_h, sub_w, CV_32F, c.data());
     cv::Mat d_cv(sub_h, sub_w, CV_32F, d.data());
     
-    // Warp matrix components
+    // Warp matrix components — rotation/scale stay the same,
+    // but translation must be halved because subplanes are half-resolution.
     float a2_00 = warp(0, 0), a2_01 = warp(0, 1);
     float a2_10 = warp(1, 0), a2_11 = warp(1, 1);
-    float t_x = warp(0, 2), t_y = warp(1, 2);
+    float t_x = warp(0, 2) * 0.5f;
+    float t_y = warp(1, 2) * 0.5f;
     
     // Compute delta shifts for each subplane
     // delta_a = [-0.25, -0.25], delta_b = [0.25, -0.25], etc.
@@ -286,6 +288,141 @@ Matrix2Df reassemble_cfa_mosaic(
     }
     
     return mosaic;
+}
+
+void bayer_offsets(const std::string& bayer_pattern,
+                   int& r_row, int& r_col, int& b_row, int& b_col) {
+    std::string bp = bayer_pattern;
+    std::transform(bp.begin(), bp.end(), bp.begin(), ::toupper);
+    r_row = 1; r_col = 0;
+    b_row = 0; b_col = 1;
+    if (bp == "RGGB") {
+        r_row = 0; r_col = 0;
+        b_row = 1; b_col = 1;
+    } else if (bp == "BGGR") {
+        r_row = 1; r_col = 1;
+        b_row = 0; b_col = 0;
+    } else if (bp == "GRBG") {
+        r_row = 0; r_col = 1;
+        b_row = 1; b_col = 0;
+    }
+}
+
+DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
+                                       BayerPattern pattern) {
+    return debayer_nearest_neighbor(mosaic, pattern, 0, 0);
+}
+
+DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
+                                       BayerPattern pattern,
+                                       int origin_x,
+                                       int origin_y) {
+    const int h = static_cast<int>(mosaic.rows());
+    const int w = static_cast<int>(mosaic.cols());
+
+    DebayerResult out;
+    out.R = Matrix2Df::Zero(h, w);
+    out.G = Matrix2Df::Zero(h, w);
+    out.B = Matrix2Df::Zero(h, w);
+
+    // Default to GBRG if unknown.
+    if (pattern == BayerPattern::UNKNOWN) {
+        pattern = BayerPattern::GBRG;
+    }
+
+    int r_row = 1, r_col = 0;
+    int b_row = 0, b_col = 1;
+    int g1_row = 0, g1_col = 0;
+    int g2_row = 1, g2_col = 1;
+
+    if (pattern == BayerPattern::RGGB) {
+        r_row = 0; r_col = 0;
+        b_row = 1; b_col = 1;
+        g1_row = 0; g1_col = 1;
+        g2_row = 1; g2_col = 0;
+    } else if (pattern == BayerPattern::BGGR) {
+        r_row = 1; r_col = 1;
+        b_row = 0; b_col = 0;
+        g1_row = 0; g1_col = 1;
+        g2_row = 1; g2_col = 0;
+    } else if (pattern == BayerPattern::GRBG) {
+        r_row = 0; r_col = 1;
+        b_row = 1; b_col = 0;
+        g1_row = 0; g1_col = 0;
+        g2_row = 1; g2_col = 1;
+    } else { // GBRG
+        r_row = 1; r_col = 0;
+        b_row = 0; b_col = 1;
+        g1_row = 0; g1_col = 0;
+        g2_row = 1; g2_col = 1;
+    }
+
+    auto in_bounds = [&](int yy, int xx) -> bool {
+        return yy >= 0 && yy < h && xx >= 0 && xx < w;
+    };
+    auto clamp_y = [&](int yy) -> int {
+        return std::max(0, std::min(h - 1, yy));
+    };
+    auto clamp_x = [&](int xx) -> int {
+        return std::max(0, std::min(w - 1, xx));
+    };
+    auto is_green = [&](int yy, int xx) -> bool {
+        const int py = (origin_y + yy) & 1;
+        const int px = (origin_x + xx) & 1;
+        return (py == g1_row && px == g1_col) || (py == g2_row && px == g2_col);
+    };
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const int gy = origin_y + y;
+            const int gx = origin_x + x;
+
+            // Nearest-neighbor for R/B: pick the sample from the 2×2 Bayer cell
+            // containing the *global* pixel (gx,gy).
+            const int y2g = gy & ~1;
+            const int x2g = gx & ~1;
+
+            const int ry = clamp_y((y2g + r_row) - origin_y);
+            const int rx = clamp_x((x2g + r_col) - origin_x);
+            const int by = clamp_y((y2g + b_row) - origin_y);
+            const int bx = clamp_x((x2g + b_col) - origin_x);
+
+            const float r_val = mosaic(ry, rx);
+            const float b_val = mosaic(by, bx);
+
+            // Nearest-neighbor for G: if the current pixel is green, take it.
+            // Otherwise take the nearest adjacent green sample (deterministic order).
+            float g_val = 0.0f;
+            if (is_green(y, x)) {
+                g_val = mosaic(y, x);
+            } else {
+                // Adjacent candidates (left, right, up, down)
+                const int cand_y[4] = {y, y, y - 1, y + 1};
+                const int cand_x[4] = {x - 1, x + 1, x, x};
+                bool found = false;
+                for (int i = 0; i < 4; ++i) {
+                    int yy = cand_y[i];
+                    int xx = cand_x[i];
+                    if (!in_bounds(yy, xx))
+                        continue;
+                    if (!is_green(yy, xx))
+                        continue;
+                    g_val = mosaic(yy, xx);
+                    found = true;
+                    break;
+                }
+                if (!found) {
+                    g_val = mosaic(clamp_y(y), clamp_x(x));
+                }
+            }
+
+            out.R(y, x) = r_val;
+            out.G(y, x) = g_val;
+            out.B(y, x) = b_val;
+        }
+    }
+
+    return out;
 }
 
 } // namespace tile_compile::image

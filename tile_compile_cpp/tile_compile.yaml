@@ -1,158 +1,146 @@
+run_dir: ./run
+log_level: info
 pipeline:
   mode: production
-  abort_on_fail: true
+  abort_on_fail: false
+output:
+  registered_dir: registered
+  artifacts_dir: artifacts
+  write_registered_frames: true
+  write_global_metrics: true
+  write_global_registration: true
 data:
   image_width: 3840
   image_height: 2160
   frames_min: 50
+  frames_target: 0
   color_mode: OSC
   bayer_pattern: GBRG
   linear_required: true
+input:
+  pattern: ./data/*.fits
+  sort: numeric
+  max_frames: 0
+linearity:
+  enabled: true
+  max_frames: 8
+  min_overall_linearity: 0.9
+  strictness: strict
 calibration:
   use_bias: false
-  use_dark: true
+  use_dark: false
   use_flat: false
   bias_use_master: false
-  dark_use_master: true
+  dark_use_master: false
   flat_use_master: false
-  bias_dir: ''
-  darks_dir: ''
-  flats_dir: ''
-  bias_master: ''
-  dark_master: ''
-  flat_master: ''
-  pattern: '*.fit*'
+  dark_auto_select: true
+  dark_match_exposure_tolerance_percent: 5.0
+  dark_match_use_temp: false
+  dark_match_temp_tolerance_c: 2.0
+  bias_dir: ""
+  darks_dir: ""
+  flats_dir: ""
+  bias_master: ""
+  dark_master: ""
+  flat_master: ""
+  pattern: "*.fit*"
 assumptions:
   frames_min: 50
-  frames_optimal: 200
-  frames_reduced_threshold: 199
+  frames_optimal: 800
+  frames_reduced_threshold: 150
   exposure_time_tolerance_percent: 5.0
-  warp_variance_warn: 2.0
-  warp_variance_max: 8.0
-  elongation_warn: 0.3
-  elongation_max: 0.4
   reduced_mode_skip_clustering: true
-  reduced_mode_cluster_range:
-  - 5
-  - 10
-v4:
-  iterations: 4
-  beta: 6.0
-  min_valid_tile_fraction: 0.3
-  parallel_tiles: 8
-  debug_tile_registration: true
-  adaptive_tiles:
-    enabled: true
-    max_refine_passes: 4
-    refine_variance_threshold: 0.1
-    min_tile_size_px: 48
-    use_warp_probe: true
-    use_hierarchical: true
-    initial_tile_size: 192
-    probe_window: 256
-    num_probe_frames: 5
-    gradient_sensitivity: 2.0
-    split_gradient_threshold: 0.3
-    hierarchical_max_depth: 3
-  convergence:
-    enabled: false
-    epsilon_rel: 0.001
-  memory_limits:
-    rss_warn_mb: 16384
-    rss_abort_mb: 32768
-  diagnostics:
-    enabled: true
-    warp_field: true
-    tile_invalid_map: true
-    warp_variance_hist: true
+  reduced_mode_cluster_range: [5, 10]
 normalization:
   enabled: true
   mode: background
   per_channel: true
 registration:
-  mode: local_tiles
-  local_tiles:
-    max_warp_delta_px: 0.3
-    ecc_cc_min: 0.4
-    min_valid_frames: 3
-    temporal_smoothing_window: 15
-    variance_window_sigma: 2.0
-    allow_rotation: false
+  enabled: true
+  engine: triangle_star_matching
+  allow_rotation: true
+  min_score: 0.05
+  fallback_to_identity: true
+  star_topk: 120
+  star_min_inliers: 4
+  star_inlier_tol_px: 3.0
+  star_dist_bin_px: 5.0
 wiener_denoise:
   enabled: true
   snr_threshold: 5.0
   q_min: -0.5
+  q_max: 1.0
+  q_step: 0.1
+  min_snr: 2.0
+  max_iterations: 10
 global_metrics:
+  enabled: true
+  adaptive_weights: false
   weights:
     background: 0.4
     noise: 0.3
-    gradient: 0.3
+    gradient_energy: 0.30
   clamp:
-  - -3
-  - 3
+    background: [0.0, 1.0]
+    noise: [0.0, 1.0]
+    gradient_energy: [0.0, 1.0]
 tile:
   size_factor: 32
   min_size: 64
   max_divisor: 6
   overlap_fraction: 0.25
-  star_min_count: 3
+  star_min_count: 8
 local_metrics:
-  clamp:
-  - -3
-  - 3
+  clamp: [-3.0, 3.0]
   star_mode:
     weights:
       fwhm: 0.6
       roundness: 0.2
       contrast: 0.2
   structure_mode:
-    background_weight: 0.3
     metric_weight: 0.7
-linearity:
-  enabled: true
-  max_frames: 6
-  min_overall_linearity: 0.75
-  strictness: moderate
+    background_weight: 0.3
 synthetic:
-  weighting: tile_weighted
-  frames_min: 3
+  weighting: global
+  frames_min: 5
   frames_max: 30
   clustering:
-    mode: state_vector
-    cluster_count_range:
-    - 8
-    - 12
-    vector:
-    - global_weight
-    - tile_quality_mean
-    - tile_quality_variance
-    - background
-    - noise
-  auto_skip:
-    enabled: true
-    min_eligible_clusters: 2
-    min_cluster_weight_spread: 0.05
-    min_cluster_quality_spread: 0.2
+    mode: kmeans
+    cluster_count_range: [5, 30]
 reconstruction:
-  weighting_function: exponential
+  weighting_function: linear
   window_function: hanning
-  tile_rescale: median_after_background_subtraction
 debayer: true
+astrometry:
+  enabled: true
+  astap_bin: ""
+  astap_data_dir: ""
+  search_radius: 183
+pcc:
+  enabled: true
+  source: siril
+  mag_limit: 14
+  mag_bright_limit: 4
+  aperture_radius_px: 8
+  annulus_inner_px: 10
+  annulus_outer_px: 16
+  mag_bright_limit: 6
+  min_stars: 3
+  sigma_clip: 2.5
+  siril_catalog_dir: ""
 stacking:
   method: rej
-  input_dir: synthetic
-  input_pattern: syn_*.fits
-  output_file: stacked.fit
   sigma_clip:
-    sigma_low: 2
-    sigma_high: 2
+    sigma_low: 2.0
+    sigma_high: 2.0
     max_iters: 3
     min_fraction: 0.5
+  output_stretch: false
 validation:
-  min_fwhm_improvement_percent: 5
-  max_background_rms_increase_percent: 0
+  min_fwhm_improvement_percent: 5.0
+  max_background_rms_increase_percent: 0.0
   min_tile_weight_variance: 0.1
   require_no_tile_pattern: true
 runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0
-  hard_abort_hours: 6
+  hard_abort_hours: 6.0

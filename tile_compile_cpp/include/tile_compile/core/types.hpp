@@ -145,34 +145,38 @@ struct RegistrationResult {
 // Pipeline phase enumeration
 enum class Phase {
     SCAN_INPUT = 0,
-    CHANNEL_SPLIT = 1,
-    NORMALIZATION = 2,
-    GLOBAL_METRICS = 3,
-    TILE_GRID = 4,
-    LOCAL_METRICS = 5,
-    TILE_RECONSTRUCTION_TLR = 6,
-    STATE_CLUSTERING = 7,
-    SYNTHETIC_FRAMES = 8,
-    STACKING = 9,
-    DEBAYER = 10,
-    DONE = 11,
-    GLOBAL_REGISTRATION = 12
+    REGISTRATION = 1,
+    CHANNEL_SPLIT = 2,
+    NORMALIZATION = 3,
+    GLOBAL_METRICS = 4,
+    TILE_GRID = 5,
+    LOCAL_METRICS = 6,
+    TILE_RECONSTRUCTION = 7,
+    STATE_CLUSTERING = 8,
+    SYNTHETIC_FRAMES = 9,
+    STACKING = 10,
+    DEBAYER = 11,
+    ASTROMETRY = 12,
+    PCC = 13,
+    DONE = 14
 };
 
 inline std::string phase_to_string(Phase phase) {
     switch (phase) {
         case Phase::SCAN_INPUT: return "SCAN_INPUT";
+        case Phase::REGISTRATION: return "REGISTRATION";
         case Phase::CHANNEL_SPLIT: return "CHANNEL_SPLIT";
         case Phase::NORMALIZATION: return "NORMALIZATION";
         case Phase::GLOBAL_METRICS: return "GLOBAL_METRICS";
-        case Phase::GLOBAL_REGISTRATION: return "GLOBAL_REGISTRATION";
         case Phase::TILE_GRID: return "TILE_GRID";
         case Phase::LOCAL_METRICS: return "LOCAL_METRICS";
-        case Phase::TILE_RECONSTRUCTION_TLR: return "TILE_RECONSTRUCTION_TLR";
+        case Phase::TILE_RECONSTRUCTION: return "TILE_RECONSTRUCTION";
         case Phase::STATE_CLUSTERING: return "STATE_CLUSTERING";
         case Phase::SYNTHETIC_FRAMES: return "SYNTHETIC_FRAMES";
         case Phase::STACKING: return "STACKING";
         case Phase::DEBAYER: return "DEBAYER";
+        case Phase::ASTROMETRY: return "ASTROMETRY";
+        case Phase::PCC: return "PCC";
         case Phase::DONE: return "DONE";
         default: return "UNKNOWN";
     }
@@ -183,7 +187,7 @@ inline int phase_to_int(Phase phase) {
 }
 
 inline Phase int_to_phase(int i) {
-    if (i >= 0 && i <= 12) {
+    if (i >= 0 && i <= 14) {
         return static_cast<Phase>(i);
     }
     return Phase::SCAN_INPUT;

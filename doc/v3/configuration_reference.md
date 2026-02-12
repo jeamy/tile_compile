@@ -1,49 +1,52 @@
-# Tile-Compile Konfigurationsreferenz
+# Tile-Compile C++ Konfigurationsreferenz
 
-Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.yaml` basierend auf dem Schema `tile_compile.schema.yaml`.
+Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.yaml` basierend auf der C++ Implementierung in `configuration.hpp` und den Schema-Dateien `tile_compile.schema.json` / `tile_compile.schema.yaml`.
 
-**Schema-Version:** 3  
-**Referenz:** Methodik v3 (doc/tile_basierte_qualitatsrekonstruktion_methodik_v_3.md)
+**Quelle der Wahrheit für Defaults:** `include/tile_compile/config/configuration.hpp`
+**Schema-Version:** v3
+**Referenz:** Methodik v3
 
 ---
 
 ## Inhaltsverzeichnis
 
-1. [Pipeline](#pipeline)
-2. [Input (automatisch ermittelt)](#input-automatisch-ermittelt)
-3. [Assumptions (Annahmen)](#assumptions-annahmen)
-4. [Normalization (Normalisierung)](#normalization-normalisierung)
-5. [Registration (Registrierung)](#registration-registrierung)
-6. [Wiener Denoise (Wiener-Rauschfilter)](#wiener-denoise-wiener-rauschfilter)
-7. [Global Metrics (Globale Metriken)](#global-metrics-globale-metriken)
-8. [Tile (Kachel-Geometrie)](#tile-kachel-geometrie)
-9. [Local Metrics (Lokale Metriken)](#local-metrics-lokale-metriken)
-10. [Synthetic (Synthetische Frames)](#synthetic-synthetische-frames)
-11. [Reconstruction (Rekonstruktion)](#reconstruction-rekonstruktion)
-12. [Debayer](#debayer)
-13. [Stacking](#stacking)
-14. [Validation (Validierung)](#validation-validierung)
-15. [Runtime Limits](#runtime-limits)
+1. [Pipeline](#1-pipeline)
+2. [Output](#2-output)
+3. [Data](#3-data)
+4. [Linearity](#4-linearity)
+5. [Calibration](#5-calibration)
+6. [Assumptions](#6-assumptions)
+7. [Normalization](#7-normalization)
+8. [Registration](#8-registration)
+9. [Wiener Denoise](#9-wiener-denoise)
+10. [Global Metrics](#10-global-metrics)
+11. [Tile](#11-tile)
+12. [Local Metrics](#12-local-metrics)
+13. [Synthetic](#13-synthetic)
+14. [Reconstruction](#14-reconstruction)
+15. [Debayer](#15-debayer)
+16. [Stacking](#16-stacking)
+17. [Validation](#17-validation)
+18. [Runtime Limits](#18-runtime-limits)
 
 ---
 
-## Pipeline
+## 1. Pipeline
 
-Grundlegende Pipeline-Einstellungen.
+Grundlegende Pipeline-Steuerung.
 
 ### `pipeline.mode`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | enum |
+| **Typ** | string (enum) |
 | **Werte** | `production`, `test` |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `"production"` |
 
 **Zweck:** Bestimmt den Ausführungsmodus der Pipeline.
 
-- **`production`**: Vollständige Verarbeitung mit allen Qualitätsprüfungen
-- **`test`**: Reduzierte Verarbeitung für schnelle Tests
+- **`production`**: Vollständige Verarbeitung mit allen Qualitätsprüfungen und Phasen
+- **`test`**: Reduzierte Verarbeitung für schnelle Tests (weniger Iterationen, reduzierte Validierung)
 
 ---
 
@@ -52,99 +55,348 @@ Grundlegende Pipeline-Einstellungen.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `true` |
 
-**Zweck:** Bestimmt, ob die Pipeline bei Fehlern abgebrochen wird.
+**Zweck:** Bestimmt, ob die Pipeline bei kritischen Fehlern sofort abbricht.
 
-- **`true`**: Pipeline stoppt sofort bei kritischen Fehlern
-- **`false`**: Pipeline versucht fortzufahren (nicht empfohlen)
+- **`true`**: Pipeline stoppt bei `phase_end(error)` — empfohlen für Produktion
+- **`false`**: Pipeline versucht fortzufahren (nützlich für Debugging, um alle Phasen-Outputs zu erhalten)
 
 ---
 
-## Input (automatisch ermittelt)
+## 2. Output
 
-Diese Felder werden automatisch aus den FITS-Headern und dem Dateisystem ermittelt. Sie sind **nicht editierbar**, können aber vor dem Run bestätigt werden.
+Steuerung der Ausgabeverzeichnisse und welche Zwischenergebnisse geschrieben werden.
 
-### `input.image_width`
+### `output.registered_dir`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `"registered"` |
+
+**Zweck:** Unterverzeichnis im Run-Ordner für registrierte Frames (relativ zu `runs/<run_id>/outputs/`).
+
+---
+
+### `output.artifacts_dir`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `"artifacts"` |
+
+**Zweck:** Unterverzeichnis für JSON-Artefakte und Report-Dateien.
+
+---
+
+### `output.write_registered_frames`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Registrierte Frames als FITS auf Disk schreiben.
+
+- **`true`**: Jeder registrierte Frame wird als `reg_XXXXX.fit` gespeichert — **hoher Speicherbedarf!**
+- **`false`**: Registrierte Frames werden nur im Speicher gehalten
+
+**Hinweis:** In `tile_compile.yaml` steht `true`, der C++ Default ist `false`. Nur für Debugging empfohlen.
+
+---
+
+### `output.write_global_metrics`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** `global_metrics.json` Artefakt schreiben.
+
+---
+
+### `output.write_global_registration`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** `global_registration.json` Artefakt schreiben (Warp-Matrizen + CC pro Frame).
+
+---
+
+## 3. Data
+
+Bilddaten-Eigenschaften. Teilweise automatisch aus dem FITS-Header ermittelt, teilweise konfigurierbar.
+
+### `data.image_width`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | integer |
-| **Quelle** | FITS-Header (NAXIS1) |
-| **Editierbar** | Nein |
+| **Minimum** | 1 |
+| **Default** | `0` (automatisch erkannt) |
 
-**Zweck:** Bildbreite in Pixeln, automatisch aus dem FITS-Header gelesen.
+**Zweck:** Bildbreite in Pixeln. Wird normalerweise automatisch aus dem FITS-Header (NAXIS1) gelesen. Kann in der Config vorbelegt werden, um vor dem Run eine Erwartung zu setzen.
 
 ---
 
-### `input.image_height`
+### `data.image_height`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | integer |
-| **Quelle** | FITS-Header (NAXIS2) |
-| **Editierbar** | Nein |
+| **Minimum** | 1 |
+| **Default** | `0` (automatisch erkannt) |
 
-**Zweck:** Bildhöhe in Pixeln, automatisch aus dem FITS-Header gelesen.
+**Zweck:** Bildhöhe in Pixeln. Wird aus FITS-Header (NAXIS2) gelesen.
 
 ---
 
-### `input.frames_detected`
+### `data.frames_min`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | integer |
-| **Quelle** | Dateisystem |
-| **Editierbar** | Nein |
+| **Minimum** | 1 |
+| **Default** | `0` |
 
-**Zweck:** Anzahl der erkannten FITS-Dateien im Input-Verzeichnis.
+**Zweck:** Erwartete Mindestanzahl Frames im Input-Verzeichnis. `0` = keine Prüfung.
+
+**Hinweis:** Nicht zu verwechseln mit `assumptions.frames_min`, das für Pipeline-Entscheidungen (Reduced Mode) verwendet wird.
 
 ---
 
-### `input.color_mode`
+### `data.frames_target`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | enum |
-| **Werte** | `OSC`, `MONO` |
-| **Quelle** | FITS-Header |
-| **Editierbar** | Bestätigung möglich |
+| **Typ** | integer |
+| **Minimum** | 0 |
+| **Default** | `0` |
 
-**Zweck:** Farbmodus der Kamera.
-
-- **`OSC`** (One-Shot-Color): Farbkamera mit Bayer-Matrix (CFA)
-- **`MONO`**: Monochrome Kamera ohne Farbfilter
-
-**Hinweis:** Wird aus dem FITS-Header abgeleitet, kann aber vor dem Run bestätigt/korrigiert werden.
+**Zweck:** Erwartete Zielanzahl Frames. `0` = kein Ziel. Informativ, kein Abbruch.
 
 ---
 
-### `input.bayer_pattern`
+### `data.color_mode`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | enum |
-| **Werte** | `RGGB`, `BGGR`, `GBRG`, `GRBG` |
-| **Quelle** | FITS-Header (BAYERPAT) |
-| **Standard** | `GBRG` |
-| **Editierbar** | Bestätigung möglich |
+| **Typ** | string (enum) |
+| **Werte** | `OSC`, `MONO`, `RGB` |
+| **Default** | `"OSC"` |
 
-**Zweck:** Bayer-Muster für OSC/CFA-Kameras. Bestimmt die Anordnung der Farbfilter auf dem Sensor.
+**Zweck:** Erwarteter Farbmodus der Kamera.
 
-```
-RGGB:       BGGR:       GBRG:       GRBG:
-R G R G     B G B G     G B G B     G R G R
-G B G B     G R G R     R G R G     B G B G
-```
+| Modus | Beschreibung |
+|-------|-------------|
+| **`OSC`** | One-Shot-Color — Farbkamera mit Bayer-Matrix (CFA). Pipeline arbeitet CFA-aware |
+| **`MONO`** | Monochrome Kamera ohne Farbfilter. Einzelkanal-Verarbeitung |
+| **`RGB`** | RGB-Daten (3 Kanäle). Derzeit nicht aktiv im C++ Runner |
 
-**Wichtig:** Ein falsches Bayer-Pattern führt zu falschen Farben im Endergebnis.
+**Verhalten:** Wird aus FITS-Header (`BAYERPAT` vorhanden → OSC, sonst MONO) automatisch erkannt. Bei Abweichung zur Config wird gewarnt, der **erkannte** Modus hat Vorrang.
 
 ---
 
-## Assumptions (Annahmen)
+### `data.bayer_pattern`
 
-Konfigurierbare Schwellenwerte und Annahmen gemäß Methodik v3 §2.
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `"GBRG"` |
+
+**Zweck:** Bayer-Pattern für OSC-Kameras. Bestimmt die Farbfilter-Anordnung auf dem Sensor.
+
+| Pattern | Zeile 0 | Zeile 1 |
+|---------|---------|---------|
+| `RGGB` | R G | G B |
+| `BGGR` | B G | G R |
+| `GBRG` | G B | R G |
+| `GRBG` | G R | B G |
+
+**Wichtig:** Ein falsches Bayer-Pattern führt zu **komplett falschen Farben**. Wird aus FITS-Header `BAYERPAT` gelesen, Fallback auf Config-Wert.
+
+---
+
+### `data.linear_required`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Wenn `true`, werden nicht-lineare Frames (gestreckt, Curves angewendet) aus der Pipeline **entfernt**.
+
+- **`true`**: Strenge Linearitäts-Enforcement — nicht-lineare Frames werden rejected (empfohlen)
+- **`false`**: Nur Warnung bei nicht-linearen Frames, aber keine Entfernung
+
+**Zusammenspiel mit `linearity.enabled`:** Die Linearitätsprüfung muss `enabled=true` sein, damit `linear_required` Wirkung hat.
+
+---
+
+## 4. Linearity
+
+Linearitätsprüfung der Input-Frames. Stellt sicher, dass keine nichtlinearen Operationen (Stretch, Curves) angewendet wurden.
+
+### `linearity.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert die Linearitätsprüfung in Phase 0 (SCAN_INPUT).
+
+---
+
+### `linearity.max_frames`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Default** | `8` |
+
+**Zweck:** Maximale Anzahl Frames in der Stichprobe für die Linearitätsprüfung.
+
+**Verhalten:** Aus N Frames werden bis zu `max_frames` gleichmäßig verteilt ausgewählt und geprüft. Nicht alle Frames werden getestet — die Stichprobe reicht zur zuverlässigen Erkennung.
+
+---
+
+### `linearity.min_overall_linearity`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0.0 – 1.0 |
+| **Default** | `0.9` |
+
+**Zweck:** Mindest-Linearitäts-Score (0 = komplett nichtlinear, 1 = perfekt linear). Frames unter diesem Schwellenwert gelten als nicht-linear.
+
+---
+
+### `linearity.strictness`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `strict`, `moderate`, `permissive` |
+| **Default** | `"strict"` |
+
+**Zweck:** Strictness-Level für die Linearitäts-Validierung.
+
+| Level | Beschreibung |
+|-------|-------------|
+| **`strict`** | Strenge Prüfung — empfohlen für kalibrierte Daten |
+| **`moderate`** | Moderate Toleranz — für leicht vorverarbeitete Daten |
+| **`permissive`** | Hohe Toleranz — nur für bekannt problematische Daten |
+
+---
+
+## 5. Calibration
+
+Kalibrierungs-Einstellungen (Bias, Dark, Flat). Wird **vor** der Pipeline auf die Raw-Frames angewendet.
+
+### `calibration.use_bias` / `calibration.use_dark` / `calibration.use_flat`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` (alle drei) |
+
+**Zweck:** Aktiviert die jeweilige Kalibrierung.
+
+- **Bias**: Subtrahiert das Ausleserauschen (Offset)
+- **Dark**: Subtrahiert thermisches Rauschen (Dunkelstrom)
+- **Flat**: Korrigiert Vignettierung und Staubkörner
+
+---
+
+### `calibration.bias_use_master` / `calibration.dark_use_master` / `calibration.flat_use_master`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` (alle drei) |
+
+**Zweck:** Wenn `true`, wird ein fertiges Master-Frame aus dem angegebenen Pfad geladen statt aus Einzelframes gemittelt.
+
+---
+
+### `calibration.dark_auto_select`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Automatische Dark-Auswahl basierend auf Belichtungszeit (und optional Temperatur).
+
+---
+
+### `calibration.dark_match_exposure_tolerance_percent`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0 |
+| **Default** | `5.0` |
+
+**Zweck:** Maximale Abweichung der Belichtungszeit bei Dark-Matching in Prozent.
+
+---
+
+### `calibration.dark_match_use_temp` / `calibration.dark_match_temp_tolerance_c`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean / number |
+| **Default** | `false` / `2.0` |
+
+**Zweck:** Wenn `dark_match_use_temp=true`, wird zusätzlich die Sensor-Temperatur für Dark-Matching berücksichtigt (±`temp_tolerance_c` °C).
+
+---
+
+### `calibration.bias_dir` / `calibration.darks_dir` / `calibration.flats_dir`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `""` (leer) |
+
+**Zweck:** Verzeichnispfade für Bias/Dark/Flat-Einzelframes (zum Erzeugen von Master-Frames).
+
+---
+
+### `calibration.bias_master` / `calibration.dark_master` / `calibration.flat_master`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `""` (leer) |
+
+**Zweck:** Pfade zu fertigen Master-Frames (nur wenn `*_use_master=true`).
+
+---
+
+### `calibration.pattern`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `"*.fit*"` |
+
+**Zweck:** Glob-Pattern für Kalibrierungsdateien.
+
+---
+
+## 6. Assumptions
+
+Schwellenwerte und Annahmen für Pipeline-Entscheidungen (Normal Mode vs. Reduced Mode).
 
 ### `assumptions.frames_min`
 
@@ -152,13 +404,11 @@ Konfigurierbare Schwellenwerte und Annahmen gemäß Methodik v3 §2.
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 1 |
-| **Standard** | 50 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Default** | `50` |
 
-**Zweck:** Minimale Anzahl an Frames für die Verarbeitung (Hard Assumption).
+**Zweck:** Minimale Frame-Anzahl für eine sinnvolle Verarbeitung (Hard Assumption).
 
-**Verhalten:** Unterschreitung führt zum **Abbruch** der Pipeline.
+**Verhalten:** Bei weniger Frames wird eine Warnung erzeugt. Der Abbruch hängt von `pipeline.abort_on_fail` ab.
 
 ---
 
@@ -168,13 +418,9 @@ Konfigurierbare Schwellenwerte und Annahmen gemäß Methodik v3 §2.
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 1 |
-| **Standard** | 800 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Default** | `800` |
 
-**Zweck:** Optimale Frame-Anzahl für die vollständige Methodik.
-
-**Verhalten:** Bei weniger Frames wird die Qualität reduziert, aber die Verarbeitung fortgesetzt.
+**Zweck:** Optimale Frame-Anzahl für vollständige Methodik. Rein informativ — erzeugt eine Warnung bei Unterschreitung, aber keinen Abbruch.
 
 ---
 
@@ -184,16 +430,15 @@ Konfigurierbare Schwellenwerte und Annahmen gemäß Methodik v3 §2.
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 1 |
-| **Standard** | 200 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Default** | `200` |
 
-**Zweck:** Schwellenwert für den Reduced Mode.
+**Zweck:** Schwellenwert für den Wechsel zwischen Normal Mode und Reduced Mode.
 
-**Verhalten:**
-- `frames < frames_min`: Abbruch
-- `frames_min ≤ frames < frames_reduced_threshold`: Reduced Mode
-- `frames ≥ frames_reduced_threshold`: Normal Mode
+| Frame-Anzahl | Modus |
+|-------------|-------|
+| `< frames_min` | Warnung / Abbruch |
+| `frames_min ≤ N < frames_reduced_threshold` | **Reduced Mode** (kein Clustering, keine synthetischen Frames) |
+| `N ≥ frames_reduced_threshold` | **Normal Mode** (alle Phasen) |
 
 ---
 
@@ -202,92 +447,12 @@ Konfigurierbare Schwellenwerte und Annahmen gemäß Methodik v3 §2.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0 - 100 |
-| **Standard** | 5 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Minimum** | 0 |
+| **Default** | `5.0` |
 
 **Zweck:** Maximale erlaubte Abweichung der Belichtungszeit in Prozent (Hard Assumption).
 
-**Beispiel:** Bei 5% und 10s Belichtung sind 9.5s - 10.5s erlaubt.
-
----
-
-### `assumptions.registration_residual_warn_px`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | number |
-| **Minimum** | 0 |
-| **Standard** | 0.5 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
-
-**Zweck:** Schwellenwert für Registrierungs-Residuum-Warnung in Pixeln.
-
-**Verhalten:** Überschreitung erzeugt eine Warnung, aber keinen Abbruch.
-
----
-
-### `assumptions.registration_residual_max_px`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | number |
-| **Minimum** | 0 |
-| **Standard** | 1.0 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
-
-**Zweck:** Maximales erlaubtes Registrierungs-Residuum in Pixeln.
-
-**Verhalten:** Überschreitung führt zum **Abbruch**.
-
----
-
-### `assumptions.elongation_warn`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | number |
-| **Bereich** | 0 - 1 |
-| **Standard** | 0.3 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
-
-**Zweck:** Schwellenwert für Stern-Elongation-Warnung.
-
-**Definition:** Elongation = 1 - (minor_axis / major_axis). 0 = perfekt rund, 1 = Linie.
-
----
-
-### `assumptions.elongation_max`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | number |
-| **Bereich** | 0 - 1 |
-| **Standard** | 0.4 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
-
-**Zweck:** Maximale erlaubte Stern-Elongation.
-
-**Verhalten:** Überschreitung führt zum **Abbruch** (deutet auf Tracking-Probleme hin).
-
----
-
-### `assumptions.tracking_error_max_px`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | number |
-| **Minimum** | 0 |
-| **Standard** | 1.0 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
-
-**Zweck:** Maximaler erlaubter Tracking-Fehler pro Belichtung in Pixeln (implizite Annahme aus Methodik v3 §1.3).
+**Beispiel:** Bei 5% und 10s Belichtung sind 9.5s – 10.5s erlaubt.
 
 ---
 
@@ -296,13 +461,12 @@ Konfigurierbare Schwellenwerte und Annahmen gemäß Methodik v3 §2.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Standard** | true |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Default** | `true` |
 
 **Zweck:** Überspringt STATE_CLUSTERING und SYNTHETIC_FRAMES im Reduced Mode.
 
-**Empfehlung:** `true` für schnellere Verarbeitung bei wenigen Frames.
+- **`true`** (empfohlen): Tile-Rekonstruktionsergebnis wird direkt als finales Bild verwendet
+- **`false`**: Führt auch im Reduced Mode Clustering durch (mit eingeschränktem K-Bereich)
 
 ---
 
@@ -311,27 +475,25 @@ Konfigurierbare Schwellenwerte und Annahmen gemäß Methodik v3 §2.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | array [2 integers] |
-| **Standard** | [5, 10] |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Default** | `[5, 10]` |
 
-**Zweck:** Cluster-Anzahl-Bereich für Reduced Mode (falls Clustering nicht übersprungen wird).
+**Zweck:** Cluster-Anzahl-Bereich [k_min, k_max] für Reduced Mode (nur relevant wenn `reduced_mode_skip_clustering=false`).
 
 ---
 
-## Normalization (Normalisierung)
+## 7. Normalization
 
-Pflicht-Einstellungen gemäß Methodik v3 §4.
+Hintergrund-Normalisierung (Pflicht gemäß Methodik v3 §4).
 
 ### `normalization.enabled`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Konstant** | true |
-| **Editierbar** | Nein |
+| **Default** | `true` |
+| **Konstant** | Muss `true` sein |
 
-**Zweck:** Normalisierung ist **immer aktiviert** (Methodik-Zwang).
+**Zweck:** Normalisierung ist **immer aktiviert** (Methodik-Zwang). Wird auf `false` gesetzt, bricht die Pipeline ab.
 
 ---
 
@@ -339,15 +501,18 @@ Pflicht-Einstellungen gemäß Methodik v3 §4.
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | enum |
+| **Typ** | string (enum) |
 | **Werte** | `background`, `median` |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `"background"` |
 
 **Zweck:** Normalisierungsmethode.
 
-- **`background`**: Division durch geschätzten Hintergrundwert (empfohlen)
-- **`median`**: Division durch Median des gesamten Frames
+| Methode | Beschreibung | Empfehlung |
+|---------|-------------|------------|
+| **`background`** | Sigma-Clip-Background-Maske → Median der Background-Pixel → Division | **Empfohlen** |
+| **`median`** | Einfacher Median aller Pixel → Division | Fallback |
+
+Die `background`-Methode verwendet eine Sigma-Clipping-Maske, um Sterne und Objekte auszuschließen und nur den echten Hintergrund zu schätzen.
 
 ---
 
@@ -356,56 +521,36 @@ Pflicht-Einstellungen gemäß Methodik v3 §4.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `true` |
 
-**Zweck:** Kanalweise Normalisierung.
+**Zweck:** Kanalweise Normalisierung bei OSC-Daten.
 
-- **`true`**: Jeder Farbkanal (R, G, B) wird separat normalisiert (empfohlen)
-- **`false`**: Alle Kanäle werden gemeinsam normalisiert
+- **`true`** (empfohlen): Jeder Bayer-Kanal (R, G, B) wird separat normalisiert. Kompensiert kanalabhängige Hintergrundunterschiede (z.B. Lichtverschmutzung)
+- **`false`**: Einheitliche Normalisierung über alle Pixel
 
 ---
 
-## Registration (Registrierung)
+## 8. Registration
 
-Einstellungen für die geometrische Ausrichtung gemäß Methodik v3 §3.
+Geometrische Registrierung (Ausrichtung) aller Frames auf einen Referenz-Frame.
 
 ### `registration.engine`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | enum |
-| **Werte** | `siril`, `opencv_cfa` |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Typ** | string (enum) |
+| **Werte** | `triangle_star_matching`, `star_similarity`, `hybrid_phase_ecc` |
+| **Default** | `"triangle_star_matching"` |
 
-**Zweck:** Registrierungs-Engine.
+**Zweck:** Primäre Registrierungsmethode. Intern wird **immer eine 5-stufige Kaskade** durchlaufen. Der `engine`-Wert bestimmt die bevorzugte Methode.
 
-| Engine | Beschreibung | Empfehlung |
-|--------|--------------|------------|
-| **`opencv_cfa`** | ECC-basierte Registrierung mit CFA-aware Warping, Cosmetic Correction vor Warp | **Empfohlen** |
-| **`siril`** | Externe Siril-Registrierung (stern-basiert), Debayer vor Registrierung | Legacy |
+| Engine | Beschreibung | Stärke |
+|--------|-------------|--------|
+| **`triangle_star_matching`** | Dreiecks-Asterismus-Matching | **Rotationsinvariant**, ideal für Alt/Az |
+| **`star_similarity`** | Stern-Paar-Distanz-Matching | Schnell bei kleinen Versätzen |
+| **`hybrid_phase_ecc`** | Phase-Korrelation + ECC | Ohne Sternerkennung, für Nebel |
 
-**Wichtig:** `opencv_cfa` verhindert "Walking Noise" durch Hotpixel-Korrektur vor dem Warp.
-
----
-
-### `registration.reference`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | enum |
-| **Werte** | `auto` |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
-
-**Zweck:** Referenz-Frame-Auswahl.
-
-- **`auto`**: Intelligente Auswahl mit zwei Kriterien:
-  1. **Mittleres Drittel bevorzugt**: Minimiert die maximale Drift-Distanz zu allen anderen Frames
-  2. **Beste Qualität**: Innerhalb des mittleren Drittels wird der Frame mit den meisten Sternen gewählt
-
-**Warum mittleres Drittel?** Bei Aufnahmen mit kontinuierlicher Drift (z.B. Alt-Az-Montierung) ist die maximale Drift-Distanz am geringsten, wenn die Referenz in der Mitte liegt. Dies verbessert die ECC-Konvergenz und verhindert längliche Sterne.
+**Kaskade (immer):** Triangle Stars → Star Pairs → AKAZE Features → Phase+ECC → Identity-Fallback
 
 ---
 
@@ -414,140 +559,87 @@ Einstellungen für die geometrische Ausrichtung gemäß Methodik v3 §3.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `true` |
 
 **Zweck:** Erlaubt Rotation bei der Registrierung.
 
-- **`true`**: ECC mit MOTION_EUCLIDEAN (Translation + Rotation) - **empfohlen**
-- **`false`**: ECC mit MOTION_TRANSLATION (nur Translation)
+- **`true`** (empfohlen): Similarity/Euclidean Transform (Translation + Rotation + ggf. Skalierung)
+- **`false`**: Nur Translation
 
-**Wichtig:** Bei Feldrotation (Alt-Az-Montierung) oder Drift sollte `true` gesetzt werden, um Unschärfe zu vermeiden.
-
----
-
-### `registration.border_mode`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | string |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
-
-**Zweck:** Randbehandlung beim Warping (nur relevant bei `engine: opencv_cfa`).
-
-- **`replicate`**: Randpixel werden repliziert (Standard)
-- **`reflect`**: Spiegelung am Rand (OpenCV reflect101)
-- **`constant`**: Konstanter Füllwert (siehe `registration.border_value`)
-- **`median`** / **`background`**: Konstanter Füllwert = Median des jeweiligen Frames (reduziert Einfluss auf Hintergrund)
+**Wichtig:** Bei Feldrotation (Alt/Az-Montierung) **muss** `true` gesetzt sein. Keine Rotationslimits — auch >20° Rotation wird akzeptiert.
 
 ---
 
-### `registration.border_value`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | number |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
-
-**Zweck:** Füllwert für `border_mode: constant`.
-
----
-
-### `registration.expand_canvas`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | boolean |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
-
-**Zweck:** Vergrößert das Ausgabecanvas beim Warping, damit bei Rotation keine Bilddaten an den Ecken abgeschnitten werden.
-
-- **`true`**: Ausgabe wird (quadratisch) vergrößert, fehlende Pixel werden gemäß `border_mode`/`border_value` gefüllt
-- **`false`**: Ausgabe bleibt in Originalgröße
-
----
-
-### `registration.min_star_matches`
+### `registration.star_topk`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | integer |
-| **Minimum** | 1 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Minimum** | 3 |
+| **Default** | `120` |
 
-**Zweck:** Minimale Anzahl erkannter Sterne pro Frame für erfolgreiche Registrierung.
+**Zweck:** Anzahl der hellsten Sterne, die für Star-basiertes Matching verwendet werden.
 
-**Empfehlung:** 10-20 für zuverlässige Registrierung.
+**Hinweis:** In `tile_compile.yaml` steht `60`, der C++ Default ist `120`. Höhere Werte erhöhen die Robustheit bei schwierigen Feldern, aber auch die Rechenzeit.
 
 ---
 
-### `registration.output_dir`
+### `registration.star_min_inliers`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | string |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Typ** | integer |
+| **Minimum** | 2 |
+| **Default** | `6` |
 
-**Zweck:** Ausgabeverzeichnis für registrierte Frames (relativ zum Run-Verzeichnis).
+**Zweck:** Minimale Anzahl übereinstimmender Sterne (Inlier) für eine akzeptierte Registrierung.
 
-**Standard:** `registered`
+**Empfehlung:** 5–10. Zu niedrig → falsche Matches werden akzeptiert. Zu hoch → gute Matches werden abgelehnt.
 
 ---
 
-### `registration.registered_filename_pattern`
+### `registration.star_inlier_tol_px`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | string |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `2.5` |
 
-**Zweck:** Dateinamen-Muster für registrierte Frames.
+**Zweck:** Toleranz in Pixeln für die Zuordnung von Sternen als Inlier (nach Transformation).
 
-**Standard:** `reg_{index:05d}.fit`
-
-**Platzhalter:** `{index}` wird durch die Frame-Nummer ersetzt.
+**Hinweis:** In `tile_compile.yaml` steht `3.0`, der C++ Default ist `2.5`. Bezieht sich auf die **halbe Auflösung** (2× Downsample in der Registrierung).
 
 ---
 
-### `registration.siril_script`
+### `registration.star_dist_bin_px`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | string |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `2.5` |
 
-**Zweck:** Pfad zu einem benutzerdefinierten Siril-Script (nur bei `engine: siril`).
+**Zweck:** Bin-Breite in Pixeln für das Paar-Abstands-Histogramm in der `star_similarity`-Methode.
 
-**Standard:** Leer = verwendet `siril_scripts/siril_register_osc.ssf`
+**Hinweis:** In `tile_compile.yaml` steht `10.0`, der C++ Default ist `2.5`. Kleinere Werte sind genauer, größere Werte toleranter.
 
 ---
 
-## Wiener Denoise (Wiener-Rauschfilter)
+## 9. Wiener Denoise
 
-Optionaler Wiener-Filter auf rekonstruierten Tiles. Wird **nach** Tile-Rekonstruktion und **vor** dem finalen Overlap-Add angewendet. Siehe `doc/Wiener denoise.md` für die normative Spezifikation.
+Optionaler Wiener-Rauschfilter auf rekonstruierten Tiles. Wird **nach** Tile-Rekonstruktion und **vor** dem finalen Overlap-Add angewendet.
 
-**Eigenschaften:**
-- Linear, deterministisch, MSE-optimal
-- Keine Beeinflussung von Metriken oder Gewichten
-- Selektive Aktivierung basierend auf SNR und Strukturqualität
+**Eigenschaften:** Linear, deterministisch, MSE-optimal. Keine Beeinflussung von Metriken oder Gewichten.
 
 ### `wiener_denoise.enabled`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Standard** | false |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Default** | `false` |
 
-**Zweck:** Aktiviert Wiener-Filter auf rekonstruierten Tiles.
+**Zweck:** Aktiviert den Wiener-Filter. Standardmäßig deaktiviert.
 
 ---
 
@@ -556,10 +648,8 @@ Optionaler Wiener-Filter auf rekonstruierten Tiles. Wird **nach** Tile-Rekonstru
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 1.0 - 20.0 |
-| **Standard** | 5.0 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Minimum** | 0 |
+| **Default** | `5.0` |
 
 **Zweck:** SNR-Schwellwert. Tiles mit SNR ≥ diesem Wert werden **nicht** gefiltert (bereits gutes Signal).
 
@@ -570,33 +660,80 @@ Optionaler Wiener-Filter auf rekonstruierten Tiles. Wird **nach** Tile-Rekonstru
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | -3.0 - 0.0 |
-| **Standard** | -0.5 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Minimum** | -1 |
+| **Default** | `-0.5` |
 
-**Zweck:** Minimale Strukturqualität. Tiles mit Q_struct ≤ diesem Wert werden **nicht** gefiltert (zu wenig Struktur).
+**Zweck:** Minimale Strukturqualität. Tiles mit Q_struct ≤ diesem Wert werden **nicht** gefiltert (zu wenig Struktur, Wiener würde Artefakte erzeugen).
 
 ---
 
-## Global Metrics (Globale Metriken)
+### `wiener_denoise.q_max`
 
-Gewichtung der globalen Frame-Qualitätsmetriken gemäß Methodik v3 §5.
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0 – 1 |
+| **Default** | `1.0` |
+
+**Zweck:** Maximale Strukturqualität für Wiener-Filterung.
+
+---
+
+### `wiener_denoise.q_step`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `0.1` |
+
+**Zweck:** Schrittweite für die iterative Wiener-Parameter-Suche.
+
+---
+
+### `wiener_denoise.min_snr`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0 |
+| **Default** | `2.0` |
+
+**Zweck:** Minimaler SNR für die Anwendung des Wiener-Filters. Tiles mit SNR < `min_snr` werden übersprungen.
+
+---
+
+### `wiener_denoise.max_iterations`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Default** | `10` |
+
+**Zweck:** Maximale Iterationen für die Wiener-Parameter-Optimierung.
+
+---
+
+## 10. Global Metrics
+
+Gewichtung der globalen Frame-Qualitätsmetriken (Phase 3: GLOBAL_METRICS).
 
 ### `global_metrics.weights.background`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0 - 1 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.4` |
 
-**Zweck:** Gewicht α für die Hintergrund-Metrik im globalen Qualitätsindex.
+**Zweck:** Gewicht **α** für die Hintergrund-Metrik im globalen Qualitätsindex.
 
-**Formel:** Q_f = α·(-B̃) + β·(-σ̃) + γ·Ẽ
+**Formel:** `Q_f = α·(-B̃_f) + β·(-σ̃_f) + γ·Ẽ_f`
 
-**Interpretation:** Höheres Gewicht = stärkere Bestrafung von hellem Hintergrund.
+**Interpretation:** Höheres Gewicht → stärkere Bestrafung von hellem Hintergrund (Lichtverschmutzung, Dämmerung).
+
+**Hinweis:** In `tile_compile.yaml` steht `0.25`, der C++ Default ist `0.4`.
 
 ---
 
@@ -605,13 +742,14 @@ Gewichtung der globalen Frame-Qualitätsmetriken gemäß Methodik v3 §5.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0 - 1 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.3` |
 
-**Zweck:** Gewicht β für die Rausch-Metrik im globalen Qualitätsindex.
+**Zweck:** Gewicht **β** für die Rausch-Metrik.
 
-**Interpretation:** Höheres Gewicht = stärkere Bestrafung von verrauschten Frames.
+**Interpretation:** Höheres Gewicht → stärkere Bestrafung von verrauschten Frames (schlechte Kühlung, hohe ISO).
+
+**Hinweis:** In `tile_compile.yaml` steht `0.45`.
 
 ---
 
@@ -620,15 +758,14 @@ Gewichtung der globalen Frame-Qualitätsmetriken gemäß Methodik v3 §5.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0 - 1 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.3` |
 
-**Zweck:** Gewicht γ für die Gradienten-Metrik im globalen Qualitätsindex.
+**Zweck:** Gewicht **γ** für die Gradienten-Metrik (Sobel-Energie).
 
-**Interpretation:** Höheres Gewicht = stärkere Bevorzugung von Frames mit hoher Gradientenenergie (Schärfe).
+**Interpretation:** Höheres Gewicht → stärkere Bevorzugung von Frames mit hoher Gradientenenergie (Schärfe, Struktur).
 
-**Constraint:** α + β + γ = 1.0 (wird vom Backend erzwungen)
+**Constraint:** **α + β + γ = 1.0** — wird von `cfg.validate()` geprüft.
 
 ---
 
@@ -637,15 +774,14 @@ Gewichtung der globalen Frame-Qualitätsmetriken gemäß Methodik v3 §5.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | array [2 numbers] |
-| **Standard** | [-3, 3] |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `[-3.0, 3.0]` |
 
 **Zweck:** Clamp-Bereich für Q_f vor der Exponentialfunktion.
 
-**Formel:** G_f = exp(clamp(Q_f, clamp[0], clamp[1]))
+**Formel:** `G_f = exp(clip(Q_f, clamp[0], clamp[1]))`
 
-**Empfehlung:** [-3, 3] gemäß Methodik v3.1
+- Clamp [-3, +3] → Gewichtsbereich [exp(-3) ≈ 0.05, exp(+3) ≈ 20.1]
+- Verhindert extreme Gewichte durch Ausreißer in den Metriken
 
 ---
 
@@ -654,19 +790,18 @@ Gewichtung der globalen Frame-Qualitätsmetriken gemäß Methodik v3 §5.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Standard** | false |
-| **Editierbar** | Ja |
+| **Default** | `false` |
 
 **Zweck:** Adaptive Gewichtung basierend auf Metrik-Varianzen.
 
-- **`true`**: α, β, γ werden automatisch angepasst (Methodik v3.1 §3.2)
-- **`false`**: Feste Gewichte aus Konfiguration
+- **`true`**: α, β, γ werden automatisch angepasst (proportional zur Varianz der jeweiligen Metrik)
+- **`false`**: Feste Gewichte aus Konfiguration (empfohlen)
 
 ---
 
-## Tile (Kachel-Geometrie)
+## 11. Tile
 
-Seeing-adaptive Kachel-Erzeugung gemäß Methodik v3 §6.
+Seeing-adaptive Tile-Erzeugung (Phase 4: TILE_GRID).
 
 ### `tile.size_factor`
 
@@ -674,15 +809,21 @@ Seeing-adaptive Kachel-Erzeugung gemäß Methodik v3 §6.
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 1 |
-| **Standard** | 32 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `32` |
 
-**Zweck:** Faktor s für die Kachelgröße.
+**Zweck:** Multiplikator **s** für die Tile-Größe.
 
-**Formel:** T_0 = s × FWHM
+**Formel:** `T₀ = s × FWHM`
 
-**Beispiel:** Bei FWHM = 2.5 px und s = 32 → T_0 = 80 px
+**Beispiele:**
+
+| FWHM (px) | s=32 | Tile-Größe |
+|-----------|------|-----------|
+| 2.0 | 64 | 64 px |
+| 3.0 | 96 | 96 px |
+| 5.0 | 160 | 160 px |
+
+**Empfehlung:** 20–40. Höhere Werte → größere Tiles → weniger Tiles → schneller, aber gröbere lokale Anpassung.
 
 ---
 
@@ -692,13 +833,13 @@ Seeing-adaptive Kachel-Erzeugung gemäß Methodik v3 §6.
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 1 |
-| **Standard** | 64 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `64` |
 
-**Zweck:** Minimale Kachelgröße T_min in Pixeln.
+**Zweck:** Minimale Tile-Größe **T_min** in Pixeln.
 
-**Formel:** T = max(T_min, min(T_0, T_max))
+**Formel:** `T = clip(T₀, T_min, T_max)`
+
+**Empfehlung:** 32–128. Zu klein → zu wenige Pixel pro Tile für zuverlässige Metriken. Zu groß → keine lokale Anpassung.
 
 ---
 
@@ -708,15 +849,13 @@ Seeing-adaptive Kachel-Erzeugung gemäß Methodik v3 §6.
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 1 |
-| **Standard** | 6 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `6` |
 
-**Zweck:** Maximaler Divisor D für die Kachelgröße.
+**Zweck:** Maximale Tile-Größe als Bruchteil der kürzeren Bildseite.
 
-**Formel:** T_max = min(Breite, Höhe) / D
+**Formel:** `T_max = min(Breite, Höhe) / max_divisor`
 
-**Beispiel:** Bei 1920×1080 und D = 6 → T_max = 180 px
+**Beispiel:** Bei 3840×2160 und D=6 → T_max = 2160/6 = 360 px
 
 ---
 
@@ -725,16 +864,18 @@ Seeing-adaptive Kachel-Erzeugung gemäß Methodik v3 §6.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0 - 0.5 |
-| **Standard** | 0.25 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Bereich** | 0 – 0.5 |
+| **Default** | `0.25` |
 
-**Zweck:** Überlappungsfraktion o für Kacheln.
+**Zweck:** Überlappungsfraktion zwischen benachbarten Tiles.
 
-**Formel:** Überlappung O = o × T
+**Formel:** `Overlap = fraction × TileSize`, `Stride = TileSize − Overlap`
 
-**Beispiel:** Bei T = 100 px und o = 0.25 → O = 25 px
+**Beispiel:** T=100, fraction=0.25 → Overlap=25px, Stride=75px
+
+Die Überlappung ist **kritisch** für die Hanning-Overlap-Add-Rekonstruktion: Zu wenig Overlap → sichtbare Tile-Grenzen. Zu viel → ineffizient.
+
+**Safety:** Wenn stride ≤ 0, wird auf 0.25 zurückgesetzt.
 
 ---
 
@@ -744,30 +885,31 @@ Seeing-adaptive Kachel-Erzeugung gemäß Methodik v3 §6.
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 0 |
-| **Standard** | 3 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `10` |
 
-**Zweck:** Minimale Sternanzahl für stern-basierte lokale Metriken.
+**Zweck:** Minimale Sternanzahl (Median über alle Frames) für die Klassifikation als **STAR-Tile**.
 
-**Verhalten:** Kacheln mit weniger Sternen verwenden struktur-basierte Metriken.
+| Median Star Count | Tile-Typ | Metrik-Modus |
+|-------------------|----------|-------------|
+| `≥ star_min_count` | STAR | FWHM + Roundness + Contrast |
+| `< star_min_count` | STRUCTURE | ENR + Background |
 
 ---
 
-## Local Metrics (Lokale Metriken)
+## 12. Local Metrics
 
-Kachel-basierte Qualitätsmetriken gemäß Methodik v3 §7.
+Lokale Tile-Metriken und Qualitäts-Scoring (Phase 6: LOCAL_METRICS).
 
 ### `local_metrics.clamp`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | array [2 numbers] |
-| **Standard** | [-3, 3] |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `[-3.0, 3.0]` |
 
 **Zweck:** Clamp-Bereich für Q_local vor der Exponentialfunktion.
+
+**Formel:** `L_f,t = exp(clip(Q_f,t, clamp[0], clamp[1]))`
 
 ---
 
@@ -776,14 +918,14 @@ Kachel-basierte Qualitätsmetriken gemäß Methodik v3 §7.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0 - 1 |
-| **Standard** | 0.6 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.6` |
 
 **Zweck:** Gewicht für FWHM in der stern-basierten lokalen Qualität.
 
-**Interpretation:** Höheres Gewicht = stärkere Bevorzugung von Kacheln mit kleinem FWHM (schärfere Sterne).
+**Formel:** `Q = w_fwhm·(-FWHM̃) + w_round·R̃ + w_contrast·C̃`
+
+Niedriger FWHM = besser → wird negiert. Höchstes Gewicht = dominiert die lokale Qualitätsbewertung.
 
 ---
 
@@ -792,14 +934,10 @@ Kachel-basierte Qualitätsmetriken gemäß Methodik v3 §7.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0 - 1 |
-| **Standard** | 0.2 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.2` |
 
-**Zweck:** Gewicht für Rundheit in der stern-basierten lokalen Qualität.
-
-**Interpretation:** Höheres Gewicht = stärkere Bevorzugung von runden Sternen.
+**Zweck:** Gewicht für Sternrundheit. Hohe Rundheit = gutes Tracking.
 
 ---
 
@@ -808,28 +946,12 @@ Kachel-basierte Qualitätsmetriken gemäß Methodik v3 §7.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0 - 1 |
-| **Standard** | 0.2 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.2` |
 
-**Zweck:** Gewicht für Kontrast in der stern-basierten lokalen Qualität.
+**Zweck:** Gewicht für lokalen Kontrast. Hoher Kontrast = gutes Signal.
 
-**Constraint:** fwhm + roundness + contrast = 1.0
-
----
-
-### `local_metrics.structure_mode.background_weight`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | number |
-| **Bereich** | 0 - 1 |
-| **Standard** | 0.3 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
-
-**Zweck:** Gewicht für Hintergrund in der struktur-basierten lokalen Qualität.
+**Constraint:** **fwhm + roundness + contrast = 1.0**
 
 ---
 
@@ -838,35 +960,49 @@ Kachel-basierte Qualitätsmetriken gemäß Methodik v3 §7.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0 - 1 |
-| **Standard** | 0.7 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.7` |
 
 **Zweck:** Gewicht für ENR (Edge-to-Noise Ratio) in der struktur-basierten lokalen Qualität.
 
-**Constraint:** background_weight + metric_weight = 1.0
+**Formel:** `Q = w_metric·(Ẽ/σ̃) + w_bg·(-B̃)`
 
 ---
 
-## Synthetic (Synthetische Frames)
+### `local_metrics.structure_mode.background_weight`
 
-Clustering und synthetische Frame-Erzeugung gemäß Methodik v3 §10.
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.3` |
+
+**Zweck:** Gewicht für Hintergrund in der struktur-basierten lokalen Qualität.
+
+**Constraint:** **metric_weight + background_weight = 1.0**
+
+---
+
+## 13. Synthetic
+
+Synthetische Frame-Erzeugung und Clustering (Phase 8+9).
 
 ### `synthetic.weighting`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | enum |
+| **Typ** | string (enum) |
 | **Werte** | `global`, `tile_weighted` |
-| **Standard** | `global` |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Default** | `"global"` |
 
 **Zweck:** Bestimmt, wie synthetische Frames pro Cluster gebildet werden.
 
-- **`global`**: klassisch, nur globale Gewichte `G_f,c`.
-- **`tile_weighted`**: tile-basiert mit effektiven Gewichten `W_f,t,c = G_f,c × L_f,t,c` und Overlap-Add (analog Rekonstruktion), um lokale Qualitätsgewinne in `syn_*.fits` zu propagieren.
+| Modus | Formel | Beschreibung |
+|-------|--------|-------------|
+| **`global`** | `synth_k = Σ G_f · warp(I'_f) / Σ G_f` | Nur globale Gewichte — schneller, Standard |
+| **`tile_weighted`** | `synth_k = overlap_add(Σ W_f,t · tile_f / Σ W_f,t)` | Tile-basiert wie Rekonstruktion — langsamer, propagiert lokale Qualitätsgewinne |
+
+---
 
 ### `synthetic.frames_min`
 
@@ -874,11 +1010,9 @@ Clustering und synthetische Frame-Erzeugung gemäß Methodik v3 §10.
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 1 |
-| **Standard** | 15 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `5` |
 
-**Zweck:** Minimale Anzahl synthetischer Frames (k_min).
+**Zweck:** Minimale Cluster-Größe für die Erzeugung eines synthetischen Frames. Cluster mit weniger Frames werden übersprungen.
 
 ---
 
@@ -888,11 +1022,9 @@ Clustering und synthetische Frame-Erzeugung gemäß Methodik v3 §10.
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 1 |
-| **Standard** | 30 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `30` |
 
-**Zweck:** Maximale Anzahl synthetischer Frames (k_max).
+**Zweck:** Maximale Anzahl synthetischer Frames. Bestimmt gleichzeitig die maximale Cluster-Anzahl (K ≤ frames_max).
 
 ---
 
@@ -900,23 +1032,18 @@ Clustering und synthetische Frame-Erzeugung gemäß Methodik v3 §10.
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | enum |
-| **Konstant** | `state_vector` |
-| **Editierbar** | Nein |
+| **Typ** | string (enum) |
+| **Werte** | `kmeans`, `quantile` |
+| **Default** | `"kmeans"` |
 
-**Zweck:** Clustering-Modus (fest auf state_vector).
+**Zweck:** Clustering-Methode.
 
----
+| Methode | Beschreibung |
+|---------|-------------|
+| **`kmeans`** | K-Means auf 6D-Zustandsvektor (Standard) |
+| **`quantile`** | Quantile-basierte Aufteilung nach globalem Gewicht (Fallback bei degenerierten Clustern) |
 
-### `synthetic.clustering.k_selection`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | enum |
-| **Konstant** | `silhouette_auto` |
-| **Editierbar** | Nein |
-
-**Zweck:** Automatische k-Auswahl via Silhouette-Score.
+**Hinweis:** `quantile` wird automatisch als Fallback verwendet wenn K-Means leere Cluster erzeugt.
 
 ---
 
@@ -925,44 +1052,35 @@ Clustering und synthetische Frame-Erzeugung gemäß Methodik v3 §10.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | array [2 integers] |
-| **Standard** | [15, 30] |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `[5, 30]` |
 
-**Zweck:** Erlaubter k-Bereich für Clustering.
+**Zweck:** Erlaubter K-Bereich [k_min, k_max] für Clustering.
 
----
+**Formel:** `K = clip(floor(N / 10), k_min, k_max)`
 
-### `synthetic.clustering.vector`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | array of enums |
-| **Werte** | `global_weight`, `tile_quality_mean`, `tile_quality_variance`, `background`, `noise` |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
-
-**Zweck:** Komponenten des State-Vektors für Clustering.
-
-**Empfehlung:** Alle Komponenten für optimale Cluster-Trennung.
+| N Frames | K (Default [5,30]) |
+|----------|-------------------|
+| 50 | 5 |
+| 100 | 10 |
+| 200 | 20 |
+| 500 | 30 |
 
 ---
 
-## Reconstruction (Rekonstruktion)
+## 14. Reconstruction
 
-Tile-basierte Rekonstruktion gemäß Methodik v3 §9.
+Tile-basierte Rekonstruktion (Phase 7: TILE_RECONSTRUCTION). Diese Einstellungen sind **fest** gemäß Methodik v3.
 
 ### `reconstruction.weighting_function`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | enum |
-| **Konstant** | `exponential` |
-| **Editierbar** | Nein |
+| **Typ** | string (enum) |
+| **Werte** | `linear` |
+| **Default** | `"linear"` |
+| **Konstant** | Ja |
 
-**Zweck:** Gewichtungsfunktion (fest auf exponential gemäß Methodik v3).
-
-**Formel:** W = exp(Q_local)
+**Zweck:** Gewichtungsfunktion für Tile-Rekonstruktion. Fest auf `linear` (W_f,t = G_f × L_f,t, dann Exponential-Mapping in den Gewichten selbst).
 
 ---
 
@@ -970,62 +1088,53 @@ Tile-basierte Rekonstruktion gemäß Methodik v3 §9.
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | enum |
-| **Konstant** | `hanning` |
-| **Editierbar** | Nein |
+| **Typ** | string (enum) |
+| **Werte** | `hanning` |
+| **Default** | `"hanning"` |
+| **Konstant** | Ja |
 
-**Zweck:** Fensterfunktion für Kachel-Überlappung (fest auf Hanning gemäß Methodik v3).
+**Zweck:** Fensterfunktion für Tile-Overlap-Add. Fest auf **Hanning** (2D separabel).
 
----
-
-### `reconstruction.tile_rescale`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | enum |
-| **Konstant** | `median_after_background_subtraction` |
-| **Editierbar** | Nein |
-
-**Zweck:** Kachel-Reskalierung (fest auf median_after_background_subtraction).
+**Formel:** `w(i) = 0.5 × (1 − cos(2π·i / (n−1)))`
 
 ---
 
-## Debayer
+## 15. Debayer
 
 ### `debayer`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Standard** | true |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Default** | `true` |
 
-**Zweck:** Debayer/Demosaic des finalen gestackten CFA-Mosaiks.
+**Zweck:** Demosaicing des finalen gestackten CFA-Mosaiks in Phase 11.
 
-- **`true`**: Erzeugt `stacked_rgb.fits` (3, H, W) aus `stacked.fit`
-- **`false`**: Nur CFA-Mosaik `stacked.fit` wird erzeugt
+- **`true`**: Nearest-Neighbor-Demosaic → R/G/B FITS + `stacked_rgb.fits` (3-Plane FITS-Cube)
+- **`false`**: Nur CFA-Mosaik `stacked.fits` wird erzeugt (für externe Debayer-Tools)
+
+**Hinweis:** Bei `color_mode=MONO` wird die Debayer-Phase als "ok/MONO" beendet ohne Aktion.
 
 ---
 
-## Stacking
+## 16. Stacking
 
-Finales Stacking gemäß Methodik v3 §11.
+Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 
 ### `stacking.method`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | enum |
-| **Werte** | `average`, `rej` |
-| **Standard** | `rej` |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Typ** | string (enum) |
+| **Werte** | `rej`, `average` |
+| **Default** | `"rej"` |
 
 **Zweck:** Stacking-Methode.
 
-- **`average`**: Einfacher linearer Mittelwert
-- **`rej`**: Sigma-Clipping Rejection, dann linearer Mittelwert (empfohlen)
+| Methode | Beschreibung | Empfehlung |
+|---------|-------------|------------|
+| **`rej`** | Sigma-Clipping Rejection → dann Mittelwert | **Empfohlen** — entfernt verbleibende Ausreißer |
+| **`average`** | Einfacher linearer Mittelwert | Schneller, aber keine Ausreißer-Entfernung |
 
 ---
 
@@ -1034,12 +1143,9 @@ Finales Stacking gemäß Methodik v3 §11.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | string |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `"synthetic"` |
 
-**Zweck:** Eingabeverzeichnis für Stacking (relativ zum outputs-Verzeichnis).
-
-**Standard:** `synthetic`
+**Zweck:** Eingabeverzeichnis für Stacking-Input (relativ zum outputs-Verzeichnis). Wird im C++ Runner intern verwaltet.
 
 ---
 
@@ -1048,12 +1154,9 @@ Finales Stacking gemäß Methodik v3 §11.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | string |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `"syn_*.fits"` |
 
-**Zweck:** Dateinamen-Muster für Stacking-Input.
-
-**Standard:** `syn_*.fits`
+**Zweck:** Glob-Pattern für Stacking-Input-Dateien.
 
 ---
 
@@ -1062,12 +1165,9 @@ Finales Stacking gemäß Methodik v3 §11.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | string |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `"stacked.fit"` |
 
 **Zweck:** Ausgabedatei für gestacktes Bild.
-
-**Standard:** `stacked.fit`
 
 ---
 
@@ -1076,16 +1176,14 @@ Finales Stacking gemäß Methodik v3 §11.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0.1 - 20.0 |
-| **Standard** | 4.0 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Minimum** | >0 |
+| **Default** | `2.0` |
 
 **Zweck:** Unterer Sigma-Schwellenwert für Rejection.
 
-**Formel:** Pixel wird abgelehnt wenn z < -sigma_low
+**Formel:** Pixel wird abgelehnt wenn `z < -sigma_low` (z = normalisierte Abweichung vom Median).
 
-**Empfehlung:** 2.5 - 4.0 für typische Daten
+**Empfehlung:** 2.0 – 4.0
 
 ---
 
@@ -1094,16 +1192,14 @@ Finales Stacking gemäß Methodik v3 §11.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0.1 - 20.0 |
-| **Standard** | 4.0 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Minimum** | >0 |
+| **Default** | `2.0` |
 
 **Zweck:** Oberer Sigma-Schwellenwert für Rejection.
 
-**Formel:** Pixel wird abgelehnt wenn z > sigma_high
+**Formel:** Pixel wird abgelehnt wenn `z > sigma_high`
 
-**Empfehlung:** 2.5 - 4.0 für typische Daten
+**Empfehlung:** 2.0 – 4.0
 
 ---
 
@@ -1112,12 +1208,10 @@ Finales Stacking gemäß Methodik v3 §11.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | integer |
-| **Bereich** | 1 - 10 |
-| **Standard** | 3 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Bereich** | 1 – 10 |
+| **Default** | `3` |
 
-**Zweck:** Maximale Anzahl Sigma-Clipping-Iterationen.
+**Zweck:** Maximale Sigma-Clipping-Iterationen. Nach jeder Iteration werden abgelehnte Pixel entfernt und der Median neu berechnet.
 
 ---
 
@@ -1126,32 +1220,31 @@ Finales Stacking gemäß Methodik v3 §11.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | 0.05 - 1.0 |
-| **Standard** | 0.5 |
-| **Erforderlich** | Nein |
-| **Editierbar** | Ja |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.5` |
 
 **Zweck:** Minimale überlebende Frame-Fraktion pro Pixel.
 
-**Verhalten:** Wenn weniger als min_fraction × N Frames überleben, wird auf unclipped mean zurückgefallen.
+**Verhalten:** Wenn weniger als `min_fraction × N` Frames an einem Pixel überleben, wird auf den **unclipped mean** zurückgefallen (verhindert Artefakte durch zu aggressives Clipping).
 
 ---
 
-## Validation (Validierung)
+## 17. Validation
 
-Qualitätsprüfungen gemäß Methodik v3 §12.
+Qualitätsprüfung des Rekonstruktionsergebnisses (nach Phase 10, vor Debayer).
 
 ### `validation.min_fwhm_improvement_percent`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Minimum** | 0 |
-| **Standard** | 5 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `5.0` |
 
-**Zweck:** Minimale FWHM-Verbesserung in Prozent gegenüber einfachem Stack.
+**Zweck:** Minimale FWHM-Verbesserung in Prozent (Output-FWHM vs. Seeing-FWHM).
+
+**Formel:** `improvement = (seeing_fwhm - output_fwhm) / seeing_fwhm × 100%`
+
+**Verhalten:** Unterschreitung → `fwhm_improvement_ok = false` → `validation_failed`
 
 ---
 
@@ -1160,12 +1253,9 @@ Qualitätsprüfungen gemäß Methodik v3 §12.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Minimum** | 0 |
-| **Standard** | 0 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `0.0` |
 
-**Zweck:** Maximale erlaubte Hintergrund-RMS-Erhöhung in Prozent.
+**Zweck:** Maximale erlaubte Hintergrund-RMS-Erhöhung in Prozent. `0.0` = nicht geprüft.
 
 ---
 
@@ -1175,11 +1265,13 @@ Qualitätsprüfungen gemäß Methodik v3 §12.
 |-------------|------|
 | **Typ** | number |
 | **Minimum** | 0 |
-| **Standard** | 0.1 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `0.1` |
 
-**Zweck:** Minimale Varianz der Kachel-Gewichte (zeigt an, dass Qualitätsunterschiede erkannt wurden).
+**Zweck:** Minimale normalisierte Varianz der Tile-Gewichte.
+
+**Formel:** `tile_weight_variance = Var(mean_W_t) / mean(mean_W_t)²`
+
+**Interpretation:** Zu niedrige Varianz → Gewichtung hatte keinen Effekt → entweder alle Frames gleich gut oder Metriken nicht diskriminativ genug.
 
 ---
 
@@ -1188,15 +1280,17 @@ Qualitätsprüfungen gemäß Methodik v3 §12.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
-| **Standard** | true |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Default** | `true` |
 
-**Zweck:** Prüft auf sichtbare Kachel-Muster im Endergebnis.
+**Zweck:** Prüft auf sichtbare Tile-Muster im Endergebnis mittels Sobel-Gradient an Tile-Grenzen.
+
+**Methode:** Vergleicht den mittleren Sobel-Gradient an Tile-Grenzen mit dem Gradient 2 Pixel daneben. Ratio > 1.5 → Tile-Pattern erkannt.
+
+**Verhalten:** `tile_pattern_ok = false` → `validation_failed` (Pipeline läuft trotzdem weiter für Debayer)
 
 ---
 
-## Runtime Limits
+## 18. Runtime Limits
 
 Laufzeit-Beschränkungen.
 
@@ -1205,12 +1299,10 @@ Laufzeit-Beschränkungen.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Minimum** | 0 |
-| **Standard** | 3.0 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Minimum** | >0 |
+| **Default** | `3.0` |
 
-**Zweck:** Maximaler Zeitfaktor für Tile-Analyse relativ zum einfachen Stack.
+**Zweck:** Maximaler Zeitfaktor für Tile-Analyse relativ zum einfachen Stack. Wenn die Tile-Analyse länger als `factor × stack_time` dauert, wird eine Warnung erzeugt.
 
 ---
 
@@ -1219,36 +1311,162 @@ Laufzeit-Beschränkungen.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Minimum** | 0 |
-| **Standard** | 6 |
-| **Erforderlich** | Ja |
-| **Editierbar** | Ja |
+| **Minimum** | >0 |
+| **Default** | `6.0` |
 
-**Zweck:** Maximale Laufzeit in Stunden bevor die Pipeline abgebrochen wird.
+**Zweck:** Maximale Laufzeit in Stunden bevor die Pipeline abgebrochen wird (Hard Limit).
 
 ---
 
-## Beispiel-Konfiguration
+## Beispiel-Konfiguration (Vollständig)
 
 ```yaml
+# Pipeline
 pipeline:
   mode: production
   abort_on_fail: true
 
-registration:
-  engine: opencv_cfa
-  allow_rotation: true
-  min_star_matches: 10
+# Output
+output:
+  registered_dir: registered
+  artifacts_dir: artifacts
+  write_registered_frames: false
+  write_global_metrics: true
+  write_global_registration: true
 
+# Data
+data:
+  color_mode: OSC
+  bayer_pattern: GBRG
+  linear_required: true
+
+# Linearity
+linearity:
+  enabled: true
+  max_frames: 8
+  min_overall_linearity: 0.9
+  strictness: strict
+
+# Assumptions
+assumptions:
+  frames_min: 50
+  frames_optimal: 800
+  frames_reduced_threshold: 200
+  reduced_mode_skip_clustering: true
+
+# Normalization
+normalization:
+  enabled: true
+  mode: background
+  per_channel: true
+
+# Registration
+registration:
+  engine: triangle_star_matching
+  allow_rotation: true
+  star_topk: 120
+  star_min_inliers: 6
+  star_inlier_tol_px: 2.5
+  star_dist_bin_px: 2.5
+
+# Global Metrics
 global_metrics:
+  adaptive_weights: false
   weights:
     background: 0.4
     noise: 0.3
     gradient: 0.3
+  clamp: [-3.0, 3.0]
 
+# Tile
+tile:
+  size_factor: 32
+  min_size: 64
+  max_divisor: 6
+  overlap_fraction: 0.25
+  star_min_count: 10
+
+# Local Metrics
+local_metrics:
+  clamp: [-3.0, 3.0]
+  star_mode:
+    weights:
+      fwhm: 0.6
+      roundness: 0.2
+      contrast: 0.2
+  structure_mode:
+    metric_weight: 0.7
+    background_weight: 0.3
+
+# Synthetic
+synthetic:
+  weighting: global
+  frames_min: 5
+  frames_max: 30
+  clustering:
+    mode: kmeans
+    cluster_count_range: [5, 30]
+
+# Reconstruction (fest)
+reconstruction:
+  weighting_function: linear
+  window_function: hanning
+
+# Debayer
+debayer: true
+
+# Stacking
 stacking:
   method: rej
   sigma_clip:
-    sigma_low: 3
-    sigma_high: 3
+    sigma_low: 2.0
+    sigma_high: 2.0
+    max_iters: 3
+    min_fraction: 0.5
+
+# Validation
+validation:
+  min_fwhm_improvement_percent: 5.0
+  min_tile_weight_variance: 0.1
+  require_no_tile_pattern: true
+
+# Runtime Limits
+runtime_limits:
+  tile_analysis_max_factor_vs_stack: 3.0
+  hard_abort_hours: 6.0
 ```
+
+---
+
+## Hinweise
+
+### Abweichungen `tile_compile.yaml` vs. C++ Defaults
+
+Die Datei `tile_compile.yaml` im Repository enthält eine **Test-/Debug-Konfiguration** die von den C++ Defaults abweicht:
+
+| Key | `tile_compile.yaml` | C++ Default | Bemerkung |
+|-----|---------------------|-------------|-----------|
+| `pipeline.abort_on_fail` | `false` | `true` | Debug-freundlich |
+| `output.write_registered_frames` | `true` | `false` | Speicherintensiv |
+| `global_metrics.weights.background` | `0.25` | `0.4` | Abweichende Gewichtung |
+| `global_metrics.weights.noise` | `0.45` | `0.3` | Abweichende Gewichtung |
+| `global_metrics.weights.gradient_energy` | `0.30` | `0.3` | Gleich (anderer Key-Name!) |
+| `registration.star_topk` | `60` | `120` | Weniger Sterne |
+| `registration.star_inlier_tol_px` | `3.0` | `2.5` | Toleranter |
+| `registration.star_dist_bin_px` | `10.0` | `2.5` | Viel größere Bins |
+
+### Schema-Validierung
+
+Die Schema-Dateien (`tile_compile.schema.json`, `tile_compile.schema.yaml`) definieren die erlaubten Typen und Wertebereiche. Die C++ Implementierung in `Config::validate()` prüft zusätzlich:
+
+- **Gewichts-Normierung:** α + β + γ = 1.0 (global_metrics.weights)
+- **Clamp-Ordnung:** clamp[0] < clamp[1]
+- **Normalisierung Pflicht:** `normalization.enabled` muss `true` sein
+
+### Quellen
+
+- **C++ Defaults:** `tile_compile_cpp/include/tile_compile/config/configuration.hpp`
+- **Config Parsing:** `tile_compile_cpp/src/io/config.cpp`
+- **JSON-Schema:** `tile_compile_cpp/tile_compile.schema.json`
+- **YAML-Schema:** `tile_compile_cpp/tile_compile.schema.yaml`
+- **Beispiel-Config:** `tile_compile_cpp/tile_compile.yaml`

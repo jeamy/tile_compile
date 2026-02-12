@@ -1,29 +1,38 @@
+#include "tile_compile/config/configuration.hpp"
+#include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/core/utils.hpp"
-#include "tile_compile/core/events.hpp"
-#include "tile_compile/config/configuration.hpp"
-#include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
+#include "tile_compile/image/normalization.hpp"
+#include "tile_compile/image/processing.hpp"
+#include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/metrics/linearity.hpp"
 #include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/metrics/tile_metrics.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
+#include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/registration/global_registration.hpp"
 #include "tile_compile/registration/registration.hpp"
+#include "tile_compile/astrometry/wcs.hpp"
+#include "tile_compile/astrometry/gaia_catalog.hpp"
+#include "tile_compile/astrometry/photometric_color_cal.hpp"
+
+#include <QCoreApplication>
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
-#include <functional>
-#include <iostream>
 #include <fstream>
-#include <list>
+#include <iostream>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include <limits>
 #include <opencv2/opencv.hpp>
 
 #ifdef HAVE_CLI11
@@ -34,1797 +43,1274 @@ namespace fs = std::filesystem;
 
 namespace {
 
-using tile_compile::Matrix2Df;
 using tile_compile::ColorMode;
+using tile_compile::Matrix2Df;
+using tile_compile::Tile;
+using tile_compile::WarpMatrix;
+
+namespace core = tile_compile::core;
+namespace image = tile_compile::image;
+namespace metrics = tile_compile::metrics;
+namespace reconstruction = tile_compile::reconstruction;
+namespace registration = tile_compile::registration;
+namespace astro = tile_compile::astrometry;
 
 class TeeBuf : public std::streambuf {
 public:
-    TeeBuf(std::streambuf* a, std::streambuf* b) : a_(a), b_(b) {}
+  TeeBuf(std::streambuf *a, std::streambuf *b) : a_(a), b_(b) {}
 
 protected:
-    int overflow(int c) override {
-        if (c == EOF) return EOF;
-        const int ra = a_ ? a_->sputc(static_cast<char>(c)) : c;
-        const int rb = b_ ? b_->sputc(static_cast<char>(c)) : c;
-        return (ra == EOF || rb == EOF) ? EOF : c;
-    }
+  int overflow(int c) override {
+    if (c == EOF)
+      return EOF;
+    const int ra = a_ ? a_->sputc(static_cast<char>(c)) : c;
+    const int rb = b_ ? b_->sputc(static_cast<char>(c)) : c;
+    return (ra == EOF || rb == EOF) ? EOF : c;
+  }
 
-    int sync() override {
-        int ra = a_ ? a_->pubsync() : 0;
-        int rb = b_ ? b_->pubsync() : 0;
-        return (ra == 0 && rb == 0) ? 0 : -1;
-    }
+  int sync() override {
+    int ra = a_ ? a_->pubsync() : 0;
+    int rb = b_ ? b_->pubsync() : 0;
+    return (ra == 0 && rb == 0) ? 0 : -1;
+  }
 
 private:
-    std::streambuf* a_;
-    std::streambuf* b_;
+  std::streambuf *a_;
+  std::streambuf *b_;
 };
 
-struct NormalizationScales {
-    bool is_osc = false;
-    float scale_mono = 1.0f;
-    float scale_r = 1.0f;
-    float scale_g = 1.0f;
-    float scale_b = 1.0f;
-};
+using NormalizationScales = image::NormalizationScales;
 
-float median_of(std::vector<float>& v) {
-    if (v.empty()) return 0.0f;
-    const size_t n = v.size();
-    const size_t mid = n / 2;
-    std::nth_element(v.begin(), v.begin() + mid, v.end());
-    const float hi = v[mid];
-    if ((n % 2) == 1) {
-        return hi;
-    }
-    std::nth_element(v.begin(), v.begin() + (mid - 1), v.end());
-    const float lo = v[mid - 1];
-    return 0.5f * (lo + hi);
-}
-
- Matrix2Df downsample2x2_mean(const Matrix2Df& in) {
-     const int h = in.rows();
-     const int w = in.cols();
-     const int h2 = h - (h % 2);
-     const int w2 = w - (w % 2);
-     const int out_h = std::max(1, h2 / 2);
-     const int out_w = std::max(1, w2 / 2);
-     Matrix2Df out(out_h, out_w);
-     for (int y = 0; y < out_h; ++y) {
-         for (int x = 0; x < out_w; ++x) {
-             const int sy = y * 2;
-             const int sx = x * 2;
-             const float a = in(sy, sx);
-             const float b = in(sy, sx + 1);
-             const float c = in(sy + 1, sx);
-             const float d = in(sy + 1, sx + 1);
-             out(y, x) = 0.25f * (a + b + c + d);
-         }
-     }
-     return out;
- }
-
-float robust_sigma_mad(std::vector<float>& pixels) {
-    if (pixels.empty()) return 0.0f;
-    float med = median_of(pixels);
-    for (float& x : pixels) x = std::fabs(x - med);
-    float mad = median_of(pixels);
-    return 1.4826f * mad;
-}
-
-Matrix2Df wiener_tile_filter(
-    const Matrix2Df& tile,
-    float sigma,
-    float snr_tile,
-    float q_struct_tile,
-    bool is_star_tile,
-    const tile_compile::config::WienerDenoiseConfig& cfg) {
-    if (!cfg.enabled) return tile;
-    if (is_star_tile) return tile;
-    if (!(sigma > 0.0f)) return tile;
-    if (snr_tile >= cfg.snr_threshold) return tile;
-    if (q_struct_tile <= cfg.q_min) return tile;
-
-    const int h = static_cast<int>(tile.rows());
-    const int w = static_cast<int>(tile.cols());
-    if (h <= 0 || w <= 0) return tile;
-
-    const int pad_h = std::max(1, h / 4);
-    const int pad_w = std::max(1, w / 4);
-
-    cv::Mat tile_cv(h, w, CV_32F, const_cast<float*>(tile.data()));
-    cv::Mat padded;
-    cv::copyMakeBorder(tile_cv, padded, pad_h, pad_h, pad_w, pad_w, cv::BORDER_REFLECT_101);
-
-    cv::Mat F;
-    cv::dft(padded, F, cv::DFT_COMPLEX_OUTPUT);
-
-    std::vector<cv::Mat> planes(2);
-    cv::split(F, planes);
-    cv::Mat power = planes[0].mul(planes[0]) + planes[1].mul(planes[1]);
-
-    const float sigma_sq = sigma * sigma;
-    const float eps = 1.0e-12f;
-    cv::Mat H = power - sigma_sq;
-    cv::threshold(H, H, 0.0, 0.0, cv::THRESH_TOZERO);
-    cv::Mat denom = power + eps;
-    cv::divide(H, denom, H);
-    cv::min(H, 1.0, H);
-    cv::max(H, 0.0, H);
-
-    planes[0] = planes[0].mul(H);
-    planes[1] = planes[1].mul(H);
-    cv::merge(planes, F);
-
-    cv::Mat filtered;
-    cv::dft(F, filtered, cv::DFT_INVERSE | cv::DFT_SCALE | cv::DFT_REAL_OUTPUT);
-
-    cv::Mat cropped = filtered(cv::Rect(pad_w, pad_h, w, h));
-    Matrix2Df out(h, w);
-    if (cropped.isContinuous()) {
-        std::memcpy(out.data(), cropped.ptr<float>(), static_cast<size_t>(out.size()) * sizeof(float));
-    } else {
-        for (int r = 0; r < h; ++r) {
-            const float* src = cropped.ptr<float>(r);
-            float* dst = out.data() + static_cast<size_t>(r) * static_cast<size_t>(w);
-            std::memcpy(dst, src, static_cast<size_t>(w) * sizeof(float));
-        }
-    }
-    return out;
-}
-
-Matrix2Df sigma_clip_stack(
-    const std::vector<Matrix2Df>& frames,
-    float sigma_low,
-    float sigma_high,
-    int max_iters,
-    float min_fraction) {
-    if (frames.empty()) return Matrix2Df();
-    const int rows = frames[0].rows();
-    const int cols = frames[0].cols();
-    Matrix2Df out(rows, cols);
-    const int n = static_cast<int>(frames.size());
-    const int min_keep = std::max(1, static_cast<int>(std::ceil(min_fraction * n)));
-
-    std::vector<float> values;
-    values.reserve(static_cast<size_t>(n));
-    std::vector<uint8_t> keep(static_cast<size_t>(n), 1);
-
-    for (int idx = 0; idx < out.size(); ++idx) {
-        values.clear();
-        for (int i = 0; i < n; ++i) {
-            values.push_back(frames[static_cast<size_t>(i)].data()[idx]);
-            keep[static_cast<size_t>(i)] = 1;
-        }
-
-        int kept = n;
-        for (int iter = 0; iter < max_iters; ++iter) {
-            if (kept <= 1) break;
-            double sum = 0.0;
-            double sumsq = 0.0;
-            for (int i = 0; i < n; ++i) {
-                if (!keep[static_cast<size_t>(i)]) continue;
-                float v = values[static_cast<size_t>(i)];
-                sum += static_cast<double>(v);
-                sumsq += static_cast<double>(v) * static_cast<double>(v);
-            }
-            double mean = sum / static_cast<double>(kept);
-            double var = sumsq / static_cast<double>(kept) - mean * mean;
-            double std = (var > 0.0) ? std::sqrt(var) : 0.0;
-            if (!(std > 0.0)) break;
-
-            int new_kept = 0;
-            const double lo = mean - static_cast<double>(sigma_low) * std;
-            const double hi = mean + static_cast<double>(sigma_high) * std;
-            for (int i = 0; i < n; ++i) {
-                if (!keep[static_cast<size_t>(i)]) continue;
-                float v = values[static_cast<size_t>(i)];
-                if (v < lo || v > hi) {
-                    keep[static_cast<size_t>(i)] = 0;
-                } else {
-                    new_kept++;
-                }
-            }
-
-            if (new_kept < min_keep) break;
-            kept = new_kept;
-        }
-
-        double sum = 0.0;
-        int count = 0;
-        for (int i = 0; i < n; ++i) {
-            if (!keep[static_cast<size_t>(i)]) continue;
-            sum += static_cast<double>(values[static_cast<size_t>(i)]);
-            count++;
-        }
-        if (count <= 0) {
-            for (int i = 0; i < n; ++i) sum += static_cast<double>(values[static_cast<size_t>(i)]);
-            count = n;
-        }
-        out.data()[idx] = static_cast<float>(sum / static_cast<double>(count));
-    }
-
-    return out;
-}
-
-struct LinearityThresholds {
-    float skewness_max = 1.2f;
-    float kurtosis_max = 1.2f;
-    float variance_max = 0.5f;
-    float energy_ratio_min = 0.95f;
-    float gradient_consistency_max = 0.5f;
-};
-
-struct LinearityFrameResult {
-    bool is_linear = false;
-    float score = 0.0f;
-    float skewness = 0.0f;
-    float kurtosis = 0.0f;
-    float variance_coeff = 0.0f;
-    float energy_ratio = 0.0f;
-    float gradient_consistency = 0.0f;
-    bool moment_ok = false;
-    bool spectral_ok = false;
-    bool spatial_ok = false;
-};
-
-static LinearityThresholds linearity_thresholds_for(const std::string& strictness) {
-    if (strictness == "moderate") {
-        return {1.2f, 1.2f, 0.7f, 0.9f, 0.7f};
-    }
-    if (strictness == "permissive") {
-        return {1.5f, 1.5f, 1.0f, 0.8f, 1.0f};
-    }
-    return {1.2f, 1.2f, 0.5f, 0.95f, 0.5f};
-}
-
-static std::vector<size_t> sample_indices(size_t count, int max_frames) {
-    std::vector<size_t> out;
-    if (count == 0 || max_frames <= 0) return out;
-    size_t n = std::min(count, static_cast<size_t>(max_frames));
-    if (n == 1) {
-        out.push_back(0);
-        return out;
-    }
-    out.reserve(n);
-    for (size_t i = 0; i < n; ++i) {
-        float t = static_cast<float>(i) / static_cast<float>(n - 1);
-        size_t idx = static_cast<size_t>(std::round(t * static_cast<float>(count - 1)));
-        if (out.empty() || out.back() != idx) {
-            out.push_back(idx);
-        }
-    }
-    return out;
-}
-
-static float percentile_from_sorted(const std::vector<float>& sorted, float pct) {
-    if (sorted.empty()) return 0.0f;
-    float clamped = std::min(std::max(pct, 0.0f), 100.0f);
-    float pos = (clamped / 100.0f) * static_cast<float>(sorted.size() - 1);
-    size_t idx = static_cast<size_t>(std::round(pos));
-    idx = std::min(idx, sorted.size() - 1);
-    return sorted[idx];
-}
-
-static LinearityFrameResult validate_linearity_frame(const Matrix2Df& img, const std::string& strictness) {
-    LinearityFrameResult out;
-    if (img.size() <= 0) return out;
-
-    cv::Mat cv_img(img.rows(), img.cols(), CV_32F, const_cast<float*>(img.data()));
-    cv::Mat small = cv_img;
-
-    const int max_dim = 256;
-    if (cv_img.rows > max_dim || cv_img.cols > max_dim) {
-        float scale = static_cast<float>(max_dim) / static_cast<float>(std::max(cv_img.rows, cv_img.cols));
-        cv::resize(cv_img, small, cv::Size(), scale, scale, cv::INTER_AREA);
-    }
-
-    std::vector<float> values;
-    values.reserve(static_cast<size_t>(small.rows) * static_cast<size_t>(small.cols));
-    for (int y = 0; y < small.rows; ++y) {
-        const float* row = small.ptr<float>(y);
-        for (int x = 0; x < small.cols; ++x) {
-            float v = row[x];
-            if (std::isfinite(v)) values.push_back(v);
-        }
-    }
-
-    if (values.empty()) {
-        return out;
-    }
-
-    double mean = 0.0;
-    double m2 = 0.0;
-    for (size_t i = 0; i < values.size(); ++i) {
-        double x = static_cast<double>(values[i]);
-        double delta = x - mean;
-        mean += delta / static_cast<double>(i + 1);
-        double delta2 = x - mean;
-        m2 += delta * delta2;
-    }
-    double var = (values.size() > 1) ? (m2 / static_cast<double>(values.size() - 1)) : 0.0;
-    double stddev = std::sqrt(std::max(0.0, var));
-
-    std::vector<float> sorted = values;
-    std::sort(sorted.begin(), sorted.end());
-    float p1 = percentile_from_sorted(sorted, 1.0f);
-    float p5 = percentile_from_sorted(sorted, 5.0f);
-    float p50 = percentile_from_sorted(sorted, 50.0f);
-    float p95 = percentile_from_sorted(sorted, 95.0f);
-    float p99 = percentile_from_sorted(sorted, 99.0f);
-
-    float denom_skew = (p50 - p1) + 1.0e-12f;
-    float denom_kurt = (p50 - p5) + 1.0e-12f;
-    out.skewness = (p99 - p50) / denom_skew;
-    out.kurtosis = (p95 - p50) / denom_kurt;
-    out.variance_coeff = static_cast<float>(stddev / (std::fabs(mean) + 1.0e-12));
-
-    cv::Mat gx, gy, mag;
-    cv::Sobel(small, gx, CV_32F, 1, 0, 3);
-    cv::Sobel(small, gy, CV_32F, 0, 1, 3);
-    cv::magnitude(gx, gy, mag);
-    double mean_grad = cv::mean(mag)[0];
-    double mean_frame = cv::mean(small)[0];
-    out.gradient_consistency = static_cast<float>(2.0 * (mean_grad / (std::fabs(mean_frame) + 1.0e-12)));
-
-    out.energy_ratio = 0.0f;
-    if (small.rows >= 8 && small.cols >= 8) {
-        cv::Mat dft;
-        cv::dft(small, dft, cv::DFT_COMPLEX_OUTPUT);
-        std::vector<cv::Mat> planes;
-        cv::split(dft, planes);
-        cv::Mat mag2 = planes[0].mul(planes[0]) + planes[1].mul(planes[1]);
-        double total_energy = cv::sum(mag2)[0];
-        int r = std::max(1, std::min(mag2.rows, mag2.cols) / 8);
-        double low_energy = 0.0;
-        low_energy += cv::sum(mag2(cv::Rect(0, 0, r, r)))[0];
-        low_energy += cv::sum(mag2(cv::Rect(0, mag2.rows - r, r, r)))[0];
-        low_energy += cv::sum(mag2(cv::Rect(mag2.cols - r, 0, r, r)))[0];
-        low_energy += cv::sum(mag2(cv::Rect(mag2.cols - r, mag2.rows - r, r, r)))[0];
-        if (total_energy > 0.0) {
-            out.energy_ratio = static_cast<float>(low_energy / total_energy);
-        }
-    }
-
-    LinearityThresholds th = linearity_thresholds_for(strictness);
-    out.moment_ok = (std::fabs(out.skewness) < th.skewness_max) &&
-                    (std::fabs(out.kurtosis) < th.kurtosis_max) &&
-                    (out.variance_coeff < th.variance_max);
-    out.spectral_ok = (out.energy_ratio >= th.energy_ratio_min);
-    out.spatial_ok = (out.gradient_consistency < th.gradient_consistency_max);
-
-    out.score = (static_cast<float>(out.moment_ok) + static_cast<float>(out.spectral_ok) +
-                 static_cast<float>(out.spatial_ok)) / 3.0f;
-    out.is_linear = out.moment_ok && out.spectral_ok && out.spatial_ok;
-    return out;
-}
-
-float estimate_fwhm_from_patch(const cv::Mat& patch) {
-    if (patch.empty()) return 0.0f;
-    std::vector<float> v;
-    v.reserve(static_cast<size_t>(patch.rows) * static_cast<size_t>(patch.cols));
-    for (int y = 0; y < patch.rows; ++y) {
-        const float* row = patch.ptr<float>(y);
-        for (int x = 0; x < patch.cols; ++x) {
-            v.push_back(row[x]);
-        }
-    }
-    if (v.empty()) return 0.0f;
-    float bg = median_of(v);
-    float sigma = robust_sigma_mad(v);
-
-    double maxv = 0.0;
-    cv::minMaxLoc(patch, nullptr, &maxv);
-    if (!(maxv > 0.0)) return 0.0f;
-    if (maxv <= static_cast<double>(bg) + 3.0 * static_cast<double>(sigma)) return 0.0f;
-
-    cv::Mat p = patch - bg;
-    cv::threshold(p, p, 0.0, 0.0, cv::THRESH_TOZERO);
-    double peak = 0.0;
-    cv::minMaxLoc(p, nullptr, &peak);
-    if (!(peak > 0.0)) return 0.0f;
-    double half = 0.5 * peak;
-
-    int cnt = 0;
-    for (int y = 0; y < p.rows; ++y) {
-        const float* row = p.ptr<float>(y);
-        for (int x = 0; x < p.cols; ++x) {
-            if (static_cast<double>(row[x]) >= half) {
-                ++cnt;
-            }
-        }
-    }
-    if (cnt <= 0) return 0.0f;
-    return static_cast<float>(std::sqrt(static_cast<double>(cnt) / 3.14159265358979323846));
-}
-
-float stddev_of(const std::vector<float>& v) {
-    if (v.size() < 2) return 0.0f;
-    double sum = 0.0;
-    for (float x : v) sum += static_cast<double>(x);
-    const double mean = sum / static_cast<double>(v.size());
-    double var = 0.0;
-    for (float x : v) {
-        const double d = static_cast<double>(x) - mean;
-        var += d * d;
-    }
-    var /= static_cast<double>(v.size());
-    if (var <= 0.0) return 0.0f;
-    return static_cast<float>(std::sqrt(var));
-}
-
-float estimate_background_sigma_clip(std::vector<float> pixels) {
-    if (pixels.empty()) return 0.0f;
-    for (int iter = 0; iter < 5; ++iter) {
-        float mu = median_of(pixels);
-        float sigma = stddev_of(pixels);
-        if (!(sigma > 0.0f)) break;
-
-        std::vector<float> clipped;
-        clipped.reserve(pixels.size());
-        const float thr = 3.0f * sigma;
-        for (float x : pixels) {
-            if (std::fabs(x - mu) < thr) {
-                clipped.push_back(x);
-            }
-        }
-        if (clipped.size() == pixels.size() || clipped.empty()) break;
-        pixels.swap(clipped);
-    }
-    return median_of(pixels);
-}
-
-cv::Mat1b build_background_mask_sigma_clip(const cv::Mat& frame_norm, float k_sigma, int dilate_radius) {
-    const int h = frame_norm.rows;
-    const int w = frame_norm.cols;
-    cv::Mat1b obj = cv::Mat1b::zeros(h, w);
-
-    std::vector<float> vals;
-    vals.reserve(static_cast<size_t>(h) * static_cast<size_t>(w));
-    for (int y = 0; y < h; ++y) {
-        const float* row = frame_norm.ptr<float>(y);
-        for (int x = 0; x < w; ++x) {
-            vals.push_back(row[x]);
-        }
-    }
-
-    float mu = median_of(vals);
-    float sigma = robust_sigma_mad(vals);
-    if (!(sigma > 0.0f)) {
-        return cv::Mat1b(h, w, uint8_t(1));
-    }
-
-    const float thr = k_sigma * sigma;
-    for (int y = 0; y < h; ++y) {
-        const float* row = frame_norm.ptr<float>(y);
-        uint8_t* mrow = obj.ptr<uint8_t>(y);
-        for (int x = 0; x < w; ++x) {
-            mrow[x] = (std::fabs(row[x] - mu) > thr) ? uint8_t(1) : uint8_t(0);
-        }
-    }
-
-    cv::Mat1b obj_d;
-    const int r = std::max(0, dilate_radius);
-    if (r > 0) {
-        cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(2 * r + 1, 2 * r + 1));
-        cv::dilate(obj, obj_d, kernel);
-    } else {
-        obj_d = obj;
-    }
-
-    cv::Mat1b bg = cv::Mat1b::zeros(h, w);
-    for (int y = 0; y < h; ++y) {
-        const uint8_t* orow = obj_d.ptr<uint8_t>(y);
-        uint8_t* brow = bg.ptr<uint8_t>(y);
-        for (int x = 0; x < w; ++x) {
-            brow[x] = (orow[x] == 0) ? uint8_t(1) : uint8_t(0);
-        }
-    }
-    return bg;
-}
-
-void bayer_offsets(const std::string& bayer_pattern,
-                   int& r_row, int& r_col,
-                   int& b_row, int& b_col) {
-    std::string bp = bayer_pattern;
-    std::transform(bp.begin(), bp.end(), bp.begin(), ::toupper);
-    r_row = 1; r_col = 0;
-    b_row = 0; b_col = 1;
-    if (bp == "RGGB") {
-        r_row = 0; r_col = 0;
-        b_row = 1; b_col = 1;
-    } else if (bp == "BGGR") {
-        r_row = 1; r_col = 1;
-        b_row = 0; b_col = 0;
-    } else if (bp == "GRBG") {
-        r_row = 0; r_col = 1;
-        b_row = 1; b_col = 0;
-    }
-}
-
-void apply_normalization_inplace(Matrix2Df& img,
-                                 const NormalizationScales& s,
-                                 ColorMode mode,
-                                 const std::string& bayer_pattern,
-                                 int origin_x,
-                                 int origin_y) {
-    if (img.size() <= 0) return;
-    if (mode != ColorMode::OSC) {
-        img *= s.scale_mono;
-        return;
-    }
-
-    int r_row, r_col, b_row, b_col;
-    bayer_offsets(bayer_pattern, r_row, r_col, b_row, b_col);
-    for (int y = 0; y < img.rows(); ++y) {
-        const int gy = origin_y + y;
-        for (int x = 0; x < img.cols(); ++x) {
-            const int gx = origin_x + x;
-            const int py = gy & 1;
-            const int px = gx & 1;
-            if (py == r_row && px == r_col) {
-                img(y, x) *= s.scale_r;
-            } else if (py == b_row && px == b_col) {
-                img(y, x) *= s.scale_b;
-            } else {
-                img(y, x) *= s.scale_g;
-            }
-        }
-    }
-}
-
-}
+} // namespace
 
 void print_usage() {
-    std::cout << "Usage: tile_compile_runner <command> [options]\n\n"
-              << "Commands:\n"
-              << "  run      Run the pipeline\n"
-              << "  resume   Resume a run from a specific phase\n"
-              << "\nOptions:\n"
-              << "  --config <path>       Path to config.yaml\n"
-              << "  --input-dir <path>    Input directory with FITS frames\n"
-              << "  --runs-dir <path>     Directory for run outputs\n"
-              << "  --project-root <path> Project root directory\n"
-              << "  --max-frames <n>      Limit number of frames (0 = no limit)\n"
-              << "  --max-tiles <n>       Limit number of tiles in Phase 5/6 (0 = no limit)\n"
-              << "  --dry-run             Dry run (no actual processing)\n"
-              << std::endl;
+  std::cout << "Usage: tile_compile_runner <command> [options]\n\n"
+            << "Commands:\n"
+            << "  run      Run the pipeline\n"
+            << "  resume   Resume a run from a specific phase\n"
+            << "\nOptions:\n"
+            << "  --config <path>       Path to config.yaml (run)\n"
+            << "  --input-dir <path>    Input directory with FITS frames (run)\n"
+            << "  --runs-dir <path>     Directory for run outputs (run)\n"
+            << "  --project-root <path> Project root directory (run)\n"
+            << "  --run-dir <path>      Existing run directory (resume)\n"
+            << "  --from-phase <name>   Phase to resume from (resume; default: PCC)\n"
+            << "  --max-frames <n>      Limit number of frames (0 = no limit)\n"
+            << "  --max-tiles <n>       Limit number of tiles in Phase 5/6 (0 "
+               "= no limit)\n"
+            << "  --dry-run             Dry run (no actual processing)\n"
+            << std::endl;
 }
 
-int run_command(const std::string& config_path, const std::string& input_dir,
-                const std::string& runs_dir, const std::string& project_root,
-                bool dry_run, int max_frames, int max_tiles, bool config_from_stdin) {
-    using namespace tile_compile;
-    
-    fs::path cfg_path(config_path);
-    fs::path in_dir(input_dir);
-    fs::path runs(runs_dir);
+int run_command(const std::string &config_path, const std::string &input_dir,
+                const std::string &runs_dir, const std::string &project_root,
+                bool dry_run, int max_frames, int max_tiles,
+                bool config_from_stdin) {
+  using namespace tile_compile;
 
-    const bool use_stdin_config = config_from_stdin || (config_path == "-");
-    fs::path proj_root;
-    
-    if (!fs::exists(in_dir)) {
-        std::cerr << "Error: Input directory not found: " << input_dir << std::endl;
-        return 1;
+  fs::path cfg_path(config_path);
+  fs::path in_dir(input_dir);
+  fs::path runs(runs_dir);
+
+  const bool use_stdin_config = config_from_stdin || (config_path == "-");
+  fs::path proj_root;
+
+  if (!fs::exists(in_dir)) {
+    std::cerr << "Error: Input directory not found: " << input_dir << std::endl;
+    return 1;
+  }
+
+  config::Config cfg;
+  std::string cfg_text;
+  if (use_stdin_config) {
+    std::ostringstream ss;
+    ss << std::cin.rdbuf();
+    cfg_text = ss.str();
+    if (cfg_text.empty()) {
+      std::cerr << "Error: --stdin provided but no config YAML received"
+                << std::endl;
+      return 1;
     }
-
-    config::Config cfg;
-    std::string cfg_text;
-    if (use_stdin_config) {
-        std::ostringstream ss;
-        ss << std::cin.rdbuf();
-        cfg_text = ss.str();
-        if (cfg_text.empty()) {
-            std::cerr << "Error: --stdin provided but no config YAML received" << std::endl;
-            return 1;
-        }
-        YAML::Node node = YAML::Load(cfg_text);
-        cfg = config::Config::from_yaml(node);
-        cfg.validate();
-        proj_root = project_root.empty() ? fs::current_path() : fs::path(project_root);
-    } else {
-        if (!fs::exists(cfg_path)) {
-            std::cerr << "Error: Config file not found: " << config_path << std::endl;
-            return 1;
-        }
-        cfg = config::Config::load(cfg_path);
-        cfg.validate();
-        proj_root = project_root.empty() ? core::resolve_project_root(cfg_path) : fs::path(project_root);
+    YAML::Node node = YAML::Load(cfg_text);
+    cfg = config::Config::from_yaml(node);
+    cfg.validate();
+    proj_root =
+        project_root.empty() ? fs::current_path() : fs::path(project_root);
+  } else {
+    if (!fs::exists(cfg_path)) {
+      std::cerr << "Error: Config file not found: " << config_path << std::endl;
+      return 1;
     }
-    
-    auto frames = core::discover_frames(in_dir, "*.fit*");
-    std::sort(frames.begin(), frames.end());
-    if (max_frames > 0 && frames.size() > static_cast<size_t>(max_frames)) {
-        frames.resize(static_cast<size_t>(max_frames));
-    }
-    if (frames.empty()) {
-        std::cerr << "Error: No FITS frames found in " << input_dir << std::endl;
-        return 1;
-    }
-    
-    std::string run_id = core::get_run_id();
-    fs::path run_dir = runs / run_id;
-    fs::create_directories(run_dir / "logs");
-    fs::create_directories(run_dir / "outputs");
-    fs::create_directories(run_dir / "artifacts");
+    cfg = config::Config::load(cfg_path);
+    cfg.validate();
+    proj_root = project_root.empty() ? core::resolve_project_root(cfg_path)
+                                     : fs::path(project_root);
+  }
 
-    if (use_stdin_config) {
-        std::ofstream out(run_dir / "config.yaml", std::ios::out);
-        out << cfg_text;
-    } else {
-        core::copy_config(cfg_path, run_dir / "config.yaml");
-    }
-    
-    std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl");
-    TeeBuf tee_buf(std::cout.rdbuf(), event_log_file.rdbuf());
-    std::ostream log_file(&tee_buf);
+  auto frames = core::discover_frames(in_dir, "*.fit*");
+  std::sort(frames.begin(), frames.end());
+  if (max_frames > 0 && frames.size() > static_cast<size_t>(max_frames)) {
+    frames.resize(static_cast<size_t>(max_frames));
+  }
+  if (frames.empty()) {
+    std::cerr << "Error: No FITS frames found in " << input_dir << std::endl;
+    return 1;
+  }
 
-    const bool debug_tile_reg = cfg.v4.debug_tile_registration;
-    std::ofstream debug_log_file;
-    std::mutex debug_log_mutex;
-    if (debug_tile_reg) {
-        debug_log_file.open(run_dir / "logs" / "debug.log", std::ios::out);
-    }
+  std::string run_id = core::get_run_id();
+  fs::path run_dir = runs / run_id;
+  fs::create_directories(run_dir / "logs");
+  fs::create_directories(run_dir / "outputs");
+  fs::create_directories(run_dir / "artifacts");
 
-    // Helper: per-tile rescale (median_after_background_subtraction)
-    auto apply_tile_rescale = [&](Matrix2Df& tile, const Matrix2Df& ref_tile, int tile_id, const char* stage) {
-        if (cfg.reconstruction.tile_rescale != "median_after_background_subtraction") return;
-        if (tile.size() <= 0 || ref_tile.size() <= 0) return;
+  if (use_stdin_config) {
+    std::ofstream out(run_dir / "config.yaml", std::ios::out);
+    out << cfg_text;
+  } else {
+    core::copy_config(cfg_path, run_dir / "config.yaml");
+  }
 
-        auto median_of_matrix = [](const Matrix2Df& m) -> float {
-            std::vector<float> vals;
-            vals.reserve(static_cast<size_t>(m.size()));
-            for (Eigen::Index k = 0; k < m.size(); ++k) {
-                vals.push_back(m.data()[k]);
-            }
-            return vals.empty() ? 0.0f : median_of(vals);
-        };
+  std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl");
+  TeeBuf tee_buf(std::cout.rdbuf(), event_log_file.rdbuf());
+  std::ostream log_file(&tee_buf);
 
-        auto median_abs_centered = [](const Matrix2Df& m, float med) -> float {
-            std::vector<float> vals;
-            vals.reserve(static_cast<size_t>(m.size()));
-            for (Eigen::Index k = 0; k < m.size(); ++k) {
-                vals.push_back(std::fabs(m.data()[k] - med));
-            }
-            return vals.empty() ? 0.0f : median_of(vals);
-        };
+  core::EventEmitter emitter;
+  emitter.run_start(run_id,
+                    {{"config_path", config_path},
+                     {"input_dir", input_dir},
+                     {"run_dir", run_dir.string()},
+                     {"frames_discovered", frames.size()},
+                     {"dry_run", dry_run}},
+                    log_file);
 
-        float med_tile = median_of_matrix(tile);
-        float med_ref = median_of_matrix(ref_tile);
-        float mad_tile = median_abs_centered(tile, med_tile);
-        float mad_ref = median_abs_centered(ref_tile, med_ref);
+  std::cout << "Run ID: " << run_id << std::endl;
+  std::cout << "Frames: " << frames.size() << std::endl;
+  std::cout << "Output: " << run_dir.string() << std::endl;
+  if (max_tiles > 0) {
+    std::cout << "Max tiles (Phase 5/6): " << max_tiles << std::endl;
+  }
 
-        float scale = 1.0f;
-        if (mad_tile > 1.0e-6f && std::isfinite(mad_tile) && std::isfinite(mad_ref)) {
-            scale = mad_ref / mad_tile;
-        }
-        Matrix2Df centered = tile;
-        centered.array() -= med_tile;
-        centered *= scale;
-        centered.array() += med_ref;
-        tile = centered;
-
-        if (debug_tile_reg && debug_log_file.is_open()) {
-            std::lock_guard<std::mutex> lock(debug_log_mutex);
-            debug_log_file << "tile=" << tile_id
-                           << " rescale=median_after_background_subtraction"
-                           << " stage=" << (stage ? stage : "")
-                           << " med_tile=" << med_tile
-                           << " med_ref=" << med_ref
-                           << " mad_tile=" << mad_tile
-                           << " mad_ref=" << mad_ref
-                           << " scale=" << scale
-                           << "\n";
-        }
-    };
-    
-    core::EventEmitter emitter;
-    emitter.run_start(run_id, {
-        {"config_path", config_path},
-        {"input_dir", input_dir},
-        {"run_dir", run_dir.string()},
-        {"frames_discovered", frames.size()},
-        {"dry_run", dry_run}
-    }, log_file);
-    
-    std::cout << "Run ID: " << run_id << std::endl;
-    std::cout << "Frames: " << frames.size() << std::endl;
-    std::cout << "Output: " << run_dir.string() << std::endl;
-    if (max_tiles > 0) {
-        std::cout << "Max tiles (Phase 5/6): " << max_tiles << std::endl;
-    }
-
-    if (dry_run) {
-        emitter.phase_start(run_id, Phase::SCAN_INPUT, "SCAN_INPUT", log_file);
-        emitter.phase_end(run_id, Phase::SCAN_INPUT, "skipped", {{"reason", "dry_run"}, {"input_dir", input_dir}}, log_file);
-
-        std::cout << "Dry run - no processing" << std::endl;
-        emitter.run_end(run_id, true, "ok", log_file);
-        return 0;
-    }
-
-    // Phase 0: SCAN_INPUT (Methodik v4)
+  if (dry_run) {
     emitter.phase_start(run_id, Phase::SCAN_INPUT, "SCAN_INPUT", log_file);
+    emitter.phase_end(run_id, Phase::SCAN_INPUT, "skipped",
+                      {{"reason", "dry_run"}, {"input_dir", input_dir}},
+                      log_file);
 
-    int width = 0;
-    int height = 0;
-    int naxis = 0;
-    ColorMode detected_mode = ColorMode::MONO;
-    BayerPattern detected_bayer = BayerPattern::UNKNOWN;
-    Matrix2Df first_frame;
-    io::FitsHeader first_header;
+    std::cout << "Dry run - no processing" << std::endl;
+    emitter.run_end(run_id, true, "ok", log_file);
+    return 0;
+  }
 
-    try {
-        std::tie(width, height, naxis) = io::get_fits_dimensions(frames.front());
-        auto first = io::read_fits_float(frames.front());
-        first_frame = std::move(first.first);
-        first_header = std::move(first.second);
+  // Phase 0: SCAN_INPUT (// Methodik v3)
+  emitter.phase_start(run_id, Phase::SCAN_INPUT, "SCAN_INPUT", log_file);
 
-        detected_mode = io::detect_color_mode(first_header, naxis);
-        detected_bayer = io::detect_bayer_pattern(first_header);
-    } catch (const std::exception& e) {
-        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", {{"error", e.what()}, {"input_dir", input_dir}}, log_file);
-        emitter.run_end(run_id, false, "error", log_file);
-        std::cerr << "Error during SCAN_INPUT: " << e.what() << std::endl;
-        return 1;
+  int width = 0;
+  int height = 0;
+  int naxis = 0;
+  ColorMode detected_mode = ColorMode::MONO;
+  BayerPattern detected_bayer = BayerPattern::UNKNOWN;
+  Matrix2Df first_frame;
+  io::FitsHeader first_header;
+
+  try {
+    std::tie(width, height, naxis) = io::get_fits_dimensions(frames.front());
+    auto first = io::read_fits_float(frames.front());
+    first_frame = std::move(first.first);
+    first_header = std::move(first.second);
+
+    detected_mode = io::detect_color_mode(first_header, naxis);
+    detected_bayer = io::detect_bayer_pattern(first_header);
+  } catch (const std::exception &e) {
+    emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
+                      {{"error", e.what()}, {"input_dir", input_dir}},
+                      log_file);
+    emitter.run_end(run_id, false, "error", log_file);
+    std::cerr << "Error during SCAN_INPUT: " << e.what() << std::endl;
+    return 1;
+  }
+
+  std::string detected_mode_str = color_mode_to_string(detected_mode);
+  std::string detected_bayer_str = bayer_pattern_to_string(detected_bayer);
+
+  if (!cfg.data.color_mode.empty() &&
+      cfg.data.color_mode != detected_mode_str) {
+    emitter.warning(run_id,
+                    "Detected color mode '" + detected_mode_str +
+                        "' differs from config.data.color_mode '" +
+                        cfg.data.color_mode + "'",
+                    log_file);
+  }
+  if (!cfg.data.bayer_pattern.empty() && detected_mode == ColorMode::OSC &&
+      cfg.data.bayer_pattern != detected_bayer_str &&
+      detected_bayer != BayerPattern::UNKNOWN) {
+    emitter.warning(run_id,
+                    "Detected bayer pattern '" + detected_bayer_str +
+                        "' differs from config.data.bayer_pattern '" +
+                        cfg.data.bayer_pattern + "'",
+                    log_file);
+  }
+
+  core::json linearity_info;
+  std::vector<size_t> rejected_indices;
+  if (cfg.linearity.enabled || cfg.data.linear_required) {
+    auto indices = core::sample_indices(frames.size(), cfg.linearity.max_frames);
+    int failed = 0;
+    float score_sum = 0.0f;
+    std::vector<std::string> failed_names;
+    for (size_t idx : indices) {
+      Matrix2Df frame_img;
+      if (idx == 0) {
+        frame_img = first_frame;
+      } else {
+        frame_img = io::read_fits_float(frames[idx]).first;
+      }
+      metrics::LinearityFrameResult res =
+          metrics::validate_linearity_frame(frame_img, cfg.linearity.strictness);
+      score_sum += res.is_linear ? 1.0f : 0.0f;
+      if (!res.is_linear) {
+        failed++;
+        rejected_indices.push_back(idx);
+        if (failed_names.size() < 5) {
+          failed_names.push_back(frames[idx].filename().string());
+        }
+      }
     }
 
-    std::string detected_mode_str = color_mode_to_string(detected_mode);
-    std::string detected_bayer_str = bayer_pattern_to_string(detected_bayer);
-
-    if (!cfg.data.color_mode.empty() && cfg.data.color_mode != detected_mode_str) {
-        emitter.warning(run_id,
-                        "Detected color mode '" + detected_mode_str + "' differs from config.data.color_mode '" +
-                            cfg.data.color_mode + "'",
-                        log_file);
-    }
-    if (!cfg.data.bayer_pattern.empty() && detected_mode == ColorMode::OSC &&
-        cfg.data.bayer_pattern != detected_bayer_str && detected_bayer != BayerPattern::UNKNOWN) {
-        emitter.warning(run_id,
-                        "Detected bayer pattern '" + detected_bayer_str +
-                            "' differs from config.data.bayer_pattern '" + cfg.data.bayer_pattern + "'",
-                        log_file);
+    float overall_linearity =
+        indices.empty() ? 0.0f
+                        : (score_sum / static_cast<float>(indices.size()));
+    linearity_info["enabled"] = true;
+    linearity_info["sampled_frames"] = static_cast<int>(indices.size());
+    linearity_info["overall_linearity"] = overall_linearity;
+    linearity_info["min_overall_linearity"] =
+        cfg.linearity.min_overall_linearity;
+    linearity_info["failed_frames"] = failed;
+    if (!failed_names.empty()) {
+      linearity_info["failed_frame_names"] = failed_names;
     }
 
-    core::json linearity_info;
-    std::vector<size_t> rejected_indices;
-    if (cfg.linearity.enabled) {
-        auto indices = sample_indices(frames.size(), cfg.linearity.max_frames);
-        int failed = 0;
-        float score_sum = 0.0f;
-        std::vector<std::string> failed_names;
-        for (size_t idx : indices) {
-            Matrix2Df frame_img;
-            if (idx == 0) {
-                frame_img = first_frame;
-            } else {
-                frame_img = io::read_fits_float(frames[idx]).first;
-            }
-            LinearityFrameResult res = validate_linearity_frame(frame_img, cfg.linearity.strictness);
-            score_sum += res.is_linear ? 1.0f : 0.0f;
-            if (!res.is_linear) {
-                failed++;
-                rejected_indices.push_back(idx);
-                if (failed_names.size() < 5) {
-                    failed_names.push_back(frames[idx].filename().string());
-                }
-            }
-        }
+    if (failed > 0) {
+      emitter.warning(
+          run_id,
+          "Linearity check: " + std::to_string(failed) +
+              " sampled frames flagged non-linear (overall_linearity=" +
+              std::to_string(overall_linearity) + ")",
+          log_file);
+    }
+  } else {
+    emitter.warning(
+        run_id,
+        "Linearity check disabled by config; continuing without enforcement.",
+        log_file);
+    linearity_info["enabled"] = false;
+  }
 
-        float overall_linearity = indices.empty() ? 0.0f : (score_sum / static_cast<float>(indices.size()));
-        linearity_info["enabled"] = true;
-        linearity_info["sampled_frames"] = static_cast<int>(indices.size());
-        linearity_info["overall_linearity"] = overall_linearity;
-        linearity_info["min_overall_linearity"] = cfg.linearity.min_overall_linearity;
-        linearity_info["failed_frames"] = failed;
-        if (!failed_names.empty()) {
-            linearity_info["failed_frame_names"] = failed_names;
-        }
-
-        if (failed > 0) {
-            emitter.warning(run_id,
-                            "Linearity check: " + std::to_string(failed) +
-                                " sampled frames flagged non-linear (overall_linearity=" +
-                                std::to_string(overall_linearity) + ")",
-                            log_file);
-        }
-    } else {
-        emitter.warning(run_id, "Linearity check disabled by config; continuing without enforcement.", log_file);
-        linearity_info["enabled"] = false;
+  if (!rejected_indices.empty()) {
+    std::sort(rejected_indices.begin(), rejected_indices.end());
+    rejected_indices.erase(
+        std::unique(rejected_indices.begin(), rejected_indices.end()),
+        rejected_indices.end());
+    linearity_info["flagged_indices"] = core::json::array();
+    linearity_info["flagged_names"] = core::json::array();
+    for (size_t idx : rejected_indices) {
+      linearity_info["flagged_indices"].push_back(static_cast<int>(idx));
+      if (idx < frames.size()) {
+        linearity_info["flagged_names"].push_back(
+            frames[idx].filename().string());
+      }
     }
 
-    if (!rejected_indices.empty()) {
-        std::sort(rejected_indices.begin(), rejected_indices.end());
-        rejected_indices.erase(std::unique(rejected_indices.begin(), rejected_indices.end()), rejected_indices.end());
-        linearity_info["rejected_indices"] = core::json::array();
-        linearity_info["rejected_names"] = core::json::array();
-        for (size_t idx : rejected_indices) {
-            linearity_info["rejected_indices"].push_back(static_cast<int>(idx));
-            if (idx < frames.size()) {
-                linearity_info["rejected_names"].push_back(frames[idx].filename().string());
-            }
+    if (cfg.data.linear_required) {
+      // Remove non-linear frames from the pipeline
+      std::set<size_t> reject_set(rejected_indices.begin(),
+                                  rejected_indices.end());
+      std::vector<std::filesystem::path> kept;
+      kept.reserve(frames.size() - rejected_indices.size());
+      for (size_t i = 0; i < frames.size(); ++i) {
+        if (reject_set.find(i) == reject_set.end()) {
+          kept.push_back(frames[i]);
         }
+      }
+      frames = std::move(kept);
+      emitter.warning(
+          run_id,
+          "Linearity: " + std::to_string(rejected_indices.size()) +
+              " non-linear frames removed, " +
+              std::to_string(frames.size()) + " frames remaining",
+          log_file);
+      linearity_info["action"] = "removed";
+      linearity_info["frames_remaining"] = static_cast<int>(frames.size());
 
-        std::vector<fs::path> filtered;
-        filtered.reserve(frames.size());
-        for (size_t i = 0; i < frames.size(); ++i) {
-            if (!std::binary_search(rejected_indices.begin(), rejected_indices.end(), i)) {
-                filtered.push_back(frames[i]);
-            }
-        }
-        frames = std::move(filtered);
-
-        if (frames.empty()) {
-            core::json err;
-            err["error"] = "no_frames_after_linearity_filter";
-            err["linearity"] = linearity_info;
-            emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", err, log_file);
-            emitter.run_end(run_id, false, "error", log_file);
-            return 1;
-        }
-
-        // Re-read first frame/meta if the first frame was rejected.
-        try {
-            std::tie(width, height, naxis) = io::get_fits_dimensions(frames.front());
-            auto first = io::read_fits_float(frames.front());
-            first_frame = std::move(first.first);
-            first_header = std::move(first.second);
-            detected_mode = io::detect_color_mode(first_header, naxis);
-            detected_bayer = io::detect_bayer_pattern(first_header);
-            detected_mode_str = color_mode_to_string(detected_mode);
-            detected_bayer_str = bayer_pattern_to_string(detected_bayer);
-        } catch (const std::exception& e) {
-            emitter.phase_end(run_id, Phase::SCAN_INPUT, "error", {{"error", e.what()}, {"input_dir", input_dir}}, log_file);
-            emitter.run_end(run_id, false, "error", log_file);
-            std::cerr << "Error during SCAN_INPUT (re-read after linearity filter): " << e.what() << std::endl;
-            return 1;
-        }
-    }
-
-    core::json scan_extra = {
-        {"input_dir", input_dir},
-        {"frames_scanned", frames.size()},
-        {"image_width", width},
-        {"image_height", height},
-        {"color_mode", detected_mode_str},
-        {"bayer_pattern", detected_bayer_str},
-    };
-    if (!linearity_info.is_null()) {
-        scan_extra["linearity"] = linearity_info;
-    }
-
-    emitter.phase_end(run_id, Phase::SCAN_INPUT, "ok", scan_extra, log_file);
-
-    // Phase 1: CHANNEL_SPLIT (metadata-only; actual split happens later)
-    emitter.phase_start(run_id, Phase::CHANNEL_SPLIT, "CHANNEL_SPLIT", log_file);
-
-    core::json extra;
-    if (detected_mode == ColorMode::OSC) {
-        extra["mode"] = "OSC";
-        extra["channels"] = core::json::array({"R", "G", "B"});
-        extra["bayer_pattern"] = detected_bayer_str;
-        extra["note"] = "deferred_to_tile_processing";
-    } else {
-        extra["mode"] = "MONO";
-        extra["channels"] = core::json::array({"L"});
-    }
-    emitter.phase_end(run_id, Phase::CHANNEL_SPLIT, "ok", extra, log_file);
-
-    // Phase 2: NORMALIZATION (Methodik v4 §3)
-    emitter.phase_start(run_id, Phase::NORMALIZATION, "NORMALIZATION", log_file);
-
-    if (!cfg.normalization.enabled) {
-        emitter.phase_end(run_id, Phase::NORMALIZATION, "error",
-                          {{"error", "NORMALIZATION: disabled but required for v4"}},
+      if (frames.empty()) {
+        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
+                          {{"error", "All frames rejected by linearity check"},
+                           {"linearity", linearity_info}},
                           log_file);
         emitter.run_end(run_id, false, "error", log_file);
+        std::cerr << "Error: All frames rejected by linearity check."
+                  << std::endl;
         return 1;
+      }
+    } else {
+      emitter.warning(
+          run_id,
+          "Linearity: " + std::to_string(rejected_indices.size()) +
+              " frames flagged non-linear (kept, linear_required=false)",
+          log_file);
+      linearity_info["action"] = "warn_only";
     }
+  }
 
-    const float eps_b = 1.0e-6f;
-    std::vector<NormalizationScales> norm_scales(frames.size());
-    std::vector<float> B_mono(frames.size(), 0.0f);
-    std::vector<float> B_r(frames.size(), 0.0f);
-    std::vector<float> B_g(frames.size(), 0.0f);
-    std::vector<float> B_b(frames.size(), 0.0f);
+  core::json scan_extra = {
+      {"input_dir", input_dir},
+      {"frames_scanned", frames.size()},
+      {"image_width", width},
+      {"image_height", height},
+      {"color_mode", detected_mode_str},
+      {"bayer_pattern", detected_bayer_str},
+  };
+  if (!linearity_info.is_null()) {
+    scan_extra["linearity"] = linearity_info;
+  }
 
-    for (size_t i = 0; i < frames.size(); ++i) {
-        const auto& path = frames[i];
-        try {
-            auto frame_pair = io::read_fits_float(path);
-            const Matrix2Df& img = frame_pair.first;
+  emitter.phase_end(run_id, Phase::SCAN_INPUT, "ok", scan_extra, log_file);
 
-            NormalizationScales s;
-            {
-                std::vector<float> all;
-                all.reserve(static_cast<size_t>(img.size()));
-                for (Eigen::Index k = 0; k < img.size(); ++k) {
-                    all.push_back(img.data()[k]);
-                }
-                const float b0 = median_of(all);
-                const float coarse_scale = (b0 > eps_b) ? (1.0f / b0) : 1.0f;
-                Matrix2Df coarse_norm = img * coarse_scale;
-                cv::Mat coarse_cv(coarse_norm.rows(), coarse_norm.cols(), CV_32F, coarse_norm.data());
-                const cv::Mat1b bg_mask = build_background_mask_sigma_clip(coarse_cv, 3.0f, 3);
+  // Phase 1: CHANNEL_SPLIT (metadata-only; actual split happens later)
+  emitter.phase_start(run_id, Phase::CHANNEL_SPLIT, "CHANNEL_SPLIT", log_file);
 
-                if (detected_mode == ColorMode::OSC) {
-                    s.is_osc = true;
-                    int r_row, r_col, b_row, b_col;
-                    bayer_offsets(detected_bayer_str, r_row, r_col, b_row, b_col);
+  core::json extra;
+  if (detected_mode == ColorMode::OSC) {
+    extra["mode"] = "OSC";
+    extra["channels"] = core::json::array({"R", "G", "B"});
+    extra["bayer_pattern"] = detected_bayer_str;
+    extra["note"] = "deferred_to_tile_processing";
+  } else {
+    extra["mode"] = "MONO";
+    extra["channels"] = core::json::array({"L"});
+  }
+  emitter.phase_end(run_id, Phase::CHANNEL_SPLIT, "ok", extra, log_file);
 
-                    std::vector<float> pr_bg;
-                    std::vector<float> pg_bg;
-                    std::vector<float> pb_bg;
-                    pr_bg.reserve(static_cast<size_t>(img.size()) / 4);
-                    pg_bg.reserve(static_cast<size_t>(img.size()) / 2);
-                    pb_bg.reserve(static_cast<size_t>(img.size()) / 4);
+  // Phase 2: NORMALIZATION (// Methodik v3 §3)
+  emitter.phase_start(run_id, Phase::NORMALIZATION, "NORMALIZATION", log_file);
 
-                    for (int y = 0; y < img.rows(); ++y) {
-                        const uint8_t* mrow = bg_mask.ptr<uint8_t>(y);
-                        const int py = y & 1;
-                        for (int x = 0; x < img.cols(); ++x) {
-                            if (mrow[x] == 0) continue;
-                            const int px = x & 1;
-                            const float v = img(y, x);
-                            if (py == r_row && px == r_col) {
-                                pr_bg.push_back(v);
-                            } else if (py == b_row && px == b_col) {
-                                pb_bg.push_back(v);
-                            } else {
-                                pg_bg.push_back(v);
-                            }
-                        }
-                    }
+  if (!cfg.normalization.enabled) {
+    emitter.phase_end(
+        run_id, Phase::NORMALIZATION, "error",
+        {{"error", "NORMALIZATION: disabled but required"}}, log_file);
+    emitter.run_end(run_id, false, "error", log_file);
+    return 1;
+  }
 
-                    float br = pr_bg.empty() ? 0.0f : median_of(pr_bg);
-                    float bg = pg_bg.empty() ? 0.0f : median_of(pg_bg);
-                    float bb = pb_bg.empty() ? 0.0f : median_of(pb_bg);
+  const float eps_b = 1.0e-6f;
+  std::vector<NormalizationScales> norm_scales(frames.size());
+  std::vector<float> B_mono(frames.size(), 0.0f);
+  std::vector<float> B_r(frames.size(), 0.0f);
+  std::vector<float> B_g(frames.size(), 0.0f);
+  std::vector<float> B_b(frames.size(), 0.0f);
 
-                    if (!(br > eps_b)) {
-                        std::vector<float> pr;
-                        pr.reserve(static_cast<size_t>(img.size()) / 4);
-                        for (int y = 0; y < img.rows(); ++y) {
-                            const int py = y & 1;
-                            for (int x = 0; x < img.cols(); ++x) {
-                                const int px = x & 1;
-                                if (py == r_row && px == r_col) pr.push_back(img(y, x));
-                            }
-                        }
-                        br = estimate_background_sigma_clip(std::move(pr));
-                    }
-                    if (!(bg > eps_b)) {
-                        std::vector<float> pg;
-                        pg.reserve(static_cast<size_t>(img.size()) / 2);
-                        for (int y = 0; y < img.rows(); ++y) {
-                            const int py = y & 1;
-                            for (int x = 0; x < img.cols(); ++x) {
-                                const int px = x & 1;
-                                if (!((py == r_row && px == r_col) || (py == b_row && px == b_col))) pg.push_back(img(y, x));
-                            }
-                        }
-                        bg = estimate_background_sigma_clip(std::move(pg));
-                    }
-                    if (!(bb > eps_b)) {
-                        std::vector<float> pb;
-                        pb.reserve(static_cast<size_t>(img.size()) / 4);
-                        for (int y = 0; y < img.rows(); ++y) {
-                            const int py = y & 1;
-                            for (int x = 0; x < img.cols(); ++x) {
-                                const int px = x & 1;
-                                if (py == b_row && px == b_col) pb.push_back(img(y, x));
-                            }
-                        }
-                        bb = estimate_background_sigma_clip(std::move(pb));
-                    }
+  for (size_t i = 0; i < frames.size(); ++i) {
+    const auto &path = frames[i];
+    try {
+      auto frame_pair = io::read_fits_float(path);
+      const Matrix2Df &img = frame_pair.first;
 
-                    if (!(br > eps_b) || !(bg > eps_b) || !(bb > eps_b)) {
-                        emitter.phase_end(run_id, Phase::NORMALIZATION, "error",
-                                          {{"error", "NORMALIZATION: invalid background estimate"}},
-                                          log_file);
-                        emitter.run_end(run_id, false, "error", log_file);
-                        return 1;
-                    }
-
-                    s.scale_r = 1.0f / br;
-                    s.scale_g = 1.0f / bg;
-                    s.scale_b = 1.0f / bb;
-                    B_r[i] = br;
-                    B_g[i] = bg;
-                    B_b[i] = bb;
-                } else {
-                    std::vector<float> p_bg;
-                    p_bg.reserve(static_cast<size_t>(img.size()));
-                    for (int y = 0; y < img.rows(); ++y) {
-                        const uint8_t* mrow = bg_mask.ptr<uint8_t>(y);
-                        for (int x = 0; x < img.cols(); ++x) {
-                            if (mrow[x] != 0) p_bg.push_back(img(y, x));
-                        }
-                    }
-                    float b = p_bg.empty() ? 0.0f : median_of(p_bg);
-                    if (!(b > eps_b)) {
-                        std::vector<float> p;
-                        p.reserve(static_cast<size_t>(img.size()));
-                        for (Eigen::Index k = 0; k < img.size(); ++k) {
-                            p.push_back(img.data()[k]);
-                        }
-                        b = estimate_background_sigma_clip(std::move(p));
-                    }
-                    if (!(b > eps_b)) {
-                        emitter.phase_end(run_id, Phase::NORMALIZATION, "error",
-                                          {{"error", "NORMALIZATION: invalid background estimate"}},
-                                          log_file);
-                        emitter.run_end(run_id, false, "error", log_file);
-                        return 1;
-                    }
-                    s.scale_mono = 1.0f / b;
-                    B_mono[i] = b;
-                }
-            }
-            norm_scales[i] = s;
-        } catch (const std::exception& e) {
-            emitter.phase_end(run_id, Phase::NORMALIZATION, "error", { {"error", e.what()} }, log_file);
-            emitter.run_end(run_id, false, "error", log_file);
-            std::cerr << "Error during NORMALIZATION: " << e.what() << std::endl;
-            return 1;
+      NormalizationScales s;
+      {
+        std::vector<float> all;
+        all.reserve(static_cast<size_t>(img.size()));
+        for (Eigen::Index k = 0; k < img.size(); ++k) {
+          all.push_back(img.data()[k]);
         }
+        const float b0 = core::median_of(all);
+        const float coarse_scale = (b0 > eps_b) ? (1.0f / b0) : 1.0f;
+        Matrix2Df coarse_norm = img * coarse_scale;
+        cv::Mat coarse_cv(coarse_norm.rows(), coarse_norm.cols(), CV_32F,
+                          coarse_norm.data());
+        const cv::Mat1b bg_mask =
+            metrics::build_background_mask_sigma_clip(coarse_cv, 3.0f, 3);
 
-        const float progress = frames.empty() ? 1.0f : static_cast<float>(i + 1) / static_cast<float>(frames.size());
-        emitter.phase_progress(run_id, Phase::NORMALIZATION, progress,
-                               "normalize " + std::to_string(i + 1) + "/" + std::to_string(frames.size()),
-                               log_file);
-    }
+        if (detected_mode == ColorMode::OSC) {
+          s.is_osc = true;
+          int r_row, r_col, b_row, b_col;
+          image::bayer_offsets(detected_bayer_str, r_row, r_col, b_row, b_col);
 
-    {
-        core::json artifact;
-        artifact["mode"] = (detected_mode == ColorMode::OSC) ? "OSC" : "MONO";
-        artifact["bayer_pattern"] = detected_bayer_str;
-        artifact["B_mono"] = core::json::array();
-        artifact["B_r"] = core::json::array();
-        artifact["B_g"] = core::json::array();
-        artifact["B_b"] = core::json::array();
-        for (size_t i = 0; i < frames.size(); ++i) {
-            artifact["B_mono"].push_back(B_mono[i]);
-            artifact["B_r"].push_back(B_r[i]);
-            artifact["B_g"].push_back(B_g[i]);
-            artifact["B_b"].push_back(B_b[i]);
-        }
-        core::write_text(run_dir / "artifacts" / "normalization.json", artifact.dump(2));
-    }
+          std::vector<float> pr_bg;
+          std::vector<float> pg_bg;
+          std::vector<float> pb_bg;
+          pr_bg.reserve(static_cast<size_t>(img.size()) / 4);
+          pg_bg.reserve(static_cast<size_t>(img.size()) / 2);
+          pb_bg.reserve(static_cast<size_t>(img.size()) / 4);
 
-    auto median_finite_positive = [&](const std::vector<float>& v, float fallback) -> float {
-        std::vector<float> p;
-        p.reserve(v.size());
-        for (float x : v) {
-            if (std::isfinite(x) && x > 0.0f) p.push_back(x);
-        }
-        if (p.empty()) return fallback;
-        return median_of(p);
-    };
-
-    const float output_pedestal = 32768.0f;
-    const float output_bg_mono = median_finite_positive(B_mono, 1.0f);
-    const float output_bg_r = median_finite_positive(B_r, 1.0f);
-    const float output_bg_g = median_finite_positive(B_g, 1.0f);
-    const float output_bg_b = median_finite_positive(B_b, 1.0f);
-
-    auto apply_output_scaling_inplace = [&](Matrix2Df& img, int origin_x, int origin_y) {
-        if (img.size() <= 0) return;
-        if (detected_mode != ColorMode::OSC) {
-            img *= output_bg_mono;
-            img.array() += output_pedestal;
-            return;
-        }
-
-        int r_row, r_col, b_row, b_col;
-        bayer_offsets(detected_bayer_str, r_row, r_col, b_row, b_col);
-        for (int y = 0; y < img.rows(); ++y) {
-            const int gy = origin_y + y;
+          for (int y = 0; y < img.rows(); ++y) {
+            const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
+            const int py = y & 1;
             for (int x = 0; x < img.cols(); ++x) {
-                const int gx = origin_x + x;
-                const int py = gy & 1;
-                const int px = gx & 1;
-                if (py == r_row && px == r_col) {
-                    img(y, x) = img(y, x) * output_bg_r + output_pedestal;
-                } else if (py == b_row && px == b_col) {
-                    img(y, x) = img(y, x) * output_bg_b + output_pedestal;
-                } else {
-                    img(y, x) = img(y, x) * output_bg_g + output_pedestal;
-                }
+              if (mrow[x] == 0)
+                continue;
+              const int px = x & 1;
+              const float v = img(y, x);
+              if (py == r_row && px == r_col) {
+                pr_bg.push_back(v);
+              } else if (py == b_row && px == b_col) {
+                pb_bg.push_back(v);
+              } else {
+                pg_bg.push_back(v);
+              }
             }
-        }
-    };
+          }
 
-    emitter.phase_end(run_id, Phase::NORMALIZATION, "ok",
-                      {
-                          {"num_frames", static_cast<int>(frames.size())},
-                      },
-                      log_file);
+          float br = pr_bg.empty() ? 0.0f : core::median_of(pr_bg);
+          float bg = pg_bg.empty() ? 0.0f : core::median_of(pg_bg);
+          float bb = pb_bg.empty() ? 0.0f : core::median_of(pb_bg);
 
-    // Phase 3: GLOBAL_METRICS
-    emitter.phase_start(run_id, Phase::GLOBAL_METRICS, "GLOBAL_METRICS", log_file);
-
-    std::vector<FrameMetrics> frame_metrics;
-    frame_metrics.resize(frames.size());
-
-    for (size_t i = 0; i < frames.size(); ++i) {
-        const auto& path = frames[i];
-        try {
-            auto frame_pair = io::read_fits_float(path);
-            Matrix2Df img = frame_pair.first;
-            if (img.size() <= 0) {
-                emitter.warning(run_id,
-                                "GLOBAL_METRICS: empty frame for " + path.filename().string(),
-                                log_file);
-                FrameMetrics m;
-                m.background = 0.0f;
-                m.noise = 0.0f;
-                m.gradient_energy = 0.0f;
-                m.quality_score = 1.0f;
-                frame_metrics[i] = m;
-            } else {
-                apply_normalization_inplace(img, norm_scales[i], detected_mode, detected_bayer_str, 0, 0);
-                frame_metrics[i] = metrics::calculate_frame_metrics(img);
+          if (!(br > eps_b)) {
+            std::vector<float> pr;
+            pr.reserve(static_cast<size_t>(img.size()) / 4);
+            for (int y = 0; y < img.rows(); ++y) {
+              const int py = y & 1;
+              for (int x = 0; x < img.cols(); ++x) {
+                const int px = x & 1;
+                if (py == r_row && px == r_col)
+                  pr.push_back(img(y, x));
+              }
             }
-        } catch (const std::exception& e) {
-            emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "error", {{"error", e.what()}}, log_file);
+            br = core::estimate_background_sigma_clip(std::move(pr));
+          }
+          if (!(bg > eps_b)) {
+            std::vector<float> pg;
+            pg.reserve(static_cast<size_t>(img.size()) / 2);
+            for (int y = 0; y < img.rows(); ++y) {
+              const int py = y & 1;
+              for (int x = 0; x < img.cols(); ++x) {
+                const int px = x & 1;
+                if (!((py == r_row && px == r_col) ||
+                      (py == b_row && px == b_col)))
+                  pg.push_back(img(y, x));
+              }
+            }
+            bg = core::estimate_background_sigma_clip(std::move(pg));
+          }
+          if (!(bb > eps_b)) {
+            std::vector<float> pb;
+            pb.reserve(static_cast<size_t>(img.size()) / 4);
+            for (int y = 0; y < img.rows(); ++y) {
+              const int py = y & 1;
+              for (int x = 0; x < img.cols(); ++x) {
+                const int px = x & 1;
+                if (py == b_row && px == b_col)
+                  pb.push_back(img(y, x));
+              }
+            }
+            bb = core::estimate_background_sigma_clip(std::move(pb));
+          }
+
+          if (!(br > eps_b) || !(bg > eps_b) || !(bb > eps_b)) {
+            emitter.phase_end(
+                run_id, Phase::NORMALIZATION, "error",
+                {{"error", "NORMALIZATION: invalid background estimate"}},
+                log_file);
             emitter.run_end(run_id, false, "error", log_file);
-            std::cerr << "Error during GLOBAL_METRICS: " << e.what() << std::endl;
             return 1;
-        }
+          }
 
-        const float progress = frames.empty() ? 1.0f : static_cast<float>(i + 1) / static_cast<float>(frames.size());
-        emitter.phase_progress(run_id, Phase::GLOBAL_METRICS, progress,
-                               "metrics " + std::to_string(i + 1) + "/" + std::to_string(frames.size()),
-                               log_file);
+          s.scale_r = 1.0f / br;
+          s.scale_g = 1.0f / bg;
+          s.scale_b = 1.0f / bb;
+          B_r[i] = br;
+          B_g[i] = bg;
+          B_b[i] = bb;
+        } else {
+          std::vector<float> p_bg;
+          p_bg.reserve(static_cast<size_t>(img.size()));
+          for (int y = 0; y < img.rows(); ++y) {
+            const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
+            for (int x = 0; x < img.cols(); ++x) {
+              if (mrow[x] != 0)
+                p_bg.push_back(img(y, x));
+            }
+          }
+          float b = p_bg.empty() ? 0.0f : core::median_of(p_bg);
+          if (!(b > eps_b)) {
+            std::vector<float> p;
+            p.reserve(static_cast<size_t>(img.size()));
+            for (Eigen::Index k = 0; k < img.size(); ++k) {
+              p.push_back(img.data()[k]);
+            }
+            b = core::estimate_background_sigma_clip(std::move(p));
+          }
+          if (!(b > eps_b)) {
+            emitter.phase_end(
+                run_id, Phase::NORMALIZATION, "error",
+                {{"error", "NORMALIZATION: invalid background estimate"}},
+                log_file);
+            emitter.run_end(run_id, false, "error", log_file);
+            return 1;
+          }
+          s.scale_mono = 1.0f / b;
+          B_mono[i] = b;
+        }
+      }
+      norm_scales[i] = s;
+    } catch (const std::exception &e) {
+      emitter.phase_end(run_id, Phase::NORMALIZATION, "error",
+                        {{"error", e.what()}}, log_file);
+      emitter.run_end(run_id, false, "error", log_file);
+      std::cerr << "Error during NORMALIZATION: " << e.what() << std::endl;
+      return 1;
     }
 
-    VectorXf global_weights = metrics::calculate_global_weights(
-        frame_metrics,
-        cfg.global_metrics.weights.background,
-        cfg.global_metrics.weights.noise,
-        cfg.global_metrics.weights.gradient,
-        cfg.global_metrics.clamp[0],
-        cfg.global_metrics.clamp[1]);
+    const float progress =
+        frames.empty()
+            ? 1.0f
+            : static_cast<float>(i + 1) / static_cast<float>(frames.size());
+    emitter.phase_progress(run_id, Phase::NORMALIZATION, progress,
+                           "normalize " + std::to_string(i + 1) + "/" +
+                               std::to_string(frames.size()),
+                           log_file);
+  }
 
-    {
-        core::json artifact;
-        artifact["metrics"] = core::json::array();
-        for (size_t i = 0; i < frame_metrics.size(); ++i) {
-            core::json m;
-            m["background"] = frame_metrics[i].background;
-            m["noise"] = frame_metrics[i].noise;
-            m["gradient_energy"] = frame_metrics[i].gradient_energy;
-            m["quality_score"] = frame_metrics[i].quality_score;
-            m["global_weight"] = (i < static_cast<size_t>(global_weights.size())) ? global_weights[static_cast<int>(i)] : 0.0f;
-            artifact["metrics"].push_back(m);
-        }
-
-        artifact["weights"] = {
-            {"background", cfg.global_metrics.weights.background},
-            {"noise", cfg.global_metrics.weights.noise},
-            {"gradient", cfg.global_metrics.weights.gradient}
-        };
-        artifact["clamp"] = {cfg.global_metrics.clamp[0], cfg.global_metrics.clamp[1]};
-        artifact["adaptive_weights"] = cfg.global_metrics.adaptive_weights;
-        core::write_text(run_dir / "artifacts" / "global_metrics.json", artifact.dump(2));
+  {
+    core::json artifact;
+    artifact["mode"] = (detected_mode == ColorMode::OSC) ? "OSC" : "MONO";
+    artifact["bayer_pattern"] = detected_bayer_str;
+    artifact["B_mono"] = core::json::array();
+    artifact["B_r"] = core::json::array();
+    artifact["B_g"] = core::json::array();
+    artifact["B_b"] = core::json::array();
+    for (size_t i = 0; i < frames.size(); ++i) {
+      artifact["B_mono"].push_back(B_mono[i]);
+      artifact["B_r"].push_back(B_r[i]);
+      artifact["B_g"].push_back(B_g[i]);
+      artifact["B_b"].push_back(B_b[i]);
     }
+    core::write_text(run_dir / "artifacts" / "normalization.json",
+                     artifact.dump(2));
+  }
 
-    emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "ok",
-                      {
-                          {"num_frames", static_cast<int>(frame_metrics.size())},
-                      },
+  const float output_pedestal = 0.0f;
+  const float output_bg_mono = core::median_finite_positive(B_mono, 1.0f);
+  const float output_bg_r = core::median_finite_positive(B_r, 1.0f);
+  const float output_bg_g = core::median_finite_positive(B_g, 1.0f);
+  const float output_bg_b = core::median_finite_positive(B_b, 1.0f);
+
+  emitter.phase_end(run_id, Phase::NORMALIZATION, "ok",
+                    {
+                        {"num_frames", static_cast<int>(frames.size())},
+                    },
+                    log_file);
+
+  // Phase 3: GLOBAL_METRICS
+  emitter.phase_start(run_id, Phase::GLOBAL_METRICS, "GLOBAL_METRICS",
                       log_file);
 
-    // Phase 4: TILE_GRID (with adaptive optimization)
-    emitter.phase_start(run_id, Phase::TILE_GRID, "TILE_GRID", log_file);
+  std::vector<FrameMetrics> frame_metrics;
+  frame_metrics.resize(frames.size());
+  std::vector<metrics::FrameStarMetrics> frame_star_metrics;
+  frame_star_metrics.resize(frames.size());
+  int ref_star_count = 0;
 
-    float seeing_fwhm_med = 3.0f;
-    {
-        const int patch_r = 10;
-        const int patch_sz = 2 * patch_r + 1;
-        const size_t n_probe = std::min<size_t>(5, frames.size());
-        std::vector<float> fwhms;
-        for (size_t pi = 0; pi < n_probe; ++pi) {
-            size_t fi = (n_probe <= 1) ? 0 : (pi * (frames.size() - 1)) / (n_probe - 1);
-            const int roi_w = std::min(width, 1024);
-            const int roi_h = std::min(height, 1024);
-            const int roi_x0 = std::max(0, (width - roi_w) / 2);
-            const int roi_y0 = std::max(0, (height - roi_h) / 2);
-
-            Matrix2Df img = io::read_fits_region_float(frames[fi], roi_x0, roi_y0, roi_w, roi_h);
-            apply_normalization_inplace(img, norm_scales[fi], detected_mode, detected_bayer_str, roi_x0, roi_y0);
-            cv::Mat img_cv(img.rows(), img.cols(), CV_32F, const_cast<float*>(img.data()));
-            cv::Mat blur;
-            cv::blur(img_cv, blur, cv::Size(31, 31), cv::Point(-1, -1), cv::BORDER_REFLECT_101);
-            cv::Mat resid = img_cv - blur;
-
-            std::vector<cv::Point2f> corners;
-            try {
-                cv::goodFeaturesToTrack(resid, corners, 400, 0.01, 6);
-            } catch (...) {
-                corners.clear();
-            }
-
-            for (const auto& p : corners) {
-                int cx = static_cast<int>(std::round(p.x));
-                int cy = static_cast<int>(std::round(p.y));
-                int x0 = cx - patch_r;
-                int y0 = cy - patch_r;
-                if (x0 < 0 || y0 < 0 || (x0 + patch_sz) > img_cv.cols || (y0 + patch_sz) > img_cv.rows) continue;
-                cv::Mat patch = img_cv(cv::Rect(x0, y0, patch_sz, patch_sz));
-                float f = estimate_fwhm_from_patch(patch);
-                if (f > 0.0f && std::isfinite(f)) {
-                    fwhms.push_back(f);
-                }
-            }
-        }
-
-        if (fwhms.size() >= 25) {
-            seeing_fwhm_med = median_of(fwhms);
-        }
-    }
-
-    int seeing_tile_size = 0;
-    float seeing_overlap_fraction = 0.25f;
-    {
-        float t0 = 32.0f * seeing_fwhm_med;
-        int tmin = 64;
-        int tmax = std::max(1, std::min(width, height) / 6);
-        float tc = std::min(std::max(t0, static_cast<float>(tmin)), static_cast<float>(tmax));
-        seeing_tile_size = static_cast<int>(std::floor(tc));
-        if (seeing_tile_size < tmin) seeing_tile_size = tmin;
-    }
-
-    bool adaptive_enabled = cfg.v4.adaptive_tiles.enabled;
-    bool use_warp_probe = adaptive_enabled && cfg.v4.adaptive_tiles.use_warp_probe;
-    bool use_hierarchical = adaptive_enabled && cfg.v4.adaptive_tiles.use_hierarchical;
-
-    cfg.tile.overlap_fraction = seeing_overlap_fraction;
-    if (adaptive_enabled) {
-        cfg.v4.adaptive_tiles.initial_tile_size = seeing_tile_size;
-    }
-
-    tile_compile::pipeline::WarpGradientField grad_field;
-    bool has_grad_field = false;
-
-    if (use_warp_probe && frames.size() >= 3) {
-        int probe_window = cfg.v4.adaptive_tiles.probe_window;
-        int num_probe_frames = cfg.v4.adaptive_tiles.num_probe_frames;
-
-        if (probe_window <= width && probe_window <= height) {
-            try {
-                grad_field = tile_compile::pipeline::compute_warp_gradient_field(
-                    frames,
-                    width,
-                    height,
-                    probe_window,
-                    num_probe_frames,
-                    nullptr,
-                    [&](float p) {
-                        emitter.phase_progress(run_id, Phase::TILE_GRID, p, "warp_probe", log_file);
-                    });
-                has_grad_field = grad_field.grid.size() > 0;
-            } catch (const std::exception& e) {
-                emitter.warning(run_id,
-                                std::string("warp_probe failed: ") + e.what() + "; continuing without gradient field",
-                                log_file);
-                has_grad_field = false;
-                grad_field = tile_compile::pipeline::WarpGradientField();
-            } catch (...) {
-                emitter.warning(run_id,
-                                "warp_probe failed: unknown error; continuing without gradient field",
-                                log_file);
-                has_grad_field = false;
-                grad_field = tile_compile::pipeline::WarpGradientField();
-            }
+  // First pass: compute metrics + star metrics for all frames
+  for (size_t i = 0; i < frames.size(); ++i) {
+    const auto &path = frames[i];
+    try {
+      auto frame_pair = io::read_fits_float(path);
+      Matrix2Df img = frame_pair.first;
+      if (img.size() <= 0) {
+        emitter.warning(run_id,
+                        "GLOBAL_METRICS: empty frame for " +
+                            path.filename().string(),
+                        log_file);
+        FrameMetrics m;
+        m.background = 0.0f;
+        m.noise = 0.0f;
+        m.gradient_energy = 0.0f;
+        m.quality_score = 1.0f;
+        frame_metrics[i] = m;
+        frame_star_metrics[i] = metrics::FrameStarMetrics{};
+      } else {
+        image::apply_normalization_inplace(img, norm_scales[i], detected_mode,
+                                    detected_bayer_str, 0, 0);
+        FrameMetrics m = metrics::calculate_frame_metrics(img);
+        // Methodik v3: for the global background metric B_f, use the raw
+        // (pre-normalization) background estimate from the normalization stage.
+        if (detected_mode == ColorMode::OSC) {
+          const float b_raw = 0.25f * B_r[i] + 0.5f * B_g[i] + 0.25f * B_b[i];
+          if (std::isfinite(b_raw))
+            m.background = b_raw;
         } else {
-            emitter.warning(run_id, "warp_probe skipped: probe_window larger than image", log_file);
+          const float b_raw = B_mono[i];
+          if (std::isfinite(b_raw))
+            m.background = b_raw;
         }
+        frame_metrics[i] = m;
+        frame_star_metrics[i] = metrics::measure_frame_stars(img, 0);
+      }
+    } catch (const std::exception &e) {
+      emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "error",
+                        {{"error", e.what()}}, log_file);
+      emitter.run_end(run_id, false, "error", log_file);
+      std::cerr << "Error during GLOBAL_METRICS: " << e.what() << std::endl;
+      return 1;
     }
 
-    std::vector<Tile> tiles;
-    int uniform_tile_size = 0;
+    const float progress =
+        frames.empty()
+            ? 1.0f
+            : static_cast<float>(i + 1) / static_cast<float>(frames.size());
+    emitter.phase_progress(run_id, Phase::GLOBAL_METRICS, progress,
+                           "metrics " + std::to_string(i + 1) + "/" +
+                               std::to_string(frames.size()),
+                           log_file);
+  }
 
-    if (adaptive_enabled) {
-        if (use_hierarchical) {
-            tiles = tile_compile::pipeline::build_hierarchical_tile_grid(width, height, cfg, has_grad_field ? &grad_field : nullptr);
-        } else {
-            tiles = tile_compile::pipeline::build_adaptive_tile_grid(width, height, cfg, has_grad_field ? &grad_field : nullptr);
-        }
-    } else {
-        uniform_tile_size = seeing_tile_size;
+  // Determine reference star count (max) and recompute wFWHM
+  for (const auto &sm : frame_star_metrics) {
+    if (sm.star_count > ref_star_count) ref_star_count = sm.star_count;
+  }
+  if (ref_star_count > 0) {
+    for (auto &sm : frame_star_metrics) {
+      if (sm.star_count > 0 && sm.fwhm > 0) {
+        sm.wfwhm = sm.fwhm * static_cast<float>(ref_star_count) /
+                   static_cast<float>(sm.star_count);
+      }
+    }
+  }
 
-        tiles = tile_compile::pipeline::build_initial_tile_grid(width, height, uniform_tile_size, cfg.tile.overlap_fraction);
+  VectorXf global_weights = metrics::calculate_global_weights(
+      frame_metrics, cfg.global_metrics.weights.background,
+      cfg.global_metrics.weights.noise, cfg.global_metrics.weights.gradient,
+      cfg.global_metrics.clamp[0], cfg.global_metrics.clamp[1]);
+
+  {
+    core::json artifact;
+    artifact["metrics"] = core::json::array();
+    for (size_t i = 0; i < frame_metrics.size(); ++i) {
+      core::json m;
+      m["background"] = frame_metrics[i].background;
+      m["noise"] = frame_metrics[i].noise;
+      m["gradient_energy"] = frame_metrics[i].gradient_energy;
+      m["quality_score"] = frame_metrics[i].quality_score;
+      m["global_weight"] = (i < static_cast<size_t>(global_weights.size()))
+                               ? global_weights[static_cast<int>(i)]
+                               : 0.0f;
+      m["fwhm"] = frame_star_metrics[i].fwhm;
+      m["fwhm_x"] = frame_star_metrics[i].fwhm_x;
+      m["fwhm_y"] = frame_star_metrics[i].fwhm_y;
+      m["roundness"] = frame_star_metrics[i].roundness;
+      m["wfwhm"] = frame_star_metrics[i].wfwhm;
+      m["star_count"] = frame_star_metrics[i].star_count;
+      artifact["metrics"].push_back(m);
     }
 
-    {
-        core::json artifact;
-        artifact["image_width"] = width;
-        artifact["image_height"] = height;
-        artifact["num_tiles"] = static_cast<int>(tiles.size());
-        artifact["adaptive_enabled"] = adaptive_enabled;
-        artifact["use_warp_probe"] = use_warp_probe;
-        artifact["use_hierarchical"] = use_hierarchical;
-        artifact["overlap_fraction"] = cfg.tile.overlap_fraction;
-        artifact["seeing_fwhm_median"] = seeing_fwhm_med;
-        artifact["seeing_tile_size"] = seeing_tile_size;
-        artifact["seeing_overlap_px"] = static_cast<int>(std::floor(cfg.tile.overlap_fraction * static_cast<float>(seeing_tile_size)));
-        if (!adaptive_enabled) {
-            artifact["uniform_tile_size"] = uniform_tile_size;
-        }
+    artifact["weights"] = {
+        {"background", cfg.global_metrics.weights.background},
+        {"noise", cfg.global_metrics.weights.noise},
+        {"gradient", cfg.global_metrics.weights.gradient}};
+    artifact["clamp"] = {cfg.global_metrics.clamp[0],
+                         cfg.global_metrics.clamp[1]};
+    artifact["adaptive_weights"] = cfg.global_metrics.adaptive_weights;
+    core::write_text(run_dir / "artifacts" / "global_metrics.json",
+                     artifact.dump(2));
+  }
 
-        artifact["tiles"] = core::json::array();
-        for (const auto& t : tiles) {
-            artifact["tiles"].push_back({
-                {"x", t.x},
-                {"y", t.y},
-                {"width", t.width},
-                {"height", t.height},
-            });
-        }
+  emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "ok",
+                    {
+                        {"num_frames", static_cast<int>(frame_metrics.size())},
+                    },
+                    log_file);
 
-        core::write_text(run_dir / "artifacts" / "tile_grid.json", artifact.dump(2));
+  // --- Memory release: frame_star_metrics no longer needed ---
+  { std::vector<metrics::FrameStarMetrics>().swap(frame_star_metrics); }
+
+  // Phase 4: TILE_GRID (with adaptive optimization)
+  emitter.phase_start(run_id, Phase::TILE_GRID, "TILE_GRID", log_file);
+
+  float seeing_fwhm_med = 3.0f;
+  {
+    const size_t n_probe = std::min<size_t>(5, frames.size());
+    for (size_t pi = 0; pi < n_probe; ++pi) {
+      size_t fi =
+          (n_probe <= 1) ? 0 : (pi * (frames.size() - 1)) / (n_probe - 1);
+      const int roi_w = std::min(width, 1024);
+      const int roi_h = std::min(height, 1024);
+      const int roi_x0 = std::max(0, (width - roi_w) / 2);
+      const int roi_y0 = std::max(0, (height - roi_h) / 2);
+
+      Matrix2Df img =
+          io::read_fits_region_float(frames[fi], roi_x0, roi_y0, roi_w, roi_h);
+      image::apply_normalization_inplace(img, norm_scales[fi], detected_mode,
+                                  detected_bayer_str, roi_x0, roi_y0);
+      float fwhm = metrics::measure_fwhm_from_image(img);
+      if (fwhm > 0.0f) {
+        seeing_fwhm_med = fwhm;
+        break;
+      }
+    }
+  }
+
+  int seeing_tile_size = 0;
+  float overlap_fraction = cfg.tile.overlap_fraction;
+  int overlap_px = 0;
+  int stride_px = 0;
+  {
+    float F = seeing_fwhm_med;
+    if (!(F > 0.0f) || !std::isfinite(F)) {
+      F = 3.0f;
     }
 
-    if (has_grad_field) {
-        core::json g;
-        g["probe_window"] = grad_field.probe_window;
-        g["step"] = grad_field.step;
-        g["grid_h"] = grad_field.grid_h;
-        g["grid_w"] = grad_field.grid_w;
-        g["probe_indices"] = core::json::array();
-        for (int idx : grad_field.probe_indices) g["probe_indices"].push_back(idx);
-        g["min"] = grad_field.min_val;
-        g["max"] = grad_field.max_val;
-        g["mean"] = grad_field.mean_val;
-        g["grid"] = core::json::array();
-        for (int r = 0; r < grad_field.grid.rows(); ++r) {
-            core::json row = core::json::array();
-            for (int c = 0; c < grad_field.grid.cols(); ++c) {
-                row.push_back(grad_field.grid(r, c));
-            }
-            g["grid"].push_back(row);
-        }
-        core::write_text(run_dir / "artifacts" / "warp_gradient_field.json", g.dump(2));
+    const int tmin = std::max(16, cfg.tile.min_size);
+    const int D = std::max(1, cfg.tile.max_divisor);
+    int tmax = std::max(1, std::min(width, height) / D);
+    if (tmax < tmin) tmax = tmin;
+
+    const float t0 = static_cast<float>(cfg.tile.size_factor) * F;
+    const float tc = std::min(std::max(t0, static_cast<float>(tmin)),
+                              static_cast<float>(tmax));
+    seeing_tile_size = static_cast<int>(std::floor(tc));
+    if (seeing_tile_size < tmin) seeing_tile_size = tmin;
+
+    overlap_fraction = std::min(0.5f, std::max(0.0f, overlap_fraction));
+    overlap_px = static_cast<int>(std::floor(overlap_fraction * static_cast<float>(seeing_tile_size)));
+    stride_px = seeing_tile_size - overlap_px;
+    if (stride_px <= 0) {
+      overlap_fraction = 0.25f;
+      overlap_px = static_cast<int>(std::floor(overlap_fraction * static_cast<float>(seeing_tile_size)));
+      stride_px = seeing_tile_size - overlap_px;
     }
+  }
 
-    emitter.phase_end(run_id, Phase::TILE_GRID, "ok",
-                      {
-                          {"num_tiles", static_cast<int>(tiles.size())},
-                          {"adaptive", adaptive_enabled},
-                          {"gradient_field", has_grad_field},
-                      },
-                      log_file);
+  std::vector<Tile> tiles;
+  int uniform_tile_size = seeing_tile_size;
+  tiles = tile_compile::pipeline::build_initial_tile_grid(
+      width, height, uniform_tile_size, overlap_fraction);
 
-    // Helpers for Phase 5/6
-    auto load_frame_normalized = [&](size_t frame_index) -> std::pair<Matrix2Df, io::FitsHeader> {
-        auto frame_pair = io::read_fits_float(frames[frame_index]);
-        Matrix2Df img = frame_pair.first;
-        apply_normalization_inplace(img, norm_scales[frame_index], detected_mode, detected_bayer_str, 0, 0);
-        return {img, frame_pair.second};
+  {
+    core::json artifact;
+    artifact["image_width"] = width;
+    artifact["image_height"] = height;
+    artifact["num_tiles"] = static_cast<int>(tiles.size());
+    artifact["overlap_fraction"] = overlap_fraction;
+    artifact["seeing_fwhm_median"] = seeing_fwhm_med;
+    artifact["seeing_tile_size"] = seeing_tile_size;
+    artifact["seeing_overlap_px"] = overlap_px;
+    artifact["stride_px"] = stride_px;
+    artifact["tile_config"] = {
+        {"size_factor", cfg.tile.size_factor},
+        {"min_size", cfg.tile.min_size},
+        {"max_divisor", cfg.tile.max_divisor},
+        {"overlap_fraction", overlap_fraction},
     };
+    artifact["uniform_tile_size"] = uniform_tile_size;
 
-    auto extract_tile = [&](const Matrix2Df& img, const Tile& t) -> Matrix2Df {
-        int cols = static_cast<int>(img.cols());
-        int rows = static_cast<int>(img.rows());
-        int x0 = std::max(0, t.x);
-        int y0 = std::max(0, t.y);
-        int x1 = std::min(cols, t.x + t.width);
-        int y1 = std::min(rows, t.y + t.height);
-        int tw = std::max(0, x1 - x0);
-        int th = std::max(0, y1 - y0);
-        if (tw <= 0 || th <= 0) return Matrix2Df();
-        return img.block(y0, x0, th, tw);
-    };
+    artifact["tiles"] = core::json::array();
+    for (const auto &t : tiles) {
+      artifact["tiles"].push_back({
+          {"x", t.x},
+          {"y", t.y},
+          {"width", t.width},
+          {"height", t.height},
+      });
+    }
 
-    auto make_hann_1d = [&](int n) -> std::vector<float> {
-        std::vector<float> w;
-        if (n <= 0) return w;
-        w.resize(static_cast<size_t>(n));
-        if (n == 1) {
-            w[0] = 1.0f;
-            return w;
+    core::write_text(run_dir / "artifacts" / "tile_grid.json",
+                     artifact.dump(2));
+  }
+
+  emitter.phase_end(run_id, Phase::TILE_GRID, "ok",
+                    {
+                        {"num_tiles", static_cast<int>(tiles.size())},
+                        {"gradient_field", false},
+                    },
+                    log_file);
+
+  // Helpers for Phase 5/6
+  auto load_frame_normalized =
+      [&](size_t frame_index) -> std::pair<Matrix2Df, io::FitsHeader> {
+    auto frame_pair = io::read_fits_float(frames[frame_index]);
+    Matrix2Df img = frame_pair.first;
+    image::apply_normalization_inplace(img, norm_scales[frame_index], detected_mode,
+                                detected_bayer_str, 0, 0);
+    return {img, frame_pair.second};
+  };
+
+  // extract_tile is now image::extract_tile (canonical module function)
+
+  // make_hann_1d is now reconstruction::make_hann_1d (canonical module function)
+
+  std::vector<Tile> tiles_phase56 = tiles;
+  if (max_tiles > 0 && tiles_phase56.size() > static_cast<size_t>(max_tiles)) {
+    tiles_phase56.resize(static_cast<size_t>(max_tiles));
+  }
+
+  std::vector<std::vector<TileMetrics>> local_metrics;
+  std::vector<std::vector<float>> local_weights;
+  std::vector<float> tile_fwhm_median;
+  std::vector<int> tile_valid_counts;
+  std::vector<float> tile_warp_variances;
+  std::vector<float> tile_mean_correlations;
+  std::vector<float> tile_post_contrast;
+  std::vector<float> tile_post_background;
+  std::vector<float> tile_post_snr;
+  std::vector<float> tile_mean_dx;
+  std::vector<float> tile_mean_dy;
+  std::vector<float> tile_quality_median;
+  std::vector<uint8_t> tile_is_star;
+  std::vector<std::atomic<int>> frame_valid_tile_counts(frames.size());
+  Matrix2Df recon;
+  Matrix2Df recon_R;
+  Matrix2Df recon_G;
+  Matrix2Df recon_B;
+  Matrix2Df weight_sum;
+
+  Matrix2Df first_img;
+  io::FitsHeader first_hdr;
+  {
+    auto first_pair = load_frame_normalized(0);
+    first_img = std::move(first_pair.first);
+    first_hdr = std::move(first_pair.second);
+  }
+
+  // Config parameters (v3: single global registration, no tile-ECC)
+  int min_valid_frames = 1;
+
+  emitter.phase_start(run_id, Phase::REGISTRATION, "REGISTRATION", log_file);
+
+  std::vector<WarpMatrix> global_frame_warps(frames.size(),
+                                             registration::identity_warp());
+  std::vector<float> global_frame_cc(frames.size(), 0.0f);
+  std::string global_reg_status = "skipped";
+  core::json global_reg_extra;
+  int global_ref_idx = 0;
+  // pick best by global_weight, fallback quality_score, fallback mid-frame
+  if (!frame_metrics.empty()) {
+    float best_w = -1.0f;
+    for (int i = 0; i < static_cast<int>(frame_metrics.size()); ++i) {
+      float w = (i < global_weights.size()) ? global_weights[i]
+                                            : frame_metrics[i].quality_score;
+      if (w > best_w) {
+        best_w = w;
+        global_ref_idx = i;
+      }
+    }
+    if (best_w < 0.05f) {
+      // fallback to highest quality_score
+      float best_q = frame_metrics[global_ref_idx].quality_score;
+      for (int i = 0; i < static_cast<int>(frame_metrics.size()); ++i) {
+        if (frame_metrics[i].quality_score > best_q) {
+          best_q = frame_metrics[i].quality_score;
+          global_ref_idx = i;
         }
-        const float pi = 3.14159265358979323846f;
-        for (int i = 0; i < n; ++i) {
-            float x = static_cast<float>(i) / static_cast<float>(n - 1);
-            w[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * pi * x));
+      }
+    }
+  }
+  if (global_ref_idx < 0 || global_ref_idx >= static_cast<int>(frames.size())) {
+    global_ref_idx = static_cast<int>(frames.size() / 2);
+  }
+  global_reg_extra["ref_frame"] = global_ref_idx;
+
+  if (!frames.empty()) {
+    try {
+      Matrix2Df ref_full;
+      {
+        auto pair = load_frame_normalized(static_cast<size_t>(global_ref_idx));
+        ref_full = std::move(pair.first);
+      }
+      if (ref_full.size() <= 0) {
+        global_reg_status = "error";
+        global_reg_extra["error"] = "ref_frame_empty";
+      } else {
+        Matrix2Df ref_reg = (detected_mode == ColorMode::OSC)
+                                ? image::cfa_green_proxy_downsample2x2(
+                                      ref_full, detected_bayer_str)
+                                : registration::downsample2x2_mean(ref_full);
+        float global_reg_scale = 1.0f;
+        if (ref_reg.rows() > 0) {
+          int full_h2 = ref_full.rows() - (ref_full.rows() % 2);
+          global_reg_scale =
+              static_cast<float>(full_h2) / static_cast<float>(ref_reg.rows());
         }
-        return w;
-    };
+        Matrix2Df ref_ecc = registration::prepare_ecc_image(ref_reg);
 
-    std::vector<Tile> tiles_phase56 = tiles;
-    if (max_tiles > 0 && tiles_phase56.size() > static_cast<size_t>(max_tiles)) {
-        tiles_phase56.resize(static_cast<size_t>(max_tiles));
-    }
-
-    int refine_pass = 0;
-    const int max_refine_passes = cfg.v4.adaptive_tiles.max_refine_passes;
-    const float refine_variance_threshold = cfg.v4.adaptive_tiles.refine_variance_threshold;
-    const float refine_cc_threshold = 0.5f;
-    const int refine_min_tile_size = std::max(cfg.v4.adaptive_tiles.min_tile_size_px, cfg.tile.min_size);
-    const bool reduced_mode = (static_cast<int>(frames.size()) < cfg.assumptions.frames_reduced_threshold);
-    const bool skip_clustering_in_reduced = (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
-
-    std::vector<std::vector<TileMetrics>> local_metrics;
-    std::vector<std::vector<float>> local_weights;
-    std::vector<float> tile_fwhm_median;
-    std::vector<int> tile_valid_counts;
-    std::vector<float> tile_warp_variances;
-    std::vector<float> tile_mean_correlations;
-    std::vector<float> tile_post_contrast;
-    std::vector<float> tile_post_background;
-    std::vector<float> tile_post_snr;
-    std::vector<float> tile_mean_dx;
-    std::vector<float> tile_mean_dy;
-    std::vector<float> tile_quality_median;
-    std::vector<uint8_t> tile_is_star;
-    std::vector<std::atomic<int>> frame_valid_tile_counts(frames.size());
-    Matrix2Df recon;
-    Matrix2Df weight_sum;
-
-    Matrix2Df first_img;
-    io::FitsHeader first_hdr;
-    {
-        auto first_pair = load_frame_normalized(0);
-        first_img = std::move(first_pair.first);
-        first_hdr = std::move(first_pair.second);
-    }
-
-    // Config parameters (shared by Phase 6 and synthetic TLR reconstruction)
-    int min_valid_frames = cfg.registration.local_tiles.min_valid_frames;
-    float ecc_cc_min = cfg.registration.local_tiles.ecc_cc_min;
-    int iterations = cfg.v4.iterations;
-    const int temporal_smoothing_window = cfg.registration.local_tiles.temporal_smoothing_window;
-    const float max_warp_delta_px = cfg.registration.local_tiles.max_warp_delta_px;
-    const float variance_sigma = cfg.registration.local_tiles.variance_window_sigma;
-    const bool allow_rotation = cfg.registration.local_tiles.allow_rotation;
-
-    const std::string phase6_io_mode = cfg.v4.phase6_io.mode;
-    const int phase6_lru_capacity = cfg.v4.phase6_io.lru_capacity;
-
-    emitter.phase_start(run_id, Phase::GLOBAL_REGISTRATION, "GLOBAL_REGISTRATION", log_file);
-
-    std::vector<WarpMatrix> global_frame_warps(frames.size(), registration::identity_warp());
-    std::vector<float> global_frame_cc(frames.size(), 0.0f);
-    std::string global_reg_status = "skipped";
-    core::json global_reg_extra;
-    int global_ref_idx = 0;
-    if (global_weights.size() > 0) {
-        float best_w = global_weights[0];
-        for (int i = 1; i < global_weights.size(); ++i) {
-            if (global_weights[i] > best_w) {
-                best_w = global_weights[i];
-                global_ref_idx = i;
-            }
+        // Diagnostic: proxy image stats
+        {
+          float rmin = ref_reg.minCoeff();
+          float rmax = ref_reg.maxCoeff();
+          float rmean = ref_reg.mean();
+          std::cerr << "[REG-DIAG] ref_reg " << ref_reg.rows() << "x" << ref_reg.cols()
+                    << " min=" << rmin << " max=" << rmax << " mean=" << rmean
+                    << std::endl;
         }
-    }
-    if (global_ref_idx < 0 || global_ref_idx >= static_cast<int>(frames.size())) {
-        global_ref_idx = 0;
-    }
-    global_reg_extra["ref_frame"] = global_ref_idx;
 
-    if (!frames.empty()) {
-        try {
-            Matrix2Df ref_full;
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          if (static_cast<int>(fi) == global_ref_idx) {
+            global_frame_warps[fi] = registration::identity_warp();
+            global_frame_cc[fi] = 1.0f;
+          } else {
+            Matrix2Df mov_full;
             {
-                auto pair = load_frame_normalized(static_cast<size_t>(global_ref_idx));
-                ref_full = std::move(pair.first);
+              auto pair = load_frame_normalized(fi);
+              mov_full = std::move(pair.first);
             }
-            if (ref_full.size() <= 0) {
-                global_reg_status = "error";
-                global_reg_extra["error"] = "ref_frame_empty";
+            if (mov_full.size() <= 0) {
+              global_frame_warps[fi] = registration::identity_warp();
+              global_frame_cc[fi] = 0.0f;
             } else {
-                Matrix2Df ref_reg = (detected_mode == ColorMode::OSC)
-                                      ? image::cfa_green_proxy_downsample2x2(ref_full, detected_bayer_str)
-                                      : downsample2x2_mean(ref_full);
-                float global_reg_scale = 1.0f;
-                if (ref_reg.rows() > 0) {
-                    int full_h2 = ref_full.rows() - (ref_full.rows() % 2);
-                    global_reg_scale = static_cast<float>(full_h2) / static_cast<float>(ref_reg.rows());
-                }
-                Matrix2Df ref_ecc = registration::prepare_ecc_image(ref_reg);
+              Matrix2Df mov_reg = (detected_mode == ColorMode::OSC)
+                                      ? image::cfa_green_proxy_downsample2x2(
+                                            mov_full, detected_bayer_str)
+                                      : registration::downsample2x2_mean(mov_full);
+              // Diagnostic: first few moving frames
+              if (fi < 3) {
+                float mmin = mov_reg.minCoeff();
+                float mmax = mov_reg.maxCoeff();
+                float mmean = mov_reg.mean();
+                std::cerr << "[REG-DIAG] mov_reg[" << fi << "] "
+                          << mov_reg.rows() << "x" << mov_reg.cols()
+                          << " min=" << mmin << " max=" << mmax
+                          << " mean=" << mmean << std::endl;
+              }
 
-                for (size_t fi = 0; fi < frames.size(); ++fi) {
-                    if (static_cast<int>(fi) == global_ref_idx) {
-                        global_frame_warps[fi] = registration::identity_warp();
-                        global_frame_cc[fi] = 1.0f;
-                    } else {
-                        Matrix2Df mov_full;
-                        {
-                            auto pair = load_frame_normalized(fi);
-                            mov_full = std::move(pair.first);
-                        }
-                        if (mov_full.size() <= 0) {
-                            global_frame_warps[fi] = registration::identity_warp();
-                            global_frame_cc[fi] = 0.0f;
-                        } else {
-                            Matrix2Df mov_reg = (detected_mode == ColorMode::OSC)
-                                                  ? image::cfa_green_proxy_downsample2x2(mov_full, detected_bayer_str)
-                                                  : downsample2x2_mean(mov_full);
-                            if (mov_reg.rows() != ref_reg.rows() || mov_reg.cols() != ref_reg.cols()) {
-                                global_frame_warps[fi] = registration::identity_warp();
-                                global_frame_cc[fi] = 0.0f;
-                            } else {
-                                Matrix2Df mov_ecc = registration::prepare_ecc_image(mov_reg);
-                                auto [dx_ds, dy_ds] = registration::phasecorr_translation(mov_ecc, ref_ecc);
-                                float max_shift_ds = 0.5f * static_cast<float>(std::min(mov_reg.rows(), mov_reg.cols()));
-                                dx_ds = std::max(-max_shift_ds, std::min(max_shift_ds, dx_ds));
-                                dy_ds = std::max(-max_shift_ds, std::min(max_shift_ds, dy_ds));
+              if (mov_reg.rows() != ref_reg.rows() ||
+                  mov_reg.cols() != ref_reg.cols()) {
+                global_frame_warps[fi] = registration::identity_warp();
+                global_frame_cc[fi] = 0.0f;
+              } else {
+                // Delegate to canonical cascade in module
+                auto sfr = registration::register_single_frame(
+                    mov_reg, ref_reg, cfg.registration);
 
-                                WarpMatrix init_ds = registration::identity_warp();
-                                init_ds(0, 2) = dx_ds;
-                                init_ds(1, 2) = dy_ds;
-
-                                RegistrationResult rr = registration::ecc_warp(mov_ecc, ref_ecc, allow_rotation, init_ds, 100, 1.0e-6f);
-                                WarpMatrix w_ds = rr.success ? rr.warp : init_ds;
-                                global_frame_cc[fi] = rr.success ? rr.correlation : 0.0f;
-
-                                WarpMatrix w_full = w_ds;
-                                w_full(0, 2) *= global_reg_scale;
-                                w_full(1, 2) *= global_reg_scale;
-                                global_frame_warps[fi] = w_full;
-                            }
-                        }
-                    }
-
-                    const float p = frames.empty() ? 1.0f : static_cast<float>(fi + 1) / static_cast<float>(frames.size());
-                    emitter.phase_progress(run_id, Phase::GLOBAL_REGISTRATION, p,
-                                           "global_reg " + std::to_string(fi + 1) + "/" + std::to_string(frames.size()),
-                                           log_file);
+                if (sfr.reg.success) {
+                  global_frame_cc[fi] = sfr.reg.correlation;
+                  WarpMatrix w_full = sfr.reg.warp;
+                  w_full(0, 2) *= global_reg_scale;
+                  w_full(1, 2) *= global_reg_scale;
+                  global_frame_warps[fi] = w_full;
+                } else {
+                  global_frame_warps[fi] = registration::identity_warp();
+                  global_frame_cc[fi] = 0.0f;
                 }
 
-                global_reg_status = "ok";
-                try {
-                    core::json j;
-                    j["num_frames"] = static_cast<int>(frames.size());
-                    j["scale"] = global_reg_scale;
-                    j["ref_frame"] = global_ref_idx;
-                    j["cc"] = core::json::array();
-                    j["warps"] = core::json::array();
-                    for (size_t fi = 0; fi < frames.size(); ++fi) {
-                        const auto& w = global_frame_warps[fi];
-                        j["cc"].push_back(global_frame_cc[fi]);
-                        j["warps"].push_back({
-                            {"a00", w(0, 0)},
-                            {"a01", w(0, 1)},
-                            {"tx", w(0, 2)},
-                            {"a10", w(1, 0)},
-                            {"a11", w(1, 1)},
-                            {"ty", w(1, 2)},
-                        });
-                    }
-                    core::write_text(run_dir / "artifacts" / "global_registration.json", j.dump(2));
-                } catch (...) {
+                // Per-frame logging
+                if (fi < 5 || fi == frames.size() - 1 ||
+                    (fi % 50 == 0)) {
+                  std::cerr << "[REG] frame " << fi << "/" << frames.size()
+                            << " method=" << sfr.method_used
+                            << " ncc_id=" << sfr.ncc_identity
+                            << " cc=" << global_frame_cc[fi]
+                            << std::endl;
                 }
+              }
             }
-        } catch (const std::exception& e) {
-            global_reg_status = "error";
-            global_reg_extra["error"] = e.what();
-        } catch (...) {
-            global_reg_status = "error";
-            global_reg_extra["error"] = "unknown_error";
+          }
+
+          const float p = frames.empty()
+                              ? 1.0f
+                              : static_cast<float>(fi + 1) /
+                                    static_cast<float>(frames.size());
+          emitter.phase_progress(run_id, Phase::REGISTRATION, p,
+                                 "global_reg " + std::to_string(fi + 1) + "/" +
+                                     std::to_string(frames.size()),
+                                 log_file);
         }
-    } else {
-        global_reg_extra["reason"] = "no_frames";
+
+        global_reg_status = "ok";
+        try {
+          core::json j;
+          j["num_frames"] = static_cast<int>(frames.size());
+          j["scale"] = global_reg_scale;
+          j["ref_frame"] = global_ref_idx;
+          j["cc"] = core::json::array();
+          j["warps"] = core::json::array();
+          for (size_t fi = 0; fi < frames.size(); ++fi) {
+            const auto &w = global_frame_warps[fi];
+            j["cc"].push_back(global_frame_cc[fi]);
+            j["warps"].push_back({
+                {"a00", w(0, 0)},
+                {"a01", w(0, 1)},
+                {"tx", w(0, 2)},
+                {"a10", w(1, 0)},
+                {"a11", w(1, 1)},
+                {"ty", w(1, 2)},
+            });
+          }
+          core::write_text(run_dir / "artifacts" / "global_registration.json",
+                           j.dump(2));
+
+          if (cfg.output.write_registered_frames) {
+            fs::create_directories(run_dir / cfg.output.registered_dir);
+            // first_header is available from outer scope
+
+            for (size_t fi = 0; fi < frames.size(); ++fi) {
+              if (static_cast<size_t>(fi) >= global_frame_warps.size())
+                continue;
+              const auto &w = global_frame_warps[fi];
+
+              auto pair = load_frame_normalized(fi);
+              Matrix2Df img = std::move(pair.first);
+              if (img.size() <= 0)
+                continue;
+
+              Matrix2Df out_img = image::apply_global_warp(img, w,
+                                                          detected_mode);
+
+              std::ostringstream name;
+              name << "frame_" << std::setw(4) << std::setfill('0') << fi
+                   << ".fits";
+              io::write_fits_float(run_dir / cfg.output.registered_dir /
+                                       name.str(),
+                                   out_img, first_header);
+            }
+          }
+
+        } catch (...) {
+        }
+      }
+    } catch (const std::exception &e) {
+      global_reg_status = "error";
+      global_reg_extra["error"] = e.what();
+    } catch (...) {
+      global_reg_status = "error";
+      global_reg_extra["error"] = "unknown_error";
     }
+  } else {
+    global_reg_extra["reason"] = "no_frames";
+  }
 
-    emitter.phase_end(run_id, Phase::GLOBAL_REGISTRATION, global_reg_status, global_reg_extra, log_file);
+  // Methodik v3: no frame selection. Registration may fall back to identity,
+  // but all frames are still kept for subsequent weighting/stacking.
+  int n_cc_positive = 0;
+  int n_cc_zero = 0;
+  int n_cc_negative = 0;
+  for (size_t fi = 0; fi < frames.size(); ++fi) {
+    if (global_frame_cc[fi] > 0.0f) {
+      ++n_cc_positive;
+    } else if (global_frame_cc[fi] < 0.0f) {
+      ++n_cc_negative;
+    } else {
+      ++n_cc_zero;
+    }
+  }
+  std::cerr << "[REG] cc>0: " << n_cc_positive << ", cc==0: " << n_cc_zero
+            << ", cc<0: " << n_cc_negative << std::endl;
+  global_reg_extra["frames_cc_positive"] = n_cc_positive;
+  global_reg_extra["frames_cc_zero"] = n_cc_zero;
+  global_reg_extra["frames_cc_negative"] = n_cc_negative;
 
-    auto global_warp_for_tile = [&](size_t fi, const Tile& t) -> WarpMatrix {
-         WarpMatrix w = (fi < global_frame_warps.size()) ? global_frame_warps[fi] : registration::identity_warp();
-         if (!allow_rotation) {
-             w(0, 0) = 1.0f;
-             w(0, 1) = 0.0f;
-             w(1, 0) = 0.0f;
-             w(1, 1) = 1.0f;
-         }
-         const float x0 = static_cast<float>(std::max(0, t.x));
-         const float y0 = static_cast<float>(std::max(0, t.y));
-         const float a00 = w(0, 0);
-         const float a01 = w(0, 1);
-         const float a10 = w(1, 0);
-         const float a11 = w(1, 1);
-         const float tx = w(0, 2);
-         const float ty = w(1, 2);
-         w(0, 2) = (a00 * x0 + a01 * y0 + tx - x0);
-         w(1, 2) = (a10 * x0 + a11 * y0 + ty - y0);
-         return w;
-     };
+  emitter.phase_end(run_id, Phase::REGISTRATION, global_reg_status,
+                    global_reg_extra, log_file);
 
-    auto prewarp_tile_global = [&](const Matrix2Df& tile_img, size_t fi, const Tile& t) -> Matrix2Df {
-         if (tile_img.size() <= 0) return tile_img;
-         WarpMatrix w = global_warp_for_tile(fi, t);
-         const float eps = 1.0e-6f;
-         const bool identity =
-             std::fabs(w(0, 0) - 1.0f) < eps && std::fabs(w(0, 1)) < eps &&
-             std::fabs(w(1, 0)) < eps && std::fabs(w(1, 1) - 1.0f) < eps &&
-             std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
-         if (identity) return tile_img;
-         if (detected_mode == ColorMode::OSC) {
-             return image::warp_cfa_mosaic_via_subplanes(tile_img, w, tile_img.rows(), tile_img.cols());
-         }
-         return registration::apply_warp(tile_img, w);
-    };
+  // Pre-warp all frames at full resolution before tile extraction.
+  // Applying rotation warps to small tile ROIs is fundamentally broken:
+  // warpAffine needs source pixels outside the tile boundary that don't
+  // exist, causing CFA pattern corruption (colored tile rectangles).
+  std::vector<Matrix2Df> prewarped_frames(frames.size());
+  std::vector<uint8_t> frame_has_data(frames.size(), 0);
+  int n_frames_with_data = 0;
+  for (size_t fi = 0; fi < frames.size(); ++fi) {
+    auto pair = load_frame_normalized(fi);
+    Matrix2Df img = std::move(pair.first);
+    if (img.size() <= 0) {
+      prewarped_frames[fi] = Matrix2Df();
+      continue;
+    }
+    const auto &w = global_frame_warps[fi];
+    const float eps = 1.0e-6f;
+    const bool is_identity =
+        std::fabs(w(0, 0) - 1.0f) < eps && std::fabs(w(0, 1)) < eps &&
+        std::fabs(w(1, 0)) < eps && std::fabs(w(1, 1) - 1.0f) < eps &&
+        std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
+    if (is_identity) {
+      prewarped_frames[fi] = std::move(img);
+    } else {
+      prewarped_frames[fi] = image::apply_global_warp(img, w, detected_mode);
+    }
+    if (prewarped_frames[fi].size() > 0) {
+      frame_has_data[fi] = 1;
+      ++n_frames_with_data;
+    }
+  }
 
-    bool run_validation_failed = false;
+  bool run_validation_failed = false;
 
-    while (true) {
+  while (true) {
     // Phase 5: LOCAL_METRICS (compute tile metrics per frame)
-    emitter.phase_start(run_id, Phase::LOCAL_METRICS, "LOCAL_METRICS", log_file);
+    emitter.phase_start(run_id, Phase::LOCAL_METRICS, "LOCAL_METRICS",
+                        log_file);
 
     local_metrics.assign(frames.size(), {});
     local_weights.assign(frames.size(), {});
 
-    const std::string phase5_io_mode = cfg.v4.phase6_io.mode;
-
     for (size_t fi = 0; fi < frames.size(); ++fi) {
-        local_metrics[fi].reserve(tiles_phase56.size());
-        local_weights[fi].reserve(tiles_phase56.size());
+      local_metrics[fi].reserve(tiles_phase56.size());
+      local_weights[fi].reserve(tiles_phase56.size());
 
-        Matrix2Df img;
-        if (phase5_io_mode != "roi") {
-            auto pair = load_frame_normalized(fi);
-            img = std::move(pair.first);
-        }
-
+      if (!frame_has_data[fi]) {
         for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-            const Tile& t = tiles_phase56[ti];
-            Matrix2Df tile_img;
+          TileMetrics z;
+          z.fwhm = 0.0f;
+          z.roundness = 0.0f;
+          z.contrast = 0.0f;
+          z.sharpness = 0.0f;
+          z.background = 0.0f;
+          z.noise = 0.0f;
+          z.gradient_energy = 0.0f;
+          z.star_count = 0;
+          z.type = TileType::STRUCTURE;
+          z.quality_score = 0.0f;
+          local_metrics[fi].push_back(z);
+          local_weights[fi].push_back(0.0f);
+        }
+        continue;
+      }
 
-            if (phase5_io_mode == "roi") {
-                const int rx0 = std::max(0, t.x);
-                const int ry0 = std::max(0, t.y);
-                tile_img = io::read_fits_region_float(frames[fi], rx0, ry0, t.width, t.height);
-                apply_normalization_inplace(tile_img, norm_scales[fi], detected_mode, detected_bayer_str, rx0, ry0);
-            } else {
-                tile_img = extract_tile(img, t);
-            }
+      for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+        const Tile &t = tiles_phase56[ti];
+        Matrix2Df tile_img = image::extract_tile(prewarped_frames[fi], t);
 
-            if (tile_img.size() <= 0) {
-                TileMetrics z;
-                z.fwhm = 0.0f;
-                z.roundness = 0.0f;
-                z.contrast = 0.0f;
-                z.sharpness = 0.0f;
-                z.background = 0.0f;
-                z.noise = 0.0f;
-                z.gradient_energy = 0.0f;
-                z.star_count = 0;
-                z.type = TileType::STRUCTURE;
-                z.quality_score = 0.0f;
-                local_metrics[fi].push_back(z);
-                local_weights[fi].push_back(1.0f);
-                continue;
-            }
-
-            TileMetrics tm = metrics::calculate_tile_metrics(tile_img);
-            local_metrics[fi].push_back(tm);
-            local_weights[fi].push_back(1.0f);
+        if (tile_img.size() <= 0) {
+          TileMetrics z;
+          z.fwhm = 0.0f;
+          z.roundness = 0.0f;
+          z.contrast = 0.0f;
+          z.sharpness = 0.0f;
+          z.background = 0.0f;
+          z.noise = 0.0f;
+          z.gradient_energy = 0.0f;
+          z.star_count = 0;
+          z.type = TileType::STRUCTURE;
+          z.quality_score = 0.0f;
+          local_metrics[fi].push_back(z);
+          local_weights[fi].push_back(0.0f);
+          continue;
         }
 
-        const float p = frames.empty() ? 1.0f : static_cast<float>(fi + 1) / static_cast<float>(frames.size());
-        emitter.phase_progress(run_id, Phase::LOCAL_METRICS, p,
-                               "local_metrics " + std::to_string(fi + 1) + "/" + std::to_string(frames.size()),
-                               log_file);
+        TileMetrics tm = metrics::calculate_tile_metrics(tile_img);
+        local_metrics[fi].push_back(tm);
+        local_weights[fi].push_back(1.0f);
+      }
+
+      const float p = frames.empty() ? 1.0f
+                                     : static_cast<float>(fi + 1) /
+                                           static_cast<float>(frames.size());
+      emitter.phase_progress(run_id, Phase::LOCAL_METRICS, p,
+                             "local_metrics " + std::to_string(fi + 1) + "/" +
+                                 std::to_string(frames.size()),
+                             log_file);
     }
 
+    std::vector<uint8_t> tile_star_flags(tiles_phase56.size(), 0);
     {
-        auto robust_tilde = [&](const std::vector<float>& v, std::vector<float>& out) {
-            out.assign(v.size(), 0.0f);
-            if (v.empty()) return;
-            std::vector<float> tmp = v;
-            float med = median_of(tmp);
-            for (float& x : tmp) x = std::fabs(x - med);
-            float mad = median_of(tmp);
-            float sigma = 1.4826f * mad;
-            if (!(sigma > 0.0f)) {
-                std::fill(out.begin(), out.end(), 0.0f);
-                return;
-            }
-            for (size_t i = 0; i < v.size(); ++i) {
-                out[i] = (v[i] - med) / sigma;
-            }
-        };
+      // robust_tilde is now core::robust_zscore (canonical module function)
 
-        auto clip3 = [&](float x) -> float {
-            return std::min(std::max(x, cfg.local_metrics.clamp[0]), cfg.local_metrics.clamp[1]);
-        };
+      auto clip3 = [&](float x) -> float {
+        return std::min(std::max(x, cfg.local_metrics.clamp[0]),
+                        cfg.local_metrics.clamp[1]);
+      };
 
-        const int star_thr = cfg.tile.star_min_count;
-        const float eps = 1.0e-12f;
+      const int star_thr = cfg.tile.star_min_count;
+      const float eps = 1.0e-12f;
 
-        const size_t n_frames = local_metrics.size();
-        const size_t n_tiles = tiles_phase56.size();
-        for (size_t ti = 0; ti < n_tiles; ++ti) {
-            std::vector<float> fwhm_log;
-            std::vector<float> roundness;
-            std::vector<float> contrast;
-            std::vector<float> bg;
-            std::vector<float> noise;
-            std::vector<float> energy;
-            std::vector<float> star_counts;
+      const size_t n_frames = local_metrics.size();
+      const size_t n_tiles = tiles_phase56.size();
+      for (size_t ti = 0; ti < n_tiles; ++ti) {
+        std::vector<float> fwhm;
+        std::vector<float> roundness;
+        std::vector<float> contrast;
+        std::vector<float> bg;
+        std::vector<float> energy_over_noise;
+        std::vector<float> star_counts;
 
-            fwhm_log.reserve(n_frames);
-            roundness.reserve(n_frames);
-            contrast.reserve(n_frames);
-            bg.reserve(n_frames);
-            noise.reserve(n_frames);
-            energy.reserve(n_frames);
-            star_counts.reserve(n_frames);
+        fwhm.reserve(n_frames);
+        roundness.reserve(n_frames);
+        contrast.reserve(n_frames);
+        bg.reserve(n_frames);
+        energy_over_noise.reserve(n_frames);
+        star_counts.reserve(n_frames);
 
-            for (size_t fi = 0; fi < n_frames; ++fi) {
-                const TileMetrics& tm = local_metrics[fi][ti];
-                fwhm_log.push_back(std::log(std::max(tm.fwhm, 1.0e-6f)));
-                roundness.push_back(tm.roundness);
-                contrast.push_back(tm.contrast);
-                bg.push_back(tm.background);
-                noise.push_back(tm.noise);
-                energy.push_back(tm.gradient_energy);
-                star_counts.push_back(static_cast<float>(tm.star_count));
-            }
-
-            std::vector<float> sc_tmp = star_counts;
-            float sc_med = median_of(sc_tmp);
-            const TileType tile_type = (sc_med >= static_cast<float>(star_thr)) ? TileType::STAR : TileType::STRUCTURE;
-
-            std::vector<float> fwhm_t, r_t, c_t, b_t, s_t, e_t;
-            robust_tilde(fwhm_log, fwhm_t);
-            robust_tilde(roundness, r_t);
-            robust_tilde(contrast, c_t);
-            robust_tilde(bg, b_t);
-            robust_tilde(noise, s_t);
-            robust_tilde(energy, e_t);
-
-            for (size_t fi = 0; fi < n_frames; ++fi) {
-                TileMetrics& tm = local_metrics[fi][ti];
-                tm.type = tile_type;
-
-                float q = 0.0f;
-                if (tile_type == TileType::STAR) {
-                    q = cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_t[fi]) +
-                        cfg.local_metrics.star_mode.weights.roundness * (r_t[fi]) +
-                        cfg.local_metrics.star_mode.weights.contrast * (c_t[fi]);
-                } else {
-                    float denom = s_t[fi];
-                    float ratio = (std::fabs(denom) > eps) ? (e_t[fi] / denom) : 0.0f;
-                    q = cfg.local_metrics.structure_mode.metric_weight * ratio +
-                        cfg.local_metrics.structure_mode.background_weight * (-b_t[fi]);
-                }
-
-                q = clip3(q);
-                tm.quality_score = q;
-                local_weights[fi][ti] = std::exp(q);
-            }
+        // Collect metrics from frames that actually have image data
+        std::vector<size_t> usable_indices;
+        usable_indices.reserve(n_frames);
+        for (size_t fi = 0; fi < n_frames; ++fi) {
+          if (!frame_has_data[fi])
+            continue;
+          usable_indices.push_back(fi);
+          const TileMetrics &tm = local_metrics[fi][ti];
+          // STAR mode uses FWHM directly (no log transform)
+          fwhm.push_back(tm.fwhm);
+          roundness.push_back(tm.roundness);
+          contrast.push_back(tm.contrast);
+          bg.push_back(tm.background);
+          // STRUCTURE mode uses robust z-score of (E / σ)
+          const float denom = tm.noise;
+          const float ratio = (denom > eps) ? (tm.gradient_energy / denom) : 0.0f;
+          energy_over_noise.push_back(ratio);
+          star_counts.push_back(static_cast<float>(tm.star_count));
         }
 
-        core::json artifact;
-        artifact["num_frames"] = static_cast<int>(frames.size());
-        artifact["num_tiles"] = static_cast<int>(tiles_phase56.size());
-        artifact["tile_metrics"] = core::json::array();
+        std::vector<float> sc_tmp = star_counts;
+        float sc_med = sc_tmp.empty() ? 0.0f : core::median_of(sc_tmp);
+        const TileType tile_type = (sc_med >= static_cast<float>(star_thr))
+                                       ? TileType::STAR
+                                       : TileType::STRUCTURE;
+        tile_star_flags[ti] = (tile_type == TileType::STAR) ? 1 : 0;
 
-        for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
-            core::json fm = core::json::array();
-            for (size_t ti = 0; ti < local_metrics[fi].size(); ++ti) {
-                const auto& m = local_metrics[fi][ti];
-                fm.push_back({
-                    {"fwhm", m.fwhm},
-                    {"roundness", m.roundness},
-                    {"contrast", m.contrast},
-                    {"sharpness", m.sharpness},
-                    {"background", m.background},
-                    {"noise", m.noise},
-                    {"gradient_energy", m.gradient_energy},
-                    {"star_count", m.star_count},
-                    {"tile_type", (m.type == TileType::STAR) ? "STAR" : "STRUCTURE"},
-                    {"quality_score", m.quality_score},
-                    {"local_weight", local_weights[fi][ti]},
-                });
-            }
-            artifact["tile_metrics"].push_back(fm);
+        std::vector<float> fwhm_t, r_t, c_t, b_t, en_t;
+        core::robust_zscore(fwhm, fwhm_t);
+        core::robust_zscore(roundness, r_t);
+        core::robust_zscore(contrast, c_t);
+        core::robust_zscore(bg, b_t);
+        core::robust_zscore(energy_over_noise, en_t);
+
+        // Assign z-score-based weights to usable frames
+        for (size_t ui = 0; ui < usable_indices.size(); ++ui) {
+          size_t fi = usable_indices[ui];
+          TileMetrics &tm = local_metrics[fi][ti];
+          tm.type = tile_type;
+
+          float q = 0.0f;
+          if (tile_type == TileType::STAR) {
+            q = cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_t[ui]) +
+                cfg.local_metrics.star_mode.weights.roundness * (r_t[ui]) +
+                cfg.local_metrics.star_mode.weights.contrast * (c_t[ui]);
+          } else {
+            q = cfg.local_metrics.structure_mode.metric_weight * (en_t[ui]) +
+                cfg.local_metrics.structure_mode.background_weight * (-b_t[ui]);
+          }
+
+          q = clip3(q);
+          tm.quality_score = q;
+          local_weights[fi][ti] = std::exp(q);
         }
+      }
 
-        core::write_text(run_dir / "artifacts" / "local_metrics.json", artifact.dump(2));
+      core::json artifact;
+      artifact["num_frames"] = static_cast<int>(frames.size());
+      artifact["num_tiles"] = static_cast<int>(tiles_phase56.size());
+      artifact["tile_metrics"] = core::json::array();
+
+      for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
+        core::json fm = core::json::array();
+        for (size_t ti = 0; ti < local_metrics[fi].size(); ++ti) {
+          const auto &m = local_metrics[fi][ti];
+          fm.push_back({
+              {"fwhm", m.fwhm},
+              {"roundness", m.roundness},
+              {"contrast", m.contrast},
+              {"sharpness", m.sharpness},
+              {"background", m.background},
+              {"noise", m.noise},
+              {"gradient_energy", m.gradient_energy},
+              {"star_count", m.star_count},
+              {"tile_type", (m.type == TileType::STAR) ? "STAR" : "STRUCTURE"},
+              {"quality_score", m.quality_score},
+              {"local_weight", local_weights[fi][ti]},
+          });
+        }
+        artifact["tile_metrics"].push_back(fm);
+      }
+
+      core::write_text(run_dir / "artifacts" / "local_metrics.json",
+                       artifact.dump(2));
     }
 
     emitter.phase_end(run_id, Phase::LOCAL_METRICS, "ok",
@@ -1836,167 +1322,141 @@ int run_command(const std::string& config_path, const std::string& input_dir,
 
     // Precompute per-tile median quality and type (for Wiener denoise gating)
     tile_quality_median.assign(tiles_phase56.size(), 0.0f);
-    tile_is_star.assign(tiles_phase56.size(), 0);
+    tile_is_star = tile_star_flags;
     if (!local_metrics.empty()) {
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-            std::vector<float> qs;
-            qs.reserve(local_metrics.size());
-            for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
-                if (ti < local_metrics[fi].size()) {
-                    qs.push_back(local_metrics[fi][ti].quality_score);
-                }
-            }
-            tile_quality_median[ti] = qs.empty() ? 0.0f : median_of(qs);
-            if (!local_metrics[0].empty() && ti < local_metrics[0].size()) {
-                tile_is_star[ti] = (local_metrics[0][ti].type == TileType::STAR) ? 1 : 0;
-            }
+      for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+        std::vector<float> qs;
+        qs.reserve(local_metrics.size());
+        for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
+          if (!frame_has_data[fi])
+            continue;
+          if (ti < local_metrics[fi].size()) {
+            qs.push_back(local_metrics[fi][ti].quality_score);
+          }
         }
+        tile_quality_median[ti] = qs.empty() ? 0.0f : core::median_of(qs);
+      }
     }
 
     // Precompute per-tile median FWHM (for FWHM heatmap validation artifact)
     tile_fwhm_median.assign(tiles_phase56.size(), 0.0f);
     if (!local_metrics.empty()) {
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-            std::vector<float> fwhms;
-            fwhms.reserve(local_metrics.size());
-            for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
-                if (ti < local_metrics[fi].size()) {
-                    fwhms.push_back(local_metrics[fi][ti].fwhm);
-                }
-            }
-            tile_fwhm_median[ti] = fwhms.empty() ? 0.0f : median_of(fwhms);
+      for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+        std::vector<float> fwhms;
+        fwhms.reserve(local_metrics.size());
+        for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
+          if (!frame_has_data[fi])
+            continue;
+          if (ti < local_metrics[fi].size()) {
+            fwhms.push_back(local_metrics[fi][ti].fwhm);
+          }
         }
+        tile_fwhm_median[ti] = fwhms.empty() ? 0.0f : core::median_of(fwhms);
+      }
     }
 
-    const bool reduced_mode = (static_cast<int>(frames.size()) < cfg.assumptions.frames_reduced_threshold);
-    const bool skip_clustering_in_reduced = (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
+    const bool reduced_mode = (n_frames_with_data <
+                               cfg.assumptions.frames_reduced_threshold);
+    const bool skip_clustering_in_reduced =
+        (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
 
-    // Phase 6: TILE_RECONSTRUCTION_TLR (Methodik v4 compliant)
-    // Features: iterative refinement, temporal smoothing, variance window
-    emitter.phase_start(run_id, Phase::TILE_RECONSTRUCTION_TLR, "TILE_RECONSTRUCTION_TLR", log_file);
+    // Phase 6: TILE_RECONSTRUCTION (Methodik v3)
+    emitter.phase_start(run_id, Phase::TILE_RECONSTRUCTION,
+                        "TILE_RECONSTRUCTION", log_file);
 
-    const int passes_total = std::max(1, cfg.v4.iterations);
-    const int total_tiles_planned = static_cast<int>(tiles_phase56.size()) * passes_total;
-    std::atomic<int> cumulative_tiles_processed{0};
+    const int passes_total = 1;
+    // Helper: post-warp metrics (// Methodik v3 §6)
+    auto compute_post_warp_metrics =
+        [&](const Matrix2Df &warped) -> std::tuple<float, float, float> {
+      if (warped.size() <= 0)
+        return {0.0f, 0.0f, 0.0f};
+      cv::Mat wcv(warped.rows(), warped.cols(), CV_32F,
+                  const_cast<float *>(warped.data()));
+      cv::Mat lap;
+      cv::Laplacian(wcv, lap, CV_32F);
+      cv::Scalar mean_sd, stddev_sd;
+      cv::meanStdDev(lap, mean_sd, stddev_sd);
+      float contrast = static_cast<float>(stddev_sd[0] * stddev_sd[0]);
 
-    // Helper: compute warp variance (Methodik v4 §9, §10)
-    auto compute_warp_variance = [](const std::vector<std::pair<float, float>>& translations) -> float {
-        if (translations.size() < 2) return 0.0f;
-        float sum_x = 0.0f, sum_y = 0.0f;
-        for (const auto& [dx, dy] : translations) {
-            sum_x += dx;
-            sum_y += dy;
-        }
-        float mean_x = sum_x / static_cast<float>(translations.size());
-        float mean_y = sum_y / static_cast<float>(translations.size());
-        float var_x = 0.0f, var_y = 0.0f;
-        for (const auto& [dx, dy] : translations) {
-            var_x += (dx - mean_x) * (dx - mean_x);
-            var_y += (dy - mean_y) * (dy - mean_y);
-        }
-        var_x /= static_cast<float>(translations.size());
-        var_y /= static_cast<float>(translations.size());
-        return var_x + var_y;
+      std::vector<float> px;
+      px.reserve(static_cast<size_t>(warped.size()));
+      for (Eigen::Index k = 0; k < warped.size(); ++k) {
+        px.push_back(warped.data()[k]);
+      }
+      float background = core::median_of(px);
+
+      float snr = 0.0f;
+      if (!px.empty()) {
+        float mad = core::robust_sigma_mad(px);
+        std::vector<float> sorted_px = px;
+        std::sort(sorted_px.begin(), sorted_px.end());
+        float p99 = core::percentile_from_sorted(sorted_px, 99.0f);
+        snr = (p99 - background) / (mad + 1.0e-6f);
+      }
+
+      return {contrast, background, snr};
     };
 
-    // Helper: robust median (local)
-    auto median_local = [](std::vector<float>& v) -> float {
-        if (v.empty()) return 0.0f;
-        const size_t n = v.size();
-        const size_t mid = n / 2;
-        std::nth_element(v.begin(), v.begin() + mid, v.end());
-        const float hi = v[mid];
-        if ((n % 2) == 1) return hi;
-        std::nth_element(v.begin(), v.begin() + (mid - 1), v.end());
-        const float lo = v[mid - 1];
-        return 0.5f * (lo + hi);
-    };
-
-    // Helper: MAD around median
-    auto mad_local = [&](const std::vector<float>& v, float med) -> float {
-        if (v.empty()) return 0.0f;
-        std::vector<float> dev;
-        dev.reserve(v.size());
-        for (float x : v) dev.push_back(std::fabs(x - med));
-        float mad = median_local(dev);
-        return 1.4826f * mad;
-    };
-
-    // Helper: post-warp metrics (Methodik v4 §6)
-    auto compute_post_warp_metrics = [&](const Matrix2Df& warped) -> std::tuple<float, float, float> {
-        if (warped.size() <= 0) return {0.0f, 0.0f, 0.0f};
-        cv::Mat wcv(warped.rows(), warped.cols(), CV_32F, const_cast<float*>(warped.data()));
-        cv::Mat lap;
-        cv::Laplacian(wcv, lap, CV_32F);
-        cv::Scalar mean, stddev;
-        cv::meanStdDev(lap, mean, stddev);
-        float contrast = static_cast<float>(stddev[0] * stddev[0]);
-
-        std::vector<float> px;
-        px.reserve(static_cast<size_t>(warped.size()));
-        for (Eigen::Index k = 0; k < warped.size(); ++k) {
-            px.push_back(warped.data()[k]);
-        }
-        float background = median_local(px);
-
-        float snr = 0.0f;
-        if (!px.empty()) {
-            const size_t n = px.size();
-            size_t idx = static_cast<size_t>(std::floor(0.99 * static_cast<double>(n - 1)));
-            std::nth_element(px.begin(), px.begin() + idx, px.end());
-            float p99 = px[idx];
-            float mad = mad_local(px, background);
-            snr = (p99 - background) / (mad + 1.0e-6f);
-        }
-
-        return {contrast, background, snr};
-    };
-
-    // Helper: variance window weight ψ(var) (Methodik v4 §9)
-    auto variance_window_weight = [](float warp_variance, float sigma) -> float {
-        float w = std::exp(-warp_variance / (2.0f * sigma * sigma));
-        return std::max(w, 1.0e-3f);
-    };
-
-    // Helper: temporal smoothing of warps (Methodik v4 §5.3) - median filter
-    auto smooth_warps_translation = [](std::vector<std::pair<float, float>>& warps, int window) {
-        if (static_cast<int>(warps.size()) < window) return;
-        int half = window / 2;
-        std::vector<std::pair<float, float>> smoothed(warps.size());
-        for (size_t i = 0; i < warps.size(); ++i) {
-            std::vector<float> xs, ys;
-            for (int j = std::max(0, static_cast<int>(i) - half);
-                 j < std::min(static_cast<int>(warps.size()), static_cast<int>(i) + half + 1); ++j) {
-                xs.push_back(warps[static_cast<size_t>(j)].first);
-                ys.push_back(warps[static_cast<size_t>(j)].second);
-            }
-            std::sort(xs.begin(), xs.end());
-            std::sort(ys.begin(), ys.end());
-            smoothed[i].first = xs[xs.size() / 2];
-            smoothed[i].second = ys[ys.size() / 2];
-        }
-        warps = smoothed;
-    };
+    const bool osc_mode = (detected_mode == ColorMode::OSC);
 
     recon = Matrix2Df::Zero(first_img.rows(), first_img.cols());
     weight_sum = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+    if (osc_mode) {
+      recon_R = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+      recon_G = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+      recon_B = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+    }
 
     const int prev_cv_threads_recon = cv::getNumThreads();
     cv::setNumThreads(1);
 
     // Parallel processing configuration
-    int parallel_tiles = cfg.v4.parallel_tiles;
+    int parallel_tiles = 4;
     int cpu_cores = std::thread::hardware_concurrency();
-    if (cpu_cores == 0) cpu_cores = 1;
+    if (cpu_cores == 0)
+      cpu_cores = 1;
     if (parallel_tiles > cpu_cores) {
-        std::cout << "[WARNING] parallel_tiles (" << parallel_tiles << ") exceeds CPU cores (" 
-                  << cpu_cores << "), capping to " << cpu_cores << std::endl;
-        parallel_tiles = cpu_cores;
+      std::cout << "[WARNING] parallel_tiles (" << parallel_tiles
+                << ") exceeds CPU cores (" << cpu_cores << "), capping to "
+                << cpu_cores << std::endl;
+      parallel_tiles = cpu_cores;
     }
-    if (parallel_tiles < 1) parallel_tiles = 1;
+    if (parallel_tiles < 1)
+      parallel_tiles = 1;
 
-    std::cout << "[Phase 6] Using " << parallel_tiles << " parallel workers for " 
-              << tiles_phase56.size() << " tiles" << std::endl;
+    // OSC RGB stacking can be memory-heavy. Cap worker count based on an
+    // estimate of per-tile storage (one channel worth of frame tiles).
+    if (osc_mode && !tiles_phase56.empty()) {
+      size_t max_tile_px = 0;
+      for (const auto &t : tiles_phase56) {
+        size_t px = static_cast<size_t>(std::max(0, t.width)) *
+                    static_cast<size_t>(std::max(0, t.height));
+        if (px > max_tile_px)
+          max_tile_px = px;
+      }
+      // Peak per worker is ~ N_frames * tile_pixels * sizeof(float)
+      // (channel stacking is sequential, so not multiplied by 3).
+      const size_t bytes_per_worker =
+          max_tile_px * static_cast<size_t>(std::max(1, n_frames_with_data)) *
+          sizeof(float);
+      const size_t budget = 512ull * 1024ull * 1024ull; // conservative
+      if (bytes_per_worker > 0) {
+        int max_workers_by_mem = static_cast<int>(budget / bytes_per_worker);
+        if (max_workers_by_mem < 1)
+          max_workers_by_mem = 1;
+        if (parallel_tiles > max_workers_by_mem) {
+          std::cout << "[Phase 6] OSC memory cap: reducing parallel workers from "
+                    << parallel_tiles << " to " << max_workers_by_mem
+                    << " (est. " << (bytes_per_worker / (1024.0 * 1024.0))
+                    << " MiB per worker)" << std::endl;
+          parallel_tiles = max_workers_by_mem;
+        }
+      }
+    }
+
+    std::cout << "[Phase 6] Using " << parallel_tiles
+              << " parallel workers for " << tiles_phase56.size() << " tiles"
+              << std::endl;
 
     tile_valid_counts.assign(tiles_phase56.size(), 0);
     tile_warp_variances.assign(tiles_phase56.size(), 0.0f);
@@ -2006,1174 +1466,303 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     tile_post_snr.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dx.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dy.assign(tiles_phase56.size(), 0.0f);
-    for (auto& c : frame_valid_tile_counts) c.store(0);
+    for (auto &c : frame_valid_tile_counts)
+      c.store(0);
 
     // Thread-safe structures for parallel processing
     std::mutex recon_mutex;
+    std::mutex progress_mutex;
     std::atomic<size_t> tiles_completed{0};
     std::atomic<size_t> tiles_failed{0};
 
-    class FrameLruCache {
-    public:
-        explicit FrameLruCache(size_t capacity) : capacity_(capacity) {}
+    // Worker function for parallel tile processing (v3: global warp only, no
+    // local ECC)
+    auto process_tile = [&](size_t ti) {
+      const Tile &t = tiles_phase56[ti];
 
-        const Matrix2Df& get_or_load(size_t key, const std::function<Matrix2Df()>& loader) {
-            if (capacity_ == 0) {
-                scratch_ = loader();
-                return scratch_;
-            }
+      auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
+        // Extract tile from pre-warped full frame (already normalized + warped)
+        return image::extract_tile(prewarped_frames[fi], t);
+      };
 
-            auto it = map_.find(key);
-            if (it != map_.end()) {
-                lru_.splice(lru_.begin(), lru_, it->second);
-                return it->second->value;
-            }
+      std::vector<float> hann_x = reconstruction::make_hann_1d(t.width);
+      std::vector<float> hann_y = reconstruction::make_hann_1d(t.height);
 
-            Matrix2Df value = loader();
-            lru_.push_front(Node{key, std::move(value)});
-            map_[key] = lru_.begin();
+      std::vector<float> weights;
+      weights.reserve(frames.size());
 
-            if (lru_.size() > capacity_) {
-                auto last = std::prev(lru_.end());
-                map_.erase(last->key);
-                lru_.pop_back();
-            }
+      Matrix2Df tile_rec;
+      Matrix2Df tile_rec_R;
+      Matrix2Df tile_rec_G;
+      Matrix2Df tile_rec_B;
+      size_t n_valid = 0;
 
-            return lru_.begin()->value;
+      if (osc_mode) {
+        // Methodik v3 (OSC): stack in RGB space (debayer-before-stack).
+        // Important: keep peak memory bounded. We therefore stack channels
+        // sequentially (R then G then B) instead of holding 3× frame tiles.
+
+        const int origin_x = std::max(0, t.x);
+        const int origin_y = std::max(0, t.y);
+
+        std::vector<size_t> valid_frames;
+        std::vector<float> weights_valid;
+        valid_frames.reserve(frames.size());
+        weights_valid.reserve(frames.size());
+
+        // First pass: determine which frames provide a valid tile and compute
+        // weights once. Also count valid tiles per frame exactly once.
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          if (!frame_has_data[fi])
+            continue;
+          Matrix2Df tile_mosaic = load_tile_normalized(fi);
+          if (tile_mosaic.rows() != t.height || tile_mosaic.cols() != t.width)
+            continue;
+
+          valid_frames.push_back(fi);
+          frame_valid_tile_counts[fi].fetch_add(1);
+
+          float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                          ? global_weights[static_cast<int>(fi)]
+                          : 1.0f;
+          float L_ft =
+              (fi < local_weights.size() && ti < local_weights[fi].size())
+                  ? local_weights[fi][ti]
+                  : 1.0f;
+          weights_valid.push_back(G_f * L_ft);
         }
 
-    private:
-        struct Node {
-            size_t key;
-            Matrix2Df value;
-        };
-
-        size_t capacity_ = 0;
-        std::list<Node> lru_;
-        std::unordered_map<size_t, std::list<Node>::iterator> map_;
-        Matrix2Df scratch_;
-    };
-
-    // Worker function for parallel tile processing
-    auto process_tile = [&](size_t ti, FrameLruCache& frame_cache) {
-        const Tile& t = tiles_phase56[ti];
-
-        auto dbg = [&](const std::string& s) {
-            if (!debug_tile_reg || !debug_log_file.is_open()) return;
-            std::lock_guard<std::mutex> lock(debug_log_mutex);
-            debug_log_file << s << "\n";
-        };
-
-        dbg("tile=" + std::to_string(ti) +
-            " x=" + std::to_string(t.x) +
-            " y=" + std::to_string(t.y) +
-            " w=" + std::to_string(t.width) +
-            " h=" + std::to_string(t.height));
-
-        auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
-            const int rx0 = std::max(0, t.x);
-            const int ry0 = std::max(0, t.y);
-            if (phase6_io_mode == "roi") {
-                Matrix2Df tile_img = io::read_fits_region_float(frames[fi], rx0, ry0, t.width, t.height);
-                apply_normalization_inplace(tile_img, norm_scales[fi], detected_mode, detected_bayer_str, rx0, ry0);
-                return tile_img;
-            }
-            if (phase6_io_mode == "lru") {
-                const Matrix2Df& full = frame_cache.get_or_load(fi, [&]() {
-                    auto frame_pair = io::read_fits_float(frames[fi]);
-                    Matrix2Df img = frame_pair.first;
-                    apply_normalization_inplace(img, norm_scales[fi], detected_mode, detected_bayer_str, 0, 0);
-                    return img;
-                });
-                return extract_tile(full, t);
-            }
-
-            auto [img, _hdr] = load_frame_normalized(fi);
-            return extract_tile(img, t);
-        };
-
-        // Initial reference: temporal median of tile stack (Methodik v4 §5.2)
-        Matrix2Df ref_tile;
-        {
-            std::vector<Matrix2Df> tile_samples;
-            tile_samples.reserve(frames.size());
-            for (size_t fi = 0; fi < frames.size(); ++fi) {
-                Matrix2Df sample = load_tile_normalized(fi);
-                if (sample.size() > 0) {
-                    tile_samples.push_back(prewarp_tile_global(sample, fi, t));
-                }
-            }
-            if (tile_samples.empty()) {
-                tiles_failed++;
-                return;
-            }
-
-            const int rows = tile_samples[0].rows();
-            const int cols = tile_samples[0].cols();
-            ref_tile = Matrix2Df::Zero(rows, cols);
-
-            std::vector<float> vals;
-            vals.reserve(tile_samples.size());
-            for (int y = 0; y < rows; ++y) {
-                for (int x = 0; x < cols; ++x) {
-                    vals.clear();
-                    for (const auto& s : tile_samples) {
-                        if (s.rows() != rows || s.cols() != cols) continue;
-                        vals.push_back(s(y, x));
-                    }
-                    ref_tile(y, x) = vals.empty() ? 0.0f : median_of(vals);
-                }
-            }
+        if (valid_frames.empty()) {
+          tiles_failed++;
+          return;
         }
 
-        if (ref_tile.size() <= 0) {
-            tiles_failed++;
-            return;
-        }
+        auto stack_channel = [&](int which) -> Matrix2Df {
+          std::vector<Matrix2Df> chan_tiles;
+          chan_tiles.reserve(valid_frames.size());
 
-        std::vector<float> hann_x = make_hann_1d(ref_tile.cols());
-        std::vector<float> hann_y = make_hann_1d(ref_tile.rows());
+          for (size_t k = 0; k < valid_frames.size(); ++k) {
+            const size_t fi = valid_frames[k];
+            Matrix2Df tile_mosaic = load_tile_normalized(fi);
+            if (tile_mosaic.rows() != t.height || tile_mosaic.cols() != t.width)
+              return Matrix2Df();
 
-        // Iterative refinement (Methodik v4 §5.2)
-        std::vector<std::pair<float, float>> final_translations;
-        std::vector<float> final_correlations;
-        std::vector<Matrix2Df> final_warped_tiles;
-        std::vector<float> final_weights;
-
-        std::vector<size_t> final_frame_indices;
-        for (int iter = 0; iter < iterations; ++iter) {
-            // For OSC: use green proxy for registration (Methodik v4)
-            Matrix2Df ref_reg = (detected_mode == ColorMode::OSC) 
-                ? image::cfa_green_proxy_downsample2x2(ref_tile, detected_bayer_str)
-                : ref_tile;
-            Matrix2Df ref_ecc = registration::prepare_ecc_image(ref_reg);
-
-            std::vector<std::pair<float, float>> translations;
-            std::vector<float> correlations;
-            std::vector<Matrix2Df> warped_tiles;
-            std::vector<float> weights;
-            std::vector<size_t> frame_indices;
-
-            int ecc_failures = 0;
-            int tile_size_mismatches = 0;
-            for (size_t fi = 0; fi < frames.size(); ++fi) {
-                Matrix2Df mov_tile = load_tile_normalized(fi);
-                if (mov_tile.size() <= 0 || mov_tile.rows() != ref_tile.rows() || mov_tile.cols() != ref_tile.cols()) {
-                    tile_size_mismatches++;
-                    dbg("tile=" + std::to_string(ti) + " iter=" + std::to_string(iter) +
-                        " fi=" + std::to_string(fi) + " reject=size_mismatch");
-                    continue;
-                }
-
-                // Apply global prewarp to moving tile for consistent registration
-                Matrix2Df mov_pre = prewarp_tile_global(mov_tile, fi, t);
-
-                // For OSC: use green proxy for registration (Methodik v4)
-                Matrix2Df mov_reg = (detected_mode == ColorMode::OSC)
-                    ? image::cfa_green_proxy_downsample2x2(mov_pre, detected_bayer_str)
-                    : mov_pre;
-                Matrix2Df mov_ecc = registration::prepare_ecc_image(mov_reg);
-
-                float reg_scale = 1.0f;
-                if (detected_mode == ColorMode::OSC) {
-                    int full_h2 = mov_tile.rows() - (mov_tile.rows() % 2);
-                    reg_scale = (mov_reg.rows() > 0) ? (static_cast<float>(full_h2) / static_cast<float>(mov_reg.rows())) : 1.0f;
-                }
-
-                // Phase correlation for local residual shift (both ref and mov are now globally aligned)
-                auto [dx, dy] = registration::phasecorr_translation(mov_ecc, ref_ecc);
-                float max_shift = 0.5f * static_cast<float>(std::min(mov_reg.rows(), mov_reg.cols()));
-                dx = std::max(-max_shift, std::min(max_shift, dx));
-                dy = std::max(-max_shift, std::min(max_shift, dy));
-
-                // Init warp is local only (identity + phase corr), since mov is already globally prewarped
-                WarpMatrix init_reg = registration::identity_warp();
-                init_reg(0, 2) = dx;
-                init_reg(1, 2) = dy;
-                float init_dx_local = dx * reg_scale;
-                float init_dy_local = dy * reg_scale;
-
-                RegistrationResult rr = registration::ecc_warp(
-                    mov_ecc, ref_ecc, allow_rotation, init_reg, 50, 1.0e-4f);
-
-                // Use phase correlation as fallback if ECC fails (like Python reference)
-                float cc = 0.0f;
-                float final_dx_reg = init_reg(0, 2);
-                float final_dy_reg = init_reg(1, 2);
-                WarpMatrix final_warp_reg = registration::identity_warp();
-
-                if (rr.success) {
-                    cc = rr.correlation;
-                    final_dx_reg = rr.warp(0, 2);
-                    final_dy_reg = rr.warp(1, 2);
-                    if (allow_rotation) {
-                        final_warp_reg = rr.warp;
-                    } else {
-                        final_warp_reg(0, 2) = final_dx_reg;
-                        final_warp_reg(1, 2) = final_dy_reg;
-                    }
-                } else {
-                    ecc_failures++;
-                    final_warp_reg(0, 2) = final_dx_reg;
-                    final_warp_reg(1, 2) = final_dy_reg;
-                }
-
-                // Scale local warp to full resolution
-                WarpMatrix final_warp_local = final_warp_reg;
-                if (reg_scale != 1.0f) {
-                    final_warp_local(0, 2) *= reg_scale;
-                    final_warp_local(1, 2) *= reg_scale;
-                }
-                float local_dx = final_warp_local(0, 2);
-                float local_dy = final_warp_local(1, 2);
-
-                dbg("tile=" + std::to_string(ti) +
-                    " iter=" + std::to_string(iter) +
-                    " fi=" + std::to_string(fi) +
-                    " init_dx=" + std::to_string(init_dx_local) +
-                    " init_dy=" + std::to_string(init_dy_local) +
-                    " ecc_success=" + std::string(rr.success ? "1" : "0") +
-                    " cc=" + std::to_string(cc) +
-                    " local_dx=" + std::to_string(local_dx) +
-                    " local_dy=" + std::to_string(local_dy) +
-                    " scale=" + std::to_string(reg_scale));
-
-                translations.push_back({local_dx, local_dy});
-                correlations.push_back(cc);
-                frame_indices.push_back(fi);
-
-                // Apply local warp to the already globally prewarped tile
-                Matrix2Df mov_warped = (detected_mode == ColorMode::OSC)
-                    ? image::warp_cfa_mosaic_via_subplanes(mov_pre, final_warp_local, mov_pre.rows(), mov_pre.cols())
-                    : registration::apply_warp(mov_pre, final_warp_local);
-                warped_tiles.push_back(mov_warped);
-
-                float L_ft = 1.0f;
-                if (fi < local_weights.size() && ti < local_weights[fi].size()) {
-                    L_ft = local_weights[fi][ti];
-                }
-                float G_f = (fi < static_cast<size_t>(global_weights.size()))
-                                ? global_weights[static_cast<int>(fi)]
-                                : 1.0f;
-                float R_ft = std::exp(cfg.v4.beta * (cc - 1.0f));
-                weights.push_back(G_f * L_ft * R_ft);
-            }
-
-            if (translations.empty()) {
-                if (iter == 0 && ti == 0) {
-                    std::cerr << "Warning: Tile " << ti << " iter " << iter << ": All registrations failed. "
-                              << "ECC failures: " << ecc_failures << ", size mismatches: " << tile_size_mismatches 
-                              << ", ref_tile size: " << ref_tile.rows() << "x" << ref_tile.cols() << std::endl;
-                }
-                break;
-            }
-
-            // Temporal smoothing of warps (Methodik v4 §5.3)
-            if (temporal_smoothing_window > 1) {
-                smooth_warps_translation(translations, temporal_smoothing_window);
-            }
-
-            // Warp consistency check (Methodik v4 - prevents double stars)
-            if (max_warp_delta_px > 0.0f && translations.size() > 1) {
-                std::vector<float> dxs, dys;
-                for (const auto& [dx, dy] : translations) {
-                    dxs.push_back(dx);
-                    dys.push_back(dy);
-                }
-                std::sort(dxs.begin(), dxs.end());
-                std::sort(dys.begin(), dys.end());
-                float median_dx = dxs[dxs.size() / 2];
-                float median_dy = dys[dys.size() / 2];
-
-                std::vector<bool> valid_mask(translations.size(), true);
-                for (size_t i = 0; i < translations.size(); ++i) {
-                    float delta = std::sqrt(
-                        (translations[i].first - median_dx) * (translations[i].first - median_dx) +
-                        (translations[i].second - median_dy) * (translations[i].second - median_dy));
-                    if (delta > max_warp_delta_px) {
-                        valid_mask[i] = false;
-                        if (i < frame_indices.size()) {
-                            dbg("tile=" + std::to_string(ti) +
-                                " iter=" + std::to_string(iter) +
-                                " fi=" + std::to_string(frame_indices[i]) +
-                                " reject=warp_delta" +
-                                " delta=" + std::to_string(delta) +
-                                " max=" + std::to_string(max_warp_delta_px) +
-                                " median_dx=" + std::to_string(median_dx) +
-                                " median_dy=" + std::to_string(median_dy));
-                        }
-                    }
-                }
-
-                // Filter out invalid frames
-                std::vector<std::pair<float, float>> filtered_translations;
-                std::vector<float> filtered_correlations;
-                std::vector<Matrix2Df> filtered_warped;
-                std::vector<float> filtered_weights;
-                std::vector<size_t> filtered_indices;
-                for (size_t i = 0; i < valid_mask.size(); ++i) {
-                    if (valid_mask[i]) {
-                        filtered_translations.push_back(translations[i]);
-                        filtered_correlations.push_back(correlations[i]);
-                        filtered_warped.push_back(warped_tiles[i]);
-                        filtered_weights.push_back(weights[i]);
-                        if (i < frame_indices.size()) filtered_indices.push_back(frame_indices[i]);
-                    }
-                }
-                translations = filtered_translations;
-                correlations = filtered_correlations;
-                warped_tiles = filtered_warped;
-                weights = filtered_weights;
-                frame_indices = filtered_indices;
-                {
-                    dbg("tile=" + std::to_string(ti) +
-                        " iter=" + std::to_string(iter) +
-                        " warp_consistency_kept=" + std::to_string(translations.size()));
-                }
-            }
-
-            // Filter by ECC correlation threshold (but keep phase correlation fallbacks with cc=0)
-            // Note: Python reference keeps all registrations, even with low cc
-            {
-                std::vector<std::pair<float, float>> filtered_translations;
-                std::vector<float> filtered_correlations;
-                std::vector<Matrix2Df> filtered_warped;
-                std::vector<float> filtered_weights;
-                std::vector<size_t> filtered_indices;
-                for (size_t i = 0; i < correlations.size(); ++i) {
-                    // Keep if: (1) ECC succeeded with good correlation, OR (2) phase correlation fallback
-                    bool keep = (correlations[i] >= ecc_cc_min) || (correlations[i] == 0.0f);
-                    if (keep) {
-                        filtered_translations.push_back(translations[i]);
-                        filtered_correlations.push_back(correlations[i]);
-                        filtered_warped.push_back(warped_tiles[i]);
-                        filtered_weights.push_back(weights[i]);
-                        if (i < frame_indices.size()) filtered_indices.push_back(frame_indices[i]);
-                    } else {
-                        if (i < frame_indices.size()) {
-                            dbg("tile=" + std::to_string(ti) +
-                                " iter=" + std::to_string(iter) +
-                                " fi=" + std::to_string(frame_indices[i]) +
-                                " reject=ecc_cc" +
-                                " cc=" + std::to_string(correlations[i]) +
-                                " min=" + std::to_string(ecc_cc_min));
-                        }
-                    }
-                }
-                translations = filtered_translations;
-                correlations = filtered_correlations;
-                warped_tiles = filtered_warped;
-                weights = filtered_weights;
-                frame_indices = filtered_indices;
-            }
-
-            if (static_cast<int>(warped_tiles.size()) < min_valid_frames) break;
-
-            // Weighted reconstruction for next iteration reference
-            float wsum = 0.0f;
-            for (float w : weights) wsum += w;
-
-            Matrix2Df new_ref = Matrix2Df::Zero(ref_tile.rows(), ref_tile.cols());
-            if (wsum > 1.0e-12f) {
-                for (size_t i = 0; i < warped_tiles.size(); ++i) {
-                    new_ref += warped_tiles[i] * (weights[i] / wsum);
-                }
+            auto deb = image::debayer_nearest_neighbor(tile_mosaic, detected_bayer,
+                                                       origin_x, origin_y);
+            if (which == 0) {
+              chan_tiles.push_back(std::move(deb.R));
+            } else if (which == 1) {
+              chan_tiles.push_back(std::move(deb.G));
             } else {
-                for (size_t i = 0; i < warped_tiles.size(); ++i) {
-                    new_ref += warped_tiles[i] / static_cast<float>(warped_tiles.size());
-                }
+              chan_tiles.push_back(std::move(deb.B));
             }
-            ref_tile = new_ref;
+          }
 
-            // Store for final iteration
-            final_translations = translations;
-            final_correlations = correlations;
-            final_warped_tiles = warped_tiles;
-            final_weights = weights;
-            // Store frame indices for final iteration
-            // (needed for per-frame invalid tile fraction)
-            // Note: frame_indices already filtered alongside translations.
-            final_frame_indices = frame_indices;
+          return reconstruction::sigma_clip_weighted_tile(
+              chan_tiles, weights_valid, cfg.stacking.sigma_clip.sigma_low,
+              cfg.stacking.sigma_clip.sigma_high,
+              cfg.stacking.sigma_clip.max_iters,
+              cfg.stacking.sigma_clip.min_fraction);
+        };
 
-            // Per-iteration progress (Python legacy style)
-            const int global_done = cumulative_tiles_processed.fetch_add(1) + 1;
-            emitter.phase_progress_counts(
-                run_id,
-                Phase::TILE_RECONSTRUCTION_TLR,
-                global_done,
-                total_tiles_planned,
-                "Tile " + std::to_string(static_cast<int>(ti) + 1) + " von " + std::to_string(static_cast<int>(tiles_phase56.size())),
-                "Iteration " + std::to_string(iter + 1) + " von " + std::to_string(passes_total),
-                log_file);
+        tile_rec_R = stack_channel(0);
+        tile_rec_G = stack_channel(1);
+        tile_rec_B = stack_channel(2);
+
+        if (tile_rec_R.size() <= 0 || tile_rec_G.size() <= 0 ||
+            tile_rec_B.size() <= 0) {
+          tiles_failed++;
+          return;
         }
 
-        int valid = static_cast<int>(final_warped_tiles.size());
-        tile_valid_counts[ti] = valid;
+        // Post-metrics are computed on G as a stable luminance proxy.
+        tile_rec = tile_rec_G;
+        n_valid = valid_frames.size();
+      } else {
+        std::vector<Matrix2Df> warped_tiles;
+        warped_tiles.reserve(frames.size());
 
-        if (valid < std::max(1, min_valid_frames)) {
-            tiles_failed++;
-            return;
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          if (!frame_has_data[fi])
+            continue;
+          Matrix2Df tile_img = load_tile_normalized(fi);
+          if (tile_img.rows() != t.height || tile_img.cols() != t.width)
+            continue;
+
+          warped_tiles.push_back(tile_img);
+          frame_valid_tile_counts[fi].fetch_add(1);
+          float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                          ? global_weights[static_cast<int>(fi)]
+                          : 1.0f;
+          float L_ft =
+              (fi < local_weights.size() && ti < local_weights[fi].size())
+                  ? local_weights[fi][ti]
+                  : 1.0f;
+          weights.push_back(G_f * L_ft);
         }
 
-        // Compute warp variance for this tile
-        float warp_var = compute_warp_variance(final_translations);
-        tile_warp_variances[ti] = warp_var;
-
-        // Compute mean correlation
-        float mean_cc = 0.0f;
-        for (float cc : final_correlations) mean_cc += cc;
-        mean_cc /= static_cast<float>(final_correlations.size());
-        tile_mean_correlations[ti] = mean_cc;
-
-        // Compute mean translation for warp vector field
-        if (!final_translations.empty()) {
-            double sum_dx = 0.0;
-            double sum_dy = 0.0;
-            for (const auto& [dx, dy] : final_translations) {
-                sum_dx += static_cast<double>(dx);
-                sum_dy += static_cast<double>(dy);
-            }
-            tile_mean_dx[ti] = static_cast<float>(sum_dx / static_cast<double>(final_translations.size()));
-            tile_mean_dy[ti] = static_cast<float>(sum_dy / static_cast<double>(final_translations.size()));
+        if (warped_tiles.empty()) {
+          tiles_failed++;
+          return;
         }
 
-        // Update per-frame valid tile counts (for invalid_tile_fraction per frame)
-        if (!final_frame_indices.empty()) {
-            for (size_t fi : final_frame_indices) {
-                if (fi < frame_valid_tile_counts.size()) {
-                    frame_valid_tile_counts[fi].fetch_add(1);
-                }
+        tile_rec = reconstruction::sigma_clip_weighted_tile(
+            warped_tiles, weights, cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high,
+            cfg.stacking.sigma_clip.max_iters,
+            cfg.stacking.sigma_clip.min_fraction);
+        n_valid = warped_tiles.size();
+      }
+
+      tile_valid_counts[ti] = static_cast<int>(n_valid);
+      tile_warp_variances[ti] = 0.0f;
+      tile_mean_correlations[ti] = 1.0f;
+      tile_mean_dx[ti] = 0.0f;
+      tile_mean_dy[ti] = 0.0f;
+
+      auto [c, b, s] = compute_post_warp_metrics(tile_rec);
+      tile_post_contrast[ti] = c;
+      tile_post_background[ti] = b;
+      tile_post_snr[ti] = s;
+
+      {
+        std::lock_guard<std::mutex> lock(recon_mutex);
+        int x0 = std::max(0, t.x);
+        int y0 = std::max(0, t.y);
+        for (int yy = 0; yy < tile_rec.rows(); ++yy) {
+          for (int xx = 0; xx < tile_rec.cols(); ++xx) {
+            int iy = y0 + yy;
+            int ix = x0 + xx;
+            if (iy < 0 || iy >= recon.rows() || ix < 0 || ix >= recon.cols())
+              continue;
+            float win = hann_y[static_cast<size_t>(yy)] *
+                        hann_x[static_cast<size_t>(xx)];
+            if (osc_mode) {
+              recon_R(iy, ix) += tile_rec_R(yy, xx) * win;
+              recon_G(iy, ix) += tile_rec_G(yy, xx) * win;
+              recon_B(iy, ix) += tile_rec_B(yy, xx) * win;
+            } else {
+              recon(iy, ix) += tile_rec(yy, xx) * win;
             }
+            weight_sum(iy, ix) += win;
+          }
         }
+      }
 
-        // Final weighted sum
-        float wsum = 0.0f;
-        for (float w : final_weights) wsum += w;
-
-        Matrix2Df tile_rec = Matrix2Df::Zero(ref_tile.rows(), ref_tile.cols());
-        if (wsum > 1.0e-12f) {
-            for (size_t i = 0; i < final_warped_tiles.size(); ++i) {
-                tile_rec += final_warped_tiles[i] * (final_weights[i] / wsum);
-            }
-        } else {
-            for (size_t i = 0; i < final_warped_tiles.size(); ++i) {
-                tile_rec += final_warped_tiles[i] / static_cast<float>(final_warped_tiles.size());
-            }
-        }
-
-        // Variance window weight ψ(var) (Methodik v4 §9)
-        float psi = variance_window_weight(warp_var, variance_sigma);
-
-        // Post-warp metrics (Methodik v4 §6)
-        {
-            double sum_contrast = 0.0;
-            double sum_background = 0.0;
-            double sum_snr = 0.0;
-            int count = 0;
-            for (const auto& wt : final_warped_tiles) {
-                auto [c, b, s] = compute_post_warp_metrics(wt);
-                sum_contrast += static_cast<double>(c);
-                sum_background += static_cast<double>(b);
-                sum_snr += static_cast<double>(s);
-                ++count;
-            }
-            if (count > 0) {
-                tile_post_contrast[ti] = static_cast<float>(sum_contrast / static_cast<double>(count));
-                tile_post_background[ti] = static_cast<float>(sum_background / static_cast<double>(count));
-                tile_post_snr[ti] = static_cast<float>(sum_snr / static_cast<double>(count));
-            }
-        }
-
-        if (cfg.wiener_denoise.enabled) {
-            std::vector<float> px;
-            px.reserve(static_cast<size_t>(tile_rec.size()));
-            for (Eigen::Index k = 0; k < tile_rec.size(); ++k) {
-                px.push_back(tile_rec.data()[k]);
-            }
-            float sigma = robust_sigma_mad(px);
-            float snr_tile = tile_post_snr[ti];
-            float q_struct_tile = (ti < tile_quality_median.size()) ? tile_quality_median[ti] : 0.0f;
-            bool is_star_tile = (ti < tile_is_star.size()) ? (tile_is_star[ti] != 0) : false;
-            if (sigma > 0.0f) {
-                tile_rec = wiener_tile_filter(tile_rec, sigma, snr_tile, q_struct_tile, is_star_tile, cfg.wiener_denoise);
-            }
-        }
-
-        apply_tile_rescale(tile_rec, ref_tile, static_cast<int>(ti), "phase6");
-
-        dbg("tile=" + std::to_string(ti) +
-            " valid_frames=" + std::to_string(valid) +
-            " warp_var=" + std::to_string(warp_var) +
-            " mean_cc=" + std::to_string(mean_cc) +
-            " psi=" + std::to_string(psi));
-
-        // Overlap-add into full image with variance-weighted Hanning window (thread-safe)
-        {
-            std::lock_guard<std::mutex> lock(recon_mutex);
-            int x0 = std::max(0, t.x);
-            int y0 = std::max(0, t.y);
-            for (int yy = 0; yy < tile_rec.rows(); ++yy) {
-                for (int xx = 0; xx < tile_rec.cols(); ++xx) {
-                    int iy = y0 + yy;
-                    int ix = x0 + xx;
-                    if (iy < 0 || iy >= recon.rows() || ix < 0 || ix >= recon.cols()) continue;
-
-                    float win = hann_y[static_cast<size_t>(yy)] * hann_x[static_cast<size_t>(xx)] * psi;
-                    recon(iy, ix) += tile_rec(yy, xx) * win;
-                    weight_sum(iy, ix) += win;
-                }
-            }
-        }
-        
-        // Update per-tile completion stats (legacy progress is per-iteration)
-        tiles_completed++;
+      size_t done = ++tiles_completed;
+      if (done % 20 == 0 || done == tiles_phase56.size()) {
+        std::lock_guard<std::mutex> lock(progress_mutex);
+        emitter.phase_progress_counts(
+            run_id, Phase::TILE_RECONSTRUCTION, static_cast<int>(done),
+            static_cast<int>(tiles_phase56.size()), "tiles", "tiles", log_file);
+      }
     };
-    
+
     // Execute tiles in parallel or serial based on parallel_tiles setting
     if (parallel_tiles > 1) {
-        std::cout << "  Processing " << tiles_phase56.size() << " tiles with " << parallel_tiles << " workers..." << std::endl;
-        
-        std::vector<std::thread> workers;
-        std::atomic<size_t> next_tile{0};
-        
-        for (int w = 0; w < parallel_tiles; ++w) {
-            workers.emplace_back([&]() {
-                FrameLruCache frame_cache((phase6_io_mode == "lru") ? static_cast<size_t>(std::max(0, phase6_lru_capacity)) : 0);
-                while (true) {
-                    size_t ti = next_tile.fetch_add(1);
-                    if (ti >= tiles_phase56.size()) break;
-                    process_tile(ti, frame_cache);
-                }
-            });
-        }
-        
-        for (auto& worker : workers) {
-            worker.join();
-        }
-        
-        std::cout << "  Completed " << tiles_completed.load() << " tiles (" 
-                  << tiles_failed.load() << " failed)" << std::endl;
+      std::cout << "  Processing " << tiles_phase56.size() << " tiles with "
+                << parallel_tiles << " workers..." << std::endl;
+
+      std::vector<std::thread> workers;
+      std::atomic<size_t> next_tile{0};
+
+      for (int w = 0; w < parallel_tiles; ++w) {
+        workers.emplace_back([&]() {
+          while (true) {
+            size_t ti = next_tile.fetch_add(1);
+            if (ti >= tiles_phase56.size())
+              break;
+            process_tile(ti);
+          }
+        });
+      }
+
+      for (auto &worker : workers) {
+        worker.join();
+      }
+
+      std::cout << "  Completed " << tiles_completed.load() << " tiles ("
+                << tiles_failed.load() << " failed)" << std::endl;
     } else {
-        std::cout << "  Processing " << tiles_phase56.size() << " tiles serially..." << std::endl;
-        FrameLruCache frame_cache((phase6_io_mode == "lru") ? static_cast<size_t>(std::max(0, phase6_lru_capacity)) : 0);
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-            process_tile(ti, frame_cache);
-        }
+      std::cout << "  Processing " << tiles_phase56.size()
+                << " tiles serially..." << std::endl;
+      for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+        process_tile(ti);
+      }
     }
 
     cv::setNumThreads(prev_cv_threads_recon);
 
-    if (debug_tile_reg && debug_log_file.is_open()) {
-        std::lock_guard<std::mutex> lock(debug_log_mutex);
-        debug_log_file.flush();
-    }
-
     // Normalize reconstruction
-    for (int i = 0; i < recon.size(); ++i) {
+    const float eps_ws = 1.0e-12f;
+    if (osc_mode) {
+      // Fallback: first normalized frame (only used for rare holes).
+      auto fb = image::debayer_nearest_neighbor(first_img, detected_bayer, 0, 0);
+
+      for (int i = 0; i < recon.size(); ++i) {
         float ws = weight_sum.data()[i];
-        if (ws > 1.0e-12f) {
-            recon.data()[i] /= ws;
+        if (ws > eps_ws) {
+          recon_R.data()[i] /= ws;
+          recon_G.data()[i] /= ws;
+          recon_B.data()[i] /= ws;
         } else {
-            recon.data()[i] = first_img.data()[i];
+          recon_R.data()[i] = fb.R.data()[i];
+          recon_G.data()[i] = fb.G.data()[i];
+          recon_B.data()[i] = fb.B.data()[i];
         }
+      }
+
+      // Keep a luminance proxy for validation + downstream metrics.
+      recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+    } else {
+      for (int i = 0; i < recon.size(); ++i) {
+        float ws = weight_sum.data()[i];
+        if (ws > eps_ws) {
+          recon.data()[i] /= ws;
+        } else {
+          recon.data()[i] = first_img.data()[i];
+        }
+      }
     }
 
-    // Write reconstruction output (stacked.fits is the main output per Python reference)
+    // --- Memory release: weight_sum and first_img no longer needed ---
+    weight_sum.resize(0, 0);
+    first_img.resize(0, 0);
 
+    // Write reconstruction artifacts (v3)
     {
-        core::json artifact;
-        artifact["num_frames"] = static_cast<int>(frames.size());
-        artifact["num_tiles"] = static_cast<int>(tiles_phase56.size());
-        artifact["iterations"] = iterations;
-        artifact["beta"] = cfg.v4.beta;
-        artifact["temporal_smoothing_window"] = temporal_smoothing_window;
-        artifact["max_warp_delta_px"] = max_warp_delta_px;
-        artifact["variance_sigma"] = variance_sigma;
-        artifact["min_valid_frames"] = min_valid_frames;
-        artifact["ecc_cc_min"] = ecc_cc_min;
-        artifact["tile_valid_counts"] = core::json::array();
-        artifact["tile_warp_variances"] = core::json::array();
-        artifact["tile_mean_correlations"] = core::json::array();
-        artifact["tile_post_contrast"] = core::json::array();
-        artifact["tile_post_background"] = core::json::array();
-        artifact["tile_post_snr_proxy"] = core::json::array();
-        for (size_t i = 0; i < tiles_phase56.size(); ++i) {
-            artifact["tile_valid_counts"].push_back(tile_valid_counts[i]);
-            artifact["tile_warp_variances"].push_back(tile_warp_variances[i]);
-            artifact["tile_mean_correlations"].push_back(tile_mean_correlations[i]);
-            artifact["tile_post_contrast"].push_back(tile_post_contrast[i]);
-            artifact["tile_post_background"].push_back(tile_post_background[i]);
-            artifact["tile_post_snr_proxy"].push_back(tile_post_snr[i]);
-        }
-        core::write_text(run_dir / "artifacts" / "tile_reconstruction_tlr.json", artifact.dump(2));
+      core::json artifact;
+      artifact["num_frames"] = static_cast<int>(frames.size());
+      artifact["num_tiles"] = static_cast<int>(tiles_phase56.size());
+      artifact["tile_valid_counts"] = core::json::array();
+      artifact["tile_mean_correlations"] = core::json::array();
+      artifact["tile_post_contrast"] = core::json::array();
+      artifact["tile_post_background"] = core::json::array();
+      artifact["tile_post_snr_proxy"] = core::json::array();
+      for (size_t i = 0; i < tiles_phase56.size(); ++i) {
+        artifact["tile_valid_counts"].push_back(tile_valid_counts[i]);
+        artifact["tile_mean_correlations"].push_back(tile_mean_correlations[i]);
+        artifact["tile_post_contrast"].push_back(tile_post_contrast[i]);
+        artifact["tile_post_background"].push_back(tile_post_background[i]);
+        artifact["tile_post_snr_proxy"].push_back(tile_post_snr[i]);
+      }
+      core::write_text(run_dir / "artifacts" / "tile_reconstruction.json",
+                       artifact.dump(2));
     }
 
-    emitter.phase_end(run_id, Phase::TILE_RECONSTRUCTION_TLR, "ok",
-                      {
-                          {"output", (run_dir / "outputs" / "reconstructed_L.fit").string()},
-                          {"valid_tiles", std::count_if(tile_valid_counts.begin(), tile_valid_counts.end(),
-                                                        [&](int c) { return c >= min_valid_frames; })},
-                      },
-                      log_file);
-
-    // Adaptive refinement (Methodik v4 §4): split tiles with high warp variance or low correlation
-    {
-        bool refined = false;
-        std::vector<Tile> refined_tiles;
-        if (adaptive_enabled && refine_pass < max_refine_passes) {
-            refined_tiles.reserve(tiles_phase56.size() * 2);
-            const float refine_overlap_frac = std::min(std::max(cfg.tile.overlap_fraction, 0.0f), 0.5f);
-            for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-                const Tile& t = tiles_phase56[ti];
-                const bool too_small = (t.width < 2 * refine_min_tile_size) || (t.height < 2 * refine_min_tile_size);
-                const bool need_refine = (tile_warp_variances[ti] > refine_variance_threshold) ||
-                                         (tile_mean_correlations[ti] < refine_cc_threshold);
-                if (!need_refine || too_small) {
-                    refined_tiles.push_back(t);
-                    continue;
-                }
-                int hw = t.width / 2;
-                int hh = t.height / 2;
-                if (hw <= 0 || hh <= 0) {
-                    refined_tiles.push_back(t);
-                    continue;
-                }
-                refined = true;
-                const int ovx = static_cast<int>(std::floor(refine_overlap_frac * static_cast<float>(hw)));
-                const int ovy = static_cast<int>(std::floor(refine_overlap_frac * static_cast<float>(hh)));
-                const int x0 = t.x;
-                const int y0 = t.y;
-                const int x1 = t.x + t.width;
-                const int y1 = t.y + t.height;
-
-                auto clamp_tile = [&](int tx0, int ty0, int tx1, int ty1) {
-                    tx0 = std::max(x0, tx0);
-                    ty0 = std::max(y0, ty0);
-                    tx1 = std::min(x1, tx1);
-                    ty1 = std::min(y1, ty1);
-                    int tw = std::max(1, tx1 - tx0);
-                    int th = std::max(1, ty1 - ty0);
-                    refined_tiles.push_back(Tile{tx0, ty0, tw, th, -1, -1});
-                };
-
-                clamp_tile(x0, y0, x0 + hw + ovx, y0 + hh + ovy);
-                clamp_tile(x0 + hw - ovx, y0, x1, y0 + hh + ovy);
-                clamp_tile(x0, y0 + hh - ovy, x0 + hw + ovx, y1);
-                clamp_tile(x0 + hw - ovx, y0 + hh - ovy, x1, y1);
-            }
-        }
-
-        if (refined) {
-            tiles_phase56 = std::move(refined_tiles);
-            refine_pass++;
-            continue;
-        }
-    }
-
-    // Build validation artifacts (Methodik v4 §12): FWHM heatmap, warp vector fields, invalid tile map
-    {
-        auto add_tile_value = [&](Matrix2Df& sum, Matrix2Df& cnt, const Tile& t, float val) {
-            int x0 = std::max(0, t.x);
-            int y0 = std::max(0, t.y);
-            int x1 = std::min<int>(static_cast<int>(sum.cols()), t.x + t.width);
-            int y1 = std::min<int>(static_cast<int>(sum.rows()), t.y + t.height);
-            for (int y = y0; y < y1; ++y) {
-                for (int x = x0; x < x1; ++x) {
-                    sum(y, x) += val;
-                    cnt(y, x) += 1.0f;
-                }
-            }
-        };
-
-        Matrix2Df fwhm_sum = Matrix2Df::Zero(recon.rows(), recon.cols());
-        Matrix2Df fwhm_cnt = Matrix2Df::Zero(recon.rows(), recon.cols());
-        Matrix2Df dx_sum = Matrix2Df::Zero(recon.rows(), recon.cols());
-        Matrix2Df dx_cnt = Matrix2Df::Zero(recon.rows(), recon.cols());
-        Matrix2Df dy_sum = Matrix2Df::Zero(recon.rows(), recon.cols());
-        Matrix2Df dy_cnt = Matrix2Df::Zero(recon.rows(), recon.cols());
-        Matrix2Df invalid_sum = Matrix2Df::Zero(recon.rows(), recon.cols());
-        Matrix2Df invalid_cnt = Matrix2Df::Zero(recon.rows(), recon.cols());
-
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-            const Tile& t = tiles_phase56[ti];
-            add_tile_value(fwhm_sum, fwhm_cnt, t, tile_fwhm_median[ti]);
-            add_tile_value(dx_sum, dx_cnt, t, tile_mean_dx[ti]);
-            add_tile_value(dy_sum, dy_cnt, t, tile_mean_dy[ti]);
-            float invalid = (tile_valid_counts[ti] < min_valid_frames) ? 1.0f : 0.0f;
-            add_tile_value(invalid_sum, invalid_cnt, t, invalid);
-        }
-
-        auto finalize_map = [&](Matrix2Df& sum, const Matrix2Df& cnt) {
-            for (int i = 0; i < sum.size(); ++i) {
-                float c = cnt.data()[i];
-                sum.data()[i] = (c > 0.0f) ? (sum.data()[i] / c) : 0.0f;
-            }
-        };
-
-        finalize_map(fwhm_sum, fwhm_cnt);
-        finalize_map(dx_sum, dx_cnt);
-        finalize_map(dy_sum, dy_cnt);
-        finalize_map(invalid_sum, invalid_cnt);
-
-        try {
-            io::write_fits_float(run_dir / "artifacts" / "fwhm_heatmap.fits", fwhm_sum, first_hdr);
-            io::write_fits_float(run_dir / "artifacts" / "warp_dx.fits", dx_sum, first_hdr);
-            io::write_fits_float(run_dir / "artifacts" / "warp_dy.fits", dy_sum, first_hdr);
-            io::write_fits_float(run_dir / "artifacts" / "invalid_tile_map.fits", invalid_sum, first_hdr);
-        } catch (...) {
-            emitter.warning(run_id, "Validation artifacts write failed (heatmap/vector/invalid maps)", log_file);
-        }
-
-        // Per-tile JSON artifacts for downstream diagnostics
-        try {
-            core::json j;
-            j["num_tiles"] = static_cast<int>(tiles_phase56.size());
-            j["tiles"] = core::json::array();
-            for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-                const Tile& t = tiles_phase56[ti];
-                j["tiles"].push_back({
-                    {"x", t.x},
-                    {"y", t.y},
-                    {"width", t.width},
-                    {"height", t.height},
-                    {"fwhm_median", tile_fwhm_median[ti]},
-                    {"warp_dx_mean", tile_mean_dx[ti]},
-                    {"warp_dy_mean", tile_mean_dy[ti]},
-                    {"invalid", (tile_valid_counts[ti] < min_valid_frames) ? 1 : 0}
-                });
-            }
-            core::write_text(run_dir / "artifacts" / "tile_validation_maps.json", j.dump(2));
-        } catch (...) {
-            emitter.warning(run_id, "Validation tile JSON artifact write failed", log_file);
-        }
-    }
-    break;
-    }
-
-    auto reconstruct_tlr_subset = [&](const std::vector<char>& use_frame) -> Matrix2Df {
-        auto compute_warp_variance_local = [](const std::vector<std::pair<float, float>>& translations) -> float {
-            if (translations.size() < 2) return 0.0f;
-            float sum_x = 0.0f, sum_y = 0.0f;
-            for (const auto& [dx, dy] : translations) {
-                sum_x += dx;
-                sum_y += dy;
-            }
-            float mean_x = sum_x / static_cast<float>(translations.size());
-            float mean_y = sum_y / static_cast<float>(translations.size());
-            float var_x = 0.0f, var_y = 0.0f;
-            for (const auto& [dx, dy] : translations) {
-                var_x += (dx - mean_x) * (dx - mean_x);
-                var_y += (dy - mean_y) * (dy - mean_y);
-            }
-            var_x /= static_cast<float>(translations.size());
-            var_y /= static_cast<float>(translations.size());
-            return var_x + var_y;
-        };
-
-        auto variance_window_weight_local = [](float warp_variance, float sigma) -> float {
-            float w = std::exp(-warp_variance / (2.0f * sigma * sigma));
-            return std::max(w, 1.0e-3f);
-        };
-
-        auto smooth_warps_translation_local = [](std::vector<std::pair<float, float>>& warps, int window) {
-            if (static_cast<int>(warps.size()) < window) return;
-            int half = window / 2;
-            std::vector<std::pair<float, float>> smoothed(warps.size());
-            for (size_t i = 0; i < warps.size(); ++i) {
-                std::vector<float> xs, ys;
-                for (int j = std::max(0, static_cast<int>(i) - half);
-                     j < std::min(static_cast<int>(warps.size()), static_cast<int>(i) + half + 1); ++j) {
-                    xs.push_back(warps[static_cast<size_t>(j)].first);
-                    ys.push_back(warps[static_cast<size_t>(j)].second);
-                }
-                std::sort(xs.begin(), xs.end());
-                std::sort(ys.begin(), ys.end());
-                smoothed[i].first = xs[xs.size() / 2];
-                smoothed[i].second = ys[ys.size() / 2];
-            }
-            warps = smoothed;
-        };
-
-        std::vector<size_t> frame_indices;
-        frame_indices.reserve(frames.size());
-        for (size_t fi = 0; fi < frames.size(); ++fi) {
-            if (fi < use_frame.size() && use_frame[fi]) frame_indices.push_back(fi);
-        }
-        if (frame_indices.empty()) return Matrix2Df();
-
-        const int local_min_valid = std::max(1, std::min(min_valid_frames, static_cast<int>(frame_indices.size())));
-        Matrix2Df recon_local = Matrix2Df::Zero(first_img.rows(), first_img.cols());
-        Matrix2Df weight_sum_local = Matrix2Df::Zero(first_img.rows(), first_img.cols());
-
-        class FrameLruCacheLocal {
-        public:
-            explicit FrameLruCacheLocal(size_t capacity) : capacity_(capacity) {}
-
-            const Matrix2Df& get_or_load(size_t key, const std::function<Matrix2Df()>& loader) {
-                if (capacity_ == 0) {
-                    scratch_ = loader();
-                    return scratch_;
-                }
-
-                auto it = map_.find(key);
-                if (it != map_.end()) {
-                    lru_.splice(lru_.begin(), lru_, it->second);
-                    return it->second->value;
-                }
-
-                Matrix2Df value = loader();
-                lru_.push_front(Node{key, std::move(value)});
-                map_[key] = lru_.begin();
-
-                if (lru_.size() > capacity_) {
-                    auto last = std::prev(lru_.end());
-                    map_.erase(last->key);
-                    lru_.pop_back();
-                }
-
-                return lru_.begin()->value;
-            }
-
-        private:
-            struct Node {
-                size_t key;
-                Matrix2Df value;
-            };
-
-            size_t capacity_ = 0;
-            std::list<Node> lru_;
-            std::unordered_map<size_t, std::list<Node>::iterator> map_;
-            Matrix2Df scratch_;
-        };
-
-        FrameLruCacheLocal frame_cache((phase6_io_mode == "lru") ? static_cast<size_t>(std::max(0, phase6_lru_capacity)) : 0);
-
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-            const Tile& t = tiles_phase56[ti];
-
-            auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
-                const int rx0 = std::max(0, t.x);
-                const int ry0 = std::max(0, t.y);
-                if (phase6_io_mode == "roi") {
-                    Matrix2Df tile_img = io::read_fits_region_float(frames[fi], rx0, ry0, t.width, t.height);
-                    apply_normalization_inplace(tile_img, norm_scales[fi], detected_mode, detected_bayer_str, rx0, ry0);
-                    return tile_img;
-                }
-                if (phase6_io_mode == "lru") {
-                    const Matrix2Df& full = frame_cache.get_or_load(fi, [&]() {
-                        auto frame_pair = io::read_fits_float(frames[fi]);
-                        Matrix2Df img = frame_pair.first;
-                        apply_normalization_inplace(img, norm_scales[fi], detected_mode, detected_bayer_str, 0, 0);
-                        return img;
-                    });
-                    return extract_tile(full, t);
-                }
-
-                auto [img, _hdr] = load_frame_normalized(fi);
-                return extract_tile(img, t);
-            };
-
-            Matrix2Df ref_tile;
-            {
-                std::vector<Matrix2Df> tile_samples;
-                tile_samples.reserve(frame_indices.size());
-                for (size_t idx = 0; idx < frame_indices.size(); ++idx) {
-                    size_t fi = frame_indices[idx];
-                    Matrix2Df sample = load_tile_normalized(fi);
-                    if (sample.size() > 0) {
-                        tile_samples.push_back(prewarp_tile_global(sample, fi, t));
-                    }
-                }
-                if (tile_samples.empty()) continue;
-
-                const int rows = tile_samples[0].rows();
-                const int cols = tile_samples[0].cols();
-                ref_tile = Matrix2Df::Zero(rows, cols);
-
-                std::vector<float> vals;
-                vals.reserve(tile_samples.size());
-                for (int y = 0; y < rows; ++y) {
-                    for (int x = 0; x < cols; ++x) {
-                        vals.clear();
-                        for (const auto& s : tile_samples) {
-                            if (s.rows() != rows || s.cols() != cols) continue;
-                            vals.push_back(s(y, x));
-                        }
-                        ref_tile(y, x) = vals.empty() ? 0.0f : median_of(vals);
-                    }
-                }
-            }
-
-            if (ref_tile.size() <= 0) continue;
-
-            std::vector<float> hann_x = make_hann_1d(ref_tile.cols());
-            std::vector<float> hann_y = make_hann_1d(ref_tile.rows());
-
-            std::vector<std::pair<float, float>> final_translations;
-            std::vector<float> final_correlations;
-            std::vector<Matrix2Df> final_warped_tiles;
-            std::vector<float> final_weights;
-
-            for (int iter = 0; iter < iterations; ++iter) {
-                Matrix2Df ref_reg = (detected_mode == ColorMode::OSC)
-                    ? image::cfa_green_proxy_downsample2x2(ref_tile, detected_bayer_str)
-                    : ref_tile;
-                Matrix2Df ref_ecc = registration::prepare_ecc_image(ref_reg);
-
-                std::vector<std::pair<float, float>> translations;
-                std::vector<float> correlations;
-                std::vector<Matrix2Df> warped_tiles;
-                std::vector<float> weights;
-
-                for (size_t idx = 0; idx < frame_indices.size(); ++idx) {
-                    size_t fi = frame_indices[idx];
-                    Matrix2Df mov_tile = load_tile_normalized(fi);
-                    if (mov_tile.size() <= 0 || mov_tile.rows() != ref_tile.rows() || mov_tile.cols() != ref_tile.cols()) {
-                        continue;
-                    }
-
-                    // Apply global prewarp to moving tile for consistent registration
-                    Matrix2Df mov_pre = prewarp_tile_global(mov_tile, fi, t);
-
-                    Matrix2Df mov_reg = (detected_mode == ColorMode::OSC)
-                        ? image::cfa_green_proxy_downsample2x2(mov_pre, detected_bayer_str)
-                        : mov_pre;
-                    Matrix2Df mov_ecc = registration::prepare_ecc_image(mov_reg);
-
-                    float reg_scale = 1.0f;
-                    if (detected_mode == ColorMode::OSC) {
-                        int full_h2 = mov_tile.rows() - (mov_tile.rows() % 2);
-                        reg_scale = (mov_reg.rows() > 0) ? (static_cast<float>(full_h2) / static_cast<float>(mov_reg.rows())) : 1.0f;
-                    }
-
-                    // Phase correlation for local residual shift (both ref and mov are now globally aligned)
-                    auto [dx, dy] = registration::phasecorr_translation(mov_ecc, ref_ecc);
-                    float max_shift = 0.5f * static_cast<float>(std::min(mov_reg.rows(), mov_reg.cols()));
-                    dx = std::max(-max_shift, std::min(max_shift, dx));
-                    dy = std::max(-max_shift, std::min(max_shift, dy));
-
-                    // Init warp is local only (identity + phase corr), since mov is already globally prewarped
-                    WarpMatrix init_reg = registration::identity_warp();
-                    init_reg(0, 2) = dx;
-                    init_reg(1, 2) = dy;
-
-                    RegistrationResult rr = registration::ecc_warp(
-                        mov_ecc, ref_ecc, allow_rotation, init_reg, 50, 1.0e-4f);
-
-                    float cc = 0.0f;
-                    float final_dx_reg = init_reg(0, 2);
-                    float final_dy_reg = init_reg(1, 2);
-                    WarpMatrix final_warp_reg = registration::identity_warp();
-
-                    if (rr.success) {
-                        cc = rr.correlation;
-                        final_dx_reg = rr.warp(0, 2);
-                        final_dy_reg = rr.warp(1, 2);
-                        if (allow_rotation) {
-                            final_warp_reg = rr.warp;
-                        } else {
-                            final_warp_reg(0, 2) = final_dx_reg;
-                            final_warp_reg(1, 2) = final_dy_reg;
-                        }
-                    } else {
-                        final_warp_reg(0, 2) = final_dx_reg;
-                        final_warp_reg(1, 2) = final_dy_reg;
-                    }
-
-                    // Scale local warp to full resolution
-                    WarpMatrix final_warp_local = final_warp_reg;
-                    if (reg_scale != 1.0f) {
-                        final_warp_local(0, 2) *= reg_scale;
-                        final_warp_local(1, 2) *= reg_scale;
-                    }
-                    float local_dx = final_warp_local(0, 2);
-                    float local_dy = final_warp_local(1, 2);
-
-                    translations.push_back({local_dx, local_dy});
-                    correlations.push_back(cc);
-
-                    // Apply local warp to the already globally prewarped tile
-                    Matrix2Df mov_warped = (detected_mode == ColorMode::OSC)
-                        ? image::warp_cfa_mosaic_via_subplanes(mov_pre, final_warp_local, mov_pre.rows(), mov_pre.cols())
-                        : registration::apply_warp(mov_pre, final_warp_local);
-                    warped_tiles.push_back(mov_warped);
-
-                    float L_ft = 1.0f;
-                    if (fi < local_weights.size() && ti < local_weights[fi].size()) {
-                        L_ft = local_weights[fi][ti];
-                    }
-                    float G_f = (fi < static_cast<size_t>(global_weights.size()))
-                                    ? global_weights[static_cast<int>(fi)]
-                                    : 1.0f;
-                    float R_ft = std::exp(cfg.v4.beta * (cc - 1.0f));
-                    float base_weight = G_f;
-                    if (cfg.synthetic.weighting == "tile_weighted") {
-                        base_weight *= L_ft;
-                    }
-                    weights.push_back(base_weight * R_ft);
-                }
-
-                if (translations.empty()) break;
-
-                if (temporal_smoothing_window > 1) {
-                    smooth_warps_translation_local(translations, temporal_smoothing_window);
-                }
-
-                if (max_warp_delta_px > 0.0f && translations.size() > 1) {
-                    std::vector<float> dxs, dys;
-                    for (const auto& [dx, dy] : translations) {
-                        dxs.push_back(dx);
-                        dys.push_back(dy);
-                    }
-                    std::sort(dxs.begin(), dxs.end());
-                    std::sort(dys.begin(), dys.end());
-                    float median_dx = dxs[dxs.size() / 2];
-                    float median_dy = dys[dys.size() / 2];
-
-                    std::vector<bool> valid_mask(translations.size(), true);
-                    for (size_t i = 0; i < translations.size(); ++i) {
-                        float delta = std::sqrt(
-                            (translations[i].first - median_dx) * (translations[i].first - median_dx) +
-                            (translations[i].second - median_dy) * (translations[i].second - median_dy));
-                        if (delta > max_warp_delta_px) valid_mask[i] = false;
-                    }
-
-                    std::vector<std::pair<float, float>> filtered_translations;
-                    std::vector<float> filtered_correlations;
-                    std::vector<Matrix2Df> filtered_warped;
-                    std::vector<float> filtered_weights;
-                    for (size_t i = 0; i < valid_mask.size(); ++i) {
-                        if (valid_mask[i]) {
-                            filtered_translations.push_back(translations[i]);
-                            filtered_correlations.push_back(correlations[i]);
-                            filtered_warped.push_back(warped_tiles[i]);
-                            filtered_weights.push_back(weights[i]);
-                        }
-                    }
-                    translations = filtered_translations;
-                    correlations = filtered_correlations;
-                    warped_tiles = filtered_warped;
-                    weights = filtered_weights;
-                }
-
-                {
-                    std::vector<std::pair<float, float>> filtered_translations;
-                    std::vector<float> filtered_correlations;
-                    std::vector<Matrix2Df> filtered_warped;
-                    std::vector<float> filtered_weights;
-                    for (size_t i = 0; i < correlations.size(); ++i) {
-                        bool keep = (correlations[i] >= ecc_cc_min) || (correlations[i] == 0.0f);
-                        if (keep) {
-                            filtered_translations.push_back(translations[i]);
-                            filtered_correlations.push_back(correlations[i]);
-                            filtered_warped.push_back(warped_tiles[i]);
-                            filtered_weights.push_back(weights[i]);
-                        }
-                    }
-                    translations = filtered_translations;
-                    correlations = filtered_correlations;
-                    warped_tiles = filtered_warped;
-                    weights = filtered_weights;
-                }
-
-                if (static_cast<int>(warped_tiles.size()) < local_min_valid) break;
-
-                float wsum = 0.0f;
-                for (float w : weights) wsum += w;
-                Matrix2Df new_ref = Matrix2Df::Zero(ref_tile.rows(), ref_tile.cols());
-                if (wsum > 1.0e-12f) {
-                    for (size_t i = 0; i < warped_tiles.size(); ++i) {
-                        new_ref += warped_tiles[i] * (weights[i] / wsum);
-                    }
-                } else {
-                    for (size_t i = 0; i < warped_tiles.size(); ++i) {
-                        new_ref += warped_tiles[i] / static_cast<float>(warped_tiles.size());
-                    }
-                }
-                ref_tile = new_ref;
-
-                final_translations = translations;
-                final_correlations = correlations;
-                final_warped_tiles = warped_tiles;
-                final_weights = weights;
-            }
-
-            int valid = static_cast<int>(final_warped_tiles.size());
-            if (valid < local_min_valid) continue;
-
-            float warp_var = compute_warp_variance_local(final_translations);
-            float psi = variance_window_weight_local(warp_var, variance_sigma);
-
-            float wsum = 0.0f;
-            for (float w : final_weights) wsum += w;
-            Matrix2Df tile_rec = Matrix2Df::Zero(ref_tile.rows(), ref_tile.cols());
-            if (wsum > 1.0e-12f) {
-                for (size_t i = 0; i < final_warped_tiles.size(); ++i) {
-                    tile_rec += final_warped_tiles[i] * (final_weights[i] / wsum);
-                }
-            } else {
-                for (size_t i = 0; i < final_warped_tiles.size(); ++i) {
-                    tile_rec += final_warped_tiles[i] / static_cast<float>(final_warped_tiles.size());
-                }
-            }
-
-            if (cfg.wiener_denoise.enabled) {
-                std::vector<float> px;
-                px.reserve(static_cast<size_t>(tile_rec.size()));
-                for (Eigen::Index k = 0; k < tile_rec.size(); ++k) {
-                    px.push_back(tile_rec.data()[k]);
-                }
-                float sigma = robust_sigma_mad(px);
-                float snr_tile = 0.0f;
-                if (!px.empty()) {
-                    std::vector<float> tmp = px;
-                    float bg = median_of(tmp);
-                    for (float& v : tmp) v = std::fabs(v - bg);
-                    float mad = median_of(tmp);
-                    float denom = 1.4826f * mad + 1.0e-6f;
-                    std::vector<float> sorted = px;
-                    size_t idx = static_cast<size_t>(std::floor(0.99 * static_cast<double>(sorted.size() - 1)));
-                    std::nth_element(sorted.begin(), sorted.begin() + idx, sorted.end());
-                    float p99 = sorted[idx];
-                    snr_tile = (p99 - bg) / denom;
-                }
-                float q_struct_tile = (ti < tile_quality_median.size()) ? tile_quality_median[ti] : 0.0f;
-                bool is_star_tile = (ti < tile_is_star.size()) ? (tile_is_star[ti] != 0) : false;
-                if (sigma > 0.0f) {
-                    tile_rec = wiener_tile_filter(tile_rec, sigma, snr_tile, q_struct_tile, is_star_tile, cfg.wiener_denoise);
-                }
-            }
-
-            apply_tile_rescale(tile_rec, ref_tile, static_cast<int>(ti), "phase8");
-
-            int x0 = std::max(0, t.x);
-            int y0 = std::max(0, t.y);
-            for (int yy = 0; yy < tile_rec.rows(); ++yy) {
-                for (int xx = 0; xx < tile_rec.cols(); ++xx) {
-                    int iy = y0 + yy;
-                    int ix = x0 + xx;
-                    if (iy < 0 || iy >= recon_local.rows() || ix < 0 || ix >= recon_local.cols()) continue;
-                    float win = hann_y[static_cast<size_t>(yy)] * hann_x[static_cast<size_t>(xx)] * psi;
-                    recon_local(iy, ix) += tile_rec(yy, xx) * win;
-                    weight_sum_local(iy, ix) += win;
-                }
-            }
-        }
-
-        for (int i = 0; i < recon_local.size(); ++i) {
-            float ws = weight_sum_local.data()[i];
-            if (ws > 1.0e-12f) {
-                recon_local.data()[i] /= ws;
-            } else {
-                recon_local.data()[i] = first_img.data()[i];
-            }
-        }
-
-        return recon_local;
-    };
-
-    // Phase 7: STATE_CLUSTERING (Methodik v4 §10)
-    emitter.phase_start(run_id, Phase::STATE_CLUSTERING, "STATE_CLUSTERING", log_file);
+    emitter.phase_end(
+        run_id, Phase::TILE_RECONSTRUCTION, "ok",
+        {
+            {"output", (run_dir / "outputs" / "reconstructed_L.fit").string()},
+            {"valid_tiles",
+             std::count_if(tile_valid_counts.begin(), tile_valid_counts.end(),
+                           [&](int c) { return c >= min_valid_frames; })},
+        },
+        log_file);
+
+    // Phase 7: STATE_CLUSTERING (// Methodik v3 §10)
+    emitter.phase_start(run_id, Phase::STATE_CLUSTERING, "STATE_CLUSTERING",
+                        log_file);
 
     // Reduced Mode: optionally skip clustering/synthetic frames when N is small
     bool use_synthetic_frames = true;
@@ -3184,714 +1773,1556 @@ int run_command(const std::string& config_path, const std::string& input_dir,
     std::vector<int> cluster_labels(static_cast<size_t>(frames.size()), 0);
     int n_clusters = 1;
     if (skip_clustering_in_reduced) {
-        use_synthetic_frames = false;
-        synthetic_skip_reason = "reduced_mode";
-        emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "skipped",
-                          {{"reason", "reduced_mode"},
-                           {"frame_count", static_cast<int>(frames.size())},
-                           {"frames_reduced_threshold", cfg.assumptions.frames_reduced_threshold}},
-                          log_file);
+      use_synthetic_frames = false;
+      synthetic_skip_reason = "reduced_mode";
+      emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "skipped",
+                        {{"reason", "reduced_mode"},
+                         {"frame_count", static_cast<int>(frames.size())},
+                         {"frames_reduced_threshold",
+                          cfg.assumptions.frames_reduced_threshold}},
+                        log_file);
     }
 
     if (!skip_clustering_in_reduced) {
-        // Build state vectors for clustering (Methodik v4 §10):
-        // [G_f, mean_local_quality, var_local_quality, mean_cc_tiles, mean_warp_var_tiles, invalid_tile_fraction]
-        const int n_frames_cluster = static_cast<int>(frames.size());
-        std::vector<std::vector<float>> state_vectors(static_cast<size_t>(n_frames_cluster));
-        std::vector<float> frame_mean_local(frames.size(), 0.0f);
-        std::vector<float> frame_var_local(frames.size(), 0.0f);
+      // Build state vectors for clustering (// Methodik v3 §10):
+      // [G_f, mean_local_quality, var_local_quality, mean_cc_tiles,
+      // mean_warp_var_tiles, invalid_tile_fraction]
+      const int n_frames_cluster = static_cast<int>(frames.size());
+      std::vector<std::vector<float>> state_vectors(
+          static_cast<size_t>(n_frames_cluster));
+      std::vector<float> frame_mean_local(frames.size(), 0.0f);
+      std::vector<float> frame_var_local(frames.size(), 0.0f);
 
-        std::vector<float> G_for_cluster(static_cast<size_t>(n_frames_cluster), 1.0f);
+      std::vector<float> G_for_cluster(static_cast<size_t>(n_frames_cluster),
+                                       1.0f);
 
-        float mean_cc_tiles = 0.0f;
-        float mean_warp_var_tiles = 0.0f;
-        if (!tiles_phase56.empty()) {
-            double sum_cc = 0.0;
-            double sum_var = 0.0;
-            for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-                sum_cc += static_cast<double>(tile_mean_correlations[ti]);
-                sum_var += static_cast<double>(tile_warp_variances[ti]);
-            }
-            mean_cc_tiles = static_cast<float>(sum_cc / static_cast<double>(tiles_phase56.size()));
-            mean_warp_var_tiles = static_cast<float>(sum_var / static_cast<double>(tiles_phase56.size()));
+      float mean_cc_tiles = 0.0f;
+      float mean_warp_var_tiles = 0.0f;
+      if (!tiles_phase56.empty()) {
+        double sum_cc = 0.0;
+        double sum_var = 0.0;
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+          sum_cc += static_cast<double>(tile_mean_correlations[ti]);
+          sum_var += static_cast<double>(tile_warp_variances[ti]);
         }
+        mean_cc_tiles = static_cast<float>(
+            sum_cc / static_cast<double>(tiles_phase56.size()));
+        mean_warp_var_tiles = static_cast<float>(
+            sum_var / static_cast<double>(tiles_phase56.size()));
+      }
 
-        std::vector<float> frame_invalid_fraction(frames.size(), 0.0f);
-        if (!tiles_phase56.empty()) {
-            for (size_t fi = 0; fi < frames.size(); ++fi) {
-                int valid_tiles_for_frame = frame_valid_tile_counts[fi].load();
-                float frac_valid = static_cast<float>(valid_tiles_for_frame) / static_cast<float>(tiles_phase56.size());
-                frame_invalid_fraction[fi] = 1.0f - std::min(std::max(frac_valid, 0.0f), 1.0f);
-            }
-        }
-
+      std::vector<float> frame_invalid_fraction(frames.size(), 0.0f);
+      if (!tiles_phase56.empty()) {
         for (size_t fi = 0; fi < frames.size(); ++fi) {
-            float G_f = (fi < static_cast<size_t>(global_weights.size())) ? global_weights[static_cast<int>(fi)] : 1.0f;
-            float bg = (fi < frame_metrics.size()) ? frame_metrics[fi].background : 0.0f;
-            float noise = (fi < frame_metrics.size()) ? frame_metrics[fi].noise : 0.0f;
+          int valid_tiles_for_frame = frame_valid_tile_counts[fi].load();
+          float frac_valid = static_cast<float>(valid_tiles_for_frame) /
+                             static_cast<float>(tiles_phase56.size());
+          frame_invalid_fraction[fi] =
+              1.0f - std::min(std::max(frac_valid, 0.0f), 1.0f);
+        }
+      }
 
-            // Compute mean/var of local tile quality for this frame
-            float mean_local = 0.0f, var_local = 0.0f;
-            if (fi < local_metrics.size() && !local_metrics[fi].empty()) {
-                for (const auto& tm : local_metrics[fi]) {
-                    mean_local += tm.quality_score;
-                }
-                mean_local /= static_cast<float>(local_metrics[fi].size());
-                for (const auto& tm : local_metrics[fi]) {
-                    float diff = tm.quality_score - mean_local;
-                    var_local += diff * diff;
-                }
-                var_local /= static_cast<float>(local_metrics[fi].size());
-            }
-            frame_mean_local[fi] = mean_local;
-            frame_var_local[fi] = var_local;
+      for (size_t fi = 0; fi < frames.size(); ++fi) {
+        float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                        ? global_weights[static_cast<int>(fi)]
+                        : 1.0f;
+        float bg =
+            (fi < frame_metrics.size()) ? frame_metrics[fi].background : 0.0f;
+        float noise =
+            (fi < frame_metrics.size()) ? frame_metrics[fi].noise : 0.0f;
 
-            state_vectors[fi] = {
-                G_f,
-                mean_local,
-                var_local,
-                mean_cc_tiles,
-                mean_warp_var_tiles,
-                frame_invalid_fraction[fi]
-            };
-            G_for_cluster[fi] = G_f;
+        // Compute mean/var of local tile quality for this frame
+        float mean_local = 0.0f, var_local = 0.0f;
+        if (fi < local_metrics.size() && !local_metrics[fi].empty()) {
+          for (const auto &tm : local_metrics[fi]) {
+            mean_local += tm.quality_score;
+          }
+          mean_local /= static_cast<float>(local_metrics[fi].size());
+          for (const auto &tm : local_metrics[fi]) {
+            float diff = tm.quality_score - mean_local;
+            var_local += diff * diff;
+          }
+          var_local /= static_cast<float>(local_metrics[fi].size());
+        }
+        frame_mean_local[fi] = mean_local;
+        frame_var_local[fi] = var_local;
+
+        state_vectors[fi] = {
+            G_f,           mean_local,          var_local,
+            mean_cc_tiles, mean_warp_var_tiles, frame_invalid_fraction[fi]};
+        G_for_cluster[fi] = G_f;
+      }
+
+      std::vector<std::vector<float>> X = state_vectors;
+      if (n_frames_cluster > 0) {
+        const size_t D = 6;
+        std::vector<float> means(D, 0.0f);
+        std::vector<float> stds(D, 0.0f);
+
+        for (size_t d = 0; d < D; ++d) {
+          double sum = 0.0;
+          for (size_t i = 0; i < X.size(); ++i)
+            sum += static_cast<double>(X[i][d]);
+          means[d] = static_cast<float>(sum / static_cast<double>(X.size()));
+          double var = 0.0;
+          for (size_t i = 0; i < X.size(); ++i) {
+            double diff =
+                static_cast<double>(X[i][d]) - static_cast<double>(means[d]);
+            var += diff * diff;
+          }
+          var /= std::max<double>(1.0, static_cast<double>(X.size()));
+          stds[d] = static_cast<float>(std::sqrt(std::max(0.0, var)));
         }
 
-        std::vector<std::vector<float>> X = state_vectors;
-        if (n_frames_cluster > 0) {
-            const size_t D = 6;
-            std::vector<float> means(D, 0.0f);
-            std::vector<float> stds(D, 0.0f);
+        const float eps = 1.0e-12f;
+        for (size_t i = 0; i < X.size(); ++i) {
+          for (size_t d = 0; d < D; ++d) {
+            float sd = stds[d];
+            X[i][d] = (sd > eps) ? ((X[i][d] - means[d]) / sd) : 0.0f;
+          }
+        }
+      }
 
-            for (size_t d = 0; d < D; ++d) {
-                double sum = 0.0;
-                for (size_t i = 0; i < X.size(); ++i) sum += static_cast<double>(X[i][d]);
-                means[d] = static_cast<float>(sum / static_cast<double>(X.size()));
-                double var = 0.0;
-                for (size_t i = 0; i < X.size(); ++i) {
-                    double diff = static_cast<double>(X[i][d]) - static_cast<double>(means[d]);
-                    var += diff * diff;
-                }
-                var /= std::max<double>(1.0, static_cast<double>(X.size()));
-                stds[d] = static_cast<float>(std::sqrt(std::max(0.0, var)));
-            }
+      // Determine cluster count: K = clip(floor(N/10), K_min, K_max)
+      int k_min = cfg.synthetic.clustering.cluster_count_range[0];
+      int k_max = cfg.synthetic.clustering.cluster_count_range[1];
+      int k_default = std::max(k_min, std::min(k_max, n_frames_cluster / 10));
 
-            const float eps = 1.0e-12f;
-            for (size_t i = 0; i < X.size(); ++i) {
-                for (size_t d = 0; d < D; ++d) {
-                    float sd = stds[d];
-                    X[i][d] = (sd > eps) ? ((X[i][d] - means[d]) / sd) : 0.0f;
-                }
-            }
+      // Simple k-means clustering
+      n_clusters = std::min(k_default, n_frames_cluster);
+
+      std::string clustering_method = "kmeans";
+
+      if (n_clusters > 1 && n_frames_cluster > 1) {
+        // Initialize cluster centers (k-means++ style: just pick evenly spaced
+        // frames)
+        std::vector<std::vector<float>> centers(
+            static_cast<size_t>(n_clusters));
+        for (int c = 0; c < n_clusters; ++c) {
+          int idx = (c * n_frames_cluster) / n_clusters;
+          centers[static_cast<size_t>(c)] = X[static_cast<size_t>(idx)];
         }
 
-        // Determine cluster count: K = clip(floor(N/10), K_min, K_max)
-        int k_min = cfg.synthetic.clustering.cluster_count_range[0];
-        int k_max = cfg.synthetic.clustering.cluster_count_range[1];
-        int k_default = std::max(k_min, std::min(k_max, n_frames_cluster / 10));
-
-        // Simple k-means clustering
-        n_clusters = std::min(k_default, n_frames_cluster);
-
-        std::string clustering_method = "kmeans";
-
-        if (n_clusters > 1 && n_frames_cluster > 1) {
-            // Initialize cluster centers (k-means++ style: just pick evenly spaced frames)
-            std::vector<std::vector<float>> centers(static_cast<size_t>(n_clusters));
+        // K-means iterations
+        for (int iter = 0; iter < 20; ++iter) {
+          // Assign labels
+          for (size_t fi = 0; fi < X.size(); ++fi) {
+            float best_dist = std::numeric_limits<float>::max();
+            int best_c = 0;
             for (int c = 0; c < n_clusters; ++c) {
-                int idx = (c * n_frames_cluster) / n_clusters;
-                centers[static_cast<size_t>(c)] = X[static_cast<size_t>(idx)];
+              float dist = 0.0f;
+              for (size_t d = 0; d < X[fi].size(); ++d) {
+                float diff = X[fi][d] - centers[static_cast<size_t>(c)][d];
+                dist += diff * diff;
+              }
+              if (dist < best_dist) {
+                best_dist = dist;
+                best_c = c;
+              }
             }
+            cluster_labels[fi] = best_c;
+          }
 
-            // K-means iterations
-            for (int iter = 0; iter < 20; ++iter) {
-                // Assign labels
-                for (size_t fi = 0; fi < X.size(); ++fi) {
-                    float best_dist = std::numeric_limits<float>::max();
-                    int best_c = 0;
-                    for (int c = 0; c < n_clusters; ++c) {
-                        float dist = 0.0f;
-                        for (size_t d = 0; d < X[fi].size(); ++d) {
-                            float diff = X[fi][d] - centers[static_cast<size_t>(c)][d];
-                            dist += diff * diff;
-                        }
-                        if (dist < best_dist) {
-                            best_dist = dist;
-                            best_c = c;
-                        }
-                    }
-                    cluster_labels[fi] = best_c;
-                }
-
-                // Update centers
-                std::vector<std::vector<float>> new_centers(static_cast<size_t>(n_clusters),
-                                                            std::vector<float>(6, 0.0f));
-                std::vector<int> counts(static_cast<size_t>(n_clusters), 0);
-                for (size_t fi = 0; fi < X.size(); ++fi) {
-                    int c = cluster_labels[fi];
-                    for (size_t d = 0; d < X[fi].size(); ++d) {
-                        new_centers[static_cast<size_t>(c)][d] += X[fi][d];
-                    }
-                    counts[static_cast<size_t>(c)]++;
-                }
-                for (int c = 0; c < n_clusters; ++c) {
-                    if (counts[static_cast<size_t>(c)] > 0) {
-                        for (size_t d = 0; d < new_centers[static_cast<size_t>(c)].size(); ++d) {
-                            new_centers[static_cast<size_t>(c)][d] /= static_cast<float>(counts[static_cast<size_t>(c)]);
-                        }
-                    }
-                }
-                centers = new_centers;
+          // Update centers
+          std::vector<std::vector<float>> new_centers(
+              static_cast<size_t>(n_clusters), std::vector<float>(6, 0.0f));
+          std::vector<int> counts(static_cast<size_t>(n_clusters), 0);
+          for (size_t fi = 0; fi < X.size(); ++fi) {
+            int c = cluster_labels[fi];
+            for (size_t d = 0; d < X[fi].size(); ++d) {
+              new_centers[static_cast<size_t>(c)][d] += X[fi][d];
             }
-    }
+            counts[static_cast<size_t>(c)]++;
+          }
+          for (int c = 0; c < n_clusters; ++c) {
+            if (counts[static_cast<size_t>(c)] > 0) {
+              for (size_t d = 0; d < new_centers[static_cast<size_t>(c)].size();
+                   ++d) {
+                new_centers[static_cast<size_t>(c)][d] /=
+                    static_cast<float>(counts[static_cast<size_t>(c)]);
+              }
+            }
+          }
+          centers = new_centers;
+        }
+      }
 
-    {
+      {
         std::vector<int> counts(static_cast<size_t>(n_clusters), 0);
         for (int lbl : cluster_labels) {
-            if (lbl >= 0 && lbl < n_clusters) counts[static_cast<size_t>(lbl)]++;
+          if (lbl >= 0 && lbl < n_clusters)
+            counts[static_cast<size_t>(lbl)]++;
         }
 
         bool degenerate = false;
         for (int c = 0; c < n_clusters; ++c) {
-            if (counts[static_cast<size_t>(c)] <= 0) {
-                degenerate = true;
-                break;
-            }
+          if (counts[static_cast<size_t>(c)] <= 0) {
+            degenerate = true;
+            break;
+          }
         }
 
         if (degenerate && n_clusters > 1) {
-            clustering_method = "quantile";
-            std::vector<std::pair<float, int>> order;
-            order.reserve(G_for_cluster.size());
-            for (size_t i = 0; i < G_for_cluster.size(); ++i) {
-                order.push_back({G_for_cluster[i], static_cast<int>(i)});
-            }
-            std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-            for (size_t r = 0; r < order.size(); ++r) {
-                int label = static_cast<int>((r * static_cast<size_t>(n_clusters)) / std::max<size_t>(1, order.size()));
-                if (label >= n_clusters) label = n_clusters - 1;
-                cluster_labels[static_cast<size_t>(order[r].second)] = label;
-            }
+          clustering_method = "quantile";
+          std::vector<std::pair<float, int>> order;
+          order.reserve(G_for_cluster.size());
+          for (size_t i = 0; i < G_for_cluster.size(); ++i) {
+            order.push_back({G_for_cluster[i], static_cast<int>(i)});
+          }
+          std::sort(
+              order.begin(), order.end(),
+              [](const auto &a, const auto &b) { return a.first < b.first; });
+          for (size_t r = 0; r < order.size(); ++r) {
+            int label = static_cast<int>((r * static_cast<size_t>(n_clusters)) /
+                                         std::max<size_t>(1, order.size()));
+            if (label >= n_clusters)
+              label = n_clusters - 1;
+            cluster_labels[static_cast<size_t>(order[r].second)] = label;
+          }
         }
-    }
+      }
 
-    {
+      {
         core::json artifact;
         artifact["n_clusters"] = n_clusters;
         artifact["k_min"] = k_min;
         artifact["k_max"] = k_max;
         artifact["method"] = clustering_method;
         artifact["cluster_labels"] = core::json::array();
-        for (int lbl : cluster_labels) artifact["cluster_labels"].push_back(lbl);
+        for (int lbl : cluster_labels)
+          artifact["cluster_labels"].push_back(lbl);
         artifact["cluster_sizes"] = core::json::array();
         for (int c = 0; c < n_clusters; ++c) {
-            int count = static_cast<int>(std::count(cluster_labels.begin(), cluster_labels.end(), c));
-            artifact["cluster_sizes"].push_back(count);
+          int count = static_cast<int>(
+              std::count(cluster_labels.begin(), cluster_labels.end(), c));
+          artifact["cluster_sizes"].push_back(count);
         }
-        core::write_text(run_dir / "artifacts" / "state_clustering.json", artifact.dump(2));
+        core::write_text(run_dir / "artifacts" / "state_clustering.json",
+                         artifact.dump(2));
+      }
+
+      emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "ok",
+                        {{"n_clusters", n_clusters}}, log_file);
     }
 
-        emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "ok",
-                          {{"n_clusters", n_clusters}}, log_file);
+    // --- Memory release: local_metrics no longer needed after clustering ---
+    { std::vector<std::vector<TileMetrics>>().swap(local_metrics); }
 
-        if (cfg.synthetic.auto_skip.enabled) {
-            std::vector<int> cluster_sizes(n_clusters, 0);
-            std::vector<float> cluster_weight_sum(n_clusters, 0.0f);
-            std::vector<float> cluster_quality_sum(n_clusters, 0.0f);
-            std::vector<int> cluster_quality_count(n_clusters, 0);
+    // Phase 8: SYNTHETIC_FRAMES (// Methodik v3 §11)
+    emitter.phase_start(run_id, Phase::SYNTHETIC_FRAMES, "SYNTHETIC_FRAMES",
+                        log_file);
 
-            for (size_t fi = 0; fi < frames.size(); ++fi) {
-                int c = cluster_labels[fi];
-                if (c < 0 || c >= n_clusters) continue;
-                cluster_sizes[c]++;
-                cluster_weight_sum[c] += G_for_cluster[fi];
-                cluster_quality_sum[c] += frame_mean_local[fi];
-                cluster_quality_count[c] += 1;
-            }
-
-            std::vector<float> eligible_weight_sums;
-            std::vector<float> eligible_quality_means;
-            for (int c = 0; c < n_clusters; ++c) {
-                if (cluster_sizes[c] < cfg.synthetic.frames_min) continue;
-                eligible_weight_sums.push_back(cluster_weight_sum[c]);
-                if (cluster_quality_count[c] > 0) {
-                    eligible_quality_means.push_back(cluster_quality_sum[c] / static_cast<float>(cluster_quality_count[c]));
-                } else {
-                    eligible_quality_means.push_back(0.0f);
-                }
-            }
-
-            synthetic_skip_eligible_clusters = static_cast<int>(eligible_weight_sums.size());
-            if (synthetic_skip_eligible_clusters < cfg.synthetic.auto_skip.min_eligible_clusters) {
-                use_synthetic_frames = false;
-                synthetic_skip_reason = "auto_skip_few_clusters";
-            } else {
-                auto minmax_weight = std::minmax_element(eligible_weight_sums.begin(), eligible_weight_sums.end());
-                auto minmax_quality = std::minmax_element(eligible_quality_means.begin(), eligible_quality_means.end());
-                synthetic_skip_weight_spread = (minmax_weight.second != minmax_weight.first)
-                    ? (*minmax_weight.second - *minmax_weight.first)
-                    : 0.0f;
-                synthetic_skip_quality_spread = (minmax_quality.second != minmax_quality.first)
-                    ? (*minmax_quality.second - *minmax_quality.first)
-                    : 0.0f;
-
-                if (synthetic_skip_weight_spread < cfg.synthetic.auto_skip.min_cluster_weight_spread &&
-                    synthetic_skip_quality_spread < cfg.synthetic.auto_skip.min_cluster_quality_spread) {
-                    use_synthetic_frames = false;
-                    synthetic_skip_reason = "auto_skip_low_spread";
-                }
-            }
-
-            if (!use_synthetic_frames) {
-                emitter.warning(run_id,
-                                "Phase 8 auto-skip: " + synthetic_skip_reason +
-                                    " eligible_clusters=" + std::to_string(synthetic_skip_eligible_clusters) +
-                                    " weight_spread=" + std::to_string(synthetic_skip_weight_spread) +
-                                    " quality_spread=" + std::to_string(synthetic_skip_quality_spread),
-                                log_file);
-            }
-        }
-    }
-
-    // Phase 8: SYNTHETIC_FRAMES (Methodik v4 §11)
-    emitter.phase_start(run_id, Phase::SYNTHETIC_FRAMES, "SYNTHETIC_FRAMES", log_file);
+    struct RGBFrame {
+      Matrix2Df R;
+      Matrix2Df G;
+      Matrix2Df B;
+    };
 
     std::vector<Matrix2Df> synthetic_frames;
+    std::vector<RGBFrame> synthetic_rgb_frames;
+
+    auto reconstruct_subset =
+        [&](const std::vector<char> &frame_mask) -> Matrix2Df {
+      // Accumulate weighted sum directly to avoid copying full-res frames.
+      Matrix2Df out;
+      float wsum = 0.0f;
+
+      for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
+        if (!frame_mask[fi] || !frame_has_data[fi])
+          continue;
+        const Matrix2Df &src = prewarped_frames[fi];
+        if (src.size() <= 0)
+          continue;
+        float w = (fi < static_cast<size_t>(global_weights.size()))
+                      ? global_weights[static_cast<int>(fi)]
+                      : 1.0f;
+        if (out.size() == 0) {
+          out = Matrix2Df::Zero(src.rows(), src.cols());
+        }
+        out += src * w;
+        wsum += w;
+      }
+
+      if (out.size() == 0)
+        return Matrix2Df();
+      if (wsum > 0.0f)
+        out /= wsum;
+      return out;
+    };
     int synth_min = cfg.synthetic.frames_min;
     int synth_max = cfg.synthetic.frames_max;
 
     if (!use_synthetic_frames) {
-        core::json extra;
-        if (!synthetic_skip_reason.empty()) {
-            extra["reason"] = synthetic_skip_reason;
-        } else {
-            extra["reason"] = "reduced_mode";
-        }
-        if (synthetic_skip_eligible_clusters > 0) {
-            extra["eligible_clusters"] = synthetic_skip_eligible_clusters;
-            extra["weight_spread"] = synthetic_skip_weight_spread;
-            extra["quality_spread"] = synthetic_skip_quality_spread;
-        }
-        extra["frame_count"] = static_cast<int>(frames.size());
-        extra["frames_reduced_threshold"] = cfg.assumptions.frames_reduced_threshold;
-        emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "skipped",
-                          extra, log_file);
+      core::json extra;
+      if (!synthetic_skip_reason.empty()) {
+        extra["reason"] = synthetic_skip_reason;
+      } else {
+        extra["reason"] = "reduced_mode";
+      }
+      if (synthetic_skip_eligible_clusters > 0) {
+        extra["eligible_clusters"] = synthetic_skip_eligible_clusters;
+        extra["weight_spread"] = synthetic_skip_weight_spread;
+        extra["quality_spread"] = synthetic_skip_quality_spread;
+      }
+      extra["frame_count"] = static_cast<int>(frames.size());
+      extra["frames_reduced_threshold"] =
+          cfg.assumptions.frames_reduced_threshold;
+      emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "skipped", extra,
+                        log_file);
     } else {
-        std::vector<int> cluster_sizes(n_clusters, 0);
+      std::vector<int> cluster_sizes(n_clusters, 0);
+      for (size_t fi = 0; fi < frames.size(); ++fi) {
+        int c = cluster_labels[fi];
+        if (c >= 0 && c < n_clusters)
+          cluster_sizes[c]++;
+      }
+      int eligible_clusters = 0;
+      for (int c = 0; c < n_clusters; ++c) {
+        if (cluster_sizes[c] >= synth_min)
+          eligible_clusters++;
+      }
+      const int target_synth = std::min(eligible_clusters, synth_max);
+      int clusters_done = 0;
+      int synth_done = 0;
+
+      for (int c = 0; c < n_clusters; ++c) {
+        std::vector<char> use_frame(frames.size(), 0);
+        int count = 0;
         for (size_t fi = 0; fi < frames.size(); ++fi) {
-            int c = cluster_labels[fi];
-            if (c >= 0 && c < n_clusters) cluster_sizes[c]++;
+          if (cluster_labels[fi] != c)
+            continue;
+          use_frame[fi] = 1;
+          if (frame_has_data[fi])
+            count++;
         }
-        int eligible_clusters = 0;
-        for (int c = 0; c < n_clusters; ++c) {
-            if (cluster_sizes[c] >= synth_min) eligible_clusters++;
-        }
-        const int target_synth = std::min(eligible_clusters, synth_max);
-        int clusters_done = 0;
-        int synth_done = 0;
+        clusters_done++;
+        emitter.phase_progress_counts(
+            run_id, Phase::SYNTHETIC_FRAMES, clusters_done, n_clusters,
+            "Cluster " + std::to_string(c + 1) + " von " +
+                std::to_string(n_clusters),
+            "synthetic " + std::to_string(synth_done) + "/" +
+                std::to_string(target_synth),
+            log_file);
+        if (count < synth_min)
+          continue;
+        Matrix2Df syn = reconstruct_subset(use_frame);
+        if (syn.size() == 0)
+          continue;
 
-        for (int c = 0; c < n_clusters; ++c) {
-            std::vector<char> use_frame(frames.size(), 0);
-            int count = 0;
-            for (size_t fi = 0; fi < frames.size(); ++fi) {
-                if (cluster_labels[fi] != c) continue;
-                use_frame[fi] = 1;
-                count++;
-            }
-            clusters_done++;
-            emitter.phase_progress_counts(
-                run_id,
-                Phase::SYNTHETIC_FRAMES,
-                clusters_done,
-                n_clusters,
-                "Cluster " + std::to_string(c + 1) + " von " + std::to_string(n_clusters),
-                "synthetic " + std::to_string(synth_done) + "/" + std::to_string(target_synth),
-                log_file);
-            if (count < synth_min) continue;
-            Matrix2Df syn = reconstruct_tlr_subset(use_frame);
-            synthetic_frames.push_back(syn);
-            synth_done = static_cast<int>(synthetic_frames.size());
-            if (static_cast<int>(synthetic_frames.size()) >= synth_max) break;
+        if (detected_mode == ColorMode::OSC) {
+          auto deb = image::debayer_nearest_neighbor(syn, detected_bayer, 0, 0);
+          RGBFrame rgb;
+          rgb.R = std::move(deb.R);
+          rgb.G = std::move(deb.G);
+          rgb.B = std::move(deb.B);
+          synthetic_rgb_frames.push_back(std::move(rgb));
         }
 
-        if (synthetic_frames.empty()) {
-            // If there are not enough frames to satisfy frames_min, treat as a valid skip.
-            if (static_cast<int>(frames.size()) < synth_min) {
-                use_synthetic_frames = false;
-                emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "skipped",
-                                  {{"reason", "insufficient_frames"},
-                                   {"frame_count", static_cast<int>(frames.size())},
-                                   {"frames_min", synth_min}},
-                                  log_file);
-            } else {
-                emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "error",
-                                  {{"error", "SYNTHETIC_FRAMES: no synthetic frames"}},
-                                  log_file);
-                emitter.run_end(run_id, false, "error", log_file);
-                return 1;
-            }
+        synthetic_frames.push_back(std::move(syn));
+        synth_done = static_cast<int>(synthetic_frames.size());
+        if (static_cast<int>(synthetic_frames.size()) >= synth_max)
+          break;
+      }
+
+      if (synthetic_frames.empty()) {
+        // If there are not enough frames to satisfy frames_min, treat as a
+        // valid skip.
+        if (static_cast<int>(frames.size()) < synth_min) {
+          use_synthetic_frames = false;
+          emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "skipped",
+                            {{"reason", "insufficient_frames"},
+                             {"frame_count", static_cast<int>(frames.size())},
+                             {"frames_min", synth_min}},
+                            log_file);
+        } else {
+          emitter.phase_end(
+              run_id, Phase::SYNTHETIC_FRAMES, "error",
+              {{"error", "SYNTHETIC_FRAMES: no synthetic frames"}}, log_file);
+          emitter.run_end(run_id, false, "error", log_file);
+          return 1;
         }
+      }
     }
 
     if (use_synthetic_frames) {
-        // Save synthetic frames
-        for (size_t si = 0; si < synthetic_frames.size(); ++si) {
-            std::string fname = "synthetic_" + std::to_string(si) + ".fit";
-            Matrix2Df out = synthetic_frames[si];
-            apply_output_scaling_inplace(out, 0, 0);
-            io::write_fits_float(run_dir / "outputs" / fname, out, first_hdr);
-        }
+      // Save synthetic frames
+      for (size_t si = 0; si < synthetic_frames.size(); ++si) {
+        std::string fname = "synthetic_" + std::to_string(si) + ".fit";
+        Matrix2Df out = synthetic_frames[si];
+        image::apply_output_scaling_inplace(out, 0, 0, detected_mode,
+            detected_bayer_str, output_bg_mono, output_bg_r, output_bg_g,
+            output_bg_b, output_pedestal);
+        io::write_fits_float(run_dir / "outputs" / fname, out, first_hdr);
+      }
 
-        {
-            core::json artifact;
-            artifact["num_synthetic"] = static_cast<int>(synthetic_frames.size());
-            artifact["frames_min"] = synth_min;
-            artifact["frames_max"] = synth_max;
-            core::write_text(run_dir / "artifacts" / "synthetic_frames.json", artifact.dump(2));
-        }
+      {
+        core::json artifact;
+        artifact["num_synthetic"] = static_cast<int>(synthetic_frames.size());
+        artifact["frames_min"] = synth_min;
+        artifact["frames_max"] = synth_max;
+        core::write_text(run_dir / "artifacts" / "synthetic_frames.json",
+                         artifact.dump(2));
+      }
 
-        emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "ok",
-                          {{"num_synthetic", static_cast<int>(synthetic_frames.size())}}, log_file);
+      emitter.phase_end(
+          run_id, Phase::SYNTHETIC_FRAMES, "ok",
+          {{"num_synthetic", static_cast<int>(synthetic_frames.size())}},
+          log_file);
     }
+
+    // --- Memory release: prewarped_frames no longer needed after synthetic ---
+    // This is the single largest allocation (~N_frames * W * H * 4 bytes).
+    { std::vector<Matrix2Df>().swap(prewarped_frames); }
+    { std::vector<uint8_t>().swap(frame_has_data); }
 
     // Phase 9: STACKING (final overlap-add already done in Phase 6)
     emitter.phase_start(run_id, Phase::STACKING, "STACKING", log_file);
 
     if (use_synthetic_frames) {
-        if (cfg.stacking.method == "rej") {
-            recon = sigma_clip_stack(
-                synthetic_frames,
-                cfg.stacking.sigma_clip.sigma_low,
+      // Filter out empty (0×0) synthetic frames (empty cluster outputs)
+      std::vector<Matrix2Df> valid_synth;
+      valid_synth.reserve(synthetic_frames.size());
+
+      // For OSC: keep a parallel list of per-frame RGB planes so we can
+      // stack in RGB space and avoid debayering after sigma-clipped stacking.
+      std::vector<Matrix2Df> synth_R;
+      std::vector<Matrix2Df> synth_G;
+      std::vector<Matrix2Df> synth_B;
+      if (detected_mode == ColorMode::OSC) {
+        synth_R.reserve(synthetic_frames.size());
+        synth_G.reserve(synthetic_frames.size());
+        synth_B.reserve(synthetic_frames.size());
+      }
+
+      for (size_t i = 0; i < synthetic_frames.size(); ++i) {
+        auto &sf = synthetic_frames[i];
+        if (sf.size() <= 0)
+          continue;
+
+        if (detected_mode == ColorMode::OSC) {
+          if (i < synthetic_rgb_frames.size() &&
+              synthetic_rgb_frames[i].R.size() > 0) {
+            synth_R.push_back(std::move(synthetic_rgb_frames[i].R));
+            synth_G.push_back(std::move(synthetic_rgb_frames[i].G));
+            synth_B.push_back(std::move(synthetic_rgb_frames[i].B));
+          } else {
+            auto deb = image::debayer_nearest_neighbor(sf, detected_bayer, 0, 0);
+            synth_R.push_back(std::move(deb.R));
+            synth_G.push_back(std::move(deb.G));
+            synth_B.push_back(std::move(deb.B));
+          }
+        }
+
+        valid_synth.push_back(std::move(sf));
+      }
+
+      std::cerr << "[STACKING] " << valid_synth.size() << " / "
+                << synthetic_frames.size() << " non-empty synthetic frames"
+                << std::endl;
+
+      if (!valid_synth.empty()) {
+        if (detected_mode == ColorMode::OSC &&
+            !synth_R.empty() && synth_R.size() == valid_synth.size()) {
+          if (cfg.stacking.method == "rej") {
+            recon_R = reconstruction::sigma_clip_stack(
+                synth_R, cfg.stacking.sigma_clip.sigma_low,
                 cfg.stacking.sigma_clip.sigma_high,
                 cfg.stacking.sigma_clip.max_iters,
                 cfg.stacking.sigma_clip.min_fraction);
-        } else {
-            recon = Matrix2Df::Zero(synthetic_frames[0].rows(), synthetic_frames[0].cols());
-            for (const auto& sf : synthetic_frames) {
-                recon += sf;
+            recon_G = reconstruction::sigma_clip_stack(
+                synth_G, cfg.stacking.sigma_clip.sigma_low,
+                cfg.stacking.sigma_clip.sigma_high,
+                cfg.stacking.sigma_clip.max_iters,
+                cfg.stacking.sigma_clip.min_fraction);
+            recon_B = reconstruction::sigma_clip_stack(
+                synth_B, cfg.stacking.sigma_clip.sigma_low,
+                cfg.stacking.sigma_clip.sigma_high,
+                cfg.stacking.sigma_clip.max_iters,
+                cfg.stacking.sigma_clip.min_fraction);
+          } else {
+            recon_R = Matrix2Df::Zero(synth_R[0].rows(), synth_R[0].cols());
+            recon_G = Matrix2Df::Zero(synth_G[0].rows(), synth_G[0].cols());
+            recon_B = Matrix2Df::Zero(synth_B[0].rows(), synth_B[0].cols());
+            for (size_t k = 0; k < synth_R.size(); ++k) {
+              recon_R += synth_R[k];
+              recon_G += synth_G[k];
+              recon_B += synth_B[k];
             }
-            recon /= static_cast<float>(synthetic_frames.size());
+            recon_R /= static_cast<float>(synth_R.size());
+            recon_G /= static_cast<float>(synth_G.size());
+            recon_B /= static_cast<float>(synth_B.size());
+          }
+          recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+        } else {
+          if (cfg.stacking.method == "rej") {
+            recon = reconstruction::sigma_clip_stack(
+                valid_synth, cfg.stacking.sigma_clip.sigma_low,
+                cfg.stacking.sigma_clip.sigma_high,
+                cfg.stacking.sigma_clip.max_iters,
+                cfg.stacking.sigma_clip.min_fraction);
+          } else {
+            recon = Matrix2Df::Zero(valid_synth[0].rows(), valid_synth[0].cols());
+            for (const auto &sf2 : valid_synth) {
+              recon += sf2;
+            }
+            recon /= static_cast<float>(valid_synth.size());
+          }
         }
+      }
+    }
+
+    // Post-stack cosmetic correction: remove residual hot pixels
+    // that survived sigma-clipped stacking (especially with few frames)
+    recon = image::cosmetic_correction(recon, 5.0f, true);
+    if (detected_mode == ColorMode::OSC) {
+      recon_R = image::cosmetic_correction(recon_R, 5.0f, true);
+      recon_G = image::cosmetic_correction(recon_G, 5.0f, true);
+      recon_B = image::cosmetic_correction(recon_B, 5.0f, true);
     }
 
     Matrix2Df recon_out = recon;
-    apply_output_scaling_inplace(recon_out, 0, 0);
-    io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, first_hdr);
-    io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out, first_hdr);
+    if (detected_mode == ColorMode::OSC) {
+      const float bg_luma = 0.25f * output_bg_r + 0.5f * output_bg_g +
+                            0.25f * output_bg_b;
+      recon_out *= bg_luma;
+      recon_out.array() += output_pedestal;
+    } else {
+      image::apply_output_scaling_inplace(recon_out, 0, 0, detected_mode,
+          detected_bayer_str, output_bg_mono, output_bg_r, output_bg_g,
+          output_bg_b, output_pedestal);
+    }
 
-    emitter.phase_end(run_id, Phase::STACKING, "ok",
-                      {{"note", use_synthetic_frames ? "overlap_add_done_in_phase6" : "reduced_mode_reuse_phase6"}},
-                      log_file);
+    // Linear stretch to full 16-bit range [0..65535]
+    if (cfg.stacking.output_stretch) {
+      float vmin = std::numeric_limits<float>::max();
+      float vmax = std::numeric_limits<float>::lowest();
+      for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
+        float v = recon_out.data()[k];
+        if (std::isfinite(v)) {
+          if (v < vmin) vmin = v;
+          if (v > vmax) vmax = v;
+        }
+      }
+      float range = vmax - vmin;
+      if (range > 1.0e-6f) {
+        float scale = 65535.0f / range;
+        for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
+          recon_out.data()[k] = (recon_out.data()[k] - vmin) * scale;
+        }
+        std::cout << "[Stacking] Output stretch: [" << vmin << ".." << vmax
+                  << "] -> [0..65535]" << std::endl;
+      }
+    }
+
+    io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out,
+                         first_hdr);
+    io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out,
+                         first_hdr);
+
+    emitter.phase_end(
+        run_id, Phase::STACKING, "ok",
+        {{"note", use_synthetic_frames ? "overlap_add_done_in_phase6"
+                                       : "reduced_mode_reuse_phase6"}},
+        log_file);
 
     {
-        bool validation_ok = true;
-        core::json v;
+      bool validation_ok = true;
+      core::json v;
 
-        float output_fwhm_med = 0.0f;
-        {
-            const int patch_r = 10;
-            const int patch_sz = 2 * patch_r + 1;
-            cv::Mat img_cv(recon.rows(), recon.cols(), CV_32F, const_cast<float*>(recon.data()));
-            cv::Mat blur;
-            cv::blur(img_cv, blur, cv::Size(31, 31), cv::Point(-1, -1), cv::BORDER_REFLECT_101);
-            cv::Mat resid = img_cv - blur;
-            std::vector<cv::Point2f> corners;
-            try {
-                cv::goodFeaturesToTrack(resid, corners, 400, 0.01, 6);
-            } catch (...) {
-                corners.clear();
-            }
-            std::vector<float> fwhms;
-            for (const auto& p : corners) {
-                int cx = static_cast<int>(std::round(p.x));
-                int cy = static_cast<int>(std::round(p.y));
-                int x0 = cx - patch_r;
-                int y0 = cy - patch_r;
-                if (x0 < 0 || y0 < 0 || (x0 + patch_sz) > img_cv.cols || (y0 + patch_sz) > img_cv.rows) continue;
-                cv::Mat patch = img_cv(cv::Rect(x0, y0, patch_sz, patch_sz));
-                float f = estimate_fwhm_from_patch(patch);
-                if (f > 0.0f && std::isfinite(f)) fwhms.push_back(f);
-            }
-            if (fwhms.size() >= 25) {
-                output_fwhm_med = median_of(fwhms);
-            }
+      float output_fwhm_med = metrics::measure_fwhm_from_image(recon);
+
+      float fwhm_improvement_percent = 0.0f;
+      if (seeing_fwhm_med > 1.0e-6f && output_fwhm_med > 0.0f) {
+        fwhm_improvement_percent =
+            (seeing_fwhm_med - output_fwhm_med) / seeing_fwhm_med * 100.0f;
+      }
+      v["seeing_fwhm_median"] = seeing_fwhm_med;
+      v["output_fwhm_median"] = output_fwhm_med;
+      v["fwhm_improvement_percent"] = fwhm_improvement_percent;
+      if (fwhm_improvement_percent <
+          cfg.validation.min_fwhm_improvement_percent) {
+        validation_ok = false;
+        v["fwhm_improvement_ok"] = false;
+      } else {
+        v["fwhm_improvement_ok"] = true;
+      }
+
+      float tile_weight_variance = 0.0f;
+      {
+        std::vector<float> tile_means;
+        tile_means.reserve(tiles_phase56.size());
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+          double sum = 0.0;
+          int cnt = 0;
+          for (size_t fi = 0; fi < frames.size(); ++fi) {
+            float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                            ? global_weights[static_cast<int>(fi)]
+                            : 1.0f;
+            float L_ft =
+                (fi < local_weights.size() && ti < local_weights[fi].size())
+                    ? local_weights[fi][ti]
+                    : 1.0f;
+            sum += static_cast<double>(G_f * L_ft);
+            cnt++;
+          }
+          tile_means.push_back(
+              cnt > 0 ? static_cast<float>(sum / static_cast<double>(cnt))
+                      : 0.0f);
         }
-
-        float fwhm_improvement_percent = 0.0f;
-        if (seeing_fwhm_med > 1.0e-6f && output_fwhm_med > 0.0f) {
-            fwhm_improvement_percent = (seeing_fwhm_med - output_fwhm_med) / seeing_fwhm_med * 100.0f;
+        double mean = 0.0;
+        for (float x : tile_means)
+          mean += static_cast<double>(x);
+        mean /= std::max<double>(1.0, static_cast<double>(tile_means.size()));
+        double var = 0.0;
+        for (float x : tile_means) {
+          double d = static_cast<double>(x) - mean;
+          var += d * d;
         }
-        v["seeing_fwhm_median"] = seeing_fwhm_med;
-        v["output_fwhm_median"] = output_fwhm_med;
-        v["fwhm_improvement_percent"] = fwhm_improvement_percent;
-        if (fwhm_improvement_percent < cfg.validation.min_fwhm_improvement_percent) {
-            validation_ok = false;
-            v["fwhm_improvement_ok"] = false;
-        } else {
-            v["fwhm_improvement_ok"] = true;
+        var /= std::max<double>(1.0, static_cast<double>(tile_means.size()));
+        tile_weight_variance =
+            static_cast<float>(var / (mean * mean + 1.0e-12));
+      }
+      v["tile_weight_variance"] = tile_weight_variance;
+      if (tile_weight_variance < cfg.validation.min_tile_weight_variance) {
+        validation_ok = false;
+        v["tile_weight_variance_ok"] = false;
+      } else {
+        v["tile_weight_variance_ok"] = true;
+      }
+
+      bool tile_pattern_ok = true;
+      if (cfg.validation.require_no_tile_pattern) {
+        cv::Mat img_cv(recon.rows(), recon.cols(), CV_32F,
+                       const_cast<float *>(recon.data()));
+        cv::Mat gx, gy;
+        cv::Sobel(img_cv, gx, CV_32F, 1, 0, 3);
+        cv::Sobel(img_cv, gy, CV_32F, 0, 1, 3);
+        cv::Mat mag;
+        cv::magnitude(gx, gy, mag);
+
+        std::vector<int> xb;
+        std::vector<int> yb;
+        xb.reserve(tiles.size());
+        yb.reserve(tiles.size());
+        for (const auto &t : tiles) {
+          if (t.x > 0)
+            xb.push_back(t.x);
+          if (t.y > 0)
+            yb.push_back(t.y);
         }
+        std::sort(xb.begin(), xb.end());
+        xb.erase(std::unique(xb.begin(), xb.end()), xb.end());
+        std::sort(yb.begin(), yb.end());
+        yb.erase(std::unique(yb.begin(), yb.end()), yb.end());
 
-        float tile_weight_variance = 0.0f;
-        {
-            std::vector<float> tile_means;
-            tile_means.reserve(tiles_phase56.size());
-            for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-                double sum = 0.0;
-                int cnt = 0;
-                for (size_t fi = 0; fi < frames.size(); ++fi) {
-                    float G_f = (fi < static_cast<size_t>(global_weights.size())) ? global_weights[static_cast<int>(fi)] : 1.0f;
-                    float L_ft = (fi < local_weights.size() && ti < local_weights[fi].size()) ? local_weights[fi][ti] : 1.0f;
-                    sum += static_cast<double>(G_f * L_ft);
-                    cnt++;
-                }
-                tile_means.push_back(cnt > 0 ? static_cast<float>(sum / static_cast<double>(cnt)) : 0.0f);
-            }
-            double mean = 0.0;
-            for (float x : tile_means) mean += static_cast<double>(x);
-            mean /= std::max<double>(1.0, static_cast<double>(tile_means.size()));
-            double var = 0.0;
-            for (float x : tile_means) {
-                double d = static_cast<double>(x) - mean;
-                var += d * d;
-            }
-            var /= std::max<double>(1.0, static_cast<double>(tile_means.size()));
-            tile_weight_variance = static_cast<float>(var / (mean * mean + 1.0e-12));
+        auto line_mean_x = [&](int x) -> float {
+          if (x < 0 || x >= mag.cols)
+            return 0.0f;
+          double sum = 0.0;
+          for (int y = 0; y < mag.rows; ++y)
+            sum += static_cast<double>(mag.at<float>(y, x));
+          return static_cast<float>(sum / static_cast<double>(mag.rows));
+        };
+        auto line_mean_y = [&](int y) -> float {
+          if (y < 0 || y >= mag.rows)
+            return 0.0f;
+          double sum = 0.0;
+          for (int x = 0; x < mag.cols; ++x)
+            sum += static_cast<double>(mag.at<float>(y, x));
+          return static_cast<float>(sum / static_cast<double>(mag.cols));
+        };
+
+        float worst_ratio = 1.0f;
+        for (int x : xb) {
+          float b = line_mean_x(x);
+          float n = 0.5f * (line_mean_x(x - 2) + line_mean_x(x + 2));
+          float r = b / (n + 1.0e-12f);
+          if (r > worst_ratio)
+            worst_ratio = r;
         }
-        v["tile_weight_variance"] = tile_weight_variance;
-        if (tile_weight_variance < cfg.validation.min_tile_weight_variance) {
-            validation_ok = false;
-            v["tile_weight_variance_ok"] = false;
-        } else {
-            v["tile_weight_variance_ok"] = true;
+        for (int y : yb) {
+          float b = line_mean_y(y);
+          float n = 0.5f * (line_mean_y(y - 2) + line_mean_y(y + 2));
+          float r = b / (n + 1.0e-12f);
+          if (r > worst_ratio)
+            worst_ratio = r;
         }
+        v["tile_pattern_ratio"] = worst_ratio;
+        tile_pattern_ok = (worst_ratio < 1.5f);
+        v["tile_pattern_ok"] = tile_pattern_ok;
+        if (!tile_pattern_ok)
+          validation_ok = false;
+      }
 
-        bool tile_pattern_ok = true;
-        if (cfg.validation.require_no_tile_pattern) {
-            cv::Mat img_cv(recon.rows(), recon.cols(), CV_32F, const_cast<float*>(recon.data()));
-            cv::Mat gx, gy;
-            cv::Sobel(img_cv, gx, CV_32F, 1, 0, 3);
-            cv::Sobel(img_cv, gy, CV_32F, 0, 1, 3);
-            cv::Mat mag;
-            cv::magnitude(gx, gy, mag);
+      core::write_text(run_dir / "artifacts" / "validation.json", v.dump(2));
 
-            std::vector<int> xb;
-            std::vector<int> yb;
-            xb.reserve(tiles.size());
-            yb.reserve(tiles.size());
-            for (const auto& t : tiles) {
-                if (t.x > 0) xb.push_back(t.x);
-                if (t.y > 0) yb.push_back(t.y);
-            }
-            std::sort(xb.begin(), xb.end());
-            xb.erase(std::unique(xb.begin(), xb.end()), xb.end());
-            std::sort(yb.begin(), yb.end());
-            yb.erase(std::unique(yb.begin(), yb.end()), yb.end());
-
-            auto line_mean_x = [&](int x) -> float {
-                if (x < 0 || x >= mag.cols) return 0.0f;
-                double sum = 0.0;
-                for (int y = 0; y < mag.rows; ++y) sum += static_cast<double>(mag.at<float>(y, x));
-                return static_cast<float>(sum / static_cast<double>(mag.rows));
-            };
-            auto line_mean_y = [&](int y) -> float {
-                if (y < 0 || y >= mag.rows) return 0.0f;
-                double sum = 0.0;
-                for (int x = 0; x < mag.cols; ++x) sum += static_cast<double>(mag.at<float>(y, x));
-                return static_cast<float>(sum / static_cast<double>(mag.cols));
-            };
-
-            float worst_ratio = 1.0f;
-            for (int x : xb) {
-                float b = line_mean_x(x);
-                float n = 0.5f * (line_mean_x(x - 2) + line_mean_x(x + 2));
-                float r = b / (n + 1.0e-12f);
-                if (r > worst_ratio) worst_ratio = r;
-            }
-            for (int y : yb) {
-                float b = line_mean_y(y);
-                float n = 0.5f * (line_mean_y(y - 2) + line_mean_y(y + 2));
-                float r = b / (n + 1.0e-12f);
-                if (r > worst_ratio) worst_ratio = r;
-            }
-            v["tile_pattern_ratio"] = worst_ratio;
-            tile_pattern_ok = (worst_ratio < 1.5f);
-            v["tile_pattern_ok"] = tile_pattern_ok;
-            if (!tile_pattern_ok) validation_ok = false;
-        }
-
-        core::write_text(run_dir / "artifacts" / "validation.json", v.dump(2));
-
-        // Do not abort here: we still want to run DEBAYER so GUI gets outputs.
-        // We will mark the run as validation_failed at the end.
-        if (!validation_ok) {
-            run_validation_failed = true;
-        }
+      // Do not abort here: we still want to run DEBAYER so GUI gets outputs.
+      // We will mark the run as validation_failed at the end.
+      if (!validation_ok) {
+        run_validation_failed = true;
+      }
     }
 
     // Phase 10: DEBAYER (for OSC data)
     emitter.phase_start(run_id, Phase::DEBAYER, "DEBAYER", log_file);
 
+    Matrix2Df R_out, G_out, B_out;
+    Matrix2Df R_disk, G_disk, B_disk;
+    bool have_rgb = false;
+    fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
+    fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
+
     if (detected_mode == ColorMode::OSC) {
-        // Simple bilinear debayer
-        int h = static_cast<int>(recon.rows());
-        int w = static_cast<int>(recon.cols());
+      if (recon_R.size() == recon.size() && recon_R.size() > 0 &&
+          recon_G.size() == recon.size() && recon_B.size() == recon.size()) {
+        R_out = recon_R;
+        G_out = recon_G;
+        B_out = recon_B;
+      } else {
+        // Fallback (should be rare): debayer luminance proxy.
+        auto debayer = image::debayer_nearest_neighbor(recon, detected_bayer, 0, 0);
+        R_out = debayer.R;
+        G_out = debayer.G;
+        B_out = debayer.B;
+      }
+      have_rgb = true;
+      // Restore per-channel background levels to undo the per-channel
+      // normalization (scale_r=1/bg_r etc.).  This preserves the camera's
+      // native color response and produces a neutral sky background.
+      R_out *= output_bg_r;
+      G_out *= output_bg_g;
+      B_out *= output_bg_b;
+      R_out.array() += output_pedestal;
+      G_out.array() += output_pedestal;
+      B_out.array() += output_pedestal;
 
-        Matrix2Df R = Matrix2Df::Zero(h, w);
-        Matrix2Df G = Matrix2Df::Zero(h, w);
-        Matrix2Df B = Matrix2Df::Zero(h, w);
+      // Keep a separate copy for on-disk outputs (may be stretched for viewing)
+      R_disk = R_out;
+      G_disk = G_out;
+      B_disk = B_out;
 
-        // Determine Bayer pattern offsets (default GBRG)
-        int r_row = 1, r_col = 0;  // R at odd rows, even cols
-        int b_row = 0, b_col = 1;  // B at even rows, odd cols
-
-        if (detected_bayer == BayerPattern::RGGB) {
-            r_row = 0; r_col = 0;
-            b_row = 1; b_col = 1;
-        } else if (detected_bayer == BayerPattern::BGGR) {
-            r_row = 1; r_col = 1;
-            b_row = 0; b_col = 0;
-        } else if (detected_bayer == BayerPattern::GRBG) {
-            r_row = 0; r_col = 1;
-            b_row = 1; b_col = 0;
-        }
-        // GBRG is default
-
-        // Simple nearest-neighbor debayer
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                int y2 = y & ~1;
-                int x2 = x & ~1;
-
-                float r_val = recon(std::min(y2 + r_row, h - 1), std::min(x2 + r_col, w - 1));
-                float b_val = recon(std::min(y2 + b_row, h - 1), std::min(x2 + b_col, w - 1));
-
-                // Green is at two positions per 2x2 block
-                float g_val;
-                if ((y + x) % 2 == 0) {
-                    // This pixel is green
-                    g_val = recon(y, x);
-                } else {
-                    // Average neighboring greens
-                    int gy1 = (y % 2 == r_row) ? y : y;
-                    int gx1 = (x % 2 == r_col) ? x + 1 : x - 1;
-                    int gy2 = (y % 2 == r_row) ? y + 1 : y - 1;
-                    int gx2 = (x % 2 == r_col) ? x : x;
-                    gx1 = std::max(0, std::min(w - 1, gx1));
-                    gx2 = std::max(0, std::min(w - 1, gx2));
-                    gy1 = std::max(0, std::min(h - 1, gy1));
-                    gy2 = std::max(0, std::min(h - 1, gy2));
-                    g_val = (recon(gy1, gx1) + recon(gy2, gx2)) * 0.5f;
-                }
-
-                R(y, x) = r_val;
-                G(y, x) = g_val;
-                B(y, x) = b_val;
+      // Linear stretch RGB to full 16-bit range (joint min/max preserves color)
+      if (cfg.stacking.output_stretch) {
+        float vmin = std::numeric_limits<float>::max();
+        float vmax = std::numeric_limits<float>::lowest();
+        for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
+          for (Eigen::Index k = 0; k < ch->size(); ++k) {
+            float v = ch->data()[k];
+            if (std::isfinite(v)) {
+              if (v < vmin) vmin = v;
+              if (v > vmax) vmax = v;
             }
+          }
         }
+        float range = vmax - vmin;
+        if (range > 1.0e-6f) {
+          float scale = 65535.0f / range;
+          for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
+            for (Eigen::Index k = 0; k < ch->size(); ++k) {
+              ch->data()[k] = (ch->data()[k] - vmin) * scale;
+            }
+          }
+          std::cout << "[Debayer] RGB output stretch: [" << vmin << ".." << vmax
+                    << "] -> [0..65535]" << std::endl;
+        }
+      }
 
-        // Save individual RGB channels
-        Matrix2Df R_out = R;
-        Matrix2Df G_out = G;
-        Matrix2Df B_out = B;
-        R_out *= output_bg_r;
-        G_out *= output_bg_g;
-        B_out *= output_bg_b;
-        R_out.array() += output_pedestal;
-        G_out.array() += output_pedestal;
-        B_out.array() += output_pedestal;
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out, first_hdr);
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G_out, first_hdr);
-        io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_out, first_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_disk,
+                           first_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G_disk,
+                           first_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_disk,
+                           first_hdr);
 
-        // Save stacked_rgb.fits as 3-plane RGB cube (NAXIS3=3)
-        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits", R_out, G_out, B_out, first_hdr);
+      // Save stacked_rgb.fits as 3-plane RGB cube (NAXIS3=3) for viewing
+      io::write_fits_rgb(stacked_rgb_path, R_disk, G_disk, B_disk, first_hdr);
+      // Write an additional linear (non-stretched) cube for plate solving.
+      io::write_fits_rgb(stacked_rgb_solve_path, R_out, G_out, B_out, first_hdr);
 
-        emitter.phase_end(run_id, Phase::DEBAYER, "ok",
-                          {{"mode", "OSC"}, {"bayer_pattern", bayer_pattern_to_string(detected_bayer)},
-                           {"output_rgb", (run_dir / "outputs" / "stacked_rgb.fits").string()}}, log_file);
+      emitter.phase_end(
+          run_id, Phase::DEBAYER, "ok",
+          {{"mode", "OSC"},
+           {"bayer_pattern", bayer_pattern_to_string(detected_bayer)},
+           {"output_rgb", stacked_rgb_path.string()},
+           {"output_rgb_solve", stacked_rgb_solve_path.string()}},
+          log_file);
     } else {
-        emitter.phase_end(run_id, Phase::DEBAYER, "ok", {{"mode", "MONO"}}, log_file);
+      emitter.phase_end(run_id, Phase::DEBAYER, "ok", {{"mode", "MONO"}},
+                        log_file);
     }
 
-    // Phase 11: DONE
+    // Phase 11: ASTROMETRY (plate solve via ASTAP)
+    emitter.phase_start(run_id, Phase::ASTROMETRY, "ASTROMETRY", log_file);
+
+    astro::WCS wcs;
+    bool have_wcs = false;
+
+    if (!cfg.astrometry.enabled) {
+      emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                        {{"reason", "disabled"}}, log_file);
+    } else if (!have_rgb) {
+      emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                        {{"reason", "no_rgb_data"}}, log_file);
+    } else {
+      // Determine ASTAP paths (config or defaults)
+      std::string astap_data = cfg.astrometry.astap_data_dir;
+      if (astap_data.empty()) {
+        const char *home = std::getenv("HOME");
+        if (home) astap_data = std::string(home) + "/.local/share/tile_compile/astap";
+      }
+      std::string astap_bin = cfg.astrometry.astap_bin;
+      if (astap_bin.empty()) astap_bin = astap_data + "/astap_cli";
+
+      if (!fs::exists(astap_bin)) {
+        emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                          {{"reason", "astap_not_found"},
+                           {"astap_bin", astap_bin}}, log_file);
+      } else {
+        auto shell_quote = [](const std::string &s) -> std::string {
+          std::string out;
+          out.reserve(s.size() + 2);
+          out.push_back(static_cast<char>(39));
+          for (char c : s) {
+            if (c == static_cast<char>(39))
+              out += "'\\''";
+            else
+              out.push_back(c);
+          }
+          out.push_back(static_cast<char>(39));
+          return out;
+        };
+
+        // Run ASTAP plate solve on the linear (non-stretched) RGB cube
+        std::string cmd = shell_quote(astap_bin) + " -f " +
+            shell_quote(stacked_rgb_solve_path.string()) +
+            " -d " + shell_quote(astap_data) +
+            " -r " + std::to_string(cfg.astrometry.search_radius);
+
+        std::cerr << "[ASTROMETRY] Running: " << cmd << std::endl;
+        int ret = std::system(cmd.c_str());
+
+        // ASTAP writes a .wcs file next to the input
+        fs::path wcs_path = stacked_rgb_solve_path;
+        wcs_path.replace_extension(".wcs");
+
+        if (ret == 0 && fs::exists(wcs_path)) {
+          try {
+            wcs = astro::parse_wcs_file(wcs_path.string());
+            have_wcs = wcs.valid();
+          } catch (const std::exception &e) {
+            std::cerr << "[ASTROMETRY] WCS parse error: " << e.what() << std::endl;
+          }
+        }
+
+        if (have_wcs) {
+          // Inject WCS keywords into first_hdr so all subsequent
+          // FITS outputs (PCC etc.) inherit the astrometric solution.
+          // ASTAP does not write WCS into FLOAT_IMG FITS (BITPIX=-32).
+          first_hdr.numeric_values["CRVAL1"] = wcs.crval1;
+          first_hdr.numeric_values["CRVAL2"] = wcs.crval2;
+          first_hdr.numeric_values["CRPIX1"] = wcs.crpix1;
+          first_hdr.numeric_values["CRPIX2"] = wcs.crpix2;
+          first_hdr.numeric_values["CD1_1"]  = wcs.cd1_1;
+          first_hdr.numeric_values["CD1_2"]  = wcs.cd1_2;
+          first_hdr.numeric_values["CD2_1"]  = wcs.cd2_1;
+          first_hdr.numeric_values["CD2_2"]  = wcs.cd2_2;
+          first_hdr.numeric_values["EQUINOX"] = 2000.0;
+          first_hdr.string_values["CTYPE1"]  = "RA---TAN";
+          first_hdr.string_values["CTYPE2"]  = "DEC--TAN";
+          first_hdr.string_values["CUNIT1"]  = "deg";
+          first_hdr.string_values["CUNIT2"]  = "deg";
+          first_hdr.bool_values["PLTSOLVD"] = true;
+
+          // Re-write outputs with WCS keywords
+          if (have_rgb) {
+            try {
+              io::write_fits_rgb(stacked_rgb_path, R_disk, G_disk, B_disk, first_hdr);
+              std::cerr << "[ASTROMETRY] WCS keywords written to " << stacked_rgb_path << std::endl;
+            } catch (const std::exception &e) {
+              std::cerr << "[ASTROMETRY] Could not update stacked_rgb.fits: " << e.what() << std::endl;
+            }
+            try {
+              io::write_fits_rgb(stacked_rgb_solve_path, R_out, G_out, B_out, first_hdr);
+            } catch (const std::exception &) {
+            }
+          }
+
+          // Copy .wcs to run artifacts directory
+          fs::path wcs_artifact = run_dir / "artifacts" / "stacked_rgb.wcs";
+          try {
+            fs::copy_file(wcs_path, wcs_artifact,
+                          fs::copy_options::overwrite_existing);
+            std::cerr << "[ASTROMETRY] WCS saved to " << wcs_artifact << std::endl;
+          } catch (const std::exception &e) {
+            std::cerr << "[ASTROMETRY] Could not copy .wcs: " << e.what() << std::endl;
+          }
+
+          emitter.phase_end(run_id, Phase::ASTROMETRY, "ok",
+                            {{"ra", wcs.crval1},
+                             {"dec", wcs.crval2},
+                             {"pixel_scale_arcsec", wcs.pixel_scale_arcsec()},
+                             {"rotation_deg", wcs.rotation_deg()},
+                             {"fov_w_deg", wcs.fov_width_deg()},
+                             {"fov_h_deg", wcs.fov_height_deg()},
+                             {"wcs_file", wcs_artifact.string()}},
+                            log_file);
+        } else {
+          emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                            {{"reason", "solve_failed"},
+                             {"exit_code", ret}}, log_file);
+        }
+      }
+    }
+
+    // --- Memory release: R_disk/G_disk/B_disk no longer needed after astrometry ---
+    R_disk.resize(0, 0);
+    G_disk.resize(0, 0);
+    B_disk.resize(0, 0);
+
+    // Phase 12: PCC (Photometric Color Calibration)
+    emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
+
+    if (!cfg.pcc.enabled) {
+      emitter.phase_end(run_id, Phase::PCC, "skipped",
+                        {{"reason", "disabled"}}, log_file);
+    } else if (!have_wcs) {
+      emitter.phase_end(run_id, Phase::PCC, "skipped",
+                        {{"reason", "no_wcs"}}, log_file);
+    } else if (!have_rgb) {
+      emitter.phase_end(run_id, Phase::PCC, "skipped",
+                        {{"reason", "no_rgb_data"}}, log_file);
+    } else {
+      // Catalog source selection with fallback
+      // auto: siril → vizier_gaia → vizier_apass
+      double search_r = wcs.search_radius_deg();
+      std::string source = cfg.pcc.source;
+      std::string used_source;
+      std::vector<astro::GaiaStar> stars;
+
+      auto try_siril = [&]() -> bool {
+        std::string cat_dir = cfg.pcc.siril_catalog_dir;
+        if (cat_dir.empty()) cat_dir = astro::default_siril_gaia_catalog_dir();
+        if (!astro::is_siril_gaia_catalog_available(cat_dir)) return false;
+        std::cerr << "[PCC] Querying Siril Gaia catalog at RA="
+                  << wcs.crval1 << " Dec=" << wcs.crval2
+                  << " r=" << search_r << " deg" << std::endl;
+        stars = astro::siril_gaia_cone_search(
+            cat_dir, wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
+        if (!stars.empty()) { used_source = "siril"; return true; }
+        return false;
+      };
+
+      auto try_vizier_gaia = [&]() -> bool {
+        std::cerr << "[PCC] Querying VizieR Gaia DR3 at RA="
+                  << wcs.crval1 << " Dec=" << wcs.crval2
+                  << " r=" << search_r << " deg" << std::endl;
+        stars = astro::vizier_gaia_cone_search(
+            wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
+        if (!stars.empty()) { used_source = "vizier_gaia"; return true; }
+        return false;
+      };
+
+      auto try_vizier_apass = [&]() -> bool {
+        std::cerr << "[PCC] Querying VizieR APASS DR9 at RA="
+                  << wcs.crval1 << " Dec=" << wcs.crval2
+                  << " r=" << search_r << " deg" << std::endl;
+        stars = astro::vizier_apass_cone_search(
+            wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
+        if (!stars.empty()) { used_source = "vizier_apass"; return true; }
+        return false;
+      };
+
+      if (source == "siril") {
+        try_siril();
+      } else if (source == "vizier_gaia") {
+        try_vizier_gaia();
+      } else if (source == "vizier_apass") {
+        try_vizier_apass();
+      } else {
+        // auto: try all sources in order
+        if (!try_siril()) {
+          std::cerr << "[PCC] Siril catalog not available, trying VizieR Gaia..." << std::endl;
+          if (!try_vizier_gaia()) {
+            std::cerr << "[PCC] VizieR Gaia failed, trying VizieR APASS..." << std::endl;
+            try_vizier_apass();
+          }
+        }
+      }
+
+      std::cerr << "[PCC] Found " << stars.size() << " catalog stars"
+                << " (source: " << (used_source.empty() ? "none" : used_source) << ")"
+                << std::endl;
+
+      if (stars.empty()) {
+        emitter.phase_end(run_id, Phase::PCC, "skipped",
+                          {{"reason", "no_catalog_stars"},
+                           {"search_radius_deg", search_r},
+                           {"source", source}}, log_file);
+      } else {
+        // Build PCC config from pipeline config
+        astro::PCCConfig pcc_cfg;
+        pcc_cfg.aperture_radius_px = cfg.pcc.aperture_radius_px;
+        pcc_cfg.annulus_inner_px = cfg.pcc.annulus_inner_px;
+        pcc_cfg.annulus_outer_px = cfg.pcc.annulus_outer_px;
+        pcc_cfg.mag_limit = cfg.pcc.mag_limit;
+        pcc_cfg.mag_bright_limit = cfg.pcc.mag_bright_limit;
+        pcc_cfg.min_stars = cfg.pcc.min_stars;
+        pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
+
+        auto result = astro::run_pcc(R_out, G_out, B_out, wcs, stars, pcc_cfg);
+
+        if (result.success) {
+          // Save PCC-corrected RGB as separate files (originals stay intact)
+          Matrix2Df R_pcc_disk = R_out;
+          Matrix2Df G_pcc_disk = G_out;
+          Matrix2Df B_pcc_disk = B_out;
+          if (cfg.stacking.output_stretch) {
+            float vmin = std::numeric_limits<float>::max();
+            float vmax = std::numeric_limits<float>::lowest();
+            for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
+              for (Eigen::Index k = 0; k < ch->size(); ++k) {
+                float v = ch->data()[k];
+                if (std::isfinite(v)) {
+                  if (v < vmin) vmin = v;
+                  if (v > vmax) vmax = v;
+                }
+              }
+            }
+            float range = vmax - vmin;
+            if (range > 1.0e-6f) {
+              float scale = 65535.0f / range;
+              for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
+                for (Eigen::Index k = 0; k < ch->size(); ++k) {
+                  ch->data()[k] = (ch->data()[k] - vmin) * scale;
+                }
+              }
+            }
+          }
+          io::write_fits_float(run_dir / "outputs" / "pcc_R.fit",
+                               R_pcc_disk, first_hdr);
+          io::write_fits_float(run_dir / "outputs" / "pcc_G.fit",
+                               G_pcc_disk, first_hdr);
+          io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
+                               B_pcc_disk, first_hdr);
+          io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
+                             R_pcc_disk, G_pcc_disk, B_pcc_disk, first_hdr);
+
+          core::json matrix_json = core::json::array();
+          for (int r = 0; r < 3; ++r) {
+            matrix_json.push_back({result.matrix[r][0],
+                                   result.matrix[r][1],
+                                   result.matrix[r][2]});
+          }
+
+          emitter.phase_end(run_id, Phase::PCC, "ok",
+                            {{"stars_matched", result.n_stars_matched},
+                             {"stars_used", result.n_stars_used},
+                             {"residual_rms", result.residual_rms},
+                             {"matrix", matrix_json},
+                             {"source", used_source}},
+                            log_file);
+        } else {
+          emitter.phase_end(run_id, Phase::PCC, "skipped",
+                            {{"reason", "fit_failed"},
+                             {"error", result.error_message},
+                             {"stars_matched", result.n_stars_matched},
+                             {"source", used_source}},
+                            log_file);
+        }
+      }
+    }
+
+    // --- Memory release: all large image buffers before final exit ---
+    R_out.resize(0, 0);
+    G_out.resize(0, 0);
+    B_out.resize(0, 0);
+    recon.resize(0, 0);
+    recon_R.resize(0, 0);
+    recon_G.resize(0, 0);
+    recon_B.resize(0, 0);
+    { std::vector<std::vector<float>>().swap(local_weights); }
+    { std::vector<Matrix2Df>().swap(synthetic_frames); }
+
+    // Phase 13: DONE
     emitter.phase_start(run_id, Phase::DONE, "DONE", log_file);
     emitter.phase_end(run_id, Phase::DONE, "ok", {}, log_file);
 
     if (run_validation_failed) {
-        emitter.run_end(run_id, false, "validation_failed", log_file);
-        
-        std::cout << "Pipeline completed with validation_failed" << std::endl;
-        return 1;
+      emitter.run_end(run_id, false, "validation_failed", log_file);
+
+      std::cout << "Pipeline completed with validation_failed" << std::endl;
+      return 1;
     }
 
     emitter.run_end(run_id, true, "ok", log_file);
-    
+
     std::cout << "Pipeline completed successfully" << std::endl;
     return 0;
+  }
+
+} // anonymous namespace
+
+int resume_command(const std::string &run_dir_path, const std::string &from_phase) {
+  using namespace tile_compile;
+
+  namespace core = tile_compile::core;
+  namespace io = tile_compile::io;
+  namespace astro = tile_compile::astrometry;
+
+  fs::path run_dir(run_dir_path);
+  if (!fs::exists(run_dir) || !fs::is_directory(run_dir)) {
+    std::cerr << "Error: run_dir not found: " << run_dir_path << std::endl;
+    return 1;
+  }
+
+  fs::path cfg_path = run_dir / "config.yaml";
+  if (!fs::exists(cfg_path)) {
+    std::cerr << "Error: config.yaml not found in run_dir: " << cfg_path << std::endl;
+    return 1;
+  }
+
+  config::Config cfg;
+  try {
+    cfg = config::Config::load(cfg_path);
+    cfg.validate();
+  } catch (const std::exception &e) {
+    std::cerr << "Error: failed to load/validate config.yaml: " << e.what() << std::endl;
+    return 1;
+  }
+
+  std::string run_id = run_dir.filename().string();
+  fs::create_directories(run_dir / "logs");
+
+  // Append to existing events log (do not overwrite)
+  std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl",
+                              std::ios::out | std::ios::app);
+  TeeBuf tee_buf(std::cout.rdbuf(), event_log_file.rdbuf());
+  std::ostream log_file(&tee_buf);
+
+  core::emit_event("resume_start", run_id,
+                   {{"run_dir", run_dir.string()},
+                    {"from_phase", from_phase}},
+                   log_file);
+
+  std::string phase_l = core::to_lower(from_phase);
+  if (phase_l.empty()) phase_l = "pcc";
+
+  // Load linear RGB cube (prefer solve cube)
+  fs::path rgb_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
+  if (!fs::exists(rgb_path)) {
+    rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
+  }
+  if (!fs::exists(rgb_path)) {
+    std::cerr << "Error: missing stacked RGB cube in run outputs" << std::endl;
+    core::emit_event("resume_end", run_id, {{"success", false}, {"status", "missing_rgb"}}, log_file);
+    return 1;
+  }
+
+  io::RGBImage rgb;
+  try {
+    rgb = io::read_fits_rgb(rgb_path);
+  } catch (const std::exception &e) {
+    std::cerr << "Error: failed to read RGB FITS: " << e.what() << std::endl;
+    core::emit_event("resume_end", run_id, {{"success", false}, {"status", "read_rgb_failed"}}, log_file);
+    return 1;
+  }
+
+  auto inject_wcs_keywords = [](io::FitsHeader &hdr, const astro::WCS &wcs) {
+    hdr.numeric_values["CRVAL1"] = wcs.crval1;
+    hdr.numeric_values["CRVAL2"] = wcs.crval2;
+    hdr.numeric_values["CRPIX1"] = wcs.crpix1;
+    hdr.numeric_values["CRPIX2"] = wcs.crpix2;
+    hdr.numeric_values["CD1_1"] = wcs.cd1_1;
+    hdr.numeric_values["CD1_2"] = wcs.cd1_2;
+    hdr.numeric_values["CD2_1"] = wcs.cd2_1;
+    hdr.numeric_values["CD2_2"] = wcs.cd2_2;
+    hdr.numeric_values["EQUINOX"] = 2000.0;
+    hdr.string_values["CTYPE1"] = "RA---TAN";
+    hdr.string_values["CTYPE2"] = "DEC--TAN";
+    hdr.string_values["CUNIT1"] = "deg";
+    hdr.string_values["CUNIT2"] = "deg";
+    hdr.bool_values["PLTSOLVD"] = true;
+  };
+
+  // Load WCS (prefer artifact copy; fallback to ASTAP output next to solve cube)
+  astro::WCS wcs;
+  bool have_wcs = false;
+  fs::path wcs_path = run_dir / "artifacts" / "stacked_rgb.wcs";
+  if (!fs::exists(wcs_path)) {
+    fs::path wcs_path2 = rgb_path;
+    wcs_path2.replace_extension(".wcs");
+    if (fs::exists(wcs_path2)) wcs_path = wcs_path2;
+  }
+  if (fs::exists(wcs_path)) {
+    try {
+      wcs = astro::parse_wcs_file(wcs_path.string());
+      have_wcs = wcs.valid();
+    } catch (const std::exception &) {
+      have_wcs = false;
+    }
+  }
+
+  auto run_astrometry_if_needed = [&]() {
+    if (have_wcs) return;
+
+    core::EventEmitter emitter;
+    emitter.phase_start(run_id, Phase::ASTROMETRY, "ASTROMETRY", log_file);
+
+    if (!cfg.astrometry.enabled) {
+      emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped", {{"reason", "disabled"}}, log_file);
+      return;
+    }
+
+    // Determine ASTAP paths (config or defaults)
+    std::string astap_data = cfg.astrometry.astap_data_dir;
+    if (astap_data.empty()) {
+      const char *home = std::getenv("HOME");
+      if (home) astap_data = std::string(home) + "/.local/share/tile_compile/astap";
+    }
+    std::string astap_bin = cfg.astrometry.astap_bin;
+    if (astap_bin.empty()) astap_bin = astap_data + "/astap_cli";
+
+    if (!fs::exists(astap_bin)) {
+      emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                        {{"reason", "astap_not_found"}, {"astap_bin", astap_bin}},
+                        log_file);
+      return;
+    }
+
+    auto shell_quote = [](const std::string &s) -> std::string {
+      std::string out;
+      out.reserve(s.size() + 2);
+      out.push_back(static_cast<char>(39));
+      for (char c : s) {
+        if (c == static_cast<char>(39))
+          out += "'\\''";
+        else
+          out.push_back(c);
+      }
+      out.push_back(static_cast<char>(39));
+      return out;
+    };
+
+    std::string cmd = shell_quote(astap_bin) + " -f " + shell_quote(rgb_path.string()) +
+                      " -d " + shell_quote(astap_data) +
+                      " -r " + std::to_string(cfg.astrometry.search_radius);
+
+    std::cerr << "[ASTROMETRY][resume] Running: " << cmd << std::endl;
+    int ret = std::system(cmd.c_str());
+
+    fs::path wcs_out = rgb_path;
+    wcs_out.replace_extension(".wcs");
+
+    if (ret == 0 && fs::exists(wcs_out)) {
+      try {
+        wcs = astro::parse_wcs_file(wcs_out.string());
+        have_wcs = wcs.valid();
+      } catch (const std::exception &) {
+        have_wcs = false;
+      }
+    }
+
+    if (have_wcs) {
+      // Copy .wcs to run artifacts directory for future resumes
+      fs::path wcs_artifact = run_dir / "artifacts" / "stacked_rgb.wcs";
+      try {
+        fs::create_directories(wcs_artifact.parent_path());
+        fs::copy_file(wcs_out, wcs_artifact, fs::copy_options::overwrite_existing);
+      } catch (const std::exception &) {
+      }
+
+      emitter.phase_end(run_id, Phase::ASTROMETRY, "ok",
+                        {{"ra", wcs.crval1},
+                         {"dec", wcs.crval2},
+                         {"pixel_scale_arcsec", wcs.pixel_scale_arcsec()},
+                         {"rotation_deg", wcs.rotation_deg()},
+                         {"wcs_file", (run_dir / "artifacts" / "stacked_rgb.wcs").string()}},
+                        log_file);
+    } else {
+      emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                        {{"reason", "solve_failed"}, {"exit_code", ret}},
+                        log_file);
+    }
+  };
+
+  if (phase_l == "astrometry") {
+    run_astrometry_if_needed();
+    phase_l = "pcc";
+  } else if (phase_l != "pcc") {
+    std::cerr << "Error: resume --from-phase supports only ASTROMETRY or PCC" << std::endl;
+    core::emit_event("resume_end", run_id, {{"success", false}, {"status", "unsupported_phase"}}, log_file);
+    return 1;
+  }
+
+  if (phase_l == "pcc") {
+    run_astrometry_if_needed();
+
+    core::EventEmitter emitter;
+    emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
+
+    if (!cfg.pcc.enabled) {
+      emitter.phase_end(run_id, Phase::PCC, "skipped", {{"reason", "disabled"}}, log_file);
+      core::emit_event("resume_end", run_id, {{"success", true}, {"status", "ok"}}, log_file);
+      return 0;
+    }
+
+    if (!have_wcs) {
+      emitter.phase_end(run_id, Phase::PCC, "skipped", {{"reason", "no_wcs"}}, log_file);
+      core::emit_event("resume_end", run_id, {{"success", false}, {"status", "no_wcs"}}, log_file);
+      return 1;
+    }
+
+    // Build WCS keywords into header used for writing PCC outputs
+    io::FitsHeader out_hdr = rgb.header;
+    inject_wcs_keywords(out_hdr, wcs);
+
+    double search_r = wcs.search_radius_deg();
+    std::string source = cfg.pcc.source;
+    std::string used_source;
+    std::vector<astro::GaiaStar> stars;
+
+    auto try_siril = [&]() -> bool {
+      std::string cat_dir = cfg.pcc.siril_catalog_dir;
+      if (cat_dir.empty()) cat_dir = astro::default_siril_gaia_catalog_dir();
+      if (!astro::is_siril_gaia_catalog_available(cat_dir)) return false;
+      std::cerr << "[PCC][resume] Querying Siril Gaia catalog at RA="
+                << wcs.crval1 << " Dec=" << wcs.crval2
+                << " r=" << search_r << " deg" << std::endl;
+      stars = astro::siril_gaia_cone_search(cat_dir, wcs.crval1, wcs.crval2,
+                                           search_r, cfg.pcc.mag_limit);
+      if (!stars.empty()) { used_source = "siril"; return true; }
+      return false;
+    };
+
+    auto try_vizier_gaia = [&]() -> bool {
+      std::cerr << "[PCC][resume] Querying VizieR Gaia DR3 at RA="
+                << wcs.crval1 << " Dec=" << wcs.crval2
+                << " r=" << search_r << " deg" << std::endl;
+      stars = astro::vizier_gaia_cone_search(wcs.crval1, wcs.crval2,
+                                            search_r, cfg.pcc.mag_limit);
+      if (!stars.empty()) { used_source = "vizier_gaia"; return true; }
+      return false;
+    };
+
+    auto try_vizier_apass = [&]() -> bool {
+      std::cerr << "[PCC][resume] Querying VizieR APASS DR9 at RA="
+                << wcs.crval1 << " Dec=" << wcs.crval2
+                << " r=" << search_r << " deg" << std::endl;
+      stars = astro::vizier_apass_cone_search(wcs.crval1, wcs.crval2,
+                                             search_r, cfg.pcc.mag_limit);
+      if (!stars.empty()) { used_source = "vizier_apass"; return true; }
+      return false;
+    };
+
+    if (source == "siril") {
+      try_siril();
+    } else if (source == "vizier_gaia") {
+      try_vizier_gaia();
+    } else if (source == "vizier_apass") {
+      try_vizier_apass();
+    } else {
+      if (!try_siril()) {
+        std::cerr << "[PCC][resume] Siril catalog not available, trying VizieR Gaia..." << std::endl;
+        if (!try_vizier_gaia()) {
+          std::cerr << "[PCC][resume] VizieR Gaia failed, trying VizieR APASS..." << std::endl;
+          try_vizier_apass();
+        }
+      }
+    }
+
+    std::cerr << "[PCC][resume] Found " << stars.size() << " catalog stars"
+              << " (source: " << (used_source.empty() ? "none" : used_source) << ")"
+              << std::endl;
+
+    if (stars.empty()) {
+      emitter.phase_end(run_id, Phase::PCC, "skipped",
+                        {{"reason", "no_catalog_stars"},
+                         {"search_radius_deg", search_r},
+                         {"source", source}},
+                        log_file);
+      core::emit_event("resume_end", run_id, {{"success", false}, {"status", "no_catalog_stars"}}, log_file);
+      return 1;
+    }
+
+    astro::PCCConfig pcc_cfg;
+    pcc_cfg.aperture_radius_px = cfg.pcc.aperture_radius_px;
+    pcc_cfg.annulus_inner_px = cfg.pcc.annulus_inner_px;
+    pcc_cfg.annulus_outer_px = cfg.pcc.annulus_outer_px;
+    pcc_cfg.mag_limit = cfg.pcc.mag_limit;
+    pcc_cfg.mag_bright_limit = cfg.pcc.mag_bright_limit;
+    pcc_cfg.min_stars = cfg.pcc.min_stars;
+    pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
+
+    auto result = astro::run_pcc(rgb.R, rgb.G, rgb.B, wcs, stars, pcc_cfg);
+
+    if (!result.success) {
+      emitter.phase_end(run_id, Phase::PCC, "skipped",
+                        {{"reason", "fit_failed"},
+                         {"error", result.error_message},
+                         {"stars_matched", result.n_stars_matched},
+                         {"source", used_source}},
+                        log_file);
+      core::emit_event("resume_end", run_id, {{"success", false}, {"status", "fit_failed"}}, log_file);
+      return 1;
+    }
+
+    Matrix2Df R_pcc_disk = rgb.R;
+    Matrix2Df G_pcc_disk = rgb.G;
+    Matrix2Df B_pcc_disk = rgb.B;
+
+    if (cfg.stacking.output_stretch) {
+      float vmin = std::numeric_limits<float>::max();
+      float vmax = std::numeric_limits<float>::lowest();
+      for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
+        for (Eigen::Index k = 0; k < ch->size(); ++k) {
+          float v = ch->data()[k];
+          if (std::isfinite(v)) {
+            if (v < vmin) vmin = v;
+            if (v > vmax) vmax = v;
+          }
+        }
+      }
+      float range = vmax - vmin;
+      if (range > 1.0e-6f) {
+        float scale = 65535.0f / range;
+        for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
+          for (Eigen::Index k = 0; k < ch->size(); ++k) {
+            ch->data()[k] = (ch->data()[k] - vmin) * scale;
+          }
+        }
+      }
+    }
+
+    io::write_fits_float(run_dir / "outputs" / "pcc_R.fit", R_pcc_disk, out_hdr);
+    io::write_fits_float(run_dir / "outputs" / "pcc_G.fit", G_pcc_disk, out_hdr);
+    io::write_fits_float(run_dir / "outputs" / "pcc_B.fit", B_pcc_disk, out_hdr);
+    io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
+                       R_pcc_disk, G_pcc_disk, B_pcc_disk, out_hdr);
+
+    core::json matrix_json = core::json::array();
+    for (int r = 0; r < 3; ++r) {
+      matrix_json.push_back({result.matrix[r][0], result.matrix[r][1], result.matrix[r][2]});
+    }
+
+    emitter.phase_end(run_id, Phase::PCC, "ok",
+                      {{"stars_matched", result.n_stars_matched},
+                       {"stars_used", result.n_stars_used},
+                       {"residual_rms", result.residual_rms},
+                       {"matrix", matrix_json},
+                       {"source", used_source}},
+                      log_file);
+  }
+
+  core::emit_event("resume_end", run_id, {{"success", true}, {"status", "ok"}}, log_file);
+  return 0;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
+  QCoreApplication qapp(argc, argv);  // needed for Qt6::Network event loop
+
 #ifdef HAVE_CLI11
-    CLI::App app{"Tile-Compile Runner (C++)"};
-    
-    std::string config_path, input_dir, runs_dir, project_root;
-    bool dry_run = false;
-    int max_frames = 0;
-    int max_tiles = 0;
-    bool config_from_stdin = false;
-    
-    auto run_cmd = app.add_subcommand("run", "Run the pipeline");
-    run_cmd->add_option("--config", config_path, "Path to config.yaml")->required();
-    run_cmd->add_option("--input-dir", input_dir, "Input directory")->required();
-    run_cmd->add_option("--runs-dir", runs_dir, "Runs directory")->required();
-    run_cmd->add_option("--project-root", project_root, "Project root");
-    run_cmd->add_option("--max-frames", max_frames, "Limit number of frames (0 = no limit)");
-    run_cmd->add_option("--max-tiles", max_tiles, "Limit number of tiles in Phase 5/6 (0 = no limit)");
-    run_cmd->add_flag("--dry-run", dry_run, "Dry run");
-    run_cmd->add_flag("--stdin", config_from_stdin, "Read config YAML from stdin (use with --config -)");
-    
-    CLI11_PARSE(app, argc, argv);
-    
-    if (run_cmd->parsed()) {
-        return run_command(config_path, input_dir, runs_dir, project_root, dry_run, max_frames, max_tiles, config_from_stdin);
-    }
-    
-    print_usage();
-    return 1;
+  CLI::App app{"Tile-Compile Runner (C++)"};
+
+  std::string config_path, input_dir, runs_dir, project_root;
+  std::string resume_run_dir;
+  std::string resume_from_phase = "PCC";
+  bool dry_run = false;
+  int max_frames = 0;
+  int max_tiles = 0;
+  bool config_from_stdin = false;
+
+  auto run_cmd = app.add_subcommand("run", "Run the pipeline");
+  run_cmd->add_option("--config", config_path, "Path to config.yaml")
+      ->required();
+  run_cmd->add_option("--input-dir", input_dir, "Input directory")->required();
+  run_cmd->add_option("--runs-dir", runs_dir, "Runs directory")->required();
+  run_cmd->add_option("--project-root", project_root, "Project root");
+  run_cmd->add_option("--max-frames", max_frames,
+                      "Limit number of frames (0 = no limit)");
+  run_cmd->add_option("--max-tiles", max_tiles,
+                      "Limit number of tiles in Phase 5/6 (0 = no limit)");
+  run_cmd->add_flag("--dry-run", dry_run, "Dry run");
+  run_cmd->add_flag("--stdin", config_from_stdin,
+                    "Read config YAML from stdin (use with --config -)");
+
+  auto resume_cmd = app.add_subcommand("resume", "Resume an existing run (currently PCC-only)");
+  resume_cmd->add_option("--run-dir", resume_run_dir, "Existing run directory")
+      ->required();
+  resume_cmd->add_option("--from-phase", resume_from_phase,
+                         "Phase to resume from: ASTROMETRY|PCC")
+      ->default_val("PCC");
+
+  CLI11_PARSE(app, argc, argv);
+
+  if (run_cmd->parsed()) {
+    return run_command(config_path, input_dir, runs_dir, project_root, dry_run,
+                       max_frames, max_tiles, config_from_stdin);
+  }
+
+  if (resume_cmd->parsed()) {
+    return resume_command(resume_run_dir, resume_from_phase);
+  }
+
+  print_usage();
+  return 1;
 #else
-    if (argc < 2) {
-        print_usage();
-        return 1;
-    }
-    
-    std::string command = argv[1];
-    std::string config_path, input_dir, runs_dir, project_root;
-    bool dry_run = false;
-    int max_frames = 0;
-    int max_tiles = 0;
-    bool config_from_stdin = false;
-    
-    for (int i = 2; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--config" && i + 1 < argc) config_path = argv[++i];
-        else if (arg == "--input-dir" && i + 1 < argc) input_dir = argv[++i];
-        else if (arg == "--runs-dir" && i + 1 < argc) runs_dir = argv[++i];
-        else if (arg == "--project-root" && i + 1 < argc) project_root = argv[++i];
-        else if (arg == "--max-frames" && i + 1 < argc) max_frames = std::stoi(argv[++i]);
-        else if (arg == "--max-tiles" && i + 1 < argc) max_tiles = std::stoi(argv[++i]);
-        else if (arg == "--dry-run") dry_run = true;
-        else if (arg == "--stdin") config_from_stdin = true;
-    }
-    
-    if (command == "run") {
-        if (config_path.empty() || input_dir.empty() || runs_dir.empty()) {
-            std::cerr << "Error: --config, --input-dir, and --runs-dir are required" << std::endl;
-            return 1;
-        }
-        return run_command(config_path, input_dir, runs_dir, project_root, dry_run, max_frames, max_tiles, config_from_stdin);
-    }
-    
+  if (argc < 2) {
     print_usage();
     return 1;
+  }
+
+  std::string command = argv[1];
+  std::string config_path, input_dir, runs_dir, project_root;
+  std::string resume_run_dir;
+  std::string resume_from_phase = "PCC";
+  bool dry_run = false;
+  int max_frames = 0;
+  int max_tiles = 0;
+  bool config_from_stdin = false;
+
+  for (int i = 2; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "--config" && i + 1 < argc)
+      config_path = argv[++i];
+    else if (arg == "--input-dir" && i + 1 < argc)
+      input_dir = argv[++i];
+    else if (arg == "--runs-dir" && i + 1 < argc)
+      runs_dir = argv[++i];
+    else if (arg == "--project-root" && i + 1 < argc)
+      project_root = argv[++i];
+    else if (arg == "--run-dir" && i + 1 < argc)
+      resume_run_dir = argv[++i];
+    else if (arg == "--from-phase" && i + 1 < argc)
+      resume_from_phase = argv[++i];
+    else if (arg == "--max-frames" && i + 1 < argc)
+      max_frames = std::stoi(argv[++i]);
+    else if (arg == "--max-tiles" && i + 1 < argc)
+      max_tiles = std::stoi(argv[++i]);
+    else if (arg == "--dry-run")
+      dry_run = true;
+    else if (arg == "--stdin")
+      config_from_stdin = true;
+  }
+
+  if (command == "run") {
+    if (config_path.empty() || input_dir.empty() || runs_dir.empty()) {
+      std::cerr << "Error: --config, --input-dir, and --runs-dir are required"
+                << std::endl;
+      return 1;
+    }
+    return run_command(config_path, input_dir, runs_dir, project_root, dry_run,
+                       max_frames, max_tiles, config_from_stdin);
+  }
+
+  if (command == "resume") {
+    if (resume_run_dir.empty()) {
+      std::cerr << "Error: resume requires --run-dir <path>" << std::endl;
+      return 1;
+    }
+    return resume_command(resume_run_dir, resume_from_phase);
+  }
+
+  print_usage();
+  return 1;
 #endif
 }

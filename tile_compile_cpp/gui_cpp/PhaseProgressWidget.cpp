@@ -13,20 +13,23 @@ struct PhaseInfo {
     const char *desc;
 };
 
+// Display order mirrors actual runtime order; ids keep enum values.
 constexpr PhaseInfo METHODIK_V4_PHASES[] = {
     {0, "SCAN_INPUT", "Eingabe-Validierung"},
-    {1, "CHANNEL_SPLIT", "Kanal-Trennung (R/G/B)"},
-    {2, "NORMALIZATION", "Globale lineare Normalisierung"},
-    {3, "GLOBAL_METRICS", "Globale Frame-Metriken (B, σ, E)"},
-    {4, "GLOBAL_REGISTRATION", "Globale Registrierung (dx/dy)"},
-    {5, "TILE_GRID", "Seeing-adaptive Tile-Geometrie"},
+    {2, "CHANNEL_SPLIT", "Kanal-Trennung (R/G/B)"},
+    {3, "NORMALIZATION", "Globale lineare Normalisierung"},
+    {4, "GLOBAL_METRICS", "Globale Frame-Metriken (B, σ, E)"},
+    {5, "TILE_GRID", "FWHM-basierte Tile-Geometrie"},
+    {1, "REGISTRATION", "Globale Registrierung (CFA/Siril)"},
     {6, "LOCAL_METRICS", "Lokale Tile-Metriken"},
-    {7, "TILE_RECONSTRUCTION_TLR", "Tile-lokale Registrierung + Rekonstruktion"},
+    {7, "TILE_RECONSTRUCTION", "Tile-Rekonstruktion (Overlap-Add)"},
     {8, "STATE_CLUSTERING", "Zustandsbasiertes Clustering"},
-    {9, "SYNTHETIC_FRAMES", "Synthetische Qualitätsframes"},
+    {9, "SYNTHETIC_FRAMES", "Synthetische Frames"},
     {10, "STACKING", "Finales lineares Stacking"},
     {11, "DEBAYER", "Debayer / Demosaicing"},
-    {12, "DONE", "Abschluss"},
+    {12, "ASTROMETRY", "Astrometrie (Plate Solve)"},
+    {13, "PCC", "Photometrische Farbkalibrierung"},
+    {14, "DONE", "Abschluss"},
 };
 
 constexpr int NUM_PHASES = sizeof(METHODIK_V4_PHASES) / sizeof(METHODIK_V4_PHASES[0]);
@@ -58,7 +61,7 @@ void PhaseProgressWidget::build_ui() {
     for (int i = 0; i < NUM_PHASES; ++i) {
         const auto &phase = METHODIK_V4_PHASES[i];
 
-        auto *name_label = new QLabel(QString("%1. %2").arg(phase.id).arg(phase.name));
+        auto *name_label = new QLabel(QString("%1. %2").arg(i).arg(phase.name));
         name_label->setToolTip(phase.desc);
 
         auto *status_label = new QLabel("pending");

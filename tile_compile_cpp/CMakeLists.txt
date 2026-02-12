@@ -42,8 +42,8 @@ endif()
 # OpenSSL for SHA256
 find_package(OpenSSL REQUIRED)
 
-# Qt6 Widgets (GUI)
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+# Qt6 Core + Network for lib (HTTP queries), Widgets for GUI
+find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets)
 
 # Optional: spdlog for logging
 find_package(spdlog QUIET)
@@ -71,21 +71,19 @@ set(LIB_SOURCES
     src/io/fits_io.cpp
     src/io/config.cpp
     src/image/processing.cpp
-    src/image/calibration.cpp
     src/image/cfa_processing.cpp
+    src/image/normalization.cpp
     src/registration/registration.cpp
+    src/registration/global_registration.cpp
     src/metrics/metrics.cpp
     src/metrics/tile_metrics.cpp
-    src/clustering/clustering.cpp
-    src/clustering/kmeans.cpp
+    src/metrics/linearity.cpp
     src/reconstruction/reconstruction.cpp
-    src/synthetic/synthetic.cpp
-    src/pipeline/phases.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/pipeline/pipeline.cpp
-    src/runner/events.cpp
-    src/runner/utils.cpp
-    src/runner/fits_utils.cpp
+    src/astrometry/wcs.cpp
+    src/astrometry/gaia_catalog.cpp
+    src/astrometry/photometric_color_cal.cpp
 )
 
 # Main library
@@ -97,6 +95,8 @@ target_link_libraries(tile_compile_lib PUBLIC
     ${CFITSIO_LIBRARIES}
     ${YAML_CPP_LIBRARIES}
     OpenSSL::Crypto
+    Qt6::Core
+    Qt6::Network
 )
 
 if(nlohmann_json_FOUND)
@@ -142,11 +142,13 @@ set(GUI_SOURCES
     gui_cpp/tabs/RunTab.cpp
     gui_cpp/tabs/CurrentRunTab.cpp
     gui_cpp/tabs/HistoryTab.cpp
+    gui_cpp/tabs/AstrometryTab.cpp
+    gui_cpp/tabs/PCCTab.cpp
 )
 
 add_executable(tile_compile_gui ${GUI_SOURCES})
 target_include_directories(tile_compile_gui PRIVATE gui_cpp)
-target_link_libraries(tile_compile_gui PRIVATE tile_compile_lib Qt6::Widgets)
+target_link_libraries(tile_compile_gui PRIVATE tile_compile_lib Qt6::Widgets Qt6::Network)
 
 set_target_properties(tile_compile_gui PROPERTIES
     AUTOMOC_PATH_PREFIX OFF
@@ -167,20 +169,19 @@ add_custom_command(TARGET tile_compile_gui POST_BUILD
         $<TARGET_FILE_DIR:tile_compile_gui>/gui_cpp/styles.qss
 )
 
-# Copy preset YAMLs into build directory
-foreach(_cfg
-    tile_compile.yaml
-    tile_compile_eq.yaml
-    tile_compile_altaz.yaml
-    tile_compile_polar.yaml
-    tile_compile_smart.yaml
-    tile_compile_dwarf.yaml
-    tile_compile_seestar.yaml
-    tile_compile.schema.yaml
-    tile_compile.schema.json
+# Copy config/schema files to build directory on every build
+add_custom_command(TARGET tile_compile_runner POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/tile_compile.yaml
+        ${CMAKE_BINARY_DIR}/tile_compile.yaml
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/tile_compile.schema.yaml
+        ${CMAKE_BINARY_DIR}/tile_compile.schema.yaml
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/tile_compile.schema.json
+        ${CMAKE_BINARY_DIR}/tile_compile.schema.json
+    COMMENT "Copying config/schema files to build directory"
 )
-    configure_file(${CMAKE_SOURCE_DIR}/${_cfg} ${CMAKE_BINARY_DIR}/${_cfg} COPYONLY)
-endforeach()
 
 # Tests (optional)
 option(BUILD_TESTS "Build unit tests" ON)
@@ -192,6 +193,7 @@ if(BUILD_TESTS)
             tests/test_main.cpp
             tests/test_utils.cpp
             tests/test_fits.cpp
+            tests/test_debayer.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

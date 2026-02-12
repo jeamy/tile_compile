@@ -278,4 +278,120 @@ std::vector<fs::path> glob(const fs::path& dir, const std::string& pattern) {
     return discover_frames(dir, pattern);
 }
 
+// --- Statistical utilities (canonical, single implementation) ---
+
+float median_of(std::vector<float>& v) {
+    if (v.empty()) return 0.0f;
+    const size_t n = v.size();
+    const size_t mid = n / 2;
+    std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(mid), v.end());
+    const float hi = v[mid];
+    if ((n % 2) == 1) return hi;
+    std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(mid - 1), v.end());
+    const float lo = v[mid - 1];
+    return 0.5f * (lo + hi);
+}
+
+float stddev_of(const std::vector<float>& v) {
+    if (v.size() < 2) return 0.0f;
+    double sum = 0.0;
+    for (float x : v) sum += static_cast<double>(x);
+    const double mean = sum / static_cast<double>(v.size());
+    double var = 0.0;
+    for (float x : v) {
+        const double d = static_cast<double>(x) - mean;
+        var += d * d;
+    }
+    var /= static_cast<double>(v.size());
+    return (var > 0.0) ? static_cast<float>(std::sqrt(var)) : 0.0f;
+}
+
+float robust_sigma_mad(std::vector<float>& pixels) {
+    if (pixels.empty()) return 0.0f;
+    float med = median_of(pixels);
+    for (float& x : pixels) x = std::fabs(x - med);
+    float mad = median_of(pixels);
+    return 1.4826f * mad;
+}
+
+float percentile_from_sorted(const std::vector<float>& sorted, float pct) {
+    if (sorted.empty()) return 0.0f;
+    float clamped = std::min(std::max(pct, 0.0f), 100.0f);
+    float pos = (clamped / 100.0f) * static_cast<float>(sorted.size() - 1);
+    size_t idx = static_cast<size_t>(std::round(pos));
+    idx = std::min(idx, sorted.size() - 1);
+    return sorted[idx];
+}
+
+float estimate_background_sigma_clip(std::vector<float> pixels) {
+    if (pixels.empty()) return 0.0f;
+    for (int iter = 0; iter < 5; ++iter) {
+        float mu = median_of(pixels);
+        float sigma = stddev_of(pixels);
+        if (!(sigma > 0.0f)) break;
+
+        std::vector<float> clipped;
+        clipped.reserve(pixels.size());
+        const float thr = 3.0f * sigma;
+        for (float x : pixels) {
+            if (std::fabs(x - mu) < thr) {
+                clipped.push_back(x);
+            }
+        }
+        if (clipped.size() == pixels.size() || clipped.empty()) break;
+        pixels.swap(clipped);
+    }
+    return median_of(pixels);
+}
+
+std::vector<size_t> sample_indices(size_t count, int max_samples) {
+    std::vector<size_t> out;
+    if (count == 0 || max_samples <= 0) return out;
+    size_t n = std::min(count, static_cast<size_t>(max_samples));
+    if (n == 1) {
+        out.push_back(0);
+        return out;
+    }
+    out.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        float t = static_cast<float>(i) / static_cast<float>(n - 1);
+        size_t idx = static_cast<size_t>(std::round(t * static_cast<float>(count - 1)));
+        if (out.empty() || out.back() != idx) {
+            out.push_back(idx);
+        }
+    }
+    return out;
+}
+
+void robust_zscore(const std::vector<float>& v, std::vector<float>& out) {
+    out.assign(v.size(), 0.0f);
+    if (v.empty())
+        return;
+    std::vector<float> tmp = v;
+    float med = median_of(tmp);
+    for (float& x : tmp)
+        x = std::fabs(x - med);
+    float mad = median_of(tmp);
+    float sigma = 1.4826f * mad;
+    if (!(sigma > 0.0f)) {
+        std::fill(out.begin(), out.end(), 0.0f);
+        return;
+    }
+    for (size_t i = 0; i < v.size(); ++i) {
+        out[i] = (v[i] - med) / sigma;
+    }
+}
+
+float median_finite_positive(const std::vector<float>& v, float fallback) {
+    std::vector<float> p;
+    p.reserve(v.size());
+    for (float x : v) {
+        if (std::isfinite(x) && x > 0.0f)
+            p.push_back(x);
+    }
+    if (p.empty())
+        return fallback;
+    return median_of(p);
+}
+
 } // namespace tile_compile::core

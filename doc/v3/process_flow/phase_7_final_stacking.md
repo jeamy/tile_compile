@@ -1,678 +1,337 @@
-# Phase 7: Finales lineares Stacking
+# SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER — Finales Stacking und Output
+
+> **C++ Implementierung:** `runner_main.cpp` Zeilen 1894–2277
+> **Phase-Enums:** `SYNTHETIC_FRAMES` (L1894–L2052), `STACKING` (L2054–L2085), *Validation* (L2087–L2223), `DEBAYER` (L2225–L2260), `DONE` (L2262–L2277)
 
 ## Übersicht
 
-Phase 7 ist die **finale Phase**: Die synthetischen Frames (oder die
-rekonstruierten Kanalbilder aus Phase 5 im Reduced Mode) werden in Python
-zu einem finalen Bild pro Kanal gestackt. Dies ist ein **einfaches lineares
-Stacking** ohne zusätzliche Gewichtung; optional kann ein Sigma-Clipping auf
-Pixelebene aktiviert werden.
-
-Hinweis: Die synthetischen Frames können je nach Konfiguration entweder
-klassisch (nur global gewichtet) oder tile‑basiert (W_f,t,c = G_f,c · L_f,t,c)
-erzeugt werden. Phase 7 bleibt in beiden Fällen unverändert: **einfacher
-Mittelwert** (ggf. mit Sigma‑Clipping).
-
-## Ziele
-
-1. Lineares Stacking der synthetischen Frames
-2. Kanalweise Verarbeitung (R, G, B separat)
-3. Keine zusätzliche Gewichtung (bereits in Phase 6 berücksichtigt)
-4. Kein Drizzle oder andere komplexe Verfahren
-5. Output: 3 finale FITS-Dateien (R.fit, G.fit, B.fit)
-
-## Zwei Modi
-
-### Normal Mode (N ≥ 200 Frames)
+Die letzten Phasen der Pipeline erzeugen synthetische Frames aus den Cluster-Gruppen, stacken diese, validieren das Ergebnis, und erzeugen die finalen FITS-Outputs.
 
 ```
-Input: Synthetische Frames aus Phase 6
-  • K synthetische Frames (K dynamisch, siehe Phase 6)
-  • Pro Kanal: F_synth[k][x,y], k = 0..K-1
-  • Gewichte: W_synth[k]
+┌──────────────────────────────────────────────────────┐
+│  SYNTHETIC_FRAMES (Phase 9)                          │
+│  • Pro Cluster: gewichtetes Mittel → synth Frame     │
+│  • N Original-Frames → K synthetische Frames         │
+│  (übersprungen im Reduced Mode)                      │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
+│  STACKING (Phase 10)                                 │
+│  • Sigma-Clipping Rejection ODER Mean                │
+│  • Output-Skalierung: × median_bg + pedestal         │
+│  • stacked.fits + reconstructed_L.fit                │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
+│  VALIDATION                                          │
+│  • FWHM-Verbesserung check                           │
+│  • Tile-Weight-Varianz check                         │
+│  • Tile-Pattern-Detektion (Sobel)                    │
+│  → validation.json                                   │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
+│  DEBAYER (Phase 11) — nur OSC                        │
+│  • Nearest-Neighbor Demosaic → R, G, B               │
+│  • Output-Skalierung pro Kanal                       │
+│  • stacked_rgb.fits (3-Plane FITS-Cube)              │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
+│  DONE (Phase 12)                                     │
+│  • run_end(ok) oder run_end(validation_failed)       │
+└──────────────────────────────────────────────────────┘
 ```
 
-### Reduced Mode (50 ≤ N < 200 Frames)
+---
 
-```
-Input: Rekonstruiertes Ergebnis aus Phase 5 (Phase 6 übersprungen)
-  • Pro Kanal: R_c[x,y] (Tile-basierte Rekonstruktion)
-  • Keine synthetischen Frames
-```
+## Phase 9: SYNTHETIC_FRAMES
 
-## Schritt 7.1: Einfaches lineares Stacking
+### Funktionsweise
 
-### Normative Formel
+Pro Cluster wird ein **global-gewichtetes Mittel** aller zugehörigen Frames berechnet:
 
-```
-Normal Mode (ohne explizites Clipping):
-  I_final,c[x,y] = (1/K) · Σ_k F_synth,k,c[x,y]
+```cpp
+auto reconstruct_subset = [&](const std::vector<char> &frame_mask) -> Matrix2Df {
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+        if (!frame_mask[fi]) continue;
+        auto pair = load_frame_normalized(fi);
+        Matrix2Df img = apply_global_warp(pair.first, fi);
+        warped.push_back(std::move(img));
+        weights_subset.push_back(global_weights[fi]);
+    }
 
-Normal Mode (mit Sigma-Clipping):
-  1. Für jedes Pixel (x,y): wende Sigma-Clipping über die K Werte an
-     und erhalte die Menge gültiger Werte V(x,y).
-  2. Falls |V(x,y)| ≥ min_fraction · K:
-         I_final,c[x,y] = mean_{v∈V(x,y)} v
-     sonst:
-         I_final,c[x,y] = (1/K) · Σ_k F_synth,k,c[x,y]
-
-Reduced Mode:
-  I_final,c[x,y] = R_c[x,y]
-
-wobei:
-  • Normal Mode: einfaches Mittel über synthetische Frames
-  • Reduced Mode: keine weitere Aggregation (direkte Ausgabe der Rekonstruktion)
-  • Kanalweise (c ∈ {R, G, B})
+    Matrix2Df out = Matrix2Df::Zero(rows, cols);
+    for (size_t i = 0; i < warped.size(); ++i)
+        out += warped[i] * (weights_subset[i] / wsum);
+    return out;
+};
 ```
 
-### Warum keine zusätzliche Gewichtung?
-
 ```
-┌─────────────────────────────────────────┐
-│ Gewichtung bereits berücksichtigt:      │
-│                                          │
-│ Phase 2: Globale Gewichte G_f,c         │
-│    ↓                                     │
-│ Phase 4: Lokale Gewichte L_f,t,c        │
-│    ↓                                     │
-│ Phase 5: Tile-Rekonstruktion mit W_f,t,c│
-│    ↓                                     │
-│ Phase 6: Synthetische Frames             │
-│          (gewichtet durch W_synth)       │
-│    ↓                                     │
-│ Phase 7: Einfaches Mittel                │
-│          (keine weitere Gewichtung!)     │
-└─────────────────────────────────────────┘
-
-Begründung:
-  • Synthetische Frames sind bereits optimal gewichtet
-  • Weitere Gewichtung würde zu Doppel-Gewichtung führen
-  • Einfaches Mittel (ggf. nach lokalem Ausreißer-Clipping) ist korrekt
-    und bewahrt die Linearität
+synth_k = Σ_{f ∈ cluster_k} G_f · warp(I'_f) / Σ_{f ∈ cluster_k} G_f
 ```
 
-### Prozess
+### Cluster-Filterung
 
-```
-┌─────────────────────────────────────────┐
-
-│  Input: Synthetische Frames (oder       │
-│         Rekonstruktion aus Phase 5)     │
-│  K Frames (oder 1 Bild im Reduced Mode) │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Initialisierung                        │
-│                                         │
-│  accumulator = zeros(H, W)              │
-│  count = K (Reduced Mode: kein Stack)   │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Akkumulation                           │
-│                                         │
-│  for k in range(count):                 │
-│    accumulator += frames[k]             │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Mittelwert                             │
-│                                         │
-│  I_final = accumulator / count          │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Output: Finales Bild                   │
-│  I_final,c[x,y]                         │
-└─────────────────────────────────────────┘
+```cpp
+for (int c = 0; c < n_clusters; ++c) {
+    // Nur Cluster mit genug Frames
+    if (count < synth_min) continue;
+    Matrix2Df syn = reconstruct_subset(use_frame);
+    synthetic_frames.push_back(syn);
+    if (synthetic_frames.size() >= synth_max) break;
+}
 ```
 
-### Visualisierung: Normal Mode
+- **Mindestgröße**: Cluster mit `count < frames_min` werden übersprungen
+- **Maximum**: Höchstens `frames_max` synthetische Frames
+- Synthetische Frames werden als `synthetic_*.fit` gespeichert (mit Output-Skalierung)
 
-```
-Synthetische Frames (K=20):
+### Skip-Bedingungen
 
-Frame 0:      F
+| Bedingung | Verhalten |
+|-----------|-----------|
+| Reduced Mode | Phase skipped, `use_synthetic_frames = false` |
+| Keine Frames ≥ frames_min | Skipped wenn N < frames_min, Error sonst |
+| Alle Cluster zu klein | Error, Pipeline-Abbruch |
 
-rame 1:      Frame 2:      ...  Frame 19:
-┌──────┐      ┌──────┐      ┌──────┐           ┌──────┐
-│  ★   │      │  ★   │      │  ★   │           │  ★   │
-│    ★ │      │    ★ │      │    ★ │           │    ★ │
-│      │      │      │      │      │           │      │
-│  ★   │      │  ★   │      │  ★   │           │  ★   │
-└──────┘      └──────┘      └──────┘           └──────┘
-Cluster 0     Cluster 1     Cluster 2          Cluster 19
-(45 frames)   (52 frames)   (38 frames)        (25 frames)
+### Konfiguration
 
-           │
-           ▼ Einfaches Mittel (1/20 · Σ)
-           │
-    ┌──────────────┐
-    │ Final Stack  │
-    │      ★       │  ← Maximale Rauschreduktion
-    │        ★     │  ← Optimale Schärfe
-    │              │  ← Beste Qualität
-    │      ★       │
-    └──────────────┘
-```
+| Parameter | Beschreibung | Default |
+|-----------|-------------|---------|
+| `synthetic.frames_min` | Minimale Cluster-Größe | 3 |
+| `synthetic.frames_max` | Maximale Anzahl synth. Frames | 30 |
 
-## Schritt 7.2: Speicherung als FITS
+### Artifact: `synthetic_frames.json`
 
-### FITS-Header
-
-```python
-def create_fits_header(channel, metadata):
-    """
-    Erstellt FITS-Header mit Metadaten.
-    """
-    header = fits.Header()
-    
-    # Basis-Informationen
-    header['SIMPLE'] = True
-    header['BITPIX'] = -32  # 32-bit float
-    header['NAXIS'] = 2
-    header['NAXIS1'] = metadata['width']
-    header['NAXIS2'] = metadata['height']
-    
-    # Pipeline-Informationen
-    header['PIPELINE'] = 'TileCompile v3'
-    header['CHANNEL'] = channel  # 'R', 'G', or 'B'
-    header['DATE'] = datetime.now().isoformat()
-    
-    # Frame-Statistiken
-    if metadata['mode'] == 'normal':
-        header['MODE'] = 'NORMAL'
-        header['NFRAMES'] = metadata['original_frame_count']
-        header['NCLUSTERS'] = metadata['synthetic_frame_count']
-        header['REDUCTION'] = metadata['reduction_ratio']
-    else:
-        header['MODE'] = 'REDUCED'
-        header['NFRAMES'] = metadata['frame_count']
-    
-    # Qualitätsmetriken
-    header['FWHM'] = metadata['fwhm_median']
-    header['TILESIZE'] = metadata['tile_size']
-    header['OVERLAP'] = metadata['tile_overlap']
-    
-    # Registrierung
-    header['REGPATH'] = metadata['registration_path']  # 'siril' or 'opencv_cfa'
-    header['REGRES'] = metadata['registration_residual_median']
-    
-    # Normalisierung
-    header['NORMTYPE'] = 'BACKGROUND_DIVISION'
-    
-    # Gewichtung
-    header['WEIGHTS'] = 'GLOBAL_LOCAL_COMBINED'
-    
-    # Linearität
-    header['LINEAR'] = True
-    header['STRETCH'] = False
-    
-    return header
+```json
+{
+  "num_synthetic": 8,
+  "frames_min": 3,
+  "frames_max": 30
+}
 ```
 
-### Speichern
+---
 
-```python
-def save_final_stack(image, channel, metadata, output_dir):
-    """
-    Speichert finales Bild als FITS.
-    """
-    # Header erstellen
-    header = create_fits_header(channel, metadata)
-    
-    # HDU erstellen
-    hdu = fits.PrimaryHDU(data=image, header=header)
-    
-    # Dateiname
-    filename = f"Rekonstruktion_{channel}.fit"
-    filepath = os.path.join(output_dir, filename)
-    
-    # Speichern
-    hdu.writeto(filepath, overwrite=True)
-    
-    print(f"✓ Saved {channel}-channel: {filepath}")
-    print(f"  Dimensions: {image.shape}")
-    print(f"  Mean: {np.mean(image):.6f}")
-    print(f"  Std: {np.std(image):.6f}")
-    print(f"  Min: {np.min(image):.6f}")
-    print(f"  Max: {np.max(image):.6f}")
+## Phase 10: STACKING
+
+### Sigma-Clipping Rejection Stacking
+
+```cpp
+if (use_synthetic_frames) {
+    if (cfg.stacking.method == "rej") {
+        recon = reconstruction::sigma_clip_stack(
+            synthetic_frames,
+            cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high,
+            cfg.stacking.sigma_clip.max_iters,
+            cfg.stacking.sigma_clip.min_fraction);
+    } else {
+        // Mean stacking
+        for (const auto &sf : synthetic_frames) recon += sf;
+        recon /= synthetic_frames.size();
+    }
+}
 ```
 
-## Schritt 7.3: Qualitätskontrolle
+| Methode | Config | Beschreibung |
+|---------|--------|-------------|
+| **rej** | `stacking.method: "rej"` | Sigma-Clipping Rejection (Standard) |
+| **mean** | `stacking.method: "mean"` | Einfaches Mittel |
 
-### Finale Checks
+#### Sigma-Clipping Parameter
 
-```python
-def validate_final_stack(image, channel, metadata):
-    """
-    Validiert finales gestacktes Bild.
-    """
-    # Check 1: Keine NaN/Inf
-    assert not np.any(np.isnan(image)), f"NaN in final {channel} stack"
-    assert not np.any(np.isinf(image)), f"Inf in final {channel} stack"
-    
-    # Check 2: Positive Werte
-    assert np.all(image >= 0), f"Negative values in final {channel} stack"
-    
-    # Check 3: Vernünftiger Wertebereich
-    mean_val = np.mean(image)
-    assert 0.5 < mean_val < 2.0, \
-        f"Unusual mean value in {channel}: {mean_val}"
-    
-    # Check 4: Nicht konstant
-    std_val = np.std(image)
-    assert std_val > 0.001, \
-        f"Image appears constant in {channel}: std={std_val}"
-    
-    # Check 5: Dimensionen
-    H, W = image.shape
-    assert H == metadata['height'], "Height mismatch"
-    assert W == metadata['width'], "Width mismatch"
-    
-    # Check 6: Linearität (kein Stretch)
-    max_val = np.max(image)
-    if max_val > 10.0:
-        print(f"⚠ Warning: Unusually high max value in {channel}: {max_val}")
-    
-    print(f"✓ Validation passed for {channel}-channel")
+| Parameter | Beschreibung | Default |
+|-----------|-------------|---------|
+| `stacking.sigma_clip.sigma_low` | Untere σ-Grenze | 2.5 |
+| `stacking.sigma_clip.sigma_high` | Obere σ-Grenze | 3.0 |
+| `stacking.sigma_clip.max_iters` | Maximale Iterationen | 5 |
+| `stacking.sigma_clip.min_fraction` | Mindestanteil beibehaltener Pixel | 0.5 |
+
+### Reduced Mode
+
+Wenn `use_synthetic_frames = false`, wird das Rekonstruktionsergebnis aus Phase 7 direkt als finales Bild übernommen — kein erneutes Stacking.
+
+### Output-Skalierung
+
+```cpp
+Matrix2Df recon_out = recon;
+apply_output_scaling_inplace(recon_out, 0, 0);
+io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, first_hdr);
+io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out, first_hdr);
 ```
 
-### Statistik-Report
+Die Skalierung konvertiert normalisierte Werte zurück in physikalische Einheiten:
 
-```python
-def generate_statistics_report(images, metadata):
-    """
-    Generiert Statistik-Report für finale Stacks.
-    """
-    report = []
-    report.append("=" * 60)
-    report.append("FINAL STACK STATISTICS")
-    report.append("=" * 60)
-    
-    # Pro Kanal
-    for channel in ['R', 'G', 'B']:
-        image = images[channel]
-        
-        report.append(f"\n{channel}-Channel:")
-        report.append(f"  Dimensions: {image.shape[1]} × {image.shape[0]}")
-        report.append(f"  Mean:       {np.mean(image):.6f}")
-        report.append(f"  Median:     {np.median(image):.6f}")
-        report.append(f"  Std:        {np.std(image):.6f}")
-        report.append(f"  Min:        {np.min(image):.6f}")
-        report.append(f"  Max:        {np.max(image):.6f}")
-        report.append(f"  SNR (est):  {np.mean(image) / np.std(image):.2f}")
-    
-    # Pipeline-Informationen
-    report.append("\nPipeline Information:")
-    report.append(f"  Mode:              {metadata['mode']}")
-    report.append(f"  Original Frames:   {metadata.get('original_frame_count', 'N/A')}")
-    
-    if metadata['mode'] == 'normal':
-        report.append(f"  Synthetic Frames:  {metadata['synthetic_frame_count']}")
-        report.append(f"  Reduction Ratio:   {metadata['reduction_ratio']:.1f}:1")
-    
-    report.append(f"  Registration:      {metadata['registration_path']} (siril / opencv_cfa)")
-    report.append(f"  FWHM (median):     {metadata['fwhm_median']:.2f} px")
-    report.append(f"  Tile Size:         {metadata['tile_size']} px")
-    report.append(f"  Tile Overlap:      {metadata['tile_overlap']} px")
-    
-    report.append("=" * 60)
-    
-    return "\n".join(report)
+| Modus | Skalierung |
+|-------|-----------|
+| **MONO** | `pixel = pixel × output_bg_mono + 32768` |
+| **OSC** | Per Bayer-Pixel: `× output_bg_r/g/b + 32768` |
+
+- **output_bg_***: Median der Background-Werte über alle Frames (Phase 2)
+- **Pedestal 32768**: Verhindert negative Werte in FITS (16-bit compatible)
+
+---
+
+## Validation
+
+Die Validierung prüft die Qualität des Rekonstruktionsergebnisses:
+
+### 1. FWHM-Verbesserung
+
+```cpp
+float output_fwhm_med = metrics::measure_fwhm_from_image(recon);
+float improvement = (seeing_fwhm - output_fwhm) / seeing_fwhm * 100.0f;
+v["fwhm_improvement_ok"] = (improvement >= cfg.validation.min_fwhm_improvement_percent);
 ```
 
-## Schritt 7.4: Visualisierung (optional)
+- Vergleich: Seeing-FWHM (Phase 4) vs. Output-FWHM
+- **Erwartung**: Output-FWHM sollte kleiner sein (besseres Seeing durch Stacking)
 
-### Preview-Bild erstellen
+### 2. Tile-Weight-Varianz
 
-```python
-def create_preview_image(images_r, images_g, images_b, output_path):
-    """
-    Erstellt RGB-Preview (nicht Teil der Methodik, nur zur Kontrolle).
-    """
-    # Normalisierung für Anzeige (nicht-linear, nur für Preview!)
-    def stretch_for_display(image, percentile=99.5):
-        vmin = np.percentile(image, 0.5)
-        vmax = np.percentile(image, percentile)
-        stretched = np.clip((image - vmin) / (vmax - vmin), 0, 1)
-        return stretched
-    
-    # Stretch pro Kanal
-    r_stretched = stretch_for_display(images_r)
-    g_stretched = stretch_for_display(images_g)
-    b_stretched = stretch_for_display(images_b)
-    
-    # RGB kombinieren
-    rgb = np.dstack([r_stretched, g_stretched, b_stretched])
-    
-    # Als PNG speichern
-    from PIL import Image
-    img = Image.fromarray((rgb * 255).astype(np.uint8))
-    img.save(output_path)
-    
-    print(f"✓ Preview saved: {output_path}")
+```cpp
+// Mittleres effektives Gewicht pro Tile
+for (size_t ti = 0; ti < tiles.size(); ++ti) {
+    float mean_W = Σ (G_f × L_f,t) / N;
+    tile_means.push_back(mean_W);
+}
+// Normalisierte Varianz: Var(tile_means) / mean(tile_means)²
 ```
 
-**Wichtig:** Preview ist **nicht Teil der Methodik**! Die finalen FITS-Dateien bleiben linear.
+- **Prüft**: Gibt es genug Variation in den Tile-Gewichten?
+- Zu niedrige Varianz → Gewichtung hat keinen Effekt → Warnung
 
-## Schritt 7.5: Kompletter Workflow
+### 3. Tile-Pattern-Detektion
 
-### Implementierung
+```cpp
+// Sobel-Gradient an Tile-Grenzen vs. Nachbar-Pixel
+cv::Sobel(img_cv, gx, CV_32F, 1, 0, 3);
+cv::Sobel(img_cv, gy, CV_32F, 0, 1, 3);
+cv::magnitude(gx, gy, mag);
 
-```python
-def phase7_final_stacking(input_frames, metadata, config, output_dir):
-    """
-    Phase 7: Finales lineares Stacking.
-    
-    Args:
-        input_frames: Dict mit 'R', 'G', 'B' Arrays
-                      Normal Mode: (K, H, W) synthetische Frames
-                      Reduced Mode: (N, H, W) Original-Frames
-        metadata: Pipeline-Metadaten
-        config: Konfiguration
-        output_dir: Output-Verzeichnis
-    
-    Returns:
-        final_stacks: Dict mit finalen R, G, B Bildern
-    """
-    final_stacks = {}
-    
-    # Pro Kanal
-    for channel in ['R', 'G', 'B']:
-        print(f"\nProcessing {channel}-channel...")
-        
-        frames = input_frames[channel]
-        K = frames.shape[0]  # Anzahl Frames (K oder N)
-        
-        # Einfaches lineares Stacking
-        print(f"  Stacking {K} frames...")
-        final = np.mean(frames, axis=0)
-        
-        # Validierung
-        validate_final_stack(final, channel, metadata)
-        
-        # Speichern
-        save_final_stack(final, channel, metadata, output_dir)
-        
-        final_stacks[channel] = final
-    
-    # Statistik-Report
-    report = generate_statistics_report(final_stacks, metadata)
-    print(report)
-    
-    # Report speichern
-    report_path = os.path.join(output_dir, "final_stack_report.txt")
-    with open(report_path, 'w') as f:
-        f.write(report)
-    
-    # Optional: Preview
-    if config.get('create_preview', False):
-        preview_path = os.path.join(output_dir, "preview.png")
-        create_preview_image(
-            final_stacks['R'],
-            final_stacks['G'],
-            final_stacks['B'],
-            preview_path
-        )
-    
-    return final_stacks
+for (int x : tile_boundaries_x) {
+    float boundary_grad = line_mean_x(x);
+    float neighbor_grad = 0.5 * (line_mean_x(x-2) + line_mean_x(x+2));
+    float ratio = boundary_grad / neighbor_grad;
+    worst_ratio = max(worst_ratio, ratio);
+}
+tile_pattern_ok = (worst_ratio < 1.5f);
 ```
 
-## Output-Struktur
+- **Prüft**: Sind Tile-Grenzen im finalen Bild sichtbar?
+- Vergleicht Sobel-Gradient an Tile-Grenzen mit benachbarten Pixeln
+- **Ratio > 1.5**: Tile-Pattern erkannt → Warnung
+- Nur wenn `validation.require_no_tile_pattern = true`
 
-```
-output_dir/
-├── Rekonstruktion_R.fit    # Fi
+### Validation-Ergebnis
 
-naler R-Kanal (linear)
-├── Rekonstruktion_G.fit    # Finaler G-Kanal (linear)
-├── Rekonstruktion_B.fit    # Finaler B-Kanal (linear)
-├── final_stack_report.txt  # Statistik-Report
-└── preview.png             # Optional: RGB-Preview (nicht-linear)
-```
-
-## Beispiel-Output
-
-```
-Processing R-channel...
-  Stacking 20 frames...
-  ✓ Validation passed for R-channel
-  ✓ Saved R-channel: /output/Rekonstruktion_R.fit
-    Dimensions: (2048, 4096)
-    Mean: 1.002345
-    Std: 0.123456
-    Min: 0.987654
-    Max: 3.456789
-
-Processing G-channel...
-  Stacking 20 frames...
-  ✓ Validation passed for G-channel
-  ✓ Saved G-channel: /output/Rekonstruktion_G.fit
-    Dimensions: (2048, 4096)
-    Mean: 1.001234
-    Std: 0.098765
-    Min: 0.976543
-    Max: 2.987654
-
-Processing B-channel...
-  Stacking 20 frames...
-  ✓ Validation passed for B-channel
-  ✓ Saved B-channel: /output/Rekonstruktion_B.fit
-    Dimensions: (2048, 4096)
-    Mean: 1.003456
-    Std: 0.145678
-    Min: 0.965432
-    Max: 4.123456
-
-============================================================
-FINAL STACK STATISTICS
-============================================================
-
-R-Channel:
-  Dimensions: 4096 × 2048
-  Mean:       1.002345
-  Median:     0.998765
-  Std:        0.123456
-  Min:        0.987654
-  Max:        3.456789
-  SNR (est):  8.12
-
-G-Channel:
-  Dimensions: 4096 × 2048
-  Mean:       1.001234
-  Median:     0.997654
-  Std:        0.098765
-  Min:        0.976543
-  Max:        2.987654
-  SNR (est):  10.14
-
-B-Channel:
-  Dimensions: 4096 × 2048
-  Mean:       1.003456
-  Median:     0.999876
-  Std:        0.145678
-  Min:        0.965432
-  Max:        4.123456
-  SNR (est):  6.89
-
-Pipeline Information:
-  Mode:              normal
-  Original Frames:   800
-  Synthetic Frames:  20
-  Reduction Ratio:   40.0:1
-  Registration:      siril
-  FWHM (median):     3.24 px
-  Tile Size:         64 px
-  Tile Overlap:      16 px
-============================================================
+```cpp
+if (!validation_ok) {
+    run_validation_failed = true;
+    // Pipeline läuft weiter (DEBAYER wird noch ausgeführt!)
+}
 ```
 
-## Was kommt NACH Phase 7?
+- Validation-Fehler bricht die Pipeline **nicht** ab
+- DEBAYER wird immer noch ausgeführt (GUI braucht die Outputs)
+- Run wird am Ende als `"validation_failed"` markiert
 
-### RGB/LRGB-Kombination (außerhalb der Methodik)
+### Artifact: `validation.json`
 
-```
-Die 3 finalen FITS-Dateien können nun kombin
-
-iert werden:
-
-Option 1: RGB-Kombination
-  ┌─────────────────────────────────┐
-  │ R.fit + G.fit + B.fit → RGB.fit │
-  │                                  │
-  │ Einfache Kanal-Kombination       │
-  │ Kein Teil der Methodik           │
-  └─────────────────────────────────┘
-
-Option 2: LRGB-Kombination
-  ┌─────────────────────────────────┐
-  │ L.fit (Luminanz, separat)        │
-  │ R.fit, G.fit, B.fit (Farbe)      │
-  │ → LRGB.fit                       │
-  │                                  │
-  │ Komplexere Kombination           │
-  │ Kein Teil der Methodik           │
-  └─────────────────────────────────┘
-
-Option 3: Weiterverarbeitung in PixInsight/Siril
-  ┌─────────────────────────────────┐
-  │ Importiere R.fit, G.fit, B.fit   │
-  │ → Stretching, Farbkalibrierung   │
-  │ → Finales Bild                   │
-  └─────────────────────────────────┘
+```json
+{
+  "seeing_fwhm_median": 3.5,
+  "output_fwhm_median": 2.8,
+  "fwhm_improvement_percent": 20.0,
+  "fwhm_improvement_ok": true,
+  "tile_weight_variance": 0.15,
+  "tile_weight_variance_ok": true,
+  "tile_pattern_ratio": 1.02,
+  "tile_pattern_ok": true
+}
 ```
 
-**Wichtig:** RGB/LRGB-Kombination ist **explizit außerhalb** der Methodik!
+---
 
-## Zusammenfassung: Gesamte Pipeline
+## Phase 11: DEBAYER
 
-```
-Phase 0: Preprocessing Path Selection
-  ↓
-Ph
+### OSC-Modus
 
-ase 1: Registration & Channel Separation
-  ↓ (R, G, B getrennt ab hier)
-Phase 2: Global Normalization & Frame Metrics
-  ↓
-Phase 3: Tile Generation (FWHM-based)
-  ↓
-Phase 4: Local Tile Metrics
-  ↓
-Phase 5: Tile-based Reconstruction
-  ↓
-Phase 6: State-based Clustering & Synthetic Frames
-  ↓ (Normal Mode: K synthetische Frames)
-  ↓ (Reduced Mode: N Original-Frames)
-Phase 7: Final Linear Stacking
-  ↓
-Output: Rekonstruktion_R.fit
-        Rekonstruktion_G.fit
-        Rekonstruktion_B.fit
+```cpp
+if (detected_mode == ColorMode::OSC) {
+    auto debayer = image::debayer_nearest_neighbor(recon, detected_bayer);
 
-─────────────────────────────────────
-ENDE DER METHODIK
-─────────────────────────────────────
+    Matrix2Df R_out = debayer.R * output_bg_r + output_pedestal;
+    Matrix2Df G_out = debayer.G * output_bg_g + output_pedestal;
+    Matrix2Df B_out = debayer.B * output_bg_b + output_pedestal;
 
-Optional (außerhalb):
-  → RGB/LRGB-Kombination
-  → Stretching
-  → Farbkalibrierung
-  → Finales Bild
+    io::write_fits_float("reconstructed_R.fit", R_out, first_hdr);
+    io::write_fits_float("reconstructed_G.fit", G_out, first_hdr);
+    io::write_fits_float("reconstructed_B.fit", B_out, first_hdr);
+    io::write_fits_rgb("stacked_rgb.fits", R_out, G_out, B_out, first_hdr);
+}
 ```
 
-## Kernprinzipien (Wiederholung)
+- **Nearest-Neighbor Demosaic**: Schnell, keine Artefakte
+- **Per-Kanal Output-Skalierung**: Jeder Kanal × eigener Median-Background + Pedestal
+- **stacked_rgb.fits**: 3-Plane FITS-Cube (NAXIS3=3) für direkte RGB-Anzeige
 
-1. ✓ **Linearität**: Keine nichtlinearen Operationen
-2. ✓ **Keine Frame-Selektion**: Alle Frames werden verwendet
-3. ✓ **Kanalgetrennt**: R, G, B unabhängig verarbeitet
-4. ✓ **Streng linear**: Keine Rückkopplungen
-5. ✓ **Deterministisch**: Gleiche Inputs → gleiche Outputs
-6. ✓ **Tile-basiert**: Lokale Qualitätsbewertung
-7. ✓ **Gewichtet**: Global × Lokal
-8. ✓ **Einfaches finales Stacking**: Keine zusätzliche Gewichtung
+### MONO-Modus
 
-## Performance-Hinweise
+- Phase wird als "ok" mit `mode: "MONO"` beendet
+- Keine Demosaic-Operation notwendig
+- Output ist bereits in `stacked.fits` / `reconstructed_L.fit`
 
-```python
-# Memory-effizientes Stacking
-def stack_large_frames(frames, chunk_size=100):
-    """
-    Stackt große Frame-Arrays in Chunks (memory-effizient).
-    """
-    K, H, W = frames.shape
-    
-    # Initialisierung
-    result = np.zeros((H, W), dtype=np.float64)  # float64 für Akkumulation
-    
-    # Chunk-weise Akkumulation
-    for start in range(0, K, chunk_size):
-        end = min(start + chunk_size, K)
-        chunk = frames[start:end]
-        result += np.sum(chunk, axis=0)
-    
-    # Mittelwert
-    result /= K
-    
-    # Zurück zu float32
-    return result.astype(np.float32)
+### Output-Dateien
 
-# Paralleles Stacking (alle Kanäle gleichzeitig)
-from concurrent.futures import ThreadPoolExecutor
+| Datei | Modus | Beschreibung |
+|-------|-------|-------------|
+| `stacked.fits` | Beide | Rekonstruiertes Bild (mit Skalierung) |
+| `reconstructed_L.fit` | Beide | Identisch zu stacked.fits |
+| `reconstructed_R.fit` | OSC | Roter Kanal |
+| `reconstructed_G.fit` | OSC | Grüner Kanal |
+| `reconstructed_B.fit` | OSC | Blauer Kanal |
+| `stacked_rgb.fits` | OSC | RGB-Cube (NAXIS3=3) |
+| `synthetic_*.fit` | Normal | Synthetische Frames (mit Skalierung) |
 
-def stack_all_channels_parallel(frames_dict):
-    """
-    Stackt R, G, B parallel.
-    """
-    def stack_channel(channel):
-        return channel, np.mean(frames_dict[channel], axis=0)
-    
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        results = executor.map(stack_channel, ['R', 'G', 'B'])
-    
-    return {channel: stack for channel, stack in results}
+---
+
+## Phase 12: DONE
+
+```cpp
+emitter.phase_start(run_id, Phase::DONE, "DONE", log_file);
+emitter.phase_end(run_id, Phase::DONE, "ok", {}, log_file);
+
+if (run_validation_failed) {
+    emitter.run_end(run_id, false, "validation_failed", log_file);
+    return 1;
+}
+
+emitter.run_end(run_id, true, "ok", log_file);
+return 0;
 ```
 
-## Schritt 7.3: Debayer (CFA → RGB)
+| Ergebnis | Exit-Code | Status |
+|----------|-----------|--------|
+| **Erfolgreich** | 0 | `"ok"` |
+| **Validation fehlgeschlagen** | 1 | `"validation_failed"` |
+| **Pipeline-Fehler** | 1 | `"error"` (bei vorherigem Abbruch) |
 
-Bei CFA-basierter Verarbeitung (Path B / opencv_cfa) wird nach dem Stacking ein finales Debayer durchgeführt, um das gestackte CFA-Mosaik in ein RGB-Bild zu konvertieren.
+---
+
+## CLI-Optionen
 
 ```
-┌─────────────────────────────────────────┐
-│  Input: Gestacktes CFA-Mosaik           │
-│  stacked.fit (Bayer Pattern)            │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  OpenCV Demosaicing                     │
-│                                         │
-│  • Bayer-Pattern: GBRG (oder aus Header)│
-│  • Methode: cv2.COLOR_BAYER_*2RGB       │
-│  • 16-bit Zwischenformat für Qualität   │
-└────────────┬────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────┐
-│  Output: RGB-Bild                       │
-│  stacked_rgb.fits (3, H, W)             │
-└─────────────────────────────────────────┘
+tile_compile_runner run \
+    --config <path>        # config.yaml
+    --input-dir <path>     # FITS Input-Verzeichnis
+    --runs-dir <path>      # Runs-Ausgabe-Verzeichnis
+    --project-root <path>  # Projekt-Root (optional)
+    --max-frames <n>       # Frame-Limit (0 = kein Limit)
+    --max-tiles <n>        # Tile-Limit für Phase 5/6
+    --dry-run              # Kein Processing
+    --stdin                # Config von stdin lesen
 ```
-
-**Hinweis:** Bei Path A (Siril) ist das Debayer bereits vor der Registrierung erfolgt.
-
-## Ende der Pipeline
-
-**Die Methodik ist mit Phase 7 abgeschlossen.**
-
-Die finalen FITS-Dateien sind:
-- `stacked.fit` - Gestacktes CFA-Mosaik (bei CFA-Verarbeitung)
-- `stacked_rgb.fits` - Finales RGB-Bild (3, H, W)
-- ✓ Linear
-- ✓ Optimal gewichtet
-- ✓ Bereit für weitere Verarbeitung (außerhalb der Methodik)

@@ -26,6 +26,8 @@
 #include "tabs/RunTab.hpp"
 #include "tabs/CurrentRunTab.hpp"
 #include "tabs/HistoryTab.hpp"
+#include "tabs/AstrometryTab.hpp"
+#include "tabs/PCCTab.hpp"
 
 namespace tile_compile::gui {
 
@@ -78,6 +80,8 @@ class MainWindow : public QMainWindow {
     RunTab *run_tab_ = nullptr;
     CurrentRunTab *current_run_tab_ = nullptr;
     HistoryTab *history_tab_ = nullptr;
+    AstrometryTab *astrometry_tab_ = nullptr;
+    PCCTab *pcc_tab_ = nullptr;
     
     AssumptionsWidget *assumptions_widget_ = nullptr;
     PhaseProgressWidget *phase_progress_ = nullptr;
@@ -87,6 +91,7 @@ class MainWindow : public QMainWindow {
     
     QString format_event_human(const nlohmann::json &ev) const;
     void ensure_startup_paths();
+    void update_history_runs_dir();
 };
 
 }

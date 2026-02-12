@@ -5,6 +5,7 @@
 #include "tabs/RunTab.hpp"
 #include "tabs/CurrentRunTab.hpp"
 #include "tabs/HistoryTab.hpp"
+#include "tabs/AstrometryTab.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -30,7 +31,7 @@ MainWindow::MainWindow(const std::string &project_root, QWidget *parent)
     
     setMinimumSize(1000, 700);
     resize(1300, 900);
-    setWindowTitle("Tile Compile – Methodik v4");
+    setWindowTitle("Tile Compile – Methodik v3");
     
     build_ui();
     load_styles();
@@ -55,7 +56,7 @@ void MainWindow::build_ui() {
     root->setSpacing(10);
     
     auto *header = new QHBoxLayout();
-    auto *title = new QLabel("Tile Compile – Methodik v4");
+    auto *title = new QLabel("Tile Compile – Methodik v3");
     title->setStyleSheet("font-size: 18px; font-weight: 600;");
     header->addWidget(title);
     header->addStretch(1);
@@ -109,7 +110,7 @@ void MainWindow::build_ui() {
     // Configuration Tab
     assumptions_widget_ = new AssumptionsWidget(this);
     config_tab_ = new ConfigTab(backend_.get(), assumptions_widget_, project_root_, this);
-    tabs_->addTab(wrap_scroll(config_tab_), "Configuration");
+    tabs_->addTab(config_tab_, "Configuration");
     connect(config_tab_, &ConfigTab::config_edited, this, [this]() {
         config_validated_ok_ = false;
         update_controls();
@@ -130,7 +131,7 @@ void MainWindow::build_ui() {
     auto *assumptions_page_layout = new QVBoxLayout(assumptions_page);
     assumptions_page_layout->setContentsMargins(0, 0, 0, 0);
     assumptions_page_layout->setSpacing(10);
-    auto *assumptions_box = new QGroupBox("Methodik v4 Assumptions");
+    auto *assumptions_box = new QGroupBox("Methodik v3 Assumptions");
     auto *assumptions_box_layout = new QVBoxLayout(assumptions_box);
     assumptions_box_layout->setContentsMargins(12, 18, 12, 12);
     assumptions_box_layout->addWidget(assumptions_widget_);
@@ -157,7 +158,7 @@ void MainWindow::build_ui() {
     auto *progress_page_layout = new QVBoxLayout(progress_page);
     progress_page_layout->setContentsMargins(0, 0, 0, 0);
     progress_page_layout->setSpacing(10);
-    auto *progress_box = new QGroupBox("Pipeline Progress (Methodik v4)");
+    auto *progress_box = new QGroupBox("Pipeline Progress (Methodik v3)");
     auto *progress_box_layout = new QVBoxLayout(progress_box);
     progress_box_layout->setContentsMargins(12, 18, 12, 12);
     phase_progress_ = new PhaseProgressWidget();
@@ -166,16 +167,30 @@ void MainWindow::build_ui() {
     tabs_->addTab(wrap_scroll(progress_page), "Pipeline Progress");
     
     // Current Run Tab
-    current_run_tab_ = new CurrentRunTab(backend_.get(), this);
+    current_run_tab_ = new CurrentRunTab(this);
     tabs_->addTab(wrap_scroll(current_run_tab_), "Current run");
     connect(current_run_tab_, &CurrentRunTab::resume_run_requested, this, &MainWindow::on_resume_run_clicked);
     connect(current_run_tab_, &CurrentRunTab::log_message, this, &MainWindow::append_live);
     
     // History Tab
-    history_tab_ = new HistoryTab(backend_.get(), this);
+    history_tab_ = new HistoryTab(this);
     tabs_->addTab(wrap_scroll(history_tab_), "Run history");
     connect(history_tab_, &HistoryTab::run_selected, current_run_tab_, &CurrentRunTab::set_current_run);
     connect(history_tab_, &HistoryTab::log_message, this, &MainWindow::append_live);
+    connect(run_tab_, &RunTab::working_dir_changed, this, [this]() {
+        update_history_runs_dir();
+    });
+    update_history_runs_dir();
+    
+    // Astrometry Tab
+    astrometry_tab_ = new AstrometryTab(project_root_, this);
+    tabs_->addTab(wrap_scroll(astrometry_tab_), "Astrometry");
+    connect(astrometry_tab_, &AstrometryTab::log_message, this, &MainWindow::append_live);
+
+    // PCC Tab
+    pcc_tab_ = new PCCTab(project_root_, this);
+    tabs_->addTab(wrap_scroll(pcc_tab_), "PCC");
+    connect(pcc_tab_, &PCCTab::log_message, this, &MainWindow::append_live);
     
     // Live log Tab
     auto *live_page = new QWidget();
@@ -283,14 +298,13 @@ void MainWindow::on_start_run_clicked() {
         return;
     }
     
-    auto *scan_tab = qobject_cast<ScanTab*>(tabs_->widget(0)->findChild<ScanTab*>());
-    auto *config_tab = qobject_cast<ConfigTab*>(tabs_->widget(1)->findChild<ConfigTab*>());
-    auto *run_tab = qobject_cast<RunTab*>(tabs_->widget(3)->findChild<RunTab*>());
-    
-    if (!scan_tab || !config_tab || !run_tab) {
+    if (!scan_tab_ || !config_tab_ || !run_tab_) {
         QMessageBox::critical(this, "Start run", "Internal error: tabs not found");
         return;
     }
+    auto *scan_tab = scan_tab_;
+    auto *config_tab = config_tab_;
+    auto *run_tab = run_tab_;
     
     QString input_dir = run_tab->get_input_dir();
     if (input_dir.isEmpty()) {
@@ -393,7 +407,7 @@ void MainWindow::handle_runner_stdout(const QString &line) {
             phase_progress_->reset();
             append_live(QString("[run_start] run_id=%1").arg(QString::fromStdString(current_run_id_)));
             
-            auto *current_run_tab = qobject_cast<CurrentRunTab*>(tabs_->widget(5)->findChild<CurrentRunTab*>());
+            auto *current_run_tab = current_run_tab_;
             if (current_run_tab) {
                 current_run_tab->set_current_run(QString::fromStdString(current_run_id_), 
                                                  QString::fromStdString(current_run_dir_));
@@ -628,10 +642,23 @@ void MainWindow::apply_gui_state(const nlohmann::json &state) {
     update_controls();
 }
 
+void MainWindow::update_history_runs_dir() {
+    if (!run_tab_ || !history_tab_) return;
+    const QString working_dir = run_tab_->get_working_dir();
+    const QString runs_dir = run_tab_->get_runs_dir();
+    if (working_dir.isEmpty() || runs_dir.isEmpty()) return;
+
+    namespace fs = std::filesystem;
+    fs::path runs_path(runs_dir.toStdString());
+    if (runs_path.is_relative()) {
+        runs_path = fs::path(working_dir.toStdString()) / runs_path;
+    }
+    history_tab_->set_runs_dir(QString::fromStdString(runs_path.string()));
+}
+
 void MainWindow::ensure_startup_paths() {
-    auto *run_tab = qobject_cast<RunTab*>(tabs_->widget(3)->findChild<RunTab*>());
-    if (run_tab && run_tab->get_working_dir().isEmpty()) {
-        run_tab->set_working_dir(QString::fromStdString(project_root_));
+    if (run_tab_ && run_tab_->get_working_dir().isEmpty()) {
+        run_tab_->set_working_dir(QString::fromStdString(project_root_));
     }
 }
 
