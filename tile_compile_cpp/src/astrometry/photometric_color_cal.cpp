@@ -458,16 +458,20 @@ void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     int rows = R.rows();
     int cols = R.cols();
 
-    // Background-preserving application:
-    // out = bg + (pixel - bg) * scale
-    // This ensures the sky background stays neutral while only
-    // the signal (stars, nebulae) above background gets color-corrected.
+    // Background-aware application:
+    // We subtract each channel's estimated sky background so the matrix acts on
+    // signal above background (consistent with the aperture photometry step).
+    // Then we add back a *single* neutral background level so the output sky is
+    // approximately neutral (instead of preserving any channel bias from light
+    // pollution / sensor response).
     float bg_r = estimate_background(R);
     float bg_g = estimate_background(G);
     float bg_b = estimate_background(B);
+    float bg_out = (bg_r + bg_g + bg_b) / 3.0f;
 
     std::cerr << "[PCC] Background levels: R=" << bg_r
-              << " G=" << bg_g << " B=" << bg_b << std::endl;
+              << " G=" << bg_g << " B=" << bg_b
+              << " -> bg_out=" << bg_out << std::endl;
 
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
@@ -475,9 +479,13 @@ void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             float dg = G(y, x) - bg_g;
             float db = B(y, x) - bg_b;
 
-            R(y, x) = bg_r + static_cast<float>(m[0][0] * dr + m[0][1] * dg + m[0][2] * db);
-            G(y, x) = bg_g + static_cast<float>(m[1][0] * dr + m[1][1] * dg + m[1][2] * db);
-            B(y, x) = bg_b + static_cast<float>(m[2][0] * dr + m[2][1] * dg + m[2][2] * db);
+            float nr = static_cast<float>(m[0][0] * dr + m[0][1] * dg + m[0][2] * db);
+            float ng = static_cast<float>(m[1][0] * dr + m[1][1] * dg + m[1][2] * db);
+            float nb = static_cast<float>(m[2][0] * dr + m[2][1] * dg + m[2][2] * db);
+
+            R(y, x) = bg_out + nr;
+            G(y, x) = bg_out + ng;
+            B(y, x) = bg_out + nb;
         }
     }
 }

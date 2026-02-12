@@ -1,6 +1,7 @@
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/astrometry/photometric_color_cal.hpp"
 
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
@@ -296,6 +297,42 @@ int cmd_load_gui_state(const std::string& path_arg) {
 
 int cmd_fits_stats(const std::string& path) {
     print_json(fits_stats_file(fs::path(path)));
+    return 0;
+}
+
+// ============================================================================
+// pcc-apply <input_rgb_fits> <output_rgb_fits> [--r X] [--g Y] [--b Z]
+//
+// Applies a diagonal color matrix to an RGB FITS cube using the same
+// implementation as the pipeline PCC step. This is mainly useful for
+// debugging / reproducing PCC output changes without rerunning the pipeline.
+// ============================================================================
+int cmd_pcc_apply(const std::string& input_path, const std::string& output_path,
+                  double r_scale, double g_scale, double b_scale) {
+    using tile_compile::Matrix2Df;
+    namespace io = tile_compile::io;
+    namespace astro = tile_compile::astrometry;
+
+    io::RGBImage rgb = io::read_fits_rgb(fs::path(input_path));
+
+    astro::ColorMatrix m = {{{r_scale, 0.0, 0.0},
+                             {0.0, g_scale, 0.0},
+                             {0.0, 0.0, b_scale}}};
+
+    astro::apply_color_matrix(rgb.R, rgb.G, rgb.B, m);
+
+    io::write_fits_rgb(fs::path(output_path), rgb.R, rgb.G, rgb.B, rgb.header);
+
+    json result;
+    result["ok"] = true;
+    result["input"] = input_path;
+    result["output"] = output_path;
+    result["matrix"] = json::array({
+        json::array({r_scale, 0.0, 0.0}),
+        json::array({0.0, g_scale, 0.0}),
+        json::array({0.0, 0.0, b_scale}),
+    });
+    print_json(result);
     return 0;
 }
 
@@ -802,7 +839,8 @@ void print_usage() {
               << "  get-run-status <run_dir>        Get status of a run\n"
               << "  get-run-logs <run_dir> [--tail N]  Get run logs\n"
               << "  list-artifacts <run_dir>        List artifacts in run directory\n"
-              << "  fits-stats <path>               Print basic statistics for a FITS image\n";
+              << "  fits-stats <path>               Print basic statistics for a FITS image\n"
+              << "  pcc-apply <in> <out> [--r X] [--g Y] [--b Z]  Apply diagonal PCC matrix to RGB FITS cube\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -943,6 +981,25 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         return cmd_fits_stats(path);
+    }
+
+    if (command == "pcc-apply") {
+        std::string in_path = get_positional(0);
+        std::string out_path = get_positional(1);
+        if (in_path.empty() || out_path.empty()) {
+            std::cerr << "pcc-apply requires <input_rgb_fits> and <output_rgb_fits> arguments\n";
+            return 1;
+        }
+        double r = 1.0;
+        double g = 1.0;
+        double b = 1.0;
+        std::string r_str = get_arg("--r");
+        std::string g_str = get_arg("--g");
+        std::string b_str = get_arg("--b");
+        if (!r_str.empty()) r = std::stod(r_str);
+        if (!g_str.empty()) g = std::stod(g_str);
+        if (!b_str.empty()) b = std::stod(b_str);
+        return cmd_pcc_apply(in_path, out_path, r, g, b);
     }
     
     std::cerr << "Unknown command: " << command << std::endl;
