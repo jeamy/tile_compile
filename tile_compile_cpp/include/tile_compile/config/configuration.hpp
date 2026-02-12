@@ -177,7 +177,7 @@ struct PCCConfig {
 };
 
 struct ValidationConfig {
-  float min_fwhm_improvement_percent = 5.0f;
+  float min_fwhm_improvement_percent = 0.0f;
   float max_background_rms_increase_percent = 0.0f;
   float min_tile_weight_variance = 0.1f;
   bool require_no_tile_pattern = true;

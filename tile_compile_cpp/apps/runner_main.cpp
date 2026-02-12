@@ -719,6 +719,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                     },
                     log_file);
 
+  // --- Memory release: frame_star_metrics no longer needed ---
+  { std::vector<metrics::FrameStarMetrics>().swap(frame_star_metrics); }
+
   // Phase 4: TILE_GRID (with adaptive optimization)
   emitter.phase_start(run_id, Phase::TILE_GRID, "TILE_GRID", log_file);
 
@@ -1722,6 +1725,10 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
+    // --- Memory release: weight_sum and first_img no longer needed ---
+    weight_sum.resize(0, 0);
+    first_img.resize(0, 0);
+
     // Write reconstruction artifacts (v3)
     {
       core::json artifact;
@@ -1998,6 +2005,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                         {{"n_clusters", n_clusters}}, log_file);
     }
 
+    // --- Memory release: local_metrics no longer needed after clustering ---
+    { std::vector<std::vector<TileMetrics>>().swap(local_metrics); }
+
     // Phase 8: SYNTHETIC_FRAMES (// Methodik v3 §11)
     emitter.phase_start(run_id, Phase::SYNTHETIC_FRAMES, "SYNTHETIC_FRAMES",
                         log_file);
@@ -2013,35 +2023,30 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
     auto reconstruct_subset =
         [&](const std::vector<char> &frame_mask) -> Matrix2Df {
-      std::vector<Matrix2Df> warped;
-      std::vector<float> weights_subset;
-      warped.reserve(frames.size());
-      weights_subset.reserve(frames.size());
+      // Accumulate weighted sum directly to avoid copying full-res frames.
+      Matrix2Df out;
+      float wsum = 0.0f;
 
       for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
         if (!frame_mask[fi] || !frame_has_data[fi])
           continue;
-        warped.push_back(prewarped_frames[fi]);
+        const Matrix2Df &src = prewarped_frames[fi];
+        if (src.size() <= 0)
+          continue;
         float w = (fi < static_cast<size_t>(global_weights.size()))
                       ? global_weights[static_cast<int>(fi)]
                       : 1.0f;
-        weights_subset.push_back(w);
-      }
-
-      if (warped.empty())
-        return Matrix2Df();
-
-      const int rows = warped[0].rows();
-      const int cols = warped[0].cols();
-      Matrix2Df out = Matrix2Df::Zero(rows, cols);
-      float wsum = 0.0f;
-      for (float w : weights_subset)
+        if (out.size() == 0) {
+          out = Matrix2Df::Zero(src.rows(), src.cols());
+        }
+        out += src * w;
         wsum += w;
-      if (wsum <= 0.0f)
-        wsum = 1.0f;
-      for (size_t i = 0; i < warped.size(); ++i) {
-        out += warped[i] * (weights_subset[i] / wsum);
       }
+
+      if (out.size() == 0)
+        return Matrix2Df();
+      if (wsum > 0.0f)
+        out /= wsum;
       return out;
     };
     int synth_min = cfg.synthetic.frames_min;
@@ -2164,6 +2169,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           {{"num_synthetic", static_cast<int>(synthetic_frames.size())}},
           log_file);
     }
+
+    // --- Memory release: prewarped_frames no longer needed after synthetic ---
+    // This is the single largest allocation (~N_frames * W * H * 4 bytes).
+    { std::vector<Matrix2Df>().swap(prewarped_frames); }
+    { std::vector<uint8_t>().swap(frame_has_data); }
 
     // Phase 9: STACKING (final overlap-add already done in Phase 6)
     emitter.phase_start(run_id, Phase::STACKING, "STACKING", log_file);
@@ -2664,6 +2674,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
+    // --- Memory release: R_disk/G_disk/B_disk no longer needed after astrometry ---
+    R_disk.resize(0, 0);
+    G_disk.resize(0, 0);
+    B_disk.resize(0, 0);
+
     // Phase 12: PCC (Photometric Color Calibration)
     emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
 
@@ -2816,6 +2831,17 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         }
       }
     }
+
+    // --- Memory release: all large image buffers before final exit ---
+    R_out.resize(0, 0);
+    G_out.resize(0, 0);
+    B_out.resize(0, 0);
+    recon.resize(0, 0);
+    recon_R.resize(0, 0);
+    recon_G.resize(0, 0);
+    recon_B.resize(0, 0);
+    { std::vector<std::vector<float>>().swap(local_weights); }
+    { std::vector<Matrix2Df>().swap(synthetic_frames); }
 
     // Phase 13: DONE
     emitter.phase_start(run_id, Phase::DONE, "DONE", log_file);
