@@ -193,6 +193,7 @@ if(BUILD_TESTS)
             tests/test_main.cpp
             tests/test_utils.cpp
             tests/test_fits.cpp
+            tests/test_debayer.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

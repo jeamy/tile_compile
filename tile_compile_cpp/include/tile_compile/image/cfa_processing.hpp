@@ -77,4 +77,13 @@ struct DebayerResult {
 DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
                                        BayerPattern pattern);
 
+// Variant that treats the input mosaic as a subregion of a larger Bayer mosaic.
+// origin_x/origin_y are the top-left pixel coordinates of this subregion in the
+// full image. This is required when demosaicing tiles extracted from a full
+// frame, to keep Bayer parity consistent across tiles.
+DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
+                                       BayerPattern pattern,
+                                       int origin_x,
+                                       int origin_y);
+
 } // namespace tile_compile::image

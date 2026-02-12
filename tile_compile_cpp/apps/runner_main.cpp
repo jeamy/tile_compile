@@ -628,7 +628,19 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       } else {
         image::apply_normalization_inplace(img, norm_scales[i], detected_mode,
                                     detected_bayer_str, 0, 0);
-        frame_metrics[i] = metrics::calculate_frame_metrics(img);
+        FrameMetrics m = metrics::calculate_frame_metrics(img);
+        // Methodik v3: for the global background metric B_f, use the raw
+        // (pre-normalization) background estimate from the normalization stage.
+        if (detected_mode == ColorMode::OSC) {
+          const float b_raw = 0.25f * B_r[i] + 0.5f * B_g[i] + 0.25f * B_b[i];
+          if (std::isfinite(b_raw))
+            m.background = b_raw;
+        } else {
+          const float b_raw = B_mono[i];
+          if (std::isfinite(b_raw))
+            m.background = b_raw;
+        }
+        frame_metrics[i] = m;
         frame_star_metrics[i] = metrics::measure_frame_stars(img, 0);
       }
     } catch (const std::exception &e) {
@@ -840,6 +852,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   std::vector<uint8_t> tile_is_star;
   std::vector<std::atomic<int>> frame_valid_tile_counts(frames.size());
   Matrix2Df recon;
+  Matrix2Df recon_R;
+  Matrix2Df recon_G;
+  Matrix2Df recon_B;
   Matrix2Df weight_sum;
 
   Matrix2Df first_img;
@@ -1056,33 +1071,25 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     global_reg_extra["reason"] = "no_frames";
   }
 
-  // Build frame usability mask: exclude frames that failed registration
-  std::vector<bool> frame_usable(frames.size(), true);
-  int n_usable = 0;
-  int n_excluded_identity = 0;
-  int n_excluded_negative = 0;
+  // Methodik v3: no frame selection. Registration may fall back to identity,
+  // but all frames are still kept for subsequent weighting/stacking.
+  int n_cc_positive = 0;
+  int n_cc_zero = 0;
+  int n_cc_negative = 0;
   for (size_t fi = 0; fi < frames.size(); ++fi) {
-    if (static_cast<int>(fi) == global_ref_idx) {
-      frame_usable[fi] = true;
-      ++n_usable;
-    } else if (global_frame_cc[fi] > 0.0f) {
-      frame_usable[fi] = true;
-      ++n_usable;
+    if (global_frame_cc[fi] > 0.0f) {
+      ++n_cc_positive;
     } else if (global_frame_cc[fi] < 0.0f) {
-      frame_usable[fi] = false;
-      ++n_excluded_negative;
+      ++n_cc_negative;
     } else {
-      frame_usable[fi] = false;
-      ++n_excluded_identity;
+      ++n_cc_zero;
     }
   }
-  std::cerr << "[REG-FILTER] " << n_usable << "/" << frames.size()
-            << " frames usable, " << n_excluded_identity
-            << " excluded (identity fallback), " << n_excluded_negative
-            << " excluded (negative cc)" << std::endl;
-  global_reg_extra["frames_usable"] = n_usable;
-  global_reg_extra["frames_excluded_identity"] = n_excluded_identity;
-  global_reg_extra["frames_excluded_negative"] = n_excluded_negative;
+  std::cerr << "[REG] cc>0: " << n_cc_positive << ", cc==0: " << n_cc_zero
+            << ", cc<0: " << n_cc_negative << std::endl;
+  global_reg_extra["frames_cc_positive"] = n_cc_positive;
+  global_reg_extra["frames_cc_zero"] = n_cc_zero;
+  global_reg_extra["frames_cc_negative"] = n_cc_negative;
 
   emitter.phase_end(run_id, Phase::REGISTRATION, global_reg_status,
                     global_reg_extra, log_file);
@@ -1092,11 +1099,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   // warpAffine needs source pixels outside the tile boundary that don't
   // exist, causing CFA pattern corruption (colored tile rectangles).
   std::vector<Matrix2Df> prewarped_frames(frames.size());
+  std::vector<uint8_t> frame_has_data(frames.size(), 0);
+  int n_frames_with_data = 0;
   for (size_t fi = 0; fi < frames.size(); ++fi) {
-    if (!frame_usable[fi]) {
-      prewarped_frames[fi] = Matrix2Df();
-      continue;
-    }
     auto pair = load_frame_normalized(fi);
     Matrix2Df img = std::move(pair.first);
     if (img.size() <= 0) {
@@ -1114,6 +1119,10 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     } else {
       prewarped_frames[fi] = image::apply_global_warp(img, w, detected_mode);
     }
+    if (prewarped_frames[fi].size() > 0) {
+      frame_has_data[fi] = 1;
+      ++n_frames_with_data;
+    }
   }
 
   bool run_validation_failed = false;
@@ -1130,7 +1139,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       local_metrics[fi].reserve(tiles_phase56.size());
       local_weights[fi].reserve(tiles_phase56.size());
 
-      if (!frame_usable[fi]) {
+      if (!frame_has_data[fi]) {
         for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
           TileMetrics z;
           z.fwhm = 0.0f;
@@ -1184,6 +1193,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                              log_file);
     }
 
+    std::vector<uint8_t> tile_star_flags(tiles_phase56.size(), 0);
     {
       // robust_tilde is now core::robust_zscore (canonical module function)
 
@@ -1198,36 +1208,37 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       const size_t n_frames = local_metrics.size();
       const size_t n_tiles = tiles_phase56.size();
       for (size_t ti = 0; ti < n_tiles; ++ti) {
-        std::vector<float> fwhm_log;
+        std::vector<float> fwhm;
         std::vector<float> roundness;
         std::vector<float> contrast;
         std::vector<float> bg;
-        std::vector<float> noise;
-        std::vector<float> energy;
+        std::vector<float> energy_over_noise;
         std::vector<float> star_counts;
 
-        fwhm_log.reserve(n_frames);
+        fwhm.reserve(n_frames);
         roundness.reserve(n_frames);
         contrast.reserve(n_frames);
         bg.reserve(n_frames);
-        noise.reserve(n_frames);
-        energy.reserve(n_frames);
+        energy_over_noise.reserve(n_frames);
         star_counts.reserve(n_frames);
 
-        // Only collect metrics from usable frames for z-score computation
+        // Collect metrics from frames that actually have image data
         std::vector<size_t> usable_indices;
         usable_indices.reserve(n_frames);
         for (size_t fi = 0; fi < n_frames; ++fi) {
-          if (!frame_usable[fi])
+          if (!frame_has_data[fi])
             continue;
           usable_indices.push_back(fi);
           const TileMetrics &tm = local_metrics[fi][ti];
-          fwhm_log.push_back(std::log(std::max(tm.fwhm, 1.0e-6f)));
+          // STAR mode uses FWHM directly (no log transform)
+          fwhm.push_back(tm.fwhm);
           roundness.push_back(tm.roundness);
           contrast.push_back(tm.contrast);
           bg.push_back(tm.background);
-          noise.push_back(tm.noise);
-          energy.push_back(tm.gradient_energy);
+          // STRUCTURE mode uses robust z-score of (E / σ)
+          const float denom = tm.noise;
+          const float ratio = (denom > eps) ? (tm.gradient_energy / denom) : 0.0f;
+          energy_over_noise.push_back(ratio);
           star_counts.push_back(static_cast<float>(tm.star_count));
         }
 
@@ -1236,14 +1247,14 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         const TileType tile_type = (sc_med >= static_cast<float>(star_thr))
                                        ? TileType::STAR
                                        : TileType::STRUCTURE;
+        tile_star_flags[ti] = (tile_type == TileType::STAR) ? 1 : 0;
 
-        std::vector<float> fwhm_t, r_t, c_t, b_t, s_t, e_t;
-        core::robust_zscore(fwhm_log, fwhm_t);
+        std::vector<float> fwhm_t, r_t, c_t, b_t, en_t;
+        core::robust_zscore(fwhm, fwhm_t);
         core::robust_zscore(roundness, r_t);
         core::robust_zscore(contrast, c_t);
         core::robust_zscore(bg, b_t);
-        core::robust_zscore(noise, s_t);
-        core::robust_zscore(energy, e_t);
+        core::robust_zscore(energy_over_noise, en_t);
 
         // Assign z-score-based weights to usable frames
         for (size_t ui = 0; ui < usable_indices.size(); ++ui) {
@@ -1257,9 +1268,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                 cfg.local_metrics.star_mode.weights.roundness * (r_t[ui]) +
                 cfg.local_metrics.star_mode.weights.contrast * (c_t[ui]);
           } else {
-            float denom = s_t[ui];
-            float ratio = (std::fabs(denom) > eps) ? (e_t[ui] / denom) : 0.0f;
-            q = cfg.local_metrics.structure_mode.metric_weight * ratio +
+            q = cfg.local_metrics.structure_mode.metric_weight * (en_t[ui]) +
                 cfg.local_metrics.structure_mode.background_weight * (-b_t[ui]);
           }
 
@@ -1267,7 +1276,6 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           tm.quality_score = q;
           local_weights[fi][ti] = std::exp(q);
         }
-        // Excluded frames keep weight=0 and zero metrics from earlier
       }
 
       core::json artifact;
@@ -1309,22 +1317,19 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
     // Precompute per-tile median quality and type (for Wiener denoise gating)
     tile_quality_median.assign(tiles_phase56.size(), 0.0f);
-    tile_is_star.assign(tiles_phase56.size(), 0);
+    tile_is_star = tile_star_flags;
     if (!local_metrics.empty()) {
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
         std::vector<float> qs;
         qs.reserve(local_metrics.size());
         for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
-          if (!frame_usable[fi]) continue;
+          if (!frame_has_data[fi])
+            continue;
           if (ti < local_metrics[fi].size()) {
             qs.push_back(local_metrics[fi][ti].quality_score);
           }
         }
         tile_quality_median[ti] = qs.empty() ? 0.0f : core::median_of(qs);
-        if (!local_metrics[0].empty() && ti < local_metrics[0].size()) {
-          tile_is_star[ti] =
-              (local_metrics[0][ti].type == TileType::STAR) ? 1 : 0;
-        }
       }
     }
 
@@ -1335,7 +1340,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         std::vector<float> fwhms;
         fwhms.reserve(local_metrics.size());
         for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
-          if (!frame_usable[fi]) continue;
+          if (!frame_has_data[fi])
+            continue;
           if (ti < local_metrics[fi].size()) {
             fwhms.push_back(local_metrics[fi][ti].fwhm);
           }
@@ -1344,7 +1350,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
-    const bool reduced_mode = (n_usable <
+    const bool reduced_mode = (n_frames_with_data <
                                cfg.assumptions.frames_reduced_threshold);
     const bool skip_clustering_in_reduced =
         (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
@@ -1386,8 +1392,15 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       return {contrast, background, snr};
     };
 
+    const bool osc_mode = (detected_mode == ColorMode::OSC);
+
     recon = Matrix2Df::Zero(first_img.rows(), first_img.cols());
     weight_sum = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+    if (osc_mode) {
+      recon_R = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+      recon_G = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+      recon_B = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+    }
 
     const int prev_cv_threads_recon = cv::getNumThreads();
     cv::setNumThreads(1);
@@ -1405,6 +1418,36 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     }
     if (parallel_tiles < 1)
       parallel_tiles = 1;
+
+    // OSC RGB stacking can be memory-heavy. Cap worker count based on an
+    // estimate of per-tile storage (one channel worth of frame tiles).
+    if (osc_mode && !tiles_phase56.empty()) {
+      size_t max_tile_px = 0;
+      for (const auto &t : tiles_phase56) {
+        size_t px = static_cast<size_t>(std::max(0, t.width)) *
+                    static_cast<size_t>(std::max(0, t.height));
+        if (px > max_tile_px)
+          max_tile_px = px;
+      }
+      // Peak per worker is ~ N_frames * tile_pixels * sizeof(float)
+      // (channel stacking is sequential, so not multiplied by 3).
+      const size_t bytes_per_worker =
+          max_tile_px * static_cast<size_t>(std::max(1, n_frames_with_data)) *
+          sizeof(float);
+      const size_t budget = 512ull * 1024ull * 1024ull; // conservative
+      if (bytes_per_worker > 0) {
+        int max_workers_by_mem = static_cast<int>(budget / bytes_per_worker);
+        if (max_workers_by_mem < 1)
+          max_workers_by_mem = 1;
+        if (parallel_tiles > max_workers_by_mem) {
+          std::cout << "[Phase 6] OSC memory cap: reducing parallel workers from "
+                    << parallel_tiles << " to " << max_workers_by_mem
+                    << " (est. " << (bytes_per_worker / (1024.0 * 1024.0))
+                    << " MiB per worker)" << std::endl;
+          parallel_tiles = max_workers_by_mem;
+        }
+      }
+    }
 
     std::cout << "[Phase 6] Using " << parallel_tiles
               << " parallel workers for " << tiles_phase56.size() << " tiles"
@@ -1437,45 +1480,136 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         return image::extract_tile(prewarped_frames[fi], t);
       };
 
-      std::vector<Matrix2Df> warped_tiles;
-      std::vector<float> weights;
-      warped_tiles.reserve(frames.size());
-      weights.reserve(frames.size());
-
-      for (size_t fi = 0; fi < frames.size(); ++fi) {
-        if (!frame_usable[fi])
-          continue;
-        Matrix2Df tile_img = load_tile_normalized(fi);
-        if (tile_img.rows() != t.height || tile_img.cols() != t.width)
-          continue;
-
-        warped_tiles.push_back(tile_img);
-        float G_f = (fi < static_cast<size_t>(global_weights.size()))
-                        ? global_weights[static_cast<int>(fi)]
-                        : 1.0f;
-        float L_ft = (fi < local_weights.size() && ti < local_weights[fi].size())
-                         ? local_weights[fi][ti]
-                         : 1.0f;
-        weights.push_back(G_f * L_ft);
-      }
-
-      if (warped_tiles.empty()) {
-        tiles_failed++;
-        return;
-      }
-
       std::vector<float> hann_x = reconstruction::make_hann_1d(t.width);
       std::vector<float> hann_y = reconstruction::make_hann_1d(t.height);
 
-      // Per-pixel weighted sigma-clipped stacking (rejects star trails)
-      Matrix2Df tile_rec = reconstruction::sigma_clip_weighted_tile(
-          warped_tiles, weights,
-          cfg.stacking.sigma_clip.sigma_low,
-          cfg.stacking.sigma_clip.sigma_high,
-          cfg.stacking.sigma_clip.max_iters,
-          cfg.stacking.sigma_clip.min_fraction);
+      std::vector<float> weights;
+      weights.reserve(frames.size());
 
-      tile_valid_counts[ti] = static_cast<int>(warped_tiles.size());
+      Matrix2Df tile_rec;
+      Matrix2Df tile_rec_R;
+      Matrix2Df tile_rec_G;
+      Matrix2Df tile_rec_B;
+      size_t n_valid = 0;
+
+      if (osc_mode) {
+        // Methodik v3 (OSC): stack in RGB space (debayer-before-stack).
+        // Important: keep peak memory bounded. We therefore stack channels
+        // sequentially (R then G then B) instead of holding 3× frame tiles.
+
+        const int origin_x = std::max(0, t.x);
+        const int origin_y = std::max(0, t.y);
+
+        std::vector<size_t> valid_frames;
+        std::vector<float> weights_valid;
+        valid_frames.reserve(frames.size());
+        weights_valid.reserve(frames.size());
+
+        // First pass: determine which frames provide a valid tile and compute
+        // weights once. Also count valid tiles per frame exactly once.
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          if (!frame_has_data[fi])
+            continue;
+          Matrix2Df tile_mosaic = load_tile_normalized(fi);
+          if (tile_mosaic.rows() != t.height || tile_mosaic.cols() != t.width)
+            continue;
+
+          valid_frames.push_back(fi);
+          frame_valid_tile_counts[fi].fetch_add(1);
+
+          float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                          ? global_weights[static_cast<int>(fi)]
+                          : 1.0f;
+          float L_ft =
+              (fi < local_weights.size() && ti < local_weights[fi].size())
+                  ? local_weights[fi][ti]
+                  : 1.0f;
+          weights_valid.push_back(G_f * L_ft);
+        }
+
+        if (valid_frames.empty()) {
+          tiles_failed++;
+          return;
+        }
+
+        auto stack_channel = [&](int which) -> Matrix2Df {
+          std::vector<Matrix2Df> chan_tiles;
+          chan_tiles.reserve(valid_frames.size());
+
+          for (size_t k = 0; k < valid_frames.size(); ++k) {
+            const size_t fi = valid_frames[k];
+            Matrix2Df tile_mosaic = load_tile_normalized(fi);
+            if (tile_mosaic.rows() != t.height || tile_mosaic.cols() != t.width)
+              return Matrix2Df();
+
+            auto deb = image::debayer_nearest_neighbor(tile_mosaic, detected_bayer,
+                                                       origin_x, origin_y);
+            if (which == 0) {
+              chan_tiles.push_back(std::move(deb.R));
+            } else if (which == 1) {
+              chan_tiles.push_back(std::move(deb.G));
+            } else {
+              chan_tiles.push_back(std::move(deb.B));
+            }
+          }
+
+          return reconstruction::sigma_clip_weighted_tile(
+              chan_tiles, weights_valid, cfg.stacking.sigma_clip.sigma_low,
+              cfg.stacking.sigma_clip.sigma_high,
+              cfg.stacking.sigma_clip.max_iters,
+              cfg.stacking.sigma_clip.min_fraction);
+        };
+
+        tile_rec_R = stack_channel(0);
+        tile_rec_G = stack_channel(1);
+        tile_rec_B = stack_channel(2);
+
+        if (tile_rec_R.size() <= 0 || tile_rec_G.size() <= 0 ||
+            tile_rec_B.size() <= 0) {
+          tiles_failed++;
+          return;
+        }
+
+        // Post-metrics are computed on G as a stable luminance proxy.
+        tile_rec = tile_rec_G;
+        n_valid = valid_frames.size();
+      } else {
+        std::vector<Matrix2Df> warped_tiles;
+        warped_tiles.reserve(frames.size());
+
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          if (!frame_has_data[fi])
+            continue;
+          Matrix2Df tile_img = load_tile_normalized(fi);
+          if (tile_img.rows() != t.height || tile_img.cols() != t.width)
+            continue;
+
+          warped_tiles.push_back(tile_img);
+          frame_valid_tile_counts[fi].fetch_add(1);
+          float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                          ? global_weights[static_cast<int>(fi)]
+                          : 1.0f;
+          float L_ft =
+              (fi < local_weights.size() && ti < local_weights[fi].size())
+                  ? local_weights[fi][ti]
+                  : 1.0f;
+          weights.push_back(G_f * L_ft);
+        }
+
+        if (warped_tiles.empty()) {
+          tiles_failed++;
+          return;
+        }
+
+        tile_rec = reconstruction::sigma_clip_weighted_tile(
+            warped_tiles, weights, cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high,
+            cfg.stacking.sigma_clip.max_iters,
+            cfg.stacking.sigma_clip.min_fraction);
+        n_valid = warped_tiles.size();
+      }
+
+      tile_valid_counts[ti] = static_cast<int>(n_valid);
       tile_warp_variances[ti] = 0.0f;
       tile_mean_correlations[ti] = 1.0f;
       tile_mean_dx[ti] = 0.0f;
@@ -1498,7 +1632,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
               continue;
             float win = hann_y[static_cast<size_t>(yy)] *
                         hann_x[static_cast<size_t>(xx)];
-            recon(iy, ix) += tile_rec(yy, xx) * win;
+            if (osc_mode) {
+              recon_R(iy, ix) += tile_rec_R(yy, xx) * win;
+              recon_G(iy, ix) += tile_rec_G(yy, xx) * win;
+              recon_B(iy, ix) += tile_rec_B(yy, xx) * win;
+            } else {
+              recon(iy, ix) += tile_rec(yy, xx) * win;
+            }
             weight_sum(iy, ix) += win;
           }
         }
@@ -1549,12 +1689,34 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     cv::setNumThreads(prev_cv_threads_recon);
 
     // Normalize reconstruction
-    for (int i = 0; i < recon.size(); ++i) {
-      float ws = weight_sum.data()[i];
-      if (ws > 1.0e-12f) {
-        recon.data()[i] /= ws;
-      } else {
-        recon.data()[i] = first_img.data()[i];
+    const float eps_ws = 1.0e-12f;
+    if (osc_mode) {
+      // Fallback: first normalized frame (only used for rare holes).
+      auto fb = image::debayer_nearest_neighbor(first_img, detected_bayer, 0, 0);
+
+      for (int i = 0; i < recon.size(); ++i) {
+        float ws = weight_sum.data()[i];
+        if (ws > eps_ws) {
+          recon_R.data()[i] /= ws;
+          recon_G.data()[i] /= ws;
+          recon_B.data()[i] /= ws;
+        } else {
+          recon_R.data()[i] = fb.R.data()[i];
+          recon_G.data()[i] = fb.G.data()[i];
+          recon_B.data()[i] = fb.B.data()[i];
+        }
+      }
+
+      // Keep a luminance proxy for validation + downstream metrics.
+      recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+    } else {
+      for (int i = 0; i < recon.size(); ++i) {
+        float ws = weight_sum.data()[i];
+        if (ws > eps_ws) {
+          recon.data()[i] /= ws;
+        } else {
+          recon.data()[i] = first_img.data()[i];
+        }
       }
     }
 
@@ -1838,7 +2000,14 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     emitter.phase_start(run_id, Phase::SYNTHETIC_FRAMES, "SYNTHETIC_FRAMES",
                         log_file);
 
+    struct RGBFrame {
+      Matrix2Df R;
+      Matrix2Df G;
+      Matrix2Df B;
+    };
+
     std::vector<Matrix2Df> synthetic_frames;
+    std::vector<RGBFrame> synthetic_rgb_frames;
 
     auto reconstruct_subset =
         [&](const std::vector<char> &frame_mask) -> Matrix2Df {
@@ -1848,15 +2017,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       weights_subset.reserve(frames.size());
 
       for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
-        if (!frame_mask[fi] || !frame_usable[fi])
+        if (!frame_mask[fi] || !frame_has_data[fi])
           continue;
-        auto pair = load_frame_normalized(fi);
-        Matrix2Df img = std::move(pair.first);
-        if (fi < global_frame_warps.size()) {
-          img = image::apply_global_warp(img, global_frame_warps[fi],
-                                         detected_mode);
-        }
-        warped.push_back(std::move(img));
+        warped.push_back(prewarped_frames[fi]);
         float w = (fi < static_cast<size_t>(global_weights.size()))
                       ? global_weights[static_cast<int>(fi)]
                       : 1.0f;
@@ -1922,7 +2085,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           if (cluster_labels[fi] != c)
             continue;
           use_frame[fi] = 1;
-          if (frame_usable[fi])
+          if (frame_has_data[fi])
             count++;
         }
         clusters_done++;
@@ -1938,6 +2101,16 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         Matrix2Df syn = reconstruct_subset(use_frame);
         if (syn.size() == 0)
           continue;
+
+        if (detected_mode == ColorMode::OSC) {
+          auto deb = image::debayer_nearest_neighbor(syn, detected_bayer, 0, 0);
+          RGBFrame rgb;
+          rgb.R = std::move(deb.R);
+          rgb.G = std::move(deb.G);
+          rgb.B = std::move(deb.B);
+          synthetic_rgb_frames.push_back(std::move(rgb));
+        }
+
         synthetic_frames.push_back(std::move(syn));
         synth_done = static_cast<int>(synthetic_frames.size());
         if (static_cast<int>(synthetic_frames.size()) >= synth_max)
@@ -1997,27 +2170,91 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       // Filter out empty (0×0) synthetic frames (empty cluster outputs)
       std::vector<Matrix2Df> valid_synth;
       valid_synth.reserve(synthetic_frames.size());
-      for (auto &sf : synthetic_frames) {
-        if (sf.size() > 0) valid_synth.push_back(std::move(sf));
+
+      // For OSC: keep a parallel list of per-frame RGB planes so we can
+      // stack in RGB space and avoid debayering after sigma-clipped stacking.
+      std::vector<Matrix2Df> synth_R;
+      std::vector<Matrix2Df> synth_G;
+      std::vector<Matrix2Df> synth_B;
+      if (detected_mode == ColorMode::OSC) {
+        synth_R.reserve(synthetic_frames.size());
+        synth_G.reserve(synthetic_frames.size());
+        synth_B.reserve(synthetic_frames.size());
       }
+
+      for (size_t i = 0; i < synthetic_frames.size(); ++i) {
+        auto &sf = synthetic_frames[i];
+        if (sf.size() <= 0)
+          continue;
+
+        if (detected_mode == ColorMode::OSC) {
+          if (i < synthetic_rgb_frames.size() &&
+              synthetic_rgb_frames[i].R.size() > 0) {
+            synth_R.push_back(std::move(synthetic_rgb_frames[i].R));
+            synth_G.push_back(std::move(synthetic_rgb_frames[i].G));
+            synth_B.push_back(std::move(synthetic_rgb_frames[i].B));
+          } else {
+            auto deb = image::debayer_nearest_neighbor(sf, detected_bayer, 0, 0);
+            synth_R.push_back(std::move(deb.R));
+            synth_G.push_back(std::move(deb.G));
+            synth_B.push_back(std::move(deb.B));
+          }
+        }
+
+        valid_synth.push_back(std::move(sf));
+      }
+
       std::cerr << "[STACKING] " << valid_synth.size() << " / "
                 << synthetic_frames.size() << " non-empty synthetic frames"
                 << std::endl;
 
       if (!valid_synth.empty()) {
-        if (cfg.stacking.method == "rej") {
-          recon = reconstruction::sigma_clip_stack(valid_synth,
-                                   cfg.stacking.sigma_clip.sigma_low,
-                                   cfg.stacking.sigma_clip.sigma_high,
-                                   cfg.stacking.sigma_clip.max_iters,
-                                   cfg.stacking.sigma_clip.min_fraction);
-        } else {
-          recon = Matrix2Df::Zero(valid_synth[0].rows(),
-                                  valid_synth[0].cols());
-          for (const auto &sf : valid_synth) {
-            recon += sf;
+        if (detected_mode == ColorMode::OSC &&
+            !synth_R.empty() && synth_R.size() == valid_synth.size()) {
+          if (cfg.stacking.method == "rej") {
+            recon_R = reconstruction::sigma_clip_stack(
+                synth_R, cfg.stacking.sigma_clip.sigma_low,
+                cfg.stacking.sigma_clip.sigma_high,
+                cfg.stacking.sigma_clip.max_iters,
+                cfg.stacking.sigma_clip.min_fraction);
+            recon_G = reconstruction::sigma_clip_stack(
+                synth_G, cfg.stacking.sigma_clip.sigma_low,
+                cfg.stacking.sigma_clip.sigma_high,
+                cfg.stacking.sigma_clip.max_iters,
+                cfg.stacking.sigma_clip.min_fraction);
+            recon_B = reconstruction::sigma_clip_stack(
+                synth_B, cfg.stacking.sigma_clip.sigma_low,
+                cfg.stacking.sigma_clip.sigma_high,
+                cfg.stacking.sigma_clip.max_iters,
+                cfg.stacking.sigma_clip.min_fraction);
+          } else {
+            recon_R = Matrix2Df::Zero(synth_R[0].rows(), synth_R[0].cols());
+            recon_G = Matrix2Df::Zero(synth_G[0].rows(), synth_G[0].cols());
+            recon_B = Matrix2Df::Zero(synth_B[0].rows(), synth_B[0].cols());
+            for (size_t k = 0; k < synth_R.size(); ++k) {
+              recon_R += synth_R[k];
+              recon_G += synth_G[k];
+              recon_B += synth_B[k];
+            }
+            recon_R /= static_cast<float>(synth_R.size());
+            recon_G /= static_cast<float>(synth_G.size());
+            recon_B /= static_cast<float>(synth_B.size());
           }
-          recon /= static_cast<float>(valid_synth.size());
+          recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+        } else {
+          if (cfg.stacking.method == "rej") {
+            recon = reconstruction::sigma_clip_stack(
+                valid_synth, cfg.stacking.sigma_clip.sigma_low,
+                cfg.stacking.sigma_clip.sigma_high,
+                cfg.stacking.sigma_clip.max_iters,
+                cfg.stacking.sigma_clip.min_fraction);
+          } else {
+            recon = Matrix2Df::Zero(valid_synth[0].rows(), valid_synth[0].cols());
+            for (const auto &sf2 : valid_synth) {
+              recon += sf2;
+            }
+            recon /= static_cast<float>(valid_synth.size());
+          }
         }
       }
     }
@@ -2025,11 +2262,23 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     // Post-stack cosmetic correction: remove residual hot pixels
     // that survived sigma-clipped stacking (especially with few frames)
     recon = image::cosmetic_correction(recon, 5.0f, true);
+    if (detected_mode == ColorMode::OSC) {
+      recon_R = image::cosmetic_correction(recon_R, 5.0f, true);
+      recon_G = image::cosmetic_correction(recon_G, 5.0f, true);
+      recon_B = image::cosmetic_correction(recon_B, 5.0f, true);
+    }
 
     Matrix2Df recon_out = recon;
-    image::apply_output_scaling_inplace(recon_out, 0, 0, detected_mode,
-        detected_bayer_str, output_bg_mono, output_bg_r, output_bg_g,
-        output_bg_b, output_pedestal);
+    if (detected_mode == ColorMode::OSC) {
+      const float bg_luma = 0.25f * output_bg_r + 0.5f * output_bg_g +
+                            0.25f * output_bg_b;
+      recon_out *= bg_luma;
+      recon_out.array() += output_pedestal;
+    } else {
+      image::apply_output_scaling_inplace(recon_out, 0, 0, detected_mode,
+          detected_bayer_str, output_bg_mono, output_bg_r, output_bg_g,
+          output_bg_b, output_pedestal);
+    }
 
     // Linear stretch to full 16-bit range [0..65535]
     if (cfg.stacking.output_stretch) {
@@ -2209,13 +2458,21 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     Matrix2Df R_disk, G_disk, B_disk;
     bool have_rgb = false;
     fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
+    fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
 
     if (detected_mode == ColorMode::OSC) {
-      auto debayer = image::debayer_nearest_neighbor(recon, detected_bayer);
-
-      R_out = debayer.R;
-      G_out = debayer.G;
-      B_out = debayer.B;
+      if (recon_R.size() == recon.size() && recon_R.size() > 0 &&
+          recon_G.size() == recon.size() && recon_B.size() == recon.size()) {
+        R_out = recon_R;
+        G_out = recon_G;
+        B_out = recon_B;
+      } else {
+        // Fallback (should be rare): debayer luminance proxy.
+        auto debayer = image::debayer_nearest_neighbor(recon, detected_bayer, 0, 0);
+        R_out = debayer.R;
+        G_out = debayer.G;
+        B_out = debayer.B;
+      }
       have_rgb = true;
       // Restore per-channel background levels to undo the per-channel
       // normalization (scale_r=1/bg_r etc.).  This preserves the camera's
@@ -2265,15 +2522,17 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_disk,
                            first_hdr);
 
-      // Save stacked_rgb.fits as 3-plane RGB cube (NAXIS3=3)
-      io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits", R_disk, G_disk,
-                         B_disk, first_hdr);
+      // Save stacked_rgb.fits as 3-plane RGB cube (NAXIS3=3) for viewing
+      io::write_fits_rgb(stacked_rgb_path, R_disk, G_disk, B_disk, first_hdr);
+      // Write an additional linear (non-stretched) cube for plate solving.
+      io::write_fits_rgb(stacked_rgb_solve_path, R_out, G_out, B_out, first_hdr);
 
       emitter.phase_end(
           run_id, Phase::DEBAYER, "ok",
           {{"mode", "OSC"},
            {"bayer_pattern", bayer_pattern_to_string(detected_bayer)},
-           {"output_rgb", (run_dir / "outputs" / "stacked_rgb.fits").string()}},
+           {"output_rgb", stacked_rgb_path.string()},
+           {"output_rgb_solve", stacked_rgb_solve_path.string()}},
           log_file);
     } else {
       emitter.phase_end(run_id, Phase::DEBAYER, "ok", {{"mode", "MONO"}},
@@ -2307,17 +2566,31 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                           {{"reason", "astap_not_found"},
                            {"astap_bin", astap_bin}}, log_file);
       } else {
-        // Run ASTAP plate solve on stacked_rgb.fits
-        std::string cmd = astap_bin + " -f " +
-            stacked_rgb_path.string() +
-            " -d " + astap_data +
+        auto shell_quote = [](const std::string &s) -> std::string {
+          std::string out;
+          out.reserve(s.size() + 2);
+          out.push_back(static_cast<char>(39));
+          for (char c : s) {
+            if (c == static_cast<char>(39))
+              out += "'\\''";
+            else
+              out.push_back(c);
+          }
+          out.push_back(static_cast<char>(39));
+          return out;
+        };
+
+        // Run ASTAP plate solve on the linear (non-stretched) RGB cube
+        std::string cmd = shell_quote(astap_bin) + " -f " +
+            shell_quote(stacked_rgb_solve_path.string()) +
+            " -d " + shell_quote(astap_data) +
             " -r " + std::to_string(cfg.astrometry.search_radius);
 
         std::cerr << "[ASTROMETRY] Running: " << cmd << std::endl;
         int ret = std::system(cmd.c_str());
 
         // ASTAP writes a .wcs file next to the input
-        fs::path wcs_path = stacked_rgb_path;
+        fs::path wcs_path = stacked_rgb_solve_path;
         wcs_path.replace_extension(".wcs");
 
         if (ret == 0 && fs::exists(wcs_path)) {
@@ -2348,7 +2621,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           first_hdr.string_values["CUNIT2"]  = "deg";
           first_hdr.bool_values["PLTSOLVD"] = true;
 
-          // Re-write stacked_rgb.fits with WCS keywords
+          // Re-write outputs with WCS keywords
           if (have_rgb) {
             try {
               io::write_fits_rgb(stacked_rgb_path, R_disk, G_disk, B_disk, first_hdr);
@@ -2356,14 +2629,10 @@ int run_command(const std::string &config_path, const std::string &input_dir,
             } catch (const std::exception &e) {
               std::cerr << "[ASTROMETRY] Could not update stacked_rgb.fits: " << e.what() << std::endl;
             }
-            // Also save a separate solved copy
-            // try {
-            //   fs::path solved_path = run_dir / "outputs" / "stacked_rgb_solved.fits";
-            //   io::write_fits_rgb(solved_path, R_out, G_out, B_out, first_hdr);
-            //   std::cerr << "[ASTROMETRY] Solved copy saved to " << solved_path << std::endl;
-            // } catch (const std::exception &e) {
-            //   std::cerr << "[ASTROMETRY] Could not write stacked_rgb_solved.fits: " << e.what() << std::endl;
-            // }
+            try {
+              io::write_fits_rgb(stacked_rgb_solve_path, R_out, G_out, B_out, first_hdr);
+            } catch (const std::exception &) {
+            }
           }
 
           // Copy .wcs to run artifacts directory
