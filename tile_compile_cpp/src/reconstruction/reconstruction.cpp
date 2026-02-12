@@ -18,11 +18,22 @@ Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
     Matrix2Df result = Matrix2Df::Zero(h, w);
     Matrix2Df weight_sum = Matrix2Df::Zero(h, w);
 
+    // Cache Hanning windows: most grids use uniform tile sizes, so avoid
+    // recomputing identical windows for every tile.
+    int cached_w = -1, cached_h = -1;
+    std::vector<float> wx, wy;
+
     for (size_t t = 0; t < grid.tiles.size(); ++t) {
         const Tile& tile = grid.tiles[t];
 
-        const std::vector<float> wx = make_hann_1d(tile.width);
-        const std::vector<float> wy = make_hann_1d(tile.height);
+        if (tile.width != cached_w) {
+            wx = make_hann_1d(tile.width);
+            cached_w = tile.width;
+        }
+        if (tile.height != cached_h) {
+            wy = make_hann_1d(tile.height);
+            cached_h = tile.height;
+        }
         
         for (size_t f = 0; f < frames.size(); ++f) {
             float weight = tile_weights[f][t];
@@ -149,6 +160,9 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
             }
             double mean = sum / static_cast<double>(kept);
             double var = sumsq / static_cast<double>(kept) - mean * mean;
+            // Bessel correction: unbiased variance estimator for small samples
+            if (kept > 1)
+                var *= static_cast<double>(kept) / static_cast<double>(kept - 1);
             double sd = (var > 0.0) ? std::sqrt(var) : 0.0;
             if (!(sd > 0.0)) break;
 
@@ -224,13 +238,18 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
             wmean /= wsum;
 
             double var = 0.0;
+            double wsum2 = 0.0; // sum of squared weights for Bessel correction
             for (int i = 0; i < n; ++i) {
                 if (!keep[static_cast<size_t>(i)]) continue;
                 double wi = static_cast<double>(w_local[static_cast<size_t>(i)]);
                 double d = static_cast<double>(values[static_cast<size_t>(i)]) - wmean;
                 var += wi * d * d;
+                wsum2 += wi * wi;
             }
-            double sd = (var > 0.0) ? std::sqrt(var / wsum) : 0.0;
+            // Bessel correction for reliability (non-frequency) weights:
+            // var_unbiased = (Σ wi·d²) / (V1 - V2/V1)  where V1=wsum, V2=Σwi²
+            double denom = wsum - wsum2 / wsum;
+            double sd = (var > 0.0 && denom > 0.0) ? std::sqrt(var / denom) : 0.0;
             if (!(sd > 0.0)) break;
 
             const double lo = wmean - static_cast<double>(sigma_low) * sd;

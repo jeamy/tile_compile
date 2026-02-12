@@ -11,15 +11,6 @@ namespace tile_compile::metrics {
 
 namespace {
 
-std::vector<float> collect_pixels(const Matrix2Df& m) {
-    std::vector<float> out;
-    out.reserve(static_cast<size_t>(m.size()));
-    for (Eigen::Index k = 0; k < m.size(); ++k) {
-        out.push_back(m.data()[k]);
-    }
-    return out;
-}
-
 float compute_fwhm_proxy(const Matrix2Df& tile) {
     if (tile.size() <= 0) return 0.0f;
     float peak = tile.maxCoeff();
@@ -108,18 +99,26 @@ TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
     cv::blur(tile_cv, bg_cv, cv::Size(31, 31), cv::Point(-1, -1), cv::BORDER_REFLECT_101);
     cv::Mat resid = tile_cv - bg_cv;
 
-    std::vector<float> px = collect_pixels(tile);
-    float bg0 = core::median_of(px);
-
-    std::vector<float> resid_px;
-    resid_px.reserve(static_cast<size_t>(resid.rows) * static_cast<size_t>(resid.cols));
-    for (int y = 0; y < resid.rows; ++y) {
-        const float* row = resid.ptr<float>(y);
-        for (int x = 0; x < resid.cols; ++x) {
-            resid_px.push_back(row[x]);
+    // Single pass: collect tile pixels and residual pixels simultaneously
+    const size_t npx = static_cast<size_t>(tile.rows()) * static_cast<size_t>(tile.cols());
+    std::vector<float> px, resid_px;
+    px.reserve(npx);
+    resid_px.reserve(npx);
+    for (int y = 0; y < tile.rows(); ++y) {
+        const float* trow = tile_cv.ptr<float>(y);
+        const float* rrow = resid.ptr<float>(y);
+        for (int x = 0; x < tile.cols(); ++x) {
+            px.push_back(trow[x]);
+            resid_px.push_back(rrow[x]);
         }
     }
-    float sigma0 = core::robust_sigma_mad(resid_px);
+
+    // Use temporary copies for destructive median/MAD operations
+    std::vector<float> px_tmp = px;
+    float bg0 = core::median_of(px_tmp);
+
+    std::vector<float> resid_tmp = resid_px;
+    float sigma0 = core::robust_sigma_mad(resid_tmp);
     if (!(sigma0 > 0.0f)) {
         double sum = 0.0;
         for (float v : resid_px) sum += static_cast<double>(v);
@@ -133,25 +132,21 @@ TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
         sigma0 = static_cast<float>(std::sqrt(std::max(0.0, var)));
     }
 
+    // Threshold-based split using already-collected vectors (no re-read)
     float thr = bg0 + 3.0f * sigma0;
     std::vector<float> bg_vals;
     std::vector<float> resid_bg;
-    bg_vals.reserve(px.size());
-    resid_bg.reserve(resid_px.size());
-    for (int y = 0; y < tile.rows(); ++y) {
-        const float* trow = tile_cv.ptr<float>(y);
-        const float* rrow = resid.ptr<float>(y);
-        for (int x = 0; x < tile.cols(); ++x) {
-            float tv = trow[x];
-            if (tv <= thr) {
-                bg_vals.push_back(tv);
-                resid_bg.push_back(rrow[x]);
-            }
+    bg_vals.reserve(npx);
+    resid_bg.reserve(npx);
+    for (size_t i = 0; i < px.size(); ++i) {
+        if (px[i] <= thr) {
+            bg_vals.push_back(px[i]);
+            resid_bg.push_back(resid_px[i]);
         }
     }
     if (bg_vals.empty()) {
-        bg_vals = px;
-        resid_bg = resid_px;
+        bg_vals = std::move(px);
+        resid_bg = std::move(resid_px);
     }
 
     m.background = core::median_of(bg_vals);
