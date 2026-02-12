@@ -352,10 +352,11 @@ def _plot_warp_scatter(warps: list[dict], ccs: list[float], title: str, out: Pat
 # Section generators
 # ---------------------------------------------------------------------------
 
-def _gen_normalization(artifacts_dir: Path, norm: dict) -> tuple[list[str], list[str]]:
-    """Generate normalization charts. Returns (png_files, eval_lines)."""
+def _gen_normalization(artifacts_dir: Path, norm: dict) -> tuple[list[str], list[str], dict[str, str]]:
+    """Generate normalization charts. Returns (png_files, eval_lines, explanations)."""
     pngs: list[str] = []
     evals: list[str] = []
+    explanations: dict[str, str] = {}
 
     mode = norm.get("mode", "MONO")
     evals.append(f"mode: {mode}")
@@ -370,6 +371,22 @@ def _gen_normalization(artifacts_dir: Path, norm: dict) -> tuple[list[str], list
         if _plot_multi_timeseries({"R": b_r, "G": b_g, "B": b_b},
                                   "Per-channel background level", "background", _fig_path(artifacts_dir, fn)):
             pngs.append(fn)
+            explanations[fn] = (
+                '<h4>Hintergrund pro Kanal</h4>'
+                '<p>Zeigt den geschätzten Himmelshintergrund für jeden Frame, '
+                'aufgeteilt nach Bayer-Kanälen (R, G, B).</p>'
+                '<p><b>Interpretation:</b></p>'
+                '<ul>'
+                '<li><span class="good">Gut:</span> Alle Kanäle verlaufen stabil und parallel — '
+                'gleichmäßige Belichtungsbedingungen.</li>'
+                '<li><span class="bad">Schlecht:</span> Starke Sprünge oder Drift deuten auf '
+                'wechselnde Wolken, Lichtverschmutzung oder Tau hin.</li>'
+                '<li>Große Unterschiede zwischen R/G/B können auf Farbgradienten '
+                '(z.B. Mondlicht, Laternen) hinweisen.</li>'
+                '<li>Die Normalisierung gleicht diese Unterschiede aus — '
+                'je stärker die Schwankung, desto wichtiger ist sie.</li>'
+                '</ul>'
+            )
         for name, vals in [("R", b_r), ("G", b_g), ("B", b_b)]:
             s = _basic_stats(vals)
             if s["n"]:
@@ -378,21 +395,32 @@ def _gen_normalization(artifacts_dir: Path, norm: dict) -> tuple[list[str], list
         fn = "norm_background_mono.png"
         if _plot_timeseries(b_mono, "Background level (mono)", "background", _fig_path(artifacts_dir, fn)):
             pngs.append(fn)
+            explanations[fn] = (
+                '<h4>Hintergrund (Mono)</h4>'
+                '<p>Geschätzter Himmelshintergrund pro Frame.</p>'
+                '<p><b>Interpretation:</b></p>'
+                '<ul>'
+                '<li><span class="good">Gut:</span> Flache, stabile Linie — gleichmäßige Bedingungen.</li>'
+                '<li><span class="bad">Schlecht:</span> Sprünge oder Drift — Wolken, Tau oder Lichtverschmutzung.</li>'
+                '<li>Die rote gestrichelte Linie zeigt den Median.</li>'
+                '</ul>'
+            )
         s = _basic_stats(b_mono)
         if s["n"]:
             evals.append(f"  mono: median={s['median']:.4g}, std={s['std']:.4g}")
 
-    return pngs, evals
+    return pngs, evals, explanations
 
 
-def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[str]]:
+def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
+    explanations: dict[str, str] = {}
 
     metrics = gm.get("metrics", [])
     if not metrics:
         evals.append("no metrics data")
-        return pngs, evals
+        return pngs, evals, explanations
 
     bg = [m.get("background", 0) for m in metrics]
     noise = [m.get("noise", 0) for m in metrics]
@@ -408,25 +436,79 @@ def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[
     fn = "global_background.png"
     if _plot_timeseries(bg, "Frame background level", "background", _fig_path(artifacts_dir, fn)):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Hintergrund</h4>'
+            '<p>Mittlerer Himmelshintergrund jedes Frames nach Normalisierung.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Gut:</span> Gleichmäßiger Verlauf nahe dem Median.</li>'
+            '<li><span class="bad">Schlecht:</span> Starke Ausreißer = Wolken, Tau oder Lichtverschmutzung. '
+            'Diese Frames erhalten automatisch ein niedrigeres Gewicht.</li>'
+            '</ul>'
+        )
 
     # Noise timeseries
     fn = "global_noise.png"
     if _plot_timeseries(noise, "Frame noise level", "noise", _fig_path(artifacts_dir, fn), color="#ff6b6b"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Rauschen</h4>'
+            '<p>Geschätztes Rauschen (σ) pro Frame — berechnet über robuste MAD-Statistik.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Niedriger &amp; stabil:</span> Gute Bedingungen, gleichmäßige Belichtung.</li>'
+            '<li><span class="bad">Hohe Spitzen:</span> Frames mit erhöhtem Rauschen (kurze Wolkenlücken, '
+            'Vibrationen). Werden im Stacking heruntergewichtet.</li>'
+            '<li>Generell gilt: weniger Rauschen = besseres Signal-Rausch-Verhältnis im Endergebnis.</li>'
+            '</ul>'
+        )
 
     # Gradient energy timeseries
     fn = "global_gradient.png"
     if _plot_timeseries(grad, "Frame gradient energy", "gradient energy", _fig_path(artifacts_dir, fn), color="#50fa7b"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Gradientenenergie</h4>'
+            '<p>Maß für die Menge an Bilddetails/Strukturen pro Frame (Laplacian-basiert).</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Hoch &amp; stabil:</span> Scharfe Frames mit viel Detailzeichnung.</li>'
+            '<li><span class="bad">Niedrig:</span> Unscharfe Frames (Seeing, Defokus, Nachführfehler).</li>'
+            '<li>Frames mit hoher Gradientenenergie erhalten ein höheres Gewicht im Stacking.</li>'
+            '</ul>'
+        )
 
     # Global weights timeseries + histogram
     fn = "global_weight_timeseries.png"
     if _plot_timeseries(gw, "Global frame weight G(f)", "weight", _fig_path(artifacts_dir, fn), color="#ffb86c"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Globales Gewicht G(f)</h4>'
+            '<p>Kombiniertes Qualitätsgewicht pro Frame aus Hintergrund, Rauschen und Gradientenenergie.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Hohe Werte (≈ 1.0):</span> Beste Frames — tragen am meisten zum Ergebnis bei.</li>'
+            '<li><span class="bad">Niedrige Werte (&lt; 0.2):</span> Schlechte Frames — werden stark heruntergewichtet.</li>'
+            '<li>Eine breite Verteilung ist normal bei wechselhaften Bedingungen.</li>'
+            '<li>Wenn fast alle Gewichte gleich sind, waren die Bedingungen sehr gleichmäßig.</li>'
+            '</ul>'
+        )
 
     fn = "global_weight_hist.png"
     if _plot_histogram(gw, "Global weight distribution", "weight", _fig_path(artifacts_dir, fn), color="#ffb86c"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Gewichtsverteilung</h4>'
+            '<p>Histogramm der globalen Frame-Gewichte.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Schmale Verteilung rechts:</span> Die meisten Frames sind gut.</li>'
+            '<li><span class="neutral">Bimodale Verteilung:</span> Zwei Gruppen — gute und schlechte Frames. '
+            'Das Clustering wird diese automatisch trennen.</li>'
+            '<li><span class="bad">Breite Verteilung links:</span> Viele schlechte Frames — '
+            'das Endergebnis profitiert weniger vom Stacking.</li>'
+            '</ul>'
+        )
 
     # --- Siril-style per-frame star metrics ---
     fwhm = [m.get("fwhm", 0) for m in metrics]
@@ -438,21 +520,71 @@ def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[
     fn = "global_fwhm.png"
     if _plot_timeseries(fwhm, "FWHM per frame", "FWHM (px)", _fig_path(artifacts_dir, fn), color="#bd93f9"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>FWHM (Halbwertsbreite)</h4>'
+            '<p>Die FWHM (Full Width at Half Maximum) misst die Sternbreite in Pixeln — '
+            'ein direktes Maß für das Seeing und die Schärfe.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Niedrig (&lt; 3 px):</span> Exzellentes Seeing, scharfe Sterne.</li>'
+            '<li><span class="neutral">Mittel (3–5 px):</span> Durchschnittliches Seeing.</li>'
+            '<li><span class="bad">Hoch (&gt; 5 px):</span> Schlechtes Seeing oder Nachführprobleme.</li>'
+            '<li>Stabile Werte = gleichmäßiges Seeing über die Session.</li>'
+            '</ul>'
+        )
 
     # wFWHM timeseries (weighted by star count)
     fn = "global_wfwhm.png"
     if _plot_timeseries(wfwhm, "Weighted FWHM per frame (wFWHM)", "wFWHM (px)", _fig_path(artifacts_dir, fn), color="#ff79c6"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Gewichtete FWHM (wFWHM)</h4>'
+            '<p>FWHM gewichtet mit der Sternanzahl: wFWHM = FWHM × (ref_stars / stars). '
+            'Bestraft Frames mit wenigen erkannten Sternen.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Niedrig:</span> Scharf UND viele Sterne erkannt.</li>'
+            '<li><span class="bad">Hoch:</span> Unscharf oder wenige Sterne (Wolken, Defokus).</li>'
+            '<li>Besser als reine FWHM, da Frames mit wenigen Sternen '
+            '(z.B. durch Wolken) höher bestraft werden.</li>'
+            '</ul>'
+        )
 
     # Roundness timeseries
     fn = "global_roundness.png"
     if _plot_timeseries(roundness, "Star roundness per frame (FWHMy/FWHMx)", "roundness", _fig_path(artifacts_dir, fn), color="#8be9fd"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Sternrundheit</h4>'
+            '<p>Verhältnis FWHMy/FWHMx — misst wie rund die Sterne sind.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">≈ 1.0:</span> Perfekt runde Sterne — gute Nachführung.</li>'
+            '<li><span class="neutral">0.7–0.9:</span> Leicht elongierte Sterne — '
+            'akzeptabel, aber Nachführung prüfen.</li>'
+            '<li><span class="bad">&lt; 0.7:</span> Stark verzerrte Sterne — '
+            'Nachführfehler, Wind oder Verkippung.</li>'
+            '<li>Systematischer Drift über die Session deutet auf '
+            'Polausrichtungsfehler hin.</li>'
+            '</ul>'
+        )
 
     # Star count timeseries
     fn = "global_star_count.png"
     if _plot_timeseries(star_count, "Detected stars per frame", "stars", _fig_path(artifacts_dir, fn), color="#f1fa8c"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Erkannte Sterne</h4>'
+            '<p>Anzahl der automatisch erkannten Sterne pro Frame.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Stabil &amp; hoch:</span> Klarer Himmel, gute Bedingungen.</li>'
+            '<li><span class="bad">Plötzliche Einbrüche:</span> Wolken, Tau oder Defokus — '
+            'diese Frames werden automatisch heruntergewichtet.</li>'
+            '<li>Ein langsamer Rückgang kann auf zunehmenden Tau hindeuten.</li>'
+            '<li>Die absolute Zahl hängt von Brennweite und Himmelsregion ab.</li>'
+            '</ul>'
+        )
 
     # FWHM vs Roundness scatter (Siril-style)
     if plt is not None and fwhm and roundness:
@@ -475,6 +607,21 @@ def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[
             fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
             plt.close(fig)
             pngs.append(fn)
+            explanations[fn] = (
+                '<h4>FWHM vs. Rundheit</h4>'
+                '<p>Scatter-Plot im Siril-Stil: jeder Punkt ist ein Frame, '
+                'Farbe = zeitliche Reihenfolge.</p>'
+                '<p><b>Interpretation:</b></p>'
+                '<ul>'
+                '<li><span class="good">Kompakter Cluster links oben:</span> '
+                'Gleichmäßig scharfe, runde Sterne — ideale Bedingungen.</li>'
+                '<li><span class="bad">Ausreißer rechts unten:</span> '
+                'Unscharfe UND elongierte Sterne — schlechteste Frames.</li>'
+                '<li>Farbverlauf zeigt zeitliche Entwicklung: '
+                'Drift nach rechts = Seeing verschlechtert sich.</li>'
+                '<li>Gestrichelte Linie bei Rundheit=1.0 = perfekt rund.</li>'
+                '</ul>'
+            )
 
     # Stats
     s = _basic_stats(gw)
@@ -499,12 +646,13 @@ def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[
     if s_stars["n"]:
         evals.append(f"star count: median={s_stars['median']:.0f}, range=[{s_stars['min']:.0f}, {s_stars['max']:.0f}]")
 
-    return pngs, evals
+    return pngs, evals, explanations
 
 
-def _gen_tile_grid(artifacts_dir: Path, tg: dict) -> tuple[list[str], list[str]]:
+def _gen_tile_grid(artifacts_dir: Path, tg: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
+    explanations: dict[str, str] = {}
 
     evals.append(f"image: {tg.get('image_width', '?')}×{tg.get('image_height', '?')}")
     evals.append(f"num_tiles: {tg.get('num_tiles', '?')}")
@@ -535,13 +683,29 @@ def _gen_tile_grid(artifacts_dir: Path, tg: dict) -> tuple[list[str], list[str]]
         fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
         plt.close(fig)
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Tile-Raster</h4>'
+            '<p>Zeigt die Aufteilung des Bildes in überlappende Kacheln (Tiles). '
+            'Jede Kachel wird unabhängig gewichtet und rekonstruiert.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li>Die <b>Tile-Größe</b> wird automatisch aus der FWHM berechnet — '
+            'größere FWHM → größere Tiles.</li>'
+            '<li><b>Overlap</b> (Überlappung) sorgt für nahtlose Übergänge '
+            'zwischen Kacheln (Hanning-Fenster).</li>'
+            '<li>Mehr Tiles = feinere lokale Qualitätssteuerung, '
+            'aber auch mehr Rechenzeit.</li>'
+            '<li>Typisch: 50–200 Tiles für ein 1920×1080-Bild.</li>'
+            '</ul>'
+        )
 
-    return pngs, evals
+    return pngs, evals, explanations
 
 
-def _gen_registration(artifacts_dir: Path, reg: dict) -> tuple[list[str], list[str]]:
+def _gen_registration(artifacts_dir: Path, reg: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
+    explanations: dict[str, str] = {}
 
     n = reg.get("num_frames", 0)
     scale = reg.get("scale", "?")
@@ -554,11 +718,38 @@ def _gen_registration(artifacts_dir: Path, reg: dict) -> tuple[list[str], list[s
     fn = "registration_overview.png"
     if _plot_warp_scatter(warps, ccs, "Registration", _fig_path(artifacts_dir, fn)):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Registrierungsübersicht</h4>'
+            '<p>Drei Diagramme: (1) Translation-Scatter — Verschiebung jedes Frames '
+            'relativ zum Referenzframe. (2) Translation über Zeit. (3) Korrelationskoeffizient.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Kompakter Scatter:</span> Geringe Drift — stabile Montierung.</li>'
+            '<li><span class="bad">Große Streuung:</span> Starke Drift oder Windstöße.</li>'
+            '<li><b>CC (Korrelation):</b> Maß für die Registrierungsqualität. '
+            '<span class="good">CC &gt; 0.8</span> = sehr gut, '
+            '<span class="bad">CC &lt; 0.5</span> = problematisch.</li>'
+            '<li>Farbverlauf im Scatter zeigt zeitliche Reihenfolge — '
+            'systematischer Drift = Polausrichtungsfehler.</li>'
+            '</ul>'
+        )
 
     # CC histogram
     fn = "registration_cc_hist.png"
     if _plot_histogram(ccs, "Registration correlation coefficient", "CC", _fig_path(artifacts_dir, fn), color="#50fa7b"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>CC-Verteilung</h4>'
+            '<p>Histogramm des Korrelationskoeffizienten (CC) aller Frames.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Peak nahe 1.0:</span> Alle Frames gut registriert.</li>'
+            '<li><span class="bad">Viele Werte &lt; 0.5:</span> Registrierung fehlgeschlagen — '
+            'diese Frames fallen auf Identity-Fallback zurück.</li>'
+            '<li>CC = 0 bedeutet: Frame konnte nicht registriert werden '
+            '(z.B. komplett bewölkt).</li>'
+            '</ul>'
+        )
 
     # Rotation analysis
     if warps:
@@ -571,6 +762,19 @@ def _gen_registration(artifacts_dir: Path, reg: dict) -> tuple[list[str], list[s
         fn = "registration_rotation.png"
         if _plot_timeseries(rotations, "Frame rotation angle", "angle (deg)", _fig_path(artifacts_dir, fn), color="#ff6b6b"):
             pngs.append(fn)
+            explanations[fn] = (
+                '<h4>Rotation pro Frame</h4>'
+                '<p>Rotationswinkel jedes Frames relativ zum Referenzframe.</p>'
+                '<p><b>Interpretation:</b></p>'
+                '<ul>'
+                '<li><span class="good">≈ 0°:</span> Keine Feldrotation — '
+                'äquatoriale Montierung oder kurze Session.</li>'
+                '<li><span class="neutral">Linearer Anstieg:</span> Normale Feldrotation '
+                'bei Alt/Az-Montierung — wird durch Registrierung kompensiert.</li>'
+                '<li><span class="bad">Sprünge:</span> Mechanische Probleme '
+                '(Kabelzug, Lockerung).</li>'
+                '</ul>'
+            )
 
         # Scale analysis
         scales = []
@@ -582,6 +786,16 @@ def _gen_registration(artifacts_dir: Path, reg: dict) -> tuple[list[str], list[s
         fn = "registration_scale.png"
         if _plot_timeseries(scales, "Frame scale factor", "scale", _fig_path(artifacts_dir, fn), color="#ffb86c"):
             pngs.append(fn)
+            explanations[fn] = (
+                '<h4>Skalierungsfaktor</h4>'
+                '<p>Skalierung jedes Frames relativ zum Referenzframe.</p>'
+                '<p><b>Interpretation:</b></p>'
+                '<ul>'
+                '<li><span class="good">≈ 1.000:</span> Keine Skalierungsänderung — normal.</li>'
+                '<li><span class="bad">Abweichung &gt; 0.01:</span> Fokus-Drift, '
+                'Temperaturänderung oder mechanische Probleme.</li>'
+                '</ul>'
+            )
 
     # Stats
     if ccs:
@@ -601,12 +815,13 @@ def _gen_registration(artifacts_dir: Path, reg: dict) -> tuple[list[str], list[s
         max_shift = max(abs(s_tx["max"] - s_tx["min"]), abs(s_ty["max"] - s_ty["min"]))
         evals.append(f"max shift span: {max_shift:.1f} px")
 
-    return pngs, evals
+    return pngs, evals, explanations
 
 
-def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[str], list[str]]:
+def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
+    explanations: dict[str, str] = {}
 
     n_frames = lm.get("num_frames", 0)
     n_tiles = lm.get("num_tiles", 0)
@@ -615,7 +830,7 @@ def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[st
     tile_metrics = lm.get("tile_metrics", [])
     if not tile_metrics:
         evals.append("no tile metrics data")
-        return pngs, evals
+        return pngs, evals, explanations
 
     tiles = tg.get("tiles", [])
     img_w = tg.get("image_width", 0)
@@ -657,6 +872,21 @@ def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[st
             ("Quality variance", var_quality, "magma"),
         ], img_w, img_h, "Local Metrics — Spatial", _fig_path(artifacts_dir, fn)):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Lokale Metriken — Heatmaps</h4>'
+            '<p>Drei räumliche Karten: FWHM, Qualitäts-Score und Qualitätsvarianz pro Tile.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><b>FWHM:</b> <span class="good">Niedrig (dunkel)</span> = scharf, '
+            '<span class="bad">hoch (hell)</span> = unscharf. '
+            'Variationen zeigen lokales Seeing oder optische Fehler (Koma, Astigmatismus).</li>'
+            '<li><b>Quality Score:</b> Z-Score-basiert. '
+            '<span class="good">Hoch (hell)</span> = beste Tiles, '
+            '<span class="bad">niedrig (dunkel)</span> = schlechteste.</li>'
+            '<li><b>Quality Variance:</b> Hohe Varianz = instabile Qualität über die Frames. '
+            'Tiles am Bildrand haben oft höhere Varianz.</li>'
+            '</ul>'
+        )
 
     # Spatial weight + contrast + stars combined
     fn = "local_weight_contrast_spatial.png"
@@ -667,6 +897,19 @@ def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[st
             ("Mean contrast", mean_contrast, "cividis"),
         ], img_w, img_h, "Local Weights & Contrast — Spatial", _fig_path(artifacts_dir, fn)):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Gewichte &amp; Kontrast</h4>'
+            '<p>Räumliche Verteilung der lokalen Gewichte, Gewichtsvarianz und des Kontrasts.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><b>Local Weight:</b> Exponential des Quality-Scores. '
+            '<span class="good">Hoch</span> = Tile trägt stark zum Ergebnis bei.</li>'
+            '<li><b>Weight Variance:</b> <span class="good">Niedrig</span> = stabile Qualität, '
+            '<span class="bad">hoch</span> = stark schwankend.</li>'
+            '<li><b>Contrast:</b> Laplacian-Varianz. '
+            '<span class="good">Hoch</span> = viel Detailzeichnung (Sterne, Nebel).</li>'
+            '</ul>'
+        )
 
     # Individual large spatial heatmaps
     fn = "local_fwhm_spatial.png"
@@ -674,18 +917,52 @@ def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[st
         tiles, mean_fwhm, img_w, img_h, "Mean FWHM per tile",
         _fig_path(artifacts_dir, fn), cmap="inferno", label="FWHM (px)"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>FWHM-Karte (Detail)</h4>'
+            '<p>Mittlere FWHM pro Tile über alle Frames gemittelt.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Gleichmäßig dunkel:</span> Gute Optik, gleichmäßiges Seeing.</li>'
+            '<li><span class="bad">Helle Ecken/Ränder:</span> Optische Aberrationen '
+            '(Koma, Bildfeldwölbung). Typisch bei schnellen Optiken.</li>'
+            '<li>Zentral scharf, Rand unscharf = Bildfeldwölbung → Flattener prüfen.</li>'
+            '</ul>'
+        )
 
     fn = "local_weight_spatial.png"
     if use_spatial and _plot_spatial_tile_heatmap(
         tiles, mean_weight, img_w, img_h, "Mean local weight per tile",
         _fig_path(artifacts_dir, fn), cmap="plasma", label="weight"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Gewichtskarte (Detail)</h4>'
+            '<p>Mittleres lokales Gewicht pro Tile. Bestimmt den Beitrag jeder Kachel zum Endergebnis.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Gleichmäßig hell:</span> Alle Bildbereiche tragen gleich bei.</li>'
+            '<li><span class="bad">Dunkle Bereiche:</span> Niedrige Qualität — '
+            'diese Tiles werden heruntergewichtet (z.B. Ecken mit Koma).</li>'
+            '</ul>'
+        )
 
     fn = "local_stars_spatial.png"
     if use_spatial and _plot_spatial_tile_heatmap(
         tiles, mean_stars, img_w, img_h, "Mean star count per tile",
         _fig_path(artifacts_dir, fn), cmap="YlGnBu", label="stars"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Sternverteilung</h4>'
+            '<p>Mittlere Anzahl erkannter Sterne pro Tile.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li>Tiles mit vielen Sternen werden im <b>STAR-Modus</b> gewichtet '
+            '(FWHM + Rundheit + Kontrast).</li>'
+            '<li>Tiles mit wenigen Sternen nutzen den <b>STRUCTURE-Modus</b> '
+            '(Gradientenenergie / Rauschen).</li>'
+            '<li>Die Verteilung hängt von der Himmelsregion ab — '
+            'Milchstraße hat mehr Sterne als Polregion.</li>'
+            '</ul>'
+        )
 
     # Tile type map (STAR=1, STRUCTURE=0)
     if tile_metrics and tiles and use_spatial:
@@ -697,6 +974,19 @@ def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[st
             tiles, type_vals, img_w, img_h, "Tile type (yellow=STAR, purple=STRUCTURE)",
             _fig_path(artifacts_dir, fn), cmap="viridis", label="type"):
             pngs.append(fn)
+            explanations[fn] = (
+                '<h4>Tile-Typ-Karte</h4>'
+                '<p>Gelb = STAR-Tile (genug Sterne für FWHM-basierte Gewichtung). '
+                'Lila = STRUCTURE-Tile (Gradientenenergie-basiert).</p>'
+                '<p><b>Interpretation:</b></p>'
+                '<ul>'
+                '<li><b>STAR-Tiles</b> nutzen FWHM, Rundheit und Kontrast '
+                'für die Qualitätsbewertung — ideal für Sternfelder.</li>'
+                '<li><b>STRUCTURE-Tiles</b> nutzen Gradientenenergie/Rauschen — '
+                'besser für Nebel und ausgedehnte Objekte.</li>'
+                '<li>Die Schwelle ist konfigurierbar (star_min_count).</li>'
+                '</ul>'
+            )
 
     # Per-frame mean quality timeseries
     per_frame_q = []
@@ -711,6 +1001,18 @@ def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[st
         {"mean quality": per_frame_q, "mean weight": per_frame_w},
         "Per-frame tile quality & weight", "value", _fig_path(artifacts_dir, fn)):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Qualität &amp; Gewicht pro Frame</h4>'
+            '<p>Mittlerer Quality-Score und mittleres lokales Gewicht über alle Tiles pro Frame.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Stabil &amp; hoch:</span> Gleichmäßig gute Frames.</li>'
+            '<li><span class="bad">Einbrüche:</span> Frames mit schlechter lokaler Qualität '
+            '(Wolken, Seeing-Spitzen).</li>'
+            '<li>Unterschied zwischen Quality und Weight zeigt, '
+            'wie stark die exponentielle Gewichtung differenziert.</li>'
+            '</ul>'
+        )
 
     # Stats
     s = _basic_stats(mean_fwhm)
@@ -732,12 +1034,13 @@ def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[st
         for tt, cnt in type_counts.items():
             evals.append(f"  {tt}: {cnt} tiles")
 
-    return pngs, evals
+    return pngs, evals, explanations
 
 
-def _gen_reconstruction(artifacts_dir: Path, recon: dict, tg: dict) -> tuple[list[str], list[str]]:
+def _gen_reconstruction(artifacts_dir: Path, recon: dict, tg: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
+    explanations: dict[str, str] = {}
 
     n_frames = recon.get("num_frames", 0)
     n_tiles = recon.get("num_tiles", 0)
@@ -763,6 +1066,19 @@ def _gen_reconstruction(artifacts_dir: Path, recon: dict, tg: dict) -> tuple[lis
             ("Post-recon SNR", post_snr, "plasma"),
         ], img_w, img_h, "Tile Reconstruction — Spatial Overview", _fig_path(artifacts_dir, fn)):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Rekonstruktionsübersicht</h4>'
+            '<p>Drei räumliche Karten: gültige Frame-Anzahl, Korrelation und SNR pro Tile nach der Rekonstruktion.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><b>Valid frames:</b> Wie viele Frames pro Tile beigetragen haben. '
+            '<span class="good">Gleichmäßig hoch</span> = gute Abdeckung.</li>'
+            '<li><b>Correlation:</b> Registrierungsqualität pro Tile. '
+            '<span class="good">&gt; 0.8</span> = sehr gut.</li>'
+            '<li><b>SNR:</b> Signal-Rausch-Verhältnis nach Rekonstruktion. '
+            '<span class="good">Hoch</span> = gutes Ergebnis.</li>'
+            '</ul>'
+        )
 
     # Large spatial: valid counts (frame usage per tile)
     fn = "recon_valid_counts_spatial.png"
@@ -771,6 +1087,17 @@ def _gen_reconstruction(artifacts_dir: Path, recon: dict, tg: dict) -> tuple[lis
         "Valid frames per tile (tile usage)", _fig_path(artifacts_dir, fn),
         cmap="YlGn", label="valid frames"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Gültige Frames pro Tile</h4>'
+            '<p>Anzahl der Frames, die für jede Kachel im Stacking verwendet wurden.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Gleichmäßig = Gesamtzahl:</span> Alle Frames tragen zu allen Tiles bei.</li>'
+            '<li><span class="bad">Niedrige Werte:</span> Einige Tiles haben wenige gültige Frames — '
+            'höheres Rauschen in diesen Bereichen.</li>'
+            '<li>Tiles &lt; 3 Frames: Warnung — Sigma-Clipping kann nicht zuverlässig arbeiten.</li>'
+            '</ul>'
+        )
 
     # Large spatial: mean CC
     fn = "recon_cc_spatial.png"
@@ -787,6 +1114,17 @@ def _gen_reconstruction(artifacts_dir: Path, recon: dict, tg: dict) -> tuple[lis
         "Post-reconstruction SNR per tile", _fig_path(artifacts_dir, fn),
         cmap="plasma", label="SNR"):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>SNR-Karte (Detail)</h4>'
+            '<p>Signal-Rausch-Verhältnis pro Tile nach der Rekonstruktion.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Hohe Werte (hell):</span> Gutes SNR — klare Details.</li>'
+            '<li><span class="bad">Niedrige Werte (dunkel):</span> Verrauschte Bereiche — '
+            'wenig Signal oder hoher Hintergrund.</li>'
+            '<li>Nebelbereiche haben typischerweise höheres SNR als leerer Himmel.</li>'
+            '</ul>'
+        )
 
     # Spatial: post-contrast + post-background
     fn = "recon_contrast_bg_spatial.png"
@@ -796,6 +1134,17 @@ def _gen_reconstruction(artifacts_dir: Path, recon: dict, tg: dict) -> tuple[lis
             ("Post background", post_bg, "gray"),
         ], img_w, img_h, "Post-Reconstruction Contrast & Background", _fig_path(artifacts_dir, fn)):
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Kontrast &amp; Hintergrund</h4>'
+            '<p>Post-Rekonstruktions-Kontrast (Laplacian-Varianz) und Hintergrundlevel pro Tile.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><b>Kontrast:</b> <span class="good">Hoch</span> = viel Detailzeichnung. '
+            'Nebel und Sternhaufen haben hohen Kontrast.</li>'
+            '<li><b>Hintergrund:</b> Sollte räumlich gleichmäßig sein. '
+            'Gradienten deuten auf Lichtverschmutzung oder Vignettierung hin.</li>'
+            '</ul>'
+        )
 
     # Histograms (always useful even without spatial)
     fn = "recon_valid_counts_hist.png"
@@ -827,12 +1176,13 @@ def _gen_reconstruction(artifacts_dir: Path, recon: dict, tg: dict) -> tuple[lis
         s = _basic_stats(post_snr)
         evals.append(f"post-SNR: median={s['median']:.4g}, min={s['min']:.4g}")
 
-    return pngs, evals
+    return pngs, evals, explanations
 
 
-def _gen_clustering(artifacts_dir: Path, cl: dict) -> tuple[list[str], list[str]]:
+def _gen_clustering(artifacts_dir: Path, cl: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
+    explanations: dict[str, str] = {}
 
     n_clusters = cl.get("n_clusters", 0)
     method = cl.get("method", "?")
@@ -850,6 +1200,21 @@ def _gen_clustering(artifacts_dir: Path, cl: dict) -> tuple[list[str], list[str]
         c = [colors[i % len(colors)] for i in range(len(sizes))]
         if _plot_bar(cluster_labels, sizes, "Cluster sizes", "frames", _fig_path(artifacts_dir, fn), colors=c):
             pngs.append(fn)
+            explanations[fn] = (
+                '<h4>Cluster-Größen</h4>'
+                '<p>Anzahl der Frames pro Cluster nach K-Means-Clustering.</p>'
+                '<p><b>Interpretation:</b></p>'
+                '<ul>'
+                '<li>Frames werden nach Qualitätsmerkmalen gruppiert '
+                '(Gewicht, lokale Qualität, Varianz, Korrelation).</li>'
+                '<li><span class="good">Ähnlich große Cluster:</span> '
+                'Gleichmäßige Bedingungen über die Session.</li>'
+                '<li><span class="neutral">Ein dominanter Cluster:</span> '
+                'Die meisten Frames sind ähnlich — wenig Variation.</li>'
+                '<li>Jeder Cluster erzeugt ein synthetisches Frame '
+                'für das finale Stacking.</li>'
+                '</ul>'
+            )
 
         for i, sz in enumerate(sizes):
             evals.append(f"  cluster {i}: {sz} frames")
@@ -858,13 +1223,25 @@ def _gen_clustering(artifacts_dir: Path, cl: dict) -> tuple[list[str], list[str]
         fn = "clustering_labels.png"
         if _plot_timeseries(labels, "Cluster label per frame", "cluster", _fig_path(artifacts_dir, fn)):
             pngs.append(fn)
+            explanations[fn] = (
+                '<h4>Cluster-Zuordnung</h4>'
+                '<p>Zeigt welchem Cluster jeder Frame zugeordnet wurde.</p>'
+                '<p><b>Interpretation:</b></p>'
+                '<ul>'
+                '<li>Zusammenhängende Blöcke = Bedingungen änderten sich '
+                'langsam (z.B. Seeing-Phasen).</li>'
+                '<li>Häufige Wechsel = schnell wechselnde Bedingungen '
+                '(z.B. durchziehende Wolken).</li>'
+                '</ul>'
+            )
 
-    return pngs, evals
+    return pngs, evals, explanations
 
 
-def _gen_synthetic(artifacts_dir: Path, syn: dict) -> tuple[list[str], list[str]]:
+def _gen_synthetic(artifacts_dir: Path, syn: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
+    explanations: dict[str, str] = {}
 
     n = syn.get("num_synthetic", 0)
     fmin = syn.get("frames_min", "?")
@@ -872,12 +1249,13 @@ def _gen_synthetic(artifacts_dir: Path, syn: dict) -> tuple[list[str], list[str]
     evals.append(f"num_synthetic: {n}")
     evals.append(f"frames range: [{fmin}, {fmax}]")
 
-    return pngs, evals
+    return pngs, evals, explanations
 
 
-def _gen_validation(artifacts_dir: Path, val: dict) -> tuple[list[str], list[str]]:
+def _gen_validation(artifacts_dir: Path, val: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
+    explanations: dict[str, str] = {}
 
     seeing = val.get("seeing_fwhm_median", 0)
     output = val.get("output_fwhm_median", 0)
@@ -916,14 +1294,32 @@ def _gen_validation(artifacts_dir: Path, val: dict) -> tuple[list[str], list[str
         if checks:
             if _plot_bar(checks, vals_bar, "Validation checks", "value", _fig_path(artifacts_dir, fn), colors=colors_bar):
                 pngs.append(fn)
+                explanations[fn] = (
+                    '<h4>Validierungsprüfungen</h4>'
+                    '<p>Automatische Qualitätsprüfungen des Endergebnisses. '
+                    'Grün = bestanden, Rot = nicht bestanden.</p>'
+                    '<p><b>Prüfungen:</b></p>'
+                    '<ul>'
+                    '<li><b>FWHM-Verbesserung:</b> Ist das gestackte Bild schärfer als die Einzelframes? '
+                    '<span class="good">Positiv</span> = Verbesserung, '
+                    '<span class="bad">negativ</span> = Verschlechterung. '
+                    'Bei unterabgetasteten Daten (große Pixel) ist 0% normal.</li>'
+                    '<li><b>Tile-Gewichtsvarianz:</b> Sind die Tile-Gewichte ausreichend unterschiedlich? '
+                    'Zu geringe Varianz bedeutet, dass die Gewichtung keinen Effekt hat.</li>'
+                    '<li><b>Tile-Pattern-Ratio:</b> Gibt es sichtbare Kachelgrenzen im Ergebnis? '
+                    '<span class="good">&lt; 1.5</span> = keine sichtbaren Artefakte, '
+                    '<span class="bad">&gt; 1.5</span> = Kachelgrenzen sichtbar.</li>'
+                    '</ul>'
+                )
 
-    return pngs, evals
+    return pngs, evals, explanations
 
 
-def _gen_timeline(artifacts_dir: Path, events: list[dict]) -> tuple[list[str], list[str]]:
+def _gen_timeline(artifacts_dir: Path, events: list[dict]) -> tuple[list[str], list[str], dict[str, str]]:
     """Generate pipeline timeline chart from events."""
     pngs: list[str] = []
     evals: list[str] = []
+    explanations: dict[str, str] = {}
 
     phase_times: list[tuple[str, float]] = []
     phase_starts: dict[str, str] = {}
@@ -964,11 +1360,224 @@ def _gen_timeline(artifacts_dir: Path, events: list[dict]) -> tuple[list[str], l
         fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
         plt.close(fig)
         pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Pipeline-Zeitplan</h4>'
+            '<p>Dauer jeder Pipeline-Phase in Sekunden.</p>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><b>REGISTRATION:</b> Skaliert mit Frame-Anzahl. '
+            'Lange Dauer = viele Frames oder schwierige Registrierung.</li>'
+            '<li><b>TILE_RECONSTRUCTION:</b> Meist die längste Phase. '
+            'Skaliert mit Tiles × Frames.</li>'
+            '<li><b>SYNTHETIC_FRAMES:</b> Hängt von Cluster-Anzahl ab.</li>'
+            '<li><b>ASTROMETRY:</b> Plate-Solving via ASTAP. '
+            'Kann bei schwachem Signal lange dauern.</li>'
+            '<li><b>PCC:</b> Photometrische Farbkalibrierung. '
+            'Schnell bei lokalen Katalogen, langsamer bei Online-Abfragen.</li>'
+            '</ul>'
+        )
 
     total = sum(t for _, t in phase_times) if phase_times else 0
     evals.insert(0, f"total pipeline time: {total:.1f}s")
 
-    return pngs, evals
+    return pngs, evals, explanations
+
+
+def _gen_frame_usage(artifacts_dir: Path, events: list[dict]) -> tuple[list[str], list[str], dict[str, str]]:
+    """Generate frame usage funnel: discovered → linearity → registration → synthetic."""
+    pngs: list[str] = []
+    evals: list[str] = []
+    explanations: dict[str, str] = {}
+
+    # Extract data from events
+    run_start = next((e for e in events if e.get("type") == "run_start"), {})
+    scan_end = next((e for e in events if e.get("type") == "phase_end" and e.get("phase_name") == "SCAN_INPUT"), {})
+    reg_end = next((e for e in events if e.get("type") == "phase_end" and e.get("phase_name") == "REGISTRATION"), {})
+    synth_end = next((e for e in events if e.get("type") == "phase_end" and e.get("phase_name") == "SYNTHETIC_FRAMES"), {})
+
+    frames_discovered = run_start.get("frames_discovered", 0)
+    linearity = scan_end.get("linearity", {})
+    linearity_enabled = linearity.get("enabled", False)
+    linearity_failed = linearity.get("failed_frames", 0)
+    linearity_action = linearity.get("action", "")
+    frames_after_scan = scan_end.get("frames_scanned", frames_discovered)
+
+    frames_usable_reg = reg_end.get("frames_usable", 0)
+    frames_excluded_identity = reg_end.get("frames_excluded_identity", 0)
+    frames_excluded_negative = reg_end.get("frames_excluded_negative", 0)
+
+    num_synthetic = synth_end.get("num_synthetic", 0)
+    synth_status = synth_end.get("status", "")
+
+    # Build funnel stages
+    stages: list[tuple[str, int, str]] = []  # (label, count, reason)
+    stages.append(("Entdeckt", frames_discovered, "Input-Verzeichnis gescannt"))
+
+    if linearity_enabled and linearity_failed > 0:
+        removed = linearity_failed if linearity_action == "removed" else 0
+        if removed > 0:
+            stages.append(("Nach Linearität", frames_after_scan,
+                           f"{removed} nicht-lineare Frames entfernt"))
+        else:
+            stages.append(("Nach Linearität", frames_discovered,
+                           f"{linearity_failed} Frames markiert (behalten)"))
+    elif linearity_enabled:
+        stages.append(("Nach Linearität", frames_after_scan, "Alle Frames linear"))
+
+    if frames_usable_reg > 0 or frames_excluded_identity > 0:
+        excluded_total = frames_excluded_identity + frames_excluded_negative
+        reasons = []
+        if frames_excluded_identity > 0:
+            reasons.append(f"{frames_excluded_identity} Identity-Fallback")
+        if frames_excluded_negative > 0:
+            reasons.append(f"{frames_excluded_negative} negative Korrelation")
+        reason_str = ", ".join(reasons) if reasons else "Alle registriert"
+        stages.append(("Registriert (nutzbar)", frames_usable_reg, reason_str))
+
+    if num_synthetic > 0:
+        stages.append(("Synthetische Frames", num_synthetic,
+                       f"Aus {len(stages) > 0 and stages[-1][1] or '?'} Frames via Clustering"))
+    elif synth_status == "skipped":
+        reason = synth_end.get("reason", "übersprungen")
+        stages.append(("Synthetische Frames", 0, f"Übersprungen ({reason})"))
+
+    # Eval lines
+    for label, count, reason in stages:
+        evals.append(f"{label}: {count}  ({reason})")
+
+    # Funnel bar chart
+    if plt is not None and len(stages) >= 2:
+        fn = "frame_usage_funnel.png"
+        labels = [s[0] for s in stages]
+        counts = [s[1] for s in stages]
+        reasons = [s[2] for s in stages]
+
+        fig, ax = plt.subplots(figsize=(7, max(2.5, 0.6 * len(stages))), dpi=150)
+        y = list(range(len(stages)))
+        max_count = max(counts) if counts else 1
+
+        # Color gradient: green for high retention, red for low
+        colors = []
+        for c in counts:
+            ratio = c / max(1, max_count)
+            if ratio > 0.7:
+                colors.append("#50fa7b")
+            elif ratio > 0.3:
+                colors.append("#ffb86c")
+            else:
+                colors.append("#ff6b6b")
+
+        bars = ax.barh(y, counts, color=colors, edgecolor="none", height=0.6, alpha=0.85)
+
+        for i, (bar, count, reason) in enumerate(zip(bars, counts, reasons)):
+            # Count label inside bar
+            if count > 0:
+                ax.text(bar.get_width() - max_count * 0.02, bar.get_y() + bar.get_height() / 2,
+                        str(count), ha="right", va="center", fontsize=10, fontweight="bold",
+                        color="white" if count > max_count * 0.15 else "#ccc")
+            # Reason label to the right
+            ax.text(bar.get_width() + max_count * 0.02, bar.get_y() + bar.get_height() / 2,
+                    reason, ha="left", va="center", fontsize=8, color="#999")
+
+        ax.set_yticks(y)
+        ax.set_yticklabels(labels, fontsize=9)
+        ax.set_xlabel("Frames", fontsize=9)
+        ax.set_title("Frame-Nutzung (Funnel)", fontsize=10)
+        ax.invert_yaxis()
+        ax.tick_params(labelsize=8)
+        ax.set_xlim(0, max_count * 1.5)
+        fig.tight_layout()
+        fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
+        plt.close(fig)
+        pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Frame-Nutzung</h4>'
+            '<p>Zeigt den „Trichter" der Frame-Verarbeitung: wie viele Frames in jeder Phase '
+            'übrig bleiben.</p>'
+            '<p><b>Stufen:</b></p>'
+            '<ul>'
+            '<li><b>Entdeckt:</b> Gesamtzahl der FITS-Dateien im Input-Verzeichnis.</li>'
+            '<li><b>Nach Linearität:</b> Frames, die den Linearitätstest bestanden haben. '
+            'Nicht-lineare Frames (z.B. Flats, Darks, fehlerhafte Aufnahmen) werden entfernt.</li>'
+            '<li><b>Registriert (nutzbar):</b> Frames mit erfolgreicher Registrierung '
+            '(CC &gt; Schwelle). Identity-Fallback = Frame konnte nicht registriert werden '
+            '(z.B. bewölkt, stark verschoben).</li>'
+            '<li><b>Synthetische Frames:</b> Aus Clustern erzeugte Repräsentanten '
+            'für das finale Stacking.</li>'
+            '</ul>'
+            '<p><b>Interpretation:</b></p>'
+            '<ul>'
+            '<li><span class="good">Hohe Retention (&gt; 80%):</span> '
+            'Gute Datenqualität, wenig Ausschuss.</li>'
+            '<li><span class="neutral">50–80% Retention:</span> '
+            'Wechselhafte Bedingungen, aber genug Daten.</li>'
+            '<li><span class="bad">&lt; 50% Retention:</span> '
+            'Viele Frames unbrauchbar — Ursache prüfen (Wolken, Nachführung, Fokus).</li>'
+            '</ul>'
+        )
+
+    # Loss breakdown chart
+    if plt is not None and len(stages) >= 2:
+        fn = "frame_loss_breakdown.png"
+        loss_labels = []
+        loss_counts = []
+        loss_colors = []
+
+        if linearity_enabled and linearity_action == "removed" and linearity_failed > 0:
+            loss_labels.append("Linearität")
+            loss_counts.append(linearity_failed)
+            loss_colors.append("#ff6b6b")
+
+        if frames_excluded_identity > 0:
+            loss_labels.append("Registrierung\n(Identity)")
+            loss_counts.append(frames_excluded_identity)
+            loss_colors.append("#ffb86c")
+
+        if frames_excluded_negative > 0:
+            loss_labels.append("Registrierung\n(Negativ)")
+            loss_counts.append(frames_excluded_negative)
+            loss_colors.append("#ff79c6")
+
+        used = frames_usable_reg if frames_usable_reg > 0 else frames_after_scan
+        if used > 0:
+            loss_labels.append("Verwendet")
+            loss_counts.append(used)
+            loss_colors.append("#50fa7b")
+
+        if loss_labels and sum(loss_counts) > 0:
+            fig, ax = plt.subplots(figsize=(5, 4), dpi=150)
+            wedges, texts, autotexts = ax.pie(
+                loss_counts, labels=loss_labels, colors=loss_colors,
+                autopct=lambda pct: f"{int(round(pct * sum(loss_counts) / 100))}\n({pct:.0f}%)",
+                startangle=90, textprops={"fontsize": 9})
+            for t in autotexts:
+                t.set_fontsize(8)
+                t.set_color("white")
+                t.set_fontweight("bold")
+            ax.set_title("Frame-Verlust nach Ursache", fontsize=10)
+            fig.tight_layout()
+            fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
+            plt.close(fig)
+            pngs.append(fn)
+            explanations[fn] = (
+                '<h4>Verlust nach Ursache</h4>'
+                '<p>Kreisdiagramm: Wohin gehen die Frames verloren?</p>'
+                '<p><b>Kategorien:</b></p>'
+                '<ul>'
+                '<li><span class="bad">Linearität:</span> Frames mit nicht-linearer Kennlinie '
+                '(z.B. Flats, Darks, überbelichtete Frames). '
+                'Werden vor der Verarbeitung entfernt.</li>'
+                '<li><span class="neutral">Registrierung (Identity):</span> '
+                'Frames, die nicht registriert werden konnten — '
+                'fallen auf Identity-Transformation zurück. '
+                'Häufigste Ursache: Wolken oder starke Drift.</li>'
+                '<li><span class="good">Verwendet:</span> '
+                'Frames, die erfolgreich registriert wurden und '
+                'zum Endergebnis beitragen.</li>'
+                '</ul>'
+            )
+
+    return pngs, evals, explanations
 
 
 # ---------------------------------------------------------------------------
@@ -997,7 +1606,7 @@ header .meta { color: var(--muted); font-size: 13px; line-height: 1.6; }
 main { padding: 18px 24px 48px; max-width: 1400px; margin: 0 auto; }
 section { margin-top: 28px; }
 section h2 { font-size: 16px; margin: 0 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 14px; }
+.grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
 .card.ok { border-color: rgba(63,185,80,0.6); }
 .card.warn { border-color: rgba(255,184,108,0.7); }
@@ -1011,6 +1620,19 @@ section h2 { font-size: 16px; margin: 0 0 10px; border-bottom: 1px solid var(--b
 .badge.ok { border: 1px solid var(--ok); color: var(--ok); }
 .badge.warn { border: 1px solid var(--warn); color: var(--warn); }
 .badge.bad { border: 1px solid var(--bad); color: var(--bad); }
+.chart-row { display: flex; gap: 16px; margin-bottom: 14px; align-items: flex-start; }
+.chart-col { flex: 2; min-width: 0; }
+.chart-col img { width: 100%; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 8px; }
+.explain-col { flex: 1; min-width: 220px; background: rgba(255,255,255,0.025); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.explain-col h4 { margin: 0 0 8px; font-size: 12px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; }
+.explain-col p { margin: 0 0 8px; font-size: 12px; line-height: 1.55; color: var(--muted); }
+.explain-col .good { color: var(--ok); font-weight: 600; }
+.explain-col .bad { color: var(--bad); font-weight: 600; }
+.explain-col .neutral { color: var(--warn); font-weight: 600; }
+.explain-col ul { margin: 4px 0 8px 14px; padding: 0; }
+.explain-col ul li { margin: 2px 0; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.explain-col .metric-box { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 8px 0; font-size: 11.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); line-height: 1.5; }
+@media (max-width: 900px) { .chart-row { flex-direction: column; } .explain-col { min-width: unset; } }
 .eval-only { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
 .eval-only h3 { margin: 0 0 8px; font-size: 13px; color: var(--accent); }
 .eval-only ul { margin: 8px 0 0 16px; padding: 0; }
@@ -1023,7 +1645,21 @@ section h2 { font-size: 16px; margin: 0 0 10px; border-bottom: 1px solid var(--b
     path.write_text(css, encoding="utf-8")
 
 
-def _make_card_html(title: str, pngs: list[str], evals: list[str], status: str | None = None) -> str:
+def _make_chart_row(png: str, explain_html: str) -> str:
+    """Build a single chart-row: 2/3 chart image + 1/3 explanation panel."""
+    return (
+        '<div class="chart-row">'
+        f'<div class="chart-col"><img src="{_escape_html(png)}" loading="lazy"/></div>'
+        f'<div class="explain-col">{explain_html}</div>'
+        '</div>'
+    )
+
+
+def _make_card_html(title: str, pngs: list[str], evals: list[str],
+                    status: str | None = None,
+                    explanations: dict[str, str] | None = None) -> str:
+    """Build a card. If explanations dict maps png filename -> HTML explanation,
+    each chart gets a 2/3+1/3 row. Otherwise falls back to simple layout."""
     cls = ""
     badge = ""
     if status:
@@ -1032,16 +1668,30 @@ def _make_card_html(title: str, pngs: list[str], evals: list[str], status: str |
             cls = f" {s}"
             badge = f'<span class="badge {s}">{_escape_html(status.upper())}</span>'
 
-    imgs = "".join(f'<img src="{_escape_html(p)}" loading="lazy"/>' for p in pngs)
+    body_parts: list[str] = []
+
+    if explanations:
+        for p in pngs:
+            expl = explanations.get(p, "")
+            if expl:
+                body_parts.append(_make_chart_row(p, expl))
+            else:
+                body_parts.append(f'<img src="{_escape_html(p)}" loading="lazy" style="width:100%;border-radius:8px;border:1px solid rgba(255,255,255,0.08);margin:6px 0"/>')
+    else:
+        for p in pngs:
+            body_parts.append(f'<img src="{_escape_html(p)}" loading="lazy" style="width:100%;border-radius:8px;border:1px solid rgba(255,255,255,0.08);margin:6px 0"/>')
+
     items = "".join(
         f'<li class="{"warn" if "WARNING" in e.upper() else ""}">{_escape_html(e)}</li>'
         for e in evals if e
     )
+    if items:
+        body_parts.append(f'<div class="metric-box" style="margin-top:10px"><ul style="margin:0 0 0 14px;padding:0;list-style:disc">{items}</ul></div>')
+
     return (
         f'<div class="card{cls}">'
         f'<h3>{_escape_html(title)}{badge}</h3>'
-        f'{imgs}'
-        f'<ul>{items}</ul>'
+        f'{"\n".join(body_parts)}'
         f'</div>'
     )
 
@@ -1137,54 +1787,59 @@ def generate_report(run_dir: Path) -> Path:
     sections: list[tuple[str, str]] = []
 
     # 0. Pipeline timeline
-    tl_pngs, tl_evals = _gen_timeline(artifacts_dir, events)
+    tl_pngs, tl_evals, tl_expl = _gen_timeline(artifacts_dir, events)
     if tl_pngs or tl_evals:
-        sections.append(("Pipeline Timeline", _make_card_html("Phase durations", tl_pngs, tl_evals)))
+        sections.append(("Pipeline Timeline", _make_card_html("Phase durations", tl_pngs, tl_evals, explanations=tl_expl)))
+
+    # 0b. Frame Usage Summary
+    fu_pngs, fu_evals, fu_expl = _gen_frame_usage(artifacts_dir, events)
+    if fu_pngs or fu_evals:
+        sections.append(("Frame Usage", _make_card_html("Frame-Nutzung", fu_pngs, fu_evals, _infer_status(fu_evals), explanations=fu_expl)))
 
     # 1. Normalization
     if norm:
-        n_pngs, n_evals = _gen_normalization(artifacts_dir, norm)
-        sections.append(("Normalization", _make_card_html("Background levels", n_pngs, n_evals, _infer_status(n_evals))))
+        n_pngs, n_evals, n_expl = _gen_normalization(artifacts_dir, norm)
+        sections.append(("Normalization", _make_card_html("Background levels", n_pngs, n_evals, _infer_status(n_evals), explanations=n_expl)))
 
     # 2. Global Metrics
     if gm:
-        g_pngs, g_evals = _gen_global_metrics(artifacts_dir, gm)
-        sections.append(("Global Metrics", _make_card_html("Frame quality & weights", g_pngs, g_evals, _infer_status(g_evals))))
+        g_pngs, g_evals, g_expl = _gen_global_metrics(artifacts_dir, gm)
+        sections.append(("Global Metrics", _make_card_html("Frame quality & weights", g_pngs, g_evals, _infer_status(g_evals), explanations=g_expl)))
 
     # 3. Tile Grid
     if tg:
-        t_pngs, t_evals = _gen_tile_grid(artifacts_dir, tg)
-        sections.append(("Tile Grid", _make_card_html("Grid layout", t_pngs, t_evals)))
+        t_pngs, t_evals, t_expl = _gen_tile_grid(artifacts_dir, tg)
+        sections.append(("Tile Grid", _make_card_html("Grid layout", t_pngs, t_evals, explanations=t_expl)))
 
     # 4. Registration
     if reg:
-        r_pngs, r_evals = _gen_registration(artifacts_dir, reg)
-        sections.append(("Global Registration", _make_card_html("Frame alignment", r_pngs, r_evals, _infer_status(r_evals))))
+        r_pngs, r_evals, r_expl = _gen_registration(artifacts_dir, reg)
+        sections.append(("Global Registration", _make_card_html("Frame alignment", r_pngs, r_evals, _infer_status(r_evals), explanations=r_expl)))
 
     # 5. Local Metrics
     if lm:
-        l_pngs, l_evals = _gen_local_metrics(artifacts_dir, lm, tg)
-        sections.append(("Local Metrics", _make_card_html("Per-tile quality", l_pngs, l_evals, _infer_status(l_evals))))
+        l_pngs, l_evals, l_expl = _gen_local_metrics(artifacts_dir, lm, tg)
+        sections.append(("Local Metrics", _make_card_html("Per-tile quality", l_pngs, l_evals, _infer_status(l_evals), explanations=l_expl)))
 
     # 6. Tile Reconstruction
     if recon:
-        rc_pngs, rc_evals = _gen_reconstruction(artifacts_dir, recon, tg)
-        sections.append(("Tile Reconstruction", _make_card_html("Reconstruction stats", rc_pngs, rc_evals, _infer_status(rc_evals))))
+        rc_pngs, rc_evals, rc_expl = _gen_reconstruction(artifacts_dir, recon, tg)
+        sections.append(("Tile Reconstruction", _make_card_html("Reconstruction stats", rc_pngs, rc_evals, _infer_status(rc_evals), explanations=rc_expl)))
 
     # 7. State Clustering
     if cl:
-        cl_pngs, cl_evals = _gen_clustering(artifacts_dir, cl)
-        sections.append(("State Clustering", _make_card_html("Cluster analysis", cl_pngs, cl_evals)))
+        cl_pngs, cl_evals, cl_expl = _gen_clustering(artifacts_dir, cl)
+        sections.append(("State Clustering", _make_card_html("Cluster analysis", cl_pngs, cl_evals, explanations=cl_expl)))
 
     # 8. Synthetic Frames
     if syn:
-        sy_pngs, sy_evals = _gen_synthetic(artifacts_dir, syn)
-        sections.append(("Synthetic Frames", _make_card_html("Synthetic frame info", sy_pngs, sy_evals)))
+        sy_pngs, sy_evals, sy_expl = _gen_synthetic(artifacts_dir, syn)
+        sections.append(("Synthetic Frames", _make_card_html("Synthetic frame info", sy_pngs, sy_evals, explanations=sy_expl)))
 
     # 9. Validation
     if val:
-        v_pngs, v_evals = _gen_validation(artifacts_dir, val)
-        sections.append(("Validation", _make_card_html("Quality validation", v_pngs, v_evals, _infer_status(v_evals))))
+        v_pngs, v_evals, v_expl = _gen_validation(artifacts_dir, val)
+        sections.append(("Validation", _make_card_html("Quality validation", v_pngs, v_evals, _infer_status(v_evals), explanations=v_expl)))
 
     # Write output
     title = f"Tile-Compile Report — {run_dir.name}"
