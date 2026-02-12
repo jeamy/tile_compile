@@ -182,3 +182,52 @@ Fix
 Notes / follow-ups
 - Unit tests are currently gated on Catch2 availability. On this machine Catch2 was not found by CMake, so ctest reports no tests.
 - Additional audit items remain (see audit report), but the changes above cover the highest-priority spec violations listed in the TODOs.
+
+
+11) PCC output: neutralize sky background when applying color matrix (2026-02-12)
+Files
+  tile_compile_cpp/src/astrometry/photometric_color_cal.cpp
+
+Change
+- Changed apply_color_matrix() to subtract per-channel estimated sky background (bg_r/bg_g/bg_b), apply the fitted 3x3 color matrix to the signal above background, and then add back a single neutral output background level:
+    bg_out = (bg_r + bg_g + bg_b) / 3
+  instead of restoring each channel’s original background independently.
+
+Why
+- The previous implementation preserved any channel bias present in the sky background (e.g. light pollution / sensor response), while still scaling the signal above background.
+- With a diagonal PCC matrix (typical for this pipeline), this can produce visually confusing results where highlights (stars/galaxy core) shift strongly but the background remains “tinted”, which can be misinterpreted as PCC not working or as a wrong calibration.
+
+Observable effects
+- In the PCC result cube, the sky background is closer to neutral (R/G/B plane means become very similar), while star colors are still corrected according to the fitted PCC matrix.
+
+Debug tooling
+- Added a small CLI helper command to apply a diagonal PCC matrix to an existing RGB FITS cube without re-running the pipeline:
+    tile_compile_cli pcc-apply <in_rgb.fits> <out_rgb.fits> --r <R> --g <G> --b <B>
+  This uses the same apply_color_matrix() code path as the pipeline.
+
+
+12) Runner: resume existing run from PCC / ASTROMETRY (PCC-only rerun) (2026-02-12)
+Files
+  tile_compile_cpp/apps/runner_main.cpp
+
+Change
+- Implemented a functional tile_compile_runner resume subcommand (previously only shown in usage):
+    tile_compile_runner resume --run-dir <existing_run_dir> [--from-phase ASTROMETRY|PCC]
+  Current scope:
+  - PCC can be recomputed in-place for an existing run directory.
+  - If WCS is missing and --from-phase ASTROMETRY is used, the runner attempts to plate-solve again (ASTAP) and then runs PCC.
+- resume loads config from <run_dir>/config.yaml and reuses the existing linear RGB cube:
+  - preferred: outputs/stacked_rgb_solve.fits
+  - fallback:  outputs/stacked_rgb.fits
+- WCS is loaded from artifacts/stacked_rgb.wcs (preferred) or the .wcs next to the RGB solve cube.
+- Outputs overwritten (in the same run directory):
+  - outputs/pcc_R.fit
+  - outputs/pcc_G.fit
+  - outputs/pcc_B.fit
+  - outputs/stacked_rgb_pcc.fits
+- Logging:
+  - Appends resume_start/resume_end events and new phase_start/phase_end entries to logs/run_events.jsonl.
+
+Why
+- PCC iteration/debugging is expensive if it requires re-running the full stacking pipeline.
+- This enables fast experimentation with PCC implementation changes or PCC parameters, while keeping the run artifacts and the stacked RGB cube unchanged.
