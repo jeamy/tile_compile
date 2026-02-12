@@ -247,8 +247,6 @@ Nach erfolgreichem Lauf unter `runs/<run_id>/`:
 
 Erzeugt einen HTML-Report für einen abgeschlossenen Pipeline-Lauf.
 
-- Links **2/3**: Diagramme / Heatmaps
-- Rechts **1/3**: Erklärung / Interpretation (was ist gut/schlecht, typische Ursachen)
 
 ```bash
 python3 generate_report.py /path/to/runs/<run_id>
