@@ -1,0 +1,450 @@
+Tile-Compile C++ (tile_compile_cpp) — Code Audit vs. Methodology v3
+Date: 2026-02-11
+Scope: apps/runner_main.cpp pipeline (stacking → astrometry → PCC) + core modules
+Spec reference: doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_en.md (v3.1, 2026-01-09)
+
+================================================================================
+0) Executive summary (high-risk / correctness)
+================================================================================
+
+A. Methodology v3 hard-rule violations / semantic mismatches
+
+1) “No frame selection” is violated in multiple places.
+   - runner_main.cpp builds frame_usable[] and EXCLUDES frames from all later phases
+     when registration fails or CC<=0.
+     This is a direct violation of v3 §2.1 (“No frame selection”).
+   - Practical impact: output becomes non-deterministically dependent on registration
+     success thresholds rather than pure weighting; runs can silently drop large
+     portions of data.
+
+2) Channel separation (no channel coupling) is not implemented for OSC in the core.
+   - v3 requires: after registration, split into R/G/B and run the whole core per
+     channel (A-path), or do CFA-aware registration and then channel split (B-path).
+   - Current implementation: most of the pipeline operates on the CFA mosaic as if
+     it were a mono luminance image (normalization, metrics, tiles, reconstruction).
+   - This is not “per-channel processing” as required by v3.
+
+3) Local STRUCTURE tile score is mathematically not the specified metric.
+   - v3 §3.4 requires ztilde(E/σ) (ratio in measurement space, then robust normalize).
+   - runner_main.cpp computes robust_zscore(E) and robust_zscore(σ) separately, then
+     divides z-scores: ratio = e_t / s_t.
+   - This is not equivalent and is numerically unstable (division by ~0 z-score).
+
+4) STAR tile FWHM handling violates explicit guidance.
+   - v3 Appendix A.4 says: “do not apply a log transform” to FWHM.
+   - runner_main.cpp uses log(max(fwhm,1e-6)) before robust_zscore.
+
+B. “Flat-out wrong” implementation bugs
+
+5) Debayer (nearest-neighbor) green channel is incorrect for at least RGGB/BGGR.
+   - debayer_nearest_neighbor() assumes green pixels are at (x+y)%2==0, which is
+     only true for GBRG/GRBG, not RGGB/BGGR.
+   - Effect: output G plane contains R/B values at many pixels; RGB cube and PCC
+     inputs become physically wrong.
+
+6) Registration ECC warp inversion is very likely wrong (double inversion).
+   - registration.cpp::ecc_warp() returns OpenCV ECC warp_matrix directly.
+   - global_registration.cpp::robust_phase_ecc()/hybrid_phase_ecc() inverts the
+     returned matrix again (“ECC returns forward warp; invert …”).
+   - OpenCV’s own ECC sample applies the returned warp_matrix directly with
+     WARP_INVERSE_MAP, implying ECC already returns the inverse-map convention.
+   - Effect: ECC stages likely fail NCC validation and get rejected, reducing
+     registration robustness on nebula fields.
+
+C. Quality / scientific validity risks
+
+7) Tile metrics are proxy heuristics, not star/PSF measurements.
+   - tile_metrics.cpp uses “area above half max”, “peak roundness proxy”, etc.
+   - These proxies are extremely sensitive to hot pixels, cosmic rays, bright nebula
+     knots, and local background gradients.
+   - v3 STAR metrics intend PSF-based FWHM/roundness from stars.
+
+8) Global background metric used for global weights is computed AFTER normalization.
+   - v3 order: compute B_f on raw (for normalization), then normalize, then compute
+     σ and E on normalized.
+   - current: calculate_frame_metrics() computes background on normalized image.
+   - Result: background metric becomes ~constant (~1), removing the intended
+     transparency / haze discrimination axis.
+
+9) Astrometry uses potentially stretched RGB cube.
+   - runner_main.cpp writes stacked_rgb.fits from R_disk/G_disk/B_disk, which are
+     stretched if cfg.stacking.output_stretch==true (default is true).
+   - Plate solvers generally work best on linear-ish data; even if a linear stretch
+     is “mathematically linear”, it can clip / compress useful dynamic range.
+
+10) ASTAP is executed via std::system() with unquoted paths.
+    - Any spaces in paths can break; command injection is possible if paths are not
+      controlled.
+
+--------------------------------------------------------------------------------
+Priority recommendation:
+  Fix (5) debayer green bug first, then (1) no-frame-selection violation,
+  then (3)/(4) local metric math, then (6) ECC inversion.
+--------------------------------------------------------------------------------
+
+================================================================================
+1) Pipeline mapping vs. Methodology v3 (what the code actually does)
+================================================================================
+
+Primary entry point:
+  tile_compile_cpp/apps/runner_main.cpp
+
+Observed phase order (runner_main.cpp):
+  Phase 0: SCAN_INPUT (dimensions, color mode, bayer, linearity sampling)
+  Phase 1: CHANNEL_SPLIT (metadata only; deferred)
+  Phase 2: NORMALIZATION (background estimation + per-channel scaling for OSC)
+  Phase 3: GLOBAL_METRICS (compute background/noise/gradient on normalized frame)
+  Phase 4: TILE_GRID (estimate seeing FWHM from a single probe frame, build uniform grid)
+  Phase 5: REGISTRATION (global registration cascade on downsample proxy)
+  Pre-warp full frames with CFA-aware warps
+  Phase 6: LOCAL_METRICS (tile_metrics proxies, robust_zscore across frames)
+  Phase 7: TILE_RECONSTRUCTION (per-tile weighted sigma-clip + overlap-add)
+  Phase 8: STATE_CLUSTERING (kmeans on state vectors)
+  Phase 9: SYNTHETIC_FRAMES (global-weight mean per cluster)
+  Phase 10: STACKING (sigma-clip over synthetic frames)
+  Validation
+  Phase 11: DEBAYER (nearest-neighbor)
+  Phase 12: ASTROMETRY (ASTAP CLI + parse .wcs)
+  Phase 13: PCC (catalog query + aperture photometry + diagonal WB matrix)
+
+Major spec mismatch:
+  v3 normative pipeline starts with Registration, then Channel split, then metrics.
+  The C++ runner normalizes/metrics before registration.
+  While global metrics are mostly shift-invariant, this contradicts the spec and
+  makes it easy to accidentally compute tile metrics on non-registered data.
+
+================================================================================
+2) Phase-by-phase analysis
+================================================================================
+
+2.1 Phase 0 — SCAN_INPUT + linearity
+Files:
+  apps/runner_main.cpp
+  src/metrics/linearity.cpp
+
+Observations:
+- The linearity check is a heuristic based on percentiles, FFT low-frequency energy
+  ratio, and Sobel gradient consistency. It can produce false positives/negatives
+  on real astro data (e.g., strong nebula gradients, heavy vignetting, very low
+  background).
+- The “overall_linearity” is computed as fraction of sampled frames that pass, but
+  cfg.linearity.min_overall_linearity is never enforced; only per-frame removal is
+  done if cfg.data.linear_required==true.
+
+Potential issues:
+- Removing frames based on a small sample can remove good data depending on sample
+  stratification.
+- Linearity check does not explicitly detect clipped highlights / bit-depth
+  compression / camera-gamma operations.
+
+2.2 Phase 2 — NORMALIZATION
+Files:
+  apps/runner_main.cpp
+  src/metrics/metrics.cpp (build_background_mask_sigma_clip)
+  src/image/normalization.cpp
+
+What is correct:
+- Per-channel background estimation uses a sigma-clip mask derived from a coarse
+  normalized copy; then median background is computed per Bayer channel.
+- apply_normalization_inplace() is CFA-aware via (origin_x, origin_y) parity and
+  per-channel scaling factors.
+
+Potential problems:
+- “Background” mask uses absolute deviation around the median (symmetric). In astro
+  frames the background distribution is not symmetric (long positive tail from
+  stars/nebula), so you typically want to mask only positive outliers.
+- If any per-channel background estimate is <= eps, the pipeline aborts. This may
+  happen on frames with heavy cropping, saturated backgrounds, or unusual scaling.
+- cfg.normalization.mode (“background” vs “median”) exists in config, but the code
+  always uses the sigma-clip path and never implements the “median” fallback.
+
+2.3 Phase 3 — GLOBAL_METRICS
+Files:
+  src/metrics/metrics.cpp
+
+Critical spec mismatch:
+- calculate_frame_metrics() computes m.background AFTER normalization (because
+  runner_main applies normalization before calling it).
+- v3 intends B_f (raw) as a global atmospheric/transparency indicator; the current
+  metric background becomes ~constant.
+
+Other observations:
+- global_weights are normalized to sum=1. Relative weights are preserved, so
+  reconstruction math still works (weights cancel), but the output is no longer
+  exp(Q) in the specified dynamic range.
+- FrameMetrics::quality_score is never computed (always 1.0). Any fallback using
+  quality_score is meaningless.
+
+2.4 Phase 4 — TILE_GRID (seeing-adaptive)
+Files:
+  apps/runner_main.cpp
+  src/metrics/metrics.cpp (measure_fwhm_from_image)
+  src/pipeline/adaptive_tile_grid.cpp
+
+Problems:
+- seeing_fwhm_med is not a robust median over many frames; code probes up to 5
+  frames and uses the first non-zero FWHM, then stops.
+- FWHM measurement is performed on a central 1024x1024 ROI. If the center contains
+  few stars (e.g., large nebula core, galaxy core, dark nebula), FWHM may fail and
+  default to 3.0.
+
+Impact:
+- tile_size can be badly chosen → either too small (noisy metrics) or too large
+  (no locality) → tiling artifacts or low discrimination.
+
+2.5 Phase 5 — REGISTRATION
+Files:
+  src/registration/global_registration.cpp
+  src/image/cfa_processing.cpp (warp_cfa_mosaic_via_subplanes)
+
+What is good:
+- The star-based cascade (triangle, star pairs, AKAZE, phase/ECC) is sensible.
+- NCC validation against identity is a good safety check.
+- For OSC, proxy images are green-proxy downsampled, reducing CFA artifacts.
+- CFA-aware full-res warping via subplanes is the correct general approach.
+
+Critical issues:
+(A) “No frame selection” violated:
+- runner_main.cpp excludes frames with identity fallback (cc==0) or cc<0 by setting
+  frame_usable=false. Those frames are removed from later phases.
+
+(B) ECC inversion likely wrong:
+- robust_phase_ecc() and hybrid_phase_ecc() invert the ECC warp matrix, but OpenCV
+  ECC sample indicates you should use warp_matrix directly with WARP_INVERSE_MAP.
+- Consequence: ECC stages likely fail NCC checks and never get accepted.
+
+(C) CFA warp even-dimension truncation:
+- warp_cfa_mosaic_via_subplanes() truncates odd width/height to even (h2/w2) and
+  outputs out_h2/out_w2. If an input FITS has odd dimensions, you silently change
+  size and break later tile indexing and FITS header consistency.
+
+(D) CFA warp correctness risk under rotation:
+- The ±0.25 offset correction is plausible but very sensitive. Without unit tests,
+  it’s easy to introduce color misregistration (checkerboard chroma fringes).
+
+2.6 Phase 6 — LOCAL_METRICS
+Files:
+  src/metrics/tile_metrics.cpp
+  apps/runner_main.cpp
+
+Issues:
+(A) Tile metric quality:
+- calculate_tile_metrics() uses proxies not based on star PSF fitting.
+- FWHM proxy uses global peak and counts pixels above half max. Hot pixels and
+  cosmic rays dominate, producing nonsense.
+
+(B) STAR tile scoring math deviates from spec:
+- runner_main uses log(FWHM) then robust_zscore. Spec says no log.
+
+(C) STRUCTURE tile scoring is incorrect:
+- code computes ratio = zscore(E) / zscore(noise).
+- spec requires zscore(E/noise).
+
+(D) CFA channel coupling:
+- Local metrics are computed on the CFA mosaic, not per channel. Adjacent pixels
+  are different colors; gradient/noise metrics are contaminated by Bayer pattern.
+
+2.7 Phase 7 — TILE_RECONSTRUCTION
+Files:
+  src/reconstruction/reconstruction.cpp
+  apps/runner_main.cpp
+
+Issues:
+(A) Not v3 tile reconstruction formula:
+- v3 tile reconstruction is a weighted mean per pixel using W_f,t.
+- Implementation uses per-pixel weighted sigma clipping (nonlinear) inside each
+  tile, then overlap-add. Spec allows pixel-level rejection, but this is a major
+  semantic change and should be explicitly versioned.
+
+(B) Missing required tile normalization before overlap-add:
+- v3 §3.6 specifies per-tile background subtraction and median scaling to avoid
+  patchwork brightness/seams.
+- Code does not normalize tiles before applying the Hann window.
+
+(C) Failure fallback is not per spec:
+- If a pixel’s overlap weight_sum is ~0, code copies first_img pixel. Spec fallback
+  should be “unweighted mean of all frames”, not “take first frame”.
+
+(D) Frame validity counters never updated:
+- frame_valid_tile_counts[] is never incremented. invalid_tile_fraction in
+  clustering becomes constant 1.0.
+
+2.8 Phase 8 — STATE_CLUSTERING
+Files:
+  apps/runner_main.cpp
+
+Issues:
+- State vector includes mean_cc_tiles, mean_warp_var_tiles, invalid_fraction.
+  But correlations/warp variances are hardcoded (1.0/0.0) and invalid_fraction is
+  constant due to bug.
+- Clustering still works on (G_f, mean_local, var_local) but is not the intended
+  “physically coherent observing state” vector.
+
+2.9 Phase 9 — SYNTHETIC_FRAMES
+Files:
+  apps/runner_main.cpp
+
+Observations:
+- Uses global weights only, as allowed by v3 (synthetic.weighting=global).
+- Does not implement tile_weighted synthetic propagation.
+
+Risks:
+- If frame_usable removed many frames, clusters can be empty or biased.
+
+2.10 Phase 10 — STACKING
+Files:
+  src/reconstruction/reconstruction.cpp
+
+Observations:
+- sigma_clip_stack implements per-pixel iterative sigma clipping with fallback to
+  plain mean if too few remain. That matches the v3 “allowed pixel rejection” rule.
+
+Note:
+- Uses classical mean/sd (not robust) for rejection; can be unstable with very
+  non-Gaussian outliers.
+
+2.11 Debayer
+Files:
+  src/image/cfa_processing.cpp
+
+Critical bug:
+- Green channel logic is wrong for RGGB/BGGR patterns.
+- The algorithm does not correspond to nearest-neighbor or any standard demosaic.
+
+Additionally:
+- Nearest-neighbor demosaic is not appropriate for PCC photometry; star flux ratios
+  become strongly dependent on subpixel star location relative to Bayer grid.
+
+2.12 Astrometry (ASTAP)
+Files:
+  apps/runner_main.cpp
+  src/astrometry/wcs.cpp
+
+Issues:
+- std::system() command is built without shell quoting of file paths.
+- If output_stretch is enabled, stacked_rgb.fits is stretched (potentially
+  harming solve robustness).
+- WCS injection into FITS header is ok in principle, but assumes TAN + CD matrix.
+
+WCS math:
+- sky_to_pixel() is standard TAN and looks correct.
+- pixel_to_sky() implementation looks suspicious (non-standard dec formula). If
+  later you need pixel→sky for annotations/photometry, verify against astropy.
+
+2.13 PCC (Photometric Color Calibration)
+Files:
+  src/astrometry/gaia_catalog.cpp
+  src/astrometry/photometric_color_cal.cpp
+
+Positives:
+- Uses WCS to locate catalog stars.
+- Uses aperture photometry with sky annulus median.
+- Uses sigma-clipped robust mean of per-star correction factors.
+
+Major scientific limitations:
+- Uses only Teff→blackbody→CIE→linear sRGB, then diagonal scaling. This is closer
+  to a “white balance from star temperatures” than a full sensor+filter response
+  photometric calibration.
+- No extinction/reddening correction, no color-term fitting, no star centroid
+  refinement in the image.
+
+Critical correctness dependencies:
+- PCC assumes debayered RGB is physically meaningful. Given the debayer bug, PCC
+  outputs are currently not trustworthy.
+
+================================================================================
+3) Online reference comparison (sanity checks)
+================================================================================
+
+OpenCV — warpAffine / WARP_INVERSE_MAP convention
+- OpenCV warpAffine docs: WARP_INVERSE_MAP means the matrix is interpreted as
+  dst→src mapping (i.e. it can be used directly for interpolation).
+  https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html
+
+OpenCV — findTransformECC output convention
+- The official ECC sample uses the warp_matrix returned by findTransformECC
+  directly with warpAffine(..., WARP_INVERSE_MAP).
+  This contradicts “invert ECC output” comments in robust_phase_ecc().
+  https://docs.opencv.org/3.4/dd/d93/samples_2cpp_2image_alignment_8cpp-example.html
+
+Bayer pattern parity / demosaic assumptions
+- Any demosaic that assumes a fixed green parity (e.g. (x+y)%2==0) will be wrong
+  for half of the Bayer patterns.
+  (General reference, e.g. OpenCV color conversion docs list Bayer patterns and
+  conversions.)
+  https://docs.opencv.org/4.x/d8/d01/group__imgproc__color__conversions.html
+
+ASTAP
+- ASTAP author notes that the solver works best on raw, unstretched images; heavily
+  stretched images are problematic.
+  https://www.hnsky.org/astap.htm
+
+Siril PCC
+- Siril documentation explicitly warns PCC must be performed on a linear image
+  (histogram not yet stretched), and that PCC relies on plate solving.
+  https://siril.readthedocs.io/en/stable/processing/color-calibration/pcc.html
+
+Siril implementation notes (PCC/SPCC work)
+- Siril MR about color managed PCC and TempK2rgb / Gaia Teff usage.
+  https://gitlab.com/free-astro/siril/-/merge_requests/611
+
+================================================================================
+4) Concrete bug list (actionable)
+================================================================================
+
+[CRITICAL]
+1) Debayer green channel parity bug (RGGB/BGGR broken).
+   File: src/image/cfa_processing.cpp :: debayer_nearest_neighbor()
+
+2) Frame selection via frame_usable[] contradicts v3.
+   File: apps/runner_main.cpp
+
+3) STRUCTURE metric uses zscore(E)/zscore(noise) instead of zscore(E/noise).
+   File: apps/runner_main.cpp (LOCAL_METRICS scoring)
+
+4) STAR metric uses log(FWHM).
+   File: apps/runner_main.cpp
+
+5) ECC inversion likely incorrect in robust_phase_ecc/hybrid_phase_ecc.
+   File: src/registration/global_registration.cpp
+
+[HIGH]
+6) Global background metric used in global weights is computed after normalization.
+   File: src/metrics/metrics.cpp + runner_main.cpp usage.
+
+7) Tile metric proxies are not physically meaningful; hot pixels dominate.
+   File: src/metrics/tile_metrics.cpp
+
+8) PCC depends on broken debayer and lacks centroid refinement.
+
+[MEDIUM]
+9) std::system() call for ASTAP without quoting.
+   File: apps/runner_main.cpp
+
+10) WCS pixel_to_sky formula likely wrong.
+    File: include/tile_compile/astrometry/wcs.hpp
+
+================================================================================
+5) Suggested minimal validation tests (to prevent regressions)
+================================================================================
+
+A) Debayer unit test
+- Create a synthetic 4x4 CFA mosaic for each Bayer pattern with known values:
+  set R positions to 100, G to 200, B to 300.
+- Debayer should produce R plane all 100, G plane all 200, B plane all 300 (or the
+  nearest-neighbor expected behavior).
+
+B) ECC direction test
+- Generate a synthetic image, apply a known warp via warpAffine (with
+  WARP_INVERSE_MAP), run ecc_warp, then apply_warp; verify alignment improves.
+
+C) STRUCTURE metric equivalence test
+- For a toy dataset of frames with known energy/noise, verify that zscore(E/noise)
+  is used, not ratio of zscores.
+
+D) No-frame-selection invariant
+- Ensure all N frames always appear in reconstruction sums (weights may be tiny,
+  but frames are not removed).
+
+================================================================================
+End of report.

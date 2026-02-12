@@ -187,11 +187,9 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
         weights[i] = std::exp(qc);
     }
 
-    float sum = weights.sum();
-    if (std::isfinite(sum) && sum > 1.0e-12f) {
-        weights /= sum;
-    }
-
+    // NOTE: Do NOT normalize weights to sum=1.
+    // Methodology v3 defines G_f = exp(Q_f) with clamping; the absolute scale is
+    // meaningful for diagnostics and must not depend on the number of frames.
     return weights;
 }
 

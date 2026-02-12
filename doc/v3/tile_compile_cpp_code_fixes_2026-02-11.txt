@@ -1,0 +1,184 @@
+tile_compile_cpp – Methodik v3 Alignment Fixes (2026-02-11)
+
+Scope
+This document records the concrete code changes implemented in tile_compile_cpp to bring the experimental stacking pipeline closer to the Methodik v3 specification (tile_basierte_qualitatsrekonstruktion_methodik_en.md). It complements the earlier audit report:
+  doc/v3/tile_compile_cpp_code_audit_2026-02-11.txt
+
+Repository / entrypoint
+  tile_compile_cpp/apps/runner_main.cpp
+
+
+1) Debayer nearest-neighbor correctness (OSC)
+Files
+  tile_compile_cpp/src/image/cfa_processing.cpp
+  tile_compile_cpp/tests/test_debayer.cpp
+
+Change
+- Reimplemented image::debayer_nearest_neighbor() green sampling/parity handling.
+- Correctly determines R/B positions for all Bayer patterns (RGGB, BGGR, GRBG, GBRG).
+- For G channel: if pixel is green use itself; else sample the nearest adjacent green deterministically with bounds checks.
+
+Why
+- The previous implementation produced wrong green values for some patterns (especially RGGB/BGGR parity), causing color casts and incorrect downstream color calibration.
+
+Observable effects
+- Stacked OSC output no longer shows systematic color inversion/cast on green.
+- RGB planes on synthetic constant CFA are constant as expected.
+
+
+2) Global weights semantics: do not normalize exp(Q)
+Files
+  tile_compile_cpp/src/metrics/metrics.cpp
+  tile_compile_cpp/tests/test_fits.cpp
+
+Change
+- metrics::calculate_global_weights() no longer normalizes weights to sum=1.
+
+Why
+- Methodik v3 defines global frame weights as G_f = exp(clip(Q_f)) (positive, multiplicative factors). Normalizing changes semantics and can distort later multiplicative weighting.
+
+
+3) ECC inversion convention fix (global registration)
+Files
+  tile_compile_cpp/src/registration/global_registration.cpp
+
+Change
+- Removed inversion of the ECC warp result.
+
+Why
+- The pipeline’s apply_warp() convention uses warpAffine(..., WARP_INVERSE_MAP). Inverting ECC output caused the effective transform to be applied in the wrong direction in the cascade.
+
+
+4) Restore Methodik v3 invariant: no frame selection (keep all frames)
+Files
+  tile_compile_cpp/apps/runner_main.cpp
+
+Change
+- Removed the frame_usable mask that previously excluded frames with:
+  - identity fallback (cc == 0), and
+  - negative cc.
+- All frames are now kept after registration; identity warp remains a fallback but does not exclude.
+- Added a lightweight frame_has_data mask based on whether the prewarped full-resolution frame actually exists (non-empty). This only guards against missing/unreadable frames, not quality-based selection.
+
+Why
+- Methodik v3 explicitly avoids frame selection. Excluding “bad” frames breaks the spec’s invariants, and can bias robust statistics (z-scores) by conditioning on registration success.
+
+Observable effects
+- Runs no longer drop “identity fallback” frames. This may slightly soften results if many frames are severely misregistered, but matches v3 behavior.
+
+
+5) Fix LOCAL_METRICS math to match Methodik v3
+Files
+  tile_compile_cpp/apps/runner_main.cpp
+
+STAR tiles
+Change
+- Removed log(FWHM) transform. STAR mode now robust-zscores FWHM directly and uses it with a negative sign (smaller FWHM => higher quality).
+
+Why
+- v3 specifies FWHM in measurement space; log(FWHM) changes ordering/robust spread and can distort z-scores.
+
+STRUCTURE tiles
+Change
+- Replaced the incorrect ratio z(E) / z(σ) with:
+  zscore(E/σ)
+  where E is gradient_energy and σ is noise, computed per-frame first and only then robust-zscored over frames.
+
+Why
+- v3 defines the structure metric on the signal-to-noise-like ratio E/σ. Taking the ratio of two independent z-scores is not equivalent and is unstable around σ≈0.
+
+Tile type propagation
+Change
+- Tile STAR/STRUCTURE classification is now stored per tile (tile_star_flags) and used for gating; it is no longer derived from local_metrics[0] (which could be empty/unrepresentative).
+
+
+6) Make synthetic-frame reconstruction use the same prewarped data
+Files
+  tile_compile_cpp/apps/runner_main.cpp
+
+Change
+- Synthetic frame reconstruction now uses prewarped_frames directly (normalized + globally warped), instead of reloading and re-warping frames.
+
+Why
+- Ensures synthetic reconstruction uses identical registration outputs as the main reconstruction, and avoids duplicating warp logic.
+
+
+7) ASTAP invocation hardening + ensure solve input is linear (non-stretched)
+Files
+  tile_compile_cpp/apps/runner_main.cpp
+
+Change
+- Added a second RGB cube output:
+    outputs/stacked_rgb_solve.fits
+  which is always written from the linear (non-stretched) RGB data (R_out/G_out/B_out).
+- ASTAP is run on stacked_rgb_solve.fits instead of stacked_rgb.fits.
+- The ASTAP system command now uses shell-quoting for paths.
+- After a successful solve, WCS keywords are injected into the output headers and written back to both stacked_rgb.fits (view output) and stacked_rgb_solve.fits (linear solve cube).
+
+Why
+- Plate solving should be done on linear data. Stretching changes star profiles and background statistics and can reduce solver robustness.
+- Unquoted system commands break on paths containing spaces.
+
+Observable effects
+- More stable plate solving, especially when cfg.stacking.output_stretch is enabled.
+- Fewer "solve_failed" cases due to path quoting issues.
+
+
+8) Global background metric now uses raw background from normalization stage
+Files
+  tile_compile_cpp/apps/runner_main.cpp
+
+Change
+- After computing frame metrics on normalized data, frame_metrics[i].background is overridden with the raw background estimate (B_f) computed during NORMALIZATION:
+  - MONO: B_mono[i]
+  - OSC: approximate mosaic background 0.25*B_r + 0.5*B_g + 0.25*B_b
+
+Why
+- v3 defines B_f as a raw background metric; using the normalized image background collapses B_f towards ~1 and reduces the intended discrimination.
+
+
+9) OSC: debayer-before-stack (per-tile) to reduce color casts in highlights
+Files
+  tile_compile_cpp/include/tile_compile/image/cfa_processing.hpp
+  tile_compile_cpp/src/image/cfa_processing.cpp
+  tile_compile_cpp/apps/runner_main.cpp
+
+Change
+- Added an origin-aware overload of image::debayer_nearest_neighbor(mosaic, pattern, origin_x, origin_y).
+  This allows demosaicing tiles extracted from a full frame while preserving the correct Bayer parity.
+- Phase 6 TILE_RECONSTRUCTION (OSC path) now:
+  - extracts each warped CFA tile per frame,
+  - debayers the tile (with correct origin),
+  - stacks R/G/B tiles separately using the same per-frame weights.
+- Phase 9 STACKING (when synthetic frames are enabled) now stacks synthetic frames in RGB space (per channel)
+  and derives luminance from the stacked RGB, avoiding “debayer after sigma-clipped stacking”.
+
+Why
+- Debayering a sigma-clipped/weighted CFA mosaic can produce non-physical Bayer neighborhoods and tends to
+  create strong color artifacts around steep gradients (galaxy cores, star centers). Debayer-before-stack
+  is more stable and closer to conventional astro stacking practice.
+
+10) OSC RGB stacking: memory hardening to prevent SIGKILL (exit code 9)
+Files
+  tile_compile_cpp/apps/runner_main.cpp
+
+Problem
+- After switching OSC to debayer-before-stack / RGB-space stacking, TILE_RECONSTRUCTION can become
+  significantly more memory intensive. On typical datasets (hundreds of frames, hundreds of tiles),
+  the process may be killed by the OS (SIGKILL), which shows up as runner exit code 9.
+
+Root cause
+- The naive implementation can temporarily hold per-frame tile buffers for multiple channels
+  simultaneously (R/G/B), and this peak is multiplied by the number of parallel tile workers.
+
+Fix
+- Phase 6 TILE_RECONSTRUCTION (OSC path) now stacks channels sequentially (R then G then B) per tile,
+  instead of holding all three channel tile vectors at once.
+- The list of valid frames and the per-frame weights are computed once and reused for all channels.
+- Added a conservative OSC-specific cap for parallel tile workers based on an estimate of
+  per-worker memory usage (max tile size × number of frames-with-data × sizeof(float)).
+  If the estimate exceeds a conservative budget (512 MiB), parallelism is reduced automatically.
+
+Notes / follow-ups
+- Unit tests are currently gated on Catch2 availability. On this machine Catch2 was not found by CMake, so ctest reports no tests.
+- Additional audit items remain (see audit report), but the changes above cover the highest-priority spec violations listed in the TODOs.

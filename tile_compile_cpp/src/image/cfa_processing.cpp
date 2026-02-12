@@ -310,6 +310,13 @@ void bayer_offsets(const std::string& bayer_pattern,
 
 DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
                                        BayerPattern pattern) {
+    return debayer_nearest_neighbor(mosaic, pattern, 0, 0);
+}
+
+DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
+                                       BayerPattern pattern,
+                                       int origin_x,
+                                       int origin_y) {
     const int h = static_cast<int>(mosaic.rows());
     const int w = static_cast<int>(mosaic.cols());
 
@@ -318,42 +325,95 @@ DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
     out.G = Matrix2Df::Zero(h, w);
     out.B = Matrix2Df::Zero(h, w);
 
+    // Default to GBRG if unknown.
+    if (pattern == BayerPattern::UNKNOWN) {
+        pattern = BayerPattern::GBRG;
+    }
+
     int r_row = 1, r_col = 0;
     int b_row = 0, b_col = 1;
+    int g1_row = 0, g1_col = 0;
+    int g2_row = 1, g2_col = 1;
+
     if (pattern == BayerPattern::RGGB) {
         r_row = 0; r_col = 0;
         b_row = 1; b_col = 1;
+        g1_row = 0; g1_col = 1;
+        g2_row = 1; g2_col = 0;
     } else if (pattern == BayerPattern::BGGR) {
         r_row = 1; r_col = 1;
         b_row = 0; b_col = 0;
+        g1_row = 0; g1_col = 1;
+        g2_row = 1; g2_col = 0;
     } else if (pattern == BayerPattern::GRBG) {
         r_row = 0; r_col = 1;
         b_row = 1; b_col = 0;
+        g1_row = 0; g1_col = 0;
+        g2_row = 1; g2_col = 1;
+    } else { // GBRG
+        r_row = 1; r_col = 0;
+        b_row = 0; b_col = 1;
+        g1_row = 0; g1_col = 0;
+        g2_row = 1; g2_col = 1;
     }
+
+    auto in_bounds = [&](int yy, int xx) -> bool {
+        return yy >= 0 && yy < h && xx >= 0 && xx < w;
+    };
+    auto clamp_y = [&](int yy) -> int {
+        return std::max(0, std::min(h - 1, yy));
+    };
+    auto clamp_x = [&](int xx) -> int {
+        return std::max(0, std::min(w - 1, xx));
+    };
+    auto is_green = [&](int yy, int xx) -> bool {
+        const int py = (origin_y + yy) & 1;
+        const int px = (origin_x + xx) & 1;
+        return (py == g1_row && px == g1_col) || (py == g2_row && px == g2_col);
+    };
 
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
-            int y2 = y & ~1;
-            int x2 = x & ~1;
+            const int gy = origin_y + y;
+            const int gx = origin_x + x;
 
-            float r_val =
-                mosaic(std::min(y2 + r_row, h - 1), std::min(x2 + r_col, w - 1));
-            float b_val =
-                mosaic(std::min(y2 + b_row, h - 1), std::min(x2 + b_col, w - 1));
+            // Nearest-neighbor for R/B: pick the sample from the 2×2 Bayer cell
+            // containing the *global* pixel (gx,gy).
+            const int y2g = gy & ~1;
+            const int x2g = gx & ~1;
 
-            float g_val;
-            if ((y + x) % 2 == 0) {
+            const int ry = clamp_y((y2g + r_row) - origin_y);
+            const int rx = clamp_x((x2g + r_col) - origin_x);
+            const int by = clamp_y((y2g + b_row) - origin_y);
+            const int bx = clamp_x((x2g + b_col) - origin_x);
+
+            const float r_val = mosaic(ry, rx);
+            const float b_val = mosaic(by, bx);
+
+            // Nearest-neighbor for G: if the current pixel is green, take it.
+            // Otherwise take the nearest adjacent green sample (deterministic order).
+            float g_val = 0.0f;
+            if (is_green(y, x)) {
                 g_val = mosaic(y, x);
             } else {
-                int gy1 = (y % 2 == r_row) ? y : y;
-                int gx1 = (x % 2 == r_col) ? x + 1 : x - 1;
-                int gy2 = (y % 2 == r_row) ? y + 1 : y - 1;
-                int gx2 = (x % 2 == r_col) ? x : x;
-                gx1 = std::max(0, std::min(w - 1, gx1));
-                gx2 = std::max(0, std::min(w - 1, gx2));
-                gy1 = std::max(0, std::min(h - 1, gy1));
-                gy2 = std::max(0, std::min(h - 1, gy2));
-                g_val = (mosaic(gy1, gx1) + mosaic(gy2, gx2)) * 0.5f;
+                // Adjacent candidates (left, right, up, down)
+                const int cand_y[4] = {y, y, y - 1, y + 1};
+                const int cand_x[4] = {x - 1, x + 1, x, x};
+                bool found = false;
+                for (int i = 0; i < 4; ++i) {
+                    int yy = cand_y[i];
+                    int xx = cand_x[i];
+                    if (!in_bounds(yy, xx))
+                        continue;
+                    if (!is_green(yy, xx))
+                        continue;
+                    g_val = mosaic(yy, xx);
+                    found = true;
+                    break;
+                }
+                if (!found) {
+                    g_val = mosaic(clamp_y(y), clamp_x(x));
+                }
             }
 
             out.R(y, x) = r_val;

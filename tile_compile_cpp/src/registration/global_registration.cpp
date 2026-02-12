@@ -769,11 +769,9 @@ RegistrationResult robust_phase_ecc(const Matrix2Df &mov,
     // If ECC fails at coarse level, still try finer levels with current seed
   }
 
-  // ECC returns forward warp (M→R); invert to R→M for WARP_INVERSE_MAP
-  if (res.success) {
-    res.warp = invert_warp_2x3(res.warp);
-  }
-
+  // NOTE: OpenCV findTransformECC returns a warp that is intended to be used
+  // directly with warpAffine(..., WARP_INVERSE_MAP) to align moving→reference.
+  // Our apply_warp() also uses WARP_INVERSE_MAP, so we must NOT invert here.
   return res;
 }
 
@@ -1187,11 +1185,9 @@ RegistrationResult hybrid_phase_ecc(const Matrix2Df &mov, const Matrix2Df &ref,
 
   res = ecc_warp(mov_ecc, ref_ecc, allow_rotation, init, 200, 1e-6f);
 
-  // ECC returns forward warp (M→R); invert to R→M for WARP_INVERSE_MAP
-  if (res.success) {
-    res.warp = invert_warp_2x3(res.warp);
-  }
-
+  // NOTE: OpenCV findTransformECC returns a warp that is intended to be used
+  // directly with warpAffine(..., WARP_INVERSE_MAP) to align moving→reference.
+  // Our apply_warp() also uses WARP_INVERSE_MAP, so we must NOT invert here.
   return res;
 }
 
