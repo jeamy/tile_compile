@@ -165,7 +165,8 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
 
 VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
                                    float w_bg, float w_noise, float w_grad,
-                                   float clamp_lo, float clamp_hi) {
+                                   float clamp_lo, float clamp_hi,
+                                   bool adaptive_weights) {
     int n = metrics.size();
     VectorXf weights(n);
     
@@ -179,6 +180,42 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
     VectorXf bg_n = robust_normalize_median_mad(bg);
     VectorXf noise_n = robust_normalize_median_mad(noise);
     VectorXf grad_n = robust_normalize_median_mad(grad);
+
+    // Methodik 3.1E §3.2: adaptive variance-based weight adjustment
+    if (adaptive_weights && n > 2) {
+        // 1. Compute variance of each normalized metric across frames
+        auto variance_of = [](const VectorXf& v) -> float {
+            float mean = v.mean();
+            float var = (v.array() - mean).square().mean();
+            return var;
+        };
+
+        float var_bg = variance_of(bg_n);
+        float var_noise = variance_of(noise_n);
+        float var_grad = variance_of(grad_n);
+        float var_sum = var_bg + var_noise + var_grad;
+
+        if (var_sum > 1e-12f) {
+            // 2. Weights proportional to variance (higher variance → more discriminative)
+            float a_bg = var_bg / var_sum;
+            float a_noise = var_noise / var_sum;
+            float a_grad = var_grad / var_sum;
+
+            // 3. Clip to [0.1, 0.7]
+            constexpr float kMinW = 0.1f;
+            constexpr float kMaxW = 0.7f;
+            a_bg = std::min(std::max(a_bg, kMinW), kMaxW);
+            a_noise = std::min(std::max(a_noise, kMinW), kMaxW);
+            a_grad = std::min(std::max(a_grad, kMinW), kMaxW);
+
+            // 4. Renormalize to sum = 1
+            float s = a_bg + a_noise + a_grad;
+            w_bg = a_bg / s;
+            w_noise = a_noise / s;
+            w_grad = a_grad / s;
+        }
+        // else: all variances zero → keep static weights (fallback)
+    }
 
     VectorXf Q = w_bg * (-bg_n.array()) + w_noise * (-noise_n.array()) + w_grad * (grad_n.array());
 

@@ -151,51 +151,68 @@ Dieser Pfad ist:
      d) Höchste Gradientenergie (`gradient_energy`)
      e) Median-Frame in der zeitlichen Sequenz (Fallback)
 
-#### A.2.1.2 Registrierungskaskade (NEU)
+#### A.2.1.2 Registrierungskaskade (NEU, aktualisiert 2026-02-12)
 
-Für jedes Frame wird eine Kaskade von Registrierungsalgorithmen ausgeführt, bis eine erfolgreiche Registrierung erreicht ist:
+Für jedes Frame wird eine zweistufige Kaskade ausgeführt: zuerst die konfigurierte Primärmethode, dann eine feste Fallback-Kaskade.
 
 ```
 Für jedes Frame:
-  1. Versuche hybrid_phase_ecc
-  2. Falls fehlgeschlagen: robust_phase_ecc
-  3. Falls fehlgeschlagen: triangle_star_matching
-  4. Falls fehlgeschlagen: star_registration_similarity
-  5. Falls fehlgeschlagen: feature_registration_similarity
-  6. Falls alle fehlschlagen: Fallback auf Identitätstransformation mit Warnung
+  Primärmethode (konfigurierbar via registration.engine):
+    1a. triangle_star_matching  (Default)
+    1b. star_registration_similarity
+    [oder: opencv_feature / hybrid_phase_ecc je nach Config]
+
+  Fallback-Kaskade (fest, falls Primärmethode fehlschlägt):
+    2. trail_endpoint_registration  (Sternspuren bei Feldrotation)
+    3. feature_registration_similarity (AKAZE)
+    4. robust_phase_ecc  (Gradient-Preprocessing + Multi-Scale)
+    5. hybrid_phase_ecc  (Phase-Correlation + ECC)
+    6. Identitätstransformation mit Warnung
 ```
+
+**Begründung der Reihenfolge:** Geometrische Methoden (Sternmuster) sind schneller und robuster als ECC für typische Astro-Daten. ECC-Methoden dienen als Fallback für Fälle ohne erkennbare Sterne (z.B. starke Wolken, Nebel-dominierte Felder).
 
 Jeder erfolgreiche Registrierungsschritt wird durch **NCC (Normalized Cross Correlation)** validiert:
 - Berechnung der NCC zwischen registriertem Frame und Referenz
-- Vergleich mit unregistrierter Baseline-NCC
-- Akzeptanz nur bei signifikanter Verbesserung
+- Vergleich mit unregistrierter Baseline-NCC (ncc_identity)
+- Akzeptanz nur bei NCC > ncc_identity + 0.01 (signifikante Verbesserung)
 
-#### A.2.1.3 Registrierungsalgorithmen (NEU)
+#### A.2.1.3 Registrierungsalgorithmen (NEU, aktualisiert 2026-02-12)
 
-1. **hybrid_phase_ecc**:
-   - Kombination aus Phasenkorrelation und ECC
-   - Schätzung der groben Translation via Phasenkorrelation
-   - Verfeinung durch Enhanced Correlation Coefficient
-
-2. **robust_phase_ecc**:
-   - Robuste Version mit Ausreißererkennung
-   - Multi-Resolution-Ansatz für bessere Konvergenz
-   - Adaptive Schrittweite
-
-3. **triangle_star_matching**:
+1. **triangle_star_matching** (Primär-Default):
    - Geometrische Übereinstimmung von Sterndreiecken
    - Rotation und Translation werden geschätzt
    - RANSAC für robuste Estimation
+   - Hot-Pixel-Rejection in Sterndetektion (Konzentrations- und Rundheitsfilter)
 
-4. **star_registration_similarity**:
-   - RANSAC-basierte robuste Registrierung
-   - Direkte Sternpaarzuordnung
+2. **star_registration_similarity** (Primär-Fallback):
+   - Direkte Sternpaarzuordnung über Paar-Distanz-Matching
    - Similarity-Transformation (Rotation, Translation, Skalierung)
+   - Konfigurierbar: `star_dist_bin_px` für Binning-Toleranz
 
-5. **feature_registration_similarity**:
-   - Feature-basierte Registrierung (z.B. AKAZE, SIFT)
-   - Deskriptor-Matching
-   - Homographie-Schätzung
+3. **trail_endpoint_registration** (Fallback 1):
+   - Morphologischer Top-Hat (15×15 Ellipse) → Kontur-Extraktion → Endpunkt-Paare
+   - Für Sternspuren bei Feldrotation (Alt/Az-Montierungen)
+   - Kombiniert Trail-Endpunkte + reguläre Sterne
+   - Relaxierte Schwellwerte (inlier_tol × 2, min_inliers / 2)
+
+4. **feature_registration_similarity** (Fallback 2):
+   - AKAZE Feature-Detektion und Deskriptor-Matching
+   - Rotationsinvariant, keine Rotationsbegrenzung
+   - Similarity-Transformation via RANSAC
+
+5. **robust_phase_ecc** (Fallback 3):
+   - Gradient-Preprocessing: GaussianBlur(σ=2) → Laplacian → Normalisierung
+   - 3-Level Coarse-to-Fine Pyramide
+   - Gröbste Ebene: Phasenkorrelation + Log-Polar Rotationsschätzung
+   - ECC-Verfeinerung auf jeder Ebene
+   - Entfernt Nebel/Wolken-Gradienten durch Gradient-Preprocessing
+
+6. **hybrid_phase_ecc** (Fallback 4):
+   - Kombination aus Phasenkorrelation und ECC (Single-Scale)
+   - Schätzung der groben Translation via Phasenkorrelation
+   - Log-Polar Rotationsschätzung als ECC-Seed
+   - Verfeinung durch Enhanced Correlation Coefficient
 
 #### A.2.1.4 Anwendung der Transformationen
 
@@ -1187,43 +1204,42 @@ Die Registrierungskaskade ist ein kritischer Erfolgsfaktor. Empfohlene Implement
    - Histogrammnormalisierung auf [0,1]
    - Optional: Downsampling für Geschwindigkeit
 
-2. **Kaskade mit frühem Abbruch**:
+2. **Kaskade mit frühem Abbruch** (aktualisiert 2026-02-12):
    ```python
-   # Pseudocode
-   def register_with_cascade(moving, reference):
-       # 1. Start mit schnellstem Verfahren
-       result = hybrid_phase_ecc(moving, reference)
-       if result.success and validate_ncc(result):
+   # Pseudocode (entspricht register_single_frame() in global_registration.cpp)
+   def register_with_cascade(moving, reference, config):
+       ncc_identity = compute_ncc(moving, reference)
+       
+       def try_method(result, method_name):
+           if not result.success: return False
+           warped = apply_warp(moving, result.warp)
+           ncc = compute_ncc(warped, reference)
+           return ncc > ncc_identity + 0.01  # signifikante Verbesserung
+       
+       # 1. Primärmethode (konfigurierbar, Default: triangle)
+       if try_method(triangle_star_matching(moving, reference), "triangle"):
+           return result
+       if try_method(star_registration_similarity(moving, reference), "star_pair"):
            return result
        
-       # 2. Robusteres Phasen-ECC
-       result = robust_phase_ecc(moving, reference)
-       if result.success and validate_ncc(result):
+       # 2. Fallback-Kaskade (fest)
+       if try_method(trail_endpoint_registration(moving, reference), "trail_endpoint"):
            return result
-           
-       # 3. Geometrische Verfahren für schwierige Fälle
-       result = triangle_star_matching(moving, reference)
-       if result.success and validate_ncc(result):
+       if try_method(feature_registration_similarity(moving, reference), "akaze"):
            return result
-           
-       # 4. Direkte Sternpaarzuordnung
-       result = star_registration_similarity(moving, reference)
-       if result.success and validate_ncc(result):
+       if try_method(robust_phase_ecc(moving, reference), "robust_phase_ecc"):
            return result
-           
-       # 5. Feature-basierte Methoden
-       result = feature_registration_similarity(moving, reference)
-       if result.success and validate_ncc(result):
+       if try_method(hybrid_phase_ecc(moving, reference), "hybrid_phase_ecc"):
            return result
-           
-       # 6. Fallback auf Identität mit Warnung
+       
+       # 3. Fallback auf Identität
        return identity_with_warning()
    ```
 
 3. **Validierung jeder Registrierung**:
    - NCC vor und nach der Transformation berechnen
-   - Mindestverbesserung von 10% fordern
-   - Visuelle Kontrolle (optional): Differenzbild vorher/nachher
+   - Akzeptanz nur bei NCC > ncc_identity + 0.01
+   - Diagnostik-Logging für erste 3 Frames (Sternzahlen, NCC-Werte, Methoden-Ergebnisse)
 
 4. **Parameter-Tuning**:
    - Für jede Methode eigene Parameter optimal wählen
