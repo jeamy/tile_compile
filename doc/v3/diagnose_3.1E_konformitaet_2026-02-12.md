@@ -166,27 +166,14 @@ stride_px = seeing_tile_size - overlap_px;
 
 Bei typischem FWHM=3.5px ergibt sich T_0 = 32 × 3.5 = 112px. Das ist vernünftig (~32 PSF-Durchmesser pro Tile).
 
-### 2.2 FWHM-Probing für Tile-Größe — suboptimal
+### 2.2 ~~FWHM-Probing für Tile-Größe~~ — ✅ BEHOBEN (2026-02-12)
 
-**C++ (runner_main.cpp:729–749):** Es werden bis zu 5 Frames geprobt, aber der **erste erfolgreiche Messwert wird verwendet** (`break` bei fwhm > 0):
-```cpp
-if (fwhm > 0.0f) {
-    seeing_fwhm_med = fwhm;
-    break;  // ← Nur 1 Frame!
-}
-```
+~~**Nur der erste erfolgreiche Messwert wurde verwendet (`break` bei fwhm > 0).**~~
 
-**Bewertung:** Einzelmessung ist fragil. Methodik sagt "robuste FWHM-Schätzung (z.B. Median über viele Sterne **und Frames**)".
-
-**Empfehlung:** Alle 5 Probes sammeln, Median nehmen:
-```cpp
-std::vector<float> fwhm_probes;
-for (...) {
-    float fwhm = measure_fwhm_from_image(img);
-    if (fwhm > 0.0f) fwhm_probes.push_back(fwhm);
-}
-seeing_fwhm_med = fwhm_probes.empty() ? 3.0f : core::median_of(fwhm_probes);
-```
+→ ✅ Alle 5 Probes werden gesammelt, Median genommen:
+- `fwhm_probes` Vektor sammelt alle erfolgreichen Messungen (fwhm > 0 && isfinite)
+- `seeing_fwhm_med = core::median_of(fwhm_probes)` — robuster Median über bis zu 5 Frames
+- Fallback auf 3.0f nur wenn alle Probes fehlschlagen
 
 ### 2.3 Gewichtung: Effektives Gewicht W_f,t = G_f · L_f,t — KORREKT
 
