@@ -166,7 +166,8 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
 VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
                                    float w_bg, float w_noise, float w_grad,
                                    float clamp_lo, float clamp_hi,
-                                   bool adaptive_weights) {
+                                   bool adaptive_weights,
+                                   float weight_exponent_scale) {
     int n = metrics.size();
     VectorXf weights(n);
     
@@ -219,9 +220,12 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
 
     VectorXf Q = w_bg * (-bg_n.array()) + w_noise * (-noise_n.array()) + w_grad * (grad_n.array());
 
+    // Apply exponent scale: G_f = exp(k · Q_f) where k = weight_exponent_scale.
+    // k > 1 increases differentiation between good and bad frames.
+    float k = (weight_exponent_scale > 0.0f) ? weight_exponent_scale : 1.0f;
     for (int i = 0; i < n; ++i) {
         float qc = std::min(std::max(Q[i], clamp_lo), clamp_hi);
-        weights[i] = std::exp(qc);
+        weights[i] = std::exp(k * qc);
     }
 
     // NOTE: Do NOT normalize weights to sum=1.

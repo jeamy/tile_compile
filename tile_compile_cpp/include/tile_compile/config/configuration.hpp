@@ -114,6 +114,7 @@ struct GlobalMetricsConfig {
   } weights;
   std::array<float, 2> clamp{-3.0f, 3.0f};
   bool adaptive_weights = false;
+  float weight_exponent_scale = 1.0f; // G_f = exp(k · Q_f), k>1 → stronger differentiation
 };
 
 struct TileConfig {

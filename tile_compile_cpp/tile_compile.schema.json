@@ -140,6 +140,11 @@
       "type": "object",
       "properties": {
         "adaptive_weights": { "type": "boolean" },
+        "weight_exponent_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames. E.g. k=1.5 gives typical ratio ~20:1, k=2.0 gives ~54:1."
+        },
         "weights": {
           "type": "object",
           "properties": {

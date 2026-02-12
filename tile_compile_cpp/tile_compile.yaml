@@ -82,6 +82,7 @@ tile_denoise:
 global_metrics:
   enabled: true
   adaptive_weights: true
+  weight_exponent_scale: 1.5  # k for G_f = exp(k * Q_f). k=1.0 standard, k>1 stronger differentiation. 1.5 recommended.
   weights:
     background: 0.4
     noise: 0.3
