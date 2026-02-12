@@ -186,35 +186,18 @@ weights_valid.push_back(G_f * L_ft);
 
 **Bewertung:** ✅ Konform mit §3.5: `W_f,t = G_f · L_f,t`.
 
-### 2.4 Balance gute/schlechte Tiles — VERBESSERUNGSWÜRDIG
+### 2.4 ~~Balance gute/schlechte Tiles~~ — ✅ IMPLEMENTIERT (2026-02-12)
 
-**Aktuelles Verhalten:**
-- Q_f und Q_local werden auf [-3, +3] geklemmt
-- Gewicht = exp(Q), also Bereich [exp(-3), exp(+3)] = [0.050, 20.09]
-- **Verhältnis bestes:schlechtestes = 403:1**
+~~**Fester exp(Q) ohne skalierbaren Exponenten → moderate Differenzierung.**~~
 
-Das klingt stark, aber in der Praxis:
-- Die meisten Frames/Tiles haben Q nahe 0 (z-Score-Normalisierung → median=0)
-- Die Clamping-Grenzen [-3, +3] bedeuten 3σ-Ausreißer = Maximum
-- Typische Spread: exp(-1) bis exp(+1) = [0.37, 2.72] → **Verhältnis 7.4:1**
-
-**Problem:** Sehr gute Tiles (Q > +1) bekommen nur moderat mehr Gewicht. Die exponentielle Funktion mit Clamping bei ±3 ist konservativ.
-
-**Vorschläge für stärkere Differenzierung:**
-
-1. **Steilerer Exponent:** `G_f = exp(k · Q_f)` mit k > 1 (z.B. k=1.5 oder k=2)
-   - k=2: Verhältnis exp(-6):exp(+6) = 162755:1, typisch exp(-2):exp(+2) = [0.14, 7.39] → 54:1
-   - Konfigurierbar als `global_metrics.exponent_scale`
-
-2. **Asymmetrisches Clamping:** [-4, +3] statt [-3, +3]
-   - Schlechte Tiles stärker heruntergewichten als gute hochgewichten
-   - Physikalisch sinnvoll: ein schlechtes Tile (Wolke, Tracking-Fehler) hat keinen Informationsgehalt
-
-3. **Power-Law statt Exponential:** `G_f = max(0, Q_f + shift)^p` mit p > 1
-   - Natürlichere Spread-Kontrolle
-   - Aber: negative Gewichte müssen vermieden werden
-
-**Empfehlung:** Option 1 (skalierbarer Exponent) ist am einfachsten und effektivsten. Neuer Config-Parameter `weight_exponent_scale` (Default 1.0 für Rückwärtskompatibilität).
+→ ✅ Option 1 (skalierbarer Exponent) implementiert:
+- `G_f = exp(k · Q_f)` mit konfigurierbarem `k = weight_exponent_scale`
+- Config: `global_metrics.weight_exponent_scale` (Default 1.0 für Rückwärtskompatibilität)
+- Empfohlener Wert: k=1.5 (in tile_compile.yaml gesetzt)
+  - Typisches Verhältnis bei k=1.5: exp(-1.5):exp(+1.5) = [0.22, 4.48] → **20:1**
+  - vs. k=1.0: exp(-1):exp(+1) = [0.37, 2.72] → **7.4:1**
+- Alle 3 Schema-Dateien (JSON, YAML, inline) mit Beschreibung aktualisiert
+- Validation: k > 0 erzwungen
 
 ### 2.5 Lokale Gewichtung: STAR vs. STRUCTURE — Schwäche bei FWHM-dominierter Formel
 
