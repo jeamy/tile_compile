@@ -245,7 +245,10 @@ Nach erfolgreichem Lauf unter `runs/<run_id>/`:
 
 ### 8) Diagnose-Report (`generate_report.py`)
 
-Erzeugt einen HTML-Report mit matplotlib-Diagrammen für einen abgeschlossenen Pipeline-Lauf.
+Erzeugt einen HTML-Report für einen abgeschlossenen Pipeline-Lauf.
+
+- Links **2/3**: Diagramme / Heatmaps
+- Rechts **1/3**: Erklärung / Interpretation (was ist gut/schlecht, typische Ursachen)
 
 ```bash
 python3 generate_report.py /path/to/runs/<run_id>
@@ -253,7 +256,11 @@ python3 generate_report.py /path/to/runs/<run_id>
 
 **Ausgabe:** `<run_dir>/artifacts/report.html` + `report.css` + `*.png`
 
-**Abhängigkeiten:** `numpy`, `matplotlib` (Pflicht für Plots), `pyyaml` (optional, für Config-Anzeige)
+**Abhängigkeiten:**
+
+- `numpy`
+- `matplotlib` (optional; ohne `matplotlib` wird der Report **ohne Plots**, aber mit Text-Auswertung erzeugt)
+- `pyyaml` (optional; für die Anzeige von `config.yaml` im Report)
 
 #### Datenquellen
 
@@ -272,11 +279,15 @@ Das Script liest folgende JSON-Artifacts aus `<run_dir>/artifacts/`:
 | `validation.json` | FWHM-Verbesserung, Tile-Pattern-Check |
 | `logs/run_events.jsonl` | Phase-Start/End-Timestamps für Timeline |
 
+Zusätzlich werden aus `run_events.jsonl` Frame-Zahlen und Ausschussgründe extrahiert (z.B. Linearität / Registrierung).
+
 #### Report-Sektionen und Diagramme
 
 | Sektion | Diagramme | Beschreibung |
 |---------|-----------|-------------|
 | **Pipeline Timeline** | `pipeline_timeline.png` | Horizontales Balkendiagramm der Phasendauern |
+| **Frame Usage** | `frame_usage_funnel.png` | Funnel: Frames entdeckt → nach Linearität → registriert nutzbar → synthetische Frames |
+| | `frame_loss_breakdown.png` | Verlust nach Ursache (Linearität / Registrierung / verwendet) |
 | **Normalization** | `norm_background_*.png` | Hintergrundlevel-Verlauf (Mono oder R/G/B) |
 | **Global Metrics** | `global_background.png` | Hintergrund pro Frame |
 | | `global_noise.png` | Rauschpegel pro Frame |
@@ -334,15 +345,22 @@ generate_report.py
 │   ├── _gen_clustering()          → clustering_*.png
 │   ├── _gen_synthetic()           → (nur Text)
 │   ├── _gen_validation()          → validation_summary.png
-│   └── _gen_timeline()            → pipeline_timeline.png
-├── HTML/CSS-Ausgabe:
-│   ├── _write_css()               — Dark-Theme CSS (Tokyo Night)
-│   ├── _make_card_html()          — Card mit PNGs + Statistik-Liste
-│   └── _write_html()             — Kompletter HTML-Report
+│   ├── _gen_timeline()            → pipeline_timeline.png
+│   ├── _gen_frame_usage()         → frame_usage_funnel.png, frame_loss_breakdown.png
+│
+│   ├── HTML/CSS-Ausgabe:
+│   │   ├── _write_css()               — Dark-Theme CSS (Tokyo Night)
+│   │   ├── _make_card_html()          — Card mit 2/3+1/3 Layout (Charts + Erklärung) + Statistik-Block
+│   │   └── _write_html()             — Kompletter HTML-Report
 └── generate_report() / main()     — Orchestrierung
 ```
 
-Jeder Sektions-Generator gibt `(png_files, eval_lines)` zurück. Die eval_lines enthalten Statistiken und Warnungen (z.B. `WARNING: low roundness`). Wenn `matplotlib` nicht installiert ist, werden nur die Textauswertungen ohne Diagramme generiert.
+Jeder Sektions-Generator gibt `(png_files, eval_lines, explanations)` zurück.
+
+- `eval_lines` enthalten Statistiken und Warnungen (z.B. `WARNING: low roundness`).
+- `explanations` liefert pro PNG eine HTML-Erklärung/Interpretation.
+
+Wenn `matplotlib` nicht installiert ist, werden nur die Textauswertungen ohne Diagramme generiert.
 
 ## Calibration (Bias/Darks/Flats)
 
