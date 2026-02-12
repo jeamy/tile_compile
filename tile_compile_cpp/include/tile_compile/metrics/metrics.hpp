@@ -10,7 +10,8 @@ FrameMetrics calculate_frame_metrics(const Matrix2Df& frame);
 
 VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
                                  float w_bg, float w_noise, float w_grad,
-                                 float clamp_lo = -3.0f, float clamp_hi = 3.0f);
+                                 float clamp_lo = -3.0f, float clamp_hi = 3.0f,
+                                 bool adaptive_weights = false);
 
 // Estimate FWHM from a small image patch (e.g. around a detected star)
 float estimate_fwhm_from_patch(const cv::Mat& patch);

@@ -10,50 +10,31 @@
 
 ## Teil 1: Abweichungen C++ Source vs. Methodik 3.1E
 
-### 1.1 Registrierungskaskade — Reihenfolge weicht ab
+### 1.1 ~~Registrierungskaskade — Reihenfolge weicht ab~~ — ✅ SPEZIFIKATION AKTUALISIERT (2026-02-12)
 
-**Methodik 3.1E (§A.2.1.2 + Anhang A.10):**
-```
-1. hybrid_phase_ecc
-2. robust_phase_ecc
-3. triangle_star_matching
-4. star_registration_similarity
-5. feature_registration_similarity (AKAZE)
-6. Identity Fallback
-```
+~~**Methodik 3.1E hatte ECC-Methoden vor geometrischen Methoden.**~~
 
-**C++ Implementierung (global_registration.cpp:1279–1337):**
-```
-1. Primary engine (triangle_star_matching → star_pair) [oder akaze/hybrid_phase_ecc je nach config]
-2. trail_endpoint_registration (NEU, nicht in 3.1E)
-3. feature_registration_similarity (AKAZE)
-4. robust_phase_ecc
-5. hybrid_phase_ecc
-6. Identity Fallback
-```
-
-**Bewertung:** Die Implementierung ist sinnvoller als die Spezifikation. Geometrische Methoden (Sternmuster) sind schneller und robuster als ECC für typische Astro-Daten. Die 3.1E-Reihenfolge (ECC zuerst) ist für die meisten Fälle suboptimal. `trail_endpoint_registration` fehlt in 3.1E komplett — sollte nachgetragen werden.
-
-**Empfehlung:** 3.1E an Code anpassen, nicht umgekehrt.
+→ ✅ Methodik 3.1E (§A.2.1.2, §A.2.1.3, §A.10) an C++ Implementierung angepasst:
+- Zweistufige Kaskade: Primärmethode (konfigurierbar) + feste Fallback-Kaskade
+- Reihenfolge: triangle → star_pair → trail_endpoint → AKAZE → robust_phase_ecc → hybrid_phase_ecc → Identity
+- `trail_endpoint_registration` als neuer Algorithmus dokumentiert (§A.2.1.3 Punkt 3)
+- NCC-Validierung mit Schwelle ncc_identity + 0.01 spezifiziert
+- Pseudocode in §A.10 entspricht jetzt `register_single_frame()` in global_registration.cpp
 
 ---
 
-### 1.2 Adaptive Gewichtung — NICHT implementiert
+### 1.2 ~~Adaptive Gewichtung~~ — ✅ IMPLEMENTIERT (2026-02-12)
 
-**Methodik 3.1E (§3.2):** Spezifiziert varianzbasierte adaptive Gewichtung:
-```
-α' = Var(B) / (Var(B) + Var(σ) + Var(E))   etc.
-```
-Mit Constraints [0.1, 0.7] und Renormalisierung.
+~~**Kein Code implementierte die varianzbasierte Anpassung.**~~
 
-**C++ (metrics.cpp:166–193 + configuration.hpp:104):**
-- `adaptive_weights` Config-Feld existiert (`bool`, default `false`)
-- Wird in `global_metrics.json` geschrieben (Zeile 711)
-- **Aber: Kein Code implementiert die varianzbasierte Anpassung.** `calculate_global_weights()` verwendet immer die statischen Gewichte aus der Config.
+→ ✅ Implementiert in `calculate_global_weights()` (metrics.cpp) exakt nach Methodik 3.1E §3.2:
+1. Varianz der normalisierten Metriken berechnen: `Var(B̃)`, `Var(σ̃)`, `Var(Ẽ)`
+2. Gewichte proportional zur Varianz: `α' = Var(B̃) / (Var(B̃) + Var(σ̃) + Var(Ẽ))`
+3. Clip auf [0.1, 0.7] pro Gewicht
+4. Renormalisierung auf Σ = 1
+5. Fallback auf statische Config-Gewichte bei Var = 0
 
-**Bewertung:** Feature-Lücke. Die adaptive Gewichtung könnte besonders bei inhomogenen Sessions (wechselnde Wolken, variable Transparenz) signifikante Qualitätsverbesserungen bringen.
-
-**Empfehlung:** Implementieren in `calculate_global_weights()` wenn `adaptive_weights == true`.
+Aktivierung via `adaptive_weights: true` in Config (metrics.hpp Signatur + runner_main.cpp Aufruf erweitert).
 
 ---
 
@@ -70,36 +51,20 @@ Mit Constraints [0.1, 0.7] und Renormalisierung.
 
 ---
 
-### 1.4 Tile-Normalisierung vor Overlap-Add — NICHT implementiert
+### 1.4 ~~Tile-Normalisierung vor Overlap-Add~~ — ✅ IMPLEMENTIERT (2026-02-12)
 
-**Methodik 3.1E (§3.6 + Anhang A.6):**
-```
-1. Hintergrund subtrahieren: T'_t = T_t - median(T_t)
-2. Normalisieren: T''_t = T'_t / median(|T'_t|)  (falls median > ε)
-3. Fensterfunktion anwenden
-4. Overlap-Add
-```
+~~**Keine Hintergrund-Subtraktion, keine Median-Normalisierung pro Tile vor dem Overlap-Add.**~~
 
-**C++ (runner_main.cpp:1628–1650):**
-```cpp
-// Overlap-Add direkt mit Hanning-Fenster:
-float win = hann_y[yy] * hann_x[xx];
-recon(iy, ix) += tile_rec(yy, xx) * win;
-weight_sum(iy, ix) += win;
-```
-**Keine Hintergrund-Subtraktion, keine Median-Normalisierung pro Tile vor dem Overlap-Add.**
-
-**Bewertung:** Dies ist eine **signifikante Abweichung**. Ohne Tile-Normalisierung können benachbarte Tiles mit unterschiedlichen Hintergrundniveaus Patchwork-Artefakte (Helligkeitsstufen an Tile-Grenzen) erzeugen. Die Hanning-Fenster mildern das ab, eliminieren es aber nicht vollständig.
-
-**Empfehlung:** Vor dem Overlap-Add pro rekonstruiertem Tile:
-```cpp
-float bg = core::median_of(tile_pixels);
-tile_rec -= bg;
-float med_abs = core::median_of(abs_tile_pixels);
-if (med_abs > 1e-6f) tile_rec /= med_abs;
-// dann: Hanning-gewichtetes Overlap-Add
-// nach Overlap-Add: globalen Hintergrund wiederherstellen
-```
+→ ✅ Implementiert in `runner_main.cpp` Phase 6 exakt nach Methodik 3.1E §3.6:
+1. **Pro Tile** (vor Hanning-Fenster): `normalize_tile_for_ola()` Lambda:
+   - `bg = median(T)` via `nth_element` (O(n) partial sort)
+   - `T' = T - bg` (Hintergrund subtrahieren)
+   - `med_abs = median(|T'|)` → `T'' = T' / med_abs` (Skalennormalisierung)
+   - Gibt `bg` zurück für spätere Restaurierung
+   - Angewendet auf mono `tile_rec` und OSC `tile_rec_R/G/B`
+2. **Nach Overlap-Add**: Globaler Hintergrund restauriert:
+   - Median aller validen Tile-Hintergründe berechnet
+   - Auf gesamte Rekonstruktion addiert (mono und OSC R/G/B)
 
 ---
 
@@ -152,41 +117,22 @@ E = median(|∇I|²)  [robustere Alternative]
 
 ---
 
-### 1.8 FWHM-Messung: tile_metrics.cpp verwendet Pixel-Counting statt PSF-Fit
+### 1.8 ~~FWHM-Messung~~ — ✅ BEHOBEN (2026-02-12)
 
-**Methodik 3.1E (§3.4):** Spezifiziert PSF-Fit oder Radialprofil, explizit **kein log(FWHM)**.
+~~**C++ (tile_metrics.cpp:23–35):** `compute_fwhm_proxy()` verwendete Half-Maximum Pixel-Counting.~~
 
-**C++ (tile_metrics.cpp:23–35):** `compute_fwhm_proxy()` verwendet Half-Maximum Pixel-Counting:
-```cpp
-float half_max = 0.5f * peak;
-int count = 0;
-for (...) { if (tile.data()[k] >= half_max) ++count; }
-return sqrt(count / π);
-```
-
-**Im Gegensatz dazu** verwendet `metrics.cpp` (globale FWHM) den korrekten `fit_1d_fwhm()` mit gewichtetem 2. Moment → Gauss-Fit.
-
-**Bewertung:** **Inkonsistenz.** Die lokale Tile-FWHM (tile_metrics.cpp) ist deutlich weniger präzise als die globale FWHM-Messung. Für unterabgetastete Sterne (DWARFII ~3"/px) liefert die Pixel-Counting-Methode systematisch zu niedrige oder quantisierte FWHM-Werte. Das beeinflusst direkt die STAR-Tile Qualitätsmetrik (Q_star hat FWHM-Gewicht 0.6!).
-
-**Empfehlung:** `tile_metrics.cpp` sollte dieselbe `fit_1d_fwhm()`-Methode verwenden wie `metrics.cpp`. Das erfordert Sternfindung innerhalb des Tiles (via `goodFeaturesToTrack` auf dem Residualbild, das bereits berechnet wird) und 1D-Gauss-Fit pro gefundenem Stern.
+→ ✅ Ersetzt durch denselben `fit_1d_fwhm()` Algorithmus wie `metrics.cpp`: Gewichtetes 2. Moment → σ → FWHM = 2.3548·σ. Sternfindung via `goodFeaturesToTrack` auf Residualbild, 11×11 Patches pro Stern, 1D Gauss-Fit in X und Y, geometrisches Mittel. Median über alle Sterne im Tile. `star_count` reflektiert jetzt die Anzahl der erfolgreich gemessenen Sterne (nicht Corner-Count).
 
 ---
 
-### 1.9 Lokale Tile-Metriken: Rundheit und Kontrast-Proxies sind grob
+### 1.9 ~~Lokale Tile-Metriken: Rundheit und Kontrast~~ — ✅ BEHOBEN (2026-02-12)
 
-**Methodik 3.1E (§3.4):**
-- Rundheit: "Verhältnis der Hauptachsen einer elliptischen Anpassung"
-- Kontrast: "Stern-Signal / Hintergrund"
+~~**C++ (tile_metrics.cpp:37–81):** `compute_roundness_proxy()` und `compute_contrast_proxy()` waren grobe Approximationen.~~
 
-**C++ (tile_metrics.cpp:37–81):**
-- `compute_roundness_proxy()`: Findet Peak-Pixel, sammelt Pixel mit exakt Peak-Wert, berechnet Std-Dev der Koordinaten → `1/(1+spread)`. Das ist kein Achsenverhältnis und funktioniert schlecht bei breiten Sternen.
-- `compute_contrast_proxy()`: `(max - min) / (max + min)` — Michelson-Kontrast, nicht Signal/Hintergrund. Sehr anfällig für Ausreißer.
-
-**Bewertung:** Beide Proxies sind deutlich schwächer als die Spezifikation verlangt. Die Qualitätsmetrik Q_star (0.2·R + 0.2·C) wird dadurch weniger diskriminativ.
-
-**Empfehlung:**
-- Rundheit: Wie in `metrics.cpp` (estimate_fwhm_xy) → FWHMy/FWHMx pro Stern
-- Kontrast: peak_flux / median(background_pixels) im Tile
+→ ✅ Beide Proxies durch stern-basierte Messungen ersetzt:
+- **Rundheit:** `min(FWHM_x, FWHM_y) / max(FWHM_x, FWHM_y)` pro Stern → Median. Echtes Achsenverhältnis wie in `metrics.cpp` (estimate_fwhm_xy).
+- **Kontrast:** `peak_flux / background` pro Stern → Median. Signal/Hintergrund wie in 3.1E spezifiziert.
+- Alle drei Metriken (FWHM, Rundheit, Kontrast) werden aus derselben Sternmessung berechnet — ein Durchlauf statt drei separater Proxies.
 
 ---
 

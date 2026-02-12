@@ -75,7 +75,7 @@ wiener_denoise:
   max_iterations: 10
 global_metrics:
   enabled: true
-  adaptive_weights: false
+  adaptive_weights: true
   weights:
     background: 0.4
     noise: 0.3
