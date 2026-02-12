@@ -15,6 +15,7 @@ htmlcov/
 # C++ build
 tile_compile_cpp/build/
 tile_compile_cpp/cmake-build-*/
+tile_compile_cpp/.cache
 *.o
 *.a
 *.so
