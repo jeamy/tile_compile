@@ -1633,6 +1633,65 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       tile_mean_dx[ti] = 0.0f;
       tile_mean_dy[ti] = 0.0f;
 
+      // Methodik 3.1E §3.3.1: Tile denoising after stacking, before OLA.
+      // 1. Soft-Threshold (Highpass + shrinkage) — always first (spatial domain)
+      bool is_star = (ti < tile_is_star.size()) && tile_is_star[ti];
+      if (cfg.tile_denoise.soft_threshold.enabled &&
+          !(cfg.tile_denoise.soft_threshold.skip_star_tiles && is_star)) {
+        tile_rec = reconstruction::soft_threshold_tile_filter(
+            tile_rec, cfg.tile_denoise.soft_threshold);
+        if (osc_mode) {
+          tile_rec_R = reconstruction::soft_threshold_tile_filter(
+              tile_rec_R, cfg.tile_denoise.soft_threshold);
+          tile_rec_G = reconstruction::soft_threshold_tile_filter(
+              tile_rec_G, cfg.tile_denoise.soft_threshold);
+          tile_rec_B = reconstruction::soft_threshold_tile_filter(
+              tile_rec_B, cfg.tile_denoise.soft_threshold);
+        }
+      }
+
+      // 2. Wiener filter (frequency domain) — applied after soft-threshold
+      float tile_noise = (ti < tile_quality_median.size())
+                             ? tile_quality_median[ti]
+                             : 0.0f;
+      float tile_snr = (tile_post_snr.size() > ti) ? tile_post_snr[ti] : 0.0f;
+      float tile_q = (ti < tile_quality_median.size())
+                          ? tile_quality_median[ti]
+                          : 0.0f;
+      if (cfg.tile_denoise.wiener.enabled) {
+        // Estimate noise from tile residual for Wiener filter
+        auto estimate_tile_noise = [](const Matrix2Df &t_img) -> float {
+          if (t_img.size() <= 0) return 0.0f;
+          cv::Mat m(t_img.rows(), t_img.cols(), CV_32F,
+                    const_cast<float *>(t_img.data()));
+          cv::Mat bg_m;
+          cv::blur(m, bg_m, cv::Size(31, 31), cv::Point(-1, -1),
+                   cv::BORDER_REFLECT_101);
+          cv::Mat r = m - bg_m;
+          cv::Scalar mu, sd;
+          cv::meanStdDev(r, mu, sd);
+          return static_cast<float>(sd[0]);
+        };
+        float sigma_est = estimate_tile_noise(tile_rec);
+        tile_rec = reconstruction::wiener_tile_filter(
+            tile_rec, sigma_est, tile_snr, tile_q, is_star,
+            cfg.tile_denoise.wiener);
+        if (osc_mode) {
+          float sig_r = estimate_tile_noise(tile_rec_R);
+          tile_rec_R = reconstruction::wiener_tile_filter(
+              tile_rec_R, sig_r, tile_snr, tile_q, is_star,
+              cfg.tile_denoise.wiener);
+          float sig_g = estimate_tile_noise(tile_rec_G);
+          tile_rec_G = reconstruction::wiener_tile_filter(
+              tile_rec_G, sig_g, tile_snr, tile_q, is_star,
+              cfg.tile_denoise.wiener);
+          float sig_b = estimate_tile_noise(tile_rec_B);
+          tile_rec_B = reconstruction::wiener_tile_filter(
+              tile_rec_B, sig_b, tile_snr, tile_q, is_star,
+              cfg.tile_denoise.wiener);
+        }
+      }
+
       auto [c, b, s] = compute_post_warp_metrics(tile_rec);
       tile_post_contrast[ti] = c;
       tile_post_background[ti] = b;

@@ -28,6 +28,10 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
                                    float sigma_low, float sigma_high,
                                    int max_iters, float min_fraction);
 
+// Highpass + Soft-Threshold denoising for a single tile (Methodik 3.1E §3.3.1)
+Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
+                                      const config::SoftThresholdConfig& cfg);
+
 // Generate a 1D Hann (raised cosine) window of length n.
 std::vector<float> make_hann_1d(int n);
 

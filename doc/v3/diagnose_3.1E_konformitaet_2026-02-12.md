@@ -38,16 +38,15 @@ Aktivierung via `adaptive_weights: true` in Config (metrics.hpp Signatur + runne
 
 ---
 
-### 1.3 Wiener-Filter für Tiles — NICHT im Runner aktiviert
+### 1.3 ~~Wiener-Filter für Tiles~~ — ✅ AKTIVIERT (2026-02-12)
 
-**Methodik 3.1E (§3.3.1):** Spezifiziert `wiener_tile_filter` mit selektiver Anwendung.
+~~**`wiener_tile_filter()` wurde nirgends im Runner aufgerufen — Dead Code.**~~
 
-**C++ Implementierung:**
-- `reconstruction::wiener_tile_filter()` ist vollständig implementiert (reconstruction.cpp:53–110)
-- `tile_quality_median` und `tile_is_star` werden berechnet (runner_main.cpp:1323–1338, Kommentar: "for Wiener denoise gating")
-- **Aber: `wiener_tile_filter()` wird nirgends im Runner aufgerufen!**
-
-**Bewertung:** Dead code. Die Infrastruktur (Gating-Metriken) ist da, aber der eigentliche Filteraufruf fehlt. Sollte in Phase 6 TILE_RECONSTRUCTION vor oder nach dem gewichteten Stacking pro Tile eingefügt werden.
+→ ✅ Aktiviert in `runner_main.cpp` Phase 6 nach Sigma-Clip-Stacking:
+- Rauschschätzung per Tile via `meanStdDev` auf Residualbild (box-blur subtrahiert)
+- Gating: `is_star_tile`, `snr_threshold`, `q_min`/`q_max` — wie in Methodik 3.1E §3.3.1 spezifiziert
+- Angewendet auf mono `tile_rec` und OSC `tile_rec_R/G/B`
+- Config: `tile_denoise.wiener` (neue Struktur, legacy `wiener_denoise` weiterhin unterstützt)
 
 ---
 
@@ -87,19 +86,22 @@ Das Config-Feld `synthetic.weighting` existiert (configuration.hpp:137), wird ab
 
 ---
 
-### 1.6 Highpass + Soft-Threshold Rauschunterdrückung — NICHT implementiert
+### 1.6 ~~Highpass + Soft-Threshold Rauschunterdrückung~~ — ✅ IMPLEMENTIERT (2026-02-12)
 
-**Methodik 3.1E (§3.3.1):** Spezifiziert als Basis-Methode:
-```
-B_t = box_blur(T_t, k)
-R_t = T_t - B_t
-σ_t = 1.4826 · median(|R_t - median(R_t)|)
-τ = α · σ_t
-R'_t = sign(R_t) · max(|R_t| - τ, 0)
-T'_t = B_t + R'_t
-```
+~~**Weder die Basis-Methode (Soft-Threshold) noch die Config dafür existierte.**~~
 
-**C++ Implementierung:** Weder die Basis-Methode (Soft-Threshold) noch die Config dafür existiert. Nur der Wiener-Filter ist implementiert (aber nicht aufgerufen).
+→ ✅ Vollständig implementiert exakt nach Methodik 3.1E §3.3.1:
+- `reconstruction::soft_threshold_tile_filter()` in reconstruction.cpp:
+  1. `B = box_blur(T, k)` — Hintergrund-Schätzung (k=31 default)
+  2. `R = T - B` — Highpass-Residuum
+  3. `σ = 1.4826 · median(|R - median(R)|)` — robuste MAD-Rauschschätzung
+  4. `τ = α · σ` — Schwellwert (α=1.5 default)
+  5. `R' = sign(R) · max(|R| - τ, 0)` — Soft-Threshold Shrinkage
+  6. `T' = B + R'` — Rekonstruktion
+- Config: `tile_denoise.soft_threshold` mit `enabled`, `blur_kernel`, `alpha`, `skip_star_tiles`
+- Aktiviert in Phase 6 **vor** Wiener-Filter (spatial → frequency domain Reihenfolge)
+- Star-Tile Gating: `skip_star_tiles: true` (default) schützt Sterndetails
+- Schema: `tile_compile.schema.json` + inline Schema aktualisiert
 
 ---
 

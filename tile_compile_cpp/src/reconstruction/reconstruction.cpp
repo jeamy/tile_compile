@@ -120,6 +120,76 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
     return out;
 }
 
+Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
+                                      const config::SoftThresholdConfig& cfg) {
+    if (!cfg.enabled) return tile;
+    const int h = tile.rows();
+    const int w = tile.cols();
+    if (h <= 0 || w <= 0) return tile;
+
+    // 1. Background estimation via box blur
+    cv::Mat tile_cv(h, w, CV_32F, const_cast<float*>(tile.data()));
+    cv::Mat bg;
+    int k = cfg.blur_kernel | 1; // ensure odd
+    cv::blur(tile_cv, bg, cv::Size(k, k), cv::Point(-1, -1),
+             cv::BORDER_REFLECT_101);
+
+    // 2. Highpass residual: R = T - B
+    cv::Mat resid = tile_cv - bg;
+
+    // 3. Robust noise estimate: σ = 1.4826 · median(|R - median(R)|)
+    std::vector<float> rv(static_cast<size_t>(resid.total()));
+    std::memcpy(rv.data(), resid.ptr<float>(),
+                rv.size() * sizeof(float));
+    size_t mid = rv.size() / 2;
+    std::nth_element(rv.begin(), rv.begin() + static_cast<long>(mid), rv.end());
+    float med_r = rv[mid];
+    for (size_t i = 0; i < rv.size(); ++i)
+        rv[i] = std::fabs(rv[i] - med_r);
+    std::nth_element(rv.begin(), rv.begin() + static_cast<long>(mid), rv.end());
+    float mad = rv[mid];
+    float sigma = 1.4826f * mad;
+
+    if (!(sigma > 1e-12f)) return tile; // no noise to remove
+
+    // 4. Soft-threshold: R' = sign(R) · max(|R| - τ, 0)
+    float tau = cfg.alpha * sigma;
+    cv::Mat abs_resid = cv::abs(resid);
+    cv::Mat shrunk;
+    cv::subtract(abs_resid, tau, shrunk);
+    cv::threshold(shrunk, shrunk, 0.0, 0.0, cv::THRESH_TOZERO);
+
+    // Apply sign: where resid < 0, negate the shrunk value
+    cv::Mat sign_mat;
+    cv::threshold(resid, sign_mat, 0.0, 0.0, cv::THRESH_TOZERO);     // positive part
+    cv::Mat neg_part;
+    cv::threshold(-resid, neg_part, 0.0, 0.0, cv::THRESH_TOZERO);    // negative part (abs)
+    // sign_mat > 0 → +1, neg_part > 0 → -1, both 0 → 0
+    cv::Mat result_resid = shrunk.clone();
+    // Where resid was negative, negate shrunk
+    cv::Mat neg_mask;
+    cv::compare(resid, 0.0f, neg_mask, cv::CMP_LT);
+    cv::Mat neg_shrunk;
+    cv::subtract(cv::Scalar(0.0f), shrunk, neg_shrunk);
+    neg_shrunk.copyTo(result_resid, neg_mask);
+
+    // 5. Reconstruct: T' = B + R'
+    cv::Mat out_cv = bg + result_resid;
+
+    Matrix2Df out(h, w);
+    if (out_cv.isContinuous()) {
+        std::memcpy(out.data(), out_cv.ptr<float>(),
+                    static_cast<size_t>(out.size()) * sizeof(float));
+    } else {
+        for (int r = 0; r < h; ++r) {
+            const float* src = out_cv.ptr<float>(r);
+            float* dst = out.data() + static_cast<size_t>(r) * static_cast<size_t>(w);
+            std::memcpy(dst, src, static_cast<size_t>(w) * sizeof(float));
+        }
+    }
+    return out;
+}
+
 Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
                            float sigma_low, float sigma_high,
                            int max_iters, float min_fraction) {
