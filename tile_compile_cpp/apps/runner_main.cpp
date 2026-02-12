@@ -681,7 +681,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       frame_metrics, cfg.global_metrics.weights.background,
       cfg.global_metrics.weights.noise, cfg.global_metrics.weights.gradient,
       cfg.global_metrics.clamp[0], cfg.global_metrics.clamp[1],
-      cfg.global_metrics.adaptive_weights);
+      cfg.global_metrics.adaptive_weights,
+      cfg.global_metrics.weight_exponent_scale);
 
   {
     core::json artifact;

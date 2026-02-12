@@ -247,6 +247,8 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.global_metrics.weights.gradient = w["gradient"].as<float>();
     }
     read_float_pair(gm["clamp"], cfg.global_metrics.clamp);
+    if (gm["weight_exponent_scale"])
+      cfg.global_metrics.weight_exponent_scale = gm["weight_exponent_scale"].as<float>();
   }
 
   if (node["tile"]) {
@@ -496,6 +498,7 @@ YAML::Node Config::to_yaml() const {
   node["tile_denoise"]["wiener"]["max_iterations"] = tile_denoise.wiener.max_iterations;
 
   node["global_metrics"]["adaptive_weights"] = global_metrics.adaptive_weights;
+  node["global_metrics"]["weight_exponent_scale"] = global_metrics.weight_exponent_scale;
   node["global_metrics"]["weights"]["background"] =
       global_metrics.weights.background;
   node["global_metrics"]["weights"]["noise"] = global_metrics.weights.noise;
@@ -699,6 +702,10 @@ void Config::validate() const {
     throw ValidationError(
         "global_metrics.clamp must be [min,max] with min < max");
   }
+  if (global_metrics.weight_exponent_scale <= 0.0f) {
+    throw ValidationError(
+        "global_metrics.weight_exponent_scale must be > 0");
+  }
 
   if (tile.size_factor <= 0)
     throw ValidationError("tile.size_factor must be positive");
@@ -862,6 +869,7 @@ std::string get_schema_json() {
                       "max_iterations":{"type":"integer","minimum":1} } },
     "global_metrics": { "type":"object",
       "properties": { "adaptive_weights":{"type":"boolean"},
+                      "weight_exponent_scale":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames."},
                       "weights":{"type":"object","properties":{"background":{"type":"number","minimum":0,"maximum":1},"noise":{"type":"number","minimum":0,"maximum":1},"gradient":{"type":"number","minimum":0,"maximum":1}}},
                       "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2} } },
     "tile": { "type":"object",
