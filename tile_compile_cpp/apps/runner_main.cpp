@@ -729,7 +729,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
   float seeing_fwhm_med = 3.0f;
   {
+    // Robust FWHM probing: measure on up to 5 evenly-spaced frames,
+    // take median of all successful measurements (not just the first).
     const size_t n_probe = std::min<size_t>(5, frames.size());
+    std::vector<float> fwhm_probes;
+    fwhm_probes.reserve(n_probe);
     for (size_t pi = 0; pi < n_probe; ++pi) {
       size_t fi =
           (n_probe <= 1) ? 0 : (pi * (frames.size() - 1)) / (n_probe - 1);
@@ -743,11 +747,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       image::apply_normalization_inplace(img, norm_scales[fi], detected_mode,
                                   detected_bayer_str, roi_x0, roi_y0);
       float fwhm = metrics::measure_fwhm_from_image(img);
-      if (fwhm > 0.0f) {
-        seeing_fwhm_med = fwhm;
-        break;
-      }
+      if (fwhm > 0.0f && std::isfinite(fwhm))
+        fwhm_probes.push_back(fwhm);
     }
+    if (!fwhm_probes.empty())
+      seeing_fwhm_med = core::median_of(fwhm_probes);
   }
 
   int seeing_tile_size = 0;
