@@ -180,23 +180,58 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.registration.star_dist_bin_px = r["star_dist_bin_px"].as<float>();
   }
 
+  if (node["tile_denoise"]) {
+    auto td = node["tile_denoise"];
+    if (td["soft_threshold"]) {
+      auto st = td["soft_threshold"];
+      if (st["enabled"])
+        cfg.tile_denoise.soft_threshold.enabled = st["enabled"].as<bool>();
+      if (st["blur_kernel"])
+        cfg.tile_denoise.soft_threshold.blur_kernel = st["blur_kernel"].as<int>();
+      if (st["alpha"])
+        cfg.tile_denoise.soft_threshold.alpha = st["alpha"].as<float>();
+      if (st["skip_star_tiles"])
+        cfg.tile_denoise.soft_threshold.skip_star_tiles = st["skip_star_tiles"].as<bool>();
+    }
+    if (td["wiener"]) {
+      auto w = td["wiener"];
+      if (w["enabled"])
+        cfg.tile_denoise.wiener.enabled = w["enabled"].as<bool>();
+      if (w["snr_threshold"])
+        cfg.tile_denoise.wiener.snr_threshold = w["snr_threshold"].as<float>();
+      if (w["q_min"])
+        cfg.tile_denoise.wiener.q_min = w["q_min"].as<float>();
+      if (w["q_max"])
+        cfg.tile_denoise.wiener.q_max = w["q_max"].as<float>();
+      if (w["q_step"])
+        cfg.tile_denoise.wiener.q_step = w["q_step"].as<float>();
+      if (w["min_snr"])
+        cfg.tile_denoise.wiener.min_snr = w["min_snr"].as<float>();
+      if (w["max_iterations"])
+        cfg.tile_denoise.wiener.max_iterations = w["max_iterations"].as<int>();
+    }
+  }
+
+  // Legacy: parse old "wiener_denoise" key into tile_denoise.wiener
   if (node["wiener_denoise"]) {
     auto w = node["wiener_denoise"];
     if (w["enabled"])
-      cfg.wiener_denoise.enabled = w["enabled"].as<bool>();
+      cfg.tile_denoise.wiener.enabled = w["enabled"].as<bool>();
     if (w["snr_threshold"])
-      cfg.wiener_denoise.snr_threshold = w["snr_threshold"].as<float>();
+      cfg.tile_denoise.wiener.snr_threshold = w["snr_threshold"].as<float>();
     if (w["q_min"])
-      cfg.wiener_denoise.q_min = w["q_min"].as<float>();
+      cfg.tile_denoise.wiener.q_min = w["q_min"].as<float>();
     if (w["q_max"])
-      cfg.wiener_denoise.q_max = w["q_max"].as<float>();
+      cfg.tile_denoise.wiener.q_max = w["q_max"].as<float>();
     if (w["q_step"])
-      cfg.wiener_denoise.q_step = w["q_step"].as<float>();
+      cfg.tile_denoise.wiener.q_step = w["q_step"].as<float>();
     if (w["min_snr"])
-      cfg.wiener_denoise.min_snr = w["min_snr"].as<float>();
+      cfg.tile_denoise.wiener.min_snr = w["min_snr"].as<float>();
     if (w["max_iterations"])
-      cfg.wiener_denoise.max_iterations = w["max_iterations"].as<int>();
+      cfg.tile_denoise.wiener.max_iterations = w["max_iterations"].as<int>();
   }
+  // Sync legacy alias
+  cfg.wiener_denoise = cfg.tile_denoise.wiener;
 
   if (node["global_metrics"]) {
     auto gm = node["global_metrics"];
@@ -448,13 +483,17 @@ YAML::Node Config::to_yaml() const {
   node["registration"]["star_inlier_tol_px"] = registration.star_inlier_tol_px;
   node["registration"]["star_dist_bin_px"] = registration.star_dist_bin_px;
 
-  node["wiener_denoise"]["enabled"] = wiener_denoise.enabled;
-  node["wiener_denoise"]["snr_threshold"] = wiener_denoise.snr_threshold;
-  node["wiener_denoise"]["q_min"] = wiener_denoise.q_min;
-  node["wiener_denoise"]["q_max"] = wiener_denoise.q_max;
-  node["wiener_denoise"]["q_step"] = wiener_denoise.q_step;
-  node["wiener_denoise"]["min_snr"] = wiener_denoise.min_snr;
-  node["wiener_denoise"]["max_iterations"] = wiener_denoise.max_iterations;
+  node["tile_denoise"]["soft_threshold"]["enabled"] = tile_denoise.soft_threshold.enabled;
+  node["tile_denoise"]["soft_threshold"]["blur_kernel"] = tile_denoise.soft_threshold.blur_kernel;
+  node["tile_denoise"]["soft_threshold"]["alpha"] = tile_denoise.soft_threshold.alpha;
+  node["tile_denoise"]["soft_threshold"]["skip_star_tiles"] = tile_denoise.soft_threshold.skip_star_tiles;
+  node["tile_denoise"]["wiener"]["enabled"] = tile_denoise.wiener.enabled;
+  node["tile_denoise"]["wiener"]["snr_threshold"] = tile_denoise.wiener.snr_threshold;
+  node["tile_denoise"]["wiener"]["q_min"] = tile_denoise.wiener.q_min;
+  node["tile_denoise"]["wiener"]["q_max"] = tile_denoise.wiener.q_max;
+  node["tile_denoise"]["wiener"]["q_step"] = tile_denoise.wiener.q_step;
+  node["tile_denoise"]["wiener"]["min_snr"] = tile_denoise.wiener.min_snr;
+  node["tile_denoise"]["wiener"]["max_iterations"] = tile_denoise.wiener.max_iterations;
 
   node["global_metrics"]["adaptive_weights"] = global_metrics.adaptive_weights;
   node["global_metrics"]["weights"]["background"] =
@@ -621,18 +660,24 @@ void Config::validate() const {
         "registration.star_inlier_tol_px and star_dist_bin_px must be > 0");
   }
 
-  if (wiener_denoise.q_max < 0.0f || wiener_denoise.q_max > 1.0f) {
-    throw ValidationError("wiener_denoise.q_max must be in [0,1]");
+  if (tile_denoise.soft_threshold.blur_kernel < 3) {
+    throw ValidationError("tile_denoise.soft_threshold.blur_kernel must be >= 3");
   }
-  if (wiener_denoise.q_min < -1.0f ||
-      wiener_denoise.q_min > wiener_denoise.q_max) {
-    throw ValidationError("wiener_denoise.q_min must be <= q_max and >= -1");
+  if (tile_denoise.soft_threshold.alpha <= 0.0f) {
+    throw ValidationError("tile_denoise.soft_threshold.alpha must be > 0");
   }
-  if (wiener_denoise.q_step <= 0.0f) {
-    throw ValidationError("wiener_denoise.q_step must be > 0");
+  if (tile_denoise.wiener.q_max < 0.0f || tile_denoise.wiener.q_max > 1.0f) {
+    throw ValidationError("tile_denoise.wiener.q_max must be in [0,1]");
   }
-  if (wiener_denoise.max_iterations < 1) {
-    throw ValidationError("wiener_denoise.max_iterations must be >= 1");
+  if (tile_denoise.wiener.q_min < -1.0f ||
+      tile_denoise.wiener.q_min > tile_denoise.wiener.q_max) {
+    throw ValidationError("tile_denoise.wiener.q_min must be <= q_max and >= -1");
+  }
+  if (tile_denoise.wiener.q_step <= 0.0f) {
+    throw ValidationError("tile_denoise.wiener.q_step must be > 0");
+  }
+  if (tile_denoise.wiener.max_iterations < 1) {
+    throw ValidationError("tile_denoise.wiener.max_iterations must be >= 1");
   }
 
   auto check_weight_sum = [](float a, float b, float c, const char *name) {
@@ -792,6 +837,21 @@ std::string get_schema_json() {
                       "star_min_inliers":{"type":"integer","minimum":2},
                       "star_inlier_tol_px":{"type":"number","exclusiveMinimum":0},
                       "star_dist_bin_px":{"type":"number","exclusiveMinimum":0} } },
+    "tile_denoise": { "type":"object",
+      "properties": {
+        "soft_threshold": { "type":"object",
+          "properties": { "enabled":{"type":"boolean"},
+                          "blur_kernel":{"type":"integer","minimum":3},
+                          "alpha":{"type":"number","exclusiveMinimum":0},
+                          "skip_star_tiles":{"type":"boolean"} } },
+        "wiener": { "type":"object",
+          "properties": { "enabled":{"type":"boolean"},
+                          "snr_threshold":{"type":"number","minimum":0},
+                          "q_min":{"type":"number","minimum":-1},
+                          "q_max":{"type":"number","minimum":0,"maximum":1},
+                          "q_step":{"type":"number","exclusiveMinimum":0},
+                          "min_snr":{"type":"number","minimum":0},
+                          "max_iterations":{"type":"integer","minimum":1} } } } },
     "wiener_denoise": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "snr_threshold":{"type":"number","minimum":0},

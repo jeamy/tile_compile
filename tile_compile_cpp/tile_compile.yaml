@@ -65,14 +65,20 @@ registration:
   star_min_inliers: 4
   star_inlier_tol_px: 3.0
   star_dist_bin_px: 5.0
-wiener_denoise:
-  enabled: true
-  snr_threshold: 5.0
-  q_min: -0.5
-  q_max: 1.0
-  q_step: 0.1
-  min_snr: 2.0
-  max_iterations: 10
+tile_denoise:
+  soft_threshold:
+    enabled: true
+    blur_kernel: 31
+    alpha: 1.5
+    skip_star_tiles: true
+  wiener:
+    enabled: true
+    snr_threshold: 5.0
+    q_min: -0.5
+    q_max: 1.0
+    q_step: 0.1
+    min_snr: 2.0
+    max_iterations: 10
 global_metrics:
   enabled: true
   adaptive_weights: true

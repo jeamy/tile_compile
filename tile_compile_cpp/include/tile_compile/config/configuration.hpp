@@ -94,6 +94,18 @@ struct WienerDenoiseConfig {
   int max_iterations = 10;
 };
 
+struct SoftThresholdConfig {
+  bool enabled = true;
+  int blur_kernel = 31;       // box-blur kernel size for background estimation
+  float alpha = 1.5f;         // threshold multiplier: τ = α · σ_t
+  bool skip_star_tiles = true; // skip denoising for star-dominated tiles
+};
+
+struct TileDenoiseConfig {
+  SoftThresholdConfig soft_threshold;
+  WienerDenoiseConfig wiener;
+};
+
 struct GlobalMetricsConfig {
   struct Weights {
     float background = 0.4f;
@@ -197,7 +209,8 @@ struct Config {
   AssumptionsConfig assumptions;
   NormalizationConfig normalization;
   RegistrationConfig registration;
-  WienerDenoiseConfig wiener_denoise;
+  TileDenoiseConfig tile_denoise;
+  WienerDenoiseConfig wiener_denoise; // legacy alias → tile_denoise.wiener
   GlobalMetricsConfig global_metrics;
   TileConfig tile;
   LocalMetricsConfig local_metrics;
