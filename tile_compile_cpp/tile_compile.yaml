@@ -118,7 +118,7 @@ local_metrics:
     background_weight: 0.3 # Gewicht lokaler Hintergrundterm
 
 synthetic:
-  weighting: tile_weighted # global|tile_weighted
+  weighting: global # global|tile_weighted
   frames_min: 4 # kleinere Cluster tolerieren
   frames_max: 20 # Synthetic-Anzahl begrenzen
   clustering:
@@ -169,3 +169,4 @@ runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze
   allow_emergency_mode: true # portable Sessions oft kurz => Emergency erlauben
+
