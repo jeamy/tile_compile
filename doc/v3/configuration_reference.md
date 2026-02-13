@@ -4,7 +4,7 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 
 **Quelle der Wahrheit für Defaults:** `include/tile_compile/config/configuration.hpp`
 **Schema-Version:** v3
-**Referenz:** Methodik v3
+**Referenz:** Methodik v3.2
 
 ---
 
@@ -18,16 +18,18 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 6. [Assumptions](#6-assumptions)
 7. [Normalization](#7-normalization)
 8. [Registration](#8-registration)
-9. [Wiener Denoise](#9-wiener-denoise)
+9. [Tile Denoise](#9-tile-denoise)
 10. [Global Metrics](#10-global-metrics)
 11. [Tile](#11-tile)
 12. [Local Metrics](#12-local-metrics)
 13. [Synthetic](#13-synthetic)
 14. [Reconstruction](#14-reconstruction)
 15. [Debayer](#15-debayer)
-16. [Stacking](#16-stacking)
-17. [Validation](#17-validation)
-18. [Runtime Limits](#18-runtime-limits)
+16. [Astrometry](#16-astrometry)
+17. [PCC](#17-pcc)
+18. [Stacking](#18-stacking)
+19. [Validation](#19-validation)
+20. [Runtime Limits](#20-runtime-limits)
 
 ---
 
@@ -580,7 +582,7 @@ Geometrische Registrierung (Ausrichtung) aller Frames auf einen Referenz-Frame.
 
 **Zweck:** Anzahl der hellsten Sterne, die für Star-basiertes Matching verwendet werden.
 
-**Hinweis:** In `tile_compile.yaml` steht `60`, der C++ Default ist `120`. Höhere Werte erhöhen die Robustheit bei schwierigen Feldern, aber auch die Rechenzeit.
+**Hinweis:** In `tile_compile.yaml` steht `100`, der C++ Default ist `120`. Höhere Werte erhöhen die Robustheit bei schwierigen Feldern, aber auch die Rechenzeit.
 
 ---
 
@@ -622,28 +624,75 @@ Geometrische Registrierung (Ausrichtung) aller Frames auf einen Referenz-Frame.
 
 **Zweck:** Bin-Breite in Pixeln für das Paar-Abstands-Histogramm in der `star_similarity`-Methode.
 
-**Hinweis:** In `tile_compile.yaml` steht `10.0`, der C++ Default ist `2.5`. Kleinere Werte sind genauer, größere Werte toleranter.
+**Hinweis:** In `tile_compile.yaml` steht `5.0`, der C++ Default ist `2.5`. Kleinere Werte sind genauer, größere Werte toleranter.
 
 ---
 
-## 9. Wiener Denoise
+## 9. Tile Denoise
 
-Optionaler Wiener-Rauschfilter auf rekonstruierten Tiles. Wird **nach** Tile-Rekonstruktion und **vor** dem finalen Overlap-Add angewendet.
+Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 
-**Eigenschaften:** Linear, deterministisch, MSE-optimal. Keine Beeinflussung von Metriken oder Gewichten.
+- `tile_denoise.soft_threshold.*` (Default aktiv)
+- `tile_denoise.wiener.*` (Default inaktiv)
 
-### `wiener_denoise.enabled`
+### `tile_denoise.soft_threshold.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert Soft-Threshold-Denoising pro Tile.
+
+---
+
+### `tile_denoise.soft_threshold.blur_kernel`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 3 |
+| **Default** | `31` |
+
+**Zweck:** Kernelgröße für die lokale Hintergrundschätzung (Box-Blur).
+
+---
+
+### `tile_denoise.soft_threshold.alpha`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `1.5` |
+
+**Zweck:** Schwellenfaktor für das Soft-Thresholding (`tau = alpha * sigma_tile`).
+
+---
+
+### `tile_denoise.soft_threshold.skip_star_tiles`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Stern-dominierte Tiles vom Soft-Thresholding ausnehmen.
+
+---
+
+### `tile_denoise.wiener.enabled`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | boolean |
 | **Default** | `false` |
 
-**Zweck:** Aktiviert den Wiener-Filter. Standardmäßig deaktiviert.
+**Zweck:** Aktiviert den Wiener-Filter in der Tile-Denoise-Stufe.
 
 ---
 
-### `wiener_denoise.snr_threshold`
+### `tile_denoise.wiener.snr_threshold`
 
 | Eigenschaft | Wert |
 |-------------|------|
@@ -651,23 +700,21 @@ Optionaler Wiener-Rauschfilter auf rekonstruierten Tiles. Wird **nach** Tile-Rek
 | **Minimum** | 0 |
 | **Default** | `5.0` |
 
-**Zweck:** SNR-Schwellwert. Tiles mit SNR ≥ diesem Wert werden **nicht** gefiltert (bereits gutes Signal).
+**Zweck:** SNR-Schwelle; oberhalb dieses Werts wird typischerweise nicht gefiltert.
 
 ---
 
-### `wiener_denoise.q_min`
+### `tile_denoise.wiener.q_min`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Minimum** | -1 |
+| **Bereich** | -1 bis q_max |
 | **Default** | `-0.5` |
-
-**Zweck:** Minimale Strukturqualität. Tiles mit Q_struct ≤ diesem Wert werden **nicht** gefiltert (zu wenig Struktur, Wiener würde Artefakte erzeugen).
 
 ---
 
-### `wiener_denoise.q_max`
+### `tile_denoise.wiener.q_max`
 
 | Eigenschaft | Wert |
 |-------------|------|
@@ -675,11 +722,9 @@ Optionaler Wiener-Rauschfilter auf rekonstruierten Tiles. Wird **nach** Tile-Rek
 | **Bereich** | 0 – 1 |
 | **Default** | `1.0` |
 
-**Zweck:** Maximale Strukturqualität für Wiener-Filterung.
-
 ---
 
-### `wiener_denoise.q_step`
+### `tile_denoise.wiener.q_step`
 
 | Eigenschaft | Wert |
 |-------------|------|
@@ -687,11 +732,9 @@ Optionaler Wiener-Rauschfilter auf rekonstruierten Tiles. Wird **nach** Tile-Rek
 | **Minimum** | >0 |
 | **Default** | `0.1` |
 
-**Zweck:** Schrittweite für die iterative Wiener-Parameter-Suche.
-
 ---
 
-### `wiener_denoise.min_snr`
+### `tile_denoise.wiener.min_snr`
 
 | Eigenschaft | Wert |
 |-------------|------|
@@ -699,11 +742,9 @@ Optionaler Wiener-Rauschfilter auf rekonstruierten Tiles. Wird **nach** Tile-Rek
 | **Minimum** | 0 |
 | **Default** | `2.0` |
 
-**Zweck:** Minimaler SNR für die Anwendung des Wiener-Filters. Tiles mit SNR < `min_snr` werden übersprungen.
-
 ---
 
-### `wiener_denoise.max_iterations`
+### `tile_denoise.wiener.max_iterations`
 
 | Eigenschaft | Wert |
 |-------------|------|
@@ -711,13 +752,17 @@ Optionaler Wiener-Rauschfilter auf rekonstruierten Tiles. Wird **nach** Tile-Rek
 | **Minimum** | 1 |
 | **Default** | `10` |
 
-**Zweck:** Maximale Iterationen für die Wiener-Parameter-Optimierung.
+---
+
+### Legacy-Hinweis: `wiener_denoise.*`
+
+`wiener_denoise` ist ein **Legacy-Alias** und wird beim Einlesen weiterhin nach `tile_denoise.wiener` gemappt. Für neue Konfigurationen sollte ausschließlich `tile_denoise.wiener` verwendet werden.
 
 ---
 
 ## 10. Global Metrics
 
-Gewichtung der globalen Frame-Qualitätsmetriken (Phase 3: GLOBAL_METRICS).
+Gewichtung der globalen Frame-Qualitätsmetriken (Phase 4: GLOBAL_METRICS).
 
 ### `global_metrics.weights.background`
 
@@ -733,7 +778,7 @@ Gewichtung der globalen Frame-Qualitätsmetriken (Phase 3: GLOBAL_METRICS).
 
 **Interpretation:** Höheres Gewicht → stärkere Bestrafung von hellem Hintergrund (Lichtverschmutzung, Dämmerung).
 
-**Hinweis:** In `tile_compile.yaml` steht `0.25`, der C++ Default ist `0.4`.
+**Hinweis:** In `tile_compile.yaml` steht `0.45`, der C++ Default ist `0.4`.
 
 ---
 
@@ -749,7 +794,7 @@ Gewichtung der globalen Frame-Qualitätsmetriken (Phase 3: GLOBAL_METRICS).
 
 **Interpretation:** Höheres Gewicht → stärkere Bestrafung von verrauschten Frames (schlechte Kühlung, hohe ISO).
 
-**Hinweis:** In `tile_compile.yaml` steht `0.45`.
+**Hinweis:** In `tile_compile.yaml` steht `0.35`.
 
 ---
 
@@ -799,9 +844,25 @@ Gewichtung der globalen Frame-Qualitätsmetriken (Phase 3: GLOBAL_METRICS).
 
 ---
 
+### `global_metrics.weight_exponent_scale`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `1.0` |
+
+**Zweck:** Exponent-Skalierung `k` für die globale Gewichtung `G_f = exp(k * Q_f)`.
+
+- `k = 1.0`: Standard-Verhalten
+- `k > 1.0`: stärkere Trennung guter/schlechter Frames
+- `k < 1.0`: flachere Gewichtsverteilung
+
+---
+
 ## 11. Tile
 
-Seeing-adaptive Tile-Erzeugung (Phase 4: TILE_GRID).
+Seeing-adaptive Tile-Erzeugung (Phase 5: TILE_GRID).
 
 ### `tile.size_factor`
 
@@ -1117,7 +1178,136 @@ Tile-basierte Rekonstruktion (Phase 7: TILE_RECONSTRUCTION). Diese Einstellungen
 
 ---
 
-## 16. Stacking
+## 16. Astrometry
+
+### `astrometry.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert Plate Solving (WCS).
+
+---
+
+### `astrometry.astap_bin`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `""` |
+
+**Zweck:** Pfad zur ASTAP-CLI. Leer bedeutet: Systempfad/Standardauflösung.
+
+---
+
+### `astrometry.astap_data_dir`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `""` |
+
+**Zweck:** ASTAP-Datenverzeichnis. Leer bedeutet: Standardpfad.
+
+---
+
+### `astrometry.search_radius`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Bereich** | 1 – 360 |
+| **Default** | `180` |
+
+**Zweck:** Suchradius in Grad für das Solving (180 = blind solve).
+
+---
+
+## 17. PCC
+
+### `pcc.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+---
+
+### `pcc.source`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `auto`, `siril`, `vizier_gaia`, `vizier_apass` |
+| **Default** | `"auto"` |
+
+---
+
+### `pcc.mag_limit`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 1 – 22 |
+| **Default** | `14.0` |
+
+---
+
+### `pcc.mag_bright_limit`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0 – 15 |
+| **Default** | `6.0` |
+
+---
+
+### `pcc.aperture_radius_px`, `pcc.annulus_inner_px`, `pcc.annulus_outer_px`
+
+| Key | Typ | Default | Constraint |
+|-----|-----|---------|------------|
+| `pcc.aperture_radius_px` | number | `8.0` | >0 |
+| `pcc.annulus_inner_px` | number | `12.0` | >0 |
+| `pcc.annulus_outer_px` | number | `18.0` | >0 |
+
+---
+
+### `pcc.min_stars`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 3 |
+| **Default** | `10` |
+
+---
+
+### `pcc.sigma_clip`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `2.5` |
+
+---
+
+### `pcc.siril_catalog_dir`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `""` |
+
+**Zweck:** Lokaler Siril-Katalogpfad; leer = Standardpfad.
+
+---
+
+## 18. Stacking
 
 Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 
@@ -1135,39 +1325,6 @@ Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 |---------|-------------|------------|
 | **`rej`** | Sigma-Clipping Rejection → dann Mittelwert | **Empfohlen** — entfernt verbleibende Ausreißer |
 | **`average`** | Einfacher linearer Mittelwert | Schneller, aber keine Ausreißer-Entfernung |
-
----
-
-### `stacking.input_dir`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | string |
-| **Default** | `"synthetic"` |
-
-**Zweck:** Eingabeverzeichnis für Stacking-Input (relativ zum outputs-Verzeichnis). Wird im C++ Runner intern verwaltet.
-
----
-
-### `stacking.input_pattern`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | string |
-| **Default** | `"syn_*.fits"` |
-
-**Zweck:** Glob-Pattern für Stacking-Input-Dateien.
-
----
-
-### `stacking.output_file`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | string |
-| **Default** | `"stacked.fit"` |
-
-**Zweck:** Ausgabedatei für gestacktes Bild.
 
 ---
 
@@ -1229,7 +1386,29 @@ Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 
 ---
 
-## 17. Validation
+### `stacking.output_stretch`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Optionales lineares Display-Stretching auf den Ausgabedaten (Post-Processing, nicht Teil des linearen Kerns).
+
+---
+
+### `stacking.cosmetic_correction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Optionale kosmetische Korrektur (z. B. Hotpixel) nach dem Stacking.
+
+---
+
+## 19. Validation
 
 Qualitätsprüfung des Rekonstruktionsergebnisses (nach Phase 10, vor Debayer).
 
@@ -1238,7 +1417,7 @@ Qualitätsprüfung des Rekonstruktionsergebnisses (nach Phase 10, vor Debayer).
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Default** | `5.0` |
+| **Default** | `0.0` |
 
 **Zweck:** Minimale FWHM-Verbesserung in Prozent (Output-FWHM vs. Seeing-FWHM).
 
@@ -1290,7 +1469,7 @@ Qualitätsprüfung des Rekonstruktionsergebnisses (nach Phase 10, vor Debayer).
 
 ---
 
-## 18. Runtime Limits
+## 20. Runtime Limits
 
 Laufzeit-Beschränkungen.
 
@@ -1315,6 +1494,17 @@ Laufzeit-Beschränkungen.
 | **Default** | `6.0` |
 
 **Zweck:** Maximale Laufzeit in Stunden bevor die Pipeline abgebrochen wird (Hard Limit).
+
+---
+
+### `runtime_limits.allow_emergency_mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Erlaubt den Emergency Mode bei sehr kleinen Datensätzen (<50 nutzbare Frames). Wenn `false`, wird stattdessen kontrolliert abgebrochen.
 
 ---
 
@@ -1369,9 +1559,26 @@ registration:
   star_inlier_tol_px: 2.5
   star_dist_bin_px: 2.5
 
+# Tile Denoise
+tile_denoise:
+  soft_threshold:
+    enabled: true
+    blur_kernel: 31
+    alpha: 1.5
+    skip_star_tiles: true
+  wiener:
+    enabled: false
+    snr_threshold: 5.0
+    q_min: -0.5
+    q_max: 1.0
+    q_step: 0.1
+    min_snr: 2.0
+    max_iterations: 10
+
 # Global Metrics
 global_metrics:
   adaptive_weights: false
+  weight_exponent_scale: 1.0
   weights:
     background: 0.4
     noise: 0.3
@@ -1415,6 +1622,26 @@ reconstruction:
 # Debayer
 debayer: true
 
+# Astrometry
+astrometry:
+  enabled: false
+  astap_bin: ""
+  astap_data_dir: ""
+  search_radius: 180
+
+# PCC
+pcc:
+  enabled: false
+  source: auto
+  mag_limit: 14.0
+  mag_bright_limit: 6.0
+  aperture_radius_px: 8.0
+  annulus_inner_px: 12.0
+  annulus_outer_px: 18.0
+  min_stars: 10
+  sigma_clip: 2.5
+  siril_catalog_dir: ""
+
 # Stacking
 stacking:
   method: rej
@@ -1423,10 +1650,13 @@ stacking:
     sigma_high: 2.0
     max_iters: 3
     min_fraction: 0.5
+  output_stretch: false
+  cosmetic_correction: false
 
 # Validation
 validation:
-  min_fwhm_improvement_percent: 5.0
+  min_fwhm_improvement_percent: 0.0
+  max_background_rms_increase_percent: 0.0
   min_tile_weight_variance: 0.1
   require_no_tile_pattern: true
 
@@ -1434,6 +1664,7 @@ validation:
 runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0
   hard_abort_hours: 6.0
+  allow_emergency_mode: false
 ```
 
 ---
@@ -1448,12 +1679,12 @@ Die Datei `tile_compile.yaml` im Repository enthält eine **Test-/Debug-Konfigur
 |-----|---------------------|-------------|-----------|
 | `pipeline.abort_on_fail` | `false` | `true` | Debug-freundlich |
 | `output.write_registered_frames` | `true` | `false` | Speicherintensiv |
-| `global_metrics.weights.background` | `0.25` | `0.4` | Abweichende Gewichtung |
-| `global_metrics.weights.noise` | `0.45` | `0.3` | Abweichende Gewichtung |
-| `global_metrics.weights.gradient_energy` | `0.30` | `0.3` | Gleich (anderer Key-Name!) |
-| `registration.star_topk` | `60` | `120` | Weniger Sterne |
+| `global_metrics.weights.background` | `0.45` | `0.4` | Abweichende Gewichtung |
+| `global_metrics.weights.noise` | `0.35` | `0.3` | Abweichende Gewichtung |
+| `global_metrics.weights.gradient` | `0.20` | `0.3` | Abweichende Gewichtung |
+| `registration.star_topk` | `100` | `120` | Weniger Sterne |
 | `registration.star_inlier_tol_px` | `3.0` | `2.5` | Toleranter |
-| `registration.star_dist_bin_px` | `10.0` | `2.5` | Viel größere Bins |
+| `registration.star_dist_bin_px` | `5.0` | `2.5` | Größere Bins |
 
 ### Schema-Validierung
 

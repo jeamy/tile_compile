@@ -4,7 +4,7 @@
 
 This analysis evaluates the tile_compile_cpp implementation of the tile-based quality reconstruction methodology for astronomical images. The implementation follows the specification in `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md` and processes astronomical images through the v3.2 pipeline including registration, normalization, metrics, tile reconstruction, clustering/synthetic frames, stacking, debayer, astrometry, and PCC.
 
-Overall, the implementation faithfully adheres to the mathematical principles outlined in the specification, but there are several areas where improvements could be made in terms of mathematical correctness, numerical stability, and algorithmic efficiency.
+Overall, the implementation follows the v3.2 methodology in production. The most relevant remaining risks are operational tuning (dataset-dependent thresholds), numerical robustness at edge cases, and throughput bottlenecks on slower storage.
 
 ## 1. Core Architecture Analysis
 
@@ -30,13 +30,13 @@ The implementation follows a linear pipeline approach as required by the specifi
 
 The registration module uses a cascaded fallback strategy with CFA-aware full-frame prewarping. The current pipeline performs registration before channel processing and keeps CFA structure intact until debayer.
 
-### 2.2 Issues Identified
+### 2.2 Risks and Observations
 
 1. **CFA Subplane Warping**: The implementation in `warp_cfa_mosaic_via_subplanes()` correctly handles the Bayer phase preservation, but there's a potential issue with the boundary handling when pixel phases are misaligned at image edges.
 
-2. **Registration Residual Validation**: The code doesn't explicitly validate that registration residuals are within the acceptable range (< 1.0 px) as specified in section 2.2 of the specification.
+2. **Residual Monitoring**: A dedicated residual-quality KPI (with hard thresholds) should be exposed more prominently in artifacts/reports for faster diagnostics on difficult sessions.
 
-3. **Error Handling**: In some edge cases, the fallback logic may accept poor registrations without properly alerting the user or degrading gracefully.
+3. **Fallback Transparency**: In difficult data, fallback-heavy registration can still finish "ok"; clearer fallback summaries improve operator decisions.
 
 ### 2.3 Mathematical Correctness
 
@@ -58,17 +58,15 @@ The CFA-based approach (Path B) is more methodologically sound than many existin
 
 ### 3.1 Observations
 
-The implementation provides two debayering methods:
-1. Nearest-neighbor debayering (simple but lower quality)
-2. CFA channel-based processing (higher quality but more computationally intensive)
+The production pipeline keeps CFA structure during registration/reconstruction and performs OSC debayering at the dedicated DEBAYER phase.
 
 ### 3.2 Issues Identified
 
-1. **Nearest Neighbor Limitations**: The nearest neighbor implementation can cause aliasing artifacts in the reconstructed image, particularly in regions with high spatial frequencies.
+1. **Nearest Neighbor Trade-off**: The current nearest-neighbor method is fast and deterministic but can show aliasing in high-frequency structures.
 
-2. **Green Channel Handling**: When averaging G1 and G2 components in the Bayer pattern, the code currently uses a simple average, which is correct for most sensors but may not be optimal for sensors with different responses in G1 and G2.
+2. **Sensor-Specific Response**: G1/G2 are combined with a simple average; this is generally acceptable but may be suboptimal on sensors with asymmetric green response.
 
-3. **Missing Validation**: There's no explicit validation that the color processing maintains linearity throughout the pipeline.
+3. **Photometric QA Scope**: Linearity is preserved in the core, but additional photometric QA metrics after PCC would improve traceability.
 
 ### 3.3 Mathematical Correctness
 
@@ -85,7 +83,7 @@ This assumes equal response in both green filters, which is generally valid but 
 
 ### 3.4 Comparison with Existing Solutions
 
-The implementation's approach is similar to AstroImageJ and SIRIL, but doesn't include some of the more advanced debayering algorithms like VNG (Variable Number of Gradients) or AHD (Adaptive Homogeneity-Directed).
+The implementation prioritizes predictable linear processing over visually optimized debayering variants (for example, VNG/AHD).
 
 ## 4. Normalization and Metric Calculation
 
@@ -96,7 +94,7 @@ The normalization step is correctly implemented at the global level, following t
 - Per-channel normalization
 - Robust statistical measures (median, MAD)
 
-### 4.2 Issues Identified
+### 4.2 Risks and Observations
 
 1. **Potential Numerical Instability**: In `metrics.cpp`, there are several places where division could lead to numerical instability if denominators are very small:
 
@@ -105,7 +103,7 @@ The normalization step is correctly implemented at the global level, following t
 weights /= sum;
 ```
 
-2. **Metric Clipping Logic**: The clamping of quality scores before exponentiation is implemented but not consistently validated across the codebase.
+2. **Parameter Sensitivity**: Clamp/exponent settings can materially change frame discrimination and should be tuned per dataset class.
 
 ### 4.3 Mathematical Correctness
 
@@ -131,7 +129,7 @@ The implementation follows the specification by:
 - Applying Hanning windows for overlap-add
 - Separating star-based and structure-based metrics
 
-### 5.2 Issues Identified
+### 5.2 Risks and Observations
 
 1. **FWHM Estimation**: The FWHM estimation in `metrics.cpp` uses a 1D Gaussian approximation which may not be optimal for all seeing conditions, particularly for elliptical PSFs.
 
@@ -165,7 +163,7 @@ The tile-based approach is more sophisticated than common global selection metho
 
 The reconstruction process implements:
 - Tile-wise weighted averaging
-- Wiener filtering for noise reduction
+- Optional tile denoise (soft-threshold + optional Wiener)
 - Overlap-add with proper window functions
 
 ### 6.2 Issues Identified
@@ -178,7 +176,7 @@ cv::Mat H = power - sigma_sq;
 cv::threshold(H, H, 0.0, 0.0, cv::THRESH_TOZERO);
 ```
 
-2. **Memory Management**: The implementation keeps full frames in memory, which can be inefficient for very large datasets.
+2. **I/O Throughput Dependency**: Disk-backed frame caching reduces RAM pressure but shifts performance sensitivity to storage throughput/latency.
 
 3. **Sigma Clipping**: The sigma clipping implementation can be computationally intensive as it processes each pixel independently.
 
@@ -215,7 +213,7 @@ The pipeline implements state-based clustering and synthetic-frame generation in
 
 ### 7.3 Mathematical Correctness
 
-Without seeing the full implementation of the clustering logic, it's difficult to assess its mathematical correctness. The specification requires a clustering based on a state vector:
+The implemented clustering follows the intended state-vector approach and supports mode-dependent skip behavior in reduced/emergency paths. The practical quality depends mostly on cluster range, minimum frames, and weight spread in real datasets.
 
 ```
 v_f = (G_f, ⟨Q_{tile}⟩, Var(Q_{tile}), B_f, σ_f)
@@ -242,7 +240,7 @@ The implementation includes production components for:
 
 ### 8.3 Mathematical Correctness
 
-The photometric calibration approach seems reasonable, but without seeing the complete implementation it's difficult to fully assess.
+The PCC approach is mathematically consistent for diagonal color correction in linear space. Result quality remains dependent on catalog quality/coverage and robust star matching.
 
 ### 8.4 Comparison with Existing Solutions
 
@@ -254,11 +252,11 @@ The approach is comparable to solutions in popular tools like SIRIL, ASTAP, and 
 
 The implementation uses OpenCV for many image processing operations, which provides good performance but could be further optimized.
 
-### 9.2 Issues Identified
+### 9.2 Risks and Observations
 
 1. **Disk I/O Pressure**: Disk-backed frame caching reduces RAM pressure but shifts bottlenecks to storage throughput/latency.
 
-2. **Parallelization**: There's limited explicit parallelization in the codebase, missing opportunities for performance improvement.
+2. **Parallel Efficiency Ceiling**: Core tile processing is parallelized, but overall runtime still depends on I/O and phase-specific serial sections.
 
 3. **I/O Strategy**: The implementation doesn't follow the I/O strategy recommendations in Appendix C.3 of the specification.
 
@@ -268,29 +266,29 @@ Most astronomical image processing tools face similar challenges with large data
 
 ## 10. Recommendations
 
-### 10.1 Critical Improvements
+### 10.1 Priority Improvements
 
-1. **Registration Robustness**:
-   - Implement explicit validation of registration residuals
-   - Add proper error handling and degradation as specified in section 2.4
+1. **Observability & QA**:
+   - Expose clearer residual/fallback diagnostics in report artifacts
+   - Add compact phase-level quality KPIs for faster triage
 
-2. **Metric Calculation**:
-   - Ensure consistent MAD normalization of all metrics
-   - Fix numerical stability issues in quality score calculations
+2. **Metric Tuning Discipline**:
+   - Define per-target presets for weight/clamp/exponent ranges
+   - Add regression checks for scaling stability under aggressive stretch
 
-3. **Tile Boundary Handling**:
-   - Improve tile coverage at image edges
-   - Ensure all pixels contribute to the final reconstruction
+3. **Tile Artifact Prevention**:
+   - Keep strict regression checks for tile-pattern indicators
+   - Validate synthetic tile-weighted behavior against bright-core edge cases
 
-### 10.2 Mathematical Enhancements
+### 10.2 Algorithmic Enhancements
 
 1. **Debayering**:
    - Consider implementing more advanced debayering algorithms
    - Add sensor-specific handling of G1/G2 channels if needed
 
-2. **Wiener Filtering**:
-   - Implement adaptive parameter selection based on local SNR
-   - Consider more advanced denoising methods for structure preservation
+2. **Denoise Strategy**:
+   - Expand dataset-aware denoise presets
+   - Evaluate optional alternatives for structure-preserving denoise
 
 3. **FWHM Estimation**:
    - Improve star profile modeling for elliptical PSFs
@@ -302,9 +300,9 @@ Most astronomical image processing tools face similar challenges with large data
    - Implement tile-based processing with streaming I/O
    - Follow the recommendations in Appendix C.3 of the specification
 
-2. **Parallelization**:
-   - Add explicit parallelization for tile processing
-   - Consider GPU acceleration for computationally intensive steps
+2. **Pipeline Throughput**:
+   - Profile phase runtime split (CPU vs I/O bound)
+   - Consider optional GPU/offload only for clearly dominant hotspots
 
 ### 10.4 Validation and Testing
 
@@ -318,14 +316,14 @@ Most astronomical image processing tools face similar challenges with large data
 
 ## 11. Conclusion
 
-The tile_compile_cpp implementation provides a solid foundation for the tile-based quality reconstruction methodology described in the specification. The approach is mathematically sound and addresses many limitations of traditional stacking methods.
+The tile_compile_cpp implementation provides a solid v3.2 production foundation for tile-based quality reconstruction. The approach is mathematically consistent and addresses key limitations of traditional global-only stacking.
 
-However, several areas require attention to ensure mathematical correctness, numerical stability, and optimal performance. The recommendations outlined in this analysis would strengthen the implementation and ensure it fully realizes the potential of the tile-based reconstruction approach.
+The remaining work is primarily operational hardening: better diagnostics, stricter regression protection against scaling/tile artifacts, and performance tuning for large runs on mixed storage systems.
 
-The most significant improvements would come from:
-1. Ensuring robust MAD normalization of all metrics
-2. Improving the CFA handling during registration and reconstruction
-3. Enhancing memory management for large datasets
-4. Implementing more adaptive parameter selection for filtering operations
+The most significant improvements now come from:
+1. stronger run-time observability and report-level KPIs,
+2. safer tuning presets for metric/weight parameters,
+3. regression tests focused on bright-core scaling and tile imprinting,
+4. targeted throughput optimization based on measured bottlenecks.
 
 With these improvements, the implementation would provide state-of-the-art performance for astronomical image processing, particularly for datasets with variable seeing conditions and atmospheric transparency.
