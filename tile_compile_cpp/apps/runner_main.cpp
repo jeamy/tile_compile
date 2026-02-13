@@ -36,6 +36,11 @@
 #include <limits>
 #include <opencv2/opencv.hpp>
 
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
 #ifdef HAVE_CLI11
 #include <CLI/CLI.hpp>
 #endif
@@ -81,6 +86,135 @@ private:
 };
 
 using NormalizationScales = image::NormalizationScales;
+
+// Disk-backed frame store using mmap for memory-efficient access to prewarped
+// frames.  Frames are written as raw float binaries to a temp directory and
+// lazily memory-mapped on read.  The OS page cache handles eviction, keeping
+// resident memory bounded by available RAM rather than total dataset size.
+class DiskCacheFrameStore {
+public:
+  DiskCacheFrameStore() = default;
+
+  DiskCacheFrameStore(const fs::path &cache_dir, size_t n_frames,
+                      int rows, int cols)
+      : cache_dir_(cache_dir), rows_(rows), cols_(cols),
+        frame_bytes_(static_cast<size_t>(rows) * static_cast<size_t>(cols) *
+                     sizeof(float)),
+        has_data_(n_frames, false) {
+    fs::create_directories(cache_dir_);
+  }
+
+  ~DiskCacheFrameStore() { cleanup(); }
+
+  DiskCacheFrameStore(const DiskCacheFrameStore &) = delete;
+  DiskCacheFrameStore &operator=(const DiskCacheFrameStore &) = delete;
+  DiskCacheFrameStore(DiskCacheFrameStore &&o) noexcept
+      : cache_dir_(std::move(o.cache_dir_)), rows_(o.rows_), cols_(o.cols_),
+        frame_bytes_(o.frame_bytes_), has_data_(std::move(o.has_data_)) {}
+  DiskCacheFrameStore &operator=(DiskCacheFrameStore &&o) noexcept {
+    if (this != &o) {
+      cleanup();
+      cache_dir_ = std::move(o.cache_dir_);
+      rows_ = o.rows_; cols_ = o.cols_;
+      frame_bytes_ = o.frame_bytes_;
+      has_data_ = std::move(o.has_data_);
+    }
+    return *this;
+  }
+
+  // Write a prewarped frame to disk.
+  void store(size_t fi, const Matrix2Df &frame) {
+    if (frame.rows() != rows_ || frame.cols() != cols_) return;
+    fs::path p = frame_path(fi);
+    int fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) return;
+    size_t written = 0;
+    const char *src = reinterpret_cast<const char *>(frame.data());
+    while (written < frame_bytes_) {
+      ssize_t n = ::write(fd, src + written, frame_bytes_ - written);
+      if (n <= 0) break;
+      written += static_cast<size_t>(n);
+    }
+    ::close(fd);
+    if (written == frame_bytes_) {
+      has_data_[fi] = true;
+    }
+  }
+
+  // Read a full frame via mmap, copy into Matrix2Df, munmap immediately.
+  Matrix2Df load(size_t fi) const {
+    if (fi >= has_data_.size() || !has_data_[fi]) return Matrix2Df();
+    fs::path p = frame_path(fi);
+    int fd = ::open(p.c_str(), O_RDONLY);
+    if (fd < 0) return Matrix2Df();
+    void *ptr = ::mmap(nullptr, frame_bytes_, PROT_READ, MAP_PRIVATE, fd, 0);
+    ::close(fd);
+    if (ptr == MAP_FAILED) return Matrix2Df();
+    Matrix2Df out(rows_, cols_);
+    std::memcpy(out.data(), ptr, frame_bytes_);
+    ::munmap(ptr, frame_bytes_);
+    return out;
+  }
+
+  // Extract a tile ROI directly from mmap without loading the full frame.
+  Matrix2Df extract_tile(size_t fi, const Tile &t) const {
+    if (fi >= has_data_.size() || !has_data_[fi]) return Matrix2Df();
+    fs::path p = frame_path(fi);
+    int fd = ::open(p.c_str(), O_RDONLY);
+    if (fd < 0) return Matrix2Df();
+    void *ptr = ::mmap(nullptr, frame_bytes_, PROT_READ, MAP_PRIVATE, fd, 0);
+    ::close(fd);
+    if (ptr == MAP_FAILED) return Matrix2Df();
+
+    const float *src = static_cast<const float *>(ptr);
+    int x0 = std::max(0, t.x);
+    int y0 = std::max(0, t.y);
+    int tw = t.width;
+    int th = t.height;
+    if (x0 + tw > cols_) tw = cols_ - x0;
+    if (y0 + th > rows_) th = rows_ - y0;
+    if (tw <= 0 || th <= 0) { ::munmap(ptr, frame_bytes_); return Matrix2Df(); }
+
+    Matrix2Df tile(th, tw);
+    for (int r = 0; r < th; ++r) {
+      const float *row_src = src + static_cast<size_t>(y0 + r) *
+                                       static_cast<size_t>(cols_) +
+                                   static_cast<size_t>(x0);
+      float *row_dst = tile.data() + static_cast<size_t>(r) *
+                                         static_cast<size_t>(tw);
+      std::memcpy(row_dst, row_src, static_cast<size_t>(tw) * sizeof(float));
+    }
+    ::munmap(ptr, frame_bytes_);
+    return tile;
+  }
+
+  bool has_data(size_t fi) const {
+    return fi < has_data_.size() && has_data_[fi];
+  }
+
+  size_t size() const { return has_data_.size(); }
+  int rows() const { return rows_; }
+  int cols() const { return cols_; }
+
+  void cleanup() {
+    if (!cache_dir_.empty() && fs::exists(cache_dir_)) {
+      std::error_code ec;
+      fs::remove_all(cache_dir_, ec);
+    }
+    has_data_.clear();
+  }
+
+private:
+  fs::path frame_path(size_t fi) const {
+    return cache_dir_ / (std::to_string(fi) + ".raw");
+  }
+
+  fs::path cache_dir_;
+  int rows_ = 0;
+  int cols_ = 0;
+  size_t frame_bytes_ = 0;
+  std::vector<bool> has_data_;
+};
 
 } // namespace
 
@@ -1110,14 +1244,17 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   // Applying rotation warps to small tile ROIs is fundamentally broken:
   // warpAffine needs source pixels outside the tile boundary that don't
   // exist, causing CFA pattern corruption (colored tile rectangles).
-  std::vector<Matrix2Df> prewarped_frames(frames.size());
+  //
+  // Disk-backed: frames are written as raw float binaries and mmap'd on
+  // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
+  DiskCacheFrameStore prewarped_frames(
+      run_dir / ".prewarped_cache", frames.size(), height, width);
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
   int n_frames_with_data = 0;
   for (size_t fi = 0; fi < frames.size(); ++fi) {
     auto pair = load_frame_normalized(fi);
     Matrix2Df img = std::move(pair.first);
     if (img.size() <= 0) {
-      prewarped_frames[fi] = Matrix2Df();
       continue;
     }
     const auto &w = global_frame_warps[fi];
@@ -1126,14 +1263,18 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         std::fabs(w(0, 0) - 1.0f) < eps && std::fabs(w(0, 1)) < eps &&
         std::fabs(w(1, 0)) < eps && std::fabs(w(1, 1) - 1.0f) < eps &&
         std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
+    Matrix2Df warped;
     if (is_identity) {
-      prewarped_frames[fi] = std::move(img);
+      warped = std::move(img);
     } else {
-      prewarped_frames[fi] = image::apply_global_warp(img, w, detected_mode);
+      warped = image::apply_global_warp(img, w, detected_mode);
     }
-    if (prewarped_frames[fi].size() > 0) {
-      frame_has_data[fi] = 1;
-      ++n_frames_with_data;
+    if (warped.size() > 0) {
+      prewarped_frames.store(fi, warped);
+      if (prewarped_frames.has_data(fi)) {
+        frame_has_data[fi] = 1;
+        ++n_frames_with_data;
+      }
     }
   }
 
@@ -1172,7 +1313,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
         const Tile &t = tiles_phase56[ti];
-        Matrix2Df tile_img = image::extract_tile(prewarped_frames[fi], t);
+        Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t);
 
         if (tile_img.size() <= 0) {
           TileMetrics z;
@@ -1494,7 +1635,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
       auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
         // Extract tile from pre-warped full frame (already normalized + warped)
-        return image::extract_tile(prewarped_frames[fi], t);
+        return prewarped_frames.extract_tile(fi, t);
       };
 
       // Use shared pre-computed windows for uniform tiles; compute only for
@@ -2194,7 +2335,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
         if (!frame_mask[fi] || !frame_has_data[fi])
           continue;
-        const Matrix2Df &src = prewarped_frames[fi];
+        Matrix2Df src = prewarped_frames.load(fi);
         if (src.size() <= 0)
           continue;
         float w = (fi < static_cast<size_t>(global_weights.size()))
@@ -2334,9 +2475,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           log_file);
     }
 
-    // --- Memory release: prewarped_frames no longer needed after synthetic ---
-    // This is the single largest allocation (~N_frames * W * H * 4 bytes).
-    { std::vector<Matrix2Df>().swap(prewarped_frames); }
+    // --- Memory release: prewarped_frames disk cache no longer needed ---
+    // Deletes all temp .raw files from the disk cache directory.
+    prewarped_frames.cleanup();
     { std::vector<uint8_t>().swap(frame_has_data); }
 
     // Phase 9: STACKING (final overlap-add already done in Phase 6)
