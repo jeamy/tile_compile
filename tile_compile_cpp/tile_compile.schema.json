@@ -98,6 +98,32 @@
         "star_dist_bin_px": { "type": "number", "exclusiveMinimum": 0 }
       }
     },
+    "tile_denoise": {
+      "type": "object",
+      "properties": {
+        "soft_threshold": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "blur_kernel": { "type": "integer", "minimum": 3 },
+            "alpha": { "type": "number", "exclusiveMinimum": 0 },
+            "skip_star_tiles": { "type": "boolean" }
+          }
+        },
+        "wiener": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "snr_threshold": { "type": "number", "minimum": 0 },
+            "q_min": { "type": "number", "minimum": -1 },
+            "q_max": { "type": "number", "minimum": 0, "maximum": 1 },
+            "q_step": { "type": "number", "exclusiveMinimum": 0 },
+            "min_snr": { "type": "number", "minimum": 0 },
+            "max_iterations": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
     "wiener_denoise": {
       "type": "object",
       "properties": {
@@ -114,6 +140,11 @@
       "type": "object",
       "properties": {
         "adaptive_weights": { "type": "boolean" },
+        "weight_exponent_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames. E.g. k=1.5 gives typical ratio ~20:1, k=2.0 gives ~54:1."
+        },
         "weights": {
           "type": "object",
           "properties": {

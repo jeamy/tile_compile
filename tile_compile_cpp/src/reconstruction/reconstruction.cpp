@@ -18,11 +18,22 @@ Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
     Matrix2Df result = Matrix2Df::Zero(h, w);
     Matrix2Df weight_sum = Matrix2Df::Zero(h, w);
 
+    // Cache Hanning windows: most grids use uniform tile sizes, so avoid
+    // recomputing identical windows for every tile.
+    int cached_w = -1, cached_h = -1;
+    std::vector<float> wx, wy;
+
     for (size_t t = 0; t < grid.tiles.size(); ++t) {
         const Tile& tile = grid.tiles[t];
 
-        const std::vector<float> wx = make_hann_1d(tile.width);
-        const std::vector<float> wy = make_hann_1d(tile.height);
+        if (tile.width != cached_w) {
+            wx = make_hann_1d(tile.width);
+            cached_w = tile.width;
+        }
+        if (tile.height != cached_h) {
+            wy = make_hann_1d(tile.height);
+            cached_h = tile.height;
+        }
         
         for (size_t f = 0; f < frames.size(); ++f) {
             float weight = tile_weights[f][t];
@@ -109,6 +120,76 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
     return out;
 }
 
+Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
+                                      const config::SoftThresholdConfig& cfg) {
+    if (!cfg.enabled) return tile;
+    const int h = tile.rows();
+    const int w = tile.cols();
+    if (h <= 0 || w <= 0) return tile;
+
+    // 1. Background estimation via box blur
+    cv::Mat tile_cv(h, w, CV_32F, const_cast<float*>(tile.data()));
+    cv::Mat bg;
+    int k = cfg.blur_kernel | 1; // ensure odd
+    cv::blur(tile_cv, bg, cv::Size(k, k), cv::Point(-1, -1),
+             cv::BORDER_REFLECT_101);
+
+    // 2. Highpass residual: R = T - B
+    cv::Mat resid = tile_cv - bg;
+
+    // 3. Robust noise estimate: σ = 1.4826 · median(|R - median(R)|)
+    std::vector<float> rv(static_cast<size_t>(resid.total()));
+    std::memcpy(rv.data(), resid.ptr<float>(),
+                rv.size() * sizeof(float));
+    size_t mid = rv.size() / 2;
+    std::nth_element(rv.begin(), rv.begin() + static_cast<long>(mid), rv.end());
+    float med_r = rv[mid];
+    for (size_t i = 0; i < rv.size(); ++i)
+        rv[i] = std::fabs(rv[i] - med_r);
+    std::nth_element(rv.begin(), rv.begin() + static_cast<long>(mid), rv.end());
+    float mad = rv[mid];
+    float sigma = 1.4826f * mad;
+
+    if (!(sigma > 1e-12f)) return tile; // no noise to remove
+
+    // 4. Soft-threshold: R' = sign(R) · max(|R| - τ, 0)
+    float tau = cfg.alpha * sigma;
+    cv::Mat abs_resid = cv::abs(resid);
+    cv::Mat shrunk;
+    cv::subtract(abs_resid, tau, shrunk);
+    cv::threshold(shrunk, shrunk, 0.0, 0.0, cv::THRESH_TOZERO);
+
+    // Apply sign: where resid < 0, negate the shrunk value
+    cv::Mat sign_mat;
+    cv::threshold(resid, sign_mat, 0.0, 0.0, cv::THRESH_TOZERO);     // positive part
+    cv::Mat neg_part;
+    cv::threshold(-resid, neg_part, 0.0, 0.0, cv::THRESH_TOZERO);    // negative part (abs)
+    // sign_mat > 0 → +1, neg_part > 0 → -1, both 0 → 0
+    cv::Mat result_resid = shrunk.clone();
+    // Where resid was negative, negate shrunk
+    cv::Mat neg_mask;
+    cv::compare(resid, 0.0f, neg_mask, cv::CMP_LT);
+    cv::Mat neg_shrunk;
+    cv::subtract(cv::Scalar(0.0f), shrunk, neg_shrunk);
+    neg_shrunk.copyTo(result_resid, neg_mask);
+
+    // 5. Reconstruct: T' = B + R'
+    cv::Mat out_cv = bg + result_resid;
+
+    Matrix2Df out(h, w);
+    if (out_cv.isContinuous()) {
+        std::memcpy(out.data(), out_cv.ptr<float>(),
+                    static_cast<size_t>(out.size()) * sizeof(float));
+    } else {
+        for (int r = 0; r < h; ++r) {
+            const float* src = out_cv.ptr<float>(r);
+            float* dst = out.data() + static_cast<size_t>(r) * static_cast<size_t>(w);
+            std::memcpy(dst, src, static_cast<size_t>(w) * sizeof(float));
+        }
+    }
+    return out;
+}
+
 Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
                            float sigma_low, float sigma_high,
                            int max_iters, float min_fraction) {
@@ -149,6 +230,9 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
             }
             double mean = sum / static_cast<double>(kept);
             double var = sumsq / static_cast<double>(kept) - mean * mean;
+            // Bessel correction: unbiased variance estimator for small samples
+            if (kept > 1)
+                var *= static_cast<double>(kept) / static_cast<double>(kept - 1);
             double sd = (var > 0.0) ? std::sqrt(var) : 0.0;
             if (!(sd > 0.0)) break;
 
@@ -224,13 +308,18 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
             wmean /= wsum;
 
             double var = 0.0;
+            double wsum2 = 0.0; // sum of squared weights for Bessel correction
             for (int i = 0; i < n; ++i) {
                 if (!keep[static_cast<size_t>(i)]) continue;
                 double wi = static_cast<double>(w_local[static_cast<size_t>(i)]);
                 double d = static_cast<double>(values[static_cast<size_t>(i)]) - wmean;
                 var += wi * d * d;
+                wsum2 += wi * wi;
             }
-            double sd = (var > 0.0) ? std::sqrt(var / wsum) : 0.0;
+            // Bessel correction for reliability (non-frequency) weights:
+            // var_unbiased = (Σ wi·d²) / (V1 - V2/V1)  where V1=wsum, V2=Σwi²
+            double denom = wsum - wsum2 / wsum;
+            double sd = (var > 0.0 && denom > 0.0) ? std::sqrt(var / denom) : 0.0;
             if (!(sd > 0.0)) break;
 
             const double lo = wmean - static_cast<double>(sigma_low) * sd;

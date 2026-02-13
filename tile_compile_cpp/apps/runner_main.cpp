@@ -25,6 +25,7 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <random>
 #include <set>
 #include <sstream>
 #include <string>
@@ -34,6 +35,11 @@
 
 #include <limits>
 #include <opencv2/opencv.hpp>
+
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #ifdef HAVE_CLI11
 #include <CLI/CLI.hpp>
@@ -80,6 +86,135 @@ private:
 };
 
 using NormalizationScales = image::NormalizationScales;
+
+// Disk-backed frame store using mmap for memory-efficient access to prewarped
+// frames.  Frames are written as raw float binaries to a temp directory and
+// lazily memory-mapped on read.  The OS page cache handles eviction, keeping
+// resident memory bounded by available RAM rather than total dataset size.
+class DiskCacheFrameStore {
+public:
+  DiskCacheFrameStore() = default;
+
+  DiskCacheFrameStore(const fs::path &cache_dir, size_t n_frames,
+                      int rows, int cols)
+      : cache_dir_(cache_dir), rows_(rows), cols_(cols),
+        frame_bytes_(static_cast<size_t>(rows) * static_cast<size_t>(cols) *
+                     sizeof(float)),
+        has_data_(n_frames, false) {
+    fs::create_directories(cache_dir_);
+  }
+
+  ~DiskCacheFrameStore() { cleanup(); }
+
+  DiskCacheFrameStore(const DiskCacheFrameStore &) = delete;
+  DiskCacheFrameStore &operator=(const DiskCacheFrameStore &) = delete;
+  DiskCacheFrameStore(DiskCacheFrameStore &&o) noexcept
+      : cache_dir_(std::move(o.cache_dir_)), rows_(o.rows_), cols_(o.cols_),
+        frame_bytes_(o.frame_bytes_), has_data_(std::move(o.has_data_)) {}
+  DiskCacheFrameStore &operator=(DiskCacheFrameStore &&o) noexcept {
+    if (this != &o) {
+      cleanup();
+      cache_dir_ = std::move(o.cache_dir_);
+      rows_ = o.rows_; cols_ = o.cols_;
+      frame_bytes_ = o.frame_bytes_;
+      has_data_ = std::move(o.has_data_);
+    }
+    return *this;
+  }
+
+  // Write a prewarped frame to disk.
+  void store(size_t fi, const Matrix2Df &frame) {
+    if (frame.rows() != rows_ || frame.cols() != cols_) return;
+    fs::path p = frame_path(fi);
+    int fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) return;
+    size_t written = 0;
+    const char *src = reinterpret_cast<const char *>(frame.data());
+    while (written < frame_bytes_) {
+      ssize_t n = ::write(fd, src + written, frame_bytes_ - written);
+      if (n <= 0) break;
+      written += static_cast<size_t>(n);
+    }
+    ::close(fd);
+    if (written == frame_bytes_) {
+      has_data_[fi] = true;
+    }
+  }
+
+  // Read a full frame via mmap, copy into Matrix2Df, munmap immediately.
+  Matrix2Df load(size_t fi) const {
+    if (fi >= has_data_.size() || !has_data_[fi]) return Matrix2Df();
+    fs::path p = frame_path(fi);
+    int fd = ::open(p.c_str(), O_RDONLY);
+    if (fd < 0) return Matrix2Df();
+    void *ptr = ::mmap(nullptr, frame_bytes_, PROT_READ, MAP_PRIVATE, fd, 0);
+    ::close(fd);
+    if (ptr == MAP_FAILED) return Matrix2Df();
+    Matrix2Df out(rows_, cols_);
+    std::memcpy(out.data(), ptr, frame_bytes_);
+    ::munmap(ptr, frame_bytes_);
+    return out;
+  }
+
+  // Extract a tile ROI directly from mmap without loading the full frame.
+  Matrix2Df extract_tile(size_t fi, const Tile &t) const {
+    if (fi >= has_data_.size() || !has_data_[fi]) return Matrix2Df();
+    fs::path p = frame_path(fi);
+    int fd = ::open(p.c_str(), O_RDONLY);
+    if (fd < 0) return Matrix2Df();
+    void *ptr = ::mmap(nullptr, frame_bytes_, PROT_READ, MAP_PRIVATE, fd, 0);
+    ::close(fd);
+    if (ptr == MAP_FAILED) return Matrix2Df();
+
+    const float *src = static_cast<const float *>(ptr);
+    int x0 = std::max(0, t.x);
+    int y0 = std::max(0, t.y);
+    int tw = t.width;
+    int th = t.height;
+    if (x0 + tw > cols_) tw = cols_ - x0;
+    if (y0 + th > rows_) th = rows_ - y0;
+    if (tw <= 0 || th <= 0) { ::munmap(ptr, frame_bytes_); return Matrix2Df(); }
+
+    Matrix2Df tile(th, tw);
+    for (int r = 0; r < th; ++r) {
+      const float *row_src = src + static_cast<size_t>(y0 + r) *
+                                       static_cast<size_t>(cols_) +
+                                   static_cast<size_t>(x0);
+      float *row_dst = tile.data() + static_cast<size_t>(r) *
+                                         static_cast<size_t>(tw);
+      std::memcpy(row_dst, row_src, static_cast<size_t>(tw) * sizeof(float));
+    }
+    ::munmap(ptr, frame_bytes_);
+    return tile;
+  }
+
+  bool has_data(size_t fi) const {
+    return fi < has_data_.size() && has_data_[fi];
+  }
+
+  size_t size() const { return has_data_.size(); }
+  int rows() const { return rows_; }
+  int cols() const { return cols_; }
+
+  void cleanup() {
+    if (!cache_dir_.empty() && fs::exists(cache_dir_)) {
+      std::error_code ec;
+      fs::remove_all(cache_dir_, ec);
+    }
+    has_data_.clear();
+  }
+
+private:
+  fs::path frame_path(size_t fi) const {
+    return cache_dir_ / (std::to_string(fi) + ".raw");
+  }
+
+  fs::path cache_dir_;
+  int rows_ = 0;
+  int cols_ = 0;
+  size_t frame_bytes_ = 0;
+  std::vector<bool> has_data_;
+};
 
 } // namespace
 
@@ -679,7 +814,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   VectorXf global_weights = metrics::calculate_global_weights(
       frame_metrics, cfg.global_metrics.weights.background,
       cfg.global_metrics.weights.noise, cfg.global_metrics.weights.gradient,
-      cfg.global_metrics.clamp[0], cfg.global_metrics.clamp[1]);
+      cfg.global_metrics.clamp[0], cfg.global_metrics.clamp[1],
+      cfg.global_metrics.adaptive_weights,
+      cfg.global_metrics.weight_exponent_scale);
 
   {
     core::json artifact;
@@ -727,7 +864,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
   float seeing_fwhm_med = 3.0f;
   {
+    // Robust FWHM probing: measure on up to 5 evenly-spaced frames,
+    // take median of all successful measurements (not just the first).
     const size_t n_probe = std::min<size_t>(5, frames.size());
+    std::vector<float> fwhm_probes;
+    fwhm_probes.reserve(n_probe);
     for (size_t pi = 0; pi < n_probe; ++pi) {
       size_t fi =
           (n_probe <= 1) ? 0 : (pi * (frames.size() - 1)) / (n_probe - 1);
@@ -741,11 +882,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       image::apply_normalization_inplace(img, norm_scales[fi], detected_mode,
                                   detected_bayer_str, roi_x0, roi_y0);
       float fwhm = metrics::measure_fwhm_from_image(img);
-      if (fwhm > 0.0f) {
-        seeing_fwhm_med = fwhm;
-        break;
-      }
+      if (fwhm > 0.0f && std::isfinite(fwhm))
+        fwhm_probes.push_back(fwhm);
     }
+    if (!fwhm_probes.empty())
+      seeing_fwhm_med = core::median_of(fwhm_probes);
   }
 
   int seeing_tile_size = 0;
@@ -1103,14 +1244,17 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   // Applying rotation warps to small tile ROIs is fundamentally broken:
   // warpAffine needs source pixels outside the tile boundary that don't
   // exist, causing CFA pattern corruption (colored tile rectangles).
-  std::vector<Matrix2Df> prewarped_frames(frames.size());
+  //
+  // Disk-backed: frames are written as raw float binaries and mmap'd on
+  // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
+  DiskCacheFrameStore prewarped_frames(
+      run_dir / ".prewarped_cache", frames.size(), height, width);
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
   int n_frames_with_data = 0;
   for (size_t fi = 0; fi < frames.size(); ++fi) {
     auto pair = load_frame_normalized(fi);
     Matrix2Df img = std::move(pair.first);
     if (img.size() <= 0) {
-      prewarped_frames[fi] = Matrix2Df();
       continue;
     }
     const auto &w = global_frame_warps[fi];
@@ -1119,14 +1263,18 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         std::fabs(w(0, 0) - 1.0f) < eps && std::fabs(w(0, 1)) < eps &&
         std::fabs(w(1, 0)) < eps && std::fabs(w(1, 1) - 1.0f) < eps &&
         std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
+    Matrix2Df warped;
     if (is_identity) {
-      prewarped_frames[fi] = std::move(img);
+      warped = std::move(img);
     } else {
-      prewarped_frames[fi] = image::apply_global_warp(img, w, detected_mode);
+      warped = image::apply_global_warp(img, w, detected_mode);
     }
-    if (prewarped_frames[fi].size() > 0) {
-      frame_has_data[fi] = 1;
-      ++n_frames_with_data;
+    if (warped.size() > 0) {
+      prewarped_frames.store(fi, warped);
+      if (prewarped_frames.has_data(fi)) {
+        frame_has_data[fi] = 1;
+        ++n_frames_with_data;
+      }
     }
   }
 
@@ -1165,7 +1313,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
         const Tile &t = tiles_phase56[ti];
-        Matrix2Df tile_img = image::extract_tile(prewarped_frames[fi], t);
+        Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t);
 
         if (tile_img.size() <= 0) {
           TileMetrics z;
@@ -1475,6 +1623,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     std::atomic<size_t> tiles_completed{0};
     std::atomic<size_t> tiles_failed{0};
 
+    // Pre-compute Hanning windows once for the uniform tile size (all tiles
+    // share the same dimensions), avoiding redundant recomputation per tile.
+    const std::vector<float> shared_hann_x = reconstruction::make_hann_1d(uniform_tile_size);
+    const std::vector<float> shared_hann_y = reconstruction::make_hann_1d(uniform_tile_size);
+
     // Worker function for parallel tile processing (v3: global warp only, no
     // local ECC)
     auto process_tile = [&](size_t ti) {
@@ -1482,11 +1635,18 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
       auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
         // Extract tile from pre-warped full frame (already normalized + warped)
-        return image::extract_tile(prewarped_frames[fi], t);
+        return prewarped_frames.extract_tile(fi, t);
       };
 
-      std::vector<float> hann_x = reconstruction::make_hann_1d(t.width);
-      std::vector<float> hann_y = reconstruction::make_hann_1d(t.height);
+      // Use shared pre-computed windows for uniform tiles; compute only for
+      // non-uniform edge tiles (rare).  Both ternary arms must be lvalues to
+      // avoid copying the shared vector.
+      std::vector<float> hann_x_local;
+      std::vector<float> hann_y_local;
+      if (t.width != uniform_tile_size) hann_x_local = reconstruction::make_hann_1d(t.width);
+      if (t.height != uniform_tile_size) hann_y_local = reconstruction::make_hann_1d(t.height);
+      const std::vector<float> &hann_x = (t.width == uniform_tile_size) ? shared_hann_x : hann_x_local;
+      const std::vector<float> &hann_y = (t.height == uniform_tile_size) ? shared_hann_y : hann_y_local;
 
       std::vector<float> weights;
       weights.reserve(frames.size());
@@ -1507,11 +1667,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
         std::vector<size_t> valid_frames;
         std::vector<float> weights_valid;
+        std::vector<Matrix2Df> valid_mosaics;
         valid_frames.reserve(frames.size());
         weights_valid.reserve(frames.size());
+        valid_mosaics.reserve(frames.size());
 
-        // First pass: determine which frames provide a valid tile and compute
-        // weights once. Also count valid tiles per frame exactly once.
+        // Single pass: extract tiles, determine validity, compute weights,
+        // and cache mosaics to avoid re-extraction during per-channel stacking.
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (!frame_has_data[fi])
             continue;
@@ -1520,6 +1682,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
             continue;
 
           valid_frames.push_back(fi);
+          valid_mosaics.push_back(std::move(tile_mosaic));
           frame_valid_tile_counts[fi].fetch_add(1);
 
           float G_f = (fi < static_cast<size_t>(global_weights.size()))
@@ -1539,15 +1702,10 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
         auto stack_channel = [&](int which) -> Matrix2Df {
           std::vector<Matrix2Df> chan_tiles;
-          chan_tiles.reserve(valid_frames.size());
+          chan_tiles.reserve(valid_mosaics.size());
 
-          for (size_t k = 0; k < valid_frames.size(); ++k) {
-            const size_t fi = valid_frames[k];
-            Matrix2Df tile_mosaic = load_tile_normalized(fi);
-            if (tile_mosaic.rows() != t.height || tile_mosaic.cols() != t.width)
-              return Matrix2Df();
-
-            auto deb = image::debayer_nearest_neighbor(tile_mosaic, detected_bayer,
+          for (size_t k = 0; k < valid_mosaics.size(); ++k) {
+            auto deb = image::debayer_nearest_neighbor(valid_mosaics[k], detected_bayer,
                                                        origin_x, origin_y);
             if (which == 0) {
               chan_tiles.push_back(std::move(deb.R));
@@ -1568,6 +1726,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         tile_rec_R = stack_channel(0);
         tile_rec_G = stack_channel(1);
         tile_rec_B = stack_channel(2);
+        valid_mosaics.clear();
 
         if (tile_rec_R.size() <= 0 || tile_rec_G.size() <= 0 ||
             tile_rec_B.size() <= 0) {
@@ -1620,10 +1779,108 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       tile_mean_dx[ti] = 0.0f;
       tile_mean_dy[ti] = 0.0f;
 
+      // Methodik 3.1E §3.3.1: Tile denoising after stacking, before OLA.
+      // 1. Soft-Threshold (Highpass + shrinkage) — always first (spatial domain)
+      bool is_star = (ti < tile_is_star.size()) && tile_is_star[ti];
+      if (cfg.tile_denoise.soft_threshold.enabled &&
+          !(cfg.tile_denoise.soft_threshold.skip_star_tiles && is_star)) {
+        tile_rec = reconstruction::soft_threshold_tile_filter(
+            tile_rec, cfg.tile_denoise.soft_threshold);
+        if (osc_mode) {
+          tile_rec_R = reconstruction::soft_threshold_tile_filter(
+              tile_rec_R, cfg.tile_denoise.soft_threshold);
+          tile_rec_G = reconstruction::soft_threshold_tile_filter(
+              tile_rec_G, cfg.tile_denoise.soft_threshold);
+          tile_rec_B = reconstruction::soft_threshold_tile_filter(
+              tile_rec_B, cfg.tile_denoise.soft_threshold);
+        }
+      }
+
+      // 2. Wiener filter (frequency domain) — applied after soft-threshold
+      float tile_noise = (ti < tile_quality_median.size())
+                             ? tile_quality_median[ti]
+                             : 0.0f;
+      float tile_snr = (tile_post_snr.size() > ti) ? tile_post_snr[ti] : 0.0f;
+      float tile_q = (ti < tile_quality_median.size())
+                          ? tile_quality_median[ti]
+                          : 0.0f;
+      if (cfg.tile_denoise.wiener.enabled) {
+        // Estimate noise from tile residual for Wiener filter
+        auto estimate_tile_noise = [](const Matrix2Df &t_img) -> float {
+          if (t_img.size() <= 0) return 0.0f;
+          cv::Mat m(t_img.rows(), t_img.cols(), CV_32F,
+                    const_cast<float *>(t_img.data()));
+          cv::Mat bg_m;
+          cv::blur(m, bg_m, cv::Size(31, 31), cv::Point(-1, -1),
+                   cv::BORDER_REFLECT_101);
+          cv::Mat r = m - bg_m;
+          cv::Scalar mu, sd;
+          cv::meanStdDev(r, mu, sd);
+          return static_cast<float>(sd[0]);
+        };
+        float sigma_est = estimate_tile_noise(tile_rec);
+        tile_rec = reconstruction::wiener_tile_filter(
+            tile_rec, sigma_est, tile_snr, tile_q, is_star,
+            cfg.tile_denoise.wiener);
+        if (osc_mode) {
+          float sig_r = estimate_tile_noise(tile_rec_R);
+          tile_rec_R = reconstruction::wiener_tile_filter(
+              tile_rec_R, sig_r, tile_snr, tile_q, is_star,
+              cfg.tile_denoise.wiener);
+          float sig_g = estimate_tile_noise(tile_rec_G);
+          tile_rec_G = reconstruction::wiener_tile_filter(
+              tile_rec_G, sig_g, tile_snr, tile_q, is_star,
+              cfg.tile_denoise.wiener);
+          float sig_b = estimate_tile_noise(tile_rec_B);
+          tile_rec_B = reconstruction::wiener_tile_filter(
+              tile_rec_B, sig_b, tile_snr, tile_q, is_star,
+              cfg.tile_denoise.wiener);
+        }
+      }
+
       auto [c, b, s] = compute_post_warp_metrics(tile_rec);
       tile_post_contrast[ti] = c;
       tile_post_background[ti] = b;
       tile_post_snr[ti] = s;
+
+      // Methodik 3.1E §3.6: Tile normalization before overlap-add.
+      // 1. Subtract background: T' = T - median(T)
+      // 2. Normalize: T'' = T' / median(|T'|)  (if median > ε)
+      // This eliminates patchwork artifacts from tiles with different
+      // background levels before the Hanning-windowed overlap-add.
+      auto normalize_tile_for_ola = [](Matrix2Df &t_img) -> float {
+        if (t_img.size() <= 0) return 0.0f;
+        // Compute median via partial sort on a copy
+        std::vector<float> tmp(t_img.data(), t_img.data() + t_img.size());
+        size_t mid = tmp.size() / 2;
+        std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid), tmp.end());
+        float bg = tmp[mid];
+        // Subtract background
+        for (Eigen::Index k = 0; k < t_img.size(); ++k)
+          t_img.data()[k] -= bg;
+        // Compute median of absolute values for scale normalization
+        for (size_t i = 0; i < tmp.size(); ++i)
+          tmp[i] = std::fabs(t_img.data()[static_cast<Eigen::Index>(i)]);
+        std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid), tmp.end());
+        float med_abs = tmp[mid];
+        if (med_abs > 1e-10f) {
+          float inv = 1.0f / med_abs;
+          for (Eigen::Index k = 0; k < t_img.size(); ++k)
+            t_img.data()[k] *= inv;
+        }
+        return bg; // return original background for later restoration
+      };
+
+      float tile_bg_mono = normalize_tile_for_ola(tile_rec);
+      float tile_bg_R = 0.0f, tile_bg_G = 0.0f, tile_bg_B = 0.0f;
+      if (osc_mode) {
+        tile_bg_R = normalize_tile_for_ola(tile_rec_R);
+        tile_bg_G = normalize_tile_for_ola(tile_rec_G);
+        tile_bg_B = normalize_tile_for_ola(tile_rec_B);
+      }
+
+      // Store tile backgrounds for global restoration after overlap-add
+      tile_post_background[ti] = osc_mode ? tile_bg_G : tile_bg_mono;
 
       {
         std::lock_guard<std::mutex> lock(recon_mutex);
@@ -1721,6 +1978,31 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           recon.data()[i] /= ws;
         } else {
           recon.data()[i] = first_img.data()[i];
+        }
+      }
+    }
+
+    // Methodik 3.1E §3.6: Restore global background after overlap-add.
+    // The tile normalization subtracted per-tile backgrounds before OLA.
+    // Now restore the median background level across all valid tiles.
+    {
+      std::vector<float> tile_bgs;
+      tile_bgs.reserve(tiles_phase56.size());
+      for (size_t i = 0; i < tiles_phase56.size(); ++i) {
+        if (tile_valid_counts[i] > 0)
+          tile_bgs.push_back(tile_post_background[i]);
+      }
+      if (!tile_bgs.empty()) {
+        float global_bg = core::median_of(tile_bgs);
+        if (osc_mode) {
+          for (int i = 0; i < recon_R.size(); ++i) {
+            recon_R.data()[i] += global_bg;
+            recon_G.data()[i] += global_bg;
+            recon_B.data()[i] += global_bg;
+          }
+        } else {
+          for (int i = 0; i < recon.size(); ++i)
+            recon.data()[i] += global_bg;
         }
       }
     }
@@ -1894,13 +2176,36 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       std::string clustering_method = "kmeans";
 
       if (n_clusters > 1 && n_frames_cluster > 1) {
-        // Initialize cluster centers (k-means++ style: just pick evenly spaced
-        // frames)
-        std::vector<std::vector<float>> centers(
-            static_cast<size_t>(n_clusters));
-        for (int c = 0; c < n_clusters; ++c) {
-          int idx = (c * n_frames_cluster) / n_clusters;
-          centers[static_cast<size_t>(c)] = X[static_cast<size_t>(idx)];
+        // K-means++ initialization: pick first center uniformly at random,
+        // then each subsequent center with probability proportional to D(x)²
+        // (squared distance to nearest existing center).
+        std::mt19937 rng(42); // fixed seed for reproducibility
+        std::vector<std::vector<float>> centers;
+        centers.reserve(static_cast<size_t>(n_clusters));
+
+        // First center: pick middle frame (deterministic, reproducible)
+        centers.push_back(X[static_cast<size_t>(n_frames_cluster / 2)]);
+
+        std::vector<double> min_dist_sq(X.size(),
+                                         std::numeric_limits<double>::max());
+        for (int c = 1; c < n_clusters; ++c) {
+          // Update min distances to nearest center (only need to check latest)
+          const auto &last_center = centers.back();
+          for (size_t fi = 0; fi < X.size(); ++fi) {
+            double d2 = 0.0;
+            for (size_t d = 0; d < X[fi].size(); ++d) {
+              double diff = static_cast<double>(X[fi][d]) -
+                            static_cast<double>(last_center[d]);
+              d2 += diff * diff;
+            }
+            if (d2 < min_dist_sq[fi])
+              min_dist_sq[fi] = d2;
+          }
+          // Sample next center with probability proportional to D(x)²
+          std::discrete_distribution<size_t> dist(min_dist_sq.begin(),
+                                                   min_dist_sq.end());
+          size_t next = dist(rng);
+          centers.push_back(X[next]);
         }
 
         // K-means iterations
@@ -2030,7 +2335,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
         if (!frame_mask[fi] || !frame_has_data[fi])
           continue;
-        const Matrix2Df &src = prewarped_frames[fi];
+        Matrix2Df src = prewarped_frames.load(fi);
         if (src.size() <= 0)
           continue;
         float w = (fi < static_cast<size_t>(global_weights.size()))
@@ -2170,9 +2475,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           log_file);
     }
 
-    // --- Memory release: prewarped_frames no longer needed after synthetic ---
-    // This is the single largest allocation (~N_frames * W * H * 4 bytes).
-    { std::vector<Matrix2Df>().swap(prewarped_frames); }
+    // --- Memory release: prewarped_frames disk cache no longer needed ---
+    // Deletes all temp .raw files from the disk cache directory.
+    prewarped_frames.cleanup();
     { std::vector<uint8_t>().swap(frame_has_data); }
 
     // Phase 9: STACKING (final overlap-add already done in Phase 6)

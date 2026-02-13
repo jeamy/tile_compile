@@ -1409,6 +1409,10 @@ def _gen_frame_usage(artifacts_dir: Path, events: list[dict]) -> tuple[list[str]
     num_synthetic = synth_end.get("num_synthetic", 0)
     synth_status = synth_end.get("status", "")
 
+    # Read synthetic artifact for frames_max
+    syn_artifact = _read_json(artifacts_dir / "synthetic_frames.json")
+    synth_frames_max = syn_artifact.get("frames_max", None) if syn_artifact else None
+
     # Build funnel stages
     stages: list[tuple[str, int, str]] = []  # (label, count, reason)
     stages.append(("Entdeckt", frames_discovered, "Input-Verzeichnis gescannt"))
@@ -1434,16 +1438,18 @@ def _gen_frame_usage(artifacts_dir: Path, events: list[dict]) -> tuple[list[str]
         reason_str = ", ".join(reasons) if reasons else "Alle registriert"
         stages.append(("Registriert (nutzbar)", frames_usable_reg, reason_str))
 
-    if num_synthetic > 0:
-        stages.append(("Synthetische Frames", num_synthetic,
-                       f"Aus {len(stages) > 0 and stages[-1][1] or '?'} Frames via Clustering"))
-    elif synth_status == "skipped":
-        reason = synth_end.get("reason", "übersprungen")
-        stages.append(("Synthetische Frames", 0, f"Übersprungen ({reason})"))
-
     # Eval lines
     for label, count, reason in stages:
         evals.append(f"{label}: {count}  ({reason})")
+
+    # Synthetic frames: not a retention stage (count is capped by frames_max), show as text only
+    if num_synthetic > 0:
+        src_count = stages[-1][1] if stages else '?'
+        max_info = f", max={synth_frames_max}" if synth_frames_max is not None else ""
+        evals.append(f"Synthetische Frames: {num_synthetic}  (aus {src_count} Frames via Clustering{max_info})")
+    elif synth_status == "skipped":
+        reason = synth_end.get("reason", "übersprungen")
+        evals.append(f"Synthetische Frames: 0  (Übersprungen: {reason})")
 
     # Funnel bar chart
     if plt is not None and len(stages) >= 2:
@@ -1502,8 +1508,6 @@ def _gen_frame_usage(artifacts_dir: Path, events: list[dict]) -> tuple[list[str]
             '<li><b>Registriert (nutzbar):</b> Frames mit erfolgreicher Registrierung '
             '(CC &gt; Schwelle). Identity-Fallback = Frame konnte nicht registriert werden '
             '(z.B. bewölkt, stark verschoben).</li>'
-            '<li><b>Synthetische Frames:</b> Aus Clustern erzeugte Repräsentanten '
-            'für das finale Stacking.</li>'
             '</ul>'
             '<p><b>Interpretation:</b></p>'
             '<ul>'
