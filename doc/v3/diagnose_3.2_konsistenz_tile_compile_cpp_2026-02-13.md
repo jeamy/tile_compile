@@ -181,13 +181,13 @@ Das ist operational nuetzlich, sollte aber in v3.2-Semantik **nicht Teil des Pfl
    - einheitliche Defaults (`1e-6`) in Config oder zentrale Konstanten,
    - Runner/Reconstruction entsprechend angleichen.
 
-## Phase C - Clusterung und Spezifikationsharmonisierung
+## Phase C - Clusterung und Spezifikationsharmonisierung ✅ UMGESETZT (2026-02-13)
 
-7. **Zustandsvektor an v3.2 ausrichten (oder v3.2 explizit erweitern)**
+7. **Zustandsvektor an v3.2 ausrichten (oder v3.2 explizit erweitern)** ✅
    - Entweder Code auf `G, meanQ, varQ, B, sigma` umstellen,
    - oder dokumentierte Erweiterung in Methodik v3.2.1 festschreiben.
 
-8. **Cluster-Artefakte erweitern**
+8. **Cluster-Artefakte erweitern** ✅
    - gespeicherte Features pro Frame,
    - Standardisierungsschritte,
    - final verwendete Featureliste.

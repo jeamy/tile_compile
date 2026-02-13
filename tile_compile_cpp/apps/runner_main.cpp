@@ -2115,43 +2115,14 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     }
 
     if (!skip_clustering_in_reduced) {
-      // Build state vectors for clustering (// Methodik v3 §10):
-      // [G_f, mean_local_quality, var_local_quality, mean_cc_tiles,
-      // mean_warp_var_tiles, invalid_tile_fraction]
+      // Build state vectors for clustering (v3.2 core vector):
+      // [G_f, mean_local_quality, var_local_quality, B_f, sigma_f]
       const int n_frames_cluster = static_cast<int>(frames.size());
       std::vector<std::vector<float>> state_vectors(
           static_cast<size_t>(n_frames_cluster));
-      std::vector<float> frame_mean_local(frames.size(), 0.0f);
-      std::vector<float> frame_var_local(frames.size(), 0.0f);
 
       std::vector<float> G_for_cluster(static_cast<size_t>(n_frames_cluster),
                                        1.0f);
-
-      float mean_cc_tiles = 0.0f;
-      float mean_warp_var_tiles = 0.0f;
-      if (!tiles_phase56.empty()) {
-        double sum_cc = 0.0;
-        double sum_var = 0.0;
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-          sum_cc += static_cast<double>(tile_mean_correlations[ti]);
-          sum_var += static_cast<double>(tile_warp_variances[ti]);
-        }
-        mean_cc_tiles = static_cast<float>(
-            sum_cc / static_cast<double>(tiles_phase56.size()));
-        mean_warp_var_tiles = static_cast<float>(
-            sum_var / static_cast<double>(tiles_phase56.size()));
-      }
-
-      std::vector<float> frame_invalid_fraction(frames.size(), 0.0f);
-      if (!tiles_phase56.empty()) {
-        for (size_t fi = 0; fi < frames.size(); ++fi) {
-          int valid_tiles_for_frame = frame_valid_tile_counts[fi].load();
-          float frac_valid = static_cast<float>(valid_tiles_for_frame) /
-                             static_cast<float>(tiles_phase56.size());
-          frame_invalid_fraction[fi] =
-              1.0f - std::min(std::max(frac_valid, 0.0f), 1.0f);
-        }
-      }
 
       for (size_t fi = 0; fi < frames.size(); ++fi) {
         float G_f = (fi < static_cast<size_t>(global_weights.size()))
@@ -2175,41 +2146,44 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           }
           var_local /= static_cast<float>(local_metrics[fi].size());
         }
-        frame_mean_local[fi] = mean_local;
-        frame_var_local[fi] = var_local;
-
-        state_vectors[fi] = {
-            G_f,           mean_local,          var_local,
-            mean_cc_tiles, mean_warp_var_tiles, frame_invalid_fraction[fi]};
+        state_vectors[fi] = {G_f, mean_local, var_local, bg, noise};
         G_for_cluster[fi] = G_f;
       }
 
       std::vector<std::vector<float>> X = state_vectors;
+      std::vector<float> state_means;
+      std::vector<float> state_stds;
+      std::vector<std::string> final_feature_list = {
+          "global_weight",
+          "mean_local_quality",
+          "var_local_quality",
+          "background",
+          "noise"};
       if (n_frames_cluster > 0) {
-        const size_t D = 6;
-        std::vector<float> means(D, 0.0f);
-        std::vector<float> stds(D, 0.0f);
+        const size_t D = X[0].size();
+        state_means.assign(D, 0.0f);
+        state_stds.assign(D, 0.0f);
 
         for (size_t d = 0; d < D; ++d) {
           double sum = 0.0;
           for (size_t i = 0; i < X.size(); ++i)
             sum += static_cast<double>(X[i][d]);
-          means[d] = static_cast<float>(sum / static_cast<double>(X.size()));
+          state_means[d] = static_cast<float>(sum / static_cast<double>(X.size()));
           double var = 0.0;
           for (size_t i = 0; i < X.size(); ++i) {
             double diff =
-                static_cast<double>(X[i][d]) - static_cast<double>(means[d]);
+                static_cast<double>(X[i][d]) - static_cast<double>(state_means[d]);
             var += diff * diff;
           }
           var /= std::max<double>(1.0, static_cast<double>(X.size()));
-          stds[d] = static_cast<float>(std::sqrt(std::max(0.0, var)));
+          state_stds[d] = static_cast<float>(std::sqrt(std::max(0.0, var)));
         }
 
-        const float eps = 1.0e-12f;
+        const float eps = kEpsWeight;
         for (size_t i = 0; i < X.size(); ++i) {
           for (size_t d = 0; d < D; ++d) {
-            float sd = stds[d];
-            X[i][d] = (sd > eps) ? ((X[i][d] - means[d]) / sd) : 0.0f;
+            float sd = state_stds[d];
+            X[i][d] = (sd > eps) ? ((X[i][d] - state_means[d]) / sd) : 0.0f;
           }
         }
       }
@@ -2279,7 +2253,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
           // Update centers
           std::vector<std::vector<float>> new_centers(
-              static_cast<size_t>(n_clusters), std::vector<float>(6, 0.0f));
+              static_cast<size_t>(n_clusters),
+              std::vector<float>(X[0].size(), 0.0f));
           std::vector<int> counts(static_cast<size_t>(n_clusters), 0);
           for (size_t fi = 0; fi < X.size(); ++fi) {
             int c = cluster_labels[fi];
@@ -2342,6 +2317,31 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         artifact["k_min"] = k_min;
         artifact["k_max"] = k_max;
         artifact["method"] = clustering_method;
+        artifact["feature_names"] = core::json::array();
+        for (const auto &name : final_feature_list)
+          artifact["feature_names"].push_back(name);
+        artifact["standardization"] = {
+            {"method", "zscore"},
+            {"eps", kEpsWeight},
+            {"means", core::json::array()},
+            {"stds", core::json::array()},
+        };
+        for (float v : state_means)
+          artifact["standardization"]["means"].push_back(v);
+        for (float v : state_stds)
+          artifact["standardization"]["stds"].push_back(v);
+        artifact["state_vectors_raw"] = core::json::array();
+        artifact["state_vectors_standardized"] = core::json::array();
+        for (size_t i = 0; i < state_vectors.size(); ++i) {
+          core::json raw = core::json::array();
+          core::json stdv = core::json::array();
+          for (float v : state_vectors[i])
+            raw.push_back(v);
+          for (float v : X[i])
+            stdv.push_back(v);
+          artifact["state_vectors_raw"].push_back(std::move(raw));
+          artifact["state_vectors_standardized"].push_back(std::move(stdv));
+        }
         artifact["cluster_labels"] = core::json::array();
         for (int lbl : cluster_labels)
           artifact["cluster_labels"].push_back(lbl);
