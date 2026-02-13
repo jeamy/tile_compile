@@ -3,7 +3,7 @@
 **Status:** Normative Referenzspezifikation (konsolidiert)  
 **Version:** v3.2 (2026-02-13)  
 **Basiert auf:** v3.1E (2026-02-12)  
-**Gilt fuer:** `tile_compile.proc` + `tile_compile.yaml`
+**Gilt fuer:** `tile_compile.yaml`
 
 ---
 

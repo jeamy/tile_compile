@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -31,6 +32,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -1876,10 +1878,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       // 2. Normalize: T'' = T' / median(|T'|)  (if median > ε)
       // This eliminates patchwork artifacts from tiles with different
       // background levels before the Hanning-windowed overlap-add.
-      auto normalize_tile_for_ola = [&](Matrix2Df &t_img) -> float {
+      std::vector<float> norm_tmp;
+      auto normalize_tile_for_ola = [&](Matrix2Df &t_img,
+                                        std::vector<float> &tmp) -> float {
         if (t_img.size() <= 0) return 0.0f;
-        // Compute median via partial sort on a copy
-        std::vector<float> tmp(t_img.data(), t_img.data() + t_img.size());
+        // Compute median via partial sort on a reusable copy buffer
+        tmp.resize(static_cast<size_t>(t_img.size()));
+        std::copy(t_img.data(), t_img.data() + t_img.size(), tmp.begin());
         size_t mid = tmp.size() / 2;
         std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid), tmp.end());
         float bg = tmp[mid];
@@ -1899,12 +1904,12 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         return bg; // return original background for later restoration
       };
 
-      float tile_bg_mono = normalize_tile_for_ola(tile_rec);
+      float tile_bg_mono = normalize_tile_for_ola(tile_rec, norm_tmp);
       float tile_bg_R = 0.0f, tile_bg_G = 0.0f, tile_bg_B = 0.0f;
       if (osc_mode) {
-        tile_bg_R = normalize_tile_for_ola(tile_rec_R);
-        tile_bg_G = normalize_tile_for_ola(tile_rec_G);
-        tile_bg_B = normalize_tile_for_ola(tile_rec_B);
+        tile_bg_R = normalize_tile_for_ola(tile_rec_R, norm_tmp);
+        tile_bg_G = normalize_tile_for_ola(tile_rec_G, norm_tmp);
+        tile_bg_B = normalize_tile_for_ola(tile_rec_B, norm_tmp);
       }
 
       // Store tile backgrounds for global restoration after overlap-add
@@ -2367,12 +2372,14 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       if (cfg.synthetic.weighting == "tile_weighted") {
         Matrix2Df out = Matrix2Df::Zero(height, width);
         Matrix2Df weight_ola = Matrix2Df::Zero(height, width);
-        bool any_tile = false;
+        std::atomic<bool> any_tile{false};
 
-        auto normalize_tile_for_ola = [&](Matrix2Df &t_img) {
+        auto normalize_tile_for_ola = [&](Matrix2Df &t_img,
+                                          std::vector<float> &tmp) {
           if (t_img.size() <= 0)
             return;
-          std::vector<float> tmp(t_img.data(), t_img.data() + t_img.size());
+          tmp.resize(static_cast<size_t>(t_img.size()));
+          std::copy(t_img.data(), t_img.data() + t_img.size(), tmp.begin());
           const size_t mid = tmp.size() / 2;
           std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid),
                            tmp.end());
@@ -2391,67 +2398,138 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           }
         };
 
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-          const Tile &t = tiles_phase56[ti];
-          std::vector<Matrix2Df> cluster_tiles;
-          std::vector<float> cluster_weights;
-          cluster_tiles.reserve(frames.size());
-          cluster_weights.reserve(frames.size());
-
-          for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
-            if (!frame_mask[fi] || !frame_has_data[fi])
-              continue;
-            Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t);
-            if (tile_img.rows() != t.height || tile_img.cols() != t.width)
-              continue;
-            cluster_tiles.push_back(std::move(tile_img));
-
-            float G_f = (fi < static_cast<size_t>(global_weights.size()))
-                            ? global_weights[static_cast<int>(fi)]
-                            : 1.0f;
-            float L_ft =
-                (fi < local_weights.size() && ti < local_weights[fi].size())
-                    ? local_weights[fi][ti]
-                    : 1.0f;
-            float w = G_f * L_ft;
-            cluster_weights.push_back((std::isfinite(w) && w > 0.0f) ? w : 0.0f);
-          }
-
-          if (cluster_tiles.empty())
+        struct HannCacheEntry {
+          std::vector<float> x;
+          std::vector<float> y;
+        };
+        std::unordered_map<uint64_t, HannCacheEntry> hann_cache;
+        hann_cache.reserve(tiles_phase56.size());
+        for (const auto &tile : tiles_phase56) {
+          const uint64_t key =
+              (static_cast<uint64_t>(static_cast<uint32_t>(tile.width)) << 32) |
+              static_cast<uint32_t>(tile.height);
+          if (hann_cache.find(key) != hann_cache.end())
             continue;
-
-          auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
-              cluster_tiles, cluster_weights, cfg.stacking.sigma_clip.sigma_low,
-              cfg.stacking.sigma_clip.sigma_high,
-              cfg.stacking.sigma_clip.max_iters,
-              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
-          Matrix2Df tile_rec = std::move(wr.tile);
-          if (tile_rec.rows() != t.height || tile_rec.cols() != t.width)
-            continue;
-
-          // v3.2 §5.7.1: normalize tile before overlap-add.
-          normalize_tile_for_ola(tile_rec);
-
-          const std::vector<float> hann_x = reconstruction::make_hann_1d(t.width);
-          const std::vector<float> hann_y = reconstruction::make_hann_1d(t.height);
-          const int x0 = std::max(0, t.x);
-          const int y0 = std::max(0, t.y);
-          for (int yy = 0; yy < tile_rec.rows(); ++yy) {
-            for (int xx = 0; xx < tile_rec.cols(); ++xx) {
-              const int iy = y0 + yy;
-              const int ix = x0 + xx;
-              if (iy < 0 || iy >= out.rows() || ix < 0 || ix >= out.cols())
-                continue;
-              const float win = hann_y[static_cast<size_t>(yy)] *
-                                hann_x[static_cast<size_t>(xx)];
-              out(iy, ix) += tile_rec(yy, xx) * win;
-              weight_ola(iy, ix) += win;
-            }
-          }
-          any_tile = true;
+          hann_cache.emplace(key, HannCacheEntry{reconstruction::make_hann_1d(tile.width),
+                                                 reconstruction::make_hann_1d(tile.height)});
         }
 
-        if (!any_tile)
+        std::mutex recon_mutex;
+        std::atomic<size_t> next_tile{0};
+
+        int subset_workers = 1;
+        if (tiles_phase56.size() > 1) {
+          int cpu_cores = static_cast<int>(std::thread::hardware_concurrency());
+          if (cpu_cores <= 0)
+            cpu_cores = 1;
+          subset_workers = std::min<int>(cpu_cores,
+                                         static_cast<int>(tiles_phase56.size()));
+          subset_workers = std::max(1, std::min(subset_workers, 8));
+        }
+
+        auto process_tile = [&]() {
+          std::vector<Matrix2Df> cluster_tiles;
+          std::vector<float> cluster_weights;
+          cluster_tiles.reserve(frame_mask.size());
+          cluster_weights.reserve(frame_mask.size());
+          std::vector<float> norm_tmp;
+
+          while (true) {
+            const size_t ti = next_tile.fetch_add(1);
+            if (ti >= tiles_phase56.size())
+              break;
+
+            const Tile &t = tiles_phase56[ti];
+            cluster_tiles.clear();
+            cluster_weights.clear();
+
+            for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
+              if (!frame_mask[fi] || !frame_has_data[fi])
+                continue;
+              Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t);
+              if (tile_img.rows() != t.height || tile_img.cols() != t.width)
+                continue;
+              cluster_tiles.push_back(std::move(tile_img));
+
+              float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                              ? global_weights[static_cast<int>(fi)]
+                              : 1.0f;
+              float L_ft =
+                  (fi < local_weights.size() && ti < local_weights[fi].size())
+                      ? local_weights[fi][ti]
+                      : 1.0f;
+              float w = G_f * L_ft;
+              cluster_weights.push_back((std::isfinite(w) && w > 0.0f) ? w
+                                                                        : 0.0f);
+            }
+
+            if (cluster_tiles.empty())
+              continue;
+
+            Matrix2Df tile_rec;
+            if (cluster_tiles.size() == 1) {
+              tile_rec = std::move(cluster_tiles.front());
+            } else {
+              auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
+                  cluster_tiles, cluster_weights,
+                  cfg.stacking.sigma_clip.sigma_low,
+                  cfg.stacking.sigma_clip.sigma_high,
+                  cfg.stacking.sigma_clip.max_iters,
+                  cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+              tile_rec = std::move(wr.tile);
+            }
+            if (tile_rec.rows() != t.height || tile_rec.cols() != t.width)
+              continue;
+
+            // v3.2 §5.7.1: normalize tile before overlap-add.
+            normalize_tile_for_ola(tile_rec, norm_tmp);
+
+            const uint64_t key =
+                (static_cast<uint64_t>(static_cast<uint32_t>(t.width)) << 32) |
+                static_cast<uint32_t>(t.height);
+            const auto cache_it = hann_cache.find(key);
+            if (cache_it == hann_cache.end())
+              continue;
+            const std::vector<float> &hann_x = cache_it->second.x;
+            const std::vector<float> &hann_y = cache_it->second.y;
+
+            const int x0 = std::max(0, t.x);
+            const int y0 = std::max(0, t.y);
+
+            {
+              std::lock_guard<std::mutex> lock(recon_mutex);
+              for (int yy = 0; yy < tile_rec.rows(); ++yy) {
+                for (int xx = 0; xx < tile_rec.cols(); ++xx) {
+                  const int iy = y0 + yy;
+                  const int ix = x0 + xx;
+                  if (iy < 0 || iy >= out.rows() || ix < 0 || ix >= out.cols())
+                    continue;
+                  const float win = hann_y[static_cast<size_t>(yy)] *
+                                    hann_x[static_cast<size_t>(xx)];
+                  out(iy, ix) += tile_rec(yy, xx) * win;
+                  weight_ola(iy, ix) += win;
+                }
+              }
+            }
+            any_tile.store(true, std::memory_order_relaxed);
+          }
+        };
+
+        if (subset_workers > 1) {
+          std::vector<std::thread> workers;
+          workers.reserve(static_cast<size_t>(subset_workers));
+          for (int w = 0; w < subset_workers; ++w) {
+            workers.emplace_back(process_tile);
+          }
+          for (auto &worker : workers) {
+            if (worker.joinable())
+              worker.join();
+          }
+        } else {
+          process_tile();
+        }
+
+        if (!any_tile.load(std::memory_order_relaxed))
           return Matrix2Df();
 
         Matrix2Df fallback;
