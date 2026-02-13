@@ -2369,6 +2369,28 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         Matrix2Df weight_ola = Matrix2Df::Zero(height, width);
         bool any_tile = false;
 
+        auto normalize_tile_for_ola = [&](Matrix2Df &t_img) {
+          if (t_img.size() <= 0)
+            return;
+          std::vector<float> tmp(t_img.data(), t_img.data() + t_img.size());
+          const size_t mid = tmp.size() / 2;
+          std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid),
+                           tmp.end());
+          const float bg = tmp[mid];
+          for (Eigen::Index k = 0; k < t_img.size(); ++k)
+            t_img.data()[k] -= bg;
+          for (size_t i = 0; i < tmp.size(); ++i)
+            tmp[i] = std::fabs(t_img.data()[static_cast<Eigen::Index>(i)]);
+          std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid),
+                           tmp.end());
+          const float med_abs = tmp[mid];
+          if (med_abs > kEpsMedian) {
+            const float inv = 1.0f / med_abs;
+            for (Eigen::Index k = 0; k < t_img.size(); ++k)
+              t_img.data()[k] *= inv;
+          }
+        };
+
         for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
           const Tile &t = tiles_phase56[ti];
           std::vector<Matrix2Df> cluster_tiles;
@@ -2406,6 +2428,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           Matrix2Df tile_rec = std::move(wr.tile);
           if (tile_rec.rows() != t.height || tile_rec.cols() != t.width)
             continue;
+
+          // v3.2 §5.7.1: normalize tile before overlap-add.
+          normalize_tile_for_ola(tile_rec);
 
           const std::vector<float> hann_x = reconstruction::make_hann_1d(t.width);
           const std::vector<float> hann_y = reconstruction::make_hann_1d(t.height);

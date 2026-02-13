@@ -82,10 +82,10 @@ void AstrometryTab::build_ui() {
     astap_row->addWidget(btn_install_astap_);
     setup_layout->addLayout(astap_row);
 
-    auto *info_label = new QLabel(
+    lbl_astap_data_dir_ = new QLabel(
         "ASTAP data directory: <b>" + astap_data_dir() + "</b>");
-    info_label->setWordWrap(true);
-    setup_layout->addWidget(info_label);
+    lbl_astap_data_dir_->setWordWrap(true);
+    setup_layout->addWidget(lbl_astap_data_dir_);
 
     root->addWidget(setup_box);
 
@@ -214,6 +214,11 @@ bool AstrometryTab::is_catalog_installed(const QString &catalog_id) const {
 }
 
 void AstrometryTab::update_status() {
+    if (lbl_astap_data_dir_) {
+        lbl_astap_data_dir_->setText(
+            "ASTAP data directory: <b>" + astap_data_dir() + "</b>");
+    }
+
     const bool astap_ok = is_astap_installed();
     if (astap_ok) {
         lbl_astap_status_->setText("Installed \u2713");
