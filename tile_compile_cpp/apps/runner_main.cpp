@@ -2461,26 +2461,10 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
         auto normalize_tile_for_ola = [&](Matrix2Df &t_img,
                                           std::vector<float> &tmp) {
-          if (t_img.size() <= 0)
-            return;
-          tmp.resize(static_cast<size_t>(t_img.size()));
-          std::copy(t_img.data(), t_img.data() + t_img.size(), tmp.begin());
-          const size_t mid = tmp.size() / 2;
-          std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid),
-                           tmp.end());
-          const float bg = tmp[mid];
-          for (Eigen::Index k = 0; k < t_img.size(); ++k)
-            t_img.data()[k] -= bg;
-          for (size_t i = 0; i < tmp.size(); ++i)
-            tmp[i] = std::fabs(t_img.data()[static_cast<Eigen::Index>(i)]);
-          std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid),
-                           tmp.end());
-          const float med_abs = tmp[mid];
-          if (med_abs > kEpsMedian) {
-            const float inv = 1.0f / med_abs;
-            for (Eigen::Index k = 0; k < t_img.size(); ++k)
-              t_img.data()[k] *= inv;
-          }
+          (void)t_img;
+          (void)tmp;
+          // Preserve synthetic-frame photometric scale. Per-tile median/scale
+          // normalization here can imprint tile structure and compress signal.
         };
 
         struct HannCacheEntry {

@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This analysis evaluates the tile_compile_cpp implementation of the tile-based quality reconstruction methodology for astronomical images. The implementation follows the specification from `tile_basierte_qualitatsrekonstruktion_methodik_en.md` (v3.1) and processes astronomical images through a pipeline that includes registration, debayering, normalization, quality analysis, and reconstruction.
+This analysis evaluates the tile_compile_cpp implementation of the tile-based quality reconstruction methodology for astronomical images. The implementation follows the specification in `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md` and processes astronomical images through the v3.2 pipeline including registration, normalization, metrics, tile reconstruction, clustering/synthetic frames, stacking, debayer, astrometry, and PCC.
 
 Overall, the implementation faithfully adheres to the mathematical principles outlined in the specification, but there are several areas where improvements could be made in terms of mathematical correctness, numerical stability, and algorithmic efficiency.
 
@@ -28,10 +28,7 @@ The implementation follows a linear pipeline approach as required by the specifi
 
 ### 2.1 Observations
 
-The registration module implements both the Siril-based path (A) and the CFA-based path (B) from the specification:
-
-- **Path A**: Uses a traditional approach with debayering before registration
-- **Path B**: Preserves the CFA structure during registration using subplane-based warping
+The registration module uses a cascaded fallback strategy with CFA-aware full-frame prewarping. The current pipeline performs registration before channel processing and keeps CFA structure intact until debayer.
 
 ### 2.2 Issues Identified
 
@@ -208,13 +205,13 @@ The implementation's approach to Wiener filtering is comparable to standard impl
 
 ### 7.1 Observations
 
-The pipeline implements the state-based clustering described in the specification, but this component appears to be partially implemented or not fully integrated in the reviewed code.
+The pipeline implements state-based clustering and synthetic-frame generation in production code, with mode-dependent skipping in Reduced/Emergency mode.
 
 ### 7.2 Issues Identified
 
-1. **Incomplete Implementation**: The dynamic cluster count logic specified in section 3.7 doesn't appear to be fully implemented.
+1. **Operational Risk**: Cluster quality can degrade on heterogeneous datasets when cluster count and eligibility thresholds are aggressive.
 
-2. **Feature Vector Construction**: The state vector for clustering is not clearly defined in the implementation.
+2. **Feature Stability**: State-vector features should be monitored for drift across long sessions (cloud passages, gradients) to avoid unstable cluster assignments.
 
 ### 7.3 Mathematical Correctness
 
@@ -232,16 +229,16 @@ State-based clustering is an advanced approach compared to traditional methods l
 
 ### 8.1 Observations
 
-The implementation includes components for:
+The implementation includes production components for:
 - Astrometric solving
 - Photometric color calibration
 - Catalog matching
 
 ### 8.2 Issues Identified
 
-1. **Limited Implementation**: The astrometry and photometric calibration components seem to be partially implemented or integrated.
+1. **External Dependencies**: Astrometry relies on ASTAP binaries/catalogs and is therefore environment-sensitive.
 
-2. **External Dependencies**: The code appears to rely on external tools like ASTAP, which may introduce compatibility issues.
+2. **Catalog Availability**: PCC quality depends on available catalog source/data quality (local Siril catalog or online fallback).
 
 ### 8.3 Mathematical Correctness
 
@@ -249,7 +246,7 @@ The photometric calibration approach seems reasonable, but without seeing the co
 
 ### 8.4 Comparison with Existing Solutions
 
-The approach is comparable to solutions in popular tools like SIRIL, ASTAP, and AstroImageJ, but appears less mature in implementation.
+The approach is comparable to solutions in popular tools like SIRIL, ASTAP, and AstroImageJ and is fully integrated into the runner phases (ASTROMETRY + PCC).
 
 ## 9. Performance and Scalability
 
@@ -259,7 +256,7 @@ The implementation uses OpenCV for many image processing operations, which provi
 
 ### 9.2 Issues Identified
 
-1. **Memory Usage**: The code keeps entire image frames in memory, which could be problematic for very large datasets.
+1. **Disk I/O Pressure**: Disk-backed frame caching reduces RAM pressure but shifts bottlenecks to storage throughput/latency.
 
 2. **Parallelization**: There's limited explicit parallelization in the codebase, missing opportunities for performance improvement.
 
