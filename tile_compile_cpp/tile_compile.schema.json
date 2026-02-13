@@ -105,6 +105,13 @@
         "star_dist_bin_px": { "type": "number", "exclusiveMinimum": 0 }
       }
     },
+    "dithering": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "min_shift_px": { "type": "number", "minimum": 0 }
+      }
+    },
     "tile_denoise": {
       "type": "object",
       "properties": {
@@ -127,6 +134,55 @@
             "q_step": { "type": "number", "exclusiveMinimum": 0 },
             "min_snr": { "type": "number", "minimum": 0 },
             "max_iterations": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "chroma_denoise": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "color_space": { "type": "string", "enum": ["ycbcr_linear", "opponent_linear"] },
+        "apply_stage": { "type": "string", "enum": ["pre_stack_tiles", "post_stack_linear"] },
+        "protect_luma": { "type": "boolean" },
+        "luma_guard_strength": { "type": "number", "minimum": 0, "maximum": 1 },
+        "star_protection": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "threshold_sigma": { "type": "number", "exclusiveMinimum": 0 },
+            "dilate_px": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "structure_protection": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "gradient_percentile": { "type": "number", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "chroma_wavelet": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "levels": { "type": "integer", "minimum": 1 },
+            "threshold_scale": { "type": "number", "exclusiveMinimum": 0 },
+            "soft_k": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "chroma_bilateral": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "sigma_spatial": { "type": "number", "exclusiveMinimum": 0 },
+            "sigma_range": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        "blend": {
+          "type": "object",
+          "properties": {
+            "mode": { "type": "string", "enum": ["chroma_only"] },
+            "amount": { "type": "number", "minimum": 0, "maximum": 1 }
           }
         }
       }

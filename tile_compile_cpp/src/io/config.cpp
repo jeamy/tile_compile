@@ -180,6 +180,14 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.registration.star_dist_bin_px = r["star_dist_bin_px"].as<float>();
   }
 
+  if (node["dithering"]) {
+    auto d = node["dithering"];
+    if (d["enabled"])
+      cfg.dithering.enabled = d["enabled"].as<bool>();
+    if (d["min_shift_px"])
+      cfg.dithering.min_shift_px = d["min_shift_px"].as<float>();
+  }
+
   if (node["tile_denoise"]) {
     auto td = node["tile_denoise"];
     if (td["soft_threshold"]) {
@@ -232,6 +240,73 @@ Config Config::from_yaml(const YAML::Node &node) {
   }
   // Sync legacy alias
   cfg.wiener_denoise = cfg.tile_denoise.wiener;
+
+  if (node["chroma_denoise"]) {
+    auto cd = node["chroma_denoise"];
+    if (cd["enabled"])
+      cfg.chroma_denoise.enabled = cd["enabled"].as<bool>();
+    if (cd["color_space"])
+      cfg.chroma_denoise.color_space = cd["color_space"].as<std::string>();
+    if (cd["apply_stage"])
+      cfg.chroma_denoise.apply_stage = cd["apply_stage"].as<std::string>();
+    if (cd["protect_luma"])
+      cfg.chroma_denoise.protect_luma = cd["protect_luma"].as<bool>();
+    if (cd["luma_guard_strength"])
+      cfg.chroma_denoise.luma_guard_strength = cd["luma_guard_strength"].as<float>();
+
+    if (cd["star_protection"]) {
+      auto sp = cd["star_protection"];
+      if (sp["enabled"])
+        cfg.chroma_denoise.star_protection.enabled = sp["enabled"].as<bool>();
+      if (sp["threshold_sigma"])
+        cfg.chroma_denoise.star_protection.threshold_sigma =
+            sp["threshold_sigma"].as<float>();
+      if (sp["dilate_px"])
+        cfg.chroma_denoise.star_protection.dilate_px = sp["dilate_px"].as<int>();
+    }
+
+    if (cd["structure_protection"]) {
+      auto st = cd["structure_protection"];
+      if (st["enabled"])
+        cfg.chroma_denoise.structure_protection.enabled = st["enabled"].as<bool>();
+      if (st["gradient_percentile"])
+        cfg.chroma_denoise.structure_protection.gradient_percentile =
+            st["gradient_percentile"].as<float>();
+    }
+
+    if (cd["chroma_wavelet"]) {
+      auto cw = cd["chroma_wavelet"];
+      if (cw["enabled"])
+        cfg.chroma_denoise.chroma_wavelet.enabled = cw["enabled"].as<bool>();
+      if (cw["levels"])
+        cfg.chroma_denoise.chroma_wavelet.levels = cw["levels"].as<int>();
+      if (cw["threshold_scale"])
+        cfg.chroma_denoise.chroma_wavelet.threshold_scale =
+            cw["threshold_scale"].as<float>();
+      if (cw["soft_k"])
+        cfg.chroma_denoise.chroma_wavelet.soft_k = cw["soft_k"].as<float>();
+    }
+
+    if (cd["chroma_bilateral"]) {
+      auto cb = cd["chroma_bilateral"];
+      if (cb["enabled"])
+        cfg.chroma_denoise.chroma_bilateral.enabled = cb["enabled"].as<bool>();
+      if (cb["sigma_spatial"])
+        cfg.chroma_denoise.chroma_bilateral.sigma_spatial =
+            cb["sigma_spatial"].as<float>();
+      if (cb["sigma_range"])
+        cfg.chroma_denoise.chroma_bilateral.sigma_range =
+            cb["sigma_range"].as<float>();
+    }
+
+    if (cd["blend"]) {
+      auto b = cd["blend"];
+      if (b["mode"])
+        cfg.chroma_denoise.blend.mode = b["mode"].as<std::string>();
+      if (b["amount"])
+        cfg.chroma_denoise.blend.amount = b["amount"].as<float>();
+    }
+  }
 
   if (node["global_metrics"]) {
     auto gm = node["global_metrics"];
@@ -490,6 +565,9 @@ YAML::Node Config::to_yaml() const {
   node["registration"]["star_inlier_tol_px"] = registration.star_inlier_tol_px;
   node["registration"]["star_dist_bin_px"] = registration.star_dist_bin_px;
 
+  node["dithering"]["enabled"] = dithering.enabled;
+  node["dithering"]["min_shift_px"] = dithering.min_shift_px;
+
   node["tile_denoise"]["soft_threshold"]["enabled"] = tile_denoise.soft_threshold.enabled;
   node["tile_denoise"]["soft_threshold"]["blur_kernel"] = tile_denoise.soft_threshold.blur_kernel;
   node["tile_denoise"]["soft_threshold"]["alpha"] = tile_denoise.soft_threshold.alpha;
@@ -501,6 +579,38 @@ YAML::Node Config::to_yaml() const {
   node["tile_denoise"]["wiener"]["q_step"] = tile_denoise.wiener.q_step;
   node["tile_denoise"]["wiener"]["min_snr"] = tile_denoise.wiener.min_snr;
   node["tile_denoise"]["wiener"]["max_iterations"] = tile_denoise.wiener.max_iterations;
+
+  node["chroma_denoise"]["enabled"] = chroma_denoise.enabled;
+  node["chroma_denoise"]["color_space"] = chroma_denoise.color_space;
+  node["chroma_denoise"]["apply_stage"] = chroma_denoise.apply_stage;
+  node["chroma_denoise"]["protect_luma"] = chroma_denoise.protect_luma;
+  node["chroma_denoise"]["luma_guard_strength"] = chroma_denoise.luma_guard_strength;
+  node["chroma_denoise"]["star_protection"]["enabled"] =
+      chroma_denoise.star_protection.enabled;
+  node["chroma_denoise"]["star_protection"]["threshold_sigma"] =
+      chroma_denoise.star_protection.threshold_sigma;
+  node["chroma_denoise"]["star_protection"]["dilate_px"] =
+      chroma_denoise.star_protection.dilate_px;
+  node["chroma_denoise"]["structure_protection"]["enabled"] =
+      chroma_denoise.structure_protection.enabled;
+  node["chroma_denoise"]["structure_protection"]["gradient_percentile"] =
+      chroma_denoise.structure_protection.gradient_percentile;
+  node["chroma_denoise"]["chroma_wavelet"]["enabled"] =
+      chroma_denoise.chroma_wavelet.enabled;
+  node["chroma_denoise"]["chroma_wavelet"]["levels"] =
+      chroma_denoise.chroma_wavelet.levels;
+  node["chroma_denoise"]["chroma_wavelet"]["threshold_scale"] =
+      chroma_denoise.chroma_wavelet.threshold_scale;
+  node["chroma_denoise"]["chroma_wavelet"]["soft_k"] =
+      chroma_denoise.chroma_wavelet.soft_k;
+  node["chroma_denoise"]["chroma_bilateral"]["enabled"] =
+      chroma_denoise.chroma_bilateral.enabled;
+  node["chroma_denoise"]["chroma_bilateral"]["sigma_spatial"] =
+      chroma_denoise.chroma_bilateral.sigma_spatial;
+  node["chroma_denoise"]["chroma_bilateral"]["sigma_range"] =
+      chroma_denoise.chroma_bilateral.sigma_range;
+  node["chroma_denoise"]["blend"]["mode"] = chroma_denoise.blend.mode;
+  node["chroma_denoise"]["blend"]["amount"] = chroma_denoise.blend.amount;
 
   node["global_metrics"]["adaptive_weights"] = global_metrics.adaptive_weights;
   node["global_metrics"]["weight_exponent_scale"] = global_metrics.weight_exponent_scale;
@@ -672,6 +782,10 @@ void Config::validate() const {
         "registration.star_inlier_tol_px and star_dist_bin_px must be > 0");
   }
 
+  if (dithering.min_shift_px < 0.0f) {
+    throw ValidationError("dithering.min_shift_px must be >= 0");
+  }
+
   if (tile_denoise.soft_threshold.blur_kernel < 3) {
     throw ValidationError("tile_denoise.soft_threshold.blur_kernel must be >= 3");
   }
@@ -690,6 +804,53 @@ void Config::validate() const {
   }
   if (tile_denoise.wiener.max_iterations < 1) {
     throw ValidationError("tile_denoise.wiener.max_iterations must be >= 1");
+  }
+
+  if (chroma_denoise.color_space != "ycbcr_linear" &&
+      chroma_denoise.color_space != "opponent_linear") {
+    throw ValidationError(
+        "chroma_denoise.color_space must be 'ycbcr_linear' or 'opponent_linear'");
+  }
+  if (chroma_denoise.apply_stage != "pre_stack_tiles" &&
+      chroma_denoise.apply_stage != "post_stack_linear") {
+    throw ValidationError(
+        "chroma_denoise.apply_stage must be 'pre_stack_tiles' or 'post_stack_linear'");
+  }
+  if (!is_between_0_1(chroma_denoise.luma_guard_strength)) {
+    throw ValidationError("chroma_denoise.luma_guard_strength must be in [0,1]");
+  }
+  if (chroma_denoise.star_protection.threshold_sigma <= 0.0f) {
+    throw ValidationError(
+        "chroma_denoise.star_protection.threshold_sigma must be > 0");
+  }
+  if (chroma_denoise.star_protection.dilate_px < 0) {
+    throw ValidationError("chroma_denoise.star_protection.dilate_px must be >= 0");
+  }
+  if (chroma_denoise.structure_protection.gradient_percentile < 0.0f ||
+      chroma_denoise.structure_protection.gradient_percentile > 100.0f) {
+    throw ValidationError(
+        "chroma_denoise.structure_protection.gradient_percentile must be in [0,100]");
+  }
+  if (chroma_denoise.chroma_wavelet.levels < 1) {
+    throw ValidationError("chroma_denoise.chroma_wavelet.levels must be >= 1");
+  }
+  if (chroma_denoise.chroma_wavelet.threshold_scale <= 0.0f) {
+    throw ValidationError(
+        "chroma_denoise.chroma_wavelet.threshold_scale must be > 0");
+  }
+  if (chroma_denoise.chroma_wavelet.soft_k <= 0.0f) {
+    throw ValidationError("chroma_denoise.chroma_wavelet.soft_k must be > 0");
+  }
+  if (chroma_denoise.chroma_bilateral.sigma_spatial <= 0.0f ||
+      chroma_denoise.chroma_bilateral.sigma_range <= 0.0f) {
+    throw ValidationError(
+        "chroma_denoise.chroma_bilateral sigma values must be > 0");
+  }
+  if (chroma_denoise.blend.mode != "chroma_only") {
+    throw ValidationError("chroma_denoise.blend.mode must be 'chroma_only'");
+  }
+  if (!is_between_0_1(chroma_denoise.blend.amount)) {
+    throw ValidationError("chroma_denoise.blend.amount must be in [0,1]");
   }
 
   auto check_weight_sum = [](float a, float b, float c, const char *name) {
@@ -853,6 +1014,9 @@ std::string get_schema_json() {
                       "star_min_inliers":{"type":"integer","minimum":2},
                       "star_inlier_tol_px":{"type":"number","exclusiveMinimum":0},
                       "star_dist_bin_px":{"type":"number","exclusiveMinimum":0} } },
+    "dithering": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "min_shift_px":{"type":"number","minimum":0} } },
     "tile_denoise": { "type":"object",
       "properties": {
         "soft_threshold": { "type":"object",
@@ -868,6 +1032,31 @@ std::string get_schema_json() {
                           "q_step":{"type":"number","exclusiveMinimum":0},
                           "min_snr":{"type":"number","minimum":0},
                           "max_iterations":{"type":"integer","minimum":1} } } } },
+    "chroma_denoise": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "color_space":{"type":"string","enum":["ycbcr_linear","opponent_linear"]},
+                      "apply_stage":{"type":"string","enum":["pre_stack_tiles","post_stack_linear"]},
+                      "protect_luma":{"type":"boolean"},
+                      "luma_guard_strength":{"type":"number","minimum":0,"maximum":1},
+                      "star_protection":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "threshold_sigma":{"type":"number","exclusiveMinimum":0},
+                        "dilate_px":{"type":"integer","minimum":0}}},
+                      "structure_protection":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "gradient_percentile":{"type":"number","minimum":0,"maximum":100}}},
+                      "chroma_wavelet":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "levels":{"type":"integer","minimum":1},
+                        "threshold_scale":{"type":"number","exclusiveMinimum":0},
+                        "soft_k":{"type":"number","exclusiveMinimum":0}}},
+                      "chroma_bilateral":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "sigma_spatial":{"type":"number","exclusiveMinimum":0},
+                        "sigma_range":{"type":"number","exclusiveMinimum":0}}},
+                      "blend":{"type":"object","properties":{
+                        "mode":{"type":"string","enum":["chroma_only"]},
+                        "amount":{"type":"number","minimum":0,"maximum":1}}} } },
     "wiener_denoise": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "snr_threshold":{"type":"number","minimum":0},

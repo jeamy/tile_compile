@@ -75,6 +75,10 @@ registration:
   star_inlier_tol_px: 3.0 # Inlier-Toleranz in Pixel
   star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
 
+dithering:
+  enabled: true # true bei aktivem Dithering waehrend Aufnahme
+  min_shift_px: 0.7 # Schwellwert, ab dem ein Shift als Dither-Schritt gezaehlt wird
+
 tile_denoise:
   soft_threshold:
     enabled: true # Highpass + Soft-Threshold pro Tile
@@ -89,6 +93,36 @@ tile_denoise:
     q_step: 0.1 # Schrittweite in q-Optimierung
     min_snr: 2.0 # minimaler SNR fuer stabile Schaetzung
     max_iterations: 10 # Iterationslimit der Wiener-Optimierung
+
+chroma_denoise:
+  enabled: true # Farbrausch-Reduktion nur fuer OSC/RGB-Workflow
+  color_space: ycbcr_linear # ycbcr_linear|opponent_linear
+  apply_stage: post_stack_linear # pre_stack_tiles|post_stack_linear
+  protect_luma: true # schuetzt Stern-/Strukturkanten vor Farbausbluten
+  luma_guard_strength: 0.75 # 0..1, hoeher = staerkerer Strukturschutz
+  star_protection:
+    enabled: true # helle Sterne und deren Umfeld weniger filtern
+    threshold_sigma: 2.2 # Schwellwert fuer Sternmaske relativ zur lokalen Helligkeit
+    dilate_px: 2 # Schutzmaske um Sterne erweitern (Pixel)
+  structure_protection:
+    enabled: true # starke Gradienten (Nebelkanten/Details) schuetzen
+    gradient_percentile: 85 # Percentil fuer Strukturmaske
+  chroma_wavelet:
+    enabled: true # multi-scale Chroma-Shrinkage
+    levels: 3 # Anzahl Skalenebenen
+    threshold_scale: 1.25 # Schwellwertstaerke der Chroma-Details
+    soft_k: 1.0 # Formfaktor der Soft-Schrumpfung
+  chroma_bilateral:
+    enabled: true # erhaelt Kanten bei zusaetzlicher Chroma-Glaettung
+    sigma_spatial: 1.2 # Raeumliche Reichweite
+    sigma_range: 0.035 # Intensitaetsreichweite
+  blend:
+    mode: chroma_only # aktuell nur chroma_only unterstuetzt
+    amount: 0.85 # Mischanteil 0..1 (balanced preset)
+  # Preset-Hinweis:
+  # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
+  # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
+  # aggressive:   amount 0.95, threshold_scale 1.5, sigma_range 0.05
 
 global_metrics:
   adaptive_weights: true # adaptive Gewichtung nach Metrikvarianz

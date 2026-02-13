@@ -75,6 +75,10 @@ registration:
   star_inlier_tol_px: 3.0 # Inlier-Toleranz in Pixel
   star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
 
+dithering:
+  enabled: true # true bei aktivem Dithering waehrend Aufnahme
+  min_shift_px: 0.7 # Schwellwert, ab dem ein Shift als Dither-Schritt gezaehlt wird
+
 tile_denoise:
   soft_threshold:
     enabled: true # Highpass + Soft-Threshold pro Tile
@@ -89,6 +93,36 @@ tile_denoise:
     q_step: 0.1 # Schrittweite in q-Optimierung
     min_snr: 2.0 # minimaler SNR fuer stabile Schaetzung
     max_iterations: 10 # Iterationslimit der Wiener-Optimierung
+
+chroma_denoise:
+  enabled: false # bei MONO deaktiviert; Block bleibt fuer Vollstaendigkeit enthalten
+  color_space: ycbcr_linear # ycbcr_linear|opponent_linear
+  apply_stage: post_stack_linear # pre_stack_tiles|post_stack_linear
+  protect_luma: true # relevant nur wenn enabled=true
+  luma_guard_strength: 0.75 # 0..1
+  star_protection:
+    enabled: true
+    threshold_sigma: 2.2
+    dilate_px: 2
+  structure_protection:
+    enabled: true
+    gradient_percentile: 85
+  chroma_wavelet:
+    enabled: true
+    levels: 3
+    threshold_scale: 1.25
+    soft_k: 1.0
+  chroma_bilateral:
+    enabled: true
+    sigma_spatial: 1.2
+    sigma_range: 0.035
+  blend:
+    mode: chroma_only
+    amount: 0.85
+  # Preset-Hinweis (nur fuer OSC/RGB sinnvoll):
+  # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
+  # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
+  # aggressive:   amount 0.95, threshold_scale 1.5, sigma_range 0.05
 
 global_metrics:
   adaptive_weights: true # adaptive Gewichtung nach Metrikvarianz
