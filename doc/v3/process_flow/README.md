@@ -291,6 +291,39 @@ Jeder Run erzeugt 9 JSON-Artefakt-Dateien in `<run_dir>/artifacts/`:
 | `synthetic_frames.json` | 9 | Anzahl synthetische Frames, frames_min/max |
 | `validation.json` | 10 | FWHM-Improvement, Tile-Weight-Var, Pattern-Ratio |
 
+### Report-Generierung und auswertbare Daten
+
+Zur konsolidierten Analyse eines Runs steht der Report-Generator
+`tile_compile_cpp/generate_report.py` zur Verfügung.
+
+Aufruf:
+
+```text
+python tile_compile_cpp/generate_report.py runs/<run_id>
+```
+
+Erzeugte Ausgaben:
+- `artifacts/report.html`
+- `artifacts/report.css`
+- `artifacts/*.png` (Diagramme/Heatmaps)
+
+Verwendete Eingabedaten:
+- Artifact-JSONs: `normalization.json`, `global_metrics.json`, `tile_grid.json`,
+  `global_registration.json`, `local_metrics.json`, `tile_reconstruction.json`,
+  `state_clustering.json`, `synthetic_frames.json`, `validation.json`
+- Lauf-Events: `logs/run_events.jsonl`
+- Run-Konfiguration: `config.yaml` (wird im Report eingebettet)
+
+Typisch auslesbare Inhalte:
+- Normalisierungs- und Hintergrundverläufe (Mono/RGB)
+- Globale Qualitätsmetriken und Gewichtsverteilungen
+- Sternmetriken (u. a. FWHM, wFWHM, Rundheit, Sternanzahl)
+- Registrierungsauswertung (Shift/Rotation/Korrelation)
+- Tile-/Rekonstruktions-Heatmaps und lokale Qualitätsindikatoren
+- Clustering- und Synthetic-Frame-Übersichten
+- Validation-Ergebnisse (inkl. Tile-Pattern-Indikatoren)
+- Pipeline-Timeline und Frame-Usage-Funnel
+
 ## Verzeichnis-Struktur
 
 ```
