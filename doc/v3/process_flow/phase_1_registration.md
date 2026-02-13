@@ -39,7 +39,7 @@ for (int i = 0; i < frame_metrics.size(); ++i) {
 // Fallback: höchster quality_score, dann Mitte
 ```
 
-- **Primär:** Frame mit höchstem `G_f` (globales Gewicht aus Phase 3)
+- **Primär:** Frame mit höchstem `G_f` (globales Gewicht aus Phase 4)
 - **Fallback 1:** Frame mit höchstem `quality_score`
 - **Fallback 2:** Mittlerer Frame (`frames.size() / 2`)
 - Der Referenz-Frame erhält Identity-Warp und CC=1.0
@@ -247,6 +247,8 @@ for (size_t fi = 0; fi < frames.size(); ++fi) {
 | Star Trails (Feldrotation) | Stufe 2 (Trail Endpoints) übernimmt |
 | Nebel/Wolken (keine Sterne) | Stufe 4 (Robust Phase+ECC) übernimmt |
 
-## Nächste Phase
+## Nächste Phasen
 
-→ **Phase 2: NORMALIZATION + GLOBAL_METRICS**
+→ **Phase 2: CHANNEL_SPLIT** (Metadaten)  
+→ **Phase 3: NORMALIZATION**  
+→ **Phase 4: GLOBAL_METRICS**

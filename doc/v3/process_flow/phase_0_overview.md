@@ -168,7 +168,7 @@ if (cfg.linearity.enabled || cfg.data.linear_required) {
 }
 ```
 
-## CHANNEL_SPLIT (Phase 1 — Metadaten-Phase)
+## CHANNEL_SPLIT (Phase 2 — Metadaten-Phase)
 
 Direkt nach SCAN_INPUT wird `Phase::CHANNEL_SPLIT` emittiert. In der C++ Implementierung ist dies eine **reine Metadaten-Phase** — die eigentliche Kanaltrennung erfolgt **deferred** während der Normalisierung und Tile-Verarbeitung.
 
@@ -210,4 +210,4 @@ phase_end(CHANNEL_SPLIT, "ok", {mode, channels, bayer_pattern})
 
 ## Nächste Phase
 
-→ **Phase 2: NORMALIZATION — Hintergrund-Normalisierung**
+→ **Phase 3: NORMALIZATION — Hintergrund-Normalisierung**

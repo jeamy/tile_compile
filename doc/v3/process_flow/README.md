@@ -8,131 +8,46 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gew
 
 **Implementierung:** C++ mit Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
-## Aktuelle Pipeline-Phasen (C++ Implementierung)
+## Aktuelle Pipeline-Phasen (C++ Implementierung, v3.2)
 
-| Phase | Enum | Name | Quelldatei-Zeilen | Beschreibung |
-|-------|------|------|-------------------|--------------|
-| 0 | `SCAN_INPUT` | Input-Scan | L196–L368 | FITS lesen, Bayer erkennen, Linearitätsprüfung |
-| 1 | `CHANNEL_SPLIT` | Kanaltrennung | L370–L383 | Metadaten-Phase (eigentliche Trennung deferred) |
-| 2 | `NORMALIZATION` | Normalisierung | L385–L634 | Hintergrund-Division pro Frame/Kanal |
-| 3 | `GLOBAL_METRICS` | Globale Metriken | L636–L717 | Background, Noise, Gradient → G_f |
-| 4 | `TILE_GRID` | Tile-Erzeugung | L719–L818 | FWHM-adaptive Tile-Größe + Grid |
-| — | *Pre-warp* | Vollbild-Warping | L1132–L1158 | Alle Frames werden vor Tile-Extraktion gewarpt |
-| 5 | `REGISTRATION` | Registrierung | L902–L1130 | 5-stufige Kaskade + globaler Warp |
-| 6 | `LOCAL_METRICS` | Lokale Metriken | L1162–L1374 | Tile-Typ-Klassifikation + robuste Scores |
-| 7 | `TILE_RECONSTRUCTION` | Rekonstruktion | L1381–L1647 | Parallele gewichtete Overlap-Add-Rekonstruktion |
-| 8 | `STATE_CLUSTERING` | Clusterung | L1649–L1892 | 6D-Zustandsvektor K-Means |
-| 9 | `SYNTHETIC_FRAMES` | Synthetische Frames | L1894–L2052 | Gewichtetes Cluster-Stacking → K Frames |
-| 10 | `STACKING` | Finales Stacking | L2054–L2085 | Sigma-Clip oder Mean von synthetischen Frames |
-| — | *Validation* | Qualitätsprüfung | L2087–L2223 | FWHM-Verbesserung, Gewichtsvarianz, Tile-Pattern |
-| 11 | `DEBAYER` | Demosaicing | L2225–L2260 | CFA → R/G/B + RGB-FITS-Cube (nur OSC) |
-| 12 | `DONE` | Finalisierung | L2262–L2277 | Status schreiben, Abschluss |
+Quelle der Phasenreihenfolge: `tile_compile::Phase` in `include/tile_compile/core/types.hpp`.
+
+| ID | Enum | Kurzbeschreibung |
+|----|------|------------------|
+| 0 | `SCAN_INPUT` | Input-Scan, Header/Modus-Erkennung, Linearitätsprüfung, Disk-Space-Precheck (`scandir*4`) |
+| 1 | `REGISTRATION` | Globale Registrierung (kaskadiert), Frame-Usability, Vollbild-Prewarp |
+| 2 | `CHANNEL_SPLIT` | Metadaten-Phase (OSC/Mono-Kanalmodell; tatsächliche Kanalarbeit erfolgt später) |
+| 3 | `NORMALIZATION` | Globale lineare Normalisierung (background-basiert) |
+| 4 | `GLOBAL_METRICS` | Globale Frame-Metriken und Gewichte `G_f` |
+| 5 | `TILE_GRID` | Adaptive Tile-Geometrie (Seeing/FWHM-basiert) |
+| 6 | `LOCAL_METRICS` | Lokale Tile-Metriken/Klassifikation und lokale Gewichte `L_f,t` |
+| 7 | `TILE_RECONSTRUCTION` | Gewichtete tile-basierte Rekonstruktion (Overlap-Add) |
+| 8 | `STATE_CLUSTERING` | Zustandsvektor-Clustering (optional, mode-abhängig) |
+| 9 | `SYNTHETIC_FRAMES` | Erzeugung synthetischer Frames (optional, mode-abhängig) |
+| 10 | `STACKING` | Finales lineares Stacking (inkl. robuster Pixel-Ausreißerbehandlung) |
+| 11 | `DEBAYER` | OSC-Debayering und RGB-Ausgabe (bei MONO: pass-through) |
+| 12 | `ASTROMETRY` | Plate Solving / WCS |
+| 13 | `PCC` | Photometric Color Calibration |
+| 14 | `DONE` | Abschlussstatus (`ok` oder `validation_failed`) |
+
+Hinweis: **Validation** ist ein Qualitätsblock zwischen `STACKING` und `DONE`, aber keine eigene Enum-Phase.
 
 ## Dokumenten-Struktur
 
-### [Phase 0: SCAN_INPUT — Input-Scan und Linearitätsprüfung](phase_0_overview.md)
-- FITS-Frame-Discovery und Dimensionserkennung
-- Farbmodus-Erkennung (MONO vs. OSC) und Bayer-Pattern
-- **Linearitätsprüfung** mit konfigurierbarer Strictness
-- Frame-Rejection bei `linear_required=true`
-- Run-Verzeichnis und Event-Logging Setup
+Die Detaildokumente in diesem Ordner bleiben als Deep-Dive erhalten. 
+Die **verbindliche Phasenreihenfolge** ist jedoch die oben stehende v3.2-Liste (0..14).
 
-**Output:** Validierte Frame-Liste, erkannter Modus, Linearitäts-Info
+Kurzzuordnung:
 
----
-
-### [Phase 1: REGISTRATION — Kaskadierte Registrierung](phase_1_registration.md)
-- **Referenz-Frame-Auswahl** nach globalem Gewicht (best G_f)
-- **2×-Downsample** für Registrierung (CFA: Green-Proxy; Mono: Mean)
-- **5-stufige Registrierungskaskade** mit robusten Fallbacks:
-  1. Triangle Star Matching (rotationsinvariant)
-  2. Star Pair Matching (kleine Shifts)
-  3. AKAZE Feature Matching
-  4. Hybrid Phase-Correlation + ECC
-  5. Identity-Fallback (Frame bleibt drin, CC=0)
-- **Pre-Warping** aller Frames auf Vollbild-Auflösung (CFA-aware)
-- **Keine Frame-Selektion**: Jeder Frame wird behalten (v3-Regel)
-
-**Output:** Affine Warp-Matrizen + CC pro Frame, pre-warped Frames
+- Input + Modus + Linearität + Disk-Precheck → `SCAN_INPUT`
+- Registrierung/Prewarp → `REGISTRATION`
+- Normalisierung + globale/lokale Gewichte + Rekonstruktion → `NORMALIZATION` bis `TILE_RECONSTRUCTION`
+- Optionaler Full-Mode-Block → `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`
+- Finalisierungspfad → `STACKING`, `DEBAYER`, `ASTROMETRY`, `PCC`, `DONE`
 
 ---
 
-### [Phase 2: NORMALIZATION + GLOBAL_METRICS — Normalisierung und globale Gewichtung](phase_2_normalization_metrics.md)
-- **Sigma-Clipping Background-Maske** auf grob normalisiertem Bild
-- OSC: kanalgetrennte Background-Schätzung (R, G, B via Bayer-Offsets)
-- Mono: einzelne Background-Schätzung
-- **Division durch Background** → normalisierter Frame
-- Globale Metriken: Background B_f, Noise σ_f, Gradient Energy E_f
-- **Gewicht G_f = exp(α·(-B̃) + β·(-σ̃) + γ·Ẽ)** mit MAD-Normalisierung
-
-**Output:** NormalizationScales pro Frame, globale Gewichte G_f
-
----
-
-### [Phase 3: TILE_GRID — Seeing-adaptive Tile-Erzeugung](phase_3_tile_generation.md)
-- **FWHM-Messung** auf zentralem 1024×1024 ROI (bis zu 5 Probeframes)
-- Tile-Größe: `T = clip(size_factor × FWHM, min_size, max(image)/max_divisor)`
-- Overlap-Fraction (konfigurierbar, Clamping auf [0, 0.5])
-- Stride = Tile-Size − Overlap-Px
-- **Einheitliches reguläres Grid** über das gesamte Bild
-
-**Output:** Tile-Liste mit (x, y, width, height), Grid-Konfiguration
-
----
-
-### [Phase 4: LOCAL_METRICS — Lokale Tile-Metriken und Qualitäts-Scoring](phase_4_local_metrics.md)
-- **Tile-Metriken pro Frame × Tile**: FWHM, Roundness, Contrast, Sharpness, Background, Noise, Gradient Energy, Star Count
-- **Tile-Typ-Klassifikation** nach Median Star Count: `STAR` vs. `STRUCTURE`
-- **Robuste Normalisierung** (Median + MAD → z-Score) pro Tile über alle Frames
-- Qualitäts-Score:
-  - STAR-Tiles: `Q = w_fwhm·(-FWHM̃) + w_round·R̃ + w_contrast·C̃`
-  - STRUCTURE-Tiles: `Q = w_metric·(Ẽ/σ̃) + w_bg·(-B̃)`
-- Clamping + Exponential-Mapping: `L_f,t = exp(clip(Q, clamp_lo, clamp_hi))`
-
-**Output:** Lokale Gewichte L_f,t pro Frame × Tile
-
----
-
-### [Phase 5: TILE_RECONSTRUCTION — Parallele Tile-Rekonstruktion](phase_5_tile_reconstruction.md)
-- **Effektives Gewicht**: W_f,t = G_f × L_f,t
-- **Gewichtete Summe**: `tile_rec = Σ W_f,t · tile_f / Σ W_f,t`
-- **Per-Tile Background-Normalisierung** gegen Referenz-Tile
-- **Hanning-Fensterfunktion** (2D separabel) für Overlap-Add
-- **Thread-parallele Verarbeitung** (bis zu N CPU-Cores)
-- Post-Metriken pro Tile: Contrast (Laplacian), Background (Median), SNR (P99/MAD)
-
-**Output:** Rekonstruiertes Bild (recon), Post-Tile-Metriken
-
----
-
-### [Phase 6: STATE_CLUSTERING — Zustandsbasierte Clusterung](phase_6_clustering.md)
-- **6D-Zustandsvektor**: `v_f = [G_f, mean(Q_local), var(Q_local), mean_cc, mean_warp_var, invalid_fraction]`
-- **z-Score Normalisierung** aller Dimensionen
-- **K-Means Clusterung** (20 Iterationen, K = clip(N/10, k_min, k_max))
-- **Quantile-Fallback** bei degenerierten (leeren) Clustern
-- Optional: Skip in **Reduced Mode** wenn N < frames_reduced_threshold
-
-**Output:** Cluster-Labels pro Frame, Cluster-Größen
-
----
-
-### [Phase 7: SYNTHETIC + STACKING + VALIDATION + DEBAYER](phase_7_final_stacking.md)
-- **Synthetische Frames**: Global-gewichtetes Mittel pro Cluster
-  - Nur Cluster mit `count ≥ frames_min`
-  - Maximal `frames_max` synthetische Frames
-- **Stacking**: Sigma-Clipping Rejection oder Mean
-- **Validation**:
-  - FWHM-Verbesserung (Output vs. Seeing)
-  - Tile-Weight-Varianz (ausreichende Diskriminierung)
-  - Tile-Pattern-Detektion (Sobel-Gradient an Tile-Grenzen)
-- **Debayer** (nur OSC): Nearest-Neighbor Demosaic → R/G/B FITS + RGB-Cube
-- **Output-Skalierung**: Multiplikation mit Median-Background + Pedestal (32768)
-
-**Output:** stacked.fits, reconstructed_L.fit, stacked_rgb.fits (OSC), validation.json
-
----
-
-## Pipeline-Flussdiagramm (C++ Implementierung)
+## Pipeline-Flussdiagramm (C++ Implementierung, v3.2)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -149,12 +64,19 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gew
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │  PHASE 1: CHANNEL_SPLIT     │
-              │  (metadata only — deferred)  │
+              │  PHASE 1: REGISTRATION      │
+              │  • Kaskadierte Fallbacks     │
+              │  • CC/Warp-Metriken          │
+              │  • Vollbild-Prewarp          │
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │  PHASE 2: NORMALIZATION     │
+              │  PHASE 2: CHANNEL_SPLIT     │
+              │  (metadata-only)             │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  PHASE 3: NORMALIZATION     │
               │  • Sigma-clip BG mask        │
               │  • OSC: per-channel BG       │
               │  • MONO: single BG           │
@@ -162,31 +84,18 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gew
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │  PHASE 3: GLOBAL_METRICS    │
+              │  PHASE 4: GLOBAL_METRICS    │
               │  • B_f, σ_f, E_f per frame   │
               │  • MAD-normalize → z-scores  │
               │  • G_f = exp(α·B̃+β·σ̃+γ·Ẽ)   │
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │  PHASE 4: TILE_GRID         │
+              │  PHASE 5: TILE_GRID         │
               │  • FWHM probe (central ROI)  │
               │  • T = clip(s·F, min, max)   │
               │  • Overlap + stride calc     │
               │  • Uniform tile grid         │
-              └──────────────┬──────────────┘
-                             │
-              ┌──────────────▼──────────────┐
-              │  PHASE 5: REGISTRATION      │
-              │  • Ref = best G_f frame      │
-              │  • 2× downsample (CFA-aware) │
-              │  • 5-stage cascade:          │
-              │    1. Triangle star match    │
-              │    2. Star pair matching     │
-              │    3. AKAZE features         │
-              │    4. Phase-corr + ECC       │
-              │    5. Identity fallback      │
-              │  • Pre-warp all frames       │
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
@@ -225,7 +134,6 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gew
               │  PHASE 10: STACKING         │
               │  • Sigma-clip rejection      │
               │  • Or mean of synth frames   │
-              │  • Output scaling + pedestal │
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
@@ -242,7 +150,17 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gew
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │  PHASE 12: DONE             │
+              │  PHASE 12: ASTROMETRY       │
+              │  • ASTAP solve / WCS         │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  PHASE 13: PCC              │
+              │  • Photometrische Farbkal.   │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
+              │  PHASE 14: DONE             │
               │  • Final status emit         │
               └──────────────┬──────────────┘
                              │
@@ -251,6 +169,8 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gew
               │  • stacked.fits              │
               │  • reconstructed_L.fit       │
               │  • stacked_rgb.fits (OSC)    │
+              │  • stacked_rgb_solve.fits    │
+              │  • stacked_rgb_pcc.fits      │
               │  • R/G/B .fit (OSC)          │
               │  • 9 artifact JSON files     │
               │  • run_events.jsonl          │
@@ -270,23 +190,23 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gew
 
 ## Modi
 
-### Normal Mode (N ≥ frames_reduced_threshold)
-- Alle 12 Phasen werden durchlaufen
+### Full/Normal Mode (N ≥ frames_reduced_threshold)
+- Alle Enum-Phasen 0..14 werden durchlaufen
 - State-Clustering aktiv
 - Synthetische Frames werden erzeugt
 - Sigma-Clipping Rejection Stacking
 - Optimale Rauschreduktion
 
 ### Reduced Mode (N < frames_reduced_threshold)
-- Phase 8 (STATE_CLUSTERING) wird **übersprungen**
-- Phase 9 (SYNTHETIC_FRAMES) wird **übersprungen**
+- Phase 8 (`STATE_CLUSTERING`) wird **übersprungen**
+- Phase 9 (`SYNTHETIC_FRAMES`) wird **übersprungen**
 - Phase 7 (TILE_RECONSTRUCTION) erzeugt das finale Bild direkt
 - Phase 10 (STACKING) übernimmt das rekonstruierte Bild unverändert
 - Validierung wird trotzdem durchgeführt
 
 ## Qualitätsmetriken
 
-### Globale Metriken (Phase 3: GLOBAL_METRICS)
+### Globale Metriken (Phase 4: GLOBAL_METRICS)
 - **B_f**: Hintergrundniveau des normalisierten Frames (niedriger = besser)
 - **σ_f**: Rauschen (niedriger = besser)
 - **E_f**: Gradientenergie / Sobel-basiert (höher = besser)
@@ -361,10 +281,10 @@ Jeder Run erzeugt 9 JSON-Artefakt-Dateien in `<run_dir>/artifacts/`:
 
 | Datei | Phase | Inhalt |
 |-------|-------|--------|
-| `normalization.json` | 2 | Mode, Bayer, B_mono/B_r/B_g/B_b pro Frame |
-| `global_metrics.json` | 3 | Background, Noise, Gradient, Quality, G_f pro Frame |
-| `tile_grid.json` | 4 | Image-Dimensionen, Tile-Liste (x,y,w,h), FWHM, Overlap |
-| `global_registration.json` | 5 | Warp-Matrizen (a00,a01,tx,a10,a11,ty) + CC pro Frame |
+| `normalization.json` | 3 | Mode, Bayer, B_mono/B_r/B_g/B_b pro Frame |
+| `global_metrics.json` | 4 | Background, Noise, Gradient, Quality, G_f pro Frame |
+| `tile_grid.json` | 5 | Image-Dimensionen, Tile-Liste (x,y,w,h), FWHM, Overlap |
+| `global_registration.json` | 1 | Warp-Matrizen (a00,a01,tx,a10,a11,ty) + CC pro Frame |
 | `local_metrics.json` | 6 | Tile-Metriken pro Frame×Tile, Tile-Typ, Quality, L_f,t |
 | `tile_reconstruction.json` | 7 | Valid-Counts, Mean-CC, Post-Contrast/BG/SNR pro Tile |
 | `state_clustering.json` | 8 | Cluster-Labels, Cluster-Sizes, Methode |
@@ -412,7 +332,7 @@ runs/<run_id>/
 
 ## Referenzen
 
-- **Normative Spezifikation**: `/doc/tile_basierte_qualitatsrekonstruktion_methodik_v_3.md`
+- **Normative Spezifikation**: `/doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md`
 - **C++ Implementierung**: `/tile_compile_cpp/apps/runner_main.cpp`
 - **Konfiguration**: `/tile_compile_cpp/include/tile_compile/config/configuration.hpp`
 - **Report-Generator**: `/tile_compile_cpp/generate_report.py`
