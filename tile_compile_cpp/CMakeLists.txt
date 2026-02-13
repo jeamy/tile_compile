@@ -66,6 +66,7 @@ endif()
 
 # Library sources
 set(LIB_SOURCES
+    src/core/mode_gating.cpp
     src/core/utils.cpp
     src/core/events.cpp
     src/io/fits_io.cpp
@@ -194,6 +195,8 @@ if(BUILD_TESTS)
             tests/test_utils.cpp
             tests/test_fits.cpp
             tests/test_debayer.cpp
+            tests/test_mode_gating.cpp
+            tests/test_reconstruction_regression.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

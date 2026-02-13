@@ -1,0 +1,178 @@
+# v3.2 EMERGENCY-MODE Referenzkonfiguration (vollstaendig, alle Optionen)
+# Zielzustand: N_usable < 50 und runtime_limits.allow_emergency_mode = true
+
+run_dir: ./run_emergency_mode
+log_level: info # trace|debug|info|warn|error
+
+pipeline:
+  mode: production # production|test
+  abort_on_fail: false # true => Lauf bei kritischem Phasenfehler sofort beenden
+
+output:
+  registered_dir: registered # Ausgabeordner fuer registrierte Frames
+  artifacts_dir: artifacts # Ausgabeordner fuer JSON-Artefakte/Diagnosen
+  write_registered_frames: true # registrierte Einzelbilder speichern
+  write_global_metrics: true # global_metrics.json speichern
+  write_global_registration: true # global_registration.json speichern
+
+data:
+  image_width: 3840 # erwartete Bildbreite (px)
+  image_height: 2160 # erwartete Bildhoehe (px)
+  frames_min: 50 # Legacy-Mindestwert, parallel zu assumptions.frames_min
+  frames_target: 0 # 0 = unbegrenzt, sonst Zielanzahl fuer Auswahl/Begrenzung
+  color_mode: OSC # OSC|MONO|RGB
+  bayer_pattern: GBRG # RGGB|BGGR|GRBG|GBRG
+  linear_required: true # nur lineare Daten verarbeiten
+
+input:
+  pattern: ./data/*.fits # Input-Glob fuer Rohframes
+  sort: numeric # numeric|lexicographic
+  max_frames: 0 # 0 = alle; >0 limitiert Inputanzahl
+
+linearity:
+  enabled: true # Linearity-Check aktiv
+  max_frames: 8 # max. Frames fuer den Check
+  min_overall_linearity: 0.9 # Mindestscore fuer linearity gate
+  strictness: strict # strict|moderate|permissive
+
+calibration:
+  use_bias: false # Bias-Korrektur aktivieren
+  use_dark: false # Dark-Korrektur aktivieren
+  use_flat: false # Flat-Korrektur aktivieren
+  bias_use_master: false # vorhandenes Master-Bias direkt nutzen
+  dark_use_master: false # vorhandenes Master-Dark direkt nutzen
+  flat_use_master: false # vorhandenes Master-Flat direkt nutzen
+  dark_auto_select: true # passendes Dark automatisch waehlen
+  dark_match_exposure_tolerance_percent: 5.0 # Toleranz bei Dark-Auswahl
+  dark_match_use_temp: false # Temperaturmatching fuer Darks
+  dark_match_temp_tolerance_c: 2.0 # Temperaturtoleranz in Grad C
+  bias_dir: "" # Verzeichnis mit Bias-Frames
+  darks_dir: "" # Verzeichnis mit Dark-Frames
+  flats_dir: "" # Verzeichnis mit Flat-Frames
+  bias_master: "" # Pfad zu Master-Bias
+  dark_master: "" # Pfad zu Master-Dark
+  flat_master: "" # Pfad zu Master-Flat
+  pattern: "*.fit*" # Dateimaske fuer Kalibrierdaten
+
+assumptions:
+  frames_min: 50 # normative Untergrenze; darunter nur Emergency statt hartem Abort
+  frames_optimal: 800 # Zielbereich fuer optimale Robustheit
+  frames_reduced_threshold: 200 # bei Emergency stets unterschritten
+  exposure_time_tolerance_percent: 5.0 # Toleranz fuer Input-Konsistenz
+  reduced_mode_skip_clustering: true # Emergency-Modus: Clustering/Synthetic optional skip
+  reduced_mode_cluster_range: [5, 10] # Cluster-Range in Reduced/Emergency-Betrieb
+
+normalization:
+  enabled: true # fuer Methodik v3.x verpflichtend
+  mode: background # background|median
+  per_channel: true # bei OSC pro Bayer-Kanal normalisieren
+
+registration:
+  enabled: true # Registrierung aktiv
+  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
+  allow_rotation: true # Rotationsanteil in Warp erlauben
+  min_score: 0.05 # Mindest-Score fuer akzeptierte Registrierung
+  fallback_to_identity: true # Identitaetswarp bei Fehlschlag erlauben
+  star_topk: 120 # max. Anzahl erkannter Sterne fuer Matching
+  star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching
+  star_inlier_tol_px: 3.0 # Inlier-Toleranz in Pixel
+  star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
+
+tile_denoise:
+  soft_threshold:
+    enabled: true # Highpass + Soft-Threshold pro Tile
+    blur_kernel: 31 # Hintergrundschaetzer-Kernel (ungerade)
+    alpha: 1.8 # Schwellwertfaktor (tau = alpha*sigma)
+    skip_star_tiles: true # sternreiche Tiles vom Denoise ausnehmen
+  wiener:
+    enabled: true # Wiener-Denoise im Frequenzraum
+    snr_threshold: 5.0 # oberhalb keine Wiener-Filterung
+    q_min: -0.5 # untere Strukturqualitaetsgrenze
+    q_max: 1.0 # obere Strukturqualitaetsgrenze
+    q_step: 0.1 # Schrittweite in q-Optimierung
+    min_snr: 2.0 # minimaler SNR fuer stabile Schaetzung
+    max_iterations: 10 # Iterationslimit der Wiener-Optimierung
+
+global_metrics:
+  enabled: true # globale Metriken/Weights berechnen
+  adaptive_weights: true # adaptive Gewichtung nach Metrikvarianz
+  weight_exponent_scale: 1.8 # k in G_f = exp(k*Q_f)
+  weights:
+    background: 0.4 # Gewicht fuer Hintergrundmetrik
+    noise: 0.3 # Gewicht fuer Rauschmetrik
+    gradient_energy: 0.30 # Gewicht fuer Struktur/Gradientenenergie
+  clamp:
+    background: [0.0, 1.0] # Clipping-Grenzen je Metrik
+    noise: [0.0, 1.0]
+    gradient_energy: [0.0, 1.0]
+
+tile:
+  size_factor: 32 # Tilegroesse als Teiler/Basisfaktor
+  min_size: 64 # minimale Tilekante in Pixel
+  max_divisor: 6 # Begrenzung der Tileunterteilung
+  overlap_fraction: 0.25 # OLA-Ueberlappungsanteil
+  star_min_count: 8 # Schwelle fuer star tile Klassifikation
+
+local_metrics:
+  clamp: [-3.0, 3.0] # Clipping fuer lokale z-Score-Metriken
+  star_mode:
+    weights:
+      fwhm: 0.6 # Gewicht Stern-FWHM
+      roundness: 0.2 # Gewicht Sternrundheit
+      contrast: 0.2 # Gewicht Sternkontrast
+  structure_mode:
+    metric_weight: 0.7 # Gewicht Strukturmetrik
+    background_weight: 0.3 # Gewicht lokaler Hintergrundterm
+
+synthetic:
+  weighting: tile_weighted # global|tile_weighted
+  frames_min: 5 # Mindestframes pro Cluster fuer Synthetic
+  frames_max: 30 # Obergrenze erzeugter Synthetic-Frames
+  clustering:
+    mode: kmeans # kmeans|quantile
+    cluster_count_range: [5, 30] # [k_min, k_max]
+
+reconstruction:
+  weighting_function: linear # aktuell linear
+  window_function: hanning # OLA-Fensterfunktion
+
+debayer: true # OSC-Mosaik am Ende in RGB debayern
+
+astrometry:
+  enabled: true # WCS-Solve aktiv
+  astap_bin: "" # leer => Systempfad
+  astap_data_dir: /media/data/Astro/astap # ASTAP-Datenverzeichnis
+  search_radius: 183 # Suchradius in Grad
+
+pcc:
+  enabled: true # Photometrische Farbkalibrierung aktiv
+  source: siril # auto|siril|vizier_gaia|vizier_apass
+  mag_limit: 14 # maximal beruecksichtigte Sternhelligkeit
+  mag_bright_limit: 6 # helle Sterne fuer robustes Fit begrenzen
+  aperture_radius_px: 8 # Photometrie-Apertur
+  annulus_inner_px: 10 # Hintergrundring innen
+  annulus_outer_px: 16 # Hintergrundring aussen
+  min_stars: 3 # Mindestanzahl Referenzsterne
+  sigma_clip: 2.5 # Sigma-Clipping fuer Regressionsfit
+  siril_catalog_dir: "" # leer => Standardkatalogpfad
+
+stacking:
+  method: rej # rej|average
+  sigma_clip:
+    sigma_low: 2.0 # untere Sigma-Grenze
+    sigma_high: 2.0 # obere Sigma-Grenze
+    max_iters: 3 # maximale Clip-Iterationen
+    min_fraction: 0.5 # Mindestanteil verbleibender Samples
+  output_stretch: false # optionales Display-Stretch (Post)
+  cosmetic_correction: false # optionale Kosmetik (Post)
+
+validation:
+  min_fwhm_improvement_percent: 5.0 # Mindestverbesserung Sternschaerfe
+  max_background_rms_increase_percent: 0.0 # Hintergrund darf nicht schlechter werden
+  min_tile_weight_variance: 0.1 # Mindeststreuung lokaler Gewichte
+  require_no_tile_pattern: true # Grid-Artefakte muessen ausbleiben
+
+runtime_limits:
+  tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
+  hard_abort_hours: 6.0 # harte Laufzeitgrenze
+  allow_emergency_mode: true # Emergency-Profil erlaubt Lauf mit N<50

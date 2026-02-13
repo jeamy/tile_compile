@@ -364,6 +364,36 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
     return out;
 }
 
+WeightedTileResult sigma_clip_weighted_tile_with_fallback(
+    const std::vector<Matrix2Df>& tiles, const std::vector<float>& weights,
+    float sigma_low, float sigma_high, int max_iters, float min_fraction,
+    float eps_weight) {
+    WeightedTileResult out;
+    if (tiles.empty() || weights.empty() || tiles.size() != weights.size()) {
+        return out;
+    }
+
+    std::vector<float> effective_weights(weights);
+    double wsum = 0.0;
+    for (float w : effective_weights) {
+        if (std::isfinite(w) && w > 0.0f) {
+            wsum += static_cast<double>(w);
+        }
+    }
+    out.effective_weight_sum = static_cast<float>(wsum);
+
+    if (!(wsum > static_cast<double>(eps_weight))) {
+        out.fallback_used = true;
+        std::fill(effective_weights.begin(), effective_weights.end(), 1.0f);
+        out.effective_weight_sum = static_cast<float>(effective_weights.size());
+    }
+
+    out.tile = sigma_clip_weighted_tile(tiles, effective_weights,
+                                        sigma_low, sigma_high,
+                                        max_iters, min_fraction);
+    return out;
+}
+
 std::vector<float> make_hann_1d(int n) {
     std::vector<float> w;
     if (n <= 0)

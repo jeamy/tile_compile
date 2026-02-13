@@ -42,6 +42,8 @@ class ConfigTab : public QWidget {
     void log_message(const QString &msg);
     void header_status_changed(const QString &status);
     void update_controls_requested();
+    void astrometry_paths_changed(const QString &astap_bin,
+                                 const QString &astap_data_dir);
 
   private slots:
     void on_load_config_clicked();

@@ -68,9 +68,16 @@
       "properties": {
         "frames_min": { "type": "integer", "minimum": 1 },
         "frames_optimal": { "type": "integer", "minimum": 1 },
-        "frames_reduced_threshold": { "type": "integer", "minimum": 1 },
+        "frames_reduced_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Threshold for full mode: 50..(threshold-1) = reduced mode, >= threshold = full mode."
+        },
         "exposure_time_tolerance_percent": { "type": "number", "minimum": 0 },
-        "reduced_mode_skip_clustering": { "type": "boolean" },
+        "reduced_mode_skip_clustering": {
+          "type": "boolean",
+          "description": "If true, STATE_CLUSTERING and SYNTHETIC_FRAMES are skipped in reduced/emergency mode."
+        },
         "reduced_mode_cluster_range": {
           "type": "array",
           "items": { "type": "integer", "minimum": 1 },
@@ -205,7 +212,11 @@
     "synthetic": {
       "type": "object",
       "properties": {
-        "weighting": { "type": "string", "enum": ["global", "tile_weighted"] },
+        "weighting": {
+          "type": "string",
+          "enum": ["global", "tile_weighted"],
+          "description": "global = use G_f only; tile_weighted = use W_f,t = G_f*L_f,t with tile-wise OLA reconstruction."
+        },
         "frames_min": { "type": "integer", "minimum": 1 },
         "frames_max": { "type": "integer", "minimum": 1 },
         "clustering": {

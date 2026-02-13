@@ -108,7 +108,7 @@ local_metrics:
     metric_weight: 0.7
     background_weight: 0.3
 synthetic:
-  weighting: tile_weighted
+  weighting: global
   frames_min: 5
   frames_max: 30
   clustering:
@@ -120,7 +120,7 @@ reconstruction:
 debayer: true
 astrometry:
   enabled: true
-  astap_bin: ""
+  astap_bin: /media/data/Astro/astap/astap_cli
   astap_data_dir: /media/data/Astro/astap
   search_radius: 183
 pcc:
@@ -143,7 +143,6 @@ stacking:
     max_iters: 3
     min_fraction: 0.5
   output_stretch: false
-  cosmetic_correction: true
 validation:
   min_fwhm_improvement_percent: 5.0
   max_background_rms_increase_percent: 0.0
@@ -152,4 +151,3 @@ validation:
 runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0
   hard_abort_hours: 6.0
-  allow_emergency_mode: false

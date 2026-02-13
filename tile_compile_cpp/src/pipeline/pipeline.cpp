@@ -22,6 +22,10 @@ namespace tile_compile::pipeline {
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
+// NOTE(deprecated): This pipeline is a legacy/minimal runner kept for
+// compatibility. The normative Methodik-v3.2 implementation lives in
+// apps/runner_main.cpp. New algorithmic changes must be applied there first.
+
 
 static tile_compile::Matrix2Df downsample2x2_mean_local(const tile_compile::Matrix2Df& in) {
     const int h = in.rows();
@@ -74,6 +78,9 @@ public:
              const std::vector<fs::path>& input_frames,
              std::ostream& log_stream,
              std::atomic<bool>* stop_flag = nullptr) {
+
+        log_stream << "[deprecated] src/pipeline/pipeline.cpp is legacy; "
+                      "use apps/runner_main.cpp for normative v3.2 runs\n";
 
         (void)project_root;
         core::EventEmitter emitter;

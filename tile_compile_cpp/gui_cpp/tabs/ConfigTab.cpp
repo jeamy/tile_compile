@@ -163,6 +163,7 @@ void ConfigTab::on_load_config_clicked() {
                 config_yaml_->blockSignals(true);
                 config_yaml_->setPlainText(QString::fromStdString(yaml_text));
                 config_yaml_->blockSignals(false);
+                sync_paths_from_yaml(QString::fromStdString(yaml_text));
                 config_validated_ok_ = false;
                 lbl_cfg_->setText("not validated");
                 extract_assumptions_from_yaml(QString::fromStdString(yaml_text));
@@ -328,6 +329,8 @@ void ConfigTab::on_config_text_changed() {
     if (!syncing_paths_) {
         sync_paths_from_yaml(config_yaml_->toPlainText());
     }
+    emit astrometry_paths_changed(edt_astap_bin_->text().trimmed(),
+                                  edt_astap_data_dir_->text().trimmed());
     emit config_edited();
     emit update_controls_requested();
 }
@@ -362,6 +365,8 @@ void ConfigTab::set_config_yaml(const QString &yaml) {
     config_yaml_->setPlainText(yaml);
     config_yaml_->blockSignals(false);
     sync_paths_from_yaml(yaml);
+    emit astrometry_paths_changed(edt_astap_bin_->text().trimmed(),
+                                  edt_astap_data_dir_->text().trimmed());
 }
 
 void ConfigTab::set_config_validated(bool validated) {
@@ -525,11 +530,15 @@ void ConfigTab::sync_paths_to_yaml() {
 
         config_validated_ok_ = false;
         lbl_cfg_->setText("not validated");
+        emit astrometry_paths_changed(edt_astap_bin_->text().trimmed(),
+                                      edt_astap_data_dir_->text().trimmed());
         emit config_edited();
         emit update_controls_requested();
     } catch (...) {
         // Ignore YAML errors during sync
     }
+    emit astrometry_paths_changed(edt_astap_bin_->text().trimmed(),
+                                  edt_astap_data_dir_->text().trimmed());
     syncing_paths_ = false;
 }
 

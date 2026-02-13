@@ -7,6 +7,12 @@
 
 namespace tile_compile::reconstruction {
 
+struct WeightedTileResult {
+  Matrix2Df tile;
+  bool fallback_used = false;
+  float effective_weight_sum = 0.0f;
+};
+
 Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
                             const TileGrid& grid,
                             const std::vector<std::vector<float>>& tile_weights);
@@ -27,6 +33,11 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
                                    const std::vector<float>& weights,
                                    float sigma_low, float sigma_high,
                                    int max_iters, float min_fraction);
+
+WeightedTileResult sigma_clip_weighted_tile_with_fallback(
+    const std::vector<Matrix2Df>& tiles, const std::vector<float>& weights,
+    float sigma_low, float sigma_high, int max_iters, float min_fraction,
+    float eps_weight);
 
 // Highpass + Soft-Threshold denoising for a single tile (Methodik 3.1E §3.3.1)
 Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
