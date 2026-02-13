@@ -114,11 +114,11 @@ chroma_denoise:
     soft_k: 1.0 # Formfaktor der Soft-Schrumpfung
   chroma_bilateral:
     enabled: true # erhaelt Kanten bei zusaetzlicher Chroma-Glaettung
-    sigma_spatial: 1.2 # Raeumliche Reichweite
-    sigma_range: 0.035 # Intensitaetsreichweite
+    sigma_spatial: 1.4 # Raeumliche Reichweite
+    sigma_range: 0.04 # Intensitaetsreichweite
   blend:
     mode: chroma_only # aktuell nur chroma_only unterstuetzt
-    amount: 0.85 # Mischanteil 0..1 (balanced preset)
+    amount: 0.9 # Mischanteil 0..1 (balanced preset)
   # Preset-Hinweis:
   # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
   # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035

@@ -234,29 +234,76 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
     return weights;
 }
 
-// Fit 1D Gaussian sigma from a profile slice through the peak.
-// Uses weighted second-moment around the peak for sub-pixel accuracy.
-// Returns FWHM = 2.3548 * sigma.  Returns 0 if invalid.
-static float fit_1d_fwhm(const float* data, int len, int peak_idx, float bg) {
-    if (len < 3 || peak_idx < 0 || peak_idx >= len) return 0.0f;
-    double peak_val = static_cast<double>(data[peak_idx]) - static_cast<double>(bg);
-    if (peak_val <= 0.0) return 0.0f;
+struct PsfFit2D {
+    float fwhm_major = 0.0f;
+    float fwhm_minor = 0.0f;
+};
 
-    // Weighted second moment: sigma^2 = sum(w_i * (i - peak)^2) / sum(w_i)
-    double sum_w = 0.0, sum_wd2 = 0.0;
-    for (int i = 0; i < len; ++i) {
-        double w = std::max(0.0, static_cast<double>(data[i]) - static_cast<double>(bg));
-        double d = static_cast<double>(i - peak_idx);
-        sum_w += w;
-        sum_wd2 += w * d * d;
+// Fit an elliptical 2D Gaussian proxy using weighted second central moments.
+// The principal-axis sigmas come from the covariance eigenvalues.
+static PsfFit2D fit_elliptical_psf_2d(const cv::Mat& patch, float bg) {
+    PsfFit2D out;
+    if (patch.empty()) return out;
+
+    constexpr double kFwhmScale = 2.3548200450309493;  // 2*sqrt(2*ln(2))
+
+    double sum_w = 0.0;
+    double mx = 0.0;
+    double my = 0.0;
+
+    for (int y = 0; y < patch.rows; ++y) {
+        const float* row = patch.ptr<float>(y);
+        for (int x = 0; x < patch.cols; ++x) {
+            const double w = std::max(0.0, static_cast<double>(row[x]) - static_cast<double>(bg));
+            sum_w += w;
+            mx += w * static_cast<double>(x);
+            my += w * static_cast<double>(y);
+        }
     }
-    if (sum_w <= 0.0) return 0.0f;
-    double sigma2 = sum_wd2 / sum_w;
-    if (sigma2 <= 0.0) return 0.0f;
-    double sigma = std::sqrt(sigma2);
-    // FWHM = 2 * sqrt(2 * ln(2)) * sigma ≈ 2.3548 * sigma
-    double fwhm = 2.3548200450309493 * sigma;
-    return (fwhm > 0.2 && fwhm < 50.0) ? static_cast<float>(fwhm) : 0.0f;
+    if (!(sum_w > 0.0)) return out;
+
+    mx /= sum_w;
+    my /= sum_w;
+
+    double cxx = 0.0;
+    double cyy = 0.0;
+    double cxy = 0.0;
+    for (int y = 0; y < patch.rows; ++y) {
+        const float* row = patch.ptr<float>(y);
+        for (int x = 0; x < patch.cols; ++x) {
+            const double w = std::max(0.0, static_cast<double>(row[x]) - static_cast<double>(bg));
+            if (!(w > 0.0)) continue;
+            const double dx = static_cast<double>(x) - mx;
+            const double dy = static_cast<double>(y) - my;
+            cxx += w * dx * dx;
+            cyy += w * dy * dy;
+            cxy += w * dx * dy;
+        }
+    }
+
+    cxx /= sum_w;
+    cyy /= sum_w;
+    cxy /= sum_w;
+
+    const double tr = cxx + cyy;
+    const double det = cxx * cyy - cxy * cxy;
+    const double disc = std::max(0.0, tr * tr - 4.0 * det);
+    const double root = std::sqrt(disc);
+    const double lambda_major = 0.5 * (tr + root);
+    const double lambda_minor = 0.5 * (tr - root);
+
+    if (!(lambda_major > 0.0) || !(lambda_minor > 0.0)) return out;
+
+    const double fwhm_major = kFwhmScale * std::sqrt(lambda_major);
+    const double fwhm_minor = kFwhmScale * std::sqrt(lambda_minor);
+    if (!(fwhm_major > 0.2 && fwhm_major < 50.0 &&
+          fwhm_minor > 0.2 && fwhm_minor < 50.0)) {
+        return out;
+    }
+
+    out.fwhm_major = static_cast<float>(fwhm_major);
+    out.fwhm_minor = static_cast<float>(fwhm_minor);
+    return out;
 }
 
 static std::vector<size_t> keep_indices_by_mad_clip(const std::vector<float>& values,
@@ -307,18 +354,9 @@ float estimate_fwhm_from_patch(const cv::Mat& patch) {
     if (maxv <= static_cast<double>(bg) + 3.0 * static_cast<double>(sigma))
         return 0.0f;
 
-    cv::Point peak_loc;
-    cv::minMaxLoc(patch, nullptr, nullptr, nullptr, &peak_loc);
-
-    // 1D Gaussian fits in X and Y through peak, return geometric mean
-    std::vector<float> slice_x(patch.cols), slice_y(patch.rows);
-    for (int x = 0; x < patch.cols; ++x)
-        slice_x[x] = patch.at<float>(peak_loc.y, x);
-    for (int y = 0; y < patch.rows; ++y)
-        slice_y[y] = patch.at<float>(y, peak_loc.x);
-
-    float fx = fit_1d_fwhm(slice_x.data(), patch.cols, peak_loc.x, bg);
-    float fy = fit_1d_fwhm(slice_y.data(), patch.rows, peak_loc.y, bg);
+    const PsfFit2D fit = fit_elliptical_psf_2d(patch, bg);
+    const float fx = fit.fwhm_major;
+    const float fy = fit.fwhm_minor;
     if (fx > 0.0f && fy > 0.0f)
         return std::sqrt(fx * fy);
     if (fx > 0.0f) return fx;
@@ -370,8 +408,8 @@ float measure_fwhm_from_image(const Matrix2Df& img, int max_corners,
     return core::median_of(fwhms);
 }
 
-// Estimate FWHM separately in X and Y from a patch using 1D Gaussian fits.
-// Returns {fwhm_x, fwhm_y}. Both 0 if invalid.
+// Estimate FWHM along principal ellipse axes from a patch.
+// Returns {fwhm_major, fwhm_minor}. Both 0 if invalid.
 static std::pair<float, float> estimate_fwhm_xy(const cv::Mat& patch) {
     if (patch.empty()) return {0.0f, 0.0f};
 
@@ -392,19 +430,8 @@ static std::pair<float, float> estimate_fwhm_xy(const cv::Mat& patch) {
     if (maxv <= static_cast<double>(bg) + 3.0 * static_cast<double>(sigma))
         return {0.0f, 0.0f};
 
-    cv::Point peak_loc;
-    cv::minMaxLoc(patch, nullptr, nullptr, nullptr, &peak_loc);
-
-    // Extract 1D slices through peak
-    std::vector<float> slice_x(patch.cols), slice_y(patch.rows);
-    for (int x = 0; x < patch.cols; ++x)
-        slice_x[x] = patch.at<float>(peak_loc.y, x);
-    for (int y = 0; y < patch.rows; ++y)
-        slice_y[y] = patch.at<float>(y, peak_loc.x);
-
-    float fx = fit_1d_fwhm(slice_x.data(), patch.cols, peak_loc.x, bg);
-    float fy = fit_1d_fwhm(slice_y.data(), patch.rows, peak_loc.y, bg);
-    return {fx, fy};
+    const PsfFit2D fit = fit_elliptical_psf_2d(patch, bg);
+    return {fit.fwhm_major, fit.fwhm_minor};
 }
 
 FrameStarMetrics measure_frame_stars(const Matrix2Df& img,
