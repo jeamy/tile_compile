@@ -22,9 +22,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <random>
@@ -63,6 +65,48 @@ namespace metrics = tile_compile::metrics;
 namespace reconstruction = tile_compile::reconstruction;
 namespace registration = tile_compile::registration;
 namespace astro = tile_compile::astrometry;
+
+std::string format_bytes(uint64_t bytes) {
+  static const char *kUnits[] = {"B", "KiB", "MiB", "GiB", "TiB"};
+  double value = static_cast<double>(bytes);
+  size_t unit = 0;
+  while (value >= 1024.0 && unit + 1 < (sizeof(kUnits) / sizeof(kUnits[0]))) {
+    value /= 1024.0;
+    ++unit;
+  }
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(unit == 0 ? 0 : 2) << value << " "
+      << kUnits[unit];
+  return oss.str();
+}
+
+uint64_t estimate_total_file_bytes(const std::vector<fs::path> &paths) {
+  uint64_t total = 0;
+  for (const auto &p : paths) {
+    std::error_code ec;
+    const auto sz = fs::file_size(p, ec);
+    if (ec) {
+      continue;
+    }
+    if (sz > 0 &&
+        total <= std::numeric_limits<uint64_t>::max() -
+                     static_cast<uint64_t>(sz)) {
+      total += static_cast<uint64_t>(sz);
+    } else {
+      total = std::numeric_limits<uint64_t>::max();
+      break;
+    }
+  }
+  return total;
+}
+
+bool message_indicates_disk_full(const std::string &message) {
+  const std::string m = core::to_lower(message);
+  return (m.find("no space left on device") != std::string::npos) ||
+         (m.find("disk full") != std::string::npos) ||
+         (m.find("not enough space") != std::string::npos) ||
+         (m.find("enospc") != std::string::npos);
+}
 
 class TeeBuf : public std::streambuf {
 public:
@@ -507,6 +551,47 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       {"color_mode", detected_mode_str},
       {"bayer_pattern", detected_bayer_str},
   };
+
+  {
+    const uint64_t scan_dir_bytes = estimate_total_file_bytes(frames);
+    const uint64_t required_min_bytes =
+        (scan_dir_bytes > std::numeric_limits<uint64_t>::max() / 4)
+            ? std::numeric_limits<uint64_t>::max()
+            : (scan_dir_bytes * 4ULL);
+
+    std::error_code ec_space;
+    const auto space_info = fs::space(runs, ec_space);
+    if (!ec_space) {
+      const uint64_t available_bytes =
+          static_cast<uint64_t>(space_info.available);
+      scan_extra["runs_device_available_bytes"] = available_bytes;
+      scan_extra["scan_input_total_bytes"] = scan_dir_bytes;
+      scan_extra["required_min_bytes_scandir_x4"] = required_min_bytes;
+
+      if (available_bytes < required_min_bytes) {
+        const std::string msg =
+            "Insufficient disk space on runs device: available=" +
+            format_bytes(available_bytes) +
+            ", required_min(scandir*4)=" + format_bytes(required_min_bytes);
+        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
+                          {{"error", msg},
+                           {"runs_device_available_bytes", available_bytes},
+                           {"scan_input_total_bytes", scan_dir_bytes},
+                           {"required_min_bytes_scandir_x4", required_min_bytes},
+                           {"runs_dir", runs.string()}},
+                          log_file);
+        emitter.run_end(run_id, false, "insufficient_disk_space", log_file);
+        std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
+        return 1;
+      }
+    } else {
+      emitter.warning(run_id,
+                      "Disk-space precheck skipped: cannot query free space for " +
+                          runs.string() + " (" + ec_space.message() + ")",
+                      log_file);
+    }
+  }
+
   if (!linearity_info.is_null()) {
     scan_extra["linearity"] = linearity_info;
   }
@@ -2851,10 +2936,53 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
-    io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out,
-                         first_hdr);
-    io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out,
-                         first_hdr);
+    try {
+      std::error_code ec_space;
+      const auto space_info = fs::space(run_dir, ec_space);
+      if (!ec_space) {
+        const uint64_t required_stack_bytes =
+            static_cast<uint64_t>(std::max<Eigen::Index>(0, recon_out.size())) *
+            sizeof(float) * 2ULL;
+        const uint64_t available_bytes =
+            static_cast<uint64_t>(space_info.available);
+        if (available_bytes < required_stack_bytes) {
+          const std::string msg =
+              "Disk full risk before STACKING write: available=" +
+              format_bytes(available_bytes) +
+              ", required_estimate=" + format_bytes(required_stack_bytes);
+          emitter.phase_end(run_id, Phase::STACKING, "error",
+                            {{"error", msg},
+                             {"runs_device_available_bytes", available_bytes},
+                             {"required_estimate_bytes", required_stack_bytes},
+                             {"outputs_dir", (run_dir / "outputs").string()}},
+                            log_file);
+          emitter.run_end(run_id, false, "insufficient_disk_space", log_file);
+          std::cerr << "Error during STACKING: " << msg << std::endl;
+          return 1;
+        }
+      }
+
+      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out,
+                           first_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit",
+                           recon_out, first_hdr);
+    } catch (const std::exception &e) {
+      const bool disk_full = message_indicates_disk_full(e.what());
+      const std::string msg =
+          disk_full
+              ? ("Disk full while writing STACKING outputs to " +
+                 (run_dir / "outputs").string() + ": " + e.what())
+              : (std::string("STACKING output write failed: ") + e.what());
+      emitter.phase_end(run_id, Phase::STACKING, "error",
+                        {{"error", msg},
+                         {"outputs_dir", (run_dir / "outputs").string()}},
+                        log_file);
+      emitter.run_end(run_id, false,
+                      disk_full ? "insufficient_disk_space" : "error",
+                      log_file);
+      std::cerr << "Error during STACKING: " << msg << std::endl;
+      return 1;
+    }
 
     emitter.phase_end(
         run_id, Phase::STACKING, "ok",
