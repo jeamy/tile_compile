@@ -9,7 +9,7 @@ Diese beiden Phasen berechnen für jeden Frame die Hintergrund-Normalisierung un
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  NORMALIZATION (Phase 2)                             │
+│  NORMALIZATION (Phase 3)                             │
 │                                                      │
 │  Für jeden Frame f:                                  │
 │  1. Frame laden (FITS → Matrix2Df)                   │
@@ -23,7 +23,7 @@ Diese beiden Phasen berechnen für jeden Frame die Hintergrund-Normalisierung un
 └──────────────────────────┬───────────────────────────┘
                            │
 ┌──────────────────────────▼───────────────────────────┐
-│  GLOBAL_METRICS (Phase 3)                            │
+│  GLOBAL_METRICS (Phase 4)                            │
 │                                                      │
 │  Für jeden Frame f:                                  │
 │  1. Frame laden + normalisieren                      │
@@ -34,7 +34,7 @@ Diese beiden Phasen berechnen für jeden Frame die Hintergrund-Normalisierung un
 └──────────────────────────────────────────────────────┘
 ```
 
-## Phase 2: NORMALIZATION — Detaillierter Ablauf
+## Phase 3: NORMALIZATION — Detaillierter Ablauf
 
 ### Schritt 1: Frame laden
 
@@ -145,7 +145,7 @@ auto load_frame_normalized = [&](size_t frame_index) -> pair<Matrix2Df, FitsHead
 
 `apply_normalization_inplace` multipliziert jeden Pixel mit dem entsprechenden Skalierungsfaktor (OSC: kanalgetrennt nach Bayer-Offset, MONO: einheitlich).
 
-## Phase 3: GLOBAL_METRICS — Detaillierter Ablauf
+## Phase 4: GLOBAL_METRICS — Detaillierter Ablauf
 
 ### Frame-Metriken berechnen
 
@@ -258,4 +258,4 @@ VectorXf global_weights = metrics::calculate_global_weights(
 
 ## Nächste Phase
 
-→ **Phase 4: TILE_GRID — Seeing-adaptive Tile-Erzeugung**
+→ **Phase 5: TILE_GRID — Seeing-adaptive Tile-Erzeugung**

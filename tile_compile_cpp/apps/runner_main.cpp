@@ -1,5 +1,6 @@
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/events.hpp"
+#include "tile_compile/core/mode_gating.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
@@ -21,8 +22,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <random>
@@ -30,6 +34,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -60,6 +65,48 @@ namespace metrics = tile_compile::metrics;
 namespace reconstruction = tile_compile::reconstruction;
 namespace registration = tile_compile::registration;
 namespace astro = tile_compile::astrometry;
+
+std::string format_bytes(uint64_t bytes) {
+  static const char *kUnits[] = {"B", "KiB", "MiB", "GiB", "TiB"};
+  double value = static_cast<double>(bytes);
+  size_t unit = 0;
+  while (value >= 1024.0 && unit + 1 < (sizeof(kUnits) / sizeof(kUnits[0]))) {
+    value /= 1024.0;
+    ++unit;
+  }
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(unit == 0 ? 0 : 2) << value << " "
+      << kUnits[unit];
+  return oss.str();
+}
+
+uint64_t estimate_total_file_bytes(const std::vector<fs::path> &paths) {
+  uint64_t total = 0;
+  for (const auto &p : paths) {
+    std::error_code ec;
+    const auto sz = fs::file_size(p, ec);
+    if (ec) {
+      continue;
+    }
+    if (sz > 0 &&
+        total <= std::numeric_limits<uint64_t>::max() -
+                     static_cast<uint64_t>(sz)) {
+      total += static_cast<uint64_t>(sz);
+    } else {
+      total = std::numeric_limits<uint64_t>::max();
+      break;
+    }
+  }
+  return total;
+}
+
+bool message_indicates_disk_full(const std::string &message) {
+  const std::string m = core::to_lower(message);
+  return (m.find("no space left on device") != std::string::npos) ||
+         (m.find("disk full") != std::string::npos) ||
+         (m.find("not enough space") != std::string::npos) ||
+         (m.find("enospc") != std::string::npos);
+}
 
 class TeeBuf : public std::streambuf {
 public:
@@ -504,6 +551,47 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       {"color_mode", detected_mode_str},
       {"bayer_pattern", detected_bayer_str},
   };
+
+  {
+    const uint64_t scan_dir_bytes = estimate_total_file_bytes(frames);
+    const uint64_t required_min_bytes =
+        (scan_dir_bytes > std::numeric_limits<uint64_t>::max() / 4)
+            ? std::numeric_limits<uint64_t>::max()
+            : (scan_dir_bytes * 4ULL);
+
+    std::error_code ec_space;
+    const auto space_info = fs::space(runs, ec_space);
+    if (!ec_space) {
+      const uint64_t available_bytes =
+          static_cast<uint64_t>(space_info.available);
+      scan_extra["runs_device_available_bytes"] = available_bytes;
+      scan_extra["scan_input_total_bytes"] = scan_dir_bytes;
+      scan_extra["required_min_bytes_scandir_x4"] = required_min_bytes;
+
+      if (available_bytes < required_min_bytes) {
+        const std::string msg =
+            "Insufficient disk space on runs device: available=" +
+            format_bytes(available_bytes) +
+            ", required_min(scandir*4)=" + format_bytes(required_min_bytes);
+        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
+                          {{"error", msg},
+                           {"runs_device_available_bytes", available_bytes},
+                           {"scan_input_total_bytes", scan_dir_bytes},
+                           {"required_min_bytes_scandir_x4", required_min_bytes},
+                           {"runs_dir", runs.string()}},
+                          log_file);
+        emitter.run_end(run_id, false, "insufficient_disk_space", log_file);
+        std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
+        return 1;
+      }
+    } else {
+      emitter.warning(run_id,
+                      "Disk-space precheck skipped: cannot query free space for " +
+                          runs.string() + " (" + ec_space.message() + ")",
+                      log_file);
+    }
+  }
+
   if (!linearity_info.is_null()) {
     scan_extra["linearity"] = linearity_info;
   }
@@ -987,6 +1075,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   std::vector<std::vector<float>> local_weights;
   std::vector<float> tile_fwhm_median;
   std::vector<int> tile_valid_counts;
+  std::vector<uint8_t> tile_fallback_used;
   std::vector<float> tile_warp_variances;
   std::vector<float> tile_mean_correlations;
   std::vector<float> tile_post_contrast;
@@ -1278,6 +1367,30 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     }
   }
 
+  const int n_usable_frames = n_frames_with_data;
+  constexpr int kReducedModeMinFrames = 50;
+  const core::ModeGateDecision gate = core::evaluate_mode_gate(
+      n_usable_frames, cfg.assumptions.frames_reduced_threshold,
+      cfg.runtime_limits.allow_emergency_mode, kReducedModeMinFrames);
+  const bool emergency_mode = gate.emergency_mode;
+  if (gate.should_abort) {
+    std::ostringstream oss;
+    oss << "Insufficient usable frames after registration/warp: "
+        << n_usable_frames << " (<" << kReducedModeMinFrames
+        << "). Set runtime_limits.allow_emergency_mode=true to force "
+           "emergency reduced mode.";
+    emitter.run_end(run_id, false, "insufficient_frames", log_file);
+    std::cerr << "Error: " << oss.str() << std::endl;
+    return 1;
+  }
+
+  const bool reduced_mode = gate.reduced_mode;
+  const bool skip_clustering_in_reduced =
+      (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
+  constexpr float kEpsWeight = 1.0e-6f;
+  constexpr float kEpsMedian = 1.0e-6f;
+  constexpr float kEpsWeightSum = 1.0e-6f;
+
   bool run_validation_failed = false;
 
   while (true) {
@@ -1503,11 +1616,6 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
-    const bool reduced_mode = (n_frames_with_data <
-                               cfg.assumptions.frames_reduced_threshold);
-    const bool skip_clustering_in_reduced =
-        (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
-
     // Phase 6: TILE_RECONSTRUCTION (Methodik v3)
     emitter.phase_start(run_id, Phase::TILE_RECONSTRUCTION,
                         "TILE_RECONSTRUCTION", log_file);
@@ -1607,6 +1715,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
               << std::endl;
 
     tile_valid_counts.assign(tiles_phase56.size(), 0);
+    tile_fallback_used.assign(tiles_phase56.size(), 0);
     tile_warp_variances.assign(tiles_phase56.size(), 0.0f);
     tile_mean_correlations.assign(tiles_phase56.size(), 0.0f);
     tile_post_contrast.assign(tiles_phase56.size(), 0.0f);
@@ -1656,6 +1765,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       Matrix2Df tile_rec_G;
       Matrix2Df tile_rec_B;
       size_t n_valid = 0;
+      bool used_weight_fallback = false;
 
       if (osc_mode) {
         // Methodik v3 (OSC): stack in RGB space (debayer-before-stack).
@@ -1716,11 +1826,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
             }
           }
 
-          return reconstruction::sigma_clip_weighted_tile(
+          auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
               chan_tiles, weights_valid, cfg.stacking.sigma_clip.sigma_low,
               cfg.stacking.sigma_clip.sigma_high,
               cfg.stacking.sigma_clip.max_iters,
-              cfg.stacking.sigma_clip.min_fraction);
+              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+          used_weight_fallback = used_weight_fallback || wr.fallback_used;
+          return std::move(wr.tile);
         };
 
         tile_rec_R = stack_channel(0);
@@ -1765,15 +1877,18 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           return;
         }
 
-        tile_rec = reconstruction::sigma_clip_weighted_tile(
+        auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
             warped_tiles, weights, cfg.stacking.sigma_clip.sigma_low,
             cfg.stacking.sigma_clip.sigma_high,
             cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction);
+            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+        tile_rec = std::move(wr.tile);
+        used_weight_fallback = used_weight_fallback || wr.fallback_used;
         n_valid = warped_tiles.size();
       }
 
       tile_valid_counts[ti] = static_cast<int>(n_valid);
+      tile_fallback_used[ti] = used_weight_fallback ? 1u : 0u;
       tile_warp_variances[ti] = 0.0f;
       tile_mean_correlations[ti] = 1.0f;
       tile_mean_dx[ti] = 0.0f;
@@ -1848,10 +1963,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       // 2. Normalize: T'' = T' / median(|T'|)  (if median > ε)
       // This eliminates patchwork artifacts from tiles with different
       // background levels before the Hanning-windowed overlap-add.
-      auto normalize_tile_for_ola = [](Matrix2Df &t_img) -> float {
+      std::vector<float> norm_tmp;
+      auto normalize_tile_for_ola = [&](Matrix2Df &t_img,
+                                        std::vector<float> &tmp) -> float {
         if (t_img.size() <= 0) return 0.0f;
-        // Compute median via partial sort on a copy
-        std::vector<float> tmp(t_img.data(), t_img.data() + t_img.size());
+        // Compute median via partial sort on a reusable copy buffer
+        tmp.resize(static_cast<size_t>(t_img.size()));
+        std::copy(t_img.data(), t_img.data() + t_img.size(), tmp.begin());
         size_t mid = tmp.size() / 2;
         std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid), tmp.end());
         float bg = tmp[mid];
@@ -1863,7 +1981,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           tmp[i] = std::fabs(t_img.data()[static_cast<Eigen::Index>(i)]);
         std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid), tmp.end());
         float med_abs = tmp[mid];
-        if (med_abs > 1e-10f) {
+        if (med_abs > kEpsMedian) {
           float inv = 1.0f / med_abs;
           for (Eigen::Index k = 0; k < t_img.size(); ++k)
             t_img.data()[k] *= inv;
@@ -1871,12 +1989,12 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         return bg; // return original background for later restoration
       };
 
-      float tile_bg_mono = normalize_tile_for_ola(tile_rec);
+      float tile_bg_mono = normalize_tile_for_ola(tile_rec, norm_tmp);
       float tile_bg_R = 0.0f, tile_bg_G = 0.0f, tile_bg_B = 0.0f;
       if (osc_mode) {
-        tile_bg_R = normalize_tile_for_ola(tile_rec_R);
-        tile_bg_G = normalize_tile_for_ola(tile_rec_G);
-        tile_bg_B = normalize_tile_for_ola(tile_rec_B);
+        tile_bg_R = normalize_tile_for_ola(tile_rec_R, norm_tmp);
+        tile_bg_G = normalize_tile_for_ola(tile_rec_G, norm_tmp);
+        tile_bg_B = normalize_tile_for_ola(tile_rec_B, norm_tmp);
       }
 
       // Store tile backgrounds for global restoration after overlap-add
@@ -1951,7 +2069,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     cv::setNumThreads(prev_cv_threads_recon);
 
     // Normalize reconstruction
-    const float eps_ws = 1.0e-12f;
+    const float eps_ws = kEpsWeightSum;
     if (osc_mode) {
       // Fallback: first normalized frame (only used for rare holes).
       auto fb = image::debayer_nearest_neighbor(first_img, detected_bayer, 0, 0);
@@ -2017,12 +2135,15 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       artifact["num_frames"] = static_cast<int>(frames.size());
       artifact["num_tiles"] = static_cast<int>(tiles_phase56.size());
       artifact["tile_valid_counts"] = core::json::array();
+      artifact["tile_fallback_used"] = core::json::array();
       artifact["tile_mean_correlations"] = core::json::array();
       artifact["tile_post_contrast"] = core::json::array();
       artifact["tile_post_background"] = core::json::array();
       artifact["tile_post_snr_proxy"] = core::json::array();
       for (size_t i = 0; i < tiles_phase56.size(); ++i) {
         artifact["tile_valid_counts"].push_back(tile_valid_counts[i]);
+        artifact["tile_fallback_used"].push_back(
+            tile_fallback_used[i] != 0u);
         artifact["tile_mean_correlations"].push_back(tile_mean_correlations[i]);
         artifact["tile_post_contrast"].push_back(tile_post_contrast[i]);
         artifact["tile_post_background"].push_back(tile_post_background[i]);
@@ -2039,6 +2160,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
             {"valid_tiles",
              std::count_if(tile_valid_counts.begin(), tile_valid_counts.end(),
                            [&](int c) { return c >= min_valid_frames; })},
+            {"fallback_tiles",
+             std::count_if(tile_fallback_used.begin(), tile_fallback_used.end(),
+                           [&](uint8_t v) { return v != 0u; })},
         },
         log_file);
 
@@ -2056,53 +2180,26 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     int n_clusters = 1;
     if (skip_clustering_in_reduced) {
       use_synthetic_frames = false;
-      synthetic_skip_reason = "reduced_mode";
+      synthetic_skip_reason = emergency_mode ? "emergency_mode"
+                                             : "reduced_mode";
       emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "skipped",
-                        {{"reason", "reduced_mode"},
-                         {"frame_count", static_cast<int>(frames.size())},
+                        {{"reason", synthetic_skip_reason},
+                         {"usable_frame_count", n_usable_frames},
                          {"frames_reduced_threshold",
-                          cfg.assumptions.frames_reduced_threshold}},
+                          cfg.assumptions.frames_reduced_threshold},
+                         {"emergency_mode", emergency_mode}},
                         log_file);
     }
 
     if (!skip_clustering_in_reduced) {
-      // Build state vectors for clustering (// Methodik v3 §10):
-      // [G_f, mean_local_quality, var_local_quality, mean_cc_tiles,
-      // mean_warp_var_tiles, invalid_tile_fraction]
+      // Build state vectors for clustering (v3.2 core vector):
+      // [G_f, mean_local_quality, var_local_quality, B_f, sigma_f]
       const int n_frames_cluster = static_cast<int>(frames.size());
       std::vector<std::vector<float>> state_vectors(
           static_cast<size_t>(n_frames_cluster));
-      std::vector<float> frame_mean_local(frames.size(), 0.0f);
-      std::vector<float> frame_var_local(frames.size(), 0.0f);
 
       std::vector<float> G_for_cluster(static_cast<size_t>(n_frames_cluster),
                                        1.0f);
-
-      float mean_cc_tiles = 0.0f;
-      float mean_warp_var_tiles = 0.0f;
-      if (!tiles_phase56.empty()) {
-        double sum_cc = 0.0;
-        double sum_var = 0.0;
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-          sum_cc += static_cast<double>(tile_mean_correlations[ti]);
-          sum_var += static_cast<double>(tile_warp_variances[ti]);
-        }
-        mean_cc_tiles = static_cast<float>(
-            sum_cc / static_cast<double>(tiles_phase56.size()));
-        mean_warp_var_tiles = static_cast<float>(
-            sum_var / static_cast<double>(tiles_phase56.size()));
-      }
-
-      std::vector<float> frame_invalid_fraction(frames.size(), 0.0f);
-      if (!tiles_phase56.empty()) {
-        for (size_t fi = 0; fi < frames.size(); ++fi) {
-          int valid_tiles_for_frame = frame_valid_tile_counts[fi].load();
-          float frac_valid = static_cast<float>(valid_tiles_for_frame) /
-                             static_cast<float>(tiles_phase56.size());
-          frame_invalid_fraction[fi] =
-              1.0f - std::min(std::max(frac_valid, 0.0f), 1.0f);
-        }
-      }
 
       for (size_t fi = 0; fi < frames.size(); ++fi) {
         float G_f = (fi < static_cast<size_t>(global_weights.size()))
@@ -2126,41 +2223,44 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           }
           var_local /= static_cast<float>(local_metrics[fi].size());
         }
-        frame_mean_local[fi] = mean_local;
-        frame_var_local[fi] = var_local;
-
-        state_vectors[fi] = {
-            G_f,           mean_local,          var_local,
-            mean_cc_tiles, mean_warp_var_tiles, frame_invalid_fraction[fi]};
+        state_vectors[fi] = {G_f, mean_local, var_local, bg, noise};
         G_for_cluster[fi] = G_f;
       }
 
       std::vector<std::vector<float>> X = state_vectors;
+      std::vector<float> state_means;
+      std::vector<float> state_stds;
+      std::vector<std::string> final_feature_list = {
+          "global_weight",
+          "mean_local_quality",
+          "var_local_quality",
+          "background",
+          "noise"};
       if (n_frames_cluster > 0) {
-        const size_t D = 6;
-        std::vector<float> means(D, 0.0f);
-        std::vector<float> stds(D, 0.0f);
+        const size_t D = X[0].size();
+        state_means.assign(D, 0.0f);
+        state_stds.assign(D, 0.0f);
 
         for (size_t d = 0; d < D; ++d) {
           double sum = 0.0;
           for (size_t i = 0; i < X.size(); ++i)
             sum += static_cast<double>(X[i][d]);
-          means[d] = static_cast<float>(sum / static_cast<double>(X.size()));
+          state_means[d] = static_cast<float>(sum / static_cast<double>(X.size()));
           double var = 0.0;
           for (size_t i = 0; i < X.size(); ++i) {
             double diff =
-                static_cast<double>(X[i][d]) - static_cast<double>(means[d]);
+                static_cast<double>(X[i][d]) - static_cast<double>(state_means[d]);
             var += diff * diff;
           }
           var /= std::max<double>(1.0, static_cast<double>(X.size()));
-          stds[d] = static_cast<float>(std::sqrt(std::max(0.0, var)));
+          state_stds[d] = static_cast<float>(std::sqrt(std::max(0.0, var)));
         }
 
-        const float eps = 1.0e-12f;
+        const float eps = kEpsWeight;
         for (size_t i = 0; i < X.size(); ++i) {
           for (size_t d = 0; d < D; ++d) {
-            float sd = stds[d];
-            X[i][d] = (sd > eps) ? ((X[i][d] - means[d]) / sd) : 0.0f;
+            float sd = state_stds[d];
+            X[i][d] = (sd > eps) ? ((X[i][d] - state_means[d]) / sd) : 0.0f;
           }
         }
       }
@@ -2230,7 +2330,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
           // Update centers
           std::vector<std::vector<float>> new_centers(
-              static_cast<size_t>(n_clusters), std::vector<float>(6, 0.0f));
+              static_cast<size_t>(n_clusters),
+              std::vector<float>(X[0].size(), 0.0f));
           std::vector<int> counts(static_cast<size_t>(n_clusters), 0);
           for (size_t fi = 0; fi < X.size(); ++fi) {
             int c = cluster_labels[fi];
@@ -2293,6 +2394,31 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         artifact["k_min"] = k_min;
         artifact["k_max"] = k_max;
         artifact["method"] = clustering_method;
+        artifact["feature_names"] = core::json::array();
+        for (const auto &name : final_feature_list)
+          artifact["feature_names"].push_back(name);
+        artifact["standardization"] = {
+            {"method", "zscore"},
+            {"eps", kEpsWeight},
+            {"means", core::json::array()},
+            {"stds", core::json::array()},
+        };
+        for (float v : state_means)
+          artifact["standardization"]["means"].push_back(v);
+        for (float v : state_stds)
+          artifact["standardization"]["stds"].push_back(v);
+        artifact["state_vectors_raw"] = core::json::array();
+        artifact["state_vectors_standardized"] = core::json::array();
+        for (size_t i = 0; i < state_vectors.size(); ++i) {
+          core::json raw = core::json::array();
+          core::json stdv = core::json::array();
+          for (float v : state_vectors[i])
+            raw.push_back(v);
+          for (float v : X[i])
+            stdv.push_back(v);
+          artifact["state_vectors_raw"].push_back(std::move(raw));
+          artifact["state_vectors_standardized"].push_back(std::move(stdv));
+        }
         artifact["cluster_labels"] = core::json::array();
         for (int lbl : cluster_labels)
           artifact["cluster_labels"].push_back(lbl);
@@ -2328,6 +2454,176 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
     auto reconstruct_subset =
         [&](const std::vector<char> &frame_mask) -> Matrix2Df {
+      if (cfg.synthetic.weighting == "tile_weighted") {
+        Matrix2Df out = Matrix2Df::Zero(height, width);
+        Matrix2Df weight_ola = Matrix2Df::Zero(height, width);
+        std::atomic<bool> any_tile{false};
+
+        auto normalize_tile_for_ola = [&](Matrix2Df &t_img,
+                                          std::vector<float> &tmp) {
+          (void)t_img;
+          (void)tmp;
+          // Preserve synthetic-frame photometric scale. Per-tile median/scale
+          // normalization here can imprint tile structure and compress signal.
+        };
+
+        struct HannCacheEntry {
+          std::vector<float> x;
+          std::vector<float> y;
+        };
+        std::unordered_map<uint64_t, HannCacheEntry> hann_cache;
+        hann_cache.reserve(tiles_phase56.size());
+        for (const auto &tile : tiles_phase56) {
+          const uint64_t key =
+              (static_cast<uint64_t>(static_cast<uint32_t>(tile.width)) << 32) |
+              static_cast<uint32_t>(tile.height);
+          if (hann_cache.find(key) != hann_cache.end())
+            continue;
+          hann_cache.emplace(key, HannCacheEntry{reconstruction::make_hann_1d(tile.width),
+                                                 reconstruction::make_hann_1d(tile.height)});
+        }
+
+        std::mutex recon_mutex;
+        std::atomic<size_t> next_tile{0};
+
+        int subset_workers = 1;
+        if (tiles_phase56.size() > 1) {
+          int cpu_cores = static_cast<int>(std::thread::hardware_concurrency());
+          if (cpu_cores <= 0)
+            cpu_cores = 1;
+          subset_workers = std::min<int>(cpu_cores,
+                                         static_cast<int>(tiles_phase56.size()));
+          subset_workers = std::max(1, std::min(subset_workers, 8));
+        }
+
+        auto process_tile = [&]() {
+          std::vector<Matrix2Df> cluster_tiles;
+          std::vector<float> cluster_weights;
+          cluster_tiles.reserve(frame_mask.size());
+          cluster_weights.reserve(frame_mask.size());
+          std::vector<float> norm_tmp;
+
+          while (true) {
+            const size_t ti = next_tile.fetch_add(1);
+            if (ti >= tiles_phase56.size())
+              break;
+
+            const Tile &t = tiles_phase56[ti];
+            cluster_tiles.clear();
+            cluster_weights.clear();
+
+            for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
+              if (!frame_mask[fi] || !frame_has_data[fi])
+                continue;
+              Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t);
+              if (tile_img.rows() != t.height || tile_img.cols() != t.width)
+                continue;
+              cluster_tiles.push_back(std::move(tile_img));
+
+              float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                              ? global_weights[static_cast<int>(fi)]
+                              : 1.0f;
+              float L_ft =
+                  (fi < local_weights.size() && ti < local_weights[fi].size())
+                      ? local_weights[fi][ti]
+                      : 1.0f;
+              float w = G_f * L_ft;
+              cluster_weights.push_back((std::isfinite(w) && w > 0.0f) ? w
+                                                                        : 0.0f);
+            }
+
+            if (cluster_tiles.empty())
+              continue;
+
+            Matrix2Df tile_rec;
+            if (cluster_tiles.size() == 1) {
+              tile_rec = std::move(cluster_tiles.front());
+            } else {
+              auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
+                  cluster_tiles, cluster_weights,
+                  cfg.stacking.sigma_clip.sigma_low,
+                  cfg.stacking.sigma_clip.sigma_high,
+                  cfg.stacking.sigma_clip.max_iters,
+                  cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+              tile_rec = std::move(wr.tile);
+            }
+            if (tile_rec.rows() != t.height || tile_rec.cols() != t.width)
+              continue;
+
+            // v3.2 §5.7.1: normalize tile before overlap-add.
+            normalize_tile_for_ola(tile_rec, norm_tmp);
+
+            const uint64_t key =
+                (static_cast<uint64_t>(static_cast<uint32_t>(t.width)) << 32) |
+                static_cast<uint32_t>(t.height);
+            const auto cache_it = hann_cache.find(key);
+            if (cache_it == hann_cache.end())
+              continue;
+            const std::vector<float> &hann_x = cache_it->second.x;
+            const std::vector<float> &hann_y = cache_it->second.y;
+
+            const int x0 = std::max(0, t.x);
+            const int y0 = std::max(0, t.y);
+
+            {
+              std::lock_guard<std::mutex> lock(recon_mutex);
+              for (int yy = 0; yy < tile_rec.rows(); ++yy) {
+                for (int xx = 0; xx < tile_rec.cols(); ++xx) {
+                  const int iy = y0 + yy;
+                  const int ix = x0 + xx;
+                  if (iy < 0 || iy >= out.rows() || ix < 0 || ix >= out.cols())
+                    continue;
+                  const float win = hann_y[static_cast<size_t>(yy)] *
+                                    hann_x[static_cast<size_t>(xx)];
+                  out(iy, ix) += tile_rec(yy, xx) * win;
+                  weight_ola(iy, ix) += win;
+                }
+              }
+            }
+            any_tile.store(true, std::memory_order_relaxed);
+          }
+        };
+
+        if (subset_workers > 1) {
+          std::vector<std::thread> workers;
+          workers.reserve(static_cast<size_t>(subset_workers));
+          for (int w = 0; w < subset_workers; ++w) {
+            workers.emplace_back(process_tile);
+          }
+          for (auto &worker : workers) {
+            if (worker.joinable())
+              worker.join();
+          }
+        } else {
+          process_tile();
+        }
+
+        if (!any_tile.load(std::memory_order_relaxed))
+          return Matrix2Df();
+
+        Matrix2Df fallback;
+        for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
+          if (!frame_mask[fi] || !frame_has_data[fi])
+            continue;
+          fallback = prewarped_frames.load(fi);
+          if (fallback.size() > 0)
+            break;
+        }
+        if (fallback.size() != out.size()) {
+          fallback = Matrix2Df::Zero(out.rows(), out.cols());
+        }
+
+        for (Eigen::Index i = 0; i < out.size(); ++i) {
+          float ws = weight_ola.data()[i];
+          if (ws > kEpsWeightSum) {
+            out.data()[i] /= ws;
+          } else {
+            out.data()[i] = fallback.data()[i];
+          }
+        }
+        return out;
+      }
+
       // Accumulate weighted sum directly to avoid copying full-res frames.
       Matrix2Df out;
       float wsum = 0.0f;
@@ -2350,7 +2646,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
       if (out.size() == 0)
         return Matrix2Df();
-      if (wsum > 0.0f)
+      if (wsum > kEpsWeight)
         out /= wsum;
       return out;
     };
@@ -2362,16 +2658,18 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       if (!synthetic_skip_reason.empty()) {
         extra["reason"] = synthetic_skip_reason;
       } else {
-        extra["reason"] = "reduced_mode";
+        extra["reason"] = emergency_mode ? "emergency_mode"
+                                          : "reduced_mode";
       }
       if (synthetic_skip_eligible_clusters > 0) {
         extra["eligible_clusters"] = synthetic_skip_eligible_clusters;
         extra["weight_spread"] = synthetic_skip_weight_spread;
         extra["quality_spread"] = synthetic_skip_quality_spread;
       }
-      extra["frame_count"] = static_cast<int>(frames.size());
+      extra["usable_frame_count"] = n_usable_frames;
       extra["frames_reduced_threshold"] =
           cfg.assumptions.frames_reduced_threshold;
+      extra["emergency_mode"] = emergency_mode;
       emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "skipped", extra,
                         log_file);
     } else {
@@ -2465,13 +2763,15 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         artifact["num_synthetic"] = static_cast<int>(synthetic_frames.size());
         artifact["frames_min"] = synth_min;
         artifact["frames_max"] = synth_max;
+        artifact["weighting"] = cfg.synthetic.weighting;
         core::write_text(run_dir / "artifacts" / "synthetic_frames.json",
                          artifact.dump(2));
       }
 
       emitter.phase_end(
           run_id, Phase::SYNTHETIC_FRAMES, "ok",
-          {{"num_synthetic", static_cast<int>(synthetic_frames.size())}},
+          {{"num_synthetic", static_cast<int>(synthetic_frames.size())},
+           {"weighting", cfg.synthetic.weighting}},
           log_file);
     }
 
@@ -2576,13 +2876,14 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
-    // Post-stack cosmetic correction: remove residual hot pixels
-    // that survived sigma-clipped stacking (especially with few frames)
-    recon = image::cosmetic_correction(recon, 5.0f, true);
-    if (detected_mode == ColorMode::OSC) {
-      recon_R = image::cosmetic_correction(recon_R, 5.0f, true);
-      recon_G = image::cosmetic_correction(recon_G, 5.0f, true);
-      recon_B = image::cosmetic_correction(recon_B, 5.0f, true);
+    // Optional post-processing (not part of the linear quality core).
+    if (cfg.stacking.cosmetic_correction) {
+      recon = image::cosmetic_correction(recon, 5.0f, true);
+      if (detected_mode == ColorMode::OSC) {
+        recon_R = image::cosmetic_correction(recon_R, 5.0f, true);
+        recon_G = image::cosmetic_correction(recon_G, 5.0f, true);
+        recon_B = image::cosmetic_correction(recon_B, 5.0f, true);
+      }
     }
 
     Matrix2Df recon_out = recon;
@@ -2619,10 +2920,53 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
-    io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out,
-                         first_hdr);
-    io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out,
-                         first_hdr);
+    try {
+      std::error_code ec_space;
+      const auto space_info = fs::space(run_dir, ec_space);
+      if (!ec_space) {
+        const uint64_t required_stack_bytes =
+            static_cast<uint64_t>(std::max<Eigen::Index>(0, recon_out.size())) *
+            sizeof(float) * 2ULL;
+        const uint64_t available_bytes =
+            static_cast<uint64_t>(space_info.available);
+        if (available_bytes < required_stack_bytes) {
+          const std::string msg =
+              "Disk full risk before STACKING write: available=" +
+              format_bytes(available_bytes) +
+              ", required_estimate=" + format_bytes(required_stack_bytes);
+          emitter.phase_end(run_id, Phase::STACKING, "error",
+                            {{"error", msg},
+                             {"runs_device_available_bytes", available_bytes},
+                             {"required_estimate_bytes", required_stack_bytes},
+                             {"outputs_dir", (run_dir / "outputs").string()}},
+                            log_file);
+          emitter.run_end(run_id, false, "insufficient_disk_space", log_file);
+          std::cerr << "Error during STACKING: " << msg << std::endl;
+          return 1;
+        }
+      }
+
+      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out,
+                           first_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit",
+                           recon_out, first_hdr);
+    } catch (const std::exception &e) {
+      const bool disk_full = message_indicates_disk_full(e.what());
+      const std::string msg =
+          disk_full
+              ? ("Disk full while writing STACKING outputs to " +
+                 (run_dir / "outputs").string() + ": " + e.what())
+              : (std::string("STACKING output write failed: ") + e.what());
+      emitter.phase_end(run_id, Phase::STACKING, "error",
+                        {{"error", msg},
+                         {"outputs_dir", (run_dir / "outputs").string()}},
+                        log_file);
+      emitter.run_end(run_id, false,
+                      disk_full ? "insufficient_disk_space" : "error",
+                      log_file);
+      std::cerr << "Error during STACKING: " << msg << std::endl;
+      return 1;
+    }
 
     emitter.phase_end(
         run_id, Phase::STACKING, "ok",

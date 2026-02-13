@@ -68,9 +68,16 @@
       "properties": {
         "frames_min": { "type": "integer", "minimum": 1 },
         "frames_optimal": { "type": "integer", "minimum": 1 },
-        "frames_reduced_threshold": { "type": "integer", "minimum": 1 },
+        "frames_reduced_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Threshold for full mode: 50..(threshold-1) = reduced mode, >= threshold = full mode."
+        },
         "exposure_time_tolerance_percent": { "type": "number", "minimum": 0 },
-        "reduced_mode_skip_clustering": { "type": "boolean" },
+        "reduced_mode_skip_clustering": {
+          "type": "boolean",
+          "description": "If true, STATE_CLUSTERING and SYNTHETIC_FRAMES are skipped in reduced/emergency mode."
+        },
         "reduced_mode_cluster_range": {
           "type": "array",
           "items": { "type": "integer", "minimum": 1 },
@@ -205,7 +212,11 @@
     "synthetic": {
       "type": "object",
       "properties": {
-        "weighting": { "type": "string", "enum": ["global", "tile_weighted"] },
+        "weighting": {
+          "type": "string",
+          "enum": ["global", "tile_weighted"],
+          "description": "global = use G_f only; tile_weighted = use W_f,t = G_f*L_f,t with tile-wise OLA reconstruction."
+        },
         "frames_min": { "type": "integer", "minimum": 1 },
         "frames_max": { "type": "integer", "minimum": 1 },
         "clustering": {
@@ -267,7 +278,14 @@
             "min_fraction": { "type": "number", "minimum": 0, "maximum": 1 }
           }
         },
-        "output_stretch": { "type": "boolean" }
+        "output_stretch": {
+          "type": "boolean",
+          "description": "Optional linear display stretch on output data (post-processing, not part of the linear core pipeline)."
+        },
+        "cosmetic_correction": {
+          "type": "boolean",
+          "description": "Optional hot-pixel/artifact cosmetic correction after stacking (post-processing, disabled by default)."
+        }
       }
     },
     "validation": {
@@ -283,7 +301,11 @@
       "type": "object",
       "properties": {
         "tile_analysis_max_factor_vs_stack": { "type": "number", "exclusiveMinimum": 0 },
-        "hard_abort_hours": { "type": "number", "exclusiveMinimum": 0 }
+        "hard_abort_hours": { "type": "number", "exclusiveMinimum": 0 },
+        "allow_emergency_mode": {
+          "type": "boolean",
+          "description": "Allows emergency mode for datasets with <50 usable frames; otherwise the run is aborted in a controlled way."
+        }
       }
     }
   }

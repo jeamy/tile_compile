@@ -54,7 +54,7 @@ Pro Frame wird ein 6-dimensionaler Zustandsvektor berechnet:
 
 ```cpp
 state_vectors[fi] = {
-    G_f,                    // Globales Gewicht (Phase 3)
+    G_f,                    // Globales Gewicht (Phase 4)
     mean_local,             // Mittelwert lokaler Qualitäts-Scores
     var_local,              // Varianz lokaler Qualitäts-Scores
     mean_cc_tiles,          // Mittlere Tile-Korrelation (global)
@@ -65,7 +65,7 @@ state_vectors[fi] = {
 
 | Dimension | Symbol | Quelle | Beschreibung |
 |-----------|--------|--------|-------------|
-| 0 | G_f | Phase 3 | Globales Frame-Gewicht |
+| 0 | G_f | Phase 4 | Globales Frame-Gewicht |
 | 1 | ⟨Q_local⟩_f | Phase 6 | Mittelwert der lokalen Tile-Quality-Scores |
 | 2 | Var(Q_local)_f | Phase 6 | Varianz der lokalen Tile-Quality-Scores |
 | 3 | CC̄_tiles | Phase 7 | Mittlere Tile-Korrelation (über alle Tiles) |

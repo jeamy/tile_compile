@@ -19,6 +19,7 @@
 #include <QGroupBox>
 #include <filesystem>
 #include <thread>
+#include <yaml-cpp/yaml.h>
 
 namespace tile_compile::gui {
 
@@ -186,6 +187,33 @@ void MainWindow::build_ui() {
     astrometry_tab_ = new AstrometryTab(project_root_, this);
     tabs_->addTab(wrap_scroll(astrometry_tab_), "Astrometry");
     connect(astrometry_tab_, &AstrometryTab::log_message, this, &MainWindow::append_live);
+    connect(config_tab_, &ConfigTab::astrometry_paths_changed, this,
+            [this](const QString &astap_bin, const QString &astap_data_dir) {
+                astrometry_tab_->set_astap_bin(astap_bin);
+                astrometry_tab_->set_astap_data_dir(astap_data_dir);
+            });
+
+    // Initial sync from current config text to avoid default-path display drift.
+    try {
+        const YAML::Node cfg =
+            YAML::Load(config_tab_->get_config_yaml().toStdString());
+        QString astap_bin;
+        QString astap_data_dir;
+        if (cfg["astrometry"]) {
+            auto a = cfg["astrometry"];
+            if (a["astap_bin"] && a["astap_bin"].IsScalar()) {
+                astap_bin = QString::fromStdString(a["astap_bin"].as<std::string>());
+            }
+            if (a["astap_data_dir"] && a["astap_data_dir"].IsScalar()) {
+                astap_data_dir =
+                    QString::fromStdString(a["astap_data_dir"].as<std::string>());
+            }
+        }
+        astrometry_tab_->set_astap_bin(astap_bin);
+        astrometry_tab_->set_astap_data_dir(astap_data_dir);
+    } catch (...) {
+        // Keep tab defaults when current YAML is not parseable.
+    }
 
     // PCC Tab
     pcc_tab_ = new PCCTab(project_root_, this);

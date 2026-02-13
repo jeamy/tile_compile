@@ -166,7 +166,8 @@ struct StackingConfig {
   } sigma_clip;
 
   std::string method = "rej";
-  bool output_stretch = true;
+  bool output_stretch = false;
+  bool cosmetic_correction = false;
 };
 
 struct AstrometryConfig {
@@ -199,6 +200,7 @@ struct ValidationConfig {
 struct RuntimeLimitsConfig {
   float tile_analysis_max_factor_vs_stack = 3.0f;
   float hard_abort_hours = 6.0f;
+  bool allow_emergency_mode = false;
 };
 
 struct Config {

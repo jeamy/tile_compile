@@ -38,7 +38,7 @@ for (size_t fi = 0; fi < frames.size(); ++fi) {
 }
 ```
 
-- Tiles werden aus den **pre-warped Frames** extrahiert (bereits registriert in Phase 5)
+- Tiles werden aus den **pre-warped Frames** extrahiert (bereits registriert in Phase 1)
 - `extract_tile()` schneidet den Bildbereich `(x, y, width, height)` aus
 - **Leere Tiles** (z.B. am Bildrand): Erhalten Dummy-Metriken und Gewicht 1.0
 

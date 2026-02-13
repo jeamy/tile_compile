@@ -1,7 +1,7 @@
 # Smart-Telescope Referenzkonfiguration (DWARF / ZWO Seestar)
 # vollstaendig, alle Optionen; fuer OSC-Daten mit oft kuerzeren Einzelbelichtungen.
 
-run_dir: ./runs
+run_dir: ./run_smart_telescope
 log_level: info # trace|debug|info|warn|error
 
 pipeline:
@@ -133,7 +133,7 @@ debayer: true # OSC-Mosaik am Ende in RGB debayern
 
 astrometry:
   enabled: true # WCS-Solve aktiv
-  astap_bin: "/media/data/Astro/astap/astap_cli" # leer => Systempfad
+  astap_bin: "" # leer => Systempfad
   astap_data_dir: /media/data/Astro/astap # ASTAP-Datenverzeichnis
   search_radius: 183 # Suchradius in Grad
 

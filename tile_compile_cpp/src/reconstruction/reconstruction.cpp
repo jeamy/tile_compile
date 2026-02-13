@@ -282,15 +282,29 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
     const int n = static_cast<int>(tiles.size());
     const int min_keep = std::max(1, static_cast<int>(std::ceil(min_fraction * n)));
 
+    // Fast path for tiny stacks where clipping is not meaningful and only adds
+    // overhead. Keep weighted averaging semantics intact.
+    if (n <= 2 || max_iters <= 0) {
+        for (int idx = 0; idx < out.size(); ++idx) {
+            double wsum = 0.0;
+            double wmean = 0.0;
+            for (int i = 0; i < n; ++i) {
+                const double wi = static_cast<double>(weights[static_cast<size_t>(i)]);
+                wsum += wi;
+                wmean += wi * static_cast<double>(tiles[static_cast<size_t>(i)].data()[idx]);
+            }
+            out.data()[idx] = (wsum > 0.0) ? static_cast<float>(wmean / wsum) : 0.0f;
+        }
+        return out;
+    }
+
     std::vector<float> values(static_cast<size_t>(n));
-    std::vector<float> w_local(static_cast<size_t>(n));
     std::vector<uint8_t> keep(static_cast<size_t>(n));
 
     for (int idx = 0; idx < out.size(); ++idx) {
         for (int i = 0; i < n; ++i) {
             values[static_cast<size_t>(i)] = tiles[static_cast<size_t>(i)].data()[idx];
             keep[static_cast<size_t>(i)] = 1;
-            w_local[static_cast<size_t>(i)] = weights[static_cast<size_t>(i)];
         }
 
         int kept = n;
@@ -300,7 +314,7 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
             double wsum = 0.0, wmean = 0.0;
             for (int i = 0; i < n; ++i) {
                 if (!keep[static_cast<size_t>(i)]) continue;
-                double wi = static_cast<double>(w_local[static_cast<size_t>(i)]);
+                double wi = static_cast<double>(weights[static_cast<size_t>(i)]);
                 wsum += wi;
                 wmean += wi * static_cast<double>(values[static_cast<size_t>(i)]);
             }
@@ -311,7 +325,7 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
             double wsum2 = 0.0; // sum of squared weights for Bessel correction
             for (int i = 0; i < n; ++i) {
                 if (!keep[static_cast<size_t>(i)]) continue;
-                double wi = static_cast<double>(w_local[static_cast<size_t>(i)]);
+                double wi = static_cast<double>(weights[static_cast<size_t>(i)]);
                 double d = static_cast<double>(values[static_cast<size_t>(i)]) - wmean;
                 var += wi * d * d;
                 wsum2 += wi * wi;
@@ -343,7 +357,7 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
         double wsum = 0.0, wmean = 0.0;
         for (int i = 0; i < n; ++i) {
             if (!keep[static_cast<size_t>(i)]) continue;
-            double wi = static_cast<double>(w_local[static_cast<size_t>(i)]);
+            double wi = static_cast<double>(weights[static_cast<size_t>(i)]);
             wsum += wi;
             wmean += wi * static_cast<double>(values[static_cast<size_t>(i)]);
         }
@@ -353,7 +367,7 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
             // Fallback: use all values
             wsum = 0.0; wmean = 0.0;
             for (int i = 0; i < n; ++i) {
-                double wi = static_cast<double>(w_local[static_cast<size_t>(i)]);
+                double wi = static_cast<double>(weights[static_cast<size_t>(i)]);
                 wsum += wi;
                 wmean += wi * static_cast<double>(values[static_cast<size_t>(i)]);
             }
@@ -361,6 +375,36 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
         }
     }
 
+    return out;
+}
+
+WeightedTileResult sigma_clip_weighted_tile_with_fallback(
+    const std::vector<Matrix2Df>& tiles, const std::vector<float>& weights,
+    float sigma_low, float sigma_high, int max_iters, float min_fraction,
+    float eps_weight) {
+    WeightedTileResult out;
+    if (tiles.empty() || weights.empty() || tiles.size() != weights.size()) {
+        return out;
+    }
+
+    std::vector<float> effective_weights(weights);
+    double wsum = 0.0;
+    for (float w : effective_weights) {
+        if (std::isfinite(w) && w > 0.0f) {
+            wsum += static_cast<double>(w);
+        }
+    }
+    out.effective_weight_sum = static_cast<float>(wsum);
+
+    if (!(wsum > static_cast<double>(eps_weight))) {
+        out.fallback_used = true;
+        std::fill(effective_weights.begin(), effective_weights.end(), 1.0f);
+        out.effective_weight_sum = static_cast<float>(effective_weights.size());
+    }
+
+    out.tile = sigma_clip_weighted_tile(tiles, effective_weights,
+                                        sigma_low, sigma_high,
+                                        max_iters, min_fraction);
     return out;
 }
 

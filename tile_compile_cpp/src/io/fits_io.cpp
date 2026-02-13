@@ -5,8 +5,45 @@
 #include <fitsio.h>
 #include <algorithm>
 #include <cstring>
+#include <sstream>
 
 namespace tile_compile::io {
+
+namespace {
+
+std::string cfitsio_status_text(int status) {
+    char msg[FLEN_STATUS] = {0};
+    fits_get_errstatus(status, msg);
+    return std::string(msg);
+}
+
+bool cfitsio_disk_full(int status_text_code, const std::string& text) {
+    (void)status_text_code;
+    const std::string lower = core::to_lower(text);
+    return (lower.find("no space left on device") != std::string::npos) ||
+           (lower.find("not enough space") != std::string::npos) ||
+           (lower.find("disk full") != std::string::npos) ||
+           (lower.find("enospc") != std::string::npos);
+}
+
+std::string fits_write_error_message(const std::string& action,
+                                     const fs::path& path,
+                                     int status) {
+    const std::string status_msg = cfitsio_status_text(status);
+    std::ostringstream oss;
+    if (cfitsio_disk_full(status, status_msg)) {
+        oss << "Disk full while writing FITS output: " << path.string()
+            << " (" << action << ", cfitsio_status=" << status
+            << ", reason=\"" << status_msg << "\")";
+    } else {
+        oss << "Cannot " << action << ": " << path.string()
+            << " (cfitsio_status=" << status
+            << ", reason=\"" << status_msg << "\")";
+    }
+    return oss.str();
+}
+
+} // namespace
 
 std::optional<std::string> FitsHeader::get_string(const std::string& key) const {
     auto it = string_values.find(key);
@@ -334,15 +371,17 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
     std::string filepath = "!" + path.string();
     
     if (fits_create_file(&fptr, filepath.c_str(), &status)) {
-        throw FitsError("Cannot create FITS file: " + path.string());
+        throw FitsError(fits_write_error_message("create FITS file", path, status));
     }
     
     long naxes[2] = {data.cols(), data.rows()};
     
     fits_create_img(fptr, FLOAT_IMG, 2, naxes, &status);
     if (status) {
-        fits_close_file(fptr, &status);
-        throw FitsError("Cannot create FITS image: " + path.string());
+        const int write_status = status;
+        int close_status = 0;
+        fits_close_file(fptr, &close_status);
+        throw FitsError(fits_write_error_message("create FITS image", path, write_status));
     }
 
     auto should_skip_key = [](const std::string& key) -> bool {
@@ -397,11 +436,16 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
     long nelem = static_cast<long>(data.size());
     fits_write_pix(fptr, TFLOAT, fpixel, nelem, buffer.data(), &status);
     if (status) {
-        fits_close_file(fptr, &status);
-        throw FitsError("Cannot write FITS pixel data: " + path.string());
+        const int write_status = status;
+        int close_status = 0;
+        fits_close_file(fptr, &close_status);
+        throw FitsError(fits_write_error_message("write FITS pixel data", path, write_status));
     }
     
     fits_close_file(fptr, &status);
+    if (status) {
+        throw FitsError(fits_write_error_message("close FITS file", path, status));
+    }
 }
 
 void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B, const FitsHeader& header) {
@@ -415,7 +459,7 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
     std::string filepath = "!" + path.string();
     
     if (fits_create_file(&fptr, filepath.c_str(), &status)) {
-        throw FitsError("Cannot create FITS file: " + path.string());
+        throw FitsError(fits_write_error_message("create FITS file", path, status));
     }
     
     // Create 3D image cube: NAXIS1=width, NAXIS2=height, NAXIS3=3 (RGB planes)
@@ -423,8 +467,10 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
     
     fits_create_img(fptr, FLOAT_IMG, 3, naxes, &status);
     if (status) {
-        fits_close_file(fptr, &status);
-        throw FitsError("Cannot create FITS RGB image: " + path.string());
+        const int write_status = status;
+        int close_status = 0;
+        fits_close_file(fptr, &close_status);
+        throw FitsError(fits_write_error_message("create FITS RGB image", path, write_status));
     }
 
     auto should_skip_key = [](const std::string& key) -> bool {
@@ -477,11 +523,16 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
     fits_write_pix(fptr, TFLOAT, fpixel_b, static_cast<long>(B.size()), buffer.data(), &status);
     
     if (status) {
-        fits_close_file(fptr, &status);
-        throw FitsError("Cannot write FITS RGB pixel data: " + path.string());
+        const int write_status = status;
+        int close_status = 0;
+        fits_close_file(fptr, &close_status);
+        throw FitsError(fits_write_error_message("write FITS RGB pixel data", path, write_status));
     }
     
     fits_close_file(fptr, &status);
+    if (status) {
+        throw FitsError(fits_write_error_message("close FITS file", path, status));
+    }
 }
 
 BayerPattern detect_bayer_pattern(const FitsHeader& header) {

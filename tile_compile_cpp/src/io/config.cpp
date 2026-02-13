@@ -373,6 +373,8 @@ Config Config::from_yaml(const YAML::Node &node) {
     }
     if (st["output_stretch"])
       cfg.stacking.output_stretch = st["output_stretch"].as<bool>();
+    if (st["cosmetic_correction"])
+      cfg.stacking.cosmetic_correction = st["cosmetic_correction"].as<bool>();
   }
 
   if (node["validation"]) {
@@ -401,6 +403,9 @@ Config Config::from_yaml(const YAML::Node &node) {
     }
     if (rl["hard_abort_hours"])
       cfg.runtime_limits.hard_abort_hours = rl["hard_abort_hours"].as<float>();
+    if (rl["allow_emergency_mode"])
+      cfg.runtime_limits.allow_emergency_mode =
+          rl["allow_emergency_mode"].as<bool>();
   }
 
   return cfg;
@@ -564,6 +569,8 @@ YAML::Node Config::to_yaml() const {
   node["stacking"]["sigma_clip"]["min_fraction"] =
       stacking.sigma_clip.min_fraction;
   node["stacking"]["output_stretch"] = stacking.output_stretch;
+  node["stacking"]["cosmetic_correction"] =
+      stacking.cosmetic_correction;
 
   node["validation"]["min_fwhm_improvement_percent"] =
       validation.min_fwhm_improvement_percent;
@@ -577,6 +584,8 @@ YAML::Node Config::to_yaml() const {
   node["runtime_limits"]["tile_analysis_max_factor_vs_stack"] =
       runtime_limits.tile_analysis_max_factor_vs_stack;
   node["runtime_limits"]["hard_abort_hours"] = runtime_limits.hard_abort_hours;
+  node["runtime_limits"]["allow_emergency_mode"] =
+      runtime_limits.allow_emergency_mode;
 
   return node;
 }
@@ -910,7 +919,8 @@ std::string get_schema_json() {
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},
                       "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},
-                      "output_stretch":{"type":"boolean"} } },
+                      "output_stretch":{"type":"boolean"},
+                      "cosmetic_correction":{"type":"boolean"} } },
     "validation": { "type":"object",
       "properties": { "min_fwhm_improvement_percent":{"type":"number"},
                       "max_background_rms_increase_percent":{"type":"number"},
@@ -918,7 +928,8 @@ std::string get_schema_json() {
                       "require_no_tile_pattern":{"type":"boolean"} } },
     "runtime_limits": { "type":"object",
       "properties": { "tile_analysis_max_factor_vs_stack":{"type":"number","exclusiveMinimum":0},
-                      "hard_abort_hours":{"type":"number","exclusiveMinimum":0} } }
+                      "hard_abort_hours":{"type":"number","exclusiveMinimum":0},
+                      "allow_emergency_mode":{"type":"boolean"} } }
   }
 })";
 }

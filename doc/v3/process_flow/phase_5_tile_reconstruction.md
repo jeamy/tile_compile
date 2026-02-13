@@ -70,10 +70,10 @@ auto process_tile = [&](size_t ti) {
 };
 ```
 
-- Tiles werden aus **pre-warped Frames** extrahiert (Phase 5)
+- Tiles werden aus **pre-warped Frames** extrahiert (Phase 1)
 - Nur Tiles mit korrekten Dimensionen werden akzeptiert
 - **Effektives Gewicht**: `W_f,t = G_f × L_f,t`
-  - `G_f`: Globales Frame-Gewicht (Phase 3)
+  - `G_f`: Globales Frame-Gewicht (Phase 4)
   - `L_f,t`: Lokales Tile-Gewicht (Phase 6)
 
 ## 3. Gewichtetes Mittel
