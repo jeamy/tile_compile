@@ -1,7 +1,7 @@
-# SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER — Finales Stacking und Output
+# SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + PCC — Finales Stacking und Output
 
-> **C++ Implementierung:** `runner_main.cpp` Zeilen 1894–2277
-> **Phase-Enums:** `SYNTHETIC_FRAMES` (L1894–L2052), `STACKING` (L2054–L2085), *Validation* (L2087–L2223), `DEBAYER` (L2225–L2260), `DONE` (L2262–L2277)
+> **C++ Implementierung:** `runner_main.cpp` (aktueller v3.2 Stand)
+> **Phase-Enums:** `SYNTHETIC_FRAMES` (9), `STACKING` (10), *Validation* (kein Enum), `DEBAYER` (11), `ASTROMETRY` (12), `PCC` (13), `DONE` (14)
 
 ## Übersicht
 
@@ -38,7 +38,19 @@ Die letzten Phasen der Pipeline erzeugen synthetische Frames aus den Cluster-Gru
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
-│  DONE (Phase 12)                                     │
+│  ASTROMETRY (Phase 12)                               │
+│  • ASTAP solve / WCS                                 │
+│  • WCS-Header in RGB-Outputs                         │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
+│  PCC (Phase 13)                                      │
+│  • Photometric Color Calibration                     │
+│  • pcc_R/G/B.fit + stacked_rgb_pcc.fits             │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
+│  DONE (Phase 14)                                     │
 │  • run_end(ok) oder run_end(validation_failed)       │
 └──────────────────────────────────────────────────────┘
 ```
@@ -295,11 +307,44 @@ if (detected_mode == ColorMode::OSC) {
 | `reconstructed_G.fit` | OSC | Grüner Kanal |
 | `reconstructed_B.fit` | OSC | Blauer Kanal |
 | `stacked_rgb.fits` | OSC | RGB-Cube (NAXIS3=3) |
+| `stacked_rgb_solve.fits` | OSC | Lineares RGB für Astrometrie/WCS |
+| `stacked_rgb_pcc.fits` | OSC | PCC-kalibrierter RGB-Cube |
+| `pcc_R.fit` | OSC | PCC-kalibrierter R-Kanal |
+| `pcc_G.fit` | OSC | PCC-kalibrierter G-Kanal |
+| `pcc_B.fit` | OSC | PCC-kalibrierter B-Kanal |
 | `synthetic_*.fit` | Normal | Synthetische Frames (mit Skalierung) |
 
 ---
 
-## Phase 12: DONE
+## Phase 12: ASTROMETRY
+
+Wenn aktiviert und RGB-Daten vorhanden sind, wird ein ASTAP-Plate-Solve ausgeführt. Bei Erfolg:
+
+- WCS wird aus `.wcs` geparst
+- WCS-Header in `first_hdr` injiziert
+- `stacked_rgb.fits` und `stacked_rgb_solve.fits` mit WCS neu geschrieben
+- `artifacts/stacked_rgb.wcs` abgelegt
+
+Bei Fehlschlag wird die Phase als `skipped` mit Grund (`astap_not_found`, `solve_failed`, etc.) beendet.
+
+## Phase 13: PCC
+
+PCC läuft nur, wenn:
+
+- `cfg.pcc.enabled = true`
+- WCS aus ASTROMETRY vorhanden
+- RGB-Daten vorhanden
+
+Outputs bei Erfolg:
+
+- `outputs/pcc_R.fit`
+- `outputs/pcc_G.fit`
+- `outputs/pcc_B.fit`
+- `outputs/stacked_rgb_pcc.fits`
+
+Bei fehlenden Katalogsternen oder Fit-Problemen wird die Phase als `skipped` beendet.
+
+## Phase 14: DONE
 
 ```cpp
 emitter.phase_start(run_id, Phase::DONE, "DONE", log_file);
@@ -331,7 +376,7 @@ tile_compile_runner run \
     --runs-dir <path>      # Runs-Ausgabe-Verzeichnis
     --project-root <path>  # Projekt-Root (optional)
     --max-frames <n>       # Frame-Limit (0 = kein Limit)
-    --max-tiles <n>        # Tile-Limit für Phase 5/6
+    --max-tiles <n>        # Tile-Limit für Phase 6/7
     --dry-run              # Kein Processing
     --stdin                # Config von stdin lesen
 ```

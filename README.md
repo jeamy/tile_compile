@@ -27,33 +27,35 @@ Given a directory of FITS lights, it:
 
 | Phase | Name | Beschreibung |
 |-------|------|-------------|
-| 0 | SCAN_INPUT | Frame-Erkennung, FITS-Header, Bayer-Pattern, Linearitätsprüfung |
-| 1 | REGISTRATION | 6-stufige Kaskade + CFA-aware Pre-Warping |
-| 2 | NORMALIZATION | Hintergrund-basierte Normalisierung (kanalweise) |
-| 3 | GLOBAL_METRICS | B/σ/E → gewichtete globale Qualitäts-Scores |
-| 4 | TILE_GRID | FWHM-adaptive Tile-Geometrie |
-| 5 | LOCAL_METRICS | Stern- und Struktur-basierte Tile-Qualität |
-| 6 | TILE_RECONSTRUCTION | Gewichtete Overlap-Add mit Hanning-Fenster |
-| 7 | STATE_CLUSTERING | K-Means Clustering + synthetische Frames |
-| 8 | STACKING | Sigma-Clip oder Mean-Stacking |
-| 9 | DEBAYER | Nearest-Neighbor Demosaic (OSC → RGB) |
-| 10 | ASTROMETRY | Plate Solving via ASTAP (WCS-Koordinaten) |
-| 11 | PCC | Photometric Color Calibration (Farbkalibrierung) |
-| 12 | DONE | Validierung + Report |
+| 0 | SCAN_INPUT | Frame-Erkennung, FITS-Header, Bayer-Pattern, Linearitätsprüfung, Disk-Space-Precheck |
+| 1 | REGISTRATION | Kaskadierte globale Registrierung + CFA-aware Pre-Warping |
+| 2 | CHANNEL_SPLIT | Metadaten-Phase (Kanalmodell; tatsächliche Verarbeitung später) |
+| 3 | NORMALIZATION | Hintergrund-basierte lineare Normalisierung (kanalweise) |
+| 4 | GLOBAL_METRICS | B/σ/E → gewichtete globale Qualitäts-Scores |
+| 5 | TILE_GRID | FWHM-adaptive Tile-Geometrie |
+| 6 | LOCAL_METRICS | Stern- und Struktur-basierte Tile-Qualität |
+| 7 | TILE_RECONSTRUCTION | Gewichtete Overlap-Add mit Hanning-Fenster |
+| 8 | STATE_CLUSTERING | K-Means Clustering (mode-abhängig, optional) |
+| 9 | SYNTHETIC_FRAMES | Cluster-basierte synthetische Frames (mode-abhängig, optional) |
+| 10 | STACKING | Finales lineares Sigma-Clip oder Mean-Stacking |
+| 11 | DEBAYER | Nearest-Neighbor Demosaic (OSC → RGB) |
+| 12 | ASTROMETRY | Plate Solving via ASTAP (WCS-Koordinaten) |
+| 13 | PCC | Photometric Color Calibration (Farbkalibrierung) |
+| 14 | DONE | Abschlussstatus (`ok` / `validation_failed`) |
 
 Detaillierte Dokumentation: `doc/v3/process_flow/`
 
-### Registrierung — 6-stufige Kaskade
+### Registrierung — kaskadierte Fallbacks
 
 Die Registrierung ist robust gegen schwierige Bedingungen:
 
 | Stufe | Methode | Funktioniert bei |
 |-------|---------|-----------------|
-| 1 | **Triangle Star Matching** | Punktsterne, ≥6 Sterne, Feldrotation |
-| 2 | **Trail Endpoint Detection** | Star Trails (Alt/Az Feldrotation) |
+| 1 | **Primary Engine** (`triangle_star_matching` default) | Standardfälle mit ausreichend Sternen |
+| 2 | **Trail Endpoint Registration** | Star Trails / Feldrotation |
 | 3 | **AKAZE Feature Matching** | Allgemeine Bildfeatures |
-| 4 | **Robust Phase+ECC** | Nebel/Wolken + große Rotation (Multi-Scale + LoG) |
-| 5 | **Hybrid Phase+ECC** | Fallback ohne Sterne |
+| 4 | **Robust Phase+ECC** | Nebel/Wolken + größere Transformationen |
+| 5 | **Hybrid Phase+ECC** | Fallback ohne stabile Sternmatches |
 | 6 | **Identity Fallback** | Letzte Rettung (CC=0, Frame bleibt) |
 
 ### Konfiguration
@@ -87,6 +89,7 @@ cmake --build . -j$(nproc)
 
 ```bash
 ./tile_compile_runner \
+  run \
   --config ../tile_compile.yaml \
   --input-dir /path/to/lights \
   --runs-dir /path/to/runs

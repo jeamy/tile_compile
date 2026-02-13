@@ -129,7 +129,7 @@ if (max_tiles > 0 && tiles_phase56.size() > max_tiles)
     tiles_phase56.resize(max_tiles);
 ```
 
-Für Debug/Test: `--max-tiles` limitiert die Anzahl der Tiles in Phase 5/6.
+Für Debug/Test: `--max-tiles` limitiert die Anzahl der Tiles in Phase 6/7.
 
 ## Konfigurationsparameter
 
@@ -170,6 +170,6 @@ Für Debug/Test: `--max-tiles` limitiert die Anzahl der Tiles in Phase 5/6.
 
 ## Nächste Phase
 
-→ **Phase 5: REGISTRATION — Kaskadierte Registrierung**
+→ **Phase 6: LOCAL_METRICS — Lokale Metriken**
 
-(Hinweis: In der C++ Implementierung folgt nach TILE_GRID zunächst die Registrierung, dann LOCAL_METRICS)
+(Hinweis: `REGISTRATION` läuft in v3.2 bereits als Phase 1 vor `CHANNEL_SPLIT`/`NORMALIZATION`/`GLOBAL_METRICS`.)
