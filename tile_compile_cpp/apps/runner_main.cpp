@@ -3114,11 +3114,15 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           return static_cast<float>(sum / static_cast<double>(mag.cols));
         };
 
+        std::vector<float> boundary_ratios;
+        boundary_ratios.reserve(xb.size() + yb.size());
+
         float worst_ratio = 1.0f;
         for (int x : xb) {
           float b = line_mean_x(x);
           float n = 0.5f * (line_mean_x(x - 2) + line_mean_x(x + 2));
           float r = b / (n + 1.0e-12f);
+          boundary_ratios.push_back(r);
           if (r > worst_ratio)
             worst_ratio = r;
         }
@@ -3126,11 +3130,25 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           float b = line_mean_y(y);
           float n = 0.5f * (line_mean_y(y - 2) + line_mean_y(y + 2));
           float r = b / (n + 1.0e-12f);
+          boundary_ratios.push_back(r);
           if (r > worst_ratio)
             worst_ratio = r;
         }
+
+        float p95_ratio = worst_ratio;
+        if (!boundary_ratios.empty()) {
+          const size_t p95_idx = static_cast<size_t>(
+              std::floor(0.95 * static_cast<double>(boundary_ratios.size() - 1)));
+          std::nth_element(boundary_ratios.begin(),
+                           boundary_ratios.begin() + static_cast<long>(p95_idx),
+                           boundary_ratios.end());
+          p95_ratio = boundary_ratios[p95_idx];
+        }
+
         v["tile_pattern_ratio"] = worst_ratio;
-        tile_pattern_ok = (worst_ratio < 1.5f);
+        v["tile_pattern_ratio_p95"] = p95_ratio;
+        v["tile_pattern_boundary_count"] = static_cast<int>(boundary_ratios.size());
+        tile_pattern_ok = (worst_ratio < 1.5f) && (p95_ratio < 1.25f);
         v["tile_pattern_ok"] = tile_pattern_ok;
         if (!tile_pattern_ok)
           validation_ok = false;

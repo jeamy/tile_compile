@@ -266,6 +266,24 @@ Most astronomical image processing tools face similar challenges with large data
 
 ## 10. Recommendations
 
+### 10.0 Implementation Status (2026-02-13)
+
+The following high-impact quality actions have now been implemented and are
+marked as completed:
+
+1. [erledigt] **Debayer quality upgrade (OSC)**
+   - Bilinear, Bayer-parity-aware demosaic path implemented for OSC processing.
+
+2. [erledigt] **More robust FWHM/PSF statistics**
+   - MAD-based outlier rejection added to frame-level FWHM aggregation.
+
+3. [erledigt] **Dataset-adaptive chroma denoise behavior**
+   - Chroma denoise strength now adapts to measured chroma-noise level.
+
+4. [erledigt] **Stronger tile-imprint regression guard**
+   - Validation now uses both worst boundary ratio and p95 boundary ratio
+     (`tile_pattern_ratio`, `tile_pattern_ratio_p95`).
+
 ### 10.1 Priority Improvements
 
 1. **Observability & QA**:

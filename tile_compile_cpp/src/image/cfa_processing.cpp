@@ -2,7 +2,6 @@
 
 #include <opencv2/opencv.hpp>
 #include <algorithm>
-#include <cmath>
 
 namespace tile_compile::image {
 
@@ -308,15 +307,15 @@ void bayer_offsets(const std::string& bayer_pattern,
     }
 }
 
-DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
-                                       BayerPattern pattern) {
-    return debayer_nearest_neighbor(mosaic, pattern, 0, 0);
+DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
+                               BayerPattern pattern) {
+    return debayer_bilinear(mosaic, pattern, 0, 0);
 }
 
-DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
-                                       BayerPattern pattern,
-                                       int origin_x,
-                                       int origin_y) {
+DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
+                               BayerPattern pattern,
+                               int origin_x,
+                               int origin_y) {
     const int h = static_cast<int>(mosaic.rows());
     const int w = static_cast<int>(mosaic.cols());
 
@@ -357,63 +356,88 @@ DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
         g2_row = 1; g2_col = 1;
     }
 
-    auto in_bounds = [&](int yy, int xx) -> bool {
-        return yy >= 0 && yy < h && xx >= 0 && xx < w;
-    };
     auto clamp_y = [&](int yy) -> int {
         return std::max(0, std::min(h - 1, yy));
     };
     auto clamp_x = [&](int xx) -> int {
         return std::max(0, std::min(w - 1, xx));
     };
-    auto is_green = [&](int yy, int xx) -> bool {
+    auto parity_match = [&](int yy, int xx, int prow, int pcol) -> bool {
         const int py = (origin_y + yy) & 1;
         const int px = (origin_x + xx) & 1;
-        return (py == g1_row && px == g1_col) || (py == g2_row && px == g2_col);
+        return (py == prow && px == pcol);
+    };
+    auto is_red = [&](int yy, int xx) -> bool {
+        return parity_match(yy, xx, r_row, r_col);
+    };
+    auto is_blue = [&](int yy, int xx) -> bool {
+        return parity_match(yy, xx, b_row, b_col);
+    };
+    auto is_green = [&](int yy, int xx) -> bool {
+        return parity_match(yy, xx, g1_row, g1_col) || parity_match(yy, xx, g2_row, g2_col);
+    };
+    auto sample = [&](int yy, int xx) -> float {
+        return mosaic(clamp_y(yy), clamp_x(xx));
+    };
+    auto avg_if = [&](const int* ys, const int* xs, int n,
+                      const auto& pred) -> float {
+        float sum = 0.0f;
+        int cnt = 0;
+        for (int i = 0; i < n; ++i) {
+            const int yy = ys[i];
+            const int xx = xs[i];
+            if (!pred(yy, xx)) continue;
+            sum += sample(yy, xx);
+            ++cnt;
+        }
+        return (cnt > 0) ? (sum / static_cast<float>(cnt)) : sample(ys[0], xs[0]);
     };
 
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
-            const int gy = origin_y + y;
-            const int gx = origin_x + x;
-
-            // Nearest-neighbor for R/B: pick the sample from the 2×2 Bayer cell
-            // containing the *global* pixel (gx,gy).
-            const int y2g = gy & ~1;
-            const int x2g = gx & ~1;
-
-            const int ry = clamp_y((y2g + r_row) - origin_y);
-            const int rx = clamp_x((x2g + r_col) - origin_x);
-            const int by = clamp_y((y2g + b_row) - origin_y);
-            const int bx = clamp_x((x2g + b_col) - origin_x);
-
-            const float r_val = mosaic(ry, rx);
-            const float b_val = mosaic(by, bx);
-
-            // Nearest-neighbor for G: if the current pixel is green, take it.
-            // Otherwise take the nearest adjacent green sample (deterministic order).
+            float r_val = 0.0f;
             float g_val = 0.0f;
-            if (is_green(y, x)) {
-                g_val = mosaic(y, x);
+            float b_val = 0.0f;
+
+            if (is_red(y, x)) {
+                r_val = sample(y, x);
+                const int gy[4] = {y - 1, y + 1, y, y};
+                const int gx[4] = {x, x, x - 1, x + 1};
+                g_val = avg_if(gy, gx, 4, is_green);
+                const int by[4] = {y - 1, y - 1, y + 1, y + 1};
+                const int bx[4] = {x - 1, x + 1, x - 1, x + 1};
+                b_val = avg_if(by, bx, 4, is_blue);
+            } else if (is_blue(y, x)) {
+                b_val = sample(y, x);
+                const int gy[4] = {y - 1, y + 1, y, y};
+                const int gx[4] = {x, x, x - 1, x + 1};
+                g_val = avg_if(gy, gx, 4, is_green);
+                const int ry[4] = {y - 1, y - 1, y + 1, y + 1};
+                const int rx[4] = {x - 1, x + 1, x - 1, x + 1};
+                r_val = avg_if(ry, rx, 4, is_red);
+            } else if (is_green(y, x)) {
+                g_val = sample(y, x);
+                const bool green_on_red_row = (((origin_y + y) & 1) == r_row);
+                if (green_on_red_row) {
+                    const int ry[2] = {y, y};
+                    const int rx[2] = {x - 1, x + 1};
+                    r_val = avg_if(ry, rx, 2, is_red);
+                    const int by[2] = {y - 1, y + 1};
+                    const int bx[2] = {x, x};
+                    b_val = avg_if(by, bx, 2, is_blue);
+                } else {
+                    const int ry[2] = {y - 1, y + 1};
+                    const int rx[2] = {x, x};
+                    r_val = avg_if(ry, rx, 2, is_red);
+                    const int by[2] = {y, y};
+                    const int bx[2] = {x - 1, x + 1};
+                    b_val = avg_if(by, bx, 2, is_blue);
+                }
             } else {
-                // Adjacent candidates (left, right, up, down)
-                const int cand_y[4] = {y, y, y - 1, y + 1};
-                const int cand_x[4] = {x - 1, x + 1, x, x};
-                bool found = false;
-                for (int i = 0; i < 4; ++i) {
-                    int yy = cand_y[i];
-                    int xx = cand_x[i];
-                    if (!in_bounds(yy, xx))
-                        continue;
-                    if (!is_green(yy, xx))
-                        continue;
-                    g_val = mosaic(yy, xx);
-                    found = true;
-                    break;
-                }
-                if (!found) {
-                    g_val = mosaic(clamp_y(y), clamp_x(x));
-                }
+                // Should be unreachable with valid Bayer pattern.
+                r_val = sample(y, x);
+                g_val = sample(y, x);
+                b_val = sample(y, x);
             }
 
             out.R(y, x) = r_val;
@@ -423,6 +447,18 @@ DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
     }
 
     return out;
+}
+
+DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
+                                       BayerPattern pattern) {
+    return debayer_bilinear(mosaic, pattern, 0, 0);
+}
+
+DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
+                                       BayerPattern pattern,
+                                       int origin_x,
+                                       int origin_y) {
+    return debayer_bilinear(mosaic, pattern, origin_x, origin_y);
 }
 
 } // namespace tile_compile::image

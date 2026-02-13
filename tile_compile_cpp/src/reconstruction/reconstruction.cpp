@@ -333,17 +333,31 @@ void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
     cv::Mat Cb = B - Y;
     cv::Mat Cr = R - Y;
 
+    // Dataset-aware adaptation: scale denoise strength from measured chroma noise.
+    // This keeps fine detail on clean data and increases suppression on noisy data.
+    config::ChromaDenoiseConfig tuned = cfg;
+    const float sigma_cb = robust_sigma_mad_from_mat(Cb);
+    const float sigma_cr = robust_sigma_mad_from_mat(Cr);
+    const float chroma_sigma = 0.5f * (sigma_cb + sigma_cr);
+    const float ref_sigma = 0.02f;
+    const float adapt = std::clamp(chroma_sigma / ref_sigma, 0.8f, 1.4f);
+    tuned.blend.amount = std::clamp(cfg.blend.amount * adapt, 0.0f, 1.0f);
+    tuned.chroma_wavelet.threshold_scale =
+        std::max(0.1f, cfg.chroma_wavelet.threshold_scale * adapt);
+    tuned.chroma_bilateral.sigma_range =
+        std::max(1.0e-4f, cfg.chroma_bilateral.sigma_range * std::sqrt(adapt));
+
     cv::Mat Cb_orig = Cb.clone();
     cv::Mat Cr_orig = Cr.clone();
 
-    denoise_chroma_plane_inplace(Cb, cfg);
-    denoise_chroma_plane_inplace(Cr, cfg);
+    denoise_chroma_plane_inplace(Cb, tuned);
+    denoise_chroma_plane_inplace(Cr, tuned);
 
-    cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(cfg.blend.amount));
-    if (cfg.protect_luma) {
-        cv::Mat protect = build_protection_mask(Y, cfg);
-        amount_map = amount_map.mul(1.0f - cfg.luma_guard_strength * protect);
-        cv::min(amount_map, cfg.blend.amount, amount_map);
+    cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(tuned.blend.amount));
+    if (tuned.protect_luma) {
+        cv::Mat protect = build_protection_mask(Y, tuned);
+        amount_map = amount_map.mul(1.0f - tuned.luma_guard_strength * protect);
+        cv::min(amount_map, tuned.blend.amount, amount_map);
         cv::max(amount_map, 0.0, amount_map);
     }
 

@@ -259,6 +259,34 @@ static float fit_1d_fwhm(const float* data, int len, int peak_idx, float bg) {
     return (fwhm > 0.2 && fwhm < 50.0) ? static_cast<float>(fwhm) : 0.0f;
 }
 
+static std::vector<size_t> keep_indices_by_mad_clip(const std::vector<float>& values,
+                                                    float sigma_clip) {
+    std::vector<size_t> keep;
+    if (values.empty()) return keep;
+
+    std::vector<float> tmp = values;
+    const float med = core::median_of(tmp);
+    for (float& v : tmp) v = std::fabs(v - med);
+    const float mad = core::median_of(tmp);
+    const float sigma = 1.4826f * mad;
+
+    keep.reserve(values.size());
+    if (!(sigma > 1.0e-8f)) {
+        for (size_t i = 0; i < values.size(); ++i) keep.push_back(i);
+        return keep;
+    }
+
+    const float lo = med - sigma_clip * sigma;
+    const float hi = med + sigma_clip * sigma;
+    for (size_t i = 0; i < values.size(); ++i) {
+        const float v = values[i];
+        if (std::isfinite(v) && v >= lo && v <= hi) {
+            keep.push_back(i);
+        }
+    }
+    return keep;
+}
+
 float estimate_fwhm_from_patch(const cv::Mat& patch) {
     if (patch.empty()) return 0.0f;
     std::vector<float> v;
@@ -332,6 +360,13 @@ float measure_fwhm_from_image(const Matrix2Df& img, int max_corners,
     }
 
     if (fwhms.size() < min_stars) return 0.0f;
+    const std::vector<size_t> keep = keep_indices_by_mad_clip(fwhms, 2.5f);
+    if (keep.size() >= min_stars) {
+        std::vector<float> clipped;
+        clipped.reserve(keep.size());
+        for (size_t idx : keep) clipped.push_back(fwhms[idx]);
+        return core::median_of(clipped);
+    }
     return core::median_of(fwhms);
 }
 
@@ -412,6 +447,25 @@ FrameStarMetrics measure_frame_stars(const Matrix2Df& img,
             fwhms.push_back(f);
             roundnesses.push_back(fy / fx);
         }
+    }
+
+    const std::vector<size_t> keep = keep_indices_by_mad_clip(fwhms, 2.5f);
+    if (!keep.empty() && keep.size() < fwhms.size()) {
+        std::vector<float> f2, fx2, fy2, r2;
+        f2.reserve(keep.size());
+        fx2.reserve(keep.size());
+        fy2.reserve(keep.size());
+        r2.reserve(keep.size());
+        for (size_t idx : keep) {
+            f2.push_back(fwhms[idx]);
+            fx2.push_back(fwhms_x[idx]);
+            fy2.push_back(fwhms_y[idx]);
+            r2.push_back(roundnesses[idx]);
+        }
+        fwhms.swap(f2);
+        fwhms_x.swap(fx2);
+        fwhms_y.swap(fy2);
+        roundnesses.swap(r2);
     }
 
     result.star_count = static_cast<int>(fwhms.size());
