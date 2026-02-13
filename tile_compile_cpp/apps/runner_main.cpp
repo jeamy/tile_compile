@@ -987,6 +987,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   std::vector<std::vector<float>> local_weights;
   std::vector<float> tile_fwhm_median;
   std::vector<int> tile_valid_counts;
+  std::vector<uint8_t> tile_fallback_used;
   std::vector<float> tile_warp_variances;
   std::vector<float> tile_mean_correlations;
   std::vector<float> tile_post_contrast;
@@ -1300,6 +1301,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
        n_usable_frames < cfg.assumptions.frames_reduced_threshold);
   const bool skip_clustering_in_reduced =
       (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
+  constexpr float kEpsWeight = 1.0e-6f;
+  constexpr float kEpsMedian = 1.0e-6f;
+  constexpr float kEpsWeightSum = 1.0e-6f;
 
   bool run_validation_failed = false;
 
@@ -1625,6 +1629,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
               << std::endl;
 
     tile_valid_counts.assign(tiles_phase56.size(), 0);
+    tile_fallback_used.assign(tiles_phase56.size(), 0);
     tile_warp_variances.assign(tiles_phase56.size(), 0.0f);
     tile_mean_correlations.assign(tiles_phase56.size(), 0.0f);
     tile_post_contrast.assign(tiles_phase56.size(), 0.0f);
@@ -1674,6 +1679,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       Matrix2Df tile_rec_G;
       Matrix2Df tile_rec_B;
       size_t n_valid = 0;
+      bool used_weight_fallback = false;
 
       if (osc_mode) {
         // Methodik v3 (OSC): stack in RGB space (debayer-before-stack).
@@ -1716,6 +1722,14 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         if (valid_frames.empty()) {
           tiles_failed++;
           return;
+        }
+
+        float tile_weight_sum = 0.0f;
+        for (float w : weights_valid)
+          tile_weight_sum += w;
+        if (!(tile_weight_sum > kEpsWeight)) {
+          std::fill(weights_valid.begin(), weights_valid.end(), 1.0f);
+          used_weight_fallback = true;
         }
 
         auto stack_channel = [&](int which) -> Matrix2Df {
@@ -1783,6 +1797,14 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           return;
         }
 
+        float tile_weight_sum = 0.0f;
+        for (float w : weights)
+          tile_weight_sum += w;
+        if (!(tile_weight_sum > kEpsWeight)) {
+          std::fill(weights.begin(), weights.end(), 1.0f);
+          used_weight_fallback = true;
+        }
+
         tile_rec = reconstruction::sigma_clip_weighted_tile(
             warped_tiles, weights, cfg.stacking.sigma_clip.sigma_low,
             cfg.stacking.sigma_clip.sigma_high,
@@ -1792,6 +1814,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
 
       tile_valid_counts[ti] = static_cast<int>(n_valid);
+      tile_fallback_used[ti] = used_weight_fallback ? 1u : 0u;
       tile_warp_variances[ti] = 0.0f;
       tile_mean_correlations[ti] = 1.0f;
       tile_mean_dx[ti] = 0.0f;
@@ -1866,7 +1889,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       // 2. Normalize: T'' = T' / median(|T'|)  (if median > ε)
       // This eliminates patchwork artifacts from tiles with different
       // background levels before the Hanning-windowed overlap-add.
-      auto normalize_tile_for_ola = [](Matrix2Df &t_img) -> float {
+      auto normalize_tile_for_ola = [&](Matrix2Df &t_img) -> float {
         if (t_img.size() <= 0) return 0.0f;
         // Compute median via partial sort on a copy
         std::vector<float> tmp(t_img.data(), t_img.data() + t_img.size());
@@ -1881,7 +1904,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           tmp[i] = std::fabs(t_img.data()[static_cast<Eigen::Index>(i)]);
         std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid), tmp.end());
         float med_abs = tmp[mid];
-        if (med_abs > 1e-10f) {
+        if (med_abs > kEpsMedian) {
           float inv = 1.0f / med_abs;
           for (Eigen::Index k = 0; k < t_img.size(); ++k)
             t_img.data()[k] *= inv;
@@ -1969,7 +1992,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     cv::setNumThreads(prev_cv_threads_recon);
 
     // Normalize reconstruction
-    const float eps_ws = 1.0e-12f;
+    const float eps_ws = kEpsWeightSum;
     if (osc_mode) {
       // Fallback: first normalized frame (only used for rare holes).
       auto fb = image::debayer_nearest_neighbor(first_img, detected_bayer, 0, 0);
@@ -2035,12 +2058,15 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       artifact["num_frames"] = static_cast<int>(frames.size());
       artifact["num_tiles"] = static_cast<int>(tiles_phase56.size());
       artifact["tile_valid_counts"] = core::json::array();
+      artifact["tile_fallback_used"] = core::json::array();
       artifact["tile_mean_correlations"] = core::json::array();
       artifact["tile_post_contrast"] = core::json::array();
       artifact["tile_post_background"] = core::json::array();
       artifact["tile_post_snr_proxy"] = core::json::array();
       for (size_t i = 0; i < tiles_phase56.size(); ++i) {
         artifact["tile_valid_counts"].push_back(tile_valid_counts[i]);
+        artifact["tile_fallback_used"].push_back(
+            tile_fallback_used[i] != 0u);
         artifact["tile_mean_correlations"].push_back(tile_mean_correlations[i]);
         artifact["tile_post_contrast"].push_back(tile_post_contrast[i]);
         artifact["tile_post_background"].push_back(tile_post_background[i]);
@@ -2057,6 +2083,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
             {"valid_tiles",
              std::count_if(tile_valid_counts.begin(), tile_valid_counts.end(),
                            [&](int c) { return c >= min_valid_frames; })},
+            {"fallback_tiles",
+             std::count_if(tile_fallback_used.begin(), tile_fallback_used.end(),
+                           [&](uint8_t v) { return v != 0u; })},
         },
         log_file);
 
@@ -2348,6 +2377,100 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
     auto reconstruct_subset =
         [&](const std::vector<char> &frame_mask) -> Matrix2Df {
+      if (cfg.synthetic.weighting == "tile_weighted") {
+        Matrix2Df out = Matrix2Df::Zero(height, width);
+        Matrix2Df weight_ola = Matrix2Df::Zero(height, width);
+        bool any_tile = false;
+
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+          const Tile &t = tiles_phase56[ti];
+          std::vector<Matrix2Df> cluster_tiles;
+          std::vector<float> cluster_weights;
+          cluster_tiles.reserve(frames.size());
+          cluster_weights.reserve(frames.size());
+
+          for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
+            if (!frame_mask[fi] || !frame_has_data[fi])
+              continue;
+            Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t);
+            if (tile_img.rows() != t.height || tile_img.cols() != t.width)
+              continue;
+            cluster_tiles.push_back(std::move(tile_img));
+
+            float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                            ? global_weights[static_cast<int>(fi)]
+                            : 1.0f;
+            float L_ft =
+                (fi < local_weights.size() && ti < local_weights[fi].size())
+                    ? local_weights[fi][ti]
+                    : 1.0f;
+            float w = G_f * L_ft;
+            cluster_weights.push_back((std::isfinite(w) && w > 0.0f) ? w : 0.0f);
+          }
+
+          if (cluster_tiles.empty())
+            continue;
+
+          float d_tc = 0.0f;
+          for (float w : cluster_weights)
+            d_tc += w;
+          if (!(d_tc > kEpsWeight)) {
+            std::fill(cluster_weights.begin(), cluster_weights.end(), 1.0f);
+          }
+
+          Matrix2Df tile_rec = reconstruction::sigma_clip_weighted_tile(
+              cluster_tiles, cluster_weights, cfg.stacking.sigma_clip.sigma_low,
+              cfg.stacking.sigma_clip.sigma_high,
+              cfg.stacking.sigma_clip.max_iters,
+              cfg.stacking.sigma_clip.min_fraction);
+          if (tile_rec.rows() != t.height || tile_rec.cols() != t.width)
+            continue;
+
+          const std::vector<float> hann_x = reconstruction::make_hann_1d(t.width);
+          const std::vector<float> hann_y = reconstruction::make_hann_1d(t.height);
+          const int x0 = std::max(0, t.x);
+          const int y0 = std::max(0, t.y);
+          for (int yy = 0; yy < tile_rec.rows(); ++yy) {
+            for (int xx = 0; xx < tile_rec.cols(); ++xx) {
+              const int iy = y0 + yy;
+              const int ix = x0 + xx;
+              if (iy < 0 || iy >= out.rows() || ix < 0 || ix >= out.cols())
+                continue;
+              const float win = hann_y[static_cast<size_t>(yy)] *
+                                hann_x[static_cast<size_t>(xx)];
+              out(iy, ix) += tile_rec(yy, xx) * win;
+              weight_ola(iy, ix) += win;
+            }
+          }
+          any_tile = true;
+        }
+
+        if (!any_tile)
+          return Matrix2Df();
+
+        Matrix2Df fallback;
+        for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
+          if (!frame_mask[fi] || !frame_has_data[fi])
+            continue;
+          fallback = prewarped_frames.load(fi);
+          if (fallback.size() > 0)
+            break;
+        }
+        if (fallback.size() != out.size()) {
+          fallback = Matrix2Df::Zero(out.rows(), out.cols());
+        }
+
+        for (Eigen::Index i = 0; i < out.size(); ++i) {
+          float ws = weight_ola.data()[i];
+          if (ws > kEpsWeightSum) {
+            out.data()[i] /= ws;
+          } else {
+            out.data()[i] = fallback.data()[i];
+          }
+        }
+        return out;
+      }
+
       // Accumulate weighted sum directly to avoid copying full-res frames.
       Matrix2Df out;
       float wsum = 0.0f;
@@ -2370,7 +2493,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
       if (out.size() == 0)
         return Matrix2Df();
-      if (wsum > 0.0f)
+      if (wsum > kEpsWeight)
         out /= wsum;
       return out;
     };
@@ -2487,13 +2610,15 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         artifact["num_synthetic"] = static_cast<int>(synthetic_frames.size());
         artifact["frames_min"] = synth_min;
         artifact["frames_max"] = synth_max;
+        artifact["weighting"] = cfg.synthetic.weighting;
         core::write_text(run_dir / "artifacts" / "synthetic_frames.json",
                          artifact.dump(2));
       }
 
       emitter.phase_end(
           run_id, Phase::SYNTHETIC_FRAMES, "ok",
-          {{"num_synthetic", static_cast<int>(synthetic_frames.size())}},
+          {{"num_synthetic", static_cast<int>(synthetic_frames.size())},
+           {"weighting", cfg.synthetic.weighting}},
           log_file);
     }
 

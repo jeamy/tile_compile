@@ -147,37 +147,37 @@ Das ist operational nuetzlich, sollte aber in v3.2-Semantik **nicht Teil des Pfl
 
 ## 3) Priorisierter Schritt-fuer-Schritt-Plan auf v3.2
 
-## Phase A - Normative Gates zuerst (hoechste Prioritaet)
+## Phase A - Normative Gates zuerst (hoechste Prioritaet) ✅ ERLEDIGT (2026-02-13)
 
-1. **Reduced-Mode-Gate korrigieren**
+1. **Reduced-Mode-Gate korrigieren** ✅
    - In `runner_main.cpp` explizit drei Bereiche unterscheiden:
      1) `N < 50` -> Abbruch (oder nur mit `runtime.allow_emergency_mode`),
      2) `50..199` -> Reduced Mode,
      3) `>=200` -> Full Mode.
    - `N` als klar definierte Groesse dokumentieren (empfohlen: nutzbare Frames).
 
-2. **Config um `runtime.allow_emergency_mode` erweitern**
+2. **Config um `runtime.allow_emergency_mode` erweitern** ✅
    - `configuration.hpp`, `config.cpp` parse/save/validate/schema.
    - Default `false`.
 
-3. **Kern vs Post trennen**
+3. **Kern vs Post trennen** ✅
    - `cosmetic_correction` und `output_stretch` aus Kernphase auslagern (separate Post-Phase/Output-Profil),
    - oder standardmaessig fuer methodische Runs deaktivieren.
 
-## Phase B - Mathematische Solltreue fuer Synthese/Rekonstruktion
+## Phase B - Mathematische Solltreue fuer Synthese/Rekonstruktion ✅ UMGESETZT (2026-02-13)
 
-4. **`synthetic.weighting=tile_weighted` implementieren**
+4. **`synthetic.weighting=tile_weighted` implementieren** ✅
    - In SYNTHETIC_FRAMES Pfad zwei Modi:
      - `global`: bestehend,
      - `tile_weighted`: pro Cluster Tile-Rekonstruktion mit `W=G*L` + OLA.
    - Artifact ausgeben, welcher Modus aktiv war.
 
-5. **Expliziten `D_t,c`-Fallback in Tile-Rekonstruktion einbauen**
+5. **Expliziten `D_t,c`-Fallback in Tile-Rekonstruktion einbauen** ✅
    - pro Tile/Kanal `D_t,c` berechnen,
    - bei `D_t,c < eps_weight` auf ungewichtetes Mittel,
    - `fallback_used` je Tile im Artifact speichern.
 
-6. **Epsilon-Konstanten zentralisieren**
+6. **Epsilon-Konstanten zentralisieren** ✅
    - einheitliche Defaults (`1e-6`) in Config oder zentrale Konstanten,
    - Runner/Reconstruction entsprechend angleichen.
 
