@@ -68,11 +68,8 @@ normalization:
   per_channel: true # bei OSC pro Bayer-Kanal normalisieren
 
 registration:
-  enabled: true # Registrierung aktiv
   engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
   allow_rotation: true # Rotationsanteil in Warp erlauben
-  min_score: 0.05 # Mindest-Score fuer akzeptierte Registrierung
-  fallback_to_identity: true # Identitaetswarp bei Fehlschlag erlauben
   star_topk: 100 # leicht reduziert fuer kompaktere Felder
   star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching
   star_inlier_tol_px: 3.0 # Inlier-Toleranz in Pixel
@@ -94,17 +91,13 @@ tile_denoise:
     max_iterations: 10 # Iterationslimit der Wiener-Optimierung
 
 global_metrics:
-  enabled: true # globale Metriken/Weights berechnen
   adaptive_weights: true # adaptive Gewichtung nach Metrikvarianz
   weight_exponent_scale: 1.4 # geringere Spreizung fuer heterogene Smart-Frames
   weights:
     background: 0.45 # etwas mehr Gewicht auf gleichmaessigen Hintergrund
     noise: 0.35 # leicht erhoehtes Rauschgewicht
-    gradient_energy: 0.20 # etwas weniger Fokus auf Gradientenergie
-  clamp:
-    background: [0.0, 1.0] # Clipping-Grenzen je Metrik
-    noise: [0.0, 1.0]
-    gradient_energy: [0.0, 1.0]
+    gradient: 0.20 # etwas weniger Fokus auf Gradientenergie
+  clamp: [-3.0, 3.0] # Clipping-Grenzen fuer z-Score-Metriken
 
 tile:
   size_factor: 24 # kleinere Tiles fuer typische Smart-Telescope-Aufloesungen

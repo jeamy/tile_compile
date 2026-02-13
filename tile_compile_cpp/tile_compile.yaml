@@ -1,153 +1,171 @@
-run_dir: ./run
-log_level: info
+# Smart-Telescope Referenzkonfiguration (DWARF / ZWO Seestar)
+# vollstaendig, alle Optionen; fuer OSC-Daten mit oft kuerzeren Einzelbelichtungen.
+
+run_dir: ./runs
+log_level: info # trace|debug|info|warn|error
+
 pipeline:
-  mode: production
-  abort_on_fail: false
+  mode: production # production|test
+  abort_on_fail: false # true => Lauf bei kritischem Phasenfehler sofort beenden
+
 output:
-  registered_dir: registered
-  artifacts_dir: artifacts
-  write_registered_frames: true
-  write_global_metrics: true
-  write_global_registration: true
+  registered_dir: registered # Ausgabeordner fuer registrierte Frames
+  artifacts_dir: artifacts # Ausgabeordner fuer JSON-Artefakte/Diagnosen
+  write_registered_frames: true # registrierte Einzelbilder speichern
+  write_global_metrics: true # global_metrics.json speichern
+  write_global_registration: true # global_registration.json speichern
+
 data:
-  image_width: 3840
-  image_height: 2160
-  frames_min: 50
-  frames_target: 0
-  color_mode: OSC
-  bayer_pattern: GBRG
-  linear_required: true
+  image_width: 1920 # typische Smart-Telescope-Aufloesung, ggf. anpassen
+  image_height: 1080 # typische Smart-Telescope-Aufloesung, ggf. anpassen
+  frames_min: 30 # Legacy-Mindestwert, parallel zu assumptions.frames_min
+  frames_target: 0 # 0 = unbegrenzt, sonst Zielanzahl fuer Auswahl/Begrenzung
+  color_mode: OSC # Smart-Telescope ueblich: OSC
+  bayer_pattern: GBRG # je nach Sensor pruefen und ggf. ersetzen
+  linear_required: true # nur lineare Daten verarbeiten
+
 input:
-  pattern: ./data/*.fits
-  sort: numeric
-  max_frames: 0
+  pattern: ./data/*.fits # Input-Glob fuer Rohframes
+  sort: numeric # numeric|lexicographic
+  max_frames: 0 # 0 = alle; >0 limitiert Inputanzahl
+
 linearity:
-  enabled: true
-  max_frames: 8
-  min_overall_linearity: 0.9
-  strictness: strict
+  enabled: true # Linearity-Check aktiv
+  max_frames: 8 # max. Frames fuer den Check
+  min_overall_linearity: 0.9 # Mindestscore fuer linearity gate
+  strictness: moderate # etwas toleranter bei Consumer-Sensoren
+
 calibration:
-  use_bias: false
-  use_dark: false
-  use_flat: false
-  bias_use_master: false
-  dark_use_master: false
-  flat_use_master: false
-  dark_auto_select: true
-  dark_match_exposure_tolerance_percent: 5.0
-  dark_match_use_temp: false
-  dark_match_temp_tolerance_c: 2.0
-  bias_dir: ""
-  darks_dir: ""
-  flats_dir: ""
-  bias_master: ""
-  dark_master: ""
-  flat_master: ""
-  pattern: "*.fit*"
+  use_bias: false # Bias-Korrektur aktivieren
+  use_dark: false # Dark-Korrektur aktivieren
+  use_flat: false # Flat-Korrektur aktivieren
+  bias_use_master: false # vorhandenes Master-Bias direkt nutzen
+  dark_use_master: false # vorhandenes Master-Dark direkt nutzen
+  flat_use_master: false # vorhandenes Master-Flat direkt nutzen
+  dark_auto_select: true # passendes Dark automatisch waehlen
+  dark_match_exposure_tolerance_percent: 8.0 # Smart-Telescope oft variablere Sequenzen
+  dark_match_use_temp: false # Temperaturmatching optional
+  dark_match_temp_tolerance_c: 3.0 # Temperaturtoleranz in Grad C
+  bias_dir: "" # Verzeichnis mit Bias-Frames
+  darks_dir: "" # Verzeichnis mit Dark-Frames
+  flats_dir: "" # Verzeichnis mit Flat-Frames
+  bias_master: "" # Pfad zu Master-Bias
+  dark_master: "" # Pfad zu Master-Dark
+  flat_master: "" # Pfad zu Master-Flat
+  pattern: "*.fit*" # Dateimaske fuer Kalibrierdaten
+
 assumptions:
-  frames_min: 50
-  frames_optimal: 800
-  frames_reduced_threshold: 150
-  exposure_time_tolerance_percent: 5.0
-  reduced_mode_skip_clustering: true
-  reduced_mode_cluster_range: [5, 10]
+  frames_min: 30 # niedrigere Untergrenze fuer kurze Smart-Telescope-Serien
+  frames_optimal: 300 # praxisnahes Ziel fuer portable Systeme
+  frames_reduced_threshold: 120 # Full-Mode ab 120, darunter Reduced/Emergency
+  exposure_time_tolerance_percent: 8.0 # toleranter fuer variierende Sub-Serien
+  reduced_mode_skip_clustering: true # kleine Datensaetze: Clustering oft nicht stabil
+  reduced_mode_cluster_range: [3, 10] # geringere Clusterzahl fuer kleinere N
+
 normalization:
-  enabled: true
-  mode: background
-  per_channel: true
+  enabled: true # fuer Methodik v3.x verpflichtend
+  mode: background # background|median
+  per_channel: true # bei OSC pro Bayer-Kanal normalisieren
+
 registration:
-  enabled: true
-  engine: triangle_star_matching
-  allow_rotation: true
-  min_score: 0.05
-  fallback_to_identity: true
-  star_topk: 120
-  star_min_inliers: 4
-  star_inlier_tol_px: 3.0
-  star_dist_bin_px: 5.0
+  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
+  allow_rotation: true # Rotationsanteil in Warp erlauben
+  star_topk: 100 # leicht reduziert fuer kompaktere Felder
+  star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching
+  star_inlier_tol_px: 3.0 # Inlier-Toleranz in Pixel
+  star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
+
 tile_denoise:
   soft_threshold:
-    enabled: true
-    blur_kernel: 31
-    alpha: 1.8
-    skip_star_tiles: true
+    enabled: true # Highpass + Soft-Threshold pro Tile
+    blur_kernel: 21 # kleiner Kernel fuer kompaktere Aufloesungen
+    alpha: 1.6 # moderates Denoising
+    skip_star_tiles: true # sternreiche Tiles vom Denoise ausnehmen
   wiener:
-    enabled: true
-    snr_threshold: 5.0
-    q_min: -0.5
-    q_max: 1.0
-    q_step: 0.1
-    min_snr: 2.0
-    max_iterations: 10
+    enabled: true # Wiener-Denoise im Frequenzraum
+    snr_threshold: 4.0 # etwas frueher aktiv bei rauschigeren Smart-Sensoren
+    q_min: -0.5 # untere Strukturqualitaetsgrenze
+    q_max: 1.0 # obere Strukturqualitaetsgrenze
+    q_step: 0.1 # Schrittweite in q-Optimierung
+    min_snr: 2.0 # minimaler SNR fuer stabile Schaetzung
+    max_iterations: 10 # Iterationslimit der Wiener-Optimierung
+
 global_metrics:
-  enabled: true
-  adaptive_weights: true
-  weight_exponent_scale: 1.8
+  adaptive_weights: true # adaptive Gewichtung nach Metrikvarianz
+  weight_exponent_scale: 1.4 # geringere Spreizung fuer heterogene Smart-Frames
   weights:
-    background: 0.4
-    noise: 0.3
-    gradient_energy: 0.30
-  clamp:
-    background: [0.0, 1.0]
-    noise: [0.0, 1.0]
-    gradient_energy: [0.0, 1.0]
+    background: 0.45 # etwas mehr Gewicht auf gleichmaessigen Hintergrund
+    noise: 0.35 # leicht erhoehtes Rauschgewicht
+    gradient: 0.20 # etwas weniger Fokus auf Gradientenergie
+  clamp: [-3.0, 3.0] # Clipping-Grenzen fuer z-Score-Metriken
+
 tile:
-  size_factor: 32
-  min_size: 64
-  max_divisor: 6
-  overlap_fraction: 0.25
-  star_min_count: 8
+  size_factor: 24 # kleinere Tiles fuer typische Smart-Telescope-Aufloesungen
+  min_size: 48 # minimale Tilekante in Pixel
+  max_divisor: 6 # Begrenzung der Tileunterteilung
+  overlap_fraction: 0.25 # OLA-Ueberlappungsanteil
+  star_min_count: 6 # geringere Sternzahl-Schwelle in kleinen Feldern
+
 local_metrics:
-  clamp: [-3.0, 3.0]
+  clamp: [-3.0, 3.0] # Clipping fuer lokale z-Score-Metriken
   star_mode:
     weights:
-      fwhm: 0.6
-      roundness: 0.2
-      contrast: 0.2
+      fwhm: 0.6 # Gewicht Stern-FWHM
+      roundness: 0.2 # Gewicht Sternrundheit
+      contrast: 0.2 # Gewicht Sternkontrast
   structure_mode:
-    metric_weight: 0.7
-    background_weight: 0.3
+    metric_weight: 0.7 # Gewicht Strukturmetrik
+    background_weight: 0.3 # Gewicht lokaler Hintergrundterm
+
 synthetic:
-  weighting: global
-  frames_min: 5
-  frames_max: 30
+  weighting: tile_weighted # global|tile_weighted
+  frames_min: 4 # kleinere Cluster tolerieren
+  frames_max: 20 # Synthetic-Anzahl begrenzen
   clustering:
-    mode: kmeans
-    cluster_count_range: [5, 30]
+    mode: kmeans # kmeans|quantile
+    cluster_count_range: [3, 12] # [k_min, k_max] fuer kleinere Datensaetze
+
 reconstruction:
-  weighting_function: linear
-  window_function: hanning
-debayer: true
+  weighting_function: linear # aktuell linear
+  window_function: hanning # OLA-Fensterfunktion
+
+debayer: true # OSC-Mosaik am Ende in RGB debayern
+
 astrometry:
-  enabled: true
-  astap_bin: /media/data/Astro/astap/astap_cli
-  astap_data_dir: /media/data/Astro/astap
-  search_radius: 183
+  enabled: true # WCS-Solve aktiv
+  astap_bin: "/media/data/Astro/astap/astap_cli" # leer => Systempfad
+  astap_data_dir: /media/data/Astro/astap # ASTAP-Datenverzeichnis
+  search_radius: 183 # Suchradius in Grad
+
 pcc:
-  enabled: true
-  source: siril
-  mag_limit: 14
-  mag_bright_limit: 4
-  aperture_radius_px: 8
-  annulus_inner_px: 10
-  annulus_outer_px: 16
-  mag_bright_limit: 6
-  min_stars: 3
-  sigma_clip: 2.5
-  siril_catalog_dir: ""
+  enabled: true # Photometrische Farbkalibrierung aktiv
+  source: siril # auto|siril|vizier_gaia|vizier_apass
+  mag_limit: 14 # maximal beruecksichtigte Sternhelligkeit
+  mag_bright_limit: 6 # helle Sterne fuer robustes Fit begrenzen
+  aperture_radius_px: 8 # Photometrie-Apertur
+  annulus_inner_px: 10 # Hintergrundring innen
+  annulus_outer_px: 16 # Hintergrundring aussen
+  min_stars: 3 # Mindestanzahl Referenzsterne
+  sigma_clip: 2.5 # Sigma-Clipping fuer Regressionsfit
+  siril_catalog_dir: "" # leer => Standardkatalogpfad
+
 stacking:
-  method: rej
+  method: rej # rej|average
   sigma_clip:
-    sigma_low: 2.0
-    sigma_high: 2.0
-    max_iters: 3
-    min_fraction: 0.5
-  output_stretch: false
+    sigma_low: 2.0 # untere Sigma-Grenze
+    sigma_high: 2.0 # obere Sigma-Grenze
+    max_iters: 3 # maximale Clip-Iterationen
+    min_fraction: 0.5 # Mindestanteil verbleibender Samples
+  output_stretch: false # optionales Display-Stretch (Post)
+  cosmetic_correction: true # optionale Kosmetik (Post)
+
 validation:
-  min_fwhm_improvement_percent: 5.0
-  max_background_rms_increase_percent: 0.0
-  min_tile_weight_variance: 0.1
-  require_no_tile_pattern: true
+  min_fwhm_improvement_percent: 3.0 # etwas realistischere Schwelle fuer kompakte Systeme
+  max_background_rms_increase_percent: 2.0 # leichte RMS-Zunahme tolerieren
+  min_tile_weight_variance: 0.05 # geringere Varianzschwelle fuer kleine N
+  require_no_tile_pattern: true # Grid-Artefakte muessen ausbleiben
+
 runtime_limits:
-  tile_analysis_max_factor_vs_stack: 3.0
-  hard_abort_hours: 6.0
+  tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
+  hard_abort_hours: 6.0 # harte Laufzeitgrenze
+  allow_emergency_mode: true # portable Sessions oft kurz => Emergency erlauben

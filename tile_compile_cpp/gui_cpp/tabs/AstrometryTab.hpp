@@ -58,6 +58,7 @@ class AstrometryTab : public QWidget {
 
     // Setup section
     QLabel *lbl_astap_status_ = nullptr;
+    QLabel *lbl_astap_data_dir_ = nullptr;
     QPushButton *btn_install_astap_ = nullptr;
 
     // Catalog section
