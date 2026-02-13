@@ -267,7 +267,14 @@
             "min_fraction": { "type": "number", "minimum": 0, "maximum": 1 }
           }
         },
-        "output_stretch": { "type": "boolean" }
+        "output_stretch": {
+          "type": "boolean",
+          "description": "Optional linear display stretch on output data (post-processing, not part of the linear core pipeline)."
+        },
+        "cosmetic_correction": {
+          "type": "boolean",
+          "description": "Optional hot-pixel/artifact cosmetic correction after stacking (post-processing, disabled by default)."
+        }
       }
     },
     "validation": {
@@ -283,7 +290,11 @@
       "type": "object",
       "properties": {
         "tile_analysis_max_factor_vs_stack": { "type": "number", "exclusiveMinimum": 0 },
-        "hard_abort_hours": { "type": "number", "exclusiveMinimum": 0 }
+        "hard_abort_hours": { "type": "number", "exclusiveMinimum": 0 },
+        "allow_emergency_mode": {
+          "type": "boolean",
+          "description": "Allows emergency mode for datasets with <50 usable frames; otherwise the run is aborted in a controlled way."
+        }
       }
     }
   }

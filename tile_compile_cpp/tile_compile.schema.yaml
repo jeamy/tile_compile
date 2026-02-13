@@ -211,7 +211,12 @@ properties:
           sigma_high: {type: number, exclusiveMinimum: 0}
           max_iters: {type: integer, minimum: 1}
           min_fraction: {type: number, minimum: 0, maximum: 1}
-      output_stretch: {type: boolean}
+      output_stretch:
+        type: boolean
+        description: "Optionaler linearer Anzeige-Stretch auf den Ausgabe-Daten (Post-Processing, nicht Teil des linearen Pflichtkerns)."
+      cosmetic_correction:
+        type: boolean
+        description: "Optionale Hotpixel-/Artefakt-Kosmetik nach dem Stacken (Post-Processing, standardmaessig deaktiviert)."
   validation:
     type: object
     properties:
@@ -224,3 +229,6 @@ properties:
     properties:
       tile_analysis_max_factor_vs_stack: {type: number, exclusiveMinimum: 0}
       hard_abort_hours: {type: number, exclusiveMinimum: 0}
+      allow_emergency_mode:
+        type: boolean
+        description: "Erlaubt Emergency-Mode fuer Datensaetze mit <50 nutzbaren Frames; sonst wird der Lauf kontrolliert abgebrochen."

@@ -82,7 +82,7 @@ tile_denoise:
 global_metrics:
   enabled: true
   adaptive_weights: true
-  weight_exponent_scale: 1.8  # k for G_f = exp(k * Q_f). k=1.0 standard, k>1 stronger differentiation. 1.5 recommended.
+  weight_exponent_scale: 1.8
   weights:
     background: 0.4
     noise: 0.3
@@ -121,7 +121,7 @@ debayer: true
 astrometry:
   enabled: true
   astap_bin: ""
-  astap_data_dir: ""
+  astap_data_dir: /media/data/Astro/astap
   search_radius: 183
 pcc:
   enabled: true
@@ -143,6 +143,7 @@ stacking:
     max_iters: 3
     min_fraction: 0.5
   output_stretch: false
+  cosmetic_correction: true
 validation:
   min_fwhm_improvement_percent: 5.0
   max_background_rms_increase_percent: 0.0
@@ -151,5 +152,4 @@ validation:
 runtime_limits:
   tile_analysis_max_factor_vs_stack: 3.0
   hard_abort_hours: 6.0
-
-
+  allow_emergency_mode: false

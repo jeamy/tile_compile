@@ -1278,6 +1278,29 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     }
   }
 
+  const int n_usable_frames = n_frames_with_data;
+  constexpr int kReducedModeMinFrames = 50;
+  const bool emergency_mode =
+      (n_usable_frames < kReducedModeMinFrames) &&
+      cfg.runtime_limits.allow_emergency_mode;
+  if (n_usable_frames < kReducedModeMinFrames && !emergency_mode) {
+    std::ostringstream oss;
+    oss << "Insufficient usable frames after registration/warp: "
+        << n_usable_frames << " (<" << kReducedModeMinFrames
+        << "). Set runtime_limits.allow_emergency_mode=true to force "
+           "emergency reduced mode.";
+    emitter.run_end(run_id, false, "insufficient_frames", log_file);
+    std::cerr << "Error: " << oss.str() << std::endl;
+    return 1;
+  }
+
+  const bool reduced_mode =
+      emergency_mode ||
+      (n_usable_frames >= kReducedModeMinFrames &&
+       n_usable_frames < cfg.assumptions.frames_reduced_threshold);
+  const bool skip_clustering_in_reduced =
+      (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
+
   bool run_validation_failed = false;
 
   while (true) {
@@ -1502,11 +1525,6 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         tile_fwhm_median[ti] = fwhms.empty() ? 0.0f : core::median_of(fwhms);
       }
     }
-
-    const bool reduced_mode = (n_frames_with_data <
-                               cfg.assumptions.frames_reduced_threshold);
-    const bool skip_clustering_in_reduced =
-        (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
 
     // Phase 6: TILE_RECONSTRUCTION (Methodik v3)
     emitter.phase_start(run_id, Phase::TILE_RECONSTRUCTION,
@@ -2056,12 +2074,14 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     int n_clusters = 1;
     if (skip_clustering_in_reduced) {
       use_synthetic_frames = false;
-      synthetic_skip_reason = "reduced_mode";
+      synthetic_skip_reason = emergency_mode ? "emergency_mode"
+                                             : "reduced_mode";
       emitter.phase_end(run_id, Phase::STATE_CLUSTERING, "skipped",
-                        {{"reason", "reduced_mode"},
-                         {"frame_count", static_cast<int>(frames.size())},
+                        {{"reason", synthetic_skip_reason},
+                         {"usable_frame_count", n_usable_frames},
                          {"frames_reduced_threshold",
-                          cfg.assumptions.frames_reduced_threshold}},
+                          cfg.assumptions.frames_reduced_threshold},
+                         {"emergency_mode", emergency_mode}},
                         log_file);
     }
 
@@ -2362,16 +2382,18 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       if (!synthetic_skip_reason.empty()) {
         extra["reason"] = synthetic_skip_reason;
       } else {
-        extra["reason"] = "reduced_mode";
+        extra["reason"] = emergency_mode ? "emergency_mode"
+                                          : "reduced_mode";
       }
       if (synthetic_skip_eligible_clusters > 0) {
         extra["eligible_clusters"] = synthetic_skip_eligible_clusters;
         extra["weight_spread"] = synthetic_skip_weight_spread;
         extra["quality_spread"] = synthetic_skip_quality_spread;
       }
-      extra["frame_count"] = static_cast<int>(frames.size());
+      extra["usable_frame_count"] = n_usable_frames;
       extra["frames_reduced_threshold"] =
           cfg.assumptions.frames_reduced_threshold;
+      extra["emergency_mode"] = emergency_mode;
       emitter.phase_end(run_id, Phase::SYNTHETIC_FRAMES, "skipped", extra,
                         log_file);
     } else {
@@ -2576,13 +2598,14 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
-    // Post-stack cosmetic correction: remove residual hot pixels
-    // that survived sigma-clipped stacking (especially with few frames)
-    recon = image::cosmetic_correction(recon, 5.0f, true);
-    if (detected_mode == ColorMode::OSC) {
-      recon_R = image::cosmetic_correction(recon_R, 5.0f, true);
-      recon_G = image::cosmetic_correction(recon_G, 5.0f, true);
-      recon_B = image::cosmetic_correction(recon_B, 5.0f, true);
+    // Optional post-processing (not part of the linear quality core).
+    if (cfg.stacking.cosmetic_correction) {
+      recon = image::cosmetic_correction(recon, 5.0f, true);
+      if (detected_mode == ColorMode::OSC) {
+        recon_R = image::cosmetic_correction(recon_R, 5.0f, true);
+        recon_G = image::cosmetic_correction(recon_G, 5.0f, true);
+        recon_B = image::cosmetic_correction(recon_B, 5.0f, true);
+      }
     }
 
     Matrix2Df recon_out = recon;
