@@ -57,9 +57,14 @@ properties:
     properties:
       frames_min: {type: integer, minimum: 1}
       frames_optimal: {type: integer, minimum: 1}
-      frames_reduced_threshold: {type: integer, minimum: 1}
+      frames_reduced_threshold:
+        type: integer
+        minimum: 1
+        description: "Schwelle fuer Full Mode: 50..(threshold-1) = Reduced Mode, ab threshold = Full Mode."
       exposure_time_tolerance_percent: {type: number, minimum: 0}
-      reduced_mode_skip_clustering: {type: boolean}
+      reduced_mode_skip_clustering:
+        type: boolean
+        description: "Wenn true, werden STATE_CLUSTERING und SYNTHETIC_FRAMES im Reduced-/Emergency-Mode uebersprungen."
       reduced_mode_cluster_range:
         type: array
         items: {type: integer, minimum: 1}
@@ -162,7 +167,10 @@ properties:
   synthetic:
     type: object
     properties:
-      weighting: {type: string, enum: [global, tile_weighted]}
+      weighting:
+        type: string
+        enum: [global, tile_weighted]
+        description: "global = nur G_f; tile_weighted = W_f,t = G_f*L_f,t mit tileweiser OLA-Rekonstruktion."
       frames_min: {type: integer, minimum: 1}
       frames_max: {type: integer, minimum: 1}
       clustering:

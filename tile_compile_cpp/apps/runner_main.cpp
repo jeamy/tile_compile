@@ -1,5 +1,6 @@
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/events.hpp"
+#include "tile_compile/core/mode_gating.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
@@ -1281,10 +1282,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 
   const int n_usable_frames = n_frames_with_data;
   constexpr int kReducedModeMinFrames = 50;
-  const bool emergency_mode =
-      (n_usable_frames < kReducedModeMinFrames) &&
-      cfg.runtime_limits.allow_emergency_mode;
-  if (n_usable_frames < kReducedModeMinFrames && !emergency_mode) {
+  const core::ModeGateDecision gate = core::evaluate_mode_gate(
+      n_usable_frames, cfg.assumptions.frames_reduced_threshold,
+      cfg.runtime_limits.allow_emergency_mode, kReducedModeMinFrames);
+  const bool emergency_mode = gate.emergency_mode;
+  if (gate.should_abort) {
     std::ostringstream oss;
     oss << "Insufficient usable frames after registration/warp: "
         << n_usable_frames << " (<" << kReducedModeMinFrames
@@ -1295,10 +1297,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     return 1;
   }
 
-  const bool reduced_mode =
-      emergency_mode ||
-      (n_usable_frames >= kReducedModeMinFrames &&
-       n_usable_frames < cfg.assumptions.frames_reduced_threshold);
+  const bool reduced_mode = gate.reduced_mode;
   const bool skip_clustering_in_reduced =
       (reduced_mode && cfg.assumptions.reduced_mode_skip_clustering);
   constexpr float kEpsWeight = 1.0e-6f;
@@ -1724,14 +1723,6 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           return;
         }
 
-        float tile_weight_sum = 0.0f;
-        for (float w : weights_valid)
-          tile_weight_sum += w;
-        if (!(tile_weight_sum > kEpsWeight)) {
-          std::fill(weights_valid.begin(), weights_valid.end(), 1.0f);
-          used_weight_fallback = true;
-        }
-
         auto stack_channel = [&](int which) -> Matrix2Df {
           std::vector<Matrix2Df> chan_tiles;
           chan_tiles.reserve(valid_mosaics.size());
@@ -1748,11 +1739,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
             }
           }
 
-          return reconstruction::sigma_clip_weighted_tile(
+          auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
               chan_tiles, weights_valid, cfg.stacking.sigma_clip.sigma_low,
               cfg.stacking.sigma_clip.sigma_high,
               cfg.stacking.sigma_clip.max_iters,
-              cfg.stacking.sigma_clip.min_fraction);
+              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+          used_weight_fallback = used_weight_fallback || wr.fallback_used;
+          return std::move(wr.tile);
         };
 
         tile_rec_R = stack_channel(0);
@@ -1797,19 +1790,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           return;
         }
 
-        float tile_weight_sum = 0.0f;
-        for (float w : weights)
-          tile_weight_sum += w;
-        if (!(tile_weight_sum > kEpsWeight)) {
-          std::fill(weights.begin(), weights.end(), 1.0f);
-          used_weight_fallback = true;
-        }
-
-        tile_rec = reconstruction::sigma_clip_weighted_tile(
+        auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
             warped_tiles, weights, cfg.stacking.sigma_clip.sigma_low,
             cfg.stacking.sigma_clip.sigma_high,
             cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction);
+            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+        tile_rec = std::move(wr.tile);
+        used_weight_fallback = used_weight_fallback || wr.fallback_used;
         n_valid = warped_tiles.size();
       }
 
@@ -2411,18 +2398,12 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           if (cluster_tiles.empty())
             continue;
 
-          float d_tc = 0.0f;
-          for (float w : cluster_weights)
-            d_tc += w;
-          if (!(d_tc > kEpsWeight)) {
-            std::fill(cluster_weights.begin(), cluster_weights.end(), 1.0f);
-          }
-
-          Matrix2Df tile_rec = reconstruction::sigma_clip_weighted_tile(
+          auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
               cluster_tiles, cluster_weights, cfg.stacking.sigma_clip.sigma_low,
               cfg.stacking.sigma_clip.sigma_high,
               cfg.stacking.sigma_clip.max_iters,
-              cfg.stacking.sigma_clip.min_fraction);
+              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+          Matrix2Df tile_rec = std::move(wr.tile);
           if (tile_rec.rows() != t.height || tile_rec.cols() != t.width)
             continue;
 

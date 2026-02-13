@@ -192,15 +192,16 @@ Das ist operational nuetzlich, sollte aber in v3.2-Semantik **nicht Teil des Pfl
    - Standardisierungsschritte,
    - final verwendete Featureliste.
 
-## Phase D - Konsolidierung/Regression
+## Phase D - Konsolidierung/Regression ✅ UMGESETZT (2026-02-13)
 
-9. **Konfigurationsschema und Beispiele auf v3.2 aktualisieren**
+9. **Konfigurationsschema und Beispiele auf v3.2 aktualisieren** ✅
    - Beispiel-YAML fuer
      - Full Mode,
      - Reduced Mode,
      - Emergency-Mode.
+   - zusaetzliches Smart-Telescope-Profil fuer DWARF / ZWO Seestar.
 
-10. **Regressionstests einfuehren**
+10. **Regressionstests einfuehren** ✅
    - Solltests aus v3.2 Abschnitt 7.3 automatisieren:
      - Reduced-Mode-Grenzen,
      - `tile_weighted`-Pfad,
@@ -208,7 +209,7 @@ Das ist operational nuetzlich, sollte aber in v3.2-Semantik **nicht Teil des Pfl
      - keine Frame-Selektion,
      - deterministische Outputs.
 
-11. **Pipeline-Doppelstruktur aufraeumen**
+11. **Pipeline-Doppelstruktur aufraeumen** ✅
    - `src/pipeline/pipeline.cpp` klar als deprecated markieren oder auf Runner-Logik anheben,
    - um zukuenftigen Spezifikationsdrift zu verhindern.
 

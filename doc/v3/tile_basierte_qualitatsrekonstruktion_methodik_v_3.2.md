@@ -489,6 +489,22 @@ Hinweis: Der alte Test "kein negatives Matrixelement" fuer PCC wird in v3.2 **ni
 - WCS/PCC
 - spezielle Performance-Backends (GPU, Queue-Worker)
 
+### 9.1 Praktische Konfigurationsprofile (tile_compile_cpp)
+
+Fuer die operative Anwendung stehen vollstaendige Referenzkonfigurationen bereit:
+
+- `tile_compile_cpp/examples/tile_compile.full_mode.example.yaml`
+- `tile_compile_cpp/examples/tile_compile.reduced_mode.example.yaml`
+- `tile_compile_cpp/examples/tile_compile.emergency_mode.example.yaml`
+- `tile_compile_cpp/examples/tile_compile.smart_telescope_dwarf_seestar.example.yaml`
+
+Alle Profile enthalten **alle verfuegbaren Konfigurationsoptionen** mit Inline-Kommentaren.
+Vorgehen:
+
+1. passendes Profil kopieren,
+2. `run_dir`, `input.pattern`, Sensorparameter (`image_width/height`, `bayer_pattern`) anpassen,
+3. Runner mit dieser Datei starten.
+
 ---
 
 ## 10. Aenderungshistorie
