@@ -469,12 +469,17 @@ def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[
         pngs.append(fn)
         explanations[fn] = (
             '<h4>Gradientenenergie</h4>'
-            '<p>Maß für die Menge an Bilddetails/Strukturen pro Frame (Laplacian-basiert).</p>'
+            '<p>Maß für die Menge an Bilddetails/Strukturen pro Frame (Sobel-basiert).</p>'
             '<p><b>Interpretation:</b></p>'
             '<ul>'
-            '<li><span class="good">Hoch &amp; stabil:</span> Scharfe Frames mit viel Detailzeichnung.</li>'
+            '<li><span class="good">Hoch &amp; stabil bei klarem Himmel:</span> Scharfe Frames mit viel Detailzeichnung.</li>'
             '<li><span class="bad">Niedrig:</span> Unscharfe Frames (Seeing, Defokus, Nachführfehler).</li>'
-            '<li>Frames mit hoher Gradientenenergie erhalten ein höheres Gewicht im Stacking.</li>'
+            '<li><span class="neutral">Hoch bei Wolken:</span> Wolkenkanten erzeugen ebenfalls hohe Gradienten — '
+            'das ist <b>kein</b> Zeichen von Bildschärfe. Solche Frames werden trotzdem '
+            'heruntergewichtet, weil Hintergrund und Rauschen (zusammen 80% Gewicht) '
+            'den positiven Beitrag der Gradientenenergie (20%) überstimmen.</li>'
+            '<li>Die Gradientenenergie ist nur <b>eine von drei Komponenten</b> '
+            'des globalen Gewichts G(f) — sie allein bestimmt nicht das Gewicht.</li>'
             '</ul>'
         )
 
@@ -484,12 +489,18 @@ def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[
         pngs.append(fn)
         explanations[fn] = (
             '<h4>Globales Gewicht G(f)</h4>'
-            '<p>Kombiniertes Qualitätsgewicht pro Frame aus Hintergrund, Rauschen und Gradientenenergie.</p>'
+            '<p>Kombiniertes Qualitätsgewicht pro Frame: G(f) = exp(k · Q), wobei '
+            'Q = α·(-z(B)) + β·(-z(σ)) + γ·z(E). Niedriger Hintergrund und '
+            'wenig Rauschen erhöhen das Gewicht am stärksten (zusammen ~80%).</p>'
             '<p><b>Interpretation:</b></p>'
             '<ul>'
-            '<li><span class="good">Hohe Werte (≈ 1.0):</span> Beste Frames — tragen am meisten zum Ergebnis bei.</li>'
-            '<li><span class="bad">Niedrige Werte (&lt; 0.2):</span> Schlechte Frames — werden stark heruntergewichtet.</li>'
-            '<li>Eine breite Verteilung ist normal bei wechselhaften Bedingungen.</li>'
+            '<li><span class="good">Hohe Werte (≈ 1.0):</span> Beste Frames — niedriger Hintergrund, '
+            'wenig Rauschen, gute Details. Tragen am meisten zum Ergebnis bei.</li>'
+            '<li><span class="bad">Niedrige Werte (&lt; 0.2):</span> Schlechte Frames — '
+            'z.B. durch Wolken (hoher Hintergrund + Rauschen), auch wenn die '
+            'Gradientenenergie hoch ist.</li>'
+            '<li>Eine breite Verteilung ist normal bei wechselhaften Bedingungen '
+            '(z.B. durchziehende Wolken).</li>'
             '<li>Wenn fast alle Gewichte gleich sind, waren die Bedingungen sehr gleichmäßig.</li>'
             '</ul>'
         )
@@ -556,7 +567,8 @@ def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[
         pngs.append(fn)
         explanations[fn] = (
             '<h4>Sternrundheit</h4>'
-            '<p>Verhältnis FWHMy/FWHMx — misst wie rund die Sterne sind.</p>'
+            '<p>Achsenverhältnis der Sternprofile (FWHMy/FWHMx) — misst wie rund die Sterne sind. '
+            'Werte nahe 1.0 = rund, Abweichungen zeigen Elongation.</p>'
             '<p><b>Interpretation:</b></p>'
             '<ul>'
             '<li><span class="good">≈ 1.0:</span> Perfekt runde Sterne — gute Nachführung.</li>'
@@ -906,8 +918,8 @@ def _gen_local_metrics(artifacts_dir: Path, lm: dict, tg: dict) -> tuple[list[st
             '<span class="good">Hoch</span> = Tile trägt stark zum Ergebnis bei.</li>'
             '<li><b>Weight Variance:</b> <span class="good">Niedrig</span> = stabile Qualität, '
             '<span class="bad">hoch</span> = stark schwankend.</li>'
-            '<li><b>Contrast:</b> Laplacian-Varianz. '
-            '<span class="good">Hoch</span> = viel Detailzeichnung (Sterne, Nebel).</li>'
+            '<li><b>Contrast:</b> Verhältnis Spitzenhelligkeit/Hintergrund pro Stern. '
+            '<span class="good">Hoch</span> = helle Sterne über dunklem Hintergrund.</li>'
             '</ul>'
         )
 
@@ -1205,8 +1217,9 @@ def _gen_clustering(artifacts_dir: Path, cl: dict) -> tuple[list[str], list[str]
                 '<p>Anzahl der Frames pro Cluster nach K-Means-Clustering.</p>'
                 '<p><b>Interpretation:</b></p>'
                 '<ul>'
-                '<li>Frames werden nach Qualitätsmerkmalen gruppiert '
-                '(Gewicht, lokale Qualität, Varianz, Korrelation).</li>'
+                '<li>Frames werden nach Qualitätsmerkmalen gruppiert: '
+                'globales Gewicht, mittlere lokale Qualität, Qualitätsvarianz, '
+                'Hintergrund und Rauschen.</li>'
                 '<li><span class="good">Ähnlich große Cluster:</span> '
                 'Gleichmäßige Bedingungen über die Session.</li>'
                 '<li><span class="neutral">Ein dominanter Cluster:</span> '
@@ -1246,8 +1259,31 @@ def _gen_synthetic(artifacts_dir: Path, syn: dict) -> tuple[list[str], list[str]
     n = syn.get("num_synthetic", 0)
     fmin = syn.get("frames_min", "?")
     fmax = syn.get("frames_max", "?")
+    weighting = syn.get("weighting", "global")
     evals.append(f"num_synthetic: {n}")
     evals.append(f"frames range: [{fmin}, {fmax}]")
+    evals.append(f"weighting: {weighting}")
+
+    if n > 0:
+        evals.append("")
+        evals.append(
+            "Synthetische Frames sind Zwischenergebnisse: Jeder Cluster von "
+            "ähnlichen Frames wird zu einem synthetischen Frame zusammengefasst. "
+            "Das finale Stacking mittelt dann nur noch diese wenigen, "
+            "hochwertigen Zwischenbilder — das reduziert Ausreißer und "
+            "verbessert die Robustheit."
+        )
+        if weighting == "tile_weighted":
+            evals.append(
+                "Modus tile_weighted: Jedes Tile wird mit seinem effektiven "
+                "Gewicht W=G·L rekonstruiert und per Hann-Fenster nahtlos "
+                "zusammengesetzt (Overlap-Add)."
+            )
+        else:
+            evals.append(
+                "Modus global: Frames werden mit ihrem globalen Gewicht G(f) "
+                "gemittelt — einfacher, aber ohne lokale Qualitätssteuerung."
+            )
 
     return pngs, evals, explanations
 
@@ -1506,8 +1542,8 @@ def _gen_frame_usage(artifacts_dir: Path, events: list[dict]) -> tuple[list[str]
             '<li><b>Nach Linearität:</b> Frames, die den Linearitätstest bestanden haben. '
             'Nicht-lineare Frames (z.B. Flats, Darks, fehlerhafte Aufnahmen) werden entfernt.</li>'
             '<li><b>Registriert (nutzbar):</b> Frames mit erfolgreicher Registrierung '
-            '(CC &gt; Schwelle). Identity-Fallback = Frame konnte nicht registriert werden '
-            '(z.B. bewölkt, stark verschoben).</li>'
+            '(CC &gt; Schwelle). Identity-Fallback = Frame konnte nicht ausgerichtet werden '
+            '(z.B. Wolken verdecken Sterne) und wird unverändert übernommen.</li>'
             '</ul>'
             '<p><b>Interpretation:</b></p>'
             '<ul>'
@@ -1573,8 +1609,9 @@ def _gen_frame_usage(artifacts_dir: Path, events: list[dict]) -> tuple[list[str]
                 'Werden vor der Verarbeitung entfernt.</li>'
                 '<li><span class="neutral">Registrierung (Identity):</span> '
                 'Frames, die nicht registriert werden konnten — '
-                'fallen auf Identity-Transformation zurück. '
-                'Häufigste Ursache: Wolken oder starke Drift.</li>'
+                'sie werden unverändert (ohne Verschiebung/Rotation) übernommen. '
+                'Häufigste Ursache: Wolken verdecken Sterne, '
+                'sodass keine Referenzpunkte gefunden werden.</li>'
                 '<li><span class="good">Verwendet:</span> '
                 'Frames, die erfolgreich registriert wurden und '
                 'zum Endergebnis beitragen.</li>'
