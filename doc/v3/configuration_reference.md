@@ -628,6 +628,29 @@ Geometrische Registrierung (Ausrichtung) aller Frames auf einen Referenz-Frame.
 
 ---
 
+### `dithering.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Kennzeichnet Dither-Session. Bei aktivem Flag werden in `global_registration.json` zusätzliche Dither-Diagnosen (detected_count/fraction) aus den gemessenen globalen Shifts geschrieben.
+
+---
+
+### `dithering.min_shift_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0 |
+| **Default** | `0.5` |
+
+**Zweck:** Mindest-Verschiebung in Pixeln, ab der ein Frame als "gedithert" gezählt wird.
+
+---
+
 ## 9. Tile Denoise
 
 Optionale Tile-Denoise-Stufe mit zwei Komponenten:
@@ -757,6 +780,98 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 ### Legacy-Hinweis: `wiener_denoise.*`
 
 `wiener_denoise` ist ein **Legacy-Alias** und wird beim Einlesen weiterhin nach `tile_denoise.wiener` gemappt. Für neue Konfigurationen sollte ausschließlich `tile_denoise.wiener` verwendet werden.
+
+---
+
+### `chroma_denoise` (struktur-schützende Farbrausch-Reduktion)
+
+Optionale, **chroma-selektive** Denoise-Erweiterung für OSC-Daten. Idee: Luminanz/Struktur möglichst erhalten, Farbrauschen primär in Cb/Cr (oder äquivalenten Opponent-Kanälen) reduzieren.
+
+> Hinweis: Wirkt nur im OSC-Pfad. `apply_stage` steuert, ob vor dem Tile-Overlap-Add (`pre_stack_tiles`) oder auf dem finalen linearen RGB-Stack (`post_stack_linear`) gefiltert wird.
+
+```yaml
+chroma_denoise:
+  enabled: true
+  color_space: ycbcr_linear        # ycbcr_linear | opponent_linear
+  apply_stage: post_stack_linear   # pre_stack_tiles | post_stack_linear
+  protect_luma: true
+  luma_guard_strength: 0.75        # 0..1
+  star_protection:
+    enabled: true
+    threshold_sigma: 2.2
+    dilate_px: 2
+  structure_protection:
+    enabled: true
+    gradient_percentile: 85
+  chroma_wavelet:
+    enabled: true
+    levels: 3
+    threshold_scale: 1.25
+    soft_k: 1.0
+  chroma_bilateral:
+    enabled: true
+    sigma_spatial: 1.2
+    sigma_range: 0.035
+  blend:
+    mode: chroma_only
+    amount: 0.85                   # 0..1
+```
+
+#### Presets
+
+##### 1) Konservativ
+
+Für bereits saubere Daten, minimales Risiko für Farbsättigungs- und Detailverlust.
+
+```yaml
+chroma_denoise:
+  enabled: true
+  color_space: ycbcr_linear
+  apply_stage: post_stack_linear
+  protect_luma: true
+  luma_guard_strength: 0.85
+  star_protection: { enabled: true, threshold_sigma: 2.6, dilate_px: 2 }
+  structure_protection: { enabled: true, gradient_percentile: 88 }
+  chroma_wavelet: { enabled: true, levels: 2, threshold_scale: 0.95, soft_k: 1.0 }
+  chroma_bilateral: { enabled: true, sigma_spatial: 1.0, sigma_range: 0.025 }
+  blend: { mode: chroma_only, amount: 0.65 }
+```
+
+##### 2) Balanced (empfohlen)
+
+Guter Standard für Smart-Telescope-Stacks mit sichtbarem Chroma-Hintergrundrauschen.
+
+```yaml
+chroma_denoise:
+  enabled: true
+  color_space: ycbcr_linear
+  apply_stage: post_stack_linear
+  protect_luma: true
+  luma_guard_strength: 0.75
+  star_protection: { enabled: true, threshold_sigma: 2.2, dilate_px: 2 }
+  structure_protection: { enabled: true, gradient_percentile: 85 }
+  chroma_wavelet: { enabled: true, levels: 3, threshold_scale: 1.25, soft_k: 1.0 }
+  chroma_bilateral: { enabled: true, sigma_spatial: 1.2, sigma_range: 0.035 }
+  blend: { mode: chroma_only, amount: 0.85 }
+```
+
+##### 3) Aggressiv
+
+Für starkes Farbrauschen; erhöhtes Risiko für Desaturierung/"Plastik-Look" in schwachen Nebelbereichen.
+
+```yaml
+chroma_denoise:
+  enabled: true
+  color_space: ycbcr_linear
+  apply_stage: post_stack_linear
+  protect_luma: true
+  luma_guard_strength: 0.65
+  star_protection: { enabled: true, threshold_sigma: 1.9, dilate_px: 3 }
+  structure_protection: { enabled: true, gradient_percentile: 80 }
+  chroma_wavelet: { enabled: true, levels: 4, threshold_scale: 1.55, soft_k: 1.1 }
+  chroma_bilateral: { enabled: true, sigma_spatial: 1.6, sigma_range: 0.05 }
+  blend: { mode: chroma_only, amount: 1.0 }
+```
 
 ---
 
@@ -1559,6 +1674,11 @@ registration:
   star_inlier_tol_px: 2.5
   star_dist_bin_px: 2.5
 
+# Dithering
+dithering:
+  enabled: true
+  min_shift_px: 0.7
+
 # Tile Denoise
 tile_denoise:
   soft_threshold:
@@ -1574,6 +1694,33 @@ tile_denoise:
     q_step: 0.1
     min_snr: 2.0
     max_iterations: 10
+
+# Chroma Denoise
+chroma_denoise:
+  enabled: true
+  color_space: ycbcr_linear
+  apply_stage: post_stack_linear
+  protect_luma: true
+  luma_guard_strength: 0.75
+  star_protection:
+    enabled: true
+    threshold_sigma: 2.2
+    dilate_px: 2
+  structure_protection:
+    enabled: true
+    gradient_percentile: 85
+  chroma_wavelet:
+    enabled: true
+    levels: 3
+    threshold_scale: 1.25
+    soft_k: 1.0
+  chroma_bilateral:
+    enabled: true
+    sigma_spatial: 1.2
+    sigma_range: 0.035
+  blend:
+    mode: chroma_only
+    amount: 0.85
 
 # Global Metrics
 global_metrics:

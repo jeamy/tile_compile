@@ -5,8 +5,133 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 namespace tile_compile::reconstruction {
+
+namespace {
+
+float median_inplace(std::vector<float>& v) {
+    if (v.empty()) return 0.0f;
+    const size_t mid = v.size() / 2;
+    std::nth_element(v.begin(), v.begin() + static_cast<long>(mid), v.end());
+    return v[mid];
+}
+
+float robust_sigma_mad_from_mat(const cv::Mat& m) {
+    if (m.empty()) return 0.0f;
+    std::vector<float> vals;
+    vals.reserve(m.total());
+    for (int y = 0; y < m.rows; ++y) {
+        const float* row = m.ptr<float>(y);
+        vals.insert(vals.end(), row, row + m.cols);
+    }
+    float med = median_inplace(vals);
+    for (float& v : vals) v = std::fabs(v - med);
+    float mad = median_inplace(vals);
+    return 1.4826f * mad;
+}
+
+float percentile_from_mat(const cv::Mat& m, float p) {
+    if (m.empty()) return 0.0f;
+    std::vector<float> vals;
+    vals.reserve(m.total());
+    for (int y = 0; y < m.rows; ++y) {
+        const float* row = m.ptr<float>(y);
+        vals.insert(vals.end(), row, row + m.cols);
+    }
+    if (vals.empty()) return 0.0f;
+    p = std::clamp(p, 0.0f, 100.0f);
+    const size_t idx = static_cast<size_t>(std::round((p / 100.0f) * static_cast<float>(vals.size() - 1)));
+    std::nth_element(vals.begin(), vals.begin() + static_cast<long>(idx), vals.end());
+    return vals[idx];
+}
+
+cv::Mat soft_threshold_signed(const cv::Mat& src, float tau) {
+    if (!(tau > 0.0f)) return src.clone();
+    cv::Mat abs_src = cv::abs(src);
+    cv::Mat shrunk;
+    cv::subtract(abs_src, tau, shrunk);
+    cv::threshold(shrunk, shrunk, 0.0, 0.0, cv::THRESH_TOZERO);
+
+    cv::Mat neg_mask;
+    cv::compare(src, 0.0f, neg_mask, cv::CMP_LT);
+    cv::Mat neg_shrunk;
+    cv::subtract(cv::Scalar(0.0f), shrunk, neg_shrunk);
+    neg_shrunk.copyTo(shrunk, neg_mask);
+    return shrunk;
+}
+
+cv::Mat build_protection_mask(const cv::Mat& y,
+                              const config::ChromaDenoiseConfig& cfg) {
+    cv::Mat mask = cv::Mat::zeros(y.size(), CV_32F);
+
+    if (cfg.star_protection.enabled) {
+        const float sigma = robust_sigma_mad_from_mat(y);
+        cv::Scalar mean_y;
+        cv::Scalar std_y;
+        cv::meanStdDev(y, mean_y, std_y);
+        const float med_like = static_cast<float>(mean_y[0]);
+        const float thr = med_like + cfg.star_protection.threshold_sigma * (sigma + 1.0e-6f);
+        cv::Mat stars;
+        cv::threshold(y, stars, thr, 1.0, cv::THRESH_BINARY);
+        stars.convertTo(stars, CV_32F);
+        if (cfg.star_protection.dilate_px > 0) {
+            const int k = std::max(1, cfg.star_protection.dilate_px * 2 + 1);
+            cv::Mat ker = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(k, k));
+            cv::dilate(stars, stars, ker);
+        }
+        cv::max(mask, stars, mask);
+    }
+
+    if (cfg.structure_protection.enabled) {
+        cv::Mat gx, gy, mag;
+        cv::Sobel(y, gx, CV_32F, 1, 0, 3);
+        cv::Sobel(y, gy, CV_32F, 0, 1, 3);
+        cv::magnitude(gx, gy, mag);
+        const float p = percentile_from_mat(mag, cfg.structure_protection.gradient_percentile);
+        cv::Mat structures;
+        cv::threshold(mag, structures, p, 1.0, cv::THRESH_BINARY);
+        structures.convertTo(structures, CV_32F);
+        cv::max(mask, structures, mask);
+    }
+
+    cv::GaussianBlur(mask, mask, cv::Size(0, 0), 1.0, 1.0, cv::BORDER_REFLECT_101);
+    cv::min(mask, 1.0, mask);
+    cv::max(mask, 0.0, mask);
+    return mask;
+}
+
+void denoise_chroma_plane_inplace(cv::Mat& c,
+                                  const config::ChromaDenoiseConfig& cfg) {
+    if (cfg.chroma_wavelet.enabled) {
+        cv::Mat cur = c.clone();
+        const int levels = std::max(1, cfg.chroma_wavelet.levels);
+        for (int lvl = 0; lvl < levels; ++lvl) {
+            const double sigma = std::pow(2.0, static_cast<double>(lvl)) * 0.75;
+            cv::Mat low;
+            cv::GaussianBlur(cur, low, cv::Size(0, 0), sigma, sigma,
+                             cv::BORDER_REFLECT_101);
+            cv::Mat detail = cur - low;
+            const float sigma_n = robust_sigma_mad_from_mat(detail);
+            const float tau = cfg.chroma_wavelet.threshold_scale *
+                              cfg.chroma_wavelet.soft_k * sigma_n;
+            cv::Mat shrunk = soft_threshold_signed(detail, tau);
+            cur = low + shrunk;
+        }
+        c = cur;
+    }
+
+    if (cfg.chroma_bilateral.enabled) {
+        cv::Mat out;
+        cv::bilateralFilter(c, out, 0, cfg.chroma_bilateral.sigma_range,
+                            cfg.chroma_bilateral.sigma_spatial,
+                            cv::BORDER_REFLECT_101);
+        c = out;
+    }
+}
+
+} // namespace
 
 Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
                             const TileGrid& grid,
@@ -188,6 +313,51 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
         }
     }
     return out;
+}
+
+void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
+                                const config::ChromaDenoiseConfig& cfg) {
+    if (!cfg.enabled) return;
+    if (r.size() <= 0 || g.size() <= 0 || b.size() <= 0) return;
+    if (r.rows() != g.rows() || r.cols() != g.cols() ||
+        r.rows() != b.rows() || r.cols() != b.cols()) {
+        return;
+    }
+
+    cv::Mat R(r.rows(), r.cols(), CV_32F, r.data());
+    cv::Mat G(g.rows(), g.cols(), CV_32F, g.data());
+    cv::Mat B(b.rows(), b.cols(), CV_32F, b.data());
+
+    // Linear Y + opponent chroma representation.
+    cv::Mat Y = 0.25f * R + 0.5f * G + 0.25f * B;
+    cv::Mat Cb = B - Y;
+    cv::Mat Cr = R - Y;
+
+    cv::Mat Cb_orig = Cb.clone();
+    cv::Mat Cr_orig = Cr.clone();
+
+    denoise_chroma_plane_inplace(Cb, cfg);
+    denoise_chroma_plane_inplace(Cr, cfg);
+
+    cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(cfg.blend.amount));
+    if (cfg.protect_luma) {
+        cv::Mat protect = build_protection_mask(Y, cfg);
+        amount_map = amount_map.mul(1.0f - cfg.luma_guard_strength * protect);
+        cv::min(amount_map, cfg.blend.amount, amount_map);
+        cv::max(amount_map, 0.0, amount_map);
+    }
+
+    cv::Mat one_minus = 1.0f - amount_map;
+    cv::Mat Cb_mix = Cb_orig.mul(one_minus) + Cb.mul(amount_map);
+    cv::Mat Cr_mix = Cr_orig.mul(one_minus) + Cr.mul(amount_map);
+
+    cv::Mat R_new = Y + Cr_mix;
+    cv::Mat B_new = Y + Cb_mix;
+    cv::Mat G_new = 2.0f * Y - 0.5f * (R_new + B_new);
+
+    R_new.copyTo(R);
+    G_new.copyTo(G);
+    B_new.copyTo(B);
 }
 
 Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,

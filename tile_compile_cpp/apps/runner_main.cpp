@@ -1251,9 +1251,20 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           j["ref_frame"] = global_ref_idx;
           j["cc"] = core::json::array();
           j["warps"] = core::json::array();
+          j["dithering"] = {
+              {"enabled", cfg.dithering.enabled},
+              {"min_shift_px", cfg.dithering.min_shift_px},
+              {"detected_fraction", 0.0},
+          };
+          int shifts_detected = 0;
           for (size_t fi = 0; fi < frames.size(); ++fi) {
             const auto &w = global_frame_warps[fi];
             j["cc"].push_back(global_frame_cc[fi]);
+            const float shift_mag =
+                std::sqrt(w(0, 2) * w(0, 2) + w(1, 2) * w(1, 2));
+            if (cfg.dithering.enabled && shift_mag >= cfg.dithering.min_shift_px) {
+              shifts_detected++;
+            }
             j["warps"].push_back({
                 {"a00", w(0, 0)},
                 {"a01", w(0, 1)},
@@ -1261,7 +1272,15 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                 {"a10", w(1, 0)},
                 {"a11", w(1, 1)},
                 {"ty", w(1, 2)},
+                {"shift_px", shift_mag},
             });
+          }
+          if (!frames.empty()) {
+            j["dithering"]["detected_fraction"] =
+                static_cast<double>(shifts_detected) /
+                static_cast<double>(frames.size());
+            j["dithering"]["detected_count"] = shifts_detected;
+            j["dithering"]["total_frames"] = static_cast<int>(frames.size());
           }
           core::write_text(run_dir / "artifacts" / "global_registration.json",
                            j.dump(2));
@@ -1951,6 +1970,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
               tile_rec_B, sig_b, tile_snr, tile_q, is_star,
               cfg.tile_denoise.wiener);
         }
+      }
+
+      if (osc_mode && cfg.chroma_denoise.enabled &&
+          cfg.chroma_denoise.apply_stage == "pre_stack_tiles") {
+        reconstruction::chroma_denoise_rgb_inplace(
+            tile_rec_R, tile_rec_G, tile_rec_B, cfg.chroma_denoise);
+        tile_rec = 0.25f * tile_rec_R + 0.5f * tile_rec_G + 0.25f * tile_rec_B;
       }
 
       auto [c, b, s] = compute_post_warp_metrics(tile_rec);
@@ -2884,6 +2910,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         recon_G = image::cosmetic_correction(recon_G, 5.0f, true);
         recon_B = image::cosmetic_correction(recon_B, 5.0f, true);
       }
+    }
+
+    if (detected_mode == ColorMode::OSC && cfg.chroma_denoise.enabled &&
+        cfg.chroma_denoise.apply_stage == "post_stack_linear") {
+      reconstruction::chroma_denoise_rgb_inplace(
+          recon_R, recon_G, recon_B, cfg.chroma_denoise);
+      recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
     }
 
     Matrix2Df recon_out = recon;

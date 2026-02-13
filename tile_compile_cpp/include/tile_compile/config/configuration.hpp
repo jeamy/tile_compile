@@ -106,6 +106,48 @@ struct TileDenoiseConfig {
   WienerDenoiseConfig wiener;
 };
 
+struct ChromaDenoiseConfig {
+  struct StarProtectionConfig {
+    bool enabled = true;
+    float threshold_sigma = 2.2f;
+    int dilate_px = 2;
+  } star_protection;
+
+  struct StructureProtectionConfig {
+    bool enabled = true;
+    float gradient_percentile = 85.0f;
+  } structure_protection;
+
+  struct ChromaWaveletConfig {
+    bool enabled = true;
+    int levels = 3;
+    float threshold_scale = 1.25f;
+    float soft_k = 1.0f;
+  } chroma_wavelet;
+
+  struct ChromaBilateralConfig {
+    bool enabled = true;
+    float sigma_spatial = 1.2f;
+    float sigma_range = 0.035f;
+  } chroma_bilateral;
+
+  struct BlendConfig {
+    std::string mode = "chroma_only"; // chroma_only
+    float amount = 0.85f;
+  } blend;
+
+  bool enabled = false;
+  std::string color_space = "ycbcr_linear";      // ycbcr_linear | opponent_linear
+  std::string apply_stage = "post_stack_linear"; // pre_stack_tiles | post_stack_linear
+  bool protect_luma = true;
+  float luma_guard_strength = 0.75f;
+};
+
+struct DitheringConfig {
+  bool enabled = false;
+  float min_shift_px = 0.5f;
+};
+
 struct GlobalMetricsConfig {
   struct Weights {
     float background = 0.4f;
@@ -212,7 +254,9 @@ struct Config {
   AssumptionsConfig assumptions;
   NormalizationConfig normalization;
   RegistrationConfig registration;
+  DitheringConfig dithering;
   TileDenoiseConfig tile_denoise;
+  ChromaDenoiseConfig chroma_denoise;
   WienerDenoiseConfig wiener_denoise; // legacy alias → tile_denoise.wiener
   GlobalMetricsConfig global_metrics;
   TileConfig tile;
