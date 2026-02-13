@@ -34,8 +34,7 @@ Hinweis: **Validation** ist ein Qualitätsblock zwischen `STACKING` und `DONE`, 
 
 ## Dokumenten-Struktur
 
-Die Detaildokumente in diesem Ordner bleiben als Deep-Dive erhalten. 
-Die **verbindliche Phasenreihenfolge** ist jedoch die oben stehende v3.2-Liste (0..14).
+Die **verbindliche Phasenreihenfolge** ist die oben stehende v3.2-Liste (0..14).
 
 Kurzzuordnung:
 
@@ -369,15 +368,6 @@ runs/<run_id>/
 - **C++ Implementierung**: `/tile_compile_cpp/apps/runner_main.cpp`
 - **Konfiguration**: `/tile_compile_cpp/include/tile_compile/config/configuration.hpp`
 - **Report-Generator**: `/tile_compile_cpp/generate_report.py`
-
-## Änderungshistorie
-
-- **2026-02-08**: Vollständige Aktualisierung auf C++ Implementierung (runner_main.cpp)
-- **2026-02-08**: Pre-Warping Architektur dokumentiert (CFA-Artefakt-Fix)
-- **2026-02-08**: 5-stufige Registrierungskaskade dokumentiert
-- **2026-02-08**: Artifact-Dateien und Verzeichnisstruktur hinzugefügt
-- **2026-01-17**: Cosmetic Correction und Sigma-Clipping Stacking dokumentiert
-- **2026-01-09**: Initiale Erstellung der Process Flow Dokumentation
 
 ---
 
