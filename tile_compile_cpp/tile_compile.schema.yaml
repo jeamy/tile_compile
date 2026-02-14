@@ -18,8 +18,8 @@ properties:
   data:
     type: object
     properties:
-      image_width: {type: integer, minimum: 1}
-      image_height: {type: integer, minimum: 1}
+      image_width: {type: integer, minimum: 0}
+      image_height: {type: integer, minimum: 0}
       frames_min: {type: integer, minimum: 1}
       frames_target: {type: integer, minimum: 0}
       color_mode: {type: string, enum: [OSC, MONO, RGB]}

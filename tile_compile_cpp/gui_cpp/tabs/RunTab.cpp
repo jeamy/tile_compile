@@ -32,10 +32,10 @@ void RunTab::build_ui() {
     
     auto *rr1 = new QHBoxLayout();
     input_dir_ = new QLineEdit("");
-    auto *btn_browse_input_dir = new QPushButton("Browse");
-    rr1->addWidget(new QLabel("Input dir"));
+    input_dir_->setReadOnly(true);
+    input_dir_->setPlaceholderText("Synced from Scan tab");
+    rr1->addWidget(new QLabel("Input dir (from Scan)"));
     rr1->addWidget(input_dir_, 1);
-    rr1->addWidget(btn_browse_input_dir);
     run_layout->addLayout(rr1);
     
     auto *rr2 = new QHBoxLayout();
@@ -70,9 +70,7 @@ void RunTab::build_ui() {
     connect(btn_start_, &QPushButton::clicked, this, &RunTab::start_run_clicked);
     connect(btn_abort_, &QPushButton::clicked, this, &RunTab::abort_run_clicked);
     connect(btn_browse_working_dir, &QPushButton::clicked, this, &RunTab::on_browse_working_dir);
-    connect(btn_browse_input_dir, &QPushButton::clicked, this, &RunTab::on_browse_input_dir);
     connect(working_dir_, &QLineEdit::editingFinished, this, &RunTab::working_dir_changed);
-    connect(input_dir_, &QLineEdit::editingFinished, this, &RunTab::input_dir_changed);
 }
 
 void RunTab::on_browse_working_dir() {
@@ -83,17 +81,6 @@ void RunTab::on_browse_working_dir() {
     if (!p.isEmpty()) {
         working_dir_->setText(p);
         emit working_dir_changed();
-    }
-}
-
-void RunTab::on_browse_input_dir() {
-    const QString start = input_dir_->text().trimmed().isEmpty() 
-        ? QString::fromStdString(project_root_) 
-        : input_dir_->text();
-    const QString p = QFileDialog::getExistingDirectory(this, "Select input directory", start);
-    if (!p.isEmpty()) {
-        input_dir_->setText(p);
-        emit input_dir_changed();
     }
 }
 
