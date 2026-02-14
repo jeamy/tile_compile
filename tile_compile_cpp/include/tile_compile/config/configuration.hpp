@@ -243,6 +243,7 @@ struct RuntimeLimitsConfig {
   float tile_analysis_max_factor_vs_stack = 3.0f;
   float hard_abort_hours = 6.0f;
   bool allow_emergency_mode = false;
+  int parallel_workers = 4;
 };
 
 struct Config {
