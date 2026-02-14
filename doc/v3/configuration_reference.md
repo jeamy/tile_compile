@@ -231,12 +231,14 @@ Bilddaten-Eigenschaften. Teilweise automatisch aus dem FITS-Header ermittelt, te
 | **Typ** | boolean |
 | **Default** | `true` |
 
-**Zweck:** Wenn `true`, werden nicht-lineare Frames (gestreckt, Curves angewendet) aus der Pipeline **entfernt**.
+**Zweck:** Schaltet die strikte Entfernung nicht-linearer Frames ein/aus.
 
-- **`true`**: Strenge Linearitäts-Enforcement — nicht-lineare Frames werden rejected (empfohlen)
-- **`false`**: Nur Warnung bei nicht-linearen Frames, aber keine Entfernung
+**Status:** Deprecated.
 
-**Zusammenspiel mit `linearity.enabled`:** Die Linearitätsprüfung muss `enabled=true` sein, damit `linear_required` Wirkung hat.
+- **Aktueller Runner-Stand (v3.2):** Non-lineare Frames werden **nicht entfernt**. Es wird immer nur gewarnt (`warn_only`).
+- Das Flag bleibt aus Kompatibilitätsgründen in der Konfiguration erhalten.
+
+**Zusammenspiel mit `linearity.enabled`:** Die Linearitätsprüfung muss `enabled=true` sein, damit Warnungen für non-lineare Frames entstehen.
 
 ---
 
@@ -1588,6 +1590,31 @@ Qualitätsprüfung des Rekonstruktionsergebnisses (nach Phase 10, vor Debayer).
 
 Laufzeit-Beschränkungen.
 
+### `runtime_limits.parallel_workers`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Default** | `4` |
+
+**Zweck:** Maximale Anzahl paralleler Worker für Tile-lastige Phasen.
+
+**Hinweis:** Wird zusätzlich durch CPU-Kernanzahl und (bei OSC) durch `runtime_limits.memory_budget` begrenzt.
+
+---
+
+### `runtime_limits.memory_budget`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Einheit** | MiB |
+| **Default** | `512` |
+
+**Zweck:** Speicherbudget für den OSC-Memory-Cap in der Tile-Rekonstruktion. Reduziert bei Bedarf die effektive Anzahl paralleler Worker, um RAM-Spitzen zu begrenzen.
+
 ### `runtime_limits.tile_analysis_max_factor_vs_stack`
 
 | Eigenschaft | Wert |
@@ -1809,6 +1836,8 @@ validation:
 
 # Runtime Limits
 runtime_limits:
+  parallel_workers: 8
+  memory_budget: 1024
   tile_analysis_max_factor_vs_stack: 3.0
   hard_abort_hours: 6.0
   allow_emergency_mode: false

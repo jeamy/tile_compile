@@ -29,7 +29,11 @@
         "frames_target": { "type": "integer", "minimum": 0 },
         "color_mode": { "type": "string", "enum": ["OSC", "MONO", "RGB"] },
         "bayer_pattern": { "type": "string" },
-        "linear_required": { "type": "boolean" }
+        "linear_required": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Deprecated: non-linear frames are warn-only in the runner and are no longer removed."
+        }
       }
     },
     "linearity": {
@@ -356,6 +360,15 @@
     "runtime_limits": {
       "type": "object",
       "properties": {
+        "parallel_workers": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "memory_budget": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Memory budget in MiB for OSC worker cap during tile reconstruction."
+        },
         "tile_analysis_max_factor_vs_stack": { "type": "number", "exclusiveMinimum": 0 },
         "hard_abort_hours": { "type": "number", "exclusiveMinimum": 0 },
         "allow_emergency_mode": {
