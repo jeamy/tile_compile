@@ -483,6 +483,8 @@ Config Config::from_yaml(const YAML::Node &node) {
           rl["allow_emergency_mode"].as<bool>();
     if (rl["parallel_workers"])
       cfg.runtime_limits.parallel_workers = rl["parallel_workers"].as<int>();
+    if (rl["memory_budget"])
+      cfg.runtime_limits.memory_budget = rl["memory_budget"].as<int>();
   }
 
   return cfg;
@@ -700,6 +702,7 @@ YAML::Node Config::to_yaml() const {
       runtime_limits.allow_emergency_mode;
   node["runtime_limits"]["parallel_workers"] =
       runtime_limits.parallel_workers;
+  node["runtime_limits"]["memory_budget"] = runtime_limits.memory_budget;
 
   return node;
 }
@@ -963,6 +966,9 @@ void Config::validate() const {
   if (runtime_limits.parallel_workers < 1) {
     throw ValidationError("runtime_limits.parallel_workers must be >= 1");
   }
+  if (runtime_limits.memory_budget < 1) {
+    throw ValidationError("runtime_limits.memory_budget must be >= 1");
+  }
 }
 
 std::string get_schema_json() {
@@ -987,7 +993,8 @@ std::string get_schema_json() {
                       "frames_target":{"type":"integer","minimum":0},
                       "color_mode":{"type":"string","enum":["OSC","MONO","RGB"]},
                       "bayer_pattern":{"type":"string"},
-                      "linear_required":{"type":"boolean"} } },
+                      "linear_required":{"type":"boolean","deprecated":true,
+                                         "description":"Deprecated: non-linear frames are warn-only in the runner and are no longer removed."} } },
     "linearity": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "max_frames":{"type":"integer","minimum":1},
@@ -1126,7 +1133,8 @@ std::string get_schema_json() {
       "properties": { "tile_analysis_max_factor_vs_stack":{"type":"number","exclusiveMinimum":0},
                       "hard_abort_hours":{"type":"number","exclusiveMinimum":0},
                       "allow_emergency_mode":{"type":"boolean"},
-                      "parallel_workers":{"type":"integer","minimum":1} } }
+                      "parallel_workers":{"type":"integer","minimum":1},
+                      "memory_budget":{"type":"integer","minimum":1} } }
   }
 })";
 }

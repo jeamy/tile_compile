@@ -201,6 +201,7 @@ validation:
 
 runtime_limits:
   parallel_workers: 6 # Anzahl paralleler Worker fuer Tile-Phasen (CPU/memory capped)
+  memory_budget: 384 # MiB Budget fuer OSC-Worker-Cap in Tile-Rekonstruktion
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze
   allow_emergency_mode: false # Reduced-Profil ohne Emergency-Override

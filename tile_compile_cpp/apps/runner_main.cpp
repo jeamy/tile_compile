@@ -30,7 +30,6 @@
 #include <iostream>
 #include <mutex>
 #include <random>
-#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -414,7 +413,58 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   std::string detected_mode_str = color_mode_to_string(detected_mode);
   std::string detected_bayer_str = bayer_pattern_to_string(detected_bayer);
 
-  if (!cfg.data.color_mode.empty() &&
+  const bool header_has_color_hint =
+      (naxis >= 3) || (detected_bayer != BayerPattern::UNKNOWN) ||
+      first_header.get_string("COLORTYP").has_value();
+  const ColorMode cfg_color_mode =
+      cfg.data.color_mode.empty() ? ColorMode::MONO
+                                  : (cfg.data.color_mode == "RGB"
+                                         ? ColorMode::RGB
+                                         : (cfg.data.color_mode == "OSC"
+                                                ? ColorMode::OSC
+                                                : ColorMode::MONO));
+  const bool cfg_color_mode_valid =
+      cfg.data.color_mode == "MONO" || cfg.data.color_mode == "OSC" ||
+      cfg.data.color_mode == "RGB";
+  const BayerPattern cfg_bayer = cfg.data.bayer_pattern.empty()
+                                     ? BayerPattern::UNKNOWN
+                                     : string_to_bayer_pattern(
+                                           cfg.data.bayer_pattern);
+
+  if (!header_has_color_hint && cfg_color_mode_valid) {
+    detected_mode = cfg_color_mode;
+    detected_mode_str = color_mode_to_string(detected_mode);
+    emitter.warning(run_id,
+                    "FITS header has no clear color hint; using "
+                    "config.data.color_mode='" +
+                        cfg.data.color_mode + "' as fallback",
+                    log_file);
+  }
+  if (detected_bayer == BayerPattern::UNKNOWN && cfg_bayer != BayerPattern::UNKNOWN) {
+    detected_bayer = cfg_bayer;
+    detected_bayer_str = bayer_pattern_to_string(detected_bayer);
+    emitter.warning(run_id,
+                    "FITS header has no valid BAYER pattern; using "
+                    "config.data.bayer_pattern='" +
+                        cfg.data.bayer_pattern + "' as fallback",
+                    log_file);
+  }
+  if (width <= 0 && cfg.data.image_width > 0) {
+    width = cfg.data.image_width;
+    emitter.warning(run_id,
+                    "FITS header missing image_width; using "
+                    "config.data.image_width fallback",
+                    log_file);
+  }
+  if (height <= 0 && cfg.data.image_height > 0) {
+    height = cfg.data.image_height;
+    emitter.warning(run_id,
+                    "FITS header missing image_height; using "
+                    "config.data.image_height fallback",
+                    log_file);
+  }
+
+  if (header_has_color_hint && !cfg.data.color_mode.empty() &&
       cfg.data.color_mode != detected_mode_str) {
     emitter.warning(run_id,
                     "Detected color mode '" + detected_mode_str +
@@ -502,45 +552,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
-    if (cfg.data.linear_required) {
-      // Remove non-linear frames from the pipeline
-      std::set<size_t> reject_set(rejected_indices.begin(),
-                                  rejected_indices.end());
-      std::vector<std::filesystem::path> kept;
-      kept.reserve(frames.size() - rejected_indices.size());
-      for (size_t i = 0; i < frames.size(); ++i) {
-        if (reject_set.find(i) == reject_set.end()) {
-          kept.push_back(frames[i]);
-        }
-      }
-      frames = std::move(kept);
-      emitter.warning(
-          run_id,
-          "Linearity: " + std::to_string(rejected_indices.size()) +
-              " non-linear frames removed, " +
-              std::to_string(frames.size()) + " frames remaining",
-          log_file);
-      linearity_info["action"] = "removed";
-      linearity_info["frames_remaining"] = static_cast<int>(frames.size());
-
-      if (frames.empty()) {
-        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
-                          {{"error", "All frames rejected by linearity check"},
-                           {"linearity", linearity_info}},
-                          log_file);
-        emitter.run_end(run_id, false, "error", log_file);
-        std::cerr << "Error: All frames rejected by linearity check."
-                  << std::endl;
-        return 1;
-      }
-    } else {
-      emitter.warning(
-          run_id,
-          "Linearity: " + std::to_string(rejected_indices.size()) +
-              " frames flagged non-linear (kept, linear_required=false)",
-          log_file);
-      linearity_info["action"] = "warn_only";
-    }
+    emitter.warning(
+        run_id,
+        "Linearity: " + std::to_string(rejected_indices.size()) +
+            " frames flagged non-linear (kept, warn-only mode)",
+        log_file);
+    linearity_info["action"] = "warn_only";
+    linearity_info["frames_remaining"] = static_cast<int>(frames.size());
   }
 
   core::json scan_extra = {
@@ -1714,7 +1732,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       const size_t bytes_per_worker =
           max_tile_px * static_cast<size_t>(std::max(1, n_frames_with_data)) *
           sizeof(float);
-      const size_t budget = 512ull * 1024ull * 1024ull; // conservative
+      const size_t budget =
+          static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget)) *
+          1024ull * 1024ull;
       if (bytes_per_worker > 0) {
         int max_workers_by_mem = static_cast<int>(budget / bytes_per_worker);
         if (max_workers_by_mem < 1)
