@@ -1686,7 +1686,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     cv::setNumThreads(1);
 
     // Parallel processing configuration
-    int parallel_tiles = 4;
+    int parallel_tiles = cfg.runtime_limits.parallel_workers;
     int cpu_cores = std::thread::hardware_concurrency();
     if (cpu_cores == 0)
       cpu_cores = 1;
@@ -2517,9 +2517,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           int cpu_cores = static_cast<int>(std::thread::hardware_concurrency());
           if (cpu_cores <= 0)
             cpu_cores = 1;
-          subset_workers = std::min<int>(cpu_cores,
-                                         static_cast<int>(tiles_phase56.size()));
-          subset_workers = std::max(1, std::min(subset_workers, 8));
+          subset_workers = std::min<int>(cfg.runtime_limits.parallel_workers,
+                                         cpu_cores);
+          subset_workers =
+              std::min<int>(subset_workers, static_cast<int>(tiles_phase56.size()));
+          subset_workers = std::max(1, subset_workers);
         }
 
         auto process_tile = [&]() {

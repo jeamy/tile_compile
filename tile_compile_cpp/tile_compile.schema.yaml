@@ -277,6 +277,10 @@ properties:
   runtime_limits:
     type: object
     properties:
+      parallel_workers:
+        type: integer
+        minimum: 1
+        description: "Anzahl paralleler Worker fuer Tile-Phasen; wird zusaetzlich durch CPU-Kerne und OSC-Speicherbudget begrenzt."
       tile_analysis_max_factor_vs_stack: {type: number, exclusiveMinimum: 0}
       hard_abort_hours: {type: number, exclusiveMinimum: 0}
       allow_emergency_mode:

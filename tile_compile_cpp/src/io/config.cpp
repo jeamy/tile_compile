@@ -481,6 +481,8 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (rl["allow_emergency_mode"])
       cfg.runtime_limits.allow_emergency_mode =
           rl["allow_emergency_mode"].as<bool>();
+    if (rl["parallel_workers"])
+      cfg.runtime_limits.parallel_workers = rl["parallel_workers"].as<int>();
   }
 
   return cfg;
@@ -696,6 +698,8 @@ YAML::Node Config::to_yaml() const {
   node["runtime_limits"]["hard_abort_hours"] = runtime_limits.hard_abort_hours;
   node["runtime_limits"]["allow_emergency_mode"] =
       runtime_limits.allow_emergency_mode;
+  node["runtime_limits"]["parallel_workers"] =
+      runtime_limits.parallel_workers;
 
   return node;
 }
@@ -956,6 +960,9 @@ void Config::validate() const {
   if (runtime_limits.hard_abort_hours <= 0.0f) {
     throw ValidationError("runtime_limits.hard_abort_hours must be > 0");
   }
+  if (runtime_limits.parallel_workers < 1) {
+    throw ValidationError("runtime_limits.parallel_workers must be >= 1");
+  }
 }
 
 std::string get_schema_json() {
@@ -1118,7 +1125,8 @@ std::string get_schema_json() {
     "runtime_limits": { "type":"object",
       "properties": { "tile_analysis_max_factor_vs_stack":{"type":"number","exclusiveMinimum":0},
                       "hard_abort_hours":{"type":"number","exclusiveMinimum":0},
-                      "allow_emergency_mode":{"type":"boolean"} } }
+                      "allow_emergency_mode":{"type":"boolean"},
+                      "parallel_workers":{"type":"integer","minimum":1} } }
   }
 })";
 }
