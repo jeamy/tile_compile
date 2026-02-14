@@ -343,15 +343,26 @@ Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width
 
     std::vector<float> buffer(static_cast<size_t>(rw) * static_cast<size_t>(rh));
 
-    long fpixel[2] = {static_cast<long>(rx0 + 1), static_cast<long>(ry0 + 1)};
-    long lpixel[2] = {static_cast<long>(rx0 + rw), static_cast<long>(ry0 + rh)};
-    long inc[2] = {1, 1};
-
-    fits_read_subset(fptr, TFLOAT, fpixel, lpixel, inc, nullptr, buffer.data(), nullptr, &status);
+    if (naxis >= 3) {
+        // RGB cube: read ROI from first plane to keep scalar ROI API contract.
+        long fpixel[3] = {static_cast<long>(rx0 + 1), static_cast<long>(ry0 + 1), 1};
+        long lpixel[3] = {static_cast<long>(rx0 + rw), static_cast<long>(ry0 + rh), 1};
+        long inc[3] = {1, 1, 1};
+        fits_read_subset(fptr, TFLOAT, fpixel, lpixel, inc, nullptr,
+                         buffer.data(), nullptr, &status);
+    } else {
+        long fpixel[2] = {static_cast<long>(rx0 + 1), static_cast<long>(ry0 + 1)};
+        long lpixel[2] = {static_cast<long>(rx0 + rw), static_cast<long>(ry0 + rh)};
+        long inc[2] = {1, 1};
+        fits_read_subset(fptr, TFLOAT, fpixel, lpixel, inc, nullptr,
+                         buffer.data(), nullptr, &status);
+    }
     fits_close_file(fptr, &status);
 
     if (status) {
-        throw FitsError("Cannot read FITS ROI pixel data: " + path.string());
+        throw FitsError("Cannot read FITS ROI pixel data: " + path.string() +
+                        " (cfitsio_status=" + std::to_string(status) +
+                        ", reason=\"" + cfitsio_status_text(status) + "\")");
     }
 
     Matrix2Df data(rh, rw);

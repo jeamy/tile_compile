@@ -37,11 +37,9 @@ class RunTab : public QWidget {
     void start_run_clicked();
     void abort_run_clicked();
     void working_dir_changed();
-    void input_dir_changed();
 
   private slots:
     void on_browse_working_dir();
-    void on_browse_input_dir();
 
   private:
     void build_ui();

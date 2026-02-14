@@ -712,9 +712,9 @@ void Config::validate() const {
     throw ValidationError("pipeline.mode must be 'production' or 'test'");
   }
 
-  if (data.image_width < 1 || data.image_height < 1) {
+  if (data.image_width < 0 || data.image_height < 0) {
     throw ValidationError(
-        "data.image_width and data.image_height must be >= 1");
+        "data.image_width and data.image_height must be >= 0");
   }
   if (data.frames_min < 1) {
     throw ValidationError("data.frames_min must be >= 1");
@@ -987,8 +987,8 @@ std::string get_schema_json() {
                       "write_global_metrics":{"type":"boolean"},
                       "write_global_registration":{"type":"boolean"} } },
     "data": { "type":"object",
-      "properties": { "image_width":{"type":"integer","minimum":1},
-                      "image_height":{"type":"integer","minimum":1},
+      "properties": { "image_width":{"type":"integer","minimum":0},
+                      "image_height":{"type":"integer","minimum":0},
                       "frames_min":{"type":"integer","minimum":1},
                       "frames_target":{"type":"integer","minimum":0},
                       "color_mode":{"type":"string","enum":["OSC","MONO","RGB"]},

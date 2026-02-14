@@ -16,13 +16,13 @@ output:
   write_global_registration: true # global_registration.json speichern
 
 data:
-  image_width: 3840 # erwartete Bildbreite (px)
-  image_height: 2160 # erwartete Bildhoehe (px)
+  # image_width: 3840 # erwartete Bildbreite (px)
+  # image_height: 2160 # erwartete Bildhoehe (px)
   frames_min: 50 # Legacy-Mindestwert, parallel zu assumptions.frames_min
   frames_target: 0 # 0 = unbegrenzt, sonst Zielanzahl fuer Auswahl/Begrenzung
-  color_mode: OSC # OSC|MONO|RGB
-  bayer_pattern: GBRG # RGGB|BGGR|GRBG|GBRG
-  linear_required: true # nur lineare Daten verarbeiten
+  # color_mode: OSC # OSC|MONO|RGB
+  # bayer_pattern: GBRG # RGGB|BGGR|GRBG|GBRG
+  # linear_required: true # nur lineare Daten verarbeiten
 
 input:
   pattern: ./data/*.fits # Input-Glob fuer Rohframes

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Eigen/Dense>
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -38,10 +40,19 @@ inline std::string bayer_pattern_to_string(BayerPattern pattern) {
 }
 
 inline BayerPattern string_to_bayer_pattern(const std::string& s) {
-    if (s == "RGGB") return BayerPattern::RGGB;
-    if (s == "BGGR") return BayerPattern::BGGR;
-    if (s == "GRBG") return BayerPattern::GRBG;
-    if (s == "GBRG") return BayerPattern::GBRG;
+    std::string norm = s;
+    auto not_space = [](unsigned char c) { return !std::isspace(c); };
+    norm.erase(norm.begin(),
+               std::find_if(norm.begin(), norm.end(), not_space));
+    norm.erase(std::find_if(norm.rbegin(), norm.rend(), not_space).base(),
+               norm.end());
+    std::transform(norm.begin(), norm.end(), norm.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+    if (norm == "RGGB") return BayerPattern::RGGB;
+    if (norm == "BGGR") return BayerPattern::BGGR;
+    if (norm == "GRBG") return BayerPattern::GRBG;
+    if (norm == "GBRG") return BayerPattern::GBRG;
     return BayerPattern::UNKNOWN;
 }
 
