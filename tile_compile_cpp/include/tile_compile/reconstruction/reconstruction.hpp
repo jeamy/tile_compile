@@ -43,6 +43,10 @@ WeightedTileResult sigma_clip_weighted_tile_with_fallback(
 Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
                                       const config::SoftThresholdConfig& cfg);
 
+// Chroma-selective denoise for linear RGB planes (OSC pipeline).
+void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
+                                const config::ChromaDenoiseConfig& cfg);
+
 // Generate a 1D Hann (raised cosine) window of length n.
 std::vector<float> make_hann_1d(int n);
 

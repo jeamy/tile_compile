@@ -86,4 +86,13 @@ DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
                                        int origin_x,
                                        int origin_y);
 
+// Bilinear debayer with Bayer-parity aware tile origin handling.
+DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
+                               BayerPattern pattern);
+
+DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
+                               BayerPattern pattern,
+                               int origin_x,
+                               int origin_y);
+
 } // namespace tile_compile::image

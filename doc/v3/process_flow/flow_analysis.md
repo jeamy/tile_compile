@@ -266,6 +266,24 @@ Most astronomical image processing tools face similar challenges with large data
 
 ## 10. Recommendations
 
+### 10.0 Implementation Status (2026-02-13)
+
+The following high-impact quality actions have now been implemented and are
+marked as completed:
+
+1. [erledigt] **Debayer quality upgrade (OSC)**
+   - Bilinear, Bayer-parity-aware demosaic path implemented for OSC processing.
+
+2. [erledigt] **More robust FWHM/PSF statistics**
+   - MAD-based outlier rejection added to frame-level FWHM aggregation.
+
+3. [erledigt] **Dataset-adaptive chroma denoise behavior**
+   - Chroma denoise strength now adapts to measured chroma-noise level.
+
+4. [erledigt] **Stronger tile-imprint regression guard**
+   - Validation now uses both worst boundary ratio and p95 boundary ratio
+     (`tile_pattern_ratio`, `tile_pattern_ratio_p95`).
+
 ### 10.1 Priority Improvements
 
 1. **Observability & QA**:
@@ -283,16 +301,17 @@ Most astronomical image processing tools face similar challenges with large data
 ### 10.2 Algorithmic Enhancements
 
 1. **Debayering**:
-   - Consider implementing more advanced debayering algorithms
-   - Add sensor-specific handling of G1/G2 channels if needed
+   - [erledigt] Bilinear, Bayer-parity-aware Debayering is implemented.
+   - [teilweise offen] Sensor-specific calibration for G1/G2 response remains optional future work.
 
 2. **Denoise Strategy**:
-   - Expand dataset-aware denoise presets
-   - Evaluate optional alternatives for structure-preserving denoise
+   - [erledigt] Dataset-aware chroma denoise scaling is implemented.
+   - [teilweise offen] Continue expanding practical presets and optional structure-preserving alternatives.
 
 3. **FWHM Estimation**:
-   - Improve star profile modeling for elliptical PSFs
-   - Add robust outlier rejection in FWHM calculations
+   - [erledigt] Robust outlier rejection (MAD-based clipping) is implemented in FWHM aggregation.
+   - [erledigt] Star-profile modeling uses 2D elliptical PSF moment fitting (major/minor axes).
+   - [offen] Optional next step: non-linear 2D Gaussian PSF fit for higher photometric fidelity.
 
 ### 10.3 Performance Optimizations
 
