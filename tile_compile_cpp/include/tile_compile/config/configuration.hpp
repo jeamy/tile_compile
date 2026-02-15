@@ -207,6 +207,13 @@ struct StackingConfig {
     float min_fraction = 0.5f;
   } sigma_clip;
 
+  struct ClusterQualityWeightingConfig {
+    bool enabled = true;
+    float kappa_cluster = 1.0f;
+    bool cap_enabled = false;
+    float cap_ratio = 20.0f;
+  } cluster_quality_weighting;
+
   std::string method = "rej";
   bool output_stretch = false;
   bool cosmetic_correction = false;

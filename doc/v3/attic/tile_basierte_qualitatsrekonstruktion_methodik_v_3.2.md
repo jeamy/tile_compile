@@ -1,15 +1,12 @@
 # Tile-basierte Qualitaetsrekonstruktion fuer DSO - Methodik v3.2
 
-**Status:** Normative Referenzspezifikation (konsolidiert)  
+**Status:** Normative Referenzspezifikation  
 **Version:** v3.2 (2026-02-13)  
-**Basiert auf:** v3.1E (2026-02-12)  
 **Gilt fuer:** `tile_compile.yaml`
 
 ---
 
 ## 0. Ziel von v3.2
-
-v3.2 konsolidiert v3.1E auf eine **widerspruchsfreie, implementierungsstabile Basis**.
 
 Kernziele:
 
