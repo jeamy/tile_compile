@@ -1124,6 +1124,22 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   // Config parameters (v3: single global registration, no tile-ECC)
   int min_valid_frames = 1;
 
+  auto compute_worker_count = [&](size_t task_count) -> int {
+    int workers = cfg.runtime_limits.parallel_workers;
+    if (workers < 1) {
+      workers = 1;
+    }
+    int cpu_cores = static_cast<int>(std::thread::hardware_concurrency());
+    if (cpu_cores > 0) {
+      workers = std::min(workers, cpu_cores);
+    }
+    if (task_count > 0) {
+      workers =
+          std::min(workers, static_cast<int>(std::max<size_t>(1, task_count)));
+    }
+    return std::max(1, workers);
+  };
+
   emitter.phase_start(run_id, Phase::REGISTRATION, "REGISTRATION", log_file);
 
   std::vector<WarpMatrix> global_frame_warps(frames.size(),
@@ -1192,76 +1208,134 @@ int run_command(const std::string &config_path, const std::string &input_dir,
                     << std::endl;
         }
 
-        for (size_t fi = 0; fi < frames.size(); ++fi) {
-          if (static_cast<int>(fi) == global_ref_idx) {
-            global_frame_warps[fi] = registration::identity_warp();
-            global_frame_cc[fi] = 1.0f;
-          } else {
-            Matrix2Df mov_full;
-            {
-              auto pair = load_frame_normalized(fi);
-              mov_full = std::move(pair.first);
+        const int reg_workers = compute_worker_count(frames.size());
+        std::cout << "[REGISTRATION] Using " << reg_workers
+                  << " parallel workers for " << frames.size() << " frames"
+                  << std::endl;
+        std::mutex reg_log_mutex;
+        std::mutex reg_progress_mutex;
+        std::atomic<size_t> reg_next{0};
+        std::atomic<size_t> reg_done{0};
+        std::atomic<bool> reg_failed{false};
+        std::string reg_error;
+
+        auto reg_worker = [&]() {
+          while (true) {
+            const size_t fi = reg_next.fetch_add(1);
+            if (fi >= frames.size()) {
+              break;
             }
-            if (mov_full.size() <= 0) {
-              global_frame_warps[fi] = registration::identity_warp();
-              global_frame_cc[fi] = 0.0f;
-            } else {
-              Matrix2Df mov_reg = (detected_mode == ColorMode::OSC)
-                                      ? image::cfa_green_proxy_downsample2x2(
-                                            mov_full, detected_bayer_str)
-                                      : registration::downsample2x2_mean(mov_full);
-              // Diagnostic: first few moving frames
-              if (fi < 3) {
-                float mmin = mov_reg.minCoeff();
-                float mmax = mov_reg.maxCoeff();
-                float mmean = mov_reg.mean();
-                std::cerr << "[REG-DIAG] mov_reg[" << fi << "] "
-                          << mov_reg.rows() << "x" << mov_reg.cols()
-                          << " min=" << mmin << " max=" << mmax
-                          << " mean=" << mmean << std::endl;
-              }
-
-              if (mov_reg.rows() != ref_reg.rows() ||
-                  mov_reg.cols() != ref_reg.cols()) {
+            try {
+              if (static_cast<int>(fi) == global_ref_idx) {
                 global_frame_warps[fi] = registration::identity_warp();
-                global_frame_cc[fi] = 0.0f;
+                global_frame_cc[fi] = 1.0f;
               } else {
-                // Delegate to canonical cascade in module
-                auto sfr = registration::register_single_frame(
-                    mov_reg, ref_reg, cfg.registration);
-
-                if (sfr.reg.success) {
-                  global_frame_cc[fi] = sfr.reg.correlation;
-                  WarpMatrix w_full = sfr.reg.warp;
-                  w_full(0, 2) *= global_reg_scale;
-                  w_full(1, 2) *= global_reg_scale;
-                  global_frame_warps[fi] = w_full;
-                } else {
+                Matrix2Df mov_full;
+                {
+                  auto pair = load_frame_normalized(fi);
+                  mov_full = std::move(pair.first);
+                }
+                if (mov_full.size() <= 0) {
                   global_frame_warps[fi] = registration::identity_warp();
                   global_frame_cc[fi] = 0.0f;
-                }
+                } else {
+                  Matrix2Df mov_reg = (detected_mode == ColorMode::OSC)
+                                          ? image::cfa_green_proxy_downsample2x2(
+                                                mov_full, detected_bayer_str)
+                                          : registration::downsample2x2_mean(
+                                                mov_full);
+                  // Diagnostic: first few moving frames
+                  if (fi < 3) {
+                    float mmin = mov_reg.minCoeff();
+                    float mmax = mov_reg.maxCoeff();
+                    float mmean = mov_reg.mean();
+                    std::lock_guard<std::mutex> lock(reg_log_mutex);
+                    std::cerr << "[REG-DIAG] mov_reg[" << fi << "] "
+                              << mov_reg.rows() << "x" << mov_reg.cols()
+                              << " min=" << mmin << " max=" << mmax
+                              << " mean=" << mmean << std::endl;
+                  }
 
-                // Per-frame logging
-                if (fi < 5 || fi == frames.size() - 1 ||
-                    (fi % 50 == 0)) {
-                  std::cerr << "[REG] frame " << fi << "/" << frames.size()
-                            << " method=" << sfr.method_used
-                            << " ncc_id=" << sfr.ncc_identity
-                            << " cc=" << global_frame_cc[fi]
-                            << std::endl;
+                  if (mov_reg.rows() != ref_reg.rows() ||
+                      mov_reg.cols() != ref_reg.cols()) {
+                    global_frame_warps[fi] = registration::identity_warp();
+                    global_frame_cc[fi] = 0.0f;
+                  } else {
+                    // Delegate to canonical cascade in module
+                    auto sfr = registration::register_single_frame(
+                        mov_reg, ref_reg, cfg.registration);
+
+                    if (sfr.reg.success) {
+                      global_frame_cc[fi] = sfr.reg.correlation;
+                      WarpMatrix w_full = sfr.reg.warp;
+                      w_full(0, 2) *= global_reg_scale;
+                      w_full(1, 2) *= global_reg_scale;
+                      global_frame_warps[fi] = w_full;
+                    } else {
+                      global_frame_warps[fi] = registration::identity_warp();
+                      global_frame_cc[fi] = 0.0f;
+                    }
+
+                    // Per-frame logging
+                    if (fi < 5 || fi == frames.size() - 1 || (fi % 50 == 0)) {
+                      std::lock_guard<std::mutex> lock(reg_log_mutex);
+                      std::cerr << "[REG] frame " << fi << "/" << frames.size()
+                                << " method=" << sfr.method_used
+                                << " ncc_id=" << sfr.ncc_identity
+                                << " cc=" << global_frame_cc[fi] << std::endl;
+                    }
+                  }
                 }
               }
+            } catch (const std::exception &e) {
+              reg_failed.store(true, std::memory_order_relaxed);
+              std::lock_guard<std::mutex> lock(reg_log_mutex);
+              if (reg_error.empty()) {
+                reg_error = e.what();
+              }
+            } catch (...) {
+              reg_failed.store(true, std::memory_order_relaxed);
+              std::lock_guard<std::mutex> lock(reg_log_mutex);
+              if (reg_error.empty()) {
+                reg_error = "unknown_error";
+              }
+            }
+
+            const size_t done = reg_done.fetch_add(1) + 1;
+            if (done % 5 == 0 || done == frames.size()) {
+              const float p = frames.empty()
+                                  ? 1.0f
+                                  : static_cast<float>(done) /
+                                        static_cast<float>(frames.size());
+              std::lock_guard<std::mutex> lock(reg_progress_mutex);
+              emitter.phase_progress(
+                  run_id, Phase::REGISTRATION, p,
+                  "global_reg " + std::to_string(done) + "/" +
+                      std::to_string(frames.size()) + " workers=" +
+                      std::to_string(reg_workers),
+                  log_file);
             }
           }
+        };
 
-          const float p = frames.empty()
-                              ? 1.0f
-                              : static_cast<float>(fi + 1) /
-                                    static_cast<float>(frames.size());
-          emitter.phase_progress(run_id, Phase::REGISTRATION, p,
-                                 "global_reg " + std::to_string(fi + 1) + "/" +
-                                     std::to_string(frames.size()),
-                                 log_file);
+        if (reg_workers > 1) {
+          std::vector<std::thread> workers;
+          workers.reserve(static_cast<size_t>(reg_workers));
+          for (int w = 0; w < reg_workers; ++w) {
+            workers.emplace_back(reg_worker);
+          }
+          for (auto &worker : workers) {
+            if (worker.joinable()) {
+              worker.join();
+            }
+          }
+        } else {
+          reg_worker();
+        }
+
+        if (reg_failed.load(std::memory_order_relaxed)) {
+          throw std::runtime_error(reg_error.empty() ? "registration_failed"
+                                                     : reg_error);
         }
 
         global_reg_status = "ok";
@@ -1444,35 +1518,93 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   DiskCacheFrameStore prewarped_frames(
       run_dir / ".prewarped_cache", frames.size(), height, width);
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
-  int n_frames_with_data = 0;
-  for (size_t fi = 0; fi < frames.size(); ++fi) {
-    auto pair = load_frame_normalized(fi);
-    Matrix2Df img = std::move(pair.first);
-    if (img.size() <= 0) {
-      continue;
-    }
-    const auto &w = global_frame_warps[fi];
-    const float eps = 1.0e-6f;
-    const bool is_identity =
-        std::fabs(w(0, 0) - 1.0f) < eps && std::fabs(w(0, 1)) < eps &&
-        std::fabs(w(1, 0)) < eps && std::fabs(w(1, 1) - 1.0f) < eps &&
-        std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
-    Matrix2Df warped;
-    if (is_identity) {
-      warped = std::move(img);
-    } else {
-      warped = image::apply_global_warp(img, w, detected_mode);
-    }
-    if (warped.size() > 0) {
-      prewarped_frames.store(fi, warped);
-      if (prewarped_frames.has_data(fi)) {
-        frame_has_data[fi] = 1;
-        ++n_frames_with_data;
+  const int prewarp_workers = compute_worker_count(frames.size());
+  std::cout << "[PREWARP] Using " << prewarp_workers
+            << " parallel workers for " << frames.size() << " frames"
+            << std::endl;
+  std::mutex prewarp_store_mutex;
+  std::mutex prewarp_log_mutex;
+  std::atomic<size_t> prewarp_next{0};
+  std::atomic<int> n_frames_with_data{0};
+  std::atomic<bool> prewarp_failed{false};
+  std::string prewarp_error;
+
+  auto prewarp_worker = [&]() {
+    while (true) {
+      const size_t fi = prewarp_next.fetch_add(1);
+      if (fi >= frames.size()) {
+        break;
+      }
+      try {
+        auto pair = load_frame_normalized(fi);
+        Matrix2Df img = std::move(pair.first);
+        if (img.size() <= 0) {
+          continue;
+        }
+        const auto &w = global_frame_warps[fi];
+        const float eps = 1.0e-6f;
+        const bool is_identity =
+            std::fabs(w(0, 0) - 1.0f) < eps && std::fabs(w(0, 1)) < eps &&
+            std::fabs(w(1, 0)) < eps && std::fabs(w(1, 1) - 1.0f) < eps &&
+            std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
+        Matrix2Df warped;
+        if (is_identity) {
+          warped = std::move(img);
+        } else {
+          warped = image::apply_global_warp(img, w, detected_mode);
+        }
+        if (warped.size() > 0) {
+          bool has_data = false;
+          {
+            std::lock_guard<std::mutex> lock(prewarp_store_mutex);
+            prewarped_frames.store(fi, warped);
+            has_data = prewarped_frames.has_data(fi);
+          }
+          if (has_data) {
+            frame_has_data[fi] = 1;
+            n_frames_with_data.fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      } catch (const std::exception &e) {
+        prewarp_failed.store(true, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(prewarp_log_mutex);
+        if (prewarp_error.empty()) {
+          prewarp_error = e.what();
+        }
+      } catch (...) {
+        prewarp_failed.store(true, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(prewarp_log_mutex);
+        if (prewarp_error.empty()) {
+          prewarp_error = "unknown_error";
+        }
       }
     }
+  };
+
+  if (prewarp_workers > 1) {
+    std::vector<std::thread> workers;
+    workers.reserve(static_cast<size_t>(prewarp_workers));
+    for (int w = 0; w < prewarp_workers; ++w) {
+      workers.emplace_back(prewarp_worker);
+    }
+    for (auto &worker : workers) {
+      if (worker.joinable()) {
+        worker.join();
+      }
+    }
+  } else {
+    prewarp_worker();
   }
 
-  const int n_usable_frames = n_frames_with_data;
+  if (prewarp_failed.load(std::memory_order_relaxed)) {
+    std::cerr << "Error during PREWARP: "
+              << (prewarp_error.empty() ? "unknown_error" : prewarp_error)
+              << std::endl;
+    emitter.run_end(run_id, false, "error", log_file);
+    return 1;
+  }
+
+  const int n_usable_frames = n_frames_with_data.load(std::memory_order_relaxed);
   constexpr int kReducedModeMinFrames = 50;
   const core::ModeGateDecision gate = core::evaluate_mode_gate(
       n_usable_frames, cfg.assumptions.frames_reduced_threshold,
@@ -1506,62 +1638,117 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     local_metrics.assign(frames.size(), {});
     local_weights.assign(frames.size(), {});
 
-    for (size_t fi = 0; fi < frames.size(); ++fi) {
-      local_metrics[fi].reserve(tiles_phase56.size());
-      local_weights[fi].reserve(tiles_phase56.size());
+    const int local_metrics_workers = compute_worker_count(frames.size());
+    std::cout << "[LOCAL_METRICS] Using " << local_metrics_workers
+              << " parallel workers for " << frames.size() << " frames"
+              << std::endl;
+    std::atomic<size_t> lm_next{0};
+    std::atomic<size_t> lm_done{0};
+    std::mutex lm_progress_mutex;
+    std::mutex lm_error_mutex;
+    std::atomic<bool> lm_failed{false};
+    std::string lm_error;
 
-      if (!frame_has_data[fi]) {
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-          TileMetrics z;
-          z.fwhm = 0.0f;
-          z.roundness = 0.0f;
-          z.contrast = 0.0f;
-          z.sharpness = 0.0f;
-          z.background = 0.0f;
-          z.noise = 0.0f;
-          z.gradient_energy = 0.0f;
-          z.star_count = 0;
-          z.type = TileType::STRUCTURE;
-          z.quality_score = 0.0f;
-          local_metrics[fi].push_back(z);
-          local_weights[fi].push_back(0.0f);
+    auto make_zero_metrics = [&]() -> TileMetrics {
+      TileMetrics z;
+      z.fwhm = 0.0f;
+      z.roundness = 0.0f;
+      z.contrast = 0.0f;
+      z.sharpness = 0.0f;
+      z.background = 0.0f;
+      z.noise = 0.0f;
+      z.gradient_energy = 0.0f;
+      z.star_count = 0;
+      z.type = TileType::STRUCTURE;
+      z.quality_score = 0.0f;
+      return z;
+    };
+
+    auto local_metrics_worker = [&]() {
+      while (true) {
+        const size_t fi = lm_next.fetch_add(1);
+        if (fi >= frames.size()) {
+          break;
         }
-        continue;
-      }
+        try {
+          local_metrics[fi].reserve(tiles_phase56.size());
+          local_weights[fi].reserve(tiles_phase56.size());
 
-      for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-        const Tile &t = tiles_phase56[ti];
-        Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t);
+          if (!frame_has_data[fi]) {
+            for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+              local_metrics[fi].push_back(make_zero_metrics());
+              local_weights[fi].push_back(0.0f);
+            }
+          } else {
+            for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+              const Tile &t = tiles_phase56[ti];
+              Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t);
 
-        if (tile_img.size() <= 0) {
-          TileMetrics z;
-          z.fwhm = 0.0f;
-          z.roundness = 0.0f;
-          z.contrast = 0.0f;
-          z.sharpness = 0.0f;
-          z.background = 0.0f;
-          z.noise = 0.0f;
-          z.gradient_energy = 0.0f;
-          z.star_count = 0;
-          z.type = TileType::STRUCTURE;
-          z.quality_score = 0.0f;
-          local_metrics[fi].push_back(z);
-          local_weights[fi].push_back(0.0f);
-          continue;
+              if (tile_img.size() <= 0) {
+                local_metrics[fi].push_back(make_zero_metrics());
+                local_weights[fi].push_back(0.0f);
+                continue;
+              }
+
+              TileMetrics tm = metrics::calculate_tile_metrics(tile_img);
+              local_metrics[fi].push_back(tm);
+              local_weights[fi].push_back(1.0f);
+            }
+          }
+        } catch (const std::exception &e) {
+          lm_failed.store(true, std::memory_order_relaxed);
+          std::lock_guard<std::mutex> lock(lm_error_mutex);
+          if (lm_error.empty()) {
+            lm_error = e.what();
+          }
+        } catch (...) {
+          lm_failed.store(true, std::memory_order_relaxed);
+          std::lock_guard<std::mutex> lock(lm_error_mutex);
+          if (lm_error.empty()) {
+            lm_error = "unknown_error";
+          }
         }
 
-        TileMetrics tm = metrics::calculate_tile_metrics(tile_img);
-        local_metrics[fi].push_back(tm);
-        local_weights[fi].push_back(1.0f);
+        const size_t done = lm_done.fetch_add(1) + 1;
+        if (done % 2 == 0 || done == frames.size()) {
+          const float p = frames.empty() ? 1.0f
+                                         : static_cast<float>(done) /
+                                               static_cast<float>(frames.size());
+          std::lock_guard<std::mutex> lock(lm_progress_mutex);
+          emitter.phase_progress(
+              run_id, Phase::LOCAL_METRICS, p,
+              "local_metrics " + std::to_string(done) + "/" +
+                  std::to_string(frames.size()) + " workers=" +
+                  std::to_string(local_metrics_workers),
+              log_file);
+        }
       }
+    };
 
-      const float p = frames.empty() ? 1.0f
-                                     : static_cast<float>(fi + 1) /
-                                           static_cast<float>(frames.size());
-      emitter.phase_progress(run_id, Phase::LOCAL_METRICS, p,
-                             "local_metrics " + std::to_string(fi + 1) + "/" +
-                                 std::to_string(frames.size()),
-                             log_file);
+    if (local_metrics_workers > 1) {
+      std::vector<std::thread> workers;
+      workers.reserve(static_cast<size_t>(local_metrics_workers));
+      for (int w = 0; w < local_metrics_workers; ++w) {
+        workers.emplace_back(local_metrics_worker);
+      }
+      for (auto &worker : workers) {
+        if (worker.joinable()) {
+          worker.join();
+        }
+      }
+    } else {
+      local_metrics_worker();
+    }
+
+    if (lm_failed.load(std::memory_order_relaxed)) {
+      emitter.phase_end(run_id, Phase::LOCAL_METRICS, "error",
+                        {{"error", lm_error.empty() ? "unknown_error" : lm_error}},
+                        log_file);
+      emitter.run_end(run_id, false, "error", log_file);
+      std::cerr << "Error during LOCAL_METRICS: "
+                << (lm_error.empty() ? "unknown_error" : lm_error)
+                << std::endl;
+      return 1;
     }
 
     std::vector<uint8_t> tile_star_flags(tiles_phase56.size(), 0);
@@ -1797,8 +1984,10 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
       // Peak per worker is ~ N_frames * tile_pixels * sizeof(float)
       // (channel stacking is sequential, so not multiplied by 3).
+      const int n_frames_with_data_i =
+          n_frames_with_data.load(std::memory_order_relaxed);
       const size_t bytes_per_worker =
-          max_tile_px * static_cast<size_t>(std::max(1, n_frames_with_data)) *
+          max_tile_px * static_cast<size_t>(std::max(1, n_frames_with_data_i)) *
           sizeof(float);
       const size_t budget =
           static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget)) *
@@ -1836,10 +2025,14 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     for (auto &c : frame_valid_tile_counts)
       c.store(0);
 
-    // Reduced/emergency runs finalize from Phase 7 directly; per-tile scale
-    // normalization can imprint a visible grid for small DSLR stacks.
-    // Keep v3.2 tile normalization enabled in full mode, disable in
-    // reduced/emergency execution path.
+    // NOTE (2026-02): In reduced/emergency mode, Phase 7 output is the final
+    // stack (Phase 8/9 skipped). For small DSLR-derived sets (Canon/Nikon RAW
+    // -> FITS) the v3.2 per-tile median(abs)-scale normalization before OLA can
+    // imprint the tile lattice (stride-sized checker/grid) into the final image.
+    // Therefore:
+    //  - Full mode: keep v3.2 §5.7.1 normalization (used as intermediate stage)
+    //  - Reduced/emergency: disable per-tile normalization to preserve visual
+    //    continuity and avoid tile-contrast pumping in the final output
     const bool apply_phase7_tile_norm = !skip_clustering_in_reduced;
 
     // Thread-safe structures for parallel processing
