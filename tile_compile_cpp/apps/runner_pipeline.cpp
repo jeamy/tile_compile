@@ -11,11 +11,8 @@
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/linearity.hpp"
 #include "tile_compile/metrics/metrics.hpp"
-#include "tile_compile/metrics/tile_metrics.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
-#include "tile_compile/registration/global_registration.hpp"
-#include "tile_compile/registration/registration.hpp"
 #include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/astrometry/gaia_catalog.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
@@ -116,7 +113,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   }
 
   std::string run_id = core::get_run_id();
-  fs::path run_dir = runs / run_id;
+  fs::path run_dir = fs::absolute(runs / run_id);
   fs::create_directories(run_dir / "logs");
   fs::create_directories(run_dir / "outputs");
   fs::create_directories(run_dir / "artifacts");
@@ -128,7 +125,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     core::copy_config(cfg_path, run_dir / "config.yaml");
   }
 
-  std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl");
+  std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl",
+                               std::ios::out | std::ios::trunc);
+  if (!event_log_file.is_open()) {
+    std::cerr << "Error: cannot open events log file: "
+              << (run_dir / "logs" / "run_events.jsonl") << std::endl;
+    return 1;
+  }
   TeeBuf tee_buf(std::cout.rdbuf(), event_log_file.rdbuf());
   std::ostream log_file(&tee_buf);
 
