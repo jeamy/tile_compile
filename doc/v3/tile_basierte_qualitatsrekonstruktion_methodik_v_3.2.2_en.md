@@ -1,12 +1,12 @@
-# Tile-Based Quality Reconstruction for DSO - Methodology v3.2
+# Tile-Based Quality Reconstruction for DSO - Methodology v3.2.2
 
 **Status:** Normative reference specification  
-**Version:** v3.2 (2026-02-13)  
+**Version:** v3.2.2 (2026-02-13)  
 **Applies to:** `tile_compile.yaml`
 
 ---
 
-## 0. Objective of v3.2
+## 0. Objective of v3.2.2
 
 Core objectives:
 
@@ -41,7 +41,7 @@ The method models two orthogonal quality axes:
 
 ### 1.3 Linearity Semantics (Clarified)
 
-"Strictly linear" in v3.2 means:
+"Strictly linear" in v3.2.2 means:
 
 1. **Photometric signal mapping** remains linear (no global nonlinear tone curves such as stretch, asinh, log).
 2. Linear reconstruction steps (scaling, weighted mean, overlap-add) are mandatory.
@@ -446,6 +446,38 @@ Optional stability cap (recommended):
 
 with recommended `r_cap` in `[10, 50]`.
 
+Practical sensitivity of `kappa_cluster` (assuming `Q_k` span approximately `[-3,+3]`):
+
+| κ (`kappa_cluster`) | max weight ratio (≈ `e^{6κ}`) | Character |
+|---:|---:|---|
+| 0.3 | ~ `e^{1.8}` ≈ 6 | very mild |
+| 0.5 | ~ `e^{3}` ≈ 20 | moderate |
+| 1.0 | ~ `e^{6}` ≈ 403 | strong |
+| 1.5 | ~ `e^{9}` ≈ 8103 | very aggressive |
+| 2.0 | ~ `e^{12}` ≈ 162k | practically winner-takes-most |
+
+Recommendation (astrophotographic datasets):
+
+- Default: `κ = 0.5 ... 1.0`
+- `κ = 1.2` only if intentionally targeting lucky-imaging-like behavior
+- `κ >= 1.5` is typically unstable (numerically and statistically)
+
+Practical ranges for `r_cap`:
+
+| `r_cap` | Behavior |
+|---:|---|
+| 5 | very conservative |
+| 10 | mildly bounded |
+| 20 | moderate |
+| 50 | little intervention |
+| >100 | effectively disabled |
+
+Recommendation:
+
+- Conservatively stable: `r_cap = 10`
+- Balanced: `r_cap = 20-30`
+- Nearly unbounded: `r_cap >= 50`
+
 Final result per channel:
 
 `R_c = sum_k (w_k * S_{k,c}) / sum_k w_k`
@@ -505,7 +537,7 @@ Permissible downstream step, applied to linear data.
 12. WCS round-trip error below threshold
 13. PCC stability: positive determinant, bounded condition number, residuals below threshold
 
-Note: The legacy PCC test "no negative matrix element" is **no longer** required as a hard criterion in v3.2.
+Note: The legacy PCC test "no negative matrix element" is **no longer** required as a hard criterion in v3.2.2.
 
 ---
 
@@ -559,16 +591,16 @@ Procedure:
 
 | Date | Version | Change |
 |---|---|---|
-| 2026-02-15 | v3.2.2 | Replaced cluster-size weighted final stacking with quality-weighted cluster aggregation (exp(kappa_cluster * Q_k)) including optional dominance cap |
-| 2026-02-15 | v3.2.1 | Enforced overlap clipping in tile geometry; added photometric restoration after OLA; replaced uniform per-cluster averaging with cluster-size weighted final stack |
-| 2026-02-13 | v3.2 | Path A removed; CFA-based registration and channel-separation path defined as the only normative path up to phase 2 |
-| 2026-02-13 | v3.2 | Consolidation after mathematical diagnostics |
-| 2026-02-13 | v3.2 | Linearity semantics clarified |
-| 2026-02-13 | v3.2 | Reduced-mode boundaries made explicit |
-| 2026-02-13 | v3.2 | Notation unified to `f,t,c` |
-| 2026-02-13 | v3.2 | Tile reconstruction/fallbacks merged into a consistent block |
-| 2026-02-13 | v3.2 | Discrete Hann definition fixed normatively |
-| 2026-02-13 | v3.2 | PCC test criterion replaced with a technically robust version |
+| 2026-02-15 | v3.2.2.2 | Replaced cluster-size weighted final stacking with quality-weighted cluster aggregation (exp(kappa_cluster * Q_k)) including optional dominance cap |
+| 2026-02-15 | v3.2.2.1 | Enforced overlap clipping in tile geometry; added photometric restoration after OLA; replaced uniform per-cluster averaging with cluster-size weighted final stack |
+| 2026-02-13 | v3.2.2 | Path A removed; CFA-based registration and channel-separation path defined as the only normative path up to phase 2 |
+| 2026-02-13 | v3.2.2 | Consolidation after mathematical diagnostics |
+| 2026-02-13 | v3.2.2 | Linearity semantics clarified |
+| 2026-02-13 | v3.2.2 | Reduced-mode boundaries made explicit |
+| 2026-02-13 | v3.2.2 | Notation unified to `f,t,c` |
+| 2026-02-13 | v3.2.2 | Tile reconstruction/fallbacks merged into a consistent block |
+| 2026-02-13 | v3.2.2 | Discrete Hann definition fixed normatively |
+| 2026-02-13 | v3.2.2 | PCC test criterion replaced with a technically robust version |
 
 
 ---
