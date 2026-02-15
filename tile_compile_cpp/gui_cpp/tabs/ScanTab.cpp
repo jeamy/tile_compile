@@ -392,7 +392,7 @@ void ScanTab::on_browse_bias_master() {
         ? QString::fromStdString(project_root_) 
         : cal_bias_master_->text();
     const QString p = QFileDialog::getOpenFileName(this, "Select master bias", start, 
-        "FITS Files (*.fit *.fits *.fts);;All Files (*)");
+        "FITS Files (*.fit *.fits *.fts *.fit.fz *.fits.fz *.fts.fz);;All Files (*)");
     if (!p.isEmpty()) {
         cal_bias_master_->setText(p);
         on_calibration_changed();
@@ -404,7 +404,7 @@ void ScanTab::on_browse_dark_master() {
         ? QString::fromStdString(project_root_) 
         : cal_dark_master_->text();
     const QString p = QFileDialog::getOpenFileName(this, "Select master dark", start, 
-        "FITS Files (*.fit *.fits *.fts);;All Files (*)");
+        "FITS Files (*.fit *.fits *.fts *.fit.fz *.fits.fz *.fts.fz);;All Files (*)");
     if (!p.isEmpty()) {
         cal_dark_master_->setText(p);
         on_calibration_changed();
@@ -416,7 +416,7 @@ void ScanTab::on_browse_flat_master() {
         ? QString::fromStdString(project_root_) 
         : cal_flat_master_->text();
     const QString p = QFileDialog::getOpenFileName(this, "Select master flat", start, 
-        "FITS Files (*.fit *.fits *.fts);;All Files (*)");
+        "FITS Files (*.fit *.fits *.fts *.fit.fz *.fits.fz *.fts.fz);;All Files (*)");
     if (!p.isEmpty()) {
         cal_flat_master_->setText(p);
         on_calibration_changed();

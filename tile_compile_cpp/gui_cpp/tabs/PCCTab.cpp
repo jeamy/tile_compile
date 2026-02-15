@@ -189,7 +189,7 @@ void PCCTab::build_ui() {
         QString default_name = fi.completeBaseName() + "_pcc." + fi.suffix();
         QString save_path = QFileDialog::getSaveFileName(
             this, "Save PCC-Corrected RGB FITS", fi.dir().filePath(default_name),
-            "FITS files (*.fits *.fit *.fts);;All files (*)");
+            "FITS files (*.fits *.fit *.fts *.fits.fz *.fit.fz *.fts.fz);;All files (*)");
         if (save_path.isEmpty()) return;
 
         try {
@@ -219,7 +219,7 @@ void PCCTab::append_log(const QString &msg) {
 void PCCTab::on_browse_fits() {
     const QString path = QFileDialog::getOpenFileName(
         this, "Select RGB FITS", QString(),
-        "FITS files (*.fits *.fit *.fts);;All files (*)");
+        "FITS files (*.fits *.fit *.fts *.fits.fz *.fit.fz *.fts.fz);;All files (*)");
     if (!path.isEmpty()) {
         edt_fits_path_->setText(path);
         // Auto-detect .wcs file: try exact name, then _solved variant

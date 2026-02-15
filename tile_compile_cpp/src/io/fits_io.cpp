@@ -94,8 +94,13 @@ void FitsHeader::set(const std::string& key, bool value) {
 }
 
 bool is_fits_image_path(const fs::path& path) {
-    std::string ext = core::to_lower(path.extension().string());
-    return ext == ".fit" || ext == ".fits" || ext == ".fts";
+    const std::string name = core::to_lower(path.filename().string());
+    return core::ends_with(name, ".fit") ||
+           core::ends_with(name, ".fits") ||
+           core::ends_with(name, ".fts") ||
+           core::ends_with(name, ".fit.fz") ||
+           core::ends_with(name, ".fits.fz") ||
+           core::ends_with(name, ".fts.fz");
 }
 
 std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path) {
