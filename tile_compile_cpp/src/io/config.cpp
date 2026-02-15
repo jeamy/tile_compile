@@ -178,6 +178,21 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.registration.star_inlier_tol_px = r["star_inlier_tol_px"].as<float>();
     if (r["star_dist_bin_px"])
       cfg.registration.star_dist_bin_px = r["star_dist_bin_px"].as<float>();
+    if (r["reject_outliers"])
+      cfg.registration.reject_outliers = r["reject_outliers"].as<bool>();
+    if (r["reject_cc_min_abs"])
+      cfg.registration.reject_cc_min_abs = r["reject_cc_min_abs"].as<float>();
+    if (r["reject_cc_mad_multiplier"])
+      cfg.registration.reject_cc_mad_multiplier = r["reject_cc_mad_multiplier"].as<float>();
+    if (r["reject_shift_px_min"])
+      cfg.registration.reject_shift_px_min = r["reject_shift_px_min"].as<float>();
+    if (r["reject_shift_median_multiplier"])
+      cfg.registration.reject_shift_median_multiplier =
+          r["reject_shift_median_multiplier"].as<float>();
+    if (r["reject_scale_min"])
+      cfg.registration.reject_scale_min = r["reject_scale_min"].as<float>();
+    if (r["reject_scale_max"])
+      cfg.registration.reject_scale_max = r["reject_scale_max"].as<float>();
   }
 
   if (node["dithering"]) {
@@ -583,6 +598,14 @@ YAML::Node Config::to_yaml() const {
   node["registration"]["star_min_inliers"] = registration.star_min_inliers;
   node["registration"]["star_inlier_tol_px"] = registration.star_inlier_tol_px;
   node["registration"]["star_dist_bin_px"] = registration.star_dist_bin_px;
+  node["registration"]["reject_outliers"] = registration.reject_outliers;
+  node["registration"]["reject_cc_min_abs"] = registration.reject_cc_min_abs;
+  node["registration"]["reject_cc_mad_multiplier"] = registration.reject_cc_mad_multiplier;
+  node["registration"]["reject_shift_px_min"] = registration.reject_shift_px_min;
+  node["registration"]["reject_shift_median_multiplier"] =
+      registration.reject_shift_median_multiplier;
+  node["registration"]["reject_scale_min"] = registration.reject_scale_min;
+  node["registration"]["reject_scale_max"] = registration.reject_scale_max;
 
   node["dithering"]["enabled"] = dithering.enabled;
   node["dithering"]["min_shift_px"] = dithering.min_shift_px;
@@ -810,6 +833,26 @@ void Config::validate() const {
       registration.star_dist_bin_px <= 0.0f) {
     throw ValidationError(
         "registration.star_inlier_tol_px and star_dist_bin_px must be > 0");
+  }
+  if (registration.reject_cc_min_abs < 0.0f ||
+      registration.reject_cc_min_abs > 1.0f) {
+    throw ValidationError("registration.reject_cc_min_abs must be in [0,1]");
+  }
+  if (registration.reject_cc_mad_multiplier <= 0.0f) {
+    throw ValidationError(
+        "registration.reject_cc_mad_multiplier must be > 0");
+  }
+  if (registration.reject_shift_px_min < 0.0f ||
+      registration.reject_shift_median_multiplier <= 0.0f) {
+    throw ValidationError(
+        "registration.reject_shift_px_min must be >= 0 and "
+        "registration.reject_shift_median_multiplier must be > 0");
+  }
+  if (registration.reject_scale_min <= 0.0f ||
+      registration.reject_scale_max < registration.reject_scale_min) {
+    throw ValidationError(
+        "registration.reject_scale_min must be > 0 and "
+        "registration.reject_scale_max must be >= reject_scale_min");
   }
 
   if (dithering.min_shift_px < 0.0f) {

@@ -24,6 +24,17 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
     - `w_k = exp(kappa_cluster * Q_k)`
   - includes optional dominance cap semantics:
     - `w_k <= cap_ratio * median_j(w_j)` (only when `cap_enabled: true`)
+- `registration.reject_*` outlier filtering
+  - includes configurable global-registration outlier rejection:
+    - `reject_outliers`
+    - `reject_cc_min_abs`
+    - `reject_cc_mad_multiplier`
+    - `reject_shift_px_min`
+    - `reject_shift_median_multiplier`
+    - `reject_scale_min`
+    - `reject_scale_max`
+  - rejected registration frames are logged as `warning` events in
+    `logs/run_events.jsonl` and summarized in `phase_end(REGISTRATION)` extras.
 
 ## Profiles
 
@@ -60,6 +71,7 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
    - `data.image_width` / `data.image_height`
    - `data.bayer_pattern`
    - (optional) tune `dithering.min_shift_px` to your mount behavior
+   - (optional) tune `registration.reject_*` thresholds if frames are over- or under-rejected
    - (optional, OSC) tune `chroma_denoise.blend.amount` and `chroma_denoise.apply_stage`
    - (optional) tune `stacking.cluster_quality_weighting.*` if cluster weighting is too strong/weak
 2. Run directly with:

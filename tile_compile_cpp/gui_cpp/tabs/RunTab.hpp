@@ -5,6 +5,8 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QCheckBox>
+#include <QTableWidget>
+#include <QStringList>
 #include <string>
 
 namespace tile_compile::gui {
@@ -17,12 +19,16 @@ class RunTab : public QWidget {
 
     QString get_working_dir() const;
     QString get_input_dir() const;
+    QStringList get_input_dirs() const;
+    QStringList get_input_subdirs() const;
     QString get_runs_dir() const;
     QString get_pattern() const;
     bool is_dry_run() const;
     
     void set_working_dir(const QString &dir);
     void set_input_dir(const QString &dir);
+    void set_input_dirs(const QStringList &dirs);
+    void set_input_subdirs(const QStringList &subdirs);
     void set_runs_dir(const QString &dir);
     void set_pattern(const QString &pattern);
     void set_dry_run(bool dry_run);
@@ -48,6 +54,7 @@ class RunTab : public QWidget {
     
     QLineEdit *working_dir_ = nullptr;
     QLineEdit *input_dir_ = nullptr;
+    QTableWidget *input_dirs_table_ = nullptr;
     QLineEdit *runs_dir_ = nullptr;
     QLineEdit *pattern_ = nullptr;
     QCheckBox *dry_run_ = nullptr;

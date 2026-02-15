@@ -630,6 +630,90 @@ Geometrische Registrierung (Ausrichtung) aller Frames auf einen Referenz-Frame.
 
 ---
 
+### `registration.reject_outliers`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert die automatische Verwerfung implausibler globaler Registrierungs-Warps vor PREWARP/TILE-Phasen.
+
+- **`true`**: Low-CC-, Shift-, Reflection- und Scale-Outlier werden auf Identity gesetzt
+- **`false`**: Keine zusätzliche Outlier-Verwerfung nach der Registrierung
+
+**Logging:** Jeder verworfene Frame wird als `warning` in `logs/run_events.jsonl` protokolliert und zusätzlich in `phase_end(REGISTRATION)` unter `reg_rejected_frames` abgelegt.
+
+---
+
+### `registration.reject_cc_min_abs`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | 0 – 1 |
+| **Default** | `0.35` |
+
+**Zweck:** Absolute Untergrenze für den Korrelationswert (CC) in der Registrierungs-Outlier-Erkennung.
+
+**Hinweis:** Effektiver CC-Schwellwert ist `max(reject_cc_min_abs, median(CC) - reject_cc_mad_multiplier * MAD(CC))`.
+
+---
+
+### `registration.reject_cc_mad_multiplier`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `4.0` |
+
+**Zweck:** Robustheitsfaktor für den CC-basierten Outlier-Schwellenwert (MAD-basiert).
+
+Kleinere Werte verwerfen aggressiver, größere Werte konservativer.
+
+---
+
+### `registration.reject_shift_px_min`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >=0 |
+| **Default** | `25.0` |
+
+**Zweck:** Feste Mindestgrenze (Pixel) für Shift-Outlier-Verwerfung.
+
+**Hinweis:** Effektiver Shift-Grenzwert ist `max(reject_shift_px_min, reject_shift_median_multiplier * median(shift_px))`.
+
+---
+
+### `registration.reject_shift_median_multiplier`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `3.0` |
+
+**Zweck:** Skalenfaktor für den robusten Shift-Outlier-Grenzwert relativ zur Medianverschiebung.
+
+---
+
+### `registration.reject_scale_min` / `registration.reject_scale_max`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number / number |
+| **Default** | `0.92` / `1.08` |
+
+**Zweck:** Zulässiger Bereich für den geschätzten Similarity-Scale bei globaler Registrierung.
+
+- Scale außerhalb `[reject_scale_min, reject_scale_max]` wird als Outlier verworfen.
+- Zusätzlich werden Reflection-Warps (`det < 0`) immer verworfen.
+
+---
+
 ### `dithering.enabled`
 
 | Eigenschaft | Wert |
