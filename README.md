@@ -68,6 +68,20 @@ Detailed phase docs: `doc/v3/process_flow/`
 - Schemas: `tile_compile.schema.json`, `tile_compile.schema.yaml`
 - Reference document: `doc/v3/configuration_reference.md`
 
+### Example profiles
+
+Complete standalone example configs are available under `tile_compile_cpp/examples/`:
+
+- `tile_compile.full_mode.example.yaml`
+- `tile_compile.reduced_mode.example.yaml`
+- `tile_compile.emergency_mode.example.yaml`
+- `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
+- `tile_compile.canon_low_n_high_quality.example.yaml`
+- `tile_compile.mono_full_mode.example.yaml`
+- `tile_compile.mono_small_n_anti_grid.example.yaml` (recommended for MONO low-frame datasets, e.g. ~10..40, to reduce tile-pattern risk)
+
+See also: `tile_compile_cpp/examples/README.md`
+
 ## Quickstart (C++)
 
 ### Build Requirements

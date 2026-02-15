@@ -45,6 +45,9 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
 - `tile_compile.mono_full_mode.example.yaml`
   - Suggested full config for MONO datasets in full mode.
   - Chroma denoise block included for completeness, but disabled by default.
+- `tile_compile.mono_small_n_anti_grid.example.yaml`
+  - Suggested MONO config for small frame counts (e.g. 10..40) where tile seams/patterns can appear.
+  - Anti-grid focus: larger tiles, higher overlap, conservative local weighting, reduced denoise aggressiveness.
 
 ## Usage
 
