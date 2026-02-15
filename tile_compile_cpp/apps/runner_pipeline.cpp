@@ -444,6 +444,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   int seeing_tile_size = 0;
   float overlap_fraction = cfg.tile.overlap_fraction;
+  float overlap_clipped = cfg.tile.overlap_fraction;
   int overlap_px = 0;
   int stride_px = 0;
   {
@@ -463,12 +464,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     seeing_tile_size = static_cast<int>(std::floor(tc));
     if (seeing_tile_size < tmin) seeing_tile_size = tmin;
 
-    overlap_fraction = std::min(0.5f, std::max(0.0f, overlap_fraction));
-    overlap_px = static_cast<int>(std::floor(overlap_fraction * static_cast<float>(seeing_tile_size)));
+    overlap_clipped = std::min(0.5f, std::max(0.0f, overlap_fraction));
+    overlap_fraction = overlap_clipped;
+    overlap_px = static_cast<int>(
+        std::floor(overlap_clipped * static_cast<float>(seeing_tile_size)));
     stride_px = seeing_tile_size - overlap_px;
     if (stride_px <= 0) {
-      overlap_fraction = 0.25f;
-      overlap_px = static_cast<int>(std::floor(overlap_fraction * static_cast<float>(seeing_tile_size)));
+      overlap_clipped = std::min(0.5f, std::max(0.0f, 0.25f));
+      overlap_fraction = overlap_clipped;
+      overlap_px = static_cast<int>(
+          std::floor(overlap_clipped * static_cast<float>(seeing_tile_size)));
       stride_px = seeing_tile_size - overlap_px;
     }
   }
@@ -493,6 +498,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         {"min_size", cfg.tile.min_size},
         {"max_divisor", cfg.tile.max_divisor},
         {"overlap_fraction", overlap_fraction},
+        {"overlap_clipped", overlap_clipped},
     };
     artifact["uniform_tile_size"] = uniform_tile_size;
 
@@ -548,6 +554,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   std::vector<float> tile_norm_bg_r;
   std::vector<float> tile_norm_bg_g;
   std::vector<float> tile_norm_bg_b;
+  std::vector<float> tile_norm_scale;
   std::vector<float> tile_post_snr;
   std::vector<float> tile_mean_dx;
   std::vector<float> tile_mean_dy;
@@ -724,6 +731,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     tile_norm_bg_r.assign(tiles_phase56.size(), 0.0f);
     tile_norm_bg_g.assign(tiles_phase56.size(), 0.0f);
     tile_norm_bg_b.assign(tiles_phase56.size(), 0.0f);
+    tile_norm_scale.assign(tiles_phase56.size(), 1.0f);
     tile_post_snr.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dx.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dy.assign(tiles_phase56.size(), 0.0f);
@@ -1032,6 +1040,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
               tile_rec.data()[i] *= inv;
             }
+            tile_norm_scale[ti] = m_shared;
+          } else {
+            tile_norm_scale[ti] = 1.0f;
           }
         } else {
           const float bg = center_by_median(tile_rec);
@@ -1042,6 +1053,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
               tile_rec.data()[i] *= inv;
             }
+            tile_norm_scale[ti] = m;
+          } else {
+            tile_norm_scale[ti] = 1.0f;
           }
         }
       }
@@ -1140,9 +1154,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         std::vector<float> bg_r_vals;
         std::vector<float> bg_g_vals;
         std::vector<float> bg_b_vals;
+        std::vector<float> m_vals;
         bg_r_vals.reserve(tiles_phase56.size());
         bg_g_vals.reserve(tiles_phase56.size());
         bg_b_vals.reserve(tiles_phase56.size());
+        m_vals.reserve(tiles_phase56.size());
         for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
           if (tile_valid_counts[ti] <= 0) {
             continue;
@@ -1150,16 +1166,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           bg_r_vals.push_back(tile_norm_bg_r[ti]);
           bg_g_vals.push_back(tile_norm_bg_g[ti]);
           bg_b_vals.push_back(tile_norm_bg_b[ti]);
+          m_vals.push_back(tile_norm_scale[ti]);
         }
-        if (!bg_r_vals.empty() && !bg_g_vals.empty() && !bg_b_vals.empty()) {
+        if (!bg_r_vals.empty() && !bg_g_vals.empty() && !bg_b_vals.empty() &&
+            !m_vals.empty()) {
           const float bg_r = core::median_of(bg_r_vals);
           const float bg_g = core::median_of(bg_g_vals);
           const float bg_b = core::median_of(bg_b_vals);
+          const float m_global = std::max(kEpsMedian, core::median_of(m_vals));
           for (int i = 0; i < recon_R.size(); ++i) {
             if (weight_sum.data()[i] > eps_ws) {
-              recon_R.data()[i] += bg_r;
-              recon_G.data()[i] += bg_g;
-              recon_B.data()[i] += bg_b;
+              recon_R.data()[i] = recon_R.data()[i] * m_global + bg_r;
+              recon_G.data()[i] = recon_G.data()[i] * m_global + bg_g;
+              recon_B.data()[i] = recon_B.data()[i] * m_global + bg_b;
             }
           }
         }
@@ -1179,17 +1198,21 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
       if (apply_phase7_tile_norm) {
         std::vector<float> bg_vals;
+        std::vector<float> m_vals;
         bg_vals.reserve(tiles_phase56.size());
+        m_vals.reserve(tiles_phase56.size());
         for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
           if (tile_valid_counts[ti] > 0) {
             bg_vals.push_back(tile_norm_bg_r[ti]);
+            m_vals.push_back(tile_norm_scale[ti]);
           }
         }
-        if (!bg_vals.empty()) {
+        if (!bg_vals.empty() && !m_vals.empty()) {
           const float bg = core::median_of(bg_vals);
+          const float m_global = std::max(kEpsMedian, core::median_of(m_vals));
           for (int i = 0; i < recon.size(); ++i) {
             if (weight_sum.data()[i] > eps_ws) {
-              recon.data()[i] += bg;
+              recon.data()[i] = recon.data()[i] * m_global + bg;
             }
           }
         }
@@ -1522,6 +1545,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     std::vector<Matrix2Df> synthetic_frames;
     std::vector<RGBFrame> synthetic_rgb_frames;
+    std::vector<float> synthetic_cluster_quality;
 
     auto reconstruct_subset =
         [&](const std::vector<char> &frame_mask) -> Matrix2Df {
@@ -1764,12 +1788,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       for (int c = 0; c < n_clusters; ++c) {
         std::vector<char> use_frame(frames.size(), 0);
         int count = 0;
+        std::vector<float> cluster_q_values;
+        cluster_q_values.reserve(frames.size());
+        const float k_global =
+            std::max(cfg.global_metrics.weight_exponent_scale, kEpsWeight);
+        const float q_min = cfg.global_metrics.clamp[0];
+        const float q_max = cfg.global_metrics.clamp[1];
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (cluster_labels[fi] != c)
             continue;
           use_frame[fi] = 1;
-          if (frame_has_data[fi])
+          if (frame_has_data[fi]) {
             count++;
+            const float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                                  ? global_weights[static_cast<int>(fi)]
+                                  : 1.0f;
+            const float q_f = std::clamp(
+                std::log(std::max(G_f, kEpsWeight)) / k_global, q_min, q_max);
+            if (std::isfinite(q_f)) {
+              cluster_q_values.push_back(q_f);
+            }
+          }
         }
         clusters_done++;
         emitter.phase_progress_counts(
@@ -1784,6 +1823,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         Matrix2Df syn = reconstruct_subset(use_frame);
         if (syn.size() == 0)
           continue;
+        const float q_k =
+            cluster_q_values.empty() ? 0.0f : core::median_of(cluster_q_values);
 
         if (detected_mode == ColorMode::OSC) {
           auto deb = image::debayer_nearest_neighbor(syn, detected_bayer, 0, 0);
@@ -1795,6 +1836,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
 
         synthetic_frames.push_back(std::move(syn));
+        synthetic_cluster_quality.push_back(q_k);
         synth_done = static_cast<int>(synthetic_frames.size());
         if (static_cast<int>(synthetic_frames.size()) >= synth_max)
           break;
@@ -1837,6 +1879,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         artifact["frames_min"] = synth_min;
         artifact["frames_max"] = synth_max;
         artifact["weighting"] = cfg.synthetic.weighting;
+        artifact["cluster_quality"] = core::json::array();
+        for (float qk : synthetic_cluster_quality) {
+          artifact["cluster_quality"].push_back(qk);
+        }
         core::write_text(run_dir / "artifacts" / "synthetic_frames.json",
                          artifact.dump(2));
       }
@@ -1860,6 +1906,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       // Filter out empty (0×0) synthetic frames (empty cluster outputs)
       std::vector<Matrix2Df> valid_synth;
       valid_synth.reserve(synthetic_frames.size());
+      std::vector<float> valid_synth_q;
+      valid_synth_q.reserve(synthetic_frames.size());
 
       // For OSC: keep a parallel list of per-frame RGB planes so we can
       // stack in RGB space and avoid debayering after sigma-clipped stacking.
@@ -1892,6 +1940,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
 
         valid_synth.push_back(std::move(sf));
+        if (i < synthetic_cluster_quality.size()) {
+          valid_synth_q.push_back(synthetic_cluster_quality[i]);
+        } else {
+          valid_synth_q.push_back(0.0f);
+        }
       }
 
       std::cerr << "[STACKING] " << valid_synth.size() << " / "
@@ -1899,9 +1952,36 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 << std::endl;
 
       if (!valid_synth.empty()) {
+        const bool use_quality_weighting =
+            cfg.stacking.cluster_quality_weighting.enabled;
+        std::vector<float> cluster_stack_weights;
+        if (use_quality_weighting) {
+          cluster_stack_weights.resize(valid_synth_q.size(), 1.0f);
+          const float kappa = cfg.stacking.cluster_quality_weighting.kappa_cluster;
+          for (size_t i = 0; i < valid_synth_q.size(); ++i) {
+            cluster_stack_weights[i] = std::exp(kappa * valid_synth_q[i]);
+            if (!std::isfinite(cluster_stack_weights[i]) ||
+                cluster_stack_weights[i] <= 0.0f) {
+              cluster_stack_weights[i] = 1.0f;
+            }
+          }
+          if (cfg.stacking.cluster_quality_weighting.cap_enabled &&
+              !cluster_stack_weights.empty()) {
+            std::vector<float> tmp_w = cluster_stack_weights;
+            const float med_w = core::median_of(tmp_w);
+            const float cap =
+                std::max(kEpsWeight,
+                         cfg.stacking.cluster_quality_weighting.cap_ratio * med_w);
+            for (float &w : cluster_stack_weights) {
+              if (w > cap)
+                w = cap;
+            }
+          }
+        }
+
         if (detected_mode == ColorMode::OSC &&
             !synth_R.empty() && synth_R.size() == valid_synth.size()) {
-          if (cfg.stacking.method == "rej") {
+          if (!use_quality_weighting && cfg.stacking.method == "rej") {
             recon_R = reconstruction::sigma_clip_stack(
                 synth_R, cfg.stacking.sigma_clip.sigma_low,
                 cfg.stacking.sigma_clip.sigma_high,
@@ -1921,18 +2001,24 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             recon_R = Matrix2Df::Zero(synth_R[0].rows(), synth_R[0].cols());
             recon_G = Matrix2Df::Zero(synth_G[0].rows(), synth_G[0].cols());
             recon_B = Matrix2Df::Zero(synth_B[0].rows(), synth_B[0].cols());
+            float wsum = 0.0f;
             for (size_t k = 0; k < synth_R.size(); ++k) {
-              recon_R += synth_R[k];
-              recon_G += synth_G[k];
-              recon_B += synth_B[k];
+              const float wk = use_quality_weighting
+                                   ? cluster_stack_weights[k]
+                                   : 1.0f;
+              recon_R += synth_R[k] * wk;
+              recon_G += synth_G[k] * wk;
+              recon_B += synth_B[k] * wk;
+              wsum += wk;
             }
-            recon_R /= static_cast<float>(synth_R.size());
-            recon_G /= static_cast<float>(synth_G.size());
-            recon_B /= static_cast<float>(synth_B.size());
+            const float denom = std::max(kEpsWeight, wsum);
+            recon_R /= denom;
+            recon_G /= denom;
+            recon_B /= denom;
           }
           recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
         } else {
-          if (cfg.stacking.method == "rej") {
+          if (!use_quality_weighting && cfg.stacking.method == "rej") {
             recon = reconstruction::sigma_clip_stack(
                 valid_synth, cfg.stacking.sigma_clip.sigma_low,
                 cfg.stacking.sigma_clip.sigma_high,
@@ -1940,10 +2026,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 cfg.stacking.sigma_clip.min_fraction);
           } else {
             recon = Matrix2Df::Zero(valid_synth[0].rows(), valid_synth[0].cols());
-            for (const auto &sf2 : valid_synth) {
-              recon += sf2;
+            float wsum = 0.0f;
+            for (size_t idx = 0; idx < valid_synth.size(); ++idx) {
+              const float wk =
+                  use_quality_weighting ? cluster_stack_weights[idx] : 1.0f;
+              recon += valid_synth[idx] * wk;
+              wsum += wk;
             }
-            recon /= static_cast<float>(valid_synth.size());
+            recon /= std::max(kEpsWeight, wsum);
           }
         }
       }

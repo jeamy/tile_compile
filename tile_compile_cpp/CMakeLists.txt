@@ -204,6 +204,7 @@ if(BUILD_TESTS)
             tests/test_debayer.cpp
             tests/test_mode_gating.cpp
             tests/test_reconstruction_regression.cpp
+            tests/test_stacking_quality_weighting.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

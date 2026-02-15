@@ -446,6 +446,21 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (sc["min_fraction"])
         cfg.stacking.sigma_clip.min_fraction = sc["min_fraction"].as<float>();
     }
+    if (st["cluster_quality_weighting"]) {
+      auto cqw = st["cluster_quality_weighting"];
+      if (cqw["enabled"])
+        cfg.stacking.cluster_quality_weighting.enabled =
+            cqw["enabled"].as<bool>();
+      if (cqw["kappa_cluster"])
+        cfg.stacking.cluster_quality_weighting.kappa_cluster =
+            cqw["kappa_cluster"].as<float>();
+      if (cqw["cap_enabled"])
+        cfg.stacking.cluster_quality_weighting.cap_enabled =
+            cqw["cap_enabled"].as<bool>();
+      if (cqw["cap_ratio"])
+        cfg.stacking.cluster_quality_weighting.cap_ratio =
+            cqw["cap_ratio"].as<float>();
+    }
     if (st["output_stretch"])
       cfg.stacking.output_stretch = st["output_stretch"].as<bool>();
     if (st["cosmetic_correction"])
@@ -682,6 +697,14 @@ YAML::Node Config::to_yaml() const {
   node["stacking"]["sigma_clip"]["max_iters"] = stacking.sigma_clip.max_iters;
   node["stacking"]["sigma_clip"]["min_fraction"] =
       stacking.sigma_clip.min_fraction;
+  node["stacking"]["cluster_quality_weighting"]["enabled"] =
+      stacking.cluster_quality_weighting.enabled;
+  node["stacking"]["cluster_quality_weighting"]["kappa_cluster"] =
+      stacking.cluster_quality_weighting.kappa_cluster;
+  node["stacking"]["cluster_quality_weighting"]["cap_enabled"] =
+      stacking.cluster_quality_weighting.cap_enabled;
+  node["stacking"]["cluster_quality_weighting"]["cap_ratio"] =
+      stacking.cluster_quality_weighting.cap_ratio;
   node["stacking"]["output_stretch"] = stacking.output_stretch;
   node["stacking"]["cosmetic_correction"] =
       stacking.cosmetic_correction;
@@ -952,6 +975,14 @@ void Config::validate() const {
   if (!is_between_0_1(stacking.sigma_clip.min_fraction)) {
     throw ValidationError("stacking.sigma_clip.min_fraction must be in [0,1]");
   }
+  if (stacking.cluster_quality_weighting.kappa_cluster <= 0.0f) {
+    throw ValidationError(
+        "stacking.cluster_quality_weighting.kappa_cluster must be > 0");
+  }
+  if (stacking.cluster_quality_weighting.cap_ratio <= 0.0f) {
+    throw ValidationError(
+        "stacking.cluster_quality_weighting.cap_ratio must be > 0");
+  }
 
   if (validation.min_tile_weight_variance < 0.0f) {
     throw ValidationError("validation.min_tile_weight_variance must be >= 0");
@@ -1122,6 +1153,7 @@ std::string get_schema_json() {
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},
                       "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},
+                      "cluster_quality_weighting":{"type":"object","properties":{"enabled":{"type":"boolean"},"kappa_cluster":{"type":"number","exclusiveMinimum":0,"description":"Quality-weight exponent for synthetic-cluster aggregation: w_k = exp(kappa_cluster * Q_k)."},"cap_enabled":{"type":"boolean"},"cap_ratio":{"type":"number","exclusiveMinimum":0,"description":"Optional dominance cap ratio for cluster weights: w_k <= cap_ratio * median_j(w_j)."}}},
                       "output_stretch":{"type":"boolean"},
                       "cosmetic_correction":{"type":"boolean"} } },
     "validation": { "type":"object",

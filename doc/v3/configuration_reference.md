@@ -1503,6 +1503,63 @@ Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 
 ---
 
+### `stacking.cluster_quality_weighting.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert die v3.2.2-Qualitätsgewichtung für die finale Aggregation synthetischer Cluster-Frames.
+
+**Formel:** `w_k = exp(kappa_cluster * Q_k)`
+
+- `Q_k` = Cluster-Qualitätswert (typisch in `[-3, +3]`)
+- `enabled=false`: kein Qualitäts-Weighting, klassisches finales Stacking nach `stacking.method`
+- `enabled=true`: finale Aggregation per gewichteter Mittelung; Sigma-Clipping-Stacking wird in dieser Stufe nicht verwendet
+
+---
+
+### `stacking.cluster_quality_weighting.kappa_cluster`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `1.0` |
+
+**Zweck:** Exponent-Faktor für den Einfluss von `Q_k` auf das Gewicht `w_k`.
+
+- größerer Wert → stärkere Trennung guter/schlechter Cluster
+- kleinerer Wert → flachere Gewichtsverteilung
+
+---
+
+### `stacking.cluster_quality_weighting.cap_enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert optional ein Dominanz-Cap für Clustergewichte, damit einzelne Cluster das Endergebnis nicht übermäßig dominieren.
+
+---
+
+### `stacking.cluster_quality_weighting.cap_ratio`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `20.0` |
+
+**Zweck:** Gewichtslimit bei aktivem Cap.
+
+**Formel (nur wenn `cap_enabled=true`):** `w_k <= cap_ratio * median_j(w_j)`
+
+---
+
 ### `stacking.output_stretch`
 
 | Eigenschaft | Wert |
@@ -1824,6 +1881,11 @@ stacking:
     sigma_high: 2.0
     max_iters: 3
     min_fraction: 0.5
+  cluster_quality_weighting:
+    enabled: true
+    kappa_cluster: 1.0
+    cap_enabled: false
+    cap_ratio: 20.0
   output_stretch: false
   cosmetic_correction: false
 

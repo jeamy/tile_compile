@@ -384,13 +384,15 @@ DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
         float sum = 0.0f;
         int cnt = 0;
         for (int i = 0; i < n; ++i) {
-            const int yy = ys[i];
-            const int xx = xs[i];
+            const int yy = clamp_y(ys[i]);
+            const int xx = clamp_x(xs[i]);
             if (!pred(yy, xx)) continue;
             sum += sample(yy, xx);
             ++cnt;
         }
-        return (cnt > 0) ? (sum / static_cast<float>(cnt)) : sample(ys[0], xs[0]);
+        return (cnt > 0)
+                   ? (sum / static_cast<float>(cnt))
+                   : sample(clamp_y(ys[0]), clamp_x(xs[0]));
     };
 
     for (int y = 0; y < h; ++y) {
