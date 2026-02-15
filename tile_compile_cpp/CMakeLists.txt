@@ -81,7 +81,6 @@ set(LIB_SOURCES
     src/metrics/linearity.cpp
     src/reconstruction/reconstruction.cpp
     src/pipeline/adaptive_tile_grid.cpp
-    src/pipeline/pipeline.cpp
     src/astrometry/wcs.cpp
     src/astrometry/gaia_catalog.cpp
     src/astrometry/photometric_color_cal.cpp
