@@ -649,165 +649,229 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   std::vector<float> B_g(frames.size(), 0.0f);
   std::vector<float> B_b(frames.size(), 0.0f);
 
-  for (size_t i = 0; i < frames.size(); ++i) {
-    const auto &path = frames[i];
-    try {
-      auto frame_pair = io::read_fits_float(path);
-      const Matrix2Df &img = frame_pair.first;
+  int normalization_workers = cfg.runtime_limits.parallel_workers;
+  if (normalization_workers < 1) {
+    normalization_workers = 1;
+  }
+  int normalization_cpu_cores =
+      static_cast<int>(std::thread::hardware_concurrency());
+  if (normalization_cpu_cores > 0) {
+    normalization_workers = std::min(normalization_workers, normalization_cpu_cores);
+  }
+  if (!frames.empty()) {
+    normalization_workers = std::min(
+        normalization_workers,
+        static_cast<int>(std::max<size_t>(1, frames.size())));
+  }
+  normalization_workers = std::max(1, normalization_workers);
 
-      NormalizationScales s;
-      {
-        std::vector<float> all;
-        all.reserve(static_cast<size_t>(img.size()));
-        for (Eigen::Index k = 0; k < img.size(); ++k) {
-          all.push_back(img.data()[k]);
+  std::cout << "[NORMALIZATION] Using " << normalization_workers
+            << " parallel workers for " << frames.size() << " frames"
+            << std::endl;
+
+  std::atomic<size_t> norm_next{0};
+  std::atomic<size_t> norm_done{0};
+  std::atomic<bool> norm_failed{false};
+  std::mutex norm_error_mutex;
+  std::mutex norm_progress_mutex;
+  std::string norm_error;
+
+  auto normalization_worker = [&]() {
+    while (true) {
+      const size_t i = norm_next.fetch_add(1);
+      if (i >= frames.size()) {
+        break;
+      }
+      const auto &path = frames[i];
+      try {
+        auto frame_pair = io::read_fits_float(path);
+        const Matrix2Df &img = frame_pair.first;
+
+        NormalizationScales s;
+        {
+          std::vector<float> all;
+          all.reserve(static_cast<size_t>(img.size()));
+          for (Eigen::Index k = 0; k < img.size(); ++k) {
+            all.push_back(img.data()[k]);
+          }
+          const float b0 = core::median_of(all);
+          const float coarse_scale = (b0 > eps_b) ? (1.0f / b0) : 1.0f;
+          Matrix2Df coarse_norm = img * coarse_scale;
+          cv::Mat coarse_cv(coarse_norm.rows(), coarse_norm.cols(), CV_32F,
+                            coarse_norm.data());
+          const cv::Mat1b bg_mask =
+              metrics::build_background_mask_sigma_clip(coarse_cv, 3.0f, 3);
+
+          if (detected_mode == ColorMode::OSC) {
+            s.is_osc = true;
+            int r_row, r_col, b_row, b_col;
+            image::bayer_offsets(detected_bayer_str, r_row, r_col, b_row, b_col);
+
+            std::vector<float> pr_bg;
+            std::vector<float> pg_bg;
+            std::vector<float> pb_bg;
+            pr_bg.reserve(static_cast<size_t>(img.size()) / 4);
+            pg_bg.reserve(static_cast<size_t>(img.size()) / 2);
+            pb_bg.reserve(static_cast<size_t>(img.size()) / 4);
+
+            for (int y = 0; y < img.rows(); ++y) {
+              const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
+              const int py = y & 1;
+              for (int x = 0; x < img.cols(); ++x) {
+                if (mrow[x] == 0)
+                  continue;
+                const int px = x & 1;
+                const float v = img(y, x);
+                if (py == r_row && px == r_col) {
+                  pr_bg.push_back(v);
+                } else if (py == b_row && px == b_col) {
+                  pb_bg.push_back(v);
+                } else {
+                  pg_bg.push_back(v);
+                }
+              }
+            }
+
+            float br = pr_bg.empty() ? 0.0f : core::median_of(pr_bg);
+            float bg = pg_bg.empty() ? 0.0f : core::median_of(pg_bg);
+            float bb = pb_bg.empty() ? 0.0f : core::median_of(pb_bg);
+
+            if (!(br > eps_b)) {
+              std::vector<float> pr;
+              pr.reserve(static_cast<size_t>(img.size()) / 4);
+              for (int y = 0; y < img.rows(); ++y) {
+                const int py = y & 1;
+                for (int x = 0; x < img.cols(); ++x) {
+                  const int px = x & 1;
+                  if (py == r_row && px == r_col)
+                    pr.push_back(img(y, x));
+                }
+              }
+              br = core::estimate_background_sigma_clip(std::move(pr));
+            }
+            if (!(bg > eps_b)) {
+              std::vector<float> pg;
+              pg.reserve(static_cast<size_t>(img.size()) / 2);
+              for (int y = 0; y < img.rows(); ++y) {
+                const int py = y & 1;
+                for (int x = 0; x < img.cols(); ++x) {
+                  const int px = x & 1;
+                  if (!((py == r_row && px == r_col) ||
+                        (py == b_row && px == b_col)))
+                    pg.push_back(img(y, x));
+                }
+              }
+              bg = core::estimate_background_sigma_clip(std::move(pg));
+            }
+            if (!(bb > eps_b)) {
+              std::vector<float> pb;
+              pb.reserve(static_cast<size_t>(img.size()) / 4);
+              for (int y = 0; y < img.rows(); ++y) {
+                const int py = y & 1;
+                for (int x = 0; x < img.cols(); ++x) {
+                  const int px = x & 1;
+                  if (py == b_row && px == b_col)
+                    pb.push_back(img(y, x));
+                }
+              }
+              bb = core::estimate_background_sigma_clip(std::move(pb));
+            }
+
+            if (!(br > eps_b) || !(bg > eps_b) || !(bb > eps_b)) {
+              throw std::runtime_error(
+                  "NORMALIZATION: invalid background estimate");
+            }
+
+            s.scale_r = 1.0f / br;
+            s.scale_g = 1.0f / bg;
+            s.scale_b = 1.0f / bb;
+            B_r[i] = br;
+            B_g[i] = bg;
+            B_b[i] = bb;
+          } else {
+            std::vector<float> p_bg;
+            p_bg.reserve(static_cast<size_t>(img.size()));
+            for (int y = 0; y < img.rows(); ++y) {
+              const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
+              for (int x = 0; x < img.cols(); ++x) {
+                if (mrow[x] != 0)
+                  p_bg.push_back(img(y, x));
+              }
+            }
+            float b = p_bg.empty() ? 0.0f : core::median_of(p_bg);
+            if (!(b > eps_b)) {
+              std::vector<float> p;
+              p.reserve(static_cast<size_t>(img.size()));
+              for (Eigen::Index k = 0; k < img.size(); ++k) {
+                p.push_back(img.data()[k]);
+              }
+              b = core::estimate_background_sigma_clip(std::move(p));
+            }
+            if (!(b > eps_b)) {
+              throw std::runtime_error(
+                  "NORMALIZATION: invalid background estimate");
+            }
+            s.scale_mono = 1.0f / b;
+            B_mono[i] = b;
+          }
         }
-        const float b0 = core::median_of(all);
-        const float coarse_scale = (b0 > eps_b) ? (1.0f / b0) : 1.0f;
-        Matrix2Df coarse_norm = img * coarse_scale;
-        cv::Mat coarse_cv(coarse_norm.rows(), coarse_norm.cols(), CV_32F,
-                          coarse_norm.data());
-        const cv::Mat1b bg_mask =
-            metrics::build_background_mask_sigma_clip(coarse_cv, 3.0f, 3);
-
-        if (detected_mode == ColorMode::OSC) {
-          s.is_osc = true;
-          int r_row, r_col, b_row, b_col;
-          image::bayer_offsets(detected_bayer_str, r_row, r_col, b_row, b_col);
-
-          std::vector<float> pr_bg;
-          std::vector<float> pg_bg;
-          std::vector<float> pb_bg;
-          pr_bg.reserve(static_cast<size_t>(img.size()) / 4);
-          pg_bg.reserve(static_cast<size_t>(img.size()) / 2);
-          pb_bg.reserve(static_cast<size_t>(img.size()) / 4);
-
-          for (int y = 0; y < img.rows(); ++y) {
-            const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
-            const int py = y & 1;
-            for (int x = 0; x < img.cols(); ++x) {
-              if (mrow[x] == 0)
-                continue;
-              const int px = x & 1;
-              const float v = img(y, x);
-              if (py == r_row && px == r_col) {
-                pr_bg.push_back(v);
-              } else if (py == b_row && px == b_col) {
-                pb_bg.push_back(v);
-              } else {
-                pg_bg.push_back(v);
-              }
-            }
-          }
-
-          float br = pr_bg.empty() ? 0.0f : core::median_of(pr_bg);
-          float bg = pg_bg.empty() ? 0.0f : core::median_of(pg_bg);
-          float bb = pb_bg.empty() ? 0.0f : core::median_of(pb_bg);
-
-          if (!(br > eps_b)) {
-            std::vector<float> pr;
-            pr.reserve(static_cast<size_t>(img.size()) / 4);
-            for (int y = 0; y < img.rows(); ++y) {
-              const int py = y & 1;
-              for (int x = 0; x < img.cols(); ++x) {
-                const int px = x & 1;
-                if (py == r_row && px == r_col)
-                  pr.push_back(img(y, x));
-              }
-            }
-            br = core::estimate_background_sigma_clip(std::move(pr));
-          }
-          if (!(bg > eps_b)) {
-            std::vector<float> pg;
-            pg.reserve(static_cast<size_t>(img.size()) / 2);
-            for (int y = 0; y < img.rows(); ++y) {
-              const int py = y & 1;
-              for (int x = 0; x < img.cols(); ++x) {
-                const int px = x & 1;
-                if (!((py == r_row && px == r_col) ||
-                      (py == b_row && px == b_col)))
-                  pg.push_back(img(y, x));
-              }
-            }
-            bg = core::estimate_background_sigma_clip(std::move(pg));
-          }
-          if (!(bb > eps_b)) {
-            std::vector<float> pb;
-            pb.reserve(static_cast<size_t>(img.size()) / 4);
-            for (int y = 0; y < img.rows(); ++y) {
-              const int py = y & 1;
-              for (int x = 0; x < img.cols(); ++x) {
-                const int px = x & 1;
-                if (py == b_row && px == b_col)
-                  pb.push_back(img(y, x));
-              }
-            }
-            bb = core::estimate_background_sigma_clip(std::move(pb));
-          }
-
-          if (!(br > eps_b) || !(bg > eps_b) || !(bb > eps_b)) {
-            emitter.phase_end(
-                run_id, Phase::NORMALIZATION, "error",
-                {{"error", "NORMALIZATION: invalid background estimate"}},
-                log_file);
-            emitter.run_end(run_id, false, "error", log_file);
-            return 1;
-          }
-
-          s.scale_r = 1.0f / br;
-          s.scale_g = 1.0f / bg;
-          s.scale_b = 1.0f / bb;
-          B_r[i] = br;
-          B_g[i] = bg;
-          B_b[i] = bb;
-        } else {
-          std::vector<float> p_bg;
-          p_bg.reserve(static_cast<size_t>(img.size()));
-          for (int y = 0; y < img.rows(); ++y) {
-            const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
-            for (int x = 0; x < img.cols(); ++x) {
-              if (mrow[x] != 0)
-                p_bg.push_back(img(y, x));
-            }
-          }
-          float b = p_bg.empty() ? 0.0f : core::median_of(p_bg);
-          if (!(b > eps_b)) {
-            std::vector<float> p;
-            p.reserve(static_cast<size_t>(img.size()));
-            for (Eigen::Index k = 0; k < img.size(); ++k) {
-              p.push_back(img.data()[k]);
-            }
-            b = core::estimate_background_sigma_clip(std::move(p));
-          }
-          if (!(b > eps_b)) {
-            emitter.phase_end(
-                run_id, Phase::NORMALIZATION, "error",
-                {{"error", "NORMALIZATION: invalid background estimate"}},
-                log_file);
-            emitter.run_end(run_id, false, "error", log_file);
-            return 1;
-          }
-          s.scale_mono = 1.0f / b;
-          B_mono[i] = b;
+        norm_scales[i] = s;
+      } catch (const std::exception &e) {
+        norm_failed.store(true, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(norm_error_mutex);
+        if (norm_error.empty()) {
+          norm_error = e.what();
+        }
+      } catch (...) {
+        norm_failed.store(true, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(norm_error_mutex);
+        if (norm_error.empty()) {
+          norm_error = "unknown_error";
         }
       }
-      norm_scales[i] = s;
-    } catch (const std::exception &e) {
-      emitter.phase_end(run_id, Phase::NORMALIZATION, "error",
-                        {{"error", e.what()}}, log_file);
-      emitter.run_end(run_id, false, "error", log_file);
-      std::cerr << "Error during NORMALIZATION: " << e.what() << std::endl;
-      return 1;
-    }
 
-    const float progress =
-        frames.empty()
-            ? 1.0f
-            : static_cast<float>(i + 1) / static_cast<float>(frames.size());
-    emitter.phase_progress(run_id, Phase::NORMALIZATION, progress,
-                           "normalize " + std::to_string(i + 1) + "/" +
-                               std::to_string(frames.size()),
-                           log_file);
+      const size_t done = norm_done.fetch_add(1) + 1;
+      if (done % 2 == 0 || done == frames.size()) {
+        const float progress =
+            frames.empty() ? 1.0f
+                           : static_cast<float>(done) /
+                                 static_cast<float>(frames.size());
+        std::lock_guard<std::mutex> lock(norm_progress_mutex);
+        emitter.phase_progress(run_id, Phase::NORMALIZATION, progress,
+                               "normalize " + std::to_string(done) + "/" +
+                                   std::to_string(frames.size()) +
+                                   " workers=" +
+                                   std::to_string(normalization_workers),
+                               log_file);
+      }
+    }
+  };
+
+  if (normalization_workers > 1) {
+    std::vector<std::thread> workers;
+    workers.reserve(static_cast<size_t>(normalization_workers));
+    for (int w = 0; w < normalization_workers; ++w) {
+      workers.emplace_back(normalization_worker);
+    }
+    for (auto &worker : workers) {
+      if (worker.joinable()) {
+        worker.join();
+      }
+    }
+  } else {
+    normalization_worker();
+  }
+
+  if (norm_failed.load(std::memory_order_relaxed)) {
+    emitter.phase_end(run_id, Phase::NORMALIZATION, "error",
+                      {{"error", norm_error.empty() ? "unknown_error"
+                                                     : norm_error}},
+                      log_file);
+    emitter.run_end(run_id, false, "error", log_file);
+    std::cerr << "Error during NORMALIZATION: "
+              << (norm_error.empty() ? "unknown_error" : norm_error)
+              << std::endl;
+    return 1;
   }
 
   {
