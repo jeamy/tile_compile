@@ -58,11 +58,40 @@ std::vector<fs::path> discover_frames(const fs::path& input_dir, const std::stri
         return frames;
     }
     
+    std::vector<std::string> patterns;
+    {
+        std::string token;
+        for (char c : pattern) {
+            if (c == ';' || c == ',') {
+                // trim token
+                size_t b = token.find_first_not_of(" \t");
+                if (b != std::string::npos) {
+                    size_t e = token.find_last_not_of(" \t");
+                    patterns.push_back(token.substr(b, e - b + 1));
+                }
+                token.clear();
+            } else {
+                token.push_back(c);
+            }
+        }
+        size_t b = token.find_first_not_of(" \t");
+        if (b != std::string::npos) {
+            size_t e = token.find_last_not_of(" \t");
+            patterns.push_back(token.substr(b, e - b + 1));
+        }
+    }
+    if (patterns.empty()) {
+        patterns.push_back(pattern.empty() ? "*" : pattern);
+    }
+
     for (const auto& entry : fs::directory_iterator(input_dir)) {
         if (entry.is_regular_file()) {
             std::string filename = entry.path().filename().string();
-            if (glob_match(pattern, filename)) {
-                frames.push_back(entry.path());
+            for (const auto& pat : patterns) {
+                if (glob_match(pat, filename)) {
+                    frames.push_back(entry.path());
+                    break;
+                }
             }
         }
     }

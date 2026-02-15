@@ -56,7 +56,7 @@ struct CalibrationConfig {
   std::string bias_master;
   std::string dark_master;
   std::string flat_master;
-  std::string pattern = "*.fit*";
+  std::string pattern = "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz";
 };
 
 struct AssumptionsConfig {
