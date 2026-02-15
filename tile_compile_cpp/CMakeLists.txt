@@ -112,7 +112,11 @@ if(spdlog_FOUND)
 endif()
 
 # CLI Runner executable
-add_executable(tile_compile_runner apps/runner_main.cpp)
+add_executable(tile_compile_runner
+    apps/runner_main.cpp
+    apps/runner_shared.cpp
+    apps/runner_resume.cpp
+)
 target_link_libraries(tile_compile_runner PRIVATE tile_compile_lib)
 
 if(CLI11_FOUND)
