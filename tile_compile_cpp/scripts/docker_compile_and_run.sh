@@ -89,6 +89,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     ca-certificates \
     git \
+    libgl1-mesa-dev \
+    libopengl-dev \
     libopencv-dev \
     libeigen3-dev \
     libcfitsio-dev \
@@ -103,7 +105,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace
 COPY tile_compile_cpp /workspace/tile_compile_cpp
 
-RUN cmake -S /workspace/tile_compile_cpp -B /workspace/tile_compile_cpp/build -DCMAKE_BUILD_TYPE=Release \
+RUN rm -rf /workspace/tile_compile_cpp/build \
+ && cmake -S /workspace/tile_compile_cpp -B /workspace/tile_compile_cpp/build -DCMAKE_BUILD_TYPE=Release \
  && cmake --build /workspace/tile_compile_cpp/build -j"$(nproc)"
 
 WORKDIR /workspace/tile_compile_cpp/build

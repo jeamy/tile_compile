@@ -1,6 +1,12 @@
 # Tile-Compile
 
-Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer Bildstapel (Methodik v3).
+Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer Bildstapel (Methodik v3.2).
+
+Wir stellen eine neuartige Methodik zur Rekonstruktion hochwertiger astronomischer Bilder aus Kurzzeitbelichtungs-Deep-Sky-Datensätzen vor. Konventionelle Stacking-Methoden beruhen häufig auf einer binären Frame-Auswahl ("Lucky Imaging"), wodurch erhebliche Teile der gesammelten Frames verworfen werden. Unser Ansatz, **Tile-Based Quality Reconstruction (TBQR)**, ersetzt diese starre Frame-Auswahl durch ein robustes räumlich-zeitliches Qualitätsmodell. Indem wir Frames in lokale Tiles zerlegen und die Qualität entlang zweier orthogonaler Achsen modellieren — globale atmosphärische Transparenz/Rauschen und lokale strukturelle Schärfe — rekonstruieren wir ein Signal, das an jedem Pixel physikalisch und statistisch optimal ist. Wir zeigen, dass diese Methode die volle photometrische Tiefe des Datensatzes bewahrt und zugleich eine überlegene Auflösungsverbesserung gegenüber traditionellen Referenz-Stacks erzielt.
+
+Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Herausforderungen von Kurzzeitbelichtungsdaten moderner Smart-Teleskope (z.B. DWARF, Seestar) zu adressieren, macht ihre architektonische Flexibilität sie ebenso leistungsfähig für konventionelle astronomische Setups. Der umfangreiche Satz abstimmbarer Parameter — von adaptiver Tile-Größe und Kreuzkorrelationsschwellen bis hin zu ausgefeilter Clustering-Logik — ermöglicht eine präzise Optimierung der Pipeline für ein breites Spektrum optischer Systeme und atmosphärischer Bedingungen.
+
+> **Praxis-Hinweis:** Die Pipeline ist in erster Linie für Datensätze mit vielen nutzbaren Frames optimiert. Bei sehr kleinen Frame-Anzahlen oder bei stark gemischter Frame-Qualität innerhalb eines Stacks können in schwierigen Fällen sichtbare Kachelmuster auftreten. Dem kann man häufig entgegenwirken, indem man verschiedene Konfigurationseinstellungen testet (insbesondere Parameter für Registrierung, Tile-Geometrie und Rekonstruktion). Siehe dazu die Beispielprofile unter `tile_compile_cpp/examples/` sowie `tile_compile_cpp/examples/README.md`.
 
 > **Hinweis:** Dies ist experimentelle Software, die primär für die Verarbeitung von Bildern von Smart-Teleskopen entwickelt wurde (z.B. DWARF, Seestar, ZWO SeeStar, usw.). Obwohl sie für die allgemeine astronomische Bildverarbeitung konzipiert ist, wurde sie für die spezifischen Eigenschaften und Herausforderungen von Smart-Teleskop-Daten optimiert.
 
@@ -21,61 +27,57 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 - Ergebnis via **Sigma-Clip** stacken
 - OSC-Daten **debayern**
 - **Astrometrie** (ASTAP/WCS) ausführen
-- **Photometric Color Calibration** (PCC) anwenden
-- finale Outputs plus **Diagnose-Artefakte** (JSON) schreiben
+- **photometrische Farbkalibrierung** (PCC) anwenden
+- finale Ausgaben plus **Diagnose-Artefakte** (JSON) schreiben
 
-## Versions
+## Aktive Version
 
-| Version | Directory | Status | Backend |
-|---------|-----------|--------|---------|
-| **C++** | `tile_compile_cpp/` | **Active** (v3) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
+| Version | Verzeichnis | Status | Backend |
+|---------|-------------|--------|---------|
+| C++ | `tile_compile_cpp/` | Aktiv (v3.2) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
 
-## Methodik v3 — Kernfeatures
+## Pipeline-Phasen
 
-### Pipeline-Phasen
+| ID | Phase | Beschreibung |
+|----|-------|-------------|
+| 0 | SCAN_INPUT | Input-Erkennung, Modus-Erkennung, Linearitätsprüfung, Festplattenplatz-Precheck |
+| 1 | REGISTRATION | Kaskadierte globale Registrierung + CFA-bewusstes Prewarp |
+| 2 | CHANNEL_SPLIT | Metadatenphase (Kanalmodell) |
+| 3 | NORMALIZATION | Lineare hintergrundbasierte Normalisierung |
+| 4 | GLOBAL_METRICS | Globale Frame-Metriken und Gewichte |
+| 5 | TILE_GRID | Adaptive Tile-Geometrie |
+| 6 | LOCAL_METRICS | Lokale Tile-Metriken und lokale Gewichte |
+| 7 | TILE_RECONSTRUCTION | Gewichtete Overlap-Add Rekonstruktion |
+| 8 | STATE_CLUSTERING | Optionale Zustands-Clustering |
+| 9 | SYNTHETIC_FRAMES | Optionale Erzeugung synthetischer Frames |
+| 10 | STACKING | Finales lineares Stacking |
+| 11 | DEBAYER | OSC-Demosaicing zu RGB (MONO-Pass-Through) |
+| 12 | ASTROMETRY | Astrometrisches Solving / WCS |
+| 13 | PCC | Photometrische Farbkalibrierung |
+| 14 | DONE | Finaler Status (`ok` oder `validation_failed`) |
 
-| Phase | Name | Beschreibung |
-|-------|------|-------------|
-| 0 | SCAN_INPUT | Frame-Erkennung, FITS-Header, Bayer-Pattern, Linearitätsprüfung, Disk-Space-Precheck |
-| 1 | REGISTRATION | Kaskadierte globale Registrierung + CFA-aware Pre-Warping |
-| 2 | CHANNEL_SPLIT | Metadaten-Phase (Kanalmodell; tatsächliche Verarbeitung später) |
-| 3 | NORMALIZATION | Hintergrund-basierte lineare Normalisierung (kanalweise) |
-| 4 | GLOBAL_METRICS | B/σ/E → gewichtete globale Qualitäts-Scores |
-| 5 | TILE_GRID | FWHM-adaptive Tile-Geometrie |
-| 6 | LOCAL_METRICS | Stern- und Struktur-basierte Tile-Qualität |
-| 7 | TILE_RECONSTRUCTION | Gewichtete Overlap-Add mit Hanning-Fenster |
-| 8 | STATE_CLUSTERING | K-Means Clustering (mode-abhängig, optional) |
-| 9 | SYNTHETIC_FRAMES | Cluster-basierte synthetische Frames (mode-abhängig, optional) |
-| 10 | STACKING | Finales lineares Sigma-Clip oder Mean-Stacking |
-| 11 | DEBAYER | Nearest-Neighbor Demosaic (OSC → RGB) |
-| 12 | ASTROMETRY | Plate Solving via ASTAP (WCS-Koordinaten) |
-| 13 | PCC | Photometric Color Calibration (Farbkalibrierung) |
-| 14 | DONE | Abschlussstatus (`ok` / `validation_failed`) |
+Detaillierte Phasen-Dokumentation: `doc/v3/process_flow/`
 
-Detaillierte Dokumentation: `doc/v3/process_flow/`
+## Registrierungskaskade (Fallback-Strategie)
 
-### Registrierung — kaskadierte Fallbacks
+| Stufe | Methode | Typischer Anwendungsfall |
+|-------|--------|------------------|
+| 1 | Primäre Engine (`triangle_star_matching`) | Normale sternreiche Frames |
+| 2 | Trail-Endpoint-Registrierung | Startrails / rotationsstarke Daten |
+| 3 | AKAZE-Feature-Matching | Allgemeiner Feature-Fallback |
+| 4 | Robust Phase+ECC | Wolken/Nebel mit größeren Transformationen |
+| 5 | Hybrid Phase+ECC | Fälle mit schwachem Stern-Matching |
+| 6 | Identity-Fallback | Letzter Ausweg (CC=0, Frame wird beibehalten) |
 
-Die Registrierung ist robust gegen schwierige Bedingungen:
+## Konfiguration
 
-| Stufe | Methode | Funktioniert bei |
-|-------|---------|-----------------|
-| 1 | **Primary Engine** (`triangle_star_matching` default) | Standardfälle mit ausreichend Sternen |
-| 2 | **Trail Endpoint Registration** | Star Trails / Feldrotation |
-| 3 | **AKAZE Feature Matching** | Allgemeine Bildfeatures |
-| 4 | **Robust Phase+ECC** | Nebel/Wolken + größere Transformationen |
-| 5 | **Hybrid Phase+ECC** | Fallback ohne stabile Sternmatches |
-| 6 | **Identity Fallback** | Letzte Rettung (CC=0, Frame bleibt) |
-
-### Konfiguration
-
-Alle Einstellungen in `tile_compile.yaml`. Schema-Validierung via `tile_compile.schema.json` / `.yaml`.
-
-Referenz: `doc/v3/configuration_reference.md`
+- Hauptkonfigurationsdatei: `tile_compile.yaml`
+- Schemas: `tile_compile.schema.json`, `tile_compile.schema.yaml`
+- Referenzdokument: `doc/v3/configuration_reference.md`
 
 ### Beispielprofile
 
-Vollstaendige, eigenstaendige Beispielkonfigurationen liegen unter `tile_compile_cpp/examples/`:
+Vollständige eigenständige Beispielkonfigurationen sind verfügbar unter `tile_compile_cpp/examples/`:
 
 - `tile_compile.full_mode.example.yaml`
 - `tile_compile.reduced_mode.example.yaml`
@@ -83,26 +85,26 @@ Vollstaendige, eigenstaendige Beispielkonfigurationen liegen unter `tile_compile
 - `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
 - `tile_compile.canon_low_n_high_quality.example.yaml`
 - `tile_compile.mono_full_mode.example.yaml`
-- `tile_compile.mono_small_n_anti_grid.example.yaml` (empfohlen fuer MONO-Datensaetze mit kleiner Frame-Anzahl, z.B. ~10..40, zur Reduktion von Tile-Mustern)
+- `tile_compile.mono_small_n_anti_grid.example.yaml` (empfohlen für MONO-Datensätze mit geringer Frame-Anzahl, z.B. ~10..40, zur Reduzierung von Tile-Muster-Risiko)
 
 Siehe auch: `tile_compile_cpp/examples/README.md`
 
-## Quickstart (C++ Version)
+## Schnellstart (C++)
 
-Für eine vollständige Einsteiger-Anleitung siehe:
+Für eine vollständige anfängerfreundliche Anleitung siehe:
 `doc/v3/tbqr_step_by_step_en.md`
 
 ### Build-Voraussetzungen
 
-- **CMake** ≥ 3.20
-- **C++17** Compiler (GCC 11+, Clang 14+)
-- **OpenCV** ≥ 4.5
-- **Eigen3**
-- **cfitsio**
-- **yaml-cpp**
-- **nlohmann-json**
+- CMake >= 3.20
+- C++17 Compiler (GCC 11+ oder Clang 14+)
+- OpenCV >= 4.5
+- Eigen3
+- cfitsio
+- yaml-cpp
+- nlohmann-json
 
-### Build
+### Kompilieren
 
 ```bash
 cd tile_compile_cpp
@@ -113,14 +115,14 @@ cmake --build . -j$(nproc)
 
 ### Docker Build + Run (empfohlen für isolierte Umgebungen)
 
-Ein Helper-Skript ist verfügbar unter:
+Ein Hilfsskript ist verfügbar unter:
 `tile_compile_cpp/scripts/docker_compile_and_run.sh`
 
-Was es macht:
+Was es tut:
 
 - `build-image`: baut ein Docker-Image und kompiliert `tile_compile_cpp` im Container
-- `run-shell`: startet eine interaktive Shell im fertig kompilierten Container
-- `run-app`: startet `tile_compile_runner` direkt im Container
+- `run-shell`: startet eine interaktive Shell im kompilierten Container
+- `run-app`: führt `tile_compile_runner` direkt im Container aus
 
 Standard-Volume-Mapping für Runs:
 
@@ -133,7 +135,7 @@ Beispiele:
 # Docker-Image bauen und im Container kompilieren
 ./tile_compile_cpp/scripts/docker_compile_and_run.sh build-image
 
-# Interaktive Shell im Container öffnen
+# interaktive Shell im Container öffnen
 ./tile_compile_cpp/scripts/docker_compile_and_run.sh run-shell
 
 # Pipeline im Container ausführen
@@ -143,9 +145,9 @@ Beispiele:
   --runs-dir /workspace/tile_compile_cpp/runs
 ```
 
-Nutze `run-shell`, wenn du zusätzliche Mounts benötigst (z. B. für Config/Input) und starte den Runner danach manuell.
+Verwende `run-shell`, wenn du zusätzliche Mounts benötigst (z.B. Config/Input-Verzeichnisse) und starte den Runner dann manuell.
 
-### CLI Runner
+### CLI-Runner
 
 ```bash
 ./tile_compile_runner \
@@ -157,13 +159,13 @@ Nutze `run-shell`, wenn du zusätzliche Mounts benötigst (z. B. für Config/Inp
 
 Häufige Optionen:
 
-- `--max-frames <n>` begrenzt die Frame-Anzahl (`0` = unbegrenzt)
-- `--max-tiles <n>` begrenzt Tiles in Phase 5/6 (`0` = unbegrenzt)
-- `--dry-run` validiert den Ablauf ohne vollständige Verarbeitung
-- `--run-id <id>` setzt eine eigene Run-ID
-- `--stdin` mit `--config -`, um YAML über stdin zu übergeben
+- `--max-frames <n>` Frames begrenzen (`0` = keine Begrenzung)
+- `--max-tiles <n>` Tile-Anzahl für Phase 5/6 begrenzen (`0` = keine Begrenzung)
+- `--dry-run` Validierungsablauf ohne vollständige Verarbeitung ausführen
+- `--run-id <id>` benutzerdefinierte Run-ID für Gruppierung
+- `--stdin` mit `--config -` um YAML von stdin zu lesen
 
-Resume-Modus:
+Fortsetzungsmodus (Resume):
 
 ```bash
 ./tile_compile_runner resume \
@@ -183,10 +185,10 @@ Resume-Modus:
 # Konfiguration validieren
 ./tile_compile_cli validate-config --path ../tile_compile.yaml
 
-# Runs auflisten
+# verfügbare Runs auflisten
 ./tile_compile_cli list-runs /path/to/runs
 
-# Einen Run inspizieren
+# einen Run inspizieren
 ./tile_compile_cli get-run-status /path/to/runs/<run_id>
 ./tile_compile_cli get-run-logs /path/to/runs/<run_id> --tail 200
 ./tile_compile_cli list-artifacts /path/to/runs/<run_id>
@@ -198,307 +200,98 @@ Resume-Modus:
 ./tile_compile_gui
 ```
 
-## GUI Bedienungsanleitung
+## Ausgaben
 
-Die GUI ist in Tabs organisiert:
-
-### 1) Scan
-
-- **Input dir:** Verzeichnis mit FITS Lights
-- **Pattern:** `*.fit*` (Standard)
-- Klicke **Scan** → zeigt erkannte Frames, Farbmodus (OSC/MONO), Bayer-Pattern
-
-### 2) Kalibrierung (optional)
-
-- **use_bias / use_dark / use_flat** aktivieren
-- Master-Frames oder Verzeichnisse auswählen
-- Kalibrierung läuft vor der Registrierung
-
-### 3) Konfiguration
-
-- Lade `tile_compile.yaml` oder bearbeite direkt im GUI
-- **Validate config** prüft Schema-Konsistenz
-- **Wichtige Felder:**
-  - `registration.engine`: `triangle_star_matching` (Default)
-  - `normalization.mode`: `background` oder `median`
-  - `global_metrics.weights`: α=0.4, β=0.3, γ=0.3 (Summe = 1.0)
-  - `tile.size_factor`: FWHM-basierte Tile-Größe (Default: 32)
-  - `stacking.method`: `rej` (Sigma-Clip) oder `average`
-
-### 4) Run starten
-
-- **Runs dir:** Zielverzeichnis für Outputs (`runs/<run_id>/`)
-- Klicke **Start** → Pipeline läuft im Hintergrund
-- **Pipeline Progress** zeigt aktuelle Phase + Fortschritt
-
-### 5) Astrometrie (Plate Solving)
-
-Der **Astrometry-Tab** löst die Himmelskoordinaten des gestackten Bildes:
-
-- **FITS-Datei:** Das gestackte RGB-FITS auswählen (`stacked_rgb.fits`)
-- **Star Database:** ASTAP-Sterndatenbank herunterladen (D50 empfohlen, ~200 MB)
-  - D05 = Tycho2 (hell, schnell)
-  - D20 = Gaia DR2 bis Mag 20
-  - D50 = Gaia DR2 bis Mag 50 (empfohlen für Deep-Sky)
-- **Solve** → ASTAP Plate Solve (blind, Vollhimmel)
-- **Ergebnis:** RA/Dec, Pixel-Skala (arcsec/px), Rotation, FOV
-- **Save Solved** → speichert die FITS-Datei **als RGB-Cube mit WCS-Headern**
-  - Die `_solved.fits` enthält die originalen Farbdaten + WCS-Koordinaten
-  - Eine `.wcs`-Datei wird daneben kopiert
-
-> **Hinweis:** ASTAP konvertiert intern zu Mono für das Solving. Die "Save Solved"-Funktion liest das Original-RGB und schreibt es mit den gelösten WCS-Headern neu. Das Ergebnis ist ein RGB-Farbbild mit Koordinaten.
-
-### 6) Photometric Color Calibration (PCC)
-
-Der **PCC-Tab** kalibriert die Farbbalance anhand von Sternkatalog-Photometrie:
-
-- **FITS-Datei:** Die `_solved.fits` aus dem Astrometry-Tab auswählen (RGB + WCS)
-- **WCS-Datei:** Wird automatisch erkannt (`_solved.wcs`)
-- **Catalog source:** Katalogquelle auswählen (siehe unten)
-
-#### Katalogquellen
-
-| Quelle | Typ | Beschreibung |
-|--------|-----|-------------|
-| **siril** | Lokal | Siril Gaia DR3 XP-Sampled Katalog (~21 GB, 48 HEALPix-Chunks) |
-| **vizier_gaia** | Online | VizieR Gaia DR3 Cone Search (RA, Dec, Gmag, Teff) |
-| **vizier_apass** | Online | VizieR APASS DR9 Cone Search (B-V → Teff via Ballesteros 2012) |
-
-##### Siril Gaia DR3 Katalog (empfohlen)
-
-Der **Siril Gaia DR3 XP-Sampled Katalog** liefert die besten PCC-Ergebnisse, da er vollständige XP-Spektren (343 Wellenlängen-Bins, 336–1020 nm) pro Stern enthält. Die Daten werden als HEALPix Level-8 Binärdateien gespeichert:
-
-- **Speicherort:** `~/.local/share/siril/siril_cat1_healpix8_xpsamp/`
-- **Download:** Direkt aus der GUI über den Button **"Download Missing Chunks"** — die 48 `.dat.bz2`-Dateien werden von [Zenodo](https://zenodo.org/records/14738271) heruntergeladen und automatisch mit `bzip2` entpackt
-- **Format:** Binäres Siril-Katalogformat mit Half-Float (IEEE 754 binary16) XP-Spektren, skalierter RA/Dec/Mag, HEALPix NESTED Indexierung
-- **Cone Search:** HEALPix Disc-Query → nur relevante Chunks werden gelesen
-
-> **Hinweis:** Dieser Katalog ist identisch mit dem, den Siril für seine eigene PCC verwendet. Falls Siril bereits installiert ist und den Katalog heruntergeladen hat, erkennt Tile-Compile die vorhandenen Dateien automatisch.
-
-##### VizieR Online-Quellen (schneller Start)
-
-Für schnelle Tests ohne lokalen Katalog-Download:
-
-- **vizier_gaia:** Fragt VizieR Gaia DR3 (`I/355/gaiadr3`) ab — liefert RA, Dec, Gmag und Teff direkt. Nur Sterne mit bekannter Teff werden verwendet.
-- **vizier_apass:** Fragt VizieR APASS DR9 (`II/336/apass9`) ab — liefert B- und V-Magnitude. Teff wird über die Ballesteros (2012) Formel aus B-V berechnet.
-
-Beide Online-Quellen sind auf 10.000 Sterne pro Abfrage limitiert.
-
-#### PCC-Einstellungen
-
-| Parameter | Default | Beschreibung |
-|-----------|---------|-------------|
-| Aperture radius | 8 px | Apertur-Radius für Sternphotometrie |
-| Annulus inner | 12 px | Innerer Radius des Himmelsrings |
-| Annulus outer | 18 px | Äußerer Radius des Himmelsrings |
-| Mag limit (faint) | 14.0 | Schwächster Katalogstern |
-| Mag limit (bright) | 6.0 | Hellster Katalogstern (Sättigung vermeiden) |
-| Min stars | 10 | Minimum Sterne für zuverlässigen Fit |
-| Sigma clip | 2.5 | Sigma-Clipping für Ausreißer |
-
-#### PCC-Algorithmus
-
-PCC berechnet **diagonale Skalierungsfaktoren** (R, G, B) — keine Kanalmischung:
-
-1. Katalogsterne werden per WCS auf Pixelkoordinaten projiziert
-2. Aperturphotometrie misst instrumentelle Flüsse (R/G/B) pro Stern (Apertur + Sky-Annulus)
-3. Erwartete Sternfarbe wird aus **Teff** berechnet (Planck-Schwarzkörper → lineare sRGB-Konversion). Bei Siril-Katalog alternativ aus XP-Spektren via Filterkurven-Integration.
-4. Pro Stern: `correction_R = (cat_R/cat_G) / (inst_R/inst_G)`
-5. Sigma-clipped Median → `scale_R`, `scale_B` (Green = Referenz, scale_G = 1.0)
-6. Ergebnis: Diagonale Farbkorrekturmatrix `diag(scale_R, 1.0, scale_B)`
-
-#### PCC-Ergebnis
-
-- **Save Corrected** → speichert das farbkalibrierte RGB-FITS am gewählten Pfad
-- Zusätzlich werden Einzelkanal-Dateien gespeichert (`_R.fit`, `_G.fit`, `_B.fit`)
-- Die Korrekturmatrix und Statistiken werden im Log angezeigt
-
-### 7) Ergebnisse
-
-Nach erfolgreichem Lauf unter `runs/<run_id>/`:
+Nach einem erfolgreichen Lauf (`runs/<run_id>/`):
 
 - `outputs/`
-  - `registered/` — registrierte Frames (falls `write_registered_frames: true`)
-  - `synthetic_*.fit` — synthetische Frames
-  - `stacked.fit` — finaler Stack (Mono)
-  - `stacked_rgb.fits` — finaler Stack (RGB, nach Debayer)
-  - `stacked_rgb_solved.fits` — RGB mit WCS-Headern (nach Astrometrie)
-  - `stacked_rgb_pcc.fits` — farbkalibriertes RGB (nach PCC)
+  - `stacked.fits`
+  - `reconstructed_L.fit`
+  - `stacked_rgb.fits` (OSC)
+  - `stacked_rgb_solve.fits` / WCS-Artefakte
+  - `stacked_rgb_pcc.fits`
+  - `synthetic_*.fit` (modusabhängig)
 - `artifacts/`
-  - `global_metrics.json` — globale Qualitätsmetriken + Siril-style Sternmetriken
-  - `global_registration.json` — Warp-Matrizen + Correlation-Scores
-  - `tile_grid.json` — Tile-Geometrie
-  - `local_metrics.json` — lokale Tile-Metriken
-  - `clustering.json` — Cluster-Zuordnungen
-  - `synthetic_frames.json` — synthetische Frame-Info
-  - `validation.json` — FWHM-Verbesserung, Tile-Pattern-Check
-  - `report.html` + `report.css` — HTML-Report mit allen Diagrammen
-  - `*.png` — Diagnose-Diagramme (siehe unten)
+  - `normalization.json`
+  - `global_metrics.json`
+  - `tile_grid.json`
+  - `global_registration.json`
+  - `local_metrics.json`
+  - `tile_reconstruction.json`
+  - `state_clustering.json`
+  - `synthetic_frames.json`
+  - `validation.json`
+  - `report.html`, `report.css`, `*.png`
+- `logs/run_events.jsonl`
+- `config.yaml` (Run-Snapshot)
 
 ## Externe Quellen (PCC und Astrometrie)
 
-Für optionale Farbkalibrierung und Astrometrie kann die Pipeline externe Daten/Tools verwenden:
+Für optionale Farbkalibrierung und astrometrisches Solving kann die Pipeline externe Daten und Tools verwenden:
 
 - **Siril Gaia DR3 XP sampled catalog** (für PCC)
-  - Kann wiederverwendet werden, wenn bereits über Siril heruntergeladen.
+  - Kann wiederverwendet werden, falls bereits von Siril heruntergeladen.
   - Typischer lokaler Pfad: `~/.local/share/siril/siril_cat1_healpix8_xpsamp/`
   - Upstream-Quelle (Katalog-Release): `https://zenodo.org/records/14738271`
 - **ASTAP** (für Astrometrie / WCS Plate Solving)
-  - Benötigt ASTAP plus eine Sterndatenbank (z. B. D50 für Deep-Sky).
+  - Benötigt ASTAP plus eine Sterndatenbank (z.B. D50 für Deep-Sky-Nutzung).
   - Offizielle Seite/Downloads: `https://www.hnsky.org/astap.htm`
 
-Wenn diese Ressourcen nicht installiert sind, funktioniert die Kernrekonstruktion weiterhin, aber ASTROMETRY/PCC können je nach Konfiguration übersprungen werden oder fehlschlagen.
+Wenn diese Ressourcen nicht installiert sind, funktioniert die Kernrekonstruktion weiterhin, aber ASTROMETRY- und PCC-Phasen können je nach Konfiguration übersprungen werden oder fehlschlagen.
 
-### 8) Diagnose-Report (`generate_report.py`)
+## Diagnosebericht (`tile_compile_cpp/generate_report.py`)
 
-Erzeugt einen HTML-Report für einen abgeschlossenen Pipeline-Lauf.
-
+Erzeuge einen HTML-Qualitätsbericht aus einem abgeschlossenen Lauf:
 
 ```bash
-python3 generate_report.py /path/to/runs/<run_id>
+python tile_compile_cpp/generate_report.py runs/<run_id>
 ```
 
-**Ausgabe:** `<run_dir>/artifacts/report.html` + `report.css` + `*.png`
+Ausgabe:
 
-**Abhängigkeiten:**
+- `runs/<run_id>/artifacts/report.html`
+- `runs/<run_id>/artifacts/report.css`
+- `runs/<run_id>/artifacts/*.png`
 
-- `numpy`
-- `matplotlib` (optional; ohne `matplotlib` wird der Report **ohne Plots**, aber mit Text-Auswertung erzeugt)
-- `pyyaml` (optional; für die Anzeige von `config.yaml` im Report)
+Der Bericht aggregiert Daten aus Artifact-JSON-Dateien, `logs/run_events.jsonl` und `config.yaml`, einschließlich:
 
-#### Datenquellen
+- Normalisierung/Hintergrund-Trends
+- Globale Qualitätsverteilungen und Gewichte
+- Registrierungs-Drift/CC/Rotation-Diagnosen
+- Tile- und Rekonstruktions-Heatmaps
+- Clustering- und Zusammenfassungen synthetischer Frames
+- Validierungsmetriken (einschließlich Tile-Pattern-Indikatoren)
+- Pipeline-Timeline und Frame-Usage-Funnel
 
-Das Script liest folgende JSON-Artifacts aus `<run_dir>/artifacts/`:
+## Kalibrierung (Bias / Dark / Flat)
 
-| Artifact | Inhalt |
-|----------|--------|
-| `normalization.json` | Hintergrundlevel pro Frame (Mono/OSC R/G/B) |
-| `global_metrics.json` | Frame-Qualität: background, noise, gradient, global_weight + Siril-Metriken (fwhm, wfwhm, roundness, star_count) |
-| `global_registration.json` | Warp-Matrizen (tx, ty, a00, a01), Correlation-Scores |
-| `tile_grid.json` | Tile-Geometrie (x, y, width, height), Bildgröße, Seeing-FWHM |
-| `local_metrics.json` | Pro-Tile-pro-Frame: FWHM, quality_score, local_weight, contrast, star_count, tile_type |
-| `tile_reconstruction.json` | Pro-Tile: valid_counts, mean_correlation, post_contrast, post_snr |
-| `state_clustering.json` | Cluster-Zuordnungen, Cluster-Größen |
-| `synthetic_frames.json` | Synthetische Frame-Info |
-| `validation.json` | FWHM-Verbesserung, Tile-Pattern-Check |
-| `logs/run_events.jsonl` | Phase-Start/End-Timestamps für Timeline |
-
-Zusätzlich werden aus `run_events.jsonl` Frame-Zahlen und Ausschussgründe extrahiert (z.B. Linearität / Registrierung).
-
-#### Report-Sektionen und Diagramme
-
-| Sektion | Diagramme | Beschreibung |
-|---------|-----------|-------------|
-| **Pipeline Timeline** | `pipeline_timeline.png` | Horizontales Balkendiagramm der Phasendauern |
-| **Frame Usage** | `frame_usage_funnel.png` | Funnel: Frames entdeckt → nach Linearität → registriert nutzbar → synthetische Frames |
-| | `frame_loss_breakdown.png` | Verlust nach Ursache (Linearität / Registrierung / verwendet) |
-| **Normalization** | `norm_background_*.png` | Hintergrundlevel-Verlauf (Mono oder R/G/B) |
-| **Global Metrics** | `global_background.png` | Hintergrund pro Frame |
-| | `global_noise.png` | Rauschpegel pro Frame |
-| | `global_gradient.png` | Gradient-Energie pro Frame |
-| | `global_weight_timeseries.png` | Qualitätsgewicht G(f) pro Frame |
-| | `global_weight_hist.png` | Gewichtsverteilung (Histogramm) |
-| | `global_fwhm.png` | Median-FWHM pro Frame (Seeing-Verlauf) |
-| | `global_wfwhm.png` | Gewichtetes FWHM (bestraft Frames mit wenig Sternen) |
-| | `global_roundness.png` | Sternrundheit FWHMy/FWHMx (1.0 = perfekt rund) |
-| | `global_star_count.png` | Erkannte Sterne pro Frame |
-| | `global_fwhm_vs_roundness.png` | Scatter-Plot FWHM vs Roundness (farbcodiert nach Frame-Nr.) |
-| **Tile Grid** | `tile_grid_overlay.png` | Tile-Raster auf Bildkoordinaten |
-| **Registration** | `registration_overview.png` | 3-Panel: Translation-Scatter, TX/TY-Verlauf, CC-Verlauf |
-| | `registration_cc_hist.png` | Correlation-Histogramm |
-| | `registration_rotation.png` | Rotationswinkel pro Frame |
-| | `registration_scale.png` | Skalierungsfaktor pro Frame |
-| **Local Metrics** | `local_fwhm_quality_spatial.png` | Spatial-Heatmaps: FWHM, Quality, Quality-Varianz |
-| | `local_weight_contrast_spatial.png` | Spatial-Heatmaps: Weight, Weight-Varianz, Contrast |
-| | `local_fwhm_spatial.png` | Große FWHM-Heatmap |
-| | `local_weight_spatial.png` | Große Weight-Heatmap |
-| | `local_stars_spatial.png` | Sternanzahl-Heatmap |
-| | `local_tile_type_map.png` | Tile-Typ-Karte (STAR vs STRUCTURE) |
-| | `local_quality_weight_per_frame.png` | Mittlere Tile-Qualität + Weight pro Frame |
-| **Reconstruction** | `recon_spatial_overview.png` | 3-Panel: Valid-Counts, CC, SNR (spatial) |
-| | `recon_valid_counts_spatial.png` | Frames pro Tile (Nutzungskarte) |
-| | `recon_cc_spatial.png` | Mittlere Correlation pro Tile |
-| | `recon_snr_spatial.png` | Post-Reconstruction SNR pro Tile |
-| | `recon_contrast_bg_spatial.png` | Post-Contrast + Background (spatial) |
-| | `recon_*_hist.png` | Histogramme: Valid-Counts, CC, SNR |
-| **Clustering** | `clustering_sizes.png` | Cluster-Größen (Balken) |
-| | `clustering_labels.png` | Cluster-Label pro Frame |
-| **Validation** | `validation_summary.png` | Balkendiagramm: FWHM-Improvement, Weight-Varianz, Pattern-Ratio |
-
-#### Architektur
-
-```
-generate_report.py
-├── Helpers:        _read_json, _read_jsonl, _basic_stats, _escape_html
-├── Chart-Generatoren (benötigen matplotlib):
-│   ├── _plot_timeseries()         — Zeitreihe mit Median-Linie
-│   ├── _plot_histogram()          — Histogramm mit p1/p99-Clipping
-│   ├── _plot_multi_timeseries()   — Mehrere Zeitreihen überlagert (R/G/B)
-│   ├── _plot_heatmap_2d()         — 2D-Heatmap (Grid)
-│   ├── _plot_spatial_tile_heatmap() — Tile-Werte auf Bildkoordinaten
-│   ├── _plot_spatial_tile_multi() — Mehrere Spatial-Heatmaps nebeneinander
-│   ├── _plot_bar()                — Balkendiagramm
-│   └── _plot_warp_scatter()       — 3-Panel Registration-Übersicht
-├── Sektions-Generatoren:
-│   ├── _gen_normalization()       → norm_background_*.png
-│   ├── _gen_global_metrics()      → global_*.png (inkl. Siril-Plots)
-│   ├── _gen_tile_grid()           → tile_grid_overlay.png
-│   ├── _gen_registration()        → registration_*.png
-│   ├── _gen_local_metrics()       → local_*.png
-│   ├── _gen_reconstruction()      → recon_*.png
-│   ├── _gen_clustering()          → clustering_*.png
-│   ├── _gen_synthetic()           → (nur Text)
-│   ├── _gen_validation()          → validation_summary.png
-│   ├── _gen_timeline()            → pipeline_timeline.png
-│   ├── _gen_frame_usage()         → frame_usage_funnel.png, frame_loss_breakdown.png
-│
-│   ├── HTML/CSS-Ausgabe:
-│   │   ├── _write_css()               — Dark-Theme CSS (Tokyo Night)
-│   │   ├── _make_card_html()          — Card mit 2/3+1/3 Layout (Charts + Erklärung) + Statistik-Block
-│   │   └── _write_html()             — Kompletter HTML-Report
-└── generate_report() / main()     — Orchestrierung
-```
-
-Jeder Sektions-Generator gibt `(png_files, eval_lines, explanations)` zurück.
-
-- `eval_lines` enthalten Statistiken und Warnungen (z.B. `WARNING: low roundness`).
-- `explanations` liefert pro PNG eine HTML-Erklärung/Interpretation.
-
-Wenn `matplotlib` nicht installiert ist, werden nur die Textauswertungen ohne Diagramme generiert.
-
-## Calibration (Bias/Darks/Flats)
-
-- Master-Frames (`bias_master`, `dark_master`, `flat_master`) werden direkt verwendet
-- Verzeichnisse (`bias_dir`, `darks_dir`, `flats_dir`) → Master wird automatisch erzeugt
-- `dark_auto_select: true` → automatische Dark-Zuordnung nach Belichtungszeit (±5%)
+- Master-Frames (`bias_master`, `dark_master`, `flat_master`) können direkt verwendet werden
+- Verzeichnis-basierte Master (`bias_dir`, `darks_dir`, `flats_dir`) können automatisch erstellt werden
+- `dark_auto_select: true` ordnet Darks nach Belichtungszeit zu (±5%)
 
 ## Projektstruktur
 
-```
-tile-compile/
-├── tile_compile_cpp/           # C++ Implementierung (aktiv)
-│   ├── apps/                   # Runner + CLI
-│   ├── include/tile_compile/   # Header (config, core, image, metrics, registration, reconstruction)
-│   ├── src/                    # Implementierung
-│   ├── gui_cpp/                # Qt6 GUI
-│   ├── tests/                  # Unit-Tests
-│   ├── generate_report.py       # Diagnose-Report-Generator (Siril-style Plots)
-│   ├── tile_compile.yaml       # Default-Konfiguration
+```text
+tile_compile/
+├── tile_compile_cpp/
+│   ├── apps/
+│   ├── include/tile_compile/
+│   ├── src/
+│   ├── gui_cpp/
+│   ├── tests/
+│   ├── generate_report.py
+│   ├── tile_compile.yaml
 │   ├── tile_compile.schema.json
 │   └── tile_compile.schema.yaml
-├── tile_compile_python_legacy/ # Python Implementierung (Legacy)
-│   ├── gui/                    # PyQt6 GUI
-│   ├── runner/                 # Pipeline-Runner
-│   └── tile_compile_backend/   # Backend-Module
+├── tile_compile_python/  # legacy
 ├── doc/
-│   ├── v3/
-│   │   ├── process_flow/       # Pipeline-Phasen-Dokumentation
-│   │   ├── tbqr_step_by_step_en.md
-│   │   ├── configuration_reference.md
-│   │   └── tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.2_en.md
-│   └── ...
-├── runs/                       # Run-Outputs
-└── README.md
+│   └── v3/
+│       ├── process_flow/
+│       ├── tbqr_step_by_step_en.md
+│       └── tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.2_en.md
+├── runs/
+├── README.md
+└── README_de.md
 ```
 
 ## Tests
