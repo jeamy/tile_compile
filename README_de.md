@@ -71,6 +71,20 @@ Alle Einstellungen in `tile_compile.yaml`. Schema-Validierung via `tile_compile.
 
 Referenz: `doc/v3/attic/configuration_reference.md`
 
+### Beispielprofile
+
+Vollstaendige, eigenstaendige Beispielkonfigurationen liegen unter `tile_compile_cpp/examples/`:
+
+- `tile_compile.full_mode.example.yaml`
+- `tile_compile.reduced_mode.example.yaml`
+- `tile_compile.emergency_mode.example.yaml`
+- `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
+- `tile_compile.canon_low_n_high_quality.example.yaml`
+- `tile_compile.mono_full_mode.example.yaml`
+- `tile_compile.mono_small_n_anti_grid.example.yaml` (empfohlen fuer MONO-Datensaetze mit kleiner Frame-Anzahl, z.B. ~10..40, zur Reduktion von Tile-Mustern)
+
+Siehe auch: `tile_compile_cpp/examples/README.md`
+
 ## Quickstart (C++ Version)
 
 ### Build-Voraussetzungen
