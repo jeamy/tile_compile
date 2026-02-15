@@ -32,6 +32,40 @@ This creates (among others):
 - `tile_compile_cli` (utility CLI)
 - `tile_compile_gui` (Qt GUI)
 
+## 2a) Build and run with Docker (optional)
+
+If you prefer an isolated environment, use:
+`tile_compile_cpp/scripts/docker_compile_and_run.sh`
+
+Supported commands:
+
+- `build-image`: builds Docker image and compiles `tile_compile_cpp` in the container
+- `run-shell`: opens an interactive shell in the compiled container
+- `run-app`: executes `tile_compile_runner` directly in the container
+
+Default runs volume mapping:
+
+- Host: `tile_compile_cpp/runs`
+- Container: `/workspace/tile_compile_cpp/runs`
+
+Example workflow:
+
+```bash
+# from repository root
+./tile_compile_cpp/scripts/docker_compile_and_run.sh build-image
+
+# optional interactive shell
+./tile_compile_cpp/scripts/docker_compile_and_run.sh run-shell
+
+# run pipeline directly in container
+./tile_compile_cpp/scripts/docker_compile_and_run.sh run-app -- run \
+  --config /mnt/config/tile_compile.yaml \
+  --input-dir /mnt/input \
+  --runs-dir /workspace/tile_compile_cpp/runs
+```
+
+Note: if your config/input files are outside the runs volume, use `run-shell` and start the runner manually with your custom mounts.
+
 ## 3) Choose and prepare a config
 
 Start from one of the example profiles in `tile_compile_cpp/examples/`, for example:

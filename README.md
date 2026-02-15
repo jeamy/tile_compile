@@ -111,6 +111,40 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
 ```
 
+### Docker Build + Run (recommended for isolated environments)
+
+A helper script is available at:
+`tile_compile_cpp/scripts/docker_compile_and_run.sh`
+
+What it does:
+
+- `build-image`: builds a Docker image and compiles `tile_compile_cpp` inside the container
+- `run-shell`: starts an interactive shell in the compiled container
+- `run-app`: runs `tile_compile_runner` directly in the container
+
+Default runs volume mapping:
+
+- Host: `tile_compile_cpp/runs`
+- Container: `/workspace/tile_compile_cpp/runs`
+
+Examples:
+
+```bash
+# build Docker image and compile inside container
+./tile_compile_cpp/scripts/docker_compile_and_run.sh build-image
+
+# open interactive shell inside container
+./tile_compile_cpp/scripts/docker_compile_and_run.sh run-shell
+
+# run pipeline in container
+./tile_compile_cpp/scripts/docker_compile_and_run.sh run-app -- run \
+  --config /mnt/config/tile_compile.yaml \
+  --input-dir /mnt/input \
+  --runs-dir /workspace/tile_compile_cpp/runs
+```
+
+Use `run-shell` if you need additional mounts (e.g., config/input directories) and then start the runner manually.
+
 ### CLI Runner
 
 ```bash
