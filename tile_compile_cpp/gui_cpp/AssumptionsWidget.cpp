@@ -188,8 +188,13 @@ void AssumptionsWidget::build_ui() {
     
     skip_clustering_ = new QCheckBox("STATE_CLUSTERING und SYNTHETIC_FRAMES überspringen");
     skip_clustering_->setChecked(REDUCED_MODE_SKIP_CLUSTERING);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
     connect(skip_clustering_, &QCheckBox::checkStateChanged,
             this, &AssumptionsWidget::assumptions_changed);
+#else
+    connect(skip_clustering_, &QCheckBox::stateChanged,
+            this, &AssumptionsWidget::assumptions_changed);
+#endif
     reduced_layout->addRow("", skip_clustering_);
     
     auto *cluster_row = new QHBoxLayout();

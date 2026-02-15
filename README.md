@@ -2,13 +2,13 @@
 
 Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (methodology v3.2).
 
-> **Note:** This is experimental software primarily developed for processing images from smart telescopes (e.g., DWARF, Seestar, ZWO SeeStar, etc.). While designed for general astronomical image processing, it has been optimized for the specific characteristics and challenges of smart telescope data.
-
 We present a novel methodology for the reconstruction of high-quality astronomical images from short-exposure deep-sky datasets. Conventional stacking methods often rely on binary frame selection ("lucky imaging"), which discards significant portions of collected frames. Our approach, **Tile-Based Quality Reconstruction (TBQR)**, replaces rigid frame selection with a robust spatio-temporal quality model. By decomposing frames into local tiles and modeling quality along two orthogonal axes—global atmospheric transparency/noise and local structural sharpness—we reconstruct a signal that is physically and statistically optimal at every pixel. We demonstrate that this method preserves the full photometric depth of the dataset while achieving superior resolution improvement compared to traditional reference stacks.
 
 While the methodology was originally conceived to address the specific challenges of short-exposure data from modern smart telescopes (e.g., Dwarf, Seestar), its architectural flexibility makes it equally potent for conventional astronomical setups. The extensive set of tunable parameters—ranging from adaptive tile sizing and cross-correlation thresholds to sophisticated clustering logic—allows the pipeline to be meticulously optimized for a wide array of optical systems and atmospheric conditions.
 
 > **Practical note:** The pipeline is primarily optimized for datasets with many usable frames. With very small frame counts, or with strongly mixed frame quality in one stack, visible tile patterns can occur in difficult cases. This can often be mitigated by testing different configuration settings (especially registration, tile, and reconstruction-related parameters). See the example profiles in `tile_compile_cpp/examples/` and `tile_compile_cpp/examples/README.md`.
+
+> **Note:** This is experimental software primarily developed for processing images from smart telescopes (e.g., DWARF, Seestar, ZWO SeeStar, etc.). While designed for general astronomical image processing, it has been optimized for the specific characteristics and challenges of smart telescope data.
 
 ## Documentation (v3.2)
 
@@ -146,6 +146,36 @@ Examples:
 ```
 
 Use `run-shell` if you need additional mounts (e.g., config/input directories) and then start the runner manually.
+
+#### Windows start notes (Docker)
+
+Use a Linux shell (WSL2 Ubuntu) to run the helper script:
+
+```bash
+bash scripts/docker_compile_and_run.sh build-image
+bash scripts/docker_compile_and_run.sh run-app -- run --config /mnt/config/tile_compile.yaml --input-dir /mnt/input --runs-dir /workspace/tile_compile_cpp/runs
+```
+
+GUI on Windows:
+
+- Recommended: Windows 11 + WSLg, then run:
+
+```bash
+bash scripts/docker_compile_and_run.sh run-gui
+```
+
+- Without WSLg, use an X server (e.g. VcXsrv), export `DISPLAY`, and run GUI manually:
+
+```bash
+export DISPLAY=host.docker.internal:0.0
+docker run --rm -it \
+  -e DISPLAY=$DISPLAY \
+  -e QT_QPA_PLATFORM=xcb \
+  -v "$(pwd)/tile_compile_cpp/runs:/workspace/tile_compile_cpp/runs" \
+  -w /workspace/tile_compile_cpp/build \
+  tile_compile_cpp:dev \
+  ./tile_compile_gui
+```
 
 ### CLI Runner
 

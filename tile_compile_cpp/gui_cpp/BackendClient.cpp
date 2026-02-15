@@ -75,12 +75,17 @@ nlohmann::json BackendClient::run_json(const std::string &cwd,
             throw std::runtime_error("failed to chdir to " + cwd);
         }
     }
+
+    auto restore_cwd = [&original_cwd]() {
+        if (!original_cwd.empty()) {
+            const int rc = chdir(original_cwd.c_str());
+            (void)rc;
+        }
+    };
     
     std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(full_cmd.c_str(), "r"), pclose);
     if (!pipe) {
-        if (!original_cwd.empty()) {
-            chdir(original_cwd.c_str());
-        }
+        restore_cwd();
         throw std::runtime_error("popen() failed");
     }
     
@@ -90,9 +95,7 @@ nlohmann::json BackendClient::run_json(const std::string &cwd,
         result << buffer.data();
     }
     
-    if (!original_cwd.empty()) {
-        chdir(original_cwd.c_str());
-    }
+    restore_cwd();
     
     const std::string output = result.str();
     

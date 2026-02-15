@@ -195,12 +195,21 @@ void ScanTab::build_ui() {
     connect(btn_browse_dark_master_, &QPushButton::clicked, this, &ScanTab::on_browse_dark_master);
     connect(btn_browse_flat_master_, &QPushButton::clicked, this, &ScanTab::on_browse_flat_master);
     
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
     connect(cal_use_bias_, &QCheckBox::checkStateChanged, this, &ScanTab::on_calibration_changed);
     connect(cal_use_dark_, &QCheckBox::checkStateChanged, this, &ScanTab::on_calibration_changed);
     connect(cal_use_flat_, &QCheckBox::checkStateChanged, this, &ScanTab::on_calibration_changed);
     connect(cal_bias_use_master_, &QCheckBox::checkStateChanged, this, &ScanTab::on_calibration_changed);
     connect(cal_dark_use_master_, &QCheckBox::checkStateChanged, this, &ScanTab::on_calibration_changed);
     connect(cal_flat_use_master_, &QCheckBox::checkStateChanged, this, &ScanTab::on_calibration_changed);
+#else
+    connect(cal_use_bias_, &QCheckBox::stateChanged, this, &ScanTab::on_calibration_changed);
+    connect(cal_use_dark_, &QCheckBox::stateChanged, this, &ScanTab::on_calibration_changed);
+    connect(cal_use_flat_, &QCheckBox::stateChanged, this, &ScanTab::on_calibration_changed);
+    connect(cal_bias_use_master_, &QCheckBox::stateChanged, this, &ScanTab::on_calibration_changed);
+    connect(cal_dark_use_master_, &QCheckBox::stateChanged, this, &ScanTab::on_calibration_changed);
+    connect(cal_flat_use_master_, &QCheckBox::stateChanged, this, &ScanTab::on_calibration_changed);
+#endif
 }
 
 void ScanTab::on_scan_clicked() {

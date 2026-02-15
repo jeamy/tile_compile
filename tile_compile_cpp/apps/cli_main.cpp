@@ -683,7 +683,11 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
     }
     
     result["color_mode"] = color_mode;
-    result["bayer_pattern"] = bayer_pattern.empty() ? nullptr : json(bayer_pattern);
+    if (bayer_pattern.empty()) {
+        result["bayer_pattern"] = nullptr;
+    } else {
+        result["bayer_pattern"] = bayer_pattern;
+    }
     result["color_mode_candidates"] = json(candidates);
     result["requires_user_confirmation"] = requires_user_confirmation;
     
@@ -799,7 +803,11 @@ int cmd_get_run_status(const std::string& run_dir) {
             }
         }
         
-        result["current_phase"] = last_phase.empty() ? nullptr : json(last_phase);
+        if (last_phase.empty()) {
+            result["current_phase"] = nullptr;
+        } else {
+            result["current_phase"] = last_phase;
+        }
         result["status"] = last_status.empty() ? "unknown" : last_status;
     }
     

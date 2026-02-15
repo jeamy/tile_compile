@@ -147,6 +147,36 @@ Beispiele:
 
 Verwende `run-shell`, wenn du zusätzliche Mounts benötigst (z.B. Config/Input-Verzeichnisse) und starte den Runner dann manuell.
 
+#### Windows-Start-Hinweise (Docker)
+
+Führe das Hilfsskript in einer Linux-Shell (WSL2 Ubuntu) aus:
+
+```bash
+bash scripts/docker_compile_and_run.sh build-image
+bash scripts/docker_compile_and_run.sh run-app -- run --config /mnt/config/tile_compile.yaml --input-dir /mnt/input --runs-dir /workspace/tile_compile_cpp/runs
+```
+
+GUI unter Windows:
+
+- Empfohlen: Windows 11 + WSLg, dann:
+
+```bash
+bash scripts/docker_compile_and_run.sh run-gui
+```
+
+- Ohne WSLg: X-Server (z.B. VcXsrv) starten, `DISPLAY` setzen und GUI manuell starten:
+
+```bash
+export DISPLAY=host.docker.internal:0.0
+docker run --rm -it \
+  -e DISPLAY=$DISPLAY \
+  -e QT_QPA_PLATFORM=xcb \
+  -v "$(pwd)/tile_compile_cpp/runs:/workspace/tile_compile_cpp/runs" \
+  -w /workspace/tile_compile_cpp/build \
+  tile_compile_cpp:dev \
+  ./tile_compile_gui
+```
+
 ### CLI-Runner
 
 ```bash

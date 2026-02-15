@@ -20,6 +20,7 @@
 #include <QFileInfo>
 #include <QDateTime>
 #include <QUuid>
+#include <QCoreApplication>
 #include <filesystem>
 #include <thread>
 #include <yaml-cpp/yaml.h>
