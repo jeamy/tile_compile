@@ -17,6 +17,9 @@
 #include <QMessageBox>
 #include <QStringList>
 #include <QGroupBox>
+#include <QFileInfo>
+#include <QDateTime>
+#include <QUuid>
 #include <filesystem>
 #include <thread>
 #include <yaml-cpp/yaml.h>
@@ -103,6 +106,12 @@ void MainWindow::build_ui() {
             }
         }
         last_scan_input_dir_ = dir;
+        schedule_save_gui_state();
+    });
+    connect(scan_tab_, &ScanTab::input_dirs_changed, this, [this](const QStringList &dirs) {
+        if (run_tab_) {
+            run_tab_->set_input_dirs(dirs);
+        }
         schedule_save_gui_state();
     });
     connect(scan_tab_, &ScanTab::update_controls_requested, this, &MainWindow::update_controls);
@@ -333,15 +342,16 @@ void MainWindow::on_start_run_clicked() {
     auto *config_tab = config_tab_;
     auto *run_tab = run_tab_;
     
-    QString input_dir = scan_tab->get_scan_input_dir().trimmed();
-    if (input_dir.isEmpty()) {
-        input_dir = run_tab->get_input_dir();
+    QStringList input_dirs = scan_tab->get_scan_input_dirs();
+    if (input_dirs.isEmpty()) {
+        input_dirs = run_tab->get_input_dirs();
     }
-    run_tab->set_input_dir(input_dir);
-    if (input_dir.isEmpty()) {
-        QMessageBox::warning(this, "Start run", "Scan input dir is required");
+    input_dirs.removeAll("");
+    if (input_dirs.isEmpty()) {
+        QMessageBox::warning(this, "Start run", "At least one input dir is required");
         return;
     }
+    run_tab->set_input_dirs(input_dirs);
     
     append_live("[ui] start run");
     phase_progress_->reset();
@@ -356,43 +366,38 @@ void MainWindow::on_start_run_clicked() {
     QString exe_dir = QCoreApplication::applicationDirPath();
     QString runner_path = exe_dir + "/" + QString::fromStdString(runner_exe);
     
-    QStringList cmd;
-    cmd << runner_path;
-    cmd << "run";
     const QString config_yaml = config_tab->get_config_yaml();
     const bool use_stdin_config = !config_yaml.trimmed().isEmpty();
-    if (use_stdin_config) {
-        cmd << "--config" << "-";
-        cmd << "--stdin";
-    } else {
-        cmd << "--config" << config_tab->get_config_path();
+
+    batch_input_dirs_ = input_dirs;
+    batch_input_subdirs_ = run_tab->get_input_subdirs();
+    active_batch_input_index_ = -1;
+    batch_abort_requested_ = false;
+    batch_runner_path_ = runner_path;
+    batch_working_dir_ = run_tab->get_working_dir();
+    batch_runs_dir_ = run_tab->get_runs_dir();
+    batch_parent_run_id_ =
+        QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss") + "_" +
+        QUuid::createUuid().toString(QUuid::WithoutBraces).left(8);
+    batch_pattern_ = run_tab->get_pattern();
+    batch_config_path_ = config_tab->get_config_path();
+    batch_config_yaml_ = config_yaml;
+    batch_use_stdin_config_ = use_stdin_config;
+    batch_dry_run_ = run_tab->is_dry_run();
+
+    append_live(QString("[batch] parent run dir: %1/%2")
+                    .arg(batch_runs_dir_)
+                    .arg(batch_parent_run_id_));
+
+    if (!start_next_batch_input_run()) {
+        QMessageBox::critical(this, "Start failed", "Unable to start batch run");
     }
-    cmd << "--input-dir" << input_dir;
-    cmd << "--runs-dir" << run_tab->get_runs_dir();
-    cmd << "--pattern" << run_tab->get_pattern();
-    
-    if (run_tab->is_dry_run()) {
-        cmd << "--dry-run";
-    }
-    
-    if (!confirmed_color_mode_.empty()) {
-        cmd << "--color-mode-confirmed" << QString::fromStdString(confirmed_color_mode_);
-    }
-    
-    append_live(QString("[runner] %1").arg(cmd.join(" ")));
-    
-    try {
-        runner_->start(cmd, QString::fromStdString(run_tab->get_working_dir().toStdString()),
-                      use_stdin_config ? config_yaml : QString());
-        update_controls();
-    } catch (const std::exception &e) {
-        QMessageBox::critical(this, "Start failed", e.what());
-        update_controls();
-    }
+    update_controls();
 }
 
 void MainWindow::on_abort_run_clicked() {
     append_live("[ui] abort run");
+    batch_abort_requested_ = true;
     runner_->stop();
     update_controls();
 }
@@ -420,6 +425,12 @@ void MainWindow::handle_runner_stdout(const QString &line) {
             current_run_id_ = ev.value("run_id", "");
             current_run_dir_ = ev.value("run_dir", "");
             phase_progress_->reset();
+            if (active_batch_input_index_ >= 0 && active_batch_input_index_ < batch_input_dirs_.size()) {
+                phase_progress_->set_current_input_dir(
+                    batch_input_dirs_.at(active_batch_input_index_),
+                    active_batch_input_index_,
+                    batch_input_dirs_.size());
+            }
             append_live(QString("[run_start] run_id=%1").arg(QString::fromStdString(current_run_id_)));
             
             auto *current_run_tab = current_run_tab_;
@@ -467,7 +478,111 @@ void MainWindow::handle_runner_stderr(const QString &line) {
 
 void MainWindow::handle_runner_finished(int exit_code) {
     append_live(QString("[runner] finished with exit code %1").arg(exit_code));
+
+    if (batch_abort_requested_) {
+        append_live("[batch] aborted by user");
+        batch_input_dirs_.clear();
+        batch_input_subdirs_.clear();
+        batch_parent_run_id_.clear();
+        active_batch_input_index_ = -1;
+        phase_progress_->set_current_input_dir("");
+        batch_abort_requested_ = false;
+    } else if (!batch_input_dirs_.isEmpty()) {
+        if (exit_code != 0 && active_batch_input_index_ >= 0 &&
+            active_batch_input_index_ < batch_input_dirs_.size()) {
+            append_live(QString("[batch] input failed, continue with next: %1")
+                            .arg(batch_input_dirs_.at(active_batch_input_index_)));
+        }
+        if (!start_next_batch_input_run()) {
+            phase_progress_->set_current_input_dir("");
+        }
+    } else {
+        batch_input_dirs_.clear();
+        batch_input_subdirs_.clear();
+        batch_parent_run_id_.clear();
+        active_batch_input_index_ = -1;
+        phase_progress_->set_current_input_dir("");
+    }
+
     update_controls();
+}
+
+bool MainWindow::start_next_batch_input_run() {
+    if (batch_abort_requested_) {
+        return false;
+    }
+    if (batch_input_dirs_.isEmpty()) {
+        return false;
+    }
+
+    const int next_index = active_batch_input_index_ + 1;
+    if (next_index >= batch_input_dirs_.size()) {
+        append_live("[batch] completed all input dirs");
+        batch_input_dirs_.clear();
+        batch_input_subdirs_.clear();
+        batch_parent_run_id_.clear();
+        active_batch_input_index_ = -1;
+        phase_progress_->set_current_input_dir("");
+        return false;
+    }
+
+    active_batch_input_index_ = next_index;
+    const QString input_dir = batch_input_dirs_.at(active_batch_input_index_).trimmed();
+    if (input_dir.isEmpty()) {
+        append_live("[batch] skipping empty input dir entry");
+        return start_next_batch_input_run();
+    }
+
+    QString runs_dir_for_input = batch_runs_dir_;
+    QString subdir;
+    if (active_batch_input_index_ >= 0 && active_batch_input_index_ < batch_input_subdirs_.size()) {
+        subdir = batch_input_subdirs_.at(active_batch_input_index_).trimmed();
+    }
+    if (subdir.isEmpty()) {
+        subdir = QFileInfo(input_dir).fileName().trimmed();
+    }
+    const QString run_id_for_input =
+        subdir.isEmpty() ? batch_parent_run_id_ : (batch_parent_run_id_ + "/" + subdir);
+
+    phase_progress_->reset();
+    phase_progress_->set_current_input_dir(input_dir, active_batch_input_index_, batch_input_dirs_.size());
+    run_tab_->set_input_dir(input_dir);
+
+    QStringList cmd;
+    cmd << batch_runner_path_;
+    cmd << "run";
+    if (batch_use_stdin_config_) {
+        cmd << "--config" << "-";
+        cmd << "--stdin";
+    } else {
+        cmd << "--config" << batch_config_path_;
+    }
+    cmd << "--input-dir" << input_dir;
+    cmd << "--runs-dir" << runs_dir_for_input;
+    cmd << "--run-id" << run_id_for_input;
+    cmd << "--pattern" << batch_pattern_;
+
+    if (batch_dry_run_) {
+        cmd << "--dry-run";
+    }
+
+    if (!confirmed_color_mode_.empty()) {
+        cmd << "--color-mode-confirmed" << QString::fromStdString(confirmed_color_mode_);
+    }
+
+    append_live(QString("[batch %1/%2] input=%3")
+                    .arg(active_batch_input_index_ + 1)
+                    .arg(batch_input_dirs_.size())
+                    .arg(input_dir));
+    append_live(QString("[runner] %1").arg(cmd.join(" ")));
+
+    try {
+        runner_->start(cmd, batch_working_dir_, batch_use_stdin_config_ ? batch_config_yaml_ : QString());
+        return true;
+    } catch (const std::exception &e) {
+        append_live(QString("[batch] start failed for %1: %2").arg(input_dir, e.what()));
+        return false;
+    }
 }
 
 QString MainWindow::format_event_human(const nlohmann::json &ev) const {
@@ -545,6 +660,11 @@ nlohmann::json MainWindow::collect_gui_state() const {
             : run_tab_->get_input_dir();
         state["lastInputDir"] = last_input.toStdString();
         state["scanInputDir"] = scan_tab_->get_scan_input_dir().toStdString();
+        const QStringList scan_dirs = scan_tab_->get_scan_input_dirs();
+        state["scanInputDirs"] = nlohmann::json::array();
+        for (const QString &dir : scan_dirs) {
+            state["scanInputDirs"].push_back(dir.toStdString());
+        }
         state["calibration"] = scan_tab_->collect_calibration();
         state["lastScan"] = scan_tab_->get_last_scan();
         state["frameCount"] = scan_tab_->get_frame_count();
@@ -552,6 +672,16 @@ nlohmann::json MainWindow::collect_gui_state() const {
     
     if (run_tab_) {
         state["inputDir"] = run_tab_->get_input_dir().toStdString();
+        const QStringList run_dirs = run_tab_->get_input_dirs();
+        state["inputDirs"] = nlohmann::json::array();
+        for (const QString &dir : run_dirs) {
+            state["inputDirs"].push_back(dir.toStdString());
+        }
+        const QStringList run_subdirs = run_tab_->get_input_subdirs();
+        state["inputSubdirs"] = nlohmann::json::array();
+        for (const QString &sub : run_subdirs) {
+            state["inputSubdirs"].push_back(sub.toStdString());
+        }
         state["workingDir"] = run_tab_->get_working_dir().toStdString();
         state["runsDir"] = run_tab_->get_runs_dir().toStdString();
         state["pattern"] = run_tab_->get_pattern().toStdString();
@@ -585,6 +715,15 @@ void MainWindow::apply_gui_state(const nlohmann::json &state) {
             last_scan_input_dir_ = scan_dir;
         }
     }
+    if (state.contains("scanInputDirs") && state["scanInputDirs"].is_array() && scan_tab_) {
+        QStringList dirs;
+        for (const auto &v : state["scanInputDirs"]) {
+            if (v.is_string()) {
+                dirs << QString::fromStdString(v.get<std::string>());
+            }
+        }
+        scan_tab_->set_scan_input_dirs(dirs);
+    }
     
     if (state.contains("calibration") && scan_tab_) {
         scan_tab_->apply_calibration(state["calibration"]);
@@ -612,6 +751,24 @@ void MainWindow::apply_gui_state(const nlohmann::json &state) {
             if (last_scan_input_dir_.isEmpty() && !run_dir.isEmpty()) {
                 last_scan_input_dir_ = run_dir;
             }
+        }
+        if (state.contains("inputDirs") && state["inputDirs"].is_array()) {
+            QStringList dirs;
+            for (const auto &v : state["inputDirs"]) {
+                if (v.is_string()) {
+                    dirs << QString::fromStdString(v.get<std::string>());
+                }
+            }
+            run_tab_->set_input_dirs(dirs);
+        }
+        if (state.contains("inputSubdirs") && state["inputSubdirs"].is_array()) {
+            QStringList subdirs;
+            for (const auto &v : state["inputSubdirs"]) {
+                if (v.is_string()) {
+                    subdirs << QString::fromStdString(v.get<std::string>());
+                }
+            }
+            run_tab_->set_input_subdirs(subdirs);
         }
         if (state.contains("workingDir")) {
             run_tab_->set_working_dir(QString::fromStdString(state["workingDir"].get<std::string>()));

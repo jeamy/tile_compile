@@ -41,9 +41,9 @@ void ConfigTab::build_ui() {
     auto *lbl_path = new QLabel("Config:");
     lbl_path->setFixedWidth(50);
     config_path_ = new QLineEdit("tile_compile.yaml");
-    config_path_->setMinimumHeight(28);
+    config_path_->setMinimumHeight(25);
     auto *btn_browse_config = new QPushButton("Browse");
-    btn_browse_config->setMinimumHeight(28);
+    btn_browse_config->setMinimumHeight(25);
     btn_browse_config->setFixedWidth(80);
     config_row->addWidget(lbl_path);
     config_row->addWidget(config_path_, 1);
@@ -52,16 +52,16 @@ void ConfigTab::build_ui() {
 
     auto *button_row = new QHBoxLayout();
     btn_cfg_load_ = new QPushButton("Load");
-    btn_cfg_load_->setMinimumHeight(28);
+    btn_cfg_load_->setMinimumHeight(25);
     btn_cfg_load_->setFixedWidth(80);
     btn_cfg_save_ = new QPushButton("Save");
-    btn_cfg_save_->setMinimumHeight(28);
+    btn_cfg_save_->setMinimumHeight(25);
     btn_cfg_save_->setFixedWidth(80);
     btn_cfg_validate_ = new QPushButton("Validate");
-    btn_cfg_validate_->setMinimumHeight(28);
+    btn_cfg_validate_->setMinimumHeight(25);
     btn_cfg_validate_->setFixedWidth(80);
     btn_apply_assumptions_ = new QPushButton("Apply Assumptions");
-    btn_apply_assumptions_->setMinimumHeight(28);
+    btn_apply_assumptions_->setMinimumHeight(25);
     btn_apply_assumptions_->setFixedWidth(130);
     lbl_cfg_ = new QLabel("not validated");
     lbl_cfg_->setObjectName("StatusLabel");

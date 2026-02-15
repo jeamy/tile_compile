@@ -59,6 +59,7 @@ using NormalizationScales = image::NormalizationScales;
 
 int run_pipeline_command(const std::string &config_path, const std::string &input_dir,
                 const std::string &runs_dir, const std::string &project_root,
+                const std::string &run_id_override,
                 bool dry_run, int max_frames, int max_tiles,
                 bool config_from_stdin) {
   using namespace tile_compile;
@@ -116,7 +117,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     return 1;
   }
 
-  std::string run_id = core::get_run_id();
+  std::string run_id = run_id_override.empty() ? core::get_run_id() : run_id_override;
   fs::path run_dir = fs::absolute(runs / run_id);
   fs::create_directories(run_dir / "logs");
   fs::create_directories(run_dir / "outputs");

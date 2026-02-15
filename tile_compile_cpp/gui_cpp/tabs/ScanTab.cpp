@@ -8,7 +8,9 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <thread>
+#include <algorithm>
 #include <filesystem>
+#include <vector>
 
 namespace tile_compile::gui {
 
@@ -32,22 +34,34 @@ void ScanTab::build_ui() {
     
     auto *input_row = new QHBoxLayout();
     scan_input_dir_ = new QLineEdit();
-    scan_input_dir_->setMinimumHeight(30);
+    scan_input_dir_->setMinimumHeight(25);
     scan_input_dir_->setPlaceholderText("/path/to/frames");
     auto *btn_browse_scan_dir = new QPushButton("Browse");
-    btn_browse_scan_dir->setMinimumHeight(30);
+    btn_browse_scan_dir->setMinimumHeight(25);
     btn_browse_scan_dir->setFixedWidth(100);
+    btn_add_scan_dir_ = new QPushButton("+");
+    btn_add_scan_dir_->setMinimumHeight(25);
+    btn_add_scan_dir_->setFixedWidth(36);
+    btn_remove_scan_dir_ = new QPushButton("-");
+    btn_remove_scan_dir_->setMinimumHeight(25);
+    btn_remove_scan_dir_->setFixedWidth(36);
     btn_scan_ = new QPushButton("Scan");
-    btn_scan_->setMinimumHeight(30);
+    btn_scan_->setMinimumHeight(25);
     btn_scan_->setFixedWidth(100);
     lbl_scan_ = new QLabel("idle");
     lbl_scan_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     
     input_row->addWidget(scan_input_dir_);
     input_row->addWidget(btn_browse_scan_dir);
+    input_row->addWidget(btn_add_scan_dir_);
+    input_row->addWidget(btn_remove_scan_dir_);
     input_row->addWidget(btn_scan_);
     input_row->addWidget(lbl_scan_);
     scan_form->addRow("Input dir", input_row);
+    scan_input_dirs_list_ = new QListWidget();
+    scan_input_dirs_list_->setMinimumHeight(90);
+    scan_input_dirs_list_->setSelectionMode(QAbstractItemView::SingleSelection);
+    scan_form->addRow("Input dirs", scan_input_dirs_list_);
     scan_layout->addLayout(scan_form);
     
     // Calibration section
@@ -172,6 +186,8 @@ void ScanTab::build_ui() {
     connect(btn_scan_, &QPushButton::clicked, this, &ScanTab::on_scan_clicked);
     connect(btn_confirm_color_, &QPushButton::clicked, this, &ScanTab::on_confirm_color_clicked);
     connect(btn_browse_scan_dir, &QPushButton::clicked, this, &ScanTab::on_browse_scan_dir);
+    connect(btn_add_scan_dir_, &QPushButton::clicked, this, &ScanTab::on_add_scan_dir);
+    connect(btn_remove_scan_dir_, &QPushButton::clicked, this, &ScanTab::on_remove_scan_dir);
     connect(btn_browse_bias_dir_, &QPushButton::clicked, this, &ScanTab::on_browse_bias_dir);
     connect(btn_browse_darks_dir_, &QPushButton::clicked, this, &ScanTab::on_browse_darks_dir);
     connect(btn_browse_flats_dir_, &QPushButton::clicked, this, &ScanTab::on_browse_flats_dir);
@@ -189,25 +205,27 @@ void ScanTab::build_ui() {
 
 void ScanTab::on_scan_clicked() {
     emit log_message("[ui] scan button clicked");
-    
-    const QString input_path = scan_input_dir_->text().trimmed();
-    if (input_path.isEmpty()) {
+
+    const QStringList input_dirs = get_scan_input_dirs();
+    if (input_dirs.isEmpty()) {
         lbl_scan_->setText("error");
-        scan_msg_->setText("Input dir is required");
-        QMessageBox::warning(this, "Scan Error", "Input directory is required");
+        scan_msg_->setText("At least one input dir is required");
+        QMessageBox::warning(this, "Scan Error", "At least one input directory is required");
         return;
     }
-    
-    if (!std::filesystem::exists(input_path.toStdString())) {
-        lbl_scan_->setText("error");
-        scan_msg_->setText(QString("Directory not found: %1").arg(input_path));
-        QMessageBox::warning(this, "Scan Error", QString("Directory not found: %1").arg(input_path));
-        return;
+
+    for (const QString &input_path : input_dirs) {
+        if (!std::filesystem::exists(input_path.toStdString())) {
+            lbl_scan_->setText("error");
+            scan_msg_->setText(QString("Directory not found: %1").arg(input_path));
+            QMessageBox::warning(this, "Scan Error", QString("Directory not found: %1").arg(input_path));
+            return;
+        }
     }
     
     btn_scan_->setEnabled(false);
     lbl_scan_->setText("scanning...");
-    scan_msg_->setText("");
+    scan_msg_->setText(QString("Scanning %1 input dirs...").arg(input_dirs.size()));
     last_scan_ = nlohmann::json::object();
     confirmed_color_mode_.clear();
     frame_count_ = 0;
@@ -220,64 +238,105 @@ void ScanTab::on_scan_clicked() {
     
     const int frames_min = scan_frames_min_->value();
     const bool with_checksums = scan_with_checksums_->isChecked();
+    const QStringList input_dirs_copy = input_dirs;
     
-    std::thread([this, input_path, frames_min, with_checksums]() {
+    std::thread([this, input_dirs_copy, frames_min, with_checksums]() {
         try {
-            std::vector<std::string> args = {
-                backend_->backend_cmd()[0].substr(backend_->backend_cmd()[0].find_last_of('/') + 1) == "tile_compile_cli" 
-                    ? "scan" : backend_->constants().value("CLI", nlohmann::json::object()).value("sub", nlohmann::json::object()).value("SCAN", "scan"),
-                input_path.toStdString(),
-                "--frames-min",
-                std::to_string(frames_min),
-            };
-            if (with_checksums) {
-                args.push_back("--with-checksums");
-            }
-            
-            const auto result = backend_->run_json(project_root_, args, "", 120000);
-            
-            QMetaObject::invokeMethod(this, [this, result]() {
-                last_scan_ = result;
+            const std::string scan_sub =
+                backend_->backend_cmd()[0].substr(backend_->backend_cmd()[0].find_last_of('/') + 1) == "tile_compile_cli"
+                    ? "scan"
+                    : backend_->constants().value("CLI", nlohmann::json::object())
+                          .value("sub", nlohmann::json::object())
+                          .value("SCAN", "scan");
+
+            std::vector<nlohmann::json> per_dir_results;
+            std::vector<std::string> all_color_candidates;
+            std::string first_color_mode;
+            bool color_mode_mismatch = false;
+            bool any_requires_confirmation = false;
+            bool all_ok = true;
+            int frames_total = 0;
+
+            for (const QString &input_path : input_dirs_copy) {
+                std::vector<std::string> args = {
+                    scan_sub,
+                    input_path.toStdString(),
+                    "--frames-min",
+                    std::to_string(frames_min),
+                };
+                if (with_checksums) {
+                    args.push_back("--with-checksums");
+                }
+
+                auto result = backend_->run_json(project_root_, args, "", 120000);
+                result["input_dir"] = input_path.toStdString();
+                per_dir_results.push_back(result);
+
                 const bool ok = result.value("ok", false);
+                all_ok = all_ok && ok;
+                if (ok) {
+                    frames_total += result.value("frames_detected", 0);
+                }
+
+                const bool requires_confirm = result.value("requires_user_confirmation", false);
+                any_requires_confirmation = any_requires_confirmation || requires_confirm;
+
+                const std::string cm = result.value("color_mode", "");
+                if (!cm.empty() && cm != "UNKNOWN") {
+                    if (first_color_mode.empty()) {
+                        first_color_mode = cm;
+                    } else if (first_color_mode != cm) {
+                        color_mode_mismatch = true;
+                    }
+                    if (std::find(all_color_candidates.begin(), all_color_candidates.end(), cm) == all_color_candidates.end()) {
+                        all_color_candidates.push_back(cm);
+                    }
+                }
+
+                if (result.contains("color_mode_candidates") && result["color_mode_candidates"].is_array()) {
+                    for (const auto &cand : result["color_mode_candidates"]) {
+                        if (cand.is_string()) {
+                            const std::string s = cand.get<std::string>();
+                            if (!s.empty() && std::find(all_color_candidates.begin(), all_color_candidates.end(), s) == all_color_candidates.end()) {
+                                all_color_candidates.push_back(s);
+                            }
+                        }
+                    }
+                }
+            }
+
+            nlohmann::json summary = nlohmann::json::object();
+            summary["ok"] = all_ok;
+            summary["dirs_scanned"] = static_cast<int>(input_dirs_copy.size());
+            summary["frames_detected"] = frames_total;
+            summary["per_dir_results"] = per_dir_results;
+            summary["color_mode_candidates"] = all_color_candidates;
+            summary["requires_user_confirmation"] = any_requires_confirmation || color_mode_mismatch || all_color_candidates.empty();
+            summary["color_mode"] = (!color_mode_mismatch && !first_color_mode.empty()) ? first_color_mode : std::string("UNKNOWN");
+
+            QMetaObject::invokeMethod(this, [this, summary, input_dirs_copy]() {
+                last_scan_ = summary;
+                const bool ok = summary.value("ok", false);
                 lbl_scan_->setText(ok ? "ok" : "error");
                 
                 std::string msg;
-                if (result.contains("errors") && result["errors"].is_array() && !result["errors"].empty()) {
-                    const auto &first = result["errors"][0];
-                    msg = first.value("code", "error") + ": " + first.value("message", "");
-                } else if (result.contains("warnings") && result["warnings"].is_array() && !result["warnings"].empty()) {
-                    const auto &first = result["warnings"][0];
-                    msg = first.value("code", "warning") + ": " + first.value("message", "");
-                } else if (ok) {
-                    auto json_string_or_empty = [](const nlohmann::json &obj,
-                                                   const char *key) -> std::string {
-                        if (!obj.contains(key) || obj[key].is_null()) {
-                            return "";
-                        }
-                        if (obj[key].is_string()) {
-                            return obj[key].get<std::string>();
-                        }
-                        return "";
-                    };
-                    const int frames = result.value("frames_detected", 0);
-                    const std::string cm = json_string_or_empty(result, "color_mode");
-                    const std::string bp = json_string_or_empty(result, "bayer_pattern");
-                    std::vector<std::string> parts;
-                    if (frames > 0) parts.push_back("frames_detected=" + std::to_string(frames));
-                    if (!cm.empty()) parts.push_back("color_mode=" + cm);
-                    if (!bp.empty()) parts.push_back("bayer_pattern=" + bp);
-                    for (size_t i = 0; i < parts.size(); ++i) {
-                        if (i > 0) msg += ", ";
-                        msg += parts[i];
+                if (ok) {
+                    msg = "dirs_scanned=" + std::to_string(summary.value("dirs_scanned", 0));
+                    msg += ", frames_detected_total=" + std::to_string(summary.value("frames_detected", 0));
+                    const std::string cm = summary.value("color_mode", "");
+                    if (!cm.empty() && cm != "UNKNOWN") {
+                        msg += ", color_mode=" + cm;
                     }
+                } else {
+                    msg = "Scan failed for at least one input dir";
                 }
                 scan_msg_->setText(QString::fromStdString(msg));
                 
                 color_mode_select_->blockSignals(true);
                 color_mode_select_->clear();
                 std::vector<std::string> candidates;
-                if (result.contains("color_mode_candidates") && result["color_mode_candidates"].is_array()) {
-                    for (const auto &c : result["color_mode_candidates"]) {
+                if (summary.contains("color_mode_candidates") && summary["color_mode_candidates"].is_array()) {
+                    for (const auto &c : summary["color_mode_candidates"]) {
                         if (c.is_string()) {
                             const std::string s = c.get<std::string>();
                             if (!s.empty() && std::find(candidates.begin(), candidates.end(), s) == candidates.end()) {
@@ -286,7 +345,7 @@ void ScanTab::on_scan_clicked() {
                         }
                     }
                 }
-                const std::string cm = result.value("color_mode", "");
+                const std::string cm = summary.value("color_mode", "");
                 if (!cm.empty() && cm != "UNKNOWN" && std::find(candidates.begin(), candidates.end(), cm) == candidates.end()) {
                     candidates.insert(candidates.begin(), cm);
                 }
@@ -298,16 +357,16 @@ void ScanTab::on_scan_clicked() {
                 }
                 color_mode_select_->blockSignals(false);
                 
-                if (result.value("requires_user_confirmation", false)) {
-                    lbl_confirm_hint_->setText("⚠ Scan could not determine color mode (missing/inconsistent BAYERPAT). Please confirm manually.");
+                if (summary.value("requires_user_confirmation", false)) {
+                    lbl_confirm_hint_->setText("⚠ Scan returned mixed/unclear color mode over input dirs. Please confirm manually.");
                     lbl_confirm_hint_->setStyleSheet("color: orange; font-weight: bold;");
                 } else {
                     lbl_confirm_hint_->setText("");
                     lbl_confirm_hint_->setStyleSheet("");
                 }
                 
-                if (ok && !result.value("requires_user_confirmation", false)) {
-                    const std::string cm2 = result.value("color_mode", "");
+                if (ok && !summary.value("requires_user_confirmation", false)) {
+                    const std::string cm2 = summary.value("color_mode", "");
                     if (!cm2.empty() && cm2 != "UNKNOWN") {
                         confirmed_color_mode_ = cm2;
                         lbl_confirm_hint_->setText(QString("✓ Auto-detected: %1").arg(QString::fromStdString(cm2)));
@@ -315,11 +374,14 @@ void ScanTab::on_scan_clicked() {
                     }
                 }
                 
-                frame_count_ = result.value("frames_detected", 0);
+                frame_count_ = summary.value("frames_detected", 0);
                 
                 // Propagate input dir on success
                 if (ok) {
-                    emit input_dir_changed(scan_input_dir_->text());
+                    if (!input_dirs_copy.isEmpty()) {
+                        emit input_dir_changed(input_dirs_copy.front());
+                    }
+                    emit input_dirs_changed(input_dirs_copy);
                 }
                 
                 emit header_status_changed("idle");
@@ -362,6 +424,34 @@ void ScanTab::on_browse_scan_dir() {
     if (!p.isEmpty()) {
         scan_input_dir_->setText(p);
     }
+}
+
+void ScanTab::on_add_scan_dir() {
+    const QString dir = scan_input_dir_->text().trimmed();
+    if (dir.isEmpty()) {
+        return;
+    }
+    for (int i = 0; i < scan_input_dirs_list_->count(); ++i) {
+        if (scan_input_dirs_list_->item(i)->text() == dir) {
+            scan_input_dirs_list_->setCurrentRow(i);
+            return;
+        }
+    }
+    scan_input_dirs_list_->addItem(dir);
+    scan_input_dirs_list_->setCurrentRow(scan_input_dirs_list_->count() - 1);
+    emit input_dirs_changed(get_scan_input_dirs());
+}
+
+void ScanTab::on_remove_scan_dir() {
+    int row = scan_input_dirs_list_->currentRow();
+    if (row < 0) {
+        row = scan_input_dirs_list_->count() - 1;
+    }
+    if (row < 0) {
+        return;
+    }
+    delete scan_input_dirs_list_->takeItem(row);
+    emit input_dirs_changed(get_scan_input_dirs());
 }
 
 void ScanTab::on_browse_bias_dir() {
@@ -521,7 +611,51 @@ void ScanTab::set_input_dir_from_scan(const QString &dir) {
 }
 
 QString ScanTab::get_scan_input_dir() const {
+    if (scan_input_dirs_list_ && scan_input_dirs_list_->count() > 0) {
+        return scan_input_dirs_list_->item(0)->text().trimmed();
+    }
     return scan_input_dir_->text().trimmed();
+}
+
+QStringList ScanTab::get_scan_input_dirs() const {
+    QStringList dirs;
+    if (scan_input_dirs_list_) {
+        for (int i = 0; i < scan_input_dirs_list_->count(); ++i) {
+            const QString dir = scan_input_dirs_list_->item(i)->text().trimmed();
+            if (!dir.isEmpty()) {
+                dirs << dir;
+            }
+        }
+    }
+    if (dirs.isEmpty()) {
+        const QString one = scan_input_dir_->text().trimmed();
+        if (!one.isEmpty()) {
+            dirs << one;
+        }
+    }
+    dirs.removeDuplicates();
+    return dirs;
+}
+
+void ScanTab::set_scan_input_dirs(const QStringList &dirs) {
+    if (!scan_input_dirs_list_) {
+        return;
+    }
+    scan_input_dirs_list_->clear();
+    QString first;
+    for (const QString &dir : dirs) {
+        const QString trimmed = dir.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+        if (first.isEmpty()) {
+            first = trimmed;
+        }
+        scan_input_dirs_list_->addItem(trimmed);
+    }
+    if (!first.isEmpty()) {
+        scan_input_dir_->setText(first);
+    }
 }
 
 nlohmann::json ScanTab::collect_calibration() const {

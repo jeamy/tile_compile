@@ -23,11 +23,13 @@ class PhaseProgressWidget : public QWidget {
                       const std::string &substep = std::string(),
                       const std::string &pass_info = std::string());
     void set_error_detail(const std::string &phase_name, const std::string &detail);
+    void set_current_input_dir(const QString &input_dir, int index = -1, int total = -1);
 
   private:
     void build_ui();
     
     QLabel *reduced_mode_label_ = nullptr;
+    QLabel *current_input_label_ = nullptr;
     QProgressBar *progress_bar_ = nullptr;
     QLabel *error_label_ = nullptr;
     

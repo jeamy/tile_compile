@@ -36,6 +36,26 @@ constexpr PhaseInfo METHODIK_V4_PHASES[] = {
 constexpr int NUM_PHASES = sizeof(METHODIK_V4_PHASES) / sizeof(METHODIK_V4_PHASES[0]);
 }
 
+void PhaseProgressWidget::set_current_input_dir(const QString &input_dir, int index, int total) {
+    if (!current_input_label_) {
+        return;
+    }
+    const QString trimmed = input_dir.trimmed();
+    if (trimmed.isEmpty()) {
+        current_input_label_->setText("");
+        current_input_label_->setVisible(false);
+        return;
+    }
+    QString text;
+    if (index >= 0 && total > 0) {
+        text = QString("Current input dir [%1/%2]: %3").arg(index + 1).arg(total).arg(trimmed);
+    } else {
+        text = QString("Current input dir: %1").arg(trimmed);
+    }
+    current_input_label_->setText(text);
+    current_input_label_->setVisible(true);
+}
+
 PhaseProgressWidget::PhaseProgressWidget(QWidget *parent) : QWidget(parent) {
     build_ui();
 }
@@ -49,6 +69,11 @@ void PhaseProgressWidget::build_ui() {
     reduced_mode_label_->setObjectName("ReducedModeWarning");
     reduced_mode_label_->setVisible(false);
     layout->addWidget(reduced_mode_label_);
+
+    current_input_label_ = new QLabel("");
+    current_input_label_->setObjectName("StatusLabel");
+    current_input_label_->setVisible(false);
+    layout->addWidget(current_input_label_);
 
     progress_bar_ = new QProgressBar();
     progress_bar_->setMinimum(0);
@@ -111,6 +136,10 @@ void PhaseProgressWidget::reset() {
     }
     progress_bar_->setValue(0);
     reduced_mode_label_->setVisible(false);
+    if (current_input_label_) {
+        current_input_label_->setText("");
+        current_input_label_->setVisible(false);
+    }
     last_error_text_.clear();
     if (error_label_) {
         error_label_->setText("");
