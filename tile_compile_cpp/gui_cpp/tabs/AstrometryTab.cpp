@@ -442,7 +442,7 @@ void AstrometryTab::on_download_catalog() {
 void AstrometryTab::on_browse_fits() {
     const QString path = QFileDialog::getOpenFileName(
         this, "Select FITS file", QString(),
-        "FITS files (*.fits *.fit *.fts);;All files (*)");
+        "FITS files (*.fits *.fit *.fts *.fits.fz *.fit.fz *.fts.fz);;All files (*)");
     if (!path.isEmpty()) {
         edt_fits_path_->setText(path);
     }
@@ -501,7 +501,13 @@ void AstrometryTab::on_solve() {
 
 void AstrometryTab::parse_wcs(const QString &fits_path) {
     QString wcs_path = fits_path;
-    if (wcs_path.endsWith(".fits", Qt::CaseInsensitive))
+    if (wcs_path.endsWith(".fits.fz", Qt::CaseInsensitive))
+        wcs_path.replace(wcs_path.length() - 8, 8, ".wcs");
+    else if (wcs_path.endsWith(".fit.fz", Qt::CaseInsensitive))
+        wcs_path.replace(wcs_path.length() - 7, 7, ".wcs");
+    else if (wcs_path.endsWith(".fts.fz", Qt::CaseInsensitive))
+        wcs_path.replace(wcs_path.length() - 7, 7, ".wcs");
+    else if (wcs_path.endsWith(".fits", Qt::CaseInsensitive))
         wcs_path.replace(wcs_path.length() - 5, 5, ".wcs");
     else if (wcs_path.endsWith(".fit", Qt::CaseInsensitive))
         wcs_path.replace(wcs_path.length() - 4, 4, ".wcs");
@@ -548,7 +554,13 @@ void AstrometryTab::on_solve_finished(int exit_code, QProcess::ExitStatus status
 
         // Determine .wcs path
         QString wcs_path = fits_path;
-        if (wcs_path.endsWith(".fits", Qt::CaseInsensitive))
+        if (wcs_path.endsWith(".fits.fz", Qt::CaseInsensitive))
+            wcs_path.replace(wcs_path.length() - 8, 8, ".wcs");
+        else if (wcs_path.endsWith(".fit.fz", Qt::CaseInsensitive))
+            wcs_path.replace(wcs_path.length() - 7, 7, ".wcs");
+        else if (wcs_path.endsWith(".fts.fz", Qt::CaseInsensitive))
+            wcs_path.replace(wcs_path.length() - 7, 7, ".wcs");
+        else if (wcs_path.endsWith(".fits", Qt::CaseInsensitive))
             wcs_path.replace(wcs_path.length() - 5, 5, ".wcs");
         else if (wcs_path.endsWith(".fit", Qt::CaseInsensitive))
             wcs_path.replace(wcs_path.length() - 4, 4, ".wcs");
@@ -590,7 +602,7 @@ void AstrometryTab::on_save_solved() {
     QString default_name = fi.completeBaseName() + "_solved." + fi.suffix();
     QString save_path = QFileDialog::getSaveFileName(
         this, "Save Solved FITS", fi.dir().filePath(default_name),
-        "FITS files (*.fits *.fit *.fts);;All files (*)");
+        "FITS files (*.fits *.fit *.fts *.fits.fz *.fit.fz *.fts.fz);;All files (*)");
     if (save_path.isEmpty()) return;
 
     try {

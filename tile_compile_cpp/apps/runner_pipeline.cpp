@@ -102,7 +102,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                      : fs::path(project_root);
   }
 
-  auto frames = core::discover_frames(in_dir, "*.fit*");
+  auto frames = core::discover_frames(in_dir, "*");
+  frames.erase(
+      std::remove_if(frames.begin(), frames.end(),
+                     [](const fs::path &p) { return !io::is_fits_image_path(p); }),
+      frames.end());
   std::sort(frames.begin(), frames.end());
   if (max_frames > 0 && frames.size() > static_cast<size_t>(max_frames)) {
     frames.resize(static_cast<size_t>(max_frames));
@@ -210,17 +214,33 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                      ? BayerPattern::UNKNOWN
                                      : string_to_bayer_pattern(
                                            cfg.data.bayer_pattern);
+  const bool cfg_looks_like_default_osc =
+      (cfg.data.color_mode == "OSC" &&
+       (cfg.data.bayer_pattern.empty() || cfg.data.bayer_pattern == "GBRG"));
 
   if (!header_has_color_hint && cfg_color_mode_valid) {
-    detected_mode = cfg_color_mode;
-    detected_mode_str = color_mode_to_string(detected_mode);
-    emitter.warning(run_id,
-                    "FITS header has no clear color hint; using "
-                    "config.data.color_mode='" +
-                        cfg.data.color_mode + "' as fallback",
-                    log_file);
+    // For hint-less FITS, avoid forcing OSC from implicit defaults.
+    // This keeps MONO/SW datasets processable without BAYERPAT.
+    if (!cfg_looks_like_default_osc) {
+      detected_mode = cfg_color_mode;
+      detected_mode_str = color_mode_to_string(detected_mode);
+      emitter.warning(run_id,
+                      "FITS header has no clear color hint; using "
+                      "config.data.color_mode='" +
+                          cfg.data.color_mode + "' as fallback",
+                      log_file);
+    } else {
+      detected_mode = ColorMode::MONO;
+      detected_mode_str = color_mode_to_string(detected_mode);
+      emitter.warning(run_id,
+                      "FITS header has no clear color hint; default OSC/BAYER "
+                      "config would be ambiguous, using MONO fallback",
+                      log_file);
+    }
   }
-  if (detected_bayer == BayerPattern::UNKNOWN && cfg_bayer != BayerPattern::UNKNOWN) {
+  if (detected_mode == ColorMode::OSC &&
+      detected_bayer == BayerPattern::UNKNOWN &&
+      cfg_bayer != BayerPattern::UNKNOWN) {
     detected_bayer = cfg_bayer;
     detected_bayer_str = bayer_pattern_to_string(detected_bayer);
     emitter.warning(run_id,
@@ -228,6 +248,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                     "config.data.bayer_pattern='" +
                         cfg.data.bayer_pattern + "' as fallback",
                     log_file);
+  } else if (detected_mode != ColorMode::OSC) {
+    detected_bayer = BayerPattern::UNKNOWN;
+    detected_bayer_str = bayer_pattern_to_string(detected_bayer);
   }
   if (width <= 0 && cfg.data.image_width > 0) {
     width = cfg.data.image_width;
