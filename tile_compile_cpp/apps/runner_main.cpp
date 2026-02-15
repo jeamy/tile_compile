@@ -1098,6 +1098,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   std::vector<float> tile_mean_correlations;
   std::vector<float> tile_post_contrast;
   std::vector<float> tile_post_background;
+  std::vector<float> tile_norm_bg_r;
+  std::vector<float> tile_norm_bg_g;
+  std::vector<float> tile_norm_bg_b;
   std::vector<float> tile_post_snr;
   std::vector<float> tile_mean_dx;
   std::vector<float> tile_mean_dy;
@@ -1824,11 +1827,20 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     tile_mean_correlations.assign(tiles_phase56.size(), 0.0f);
     tile_post_contrast.assign(tiles_phase56.size(), 0.0f);
     tile_post_background.assign(tiles_phase56.size(), 0.0f);
+    tile_norm_bg_r.assign(tiles_phase56.size(), 0.0f);
+    tile_norm_bg_g.assign(tiles_phase56.size(), 0.0f);
+    tile_norm_bg_b.assign(tiles_phase56.size(), 0.0f);
     tile_post_snr.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dx.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dy.assign(tiles_phase56.size(), 0.0f);
     for (auto &c : frame_valid_tile_counts)
       c.store(0);
+
+    // Reduced/emergency runs finalize from Phase 7 directly; per-tile scale
+    // normalization can imprint a visible grid for small DSLR stacks.
+    // Keep v3.2 tile normalization enabled in full mode, disable in
+    // reduced/emergency execution path.
+    const bool apply_phase7_tile_norm = !skip_clustering_in_reduced;
 
     // Thread-safe structures for parallel processing
     std::mutex recon_mutex;
@@ -2069,9 +2081,72 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       tile_post_background[ti] = b;
       tile_post_snr[ti] = s;
 
-      // Preserve photometric scale before overlap-add.
-      // Per-tile median/scale normalization here can imprint tile structure
-      // and compress/stretch signal dynamics for converted DSLR FITS data.
+      if (apply_phase7_tile_norm) {
+        // Methodik v3.2 §5.7.1 (verbindlich): Tile-Normalisierung vor OLA.
+        // OSC-Schutz: gemeinsamer Scale-Faktor fuer R/G/B, um Farbrelationen
+        // nicht tileweise zu verzerren.
+        std::vector<float> norm_tmp;
+        auto median_from_matrix = [&](const Matrix2Df &src,
+                                      bool abs_values) -> float {
+          if (src.size() <= 0) {
+            return 0.0f;
+          }
+          norm_tmp.resize(static_cast<size_t>(src.size()));
+          if (abs_values) {
+            for (Eigen::Index i = 0; i < src.size(); ++i) {
+              norm_tmp[static_cast<size_t>(i)] = std::fabs(src.data()[i]);
+            }
+          } else {
+            std::copy(src.data(), src.data() + src.size(), norm_tmp.begin());
+          }
+          const size_t mid = norm_tmp.size() / 2;
+          std::nth_element(norm_tmp.begin(),
+                           norm_tmp.begin() + static_cast<long>(mid),
+                           norm_tmp.end());
+          return norm_tmp[mid];
+        };
+        auto center_by_median = [&](Matrix2Df &src) -> float {
+          const float bg = median_from_matrix(src, false);
+          for (Eigen::Index i = 0; i < src.size(); ++i) {
+            src.data()[i] -= bg;
+          }
+          return bg;
+        };
+
+        if (osc_mode) {
+          const float bg_r = center_by_median(tile_rec_R);
+          const float bg_g = center_by_median(tile_rec_G);
+          const float bg_b = center_by_median(tile_rec_B);
+          tile_norm_bg_r[ti] = bg_r;
+          tile_norm_bg_g[ti] = bg_g;
+          tile_norm_bg_b[ti] = bg_b;
+
+          tile_rec =
+              0.25f * tile_rec_R + 0.5f * tile_rec_G + 0.25f * tile_rec_B;
+          const float m_shared = median_from_matrix(tile_rec, true);
+          if (m_shared >= kEpsMedian) {
+            const float inv = 1.0f / m_shared;
+            for (Eigen::Index i = 0; i < tile_rec_R.size(); ++i) {
+              tile_rec_R.data()[i] *= inv;
+              tile_rec_G.data()[i] *= inv;
+              tile_rec_B.data()[i] *= inv;
+            }
+            for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
+              tile_rec.data()[i] *= inv;
+            }
+          }
+        } else {
+          const float bg = center_by_median(tile_rec);
+          tile_norm_bg_r[ti] = bg;
+          const float m = median_from_matrix(tile_rec, true);
+          if (m >= kEpsMedian) {
+            const float inv = 1.0f / m;
+            for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
+              tile_rec.data()[i] *= inv;
+            }
+          }
+        }
+      }
 
       {
         std::lock_guard<std::mutex> lock(recon_mutex);
@@ -2160,6 +2235,37 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         }
       }
 
+      if (apply_phase7_tile_norm) {
+        // Methodik v3.2 §5.7.2 (optional): global robust tile background
+        // restore.
+        std::vector<float> bg_r_vals;
+        std::vector<float> bg_g_vals;
+        std::vector<float> bg_b_vals;
+        bg_r_vals.reserve(tiles_phase56.size());
+        bg_g_vals.reserve(tiles_phase56.size());
+        bg_b_vals.reserve(tiles_phase56.size());
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+          if (tile_valid_counts[ti] <= 0) {
+            continue;
+          }
+          bg_r_vals.push_back(tile_norm_bg_r[ti]);
+          bg_g_vals.push_back(tile_norm_bg_g[ti]);
+          bg_b_vals.push_back(tile_norm_bg_b[ti]);
+        }
+        if (!bg_r_vals.empty() && !bg_g_vals.empty() && !bg_b_vals.empty()) {
+          const float bg_r = core::median_of(bg_r_vals);
+          const float bg_g = core::median_of(bg_g_vals);
+          const float bg_b = core::median_of(bg_b_vals);
+          for (int i = 0; i < recon_R.size(); ++i) {
+            if (weight_sum.data()[i] > eps_ws) {
+              recon_R.data()[i] += bg_r;
+              recon_G.data()[i] += bg_g;
+              recon_B.data()[i] += bg_b;
+            }
+          }
+        }
+      }
+
       // Keep a luminance proxy for validation + downstream metrics.
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
     } else {
@@ -2169,6 +2275,24 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           recon.data()[i] /= ws;
         } else {
           recon.data()[i] = first_img.data()[i];
+        }
+      }
+
+      if (apply_phase7_tile_norm) {
+        std::vector<float> bg_vals;
+        bg_vals.reserve(tiles_phase56.size());
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+          if (tile_valid_counts[ti] > 0) {
+            bg_vals.push_back(tile_norm_bg_r[ti]);
+          }
+        }
+        if (!bg_vals.empty()) {
+          const float bg = core::median_of(bg_vals);
+          for (int i = 0; i < recon.size(); ++i) {
+            if (weight_sum.data()[i] > eps_ws) {
+              recon.data()[i] += bg;
+            }
+          }
         }
       }
     }
