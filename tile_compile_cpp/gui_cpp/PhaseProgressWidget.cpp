@@ -16,12 +16,12 @@ struct PhaseInfo {
 // Display order mirrors actual runtime order; ids keep enum values.
 constexpr PhaseInfo METHODIK_V4_PHASES[] = {
     {0, "SCAN_INPUT", "Eingabe-Validierung"},
-    {1, "REGISTRATION", "Globale Registrierung (CFA/Siril)"},
-    {2, "PREWARP", "Vollauflosungs-Prewarp vor Tile-Extraktion"},
     {3, "CHANNEL_SPLIT", "Kanal-Trennung (R/G/B)"},
     {4, "NORMALIZATION", "Globale lineare Normalisierung"},
     {5, "GLOBAL_METRICS", "Globale Frame-Metriken (B, σ, E)"},
     {6, "TILE_GRID", "FWHM-basierte Tile-Geometrie"},
+    {1, "REGISTRATION", "Globale Registrierung (CFA/Siril)"},
+    {2, "PREWARP", "Vollauflosungs-Prewarp vor Tile-Extraktion"},
     {7, "LOCAL_METRICS", "Lokale Tile-Metriken"},
     {8, "TILE_RECONSTRUCTION", "Tile-Rekonstruktion (Overlap-Add)"},
     {9, "STATE_CLUSTERING", "Zustandsbasiertes Clustering"},
