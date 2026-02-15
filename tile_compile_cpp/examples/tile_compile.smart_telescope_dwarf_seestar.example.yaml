@@ -16,13 +16,13 @@ output:
   write_global_registration: true # global_registration.json speichern
 
 data:
-  image_width: 1920 # typische Smart-Telescope-Aufloesung, ggf. anpassen
-  image_height: 1080 # typische Smart-Telescope-Aufloesung, ggf. anpassen
+  #image_width: 1920 # typische Smart-Telescope-Aufloesung, ggf. anpassen
+  #image_height: 1080 # typische Smart-Telescope-Aufloesung, ggf. anpassen
   frames_min: 30 # Legacy-Mindestwert, parallel zu assumptions.frames_min
   frames_target: 0 # 0 = unbegrenzt, sonst Zielanzahl fuer Auswahl/Begrenzung
-  color_mode: OSC # Smart-Telescope ueblich: OSC
-  bayer_pattern: GBRG # je nach Sensor pruefen und ggf. ersetzen
-  linear_required: true # nur lineare Daten verarbeiten
+  #color_mode: OSC # Smart-Telescope ueblich: OSC
+  #bayer_pattern: GBRG # je nach Sensor pruefen und ggf. ersetzen
+  inear_required: true # nur lineare Daten verarbeiten
 
 input:
   pattern: ./data/*.fits # Input-Glob fuer Rohframes
