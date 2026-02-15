@@ -50,6 +50,9 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
 - `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
   - Suggested full config for DWARF / ZWO Seestar OSC stacks.
   - Chroma denoise profile: conservative (protect small-scale detail).
+- `tile_compile.smart_telescope_altaz_polar_near.example.yaml`
+  - Suggested OSC config for Alt/Az sessions close to the celestial pole (strong field rotation / drift).
+  - Registration is tuned to be more tolerant (`hybrid_phase_ecc`, lower `reject_cc_min_abs`, wider shift/scale rejection limits).
 - `tile_compile.canon_low_n_high_quality.example.yaml`
   - Suggested OSC config for Canon-style datasets with low frame count but high/consistent quality.
   - Anti-grid focus for reduced/emergency operation: larger tiles, higher overlap, conservative weighting.
@@ -72,6 +75,7 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
    - `data.bayer_pattern`
    - (optional) tune `dithering.min_shift_px` to your mount behavior
    - (optional) tune `registration.reject_*` thresholds if frames are over- or under-rejected
+   - (optional, Alt/Az near polar region) prefer `tile_compile.smart_telescope_altaz_polar_near.example.yaml` as baseline
    - (optional, OSC) tune `chroma_denoise.blend.amount` and `chroma_denoise.apply_stage`
    - (optional) tune `stacking.cluster_quality_weighting.*` if cluster weighting is too strong/weak
 2. Run directly with:
