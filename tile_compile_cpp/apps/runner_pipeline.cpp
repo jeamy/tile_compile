@@ -21,6 +21,7 @@
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
 
 #include "runner_phase_metrics.hpp"
+#include "runner_phase_registration.hpp"
 #include "runner_shared.hpp"
 
 #include <algorithm>
@@ -52,7 +53,6 @@ using tile_compile::WarpMatrix;
 
 namespace image = tile_compile::image;
 namespace astro = tile_compile::astrometry;
-using tile_compile::runner::DiskCacheFrameStore;
 using tile_compile::runner::TeeBuf;
 using tile_compile::runner::estimate_total_file_bytes;
 using tile_compile::runner::format_bytes;
@@ -566,513 +566,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     first_hdr = std::move(first_pair.second);
   }
 
-  // Config parameters (v3: single global registration, no tile-ECC)
-  int min_valid_frames = 1;
-
-  auto compute_worker_count = [&](size_t task_count) -> int {
-    int workers = cfg.runtime_limits.parallel_workers;
-    if (workers < 1) {
-      workers = 1;
-    }
-    int cpu_cores = static_cast<int>(std::thread::hardware_concurrency());
-    if (cpu_cores > 0) {
-      workers = std::min(workers, cpu_cores);
-    }
-    if (task_count > 0) {
-      workers =
-          std::min(workers, static_cast<int>(std::max<size_t>(1, task_count)));
-    }
-    return std::max(1, workers);
-  };
-
-  emitter.phase_start(run_id, Phase::REGISTRATION, "REGISTRATION", log_file);
-
-  std::vector<WarpMatrix> global_frame_warps(frames.size(),
-                                             registration::identity_warp());
-  std::vector<float> global_frame_cc(frames.size(), 0.0f);
-  std::string global_reg_status = "skipped";
-  core::json global_reg_extra;
-  int global_ref_idx = 0;
-  // pick best by global_weight, fallback quality_score, fallback mid-frame
-  if (!frame_metrics.empty()) {
-    float best_w = -1.0f;
-    for (int i = 0; i < static_cast<int>(frame_metrics.size()); ++i) {
-      float w = (i < global_weights.size()) ? global_weights[i]
-                                            : frame_metrics[i].quality_score;
-      if (w > best_w) {
-        best_w = w;
-        global_ref_idx = i;
-      }
-    }
-    if (best_w < 0.05f) {
-      // fallback to highest quality_score
-      float best_q = frame_metrics[global_ref_idx].quality_score;
-      for (int i = 0; i < static_cast<int>(frame_metrics.size()); ++i) {
-        if (frame_metrics[i].quality_score > best_q) {
-          best_q = frame_metrics[i].quality_score;
-          global_ref_idx = i;
-        }
-      }
-    }
-  }
-  if (global_ref_idx < 0 || global_ref_idx >= static_cast<int>(frames.size())) {
-    global_ref_idx = static_cast<int>(frames.size() / 2);
-  }
-  global_reg_extra["ref_frame"] = global_ref_idx;
-
-  if (!frames.empty()) {
-    try {
-      Matrix2Df ref_full;
-      {
-        auto pair = load_frame_normalized(static_cast<size_t>(global_ref_idx));
-        ref_full = std::move(pair.first);
-      }
-      if (ref_full.size() <= 0) {
-        global_reg_status = "error";
-        global_reg_extra["error"] = "ref_frame_empty";
-      } else {
-        Matrix2Df ref_reg = (detected_mode == ColorMode::OSC)
-                                ? image::cfa_green_proxy_downsample2x2(
-                                      ref_full, detected_bayer_str)
-                                : registration::downsample2x2_mean(ref_full);
-        float global_reg_scale = 1.0f;
-        if (ref_reg.rows() > 0) {
-          int full_h2 = ref_full.rows() - (ref_full.rows() % 2);
-          global_reg_scale =
-              static_cast<float>(full_h2) / static_cast<float>(ref_reg.rows());
-        }
-        Matrix2Df ref_ecc = registration::prepare_ecc_image(ref_reg);
-
-        // Diagnostic: proxy image stats
-        {
-          float rmin = ref_reg.minCoeff();
-          float rmax = ref_reg.maxCoeff();
-          float rmean = ref_reg.mean();
-          std::cerr << "[REG-DIAG] ref_reg " << ref_reg.rows() << "x" << ref_reg.cols()
-                    << " min=" << rmin << " max=" << rmax << " mean=" << rmean
-                    << std::endl;
-        }
-
-        const int reg_workers = compute_worker_count(frames.size());
-        std::cout << "[REGISTRATION] Using " << reg_workers
-                  << " parallel workers for " << frames.size() << " frames"
-                  << std::endl;
-        std::mutex reg_log_mutex;
-        std::mutex reg_progress_mutex;
-        std::atomic<size_t> reg_next{0};
-        std::atomic<size_t> reg_done{0};
-        std::atomic<bool> reg_failed{false};
-        std::string reg_error;
-
-        auto reg_worker = [&]() {
-          while (true) {
-            const size_t fi = reg_next.fetch_add(1);
-            if (fi >= frames.size()) {
-              break;
-            }
-            try {
-              if (static_cast<int>(fi) == global_ref_idx) {
-                global_frame_warps[fi] = registration::identity_warp();
-                global_frame_cc[fi] = 1.0f;
-              } else {
-                Matrix2Df mov_full;
-                {
-                  auto pair = load_frame_normalized(fi);
-                  mov_full = std::move(pair.first);
-                }
-                if (mov_full.size() <= 0) {
-                  global_frame_warps[fi] = registration::identity_warp();
-                  global_frame_cc[fi] = 0.0f;
-                } else {
-                  Matrix2Df mov_reg = (detected_mode == ColorMode::OSC)
-                                          ? image::cfa_green_proxy_downsample2x2(
-                                                mov_full, detected_bayer_str)
-                                          : registration::downsample2x2_mean(
-                                                mov_full);
-                  // Diagnostic: first few moving frames
-                  if (fi < 3) {
-                    float mmin = mov_reg.minCoeff();
-                    float mmax = mov_reg.maxCoeff();
-                    float mmean = mov_reg.mean();
-                    std::lock_guard<std::mutex> lock(reg_log_mutex);
-                    std::cerr << "[REG-DIAG] mov_reg[" << fi << "] "
-                              << mov_reg.rows() << "x" << mov_reg.cols()
-                              << " min=" << mmin << " max=" << mmax
-                              << " mean=" << mmean << std::endl;
-                  }
-
-                  if (mov_reg.rows() != ref_reg.rows() ||
-                      mov_reg.cols() != ref_reg.cols()) {
-                    global_frame_warps[fi] = registration::identity_warp();
-                    global_frame_cc[fi] = 0.0f;
-                  } else {
-                    // Delegate to canonical cascade in module
-                    auto sfr = registration::register_single_frame(
-                        mov_reg, ref_reg, cfg.registration);
-
-                    if (sfr.reg.success) {
-                      global_frame_cc[fi] = sfr.reg.correlation;
-                      WarpMatrix w_full = sfr.reg.warp;
-                      w_full(0, 2) *= global_reg_scale;
-                      w_full(1, 2) *= global_reg_scale;
-                      global_frame_warps[fi] = w_full;
-                    } else {
-                      global_frame_warps[fi] = registration::identity_warp();
-                      global_frame_cc[fi] = 0.0f;
-                    }
-
-                    // Per-frame logging
-                    if (fi < 5 || fi == frames.size() - 1 || (fi % 50 == 0)) {
-                      std::lock_guard<std::mutex> lock(reg_log_mutex);
-                      std::cerr << "[REG] frame " << fi << "/" << frames.size()
-                                << " method=" << sfr.method_used
-                                << " ncc_id=" << sfr.ncc_identity
-                                << " cc=" << global_frame_cc[fi] << std::endl;
-                    }
-                  }
-                }
-              }
-            } catch (const std::exception &e) {
-              reg_failed.store(true, std::memory_order_relaxed);
-              std::lock_guard<std::mutex> lock(reg_log_mutex);
-              if (reg_error.empty()) {
-                reg_error = e.what();
-              }
-            } catch (...) {
-              reg_failed.store(true, std::memory_order_relaxed);
-              std::lock_guard<std::mutex> lock(reg_log_mutex);
-              if (reg_error.empty()) {
-                reg_error = "unknown_error";
-              }
-            }
-
-            const size_t done = reg_done.fetch_add(1) + 1;
-            if (done % 5 == 0 || done == frames.size()) {
-              const float p = frames.empty()
-                                  ? 1.0f
-                                  : static_cast<float>(done) /
-                                        static_cast<float>(frames.size());
-              std::lock_guard<std::mutex> lock(reg_progress_mutex);
-              emitter.phase_progress(
-                  run_id, Phase::REGISTRATION, p,
-                  "global_reg " + std::to_string(done) + "/" +
-                      std::to_string(frames.size()) + " workers=" +
-                      std::to_string(reg_workers),
-                  log_file);
-            }
-          }
-        };
-
-        if (reg_workers > 1) {
-          std::vector<std::thread> workers;
-          workers.reserve(static_cast<size_t>(reg_workers));
-          for (int w = 0; w < reg_workers; ++w) {
-            workers.emplace_back(reg_worker);
-          }
-          for (auto &worker : workers) {
-            if (worker.joinable()) {
-              worker.join();
-            }
-          }
-        } else {
-          reg_worker();
-        }
-
-        if (reg_failed.load(std::memory_order_relaxed)) {
-          throw std::runtime_error(reg_error.empty() ? "registration_failed"
-                                                     : reg_error);
-        }
-
-        global_reg_status = "ok";
-        try {
-          core::json j;
-          j["num_frames"] = static_cast<int>(frames.size());
-          j["scale"] = global_reg_scale;
-          j["ref_frame"] = global_ref_idx;
-          j["cc"] = core::json::array();
-          j["warps"] = core::json::array();
-          j["dithering"] = {
-              {"enabled", cfg.dithering.enabled},
-              {"min_shift_px", cfg.dithering.min_shift_px},
-              {"detected_fraction", 0.0},
-          };
-          int shifts_detected = 0;
-          for (size_t fi = 0; fi < frames.size(); ++fi) {
-            const auto &w = global_frame_warps[fi];
-            j["cc"].push_back(global_frame_cc[fi]);
-            const float shift_mag =
-                std::sqrt(w(0, 2) * w(0, 2) + w(1, 2) * w(1, 2));
-            if (cfg.dithering.enabled && shift_mag >= cfg.dithering.min_shift_px) {
-              shifts_detected++;
-            }
-            j["warps"].push_back({
-                {"a00", w(0, 0)},
-                {"a01", w(0, 1)},
-                {"tx", w(0, 2)},
-                {"a10", w(1, 0)},
-                {"a11", w(1, 1)},
-                {"ty", w(1, 2)},
-                {"shift_px", shift_mag},
-            });
-          }
-          if (!frames.empty()) {
-            j["dithering"]["detected_fraction"] =
-                static_cast<double>(shifts_detected) /
-                static_cast<double>(frames.size());
-            j["dithering"]["detected_count"] = shifts_detected;
-            j["dithering"]["total_frames"] = static_cast<int>(frames.size());
-          }
-          core::write_text(run_dir / "artifacts" / "global_registration.json",
-                           j.dump(2));
-
-          if (cfg.output.write_registered_frames) {
-            fs::create_directories(run_dir / cfg.output.registered_dir);
-            // first_header is available from outer scope
-
-            for (size_t fi = 0; fi < frames.size(); ++fi) {
-              if (static_cast<size_t>(fi) >= global_frame_warps.size())
-                continue;
-              const auto &w = global_frame_warps[fi];
-
-              auto pair = load_frame_normalized(fi);
-              Matrix2Df img = std::move(pair.first);
-              if (img.size() <= 0)
-                continue;
-
-              Matrix2Df out_img = image::apply_global_warp(img, w,
-                                                          detected_mode);
-
-              std::ostringstream name;
-              name << "frame_" << std::setw(4) << std::setfill('0') << fi
-                   << ".fits";
-              io::write_fits_float(run_dir / cfg.output.registered_dir /
-                                       name.str(),
-                                   out_img, first_header);
-            }
-          }
-
-        } catch (...) {
-        }
-      }
-    } catch (const std::exception &e) {
-      global_reg_status = "error";
-      global_reg_extra["error"] = e.what();
-    } catch (...) {
-      global_reg_status = "error";
-      global_reg_extra["error"] = "unknown_error";
-    }
-  } else {
-    global_reg_extra["reason"] = "no_frames";
-  }
-
-  // Reject implausible global registration outliers before downstream phases.
-  // These outliers can pass NCC but still produce heavy tile/grid artifacts.
-  int reg_reject_orientation_outliers = 0;
-  int reg_reject_scale_outliers = 0;
-  {
-    int trace_pos = 0;
-    int trace_neg = 0;
-    for (size_t fi = 0; fi < frames.size(); ++fi) {
-      if (global_frame_cc[fi] <= 0.0f)
-        continue;
-      const auto &w = global_frame_warps[fi];
-      const float tr = w(0, 0) + w(1, 1);
-      if (tr >= 0.0f) {
-        ++trace_pos;
-      } else {
-        ++trace_neg;
-      }
-    }
-
-    // Only apply orientation filtering when one orientation is a clear minority
-    // (e.g. mixed 0° and spurious ~180° solutions in one run).
-    const int dom = std::max(trace_pos, trace_neg);
-    const int mino = std::min(trace_pos, trace_neg);
-    const bool apply_orientation_filter =
-        (trace_pos > 0 && trace_neg > 0 && mino * 2 <= dom);
-    const bool dominant_positive = trace_pos >= trace_neg;
-
-    for (size_t fi = 0; fi < frames.size(); ++fi) {
-      if (global_frame_cc[fi] <= 0.0f)
-        continue;
-      const auto &w = global_frame_warps[fi];
-
-      bool reject = false;
-      if (apply_orientation_filter) {
-        const bool is_pos = (w(0, 0) + w(1, 1)) >= 0.0f;
-        if (is_pos != dominant_positive) {
-          reject = true;
-          ++reg_reject_orientation_outliers;
-        }
-      }
-
-      if (!reject) {
-        const float det = w(0, 0) * w(1, 1) - w(0, 1) * w(1, 0);
-        const float scale = std::sqrt(std::fabs(det));
-        if (scale < 0.92f || scale > 1.08f) {
-          reject = true;
-          ++reg_reject_scale_outliers;
-        }
-      }
-
-      if (reject) {
-        global_frame_warps[fi] = registration::identity_warp();
-        global_frame_cc[fi] = 0.0f;
-      }
-    }
-  }
-  if (reg_reject_orientation_outliers > 0 || reg_reject_scale_outliers > 0) {
-    std::cerr << "[REG-FILTER] rejected outlier warps: orientation="
-              << reg_reject_orientation_outliers
-              << " scale=" << reg_reject_scale_outliers << std::endl;
-  }
-  global_reg_extra["reg_reject_orientation_outliers"] =
-      reg_reject_orientation_outliers;
-  global_reg_extra["reg_reject_scale_outliers"] = reg_reject_scale_outliers;
-
-  // Methodik v3: no frame selection. Registration may fall back to identity,
-  // but all frames are still kept for subsequent weighting/stacking.
-  int n_cc_positive = 0;
-  int n_cc_zero = 0;
-  int n_cc_negative = 0;
-  for (size_t fi = 0; fi < frames.size(); ++fi) {
-    if (global_frame_cc[fi] > 0.0f) {
-      ++n_cc_positive;
-    } else if (global_frame_cc[fi] < 0.0f) {
-      ++n_cc_negative;
-    } else {
-      ++n_cc_zero;
-    }
-  }
-  std::cerr << "[REG] cc>0: " << n_cc_positive << ", cc==0: " << n_cc_zero
-            << ", cc<0: " << n_cc_negative << std::endl;
-  global_reg_extra["frames_cc_positive"] = n_cc_positive;
-  global_reg_extra["frames_cc_zero"] = n_cc_zero;
-  global_reg_extra["frames_cc_negative"] = n_cc_negative;
-
-  emitter.phase_end(run_id, Phase::REGISTRATION, global_reg_status,
-                    global_reg_extra, log_file);
-
-  emitter.phase_start(run_id, Phase::PREWARP, "PREWARP", log_file);
-
-  // Pre-warp all frames at full resolution before tile extraction.
-  // Applying rotation warps to small tile ROIs is fundamentally broken:
-  // warpAffine needs source pixels outside the tile boundary that don't
-  // exist, causing CFA pattern corruption (colored tile rectangles).
-  //
-  // Disk-backed: frames are written as raw float binaries and mmap'd on
-  // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
-  DiskCacheFrameStore prewarped_frames(
-      run_dir / ".prewarped_cache", frames.size(), height, width);
-  std::vector<uint8_t> frame_has_data(frames.size(), 0);
-  const int prewarp_workers = compute_worker_count(frames.size());
-  std::cout << "[PREWARP] Using " << prewarp_workers
-            << " parallel workers for " << frames.size() << " frames"
-            << std::endl;
-  std::mutex prewarp_store_mutex;
-  std::mutex prewarp_log_mutex;
-  std::mutex prewarp_progress_mutex;
-  std::atomic<size_t> prewarp_next{0};
-  std::atomic<size_t> prewarp_done{0};
-  std::atomic<int> n_frames_with_data{0};
-  std::atomic<bool> prewarp_failed{false};
-  std::string prewarp_error;
-
-  auto prewarp_worker = [&]() {
-    while (true) {
-      const size_t fi = prewarp_next.fetch_add(1);
-      if (fi >= frames.size()) {
-        break;
-      }
-      try {
-        auto pair = load_frame_normalized(fi);
-        Matrix2Df img = std::move(pair.first);
-        if (img.size() <= 0) {
-          continue;
-        }
-        const auto &w = global_frame_warps[fi];
-        const float eps = 1.0e-6f;
-        const bool is_identity =
-            std::fabs(w(0, 0) - 1.0f) < eps && std::fabs(w(0, 1)) < eps &&
-            std::fabs(w(1, 0)) < eps && std::fabs(w(1, 1) - 1.0f) < eps &&
-            std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
-        Matrix2Df warped;
-        if (is_identity) {
-          warped = std::move(img);
-        } else {
-          warped = image::apply_global_warp(img, w, detected_mode);
-        }
-        if (warped.size() > 0) {
-          bool has_data = false;
-          {
-            std::lock_guard<std::mutex> lock(prewarp_store_mutex);
-            prewarped_frames.store(fi, warped);
-            has_data = prewarped_frames.has_data(fi);
-          }
-          if (has_data) {
-            frame_has_data[fi] = 1;
-            n_frames_with_data.fetch_add(1, std::memory_order_relaxed);
-          }
-        }
-      } catch (const std::exception &e) {
-        prewarp_failed.store(true, std::memory_order_relaxed);
-        std::lock_guard<std::mutex> lock(prewarp_log_mutex);
-        if (prewarp_error.empty()) {
-          prewarp_error = e.what();
-        }
-      } catch (...) {
-        prewarp_failed.store(true, std::memory_order_relaxed);
-        std::lock_guard<std::mutex> lock(prewarp_log_mutex);
-        if (prewarp_error.empty()) {
-          prewarp_error = "unknown_error";
-        }
-      }
-
-      const size_t done = prewarp_done.fetch_add(1) + 1;
-      if (done % 5 == 0 || done == frames.size()) {
-        std::lock_guard<std::mutex> lock(prewarp_progress_mutex);
-        emitter.phase_progress_counts(
-            run_id, Phase::PREWARP, static_cast<int>(done),
-            static_cast<int>(frames.size()), "prewarp workers=" +
-                                              std::to_string(prewarp_workers),
-            "frames", log_file);
-      }
-    }
-  };
-
-  if (prewarp_workers > 1) {
-    std::vector<std::thread> workers;
-    workers.reserve(static_cast<size_t>(prewarp_workers));
-    for (int w = 0; w < prewarp_workers; ++w) {
-      workers.emplace_back(prewarp_worker);
-    }
-    for (auto &worker : workers) {
-      if (worker.joinable()) {
-        worker.join();
-      }
-    }
-  } else {
-    prewarp_worker();
-  }
-
-  if (prewarp_failed.load(std::memory_order_relaxed)) {
-    emitter.phase_end(run_id, Phase::PREWARP, "error",
-                      {{"error", prewarp_error.empty() ? "unknown_error"
-                                                         : prewarp_error}},
-                      log_file);
-    std::cerr << "Error during PREWARP: "
-              << (prewarp_error.empty() ? "unknown_error" : prewarp_error)
-              << std::endl;
-    emitter.run_end(run_id, false, "error", log_file);
+  runner::PhaseRegistrationContext phase_registration_ctx;
+  if (!runner::run_phase_registration_prewarp(
+          run_id, cfg, frames, run_dir, height, width, detected_mode,
+          detected_bayer_str, norm_scales, frame_metrics, global_weights,
+          first_header, emitter, log_file, phase_registration_ctx)) {
     return 1;
   }
 
-  const int n_usable_frames = n_frames_with_data.load(std::memory_order_relaxed);
-  emitter.phase_end(run_id, Phase::PREWARP, "ok",
-                    {{"num_frames", static_cast<int>(frames.size())},
-                     {"num_frames_with_data", n_usable_frames},
-                     {"workers", prewarp_workers}},
-                    log_file);
+  auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
+  auto &frame_has_data = phase_registration_ctx.frame_has_data;
+  const int n_usable_frames = phase_registration_ctx.n_usable_frames;
+  int min_valid_frames = phase_registration_ctx.min_valid_frames;
+
   constexpr int kReducedModeMinFrames = 50;
   const core::ModeGateDecision gate = core::evaluate_mode_gate(
       n_usable_frames, cfg.assumptions.frames_reduced_threshold,
@@ -1097,6 +603,22 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   constexpr float kEpsWeightSum = 1.0e-6f;
 
   bool run_validation_failed = false;
+
+  auto compute_worker_count = [&](size_t task_count) -> int {
+    int workers = cfg.runtime_limits.parallel_workers;
+    if (workers < 1) {
+      workers = 1;
+    }
+    int cpu_cores = static_cast<int>(std::thread::hardware_concurrency());
+    if (cpu_cores > 0) {
+      workers = std::min(workers, cpu_cores);
+    }
+    if (task_count > 0) {
+      workers =
+          std::min(workers, static_cast<int>(std::max<size_t>(1, task_count)));
+    }
+    return std::max(1, workers);
+  };
 
   while (true) {
     // Phase 5: LOCAL_METRICS (compute tile metrics per frame)
@@ -1452,8 +974,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
       // Peak per worker is ~ N_frames * tile_pixels * sizeof(float)
       // (channel stacking is sequential, so not multiplied by 3).
-      const int n_frames_with_data_i =
-          n_frames_with_data.load(std::memory_order_relaxed);
+      const int n_frames_with_data_i = n_usable_frames;
       const size_t bytes_per_worker =
           max_tile_px * static_cast<size_t>(std::max(1, n_frames_with_data_i)) *
           sizeof(float);
