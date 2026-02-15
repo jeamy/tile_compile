@@ -39,6 +39,9 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
 - `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
   - Suggested full config for DWARF / ZWO Seestar OSC stacks.
   - Chroma denoise profile: conservative (protect small-scale detail).
+- `tile_compile.canon_low_n_high_quality.example.yaml`
+  - Suggested OSC config for Canon-style datasets with low frame count but high/consistent quality.
+  - Anti-grid focus for reduced/emergency operation: larger tiles, higher overlap, conservative weighting.
 - `tile_compile.mono_full_mode.example.yaml`
   - Suggested full config for MONO datasets in full mode.
   - Chroma denoise block included for completeness, but disabled by default.
