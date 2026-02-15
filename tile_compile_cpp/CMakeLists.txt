@@ -114,6 +114,7 @@ endif()
 # CLI Runner executable
 add_executable(tile_compile_runner
     apps/runner_main.cpp
+    apps/runner_pipeline.cpp
     apps/runner_shared.cpp
     apps/runner_resume.cpp
 )
