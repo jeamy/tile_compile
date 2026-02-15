@@ -152,7 +152,6 @@ void MainWindow::build_ui() {
     connect(run_tab_, &RunTab::start_run_clicked, this, &MainWindow::on_start_run_clicked);
     connect(run_tab_, &RunTab::abort_run_clicked, this, &MainWindow::on_abort_run_clicked);
     connect(run_tab_, &RunTab::working_dir_changed, this, &MainWindow::schedule_save_gui_state);
-    connect(run_tab_, &RunTab::input_dir_changed, this, &MainWindow::schedule_save_gui_state);
     
     // Pipeline Progress Tab
     auto *progress_page = new QWidget();
@@ -334,26 +333,14 @@ void MainWindow::on_start_run_clicked() {
     auto *config_tab = config_tab_;
     auto *run_tab = run_tab_;
     
-    QString input_dir = run_tab->get_input_dir();
+    QString input_dir = scan_tab->get_scan_input_dir().trimmed();
     if (input_dir.isEmpty()) {
-        QMessageBox::warning(this, "Start run", "Input dir is required");
-        return;
+        input_dir = run_tab->get_input_dir();
     }
-
-    const QString scan_input_dir = scan_tab->get_scan_input_dir();
-    if (!scan_input_dir.isEmpty() && scan_input_dir != input_dir) {
-        const auto resp = QMessageBox::question(
-            this,
-            "Input dir mismatch",
-            QString("Scan input dir (%1) differs from Run input dir (%2).\n\nUse Scan input dir for this run?")
-                .arg(scan_input_dir)
-                .arg(input_dir),
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::Yes);
-        if (resp == QMessageBox::Yes) {
-            run_tab->set_input_dir(scan_input_dir);
-            input_dir = scan_input_dir;
-        }
+    run_tab->set_input_dir(input_dir);
+    if (input_dir.isEmpty()) {
+        QMessageBox::warning(this, "Start run", "Scan input dir is required");
+        return;
     }
     
     append_live("[ui] start run");
@@ -612,9 +599,16 @@ void MainWindow::apply_gui_state(const nlohmann::json &state) {
     }
     
     if (run_tab_) {
+        const QString scan_dir_now = scan_tab_ ? scan_tab_->get_scan_input_dir().trimmed()
+                                               : QString();
+        if (!scan_dir_now.isEmpty()) {
+            run_tab_->set_input_dir(scan_dir_now);
+        }
         if (state.contains("inputDir")) {
             const QString run_dir = QString::fromStdString(state["inputDir"].get<std::string>());
-            run_tab_->set_input_dir(run_dir);
+            if (scan_dir_now.isEmpty()) {
+                run_tab_->set_input_dir(run_dir);
+            }
             if (last_scan_input_dir_.isEmpty() && !run_dir.isEmpty()) {
                 last_scan_input_dir_ = run_dir;
             }

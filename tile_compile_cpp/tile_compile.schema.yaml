@@ -18,13 +18,16 @@ properties:
   data:
     type: object
     properties:
-      image_width: {type: integer, minimum: 1}
-      image_height: {type: integer, minimum: 1}
+      image_width: {type: integer, minimum: 0}
+      image_height: {type: integer, minimum: 0}
       frames_min: {type: integer, minimum: 1}
       frames_target: {type: integer, minimum: 0}
       color_mode: {type: string, enum: [OSC, MONO, RGB]}
       bayer_pattern: {type: string}
-      linear_required: {type: boolean}
+      linear_required:
+        type: boolean
+        deprecated: true
+        description: "Deprecated: non-lineare Frames werden im Runner nur noch gewarnt (warn_only), nicht entfernt."
   linearity:
     type: object
     properties:
@@ -277,6 +280,14 @@ properties:
   runtime_limits:
     type: object
     properties:
+      parallel_workers:
+        type: integer
+        minimum: 1
+        description: "Anzahl paralleler Worker fuer Tile-Phasen; wird zusaetzlich durch CPU-Kerne und OSC-Speicherbudget begrenzt."
+      memory_budget:
+        type: integer
+        minimum: 1
+        description: "Speicherbudget in MiB fuer OSC-Worker-Cap bei Tile-Rekonstruktion."
       tile_analysis_max_factor_vs_stack: {type: number, exclusiveMinimum: 0}
       hard_abort_hours: {type: number, exclusiveMinimum: 0}
       allow_emergency_mode:

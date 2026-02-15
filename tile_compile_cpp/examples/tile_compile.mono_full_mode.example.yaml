@@ -200,6 +200,8 @@ validation:
   require_no_tile_pattern: true # Grid-Artefakte muessen ausbleiben
 
 runtime_limits:
+  parallel_workers: 8 # Anzahl paralleler Worker fuer Tile-Phasen (CPU/memory capped)
+  memory_budget: 512 # MiB Budget fuer OSC-Worker-Cap (bei MONO effektiv ohne Relevanz)
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze
   allow_emergency_mode: false # Full-Mode-Profil: kein Emergency-Override

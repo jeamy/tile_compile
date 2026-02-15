@@ -30,7 +30,6 @@
 #include <iostream>
 #include <mutex>
 #include <random>
-#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -414,7 +413,58 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   std::string detected_mode_str = color_mode_to_string(detected_mode);
   std::string detected_bayer_str = bayer_pattern_to_string(detected_bayer);
 
-  if (!cfg.data.color_mode.empty() &&
+  const bool header_has_color_hint =
+      (naxis >= 3) || (detected_bayer != BayerPattern::UNKNOWN) ||
+      first_header.get_string("COLORTYP").has_value();
+  const ColorMode cfg_color_mode =
+      cfg.data.color_mode.empty() ? ColorMode::MONO
+                                  : (cfg.data.color_mode == "RGB"
+                                         ? ColorMode::RGB
+                                         : (cfg.data.color_mode == "OSC"
+                                                ? ColorMode::OSC
+                                                : ColorMode::MONO));
+  const bool cfg_color_mode_valid =
+      cfg.data.color_mode == "MONO" || cfg.data.color_mode == "OSC" ||
+      cfg.data.color_mode == "RGB";
+  const BayerPattern cfg_bayer = cfg.data.bayer_pattern.empty()
+                                     ? BayerPattern::UNKNOWN
+                                     : string_to_bayer_pattern(
+                                           cfg.data.bayer_pattern);
+
+  if (!header_has_color_hint && cfg_color_mode_valid) {
+    detected_mode = cfg_color_mode;
+    detected_mode_str = color_mode_to_string(detected_mode);
+    emitter.warning(run_id,
+                    "FITS header has no clear color hint; using "
+                    "config.data.color_mode='" +
+                        cfg.data.color_mode + "' as fallback",
+                    log_file);
+  }
+  if (detected_bayer == BayerPattern::UNKNOWN && cfg_bayer != BayerPattern::UNKNOWN) {
+    detected_bayer = cfg_bayer;
+    detected_bayer_str = bayer_pattern_to_string(detected_bayer);
+    emitter.warning(run_id,
+                    "FITS header has no valid BAYER pattern; using "
+                    "config.data.bayer_pattern='" +
+                        cfg.data.bayer_pattern + "' as fallback",
+                    log_file);
+  }
+  if (width <= 0 && cfg.data.image_width > 0) {
+    width = cfg.data.image_width;
+    emitter.warning(run_id,
+                    "FITS header missing image_width; using "
+                    "config.data.image_width fallback",
+                    log_file);
+  }
+  if (height <= 0 && cfg.data.image_height > 0) {
+    height = cfg.data.image_height;
+    emitter.warning(run_id,
+                    "FITS header missing image_height; using "
+                    "config.data.image_height fallback",
+                    log_file);
+  }
+
+  if (header_has_color_hint && !cfg.data.color_mode.empty() &&
       cfg.data.color_mode != detected_mode_str) {
     emitter.warning(run_id,
                     "Detected color mode '" + detected_mode_str +
@@ -502,45 +552,13 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       }
     }
 
-    if (cfg.data.linear_required) {
-      // Remove non-linear frames from the pipeline
-      std::set<size_t> reject_set(rejected_indices.begin(),
-                                  rejected_indices.end());
-      std::vector<std::filesystem::path> kept;
-      kept.reserve(frames.size() - rejected_indices.size());
-      for (size_t i = 0; i < frames.size(); ++i) {
-        if (reject_set.find(i) == reject_set.end()) {
-          kept.push_back(frames[i]);
-        }
-      }
-      frames = std::move(kept);
-      emitter.warning(
-          run_id,
-          "Linearity: " + std::to_string(rejected_indices.size()) +
-              " non-linear frames removed, " +
-              std::to_string(frames.size()) + " frames remaining",
-          log_file);
-      linearity_info["action"] = "removed";
-      linearity_info["frames_remaining"] = static_cast<int>(frames.size());
-
-      if (frames.empty()) {
-        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
-                          {{"error", "All frames rejected by linearity check"},
-                           {"linearity", linearity_info}},
-                          log_file);
-        emitter.run_end(run_id, false, "error", log_file);
-        std::cerr << "Error: All frames rejected by linearity check."
-                  << std::endl;
-        return 1;
-      }
-    } else {
-      emitter.warning(
-          run_id,
-          "Linearity: " + std::to_string(rejected_indices.size()) +
-              " frames flagged non-linear (kept, linear_required=false)",
-          log_file);
-      linearity_info["action"] = "warn_only";
-    }
+    emitter.warning(
+        run_id,
+        "Linearity: " + std::to_string(rejected_indices.size()) +
+            " frames flagged non-linear (kept, warn-only mode)",
+        log_file);
+    linearity_info["action"] = "warn_only";
+    linearity_info["frames_remaining"] = static_cast<int>(frames.size());
   }
 
   core::json scan_extra = {
@@ -1080,6 +1098,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   std::vector<float> tile_mean_correlations;
   std::vector<float> tile_post_contrast;
   std::vector<float> tile_post_background;
+  std::vector<float> tile_norm_bg_r;
+  std::vector<float> tile_norm_bg_g;
+  std::vector<float> tile_norm_bg_b;
   std::vector<float> tile_post_snr;
   std::vector<float> tile_mean_dx;
   std::vector<float> tile_mean_dy;
@@ -1324,6 +1345,71 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   } else {
     global_reg_extra["reason"] = "no_frames";
   }
+
+  // Reject implausible global registration outliers before downstream phases.
+  // These outliers can pass NCC but still produce heavy tile/grid artifacts.
+  int reg_reject_orientation_outliers = 0;
+  int reg_reject_scale_outliers = 0;
+  {
+    int trace_pos = 0;
+    int trace_neg = 0;
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      if (global_frame_cc[fi] <= 0.0f)
+        continue;
+      const auto &w = global_frame_warps[fi];
+      const float tr = w(0, 0) + w(1, 1);
+      if (tr >= 0.0f) {
+        ++trace_pos;
+      } else {
+        ++trace_neg;
+      }
+    }
+
+    // Only apply orientation filtering when one orientation is a clear minority
+    // (e.g. mixed 0° and spurious ~180° solutions in one run).
+    const int dom = std::max(trace_pos, trace_neg);
+    const int mino = std::min(trace_pos, trace_neg);
+    const bool apply_orientation_filter =
+        (trace_pos > 0 && trace_neg > 0 && mino * 2 <= dom);
+    const bool dominant_positive = trace_pos >= trace_neg;
+
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      if (global_frame_cc[fi] <= 0.0f)
+        continue;
+      const auto &w = global_frame_warps[fi];
+
+      bool reject = false;
+      if (apply_orientation_filter) {
+        const bool is_pos = (w(0, 0) + w(1, 1)) >= 0.0f;
+        if (is_pos != dominant_positive) {
+          reject = true;
+          ++reg_reject_orientation_outliers;
+        }
+      }
+
+      if (!reject) {
+        const float det = w(0, 0) * w(1, 1) - w(0, 1) * w(1, 0);
+        const float scale = std::sqrt(std::fabs(det));
+        if (scale < 0.92f || scale > 1.08f) {
+          reject = true;
+          ++reg_reject_scale_outliers;
+        }
+      }
+
+      if (reject) {
+        global_frame_warps[fi] = registration::identity_warp();
+        global_frame_cc[fi] = 0.0f;
+      }
+    }
+  }
+  if (reg_reject_orientation_outliers > 0 || reg_reject_scale_outliers > 0) {
+    std::cerr << "[REG-FILTER] rejected outlier warps: orientation="
+              << reg_reject_orientation_outliers
+              << " scale=" << reg_reject_scale_outliers << std::endl;
+  }
+  global_reg_extra["reg_reject_orientation_outliers"] =
+      reg_reject_orientation_outliers;
+  global_reg_extra["reg_reject_scale_outliers"] = reg_reject_scale_outliers;
 
   // Methodik v3: no frame selection. Registration may fall back to identity,
   // but all frames are still kept for subsequent weighting/stacking.
@@ -1686,7 +1772,7 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     cv::setNumThreads(1);
 
     // Parallel processing configuration
-    int parallel_tiles = 4;
+    int parallel_tiles = cfg.runtime_limits.parallel_workers;
     int cpu_cores = std::thread::hardware_concurrency();
     if (cpu_cores == 0)
       cpu_cores = 1;
@@ -1714,7 +1800,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       const size_t bytes_per_worker =
           max_tile_px * static_cast<size_t>(std::max(1, n_frames_with_data)) *
           sizeof(float);
-      const size_t budget = 512ull * 1024ull * 1024ull; // conservative
+      const size_t budget =
+          static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget)) *
+          1024ull * 1024ull;
       if (bytes_per_worker > 0) {
         int max_workers_by_mem = static_cast<int>(budget / bytes_per_worker);
         if (max_workers_by_mem < 1)
@@ -1739,11 +1827,20 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     tile_mean_correlations.assign(tiles_phase56.size(), 0.0f);
     tile_post_contrast.assign(tiles_phase56.size(), 0.0f);
     tile_post_background.assign(tiles_phase56.size(), 0.0f);
+    tile_norm_bg_r.assign(tiles_phase56.size(), 0.0f);
+    tile_norm_bg_g.assign(tiles_phase56.size(), 0.0f);
+    tile_norm_bg_b.assign(tiles_phase56.size(), 0.0f);
     tile_post_snr.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dx.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dy.assign(tiles_phase56.size(), 0.0f);
     for (auto &c : frame_valid_tile_counts)
       c.store(0);
+
+    // Reduced/emergency runs finalize from Phase 7 directly; per-tile scale
+    // normalization can imprint a visible grid for small DSLR stacks.
+    // Keep v3.2 tile normalization enabled in full mode, disable in
+    // reduced/emergency execution path.
+    const bool apply_phase7_tile_norm = !skip_clustering_in_reduced;
 
     // Thread-safe structures for parallel processing
     std::mutex recon_mutex;
@@ -1984,47 +2081,72 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       tile_post_background[ti] = b;
       tile_post_snr[ti] = s;
 
-      // Methodik 3.1E §3.6: Tile normalization before overlap-add.
-      // 1. Subtract background: T' = T - median(T)
-      // 2. Normalize: T'' = T' / median(|T'|)  (if median > ε)
-      // This eliminates patchwork artifacts from tiles with different
-      // background levels before the Hanning-windowed overlap-add.
-      std::vector<float> norm_tmp;
-      auto normalize_tile_for_ola = [&](Matrix2Df &t_img,
-                                        std::vector<float> &tmp) -> float {
-        if (t_img.size() <= 0) return 0.0f;
-        // Compute median via partial sort on a reusable copy buffer
-        tmp.resize(static_cast<size_t>(t_img.size()));
-        std::copy(t_img.data(), t_img.data() + t_img.size(), tmp.begin());
-        size_t mid = tmp.size() / 2;
-        std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid), tmp.end());
-        float bg = tmp[mid];
-        // Subtract background
-        for (Eigen::Index k = 0; k < t_img.size(); ++k)
-          t_img.data()[k] -= bg;
-        // Compute median of absolute values for scale normalization
-        for (size_t i = 0; i < tmp.size(); ++i)
-          tmp[i] = std::fabs(t_img.data()[static_cast<Eigen::Index>(i)]);
-        std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid), tmp.end());
-        float med_abs = tmp[mid];
-        if (med_abs > kEpsMedian) {
-          float inv = 1.0f / med_abs;
-          for (Eigen::Index k = 0; k < t_img.size(); ++k)
-            t_img.data()[k] *= inv;
+      if (apply_phase7_tile_norm) {
+        // Methodik v3.2 §5.7.1 (verbindlich): Tile-Normalisierung vor OLA.
+        // OSC-Schutz: gemeinsamer Scale-Faktor fuer R/G/B, um Farbrelationen
+        // nicht tileweise zu verzerren.
+        std::vector<float> norm_tmp;
+        auto median_from_matrix = [&](const Matrix2Df &src,
+                                      bool abs_values) -> float {
+          if (src.size() <= 0) {
+            return 0.0f;
+          }
+          norm_tmp.resize(static_cast<size_t>(src.size()));
+          if (abs_values) {
+            for (Eigen::Index i = 0; i < src.size(); ++i) {
+              norm_tmp[static_cast<size_t>(i)] = std::fabs(src.data()[i]);
+            }
+          } else {
+            std::copy(src.data(), src.data() + src.size(), norm_tmp.begin());
+          }
+          const size_t mid = norm_tmp.size() / 2;
+          std::nth_element(norm_tmp.begin(),
+                           norm_tmp.begin() + static_cast<long>(mid),
+                           norm_tmp.end());
+          return norm_tmp[mid];
+        };
+        auto center_by_median = [&](Matrix2Df &src) -> float {
+          const float bg = median_from_matrix(src, false);
+          for (Eigen::Index i = 0; i < src.size(); ++i) {
+            src.data()[i] -= bg;
+          }
+          return bg;
+        };
+
+        if (osc_mode) {
+          const float bg_r = center_by_median(tile_rec_R);
+          const float bg_g = center_by_median(tile_rec_G);
+          const float bg_b = center_by_median(tile_rec_B);
+          tile_norm_bg_r[ti] = bg_r;
+          tile_norm_bg_g[ti] = bg_g;
+          tile_norm_bg_b[ti] = bg_b;
+
+          tile_rec =
+              0.25f * tile_rec_R + 0.5f * tile_rec_G + 0.25f * tile_rec_B;
+          const float m_shared = median_from_matrix(tile_rec, true);
+          if (m_shared >= kEpsMedian) {
+            const float inv = 1.0f / m_shared;
+            for (Eigen::Index i = 0; i < tile_rec_R.size(); ++i) {
+              tile_rec_R.data()[i] *= inv;
+              tile_rec_G.data()[i] *= inv;
+              tile_rec_B.data()[i] *= inv;
+            }
+            for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
+              tile_rec.data()[i] *= inv;
+            }
+          }
+        } else {
+          const float bg = center_by_median(tile_rec);
+          tile_norm_bg_r[ti] = bg;
+          const float m = median_from_matrix(tile_rec, true);
+          if (m >= kEpsMedian) {
+            const float inv = 1.0f / m;
+            for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
+              tile_rec.data()[i] *= inv;
+            }
+          }
         }
-        return bg; // return original background for later restoration
-      };
-
-      float tile_bg_mono = normalize_tile_for_ola(tile_rec, norm_tmp);
-      float tile_bg_R = 0.0f, tile_bg_G = 0.0f, tile_bg_B = 0.0f;
-      if (osc_mode) {
-        tile_bg_R = normalize_tile_for_ola(tile_rec_R, norm_tmp);
-        tile_bg_G = normalize_tile_for_ola(tile_rec_G, norm_tmp);
-        tile_bg_B = normalize_tile_for_ola(tile_rec_B, norm_tmp);
       }
-
-      // Store tile backgrounds for global restoration after overlap-add
-      tile_post_background[ti] = osc_mode ? tile_bg_G : tile_bg_mono;
 
       {
         std::lock_guard<std::mutex> lock(recon_mutex);
@@ -2113,6 +2235,37 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         }
       }
 
+      if (apply_phase7_tile_norm) {
+        // Methodik v3.2 §5.7.2 (optional): global robust tile background
+        // restore.
+        std::vector<float> bg_r_vals;
+        std::vector<float> bg_g_vals;
+        std::vector<float> bg_b_vals;
+        bg_r_vals.reserve(tiles_phase56.size());
+        bg_g_vals.reserve(tiles_phase56.size());
+        bg_b_vals.reserve(tiles_phase56.size());
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+          if (tile_valid_counts[ti] <= 0) {
+            continue;
+          }
+          bg_r_vals.push_back(tile_norm_bg_r[ti]);
+          bg_g_vals.push_back(tile_norm_bg_g[ti]);
+          bg_b_vals.push_back(tile_norm_bg_b[ti]);
+        }
+        if (!bg_r_vals.empty() && !bg_g_vals.empty() && !bg_b_vals.empty()) {
+          const float bg_r = core::median_of(bg_r_vals);
+          const float bg_g = core::median_of(bg_g_vals);
+          const float bg_b = core::median_of(bg_b_vals);
+          for (int i = 0; i < recon_R.size(); ++i) {
+            if (weight_sum.data()[i] > eps_ws) {
+              recon_R.data()[i] += bg_r;
+              recon_G.data()[i] += bg_g;
+              recon_B.data()[i] += bg_b;
+            }
+          }
+        }
+      }
+
       // Keep a luminance proxy for validation + downstream metrics.
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
     } else {
@@ -2124,29 +2277,22 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           recon.data()[i] = first_img.data()[i];
         }
       }
-    }
 
-    // Methodik 3.1E §3.6: Restore global background after overlap-add.
-    // The tile normalization subtracted per-tile backgrounds before OLA.
-    // Now restore the median background level across all valid tiles.
-    {
-      std::vector<float> tile_bgs;
-      tile_bgs.reserve(tiles_phase56.size());
-      for (size_t i = 0; i < tiles_phase56.size(); ++i) {
-        if (tile_valid_counts[i] > 0)
-          tile_bgs.push_back(tile_post_background[i]);
-      }
-      if (!tile_bgs.empty()) {
-        float global_bg = core::median_of(tile_bgs);
-        if (osc_mode) {
-          for (int i = 0; i < recon_R.size(); ++i) {
-            recon_R.data()[i] += global_bg;
-            recon_G.data()[i] += global_bg;
-            recon_B.data()[i] += global_bg;
+      if (apply_phase7_tile_norm) {
+        std::vector<float> bg_vals;
+        bg_vals.reserve(tiles_phase56.size());
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+          if (tile_valid_counts[ti] > 0) {
+            bg_vals.push_back(tile_norm_bg_r[ti]);
           }
-        } else {
-          for (int i = 0; i < recon.size(); ++i)
-            recon.data()[i] += global_bg;
+        }
+        if (!bg_vals.empty()) {
+          const float bg = core::median_of(bg_vals);
+          for (int i = 0; i < recon.size(); ++i) {
+            if (weight_sum.data()[i] > eps_ws) {
+              recon.data()[i] += bg;
+            }
+          }
         }
       }
     }
@@ -2517,9 +2663,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           int cpu_cores = static_cast<int>(std::thread::hardware_concurrency());
           if (cpu_cores <= 0)
             cpu_cores = 1;
-          subset_workers = std::min<int>(cpu_cores,
-                                         static_cast<int>(tiles_phase56.size()));
-          subset_workers = std::max(1, std::min(subset_workers, 8));
+          subset_workers = std::min<int>(cfg.runtime_limits.parallel_workers,
+                                         cpu_cores);
+          subset_workers =
+              std::min<int>(subset_workers, static_cast<int>(tiles_phase56.size()));
+          subset_workers = std::max(1, subset_workers);
         }
 
         auto process_tile = [&]() {
