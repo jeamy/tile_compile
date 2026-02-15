@@ -1572,6 +1572,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   emitter.phase_end(run_id, Phase::REGISTRATION, global_reg_status,
                     global_reg_extra, log_file);
 
+  emitter.phase_start(run_id, Phase::PREWARP, "PREWARP", log_file);
+
   // Pre-warp all frames at full resolution before tile extraction.
   // Applying rotation warps to small tile ROIs is fundamentally broken:
   // warpAffine needs source pixels outside the tile boundary that don't
@@ -1588,7 +1590,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
             << std::endl;
   std::mutex prewarp_store_mutex;
   std::mutex prewarp_log_mutex;
+  std::mutex prewarp_progress_mutex;
   std::atomic<size_t> prewarp_next{0};
+  std::atomic<size_t> prewarp_done{0};
   std::atomic<int> n_frames_with_data{0};
   std::atomic<bool> prewarp_failed{false};
   std::string prewarp_error;
@@ -1642,6 +1646,16 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           prewarp_error = "unknown_error";
         }
       }
+
+      const size_t done = prewarp_done.fetch_add(1) + 1;
+      if (done % 5 == 0 || done == frames.size()) {
+        std::lock_guard<std::mutex> lock(prewarp_progress_mutex);
+        emitter.phase_progress_counts(
+            run_id, Phase::PREWARP, static_cast<int>(done),
+            static_cast<int>(frames.size()), "prewarp workers=" +
+                                              std::to_string(prewarp_workers),
+            "frames", log_file);
+      }
     }
   };
 
@@ -1661,6 +1675,10 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   }
 
   if (prewarp_failed.load(std::memory_order_relaxed)) {
+    emitter.phase_end(run_id, Phase::PREWARP, "error",
+                      {{"error", prewarp_error.empty() ? "unknown_error"
+                                                         : prewarp_error}},
+                      log_file);
     std::cerr << "Error during PREWARP: "
               << (prewarp_error.empty() ? "unknown_error" : prewarp_error)
               << std::endl;
@@ -1669,6 +1687,11 @@ int run_command(const std::string &config_path, const std::string &input_dir,
   }
 
   const int n_usable_frames = n_frames_with_data.load(std::memory_order_relaxed);
+  emitter.phase_end(run_id, Phase::PREWARP, "ok",
+                    {{"num_frames", static_cast<int>(frames.size())},
+                     {"num_frames_with_data", n_usable_frames},
+                     {"workers", prewarp_workers}},
+                    log_file);
   constexpr int kReducedModeMinFrames = 50;
   const core::ModeGateDecision gate = core::evaluate_mode_gate(
       n_usable_frames, cfg.assumptions.frames_reduced_threshold,
@@ -2434,7 +2457,8 @@ int run_command(const std::string &config_path, const std::string &input_dir,
         std::lock_guard<std::mutex> lock(progress_mutex);
         emitter.phase_progress_counts(
             run_id, Phase::TILE_RECONSTRUCTION, static_cast<int>(done),
-            static_cast<int>(tiles_phase56.size()), "tiles", "tiles", log_file);
+            static_cast<int>(tiles_phase56.size()),
+            "workers=" + std::to_string(parallel_tiles), "tiles", log_file);
       }
     };
 

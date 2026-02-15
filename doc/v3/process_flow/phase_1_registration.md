@@ -1,11 +1,11 @@
 # REGISTRATION — Kaskadierte globale Registrierung + Pre-Warping
 
 > **C++ Implementierung:** `global_registration.cpp`, `registration.cpp`, `runner_main.cpp`
-> **Phase-Enum:** `Phase::REGISTRATION`
+> **Phase-Enum:** `Phase::REGISTRATION` (gefolgt von eigener `Phase::PREWARP`)
 
 ## Übersicht
 
-Die Registrierung richtet alle Frames geometrisch auf einen Referenz-Frame aus. Die C++ Implementierung verwendet eine **6-stufige Registrierungskaskade** mit robusten Fallbacks, die auch bei schwierigen Bedingungen (wenige Sterne, Star Trails durch Feldrotation, Nebel/Wolken) funktioniert. Anschließend werden alle Frames **vollständig pre-warped** auf Bildauflösung, bevor Tiles extrahiert werden.
+Die Registrierung richtet alle Frames geometrisch auf einen Referenz-Frame aus. Die C++ Implementierung verwendet eine **6-stufige Registrierungskaskade** mit robusten Fallbacks, die auch bei schwierigen Bedingungen (wenige Sterne, Star Trails durch Feldrotation, Nebel/Wolken) funktioniert. Anschließend werden alle Frames in der **eigenen Pipeline-Phase `PREWARP`** vollständig auf Bildauflösung vorgewrapt, bevor lokale Tile-Metriken berechnet werden.
 
 **Kernprinzip:** Keine Frame-Selektion. Jeder Frame wird behalten, auch bei fehlgeschlagener Registrierung (Identity-Warp mit CC=0).
 
@@ -171,6 +171,8 @@ w_full(1, 2) *= global_reg_scale;  // ty skalieren
 Die Warp-Matrix wird auf halber Auflösung berechnet. Die Translationskomponenten (tx, ty) werden mit dem Skalierungsfaktor auf Vollauflösung hochskaliert. Die Rotations-/Affin-Komponenten (a00, a01, a10, a11) bleiben unverändert.
 
 ## 5. Pre-Warping (CFA-aware)
+
+> Laufzeit-Sichtbarkeit: `phase_start(PREWARP)` / `phase_progress(PREWARP)` / `phase_end(PREWARP)`
 
 **Kritischer Schritt** nach der Registrierung, vor der Tile-Extraktion:
 

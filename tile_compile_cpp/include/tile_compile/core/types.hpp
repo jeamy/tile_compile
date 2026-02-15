@@ -157,25 +157,27 @@ struct RegistrationResult {
 enum class Phase {
     SCAN_INPUT = 0,
     REGISTRATION = 1,
-    CHANNEL_SPLIT = 2,
-    NORMALIZATION = 3,
-    GLOBAL_METRICS = 4,
-    TILE_GRID = 5,
-    LOCAL_METRICS = 6,
-    TILE_RECONSTRUCTION = 7,
-    STATE_CLUSTERING = 8,
-    SYNTHETIC_FRAMES = 9,
-    STACKING = 10,
-    DEBAYER = 11,
-    ASTROMETRY = 12,
-    PCC = 13,
-    DONE = 14
+    PREWARP = 2,
+    CHANNEL_SPLIT = 3,
+    NORMALIZATION = 4,
+    GLOBAL_METRICS = 5,
+    TILE_GRID = 6,
+    LOCAL_METRICS = 7,
+    TILE_RECONSTRUCTION = 8,
+    STATE_CLUSTERING = 9,
+    SYNTHETIC_FRAMES = 10,
+    STACKING = 11,
+    DEBAYER = 12,
+    ASTROMETRY = 13,
+    PCC = 14,
+    DONE = 15
 };
 
 inline std::string phase_to_string(Phase phase) {
     switch (phase) {
         case Phase::SCAN_INPUT: return "SCAN_INPUT";
         case Phase::REGISTRATION: return "REGISTRATION";
+        case Phase::PREWARP: return "PREWARP";
         case Phase::CHANNEL_SPLIT: return "CHANNEL_SPLIT";
         case Phase::NORMALIZATION: return "NORMALIZATION";
         case Phase::GLOBAL_METRICS: return "GLOBAL_METRICS";
@@ -198,7 +200,7 @@ inline int phase_to_int(Phase phase) {
 }
 
 inline Phase int_to_phase(int i) {
-    if (i >= 0 && i <= 14) {
+    if (i >= 0 && i <= 15) {
         return static_cast<Phase>(i);
     }
     return Phase::SCAN_INPUT;
