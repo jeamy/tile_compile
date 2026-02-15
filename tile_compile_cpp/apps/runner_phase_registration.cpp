@@ -344,46 +344,25 @@ bool run_phase_registration_prewarp(
   // Reject implausible global registration outliers before downstream phases.
   // These outliers can pass NCC but still produce heavy tile/grid artifacts.
   int reg_reject_orientation_outliers = 0;
+  int reg_reject_reflection_outliers = 0;
   int reg_reject_scale_outliers = 0;
   {
-    int trace_pos = 0;
-    int trace_neg = 0;
-    for (size_t fi = 0; fi < frames.size(); ++fi) {
-      if (global_frame_cc[fi] <= 0.0f)
-        continue;
-      const auto &w = global_frame_warps[fi];
-      const float tr = w(0, 0) + w(1, 1);
-      if (tr >= 0.0f) {
-        ++trace_pos;
-      } else {
-        ++trace_neg;
-      }
-    }
-
-    // Only apply orientation filtering when one orientation is a clear minority
-    // (e.g. mixed 0° and spurious ~180° solutions in one run).
-    const int dom = std::max(trace_pos, trace_neg);
-    const int mino = std::min(trace_pos, trace_neg);
-    const bool apply_orientation_filter =
-        (trace_pos > 0 && trace_neg > 0 && mino * 2 <= dom);
-    const bool dominant_positive = trace_pos >= trace_neg;
-
     for (size_t fi = 0; fi < frames.size(); ++fi) {
       if (global_frame_cc[fi] <= 0.0f)
         continue;
       const auto &w = global_frame_warps[fi];
 
       bool reject = false;
-      if (apply_orientation_filter) {
-        const bool is_pos = (w(0, 0) + w(1, 1)) >= 0.0f;
-        if (is_pos != dominant_positive) {
-          reject = true;
-          ++reg_reject_orientation_outliers;
-        }
+      // Accept both 0° and ~180° rotations (trace can be positive or negative).
+      // But reject mirror/reflection solutions (det < 0), which cause
+      // characteristic mirrored ghost artifacts in the final stack.
+      const float det = w(0, 0) * w(1, 1) - w(0, 1) * w(1, 0);
+      if (det < 0.0f) {
+        reject = true;
+        ++reg_reject_reflection_outliers;
       }
 
       if (!reject) {
-        const float det = w(0, 0) * w(1, 1) - w(0, 1) * w(1, 0);
         const float scale = std::sqrt(std::fabs(det));
         if (scale < 0.92f || scale > 1.08f) {
           reject = true;
@@ -397,13 +376,18 @@ bool run_phase_registration_prewarp(
       }
     }
   }
-  if (reg_reject_orientation_outliers > 0 || reg_reject_scale_outliers > 0) {
+  if (reg_reject_orientation_outliers > 0 ||
+      reg_reject_reflection_outliers > 0 ||
+      reg_reject_scale_outliers > 0) {
     std::cerr << "[REG-FILTER] rejected outlier warps: orientation="
               << reg_reject_orientation_outliers
+              << " reflection=" << reg_reject_reflection_outliers
               << " scale=" << reg_reject_scale_outliers << std::endl;
   }
   global_reg_extra["reg_reject_orientation_outliers"] =
       reg_reject_orientation_outliers;
+  global_reg_extra["reg_reject_reflection_outliers"] =
+      reg_reject_reflection_outliers;
   global_reg_extra["reg_reject_scale_outliers"] = reg_reject_scale_outliers;
 
   // Methodik v3: no frame selection. Registration may fall back to identity,

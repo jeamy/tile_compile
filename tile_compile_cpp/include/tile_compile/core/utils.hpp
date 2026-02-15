@@ -1,7 +1,6 @@
 #pragma once
 
 #include "types.hpp"
-#include <chrono>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -15,7 +14,7 @@ std::string get_iso_timestamp();
 std::string get_run_id();
 
 // File utilities
-std::vector<fs::path> discover_frames(const fs::path& input_dir, const std::string& pattern = "*.fit*");
+std::vector<fs::path> discover_frames(const fs::path& input_dir, const std::string& pattern = "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz");
 std::vector<uint8_t> read_bytes(const fs::path& path);
 std::string read_text(const fs::path& path);
 void write_text(const fs::path& path, const std::string& text);

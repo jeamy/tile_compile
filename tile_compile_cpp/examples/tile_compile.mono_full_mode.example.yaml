@@ -52,7 +52,7 @@ calibration:
   bias_master: "" # Pfad zu Master-Bias
   dark_master: "" # Pfad zu Master-Dark
   flat_master: "" # Pfad zu Master-Flat
-  pattern: "*.fit*" # Dateimaske fuer Kalibrierdaten
+  pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz" # Dateimaske fuer Kalibrierdaten (inkl. komprimierte .fz)
 
 assumptions:
   frames_min: 50 # normative Untergrenze; darunter Abort/Emergency

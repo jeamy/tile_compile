@@ -249,9 +249,19 @@ void ScanTab::on_scan_clicked() {
                     const auto &first = result["warnings"][0];
                     msg = first.value("code", "warning") + ": " + first.value("message", "");
                 } else if (ok) {
+                    auto json_string_or_empty = [](const nlohmann::json &obj,
+                                                   const char *key) -> std::string {
+                        if (!obj.contains(key) || obj[key].is_null()) {
+                            return "";
+                        }
+                        if (obj[key].is_string()) {
+                            return obj[key].get<std::string>();
+                        }
+                        return "";
+                    };
                     const int frames = result.value("frames_detected", 0);
-                    const std::string cm = result.value("color_mode", "");
-                    const std::string bp = result.value("bayer_pattern", "");
+                    const std::string cm = json_string_or_empty(result, "color_mode");
+                    const std::string bp = json_string_or_empty(result, "bayer_pattern");
                     std::vector<std::string> parts;
                     if (frames > 0) parts.push_back("frames_detected=" + std::to_string(frames));
                     if (!cm.empty()) parts.push_back("color_mode=" + cm);
@@ -565,7 +575,7 @@ nlohmann::json ScanTab::collect_calibration() const {
         {"bias_master", bias_master},
         {"dark_master", dark_master},
         {"flat_master", flat_master},
-        {"pattern", "*.fit*"},
+        {"pattern", "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"},
     };
 }
 
