@@ -4,6 +4,10 @@
 #include <QHBoxLayout>
 #include <QGroupBox>
 #include <QFileDialog>
+#include <QHeaderView>
+#include <QFileInfo>
+#include <algorithm>
+#include <map>
 
 namespace tile_compile::gui {
 
@@ -37,6 +41,19 @@ void RunTab::build_ui() {
     rr1->addWidget(new QLabel("Input dir (from Scan)"));
     rr1->addWidget(input_dir_, 1);
     run_layout->addLayout(rr1);
+
+    input_dirs_table_ = new QTableWidget();
+    input_dirs_table_->setColumnCount(2);
+    input_dirs_table_->setHorizontalHeaderLabels({"Input dir", "Subfolder"});
+    input_dirs_table_->horizontalHeader()->setStretchLastSection(false);
+    input_dirs_table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    input_dirs_table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    input_dirs_table_->verticalHeader()->setVisible(false);
+    input_dirs_table_->setSelectionMode(QAbstractItemView::NoSelection);
+    input_dirs_table_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    input_dirs_table_->setMinimumHeight(110);
+    run_layout->addWidget(new QLabel("Input dirs + editierbare Subfolder (processing order)"));
+    run_layout->addWidget(input_dirs_table_);
     
     auto *rr2 = new QHBoxLayout();
     runs_dir_ = new QLineEdit("runs");
@@ -86,12 +103,106 @@ void RunTab::on_browse_working_dir() {
 
 QString RunTab::get_working_dir() const { return working_dir_->text().trimmed(); }
 QString RunTab::get_input_dir() const { return input_dir_->text().trimmed(); }
+QStringList RunTab::get_input_dirs() const {
+    QStringList dirs;
+    if (input_dirs_table_) {
+        for (int i = 0; i < input_dirs_table_->rowCount(); ++i) {
+            const QTableWidgetItem *item = input_dirs_table_->item(i, 0);
+            const QString dir = item ? item->text().trimmed() : QString();
+            if (!dir.isEmpty()) {
+                dirs << dir;
+            }
+        }
+    }
+    if (dirs.isEmpty()) {
+        const QString one = get_input_dir();
+        if (!one.isEmpty()) {
+            dirs << one;
+        }
+    }
+    return dirs;
+}
+QStringList RunTab::get_input_subdirs() const {
+    QStringList subdirs;
+    if (!input_dirs_table_) {
+        return subdirs;
+    }
+    for (int i = 0; i < input_dirs_table_->rowCount(); ++i) {
+        const QTableWidgetItem *item = input_dirs_table_->item(i, 1);
+        subdirs << (item ? item->text().trimmed() : QString());
+    }
+    return subdirs;
+}
 QString RunTab::get_runs_dir() const { return runs_dir_->text().trimmed(); }
 QString RunTab::get_pattern() const { return pattern_->text().trimmed(); }
 bool RunTab::is_dry_run() const { return dry_run_->isChecked(); }
 
 void RunTab::set_working_dir(const QString &dir) { working_dir_->setText(dir); }
 void RunTab::set_input_dir(const QString &dir) { input_dir_->setText(dir); }
+void RunTab::set_input_dirs(const QStringList &dirs) {
+    if (!input_dirs_table_) {
+        return;
+    }
+
+    std::map<QString, QString> existing_subdirs;
+    for (int i = 0; i < input_dirs_table_->rowCount(); ++i) {
+        const QTableWidgetItem *dir_item = input_dirs_table_->item(i, 0);
+        const QTableWidgetItem *sub_item = input_dirs_table_->item(i, 1);
+        const QString dir = dir_item ? dir_item->text().trimmed() : QString();
+        if (!dir.isEmpty()) {
+            existing_subdirs[dir] = sub_item ? sub_item->text().trimmed() : QString();
+        }
+    }
+
+    input_dirs_table_->setRowCount(0);
+    QString first;
+    for (const QString &dir : dirs) {
+        const QString trimmed = dir.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+        if (first.isEmpty()) {
+            first = trimmed;
+        }
+
+        int row = input_dirs_table_->rowCount();
+        input_dirs_table_->insertRow(row);
+
+        auto *dir_item = new QTableWidgetItem(trimmed);
+        dir_item->setFlags(dir_item->flags() & ~Qt::ItemIsEditable);
+        input_dirs_table_->setItem(row, 0, dir_item);
+
+        QString subfolder;
+        const auto it = existing_subdirs.find(trimmed);
+        if (it != existing_subdirs.end() && !it->second.trimmed().isEmpty()) {
+            subfolder = it->second.trimmed();
+        } else {
+            subfolder = QFileInfo(trimmed).fileName().trimmed();
+        }
+        input_dirs_table_->setItem(row, 1, new QTableWidgetItem(subfolder));
+    }
+
+    if (!first.isEmpty()) {
+        input_dir_->setText(first);
+    } else {
+        input_dir_->clear();
+    }
+}
+void RunTab::set_input_subdirs(const QStringList &subdirs) {
+    if (!input_dirs_table_) {
+        return;
+    }
+    const int count = std::min(input_dirs_table_->rowCount(), static_cast<int>(subdirs.size()));
+    for (int i = 0; i < count; ++i) {
+        const QString value = subdirs.at(i).trimmed();
+        QTableWidgetItem *item = input_dirs_table_->item(i, 1);
+        if (!item) {
+            item = new QTableWidgetItem();
+            input_dirs_table_->setItem(i, 1, item);
+        }
+        item->setText(value);
+    }
+}
 void RunTab::set_runs_dir(const QString &dir) { runs_dir_->setText(dir); }
 void RunTab::set_pattern(const QString &pattern) { pattern_->setText(pattern); }
 void RunTab::set_dry_run(bool dry_run) { dry_run_->setChecked(dry_run); }

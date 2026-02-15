@@ -99,10 +99,8 @@ bool run_phase_registration_prewarp(
   if (!frames.empty()) {
     try {
       Matrix2Df ref_full;
-      {
-        auto pair = load_frame_normalized(static_cast<size_t>(global_ref_idx));
-        ref_full = std::move(pair.first);
-      }
+      auto pair = load_frame_normalized(static_cast<size_t>(global_ref_idx));
+      ref_full = std::move(pair.first);
       if (ref_full.size() <= 0) {
         global_reg_status = "error";
         global_reg_extra["error"] = "ref_frame_empty";
@@ -346,13 +344,68 @@ bool run_phase_registration_prewarp(
   int reg_reject_orientation_outliers = 0;
   int reg_reject_reflection_outliers = 0;
   int reg_reject_scale_outliers = 0;
-  {
+  int reg_reject_cc_outliers = 0;
+  int reg_reject_shift_outliers = 0;
+  core::json reg_rejected_frames = core::json::array();
+  if (cfg.registration.reject_outliers) {
+    std::vector<float> cc_positive;
+    cc_positive.reserve(frames.size());
+    std::vector<float> shift_mags_positive;
+    shift_mags_positive.reserve(frames.size());
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      if (global_frame_cc[fi] <= 0.0f) {
+        continue;
+      }
+      cc_positive.push_back(global_frame_cc[fi]);
+      const auto &w = global_frame_warps[fi];
+      const float shift_mag =
+          std::sqrt(w(0, 2) * w(0, 2) + w(1, 2) * w(1, 2));
+      shift_mags_positive.push_back(shift_mag);
+    }
+
+    auto robust_median = [](std::vector<float> values) -> float {
+      if (values.empty()) {
+        return 0.0f;
+      }
+      const size_t mid = values.size() / 2;
+      std::nth_element(values.begin(), values.begin() + static_cast<long>(mid),
+                       values.end());
+      float med = values[mid];
+      if (values.size() % 2 == 0 && mid > 0) {
+        std::nth_element(values.begin(), values.begin() + static_cast<long>(mid - 1),
+                         values.end());
+        med = 0.5f * (med + values[mid - 1]);
+      }
+      return med;
+    };
+
+    const float cc_median = robust_median(cc_positive);
+    float cc_mad = 0.0f;
+    if (!cc_positive.empty()) {
+      std::vector<float> abs_dev;
+      abs_dev.reserve(cc_positive.size());
+      for (float v : cc_positive) {
+        abs_dev.push_back(std::fabs(v - cc_median));
+      }
+      cc_mad = robust_median(abs_dev);
+    }
+    const float cc_threshold_abs = cfg.registration.reject_cc_min_abs;
+    const float cc_threshold_robust =
+        cc_median - cfg.registration.reject_cc_mad_multiplier * cc_mad;
+    const float cc_min_keep = std::max(cc_threshold_abs, cc_threshold_robust);
+
+    const float shift_median = robust_median(shift_mags_positive);
+    const float shift_limit =
+        std::max(cfg.registration.reject_shift_px_min,
+                 cfg.registration.reject_shift_median_multiplier * shift_median);
+
     for (size_t fi = 0; fi < frames.size(); ++fi) {
       if (global_frame_cc[fi] <= 0.0f)
         continue;
       const auto &w = global_frame_warps[fi];
 
       bool reject = false;
+      std::vector<std::string> reject_reasons;
       // Accept both 0° and ~180° rotations (trace can be positive or negative).
       // But reject mirror/reflection solutions (det < 0), which cause
       // characteristic mirrored ghost artifacts in the final stack.
@@ -360,17 +413,60 @@ bool run_phase_registration_prewarp(
       if (det < 0.0f) {
         reject = true;
         ++reg_reject_reflection_outliers;
+        reject_reasons.push_back("reflection");
       }
 
       if (!reject) {
         const float scale = std::sqrt(std::fabs(det));
-        if (scale < 0.92f || scale > 1.08f) {
+        if (scale < cfg.registration.reject_scale_min ||
+            scale > cfg.registration.reject_scale_max) {
           reject = true;
           ++reg_reject_scale_outliers;
+          reject_reasons.push_back("scale");
+        }
+      }
+
+      if (!reject) {
+        const float cc = global_frame_cc[fi];
+        if (cc < cc_min_keep) {
+          reject = true;
+          ++reg_reject_cc_outliers;
+          reject_reasons.push_back("low_cc");
+        }
+      }
+
+      if (!reject) {
+        const float shift_mag =
+            std::sqrt(w(0, 2) * w(0, 2) + w(1, 2) * w(1, 2));
+        if (shift_mag > shift_limit) {
+          reject = true;
+          ++reg_reject_shift_outliers;
+          reject_reasons.push_back("shift_outlier");
         }
       }
 
       if (reject) {
+        core::json rej = {
+            {"frame_index", static_cast<int>(fi)},
+            {"frame_name", frames[fi].filename().string()},
+            {"cc", global_frame_cc[fi]},
+            {"reasons", reject_reasons},
+            {"a00", w(0, 0)},
+            {"a01", w(0, 1)},
+            {"tx", w(0, 2)},
+            {"a10", w(1, 0)},
+            {"a11", w(1, 1)},
+            {"ty", w(1, 2)},
+        };
+        reg_rejected_frames.push_back(rej);
+        std::ostringstream msg;
+        msg << "REGISTRATION outlier rejected: frame=" << fi << " ("
+            << frames[fi].filename().string() << ") cc=" << global_frame_cc[fi]
+            << " reasons=" << core::join(reject_reasons, ",")
+            << " tx=" << w(0, 2) << " ty=" << w(1, 2);
+        emitter.warning(run_id, msg.str(), log_file);
+        std::cerr << "[REG-FILTER] " << msg.str() << std::endl;
+
         global_frame_warps[fi] = registration::identity_warp();
         global_frame_cc[fi] = 0.0f;
       }
@@ -378,17 +474,24 @@ bool run_phase_registration_prewarp(
   }
   if (reg_reject_orientation_outliers > 0 ||
       reg_reject_reflection_outliers > 0 ||
-      reg_reject_scale_outliers > 0) {
+      reg_reject_scale_outliers > 0 ||
+      reg_reject_cc_outliers > 0 ||
+      reg_reject_shift_outliers > 0) {
     std::cerr << "[REG-FILTER] rejected outlier warps: orientation="
               << reg_reject_orientation_outliers
               << " reflection=" << reg_reject_reflection_outliers
-              << " scale=" << reg_reject_scale_outliers << std::endl;
+              << " scale=" << reg_reject_scale_outliers
+              << " cc=" << reg_reject_cc_outliers
+              << " shift=" << reg_reject_shift_outliers << std::endl;
   }
   global_reg_extra["reg_reject_orientation_outliers"] =
       reg_reject_orientation_outliers;
   global_reg_extra["reg_reject_reflection_outliers"] =
       reg_reject_reflection_outliers;
   global_reg_extra["reg_reject_scale_outliers"] = reg_reject_scale_outliers;
+  global_reg_extra["reg_reject_cc_outliers"] = reg_reject_cc_outliers;
+  global_reg_extra["reg_reject_shift_outliers"] = reg_reject_shift_outliers;
+  global_reg_extra["reg_rejected_frames"] = reg_rejected_frames;
 
   // Methodik v3: no frame selection. Registration may fall back to identity,
   // but all frames are still kept for subsequent weighting/stacking.

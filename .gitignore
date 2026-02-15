@@ -54,4 +54,8 @@ Thumbs.db
 *.local
 *.local.*
 
+# ArXiv paper files
+*arxiv*
+arxiv*/
+
 

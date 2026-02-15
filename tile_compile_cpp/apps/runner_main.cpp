@@ -30,9 +30,11 @@ void print_usage() {
 
 int run_command(const std::string &config_path, const std::string &input_dir,
                 const std::string &runs_dir, const std::string &project_root,
+                const std::string &run_id_override,
                 bool dry_run, int max_frames, int max_tiles,
                 bool config_from_stdin) {
   return run_pipeline_command(config_path, input_dir, runs_dir, project_root,
+                              run_id_override,
                               dry_run, max_frames, max_tiles,
                               config_from_stdin);
 }
@@ -44,6 +46,7 @@ int main(int argc, char *argv[]) {
   CLI::App app{"Tile-Compile Runner (C++)"};
 
   std::string config_path, input_dir, runs_dir, project_root;
+  std::string run_id_override;
   std::string resume_run_dir;
   std::string resume_from_phase = "PCC";
   bool dry_run = false;
@@ -57,6 +60,8 @@ int main(int argc, char *argv[]) {
   run_cmd->add_option("--input-dir", input_dir, "Input directory")->required();
   run_cmd->add_option("--runs-dir", runs_dir, "Runs directory")->required();
   run_cmd->add_option("--project-root", project_root, "Project root");
+  run_cmd->add_option("--run-id", run_id_override,
+                      "Optional run-id override (group related runs)");
   run_cmd->add_option("--max-frames", max_frames,
                       "Limit number of frames (0 = no limit)");
   run_cmd->add_option("--max-tiles", max_tiles,
@@ -75,7 +80,8 @@ int main(int argc, char *argv[]) {
   CLI11_PARSE(app, argc, argv);
 
   if (run_cmd->parsed()) {
-    return run_command(config_path, input_dir, runs_dir, project_root, dry_run,
+    return run_command(config_path, input_dir, runs_dir, project_root,
+                       run_id_override, dry_run,
                        max_frames, max_tiles, config_from_stdin);
   }
 
@@ -93,6 +99,7 @@ int main(int argc, char *argv[]) {
 
   std::string command = argv[1];
   std::string config_path, input_dir, runs_dir, project_root;
+  std::string run_id_override;
   std::string resume_run_dir;
   std::string resume_from_phase = "PCC";
   bool dry_run = false;
@@ -110,6 +117,8 @@ int main(int argc, char *argv[]) {
       runs_dir = argv[++i];
     else if (arg == "--project-root" && i + 1 < argc)
       project_root = argv[++i];
+    else if (arg == "--run-id" && i + 1 < argc)
+      run_id_override = argv[++i];
     else if (arg == "--run-dir" && i + 1 < argc)
       resume_run_dir = argv[++i];
     else if (arg == "--from-phase" && i + 1 < argc)
@@ -130,7 +139,8 @@ int main(int argc, char *argv[]) {
                 << std::endl;
       return 1;
     }
-    return run_command(config_path, input_dir, runs_dir, project_root, dry_run,
+    return run_command(config_path, input_dir, runs_dir, project_root,
+                       run_id_override, dry_run,
                        max_frames, max_tiles, config_from_stdin);
   }
 

@@ -12,6 +12,7 @@
 #include <QComboBox>
 #include <QTableWidget>
 #include <QTimer>
+#include <QStringList>
 #include <memory>
 #include <string>
 
@@ -56,6 +57,7 @@ class MainWindow : public QMainWindow {
     nlohmann::json collect_gui_state() const;
     void apply_gui_state(const nlohmann::json &state);
     nlohmann::json collect_calibration_from_ui() const;
+    bool start_next_batch_input_run();
     
     std::string project_root_;
     nlohmann::json constants_;
@@ -71,6 +73,19 @@ class MainWindow : public QMainWindow {
     int frame_count_ = 0;
 
     QString last_scan_input_dir_;
+    QStringList batch_input_dirs_;
+    QStringList batch_input_subdirs_;
+    int active_batch_input_index_ = -1;
+    bool batch_abort_requested_ = false;
+    QString batch_runner_path_;
+    QString batch_working_dir_;
+    QString batch_runs_dir_;
+    QString batch_parent_run_id_;
+    QString batch_pattern_;
+    QString batch_config_path_;
+    QString batch_config_yaml_;
+    bool batch_use_stdin_config_ = false;
+    bool batch_dry_run_ = false;
     
     QTabWidget *tabs_ = nullptr;
     QLabel *lbl_header_ = nullptr;

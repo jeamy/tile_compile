@@ -74,6 +74,13 @@ registration:
   star_min_inliers: 5 # Mindestzahl Inlier fuer Stern-Matching
   star_inlier_tol_px: 2.5 # striktere Inlier-Toleranz in Pixel
   star_dist_bin_px: 3.0 # Distanz-Binning fuer Sternpaare
+  reject_outliers: true # globale Registrierungs-Ausreisser verwerfen
+  reject_cc_min_abs: 0.35 # absolute Mindestkorrelation (CC)
+  reject_cc_mad_multiplier: 4.0 # robuster CC-Schwellenfaktor (median - k*MAD)
+  reject_shift_px_min: 25.0 # absolute Mindestgrenze fuer Shift-Outlier (px)
+  reject_shift_median_multiplier: 3.0 # Shift-Outlier-Grenze relativ zum Median
+  reject_scale_min: 0.92 # minimale erlaubte Similarity-Skalierung
+  reject_scale_max: 1.08 # maximale erlaubte Similarity-Skalierung
 
 dithering:
   enabled: true # true bei aktivem Dithering waehrend Aufnahme

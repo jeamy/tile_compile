@@ -7,7 +7,8 @@
 #include <QSpinBox>
 #include <QCheckBox>
 #include <QComboBox>
-#include <memory>
+#include <QListWidget>
+#include <QStringList>
 #include <string>
 
 #include <nlohmann/json.hpp>
@@ -28,6 +29,8 @@ class ScanTab : public QWidget {
     
     void set_input_dir_from_scan(const QString &dir);
     QString get_scan_input_dir() const;
+    QStringList get_scan_input_dirs() const;
+    void set_scan_input_dirs(const QStringList &dirs);
     nlohmann::json get_last_scan() const { return last_scan_; }
     void update_calibration_controls();
     std::string validate_calibration() const;
@@ -42,6 +45,7 @@ class ScanTab : public QWidget {
     void log_message(const QString &msg);
     void header_status_changed(const QString &status);
     void input_dir_changed(const QString &dir);
+    void input_dirs_changed(const QStringList &dirs);
     void calibration_changed();
     void update_controls_requested();
 
@@ -49,6 +53,8 @@ class ScanTab : public QWidget {
     void on_scan_clicked();
     void on_confirm_color_clicked();
     void on_browse_scan_dir();
+    void on_add_scan_dir();
+    void on_remove_scan_dir();
     void on_browse_bias_dir();
     void on_browse_darks_dir();
     void on_browse_flats_dir();
@@ -68,6 +74,9 @@ class ScanTab : public QWidget {
     int frame_count_ = 0;
     
     QLineEdit *scan_input_dir_ = nullptr;
+    QListWidget *scan_input_dirs_list_ = nullptr;
+    QPushButton *btn_add_scan_dir_ = nullptr;
+    QPushButton *btn_remove_scan_dir_ = nullptr;
     QPushButton *btn_scan_ = nullptr;
     QLabel *lbl_scan_ = nullptr;
     QLabel *scan_msg_ = nullptr;

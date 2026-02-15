@@ -82,6 +82,13 @@ struct RegistrationConfig {
   int star_min_inliers = 6;
   float star_inlier_tol_px = 2.5f;
   float star_dist_bin_px = 2.5f;
+  bool reject_outliers = true;
+  float reject_cc_min_abs = 0.35f;
+  float reject_cc_mad_multiplier = 4.0f;
+  float reject_shift_px_min = 25.0f;
+  float reject_shift_median_multiplier = 3.0f;
+  float reject_scale_min = 0.92f;
+  float reject_scale_max = 1.08f;
 };
 
 struct WienerDenoiseConfig {
