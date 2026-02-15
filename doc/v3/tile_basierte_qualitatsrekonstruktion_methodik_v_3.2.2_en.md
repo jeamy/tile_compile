@@ -30,14 +30,18 @@ The method models two orthogonal quality axes:
 - **global** (atmosphere): transparency, sky brightness, noise
 - **local** (tile): sharpness, structural support, local background level
 
-### 1.2 No Frame Selection (Invariant)
+### 1.2 No Quality-Based Frame Selection (Invariant)
 
-**Forbidden:** Removal of entire frames based on quality.  
-**Permitted:** Pixel-wise outlier rejection (sigma clipping), provided that
+**Forbidden:** Removal of entire frames for atmospheric/photometric quality ranking ("best-N" style selection).  
+**Permitted:**
 
-- it acts only at pixel level,
-- it uses deterministic parameters,
-- and it includes a documented fallback to the unchanged mean.
+1. Pixel-wise outlier rejection (sigma clipping), provided that it
+   - acts only at pixel level,
+   - uses deterministic parameters,
+   - includes a documented fallback to the unchanged mean.
+2. Geometric registration validity gating before phase-3 weighting, i.e. rejecting frames whose estimated warp is physically implausible or clearly failed (e.g. reflection warp, extreme scale, catastrophic shift outlier, very low registration correlation).
+
+Interpretation: all frames that pass geometric registration validity are retained for the quality-weighted reconstruction; no additional quality-based frame culling is allowed downstream.
 
 ### 1.3 Linearity Semantics (Clarified)
 
@@ -127,6 +131,23 @@ Acceptance criterion per attempt:
 
 - `NCC(warped, ref) > NCC(identity, ref) + delta_ncc`
 - Default `delta_ncc = 0.01`
+
+### 4.3 Registration Validity Gating (Normative)
+
+After registration candidate selection, each frame SHALL pass a deterministic geometric validity gate before entering the shared core (phase 3+).
+
+Recommended default gate dimensions:
+
+- registration correlation lower bound (`reject_cc_min_abs` and optional robust MAD-based bound)
+- shift magnitude outlier bound (absolute floor + robust median multiplier)
+- similarity scale bounds (`reject_scale_min`, `reject_scale_max`)
+- reflection rejection (`det(warp) < 0` => reject)
+
+Semantics:
+
+- This step is **not** quality ranking; it is failure/outlier suppression for invalid geometry.
+- Rejected frames MUST be explicitly logged with reason(s) and diagnostics.
+- The invariant in 1.2 remains intact: no post-gating quality-based frame selection.
 
 ---
 
@@ -591,6 +612,7 @@ Procedure:
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-02-15 | v3.2.2.3 | Clarified invariant semantics: no quality-based frame selection while allowing deterministic registration validity gating for geometrically invalid frames |
 | 2026-02-15 | v3.2.2.2 | Replaced cluster-size weighted final stacking with quality-weighted cluster aggregation (exp(kappa_cluster * Q_k)) including optional dominance cap |
 | 2026-02-15 | v3.2.2.1 | Enforced overlap clipping in tile geometry; added photometric restoration after OLA; replaced uniform per-cluster averaging with cluster-size weighted final stack |
 | 2026-02-13 | v3.2.2 | Path A removed; CFA-based registration and channel-separation path defined as the only normative path up to phase 2 |
@@ -607,4 +629,4 @@ Procedure:
 
 ## 11. Core Statement
 
-The method replaces rigid search for "best frames" with robust spatio-temporal quality modeling, uses all frames without quality-based selection, and reconstructs signal where it is physically and statistically most reliable.
+The method replaces rigid search for "best frames" with robust spatio-temporal quality modeling, retains all geometrically valid frames without downstream quality-based culling, and reconstructs signal where it is physically and statistically most reliable.
