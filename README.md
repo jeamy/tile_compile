@@ -4,6 +4,10 @@ Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomi
 
 > **Note:** This is experimental software primarily developed for processing images from smart telescopes (e.g., DWARF, Seestar, ZWO SeeStar, etc.). While designed for general astronomical image processing, it has been optimized for the specific characteristics and challenges of smart telescope data.
 
+We present a novel methodology for the reconstruction of high-quality astronomical images from short-exposure deep-sky datasets. Conventional stacking methods often rely on binary frame selection ("lucky imaging"), which discards significant portions of collected photons. Our approach, **Tile-Based Quality Reconstruction (TBQR)**, replaces rigid frame selection with a robust spatio-temporal quality model. By decomposing frames into local tiles and modeling quality along two orthogonal axes—global atmospheric transparency/noise and local structural sharpness—we reconstruct a signal that is physically and statistically optimal at every pixel. We demonstrate that this method preserves the full photometric depth of the dataset while achieving superior resolution improvement compared to traditional reference stacks.
+
+While the methodology was originally conceived to address the specific challenges of short-exposure data from modern smart telescopes (e.g., Dwarf, Seestar), its architectural flexibility makes it equally potent for conventional astronomical setups. The extensive set of tunable parameters—ranging from adaptive tile sizing and cross-correlation thresholds to sophisticated clustering logic—allows the pipeline to be meticulously optimized for a wide array of optical systems and atmospheric conditions.
+
 ## Documentation (v3.2)
 
 - Normative methodology: `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md`
