@@ -1343,6 +1343,71 @@ int run_command(const std::string &config_path, const std::string &input_dir,
     global_reg_extra["reason"] = "no_frames";
   }
 
+  // Reject implausible global registration outliers before downstream phases.
+  // These outliers can pass NCC but still produce heavy tile/grid artifacts.
+  int reg_reject_orientation_outliers = 0;
+  int reg_reject_scale_outliers = 0;
+  {
+    int trace_pos = 0;
+    int trace_neg = 0;
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      if (global_frame_cc[fi] <= 0.0f)
+        continue;
+      const auto &w = global_frame_warps[fi];
+      const float tr = w(0, 0) + w(1, 1);
+      if (tr >= 0.0f) {
+        ++trace_pos;
+      } else {
+        ++trace_neg;
+      }
+    }
+
+    // Only apply orientation filtering when one orientation is a clear minority
+    // (e.g. mixed 0° and spurious ~180° solutions in one run).
+    const int dom = std::max(trace_pos, trace_neg);
+    const int mino = std::min(trace_pos, trace_neg);
+    const bool apply_orientation_filter =
+        (trace_pos > 0 && trace_neg > 0 && mino * 2 <= dom);
+    const bool dominant_positive = trace_pos >= trace_neg;
+
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      if (global_frame_cc[fi] <= 0.0f)
+        continue;
+      const auto &w = global_frame_warps[fi];
+
+      bool reject = false;
+      if (apply_orientation_filter) {
+        const bool is_pos = (w(0, 0) + w(1, 1)) >= 0.0f;
+        if (is_pos != dominant_positive) {
+          reject = true;
+          ++reg_reject_orientation_outliers;
+        }
+      }
+
+      if (!reject) {
+        const float det = w(0, 0) * w(1, 1) - w(0, 1) * w(1, 0);
+        const float scale = std::sqrt(std::fabs(det));
+        if (scale < 0.92f || scale > 1.08f) {
+          reject = true;
+          ++reg_reject_scale_outliers;
+        }
+      }
+
+      if (reject) {
+        global_frame_warps[fi] = registration::identity_warp();
+        global_frame_cc[fi] = 0.0f;
+      }
+    }
+  }
+  if (reg_reject_orientation_outliers > 0 || reg_reject_scale_outliers > 0) {
+    std::cerr << "[REG-FILTER] rejected outlier warps: orientation="
+              << reg_reject_orientation_outliers
+              << " scale=" << reg_reject_scale_outliers << std::endl;
+  }
+  global_reg_extra["reg_reject_orientation_outliers"] =
+      reg_reject_orientation_outliers;
+  global_reg_extra["reg_reject_scale_outliers"] = reg_reject_scale_outliers;
+
   // Methodik v3: no frame selection. Registration may fall back to identity,
   // but all frames are still kept for subsequent weighting/stacking.
   int n_cc_positive = 0;
@@ -2004,47 +2069,9 @@ int run_command(const std::string &config_path, const std::string &input_dir,
       tile_post_background[ti] = b;
       tile_post_snr[ti] = s;
 
-      // Methodik 3.1E §3.6: Tile normalization before overlap-add.
-      // 1. Subtract background: T' = T - median(T)
-      // 2. Normalize: T'' = T' / median(|T'|)  (if median > ε)
-      // This eliminates patchwork artifacts from tiles with different
-      // background levels before the Hanning-windowed overlap-add.
-      std::vector<float> norm_tmp;
-      auto normalize_tile_for_ola = [&](Matrix2Df &t_img,
-                                        std::vector<float> &tmp) -> float {
-        if (t_img.size() <= 0) return 0.0f;
-        // Compute median via partial sort on a reusable copy buffer
-        tmp.resize(static_cast<size_t>(t_img.size()));
-        std::copy(t_img.data(), t_img.data() + t_img.size(), tmp.begin());
-        size_t mid = tmp.size() / 2;
-        std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid), tmp.end());
-        float bg = tmp[mid];
-        // Subtract background
-        for (Eigen::Index k = 0; k < t_img.size(); ++k)
-          t_img.data()[k] -= bg;
-        // Compute median of absolute values for scale normalization
-        for (size_t i = 0; i < tmp.size(); ++i)
-          tmp[i] = std::fabs(t_img.data()[static_cast<Eigen::Index>(i)]);
-        std::nth_element(tmp.begin(), tmp.begin() + static_cast<long>(mid), tmp.end());
-        float med_abs = tmp[mid];
-        if (med_abs > kEpsMedian) {
-          float inv = 1.0f / med_abs;
-          for (Eigen::Index k = 0; k < t_img.size(); ++k)
-            t_img.data()[k] *= inv;
-        }
-        return bg; // return original background for later restoration
-      };
-
-      float tile_bg_mono = normalize_tile_for_ola(tile_rec, norm_tmp);
-      float tile_bg_R = 0.0f, tile_bg_G = 0.0f, tile_bg_B = 0.0f;
-      if (osc_mode) {
-        tile_bg_R = normalize_tile_for_ola(tile_rec_R, norm_tmp);
-        tile_bg_G = normalize_tile_for_ola(tile_rec_G, norm_tmp);
-        tile_bg_B = normalize_tile_for_ola(tile_rec_B, norm_tmp);
-      }
-
-      // Store tile backgrounds for global restoration after overlap-add
-      tile_post_background[ti] = osc_mode ? tile_bg_G : tile_bg_mono;
+      // Preserve photometric scale before overlap-add.
+      // Per-tile median/scale normalization here can imprint tile structure
+      // and compress/stretch signal dynamics for converted DSLR FITS data.
 
       {
         std::lock_guard<std::mutex> lock(recon_mutex);
@@ -2142,31 +2169,6 @@ int run_command(const std::string &config_path, const std::string &input_dir,
           recon.data()[i] /= ws;
         } else {
           recon.data()[i] = first_img.data()[i];
-        }
-      }
-    }
-
-    // Methodik 3.1E §3.6: Restore global background after overlap-add.
-    // The tile normalization subtracted per-tile backgrounds before OLA.
-    // Now restore the median background level across all valid tiles.
-    {
-      std::vector<float> tile_bgs;
-      tile_bgs.reserve(tiles_phase56.size());
-      for (size_t i = 0; i < tiles_phase56.size(); ++i) {
-        if (tile_valid_counts[i] > 0)
-          tile_bgs.push_back(tile_post_background[i]);
-      }
-      if (!tile_bgs.empty()) {
-        float global_bg = core::median_of(tile_bgs);
-        if (osc_mode) {
-          for (int i = 0; i < recon_R.size(); ++i) {
-            recon_R.data()[i] += global_bg;
-            recon_G.data()[i] += global_bg;
-            recon_B.data()[i] += global_bg;
-          }
-        } else {
-          for (int i = 0; i < recon.size(); ++i)
-            recon.data()[i] += global_bg;
         }
       }
     }
