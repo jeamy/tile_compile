@@ -48,6 +48,9 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
 - `tile_compile.mono_small_n_anti_grid.example.yaml`
   - Suggested MONO config for small frame counts (e.g. 10..40) where tile seams/patterns can appear.
   - Anti-grid focus: larger tiles, higher overlap, conservative local weighting, reduced denoise aggressiveness.
+- `tile_compile.mono_small_n_ultra_conservative.example.yaml`
+  - Suggested MONO config for very small frame counts (e.g. 8..25) where maximum seam stability is preferred over aggressive enhancement.
+  - Ultra-conservative focus: tile denoise disabled, very soft local weighting, larger tiles and higher overlap.
 
 ## Usage
 

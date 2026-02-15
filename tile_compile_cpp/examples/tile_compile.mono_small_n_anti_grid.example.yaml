@@ -1,0 +1,212 @@
+# v3.2 MONO SMALL-N ANTI-GRID Referenzkonfiguration (vollstaendig, alle Optionen)
+# Zielzustand: MONO-Datensaetze mit kleinem N (z.B. 10..40), fokus auf stabile Tile-Naehte
+
+run_dir: ./run_mono_small_n_anti_grid
+log_level: info # trace|debug|info|warn|error
+
+pipeline:
+  mode: production # production|test
+  abort_on_fail: false # true => Lauf bei kritischem Phasenfehler sofort beenden
+
+output:
+  registered_dir: registered # Ausgabeordner fuer registrierte Frames
+  artifacts_dir: artifacts # Ausgabeordner fuer JSON-Artefakte/Diagnosen
+  write_registered_frames: true # registrierte Einzelbilder speichern
+  write_global_metrics: true # global_metrics.json speichern
+  write_global_registration: true # global_registration.json speichern
+
+data:
+  image_width: 3840 # erwartete Bildbreite (px)
+  image_height: 2160 # erwartete Bildhoehe (px)
+  frames_min: 10 # Legacy-Mindestwert fuer kleine Datensaetze
+  frames_target: 0 # 0 = unbegrenzt, sonst Zielanzahl fuer Auswahl/Begrenzung
+  color_mode: MONO # OSC|MONO|RGB
+  bayer_pattern: GBRG # bei MONO wirkungslos, aus Kompatibilitaetsgruenden vorhanden
+  linear_required: true # nur lineare Daten verarbeiten
+
+input:
+  pattern: ./data/*.fits # Input-Glob fuer Rohframes
+  sort: numeric # numeric|lexicographic
+  max_frames: 0 # 0 = alle; >0 limitiert Inputanzahl
+
+linearity:
+  enabled: true # Linearity-Check aktiv
+  max_frames: 8 # max. Frames fuer den Check
+  min_overall_linearity: 0.9 # Mindestscore fuer linearity gate
+  strictness: moderate # strict|moderate|permissive (bei Small-N weniger verwerfend)
+
+calibration:
+  use_bias: false # Bias-Korrektur aktivieren
+  use_dark: false # Dark-Korrektur aktivieren
+  use_flat: false # Flat-Korrektur aktivieren
+  bias_use_master: false # vorhandenes Master-Bias direkt nutzen
+  dark_use_master: false # vorhandenes Master-Dark direkt nutzen
+  flat_use_master: false # vorhandenes Master-Flat direkt nutzen
+  dark_auto_select: true # passendes Dark automatisch waehlen
+  dark_match_exposure_tolerance_percent: 5.0 # Toleranz bei Dark-Auswahl
+  dark_match_use_temp: false # Temperaturmatching fuer Darks
+  dark_match_temp_tolerance_c: 2.0 # Temperaturtoleranz in Grad C
+  bias_dir: "" # Verzeichnis mit Bias-Frames
+  darks_dir: "" # Verzeichnis mit Dark-Frames
+  flats_dir: "" # Verzeichnis mit Flat-Frames
+  bias_master: "" # Pfad zu Master-Bias
+  dark_master: "" # Pfad zu Master-Dark
+  flat_master: "" # Pfad zu Master-Flat
+  pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz" # Dateimaske fuer Kalibrierdaten (inkl. komprimierte .fz)
+
+assumptions:
+  frames_min: 10 # normative Untergrenze fuer Small-N Profil
+  frames_optimal: 800 # Zielbereich fuer optimale Robustheit
+  frames_reduced_threshold: 150 # ab hier Full Mode (N>=150)
+  exposure_time_tolerance_percent: 5.0 # Toleranz fuer Input-Konsistenz
+  reduced_mode_skip_clustering: true # Reduced/Emergency ohne Clustering
+  reduced_mode_cluster_range: [5, 10] # Cluster-Range in Reduced-Betrieb
+
+normalization:
+  enabled: true # fuer Methodik v3.x verpflichtend
+  mode: background # background|median
+  per_channel: true # bei MONO ohne Einfluss, bleibt fuer Schema-Konsistenz gesetzt
+
+registration:
+  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
+  allow_rotation: true # Rotationsanteil in Warp erlauben
+  star_topk: 120 # max. Anzahl erkannter Sterne fuer Matching
+  star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching
+  star_inlier_tol_px: 3.0 # Inlier-Toleranz in Pixel
+  star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
+
+dithering:
+  enabled: true # true bei aktivem Dithering waehrend Aufnahme
+  min_shift_px: 0.7 # Schwellwert, ab dem ein Shift als Dither-Schritt gezaehlt wird
+
+tile_denoise:
+  soft_threshold:
+    enabled: true # Highpass + Soft-Threshold pro Tile (extra konservativ)
+    blur_kernel: 31 # Hintergrundschaetzer-Kernel (ungerade)
+    alpha: 0.9 # noch konservativer fuer maximale Strukturerhaltung
+    skip_star_tiles: true # sternreiche Tiles vom Denoise ausnehmen
+  wiener:
+    enabled: false # bei Small-N oft stabiler ohne zusaetzliche Wiener-Gating-Dynamik
+    snr_threshold: 5.0 # oberhalb keine Wiener-Filterung
+    q_min: -0.5 # untere Strukturqualitaetsgrenze
+    q_max: 1.0 # obere Strukturqualitaetsgrenze
+    q_step: 0.1 # Schrittweite in q-Optimierung
+    min_snr: 2.0 # minimaler SNR fuer stabile Schaetzung
+    max_iterations: 10 # Iterationslimit der Wiener-Optimierung
+
+chroma_denoise:
+  enabled: false # bei MONO deaktiviert; Block bleibt fuer Vollstaendigkeit enthalten
+  color_space: ycbcr_linear # ycbcr_linear|opponent_linear
+  apply_stage: post_stack_linear # pre_stack_tiles|post_stack_linear
+  protect_luma: true # relevant nur wenn enabled=true
+  luma_guard_strength: 0.75 # 0..1
+  star_protection:
+    enabled: true
+    threshold_sigma: 2.2
+    dilate_px: 2
+  structure_protection:
+    enabled: true
+    gradient_percentile: 85
+  chroma_wavelet:
+    enabled: true
+    levels: 3
+    threshold_scale: 1.25
+    soft_k: 1.0
+  chroma_bilateral:
+    enabled: true
+    sigma_spatial: 1.2
+    sigma_range: 0.035
+  blend:
+    mode: chroma_only
+    amount: 0.85
+  # Preset-Hinweis (nur fuer OSC/RGB sinnvoll):
+  # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
+  # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
+  # aggressive:   amount 0.95, threshold_scale 1.5, sigma_range 0.05
+
+global_metrics:
+  adaptive_weights: false # bei kleinem N stabilere, weniger schwankende Gewichtung
+  weight_exponent_scale: 1.0 # geringere Spreizung vermeidet lokale Ueberbetonung
+  weights:
+    background: 0.4 # Gewicht fuer Hintergrundmetrik
+    noise: 0.3 # Gewicht fuer Rauschmetrik
+    gradient: 0.30 # Gewicht fuer Struktur/Gradientenenergie
+  clamp: [-1.5, 1.5] # noch engeres Clipping reduziert Extremgewichte weiter
+
+tile:
+  size_factor: 32 # Tilegroesse als Teiler/Basisfaktor
+  min_size: 128 # groesseres Minimum fuer stabilere lokale Schaetzungen
+  max_divisor: 4 # weniger Unterteilung, reduziert sichtbares Tile-Muster
+  overlap_fraction: 0.40 # mehr OLA-Ueberlappung fuer weichere Tile-Naehte
+  star_min_count: 8 # Schwelle fuer star tile Klassifikation
+
+local_metrics:
+  clamp: [-1.5, 1.5] # noch engeres Clipping fuer lokale z-Score-Metriken
+  star_mode:
+    weights:
+      fwhm: 0.6 # Gewicht Stern-FWHM
+      roundness: 0.2 # Gewicht Sternrundheit
+      contrast: 0.2 # Gewicht Sternkontrast
+  structure_mode:
+    metric_weight: 0.7 # Gewicht Strukturmetrik
+    background_weight: 0.3 # Gewicht lokaler Hintergrundterm
+
+synthetic:
+  weighting: global # global|tile_weighted (bei Small-N konservativ global)
+  frames_min: 4 # Mindestframes pro Cluster fuer Synthetic
+  frames_max: 20 # Obergrenze erzeugter Synthetic-Frames
+  clustering:
+    mode: kmeans # kmeans|quantile
+    cluster_count_range: [3, 12] # [k_min, k_max] fuer kleine Datensaetze
+
+reconstruction:
+  weighting_function: linear # aktuell linear
+  window_function: hanning # OLA-Fensterfunktion
+
+debayer: false # MONO-Ausgabe bleibt monochrom
+
+astrometry:
+  enabled: true # WCS-Solve aktiv
+  astap_bin: "" # leer => Systempfad
+  astap_data_dir: /media/data/Astro/astap # ASTAP-Datenverzeichnis
+  search_radius: 183 # Suchradius in Grad
+
+pcc:
+  enabled: false # fuer MONO i.d.R. deaktiviert
+  source: siril # auto|siril|vizier_gaia|vizier_apass
+  mag_limit: 14 # maximal beruecksichtigte Sternhelligkeit
+  mag_bright_limit: 6 # helle Sterne fuer robustes Fit begrenzen
+  aperture_radius_px: 8 # Photometrie-Apertur
+  annulus_inner_px: 10 # Hintergrundring innen
+  annulus_outer_px: 16 # Hintergrundring aussen
+  min_stars: 3 # Mindestanzahl Referenzsterne
+  sigma_clip: 2.5 # Sigma-Clipping fuer Regressionsfit
+  siril_catalog_dir: "" # leer => Standardkatalogpfad
+
+stacking:
+  method: average # rej|average (noch konservativer: keine Sigma-Clip-Ausreisserverwerfung)
+  sigma_clip:
+    sigma_low: 2.0 # untere Sigma-Grenze
+    sigma_high: 2.0 # obere Sigma-Grenze
+    max_iters: 3 # maximale Clip-Iterationen
+    min_fraction: 0.5 # Mindestanteil verbleibender Samples
+  cluster_quality_weighting:
+    enabled: false # bei kleinem N konservativ ohne zusaetzliche Clustergewichtung
+    kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
+    cap_enabled: false # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
+    cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
+  output_stretch: false # optionales Display-Stretch (Post)
+  cosmetic_correction: false # optionale Kosmetik (Post)
+
+validation:
+  min_fwhm_improvement_percent: 0.0 # bei Small-N FWHM-Verbesserung nicht hart erzwingen
+  max_background_rms_increase_percent: 0.0 # Hintergrund darf nicht schlechter werden
+  min_tile_weight_variance: 0.0 # niedrige Varianz bei homogenen Datensaetzen zulaessig
+  require_no_tile_pattern: true # Grid-Artefakte muessen ausbleiben
+
+runtime_limits:
+  parallel_workers: 8 # Anzahl paralleler Worker fuer Tile-Phasen (CPU/memory capped)
+  memory_budget: 2048 # MiB Budget fuer OSC-Worker-Cap (bei MONO effektiv ohne Relevanz)
+  tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
+  hard_abort_hours: 6.0 # harte Laufzeitgrenze
+  allow_emergency_mode: true # Small-N Profil erlaubt Emergency-Mode
