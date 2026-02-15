@@ -10,8 +10,9 @@ While the methodology was originally conceived to address the specific challenge
 
 ## Documentation (v3.2)
 
-- Normative methodology: `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md`
+- Normative methodology: `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.2_en.md`
 - Implementation process flow: `doc/v3/process_flow/`
+- English step-by-step guide: `doc/v3/tbqr_step_by_step_en.md`
 - German README snapshot: `README_de.md`
 
 Given a directory of FITS lights, the pipeline can:
@@ -88,6 +89,9 @@ See also: `tile_compile_cpp/examples/README.md`
 
 ## Quickstart (C++)
 
+For a full beginner-friendly walkthrough, see:
+`doc/v3/tbqr_step_by_step_en.md`
+
 ### Build Requirements
 
 - CMake >= 3.20
@@ -117,12 +121,41 @@ cmake --build . -j$(nproc)
   --runs-dir /path/to/runs
 ```
 
+Common options:
+
+- `--max-frames <n>` limit frames (`0` = no limit)
+- `--max-tiles <n>` limit tile count for Phase 5/6 (`0` = no limit)
+- `--dry-run` execute validation flow without full processing
+- `--run-id <id>` custom run id for grouping
+- `--stdin` with `--config -` to read YAML from stdin
+
+Resume mode:
+
+```bash
+./tile_compile_runner resume \
+  --run-dir /path/to/runs/<run_id> \
+  --from-phase PCC
+```
+
 ### CLI Scan
 
 ```bash
-./tile_compile_cli scan \
-  --input-dir /path/to/lights \
-  --pattern "*.fits"
+./tile_compile_cli scan /path/to/lights --frames-min 30
+```
+
+### Other CLI Possibilities
+
+```bash
+# validate config
+./tile_compile_cli validate-config --path ../tile_compile.yaml
+
+# list available runs
+./tile_compile_cli list-runs /path/to/runs
+
+# inspect one run
+./tile_compile_cli get-run-status /path/to/runs/<run_id>
+./tile_compile_cli get-run-logs /path/to/runs/<run_id> --tail 200
+./tile_compile_cli list-artifacts /path/to/runs/<run_id>
 ```
 
 ### GUI (Qt6)
@@ -155,6 +188,20 @@ After a successful run (`runs/<run_id>/`):
   - `report.html`, `report.css`, `*.png`
 - `logs/run_events.jsonl`
 - `config.yaml` (run snapshot)
+
+## External Sources (PCC and Astrometry)
+
+For optional color calibration and astrometric solving, the pipeline can use external data/tools:
+
+- **Siril Gaia DR3 XP sampled catalog** (for PCC)
+  - Can be reused if already downloaded by Siril.
+  - Typical local path: `~/.local/share/siril/siril_cat1_healpix8_xpsamp/`
+  - Upstream source (catalog release): `https://zenodo.org/records/14738271`
+- **ASTAP** (for astrometry / WCS plate solving)
+  - Requires ASTAP plus a star database (e.g., D50 for deep-sky use).
+  - Official site/downloads: `https://www.hnsky.org/astap.htm`
+
+If these resources are not installed, core reconstruction still works, but ASTROMETRY/PCC phases may be skipped or fail depending on configuration.
 
 ## Diagnostic Report (`tile_compile_cpp/generate_report.py`)
 
@@ -204,10 +251,11 @@ tile_compile/
 ├── doc/
 │   └── v3/
 │       ├── process_flow/
-│       └── tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md
+│       ├── tbqr_step_by_step_en.md
+│       └── tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.2_en.md
 ├── runs/
 ├── README.md
-└── REDME_de.md
+└── README_de.md
 ```
 
 ## Tests

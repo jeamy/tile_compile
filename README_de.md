@@ -6,21 +6,23 @@ Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** ast
 
 ## Dokumentation (v3.2)
 
-- Methodik (normativ): `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md`
+- Methodik (normativ): `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.2_en.md`
 - Prozessfluss (Implementierung): `doc/v3/process_flow/`
+- Englische Schritt-für-Schritt-Anleitung: `doc/v3/tbqr_step_by_step_en.md`
+- Englisches Haupt-README: `README.md`
 
-Given a directory of FITS lights, it:
+Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 
-- optionally **calibrates** lights (bias/dark/flat)
-- **registers** frames via a robust 6-stage cascade (star matching, trail detection, feature matching, phase+ECC)
-- estimates **global + local (tile) quality metrics**
-- reconstructs an improved image based on tile-weighted overlap-add
-- optionally clusters frame "states" and generates synthetic frames
-- **sigma-clip stacks** the result
-- **debayers** OSC data (nearest-neighbor demosaic)
-- **plate-solves** via ASTAP (astrometry → WCS coordinates)
-- **photometric color calibration** (PCC) against star catalogs (Siril Gaia DR3 XP / VizieR Gaia DR3 / VizieR APASS DR9)
-- produces a final stacked output plus **diagnostic artifacts** (JSON)
+- Lights optional **kalibrieren** (Bias/Dark/Flat)
+- Frames mit robuster 6-stufiger Kaskade **registrieren**
+- **globale und lokale (Tile-)Qualitätsmetriken** berechnen
+- Bild via tile-gewichteter Overlap-Add-Rekonstruktion erzeugen
+- optional Frame-"Zustände" clustern und synthetische Frames erstellen
+- Ergebnis via **Sigma-Clip** stacken
+- OSC-Daten **debayern**
+- **Astrometrie** (ASTAP/WCS) ausführen
+- **Photometric Color Calibration** (PCC) anwenden
+- finale Outputs plus **Diagnose-Artefakte** (JSON) schreiben
 
 ## Versions
 
@@ -69,7 +71,7 @@ Die Registrierung ist robust gegen schwierige Bedingungen:
 
 Alle Einstellungen in `tile_compile.yaml`. Schema-Validierung via `tile_compile.schema.json` / `.yaml`.
 
-Referenz: `doc/v3/attic/configuration_reference.md`
+Referenz: `doc/v3/configuration_reference.md`
 
 ### Beispielprofile
 
@@ -86,6 +88,9 @@ Vollstaendige, eigenstaendige Beispielkonfigurationen liegen unter `tile_compile
 Siehe auch: `tile_compile_cpp/examples/README.md`
 
 ## Quickstart (C++ Version)
+
+Für eine vollständige Einsteiger-Anleitung siehe:
+`doc/v3/tbqr_step_by_step_en.md`
 
 ### Build-Voraussetzungen
 
@@ -116,12 +121,41 @@ cmake --build . -j$(nproc)
   --runs-dir /path/to/runs
 ```
 
+Häufige Optionen:
+
+- `--max-frames <n>` begrenzt die Frame-Anzahl (`0` = unbegrenzt)
+- `--max-tiles <n>` begrenzt Tiles in Phase 5/6 (`0` = unbegrenzt)
+- `--dry-run` validiert den Ablauf ohne vollständige Verarbeitung
+- `--run-id <id>` setzt eine eigene Run-ID
+- `--stdin` mit `--config -`, um YAML über stdin zu übergeben
+
+Resume-Modus:
+
+```bash
+./tile_compile_runner resume \
+  --run-dir /path/to/runs/<run_id> \
+  --from-phase PCC
+```
+
 ### CLI Scan (Frame-Erkennung)
 
 ```bash
-./tile_compile_cli scan \
-  --input-dir /path/to/lights \
-  --pattern "*.fits"
+./tile_compile_cli scan /path/to/lights --frames-min 30
+```
+
+### Weitere CLI-Möglichkeiten
+
+```bash
+# Konfiguration validieren
+./tile_compile_cli validate-config --path ../tile_compile.yaml
+
+# Runs auflisten
+./tile_compile_cli list-runs /path/to/runs
+
+# Einen Run inspizieren
+./tile_compile_cli get-run-status /path/to/runs/<run_id>
+./tile_compile_cli get-run-logs /path/to/runs/<run_id> --tail 200
+./tile_compile_cli list-artifacts /path/to/runs/<run_id>
 ```
 
 ### GUI (Qt6)
@@ -267,6 +301,20 @@ Nach erfolgreichem Lauf unter `runs/<run_id>/`:
   - `report.html` + `report.css` — HTML-Report mit allen Diagrammen
   - `*.png` — Diagnose-Diagramme (siehe unten)
 
+## Externe Quellen (PCC und Astrometrie)
+
+Für optionale Farbkalibrierung und Astrometrie kann die Pipeline externe Daten/Tools verwenden:
+
+- **Siril Gaia DR3 XP sampled catalog** (für PCC)
+  - Kann wiederverwendet werden, wenn bereits über Siril heruntergeladen.
+  - Typischer lokaler Pfad: `~/.local/share/siril/siril_cat1_healpix8_xpsamp/`
+  - Upstream-Quelle (Katalog-Release): `https://zenodo.org/records/14738271`
+- **ASTAP** (für Astrometrie / WCS Plate Solving)
+  - Benötigt ASTAP plus eine Sterndatenbank (z. B. D50 für Deep-Sky).
+  - Offizielle Seite/Downloads: `https://www.hnsky.org/astap.htm`
+
+Wenn diese Ressourcen nicht installiert sind, funktioniert die Kernrekonstruktion weiterhin, aber ASTROMETRY/PCC können je nach Konfiguration übersprungen werden oder fehlschlagen.
+
 ### 8) Diagnose-Report (`generate_report.py`)
 
 Erzeugt einen HTML-Report für einen abgeschlossenen Pipeline-Lauf.
@@ -404,14 +452,16 @@ tile-compile/
 │   ├── tile_compile.yaml       # Default-Konfiguration
 │   ├── tile_compile.schema.json
 │   └── tile_compile.schema.yaml
-├── tile_compile_python/        # Python Implementierung (Legacy)
+├── tile_compile_python_legacy/ # Python Implementierung (Legacy)
 │   ├── gui/                    # PyQt6 GUI
 │   ├── runner/                 # Pipeline-Runner
 │   └── tile_compile_backend/   # Backend-Module
 ├── doc/
 │   ├── v3/
 │   │   ├── process_flow/       # Pipeline-Phasen-Dokumentation
-│   │   └── configuration_reference.md
+│   │   ├── tbqr_step_by_step_en.md
+│   │   ├── configuration_reference.md
+│   │   └── tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.2_en.md
 │   └── ...
 ├── runs/                       # Run-Outputs
 └── README.md
