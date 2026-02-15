@@ -2,11 +2,13 @@
 
 Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (methodology v3.2).
 
+> **Note:** This is experimental software primarily developed for processing images from smart telescopes (e.g., DWARF, Seestar, ZWO SeeStar, etc.). While designed for general astronomical image processing, it has been optimized for the specific characteristics and challenges of smart telescope data.
+
 ## Documentation (v3.2)
 
 - Normative methodology: `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md`
 - Implementation process flow: `doc/v3/process_flow/`
-- German README snapshot: `REDME_de.md`
+- German README snapshot: `README_de.md`
 
 Given a directory of FITS lights, the pipeline can:
 
