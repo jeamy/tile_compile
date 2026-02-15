@@ -43,6 +43,77 @@ std::string fits_write_error_message(const std::string& action,
     return oss.str();
 }
 
+bool move_to_first_image_hdu(fitsfile* fptr,
+                             int& bitpix,
+                             int& naxis,
+                             long naxes[3],
+                             int& status) {
+    auto try_read_znaxis = [&](int& out_naxis, long out_naxes[3]) -> bool {
+        int st = 0;
+        long znaxis = 0;
+        long znaxis1 = 0;
+        long znaxis2 = 0;
+        fits_read_key(fptr, TLONG, const_cast<char*>("ZNAXIS"), &znaxis, nullptr, &st);
+        if (st || znaxis < 2) {
+            return false;
+        }
+        st = 0;
+        fits_read_key(fptr, TLONG, const_cast<char*>("ZNAXIS1"), &znaxis1, nullptr, &st);
+        if (st || znaxis1 <= 0) {
+            return false;
+        }
+        st = 0;
+        fits_read_key(fptr, TLONG, const_cast<char*>("ZNAXIS2"), &znaxis2, nullptr, &st);
+        if (st || znaxis2 <= 0) {
+            return false;
+        }
+
+        out_naxis = static_cast<int>(znaxis);
+        out_naxes[0] = znaxis1;
+        out_naxes[1] = znaxis2;
+        out_naxes[2] = 0;
+        return true;
+    };
+
+    status = 0;
+    fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
+    if (status == 0 && naxis >= 2) {
+        return true;
+    }
+    if (try_read_znaxis(naxis, naxes)) {
+        status = 0;
+        return true;
+    }
+
+    status = 0;
+    int nhdus = 0;
+    fits_get_num_hdus(fptr, &nhdus, &status);
+    if (status) {
+        return false;
+    }
+
+    for (int hdu = 2; hdu <= nhdus; ++hdu) {
+        int hdu_type = 0;
+        status = 0;
+        fits_movabs_hdu(fptr, hdu, &hdu_type, &status);
+        if (status) {
+            continue;
+        }
+
+        status = 0;
+        fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
+        if (status == 0 && naxis >= 2) {
+            return true;
+        }
+        if (try_read_znaxis(naxis, naxes)) {
+            status = 0;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 } // namespace
 
 std::optional<std::string> FitsHeader::get_string(const std::string& key) const {
@@ -94,8 +165,13 @@ void FitsHeader::set(const std::string& key, bool value) {
 }
 
 bool is_fits_image_path(const fs::path& path) {
-    std::string ext = core::to_lower(path.extension().string());
-    return ext == ".fit" || ext == ".fits" || ext == ".fts";
+    const std::string name = core::to_lower(path.filename().string());
+    return core::ends_with(name, ".fit") ||
+           core::ends_with(name, ".fits") ||
+           core::ends_with(name, ".fts") ||
+           core::ends_with(name, ".fit.fz") ||
+           core::ends_with(name, ".fits.fz") ||
+           core::ends_with(name, ".fts.fz");
 }
 
 std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path) {
@@ -110,8 +186,7 @@ std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path) {
     long naxes[3] = {0, 0, 0};
     int bitpix = 0;
     
-    fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
-    if (status) {
+    if (!move_to_first_image_hdu(fptr, bitpix, naxis, naxes, status)) {
         fits_close_file(fptr, &status);
         throw FitsError("Cannot read FITS image parameters: " + path.string());
     }
@@ -228,8 +303,7 @@ RGBImage read_fits_rgb(const fs::path& path) {
     long naxes[3] = {0, 0, 0};
     int bitpix = 0;
 
-    fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
-    if (status) {
+    if (!move_to_first_image_hdu(fptr, bitpix, naxis, naxes, status)) {
         fits_close_file(fptr, &status);
         throw FitsError("Cannot read FITS image parameters: " + path.string());
     }
@@ -319,8 +393,7 @@ Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width
     long naxes[3] = {0, 0, 0};
     int bitpix = 0;
 
-    fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
-    if (status || naxis < 2) {
+    if (!move_to_first_image_hdu(fptr, bitpix, naxis, naxes, status)) {
         fits_close_file(fptr, &status);
         throw FitsError("Cannot read FITS image parameters: " + path.string());
     }
@@ -609,12 +682,12 @@ std::tuple<int, int, int> get_fits_dimensions(const fs::path& path) {
     long naxes[3] = {0, 0, 0};
     int bitpix = 0;
     
-    fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
-    fits_close_file(fptr, &status);
-    
-    if (status) {
+    if (!move_to_first_image_hdu(fptr, bitpix, naxis, naxes, status)) {
+        fits_close_file(fptr, &status);
         throw FitsError("Cannot read FITS dimensions: " + path.string());
     }
+
+    fits_close_file(fptr, &status);
     
     return {static_cast<int>(naxes[0]), static_cast<int>(naxes[1]), naxis};
 }

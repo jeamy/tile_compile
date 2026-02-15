@@ -94,6 +94,7 @@ static std::string compute_sha256_file(const fs::path& path) {
 }
 
 struct FitsHeaderInfo {
+    int naxis = 0;
     int naxis1 = 0;
     int naxis2 = 0;
     std::string bayerpat;
@@ -116,36 +117,70 @@ static FitsHeaderInfo read_fits_header_info(const fs::path& path) {
     int naxis = 0;
     long naxes[3] = {0, 0, 0};
     int bitpix = 0;
-    
+
+    auto try_read_bayerpat = [&](int &bp_status) {
+        char bayerpat[FLEN_VALUE];
+        char comment[FLEN_COMMENT];
+        fits_read_key(fptr, TSTRING, const_cast<char*>("BAYERPAT"), bayerpat, comment, &bp_status);
+        if (bp_status == 0) {
+            std::string bp_str(bayerpat);
+            // Trim whitespace and quotes
+            bp_str.erase(0, bp_str.find_first_not_of(" \t\n\r'\""));
+            bp_str.erase(bp_str.find_last_not_of(" \t\n\r'\"") + 1);
+            if (!bp_str.empty()) {
+                info.has_bayerpat = true;
+                info.bayerpat = bp_str;
+                std::transform(info.bayerpat.begin(), info.bayerpat.end(), info.bayerpat.begin(), ::toupper);
+            }
+        }
+    };
+
+    // Primary HDU often carries BAYERPAT even if image data is in extension.
+    int bp_status = 0;
+    try_read_bayerpat(bp_status);
+
+    bool found_image_hdu = false;
+    status = 0;
     fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
-    if (status || naxis < 2) {
+    if (status == 0 && naxis >= 2) {
+        found_image_hdu = true;
+    }
+
+    if (!found_image_hdu) {
+        status = 0;
+        int nhdus = 0;
+        fits_get_num_hdus(fptr, &nhdus, &status);
+        if (!status) {
+            for (int hdu = 2; hdu <= nhdus; ++hdu) {
+                int hdu_type = 0;
+                status = 0;
+                fits_movabs_hdu(fptr, hdu, &hdu_type, &status);
+                if (status) continue;
+                status = 0;
+                fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
+                if (status == 0 && naxis >= 2) {
+                    found_image_hdu = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!found_image_hdu) {
         info.read_error = true;
         info.error_msg = "Cannot read FITS image parameters";
         fits_close_file(fptr, &status);
         return info;
     }
     
+    info.naxis = naxis;
     info.naxis1 = static_cast<int>(naxes[0]);
     info.naxis2 = static_cast<int>(naxes[1]);
     
-    // Try to read BAYERPAT keyword
-    char bayerpat[FLEN_VALUE];
-    char comment[FLEN_COMMENT];
-    int bp_status = 0;
-    fits_read_key(fptr, TSTRING, "BAYERPAT", bayerpat, comment, &bp_status);
-    
-    if (bp_status == 0) {
-        std::string bp_str(bayerpat);
-        // Trim whitespace and quotes
-        bp_str.erase(0, bp_str.find_first_not_of(" \t\n\r'\""));
-        bp_str.erase(bp_str.find_last_not_of(" \t\n\r'\"") + 1);
-        
-        if (!bp_str.empty()) {
-            info.has_bayerpat = true;
-            info.bayerpat = bp_str;
-            // Convert to uppercase
-            std::transform(info.bayerpat.begin(), info.bayerpat.end(), info.bayerpat.begin(), ::toupper);
-        }
+    // If not in primary, try current image HDU as fallback.
+    if (!info.has_bayerpat) {
+        int bp2_status = 0;
+        try_read_bayerpat(bp2_status);
     }
     
     fits_close_file(fptr, &status);
@@ -458,12 +493,10 @@ int cmd_validate_config(const std::string& path, const std::string& yaml_arg, bo
 static std::vector<fs::path> find_fits_files(const fs::path& dir) {
     std::vector<fs::path> files;
     if (!fs::exists(dir) || !fs::is_directory(dir)) return files;
-    
-    std::regex fits_regex(R"(.*\.(fit|fits|fts)$)", std::regex::icase);
+
     for (const auto& entry : fs::directory_iterator(dir)) {
         if (entry.is_regular_file()) {
-            std::string name = entry.path().filename().string();
-            if (std::regex_match(name, fits_regex)) {
+            if (tile_compile::io::is_fits_image_path(entry.path())) {
                 files.push_back(entry.path());
             }
         }
@@ -525,6 +558,7 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
     int image_width = 0;
     int image_height = 0;
     bool has_bayerpat = false;
+    bool has_rgb_cube = false;
     std::string bayer_pattern;
     bool bayer_pattern_inconsistent = false;
     std::map<std::string, int> bayerpat_counts;
@@ -574,6 +608,10 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
                 result["errors"].push_back(err);
             }
         }
+
+        if (info.naxis >= 3) {
+            has_rgb_cube = true;
+        }
         
         // Track BAYERPAT
         if (info.has_bayerpat) {
@@ -600,20 +638,42 @@ int cmd_scan(const std::string& input_path, int frames_min, bool with_checksums)
     
     // Determine color mode
     bool requires_user_confirmation = false;
-    std::string color_mode = "OSC";
-    std::vector<std::string> candidates = {"OSC"};
-    
-    if (!has_bayerpat) {
+    std::string color_mode = "UNKNOWN";
+    std::vector<std::string> candidates;
+
+    const bool has_readable_frames = (image_width > 0 && image_height > 0);
+
+    if (has_readable_frames) {
+        if (has_rgb_cube) {
+            candidates.push_back("RGB");
+        }
+        if (has_bayerpat) {
+            candidates.push_back("OSC");
+        }
+        if (!has_rgb_cube && !has_bayerpat) {
+            // No RGB cube and no CFA hint: default to MONO (same fallback philosophy
+            // as pipeline SCAN_INPUT for hint-less FITS).
+            candidates.push_back("MONO");
+        }
+
+        if (candidates.empty()) {
+            candidates.push_back("MONO");
+        }
+
+        color_mode = candidates.front();
+    }
+
+    if (has_readable_frames && candidates.size() > 1) {
         requires_user_confirmation = true;
         color_mode = "UNKNOWN";
         json warn;
         warn["severity"] = "warning";
         warn["code"] = "color_mode_ambiguous";
-        warn["message"] = "BAYERPAT not found in FITS headers; color_mode requires user confirmation";
+        warn["message"] = "Mixed color-mode hints across FITS headers (RGB/CFA); color_mode requires user confirmation";
         result["warnings"].push_back(warn);
     }
-    
-    if (bayer_pattern_inconsistent) {
+
+    if (has_readable_frames && has_bayerpat && bayer_pattern_inconsistent) {
         requires_user_confirmation = true;
         json warn;
         warn["severity"] = "warning";

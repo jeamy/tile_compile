@@ -264,6 +264,23 @@ properties:
           sigma_high: {type: number, exclusiveMinimum: 0}
           max_iters: {type: integer, minimum: 1}
           min_fraction: {type: number, minimum: 0, maximum: 1}
+      cluster_quality_weighting:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            description: "Aktiviert v3.2.2 Cluster-Qualitaetsgewichtung im finalen Stack: w_k = exp(kappa_cluster * Q_k)."
+          kappa_cluster:
+            type: number
+            exclusiveMinimum: 0
+            description: "Exponentfaktor fuer Cluster-Qualitaet Q_k (Q_k in [-3,+3])."
+          cap_enabled:
+            type: boolean
+            description: "Aktiviert optionales Dominanz-Cap fuer Clustergewichte."
+          cap_ratio:
+            type: number
+            exclusiveMinimum: 0
+            description: "Nur mit cap_enabled=true: begrenzt Gewicht auf w_k <= cap_ratio * median_j(w_j)."
       output_stretch:
         type: boolean
         description: "Optionaler linearer Anzeige-Stretch auf den Ausgabe-Daten (Post-Processing, nicht Teil des linearen Pflichtkerns)."

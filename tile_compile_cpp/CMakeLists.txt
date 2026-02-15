@@ -81,7 +81,6 @@ set(LIB_SOURCES
     src/metrics/linearity.cpp
     src/reconstruction/reconstruction.cpp
     src/pipeline/adaptive_tile_grid.cpp
-    src/pipeline/pipeline.cpp
     src/astrometry/wcs.cpp
     src/astrometry/gaia_catalog.cpp
     src/astrometry/photometric_color_cal.cpp
@@ -112,7 +111,15 @@ if(spdlog_FOUND)
 endif()
 
 # CLI Runner executable
-add_executable(tile_compile_runner apps/runner_main.cpp)
+add_executable(tile_compile_runner
+    apps/runner_main.cpp
+    apps/runner_pipeline.cpp
+    apps/runner_phase_metrics.cpp
+    apps/runner_phase_local_metrics.cpp
+    apps/runner_phase_registration.cpp
+    apps/runner_shared.cpp
+    apps/runner_resume.cpp
+)
 target_link_libraries(tile_compile_runner PRIVATE tile_compile_lib)
 
 if(CLI11_FOUND)
@@ -197,6 +204,7 @@ if(BUILD_TESTS)
             tests/test_debayer.cpp
             tests/test_mode_gating.cpp
             tests/test_reconstruction_regression.cpp
+            tests/test_stacking_quality_weighting.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

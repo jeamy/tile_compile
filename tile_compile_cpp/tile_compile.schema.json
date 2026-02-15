@@ -338,6 +338,29 @@
             "min_fraction": { "type": "number", "minimum": 0, "maximum": 1 }
           }
         },
+        "cluster_quality_weighting": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enables v3.2.2 cluster-quality weighting for final stacking: w_k = exp(kappa_cluster * Q_k)."
+            },
+            "kappa_cluster": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Exponent factor for cluster quality Q_k (Q_k in [-3,+3])."
+            },
+            "cap_enabled": {
+              "type": "boolean",
+              "description": "Enables optional dominance cap for cluster weights."
+            },
+            "cap_ratio": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Only when cap_enabled=true: limits weight to w_k <= cap_ratio * median_j(w_j)."
+            }
+          }
+        },
         "output_stretch": {
           "type": "boolean",
           "description": "Optional linear display stretch on output data (post-processing, not part of the linear core pipeline)."

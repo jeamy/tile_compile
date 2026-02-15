@@ -40,7 +40,7 @@ void RunTab::build_ui() {
     
     auto *rr2 = new QHBoxLayout();
     runs_dir_ = new QLineEdit("runs");
-    pattern_ = new QLineEdit("*.fit*");
+    pattern_ = new QLineEdit("*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz");
     dry_run_ = new QCheckBox("Dry run");
     rr2->addWidget(new QLabel("Runs dir"));
     rr2->addWidget(runs_dir_);

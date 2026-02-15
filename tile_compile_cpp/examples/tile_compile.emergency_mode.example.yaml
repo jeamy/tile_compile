@@ -52,7 +52,7 @@ calibration:
   bias_master: "" # Pfad zu Master-Bias
   dark_master: "" # Pfad zu Master-Dark
   flat_master: "" # Pfad zu Master-Flat
-  pattern: "*.fit*" # Dateimaske fuer Kalibrierdaten
+  pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz" # Dateimaske fuer Kalibrierdaten (inkl. komprimierte .fz)
 
 assumptions:
   frames_min: 50 # normative Untergrenze; darunter nur Emergency statt hartem Abort
@@ -190,6 +190,11 @@ stacking:
     sigma_high: 2.0 # obere Sigma-Grenze
     max_iters: 3 # maximale Clip-Iterationen
     min_fraction: 0.5 # Mindestanteil verbleibender Samples
+  cluster_quality_weighting:
+    enabled: true # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
+    kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
+    cap_enabled: false # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
+    cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
 
@@ -201,7 +206,7 @@ validation:
 
 runtime_limits:
   parallel_workers: 4 # Anzahl paralleler Worker fuer Tile-Phasen (CPU/memory capped)
-  memory_budget: 256 # MiB Budget fuer OSC-Worker-Cap in Tile-Rekonstruktion
+  memory_budget: 2048 # MiB Budget fuer OSC-Worker-Cap in Tile-Rekonstruktion
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze
   allow_emergency_mode: true # Emergency-Profil erlaubt Lauf mit N<50

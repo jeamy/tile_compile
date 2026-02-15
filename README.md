@@ -2,11 +2,13 @@
 
 Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (methodology v3.2).
 
+> **Note:** This is experimental software primarily developed for processing images from smart telescopes (e.g., DWARF, Seestar, ZWO SeeStar, etc.). While designed for general astronomical image processing, it has been optimized for the specific characteristics and challenges of smart telescope data.
+
 ## Documentation (v3.2)
 
 - Normative methodology: `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md`
 - Implementation process flow: `doc/v3/process_flow/`
-- German README snapshot: `REDME_de.md`
+- German README snapshot: `README_de.md`
 
 Given a directory of FITS lights, the pipeline can:
 
@@ -65,6 +67,20 @@ Detailed phase docs: `doc/v3/process_flow/`
 - Main config file: `tile_compile.yaml`
 - Schemas: `tile_compile.schema.json`, `tile_compile.schema.yaml`
 - Reference document: `doc/v3/configuration_reference.md`
+
+### Example profiles
+
+Complete standalone example configs are available under `tile_compile_cpp/examples/`:
+
+- `tile_compile.full_mode.example.yaml`
+- `tile_compile.reduced_mode.example.yaml`
+- `tile_compile.emergency_mode.example.yaml`
+- `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
+- `tile_compile.canon_low_n_high_quality.example.yaml`
+- `tile_compile.mono_full_mode.example.yaml`
+- `tile_compile.mono_small_n_anti_grid.example.yaml` (recommended for MONO low-frame datasets, e.g. ~10..40, to reduce tile-pattern risk)
+
+See also: `tile_compile_cpp/examples/README.md`
 
 ## Quickstart (C++)
 

@@ -2,6 +2,8 @@
 
 Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer Bildstapel (Methodik v3).
 
+> **Hinweis:** Dies ist experimentelle Software, die primär für die Verarbeitung von Bildern von Smart-Teleskopen entwickelt wurde (z.B. DWARF, Seestar, ZWO SeeStar, usw.). Obwohl sie für die allgemeine astronomische Bildverarbeitung konzipiert ist, wurde sie für die spezifischen Eigenschaften und Herausforderungen von Smart-Teleskop-Daten optimiert.
+
 ## Dokumentation (v3.2)
 
 - Methodik (normativ): `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md`
@@ -68,6 +70,20 @@ Die Registrierung ist robust gegen schwierige Bedingungen:
 Alle Einstellungen in `tile_compile.yaml`. Schema-Validierung via `tile_compile.schema.json` / `.yaml`.
 
 Referenz: `doc/v3/attic/configuration_reference.md`
+
+### Beispielprofile
+
+Vollstaendige, eigenstaendige Beispielkonfigurationen liegen unter `tile_compile_cpp/examples/`:
+
+- `tile_compile.full_mode.example.yaml`
+- `tile_compile.reduced_mode.example.yaml`
+- `tile_compile.emergency_mode.example.yaml`
+- `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
+- `tile_compile.canon_low_n_high_quality.example.yaml`
+- `tile_compile.mono_full_mode.example.yaml`
+- `tile_compile.mono_small_n_anti_grid.example.yaml` (empfohlen fuer MONO-Datensaetze mit kleiner Frame-Anzahl, z.B. ~10..40, zur Reduktion von Tile-Mustern)
+
+Siehe auch: `tile_compile_cpp/examples/README.md`
 
 ## Quickstart (C++ Version)
 

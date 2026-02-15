@@ -1503,6 +1503,95 @@ Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 
 ---
 
+### `stacking.cluster_quality_weighting.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert die v3.2.2-Qualitätsgewichtung für die finale Aggregation synthetischer Cluster-Frames.
+
+**Formel:** `w_k = exp(kappa_cluster * Q_k)`
+
+- `Q_k` = Cluster-Qualitätswert (typisch in `[-3, +3]`)
+- `enabled=false`: kein Qualitäts-Weighting, klassisches finales Stacking nach `stacking.method`
+- `enabled=true`: finale Aggregation per gewichteter Mittelung; Sigma-Clipping-Stacking wird in dieser Stufe nicht verwendet
+
+---
+
+### `stacking.cluster_quality_weighting.kappa_cluster`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `1.0` |
+
+**Zweck:** Exponent-Faktor für den Einfluss von `Q_k` auf das Gewicht `w_k`.
+
+- größerer Wert → stärkere Trennung guter/schlechter Cluster
+- kleinerer Wert → flachere Gewichtsverteilung
+
+**Praktische Sensitivität** (bei `Q_k`-Spanne ungefähr `[-3, +3]`):
+
+| κ | max weight ratio (≈ `e^{6κ}`) | Charakter |
+|---:|---:|---|
+| 0.3 | ~ `e^{1.8}` ≈ 6 | sehr mild |
+| 0.5 | ~ `e^{3}` ≈ 20 | moderat |
+| 1.0 | ~ `e^{6}` ≈ 403 | stark |
+| 1.5 | ~ `e^{9}` ≈ 8103 | sehr aggressiv |
+| 2.0 | ~ `e^{12}` ≈ 162k | praktisch Winner-takes-most |
+
+**Empfehlung (Astrofotografie):**
+
+- Default: `κ = 0.5 ... 1.0`
+- `κ = 1.2` nur bei bewusst gewünschtem lucky-imaging-artigem Verhalten
+- `κ >= 1.5` oft instabil (numerisch und statistisch)
+
+---
+
+### `stacking.cluster_quality_weighting.cap_enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert optional ein Dominanz-Cap für Clustergewichte, damit einzelne Cluster das Endergebnis nicht übermäßig dominieren.
+
+---
+
+### `stacking.cluster_quality_weighting.cap_ratio`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `20.0` |
+
+**Zweck:** Gewichtslimit bei aktivem Cap.
+
+**Formel (nur wenn `cap_enabled=true`):** `w_k <= cap_ratio * median_j(w_j)`
+
+**Praktische Bereiche für `r_cap`:**
+
+| `r_cap` | Verhalten |
+|---:|---|
+| 5 | sehr konservativ |
+| 10 | mild begrenzt |
+| 20 | moderat |
+| 50 | kaum Eingriff |
+| >100 | faktisch deaktiviert |
+
+**Empfehlung:**
+
+- Konservativ stabil: `r_cap = 10`
+- Balanciert: `r_cap = 20-30`
+- Fast unbegrenzt: `r_cap >= 50`
+
+---
+
 ### `stacking.output_stretch`
 
 | Eigenschaft | Wert |
@@ -1824,6 +1913,11 @@ stacking:
     sigma_high: 2.0
     max_iters: 3
     min_fraction: 0.5
+  cluster_quality_weighting:
+    enabled: true
+    kappa_cluster: 1.0
+    cap_enabled: false
+    cap_ratio: 20.0
   output_stretch: false
   cosmetic_correction: false
 
