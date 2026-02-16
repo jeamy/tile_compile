@@ -277,6 +277,8 @@ if not exist "%BUILD_DIR%\test_write.tmp" (
 )
 del "%BUILD_DIR%\test_write.tmp" 2>NUL
 
+rem CMake konfigurieren mit verbesserten Windows-Settings
+echo Konfiguriere CMake...
 cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" ^
   -G "Ninja" ^
   -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
@@ -284,6 +286,12 @@ cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" ^
   -DCMAKE_PREFIX_PATH="%CMAKE_PREFIX_PATH%" ^
   -DQt6_DIR="%Qt6_DIR%" ^
   -DOpenCV_DIR="%OpenCV_DIR%" ^
+  -DCMAKE_CXX_STANDARD=17 ^
+  -DMINGW_HAS_SECURE_API=1 ^
+  -DWIN32_LEAN_AND_MEAN=1 ^
+  -DNOMINMAX=1 ^
+  -DCMAKE_CXX_FLAGS="-D_USE_MATH_DEFINES -D_CRT_SECURE_NO_WARNINGS" ^
+  -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" ^
   -DCMAKE_AUTOGEN_VERBOSE=ON ^
   -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
 
@@ -297,6 +305,12 @@ if errorlevel 1 (
     -DCMAKE_PREFIX_PATH="%CMAKE_PREFIX_PATH%" ^
     -DQt6_DIR="%Qt6_DIR%" ^
     -DOpenCV_DIR="%OpenCV_DIR%" ^
+    -DCMAKE_CXX_STANDARD=17 ^
+    -DMINGW_HAS_SECURE_API=1 ^
+    -DWIN32_LEAN_AND_MEAN=1 ^
+    -DNOMINMAX=1 ^
+    -DCMAKE_CXX_FLAGS="-D_USE_MATH_DEFINES -D_CRT_SECURE_NO_WARNINGS" ^
+    -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" ^
     -DCMAKE_AUTOGEN_VERBOSE=ON ^
     -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
   
