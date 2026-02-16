@@ -260,8 +260,10 @@ echo [2/4] CMake konfigurieren...
 
 rem Build-Verzeichnis sauber neu anlegen (del /S loescht keine Ordner und laesst Attribute stehen)
 if exist "%BUILD_DIR%" (
-  attrib -R "%BUILD_DIR%\*" /S /D 2>NUL
+  echo Entferne altes Build-Verzeichnis...
+  attrib -R -S -H "%BUILD_DIR%\*.*" /S /D 2>NUL
   rmdir /S /Q "%BUILD_DIR%" 2>NUL
+  timeout /t 1 /nobreak >NUL
 )
 
 echo Erstelle Build-Verzeichnis: %BUILD_DIR%
@@ -271,6 +273,10 @@ if not exist "%BUILD_DIR%" (
   echo Bitte pruefe die Berechtigungen oder erstelle es manuell.
   exit /B 1
 )
+
+rem Erstelle kritische Unterverzeichnisse vorab
+mkdir "%BUILD_DIR%\.qt" 2>NUL
+mkdir "%BUILD_DIR%\CMakeFiles" 2>NUL
 
 rem Pruefe Schreibrechte im Build-Verzeichnis
 echo Test > "%BUILD_DIR%\test_write.tmp" 2>NUL
