@@ -385,13 +385,15 @@ rem Externe Daten (Siril / ASTAP) werden bewusst NICHT eingebuendelt.
 
 set "QT_PREFIX=%CMAKE_PREFIX_PATH%"
 rem Extrahiere ersten Pfad aus CMAKE_PREFIX_PATH (falls mehrere mit ; getrennt)
-for /f "tokens=1 delims=;" %%i in ("%CMAKE_PREFIX_PATH%") do set "QT_PREFIX=%%i"
+for /f "tokens=1 delims=;" %%i in ("%CMAKE_PREFIX_PATH%") do set "QT_PREFIX=%%~i"
 
 if not defined QT_PREFIX (
   if defined Qt6_DIR (
     set "QT_PREFIX=%Qt6_DIR%\..\..\.."
   )
 )
+rem Quotes aus QT_PREFIX entfernen (sonst cmd Syntaxfehler)
+set "QT_PREFIX=%QT_PREFIX:"=%"
 
 echo Verwende Qt-Pfad: %QT_PREFIX%
 set "QT_BIN=%QT_PREFIX%\bin"
@@ -469,6 +471,8 @@ if exist "%QT_BIN%\Qt6Core.dll" (
   ) else if exist "%QT_PREFIX%\plugins" (
     set "QT_PLUGINS=%QT_PREFIX%\plugins"
   )
+  rem Quotes aus QT_PLUGINS entfernen
+  set "QT_PLUGINS=%QT_PLUGINS:"=%"
   
   if not "%QT_PLUGINS%"=="" (
     mkdir "%DIST_DIR%\platforms" 2>NUL

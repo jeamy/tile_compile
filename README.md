@@ -182,6 +182,8 @@ Included runtime files in release bundles:
 - config + schemas (`tile_compile.yaml`, `tile_compile.schema.yaml`, `tile_compile.schema.json`)
 - example profiles (`examples/`)
 
+**Note:** If the release package does not include the YAML configs, use the example profiles in `examples/` as templates and copy the desired options into your own `tile_compile.yaml`.
+
 Not included by design:
 
 - external Siril catalog data

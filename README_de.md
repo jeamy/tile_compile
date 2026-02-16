@@ -182,6 +182,8 @@ Enthaltene Laufzeitdateien in den Release-Bundles:
 - Konfiguration + Schemas (`tile_compile.yaml`, `tile_compile.schema.yaml`, `tile_compile.schema.json`)
 - Beispielprofile (`examples/`)
 
+**Hinweis:** Falls im Release-Paket keine YAML-Konfigurationen enthalten sind, verwende die Beispielprofile unter `examples/` als Vorlage und übernimm die gewünschten Optionen in deine eigene `tile_compile.yaml`.
+
 Bewusst nicht enthalten:
 
 - externe Siril-Katalogdaten
