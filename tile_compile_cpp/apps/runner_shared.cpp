@@ -6,12 +6,16 @@
 #include <cstring>
 #include <fcntl.h>
 #include <iomanip>
-#include <limits>
 #include <sstream>
 
+#ifdef _WIN32
+#include <io.h>
+#include <sys/stat.h>
+#else
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 namespace tile_compile::runner {
 
