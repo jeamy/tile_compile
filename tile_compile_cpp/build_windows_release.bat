@@ -397,7 +397,7 @@ echo Verwende Qt-Pfad: %QT_PREFIX%
 set "QT_BIN=%QT_PREFIX%\bin"
 if exist "%QT_BIN%\Qt6Core.dll" (
   echo Kopiere Qt6 Runtime-DLLs...
-  for %%D in (Qt6Core.dll Qt6Gui.dll Qt6Widgets.dll Qt6Network.dll Qt6Svg.dll Qt6PrintSupport.dll Qt6OpenGL.dll Qt6Sql.dll Qt6Test.dll Qt6Concurrent.dll Qt6Xml.dll) do (
+  for %%D in (Qt6Core.dll Qt6Gui.dll Qt6Widgets.dll Qt6Network.dll Qt6Svg.dll Qt6PrintSupport.dll Qt6OpenGL.dll Qt6Sql.dll Qt6Test.dll Qt6Concurrent.dll Qt6Xml.dll Qt6Multimedia.dll Qt6NetworkAuth.dll Qt6WebSockets.dll) do (
     if exist "%QT_BIN%\%%D" (
       copy /Y "%QT_BIN%\%%D" "%DIST_DIR%" >NUL
       echo   Kopiert: %%D
@@ -439,9 +439,9 @@ if exist "%QT_BIN%\Qt6Core.dll" (
     )
   )
 
-  rem Weitere Abhaengigkeiten (inkl. OpenSSL)
+  rem Weitere Abhaengigkeiten (inkl. OpenSSL, ICU, curl, etc.)
   echo Kopiere weitere Abhaengigkeiten...
-  for %%D in (libcfitsio.dll libyaml-cpp.dll libssl-3.dll libcrypto-3.dll libzstd.dll libbzip2.dll liblzma.dll zlib1.dll) do (
+  for %%D in (libcfitsio.dll libyaml-cpp.dll libssl-3.dll libcrypto-3.dll libzstd.dll libbzip2.dll liblzma.dll zlib1.dll libcurl.dll libicuin.dll libicuuc.dll libicudt.dll libpcre2-8.dll libharfbuzz-0.dll libfreetype.dll libpng16-16.dll libjpeg-8.dll libtiff.dll libwebp.dll) do (
     if exist "%MSYS2_PREFIX%\bin\%%D" (
       copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
       echo   Kopiert: %%D
