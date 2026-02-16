@@ -360,12 +360,16 @@ if exist "%PROJECT_DIR%\examples" (
 rem Externe Daten (Siril / ASTAP) werden bewusst NICHT eingebuendelt.
 
 set "QT_PREFIX=%CMAKE_PREFIX_PATH%"
+rem Extrahiere ersten Pfad aus CMAKE_PREFIX_PATH (falls mehrere mit ; getrennt)
+for /f "tokens=1 delims=;" %%i in ("%CMAKE_PREFIX_PATH%") do set "QT_PREFIX=%%i"
+
 if not defined QT_PREFIX (
   if defined Qt6_DIR (
-    set "QT_PREFIX=%Qt6_DIR%\..\..\.."
+    set "QT_PREFIX=%Qt6_DIR%\..\..\..”
   )
 )
 
+echo Verwende Qt-Pfad: %QT_PREFIX%
 set "QT_BIN=%QT_PREFIX%\bin"
 if exist "%QT_BIN%\Qt6Core.dll" (
   echo Kopiere Qt6 Runtime-DLLs...
@@ -464,9 +468,13 @@ if not errorlevel 1 (
   echo Erzeuge Release-Zip: %ZIP_NAME%
   pushd "%PROJECT_DIR%\dist"
   if exist "%ZIP_NAME%" del /F /Q "%ZIP_NAME%"
-  powershell -NoLogo -NoProfile -Command "Compress-Archive -Path 'windows\*' -DestinationPath '%ZIP_NAME%' -Force"
+  powershell -NoLogo -NoProfile -Command "Compress-Archive -Path '*.*' -DestinationPath '%ZIP_NAME%' -Force"
   popd
   echo Release-Zip erstellt: %PROJECT_DIR%\dist\%ZIP_NAME%
+) else (
+  echo.
+  echo Erstelle Release-Verzeichnis (PowerShell nicht verfuegbar)...
+  echo Das Release-Verzeichnis liegt unter: %DIST_DIR%
 )
 
 echo.
