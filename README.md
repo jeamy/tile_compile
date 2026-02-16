@@ -143,7 +143,7 @@ Inside `tile_compile_cpp/`, platform-specific release scripts are available:
 - Linux (native): `build_linux_release.sh`
 - Linux (Docker Ubuntu 20.04 / glibc 2.31): `build_linux_release_docker_ubuntu2004.sh`
 - macOS: `build_macos_release.sh`
-- Windows: `build_windows_release.bat`
+- Windows: `build_windows_release.bat` (auto-detects MSYS2 if installed)
 
 Linux Docker wrapper (recommended for broad Linux compatibility):
 
@@ -171,6 +171,20 @@ Not included by design:
 
 - external Siril catalog data
 - external ASTAP binary/data
+
+Windows note:
+
+- The build script automatically detects MSYS2 installations at `C:\msys64\mingw64` (or `ucrt64`/`clang64`) and sets `CMAKE_PREFIX_PATH` accordingly.
+- If MSYS2 is not installed, install dependencies via:
+  - **Option A (MinGW)**: Install MSYS2 from https://www.msys2.org/, then in MSYS2 MinGW64 shell:
+    ```bash
+    pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf
+    pacman -S --needed mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl
+    ```
+  - **Option B (MSVC)**: Install vcpkg and set `VCPKG_ROOT`, then:
+    ```bat
+    vcpkg install eigen3:x64-windows opencv4:x64-windows cfitsio:x64-windows yaml-cpp:x64-windows nlohmann-json:x64-windows openssl:x64-windows qt6:x64-windows
+    ```
 
 macOS note:
 

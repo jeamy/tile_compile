@@ -70,6 +70,13 @@ set USE_MINGW=0
 where g++ >NUL 2>&1
 if not errorlevel 1 set USE_MINGW=1
 
+rem Auto-detect MSYS2 and prefer it for MinGW builds
+if not defined FORCE_MINGW (
+  if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set FORCE_MINGW=1
+  if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" set FORCE_MINGW=1
+  if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" set FORCE_MINGW=1
+)
+
 if /I "%FORCE_MINGW%"=="1" set USE_MINGW=1
 if /I "%FORCE_MSVC%"=="1" set USE_MINGW=0
 if defined VCPKG_ROOT set USE_MINGW=0
