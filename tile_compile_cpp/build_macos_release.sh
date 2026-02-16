@@ -32,6 +32,16 @@ if command -v qmake6 &>/dev/null; then
   QT6_OK=1
 elif command -v qtpaths6 &>/dev/null; then
   QT6_OK=1
+elif [ -n "$CMAKE_PREFIX_PATH" ] && [ -d "$CMAKE_PREFIX_PATH/lib/cmake/Qt6" ]; then
+  QT6_OK=1
+else
+  for cand in "$HOME"/Qt/6.*/macos; do
+    if [ -d "$cand/lib/cmake/Qt6" ]; then
+      export CMAKE_PREFIX_PATH="$cand"
+      QT6_OK=1
+      break
+    fi
+  done
 fi
 if [ "$QT6_OK" -eq 0 ]; then
   MISSING_DEPS="$MISSING_DEPS qt6"
@@ -42,12 +52,23 @@ if [ -n "$MISSING_DEPS" ]; then
   echo ""
   if command -v brew &>/dev/null; then
     echo "Bitte fehlende Pakete installieren:"
-    echo "  xcode-select --install"
-    echo "  brew install cmake qt"
+    if [[ " $MISSING_DEPS " == *" xcode-cli "* ]]; then
+      echo "  xcode-select --install"
+    fi
+    if [[ " $MISSING_DEPS " == *" cmake "* ]]; then
+      echo "  brew install cmake"
+    fi
+    if [[ " $MISSING_DEPS " == *" qt6 "* ]]; then
+      echo "  Qt6 ueber Qt Online Installer installieren (z.B. unter ~/Qt/<version>/macos)"
+      echo "  Danach optional setzen:"
+      echo "    export CMAKE_PREFIX_PATH=\"$HOME/Qt/<version>/macos\""
+      echo "    export Qt6_DIR=\"$HOME/Qt/<version>/macos/lib/cmake/Qt6\""
+      echo "  Hinweis: Homebrew-qt erfordert auf manchen Systemen mindestens macOS Ventura."
+    fi
     exit 1
   else
     echo "Automatische Installation nicht möglich (Homebrew nicht gefunden)."
-    echo "Bitte installieren: Xcode Command Line Tools, CMake, Qt6"
+    echo "Bitte installieren: Xcode Command Line Tools, CMake, Qt6 (Qt Online Installer)"
     exit 1
   fi
 fi

@@ -4,10 +4,11 @@ rem Prueft Abhaengigkeiten, baut Release und erstellt eine portable Dist.
 
 setlocal ENABLEDELAYEDEXPANSION
 
-set SCRIPT_DIR=%~dp0
-set PROJECT_DIR=%SCRIPT_DIR%
-set BUILD_DIR=%PROJECT_DIR%build-windows-release
-set DIST_DIR=%PROJECT_DIR%dist\windows
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+set "PROJECT_DIR=%SCRIPT_DIR%"
+set "BUILD_DIR=%PROJECT_DIR%\build-windows-release"
+set "DIST_DIR=%PROJECT_DIR%\dist\windows"
 set BUILD_TYPE=Release
 
 echo === tile_compile_cpp - Windows Release Build ===
@@ -60,13 +61,14 @@ rem [1] CMake konfigurieren
 rem ===========================================================================
 echo [1/3] CMake konfigurieren...
 
-set CMAKE_GENERATOR=
 where g++ >NUL 2>&1
 if not errorlevel 1 (
-  set CMAKE_GENERATOR=-G "MinGW Makefiles"
+  echo Erkannt: MinGW (g++) - verwende Generator "MinGW Makefiles"
+  cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
+) else (
+  echo Erkannt: MSVC/Standardgenerator
+  cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
 )
-
-cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" %CMAKE_GENERATOR% -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
 if errorlevel 1 goto :error
 
 rem ===========================================================================
