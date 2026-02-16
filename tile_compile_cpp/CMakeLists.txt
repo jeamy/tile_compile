@@ -252,7 +252,34 @@ if(NOT nlohmann_json_FOUND)
 endif()
 
 # OpenSSL for SHA256
-find_package(OpenSSL REQUIRED)
+find_package(OpenSSL QUIET)
+if(NOT OpenSSL_FOUND)
+    # Manual fallback for MSYS2/MinGW installations
+    set(_openssl_search_paths
+        "C:/msys64/mingw64"
+        "C:/msys64/ucrt64"
+        "C:/msys64/clang64"
+        "/usr/local"
+        "/usr"
+    )
+    foreach(_prefix ${_openssl_search_paths})
+        if(EXISTS "${_prefix}/include/openssl/ssl.h")
+            find_path(OPENSSL_INCLUDE_DIR openssl/ssl.h PATHS "${_prefix}/include" NO_DEFAULT_PATH)
+            find_library(OPENSSL_CRYPTO_LIBRARY NAMES crypto libcrypto PATHS "${_prefix}/lib" NO_DEFAULT_PATH)
+            find_library(OPENSSL_SSL_LIBRARY NAMES ssl libssl PATHS "${_prefix}/lib" NO_DEFAULT_PATH)
+            if(OPENSSL_INCLUDE_DIR AND OPENSSL_CRYPTO_LIBRARY AND OPENSSL_SSL_LIBRARY)
+                set(OPENSSL_FOUND TRUE)
+                set(OPENSSL_INCLUDE_DIRS ${OPENSSL_INCLUDE_DIR})
+                set(OPENSSL_LIBRARIES ${OPENSSL_SSL_LIBRARY} ${OPENSSL_CRYPTO_LIBRARY})
+                break()
+            endif()
+        endif()
+    endforeach()
+    
+    if(NOT OPENSSL_FOUND)
+        message(FATAL_ERROR "OpenSSL nicht gefunden. Bitte OpenSSL installieren oder CMAKE_PREFIX_PATH setzen.")
+    endif()
+endif()
 
 # Qt6 Core + Network for lib (HTTP queries), Widgets for GUI
 find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets)
