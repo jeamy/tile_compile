@@ -1,6 +1,6 @@
 @echo off
-rem tile_compile_cpp - Windows Release Build
-rem Prueft Abhaengigkeiten, baut Release und erstellt eine portable Dist.
+rem tile_compile_cpp - Windows Release Build mit automatischer Dependency-Installation
+rem Prueft Abhaengigkeiten, installiert sie bei Bedarf via MSYS2, baut Release und erstellt portable Dist.
 
 setlocal ENABLEDELAYEDEXPANSION
 
@@ -12,207 +12,261 @@ set "DIST_DIR=%PROJECT_DIR%\dist\windows"
 set BUILD_TYPE=Release
 
 echo === tile_compile_cpp - Windows Release Build ===
+echo === Mit automatischer MSYS2-Dependency-Installation ===
 echo.
 
 rem ===========================================================================
-rem [0] Abhaengigkeiten pruefen
+rem [0] Abhaengigkeiten pruefen und installieren
 rem ===========================================================================
 set MISSING_DEPS=
 
 where cmake >NUL 2>&1
 if errorlevel 1 set MISSING_DEPS=!MISSING_DEPS! cmake
 
-where cl >NUL 2>&1
-if errorlevel 1 (
-  where g++ >NUL 2>&1
-  if errorlevel 1 set MISSING_DEPS=!MISSING_DEPS! compiler
-)
+where g++ >NUL 2>&1
+if errorlevel 1 set MISSING_DEPS=!MISSING_DEPS! g++
 
+where pkg-config >NUL 2>&1
+if errorlevel 1 set MISSING_DEPS=!MISSING_DEPS! pkg-config
+
+rem Qt6 pruefen - sowohl qmake6 als auch cmake FindQt6
+set QT6_FOUND=0
 where qmake6 >NUL 2>&1
-if errorlevel 1 (
-  if not defined Qt6_DIR (
-    if not defined CMAKE_PREFIX_PATH (
-      set MISSING_DEPS=!MISSING_DEPS! qt6
-    )
-  )
-)
+if not errorlevel 1 set QT6_FOUND=1
 
+if exist "C:\Qt\6.10.1\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
+if exist "C:\Qt\6.8.2\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
+if exist "C:\msys64\mingw64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
+if exist "C:\msys64\ucrt64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
+
+if "%QT6_FOUND%"=="0" set MISSING_DEPS=!MISSING_DEPS! qt6
+
+rem OpenCV pruefen
+set OPENCV_FOUND=0
+pkg-config --exists opencv4 2>NUL
+if not errorlevel 1 set OPENCV_FOUND=1
+
+if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
+if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
+
+if "%OPENCV_FOUND%"=="0" set MISSING_DEPS=!MISSING_DEPS! opencv
+
+echo [0/4] Pruefe Abhaengigkeiten...
 if defined MISSING_DEPS (
   echo Fehlende Abhaengigkeiten:!MISSING_DEPS!
   echo.
-  echo Automatische Installation unter Windows nicht moeglich.
-  echo Bitte installiere manuell:
-  echo   - CMake: https://cmake.org/download/
-  echo   - C++ Compiler: MSVC oder MinGW
-  echo   - Qt6 mit passendem Compiler-Kit
-  echo   - C++ Libs: Eigen3, OpenCV, cfitsio, yaml-cpp, nlohmann-json, OpenSSL, pkg-config
+) else (
+  echo Alle Abhaengigkeiten bereits installiert.
+  goto :deps_done
+)
+rem ===========================================================================
+rem [0.5] Automatische Installation via MSYS2
+rem ===========================================================================
+echo [0.5/4] Versuche automatische Installation via MSYS2...
+echo.
+
+set MSYS2_FOUND=0
+set MSYS2_PATH=
+
+if exist "C:\msys64\usr\bin\pacman.exe" (
+  set MSYS2_FOUND=1
+  set "MSYS2_PATH=C:\msys64"
+) else if exist "C:\msys2\usr\bin\pacman.exe" (
+  set MSYS2_FOUND=1
+  set "MSYS2_PATH=C:\msys2"
+)
+
+if "%MSYS2_FOUND%"=="0" (
+  echo ===========================================================================
+  echo MSYS2 NICHT GEFUNDEN - Automatische Installation nicht moeglich.
+  echo ===========================================================================
   echo.
-  echo Typische Optionen fuer Libraries:
-  echo   - MSYS2/MinGW: pacman -S mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl mingw-w64-x86_64-pkgconf
-  echo   - vcpkg ^(MSVC^): eigen3 opencv cfitsio yaml-cpp nlohmann-json openssl pkgconf
+  echo Bitte installiere MSYS2 manuell:
+  echo   1. Downloade von: https://www.msys2.org/
+  echo   2. Fuehre das Installer aus (C:\msys64 empfohlen)
+  echo   3. Oeffne "MSYS2 MinGW 64-bit" Terminal
+  echo   4. Fuehre aus:
+  echo      pacman -Syu
+  echo      pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf
+  echo      pacman -S --needed mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio
+  echo      pacman -S --needed mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl
+  echo      pacman -S --needed mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-tools
   echo.
-  echo Typische Konfiguration fuer MinGW:
-  echo   set CMAKE_PREFIX_PATH=C:\Qt\6.10.1\mingw_64
-  echo   set Qt6_DIR=C:\Qt\6.10.1\mingw_64\lib\cmake\Qt6
-  echo   set PATH=C:\Qt\Tools\mingw1310_64\bin;%%PATH%%
+  echo Danach dieses Script erneut ausfuehren.
+  echo.
   exit /B 1
 )
 
-echo Alle Abhaengigkeiten vorhanden.
+echo MSYS2 gefunden unter: %MSYS2_PATH%
+echo.
+echo Installiere/Update alle Abhaengigkeiten...
+echo Dies kann einige Minuten dauern bei erster Installation.
 echo.
 
-rem ===========================================================================
-rem [1] CMake konfigurieren
-rem ===========================================================================
-echo [1/3] CMake konfigurieren...
+rem Fuehre pacman-Befehle aus
+set "PACMAN=%MSYS2_PATH%\usr\bin\pacman.exe"
 
-set USE_MINGW=0
-where g++ >NUL 2>&1
-if not errorlevel 1 set USE_MINGW=1
-
-rem Auto-detect MSYS2 and prefer it for MinGW builds
-if not defined FORCE_MINGW (
-  if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set FORCE_MINGW=1
-  if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" set FORCE_MINGW=1
-  if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" set FORCE_MINGW=1
+echo [1] Update Package-Datenbank...
+"%PACMAN%" -Sy
+if errorlevel 1 (
+  echo FEHLER: Konnte pacman nicht ausfuehren. Bitte als Administrator erneut versuchen.
+  exit /B 1
 )
 
-if /I "%FORCE_MINGW%"=="1" set USE_MINGW=1
-if /I "%FORCE_MSVC%"=="1" set USE_MINGW=0
-if defined VCPKG_ROOT set USE_MINGW=0
+echo.
+echo [2] Installiere Toolchain und Build-Tools...
+"%PACMAN%" -S --needed --noconfirm mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf mingw-w64-x86_64-make
+if errorlevel 1 (
+  echo FEHLER: Installation der Toolchain fehlgeschlagen.
+  exit /B 1
+)
 
-if "%USE_MINGW%"=="1" (
-  echo Erkannt: MinGW ^(g++^) - verwende Generator "MinGW Makefiles"
+echo.
+echo [3] Installiere Bibliotheken (Eigen3, OpenCV, cfitsio, yaml-cpp, json, openssl)...
+"%PACMAN%" -S --needed --noconfirm mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl
+if errorlevel 1 (
+  echo FEHLER: Installation der Bibliotheken fehlgeschlagen.
+  exit /B 1
+)
 
-  rem Auto-detect Qt6 installation for MinGW
-  set QT_PREFIX=
-  if exist "C:\Qt\6.10.1\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" set "QT_PREFIX=C:\Qt\6.10.1\mingw_64"
-  if not defined QT_PREFIX (
-    for /d %%D in (C:\Qt\6.*) do (
-      if exist "%%D\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" set "QT_PREFIX=%%D\mingw_64"
-    )
-  )
-  if not defined QT_PREFIX (
-    for /d %%D in (C:\Qt\*) do (
-      if exist "%%D\macos\lib\cmake\Qt6\Qt6Config.cmake" set "QT_PREFIX=%%D\macos"
-      if exist "%%D\mingw*\lib\cmake\Qt6\Qt6Config.cmake" (
-        for /d %%M in (%%D\mingw*) do (
-          if exist "%%M\lib\cmake\Qt6\Qt6Config.cmake" set "QT_PREFIX=%%M"
-        )
-      )
-    )
-  )
+echo.
+echo [4] Installiere Qt6...
+"%PACMAN%" -S --needed --noconfirm mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-tools mingw-w64-x86_64-qt6-svg
+if errorlevel 1 (
+  echo FEHLER: Installation von Qt6 fehlgeschlagen.
+  exit /B 1
+)
 
-  rem Auto-detect MSYS2 prefix for MinGW toolchain
-  set MSYS2_PREFIX=
-  if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set "MSYS2_PREFIX=C:\msys64\mingw64"
-  if not defined MSYS2_PREFIX (
-    if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" set "MSYS2_PREFIX=C:\msys64\ucrt64"
-  )
-  if not defined MSYS2_PREFIX (
-    if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" set "MSYS2_PREFIX=C:\msys64\clang64"
-  )
-
-  rem Build CMAKE_PREFIX_PATH with both Qt and MSYS2
-  rem Always construct it from detected paths to ensure both Qt and libs are found
-  set NEW_PREFIX_PATH=
-  if defined QT_PREFIX (
-    set "NEW_PREFIX_PATH=%QT_PREFIX%"
-  )
-  if defined MSYS2_PREFIX (
-    if defined NEW_PREFIX_PATH (
-      set "NEW_PREFIX_PATH=%NEW_PREFIX_PATH%;%MSYS2_PREFIX%"
-    ) else (
-      set "NEW_PREFIX_PATH=%MSYS2_PREFIX%"
-    )
-  )
-  
-  rem If user already set CMAKE_PREFIX_PATH, append our detected paths
-  if defined CMAKE_PREFIX_PATH (
-    if defined NEW_PREFIX_PATH (
-      set "CMAKE_PREFIX_PATH=%CMAKE_PREFIX_PATH%;%NEW_PREFIX_PATH%"
-    )
-  ) else (
-    if defined NEW_PREFIX_PATH (
-      set "CMAKE_PREFIX_PATH=%NEW_PREFIX_PATH%"
-    )
-  )
-
-  if defined CMAKE_PREFIX_PATH (
-    if exist "%CMAKE_PREFIX_PATH%\bin" (
-      set "PATH=%CMAKE_PREFIX_PATH%\bin;%PATH%"
-    )
-  )
-
-  rem Quick sanity check: OpenCV must be available for MinGW (typical MSYS2 setup)
-  set OPENCV_CFG_FOUND=0
-  if defined OpenCV_DIR (
-    if exist "%OpenCV_DIR%\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
-  )
-  if "%OPENCV_CFG_FOUND%"=="0" (
-    if defined MSYS2_PREFIX (
-      if exist "%MSYS2_PREFIX%\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
-    )
-  )
-  if "%OPENCV_CFG_FOUND%"=="0" (
-    if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
-  )
-  if "%OPENCV_CFG_FOUND%"=="0" (
-    if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
-  )
-  if "%OPENCV_CFG_FOUND%"=="0" (
-    if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
-  )
-  if "%OPENCV_CFG_FOUND%"=="0" (
-    echo.
-    echo FEHLER: OpenCV wurde fuer den MinGW-Toolchain nicht gefunden.
-    echo.
-    echo Option A ^(empfohlen^): MSVC + vcpkg
-    echo   set VCPKG_ROOT=C:\vcpkg
-    echo   set FORCE_MSVC=1
-    echo   build_windows_release.bat
-    echo.
-    echo Option B: MinGW + MSYS2
-    echo   - Installiere MSYS2 von https://www.msys2.org/
-    echo   - Oeffne MSYS2 MinGW64 ^(oder UCRT64^) Shell und installiere:
-    echo       pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf
-    echo       pacman -S --needed mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl
-    echo   - Fuer UCRT64 verwende: mingw-w64-ucrt-x86_64-^<paket^>
-    echo   - Danach einfach build_windows_release.bat ausfuehren ^(Auto-Detection^)
-    echo.
-    exit /B 1
-  )
-
-  cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
+echo.
+echo ===========================================================================
+echo Installation abgeschlossen!
+echo ===========================================================================
+echo.
+echo WICHTIG: Du musst das Terminal jetzt NEU STARTEN, damit die neuen
+echo          Abhaengigkeiten im PATH gefunden werden.
+echo.
+echo Moechtest du jetzt neu starten und dann automatisch weitermachen?
+set /p RESTART="Neustarten und weitermachen? (j/n): "
+if /I "%RESTART%"=="j" (
+  echo Starte neu...
+  start "" "%~f0"
+  exit
 ) else (
-  echo Erkannt: MSVC/Standardgenerator
-  if defined VCPKG_ROOT (
-    if exist "%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" (
-      echo Nutze vcpkg Toolchain: %VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake
-      cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF -DCMAKE_TOOLCHAIN_FILE="%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
-    ) else (
-      echo WARNUNG: VCPKG_ROOT gesetzt, aber Toolchain-Datei nicht gefunden.
-      cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
+  echo Bitte starte das Terminal neu und fuehre das Script erneut aus.
+  exit /B 0
+)
+
+:deps_done
+echo.
+rem ===========================================================================
+rem [1] MSYS2-Umgebung erkennen und Pfade setzen
+rem ===========================================================================
+echo [1/4] Erkenne Build-Umgebung...
+
+set USE_MINGW=1
+set MSYS2_PREFIX=
+
+if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+  set "MSYS2_PREFIX=C:\msys64\mingw64"
+) else if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+  set "MSYS2_PREFIX=C:\msys64\ucrt64"
+) else if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+  set "MSYS2_PREFIX=C:\msys64\clang64"
+) else if exist "C:\msys2\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+  set "MSYS2_PREFIX=C:\msys2\mingw64"
+)
+
+if not defined MSYS2_PREFIX (
+  echo FEHLER: MSYS2 MinGW-Umgebung nicht gefunden.
+  echo Bitte installiere MSYS2 wie oben beschrieben.
+  exit /B 1
+)
+
+echo Erkannt: MSYS2/MinGW unter %MSYS2_PREFIX%
+
+rem Qt6-Pfad setzen (entweder aus MSYS2 oder standalone Qt)
+set QT_PREFIX=
+if exist "%MSYS2_PREFIX%\lib\cmake\Qt6\Qt6Config.cmake" (
+  set "QT_PREFIX=%MSYS2_PREFIX%"
+  echo Qt6 gefunden unter MSYS2: %QT_PREFIX%
+) else (
+  for /d %%D in (C:\Qt\6.*) do (
+    if exist "%%D\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" (
+      set "QT_PREFIX=%%D\mingw_64"
+      echo Qt6 gefunden unter: !QT_PREFIX!
+      goto :qt_found
     )
-  ) else (
-    cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
   )
 )
+:qt_found
+
+if not defined QT_PREFIX (
+  echo FEHLER: Qt6 nicht gefunden!
+  exit /B 1
+)
+
+rem CMAKE_PREFIX_PATH zusammenbauen
+set "CMAKE_PREFIX_PATH=%QT_PREFIX%;%MSYS2_PREFIX%"
+set "Qt6_DIR=%QT_PREFIX%\lib\cmake\Qt6"
+
+rem PATH fuer DLLs setzen
+set "PATH=%QT_PREFIX%\bin;%MSYS2_PREFIX%\bin;%PATH%"
+
+rem OpenCV_DIR setzen falls noetig
+if not defined OpenCV_DIR (
+  if exist "%MSYS2_PREFIX%\lib\cmake\opencv4\OpenCVConfig.cmake" (
+    set "OpenCV_DIR=%MSYS2_PREFIX%\lib\cmake\opencv4"
+  )
+)
+
+echo.
+echo Konfiguration:
+echo   CMAKE_PREFIX_PATH=%CMAKE_PREFIX_PATH%
+echo   Qt6_DIR=%Qt6_DIR%
+echo   OpenCV_DIR=%OpenCV_DIR%
+echo.
+
+rem ===========================================================================
+rem [2] CMake konfigurieren
+rem ===========================================================================
+echo [2/4] CMake konfigurieren...
+
+if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
+
+cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" ^
+  -G "MinGW Makefiles" ^
+  -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
+  -DBUILD_TESTS=OFF ^
+  -DCMAKE_PREFIX_PATH="%CMAKE_PREFIX_PATH%" ^
+  -DQt6_DIR="%Qt6_DIR%" ^
+  -DOpenCV_DIR="%OpenCV_DIR%"
+
+if errorlevel 1 (
+  echo.
+  echo FEHLER: CMake-Konfiguration fehlgeschlagen.
+  echo.
+  echo Moegliche Loesungen:
+  echo   1. Pruefe ob alle Abhaengigkeiten installiert sind:
+  echo      pacman -Q ^| findstr mingw-w64-x86_64
+  echo   2. Loesche den Build-Ordner und versuche es erneut:
+  echo      rmdir /S /Q "%BUILD_DIR%"
+  echo.
+  exit /B 1
+)
+
+rem ===========================================================================
+rem [3] Bauen
+rem ===========================================================================
+echo.
+echo [3/4] Bauen... (dies kann mehrere Minuten dauern)
+cmake --build "%BUILD_DIR%" --config %BUILD_TYPE% -j%NUMBER_OF_PROCESSORS%
 if errorlevel 1 goto :error
 
 rem ===========================================================================
-rem [2] Bauen
+rem [4] Dist-Verzeichnis erstellen
 rem ===========================================================================
 echo.
-echo [2/3] Bauen...
-cmake --build "%BUILD_DIR%" --config %BUILD_TYPE%
-if errorlevel 1 goto :error
-
-rem ===========================================================================
-rem [3] Dist-Verzeichnis erstellen
-rem ===========================================================================
-echo.
-echo [3/3] Dist-Verzeichnis erstellen...
+echo [4/4] Erstelle Distribution...
 if exist "%DIST_DIR%" rmdir /S /Q "%DIST_DIR%"
 mkdir "%DIST_DIR%"
 
@@ -230,17 +284,17 @@ for %%B in (tile_compile_gui.exe tile_compile_runner.exe tile_compile_cli.exe) d
 )
 
 mkdir "%DIST_DIR%\gui_cpp" 2>NUL
-copy /Y "%PROJECT_DIR%gui_cpp\constants.js" "%DIST_DIR%\gui_cpp" >NUL
-copy /Y "%PROJECT_DIR%gui_cpp\styles.qss" "%DIST_DIR%\gui_cpp" >NUL
+copy /Y "%PROJECT_DIR%\gui_cpp\constants.js" "%DIST_DIR%\gui_cpp" >NUL
+copy /Y "%PROJECT_DIR%\gui_cpp\styles.qss" "%DIST_DIR%\gui_cpp" >NUL
 
 for %%F in (tile_compile.yaml tile_compile.schema.yaml tile_compile.schema.json) do (
-  copy /Y "%PROJECT_DIR%%%F" "%DIST_DIR%" >NUL
+  copy /Y "%PROJECT_DIR%\%%F" "%DIST_DIR%" >NUL
 )
 
 rem Beispiel-Konfigurationen/Schemas mitliefern
-if exist "%PROJECT_DIR%examples" (
+if exist "%PROJECT_DIR%\examples" (
   mkdir "%DIST_DIR%\examples" 2>NUL
-  xcopy "%PROJECT_DIR%examples\*" "%DIST_DIR%\examples" /E /I /Y >NUL
+  xcopy "%PROJECT_DIR%\examples\*" "%DIST_DIR%\examples" /E /I /Y >NUL
 )
 
 rem Externe Daten (Siril / ASTAP) werden bewusst NICHT eingebuendelt.
@@ -255,17 +309,43 @@ if not defined QT_PREFIX (
 set "QT_BIN=%QT_PREFIX%\bin"
 if exist "%QT_BIN%\Qt6Core.dll" (
   echo Kopiere Qt6 Runtime-DLLs...
-  for %%D in (Qt6Core.dll Qt6Gui.dll Qt6Widgets.dll Qt6Network.dll) do (
-    if exist "%QT_BIN%\%%D" copy /Y "%QT_BIN%\%%D" "%DIST_DIR%" >NUL
+  for %%D in (Qt6Core.dll Qt6Gui.dll Qt6Widgets.dll Qt6Network.dll Qt6Svg.dll) do (
+    if exist "%QT_BIN%\%%D" (
+      copy /Y "%QT_BIN%\%%D" "%DIST_DIR%" >NUL
+      echo   Kopiert: %%D
+    )
   )
 
   for %%D in (libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll) do (
-    if exist "%QT_BIN%\%%D" copy /Y "%QT_BIN%\%%D" "%DIST_DIR%" >NUL
+    if exist "%QT_BIN%\%%D" (
+      copy /Y "%QT_BIN%\%%D" "%DIST_DIR%" >NUL
+      echo   Kopiert: %%D
+    ) else if exist "%MSYS2_PREFIX%\bin\%%D" (
+      copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
+      echo   Kopiert: %%D
+    )
+  )
+
+  rem OpenCV DLLs kopieren
+  for %%D in (libopencv_core-4xx.dll libopencv_imgproc-4xx.dll libopencv_imgcodecs-4xx.dll libopencv_features2d-4xx.dll libopencv_flann-4xx.dll libopencv_calib3d-4xx.dll libopencv_videoio-4xx.dll) do (
+    if exist "%MSYS2_PREFIX%\bin\%%D" (
+      copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
+      echo   Kopiert: %%D
+    )
+  )
+
+  rem Weitere Abhaengigkeiten
+  for %%D in (libcfitsio-4.dll libyaml-cpp.dll libssl-3-x64.dll libcrypto-3-x64.dll libzstd.dll libbzip2.dll liblzma-5.dll zlib1.dll) do (
+    if exist "%MSYS2_PREFIX%\bin\%%D" (
+      copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
+      echo   Kopiert: %%D
+    )
   )
 
   mkdir "%DIST_DIR%\platforms" 2>NUL
   if exist "%QT_PREFIX%\plugins\platforms\qwindows.dll" (
     copy /Y "%QT_PREFIX%\plugins\platforms\qwindows.dll" "%DIST_DIR%\platforms" >NUL
+    echo   Kopiert: platforms/qwindows.dll
   ) else (
     echo WARNUNG: qwindows.dll nicht gefunden unter %QT_PREFIX%\plugins\platforms
   )
@@ -273,11 +353,13 @@ if exist "%QT_BIN%\Qt6Core.dll" (
   if exist "%QT_PREFIX%\plugins\imageformats" (
     mkdir "%DIST_DIR%\imageformats" 2>NUL
     xcopy "%QT_PREFIX%\plugins\imageformats\*.dll" "%DIST_DIR%\imageformats" /Y >NUL
+    echo   Kopiert: imageformats/*.dll
   )
 
   if exist "%QT_PREFIX%\plugins\styles" (
     mkdir "%DIST_DIR%\styles" 2>NUL
     xcopy "%QT_PREFIX%\plugins\styles\*.dll" "%DIST_DIR%\styles" /Y >NUL
+    echo   Kopiert: styles/*.dll
   )
 ) else (
   echo WARNUNG: Qt6Core.dll nicht unter %QT_BIN% gefunden. Bitte Qt-Pfad pruefen.
@@ -285,26 +367,37 @@ if exist "%QT_BIN%\Qt6Core.dll" (
 
 set ZIP_NAME=tile_compile_cpp-windows-release.zip
 where powershell >NUL 2>&1
-if errorlevel 1 (
-  echo Hinweis: PowerShell nicht gefunden, Release-Zip wird nicht erstellt.
-) else (
+if not errorlevel 1 (
+  echo.
   echo Erzeuge Release-Zip: %ZIP_NAME%
-  pushd "%PROJECT_DIR%dist"
+  pushd "%PROJECT_DIR%\dist"
   if exist "%ZIP_NAME%" del /F /Q "%ZIP_NAME%"
   powershell -NoLogo -NoProfile -Command "Compress-Archive -Path 'windows\*' -DestinationPath '%ZIP_NAME%' -Force"
   popd
-  echo Release-Zip erstellt: %PROJECT_DIR%dist\%ZIP_NAME%
+  echo Release-Zip erstellt: %PROJECT_DIR%\dist\%ZIP_NAME%
 )
 
 echo.
-echo ========================================
-echo   Release-Build fertig!
-echo ========================================
+echo ===========================================================================
+echo   Release-Build FERTIG!
+echo ===========================================================================
 echo.
-echo Start GUI:
+echo Distribution liegt unter:
+echo   %DIST_DIR%
+echo.
+echo Ausfuehrbare Dateien:
+echo   - GUI:     %DIST_DIR%\tile_compile_gui.exe
+echo   - Runner:  %DIST_DIR%\tile_compile_runner.exe
+echo   - CLI:     %DIST_DIR%\tile_compile_cli.exe
+echo.
+echo ZIP-Archiv:
+echo   %PROJECT_DIR%\dist\%ZIP_NAME%
+echo.
+echo Zum Starten:
 echo   %DIST_DIR%\tile_compile_gui.exe
 echo.
-goto :eof
+
+exit /B 0
 
 :error
 echo.
