@@ -20,14 +20,37 @@ rem [0] Abhaengigkeiten pruefen und installieren
 rem ===========================================================================
 set MISSING_DEPS=
 
+rem Pruefe MSYS2-Pfade fuer Tools
+set "MSYS2_MINGW_BIN="
+if exist "C:\msys64\mingw64\bin\g++.exe" (
+  set "MSYS2_MINGW_BIN=C:\msys64\mingw64\bin"
+) else if exist "C:\msys64\ucrt64\bin\g++.exe" (
+  set "MSYS2_MINGW_BIN=C:\msys64\ucrt64\bin"
+) else if exist "C:\msys64\clang64\bin\clang++.exe" (
+  set "MSYS2_MINGW_BIN=C:\msys64\clang64\bin"
+) else if exist "C:\msys2\mingw64\bin\g++.exe" (
+  set "MSYS2_MINGW_BIN=C:\msys2\mingw64\bin"
+)
+
+if defined MSYS2_MINGW_BIN (
+  set "PATH=%MSYS2_MINGW_BIN%;%PATH%"
+  echo Erkannt: MSYS2/MinGW unter %MSYS2_MINGW_BIN%
+)
+
+where cmake >NUL 2>&1
+if errorlevel 1 (
+  rem Versuche cmake aus MSYS2-Pfaden
+  if exist "C:\msys64\usr\bin\cmake.exe" (
+    set "PATH=C:\msys64\usr\bin;%PATH%"
+  ) else if exist "C:\msys2\usr\bin\cmake.exe" (
+    set "PATH=C:\msys2\usr\bin;%PATH%"
+  )
+)
 where cmake >NUL 2>&1
 if errorlevel 1 set MISSING_DEPS=!MISSING_DEPS! cmake
 
 where g++ >NUL 2>&1
 if errorlevel 1 set MISSING_DEPS=!MISSING_DEPS! g++
-
-where pkg-config >NUL 2>&1
-if errorlevel 1 set MISSING_DEPS=!MISSING_DEPS! pkg-config
 
 rem Qt6 pruefen - sowohl qmake6 als auch cmake FindQt6
 set QT6_FOUND=0
@@ -38,6 +61,8 @@ if exist "C:\Qt\6.10.1\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
 if exist "C:\Qt\6.8.2\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
 if exist "C:\msys64\mingw64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
 if exist "C:\msys64\ucrt64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
+if exist "C:\msys64\clang64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
+if exist "C:\msys2\mingw64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
 
 if "%QT6_FOUND%"=="0" set MISSING_DEPS=!MISSING_DEPS! qt6
 
@@ -48,6 +73,8 @@ if not errorlevel 1 set OPENCV_FOUND=1
 
 if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
 if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
+if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
+if exist "C:\msys2\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
 
 if "%OPENCV_FOUND%"=="0" set MISSING_DEPS=!MISSING_DEPS! opencv
 
