@@ -498,20 +498,18 @@ if defined QT_PLUGINS (
 )
 
 set ZIP_NAME=tile_compile_cpp-windows-release.zip
-where powershell >NUL 2>&1
-if not errorlevel 1 (
-  echo.
-  echo Erzeuge Release-Zip: %ZIP_NAME%
-  pushd "%PROJECT_DIR%\dist"
-  if exist "%ZIP_NAME%" del /F /Q "%ZIP_NAME%"
-  powershell -NoLogo -NoProfile -Command "& {Compress-Archive -Path 'windows' -DestinationPath '%ZIP_NAME%' -Force}"
-  popd
-  echo Release-Zip erstellt: %PROJECT_DIR%\dist\%ZIP_NAME%
+set "ZIP_FULL=%PROJECT_DIR%\dist\%ZIP_NAME%"
+if exist "%ZIP_FULL%" del /F /Q "%ZIP_FULL%"
+echo.
+echo Erzeuge Release-Zip: %ZIP_NAME%
+echo Compress-Archive -Path '%DIST_DIR%' -DestinationPath '%ZIP_FULL%' -Force > "%TEMP%\tc_zip.ps1"
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\tc_zip.ps1"
+if exist "%ZIP_FULL%" (
+  echo Release-Zip erstellt: %ZIP_FULL%
 ) else (
-  echo.
-  echo Erstelle Release-Verzeichnis (PowerShell nicht verfuegbar)...
-  echo Das Release-Verzeichnis liegt unter: %DIST_DIR%
+  echo WARNUNG: ZIP-Erstellung fehlgeschlagen. Release-Verzeichnis liegt unter: %DIST_DIR%
 )
+del "%TEMP%\tc_zip.ps1" 2>NUL
 
 echo.
 echo ===========================================================================
