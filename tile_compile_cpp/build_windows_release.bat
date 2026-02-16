@@ -68,7 +68,7 @@ echo [1/3] CMake konfigurieren...
 
 where g++ >NUL 2>&1
 if not errorlevel 1 (
-  echo Erkannt: MinGW (g++) - verwende Generator "MinGW Makefiles"
+  echo Erkannt: MinGW ^(g++^) - verwende Generator "MinGW Makefiles"
   cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
 ) else (
   echo Erkannt: MSVC/Standardgenerator
