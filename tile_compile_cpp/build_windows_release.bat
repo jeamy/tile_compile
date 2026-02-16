@@ -70,11 +70,43 @@ set USE_MINGW=0
 where g++ >NUL 2>&1
 if not errorlevel 1 set USE_MINGW=1
 
+if /I "%FORCE_MINGW%"=="1" set USE_MINGW=1
 if /I "%FORCE_MSVC%"=="1" set USE_MINGW=0
 if defined VCPKG_ROOT set USE_MINGW=0
 
 if "%USE_MINGW%"=="1" (
   echo Erkannt: MinGW ^(g++^) - verwende Generator "MinGW Makefiles"
+
+  rem Quick sanity check: OpenCV must be available for MinGW (typical MSYS2 setup)
+  set OPENCV_CFG_FOUND=0
+  if defined OpenCV_DIR (
+    if exist "%OpenCV_DIR%\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
+  )
+  if "%OPENCV_CFG_FOUND%"=="0" (
+    if defined CMAKE_PREFIX_PATH (
+      if exist "%CMAKE_PREFIX_PATH%\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
+    )
+  )
+  if "%OPENCV_CFG_FOUND%"=="0" (
+    if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
+  )
+  if "%OPENCV_CFG_FOUND%"=="0" (
+    echo.
+    echo FEHLER: OpenCV wurde fuer den MinGW-Toolchain nicht gefunden.
+    echo.
+    echo Option A ^(empfohlen^): MSVC + vcpkg
+    echo   set VCPKG_ROOT=G:\programming\vcpkg
+    echo   set FORCE_MSVC=1
+    echo   build_windows_release.bat
+    echo.
+    echo Option B: MinGW + MSYS2
+    echo   - Installiere OpenCV fuer MinGW in MSYS2
+    echo   - Setze dann z.B.:
+    echo       set CMAKE_PREFIX_PATH=C:\msys64\mingw64
+    echo.
+    exit /B 1
+  )
+
   cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
 ) else (
   echo Erkannt: MSVC/Standardgenerator

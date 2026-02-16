@@ -104,9 +104,13 @@ if [ -n "$MISSING_DEPS" ]; then
       }
     fi
 
-    export CMAKE_PREFIX_PATH="/opt/local${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+    export CMAKE_PREFIX_PATH="/opt/local${CMAKE_PREFIX_PATH:+;$CMAKE_PREFIX_PATH}"
     export PKG_CONFIG_PATH="/opt/local/lib/pkgconfig:/opt/local/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     export PATH="/opt/local/bin:/opt/local/sbin:$PATH"
+
+    if [ -z "$OpenCV_DIR" ] && [ -f "/opt/local/lib/cmake/opencv4/OpenCVConfig.cmake" ]; then
+      export OpenCV_DIR="/opt/local/lib/cmake/opencv4"
+    fi
   elif command -v brew &>/dev/null && [ "$MACOS_MAJOR" -ge 13 ]; then
     echo "Versuche automatische Installation via Homebrew..."
     BREW_PKGS=""
@@ -177,9 +181,13 @@ if [ -n "$LIB_CHECK_WARNINGS" ]; then
       sudo port install $PORT_LIBS || {
         echo "WARNUNG: Library-Installation via MacPorts fehlgeschlagen."
       }
-      export CMAKE_PREFIX_PATH="/opt/local${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+      export CMAKE_PREFIX_PATH="/opt/local${CMAKE_PREFIX_PATH:+;$CMAKE_PREFIX_PATH}"
       export PKG_CONFIG_PATH="/opt/local/lib/pkgconfig:/opt/local/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
       export PATH="/opt/local/bin:/opt/local/sbin:$PATH"
+
+      if [ -z "$OpenCV_DIR" ] && [ -f "/opt/local/lib/cmake/opencv4/OpenCVConfig.cmake" ]; then
+        export OpenCV_DIR="/opt/local/lib/cmake/opencv4"
+      fi
     fi
   fi
   if [[ " $LIB_CHECK_WARNINGS " == *" opencv "* ]] && [ "$MACOS_MAJOR" -gt 0 ] && [ "$MACOS_MAJOR" -lt 13 ]; then
