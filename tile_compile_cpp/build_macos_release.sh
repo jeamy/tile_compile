@@ -10,6 +10,10 @@ BUILD_DIR="$PROJECT_DIR/build-macos-release"
 DIST_DIR="$PROJECT_DIR/dist/macos"
 BUILD_TYPE="Release"
 APP_BUNDLE="$DIST_DIR/tile_compile_gui.app"
+MACOS_MAJOR="$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)"
+if ! [[ "$MACOS_MAJOR" =~ ^[0-9]+$ ]]; then
+  MACOS_MAJOR=0
+fi
 
 echo "=== tile_compile_cpp - macOS Release Build ==="
 echo ""
@@ -132,6 +136,13 @@ fi
 if [ -n "$LIB_CHECK_WARNINGS" ]; then
   echo "Hinweis: pkg-config konnte folgende Module nicht bestaetigen:$LIB_CHECK_WARNINGS"
   echo "Der Build wird trotzdem versucht (CMake-Fallback fuer nicht-Homebrew-Installationen)."
+  if [[ " $LIB_CHECK_WARNINGS " == *" opencv "* ]] && [ "$MACOS_MAJOR" -gt 0 ] && [ "$MACOS_MAJOR" -lt 13 ]; then
+    echo "macOS < 13 erkannt: Homebrew/OpenCV kann wegen Qt/qtmultimedia scheitern."
+    echo "Alternative fuer OpenCV/CFITSIO/yaml-cpp/nlohmann-json:"
+    echo "  sudo port install opencv cfitsio yaml-cpp nlohmann-json openssl"
+    echo "  export CMAKE_PREFIX_PATH=\"/opt/local\""
+    echo "  export PKG_CONFIG_PATH=\"/opt/local/lib/pkgconfig:/opt/local/share/pkgconfig:\$PKG_CONFIG_PATH\""
+  fi
   echo ""
 fi
 

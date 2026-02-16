@@ -58,12 +58,13 @@ if(NOT OpenCV_FOUND)
         else()
             # Fallback for non-pkg-config setups (e.g. custom installs)
             find_path(OPENCV_INCLUDE_DIR opencv2/opencv.hpp
+                PATHS /opt/local /usr/local /opt/homebrew
                 PATH_SUFFIXES include/opencv4 include
             )
-            find_library(OPENCV_CORE_LIBRARY NAMES opencv_core)
-            find_library(OPENCV_IMGPROC_LIBRARY NAMES opencv_imgproc)
-            find_library(OPENCV_IMGCODECS_LIBRARY NAMES opencv_imgcodecs)
-            find_library(OPENCV_VIDEOIO_LIBRARY NAMES opencv_videoio)
+            find_library(OPENCV_CORE_LIBRARY NAMES opencv_core PATHS /opt/local/lib /usr/local/lib /opt/homebrew/lib)
+            find_library(OPENCV_IMGPROC_LIBRARY NAMES opencv_imgproc PATHS /opt/local/lib /usr/local/lib /opt/homebrew/lib)
+            find_library(OPENCV_IMGCODECS_LIBRARY NAMES opencv_imgcodecs PATHS /opt/local/lib /usr/local/lib /opt/homebrew/lib)
+            find_library(OPENCV_VIDEOIO_LIBRARY NAMES opencv_videoio PATHS /opt/local/lib /usr/local/lib /opt/homebrew/lib)
 
             if(OPENCV_INCLUDE_DIR AND OPENCV_CORE_LIBRARY)
                 set(OpenCV_INCLUDE_DIRS ${OPENCV_INCLUDE_DIR})
