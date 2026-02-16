@@ -113,6 +113,42 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
 ```
 
+### Release-Build-Skripte (portable App-Bundles)
+
+Im Verzeichnis `tile_compile_cpp/` stehen plattformspezifische Release-Skripte bereit:
+
+- Linux (nativ): `build_linux_release.sh`
+- Linux (Docker Ubuntu 20.04 / glibc 2.31): `build_linux_release_docker_ubuntu2004.sh`
+- macOS: `build_macos_release.sh`
+- Windows: `build_windows_release.bat`
+
+Linux-Docker-Wrapper (empfohlen für breite Linux-Kompatibilität):
+
+```bash
+cd tile_compile_cpp
+bash build_linux_release_docker_ubuntu2004.sh
+# optional: Image-Build überspringen
+bash build_linux_release_docker_ubuntu2004.sh --skip-build
+```
+
+Die Release-Ausgaben liegen unter `tile_compile_cpp/dist/`:
+
+- Linux: `dist/linux/` + `dist/tile_compile_cpp-linux-release.zip`
+- Windows: `dist/windows/` + `dist/tile_compile_cpp-windows-release.zip`
+- macOS: `dist/macos/tile_compile_gui.app` + optional `dist/tile_compile_cpp-macos.dmg`
+
+Enthaltene Laufzeitdateien in den Release-Bundles:
+
+- Executables (`tile_compile_gui`, `tile_compile_runner`, `tile_compile_cli`)
+- GUI-Laufzeitdateien (`gui_cpp/constants.js`, `gui_cpp/styles.qss`)
+- Konfiguration + Schemas (`tile_compile.yaml`, `tile_compile.schema.yaml`, `tile_compile.schema.json`)
+- Beispielprofile (`examples/`)
+
+Bewusst nicht enthalten:
+
+- externe Siril-Katalogdaten
+- externe ASTAP-Binary/Daten
+
 ### Docker Build + Run (empfohlen für isolierte Umgebungen)
 
 Ein Hilfsskript ist verfügbar unter:
