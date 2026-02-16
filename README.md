@@ -138,6 +138,8 @@ cmake --build . -j$(nproc)
 
 ### Release build scripts (portable app bundles)
 
+> **Warning:** The build scripts are experimental early versions. Use at your own risk.
+
 Inside `tile_compile_cpp/`, platform-specific release scripts are available:
 
 - Linux (native): `build_linux_release.sh`
@@ -160,11 +162,9 @@ bash build_linux_release_docker_ubuntu2004.sh --skip-build
 
 ```bash
 cd tile_compile_cpp
-# Variante A: Docker (empfohlen für maximale Kompatibilität)
+# Docker 
 bash build_linux_appimage_docker.sh
 
-# Variante B: Lokal (braucht Qt6 installiert)
-bash build_linux_appimage.sh
 ```
 
 The AppImage is a portable single-file executable that runs on most Linux distributions without installation.

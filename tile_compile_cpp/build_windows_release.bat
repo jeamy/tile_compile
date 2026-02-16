@@ -386,22 +386,20 @@ rem Externe Daten (Siril / ASTAP) werden bewusst NICHT eingebuendelt.
 set "QT_PREFIX=%CMAKE_PREFIX_PATH%"
 rem Extrahiere ersten Pfad aus CMAKE_PREFIX_PATH (falls mehrere mit ; getrennt)
 for /f "tokens=1 delims=;" %%i in ("%CMAKE_PREFIX_PATH%") do set "QT_PREFIX=%%~i"
+for %%i in ("%QT_PREFIX%") do set "QT_PREFIX=%%~i"
 
 if not defined QT_PREFIX (
   if defined Qt6_DIR (
     set "QT_PREFIX=%Qt6_DIR%\..\..\.."
   )
 )
-rem Quotes aus QT_PREFIX entfernen (sonst cmd Syntaxfehler)
-set "QT_PREFIX=%QT_PREFIX:"=%"
-
 echo Verwende Qt-Pfad: %QT_PREFIX%
 set "QT_BIN=%QT_PREFIX%\bin"
-if exist "%QT_BIN%\Qt6Core.dll" (
+if exist "!QT_BIN!\Qt6Core.dll" (
   echo Kopiere Qt6 Runtime-DLLs...
   for %%D in (Qt6Core.dll Qt6Gui.dll Qt6Widgets.dll Qt6Network.dll Qt6Svg.dll Qt6PrintSupport.dll Qt6OpenGL.dll Qt6Sql.dll Qt6Test.dll Qt6Concurrent.dll Qt6Xml.dll) do (
-    if exist "%QT_BIN%\%%D" (
-      copy /Y "%QT_BIN%\%%D" "%DIST_DIR%" >NUL
+    if exist "!QT_BIN!\%%D" (
+      copy /Y "!QT_BIN!\%%D" "%DIST_DIR%" >NUL
       echo   Kopiert: %%D
     ) else (
       echo   Nicht gefunden: %%D
@@ -409,8 +407,8 @@ if exist "%QT_BIN%\Qt6Core.dll" (
   )
 
   for %%D in (libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll) do (
-    if exist "%QT_BIN%\%%D" (
-      copy /Y "%QT_BIN%\%%D" "%DIST_DIR%" >NUL
+    if exist "!QT_BIN!\%%D" (
+      copy /Y "!QT_BIN!\%%D" "%DIST_DIR%" >NUL
       echo   Kopiert: %%D
     ) else if exist "%MSYS2_PREFIX%\bin\%%D" (
       copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
@@ -466,32 +464,31 @@ if exist "%QT_BIN%\Qt6Core.dll" (
 
   rem Qt Plugins Pfad ermitteln
   set "QT_PLUGINS="
-  if exist "%QT_PREFIX%\share\qt6\plugins" (
-    set "QT_PLUGINS=%QT_PREFIX%\share\qt6\plugins"
-  ) else if exist "%QT_PREFIX%\plugins" (
-    set "QT_PLUGINS=%QT_PREFIX%\plugins"
+  if exist "!QT_PREFIX!\share\qt6\plugins" (
+    set "QT_PLUGINS=!QT_PREFIX!\share\qt6\plugins"
+  ) else if exist "!QT_PREFIX!\plugins" (
+    set "QT_PLUGINS=!QT_PREFIX!\plugins"
   )
-  rem Quotes aus QT_PLUGINS entfernen
-  set "QT_PLUGINS=%QT_PLUGINS:"=%"
+  for %%i in ("!QT_PLUGINS!") do set "QT_PLUGINS=%%~i"
   
-  if not "%QT_PLUGINS%"=="" (
+  if not "!QT_PLUGINS!"=="" (
     mkdir "%DIST_DIR%\platforms" 2>NUL
-    if exist "%QT_PLUGINS%\platforms\qwindows.dll" (
-      copy /Y "%QT_PLUGINS%\platforms\qwindows.dll" "%DIST_DIR%\platforms" >NUL
+    if exist "!QT_PLUGINS!\platforms\qwindows.dll" (
+      copy /Y "!QT_PLUGINS!\platforms\qwindows.dll" "%DIST_DIR%\platforms" >NUL
       echo   Kopiert: platforms/qwindows.dll
     ) else (
-      echo WARNUNG: qwindows.dll nicht gefunden unter %QT_PLUGINS%\platforms
+      echo WARNUNG: qwindows.dll nicht gefunden unter !QT_PLUGINS!\platforms
     )
 
-    if exist "%QT_PLUGINS%\imageformats" (
+    if exist "!QT_PLUGINS!\imageformats" (
       mkdir "%DIST_DIR%\imageformats" 2>NUL
-      xcopy "%QT_PLUGINS%\imageformats\*.dll" "%DIST_DIR%\imageformats" /Y >NUL
+      xcopy "!QT_PLUGINS!\imageformats\*.dll" "%DIST_DIR%\imageformats" /Y >NUL
       echo   Kopiert: imageformats/*.dll
     )
 
-    if exist "%QT_PLUGINS%\styles" (
+    if exist "!QT_PLUGINS!\styles" (
       mkdir "%DIST_DIR%\styles" 2>NUL
-      xcopy "%QT_PLUGINS%\styles\*.dll" "%DIST_DIR%\styles" /Y >NUL
+      xcopy "!QT_PLUGINS!\styles\*.dll" "%DIST_DIR%\styles" /Y >NUL
       echo   Kopiert: styles/*.dll
     )
   ) else (
