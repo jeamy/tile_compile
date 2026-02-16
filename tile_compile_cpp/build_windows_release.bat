@@ -369,10 +369,12 @@ if not defined QT_PREFIX (
 set "QT_BIN=%QT_PREFIX%\bin"
 if exist "%QT_BIN%\Qt6Core.dll" (
   echo Kopiere Qt6 Runtime-DLLs...
-  for %%D in (Qt6Core.dll Qt6Gui.dll Qt6Widgets.dll Qt6Network.dll Qt6Svg.dll) do (
+  for %%D in (Qt6Core.dll Qt6Gui.dll Qt6Widgets.dll Qt6Network.dll Qt6Svg.dll Qt6PrintSupport.dll Qt6OpenGL.dll Qt6Sql.dll Qt6Test.dll Qt6Concurrent.dll Qt6Xml.dll) do (
     if exist "%QT_BIN%\%%D" (
       copy /Y "%QT_BIN%\%%D" "%DIST_DIR%" >NUL
       echo   Kopiert: %%D
+    ) else (
+      echo   Nicht gefunden: %%D
     )
   )
 
@@ -386,19 +388,49 @@ if exist "%QT_BIN%\Qt6Core.dll" (
     )
   )
 
-  rem OpenCV DLLs kopieren
-  for %%D in (libopencv_core-4xx.dll libopencv_imgproc-4xx.dll libopencv_imgcodecs-4xx.dll libopencv_features2d-4xx.dll libopencv_flann-4xx.dll libopencv_calib3d-4xx.dll libopencv_videoio-4xx.dll) do (
+  rem OpenCV DLLs kopieren (mit korrekten Versionsnummern)
+  echo Kopiere OpenCV DLLs...
+  for %%D in (opencv_core413.dll opencv_imgproc413.dll opencv_imgcodecs413.dll opencv_features2d413.dll opencv_flann413.dll opencv_calib3d413.dll opencv_videoio413.dll) do (
     if exist "%MSYS2_PREFIX%\bin\%%D" (
       copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
       echo   Kopiert: %%D
+    ) else (
+      rem Fallback für andere Versionen
+      for %%F in ("%MSYS2_PREFIX%\bin\opencv_core*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
+      for %%F in ("%MSYS2_PREFIX%\bin\opencv_imgproc*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
+      for %%F in ("%MSYS2_PREFIX%\bin\opencv_imgcodecs*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
     )
   )
 
-  rem Weitere Abhaengigkeiten
-  for %%D in (libcfitsio-4.dll libyaml-cpp.dll libssl-3-x64.dll libcrypto-3-x64.dll libzstd.dll libbzip2.dll liblzma-5.dll zlib1.dll) do (
+  rem Weitere Abhaengigkeiten (inkl. OpenSSL)
+  echo Kopiere weitere Abhaengigkeiten...
+  for %%D in (libcfitsio.dll libyaml-cpp.dll libssl-3.dll libcrypto-3.dll libzstd.dll libbzip2.dll liblzma.dll zlib1.dll) do (
     if exist "%MSYS2_PREFIX%\bin\%%D" (
       copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
       echo   Kopiert: %%D
+    ) else (
+      rem Alternative Namensvarianten
+      for %%F in ("%MSYS2_PREFIX%\bin\libcfitsio*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
+      for %%F in ("%MSYS2_PREFIX%\bin\libssl*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
+      for %%F in ("%MSYS2_PREFIX%\bin\libcrypto*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
     )
   )
 
