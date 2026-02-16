@@ -78,33 +78,56 @@ fi
 if [ -n "$MISSING_DEPS" ]; then
   echo "Fehlende Abhängigkeiten:$MISSING_DEPS"
   echo ""
-  if command -v brew &>/dev/null; then
-    echo "Bitte fehlende Pakete installieren:"
-    if [[ " $MISSING_DEPS " == *" xcode-cli "* ]]; then
-      echo "  xcode-select --install"
-    fi
-    if [[ " $MISSING_DEPS " == *" cmake "* ]]; then
-      echo "  brew install cmake"
-    fi
-    if [[ " $MISSING_DEPS " == *" pkg-config "* ]]; then
-      echo "  brew install pkg-config"
-    fi
-    if [[ " $MISSING_DEPS " == *" eigen "* ]] || [[ " $MISSING_DEPS " == *" opencv "* ]] || [[ " $MISSING_DEPS " == *" cfitsio "* ]] || [[ " $MISSING_DEPS " == *" yaml-cpp "* ]] || [[ " $MISSING_DEPS " == *" nlohmann-json "* ]] || [[ " $MISSING_DEPS " == *" openssl "* ]]; then
-      echo "  brew install eigen opencv cfitsio yaml-cpp nlohmann-json openssl pkg-config"
-    fi
-    if [[ " $MISSING_DEPS " == *" qt6 "* ]]; then
-      echo "  Qt6 ueber Qt Online Installer installieren (z.B. unter ~/Qt/<version>/macos)"
-      echo "  Danach optional setzen:"
-      echo "    export CMAKE_PREFIX_PATH=\"$HOME/Qt/<version>/macos\""
-      echo "    export Qt6_DIR=\"$HOME/Qt/<version>/macos/lib/cmake/Qt6\""
-      echo "  Hinweis: Homebrew-qt erfordert auf manchen Systemen mindestens macOS Ventura."
-    fi
+  if [[ " $MISSING_DEPS " == *" xcode-cli "* ]]; then
+    echo "Xcode Command Line Tools fehlen. Starte: xcode-select --install"
+    xcode-select --install || true
+    echo "Bitte Installation abschliessen und Skript erneut starten."
     exit 1
+  fi
+
+  if command -v port &>/dev/null; then
+    echo "Versuche automatische Installation via MacPorts..."
+    PORT_PKGS=""
+    for dep in $MISSING_DEPS; do
+      case "$dep" in
+        cmake)      PORT_PKGS="$PORT_PKGS cmake" ;;
+        pkg-config) PORT_PKGS="$PORT_PKGS pkgconfig" ;;
+        qt6)        PORT_PKGS="$PORT_PKGS qt6-qtbase qt6-qttools" ;;
+      esac
+    done
+
+    if [ -n "$PORT_PKGS" ]; then
+      echo "sudo port install$PORT_PKGS"
+      sudo port install $PORT_PKGS || {
+        echo "FEHLER: MacPorts-Installation fehlgeschlagen."
+        exit 1
+      }
+    fi
+
+    export CMAKE_PREFIX_PATH="/opt/local${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+    export PKG_CONFIG_PATH="/opt/local/lib/pkgconfig:/opt/local/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    export PATH="/opt/local/bin:/opt/local/sbin:$PATH"
+  elif command -v brew &>/dev/null && [ "$MACOS_MAJOR" -ge 13 ]; then
+    echo "Versuche automatische Installation via Homebrew..."
+    BREW_PKGS=""
+    for dep in $MISSING_DEPS; do
+      case "$dep" in
+        cmake)      BREW_PKGS="$BREW_PKGS cmake" ;;
+        pkg-config) BREW_PKGS="$BREW_PKGS pkg-config" ;;
+        qt6)        BREW_PKGS="$BREW_PKGS qt" ;;
+      esac
+    done
+    if [ -n "$BREW_PKGS" ]; then
+      echo "brew install$BREW_PKGS"
+      brew install $BREW_PKGS || {
+        echo "FEHLER: Homebrew-Installation fehlgeschlagen."
+        exit 1
+      }
+    fi
   else
-    echo "Automatische Installation nicht möglich (Homebrew nicht gefunden)."
-    echo "Bitte installieren: Xcode Command Line Tools, CMake, pkg-config, Qt6"
-    echo "Benötigte Libs: eigen, opencv, cfitsio, yaml-cpp, nlohmann-json, openssl"
-    echo "Qt6 bevorzugt ueber Qt Online Installer (z.B. ~/Qt/<version>/macos)"
+    echo "Automatische Installation nicht möglich."
+    echo "macOS 12 (Monterey): bitte MacPorts installieren (https://www.macports.org/install.php)."
+    echo "macOS >=13: Homebrew ist moeglich."
     exit 1
   fi
 fi
@@ -136,6 +159,29 @@ fi
 if [ -n "$LIB_CHECK_WARNINGS" ]; then
   echo "Hinweis: pkg-config konnte folgende Module nicht bestaetigen:$LIB_CHECK_WARNINGS"
   echo "Der Build wird trotzdem versucht (CMake-Fallback fuer nicht-Homebrew-Installationen)."
+  if command -v port &>/dev/null; then
+    PORT_LIBS=""
+    for dep in $LIB_CHECK_WARNINGS; do
+      case "$dep" in
+        eigen)         PORT_LIBS="$PORT_LIBS eigen3" ;;
+        opencv)        PORT_LIBS="$PORT_LIBS opencv4" ;;
+        cfitsio)       PORT_LIBS="$PORT_LIBS cfitsio" ;;
+        yaml-cpp)      PORT_LIBS="$PORT_LIBS yaml-cpp" ;;
+        nlohmann-json) PORT_LIBS="$PORT_LIBS nlohmann-json" ;;
+        openssl)       PORT_LIBS="$PORT_LIBS openssl" ;;
+      esac
+    done
+    if [ -n "$PORT_LIBS" ]; then
+      echo "Versuche fehlende Libraries via MacPorts zu installieren..."
+      echo "sudo port install$PORT_LIBS"
+      sudo port install $PORT_LIBS || {
+        echo "WARNUNG: Library-Installation via MacPorts fehlgeschlagen."
+      }
+      export CMAKE_PREFIX_PATH="/opt/local${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+      export PKG_CONFIG_PATH="/opt/local/lib/pkgconfig:/opt/local/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+      export PATH="/opt/local/bin:/opt/local/sbin:$PATH"
+    fi
+  fi
   if [[ " $LIB_CHECK_WARNINGS " == *" opencv "* ]] && [ "$MACOS_MAJOR" -gt 0 ] && [ "$MACOS_MAJOR" -lt 13 ]; then
     echo "macOS < 13 erkannt: Homebrew/OpenCV kann wegen Qt/qtmultimedia scheitern."
     echo "Alternative fuer OpenCV/CFITSIO/yaml-cpp/nlohmann-json:"

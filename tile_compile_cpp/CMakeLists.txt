@@ -33,6 +33,25 @@ endif()
 
 # OpenCV
 find_package(OpenCV QUIET)
+if(NOT OpenCV_FOUND AND WIN32)
+    foreach(_opencv_prefix
+        "C:/msys64/mingw64"
+        "C:/msys64/ucrt64"
+        "C:/msys64/clang64"
+        "C:/tools/vcpkg/installed/x64-windows"
+        "C:/tools/vcpkg/installed/x64-mingw-dynamic"
+        "C:/tools/vcpkg/installed/x64-mingw-static"
+    )
+        if(EXISTS "${_opencv_prefix}/lib/cmake/opencv4/OpenCVConfig.cmake")
+            set(OpenCV_DIR "${_opencv_prefix}/lib/cmake/opencv4")
+            find_package(OpenCV QUIET)
+            if(OpenCV_FOUND)
+                break()
+            endif()
+        endif()
+    endforeach()
+endif()
+
 if(NOT OpenCV_FOUND)
     if(PkgConfig_FOUND)
         pkg_check_modules(OPENCV4 QUIET opencv4)
@@ -58,13 +77,46 @@ if(NOT OpenCV_FOUND)
         else()
             # Fallback for non-pkg-config setups (e.g. custom installs)
             find_path(OPENCV_INCLUDE_DIR opencv2/opencv.hpp
-                PATHS /opt/local /usr/local /opt/homebrew
+                PATHS
+                    /opt/local /usr/local /opt/homebrew
+                    C:/msys64/mingw64 C:/msys64/ucrt64 C:/msys64/clang64
+                    C:/tools/vcpkg/installed/x64-windows
+                    C:/tools/vcpkg/installed/x64-mingw-dynamic
+                    C:/tools/vcpkg/installed/x64-mingw-static
                 PATH_SUFFIXES include/opencv4 include
             )
-            find_library(OPENCV_CORE_LIBRARY NAMES opencv_core PATHS /opt/local/lib /usr/local/lib /opt/homebrew/lib)
-            find_library(OPENCV_IMGPROC_LIBRARY NAMES opencv_imgproc PATHS /opt/local/lib /usr/local/lib /opt/homebrew/lib)
-            find_library(OPENCV_IMGCODECS_LIBRARY NAMES opencv_imgcodecs PATHS /opt/local/lib /usr/local/lib /opt/homebrew/lib)
-            find_library(OPENCV_VIDEOIO_LIBRARY NAMES opencv_videoio PATHS /opt/local/lib /usr/local/lib /opt/homebrew/lib)
+            find_library(OPENCV_CORE_LIBRARY NAMES opencv_core
+                PATHS
+                    /opt/local/lib /usr/local/lib /opt/homebrew/lib
+                    C:/msys64/mingw64/lib C:/msys64/ucrt64/lib C:/msys64/clang64/lib
+                    C:/tools/vcpkg/installed/x64-windows/lib
+                    C:/tools/vcpkg/installed/x64-mingw-dynamic/lib
+                    C:/tools/vcpkg/installed/x64-mingw-static/lib
+            )
+            find_library(OPENCV_IMGPROC_LIBRARY NAMES opencv_imgproc
+                PATHS
+                    /opt/local/lib /usr/local/lib /opt/homebrew/lib
+                    C:/msys64/mingw64/lib C:/msys64/ucrt64/lib C:/msys64/clang64/lib
+                    C:/tools/vcpkg/installed/x64-windows/lib
+                    C:/tools/vcpkg/installed/x64-mingw-dynamic/lib
+                    C:/tools/vcpkg/installed/x64-mingw-static/lib
+            )
+            find_library(OPENCV_IMGCODECS_LIBRARY NAMES opencv_imgcodecs
+                PATHS
+                    /opt/local/lib /usr/local/lib /opt/homebrew/lib
+                    C:/msys64/mingw64/lib C:/msys64/ucrt64/lib C:/msys64/clang64/lib
+                    C:/tools/vcpkg/installed/x64-windows/lib
+                    C:/tools/vcpkg/installed/x64-mingw-dynamic/lib
+                    C:/tools/vcpkg/installed/x64-mingw-static/lib
+            )
+            find_library(OPENCV_VIDEOIO_LIBRARY NAMES opencv_videoio
+                PATHS
+                    /opt/local/lib /usr/local/lib /opt/homebrew/lib
+                    C:/msys64/mingw64/lib C:/msys64/ucrt64/lib C:/msys64/clang64/lib
+                    C:/tools/vcpkg/installed/x64-windows/lib
+                    C:/tools/vcpkg/installed/x64-mingw-dynamic/lib
+                    C:/tools/vcpkg/installed/x64-mingw-static/lib
+            )
 
             if(OPENCV_INCLUDE_DIR AND OPENCV_CORE_LIBRARY)
                 set(OpenCV_INCLUDE_DIRS ${OPENCV_INCLUDE_DIR})

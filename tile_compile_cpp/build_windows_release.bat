@@ -66,13 +66,29 @@ rem [1] CMake konfigurieren
 rem ===========================================================================
 echo [1/3] CMake konfigurieren...
 
+set USE_MINGW=0
 where g++ >NUL 2>&1
-if not errorlevel 1 (
+if not errorlevel 1 set USE_MINGW=1
+
+if /I "%FORCE_MSVC%"=="1" set USE_MINGW=0
+if defined VCPKG_ROOT set USE_MINGW=0
+
+if "%USE_MINGW%"=="1" (
   echo Erkannt: MinGW ^(g++^) - verwende Generator "MinGW Makefiles"
   cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
 ) else (
   echo Erkannt: MSVC/Standardgenerator
-  cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
+  if defined VCPKG_ROOT (
+    if exist "%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" (
+      echo Nutze vcpkg Toolchain: %VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake
+      cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF -DCMAKE_TOOLCHAIN_FILE="%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
+    ) else (
+      echo WARNUNG: VCPKG_ROOT gesetzt, aber Toolchain-Datei nicht gefunden.
+      cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
+    )
+  ) else (
+    cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_TESTS=OFF
+  )
 )
 if errorlevel 1 goto :error
 
