@@ -1,8 +1,9 @@
 #include "tile_compile/astrometry/wcs.hpp"
 
-#include <charconv>
 #include <cmath>
 #include <fstream>
+#include <locale>
+#include <sstream>
 #include <string>
 
 namespace tile_compile::astrometry {
@@ -44,10 +45,12 @@ static double parse_fits_double(const std::string &val_str) {
         s = s.substr(1, s.size() - 2);
         while (!s.empty() && s.back() == ' ') s.pop_back();
     }
-    // Use std::from_chars — locale-independent (always uses '.' as decimal sep)
+
+    std::stringstream ss(s);
+    ss.imbue(std::locale::classic());
     double result = 0.0;
-    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), result);
-    if (ec != std::errc()) return 0.0;
+    ss >> result;
+    if (ss.fail()) return 0.0;
     return result;
 }
 

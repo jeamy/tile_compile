@@ -77,6 +77,23 @@ if defined VCPKG_ROOT set USE_MINGW=0
 if "%USE_MINGW%"=="1" (
   echo Erkannt: MinGW ^(g++^) - verwende Generator "MinGW Makefiles"
 
+  rem Auto-detect MSYS2 prefix for MinGW toolchain
+  if not defined CMAKE_PREFIX_PATH (
+    if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+      set "CMAKE_PREFIX_PATH=C:\msys64\mingw64"
+    ) else if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+      set "CMAKE_PREFIX_PATH=C:\msys64\ucrt64"
+    ) else if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+      set "CMAKE_PREFIX_PATH=C:\msys64\clang64"
+    )
+  )
+
+  if defined CMAKE_PREFIX_PATH (
+    if exist "%CMAKE_PREFIX_PATH%\bin" (
+      set "PATH=%CMAKE_PREFIX_PATH%\bin;%PATH%"
+    )
+  )
+
   rem Quick sanity check: OpenCV must be available for MinGW (typical MSYS2 setup)
   set OPENCV_CFG_FOUND=0
   if defined OpenCV_DIR (
@@ -100,9 +117,13 @@ if "%USE_MINGW%"=="1" (
     echo   build_windows_release.bat
     echo.
     echo Option B: MinGW + MSYS2
-    echo   - Installiere OpenCV fuer MinGW in MSYS2
-    echo   - Setze dann z.B.:
+    echo   - Installiere Libraries in der MSYS2 MinGW64-Shell:
+    echo       pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf
+    echo       pacman -S --needed mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl
+    echo   - Danach in cmd.exe z.B.:
+    echo       set FORCE_MINGW=1
     echo       set CMAKE_PREFIX_PATH=C:\msys64\mingw64
+    echo       build_windows_release.bat
     echo.
     exit /B 1
   )
