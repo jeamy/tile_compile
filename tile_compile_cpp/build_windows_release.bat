@@ -258,14 +258,18 @@ rem [2] CMake konfigurieren
 rem ===========================================================================
 echo [2/4] CMake konfigurieren...
 
+rem Build-Verzeichnis sauber neu anlegen (del /S loescht keine Ordner und laesst Attribute stehen)
+if exist "%BUILD_DIR%" (
+  attrib -R "%BUILD_DIR%\*" /S /D 2>NUL
+  rmdir /S /Q "%BUILD_DIR%" 2>NUL
+)
+
+echo Erstelle Build-Verzeichnis: %BUILD_DIR%
+mkdir "%BUILD_DIR%" 2>NUL
 if not exist "%BUILD_DIR%" (
-  echo Erstelle Build-Verzeichnis: %BUILD_DIR%
-  mkdir "%BUILD_DIR%" 2>NUL
-  if not exist "%BUILD_DIR%" (
-    echo FEHLER: Konnte Build-Verzeichnis nicht erstellen.
-    echo Bitte pruefe die Berechtigungen oder erstelle es manuell.
-    exit /B 1
-  )
+  echo FEHLER: Konnte Build-Verzeichnis nicht erstellen.
+  echo Bitte pruefe die Berechtigungen oder erstelle es manuell.
+  exit /B 1
 )
 
 rem Pruefe Schreibrechte im Build-Verzeichnis
@@ -379,7 +383,7 @@ for /f "tokens=1 delims=;" %%i in ("%CMAKE_PREFIX_PATH%") do set "QT_PREFIX=%%i"
 
 if not defined QT_PREFIX (
   if defined Qt6_DIR (
-    set "QT_PREFIX=%Qt6_DIR%\..\..\..”
+    set "QT_PREFIX=%Qt6_DIR%\..\..\.."
   )
 )
 
