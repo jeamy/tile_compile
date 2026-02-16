@@ -258,27 +258,60 @@ rem [2] CMake konfigurieren
 rem ===========================================================================
 echo [2/4] CMake konfigurieren...
 
-if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
+if not exist "%BUILD_DIR%" (
+  echo Erstelle Build-Verzeichnis: %BUILD_DIR%
+  mkdir "%BUILD_DIR%" 2>NUL
+  if not exist "%BUILD_DIR%" (
+    echo FEHLER: Konnte Build-Verzeichnis nicht erstellen.
+    echo Bitte pruefe die Berechtigungen oder erstelle es manuell.
+    exit /B 1
+  )
+)
+
+rem Pruefe Schreibrechte im Build-Verzeichnis
+echo Test > "%BUILD_DIR%\test_write.tmp" 2>NUL
+if not exist "%BUILD_DIR%\test_write.tmp" (
+  echo FEHLER: Keine Schreibrechte im Build-Verzeichnis.
+  echo Bitte pruefe die Berechtigungen oder fuehre als Administrator aus.
+  exit /B 1
+)
+del "%BUILD_DIR%\test_write.tmp" 2>NUL
 
 cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" ^
-  -G "MinGW Makefiles" ^
+  -G "Ninja" ^
   -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
   -DBUILD_TESTS=OFF ^
   -DCMAKE_PREFIX_PATH="%CMAKE_PREFIX_PATH%" ^
   -DQt6_DIR="%Qt6_DIR%" ^
-  -DOpenCV_DIR="%OpenCV_DIR%"
+  -DOpenCV_DIR="%OpenCV_DIR%" ^
+  -DCMAKE_AUTOGEN_VERBOSE=ON ^
+  -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
 
 if errorlevel 1 (
   echo.
-  echo FEHLER: CMake-Konfiguration fehlgeschlagen.
-  echo.
-  echo Moegliche Loesungen:
-  echo   1. Pruefe ob alle Abhaengigkeiten installiert sind:
-  echo      pacman -Q ^| findstr mingw-w64-x86_64
-  echo   2. Loesche den Build-Ordner und versuche es erneut:
-  echo      rmdir /S /Q "%BUILD_DIR%"
-  echo.
-  exit /B 1
+  echo FEHLER: CMake-Konfiguration mit Ninja fehlgeschlagen. Versuche MinGW Makefiles...
+  cmake -S "%PROJECT_DIR%" -B "%BUILD_DIR%" ^
+    -G "MinGW Makefiles" ^
+    -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
+    -DBUILD_TESTS=OFF ^
+    -DCMAKE_PREFIX_PATH="%CMAKE_PREFIX_PATH%" ^
+    -DQt6_DIR="%Qt6_DIR%" ^
+    -DOpenCV_DIR="%OpenCV_DIR%" ^
+    -DCMAKE_AUTOGEN_VERBOSE=ON ^
+    -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
+  
+  if errorlevel 1 (
+    echo.
+    echo FEHLER: CMake-Konfiguration fehlgeschlagen.
+    echo.
+    echo Moegliche Loesungen:
+    echo   1. Pruefe ob alle Abhaengigkeiten installiert sind:
+    echo      pacman -Q ^| findstr mingw-w64-x86_64
+    echo   2. Loesche den Build-Ordner und versuche es erneut:
+    echo      rmdir /S /Q "%BUILD_DIR%"
+    echo.
+    exit /B 1
+  )
 )
 
 rem ===========================================================================
