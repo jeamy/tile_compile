@@ -81,14 +81,28 @@ if [ -n "$MISSING_DEPS" ]; then
       esac
     done
 
-    echo "sudo apt-get update && sudo apt-get install -y$APT_PKGS"
-    sudo apt-get update && sudo apt-get install -y $APT_PKGS || {
-      echo ""
-      echo "FEHLER: Automatische Installation fehlgeschlagen."
-      echo "Bitte installiere manuell:"
-      echo "  sudo apt-get install$APT_PKGS"
-      exit 1
-    }
+    # Prüfe ob wir root sind (z.B. im Docker-Container)
+    if [ "$(id -u)" -eq 0 ]; then
+      # Root: sudo weglassen
+      echo "apt-get update && apt-get install -y$APT_PKGS"
+      apt-get update && apt-get install -y $APT_PKGS || {
+        echo ""
+        echo "FEHLER: Automatische Installation fehlgeschlagen."
+        echo "Bitte installiere manuell:"
+        echo "  apt-get install$APT_PKGS"
+        exit 1
+      }
+    else
+      # Nicht root: sudo verwenden
+      echo "sudo apt-get update && sudo apt-get install -y$APT_PKGS"
+      sudo apt-get update && sudo apt-get install -y $APT_PKGS || {
+        echo ""
+        echo "FEHLER: Automatische Installation fehlgeschlagen."
+        echo "Bitte installiere manuell:"
+        echo "  sudo apt-get install$APT_PKGS"
+        exit 1
+      }
+    fi
   else
     echo "Automatische Installation nicht möglich (kein apt gefunden)."
     echo "Bitte installiere manuell: cmake, g++/clang++, pkg-config, Qt6 und C++ Libs"
