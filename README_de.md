@@ -143,7 +143,7 @@ Im Verzeichnis `tile_compile_cpp/` stehen plattformspezifische Release-Skripte b
 - Linux (nativ): `build_linux_release.sh`
 - Linux (Docker Ubuntu 20.04 / glibc 2.31): `build_linux_release_docker_ubuntu2004.sh`
 - macOS: `build_macos_release.sh`
-- Windows: `build_windows_release.bat`
+- Windows: `build_windows_release.bat` (erkennt MSYS2 automatisch, falls installiert)
 
 Linux-Docker-Wrapper (empfohlen für breite Linux-Kompatibilität):
 
@@ -171,6 +171,20 @@ Bewusst nicht enthalten:
 
 - externe Siril-Katalogdaten
 - externe ASTAP-Binary/Daten
+
+Windows-Hinweis:
+
+- Das Build-Script erkennt MSYS2-Installationen unter `C:\msys64\mingw64` (oder `ucrt64`/`clang64`) automatisch und setzt `CMAKE_PREFIX_PATH` entsprechend.
+- Falls MSYS2 nicht installiert ist, Abhängigkeiten installieren via:
+  - **Option A (MinGW)**: MSYS2 von https://www.msys2.org/ installieren, dann in der MSYS2 MinGW64-Shell:
+    ```bash
+    pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf
+    pacman -S --needed mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl
+    ```
+  - **Option B (MSVC)**: vcpkg installieren und `VCPKG_ROOT` setzen, dann:
+    ```bat
+    vcpkg install eigen3:x64-windows opencv4:x64-windows cfitsio:x64-windows yaml-cpp:x64-windows nlohmann-json:x64-windows openssl:x64-windows qt6:x64-windows
+    ```
 
 macOS-Hinweis:
 

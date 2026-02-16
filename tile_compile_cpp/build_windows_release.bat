@@ -84,14 +84,50 @@ if defined VCPKG_ROOT set USE_MINGW=0
 if "%USE_MINGW%"=="1" (
   echo Erkannt: MinGW ^(g++^) - verwende Generator "MinGW Makefiles"
 
+  rem Auto-detect Qt6 installation for MinGW
+  set QT_PREFIX=
+  if exist "C:\Qt\6.10.1\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" set "QT_PREFIX=C:\Qt\6.10.1\mingw_64"
+  if not defined QT_PREFIX (
+    for /d %%D in (C:\Qt\6.*) do (
+      if exist "%%D\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" set "QT_PREFIX=%%D\mingw_64"
+    )
+  )
+  if not defined QT_PREFIX (
+    for /d %%D in (C:\Qt\*) do (
+      if exist "%%D\macos\lib\cmake\Qt6\Qt6Config.cmake" set "QT_PREFIX=%%D\macos"
+      if exist "%%D\mingw*\lib\cmake\Qt6\Qt6Config.cmake" (
+        for /d %%M in (%%D\mingw*) do (
+          if exist "%%M\lib\cmake\Qt6\Qt6Config.cmake" set "QT_PREFIX=%%M"
+        )
+      )
+    )
+  )
+
   rem Auto-detect MSYS2 prefix for MinGW toolchain
+  set MSYS2_PREFIX=
+  if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set "MSYS2_PREFIX=C:\msys64\mingw64"
+  if not defined MSYS2_PREFIX (
+    if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" set "MSYS2_PREFIX=C:\msys64\ucrt64"
+  )
+  if not defined MSYS2_PREFIX (
+    if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" set "MSYS2_PREFIX=C:\msys64\clang64"
+  )
+
+  rem Build CMAKE_PREFIX_PATH with both Qt and MSYS2
   if not defined CMAKE_PREFIX_PATH (
-    if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" (
-      set "CMAKE_PREFIX_PATH=C:\msys64\mingw64"
-    ) else if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" (
-      set "CMAKE_PREFIX_PATH=C:\msys64\ucrt64"
-    ) else if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" (
-      set "CMAKE_PREFIX_PATH=C:\msys64\clang64"
+    if defined QT_PREFIX (
+      if defined MSYS2_PREFIX (
+        set "CMAKE_PREFIX_PATH=%QT_PREFIX%;%MSYS2_PREFIX%"
+      ) else (
+        set "CMAKE_PREFIX_PATH=%QT_PREFIX%"
+      )
+    ) else if defined MSYS2_PREFIX (
+      set "CMAKE_PREFIX_PATH=%MSYS2_PREFIX%"
+    )
+  ) else (
+    rem CMAKE_PREFIX_PATH already set by user - append MSYS2 if found
+    if defined MSYS2_PREFIX (
+      set "CMAKE_PREFIX_PATH=%CMAKE_PREFIX_PATH%;%MSYS2_PREFIX%"
     )
   )
 
