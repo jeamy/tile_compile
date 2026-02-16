@@ -11,6 +11,8 @@
 #ifdef _WIN32
 #include <io.h>
 #include <sys/stat.h>
+#include <windows.h>
+#include <fileapi.h>
 #else
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -113,6 +115,18 @@ void DiskCacheFrameStore::store(size_t fi, const Matrix2Df &frame) {
   if (frame.rows() != rows_ || frame.cols() != cols_)
     return;
   fs::path p = frame_path(fi);
+#ifdef _WIN32
+  HANDLE hFile = CreateFileW(p.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (hFile == INVALID_HANDLE_VALUE)
+    return;
+  DWORD written = 0;
+  const char *src = reinterpret_cast<const char *>(frame.data());
+  WriteFile(hFile, src, static_cast<DWORD>(frame_bytes_), &written, NULL);
+  CloseHandle(hFile);
+  if (written == frame_bytes_) {
+    has_data_[fi] = true;
+  }
+#else
   int fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
   if (fd < 0)
     return;
@@ -128,12 +142,30 @@ void DiskCacheFrameStore::store(size_t fi, const Matrix2Df &frame) {
   if (written == frame_bytes_) {
     has_data_[fi] = true;
   }
+#endif
 }
 
 Matrix2Df DiskCacheFrameStore::load(size_t fi) const {
   if (fi >= has_data_.size() || !has_data_[fi])
     return Matrix2Df();
   fs::path p = frame_path(fi);
+#ifdef _WIN32
+  HANDLE hFile = CreateFileW(p.c_str(), GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (hFile == INVALID_HANDLE_VALUE)
+    return Matrix2Df();
+  HANDLE hMapping = CreateFileMappingW(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+  CloseHandle(hFile);
+  if (!hMapping)
+    return Matrix2Df();
+  void *ptr = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, frame_bytes_);
+  CloseHandle(hMapping);
+  if (!ptr)
+    return Matrix2Df();
+  Matrix2Df out(rows_, cols_);
+  std::memcpy(out.data(), ptr, frame_bytes_);
+  UnmapViewOfFile(ptr);
+  return out;
+#else
   int fd = ::open(p.c_str(), O_RDONLY);
   if (fd < 0)
     return Matrix2Df();
@@ -145,12 +177,26 @@ Matrix2Df DiskCacheFrameStore::load(size_t fi) const {
   std::memcpy(out.data(), ptr, frame_bytes_);
   ::munmap(ptr, frame_bytes_);
   return out;
+#endif
 }
 
 Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t) const {
   if (fi >= has_data_.size() || !has_data_[fi])
     return Matrix2Df();
   fs::path p = frame_path(fi);
+#ifdef _WIN32
+  HANDLE hFile = CreateFileW(p.c_str(), GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (hFile == INVALID_HANDLE_VALUE)
+    return Matrix2Df();
+  HANDLE hMapping = CreateFileMappingW(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+  CloseHandle(hFile);
+  if (!hMapping)
+    return Matrix2Df();
+  void *ptr = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, frame_bytes_);
+  CloseHandle(hMapping);
+  if (!ptr)
+    return Matrix2Df();
+#else
   int fd = ::open(p.c_str(), O_RDONLY);
   if (fd < 0)
     return Matrix2Df();
@@ -158,6 +204,7 @@ Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t) const {
   ::close(fd);
   if (ptr == MAP_FAILED)
     return Matrix2Df();
+#endif
 
   const float *src = static_cast<const float *>(ptr);
   int x0 = std::max(0, t.x);
@@ -169,7 +216,11 @@ Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t) const {
   if (y0 + th > rows_)
     th = rows_ - y0;
   if (tw <= 0 || th <= 0) {
+#ifdef _WIN32
+    UnmapViewOfFile(ptr);
+#else
     ::munmap(ptr, frame_bytes_);
+#endif
     return Matrix2Df();
   }
 
@@ -182,7 +233,11 @@ Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t) const {
         tile.data() + static_cast<size_t>(r) * static_cast<size_t>(tw);
     std::memcpy(row_dst, row_src, static_cast<size_t>(tw) * sizeof(float));
   }
+#ifdef _WIN32
+  UnmapViewOfFile(ptr);
+#else
   ::munmap(ptr, frame_bytes_);
+#endif
   return tile;
 }
 
