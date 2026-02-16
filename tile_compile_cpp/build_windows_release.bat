@@ -439,27 +439,91 @@ if exist "%QT_BIN%\Qt6Core.dll" (
     )
   )
 
-  rem Weitere Abhaengigkeiten (inkl. OpenSSL, ICU, curl, etc.)
-  echo Kopiere weitere Abhaengigkeiten...
-  for %%D in (libcfitsio.dll libyaml-cpp.dll libssl-3.dll libcrypto-3.dll libzstd.dll libbzip2.dll liblzma.dll zlib1.dll libcurl.dll libicuin.dll libicuuc.dll libicudt.dll libpcre2-8.dll libharfbuzz-0.dll libfreetype.dll libpng16-16.dll libjpeg-8.dll libtiff.dll libwebp.dll libcurl-4.dll libb2-1.dll libicuin78.dll libicuuc78.dll) do (
-    if exist "%MSYS2_PREFIX%\bin\%%D" (
-      copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
-      echo   Kopiert: %%D
-    ) else (
-      rem Alternative Namensvarianten
-      for %%F in ("%MSYS2_PREFIX%\bin\libcfitsio*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-      for %%F in ("%MSYS2_PREFIX%\bin\libssl*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-      for %%F in ("%MSYS2_PREFIX%\bin\libcrypto*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-    )
+  rem Alle notwendigen Bibliotheken mit Wildcards kopieren
+  echo Kopiere alle notwendigen Bibliotheken...
+  
+  rem cfitsio
+  for %%F in ("%MSYS2_PREFIX%\bin\libcfitsio*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  
+  rem yaml-cpp
+  for %%F in ("%MSYS2_PREFIX%\bin\libyaml-cpp*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  
+  rem OpenSSL
+  for %%F in ("%MSYS2_PREFIX%\bin\libssl*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\libcrypto*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  
+  rem Kompression
+  for %%F in ("%MSYS2_PREFIX%\bin\libzstd*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\libbzip2*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\liblzma*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\zlib*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  
+  rem curl
+  for %%F in ("%MSYS2_PREFIX%\bin\libcurl*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  
+  rem ICU (Unicode)
+  for %%F in ("%MSYS2_PREFIX%\bin\libicu*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  
+  rem Text Rendering
+  for %%F in ("%MSYS2_PREFIX%\bin\libpcre*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\libharfbuzz*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\libfreetype*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  
+  rem Bildformate
+  for %%F in ("%MSYS2_PREFIX%\bin\libpng*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\libjpeg*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\libtiff*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\libwebp*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
   )
 
   echo Qt-DLLs kopiert.
