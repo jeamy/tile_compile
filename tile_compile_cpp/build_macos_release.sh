@@ -27,6 +27,29 @@ if ! command -v cmake &>/dev/null; then
   MISSING_DEPS="$MISSING_DEPS cmake"
 fi
 
+if ! command -v pkg-config &>/dev/null; then
+  MISSING_DEPS="$MISSING_DEPS pkg-config"
+else
+  if ! pkg-config --exists eigen3 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS eigen"
+  fi
+  if ! pkg-config --exists opencv4 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS opencv"
+  fi
+  if ! pkg-config --exists cfitsio 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS cfitsio"
+  fi
+  if ! pkg-config --exists yaml-cpp 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS yaml-cpp"
+  fi
+  if ! pkg-config --exists nlohmann_json 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS nlohmann-json"
+  fi
+  if ! pkg-config --exists openssl 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS openssl"
+  fi
+fi
+
 QT6_OK=0
 if command -v qmake6 &>/dev/null; then
   QT6_OK=1
@@ -58,6 +81,12 @@ if [ -n "$MISSING_DEPS" ]; then
     if [[ " $MISSING_DEPS " == *" cmake "* ]]; then
       echo "  brew install cmake"
     fi
+    if [[ " $MISSING_DEPS " == *" pkg-config "* ]]; then
+      echo "  brew install pkg-config"
+    fi
+    if [[ " $MISSING_DEPS " == *" eigen "* ]] || [[ " $MISSING_DEPS " == *" opencv "* ]] || [[ " $MISSING_DEPS " == *" cfitsio "* ]] || [[ " $MISSING_DEPS " == *" yaml-cpp "* ]] || [[ " $MISSING_DEPS " == *" nlohmann-json "* ]] || [[ " $MISSING_DEPS " == *" openssl "* ]]; then
+      echo "  brew install eigen opencv cfitsio yaml-cpp nlohmann-json openssl pkg-config"
+    fi
     if [[ " $MISSING_DEPS " == *" qt6 "* ]]; then
       echo "  Qt6 ueber Qt Online Installer installieren (z.B. unter ~/Qt/<version>/macos)"
       echo "  Danach optional setzen:"
@@ -68,7 +97,9 @@ if [ -n "$MISSING_DEPS" ]; then
     exit 1
   else
     echo "Automatische Installation nicht möglich (Homebrew nicht gefunden)."
-    echo "Bitte installieren: Xcode Command Line Tools, CMake, Qt6 (Qt Online Installer)"
+    echo "Bitte installieren: Xcode Command Line Tools, CMake, pkg-config, Qt6"
+    echo "Benötigte Libs: eigen, opencv, cfitsio, yaml-cpp, nlohmann-json, openssl"
+    echo "Qt6 bevorzugt ueber Qt Online Installer (z.B. ~/Qt/<version>/macos)"
     exit 1
   fi
 fi

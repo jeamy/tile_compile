@@ -27,6 +27,29 @@ if ! command -v g++ &>/dev/null && ! command -v clang++ &>/dev/null; then
   MISSING_DEPS="$MISSING_DEPS g++"
 fi
 
+if ! command -v pkg-config &>/dev/null; then
+  MISSING_DEPS="$MISSING_DEPS pkg-config"
+else
+  if ! pkg-config --exists eigen3 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS libeigen3-dev"
+  fi
+  if ! pkg-config --exists opencv4 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS libopencv-dev"
+  fi
+  if ! pkg-config --exists cfitsio 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS libcfitsio-dev"
+  fi
+  if ! pkg-config --exists yaml-cpp 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS libyaml-cpp-dev"
+  fi
+  if ! pkg-config --exists nlohmann_json 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS nlohmann-json3-dev"
+  fi
+  if ! pkg-config --exists openssl 2>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS libssl-dev"
+  fi
+fi
+
 QT6_OK=0
 if command -v qmake6 &>/dev/null; then
   QT6_OK=1
@@ -47,7 +70,14 @@ if [ -n "$MISSING_DEPS" ]; then
       case "$dep" in
         cmake)        APT_PKGS="$APT_PKGS cmake" ;;
         g++)          APT_PKGS="$APT_PKGS g++" ;;
+        pkg-config)   APT_PKGS="$APT_PKGS pkg-config" ;;
         qt6-base-dev) APT_PKGS="$APT_PKGS qt6-base-dev qt6-tools-dev libgl1-mesa-dev" ;;
+        libeigen3-dev) APT_PKGS="$APT_PKGS libeigen3-dev" ;;
+        libopencv-dev) APT_PKGS="$APT_PKGS libopencv-dev" ;;
+        libcfitsio-dev) APT_PKGS="$APT_PKGS libcfitsio-dev" ;;
+        libyaml-cpp-dev) APT_PKGS="$APT_PKGS libyaml-cpp-dev" ;;
+        nlohmann-json3-dev) APT_PKGS="$APT_PKGS nlohmann-json3-dev" ;;
+        libssl-dev) APT_PKGS="$APT_PKGS libssl-dev" ;;
       esac
     done
 
@@ -61,7 +91,8 @@ if [ -n "$MISSING_DEPS" ]; then
     }
   else
     echo "Automatische Installation nicht möglich (kein apt gefunden)."
-    echo "Bitte installiere manuell: cmake, g++/clang++, Qt6 Development-Pakete"
+    echo "Bitte installiere manuell: cmake, g++/clang++, pkg-config, Qt6 und C++ Libs"
+    echo "Benötigte Libs: eigen3, opencv4, cfitsio, yaml-cpp, nlohmann-json, openssl"
     echo "Fedora/RHEL:  sudo dnf install cmake gcc-c++ qt6-qtbase-devel"
     echo "Arch Linux:   sudo pacman -S cmake gcc qt6-base"
     echo "openSUSE:     sudo zypper install cmake gcc-c++ qt6-base-devel"

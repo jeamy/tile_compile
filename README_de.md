@@ -104,6 +104,29 @@ Für eine vollständige anfängerfreundliche Anleitung siehe:
 - yaml-cpp
 - nlohmann-json
 
+#### Paket-Installationsbeispiele
+
+Linux (Ubuntu/Debian):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential cmake pkg-config \
+  libeigen3-dev libopencv-dev libcfitsio-dev libyaml-cpp-dev nlohmann-json3-dev libssl-dev \
+  qt6-base-dev qt6-tools-dev libgl1-mesa-dev
+```
+
+macOS (Homebrew, Kernbibliotheken):
+
+```bash
+brew install cmake pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl
+```
+
+Windows:
+
+- MinGW/MSYS2: `mingw-w64-x86_64-eigen3`, `mingw-w64-x86_64-opencv`, `mingw-w64-x86_64-cfitsio`, `mingw-w64-x86_64-yaml-cpp`, `mingw-w64-x86_64-nlohmann-json`, `mingw-w64-x86_64-openssl`, `mingw-w64-x86_64-pkgconf`
+- MSVC/vcpkg: `eigen3`, `opencv`, `cfitsio`, `yaml-cpp`, `nlohmann-json`, `openssl`, `pkgconf`
+
 ### Kompilieren
 
 ```bash
@@ -148,6 +171,16 @@ Bewusst nicht enthalten:
 
 - externe Siril-Katalogdaten
 - externe ASTAP-Binary/Daten
+
+macOS-Hinweis:
+
+- Auf älteren macOS-Versionen kann Homebrew-`qt` mindestens Ventura voraussetzen und die Installation fehlschlagen.
+- In diesem Fall Qt6 über den Qt Online Installer installieren (z.B. unter `~/Qt/<version>/macos`) und optional setzen:
+
+```bash
+export CMAKE_PREFIX_PATH="$HOME/Qt/<version>/macos"
+export Qt6_DIR="$HOME/Qt/<version>/macos/lib/cmake/Qt6"
+```
 
 ### Docker Build + Run (empfohlen für isolierte Umgebungen)
 

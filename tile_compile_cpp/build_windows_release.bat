@@ -45,6 +45,11 @@ if defined MISSING_DEPS (
   echo   - CMake: https://cmake.org/download/
   echo   - C++ Compiler: MSVC oder MinGW
   echo   - Qt6 mit passendem Compiler-Kit
+  echo   - C++ Libs: Eigen3, OpenCV, cfitsio, yaml-cpp, nlohmann-json, OpenSSL, pkg-config
+  echo.
+  echo Typische Optionen fuer Libraries:
+  echo   - MSYS2/MinGW: pacman -S mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl mingw-w64-x86_64-pkgconf
+  echo   - vcpkg (MSVC): eigen3 opencv cfitsio yaml-cpp nlohmann-json openssl pkgconf
   echo.
   echo Typische Konfiguration fuer MinGW:
   echo   set CMAKE_PREFIX_PATH=C:\Qt\6.10.1\mingw_64
