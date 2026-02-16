@@ -145,9 +145,34 @@ if(CFITSIO_INCLUDE_DIR AND CFITSIO_LIBRARY)
     set(CFITSIO_LIBRARIES ${CFITSIO_LIBRARY})
 else()
     if(PkgConfig_FOUND)
-        pkg_check_modules(CFITSIO REQUIRED cfitsio)
-    else()
-        message(FATAL_ERROR "CFITSIO nicht gefunden und pkg-config ist nicht verfuegbar. Bitte CFITSIO installieren oder CMAKE_PREFIX_PATH setzen.")
+        pkg_check_modules(CFITSIO QUIET cfitsio)
+    endif()
+    
+    if(NOT CFITSIO_FOUND)
+        # Manual fallback for MSYS2/MinGW installations
+        set(_cfitsio_search_paths
+            "C:/msys64/mingw64"
+            "C:/msys64/ucrt64"
+            "C:/msys64/clang64"
+            "/usr/local"
+            "/usr"
+        )
+        foreach(_prefix ${_cfitsio_search_paths})
+            if(EXISTS "${_prefix}/include/fitsio.h")
+                find_path(CFITSIO_INCLUDE_DIR fitsio.h PATHS "${_prefix}/include" NO_DEFAULT_PATH)
+                find_library(CFITSIO_LIBRARY NAMES cfitsio PATHS "${_prefix}/lib" NO_DEFAULT_PATH)
+                if(CFITSIO_INCLUDE_DIR AND CFITSIO_LIBRARY)
+                    set(CFITSIO_INCLUDE_DIRS ${CFITSIO_INCLUDE_DIR})
+                    set(CFITSIO_LIBRARIES ${CFITSIO_LIBRARY})
+                    set(CFITSIO_FOUND TRUE)
+                    break()
+                endif()
+            endif()
+        endforeach()
+        
+        if(NOT CFITSIO_FOUND)
+            message(FATAL_ERROR "CFITSIO nicht gefunden. Bitte CFITSIO installieren oder CMAKE_PREFIX_PATH setzen.")
+        endif()
     endif()
 endif()
 
@@ -156,9 +181,34 @@ if(yaml-cpp_FOUND)
     set(YAML_CPP_LIBRARIES yaml-cpp::yaml-cpp)
 else()
     if(PkgConfig_FOUND)
-        pkg_check_modules(YAML_CPP REQUIRED yaml-cpp)
-    else()
-        message(FATAL_ERROR "yaml-cpp nicht gefunden und pkg-config ist nicht verfuegbar. Bitte yaml-cpp installieren oder CMAKE_PREFIX_PATH setzen.")
+        pkg_check_modules(YAML_CPP QUIET yaml-cpp)
+    endif()
+    
+    if(NOT YAML_CPP_FOUND)
+        # Manual fallback for MSYS2/MinGW installations
+        set(_yamlcpp_search_paths
+            "C:/msys64/mingw64"
+            "C:/msys64/ucrt64"
+            "C:/msys64/clang64"
+            "/usr/local"
+            "/usr"
+        )
+        foreach(_prefix ${_yamlcpp_search_paths})
+            if(EXISTS "${_prefix}/include/yaml-cpp/yaml.h")
+                find_path(YAML_CPP_INCLUDE_DIR yaml-cpp/yaml.h PATHS "${_prefix}/include" NO_DEFAULT_PATH)
+                find_library(YAML_CPP_LIBRARY NAMES yaml-cpp PATHS "${_prefix}/lib" NO_DEFAULT_PATH)
+                if(YAML_CPP_INCLUDE_DIR AND YAML_CPP_LIBRARY)
+                    set(YAML_CPP_INCLUDE_DIRS ${YAML_CPP_INCLUDE_DIR})
+                    set(YAML_CPP_LIBRARIES ${YAML_CPP_LIBRARY})
+                    set(YAML_CPP_FOUND TRUE)
+                    break()
+                endif()
+            endif()
+        endforeach()
+        
+        if(NOT YAML_CPP_FOUND)
+            message(FATAL_ERROR "yaml-cpp nicht gefunden. Bitte yaml-cpp installieren oder CMAKE_PREFIX_PATH setzen.")
+        endif()
     endif()
 endif()
 
@@ -166,14 +216,37 @@ endif()
 find_package(nlohmann_json QUIET)
 if(NOT nlohmann_json_FOUND)
     if(PkgConfig_FOUND)
-        pkg_check_modules(NLOHMANN_JSON REQUIRED nlohmann_json)
-    else()
+        pkg_check_modules(NLOHMANN_JSON QUIET nlohmann_json)
+    endif()
+    
+    if(NOT NLOHMANN_JSON_FOUND)
         find_path(NLOHMANN_JSON_INCLUDE_DIR nlohmann/json.hpp)
         if(NLOHMANN_JSON_INCLUDE_DIR)
             set(NLOHMANN_JSON_INCLUDE_DIRS ${NLOHMANN_JSON_INCLUDE_DIR})
             set(NLOHMANN_JSON_FOUND TRUE)
         else()
-            message(FATAL_ERROR "nlohmann-json nicht gefunden und pkg-config ist nicht verfuegbar. Bitte nlohmann-json installieren oder CMAKE_PREFIX_PATH setzen.")
+            # Manual fallback for MSYS2/MinGW installations
+            set(_nlohmann_search_paths
+                "C:/msys64/mingw64"
+                "C:/msys64/ucrt64"
+                "C:/msys64/clang64"
+                "/usr/local"
+                "/usr"
+            )
+            foreach(_prefix ${_nlohmann_search_paths})
+                if(EXISTS "${_prefix}/include/nlohmann/json.hpp")
+                    find_path(NLOHMANN_JSON_INCLUDE_DIR nlohmann/json.hpp PATHS "${_prefix}/include" NO_DEFAULT_PATH)
+                    if(NLOHMANN_JSON_INCLUDE_DIR)
+                        set(NLOHMANN_JSON_INCLUDE_DIRS ${NLOHMANN_JSON_INCLUDE_DIR})
+                        set(NLOHMANN_JSON_FOUND TRUE)
+                        break()
+                    endif()
+                endif()
+            endforeach()
+            
+            if(NOT NLOHMANN_JSON_FOUND)
+                message(FATAL_ERROR "nlohmann-json nicht gefunden. Bitte nlohmann-json installieren oder CMAKE_PREFIX_PATH setzen.")
+            endif()
         endif()
     endif()
 endif()
