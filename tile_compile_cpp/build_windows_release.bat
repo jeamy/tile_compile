@@ -462,27 +462,36 @@ if exist "%QT_BIN%\Qt6Core.dll" (
     )
   )
 
-  mkdir "%DIST_DIR%\platforms" 2>NUL
-  set "QT_PLUGINS=%QT_PREFIX%\share\qt6\plugins"
-  if not exist "%QT_PLUGINS%" set "QT_PLUGINS=%QT_PREFIX%\plugins"
+  rem Qt Plugins Pfad ermitteln
+  set "QT_PLUGINS="
+  if exist "%QT_PREFIX%\share\qt6\plugins" (
+    set "QT_PLUGINS=%QT_PREFIX%\share\qt6\plugins"
+  ) else if exist "%QT_PREFIX%\plugins" (
+    set "QT_PLUGINS=%QT_PREFIX%\plugins"
+  )
   
-  if exist "%QT_PLUGINS%\platforms\qwindows.dll" (
-    copy /Y "%QT_PLUGINS%\platforms\qwindows.dll" "%DIST_DIR%\platforms" >NUL
-    echo   Kopiert: platforms/qwindows.dll
+  if defined QT_PLUGINS (
+    mkdir "%DIST_DIR%\platforms" 2>NUL
+    if exist "%QT_PLUGINS%\platforms\qwindows.dll" (
+      copy /Y "%QT_PLUGINS%\platforms\qwindows.dll" "%DIST_DIR%\platforms" >NUL
+      echo   Kopiert: platforms/qwindows.dll
+    ) else (
+      echo WARNUNG: qwindows.dll nicht gefunden unter %QT_PLUGINS%\platforms
+    )
+
+    if exist "%QT_PLUGINS%\imageformats" (
+      mkdir "%DIST_DIR%\imageformats" 2>NUL
+      xcopy "%QT_PLUGINS%\imageformats\*.dll" "%DIST_DIR%\imageformats" /Y >NUL
+      echo   Kopiert: imageformats/*.dll
+    )
+
+    if exist "%QT_PLUGINS%\styles" (
+      mkdir "%DIST_DIR%\styles" 2>NUL
+      xcopy "%QT_PLUGINS%\styles\*.dll" "%DIST_DIR%\styles" /Y >NUL
+      echo   Kopiert: styles/*.dll
+    )
   ) else (
-    echo WARNUNG: qwindows.dll nicht gefunden unter %QT_PLUGINS%\platforms
-  )
-
-  if exist "%QT_PLUGINS%\imageformats" (
-    mkdir "%DIST_DIR%\imageformats" 2>NUL
-    xcopy "%QT_PLUGINS%\imageformats\*.dll" "%DIST_DIR%\imageformats" /Y >NUL
-    echo   Kopiert: imageformats/*.dll
-  )
-
-  if exist "%QT_PLUGINS%\styles" (
-    mkdir "%DIST_DIR%\styles" 2>NUL
-    xcopy "%QT_PLUGINS%\styles\*.dll" "%DIST_DIR%\styles" /Y >NUL
-    echo   Kopiert: styles/*.dll
+    echo WARNUNG: Qt Plugins Verzeichnis nicht gefunden
   )
 ) else (
   echo WARNUNG: Qt6Core.dll nicht unter %QT_BIN% gefunden. Bitte Qt-Pfad pruefen.
