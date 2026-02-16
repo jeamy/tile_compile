@@ -466,7 +466,7 @@ if exist "%QT_BIN%\Qt6Core.dll" (
   set "QT_PLUGINS="
   if exist "%QT_PREFIX%\share\qt6\plugins" set "QT_PLUGINS=%QT_PREFIX%\share\qt6\plugins"
   if not defined QT_PLUGINS if exist "%QT_PREFIX%\plugins" set "QT_PLUGINS=%QT_PREFIX%\plugins"
-  for %%i in ("%QT_PLUGINS%") do set "QT_PLUGINS=%%~i"
+  if defined QT_PLUGINS for %%i in ("%QT_PLUGINS%") do set "QT_PLUGINS=%%~i"
   
   if defined QT_PLUGINS (
     mkdir "%DIST_DIR%\platforms" 2>NUL
