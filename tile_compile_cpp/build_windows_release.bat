@@ -463,22 +463,25 @@ if exist "%QT_BIN%\Qt6Core.dll" (
   )
 
   mkdir "%DIST_DIR%\platforms" 2>NUL
-  if exist "%QT_PREFIX%\plugins\platforms\qwindows.dll" (
-    copy /Y "%QT_PREFIX%\plugins\platforms\qwindows.dll" "%DIST_DIR%\platforms" >NUL
+  set "QT_PLUGINS=%QT_PREFIX%\share\qt6\plugins"
+  if not exist "%QT_PLUGINS%" set "QT_PLUGINS=%QT_PREFIX%\plugins"
+  
+  if exist "%QT_PLUGINS%\platforms\qwindows.dll" (
+    copy /Y "%QT_PLUGINS%\platforms\qwindows.dll" "%DIST_DIR%\platforms" >NUL
     echo   Kopiert: platforms/qwindows.dll
   ) else (
-    echo WARNUNG: qwindows.dll nicht gefunden unter %QT_PREFIX%\plugins\platforms
+    echo WARNUNG: qwindows.dll nicht gefunden unter %QT_PLUGINS%\platforms
   )
 
-  if exist "%QT_PREFIX%\plugins\imageformats" (
+  if exist "%QT_PLUGINS%\imageformats" (
     mkdir "%DIST_DIR%\imageformats" 2>NUL
-    xcopy "%QT_PREFIX%\plugins\imageformats\*.dll" "%DIST_DIR%\imageformats" /Y >NUL
+    xcopy "%QT_PLUGINS%\imageformats\*.dll" "%DIST_DIR%\imageformats" /Y >NUL
     echo   Kopiert: imageformats/*.dll
   )
 
-  if exist "%QT_PREFIX%\plugins\styles" (
+  if exist "%QT_PLUGINS%\styles" (
     mkdir "%DIST_DIR%\styles" 2>NUL
-    xcopy "%QT_PREFIX%\plugins\styles\*.dll" "%DIST_DIR%\styles" /Y >NUL
+    xcopy "%QT_PLUGINS%\styles\*.dll" "%DIST_DIR%\styles" /Y >NUL
     echo   Kopiert: styles/*.dll
   )
 ) else (
@@ -492,7 +495,7 @@ if not errorlevel 1 (
   echo Erzeuge Release-Zip: %ZIP_NAME%
   pushd "%PROJECT_DIR%\dist"
   if exist "%ZIP_NAME%" del /F /Q "%ZIP_NAME%"
-  powershell -NoLogo -NoProfile -Command "Compress-Archive -Path '*.*' -DestinationPath '%ZIP_NAME%' -Force"
+  powershell -NoLogo -NoProfile -Command "Compress-Archive -Path 'windows' -DestinationPath '%ZIP_NAME%' -Force"
   popd
   echo Release-Zip erstellt: %PROJECT_DIR%\dist\%ZIP_NAME%
 ) else (

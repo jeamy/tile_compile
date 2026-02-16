@@ -17,6 +17,10 @@ echo ""
 #==============================================================================
 # [0] Abhängigkeiten prüfen
 #==============================================================================
+if [ "${SKIP_DEPS:-0}" = "1" ]; then
+  echo "Ueberspringe Abhaengigkeiten-Check (SKIP_DEPS=1)"
+  echo ""
+else
 MISSING_DEPS=""
 
 if ! command -v cmake &>/dev/null; then
@@ -112,6 +116,7 @@ if [ -n "$MISSING_DEPS" ]; then
     echo "openSUSE:     sudo zypper install cmake gcc-c++ qt6-base-devel"
     exit 1
   fi
+fi
 fi
 
 echo "Alle Abhängigkeiten vorhanden."

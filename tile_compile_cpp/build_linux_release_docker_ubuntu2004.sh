@@ -44,8 +44,8 @@ docker run --rm \
     echo 'Starte Build...'
     rm -rf build-linux-release
     
-    # Build-Script mit Root-Check umgehen
-    export IS_ROOT=1
+    # Ueberspringe Dependency-Check im Build-Script (bereits im Container installiert)
+    export SKIP_DEPS=1
     bash build_linux_release.sh
   " || {
   echo ""
