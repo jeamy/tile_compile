@@ -441,7 +441,7 @@ if exist "%QT_BIN%\Qt6Core.dll" (
 
   rem Weitere Abhaengigkeiten (inkl. OpenSSL, ICU, curl, etc.)
   echo Kopiere weitere Abhaengigkeiten...
-  for %%D in (libcfitsio.dll libyaml-cpp.dll libssl-3.dll libcrypto-3.dll libzstd.dll libbzip2.dll liblzma.dll zlib1.dll libcurl.dll libicuin.dll libicuuc.dll libicudt.dll libpcre2-8.dll libharfbuzz-0.dll libfreetype.dll libpng16-16.dll libjpeg-8.dll libtiff.dll libwebp.dll) do (
+  for %%D in (libcfitsio.dll libyaml-cpp.dll libssl-3.dll libcrypto-3.dll libzstd.dll libbzip2.dll liblzma.dll zlib1.dll libcurl.dll libicuin.dll libicuuc.dll libicudt.dll libpcre2-8.dll libharfbuzz-0.dll libfreetype.dll libpng16-16.dll libjpeg-8.dll libtiff.dll libwebp.dll libcurl-4.dll libb2-1.dll libicuin78.dll libicuuc78.dll) do (
     if exist "%MSYS2_PREFIX%\bin\%%D" (
       copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
       echo   Kopiert: %%D
