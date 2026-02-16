@@ -178,7 +178,18 @@ endif()
 
 find_package(yaml-cpp QUIET)
 if(yaml-cpp_FOUND)
-    set(YAML_CPP_LIBRARIES yaml-cpp::yaml-cpp)
+    # Nicht yaml-cpp::yaml-cpp verwenden - kann defekt sein in Ubuntu 20.04
+    # Stattdessen direkt die Bibliothek verlinken
+    if(TARGET yaml-cpp::yaml-cpp)
+        get_target_property(_yaml_location yaml-cpp::yaml-cpp LOCATION)
+        if(_yaml_location)
+            set(YAML_CPP_LIBRARIES ${_yaml_location})
+        else()
+            set(YAML_CPP_LIBRARIES "yaml-cpp")
+        endif()
+    else()
+        set(YAML_CPP_LIBRARIES "yaml-cpp")
+    endif()
 else()
     if(PkgConfig_FOUND)
         pkg_check_modules(YAML_CPP QUIET yaml-cpp)
@@ -332,16 +343,11 @@ target_link_libraries(tile_compile_lib PUBLIC
     Eigen3::Eigen
     ${OpenCV_LIBS}
     ${CFITSIO_LIBRARIES}
+    ${YAML_CPP_LIBRARIES}
     OpenSSL::Crypto
     Qt6::Core
     Qt6::Network
 )
-
-if(TARGET yaml-cpp::yaml-cpp)
-    target_link_libraries(tile_compile_lib PUBLIC yaml-cpp::yaml-cpp)
-else()
-    target_link_libraries(tile_compile_lib PUBLIC ${YAML_CPP_LIBRARIES})
-endif()
 
 if(nlohmann_json_FOUND)
     target_link_libraries(tile_compile_lib PUBLIC nlohmann_json::nlohmann_json)

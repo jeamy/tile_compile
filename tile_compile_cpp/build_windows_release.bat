@@ -462,42 +462,37 @@ if exist "%QT_BIN%\Qt6Core.dll" (
     )
   )
 
-  rem Qt Plugins Pfad ermitteln - muss außerhalb von if-Blöcken sein
-  setlocal EnableDelayedExpansion
+  rem Qt Plugins Pfad ermitteln
   set "QT_PLUGINS="
-  set "QT_SHARE=%QT_PREFIX%\share\qt6\plugins"
-  set "QT_PLAIN=%QT_PREFIX%\plugins"
-  
-  if exist "!QT_SHARE!" (
-    set "QT_PLUGINS=!QT_SHARE!"
-  ) else if exist "!QT_PLAIN!" (
-    set "QT_PLUGINS=!QT_PLAIN!"
+  if exist "%QT_PREFIX%\share\qt6\plugins" (
+    set "QT_PLUGINS=%QT_PREFIX%\share\qt6\plugins"
+  ) else if exist "%QT_PREFIX%\plugins" (
+    set "QT_PLUGINS=%QT_PREFIX%\plugins"
   )
   
-  if not "!QT_PLUGINS!"=="" (
+  if not "%QT_PLUGINS%"=="" (
     mkdir "%DIST_DIR%\platforms" 2>NUL
-    if exist "!QT_PLUGINS!\platforms\qwindows.dll" (
-      copy /Y "!QT_PLUGINS!\platforms\qwindows.dll" "%DIST_DIR%\platforms" >NUL
+    if exist "%QT_PLUGINS%\platforms\qwindows.dll" (
+      copy /Y "%QT_PLUGINS%\platforms\qwindows.dll" "%DIST_DIR%\platforms" >NUL
       echo   Kopiert: platforms/qwindows.dll
     ) else (
-      echo WARNUNG: qwindows.dll nicht gefunden unter !QT_PLUGINS!\platforms
+      echo WARNUNG: qwindows.dll nicht gefunden unter %QT_PLUGINS%\platforms
     )
 
-    if exist "!QT_PLUGINS!\imageformats" (
+    if exist "%QT_PLUGINS%\imageformats" (
       mkdir "%DIST_DIR%\imageformats" 2>NUL
-      xcopy "!QT_PLUGINS!\imageformats\*.dll" "%DIST_DIR%\imageformats" /Y >NUL
+      xcopy "%QT_PLUGINS%\imageformats\*.dll" "%DIST_DIR%\imageformats" /Y >NUL
       echo   Kopiert: imageformats/*.dll
     )
 
-    if exist "!QT_PLUGINS!\styles" (
+    if exist "%QT_PLUGINS%\styles" (
       mkdir "%DIST_DIR%\styles" 2>NUL
-      xcopy "!QT_PLUGINS!\styles\*.dll" "%DIST_DIR%\styles" /Y >NUL
+      xcopy "%QT_PLUGINS%\styles\*.dll" "%DIST_DIR%\styles" /Y >NUL
       echo   Kopiert: styles/*.dll
     )
   ) else (
     echo WARNUNG: Qt Plugins Verzeichnis nicht gefunden
   )
-  endlocal
 ) else (
   echo WARNUNG: Qt6Core.dll nicht unter %QT_BIN% gefunden. Bitte Qt-Pfad pruefen.
 )

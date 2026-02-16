@@ -142,10 +142,12 @@ Im Verzeichnis `tile_compile_cpp/` stehen plattformspezifische Release-Skripte b
 
 - Linux (nativ): `build_linux_release.sh`
 - Linux (Docker Ubuntu 20.04 / glibc 2.31): `build_linux_release_docker_ubuntu2004.sh`
+- Linux (AppImage): `build_linux_appimage.sh`
+- Linux (AppImage Docker): `build_linux_appimage_docker.sh`
 - macOS: `build_macos_release.sh`
 - Windows: `build_windows_release.bat` (erkennt MSYS2 automatisch, falls installiert)
 
-Linux-Docker-Wrapper (empfohlen für breite Linux-Kompatibilität):
+**Linux-Docker-Wrapper (empfohlen für breite Linux-Kompatibilität):**
 
 ```bash
 cd tile_compile_cpp
@@ -153,6 +155,19 @@ bash build_linux_release_docker_ubuntu2004.sh
 # optional: Image-Build überspringen
 bash build_linux_release_docker_ubuntu2004.sh --skip-build
 ```
+
+**Linux AppImage (portable Single-File-Executable):**
+
+```bash
+cd tile_compile_cpp
+# Variante A: Docker (empfohlen für maximale Kompatibilität)
+bash build_linux_appimage_docker.sh
+
+# Variante B: Lokal (braucht Qt6 installiert)
+bash build_linux_appimage.sh
+```
+
+Das AppImage ist eine portable Single-File-Executable, die auf den meisten Linux-Distributionen läuft (ohne Installation).
 
 Die Release-Ausgaben liegen unter `tile_compile_cpp/dist/`:
 
