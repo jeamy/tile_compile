@@ -85,7 +85,7 @@ if(NOT OpenCV_FOUND)
                     C:/tools/vcpkg/installed/x64-mingw-static
                 PATH_SUFFIXES include/opencv4 include
             )
-            find_library(OPENCV_CORE_LIBRARY NAMES opencv_core
+            find_library(OPENCV_CORE_LIBRARY NAMES opencv_core opencv4_core
                 PATHS
                     /opt/local/lib /usr/local/lib /opt/homebrew/lib
                     C:/msys64/mingw64/lib C:/msys64/ucrt64/lib C:/msys64/clang64/lib
@@ -93,7 +93,7 @@ if(NOT OpenCV_FOUND)
                     C:/tools/vcpkg/installed/x64-mingw-dynamic/lib
                     C:/tools/vcpkg/installed/x64-mingw-static/lib
             )
-            find_library(OPENCV_IMGPROC_LIBRARY NAMES opencv_imgproc
+            find_library(OPENCV_IMGPROC_LIBRARY NAMES opencv_imgproc opencv4_imgproc
                 PATHS
                     /opt/local/lib /usr/local/lib /opt/homebrew/lib
                     C:/msys64/mingw64/lib C:/msys64/ucrt64/lib C:/msys64/clang64/lib
@@ -101,7 +101,7 @@ if(NOT OpenCV_FOUND)
                     C:/tools/vcpkg/installed/x64-mingw-dynamic/lib
                     C:/tools/vcpkg/installed/x64-mingw-static/lib
             )
-            find_library(OPENCV_IMGCODECS_LIBRARY NAMES opencv_imgcodecs
+            find_library(OPENCV_IMGCODECS_LIBRARY NAMES opencv_imgcodecs opencv4_imgcodecs
                 PATHS
                     /opt/local/lib /usr/local/lib /opt/homebrew/lib
                     C:/msys64/mingw64/lib C:/msys64/ucrt64/lib C:/msys64/clang64/lib
@@ -109,7 +109,7 @@ if(NOT OpenCV_FOUND)
                     C:/tools/vcpkg/installed/x64-mingw-dynamic/lib
                     C:/tools/vcpkg/installed/x64-mingw-static/lib
             )
-            find_library(OPENCV_VIDEOIO_LIBRARY NAMES opencv_videoio
+            find_library(OPENCV_VIDEOIO_LIBRARY NAMES opencv_videoio opencv4_videoio
                 PATHS
                     /opt/local/lib /usr/local/lib /opt/homebrew/lib
                     C:/msys64/mingw64/lib C:/msys64/ucrt64/lib C:/msys64/clang64/lib
