@@ -18,6 +18,7 @@ echo ""
 # [0] Abhängigkeiten prüfen
 #==============================================================================
 MISSING_DEPS=""
+LIB_CHECK_WARNINGS=""
 
 if ! command -v clang++ &>/dev/null; then
   MISSING_DEPS="$MISSING_DEPS xcode-cli"
@@ -31,22 +32,22 @@ if ! command -v pkg-config &>/dev/null; then
   MISSING_DEPS="$MISSING_DEPS pkg-config"
 else
   if ! pkg-config --exists eigen3 2>/dev/null; then
-    MISSING_DEPS="$MISSING_DEPS eigen"
+    LIB_CHECK_WARNINGS="$LIB_CHECK_WARNINGS eigen"
   fi
   if ! pkg-config --exists opencv4 2>/dev/null; then
-    MISSING_DEPS="$MISSING_DEPS opencv"
+    LIB_CHECK_WARNINGS="$LIB_CHECK_WARNINGS opencv"
   fi
   if ! pkg-config --exists cfitsio 2>/dev/null; then
-    MISSING_DEPS="$MISSING_DEPS cfitsio"
+    LIB_CHECK_WARNINGS="$LIB_CHECK_WARNINGS cfitsio"
   fi
   if ! pkg-config --exists yaml-cpp 2>/dev/null; then
-    MISSING_DEPS="$MISSING_DEPS yaml-cpp"
+    LIB_CHECK_WARNINGS="$LIB_CHECK_WARNINGS yaml-cpp"
   fi
   if ! pkg-config --exists nlohmann_json 2>/dev/null; then
-    MISSING_DEPS="$MISSING_DEPS nlohmann-json"
+    LIB_CHECK_WARNINGS="$LIB_CHECK_WARNINGS nlohmann-json"
   fi
   if ! pkg-config --exists openssl 2>/dev/null; then
-    MISSING_DEPS="$MISSING_DEPS openssl"
+    LIB_CHECK_WARNINGS="$LIB_CHECK_WARNINGS openssl"
   fi
 fi
 
@@ -126,6 +127,12 @@ fi
 
 if [ -z "$Qt6_DIR" ] && [ -n "$CMAKE_PREFIX_PATH" ] && [ -d "$CMAKE_PREFIX_PATH/lib/cmake/Qt6" ]; then
   export Qt6_DIR="$CMAKE_PREFIX_PATH/lib/cmake/Qt6"
+fi
+
+if [ -n "$LIB_CHECK_WARNINGS" ]; then
+  echo "Hinweis: pkg-config konnte folgende Module nicht bestaetigen:$LIB_CHECK_WARNINGS"
+  echo "Der Build wird trotzdem versucht (CMake-Fallback fuer nicht-Homebrew-Installationen)."
+  echo ""
 fi
 
 echo "Alle Abhängigkeiten vorhanden."

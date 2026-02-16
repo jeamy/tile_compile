@@ -43,8 +43,21 @@ if(NOT OpenCV_FOUND)
     endif()
 endif()
 
-pkg_check_modules(CFITSIO REQUIRED cfitsio)
-pkg_check_modules(YAML_CPP REQUIRED yaml-cpp)
+find_path(CFITSIO_INCLUDE_DIR fitsio.h)
+find_library(CFITSIO_LIBRARY NAMES cfitsio)
+if(CFITSIO_INCLUDE_DIR AND CFITSIO_LIBRARY)
+    set(CFITSIO_INCLUDE_DIRS ${CFITSIO_INCLUDE_DIR})
+    set(CFITSIO_LIBRARIES ${CFITSIO_LIBRARY})
+else()
+    pkg_check_modules(CFITSIO REQUIRED cfitsio)
+endif()
+
+find_package(yaml-cpp QUIET)
+if(yaml-cpp_FOUND)
+    set(YAML_CPP_LIBRARIES yaml-cpp::yaml-cpp)
+else()
+    pkg_check_modules(YAML_CPP REQUIRED yaml-cpp)
+endif()
 
 # nlohmann/json - try find_package first, fallback to pkg-config
 find_package(nlohmann_json QUIET)
