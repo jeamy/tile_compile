@@ -114,20 +114,27 @@ if "%USE_MINGW%"=="1" (
   )
 
   rem Build CMAKE_PREFIX_PATH with both Qt and MSYS2
-  if not defined CMAKE_PREFIX_PATH (
-    if defined QT_PREFIX (
-      if defined MSYS2_PREFIX (
-        set "CMAKE_PREFIX_PATH=%QT_PREFIX%;%MSYS2_PREFIX%"
-      ) else (
-        set "CMAKE_PREFIX_PATH=%QT_PREFIX%"
-      )
-    ) else if defined MSYS2_PREFIX (
-      set "CMAKE_PREFIX_PATH=%MSYS2_PREFIX%"
+  rem Always construct it from detected paths to ensure both Qt and libs are found
+  set NEW_PREFIX_PATH=
+  if defined QT_PREFIX (
+    set "NEW_PREFIX_PATH=%QT_PREFIX%"
+  )
+  if defined MSYS2_PREFIX (
+    if defined NEW_PREFIX_PATH (
+      set "NEW_PREFIX_PATH=%NEW_PREFIX_PATH%;%MSYS2_PREFIX%"
+    ) else (
+      set "NEW_PREFIX_PATH=%MSYS2_PREFIX%"
+    )
+  )
+  
+  rem If user already set CMAKE_PREFIX_PATH, append our detected paths
+  if defined CMAKE_PREFIX_PATH (
+    if defined NEW_PREFIX_PATH (
+      set "CMAKE_PREFIX_PATH=%CMAKE_PREFIX_PATH%;%NEW_PREFIX_PATH%"
     )
   ) else (
-    rem CMAKE_PREFIX_PATH already set by user - append MSYS2 if found
-    if defined MSYS2_PREFIX (
-      set "CMAKE_PREFIX_PATH=%CMAKE_PREFIX_PATH%;%MSYS2_PREFIX%"
+    if defined NEW_PREFIX_PATH (
+      set "CMAKE_PREFIX_PATH=%NEW_PREFIX_PATH%"
     )
   )
 
@@ -143,30 +150,35 @@ if "%USE_MINGW%"=="1" (
     if exist "%OpenCV_DIR%\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
   )
   if "%OPENCV_CFG_FOUND%"=="0" (
-    if defined CMAKE_PREFIX_PATH (
-      if exist "%CMAKE_PREFIX_PATH%\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
+    if defined MSYS2_PREFIX (
+      if exist "%MSYS2_PREFIX%\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
     )
   )
   if "%OPENCV_CFG_FOUND%"=="0" (
     if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
   )
   if "%OPENCV_CFG_FOUND%"=="0" (
+    if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
+  )
+  if "%OPENCV_CFG_FOUND%"=="0" (
+    if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_CFG_FOUND=1
+  )
+  if "%OPENCV_CFG_FOUND%"=="0" (
     echo.
     echo FEHLER: OpenCV wurde fuer den MinGW-Toolchain nicht gefunden.
     echo.
     echo Option A ^(empfohlen^): MSVC + vcpkg
-    echo   set VCPKG_ROOT=G:\programming\vcpkg
+    echo   set VCPKG_ROOT=C:\vcpkg
     echo   set FORCE_MSVC=1
     echo   build_windows_release.bat
     echo.
     echo Option B: MinGW + MSYS2
-    echo   - Installiere Libraries in der MSYS2 MinGW64-Shell:
+    echo   - Installiere MSYS2 von https://www.msys2.org/
+    echo   - Oeffne MSYS2 MinGW64 ^(oder UCRT64^) Shell und installiere:
     echo       pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf
     echo       pacman -S --needed mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl
-    echo   - Danach in cmd.exe z.B.:
-    echo       set FORCE_MINGW=1
-    echo       set CMAKE_PREFIX_PATH=C:\msys64\mingw64
-    echo       build_windows_release.bat
+    echo   - Fuer UCRT64 verwende: mingw-w64-ucrt-x86_64-^<paket^>
+    echo   - Danach einfach build_windows_release.bat ausfuehren ^(Auto-Detection^)
     echo.
     exit /B 1
   )
