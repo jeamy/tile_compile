@@ -14,13 +14,26 @@ htmlcov/
 
 # C++ build
 tile_compile_cpp/build/
+tile_compile_cpp/build-*/
 tile_compile_cpp/cmake-build-*/
+tile_compile_cpp/dist/
 tile_compile_cpp/.cache
 *.o
 *.a
 *.so
 *.dylib
 *.cache
+
+# CMake generated files (in-source builds)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+Testing/
+install_manifest.txt
+ctest_test.cmake
+DartConfiguration.tcl
 
 # Runtime / outputs
 runs/
@@ -39,6 +52,10 @@ tile_compile_gui_state.json
 # Build artifacts (Python)
 dist/
 *.egg-info/
+
+# Release artifacts
+*.zip
+*.dmg
 
 # OS / editors
 .DS_Store
