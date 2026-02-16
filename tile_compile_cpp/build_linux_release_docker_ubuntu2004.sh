@@ -29,11 +29,8 @@ else
 fi
 
 echo "[2/2] Release-Build im Container ausführen..."
-USER_ID="$(id -u 2>/dev/null || echo 0)"
-GROUP_ID="$(id -g 2>/dev/null || echo 0)"
 
 docker run --rm \
-  -u "$USER_ID:$GROUP_ID" \
   -v "$SCRIPT_DIR:/work" \
   -w /work \
   "$IMAGE_NAME" \
@@ -42,10 +39,14 @@ docker run --rm \
     apt-get update > /dev/null 2>&1
     if ! dpkg -l | grep -q nlohmann-json3-dev; then
       echo 'Installiere nlohmann-json3-dev...'
-      apt-get install -y nlohmann-json3-dev
+      apt-get install -y nlohmann-json3-dev > /dev/null 2>&1
     fi
     echo 'Starte Build...'
-    rm -rf build-linux-release && bash build_linux_release.sh
+    rm -rf build-linux-release
+    
+    # Build-Script mit Root-Check umgehen
+    export IS_ROOT=1
+    bash build_linux_release.sh
   " || {
   echo ""
   echo "Falls der Build wegen fehlender Abhängigkeiten fehlschlägt, versuche:"

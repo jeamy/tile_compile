@@ -7,7 +7,7 @@ setlocal ENABLEDELAYEDEXPANSION
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "PROJECT_DIR=%SCRIPT_DIR%"
-set "BUILD_DIR=%PROJECT_DIR%\build-windows-release"
+set "BUILD_DIR=C:\windows-tile-compile-build"
 set "DIST_DIR=%PROJECT_DIR%\dist\windows"
 set BUILD_TYPE=Release
 
