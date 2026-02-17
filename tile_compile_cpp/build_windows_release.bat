@@ -441,7 +441,27 @@ if exist "%QT_BIN%\Qt6Core.dll" (
 
   rem Alle notwendigen Bibliotheken mit Wildcards kopieren
   echo Kopiere alle notwendigen Bibliotheken...
-  
+  for %%D in (libunistring-5.dll libssh2-1.dll libpsl-5.dll libngtcp2_crypto_ossl-0.dll libngtcp2-16.dll libidn2-0.dll libnghttp3-9.dll libnghttp2-14.dll libcurl-4.dll libb2-1.dll libicuin78.dll libicuuc78.dll) do (
+    if exist "%MSYS2_PREFIX%\bin\%%D" (
+      copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
+      echo   Kopiert: %%D
+    ) else (
+      rem Alternative Namensvarianten
+      for %%F in ("%MSYS2_PREFIX%\bin\libcfitsio*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
+      for %%F in ("%MSYS2_PREFIX%\bin\libssl*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
+      for %%F in ("%MSYS2_PREFIX%\bin\libcrypto*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
+    )
+  )
+
   rem cfitsio
   for %%F in ("%MSYS2_PREFIX%\bin\libcfitsio*.dll") do (
     copy /Y "%%F" "%DIST_DIR%" >NUL
