@@ -1,4 +1,5 @@
 #include "tile_compile/core/types.hpp"
+#include "tile_compile/registration/registration.hpp"
 #include <opencv2/opencv.hpp>
 
 namespace tile_compile::registration {
@@ -85,6 +86,57 @@ Matrix2Df apply_warp(const Matrix2Df& img, const WarpMatrix& warp) {
     Matrix2Df result(img.rows(), img.cols());
     std::memcpy(result.data(), warped.data, img.size() * sizeof(float));
     return result;
+}
+
+BoundingBox compute_warps_bounding_box(int frame_width, int frame_height,
+                                       const std::vector<WarpMatrix>& warps) {
+    if (warps.empty()) {
+        return BoundingBox{0, 0, frame_width, frame_height};
+    }
+    
+    // Frame corners in input space
+    std::vector<std::pair<float, float>> corners = {
+        {0.0f, 0.0f},
+        {static_cast<float>(frame_width), 0.0f},
+        {0.0f, static_cast<float>(frame_height)},
+        {static_cast<float>(frame_width), static_cast<float>(frame_height)}
+    };
+    
+    float min_x = 0.0f, min_y = 0.0f;
+    float max_x = static_cast<float>(frame_width);
+    float max_y = static_cast<float>(frame_height);
+    
+    // Transform all corners of all frames
+    for (const auto& warp : warps) {
+        // Warp is R→M (reference to moving) with WARP_INVERSE_MAP
+        // To get output coordinates, we need the inverse: M→R
+        // For affine: [x', y'] = [a00 a01 tx] [x]
+        //                        [a10 a11 ty] [y]
+        //                                     [1]
+        
+        for (const auto& corner : corners) {
+            float x = corner.first;
+            float y = corner.second;
+            
+            // Apply warp (this gives us the output position)
+            float x_out = warp(0, 0) * x + warp(0, 1) * y + warp(0, 2);
+            float y_out = warp(1, 0) * x + warp(1, 1) * y + warp(1, 2);
+            
+            min_x = std::min(min_x, x_out);
+            min_y = std::min(min_y, y_out);
+            max_x = std::max(max_x, x_out);
+            max_y = std::max(max_y, y_out);
+        }
+    }
+    
+    // Round to integers with some padding
+    BoundingBox bbox;
+    bbox.min_x = static_cast<int>(std::floor(min_x));
+    bbox.min_y = static_cast<int>(std::floor(min_y));
+    bbox.max_x = static_cast<int>(std::ceil(max_x));
+    bbox.max_y = static_cast<int>(std::ceil(max_y));
+    
+    return bbox;
 }
 
 } // namespace tile_compile::registration

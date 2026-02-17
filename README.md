@@ -467,6 +467,10 @@ ctest --output-on-failure
 
 - **New Registration Engine**: `robust_phase_ecc` with LoG gradient preprocessing, optimized for frames with strong nebulae/clouds.
 
+**Field Rotation Support:**
+
+- **Canvas Expansion for Alt/Az Mounts**: Output canvas is now automatically expanded to contain all rotated frames. Previously, stars at the edges were cropped when using Alt/Az mounts near the pole. The bounding box of all warped frames is computed and the canvas is resized accordingly. Log output shows expansion: `"Field rotation detected: expanding canvas from WxH to W'xH'"`.
+
 **Documentation:**
 
 - **New**: [Practical Configuration Examples & Best Practices](doc/v3/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.2.2.

@@ -85,14 +85,38 @@ registration:
 - Works even with diffuse nebulae
 - Fallback prevents abort on difficult frames
 
-**Alt/Az with field rotation:**
+**Alt/Az with field rotation (v3.2.3+):**
 ```yaml
 registration:
-  method: triangle_star_matching
-  max_rotation_deg: 15.0  # Higher tolerance
-  allow_reflection: false
-  trail_endpoint_enabled: true  # For star trails
+  # Temporal-Smoothing is automatically active as of v3.2.3!
+  # Uses neighbor frames (i-1, i+1) when direct registration fails
+  # Adaptive Star Detection: Automatic fallback to 2.5σ when few stars detected
+  
+  engine: robust_phase_ecc  # For clouds/nebula
+  # engine: triangle_star_matching  # For clear sky (faster)
+  
+  allow_rotation: true  # REQUIRED for Alt/Az near pole
+  star_topk: 140  # More stars for robust solution
+  star_min_inliers: 4  # Relaxed for weak frames
+  star_inlier_tol_px: 3.5  # More tolerant for drift/field rotation
+  star_dist_bin_px: 5.0
+  
+  reject_outliers: true
+  reject_cc_min_abs: 0.15  # Relaxed for difficult sequences
+  reject_cc_mad_multiplier: 5.0
+  reject_shift_px_min: 25.0
+  reject_shift_median_multiplier: 4.0
+  reject_scale_min: 0.90
+  reject_scale_max: 1.10
 ```
+**Expected improvement:** Registration rate from ~50% to ~70-80% with field rotation + clouds
+
+**How Temporal-Smoothing works:**
+1. Direct registration `i→ref` is attempted
+2. On failure: Try `i→(i-1)→ref` (chained warps)
+3. On failure again: Try `i→(i+1)→ref`
+4. All chained warps are validated with NCC
+5. Logs: `[REG-TEMPORAL]` shows successful temporal registrations
 
 ### `registration.max_shift_px`
 

@@ -28,7 +28,8 @@ void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
                                   float bg_b, float pedestal);
 
 // Apply a global warp to a full-resolution frame (CFA-aware for OSC).
+// If out_height/out_width are > 0, output canvas is resized (for field rotation).
 Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
-                            ColorMode mode);
+                            ColorMode mode, int out_height = -1, int out_width = -1);
 
 } // namespace tile_compile::image

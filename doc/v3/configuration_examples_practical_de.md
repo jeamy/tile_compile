@@ -85,14 +85,38 @@ registration:
 - Funktioniert auch bei diffusen Nebeln
 - Fallback verhindert Abbruch bei schwierigen Frames
 
-**Alt/Az mit Feldrotation:**
+**Alt/Az mit Feldrotation (v3.2.3+):**
 ```yaml
 registration:
-  method: triangle_star_matching
-  max_rotation_deg: 15.0  # Höhere Toleranz
-  allow_reflection: false
-  trail_endpoint_enabled: true  # Für Startrails
+  # Temporal-Smoothing ist ab v3.2.3 automatisch aktiv!
+  # Nutzt Nachbar-Frames (i-1, i+1) bei fehlgeschlagener direkter Registrierung
+  # Adaptive Stern-Detektion: Automatischer Fallback auf 2.5σ bei wenigen Sternen
+  
+  engine: robust_phase_ecc  # Bei Wolken/Nebel
+  # engine: triangle_star_matching  # Bei klarem Himmel (schneller)
+  
+  allow_rotation: true  # ZWINGEND bei Alt/Az nahe Pol
+  star_topk: 140  # Mehr Sterne für robustere Lösung
+  star_min_inliers: 4  # Gelockert für schwache Frames
+  star_inlier_tol_px: 3.5  # Toleranter bei Drift/Feldrotation
+  star_dist_bin_px: 5.0
+  
+  reject_outliers: true
+  reject_cc_min_abs: 0.15  # Gelockert für schwierige Sequenzen
+  reject_cc_mad_multiplier: 5.0
+  reject_shift_px_min: 25.0
+  reject_shift_median_multiplier: 4.0
+  reject_scale_min: 0.90
+  reject_scale_max: 1.10
 ```
+**Erwartete Verbesserung:** Registrierungsrate von ~50% auf ~70-80% bei Feldrotation + Wolken
+
+**Wie Temporal-Smoothing funktioniert:**
+1. Direkte Registrierung `i→ref` wird versucht
+2. Bei Failure: Versuche `i→(i-1)→ref` (verkettete Warps)
+3. Bei erneutem Failure: Versuche `i→(i+1)→ref`
+4. Alle verketteten Warps werden mit NCC validiert
+5. Logs: `[REG-TEMPORAL]` zeigt erfolgreiche temporale Registrierungen
 
 ### `registration.max_shift_px`
 

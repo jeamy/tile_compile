@@ -518,6 +518,25 @@ bool run_phase_registration_prewarp(
 
   emitter.phase_start(run_id, Phase::PREWARP, "PREWARP", log_file);
 
+  // Compute bounding box for field rotation: output canvas must be large enough
+  // to contain all rotated frames (Alt/Az mounts near pole).
+  registration::BoundingBox bbox = 
+      registration::compute_warps_bounding_box(width, height, global_frame_warps);
+  
+  int canvas_width = bbox.width();
+  int canvas_height = bbox.height();
+  
+  // Log canvas expansion for field rotation
+  if (canvas_width > width || canvas_height > height) {
+    std::ostringstream msg;
+    msg << "Field rotation detected: expanding canvas from " << width << "x" << height
+        << " to " << canvas_width << "x" << canvas_height
+        << " (bbox: [" << bbox.min_x << "," << bbox.min_y << "] to ["
+        << bbox.max_x << "," << bbox.max_y << "])";
+    emitter.warning(run_id, msg.str(), log_file);
+    std::cout << "[PREWARP] " << msg.str() << std::endl;
+  }
+
   // Pre-warp all frames at full resolution before tile extraction.
   // Applying rotation warps to small tile ROIs is fundamentally broken:
   // warpAffine needs source pixels outside the tile boundary that don't
@@ -526,7 +545,7 @@ bool run_phase_registration_prewarp(
   // Disk-backed: frames are written as raw float binaries and mmap'd on
   // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
   DiskCacheFrameStore prewarped_frames(
-      run_dir / ".prewarped_cache", frames.size(), height, width);
+      run_dir / ".prewarped_cache", frames.size(), canvas_height, canvas_width);
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
   const int prewarp_workers = compute_worker_count(frames.size());
   std::cout << "[PREWARP] Using " << prewarp_workers
@@ -561,9 +580,18 @@ bool run_phase_registration_prewarp(
             std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
         Matrix2Df warped;
         if (is_identity) {
-          warped = std::move(img);
+          // For identity warp, we still need to expand canvas if bbox requires it
+          if (canvas_width > width || canvas_height > height) {
+            // Create expanded canvas and place image at origin
+            warped = Matrix2Df::Zero(canvas_height, canvas_width);
+            int copy_h = (img.rows() < canvas_height) ? img.rows() : canvas_height;
+            int copy_w = (img.cols() < canvas_width) ? img.cols() : canvas_width;
+            warped.block(0, 0, copy_h, copy_w) = img.block(0, 0, copy_h, copy_w);
+          } else {
+            warped = std::move(img);
+          }
         } else {
-          warped = image::apply_global_warp(img, w, detected_mode);
+          warped = image::apply_global_warp(img, w, detected_mode, canvas_height, canvas_width);
         }
         if (warped.size() > 0) {
           bool has_data = false;
@@ -631,9 +659,14 @@ bool run_phase_registration_prewarp(
   }
 
   out.n_usable_frames = n_frames_with_data.load(std::memory_order_relaxed);
+  out.canvas_width = canvas_width;
+  out.canvas_height = canvas_height;
+  
   emitter.phase_end(run_id, Phase::PREWARP, "ok",
                     {{"num_frames", static_cast<int>(frames.size())},
                      {"num_frames_with_data", out.n_usable_frames},
+                     {"canvas_width", canvas_width},
+                     {"canvas_height", canvas_height},
                      {"workers", prewarp_workers}},
                     log_file);
 

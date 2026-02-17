@@ -467,6 +467,10 @@ ctest --output-on-failure
 
 - **Neue Registration Engine**: `robust_phase_ecc` mit LoG-Gradient-Preprocessing, speziell für Frames mit starken Nebeln/Wolken optimiert.
 
+**Feldrotations-Unterstützung:**
+
+- **Canvas-Erweiterung für Alt/Az-Montierungen**: Der Output-Canvas wird jetzt automatisch erweitert, um alle rotierten Frames zu erfassen. Zuvor wurden Sterne an den Rändern abgeschnitten, wenn Alt/Az-Montierungen nahe dem Pol verwendet wurden. Die Bounding Box aller gewarpten Frames wird berechnet und der Canvas entsprechend vergrößert. Log-Ausgabe zeigt Erweiterung: `"Field rotation detected: expanding canvas from WxH to W'xH'"`.
+
 **Dokumentation:**
 
 - **Neu**: [Praktische Konfigurationsbeispiele & Best Practices](doc/v3/configuration_examples_practical_de.md) - Umfassender Leitfaden mit Anwendungsfällen für verschiedene Brennweiten, Seeing-Bedingungen, Montierungstypen und Kamera-Setups (DWARF, Seestar, DSLR, Mono CCD). Enthält Parameter-Empfehlungen basierend auf Methodik v3.2.2.
