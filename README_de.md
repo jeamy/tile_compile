@@ -89,6 +89,18 @@ Vollständige eigenständige Beispielkonfigurationen sind verfügbar unter `tile
 
 Siehe auch: [Examples README](tile_compile_cpp/examples/README.md)
 
+## Binary Releases (Experimentell)
+
+**Vorkompilierte Binaries zum Testen verfügbar:**
+
+- **Windows**: `tile_compile_cpp-windows-v0.0.2.zip`
+- **Linux**: `tile_compile_cpp-linux-v0.0.2.AppImage`
+- **macOS**: `tile_compile_cpp-macos-v0.0.2.dmg`
+
+Download von: [GitHub Releases](https://github.com/your-repo/tile_compile/releases/tag/v0.0.2)
+
+**⚠️ Wichtig:** Dies sind experimentelle Releases zu Testzwecken. Nutzung auf eigene Gefahr. Bitte melden Sie gefundene Probleme.
+
 ## Schnellstart (C++)
 
 Für eine vollständige anfängerfreundliche Anleitung siehe:
