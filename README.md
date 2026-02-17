@@ -13,7 +13,7 @@ While the methodology was originally conceived to address the specific challenge
 ## Documentation (v3.2)
 
 - Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.2.2](doc/v3/tile_based_quality_reconstruction_methodology_v3.2.2_en.md)
-- Implementation process flow: `doc/v3/process_flow/`
+- Implementation process flow: [Process flow](doc/v3/process_flow/README.md)
 - English step-by-step guide: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - German README snapshot: [German README](README_de.md)
 
