@@ -12,10 +12,10 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 
 ## Dokumentation (v3.2)
 
-- Methodik (normativ): `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.2_en.md`
+- Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.2.2](doc/v3/tile_based_quality_reconstruction_methodology_v3.2.2_en.md)
 - Prozessfluss (Implementierung): `doc/v3/process_flow/`
-- Englische Schritt-für-Schritt-Anleitung: `doc/v3/tbqr_step_by_step_en.md`
-- Englisches Haupt-README: `README.md`
+- Englische Schritt-für-Schritt-Anleitung: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
+- Englisches Haupt-README: [English README](README.md)
 
 Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 
@@ -73,7 +73,7 @@ Detaillierte Phasen-Dokumentation: `doc/v3/process_flow/`
 
 - Hauptkonfigurationsdatei: `tile_compile.yaml`
 - Schemas: `tile_compile.schema.json`, `tile_compile.schema.yaml`
-- Referenzdokument: `doc/v3/configuration_reference.md`
+- Referenzdokument: [Konfigurationsreferenz](doc/v3/configuration_reference.md)
 
 ### Beispielprofile
 
@@ -87,12 +87,12 @@ Vollständige eigenständige Beispielkonfigurationen sind verfügbar unter `tile
 - `tile_compile.mono_full_mode.example.yaml`
 - `tile_compile.mono_small_n_anti_grid.example.yaml` (empfohlen für MONO-Datensätze mit geringer Frame-Anzahl, z.B. ~10..40, zur Reduzierung von Tile-Muster-Risiko)
 
-Siehe auch: `tile_compile_cpp/examples/README.md`
+Siehe auch: [Examples README](tile_compile_cpp/examples/README.md)
 
 ## Schnellstart (C++)
 
 Für eine vollständige anfängerfreundliche Anleitung siehe:
-`doc/v3/tbqr_step_by_step_en.md`
+[Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 
 ### Build-Voraussetzungen
 
