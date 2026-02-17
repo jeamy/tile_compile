@@ -68,7 +68,12 @@ normalization:
   per_channel: true # bei OSC pro Bayer-Kanal normalisieren
 
 registration:
-  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
+  # Temporal-Smoothing (v3.2.3+): Automatisch aktiv bei Feldrotation
+  # - Nutzt Nachbar-Frames (i-1, i+1) wenn direkte Registrierung fehlschlaegt
+  # - Verkettete Warps: i→(i-1)→ref oder i→(i+1)→ref
+  # Adaptive Stern-Detektion: Automatischer Fallback auf 2.5σ bei wenigen Sternen
+  
+  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc|robust_phase_ecc
   allow_rotation: true # Rotationsanteil in Warp erlauben
   star_topk: 100 # leicht reduziert fuer kompaktere Felder
   star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching

@@ -74,6 +74,7 @@ Detaillierte Phasen-Dokumentation: `doc/v3/process_flow/`
 - Hauptkonfigurationsdatei: `tile_compile.yaml`
 - Schemas: `tile_compile.schema.json`, `tile_compile.schema.yaml`
 - Referenzdokument: [Konfigurationsreferenz](doc/v3/configuration_reference.md)
+- Praktische Beispiele: [Konfigurationsbeispiele & Best Practices](doc/v3/configuration_examples_practical_de.md)
 
 ### Beispielprofile
 
@@ -441,3 +442,31 @@ tile_compile/
 cd tile_compile_cpp/build
 ctest --output-on-failure
 ```
+
+## Versionen
+
+### v0.0.1 (2026-02-15)
+
+- Erste öffentliche Version
+
+### v0.0.2 (2026-02-16)
+
+- Erste Version mit vorkompilierten Paketen für Windows, Linux und macOS
+- Enthält GUI-, CLI- und Runner-Executables
+- Experimentelle Version zu Testzwecken
+
+## Changelog
+
+### (2026-02-17)
+
+**Neue Registrierungs-Features für Alt/Az-Montierungen in Polarnähe:**
+
+- **Temporal-Smoothing Registration**: Bei Feldrotation werden automatisch Nachbar-Frames (i-1, i+1) für Registrierungen genutzt, wenn die direkte Registrierung zur Referenz fehlschlägt. Verkettete Warps: `i→(i-1)→ref` oder `i→(i+1)→ref`. Nützlich bei kontinuierlicher Feldrotation (Alt/Az nahe Pol) und Wolken/Nebel.
+
+- **Adaptive Stern-Detektion**: Bei zu wenigen erkannten Sternen (< topk/2) wird automatisch ein zweiter Durchlauf mit niedrigerem Schwellwert (2.5σ statt 3.5σ) durchgeführt. Dies verbessert die Stern-Erkennung bei Wolken, Nebel oder schwachen Frames.
+
+- **Neue Registration Engine**: `robust_phase_ecc` mit LoG-Gradient-Preprocessing, speziell für Frames mit starken Nebeln/Wolken optimiert.
+
+**Dokumentation:**
+
+- **Neu**: [Praktische Konfigurationsbeispiele & Best Practices](doc/v3/configuration_examples_practical_de.md) - Umfassender Leitfaden mit Anwendungsfällen für verschiedene Brennweiten, Seeing-Bedingungen, Montierungstypen und Kamera-Setups (DWARF, Seestar, DSLR, Mono CCD). Enthält Parameter-Empfehlungen basierend auf Methodik v3.2.2.

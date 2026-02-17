@@ -2,9 +2,11 @@
 
 This documentation describes all configuration options for `tile_compile.yaml` based on the C++ implementation in `configuration.hpp` and the schema files `tile_compile.schema.json` / `tile_compile.schema.yaml`.
 
-**Source of truth for defaults:** `include/tile_compile/config/configuration.hpp`
-**Schema version:** v3
+**Source of truth for defaults:** `include/tile_compile/config/configuration.hpp`  
+**Schema version:** v3  
 **Reference:** Methodology v3.2
+
+**💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
 
 ---
 

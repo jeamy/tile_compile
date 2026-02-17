@@ -69,14 +69,22 @@ normalization:
   per_channel: true # bei OSC pro Bayer-Kanal normalisieren
 
 registration:
-  engine: hybrid_phase_ecc # triangle_star_matching|star_similarity|hybrid_phase_ecc
-  allow_rotation: true # bei Alt/Az nahe Pol oft wichtig
+  # WICHTIG: Temporal-Smoothing ist ab v3.2.3 automatisch aktiv!
+  # Bei Feldrotation werden Nachbar-Frames (i-1, i+1) fuer schwache Registrierungen genutzt.
+  # Verkettete Warps: i→(i-1)→ref oder i→(i+1)→ref bei direktem Failure.
+  # Adaptive Stern-Detektion: Bei <topk/2 Sternen automatisch 2.5σ statt 3.5σ Schwelle.
+  
+  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc|robust_phase_ecc
+  # Empfehlung bei Wolken/Nebel: robust_phase_ecc (LoG-Gradient-Preprocessing)
+  # Empfehlung bei klarem Himmel: triangle_star_matching (schneller, rotation-invariant)
+  
+  allow_rotation: true # bei Alt/Az nahe Pol ZWINGEND erforderlich
   star_topk: 140 # mehr Sterne fuer robustere Loesung in dichten Feldern
-  star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching
-  star_inlier_tol_px: 3.5 # etwas toleranter bei hoher Drift/Feldrotation
+  star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching (gelockert fuer schwache Frames)
+  star_inlier_tol_px: 3.5 # toleranter bei hoher Drift/Feldrotation (war 2.0)
   star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
   reject_outliers: true # globale Registrierungs-Ausreisser verwerfen
-  reject_cc_min_abs: 0.18 # niedrigerer CC-Cut fuer schwierige Sequenzen
+  reject_cc_min_abs: 0.15 # niedrigerer CC-Cut fuer schwierige Sequenzen (war 0.18)
   reject_cc_mad_multiplier: 5.0 # robustere Ausreissergrenze fuer CC
   reject_shift_px_min: 25.0 # absolute Mindestgrenze fuer Shift-Outlier (px)
   reject_shift_median_multiplier: 4.0 # toleranter bei grossen Alt/Az-Shifts

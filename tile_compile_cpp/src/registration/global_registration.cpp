@@ -222,23 +222,13 @@ struct StarPoint {
   float flux = 0.0f;
 };
 
-std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk) {
+// Internal helper for star detection with configurable threshold
+static std::vector<StarPoint> detect_stars_with_threshold(
+    const Matrix2Df &img, int topk, float sigma_multiplier, 
+    float med, float sigma) {
   const int h = img.rows();
   const int w = img.cols();
-  if (h < 5 || w < 5)
-    return {};
-
-  std::vector<float> pixels;
-  pixels.reserve(static_cast<size_t>(img.size()));
-  for (int y = 0; y < h; ++y) {
-    const float *row = img.data() + static_cast<size_t>(y) * w;
-    pixels.insert(pixels.end(), row, row + w);
-  }
-  float med = core::median_of(pixels);
-  float sigma = core::robust_sigma_mad(pixels);
-  if (sigma < 1.0e-6f)
-    sigma = 1.0f;
-  const float thresh = med + 3.5f * sigma;
+  const float thresh = med + sigma_multiplier * sigma;
 
   std::vector<StarPoint> stars;
   stars.reserve(static_cast<size_t>(topk) * 2);
@@ -327,6 +317,39 @@ std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk) {
   if (static_cast<int>(stars.size()) > topk) {
     stars.resize(static_cast<size_t>(topk));
   }
+  return stars;
+}
+
+std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk) {
+  const int h = img.rows();
+  const int w = img.cols();
+  if (h < 5 || w < 5)
+    return {};
+
+  std::vector<float> pixels;
+  pixels.reserve(static_cast<size_t>(img.size()));
+  for (int y = 0; y < h; ++y) {
+    const float *row = img.data() + static_cast<size_t>(y) * w;
+    pixels.insert(pixels.end(), row, row + w);
+  }
+  float med = core::median_of(pixels);
+  float sigma = core::robust_sigma_mad(pixels);
+  if (sigma < 1.0e-6f)
+    sigma = 1.0f;
+
+  // Try standard threshold (3.5σ)
+  std::vector<StarPoint> stars = detect_stars_with_threshold(img, topk, 3.5f, med, sigma);
+  
+  // Adaptive fallback: if we found very few stars, retry with lower threshold
+  // This helps with clouds/nebula where stars appear fainter
+  const int min_expected = std::max(4, topk / 2);
+  if (static_cast<int>(stars.size()) < min_expected) {
+    std::vector<StarPoint> stars_relaxed = detect_stars_with_threshold(img, topk, 2.5f, med, sigma);
+    if (stars_relaxed.size() > stars.size()) {
+      stars = std::move(stars_relaxed);
+    }
+  }
+  
   return stars;
 }
 
@@ -1352,6 +1375,20 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
 // Multi-frame registration (uses register_single_frame internally)
 // =====================================================================
 
+// Helper: concatenate two 2x3 affine warps: result = w2 * w1
+static WarpMatrix concatenate_warps(const WarpMatrix &w1, const WarpMatrix &w2) {
+  WarpMatrix result;
+  // Linear part: R2 * R1
+  result(0,0) = w2(0,0)*w1(0,0) + w2(0,1)*w1(1,0);
+  result(0,1) = w2(0,0)*w1(0,1) + w2(0,1)*w1(1,1);
+  result(1,0) = w2(1,0)*w1(0,0) + w2(1,1)*w1(1,0);
+  result(1,1) = w2(1,0)*w1(0,1) + w2(1,1)*w1(1,1);
+  // Translation: R2 * t1 + t2
+  result(0,2) = w2(0,0)*w1(0,2) + w2(0,1)*w1(1,2) + w2(0,2);
+  result(1,2) = w2(1,0)*w1(0,2) + w2(1,1)*w1(1,2) + w2(1,2);
+  return result;
+}
+
 GlobalRegistrationOutput
 register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
                              ColorMode mode, BayerPattern bayer,
@@ -1421,29 +1458,98 @@ register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
 
   const Matrix2Df ref_p = proxy[static_cast<size_t>(out.ref_idx)];
 
+  // Store proxy-scale warps for temporal chaining
+  std::vector<WarpMatrix> warps_proxy(static_cast<size_t>(n), identity_warp());
+
   for (int i = 0; i < n; ++i) {
     if (i == out.ref_idx) {
       out.success[static_cast<size_t>(i)] = true;
       out.scores[static_cast<size_t>(i)] = 1.0f;
       out.warps_fullres[static_cast<size_t>(i)] = identity_warp();
+      warps_proxy[static_cast<size_t>(i)] = identity_warp();
       continue;
     }
 
     const Matrix2Df mov_p = proxy[static_cast<size_t>(i)];
 
-    // Delegate to canonical single-frame cascade
+    // 1) Try direct registration to reference
     SingleFrameRegResult sfr = register_single_frame(mov_p, ref_p, rcfg);
 
     if (sfr.reg.success) {
       out.success[static_cast<size_t>(i)] = true;
       out.scores[static_cast<size_t>(i)] = sfr.reg.correlation;
+      warps_proxy[static_cast<size_t>(i)] = sfr.reg.warp;
       out.warps_fullres[static_cast<size_t>(i)] =
           scale_translation_warp(sfr.reg.warp, out.downsample_scale);
     } else {
-      out.warps_fullres[static_cast<size_t>(i)] = identity_warp();
-      out.scores[static_cast<size_t>(i)] = 0.0f;
-      out.success[static_cast<size_t>(i)] = false;
-      out.errors[static_cast<size_t>(i)] = sfr.reg.error_message;
+      // 2) Temporal fallback: try registering to previous frame
+      // This helps with field rotation + clouds: neighbor frames are more similar
+      bool temporal_success = false;
+      
+      // Try i-1 (backward)
+      if (i > 0 && out.success[static_cast<size_t>(i-1)]) {
+        const Matrix2Df prev_p = proxy[static_cast<size_t>(i-1)];
+        SingleFrameRegResult sfr_temp = register_single_frame(mov_p, prev_p, rcfg);
+        
+        if (sfr_temp.reg.success && sfr_temp.reg.correlation > 0.15f) {
+          // Chain: i→(i-1)→ref
+          WarpMatrix w_to_prev = sfr_temp.reg.warp;
+          WarpMatrix w_prev_to_ref = warps_proxy[static_cast<size_t>(i-1)];
+          WarpMatrix w_chained = concatenate_warps(w_to_prev, w_prev_to_ref);
+          
+          // Validate chained warp
+          Matrix2Df warped = apply_warp(mov_p, w_chained);
+          float ncc_chained = compute_ncc(warped, ref_p);
+          
+          if (ncc_chained > sfr.ncc_identity + 0.01f) {
+            out.success[static_cast<size_t>(i)] = true;
+            out.scores[static_cast<size_t>(i)] = ncc_chained;
+            warps_proxy[static_cast<size_t>(i)] = w_chained;
+            out.warps_fullres[static_cast<size_t>(i)] =
+                scale_translation_warp(w_chained, out.downsample_scale);
+            out.errors[static_cast<size_t>(i)] = "temporal_i-1";
+            temporal_success = true;
+            
+            std::cerr << "[REG-TEMPORAL] Frame " << i << " registered via i-1, ncc=" 
+                      << ncc_chained << std::endl;
+          }
+        }
+      }
+      
+      // Try i+1 (forward) if backward failed
+      if (!temporal_success && i < n-1 && out.success[static_cast<size_t>(i+1)]) {
+        const Matrix2Df next_p = proxy[static_cast<size_t>(i+1)];
+        SingleFrameRegResult sfr_temp = register_single_frame(mov_p, next_p, rcfg);
+        
+        if (sfr_temp.reg.success && sfr_temp.reg.correlation > 0.15f) {
+          WarpMatrix w_to_next = sfr_temp.reg.warp;
+          WarpMatrix w_next_to_ref = warps_proxy[static_cast<size_t>(i+1)];
+          WarpMatrix w_chained = concatenate_warps(w_to_next, w_next_to_ref);
+          
+          Matrix2Df warped = apply_warp(mov_p, w_chained);
+          float ncc_chained = compute_ncc(warped, ref_p);
+          
+          if (ncc_chained > sfr.ncc_identity + 0.01f) {
+            out.success[static_cast<size_t>(i)] = true;
+            out.scores[static_cast<size_t>(i)] = ncc_chained;
+            warps_proxy[static_cast<size_t>(i)] = w_chained;
+            out.warps_fullres[static_cast<size_t>(i)] =
+                scale_translation_warp(w_chained, out.downsample_scale);
+            out.errors[static_cast<size_t>(i)] = "temporal_i+1";
+            temporal_success = true;
+            
+            std::cerr << "[REG-TEMPORAL] Frame " << i << " registered via i+1, ncc=" 
+                      << ncc_chained << std::endl;
+          }
+        }
+      }
+      
+      if (!temporal_success) {
+        out.warps_fullres[static_cast<size_t>(i)] = identity_warp();
+        out.scores[static_cast<size_t>(i)] = 0.0f;
+        out.success[static_cast<size_t>(i)] = false;
+        out.errors[static_cast<size_t>(i)] = sfr.reg.error_message;
+      }
     }
   }
 

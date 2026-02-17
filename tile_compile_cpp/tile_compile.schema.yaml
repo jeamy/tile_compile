@@ -81,13 +81,24 @@ properties:
       per_channel: {type: boolean}
   registration:
     type: object
+    description: "Registration with Temporal-Smoothing (v3.2.3+): Automatically uses neighbor frames (i-1, i+1) for failed registrations. Adaptive star detection: Falls back to 2.5σ threshold when <topk/2 stars detected."
     properties:
-      engine: {type: string, enum: [triangle_star_matching, star_similarity, hybrid_phase_ecc]}
+      engine: 
+        type: string
+        enum: [triangle_star_matching, star_similarity, hybrid_phase_ecc, robust_phase_ecc]
+        description: "Primary registration engine. robust_phase_ecc recommended for nebula/clouds (LoG gradient preprocessing). triangle_star_matching for clear skies (faster, rotation-invariant)."
       allow_rotation: {type: boolean}
       star_topk: {type: integer, minimum: 3}
       star_min_inliers: {type: integer, minimum: 2}
       star_inlier_tol_px: {type: number, exclusiveMinimum: 0}
       star_dist_bin_px: {type: number, exclusiveMinimum: 0}
+      reject_outliers: {type: boolean}
+      reject_cc_min_abs: {type: number, minimum: 0, maximum: 1}
+      reject_cc_mad_multiplier: {type: number, exclusiveMinimum: 0}
+      reject_shift_px_min: {type: number, minimum: 0}
+      reject_shift_median_multiplier: {type: number, exclusiveMinimum: 0}
+      reject_scale_min: {type: number, exclusiveMinimum: 0}
+      reject_scale_max: {type: number, exclusiveMinimum: 0}
   dithering:
     type: object
     properties:

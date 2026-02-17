@@ -74,6 +74,7 @@ Detailed phase docs: `doc/v3/process_flow/`
 - Main config file: `tile_compile.yaml`
 - Schemas: `tile_compile.schema.json`, `tile_compile.schema.yaml`
 - Reference document: [Configuration Reference](doc/v3/configuration_reference_en.md)
+- Practical examples: [Configuration Examples & Best Practices](doc/v3/configuration_examples_practical_en.md)
 
 ### Example profiles
 
@@ -441,3 +442,32 @@ tile_compile/
 cd tile_compile_cpp/build
 ctest --output-on-failure
 ```
+
+## Versions
+
+### v0.0.1 (2026-02-15)
+
+- First public release
+
+### v0.0.2 (2026-02-16)
+
+- First release with pre-built packages for Windows, Linux, and macOS
+- Includes GUI, CLI, and runner executables
+- Experimental release for testing purposes
+
+## Changelog
+
+### (2026-02-17)
+
+**New Registration Features for Alt/Az Mounts Near Pole:**
+
+- **Temporal-Smoothing Registration**: For field rotation, automatically uses neighbor frames (i-1, i+1) for registration when direct registration to reference fails. Chained warps: `i→(i-1)→ref` or `i→(i+1)→ref`. Useful for continuous field rotation (Alt/Az near pole) and clouds/nebula.
+
+- **Adaptive Star Detection**: When too few stars are detected (< topk/2), automatically performs a second pass with lower threshold (2.5σ instead of 3.5σ). This improves star detection in clouds, nebula, or weak frames.
+
+- **New Registration Engine**: `robust_phase_ecc` with LoG gradient preprocessing, optimized for frames with strong nebulae/clouds.
+
+**Documentation:**
+
+- **New**: [Practical Configuration Examples & Best Practices](doc/v3/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.2.2.
+
