@@ -526,13 +526,26 @@ bool run_phase_registration_prewarp(
   int canvas_width = bbox.width();
   int canvas_height = bbox.height();
   
+  // Offset to shift all frames into positive coordinate space
+  float offset_x = static_cast<float>(-bbox.min_x);
+  float offset_y = static_cast<float>(-bbox.min_y);
+  
+  // Apply offset correction to all warps
+  if (offset_x != 0.0f || offset_y != 0.0f) {
+    for (auto& w : global_frame_warps) {
+      w(0, 2) += offset_x;
+      w(1, 2) += offset_y;
+    }
+  }
+  
   // Log canvas expansion for field rotation
   if (canvas_width > width || canvas_height > height) {
     std::ostringstream msg;
     msg << "Field rotation detected: expanding canvas from " << width << "x" << height
         << " to " << canvas_width << "x" << canvas_height
         << " (bbox: [" << bbox.min_x << "," << bbox.min_y << "] to ["
-        << bbox.max_x << "," << bbox.max_y << "])";
+        << bbox.max_x << "," << bbox.max_y << "], offset: ["
+        << offset_x << "," << offset_y << "])";
     emitter.warning(run_id, msg.str(), log_file);
     std::cout << "[PREWARP] " << msg.str() << std::endl;
   }
