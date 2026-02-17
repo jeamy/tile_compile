@@ -144,7 +144,6 @@ Inside `tile_compile_cpp/`, platform-specific release scripts are available:
 
 - Linux (native): `build_linux_release.sh`
 - Linux (Docker Ubuntu 20.04 / glibc 2.31): `build_linux_release_docker_ubuntu2004.sh`
-- Linux (AppImage): `build_linux_appimage.sh`
 - Linux (AppImage Docker): `build_linux_appimage_docker.sh`
 - macOS: `build_macos_release.sh`
 - Windows: `build_windows_release.bat` (auto-detects MSYS2 if installed)
@@ -182,13 +181,6 @@ Included runtime files in release bundles:
 - config + schemas (`tile_compile.yaml`, `tile_compile.schema.yaml`, `tile_compile.schema.json`)
 - example profiles (`examples/`)
 
-**Note:** If the release package does not include the YAML configs, use the example profiles in `examples/` as templates and copy the desired options into your own `tile_compile.yaml`.
-
-Not included by design:
-
-- external Siril catalog data
-- external ASTAP binary/data
-
 Windows note:
 
 - The build script automatically detects MSYS2 installations at `C:\msys64\mingw64` (or `ucrt64`/`clang64`) and sets `CMAKE_PREFIX_PATH` accordingly.
@@ -213,6 +205,13 @@ export CMAKE_PREFIX_PATH="$HOME/Qt/<version>/macos"
 export Qt6_DIR="$HOME/Qt/<version>/macos/lib/cmake/Qt6"
 ```
 
+**Note:** If the release package does not include the YAML configs, use the example profiles in `examples/` as templates and copy the desired options into your own `tile_compile.yaml`.
+
+Not included by design:
+
+- external Siril catalog data
+- external ASTAP binary/data
+  
 ### Docker Build + Run (recommended for isolated environments)
 
 A helper script is available at:
