@@ -204,6 +204,7 @@ stacking:
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
+  cosmetic_correction_sigma: 3.0 # aggressiver fuer OSC/Seestar Hot-Pixel (Default: 5.0)
 
 validation:
   min_fwhm_improvement_percent: 3.0 # etwas realistischere Schwelle fuer kompakte Systeme

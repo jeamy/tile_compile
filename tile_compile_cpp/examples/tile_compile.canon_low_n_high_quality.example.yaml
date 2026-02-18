@@ -204,6 +204,7 @@ stacking:
     cap_ratio: 10.0 # konservativ stabil: w_k <= 10 * median_j(w_j)
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
+  cosmetic_correction_sigma: 5.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, fuer OSC: 3.0)
 
 validation:
   min_fwhm_improvement_percent: 0.0 # bei bereits sehr gutem seeing nicht ueberstreng

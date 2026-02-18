@@ -480,6 +480,8 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.stacking.output_stretch = st["output_stretch"].as<bool>();
     if (st["cosmetic_correction"])
       cfg.stacking.cosmetic_correction = st["cosmetic_correction"].as<bool>();
+    if (st["cosmetic_correction_sigma"])
+      cfg.stacking.cosmetic_correction_sigma = st["cosmetic_correction_sigma"].as<float>();
   }
 
   if (node["validation"]) {
@@ -731,6 +733,8 @@ YAML::Node Config::to_yaml() const {
   node["stacking"]["output_stretch"] = stacking.output_stretch;
   node["stacking"]["cosmetic_correction"] =
       stacking.cosmetic_correction;
+  node["stacking"]["cosmetic_correction_sigma"] =
+      stacking.cosmetic_correction_sigma;
 
   node["validation"]["min_fwhm_improvement_percent"] =
       validation.min_fwhm_improvement_percent;

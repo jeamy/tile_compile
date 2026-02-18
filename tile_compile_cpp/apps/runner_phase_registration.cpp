@@ -523,8 +523,11 @@ bool run_phase_registration_prewarp(
   registration::BoundingBox bbox = 
       registration::compute_warps_bounding_box(width, height, global_frame_warps);
   
-  int canvas_width = bbox.width();
-  int canvas_height = bbox.height();
+  // Round canvas to even dimensions for CFA (Bayer) compatibility.
+  // warp_cfa_mosaic_via_subplanes works on half-resolution subplanes, so
+  // canvas must be even in both dimensions to avoid size mismatch in store().
+  int canvas_width = (bbox.width() + 1) & ~1;   // round up to even
+  int canvas_height = (bbox.height() + 1) & ~1; // round up to even
   
   // Offset to shift all frames into positive coordinate space
   int offset_x = -bbox.min_x;

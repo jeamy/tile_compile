@@ -224,6 +224,7 @@ struct StackingConfig {
   std::string method = "rej";
   bool output_stretch = false;
   bool cosmetic_correction = false;
+  float cosmetic_correction_sigma = 5.0f;
 };
 
 struct AstrometryConfig {

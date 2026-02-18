@@ -31,7 +31,7 @@ Matrix2Df warp_cfa_mosaic_via_subplanes(
     const WarpMatrix& warp,
     int out_height = -1,
     int out_width = -1,
-    const std::string& border_mode = "replicate",
+    const std::string& border_mode = "constant",
     const std::string& interpolation = "linear"
 );
 

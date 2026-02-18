@@ -692,6 +692,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       recon_G = Matrix2Df::Zero(first_img.rows(), first_img.cols());
       recon_B = Matrix2Df::Zero(first_img.rows(), first_img.cols());
     }
+    first_img.resize(0, 0); // no longer needed as fallback; free RAM early
 
     const int prev_cv_threads_recon = cv::getNumThreads();
     cv::setNumThreads(1);
@@ -1157,19 +1158,41 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // Normalize reconstruction
     const float eps_ws = kEpsWeightSum;
     if (osc_mode) {
-      // Fallback: first normalized frame (only used for rare holes).
-      auto fb = image::debayer_nearest_neighbor(first_img, detected_bayer, 0, 0);
-
+      // First pass: normalize covered pixels.
       for (int i = 0; i < recon.size(); ++i) {
         float ws = weight_sum.data()[i];
         if (ws > eps_ws) {
           recon_R.data()[i] /= ws;
           recon_G.data()[i] /= ws;
           recon_B.data()[i] /= ws;
-        } else {
-          recon_R.data()[i] = fb.R.data()[i];
-          recon_G.data()[i] = fb.G.data()[i];
-          recon_B.data()[i] = fb.B.data()[i];
+        }
+      }
+      // Compute global background median from well-covered pixels for the
+      // canvas-expansion border areas (weight_sum=0, no frame covers them).
+      {
+        std::vector<float> bg_r_samp, bg_g_samp, bg_b_samp;
+        bg_r_samp.reserve(static_cast<size_t>(recon_R.size()));
+        bg_g_samp.reserve(static_cast<size_t>(recon_G.size()));
+        bg_b_samp.reserve(static_cast<size_t>(recon_B.size()));
+        for (int i = 0; i < recon.size(); ++i) {
+          if (weight_sum.data()[i] > eps_ws) {
+            bg_r_samp.push_back(recon_R.data()[i]);
+            bg_g_samp.push_back(recon_G.data()[i]);
+            bg_b_samp.push_back(recon_B.data()[i]);
+          }
+        }
+        float fb_r = 0.0f, fb_g = 0.0f, fb_b = 0.0f;
+        if (!bg_r_samp.empty()) {
+          fb_r = core::median_of(bg_r_samp);
+          fb_g = core::median_of(bg_g_samp);
+          fb_b = core::median_of(bg_b_samp);
+        }
+        for (int i = 0; i < recon.size(); ++i) {
+          if (weight_sum.data()[i] <= eps_ws) {
+            recon_R.data()[i] = fb_r;
+            recon_G.data()[i] = fb_g;
+            recon_B.data()[i] = fb_b;
+          }
         }
       }
 
@@ -1212,12 +1235,21 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       // Keep a luminance proxy for validation + downstream metrics.
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
     } else {
+      // First pass: normalize covered pixels, collect background sample.
+      std::vector<float> bg_samp;
+      bg_samp.reserve(static_cast<size_t>(recon.size()));
       for (int i = 0; i < recon.size(); ++i) {
         float ws = weight_sum.data()[i];
         if (ws > eps_ws) {
           recon.data()[i] /= ws;
-        } else {
-          recon.data()[i] = first_img.data()[i];
+          bg_samp.push_back(recon.data()[i]);
+        }
+      }
+      // Fill canvas-expansion border (weight_sum=0) with global background median.
+      const float fb_mono = bg_samp.empty() ? 0.0f : core::median_of(bg_samp);
+      for (int i = 0; i < recon.size(); ++i) {
+        if (weight_sum.data()[i] <= eps_ws) {
+          recon.data()[i] = fb_mono;
         }
       }
 
@@ -1244,9 +1276,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
-    // --- Memory release: weight_sum and first_img no longer needed ---
+    // --- Memory release: weight_sum no longer needed ---
     weight_sum.resize(0, 0);
-    first_img.resize(0, 0);
 
     // Write reconstruction artifacts (v3)
     {
@@ -2066,11 +2097,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     // Optional post-processing (not part of the linear quality core).
     if (cfg.stacking.cosmetic_correction) {
-      recon = image::cosmetic_correction(recon, 5.0f, true);
+      const float cc_sigma = cfg.stacking.cosmetic_correction_sigma;
+      recon = image::cosmetic_correction(recon, cc_sigma, true);
       if (detected_mode == ColorMode::OSC) {
-        recon_R = image::cosmetic_correction(recon_R, 5.0f, true);
-        recon_G = image::cosmetic_correction(recon_G, 5.0f, true);
-        recon_B = image::cosmetic_correction(recon_B, 5.0f, true);
+        recon_R = image::cosmetic_correction(recon_R, cc_sigma, true);
+        recon_G = image::cosmetic_correction(recon_G, cc_sigma, true);
+        recon_B = image::cosmetic_correction(recon_B, cc_sigma, true);
       }
     }
 

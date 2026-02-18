@@ -174,9 +174,9 @@ Matrix2Df warp_cfa_mosaic_via_subplanes(
     int interp_flag = (interpolation == "nearest") ? cv::INTER_NEAREST : cv::INTER_LINEAR;
     int flags = interp_flag | cv::WARP_INVERSE_MAP;
     
-    int border_flag = cv::BORDER_REPLICATE;
-    if (border_mode == "constant" || border_mode == "black") {
-        border_flag = cv::BORDER_CONSTANT;
+    int border_flag = cv::BORDER_CONSTANT;
+    if (border_mode == "replicate") {
+        border_flag = cv::BORDER_REPLICATE;
     } else if (border_mode == "reflect") {
         border_flag = cv::BORDER_REFLECT_101;
     }
@@ -190,8 +190,10 @@ Matrix2Df warp_cfa_mosaic_via_subplanes(
     cv::warpAffine(c_cv, c_w, warp_c, cv::Size(out_w_sub, out_h_sub), flags, border_flag);
     cv::warpAffine(d_cv, d_w, warp_d, cv::Size(out_w_sub, out_h_sub), flags, border_flag);
     
-    // Reassemble
-    Matrix2Df out = Matrix2Df::Zero(out_h2, out_w2);
+    // Reassemble into exactly out_height x out_width to match DiskCacheFrameStore expectations.
+    // out_h2/out_w2 may be smaller than out_h/out_w if out_h/out_w are odd —
+    // but canvas is always rounded to even, so this is a safety guard only.
+    Matrix2Df out = Matrix2Df::Zero(out_h, out_w);
     
     for (int y = 0; y < out_h_sub; ++y) {
         for (int x = 0; x < out_w_sub; ++x) {

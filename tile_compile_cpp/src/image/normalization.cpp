@@ -88,7 +88,8 @@ Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
       warp_matrix.at<float>(i, j) = warp(i, j);
   cv::Mat warped;
   cv::warpAffine(cv_img, warped, warp_matrix, cv::Size(output_w, output_h),
-                 cv::INTER_LINEAR | cv::WARP_INVERSE_MAP);
+                 cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
+                 cv::BORDER_CONSTANT, cv::Scalar(0));
   Matrix2Df result(output_h, output_w);
   std::memcpy(result.data(), warped.data,
               static_cast<size_t>(result.size()) * sizeof(float));

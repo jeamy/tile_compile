@@ -800,6 +800,11 @@
         "cosmetic_correction": {
           "type": "boolean",
           "description": "Optionale Hotpixel-/Artefakt-Kosmetik nach dem Stacken (Post-Processing, standardmaessig deaktiviert)."
+        },
+        "cosmetic_correction_sigma": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Schwellwert in Vielfachen der MAD-Sigma fuer die Hotpixel-Erkennung in cosmetic_correction. Niedrigerer Wert = aggressiver. Default: 5.0, empfohlen fuer OSC/Seestar: 3.0."
         }
       }
     },
