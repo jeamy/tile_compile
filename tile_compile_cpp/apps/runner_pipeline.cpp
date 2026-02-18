@@ -641,7 +641,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (!runner::run_phase_local_metrics(
             run_id, cfg, frames, run_dir, frame_has_data, tiles_phase56,
             prewarped_frames, emitter, log_file, local_metrics, local_weights,
-            tile_quality_median, tile_is_star, tile_fwhm_median)) {
+            tile_quality_median, tile_is_star, tile_fwhm_median,
+            phase_registration_ctx.tile_offset_x, phase_registration_ctx.tile_offset_y)) {
       return 1;
     }
 
@@ -790,7 +791,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
       auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
         // Extract tile from pre-warped full frame (already normalized + warped)
-        return prewarped_frames.extract_tile(fi, t);
+        return prewarped_frames.extract_tile(fi, t, phase_registration_ctx.tile_offset_x, phase_registration_ctx.tile_offset_y);
       };
 
       // Use shared pre-computed windows for uniform tiles; compute only for
@@ -1636,7 +1637,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
               if (!frame_mask[fi] || !frame_has_data[fi])
                 continue;
-              Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t);
+              Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t, phase_registration_ctx.tile_offset_x, phase_registration_ctx.tile_offset_y);
               if (tile_img.rows() != t.height || tile_img.cols() != t.width)
                 continue;
               cluster_tiles.push_back(std::move(tile_img));

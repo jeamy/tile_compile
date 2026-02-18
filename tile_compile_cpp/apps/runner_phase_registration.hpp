@@ -21,6 +21,8 @@ struct PhaseRegistrationContext {
   int min_valid_frames = 1;
   int canvas_width = 0;   // Expanded canvas width for field rotation
   int canvas_height = 0;  // Expanded canvas height for field rotation
+  int tile_offset_x = 0;  // Tile coordinate offset for field rotation
+  int tile_offset_y = 0;  // Tile coordinate offset for field rotation
 };
 
 bool run_phase_registration_prewarp(

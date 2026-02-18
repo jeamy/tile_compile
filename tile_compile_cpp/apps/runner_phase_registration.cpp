@@ -527,14 +527,14 @@ bool run_phase_registration_prewarp(
   int canvas_height = bbox.height();
   
   // Offset to shift all frames into positive coordinate space
-  float offset_x = static_cast<float>(-bbox.min_x);
-  float offset_y = static_cast<float>(-bbox.min_y);
+  int offset_x = -bbox.min_x;
+  int offset_y = -bbox.min_y;
   
   // Apply offset correction to all warps
-  if (offset_x != 0.0f || offset_y != 0.0f) {
+  if (offset_x != 0 || offset_y != 0) {
     for (auto& w : global_frame_warps) {
-      w(0, 2) += offset_x;
-      w(1, 2) += offset_y;
+      w(0, 2) += static_cast<float>(offset_x);
+      w(1, 2) += static_cast<float>(offset_y);
     }
   }
   
@@ -595,11 +595,18 @@ bool run_phase_registration_prewarp(
         if (is_identity) {
           // For identity warp, we still need to expand canvas if bbox requires it
           if (canvas_width > width || canvas_height > height) {
-            // Create expanded canvas and place image at origin
+            // Create expanded canvas and place image at offset position
             warped = Matrix2Df::Zero(canvas_height, canvas_width);
-            int copy_h = (img.rows() < canvas_height) ? img.rows() : canvas_height;
-            int copy_w = (img.cols() < canvas_width) ? img.cols() : canvas_width;
-            warped.block(0, 0, copy_h, copy_w) = img.block(0, 0, copy_h, copy_w);
+            int src_h = img.rows();
+            int src_w = img.cols();
+            int dst_y = offset_y;
+            int dst_x = offset_x;
+            // Ensure we don't write outside canvas bounds
+            int copy_h = std::min(src_h, canvas_height - dst_y);
+            int copy_w = std::min(src_w, canvas_width - dst_x);
+            if (copy_h > 0 && copy_w > 0) {
+              warped.block(dst_y, dst_x, copy_h, copy_w) = img.block(0, 0, copy_h, copy_w);
+            }
           } else {
             warped = std::move(img);
           }
@@ -674,12 +681,16 @@ bool run_phase_registration_prewarp(
   out.n_usable_frames = n_frames_with_data.load(std::memory_order_relaxed);
   out.canvas_width = canvas_width;
   out.canvas_height = canvas_height;
+  out.tile_offset_x = offset_x;
+  out.tile_offset_y = offset_y;
   
   emitter.phase_end(run_id, Phase::PREWARP, "ok",
                     {{"num_frames", static_cast<int>(frames.size())},
                      {"num_frames_with_data", out.n_usable_frames},
                      {"canvas_width", canvas_width},
                      {"canvas_height", canvas_height},
+                     {"tile_offset_x", offset_x},
+                     {"tile_offset_y", offset_y},
                      {"workers", prewarp_workers}},
                     log_file);
 
