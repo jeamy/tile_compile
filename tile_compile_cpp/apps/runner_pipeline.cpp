@@ -1046,6 +1046,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         };
 
         if (osc_mode) {
+          // Compute luminance proxy BEFORE background subtraction so that
+          // tile_norm_scale holds the absolute median level (≈ normalised
+          // background, ~1.0).  §5.7.2 uses this to undo the subtraction.
+          tile_rec =
+              0.25f * tile_rec_R + 0.5f * tile_rec_G + 0.25f * tile_rec_B;
+          const float m_shared = median_from_matrix(tile_rec, false);
+          tile_norm_scale[ti] = (m_shared >= kEpsMedian) ? m_shared : 1.0f;
+
           const float bg_r = center_by_median(tile_rec_R);
           const float bg_g = center_by_median(tile_rec_G);
           const float bg_b = center_by_median(tile_rec_B);
@@ -1053,9 +1061,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           tile_norm_bg_g[ti] = bg_g;
           tile_norm_bg_b[ti] = bg_b;
 
+          // Re-compute luminance after background subtraction for OLA.
           tile_rec =
               0.25f * tile_rec_R + 0.5f * tile_rec_G + 0.25f * tile_rec_B;
-          const float m_shared = median_from_matrix(tile_rec, true);
           if (m_shared >= kEpsMedian) {
             const float inv = 1.0f / m_shared;
             for (Eigen::Index i = 0; i < tile_rec_R.size(); ++i) {
@@ -1066,22 +1074,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
               tile_rec.data()[i] *= inv;
             }
-            tile_norm_scale[ti] = m_shared;
-          } else {
-            tile_norm_scale[ti] = 1.0f;
           }
         } else {
+          // Compute scale BEFORE background subtraction (same reasoning).
+          const float m = median_from_matrix(tile_rec, false);
+          tile_norm_scale[ti] = (m >= kEpsMedian) ? m : 1.0f;
           const float bg = center_by_median(tile_rec);
           tile_norm_bg_r[ti] = bg;
-          const float m = median_from_matrix(tile_rec, true);
           if (m >= kEpsMedian) {
             const float inv = 1.0f / m;
             for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
               tile_rec.data()[i] *= inv;
             }
-            tile_norm_scale[ti] = m;
-          } else {
-            tile_norm_scale[ti] = 1.0f;
           }
         }
       }

@@ -334,20 +334,23 @@ Default `eps_weight = 1e-6`.
 
 For reconstructed tile `R_{t,c}`:
 
-1. `bg_t = median(R_{t,c})`
-2. `X_t = R_{t,c} - bg_t`
-3. `m_t = median(abs(X_t))`
+1. `m_t = median(R_{t,c})`  ← computed **before** background subtraction
+2. `bg_t = m_t`
+3. `X_t = R_{t,c} - bg_t`
 4. if `m_t >= eps_median`: `Y_t = X_t / m_t`, otherwise `Y_t = X_t`
 
 Default `eps_median = 1e-6`.
+
+> **Rationale (EN):** `m_t` is defined as the absolute median of the tile *before* subtraction (≈ normalised background level, ~1.0 for globally normalised frames). Using `median(abs(X_t))` after subtraction yields values near zero for sky-dominated tiles, which causes §5.7.1a to collapse the dynamic range of the final image to ~0.1 % (observed: M31 core at 0.9 % instead of ~90 %).
+
 #### 5.7.1a Photometric Preservation after OLA (Recommended)
 
 The normalization `Y_t = (R_{t,c} - bg_t)/m_t` equalizes local structure but can alter absolute photometric scale if left uncorrected.
 To preserve a consistent global affine flux scale, accumulate per-tile metadata during reconstruction and restore a global scale/offset after OLA:
 
-- Per tile (already computed): `bg_t`, `m_t`
+- Per tile (already computed): `bg_t = m_t` (absolute median before subtraction)
 - Global restoration factors (robust):
-  - `m_global = median_t(m_t)`
+  - `m_global = median_t(m_t)`  ← ≈ 1.0 for globally normalised frames
   - `bg_global = median_t(bg_t)`
 
 After overlap-add produces `I_rec`, restore:
@@ -611,6 +614,7 @@ Procedure:
 
 | Date | Version | Change |
 |---|---|---|
+| 2026-02-18 | v3.2.2.4 | §5.7.1: `m_t` redefined as `median(R_{t,c})` before background subtraction (was `median(abs(X_t))` after subtraction). The old formulation yielded `m_t ≈ 0` for sky-dominated tiles, causing §5.7.1a to crush dynamic range to ~0.1 % (M31 core observed at 0.9 % instead of ~90 %). / §5.7.1: `m_t` neu definiert als `median(R_{t,c})` vor der Hintergrundsubtraktion (vorher `median(abs(X_t))` nach Subtraktion). Die alte Formulierung lieferte `m_t ≈ 0` für himmeldominierte Tiles und komprimierte den Dynamikbereich in §5.7.1a auf ~0,1 % (M31-Kern bei 0,9 % statt ~90 % beobachtet). |
 | 2026-02-15 | v3.2.2.3 | Clarified invariant semantics: no quality-based frame selection while allowing deterministic registration validity gating for geometrically invalid frames |
 | 2026-02-15 | v3.2.2.2 | Replaced cluster-size weighted final stacking with quality-weighted cluster aggregation (exp(kappa_cluster * Q_k)) including optional dominance cap |
 | 2026-02-15 | v3.2.2.1 | Enforced overlap clipping in tile geometry; added photometric restoration after OLA; replaced uniform per-cluster averaging with cluster-size weighted final stack |
