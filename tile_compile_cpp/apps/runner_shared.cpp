@@ -4,8 +4,9 @@
 
 #include <algorithm>
 #include <cstring>
-#include <fcntl.h>
+#include <filesystem>
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 
 #ifdef _WIN32
@@ -112,8 +113,12 @@ DiskCacheFrameStore &DiskCacheFrameStore::operator=(DiskCacheFrameStore &&o) noe
 }
 
 void DiskCacheFrameStore::store(size_t fi, const Matrix2Df &frame) {
-  if (frame.rows() != rows_ || frame.cols() != cols_)
+  if (frame.rows() != rows_ || frame.cols() != cols_) {
+    std::cerr << "[DiskCache] Frame " << fi << " size mismatch: got " 
+              << frame.rows() << "x" << frame.cols() << ", expected " 
+              << rows_ << "x" << cols_ << std::endl;
     return;
+  }
   fs::path p = frame_path(fi);
 #ifdef _WIN32
   HANDLE hFile = CreateFileW(p.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
