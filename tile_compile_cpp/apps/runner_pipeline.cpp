@@ -617,6 +617,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   const int canvas_height =
       (phase_registration_ctx.canvas_height > 0) ? phase_registration_ctx.canvas_height
                                                  : height;
+  // Canvas PREWARP introduces a global pixel offset. For OSC mosaics, Bayer
+  // parity must be evaluated in original sensor coordinates, so we propagate
+  // this offset into all debayer origin coordinates.
+  const int bayer_origin_offset_x = phase_registration_ctx.tile_offset_x;
+  const int bayer_origin_offset_y = phase_registration_ctx.tile_offset_y;
   const int tile_offset_x = phase_registration_ctx.tile_offset_x;
   const int tile_offset_y = phase_registration_ctx.tile_offset_y;
 
@@ -874,8 +879,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // Important: keep peak memory bounded. We therefore stack channels
         // sequentially (R then G then B) instead of holding 3× frame tiles.
 
-        const int origin_x = std::max(0, t.x);
-        const int origin_y = std::max(0, t.y);
+        const int origin_x = std::max(0, t.x) + bayer_origin_offset_x;
+        const int origin_y = std::max(0, t.y) + bayer_origin_offset_y;
 
         std::vector<size_t> valid_frames;
         std::vector<float> weights_valid;
@@ -1223,7 +1228,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (osc_mode) {
       // Fallback for rare holes must match expanded canvas dimensions.
       auto fb =
-          image::debayer_nearest_neighbor(fallback_canvas, detected_bayer, 0, 0);
+          image::debayer_nearest_neighbor(fallback_canvas, detected_bayer,
+                                          bayer_origin_offset_x,
+                                          bayer_origin_offset_y);
 
       for (int i = 0; i < recon.size(); ++i) {
         float ws = weight_sum.data()[i];
@@ -1666,8 +1673,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     auto reconstruct_subset =
         [&](const std::vector<char> &frame_mask) -> Matrix2Df {
       if (cfg.synthetic.weighting == "tile_weighted") {
-        Matrix2Df out = Matrix2Df::Zero(height, width);
-        Matrix2Df weight_ola = Matrix2Df::Zero(height, width);
+        // Synthetic reconstruction must stay in canvas space whenever PREWARP
+        // expanded the field. Using sensor-space dimensions here would crop
+        // offset/rotated content and bias edge statistics.
+        Matrix2Df out = Matrix2Df::Zero(canvas_height, canvas_width);
+        Matrix2Df weight_ola = Matrix2Df::Zero(canvas_height, canvas_width);
         std::atomic<bool> any_tile{false};
 
         auto normalize_tile_for_ola = [&](Matrix2Df &t_img,
@@ -1813,25 +1823,22 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
         if (!any_tile.load(std::memory_order_relaxed))
           return Matrix2Df();
-
-        Matrix2Df fallback;
-        for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
-          if (!frame_mask[fi] || !frame_has_data[fi])
-            continue;
-          fallback = prewarped_frames.load(fi);
-          if (fallback.size() > 0)
-            break;
-        }
-        if (fallback.size() != out.size()) {
-          fallback = Matrix2Df::Zero(out.rows(), out.cols());
-        }
-
+        std::vector<float> bg_samp;
+        bg_samp.reserve(static_cast<size_t>(out.size()));
         for (Eigen::Index i = 0; i < out.size(); ++i) {
           float ws = weight_ola.data()[i];
           if (ws > kEpsWeightSum) {
             out.data()[i] /= ws;
-          } else {
-            out.data()[i] = fallback.data()[i];
+            bg_samp.push_back(out.data()[i]);
+          }
+        }
+
+        // Keep uncovered pixels neutral to avoid dark/colored border bands
+        // influencing final histogram/stretch perception.
+        const float bg = bg_samp.empty() ? 0.0f : core::median_of(bg_samp);
+        for (Eigen::Index i = 0; i < out.size(); ++i) {
+          if (weight_ola.data()[i] <= kEpsWeightSum) {
+            out.data()[i] = bg;
           }
         }
         return out;
@@ -1943,7 +1950,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             cluster_q_values.empty() ? 0.0f : core::median_of(cluster_q_values);
 
         if (detected_mode == ColorMode::OSC) {
-          auto deb = image::debayer_nearest_neighbor(syn, detected_bayer, 0, 0);
+          auto deb = image::debayer_nearest_neighbor(syn, detected_bayer,
+                                                     bayer_origin_offset_x,
+                                                     bayer_origin_offset_y);
           RGBFrame rgb;
           rgb.R = std::move(deb.R);
           rgb.G = std::move(deb.G);
@@ -2048,7 +2057,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             synth_G.push_back(std::move(synthetic_rgb_frames[i].G));
             synth_B.push_back(std::move(synthetic_rgb_frames[i].B));
           } else {
-            auto deb = image::debayer_nearest_neighbor(sf, detected_bayer, 0, 0);
+            auto deb = image::debayer_nearest_neighbor(sf, detected_bayer,
+                                                       bayer_origin_offset_x,
+                                                       bayer_origin_offset_y);
             synth_R.push_back(std::move(deb.R));
             synth_G.push_back(std::move(deb.G));
             synth_B.push_back(std::move(deb.B));
@@ -2434,7 +2445,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         B_out = recon_B;
       } else {
         // Fallback (should be rare): debayer luminance proxy.
-        auto debayer = image::debayer_nearest_neighbor(recon, detected_bayer, 0, 0);
+        auto debayer = image::debayer_nearest_neighbor(recon, detected_bayer,
+                                                       bayer_origin_offset_x,
+                                                       bayer_origin_offset_y);
         R_out = debayer.R;
         G_out = debayer.G;
         B_out = debayer.B;
