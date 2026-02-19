@@ -27,7 +27,8 @@ bool run_phase_local_metrics(
     std::ostream &log_file, std::vector<std::vector<TileMetrics>> &local_metrics,
     std::vector<std::vector<float>> &local_weights,
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,
-    std::vector<float> &tile_fwhm_median, int tile_offset_x, int tile_offset_y) {
+    std::vector<float> &tile_fwhm_median, int tile_offset_x,
+    int tile_offset_y) {
   auto compute_worker_count = [&](size_t task_count) -> int {
     int workers = cfg.runtime_limits.parallel_workers;
     if (workers < 1) {

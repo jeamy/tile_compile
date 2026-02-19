@@ -186,7 +186,9 @@ Matrix2Df DiskCacheFrameStore::load(size_t fi) const {
 #endif
 }
 
-Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t, int offset_x, int offset_y) const {
+Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t,
+                                            int offset_x,
+                                            int offset_y) const {
   if (fi >= has_data_.size() || !has_data_[fi])
     return Matrix2Df();
   fs::path p = frame_path(fi);
@@ -213,7 +215,6 @@ Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t, int offset
 #endif
 
   const float *src = static_cast<const float *>(ptr);
-  // Apply offset for field rotation canvas expansion
   int x0 = std::max(0, t.x + offset_x);
   int y0 = std::max(0, t.y + offset_y);
   int tw = t.width;

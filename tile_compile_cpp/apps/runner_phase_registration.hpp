@@ -19,10 +19,10 @@ struct PhaseRegistrationContext {
   std::vector<uint8_t> frame_has_data;
   int n_usable_frames = 0;
   int min_valid_frames = 1;
-  int canvas_width = 0;   // Expanded canvas width for field rotation
-  int canvas_height = 0;  // Expanded canvas height for field rotation
-  int tile_offset_x = 0;  // Tile coordinate offset for field rotation
-  int tile_offset_y = 0;  // Tile coordinate offset for field rotation
+  int canvas_width = 0;
+  int canvas_height = 0;
+  int tile_offset_x = 0;
+  int tile_offset_y = 0;
 };
 
 bool run_phase_registration_prewarp(

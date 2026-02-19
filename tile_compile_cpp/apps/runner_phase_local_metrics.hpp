@@ -20,6 +20,7 @@ bool run_phase_local_metrics(
     std::ostream &log_file, std::vector<std::vector<TileMetrics>> &local_metrics,
     std::vector<std::vector<float>> &local_weights,
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,
-    std::vector<float> &tile_fwhm_median, int tile_offset_x = 0, int tile_offset_y = 0);
+    std::vector<float> &tile_fwhm_median, int tile_offset_x = 0,
+    int tile_offset_y = 0);
 
 } // namespace tile_compile::runner
