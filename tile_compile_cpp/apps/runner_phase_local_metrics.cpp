@@ -29,6 +29,9 @@ bool run_phase_local_metrics(
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,
     std::vector<float> &tile_fwhm_median, int tile_offset_x,
     int tile_offset_y) {
+  (void)tile_offset_x;
+  (void)tile_offset_y;
+
   auto compute_worker_count = [&](size_t task_count) -> int {
     int workers = cfg.runtime_limits.parallel_workers;
     if (workers < 1) {
@@ -96,7 +99,10 @@ bool run_phase_local_metrics(
           } else {
             for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
               const Tile &t = tiles_phase56[ti];
-              Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t, tile_offset_x, tile_offset_y);
+              // PREWARP already composes canvas offset into the stored frames.
+              // Tiles are defined in canvas coordinates, so no extra tile offset
+              // must be applied here.
+              Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t, 0, 0);
 
               if (tile_img.size() <= 0) {
                 local_metrics[fi].push_back(make_zero_metrics());
