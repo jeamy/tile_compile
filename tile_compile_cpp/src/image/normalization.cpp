@@ -70,9 +70,12 @@ void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
 }
 
 Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
-                            ColorMode mode) {
+                            ColorMode mode, int out_rows, int out_cols) {
+  if (img.size() <= 0 || out_rows <= 0 || out_cols <= 0) {
+    return Matrix2Df();
+  }
   if (mode == ColorMode::OSC) {
-    return warp_cfa_mosaic_via_subplanes(img, warp, img.rows(), img.cols());
+    return warp_cfa_mosaic_via_subplanes(img, warp, out_rows, out_cols);
   }
   // For MONO/RGB: use standard warp with WARP_INVERSE_MAP
   // (imported via registration header would create circular dep — inline here)
@@ -83,12 +86,17 @@ Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
     for (int j = 0; j < 3; ++j)
       warp_matrix.at<float>(i, j) = warp(i, j);
   cv::Mat warped;
-  cv::warpAffine(cv_img, warped, warp_matrix, cv_img.size(),
+  cv::warpAffine(cv_img, warped, warp_matrix, cv::Size(out_cols, out_rows),
                  cv::INTER_LINEAR | cv::WARP_INVERSE_MAP);
-  Matrix2Df result(img.rows(), img.cols());
+  Matrix2Df result(out_rows, out_cols);
   std::memcpy(result.data(), warped.data,
-              static_cast<size_t>(img.size()) * sizeof(float));
+              static_cast<size_t>(result.size()) * sizeof(float));
   return result;
+}
+
+Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
+                            ColorMode mode) {
+  return apply_global_warp(img, warp, mode, img.rows(), img.cols());
 }
 
 } // namespace tile_compile::image

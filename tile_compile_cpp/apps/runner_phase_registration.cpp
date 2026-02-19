@@ -25,6 +25,98 @@ namespace image = tile_compile::image;
 namespace io = tile_compile::io;
 namespace registration = tile_compile::registration;
 
+namespace {
+
+struct WarpBounds {
+  int min_x = 0;
+  int min_y = 0;
+  int max_x = 0;
+  int max_y = 0;
+
+  int width() const { return max_x - min_x; }
+  int height() const { return max_y - min_y; }
+};
+
+bool invert_affine_warp(const WarpMatrix &w, WarpMatrix &inv) {
+  const float a = w(0, 0);
+  const float b = w(0, 1);
+  const float c = w(1, 0);
+  const float d = w(1, 1);
+  const float tx = w(0, 2);
+  const float ty = w(1, 2);
+  const float det = a * d - b * c;
+  if (std::fabs(det) < 1.0e-12f) {
+    return false;
+  }
+  const float inv_det = 1.0f / det;
+  inv(0, 0) = d * inv_det;
+  inv(0, 1) = -b * inv_det;
+  inv(1, 0) = -c * inv_det;
+  inv(1, 1) = a * inv_det;
+  inv(0, 2) = -(inv(0, 0) * tx + inv(0, 1) * ty);
+  inv(1, 2) = -(inv(1, 0) * tx + inv(1, 1) * ty);
+  return true;
+}
+
+WarpBounds compute_warps_bounds(int width, int height,
+                                const std::vector<WarpMatrix> &warps) {
+  WarpBounds b;
+  if (width <= 0 || height <= 0 || warps.empty()) {
+    b.max_x = std::max(0, width);
+    b.max_y = std::max(0, height);
+    return b;
+  }
+
+  const float corners_x[4] = {0.0f, static_cast<float>(width), 0.0f,
+                              static_cast<float>(width)};
+  const float corners_y[4] = {0.0f, 0.0f, static_cast<float>(height),
+                              static_cast<float>(height)};
+
+  bool init = false;
+  float min_xf = 0.0f;
+  float min_yf = 0.0f;
+  float max_xf = 0.0f;
+  float max_yf = 0.0f;
+  for (const auto &w : warps) {
+    // Warps are used with cv::WARP_INVERSE_MAP (dst -> src). For output canvas
+    // bounds we need source -> dst, i.e. inverse affine.
+    WarpMatrix fwd;
+    if (!invert_affine_warp(w, fwd)) {
+      continue;
+    }
+    for (int i = 0; i < 4; ++i) {
+      const float x = corners_x[i];
+      const float y = corners_y[i];
+      const float tx = fwd(0, 0) * x + fwd(0, 1) * y + fwd(0, 2);
+      const float ty = fwd(1, 0) * x + fwd(1, 1) * y + fwd(1, 2);
+      if (!init) {
+        min_xf = max_xf = tx;
+        min_yf = max_yf = ty;
+        init = true;
+      } else {
+        min_xf = std::min(min_xf, tx);
+        min_yf = std::min(min_yf, ty);
+        max_xf = std::max(max_xf, tx);
+        max_yf = std::max(max_yf, ty);
+      }
+    }
+  }
+
+  if (!init) {
+    b.max_x = std::max(0, width);
+    b.max_y = std::max(0, height);
+    return b;
+  }
+
+  b.min_x = static_cast<int>(std::floor(min_xf));
+  b.min_y = static_cast<int>(std::floor(min_yf));
+  b.max_x = static_cast<int>(std::ceil(max_xf));
+  b.max_y = static_cast<int>(std::ceil(max_yf));
+  return b;
+}
+
+} // namespace
+
 bool run_phase_registration_prewarp(
     const std::string &run_id, const config::Config &cfg,
     const std::vector<std::filesystem::path> &frames,
@@ -313,8 +405,8 @@ bool run_phase_registration_prewarp(
               if (img.size() <= 0)
                 continue;
 
-              Matrix2Df out_img = image::apply_global_warp(img, w,
-                                                          detected_mode);
+              Matrix2Df out_img =
+                  image::apply_global_warp(img, w, detected_mode);
 
               std::ostringstream name;
               name << "frame_" << std::setw(4) << std::setfill('0') << fi
@@ -518,6 +610,44 @@ bool run_phase_registration_prewarp(
 
   emitter.phase_start(run_id, Phase::PREWARP, "PREWARP", log_file);
 
+  // Compute bounding box for field rotation: output canvas must be large enough
+  // to contain all rotated frames (Alt/Az mounts near pole).
+  WarpBounds bbox = compute_warps_bounds(width, height, global_frame_warps);
+  
+  // Round canvas to even dimensions for CFA (Bayer) compatibility.
+  // warp_cfa_mosaic_via_subplanes works on half-resolution subplanes, so
+  // canvas must be even in both dimensions to avoid size mismatch in store().
+  int canvas_width = (bbox.width() + 1) & ~1;   // round up to even
+  int canvas_height = (bbox.height() + 1) & ~1; // round up to even
+  
+  // Offset to shift all frames into positive coordinate space
+  int offset_x = -bbox.min_x;
+  int offset_y = -bbox.min_y;
+  
+  // Apply offset correction to all warps
+  if (offset_x != 0 || offset_y != 0) {
+    const float ox = static_cast<float>(offset_x);
+    const float oy = static_cast<float>(offset_y);
+    for (auto& w : global_frame_warps) {
+      // Compose destination-space translation q = p + offset into an inverse-map
+      // warp M (src = M * p) => M' = M * T(-offset).
+      w(0, 2) -= w(0, 0) * ox + w(0, 1) * oy;
+      w(1, 2) -= w(1, 0) * ox + w(1, 1) * oy;
+    }
+  }
+  
+  // Log canvas expansion for field rotation
+  if (canvas_width > width || canvas_height > height) {
+    std::ostringstream msg;
+    msg << "Field rotation detected: expanding canvas from " << width << "x" << height
+        << " to " << canvas_width << "x" << canvas_height
+        << " (bbox: [" << bbox.min_x << "," << bbox.min_y << "] to ["
+        << bbox.max_x << "," << bbox.max_y << "], offset: ["
+        << offset_x << "," << offset_y << "])";
+    emitter.warning(run_id, msg.str(), log_file);
+    std::cout << "[PREWARP] " << msg.str() << std::endl;
+  }
+
   // Pre-warp all frames at full resolution before tile extraction.
   // Applying rotation warps to small tile ROIs is fundamentally broken:
   // warpAffine needs source pixels outside the tile boundary that don't
@@ -526,7 +656,7 @@ bool run_phase_registration_prewarp(
   // Disk-backed: frames are written as raw float binaries and mmap'd on
   // demand, so RAM usage is bounded by OS page cache rather than N*W*H*4.
   DiskCacheFrameStore prewarped_frames(
-      run_dir / ".prewarped_cache", frames.size(), height, width);
+      run_dir / ".prewarped_cache", frames.size(), canvas_height, canvas_width);
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
   const int prewarp_workers = compute_worker_count(frames.size());
   std::cout << "[PREWARP] Using " << prewarp_workers
@@ -561,9 +691,25 @@ bool run_phase_registration_prewarp(
             std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
         Matrix2Df warped;
         if (is_identity) {
-          warped = std::move(img);
+          // For identity warp, we still need to expand canvas if bbox requires it
+          if (canvas_width > width || canvas_height > height) {
+            // Create expanded canvas and place image at offset position
+            warped = Matrix2Df::Zero(canvas_height, canvas_width);
+            int src_h = img.rows();
+            int src_w = img.cols();
+            int dst_y = offset_y;
+            int dst_x = offset_x;
+            // Ensure we don't write outside canvas bounds
+            int copy_h = std::min(src_h, canvas_height - dst_y);
+            int copy_w = std::min(src_w, canvas_width - dst_x);
+            if (copy_h > 0 && copy_w > 0) {
+              warped.block(dst_y, dst_x, copy_h, copy_w) = img.block(0, 0, copy_h, copy_w);
+            }
+          } else {
+            warped = std::move(img);
+          }
         } else {
-          warped = image::apply_global_warp(img, w, detected_mode);
+          warped = image::apply_global_warp(img, w, detected_mode, canvas_height, canvas_width);
         }
         if (warped.size() > 0) {
           bool has_data = false;
@@ -631,9 +777,18 @@ bool run_phase_registration_prewarp(
   }
 
   out.n_usable_frames = n_frames_with_data.load(std::memory_order_relaxed);
+  out.canvas_width = canvas_width;
+  out.canvas_height = canvas_height;
+  out.tile_offset_x = offset_x;
+  out.tile_offset_y = offset_y;
+  
   emitter.phase_end(run_id, Phase::PREWARP, "ok",
                     {{"num_frames", static_cast<int>(frames.size())},
                      {"num_frames_with_data", out.n_usable_frames},
+                     {"canvas_width", canvas_width},
+                     {"canvas_height", canvas_height},
+                     {"tile_offset_x", offset_x},
+                     {"tile_offset_y", offset_y},
                      {"workers", prewarp_workers}},
                     log_file);
 

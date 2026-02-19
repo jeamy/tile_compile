@@ -43,7 +43,8 @@ public:
 
   void store(size_t fi, const Matrix2Df &frame);
   Matrix2Df load(size_t fi) const;
-  Matrix2Df extract_tile(size_t fi, const Tile &t) const;
+  Matrix2Df extract_tile(size_t fi, const Tile &t, int offset_x = 0,
+                         int offset_y = 0) const;
 
   bool has_data(size_t fi) const;
   size_t size() const;

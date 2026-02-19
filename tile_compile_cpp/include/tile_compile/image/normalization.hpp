@@ -30,5 +30,7 @@ void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
 // Apply a global warp to a full-resolution frame (CFA-aware for OSC).
 Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
                             ColorMode mode);
+Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
+                            ColorMode mode, int out_rows, int out_cols);
 
 } // namespace tile_compile::image

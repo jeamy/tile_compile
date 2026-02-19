@@ -611,6 +611,60 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   auto &frame_has_data = phase_registration_ctx.frame_has_data;
   const int n_usable_frames = phase_registration_ctx.n_usable_frames;
   int min_valid_frames = phase_registration_ctx.min_valid_frames;
+  const int canvas_width =
+      (phase_registration_ctx.canvas_width > 0) ? phase_registration_ctx.canvas_width
+                                                : width;
+  const int canvas_height =
+      (phase_registration_ctx.canvas_height > 0) ? phase_registration_ctx.canvas_height
+                                                 : height;
+  const int tile_offset_x = phase_registration_ctx.tile_offset_x;
+  const int tile_offset_y = phase_registration_ctx.tile_offset_y;
+
+  if (canvas_width != width || canvas_height != height) {
+    tiles = tile_compile::pipeline::build_initial_tile_grid(
+        canvas_width, canvas_height, uniform_tile_size, overlap_fraction);
+    tiles_phase56 = tiles;
+    if (max_tiles > 0 && tiles_phase56.size() > static_cast<size_t>(max_tiles)) {
+      tiles_phase56.resize(static_cast<size_t>(max_tiles));
+    }
+
+    core::json artifact;
+    artifact["image_width"] = canvas_width;
+    artifact["image_height"] = canvas_height;
+    artifact["num_tiles"] = static_cast<int>(tiles.size());
+    artifact["overlap_fraction"] = overlap_fraction;
+    artifact["seeing_fwhm_median"] = seeing_fwhm_med;
+    artifact["seeing_tile_size"] = seeing_tile_size;
+    artifact["seeing_overlap_px"] = overlap_px;
+    artifact["stride_px"] = stride_px;
+    artifact["tile_config"] = {
+        {"size_factor", cfg.tile.size_factor},
+        {"min_size", cfg.tile.min_size},
+        {"max_divisor", cfg.tile.max_divisor},
+        {"overlap_fraction", overlap_fraction},
+        {"overlap_clipped", overlap_clipped},
+    };
+    artifact["uniform_tile_size"] = uniform_tile_size;
+    artifact["tile_offset_x"] = tile_offset_x;
+    artifact["tile_offset_y"] = tile_offset_y;
+    artifact["tiles"] = core::json::array();
+    for (const auto &t : tiles) {
+      artifact["tiles"].push_back({
+          {"x", t.x},
+          {"y", t.y},
+          {"width", t.width},
+          {"height", t.height},
+      });
+    }
+    core::write_text(run_dir / "artifacts" / "tile_grid.json", artifact.dump(2));
+
+    emitter.warning(
+        run_id,
+        "Canvas expansion active: tile grid resized from " +
+            std::to_string(width) + "x" + std::to_string(height) + " to " +
+            std::to_string(canvas_width) + "x" + std::to_string(canvas_height),
+        log_file);
+  }
 
   constexpr int kReducedModeMinFrames = 50;
   const core::ModeGateDecision gate = core::evaluate_mode_gate(
@@ -641,7 +695,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (!runner::run_phase_local_metrics(
             run_id, cfg, frames, run_dir, frame_has_data, tiles_phase56,
             prewarped_frames, emitter, log_file, local_metrics, local_weights,
-            tile_quality_median, tile_is_star, tile_fwhm_median)) {
+            tile_quality_median, tile_is_star, tile_fwhm_median,
+            tile_offset_x, tile_offset_y)) {
       return 1;
     }
 
@@ -684,12 +739,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     const bool osc_mode = (detected_mode == ColorMode::OSC);
 
-    recon = Matrix2Df::Zero(first_img.rows(), first_img.cols());
-    weight_sum = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+    recon = Matrix2Df::Zero(canvas_height, canvas_width);
+    weight_sum = Matrix2Df::Zero(canvas_height, canvas_width);
     if (osc_mode) {
-      recon_R = Matrix2Df::Zero(first_img.rows(), first_img.cols());
-      recon_G = Matrix2Df::Zero(first_img.rows(), first_img.cols());
-      recon_B = Matrix2Df::Zero(first_img.rows(), first_img.cols());
+      recon_R = Matrix2Df::Zero(canvas_height, canvas_width);
+      recon_G = Matrix2Df::Zero(canvas_height, canvas_width);
+      recon_B = Matrix2Df::Zero(canvas_height, canvas_width);
     }
 
     const int prev_cv_threads_recon = cv::getNumThreads();
@@ -1155,9 +1210,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     // Normalize reconstruction
     const float eps_ws = kEpsWeightSum;
+    Matrix2Df fallback_canvas = prewarped_frames.load(0);
+    if (fallback_canvas.rows() != recon.rows() ||
+        fallback_canvas.cols() != recon.cols()) {
+      fallback_canvas = Matrix2Df::Zero(recon.rows(), recon.cols());
+    }
     if (osc_mode) {
-      // Fallback: first normalized frame (only used for rare holes).
-      auto fb = image::debayer_nearest_neighbor(first_img, detected_bayer, 0, 0);
+      // Fallback for rare holes must match expanded canvas dimensions.
+      auto fb =
+          image::debayer_nearest_neighbor(fallback_canvas, detected_bayer, 0, 0);
 
       for (int i = 0; i < recon.size(); ++i) {
         float ws = weight_sum.data()[i];
@@ -1216,7 +1277,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         if (ws > eps_ws) {
           recon.data()[i] /= ws;
         } else {
-          recon.data()[i] = first_img.data()[i];
+          recon.data()[i] = fallback_canvas.data()[i];
         }
       }
 
