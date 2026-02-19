@@ -457,6 +457,12 @@ ctest --output-on-failure
 
 ## Changelog
 
+### (2026-02-19)
+
+**Calibration Fixes:**
+
+- **GUI dark calibration propagation fixed**: If `use dark` is enabled and either **Darks dir** or **Dark master** is set, these values are now merged into the effective runtime config and applied by the runner. This fixes cases where dark calibration appeared enabled in the GUI but was not present in the run config (`use_dark: false`, empty dark paths).
+
 ### (2026-02-17)
 
 **New Registration Features for Alt/Az Mounts Near Pole:**

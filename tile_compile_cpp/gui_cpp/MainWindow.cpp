@@ -549,15 +549,78 @@ bool MainWindow::start_next_batch_input_run() {
     phase_progress_->set_current_input_dir(input_dir, active_batch_input_index_, batch_input_dirs_.size());
     run_tab_->set_input_dir(input_dir);
 
+    QString effective_config_yaml = batch_config_yaml_;
+    if (effective_config_yaml.trimmed().isEmpty()) {
+        namespace fs = std::filesystem;
+        fs::path cfg_path = batch_config_path_.trimmed().toStdString();
+        if (cfg_path.is_relative()) {
+            cfg_path = fs::path(batch_working_dir_.toStdString()) / cfg_path;
+        }
+        QFile cfg_file(QString::fromStdString(cfg_path.string()));
+        if (!cfg_file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            append_live(QString("[batch] failed to read config for calibration merge: %1")
+                            .arg(QString::fromStdString(cfg_path.string())));
+            return false;
+        }
+        QTextStream in(&cfg_file);
+        effective_config_yaml = in.readAll();
+    }
+
+    YAML::Node cfg_node;
+    try {
+        if (effective_config_yaml.trimmed().isEmpty()) {
+            cfg_node = YAML::Node(YAML::NodeType::Map);
+        } else {
+            cfg_node = YAML::Load(effective_config_yaml.toStdString());
+            if (!cfg_node || !cfg_node.IsMap()) {
+                cfg_node = YAML::Node(YAML::NodeType::Map);
+            }
+        }
+    } catch (const std::exception &e) {
+        append_live(QString("[batch] failed to parse config for calibration merge: %1")
+                        .arg(e.what()));
+        return false;
+    }
+
+    const nlohmann::json calibration = collect_calibration_from_ui();
+    auto apply_bool = [&](const char *key) {
+        if (calibration.contains(key) && calibration[key].is_boolean()) {
+            cfg_node["calibration"][key] = calibration[key].get<bool>();
+        }
+    };
+    auto apply_string = [&](const char *key) {
+        if (calibration.contains(key) && calibration[key].is_string()) {
+            cfg_node["calibration"][key] = calibration[key].get<std::string>();
+        }
+    };
+
+    apply_bool("use_bias");
+    apply_bool("use_dark");
+    apply_bool("use_flat");
+    apply_bool("bias_use_master");
+    apply_bool("dark_use_master");
+    apply_bool("flat_use_master");
+    apply_string("bias_dir");
+    apply_string("darks_dir");
+    apply_string("flats_dir");
+    apply_string("bias_master");
+    apply_string("dark_master");
+    apply_string("flat_master");
+    apply_string("pattern");
+
+    YAML::Emitter merged_cfg;
+    merged_cfg << cfg_node;
+    if (!merged_cfg.good()) {
+        append_live("[batch] failed to emit merged config YAML");
+        return false;
+    }
+    effective_config_yaml = QString::fromStdString(merged_cfg.c_str());
+
     QStringList cmd;
     cmd << batch_runner_path_;
     cmd << "run";
-    if (batch_use_stdin_config_) {
-        cmd << "--config" << "-";
-        cmd << "--stdin";
-    } else {
-        cmd << "--config" << batch_config_path_;
-    }
+    cmd << "--config" << "-";
+    cmd << "--stdin";
     cmd << "--input-dir" << input_dir;
     cmd << "--runs-dir" << runs_dir_for_input;
     cmd << "--run-id" << run_id_for_input;
@@ -578,12 +641,20 @@ bool MainWindow::start_next_batch_input_run() {
     append_live(QString("[runner] %1").arg(cmd.join(" ")));
 
     try {
-        runner_->start(cmd, batch_working_dir_, batch_use_stdin_config_ ? batch_config_yaml_ : QString());
+        runner_->start(cmd, batch_working_dir_, effective_config_yaml);
         return true;
     } catch (const std::exception &e) {
         append_live(QString("[batch] start failed for %1: %2").arg(input_dir, e.what()));
         return false;
     }
+}
+
+nlohmann::json MainWindow::collect_calibration_from_ui() const {
+    if (!scan_tab_) {
+        return nlohmann::json::object();
+    }
+    const nlohmann::json cal = scan_tab_->collect_calibration();
+    return cal.is_object() ? cal : nlohmann::json::object();
 }
 
 QString MainWindow::format_event_human(const nlohmann::json &ev) const {
