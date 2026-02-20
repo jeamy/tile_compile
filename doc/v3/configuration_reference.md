@@ -2055,3 +2055,156 @@ Die Schema-Dateien (`tile_compile.schema.json`, `tile_compile.schema.yaml`) defi
 - **JSON-Schema:** `tile_compile_cpp/tile_compile.schema.json`
 - **YAML-Schema:** `tile_compile_cpp/tile_compile.schema.yaml`
 - **Beispiel-Config:** `tile_compile_cpp/tile_compile.yaml`
+
+---
+
+## Anhang A — Funktionsdetails für alle Optionen
+
+Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirkung in der Pipeline, Interaktionen, Nebenwirkungen).
+
+### A.1 Pipeline / Output / Data
+
+- `pipeline.mode`: wählt Produktions- vs. Testpfad (gleiche Kernphasen, anderes Striktheits-/Debug-Profil).
+- `pipeline.abort_on_fail`: steuert, ob bei `phase_end(error)` sofort abgebrochen wird.
+- `output.registered_dir`: Ziel-Unterordner für registrierte Frame-Ausgaben.
+- `output.artifacts_dir`: Ziel-Unterordner für JSON-Artefakte (`global_metrics.json`, `tile_reconstruction.json`, ...).
+- `output.write_registered_frames`: schreibt pro Frame registrierte FITS; erhöht IO- und Speicherbedarf stark.
+- `output.write_global_metrics`: aktiviert Schreiben globaler Metrikvektoren (Frame-Qualitätsdiagnose).
+- `output.write_global_registration`: aktiviert Schreiben globaler Warp/CC-Diagnose.
+- `data.image_width`, `data.image_height`: optionale Erwartungswerte; normalerweise FITS-headerbasiert erkannt.
+- `data.frames_min`: Vorab-Sanity-Schwelle für minimale Input-Anzahl.
+- `data.frames_target`: rein informatives Ziel; erzwingt allein keinen Ausschluss.
+- `data.color_mode`: erwarteter Aufnahmemodus; Laufzeit-Autodetektion kann mit Warnung übersteuern.
+- `data.bayer_pattern`: CFA-Layout für OSC-Verarbeitung und korrekte Farbrekonstruktion.
+- `data.linear_required`: koppelt Policy für Linearitätsanforderung an Linearity-Diagnostik.
+
+### A.2 Linearity / Calibration / Assumptions
+
+- `linearity.enabled`: aktiviert Linearitätsdiagnostik in Scan/Frühvalidierung.
+- `linearity.max_frames`: Stichprobengröße der Linearitätsprüfung (Speed vs. Sicherheit).
+- `linearity.min_overall_linearity`: Schwellwert für Linearity-Pass/Fail.
+- `linearity.strictness`: Policy-Mapping (Fail/Warn/Ignore-Verhalten).
+- `calibration.use_bias`, `use_dark`, `use_flat`: schaltet jeweilige Master-Kalibrierstufe ein.
+- `calibration.bias_use_master`, `dark_use_master`, `flat_use_master`: nutzt explizite Masterdateien statt Directory-Stacking.
+- `calibration.dark_auto_select`: automatische Dark-Master-Auswahl nach Belichtungszeit (optional Temperatur).
+- `calibration.dark_match_exposure_tolerance_percent`: erlaubte Belichtungsabweichung beim Dark-Matching.
+- `calibration.dark_match_use_temp`: aktiviert temperaturbasiertes Dark-Matching.
+- `calibration.dark_match_temp_tolerance_c`: erlaubte Temperaturabweichung bei aktivem Temp-Matching.
+- `calibration.bias_dir`, `darks_dir`, `flats_dir`: Quellordner für Kalibrierframe-Findung.
+- `calibration.bias_master`, `dark_master`, `flat_master`: explizite Pfade zu Master-Kalibrierframes.
+- `calibration.pattern`: Glob-Muster für Kalibrierdatei-Lookup.
+- `assumptions.frames_min`: Mindestrahmenzahl-Erwartung für stabile Methodik.
+- `assumptions.frames_optimal`: Zielrahmenzahl für volle Qualitätsstabilität.
+- `assumptions.frames_reduced_threshold`: Umschaltpunkt Reduced- vs. Full-Mode.
+- `assumptions.exposure_time_tolerance_percent`: tolerierte Sub-Exposure-Streuung.
+- `assumptions.reduced_mode_skip_clustering`: deaktiviert teures State-Clustering im Reduced-Mode.
+- `assumptions.reduced_mode_cluster_range`: begrenzter K-Suchraum falls Clustering im Reduced-Mode läuft.
+
+### A.3 Normalization / Registration / Dithering
+
+- `normalization.enabled`: methodikgetrieben verpflichtend (normalerweise aktiv lassen).
+- `normalization.mode`: Hintergrund- vs. Median-zentrierte Normalisierungsstrategie.
+- `normalization.per_channel`: kanalweise (OSC/RGB) Normalisierung zur Balance-Erhaltung.
+- `registration.engine`: bevorzugte Startmethode; Laufzeit nutzt trotzdem Fallback-Kaskade.
+- `registration.allow_rotation`: erlaubt Rotationsanteile in globalen Warps (Pflicht für Alt/Az).
+- `registration.star_topk`: Anzahl starker Sterne für sternbasierte Engines.
+- `registration.star_min_inliers`: minimale akzeptierte Inlier-Korrespondenzen.
+- `registration.star_inlier_tol_px`: geometrische Inlier-Toleranz.
+- `registration.star_dist_bin_px`: Distanzhistogramm-Quantisierung für Star-Similarity.
+- `registration.reject_outliers`: robustes Verwerfen unplausibler Warps nach Matching.
+- `registration.reject_cc_min_abs`: absolute NCC-Untergrenze in Outlier-Logik.
+- `registration.reject_cc_mad_multiplier`: MAD-Skalierung für robusten CC-Schwellwert.
+- `registration.reject_shift_px_min`: absolute Shift-Untergrenze für Shift-Outlier.
+- `registration.reject_shift_median_multiplier`: relativer Shift-Schwellwert zur Median-Shift.
+- `registration.reject_scale_min`, `reject_scale_max`: erlaubtes Similarity-Scale-Band.
+- `dithering.enabled`: aktiviert Dither-Diagnostik im Registration-Artefakt.
+- `dithering.min_shift_px`: Mindest-Frame-Shift, um als Dither zu zählen.
+
+### A.4 Tile Denoise / Chroma Denoise
+
+- `tile_denoise.soft_threshold.enabled`: aktiviert räumliches Highpass-Soft-Thresholding.
+- `tile_denoise.soft_threshold.blur_kernel`: Kernelgröße für Hintergrundschätzung des Residuals.
+- `tile_denoise.soft_threshold.alpha`: Denoise-Stärke (`tau = alpha * sigma`).
+- `tile_denoise.soft_threshold.skip_star_tiles`: überspringt Denoise auf stern-dominierten Tiles.
+- `tile_denoise.wiener.enabled`: aktiviert frequenzdomänigen Wiener-Zweig.
+- `tile_denoise.wiener.snr_threshold`: Wiener-Gate; niedrige SNR wird eher gefiltert.
+- `tile_denoise.wiener.q_min`, `q_max`, `q_step`: interner Wiener-Qualitätssuchraum.
+- `tile_denoise.wiener.min_snr`: minimale SNR für stabile Wiener-Parametrisierung.
+- `tile_denoise.wiener.max_iterations`: Iterationsobergrenze des Wiener-Tunings.
+- `chroma_denoise.enabled`: aktiviert chroma-fokussierte Denoise (OSC-Pfad).
+- `chroma_denoise.color_space`: Chroma/Luma-Transform (`ycbcr_linear` oder `opponent_linear`).
+- `chroma_denoise.apply_stage`: Ausführung vor Tile-OLA oder nach finalem linearem Stack.
+- `chroma_denoise.protect_luma`: schützt Luminanzstrukturen vor Chroma-Nebenwirkungen.
+- `chroma_denoise.luma_guard_strength`: Stärke der Luma-Schutzmaske.
+- `chroma_denoise.star_protection.enabled`: Sternmasken-Schutz für Kerne/Halos.
+- `chroma_denoise.star_protection.threshold_sigma`: Schwelle für Sternmaskenbildung.
+- `chroma_denoise.star_protection.dilate_px`: Ausdehnungsradius der Sternmaske.
+- `chroma_denoise.structure_protection.enabled`: kanten-/strukturabhängiger Chroma-Schutz.
+- `chroma_denoise.structure_protection.gradient_percentile`: Gradient-Cutoff für Strukturmaske.
+- `chroma_denoise.chroma_wavelet.enabled`: Wavelet-basierte Chroma-Dämpfung.
+- `chroma_denoise.chroma_wavelet.levels`: Anzahl Wavelet-Zerlegungsebenen.
+- `chroma_denoise.chroma_wavelet.threshold_scale`: Wavelet-Schwellen-Multiplikator.
+- `chroma_denoise.chroma_wavelet.soft_k`: Weichheit der Wavelet-Schrumpfung.
+- `chroma_denoise.chroma_bilateral.enabled`: bilaterale Glättung auf Chroma-Komponenten.
+- `chroma_denoise.chroma_bilateral.sigma_spatial`: räumliche bilaterale Stärke.
+- `chroma_denoise.chroma_bilateral.sigma_range`: Farbdistanz-Selektivität bilateral.
+- `chroma_denoise.blend.mode`: aktuell chroma-only Blending-Modus.
+- `chroma_denoise.blend.amount`: Mischanteil Original vs. denoised Chroma.
+
+### A.5 Global/Local Metrics / Tile / Synthetic / Reconstruction
+
+- `global_metrics.weights.background`, `noise`, `gradient`: gewichtete Terme der globalen Frame-Qualität.
+- `global_metrics.clamp`: harte Grenzen vor exponentiellem Weight-Mapping.
+- `global_metrics.adaptive_weights`: Auto-Anpassung der Metrikgewichte aus Streuung.
+- `global_metrics.weight_exponent_scale`: Trennschärfe in `exp(k*Q)`.
+- `tile.size_factor`: Grund-Tilegröße aus gemessenem Seeing/FWHM.
+- `tile.min_size`: Untergrenze gegen zu kleine, instabile Tiles.
+- `tile.max_divisor`: Obergrenze über Bildseiten-Divisor.
+- `tile.overlap_fraction`: Überlappungsanteil für glattes Overlap-Add.
+- `tile.star_min_count`: Schwelle STAR vs. STRUCTURE Tile-Klasse.
+- `local_metrics.clamp`: Clamp lokaler Qualität vor Gewichtsbildung.
+- `local_metrics.star_mode.weights.fwhm`, `roundness`, `contrast`: STAR-Tile-Qualitätsmischung.
+- `local_metrics.structure_mode.metric_weight`, `background_weight`: STRUCTURE-Tile-Qualitätsmischung.
+- `synthetic.weighting`: Methode zur Synthetic-Frame-Erzeugung (`global` vs `tile_weighted`).
+- `synthetic.frames_min`: minimale Clustergröße für Synthetic-Output.
+- `synthetic.frames_max`: maximale Anzahl Synthetic-Outputs.
+- `synthetic.clustering.mode`: Clustering-Backend für Zustandsgruppen.
+- `synthetic.clustering.cluster_count_range`: erlaubtes K-Suchfenster.
+- `reconstruction.weighting_function`: Rekonstruktionsgewichtsmodell (aktuell linear).
+- `reconstruction.window_function`: Fensterkern für Overlap-Add (aktuell Hanning).
+
+### A.6 Debayer / Astrometry / PCC / Stacking / Validation / Runtime
+
+- `debayer`: aktiviert finale OSC-CFA→RGB-Konvertierung.
+- `astrometry.enabled`: aktiviert Plate-Solving-Phase.
+- `astrometry.astap_bin`: Pfad zur ASTAP-Binary.
+- `astrometry.astap_data_dir`: Pfad zu ASTAP-Katalogdaten.
+- `astrometry.search_radius`: Blind-Solve vs. eingeschränkter Suchradius.
+- `pcc.enabled`: aktiviert photometrische Farbkalibrierung.
+- `pcc.source`: Katalog-/Provider-Auswahl.
+- `pcc.mag_limit`, `mag_bright_limit`: Magnitudengrenzen für Sternselektion.
+- `pcc.aperture_radius_px`, `annulus_inner_px`, `annulus_outer_px`: Photometrie-Aperturgeometrie.
+- `pcc.min_stars`: Mindestanzahl gültiger Sterne für stabilen PCC-Fit.
+- `pcc.sigma_clip`: Outlier-Rejection im PCC-Fit.
+- `pcc.siril_catalog_dir`: optionaler lokaler Siril-Katalogpfad.
+- `stacking.method`: finaler Kombinationsmodus (`rej` vs `average`).
+- `stacking.sigma_clip.sigma_low`, `sigma_high`: untere/obere Rejection-Schwellen.
+- `stacking.sigma_clip.max_iters`: maximale Clip-Iterationen.
+- `stacking.sigma_clip.min_fraction`: Mindestanteil verbleibender Samples (Fallback-Schutz).
+- `stacking.cluster_quality_weighting.enabled`: aktiviert Synthetic-Cluster-Qualitätsgewichtung.
+- `stacking.cluster_quality_weighting.kappa_cluster`: Exponent der Qualitätsgewichtung.
+- `stacking.cluster_quality_weighting.cap_enabled`: expliziter Dominanz-Cap-Schalter.
+- `stacking.cluster_quality_weighting.cap_ratio`: Dominanz-Cap-Level bei aktivem Cap.
+- **Laufzeit-Schutz:** Für Synthetic-Stacking wird standardmäßig ein Dominanz-Cap angewendet, auch wenn `cap_enabled=false`, um Dynamik-Kollaps diffuser Signale zu verhindern.
+- `stacking.output_stretch`: optionales display-orientiertes Post-Scaling auf 16-bit-Spanne.
+- `stacking.cosmetic_correction`: optionale Hotpixel-artige Korrektur nach dem Stacking.
+- `stacking.cosmetic_correction_sigma`: Schwellwert der Cosmetic-Korrektur.
+- `validation.min_fwhm_improvement_percent`: notwendige Schärfeverbesserung.
+- `validation.max_background_rms_increase_percent`: Schutz gegen Hintergrundverschlechterung.
+- `validation.min_tile_weight_variance`: Sanity-Check gegen degenerierte lokale Gewichte.
+- `validation.require_no_tile_pattern`: Checker/Grid-Artefakt-Prüfung.
+- `runtime_limits.parallel_workers`: Obergrenze für Worker-Threads.
+- `runtime_limits.memory_budget`: Speicherbudget, das effektive Parallelität begrenzen kann.
+- `runtime_limits.tile_analysis_max_factor_vs_stack`: Warnschwelle für Laufzeit-Anomalien.
+- `runtime_limits.hard_abort_hours`: absolute Runtime-Sicherheitsgrenze.
+- `runtime_limits.allow_emergency_mode`: erlaubt Verarbeitung unterhalb normaler Annahmen.

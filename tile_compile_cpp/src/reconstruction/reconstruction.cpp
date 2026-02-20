@@ -254,6 +254,12 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
 
     // 1. Background estimation via box blur
     cv::Mat tile_cv(h, w, CV_32F, const_cast<float*>(tile.data()));
+
+    // Build mask: pixels with data (> 0) are valid frame area;
+    // zero pixels are canvas dead area and must not influence statistics.
+    cv::Mat valid_mask;
+    cv::compare(tile_cv, 0.0f, valid_mask, cv::CMP_GT);
+
     cv::Mat bg;
     int k = cfg.blur_kernel | 1; // ensure odd
     cv::blur(tile_cv, bg, cv::Size(k, k), cv::Point(-1, -1),
@@ -263,9 +269,15 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
     cv::Mat resid = tile_cv - bg;
 
     // 3. Robust noise estimate: σ = 1.4826 · median(|R - median(R)|)
-    std::vector<float> rv(static_cast<size_t>(resid.total()));
-    std::memcpy(rv.data(), resid.ptr<float>(),
-                rv.size() * sizeof(float));
+    //    Only use valid (non-zero) pixels to avoid canvas dead area bias.
+    std::vector<float> rv;
+    rv.reserve(static_cast<size_t>(resid.total()));
+    for (int i = 0; i < static_cast<int>(resid.total()); ++i) {
+        if (valid_mask.data[i]) {
+            rv.push_back(resid.ptr<float>()[i]);
+        }
+    }
+    if (rv.empty()) return tile;
     size_t mid = rv.size() / 2;
     std::nth_element(rv.begin(), rv.begin() + static_cast<long>(mid), rv.end());
     float med_r = rv[mid];
@@ -299,7 +311,11 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
     neg_shrunk.copyTo(result_resid, neg_mask);
 
     // 5. Reconstruct: T' = B + R'
+    //    Preserve zero pixels (canvas dead area) — do not filter them.
     cv::Mat out_cv = bg + result_resid;
+    cv::Mat zero_mask;
+    cv::compare(tile_cv, 0.0f, zero_mask, cv::CMP_LE);
+    out_cv.setTo(0.0f, zero_mask);
 
     Matrix2Df out(h, w);
     if (out_cv.isContinuous()) {
@@ -395,13 +411,29 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
     std::vector<uint8_t> keep(static_cast<size_t>(n), 1);
 
     for (int idx = 0; idx < out.size(); ++idx) {
+        // Collect only frames that have valid data (> 0) at this pixel.
+        // Zero pixels are canvas dead area and must not enter statistics.
         values.clear();
+        std::fill(keep.begin(), keep.end(), static_cast<uint8_t>(0));
+        int n_valid_here = 0;
         for (int i = 0; i < n; ++i) {
-            values.push_back(valid[static_cast<size_t>(i)].get().data()[idx]);
-            keep[static_cast<size_t>(i)] = 1;
+            float v = valid[static_cast<size_t>(i)].get().data()[idx];
+            if (v > 0.0f) {
+                values.push_back(v);
+                keep[static_cast<size_t>(i)] = 1;
+                n_valid_here++;
+            } else {
+                values.push_back(0.0f);
+            }
         }
 
-        int kept = n;
+        if (n_valid_here <= 0) {
+            out.data()[idx] = 0.0f; // dead area
+            continue;
+        }
+
+        const int min_keep_here = std::max(1, static_cast<int>(std::ceil(min_fraction * n_valid_here)));
+        int kept = n_valid_here;
         for (int iter = 0; iter < max_iters; ++iter) {
             if (kept <= 1) break;
             double sum = 0.0;
@@ -414,7 +446,6 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
             }
             double mean = sum / static_cast<double>(kept);
             double var = sumsq / static_cast<double>(kept) - mean * mean;
-            // Bessel correction: unbiased variance estimator for small samples
             if (kept > 1)
                 var *= static_cast<double>(kept) / static_cast<double>(kept - 1);
             double sd = (var > 0.0) ? std::sqrt(var) : 0.0;
@@ -433,7 +464,7 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
                 }
             }
 
-            if (new_kept < min_keep) break;
+            if (new_kept < min_keep_here) break;
             kept = new_kept;
         }
 
@@ -445,11 +476,13 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
             count++;
         }
         if (count <= 0) {
-            for (int i = 0; i < n; ++i)
-                sum += static_cast<double>(values[static_cast<size_t>(i)]);
-            count = n;
+            // Fallback: average all valid-data frames at this pixel
+            for (int i = 0; i < n; ++i) {
+                float v = valid[static_cast<size_t>(i)].get().data()[idx];
+                if (v > 0.0f) { sum += static_cast<double>(v); count++; }
+            }
         }
-        out.data()[idx] = static_cast<float>(sum / static_cast<double>(count));
+        out.data()[idx] = (count > 0) ? static_cast<float>(sum / static_cast<double>(count)) : 0.0f;
     }
 
     return out;
@@ -464,8 +497,6 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
     const int cols = tiles[0].cols();
     Matrix2Df out(rows, cols);
     const int n = static_cast<int>(tiles.size());
-    const int min_keep = std::max(1, static_cast<int>(std::ceil(min_fraction * n)));
-
     // Fast path for tiny stacks where clipping is not meaningful and only adds
     // overhead. Keep weighted averaging semantics intact.
     if (n <= 2 || max_iters <= 0) {
@@ -473,9 +504,12 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
             double wsum = 0.0;
             double wmean = 0.0;
             for (int i = 0; i < n; ++i) {
+                const float v = tiles[static_cast<size_t>(i)].data()[idx];
+                if (!(std::isfinite(v) && v > 0.0f)) continue;
                 const double wi = static_cast<double>(weights[static_cast<size_t>(i)]);
+                if (!(wi > 0.0)) continue;
                 wsum += wi;
-                wmean += wi * static_cast<double>(tiles[static_cast<size_t>(i)].data()[idx]);
+                wmean += wi * static_cast<double>(v);
             }
             out.data()[idx] = (wsum > 0.0) ? static_cast<float>(wmean / wsum) : 0.0f;
         }
@@ -486,12 +520,25 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
     std::vector<uint8_t> keep(static_cast<size_t>(n));
 
     for (int idx = 0; idx < out.size(); ++idx) {
+        int n_valid_here = 0;
         for (int i = 0; i < n; ++i) {
-            values[static_cast<size_t>(i)] = tiles[static_cast<size_t>(i)].data()[idx];
-            keep[static_cast<size_t>(i)] = 1;
+            const float v = tiles[static_cast<size_t>(i)].data()[idx];
+            const float w = weights[static_cast<size_t>(i)];
+            values[static_cast<size_t>(i)] = v;
+            const bool valid_here = std::isfinite(v) && v > 0.0f &&
+                                    std::isfinite(w) && w > 0.0f;
+            keep[static_cast<size_t>(i)] = valid_here ? 1 : 0;
+            if (valid_here) n_valid_here++;
         }
 
-        int kept = n;
+        if (n_valid_here <= 0) {
+            out.data()[idx] = 0.0f;
+            continue;
+        }
+
+        const int min_keep_here = std::max(
+            1, static_cast<int>(std::ceil(min_fraction * n_valid_here)));
+        int kept = n_valid_here;
         for (int iter = 0; iter < max_iters; ++iter) {
             if (kept <= 1) break;
             // Compute weighted mean and stddev
@@ -532,7 +579,7 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
                     new_kept++;
                 }
             }
-            if (new_kept < min_keep) break;
+            if (new_kept < min_keep_here) break;
             if (new_kept == kept) break; // converged
             kept = new_kept;
         }
@@ -548,12 +595,15 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
         if (wsum > 0.0) {
             out.data()[idx] = static_cast<float>(wmean / wsum);
         } else {
-            // Fallback: use all values
+            // Fallback: use all valid (non-zero) values for this pixel.
             wsum = 0.0; wmean = 0.0;
             for (int i = 0; i < n; ++i) {
+                const float v = values[static_cast<size_t>(i)];
+                if (!(std::isfinite(v) && v > 0.0f)) continue;
                 double wi = static_cast<double>(weights[static_cast<size_t>(i)]);
+                if (!(wi > 0.0)) continue;
                 wsum += wi;
-                wmean += wi * static_cast<double>(values[static_cast<size_t>(i)]);
+                wmean += wi * static_cast<double>(v);
             }
             out.data()[idx] = (wsum > 0.0) ? static_cast<float>(wmean / wsum) : 0.0f;
         }

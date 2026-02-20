@@ -1197,10 +1197,153 @@ Runtime and resource limits.
 
 ---
 
-## Notes
+## Appendix A — Functional details for all options
 
-1. **Schema Validation**: validate against `tile_compile.schema.json` / `.yaml`.
-2. **Source of defaults**: `include/tile_compile/config/configuration.hpp`.
-3. **Implementation/parsing**: `tile_compile_cpp/src/io/config.cpp`.
-4. **Methodology baseline**: Tile-Based Quality Reconstruction Methodology v3.2.2.
-5. **Practical tuning**: see `configuration_examples_practical_en.md` and `tile_compile_cpp/examples/*.yaml`.
+This appendix provides a compact but explicit **runtime behavior** description for every configuration key.
+
+### A.1 Pipeline / Output / Data
+
+- `pipeline.mode`: selects production vs test control flow (same core phases, different strictness/debug posture).
+- `pipeline.abort_on_fail`: controls whether `phase_end(error)` aborts run immediately.
+- `output.registered_dir`: target folder name for registered frame outputs.
+- `output.artifacts_dir`: target folder name for JSON artifacts (`global_metrics.json`, `tile_reconstruction.json`, etc.).
+- `output.write_registered_frames`: writes per-frame registered FITS; increases IO and disk usage significantly.
+- `output.write_global_metrics`: enables writing global metric vectors (frame quality diagnostics).
+- `output.write_global_registration`: enables writing global warp/CC diagnostics.
+- `data.image_width`, `data.image_height`: optional expected dimensions; normally auto-detected from FITS headers.
+- `data.frames_min`: pre-run sanity threshold for minimum input count.
+- `data.frames_target`: informational target only; does not enforce rejection by itself.
+- `data.color_mode`: expected acquisition mode; runtime auto-detection can override with warning.
+- `data.bayer_pattern`: CFA layout for OSC processing and color reconstruction consistency.
+- `data.linear_required`: enables strict linearity requirement policy coupling with linearity diagnostics.
+
+### A.2 Linearity / Calibration / Assumptions
+
+- `linearity.enabled`: enables linearity diagnostics in scan/early validation.
+- `linearity.max_frames`: sample size for linearity checks (tradeoff speed vs certainty).
+- `linearity.min_overall_linearity`: pass/fail threshold for linearity score.
+- `linearity.strictness`: policy mapping (fail/warn/ignore behavior).
+- `calibration.use_bias`, `use_dark`, `use_flat`: activate master-frame correction stages.
+- `calibration.bias_use_master`, `dark_use_master`, `flat_use_master`: use explicit master files vs building from directories.
+- `calibration.dark_auto_select`: auto-match dark masters by exposure (and optional temperature).
+- `calibration.dark_match_exposure_tolerance_percent`: allowed exposure mismatch for dark matching.
+- `calibration.dark_match_use_temp`: toggles temperature-aware dark matching.
+- `calibration.dark_match_temp_tolerance_c`: allowed temperature mismatch when temp matching is active.
+- `calibration.bias_dir`, `darks_dir`, `flats_dir`: source folders for calibration frame discovery.
+- `calibration.bias_master`, `dark_master`, `flat_master`: explicit master calibration file paths.
+- `calibration.pattern`: file glob for calibration frame loading.
+- `assumptions.frames_min`: minimum frame count expectation for stable methodology.
+- `assumptions.frames_optimal`: target count for full-quality behavior.
+- `assumptions.frames_reduced_threshold`: switch point between reduced and full pipeline behavior.
+- `assumptions.exposure_time_tolerance_percent`: acceptable sub-exposure dispersion.
+- `assumptions.reduced_mode_skip_clustering`: disables expensive state clustering in reduced mode.
+- `assumptions.reduced_mode_cluster_range`: bounded cluster search if clustering still runs in reduced mode.
+
+### A.3 Normalization / Registration / Dithering
+
+- `normalization.enabled`: mandatory in methodology-driven runs (normally must stay enabled).
+- `normalization.mode`: background-centric vs median-centric normalization strategy.
+- `normalization.per_channel`: per-channel (OSC/RGB) normalization preserving channel balance.
+- `registration.engine`: preferred first engine; runtime still executes multi-stage fallback cascade.
+- `registration.allow_rotation`: permits rotational components in global warps (required for Alt/Az).
+- `registration.star_topk`: number of strongest stars used by star-based engines.
+- `registration.star_min_inliers`: minimum accepted inlier correspondences.
+- `registration.star_inlier_tol_px`: geometric tolerance for inlier acceptance.
+- `registration.star_dist_bin_px`: distance histogram quantization for star-similarity engine.
+- `registration.reject_outliers`: enables robust rejection of implausible warps after matching.
+- `registration.reject_cc_min_abs`: absolute NCC floor in outlier logic.
+- `registration.reject_cc_mad_multiplier`: robust CC threshold scaling from MAD statistic.
+- `registration.reject_shift_px_min`: absolute shift floor for shift-outlier rejection.
+- `registration.reject_shift_median_multiplier`: relative shift threshold scale from median shift.
+- `registration.reject_scale_min`, `reject_scale_max`: accepted similarity scale band.
+- `dithering.enabled`: enables dither diagnostics output in registration artifacts.
+- `dithering.min_shift_px`: minimum frame-to-frame shift to count as dither.
+
+### A.4 Tile denoise / Chroma denoise
+
+- `tile_denoise.soft_threshold.enabled`: enables spatial highpass soft-threshold denoise.
+- `tile_denoise.soft_threshold.blur_kernel`: background estimation kernel size for residual extraction.
+- `tile_denoise.soft_threshold.alpha`: denoise aggressiveness (`tau = alpha * sigma`).
+- `tile_denoise.soft_threshold.skip_star_tiles`: bypass denoise on star-dominant tiles.
+- `tile_denoise.wiener.enabled`: enables frequency-domain Wiener branch.
+- `tile_denoise.wiener.snr_threshold`: Wiener gate; low-SNR tiles are filtered more likely.
+- `tile_denoise.wiener.q_min`, `q_max`, `q_step`: internal Wiener quality search range and step.
+- `tile_denoise.wiener.min_snr`: minimum accepted SNR for stable Wiener parameterization.
+- `tile_denoise.wiener.max_iterations`: iterative Wiener tuning loop bound.
+- `chroma_denoise.enabled`: enables chroma-focused denoise (OSC path).
+- `chroma_denoise.color_space`: chroma/luma transform (`ycbcr_linear` or `opponent_linear`).
+- `chroma_denoise.apply_stage`: execute before tile OLA or after final linear stack.
+- `chroma_denoise.protect_luma`: protects luminance structures from chroma denoise side effects.
+- `chroma_denoise.luma_guard_strength`: strength of luma protection mask.
+- `chroma_denoise.star_protection.enabled`: star-mask protection for color cores/halos.
+- `chroma_denoise.star_protection.threshold_sigma`: detection threshold for star mask creation.
+- `chroma_denoise.star_protection.dilate_px`: star mask growth radius.
+- `chroma_denoise.structure_protection.enabled`: edge/structure-aware chroma protection.
+- `chroma_denoise.structure_protection.gradient_percentile`: gradient cutoff for structure mask.
+- `chroma_denoise.chroma_wavelet.enabled`: enables wavelet-domain chroma attenuation.
+- `chroma_denoise.chroma_wavelet.levels`: number of wavelet decomposition levels.
+- `chroma_denoise.chroma_wavelet.threshold_scale`: wavelet threshold multiplier.
+- `chroma_denoise.chroma_wavelet.soft_k`: softness of wavelet shrinkage.
+- `chroma_denoise.chroma_bilateral.enabled`: enables bilateral smoothing on chroma components.
+- `chroma_denoise.chroma_bilateral.sigma_spatial`: spatial bilateral radius/strength.
+- `chroma_denoise.chroma_bilateral.sigma_range`: color-distance bilateral selectivity.
+- `chroma_denoise.blend.mode`: currently chroma-only blending mode.
+- `chroma_denoise.blend.amount`: blend fraction between original and denoised chroma.
+
+### A.5 Global/local metrics / Tile / Synthetic / Reconstruction
+
+- `global_metrics.weights.background`, `noise`, `gradient`: weighted terms composing per-frame global quality score.
+- `global_metrics.clamp`: hard bounds before exponential weight mapping.
+- `global_metrics.adaptive_weights`: auto-adapt metric weights from observed dispersion.
+- `global_metrics.weight_exponent_scale`: controls separation strength in `exp(k*Q)` mapping.
+- `tile.size_factor`: base tile size scaling from measured seeing/FWHM.
+- `tile.min_size`: lower bound preventing too-small unstable tiles.
+- `tile.max_divisor`: upper bound via image dimension divisor.
+- `tile.overlap_fraction`: overlap ratio for overlap-add blending smoothness.
+- `tile.star_min_count`: threshold for STAR vs STRUCTURE tile class.
+- `local_metrics.clamp`: local quality clamp before weight conversion.
+- `local_metrics.star_mode.weights.fwhm`, `roundness`, `contrast`: STAR tile quality composition.
+- `local_metrics.structure_mode.metric_weight`, `background_weight`: STRUCTURE tile quality composition.
+- `synthetic.weighting`: synthetic frame generation method (`global` vs `tile_weighted`).
+- `synthetic.frames_min`: minimum cluster size to emit synthetic frame.
+- `synthetic.frames_max`: maximum number of synthetic outputs.
+- `synthetic.clustering.mode`: clustering backend for state grouping.
+- `synthetic.clustering.cluster_count_range`: allowed K-search window.
+- `reconstruction.weighting_function`: reconstruction weighting model (currently linear).
+- `reconstruction.window_function`: overlap-add window kernel (currently Hanning).
+
+### A.6 Debayer / Astrometry / PCC / Stacking / Validation / Runtime
+
+- `debayer`: enables OSC CFA-to-RGB final conversion stage.
+- `astrometry.enabled`: enables plate-solving stage.
+- `astrometry.astap_bin`: ASTAP executable path.
+- `astrometry.astap_data_dir`: ASTAP star catalog/data path.
+- `astrometry.search_radius`: blind vs constrained solve radius.
+- `pcc.enabled`: enables photometric color calibration.
+- `pcc.source`: catalog/provider selection.
+- `pcc.mag_limit`, `mag_bright_limit`: star selection magnitude limits.
+- `pcc.aperture_radius_px`, `annulus_inner_px`, `annulus_outer_px`: photometric aperture geometry.
+- `pcc.min_stars`: minimum matched stars for stable PCC fit.
+- `pcc.sigma_clip`: outlier rejection in PCC regression.
+- `pcc.siril_catalog_dir`: local Siril catalog path override.
+- `stacking.method`: final combine mode (`rej` sigma-clip vs `average`).
+- `stacking.sigma_clip.sigma_low`, `sigma_high`: lower/upper rejection thresholds.
+- `stacking.sigma_clip.max_iters`: clipping iteration cap.
+- `stacking.sigma_clip.min_fraction`: minimum retained sample ratio fallback guard.
+- `stacking.cluster_quality_weighting.enabled`: enables synthetic-cluster quality weighting.
+- `stacking.cluster_quality_weighting.kappa_cluster`: weighting exponent.
+- `stacking.cluster_quality_weighting.cap_enabled`: explicit dominance cap toggle.
+- `stacking.cluster_quality_weighting.cap_ratio`: dominance cap level when enabled.
+- **Runtime safeguard:** for synthetic stacking, a default dominance cap is applied even when `cap_enabled=false` to avoid diffuse-signal collapse from a few dominant clusters.
+- `stacking.output_stretch`: optional display-oriented post-scale to 16-bit span.
+- `stacking.cosmetic_correction`: optional hot-pixel style correction after stacking.
+- `stacking.cosmetic_correction_sigma`: detection threshold for cosmetic correction.
+- `validation.min_fwhm_improvement_percent`: required sharpness improvement check.
+- `validation.max_background_rms_increase_percent`: background degradation guard.
+- `validation.min_tile_weight_variance`: sanity check against degenerate local weighting.
+- `validation.require_no_tile_pattern`: checker/grid artifact detector gate.
+- `runtime_limits.parallel_workers`: upper bound for worker threads.
+- `runtime_limits.memory_budget`: memory budget that can cap effective parallelism.
+- `runtime_limits.tile_analysis_max_factor_vs_stack`: performance anomaly warning threshold.
+- `runtime_limits.hard_abort_hours`: absolute runtime safety stop.
+- `runtime_limits.allow_emergency_mode`: permits processing below normal assumptions.

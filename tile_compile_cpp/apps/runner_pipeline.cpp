@@ -1009,6 +1009,40 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                         "TILE_RECONSTRUCTION", log_file);
 
     const int passes_total = 1;
+    auto robust_tile_snr_proxy = [](const Matrix2Df &img,
+                                    float fallback) -> float {
+      if (img.size() <= 0) {
+        return fallback;
+      }
+      std::vector<float> px;
+      px.reserve(static_cast<size_t>(img.size()));
+      for (Eigen::Index i = 0; i < img.size(); ++i) {
+        const float v = img.data()[i];
+        if (std::isfinite(v) && v > 0.0f) {
+          px.push_back(v);
+        }
+      }
+      if (px.size() < 32) {
+        return fallback;
+      }
+
+      const float bg = core::median_of(px);
+      const float mad = core::robust_sigma_mad(px);
+      std::sort(px.begin(), px.end());
+      const float p99 = core::percentile_from_sorted(px, 99.0f);
+      if (!std::isfinite(bg) || !std::isfinite(mad) || !std::isfinite(p99)) {
+        return fallback;
+      }
+
+      const float signal = std::max(0.0f, p99 - bg);
+      const float noise = std::max(mad, 1.0e-4f);
+      const float snr = signal / noise;
+      if (!std::isfinite(snr)) {
+        return fallback;
+      }
+      return std::clamp(snr, 0.0f, 1.0e4f);
+    };
+
     // Helper: post-warp metrics (// Methodik v3 §6)
     auto compute_post_warp_metrics =
         [&](const Matrix2Df &warped) -> std::tuple<float, float, float> {
@@ -1016,27 +1050,24 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         return {0.0f, 0.0f, 0.0f};
       cv::Mat wcv(warped.rows(), warped.cols(), CV_32F,
                   const_cast<float *>(warped.data()));
+      // Build mask: only pixels with data (> 0) are valid frame area.
+      cv::Mat valid_mask;
+      cv::compare(wcv, 0.0f, valid_mask, cv::CMP_GT);
       cv::Mat lap;
       cv::Laplacian(wcv, lap, CV_32F);
       cv::Scalar mean_sd, stddev_sd;
-      cv::meanStdDev(lap, mean_sd, stddev_sd);
+      cv::meanStdDev(lap, mean_sd, stddev_sd, valid_mask);
       float contrast = static_cast<float>(stddev_sd[0] * stddev_sd[0]);
 
       std::vector<float> px;
       px.reserve(static_cast<size_t>(warped.size()));
       for (Eigen::Index k = 0; k < warped.size(); ++k) {
-        px.push_back(warped.data()[k]);
+        const float v = warped.data()[k];
+        if (v > 0.0f) px.push_back(v);
       }
-      float background = core::median_of(px);
+      float background = px.empty() ? 0.0f : core::median_of(px);
 
-      float snr = 0.0f;
-      if (!px.empty()) {
-        float mad = core::robust_sigma_mad(px);
-        std::vector<float> sorted_px = px;
-        std::sort(sorted_px.begin(), sorted_px.end());
-        float p99 = core::percentile_from_sorted(sorted_px, 99.0f);
-        snr = (p99 - background) / (mad + 1.0e-6f);
-      }
+      float snr = robust_tile_snr_proxy(warped, 0.0f);
 
       return {contrast, background, snr};
     };
@@ -1327,28 +1358,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           if (t_img.size() <= 0) return 0.0f;
           cv::Mat m(t_img.rows(), t_img.cols(), CV_32F,
                     const_cast<float *>(t_img.data()));
+          cv::Mat valid_mask;
+          cv::compare(m, 0.0f, valid_mask, cv::CMP_GT);
           cv::Mat bg_m;
           cv::blur(m, bg_m, cv::Size(31, 31), cv::Point(-1, -1),
                    cv::BORDER_REFLECT_101);
           cv::Mat r = m - bg_m;
           cv::Scalar mu, sd;
-          cv::meanStdDev(r, mu, sd);
+          cv::meanStdDev(r, mu, sd, valid_mask);
           return static_cast<float>(sd[0]);
         };
-        auto estimate_tile_snr_proxy = [](const Matrix2Df &t_img) -> float {
-          if (t_img.size() <= 0) {
-            return 0.0f;
-          }
-          std::vector<float> px;
-          px.resize(static_cast<size_t>(t_img.size()));
-          std::copy(t_img.data(), t_img.data() + t_img.size(), px.begin());
-          const float bg = core::median_of(px);
-          const float mad = core::robust_sigma_mad(px);
-          std::sort(px.begin(), px.end());
-          const float p99 = core::percentile_from_sorted(px, 99.0f);
-          return (p99 - bg) / (mad + 1.0e-6f);
-        };
-        const float tile_snr = estimate_tile_snr_proxy(tile_rec);
+        const float tile_snr =
+            robust_tile_snr_proxy(tile_rec,
+                                  cfg.tile_denoise.wiener.snr_threshold + 1.0f);
         float sigma_est = estimate_tile_noise(tile_rec);
         tile_rec = reconstruction::wiener_tile_filter(
             tile_rec, sigma_est, tile_snr, tile_q, is_star,
@@ -1391,13 +1413,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           if (src.size() <= 0) {
             return 0.0f;
           }
-          norm_tmp.resize(static_cast<size_t>(src.size()));
-          if (abs_values) {
-            for (Eigen::Index i = 0; i < src.size(); ++i) {
-              norm_tmp[static_cast<size_t>(i)] = std::fabs(src.data()[i]);
+          norm_tmp.clear();
+          norm_tmp.reserve(static_cast<size_t>(src.size()));
+          for (Eigen::Index i = 0; i < src.size(); ++i) {
+            const float v = src.data()[i];
+            if (v > 0.0f) {
+              norm_tmp.push_back(abs_values ? std::fabs(v) : v);
             }
-          } else {
-            std::copy(src.data(), src.data() + src.size(), norm_tmp.begin());
+          }
+          if (norm_tmp.empty()) {
+            return 0.0f;
           }
           const size_t mid = norm_tmp.size() / 2;
           std::nth_element(norm_tmp.begin(),
@@ -2142,14 +2167,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
         }
 
-        // Keep uncovered pixels neutral to avoid dark/colored border bands
-        // influencing final histogram/stretch perception.
-        const float bg = bg_samp.empty() ? 0.0f : core::median_of(bg_samp);
-        for (Eigen::Index i = 0; i < out.size(); ++i) {
-          if (weight_ola.data()[i] <= kEpsWeightSum) {
-            out.data()[i] = bg;
-          }
-        }
+        // Keep uncovered pixels at 0.0 (canvas dead area marker).
+        // Downstream stacking must skip zero pixels to avoid contamination.
+        // The final output will fill dead area with bg after stacking.
         return out;
       }
 
@@ -2401,13 +2421,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               cluster_stack_weights[i] = 1.0f;
             }
           }
-          if (cfg.stacking.cluster_quality_weighting.cap_enabled &&
-              !cluster_stack_weights.empty()) {
+          const bool apply_cap = !cluster_stack_weights.empty() &&
+                                 (cfg.stacking.cluster_quality_weighting.cap_enabled ||
+                                  use_synthetic_frames);
+          if (apply_cap) {
             std::vector<float> tmp_w = cluster_stack_weights;
             const float med_w = core::median_of(tmp_w);
+            const float cap_ratio =
+                cfg.stacking.cluster_quality_weighting.cap_enabled
+                    ? cfg.stacking.cluster_quality_weighting.cap_ratio
+                    : 5.0f;
             const float cap =
-                std::max(kEpsWeight,
-                         cfg.stacking.cluster_quality_weighting.cap_ratio * med_w);
+                std::max(kEpsWeight, cap_ratio * med_w);
             for (float &w : cluster_stack_weights) {
               if (w > cap)
                 w = cap;
@@ -2434,23 +2459,34 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 cfg.stacking.sigma_clip.max_iters,
                 cfg.stacking.sigma_clip.min_fraction);
           } else {
+            const int npix = synth_R[0].size();
             recon_R = Matrix2Df::Zero(synth_R[0].rows(), synth_R[0].cols());
             recon_G = Matrix2Df::Zero(synth_G[0].rows(), synth_G[0].cols());
             recon_B = Matrix2Df::Zero(synth_B[0].rows(), synth_B[0].cols());
-            float wsum = 0.0f;
+            Matrix2Df wsum_map = Matrix2Df::Zero(synth_R[0].rows(), synth_R[0].cols());
             for (size_t k = 0; k < synth_R.size(); ++k) {
               const float wk = use_quality_weighting
                                    ? cluster_stack_weights[k]
                                    : 1.0f;
-              recon_R += synth_R[k] * wk;
-              recon_G += synth_G[k] * wk;
-              recon_B += synth_B[k] * wk;
-              wsum += wk;
+              for (int px = 0; px < npix; ++px) {
+                if (synth_R[k].data()[px] > 0.0f ||
+                    synth_G[k].data()[px] > 0.0f ||
+                    synth_B[k].data()[px] > 0.0f) {
+                  recon_R.data()[px] += synth_R[k].data()[px] * wk;
+                  recon_G.data()[px] += synth_G[k].data()[px] * wk;
+                  recon_B.data()[px] += synth_B[k].data()[px] * wk;
+                  wsum_map.data()[px] += wk;
+                }
+              }
             }
-            const float denom = std::max(kEpsWeight, wsum);
-            recon_R /= denom;
-            recon_G /= denom;
-            recon_B /= denom;
+            for (int px = 0; px < npix; ++px) {
+              const float ws = wsum_map.data()[px];
+              if (ws > kEpsWeight) {
+                recon_R.data()[px] /= ws;
+                recon_G.data()[px] /= ws;
+                recon_B.data()[px] /= ws;
+              }
+            }
           }
           recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
         } else {
@@ -2461,15 +2497,26 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 cfg.stacking.sigma_clip.max_iters,
                 cfg.stacking.sigma_clip.min_fraction);
           } else {
+            const int npix_mono = valid_synth[0].size();
             recon = Matrix2Df::Zero(valid_synth[0].rows(), valid_synth[0].cols());
-            float wsum = 0.0f;
+            Matrix2Df wsum_mono = Matrix2Df::Zero(valid_synth[0].rows(), valid_synth[0].cols());
             for (size_t idx = 0; idx < valid_synth.size(); ++idx) {
               const float wk =
                   use_quality_weighting ? cluster_stack_weights[idx] : 1.0f;
-              recon += valid_synth[idx] * wk;
-              wsum += wk;
+              for (int px = 0; px < npix_mono; ++px) {
+                const float v = valid_synth[idx].data()[px];
+                if (v > 0.0f) {
+                  recon.data()[px] += v * wk;
+                  wsum_mono.data()[px] += wk;
+                }
+              }
             }
-            recon /= std::max(kEpsWeight, wsum);
+            for (int px = 0; px < npix_mono; ++px) {
+              const float ws = wsum_mono.data()[px];
+              if (ws > kEpsWeight) {
+                recon.data()[px] /= ws;
+              }
+            }
           }
         }
       }

@@ -103,10 +103,10 @@ tile_denoise:
   soft_threshold:
     enabled: true # Highpass + Soft-Threshold pro Tile
     blur_kernel: 21 # kleiner Kernel fuer kompaktere Aufloesungen
-    alpha: 1.6 # moderates Denoising
+    alpha: 1.1 # moderates Denoising
     skip_star_tiles: true # sternreiche Tiles vom Denoise ausnehmen
   wiener:
-    enabled: true # Wiener-Denoise im Frequenzraum
+    enabled: false # Wiener-Denoise im Frequenzraum
     snr_threshold: 4.0 # etwas frueher aktiv bei rauschigeren Smart-Sensoren
     q_min: -0.5 # untere Strukturqualitaetsgrenze
     q_max: 1.0 # obere Strukturqualitaetsgrenze
@@ -138,7 +138,7 @@ chroma_denoise:
     sigma_range: 0.025
   blend:
     mode: chroma_only
-    amount: 0.7
+    amount: 0.25
   # Preset-Hinweis:
   # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
   # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
@@ -213,7 +213,7 @@ stacking:
   cluster_quality_weighting:
     enabled: true # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
-    cap_enabled: false # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
+    cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
