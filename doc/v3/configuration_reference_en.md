@@ -8,8 +8,6 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 
 **💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
 
----
-
 ## Table of Contents
 
 1. [Pipeline](#1-pipeline)
@@ -52,15 +50,17 @@ Basic pipeline control.
 - **`production`**: Complete processing with all quality checks and phases
 - **`test`**: Reduced processing for testing purposes (may skip some validations)
 
-### `pipeline.max_frames`
+### `pipeline.abort_on_fail`
 
 | Property | Value |
 |----------|-------|
-| **Type** | integer |
-| **Default** | `-1` (unlimited) |
-| **Range** | `-1` to `1000000` |
+| **Type** | boolean |
+| **Default** | `true` |
 
-**Purpose:** Maximum number of frames to process. `-1` means process all available frames.
+**Purpose:** Stop immediately when a critical phase fails.
+
+- **`true`**: production-safe behavior (recommended)
+- **`false`**: continue for diagnostics/debug runs
 
 ---
 
@@ -68,32 +68,50 @@ Basic pipeline control.
 
 Output file and directory configuration.
 
-### `output.base_dir`
+### `output.registered_dir`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string |
-| **Default** | `"./output"` |
+| **Default** | `"registered"` |
 
-**Purpose:** Base directory for all output files. Will be created if it doesn't exist.
+**Purpose:** Subdirectory for registered frames (under `runs/<run_id>/outputs/`).
 
-### `output.run_name`
+### `output.artifacts_dir`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string |
-| **Default** | `"tile_compile_run"` |
+| **Default** | `"artifacts"` |
 
-**Purpose:** Name prefix for the output subdirectory. Final output will be in `base_dir/run_name_timestamp/`.
+**Purpose:** Subdirectory for JSON artifacts and reports.
 
-### `output.save_intermediate`
+### `output.write_registered_frames`
 
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
 | **Default** | `false` |
 
-**Purpose:** Whether to save intermediate processing results (useful for debugging).
+**Purpose:** Persist registered frames as FITS (`reg_XXXXX.fit`).
+
+### `output.write_global_metrics`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Write `global_metrics.json`.
+
+### `output.write_global_registration`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Write `global_registration.json` (warp + cc per frame).
 
 ---
 
@@ -101,23 +119,51 @@ Output file and directory configuration.
 
 Input data configuration.
 
-### `data.input_dir`
+### `data.image_width`
 
 | Property | Value |
 |----------|-------|
-| **Type** | string |
-| **Required** | Yes |
+| **Type** | integer |
+| **Default** | `0` (auto-detected) |
 
-**Purpose:** Directory containing input FITS files.
+**Purpose:** Optional expected image width in pixels.
 
-### `data.file_pattern`
+### `data.image_height`
 
 | Property | Value |
 |----------|-------|
-| **Type** | string |
-| **Default** | `"*.fits"` |
+| **Type** | integer |
+| **Default** | `0` (auto-detected) |
 
-**Purpose:** Glob pattern for matching input files.
+**Purpose:** Optional expected image height in pixels.
+
+### `data.frames_min`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `0` |
+
+**Purpose:** Expected minimum number of input frames (`0` disables this check).
+
+### `data.frames_target`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `0` |
+
+**Purpose:** Informational target number of frames.
+
+### `data.color_mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `OSC`, `MONO`, `RGB` |
+| **Default** | `"OSC"` |
+
+**Purpose:** Expected camera color mode.
 
 ### `data.bayer_pattern`
 
@@ -129,14 +175,14 @@ Input data configuration.
 
 **Purpose:** Bayer matrix pattern for color filter arrays. `NONE` for monochrome data.
 
-### `data.is_osc`
+### `data.linear_required`
 
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
-| **Default** | `false` |
+| **Default** | `true` |
 
-**Purpose:** Whether the data is from One-Shot Color (OSC) cameras.
+**Purpose:** Require linear (unstretched) input data.
 
 ---
 
@@ -153,29 +199,33 @@ Linearity correction settings.
 
 **Purpose:** Enable/disable linearity correction.
 
-### `linearity.method`
+### `linearity.max_frames`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `8` |
+
+**Purpose:** Number of frames used for linearity diagnostics.
+
+### `linearity.min_overall_linearity`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.9` |
+
+**Purpose:** Minimum acceptable global linearity score.
+
+### `linearity.strictness`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `none`, `linearize`, `inverse_gamma` |
-| **Default** | `"linearize"` |
+| **Values** | `strict`, `warn`, `off` |
+| **Default** | `"strict"` |
 
-**Purpose:** Linearity correction method.
-
-- **`none`**: No correction
-- **`linearize`**: Apply linearization curve
-- **`inverse_gamma`**: Apply inverse gamma correction
-
-### `linearity.gamma`
-
-| Property | Value |
-|----------|-------|
-| **Type** | float |
-| **Default** | `2.2` |
-| **Range** | `1.0` to `5.0` |
-
-**Purpose:** Gamma value for inverse gamma correction (used when `method` is `inverse_gamma`).
+**Purpose:** Controls whether linearity violations fail, warn, or are ignored.
 
 ---
 
@@ -183,41 +233,50 @@ Linearity correction settings.
 
 Calibration frame processing.
 
-### `calibration.enabled`
+### `calibration.use_bias` / `calibration.use_dark` / `calibration.use_flat`
 
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Enable/disable calibration frame processing.
+**Purpose:** Enable per-frame-type calibration stages.
 
-### `calibration.dark_dir`
+### `calibration.bias_use_master` / `calibration.dark_use_master` / `calibration.flat_use_master`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Use prebuilt master calibration files instead of stacking directories.
+
+### `calibration.dark_auto_select`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Auto-select matching darks by exposure (and optionally temperature).
+
+### `calibration.bias_dir` / `calibration.darks_dir` / `calibration.flats_dir`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string |
 | **Default** | `""` (disabled) |
 
-**Purpose:** Directory containing dark frames.
+**Purpose:** Input directories for calibration stacks.
 
-### `calibration.flat_dir`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string |
-| **Default** | `""` (disabled) |
-
-**Purpose:** Directory containing flat frames.
-
-### `calibration.bias_dir`
+### `calibration.bias_master` / `calibration.dark_master` / `calibration.flat_master`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string |
 | **Default** | `""` (disabled) |
 
-**Purpose:** Directory containing bias frames.
+**Purpose:** Paths to precomputed master calibration files.
 
 ---
 
@@ -225,35 +284,59 @@ Calibration frame processing.
 
 Physical assumptions about the data.
 
-### `assumptions.read_noise`
+### `assumptions.frames_min`
 
 | Property | Value |
 |----------|-------|
-| **Type** | float |
+| **Type** | integer |
+| **Default** | `50` |
+
+**Purpose:** Minimum usable frame count for normal mode.
+
+### `assumptions.frames_optimal`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `800` |
+
+**Purpose:** Informational target for best quality/stability.
+
+### `assumptions.frames_reduced_threshold`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `200` |
+
+**Purpose:** Threshold for reduced mode decisions.
+
+### `assumptions.exposure_time_tolerance_percent`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
 | **Default** | `5.0` |
-| **Units** | electrons |
 
-**Purpose:** Read noise level for noise modeling.
+**Purpose:** Allowed exposure mismatch within one sequence.
 
-### `assumptions.gain`
-
-| Property | Value |
-|----------|-------|
-| **Type** | float |
-| **Default** | `1.0` |
-| **Units** | electrons/ADU |
-
-**Purpose:** Camera gain for ADU to electron conversion.
-
-### `assumptions.sky_background`
+### `assumptions.reduced_mode_skip_clustering`
 
 | Property | Value |
 |----------|-------|
-| **Type** | float |
-| **Default** | `100.0` |
-| **Units** | ADU |
+| **Type** | boolean |
+| **Default** | `true` |
 
-**Purpose:** Expected sky background level.
+**Purpose:** Skip expensive clustering in reduced mode.
+
+### `assumptions.reduced_mode_cluster_range`
+
+| Property | Value |
+|----------|-------|
+| **Type** | array [2 integers] |
+| **Default** | `[5, 20]` |
+
+**Purpose:** Cluster range fallback when reduced mode still runs clustering.
 
 ---
 
@@ -270,19 +353,27 @@ Frame normalization settings.
 
 **Purpose:** Enable/disable frame normalization.
 
-### `normalization.method`
+### `normalization.mode`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `median`, `mean`, `none` |
-| **Default** | `"median"` |
+| **Values** | `background`, `none` |
+| **Default** | `"background"` |
 
 **Purpose:** Normalization method.
 
-- **`median`**: Use median for robust normalization
-- **`mean`**: Use mean (less robust to outliers)
-- **`none`**: No normalization
+- **`background`**: robust background matching (recommended)
+- **`none`**: disabled (not recommended for production)
+
+### `normalization.per_channel`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Normalize channels independently for OSC/RGB data.
 
 ---
 
@@ -290,44 +381,153 @@ Frame normalization settings.
 
 Image registration settings.
 
-### `registration.enabled`
+### `registration.engine`
+
+| Property | Value |
+|----------|---------|
+| **Type** | string (enum) |
+| **Values** | `triangle_star_matching`, `star_similarity`, `hybrid_phase_ecc`, `robust_phase_ecc` |
+| **Default** | `"triangle_star_matching"` |
+
+**Purpose:** Primary registration engine. The runner always runs a **6-stage fallback cascade**; this key selects the preferred first stage.
+
+| Engine | Description | Strength |
+|--------|-------------|----------|
+| **`triangle_star_matching`** | Triangle asterism matching | **Rotation-invariant**, ideal for Alt/Az, clear sky |
+| **`star_similarity`** | Star-pair distance matching | Fast for small offsets |
+| **`hybrid_phase_ecc`** | Phase correlation + ECC | No star detection needed, for nebulae |
+| **`robust_phase_ecc`** | LoG gradient preprocessing + pyramid Phase+ECC | **Recommended for clouds/nebula**, removes gradients before correlation |
+
+**Cascade (always):** Triangle Stars → Star Pairs → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity fallback
+
+**Temporal-Smoothing (v3.2.3+, automatically active):** When direct registration `i→ref` fails, the runner automatically tries:
+1. `i→(i-1)→ref` — register to previous frame, then chain warps
+2. `i→(i+1)→ref` — register to next frame, then chain warps
+
+All chained warps are validated with NCC against the reference frame. Particularly effective for continuous field rotation (Alt/Az near pole) and clouds/nebula. Logs: `[REG-TEMPORAL]`
+
+**Adaptive Star Detection (v3.2.3+, automatically active):** When fewer than `star_topk / 2` stars are detected, a second detection pass with a lower threshold (2.5σ instead of 3.5σ) is automatically performed.
+
+### `registration.allow_rotation`
 
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Enable/disable image registration.
+**Purpose:** Allow rotation in global registration (required for Alt/Az).
 
-### `registration.method`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `triangle_star_matching`, `star_similarity`, `hybrid_phase_ecc` |
-| **Default** | `"triangle_star_matching"` |
-
-**Purpose:** Registration method.
-
-### `registration.max_shift`
+### `registration.star_topk`
 
 | Property | Value |
 |----------|-------|
-| **Type** | float |
-| **Default** | `50.0` |
-| **Units** | pixels |
+| **Type** | integer |
+| **Default** | `120` |
 
-**Purpose:** Maximum allowed shift between frames.
+**Purpose:** Number of strongest stars used for star-based matching.
 
-### `registration.max_rotation`
+### `registration.star_min_inliers`
 
 | Property | Value |
 |----------|-------|
-| **Type** | float |
-| **Default** | `5.0` |
-| **Units** | degrees |
+| **Type** | integer |
+| **Default** | `6` |
 
-**Purpose:** Maximum allowed rotation between frames.
+**Purpose:** Minimum inlier matches required for acceptance.
+
+### `registration.star_inlier_tol_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `2.5` |
+
+**Purpose:** Inlier tolerance in pixels for transformed star matches.
+
+### `registration.star_dist_bin_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `2.5` |
+
+**Purpose:** Distance histogram bin size in `star_similarity`.
+
+### `registration.reject_outliers`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable robust post-checks for implausible global warps.
+
+### `registration.reject_cc_min_abs`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.35` |
+
+**Purpose:** Absolute minimum correlation coefficient threshold.
+
+### `registration.reject_cc_mad_multiplier`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `4.0` |
+
+**Purpose:** MAD-based robustness for CC outlier threshold.
+
+### `registration.reject_shift_px_min`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `25.0` |
+
+**Purpose:** Fixed minimum shift threshold for rejection logic.
+
+### `registration.reject_shift_median_multiplier`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `3.0` |
+
+**Purpose:** Multiplier for robust shift threshold (`multiplier * median_shift`).
+
+### `registration.reject_scale_min` / `registration.reject_scale_max`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number / number |
+| **Default** | `0.92` / `1.08` |
+
+**Purpose:** Allowed similarity scale range. Warps outside `[reject_scale_min, reject_scale_max]` or with negative determinant (reflection) are rejected.
+
+---
+
+## 8b. Dithering
+
+### `dithering.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Mark session as dithered. Enables dither diagnostics (`detected_count`/`fraction`) in `global_registration.json`.
+
+### `dithering.min_shift_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.5` |
+
+**Purpose:** Minimum shift in pixels to count a frame as dithered.
 
 ---
 
@@ -335,34 +535,95 @@ Image registration settings.
 
 Tile-based denoising settings.
 
-### `tile_denoise.enabled`
+### `tile_denoise.soft_threshold.enabled`
 
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Enable/disable tile-based denoising.
+**Purpose:** Enable soft-threshold denoising (default active path).
 
-### `tile_denoise.method`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `wavelet`, `bilateral`, `none` |
-| **Default** | `"wavelet"` |
-
-**Purpose:** Denoising method.
-
-### `tile_denoise.strength`
+### `tile_denoise.soft_threshold.blur_kernel`
 
 | Property | Value |
 |----------|-------|
-| **Type** | float |
-| **Default** | `0.5` |
-| **Range** | `0.0` to `1.0` |
+| **Type** | integer |
+| **Default** | `31` |
 
-**Purpose:** Denoising strength.
+**Purpose:** Blur radius used for local noise estimate.
+
+### `tile_denoise.soft_threshold.alpha`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `1.5` |
+
+**Purpose:** Soft-threshold aggressiveness.
+
+### `tile_denoise.soft_threshold.skip_star_tiles`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Avoid denoising in STAR tiles to protect stellar detail.
+
+### `tile_denoise.wiener.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Optional Wiener denoise branch (off by default).
+
+### `tile_denoise.wiener.snr_threshold`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `5.0` |
+
+**Purpose:** SNR threshold; tiles above this are typically not filtered.
+
+### `tile_denoise.wiener.q_min` / `tile_denoise.wiener.q_max`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number / number |
+| **Default** | `-0.5` / `1.0` |
+
+**Purpose:** Quality parameter search range for Wiener optimization.
+
+### `tile_denoise.wiener.q_step`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.1` |
+
+**Purpose:** Step size for q-parameter optimization.
+
+### `tile_denoise.wiener.min_snr`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `2.0` |
+
+**Purpose:** Minimum SNR for stable Wiener estimation.
+
+### `tile_denoise.wiener.max_iterations`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `10` |
+
+**Purpose:** Maximum iterations for Wiener optimization.
 
 ---
 
@@ -370,24 +631,59 @@ Tile-based denoising settings.
 
 Global quality metrics.
 
-### `global_metrics.enabled`
+### `global_metrics.weights.background`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.4` |
+
+**Purpose:** Weight for background penalty term.
+
+### `global_metrics.weights.noise`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.3` |
+
+**Purpose:** Weight for noise penalty term.
+
+### `global_metrics.weights.gradient`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.3` |
+
+**Purpose:** Weight for structure/sharpness term.
+
+### `global_metrics.clamp`
+
+| Property | Value |
+|----------|-------|
+| **Type** | array [2 numbers] |
+| **Default** | `[-3.0, 3.0]` |
+
+**Purpose:** Clamp range before exponential weighting.
+
+### `global_metrics.adaptive_weights`
 
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
-| **Default** | `true` |
+| **Default** | `false` |
 
-**Purpose:** Enable/disable global metrics calculation.
+**Purpose:** Auto-adjust global metric weights by variance.
 
-### `global_metrics.fwhm_threshold`
+### `global_metrics.weight_exponent_scale`
 
 | Property | Value |
 |----------|-------|
-| **Type** | float |
-| **Default** | `3.0` |
-| **Units** | pixels |
+| **Type** | number |
+| **Default** | `1.0` |
 
-**Purpose:** FWHM threshold for star quality assessment.
+**Purpose:** Exponential scaling factor for global weight separation.
 
 ---
 
@@ -395,35 +691,50 @@ Global quality metrics.
 
 Tile processing configuration.
 
-### `tile.size`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `256` |
-| **Units** | pixels |
-
-**Purpose:** Size of processing tiles (square).
-
-### `tile.overlap`
+### `tile.size_factor`
 
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
 | **Default** | `32` |
-| **Units** | pixels |
 
-**Purpose:** Overlap between adjacent tiles.
+**Purpose:** Base tile size factor (`T0 = size_factor * FWHM`).
 
-### `tile.min_quality`
+### `tile.min_size`
 
 | Property | Value |
 |----------|-------|
-| **Type** | float |
-| **Default** | `0.5` |
-| **Range** | `0.0` to `1.0` |
+| **Type** | integer |
+| **Default** | `64` |
 
-**Purpose:** Minimum quality threshold for tile acceptance.
+**Purpose:** Minimum tile size in pixels.
+
+### `tile.max_divisor`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `6` |
+
+**Purpose:** Upper tile size bound via shorter side divisor.
+
+### `tile.overlap_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.25` |
+
+**Purpose:** Fractional overlap for overlap-add blending.
+
+### `tile.star_min_count`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `10` |
+
+**Purpose:** Threshold for STAR vs STRUCTURE tile classification.
 
 ---
 
@@ -431,24 +742,59 @@ Tile processing configuration.
 
 Local quality metrics.
 
-### `local_metrics.enabled`
+### `local_metrics.clamp`
 
 | Property | Value |
 |----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
+| **Type** | array [2 numbers] |
+| **Default** | `[-3.0, 3.0]` |
 
-**Purpose:** Enable/disable local metrics calculation.
+**Purpose:** Clamp range before local exponential weighting.
 
-### `local_metrics.contrast_threshold`
+### `local_metrics.star_mode.weights.fwhm`
 
 | Property | Value |
 |----------|-------|
-| **Type** | float |
-| **Default** | `0.1` |
-| **Range** | `0.0` to `1.0` |
+| **Type** | number |
+| **Default** | `0.6` |
 
-**Purpose:** Contrast threshold for local quality assessment.
+**Purpose:** Weight of FWHM in STAR-tile local quality.
+
+### `local_metrics.star_mode.weights.roundness`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.2` |
+
+**Purpose:** Weight of roundness in STAR-tile local quality.
+
+### `local_metrics.star_mode.weights.contrast`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.2` |
+
+**Purpose:** Weight of contrast in STAR-tile local quality.
+
+### `local_metrics.structure_mode.metric_weight`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.7` |
+
+**Purpose:** Weight of structure metric in STRUCTURE-tile mode.
+
+### `local_metrics.structure_mode.background_weight`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.3` |
+
+**Purpose:** Weight of background penalty in STRUCTURE-tile mode.
 
 ---
 
@@ -456,23 +802,52 @@ Local quality metrics.
 
 Synthetic frame generation.
 
-### `synthetic.enabled`
+### `synthetic.weighting`
 
 | Property | Value |
 |----------|-------|
-| **Type** | boolean |
-| **Default** | `false` |
+| **Type** | string (enum) |
+| **Values** | `global`, `tile_weighted` |
+| **Default** | `"global"` |
 
-**Purpose:** Enable/disable synthetic frame generation.
+**Purpose:** Weighting strategy for synthetic frame creation.
 
-### `synthetic.count`
+### `synthetic.frames_min`
 
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
-| **Default** | `0` |
+| **Default** | `5` |
 
-**Purpose:** Number of synthetic frames to generate.
+**Purpose:** Minimum cluster size required to generate synthetic output.
+
+### `synthetic.frames_max`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `30` |
+
+**Purpose:** Upper limit for generated synthetic frames.
+
+### `synthetic.clustering.mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `kmeans`, `quantile` |
+| **Default** | `"kmeans"` |
+
+**Purpose:** Clustering method for synthetic generation.
+
+### `synthetic.clustering.cluster_count_range`
+
+| Property | Value |
+|----------|-------|
+| **Type** | array [2 integers] |
+| **Default** | `[5, 30]` |
+
+**Purpose:** Min/max cluster count range.
 
 ---
 
@@ -480,25 +855,25 @@ Synthetic frame generation.
 
 Image reconstruction settings.
 
-### `reconstruction.method`
+### `reconstruction.weighting_function`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `weighted_average`, `median`, `sigma_clipped_mean` |
-| **Default** | `"weighted_average"` |
+| **Values** | `linear` |
+| **Default** | `"linear"` |
 
-**Purpose:** Reconstruction method.
+**Purpose:** Tile blending weighting function (fixed in current runner).
 
-### `reconstruction.sigma_clip`
+### `reconstruction.window_function`
 
 | Property | Value |
 |----------|-------|
-| **Type** | float |
-| **Default** | `3.0` |
-| **Units** | sigma |
+| **Type** | string (enum) |
+| **Values** | `hanning` |
+| **Default** | `"hanning"` |
 
-**Purpose:** Sigma clipping threshold (used when `method` is `sigma_clipped_mean`).
+**Purpose:** Window function for overlap-add reconstruction.
 
 ---
 
@@ -506,28 +881,14 @@ Image reconstruction settings.
 
 Debayering settings for OSC data.
 
-### `debayer.enabled`
+### `debayer`
 
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Enable/disable debayering (only for OSC data).
-
-### `debayer.method`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `bilinear`, `VNG`, `AHD` |
-| **Default** | `"bilinear"` |
-
-**Purpose:** Debayering algorithm.
-
-- **`bilinear`**: Fast bilinear interpolation
-- **`VNG`**: Variable Number of Gradients
-- **`AHD`**: Adaptive Homogeneity-Directed
+**Purpose:** Debayer final CFA stack (OSC). For MONO data, this phase is skipped.
 
 ---
 
@@ -544,25 +905,33 @@ Astrometry solving settings.
 
 **Purpose:** Enable/disable astrometry solving.
 
-### `astrometry.solver`
+### `astrometry.astap_bin`
 
 | Property | Value |
 |----------|-------|
-| **Type** | string (enum) |
-| **Values** | `astap`, `siril`, `internal` |
-| **Default** | `"astap"` |
+| **Type** | string |
+| **Default** | `""` |
 
-**Purpose:** Astrometry solver to use.
+**Purpose:** Path to ASTAP binary (empty = system/default path).
 
-### `astrometry.timeout`
+### `astrometry.astap_data_dir`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Default** | `""` |
+
+**Purpose:** Path to ASTAP data directory (empty = default path).
+
+### `astrometry.search_radius`
 
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
-| **Default** | `300` |
-| **Units** | seconds |
+| **Range** | `1` to `360` |
+| **Default** | `180` |
 
-**Purpose:** Timeout for astrometry solving.
+**Purpose:** Search radius in degrees (`180` = blind solve).
 
 ---
 
@@ -579,38 +948,70 @@ Photometric Color Calibration settings.
 
 **Purpose:** Enable/disable photometric color calibration.
 
-### `pcc.catalog`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `siril`, `vizier_gaia`, `vizier_apass`, `auto` |
-| **Default** | `"auto"` |
-
-**Purpose:** Star catalog source for color calibration.
-
 ### `pcc.source`
 
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `siril`, `vizier_gaia`, `vizier_apass`, `auto` |
+| **Values** | `auto`, `siril`, `vizier_gaia`, `vizier_apass` |
 | **Default** | `"auto"` |
 
-**Purpose:** Catalog source (same as `catalog`).
+**Purpose:** Source catalog/provider for PCC.
 
-### `pcc.method`
+### `pcc.mag_limit`
 
 | Property | Value |
 |----------|-------|
-| **Type** | string (enum) |
-| **Values** | `proportion`, `regression` |
-| **Default** | `"proportion"` |
+| **Type** | number |
+| **Default** | `14.0` |
 
-**Purpose:** Color correction method.
+**Purpose:** Faint magnitude limit.
 
-- **`proportion`**: Use color proportions (background-preserving)
-- **`regression`**: Use linear regression (Siril SPCC style)
+### `pcc.mag_bright_limit`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `6.0` |
+
+**Purpose:** Bright-star upper magnitude cutoff.
+
+### `pcc.aperture_radius_px`, `pcc.annulus_inner_px`, `pcc.annulus_outer_px`
+
+| Key | Type | Default |
+|-----|------|---------|
+| `pcc.aperture_radius_px` | number | `8.0` |
+| `pcc.annulus_inner_px` | number | `12.0` |
+| `pcc.annulus_outer_px` | number | `18.0` |
+
+**Purpose:** Aperture/annulus geometry for star photometry.
+
+### `pcc.min_stars`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `10` |
+
+**Purpose:** Minimum number of valid stars required for PCC.
+
+### `pcc.sigma_clip`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `2.5` |
+
+**Purpose:** Outlier rejection threshold in PCC fitting.
+
+### `pcc.siril_catalog_dir`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Default** | `""` |
+
+**Purpose:** Optional local Siril catalog path.
 
 ---
 
@@ -623,20 +1024,82 @@ Final stacking settings.
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `average`, `median`, `sigma_clipped` |
-| **Default** | `"average"` |
+| **Values** | `rej`, `average` |
+| **Default** | `"rej"` |
 
 **Purpose:** Final stacking method.
 
-### `stacking.sigma_clip`
+### `stacking.sigma_clip.sigma_low` / `stacking.sigma_clip.sigma_high`
+
+| Property | Value |
+|----------|---------|
+| **Type** | number |
+| **Default** | `2.0` / `2.0` |
+
+**Purpose:** Lower/upper sigma thresholds for rejection. Pixel rejected when `z < -sigma_low` or `z > sigma_high`.
+
+### `stacking.sigma_clip.max_iters`
+
+| Property | Value |
+|----------|---------|
+| **Type** | integer |
+| **Default** | `3` |
+
+**Purpose:** Maximum sigma-clipping iterations.
+
+### `stacking.sigma_clip.min_fraction`
+
+| Property | Value |
+|----------|---------|
+| **Type** | number |
+| **Default** | `0.5` |
+
+**Purpose:** Minimum surviving frame fraction per pixel. Falls back to unclipped mean if violated.
+
+### `stacking.cluster_quality_weighting.enabled`
+
+| Property | Value |
+|----------|---------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable cluster-quality weighting (`w_k = exp(kappa_cluster * Q_k)`) in final combination.
+
+### `stacking.cluster_quality_weighting.kappa_cluster`
+
+| Property | Value |
+|----------|---------|
+| **Type** | number |
+| **Default** | `1.0` |
+
+**Purpose:** Exponent factor for cluster quality influence. Larger values increase separation between good/bad clusters.
+
+### `stacking.cluster_quality_weighting.cap_enabled` / `stacking.cluster_quality_weighting.cap_ratio`
+
+| Property | Value |
+|----------|---------|
+| **Type** | boolean / number |
+| **Default** | `false` / `20.0` |
+
+**Purpose:** Optional dominance cap: `w_k ≤ cap_ratio * median(w_j)` (only active when `cap_enabled=true`).
+
+### `stacking.output_stretch`
 
 | Property | Value |
 |----------|-------|
-| **Type** | float |
-| **Default** | `3.0` |
-| **Units** | sigma |
+| **Type** | boolean |
+| **Default** | `false` |
 
-**Purpose:** Sigma clipping threshold (used when `method` is `sigma_clipped`).
+**Purpose:** Optional output stretch for preview-style output.
+
+### `stacking.cosmetic_correction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Optional cosmetic correction after stacking.
 
 ---
 
@@ -644,23 +1107,41 @@ Final stacking settings.
 
 Validation and quality control.
 
-### `validation.enabled`
+### `validation.min_fwhm_improvement_percent`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.0` |
+
+**Purpose:** Required minimum FWHM improvement in %.
+
+### `validation.max_background_rms_increase_percent`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.0` |
+
+**Purpose:** Maximum allowed background RMS increase in %.
+
+### `validation.min_tile_weight_variance`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `0.1` |
+
+**Purpose:** Minimum local tile-weight variance sanity threshold.
+
+### `validation.require_no_tile_pattern`
 
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Enable/disable validation checks.
-
-### `validation.strict`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `false` |
-
-**Purpose:** Enable strict validation (fails on warnings).
+**Purpose:** Enforce tile-pattern detector check.
 
 ---
 
@@ -668,33 +1149,58 @@ Validation and quality control.
 
 Runtime and resource limits.
 
-### `runtime_limits.max_memory_gb`
-
-| Property | Value |
-|----------|-------|
-| **Type** | float |
-| **Default** | `16.0` |
-| **Units** | GB |
-
-**Purpose:** Maximum memory usage limit.
-
-### `runtime_limits.max_threads`
+### `runtime_limits.parallel_workers`
 
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
-| **Default** | `0` (auto-detect) |
+| **Default** | `4` |
 
-**Purpose:** Maximum number of threads to use. `0` means use all available cores.
+**Purpose:** Max worker threads for tile-heavy phases.
+
+### `runtime_limits.memory_budget`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Default** | `512` |
+| **Units** | MiB |
+
+**Purpose:** Memory cap that can reduce effective worker parallelism (especially for OSC).
+
+### `runtime_limits.tile_analysis_max_factor_vs_stack`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `3.0` |
+
+**Purpose:** Warn when tile analysis exceeds this factor vs baseline stack time.
+
+### `runtime_limits.hard_abort_hours`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `6.0` |
+
+**Purpose:** Hard upper runtime limit in hours.
+
+### `runtime_limits.allow_emergency_mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Allow processing very small datasets in emergency mode.
 
 ---
 
 ## Notes
 
-1. **Schema Validation**: All configuration files should validate against `tile_compile.schema.json`.
-2. **Default Values**: Default values are defined in `include/tile_compile/config/configuration.hpp`.
-3. **Methodology**: This configuration follows the Tile-Based Quality Reconstruction Methodology v3.2.
-4. **Units**: Where specified, units are provided for numeric parameters.
-5. **Ranges**: Where specified, valid ranges are provided for numeric parameters.
-
-For more detailed information about the methodology and implementation, see the methodology documentation.
+1. **Schema Validation**: validate against `tile_compile.schema.json` / `.yaml`.
+2. **Source of defaults**: `include/tile_compile/config/configuration.hpp`.
+3. **Implementation/parsing**: `tile_compile_cpp/src/io/config.cpp`.
+4. **Methodology baseline**: Tile-Based Quality Reconstruction Methodology v3.2.2.
+5. **Practical tuning**: see `configuration_examples_practical_en.md` and `tile_compile_cpp/examples/*.yaml`.

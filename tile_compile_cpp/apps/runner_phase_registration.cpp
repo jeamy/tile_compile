@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -439,6 +440,7 @@ bool run_phase_registration_prewarp(
   int reg_reject_cc_outliers = 0;
   int reg_reject_shift_outliers = 0;
   core::json reg_rejected_frames = core::json::array();
+  std::vector<uint8_t> reg_rejected_mask(frames.size(), 0);
   if (cfg.registration.reject_outliers) {
     std::vector<float> cc_positive;
     cc_positive.reserve(frames.size());
@@ -538,6 +540,7 @@ bool run_phase_registration_prewarp(
       }
 
       if (reject) {
+        reg_rejected_mask[fi] = 1;
         core::json rej = {
             {"frame_index", static_cast<int>(fi)},
             {"frame_name", frames[fi].filename().string()},
@@ -563,6 +566,131 @@ bool run_phase_registration_prewarp(
         global_frame_cc[fi] = 0.0f;
       }
     }
+
+    // Predict warps for rejected frames using a polynomial field rotation
+    // model fitted to the valid registrations.  For alt-az mounts the warp
+    // parameters (angle, tx, ty) follow smooth trajectories that are well
+    // approximated by a low-degree polynomial over the session duration.
+    // This retains ALL frames (methodology v3.2.2 §1.2) while providing
+    // physically plausible geometry for frames where registration failed.
+    {
+      std::vector<float> vfi, vang, vtx, vty;
+      for (size_t fi = 0; fi < frames.size(); ++fi) {
+        if (!reg_rejected_mask[fi] && global_frame_cc[fi] > 0.0f) {
+          const auto &w = global_frame_warps[fi];
+          vfi.push_back(static_cast<float>(fi));
+          vang.push_back(std::atan2(w(0, 1), w(0, 0)));
+          vtx.push_back(w(0, 2));
+          vty.push_back(w(1, 2));
+        }
+      }
+
+      const int nv = static_cast<int>(vfi.size());
+      int reg_model_predicted = 0;
+
+      if (nv >= 3) {
+        // Normalise frame indices to [0,1] for numerical stability.
+        const float fi_lo = vfi.front();
+        const float fi_hi = vfi.back();
+        const float fi_span = std::max(1.0f, fi_hi - fi_lo);
+
+        // Degree-2 Vandermonde
+        Eigen::MatrixXf V(nv, 3);
+        Eigen::VectorXf ya(nv), yx(nv), yy(nv);
+        for (int i = 0; i < nv; ++i) {
+          const float t = (vfi[static_cast<size_t>(i)] - fi_lo) / fi_span;
+          V(i, 0) = 1.0f;
+          V(i, 1) = t;
+          V(i, 2) = t * t;
+          ya(i) = vang[static_cast<size_t>(i)];
+          yx(i) = vtx[static_cast<size_t>(i)];
+          yy(i) = vty[static_cast<size_t>(i)];
+        }
+
+        auto qr = V.householderQr();
+        Eigen::VectorXf ca = qr.solve(ya);
+        Eigen::VectorXf cx = qr.solve(yx);
+        Eigen::VectorXf cy = qr.solve(yy);
+
+        // Residual stats for diagnostics
+        const float res_ang =
+            (V * ca - ya).cwiseAbs().maxCoeff() * 57.29577951f;
+        const float res_tx = (V * cx - yx).cwiseAbs().maxCoeff();
+        const float res_ty = (V * cy - yy).cwiseAbs().maxCoeff();
+
+        // Predict warps for rejected frames and frames with cc=0
+        // (completely failed registration, not caught by outlier filter)
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          if (!reg_rejected_mask[fi] && global_frame_cc[fi] > 0.0f) {
+            continue;
+          }
+          const float t =
+              (static_cast<float>(fi) - fi_lo) / fi_span;
+          const float pa = ca(0) + ca(1) * t + ca(2) * t * t;
+          const float px = cx(0) + cx(1) * t + cx(2) * t * t;
+          const float py = cy(0) + cy(1) * t + cy(2) * t * t;
+
+          WarpMatrix w;
+          w(0, 0) = std::cos(pa);
+          w(0, 1) = std::sin(pa);
+          w(1, 0) = -std::sin(pa);
+          w(1, 1) = std::cos(pa);
+          w(0, 2) = px;
+          w(1, 2) = py;
+
+          global_frame_warps[fi] = w;
+          // Small positive cc → included in prewarp but lower than valid
+          // frames. Downstream tile-level quality metrics handle weighting.
+          global_frame_cc[fi] = 1.0e-4f;
+          ++reg_model_predicted;
+        }
+
+        {
+          std::ostringstream msg;
+          msg << "REGISTRATION field-rotation model: predicted "
+              << reg_model_predicted << " rejected frames from " << nv
+              << " valid warps (max residual: angle="
+              << std::fixed << std::setprecision(2) << res_ang
+              << "deg tx=" << res_tx << "px ty=" << res_ty << "px)";
+          emitter.warning(run_id, msg.str(), log_file);
+          std::cerr << "[REG-MODEL] " << msg.str() << std::endl;
+        }
+      } else if (nv >= 1) {
+        // Too few points for polynomial — copy nearest valid warp.
+        for (size_t fi = 0; fi < frames.size(); ++fi) {
+          if (!reg_rejected_mask[fi] && global_frame_cc[fi] > 0.0f) {
+            continue;
+          }
+          // Find nearest valid frame
+          int best = -1;
+          int best_dist = std::numeric_limits<int>::max();
+          for (int k = 0; k < nv; ++k) {
+            int d = std::abs(static_cast<int>(fi) -
+                             static_cast<int>(vfi[static_cast<size_t>(k)]));
+            if (d < best_dist) {
+              best_dist = d;
+              best = static_cast<int>(vfi[static_cast<size_t>(k)]);
+            }
+          }
+          if (best >= 0) {
+            global_frame_warps[fi] =
+                global_frame_warps[static_cast<size_t>(best)];
+            global_frame_cc[fi] = 1.0e-4f;
+            ++reg_model_predicted;
+          }
+        }
+        if (reg_model_predicted > 0) {
+          std::ostringstream msg;
+          msg << "REGISTRATION nearest-copy fallback: predicted "
+              << reg_model_predicted << " rejected frames from " << nv
+              << " valid warp(s)";
+          emitter.warning(run_id, msg.str(), log_file);
+          std::cerr << "[REG-MODEL] " << msg.str() << std::endl;
+        }
+      }
+
+      global_reg_extra["reg_model_predicted"] = reg_model_predicted;
+    }
   }
   if (reg_reject_orientation_outliers > 0 ||
       reg_reject_reflection_outliers > 0 ||
@@ -585,8 +713,8 @@ bool run_phase_registration_prewarp(
   global_reg_extra["reg_reject_shift_outliers"] = reg_reject_shift_outliers;
   global_reg_extra["reg_rejected_frames"] = reg_rejected_frames;
 
-  // Methodik v3: no frame selection. Registration may fall back to identity,
-  // but all frames are still kept for subsequent weighting/stacking.
+  // All frames now have warps (valid registration or polynomial prediction).
+  // Tile-level quality metrics handle downstream weighting (v3.2.2 §1.2).
   int n_cc_positive = 0;
   int n_cc_zero = 0;
   int n_cc_negative = 0;
@@ -612,6 +740,7 @@ bool run_phase_registration_prewarp(
 
   // Compute bounding box for field rotation: output canvas must be large enough
   // to contain all rotated frames (Alt/Az mounts near pole).
+  // All warps are now meaningful (valid registration or polynomial prediction).
   WarpBounds bbox = compute_warps_bounds(width, height, global_frame_warps);
   
   // Round canvas to even dimensions for CFA (Bayer) compatibility.

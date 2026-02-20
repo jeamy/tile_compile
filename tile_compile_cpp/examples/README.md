@@ -1,4 +1,4 @@
-# tile_compile_cpp example profiles (Methodik v3.2)
+# tile_compile_cpp example profiles (Methodik v3.2.2)
 
 All example files in this folder are **complete standalone configurations** and include
 all currently available config options with inline explanations.
@@ -50,12 +50,12 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
 - `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
   - Suggested full config for DWARF / ZWO Seestar OSC stacks.
   - Chroma denoise profile: conservative (protect small-scale detail).
-- `tile_compile.smart_telescope_altaz_polar_near.example.yaml`
-  - Suggested OSC config for Alt/Az sessions close to the celestial pole (strong field rotation / drift).
-  - Registration is tuned to be more tolerant (`hybrid_phase_ecc`, lower `reject_cc_min_abs`, wider shift/scale rejection limits).
 - `tile_compile.canon_low_n_high_quality.example.yaml`
   - Suggested OSC config for Canon-style datasets with low frame count but high/consistent quality.
   - Anti-grid focus for reduced/emergency operation: larger tiles, higher overlap, conservative weighting.
+- `tile_compile.canon_equatorial_balanced.example.yaml`
+  - Suggested OSC config for Canon/DSLR on equatorial mount (well-tracked, balanced quality/safety).
+  - Registration is intentionally stricter than Alt/Az while still compatible with modeled fallback for failed direct registrations.
 - `tile_compile.mono_full_mode.example.yaml`
   - Suggested full config for MONO datasets in full mode.
   - Chroma denoise block included for completeness, but disabled by default.
@@ -88,3 +88,61 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
 
 If you still prefer overlay-style usage, merge your base config with a profile
 using your YAML merge tool of choice, then run with the merged file.
+
+## Recommended values by mount type (why)
+
+### 1) Equatorial (Canon/DSLR, guided)
+
+Use stricter rejection to prevent false matches:
+
+```yaml
+registration:
+  star_topk: 120
+  star_inlier_tol_px: 2.5
+  reject_cc_min_abs: 0.35
+  reject_shift_px_min: 40.0
+  reject_shift_median_multiplier: 3.0
+stacking:
+  sigma_clip:
+    sigma_low: 2.0
+    sigma_high: 2.0
+    min_fraction: 0.5
+```
+
+- **Why:** EQ sequences usually have small drift/rotation; stricter gates reduce misregistration risk.
+
+### 2) Alt/Az (smart telescope, rotation-heavy)
+
+Use tolerant rejection because large shift/rotation is physically expected:
+
+```yaml
+registration:
+  star_topk: 150
+  star_inlier_tol_px: 4.0
+  reject_cc_min_abs: 0.30
+  reject_shift_px_min: 100.0
+  reject_shift_median_multiplier: 5.0
+stacking:
+  sigma_clip:
+    sigma_low: 2.5
+    sigma_high: 2.5
+    min_fraction: 0.4
+```
+
+- **Why:** Alt/Az near pole can show wide shift distributions; too strict settings reject too many usable frames.
+
+### 3) Small-N MONO anti-grid
+
+Prefer seam stability over aggressive enhancement:
+
+```yaml
+tile:
+  min_size: 128
+  overlap_fraction: 0.40
+stacking:
+  method: average
+global_metrics:
+  adaptive_weights: false
+```
+
+- **Why:** with low N, conservative blending and larger overlaps reduce tile pattern artifacts.

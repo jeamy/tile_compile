@@ -49,12 +49,298 @@ using tile_compile::WarpMatrix;
 
 namespace image = tile_compile::image;
 namespace astro = tile_compile::astrometry;
+namespace core = tile_compile::core;
+namespace io = tile_compile::io;
 using tile_compile::runner::TeeBuf;
 using tile_compile::runner::estimate_total_file_bytes;
 using tile_compile::runner::format_bytes;
 using tile_compile::runner::message_indicates_disk_full;
 
 using NormalizationScales = image::NormalizationScales;
+
+constexpr int kCalibrationPhaseId = 16;
+
+struct CalibrationAssets {
+  Matrix2Df bias_master;
+  Matrix2Df dark_master;
+  Matrix2Df flat_norm;
+  bool use_bias = false;
+  bool use_dark = false;
+  bool use_flat = false;
+  std::string bias_source;
+  std::string dark_source;
+  std::string flat_source;
+  int bias_source_count = 0;
+  int dark_source_count = 0;
+  int flat_source_count = 0;
+};
+
+void emit_calibration_phase_event(const std::string &type,
+                                  const std::string &run_id,
+                                  nlohmann::json data,
+                                  std::ostream &log_file) {
+  data["phase"] = kCalibrationPhaseId;
+  data["phase_name"] = "CALIBRATION";
+  core::emit_event(type, run_id, data, log_file);
+}
+
+void ensure_shape_or_throw(const Matrix2Df &img, int height, int width,
+                           const std::string &what) {
+  if (img.rows() != height || img.cols() != width) {
+    throw std::runtime_error(
+        what + " has mismatched dimensions: got " +
+        std::to_string(img.cols()) + "x" + std::to_string(img.rows()) +
+        ", expected " + std::to_string(width) + "x" +
+        std::to_string(height));
+  }
+}
+
+std::vector<fs::path> discover_calibration_frames(const fs::path &dir,
+                                                  const std::string &pattern) {
+  auto frames = core::discover_frames(dir, pattern);
+  frames.erase(std::remove_if(frames.begin(), frames.end(),
+                              [](const fs::path &p) {
+                                return !io::is_fits_image_path(p);
+                              }),
+               frames.end());
+  std::sort(frames.begin(), frames.end());
+  return frames;
+}
+
+Matrix2Df build_mean_master_from_dir(const fs::path &dir,
+                                     const std::string &pattern,
+                                     int height, int width,
+                                     const std::string &label,
+                                     int &source_count) {
+  const std::vector<fs::path> sources =
+      discover_calibration_frames(dir, pattern.empty() ? "*" : pattern);
+  if (sources.empty()) {
+    throw std::runtime_error("No calibration frames found in " +
+                             dir.string() + " for " + label);
+  }
+
+  auto first_pair = io::read_fits_float(sources.front());
+  Matrix2Df master = first_pair.first;
+  ensure_shape_or_throw(master, height, width, label + " master");
+
+  for (size_t i = 1; i < sources.size(); ++i) {
+    Matrix2Df frame = io::read_fits_float(sources[i]).first;
+    ensure_shape_or_throw(frame, height, width, label + " master");
+    master += frame;
+  }
+
+  master.array() /= static_cast<float>(sources.size());
+  source_count = static_cast<int>(sources.size());
+  return master;
+}
+
+Matrix2Df load_master_from_path(const fs::path &path, int height, int width,
+                                const std::string &label) {
+  if (!fs::exists(path)) {
+    throw std::runtime_error(label + " master not found: " + path.string());
+  }
+  Matrix2Df master = io::read_fits_float(path).first;
+  ensure_shape_or_throw(master, height, width, label + " master");
+  return master;
+}
+
+Matrix2Df build_flat_normalizer(const Matrix2Df &flat_master) {
+  std::vector<float> positive;
+  positive.reserve(static_cast<size_t>(flat_master.size()));
+  for (Eigen::Index i = 0; i < flat_master.size(); ++i) {
+    const float v = flat_master.data()[i];
+    if (std::isfinite(v) && v > 1.0e-6f) {
+      positive.push_back(v);
+    }
+  }
+  if (positive.empty()) {
+    throw std::runtime_error("Flat master has no positive finite values");
+  }
+  const float flat_med = core::median_of(positive);
+  if (!(flat_med > 1.0e-6f)) {
+    throw std::runtime_error("Flat master median is invalid");
+  }
+
+  Matrix2Df flat_norm = flat_master;
+  for (Eigen::Index i = 0; i < flat_norm.size(); ++i) {
+    const float v = flat_norm.data()[i];
+    float n = (std::isfinite(v) && v > 1.0e-6f) ? (v / flat_med) : 1.0f;
+    if (!std::isfinite(n) || n <= 1.0e-6f) {
+      n = 1.0f;
+    }
+    flat_norm.data()[i] = n;
+  }
+  return flat_norm;
+}
+
+bool materialize_calibrated_frames(const std::string &run_id,
+                                   const tile_compile::config::Config &cfg,
+                                   const std::vector<fs::path> &input_frames,
+                                   int height, int width,
+                                   const fs::path &run_dir,
+                                   std::ostream &log_file,
+                                   std::vector<fs::path> &output_frames,
+                                   std::string &error_out) {
+  output_frames.clear();
+  error_out.clear();
+
+  emit_calibration_phase_event("phase_start", run_id, nlohmann::json::object(),
+                               log_file);
+
+  const bool want_bias = cfg.calibration.use_bias;
+  const bool want_dark = cfg.calibration.use_dark;
+  const bool want_flat = cfg.calibration.use_flat;
+  if (!want_bias && !want_dark && !want_flat) {
+    emit_calibration_phase_event(
+        "phase_end", run_id,
+        {{"status", "skipped"}, {"reason", "disabled"}}, log_file);
+    return true;
+  }
+
+  try {
+    CalibrationAssets assets;
+
+    if (want_bias) {
+      if (cfg.calibration.bias_use_master) {
+        fs::path p(cfg.calibration.bias_master);
+        if (p.is_relative()) {
+          p = fs::absolute(p);
+        }
+        assets.bias_master = load_master_from_path(p, height, width, "Bias");
+        assets.bias_source = p.string();
+        assets.bias_source_count = 1;
+      } else {
+        fs::path dir(cfg.calibration.bias_dir);
+        if (dir.is_relative()) {
+          dir = fs::absolute(dir);
+        }
+        assets.bias_master = build_mean_master_from_dir(
+            dir, cfg.calibration.pattern, height, width, "Bias",
+            assets.bias_source_count);
+        assets.bias_source = dir.string();
+      }
+      assets.use_bias = true;
+    }
+
+    if (want_dark) {
+      if (cfg.calibration.dark_use_master) {
+        fs::path p(cfg.calibration.dark_master);
+        if (p.is_relative()) {
+          p = fs::absolute(p);
+        }
+        assets.dark_master = load_master_from_path(p, height, width, "Dark");
+        assets.dark_source = p.string();
+        assets.dark_source_count = 1;
+      } else {
+        fs::path dir(cfg.calibration.darks_dir);
+        if (dir.is_relative()) {
+          dir = fs::absolute(dir);
+        }
+        assets.dark_master = build_mean_master_from_dir(
+            dir, cfg.calibration.pattern, height, width, "Dark",
+            assets.dark_source_count);
+        assets.dark_source = dir.string();
+      }
+      assets.use_dark = true;
+    }
+
+    if (want_flat) {
+      Matrix2Df flat_master;
+      if (cfg.calibration.flat_use_master) {
+        fs::path p(cfg.calibration.flat_master);
+        if (p.is_relative()) {
+          p = fs::absolute(p);
+        }
+        flat_master = load_master_from_path(p, height, width, "Flat");
+        assets.flat_source = p.string();
+        assets.flat_source_count = 1;
+      } else {
+        fs::path dir(cfg.calibration.flats_dir);
+        if (dir.is_relative()) {
+          dir = fs::absolute(dir);
+        }
+        flat_master = build_mean_master_from_dir(
+            dir, cfg.calibration.pattern, height, width, "Flat",
+            assets.flat_source_count);
+        assets.flat_source = dir.string();
+      }
+      assets.flat_norm = build_flat_normalizer(flat_master);
+      assets.use_flat = true;
+    }
+
+    const fs::path calibrated_dir = run_dir / "artifacts" / "calibrated_frames";
+    fs::create_directories(calibrated_dir);
+    output_frames.reserve(input_frames.size());
+
+    for (size_t i = 0; i < input_frames.size(); ++i) {
+      auto frame_pair = io::read_fits_float(input_frames[i]);
+      Matrix2Df img = std::move(frame_pair.first);
+      const io::FitsHeader hdr = std::move(frame_pair.second);
+      ensure_shape_or_throw(img, height, width,
+                            "Light frame " + input_frames[i].filename().string());
+
+      if (assets.use_bias) {
+        img.array() -= assets.bias_master.array();
+      }
+      if (assets.use_dark) {
+        img.array() -= assets.dark_master.array();
+      }
+      if (assets.use_flat) {
+        img.array() /= assets.flat_norm.array();
+      }
+
+      fs::path out_path = calibrated_dir / input_frames[i].filename();
+      if (fs::exists(out_path)) {
+        out_path = calibrated_dir /
+                   (std::to_string(i) + "_" +
+                    input_frames[i].filename().string());
+      }
+      io::write_fits_float(out_path, img, hdr);
+      output_frames.push_back(out_path);
+
+      const int current = static_cast<int>(i + 1);
+      if (current % 5 == 0 || current == static_cast<int>(input_frames.size())) {
+        emit_calibration_phase_event(
+            "phase_progress", run_id,
+            {{"current", current},
+             {"total", static_cast<int>(input_frames.size())},
+             {"progress", static_cast<float>(current) /
+                              static_cast<float>(input_frames.size())},
+             {"substep",
+              "calibrate " + std::to_string(current) + "/" +
+                  std::to_string(input_frames.size())},
+             {"pass", "frames"}},
+            log_file);
+      }
+    }
+
+    nlohmann::json summary = {
+        {"status", "ok"},
+        {"num_frames", static_cast<int>(input_frames.size())},
+        {"use_bias", assets.use_bias},
+        {"use_dark", assets.use_dark},
+        {"use_flat", assets.use_flat},
+        {"bias_source", assets.bias_source},
+        {"dark_source", assets.dark_source},
+        {"flat_source", assets.flat_source},
+        {"bias_source_count", assets.bias_source_count},
+        {"dark_source_count", assets.dark_source_count},
+        {"flat_source_count", assets.flat_source_count},
+        {"output_dir", calibrated_dir.string()},
+    };
+    core::write_text(run_dir / "artifacts" / "calibration.json",
+                     summary.dump(2));
+    emit_calibration_phase_event("phase_end", run_id, summary, log_file);
+    return true;
+  } catch (const std::exception &e) {
+    error_out = e.what();
+    emit_calibration_phase_event(
+        "phase_end", run_id,
+        {{"status", "error"}, {"error", error_out}}, log_file);
+    output_frames.clear();
+    return false;
+  }
+}
 } // namespace
 
 int run_pipeline_command(const std::string &config_path, const std::string &input_dir,
@@ -419,6 +705,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   }
 
   emitter.phase_end(run_id, Phase::SCAN_INPUT, "ok", scan_extra, log_file);
+
+  std::vector<fs::path> calibrated_frames;
+  std::string calibration_error;
+  if (!materialize_calibrated_frames(run_id, cfg, frames, height, width, run_dir,
+                                     log_file, calibrated_frames,
+                                     calibration_error)) {
+    emitter.run_end(run_id, false, "error", log_file);
+    std::cerr << "Error during CALIBRATION: " << calibration_error << std::endl;
+    return 1;
+  }
+  if (!calibrated_frames.empty()) {
+    frames = std::move(calibrated_frames);
+  }
 
   runner::PhaseMetricsContext phase_metrics_ctx;
   if (!runner::run_phase_channel_split_normalization_global_metrics(
@@ -1019,10 +1318,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
 
       // 2. Wiener filter (frequency domain) — applied after soft-threshold
-      float tile_noise = (ti < tile_quality_median.size())
-                             ? tile_quality_median[ti]
-                             : 0.0f;
-      float tile_snr = (tile_post_snr.size() > ti) ? tile_post_snr[ti] : 0.0f;
       float tile_q = (ti < tile_quality_median.size())
                           ? tile_quality_median[ti]
                           : 0.0f;
@@ -1040,6 +1335,20 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           cv::meanStdDev(r, mu, sd);
           return static_cast<float>(sd[0]);
         };
+        auto estimate_tile_snr_proxy = [](const Matrix2Df &t_img) -> float {
+          if (t_img.size() <= 0) {
+            return 0.0f;
+          }
+          std::vector<float> px;
+          px.resize(static_cast<size_t>(t_img.size()));
+          std::copy(t_img.data(), t_img.data() + t_img.size(), px.begin());
+          const float bg = core::median_of(px);
+          const float mad = core::robust_sigma_mad(px);
+          std::sort(px.begin(), px.end());
+          const float p99 = core::percentile_from_sorted(px, 99.0f);
+          return (p99 - bg) / (mad + 1.0e-6f);
+        };
+        const float tile_snr = estimate_tile_snr_proxy(tile_rec);
         float sigma_est = estimate_tile_noise(tile_rec);
         tile_rec = reconstruction::wiener_tile_filter(
             tile_rec, sigma_est, tile_snr, tile_q, is_star,

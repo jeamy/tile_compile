@@ -1,5 +1,6 @@
 # v3.2 REDUCED-MODE Referenzkonfiguration (vollstaendig, alle Optionen)
 # Zielzustand: 50 <= N_usable < assumptions.frames_reduced_threshold
+# Alt/Az-optimiert: robuste Registrierung bei Feldrotation und Wolkenluecken.
 
 run_dir: ./run_reduced_mode
 log_level: info # trace|debug|info|warn|error
@@ -69,18 +70,20 @@ normalization:
 
 registration:
   engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
-  allow_rotation: true # Rotationsanteil in Warp erlauben
-  star_topk: 120 # max. Anzahl erkannter Sterne fuer Matching
+  allow_rotation: true # PFLICHT fuer Alt/Az: Feldrotation ueber Session
+  star_topk: 150 # mehr Sterne fuer robustes Matching bei Rotation/Wolken
   star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching
-  star_inlier_tol_px: 3.0 # Inlier-Toleranz in Pixel
+  star_inlier_tol_px: 4.0 # toleranter fuer Rotationsresiduen
   star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
   reject_outliers: true # globale Registrierungs-Ausreisser verwerfen
-  reject_cc_min_abs: 0.35 # absolute Mindestkorrelation (CC)
+  reject_cc_min_abs: 0.30 # bei Randrotation/Wolken etwas toleranter
   reject_cc_mad_multiplier: 4.0 # robuster CC-Schwellenfaktor (median - k*MAD)
-  reject_shift_px_min: 25.0 # absolute Mindestgrenze fuer Shift-Outlier (px)
-  reject_shift_median_multiplier: 3.0 # Shift-Outlier-Grenze relativ zum Median
+  reject_shift_px_min: 100.0 # Alt/Az: grosse Shifts durch Feldrotation sind normal
+  reject_shift_median_multiplier: 5.0 # weite Shift-Verteilung zulassen
   reject_scale_min: 0.92 # minimale erlaubte Similarity-Skalierung
   reject_scale_max: 1.08 # maximale erlaubte Similarity-Skalierung
+  # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
+  # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
 
 dithering:
   enabled: true # true bei aktivem Dithering waehrend Aufnahme
@@ -193,10 +196,10 @@ pcc:
 stacking:
   method: rej # rej|average
   sigma_clip:
-    sigma_low: 2.0 # untere Sigma-Grenze
-    sigma_high: 2.0 # obere Sigma-Grenze
+    sigma_low: 2.5 # toleranter bei modellierten Warp-Residuen
+    sigma_high: 2.5 # symmetrisch
     max_iters: 3 # maximale Clip-Iterationen
-    min_fraction: 0.5 # Mindestanteil verbleibender Samples
+    min_fraction: 0.4 # bei Wolkenphasen darf mehr geclippt werden
   cluster_quality_weighting:
     enabled: true # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])

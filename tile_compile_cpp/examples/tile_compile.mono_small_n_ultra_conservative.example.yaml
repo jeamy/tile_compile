@@ -1,5 +1,6 @@
 # v3.2 MONO SMALL-N ULTRA-CONSERVATIVE Referenzkonfiguration (vollstaendig, alle Optionen)
 # Zielzustand: MONO-Datensaetze mit sehr kleinem N (z.B. 8..25), maximale Stabilitaet gegen Tile-Muster
+# Alt/Az-optimiert: robuste Registrierung bei Feldrotation und Wolkenluecken.
 
 run_dir: ./run_mono_small_n_ultra_conservative
 log_level: info # trace|debug|info|warn|error
@@ -69,11 +70,20 @@ normalization:
 
 registration:
   engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
-  allow_rotation: true # Rotationsanteil in Warp erlauben
-  star_topk: 120 # max. Anzahl erkannter Sterne fuer Matching
+  allow_rotation: true # PFLICHT fuer Alt/Az: Feldrotation ueber Session
+  star_topk: 150 # mehr Sterne fuer robustes Matching bei Rotation/Wolken
   star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching
-  star_inlier_tol_px: 3.0 # Inlier-Toleranz in Pixel
+  star_inlier_tol_px: 4.0 # toleranter fuer Rotationsresiduen
   star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
+  reject_outliers: true # globale Registrierungs-Ausreisser verwerfen
+  reject_cc_min_abs: 0.30 # bei Randrotation/Wolken etwas toleranter
+  reject_cc_mad_multiplier: 4.0 # robuster CC-Schwellenfaktor (median - k*MAD)
+  reject_shift_px_min: 100.0 # Alt/Az: grosse Shifts durch Feldrotation sind normal
+  reject_shift_median_multiplier: 5.0 # weite Shift-Verteilung zulassen
+  reject_scale_min: 0.92 # minimale erlaubte Similarity-Skalierung
+  reject_scale_max: 1.08 # maximale erlaubte Similarity-Skalierung
+  # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
+  # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
 
 dithering:
   enabled: true # true bei aktivem Dithering waehrend Aufnahme

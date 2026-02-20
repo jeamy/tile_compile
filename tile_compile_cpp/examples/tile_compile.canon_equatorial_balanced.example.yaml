@@ -1,8 +1,7 @@
-# Smart-Telescope Referenzkonfiguration (Alt/Az in Polarnaehe)
-# vollstaendig, alle Optionen; fuer OSC-Daten mit starker Feldrotation,
-# Drift und oft schwankender Registrierbarkeit nahe dem Himmelspol.
+# Canon/DSLR/OSC Referenzprofil: Aequatorialmontierung, ausgewogene Produktion
+# Vollstaendig, alle Optionen; optimiert fuer stabil nachgefuehrte EQ-Setups.
 
-run_dir: ./run_smart_telescope_altaz_polar
+run_dir: ./run_canon_equatorial_balanced
 log_level: info # trace|debug|info|warn|error
 
 pipeline:
@@ -17,12 +16,12 @@ output:
   write_global_registration: true # global_registration.json speichern
 
 data:
-  #image_width: 1920 # typische Smart-Telescope-Aufloesung, ggf. anpassen
-  #image_height: 1080 # typische Smart-Telescope-Aufloesung, ggf. anpassen
-  frames_min: 30 # Legacy-Mindestwert, parallel zu assumptions.frames_min
+  # image_width: 5202 # optional: aus FITS Header ableiten lassen oder fix setzen
+  # image_height: 3464 # optional: aus FITS Header ableiten lassen oder fix setzen
+  frames_min: 50 # Legacy-Mindestwert, parallel zu assumptions.frames_min
   frames_target: 0 # 0 = unbegrenzt, sonst Zielanzahl fuer Auswahl/Begrenzung
-  #color_mode: OSC # Smart-Telescope ueblich: OSC
-  #bayer_pattern: GBRG # je nach Sensor pruefen und ggf. ersetzen
+  # color_mode: OSC # optional, wird i.d.R. aus Header erkannt
+  # bayer_pattern: RGGB # Canon meist RGGB; je nach Kamera pruefen
   linear_required: true # nur lineare Daten verarbeiten
 
 input:
@@ -34,7 +33,7 @@ linearity:
   enabled: true # Linearity-Check aktiv
   max_frames: 8 # max. Frames fuer den Check
   min_overall_linearity: 0.9 # Mindestscore fuer linearity gate
-  strictness: moderate # toleranter bei Consumer-Sensoren und Feldrotation
+  strictness: strict # EQ-Setup: strikter Betrieb moeglich
 
 calibration:
   use_bias: false # Bias-Korrektur aktivieren
@@ -44,9 +43,9 @@ calibration:
   dark_use_master: false # vorhandenes Master-Dark direkt nutzen
   flat_use_master: false # vorhandenes Master-Flat direkt nutzen
   dark_auto_select: true # passendes Dark automatisch waehlen
-  dark_match_exposure_tolerance_percent: 8.0 # Smart-Telescope oft variablere Sequenzen
-  dark_match_use_temp: false # Temperaturmatching optional
-  dark_match_temp_tolerance_c: 3.0 # Temperaturtoleranz in Grad C
+  dark_match_exposure_tolerance_percent: 5.0 # Toleranz bei Dark-Auswahl
+  dark_match_use_temp: false # Temperaturmatching fuer Darks
+  dark_match_temp_tolerance_c: 2.0 # Temperaturtoleranz in Grad C
   bias_dir: "" # Verzeichnis mit Bias-Frames
   darks_dir: "" # Verzeichnis mit Dark-Frames
   flats_dir: "" # Verzeichnis mit Flat-Frames
@@ -56,12 +55,12 @@ calibration:
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz" # Dateimaske fuer Kalibrierdaten (inkl. komprimierte .fz)
 
 assumptions:
-  frames_min: 30 # niedrigere Untergrenze fuer kurze Smart-Telescope-Serien
-  frames_optimal: 300 # praxisnahes Ziel fuer portable Systeme
-  frames_reduced_threshold: 120 # Full-Mode ab 120, darunter Reduced/Emergency
-  exposure_time_tolerance_percent: 8.0 # toleranter fuer variierende Sub-Serien
-  reduced_mode_skip_clustering: true # kleine Datensaetze: Clustering oft nicht stabil
-  reduced_mode_cluster_range: [3, 10] # geringere Clusterzahl fuer kleinere N
+  frames_min: 50 # normative Untergrenze; darunter Abort/Emergency
+  frames_optimal: 800 # Zielbereich fuer optimale Robustheit
+  frames_reduced_threshold: 150 # ab hier Full-Mode (N>=150)
+  exposure_time_tolerance_percent: 5.0 # Toleranz fuer Input-Konsistenz
+  reduced_mode_skip_clustering: true # Reduced/Emergency ohne Clustering
+  reduced_mode_cluster_range: [5, 10] # Cluster-Range in Reduced-Betrieb
 
 normalization:
   enabled: true # fuer Methodik v3.x verpflichtend
@@ -69,41 +68,35 @@ normalization:
   per_channel: true # bei OSC pro Bayer-Kanal normalisieren
 
 registration:
-  # WICHTIG: Temporal-Smoothing ist ab v3.2.3 automatisch aktiv!
-  # Bei Feldrotation werden Nachbar-Frames (i-1, i+1) fuer schwache Registrierungen genutzt.
-  # Verkettete Warps: i→(i-1)→ref oder i→(i+1)→ref bei direktem Failure.
-  # Adaptive Stern-Detektion: Bei <topk/2 Sternen automatisch 2.5σ statt 3.5σ Schwelle.
-  
-  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc|robust_phase_ecc
-  # Empfehlung bei Wolken/Nebel: robust_phase_ecc (LoG-Gradient-Preprocessing)
-  # Empfehlung bei klarem Himmel: triangle_star_matching (schneller, rotation-invariant)
-  
-  allow_rotation: true # bei Alt/Az nahe Pol ZWINGEND erforderlich
-  star_topk: 140 # mehr Sterne fuer robustere Loesung in dichten Feldern
-  star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching (gelockert fuer schwache Frames)
-  star_inlier_tol_px: 3.5 # toleranter bei hoher Drift/Feldrotation (war 2.0)
-  star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
+  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
+  allow_rotation: true # auch bei EQ sinnvoll (Residualrotation, leichtes Drift)
+  star_topk: 120 # ausreichend bei stabilen EQ-Serien
+  star_min_inliers: 5 # Mindestzahl Inlier fuer Stern-Matching
+  star_inlier_tol_px: 2.5 # etwas strikter als Alt/Az
+  star_dist_bin_px: 3.0 # Distanz-Binning fuer Sternpaare
   reject_outliers: true # globale Registrierungs-Ausreisser verwerfen
-  reject_cc_min_abs: 0.15 # niedrigerer CC-Cut fuer schwierige Sequenzen (war 0.18)
-  reject_cc_mad_multiplier: 5.0 # robustere Ausreissergrenze fuer CC
-  reject_shift_px_min: 25.0 # absolute Mindestgrenze fuer Shift-Outlier (px)
-  reject_shift_median_multiplier: 4.0 # toleranter bei grossen Alt/Az-Shifts
-  reject_scale_min: 0.90 # etwas breiteres Scale-Fenster
-  reject_scale_max: 1.10 # etwas breiteres Scale-Fenster
+  reject_cc_min_abs: 0.35 # stabile EQ-Frames erlauben strengere CC-Grenze
+  reject_cc_mad_multiplier: 4.0 # robuster CC-Schwellenfaktor (median - k*MAD)
+  reject_shift_px_min: 40.0 # EQ: geringere natuerliche Shifts als Alt/Az
+  reject_shift_median_multiplier: 3.0 # strikter gegen Shift-Ausreisser
+  reject_scale_min: 0.92 # minimale erlaubte Similarity-Skalierung
+  reject_scale_max: 1.08 # maximale erlaubte Similarity-Skalierung
+  # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
+  # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
 
 dithering:
-  enabled: true # Session typischerweise mit Dithering
-  min_shift_px: 0.5 # geringere Schwelle fuer kleine Dither-Schritte
+  enabled: true # true bei aktivem Dithering waehrend Aufnahme
+  min_shift_px: 0.7 # Schwellwert, ab dem ein Shift als Dither-Schritt gezaehlt wird
 
 tile_denoise:
   soft_threshold:
-    enabled: true # Highpass + Soft-Threshold pro Tile
-    blur_kernel: 21 # kleiner Kernel fuer kompaktere Aufloesungen
-    alpha: 1.6 # moderates Denoising
+    enabled: false # hochwertige EQ-Daten: Details unangetastet lassen
+    blur_kernel: 31 # Hintergrundschaetzer-Kernel (ungerade)
+    alpha: 1.5 # Schwellwertfaktor (tau = alpha*sigma)
     skip_star_tiles: true # sternreiche Tiles vom Denoise ausnehmen
   wiener:
-    enabled: true # Wiener-Denoise im Frequenzraum
-    snr_threshold: 4.0 # etwas frueher aktiv bei rauschigeren Smart-Sensoren
+    enabled: false # aus: bei gutem SNR oft nicht noetig
+    snr_threshold: 5.0 # oberhalb keine Wiener-Filterung
     q_min: -0.5 # untere Strukturqualitaetsgrenze
     q_max: 1.0 # obere Strukturqualitaetsgrenze
     q_step: 0.1 # Schrittweite in q-Optimierung
@@ -115,14 +108,14 @@ chroma_denoise:
   color_space: ycbcr_linear # ycbcr_linear|opponent_linear
   apply_stage: post_stack_linear # pre_stack_tiles|post_stack_linear
   protect_luma: true # Luma/Struktur besser erhalten
-  luma_guard_strength: 0.75 # 0..1
+  luma_guard_strength: 0.80 # 0..1
   star_protection:
     enabled: true
     threshold_sigma: 2.2
     dilate_px: 2
   structure_protection:
     enabled: true
-    gradient_percentile: 85
+    gradient_percentile: 88
   chroma_wavelet:
     enabled: true
     levels: 3
@@ -134,27 +127,27 @@ chroma_denoise:
     sigma_range: 0.025
   blend:
     mode: chroma_only
-    amount: 0.7
+    amount: 0.70
   # Preset-Hinweis:
   # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
   # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
   # aggressive:   amount 0.95, threshold_scale 1.5, sigma_range 0.05
 
 global_metrics:
-  adaptive_weights: true # adaptive Gewichtung nach Metrikvarianz
-  weight_exponent_scale: 1.4 # geringere Spreizung fuer heterogene Smart-Frames
+  adaptive_weights: false # bei stabilen EQ-Serien statische Gewichte oft ruhiger
+  weight_exponent_scale: 1.0 # moderate Spreizung
   weights:
-    background: 0.45 # etwas mehr Gewicht auf gleichmaessigen Hintergrund
-    noise: 0.35 # leicht erhoehtes Rauschgewicht
-    gradient: 0.20 # etwas weniger Fokus auf Gradientenergie
+    background: 0.4 # Gewicht fuer Hintergrundmetrik
+    noise: 0.3 # Gewicht fuer Rauschmetrik
+    gradient: 0.3 # Gewicht fuer Struktur/Gradientenenergie
   clamp: [-3.0, 3.0] # Clipping-Grenzen fuer z-Score-Metriken
 
 tile:
-  size_factor: 24 # kleinere Tiles fuer typische Smart-Telescope-Aufloesungen
-  min_size: 48 # minimale Tilekante in Pixel
+  size_factor: 36 # etwas groesser fuer ruhige lokale Schaetzung
+  min_size: 96 # groesseres Minimum fuer weiche Uebergaenge
   max_divisor: 6 # Begrenzung der Tileunterteilung
-  overlap_fraction: 0.25 # OLA-Ueberlappungsanteil
-  star_min_count: 6 # geringere Sternzahl-Schwelle in kleinen Feldern
+  overlap_fraction: 0.35 # ausreichend weich, ohne zu viel Verwischung
+  star_min_count: 8 # Schwelle fuer star tile Klassifikation
 
 local_metrics:
   clamp: [-3.0, 3.0] # Clipping fuer lokale z-Score-Metriken
@@ -168,12 +161,12 @@ local_metrics:
     background_weight: 0.3 # Gewicht lokaler Hintergrundterm
 
 synthetic:
-  weighting: tile_weighted # global|tile_weighted
-  frames_min: 4 # kleinere Cluster tolerieren
-  frames_max: 20 # Synthetic-Anzahl begrenzen
+  weighting: global # global|tile_weighted (bei EQ oft stabil und ausreichend)
+  frames_min: 4 # Mindestframes pro Cluster fuer Synthetic
+  frames_max: 20 # Obergrenze erzeugter Synthetic-Frames
   clustering:
     mode: kmeans # kmeans|quantile
-    cluster_count_range: [3, 12] # [k_min, k_max] fuer kleinere Datensaetze
+    cluster_count_range: [3, 12] # [k_min, k_max]
 
 reconstruction:
   weighting_function: linear # aktuell linear
@@ -202,28 +195,28 @@ pcc:
 stacking:
   method: rej # rej|average
   sigma_clip:
-    sigma_low: 2.0 # untere Sigma-Grenze
-    sigma_high: 2.0 # obere Sigma-Grenze
+    sigma_low: 2.0 # EQ kann meist strikter geclippt werden
+    sigma_high: 2.0 # symmetrisch
     max_iters: 3 # maximale Clip-Iterationen
     min_fraction: 0.5 # Mindestanteil verbleibender Samples
   cluster_quality_weighting:
     enabled: true # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
-    kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
-    cap_enabled: false # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
-    cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
+    kappa_cluster: 0.7 # moderat: vermeidet Dominanz einzelner Cluster
+    cap_enabled: true # Dominanz einzelner Cluster begrenzen
+    cap_ratio: 20.0 # w_k <= 20 * median_j(w_j)
   output_stretch: false # optionales Display-Stretch (Post)
-  cosmetic_correction: true # optionale Kosmetik (Post)
-  cosmetic_correction_sigma: 5.0 # aggressiver fuer OSC Hot-Pixel (Default: 5.0)
+  cosmetic_correction: false # optionale Kosmetik (Post)
+  cosmetic_correction_sigma: 5.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, fuer OSC: 3.0)
 
 validation:
-  min_fwhm_improvement_percent: 3.0 # etwas realistischere Schwelle fuer kompakte Systeme
-  max_background_rms_increase_percent: 2.0 # leichte RMS-Zunahme tolerieren
-  min_tile_weight_variance: 0.05 # geringere Varianzschwelle fuer kleine N
+  min_fwhm_improvement_percent: 1.0 # bei bereits guten EQ-Daten moderat
+  max_background_rms_increase_percent: 1.0 # Hintergrund darf kaum schlechter werden
+  min_tile_weight_variance: 0.03 # bei homogener Qualitaet niedriger erwartbar
   require_no_tile_pattern: true # Grid-Artefakte muessen ausbleiben
 
 runtime_limits:
-  parallel_workers: 4 # Anzahl paralleler Worker fuer Tile-Phasen (CPU/memory capped)
+  parallel_workers: 4 # konservativer Default fuer stabile Last
   memory_budget: 2048 # MiB Budget fuer OSC-Worker-Cap in Tile-Rekonstruktion
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze
-  allow_emergency_mode: true # portable Sessions oft kurz => Emergency erlauben
+  allow_emergency_mode: true # optional, falls Datensatz unerwartet klein ist

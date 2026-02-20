@@ -85,38 +85,29 @@ registration:
 - Funktioniert auch bei diffusen Nebeln
 - Fallback verhindert Abbruch bei schwierigen Frames
 
-**Alt/Az mit Feldrotation (v3.2.3+):**
+**Alt/Az mit Feldrotation (aktuell):**
 ```yaml
 registration:
-  # Temporal-Smoothing ist ab v3.2.3 automatisch aktiv!
-  # Nutzt Nachbar-Frames (i-1, i+1) bei fehlgeschlagener direkter Registrierung
-  # Adaptive Stern-Detektion: Automatischer Fallback auf 2.5σ bei wenigen Sternen
-  
-  engine: robust_phase_ecc  # Bei Wolken/Nebel
-  # engine: triangle_star_matching  # Bei klarem Himmel (schneller)
-  
+  engine: triangle_star_matching
   allow_rotation: true  # ZWINGEND bei Alt/Az nahe Pol
-  star_topk: 140  # Mehr Sterne für robustere Lösung
-  star_min_inliers: 4  # Gelockert für schwache Frames
-  star_inlier_tol_px: 3.5  # Toleranter bei Drift/Feldrotation
+  star_topk: 150  # Mehr Sterne für robustere Lösung
+  star_min_inliers: 4
+  star_inlier_tol_px: 4.0  # Toleranter bei Drift/Feldrotation
   star_dist_bin_px: 5.0
   
   reject_outliers: true
-  reject_cc_min_abs: 0.15  # Gelockert für schwierige Sequenzen
-  reject_cc_mad_multiplier: 5.0
-  reject_shift_px_min: 25.0
-  reject_shift_median_multiplier: 4.0
-  reject_scale_min: 0.90
-  reject_scale_max: 1.10
-```
-**Erwartete Verbesserung:** Registrierungsrate von ~50% auf ~70-80% bei Feldrotation + Wolken
+  reject_cc_min_abs: 0.30
+  reject_cc_mad_multiplier: 4.0
+  reject_shift_px_min: 100.0
+  reject_shift_median_multiplier: 5.0
+  reject_scale_min: 0.92
+  reject_scale_max: 1.08
 
-**Wie Temporal-Smoothing funktioniert:**
-1. Direkte Registrierung `i→ref` wird versucht
-2. Bei Failure: Versuche `i→(i-1)→ref` (verkettete Warps)
-3. Bei erneutem Failure: Versuche `i→(i+1)→ref`
-4. Alle verketteten Warps werden mit NCC validiert
-5. Logs: `[REG-TEMPORAL]` zeigt erfolgreiche temporale Registrierungen
+  # Frames mit fehlgeschlagener direkter Registrierung werden
+  # über ein Polynomial-Feldrotationsmodell vorhergesagt,
+  # damit alle Frames im Stack bleiben.
+```
+**Hinweis:** Dieses Verhalten entspricht den aktuellen Beispielprofilen für Alt/Az.
 
 ### `registration.max_shift_px`
 
@@ -631,6 +622,9 @@ debayer:
 pcc:
   enabled: true
 ```
+
+Fertiges Profil dazu:
+- `tile_compile_cpp/examples/tile_compile.canon_equatorial_balanced.example.yaml`
 
 ### Mono CCD auf großem Teleskop
 

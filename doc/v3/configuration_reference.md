@@ -8,8 +8,6 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 
 **💡 Für praktische Beispiele und Anwendungsfälle siehe:** [Konfigurationsbeispiele & Best Practices](configuration_examples_practical_de.md)
 
----
-
 ## Inhaltsverzeichnis
 
 1. [Pipeline](#1-pipeline)
@@ -235,10 +233,7 @@ Bilddaten-Eigenschaften. Teilweise automatisch aus dem FITS-Header ermittelt, te
 
 **Zweck:** Schaltet die strikte Entfernung nicht-linearer Frames ein/aus.
 
-**Status:** Deprecated.
-
-- **Aktueller Runner-Stand (v3.2):** Non-lineare Frames werden **nicht entfernt**. Es wird immer nur gewarnt (`warn_only`).
-- Das Flag bleibt aus Kompatibilitätsgründen in der Konfiguration erhalten.
+- Non-lineare Frames werden **nicht entfernt**, es wird nur gewarnt (`warn_only`).
 
 **Zusammenspiel mit `linearity.enabled`:** Die Linearitätsprüfung muss `enabled=true` sein, damit Warnungen für non-lineare Frames entstehen.
 
@@ -545,18 +540,25 @@ Geometrische Registrierung (Ausrichtung) aller Frames auf einen Referenz-Frame.
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | string (enum) |
-| **Werte** | `triangle_star_matching`, `star_similarity`, `hybrid_phase_ecc` |
+| **Werte** | `triangle_star_matching`, `star_similarity`, `hybrid_phase_ecc`, `robust_phase_ecc` |
 | **Default** | `"triangle_star_matching"` |
 
-**Zweck:** Primäre Registrierungsmethode. Intern wird **immer eine 5-stufige Kaskade** durchlaufen. Der `engine`-Wert bestimmt die bevorzugte Methode.
+**Zweck:** Primäre Registrierungsmethode. Intern wird **immer eine 6-stufige Kaskade** durchlaufen. Der `engine`-Wert bestimmt die bevorzugte Methode.
 
 | Engine | Beschreibung | Stärke |
 |--------|-------------|--------|
-| **`triangle_star_matching`** | Dreiecks-Asterismus-Matching | **Rotationsinvariant**, ideal für Alt/Az |
+| **`triangle_star_matching`** | Dreiecks-Asterismus-Matching | **Rotationsinvariant**, ideal für Alt/Az, klarer Himmel |
 | **`star_similarity`** | Stern-Paar-Distanz-Matching | Schnell bei kleinen Versätzen |
 | **`hybrid_phase_ecc`** | Phase-Korrelation + ECC | Ohne Sternerkennung, für Nebel |
+| **`robust_phase_ecc`** | LoG-Gradient-Preprocessing + Pyramiden-Phase+ECC | **Empfohlen bei Wolken/Nebel**, entfernt Gradienten vor Korrelation |
 
-**Kaskade (immer):** Triangle Stars → Star Pairs → AKAZE Features → Phase+ECC → Identity-Fallback
+**Kaskade (immer):** Triangle Stars → Star Pairs → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity-Fallback
+
+**Temporal-Smoothing (v3.2.3+, automatisch aktiv):** Bei fehlgeschlagener direkter Registrierung `i→ref` wird automatisch versucht:
+1. `i→(i-1)→ref` — Registrierung zum Vorgänger-Frame, dann Warp-Verkettung
+2. `i→(i+1)→ref` — Registrierung zum Nachfolger-Frame, dann Warp-Verkettung
+
+Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besonders wirksam bei kontinuierlicher Feldrotation (Alt/Az nahe Pol) und Wolken/Nebel. Logs: `[REG-TEMPORAL]`
 
 ---
 
@@ -716,6 +718,8 @@ Kleinere Werte verwerfen aggressiver, größere Werte konservativer.
 
 ---
 
+## 8b. Dithering
+
 ### `dithering.enabled`
 
 | Eigenschaft | Wert |
@@ -862,12 +866,6 @@ Optionale Tile-Denoise-Stufe mit zwei Komponenten:
 | **Typ** | integer |
 | **Minimum** | 1 |
 | **Default** | `10` |
-
----
-
-### Legacy-Hinweis: `wiener_denoise.*`
-
-`wiener_denoise` ist ein **Legacy-Alias** und wird beim Einlesen weiterhin nach `tile_denoise.wiener` gemappt. Für neue Konfigurationen sollte ausschließlich `tile_denoise.wiener` verwendet werden.
 
 ---
 
