@@ -783,6 +783,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     const std::vector<float> shared_hann_x = reconstruction::make_hann_1d(uniform_tile_size);
     const std::vector<float> shared_hann_y = reconstruction::make_hann_1d(uniform_tile_size);
 
+    // Helper: returns true if the tile has enough non-zero (valid frame) pixels.
+    // Tiles with only zero pixels are canvas dead area and must not enter stacking.
+    auto tile_has_data = [](const Matrix2Df &tile) -> bool {
+      const int total = static_cast<int>(tile.size());
+      if (total <= 0) return false;
+      int nonzero = 0;
+      for (int i = 0; i < total; ++i) {
+        if (tile.data()[i] > 0.0f) ++nonzero;
+      }
+      // Require at least 10% valid pixels to consider the tile as having data.
+      return nonzero >= std::max(1, total / 10);
+    };
+
     // Worker function for parallel tile processing (v3: global warp only, no
     // local ECC)
     auto process_tile = [&](size_t ti) {
@@ -835,6 +848,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             continue;
           Matrix2Df tile_mosaic = load_tile_normalized(fi);
           if (tile_mosaic.rows() != t.height || tile_mosaic.cols() != t.width)
+            continue;
+          // Skip tiles that are entirely canvas dead area (all-zero pixels).
+          if (!tile_has_data(tile_mosaic))
             continue;
 
           valid_frames.push_back(fi);
@@ -905,8 +921,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           Matrix2Df tile_img = load_tile_normalized(fi);
           if (tile_img.rows() != t.height || tile_img.cols() != t.width)
             continue;
+          // Skip tiles that are entirely canvas dead area (all-zero pixels).
+          if (!tile_has_data(tile_img))
+            continue;
 
-          warped_tiles.push_back(tile_img);
+          warped_tiles.push_back(std::move(tile_img));
           frame_valid_tile_counts[fi].fetch_add(1);
           float G_f = (fi < static_cast<size_t>(global_weights.size()))
                           ? global_weights[static_cast<int>(fi)]
@@ -1639,6 +1658,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t);
               if (tile_img.rows() != t.height || tile_img.cols() != t.width)
                 continue;
+              // Skip tiles that are entirely canvas dead area (all-zero pixels).
+              if (!tile_has_data(tile_img))
+                continue;
               cluster_tiles.push_back(std::move(tile_img));
 
               float G_f = (fi < static_cast<size_t>(global_weights.size()))
@@ -2098,7 +2120,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       float vmax = std::numeric_limits<float>::lowest();
       for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
         float v = recon_out.data()[k];
-        if (std::isfinite(v)) {
+        // Exclude canvas dead area (zero pixels) from stretch range.
+        if (std::isfinite(v) && v > 0.0f) {
           if (v < vmin) vmin = v;
           if (v > vmax) vmax = v;
         }
