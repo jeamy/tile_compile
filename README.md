@@ -1,4 +1,4 @@
-# v002 is the latest production version.
+# Use Branch v002 for meaningful results; it is the latest production version.
 
 # Tile-Compile
 
