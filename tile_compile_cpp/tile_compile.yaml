@@ -14,7 +14,7 @@ output:
   write_registered_frames: true # registrierte Einzelbilder speichern
   write_global_metrics: true # global_metrics.json speichern
   write_global_registration: true # global_registration.json speichern
-  crop_to_nonzero_bbox: true # finalen Stack auf Bounding Box nicht-null Pixel zuschneiden
+  crop_to_nonzero_bbox: true # bounding box um nicht-null Pixel berechnen und anwenden
   
 data:
   #image_width: 1920 # typische Smart-Telescope-Aufloesung, ggf. anpassen
@@ -127,11 +127,11 @@ chroma_denoise:
     soft_k: 1.0
   chroma_bilateral:
     enabled: true
-    sigma_spatial: 1.2
-    sigma_range: 0.025
+    sigma_spatial: 1.3
+    sigma_range: 0.035
   blend:
     mode: chroma_only
-    amount: 0.7
+    amount: 0.8
   # Preset-Hinweis:
   # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
   # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
@@ -212,7 +212,7 @@ stacking:
   tile_common_valid_min_fraction: 0.9 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
-  cosmetic_correction_sigma: 10.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
+  cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
 
 validation:
   min_fwhm_improvement_percent: 3.0 # etwas realistischere Schwelle fuer kompakte Systeme

@@ -162,15 +162,16 @@ enum class Phase {
     NORMALIZATION = 4,
     GLOBAL_METRICS = 5,
     TILE_GRID = 6,
-    LOCAL_METRICS = 7,
-    TILE_RECONSTRUCTION = 8,
-    STATE_CLUSTERING = 9,
-    SYNTHETIC_FRAMES = 10,
-    STACKING = 11,
-    DEBAYER = 12,
-    ASTROMETRY = 13,
-    PCC = 14,
-    DONE = 15
+    COMMON_OVERLAP = 7,
+    LOCAL_METRICS = 8,
+    TILE_RECONSTRUCTION = 9,
+    STATE_CLUSTERING = 10,
+    SYNTHETIC_FRAMES = 11,
+    STACKING = 12,
+    DEBAYER = 13,
+    ASTROMETRY = 14,
+    PCC = 15,
+    DONE = 16
 };
 
 inline std::string phase_to_string(Phase phase) {
@@ -182,6 +183,7 @@ inline std::string phase_to_string(Phase phase) {
         case Phase::NORMALIZATION: return "NORMALIZATION";
         case Phase::GLOBAL_METRICS: return "GLOBAL_METRICS";
         case Phase::TILE_GRID: return "TILE_GRID";
+        case Phase::COMMON_OVERLAP: return "COMMON_OVERLAP";
         case Phase::LOCAL_METRICS: return "LOCAL_METRICS";
         case Phase::TILE_RECONSTRUCTION: return "TILE_RECONSTRUCTION";
         case Phase::STATE_CLUSTERING: return "STATE_CLUSTERING";
@@ -200,7 +202,7 @@ inline int phase_to_int(Phase phase) {
 }
 
 inline Phase int_to_phase(int i) {
-    if (i >= 0 && i <= 15) {
+    if (i >= 0 && i <= 16) {
         return static_cast<Phase>(i);
     }
     return Phase::SCAN_INPUT;

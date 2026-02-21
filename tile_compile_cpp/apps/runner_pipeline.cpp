@@ -660,6 +660,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     tiles_phase56.resize(static_cast<size_t>(max_tiles));
   }
 
+  emitter.phase_start(run_id, Phase::COMMON_OVERLAP, "COMMON_OVERLAP", log_file);
+
   // Post-PREWARP overlap extension:
   //  - Maintain per-pixel coverage count across usable prewarped frames
   //  - Derive a common-valid mask from a required frame coverage threshold
@@ -681,6 +683,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   std::vector<float> tile_common_overlap_ratio(tiles_phase56.size(), 0.0f);
   std::vector<uint8_t> tile_common_valid(tiles_phase56.size(), 0);
 
+  std::mutex common_overlap_progress_mutex;
+
   {
     size_t loaded_frames = 0;
     for (size_t fi = 0; fi < frames.size(); ++fi) {
@@ -695,6 +699,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         if (p[i] > 0.0f) {
           ++overlap_coverage_count[i];
         }
+      }
+
+      const size_t done = fi + 1;
+      if (done % 5 == 0 || done == frames.size()) {
+        std::lock_guard<std::mutex> lock(common_overlap_progress_mutex);
+        emitter.phase_progress_counts(
+            run_id, Phase::COMMON_OVERLAP, static_cast<int>(done),
+            static_cast<int>(frames.size()),
+            "common_overlap coverage " + std::to_string(done) + "/" +
+                std::to_string(frames.size()),
+            "frames", log_file);
       }
     }
 
@@ -732,6 +747,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (ratio >= tile_common_min_fraction) {
         tile_common_valid[ti] = 1;
       }
+
+      const size_t done = ti + 1;
+      if (done % 50 == 0 || done == tiles_phase56.size()) {
+        std::lock_guard<std::mutex> lock(common_overlap_progress_mutex);
+        emitter.phase_progress_counts(
+            run_id, Phase::COMMON_OVERLAP, static_cast<int>(done),
+            static_cast<int>(tiles_phase56.size()),
+            "common_overlap tile-gating " + std::to_string(done) + "/" +
+                std::to_string(tiles_phase56.size()),
+            "tiles", log_file);
+      }
     }
 
     core::json overlap_artifact;
@@ -763,6 +789,25 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
     core::write_text(run_dir / "artifacts" / "common_overlap.json",
                      overlap_artifact.dump(2));
+
+    emitter.phase_end(
+        run_id, Phase::COMMON_OVERLAP, "ok",
+        {
+            {"usable_frames", n_usable_frames},
+            {"loaded_frames", static_cast<int>(loaded_frames)},
+            {"required_common_frames", required_common_frames},
+            {"required_common_fraction", common_coverage_fraction},
+            {"common_pixels", static_cast<uint64_t>(common_pixels)},
+            {"common_fraction",
+             (canvas_px > 0)
+                 ? (static_cast<double>(common_pixels) /
+                    static_cast<double>(canvas_px))
+                 : 0.0},
+            {"tile_common_valid",
+             std::count_if(tile_common_valid.begin(), tile_common_valid.end(),
+                           [&](uint8_t v) { return v != 0; })},
+        },
+        log_file);
   }
 
   constexpr int kReducedModeMinFrames = 50;
