@@ -14,7 +14,8 @@ output:
   write_registered_frames: true # registrierte Einzelbilder speichern
   write_global_metrics: true # global_metrics.json speichern
   write_global_registration: true # global_registration.json speichern
-
+  crop_to_nonzero_bbox: true # finalen Stack auf Bounding Box nicht-null Pixel zuschneiden
+  
 data:
   #image_width: 1920 # typische Smart-Telescope-Aufloesung, ggf. anpassen
   #image_height: 1080 # typische Smart-Telescope-Aufloesung, ggf. anpassen
@@ -209,7 +210,7 @@ stacking:
     cap_ratio: 20.0 # nur aktiv falls cap_enabled=true: w_k <= cap_ratio * median(w)
   common_overlap_required_fraction: 1.0 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
   tile_common_valid_min_fraction: 0.9 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
-  output_stretch: false # optionales Display-Stretch (Post)
+  output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 10.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
 

@@ -35,6 +35,9 @@
         },
         "write_global_registration": {
           "type": "boolean"
+        },
+        "crop_to_nonzero_bbox": {
+          "type": "boolean"
         }
       }
     },

@@ -130,6 +130,22 @@ Steuerung der Ausgabeverzeichnisse und welche Zwischenergebnisse geschrieben wer
 
 ---
 
+### `output.crop_to_nonzero_bbox`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Finalen Stack auf die Bounding Box aller nicht-null Pixel zuschneiden.
+
+- **`true`**: Entfernt leere Ränder vom finalen Bild. Nur Pixel mit Werten > 0 werden behalten. Reduziert die Dateigröße und entfernt unnötige schwarze Ränder.
+- **`false`**: Behält die volle Canvas-Größe bei, inklusive leerer Ränder.
+
+**Hinweis:** Die Funktion wird nach der Stack-Phase aber vor dem Debayer (bei OSC) angewendet. Die Tile-Offsets werden entsprechend angepasst.
+
+---
+
 ## 3. Data
 
 Bilddaten-Eigenschaften. Teilweise automatisch aus dem FITS-Header ermittelt, teilweise konfigurierbar.

@@ -59,6 +59,8 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (o["write_global_registration"])
       cfg.output.write_global_registration =
           o["write_global_registration"].as<bool>();
+    if (o["crop_to_nonzero_bbox"])
+      cfg.output.crop_to_nonzero_bbox = o["crop_to_nonzero_bbox"].as<bool>();
   }
 
   if (node["data"]) {
@@ -551,6 +553,7 @@ YAML::Node Config::to_yaml() const {
   node["output"]["write_global_metrics"] = output.write_global_metrics;
   node["output"]["write_global_registration"] =
       output.write_global_registration;
+  node["output"]["crop_to_nonzero_bbox"] = output.crop_to_nonzero_bbox;
 
   node["data"]["image_width"] = data.image_width;
   node["data"]["image_height"] = data.image_height;

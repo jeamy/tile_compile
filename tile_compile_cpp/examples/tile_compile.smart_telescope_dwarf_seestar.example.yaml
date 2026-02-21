@@ -23,6 +23,7 @@ output:
   write_registered_frames: true # registrierte Einzelbilder speichern
   write_global_metrics: true # global_metrics.json speichern
   write_global_registration: true # global_registration.json speichern
+  crop_to_nonzero_bbox: true # finalen Stack auf Bounding Box nicht-null Pixel zuschneiden
 
 data:
   #image_width: 1920 # typische Smart-Telescope-Aufloesung, ggf. anpassen

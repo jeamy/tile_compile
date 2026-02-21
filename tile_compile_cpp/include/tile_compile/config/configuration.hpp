@@ -20,6 +20,7 @@ struct OutputConfig {
   bool write_registered_frames = false;
   bool write_global_metrics = true;
   bool write_global_registration = true;
+  bool crop_to_nonzero_bbox = true;
 };
 
 struct DataConfig {

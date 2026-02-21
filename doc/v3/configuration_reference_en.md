@@ -115,6 +115,22 @@ Output file and directory configuration.
 
 ---
 
+### `output.crop_to_nonzero_bbox`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Crop final stack to bounding box of all non-zero pixels.
+
+- **`true`**: Removes empty borders from final image. Only pixels with values > 0 are kept. Reduces file size and removes unnecessary black borders.
+- **`false`**: Keeps full canvas size, including empty borders.
+
+**Note:** Applied after stacking phase but before debayer (for OSC). Tile offsets are adjusted accordingly.
+
+---
+
 ## 3. Data
 
 Input data configuration.

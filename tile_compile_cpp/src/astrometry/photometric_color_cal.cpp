@@ -486,11 +486,27 @@ void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
               << " G=" << bg_g << " B=" << bg_b
               << " -> bg_out=" << bg_out << std::endl;
 
+    size_t valid_px = 0;
+    const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
-            float dr = R(y, x) - bg_r;
-            float dg = G(y, x) - bg_g;
-            float db = B(y, x) - bg_b;
+            const float r0 = R(y, x);
+            const float g0 = G(y, x);
+            const float b0 = B(y, x);
+            if (!(std::isfinite(r0) && r0 > 0.0f && std::isfinite(g0) && g0 > 0.0f &&
+                  std::isfinite(b0) && b0 > 0.0f)) {
+                R(y, x) = 0.0f;
+                G(y, x) = 0.0f;
+                B(y, x) = 0.0f;
+                continue;
+            }
+
+            ++valid_px;
+
+            float dr = r0 - bg_r;
+            float dg = g0 - bg_g;
+            float db = b0 - bg_b;
 
             float nr = static_cast<float>(m[0][0] * dr + m[0][1] * dg + m[0][2] * db);
             float ng = static_cast<float>(m[1][0] * dr + m[1][1] * dg + m[1][2] * db);
@@ -501,6 +517,12 @@ void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             B(y, x) = bg_out + nb;
         }
     }
+
+    const size_t skipped_px = (total_px >= valid_px) ? (total_px - valid_px) : 0;
+    const double frac = (total_px > 0) ? (static_cast<double>(valid_px) / static_cast<double>(total_px)) : 0.0;
+    std::cerr << "[PCC] Apply valid pixels: " << valid_px << "/" << total_px
+              << " (" << (100.0 * frac) << "%)  skipped=" << skipped_px
+              << std::endl;
 }
 
 // ─── Full PCC pipeline ──────────────────────────────────────────────────

@@ -15,6 +15,7 @@ properties:
       write_registered_frames: {type: boolean}
       write_global_metrics: {type: boolean}
       write_global_registration: {type: boolean}
+      crop_to_nonzero_bbox: {type: boolean}
   data:
     type: object
     properties:

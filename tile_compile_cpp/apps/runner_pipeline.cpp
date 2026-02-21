@@ -608,6 +608,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   int min_valid_frames = phase_registration_ctx.min_valid_frames;
   const int canvas_tile_offset_x = phase_registration_ctx.tile_offset_x;
   const int canvas_tile_offset_y = phase_registration_ctx.tile_offset_y;
+  int debayer_tile_offset_x = canvas_tile_offset_x;
+  int debayer_tile_offset_y = canvas_tile_offset_y;
   // Canvas dimensions may be larger than original frame due to field rotation.
   const int canvas_height = (phase_registration_ctx.canvas_height > 0)
       ? phase_registration_ctx.canvas_height : height;
@@ -2563,6 +2565,43 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
+    if (cfg.output.crop_to_nonzero_bbox && recon.size() > 0) {
+      const int full_rows = recon.rows();
+      const int full_cols = recon.cols();
+      int min_x = full_cols;
+      int min_y = full_rows;
+      int max_x = -1;
+      int max_y = -1;
+      for (int y = 0; y < full_rows; ++y) {
+        for (int x = 0; x < full_cols; ++x) {
+          float v = recon(y, x);
+          if (std::isfinite(v) && v > 0.0f) {
+            if (x < min_x) min_x = x;
+            if (y < min_y) min_y = y;
+            if (x > max_x) max_x = x;
+            if (y > max_y) max_y = y;
+          }
+        }
+      }
+
+      if (max_x >= min_x && max_y >= min_y) {
+        const int crop_w = (max_x - min_x + 1);
+        const int crop_h = (max_y - min_y + 1);
+        const bool have_rgb_full =
+            (recon_R.rows() == full_rows && recon_R.cols() == full_cols &&
+             recon_G.rows() == full_rows && recon_G.cols() == full_cols &&
+             recon_B.rows() == full_rows && recon_B.cols() == full_cols);
+        recon = recon.block(min_y, min_x, crop_h, crop_w).eval();
+        if (have_rgb_full) {
+          recon_R = recon_R.block(min_y, min_x, crop_h, crop_w).eval();
+          recon_G = recon_G.block(min_y, min_x, crop_h, crop_w).eval();
+          recon_B = recon_B.block(min_y, min_x, crop_h, crop_w).eval();
+        }
+        debayer_tile_offset_x -= min_x;
+        debayer_tile_offset_y -= min_y;
+      }
+    }
+
     // Phase 10: DEBAYER (for OSC data)
     emitter.phase_start(run_id, Phase::DEBAYER, "DEBAYER", log_file);
 
@@ -2581,7 +2620,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       } else {
         // Fallback (should be rare): debayer luminance proxy.
         auto debayer = image::debayer_nearest_neighbor(
-            recon, detected_bayer, -canvas_tile_offset_x, -canvas_tile_offset_y);
+            recon, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
         R_out = debayer.R;
         G_out = debayer.G;
         B_out = debayer.B;
