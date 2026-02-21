@@ -1,3 +1,5 @@
+# v002 is the latest production version.
+
 # Tile-Compile
 
 Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (methodology v3.2).
