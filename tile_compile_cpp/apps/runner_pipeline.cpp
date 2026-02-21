@@ -49,298 +49,12 @@ using tile_compile::WarpMatrix;
 
 namespace image = tile_compile::image;
 namespace astro = tile_compile::astrometry;
-namespace core = tile_compile::core;
-namespace io = tile_compile::io;
 using tile_compile::runner::TeeBuf;
 using tile_compile::runner::estimate_total_file_bytes;
 using tile_compile::runner::format_bytes;
 using tile_compile::runner::message_indicates_disk_full;
 
 using NormalizationScales = image::NormalizationScales;
-
-constexpr int kCalibrationPhaseId = 16;
-
-struct CalibrationAssets {
-  Matrix2Df bias_master;
-  Matrix2Df dark_master;
-  Matrix2Df flat_norm;
-  bool use_bias = false;
-  bool use_dark = false;
-  bool use_flat = false;
-  std::string bias_source;
-  std::string dark_source;
-  std::string flat_source;
-  int bias_source_count = 0;
-  int dark_source_count = 0;
-  int flat_source_count = 0;
-};
-
-void emit_calibration_phase_event(const std::string &type,
-                                  const std::string &run_id,
-                                  nlohmann::json data,
-                                  std::ostream &log_file) {
-  data["phase"] = kCalibrationPhaseId;
-  data["phase_name"] = "CALIBRATION";
-  core::emit_event(type, run_id, data, log_file);
-}
-
-void ensure_shape_or_throw(const Matrix2Df &img, int height, int width,
-                           const std::string &what) {
-  if (img.rows() != height || img.cols() != width) {
-    throw std::runtime_error(
-        what + " has mismatched dimensions: got " +
-        std::to_string(img.cols()) + "x" + std::to_string(img.rows()) +
-        ", expected " + std::to_string(width) + "x" +
-        std::to_string(height));
-  }
-}
-
-std::vector<fs::path> discover_calibration_frames(const fs::path &dir,
-                                                  const std::string &pattern) {
-  auto frames = core::discover_frames(dir, pattern);
-  frames.erase(std::remove_if(frames.begin(), frames.end(),
-                              [](const fs::path &p) {
-                                return !io::is_fits_image_path(p);
-                              }),
-               frames.end());
-  std::sort(frames.begin(), frames.end());
-  return frames;
-}
-
-Matrix2Df build_mean_master_from_dir(const fs::path &dir,
-                                     const std::string &pattern,
-                                     int height, int width,
-                                     const std::string &label,
-                                     int &source_count) {
-  const std::vector<fs::path> sources =
-      discover_calibration_frames(dir, pattern.empty() ? "*" : pattern);
-  if (sources.empty()) {
-    throw std::runtime_error("No calibration frames found in " +
-                             dir.string() + " for " + label);
-  }
-
-  auto first_pair = io::read_fits_float(sources.front());
-  Matrix2Df master = first_pair.first;
-  ensure_shape_or_throw(master, height, width, label + " master");
-
-  for (size_t i = 1; i < sources.size(); ++i) {
-    Matrix2Df frame = io::read_fits_float(sources[i]).first;
-    ensure_shape_or_throw(frame, height, width, label + " master");
-    master += frame;
-  }
-
-  master.array() /= static_cast<float>(sources.size());
-  source_count = static_cast<int>(sources.size());
-  return master;
-}
-
-Matrix2Df load_master_from_path(const fs::path &path, int height, int width,
-                                const std::string &label) {
-  if (!fs::exists(path)) {
-    throw std::runtime_error(label + " master not found: " + path.string());
-  }
-  Matrix2Df master = io::read_fits_float(path).first;
-  ensure_shape_or_throw(master, height, width, label + " master");
-  return master;
-}
-
-Matrix2Df build_flat_normalizer(const Matrix2Df &flat_master) {
-  std::vector<float> positive;
-  positive.reserve(static_cast<size_t>(flat_master.size()));
-  for (Eigen::Index i = 0; i < flat_master.size(); ++i) {
-    const float v = flat_master.data()[i];
-    if (std::isfinite(v) && v > 1.0e-6f) {
-      positive.push_back(v);
-    }
-  }
-  if (positive.empty()) {
-    throw std::runtime_error("Flat master has no positive finite values");
-  }
-  const float flat_med = core::median_of(positive);
-  if (!(flat_med > 1.0e-6f)) {
-    throw std::runtime_error("Flat master median is invalid");
-  }
-
-  Matrix2Df flat_norm = flat_master;
-  for (Eigen::Index i = 0; i < flat_norm.size(); ++i) {
-    const float v = flat_norm.data()[i];
-    float n = (std::isfinite(v) && v > 1.0e-6f) ? (v / flat_med) : 1.0f;
-    if (!std::isfinite(n) || n <= 1.0e-6f) {
-      n = 1.0f;
-    }
-    flat_norm.data()[i] = n;
-  }
-  return flat_norm;
-}
-
-bool materialize_calibrated_frames(const std::string &run_id,
-                                   const tile_compile::config::Config &cfg,
-                                   const std::vector<fs::path> &input_frames,
-                                   int height, int width,
-                                   const fs::path &run_dir,
-                                   std::ostream &log_file,
-                                   std::vector<fs::path> &output_frames,
-                                   std::string &error_out) {
-  output_frames.clear();
-  error_out.clear();
-
-  emit_calibration_phase_event("phase_start", run_id, nlohmann::json::object(),
-                               log_file);
-
-  const bool want_bias = cfg.calibration.use_bias;
-  const bool want_dark = cfg.calibration.use_dark;
-  const bool want_flat = cfg.calibration.use_flat;
-  if (!want_bias && !want_dark && !want_flat) {
-    emit_calibration_phase_event(
-        "phase_end", run_id,
-        {{"status", "skipped"}, {"reason", "disabled"}}, log_file);
-    return true;
-  }
-
-  try {
-    CalibrationAssets assets;
-
-    if (want_bias) {
-      if (cfg.calibration.bias_use_master) {
-        fs::path p(cfg.calibration.bias_master);
-        if (p.is_relative()) {
-          p = fs::absolute(p);
-        }
-        assets.bias_master = load_master_from_path(p, height, width, "Bias");
-        assets.bias_source = p.string();
-        assets.bias_source_count = 1;
-      } else {
-        fs::path dir(cfg.calibration.bias_dir);
-        if (dir.is_relative()) {
-          dir = fs::absolute(dir);
-        }
-        assets.bias_master = build_mean_master_from_dir(
-            dir, cfg.calibration.pattern, height, width, "Bias",
-            assets.bias_source_count);
-        assets.bias_source = dir.string();
-      }
-      assets.use_bias = true;
-    }
-
-    if (want_dark) {
-      if (cfg.calibration.dark_use_master) {
-        fs::path p(cfg.calibration.dark_master);
-        if (p.is_relative()) {
-          p = fs::absolute(p);
-        }
-        assets.dark_master = load_master_from_path(p, height, width, "Dark");
-        assets.dark_source = p.string();
-        assets.dark_source_count = 1;
-      } else {
-        fs::path dir(cfg.calibration.darks_dir);
-        if (dir.is_relative()) {
-          dir = fs::absolute(dir);
-        }
-        assets.dark_master = build_mean_master_from_dir(
-            dir, cfg.calibration.pattern, height, width, "Dark",
-            assets.dark_source_count);
-        assets.dark_source = dir.string();
-      }
-      assets.use_dark = true;
-    }
-
-    if (want_flat) {
-      Matrix2Df flat_master;
-      if (cfg.calibration.flat_use_master) {
-        fs::path p(cfg.calibration.flat_master);
-        if (p.is_relative()) {
-          p = fs::absolute(p);
-        }
-        flat_master = load_master_from_path(p, height, width, "Flat");
-        assets.flat_source = p.string();
-        assets.flat_source_count = 1;
-      } else {
-        fs::path dir(cfg.calibration.flats_dir);
-        if (dir.is_relative()) {
-          dir = fs::absolute(dir);
-        }
-        flat_master = build_mean_master_from_dir(
-            dir, cfg.calibration.pattern, height, width, "Flat",
-            assets.flat_source_count);
-        assets.flat_source = dir.string();
-      }
-      assets.flat_norm = build_flat_normalizer(flat_master);
-      assets.use_flat = true;
-    }
-
-    const fs::path calibrated_dir = run_dir / "artifacts" / "calibrated_frames";
-    fs::create_directories(calibrated_dir);
-    output_frames.reserve(input_frames.size());
-
-    for (size_t i = 0; i < input_frames.size(); ++i) {
-      auto frame_pair = io::read_fits_float(input_frames[i]);
-      Matrix2Df img = std::move(frame_pair.first);
-      const io::FitsHeader hdr = std::move(frame_pair.second);
-      ensure_shape_or_throw(img, height, width,
-                            "Light frame " + input_frames[i].filename().string());
-
-      if (assets.use_bias) {
-        img.array() -= assets.bias_master.array();
-      }
-      if (assets.use_dark) {
-        img.array() -= assets.dark_master.array();
-      }
-      if (assets.use_flat) {
-        img.array() /= assets.flat_norm.array();
-      }
-
-      fs::path out_path = calibrated_dir / input_frames[i].filename();
-      if (fs::exists(out_path)) {
-        out_path = calibrated_dir /
-                   (std::to_string(i) + "_" +
-                    input_frames[i].filename().string());
-      }
-      io::write_fits_float(out_path, img, hdr);
-      output_frames.push_back(out_path);
-
-      const int current = static_cast<int>(i + 1);
-      if (current % 5 == 0 || current == static_cast<int>(input_frames.size())) {
-        emit_calibration_phase_event(
-            "phase_progress", run_id,
-            {{"current", current},
-             {"total", static_cast<int>(input_frames.size())},
-             {"progress", static_cast<float>(current) /
-                              static_cast<float>(input_frames.size())},
-             {"substep",
-              "calibrate " + std::to_string(current) + "/" +
-                  std::to_string(input_frames.size())},
-             {"pass", "frames"}},
-            log_file);
-      }
-    }
-
-    nlohmann::json summary = {
-        {"status", "ok"},
-        {"num_frames", static_cast<int>(input_frames.size())},
-        {"use_bias", assets.use_bias},
-        {"use_dark", assets.use_dark},
-        {"use_flat", assets.use_flat},
-        {"bias_source", assets.bias_source},
-        {"dark_source", assets.dark_source},
-        {"flat_source", assets.flat_source},
-        {"bias_source_count", assets.bias_source_count},
-        {"dark_source_count", assets.dark_source_count},
-        {"flat_source_count", assets.flat_source_count},
-        {"output_dir", calibrated_dir.string()},
-    };
-    core::write_text(run_dir / "artifacts" / "calibration.json",
-                     summary.dump(2));
-    emit_calibration_phase_event("phase_end", run_id, summary, log_file);
-    return true;
-  } catch (const std::exception &e) {
-    error_out = e.what();
-    emit_calibration_phase_event(
-        "phase_end", run_id,
-        {{"status", "error"}, {"error", error_out}}, log_file);
-    output_frames.clear();
-    return false;
-  }
-}
 } // namespace
 
 int run_pipeline_command(const std::string &config_path, const std::string &input_dir,
@@ -706,19 +420,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   emitter.phase_end(run_id, Phase::SCAN_INPUT, "ok", scan_extra, log_file);
 
-  std::vector<fs::path> calibrated_frames;
-  std::string calibration_error;
-  if (!materialize_calibrated_frames(run_id, cfg, frames, height, width, run_dir,
-                                     log_file, calibrated_frames,
-                                     calibration_error)) {
-    emitter.run_end(run_id, false, "error", log_file);
-    std::cerr << "Error during CALIBRATION: " << calibration_error << std::endl;
-    return 1;
-  }
-  if (!calibrated_frames.empty()) {
-    frames = std::move(calibrated_frames);
-  }
-
   runner::PhaseMetricsContext phase_metrics_ctx;
   if (!runner::run_phase_channel_split_normalization_global_metrics(
           run_id, cfg, frames, run_dir, detected_mode, detected_bayer_str,
@@ -860,11 +561,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   // make_hann_1d is now reconstruction::make_hann_1d (canonical module function)
 
-  std::vector<Tile> tiles_phase56 = tiles;
-  if (max_tiles > 0 && tiles_phase56.size() > static_cast<size_t>(max_tiles)) {
-    tiles_phase56.resize(static_cast<size_t>(max_tiles));
-  }
-
   std::vector<std::vector<TileMetrics>> local_metrics;
   std::vector<std::vector<float>> local_weights;
   std::vector<float> tile_fwhm_median;
@@ -910,27 +606,23 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   auto &frame_has_data = phase_registration_ctx.frame_has_data;
   const int n_usable_frames = phase_registration_ctx.n_usable_frames;
   int min_valid_frames = phase_registration_ctx.min_valid_frames;
-  const int canvas_width =
-      (phase_registration_ctx.canvas_width > 0) ? phase_registration_ctx.canvas_width
-                                                : width;
-  const int canvas_height =
-      (phase_registration_ctx.canvas_height > 0) ? phase_registration_ctx.canvas_height
-                                                 : height;
-  // Canvas PREWARP introduces a global pixel offset. For OSC mosaics, Bayer
-  // parity must be evaluated in original sensor coordinates, so we propagate
-  // this offset into all debayer origin coordinates.
-  const int bayer_origin_offset_x = phase_registration_ctx.tile_offset_x;
-  const int bayer_origin_offset_y = phase_registration_ctx.tile_offset_y;
-  const int tile_offset_x = phase_registration_ctx.tile_offset_x;
-  const int tile_offset_y = phase_registration_ctx.tile_offset_y;
+  const int canvas_tile_offset_x = phase_registration_ctx.tile_offset_x;
+  const int canvas_tile_offset_y = phase_registration_ctx.tile_offset_y;
+  // Canvas dimensions may be larger than original frame due to field rotation.
+  const int canvas_height = (phase_registration_ctx.canvas_height > 0)
+      ? phase_registration_ctx.canvas_height : height;
+  const int canvas_width  = (phase_registration_ctx.canvas_width  > 0)
+      ? phase_registration_ctx.canvas_width  : width;
 
   if (canvas_width != width || canvas_height != height) {
     tiles = tile_compile::pipeline::build_initial_tile_grid(
         canvas_width, canvas_height, uniform_tile_size, overlap_fraction);
-    tiles_phase56 = tiles;
-    if (max_tiles > 0 && tiles_phase56.size() > static_cast<size_t>(max_tiles)) {
-      tiles_phase56.resize(static_cast<size_t>(max_tiles));
-    }
+
+    std::ostringstream msg;
+    msg << "TILE_GRID updated for expanded canvas: " << width << "x" << height
+        << " -> " << canvas_width << "x" << canvas_height
+        << " (tiles=" << tiles.size() << ")";
+    emitter.warning(run_id, msg.str(), log_file);
 
     core::json artifact;
     artifact["image_width"] = canvas_width;
@@ -949,8 +641,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         {"overlap_clipped", overlap_clipped},
     };
     artifact["uniform_tile_size"] = uniform_tile_size;
-    artifact["tile_offset_x"] = tile_offset_x;
-    artifact["tile_offset_y"] = tile_offset_y;
     artifact["tiles"] = core::json::array();
     for (const auto &t : tiles) {
       artifact["tiles"].push_back({
@@ -961,13 +651,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       });
     }
     core::write_text(run_dir / "artifacts" / "tile_grid.json", artifact.dump(2));
+  }
 
-    emitter.warning(
-        run_id,
-        "Canvas expansion active: tile grid resized from " +
-            std::to_string(width) + "x" + std::to_string(height) + " to " +
-            std::to_string(canvas_width) + "x" + std::to_string(canvas_height),
-        log_file);
+  std::vector<Tile> tiles_phase56 = tiles;
+  if (max_tiles > 0 && tiles_phase56.size() > static_cast<size_t>(max_tiles)) {
+    tiles_phase56.resize(static_cast<size_t>(max_tiles));
   }
 
   constexpr int kReducedModeMinFrames = 50;
@@ -1000,7 +688,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             run_id, cfg, frames, run_dir, frame_has_data, tiles_phase56,
             prewarped_frames, emitter, log_file, local_metrics, local_weights,
             tile_quality_median, tile_is_star, tile_fwhm_median,
-            tile_offset_x, tile_offset_y)) {
+            canvas_tile_offset_x, canvas_tile_offset_y)) {
       return 1;
     }
 
@@ -1009,40 +697,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                         "TILE_RECONSTRUCTION", log_file);
 
     const int passes_total = 1;
-    auto robust_tile_snr_proxy = [](const Matrix2Df &img,
-                                    float fallback) -> float {
-      if (img.size() <= 0) {
-        return fallback;
-      }
-      std::vector<float> px;
-      px.reserve(static_cast<size_t>(img.size()));
-      for (Eigen::Index i = 0; i < img.size(); ++i) {
-        const float v = img.data()[i];
-        if (std::isfinite(v) && v > 0.0f) {
-          px.push_back(v);
-        }
-      }
-      if (px.size() < 32) {
-        return fallback;
-      }
-
-      const float bg = core::median_of(px);
-      const float mad = core::robust_sigma_mad(px);
-      std::sort(px.begin(), px.end());
-      const float p99 = core::percentile_from_sorted(px, 99.0f);
-      if (!std::isfinite(bg) || !std::isfinite(mad) || !std::isfinite(p99)) {
-        return fallback;
-      }
-
-      const float signal = std::max(0.0f, p99 - bg);
-      const float noise = std::max(mad, 1.0e-4f);
-      const float snr = signal / noise;
-      if (!std::isfinite(snr)) {
-        return fallback;
-      }
-      return std::clamp(snr, 0.0f, 1.0e4f);
-    };
-
     // Helper: post-warp metrics (// Methodik v3 §6)
     auto compute_post_warp_metrics =
         [&](const Matrix2Df &warped) -> std::tuple<float, float, float> {
@@ -1050,24 +704,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         return {0.0f, 0.0f, 0.0f};
       cv::Mat wcv(warped.rows(), warped.cols(), CV_32F,
                   const_cast<float *>(warped.data()));
-      // Build mask: only pixels with data (> 0) are valid frame area.
-      cv::Mat valid_mask;
-      cv::compare(wcv, 0.0f, valid_mask, cv::CMP_GT);
       cv::Mat lap;
       cv::Laplacian(wcv, lap, CV_32F);
       cv::Scalar mean_sd, stddev_sd;
-      cv::meanStdDev(lap, mean_sd, stddev_sd, valid_mask);
+      cv::meanStdDev(lap, mean_sd, stddev_sd);
       float contrast = static_cast<float>(stddev_sd[0] * stddev_sd[0]);
 
       std::vector<float> px;
       px.reserve(static_cast<size_t>(warped.size()));
       for (Eigen::Index k = 0; k < warped.size(); ++k) {
-        const float v = warped.data()[k];
-        if (v > 0.0f) px.push_back(v);
+        px.push_back(warped.data()[k]);
       }
-      float background = px.empty() ? 0.0f : core::median_of(px);
+      float background = core::median_of(px);
 
-      float snr = robust_tile_snr_proxy(warped, 0.0f);
+      float snr = 0.0f;
+      if (!px.empty()) {
+        float mad = core::robust_sigma_mad(px);
+        std::vector<float> sorted_px = px;
+        std::sort(sorted_px.begin(), sorted_px.end());
+        float p99 = core::percentile_from_sorted(sorted_px, 99.0f);
+        snr = (p99 - background) / (mad + 1.0e-6f);
+      }
 
       return {contrast, background, snr};
     };
@@ -1081,7 +738,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       recon_G = Matrix2Df::Zero(canvas_height, canvas_width);
       recon_B = Matrix2Df::Zero(canvas_height, canvas_width);
     }
-    first_img.resize(0, 0); // no longer needed as fallback; free RAM early
 
     const int prev_cv_threads_recon = cv::getNumThreads();
     cv::setNumThreads(1);
@@ -1174,13 +830,28 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     const std::vector<float> shared_hann_x = reconstruction::make_hann_1d(uniform_tile_size);
     const std::vector<float> shared_hann_y = reconstruction::make_hann_1d(uniform_tile_size);
 
+    // Helper: returns true if the tile has enough non-zero (valid frame) pixels.
+    // Tiles with only zero pixels are canvas dead area and must not enter stacking.
+    auto tile_has_data = [](const Matrix2Df &tile) -> bool {
+      const int total = static_cast<int>(tile.size());
+      if (total <= 0) return false;
+      int nonzero = 0;
+      for (int i = 0; i < total; ++i) {
+        if (tile.data()[i] > 0.0f) ++nonzero;
+      }
+      // Require at least 10% valid pixels to consider the tile as having data.
+      return nonzero >= std::max(1, total / 10);
+    };
+
     // Worker function for parallel tile processing (v3: global warp only, no
     // local ECC)
     auto process_tile = [&](size_t ti) {
       const Tile &t = tiles_phase56[ti];
 
       auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
-        // Extract tile from pre-warped full frame (already normalized + warped)
+        // Extract tile from pre-warped full frame (already normalized + warped).
+        // PREWARP already composes the registration offset into stored frames.
+        // tiles_phase56 is built in canvas coordinates, so no extra offset here.
         return prewarped_frames.extract_tile(fi, t, 0, 0);
       };
 
@@ -1209,8 +880,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // Important: keep peak memory bounded. We therefore stack channels
         // sequentially (R then G then B) instead of holding 3× frame tiles.
 
-        const int origin_x = std::max(0, t.x) + bayer_origin_offset_x;
-        const int origin_y = std::max(0, t.y) + bayer_origin_offset_y;
+        const int origin_x = std::max(0, t.x);
+        const int origin_y = std::max(0, t.y);
 
         std::vector<size_t> valid_frames;
         std::vector<float> weights_valid;
@@ -1226,6 +897,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             continue;
           Matrix2Df tile_mosaic = load_tile_normalized(fi);
           if (tile_mosaic.rows() != t.height || tile_mosaic.cols() != t.width)
+            continue;
+          // Skip tiles that are entirely canvas dead area (all-zero pixels).
+          if (!tile_has_data(tile_mosaic))
             continue;
 
           valid_frames.push_back(fi);
@@ -1296,8 +970,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           Matrix2Df tile_img = load_tile_normalized(fi);
           if (tile_img.rows() != t.height || tile_img.cols() != t.width)
             continue;
+          // Skip tiles that are entirely canvas dead area (all-zero pixels).
+          if (!tile_has_data(tile_img))
+            continue;
 
-          warped_tiles.push_back(tile_img);
+          warped_tiles.push_back(std::move(tile_img));
           frame_valid_tile_counts[fi].fetch_add(1);
           float G_f = (fi < static_cast<size_t>(global_weights.size()))
                           ? global_weights[static_cast<int>(fi)]
@@ -1349,6 +1026,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
 
       // 2. Wiener filter (frequency domain) — applied after soft-threshold
+      float tile_noise = (ti < tile_quality_median.size())
+                             ? tile_quality_median[ti]
+                             : 0.0f;
+      float tile_snr = (tile_post_snr.size() > ti) ? tile_post_snr[ti] : 0.0f;
       float tile_q = (ti < tile_quality_median.size())
                           ? tile_quality_median[ti]
                           : 0.0f;
@@ -1358,19 +1039,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           if (t_img.size() <= 0) return 0.0f;
           cv::Mat m(t_img.rows(), t_img.cols(), CV_32F,
                     const_cast<float *>(t_img.data()));
-          cv::Mat valid_mask;
-          cv::compare(m, 0.0f, valid_mask, cv::CMP_GT);
           cv::Mat bg_m;
           cv::blur(m, bg_m, cv::Size(31, 31), cv::Point(-1, -1),
                    cv::BORDER_REFLECT_101);
           cv::Mat r = m - bg_m;
           cv::Scalar mu, sd;
-          cv::meanStdDev(r, mu, sd, valid_mask);
+          cv::meanStdDev(r, mu, sd);
           return static_cast<float>(sd[0]);
         };
-        const float tile_snr =
-            robust_tile_snr_proxy(tile_rec,
-                                  cfg.tile_denoise.wiener.snr_threshold + 1.0f);
         float sigma_est = estimate_tile_noise(tile_rec);
         tile_rec = reconstruction::wiener_tile_filter(
             tile_rec, sigma_est, tile_snr, tile_q, is_star,
@@ -1413,16 +1089,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           if (src.size() <= 0) {
             return 0.0f;
           }
-          norm_tmp.clear();
-          norm_tmp.reserve(static_cast<size_t>(src.size()));
-          for (Eigen::Index i = 0; i < src.size(); ++i) {
-            const float v = src.data()[i];
-            if (v > 0.0f) {
-              norm_tmp.push_back(abs_values ? std::fabs(v) : v);
+          norm_tmp.resize(static_cast<size_t>(src.size()));
+          if (abs_values) {
+            for (Eigen::Index i = 0; i < src.size(); ++i) {
+              norm_tmp[static_cast<size_t>(i)] = std::fabs(src.data()[i]);
             }
-          }
-          if (norm_tmp.empty()) {
-            return 0.0f;
+          } else {
+            std::copy(src.data(), src.data() + src.size(), norm_tmp.begin());
           }
           const size_t mid = norm_tmp.size() / 2;
           std::nth_element(norm_tmp.begin(),
@@ -1439,14 +1112,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         };
 
         if (osc_mode) {
-          // Compute luminance proxy BEFORE background subtraction so that
-          // tile_norm_scale holds the absolute median level (≈ normalised
-          // background, ~1.0).  §5.7.2 uses this to undo the subtraction.
-          tile_rec =
-              0.25f * tile_rec_R + 0.5f * tile_rec_G + 0.25f * tile_rec_B;
-          const float m_shared = median_from_matrix(tile_rec, false);
-          tile_norm_scale[ti] = (m_shared >= kEpsMedian) ? m_shared : 1.0f;
-
           const float bg_r = center_by_median(tile_rec_R);
           const float bg_g = center_by_median(tile_rec_G);
           const float bg_b = center_by_median(tile_rec_B);
@@ -1454,9 +1119,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           tile_norm_bg_g[ti] = bg_g;
           tile_norm_bg_b[ti] = bg_b;
 
-          // Re-compute luminance after background subtraction for OLA.
           tile_rec =
               0.25f * tile_rec_R + 0.5f * tile_rec_G + 0.25f * tile_rec_B;
+          const float m_shared = median_from_matrix(tile_rec, true);
           if (m_shared >= kEpsMedian) {
             const float inv = 1.0f / m_shared;
             for (Eigen::Index i = 0; i < tile_rec_R.size(); ++i) {
@@ -1467,18 +1132,22 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
               tile_rec.data()[i] *= inv;
             }
+            tile_norm_scale[ti] = m_shared;
+          } else {
+            tile_norm_scale[ti] = 1.0f;
           }
         } else {
-          // Compute scale BEFORE background subtraction (same reasoning).
-          const float m = median_from_matrix(tile_rec, false);
-          tile_norm_scale[ti] = (m >= kEpsMedian) ? m : 1.0f;
           const float bg = center_by_median(tile_rec);
           tile_norm_bg_r[ti] = bg;
+          const float m = median_from_matrix(tile_rec, true);
           if (m >= kEpsMedian) {
             const float inv = 1.0f / m;
             for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
               tile_rec.data()[i] *= inv;
             }
+            tile_norm_scale[ti] = m;
+          } else {
+            tile_norm_scale[ti] = 1.0f;
           }
         }
       }
@@ -1554,17 +1223,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     // Normalize reconstruction
     const float eps_ws = kEpsWeightSum;
-    Matrix2Df fallback_canvas = prewarped_frames.load(0);
-    if (fallback_canvas.rows() != recon.rows() ||
-        fallback_canvas.cols() != recon.cols()) {
-      fallback_canvas = Matrix2Df::Zero(recon.rows(), recon.cols());
-    }
     if (osc_mode) {
-      // Fallback for rare holes must match expanded canvas dimensions.
-      auto fb =
-          image::debayer_nearest_neighbor(fallback_canvas, detected_bayer,
-                                          bayer_origin_offset_x,
-                                          bayer_origin_offset_y);
 
       for (int i = 0; i < recon.size(); ++i) {
         float ws = weight_sum.data()[i];
@@ -1572,34 +1231,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           recon_R.data()[i] /= ws;
           recon_G.data()[i] /= ws;
           recon_B.data()[i] /= ws;
-        }
-      }
-      // Compute global background median from well-covered pixels for the
-      // canvas-expansion border areas (weight_sum=0, no frame covers them).
-      {
-        std::vector<float> bg_r_samp, bg_g_samp, bg_b_samp;
-        bg_r_samp.reserve(static_cast<size_t>(recon_R.size()));
-        bg_g_samp.reserve(static_cast<size_t>(recon_G.size()));
-        bg_b_samp.reserve(static_cast<size_t>(recon_B.size()));
-        for (int i = 0; i < recon.size(); ++i) {
-          if (weight_sum.data()[i] > eps_ws) {
-            bg_r_samp.push_back(recon_R.data()[i]);
-            bg_g_samp.push_back(recon_G.data()[i]);
-            bg_b_samp.push_back(recon_B.data()[i]);
-          }
-        }
-        float fb_r = 0.0f, fb_g = 0.0f, fb_b = 0.0f;
-        if (!bg_r_samp.empty()) {
-          fb_r = core::median_of(bg_r_samp);
-          fb_g = core::median_of(bg_g_samp);
-          fb_b = core::median_of(bg_b_samp);
-        }
-        for (int i = 0; i < recon.size(); ++i) {
-          if (weight_sum.data()[i] <= eps_ws) {
-            recon_R.data()[i] = fb_r;
-            recon_G.data()[i] = fb_g;
-            recon_B.data()[i] = fb_b;
-          }
+        } else {
+          // Keep canvas dead area as zero so later statistics/stacking can
+          // reliably exclude non-data pixels.
+          recon_R.data()[i] = 0.0f;
+          recon_G.data()[i] = 0.0f;
+          recon_B.data()[i] = 0.0f;
         }
       }
 
@@ -1642,15 +1279,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       // Keep a luminance proxy for validation + downstream metrics.
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
     } else {
-      // First pass: normalize covered pixels, collect background sample.
-      std::vector<float> bg_samp;
-      bg_samp.reserve(static_cast<size_t>(recon.size()));
       for (int i = 0; i < recon.size(); ++i) {
         float ws = weight_sum.data()[i];
         if (ws > eps_ws) {
           recon.data()[i] /= ws;
         } else {
-          recon.data()[i] = fallback_canvas.data()[i];
+          // Keep canvas dead area as zero so later statistics/stacking can
+          // reliably exclude non-data pixels.
+          recon.data()[i] = 0.0f;
         }
       }
 
@@ -1677,8 +1313,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
-    // --- Memory release: weight_sum no longer needed ---
+    // --- Memory release: weight_sum and first_img no longer needed ---
     weight_sum.resize(0, 0);
+    first_img.resize(0, 0);
 
     // Write reconstruction artifacts (v3)
     {
@@ -2007,9 +1644,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     auto reconstruct_subset =
         [&](const std::vector<char> &frame_mask) -> Matrix2Df {
       if (cfg.synthetic.weighting == "tile_weighted") {
-        // Synthetic reconstruction must stay in canvas space whenever PREWARP
-        // expanded the field. Using sensor-space dimensions here would crop
-        // offset/rotated content and bias edge statistics.
         Matrix2Df out = Matrix2Df::Zero(canvas_height, canvas_width);
         Matrix2Df weight_ola = Matrix2Df::Zero(canvas_height, canvas_width);
         std::atomic<bool> any_tile{false};
@@ -2074,6 +1708,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 continue;
               Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t, 0, 0);
               if (tile_img.rows() != t.height || tile_img.cols() != t.width)
+                continue;
+              // Skip tiles that are entirely canvas dead area (all-zero pixels).
+              if (!tile_has_data(tile_img))
                 continue;
               cluster_tiles.push_back(std::move(tile_img));
 
@@ -2157,19 +1794,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
         if (!any_tile.load(std::memory_order_relaxed))
           return Matrix2Df();
-        std::vector<float> bg_samp;
-        bg_samp.reserve(static_cast<size_t>(out.size()));
+
+        Matrix2Df fallback;
+        for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
+          if (!frame_mask[fi] || !frame_has_data[fi])
+            continue;
+          fallback = prewarped_frames.load(fi);
+          if (fallback.size() > 0)
+            break;
+        }
+        if (fallback.size() != out.size()) {
+          fallback = Matrix2Df::Zero(out.rows(), out.cols());
+        }
+
         for (Eigen::Index i = 0; i < out.size(); ++i) {
           float ws = weight_ola.data()[i];
           if (ws > kEpsWeightSum) {
             out.data()[i] /= ws;
-            bg_samp.push_back(out.data()[i]);
+          } else {
+            out.data()[i] = fallback.data()[i];
           }
         }
-
-        // Keep uncovered pixels at 0.0 (canvas dead area marker).
-        // Downstream stacking must skip zero pixels to avoid contamination.
-        // The final output will fill dead area with bg after stacking.
         return out;
       }
 
@@ -2279,9 +1924,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             cluster_q_values.empty() ? 0.0f : core::median_of(cluster_q_values);
 
         if (detected_mode == ColorMode::OSC) {
-          auto deb = image::debayer_nearest_neighbor(syn, detected_bayer,
-                                                     bayer_origin_offset_x,
-                                                     bayer_origin_offset_y);
+          auto deb = image::debayer_nearest_neighbor(syn, detected_bayer, 0, 0);
           RGBFrame rgb;
           rgb.R = std::move(deb.R);
           rgb.G = std::move(deb.G);
@@ -2386,9 +2029,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             synth_G.push_back(std::move(synthetic_rgb_frames[i].G));
             synth_B.push_back(std::move(synthetic_rgb_frames[i].B));
           } else {
-            auto deb = image::debayer_nearest_neighbor(sf, detected_bayer,
-                                                       bayer_origin_offset_x,
-                                                       bayer_origin_offset_y);
+            auto deb = image::debayer_nearest_neighbor(sf, detected_bayer, 0, 0);
             synth_R.push_back(std::move(deb.R));
             synth_G.push_back(std::move(deb.G));
             synth_B.push_back(std::move(deb.B));
@@ -2421,18 +2062,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               cluster_stack_weights[i] = 1.0f;
             }
           }
-          const bool apply_cap = !cluster_stack_weights.empty() &&
-                                 (cfg.stacking.cluster_quality_weighting.cap_enabled ||
-                                  use_synthetic_frames);
-          if (apply_cap) {
+          if (cfg.stacking.cluster_quality_weighting.cap_enabled &&
+              !cluster_stack_weights.empty()) {
             std::vector<float> tmp_w = cluster_stack_weights;
             const float med_w = core::median_of(tmp_w);
-            const float cap_ratio =
-                cfg.stacking.cluster_quality_weighting.cap_enabled
-                    ? cfg.stacking.cluster_quality_weighting.cap_ratio
-                    : 5.0f;
             const float cap =
-                std::max(kEpsWeight, cap_ratio * med_w);
+                std::max(kEpsWeight,
+                         cfg.stacking.cluster_quality_weighting.cap_ratio * med_w);
             for (float &w : cluster_stack_weights) {
               if (w > cap)
                 w = cap;
@@ -2459,34 +2095,23 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 cfg.stacking.sigma_clip.max_iters,
                 cfg.stacking.sigma_clip.min_fraction);
           } else {
-            const int npix = synth_R[0].size();
             recon_R = Matrix2Df::Zero(synth_R[0].rows(), synth_R[0].cols());
             recon_G = Matrix2Df::Zero(synth_G[0].rows(), synth_G[0].cols());
             recon_B = Matrix2Df::Zero(synth_B[0].rows(), synth_B[0].cols());
-            Matrix2Df wsum_map = Matrix2Df::Zero(synth_R[0].rows(), synth_R[0].cols());
+            float wsum = 0.0f;
             for (size_t k = 0; k < synth_R.size(); ++k) {
               const float wk = use_quality_weighting
                                    ? cluster_stack_weights[k]
                                    : 1.0f;
-              for (int px = 0; px < npix; ++px) {
-                if (synth_R[k].data()[px] > 0.0f ||
-                    synth_G[k].data()[px] > 0.0f ||
-                    synth_B[k].data()[px] > 0.0f) {
-                  recon_R.data()[px] += synth_R[k].data()[px] * wk;
-                  recon_G.data()[px] += synth_G[k].data()[px] * wk;
-                  recon_B.data()[px] += synth_B[k].data()[px] * wk;
-                  wsum_map.data()[px] += wk;
-                }
-              }
+              recon_R += synth_R[k] * wk;
+              recon_G += synth_G[k] * wk;
+              recon_B += synth_B[k] * wk;
+              wsum += wk;
             }
-            for (int px = 0; px < npix; ++px) {
-              const float ws = wsum_map.data()[px];
-              if (ws > kEpsWeight) {
-                recon_R.data()[px] /= ws;
-                recon_G.data()[px] /= ws;
-                recon_B.data()[px] /= ws;
-              }
-            }
+            const float denom = std::max(kEpsWeight, wsum);
+            recon_R /= denom;
+            recon_G /= denom;
+            recon_B /= denom;
           }
           recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
         } else {
@@ -2497,26 +2122,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 cfg.stacking.sigma_clip.max_iters,
                 cfg.stacking.sigma_clip.min_fraction);
           } else {
-            const int npix_mono = valid_synth[0].size();
             recon = Matrix2Df::Zero(valid_synth[0].rows(), valid_synth[0].cols());
-            Matrix2Df wsum_mono = Matrix2Df::Zero(valid_synth[0].rows(), valid_synth[0].cols());
+            float wsum = 0.0f;
             for (size_t idx = 0; idx < valid_synth.size(); ++idx) {
               const float wk =
                   use_quality_weighting ? cluster_stack_weights[idx] : 1.0f;
-              for (int px = 0; px < npix_mono; ++px) {
-                const float v = valid_synth[idx].data()[px];
-                if (v > 0.0f) {
-                  recon.data()[px] += v * wk;
-                  wsum_mono.data()[px] += wk;
-                }
-              }
+              recon += valid_synth[idx] * wk;
+              wsum += wk;
             }
-            for (int px = 0; px < npix_mono; ++px) {
-              const float ws = wsum_mono.data()[px];
-              if (ws > kEpsWeight) {
-                recon.data()[px] /= ws;
-              }
-            }
+            recon /= std::max(kEpsWeight, wsum);
           }
         }
       }
@@ -2524,12 +2138,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     // Optional post-processing (not part of the linear quality core).
     if (cfg.stacking.cosmetic_correction) {
-      const float cc_sigma = cfg.stacking.cosmetic_correction_sigma;
-      recon = image::cosmetic_correction(recon, cc_sigma, true);
+      recon = image::cosmetic_correction(recon, 5.0f, true);
       if (detected_mode == ColorMode::OSC) {
-        recon_R = image::cosmetic_correction(recon_R, cc_sigma, true);
-        recon_G = image::cosmetic_correction(recon_G, cc_sigma, true);
-        recon_B = image::cosmetic_correction(recon_B, cc_sigma, true);
+        recon_R = image::cosmetic_correction(recon_R, 5.0f, true);
+        recon_G = image::cosmetic_correction(recon_G, 5.0f, true);
+        recon_B = image::cosmetic_correction(recon_B, 5.0f, true);
       }
     }
 
@@ -2558,7 +2171,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       float vmax = std::numeric_limits<float>::lowest();
       for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
         float v = recon_out.data()[k];
-        if (std::isfinite(v)) {
+        // Exclude canvas dead area (zero pixels) from stretch range.
+        if (std::isfinite(v) && v > 0.0f) {
           if (v < vmin) vmin = v;
           if (v > vmax) vmax = v;
         }
@@ -2801,9 +2415,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         B_out = recon_B;
       } else {
         // Fallback (should be rare): debayer luminance proxy.
-        auto debayer = image::debayer_nearest_neighbor(recon, detected_bayer,
-                                                       bayer_origin_offset_x,
-                                                       bayer_origin_offset_y);
+        auto debayer = image::debayer_nearest_neighbor(recon, detected_bayer, 0, 0);
         R_out = debayer.R;
         G_out = debayer.G;
         B_out = debayer.B;
