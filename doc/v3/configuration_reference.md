@@ -1676,6 +1676,40 @@ Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 
 ---
 
+### `stacking.common_overlap_required_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | `(0, 1]` |
+| **Default** | `1.0` |
+
+**Zweck:** Definiert die erforderliche Pixel-Abdeckung über nutzbare Frames für alle Berechnungen nach PREWARP.
+
+- `1.0` (empfohlen): strikte Schnittmenge aller nutzbaren Frames
+- `< 1.0`: lässt teilweise überdeckte Rand-/Canvas-Bereiche in Statistiken und Tile-Verarbeitung zu
+
+**Empfehlung:** Für Feldrotation (Alt/Az) auf `1.0` lassen, damit keine geometriebedingten Bias- oder Stripe/Grid-Artefakte entstehen.
+
+---
+
+### `stacking.tile_common_valid_min_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | `(0, 1]` |
+| **Default** | `0.9` |
+
+**Zweck:** Tile-Akzeptanzschwelle nach Anwendung der Common-Overlap-Maske.
+
+- Ein Tile wird nur verwendet, wenn mindestens dieser Anteil seiner Pixel im gemeinsamen Overlap liegt
+- Höhere Werte sind strikter und reduzieren Randkontamination
+
+**Empfehlung:** `0.9` für Produktion; `0.75-0.85` nur bewusst, wenn mehr Randabdeckung zugelassen werden soll.
+
+---
+
 ### `stacking.output_stretch`
 
 | Eigenschaft | Wert |

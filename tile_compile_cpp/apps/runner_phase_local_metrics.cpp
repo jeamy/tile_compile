@@ -23,6 +23,10 @@ bool run_phase_local_metrics(
     const std::filesystem::path &run_dir,
     const std::vector<uint8_t> &frame_has_data,
     const std::vector<Tile> &tiles_phase56,
+    const std::vector<uint8_t> &common_valid_mask,
+    int common_mask_width, int common_mask_height,
+    const std::vector<uint8_t> &tile_common_valid,
+    float tile_common_min_fraction,
     const DiskCacheFrameStore &prewarped_frames, core::EventEmitter &emitter,
     std::ostream &log_file, std::vector<std::vector<TileMetrics>> &local_metrics,
     std::vector<std::vector<float>> &local_weights,
@@ -31,6 +35,46 @@ bool run_phase_local_metrics(
     int tile_offset_y) {
   (void)tile_offset_x;
   (void)tile_offset_y;
+
+  auto apply_common_overlap_to_tile = [&](Matrix2Df &tile, const Tile &t) {
+    if (tile.rows() != t.height || tile.cols() != t.width)
+      return;
+    for (int yy = 0; yy < t.height; ++yy) {
+      const int gy = t.y + yy;
+      if (gy < 0 || gy >= common_mask_height)
+        continue;
+      const size_t row_off =
+          static_cast<size_t>(gy) * static_cast<size_t>(common_mask_width);
+      for (int xx = 0; xx < t.width; ++xx) {
+        const int gx = t.x + xx;
+        if (gx < 0 || gx >= common_mask_width) {
+          tile(yy, xx) = 0.0f;
+          continue;
+        }
+        if (row_off + static_cast<size_t>(gx) >= common_valid_mask.size() ||
+            common_valid_mask[row_off + static_cast<size_t>(gx)] == 0) {
+          tile(yy, xx) = 0.0f;
+        }
+      }
+    }
+  };
+
+  auto tile_has_common_data = [&](const Matrix2Df &tile, size_t ti) -> bool {
+    if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0)
+      return false;
+    const int total = static_cast<int>(tile.size());
+    if (total <= 0)
+      return false;
+    int nonzero = 0;
+    for (int i = 0; i < total; ++i) {
+      if (tile.data()[i] > 0.0f)
+        ++nonzero;
+    }
+    const int required_nonzero =
+        std::max(1, static_cast<int>(std::ceil(
+                        static_cast<float>(total) * tile_common_min_fraction)));
+    return nonzero >= required_nonzero;
+  };
 
   auto compute_worker_count = [&](size_t task_count) -> int {
     int workers = cfg.runtime_limits.parallel_workers;
@@ -105,6 +149,13 @@ bool run_phase_local_metrics(
               Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t, 0, 0);
 
               if (tile_img.size() <= 0) {
+                local_metrics[fi].push_back(make_zero_metrics());
+                local_weights[fi].push_back(0.0f);
+                continue;
+              }
+
+              apply_common_overlap_to_tile(tile_img, t);
+              if (!tile_has_common_data(tile_img, ti)) {
                 local_metrics[fi].push_back(make_zero_metrics());
                 local_weights[fi].push_back(0.0f);
                 continue;

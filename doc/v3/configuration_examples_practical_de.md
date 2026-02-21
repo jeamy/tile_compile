@@ -6,6 +6,29 @@ Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen,
 
 ---
 
+## Gemeinsamer Overlap nach PREWARP (`stacking.common_overlap_*`)
+
+**Neue sinnvolle Standardwerte:**
+
+```yaml
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 0.90
+```
+
+- `common_overlap_required_fraction: 1.0` erzwingt die strikte Schnittmenge aller nutzbaren Frames.
+- `tile_common_valid_min_fraction: 0.90` verhindert, dass Rand-Tiles mit wenig gemeinsamer Abdeckung lokale Metriken verzerren.
+
+**Empfehlungen nach Setup:**
+
+- **Alt/Az mit Feldrotation:** `1.0 / 0.90` (beibehalten, empfohlen)
+- **EQ mit sehr stabiler Nachführung:** `1.0 / 0.85-0.90`
+- **Nur wenn bewusst mehr Randfläche genutzt werden soll:** `0.95 / 0.80-0.85`
+
+**Wichtig:** Niedrigere Werte können Dynamik-/Hintergrundstatistiken wieder durch unterschiedlich überdeckte Randbereiche verfälschen.
+
+---
+
 ## Tile-Größe (`tile.size`)
 
 **Default:** `256`  

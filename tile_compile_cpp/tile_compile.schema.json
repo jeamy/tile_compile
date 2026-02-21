@@ -793,6 +793,18 @@
             }
           }
         },
+        "common_overlap_required_fraction": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "Mindestanteil nutzbarer Frames pro Pixel fuer Post-PREWARP-Berechnungen (1.0 = strikte Schnittmenge aller Frames)."
+        },
+        "tile_common_valid_min_fraction": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "Mindestanteil gueltiger Common-Overlap-Pixel innerhalb eines Tiles, damit das Tile in Metriken/Rekonstruktion verwendet wird."
+        },
         "output_stretch": {
           "type": "boolean",
           "description": "Optionaler linearer Anzeige-Stretch auf den Ausgabe-Daten (Post-Processing, nicht Teil des linearen Pflichtkerns)."

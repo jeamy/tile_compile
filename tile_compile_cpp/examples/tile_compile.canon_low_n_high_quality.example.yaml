@@ -205,6 +205,8 @@ stacking:
     kappa_cluster: 0.5 # low-N/high-quality konservativ: moderate Gewichtung
     cap_enabled: true # Dominanz einzelner Cluster begrenzen
     cap_ratio: 10.0 # konservativ stabil: w_k <= 10 * median_j(w_j)
+  common_overlap_required_fraction: 1.0 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
+  tile_common_valid_min_fraction: 0.90 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, fuer OSC: 3.0)

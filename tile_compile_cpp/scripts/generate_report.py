@@ -412,6 +412,88 @@ def _gen_normalization(artifacts_dir: Path, norm: dict) -> tuple[list[str], list
     return pngs, evals, explanations
 
 
+def _gen_common_overlap(artifacts_dir: Path, co: dict) -> tuple[list[str], list[str], dict[str, str]]:
+    pngs: list[str] = []
+    evals: list[str] = []
+    explanations: dict[str, str] = {}
+
+    if not co:
+        evals.append("no common_overlap.json data")
+        return pngs, evals, explanations
+
+    cw = co.get("canvas_width", 0)
+    ch = co.get("canvas_height", 0)
+    usable = co.get("usable_frames", 0)
+    loaded = co.get("loaded_frames", 0)
+    req_frames = co.get("required_common_frames", 0)
+    req_frac = co.get("required_common_fraction", 0.0)
+    tile_min = co.get("tile_common_min_fraction", 0.0)
+    common_px = co.get("common_pixels", 0)
+    common_frac = co.get("common_fraction", 0.0)
+    tiles = co.get("tiles", []) or []
+
+    evals.append(f"canvas: {cw}x{ch}")
+    evals.append(f"usable/loaded frames: {usable}/{loaded}")
+    evals.append(f"required common frames: {req_frames} ({req_frac:.3f})")
+    evals.append(f"tile common min fraction: {tile_min:.3f}")
+    evals.append(f"common pixels: {common_px} ({_pct(common_frac)})")
+
+    if tiles:
+        ratios = [float(t.get("common_ratio", 0.0)) for t in tiles]
+        valid_count = sum(1 for t in tiles if t.get("common_valid", False))
+        evals.append(f"tiles common-valid: {valid_count}/{len(tiles)}")
+        s = _basic_stats(ratios)
+        if s.get("n", 0):
+            evals.append(
+                f"tile common-ratio median={s['median']:.3f}, min={s['min']:.3f}, max={s['max']:.3f}")
+
+        # Histogram of tile common overlap ratio
+        fn = "common_overlap_ratio_hist.png"
+        if _plot_histogram(ratios, "Tile common-overlap ratio", "common ratio", _fig_path(artifacts_dir, fn),
+                           color="#8be9fd", bins=50):
+            pngs.append(fn)
+            explanations[fn] = (
+                '<h4>Common-Overlap-Ratio pro Tile</h4>'
+                '<p>Verteilung des Anteils gemeinsamer Pixel pro Tile nach PREWARP.</p>'
+                '<p><b>Interpretation:</b></p>'
+                '<ul>'
+                '<li><span class="good">Peak nahe 1.0:</span> sehr stabile gemeinsame Abdeckung.</li>'
+                '<li><span class="neutral">Breiter Peak:</span> unterschiedliche Abdeckung, meist an Rändern.</li>'
+                '<li><span class="bad">Viele niedrige Werte:</span> potenzielle Bias-Quelle in lokalen Metriken.</li>'
+                '</ul>'
+            )
+
+        # Spatial map of tile common overlap ratio (if tile geometry exists)
+        if cw > 0 and ch > 0 and all(
+            all(k in t for k in ("x", "y", "width", "height")) for t in tiles
+        ):
+            fn = "common_overlap_ratio_spatial.png"
+            if _plot_spatial_tile_heatmap(
+                tiles,
+                ratios,
+                int(cw),
+                int(ch),
+                "Spatial common-overlap ratio",
+                _fig_path(artifacts_dir, fn),
+                cmap="viridis",
+                label="common ratio",
+                show_grid=True,
+            ):
+                pngs.append(fn)
+                explanations[fn] = (
+                    '<h4>Räumliche Common-Overlap-Karte</h4>'
+                    '<p>Zeigt, in welchen Bildbereichen die gemeinsame Frame-Abdeckung hoch/niedrig ist.</p>'
+                    '<p><b>Interpretation:</b></p>'
+                    '<ul>'
+                    '<li><span class="good">Homogen grün/gelb:</span> statistisch stabile Fläche.</li>'
+                    '<li><span class="neutral">Abfall am Rand:</span> typisch bei Feldrotation.</li>'
+                    '<li><span class="bad">Inhomogene Inseln:</span> potenziell problematische Geometrie/Abdeckung.</li>'
+                    '</ul>'
+                )
+
+    return pngs, evals, explanations
+
+
 def _gen_global_metrics(artifacts_dir: Path, gm: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
@@ -1799,6 +1881,7 @@ def generate_report(run_dir: Path) -> Path:
     cl = _read_json(artifacts_dir / "state_clustering.json")
     syn = _read_json(artifacts_dir / "synthetic_frames.json")
     val = _read_json(artifacts_dir / "validation.json")
+    common_overlap = _read_json(artifacts_dir / "common_overlap.json")
     events = _read_jsonl(logs_path)
 
     config_text = None
@@ -1881,6 +1964,11 @@ def generate_report(run_dir: Path) -> Path:
     if val:
         v_pngs, v_evals, v_expl = _gen_validation(artifacts_dir, val)
         sections.append(("Validation", _make_card_html("Quality validation", v_pngs, v_evals, _infer_status(v_evals), explanations=v_expl)))
+
+    # 10. Common overlap diagnostics
+    if common_overlap:
+        co_pngs, co_evals, co_expl = _gen_common_overlap(artifacts_dir, common_overlap)
+        sections.append(("Common Overlap", _make_card_html("Post-PREWARP overlap diagnostics", co_pngs, co_evals, _infer_status(co_evals), explanations=co_expl)))
 
     # Write output
     title = f"Tile-Compile Report — {run_dir.name}"

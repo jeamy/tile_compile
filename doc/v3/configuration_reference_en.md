@@ -1083,6 +1083,36 @@ Final stacking settings.
 
 **Purpose:** Optional dominance cap: `w_k ≤ cap_ratio * median(w_j)` (only active when `cap_enabled=true`).
 
+### `stacking.common_overlap_required_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `(0, 1]` |
+| **Default** | `1.0` |
+
+**Purpose:** Defines the required per-pixel frame coverage for post-PREWARP calculations.
+
+- `1.0` (recommended default): strict common intersection (pixel must be valid in all usable frames)
+- `< 1.0`: allows partially covered edge/canvas regions into statistics and tile processing
+
+**Recommendation:** keep `1.0` for rotating-field data (Alt/Az) to avoid geometry-driven bias and stripe/grid artifacts.
+
+### `stacking.tile_common_valid_min_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `(0, 1]` |
+| **Default** | `0.9` |
+
+**Purpose:** Tile-level acceptance threshold after common-overlap masking.
+
+- A tile is used only if at least this fraction of its pixels belongs to the common overlap
+- Higher values are stricter and reduce edge contamination
+
+**Recommendation:** `0.9` for production, `0.75-0.85` only when deliberately accepting more edge coverage.
+
 ### `stacking.output_stretch`
 
 | Property | Value |

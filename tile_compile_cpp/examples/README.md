@@ -24,6 +24,12 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
     - `w_k = exp(kappa_cluster * Q_k)`
   - includes optional dominance cap semantics:
     - `w_k <= cap_ratio * median_j(w_j)` (only when `cap_enabled: true`)
+- `stacking.common_overlap_*`
+  - includes strict common-overlap defaults for all profiles:
+    - `common_overlap_required_fraction: 1.0`
+    - `tile_common_valid_min_fraction: 0.90`
+  - keeps post-PREWARP statistics and tile processing on shared valid regions only.
+  - helps avoid edge-driven bias and tile/grid artifacts in rotating-field datasets.
 - `registration.reject_*` outlier filtering
   - includes configurable global-registration outlier rejection:
     - `reject_outliers`
@@ -78,6 +84,7 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
    - (optional, Alt/Az near polar region) prefer `tile_compile.smart_telescope_altaz_polar_near.example.yaml` as baseline
    - (optional, OSC) tune `chroma_denoise.blend.amount` and `chroma_denoise.apply_stage`
    - (optional) tune `stacking.cluster_quality_weighting.*` if cluster weighting is too strong/weak
+   - (optional) tune `stacking.common_overlap_*` only if you intentionally want more edge coverage
 2. Run directly with:
 
 ```bash

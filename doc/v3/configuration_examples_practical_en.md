@@ -6,6 +6,29 @@ This guide complements the configuration reference with practical examples, boun
 
 ---
 
+## Common overlap after PREWARP (`stacking.common_overlap_*`)
+
+**New sensible defaults:**
+
+```yaml
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 0.90
+```
+
+- `common_overlap_required_fraction: 1.0` enforces strict intersection across all usable frames.
+- `tile_common_valid_min_fraction: 0.90` prevents edge-heavy tiles from biasing local metrics.
+
+**Recommendations by setup:**
+
+- **Alt/Az with field rotation:** keep `1.0 / 0.90` (recommended)
+- **EQ with very stable tracking:** `1.0 / 0.85-0.90`
+- **Only when intentionally accepting more edge area:** `0.95 / 0.80-0.85`
+
+**Important:** Lower values can reintroduce dynamic-range/background bias from uneven edge coverage.
+
+---
+
 ## Tile Size (`tile.size`)
 
 **Default:** `256`  

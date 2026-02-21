@@ -185,7 +185,10 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
             double dy = y - cy;
             double d2 = dx * dx + dy * dy;
             if (d2 >= r_in2 && d2 <= r_out2) {
-                sky_pixels.push_back(img(y, x));
+                float v = img(y, x);
+                if (std::isfinite(v) && v > 0.0f) {
+                    sky_pixels.push_back(v);
+                }
             }
         }
     }
@@ -204,8 +207,11 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
             double dx = x - cx;
             double dy = y - cy;
             if (dx * dx + dy * dy <= r_ap2) {
-                total += img(y, x) - sky_bg;
-                ++n_ap;
+                float v = img(y, x);
+                if (std::isfinite(v) && v > 0.0f) {
+                    total += static_cast<double>(v) - sky_bg;
+                    ++n_ap;
+                }
             }
         }
     }
@@ -448,7 +454,14 @@ static float estimate_background(const Matrix2Df &img) {
     samples.reserve((rows / 8 + 1) * (cols / 8 + 1));
     for (int y = 0; y < rows; y += 8)
         for (int x = 0; x < cols; x += 8)
-            samples.push_back(img(y, x));
+        {
+            float v = img(y, x);
+            if (std::isfinite(v) && v > 0.0f) {
+                samples.push_back(v);
+            }
+        }
+    if (samples.empty())
+        return 0.0f;
     std::sort(samples.begin(), samples.end());
     return samples[samples.size() / 2];
 }

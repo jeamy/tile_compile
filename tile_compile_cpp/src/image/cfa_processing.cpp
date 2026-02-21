@@ -1,6 +1,7 @@
 #include "tile_compile/image/cfa_processing.hpp"
 
 #include <opencv2/opencv.hpp>
+#include <cmath>
 #include <algorithm>
 
 namespace tile_compile::image {
@@ -389,12 +390,16 @@ DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
             const int yy = clamp_y(ys[i]);
             const int xx = clamp_x(xs[i]);
             if (!pred(yy, xx)) continue;
-            sum += sample(yy, xx);
+            const float v = sample(yy, xx);
+            if (!(std::isfinite(v) && v > 0.0f))
+                continue;
+            sum += v;
             ++cnt;
         }
-        return (cnt > 0)
-                   ? (sum / static_cast<float>(cnt))
-                   : sample(clamp_y(ys[0]), clamp_x(xs[0]));
+        if (cnt > 0)
+            return sum / static_cast<float>(cnt);
+        const float v0 = sample(clamp_y(ys[0]), clamp_x(xs[0]));
+        return (std::isfinite(v0) && v0 > 0.0f) ? v0 : 0.0f;
     };
 
     for (int y = 0; y < h; ++y) {

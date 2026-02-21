@@ -222,6 +222,12 @@ struct StackingConfig {
   } cluster_quality_weighting;
 
   std::string method = "rej";
+  // Require this fraction of usable frames to have valid (>0) data at a pixel
+  // for inclusion in post-PREWARP calculations (1.0 => strict intersection).
+  float common_overlap_required_fraction = 1.0f;
+  // Require this fraction of valid pixels in a tile to belong to the common
+  // overlap mask for tile eligibility.
+  float tile_common_valid_min_fraction = 0.9f;
   bool output_stretch = false;
   bool cosmetic_correction = false;
   float cosmetic_correction_sigma = 5.0f;

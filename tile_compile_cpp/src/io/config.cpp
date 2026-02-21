@@ -476,6 +476,14 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.stacking.cluster_quality_weighting.cap_ratio =
             cqw["cap_ratio"].as<float>();
     }
+    if (st["common_overlap_required_fraction"]) {
+      cfg.stacking.common_overlap_required_fraction =
+          st["common_overlap_required_fraction"].as<float>();
+    }
+    if (st["tile_common_valid_min_fraction"]) {
+      cfg.stacking.tile_common_valid_min_fraction =
+          st["tile_common_valid_min_fraction"].as<float>();
+    }
     if (st["output_stretch"])
       cfg.stacking.output_stretch = st["output_stretch"].as<bool>();
     if (st["cosmetic_correction"])
@@ -730,6 +738,10 @@ YAML::Node Config::to_yaml() const {
       stacking.cluster_quality_weighting.cap_enabled;
   node["stacking"]["cluster_quality_weighting"]["cap_ratio"] =
       stacking.cluster_quality_weighting.cap_ratio;
+  node["stacking"]["common_overlap_required_fraction"] =
+      stacking.common_overlap_required_fraction;
+  node["stacking"]["tile_common_valid_min_fraction"] =
+      stacking.tile_common_valid_min_fraction;
   node["stacking"]["output_stretch"] = stacking.output_stretch;
   node["stacking"]["cosmetic_correction"] =
       stacking.cosmetic_correction;
@@ -1026,13 +1038,23 @@ void Config::validate() const {
     throw ValidationError(
         "stacking.cluster_quality_weighting.kappa_cluster must be > 0");
   }
-  if (stacking.cluster_quality_weighting.cap_ratio <= 0.0f) {
-    throw ValidationError(
-        "stacking.cluster_quality_weighting.cap_ratio must be > 0");
+  if (stacking.cluster_quality_weighting.cap_enabled &&
+      stacking.cluster_quality_weighting.cap_ratio <= 0.0f) {
+    throw ValidationError("stacking.cluster_quality_weighting.cap_ratio must be "
+                          "> 0 when cap_enabled=true");
   }
-
-  if (validation.min_tile_weight_variance < 0.0f) {
-    throw ValidationError("validation.min_tile_weight_variance must be >= 0");
+  if (stacking.common_overlap_required_fraction <= 0.0f ||
+      stacking.common_overlap_required_fraction > 1.0f) {
+    throw ValidationError(
+        "stacking.common_overlap_required_fraction must be in (0,1]");
+  }
+  if (stacking.tile_common_valid_min_fraction <= 0.0f ||
+      stacking.tile_common_valid_min_fraction > 1.0f) {
+    throw ValidationError(
+        "stacking.tile_common_valid_min_fraction must be in (0,1]");
+  }
+  if (stacking.cosmetic_correction_sigma <= 0.0f) {
+    throw ValidationError("stacking.cosmetic_correction_sigma must be > 0");
   }
   if (runtime_limits.tile_analysis_max_factor_vs_stack <= 0.0f) {
     throw ValidationError(
