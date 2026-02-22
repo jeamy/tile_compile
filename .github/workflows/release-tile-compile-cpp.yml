@@ -91,7 +91,9 @@ jobs:
           collect_deps "$PKG/bin/tile_compile_cli"
           collect_deps "$PKG/bin/tile_compile_gui"
 
-          QT_PLUGIN_DIR=$(qtpaths6 --plugin-dir)
+          # Prefer Qt6 tool, fallback to qtpaths if needed
+          QTPATHS_BIN=$(command -v qtpaths6 || command -v qtpaths)
+          QT_PLUGIN_DIR=$($QTPATHS_BIN --plugin-dir)
           for subdir in platforms imageformats iconengines styles; do
             if [[ -d "$QT_PLUGIN_DIR/$subdir" ]]; then
               mkdir -p "$PKG/plugins/$subdir"
@@ -153,7 +155,9 @@ jobs:
           collect_deps "$PKG/bin/tile_compile_cli"
           collect_deps "$PKG/bin/tile_compile_gui"
 
-          QT_PLUGIN_DIR=$(qtpaths --plugin-dir)
+          # Prefer Qt6 tool, fallback to qtpaths if needed
+          QTPATHS_BIN=$(command -v qtpaths6 || command -v qtpaths)
+          QT_PLUGIN_DIR=$($QTPATHS_BIN --plugin-dir)
           for subdir in platforms imageformats iconengines styles; do
             if [[ -d "$QT_PLUGIN_DIR/$subdir" ]]; then
               mkdir -p "$PKG/plugins/$subdir"
@@ -259,7 +263,9 @@ jobs:
           collect_deps "$PKG/bin/tile_compile_cli.exe"
           collect_deps "$PKG/bin/tile_compile_gui.exe"
 
-          QT_PLUGIN_DIR=$(qtpaths6 --plugin-dir)
+          # Prefer Qt6 tool, fallback to qtpaths if needed
+          QTPATHS_BIN=$(command -v qtpaths6 || command -v qtpaths)
+          QT_PLUGIN_DIR=$($QTPATHS_BIN --plugin-dir)
           for subdir in platforms imageformats iconengines styles; do
             if [[ -d "$QT_PLUGIN_DIR/$subdir" ]]; then
               mkdir -p "$PKG/plugins/$subdir"
