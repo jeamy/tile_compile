@@ -8,7 +8,7 @@ set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "PROJECT_DIR=%SCRIPT_DIR%"
 set "BUILD_DIR=C:\windows-tile-compile-build"
-set "DIST_DIR=%PROJECT_DIR%\dist\windows"
+set "DIST_DIR=%BUILD_DIR%\dist\"
 set BUILD_TYPE=Release
 
 echo === tile_compile_cpp - Windows Release Build ===
@@ -441,7 +441,7 @@ if exist "%QT_BIN%\Qt6Core.dll" (
 
   rem Alle notwendigen Bibliotheken mit Wildcards kopieren
   echo Kopiere alle notwendigen Bibliotheken...
-  for %%D in (libunistring-5.dll libssh2-1.dll libpsl-5.dll libngtcp2_crypto_ossl-0.dll libngtcp2-16.dll libidn2-0.dll libnghttp3-9.dll libnghttp2-14.dll libcurl-4.dll libb2-1.dll libicuin78.dll libicuuc78.dll) do (
+  for %%D in (libintl-8.dll libbrotlicommon.dll libiconv-2.dll libglib-2.0-0.dll libbz2-1.dll libgraphite2.dll libbrotlidec.dll libdouble-conversion.dll libmd4c.dll libunistring-5.dll libssh2-1.dll libpsl-5.dll libngtcp2_crypto_ossl-0.dll libngtcp2-16.dll libidn2-0.dll libnghttp3-9.dll libnghttp2-14.dll libcurl-4.dll libb2-1.dll libicuin78.dll libicuuc78.dll) do (
     if exist "%MSYS2_PREFIX%\bin\%%D" (
       copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
       echo   Kopiert: %%D
@@ -582,7 +582,7 @@ if defined QT_PLUGINS (
 )
 
 set ZIP_NAME=tile_compile_cpp-windows-release.zip
-set "ZIP_FULL=%PROJECT_DIR%\dist\%ZIP_NAME%"
+set "ZIP_FULL=%BUILD_DIR%\dist\%ZIP_NAME%"
 if exist "%ZIP_FULL%" del /F /Q "%ZIP_FULL%"
 echo.
 echo Erzeuge Release-Zip: %ZIP_NAME%

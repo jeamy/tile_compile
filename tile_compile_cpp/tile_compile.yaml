@@ -206,12 +206,12 @@ stacking:
   cluster_quality_weighting:
     enabled: true # v3.2.2: finale Clusteraggregation gewichtet mit w_k=exp(kappa_cluster*Q_k)
     kappa_cluster: 1.0 # Exponent fuer Clusterqualitaet (Q_k in [-3,+3])
-    cap_enabled: false # optionales Dominanz-Cap fuer einzelne Clustergewichte
+    cap_enabled: true # optionales Dominanz-Cap fuer einzelne Clustergewichte
     cap_ratio: 20.0 # nur aktiv falls cap_enabled=true: w_k <= cap_ratio * median(w)
   common_overlap_required_fraction: 1.0 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
   tile_common_valid_min_fraction: 0.9 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: true # optionales Display-Stretch (Post)
-  cosmetic_correction: false # optionale Kosmetik (Post)
+  cosmetic_correction: true # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
 
 validation:

@@ -2613,14 +2613,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (cfg.output.crop_to_nonzero_bbox && recon.size() > 0) {
       const int full_rows = recon.rows();
       const int full_cols = recon.cols();
+      const bool have_rgb_full =
+          (recon_R.rows() == full_rows && recon_R.cols() == full_cols &&
+           recon_G.rows() == full_rows && recon_G.cols() == full_cols &&
+           recon_B.rows() == full_rows && recon_B.cols() == full_cols);
+      constexpr float kCropNonZeroEps = 1.0e-12f;
+      auto is_valid_crop_value = [&](float v) -> bool {
+        return std::isfinite(v) && std::fabs(v) > kCropNonZeroEps;
+      };
       int min_x = full_cols;
       int min_y = full_rows;
       int max_x = -1;
       int max_y = -1;
       for (int y = 0; y < full_rows; ++y) {
         for (int x = 0; x < full_cols; ++x) {
-          float v = recon(y, x);
-          if (std::isfinite(v) && v > 0.0f) {
+          bool has_data = is_valid_crop_value(recon(y, x));
+          if (!has_data && have_rgb_full) {
+            has_data = is_valid_crop_value(recon_R(y, x)) ||
+                       is_valid_crop_value(recon_G(y, x)) ||
+                       is_valid_crop_value(recon_B(y, x));
+          }
+          if (has_data) {
             if (x < min_x) min_x = x;
             if (y < min_y) min_y = y;
             if (x > max_x) max_x = x;
@@ -2632,10 +2645,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (max_x >= min_x && max_y >= min_y) {
         const int crop_w = (max_x - min_x + 1);
         const int crop_h = (max_y - min_y + 1);
-        const bool have_rgb_full =
-            (recon_R.rows() == full_rows && recon_R.cols() == full_cols &&
-             recon_G.rows() == full_rows && recon_G.cols() == full_cols &&
-             recon_B.rows() == full_rows && recon_B.cols() == full_cols);
         recon = recon.block(min_y, min_x, crop_h, crop_w).eval();
         if (have_rgb_full) {
           recon_R = recon_R.block(min_y, min_x, crop_h, crop_w).eval();
