@@ -59,21 +59,57 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Package (Linux)
+      - name: Package with runtime dependencies (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          PKG="tile_compile_cpp-linux-${{ steps.tag.outputs.tag }}"
-          mkdir -p "$PKG/gui_cpp"
-          cp -f build/tile_compile_runner "$PKG/"
-          cp -f build/tile_compile_cli "$PKG/"
-          cp -f build/tile_compile_gui "$PKG/"
+          TAG="${{ steps.tag.outputs.tag }}"
+          PKG="tile_compile_cpp-linux-${TAG}"
+          mkdir -p "$PKG"/{bin,lib,gui_cpp,plugins}
+
+          cp -f build/tile_compile_runner "$PKG/bin/"
+          cp -f build/tile_compile_cli "$PKG/bin/"
+          cp -f build/tile_compile_gui "$PKG/bin/"
           cp -f tile_compile_cpp/tile_compile.yaml "$PKG/"
           cp -f tile_compile_cpp/tile_compile.schema.yaml "$PKG/"
           cp -f tile_compile_cpp/tile_compile.schema.json "$PKG/"
           cp -f tile_compile_cpp/gui_cpp/constants.js "$PKG/gui_cpp/"
           cp -f tile_compile_cpp/gui_cpp/styles.qss "$PKG/gui_cpp/"
+
+          collect_deps() {
+            local bin="$1"
+            ldd "$bin" | awk '/=> \/|^\// {for (i=1;i<=NF;i++) if ($i ~ /^\//) print $i}' | while read -r dep; do
+              [[ -f "$dep" ]] || continue
+              local base
+              base=$(basename "$dep")
+              cp -L -n "$dep" "$PKG/lib/$base" || true
+            done
+          }
+
+          collect_deps "$PKG/bin/tile_compile_runner"
+          collect_deps "$PKG/bin/tile_compile_cli"
+          collect_deps "$PKG/bin/tile_compile_gui"
+
+          QT_PLUGIN_DIR=$(qtpaths6 --plugin-dir)
+          for subdir in platforms imageformats iconengines styles; do
+            if [[ -d "$QT_PLUGIN_DIR/$subdir" ]]; then
+              mkdir -p "$PKG/plugins/$subdir"
+              cp -a "$QT_PLUGIN_DIR/$subdir/." "$PKG/plugins/$subdir/"
+            fi
+          done
+
+          cat > "$PKG/bin/run_tile_compile_gui.sh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          ROOT="$(cd "$DIR/.." && pwd)"
+          export LD_LIBRARY_PATH="$ROOT/lib:${LD_LIBRARY_PATH:-}"
+          export QT_PLUGIN_PATH="$ROOT/plugins"
+          exec "$DIR/tile_compile_gui" "$@"
+          EOF
+          chmod +x "$PKG/bin/run_tile_compile_gui.sh"
+
           tar -czf "${PKG}.tar.gz" "$PKG"
 
       - name: Upload package (Linux)
@@ -83,21 +119,59 @@ jobs:
           name: tile_compile_cpp-linux-${{ steps.tag.outputs.tag }}
           path: tile_compile_cpp-linux-${{ steps.tag.outputs.tag }}.tar.gz
 
-      - name: Package (macOS)
+      - name: Package with runtime dependencies (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
-          PKG="tile_compile_cpp-macos-${{ steps.tag.outputs.tag }}"
-          mkdir -p "$PKG/gui_cpp"
-          cp -f build/tile_compile_runner "$PKG/"
-          cp -f build/tile_compile_cli "$PKG/"
-          cp -f build/tile_compile_gui "$PKG/"
+          TAG="${{ steps.tag.outputs.tag }}"
+          PKG="tile_compile_cpp-macos-${TAG}"
+          mkdir -p "$PKG"/{bin,lib,gui_cpp,plugins}
+
+          cp -f build/tile_compile_runner "$PKG/bin/"
+          cp -f build/tile_compile_cli "$PKG/bin/"
+          cp -f build/tile_compile_gui "$PKG/bin/"
           cp -f tile_compile_cpp/tile_compile.yaml "$PKG/"
           cp -f tile_compile_cpp/tile_compile.schema.yaml "$PKG/"
           cp -f tile_compile_cpp/tile_compile.schema.json "$PKG/"
           cp -f tile_compile_cpp/gui_cpp/constants.js "$PKG/gui_cpp/"
           cp -f tile_compile_cpp/gui_cpp/styles.qss "$PKG/gui_cpp/"
+
+          collect_deps() {
+            local bin="$1"
+            otool -L "$bin" | tail -n +2 | awk '{print $1}' | while read -r dep; do
+              [[ "$dep" == /usr/lib/* ]] && continue
+              [[ "$dep" == /System/* ]] && continue
+              [[ -f "$dep" ]] || continue
+              local base
+              base=$(basename "$dep")
+              cp -L -n "$dep" "$PKG/lib/$base" || true
+            done
+          }
+
+          collect_deps "$PKG/bin/tile_compile_runner"
+          collect_deps "$PKG/bin/tile_compile_cli"
+          collect_deps "$PKG/bin/tile_compile_gui"
+
+          QT_PLUGIN_DIR=$(qtpaths --plugin-dir)
+          for subdir in platforms imageformats iconengines styles; do
+            if [[ -d "$QT_PLUGIN_DIR/$subdir" ]]; then
+              mkdir -p "$PKG/plugins/$subdir"
+              cp -a "$QT_PLUGIN_DIR/$subdir/." "$PKG/plugins/$subdir/"
+            fi
+          done
+
+          cat > "$PKG/bin/run_tile_compile_gui.sh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          ROOT="$(cd "$DIR/.." && pwd)"
+          export DYLD_LIBRARY_PATH="$ROOT/lib:${DYLD_LIBRARY_PATH:-}"
+          export QT_PLUGIN_PATH="$ROOT/plugins"
+          exec "$DIR/tile_compile_gui" "$@"
+          EOF
+          chmod +x "$PKG/bin/run_tile_compile_gui.sh"
+
           zip -r "${PKG}.zip" "$PKG"
 
       - name: Upload package (macOS)
@@ -153,20 +227,52 @@ jobs:
         shell: msys2 {0}
         run: cmake --build build --config Release --parallel
 
-      - name: Package (Windows)
-        shell: pwsh
+      - name: Package with runtime dependencies (Windows)
+        shell: msys2 {0}
         run: |
-          $pkg = "tile_compile_cpp-windows-${{ steps.tag.outputs.tag }}"
-          New-Item -ItemType Directory -Force -Path "$pkg\gui_cpp" | Out-Null
-          Copy-Item -Force "build\tile_compile_runner.exe" "$pkg\"
-          Copy-Item -Force "build\tile_compile_cli.exe" "$pkg\"
-          Copy-Item -Force "build\tile_compile_gui.exe" "$pkg\"
-          Copy-Item -Force "tile_compile_cpp\tile_compile.yaml" "$pkg\"
-          Copy-Item -Force "tile_compile_cpp\tile_compile.schema.yaml" "$pkg\"
-          Copy-Item -Force "tile_compile_cpp\tile_compile.schema.json" "$pkg\"
-          Copy-Item -Force "tile_compile_cpp\gui_cpp\constants.js" "$pkg\gui_cpp\"
-          Copy-Item -Force "tile_compile_cpp\gui_cpp\styles.qss" "$pkg\gui_cpp\"
-          Compress-Archive -Path "$pkg" -DestinationPath "$pkg.zip" -Force
+          set -euo pipefail
+          TAG='${{ steps.tag.outputs.tag }}'
+          PKG="tile_compile_cpp-windows-${TAG}"
+          mkdir -p "$PKG"/{gui_cpp,plugins,bin}
+
+          cp -f build/tile_compile_runner.exe "$PKG/bin/"
+          cp -f build/tile_compile_cli.exe "$PKG/bin/"
+          cp -f build/tile_compile_gui.exe "$PKG/bin/"
+          cp -f tile_compile_cpp/tile_compile.yaml "$PKG/"
+          cp -f tile_compile_cpp/tile_compile.schema.yaml "$PKG/"
+          cp -f tile_compile_cpp/tile_compile.schema.json "$PKG/"
+          cp -f tile_compile_cpp/gui_cpp/constants.js "$PKG/gui_cpp/"
+          cp -f tile_compile_cpp/gui_cpp/styles.qss "$PKG/gui_cpp/"
+
+          collect_deps() {
+            local bin="$1"
+            ldd "$bin" | awk '/=> \/|^\// {for (i=1;i<=NF;i++) if ($i ~ /^\//) print $i}' | while read -r dep; do
+              [[ -f "$dep" ]] || continue
+              case "$dep" in
+                /c/Windows/*) continue ;;
+              esac
+              cp -L -n "$dep" "$PKG/bin/" || true
+            done
+          }
+
+          collect_deps "$PKG/bin/tile_compile_runner.exe"
+          collect_deps "$PKG/bin/tile_compile_cli.exe"
+          collect_deps "$PKG/bin/tile_compile_gui.exe"
+
+          QT_PLUGIN_DIR=$(qtpaths6 --plugin-dir)
+          for subdir in platforms imageformats iconengines styles; do
+            if [[ -d "$QT_PLUGIN_DIR/$subdir" ]]; then
+              mkdir -p "$PKG/plugins/$subdir"
+              cp -a "$QT_PLUGIN_DIR/$subdir/." "$PKG/plugins/$subdir/"
+            fi
+          done
+
+          cat > "$PKG/bin/qt.conf" <<'EOF'
+          [Paths]
+          Plugins=../plugins
+          EOF
+
+          powershell -NoProfile -Command "Compress-Archive -Path '$PKG' -DestinationPath '${PKG}.zip' -Force"
 
       - name: Upload package (Windows)
         uses: actions/upload-artifact@v4
