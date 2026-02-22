@@ -1,11 +1,10 @@
 #include "BackendClient.hpp"
 
-#include <array>
-#include <cstdio>
-#include <memory>
+#include <QProcess>
+#include <QStringList>
+
 #include <sstream>
 #include <stdexcept>
-#include <unistd.h>
 
 namespace tile_compile::gui {
 
@@ -32,77 +31,54 @@ nlohmann::json BackendClient::run_json(const std::string &cwd,
                                        const std::string &stdin_text,
                                        int timeout_ms) const {
     const auto cmd = resolve_backend_cmd();
-    
-    // Build command with proper shell escaping
-    std::string full_cmd;
-    if (!stdin_text.empty()) {
-        // Use echo with stdin pipe for commands that need stdin
-        full_cmd = "echo '";
-        // Escape single quotes in stdin_text
-        for (char c : stdin_text) {
-            if (c == '\'') {
-                full_cmd += "'\\''";
-            } else {
-                full_cmd += c;
-            }
-        }
-        full_cmd += "' | ";
+    std::string exe = cmd[0];
+#ifdef _WIN32
+    if (exe.rfind("./", 0) == 0) {
+        exe = ".\\" + exe.substr(2);
     }
-    
-    full_cmd += cmd[0];
-    for (const auto &arg : args) {
-        // Simple shell escaping for arguments
-        full_cmd += " '";
-        for (char c : arg) {
-            if (c == '\'') {
-                full_cmd += "'\\''";
-            } else {
-                full_cmd += c;
-            }
-        }
-        full_cmd += "'";
-    }
-    
-    full_cmd += " 2>&1";
-    
-    std::string original_cwd;
+#endif
+
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
     if (!cwd.empty()) {
-        char buf[4096];
-        if (getcwd(buf, sizeof(buf))) {
-            original_cwd = buf;
-        }
-        if (chdir(cwd.c_str()) != 0) {
-            throw std::runtime_error("failed to chdir to " + cwd);
-        }
+        proc.setWorkingDirectory(QString::fromStdString(cwd));
     }
 
-    auto restore_cwd = [&original_cwd]() {
-        if (!original_cwd.empty()) {
-            const int rc = chdir(original_cwd.c_str());
-            (void)rc;
-        }
-    };
-    
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(full_cmd.c_str(), "r"), pclose);
-    if (!pipe) {
-        restore_cwd();
-        throw std::runtime_error("popen() failed");
+    QStringList qargs;
+    for (const auto &arg : args) {
+        qargs << QString::fromStdString(arg);
     }
-    
-    std::ostringstream result;
-    std::array<char, 256> buffer;
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result << buffer.data();
+
+    proc.start(QString::fromStdString(exe), qargs);
+    if (!proc.waitForStarted(5000)) {
+        throw std::runtime_error("Failed to start backend process: " + exe);
     }
-    
-    restore_cwd();
-    
-    const std::string output = result.str();
+
+    if (!stdin_text.empty()) {
+        proc.write(stdin_text.data(), static_cast<qint64>(stdin_text.size()));
+        proc.closeWriteChannel();
+    }
+
+    if (!proc.waitForFinished(timeout_ms)) {
+        proc.kill();
+        proc.waitForFinished(3000);
+        throw std::runtime_error("Backend process timeout after " + std::to_string(timeout_ms) + " ms");
+    }
+
+    const std::string output = proc.readAllStandardOutput().toStdString();
+
+    std::ostringstream cmd_preview;
+    cmd_preview << exe;
+    for (const auto &arg : args) {
+        cmd_preview << " " << arg;
+    }
     
     try {
         return nlohmann::json::parse(output);
     } catch (const nlohmann::json::parse_error &e) {
-        throw std::runtime_error("Failed to parse backend JSON: " + output.substr(0, 500));
+        throw std::runtime_error("Failed to parse backend JSON (cmd: " +
+                                 cmd_preview.str() + "): " +
+                                 output.substr(0, 500));
     }
 }
 
