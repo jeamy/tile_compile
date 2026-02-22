@@ -104,11 +104,11 @@ tile_denoise:
   soft_threshold:
     enabled: true # Highpass + Soft-Threshold pro Tile
     blur_kernel: 21 # kleiner Kernel fuer kompaktere Aufloesungen
-    alpha: 1.1 # moderates Denoising
+    alpha: 1.6 # moderates Denoising
     skip_star_tiles: true # sternreiche Tiles vom Denoise ausnehmen
   wiener:
-    enabled: false # Wiener-Denoise im Frequenzraum
-    snr_threshold: 4.0 # etwas frueher aktiv bei rauschigeren Smart-Sensoren
+    enabled: true # Wiener-Denoise im Frequenzraum
+    snr_threshold: 4.0 # moderater Schwellwert
     q_min: -0.5 # untere Strukturqualitaetsgrenze
     q_max: 1.0 # obere Strukturqualitaetsgrenze
     q_step: 0.1 # Schrittweite in q-Optimierung
@@ -123,23 +123,23 @@ chroma_denoise:
   luma_guard_strength: 0.75 # 0..1
   star_protection:
     enabled: true
-    threshold_sigma: 2.2
+    threshold_sigma: 2.5
     dilate_px: 2
   structure_protection:
     enabled: true
-    gradient_percentile: 85
+    gradient_percentile: 87
   chroma_wavelet:
     enabled: true
     levels: 3
-    threshold_scale: 1.0
+    threshold_scale: 1.3
     soft_k: 1.0
   chroma_bilateral:
     enabled: true
-    sigma_spatial: 1.2
-    sigma_range: 0.025
+    sigma_spatial: 1.5
+    sigma_range: 0.04
   blend:
     mode: chroma_only
-    amount: 0.25
+    amount: 0.80
   # Preset-Hinweis:
   # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
   # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
@@ -207,8 +207,8 @@ pcc:
 stacking:
   method: rej # rej|average
   sigma_clip:
-    sigma_low: 2.5 # etwas toleranter: vorhergesagte Warps koennen leichte Residuen haben
-    sigma_high: 2.5 # symmetrisch
+    sigma_low: 2.3 # moderater Outlier-Schutz
+    sigma_high: 2.3 # symmetrisch
     max_iters: 3 # maximale Clip-Iterationen
     min_fraction: 0.4 # bei vielen bewoelkten Frames darf mehr geclippt werden
   cluster_quality_weighting:
@@ -218,9 +218,9 @@ stacking:
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
   common_overlap_required_fraction: 1.0 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
   tile_common_valid_min_fraction: 0.90 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
-  output_stretch: false # optionales Display-Stretch (Post)
+  output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
-  cosmetic_correction_sigma: 5.0 # aggressiver fuer OSC/Seestar Hot-Pixel (Default: 5.0)
+  cosmetic_correction_sigma: 3.0 # moderater Schwellwert fuer Hot-Pixel
 
 validation:
   min_fwhm_improvement_percent: 3.0 # etwas realistischere Schwelle fuer kompakte Systeme
@@ -229,7 +229,7 @@ validation:
   require_no_tile_pattern: true # Grid-Artefakte muessen ausbleiben
 
 runtime_limits:
-  parallel_workers: 4 # Anzahl paralleler Worker fuer Tile-Phasen (CPU/memory capped)
+  parallel_workers: 8 # Anzahl paralleler Worker fuer Tile-Phasen (CPU/memory capped)
   memory_budget: 2048 # MiB Budget fuer OSC-Worker-Cap in Tile-Rekonstruktion
   tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
   hard_abort_hours: 6.0 # harte Laufzeitgrenze

@@ -55,7 +55,7 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
   - Chroma denoise profile: aggressive (strong chroma noise suppression).
 - `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
   - Suggested full config for DWARF / ZWO Seestar OSC stacks.
-  - Chroma denoise profile: conservative (protect small-scale detail).
+  - Chroma denoise profile: balanced (moderate chroma noise reduction, works with and without darks).
 - `tile_compile.canon_low_n_high_quality.example.yaml`
   - Suggested OSC config for Canon-style datasets with low frame count but high/consistent quality.
   - Anti-grid focus for reduced/emergency operation: larger tiles, higher overlap, conservative weighting.
@@ -131,12 +131,14 @@ registration:
   reject_shift_median_multiplier: 5.0
 stacking:
   sigma_clip:
-    sigma_low: 2.5
-    sigma_high: 2.5
-    min_fraction: 0.4
+    sigma_low: 1.8
+    sigma_high: 1.8
+    min_fraction: 0.2
 ```
 
 - **Why:** Alt/Az near pole can show wide shift distributions; too strict settings reject too many usable frames.
+  - For no-dark OSC sessions, stricter sigma clipping plus stronger chroma denoise
+    removes persistent RGB single-pixel artifacts more reliably.
 
 ### 3) Small-N MONO anti-grid
 

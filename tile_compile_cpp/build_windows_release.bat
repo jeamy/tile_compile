@@ -8,7 +8,7 @@ set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "PROJECT_DIR=%SCRIPT_DIR%"
 set "BUILD_DIR=C:\windows-tile-compile-build"
-set "DIST_DIR=%BUILD_DIR%\dist\"
+set "DIST_DIR=%BUILD_DIR%\dist\windows"
 set BUILD_TYPE=Release
 
 echo === tile_compile_cpp - Windows Release Build ===
@@ -354,16 +354,28 @@ echo [4/4] Erstelle Distribution...
 if exist "%DIST_DIR%" rmdir /S /Q "%DIST_DIR%"
 mkdir "%DIST_DIR%"
 
+echo Installiere Targets und Runtime-Abhaengigkeiten via CMake...
+cmake --install "%BUILD_DIR%" --prefix "%DIST_DIR%"
+if errorlevel 1 (
+  echo FEHLER: cmake --install fehlgeschlagen.
+  goto :error
+)
+
+set "DIST_BIN=%DIST_DIR%\bin"
+if not exist "%DIST_BIN%" mkdir "%DIST_BIN%"
+
+rem Fallback: falls install() in der lokalen CMake-Version keine Runtime-Dateien liefert
 for %%B in (tile_compile_gui.exe tile_compile_runner.exe tile_compile_cli.exe) do (
-  if exist "%BUILD_DIR%\%%B" (
-    copy /Y "%BUILD_DIR%\%%B" "%DIST_DIR%" >NUL
-  ) else (
-    if exist "%BUILD_DIR%\%BUILD_TYPE%\%%B" (
-      copy /Y "%BUILD_DIR%\%BUILD_TYPE%\%%B" "%DIST_DIR%" >NUL
-    ) else (
-      echo FEHLER: Binaerdatei %%B wurde nicht gefunden.
-      goto :error
-    )
+  if not exist "%DIST_BIN%\%%B" (
+    if exist "%BUILD_DIR%\%%B" copy /Y "%BUILD_DIR%\%%B" "%DIST_BIN%" >NUL
+    if exist "%BUILD_DIR%\%BUILD_TYPE%\%%B" copy /Y "%BUILD_DIR%\%BUILD_TYPE%\%%B" "%DIST_BIN%" >NUL
+  )
+)
+
+for %%B in (tile_compile_gui.exe tile_compile_runner.exe tile_compile_cli.exe) do (
+  if not exist "%DIST_BIN%\%%B" (
+    echo FEHLER: Binaerdatei %%B wurde nicht gefunden.
+    goto :error
   )
 )
 
@@ -375,271 +387,96 @@ for %%F in (tile_compile.yaml tile_compile.schema.yaml tile_compile.schema.json)
   copy /Y "%PROJECT_DIR%\%%F" "%DIST_DIR%" >NUL
 )
 
-rem Beispiel-Konfigurationen/Schemas mitliefern
 if exist "%PROJECT_DIR%\examples" (
   mkdir "%DIST_DIR%\examples" 2>NUL
   xcopy "%PROJECT_DIR%\examples\*" "%DIST_DIR%\examples" /E /I /Y >NUL
 )
 
-rem Externe Daten (Siril / ASTAP) werden bewusst NICHT eingebuendelt.
+set "WINDEPLOYQT="
+if exist "%QT_PREFIX%\bin\windeployqt6.exe" set "WINDEPLOYQT=%QT_PREFIX%\bin\windeployqt6.exe"
+if not defined WINDEPLOYQT if exist "%QT_PREFIX%\bin\windeployqt.exe" set "WINDEPLOYQT=%QT_PREFIX%\bin\windeployqt.exe"
 
-set "QT_PREFIX=%CMAKE_PREFIX_PATH%"
-rem Extrahiere ersten Pfad aus CMAKE_PREFIX_PATH (falls mehrere mit ; getrennt)
-for /f "tokens=1 delims=;" %%i in ("%CMAKE_PREFIX_PATH%") do set "QT_PREFIX=%%~i"
-for %%i in ("%QT_PREFIX%") do set "QT_PREFIX=%%~i"
-
-if not defined QT_PREFIX (
-  if defined Qt6_DIR (
-    set "QT_PREFIX=%Qt6_DIR%\..\..\.."
-  )
-)
-echo Verwende Qt-Pfad: %QT_PREFIX%
-set "QT_BIN=%QT_PREFIX%\bin"
-if exist "%QT_BIN%\Qt6Core.dll" (
-  echo Kopiere Qt6 Runtime-DLLs...
-  for %%D in (Qt6Core.dll Qt6Gui.dll Qt6Widgets.dll Qt6Network.dll Qt6Svg.dll Qt6PrintSupport.dll Qt6OpenGL.dll Qt6Sql.dll Qt6Test.dll Qt6Concurrent.dll Qt6Xml.dll Qt6Multimedia.dll Qt6NetworkAuth.dll Qt6WebSockets.dll) do (
-    if exist "%QT_BIN%\%%D" (
-      copy /Y "%QT_BIN%\%%D" "%DIST_DIR%" >NUL
-      echo   Kopiert: %%D
-    ) else (
-      echo   Nicht gefunden: %%D
-    )
-  )
-
-  for %%D in (libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll) do (
-    if exist "%QT_BIN%\%%D" (
-      copy /Y "%QT_BIN%\%%D" "%DIST_DIR%" >NUL
-      echo   Kopiert: %%D
-    ) else if exist "%MSYS2_PREFIX%\bin\%%D" (
-      copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
-      echo   Kopiert: %%D
-    )
-  )
-
-  rem OpenCV DLLs kopieren (mit korrekten Versionsnummern)
-  echo Kopiere OpenCV DLLs...
-  for %%D in (opencv_core413.dll opencv_imgproc413.dll opencv_imgcodecs413.dll opencv_features2d413.dll opencv_flann413.dll opencv_calib3d413.dll opencv_videoio413.dll) do (
-    if exist "%MSYS2_PREFIX%\bin\%%D" (
-      copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
-      echo   Kopiert: %%D
-    ) else (
-      rem Fallback für andere Versionen
-      for %%F in ("%MSYS2_PREFIX%\bin\opencv_core*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-      for %%F in ("%MSYS2_PREFIX%\bin\opencv_imgproc*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-      for %%F in ("%MSYS2_PREFIX%\bin\opencv_imgcodecs*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-      for %%F in ("%MSYS2_PREFIX%\bin\opencv_features2d*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-      for %%F in ("%MSYS2_PREFIX%\bin\opencv_flann*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-      for %%F in ("%MSYS2_PREFIX%\bin\opencv_calib3d*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-      for %%F in ("%MSYS2_PREFIX%\bin\opencv_videoio*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-    )
-  )
-
-  rem Alle notwendigen Bibliotheken mit Wildcards kopieren
-  echo Kopiere alle notwendigen Bibliotheken...
-  for %%D in (libintl-8.dll libbrotlicommon.dll libiconv-2.dll libglib-2.0-0.dll libbz2-1.dll libgraphite2.dll libbrotlidec.dll libdouble-conversion.dll libmd4c.dll libunistring-5.dll libssh2-1.dll libpsl-5.dll libngtcp2_crypto_ossl-0.dll libngtcp2-16.dll libidn2-0.dll libnghttp3-9.dll libnghttp2-14.dll libcurl-4.dll libb2-1.dll libicuin78.dll libicuuc78.dll) do (
-    if exist "%MSYS2_PREFIX%\bin\%%D" (
-      copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_DIR%" >NUL
-      echo   Kopiert: %%D
-    ) else (
-      rem Alternative Namensvarianten
-      for %%F in ("%MSYS2_PREFIX%\bin\libcfitsio*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-      for %%F in ("%MSYS2_PREFIX%\bin\libssl*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-      for %%F in ("%MSYS2_PREFIX%\bin\libcrypto*.dll") do (
-        copy /Y "%%F" "%DIST_DIR%" >NUL
-        echo   Kopiert: %%~nxF
-      )
-    )
-  )
-
-  rem cfitsio
-  for %%F in ("%MSYS2_PREFIX%\bin\libcfitsio*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  
-  rem yaml-cpp
-  for %%F in ("%MSYS2_PREFIX%\bin\libyaml-cpp*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  
-  rem OpenSSL
-  for %%F in ("%MSYS2_PREFIX%\bin\libssl*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\libcrypto*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  
-  rem Kompression
-  for %%F in ("%MSYS2_PREFIX%\bin\libzstd*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\libbzip2*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\liblzma*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\zlib*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  
-  rem curl
-  for %%F in ("%MSYS2_PREFIX%\bin\libcurl*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  
-  rem ICU (Unicode)
-  for %%F in ("%MSYS2_PREFIX%\bin\libicu*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  
-  rem Text Rendering
-  for %%F in ("%MSYS2_PREFIX%\bin\libpcre*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\libharfbuzz*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\libfreetype*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  
-  rem Bildformate
-  for %%F in ("%MSYS2_PREFIX%\bin\libpng*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\libjpeg*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\libtiff*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\libwebp*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  
-  rem Zusaetzliche OpenCV-Abhaengigkeiten (Video, DNN, etc.)
-  for %%F in ("%MSYS2_PREFIX%\bin\libopencv*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  
-  rem FFmpeg/Video-Codecs (falls OpenCV videoio diese braucht)
-  for %%F in ("%MSYS2_PREFIX%\bin\avcodec*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\avformat*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\avutil*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\swscale*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-  for %%F in ("%MSYS2_PREFIX%\bin\swresample*.dll") do (
-    copy /Y "%%F" "%DIST_DIR%" >NUL
-    echo   Kopiert: %%~nxF
-  )
-
-  echo Qt-DLLs kopiert.
+if defined WINDEPLOYQT (
+  echo Fuehre windeployqt aus...
+  "%WINDEPLOYQT%" --no-translations --no-opengl-sw --dir "%DIST_BIN%" "%DIST_BIN%\tile_compile_gui.exe"
 ) else (
-  echo WARNUNG: Qt6Core.dll nicht unter %QT_BIN% gefunden. Bitte Qt-Pfad pruefen.
+  echo WARNUNG: windeployqt nicht gefunden. Nutze nur CMake-Runtime-Install + Fallback-Copies.
 )
 
-rem Qt Plugins Pfad ermitteln (ausserhalb des if-Blocks fuer korrekte Variablenexpansion)
-set "QT_PLUGINS="
-if exist "%QT_PREFIX%\share\qt6\plugins" set "QT_PLUGINS=%QT_PREFIX%\share\qt6\plugins"
-if not defined QT_PLUGINS if exist "%QT_PREFIX%\plugins" set "QT_PLUGINS=%QT_PREFIX%\plugins"
-
-if defined QT_PLUGINS (
-  echo Kopiere Qt-Plugins von %QT_PLUGINS%
-  mkdir "%DIST_DIR%\platforms" 2>NUL
-  if exist "!QT_PLUGINS!\platforms\qwindows.dll" (
-    copy /Y "!QT_PLUGINS!\platforms\qwindows.dll" "%DIST_DIR%\platforms" >NUL
-    echo   Kopiert: platforms/qwindows.dll
-  ) else (
-    echo WARNUNG: qwindows.dll nicht gefunden unter !QT_PLUGINS!\platforms
+if not exist "%DIST_BIN%\qt.conf" (
+  > "%DIST_BIN%\qt.conf" (
+    echo [Paths]
+    echo Plugins=.
   )
+)
 
-  if exist "!QT_PLUGINS!\imageformats" (
-    mkdir "%DIST_DIR%\imageformats" 2>NUL
-    xcopy "!QT_PLUGINS!\imageformats\*.dll" "%DIST_DIR%\imageformats" /Y >NUL
-    echo   Kopiert: imageformats/*.dll
-  )
+echo Kopiere notwendige Runtime-DLLs (Fallback) aus %MSYS2_PREFIX%\bin ...
+echo   [1/5] Toolchain + Core...
+for %%D in (libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll) do (
+  if exist "%MSYS2_PREFIX%\bin\%%D" copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_BIN%" >NUL
+)
+for %%D in (libintl-8.dll libiconv-2.dll libunistring-5.dll libpcre2-8-0.dll) do (
+  if exist "%MSYS2_PREFIX%\bin\%%D" copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_BIN%" >NUL
+)
 
-  if exist "!QT_PLUGINS!\styles" (
-    mkdir "%DIST_DIR%\styles" 2>NUL
-    xcopy "!QT_PLUGINS!\styles\*.dll" "%DIST_DIR%\styles" /Y >NUL
-    echo   Kopiert: styles/*.dll
-  )
+echo   [2/5] Compression + Crypto...
+for %%F in ("%MSYS2_PREFIX%\bin\zlib*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libbz2*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\liblzma*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libzstd*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libcrypto*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libssl*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libexpat*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libffi*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libsqlite3*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libcurl*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libssh2*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libnghttp2*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libnghttp3*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libngtcp2*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libidn2*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libpsl*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libb2*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+
+echo   [3/5] Project Dependencies...
+for %%F in ("%MSYS2_PREFIX%\bin\libcfitsio*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libyaml-cpp*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+
+echo   [4/5] OpenCV + Image Formats...
+for %%F in ("%MSYS2_PREFIX%\bin\libopencv*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libpng*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libjpeg*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libtiff*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libwebp*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+
+echo   [5/5] FFmpeg + Qt Text Rendering...
+for %%F in ("%MSYS2_PREFIX%\bin\avcodec*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\avformat*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\avutil*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\swscale*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\swresample*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libharfbuzz*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libfreetype*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libgraphite2*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libbrotli*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libicu*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libglib-2.0*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libdouble-conversion*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libmd4c*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+
+if exist "%MSYS2_PREFIX%\bin\ntldd.exe" (
+  echo Pruefe DLL-Abhaengigkeiten mit ntldd...
+  "%MSYS2_PREFIX%\bin\ntldd.exe" -R "%DIST_BIN%\tile_compile_runner.exe" > "%DIST_DIR%\ntldd_runner.txt"
+  "%MSYS2_PREFIX%\bin\ntldd.exe" -R "%DIST_BIN%\tile_compile_cli.exe" > "%DIST_DIR%\ntldd_cli.txt"
+  "%MSYS2_PREFIX%\bin\ntldd.exe" -R "%DIST_BIN%\tile_compile_gui.exe" > "%DIST_DIR%\ntldd_gui.txt"
+  findstr /I /R "not found missing" "%DIST_DIR%\ntldd_runner.txt" >NUL && goto :error
+  findstr /I /R "not found missing" "%DIST_DIR%\ntldd_cli.txt" >NUL && goto :error
+  findstr /I /R "not found missing" "%DIST_DIR%\ntldd_gui.txt" >NUL && goto :error
 ) else (
-  echo WARNUNG: Qt Plugins Verzeichnis nicht gefunden
+  echo WARNUNG: ntldd.exe nicht gefunden. Verifikation uebersprungen.
 )
 
-echo.
-echo Automatische DLL-Abhaengigkeiten (rekursiv via objdump)...
-set "OBJDUMP_EXE=%MSYS2_PREFIX%\bin\objdump.exe"
-if not exist "%OBJDUMP_EXE%" (
-  for /f "delims=" %%P in ('where objdump 2^>NUL') do (
-    if not defined OBJDUMP_EXE set "OBJDUMP_EXE=%%P"
-  )
-)
-
-if exist "%OBJDUMP_EXE%" (
-  call :run_dep_sweep
-) else (
-  echo WARNUNG: objdump nicht gefunden, rekursiver DLL-Sweep uebersprungen.
-)
-
+if not exist "%BUILD_DIR%\dist" mkdir "%BUILD_DIR%\dist"
 set ZIP_NAME=tile_compile_cpp-windows-release.zip
 set "ZIP_FULL=%BUILD_DIR%\dist\%ZIP_NAME%"
 if exist "%ZIP_FULL%" del /F /Q "%ZIP_FULL%"
@@ -663,15 +500,15 @@ echo Distribution liegt unter:
 echo   %DIST_DIR%
 echo.
 echo Ausfuehrbare Dateien:
-echo   - GUI:     %DIST_DIR%\tile_compile_gui.exe
-echo   - Runner:  %DIST_DIR%\tile_compile_runner.exe
-echo   - CLI:     %DIST_DIR%\tile_compile_cli.exe
+echo   - GUI:     %DIST_BIN%\tile_compile_gui.exe
+echo   - Runner:  %DIST_BIN%\tile_compile_runner.exe
+echo   - CLI:     %DIST_BIN%\tile_compile_cli.exe
 echo.
 echo ZIP-Archiv:
-echo   %PROJECT_DIR%\dist\%ZIP_NAME%
+echo   %ZIP_FULL%
 echo.
 echo Zum Starten:
-echo   %DIST_DIR%\tile_compile_gui.exe
+echo   %DIST_BIN%\tile_compile_gui.exe
 echo.
 
 exit /B 0

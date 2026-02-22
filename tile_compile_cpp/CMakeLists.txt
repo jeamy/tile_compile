@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.16)
 project(tile_compile VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -486,20 +486,32 @@ else()
     set(TILE_COMPILE_RUNTIME_DESTINATION lib)
 endif()
 
+# Install executables
 install(TARGETS tile_compile_runner tile_compile_cli tile_compile_gui
     RUNTIME DESTINATION bin
-    RUNTIME_DEPENDENCY_SET tile_compile_runtime_deps
 )
 
-install(RUNTIME_DEPENDENCY_SET tile_compile_runtime_deps
-    DESTINATION ${TILE_COMPILE_RUNTIME_DESTINATION}
-    PRE_EXCLUDE_REGEXES
-        "api-ms-win-.*"
-        "ext-ms-.*"
-    POST_EXCLUDE_REGEXES
-        ".*System32/.*"
-        ".*system32/.*"
-)
+# Install runtime dependencies (CMake 3.21+ only)
+# For older CMake, build_windows_release.bat handles DLL copying manually
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.21" AND WIN32)
+    cmake_language(EVAL CODE "
+        install(CODE \"
+            file(GET_RUNTIME_DEPENDENCIES
+                EXECUTABLES
+                    \\\${CMAKE_INSTALL_PREFIX}/bin/tile_compile_runner.exe
+                    \\\${CMAKE_INSTALL_PREFIX}/bin/tile_compile_cli.exe
+                    \\\${CMAKE_INSTALL_PREFIX}/bin/tile_compile_gui.exe
+                RESOLVED_DEPENDENCIES_VAR resolved_deps
+                UNRESOLVED_DEPENDENCIES_VAR unresolved_deps
+                PRE_EXCLUDE_REGEXES \\\"api-ms-win-.*\\\" \\\"ext-ms-.*\\\"
+                POST_EXCLUDE_REGEXES \\\".*[Ss]ystem32/.*\\\"
+            )
+            foreach(dep IN LISTS resolved_deps)
+                file(INSTALL \\\${dep} DESTINATION \\\${CMAKE_INSTALL_PREFIX}/bin)
+            endforeach()
+        \")
+    ")
+endif()
 
 install(DIRECTORY include/tile_compile
     DESTINATION include

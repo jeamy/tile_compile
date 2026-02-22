@@ -1,5 +1,14 @@
 # Smart-Telescope Referenzkonfiguration (DWARF / ZWO Seestar)
-# vollstaendig, alle Optionen; fuer OSC-Daten mit oft kuerzeren Einzelbelichtungen.
+# Optimiert fuer Alt/Az-Montierungen mit Feldrotation.
+# Vollstaendig, alle Optionen; fuer OSC-Daten mit oft kuerzeren Einzelbelichtungen.
+#
+# Alt/Az-Besonderheiten:
+#   - Feldrotation nahe dem Pol erzeugt grosse Rotationswinkel und Shifts
+#   - Registrierung schlaegt bei bewoelkten Frames oft fehl (Skalen-Ausreisser)
+#   - Polynomial-Feldrotationsmodell (Grad 2) sagt Warps fuer gescheiterte
+#     Frames aus den validen Registrierungen vorher => alle Frames bleiben
+#     erhalten (Methodik v3.2.2 §1.2)
+#   - Canvas wird automatisch fuer die gesamte Feldrotation erweitert
 
 run_dir: ./run_smart_telescope
 log_level: info # trace|debug|info|warn|error
@@ -14,8 +23,8 @@ output:
   write_registered_frames: true # registrierte Einzelbilder speichern
   write_global_metrics: true # global_metrics.json speichern
   write_global_registration: true # global_registration.json speichern
-  crop_to_nonzero_bbox: true # bounding box um nicht-null Pixel berechnen und anwenden
-  
+  crop_to_nonzero_bbox: true # finalen Stack auf Bounding Box nicht-null Pixel zuschneiden
+
 data:
   #image_width: 1920 # typische Smart-Telescope-Aufloesung, ggf. anpassen
   #image_height: 1080 # typische Smart-Telescope-Aufloesung, ggf. anpassen
@@ -53,7 +62,7 @@ calibration:
   bias_master: "" # Pfad zu Master-Bias
   dark_master: "" # Pfad zu Master-Dark
   flat_master: "" # Pfad zu Master-Flat
-  pattern: "*.fit*" # Dateimaske fuer Kalibrierdaten
+  pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz" # Dateimaske fuer Kalibrierdaten (inkl. komprimierte .fz)
 
 assumptions:
   frames_min: 30 # niedrigere Untergrenze fuer kurze Smart-Telescope-Serien
@@ -69,24 +78,23 @@ normalization:
   per_channel: true # bei OSC pro Bayer-Kanal normalisieren
 
 registration:
-  # Temporal-Smoothing (v3.2.3+): Automatisch aktiv bei Feldrotation
-  # - Nutzt Nachbar-Frames (i-1, i+1) wenn direkte Registrierung fehlschlaegt
-  # - Verkettete Warps: i→(i-1)→ref oder i→(i+1)→ref
-  # Adaptive Stern-Detektion: Automatischer Fallback auf 2.5σ bei wenigen Sternen
-  
-  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc|robust_phase_ecc
-  allow_rotation: true # Rotationsanteil in Warp erlauben
-  star_topk: 100 # leicht reduziert fuer kompaktere Felder
+  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
+  allow_rotation: true # PFLICHT fuer Alt/Az: Feldrotation erzeugt >20 Grad ueber eine Session
+  star_topk: 150 # mehr Sterne fuer robustes Matching bei Rotation und Wolken
   star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching
-  star_inlier_tol_px: 3.0 # Inlier-Toleranz in Pixel
+  star_inlier_tol_px: 4.0 # etwas toleranter fuer Rotationsresiduen
   star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
   reject_outliers: true # globale Registrierungs-Ausreisser verwerfen
-  reject_cc_min_abs: 0.35 # absolute Mindestkorrelation (CC)
+  reject_cc_min_abs: 0.30 # etwas niedriger: bei Feldrotation koennen Rand-Frames niedrigeres CC haben
   reject_cc_mad_multiplier: 4.0 # robuster CC-Schwellenfaktor (median - k*MAD)
-  reject_shift_px_min: 25.0 # absolute Mindestgrenze fuer Shift-Outlier (px)
-  reject_shift_median_multiplier: 3.0 # Shift-Outlier-Grenze relativ zum Median
+  reject_shift_px_min: 100.0 # HOCH fuer Alt/Az: Feldrotation erzeugt natuerlich grosse Shifts (>500px moeglich)
+  reject_shift_median_multiplier: 5.0 # weite Shift-Verteilung bei Feldrotation tolerieren
   reject_scale_min: 0.92 # minimale erlaubte Similarity-Skalierung
   reject_scale_max: 1.08 # maximale erlaubte Similarity-Skalierung
+  # Hinweis: Frames mit gescheiterter Registrierung (z.B. Wolken, zu wenige Sterne)
+  # werden NICHT verworfen, sondern per Polynomial-Feldrotationsmodell vorhergesagt.
+  # Die Tile-Level-Qualitaetsmetrik (v3.2.2 §5.5) gewichtet schlechte Frames
+  # automatisch herunter — keine manuelle Frame-Selektion noetig.
 
 dithering:
   enabled: true # Smart-Telescope Session typischerweise mit Dithering
@@ -100,7 +108,7 @@ tile_denoise:
     skip_star_tiles: true # sternreiche Tiles vom Denoise ausnehmen
   wiener:
     enabled: true # Wiener-Denoise im Frequenzraum
-    snr_threshold: 4.0 # etwas frueher aktiv bei rauschigeren Smart-Sensoren
+    snr_threshold: 4.0 # moderater Schwellwert
     q_min: -0.5 # untere Strukturqualitaetsgrenze
     q_max: 1.0 # obere Strukturqualitaetsgrenze
     q_step: 0.1 # Schrittweite in q-Optimierung
@@ -115,23 +123,23 @@ chroma_denoise:
   luma_guard_strength: 0.75 # 0..1
   star_protection:
     enabled: true
-    threshold_sigma: 2.2
+    threshold_sigma: 2.5
     dilate_px: 2
   structure_protection:
     enabled: true
-    gradient_percentile: 85
+    gradient_percentile: 87
   chroma_wavelet:
     enabled: true
     levels: 3
-    threshold_scale: 1.0
+    threshold_scale: 1.3
     soft_k: 1.0
   chroma_bilateral:
     enabled: true
-    sigma_spatial: 1.3
-    sigma_range: 0.035
+    sigma_spatial: 1.5
+    sigma_range: 0.04
   blend:
     mode: chroma_only
-    amount: 0.8
+    amount: 0.80
   # Preset-Hinweis:
   # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
   # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
@@ -139,19 +147,19 @@ chroma_denoise:
 
 global_metrics:
   adaptive_weights: true # adaptive Gewichtung nach Metrikvarianz
-  weight_exponent_scale: 1.4 # geringere Spreizung fuer heterogene Smart-Frames
+  weight_exponent_scale: 1.2 # moderate Spreizung: bei Alt/Az-Sessions mit Wolken grosse Qualitaetsunterschiede
   weights:
-    background: 0.45 # etwas mehr Gewicht auf gleichmaessigen Hintergrund
-    noise: 0.35 # leicht erhoehtes Rauschgewicht
-    gradient: 0.20 # etwas weniger Fokus auf Gradientenergie
+    background: 0.40 # Hintergrundgleichmaessigkeit (Wolken erhoehen BG)
+    noise: 0.35 # Rauschgewicht
+    gradient: 0.25 # Gradientenergie: wichtig um Frames mit wenig Signalstruktur herunterzugewichten
   clamp: [-3.0, 3.0] # Clipping-Grenzen fuer z-Score-Metriken
 
 tile:
   size_factor: 24 # kleinere Tiles fuer typische Smart-Telescope-Aufloesungen
   min_size: 48 # minimale Tilekante in Pixel
   max_divisor: 6 # Begrenzung der Tileunterteilung
-  overlap_fraction: 0.25 # OLA-Ueberlappungsanteil
-  star_min_count: 6 # geringere Sternzahl-Schwelle in kleinen Feldern
+  overlap_fraction: 0.30 # leicht erhoehte Ueberlappung hilft bei gedrehten Tile-Raendern (Alt/Az)
+  star_min_count: 5 # niedrigere Schwelle: bei Feldrotation koennen Tiles am Rand weniger Sterne enthalten
 
 local_metrics:
   clamp: [-3.0, 3.0] # Clipping fuer lokale z-Score-Metriken
@@ -199,20 +207,20 @@ pcc:
 stacking:
   method: rej # rej|average
   sigma_clip:
-    sigma_low: 2.0 # untere Sigma-Grenze
-    sigma_high: 2.0 # obere Sigma-Grenze
+    sigma_low: 2.3 # moderater Outlier-Schutz
+    sigma_high: 2.3 # symmetrisch
     max_iters: 3 # maximale Clip-Iterationen
-    min_fraction: 0.5 # Mindestanteil verbleibender Samples
+    min_fraction: 0.4 # bei vielen bewoelkten Frames darf mehr geclippt werden
   cluster_quality_weighting:
-    enabled: true # v3.2.2: finale Clusteraggregation gewichtet mit w_k=exp(kappa_cluster*Q_k)
-    kappa_cluster: 1.0 # Exponent fuer Clusterqualitaet (Q_k in [-3,+3])
-    cap_enabled: true # optionales Dominanz-Cap fuer einzelne Clustergewichte
-    cap_ratio: 20.0 # nur aktiv falls cap_enabled=true: w_k <= cap_ratio * median(w)
+    enabled: true # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
+    kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
+    cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
+    cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
   common_overlap_required_fraction: 1.0 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
-  tile_common_valid_min_fraction: 0.9 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
+  tile_common_valid_min_fraction: 0.90 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
-  cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
+  cosmetic_correction_sigma: 3.0 # moderater Schwellwert fuer Hot-Pixel
 
 validation:
   min_fwhm_improvement_percent: 3.0 # etwas realistischere Schwelle fuer kompakte Systeme
