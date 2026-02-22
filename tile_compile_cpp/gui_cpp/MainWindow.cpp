@@ -18,6 +18,7 @@
 #include <QStringList>
 #include <QGroupBox>
 #include <QFileInfo>
+#include <QDir>
 #include <QDateTime>
 #include <QUuid>
 #include <QCoreApplication>
@@ -365,7 +366,19 @@ void MainWindow::on_start_run_clicked() {
     
     // Resolve relative to executable directory
     QString exe_dir = QCoreApplication::applicationDirPath();
-    QString runner_path = exe_dir + "/" + QString::fromStdString(runner_exe);
+    QString runner_rel = QString::fromStdString(runner_exe);
+#ifdef _WIN32
+    if (runner_rel.startsWith("./")) {
+        runner_rel = runner_rel.mid(2);
+    } else if (runner_rel.startsWith(".\\")) {
+        runner_rel = runner_rel.mid(2);
+    }
+    if (!runner_rel.endsWith(".exe", Qt::CaseInsensitive)) {
+        runner_rel += ".exe";
+    }
+#endif
+    QString runner_path = QFileInfo(exe_dir, runner_rel).absoluteFilePath();
+    runner_path = QDir::toNativeSeparators(QDir::cleanPath(runner_path));
     
     const QString config_yaml = config_tab->get_config_yaml();
     const bool use_stdin_config = !config_yaml.trimmed().isEmpty();
@@ -479,6 +492,10 @@ void MainWindow::handle_runner_stderr(const QString &line) {
 
 void MainWindow::handle_runner_finished(int exit_code) {
     append_live(QString("[runner] finished with exit code %1").arg(exit_code));
+    if (exit_code == -1073741515) {
+        append_live("[runner] Windows loader error 0xC0000135 (missing DLL). "
+                    "Please ensure all runtime DLLs are present in the dist folder.");
+    }
 
     if (batch_abort_requested_) {
         append_live("[batch] aborted by user");
@@ -641,7 +658,9 @@ bool MainWindow::start_next_batch_input_run() {
     append_live(QString("[runner] %1").arg(cmd.join(" ")));
 
     try {
-        runner_->start(cmd, batch_working_dir_, effective_config_yaml);
+        // Start runner in exe directory (dist folder) so DLLs are found on Windows
+        QString runner_cwd = QFileInfo(batch_runner_path_).absolutePath();
+        runner_->start(cmd, runner_cwd, effective_config_yaml);
         return true;
     } catch (const std::exception &e) {
         append_live(QString("[batch] start failed for %1: %2").arg(input_dir, e.what()));
