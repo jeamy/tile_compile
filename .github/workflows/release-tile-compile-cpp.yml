@@ -1,0 +1,210 @@
+name: Release tile_compile_cpp
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.2.3)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-macos:
+    name: Build + Package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config \
+            libeigen3-dev libopencv-dev libcfitsio-dev libyaml-cpp-dev nlohmann-json3-dev libssl-dev \
+            qt6-base-dev qt6-tools-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install cmake ninja pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl qt
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix qt):$(brew --prefix openssl)" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -S tile_compile_cpp -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="tile_compile_cpp-linux-${{ steps.tag.outputs.tag }}"
+          mkdir -p "$PKG/gui_cpp"
+          cp -f build/tile_compile_runner "$PKG/"
+          cp -f build/tile_compile_cli "$PKG/"
+          cp -f build/tile_compile_gui "$PKG/"
+          cp -f tile_compile_cpp/tile_compile.yaml "$PKG/"
+          cp -f tile_compile_cpp/tile_compile.schema.yaml "$PKG/"
+          cp -f tile_compile_cpp/tile_compile.schema.json "$PKG/"
+          cp -f tile_compile_cpp/gui_cpp/constants.js "$PKG/gui_cpp/"
+          cp -f tile_compile_cpp/gui_cpp/styles.qss "$PKG/gui_cpp/"
+          tar -czf "${PKG}.tar.gz" "$PKG"
+
+      - name: Upload package (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tile_compile_cpp-linux-${{ steps.tag.outputs.tag }}
+          path: tile_compile_cpp-linux-${{ steps.tag.outputs.tag }}.tar.gz
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="tile_compile_cpp-macos-${{ steps.tag.outputs.tag }}"
+          mkdir -p "$PKG/gui_cpp"
+          cp -f build/tile_compile_runner "$PKG/"
+          cp -f build/tile_compile_cli "$PKG/"
+          cp -f build/tile_compile_gui "$PKG/"
+          cp -f tile_compile_cpp/tile_compile.yaml "$PKG/"
+          cp -f tile_compile_cpp/tile_compile.schema.yaml "$PKG/"
+          cp -f tile_compile_cpp/tile_compile.schema.json "$PKG/"
+          cp -f tile_compile_cpp/gui_cpp/constants.js "$PKG/gui_cpp/"
+          cp -f tile_compile_cpp/gui_cpp/styles.qss "$PKG/gui_cpp/"
+          zip -r "${PKG}.zip" "$PKG"
+
+      - name: Upload package (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tile_compile_cpp-macos-${{ steps.tag.outputs.tag }}
+          path: tile_compile_cpp-macos-${{ steps.tag.outputs.tag }}.zip
+
+  build-windows:
+    name: Build + Package (windows-latest / MSYS2)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $tag = '${{ github.event.inputs.tag }}'
+          } else {
+            $tag = '${{ github.ref_name }}'
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-eigen3
+            mingw-w64-x86_64-opencv
+            mingw-w64-x86_64-cfitsio
+            mingw-w64-x86_64-yaml-cpp
+            mingw-w64-x86_64-nlohmann-json
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-qt6-tools
+
+      - name: Configure (MSYS2)
+        shell: msys2 {0}
+        run: cmake -S tile_compile_cpp -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+
+      - name: Build (MSYS2)
+        shell: msys2 {0}
+        run: cmake --build build --config Release --parallel
+
+      - name: Package (Windows)
+        shell: pwsh
+        run: |
+          $pkg = "tile_compile_cpp-windows-${{ steps.tag.outputs.tag }}"
+          New-Item -ItemType Directory -Force -Path "$pkg\gui_cpp" | Out-Null
+          Copy-Item -Force "build\tile_compile_runner.exe" "$pkg\"
+          Copy-Item -Force "build\tile_compile_cli.exe" "$pkg\"
+          Copy-Item -Force "build\tile_compile_gui.exe" "$pkg\"
+          Copy-Item -Force "tile_compile_cpp\tile_compile.yaml" "$pkg\"
+          Copy-Item -Force "tile_compile_cpp\tile_compile.schema.yaml" "$pkg\"
+          Copy-Item -Force "tile_compile_cpp\tile_compile.schema.json" "$pkg\"
+          Copy-Item -Force "tile_compile_cpp\gui_cpp\constants.js" "$pkg\gui_cpp\"
+          Copy-Item -Force "tile_compile_cpp\gui_cpp\styles.qss" "$pkg\gui_cpp\"
+          Compress-Archive -Path "$pkg" -DestinationPath "$pkg.zip" -Force
+
+      - name: Upload package (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tile_compile_cpp-windows-${{ steps.tag.outputs.tag }}
+          path: tile_compile_cpp-windows-${{ steps.tag.outputs.tag }}.zip
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-linux-macos, build-windows]
+
+    steps:
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Show downloaded files
+        run: find dist -maxdepth 3 -type f -print
+
+      - name: Create / Update release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: tile_compile_cpp ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/**/*.zip
+            dist/**/*.tar.gz
