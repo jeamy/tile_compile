@@ -123,6 +123,14 @@ jobs:
           ! grep -q "not found" "$PKG/ldd_cli.txt"
           ! grep -q "not found" "$PKG/ldd_gui.txt"
 
+          # Ensure common C++ / OpenSSL runtimes are bundled even if resolved from host fallback paths
+          for lib in libstdc++.so.6 libgcc_s.so.1 libcrypto.so.3 libssl.so.3; do
+            path=$(ldconfig -p | awk -v n="$lib" '$1==n {print $NF; exit}')
+            if [[ -n "${path:-}" && -f "$path" ]]; then
+              cp -L -n "$path" "$PKG/lib/" || true
+            fi
+          done
+
           tar -czf "${PKG}.tar.gz" "$PKG"
 
       - name: Upload package (Linux)
@@ -194,6 +202,15 @@ jobs:
           DYLD_LIBRARY_PATH="$PKG/lib" otool -L "$PKG/bin/tile_compile_runner" | tee "$PKG/otool_runner.txt"
           DYLD_LIBRARY_PATH="$PKG/lib" otool -L "$PKG/bin/tile_compile_cli" | tee "$PKG/otool_cli.txt"
           DYLD_LIBRARY_PATH="$PKG/lib" otool -L "$PKG/bin/tile_compile_gui" | tee "$PKG/otool_gui.txt"
+
+          # Ensure common OpenSSL / C++ runtimes are present on macOS releases
+          OPENSSL_PREFIX=$(brew --prefix openssl || true)
+          for f in "$OPENSSL_PREFIX"/lib/libcrypto*.dylib "$OPENSSL_PREFIX"/lib/libssl*.dylib; do
+            [[ -f "$f" ]] && cp -L -n "$f" "$PKG/lib/" || true
+          done
+          for f in /opt/homebrew/opt/gcc/lib/gcc/current/libstdc++*.dylib /usr/local/opt/gcc/lib/gcc/current/libstdc++*.dylib; do
+            [[ -f "$f" ]] && cp -L -n "$f" "$PKG/lib/" || true
+          done
 
           zip -r "${PKG}.zip" "$PKG"
 
@@ -309,6 +326,16 @@ jobs:
           [Paths]
           Plugins=../plugins
           EOF
+
+          # Ensure common MinGW/OpenSSL runtimes are always present
+          for dll in \
+            /mingw64/bin/libstdc++-6.dll \
+            /mingw64/bin/libgcc_s_seh-1.dll \
+            /mingw64/bin/libwinpthread-1.dll \
+            /mingw64/bin/libcrypto-3-x64.dll \
+            /mingw64/bin/libssl-3-x64.dll; do
+            [[ -f "$dll" ]] && cp -L -n "$dll" "$PKG/bin/" || true
+          done
 
           ntldd -R "$PKG/bin/tile_compile_runner.exe" | tee "$PKG/ntldd_runner.txt"
           ntldd -R "$PKG/bin/tile_compile_cli.exe" | tee "$PKG/ntldd_cli.txt"
