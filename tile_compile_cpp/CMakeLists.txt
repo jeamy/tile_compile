@@ -486,20 +486,27 @@ else()
     set(TILE_COMPILE_RUNTIME_DESTINATION lib)
 endif()
 
-install(TARGETS tile_compile_runner tile_compile_cli tile_compile_gui
-    RUNTIME DESTINATION bin
-    RUNTIME_DEPENDENCY_SET tile_compile_runtime_deps
-)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.21)
+    install(TARGETS tile_compile_runner tile_compile_cli tile_compile_gui
+        RUNTIME DESTINATION bin
+        RUNTIME_DEPENDENCY_SET tile_compile_runtime_deps
+    )
 
-install(RUNTIME_DEPENDENCY_SET tile_compile_runtime_deps
-    DESTINATION ${TILE_COMPILE_RUNTIME_DESTINATION}
-    PRE_EXCLUDE_REGEXES
-        "api-ms-win-.*"
-        "ext-ms-.*"
-    POST_EXCLUDE_REGEXES
-        ".*System32/.*"
-        ".*system32/.*"
-)
+    install(RUNTIME_DEPENDENCY_SET tile_compile_runtime_deps
+        DESTINATION ${TILE_COMPILE_RUNTIME_DESTINATION}
+        PRE_EXCLUDE_REGEXES
+            "api-ms-win-.*"
+            "ext-ms-.*"
+        POST_EXCLUDE_REGEXES
+            ".*System32/.*"
+            ".*system32/.*"
+    )
+else()
+    message(WARNING "CMake < 3.21 erkannt: RUNTIME_DEPENDENCY_SET nicht verfuegbar. Installiert nur Binaries; Runtime-Dependencies werden im Release-Workflow ergänzt.")
+    install(TARGETS tile_compile_runner tile_compile_cli tile_compile_gui
+        RUNTIME DESTINATION bin
+    )
+endif()
 
 install(DIRECTORY include/tile_compile
     DESTINATION include
