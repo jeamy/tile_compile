@@ -436,6 +436,22 @@ if exist "%QT_BIN%\Qt6Core.dll" (
         copy /Y "%%F" "%DIST_DIR%" >NUL
         echo   Kopiert: %%~nxF
       )
+      for %%F in ("%MSYS2_PREFIX%\bin\opencv_features2d*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
+      for %%F in ("%MSYS2_PREFIX%\bin\opencv_flann*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
+      for %%F in ("%MSYS2_PREFIX%\bin\opencv_calib3d*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
+      for %%F in ("%MSYS2_PREFIX%\bin\opencv_videoio*.dll") do (
+        copy /Y "%%F" "%DIST_DIR%" >NUL
+        echo   Kopiert: %%~nxF
+      )
     )
   )
 
@@ -545,6 +561,34 @@ if exist "%QT_BIN%\Qt6Core.dll" (
     copy /Y "%%F" "%DIST_DIR%" >NUL
     echo   Kopiert: %%~nxF
   )
+  
+  rem Zusaetzliche OpenCV-Abhaengigkeiten (Video, DNN, etc.)
+  for %%F in ("%MSYS2_PREFIX%\bin\libopencv*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  
+  rem FFmpeg/Video-Codecs (falls OpenCV videoio diese braucht)
+  for %%F in ("%MSYS2_PREFIX%\bin\avcodec*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\avformat*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\avutil*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\swscale*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
+  for %%F in ("%MSYS2_PREFIX%\bin\swresample*.dll") do (
+    copy /Y "%%F" "%DIST_DIR%" >NUL
+    echo   Kopiert: %%~nxF
+  )
 
   echo Qt-DLLs kopiert.
 ) else (
@@ -579,6 +623,21 @@ if defined QT_PLUGINS (
   )
 ) else (
   echo WARNUNG: Qt Plugins Verzeichnis nicht gefunden
+)
+
+echo.
+echo Automatische DLL-Abhaengigkeiten (rekursiv via objdump)...
+set "OBJDUMP_EXE=%MSYS2_PREFIX%\bin\objdump.exe"
+if not exist "%OBJDUMP_EXE%" (
+  for /f "delims=" %%P in ('where objdump 2^>NUL') do (
+    if not defined OBJDUMP_EXE set "OBJDUMP_EXE=%%P"
+  )
+)
+
+if exist "%OBJDUMP_EXE%" (
+  call :run_dep_sweep
+) else (
+  echo WARNUNG: objdump nicht gefunden, rekursiver DLL-Sweep uebersprungen.
 )
 
 set ZIP_NAME=tile_compile_cpp-windows-release.zip
@@ -621,3 +680,81 @@ exit /B 0
 echo.
 echo Build fehlgeschlagen.
 exit /B 1
+
+:run_dep_sweep
+set DEP_PASS=0
+for /L %%P in (1,1,10) do (
+  set /a DEP_PASS+=1
+  set "COPIED_THIS_PASS=0"
+  echo   Pass !DEP_PASS!...
+
+  if exist "%DIST_DIR%\tile_compile_gui.exe" call :scan_binary_deps "%DIST_DIR%\tile_compile_gui.exe"
+  if exist "%DIST_DIR%\tile_compile_runner.exe" call :scan_binary_deps "%DIST_DIR%\tile_compile_runner.exe"
+  if exist "%DIST_DIR%\tile_compile_cli.exe" call :scan_binary_deps "%DIST_DIR%\tile_compile_cli.exe"
+
+  if exist "%DIST_DIR%\platforms\qwindows.dll" call :scan_binary_deps "%DIST_DIR%\platforms\qwindows.dll"
+  
+  if exist "%DIST_DIR%\imageformats" (
+    for %%B in ("%DIST_DIR%\imageformats\*.dll") do call :scan_binary_deps "%%B"
+  )
+  if exist "%DIST_DIR%\styles" (
+    for %%B in ("%DIST_DIR%\styles\*.dll") do call :scan_binary_deps "%%B"
+  )
+
+  if "!COPIED_THIS_PASS!"=="0" (
+    echo   Keine neuen DLLs in Pass !DEP_PASS!, Sweep beendet.
+    goto :run_dep_sweep_done
+  )
+)
+
+:run_dep_sweep_done
+echo   DLL-Sweep abgeschlossen nach !DEP_PASS! Pass(es).
+exit /B 0
+
+:scan_binary_deps
+set "SCAN_BIN=%~1"
+if not exist "%SCAN_BIN%" exit /B 0
+
+set "TEMP_DEPS=%TEMP%\tc_deps_%RANDOM%.txt"
+"%OBJDUMP_EXE%" -p "%SCAN_BIN%" 2>NUL | findstr /I /C:"DLL Name:" > "%TEMP_DEPS%" 2>NUL
+
+if exist "%TEMP_DEPS%" (
+  for /f "tokens=3" %%D in (%TEMP_DEPS%) do (
+    call :copy_dep_dll "%%D"
+  )
+  del "%TEMP_DEPS%" 2>NUL
+)
+exit /B 0
+
+:copy_dep_dll
+set "DEP_DLL=%~1"
+if not defined DEP_DLL exit /B 0
+
+if exist "%DIST_DIR%\%DEP_DLL%" exit /B 0
+
+for %%S in (kernel32.dll user32.dll gdi32.dll advapi32.dll shell32.dll ole32.dll oleaut32.dll comdlg32.dll comctl32.dll ws2_32.dll winmm.dll imm32.dll secur32.dll bcrypt.dll rpcrt4.dll shlwapi.dll uxtheme.dll dwmapi.dll msvcrt.dll d3d9.dll setupapi.dll shcore.dll wtsapi32.dll) do (
+  if /I "%DEP_DLL%"=="%%~S" exit /B 0
+)
+
+rem Skip api-ms-win-* DLLs (Windows API sets)
+echo %DEP_DLL% | findstr /I /C:"api-ms-win-" >NUL
+if not errorlevel 1 exit /B 0
+
+if exist "%QT_BIN%\%DEP_DLL%" (
+  copy /Y "%QT_BIN%\%DEP_DLL%" "%DIST_DIR%" >NUL
+  echo   [auto] Kopiert: %DEP_DLL%  ^(von QT_BIN^)
+  set "COPIED_THIS_PASS=1"
+  exit /B 0
+)
+
+if exist "%MSYS2_PREFIX%\bin\%DEP_DLL%" (
+  copy /Y "%MSYS2_PREFIX%\bin\%DEP_DLL%" "%DIST_DIR%" >NUL
+  echo   [auto] Kopiert: %DEP_DLL%  ^(von MSYS2 bin^)
+  set "COPIED_THIS_PASS=1"
+  exit /B 0
+)
+
+if /I not "%DEP_DLL%"=="api-ms-win-core-path-l1-1-0.dll" (
+  echo   [auto][warn] Nicht gefunden: %DEP_DLL%
+)
+exit /B 0
