@@ -413,6 +413,18 @@ set_target_properties(tile_compile_gui PROPERTIES
     AUTOMOC_MOC_OPTIONS "-p;${CMAKE_SOURCE_DIR}/gui_cpp/"
 )
 
+if(APPLE)
+    set(_TC_INSTALL_RPATH "@executable_path/../lib")
+elseif(UNIX)
+    set(_TC_INSTALL_RPATH "$ORIGIN/../lib")
+endif()
+
+if(UNIX)
+    set_target_properties(tile_compile_runner tile_compile_cli tile_compile_gui PROPERTIES
+        INSTALL_RPATH "${_TC_INSTALL_RPATH}"
+    )
+endif()
+
 # Copy GUI resource files to build directory
 configure_file(${CMAKE_SOURCE_DIR}/gui_cpp/constants.js ${CMAKE_BINARY_DIR}/gui_cpp/constants.js COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/gui_cpp/styles.qss ${CMAKE_BINARY_DIR}/gui_cpp/styles.qss COPYONLY)
@@ -464,9 +476,33 @@ if(BUILD_TESTS)
 endif()
 
 # Install targets
-install(TARGETS tile_compile_runner tile_compile_cli tile_compile_gui
-    RUNTIME DESTINATION bin
-)
+if(WIN32)
+    set(TILE_COMPILE_RUNTIME_DESTINATION bin)
+else()
+    set(TILE_COMPILE_RUNTIME_DESTINATION lib)
+endif()
+
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.21)
+    install(TARGETS tile_compile_runner tile_compile_cli tile_compile_gui
+        RUNTIME DESTINATION bin
+        RUNTIME_DEPENDENCY_SET tile_compile_runtime_deps
+    )
+
+    install(RUNTIME_DEPENDENCY_SET tile_compile_runtime_deps
+        DESTINATION ${TILE_COMPILE_RUNTIME_DESTINATION}
+        PRE_EXCLUDE_REGEXES
+            "api-ms-win-.*"
+            "ext-ms-.*"
+        POST_EXCLUDE_REGEXES
+            ".*System32/.*"
+            ".*system32/.*"
+    )
+else()
+    message(WARNING "CMake < 3.21 erkannt: RUNTIME_DEPENDENCY_SET nicht verfuegbar. Installiert nur Binaries; Runtime-Dependencies werden im Release-Workflow ergänzt.")
+    install(TARGETS tile_compile_runner tile_compile_cli tile_compile_gui
+        RUNTIME DESTINATION bin
+    )
+endif()
 
 install(DIRECTORY include/tile_compile
     DESTINATION include
