@@ -6,7 +6,7 @@ This guide explains how to run the active C++ pipeline (`tile_compile_cpp`) from
 
 Required dependencies:
 
-- CMake >= 3.20
+- CMake >= 3.21
 - C++17 compiler (GCC 11+ or Clang 14+)
 - OpenCV >= 4.5
 - Eigen3
