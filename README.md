@@ -1,5 +1,3 @@
-# Use Branch v002 for meaningful results; it is the latest production version.
-
 # Tile-Compile
 
 Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (methodology v3.2).
