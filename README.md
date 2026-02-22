@@ -111,7 +111,7 @@ For a full beginner-friendly walkthrough, see:
 
 ### Build Requirements
 
-- CMake >= 3.20
+- CMake >= 3.21
 - C++17 compiler (GCC 11+ or Clang 14+)
 - OpenCV >= 4.5
 - Eigen3
@@ -482,4 +482,3 @@ ctest --output-on-failure
 **Documentation:**
 
 - **New**: [Practical Configuration Examples & Best Practices](doc/v3/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.2.2.
-

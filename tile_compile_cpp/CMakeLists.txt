@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21)
 project(tile_compile VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -413,6 +413,18 @@ set_target_properties(tile_compile_gui PROPERTIES
     AUTOMOC_MOC_OPTIONS "-p;${CMAKE_SOURCE_DIR}/gui_cpp/"
 )
 
+if(APPLE)
+    set(_TC_INSTALL_RPATH "@executable_path/../lib")
+elseif(UNIX)
+    set(_TC_INSTALL_RPATH "$ORIGIN/../lib")
+endif()
+
+if(UNIX)
+    set_target_properties(tile_compile_runner tile_compile_cli tile_compile_gui PROPERTIES
+        INSTALL_RPATH "${_TC_INSTALL_RPATH}"
+    )
+endif()
+
 # Copy GUI resource files to build directory
 configure_file(${CMAKE_SOURCE_DIR}/gui_cpp/constants.js ${CMAKE_BINARY_DIR}/gui_cpp/constants.js COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/gui_cpp/styles.qss ${CMAKE_BINARY_DIR}/gui_cpp/styles.qss COPYONLY)
@@ -464,8 +476,25 @@ if(BUILD_TESTS)
 endif()
 
 # Install targets
+if(WIN32)
+    set(TILE_COMPILE_RUNTIME_DESTINATION bin)
+else()
+    set(TILE_COMPILE_RUNTIME_DESTINATION lib)
+endif()
+
 install(TARGETS tile_compile_runner tile_compile_cli tile_compile_gui
     RUNTIME DESTINATION bin
+    RUNTIME_DEPENDENCY_SET tile_compile_runtime_deps
+)
+
+install(RUNTIME_DEPENDENCY_SET tile_compile_runtime_deps
+    DESTINATION ${TILE_COMPILE_RUNTIME_DESTINATION}
+    PRE_EXCLUDE_REGEXES
+        "api-ms-win-.*"
+        "ext-ms-.*"
+    POST_EXCLUDE_REGEXES
+        ".*System32/.*"
+        ".*system32/.*"
 )
 
 install(DIRECTORY include/tile_compile
