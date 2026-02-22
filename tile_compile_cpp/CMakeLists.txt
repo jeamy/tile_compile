@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21)
 project(tile_compile VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -404,7 +404,11 @@ set(GUI_SOURCES
     gui_cpp/tabs/PCCTab.cpp
 )
 
-add_executable(tile_compile_gui ${GUI_SOURCES})
+if(WIN32)
+    add_executable(tile_compile_gui WIN32 ${GUI_SOURCES})
+else()
+    add_executable(tile_compile_gui ${GUI_SOURCES})
+endif()
 target_include_directories(tile_compile_gui PRIVATE gui_cpp)
 target_link_libraries(tile_compile_gui PRIVATE tile_compile_lib Qt6::Widgets Qt6::Network)
 

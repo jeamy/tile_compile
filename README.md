@@ -1,5 +1,3 @@
-# Use Branch v002 for meaningful results; it is the latest production version.
-
 # Tile-Compile
 
 Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (methodology v3.2).
@@ -111,7 +109,7 @@ For a full beginner-friendly walkthrough, see:
 
 ### Build Requirements
 
-- CMake >= 3.20
+- CMake >= 3.21
 - C++17 compiler (GCC 11+ or Clang 14+)
 - OpenCV >= 4.5
 - Eigen3

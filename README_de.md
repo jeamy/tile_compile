@@ -109,7 +109,7 @@ Für eine vollständige anfängerfreundliche Anleitung siehe:
 
 ### Build-Voraussetzungen
 
-- CMake >= 3.20
+- CMake >= 3.21
 - C++17 Compiler (GCC 11+ oder Clang 14+)
 - OpenCV >= 4.5
 - Eigen3
