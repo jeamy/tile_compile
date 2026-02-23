@@ -29,6 +29,28 @@ stacking:
 
 ---
 
+## Hotpixel / RGB-Einzelpixel-Artefakte (fixe Sensordefekte)
+
+Wenn im finalen Bild **isolierte rote/grüne/blaue Einzelpixel** bleiben, sind das meist **fixe Hot Pixel** (Sensorfehler), die in jedem Frame an der gleichen Position auftreten. Diese überleben Sigma-Clipping im Stack, weil sie nicht als Ausreißer über Frames hinweg erscheinen.
+
+**Empfehlung:** Hotpixel **pro Frame vor dem Stack** korrigieren.
+
+```yaml
+stacking:
+  per_frame_cosmetic_correction: true
+  per_frame_cosmetic_correction_sigma: 5.0
+```
+
+Optional kann zusätzlich eine sehr konservative Post-Stack-Kosmetik aktiv bleiben:
+
+```yaml
+stacking:
+  cosmetic_correction: true
+  cosmetic_correction_sigma: 10.0
+```
+
+---
+
 ## Tile-Größe (`tile.size`)
 
 **Default:** `256`  

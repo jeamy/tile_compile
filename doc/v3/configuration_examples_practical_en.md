@@ -29,6 +29,28 @@ stacking:
 
 ---
 
+## Hot pixels / RGB single-pixel artifacts (fixed sensor defects)
+
+If the final image still shows **isolated red/green/blue single pixels**, these are typically **fixed hot pixels** (sensor defects) that occur at the same coordinates in every frame. They can survive stack sigma clipping because they are not outliers across frames.
+
+**Recommendation:** Correct hot pixels **per frame before stacking**.
+
+```yaml
+stacking:
+  per_frame_cosmetic_correction: true
+  per_frame_cosmetic_correction_sigma: 5.0
+```
+
+Optionally keep an additional very conservative post-stack cosmetic pass:
+
+```yaml
+stacking:
+  cosmetic_correction: true
+  cosmetic_correction_sigma: 10.0
+```
+
+---
+
 ## Tile Size (`tile.size`)
 
 **Default:** `256`  

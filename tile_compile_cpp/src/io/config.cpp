@@ -492,6 +492,10 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.stacking.cosmetic_correction = st["cosmetic_correction"].as<bool>();
     if (st["cosmetic_correction_sigma"])
       cfg.stacking.cosmetic_correction_sigma = st["cosmetic_correction_sigma"].as<float>();
+    if (st["per_frame_cosmetic_correction"])
+      cfg.stacking.per_frame_cosmetic_correction = st["per_frame_cosmetic_correction"].as<bool>();
+    if (st["per_frame_cosmetic_correction_sigma"])
+      cfg.stacking.per_frame_cosmetic_correction_sigma = st["per_frame_cosmetic_correction_sigma"].as<float>();
   }
 
   if (node["validation"]) {

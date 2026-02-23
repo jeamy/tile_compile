@@ -1748,6 +1748,53 @@ Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 
 ---
 
+### `stacking.cosmetic_correction_sigma`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `5.0` |
+
+**Zweck:** Schwellwert (MAD-Sigma) für `stacking.cosmetic_correction`.
+
+- Niedrigerer Wert = aggressiver.
+- **Hinweis:** Im gestackten Bild können helle Objektkerne hohe lokale Kontraste haben. Zu aggressive Werte können reale Signalspitzen fälschlich als Hotpixel behandeln.
+
+**Empfehlung:**
+
+- MONO / kalibrierte Daten: `5.0`
+- OSC / Smart-Telescope ohne Darks: `10.0` (konservativer)
+
+---
+
+### `stacking.per_frame_cosmetic_correction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Hotpixel-Korrektur **pro Frame vor PREWARP/Stacking**.
+
+Diese Option zielt auf **fixe Sensordefekte** (RGB-Einzelpixel), die in jedem Frame an der gleichen Position auftreten und deshalb durch Sigma-Clipping im Stack nicht zuverlässig entfernt werden.
+
+---
+
+### `stacking.per_frame_cosmetic_correction_sigma`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | >0 |
+| **Default** | `5.0` |
+
+**Zweck:** Schwellwert (MAD-Sigma) für `stacking.per_frame_cosmetic_correction`.
+
+**Empfehlung:** `5.0` (OSC/Seestar/DWARF: typischerweise passend).
+
+---
+
 ## 19. Validation
 
 Qualitätsprüfung des Rekonstruktionsergebnisses (nach Phase 10, vor Debayer).

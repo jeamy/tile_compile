@@ -211,6 +211,8 @@ stacking:
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0)
+  per_frame_cosmetic_correction: false # Hotpixel-Korrektur pro Frame vor dem Stack (fixe Sensordefekte)
+  per_frame_cosmetic_correction_sigma: 5.0 # Sigma-Schwelle fuer per_frame_cosmetic_correction (Default: 5.0)
 
 validation:
   min_fwhm_improvement_percent: 5.0 # Mindestverbesserung Sternschaerfe

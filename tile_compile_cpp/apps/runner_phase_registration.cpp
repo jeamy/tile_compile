@@ -2,6 +2,7 @@
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
+#include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/registration/global_registration.hpp"
 #include "tile_compile/registration/registration.hpp"
@@ -811,6 +812,10 @@ bool run_phase_registration_prewarp(
         Matrix2Df img = std::move(pair.first);
         if (img.size() <= 0) {
           continue;
+        }
+        if (cfg.stacking.per_frame_cosmetic_correction) {
+          img = image::cosmetic_correction(
+              img, cfg.stacking.per_frame_cosmetic_correction_sigma, true);
         }
         const auto &w = global_frame_warps[fi];
         const float eps = 1.0e-6f;

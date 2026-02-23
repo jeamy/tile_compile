@@ -2344,11 +2344,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     // Optional post-processing (not part of the linear quality core).
     if (cfg.stacking.cosmetic_correction) {
-      recon = image::cosmetic_correction(recon, 5.0f, true);
+      const float cc_sigma = cfg.stacking.cosmetic_correction_sigma;
+      recon = image::cosmetic_correction(recon, cc_sigma, true);
       if (detected_mode == ColorMode::OSC) {
-        recon_R = image::cosmetic_correction(recon_R, 5.0f, true);
-        recon_G = image::cosmetic_correction(recon_G, 5.0f, true);
-        recon_B = image::cosmetic_correction(recon_B, 5.0f, true);
+        recon_R = image::cosmetic_correction(recon_R, cc_sigma, true);
+        recon_G = image::cosmetic_correction(recon_G, cc_sigma, true);
+        recon_B = image::cosmetic_correction(recon_B, cc_sigma, true);
       }
     }
 

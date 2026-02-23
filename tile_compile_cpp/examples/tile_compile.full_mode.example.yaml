@@ -210,7 +210,9 @@ stacking:
   tile_common_valid_min_fraction: 0.90 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
-  cosmetic_correction_sigma: 5.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, fuer OSC: 3.0)
+  cosmetic_correction_sigma: 5.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, empfohlen fuer OSC: 10.0)
+  per_frame_cosmetic_correction: false # Hotpixel-Korrektur pro Frame vor dem Stack (fixe Sensordefekte)
+  per_frame_cosmetic_correction_sigma: 5.0 # Sigma-Schwelle fuer per_frame_cosmetic_correction (Default: 5.0)
 
 validation:
   min_fwhm_improvement_percent: 5.0 # Mindestverbesserung Sternschaerfe

@@ -139,7 +139,7 @@ chroma_denoise:
     sigma_range: 0.04
   blend:
     mode: chroma_only
-    amount: 0.80
+    amount: 0.9
   # Preset-Hinweis:
   # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
   # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
@@ -220,7 +220,9 @@ stacking:
   tile_common_valid_min_fraction: 0.90 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
-  cosmetic_correction_sigma: 3.0 # moderater Schwellwert fuer Hot-Pixel
+  cosmetic_correction_sigma: 10.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
+  per_frame_cosmetic_correction: true # fixe Hot Pixel pro Frame vor dem Stack korrigieren
+  per_frame_cosmetic_correction_sigma: 5.0 # aggressiver als Post-Stack (fixe Defekte, kein Galaxienkern-Risiko)
 
 validation:
   min_fwhm_improvement_percent: 3.0 # etwas realistischere Schwelle fuer kompakte Systeme

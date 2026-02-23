@@ -1149,6 +1149,53 @@ Final stacking settings.
 
 ---
 
+### `stacking.cosmetic_correction_sigma`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | >0 |
+| **Default** | `5.0` |
+
+**Purpose:** MAD-sigma threshold for `stacking.cosmetic_correction`.
+
+- Lower value = more aggressive.
+- **Note:** In the stacked image, bright object cores can have high local contrast. Too aggressive settings can treat real signal peaks as hot pixels.
+
+**Recommendation:**
+
+- MONO / calibrated data: `5.0`
+- OSC / smart telescope without darks: `10.0` (more conservative)
+
+---
+
+### `stacking.per_frame_cosmetic_correction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Hot-pixel correction **per frame before PREWARP/stacking**.
+
+This targets **fixed sensor defects** (RGB single-pixel speckles) that appear at the same coordinates in every frame and therefore can survive stack sigma clipping.
+
+---
+
+### `stacking.per_frame_cosmetic_correction_sigma`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | >0 |
+| **Default** | `5.0` |
+
+**Purpose:** MAD-sigma threshold for `stacking.per_frame_cosmetic_correction`.
+
+**Recommendation:** `5.0` (often suitable for OSC/Seestar/DWARF).
+
+---
+
 ## 19. Validation
 
 Validation and quality control.

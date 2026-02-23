@@ -134,14 +134,36 @@ Matrix2Df cosmetic_correction(const Matrix2Df& frame, float sigma_threshold, boo
     
     float sigma = 1.4826f * mad;
     float threshold = median + sigma_threshold * sigma;
+    float neighbor_threshold = median + (0.5f * sigma_threshold) * sigma;
     
     if (correct_hot) {
         for (int y = 1; y < h - 1; ++y) {
             for (int x = 1; x < w - 1; ++x) {
                 if (frame(y, x) > threshold) {
-                    float neighbors = (frame(y-1, x) + frame(y+1, x) + 
-                                       frame(y, x-1) + frame(y, x+1)) / 4.0f;
-                    result(y, x) = neighbors;
+                    int hot_neighbor_count = 0;
+                    for (int dy = -1; dy <= 1; ++dy) {
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            if (dy == 0 && dx == 0) continue;
+                            if (frame(y + dy, x + dx) > neighbor_threshold) {
+                                ++hot_neighbor_count;
+                            }
+                        }
+                    }
+                    if (hot_neighbor_count <= 1) {
+                        float sum = 0.0f;
+                        int n = 0;
+                        if (y - 2 >= 0) { sum += frame(y - 2, x); ++n; }
+                        if (y + 2 < h) { sum += frame(y + 2, x); ++n; }
+                        if (x - 2 >= 0) { sum += frame(y, x - 2); ++n; }
+                        if (x + 2 < w) { sum += frame(y, x + 2); ++n; }
+                        if (n >= 2) {
+                            result(y, x) = sum / static_cast<float>(n);
+                        } else {
+                            float neighbors = (frame(y-1, x) + frame(y+1, x) + 
+                                               frame(y, x-1) + frame(y, x+1)) / 4.0f;
+                            result(y, x) = neighbors;
+                        }
+                    }
                 }
             }
         }

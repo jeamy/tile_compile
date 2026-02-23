@@ -14,6 +14,9 @@ They are kept in sync with v3.2 runner/config parser defaults, including:
     - balanced
     - aggressive
   - in MONO profile this block is intentionally present but disabled for completeness.
+- `stacking.per_frame_cosmetic_correction*`
+  - optional per-frame hot-pixel correction before stacking.
+  - recommended when fixed sensor defects (RGB single-pixel speckles) survive sigma clipping.
 - `stacking.cluster_quality_weighting.*`
   - includes full v3.2.2 cluster-quality weighting block:
     - `enabled`
@@ -137,8 +140,9 @@ stacking:
 ```
 
 - **Why:** Alt/Az near pole can show wide shift distributions; too strict settings reject too many usable frames.
-  - For no-dark OSC sessions, stricter sigma clipping plus stronger chroma denoise
-    removes persistent RGB single-pixel artifacts more reliably.
+  - For no-dark OSC sessions with fixed hot pixels, prefer enabling
+    `stacking.per_frame_cosmetic_correction` (pre-stack) instead of trying to
+    force this via more aggressive sigma clipping.
 
 ### 3) Small-N MONO anti-grid
 
