@@ -200,7 +200,7 @@ pcc:
   aperture_radius_px: 8 # Photometrie-Apertur
   annulus_inner_px: 10 # Hintergrundring innen
   annulus_outer_px: 16 # Hintergrundring aussen
-  min_stars: 3 # Mindestanzahl Referenzsterne
+  min_stars: 10 # Mindestanzahl Referenzsterne
   sigma_clip: 2.5 # Sigma-Clipping fuer Regressionsfit
   siril_catalog_dir: "" # leer => Standardkatalogpfad
 
@@ -220,9 +220,9 @@ stacking:
   tile_common_valid_min_fraction: 0.90 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
-  cosmetic_correction_sigma: 10.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
+  cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
   per_frame_cosmetic_correction: true # fixe Hot Pixel pro Frame vor dem Stack korrigieren
-  per_frame_cosmetic_correction_sigma: 5.0 # aggressiver als Post-Stack (fixe Defekte, kein Galaxienkern-Risiko)
+  per_frame_cosmetic_correction_sigma: 3.0 # aggressiver als Post-Stack (fixe Defekte, kein Galaxienkern-Risiko)
 
 validation:
   min_fwhm_improvement_percent: 3.0 # etwas realistischere Schwelle fuer kompakte Systeme
