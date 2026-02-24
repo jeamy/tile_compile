@@ -1082,8 +1082,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // Important: keep peak memory bounded. We therefore stack channels
         // sequentially (R then G then B) instead of holding 3× frame tiles.
 
-        const int origin_x = t.x - canvas_tile_offset_x;
-        const int origin_y = t.y - canvas_tile_offset_y;
+        const int origin_x = canvas_tile_offset_x - t.x;
+        const int origin_y = canvas_tile_offset_y - t.y;
 
         std::vector<size_t> valid_frames;
         std::vector<float> weights_valid;
@@ -2345,11 +2345,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // Optional post-processing (not part of the linear quality core).
     if (cfg.stacking.cosmetic_correction) {
       const float cc_sigma = cfg.stacking.cosmetic_correction_sigma;
-      recon = image::cosmetic_correction(recon, cc_sigma, true);
       if (detected_mode == ColorMode::OSC) {
+        recon = image::cosmetic_correction_cfa(
+            recon, cc_sigma, true, -canvas_tile_offset_x, -canvas_tile_offset_y);
         recon_R = image::cosmetic_correction(recon_R, cc_sigma, true);
         recon_G = image::cosmetic_correction(recon_G, cc_sigma, true);
         recon_B = image::cosmetic_correction(recon_B, cc_sigma, true);
+      } else {
+        recon = image::cosmetic_correction(recon, cc_sigma, true);
       }
     }
 
@@ -2652,8 +2655,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           recon_G = recon_G.block(min_y, min_x, crop_h, crop_w).eval();
           recon_B = recon_B.block(min_y, min_x, crop_h, crop_w).eval();
         }
-        debayer_tile_offset_x -= min_x;
-        debayer_tile_offset_y -= min_y;
+        debayer_tile_offset_x += min_x;
+        debayer_tile_offset_y += min_y;
       }
     }
 

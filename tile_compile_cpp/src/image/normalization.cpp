@@ -76,7 +76,7 @@ Matrix2Df apply_global_warp(const Matrix2Df &img, const WarpMatrix &warp,
   }
   if (mode == ColorMode::OSC) {
     return warp_cfa_mosaic_via_subplanes(img, warp, out_rows, out_cols,
-                                         "constant", "nearest");
+                                         "constant", "linear");
   }
   // For MONO/RGB: use standard warp with WARP_INVERSE_MAP
   // (imported via registration header would create circular dep — inline here)

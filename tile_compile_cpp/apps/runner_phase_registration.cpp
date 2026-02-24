@@ -814,8 +814,14 @@ bool run_phase_registration_prewarp(
           continue;
         }
         if (cfg.stacking.per_frame_cosmetic_correction) {
-          img = image::cosmetic_correction(
-              img, cfg.stacking.per_frame_cosmetic_correction_sigma, true);
+          if (detected_mode == ColorMode::OSC) {
+            img = image::cosmetic_correction_cfa(
+                img, cfg.stacking.per_frame_cosmetic_correction_sigma, true, 0,
+                0);
+          } else {
+            img = image::cosmetic_correction(
+                img, cfg.stacking.per_frame_cosmetic_correction_sigma, true);
+          }
         }
         const auto &w = global_frame_warps[fi];
         const float eps = 1.0e-6f;
