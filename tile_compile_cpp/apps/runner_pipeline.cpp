@@ -2680,12 +2680,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         B_out = debayer.B;
       }
       have_rgb = true;
-      // Restore per-channel background levels to undo the per-channel
-      // normalization (scale_r=1/bg_r etc.).  This preserves the camera's
-      // native color response and produces a neutral sky background.
-      R_out *= output_bg_r;
-      G_out *= output_bg_g;
-      B_out *= output_bg_b;
+      // Restore background level using a single luma-weighted factor for all
+      // channels.  Per-channel scaling (bg_r, bg_g, bg_b) would introduce a
+      // color shift because the Bayer green channel has a higher raw
+      // background than red/blue, so multiplying each channel by its own
+      // background boosts green ~8 % relative to red.
+      const float bg_luma_rgb = 0.25f * output_bg_r + 0.5f * output_bg_g +
+                                0.25f * output_bg_b;
+      R_out *= bg_luma_rgb;
+      G_out *= bg_luma_rgb;
+      B_out *= bg_luma_rgb;
       R_out.array() += output_pedestal;
       G_out.array() += output_pedestal;
       B_out.array() += output_pedestal;
