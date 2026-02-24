@@ -75,7 +75,7 @@ assumptions:
 normalization:
   enabled: true # fuer Methodik v3.x verpflichtend
   mode: background # background|median
-  per_channel: true # bei OSC pro Bayer-Kanal normalisieren
+  per_channel: false # 
 
 registration:
   engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
@@ -139,7 +139,7 @@ chroma_denoise:
     sigma_range: 0.04
   blend:
     mode: chroma_only
-    amount: 0.9
+    amount: 1.0
   # Preset-Hinweis:
   # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
   # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
@@ -221,7 +221,7 @@ stacking:
   output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
-  per_frame_cosmetic_correction: true # fixe Hot Pixel pro Frame vor dem Stack korrigieren
+  per_frame_cosmetic_correction: false 
   per_frame_cosmetic_correction_sigma: 3.0 # aggressiver als Post-Stack (fixe Defekte, kein Galaxienkern-Risiko)
 
 validation:
