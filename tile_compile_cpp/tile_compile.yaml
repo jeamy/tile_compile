@@ -75,7 +75,7 @@ assumptions:
 normalization:
   enabled: true # fuer Methodik v3.x verpflichtend
   mode: background # background|median
-  per_channel: false # 
+  per_channel: true # 
 
 registration:
   engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
