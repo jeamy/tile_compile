@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 namespace tile_compile::astrometry {
@@ -227,6 +228,34 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
     return (n_ap > 0) ? total : -1.0;
 }
 
+static float sampled_high_percentile(const Matrix2Df &img, int step, float q) {
+    const int rows = img.rows();
+    const int cols = img.cols();
+    if (rows <= 0 || cols <= 0 || step <= 0) {
+        return std::numeric_limits<float>::infinity();
+    }
+
+    std::vector<float> samples;
+    samples.reserve((rows / step + 1) * (cols / step + 1));
+    for (int y = 0; y < rows; y += step) {
+        for (int x = 0; x < cols; x += step) {
+            const float v = img(y, x);
+            if (std::isfinite(v) && v > 0.0f) {
+                samples.push_back(v);
+            }
+        }
+    }
+
+    if (samples.size() < 64) {
+        return std::numeric_limits<float>::infinity();
+    }
+
+    std::sort(samples.begin(), samples.end());
+    q = std::clamp(q, 0.0f, 1.0f);
+    const size_t idx = static_cast<size_t>(q * static_cast<float>(samples.size() - 1));
+    return samples[idx];
+}
+
 std::vector<StarPhotometry> measure_stars(
     const Matrix2Df &R, const Matrix2Df &G, const Matrix2Df &B,
     const WCS &wcs,
@@ -240,6 +269,14 @@ std::vector<StarPhotometry> measure_stars(
     int cols = R.cols();
     double margin = config.annulus_outer_px + 2.0;
 
+    // Reject saturation-near stars before fitting PCC: stars close to sensor
+    // non-linearity bias color ratios and can drive casts in bright structures.
+    const float sat_r = sampled_high_percentile(R, 8, 0.999f);
+    const float sat_g = sampled_high_percentile(G, 8, 0.999f);
+    const float sat_b = sampled_high_percentile(B, 8, 0.999f);
+    constexpr float sat_guard_frac = 0.995f;
+    int n_sat_rejected = 0;
+
     for (const auto &star : catalog_stars) {
         // Magnitude filter
         if (star.mag > config.mag_limit || star.mag < config.mag_bright_limit) continue;
@@ -251,6 +288,27 @@ std::vector<StarPhotometry> measure_stars(
         // Check within image bounds with margin
         if (px < margin || px >= cols - margin ||
             py < margin || py >= rows - margin) continue;
+
+        const int cx = static_cast<int>(std::lround(px));
+        const int cy = static_cast<int>(std::lround(py));
+        float peak_r = 0.0f;
+        float peak_g = 0.0f;
+        float peak_b = 0.0f;
+        for (int yy = std::max(0, cy - 1); yy <= std::min(rows - 1, cy + 1); ++yy) {
+            for (int xx = std::max(0, cx - 1); xx <= std::min(cols - 1, cx + 1); ++xx) {
+                peak_r = std::max(peak_r, R(yy, xx));
+                peak_g = std::max(peak_g, G(yy, xx));
+                peak_b = std::max(peak_b, B(yy, xx));
+            }
+        }
+
+        const bool near_sat_r = std::isfinite(sat_r) && sat_r > 0.0f && peak_r >= sat_guard_frac * sat_r;
+        const bool near_sat_g = std::isfinite(sat_g) && sat_g > 0.0f && peak_g >= sat_guard_frac * sat_g;
+        const bool near_sat_b = std::isfinite(sat_b) && sat_b > 0.0f && peak_b >= sat_guard_frac * sat_b;
+        if (near_sat_r || near_sat_g || near_sat_b) {
+            ++n_sat_rejected;
+            continue;
+        }
 
         StarPhotometry sp;
         sp.ra = star.ra;
@@ -286,6 +344,10 @@ std::vector<StarPhotometry> measure_stars(
 
         result.push_back(sp);
     }
+
+    std::cerr << "[PCC] Saturation guard: rejected=" << n_sat_rejected
+              << " sat_r=" << sat_r << " sat_g=" << sat_g << " sat_b=" << sat_b
+              << " frac=" << sat_guard_frac << std::endl;
 
     return result;
 }
@@ -469,6 +531,14 @@ static float estimate_background(const Matrix2Df &img) {
     return samples[samples.size() / 2];
 }
 
+static float percentile_sorted(const std::vector<float> &sorted, float q) {
+    if (sorted.empty()) return 0.0f;
+    if (q <= 0.0f) return sorted.front();
+    if (q >= 1.0f) return sorted.back();
+    const size_t idx = static_cast<size_t>(q * static_cast<float>(sorted.size() - 1));
+    return sorted[idx];
+}
+
 void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                         const ColorMatrix &m) {
     int rows = R.rows();
@@ -488,6 +558,51 @@ void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     std::cerr << "[PCC] Background levels: R=" << bg_r
               << " G=" << bg_g << " B=" << bg_b
               << " -> bg_out=" << bg_out << std::endl;
+
+    // Highlight-safe blending: in very bright signal regions we attenuate
+    // the color correction strength towards identity to avoid nebula-core
+    // over-tinting from a globally fitted matrix.
+    std::vector<float> signal_luma;
+    signal_luma.reserve((rows / 4 + 1) * (cols / 4 + 1));
+    for (int y = 0; y < rows; y += 4) {
+        for (int x = 0; x < cols; x += 4) {
+            const float r0 = R(y, x);
+            const float g0 = G(y, x);
+            const float b0 = B(y, x);
+            if (!(std::isfinite(r0) && r0 > 0.0f && std::isfinite(g0) && g0 > 0.0f &&
+                  std::isfinite(b0) && b0 > 0.0f)) {
+                continue;
+            }
+            const float dr = r0 - bg_r;
+            const float dg = g0 - bg_g;
+            const float db = b0 - bg_b;
+            const float luma = std::max(0.0f, 0.2126f * dr + 0.7152f * dg + 0.0722f * db);
+            if (luma > 0.0f) {
+                signal_luma.push_back(luma);
+            }
+        }
+    }
+
+    float blend_lo = 0.0f;
+    float blend_hi = 0.0f;
+    if (signal_luma.size() >= 32) {
+        std::sort(signal_luma.begin(), signal_luma.end());
+        blend_lo = percentile_sorted(signal_luma, 0.90f);
+        blend_hi = percentile_sorted(signal_luma, 0.995f);
+        if (!(std::isfinite(blend_lo) && std::isfinite(blend_hi) && blend_hi > blend_lo)) {
+            blend_lo = 0.0f;
+            blend_hi = 0.0f;
+        }
+    }
+
+    std::cerr << "[PCC] Highlight blend thresholds: lo=" << blend_lo
+              << " hi=" << blend_hi
+              << " samples=" << signal_luma.size() << std::endl;
+
+    // Keep a minimum correction in highlights to avoid swinging too far back to
+    // raw sensor response (which can reintroduce greenish bias in bright cores).
+    constexpr float atten_floor = 0.25f;
+    std::cerr << "[PCC] Highlight attenuation floor=" << atten_floor << std::endl;
 
     size_t valid_px = 0;
     const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
@@ -511,9 +626,29 @@ void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             float dg = g0 - bg_g;
             float db = b0 - bg_b;
 
-            float nr = static_cast<float>(m[0][0] * dr + m[0][1] * dg + m[0][2] * db);
-            float ng = static_cast<float>(m[1][0] * dr + m[1][1] * dg + m[1][2] * db);
-            float nb = static_cast<float>(m[2][0] * dr + m[2][1] * dg + m[2][2] * db);
+            const float luma = std::max(0.0f, 0.2126f * dr + 0.7152f * dg + 0.0722f * db);
+            float atten = 1.0f;
+            if (blend_hi > blend_lo && luma > blend_lo) {
+                float t = (luma - blend_lo) / (blend_hi - blend_lo);
+                t = std::clamp(t, 0.0f, 1.0f);
+                // smoothstep
+                const float s = t * t * (3.0f - 2.0f * t);
+                atten = 1.0f - (1.0f - atten_floor) * s;
+            }
+
+            const float m00 = static_cast<float>(1.0 + atten * (m[0][0] - 1.0));
+            const float m01 = static_cast<float>(atten * m[0][1]);
+            const float m02 = static_cast<float>(atten * m[0][2]);
+            const float m10 = static_cast<float>(atten * m[1][0]);
+            const float m11 = static_cast<float>(1.0 + atten * (m[1][1] - 1.0));
+            const float m12 = static_cast<float>(atten * m[1][2]);
+            const float m20 = static_cast<float>(atten * m[2][0]);
+            const float m21 = static_cast<float>(atten * m[2][1]);
+            const float m22 = static_cast<float>(1.0 + atten * (m[2][2] - 1.0));
+
+            float nr = m00 * dr + m01 * dg + m02 * db;
+            float ng = m10 * dr + m11 * dg + m12 * db;
+            float nb = m20 * dr + m21 * dg + m22 * db;
 
             R(y, x) = bg_out + nr;
             G(y, x) = bg_out + ng;
