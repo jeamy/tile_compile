@@ -136,7 +136,7 @@ chroma_denoise:
   chroma_bilateral:
     enabled: true
     sigma_spatial: 1.5
-    sigma_range: 0.04
+    sigma_range: 0.05
   blend:
     mode: chroma_only
     amount: 0.9
@@ -253,8 +253,8 @@ stacking:
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
     cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
-  common_overlap_required_fraction: 0.7 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
-  tile_common_valid_min_fraction: 0.5 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
+  common_overlap_required_fraction: 0.8 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
+  tile_common_valid_min_fraction: 0.6 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
