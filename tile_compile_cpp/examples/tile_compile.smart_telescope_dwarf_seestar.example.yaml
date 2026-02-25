@@ -74,8 +74,8 @@ assumptions:
 
 normalization:
   enabled: true # fuer Methodik v3.x verpflichtend
-  mode: background # background|median
-  per_channel: false 
+  mode: median # background|median
+  per_channel: true # 
 
 registration:
   engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
@@ -97,7 +97,7 @@ registration:
   # automatisch herunter — keine manuelle Frame-Selektion noetig.
 
 dithering:
-  enabled: true # Smart-Telescope Session typischerweise mit Dithering
+  enabled: false # Smart-Telescope Session typischerweise mit Dithering
   min_shift_px: 0.7 # Schwellwert fuer Dither-Erkennung in Pixeln
 
 tile_denoise:
@@ -116,7 +116,7 @@ tile_denoise:
     max_iterations: 10 # Iterationslimit der Wiener-Optimierung
 
 chroma_denoise:
-  enabled: true # Farbrausch-Reduktion fuer OSC-Daten
+  enabled: false # Farbrausch-Reduktion fuer OSC-Daten
   color_space: ycbcr_linear # ycbcr_linear|opponent_linear
   apply_stage: post_stack_linear # pre_stack_tiles|post_stack_linear
   protect_luma: true # Luma/Struktur besser erhalten
@@ -139,7 +139,7 @@ chroma_denoise:
     sigma_range: 0.04
   blend:
     mode: chroma_only
-    amount: 1.0
+    amount: 0.8
   # Preset-Hinweis:
   # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
   # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
@@ -200,7 +200,7 @@ pcc:
   aperture_radius_px: 8 # Photometrie-Apertur
   annulus_inner_px: 10 # Hintergrundring innen
   annulus_outer_px: 16 # Hintergrundring aussen
-  min_stars: 3 # Mindestanzahl Referenzsterne
+  min_stars: 10 # Mindestanzahl Referenzsterne
   sigma_clip: 2.5 # Sigma-Clipping fuer Regressionsfit
   siril_catalog_dir: "" # leer => Standardkatalogpfad
 
@@ -216,12 +216,12 @@ stacking:
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
     cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
-  common_overlap_required_fraction: 1.0 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
-  tile_common_valid_min_fraction: 0.90 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
+  common_overlap_required_fraction: 0.7 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
+  tile_common_valid_min_fraction: 0.5 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
-  per_frame_cosmetic_correction: false 
+  per_frame_cosmetic_correction: true
   per_frame_cosmetic_correction_sigma: 3.0 # aggressiver als Post-Stack (fixe Defekte, kein Galaxienkern-Risiko)
 
 validation:
