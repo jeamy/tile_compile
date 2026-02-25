@@ -38,7 +38,12 @@ else
   if ! pkg-config --exists eigen3 2>/dev/null; then
     LIB_CHECK_WARNINGS="$LIB_CHECK_WARNINGS eigen"
   fi
-  if ! pkg-config --exists opencv4 2>/dev/null; then
+  OPENCV_PKG_NAME=""
+  if pkg-config --exists opencv4 2>/dev/null; then
+    OPENCV_PKG_NAME="opencv4"
+  elif pkg-config --exists opencv 2>/dev/null; then
+    OPENCV_PKG_NAME="opencv"
+  else
     LIB_CHECK_WARNINGS="$LIB_CHECK_WARNINGS opencv"
   fi
   if ! pkg-config --exists cfitsio 2>/dev/null; then
@@ -169,6 +174,12 @@ fi
 if [ -n "$LIB_CHECK_WARNINGS" ]; then
   echo "Hinweis: pkg-config konnte folgende Module nicht bestaetigen:$LIB_CHECK_WARNINGS"
   echo "Der Build wird trotzdem versucht (CMake-Fallback fuer nicht-Homebrew-Installationen)."
+  if [[ " $LIB_CHECK_WARNINGS " == *" opencv " ]]; then
+    echo "Tipp: OpenCV 4 nutzt meist das pkg-config Modul 'opencv4' (nicht 'opencv')."
+    echo "Falls OpenCV installiert ist, aber nicht gefunden wird, setze z.B.:"
+    echo "  export PKG_CONFIG_PATH=\"/opt/local/lib/pkgconfig:/opt/local/share/pkgconfig:\$PKG_CONFIG_PATH\""
+    echo "  export CMAKE_PREFIX_PATH=\"/opt/local\""
+  fi
   if command -v port &>/dev/null; then
     PORT_LIBS=""
     for dep in $LIB_CHECK_WARNINGS; do
