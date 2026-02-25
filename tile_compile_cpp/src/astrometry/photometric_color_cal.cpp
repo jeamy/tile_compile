@@ -199,6 +199,14 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
     std::sort(sky_pixels.begin(), sky_pixels.end());
     double sky_bg = sky_pixels[sky_pixels.size() / 2];
 
+    if (!(std::isfinite(sky_bg) && sky_bg > 0.0)) return -1.0;
+    const size_t n_sky = sky_pixels.size();
+    const float q1 = sky_pixels[(n_sky * 1) / 4];
+    const float q3 = sky_pixels[(n_sky * 3) / 4];
+    const double iqr = static_cast<double>(q3) - static_cast<double>(q1);
+    if (!(std::isfinite(iqr) && iqr >= 0.0)) return -1.0;
+    if (iqr > 0.35 * sky_bg) return -1.0;
+
     // Sum aperture flux minus background
     double total = 0.0;
     int n_ap = 0;
@@ -293,8 +301,8 @@ std::vector<StarPhotometry> measure_stars(
 // This method does NOT require sensor-specific filter curves.
 // It only needs the effective temperature of each star.
 
-// Robust mean with iterative sigma-clipping (like Siril's
-// siril_stats_robust_mean).  Sorts data, clips outliers, returns mean.
+// Robust location estimator with iterative sigma-clipping (median/MAD-based).
+// Works on signed data (needed for log-chromaticity deltas).
 static double robust_mean(std::vector<double> &data, double sigma,
                           double &deviation_out) {
     deviation_out = 0;
@@ -302,48 +310,44 @@ static double robust_mean(std::vector<double> &data, double sigma,
 
     std::sort(data.begin(), data.end());
 
-    // Remove obvious outliers (values that are FLT_MAX or negative)
-    while (!data.empty() && data.back() > 1e10) data.pop_back();
-    while (!data.empty() && data.front() < 0) data.erase(data.begin());
-    if (data.empty()) return 0;
-
     // Iterative sigma-clipping
     for (int iter = 0; iter < 5; ++iter) {
         int n = static_cast<int>(data.size());
         if (n < 3) break;
 
-        double sum = 0;
-        for (double v : data) sum += v;
-        double mean = sum / n;
+        const double center = data[n / 2];
 
         // MAD (median absolute deviation)
         std::vector<double> devs;
         devs.reserve(n);
-        for (double v : data) devs.push_back(std::abs(v - mean));
+        for (double v : data) devs.push_back(std::abs(v - center));
         std::sort(devs.begin(), devs.end());
         double mad = devs[devs.size() / 2] * 1.4826;
         if (mad < 1e-15) break;
 
         double threshold = sigma * mad;
         std::vector<double> kept;
+        kept.reserve(data.size());
         for (double v : data) {
-            if (std::abs(v - mean) <= threshold)
+            if (std::abs(v - center) <= threshold)
                 kept.push_back(v);
         }
         if (static_cast<int>(kept.size()) < 3) break;
+        if (kept.size() == data.size()) {
+            break;
+        }
+        std::sort(kept.begin(), kept.end());
         data = kept;
     }
 
-    // Final mean and deviation
-    double sum = 0;
-    for (double v : data) sum += v;
-    double mean = sum / data.size();
+    // Final location (median) and mean absolute deviation around it
+    const double center = data[data.size() / 2];
 
     double dev_sum = 0;
-    for (double v : data) dev_sum += std::abs(v - mean);
+    for (double v : data) dev_sum += std::abs(v - center);
     deviation_out = dev_sum / data.size();
 
-    return mean;
+    return center;
 }
 
 PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
@@ -369,73 +373,72 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
         return res;
     }
 
-    // PCC via normalized color proportions.
-    //
-    // For OSC debayered images, point-source fluxes have a systematic
-    // channel scaling artifact (R,B ~1.5-1.7× G) from Bayer interpolation.
-    // The background is already neutral.  To avoid this artifact biasing
-    // the calibration, we normalize BOTH measured and expected fluxes to
-    // sum=1 per star, then compute per-star correction factors on the
-    // color *proportions* only.
-    //
-    // Per star:  meas_frac_c = flux_c / (flux_r + flux_g + flux_b)
-    //            cat_frac_c  = cat_c  / (cat_r  + cat_g  + cat_b)
-    //            k_c = cat_frac_c / meas_frac_c
-    //
-    // The Bayer artifact scales all channels by a constant factor per star
-    // (R and B by ~1.7, G by 1.0), which cancels in the fraction.
-
-    std::vector<double> kr_vec, kg_vec, kb_vec;
-    kr_vec.reserve(valid.size());
-    kg_vec.reserve(valid.size());
-    kb_vec.reserve(valid.size());
+    // PCC via log-chromaticity deltas (Siril-like robust color ratio solve).
+    // We fit signed deltas in log space:
+    //   d_rg = log(cat_r/cat_g) - log(flux_r/flux_g)
+    //   d_bg = log(cat_b/cat_g) - log(flux_b/flux_g)
+    // Then derive scales with G as anchor:
+    //   s_r/s_g = exp(d_rg),  s_b/s_g = exp(d_bg),  s_g = 1.
+    std::vector<double> d_rg_vec, d_bg_vec;
+    d_rg_vec.reserve(valid.size());
+    d_bg_vec.reserve(valid.size());
 
     for (const auto *s : valid) {
-        double ftot = s->flux_r + s->flux_g + s->flux_b;
-        double ctot = s->cat_r  + s->cat_g  + s->cat_b;
-        if (ftot <= 0 || ctot <= 0) continue;
-
-        double mf_r = s->flux_r / ftot;
-        double mf_g = s->flux_g / ftot;
-        double mf_b = s->flux_b / ftot;
-        double cf_r = s->cat_r / ctot;
-        double cf_g = s->cat_g / ctot;
-        double cf_b = s->cat_b / ctot;
-
-        if (mf_r > 0.01 && mf_g > 0.01 && mf_b > 0.01) {
-            kr_vec.push_back(cf_r / mf_r);
-            kg_vec.push_back(cf_g / mf_g);
-            kb_vec.push_back(cf_b / mf_b);
+        if (!(s->flux_r > 0.0 && s->flux_g > 0.0 && s->flux_b > 0.0 &&
+              s->cat_r > 0.0 && s->cat_g > 0.0 && s->cat_b > 0.0)) {
+            continue;
         }
+
+        const double meas_rg = s->flux_r / s->flux_g;
+        const double meas_bg = s->flux_b / s->flux_g;
+        const double cat_rg = s->cat_r / s->cat_g;
+        const double cat_bg = s->cat_b / s->cat_g;
+        if (!(meas_rg > 0.0 && meas_bg > 0.0 && cat_rg > 0.0 && cat_bg > 0.0)) {
+            continue;
+        }
+
+        d_rg_vec.push_back(std::log(cat_rg) - std::log(meas_rg));
+        d_bg_vec.push_back(std::log(cat_bg) - std::log(meas_bg));
     }
 
-    double dev_r = 0, dev_g = 0, dev_b = 0;
-    double kw_r = robust_mean(kr_vec, config.sigma_clip, dev_r);
-    double kw_g = robust_mean(kg_vec, config.sigma_clip, dev_g);
-    double kw_b = robust_mean(kb_vec, config.sigma_clip, dev_b);
-
-    std::cerr << "[PCC] Proportion corrections: R=" << kw_r << " (dev=" << dev_r << ")"
-              << " G=" << kw_g << " (dev=" << dev_g << ")"
-              << " B=" << kw_b << " (dev=" << dev_b << ")"
-              << " (" << kr_vec.size() << " stars)" << std::endl;
-
-    if (kw_r <= 0 || kw_g <= 0 || kw_b <= 0) {
-        res.error_message = "PCC failed: non-positive proportion correction";
+    if (d_rg_vec.size() < static_cast<size_t>(config.min_stars) ||
+        d_bg_vec.size() < static_cast<size_t>(config.min_stars)) {
+        res.error_message = "Not enough robust stars for log-chromaticity PCC";
         return res;
     }
 
-    // Normalize so max = 1 (only scale down, never up)
-    double maxk = std::max({kw_r, kw_g, kw_b});
-    kw_r /= maxk;
-    kw_g /= maxk;
-    kw_b /= maxk;
+    double dev_rg = 0.0;
+    double dev_bg = 0.0;
+    const double d_rg = robust_mean(d_rg_vec, config.sigma_clip, dev_rg);
+    const double d_bg = robust_mean(d_bg_vec, config.sigma_clip, dev_bg);
+
+    double kw_r = std::exp(d_rg);
+    double kw_g = 1.0;
+    double kw_b = std::exp(d_bg);
+
+    // Normalize by geometric mean (preserve overall luminance scale).
+    const double gmean = std::cbrt(kw_r * kw_g * kw_b);
+    if (std::isfinite(gmean) && gmean > 0.0) {
+        kw_r /= gmean;
+        kw_g /= gmean;
+        kw_b /= gmean;
+    }
+
+    // Guardrails: prevent extreme global color casts from pathological fields.
+    constexpr double k_min = 0.85;
+    constexpr double k_max = 1.15;
+    kw_r = std::clamp(kw_r, k_min, k_max);
+    kw_g = std::clamp(kw_g, k_min, k_max);
+    kw_b = std::clamp(kw_b, k_min, k_max);
+
+    std::cerr << "[PCC] Log-chroma deltas: d_rg=" << d_rg << " (dev=" << dev_rg << ")"
+              << " d_bg=" << d_bg << " (dev=" << dev_bg << ")"
+              << " stars=" << d_rg_vec.size() << std::endl;
 
     // Build diagonal color matrix
     res.matrix = {{{kw_r, 0, 0}, {0, kw_g, 0}, {0, 0, kw_b}}};
-    res.n_stars_used = static_cast<int>(std::min({kr_vec.size(),
-                                                   kg_vec.size(),
-                                                   kb_vec.size()}));
-    res.residual_rms = std::max({dev_r, dev_g, dev_b});
+    res.n_stars_used = static_cast<int>(std::min(d_rg_vec.size(), d_bg_vec.size()));
+    res.residual_rms = std::max(dev_rg, dev_bg);
 
     res.success = true;
     std::cerr << "[PCC] Scale factors: R=" << kw_r

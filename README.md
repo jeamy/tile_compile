@@ -41,20 +41,22 @@ Given a directory of FITS lights, the pipeline can:
 | ID | Phase | Description |
 |----|-------|-------------|
 | 0 | SCAN_INPUT | Input discovery, mode detection, linearity check, disk-space precheck |
-| 1 | REGISTRATION | Cascaded global registration + CFA-aware prewarp |
-| 2 | CHANNEL_SPLIT | Metadata phase (channel model) |
-| 3 | NORMALIZATION | Linear background-based normalization |
-| 4 | GLOBAL_METRICS | Global frame metrics and weights |
-| 5 | TILE_GRID | Adaptive tile geometry |
-| 6 | LOCAL_METRICS | Local tile metrics and local weights |
-| 7 | TILE_RECONSTRUCTION | Weighted overlap-add reconstruction |
-| 8 | STATE_CLUSTERING | Optional state clustering |
-| 9 | SYNTHETIC_FRAMES | Optional synthetic frame generation |
-| 10 | STACKING | Final linear stacking |
-| 11 | DEBAYER | OSC demosaic to RGB (MONO pass-through) |
-| 12 | ASTROMETRY | Plate solving / WCS |
-| 13 | PCC | Photometric color calibration |
-| 14 | DONE | Final status (`ok` or `validation_failed`) |
+| 1 | REGISTRATION | Cascaded global registration |
+| 2 | PREWARP | Full-frame canvas prewarp (CFA-safe for OSC) |
+| 3 | CHANNEL_SPLIT | Metadata phase (channel model) |
+| 4 | NORMALIZATION | Linear background-based normalization |
+| 5 | GLOBAL_METRICS | Global frame metrics and weights |
+| 6 | TILE_GRID | Adaptive tile geometry |
+| 7 | COMMON_OVERLAP | Common valid-data overlap (global/tile-local masks) |
+| 8 | LOCAL_METRICS | Local tile metrics and local weights |
+| 9 | TILE_RECONSTRUCTION | Weighted overlap-add reconstruction |
+| 10 | STATE_CLUSTERING | Optional state clustering |
+| 11 | SYNTHETIC_FRAMES | Optional synthetic frame generation |
+| 12 | STACKING | Final linear stacking |
+| 13 | DEBAYER | OSC demosaic to RGB (MONO pass-through) |
+| 14 | ASTROMETRY | Plate solving / WCS |
+| 15 | PCC | Photometric color calibration |
+| 16 | DONE | Final status (`ok` or `validation_failed`) |
 
 Detailed phase docs: `doc/v3/process_flow/`
 
@@ -456,6 +458,24 @@ ctest --output-on-failure
 - Experimental release for testing purposes
 
 ## Changelog
+
+### (2026-02-25)
+
+**Registration / Canvas / Color-Correctness Fixes:**
+
+- **Bayer parity-safe offsets in registration/prewarp path**: Canvas offsets are now handled consistently to preserve CFA parity across expanded/cropped canvases.
+- **Output scaling origin fixes**: Scaling calls now use the correct tile/debayer offsets where required, preventing R/G parity mismatches after crop/canvas transforms.
+- **Common-overlap and canvas handling clarified** in process-flow docs and aligned with the current phase model.
+
+**PCC (Photometric Color Calibration) Improvements:**
+
+- **Robust log-chromaticity fit** implemented for PCC matrix estimation (instead of the older proportion-only approach).
+- **Guardrails on channel scales** added to avoid extreme global color casts.
+- **Aperture annulus contamination filter (IQR gate)** added to reject unstable star measurements in nebulous/gradient-heavy fields.
+
+**Documentation Refresh:**
+
+- `doc/v3/process_flow/*` updated to the current production pipeline state, including `PREWARP`, `COMMON_OVERLAP`, canvas/offset propagation, and current enum phase ordering.
 
 ### (2026-02-19)
 

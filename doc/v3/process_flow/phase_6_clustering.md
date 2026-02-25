@@ -1,22 +1,22 @@
 # STATE_CLUSTERING — Zustandsbasierte Frame-Clusterung
 
-> **C++ Implementierung:** `runner_main.cpp` Zeilen 1649–1892
+> **C++ Implementierung:** `runner_pipeline.cpp`
 > **Phase-Enum:** `Phase::STATE_CLUSTERING`
 
 ## Übersicht
 
-Phase 8 gruppiert Frames nach ihrem **Qualitätszustand** mittels K-Means-Clusterung auf einem 6-dimensionalen Zustandsvektor. Frames mit ähnlicher Qualität werden einem gemeinsamen Cluster zugeordnet. In der nächsten Phase (SYNTHETIC_FRAMES) wird pro Cluster ein synthetischer Frame erzeugt — dies reduziert die Frame-Anzahl von N auf K bei gleichzeitiger Rauschreduktion.
+Phase 10 gruppiert Frames nach ihrem **Qualitätszustand** mittels K-Means-Clusterung auf einem 6-dimensionalen Zustandsvektor. Frames mit ähnlicher Qualität werden einem gemeinsamen Cluster zugeordnet. In der nächsten Phase (SYNTHETIC_FRAMES) wird pro Cluster ein synthetischer Frame erzeugt — dies reduziert die Frame-Anzahl von N auf K bei gleichzeitiger Rauschreduktion.
 
 **Reduced Mode:** Bei `N < frames_reduced_threshold` wird diese Phase **übersprungen**.
 
 ```
 ┌──────────────────────────────────────────────────────┐
 │  1. Zustandsvektor pro Frame berechnen               │
-│     v_f = [G_f, mean_Q, var_Q, CC̄, WarpVar̄, inv_f]  │
+│     v_f = [G_f, mean_Q, var_Q, CC̄, WarpVar̄, inv_f]   │
 │                                                      │
 │  2. z-Score Normalisierung (6 Dimensionen)           │
 │                                                      │
-│  3. K bestimmen: K = clip(N/10, k_min, k_max)       │
+│  3. K bestimmen: K = clip(N/10, k_min, k_max)        │
 │                                                      │
 │  4. K-Means Clusterung (20 Iterationen)              │
 │     • Initialisierung: gleichmäßig verteilte Frames  │
@@ -54,7 +54,7 @@ Pro Frame wird ein 6-dimensionaler Zustandsvektor berechnet:
 
 ```cpp
 state_vectors[fi] = {
-    G_f,                    // Globales Gewicht (Phase 4)
+    G_f,                    // Globales Gewicht (Phase 5)
     mean_local,             // Mittelwert lokaler Qualitäts-Scores
     var_local,              // Varianz lokaler Qualitäts-Scores
     mean_cc_tiles,          // Mittlere Tile-Korrelation (global)
@@ -65,12 +65,12 @@ state_vectors[fi] = {
 
 | Dimension | Symbol | Quelle | Beschreibung |
 |-----------|--------|--------|-------------|
-| 0 | G_f | Phase 4 | Globales Frame-Gewicht |
-| 1 | ⟨Q_local⟩_f | Phase 6 | Mittelwert der lokalen Tile-Quality-Scores |
-| 2 | Var(Q_local)_f | Phase 6 | Varianz der lokalen Tile-Quality-Scores |
-| 3 | CC̄_tiles | Phase 7 | Mittlere Tile-Korrelation (über alle Tiles) |
-| 4 | WarpVar̄ | Phase 7 | Mittlere Warp-Varianz (über alle Tiles) |
-| 5 | inv_frac_f | Phase 7 | Anteil ungültiger Tiles am Gesamtgrid |
+| 0 | G_f | Phase 5 | Globales Frame-Gewicht |
+| 1 | ⟨Q_local⟩_f | Phase 8 | Mittelwert der lokalen Tile-Quality-Scores |
+| 2 | Var(Q_local)_f | Phase 8 | Varianz der lokalen Tile-Quality-Scores |
+| 3 | CC̄_tiles | Phase 9 | Mittlere Tile-Korrelation (über alle Tiles) |
+| 4 | WarpVar̄ | Phase 9 | Mittlere Warp-Varianz (über alle Tiles) |
+| 5 | inv_frac_f | Phase 9 | Anteil ungültiger Tiles am Gesamtgrid |
 
 ### Mean/Varianz lokaler Qualität
 
@@ -207,4 +207,4 @@ Wenn K-Means zu **leeren Clustern** führt (z.B. bei sehr homogenen Daten):
 
 ## Nächste Phase
 
-→ **Phase 9: SYNTHETIC_FRAMES — Synthetische Frame-Erzeugung**
+→ **Phase 11: SYNTHETIC_FRAMES — Synthetische Frame-Erzeugung**

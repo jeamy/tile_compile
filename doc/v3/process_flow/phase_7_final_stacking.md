@@ -1,22 +1,34 @@
-# SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + PCC — Finales Stacking und Output
+# COMMON_OVERLAP + SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + PCC — Finales Stacking und Output
 
-> **C++ Implementierung:** `runner_main.cpp` (aktueller v3.2 Stand)
-> **Phase-Enums:** `SYNTHETIC_FRAMES` (9), `STACKING` (10), *Validation* (kein Enum), `DEBAYER` (11), `ASTROMETRY` (12), `PCC` (13), `DONE` (14)
+> **C++ Implementierung:** `runner_pipeline.cpp`, `runner_phase_registration.cpp` (aktueller v3.2 Stand)
+> **Phase-Enums:** `COMMON_OVERLAP` (7), `SYNTHETIC_FRAMES` (11), `STACKING` (12), *Validation* (kein Enum), `DEBAYER` (13), `ASTROMETRY` (14), `PCC` (15), `DONE` (16)
 
 ## Übersicht
 
-Die letzten Phasen der Pipeline erzeugen synthetische Frames aus den Cluster-Gruppen, stacken diese, validieren das Ergebnis, und erzeugen die finalen FITS-Outputs.
+Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Frames, berücksichtigen den gemeinsamen Bildbereich (Common Overlap), stacken das finale Signal und erzeugen die finalen FITS-Outputs.
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  SYNTHETIC_FRAMES (Phase 9)                          │
+│  PREWARP (Phase 2, vorgelagert)                      │
+│  • Alle Frames auf globalen Canvas gewarpt           │
+│  • CFA-safe Warp für OSC (Subplane-Methode)          │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
+│  COMMON_OVERLAP (Phase 7)                            │
+│  • Pixelweise Valid-Map über alle Frames             │
+│  • common_overlap.json + Tile-Valid-Fraktionen       │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
+│  SYNTHETIC_FRAMES (Phase 11)                         │
 │  • Pro Cluster: gewichtetes Mittel → synth Frame     │
 │  • N Original-Frames → K synthetische Frames         │
 │  (übersprungen im Reduced Mode)                      │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
-│  STACKING (Phase 10)                                 │
+│  STACKING (Phase 12)                                 │
 │  • Sigma-Clipping Rejection ODER Mean                │
 │  • Output-Skalierung: × median_bg + pedestal         │
 │  • stacked.fits + reconstructed_L.fit                │
@@ -31,33 +43,43 @@ Die letzten Phasen der Pipeline erzeugen synthetische Frames aus den Cluster-Gru
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
-│  DEBAYER (Phase 11) — nur OSC                        │
+│  DEBAYER (Phase 13) — nur OSC                        │
 │  • Nearest-Neighbor Demosaic → R, G, B               │
-│  • Output-Skalierung pro Kanal                       │
+│  • Canvas/Crop-Offsets für korrekte Bayer-Parität    │
 │  • stacked_rgb.fits (3-Plane FITS-Cube)              │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
-│  ASTROMETRY (Phase 12)                               │
+│  ASTROMETRY (Phase 14)                               │
 │  • ASTAP solve / WCS                                 │
 │  • WCS-Header in RGB-Outputs                         │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
-│  PCC (Phase 13)                                      │
+│  PCC (Phase 15)                                      │
 │  • Photometric Color Calibration                     │
-│  • pcc_R/G/B.fit + stacked_rgb_pcc.fits             │
+│  • pcc_R/G/B.fit + stacked_rgb_pcc.fits              │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
-│  DONE (Phase 14)                                     │
+│  DONE (Phase 16)                                     │
 │  • run_end(ok) oder run_end(validation_failed)       │
 └──────────────────────────────────────────────────────┘
 ```
 
+## Canvas- und Common-Overlap-Kontext
+
+- **PREWARP** schreibt alle Frames auf einen globalen Canvas (`canvas_width`, `canvas_height`, `tile_offset_x/y`).
+- **COMMON_OVERLAP** ermittelt den tatsächlich gemeinsamen, datentragenden Pixelbereich über alle nutzbaren Frames.
+- In `TILE_RECONSTRUCTION`/`STACKING` werden Pixel/Tiles gemäß
+  - `stacking.common_overlap_required_fraction`
+  - `stacking.tile_common_valid_min_fraction`
+  gefiltert, damit Rand-/Leerbereiche den Stack nicht verfälschen.
+- Bei OSC müssen Canvas-/Crop-Offsets Bayer-paritätskonsistent in Normalisierung/Output-Skalierung durchgereicht werden.
+
 ---
 
-## Phase 9: SYNTHETIC_FRAMES
+## Phase 11: SYNTHETIC_FRAMES
 
 ### Funktionsweise
 
@@ -127,7 +149,7 @@ for (int c = 0; c < n_clusters; ++c) {
 
 ---
 
-## Phase 10: STACKING
+## Phase 12: STACKING
 
 ### Sigma-Clipping Rejection Stacking
 
@@ -164,13 +186,27 @@ if (use_synthetic_frames) {
 
 ### Reduced Mode
 
-Wenn `use_synthetic_frames = false`, wird das Rekonstruktionsergebnis aus Phase 7 direkt als finales Bild übernommen — kein erneutes Stacking.
+Wenn `use_synthetic_frames = false`, wird das Rekonstruktionsergebnis aus Phase 9 direkt als finales Bild übernommen — kein erneutes Stacking.
 
 ### Output-Skalierung
 
 ```cpp
 Matrix2Df recon_out = recon;
-apply_output_scaling_inplace(recon_out, 0, 0);
+if (detected_mode == ColorMode::OSC) {
+    const float bg_luma = 0.25f * output_bg_r + 0.5f * output_bg_g + 0.25f * output_bg_b;
+    recon_out *= bg_luma;
+    recon_out.array() += output_pedestal;
+} else {
+    // MONO: origin muss Canvas/Crop-Offset enthalten.
+    image::apply_output_scaling_inplace(
+        recon_out,
+        -debayer_tile_offset_x,
+        -debayer_tile_offset_y,
+        detected_mode,
+        detected_bayer_str,
+        output_bg_mono, output_bg_r, output_bg_g, output_bg_b,
+        output_pedestal);
+}
 io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, first_hdr);
 io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out, first_hdr);
 ```
@@ -180,9 +216,9 @@ Die Skalierung konvertiert normalisierte Werte zurück in physikalische Einheite
 | Modus | Skalierung |
 |-------|-----------|
 | **MONO** | `pixel = pixel × output_bg_mono + 32768` |
-| **OSC** | Per Bayer-Pixel: `× output_bg_r/g/b + 32768` |
+| **OSC (Stack-L)** | `pixel = pixel × (0.25·bg_r + 0.5·bg_g + 0.25·bg_b) + 32768` |
 
-- **output_bg_***: Median der Background-Werte über alle Frames (Phase 2)
+- **output_bg_***: Median der Background-Werte über alle Frames (aus NORMALIZATION, Phase 4)
 - **Pedestal 32768**: Verhindert negative Werte in FITS (16-bit compatible)
 
 ---
@@ -268,7 +304,7 @@ if (!validation_ok) {
 
 ---
 
-## Phase 11: DEBAYER
+## Phase 13: DEBAYER
 
 ### OSC-Modus
 
@@ -287,8 +323,9 @@ if (detected_mode == ColorMode::OSC) {
 }
 ```
 
-- **Nearest-Neighbor Demosaic**: Schnell, keine Artefakte
+- **Nearest-Neighbor Demosaic**: Deterministisch, schnell
 - **Per-Kanal Output-Skalierung**: Jeder Kanal × eigener Median-Background + Pedestal
+- **Offset-Korrektheit:** Debayer-/Crop-Offsets werden in die Skalierung eingebracht, um Bayer-Paritätsfehler (R/G-Vertauschung) zu vermeiden.
 - **stacked_rgb.fits**: 3-Plane FITS-Cube (NAXIS3=3) für direkte RGB-Anzeige
 
 ### MONO-Modus
@@ -316,7 +353,7 @@ if (detected_mode == ColorMode::OSC) {
 
 ---
 
-## Phase 12: ASTROMETRY
+## Phase 14: ASTROMETRY
 
 Wenn aktiviert und RGB-Daten vorhanden sind, wird ein ASTAP-Plate-Solve ausgeführt. Bei Erfolg:
 
@@ -327,7 +364,7 @@ Wenn aktiviert und RGB-Daten vorhanden sind, wird ein ASTAP-Plate-Solve ausgefü
 
 Bei Fehlschlag wird die Phase als `skipped` mit Grund (`astap_not_found`, `solve_failed`, etc.) beendet.
 
-## Phase 13: PCC
+## Phase 15: PCC
 
 PCC läuft nur, wenn:
 
@@ -344,7 +381,7 @@ Outputs bei Erfolg:
 
 Bei fehlenden Katalogsternen oder Fit-Problemen wird die Phase als `skipped` beendet.
 
-## Phase 14: DONE
+## Phase 16: DONE
 
 ```cpp
 emitter.phase_start(run_id, Phase::DONE, "DONE", log_file);
@@ -376,7 +413,7 @@ tile_compile_runner run \
     --runs-dir <path>      # Runs-Ausgabe-Verzeichnis
     --project-root <path>  # Projekt-Root (optional)
     --max-frames <n>       # Frame-Limit (0 = kein Limit)
-    --max-tiles <n>        # Tile-Limit für Phase 6/7
+    --max-tiles <n>        # Tile-Limit im Tile-Pfad (ab Phase 6)
     --dry-run              # Kein Processing
     --stdin                # Config von stdin lesen
 ```

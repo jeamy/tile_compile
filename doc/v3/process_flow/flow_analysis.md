@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This analysis evaluates the tile_compile_cpp implementation of the tile-based quality reconstruction methodology for astronomical images. The implementation follows the specification in `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md` and processes astronomical images through the v3.2 pipeline including registration, normalization, metrics, tile reconstruction, clustering/synthetic frames, stacking, debayer, astrometry, and PCC.
+This analysis evaluates the tile_compile_cpp implementation of the tile-based quality reconstruction methodology for astronomical images. The implementation follows the specification in `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md` and processes astronomical images through the v3.2 production pipeline including registration, prewarp/canvas harmonization, normalization, global/local metrics, common-overlap masking, tile reconstruction, clustering/synthetic frames, stacking, debayer, astrometry, and PCC.
 
 Overall, the implementation follows the v3.2 methodology in production. The most relevant remaining risks are operational tuning (dataset-dependent thresholds), numerical robustness at edge cases, and throughput bottlenecks on slower storage.
 
@@ -23,6 +23,10 @@ src/
 ```
 
 The implementation follows a linear pipeline approach as required by the specification, with no feedback loops detected in the codebase.
+
+Current enum phase sequence (source of truth: `include/tile_compile/core/types.hpp`):
+
+`0 SCAN_INPUT -> 1 REGISTRATION -> 2 PREWARP -> 3 CHANNEL_SPLIT -> 4 NORMALIZATION -> 5 GLOBAL_METRICS -> 6 TILE_GRID -> 7 COMMON_OVERLAP -> 8 LOCAL_METRICS -> 9 TILE_RECONSTRUCTION -> 10 STATE_CLUSTERING -> 11 SYNTHETIC_FRAMES -> 12 STACKING -> 13 DEBAYER -> 14 ASTROMETRY -> 15 PCC -> 16 DONE`
 
 ## 2. Registration Analysis
 
@@ -216,7 +220,7 @@ The pipeline implements state-based clustering and synthetic-frame generation in
 The implemented clustering follows the intended state-vector approach and supports mode-dependent skip behavior in reduced/emergency paths. The practical quality depends mostly on cluster range, minimum frames, and weight spread in real datasets.
 
 ```
-v_f = (G_f, ⟨Q_{tile}⟩, Var(Q_{tile}), B_f, σ_f)
+v_f = (G_f, ⟨Q_local⟩, Var(Q_local), CC̄_tiles, WarpVar̄, invalid_frac)
 ```
 
 ### 7.4 Comparison with Existing Solutions
@@ -268,21 +272,24 @@ Most astronomical image processing tools face similar challenges with large data
 
 ### 10.0 Implementation Status (2026-02-13)
 
-The following high-impact quality actions have now been implemented and are
-marked as completed:
+The following high-impact quality actions are implemented in the current code path:
 
-1. [erledigt] **Debayer quality upgrade (OSC)**
-   - Bilinear, Bayer-parity-aware demosaic path implemented for OSC processing.
+1. [implemented] **Canvas-/Parity-safe registration flow**
+   - Dedicated `PREWARP` phase with full-frame canvas harmonization.
+   - CFA-aware subplane warp for OSC and parity-safe offset handling.
 
-2. [erledigt] **More robust FWHM/PSF statistics**
-   - MAD-based outlier rejection added to frame-level FWHM aggregation.
+2. [implemented] **COMMON_OVERLAP gating**
+   - Explicit common-overlap phase and tile/pixel validity filtering to avoid
+     edge/empty-canvas contamination.
 
-3. [erledigt] **Dataset-adaptive chroma denoise behavior**
-   - Chroma denoise strength now adapts to measured chroma-noise level.
+3. [implemented] **Robust PCC fit guardrails**
+   - PCC uses robust log-chromaticity deltas with sigma-clipped location,
+     bounded channel correction factors, and stronger resistance to pathological
+     field color casts.
 
-4. [erledigt] **Stronger tile-imprint regression guard**
-   - Validation now uses both worst boundary ratio and p95 boundary ratio
-     (`tile_pattern_ratio`, `tile_pattern_ratio_p95`).
+4. [implemented] **PCC photometry contamination filter**
+   - Aperture/annulus photometry rejects unstable annuli (IQR gate) to reduce
+     nebula/gradient contamination in star color fitting.
 
 ### 10.1 Priority Improvements
 
@@ -301,17 +308,16 @@ marked as completed:
 ### 10.2 Algorithmic Enhancements
 
 1. **Debayering**:
-   - [erledigt] Bilinear, Bayer-parity-aware Debayering is implemented.
-   - [teilweise offen] Sensor-specific calibration for G1/G2 response remains optional future work.
+   - [current] Deterministic nearest-neighbor demosaic in production path.
+   - [offen] Optional higher-order demosaic variants remain future work if needed.
 
 2. **Denoise Strategy**:
    - [erledigt] Dataset-aware chroma denoise scaling is implemented.
    - [teilweise offen] Continue expanding practical presets and optional structure-preserving alternatives.
 
 3. **FWHM Estimation**:
-   - [erledigt] Robust outlier rejection (MAD-based clipping) is implemented in FWHM aggregation.
-   - [erledigt] Star-profile modeling uses 2D elliptical PSF moment fitting (major/minor axes).
-   - [offen] Optional next step: non-linear 2D Gaussian PSF fit for higher photometric fidelity.
+   - [current] Robust FWHM-based tile sizing and frame-level quality usage in production.
+   - [offen] Optional next step: stricter PSF-model validation/fit variants per dataset class.
 
 ### 10.3 Performance Optimizations
 

@@ -1,6 +1,6 @@
 # REGISTRATION — Kaskadierte globale Registrierung + Pre-Warping
 
-> **C++ Implementierung:** `global_registration.cpp`, `registration.cpp`, `runner_main.cpp`
+> **C++ Implementierung:** `global_registration.cpp`, `registration.cpp`, `runner_phase_registration.cpp`
 > **Phase-Enum:** `Phase::REGISTRATION` (gefolgt von eigener `Phase::PREWARP`)
 
 ## Übersicht
@@ -14,7 +14,7 @@ Die Registrierung richtet alle Frames geometrisch auf einen Referenz-Frame aus. 
 │  Für jeden Frame f ≠ ref:                                │
 │                                                          │
 │  1. Lade + normalisiere Frame                            │
-│  2. Downsample 2× (CFA: Green-Proxy, Mono: Mean)        │
+│  2. Downsample 2× (CFA: Green-Proxy, Mono: Mean)         │
 │  3. Kaskade (6 Stufen):                                  │
 │     ├─ Triangle Star Matching    → OK? → accept          │
 │     ├─ Trail Endpoint Matching   → OK? → accept  [NEU]   │
@@ -206,6 +206,17 @@ for (size_t fi = 0; fi < frames.size(); ++fi) {
 
 `warp_cfa_mosaic_via_subplanes` zerlegt das CFA-Mosaik in 4 Subplanes (R, G1, G2, B), warpt jede separat und interleaved sie zurück.
 
+### Canvas-Expansion und Offsets
+
+Bei Feldrotation/Translation wird ein gemeinsamer Canvas aus der registrierten Bounding-Box erzeugt:
+
+- `canvas_width`, `canvas_height` werden auf **gerade Dimensionen** gerundet (CFA/Subplane-kompatibel).
+- `offset_x`, `offset_y` verschieben alle Frames in den positiven Canvas-Bereich.
+- Alle globalen Warps werden um diesen Offset in Zielkoordinaten korrigiert.
+- Für OSC werden Offsets paritätssicher behandelt (gerade Pixelraster), damit das Bayer-Muster über den Canvas hinweg konsistent bleibt.
+
+Die resultierenden Canvas-Daten werden im PREWARP-Output (`canvas_width/height`, `tile_offset_x/y`) an Folgephasen übergeben und dort für Common-Overlap, Tile-Reconstruction und finale Skalierung verwendet.
+
 ## Konfigurationsparameter
 
 | Parameter | Beschreibung | C++ Default |
@@ -251,6 +262,6 @@ for (size_t fi = 0; fi < frames.size(); ++fi) {
 
 ## Nächste Phasen
 
-→ **Phase 2: CHANNEL_SPLIT** (Metadaten)  
-→ **Phase 3: NORMALIZATION**  
-→ **Phase 4: GLOBAL_METRICS**
+→ **Phase 3: CHANNEL_SPLIT** (Metadaten)  
+→ **Phase 4: NORMALIZATION**  
+→ **Phase 5: GLOBAL_METRICS**

@@ -1,11 +1,11 @@
 # LOCAL_METRICS — Lokale Tile-Metriken und Qualitäts-Scoring
 
-> **C++ Implementierung:** `runner_main.cpp` Zeilen 1162–1374
+> **C++ Implementierung:** `runner_pipeline.cpp`
 > **Phase-Enum:** `Phase::LOCAL_METRICS`
 
 ## Übersicht
 
-Phase 6 berechnet für jede Kombination aus Frame × Tile eine Reihe von Qualitätsmetriken. Anschließend werden Tiles in **STAR** oder **STRUCTURE** klassifiziert und ein lokales Gewicht `L_f,t` berechnet, das die **lokale Seeing-Qualität** des jeweiligen Tiles in diesem Frame beschreibt.
+Phase 8 berechnet für jede Kombination aus Frame × Tile eine Reihe von Qualitätsmetriken. Anschließend werden Tiles in **STAR** oder **STRUCTURE** klassifiziert und ein lokales Gewicht `L_f,t` berechnet, das die **lokale Seeing-Qualität** des jeweiligen Tiles in diesem Frame beschreibt.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -229,4 +229,4 @@ Struktur: `tile_metrics[frame_index][tile_index]`
 
 ## Nächste Phase
 
-→ **Phase 7: TILE_RECONSTRUCTION — Parallele Tile-Rekonstruktion**
+→ **Phase 9: TILE_RECONSTRUCTION — Parallele Tile-Rekonstruktion**

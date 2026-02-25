@@ -20,22 +20,28 @@ Eingabe (viele FITS-Frames)
 [2] Bilder exakt ausrichten
         |
         v
-[3] Helligkeit vergleichbar machen
+[3] Prewarp auf gemeinsamen Canvas
         |
         v
-[4] Bild in Kacheln (Tiles) aufteilen + Qualität je Tile messen
+[4] Kanal-Info + Helligkeit vergleichbar machen
         |
         v
-[5] Beste Infos je Tile zusammensetzen
+[5] Bild in Kacheln (Tiles) aufteilen
         |
         v
-[6] Optional: ähnliche Zustände clustern -> synthetische Zwischenbilder
+[6] Common Overlap bestimmen (nur gemeinsame Datenbereiche)
         |
         v
-[7] Finales Stacking (robustes Mitteln)
+[7] Qualität je Tile messen + beste Infos je Tile zusammensetzen
         |
         v
-[8] Debayer (bei OSC), Astrometrie, Farbkalibrierung (PCC)
+[8] Optional: ähnliche Zustände clustern -> synthetische Zwischenbilder
+        |
+        v
+[9] Finales Stacking (robustes Mitteln)
+        |
+        v
+[10] Debayer (bei OSC), Astrometrie, Farbkalibrierung (PCC)
         |
         v
 Ausgabe: finales FITS-Bild (+ RGB/PCC-Version, WCS, Artefakte, Logs)
@@ -88,7 +94,19 @@ nachher:   *    *      *      *
 
 ---
 
-## 2) Kanal-Info (CHANNEL_SPLIT)
+## 2) Prewarp auf gemeinsamen Canvas (PREWARP)
+
+Was passiert:
+- Nach der Registrierung werden alle Frames auf einen gemeinsamen Zielbereich gewarpt.
+- Für OSC erfolgt das CFA-sicher (Subplane-Warp), damit das Bayer-Muster konsistent bleibt.
+- Bei Feldrotation wird die Canvas-Größe erweitert und Offsets (`tile_offset_x/y`) werden mitgeführt.
+
+Ergebnis:
+- Alle Folgephasen arbeiten auf derselben Geometrie und im selben Koordinatensystem.
+
+---
+
+## 3) Kanal-Info (CHANNEL_SPLIT)
 
 Was passiert:
 - Für OSC/Mono wird festgelegt, wie später mit Farbkanälen gearbeitet wird.
@@ -99,7 +117,7 @@ Ergebnis:
 
 ---
 
-## 3) Helligkeit angleichen (NORMALIZATION)
+## 4) Helligkeit angleichen (NORMALIZATION)
 
 Was passiert:
 - Frames werden auf ein gemeinsames Helligkeitsniveau gebracht.
@@ -110,7 +128,7 @@ Ergebnis:
 
 ---
 
-## 4) Globale Qualitätsbewertung (GLOBAL_METRICS)
+## 5) Globale Qualitätsbewertung (GLOBAL_METRICS)
 
 Was passiert:
 - Jedes Frame bekommt globale Qualitätswerte (z. B. Schärfe/Signal).
@@ -121,7 +139,7 @@ Ergebnis:
 
 ---
 
-## 5) Tile-Gitter bauen (TILE_GRID)
+## 6) Tile-Gitter bauen (TILE_GRID)
 
 Was passiert:
 - Das Bild wird in viele leicht überlappende Kacheln geteilt.
@@ -143,7 +161,19 @@ Skizze:
 
 ---
 
-## 6) Lokale Qualitätswerte je Tile (LOCAL_METRICS)
+## 7) Gemeinsamen Datenbereich bestimmen (COMMON_OVERLAP)
+
+Was passiert:
+- Es wird berechnet, welche Pixel auf dem Canvas in allen relevanten Frames tatsächlich Daten tragen.
+- Daraus entstehen globale und tile-lokale Valid-Fraktionen.
+- Rand-/Leerbereiche durch Rotation/Translation werden maskiert.
+
+Ergebnis:
+- Rekonstruktion und Stacking nutzen nur robuste gemeinsame Bildbereiche.
+
+---
+
+## 8) Lokale Qualitätswerte je Tile (LOCAL_METRICS)
 
 Was passiert:
 - Für jedes Frame und jedes Tile wird lokal bewertet.
@@ -154,7 +184,7 @@ Ergebnis:
 
 ---
 
-## 7) Tile-Rekonstruktion (TILE_RECONSTRUCTION)
+## 9) Tile-Rekonstruktion (TILE_RECONSTRUCTION)
 
 Was passiert:
 - Für jedes Tile werden die besten Informationen aus vielen Frames kombiniert.
@@ -172,7 +202,7 @@ Frame B ist in Tile rechts gut
 
 ---
 
-## 8) Zustands-Cluster (STATE_CLUSTERING, optional)
+## 10) Zustands-Cluster (STATE_CLUSTERING, optional)
 
 Was passiert:
 - Frames mit ähnlichem Zustand (z. B. ähnliche Qualität/Wetterlage) werden gruppiert.
@@ -182,7 +212,7 @@ Ergebnis:
 
 ---
 
-## 9) Synthetische Frames (SYNTHETIC_FRAMES, optional)
+## 11) Synthetische Frames (SYNTHETIC_FRAMES, optional)
 
 Was passiert:
 - Aus Clustern werden stabile Zwischenbilder erzeugt.
@@ -193,7 +223,7 @@ Ergebnis:
 
 ---
 
-## 10) Finales Stacking (STACKING)
+## 12) Finales Stacking (STACKING)
 
 Was passiert:
 - Alles wird final zusammengeführt.
@@ -204,7 +234,7 @@ Ergebnis:
 
 ---
 
-## 11) Debayer (DEBAYER, bei OSC)
+## 13) Debayer (DEBAYER, bei OSC)
 
 Was passiert:
 - Bei OSC/CFA wird aus dem Mosaik ein RGB-Bild erzeugt.
@@ -215,7 +245,7 @@ Ergebnis:
 
 ---
 
-## 12) Astrometrie (ASTROMETRY)
+## 14) Astrometrie (ASTROMETRY)
 
 Was passiert:
 - Das Bild wird am Himmel verortet (WCS/Plate Solving).
@@ -225,7 +255,7 @@ Ergebnis:
 
 ---
 
-## 13) Farbkalibrierung (PCC)
+## 15) Farbkalibrierung (PCC)
 
 Was passiert:
 - Farben werden über Sternkatalog-Abgleich auf realistischere Balance gebracht.
@@ -235,7 +265,7 @@ Ergebnis:
 
 ---
 
-## 14) Abschluss (DONE)
+## 16) Abschluss (DONE)
 
 Was passiert:
 - Pipeline endet mit Status (`ok` oder `validation_failed`).

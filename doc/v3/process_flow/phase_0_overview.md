@@ -1,6 +1,6 @@
 # Phase 0: SCAN_INPUT — Input-Scan, Erkennung und Linearitätsprüfung
 
-> **C++ Implementierung:** `runner_main.cpp` Zeilen 196–368
+> **C++ Implementierung:** `runner_pipeline.cpp`
 > **Phase-Enum:** `Phase::SCAN_INPUT`
 
 ## Übersicht
@@ -12,48 +12,48 @@ Phase 0 ist die Eingangsphase der Pipeline. Sie liest den ersten Frame, erkennt 
 │          INPUT: Verzeichnis mit FITS-Frames (*.fit*)        │
 └────────────────────────────┬────────────────────────────────┘
                              │
-              ┌──────────────▼──────────────┐
+              ┌──────────────▼───────────────┐
               │  1. Frame-Discovery          │
               │     core::discover_frames()  │
               │     Sortierung + Limit       │
-              └──────────────┬──────────────┘
+              └──────────────┬───────────────┘
                              │
-              ┌──────────────▼──────────────┐
+              ┌──────────────▼───────────────┐
               │  2. Run-Verzeichnis anlegen  │
               │     runs/<run_id>/           │
               │     ├── logs/                │
               │     ├── outputs/             │
               │     └── artifacts/           │
-              └──────────────┬──────────────┘
+              └──────────────┬───────────────┘
                              │
-              ┌──────────────▼──────────────┐
+              ┌──────────────▼───────────────┐
               │  3. Erster Frame lesen       │
               │     • Dimensionen (W×H)      │
               │     • NAXIS                  │
               │     • FITS-Header            │
-              └──────────────┬──────────────┘
+              └──────────────┬───────────────┘
                              │
-              ┌──────────────▼──────────────┐
+              ┌──────────────▼───────────────┐
               │  4. Modus-Erkennung          │
               │     • MONO vs. OSC           │
               │     • Bayer-Pattern          │
               │       (RGGB, GRBG, etc.)     │
-              └──────────────┬──────────────┘
+              └──────────────┬───────────────┘
                              │
-              ┌──────────────▼──────────────┐
+              ┌──────────────▼───────────────┐
               │  5. Linearitätsprüfung       │
               │     • Stichprobe samplen     │
               │     • validate_linearity()   │
               │     • Rejection oder Warnung │
               └──────────────┬──────────────┘
                              │
-              ┌──────────────▼──────────────┐
+              ┌──────────────▼───────────────┐
               │  OUTPUT:                     │
               │  • frames[] (validiert)      │
               │  • ColorMode, BayerPattern   │
               │  • width, height             │
               │  • linearity_info JSON       │
-              └─────────────────────────────┘
+              └──────────────────────────────┘
 ```
 
 ## Detaillierter Ablauf
@@ -168,7 +168,7 @@ if (cfg.linearity.enabled || cfg.data.linear_required) {
 }
 ```
 
-## CHANNEL_SPLIT (Phase 2 — Metadaten-Phase)
+## CHANNEL_SPLIT (Phase 3 — Metadaten-Phase)
 
 Direkt nach SCAN_INPUT wird `Phase::CHANNEL_SPLIT` emittiert. In der C++ Implementierung ist dies eine **reine Metadaten-Phase** — die eigentliche Kanaltrennung erfolgt **deferred** während der Normalisierung und Tile-Verarbeitung.
 
@@ -184,7 +184,7 @@ if (detected_mode == ColorMode::OSC) {
 }
 ```
 
-Bei OSC-Daten bleibt das CFA-Mosaik bis zum Debayer in Phase 11 intakt. Die kanalgetrennte Verarbeitung geschieht implizit über Bayer-Offsets in der Normalisierung.
+Bei OSC-Daten bleibt das CFA-Mosaik bis zum Debayer in Phase 13 intakt. Die kanalgetrennte Verarbeitung geschieht implizit über Bayer-Offsets in der Normalisierung.
 
 ## Fehlerbehandlung
 
@@ -210,4 +210,4 @@ phase_end(CHANNEL_SPLIT, "ok", {mode, channels, bayer_pattern})
 
 ## Nächste Phase
 
-→ **Phase 3: NORMALIZATION — Hintergrund-Normalisierung**
+→ **Phase 1/2: REGISTRATION + PREWARP**, danach **Phase 4: NORMALIZATION — Hintergrund-Normalisierung**

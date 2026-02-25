@@ -1,26 +1,26 @@
 # TILE_RECONSTRUCTION — Parallele gewichtete Tile-Rekonstruktion
 
-> **C++ Implementierung:** `runner_main.cpp` Zeilen 1381–1647
+> **C++ Implementierung:** `runner_pipeline.cpp`
 > **Phase-Enum:** `Phase::TILE_RECONSTRUCTION`
 
 ## Übersicht
 
-Phase 7 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruiert als gewichtetes Mittel über alle Frames, wobei das effektive Gewicht `W_f,t = G_f × L_f,t` die Frame-Qualität (global) und die lokale Tile-Qualität kombiniert. Die rekonstruierten Tiles werden mittels **Hanning-Overlap-Add** zu einem nahtlosen Gesamtbild zusammengefügt.
+Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruiert als gewichtetes Mittel über alle Frames, wobei das effektive Gewicht `W_f,t = G_f × L_f,t` die Frame-Qualität (global) und die lokale Tile-Qualität kombiniert. Die rekonstruierten Tiles werden mittels **Hanning-Overlap-Add** zu einem nahtlosen Gesamtbild zusammengefügt.
 
 ```
 ┌──────────────────────────────────────────────────────┐
 │  Für jedes Tile t (parallel mit N Threads):          │
 │                                                      │
 │  1. Tile aus jedem pre-warped Frame extrahieren      │
-│  2. Effektives Gewicht W_f,t = G_f × L_f,t          │
+│  2. Effektives Gewicht W_f,t = G_f × L_f,t           │
 │  3. Gewichtetes Mittel:                              │
-│     tile_rec = Σ W_f,t · tile_f / Σ W_f,t           │
+│     tile_rec = Σ W_f,t · tile_f / Σ W_f,t            │
 │  4. Per-Tile Background-Normalisierung               │
-│  5. Post-Metriken (Contrast, BG, SNR)               │
+│  5. Post-Metriken (Contrast, BG, SNR)                │
 │  6. Hanning-Window × tile_rec → Overlap-Add          │
 │                                                      │
 │  Danach:                                             │
-│  7. recon(y,x) /= weight_sum(y,x)                   │
+│  7. recon(y,x) /= weight_sum(y,x)                    │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -73,8 +73,8 @@ auto process_tile = [&](size_t ti) {
 - Tiles werden aus **pre-warped Frames** extrahiert (Phase 1)
 - Nur Tiles mit korrekten Dimensionen werden akzeptiert
 - **Effektives Gewicht**: `W_f,t = G_f × L_f,t`
-  - `G_f`: Globales Frame-Gewicht (Phase 4)
-  - `L_f,t`: Lokales Tile-Gewicht (Phase 6)
+  - `G_f`: Globales Frame-Gewicht (Phase 5)
+  - `L_f,t`: Lokales Tile-Gewicht (Phase 8)
 
 ## 3. Gewichtetes Mittel
 
@@ -219,4 +219,4 @@ for (int i = 0; i < recon.size(); ++i) {
 
 ## Nächste Phase
 
-→ **Phase 8: STATE_CLUSTERING — Zustandsbasierte Clusterung**
+→ **Phase 10: STATE_CLUSTERING — Zustandsbasierte Clusterung**

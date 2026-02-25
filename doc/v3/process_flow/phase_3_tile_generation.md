@@ -1,11 +1,11 @@
 # TILE_GRID — Seeing-adaptive Tile-Erzeugung
 
-> **C++ Implementierung:** `runner_main.cpp` Zeilen 719–818
+> **C++ Implementierung:** `runner_pipeline.cpp`
 > **Phase-Enum:** `Phase::TILE_GRID`
 
 ## Übersicht
 
-Phase 4 erzeugt ein **einheitliches reguläres Tile-Grid** über das gesamte Bild. Die Tile-Größe wird **adaptiv** an das gemessene Seeing (FWHM) angepasst. Größeres Seeing → größere Tiles, um genügend Sternpixel pro Tile zu haben.
+Phase 6 erzeugt ein **einheitliches reguläres Tile-Grid** über das gesamte Bild. Die Tile-Größe wird **adaptiv** an das gemessene Seeing (FWHM) angepasst. Größeres Seeing → größere Tiles, um genügend Sternpixel pro Tile zu haben.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -16,7 +16,7 @@ Phase 4 erzeugt ein **einheitliches reguläres Tile-Grid** über das gesamte Bil
 │     • Erster gültiger FWHM-Wert wird übernommen      │
 │                                                      │
 │  2. Tile-Größe berechnen                             │
-│     T = clip(size_factor × FWHM, T_min, T_max)      │
+│     T = clip(size_factor × FWHM, T_min, T_max)       │
 │     T_max = min(W, H) / max_divisor                  │
 │                                                      │
 │  3. Overlap berechnen                                │
@@ -129,7 +129,7 @@ if (max_tiles > 0 && tiles_phase56.size() > max_tiles)
     tiles_phase56.resize(max_tiles);
 ```
 
-Für Debug/Test: `--max-tiles` limitiert die Anzahl der Tiles in Phase 6/7.
+Für Debug/Test: `--max-tiles` limitiert die Anzahl der Tiles im Tile-Pfad (ab Phase 6).
 
 ## Konfigurationsparameter
 
@@ -170,6 +170,6 @@ Für Debug/Test: `--max-tiles` limitiert die Anzahl der Tiles in Phase 6/7.
 
 ## Nächste Phase
 
-→ **Phase 6: LOCAL_METRICS — Lokale Metriken**
+→ **Phase 7: COMMON_OVERLAP — Gemeinsamer Datenbereich**, danach **Phase 8: LOCAL_METRICS — Lokale Metriken**
 
 (Hinweis: `REGISTRATION` läuft in v3.2 bereits als Phase 1 vor `CHANNEL_SPLIT`/`NORMALIZATION`/`GLOBAL_METRICS`.)

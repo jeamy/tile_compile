@@ -1,7 +1,7 @@
 # NORMALIZATION + GLOBAL_METRICS — Hintergrund-Normalisierung und globale Gewichtung
 
-> **C++ Implementierung:** `runner_main.cpp` Zeilen 385–717
-> **Phase-Enums:** `Phase::NORMALIZATION` (L385–L634), `Phase::GLOBAL_METRICS` (L636–L717)
+> **C++ Implementierung:** `runner_pipeline.cpp`
+> **Phase-Enums:** `Phase::NORMALIZATION` (4), `Phase::GLOBAL_METRICS` (5)
 
 ## Übersicht
 
@@ -9,13 +9,13 @@ Diese beiden Phasen berechnen für jeden Frame die Hintergrund-Normalisierung un
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  NORMALIZATION (Phase 3)                             │
+│  NORMALIZATION (Phase 4)                             │
 │                                                      │
 │  Für jeden Frame f:                                  │
 │  1. Frame laden (FITS → Matrix2Df)                   │
 │  2. Grob-Normalisierung (Median aller Pixel)         │
 │  3. Sigma-Clip Background-Maske erstellen            │
-│  4. OSC: Kanalgetrennte BG-Schätzung (R,G,B)        │
+│  4. OSC: Kanalgetrennte BG-Schätzung (R,G,B)         │
 │     MONO: Einzelne BG-Schätzung                      │
 │  5. Scale = 1 / Background                           │
 │                                                      │
@@ -23,18 +23,18 @@ Diese beiden Phasen berechnen für jeden Frame die Hintergrund-Normalisierung un
 └──────────────────────────┬───────────────────────────┘
                            │
 ┌──────────────────────────▼───────────────────────────┐
-│  GLOBAL_METRICS (Phase 4)                            │
+│  GLOBAL_METRICS (Phase 5)                            │
 │                                                      │
 │  Für jeden Frame f:                                  │
 │  1. Frame laden + normalisieren                      │
-│  2. calculate_frame_metrics() → B_f, σ_f, E_f       │
+│  2. calculate_frame_metrics() → B_f, σ_f, E_f        │
 │  3. calculate_global_weights() → G_f                 │
 │                                                      │
 │  Output: FrameMetrics[N], VectorXf global_weights    │
 └──────────────────────────────────────────────────────┘
 ```
 
-## Phase 3: NORMALIZATION — Detaillierter Ablauf
+## Phase 4: NORMALIZATION — Detaillierter Ablauf
 
 ### Schritt 1: Frame laden
 
@@ -127,7 +127,7 @@ const float output_bg_g    = median_finite_positive(B_g, 1.0f);
 const float output_bg_b    = median_finite_positive(B_b, 1.0f);
 ```
 
-Diese Werte werden in Phase 10 (STACKING) und Phase 11 (DEBAYER) verwendet, um die normalisierten Daten zurück in physikalische Einheiten zu konvertieren.
+Diese Werte werden in Phase 12 (STACKING) und Phase 13 (DEBAYER) verwendet, um die normalisierten Daten zurück in physikalische Einheiten zu konvertieren.
 
 ### Lazy Normalisierung
 
@@ -145,7 +145,7 @@ auto load_frame_normalized = [&](size_t frame_index) -> pair<Matrix2Df, FitsHead
 
 `apply_normalization_inplace` multipliziert jeden Pixel mit dem entsprechenden Skalierungsfaktor (OSC: kanalgetrennt nach Bayer-Offset, MONO: einheitlich).
 
-## Phase 4: GLOBAL_METRICS — Detaillierter Ablauf
+## Phase 5: GLOBAL_METRICS — Detaillierter Ablauf
 
 ### Frame-Metriken berechnen
 
@@ -258,4 +258,4 @@ VectorXf global_weights = metrics::calculate_global_weights(
 
 ## Nächste Phase
 
-→ **Phase 5: TILE_GRID — Seeing-adaptive Tile-Erzeugung**
+→ **Phase 6: TILE_GRID — Seeing-adaptive Tile-Erzeugung**

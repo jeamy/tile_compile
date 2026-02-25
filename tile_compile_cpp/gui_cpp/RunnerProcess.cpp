@@ -1,9 +1,19 @@
 #include "RunnerProcess.hpp"
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace tile_compile::gui {
 
 RunnerProcess::RunnerProcess(QObject *parent) : QObject(parent) {
     proc_ = new QProcess(this);
+
+#ifdef _WIN32
+    proc_->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
+        args->flags |= CREATE_NO_WINDOW;
+    });
+#endif
     
     connect(proc_, &QProcess::readyReadStandardOutput, this, &RunnerProcess::handle_stdout);
     connect(proc_, &QProcess::readyReadStandardError, this, &RunnerProcess::handle_stderr);
