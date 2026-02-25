@@ -1082,8 +1082,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // Important: keep peak memory bounded. We therefore stack channels
         // sequentially (R then G then B) instead of holding 3× frame tiles.
 
-        const int origin_x = t.x - canvas_tile_offset_x;
-        const int origin_y = t.y - canvas_tile_offset_y;
+        const int origin_x = std::max(0, t.x);
+        const int origin_y = std::max(0, t.y);
 
         std::vector<size_t> valid_frames;
         std::vector<float> weights_valid;
@@ -2366,7 +2366,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       recon_out *= bg_luma;
       recon_out.array() += output_pedestal;
     } else {
-      image::apply_output_scaling_inplace(recon_out, 0, 0, detected_mode,
+      image::apply_output_scaling_inplace(recon_out, -debayer_tile_offset_x,
+          -debayer_tile_offset_y, detected_mode,
           detected_bayer_str, output_bg_mono, output_bg_r, output_bg_g,
           output_bg_b, output_pedestal);
     }
@@ -2680,16 +2681,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         B_out = debayer.B;
       }
       have_rgb = true;
-      // Restore background level using a single luma-weighted factor for all
-      // channels.  Per-channel scaling (bg_r, bg_g, bg_b) would introduce a
-      // color shift because the Bayer green channel has a higher raw
-      // background than red/blue, so multiplying each channel by its own
-      // background boosts green ~8 % relative to red.
-      const float bg_luma_rgb = 0.25f * output_bg_r + 0.5f * output_bg_g +
-                                0.25f * output_bg_b;
-      R_out *= bg_luma_rgb;
-      G_out *= bg_luma_rgb;
-      B_out *= bg_luma_rgb;
+      // Restore per-channel background levels to undo the per-channel
+      // normalization (scale_r=1/bg_r etc.).  This preserves the camera's
+      // native color response and produces a neutral sky background.
+      R_out *= output_bg_r;
+      G_out *= output_bg_g;
+      B_out *= output_bg_b;
       R_out.array() += output_pedestal;
       G_out.array() += output_pedestal;
       B_out.array() += output_pedestal;

@@ -754,6 +754,21 @@ bool run_phase_registration_prewarp(
   int offset_x = -bbox.min_x;
   int offset_y = -bbox.min_y;
   
+  // For OSC mode: ensure offsets are even to preserve Bayer pattern alignment.
+  // If offset is odd, the entire CFA mosaic shifts by one pixel and R/G swap.
+  if (detected_mode == ColorMode::OSC) {
+    if ((offset_x & 1) != 0) {
+      offset_x = (offset_x + 1) & ~1;  // round up to even
+      canvas_width += 1;
+      canvas_width = (canvas_width + 1) & ~1;  // keep canvas even
+    }
+    if ((offset_y & 1) != 0) {
+      offset_y = (offset_y + 1) & ~1;  // round up to even
+      canvas_height += 1;
+      canvas_height = (canvas_height + 1) & ~1;  // keep canvas even
+    }
+  }
+  
   // Apply offset correction to all warps
   if (offset_x != 0 || offset_y != 0) {
     const float ox = static_cast<float>(offset_x);
