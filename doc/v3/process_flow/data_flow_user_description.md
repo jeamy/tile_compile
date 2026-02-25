@@ -41,7 +41,7 @@ Eingabe (viele FITS-Frames)
 [9] Finales Stacking (robustes Mitteln)
         |
         v
-[10] Debayer (bei OSC), Astrometrie, Farbkalibrierung (PCC)
+[10] Debayer (bei OSC), Astrometrie, optional BGE, Farbkalibrierung (PCC)
         |
         v
 Ausgabe: finales FITS-Bild (+ RGB/PCC-Version, WCS, Artefakte, Logs)
@@ -255,7 +255,19 @@ Ergebnis:
 
 ---
 
-## 15) Farbkalibrierung (PCC)
+## 15) Hintergrund-Gradienten entfernen (BGE, optional)
+
+Was passiert:
+- Optional wird vor PCC ein großskaliges Hintergrundmodell (pro RGB-Kanal) geschätzt.
+- Das Modell wird direkt von den RGB-Kanälen subtrahiert.
+- Diagnosedaten werden als `artifacts/bge.json` gespeichert.
+
+Ergebnis:
+- Weniger Gradienten-Einfluss (z. B. Lichtverschmutzung/Mondschein) auf die nachfolgende Farbkalibrierung.
+
+---
+
+## 16) Farbkalibrierung (PCC)
 
 Was passiert:
 - Farben werden über Sternkatalog-Abgleich auf realistischere Balance gebracht.
@@ -265,7 +277,7 @@ Ergebnis:
 
 ---
 
-## 16) Abschluss (DONE)
+## 17) Abschluss (DONE)
 
 Was passiert:
 - Pipeline endet mit Status (`ok` oder `validation_failed`).
@@ -282,7 +294,7 @@ Ergebnis:
 - `outputs/stacked_rgb.fits` (RGB nach Debayer)
 - `outputs/stacked_rgb_pcc.fits` (nach Farbkalibrierung)
 - WCS-/Astrometrie-Artefakte
-- JSON-Artefakte pro Phase (Qualität, Gewichte, Validation)
+- JSON-Artefakte pro Phase (Qualität, Gewichte, BGE, Validation)
 - Lauf-Logs (`run_events.jsonl`)
 
 ---
@@ -306,6 +318,7 @@ Folgende Daten und Auswertungen können daraus direkt entnommen werden:
 - **Tile-Analyse**: Tile-Grid, lokale Qualitätskarten, räumliche Heatmaps.
 - **Rekonstruktion**: Tile-Rekonstruktionskennzahlen (z. B. Kontrast/Hintergrund/SNR pro Tile).
 - **Clustering & Synthetic Frames**: Clustergrößen, Nutzung synthetischer Frames, Reduktionsverhalten.
+- **BGE**: Kanalweise Grid-Zellen, Residuenverteilungen und Hintergrundverschiebungen.
 - **Validation**: FWHM-Verbesserung, Tile-Pattern-Indikatoren, weitere Qualitätschecks.
 - **Pipeline-Timeline**: zeitlicher Ablauf der Phasen aus `run_events.jsonl`.
 - **Frame-Usage-Funnel**: Entwicklung von „discovered“ bis „stacked/synthetic“.

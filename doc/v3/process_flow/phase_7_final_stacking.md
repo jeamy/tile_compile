@@ -1,11 +1,11 @@
-# COMMON_OVERLAP + SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + PCC — Finales Stacking und Output
+# COMMON_OVERLAP + SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + BGE + PCC — Finales Stacking und Output
 
-> **C++ Implementierung:** `runner_pipeline.cpp`, `runner_phase_registration.cpp` (aktueller v3.2 Stand)
-> **Phase-Enums:** `COMMON_OVERLAP` (7), `SYNTHETIC_FRAMES` (11), `STACKING` (12), *Validation* (kein Enum), `DEBAYER` (13), `ASTROMETRY` (14), `PCC` (15), `DONE` (16)
+> **C++ Implementierung:** `runner_pipeline.cpp`, `runner_phase_registration.cpp` (aktueller v3.3 Stand)
+> **Phase-Enums:** `COMMON_OVERLAP` (7), `SYNTHETIC_FRAMES` (11), `STACKING` (12), *Validation* (kein Enum), `DEBAYER` (13), `ASTROMETRY` (14), **BGE** (kein Enum-Block, optional, vor PCC), `PCC` (15), `DONE` (16)
 
 ## Übersicht
 
-Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Frames, berücksichtigen den gemeinsamen Bildbereich (Common Overlap), stacken das finale Signal und erzeugen die finalen FITS-Outputs.
+Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Frames, berücksichtigen den gemeinsamen Bildbereich (Common Overlap), stacken das finale Signal, führen optional BGE vor PCC aus und erzeugen die finalen FITS-Outputs.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -53,6 +53,13 @@ Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Fram
 │  ASTROMETRY (Phase 14)                               │
 │  • ASTAP solve / WCS                                 │
 │  • WCS-Header in RGB-Outputs                         │
+└──────────────────────┬───────────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────────┐
+│  BGE                                                 │
+│  • Background Gradient Extraction vor PCC            │
+│  • Direkte Subtraktion auf R/G/B                     │
+│  • artifacts/bge.json (Diagnostik)                   │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
@@ -363,6 +370,26 @@ Wenn aktiviert und RGB-Daten vorhanden sind, wird ein ASTAP-Plate-Solve ausgefü
 - `artifacts/stacked_rgb.wcs` abgelegt
 
 Bei Fehlschlag wird die Phase als `skipped` mit Grund (`astap_not_found`, `solve_failed`, etc.) beendet.
+
+## BGE (optional, zwischen ASTROMETRY und PCC)
+
+BGE wird ausgeführt, wenn:
+
+- `cfg.bge.enabled = true`
+- RGB-Daten vorhanden sind (`have_rgb`)
+- tile-basierte Metrik-/Grid-Daten verfügbar und konsistent sind
+
+Wirkung:
+
+- Die modellierte großskalige Hintergrundkomponente wird **direkt von R/G/B subtrahiert**.
+- PCC sieht dadurch bereits gradientenkorrigierte RGB-Daten.
+
+Artifact:
+
+- `artifacts/bge.json` mit kanalweisen Diagnosedaten:
+  - Sample- und Gewichtsstatistiken
+  - Grid-Zellen inkl. Hintergrundwerten
+  - Residuenstatistiken und Werteverteilungen
 
 ## Phase 15: PCC
 

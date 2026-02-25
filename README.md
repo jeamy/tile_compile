@@ -1,6 +1,6 @@
 # Tile-Compile
 
-Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (methodology v3.2).
+Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (methodology v3.3).
 
 We present a novel methodology for the reconstruction of high-quality astronomical images from short-exposure deep-sky datasets. Conventional stacking methods often rely on binary frame selection ("lucky imaging"), which discards significant portions of collected frames. Our approach, **Tile-Based Quality Reconstruction (TBQR)**, replaces rigid frame selection with a robust spatio-temporal quality model. By decomposing frames into local tiles and modeling quality along two orthogonal axes—global atmospheric transparency/noise and local structural sharpness—we reconstruct a signal that is physically and statistically optimal at every pixel. We demonstrate that this method preserves the full photometric depth of the dataset while achieving superior resolution improvement compared to traditional reference stacks.
 
@@ -10,9 +10,9 @@ While the methodology was originally conceived to address the specific challenge
 
 > **Note:** This is experimental software primarily developed for processing images from smart telescopes (e.g., DWARF, Seestar, ZWO SeeStar, etc.). While designed for general astronomical image processing, it has been optimized for the specific characteristics and challenges of smart telescope data.
 
-## Documentation (v3.2)
+## Documentation (v3.3)
 
-- Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.2.2](doc/v3/tile_based_quality_reconstruction_methodology_v3.2.2_en.md)
+- Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.3.4](doc/v3/tile_based_quality_reconstruction_methodology_v3.3.4_en.md)
 - Implementation process flow: [Process flow](doc/v3/process_flow/README.md)
 - English step-by-step guide: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - German README snapshot: [German README](README_de.md)
@@ -27,6 +27,7 @@ Given a directory of FITS lights, the pipeline can:
 - **stack** using sigma-clip or weighted averaging
 - **debayer** OSC/CFA data
 - run **astrometry** (WCS)
+- run optional **background gradient extraction** (BGE, pre-PCC)
 - run **photometric color calibration** (PCC)
 - write final outputs and detailed diagnostic artifacts
 
@@ -34,7 +35,7 @@ Given a directory of FITS lights, the pipeline can:
 
 | Version | Directory | Status | Backend |
 |---------|-----------|--------|---------|
-| C++ | `tile_compile_cpp/` | Active (v3.2) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
+| C++ | `tile_compile_cpp/` | Active (v3.3) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
 
 ## Pipeline Phases
 
@@ -55,6 +56,7 @@ Given a directory of FITS lights, the pipeline can:
 | 12 | STACKING | Final linear stacking |
 | 13 | DEBAYER | OSC demosaic to RGB (MONO pass-through) |
 | 14 | ASTROMETRY | Plate solving / WCS |
+| - | BGE (non-enum block) | Optional RGB background gradient extraction before PCC |
 | 15 | PCC | Photometric color calibration |
 | 16 | DONE | Final status (`ok` or `validation_failed`) |
 
@@ -364,6 +366,7 @@ After a successful run (`runs/<run_id>/`):
   - `tile_reconstruction.json`
   - `state_clustering.json`
   - `synthetic_frames.json`
+  - `bge.json`
   - `validation.json`
   - `report.html`, `report.css`, `*.png`
 - `logs/run_events.jsonl`
@@ -404,6 +407,7 @@ The report aggregates data from artifact JSON files, `logs/run_events.jsonl`, an
 - registration drift/CC/rotation diagnostics
 - tile and reconstruction heatmaps
 - clustering/synthetic frame summaries
+- BGE diagnostics (grid cells, residuals, channel shifts)
 - validation metrics (including tile-pattern indicators)
 - pipeline timeline and frame-usage funnel
 
@@ -477,6 +481,12 @@ ctest --output-on-failure
 
 - `doc/v3/process_flow/*` updated to the current production pipeline state, including `PREWARP`, `COMMON_OVERLAP`, canvas/offset propagation, and current enum phase ordering.
 
+**BGE (Background Gradient Extraction):**
+
+- Added optional pre-PCC BGE stage that directly subtracts modeled background from RGB channels.
+- Added `artifacts/bge.json` with per-channel diagnostics (tile samples, grid cells, residual statistics).
+- Extended report generation to include a dedicated BGE section with summary plots and residual analysis.
+
 ### (2026-02-19)
 
 **Calibration Fixes:**
@@ -499,4 +509,4 @@ ctest --output-on-failure
 
 **Documentation:**
 
-- **New**: [Practical Configuration Examples & Best Practices](doc/v3/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.2.2.
+- **New**: [Practical Configuration Examples & Best Practices](doc/v3/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.3.4.

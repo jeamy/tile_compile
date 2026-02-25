@@ -424,6 +424,62 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.astrometry.search_radius = a["search_radius"].as<int>();
   }
 
+  if (node["bge"]) {
+    auto b = node["bge"];
+    if (b["enabled"])
+      cfg.bge.enabled = b["enabled"].as<bool>();
+    if (b["sample_quantile"])
+      cfg.bge.sample_quantile = b["sample_quantile"].as<float>();
+    if (b["structure_thresh_percentile"])
+      cfg.bge.structure_thresh_percentile = b["structure_thresh_percentile"].as<float>();
+    if (b["min_tiles_per_cell"])
+      cfg.bge.min_tiles_per_cell = b["min_tiles_per_cell"].as<int>();
+    
+    if (b["mask"]) {
+      auto m = b["mask"];
+      if (m["star_dilate_px"])
+        cfg.bge.mask.star_dilate_px = m["star_dilate_px"].as<int>();
+      if (m["sat_dilate_px"])
+        cfg.bge.mask.sat_dilate_px = m["sat_dilate_px"].as<int>();
+    }
+    
+    if (b["grid"]) {
+      auto g = b["grid"];
+      if (g["N_g"])
+        cfg.bge.grid.N_g = g["N_g"].as<int>();
+      if (g["G_min_px"])
+        cfg.bge.grid.G_min_px = g["G_min_px"].as<int>();
+      if (g["G_max_fraction"])
+        cfg.bge.grid.G_max_fraction = g["G_max_fraction"].as<float>();
+      if (g["insufficient_cell_strategy"])
+        cfg.bge.grid.insufficient_cell_strategy = g["insufficient_cell_strategy"].as<std::string>();
+    }
+    
+    if (b["fit"]) {
+      auto f = b["fit"];
+      if (f["method"])
+        cfg.bge.fit.method = f["method"].as<std::string>();
+      if (f["robust_loss"])
+        cfg.bge.fit.robust_loss = f["robust_loss"].as<std::string>();
+      if (f["huber_delta"])
+        cfg.bge.fit.huber_delta = f["huber_delta"].as<float>();
+      if (f["irls_max_iterations"])
+        cfg.bge.fit.irls_max_iterations = f["irls_max_iterations"].as<int>();
+      if (f["irls_tolerance"])
+        cfg.bge.fit.irls_tolerance = f["irls_tolerance"].as<float>();
+      if (f["polynomial_order"])
+        cfg.bge.fit.polynomial_order = f["polynomial_order"].as<int>();
+      if (f["rbf_phi"])
+        cfg.bge.fit.rbf_phi = f["rbf_phi"].as<std::string>();
+      if (f["rbf_mu_factor"])
+        cfg.bge.fit.rbf_mu_factor = f["rbf_mu_factor"].as<float>();
+      if (f["rbf_lambda"])
+        cfg.bge.fit.rbf_lambda = f["rbf_lambda"].as<float>();
+      if (f["rbf_epsilon"])
+        cfg.bge.fit.rbf_epsilon = f["rbf_epsilon"].as<float>();
+    }
+  }
+
   if (node["pcc"]) {
     auto p = node["pcc"];
     if (p["enabled"])

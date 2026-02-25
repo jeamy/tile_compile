@@ -243,6 +243,43 @@ struct AstrometryConfig {
   int search_radius = 180;        // degrees (180 = blind solve)
 };
 
+struct BGEConfig {
+  bool enabled = false;
+  
+  // Tile sampling (v3.3 §6.3.2)
+  float sample_quantile = 0.20f;
+  float structure_thresh_percentile = 0.90f;
+  int min_tiles_per_cell = 3;
+  
+  // Masks (v3.3 §6.3.2a)
+  struct {
+    int star_dilate_px = 4;
+    int sat_dilate_px = 4;
+  } mask;
+  
+  // Grid (v3.3 §6.3.3, §6.3.8)
+  struct {
+    int N_g = 32;
+    int G_min_px = 64;
+    float G_max_fraction = 0.25f;
+    std::string insufficient_cell_strategy = "discard";
+  } grid;
+  
+  // Surface fitting (v3.3 §6.3.4, §6.3.7)
+  struct {
+    std::string method = "rbf";
+    std::string robust_loss = "huber";
+    float huber_delta = 1.5f;
+    int irls_max_iterations = 10;
+    float irls_tolerance = 1e-4f;
+    int polynomial_order = 2;
+    std::string rbf_phi = "multiquadric";
+    float rbf_mu_factor = 1.0f;
+    float rbf_lambda = 1e-6f;
+    float rbf_epsilon = 1e-10f;
+  } fit;
+};
+
 struct PCCConfig {
   bool enabled = false;
   std::string source = "auto";    // auto | siril | vizier_gaia | vizier_apass
@@ -291,6 +328,7 @@ struct Config {
   ReconstructionConfig reconstruction;
   bool debayer = true;
   AstrometryConfig astrometry;
+  BGEConfig bge;
   PCCConfig pcc;
   StackingConfig stacking;
   ValidationConfig validation;

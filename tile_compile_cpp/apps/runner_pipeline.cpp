@@ -5,6 +5,7 @@
 #include "tile_compile/core/mode_gating.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
@@ -563,6 +564,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   std::vector<std::vector<TileMetrics>> local_metrics;
   std::vector<std::vector<float>> local_weights;
+  std::vector<TileMetrics> bge_tile_metrics_cache;
   std::vector<float> tile_fwhm_median;
   std::vector<int> tile_valid_counts;
   std::vector<uint8_t> tile_fallback_used;
@@ -1831,6 +1833,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                         {{"n_clusters", n_clusters}}, log_file);
     }
 
+    // Keep one tile-metrics vector for downstream BGE diagnostics/application.
+    if (!local_metrics.empty()) {
+      bge_tile_metrics_cache = local_metrics[0];
+    } else {
+      bge_tile_metrics_cache.clear();
+    }
+
     // --- Memory release: local_metrics no longer needed after clustering ---
     { std::vector<std::vector<TileMetrics>>().swap(local_metrics); }
 
@@ -2879,6 +2888,230 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     R_disk.resize(0, 0);
     G_disk.resize(0, 0);
     B_disk.resize(0, 0);
+
+    // Phase 11.5: BGE (Background Gradient Extraction) - v3.3 §6.3
+    // Must run BEFORE PCC to remove gradients that would bias color calibration
+    if (cfg.bge.enabled && have_rgb) {
+      std::cerr << "[BGE] Starting background gradient extraction (v3.3 §6.3)" << std::endl;
+
+      auto bge_value_stats_to_json = [](const image::BGEValueStats &s) {
+        return core::json{{"n", s.n},
+                          {"min", s.min},
+                          {"max", s.max},
+                          {"median", s.median},
+                          {"mean", s.mean},
+                          {"std", s.std}};
+      };
+
+      auto bge_diag_to_json = [&](const image::BGEDiagnostics &diag,
+                                  bool requested,
+                                  bool have_tile_data,
+                                  bool metrics_tiles_match) {
+        core::json out;
+        out["requested"] = requested;
+        out["attempted"] = diag.attempted;
+        out["success"] = diag.success;
+        out["have_tile_data"] = have_tile_data;
+        out["metrics_tiles_match"] = metrics_tiles_match;
+        out["image_width"] = diag.image_width;
+        out["image_height"] = diag.image_height;
+        out["grid_spacing"] = diag.grid_spacing;
+        out["method"] = diag.method;
+        out["robust_loss"] = diag.robust_loss;
+        out["insufficient_cell_strategy"] = diag.insufficient_cell_strategy;
+        out["channels"] = core::json::array();
+
+        int channels_applied = 0;
+        int channels_fit_success = 0;
+        int tile_samples_valid_total = 0;
+        int tile_samples_total_total = 0;
+        int grid_cells_valid_total = 0;
+
+        for (const auto &ch : diag.channels) {
+          if (ch.applied)
+            ++channels_applied;
+          if (ch.fit_success)
+            ++channels_fit_success;
+          tile_samples_valid_total += ch.tile_samples_valid;
+          tile_samples_total_total += ch.tile_samples_total;
+          grid_cells_valid_total += ch.grid_cells_valid;
+
+          core::json ch_json;
+          ch_json["channel"] = ch.channel_name;
+          ch_json["applied"] = ch.applied;
+          ch_json["fit_success"] = ch.fit_success;
+          ch_json["tile_samples_total"] = ch.tile_samples_total;
+          ch_json["tile_samples_valid"] = ch.tile_samples_valid;
+          ch_json["grid_cells_valid"] = ch.grid_cells_valid;
+          ch_json["fit_rms_residual"] = ch.fit_rms_residual;
+          ch_json["mean_shift"] = ch.mean_shift;
+          ch_json["input_stats"] = bge_value_stats_to_json(ch.input_stats);
+          ch_json["output_stats"] = bge_value_stats_to_json(ch.output_stats);
+          ch_json["model_stats"] = bge_value_stats_to_json(ch.model_stats);
+          ch_json["sample_bg_stats"] = bge_value_stats_to_json(ch.sample_bg_stats);
+          ch_json["sample_weight_stats"] =
+              bge_value_stats_to_json(ch.sample_weight_stats);
+          ch_json["residual_stats"] = bge_value_stats_to_json(ch.residual_stats);
+          ch_json["sample_bg_values"] = ch.sample_bg_values;
+          ch_json["sample_weight_values"] = ch.sample_weight_values;
+          ch_json["residual_values"] = ch.residual_values;
+          ch_json["grid_cells"] = core::json::array();
+          for (const auto &gc : ch.grid_cells) {
+            ch_json["grid_cells"].push_back({
+                {"cell_x", gc.cell_x},
+                {"cell_y", gc.cell_y},
+                {"center_x", gc.center_x},
+                {"center_y", gc.center_y},
+                {"bg_value", gc.bg_value},
+                {"weight", gc.weight},
+                {"n_samples", gc.n_samples},
+                {"valid", gc.valid},
+            });
+          }
+
+          out["channels"].push_back(std::move(ch_json));
+        }
+
+        out["summary"] = {
+            {"channels_total", static_cast<int>(diag.channels.size())},
+            {"channels_applied", channels_applied},
+            {"channels_fit_success", channels_fit_success},
+            {"tile_samples_total", tile_samples_total_total},
+            {"tile_samples_valid", tile_samples_valid_total},
+            {"grid_cells_valid", grid_cells_valid_total},
+        };
+        return out;
+      };
+
+      // BGE requires tile metrics from LOCAL_METRICS and matching tile geometry.
+      // Prefer final post-PREWARP canvas tiles, but ensure strict compatibility
+      // with metric vector length when available.
+      TileGrid bge_tile_grid;
+      bge_tile_grid.tile_size = uniform_tile_size;
+      bge_tile_grid.overlap_fraction = overlap_fraction;
+      bge_tile_grid.rows = 0;
+      bge_tile_grid.cols = 0;
+
+      const std::vector<Tile>* bge_tiles_source = &tiles;
+      if (!bge_tile_metrics_cache.empty()) {
+        const size_t metrics_tile_count = bge_tile_metrics_cache.size();
+        if (metrics_tile_count == tiles_phase56.size()) {
+          bge_tiles_source = &tiles_phase56;
+        } else if (metrics_tile_count == tiles.size()) {
+          bge_tiles_source = &tiles;
+        }
+      }
+      bge_tile_grid.tiles = *bge_tiles_source;
+
+      if (!bge_tile_grid.tiles.empty()) {
+        int max_row = 0;
+        int max_col = 0;
+        for (const auto &t : bge_tile_grid.tiles) {
+          max_row = std::max(max_row, t.row + 1);
+          max_col = std::max(max_col, t.col + 1);
+        }
+        bge_tile_grid.rows = max_row;
+        bge_tile_grid.cols = max_col;
+      }
+
+      // BGE requires tile metrics - use from LOCAL_METRICS phase
+      image::BGEDiagnostics bge_diag;
+      bool bge_have_local_metrics = !bge_tile_metrics_cache.empty();
+      bool bge_have_bge_grid = !bge_tile_grid.tiles.empty();
+      bool bge_have_tile_data = bge_have_local_metrics && bge_have_bge_grid;
+      bool bge_metrics_tiles_match = false;
+
+      if (!bge_tile_metrics_cache.empty() && !bge_tile_grid.tiles.empty()) {
+        const auto& tile_metrics_for_bge = bge_tile_metrics_cache;
+        bge_metrics_tiles_match =
+            (tile_metrics_for_bge.size() == bge_tile_grid.tiles.size());
+
+        image::BGEConfig bge_cfg;
+        bge_cfg.enabled = cfg.bge.enabled;
+        bge_cfg.sample_quantile = cfg.bge.sample_quantile;
+        bge_cfg.structure_thresh_percentile = cfg.bge.structure_thresh_percentile;
+        bge_cfg.min_tiles_per_cell = cfg.bge.min_tiles_per_cell;
+        bge_cfg.mask.star_dilate_px = cfg.bge.mask.star_dilate_px;
+        bge_cfg.mask.sat_dilate_px = cfg.bge.mask.sat_dilate_px;
+        bge_cfg.grid.N_g = cfg.bge.grid.N_g;
+        bge_cfg.grid.G_min_px = cfg.bge.grid.G_min_px;
+        bge_cfg.grid.G_max_fraction = cfg.bge.grid.G_max_fraction;
+        bge_cfg.grid.insufficient_cell_strategy =
+            cfg.bge.grid.insufficient_cell_strategy;
+        bge_cfg.fit.method = cfg.bge.fit.method;
+        bge_cfg.fit.robust_loss = cfg.bge.fit.robust_loss;
+        bge_cfg.fit.huber_delta = cfg.bge.fit.huber_delta;
+        bge_cfg.fit.irls_max_iterations = cfg.bge.fit.irls_max_iterations;
+        bge_cfg.fit.irls_tolerance = cfg.bge.fit.irls_tolerance;
+        bge_cfg.fit.polynomial_order = cfg.bge.fit.polynomial_order;
+        bge_cfg.fit.rbf_phi = cfg.bge.fit.rbf_phi;
+        bge_cfg.fit.rbf_mu_factor = cfg.bge.fit.rbf_mu_factor;
+        bge_cfg.fit.rbf_lambda = cfg.bge.fit.rbf_lambda;
+        bge_cfg.fit.rbf_epsilon = cfg.bge.fit.rbf_epsilon;
+
+        if (!bge_metrics_tiles_match) {
+          std::cerr << "[BGE] Warning: tile metric/grid size mismatch (metrics="
+                    << tile_metrics_for_bge.size() << ", tiles="
+                    << bge_tile_grid.tiles.size() << "), skipping BGE"
+                    << std::endl;
+        } else {
+          bool bge_success = image::apply_background_extraction(
+              R_out, G_out, B_out,
+              tile_metrics_for_bge,
+              bge_tile_grid,
+              bge_cfg,
+              &bge_diag);
+
+          if (bge_success) {
+            std::cerr << "[BGE] Background extraction completed successfully" << std::endl;
+          } else {
+            std::cerr << "[BGE] Background extraction skipped or failed" << std::endl;
+          }
+        }
+      } else {
+        std::cerr << "[BGE] Warning: No tile metrics available, skipping BGE" << std::endl;
+      }
+
+      core::json bge_artifact = bge_diag_to_json(
+          bge_diag, cfg.bge.enabled, bge_have_tile_data, bge_metrics_tiles_match);
+      bge_artifact["have_local_metrics"] = bge_have_local_metrics;
+      bge_artifact["have_bge_grid"] = bge_have_bge_grid;
+      bge_artifact["local_metrics_tiles"] =
+          static_cast<int>(bge_tile_metrics_cache.size());
+      bge_artifact["bge_grid_tiles"] = static_cast<int>(bge_tile_grid.tiles.size());
+      bge_artifact["config"] = {
+          {"sample_quantile", cfg.bge.sample_quantile},
+          {"structure_thresh_percentile", cfg.bge.structure_thresh_percentile},
+          {"min_tiles_per_cell", cfg.bge.min_tiles_per_cell},
+          {"mask",
+           {
+               {"star_dilate_px", cfg.bge.mask.star_dilate_px},
+               {"sat_dilate_px", cfg.bge.mask.sat_dilate_px},
+           }},
+          {"grid",
+           {
+               {"N_g", cfg.bge.grid.N_g},
+               {"G_min_px", cfg.bge.grid.G_min_px},
+               {"G_max_fraction", cfg.bge.grid.G_max_fraction},
+               {"insufficient_cell_strategy",
+                cfg.bge.grid.insufficient_cell_strategy},
+           }},
+          {"fit",
+           {
+               {"method", cfg.bge.fit.method},
+               {"robust_loss", cfg.bge.fit.robust_loss},
+               {"huber_delta", cfg.bge.fit.huber_delta},
+               {"irls_max_iterations", cfg.bge.fit.irls_max_iterations},
+               {"irls_tolerance", cfg.bge.fit.irls_tolerance},
+               {"polynomial_order", cfg.bge.fit.polynomial_order},
+               {"rbf_phi", cfg.bge.fit.rbf_phi},
+               {"rbf_mu_factor", cfg.bge.fit.rbf_mu_factor},
+               {"rbf_lambda", cfg.bge.fit.rbf_lambda},
+               {"rbf_epsilon", cfg.bge.fit.rbf_epsilon},
+           }},
+      };
+      core::write_text(run_dir / "artifacts" / "bge.json", bge_artifact.dump(2));
+    }
 
     // Phase 12: PCC (Photometric Color Calibration)
     emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);

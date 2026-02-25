@@ -8,7 +8,7 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gew
 
 **Implementierung:** C++ mit Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
-## Aktuelle Pipeline-Phasen (C++ Implementierung, v3.2)
+## Aktuelle Pipeline-Phasen (C++ Implementierung, v3.3)
 
 Quelle der Phasenreihenfolge: `tile_compile::Phase` in `include/tile_compile/core/types.hpp`.
 
@@ -29,14 +29,16 @@ Quelle der Phasenreihenfolge: `tile_compile::Phase` in `include/tile_compile/cor
 | 12 | `STACKING` | Finales lineares Stacking (inkl. robuster Pixel-Ausreißerbehandlung) |
 | 13 | `DEBAYER` | OSC-Debayering und RGB-Ausgabe (bei MONO: pass-through) |
 | 14 | `ASTROMETRY` | Plate Solving / WCS |
+| -  | `BGE` | Optionale Background Gradient Extraction auf RGB vor PCC |
 | 15 | `PCC` | Photometric Color Calibration |
 | 16 | `DONE` | Abschlussstatus (`ok` oder `validation_failed`) |
 
 Hinweis: **Validation** ist ein Qualitätsblock zwischen `STACKING` und `DEBAYER`, aber keine eigene Enum-Phase.
+Hinweis: **BGE** ist ein optionaler Block zwischen `ASTROMETRY` und `PCC`, ebenfalls ohne eigenes Enum.
 
 ## Dokumenten-Struktur
 
-Die **verbindliche Phasenreihenfolge** ist die oben stehende v3.2-Liste (0..16).
+Die **verbindliche Phasenreihenfolge** ist die oben stehende v3.3-Liste (0..16).
 
 Kurzzuordnung:
 
@@ -44,11 +46,11 @@ Kurzzuordnung:
 - Registrierung/Prewarp → `REGISTRATION`, `PREWARP`
 - Normalisierung + globale/lokale Gewichte + Rekonstruktion → `NORMALIZATION` bis `TILE_RECONSTRUCTION` (inkl. `COMMON_OVERLAP`)
 - Optionaler Full-Mode-Block → `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`
-- Finalisierungspfad → `STACKING`, `DEBAYER`, `ASTROMETRY`, `PCC`, `DONE`
+- Finalisierungspfad → `STACKING`, `DEBAYER`, `ASTROMETRY`, optional `BGE`, `PCC`, `DONE`
 
 ---
 
-## Pipeline-Flussdiagramm (C++ Implementierung, v3.2)
+## Pipeline-Flussdiagramm (C++ Implementierung, v3.3)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -162,6 +164,13 @@ Kurzzuordnung:
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
+              │  BGE                        │
+              │  • Optional vor PCC         │
+              │  • Gradienten-Subtraktion   │
+              │  • artifacts/bge.json       │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────▼──────────────┐
               │  PHASE 15: PCC              │
               │  • Photometrische Farbkal.  │
               └──────────────┬──────────────┘
@@ -179,7 +188,7 @@ Kurzzuordnung:
               │  • stacked_rgb_solve.fits   │
               │  • stacked_rgb_pcc.fits     │
               │  • R/G/B .fit (OSC)         │
-              │  • 10 artifact JSON files   │
+              │  • 12 artifact JSON files   │
               │  • run_events.jsonl         │
               └─────────────────────────────┘
 ```
@@ -284,7 +293,7 @@ Synthetische Frames:
 
 ## Artifact-Dateien
 
-Jeder Run erzeugt 10 JSON-Artefakt-Dateien in `<run_dir>/artifacts/`:
+Jeder Run erzeugt 11 JSON-Artefakt-Dateien in `<run_dir>/artifacts/`:
 
 | Datei | Phase | Inhalt |
 |-------|-------|--------|
@@ -297,6 +306,7 @@ Jeder Run erzeugt 10 JSON-Artefakt-Dateien in `<run_dir>/artifacts/`:
 | `tile_reconstruction.json` | 9 | Valid-Counts, Mean-CC, Post-Contrast/BG/SNR pro Tile |
 | `state_clustering.json` | 10 | Cluster-Labels, Cluster-Sizes, Methode |
 | `synthetic_frames.json` | 11 | Anzahl synthetische Frames, frames_min/max |
+| `bge.json` | Block vor 15 | Kanalweise BGE-Diagnostik (Samples, Grid-Zellen, Residuen) |
 | `validation.json` | 12 | FWHM-Improvement, Tile-Weight-Var, Pattern-Ratio |
 
 ### Report-Generierung und auswertbare Daten
@@ -318,7 +328,7 @@ Erzeugte Ausgaben:
 Verwendete Eingabedaten:
 - Artifact-JSONs: `normalization.json`, `global_metrics.json`, `tile_grid.json`,
   `global_registration.json`, `common_overlap.json`, `local_metrics.json`, `tile_reconstruction.json`,
-  `state_clustering.json`, `synthetic_frames.json`, `validation.json`
+  `state_clustering.json`, `synthetic_frames.json`, `bge.json`, `validation.json`
 - Lauf-Events: `logs/run_events.jsonl`
 - Run-Konfiguration: `config.yaml` (wird im Report eingebettet)
 
@@ -329,6 +339,7 @@ Typisch auslesbare Inhalte:
 - Registrierungsauswertung (Shift/Rotation/Korrelation)
 - Tile-/Rekonstruktions-Heatmaps und lokale Qualitätsindikatoren
 - Clustering- und Synthetic-Frame-Übersichten
+- BGE-Diagnostik (kanalweise Background-Modelle, Grid-Zellen, Residuenhistogramme)
 - Validation-Ergebnisse (inkl. Tile-Pattern-Indikatoren)
 - Pipeline-Timeline und Frame-Usage-Funnel
 
@@ -349,6 +360,7 @@ runs/<run_id>/
 │   ├── tile_reconstruction.json
 │   ├── state_clustering.json
 │   ├── synthetic_frames.json
+│   ├── bge.json
 │   ├── validation.json
 │   ├── report.html       # (via generate_report.py)
 │   └── *.png             # Chart-Bilder
@@ -374,7 +386,7 @@ runs/<run_id>/
 
 ## Referenzen
 
-- **Normative Spezifikation**: `/doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.md`
+- **Normative Spezifikation**: `/doc/v3/tile_based_quality_reconstruction_methodology_v3.3.4_en.md`
 - **C++ Implementierung**: `/tile_compile_cpp/apps/runner_pipeline.cpp`
 - **Konfiguration**: `/tile_compile_cpp/include/tile_compile/config/configuration.hpp`
 - **Report-Generator**: `/tile_compile_cpp/generate_report.py`

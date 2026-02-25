@@ -4,7 +4,7 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 
 **Source of truth for defaults:** `include/tile_compile/config/configuration.hpp`  
 **Schema version:** v3  
-**Reference:** Methodology v3.2
+**Reference:** Methodology v3.3
 
 **💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
 
@@ -26,10 +26,11 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 14. [Reconstruction](#14-reconstruction)
 15. [Debayer](#15-debayer)
 16. [Astrometry](#16-astrometry)
-17. [PCC](#17-pcc)
-18. [Stacking](#18-stacking)
-19. [Validation](#19-validation)
-20. [Runtime Limits](#20-runtime-limits)
+17. [BGE (Background Gradient Extraction)](#17-bge-background-gradient-extraction) **NEW in v3.3**
+18. [PCC](#18-pcc)
+19. [Stacking](#19-stacking)
+20. [Validation](#20-validation)
+21. [Runtime Limits](#21-runtime-limits)
 
 ---
 
@@ -951,7 +952,23 @@ Astrometry solving settings.
 
 ---
 
-## 17. PCC
+## 17. BGE (Background Gradient Extraction)
+
+**NEW in v3.3** - Optional background gradient extraction before PCC (Methodology v3.3 §6.3)
+
+BGE removes large-scale background gradients (light pollution, moonlight, airglow) **before** photometric color calibration to avoid color bias from spectrally non-uniform gradients.
+
+**All BGE parameters:** See German reference for complete documentation. Key parameters:
+- `bge.enabled`: Enable/disable (default: `false`)
+- `bge.sample_quantile`: Tile background quantile (default: `0.20`)
+- `bge.fit.method`: Surface fitting method - `rbf`, `poly`, `spline` (default: `rbf`)
+- `bge.fit.rbf_phi`: RBF kernel - `multiquadric`, `thinplate`, `gaussian` (default: `multiquadric`)
+
+**Recommendation:** Enable with `bge.enabled: true` when gradients are visible (urban light pollution, moonlight) or when PCC shows color shifts across the field.
+
+---
+
+## 18. PCC
 
 Photometric Color Calibration settings.
 

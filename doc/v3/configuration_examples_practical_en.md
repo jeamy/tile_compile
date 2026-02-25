@@ -2,7 +2,54 @@
 
 **[🇩🇪 Deutsche Version](configuration_examples_practical_de.md)**
 
-This guide complements the configuration reference with practical examples, boundary ranges, and use cases based on methodology v3.2.2.
+This guide complements the configuration reference with practical examples, edge cases, and use cases based on methodology v3.3.
+
+---
+
+## Background Gradient Extraction (BGE) - NEW in v3.3
+
+**When to enable:**
+- Visible background gradients (light pollution, moonlight)
+- PCC shows color shifts across the field
+- Urban/suburban imaging sites
+
+**Recommended configuration:**
+
+```yaml
+bge:
+  enabled: true
+  sample_quantile: 0.20  # Conservative, resistant to faint objects
+  fit:
+    method: rbf  # Flexible, recommended
+    rbf_phi: multiquadric  # Good compromise
+    rbf_mu_factor: 1.0  # Standard smoothing
+```
+
+**For strong gradients (e.g. city outskirts):**
+
+```yaml
+bge:
+  enabled: true
+  sample_quantile: 0.15  # More conservative
+  structure_thresh_percentile: 0.95  # Exclude more tiles
+  fit:
+    method: rbf
+    rbf_phi: multiquadric
+    rbf_mu_factor: 0.8  # Less smoothing for detail
+```
+
+**For weak gradients (e.g. moonlight):**
+
+```yaml
+bge:
+  enabled: true
+  sample_quantile: 0.25  # Less conservative
+  fit:
+    method: poly  # Simpler for weak gradients
+    polynomial_order: 2
+```
+
+**Important:** BGE runs **before** PCC. When BGE is enabled, PCC should produce better results afterward.
 
 ---
 

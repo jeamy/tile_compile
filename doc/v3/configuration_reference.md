@@ -4,7 +4,7 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 
 **Quelle der Wahrheit für Defaults:** `include/tile_compile/config/configuration.hpp`  
 **Schema-Version:** v3  
-**Referenz:** Methodik v3.2
+**Referenz:** Methodik v3.3
 
 **💡 Für praktische Beispiele und Anwendungsfälle siehe:** [Konfigurationsbeispiele & Best Practices](configuration_examples_practical_de.md)
 
@@ -26,10 +26,11 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 14. [Reconstruction](#14-reconstruction)
 15. [Debayer](#15-debayer)
 16. [Astrometry](#16-astrometry)
-17. [PCC](#17-pcc)
-18. [Stacking](#18-stacking)
-19. [Validation](#19-validation)
-20. [Runtime Limits](#20-runtime-limits)
+17. [BGE (Background Gradient Extraction)](#17-bge-background-gradient-extraction) **NEU in v3.3**
+18. [PCC](#18-pcc)
+19. [Stacking](#19-stacking)
+20. [Validation](#20-validation)
+21. [Runtime Limits](#21-runtime-limits)
 
 ---
 
@@ -1442,7 +1443,228 @@ Tile-basierte Rekonstruktion (Phase 7: TILE_RECONSTRUCTION). Diese Einstellungen
 
 ---
 
-## 17. PCC
+## 17. BGE (Background Gradient Extraction)
+
+**NEU in v3.3** - Optionale Hintergrund-Gradienten-Extraktion vor PCC (Methodologie v3.3 §6.3)
+
+BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht, Airglow) **vor** der photometrischen Farbkalibrierung, um Farbverzerrungen durch spektral ungleichmäßige Gradienten zu vermeiden.
+
+### `bge.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert/deaktiviert Background Gradient Extraction.
+
+**Empfehlung:** Aktivieren bei sichtbaren Gradienten (städtische Lichtverschmutzung, Mondlicht) oder wenn PCC Farbverschiebungen über das Bildfeld zeigt.
+
+### `bge.sample_quantile`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Bereich** | `(0.0, 0.5]` |
+| **Default** | `0.20` |
+
+**Zweck:** Quantil für Tile-Hintergrund-Schätzung (v3.3 §6.3.2b).
+
+- **0.20** (default): Konservativ, resistent gegen schwache Objektkontamination
+- **0.50**: Median, geeignet für Felder mit starker Maskierung
+
+### `bge.structure_thresh_percentile`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Bereich** | `[0.0, 1.0]` |
+| **Default** | `0.90` |
+
+**Zweck:** Perzentil-Schwelle für High-Structure-Tiles (v3.3 §6.3.2a).
+
+Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlossen.
+
+### `bge.min_tiles_per_cell`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `3` |
+
+**Zweck:** Mindestanzahl Tile-Samples pro Grid-Cell für valide Hintergrund-Schätzung (v3.3 §6.3.3d).
+
+### `bge.mask.star_dilate_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `4` |
+
+**Zweck:** Dilatation der Stern-Maske in Pixeln (v3.3 §6.3.2a).
+
+**Empfehlung:** 2-6 px je nach Sternauflösung.
+
+### `bge.mask.sat_dilate_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `4` |
+
+**Zweck:** Dilatation der Sättigungs-Maske in Pixeln (v3.3 §6.3.2a).
+
+### `bge.grid.N_g`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `32` |
+
+**Zweck:** Ziel-Grid-Auflösung: `G = min(W,H) / N_g` (v3.3 §6.3.8).
+
+**Empfehlung:** 24-48 für typische DSO-Aufnahmen.
+
+### `bge.grid.G_min_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `64` |
+
+**Zweck:** Minimaler Grid-Abstand in Pixeln (v3.3 §6.3.8).
+
+### `bge.grid.G_max_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `0.25` |
+
+**Zweck:** Maximaler Grid-Abstand als Bruchteil von `min(W,H)` (v3.3 §6.3.8).
+
+### `bge.grid.insufficient_cell_strategy`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `discard`, `nearest`, `radius_expand` |
+| **Default** | `"discard"` |
+
+**Zweck:** Strategie für Grid-Cells mit zu wenigen Samples (v3.3 §6.3.3d).
+
+- **`discard`**: Cell wird vom Fit ausgeschlossen (konservativ)
+- **`nearest`**: Nearest-Neighbor-Fill (experimentell)
+- **`radius_expand`**: Radius-Expansion (experimentell)
+
+### `bge.fit.method`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `rbf`, `poly`, `spline`, `bicubic` |
+| **Default** | `"rbf"` |
+
+**Zweck:** Surface-Fitting-Methode (v3.3 §6.3.7).
+
+- **`rbf`**: Radial Basis Functions (empfohlen, flexibel)
+- **`poly`**: Robustes Polynom (Order 2-3)
+- **`spline`**: Thin-plate Spline
+- **`bicubic`**: Bicubic Spline
+
+### `bge.fit.robust_loss`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `huber`, `tukey` |
+| **Default** | `"huber"` |
+
+**Zweck:** Robust-Loss-Funktion für IRLS (v3.3 §6.3.7).
+
+### `bge.fit.huber_delta`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `1.5` |
+
+**Zweck:** Huber-Loss-Parameter δ.
+
+### `bge.fit.irls_max_iterations`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `10` |
+
+**Zweck:** Maximale IRLS-Iterationen.
+
+### `bge.fit.irls_tolerance`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `1e-4` |
+
+**Zweck:** IRLS-Konvergenz-Toleranz.
+
+### `bge.fit.polynomial_order`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Werte** | `2`, `3` |
+| **Default** | `2` |
+
+**Zweck:** Polynom-Ordnung (nur wenn `method=poly`).
+
+### `bge.fit.rbf_phi`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `multiquadric`, `thinplate`, `gaussian` |
+| **Default** | `"multiquadric"` |
+
+**Zweck:** RBF-Kernel-Typ (nur wenn `method=rbf`, v3.3 §6.3.7).
+
+- **`multiquadric`**: `φ(d;μ) = √(d² + μ²)` (empfohlen)
+- **`thinplate`**: `φ(d) = d² log(d)` (scale-invariant)
+- **`gaussian`**: `φ(d;μ) = exp(-d²/(2μ²))` (glatt)
+
+### `bge.fit.rbf_mu_factor`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `1.0` |
+
+**Zweck:** RBF-Shape-Parameter: `μ = rbf_mu_factor * G` (v3.3 §6.3.7).
+
+**Empfehlung:** 0.5-2.0 je nach gewünschter Glättung.
+
+### `bge.fit.rbf_lambda`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `1e-6` |
+
+**Zweck:** RBF-Regularisierung λ (verhindert Overfitting, v3.3 §6.3.7).
+
+### `bge.fit.rbf_epsilon`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `1e-10` |
+
+**Zweck:** Numerische Stabilisierung für Thin-plate RBF bei d=0 (v3.3 §6.3.7).
+
+---
+
+## 18. PCC
 
 ### `pcc.enabled`
 

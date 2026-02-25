@@ -1,6 +1,6 @@
 # Tile-Compile
 
-Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer Bildstapel (Methodik v3.2).
+Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer Bildstapel (Methodik v3.3).
 
 Wir stellen eine neuartige Methodik zur Rekonstruktion hochwertiger astronomischer Bilder aus Kurzzeitbelichtungs-Deep-Sky-Datensätzen vor. Konventionelle Stacking-Methoden beruhen häufig auf einer binären Frame-Auswahl ("Lucky Imaging"), wodurch erhebliche Teile der gesammelten Frames verworfen werden. Unser Ansatz, **Tile-Based Quality Reconstruction (TBQR)**, ersetzt diese starre Frame-Auswahl durch ein robustes räumlich-zeitliches Qualitätsmodell. Indem wir Frames in lokale Tiles zerlegen und die Qualität entlang zweier orthogonaler Achsen modellieren — globale atmosphärische Transparenz/Rauschen und lokale strukturelle Schärfe — rekonstruieren wir ein Signal, das an jedem Pixel physikalisch und statistisch optimal ist. Wir zeigen, dass diese Methode die volle photometrische Tiefe des Datensatzes bewahrt und zugleich eine überlegene Auflösungsverbesserung gegenüber traditionellen Referenz-Stacks erzielt.
 
@@ -10,9 +10,9 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 
 > **Hinweis:** Dies ist experimentelle Software, die primär für die Verarbeitung von Bildern von Smart-Teleskopen entwickelt wurde (z.B. DWARF, Seestar, ZWO SeeStar, usw.). Obwohl sie für die allgemeine astronomische Bildverarbeitung konzipiert ist, wurde sie für die spezifischen Eigenschaften und Herausforderungen von Smart-Teleskop-Daten optimiert.
 
-## Dokumentation (v3.2)
+## Dokumentation (v3.3)
 
-- Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.2.2](doc/v3/tile_based_quality_reconstruction_methodology_v3.2.2_en.md)
+- Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.3.4](doc/v3/tile_based_quality_reconstruction_methodology_v3.3.4_en.md)
 - Prozessfluss (Implementierung): `doc/v3/process_flow/`
 - Englische Schritt-für-Schritt-Anleitung: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - Englisches Haupt-README: [English README](README.md)
@@ -27,6 +27,7 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 - Ergebnis via **Sigma-Clip** stacken
 - OSC-Daten **debayern**
 - **Astrometrie** (ASTAP/WCS) ausführen
+- optionale **Background Gradient Extraction** (BGE, vor PCC) ausführen
 - **photometrische Farbkalibrierung** (PCC) anwenden
 - finale Ausgaben plus **Diagnose-Artefakte** (JSON) schreiben
 
@@ -34,7 +35,7 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 
 | Version | Verzeichnis | Status | Backend |
 |---------|-------------|--------|---------|
-| C++ | `tile_compile_cpp/` | Aktiv (v3.2) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
+| C++ | `tile_compile_cpp/` | Aktiv (v3.3) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
 
 ## Pipeline-Phasen
 
@@ -55,6 +56,7 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 | 12 | STACKING | Finales lineares Stacking |
 | 13 | DEBAYER | OSC-Demosaicing zu RGB (MONO-Pass-Through) |
 | 14 | ASTROMETRY | Astrometrisches Solving / WCS |
+| - | BGE (kein Enum-Block) | Optionale RGB-Hintergrund-Gradientenentfernung vor PCC |
 | 15 | PCC | Photometrische Farbkalibrierung |
 | 16 | DONE | Finaler Status (`ok` oder `validation_failed`) |
 
@@ -364,6 +366,7 @@ Nach einem erfolgreichen Lauf (`runs/<run_id>/`):
   - `tile_reconstruction.json`
   - `state_clustering.json`
   - `synthetic_frames.json`
+  - `bge.json`
   - `validation.json`
   - `report.html`, `report.css`, `*.png`
 - `logs/run_events.jsonl`
@@ -404,6 +407,7 @@ Der Bericht aggregiert Daten aus Artifact-JSON-Dateien, `logs/run_events.jsonl` 
 - Registrierungs-Drift/CC/Rotation-Diagnosen
 - Tile- und Rekonstruktions-Heatmaps
 - Clustering- und Zusammenfassungen synthetischer Frames
+- BGE-Diagnostik (Grid-Zellen, Residuen, Kanalverschiebungen)
 - Validierungsmetriken (einschließlich Tile-Pattern-Indikatoren)
 - Pipeline-Timeline und Frame-Usage-Funnel
 
@@ -477,6 +481,12 @@ ctest --output-on-failure
 
 - `doc/v3/process_flow/*` auf den aktuellen Produktionsstand gebracht, inkl. `PREWARP`, `COMMON_OVERLAP`, Canvas/Offset-Propagation und aktueller Enum-Phasenreihenfolge.
 
+**BGE (Background Gradient Extraction):**
+
+- Optionale BGE-Stufe vor PCC ergänzt, die den modellierten Hintergrund direkt von den RGB-Kanälen subtrahiert.
+- Neues Artefakt `artifacts/bge.json` mit kanalweisen Diagnosedaten (Tile-Samples, Grid-Zellen, Residuenstatistik).
+- Report-Generator um eigenen BGE-Abschnitt mit Zusammenfassungsplots und Residuenanalyse erweitert.
+
 ### (2026-02-17)
 
 **Neue Registrierungs-Features für Alt/Az-Montierungen in Polarnähe:**
@@ -493,4 +503,4 @@ ctest --output-on-failure
 
 **Dokumentation:**
 
-- **Neu**: [Praktische Konfigurationsbeispiele & Best Practices](doc/v3/configuration_examples_practical_de.md) - Umfassender Leitfaden mit Anwendungsfällen für verschiedene Brennweiten, Seeing-Bedingungen, Montierungstypen und Kamera-Setups (DWARF, Seestar, DSLR, Mono CCD). Enthält Parameter-Empfehlungen basierend auf Methodik v3.2.2.
+- **Neu**: [Praktische Konfigurationsbeispiele & Best Practices](doc/v3/configuration_examples_practical_de.md) - Umfassender Leitfaden mit Anwendungsfällen für verschiedene Brennweiten, Seeing-Bedingungen, Montierungstypen und Kamera-Setups (DWARF, Seestar, DSLR, Mono CCD). Enthält Parameter-Empfehlungen basierend auf Methodik v3.3.4.

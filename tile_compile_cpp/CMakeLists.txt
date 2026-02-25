@@ -324,6 +324,7 @@ set(LIB_SOURCES
     src/image/processing.cpp
     src/image/cfa_processing.cpp
     src/image/normalization.cpp
+    src/image/background_extraction.cpp
     src/registration/registration.cpp
     src/registration/global_registration.cpp
     src/metrics/metrics.cpp
