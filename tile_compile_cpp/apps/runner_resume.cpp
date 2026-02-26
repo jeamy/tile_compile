@@ -11,6 +11,7 @@
 
 #include "runner_shared.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -344,6 +345,27 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     pcc_cfg.mag_bright_limit = cfg.pcc.mag_bright_limit;
     pcc_cfg.min_stars = cfg.pcc.min_stars;
     pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
+    pcc_cfg.background_model = cfg.pcc.background_model;
+    pcc_cfg.radii_mode = cfg.pcc.radii_mode;
+    pcc_cfg.aperture_fwhm_mult = cfg.pcc.aperture_fwhm_mult;
+    pcc_cfg.annulus_inner_fwhm_mult = cfg.pcc.annulus_inner_fwhm_mult;
+    pcc_cfg.annulus_outer_fwhm_mult = cfg.pcc.annulus_outer_fwhm_mult;
+    pcc_cfg.min_aperture_px = cfg.pcc.min_aperture_px;
+
+    if (pcc_cfg.radii_mode == "auto_fwhm") {
+      // Resume path has no guaranteed seeing estimate artifact available:
+      // use deterministic spec fallback FWHM=0.
+      const double F = 0.0;
+      const double r_ap = std::max(static_cast<double>(pcc_cfg.min_aperture_px),
+                                   pcc_cfg.aperture_fwhm_mult * F);
+      const double r_in = std::max(r_ap + 1.0,
+                                   pcc_cfg.annulus_inner_fwhm_mult * F);
+      const double r_out = std::max(r_in + 2.0,
+                                    pcc_cfg.annulus_outer_fwhm_mult * F);
+      pcc_cfg.aperture_radius_px = r_ap;
+      pcc_cfg.annulus_inner_px = r_in;
+      pcc_cfg.annulus_outer_px = r_out;
+    }
 
     auto result = astro::run_pcc(rgb.R, rgb.G, rgb.B, wcs, stars, pcc_cfg);
 

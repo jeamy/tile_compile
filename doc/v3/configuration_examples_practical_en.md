@@ -18,6 +18,13 @@ This guide complements the configuration reference with practical examples, edge
 ```yaml
 bge:
   enabled: true
+  autotune:
+    enabled: false
+    strategy: conservative
+    max_evals: 24
+    holdout_fraction: 0.25
+    alpha_flatness: 0.25
+    beta_roughness: 0.10
   sample_quantile: 0.20  # Conservative, resistant to faint objects
   fit:
     method: rbf  # Flexible, recommended
@@ -50,6 +57,18 @@ bge:
 ```
 
 **Important:** BGE runs **before** PCC. When BGE is enabled, PCC should produce better results afterward.
+
+**PCC v3.3.6 options (recommended with BGE):**
+
+```yaml
+pcc:
+  background_model: plane      # median | plane
+  radii_mode: auto_fwhm        # fixed | auto_fwhm
+  aperture_fwhm_mult: 1.8
+  annulus_inner_fwhm_mult: 3.0
+  annulus_outer_fwhm_mult: 5.0
+  min_aperture_px: 4.0
+```
 
 ---
 

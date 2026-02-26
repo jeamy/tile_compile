@@ -471,6 +471,11 @@ ctest --output-on-failure
 - BGE wird jetzt als eigene Pipeline-Enum-Phase (`BGE=15`) zwischen `ASTROMETRY` und `PCC` emittiert.
 - Die GUI zeigt BGE explizit in der Phasenanzeige, inklusive BGE-Substep-Progress.
 - Neuer expliziter Pre-PCC-Output `outputs/stacked_rgb_bge.fits` für direkten Vergleich BGE-only vs. BGE+PCC.
+- Konfig-Dokumentation/Beispiele auf v3.3.6-Optionssatz aktualisiert:
+  - `bge.autotune.*` (`enabled`, `strategy`, `max_evals`, `holdout_fraction`, `alpha_flatness`, `beta_roughness`)
+  - `pcc.background_model`
+  - `pcc.radii_mode`
+  - `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`
 
 ### (2026-02-25)
 

@@ -565,6 +565,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   std::vector<std::vector<TileMetrics>> local_metrics;
   std::vector<std::vector<float>> local_weights;
   std::vector<TileMetrics> bge_tile_metrics_cache;
+  TileGrid bge_tile_grid_cache;
   std::vector<float> tile_fwhm_median;
   std::vector<int> tile_valid_counts;
   std::vector<uint8_t> tile_fallback_used;
@@ -1833,9 +1834,78 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                         {{"n_clusters", n_clusters}}, log_file);
     }
 
-    // Keep one tile-metrics vector for downstream BGE diagnostics/application.
+    // Aggregate tile metrics over frames for downstream BGE/PCC usage.
     if (!local_metrics.empty()) {
-      bge_tile_metrics_cache = local_metrics[0];
+      const size_t n_tiles = local_metrics.front().size();
+      const bool consistent = std::all_of(
+          local_metrics.begin(), local_metrics.end(),
+          [n_tiles](const auto &fm) { return fm.size() == n_tiles; });
+      if (!consistent || n_tiles == 0) {
+        bge_tile_metrics_cache = local_metrics.front();
+      } else {
+        auto median_or_zero = [](std::vector<float> vals) -> float {
+          if (vals.empty()) return 0.0f;
+          return core::median_of(vals);
+        };
+
+        bge_tile_metrics_cache.assign(n_tiles, TileMetrics{});
+        for (size_t ti = 0; ti < n_tiles; ++ti) {
+          std::vector<float> fwhm_vals;
+          std::vector<float> round_vals;
+          std::vector<float> contrast_vals;
+          std::vector<float> sharp_vals;
+          std::vector<float> bg_vals;
+          std::vector<float> noise_vals;
+          std::vector<float> grad_vals;
+          std::vector<float> q_vals;
+          std::vector<float> star_count_vals;
+          int star_votes = 0;
+          int structure_votes = 0;
+
+          fwhm_vals.reserve(local_metrics.size());
+          round_vals.reserve(local_metrics.size());
+          contrast_vals.reserve(local_metrics.size());
+          sharp_vals.reserve(local_metrics.size());
+          bg_vals.reserve(local_metrics.size());
+          noise_vals.reserve(local_metrics.size());
+          grad_vals.reserve(local_metrics.size());
+          q_vals.reserve(local_metrics.size());
+          star_count_vals.reserve(local_metrics.size());
+
+          for (const auto &fm : local_metrics) {
+            const auto &tm = fm[ti];
+            if (std::isfinite(tm.fwhm)) fwhm_vals.push_back(tm.fwhm);
+            if (std::isfinite(tm.roundness)) round_vals.push_back(tm.roundness);
+            if (std::isfinite(tm.contrast)) contrast_vals.push_back(tm.contrast);
+            if (std::isfinite(tm.sharpness)) sharp_vals.push_back(tm.sharpness);
+            if (std::isfinite(tm.background)) bg_vals.push_back(tm.background);
+            if (std::isfinite(tm.noise)) noise_vals.push_back(tm.noise);
+            if (std::isfinite(tm.gradient_energy)) grad_vals.push_back(tm.gradient_energy);
+            if (std::isfinite(tm.quality_score)) q_vals.push_back(tm.quality_score);
+            star_count_vals.push_back(static_cast<float>(tm.star_count));
+            if (tm.type == TileType::STAR) {
+              ++star_votes;
+            } else {
+              ++structure_votes;
+            }
+          }
+
+          TileMetrics agg{};
+          agg.fwhm = median_or_zero(std::move(fwhm_vals));
+          agg.roundness = median_or_zero(std::move(round_vals));
+          agg.contrast = median_or_zero(std::move(contrast_vals));
+          agg.sharpness = median_or_zero(std::move(sharp_vals));
+          agg.background = median_or_zero(std::move(bg_vals));
+          agg.noise = median_or_zero(std::move(noise_vals));
+          agg.gradient_energy = median_or_zero(std::move(grad_vals));
+          agg.quality_score = median_or_zero(std::move(q_vals));
+          agg.star_count = static_cast<int>(
+              std::lround(median_or_zero(std::move(star_count_vals))));
+          agg.type = (star_votes >= structure_votes) ? TileType::STAR
+                                                     : TileType::STRUCTURE;
+          bge_tile_metrics_cache[ti] = agg;
+        }
+      }
     } else {
       bge_tile_metrics_cache.clear();
     }
@@ -2930,6 +3000,34 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         out["method"] = diag.method;
         out["robust_loss"] = diag.robust_loss;
         out["insufficient_cell_strategy"] = diag.insufficient_cell_strategy;
+        out["autotune"] = {
+            {"enabled", diag.autotune_enabled},
+            {"strategy", diag.autotune_strategy},
+            {"max_evals", diag.autotune_max_evals},
+            {"evals_performed", diag.autotune_evals},
+            {"fallback_used", diag.autotune_fallback_used},
+            {"best",
+             {
+                 {"sample_quantile", diag.autotune_selected_sample_quantile},
+                 {"structure_thresh_percentile",
+                  diag.autotune_selected_structure_thresh_percentile},
+                 {"rbf_mu_factor", diag.autotune_selected_rbf_mu_factor},
+                 {"objective", diag.autotune_best_objective},
+                 {"cv_rms", diag.autotune_best_cv_rms},
+                 {"flatness", diag.autotune_best_flatness},
+                 {"roughness", diag.autotune_best_roughness},
+             }},
+            // Backward-compatible flat aliases
+            {"evals", diag.autotune_evals},
+            {"best_objective", diag.autotune_best_objective},
+            {"best_cv_rms", diag.autotune_best_cv_rms},
+            {"best_flatness", diag.autotune_best_flatness},
+            {"best_roughness", diag.autotune_best_roughness},
+            {"selected_sample_quantile", diag.autotune_selected_sample_quantile},
+            {"selected_structure_thresh_percentile",
+             diag.autotune_selected_structure_thresh_percentile},
+            {"selected_rbf_mu_factor", diag.autotune_selected_rbf_mu_factor},
+        };
         out["channels"] = core::json::array();
 
         int channels_applied = 0;
@@ -3024,6 +3122,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         bge_tile_grid.rows = max_row;
         bge_tile_grid.cols = max_col;
       }
+      bge_tile_grid_cache = bge_tile_grid;
 
       // BGE requires tile metrics - use from LOCAL_METRICS phase
       image::BGEDiagnostics bge_diag;
@@ -3061,6 +3160,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         bge_cfg.fit.rbf_mu_factor = cfg.bge.fit.rbf_mu_factor;
         bge_cfg.fit.rbf_lambda = cfg.bge.fit.rbf_lambda;
         bge_cfg.fit.rbf_epsilon = cfg.bge.fit.rbf_epsilon;
+        bge_cfg.autotune.enabled = cfg.bge.autotune.enabled;
+        bge_cfg.autotune.max_evals = cfg.bge.autotune.max_evals;
+        bge_cfg.autotune.holdout_fraction = cfg.bge.autotune.holdout_fraction;
+        bge_cfg.autotune.alpha_flatness = cfg.bge.autotune.alpha_flatness;
+        bge_cfg.autotune.beta_roughness = cfg.bge.autotune.beta_roughness;
+        bge_cfg.autotune.strategy = cfg.bge.autotune.strategy;
 
         if (!bge_metrics_tiles_match) {
           std::cerr << "[BGE] Warning: tile metric/grid size mismatch (metrics="
@@ -3123,6 +3228,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                {"rbf_mu_factor", cfg.bge.fit.rbf_mu_factor},
                {"rbf_lambda", cfg.bge.fit.rbf_lambda},
                {"rbf_epsilon", cfg.bge.fit.rbf_epsilon},
+           }},
+          {"autotune",
+           {
+               {"enabled", cfg.bge.autotune.enabled},
+               {"max_evals", cfg.bge.autotune.max_evals},
+               {"holdout_fraction", cfg.bge.autotune.holdout_fraction},
+               {"alpha_flatness", cfg.bge.autotune.alpha_flatness},
+               {"beta_roughness", cfg.bge.autotune.beta_roughness},
+               {"strategy", cfg.bge.autotune.strategy},
            }},
       };
       fs::path bge_artifact_path = run_dir / "artifacts" / "bge.json";
@@ -3287,6 +3401,32 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         pcc_cfg.mag_bright_limit = cfg.pcc.mag_bright_limit;
         pcc_cfg.min_stars = cfg.pcc.min_stars;
         pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
+        pcc_cfg.background_model = cfg.pcc.background_model;
+        pcc_cfg.radii_mode = cfg.pcc.radii_mode;
+        pcc_cfg.aperture_fwhm_mult = cfg.pcc.aperture_fwhm_mult;
+        pcc_cfg.annulus_inner_fwhm_mult = cfg.pcc.annulus_inner_fwhm_mult;
+        pcc_cfg.annulus_outer_fwhm_mult = cfg.pcc.annulus_outer_fwhm_mult;
+        pcc_cfg.min_aperture_px = cfg.pcc.min_aperture_px;
+        if (!bge_tile_metrics_cache.empty() &&
+            bge_tile_metrics_cache.size() == bge_tile_grid_cache.tiles.size()) {
+          pcc_cfg.use_tile_quality_weighting = true;
+          pcc_cfg.tile_grid = bge_tile_grid_cache;
+          pcc_cfg.tile_metrics = bge_tile_metrics_cache;
+        }
+
+        if (pcc_cfg.radii_mode == "auto_fwhm") {
+          const double F = std::max(0.0, static_cast<double>(seeing_fwhm_med));
+          const double r_ap = std::max(static_cast<double>(pcc_cfg.min_aperture_px),
+                                       pcc_cfg.aperture_fwhm_mult * F);
+          const double r_in = std::max(r_ap + 1.0,
+                                       pcc_cfg.annulus_inner_fwhm_mult * F);
+          const double r_out = std::max(r_in + 2.0,
+                                        pcc_cfg.annulus_outer_fwhm_mult * F);
+
+          pcc_cfg.aperture_radius_px = r_ap;
+          pcc_cfg.annulus_inner_px = r_in;
+          pcc_cfg.annulus_outer_px = r_out;
+        }
 
         auto result = astro::run_pcc(R_out, G_out, B_out, wcs, stars, pcc_cfg);
 

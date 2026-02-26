@@ -8,6 +8,174 @@
 
 namespace tile_compile::astrometry {
 
+namespace {
+
+struct PlaneFit {
+    double a = 0.0;
+    double b = 0.0;
+    double c = 0.0;
+    double mx = 0.0;
+    double my = 0.0;
+    bool ok = false;
+};
+
+static PlaneFit fit_sky_plane_huber(const std::vector<double> &xs,
+                                    const std::vector<double> &ys,
+                                    const std::vector<double> &vs,
+                                    double huber_delta,
+                                    int max_iters) {
+    PlaneFit pf;
+    const size_t n = vs.size();
+    if (n < 20) return pf;
+
+    for (size_t i = 0; i < n; ++i) {
+        pf.mx += xs[i];
+        pf.my += ys[i];
+    }
+    pf.mx /= static_cast<double>(n);
+    pf.my /= static_cast<double>(n);
+
+    std::vector<double> w(n, 1.0);
+
+    auto solve_wls = [&](double &a, double &b, double &c) -> bool {
+        double S00 = 0.0, S01 = 0.0, S02 = 0.0, S11 = 0.0, S12 = 0.0, S22 = 0.0;
+        double T0 = 0.0, T1 = 0.0, T2 = 0.0;
+        for (size_t i = 0; i < n; ++i) {
+            const double wi = w[i];
+            const double X = xs[i] - pf.mx;
+            const double Y = ys[i] - pf.my;
+            S00 += wi;
+            S01 += wi * X;
+            S02 += wi * Y;
+            S11 += wi * X * X;
+            S12 += wi * X * Y;
+            S22 += wi * Y * Y;
+            const double vi = vs[i];
+            T0 += wi * vi;
+            T1 += wi * vi * X;
+            T2 += wi * vi * Y;
+        }
+
+        double A[3][4] = {
+            {S00, S01, S02, T0},
+            {S01, S11, S12, T1},
+            {S02, S12, S22, T2},
+        };
+
+        for (int r = 0; r < 3; ++r) {
+            int piv = r;
+            for (int rr = r + 1; rr < 3; ++rr) {
+                if (std::fabs(A[rr][r]) > std::fabs(A[piv][r])) piv = rr;
+            }
+            if (std::fabs(A[piv][r]) < 1e-12) return false;
+            if (piv != r) {
+                for (int c0 = r; c0 < 4; ++c0) std::swap(A[r][c0], A[piv][c0]);
+            }
+
+            const double div = A[r][r];
+            for (int c0 = r; c0 < 4; ++c0) A[r][c0] /= div;
+            for (int rr = 0; rr < 3; ++rr) {
+                if (rr == r) continue;
+                const double f = A[rr][r];
+                for (int c0 = r; c0 < 4; ++c0) A[rr][c0] -= f * A[r][c0];
+            }
+        }
+
+        a = A[0][3];
+        b = A[1][3];
+        c = A[2][3];
+        return true;
+    };
+
+    double a = 0.0, b = 0.0, c = 0.0;
+    if (!solve_wls(a, b, c)) return pf;
+
+    for (int it = 0; it < std::max(1, max_iters); ++it) {
+        std::vector<double> r(n, 0.0);
+        for (size_t i = 0; i < n; ++i) {
+            const double X = xs[i] - pf.mx;
+            const double Y = ys[i] - pf.my;
+            r[i] = vs[i] - (a + b * X + c * Y);
+        }
+
+        std::vector<double> absr = r;
+        for (double &v : absr) v = std::fabs(v);
+        std::sort(absr.begin(), absr.end());
+        double mad = absr[absr.size() / 2] * 1.4826;
+        mad = std::max(1e-9, mad);
+        const double delta = std::max(1e-6, huber_delta * mad);
+
+        for (size_t i = 0; i < n; ++i) {
+            const double ar = std::fabs(r[i]);
+            w[i] = (ar <= delta) ? 1.0 : (delta / ar);
+        }
+
+        const double a_prev = a;
+        const double b_prev = b;
+        const double c_prev = c;
+        if (!solve_wls(a, b, c)) return pf;
+
+        const double step = std::fabs(a - a_prev) + std::fabs(b - b_prev) + std::fabs(c - c_prev);
+        if (step < 1e-8) break;
+    }
+
+    pf.a = a;
+    pf.b = b;
+    pf.c = c;
+    pf.ok = true;
+    return pf;
+}
+
+static int find_tile_index_for_pixel(const TileGrid &grid, double px, double py) {
+    if (grid.tiles.empty()) return -1;
+    const int x = static_cast<int>(std::lround(px));
+    const int y = static_cast<int>(std::lround(py));
+    for (size_t i = 0; i < grid.tiles.size(); ++i) {
+        const auto &t = grid.tiles[i];
+        if (x >= t.x && x < (t.x + t.width) && y >= t.y && y < (t.y + t.height)) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+static double tile_quality_weight_for_star(double px, double py,
+                                           const PCCConfig &config,
+                                           bool *reject_out) {
+    if (reject_out) *reject_out = false;
+    if (!config.use_tile_quality_weighting) return 1.0;
+    if (config.tile_metrics.empty() || config.tile_grid.tiles.empty()) return 1.0;
+    if (config.tile_metrics.size() != config.tile_grid.tiles.size()) return 1.0;
+
+    const int idx = find_tile_index_for_pixel(config.tile_grid, px, py);
+    if (idx < 0) return 1.0;
+
+    const TileMetrics &tm = config.tile_metrics[static_cast<size_t>(idx)];
+    const float noise = std::max(1.0e-6f, tm.noise);
+    const float structure = std::isfinite(tm.gradient_energy) ? (tm.gradient_energy / noise) : 0.0f;
+
+    if (std::isfinite(structure) && structure > config.tile_structure_reject) {
+        if (reject_out) *reject_out = true;
+        return 0.0;
+    }
+
+    const float q = std::isfinite(tm.quality_score) ? tm.quality_score : 0.0f;
+    const double quality_term =
+        std::exp(static_cast<double>(config.tile_quality_kappa) * static_cast<double>(q));
+    const double structure_term = std::exp(
+        -0.35 * static_cast<double>(std::max(0.0f, structure - config.tile_structure_ref)));
+    const double star_penalty =
+        1.0 / (1.0 + 0.03 * static_cast<double>(std::max(0, tm.star_count - 4)));
+
+    double w = quality_term * structure_term * star_penalty;
+    const double wmin = std::max(1.0e-3, static_cast<double>(config.tile_weight_min));
+    const double wmax = std::max(wmin, static_cast<double>(config.tile_weight_max));
+    w = std::clamp(w, wmin, wmax);
+    return w;
+}
+
+} // namespace
+
 // ─── Default OSC filter curves (kept for API compatibility) ─────────────
 
 FilterCurves default_osc_filter_curves() {
@@ -165,7 +333,8 @@ static void teff_to_rgb(double T, double &r, double &g, double &b) {
 // ─── Aperture photometry ────────────────────────────────────────────────
 
 static double aperture_flux(const Matrix2Df &img, double cx, double cy,
-                            double r_ap, double r_ann_in, double r_ann_out) {
+                            double r_ap, double r_ann_in, double r_ann_out,
+                            const std::string &background_model) {
     int rows = img.rows();
     int cols = img.cols();
 
@@ -180,6 +349,10 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
 
     // Collect sky annulus pixels for background estimation
     std::vector<float> sky_pixels;
+    std::vector<double> sky_x;
+    std::vector<double> sky_y;
+    sky_x.reserve(static_cast<size_t>(std::max(1, (x1 - x0 + 1) * (y1 - y0 + 1) / 2)));
+    sky_y.reserve(sky_x.capacity());
     for (int y = y0; y <= y1; ++y) {
         for (int x = x0; x <= x1; ++x) {
             double dx = x - cx;
@@ -189,6 +362,8 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
                 float v = img(y, x);
                 if (std::isfinite(v) && v > 0.0f) {
                     sky_pixels.push_back(v);
+                    sky_x.push_back(static_cast<double>(x));
+                    sky_y.push_back(static_cast<double>(y));
                 }
             }
         }
@@ -196,9 +371,19 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
 
     if (sky_pixels.size() < 10) return -1.0;  // not enough sky pixels
 
-    // Median sky background
+    // Median sky background (fallback and optional model)
     std::sort(sky_pixels.begin(), sky_pixels.end());
     double sky_bg = sky_pixels[sky_pixels.size() / 2];
+
+    if (background_model == "plane") {
+        std::vector<double> sky_vals;
+        sky_vals.reserve(sky_pixels.size());
+        for (float v : sky_pixels) sky_vals.push_back(static_cast<double>(v));
+        const PlaneFit pf = fit_sky_plane_huber(sky_x, sky_y, sky_vals, 1.5, 8);
+        if (pf.ok) {
+            sky_bg = pf.a + pf.b * (cx - pf.mx) + pf.c * (cy - pf.my);
+        }
+    }
 
     if (!(std::isfinite(sky_bg) && sky_bg > 0.0)) return -1.0;
     const size_t n_sky = sky_pixels.size();
@@ -276,6 +461,9 @@ std::vector<StarPhotometry> measure_stars(
     const float sat_b = sampled_high_percentile(B, 8, 0.999f);
     constexpr float sat_guard_frac = 0.995f;
     int n_sat_rejected = 0;
+    int n_tile_rejected = 0;
+    std::vector<double> tile_weights_used;
+    tile_weights_used.reserve(catalog_stars.size());
 
     for (const auto &star : catalog_stars) {
         // Magnitude filter
@@ -317,13 +505,23 @@ std::vector<StarPhotometry> measure_stars(
         sp.py = py;
         sp.mag = star.mag;
 
+        bool tile_reject = false;
+        sp.quality_weight = tile_quality_weight_for_star(px, py, config, &tile_reject);
+        if (tile_reject || !(std::isfinite(sp.quality_weight) && sp.quality_weight > 0.0)) {
+            ++n_tile_rejected;
+            continue;
+        }
+
         // Measure instrumental flux in each channel
         sp.flux_r = aperture_flux(R, px, py, config.aperture_radius_px,
-                                  config.annulus_inner_px, config.annulus_outer_px);
+                                  config.annulus_inner_px, config.annulus_outer_px,
+                                  config.background_model);
         sp.flux_g = aperture_flux(G, px, py, config.aperture_radius_px,
-                                  config.annulus_inner_px, config.annulus_outer_px);
+                                  config.annulus_inner_px, config.annulus_outer_px,
+                                  config.background_model);
         sp.flux_b = aperture_flux(B, px, py, config.aperture_radius_px,
-                                  config.annulus_inner_px, config.annulus_outer_px);
+                                  config.annulus_inner_px, config.annulus_outer_px,
+                                  config.background_model);
 
         // PCC method: get Teff, then convert to expected linear sRGB.
         // cat_r/g/b store the expected color (normalized, max=1).
@@ -342,12 +540,35 @@ std::vector<StarPhotometry> measure_stars(
         sp.valid = (sp.flux_r > 0 && sp.flux_g > 0 && sp.flux_b > 0 &&
                     sp.cat_r > 0 && sp.cat_g > 0 && sp.cat_b > 0);
 
+        if (sp.valid) {
+            tile_weights_used.push_back(sp.quality_weight);
+        }
+
         result.push_back(sp);
     }
 
     std::cerr << "[PCC] Saturation guard: rejected=" << n_sat_rejected
               << " sat_r=" << sat_r << " sat_g=" << sat_g << " sat_b=" << sat_b
               << " frac=" << sat_guard_frac << std::endl;
+    if (!tile_weights_used.empty()) {
+        double w_sum = 0.0;
+        double w_min = std::numeric_limits<double>::infinity();
+        double w_max = 0.0;
+        for (double w : tile_weights_used) {
+            w_sum += w;
+            w_min = std::min(w_min, w);
+            w_max = std::max(w_max, w);
+        }
+        std::cerr << "[PCC] Tile-quality weighting: enabled="
+                  << (config.use_tile_quality_weighting ? "true" : "false")
+                  << " rejected=" << n_tile_rejected
+                  << " mean=" << (w_sum / static_cast<double>(tile_weights_used.size()))
+                  << " min=" << w_min
+                  << " max=" << w_max << std::endl;
+    } else if (config.use_tile_quality_weighting) {
+        std::cerr << "[PCC] Tile-quality weighting: enabled=true rejected="
+                  << n_tile_rejected << " no valid weighted stars" << std::endl;
+    }
 
     return result;
 }
@@ -363,52 +584,76 @@ std::vector<StarPhotometry> measure_stars(
 // This method does NOT require sensor-specific filter curves.
 // It only needs the effective temperature of each star.
 
-// Robust location estimator with iterative sigma-clipping (median/MAD-based).
-// Works on signed data (needed for log-chromaticity deltas).
-static double robust_mean(std::vector<double> &data, double sigma,
-                          double &deviation_out) {
-    deviation_out = 0;
-    if (data.empty()) return 0;
+static double weighted_median(const std::vector<double> &vals,
+                              const std::vector<double> &weights) {
+    if (vals.empty() || vals.size() != weights.size()) return 0.0;
+    std::vector<std::pair<double, double>> vw;
+    vw.reserve(vals.size());
+    double w_sum = 0.0;
+    for (size_t i = 0; i < vals.size(); ++i) {
+        const double w = std::max(1.0e-9, weights[i]);
+        vw.emplace_back(vals[i], w);
+        w_sum += w;
+    }
+    if (w_sum <= 0.0) return 0.0;
 
-    std::sort(data.begin(), data.end());
+    std::sort(vw.begin(), vw.end(),
+              [](const auto &a, const auto &b) { return a.first < b.first; });
+    const double half = 0.5 * w_sum;
+    double acc = 0.0;
+    for (const auto &p : vw) {
+        acc += p.second;
+        if (acc >= half) return p.first;
+    }
+    return vw.back().first;
+}
 
-    // Iterative sigma-clipping
+// Weighted robust location estimator with iterative sigma clipping around
+// weighted median / weighted MAD.
+static double robust_mean_weighted(std::vector<double> &data,
+                                   std::vector<double> &weights,
+                                   double sigma,
+                                   double &deviation_out) {
+    deviation_out = 0.0;
+    if (data.empty() || data.size() != weights.size()) return 0.0;
+
     for (int iter = 0; iter < 5; ++iter) {
-        int n = static_cast<int>(data.size());
+        const int n = static_cast<int>(data.size());
         if (n < 3) break;
+        const double center = weighted_median(data, weights);
 
-        const double center = data[n / 2];
-
-        // MAD (median absolute deviation)
         std::vector<double> devs;
-        devs.reserve(n);
+        devs.reserve(data.size());
         for (double v : data) devs.push_back(std::abs(v - center));
-        std::sort(devs.begin(), devs.end());
-        double mad = devs[devs.size() / 2] * 1.4826;
-        if (mad < 1e-15) break;
+        const double mad = 1.4826 * weighted_median(devs, weights);
+        if (mad < 1.0e-15) break;
 
-        double threshold = sigma * mad;
-        std::vector<double> kept;
-        kept.reserve(data.size());
-        for (double v : data) {
-            if (std::abs(v - center) <= threshold)
-                kept.push_back(v);
+        const double threshold = sigma * mad;
+        std::vector<double> kept_data;
+        std::vector<double> kept_weights;
+        kept_data.reserve(data.size());
+        kept_weights.reserve(weights.size());
+        for (size_t i = 0; i < data.size(); ++i) {
+            if (std::abs(data[i] - center) <= threshold) {
+                kept_data.push_back(data[i]);
+                kept_weights.push_back(weights[i]);
+            }
         }
-        if (static_cast<int>(kept.size()) < 3) break;
-        if (kept.size() == data.size()) {
-            break;
-        }
-        std::sort(kept.begin(), kept.end());
-        data = kept;
+        if (static_cast<int>(kept_data.size()) < 3) break;
+        if (kept_data.size() == data.size()) break;
+        data.swap(kept_data);
+        weights.swap(kept_weights);
     }
 
-    // Final location (median) and mean absolute deviation around it
-    const double center = data[data.size() / 2];
-
-    double dev_sum = 0;
-    for (double v : data) dev_sum += std::abs(v - center);
-    deviation_out = dev_sum / data.size();
-
+    const double center = weighted_median(data, weights);
+    double dev_sum = 0.0;
+    double w_sum = 0.0;
+    for (size_t i = 0; i < data.size(); ++i) {
+        const double w = std::max(1.0e-9, weights[i]);
+        dev_sum += w * std::abs(data[i] - center);
+        w_sum += w;
+    }
+    deviation_out = (w_sum > 0.0) ? (dev_sum / w_sum) : 0.0;
     return center;
 }
 
@@ -442,8 +687,11 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     // Then derive scales with G as anchor:
     //   s_r/s_g = exp(d_rg),  s_b/s_g = exp(d_bg),  s_g = 1.
     std::vector<double> d_rg_vec, d_bg_vec;
+    std::vector<double> w_rg_vec, w_bg_vec;
     d_rg_vec.reserve(valid.size());
     d_bg_vec.reserve(valid.size());
+    w_rg_vec.reserve(valid.size());
+    w_bg_vec.reserve(valid.size());
 
     for (const auto *s : valid) {
         if (!(s->flux_r > 0.0 && s->flux_g > 0.0 && s->flux_b > 0.0 &&
@@ -459,8 +707,11 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
             continue;
         }
 
+        const double w = std::clamp(s->quality_weight, 1.0e-3, 10.0);
         d_rg_vec.push_back(std::log(cat_rg) - std::log(meas_rg));
         d_bg_vec.push_back(std::log(cat_bg) - std::log(meas_bg));
+        w_rg_vec.push_back(w);
+        w_bg_vec.push_back(w);
     }
 
     if (d_rg_vec.size() < static_cast<size_t>(config.min_stars) ||
@@ -471,8 +722,14 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
 
     double dev_rg = 0.0;
     double dev_bg = 0.0;
-    const double d_rg = robust_mean(d_rg_vec, config.sigma_clip, dev_rg);
-    const double d_bg = robust_mean(d_bg_vec, config.sigma_clip, dev_bg);
+    const double d_rg = robust_mean_weighted(d_rg_vec, w_rg_vec, config.sigma_clip, dev_rg);
+    const double d_bg = robust_mean_weighted(d_bg_vec, w_bg_vec, config.sigma_clip, dev_bg);
+
+    if (d_rg_vec.size() < static_cast<size_t>(config.min_stars) ||
+        d_bg_vec.size() < static_cast<size_t>(config.min_stars)) {
+        res.error_message = "Not enough stars after weighted sigma clipping";
+        return res;
+    }
 
     // G is the luminance anchor (G=1.0), matching Siril's get_pcc_white_balance_coeffs.
     // R and B are scaled relative to G from the log-chromaticity deltas.
@@ -497,6 +754,20 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     std::cerr << "[PCC] Log-chroma deltas: d_rg=" << d_rg << " (dev=" << dev_rg << ")"
               << " d_bg=" << d_bg << " (dev=" << dev_bg << ")"
               << " stars=" << d_rg_vec.size() << std::endl;
+    if (!w_rg_vec.empty()) {
+        double w_sum = 0.0;
+        double w_min = std::numeric_limits<double>::infinity();
+        double w_max = 0.0;
+        for (double w : w_rg_vec) {
+            w_sum += w;
+            w_min = std::min(w_min, w);
+            w_max = std::max(w_max, w);
+        }
+        std::cerr << "[PCC] Weighted fit stats: n=" << w_rg_vec.size()
+                  << " mean_w=" << (w_sum / static_cast<double>(w_rg_vec.size()))
+                  << " min_w=" << w_min
+                  << " max_w=" << w_max << std::endl;
+    }
 
     // Build diagonal color matrix
     res.matrix = {{{kw_r, 0, 0}, {0, kw_g, 0}, {0, 0, kw_b}}};

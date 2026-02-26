@@ -278,6 +278,16 @@ struct BGEConfig {
     float rbf_lambda = 1e-6f;
     float rbf_epsilon = 1e-10f;
   } fit;
+
+  // Autotuning (v3.3.6)
+  struct {
+    bool enabled = false;
+    int max_evals = 24;
+    float holdout_fraction = 0.25f;
+    float alpha_flatness = 0.25f;
+    float beta_roughness = 0.10f;
+    std::string strategy = "conservative"; // conservative | extended
+  } autotune;
 };
 
 struct PCCConfig {
@@ -290,6 +300,17 @@ struct PCCConfig {
   float annulus_outer_px = 18.0f;
   int min_stars = 10;
   float sigma_clip = 2.5f;
+
+  // Local annulus background model (v3.3.6 §6.4)
+  std::string background_model = "plane"; // median | plane
+
+  // Adaptive radii (v3.3.6 §6.4)
+  std::string radii_mode = "auto_fwhm"; // fixed | auto_fwhm
+  float aperture_fwhm_mult = 1.8f;
+  float annulus_inner_fwhm_mult = 3.0f;
+  float annulus_outer_fwhm_mult = 5.0f;
+  float min_aperture_px = 4.0f;
+
   std::string siril_catalog_dir;  // empty = default path
 };
 

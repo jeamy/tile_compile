@@ -47,6 +47,16 @@ struct BGEConfig {
         float rbf_lambda = 1e-6f;
         float rbf_epsilon = 1e-10f;
     } fit;
+
+    // Autotuning (v3.3.6)
+    struct {
+        bool enabled = false;
+        int max_evals = 24;
+        float holdout_fraction = 0.25f;
+        float alpha_flatness = 0.25f;
+        float beta_roughness = 0.10f;
+        std::string strategy = "conservative"; // conservative | extended
+    } autotune;
 };
 
 // Tile background sample
@@ -116,6 +126,18 @@ struct BGEDiagnostics {
     std::string method;
     std::string robust_loss;
     std::string insufficient_cell_strategy;
+    bool autotune_enabled = false;
+    std::string autotune_strategy;
+    int autotune_max_evals = 0;
+    int autotune_evals = 0;
+    float autotune_best_objective = 0.0f;
+    float autotune_best_cv_rms = 0.0f;
+    float autotune_best_flatness = 0.0f;
+    float autotune_best_roughness = 0.0f;
+    float autotune_selected_sample_quantile = 0.0f;
+    float autotune_selected_structure_thresh_percentile = 0.0f;
+    float autotune_selected_rbf_mu_factor = 0.0f;
+    bool autotune_fallback_used = false;
     std::vector<BGEChannelDiagnostics> channels;
 };
 

@@ -58,8 +58,24 @@ They are kept in sync with v3.3 runner/config parser defaults, including:
   - Adaptive grid spacing scales with image dimensions
   - Writes `artifacts/bge.json` with per-channel diagnostics (samples, grid cells, residual stats)
   - Included in `generate_report.py` as BGE section with dedicated plots
+  - Includes deterministic autotune block:
+    - `bge.autotune.enabled`
+    - `bge.autotune.strategy` (`conservative|extended`)
+    - `bge.autotune.max_evals`
+    - `bge.autotune.holdout_fraction` (`0.05..0.50`)
+    - `bge.autotune.alpha_flatness`
+    - `bge.autotune.beta_roughness`
   - **Disabled by default** - enable with `bge.enabled: true` when gradients are present
   - Recommended for urban/suburban imaging or when PCC shows color bias across the field
+- `pcc.*` (Photometric Color Calibration, v3.3.6 §6.4)
+  - Includes local annulus background model:
+    - `pcc.background_model` (`median|plane`)
+  - Includes FWHM-adaptive radii controls:
+    - `pcc.radii_mode` (`fixed|auto_fwhm`)
+    - `pcc.aperture_fwhm_mult`
+    - `pcc.annulus_inner_fwhm_mult`
+    - `pcc.annulus_outer_fwhm_mult`
+    - `pcc.min_aperture_px`
 
 ## Profiles
 

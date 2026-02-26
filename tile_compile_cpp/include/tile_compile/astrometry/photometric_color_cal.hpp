@@ -19,6 +19,7 @@ struct StarPhotometry {
     double px, py;            // pixel position
     double flux_r, flux_g, flux_b;  // instrumental flux
     double cat_r, cat_g, cat_b;     // catalog synthetic flux
+    double quality_weight;    // optional tile-quality-based weight
     float  mag;               // catalog magnitude
     bool   valid;             // true if measurement is usable
 };
@@ -32,6 +33,26 @@ struct PCCConfig {
     double mag_bright_limit   = 6.0;   // brightest (avoid saturation)
     int    min_stars          = 10;    // minimum stars for reliable fit
     double sigma_clip         = 2.5;   // sigma clipping for outlier rejection
+
+    // Local annulus background model
+    std::string background_model = "plane"; // median | plane
+
+    // Adaptive radii controls (resolved in runner for auto_fwhm)
+    std::string radii_mode = "auto_fwhm"; // fixed | auto_fwhm
+    double aperture_fwhm_mult = 1.8;
+    double annulus_inner_fwhm_mult = 3.0;
+    double annulus_outer_fwhm_mult = 5.0;
+    double min_aperture_px = 4.0;
+
+    // Optional tile-quality hints for robust star weighting.
+    bool use_tile_quality_weighting = false;
+    TileGrid tile_grid;
+    std::vector<TileMetrics> tile_metrics;
+    float tile_quality_kappa = 0.25f;
+    float tile_structure_ref = 2.0f;
+    float tile_structure_reject = 8.0f;
+    float tile_weight_min = 0.25f;
+    float tile_weight_max = 2.0f;
 };
 
 // PCC result

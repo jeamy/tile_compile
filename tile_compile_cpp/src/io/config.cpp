@@ -478,6 +478,22 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (f["rbf_epsilon"])
         cfg.bge.fit.rbf_epsilon = f["rbf_epsilon"].as<float>();
     }
+
+    if (b["autotune"]) {
+      auto a = b["autotune"];
+      if (a["enabled"])
+        cfg.bge.autotune.enabled = a["enabled"].as<bool>();
+      if (a["max_evals"])
+        cfg.bge.autotune.max_evals = a["max_evals"].as<int>();
+      if (a["holdout_fraction"])
+        cfg.bge.autotune.holdout_fraction = a["holdout_fraction"].as<float>();
+      if (a["alpha_flatness"])
+        cfg.bge.autotune.alpha_flatness = a["alpha_flatness"].as<float>();
+      if (a["beta_roughness"])
+        cfg.bge.autotune.beta_roughness = a["beta_roughness"].as<float>();
+      if (a["strategy"])
+        cfg.bge.autotune.strategy = a["strategy"].as<std::string>();
+    }
   }
 
   if (node["pcc"]) {
@@ -500,6 +516,18 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.pcc.min_stars = p["min_stars"].as<int>();
     if (p["sigma_clip"])
       cfg.pcc.sigma_clip = p["sigma_clip"].as<float>();
+    if (p["background_model"])
+      cfg.pcc.background_model = p["background_model"].as<std::string>();
+    if (p["radii_mode"])
+      cfg.pcc.radii_mode = p["radii_mode"].as<std::string>();
+    if (p["aperture_fwhm_mult"])
+      cfg.pcc.aperture_fwhm_mult = p["aperture_fwhm_mult"].as<float>();
+    if (p["annulus_inner_fwhm_mult"])
+      cfg.pcc.annulus_inner_fwhm_mult = p["annulus_inner_fwhm_mult"].as<float>();
+    if (p["annulus_outer_fwhm_mult"])
+      cfg.pcc.annulus_outer_fwhm_mult = p["annulus_outer_fwhm_mult"].as<float>();
+    if (p["min_aperture_px"])
+      cfg.pcc.min_aperture_px = p["min_aperture_px"].as<float>();
     if (p["siril_catalog_dir"])
       cfg.pcc.siril_catalog_dir = p["siril_catalog_dir"].as<std::string>();
   }
@@ -776,6 +804,33 @@ YAML::Node Config::to_yaml() const {
   node["astrometry"]["astap_data_dir"] = astrometry.astap_data_dir;
   node["astrometry"]["search_radius"] = astrometry.search_radius;
 
+  node["bge"]["enabled"] = bge.enabled;
+  node["bge"]["sample_quantile"] = bge.sample_quantile;
+  node["bge"]["structure_thresh_percentile"] = bge.structure_thresh_percentile;
+  node["bge"]["min_tiles_per_cell"] = bge.min_tiles_per_cell;
+  node["bge"]["mask"]["star_dilate_px"] = bge.mask.star_dilate_px;
+  node["bge"]["mask"]["sat_dilate_px"] = bge.mask.sat_dilate_px;
+  node["bge"]["grid"]["N_g"] = bge.grid.N_g;
+  node["bge"]["grid"]["G_min_px"] = bge.grid.G_min_px;
+  node["bge"]["grid"]["G_max_fraction"] = bge.grid.G_max_fraction;
+  node["bge"]["grid"]["insufficient_cell_strategy"] = bge.grid.insufficient_cell_strategy;
+  node["bge"]["fit"]["method"] = bge.fit.method;
+  node["bge"]["fit"]["robust_loss"] = bge.fit.robust_loss;
+  node["bge"]["fit"]["huber_delta"] = bge.fit.huber_delta;
+  node["bge"]["fit"]["irls_max_iterations"] = bge.fit.irls_max_iterations;
+  node["bge"]["fit"]["irls_tolerance"] = bge.fit.irls_tolerance;
+  node["bge"]["fit"]["polynomial_order"] = bge.fit.polynomial_order;
+  node["bge"]["fit"]["rbf_phi"] = bge.fit.rbf_phi;
+  node["bge"]["fit"]["rbf_mu_factor"] = bge.fit.rbf_mu_factor;
+  node["bge"]["fit"]["rbf_lambda"] = bge.fit.rbf_lambda;
+  node["bge"]["fit"]["rbf_epsilon"] = bge.fit.rbf_epsilon;
+  node["bge"]["autotune"]["enabled"] = bge.autotune.enabled;
+  node["bge"]["autotune"]["max_evals"] = bge.autotune.max_evals;
+  node["bge"]["autotune"]["holdout_fraction"] = bge.autotune.holdout_fraction;
+  node["bge"]["autotune"]["alpha_flatness"] = bge.autotune.alpha_flatness;
+  node["bge"]["autotune"]["beta_roughness"] = bge.autotune.beta_roughness;
+  node["bge"]["autotune"]["strategy"] = bge.autotune.strategy;
+
   node["pcc"]["enabled"] = pcc.enabled;
   node["pcc"]["source"] = pcc.source;
   node["pcc"]["mag_limit"] = pcc.mag_limit;
@@ -785,6 +840,12 @@ YAML::Node Config::to_yaml() const {
   node["pcc"]["annulus_outer_px"] = pcc.annulus_outer_px;
   node["pcc"]["min_stars"] = pcc.min_stars;
   node["pcc"]["sigma_clip"] = pcc.sigma_clip;
+  node["pcc"]["background_model"] = pcc.background_model;
+  node["pcc"]["radii_mode"] = pcc.radii_mode;
+  node["pcc"]["aperture_fwhm_mult"] = pcc.aperture_fwhm_mult;
+  node["pcc"]["annulus_inner_fwhm_mult"] = pcc.annulus_inner_fwhm_mult;
+  node["pcc"]["annulus_outer_fwhm_mult"] = pcc.annulus_outer_fwhm_mult;
+  node["pcc"]["min_aperture_px"] = pcc.min_aperture_px;
   node["pcc"]["siril_catalog_dir"] = pcc.siril_catalog_dir;
 
   node["stacking"]["method"] = stacking.method;
@@ -1082,6 +1143,56 @@ void Config::validate() const {
   }
   if (reconstruction.window_function != "hanning") {
     throw ValidationError("reconstruction.window_function must be 'hanning'");
+  }
+
+  if (bge.sample_quantile <= 0.0f || bge.sample_quantile > 0.5f) {
+    throw ValidationError("bge.sample_quantile must be in (0,0.5]");
+  }
+  if (bge.structure_thresh_percentile < 0.0f ||
+      bge.structure_thresh_percentile > 1.0f) {
+    throw ValidationError("bge.structure_thresh_percentile must be in [0,1]");
+  }
+  if (bge.min_tiles_per_cell < 1) {
+    throw ValidationError("bge.min_tiles_per_cell must be >= 1");
+  }
+  if (bge.grid.N_g < 1 || bge.grid.G_min_px < 1 ||
+      bge.grid.G_max_fraction <= 0.0f || bge.grid.G_max_fraction > 1.0f) {
+    throw ValidationError("bge.grid parameters are out of range");
+  }
+  if (bge.fit.irls_max_iterations < 1 || bge.fit.irls_tolerance <= 0.0f ||
+      bge.fit.huber_delta <= 0.0f || bge.fit.rbf_mu_factor <= 0.0f ||
+      bge.fit.rbf_lambda <= 0.0f || bge.fit.rbf_epsilon <= 0.0f) {
+    throw ValidationError("bge.fit parameters are out of range");
+  }
+  if (bge.autotune.max_evals < 1 ||
+      bge.autotune.holdout_fraction < 0.05f ||
+      bge.autotune.holdout_fraction > 0.50f ||
+      bge.autotune.alpha_flatness < 0.0f ||
+      bge.autotune.beta_roughness < 0.0f) {
+    throw ValidationError("bge.autotune parameters are out of range");
+  }
+  if (bge.autotune.strategy != "conservative" &&
+      bge.autotune.strategy != "extended") {
+    throw ValidationError(
+        "bge.autotune.strategy must be 'conservative' or 'extended'");
+  }
+
+  if (pcc.aperture_radius_px <= 0.0f || pcc.annulus_inner_px <= 0.0f ||
+      pcc.annulus_outer_px <= 0.0f) {
+    throw ValidationError("pcc aperture and annulus radii must be > 0");
+  }
+  if (pcc.min_stars < 3 || pcc.sigma_clip <= 0.0f) {
+    throw ValidationError("pcc.min_stars must be >= 3 and sigma_clip > 0");
+  }
+  if (pcc.background_model != "median" && pcc.background_model != "plane") {
+    throw ValidationError("pcc.background_model must be 'median' or 'plane'");
+  }
+  if (pcc.radii_mode != "fixed" && pcc.radii_mode != "auto_fwhm") {
+    throw ValidationError("pcc.radii_mode must be 'fixed' or 'auto_fwhm'");
+  }
+  if (pcc.aperture_fwhm_mult <= 0.0f || pcc.annulus_inner_fwhm_mult <= 0.0f ||
+      pcc.annulus_outer_fwhm_mult <= 0.0f || pcc.min_aperture_px <= 0.0f) {
+    throw ValidationError("pcc adaptive radii parameters must be > 0");
   }
 
   if (stacking.method != "average" && stacking.method != "rej") {

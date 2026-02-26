@@ -958,11 +958,22 @@ Astrometry solving settings.
 
 BGE removes large-scale background gradients (light pollution, moonlight, airglow) **before** photometric color calibration to avoid color bias from spectrally non-uniform gradients.
 
-**All BGE parameters:** See German reference for complete documentation. Key parameters:
+**Implementation note (v3.3.6):** BGE directly uses tile-quality data from `LOCAL_METRICS` for sample selection/weighting:
+- `type` + `star_count`: star-dense STAR tiles are conservatively excluded or down-weighted.
+- `fwhm`: scales effective star-mask dilation per tile.
+- `quality_score`: applied as an additional tile-sample reliability factor.
+
+**Key BGE parameters:**
 - `bge.enabled`: Enable/disable (default: `false`)
-- `bge.sample_quantile`: Tile background quantile (default: `0.20`)
-- `bge.fit.method`: Surface fitting method - `rbf`, `poly`, `spline` (default: `rbf`)
-- `bge.fit.rbf_phi`: RBF kernel - `multiquadric`, `thinplate`, `gaussian` (default: `multiquadric`)
+- `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
+- `bge.fit.method`: Surface fitting method - `rbf`, `poly`, `spline`, `bicubic` (default `rbf`)
+- `bge.fit.rbf_phi`: RBF kernel - `multiquadric`, `thinplate`, `gaussian` (default `multiquadric`)
+- `bge.autotune.enabled`: Deterministic test-adjust-test autotune (default `false`)
+- `bge.autotune.strategy`: `conservative|extended` (default `conservative`)
+- `bge.autotune.max_evals`: hard cap for tested candidates (minimum `1`, default `24`)
+- `bge.autotune.holdout_fraction`: deterministic CV split fraction (range `[0.05, 0.50]`, default `0.25`)
+- `bge.autotune.alpha_flatness`: objective weight for flatness term (minimum `0`, default `0.25`)
+- `bge.autotune.beta_roughness`: objective weight for roughness term (minimum `0`, default `0.10`)
 
 **Recommendation:** Enable with `bge.enabled: true` when gradients are visible (urban light pollution, moonlight) or when PCC shows color shifts across the field.
 
@@ -971,6 +982,11 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 ## 18. PCC
 
 Photometric Color Calibration settings.
+
+**Implementation note (v3.3.6):** If tile metrics and tile geometry are available and size-consistent, PCC automatically uses them for robust per-star weighting:
+- `quality_score`: exponential per-star weight factor (tile-based).
+- `gradient_energy/noise`: structure penalty and reject for highly structured tiles.
+- `star_count`: mild down-weighting for very star-dense tiles.
 
 ### `pcc.enabled`
 
@@ -1036,6 +1052,37 @@ Photometric Color Calibration settings.
 | **Default** | `2.5` |
 
 **Purpose:** Outlier rejection threshold in PCC fitting.
+
+### `pcc.background_model`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `median`, `plane` |
+| **Default** | `"plane"` |
+
+**Purpose:** Local sky-annulus background model for stellar photometry (`plane` recommended under gradients, fallback to `median` if plane fit fails).
+
+### `pcc.radii_mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `fixed`, `auto_fwhm` |
+| **Default** | `"auto_fwhm"` |
+
+**Purpose:** Radius handling mode. `auto_fwhm` derives aperture/annulus radii from seeing FWHM using the multipliers below.
+
+### `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`
+
+| Key | Type | Default |
+|-----|------|---------|
+| `pcc.aperture_fwhm_mult` | number (>0) | `1.8` |
+| `pcc.annulus_inner_fwhm_mult` | number (>0) | `3.0` |
+| `pcc.annulus_outer_fwhm_mult` | number (>0) | `5.0` |
+| `pcc.min_aperture_px` | number (>0) | `4.0` |
+
+**Purpose:** Conservative FWHM-adaptive radius controls (v3.3.6 §6.4.2).
 
 ### `pcc.siril_catalog_dir`
 

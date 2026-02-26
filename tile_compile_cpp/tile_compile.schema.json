@@ -736,8 +736,191 @@
           "type": "number",
           "exclusiveMinimum": 0
         },
+        "background_model": {
+          "type": "string",
+          "enum": [
+            "median",
+            "plane"
+          ]
+        },
+        "radii_mode": {
+          "type": "string",
+          "enum": [
+            "fixed",
+            "auto_fwhm"
+          ]
+        },
+        "aperture_fwhm_mult": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "annulus_inner_fwhm_mult": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "annulus_outer_fwhm_mult": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "min_aperture_px": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
         "siril_catalog_dir": {
           "type": "string"
+        }
+      }
+    },
+    "bge": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "autotune": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "strategy": {
+              "type": "string",
+              "enum": [
+                "conservative",
+                "extended"
+              ]
+            },
+            "max_evals": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "holdout_fraction": {
+              "type": "number",
+              "minimum": 0.05,
+              "maximum": 0.5
+            },
+            "alpha_flatness": {
+              "type": "number",
+              "minimum": 0
+            },
+            "beta_roughness": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "sample_quantile": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 0.5
+        },
+        "structure_thresh_percentile": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_tiles_per_cell": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mask": {
+          "type": "object",
+          "properties": {
+            "star_dilate_px": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sat_dilate_px": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "grid": {
+          "type": "object",
+          "properties": {
+            "N_g": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "G_min_px": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "G_max_fraction": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            },
+            "insufficient_cell_strategy": {
+              "type": "string",
+              "enum": [
+                "discard",
+                "nearest",
+                "radius_expand"
+              ]
+            }
+          }
+        },
+        "fit": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "enum": [
+                "poly",
+                "spline",
+                "bicubic",
+                "rbf"
+              ]
+            },
+            "robust_loss": {
+              "type": "string",
+              "enum": [
+                "huber",
+                "tukey"
+              ]
+            },
+            "huber_delta": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "irls_max_iterations": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "irls_tolerance": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "polynomial_order": {
+              "type": "integer",
+              "enum": [
+                2,
+                3
+              ]
+            },
+            "rbf_phi": {
+              "type": "string",
+              "enum": [
+                "thinplate",
+                "multiquadric",
+                "gaussian"
+              ]
+            },
+            "rbf_mu_factor": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "rbf_lambda": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "rbf_epsilon": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
         }
       }
     },

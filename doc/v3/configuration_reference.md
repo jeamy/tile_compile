@@ -1449,6 +1449,11 @@ Tile-basierte Rekonstruktion (Phase 7: TILE_RECONSTRUCTION). Diese Einstellungen
 
 BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht, Airglow) **vor** der photometrischen Farbkalibrierung, um Farbverzerrungen durch spektral ungleichmäßige Gradienten zu vermeiden.
 
+**Implementationshinweis (v3.3.6):** BGE nutzt Tile-Qualitätsdaten aus `LOCAL_METRICS` direkt für die Sample-Selektion/-Gewichtung:
+- `type` + `star_count`: Sternreiche STAR-Tiles werden konservativ ausgeschlossen bzw. abgewertet.
+- `fwhm`: skaliert die effektive Sternmasken-Dilatation pro Tile.
+- `quality_score`: geht als zusätzlicher Gewichtungsfaktor in die Tile-Sample-Relevanz ein.
+
 ### `bge.enabled`
 
 | Eigenschaft | Wert |
@@ -1662,9 +1667,73 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 
 **Zweck:** Numerische Stabilisierung für Thin-plate RBF bei d=0 (v3.3 §6.3.7).
 
+### `bge.autotune.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert deterministisches konservatives Auto-Tuning von BGE (v3.3.6 §6.3.7).
+
+### `bge.autotune.strategy`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `conservative`, `extended` |
+| **Default** | `"conservative"` |
+
+**Zweck:** Umfang des Kandidatenraums fuer Auto-Tuning.
+
+### `bge.autotune.max_evals`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Default** | `24` |
+
+**Zweck:** Harte Obergrenze getesteter Parameter-Kandidaten.
+
+### `bge.autotune.holdout_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Bereich** | `[0.05, 0.50]` |
+| **Default** | `0.25` |
+
+**Zweck:** Deterministischer Validierungsanteil fuer `E_cv` im Ziel `J`.
+
+### `bge.autotune.alpha_flatness`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Minimum** | 0 |
+| **Default** | `0.25` |
+
+**Zweck:** Gewichtung des Flatness-Terms `E_flat` in `J`.
+
+### `bge.autotune.beta_roughness`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Minimum** | 0 |
+| **Default** | `0.10` |
+
+**Zweck:** Gewichtung des Roughness-Terms `E_rough` in `J`.
+
 ---
 
 ## 18. PCC
+
+**Implementationshinweis (v3.3.6):** Wenn Tile-Metriken und Tile-Grid verfügbar und konsistent sind, nutzt PCC diese automatisch zur robusten Sterngewichtung:
+- `quality_score`: exponentielle Gewichtung pro Stern (Tile-basiert).
+- `gradient_energy/noise`: Struktur-Penalty und Reject für stark strukturierte Tiles.
+- `star_count`: leichte Abwertung sehr sternreicher Tiles.
 
 ### `pcc.enabled`
 
@@ -1732,6 +1801,43 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Typ** | number |
 | **Minimum** | >0 |
 | **Default** | `2.5` |
+
+---
+
+### `pcc.background_model`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `median`, `plane` |
+| **Default** | `"plane"` |
+
+**Zweck:** Lokales Annulus-Hintergrundmodell fuer Sternphotometrie (`plane` empfohlen bei Gradienten).
+
+---
+
+### `pcc.radii_mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `fixed`, `auto_fwhm` |
+| **Default** | `"auto_fwhm"` |
+
+**Zweck:** Radiusmodus fuer Apertur/Annulus (`auto_fwhm` = adaptive Radien aus Seeing-FWHM).
+
+---
+
+### `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`
+
+| Key | Typ | Default | Constraint |
+|-----|-----|---------|------------|
+| `pcc.aperture_fwhm_mult` | number | `1.8` | >0 |
+| `pcc.annulus_inner_fwhm_mult` | number | `3.0` | >0 |
+| `pcc.annulus_outer_fwhm_mult` | number | `5.0` | >0 |
+| `pcc.min_aperture_px` | number | `4.0` | >0 |
+
+**Zweck:** Konservative Parameter fuer FWHM-adaptive PCC-Radien (v3.3.6 §6.4.2).
 
 ---
 
