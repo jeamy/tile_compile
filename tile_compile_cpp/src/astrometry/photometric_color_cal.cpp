@@ -746,14 +746,23 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     double kw_b = compress_deviation(std::exp(d_bg));
 
     // Guardrails relative to G=1: cap R and B deviations.
-    constexpr double k_min = 0.85;
-    constexpr double k_max = 1.20;
+    // Tighten bounds when robust scatter is high to avoid chroma runaway.
+    const double dev_max = std::max(dev_rg, dev_bg);
+    double k_max = 1.20;
+    if (dev_max > 0.30) {
+        k_max = 1.08;
+    } else if (dev_max > 0.20) {
+        k_max = 1.12;
+    }
+    const double k_min = 1.0 / k_max;
     kw_r = std::clamp(kw_r, k_min, k_max);
     kw_b = std::clamp(kw_b, k_min, k_max);
 
     std::cerr << "[PCC] Log-chroma deltas: d_rg=" << d_rg << " (dev=" << dev_rg << ")"
               << " d_bg=" << d_bg << " (dev=" << dev_bg << ")"
               << " stars=" << d_rg_vec.size() << std::endl;
+    std::cerr << "[PCC] Guardrail bounds: min=" << k_min
+              << " max=" << k_max << std::endl;
     if (!w_rg_vec.empty()) {
         double w_sum = 0.0;
         double w_min = std::numeric_limits<double>::infinity();

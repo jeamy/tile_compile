@@ -316,8 +316,10 @@ Fortsetzungsmodus (Resume):
 ```bash
 ./tile_compile_runner resume \
   --run-dir /path/to/runs/<run_id> \
-  --from-phase PCC
+  --from-phase BGE
 ```
+
+Unterstützte Resume-Phasen: `ASTROMETRY`, `BGE`, `PCC`.
 
 ### CLI Scan (Frame-Erkennung)
 

@@ -11,6 +11,8 @@ namespace {
 
 constexpr float kTiny = 1.0e-12f;
 constexpr float kMinUsableTileFraction = 0.05f;
+constexpr float kMinValidSampleFractionForApply = 0.30f;
+constexpr int kMinValidSamplesForApply = 96;
 
 float clamp01(float v) { return std::max(0.0f, std::min(1.0f, v)); }
 
@@ -250,8 +252,9 @@ std::vector<TileBGSample> extract_tile_background_samples(
         sample.y = tile.y + tile.height / 2.0f;
         sample.valid = false;
 
-        // Very star-dense tiles are weak background candidates.
-        if (tm.type == TileType::STAR && tm.star_count >= 2) {
+        // Extremely star-dense STAR tiles are weak background candidates.
+        // Keep moderately populated STAR tiles to avoid over-pruning in rich fields.
+        if (tm.type == TileType::STAR && tm.star_count >= 16) {
             samples.push_back(sample);
             continue;
         }
@@ -1295,6 +1298,20 @@ bool apply_background_extraction(
         }
         ch_diag.sample_bg_stats = stats_from_values(ch_diag.sample_bg_values);
         ch_diag.sample_weight_stats = stats_from_values(ch_diag.sample_weight_values);
+
+        const int n_total_samples = std::max(1, ch_diag.tile_samples_total);
+        const float valid_fraction =
+            static_cast<float>(ch_diag.tile_samples_valid) /
+            static_cast<float>(n_total_samples);
+        if (ch_diag.tile_samples_valid < kMinValidSamplesForApply ||
+            valid_fraction < kMinValidSampleFractionForApply) {
+            std::cerr << "[BGE]   Warning: insufficient robust tile samples for channel "
+                      << channel_name << " (" << ch_diag.tile_samples_valid << "/"
+                      << ch_diag.tile_samples_total << ", frac=" << valid_fraction
+                      << "), skipping channel" << std::endl;
+            if (diagnostics != nullptr) diagnostics->channels.push_back(std::move(ch_diag));
+            continue;
+        }
         
         // Aggregate to coarse grid (v3.3 §6.3.3)
         auto grid_cells = aggregate_to_coarse_grid(tile_samples, W, H, channel_grid_spacing, channel_cfg);

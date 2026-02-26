@@ -70,11 +70,11 @@ int main(int argc, char *argv[]) {
   run_cmd->add_flag("--stdin", config_from_stdin,
                     "Read config YAML from stdin (use with --config -)");
 
-  auto resume_cmd = app.add_subcommand("resume", "Resume an existing run (currently PCC-only)");
+  auto resume_cmd = app.add_subcommand("resume", "Resume an existing run (ASTROMETRY/BGE/PCC)");
   resume_cmd->add_option("--run-dir", resume_run_dir, "Existing run directory")
       ->required();
   resume_cmd->add_option("--from-phase", resume_from_phase,
-                         "Phase to resume from: ASTROMETRY|PCC")
+                         "Phase to resume from: ASTROMETRY|BGE|PCC")
       ->default_val("PCC");
 
   CLI11_PARSE(app, argc, argv);

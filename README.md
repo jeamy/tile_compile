@@ -316,8 +316,10 @@ Resume mode:
 ```bash
 ./tile_compile_runner resume \
   --run-dir /path/to/runs/<run_id> \
-  --from-phase PCC
+  --from-phase BGE
 ```
+
+Supported resume phases: `ASTROMETRY`, `BGE`, `PCC`.
 
 ### CLI Scan
 
