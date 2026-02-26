@@ -474,42 +474,24 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     const double d_rg = robust_mean(d_rg_vec, config.sigma_clip, dev_rg);
     const double d_bg = robust_mean(d_bg_vec, config.sigma_clip, dev_bg);
 
-    double kw_r = std::exp(d_rg);
-    double kw_g = 1.0;
-    double kw_b = std::exp(d_bg);
-
-    // Normalize by geometric mean (preserve overall luminance scale).
-    const double gmean = std::cbrt(kw_r * kw_g * kw_b);
-    if (std::isfinite(gmean) && gmean > 0.0) {
-        kw_r /= gmean;
-        kw_g /= gmean;
-        kw_b /= gmean;
-    }
-
-    // Conservative chroma compression toward identity.
-    // This reduces over-aggressive global casts on difficult fields
-    constexpr double chroma_strength = 0.65;
-    auto compress_scale = [&](double k) {
-        const double ks = std::max(k, 1e-6);
-        return std::exp(std::log(ks) * chroma_strength);
+    // G is the luminance anchor (G=1.0), matching Siril's get_pcc_white_balance_coeffs.
+    // R and B are scaled relative to G from the log-chromaticity deltas.
+    // Chroma compression toward identity is applied only to R and B deviations from 1.
+    constexpr double chroma_strength = 0.70;  // 1.0 = full correction, 0.0 = no correction
+    auto compress_deviation = [&](double raw_scale) {
+        // compress the log-delta toward zero, keeping G-anchor at 1
+        const double log_k = std::log(std::max(raw_scale, 1e-9));
+        return std::exp(log_k * chroma_strength);
     };
-    kw_r = compress_scale(kw_r);
-    kw_g = compress_scale(kw_g);
-    kw_b = compress_scale(kw_b);
 
-    // Re-normalize by geometric mean after compression.
-    const double gmean2 = std::cbrt(kw_r * kw_g * kw_b);
-    if (std::isfinite(gmean2) && gmean2 > 0.0) {
-        kw_r /= gmean2;
-        kw_g /= gmean2;
-        kw_b /= gmean2;
-    }
+    double kw_r = compress_deviation(std::exp(d_rg));
+    double kw_g = 1.0;   // G is always the anchor
+    double kw_b = compress_deviation(std::exp(d_bg));
 
-    // Guardrails: prevent extreme global color casts from pathological fields.
-    constexpr double k_min = 0.88;
-    constexpr double k_max = 1.12;
+    // Guardrails relative to G=1: cap R and B deviations.
+    constexpr double k_min = 0.85;
+    constexpr double k_max = 1.20;
     kw_r = std::clamp(kw_r, k_min, k_max);
-    kw_g = std::clamp(kw_g, k_min, k_max);
     kw_b = std::clamp(kw_b, k_min, k_max);
 
     std::cerr << "[PCC] Log-chroma deltas: d_rg=" << d_rg << " (dev=" << dev_rg << ")"
