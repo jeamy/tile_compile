@@ -1,7 +1,7 @@
 # COMMON_OVERLAP + SYNTHETIC_FRAMES + STACKING + VALIDATION + DEBAYER + ASTROMETRY + BGE + PCC — Finales Stacking und Output
 
 > **C++ Implementierung:** `runner_pipeline.cpp`, `runner_phase_registration.cpp` (aktueller v3.3 Stand)
-> **Phase-Enums:** `COMMON_OVERLAP` (7), `SYNTHETIC_FRAMES` (11), `STACKING` (12), *Validation* (kein Enum), `DEBAYER` (13), `ASTROMETRY` (14), **BGE** (kein Enum-Block, optional, vor PCC), `PCC` (15), `DONE` (16)
+> **Phase-Enums:** `COMMON_OVERLAP` (7), `SYNTHETIC_FRAMES` (11), `STACKING` (12), *Validation* (kein Enum), `DEBAYER` (13), `ASTROMETRY` (14), `BGE` (15, optional), `PCC` (16), `DONE` (17)
 
 ## Übersicht
 
@@ -56,20 +56,20 @@ Die letzten Phasen der Pipeline arbeiten auf den vorregistrierten/prewarped Fram
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
-│  BGE                                                 │
+│  BGE (Phase 15)                                      │
 │  • Background Gradient Extraction vor PCC            │
 │  • Direkte Subtraktion auf R/G/B                     │
 │  • artifacts/bge.json (Diagnostik)                   │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
-│  PCC (Phase 15)                                      │
+│  PCC (Phase 16)                                      │
 │  • Photometric Color Calibration                     │
 │  • pcc_R/G/B.fit + stacked_rgb_pcc.fits              │
 └──────────────────────┬───────────────────────────────┘
                        │
 ┌──────────────────────▼───────────────────────────────┐
-│  DONE (Phase 16)                                     │
+│  DONE (Phase 17)                                     │
 │  • run_end(ok) oder run_end(validation_failed)       │
 └──────────────────────────────────────────────────────┘
 ```
@@ -352,6 +352,7 @@ if (detected_mode == ColorMode::OSC) {
 | `reconstructed_B.fit` | OSC | Blauer Kanal |
 | `stacked_rgb.fits` | OSC | RGB-Cube (NAXIS3=3) |
 | `stacked_rgb_solve.fits` | OSC | Lineares RGB für Astrometrie/WCS |
+| `stacked_rgb_bge.fits` | OSC | BGE-Output vor PCC (direkter Vergleichspfad) |
 | `stacked_rgb_pcc.fits` | OSC | PCC-kalibrierter RGB-Cube |
 | `pcc_R.fit` | OSC | PCC-kalibrierter R-Kanal |
 | `pcc_G.fit` | OSC | PCC-kalibrierter G-Kanal |
@@ -391,7 +392,7 @@ Artifact:
   - Grid-Zellen inkl. Hintergrundwerten
   - Residuenstatistiken und Werteverteilungen
 
-## Phase 15: PCC
+## Phase 16: PCC
 
 PCC läuft nur, wenn:
 
@@ -408,7 +409,7 @@ Outputs bei Erfolg:
 
 Bei fehlenden Katalogsternen oder Fit-Problemen wird die Phase als `skipped` beendet.
 
-## Phase 16: DONE
+## Phase 17: DONE
 
 ```cpp
 emitter.phase_start(run_id, Phase::DONE, "DONE", log_file);

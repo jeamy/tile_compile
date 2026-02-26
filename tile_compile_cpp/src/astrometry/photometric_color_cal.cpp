@@ -583,21 +583,37 @@ void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         }
     }
 
+    float shadow_lo = 0.0f;
+    float shadow_hi = 0.0f;
     float blend_lo = 0.0f;
     float blend_hi = 0.0f;
     if (signal_luma.size() >= 32) {
         std::sort(signal_luma.begin(), signal_luma.end());
+        shadow_lo = percentile_sorted(signal_luma, 0.01f);
+        shadow_hi = percentile_sorted(signal_luma, 0.20f);
         blend_lo = percentile_sorted(signal_luma, 0.90f);
         blend_hi = percentile_sorted(signal_luma, 0.995f);
+        if (!(std::isfinite(shadow_lo) && std::isfinite(shadow_hi) && shadow_hi > shadow_lo)) {
+            shadow_lo = 0.0f;
+            shadow_hi = 0.0f;
+        }
         if (!(std::isfinite(blend_lo) && std::isfinite(blend_hi) && blend_hi > blend_lo)) {
             blend_lo = 0.0f;
             blend_hi = 0.0f;
         }
     }
 
+    std::cerr << "[PCC] Shadow blend thresholds: lo=" << shadow_lo
+              << " hi=" << shadow_hi
+              << " samples=" << signal_luma.size() << std::endl;
     std::cerr << "[PCC] Highlight blend thresholds: lo=" << blend_lo
               << " hi=" << blend_hi
               << " samples=" << signal_luma.size() << std::endl;
+
+    // Also attenuate in very low-signal regions to avoid tinting background
+    // chroma noise/gradients into red-green clouding.
+    constexpr float shadow_atten_floor = 0.10f;
+    std::cerr << "[PCC] Shadow attenuation floor=" << shadow_atten_floor << std::endl;
 
     // Keep a minimum correction in highlights to avoid swinging too far back to
     // raw sensor response (which can reintroduce greenish bias in bright cores).
@@ -627,14 +643,23 @@ void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             float db = b0 - bg_b;
 
             const float luma = std::max(0.0f, 0.2126f * dr + 0.7152f * dg + 0.0722f * db);
-            float atten = 1.0f;
+            float atten_shadows = 1.0f;
+            if (shadow_hi > shadow_lo && luma < shadow_hi) {
+                float t = (luma - shadow_lo) / (shadow_hi - shadow_lo);
+                t = std::clamp(t, 0.0f, 1.0f);
+                const float s = t * t * (3.0f - 2.0f * t);
+                atten_shadows = shadow_atten_floor + (1.0f - shadow_atten_floor) * s;
+            }
+
+            float atten_highlights = 1.0f;
             if (blend_hi > blend_lo && luma > blend_lo) {
                 float t = (luma - blend_lo) / (blend_hi - blend_lo);
                 t = std::clamp(t, 0.0f, 1.0f);
                 // smoothstep
                 const float s = t * t * (3.0f - 2.0f * t);
-                atten = 1.0f - (1.0f - atten_floor) * s;
+                atten_highlights = 1.0f - (1.0f - atten_floor) * s;
             }
+            const float atten = std::min(atten_shadows, atten_highlights);
 
             const float m00 = static_cast<float>(1.0 + atten * (m[0][0] - 1.0));
             const float m01 = static_cast<float>(atten * m[0][1]);

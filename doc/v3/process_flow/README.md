@@ -29,16 +29,16 @@ Quelle der Phasenreihenfolge: `tile_compile::Phase` in `include/tile_compile/cor
 | 12 | `STACKING` | Finales lineares Stacking (inkl. robuster Pixel-Ausreißerbehandlung) |
 | 13 | `DEBAYER` | OSC-Debayering und RGB-Ausgabe (bei MONO: pass-through) |
 | 14 | `ASTROMETRY` | Plate Solving / WCS |
-| -  | `BGE` | Optionale Background Gradient Extraction auf RGB vor PCC |
-| 15 | `PCC` | Photometric Color Calibration |
-| 16 | `DONE` | Abschlussstatus (`ok` oder `validation_failed`) |
+| 15 | `BGE` | Optionale Background Gradient Extraction auf RGB vor PCC |
+| 16 | `PCC` | Photometric Color Calibration |
+| 17 | `DONE` | Abschlussstatus (`ok` oder `validation_failed`) |
 
 Hinweis: **Validation** ist ein Qualitätsblock zwischen `STACKING` und `DEBAYER`, aber keine eigene Enum-Phase.
-Hinweis: **BGE** ist ein optionaler Block zwischen `ASTROMETRY` und `PCC`, ebenfalls ohne eigenes Enum.
+Hinweis: **BGE** ist eine optionale **eigene Phase** zwischen `ASTROMETRY` und `PCC`.
 
 ## Dokumenten-Struktur
 
-Die **verbindliche Phasenreihenfolge** ist die oben stehende v3.3-Liste (0..16).
+Die **verbindliche Phasenreihenfolge** ist die oben stehende v3.3-Liste (0..17).
 
 Kurzzuordnung:
 
@@ -46,7 +46,7 @@ Kurzzuordnung:
 - Registrierung/Prewarp → `REGISTRATION`, `PREWARP`
 - Normalisierung + globale/lokale Gewichte + Rekonstruktion → `NORMALIZATION` bis `TILE_RECONSTRUCTION` (inkl. `COMMON_OVERLAP`)
 - Optionaler Full-Mode-Block → `STATE_CLUSTERING`, `SYNTHETIC_FRAMES`
-- Finalisierungspfad → `STACKING`, `DEBAYER`, `ASTROMETRY`, optional `BGE`, `PCC`, `DONE`
+- Finalisierungspfad → `STACKING`, `DEBAYER`, `ASTROMETRY`, `BGE` (optional ausführend, aber eigene Phase), `PCC`, `DONE`
 
 ---
 
@@ -164,19 +164,19 @@ Kurzzuordnung:
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │  BGE                        │
+              │  PHASE 15: BGE              │
               │  • Optional vor PCC         │
               │  • Gradienten-Subtraktion   │
               │  • artifacts/bge.json       │
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │  PHASE 15: PCC              │
+              │  PHASE 16: PCC              │
               │  • Photometrische Farbkal.  │
               └──────────────┬──────────────┘
                              │
               ┌──────────────▼──────────────┐
-              │  PHASE 16: DONE             │
+              │  PHASE 17: DONE             │
               │  • Final status emit        │
               └──────────────┬──────────────┘
                              │
@@ -186,6 +186,7 @@ Kurzzuordnung:
               │  • reconstructed_L.fit      │
               │  • stacked_rgb.fits (OSC)   │
               │  • stacked_rgb_solve.fits   │
+              │  • stacked_rgb_bge.fits     │
               │  • stacked_rgb_pcc.fits     │
               │  • R/G/B .fit (OSC)         │
               │  • 12 artifact JSON files   │
@@ -207,7 +208,7 @@ Kurzzuordnung:
 ## Modi
 
 ### Full/Normal Mode (N ≥ frames_reduced_threshold)
-- Alle Enum-Phasen 0..16 werden durchlaufen
+- Alle Enum-Phasen 0..17 werden durchlaufen
 - State-Clustering aktiv
 - Synthetische Frames werden erzeugt
 - Sigma-Clipping Rejection Stacking
@@ -306,7 +307,7 @@ Jeder Run erzeugt 11 JSON-Artefakt-Dateien in `<run_dir>/artifacts/`:
 | `tile_reconstruction.json` | 9 | Valid-Counts, Mean-CC, Post-Contrast/BG/SNR pro Tile |
 | `state_clustering.json` | 10 | Cluster-Labels, Cluster-Sizes, Methode |
 | `synthetic_frames.json` | 11 | Anzahl synthetische Frames, frames_min/max |
-| `bge.json` | Block vor 15 | Kanalweise BGE-Diagnostik (Samples, Grid-Zellen, Residuen) |
+| `bge.json` | 15 | Kanalweise BGE-Diagnostik (Samples, Grid-Zellen, Residuen) |
 | `validation.json` | 12 | FWHM-Improvement, Tile-Weight-Var, Pattern-Ratio |
 
 ### Report-Generierung und auswertbare Daten

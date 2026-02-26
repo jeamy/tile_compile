@@ -30,8 +30,9 @@ constexpr PhaseInfo METHODIK_V4_PHASES[] = {
     {12, "STACKING", "Finales lineares Stacking"},
     {13, "DEBAYER", "Debayer / Demosaicing"},
     {14, "ASTROMETRY", "Astrometrie (Plate Solve)"},
-    {15, "PCC", "Photometrische Farbkalibrierung"},
-    {16, "DONE", "Abschluss"},
+    {15, "BGE", "Background Gradient Extraction"},
+    {16, "PCC", "Photometrische Farbkalibrierung"},
+    {17, "DONE", "Abschluss"},
 };
 
 constexpr int NUM_PHASES = sizeof(METHODIK_V4_PHASES) / sizeof(METHODIK_V4_PHASES[0]);

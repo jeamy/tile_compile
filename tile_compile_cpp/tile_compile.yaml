@@ -196,21 +196,21 @@ bge:
   enabled: true # Background Gradient Extraction (v3.3 §6.3): entfernt Lichtverschmutzung/Gradienten vor PCC
   
   # Tile-Sampling (v3.3 §6.3.2)
-  sample_quantile: 0.20 # Quantil fuer Tile-Background (0.20 = konservativ, 0.50 = median)
-  structure_thresh_percentile: 0.90 # High-Structure-Tiles ausschliessen (Perzentil ueber E/sigma)
+  sample_quantile: 0.15 # Quantil fuer Tile-Background (0.20 = konservativ, 0.50 = median)
+  structure_thresh_percentile: 0.80 # High-Structure-Tiles ausschliessen (Perzentil ueber E/sigma)
   min_tiles_per_cell: 3 # Mindestanzahl Tiles pro Grid-Cell fuer valide Background-Schaetzung
   
   # Masken (v3.3 §6.3.2a)
   mask:
-    star_dilate_px: 4 # Stern-Maske dilatieren (2-6 px empfohlen)
-    sat_dilate_px: 4 # Saettigungs-Maske dilatieren
+    star_dilate_px: 6 # Stern-Maske dilatieren (2-6 px empfohlen)
+    sat_dilate_px: 6 # Saettigungs-Maske dilatieren
   
   # Coarse Grid (v3.3 §6.3.3, §6.3.8)
   grid:
     N_g: 32 # Ziel-Grid-Aufloesung (kleinste Bildachse / N_g)
     G_min_px: 64 # minimaler Grid-Abstand
     G_max_fraction: 0.25 # maximaler Grid-Abstand als Bruchteil von min(W,H)
-    insufficient_cell_strategy: discard # discard | nearest | radius_expand
+    insufficient_cell_strategy: radius_expand # discard | nearest | radius_expand
   
   # Surface Fitting (v3.3 §6.3.4, §6.3.7)
   fit:
@@ -226,7 +226,7 @@ bge:
     # RBF (wenn method=rbf, v3.3 §6.3.7)
     rbf_phi: multiquadric # thinplate | multiquadric | gaussian
     rbf_mu_factor: 1.0 # mu = rbf_mu_factor * G (Shape-Parameter)
-    rbf_lambda: 1e-6 # Regularisierung (Glaettung)
+    rbf_lambda: 1e-4 # Regularisierung (Glaettung)
     rbf_epsilon: 1e-10 # nur fuer Thin-plate: numerische Stabilisierung bei d=0
 
 pcc:

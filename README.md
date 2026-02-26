@@ -56,9 +56,9 @@ Given a directory of FITS lights, the pipeline can:
 | 12 | STACKING | Final linear stacking |
 | 13 | DEBAYER | OSC demosaic to RGB (MONO pass-through) |
 | 14 | ASTROMETRY | Plate solving / WCS |
-| - | BGE (non-enum block) | Optional RGB background gradient extraction before PCC |
-| 15 | PCC | Photometric color calibration |
-| 16 | DONE | Final status (`ok` or `validation_failed`) |
+| 15 | BGE | Optional RGB background gradient extraction before PCC |
+| 16 | PCC | Photometric color calibration |
+| 17 | DONE | Final status (`ok` or `validation_failed`) |
 
 Detailed phase docs: `doc/v3/process_flow/`
 
@@ -355,6 +355,7 @@ After a successful run (`runs/<run_id>/`):
   - `reconstructed_L.fit`
   - `stacked_rgb.fits` (OSC)
   - `stacked_rgb_solve.fits` / WCS artifacts
+  - `stacked_rgb_bge.fits` (BGE-only snapshot before PCC)
   - `stacked_rgb_pcc.fits`
   - `synthetic_*.fit` (mode-dependent)
 - `artifacts/`
@@ -462,6 +463,14 @@ ctest --output-on-failure
 - Experimental release for testing purposes
 
 ## Changelog
+
+### (2026-02-26)
+
+**BGE Phase Visibility / Comparison Outputs:**
+
+- BGE is now emitted as a dedicated pipeline enum phase (`BGE=15`) between `ASTROMETRY` and `PCC`.
+- GUI phase progress now shows BGE explicitly, including BGE substep progress updates.
+- Added explicit pre-PCC output `outputs/stacked_rgb_bge.fits` for direct BGE-only vs BGE+PCC comparison.
 
 ### (2026-02-25)
 

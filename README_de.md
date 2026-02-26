@@ -56,9 +56,9 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 | 12 | STACKING | Finales lineares Stacking |
 | 13 | DEBAYER | OSC-Demosaicing zu RGB (MONO-Pass-Through) |
 | 14 | ASTROMETRY | Astrometrisches Solving / WCS |
-| - | BGE (kein Enum-Block) | Optionale RGB-Hintergrund-Gradientenentfernung vor PCC |
-| 15 | PCC | Photometrische Farbkalibrierung |
-| 16 | DONE | Finaler Status (`ok` oder `validation_failed`) |
+| 15 | BGE | Optionale RGB-Hintergrund-Gradientenentfernung vor PCC |
+| 16 | PCC | Photometrische Farbkalibrierung |
+| 17 | DONE | Finaler Status (`ok` oder `validation_failed`) |
 
 Detaillierte Phasen-Dokumentation: `doc/v3/process_flow/`
 
@@ -355,6 +355,7 @@ Nach einem erfolgreichen Lauf (`runs/<run_id>/`):
   - `reconstructed_L.fit`
   - `stacked_rgb.fits` (OSC)
   - `stacked_rgb_solve.fits` / WCS-Artefakte
+  - `stacked_rgb_bge.fits` (BGE-only Snapshot vor PCC)
   - `stacked_rgb_pcc.fits`
   - `synthetic_*.fit` (modusabhängig)
 - `artifacts/`
@@ -462,6 +463,14 @@ ctest --output-on-failure
 - Experimentelle Version zu Testzwecken
 
 ## Changelog
+
+### (2026-02-26)
+
+**BGE-Phasensichtbarkeit / Vergleichs-Outputs:**
+
+- BGE wird jetzt als eigene Pipeline-Enum-Phase (`BGE=15`) zwischen `ASTROMETRY` und `PCC` emittiert.
+- Die GUI zeigt BGE explizit in der Phasenanzeige, inklusive BGE-Substep-Progress.
+- Neuer expliziter Pre-PCC-Output `outputs/stacked_rgb_bge.fits` für direkten Vergleich BGE-only vs. BGE+PCC.
 
 ### (2026-02-25)
 

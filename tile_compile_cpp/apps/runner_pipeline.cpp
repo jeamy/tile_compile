@@ -2891,7 +2891,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     // Phase 11.5: BGE (Background Gradient Extraction) - v3.3 §6.3
     // Must run BEFORE PCC to remove gradients that would bias color calibration
-    if (cfg.bge.enabled && have_rgb) {
+    emitter.phase_start(run_id, Phase::BGE, "BGE", log_file);
+
+    if (!cfg.bge.enabled) {
+      emitter.phase_end(run_id, Phase::BGE, "skipped",
+                        {{"reason", "disabled"}}, log_file);
+    } else if (!have_rgb) {
+      emitter.phase_end(run_id, Phase::BGE, "skipped",
+                        {{"reason", "no_rgb_data"}}, log_file);
+    } else {
+      constexpr int bge_progress_total = 4;
+      emitter.phase_progress_counts(run_id, Phase::BGE, 0, bge_progress_total,
+                                    "prepare", "BGE", log_file);
       std::cerr << "[BGE] Starting background gradient extraction (v3.3 §6.3)" << std::endl;
 
       auto bge_value_stats_to_json = [](const image::BGEValueStats &s) {
@@ -3020,6 +3031,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       bool bge_have_bge_grid = !bge_tile_grid.tiles.empty();
       bool bge_have_tile_data = bge_have_local_metrics && bge_have_bge_grid;
       bool bge_metrics_tiles_match = false;
+      emitter.phase_progress_counts(run_id, Phase::BGE, 1, bge_progress_total,
+                                    "collect_tiles", "BGE", log_file);
 
       if (!bge_tile_metrics_cache.empty() && !bge_tile_grid.tiles.empty()) {
         const auto& tile_metrics_for_bge = bge_tile_metrics_cache;
@@ -3055,6 +3068,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                     << bge_tile_grid.tiles.size() << "), skipping BGE"
                     << std::endl;
         } else {
+          emitter.phase_progress_counts(run_id, Phase::BGE, 2, bge_progress_total,
+                                        "fit_apply", "BGE", log_file);
           bool bge_success = image::apply_background_extraction(
               R_out, G_out, B_out,
               tile_metrics_for_bge,
@@ -3110,18 +3125,86 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                {"rbf_epsilon", cfg.bge.fit.rbf_epsilon},
            }},
       };
-      core::write_text(run_dir / "artifacts" / "bge.json", bge_artifact.dump(2));
+      fs::path bge_artifact_path = run_dir / "artifacts" / "bge.json";
+      core::write_text(bge_artifact_path, bge_artifact.dump(2));
+      emitter.phase_progress_counts(run_id, Phase::BGE, 3, bge_progress_total,
+                                    "write_artifact", "BGE", log_file);
+
+      core::json bge_phase_extra = {
+          {"requested", cfg.bge.enabled},
+          {"attempted", bge_diag.attempted},
+          {"success", bge_diag.success},
+          {"have_tile_data", bge_have_tile_data},
+          {"metrics_tiles_match", bge_metrics_tiles_match},
+          {"artifact", bge_artifact_path.string()},
+      };
+      if (!bge_have_tile_data) {
+        bge_phase_extra["reason"] = "no_tile_data";
+      } else if (!bge_metrics_tiles_match) {
+        bge_phase_extra["reason"] = "tile_metric_grid_mismatch";
+      } else if (bge_diag.attempted && !bge_diag.success) {
+        bge_phase_extra["reason"] = "fit_failed";
+      }
+
+      emitter.phase_progress_counts(run_id, Phase::BGE, 4, bge_progress_total,
+                                    "finalize", "BGE", log_file);
+
+      emitter.phase_end(run_id, Phase::BGE,
+                        bge_diag.success ? "ok" : "skipped",
+                        bge_phase_extra, log_file);
     }
 
     // Phase 12: PCC (Photometric Color Calibration)
     emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
 
+    fs::path stacked_rgb_bge_path = run_dir / "outputs" / "stacked_rgb_bge.fits";
+    if (have_rgb) {
+      // Persist explicit pre-PCC snapshot (after BGE/astrometry preparation)
+      // to allow a direct BGE-only vs BGE+PCC comparison.
+      Matrix2Df R_bge_disk = R_out;
+      Matrix2Df G_bge_disk = G_out;
+      Matrix2Df B_bge_disk = B_out;
+      if (cfg.stacking.output_stretch) {
+        float vmin = std::numeric_limits<float>::max();
+        float vmax = std::numeric_limits<float>::lowest();
+        for (auto *ch : {&R_bge_disk, &G_bge_disk, &B_bge_disk}) {
+          for (Eigen::Index k = 0; k < ch->size(); ++k) {
+            float v = ch->data()[k];
+            if (std::isfinite(v) && v > 0.0f) {
+              if (v < vmin) vmin = v;
+              if (v > vmax) vmax = v;
+            }
+          }
+        }
+        float range = vmax - vmin;
+        if (range > 1.0e-6f) {
+          float scale = 65535.0f / range;
+          for (auto *ch : {&R_bge_disk, &G_bge_disk, &B_bge_disk}) {
+            for (Eigen::Index k = 0; k < ch->size(); ++k) {
+              float v = ch->data()[k];
+              if (std::isfinite(v) && v > 0.0f) {
+                ch->data()[k] = (v - vmin) * scale;
+              } else {
+                ch->data()[k] = 0.0f;
+              }
+            }
+          }
+        }
+      }
+      io::write_fits_rgb(stacked_rgb_bge_path,
+                         R_bge_disk, G_bge_disk, B_bge_disk, first_hdr);
+    }
+
     if (!cfg.pcc.enabled) {
       emitter.phase_end(run_id, Phase::PCC, "skipped",
-                        {{"reason", "disabled"}}, log_file);
+                        {{"reason", "disabled"},
+                         {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                        log_file);
     } else if (!have_wcs) {
       emitter.phase_end(run_id, Phase::PCC, "skipped",
-                        {{"reason", "no_wcs"}}, log_file);
+                        {{"reason", "no_wcs"},
+                         {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                        log_file);
     } else if (!have_rgb) {
       emitter.phase_end(run_id, Phase::PCC, "skipped",
                         {{"reason", "no_rgb_data"}}, log_file);
@@ -3191,7 +3274,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         emitter.phase_end(run_id, Phase::PCC, "skipped",
                           {{"reason", "no_catalog_stars"},
                            {"search_radius_deg", search_r},
-                           {"source", source}}, log_file);
+                           {"source", source},
+                           {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                          log_file);
       } else {
         // Build PCC config from pipeline config
         astro::PCCConfig pcc_cfg;
@@ -3258,14 +3343,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"stars_used", result.n_stars_used},
                              {"residual_rms", result.residual_rms},
                              {"matrix", matrix_json},
-                             {"source", used_source}},
+                             {"source", used_source},
+                             {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                             log_file);
         } else {
           emitter.phase_end(run_id, Phase::PCC, "skipped",
                             {{"reason", "fit_failed"},
                              {"error", result.error_message},
                              {"stars_matched", result.n_stars_matched},
-                             {"source", used_source}},
+                             {"source", used_source},
+                             {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                             log_file);
         }
       }

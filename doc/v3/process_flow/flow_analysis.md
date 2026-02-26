@@ -26,7 +26,7 @@ The implementation follows a linear pipeline approach as required by the specifi
 
 Current enum phase sequence (source of truth: `include/tile_compile/core/types.hpp`):
 
-`0 SCAN_INPUT -> 1 REGISTRATION -> 2 PREWARP -> 3 CHANNEL_SPLIT -> 4 NORMALIZATION -> 5 GLOBAL_METRICS -> 6 TILE_GRID -> 7 COMMON_OVERLAP -> 8 LOCAL_METRICS -> 9 TILE_RECONSTRUCTION -> 10 STATE_CLUSTERING -> 11 SYNTHETIC_FRAMES -> 12 STACKING -> 13 DEBAYER -> 14 ASTROMETRY -> 15 PCC -> 16 DONE`
+`0 SCAN_INPUT -> 1 REGISTRATION -> 2 PREWARP -> 3 CHANNEL_SPLIT -> 4 NORMALIZATION -> 5 GLOBAL_METRICS -> 6 TILE_GRID -> 7 COMMON_OVERLAP -> 8 LOCAL_METRICS -> 9 TILE_RECONSTRUCTION -> 10 STATE_CLUSTERING -> 11 SYNTHETIC_FRAMES -> 12 STACKING -> 13 DEBAYER -> 14 ASTROMETRY -> 15 BGE -> 16 PCC -> 17 DONE`
 
 ## 2. Registration Analysis
 
@@ -248,7 +248,7 @@ The PCC approach is mathematically consistent for diagonal color correction in l
 
 ### 8.4 Comparison with Existing Solutions
 
-The approach is comparable to solutions in popular tools like SIRIL, ASTAP, and AstroImageJ and is fully integrated into the runner phases (ASTROMETRY + PCC).
+The approach is comparable to solutions in popular tools like SIRIL, ASTAP, and AstroImageJ and is fully integrated into the runner phases (ASTROMETRY + BGE + PCC).
 
 ## 9. Performance and Scalability
 

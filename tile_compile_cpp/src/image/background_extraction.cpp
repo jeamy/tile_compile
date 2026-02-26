@@ -10,6 +10,7 @@ namespace tile_compile::image {
 namespace {
 
 constexpr float kTiny = 1.0e-12f;
+constexpr float kMinUsableTileFraction = 0.05f;
 
 float clamp01(float v) { return std::max(0.0f, std::min(1.0f, v)); }
 
@@ -359,14 +360,23 @@ std::vector<TileBGSample> extract_tile_background_samples(
             samples.push_back(sample);
             continue;
         }
+
+        const float usable_fraction = static_cast<float>(tile_pixels.size()) /
+                                      static_cast<float>((x1 - x0) * (y1 - y0));
+        if (!(std::isfinite(usable_fraction)) ||
+            usable_fraction < kMinUsableTileFraction) {
+            samples.push_back(sample);
+            continue;
+        }
         
         // Compute quantile (v3.3 §6.3.2b)
-        const size_t usable_pixel_count = tile_pixels.size();
         sample.bg_value = robust_quantile(std::move(tile_pixels), config.sample_quantile);
+        if (!(std::isfinite(sample.bg_value) && sample.bg_value > 0.0f)) {
+            samples.push_back(sample);
+            continue;
+        }
         
         // Compute reliability weight (v3.3 §6.3.2c)
-        const float usable_fraction = static_cast<float>(usable_pixel_count) /
-                                      static_cast<float>((x1 - x0) * (y1 - y0));
         float masked_fraction = 1.0f - usable_fraction;
         sample.weight = std::exp(-2.0f * tile_structure) * (1.0f - masked_fraction);
         sample.weight = std::max(0.01f, std::min(1.0f, sample.weight));
@@ -405,8 +415,40 @@ std::vector<GridCell> aggregate_to_coarse_grid(
     
     // Assign tile samples to grid cells (v3.3 §6.3.3b)
     std::vector<std::vector<TileBGSample>> cell_samples(n_cells_y * n_cells_x);
+
+    // Robustly suppress globally implausible tile background samples before
+    // cell aggregation (e.g., bright-object contamination, near-zero artifacts).
+    std::vector<float> valid_bg_values;
+    valid_bg_values.reserve(tile_samples.size());
+    for (const auto& s : tile_samples) {
+        if (s.valid && std::isfinite(s.bg_value) && s.bg_value > 0.0f) {
+            valid_bg_values.push_back(s.bg_value);
+        }
+    }
+
+    float bg_med = 0.0f;
+    float bg_sigma = 0.0f;
+    bool have_bg_guard = false;
+    if (valid_bg_values.size() >= 16) {
+        bg_med = robust_median(valid_bg_values);
+        const float mad = robust_mad(valid_bg_values, bg_med);
+        bg_sigma = 1.4826f * mad;
+        have_bg_guard = std::isfinite(bg_sigma) && bg_sigma > kTiny;
+    }
+
+    int n_rejected_global_outliers = 0;
     for (const auto& sample : tile_samples) {
         if (!sample.valid) continue;
+        if (!(std::isfinite(sample.bg_value) && sample.bg_value > 0.0f)) continue;
+
+        if (have_bg_guard) {
+            const float lo = bg_med - 6.0f * bg_sigma;
+            const float hi = bg_med + 6.0f * bg_sigma;
+            if (sample.bg_value < lo || sample.bg_value > hi) {
+                ++n_rejected_global_outliers;
+                continue;
+            }
+        }
         
         int cx = static_cast<int>(sample.x / grid_spacing);
         int cy = static_cast<int>(sample.y / grid_spacing);
@@ -415,6 +457,11 @@ std::vector<GridCell> aggregate_to_coarse_grid(
             int cell_idx = cy * n_cells_x + cx;
             cell_samples[cell_idx].push_back(sample);
         }
+    }
+
+    if (n_rejected_global_outliers > 0) {
+        std::cerr << "[BGE]   Rejected global sample outliers: "
+                  << n_rejected_global_outliers << std::endl;
     }
     
     // Aggregate per cell (v3.3 §6.3.3c)
@@ -545,10 +592,10 @@ Matrix2Df fit_rbf_surface(
     const int G = std::max(1, grid_spacing);
     const float mu = std::max(kTiny, config.fit.rbf_mu_factor * static_cast<float>(G));
     const float epsilon = std::max(kTiny, config.fit.rbf_epsilon);
-    const float lambda = std::max(0.0f, config.fit.rbf_lambda);
+    const float lambda_base = std::max(kTiny, config.fit.rbf_lambda);
     
     // Build RBF matrix Phi (M x M)
-    Eigen::MatrixXf Phi(M, M);
+    Eigen::MatrixXf Phi_base(M, M);
     for (int i = 0; i < M; ++i) {
         for (int j = 0; j < M; ++j) {
             float dx = grid_cells[i].center_x - grid_cells[j].center_x;
@@ -556,48 +603,139 @@ Matrix2Df fit_rbf_surface(
             float d = std::sqrt(dx * dx + dy * dy);
             
             if (config.fit.rbf_phi == "multiquadric") {
-                Phi(i, j) = rbf_kernel_multiquadric(d, mu);
+                Phi_base(i, j) = rbf_kernel_multiquadric(d, mu);
             } else if (config.fit.rbf_phi == "thinplate") {
-                Phi(i, j) = rbf_kernel_thinplate(d, epsilon);
+                Phi_base(i, j) = rbf_kernel_thinplate(d, epsilon);
             } else { // gaussian
-                Phi(i, j) = rbf_kernel_gaussian(d, mu);
+                Phi_base(i, j) = rbf_kernel_gaussian(d, mu);
             }
         }
     }
-    
-    // Add regularization (v3.3 §6.3.7)
-    Phi += lambda * Eigen::MatrixXf::Identity(M, M);
-    
+
     // Build target vector b (M x 1)
     Eigen::VectorXf b(M);
     Eigen::VectorXf w_rel(M);
+    std::vector<float> bg_values;
+    bg_values.reserve(static_cast<size_t>(M));
     for (int i = 0; i < M; ++i) {
         b(i) = grid_cells[i].bg_value;
         w_rel(i) = std::max(1.0e-3f, grid_cells[i].weight);
+        bg_values.push_back(grid_cells[i].bg_value);
     }
 
-    // Robust IRLS solve for RBF coefficients u (v3.3 §6.3.7)
-    Eigen::VectorXf u = Eigen::VectorXf::Zero(M);
-    Eigen::VectorXf w_rob = Eigen::VectorXf::Ones(M);
-    for (int iter = 0; iter < std::max(1, config.fit.irls_max_iterations); ++iter) {
-        Eigen::VectorXf w = w_rel.cwiseProduct(w_rob).cwiseMax(1.0e-6f);
-        Eigen::MatrixXf W = w.asDiagonal();
-        Eigen::MatrixXf lhs = Phi.transpose() * W * Phi + lambda * Eigen::MatrixXf::Identity(M, M);
-        Eigen::VectorXf rhs = Phi.transpose() * W * b;
-        Eigen::VectorXf u_new = lhs.ldlt().solve(rhs);
+    auto solve_rbf_coeffs = [&](float lambda,
+                                Eigen::VectorXf* out_u,
+                                float* out_rms) -> bool {
+        const Eigen::MatrixXf Phi_reg =
+            Phi_base + lambda * Eigen::MatrixXf::Identity(M, M);
 
-        const float step = (u_new - u).norm();
-        const float scale = 1.0f + u.norm();
-        u = u_new;
+        Eigen::VectorXf u = Eigen::VectorXf::Zero(M);
+        Eigen::VectorXf w_rob = Eigen::VectorXf::Ones(M);
+        for (int iter = 0; iter < std::max(1, config.fit.irls_max_iterations); ++iter) {
+            Eigen::VectorXf w = w_rel.cwiseProduct(w_rob).cwiseMax(1.0e-6f);
+            Eigen::MatrixXf W = w.asDiagonal();
+            Eigen::MatrixXf lhs = Phi_reg.transpose() * W * Phi_reg +
+                                  lambda * Eigen::MatrixXf::Identity(M, M);
+            Eigen::VectorXf rhs = Phi_reg.transpose() * W * b;
+            Eigen::VectorXf u_new = lhs.ldlt().solve(rhs);
 
-        Eigen::VectorXf residual = b - Phi * u;
-        for (int i = 0; i < M; ++i) {
-            w_rob(i) = robust_weight_from_loss(config.fit.robust_loss,
-                                               residual(i), config.fit.huber_delta);
+            if (!u_new.allFinite()) {
+                return false;
+            }
+
+            const float step = (u_new - u).norm();
+            const float scale = 1.0f + u.norm();
+            u = u_new;
+
+            Eigen::VectorXf residual = b - Phi_base * u;
+            for (int i = 0; i < M; ++i) {
+                w_rob(i) = robust_weight_from_loss(config.fit.robust_loss,
+                                                   residual(i), config.fit.huber_delta);
+            }
+
+            if (step <= config.fit.irls_tolerance * scale) break;
         }
 
-        if (step <= config.fit.irls_tolerance * scale) break;
+        Eigen::VectorXf residual = b - Phi_base * u;
+        const float rms = std::sqrt(residual.squaredNorm() / static_cast<float>(M));
+        if (!(std::isfinite(rms))) {
+            return false;
+        }
+
+        *out_u = std::move(u);
+        *out_rms = rms;
+        return true;
+    };
+
+    // Dynamic lambda adaptation: test/adjust/test and prefer the smoothest
+    // (highest lambda) model that still fits grid samples well enough.
+    const float bg_med = robust_median(bg_values);
+    const float bg_sigma = 1.4826f * robust_mad(bg_values, bg_med);
+    const float residual_limit = std::max(0.15f, 0.20f * std::max(bg_sigma, kTiny));
+
+    std::vector<float> lambda_trials;
+    lambda_trials.reserve(6);
+    float l = lambda_base;
+    for (int i = 0; i < 6; ++i) {
+        lambda_trials.push_back(std::clamp(l, 1.0e-8f, 1.0e-1f));
+        l *= 3.0f;
     }
+    std::sort(lambda_trials.begin(), lambda_trials.end());
+    lambda_trials.erase(std::unique(lambda_trials.begin(), lambda_trials.end()),
+                        lambda_trials.end());
+
+    float best_lambda = lambda_base;
+    float best_rms = std::numeric_limits<float>::infinity();
+    Eigen::VectorXf best_u = Eigen::VectorXf::Zero(M);
+    bool have_best = false;
+
+    float accepted_lambda = -1.0f;
+    float accepted_rms = std::numeric_limits<float>::infinity();
+    Eigen::VectorXf accepted_u = Eigen::VectorXf::Zero(M);
+
+    for (float lambda_try : lambda_trials) {
+        Eigen::VectorXf u_try = Eigen::VectorXf::Zero(M);
+        float rms_try = std::numeric_limits<float>::infinity();
+        const bool ok = solve_rbf_coeffs(lambda_try, &u_try, &rms_try);
+        if (!ok) {
+            std::cerr << "[BGE]   RBF lambda=" << lambda_try << " fit failed" << std::endl;
+            continue;
+        }
+
+        std::cerr << "[BGE]   RBF lambda=" << lambda_try
+                  << " trial RMS=" << rms_try << std::endl;
+
+        if (!have_best || rms_try < best_rms) {
+            best_lambda = lambda_try;
+            best_rms = rms_try;
+            best_u = u_try;
+            have_best = true;
+        }
+
+        if (rms_try <= residual_limit) {
+            accepted_lambda = lambda_try;
+            accepted_rms = rms_try;
+            accepted_u = u_try;
+        }
+    }
+
+    if (!have_best) {
+        std::cerr << "[BGE] RBF solve failed for all lambda trials" << std::endl;
+        return Matrix2Df::Zero(image_height, image_width);
+    }
+
+    float lambda = best_lambda;
+    float rms_selected = best_rms;
+    Eigen::VectorXf u = best_u;
+    if (accepted_lambda > 0.0f) {
+        lambda = accepted_lambda;
+        rms_selected = accepted_rms;
+        u = accepted_u;
+    }
+
+    std::cerr << "[BGE]   RBF selected lambda=" << lambda
+              << " (limit=" << residual_limit
+              << ", rms=" << rms_selected << ")" << std::endl;
     
     // Evaluate RBF at all image pixels
     Matrix2Df surface = Matrix2Df::Zero(image_height, image_width);
@@ -746,13 +884,27 @@ BackgroundModel fit_background_surface(
     }
     
     try {
-        if (config.fit.method == "rbf") {
+        const std::string method = config.fit.method;
+        if (method == "rbf") {
             result.model = fit_rbf_surface(grid_cells, image_width, image_height,
                                            grid_spacing, config);
-        } else if (config.fit.method == "poly") {
+        } else if (method == "spline") {
+            // Practical spline backend: thin-plate RBF with conservative smoothing.
+            BGEConfig spline_cfg = config;
+            spline_cfg.fit.method = "rbf";
+            spline_cfg.fit.rbf_phi = "thinplate";
+            spline_cfg.fit.rbf_lambda = std::max(1.0e-4f, spline_cfg.fit.rbf_lambda);
+            result.model = fit_rbf_surface(grid_cells, image_width, image_height,
+                                           grid_spacing, spline_cfg);
+        } else if (method == "poly") {
             result.model = fit_polynomial_surface(grid_cells, image_width, image_height, config);
+        } else if (method == "bicubic") {
+            // Fallback approximation: cubic polynomial surface.
+            BGEConfig cubic_cfg = config;
+            cubic_cfg.fit.polynomial_order = std::max(3, cubic_cfg.fit.polynomial_order);
+            result.model = fit_polynomial_surface(grid_cells, image_width, image_height, cubic_cfg);
         } else {
-            result.error_message = "Unsupported fit method: " + config.fit.method;
+            result.error_message = "Unsupported fit method: " + method;
             return result;
         }
         
@@ -879,9 +1031,21 @@ bool apply_background_extraction(
         ch_diag.fit_success = true;
         ch_diag.fit_rms_residual = bg_model.rms_residual;
         ch_diag.model_stats = stats_from_matrix(bg_model.model);
+        const float pedestal = ch_diag.model_stats.median;
         
-        // Subtract background (v3.3 §6.3.5)
-        *channel -= bg_model.model;
+        // Subtract background (v3.3 §6.3.5) while preserving a channel pedestal
+        // for downstream PCC photometry stability. This removes spatial gradient
+        // but keeps numeric background level in a positive range.
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                const float vin = channel_before(y, x);
+                if (!(std::isfinite(vin) && vin > 0.0f)) {
+                    (*channel)(y, x) = 0.0f;
+                    continue;
+                }
+                (*channel)(y, x) = vin - bg_model.model(y, x) + pedestal;
+            }
+        }
 
         ch_diag.applied = true;
         ch_diag.output_stats = stats_from_matrix(*channel);
