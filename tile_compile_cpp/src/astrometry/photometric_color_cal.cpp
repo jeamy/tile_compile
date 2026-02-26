@@ -486,9 +486,28 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
         kw_b /= gmean;
     }
 
+    // Conservative chroma compression toward identity.
+    // This reduces over-aggressive global casts on difficult fields
+    constexpr double chroma_strength = 0.65;
+    auto compress_scale = [&](double k) {
+        const double ks = std::max(k, 1e-6);
+        return std::exp(std::log(ks) * chroma_strength);
+    };
+    kw_r = compress_scale(kw_r);
+    kw_g = compress_scale(kw_g);
+    kw_b = compress_scale(kw_b);
+
+    // Re-normalize by geometric mean after compression.
+    const double gmean2 = std::cbrt(kw_r * kw_g * kw_b);
+    if (std::isfinite(gmean2) && gmean2 > 0.0) {
+        kw_r /= gmean2;
+        kw_g /= gmean2;
+        kw_b /= gmean2;
+    }
+
     // Guardrails: prevent extreme global color casts from pathological fields.
-    constexpr double k_min = 0.85;
-    constexpr double k_max = 1.15;
+    constexpr double k_min = 0.88;
+    constexpr double k_max = 1.12;
     kw_r = std::clamp(kw_r, k_min, k_max);
     kw_g = std::clamp(kw_g, k_min, k_max);
     kw_b = std::clamp(kw_b, k_min, k_max);
