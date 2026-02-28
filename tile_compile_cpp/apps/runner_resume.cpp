@@ -262,10 +262,15 @@ tile_compile::core::json bge_diag_to_json(
             diag.autotune_selected_structure_thresh_percentile},
            {"rbf_mu_factor", diag.autotune_selected_rbf_mu_factor},
            {"objective", diag.autotune_best_objective},
+           {"objective_raw", diag.autotune_best_objective_raw},
+           {"objective_normalized", diag.autotune_best_objective_normalized},
            {"cv_rms", diag.autotune_best_cv_rms},
            {"flatness", diag.autotune_best_flatness},
            {"roughness", diag.autotune_best_roughness},
        }},
+      {"best_objective", diag.autotune_best_objective},
+      {"best_objective_raw", diag.autotune_best_objective_raw},
+      {"best_objective_normalized", diag.autotune_best_objective_normalized},
   };
   out["channels"] = core::json::array();
 
@@ -288,6 +293,25 @@ tile_compile::core::json bge_diag_to_json(
     ch_json["channel"] = ch.channel_name;
     ch_json["applied"] = ch.applied;
     ch_json["fit_success"] = ch.fit_success;
+    ch_json["autotune"] = {
+        {"enabled", ch.autotune_enabled},
+        {"evals_performed", ch.autotune_evals},
+        {"fallback_used", ch.autotune_fallback_used},
+        {"selected_grid_spacing", ch.autotune_selected_grid_spacing},
+        {"best",
+         {
+             {"sample_quantile", ch.autotune_selected_sample_quantile},
+             {"structure_thresh_percentile",
+              ch.autotune_selected_structure_thresh_percentile},
+             {"rbf_mu_factor", ch.autotune_selected_rbf_mu_factor},
+             {"objective", ch.autotune_best_objective},
+             {"objective_raw", ch.autotune_best_objective_raw},
+             {"objective_normalized", ch.autotune_best_objective_normalized},
+             {"cv_rms", ch.autotune_best_cv_rms},
+             {"flatness", ch.autotune_best_flatness},
+             {"roughness", ch.autotune_best_roughness},
+         }},
+    };
     ch_json["tile_samples_total"] = ch.tile_samples_total;
     ch_json["tile_samples_valid"] = ch.tile_samples_valid;
     ch_json["grid_cells_valid"] = ch.grid_cells_valid;
@@ -365,8 +389,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     phase_l = "pcc";
 
   fs::path rgb_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
+  fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
+  fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
   if (!fs::exists(rgb_path)) {
-    rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
+    rgb_path = stacked_rgb_path;
   }
   if (!fs::exists(rgb_path)) {
     std::cerr << "Error: missing stacked RGB cube in run outputs" << std::endl;
@@ -546,11 +572,13 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   };
 
   auto write_stretched_rgb_snapshot = [&](const fs::path &path,
-                                          const io::FitsHeader &hdr) {
+                                          const io::FitsHeader &hdr,
+                                          bool apply_stretch,
+                                          const char* stage_tag) {
     Matrix2Df R_disk = rgb.R;
     Matrix2Df G_disk = rgb.G;
     Matrix2Df B_disk = rgb.B;
-    if (cfg.stacking.output_stretch) {
+    if (apply_stretch) {
       float vmin = std::numeric_limits<float>::max();
       float vmax = std::numeric_limits<float>::lowest();
       for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
@@ -575,6 +603,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             }
           }
         }
+        std::cout << "[" << stage_tag << "][resume] RGB output stretch: ["
+                  << vmin << ".." << vmax << "] -> [0..65535]" << std::endl;
       }
     }
     std::error_code ec;
@@ -593,7 +623,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
 
     if (!cfg.bge.enabled) {
-      write_stretched_rgb_snapshot(stacked_rgb_bge_path, bge_hdr);
+      const bool bge_is_final_output = cfg.bge.enabled && !cfg.pcc.enabled;
+      write_stretched_rgb_snapshot(
+          stacked_rgb_bge_path, bge_hdr,
+          cfg.stacking.output_stretch && bge_is_final_output, "BGE");
       emitter.phase_end(run_id, Phase::BGE, "skipped",
                         {{"reason", "disabled"},
                          {"artifact", (run_dir / "artifacts" / "bge.json").string()}},
@@ -690,7 +723,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     };
     const fs::path bge_artifact_path = run_dir / "artifacts" / "bge.json";
     core::write_text(bge_artifact_path, bge_artifact.dump(2));
-    write_stretched_rgb_snapshot(stacked_rgb_bge_path, bge_hdr);
+    const bool bge_is_final_output = cfg.bge.enabled && !cfg.pcc.enabled;
+    write_stretched_rgb_snapshot(
+        stacked_rgb_bge_path, bge_hdr,
+        cfg.stacking.output_stretch && bge_is_final_output, "BGE");
 
     core::json phase_extra = {
         {"requested", cfg.bge.enabled},
@@ -746,7 +782,21 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     core::EventEmitter emitter;
     emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
 
+    io::FitsHeader out_hdr = rgb.header;
+    if (have_wcs) {
+      inject_wcs_keywords(out_hdr, wcs);
+    }
+
     if (!cfg.pcc.enabled) {
+      if (cfg.bge.enabled) {
+        write_stretched_rgb_snapshot(
+            stacked_rgb_bge_path, out_hdr, cfg.stacking.output_stretch, "BGE");
+      } else if (cfg.stacking.output_stretch) {
+        write_stretched_rgb_snapshot(
+            stacked_rgb_path, out_hdr, true, "FINAL");
+        write_stretched_rgb_snapshot(
+            stacked_rgb_solve_path, out_hdr, true, "FINAL");
+      }
       emitter.phase_end(run_id, Phase::PCC, "skipped",
                         {{"reason", "disabled"},
                          {"input_rgb_bge", stacked_rgb_bge_path.string()}},
@@ -765,9 +815,6 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                        {{"success", false}, {"status", "no_wcs"}}, log_file);
       return 1;
     }
-
-    io::FitsHeader out_hdr = rgb.header;
-    inject_wcs_keywords(out_hdr, wcs);
 
     double search_r = wcs.search_radius_deg();
     std::string source = cfg.pcc.source;
@@ -862,6 +909,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     pcc_cfg.min_stars = cfg.pcc.min_stars;
     pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
     pcc_cfg.background_model = cfg.pcc.background_model;
+    pcc_cfg.max_condition_number = cfg.pcc.max_condition_number;
+    pcc_cfg.max_residual_rms = cfg.pcc.max_residual_rms;
     pcc_cfg.radii_mode = cfg.pcc.radii_mode;
     pcc_cfg.aperture_fwhm_mult = cfg.pcc.aperture_fwhm_mult;
     pcc_cfg.annulus_inner_fwhm_mult = cfg.pcc.annulus_inner_fwhm_mult;
@@ -897,6 +946,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                         {{"reason", "fit_failed"},
                          {"error", result.error_message},
                          {"stars_matched", result.n_stars_matched},
+                         {"stars_used", result.n_stars_used},
+                         {"residual_rms", result.residual_rms},
+                         {"determinant", result.determinant},
+                         {"condition_number", result.condition_number},
                          {"source", used_source},
                          {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                         log_file);
@@ -916,11 +969,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
         for (Eigen::Index k = 0; k < ch->size(); ++k) {
           const float v = ch->data()[k];
-          if (std::isfinite(v)) {
-            if (v < vmin)
-              vmin = v;
-            if (v > vmax)
-              vmax = v;
+          if (std::isfinite(v) && v > 0.0f) {
+            if (v < vmin) vmin = v;
+            if (v > vmax) vmax = v;
           }
         }
       }
@@ -929,9 +980,16 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         const float scale = 65535.0f / range;
         for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
           for (Eigen::Index k = 0; k < ch->size(); ++k) {
-            ch->data()[k] = (ch->data()[k] - vmin) * scale;
+            const float v = ch->data()[k];
+            if (std::isfinite(v) && v > 0.0f) {
+              ch->data()[k] = (v - vmin) * scale;
+            } else {
+              ch->data()[k] = 0.0f;
+            }
           }
         }
+        std::cout << "[PCC][resume] RGB output stretch: [" << vmin << ".."
+                  << vmax << "] -> [0..65535]" << std::endl;
       }
     }
 
@@ -962,6 +1020,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                       {{"stars_matched", result.n_stars_matched},
                        {"stars_used", result.n_stars_used},
                        {"residual_rms", result.residual_rms},
+                       {"determinant", result.determinant},
+                       {"condition_number", result.condition_number},
                        {"matrix", matrix_json},
                        {"source", used_source},
                        {"input_rgb_bge", stacked_rgb_bge_path.string()}},

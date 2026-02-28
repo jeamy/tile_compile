@@ -54,6 +54,16 @@ docker run --rm \
   exit 1
 }
 
+if [ ! -d "$SCRIPT_DIR/dist/linux" ]; then
+  echo "FEHLER: dist/linux wurde nicht erzeugt." >&2
+  exit 1
+fi
+
+if [ ! -f "$SCRIPT_DIR/dist/tile_compile_cpp-linux-release.zip" ]; then
+  echo "WARNUNG: ZIP wurde nicht erzeugt (dist/tile_compile_cpp-linux-release.zip fehlt)."
+  echo "Das unkomprimierte Release liegt unter: $SCRIPT_DIR/dist/linux"
+fi
+
 echo ""
 echo "Fertig. Output unter:"
 echo "  $SCRIPT_DIR/dist/"

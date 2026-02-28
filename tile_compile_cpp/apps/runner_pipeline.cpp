@@ -2744,6 +2744,40 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     bool have_rgb = false;
     fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
     fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
+    auto stretch_rgb_for_output = [](Matrix2Df& R_ch, Matrix2Df& G_ch,
+                                     Matrix2Df& B_ch,
+                                     const char* stage_tag) -> bool {
+      float vmin = std::numeric_limits<float>::max();
+      float vmax = std::numeric_limits<float>::lowest();
+      for (auto *ch : {&R_ch, &G_ch, &B_ch}) {
+        for (Eigen::Index k = 0; k < ch->size(); ++k) {
+          const float v = ch->data()[k];
+          // Exclude canvas dead area (zero pixels) from stretch range.
+          if (std::isfinite(v) && v > 0.0f) {
+            if (v < vmin) vmin = v;
+            if (v > vmax) vmax = v;
+          }
+        }
+      }
+      const float range = vmax - vmin;
+      if (!(range > 1.0e-6f)) return false;
+
+      const float scale = 65535.0f / range;
+      for (auto *ch : {&R_ch, &G_ch, &B_ch}) {
+        for (Eigen::Index k = 0; k < ch->size(); ++k) {
+          const float v = ch->data()[k];
+          if (std::isfinite(v) && v > 0.0f) {
+            ch->data()[k] = (v - vmin) * scale;
+          } else {
+            ch->data()[k] = 0.0f;
+          }
+        }
+      }
+
+      std::cout << "[" << stage_tag << "] RGB output stretch: [" << vmin << ".."
+                << vmax << "] -> [0..65535]" << std::endl;
+      return true;
+    };
 
     if (detected_mode == ColorMode::OSC) {
       if (recon_R.size() == recon.size() && recon_R.size() > 0 &&
@@ -2770,42 +2804,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       G_out.array() += output_pedestal;
       B_out.array() += output_pedestal;
 
-      // Keep a separate copy for on-disk outputs (may be stretched for viewing)
+      // Keep a separate copy for on-disk outputs (always linear here).
       R_disk = R_out;
       G_disk = G_out;
       B_disk = B_out;
-
-      // Linear stretch RGB to full 16-bit range (joint min/max preserves color)
-      if (cfg.stacking.output_stretch) {
-        float vmin = std::numeric_limits<float>::max();
-        float vmax = std::numeric_limits<float>::lowest();
-        for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
-          for (Eigen::Index k = 0; k < ch->size(); ++k) {
-            float v = ch->data()[k];
-            // Exclude canvas dead area (zero pixels) from stretch range.
-            if (std::isfinite(v) && v > 0.0f) {
-              if (v < vmin) vmin = v;
-              if (v > vmax) vmax = v;
-            }
-          }
-        }
-        float range = vmax - vmin;
-        if (range > 1.0e-6f) {
-          float scale = 65535.0f / range;
-          for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
-            for (Eigen::Index k = 0; k < ch->size(); ++k) {
-              float v = ch->data()[k];
-              if (std::isfinite(v) && v > 0.0f) {
-                ch->data()[k] = (v - vmin) * scale;
-              } else {
-                ch->data()[k] = 0.0f;
-              }
-            }
-          }
-          std::cout << "[Debayer] RGB output stretch: [" << vmin << ".." << vmax
-                    << "] -> [0..65535]" << std::endl;
-        }
-      }
 
       io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_disk,
                            first_hdr);
@@ -2954,6 +2956,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
+    // Apply stretch only to the final RGB outputs when no downstream color stage
+    // is enabled: stacked_rgb + stacked_rgb_solve are the final products here.
+    if (have_rgb && cfg.stacking.output_stretch &&
+        !cfg.bge.enabled && !cfg.pcc.enabled) {
+      Matrix2Df R_final = R_out;
+      Matrix2Df G_final = G_out;
+      Matrix2Df B_final = B_out;
+      stretch_rgb_for_output(R_final, G_final, B_final, "FINAL");
+      io::write_fits_rgb(stacked_rgb_path, R_final, G_final, B_final, first_hdr);
+      io::write_fits_rgb(stacked_rgb_solve_path,
+                         R_final, G_final, B_final, first_hdr);
+    }
+
     // --- Memory release: R_disk/G_disk/B_disk no longer needed after astrometry ---
     R_disk.resize(0, 0);
     G_disk.resize(0, 0);
@@ -3013,6 +3028,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                   diag.autotune_selected_structure_thresh_percentile},
                  {"rbf_mu_factor", diag.autotune_selected_rbf_mu_factor},
                  {"objective", diag.autotune_best_objective},
+                 {"objective_raw", diag.autotune_best_objective_raw},
+                 {"objective_normalized", diag.autotune_best_objective_normalized},
                  {"cv_rms", diag.autotune_best_cv_rms},
                  {"flatness", diag.autotune_best_flatness},
                  {"roughness", diag.autotune_best_roughness},
@@ -3020,6 +3037,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             // Backward-compatible flat aliases
             {"evals", diag.autotune_evals},
             {"best_objective", diag.autotune_best_objective},
+            {"best_objective_raw", diag.autotune_best_objective_raw},
+            {"best_objective_normalized", diag.autotune_best_objective_normalized},
             {"best_cv_rms", diag.autotune_best_cv_rms},
             {"best_flatness", diag.autotune_best_flatness},
             {"best_roughness", diag.autotune_best_roughness},
@@ -3049,6 +3068,26 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           ch_json["channel"] = ch.channel_name;
           ch_json["applied"] = ch.applied;
           ch_json["fit_success"] = ch.fit_success;
+          ch_json["autotune"] = {
+              {"enabled", ch.autotune_enabled},
+              {"evals_performed", ch.autotune_evals},
+              {"fallback_used", ch.autotune_fallback_used},
+              {"selected_grid_spacing", ch.autotune_selected_grid_spacing},
+              {"best",
+               {
+                   {"sample_quantile", ch.autotune_selected_sample_quantile},
+                   {"structure_thresh_percentile",
+                    ch.autotune_selected_structure_thresh_percentile},
+                   {"rbf_mu_factor", ch.autotune_selected_rbf_mu_factor},
+                   {"objective", ch.autotune_best_objective},
+                   {"objective_raw", ch.autotune_best_objective_raw},
+                   {"objective_normalized",
+                    ch.autotune_best_objective_normalized},
+                   {"cv_rms", ch.autotune_best_cv_rms},
+                   {"flatness", ch.autotune_best_flatness},
+                   {"roughness", ch.autotune_best_roughness},
+               }},
+          };
           ch_json["tile_samples_total"] = ch.tile_samples_total;
           ch_json["tile_samples_valid"] = ch.tile_samples_valid;
           ch_json["grid_cells_valid"] = ch.grid_cells_valid;
@@ -3278,32 +3317,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       Matrix2Df R_bge_disk = R_out;
       Matrix2Df G_bge_disk = G_out;
       Matrix2Df B_bge_disk = B_out;
-      if (cfg.stacking.output_stretch) {
-        float vmin = std::numeric_limits<float>::max();
-        float vmax = std::numeric_limits<float>::lowest();
-        for (auto *ch : {&R_bge_disk, &G_bge_disk, &B_bge_disk}) {
-          for (Eigen::Index k = 0; k < ch->size(); ++k) {
-            float v = ch->data()[k];
-            if (std::isfinite(v) && v > 0.0f) {
-              if (v < vmin) vmin = v;
-              if (v > vmax) vmax = v;
-            }
-          }
-        }
-        float range = vmax - vmin;
-        if (range > 1.0e-6f) {
-          float scale = 65535.0f / range;
-          for (auto *ch : {&R_bge_disk, &G_bge_disk, &B_bge_disk}) {
-            for (Eigen::Index k = 0; k < ch->size(); ++k) {
-              float v = ch->data()[k];
-              if (std::isfinite(v) && v > 0.0f) {
-                ch->data()[k] = (v - vmin) * scale;
-              } else {
-                ch->data()[k] = 0.0f;
-              }
-            }
-          }
-        }
+      const bool bge_is_final_output = cfg.bge.enabled && !cfg.pcc.enabled;
+      if (cfg.stacking.output_stretch && bge_is_final_output) {
+        stretch_rgb_for_output(R_bge_disk, G_bge_disk, B_bge_disk, "BGE");
       }
       io::write_fits_rgb(stacked_rgb_bge_path,
                          R_bge_disk, G_bge_disk, B_bge_disk, first_hdr);
@@ -3402,6 +3418,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         pcc_cfg.min_stars = cfg.pcc.min_stars;
         pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
         pcc_cfg.background_model = cfg.pcc.background_model;
+        pcc_cfg.max_condition_number = cfg.pcc.max_condition_number;
+        pcc_cfg.max_residual_rms = cfg.pcc.max_residual_rms;
         pcc_cfg.radii_mode = cfg.pcc.radii_mode;
         pcc_cfg.aperture_fwhm_mult = cfg.pcc.aperture_fwhm_mult;
         pcc_cfg.annulus_inner_fwhm_mult = cfg.pcc.annulus_inner_fwhm_mult;
@@ -3436,31 +3454,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           Matrix2Df G_pcc_disk = G_out;
           Matrix2Df B_pcc_disk = B_out;
           if (cfg.stacking.output_stretch) {
-            float vmin = std::numeric_limits<float>::max();
-            float vmax = std::numeric_limits<float>::lowest();
-            for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
-              for (Eigen::Index k = 0; k < ch->size(); ++k) {
-                float v = ch->data()[k];
-                if (std::isfinite(v) && v > 0.0f) {
-                  if (v < vmin) vmin = v;
-                  if (v > vmax) vmax = v;
-                }
-              }
-            }
-            float range = vmax - vmin;
-            if (range > 1.0e-6f) {
-              float scale = 65535.0f / range;
-              for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
-                for (Eigen::Index k = 0; k < ch->size(); ++k) {
-                  float v = ch->data()[k];
-                  if (std::isfinite(v) && v > 0.0f) {
-                    ch->data()[k] = (v - vmin) * scale;
-                  } else {
-                    ch->data()[k] = 0.0f;
-                  }
-                }
-              }
-            }
+            stretch_rgb_for_output(R_pcc_disk, G_pcc_disk, B_pcc_disk, "PCC");
           }
           io::write_fits_float(run_dir / "outputs" / "pcc_R.fit",
                                R_pcc_disk, first_hdr);
@@ -3482,6 +3476,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                             {{"stars_matched", result.n_stars_matched},
                              {"stars_used", result.n_stars_used},
                              {"residual_rms", result.residual_rms},
+                             {"determinant", result.determinant},
+                             {"condition_number", result.condition_number},
                              {"matrix", matrix_json},
                              {"source", used_source},
                              {"input_rgb_bge", stacked_rgb_bge_path.string()}},
@@ -3491,6 +3487,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                             {{"reason", "fit_failed"},
                              {"error", result.error_message},
                              {"stars_matched", result.n_stars_matched},
+                             {"stars_used", result.n_stars_used},
+                             {"residual_rms", result.residual_rms},
+                             {"determinant", result.determinant},
+                             {"condition_number", result.condition_number},
                              {"source", used_source},
                              {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                             log_file);

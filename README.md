@@ -161,6 +161,7 @@ Inside `tile_compile_cpp/`, platform-specific release scripts are available:
 
 - Linux (native): `build_linux_release.sh`
 - Linux (Docker Ubuntu 20.04 / glibc 2.31): `build_linux_release_docker_ubuntu2004.sh`
+- Linux (AppImage native): `build_linux_appimage.sh`
 - Linux (AppImage Docker): `build_linux_appimage_docker.sh`
 - macOS: `build_macos_release.sh`
 - Windows: `build_windows_release.bat` (auto-detects MSYS2 if installed)
@@ -180,6 +181,11 @@ bash build_linux_release_docker_ubuntu2004.sh --skip-build
 cd tile_compile_cpp
 # Docker 
 bash build_linux_appimage_docker.sh
+# optional: skip image rebuild
+bash build_linux_appimage_docker.sh --skip-build
+
+# Native (requires appimagetool, downloaded automatically if missing)
+bash build_linux_appimage.sh
 
 ```
 
@@ -188,6 +194,7 @@ The AppImage is a portable single-file executable that runs on most Linux distri
 Release outputs are written to `tile_compile_cpp/dist/`:
 
 - Linux: `dist/linux/` + `dist/tile_compile_cpp-linux-release.zip`
+- Linux AppImage: `dist/tile_compile_cpp-x86_64.AppImage`
 - Windows: `dist/windows/` + `dist/tile_compile_cpp-windows-release.zip`
 - macOS: `dist/macos/tile_compile_gui.app` + optional `dist/tile_compile_cpp-macos.dmg`
 
@@ -221,8 +228,6 @@ macOS note:
 export CMAKE_PREFIX_PATH="$HOME/Qt/<version>/macos"
 export Qt6_DIR="$HOME/Qt/<version>/macos/lib/cmake/Qt6"
 ```
-
-**Note:** If the release package does not include the YAML configs, use the example profiles in `examples/` as templates and copy the desired options into your own `tile_compile.yaml`.
 
 Not included by design:
 
@@ -476,6 +481,7 @@ ctest --output-on-failure
 - Configuration docs/examples updated for v3.3.6 option set:
   - `bge.autotune.*` (`enabled`, `strategy`, `max_evals`, `holdout_fraction`, `alpha_flatness`, `beta_roughness`)
   - `pcc.background_model`
+  - `pcc.max_condition_number`, `pcc.max_residual_rms`
   - `pcc.radii_mode`
   - `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`
 

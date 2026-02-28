@@ -371,29 +371,34 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
 
     if (sky_pixels.size() < 10) return -1.0;  // not enough sky pixels
 
-    // Median sky background (fallback and optional model)
+    // Median sky background (fallback and noise guard reference)
     std::sort(sky_pixels.begin(), sky_pixels.end());
-    double sky_bg = sky_pixels[sky_pixels.size() / 2];
+    double sky_bg_median = sky_pixels[sky_pixels.size() / 2];
+    PlaneFit plane_fit{};
+    bool use_plane_bg = false;
 
     if (background_model == "plane") {
         std::vector<double> sky_vals;
         sky_vals.reserve(sky_pixels.size());
         for (float v : sky_pixels) sky_vals.push_back(static_cast<double>(v));
-        const PlaneFit pf = fit_sky_plane_huber(sky_x, sky_y, sky_vals, 1.5, 8);
-        if (pf.ok) {
-            sky_bg = pf.a + pf.b * (cx - pf.mx) + pf.c * (cy - pf.my);
+        plane_fit = fit_sky_plane_huber(sky_x, sky_y, sky_vals, 1.5, 8);
+        use_plane_bg = plane_fit.ok;
+        if (use_plane_bg) {
+            sky_bg_median = plane_fit.a + plane_fit.b * (cx - plane_fit.mx) +
+                            plane_fit.c * (cy - plane_fit.my);
         }
     }
 
-    if (!(std::isfinite(sky_bg) && sky_bg > 0.0)) return -1.0;
+    if (!(std::isfinite(sky_bg_median) && sky_bg_median > 0.0)) return -1.0;
     const size_t n_sky = sky_pixels.size();
     const float q1 = sky_pixels[(n_sky * 1) / 4];
     const float q3 = sky_pixels[(n_sky * 3) / 4];
     const double iqr = static_cast<double>(q3) - static_cast<double>(q1);
     if (!(std::isfinite(iqr) && iqr >= 0.0)) return -1.0;
-    if (iqr > 0.35 * sky_bg) return -1.0;
+    if (iqr > 0.35 * sky_bg_median) return -1.0;
 
-    // Sum aperture flux minus background
+    // Sum aperture flux minus background.
+    // For model=plane subtract the local plane value at each aperture pixel.
     double total = 0.0;
     int n_ap = 0;
     for (int y = y0; y <= y1; ++y) {
@@ -403,7 +408,13 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
             if (dx * dx + dy * dy <= r_ap2) {
                 float v = img(y, x);
                 if (std::isfinite(v) && v > 0.0f) {
-                    total += static_cast<double>(v) - sky_bg;
+                    double bg_here = sky_bg_median;
+                    if (use_plane_bg) {
+                        bg_here = plane_fit.a + plane_fit.b * (x - plane_fit.mx) +
+                                  plane_fit.c * (y - plane_fit.my);
+                    }
+                    if (!(std::isfinite(bg_here) && bg_here > 0.0)) continue;
+                    total += static_cast<double>(v) - bg_here;
                     ++n_ap;
                 }
             }
@@ -662,6 +673,11 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     PCCResult res;
     res.success = false;
     res.matrix = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};  // identity default
+    res.n_stars_matched = 0;
+    res.n_stars_used = 0;
+    res.residual_rms = 0.0;
+    res.determinant = 1.0;
+    res.condition_number = 1.0;
 
     // Collect valid stars
     std::vector<const StarPhotometry*> valid;
@@ -782,6 +798,36 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     res.matrix = {{{kw_r, 0, 0}, {0, kw_g, 0}, {0, 0, kw_b}}};
     res.n_stars_used = static_cast<int>(std::min(d_rg_vec.size(), d_bg_vec.size()));
     res.residual_rms = std::max(dev_rg, dev_bg);
+    res.determinant = kw_r * kw_g * kw_b;
+    const double s0 = std::abs(kw_r);
+    const double s1 = std::abs(kw_g);
+    const double s2 = std::abs(kw_b);
+    const double s_max = std::max({s0, s1, s2});
+    const double s_min = std::min({s0, s1, s2});
+    res.condition_number =
+        (s_min > 1.0e-12) ? (s_max / s_min) : std::numeric_limits<double>::infinity();
+
+    std::cerr << "[PCC] Matrix stability: det=" << res.determinant
+              << " cond=" << res.condition_number
+              << " residual=" << res.residual_rms << std::endl;
+
+    if (!std::isfinite(res.determinant) || res.determinant <= 0.0) {
+        res.error_message = "Unstable PCC matrix: non-positive determinant";
+        return res;
+    }
+    if (!std::isfinite(res.condition_number) ||
+        res.condition_number > config.max_condition_number) {
+        res.error_message = "Unstable PCC matrix: condition number " +
+                            std::to_string(res.condition_number) + " exceeds " +
+                            std::to_string(config.max_condition_number);
+        return res;
+    }
+    if (!std::isfinite(res.residual_rms) ||
+        res.residual_rms > config.max_residual_rms) {
+        res.error_message = "PCC residual RMS " + std::to_string(res.residual_rms) +
+                            " exceeds " + std::to_string(config.max_residual_rms);
+        return res;
+    }
 
     res.success = true;
     std::cerr << "[PCC] Scale factors: R=" << kw_r

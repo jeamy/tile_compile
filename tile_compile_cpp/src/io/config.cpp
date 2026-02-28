@@ -518,6 +518,10 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.pcc.sigma_clip = p["sigma_clip"].as<float>();
     if (p["background_model"])
       cfg.pcc.background_model = p["background_model"].as<std::string>();
+    if (p["max_condition_number"])
+      cfg.pcc.max_condition_number = p["max_condition_number"].as<float>();
+    if (p["max_residual_rms"])
+      cfg.pcc.max_residual_rms = p["max_residual_rms"].as<float>();
     if (p["radii_mode"])
       cfg.pcc.radii_mode = p["radii_mode"].as<std::string>();
     if (p["aperture_fwhm_mult"])
@@ -841,6 +845,8 @@ YAML::Node Config::to_yaml() const {
   node["pcc"]["min_stars"] = pcc.min_stars;
   node["pcc"]["sigma_clip"] = pcc.sigma_clip;
   node["pcc"]["background_model"] = pcc.background_model;
+  node["pcc"]["max_condition_number"] = pcc.max_condition_number;
+  node["pcc"]["max_residual_rms"] = pcc.max_residual_rms;
   node["pcc"]["radii_mode"] = pcc.radii_mode;
   node["pcc"]["aperture_fwhm_mult"] = pcc.aperture_fwhm_mult;
   node["pcc"]["annulus_inner_fwhm_mult"] = pcc.annulus_inner_fwhm_mult;
@@ -1187,6 +1193,10 @@ void Config::validate() const {
   if (pcc.background_model != "median" && pcc.background_model != "plane") {
     throw ValidationError("pcc.background_model must be 'median' or 'plane'");
   }
+  if (pcc.max_condition_number < 1.0f || pcc.max_residual_rms <= 0.0f) {
+    throw ValidationError(
+        "pcc.max_condition_number must be >= 1 and max_residual_rms > 0");
+  }
   if (pcc.radii_mode != "fixed" && pcc.radii_mode != "auto_fwhm") {
     throw ValidationError("pcc.radii_mode must be 'fixed' or 'auto_fwhm'");
   }
@@ -1392,6 +1402,14 @@ std::string get_schema_json() {
                       "annulus_outer_px":{"type":"number","exclusiveMinimum":0},
                       "min_stars":{"type":"integer","minimum":3},
                       "sigma_clip":{"type":"number","exclusiveMinimum":0},
+                      "background_model":{"type":"string","enum":["median","plane"]},
+                      "max_condition_number":{"type":"number","minimum":1},
+                      "max_residual_rms":{"type":"number","exclusiveMinimum":0},
+                      "radii_mode":{"type":"string","enum":["fixed","auto_fwhm"]},
+                      "aperture_fwhm_mult":{"type":"number","exclusiveMinimum":0},
+                      "annulus_inner_fwhm_mult":{"type":"number","exclusiveMinimum":0},
+                      "annulus_outer_fwhm_mult":{"type":"number","exclusiveMinimum":0},
+                      "min_aperture_px":{"type":"number","exclusiveMinimum":0},
                       "siril_catalog_dir":{"type":"string"} } },
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},

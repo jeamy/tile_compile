@@ -413,6 +413,15 @@ endif()
 target_include_directories(tile_compile_gui PRIVATE gui_cpp)
 target_link_libraries(tile_compile_gui PRIVATE tile_compile_lib Qt6::Widgets Qt6::Network)
 
+# Ensure GUI subsystem on Windows so no console window is created for the GUI app.
+if(WIN32)
+    if(MSVC)
+        target_link_options(tile_compile_gui PRIVATE "/SUBSYSTEM:WINDOWS")
+    elseif(MINGW)
+        target_link_options(tile_compile_gui PRIVATE "-mwindows")
+    endif()
+endif()
+
 set_target_properties(tile_compile_gui PROPERTIES
     AUTOMOC_PATH_PREFIX OFF
     AUTOMOC_MOC_OPTIONS "-p;${CMAKE_SOURCE_DIR}/gui_cpp/"

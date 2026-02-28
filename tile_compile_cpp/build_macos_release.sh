@@ -351,6 +351,117 @@ else
   echo "Hinweis: Weder macdeployqt noch qtpaths6 gefunden – Qt-Frameworks werden nicht mitgeliefert."
 fi
 
+# Bundle non-Qt dynamic libraries (e.g. OpenCV, cfitsio, yaml-cpp, openssl)
+# into Contents/Frameworks and rewrite install names recursively.
+is_system_dep() {
+  local dep="$1"
+  case "$dep" in
+    /System/*|/usr/lib/*|@executable_path/*|@loader_path/*|@rpath/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+bundle_abs_dep() {
+  local dep="$1"
+  [ -e "$dep" ] || return 0
+  local base
+  base="$(basename "$dep")"
+  local dst="$APP_BUNDLE/Contents/Frameworks/$base"
+  if [ ! -e "$dst" ]; then
+    cp -L "$dep" "$dst" 2>/dev/null || return 0
+    install_name_tool -id "@rpath/$base" "$dst" 2>/dev/null || true
+    printf '%s\n' "$dst" >> "$BUNDLE_QUEUE"
+  fi
+}
+
+rewrite_target_deps() {
+  local target="$1"
+  [ -e "$target" ] || return 0
+  if ! otool -L "$target" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  while IFS= read -r dep; do
+    [ -z "$dep" ] && continue
+    if is_system_dep "$dep"; then
+      continue
+    fi
+    case "$dep" in
+      /*)
+        if [ -e "$dep" ]; then
+          local base
+          base="$(basename "$dep")"
+          bundle_abs_dep "$dep"
+          install_name_tool -change "$dep" "@rpath/$base" "$target" 2>/dev/null || true
+        fi
+        ;;
+    esac
+  done < <(otool -L "$target" 2>/dev/null | tail -n +2 | awk '{print $1}')
+
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$target" 2>/dev/null || true
+  install_name_tool -add_rpath "@loader_path/../Frameworks" "$target" 2>/dev/null || true
+}
+
+echo "Bündele Non-Qt-Dylibs rekursiv..."
+BUNDLE_QUEUE="$(mktemp)"
+BUNDLE_DONE="$(mktemp)"
+trap 'rm -f "$BUNDLE_QUEUE" "$BUNDLE_DONE"' EXIT
+
+printf '%s\n' \
+  "$APP_BUNDLE/Contents/MacOS/tile_compile_gui" \
+  "$APP_BUNDLE/Contents/MacOS/tile_compile_runner" \
+  "$APP_BUNDLE/Contents/MacOS/tile_compile_cli" \
+  > "$BUNDLE_QUEUE"
+
+if [ -d "$APP_BUNDLE/Contents/PlugIns" ]; then
+  find "$APP_BUNDLE/Contents/PlugIns" -type f >> "$BUNDLE_QUEUE"
+fi
+if [ -d "$APP_BUNDLE/Contents/Frameworks" ]; then
+  find "$APP_BUNDLE/Contents/Frameworks" -type f >> "$BUNDLE_QUEUE"
+fi
+
+while true; do
+  did_work=0
+  while IFS= read -r target; do
+    [ -n "$target" ] || continue
+    if grep -Fqx "$target" "$BUNDLE_DONE" 2>/dev/null; then
+      continue
+    fi
+    printf '%s\n' "$target" >> "$BUNDLE_DONE"
+    rewrite_target_deps "$target"
+    did_work=1
+  done < "$BUNDLE_QUEUE"
+  [ "$did_work" -eq 1 ] || break
+done
+
+echo "Prüfe verbleibende externe Dylib-Referenzen..."
+UNRESOLVED_REPORT="$DIST_DIR/otool_unresolved.txt"
+: > "$UNRESOLVED_REPORT"
+while IFS= read -r target; do
+  [ -n "$target" ] || continue
+  if ! otool -L "$target" >/dev/null 2>&1; then
+    continue
+  fi
+  while IFS= read -r dep; do
+    [ -z "$dep" ] && continue
+    case "$dep" in
+      /opt/homebrew/*|/usr/local/*|/opt/local/*)
+        echo "$target -> $dep" >> "$UNRESOLVED_REPORT"
+        ;;
+    esac
+  done < <(otool -L "$target" 2>/dev/null | tail -n +2 | awk '{print $1}')
+done < "$BUNDLE_DONE"
+
+if [ -s "$UNRESOLVED_REPORT" ]; then
+  echo "FEHLER: Ungebündelte externe macOS-Abhängigkeiten gefunden:" >&2
+  cat "$UNRESOLVED_REPORT" >&2
+  exit 1
+fi
+
 rm -f "$DIST_DIR/tile_compile_runner" "$DIST_DIR/tile_compile_cli" 2>/dev/null || true
 rm -rf "$DIST_DIR/gui_cpp" 2>/dev/null || true
 rm -rf "$DIST_DIR/examples" 2>/dev/null || true

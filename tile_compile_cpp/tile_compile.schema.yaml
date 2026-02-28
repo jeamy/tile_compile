@@ -265,6 +265,8 @@ properties:
       min_stars: {type: integer, minimum: 3}
       sigma_clip: {type: number, exclusiveMinimum: 0}
       background_model: {type: string, enum: [median, plane]}
+      max_condition_number: {type: number, minimum: 1}
+      max_residual_rms: {type: number, exclusiveMinimum: 0}
       radii_mode: {type: string, enum: [fixed, auto_fwhm]}
       aperture_fwhm_mult: {type: number, exclusiveMinimum: 0}
       annulus_inner_fwhm_mult: {type: number, exclusiveMinimum: 0}

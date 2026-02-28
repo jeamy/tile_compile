@@ -36,6 +36,8 @@ struct PCCConfig {
 
     // Local annulus background model
     std::string background_model = "plane"; // median | plane
+    double max_condition_number = 2.0; // stability guard (>= 1)
+    double max_residual_rms = 0.35;    // robust residual guard
 
     // Adaptive radii controls (resolved in runner for auto_fwhm)
     std::string radii_mode = "auto_fwhm"; // fixed | auto_fwhm
@@ -61,6 +63,8 @@ struct PCCResult {
     int    n_stars_matched;   // stars matched in image
     int    n_stars_used;      // stars used after outlier rejection
     double residual_rms;      // RMS of fit residuals
+    double determinant;       // determinant of fitted matrix
+    double condition_number;  // condition number of fitted matrix
     bool   success;
     std::string error_message;
 };

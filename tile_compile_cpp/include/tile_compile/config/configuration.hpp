@@ -303,6 +303,8 @@ struct PCCConfig {
 
   // Local annulus background model (v3.3.6 §6.4)
   std::string background_model = "plane"; // median | plane
+  float max_condition_number = 2.0f; // >= 1, rejects unstable PCC matrices
+  float max_residual_rms = 0.35f;    // > 0, rejects noisy PCC fits
 
   // Adaptive radii (v3.3.6 §6.4)
   std::string radii_mode = "auto_fwhm"; // fixed | auto_fwhm

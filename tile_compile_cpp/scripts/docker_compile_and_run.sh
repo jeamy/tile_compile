@@ -9,14 +9,26 @@ IMAGE_NAME="tile_compile_cpp:dev"
 CONTAINER_NAME="tile_compile_cpp_dev"
 RUNS_HOST_DIR="${TC_CPP_DIR}/runs"
 RUNS_CONTAINER_DIR="/workspace/tile_compile_cpp/runs"
+CONFIG_HOST_DIR=""
+CONFIG_CONTAINER_DIR="/mnt/config"
+INPUT_HOST_DIR=""
+INPUT_CONTAINER_DIR="/mnt/input"
 
 usage() {
   cat <<EOF
 Usage:
   $(basename "$0") build-image [--image <name>]
-  $(basename "$0") run-shell   [--image <name>] [--name <container>] [--runs-host-dir <path>] [--runs-container-dir <path>]
-  $(basename "$0") run-app     [--image <name>] [--runs-host-dir <path>] [--runs-container-dir <path>] -- <runner args>
-  $(basename "$0") run-gui     [--image <name>] [--runs-host-dir <path>] [--runs-container-dir <path>] [-- <gui args>]
+  $(basename "$0") run-shell   [--image <name>] [--name <container>] [mount opts]
+  $(basename "$0") run-app     [--image <name>] [mount opts] -- <runner args>
+  $(basename "$0") run-gui     [--image <name>] [mount opts] [-- <gui args>]
+
+Mount opts:
+  --runs-host-dir <path>        Host runs directory
+  --runs-container-dir <path>   Container runs directory
+  --config-host-dir <path>      Optional host directory with config files (mounted read-only)
+  --config-container-dir <path> Container mountpoint for config directory
+  --input-host-dir <path>       Optional host input directory (mounted read-only)
+  --input-container-dir <path>  Container mountpoint for input directory
 
 Description:
   build-image  Builds a Docker image and compiles tile_compile_cpp inside the image.
@@ -29,17 +41,22 @@ Defaults:
   container name:     ${CONTAINER_NAME}
   runs host dir:      ${RUNS_HOST_DIR}
   runs container dir: ${RUNS_CONTAINER_DIR}
+  config host dir:    (disabled)
+  config container:   ${CONFIG_CONTAINER_DIR}
+  input host dir:     (disabled)
+  input container:    ${INPUT_CONTAINER_DIR}
 
 Examples:
   $(basename "$0") build-image
   $(basename "$0") run-shell
   $(basename "$0") run-app -- run --config /mnt/config/tile_compile.yaml --input-dir /mnt/input --runs-dir ${RUNS_CONTAINER_DIR}
+  $(basename "$0") run-app --config-host-dir /data/config --input-host-dir /data/lights -- \\
+    run --config /mnt/config/tile_compile.yaml --input-dir /mnt/input --runs-dir ${RUNS_CONTAINER_DIR}
   $(basename "$0") run-gui
 
 Notes:
-  - For run-app with host files, mount them explicitly using docker options by extending this script
-    or run run-shell and execute commands manually.
   - The default runs volume maps host '${RUNS_HOST_DIR}' to container '${RUNS_CONTAINER_DIR}'.
+  - Optional config/input mounts are read-only and disabled by default.
   - For run-gui, allow local Docker access once on the host: xhost +local:docker
 EOF
 }
@@ -63,6 +80,22 @@ parse_common_args() {
         RUNS_CONTAINER_DIR="$2"
         shift 2
         ;;
+      --config-host-dir)
+        CONFIG_HOST_DIR="$2"
+        shift 2
+        ;;
+      --config-container-dir)
+        CONFIG_CONTAINER_DIR="$2"
+        shift 2
+        ;;
+      --input-host-dir)
+        INPUT_HOST_DIR="$2"
+        shift 2
+        ;;
+      --input-container-dir)
+        INPUT_CONTAINER_DIR="$2"
+        shift 2
+        ;;
       --)
         shift
         break
@@ -74,6 +107,27 @@ parse_common_args() {
   done
 
   REM_ARGS=("$@")
+}
+
+validate_optional_mounts() {
+  if [[ -n "${CONFIG_HOST_DIR}" && ! -d "${CONFIG_HOST_DIR}" ]]; then
+    echo "ERROR: --config-host-dir must be an existing directory: ${CONFIG_HOST_DIR}" >&2
+    exit 2
+  fi
+  if [[ -n "${INPUT_HOST_DIR}" && ! -d "${INPUT_HOST_DIR}" ]]; then
+    echo "ERROR: --input-host-dir must be an existing directory: ${INPUT_HOST_DIR}" >&2
+    exit 2
+  fi
+}
+
+build_mount_args() {
+  MOUNT_ARGS=("-v" "${RUNS_HOST_DIR}:${RUNS_CONTAINER_DIR}")
+  if [[ -n "${CONFIG_HOST_DIR}" ]]; then
+    MOUNT_ARGS+=("-v" "${CONFIG_HOST_DIR}:${CONFIG_CONTAINER_DIR}:ro")
+  fi
+  if [[ -n "${INPUT_HOST_DIR}" ]]; then
+    MOUNT_ARGS+=("-v" "${INPUT_HOST_DIR}:${INPUT_CONTAINER_DIR}:ro")
+  fi
 }
 
 build_image() {
@@ -130,16 +184,20 @@ DOCKERFILE
 
 run_shell() {
   mkdir -p "${RUNS_HOST_DIR}"
+  validate_optional_mounts
+  build_mount_args
 
   docker run --rm -it \
     --name "${CONTAINER_NAME}" \
-    -v "${RUNS_HOST_DIR}:${RUNS_CONTAINER_DIR}" \
+    "${MOUNT_ARGS[@]}" \
     "${IMAGE_NAME}" \
     bash
 }
 
 run_app() {
   mkdir -p "${RUNS_HOST_DIR}"
+  validate_optional_mounts
+  build_mount_args
 
   if [[ ${#REM_ARGS[@]} -eq 0 ]]; then
     echo "ERROR: run-app requires runner arguments after '--'" >&2
@@ -148,7 +206,7 @@ run_app() {
   fi
 
   docker run --rm -it \
-    -v "${RUNS_HOST_DIR}:${RUNS_CONTAINER_DIR}" \
+    "${MOUNT_ARGS[@]}" \
     -w /workspace/tile_compile_cpp/build \
     "${IMAGE_NAME}" \
     ./tile_compile_runner "${REM_ARGS[@]}"
@@ -156,6 +214,8 @@ run_app() {
 
 run_gui() {
   mkdir -p "${RUNS_HOST_DIR}"
+  validate_optional_mounts
+  build_mount_args
 
   if [[ -z "${DISPLAY:-}" ]]; then
     echo "ERROR: DISPLAY is not set. Start from a graphical session." >&2
@@ -166,7 +226,7 @@ run_gui() {
     -e DISPLAY="${DISPLAY}" \
     -e QT_QPA_PLATFORM=xcb \
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-    -v "${RUNS_HOST_DIR}:${RUNS_CONTAINER_DIR}" \
+    "${MOUNT_ARGS[@]}" \
     -w /workspace/tile_compile_cpp/build \
     "${IMAGE_NAME}" \
     ./tile_compile_gui "${REM_ARGS[@]}"

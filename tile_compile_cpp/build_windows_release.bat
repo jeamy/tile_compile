@@ -231,6 +231,7 @@ if not defined QT_PREFIX (
   echo FEHLER: Qt6 nicht gefunden!
   exit /B 1
 )
+set "QT_BIN=%QT_PREFIX%\bin"
 
 rem CMAKE_PREFIX_PATH zusammenbauen
 set "CMAKE_PREFIX_PATH=%QT_PREFIX%;%MSYS2_PREFIX%"
@@ -243,6 +244,16 @@ rem OpenCV_DIR setzen falls noetig
 if not defined OpenCV_DIR (
   if exist "%MSYS2_PREFIX%\lib\cmake\opencv4\OpenCVConfig.cmake" (
     set "OpenCV_DIR=%MSYS2_PREFIX%\lib\cmake\opencv4"
+  )
+)
+
+set "OBJDUMP_EXE=%MSYS2_PREFIX%\bin\objdump.exe"
+if not exist "%OBJDUMP_EXE%" set "OBJDUMP_EXE=%MSYS2_PREFIX%\bin\x86_64-w64-mingw32-objdump.exe"
+if not exist "%OBJDUMP_EXE%" (
+  for %%P in (objdump.exe x86_64-w64-mingw32-objdump.exe) do (
+    for %%Q in (%%~$PATH:P) do (
+      if exist "%%~Q" set "OBJDUMP_EXE=%%~Q"
+    )
   )
 )
 
@@ -464,6 +475,13 @@ for %%F in ("%MSYS2_PREFIX%\bin\libglib-2.0*.dll") do copy /Y "%%F" "%DIST_BIN%"
 for %%F in ("%MSYS2_PREFIX%\bin\libdouble-conversion*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\libmd4c*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 
+if exist "%OBJDUMP_EXE%" (
+  echo Starte transitive DLL-Suche (objdump sweep)...
+  call :run_dep_sweep
+) else (
+  echo WARNUNG: objdump nicht gefunden. Transitive DLL-Suche uebersprungen.
+)
+
 if exist "%MSYS2_PREFIX%\bin\ntldd.exe" (
   echo Pruefe DLL-Abhaengigkeiten mit ntldd...
   "%MSYS2_PREFIX%\bin\ntldd.exe" -R "%DIST_BIN%\tile_compile_runner.exe" > "%DIST_DIR%\ntldd_runner.txt"
@@ -525,17 +543,17 @@ for /L %%P in (1,1,10) do (
   set "COPIED_THIS_PASS=0"
   echo   Pass !DEP_PASS!...
 
-  if exist "%DIST_DIR%\tile_compile_gui.exe" call :scan_binary_deps "%DIST_DIR%\tile_compile_gui.exe"
-  if exist "%DIST_DIR%\tile_compile_runner.exe" call :scan_binary_deps "%DIST_DIR%\tile_compile_runner.exe"
-  if exist "%DIST_DIR%\tile_compile_cli.exe" call :scan_binary_deps "%DIST_DIR%\tile_compile_cli.exe"
+  if exist "%DIST_BIN%\tile_compile_gui.exe" call :scan_binary_deps "%DIST_BIN%\tile_compile_gui.exe"
+  if exist "%DIST_BIN%\tile_compile_runner.exe" call :scan_binary_deps "%DIST_BIN%\tile_compile_runner.exe"
+  if exist "%DIST_BIN%\tile_compile_cli.exe" call :scan_binary_deps "%DIST_BIN%\tile_compile_cli.exe"
 
-  if exist "%DIST_DIR%\platforms\qwindows.dll" call :scan_binary_deps "%DIST_DIR%\platforms\qwindows.dll"
+  if exist "%DIST_BIN%\platforms\qwindows.dll" call :scan_binary_deps "%DIST_BIN%\platforms\qwindows.dll"
   
-  if exist "%DIST_DIR%\imageformats" (
-    for %%B in ("%DIST_DIR%\imageformats\*.dll") do call :scan_binary_deps "%%B"
+  if exist "%DIST_BIN%\imageformats" (
+    for %%B in ("%DIST_BIN%\imageformats\*.dll") do call :scan_binary_deps "%%B"
   )
-  if exist "%DIST_DIR%\styles" (
-    for %%B in ("%DIST_DIR%\styles\*.dll") do call :scan_binary_deps "%%B"
+  if exist "%DIST_BIN%\styles" (
+    for %%B in ("%DIST_BIN%\styles\*.dll") do call :scan_binary_deps "%%B"
   )
 
   if "!COPIED_THIS_PASS!"=="0" (
@@ -567,7 +585,7 @@ exit /B 0
 set "DEP_DLL=%~1"
 if not defined DEP_DLL exit /B 0
 
-if exist "%DIST_DIR%\%DEP_DLL%" exit /B 0
+if exist "%DIST_BIN%\%DEP_DLL%" exit /B 0
 
 for %%S in (kernel32.dll user32.dll gdi32.dll advapi32.dll shell32.dll ole32.dll oleaut32.dll comdlg32.dll comctl32.dll ws2_32.dll winmm.dll imm32.dll secur32.dll bcrypt.dll rpcrt4.dll shlwapi.dll uxtheme.dll dwmapi.dll msvcrt.dll d3d9.dll setupapi.dll shcore.dll wtsapi32.dll) do (
   if /I "%DEP_DLL%"=="%%~S" exit /B 0
@@ -578,14 +596,14 @@ echo %DEP_DLL% | findstr /I /C:"api-ms-win-" >NUL
 if not errorlevel 1 exit /B 0
 
 if exist "%QT_BIN%\%DEP_DLL%" (
-  copy /Y "%QT_BIN%\%DEP_DLL%" "%DIST_DIR%" >NUL
+  copy /Y "%QT_BIN%\%DEP_DLL%" "%DIST_BIN%" >NUL
   echo   [auto] Kopiert: %DEP_DLL%  ^(von QT_BIN^)
   set "COPIED_THIS_PASS=1"
   exit /B 0
 )
 
 if exist "%MSYS2_PREFIX%\bin\%DEP_DLL%" (
-  copy /Y "%MSYS2_PREFIX%\bin\%DEP_DLL%" "%DIST_DIR%" >NUL
+  copy /Y "%MSYS2_PREFIX%\bin\%DEP_DLL%" "%DIST_BIN%" >NUL
   echo   [auto] Kopiert: %DEP_DLL%  ^(von MSYS2 bin^)
   set "COPIED_THIS_PASS=1"
   exit /B 0

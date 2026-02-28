@@ -100,6 +100,19 @@ struct BGEChannelDiagnostics {
     std::string channel_name;
     bool applied = false;
     bool fit_success = false;
+    bool autotune_enabled = false;
+    int autotune_evals = 0;
+    bool autotune_fallback_used = false;
+    float autotune_best_objective = 0.0f; // Backward-compatible alias of objective_raw
+    float autotune_best_objective_raw = 0.0f;
+    float autotune_best_objective_normalized = 0.0f;
+    float autotune_best_cv_rms = 0.0f;
+    float autotune_best_flatness = 0.0f;
+    float autotune_best_roughness = 0.0f;
+    float autotune_selected_sample_quantile = 0.0f;
+    float autotune_selected_structure_thresh_percentile = 0.0f;
+    float autotune_selected_rbf_mu_factor = 0.0f;
+    int autotune_selected_grid_spacing = 0;
     int tile_samples_total = 0;
     int tile_samples_valid = 0;
     int grid_cells_valid = 0;
@@ -130,7 +143,9 @@ struct BGEDiagnostics {
     std::string autotune_strategy;
     int autotune_max_evals = 0;
     int autotune_evals = 0;
-    float autotune_best_objective = 0.0f;
+    float autotune_best_objective = 0.0f; // Backward-compatible alias of objective_raw
+    float autotune_best_objective_raw = 0.0f;
+    float autotune_best_objective_normalized = 0.0f;
     float autotune_best_cv_rms = 0.0f;
     float autotune_best_flatness = 0.0f;
     float autotune_best_roughness = 0.0f;
