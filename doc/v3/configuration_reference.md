@@ -1567,7 +1567,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | string (enum) |
-| **Werte** | `rbf`, `poly`, `spline`, `bicubic` |
+| **Werte** | `rbf`, `poly`, `spline`, `bicubic`, `modeled_mask_mesh` |
 | **Default** | `"rbf"` |
 
 **Zweck:** Surface-Fitting-Methode (v3.3 §6.3.7).
@@ -1576,6 +1576,7 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 - **`poly`**: Robustes Polynom (Order 2-3)
 - **`spline`**: Thin-plate Spline
 - **`bicubic`**: Bicubic Spline
+- **`modeled_mask_mesh`**: Segmentierungs- und maskengestützter Mesh-Sky-Fit mit heller Quellenmodellierung (empfohlen bei großflächigem Nebel/Vordergrund wie M31/M42)
 
 ### `bge.fit.robust_loss`
 

@@ -506,6 +506,7 @@ ctest --output-on-failure
 **BGE (Background Gradient Extraction):**
 
 - Added optional pre-PCC BGE stage that directly subtracts modeled background from RGB channels.
+- Added foreground-aware BGE fit method `modeled_mask_mesh` for difficult fields with large diffuse objects (e.g. M31/M42) to reduce color-cloud artifacts before PCC.
 - Added `artifacts/bge.json` with per-channel diagnostics (tile samples, grid cells, residual statistics).
 - Extended report generation to include a dedicated BGE section with summary plots and residual analysis.
 

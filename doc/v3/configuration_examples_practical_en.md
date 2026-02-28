@@ -27,7 +27,7 @@ bge:
     beta_roughness: 0.10
   sample_quantile: 0.20  # Conservative, resistant to faint objects
   fit:
-    method: rbf  # Flexible, recommended
+    method: rbf  # Flexible, recommended baseline
     rbf_phi: multiquadric  # Good compromise
     rbf_mu_factor: 1.0  # Standard smoothing
 ```
@@ -43,6 +43,15 @@ bge:
     method: rbf
     rbf_phi: multiquadric
     rbf_mu_factor: 0.8  # Less smoothing for detail
+```
+
+**For large diffuse foreground objects (e.g. M31 / M42):**
+
+```yaml
+bge:
+  enabled: true
+  fit:
+    method: modeled_mask_mesh  # Foreground-aware mesh sky model
 ```
 
 **For weak gradients (e.g. moonlight):**

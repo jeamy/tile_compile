@@ -573,7 +573,8 @@ Fit a smooth background surface per channel using:
 - Robust 2D polynomial (order 2–3 recommended), or
 - Thin-plate spline, or
 - Bicubic spline with robust loss, or
-- Radial Basis Function (RBF) surface with smoothing (recommended only with explicit regularization).
+- Radial Basis Function (RBF) surface with smoothing (recommended only with explicit regularization), or
+- Foreground-aware modeled-mask mesh sky surface (`modeled_mask_mesh`) for scenes with large diffuse foreground structures.
 
 Optional weights:
 

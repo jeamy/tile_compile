@@ -45,6 +45,15 @@ bge:
     rbf_mu_factor: 0.8  # Etwas weniger Glättung für Details
 ```
 
+**Für großflächige diffuse Vordergrundobjekte (z.B. M31 / M42):**
+
+```yaml
+bge:
+  enabled: true
+  fit:
+    method: modeled_mask_mesh  # Vordergrundbewusstes Mesh-Himmelsmodell
+```
+
 **Für schwache Gradienten (z.B. Mondlicht):**
 
 ```yaml

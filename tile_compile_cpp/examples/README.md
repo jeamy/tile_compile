@@ -54,6 +54,7 @@ They are kept in sync with v3.3 runner/config parser defaults, including:
     - `rbf`: Radial Basis Functions (Multiquadric, Thin-plate, Gaussian)
     - `poly`: Robust polynomial (order 2-3)
     - `spline`: Thin-plate spline
+    - `modeled_mask_mesh`: Foreground-aware mesh sky model for large diffuse targets (e.g. M31/M42)
   - Weighted regularized robust regression (IRLS with Huber/Tukey loss)
   - Adaptive grid spacing scales with image dimensions
   - Writes `artifacts/bge.json` with per-channel diagnostics (samples, grid cells, residual stats)

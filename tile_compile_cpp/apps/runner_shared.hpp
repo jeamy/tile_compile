@@ -1,6 +1,9 @@
 #pragma once
 
+#include "tile_compile/astrometry/photometric_color_cal.hpp"
+#include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/types.hpp"
+#include "tile_compile/image/background_extraction.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -15,6 +18,9 @@ std::string format_bytes(uint64_t bytes);
 uint64_t estimate_total_file_bytes(const std::vector<std::filesystem::path> &paths);
 
 bool message_indicates_disk_full(const std::string &message);
+
+image::BGEConfig to_image_bge_config(const config::BGEConfig &src);
+astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src);
 
 class TeeBuf : public std::streambuf {
 public:

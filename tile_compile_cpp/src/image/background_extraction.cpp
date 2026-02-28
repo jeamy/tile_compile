@@ -1,9 +1,12 @@
 #include "tile_compile/image/background_extraction.hpp"
 
+#include <array>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <limits>
+#include <queue>
 
 namespace tile_compile::image {
 
@@ -231,7 +234,733 @@ float spatial_background_spread(const Matrix2Df& img) {
     return p90 - p10;
 }
 
+float coarse_background_plane_slope(const Matrix2Df& img) {
+    const int H = static_cast<int>(img.rows());
+    const int W = static_cast<int>(img.cols());
+    if (H <= 0 || W <= 0) return std::numeric_limits<float>::infinity();
+
+    std::vector<float> valid_values;
+    valid_values.reserve(static_cast<size_t>(img.size()));
+    for (int i = 0; i < img.size(); ++i) {
+        const float v = img.data()[i];
+        if (std::isfinite(v) && v > 0.0f) valid_values.push_back(v);
+    }
+    if (valid_values.size() < 4096) return std::numeric_limits<float>::infinity();
+
+    const float value_thresh = robust_quantile(valid_values, 0.65f);
+
+    std::vector<float> grad_map(static_cast<size_t>(H * W), 0.0f);
+    std::vector<float> grad_values;
+    grad_values.reserve(valid_values.size());
+    for (int y = 0; y < H; ++y) {
+        const int ym = std::max(0, y - 1);
+        const int yp = std::min(H - 1, y + 1);
+        for (int x = 0; x < W; ++x) {
+            const float v = img(y, x);
+            if (!(std::isfinite(v) && v > 0.0f)) continue;
+
+            const int xm = std::max(0, x - 1);
+            const int xp = std::min(W - 1, x + 1);
+
+            float vxm = img(y, xm);
+            float vxp = img(y, xp);
+            float vym = img(ym, x);
+            float vyp = img(yp, x);
+            if (!std::isfinite(vxm)) vxm = v;
+            if (!std::isfinite(vxp)) vxp = v;
+            if (!std::isfinite(vym)) vym = v;
+            if (!std::isfinite(vyp)) vyp = v;
+
+            const float g = std::abs(vxp - vxm) + std::abs(vyp - vym);
+            grad_map[static_cast<size_t>(y * W + x)] = g;
+            grad_values.push_back(g);
+        }
+    }
+    if (grad_values.size() < 4096) return std::numeric_limits<float>::infinity();
+
+    const float grad_thresh = robust_quantile(grad_values, 0.70f);
+    constexpr int kBlockSize = 128;
+    constexpr int kMinPixelsPerBlock = 256;
+
+    std::vector<std::array<float, 3>> samples;
+    std::vector<float> block_values;
+    for (int y0 = 0; y0 < H; y0 += kBlockSize) {
+        for (int x0 = 0; x0 < W; x0 += kBlockSize) {
+            const int y1 = std::min(H, y0 + kBlockSize);
+            const int x1 = std::min(W, x0 + kBlockSize);
+            block_values.clear();
+            block_values.reserve(static_cast<size_t>((y1 - y0) * (x1 - x0)));
+            for (int y = y0; y < y1; ++y) {
+                for (int x = x0; x < x1; ++x) {
+                    const float v = img(y, x);
+                    if (!(std::isfinite(v) && v > 0.0f)) continue;
+                    if (v > value_thresh) continue;
+                    const float g = grad_map[static_cast<size_t>(y * W + x)];
+                    if (!(std::isfinite(g) && g <= grad_thresh)) continue;
+                    block_values.push_back(v);
+                }
+            }
+            if (static_cast<int>(block_values.size()) < kMinPixelsPerBlock) continue;
+            const float z = robust_median(block_values);
+            const float cx = 0.5f * static_cast<float>(x0 + x1 - 1);
+            const float cy = 0.5f * static_cast<float>(y0 + y1 - 1);
+            samples.push_back({cx, cy, z});
+        }
+    }
+    if (samples.size() < 8) return std::numeric_limits<float>::infinity();
+
+    double mx = 0.0, my = 0.0, mz = 0.0;
+    for (const auto& s : samples) {
+        mx += s[0];
+        my += s[1];
+        mz += s[2];
+    }
+    const double n = static_cast<double>(samples.size());
+    mx /= n;
+    my /= n;
+    mz /= n;
+
+    double sxx = 0.0, syy = 0.0, sxy = 0.0, sxz = 0.0, syz = 0.0;
+    for (const auto& s : samples) {
+        const double dx = static_cast<double>(s[0]) - mx;
+        const double dy = static_cast<double>(s[1]) - my;
+        const double dz = static_cast<double>(s[2]) - mz;
+        sxx += dx * dx;
+        syy += dy * dy;
+        sxy += dx * dy;
+        sxz += dx * dz;
+        syz += dy * dz;
+    }
+
+    const double det = sxx * syy - sxy * sxy;
+    if (!(std::isfinite(det)) || std::abs(det) < 1.0e-12) {
+        return std::numeric_limits<float>::infinity();
+    }
+
+    const double ax = (sxz * syy - syz * sxy) / det;
+    const double ay = (syz * sxx - sxz * sxy) / det;
+    if (!(std::isfinite(ax) && std::isfinite(ay))) {
+        return std::numeric_limits<float>::infinity();
+    }
+    return static_cast<float>(std::sqrt(ax * ax + ay * ay));
+}
+
+std::vector<uint8_t> build_chroma_background_mask_from_rgb_impl(
+    const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B) {
+    const int H = static_cast<int>(R.rows());
+    const int W = static_cast<int>(R.cols());
+    std::vector<uint8_t> mask(static_cast<size_t>(std::max(0, H * W)), 0);
+    if (H <= 0 || W <= 0) return mask;
+
+    std::vector<float> luma(static_cast<size_t>(H * W), 0.0f);
+    std::vector<float> lum_samples;
+    lum_samples.reserve(static_cast<size_t>((H / 2 + 1) * (W / 2 + 1)));
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            const float rv = R(y, x);
+            const float gv = G(y, x);
+            const float bv = B(y, x);
+            if (!(std::isfinite(rv) && rv > 0.0f &&
+                  std::isfinite(gv) && gv > 0.0f &&
+                  std::isfinite(bv) && bv > 0.0f)) {
+                continue;
+            }
+            const float lv = 0.2126f * rv + 0.7152f * gv + 0.0722f * bv;
+            const size_t idx = static_cast<size_t>(y * W + x);
+            luma[idx] = lv;
+            if ((y % 2) == 0 && (x % 2) == 0) lum_samples.push_back(lv);
+        }
+    }
+    if (lum_samples.size() < 4096) {
+        // Low-data fallback: treat all finite positive pixels as safe background.
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                const size_t idx = static_cast<size_t>(y * W + x);
+                mask[idx] = (luma[idx] > 0.0f) ? 1 : 0;
+            }
+        }
+        return mask;
+    }
+
+    const float lum_thresh = robust_quantile(lum_samples, 0.60f);
+    std::vector<float> grad(static_cast<size_t>(H * W), 0.0f);
+    std::vector<float> grad_samples;
+    grad_samples.reserve(lum_samples.size());
+    for (int y = 0; y < H; ++y) {
+        const int ym = std::max(0, y - 1);
+        const int yp = std::min(H - 1, y + 1);
+        for (int x = 0; x < W; ++x) {
+            const int xm = std::max(0, x - 1);
+            const int xp = std::min(W - 1, x + 1);
+            const size_t idx = static_cast<size_t>(y * W + x);
+            const float lv = luma[idx];
+            if (!(std::isfinite(lv) && lv > 0.0f)) continue;
+            const float gx =
+                std::abs(luma[static_cast<size_t>(y * W + xp)] -
+                         luma[static_cast<size_t>(y * W + xm)]);
+            const float gy =
+                std::abs(luma[static_cast<size_t>(yp * W + x)] -
+                         luma[static_cast<size_t>(ym * W + x)]);
+            const float gv = gx + gy;
+            grad[idx] = gv;
+            if ((y % 2) == 0 && (x % 2) == 0) grad_samples.push_back(gv);
+        }
+    }
+    if (grad_samples.size() < 4096) {
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                const size_t idx = static_cast<size_t>(y * W + x);
+                mask[idx] = (luma[idx] > 0.0f && luma[idx] <= lum_thresh) ? 1 : 0;
+            }
+        }
+        return mask;
+    }
+
+    const float grad_thresh = robust_quantile(grad_samples, 0.70f);
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            const size_t idx = static_cast<size_t>(y * W + x);
+            const float lv = luma[idx];
+            const float gv = grad[idx];
+            mask[idx] =
+                (std::isfinite(lv) && lv > 0.0f && lv <= lum_thresh &&
+                 std::isfinite(gv) && gv <= grad_thresh)
+                    ? 1
+                    : 0;
+        }
+    }
+    return mask;
+}
+
+float log_chroma_std_background_impl(const Matrix2Df& A, const Matrix2Df& G,
+                                     const std::vector<uint8_t>& bg_mask) {
+    const int H = static_cast<int>(A.rows());
+    const int W = static_cast<int>(A.cols());
+    if (H <= 0 || W <= 0) return std::numeric_limits<float>::infinity();
+
+    std::vector<float> vals;
+    vals.reserve(static_cast<size_t>(H * W / 3));
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            const size_t idx = static_cast<size_t>(y * W + x);
+            if (idx >= bg_mask.size() || bg_mask[idx] == 0) continue;
+            const float av = A(y, x);
+            const float gv = G(y, x);
+            if (!(std::isfinite(av) && std::isfinite(gv) && av > 0.0f && gv > 0.0f)) continue;
+            vals.push_back(std::log(av / gv));
+        }
+    }
+    if (vals.size() < 1024) return std::numeric_limits<float>::infinity();
+
+    const float mean = stats_from_values(vals).mean;
+    double sum_sq = 0.0;
+    for (float v : vals) {
+        const double d = static_cast<double>(v) - static_cast<double>(mean);
+        sum_sq += d * d;
+    }
+    return static_cast<float>(std::sqrt(sum_sq / static_cast<double>(vals.size())));
+}
+
+struct ForegroundComponent {
+    int label = 0;
+    int area = 0;
+    float peak = 0.0f;
+    int peak_x = 0;
+    int peak_y = 0;
+    int min_x = 0;
+    int max_x = 0;
+    int min_y = 0;
+    int max_y = 0;
+    int dilation_radius = 0;
+    std::vector<int> pixels;
+};
+
+struct MeshSkyFitResult {
+    Matrix2Df model;
+    std::vector<GridCell> grid_cells;
+    int mesh_size = 0;
+    int n_valid_cells = 0;
+    float rms_residual = 0.0f;
+    bool success = false;
+};
+
+float sampled_positive_quantile(const Matrix2Df& img, float q, int step) {
+    step = std::max(1, step);
+    std::vector<float> vals;
+    vals.reserve(static_cast<size_t>((img.rows() / step + 1) * (img.cols() / step + 1)));
+    for (int y = 0; y < img.rows(); y += step) {
+        for (int x = 0; x < img.cols(); x += step) {
+            const float v = img(y, x);
+            if (std::isfinite(v) && v > 0.0f) vals.push_back(v);
+        }
+    }
+    if (vals.empty()) return 0.0f;
+    return robust_quantile(std::move(vals), q);
+}
+
+void extract_connected_components_above_threshold(
+    const Matrix2Df& luma, float threshold,
+    std::vector<ForegroundComponent>* components,
+    std::vector<int>* labels) {
+    components->clear();
+    const int H = static_cast<int>(luma.rows());
+    const int W = static_cast<int>(luma.cols());
+    labels->assign(static_cast<size_t>(H * W), 0);
+    if (H <= 0 || W <= 0) return;
+
+    auto is_fg = [&](int y, int x) {
+        const float v = luma(y, x);
+        return std::isfinite(v) && v > threshold;
+    };
+
+    int next_label = 1;
+    std::queue<int> q;
+    const int dx8[8] = {-1, 0, 1, -1, 1, -1, 0, 1};
+    const int dy8[8] = {-1, -1, -1, 0, 0, 1, 1, 1};
+
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            const int root = y * W + x;
+            if ((*labels)[static_cast<size_t>(root)] != 0) continue;
+            if (!is_fg(y, x)) continue;
+
+            ForegroundComponent comp;
+            comp.label = next_label;
+            comp.area = 0;
+            comp.peak = luma(y, x);
+            comp.peak_x = x;
+            comp.peak_y = y;
+            comp.min_x = x;
+            comp.max_x = x;
+            comp.min_y = y;
+            comp.max_y = y;
+
+            (*labels)[static_cast<size_t>(root)] = next_label;
+            q.push(root);
+
+            while (!q.empty()) {
+                const int idx = q.front();
+                q.pop();
+                const int cy = idx / W;
+                const int cx = idx - cy * W;
+                const float cv = luma(cy, cx);
+
+                comp.pixels.push_back(idx);
+                ++comp.area;
+                if (cv > comp.peak) {
+                    comp.peak = cv;
+                    comp.peak_x = cx;
+                    comp.peak_y = cy;
+                }
+                comp.min_x = std::min(comp.min_x, cx);
+                comp.max_x = std::max(comp.max_x, cx);
+                comp.min_y = std::min(comp.min_y, cy);
+                comp.max_y = std::max(comp.max_y, cy);
+
+                for (int k = 0; k < 8; ++k) {
+                    const int nx = cx + dx8[k];
+                    const int ny = cy + dy8[k];
+                    if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                    const int nidx = ny * W + nx;
+                    int& lab = (*labels)[static_cast<size_t>(nidx)];
+                    if (lab != 0) continue;
+                    if (!is_fg(ny, nx)) continue;
+                    lab = next_label;
+                    q.push(nidx);
+                }
+            }
+
+            if (comp.area >= 4) {
+                components->push_back(std::move(comp));
+                ++next_label;
+            } else {
+                for (int idx : comp.pixels) {
+                    (*labels)[static_cast<size_t>(idx)] = 0;
+                }
+            }
+        }
+    }
+}
+
+std::vector<std::vector<std::pair<int, int>>> build_disk_offsets_table(int max_radius) {
+    max_radius = std::max(0, max_radius);
+    std::vector<std::vector<std::pair<int, int>>> table(
+        static_cast<size_t>(max_radius + 1));
+    for (int r = 0; r <= max_radius; ++r) {
+        auto& offsets = table[static_cast<size_t>(r)];
+        const int r2 = r * r;
+        for (int dy = -r; dy <= r; ++dy) {
+            for (int dx = -r; dx <= r; ++dx) {
+                if (dx * dx + dy * dy <= r2) offsets.push_back({dx, dy});
+            }
+        }
+    }
+    return table;
+}
+
+std::vector<uint8_t> build_modeled_foreground_mask(
+    const Matrix2Df& luma, const BGEConfig& config,
+    std::vector<ForegroundComponent>* components,
+    float* out_threshold, float* out_sigma) {
+    const int H = static_cast<int>(luma.rows());
+    const int W = static_cast<int>(luma.cols());
+    std::vector<uint8_t> out_mask(static_cast<size_t>(std::max(0, H * W)), 0);
+    if (H <= 0 || W <= 0) return out_mask;
+
+    std::vector<float> sample_vals;
+    sample_vals.reserve(static_cast<size_t>((H / 4 + 1) * (W / 4 + 1)));
+    for (int y = 0; y < H; y += 4) {
+        for (int x = 0; x < W; x += 4) {
+            const float v = luma(y, x);
+            if (std::isfinite(v) && v > 0.0f) sample_vals.push_back(v);
+        }
+    }
+    if (sample_vals.size() < 256) return out_mask;
+
+    const float med = robust_median(sample_vals);
+    const float sigma = std::max(1.0e-6f, 1.4826f * robust_mad(sample_vals, med));
+    const float thresh = med + 0.8f * sigma;
+    if (out_threshold) *out_threshold = thresh;
+    if (out_sigma) *out_sigma = sigma;
+
+    std::vector<int> labels;
+    extract_connected_components_above_threshold(luma, thresh, components, &labels);
+    if (components->empty()) return out_mask;
+
+    const int base_radius = std::max(1, config.mask.star_dilate_px);
+    const int max_radius = base_radius + 20;
+    const auto offsets_table = build_disk_offsets_table(max_radius);
+    constexpr float kPi = 3.14159265359f;
+
+    for (auto& comp : *components) {
+        const float peak_sigma = std::max(
+            0.0f, (comp.peak - thresh) / std::max(1.0e-6f, sigma));
+        const float area_scale =
+            std::sqrt(static_cast<float>(std::max(1, comp.area)) / kPi);
+        int rad = base_radius +
+                  static_cast<int>(std::lround(
+                      1.6f * std::log1p(peak_sigma) + 0.15f * area_scale));
+        rad = std::clamp(rad, base_radius, max_radius);
+        comp.dilation_radius = rad;
+
+        const auto& offsets = offsets_table[static_cast<size_t>(rad)];
+        for (int idx : comp.pixels) {
+            const int y = idx / W;
+            const int x = idx - y * W;
+            for (const auto& [dx, dy] : offsets) {
+                const int xx = x + dx;
+                const int yy = y + dy;
+                if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+                out_mask[static_cast<size_t>(yy * W + xx)] = 1;
+            }
+        }
+    }
+    return out_mask;
+}
+
+float robust_mesh_background_estimate(std::vector<float> values) {
+    if (values.size() < 16) return std::numeric_limits<float>::quiet_NaN();
+    for (int iter = 0; iter < 4; ++iter) {
+        const float med = robust_median(values);
+        const float sigma = 1.4826f * robust_mad(values, med);
+        if (!(std::isfinite(sigma) && sigma > 1.0e-6f)) break;
+        const float clip = 2.5f * sigma;
+        std::vector<float> kept;
+        kept.reserve(values.size());
+        for (float v : values) {
+            if (std::isfinite(v) && std::abs(v - med) <= clip) kept.push_back(v);
+        }
+        if (kept.size() < 16 || kept.size() == values.size()) break;
+        values.swap(kept);
+    }
+    if (values.size() < 8) return std::numeric_limits<float>::quiet_NaN();
+    return robust_median(std::move(values));
+}
+
+float annulus_background_median(
+    const Matrix2Df& img, int cx, int cy, int r_in, int r_out,
+    const std::vector<uint8_t>& fg_mask) {
+    const int H = static_cast<int>(img.rows());
+    const int W = static_cast<int>(img.cols());
+    if (H <= 0 || W <= 0) return std::numeric_limits<float>::quiet_NaN();
+    r_in = std::max(1, r_in);
+    r_out = std::max(r_in + 1, r_out);
+    const int r_in2 = r_in * r_in;
+    const int r_out2 = r_out * r_out;
+
+    std::vector<float> vals;
+    vals.reserve(static_cast<size_t>(6 * r_out));
+    const int y0 = std::max(0, cy - r_out);
+    const int y1 = std::min(H - 1, cy + r_out);
+    const int x0 = std::max(0, cx - r_out);
+    const int x1 = std::min(W - 1, cx + r_out);
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            const int dx = x - cx;
+            const int dy = y - cy;
+            const int d2 = dx * dx + dy * dy;
+            if (d2 < r_in2 || d2 > r_out2) continue;
+            const size_t idx = static_cast<size_t>(y * W + x);
+            if (idx < fg_mask.size() && fg_mask[idx] != 0) continue;
+            const float v = img(y, x);
+            if (std::isfinite(v) && v > 0.0f) vals.push_back(v);
+        }
+    }
+    if (vals.size() < 24) return std::numeric_limits<float>::quiet_NaN();
+    return robust_median(std::move(vals));
+}
+
+void subtract_bright_source_models(
+    Matrix2Df& sky_work, const Matrix2Df& luma,
+    const std::vector<uint8_t>& fg_mask,
+    const std::vector<ForegroundComponent>& components,
+    float low_threshold, float sigma) {
+    if (components.empty()) return;
+    const int H = static_cast<int>(sky_work.rows());
+    const int W = static_cast<int>(sky_work.cols());
+    if (H <= 0 || W <= 0) return;
+
+    const float q995 = sampled_positive_quantile(luma, 0.995f, 4);
+    const float bright_thresh =
+        std::max(q995, low_threshold + 6.0f * std::max(1.0e-6f, sigma));
+
+    std::vector<int> order(components.size());
+    for (size_t i = 0; i < components.size(); ++i) order[i] = static_cast<int>(i);
+    std::sort(order.begin(), order.end(), [&](int a, int b) {
+        return components[static_cast<size_t>(a)].peak >
+               components[static_cast<size_t>(b)].peak;
+    });
+
+    constexpr float kPi = 3.14159265359f;
+    int modeled = 0;
+    const int max_models = 1200;
+    for (int oi : order) {
+        if (modeled >= max_models) break;
+        const auto& comp = components[static_cast<size_t>(oi)];
+        if (comp.area <= 2 || comp.area > 256) continue;
+        if (!(std::isfinite(comp.peak) && comp.peak >= bright_thresh)) continue;
+
+        const int cx = comp.peak_x;
+        const int cy = comp.peak_y;
+        if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
+
+        const int ann_in = std::max(3, comp.dilation_radius + 2);
+        const int ann_out = ann_in + 10;
+        const float bg_local =
+            annulus_background_median(sky_work, cx, cy, ann_in, ann_out, fg_mask);
+        if (!(std::isfinite(bg_local) && bg_local > 0.0f)) continue;
+
+        const float peak_v = sky_work(cy, cx);
+        const float amp = peak_v - bg_local;
+        if (!(std::isfinite(amp) && amp > 0.0f)) continue;
+
+        const float sigma_px = std::clamp(
+            0.35f * std::sqrt(static_cast<float>(std::max(1, comp.area)) / kPi),
+            1.2f, 8.0f);
+        const float sigma2 = sigma_px * sigma_px;
+        const int radius = std::clamp(
+            static_cast<int>(std::ceil(3.0f * sigma_px + 0.5f * comp.dilation_radius)),
+            4, 28);
+        const int r2_max = radius * radius;
+
+        const int y0 = std::max(0, cy - radius);
+        const int y1 = std::min(H - 1, cy + radius);
+        const int x0 = std::max(0, cx - radius);
+        const int x1 = std::min(W - 1, cx + radius);
+        for (int y = y0; y <= y1; ++y) {
+            for (int x = x0; x <= x1; ++x) {
+                const int dx = x - cx;
+                const int dy = y - cy;
+                const int r2 = dx * dx + dy * dy;
+                if (r2 > r2_max) continue;
+                const float model =
+                    amp * std::exp(-0.5f * static_cast<float>(r2) / std::max(sigma2, 1.0e-6f));
+                const float v = sky_work(y, x);
+                if (!std::isfinite(v)) continue;
+                sky_work(y, x) = std::max(bg_local, v - model);
+            }
+        }
+        ++modeled;
+    }
+
+    std::cerr << "[BGE]   modeled_mask_mesh: bright-source models applied="
+              << modeled << std::endl;
+}
+
+MeshSkyFitResult fit_modeled_mask_mesh_surface(
+    const Matrix2Df& channel,
+    const Matrix2Df& luma,
+    const std::vector<uint8_t>& fg_mask,
+    const std::vector<ForegroundComponent>& components,
+    float low_threshold, float sigma,
+    const BGEConfig& config,
+    int tile_size_hint) {
+    MeshSkyFitResult out;
+    const int H = static_cast<int>(channel.rows());
+    const int W = static_cast<int>(channel.cols());
+    if (H <= 0 || W <= 0) return out;
+
+    Matrix2Df sky_work = channel;
+    subtract_bright_source_models(
+        sky_work, luma, fg_mask, components, low_threshold, sigma);
+
+    const int min_dim = std::min(W, H);
+    int mesh = min_dim / std::max(8, config.grid.N_g);
+    const int mesh_min = std::max(32, config.grid.G_min_px / 2);
+    int mesh_max = std::max(config.grid.G_min_px, min_dim / 6);
+    if (tile_size_hint > 0) mesh_max = std::max(mesh_max, tile_size_hint);
+    mesh = std::clamp(mesh, mesh_min, mesh_max);
+    out.mesh_size = std::max(16, mesh);
+
+    const int nx = (W + out.mesh_size - 1) / out.mesh_size;
+    const int ny = (H + out.mesh_size - 1) / out.mesh_size;
+    if (nx <= 0 || ny <= 0) return out;
+
+    std::vector<float> cell_values(static_cast<size_t>(nx * ny),
+                                   std::numeric_limits<float>::quiet_NaN());
+    std::vector<int> cell_counts(static_cast<size_t>(nx * ny), 0);
+    std::vector<uint8_t> cell_valid(static_cast<size_t>(nx * ny), 0);
+
+    for (int cy = 0; cy < ny; ++cy) {
+        const int y0 = cy * out.mesh_size;
+        const int y1 = std::min(H, y0 + out.mesh_size);
+        for (int cx = 0; cx < nx; ++cx) {
+            const int x0 = cx * out.mesh_size;
+            const int x1 = std::min(W, x0 + out.mesh_size);
+            const int area = std::max(1, (y1 - y0) * (x1 - x0));
+            const int min_required = std::max(48, area / 16);
+
+            std::vector<float> vals;
+            vals.reserve(static_cast<size_t>(area / 2));
+            for (int y = y0; y < y1; ++y) {
+                for (int x = x0; x < x1; ++x) {
+                    const size_t idx = static_cast<size_t>(y * W + x);
+                    if (idx < fg_mask.size() && fg_mask[idx] != 0) continue;
+                    const float v = sky_work(y, x);
+                    if (std::isfinite(v) && v > 0.0f) vals.push_back(v);
+                }
+            }
+
+            const size_t i = static_cast<size_t>(cy * nx + cx);
+            cell_counts[i] = static_cast<int>(vals.size());
+            if (cell_counts[i] < min_required) continue;
+
+            const float bg = robust_mesh_background_estimate(std::move(vals));
+            if (std::isfinite(bg) && bg > 0.0f) {
+                cell_values[i] = bg;
+                cell_valid[i] = 1;
+                ++out.n_valid_cells;
+            }
+        }
+    }
+
+    if (out.n_valid_cells < 8) return out;
+
+    std::vector<int> valid_idx;
+    valid_idx.reserve(static_cast<size_t>(out.n_valid_cells));
+    for (int i = 0; i < nx * ny; ++i) {
+        if (cell_valid[static_cast<size_t>(i)] != 0) valid_idx.push_back(i);
+    }
+
+    for (int cy = 0; cy < ny; ++cy) {
+        for (int cx = 0; cx < nx; ++cx) {
+            const size_t i = static_cast<size_t>(cy * nx + cx);
+            if (cell_valid[i] != 0) continue;
+            float best_d2 = std::numeric_limits<float>::infinity();
+            float best_v = std::numeric_limits<float>::quiet_NaN();
+            for (int vi : valid_idx) {
+                const int vy = vi / nx;
+                const int vx = vi - vy * nx;
+                const float dx = static_cast<float>(cx - vx);
+                const float dy = static_cast<float>(cy - vy);
+                const float d2 = dx * dx + dy * dy;
+                if (d2 < best_d2) {
+                    best_d2 = d2;
+                    best_v = cell_values[static_cast<size_t>(vi)];
+                }
+            }
+            if (std::isfinite(best_v)) {
+                cell_values[i] = best_v;
+            }
+        }
+    }
+
+    out.model = Matrix2Df::Zero(H, W);
+    for (int y = 0; y < H; ++y) {
+        const float gy = (static_cast<float>(y) + 0.5f) / static_cast<float>(out.mesh_size) - 0.5f;
+        int y0 = static_cast<int>(std::floor(gy));
+        float ty = gy - static_cast<float>(y0);
+        y0 = std::clamp(y0, 0, ny - 1);
+        const int y1 = std::clamp(y0 + 1, 0, ny - 1);
+        if (y1 == y0) ty = 0.0f;
+
+        for (int x = 0; x < W; ++x) {
+            const float gx = (static_cast<float>(x) + 0.5f) / static_cast<float>(out.mesh_size) - 0.5f;
+            int x0 = static_cast<int>(std::floor(gx));
+            float tx = gx - static_cast<float>(x0);
+            x0 = std::clamp(x0, 0, nx - 1);
+            const int x1 = std::clamp(x0 + 1, 0, nx - 1);
+            if (x1 == x0) tx = 0.0f;
+
+            const float v00 = cell_values[static_cast<size_t>(y0 * nx + x0)];
+            const float v10 = cell_values[static_cast<size_t>(y0 * nx + x1)];
+            const float v01 = cell_values[static_cast<size_t>(y1 * nx + x0)];
+            const float v11 = cell_values[static_cast<size_t>(y1 * nx + x1)];
+            const float v0 = (1.0f - tx) * v00 + tx * v10;
+            const float v1 = (1.0f - tx) * v01 + tx * v11;
+            out.model(y, x) = (1.0f - ty) * v0 + ty * v1;
+        }
+    }
+
+    double sum_sq = 0.0;
+    int n_r = 0;
+    out.grid_cells.reserve(static_cast<size_t>(nx * ny));
+    for (int cy = 0; cy < ny; ++cy) {
+        for (int cx = 0; cx < nx; ++cx) {
+            const size_t i = static_cast<size_t>(cy * nx + cx);
+            GridCell gc;
+            gc.cell_x = cx;
+            gc.cell_y = cy;
+            gc.center_x =
+                std::min(static_cast<float>(W - 1),
+                         (static_cast<float>(cx) + 0.5f) * out.mesh_size);
+            gc.center_y =
+                std::min(static_cast<float>(H - 1),
+                         (static_cast<float>(cy) + 0.5f) * out.mesh_size);
+            gc.bg_value = cell_values[i];
+            gc.weight = 1.0f;
+            gc.n_samples = cell_counts[i];
+            gc.valid = (cell_valid[i] != 0);
+            out.grid_cells.push_back(gc);
+
+            if (gc.valid && std::isfinite(gc.bg_value)) {
+                const int px = std::clamp(static_cast<int>(std::lround(gc.center_x)), 0, W - 1);
+                const int py = std::clamp(static_cast<int>(std::lround(gc.center_y)), 0, H - 1);
+                const float r = gc.bg_value - out.model(py, px);
+                sum_sq += static_cast<double>(r) * static_cast<double>(r);
+                ++n_r;
+            }
+        }
+    }
+
+    if (n_r > 0) {
+        out.rms_residual = static_cast<float>(std::sqrt(sum_sq / static_cast<double>(n_r)));
+    }
+    out.success = out.model.size() > 0 && out.model.allFinite();
+    return out;
+}
+
 } // namespace
+
+std::vector<uint8_t> build_chroma_background_mask_from_rgb(
+    const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B) {
+    return build_chroma_background_mask_from_rgb_impl(R, G, B);
+}
+
+float log_chroma_std_background(const Matrix2Df& A, const Matrix2Df& G,
+                                const std::vector<uint8_t>& bg_mask) {
+    return log_chroma_std_background_impl(A, G, bg_mask);
+}
 
 // RBF kernel functions (v3.3 §6.3.7)
 float rbf_kernel_multiquadric(float d, float mu) {
@@ -1311,13 +2040,44 @@ static BGECandidateResult auto_tune_bge_config_conservative(
         out.push_back(v);
     };
 
-    // Keep conservative candidates strongly background-seeking.
-    // High quantiles absorb nebula/object signal and may over-correct.
+    // Adaptive quantile range based on field type (nebula vs galaxy).
+    // Compute global image statistics to detect diffuse emission.
+    std::vector<float> valid_pixels;
+    valid_pixels.reserve(static_cast<size_t>(channel.size() / 16));
+    for (int i = 0; i < channel.size(); i += 16) {
+        const float v = channel.data()[i];
+        if (std::isfinite(v) && v > 0.0f) valid_pixels.push_back(v);
+    }
+    float img_mean = 0.0f;
+    float img_median = 0.0f;
+    if (valid_pixels.size() >= 1024) {
+        double sum = 0.0;
+        for (float v : valid_pixels) sum += static_cast<double>(v);
+        img_mean = static_cast<float>(sum / static_cast<double>(valid_pixels.size()));
+        img_median = robust_median(std::move(valid_pixels));
+    }
+    const float mean_median_ratio = (img_median > 1.0f) ? (img_mean / img_median) : 1.0f;
+    
+    // mean/median < 0.90 → diffuse nebula (M42): use higher quantiles (0.25-0.45)
+    // mean/median ≥ 0.90 → compact object (M31): use lower quantiles (0.20-0.35)
+    const bool is_diffuse_field = (mean_median_ratio < 0.90f);
+    
     std::vector<float> quantiles;
-    push_unique(quantiles, std::min(base_cfg.sample_quantile, 0.25f));
-    push_unique(quantiles, 0.12f);
-    push_unique(quantiles, 0.18f);
-    push_unique(quantiles, 0.24f);
+    if (is_diffuse_field) {
+        // Diffuse nebula: avoid dark emission regions, sample true sky
+        push_unique(quantiles, std::clamp(base_cfg.sample_quantile, 0.25f, 0.50f));
+        push_unique(quantiles, 0.30f);
+        push_unique(quantiles, 0.35f);
+        push_unique(quantiles, 0.40f);
+        if (extended) push_unique(quantiles, 0.45f);
+    } else {
+        // Compact galaxy: more uniform sky, can use lower quantiles
+        push_unique(quantiles, std::clamp(base_cfg.sample_quantile, 0.20f, 0.40f));
+        push_unique(quantiles, 0.25f);
+        push_unique(quantiles, 0.30f);
+        push_unique(quantiles, 0.35f);
+        if (extended) push_unique(quantiles, 0.40f);
+    }
 
     std::vector<float> structure_p;
     push_unique(structure_p, std::max(base_cfg.structure_thresh_percentile, 0.80f));
@@ -1328,8 +2088,6 @@ static BGECandidateResult auto_tune_bge_config_conservative(
         1.4f,
     };
     if (extended) {
-        // Extended mode may test one less conservative quantile.
-        push_unique(quantiles, 0.30f);
         push_unique(structure_p, 0.95f);
         mu_factors.push_back(1.8f);
     }
@@ -1408,6 +2166,9 @@ bool apply_background_extraction(
         diagnostics->autotune_selected_structure_thresh_percentile = 0.0f;
         diagnostics->autotune_selected_rbf_mu_factor = 0.0f;
         diagnostics->autotune_fallback_used = false;
+        diagnostics->safety_fallback_triggered = false;
+        diagnostics->safety_fallback_method.clear();
+        diagnostics->safety_fallback_reason.clear();
         diagnostics->channels.clear();
     }
     
@@ -1435,8 +2196,155 @@ bool apply_background_extraction(
         diagnostics->grid_spacing = grid_spacing;
     }
 
+    const Matrix2Df R_input = R;
+    const Matrix2Df G_input = G;
+    const Matrix2Df B_input = B;
+
     bool any_channel_applied = false;
     bool global_autotune_set = false;
+
+    const bool use_modeled_mask_mesh = (config.fit.method == "modeled_mask_mesh");
+    Matrix2Df modeled_luma;
+    std::vector<ForegroundComponent> modeled_components;
+    std::vector<uint8_t> modeled_fg_mask;
+    float modeled_low_threshold = 0.0f;
+    float modeled_sigma = 0.0f;
+    if (use_modeled_mask_mesh) {
+        modeled_luma = Matrix2Df::Zero(H, W);
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                const float rv = R(y, x);
+                const float gv = G(y, x);
+                const float bv = B(y, x);
+                if (!(std::isfinite(rv) && rv > 0.0f &&
+                      std::isfinite(gv) && gv > 0.0f &&
+                      std::isfinite(bv) && bv > 0.0f)) {
+                    modeled_luma(y, x) = 0.0f;
+                    continue;
+                }
+                modeled_luma(y, x) = 0.2126f * rv + 0.7152f * gv + 0.0722f * bv;
+            }
+        }
+        modeled_fg_mask = build_modeled_foreground_mask(
+            modeled_luma, config, &modeled_components,
+            &modeled_low_threshold, &modeled_sigma);
+        int mask_count = 0;
+        for (uint8_t v : modeled_fg_mask) if (v != 0) ++mask_count;
+        const float mask_frac =
+            modeled_fg_mask.empty()
+                ? 0.0f
+                : static_cast<float>(mask_count) /
+                      static_cast<float>(modeled_fg_mask.size());
+        std::cerr << "[BGE] modeled_mask_mesh prepass: threshold="
+                  << modeled_low_threshold << " sigma=" << modeled_sigma
+                  << " components=" << modeled_components.size()
+                  << " mask_fraction=" << mask_frac << std::endl;
+        if (config.autotune.enabled) {
+            std::cerr << "[BGE] modeled_mask_mesh does not use autotune; "
+                         "continuing with deterministic settings" << std::endl;
+        }
+    }
+
+    auto finalize_channel_from_model =
+        [&](Matrix2Df* channel,
+            const char* channel_name,
+            const Matrix2Df& channel_before,
+            BackgroundModel& bg_model,
+            BGEChannelDiagnostics& ch_diag) -> bool {
+        if (!bg_model.success) return false;
+
+        std::cerr << "[BGE]   Fit RMS residual: " << bg_model.rms_residual << std::endl;
+        ch_diag.fit_success = true;
+        ch_diag.fit_rms_residual = bg_model.rms_residual;
+
+        if (ch_diag.sample_bg_values.size() >= 16) {
+            std::vector<float> sample_vals = ch_diag.sample_bg_values;
+            const float q05 = robust_quantile(sample_vals, 0.05f);
+            const float q95 = robust_quantile(std::move(sample_vals), 0.95f);
+            const float guard_pad =
+                std::max(0.75f, 2.0f * std::max(0.0f, bg_model.rms_residual));
+            const float model_min = q05 - guard_pad;
+            const float model_max = q95 + guard_pad;
+            int clipped = 0;
+            for (int y = 0; y < H; ++y) {
+                for (int x = 0; x < W; ++x) {
+                    float& mv = bg_model.model(y, x);
+                    if (!std::isfinite(mv)) continue;
+                    const float clamped = std::clamp(mv, model_min, model_max);
+                    if (std::fabs(clamped - mv) > 1.0e-6f) ++clipped;
+                    mv = clamped;
+                }
+            }
+            if (clipped > 0) {
+                std::cerr << "[BGE]   Model clamp: " << clipped
+                          << " px to [" << model_min << ".." << model_max << "]"
+                          << std::endl;
+            }
+        }
+
+        ch_diag.model_stats = stats_from_matrix(bg_model.model);
+        const float pedestal = ch_diag.model_stats.median;
+        Matrix2Df corrected = channel_before;
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                const float vin = channel_before(y, x);
+                if (!(std::isfinite(vin) && vin > 0.0f)) {
+                    corrected(y, x) = 0.0f;
+                    continue;
+                }
+                corrected(y, x) = vin - bg_model.model(y, x) + pedestal;
+            }
+        }
+
+        const float flat_pre = spatial_background_spread(channel_before);
+        const float flat_post = spatial_background_spread(corrected);
+        const float slope_pre = coarse_background_plane_slope(channel_before);
+        const float slope_post = coarse_background_plane_slope(corrected);
+        bool accept_correction = true;
+        const float max_flatness_worsen_factor =
+            config.internal_relaxed_channel_guards ? 1.35f : 1.05f;
+        const float max_slope_worsen_factor =
+            config.internal_relaxed_channel_guards ? 1.12f : 1.02f;
+        if (std::isfinite(flat_pre) && std::isfinite(flat_post) &&
+            flat_post > flat_pre * max_flatness_worsen_factor) {
+            std::cerr << "[BGE]   Flatness guard rejected channel " << channel_name
+                      << " (pre=" << flat_pre << ", post=" << flat_post << ")"
+                      << std::endl;
+            accept_correction = false;
+        }
+        if (accept_correction &&
+            std::isfinite(slope_pre) && std::isfinite(slope_post) &&
+            slope_post > slope_pre * max_slope_worsen_factor) {
+            std::cerr << "[BGE]   Slope guard rejected channel " << channel_name
+                      << " (pre=" << slope_pre << ", post=" << slope_post << ")"
+                      << std::endl;
+            accept_correction = false;
+        }
+
+        if (!accept_correction) {
+            ch_diag.applied = false;
+            ch_diag.output_stats = stats_from_matrix(channel_before);
+            ch_diag.mean_shift = 0.0f;
+            return false;
+        }
+
+        *channel = std::move(corrected);
+        ch_diag.applied = true;
+        ch_diag.output_stats = stats_from_matrix(*channel);
+        ch_diag.mean_shift = ch_diag.output_stats.mean - ch_diag.input_stats.mean;
+        ch_diag.residual_values.reserve(ch_diag.grid_cells.size());
+        for (const auto& gc : ch_diag.grid_cells) {
+            const int px = static_cast<int>(gc.center_x);
+            const int py = static_cast<int>(gc.center_y);
+            if (px >= 0 && px < W && py >= 0 && py < H) {
+                ch_diag.residual_values.push_back(gc.bg_value - bg_model.model(py, px));
+            }
+        }
+        ch_diag.residual_stats = stats_from_values(ch_diag.residual_values);
+
+        std::cerr << "[BGE]   Background subtracted from channel " << channel_name << std::endl;
+        return true;
+    };
     
     // Process each channel
     for (int c = 0; c < 3; ++c) {
@@ -1446,11 +2354,54 @@ bool apply_background_extraction(
 
         BGEChannelDiagnostics ch_diag;
         ch_diag.channel_name = channel_name;
-        ch_diag.autotune_enabled = config.autotune.enabled;
+        ch_diag.autotune_enabled = config.autotune.enabled && !use_modeled_mask_mesh;
         ch_diag.autotune_selected_grid_spacing = grid_spacing;
         ch_diag.input_stats = stats_from_matrix(channel_before);
         
         std::cerr << "[BGE] Processing channel " << channel_name << std::endl;
+
+        if (use_modeled_mask_mesh) {
+            auto mesh_model = fit_modeled_mask_mesh_surface(
+                channel_before, modeled_luma, modeled_fg_mask,
+                modeled_components, modeled_low_threshold, modeled_sigma,
+                config, tile_grid.tile_size);
+
+            if (!mesh_model.success) {
+                std::cerr << "[BGE]   modeled_mask_mesh fit failed for channel "
+                          << channel_name << std::endl;
+                if (diagnostics != nullptr) diagnostics->channels.push_back(std::move(ch_diag));
+                continue;
+            }
+
+            ch_diag.grid_cells = mesh_model.grid_cells;
+            ch_diag.grid_cells_valid = 0;
+            for (const auto& gc : ch_diag.grid_cells) {
+                if (gc.valid) {
+                    ++ch_diag.grid_cells_valid;
+                    ch_diag.sample_bg_values.push_back(gc.bg_value);
+                    ch_diag.sample_weight_values.push_back(gc.weight);
+                }
+            }
+            ch_diag.tile_samples_total = static_cast<int>(ch_diag.grid_cells.size());
+            ch_diag.tile_samples_valid = ch_diag.grid_cells_valid;
+            ch_diag.sample_bg_stats = stats_from_values(ch_diag.sample_bg_values);
+            ch_diag.sample_weight_stats = stats_from_values(ch_diag.sample_weight_values);
+
+            BackgroundModel bg_model;
+            bg_model.model = std::move(mesh_model.model);
+            bg_model.grid_cells = ch_diag.grid_cells;
+            bg_model.n_valid_cells = mesh_model.n_valid_cells;
+            bg_model.rms_residual = mesh_model.rms_residual;
+            bg_model.success = true;
+
+            if (finalize_channel_from_model(
+                    channel, channel_name, channel_before, bg_model, ch_diag)) {
+                any_channel_applied = true;
+            }
+
+            if (diagnostics != nullptr) diagnostics->channels.push_back(std::move(ch_diag));
+            continue;
+        }
         
         BGEConfig channel_cfg = config;
         int channel_grid_spacing = grid_spacing;
@@ -1506,7 +2457,6 @@ bool apply_background_extraction(
             }
         }
 
-        // Extract tile background samples (v3.3 §6.3.2)
         auto tile_samples = extract_tile_background_samples(*channel, tile_metrics, tile_grid, channel_cfg);
         int n_valid = std::count_if(tile_samples.begin(), tile_samples.end(), 
                                      [](const auto& s) { return s.valid; });
@@ -1538,7 +2488,6 @@ bool apply_background_extraction(
             continue;
         }
         
-        // Aggregate to coarse grid (v3.3 §6.3.3)
         auto grid_cells = aggregate_to_coarse_grid(tile_samples, W, H, channel_grid_spacing, channel_cfg);
         std::cerr << "[BGE]   Grid cells: " << grid_cells.size() << " valid" << std::endl;
 
@@ -1551,105 +2500,137 @@ bool apply_background_extraction(
             continue;
         }
         
-        // Fit background surface (v3.3 §6.3.7)
         auto bg_model = fit_background_surface(grid_cells, W, H, channel_grid_spacing, channel_cfg);
-        
         if (!bg_model.success) {
             std::cerr << "[BGE]   Error: " << bg_model.error_message << std::endl;
             if (diagnostics != nullptr) diagnostics->channels.push_back(std::move(ch_diag));
             continue;
         }
 
-        std::cerr << "[BGE]   Fit RMS residual: " << bg_model.rms_residual << std::endl;
-
-        ch_diag.fit_success = true;
-        ch_diag.fit_rms_residual = bg_model.rms_residual;
-        // Clamp model extrapolation to the support range of robust tile samples.
-        // This avoids edge over-correction when the fitted surface drifts outside
-        // physically observed background values.
-        if (ch_diag.sample_bg_values.size() >= 16) {
-            std::vector<float> sample_vals = ch_diag.sample_bg_values;
-            const float q05 = robust_quantile(sample_vals, 0.05f);
-            const float q95 = robust_quantile(std::move(sample_vals), 0.95f);
-            const float guard_pad =
-                std::max(0.75f, 2.0f * std::max(0.0f, bg_model.rms_residual));
-            const float model_min = q05 - guard_pad;
-            const float model_max = q95 + guard_pad;
-            int clipped = 0;
-            for (int y = 0; y < H; ++y) {
-                for (int x = 0; x < W; ++x) {
-                    float &mv = bg_model.model(y, x);
-                    if (!std::isfinite(mv)) continue;
-                    const float clamped = std::clamp(mv, model_min, model_max);
-                    if (std::fabs(clamped - mv) > 1.0e-6f) ++clipped;
-                    mv = clamped;
-                }
-            }
-            if (clipped > 0) {
-                std::cerr << "[BGE]   Model clamp: " << clipped
-                          << " px to [" << model_min << ".." << model_max << "]"
-                          << std::endl;
-            }
+        if (finalize_channel_from_model(
+                channel, channel_name, channel_before, bg_model, ch_diag)) {
+            any_channel_applied = true;
         }
-        ch_diag.model_stats = stats_from_matrix(bg_model.model);
-        const float pedestal = ch_diag.model_stats.median;
-        
-        // Subtract background (v3.3 §6.3.5) while preserving a channel pedestal
-        // for downstream PCC photometry stability. This removes spatial gradient
-        // but keeps numeric background level in a positive range.
-        Matrix2Df corrected = channel_before;
-        for (int y = 0; y < H; ++y) {
-            for (int x = 0; x < W; ++x) {
-                const float vin = channel_before(y, x);
-                if (!(std::isfinite(vin) && vin > 0.0f)) {
-                    corrected(y, x) = 0.0f;
-                    continue;
-                }
-                corrected(y, x) = vin - bg_model.model(y, x) + pedestal;
-            }
-        }
-
-        // Safety guard: never keep a correction that worsens coarse background
-        // uniformity in low-intensity, low-gradient regions.
-        const float flat_pre = spatial_background_spread(channel_before);
-        const float flat_post = spatial_background_spread(corrected);
-        bool accept_correction = true;
-        constexpr float kMaxFlatnessWorsenFactor = 1.05f;
-        if (std::isfinite(flat_pre) && std::isfinite(flat_post) &&
-            flat_post > flat_pre * kMaxFlatnessWorsenFactor) {
-            std::cerr << "[BGE]   Flatness guard rejected channel " << channel_name
-                      << " (pre=" << flat_pre << ", post=" << flat_post << ")"
-                      << std::endl;
-            accept_correction = false;
-        }
-
-        if (!accept_correction) {
-            ch_diag.applied = false;
-            ch_diag.output_stats = stats_from_matrix(channel_before);
-            ch_diag.mean_shift = 0.0f;
-            if (diagnostics != nullptr) diagnostics->channels.push_back(std::move(ch_diag));
-            continue;
-        }
-
-        *channel = std::move(corrected);
-        ch_diag.applied = true;
-        ch_diag.output_stats = stats_from_matrix(*channel);
-        ch_diag.mean_shift = ch_diag.output_stats.mean - ch_diag.input_stats.mean;
-        ch_diag.residual_values.reserve(ch_diag.grid_cells.size());
-        for (const auto& gc : ch_diag.grid_cells) {
-            const int px = static_cast<int>(gc.center_x);
-            const int py = static_cast<int>(gc.center_y);
-            if (px >= 0 && px < W && py >= 0 && py < H) {
-                ch_diag.residual_values.push_back(gc.bg_value - bg_model.model(py, px));
-            }
-        }
-        ch_diag.residual_stats = stats_from_values(ch_diag.residual_values);
-
-        any_channel_applied = true;
-
-        std::cerr << "[BGE]   Background subtracted from channel " << channel_name << std::endl;
 
         if (diagnostics != nullptr) diagnostics->channels.push_back(std::move(ch_diag));
+    }
+
+    if (use_modeled_mask_mesh && any_channel_applied) {
+        const std::vector<uint8_t> bg_mask =
+            build_chroma_background_mask_from_rgb(R_input, G_input, B_input);
+        const float pre_rg_std = log_chroma_std_background(R_input, G_input, bg_mask);
+        const float pre_bg_std = log_chroma_std_background(B_input, G_input, bg_mask);
+        const float post_rg_std = log_chroma_std_background(R, G, bg_mask);
+        const float post_bg_std = log_chroma_std_background(B, G, bg_mask);
+
+        constexpr float kMaxChromaStdWorsenFactor = 1.08f;
+        bool chroma_guard_failed = false;
+        if (std::isfinite(pre_rg_std) && std::isfinite(post_rg_std) &&
+            post_rg_std > pre_rg_std * kMaxChromaStdWorsenFactor) {
+            chroma_guard_failed = true;
+        }
+        if (std::isfinite(pre_bg_std) && std::isfinite(post_bg_std) &&
+            post_bg_std > pre_bg_std * kMaxChromaStdWorsenFactor) {
+            chroma_guard_failed = true;
+        }
+
+        std::cerr << "[BGE] modeled_mask_mesh chroma guard: pre_rg_std="
+                  << pre_rg_std << " post_rg_std=" << post_rg_std
+                  << " pre_bg_std=" << pre_bg_std
+                  << " post_bg_std=" << post_bg_std << std::endl;
+
+        if (chroma_guard_failed) {
+            std::cerr << "[BGE] modeled_mask_mesh increased background chroma spread; "
+                         "falling back to conservative fits" << std::endl;
+
+            auto run_fallback = [&](const BGEConfig& fb_cfg,
+                                    const char* name,
+                                    Matrix2Df* outR,
+                                    Matrix2Df* outG,
+                                    Matrix2Df* outB,
+                                    BGEDiagnostics* out_diag) {
+                *outR = R_input;
+                *outG = G_input;
+                *outB = B_input;
+                out_diag->channels.clear();
+                std::cerr << "[BGE]   Trying safety fallback method: " << name
+                          << std::endl;
+                return apply_background_extraction(
+                    *outR, *outG, *outB, tile_metrics, tile_grid, fb_cfg, out_diag);
+            };
+
+            // Fallback #1: conservative RBF.
+            BGEConfig fallback_rbf = config;
+            fallback_rbf.fit.method = "rbf";
+            fallback_rbf.fit.robust_loss = "tukey";
+            fallback_rbf.fit.rbf_phi = "multiquadric";
+            fallback_rbf.fit.rbf_mu_factor =
+                std::max(1.2f, std::min(1.8f, config.fit.rbf_mu_factor));
+            fallback_rbf.fit.rbf_lambda = std::max(1.0e-5f, config.fit.rbf_lambda);
+            fallback_rbf.sample_quantile = std::min(config.sample_quantile, 0.18f);
+            fallback_rbf.structure_thresh_percentile =
+                std::min(config.structure_thresh_percentile, 0.85f);
+            fallback_rbf.autotune.enabled = false;
+
+            Matrix2Df R_fb;
+            Matrix2Df G_fb;
+            Matrix2Df B_fb;
+            BGEDiagnostics fb_diag;
+            bool fb_ok = run_fallback(fallback_rbf, "rbf", &R_fb, &G_fb, &B_fb, &fb_diag);
+            std::string chosen_method;
+
+            // Fallback #2: robust low-order polynomial with relaxed guards.
+            if (!fb_ok) {
+                std::cerr << "[BGE]   RBF fallback failed; trying poly fallback" << std::endl;
+                BGEConfig fallback_poly = config;
+                fallback_poly.fit.method = "poly";
+                fallback_poly.fit.polynomial_order = 2;
+                fallback_poly.fit.robust_loss = "tukey";
+                fallback_poly.sample_quantile = std::min(config.sample_quantile, 0.16f);
+                fallback_poly.structure_thresh_percentile =
+                    std::min(config.structure_thresh_percentile, 0.80f);
+                fallback_poly.autotune.enabled = false;
+                fallback_poly.internal_relaxed_channel_guards = true;
+
+                fb_ok = run_fallback(
+                    fallback_poly, "poly", &R_fb, &G_fb, &B_fb, &fb_diag);
+                if (fb_ok) {
+                    chosen_method = "poly";
+                }
+            } else {
+                chosen_method = "rbf";
+            }
+
+            if (fb_ok) {
+                R = std::move(R_fb);
+                G = std::move(G_fb);
+                B = std::move(B_fb);
+                any_channel_applied = true;
+                if (diagnostics != nullptr) {
+                    diagnostics->safety_fallback_triggered = true;
+                    diagnostics->safety_fallback_method = chosen_method;
+                    diagnostics->safety_fallback_reason = "background_chroma_worsened";
+                    diagnostics->method = chosen_method;
+                    diagnostics->robust_loss = fb_diag.robust_loss;
+                    diagnostics->grid_spacing = fb_diag.grid_spacing;
+                    diagnostics->channels = std::move(fb_diag.channels);
+                }
+            } else {
+                std::cerr << "[BGE] all safety fallbacks failed; reverting BGE for this image"
+                          << std::endl;
+                R = R_input;
+                G = G_input;
+                B = B_input;
+                any_channel_applied = false;
+                if (diagnostics != nullptr) {
+                    diagnostics->safety_fallback_triggered = true;
+                    diagnostics->safety_fallback_method = "rbf->poly";
+                    diagnostics->safety_fallback_reason =
+                        "background_chroma_worsened_fallback_failed";
+                    diagnostics->channels.clear();
+                }
+            }
+        }
     }
 
     std::cerr << "[BGE] Background extraction complete" << std::endl;

@@ -205,7 +205,7 @@ bge:
     G_max_fraction: 0.25
     insufficient_cell_strategy: discard # discard | nearest | radius_expand
   fit:
-    method: rbf # poly | spline | bicubic | rbf
+    method: rbf # poly | spline | bicubic | rbf | modeled_mask_mesh
     robust_loss: huber # huber | tukey
     huber_delta: 1.5
     irls_max_iterations: 10

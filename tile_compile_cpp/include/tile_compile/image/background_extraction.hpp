@@ -10,6 +10,9 @@ namespace tile_compile::image {
 // BGE Configuration (matches YAML structure from v3.3 §6.3)
 struct BGEConfig {
     bool enabled = false;
+    // Internal safety knob (not YAML-exposed): relax channel acceptance
+    // guards for controlled fallback retries on difficult fields.
+    bool internal_relaxed_channel_guards = false;
     
     // Tile sampling (§6.3.2)
     float sample_quantile = 0.20f;
@@ -32,7 +35,7 @@ struct BGEConfig {
     
     // Surface fitting (§6.3.4, §6.3.7)
     struct {
-        std::string method = "rbf"; // poly | spline | bicubic | rbf
+        std::string method = "rbf"; // poly | spline | bicubic | rbf | modeled_mask_mesh
         std::string robust_loss = "huber"; // huber | tukey
         float huber_delta = 1.5f;
         int irls_max_iterations = 10;
@@ -153,8 +156,17 @@ struct BGEDiagnostics {
     float autotune_selected_structure_thresh_percentile = 0.0f;
     float autotune_selected_rbf_mu_factor = 0.0f;
     bool autotune_fallback_used = false;
+    bool safety_fallback_triggered = false;
+    std::string safety_fallback_method;
+    std::string safety_fallback_reason;
     std::vector<BGEChannelDiagnostics> channels;
 };
+
+// Shared background/chroma utilities used by BGE diagnostics and PCC damping.
+std::vector<uint8_t> build_chroma_background_mask_from_rgb(
+    const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B);
+float log_chroma_std_background(const Matrix2Df& A, const Matrix2Df& G,
+                                const std::vector<uint8_t>& bg_mask);
 
 // Main BGE function (v3.3 §6.3)
 // Extracts and subtracts large-scale background gradients from RGB channels

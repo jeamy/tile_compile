@@ -3047,6 +3047,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
              diag.autotune_selected_structure_thresh_percentile},
             {"selected_rbf_mu_factor", diag.autotune_selected_rbf_mu_factor},
         };
+        out["safety_fallback"] = {
+            {"triggered", diag.safety_fallback_triggered},
+            {"method", diag.safety_fallback_method},
+            {"reason", diag.safety_fallback_reason},
+        };
         out["channels"] = core::json::array();
 
         int channels_applied = 0;
@@ -3177,34 +3182,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         bge_metrics_tiles_match =
             (tile_metrics_for_bge.size() == bge_tile_grid.tiles.size());
 
-        image::BGEConfig bge_cfg;
-        bge_cfg.enabled = cfg.bge.enabled;
-        bge_cfg.sample_quantile = cfg.bge.sample_quantile;
-        bge_cfg.structure_thresh_percentile = cfg.bge.structure_thresh_percentile;
-        bge_cfg.min_tiles_per_cell = cfg.bge.min_tiles_per_cell;
-        bge_cfg.mask.star_dilate_px = cfg.bge.mask.star_dilate_px;
-        bge_cfg.mask.sat_dilate_px = cfg.bge.mask.sat_dilate_px;
-        bge_cfg.grid.N_g = cfg.bge.grid.N_g;
-        bge_cfg.grid.G_min_px = cfg.bge.grid.G_min_px;
-        bge_cfg.grid.G_max_fraction = cfg.bge.grid.G_max_fraction;
-        bge_cfg.grid.insufficient_cell_strategy =
-            cfg.bge.grid.insufficient_cell_strategy;
-        bge_cfg.fit.method = cfg.bge.fit.method;
-        bge_cfg.fit.robust_loss = cfg.bge.fit.robust_loss;
-        bge_cfg.fit.huber_delta = cfg.bge.fit.huber_delta;
-        bge_cfg.fit.irls_max_iterations = cfg.bge.fit.irls_max_iterations;
-        bge_cfg.fit.irls_tolerance = cfg.bge.fit.irls_tolerance;
-        bge_cfg.fit.polynomial_order = cfg.bge.fit.polynomial_order;
-        bge_cfg.fit.rbf_phi = cfg.bge.fit.rbf_phi;
-        bge_cfg.fit.rbf_mu_factor = cfg.bge.fit.rbf_mu_factor;
-        bge_cfg.fit.rbf_lambda = cfg.bge.fit.rbf_lambda;
-        bge_cfg.fit.rbf_epsilon = cfg.bge.fit.rbf_epsilon;
-        bge_cfg.autotune.enabled = cfg.bge.autotune.enabled;
-        bge_cfg.autotune.max_evals = cfg.bge.autotune.max_evals;
-        bge_cfg.autotune.holdout_fraction = cfg.bge.autotune.holdout_fraction;
-        bge_cfg.autotune.alpha_flatness = cfg.bge.autotune.alpha_flatness;
-        bge_cfg.autotune.beta_roughness = cfg.bge.autotune.beta_roughness;
-        bge_cfg.autotune.strategy = cfg.bge.autotune.strategy;
+        image::BGEConfig bge_cfg =
+            tile_compile::runner::to_image_bge_config(cfg.bge);
 
         if (!bge_metrics_tiles_match) {
           std::cerr << "[BGE] Warning: tile metric/grid size mismatch (metrics="
@@ -3409,22 +3388,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                           log_file);
       } else {
         // Build PCC config from pipeline config
-        astro::PCCConfig pcc_cfg;
-        pcc_cfg.aperture_radius_px = cfg.pcc.aperture_radius_px;
-        pcc_cfg.annulus_inner_px = cfg.pcc.annulus_inner_px;
-        pcc_cfg.annulus_outer_px = cfg.pcc.annulus_outer_px;
-        pcc_cfg.mag_limit = cfg.pcc.mag_limit;
-        pcc_cfg.mag_bright_limit = cfg.pcc.mag_bright_limit;
-        pcc_cfg.min_stars = cfg.pcc.min_stars;
-        pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
-        pcc_cfg.background_model = cfg.pcc.background_model;
-        pcc_cfg.max_condition_number = cfg.pcc.max_condition_number;
-        pcc_cfg.max_residual_rms = cfg.pcc.max_residual_rms;
-        pcc_cfg.radii_mode = cfg.pcc.radii_mode;
-        pcc_cfg.aperture_fwhm_mult = cfg.pcc.aperture_fwhm_mult;
-        pcc_cfg.annulus_inner_fwhm_mult = cfg.pcc.annulus_inner_fwhm_mult;
-        pcc_cfg.annulus_outer_fwhm_mult = cfg.pcc.annulus_outer_fwhm_mult;
-        pcc_cfg.min_aperture_px = cfg.pcc.min_aperture_px;
+        astro::PCCConfig pcc_cfg =
+            tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
         if (!bge_tile_metrics_cache.empty() &&
             bge_tile_metrics_cache.size() == bge_tile_grid_cache.tiles.size()) {
           pcc_cfg.use_tile_quality_weighting = true;

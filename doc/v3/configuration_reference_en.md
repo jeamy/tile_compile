@@ -966,7 +966,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 **Key BGE parameters:**
 - `bge.enabled`: Enable/disable (default: `false`)
 - `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
-- `bge.fit.method`: Surface fitting method - `rbf`, `poly`, `spline`, `bicubic` (default `rbf`)
+- `bge.fit.method`: Surface fitting method - `rbf`, `poly`, `spline`, `bicubic`, `modeled_mask_mesh` (default `rbf`)
 - `bge.fit.rbf_phi`: RBF kernel - `multiquadric`, `thinplate`, `gaussian` (default `multiquadric`)
 - `bge.autotune.enabled`: Deterministic test-adjust-test autotune (default `false`)
 - `bge.autotune.strategy`: `conservative|extended` (default `conservative`)

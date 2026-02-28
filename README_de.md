@@ -500,6 +500,7 @@ ctest --output-on-failure
 **BGE (Background Gradient Extraction):**
 
 - Optionale BGE-Stufe vor PCC ergänzt, die den modellierten Hintergrund direkt von den RGB-Kanälen subtrahiert.
+- Vordergrundbewusste BGE-Fit-Methode `modeled_mask_mesh` ergänzt, um in schwierigen Feldern mit großflächigen diffusen Objekten (z.B. M31/M42) Farbwolken vor PCC zu reduzieren.
 - Neues Artefakt `artifacts/bge.json` mit kanalweisen Diagnosedaten (Tile-Samples, Grid-Zellen, Residuenstatistik).
 - Report-Generator um eigenen BGE-Abschnitt mit Zusammenfassungsplots und Residuenanalyse erweitert.
 

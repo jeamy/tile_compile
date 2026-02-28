@@ -25,6 +25,9 @@ namespace tile_compile::runner {
 
 namespace fs = std::filesystem;
 namespace core = tile_compile::core;
+namespace image = tile_compile::image;
+namespace config = tile_compile::config;
+namespace astrometry = tile_compile::astrometry;
 
 std::string format_bytes(uint64_t bytes) {
   static const char *kUnits[] = {"B", "KiB", "MiB", "GiB", "TiB"};
@@ -66,6 +69,57 @@ bool message_indicates_disk_full(const std::string &message) {
          (m.find("disk full") != std::string::npos) ||
          (m.find("not enough space") != std::string::npos) ||
          (m.find("enospc") != std::string::npos);
+}
+
+image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
+  image::BGEConfig dst;
+  dst.enabled = src.enabled;
+  dst.sample_quantile = src.sample_quantile;
+  dst.structure_thresh_percentile = src.structure_thresh_percentile;
+  dst.min_tiles_per_cell = src.min_tiles_per_cell;
+  dst.mask.star_dilate_px = src.mask.star_dilate_px;
+  dst.mask.sat_dilate_px = src.mask.sat_dilate_px;
+  dst.grid.N_g = src.grid.N_g;
+  dst.grid.G_min_px = src.grid.G_min_px;
+  dst.grid.G_max_fraction = src.grid.G_max_fraction;
+  dst.grid.insufficient_cell_strategy = src.grid.insufficient_cell_strategy;
+  dst.fit.method = src.fit.method;
+  dst.fit.robust_loss = src.fit.robust_loss;
+  dst.fit.huber_delta = src.fit.huber_delta;
+  dst.fit.irls_max_iterations = src.fit.irls_max_iterations;
+  dst.fit.irls_tolerance = src.fit.irls_tolerance;
+  dst.fit.polynomial_order = src.fit.polynomial_order;
+  dst.fit.rbf_phi = src.fit.rbf_phi;
+  dst.fit.rbf_mu_factor = src.fit.rbf_mu_factor;
+  dst.fit.rbf_lambda = src.fit.rbf_lambda;
+  dst.fit.rbf_epsilon = src.fit.rbf_epsilon;
+  dst.autotune.enabled = src.autotune.enabled;
+  dst.autotune.max_evals = src.autotune.max_evals;
+  dst.autotune.holdout_fraction = src.autotune.holdout_fraction;
+  dst.autotune.alpha_flatness = src.autotune.alpha_flatness;
+  dst.autotune.beta_roughness = src.autotune.beta_roughness;
+  dst.autotune.strategy = src.autotune.strategy;
+  return dst;
+}
+
+astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src) {
+  astrometry::PCCConfig dst;
+  dst.aperture_radius_px = src.aperture_radius_px;
+  dst.annulus_inner_px = src.annulus_inner_px;
+  dst.annulus_outer_px = src.annulus_outer_px;
+  dst.mag_limit = src.mag_limit;
+  dst.mag_bright_limit = src.mag_bright_limit;
+  dst.min_stars = src.min_stars;
+  dst.sigma_clip = src.sigma_clip;
+  dst.background_model = src.background_model;
+  dst.max_condition_number = src.max_condition_number;
+  dst.max_residual_rms = src.max_residual_rms;
+  dst.radii_mode = src.radii_mode;
+  dst.aperture_fwhm_mult = src.aperture_fwhm_mult;
+  dst.annulus_inner_fwhm_mult = src.annulus_inner_fwhm_mult;
+  dst.annulus_outer_fwhm_mult = src.annulus_outer_fwhm_mult;
+  dst.min_aperture_px = src.min_aperture_px;
+  return dst;
 }
 
 TeeBuf::TeeBuf(std::streambuf *a, std::streambuf *b) : a_(a), b_(b) {}

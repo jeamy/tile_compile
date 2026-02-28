@@ -221,7 +221,7 @@ bge:
   
   # Surface Fitting (v3.3 §6.3.4, §6.3.7)
   fit:
-    method: rbf # poly | spline | bicubic | rbf (Default: rbf)
+    method: rbf # poly | spline | bicubic | rbf | modeled_mask_mesh (Default: rbf)
     robust_loss: huber # huber | tukey (Default: huber)
     huber_delta: 1.5 # Default: 1.5
     irls_max_iterations: 10 # Default: 10

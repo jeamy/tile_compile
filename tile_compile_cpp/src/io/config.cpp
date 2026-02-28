@@ -1170,6 +1170,20 @@ void Config::validate() const {
       bge.fit.rbf_lambda <= 0.0f || bge.fit.rbf_epsilon <= 0.0f) {
     throw ValidationError("bge.fit parameters are out of range");
   }
+  if (bge.fit.method != "poly" && bge.fit.method != "spline" &&
+      bge.fit.method != "bicubic" && bge.fit.method != "rbf" &&
+      bge.fit.method != "modeled_mask_mesh") {
+    throw ValidationError(
+        "bge.fit.method must be one of: poly|spline|bicubic|rbf|modeled_mask_mesh");
+  }
+  if (bge.fit.robust_loss != "huber" && bge.fit.robust_loss != "tukey") {
+    throw ValidationError("bge.fit.robust_loss must be 'huber' or 'tukey'");
+  }
+  if (bge.fit.rbf_phi != "thinplate" && bge.fit.rbf_phi != "multiquadric" &&
+      bge.fit.rbf_phi != "gaussian") {
+    throw ValidationError(
+        "bge.fit.rbf_phi must be one of: thinplate|multiquadric|gaussian");
+  }
   if (bge.autotune.max_evals < 1 ||
       bge.autotune.holdout_fraction < 0.05f ||
       bge.autotune.holdout_fraction > 0.50f ||

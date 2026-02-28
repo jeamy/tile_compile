@@ -304,7 +304,7 @@ properties:
       fit:
         type: object
         properties:
-          method: {type: string, enum: [poly, spline, bicubic, rbf]}
+          method: {type: string, enum: [poly, spline, bicubic, rbf, modeled_mask_mesh]}
           robust_loss: {type: string, enum: [huber, tukey]}
           huber_delta: {type: number, exclusiveMinimum: 0}
           irls_max_iterations: {type: integer, minimum: 1}

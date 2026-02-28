@@ -871,7 +871,8 @@
                 "poly",
                 "spline",
                 "bicubic",
-                "rbf"
+                "rbf",
+                "modeled_mask_mesh"
               ]
             },
             "robust_loss": {
