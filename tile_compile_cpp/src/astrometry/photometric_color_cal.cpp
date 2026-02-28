@@ -804,6 +804,69 @@ static double robust_mean_weighted(std::vector<double> &data,
     return center;
 }
 
+// Recompute robust log-chroma residuals for the actually applied PCC matrix.
+static double recompute_residual_rms_for_matrix(const std::vector<StarPhotometry> &stars,
+                                                const ColorMatrix &matrix,
+                                                double sigma_clip,
+                                                int *n_used_out) {
+    if (n_used_out != nullptr) *n_used_out = 0;
+
+    std::vector<double> d_rg_vec;
+    std::vector<double> d_bg_vec;
+    std::vector<double> w_rg_vec;
+    std::vector<double> w_bg_vec;
+    d_rg_vec.reserve(stars.size());
+    d_bg_vec.reserve(stars.size());
+    w_rg_vec.reserve(stars.size());
+    w_bg_vec.reserve(stars.size());
+
+    for (const auto &s : stars) {
+        if (!(s.valid &&
+              s.flux_r > 0.0 && s.flux_g > 0.0 && s.flux_b > 0.0 &&
+              s.cat_r > 0.0 && s.cat_g > 0.0 && s.cat_b > 0.0)) {
+            continue;
+        }
+
+        const double fr = s.flux_r;
+        const double fg = s.flux_g;
+        const double fb = s.flux_b;
+        const double mr = matrix[0][0] * fr + matrix[0][1] * fg + matrix[0][2] * fb;
+        const double mg = matrix[1][0] * fr + matrix[1][1] * fg + matrix[1][2] * fb;
+        const double mb = matrix[2][0] * fr + matrix[2][1] * fg + matrix[2][2] * fb;
+        if (!(std::isfinite(mr) && std::isfinite(mg) && std::isfinite(mb) &&
+              mr > 0.0 && mg > 0.0 && mb > 0.0)) {
+            continue;
+        }
+
+        const double meas_rg = mr / mg;
+        const double meas_bg = mb / mg;
+        const double cat_rg = s.cat_r / s.cat_g;
+        const double cat_bg = s.cat_b / s.cat_g;
+        if (!(meas_rg > 0.0 && meas_bg > 0.0 && cat_rg > 0.0 && cat_bg > 0.0)) {
+            continue;
+        }
+
+        const double w = std::clamp(s.quality_weight, 1.0e-3, 10.0);
+        d_rg_vec.push_back(std::log(cat_rg) - std::log(meas_rg));
+        d_bg_vec.push_back(std::log(cat_bg) - std::log(meas_bg));
+        w_rg_vec.push_back(w);
+        w_bg_vec.push_back(w);
+    }
+
+    if (d_rg_vec.size() < 3 || d_bg_vec.size() < 3) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    double dev_rg = 0.0;
+    double dev_bg = 0.0;
+    (void)robust_mean_weighted(d_rg_vec, w_rg_vec, sigma_clip, dev_rg);
+    (void)robust_mean_weighted(d_bg_vec, w_bg_vec, sigma_clip, dev_bg);
+    if (n_used_out != nullptr) {
+        *n_used_out = static_cast<int>(std::min(d_rg_vec.size(), d_bg_vec.size()));
+    }
+    return std::max(dev_rg, dev_bg);
+}
+
 PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
                            const PCCConfig &config) {
     PCCResult res;
@@ -1583,6 +1646,23 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                       << ", score=" << best_score << std::endl;
             result.matrix = chosen_matrix;
             update_result_matrix_metrics(&result);
+        }
+
+        const double residual_before_apply = result.residual_rms;
+        int applied_n_stars_used = result.n_stars_used;
+        const double applied_residual_rms = recompute_residual_rms_for_matrix(
+            photometry, result.matrix, config.sigma_clip, &applied_n_stars_used);
+        if (std::isfinite(applied_residual_rms) && applied_n_stars_used > 0) {
+            result.residual_rms = applied_residual_rms;
+            result.n_stars_used = applied_n_stars_used;
+            if (std::abs(result.residual_rms - residual_before_apply) > 1.0e-6) {
+                std::cerr << "[PCC] Residual RMS updated for applied matrix: "
+                          << residual_before_apply << " -> " << result.residual_rms
+                          << " (stars=" << result.n_stars_used << ")" << std::endl;
+            }
+        } else {
+            std::cerr << "[PCC] Warning: failed to recompute residual RMS for applied matrix; "
+                      << "keeping fit residual=" << residual_before_apply << std::endl;
         }
 
         apply_color_matrix(R, G, B, result.matrix);
