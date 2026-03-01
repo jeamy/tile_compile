@@ -55,6 +55,10 @@ struct PCCConfig {
     float tile_structure_reject = 8.0f;
     float tile_weight_min = 0.25f;
     float tile_weight_max = 2.0f;
+    
+    bool apply_attenuation = true;
+    double chroma_strength = 0.70;
+    double k_max = 1.20;
 };
 
 // PCC result
@@ -82,7 +86,7 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
 
 // Apply the color correction matrix to RGB channels (in-place)
 void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
-                        const ColorMatrix &matrix);
+                        const ColorMatrix &matrix, bool apply_attenuation = true);
 
 // Full PCC pipeline: catalog query + photometry + matrix fit + apply
 // Returns the result; R/G/B are modified in-place if successful

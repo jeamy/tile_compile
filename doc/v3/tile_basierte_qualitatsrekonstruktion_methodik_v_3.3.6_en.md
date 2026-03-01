@@ -1005,31 +1005,8 @@ RBF without regularization (`λ = 0`) is forbidden.
 - `λ = 1e-4` (tune within `[1e-6, 1e-2]` depending on gradient strength)
 - Include affine term by default.
 
-
-## 10. Change History
-
-| Date | Version | Change |
-|---|---|---|
-| 2026-02-17 | v3.3.6 | Added deterministic conservative auto-tuned BGE (objective + bounded search) and PCC improvements (robust plane annulus background + FWHM-adaptive radii) |
-| 2026-02-17 | v3.3.5 | Replaced RBF section with fully rigorous formulation (separate coefficients u_i, reliability weights ω_j, affine term, mandatory regularization) |
-| 2026-02-17 | v3.3.4 | Added spec-conform BGE YAML example and key-mapping; extended RBF basis options to include gaussian (with explicit scale parameter) |
-| 2026-02-17 | v3.3.3 | BGE clarified: configurable sample quantile (median allowed), explicit background mask requirements, deterministic coarse-grid assignment with min 3 tiles per cell, and optional regularized RBF surface fitting |
-| 2026-02-17 | v3.3.2 | Added formal mathematical surface model for BGE (robust polynomial/spline with IRLS) and adaptive grid definition tied to image scale |
-| 2026-02-17 | v3.3 | Added strict ML optimization extension: ML restricted to weights/masks/state descriptors; core remains deterministic and strictly linear |
-| 2026-02-15 | v3.2.2 | Replaced cluster-size weighted final stacking with quality-weighted cluster aggregation (exp(kappa_cluster * Q_k)) including optional dominance cap |
-| 2026-02-15 | v3.2.1 | Enforced overlap clipping in tile geometry; added photometric restoration after OLA; replaced uniform per-cluster averaging with cluster-size weighted final stack |
-| 2026-02-13 | v3.2 | Path A removed; CFA-based registration and channel-separation path defined as the only normative path up to phase 2 |
-| 2026-02-13 | v3.2 | Consolidation after mathematical diagnostics |
-| 2026-02-13 | v3.2 | Linearity semantics clarified |
-| 2026-02-13 | v3.2 | Reduced-mode boundaries made explicit |
-| 2026-02-13 | v3.2 | Notation unified to `f,t,c` |
-| 2026-02-13 | v3.2 | Tile reconstruction/fallbacks merged into a consistent block |
-| 2026-02-13 | v3.2 | Discrete Hann definition fixed normatively |
-| 2026-02-13 | v3.2 | PCC test criterion replaced with a technically robust version |
-
-
 ---
 
-## 11. Core Statement
+## 10. Core Statement
 
 The method replaces rigid search for "best frames" with robust spatio-temporal quality modeling, uses all frames without quality-based selection, and reconstructs signal where it is physically and statistically most reliable.

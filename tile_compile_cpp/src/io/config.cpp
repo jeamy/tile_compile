@@ -534,6 +534,13 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.pcc.min_aperture_px = p["min_aperture_px"].as<float>();
     if (p["siril_catalog_dir"])
       cfg.pcc.siril_catalog_dir = p["siril_catalog_dir"].as<std::string>();
+
+if (p["apply_attenuation"])
+  cfg.pcc.apply_attenuation = p["apply_attenuation"].as<bool>();
+if (p["chroma_strength"])
+  cfg.pcc.chroma_strength = p["chroma_strength"].as<float>();
+if (p["k_max"])
+  cfg.pcc.k_max = p["k_max"].as<float>();
   }
 
   if (node["stacking"]) {

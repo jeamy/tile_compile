@@ -2301,14 +2301,24 @@ bool apply_background_extraction(
         const float slope_pre = coarse_background_plane_slope(channel_before);
         const float slope_post = coarse_background_plane_slope(corrected);
         bool accept_correction = true;
-        const float max_flatness_worsen_factor =
-            config.internal_relaxed_channel_guards ? 1.35f : 1.05f;
-        const float max_slope_worsen_factor =
-            config.internal_relaxed_channel_guards ? 1.12f : 1.02f;
+        
+        // Adaptive guard thresholds based on field type.
+        // For compact galaxies (mean≈median), background is already uniform → BGE may
+        // slightly worsen flatness/slope while still removing gradients. Use relaxed guards.
+        // For diffuse nebulae (mean<<median), BGE should clearly improve flatness → strict guards.
+        const float mean_median_ratio = (ch_diag.input_stats.median > 1.0f)
+            ? (ch_diag.input_stats.mean / ch_diag.input_stats.median)
+            : 1.0f;
+        const bool is_compact_field = (mean_median_ratio >= 0.90f);
+        
+        const float max_flatness_worsen_factor = is_compact_field ? 1.20f : 1.05f;
+        const float max_slope_worsen_factor = is_compact_field ? 1.15f : 1.02f;
+        
         if (std::isfinite(flat_pre) && std::isfinite(flat_post) &&
             flat_post > flat_pre * max_flatness_worsen_factor) {
             std::cerr << "[BGE]   Flatness guard rejected channel " << channel_name
-                      << " (pre=" << flat_pre << ", post=" << flat_post << ")"
+                      << " (pre=" << flat_pre << ", post=" << flat_post
+                      << ", limit=" << (flat_pre * max_flatness_worsen_factor) << ")"
                       << std::endl;
             accept_correction = false;
         }
@@ -2316,7 +2326,8 @@ bool apply_background_extraction(
             std::isfinite(slope_pre) && std::isfinite(slope_post) &&
             slope_post > slope_pre * max_slope_worsen_factor) {
             std::cerr << "[BGE]   Slope guard rejected channel " << channel_name
-                      << " (pre=" << slope_pre << ", post=" << slope_post << ")"
+                      << " (pre=" << slope_pre << ", post=" << slope_post
+                      << ", limit=" << (slope_pre * max_slope_worsen_factor) << ")"
                       << std::endl;
             accept_correction = false;
         }

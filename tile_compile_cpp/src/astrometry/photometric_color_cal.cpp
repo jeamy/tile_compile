@@ -949,7 +949,7 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     // G is the luminance anchor (G=1.0), matching Siril's get_pcc_white_balance_coeffs.
     // R and B are scaled relative to G from the log-chromaticity deltas.
     // Chroma compression toward identity is applied only to R and B deviations from 1.
-    constexpr double chroma_strength = 0.70;  // 1.0 = full correction, 0.0 = no correction
+    const double chroma_strength = std::clamp(config.chroma_strength, 0.0, 1.0);  // 1.0 = full correction, 0.0 = no correction
     auto compress_deviation = [&](double raw_scale) {
         // compress the log-delta toward zero, keeping G-anchor at 1
         const double log_k = std::log(std::max(raw_scale, 1e-9));
@@ -963,11 +963,12 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     // Guardrails relative to G=1: cap R and B deviations.
     // Tighten bounds when robust scatter is high to avoid chroma runaway.
     const double dev_max = std::max(dev_rg, dev_bg);
-    double k_max = 1.20;
-    if (dev_max > 0.30) {
-        k_max = 1.08;
-    } else if (dev_max > 0.20) {
-        k_max = 1.12;
+    double k_max = std::max(1.05, static_cast<double>(config.k_max));
+    // Optionally tighten bounds when robust scatter is high to avoid chroma runaway.
+    if (dev_max > 0.50) {
+        k_max = std::min(k_max, 1.30);
+    } else if (dev_max > 0.35) {
+        k_max = std::min(k_max, 1.60);
     }
     const double k_min = 1.0 / k_max;
     kw_r = std::clamp(kw_r, k_min, k_max);
@@ -1162,9 +1163,9 @@ static PCCAttenuationContext build_pcc_attenuation_context(const Matrix2Df &R,
                   std::isfinite(b0) && b0 > 0.0f)) {
                 continue;
             }
-            const float dr = r0 - ctx.bg_r;
-            const float dg = g0 - ctx.bg_g;
-            const float db = b0 - ctx.bg_b;
+            const float dr = r0 - ctx.bg_out;
+            const float dg = g0 - ctx.bg_out;
+            const float db = b0 - ctx.bg_out;
             const float luma =
                 std::max(0.0f, 0.2126f * dr + 0.7152f * dg + 0.0722f * db);
             if (luma > 0.0f) signal_luma.push_back(luma);
@@ -1202,9 +1203,9 @@ static PCCAttenuationContext build_pcc_attenuation_context(const Matrix2Df &R,
                   std::isfinite(b0) && b0 > 0.0f)) {
                 continue;
             }
-            const float dr = r0 - ctx.bg_r;
-            const float dg = g0 - ctx.bg_g;
-            const float db = b0 - ctx.bg_b;
+            const float dr = r0 - ctx.bg_out;
+            const float dg = g0 - ctx.bg_out;
+            const float db = b0 - ctx.bg_out;
             luma_raw[p] = std::max(0.0f, 0.2126f * dr + 0.7152f * dg + 0.0722f * db);
             luma_valid[p] = 1;
         }
@@ -1250,11 +1251,9 @@ static inline void apply_color_matrix_to_deltas(const ColorMatrix &m, float atte
 }
 
 struct PCCBackgroundSample {
-    float dr = 0.0f;
-    float dg = 0.0f;
-    float db = 0.0f;
-    float bg_out = 0.0f;
-    float atten = 1.0f;
+    float dr, dg, db;
+    float bg_out;
+    float atten;
 };
 
 static std::vector<PCCBackgroundSample> build_pcc_background_samples(
@@ -1298,8 +1297,9 @@ static std::vector<PCCBackgroundSample> build_pcc_background_samples(
             }
             const float luma = ctx.luma_smooth[idx];
             samples.push_back(PCCBackgroundSample{
-                r0 - ctx.bg_r, g0 - ctx.bg_g, b0 - ctx.bg_b,
-                ctx.bg_out, attenuation_from_luma(luma, ctx)});
+                r0 - ctx.bg_out, g0 - ctx.bg_out, b0 - ctx.bg_out,
+                ctx.bg_out,
+                attenuation_from_luma(luma, ctx)});
         }
     }
 
@@ -1319,8 +1319,9 @@ static std::vector<PCCBackgroundSample> build_pcc_background_samples(
                 }
                 const float luma = ctx.luma_smooth[idx];
                 samples.push_back(PCCBackgroundSample{
-                    r0 - ctx.bg_r, g0 - ctx.bg_g, b0 - ctx.bg_b,
-                    ctx.bg_out, attenuation_from_luma(luma, ctx)});
+                    r0 - ctx.bg_out, g0 - ctx.bg_out, b0 - ctx.bg_out,
+                    ctx.bg_out,
+                    attenuation_from_luma(luma, ctx)});
             }
         }
     }
@@ -1378,6 +1379,43 @@ static PCCBackgroundStdPair sampled_background_std_after_matrix(
     return out;
 }
 
+
+static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
+                                           const ColorMatrix &m, bool verbose) {
+    const int rows = R.rows();
+    const int cols = R.cols();
+    if (rows <= 0 || cols <= 0) return;
+
+    // Pure linear application: no background anchoring, no attenuation.
+    // This matches typical PCC behavior (Siril-like white balance coefficients).
+    size_t valid_px = 0;
+    const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+
+    for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < cols; ++x) {
+            const float r0 = R(y, x);
+            const float g0 = G(y, x);
+            const float b0 = B(y, x);
+            if (!(std::isfinite(r0) && std::isfinite(g0) && std::isfinite(b0))) {
+                R(y, x) = 0.0f; G(y, x) = 0.0f; B(y, x) = 0.0f;
+                continue;
+            }
+            ++valid_px;
+            const float nr = static_cast<float>(m[0][0] * r0 + m[0][1] * g0 + m[0][2] * b0);
+            const float ng = static_cast<float>(m[1][0] * r0 + m[1][1] * g0 + m[1][2] * b0);
+            const float nb = static_cast<float>(m[2][0] * r0 + m[2][1] * g0 + m[2][2] * b0);
+            R(y, x) = (std::isfinite(nr) ? nr : 0.0f);
+            G(y, x) = (std::isfinite(ng) ? ng : 0.0f);
+            B(y, x) = (std::isfinite(nb) ? nb : 0.0f);
+        }
+    }
+    if (verbose) {
+        const double frac = (total_px > 0) ? (static_cast<double>(valid_px) / static_cast<double>(total_px)) : 0.0;
+        std::cerr << "[PCC] Apply(simple) valid pixels: " << valid_px << "/" << total_px
+                  << " (" << (100.0 * frac) << "%)" << std::endl;
+    }
+}
+
 static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                     const ColorMatrix &m, bool verbose) {
     const PCCAttenuationContext ctx = build_pcc_attenuation_context(R, G, B);
@@ -1415,9 +1453,9 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
             ++valid_px;
 
-            const float dr = r0 - ctx.bg_r;
-            const float dg = g0 - ctx.bg_g;
-            const float db = b0 - ctx.bg_b;
+            const float dr = r0 - ctx.bg_out;
+            const float dg = g0 - ctx.bg_out;
+            const float db = b0 - ctx.bg_out;
             const size_t idx = static_cast<size_t>(y * cols + x);
             const float atten = attenuation_from_luma(ctx.luma_smooth[idx], ctx);
             float nr = 0.0f;
@@ -1441,8 +1479,12 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 }
 
 void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
-                        const ColorMatrix &m) {
-    apply_color_matrix_impl(R, G, B, m, true);
+                        const ColorMatrix &m, bool apply_attenuation) {
+    if (apply_attenuation) {
+        apply_color_matrix_impl(R, G, B, m, true);
+    } else {
+        apply_color_matrix_impl_simple(R, G, B, m, true);
+    }
 }
 
 // ─── Full PCC pipeline ──────────────────────────────────────────────────

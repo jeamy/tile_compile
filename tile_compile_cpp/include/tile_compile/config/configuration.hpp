@@ -314,6 +314,10 @@ struct PCCConfig {
   float min_aperture_px = 4.0f;
 
   std::string siril_catalog_dir;  // empty = default path
+  
+  bool apply_attenuation = true;
+  float chroma_strength = 0.70f;
+  float k_max = 1.20f;
 };
 
 struct ValidationConfig {

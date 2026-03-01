@@ -873,31 +873,8 @@ Suggested (non-exhaustive) configuration keys:
 
 Implementations must treat missing ML models as a controlled fallback to the non-ML core.
 
-
-## 10. Change History
-
-| Date | Version | Change |
-|---|---|---|
-| 2026-02-25 | v3.3.6 | RBF mathematical corrections: separated reliability weights (w_j) from RBF coefficients (u_i), clarified mu as shape/scale parameter (not regularization), corrected Thin-plate kernel to standard form d^2*log(d) with epsilon for numerical stability only, added explicit parameter semantics for each kernel type |
-| 2026-02-25 | v3.3.5 | BGE corrections: removed duplicate section headers, added complete RBF mathematical formulation in 6.3.7 (3 kernel types with regularized robust regression), corrected rbf_mu_factor in YAML example, fixed PCC section numbering (6.3→6.4), enhanced key mapping for RBF parameters |
-| 2026-02-17 | v3.3.4 | Added spec-conform BGE YAML example and key-mapping; extended RBF basis options to include gaussian (with explicit scale parameter) |
-| 2026-02-17 | v3.3.3 | BGE clarified: configurable sample quantile (median allowed), explicit background mask requirements, deterministic coarse-grid assignment with min 3 tiles per cell, and optional regularized RBF surface fitting |
-| 2026-02-17 | v3.3.2 | Added formal mathematical surface model for BGE (robust polynomial/spline with IRLS) and adaptive grid definition tied to image scale |
-| 2026-02-17 | v3.3 | Added strict ML optimization extension: ML restricted to weights/masks/state descriptors; core remains deterministic and strictly linear |
-| 2026-02-15 | v3.2.2 | Replaced cluster-size weighted final stacking with quality-weighted cluster aggregation (exp(kappa_cluster * Q_k)) including optional dominance cap |
-| 2026-02-15 | v3.2.1 | Enforced overlap clipping in tile geometry; added photometric restoration after OLA; replaced uniform per-cluster averaging with cluster-size weighted final stack |
-| 2026-02-13 | v3.2 | Path A removed; CFA-based registration and channel-separation path defined as the only normative path up to phase 2 |
-| 2026-02-13 | v3.2 | Consolidation after mathematical diagnostics |
-| 2026-02-13 | v3.2 | Linearity semantics clarified |
-| 2026-02-13 | v3.2 | Reduced-mode boundaries made explicit |
-| 2026-02-13 | v3.2 | Notation unified to `f,t,c` |
-| 2026-02-13 | v3.2 | Tile reconstruction/fallbacks merged into a consistent block |
-| 2026-02-13 | v3.2 | Discrete Hann definition fixed normatively |
-| 2026-02-13 | v3.2 | PCC test criterion replaced with a technically robust version |
-
-
 ---
 
-## 11. Core Statement
+## 10. Core Statement
 
 The method replaces rigid search for "best frames" with robust spatio-temporal quality modeling, uses all frames without quality-based selection, and reconstructs signal where it is physically and statistically most reliable.
