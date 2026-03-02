@@ -221,9 +221,9 @@ bge:
     irls_tolerance: 1e-4
     polynomial_order: 2
     rbf_phi: multiquadric # thinplate | multiquadric | gaussian
-    rbf_mu_factor: 1.0
-    rbf_lambda: 1e-6
-    rbf_epsilon: 1e-10
+    rbf_mu_factor: 1.5 # breitere RBF-Basis, vermeidet Wolkenbildung
+    rbf_lambda: 1e-2 # staerkere Regularisierung, verhindert RBF-Ueberschwinger
+    rbf_epsilon: 1.0 # sinnvoller Startwert fuer Multiquadric
 
 pcc:
   enabled: true # Photometrische Farbkalibrierung aktiv
@@ -236,6 +236,7 @@ pcc:
   min_stars: 10 # Mindestanzahl Referenzsterne
   sigma_clip: 2.5 # Sigma-Clipping fuer Regressionsfit
   background_model: plane # median | plane
+  max_condition_number: 3.0 # >=1, Stabilitaetsgrenze fuer PCC-Matrix
   radii_mode: auto_fwhm # fixed | auto_fwhm
   aperture_fwhm_mult: 1.8
   annulus_inner_fwhm_mult: 3.0

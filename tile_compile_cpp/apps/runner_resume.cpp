@@ -503,7 +503,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                       shell_quote(astap_data) + " -r " +
                       std::to_string(cfg.astrometry.search_radius);
 
-    std::cerr << "[ASTROMETRY][resume] Running: " << cmd << std::endl;
+    std::cout << "[ASTROMETRY][resume] Running: " << cmd << std::endl;
     int ret = std::system(cmd.c_str());
 
     fs::path wcs_out = rgb_path;
@@ -569,10 +569,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         (bge_tile_metrics.size() == bge_tile_grid.tiles.size());
 
     if (!ok_local) {
-      std::cerr << "[BGE][resume] Warning: " << local_err << std::endl;
+      std::cout << "[BGE][resume] Warning: " << local_err << std::endl;
     }
     if (!ok_grid) {
-      std::cerr << "[BGE][resume] Warning: " << grid_err << std::endl;
+      std::cout << "[BGE][resume] Warning: " << grid_err << std::endl;
     }
   };
 
@@ -651,7 +651,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                                                bge_tile_metrics, bge_tile_grid,
                                                bge_cfg, &bge_diag);
     } else {
-      std::cerr << "[BGE][resume] Skipping BGE fit (missing/mismatched tile artifacts)"
+      std::cout << "[BGE][resume] Skipping BGE fit (missing/mismatched tile artifacts)"
                 << std::endl;
     }
 
@@ -751,10 +751,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     if (cfg.bge.enabled && fs::exists(stacked_rgb_bge_path)) {
       try {
         rgb = io::read_fits_rgb(stacked_rgb_bge_path);
-        std::cerr << "[PCC][resume] Using precomputed BGE snapshot: "
+        std::cout << "[PCC][resume] Using precomputed BGE snapshot: "
                   << stacked_rgb_bge_path << std::endl;
       } catch (const std::exception &e) {
-        std::cerr << "[PCC][resume] Warning: failed to load stacked_rgb_bge.fits: "
+        std::cout << "[PCC][resume] Warning: failed to load stacked_rgb_bge.fits: "
                   << e.what() << std::endl;
       }
     }
@@ -807,7 +807,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         cat_dir = astro::default_siril_gaia_catalog_dir();
       if (!astro::is_siril_gaia_catalog_available(cat_dir))
         return false;
-      std::cerr << "[PCC][resume] Querying Siril Gaia catalog at RA="
+      std::cout << "[PCC][resume] Querying Siril Gaia catalog at RA="
                 << wcs.crval1 << " Dec=" << wcs.crval2 << " r=" << search_r
                 << " deg" << std::endl;
       stars = astro::siril_gaia_cone_search(cat_dir, wcs.crval1, wcs.crval2,
@@ -820,7 +820,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     };
 
     auto try_vizier_gaia = [&]() -> bool {
-      std::cerr << "[PCC][resume] Querying VizieR Gaia DR3 at RA=" << wcs.crval1
+      std::cout << "[PCC][resume] Querying VizieR Gaia DR3 at RA=" << wcs.crval1
                 << " Dec=" << wcs.crval2 << " r=" << search_r << " deg"
                 << std::endl;
       stars = astro::vizier_gaia_cone_search(wcs.crval1, wcs.crval2, search_r,
@@ -833,7 +833,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     };
 
     auto try_vizier_apass = [&]() -> bool {
-      std::cerr << "[PCC][resume] Querying VizieR APASS DR9 at RA=" << wcs.crval1
+      std::cout << "[PCC][resume] Querying VizieR APASS DR9 at RA=" << wcs.crval1
                 << " Dec=" << wcs.crval2 << " r=" << search_r << " deg"
                 << std::endl;
       stars = astro::vizier_apass_cone_search(wcs.crval1, wcs.crval2, search_r,
@@ -853,17 +853,17 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       try_vizier_apass();
     } else {
       if (!try_siril()) {
-        std::cerr << "[PCC][resume] Siril catalog not available, trying VizieR Gaia..."
+        std::cout << "[PCC][resume] Siril catalog not available, trying VizieR Gaia..."
                   << std::endl;
         if (!try_vizier_gaia()) {
-          std::cerr << "[PCC][resume] VizieR Gaia failed, trying VizieR APASS..."
+          std::cout << "[PCC][resume] VizieR Gaia failed, trying VizieR APASS..."
                     << std::endl;
           try_vizier_apass();
         }
       }
     }
 
-    std::cerr << "[PCC][resume] Found " << stars.size() << " catalog stars"
+    std::cout << "[PCC][resume] Found " << stars.size() << " catalog stars"
               << " (source: " << (used_source.empty() ? "none" : used_source)
               << ")" << std::endl;
 

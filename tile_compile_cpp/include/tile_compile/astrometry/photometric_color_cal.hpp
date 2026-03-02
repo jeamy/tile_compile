@@ -36,7 +36,7 @@ struct PCCConfig {
 
     // Local annulus background model
     std::string background_model = "plane"; // median | plane
-    double max_condition_number = 2.0; // stability guard (>= 1)
+    double max_condition_number = 3.0; // stability guard (>= 1)
     double max_residual_rms = 0.35;    // robust residual guard
 
     // Adaptive radii controls (resolved in runner for auto_fwhm)

@@ -169,7 +169,7 @@ DiskCacheFrameStore &DiskCacheFrameStore::operator=(DiskCacheFrameStore &&o) noe
 
 void DiskCacheFrameStore::store(size_t fi, const Matrix2Df &frame) {
   if (frame.rows() != rows_ || frame.cols() != cols_) {
-    std::cerr << "[DiskCache] Frame " << fi << " size mismatch: got " 
+    std::cout << "[DiskCache] Frame " << fi << " size mismatch: got " 
               << frame.rows() << "x" << frame.cols() << ", expected " 
               << rows_ << "x" << cols_ << std::endl;
     return;

@@ -121,6 +121,11 @@ struct BGEChannelDiagnostics {
     int grid_cells_valid = 0;
     float fit_rms_residual = 0.0f;
     float mean_shift = 0.0f;
+    float guard_flat_pre = 0.0f;
+    float guard_flat_post = 0.0f;
+    float guard_slope_pre = 0.0f;
+    float guard_slope_post = 0.0f;
+    bool guard_rejected = false;
     BGEValueStats input_stats;
     BGEValueStats output_stats;
     BGEValueStats model_stats;

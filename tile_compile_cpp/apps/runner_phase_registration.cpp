@@ -216,7 +216,7 @@ bool run_phase_registration_prewarp(
           float rmin = ref_reg.minCoeff();
           float rmax = ref_reg.maxCoeff();
           float rmean = ref_reg.mean();
-          std::cerr << "[REG-DIAG] ref_reg " << ref_reg.rows() << "x" << ref_reg.cols()
+          std::cout << "[REG-DIAG] ref_reg " << ref_reg.rows() << "x" << ref_reg.cols()
                     << " min=" << rmin << " max=" << rmax << " mean=" << rmean
                     << std::endl;
         }
@@ -263,7 +263,7 @@ bool run_phase_registration_prewarp(
                     float mmax = mov_reg.maxCoeff();
                     float mmean = mov_reg.mean();
                     std::lock_guard<std::mutex> lock(reg_log_mutex);
-                    std::cerr << "[REG-DIAG] mov_reg[" << fi << "] "
+                    std::cout << "[REG-DIAG] mov_reg[" << fi << "] "
                               << mov_reg.rows() << "x" << mov_reg.cols()
                               << " min=" << mmin << " max=" << mmax
                               << " mean=" << mmean << std::endl;
@@ -292,7 +292,7 @@ bool run_phase_registration_prewarp(
                     // Per-frame logging
                     if (fi < 5 || fi == frames.size() - 1 || (fi % 50 == 0)) {
                       std::lock_guard<std::mutex> lock(reg_log_mutex);
-                      std::cerr << "[REG] frame " << fi << "/" << frames.size()
+                      std::cout << "[REG] frame " << fi << "/" << frames.size()
                                 << " method=" << sfr.method_used
                                 << " ncc_id=" << sfr.ncc_identity
                                 << " cc=" << global_frame_cc[fi] << std::endl;
@@ -561,7 +561,7 @@ bool run_phase_registration_prewarp(
             << " reasons=" << core::join(reject_reasons, ",")
             << " tx=" << w(0, 2) << " ty=" << w(1, 2);
         emitter.warning(run_id, msg.str(), log_file);
-        std::cerr << "[REG-FILTER] " << msg.str() << std::endl;
+        std::cout << "[REG-FILTER] " << msg.str() << std::endl;
 
         global_frame_warps[fi] = registration::identity_warp();
         global_frame_cc[fi] = 0.0f;
@@ -654,7 +654,7 @@ bool run_phase_registration_prewarp(
               << std::fixed << std::setprecision(2) << res_ang
               << "deg tx=" << res_tx << "px ty=" << res_ty << "px)";
           emitter.warning(run_id, msg.str(), log_file);
-          std::cerr << "[REG-MODEL] " << msg.str() << std::endl;
+          std::cout << "[REG-MODEL] " << msg.str() << std::endl;
         }
       } else if (nv >= 1) {
         // Too few points for polynomial — copy nearest valid warp.
@@ -686,7 +686,7 @@ bool run_phase_registration_prewarp(
               << reg_model_predicted << " rejected frames from " << nv
               << " valid warp(s)";
           emitter.warning(run_id, msg.str(), log_file);
-          std::cerr << "[REG-MODEL] " << msg.str() << std::endl;
+          std::cout << "[REG-MODEL] " << msg.str() << std::endl;
         }
       }
 
@@ -698,7 +698,7 @@ bool run_phase_registration_prewarp(
       reg_reject_scale_outliers > 0 ||
       reg_reject_cc_outliers > 0 ||
       reg_reject_shift_outliers > 0) {
-    std::cerr << "[REG-FILTER] rejected outlier warps: orientation="
+    std::cout << "[REG-FILTER] rejected outlier warps: orientation="
               << reg_reject_orientation_outliers
               << " reflection=" << reg_reject_reflection_outliers
               << " scale=" << reg_reject_scale_outliers
@@ -728,7 +728,7 @@ bool run_phase_registration_prewarp(
       ++n_cc_zero;
     }
   }
-  std::cerr << "[REG] cc>0: " << n_cc_positive << ", cc==0: " << n_cc_zero
+  std::cout << "[REG] cc>0: " << n_cc_positive << ", cc==0: " << n_cc_zero
             << ", cc<0: " << n_cc_negative << std::endl;
   global_reg_extra["frames_cc_positive"] = n_cc_positive;
   global_reg_extra["frames_cc_zero"] = n_cc_zero;
