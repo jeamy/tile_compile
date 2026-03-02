@@ -56,9 +56,9 @@ struct PCCConfig {
     float tile_weight_min = 0.25f;
     float tile_weight_max = 2.0f;
     
-    bool apply_attenuation = true;
-    double chroma_strength = 0.70;
-    double k_max = 1.20;
+    bool apply_attenuation = false;
+    double chroma_strength = 1.00;
+    double k_max = 3.50;
 };
 
 // PCC result

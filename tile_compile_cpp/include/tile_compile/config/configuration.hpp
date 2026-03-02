@@ -315,9 +315,9 @@ struct PCCConfig {
 
   std::string siril_catalog_dir;  // empty = default path
   
-  bool apply_attenuation = true;
-  float chroma_strength = 0.70f;
-  float k_max = 1.20f;
+  bool apply_attenuation = false;
+  float chroma_strength = 1.00f;
+  float k_max = 3.50f;
 };
 
 struct ValidationConfig {
