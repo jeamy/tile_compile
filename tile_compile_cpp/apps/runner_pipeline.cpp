@@ -2880,7 +2880,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             " -d " + shell_quote(astap_data) +
             " -r " + std::to_string(cfg.astrometry.search_radius);
 
-        std::cerr << "[ASTROMETRY] Running: " << cmd << std::endl;
+        std::cout << "[ASTROMETRY] Running: " << cmd << std::endl;
         int ret = std::system(cmd.c_str());
 
         // ASTAP writes a .wcs file next to the input
@@ -2919,9 +2919,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           if (have_rgb) {
             try {
               io::write_fits_rgb(stacked_rgb_path, R_disk, G_disk, B_disk, first_hdr);
-              std::cerr << "[ASTROMETRY] WCS keywords written to " << stacked_rgb_path << std::endl;
+              std::cout << "[ASTROMETRY] WCS keywords written to " << stacked_rgb_path << std::endl;
             } catch (const std::exception &e) {
-              std::cerr << "[ASTROMETRY] Could not update stacked_rgb.fits: " << e.what() << std::endl;
+              std::cout << "[ASTROMETRY] Could not update stacked_rgb.fits: " << e.what() << std::endl;
             }
             try {
               io::write_fits_rgb(stacked_rgb_solve_path, R_out, G_out, B_out, first_hdr);
@@ -2934,7 +2934,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           try {
             fs::copy_file(wcs_path, wcs_artifact,
                           fs::copy_options::overwrite_existing);
-            std::cerr << "[ASTROMETRY] WCS saved to " << wcs_artifact << std::endl;
+            std::cout << "[ASTROMETRY] WCS saved to " << wcs_artifact << std::endl;
           } catch (const std::exception &e) {
             std::cerr << "[ASTROMETRY] Could not copy .wcs: " << e.what() << std::endl;
           }
@@ -3098,6 +3098,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           ch_json["grid_cells_valid"] = ch.grid_cells_valid;
           ch_json["fit_rms_residual"] = ch.fit_rms_residual;
           ch_json["mean_shift"] = ch.mean_shift;
+          ch_json["guard_flat_pre"] = ch.guard_flat_pre;
+          ch_json["guard_flat_post"] = ch.guard_flat_post;
+          ch_json["guard_slope_pre"] = ch.guard_slope_pre;
+          ch_json["guard_slope_post"] = ch.guard_slope_post;
+          ch_json["guard_rejected"] = ch.guard_rejected;
           ch_json["input_stats"] = bge_value_stats_to_json(ch.input_stats);
           ch_json["output_stats"] = bge_value_stats_to_json(ch.output_stats);
           ch_json["model_stats"] = bge_value_stats_to_json(ch.model_stats);

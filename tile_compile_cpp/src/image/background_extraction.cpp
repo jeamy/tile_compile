@@ -783,7 +783,7 @@ void subtract_bright_source_models(
         ++modeled;
     }
 
-    std::cerr << "[BGE]   modeled_mask_mesh: bright-source models applied="
+    std::cout << "[BGE]   modeled_mask_mesh: bright-source models applied="
               << modeled << std::endl;
 }
 
@@ -1034,7 +1034,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
     samples.reserve(tile_grid.tiles.size());
     
     if (tile_metrics.size() < tile_grid.tiles.size()) {
-        std::cerr << "[BGE] Warning: tile_metrics smaller than tile_grid, truncating to min size" << std::endl;
+        std::cout << "[BGE] Warning: tile_metrics smaller than tile_grid, truncating to min size" << std::endl;
     }
 
     const size_t n_tiles = std::min(tile_metrics.size(), tile_grid.tiles.size());
@@ -1056,7 +1056,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
             : 0.0f;
     const bool use_tile_metrics = (informative_fraction >= 0.35f);
     if (!use_tile_metrics && n_tiles > 0) {
-        std::cerr << "[BGE]   Tile metrics look degenerate (informative="
+        std::cout << "[BGE]   Tile metrics look degenerate (informative="
                   << informative_metric_tiles << "/" << n_tiles
                   << "), switching to image-only sample selection" << std::endl;
     }
@@ -1136,14 +1136,28 @@ std::vector<TileBGSample> extract_tile_background_samples(
 
         std::vector<float> finite_values;
         finite_values.reserve(static_cast<size_t>(tw * th));
+        int zero_pixel_count = 0;
         for (int yy = 0; yy < th; ++yy) {
             for (int xx = 0; xx < tw; ++xx) {
                 float v = tile_view(yy, xx);
-                if (std::isfinite(v)) finite_values.push_back(v);
+                if (std::isfinite(v)) {
+                    finite_values.push_back(v);
+                    if (v == 0.0f) ++zero_pixel_count;
+                }
             }
         }
 
         if (finite_values.empty()) {
+            samples.push_back(sample);
+            continue;
+        }
+
+        // Reject tiles with high zero-pixel fraction: these are canvas padding
+        // regions created by field-rotation canvas expansion and would corrupt
+        // the background model with near-zero values.
+        const float zero_fraction = static_cast<float>(zero_pixel_count) /
+                                    static_cast<float>(finite_values.size());
+        if (zero_fraction > 0.20f) {
             samples.push_back(sample);
             continue;
         }
@@ -1336,7 +1350,7 @@ std::vector<GridCell> aggregate_to_coarse_grid(
     }
 
     if (n_rejected_global_outliers > 0) {
-        std::cerr << "[BGE]   Rejected global sample outliers: "
+        std::cout << "[BGE]   Rejected global sample outliers: "
                   << n_rejected_global_outliers << std::endl;
     }
     
@@ -1460,7 +1474,7 @@ Matrix2Df fit_rbf_surface(
     
     const int M = grid_cells.size();
     if (M < 3) {
-        std::cerr << "[BGE] Too few grid cells for RBF: " << M << std::endl;
+        std::cout << "[BGE] Too few grid cells for RBF: " << M << std::endl;
         return Matrix2Df::Zero(image_height, image_width);
     }
     
@@ -1574,11 +1588,11 @@ Matrix2Df fit_rbf_surface(
         float rms_try = std::numeric_limits<float>::infinity();
         const bool ok = solve_rbf_coeffs(lambda_try, &u_try, &rms_try);
         if (!ok) {
-            std::cerr << "[BGE]   RBF lambda=" << lambda_try << " fit failed" << std::endl;
+            std::cout << "[BGE]   RBF lambda=" << lambda_try << " fit failed" << std::endl;
             continue;
         }
 
-        std::cerr << "[BGE]   RBF lambda=" << lambda_try
+        std::cout << "[BGE]   RBF lambda=" << lambda_try
                   << " trial RMS=" << rms_try << std::endl;
 
         if (!have_best || rms_try < best_rms) {
@@ -1609,7 +1623,7 @@ Matrix2Df fit_rbf_surface(
         u = accepted_u;
     }
 
-    std::cerr << "[BGE]   RBF selected lambda=" << lambda
+    std::cout << "[BGE]   RBF selected lambda=" << lambda
               << " (limit=" << residual_limit
               << ", rms=" << rms_selected << ")" << std::endl;
     
@@ -1661,7 +1675,7 @@ Matrix2Df fit_polynomial_surface(
     }
     
     if (M < n_terms) {
-        std::cerr << "[BGE] Too few grid cells for polynomial order " << order 
+        std::cout << "[BGE] Too few grid cells for polynomial order " << order 
                   << ": " << M << " < " << n_terms << std::endl;
         return Matrix2Df::Zero(image_height, image_width);
     }
@@ -1802,7 +1816,7 @@ BackgroundModel fit_background_surface(
                 const float poly_rms = rms_for_model(poly_model);
                 if (std::isfinite(poly_rms) &&
                     poly_rms <= selected_rms * 1.05f) {
-                    std::cerr << "[BGE]   RBF fallback -> poly(order="
+                    std::cout << "[BGE]   RBF fallback -> poly(order="
                               << poly_cfg.fit.polynomial_order
                               << ") rms=" << poly_rms
                               << " (rbf rms=" << selected_rms << ")" << std::endl;
@@ -2071,12 +2085,13 @@ static BGECandidateResult auto_tune_bge_config_conservative(
         push_unique(quantiles, 0.40f);
         if (extended) push_unique(quantiles, 0.45f);
     } else {
-        // Compact galaxy: more uniform sky, can use lower quantiles
-        push_unique(quantiles, std::clamp(base_cfg.sample_quantile, 0.20f, 0.40f));
-        push_unique(quantiles, 0.25f);
-        push_unique(quantiles, 0.30f);
-        push_unique(quantiles, 0.35f);
-        if (extended) push_unique(quantiles, 0.40f);
+        // Compact/large galaxy (e.g. M31, M33): galaxy halo is diffuse and
+        // structure-free, so higher quantiles incorrectly include halo emission
+        // as background.  Restrict to low quantiles only to stay below the halo.
+        push_unique(quantiles, std::clamp(base_cfg.sample_quantile, 0.05f, 0.15f));
+        push_unique(quantiles, 0.10f);
+        push_unique(quantiles, 0.15f);
+        if (extended) push_unique(quantiles, 0.20f);
     }
 
     std::vector<float> structure_p;
@@ -2092,35 +2107,56 @@ static BGECandidateResult auto_tune_bge_config_conservative(
         mu_factors.push_back(1.8f);
     }
 
+    std::vector<std::string> fit_methods;
+    fit_methods.push_back(base_cfg.fit.method);
+    if (!is_diffuse_field && base_cfg.fit.method == "rbf") {
+        // Compact galaxy fields are prone to diffuse-halo leakage in flexible RBF fits.
+        // Also evaluate low-order polynomial surfaces and let CV/objective decide.
+        fit_methods.push_back("poly");
+    }
+
     BGECandidateResult best;
     int evals = 0;
 
-    for (float q : quantiles) {
-        for (float sp : structure_p) {
-            for (float mf : mu_factors) {
-                if (evals >= std::max(1, base_cfg.autotune.max_evals)) break;
-                BGEConfig cfg_try = base_cfg;
-                cfg_try.sample_quantile = std::clamp(q, 0.05f, 0.50f);
-                cfg_try.structure_thresh_percentile = std::clamp(sp, 0.50f, 0.99f);
-                cfg_try.fit.rbf_mu_factor = std::max(0.2f, mf);
+    for (const auto& fit_method : fit_methods) {
+        std::vector<float> method_mu_factors;
+        if (fit_method == "rbf") {
+            method_mu_factors = mu_factors;
+        } else {
+            method_mu_factors.push_back(base_cfg.fit.rbf_mu_factor);
+        }
 
-                BGECandidateResult res = try_bge_candidate(
-                    channel, tile_metrics, tile_grid, cfg_try, base_grid_spacing);
-                ++evals;
-                if (!res.success) continue;
+        for (float q : quantiles) {
+            for (float sp : structure_p) {
+                for (float mf : method_mu_factors) {
+                    if (evals >= std::max(1, base_cfg.autotune.max_evals)) break;
+                    BGEConfig cfg_try = base_cfg;
+                    cfg_try.fit.method = fit_method;
+                    cfg_try.sample_quantile = std::clamp(q, 0.05f, 0.50f);
+                    cfg_try.structure_thresh_percentile = std::clamp(sp, 0.50f, 0.99f);
+                    if (fit_method == "rbf") {
+                        cfg_try.fit.rbf_mu_factor = std::max(0.2f, mf);
+                    }
 
-                if (!best.success || res.objective < best.objective) {
-                    best = res;
-                } else if (std::fabs(res.objective - best.objective) < 1e-6f) {
-                    if (res.roughness < best.roughness) {
+                    BGECandidateResult res = try_bge_candidate(
+                        channel, tile_metrics, tile_grid, cfg_try, base_grid_spacing);
+                    ++evals;
+                    if (!res.success) continue;
+
+                    if (!best.success || res.objective < best.objective) {
                         best = res;
-                    } else if (std::fabs(res.roughness - best.roughness) < 1e-6f) {
-                        // Deterministic tie-break: prefer coarser effective model.
-                        if (res.cfg.fit.rbf_mu_factor > best.cfg.fit.rbf_mu_factor) {
+                    } else if (std::fabs(res.objective - best.objective) < 1e-6f) {
+                        if (res.roughness < best.roughness) {
                             best = res;
+                        } else if (std::fabs(res.roughness - best.roughness) < 1e-6f) {
+                            // Deterministic tie-break: prefer coarser effective model.
+                            if (res.cfg.fit.rbf_mu_factor > best.cfg.fit.rbf_mu_factor) {
+                                best = res;
+                            }
                         }
                     }
                 }
+                if (evals >= std::max(1, base_cfg.autotune.max_evals)) break;
             }
             if (evals >= std::max(1, base_cfg.autotune.max_evals)) break;
         }
@@ -2184,13 +2220,13 @@ bool apply_background_extraction(
         diagnostics->image_height = H;
     }
     
-    std::cerr << "[BGE] Starting background extraction (v3.3 §6.3)" << std::endl;
-    std::cerr << "[BGE] Image size: " << W << "x" << H << std::endl;
-    std::cerr << "[BGE] Method: " << config.fit.method << std::endl;
+    std::cout << "[BGE] Starting background extraction (v3.3 §6.3)" << std::endl;
+    std::cout << "[BGE] Image size: " << W << "x" << H << std::endl;
+    std::cout << "[BGE] Method: " << config.fit.method << std::endl;
     
     // Compute grid spacing (v3.3 §6.3.8)
     int grid_spacing = compute_grid_spacing(W, H, tile_grid.tile_size, config);
-    std::cerr << "[BGE] Grid spacing: " << grid_spacing << " px" << std::endl;
+    std::cout << "[BGE] Grid spacing: " << grid_spacing << " px" << std::endl;
 
     if (diagnostics != nullptr) {
         diagnostics->grid_spacing = grid_spacing;
@@ -2235,12 +2271,12 @@ bool apply_background_extraction(
                 ? 0.0f
                 : static_cast<float>(mask_count) /
                       static_cast<float>(modeled_fg_mask.size());
-        std::cerr << "[BGE] modeled_mask_mesh prepass: threshold="
+        std::cout << "[BGE] modeled_mask_mesh prepass: threshold="
                   << modeled_low_threshold << " sigma=" << modeled_sigma
                   << " components=" << modeled_components.size()
                   << " mask_fraction=" << mask_frac << std::endl;
         if (config.autotune.enabled) {
-            std::cerr << "[BGE] modeled_mask_mesh does not use autotune; "
+            std::cout << "[BGE] modeled_mask_mesh does not use autotune; "
                          "continuing with deterministic settings" << std::endl;
         }
     }
@@ -2253,7 +2289,7 @@ bool apply_background_extraction(
             BGEChannelDiagnostics& ch_diag) -> bool {
         if (!bg_model.success) return false;
 
-        std::cerr << "[BGE]   Fit RMS residual: " << bg_model.rms_residual << std::endl;
+        std::cout << "[BGE]   Fit RMS residual: " << bg_model.rms_residual << std::endl;
         ch_diag.fit_success = true;
         ch_diag.fit_rms_residual = bg_model.rms_residual;
 
@@ -2276,7 +2312,7 @@ bool apply_background_extraction(
                 }
             }
             if (clipped > 0) {
-                std::cerr << "[BGE]   Model clamp: " << clipped
+                std::cout << "[BGE]   Model clamp: " << clipped
                           << " px to [" << model_min << ".." << model_max << "]"
                           << std::endl;
             }
@@ -2296,42 +2332,64 @@ bool apply_background_extraction(
             }
         }
 
-        const float flat_pre = spatial_background_spread(channel_before);
-        const float flat_post = spatial_background_spread(corrected);
+        auto flatness_from_grid = [&](bool corrected_values) -> float {
+            std::vector<float> vals;
+            vals.reserve(ch_diag.grid_cells.size());
+            for (const auto& gc : ch_diag.grid_cells) {
+                if (!gc.valid) continue;
+                const int px = static_cast<int>(gc.center_x);
+                const int py = static_cast<int>(gc.center_y);
+                if (!(px >= 0 && px < W && py >= 0 && py < H)) continue;
+                if (corrected_values) {
+                    vals.push_back(gc.bg_value - bg_model.model(py, px) + pedestal);
+                } else {
+                    vals.push_back(gc.bg_value);
+                }
+            }
+            if (vals.size() < 8) return std::numeric_limits<float>::infinity();
+            const float p10 = robust_quantile(vals, 0.10f);
+            const float p90 = robust_quantile(vals, 0.90f);
+            return p90 - p10;
+        };
+
+        float flat_pre = std::numeric_limits<float>::infinity();
+        float flat_post = std::numeric_limits<float>::infinity();
+        if (!ch_diag.grid_cells.empty()) {
+            flat_pre = flatness_from_grid(false);
+            flat_post = flatness_from_grid(true);
+        }
+        if (!(std::isfinite(flat_pre) && std::isfinite(flat_post))) {
+            flat_pre = spatial_background_spread(channel_before);
+            flat_post = spatial_background_spread(corrected);
+        }
         const float slope_pre = coarse_background_plane_slope(channel_before);
         const float slope_post = coarse_background_plane_slope(corrected);
+        ch_diag.guard_flat_pre = flat_pre;
+        ch_diag.guard_flat_post = flat_post;
+        ch_diag.guard_slope_pre = slope_pre;
+        ch_diag.guard_slope_post = slope_post;
         bool accept_correction = true;
-        
-        // Adaptive guard thresholds based on field type.
-        // For compact galaxies (mean≈median), background is already uniform → BGE may
-        // slightly worsen flatness/slope while still removing gradients. Use relaxed guards.
-        // For diffuse nebulae (mean<<median), BGE should clearly improve flatness → strict guards.
-        const float mean_median_ratio = (ch_diag.input_stats.median > 1.0f)
-            ? (ch_diag.input_stats.mean / ch_diag.input_stats.median)
-            : 1.0f;
-        const bool is_compact_field = (mean_median_ratio >= 0.90f);
-        
-        const float max_flatness_worsen_factor = is_compact_field ? 1.20f : 1.05f;
-        const float max_slope_worsen_factor = is_compact_field ? 1.15f : 1.02f;
-        
+        const float max_flatness_worsen_factor =
+            config.internal_relaxed_channel_guards ? 1.35f : 1.15f;
+        const float max_slope_worsen_factor =
+            config.internal_relaxed_channel_guards ? 1.15f : 1.08f;
         if (std::isfinite(flat_pre) && std::isfinite(flat_post) &&
             flat_post > flat_pre * max_flatness_worsen_factor) {
-            std::cerr << "[BGE]   Flatness guard rejected channel " << channel_name
-                      << " (pre=" << flat_pre << ", post=" << flat_post
-                      << ", limit=" << (flat_pre * max_flatness_worsen_factor) << ")"
+            std::cout << "[BGE]   Flatness guard rejected channel " << channel_name
+                      << " (pre=" << flat_pre << ", post=" << flat_post << ")"
                       << std::endl;
             accept_correction = false;
         }
         if (accept_correction &&
             std::isfinite(slope_pre) && std::isfinite(slope_post) &&
             slope_post > slope_pre * max_slope_worsen_factor) {
-            std::cerr << "[BGE]   Slope guard rejected channel " << channel_name
-                      << " (pre=" << slope_pre << ", post=" << slope_post
-                      << ", limit=" << (slope_pre * max_slope_worsen_factor) << ")"
+            std::cout << "[BGE]   Slope guard rejected channel " << channel_name
+                      << " (pre=" << slope_pre << ", post=" << slope_post << ")"
                       << std::endl;
             accept_correction = false;
         }
 
+        ch_diag.guard_rejected = !accept_correction;
         if (!accept_correction) {
             ch_diag.applied = false;
             ch_diag.output_stats = stats_from_matrix(channel_before);
@@ -2353,7 +2411,7 @@ bool apply_background_extraction(
         }
         ch_diag.residual_stats = stats_from_values(ch_diag.residual_values);
 
-        std::cerr << "[BGE]   Background subtracted from channel " << channel_name << std::endl;
+        std::cout << "[BGE]   Background subtracted from channel " << channel_name << std::endl;
         return true;
     };
     
@@ -2369,7 +2427,7 @@ bool apply_background_extraction(
         ch_diag.autotune_selected_grid_spacing = grid_spacing;
         ch_diag.input_stats = stats_from_matrix(channel_before);
         
-        std::cerr << "[BGE] Processing channel " << channel_name << std::endl;
+        std::cout << "[BGE] Processing channel " << channel_name << std::endl;
 
         if (use_modeled_mask_mesh) {
             auto mesh_model = fit_modeled_mask_mesh_surface(
@@ -2378,7 +2436,7 @@ bool apply_background_extraction(
                 config, tile_grid.tile_size);
 
             if (!mesh_model.success) {
-                std::cerr << "[BGE]   modeled_mask_mesh fit failed for channel "
+                std::cout << "[BGE]   modeled_mask_mesh fit failed for channel "
                           << channel_name << std::endl;
                 if (diagnostics != nullptr) diagnostics->channels.push_back(std::move(ch_diag));
                 continue;
@@ -2471,7 +2529,7 @@ bool apply_background_extraction(
         auto tile_samples = extract_tile_background_samples(*channel, tile_metrics, tile_grid, channel_cfg);
         int n_valid = std::count_if(tile_samples.begin(), tile_samples.end(), 
                                      [](const auto& s) { return s.valid; });
-        std::cerr << "[BGE]   Tile samples: " << n_valid << "/" << tile_samples.size() << " valid" << std::endl;
+        std::cout << "[BGE]   Tile samples: " << n_valid << "/" << tile_samples.size() << " valid" << std::endl;
 
         ch_diag.tile_samples_total = static_cast<int>(tile_samples.size());
         ch_diag.tile_samples_valid = n_valid;
@@ -2479,6 +2537,10 @@ bool apply_background_extraction(
         ch_diag.sample_weight_values.reserve(static_cast<size_t>(n_valid));
         for (const auto& s : tile_samples) {
             if (!s.valid) continue;
+            // Exclude near-zero samples (zero-padding tiles that slipped through
+            // the >20% zero-pixel filter but still have near-zero bg_value).
+            // These corrupt the model clamp range and pull RBF knots to ~0.
+            if (s.bg_value < 1.0f) continue;
             ch_diag.sample_bg_values.push_back(s.bg_value);
             ch_diag.sample_weight_values.push_back(s.weight);
         }
@@ -2491,7 +2553,7 @@ bool apply_background_extraction(
             static_cast<float>(n_total_samples);
         if (ch_diag.tile_samples_valid < kMinValidSamplesForApply ||
             valid_fraction < kMinValidSampleFractionForApply) {
-            std::cerr << "[BGE]   Warning: insufficient robust tile samples for channel "
+            std::cout << "[BGE]   Warning: insufficient robust tile samples for channel "
                       << channel_name << " (" << ch_diag.tile_samples_valid << "/"
                       << ch_diag.tile_samples_total << ", frac=" << valid_fraction
                       << "), skipping channel" << std::endl;
@@ -2500,13 +2562,13 @@ bool apply_background_extraction(
         }
         
         auto grid_cells = aggregate_to_coarse_grid(tile_samples, W, H, channel_grid_spacing, channel_cfg);
-        std::cerr << "[BGE]   Grid cells: " << grid_cells.size() << " valid" << std::endl;
+        std::cout << "[BGE]   Grid cells: " << grid_cells.size() << " valid" << std::endl;
 
         ch_diag.grid_cells_valid = static_cast<int>(grid_cells.size());
         ch_diag.grid_cells = grid_cells;
 
         if (grid_cells.size() < 3) {
-            std::cerr << "[BGE]   Warning: Too few grid cells, skipping channel " << channel_name << std::endl;
+            std::cout << "[BGE]   Warning: Too few grid cells, skipping channel " << channel_name << std::endl;
             if (diagnostics != nullptr) diagnostics->channels.push_back(std::move(ch_diag));
             continue;
         }
@@ -2545,13 +2607,13 @@ bool apply_background_extraction(
             chroma_guard_failed = true;
         }
 
-        std::cerr << "[BGE] modeled_mask_mesh chroma guard: pre_rg_std="
+        std::cout << "[BGE] modeled_mask_mesh chroma guard: pre_rg_std="
                   << pre_rg_std << " post_rg_std=" << post_rg_std
                   << " pre_bg_std=" << pre_bg_std
                   << " post_bg_std=" << post_bg_std << std::endl;
 
         if (chroma_guard_failed) {
-            std::cerr << "[BGE] modeled_mask_mesh increased background chroma spread; "
+            std::cout << "[BGE] modeled_mask_mesh increased background chroma spread; "
                          "falling back to conservative fits" << std::endl;
 
             auto run_fallback = [&](const BGEConfig& fb_cfg,
@@ -2564,7 +2626,7 @@ bool apply_background_extraction(
                 *outG = G_input;
                 *outB = B_input;
                 out_diag->channels.clear();
-                std::cerr << "[BGE]   Trying safety fallback method: " << name
+                std::cout << "[BGE]   Trying safety fallback method: " << name
                           << std::endl;
                 return apply_background_extraction(
                     *outR, *outG, *outB, tile_metrics, tile_grid, fb_cfg, out_diag);
@@ -2592,7 +2654,7 @@ bool apply_background_extraction(
 
             // Fallback #2: robust low-order polynomial with relaxed guards.
             if (!fb_ok) {
-                std::cerr << "[BGE]   RBF fallback failed; trying poly fallback" << std::endl;
+                std::cout << "[BGE]   RBF fallback failed; trying poly fallback" << std::endl;
                 BGEConfig fallback_poly = config;
                 fallback_poly.fit.method = "poly";
                 fallback_poly.fit.polynomial_order = 2;
@@ -2644,7 +2706,7 @@ bool apply_background_extraction(
         }
     }
 
-    std::cerr << "[BGE] Background extraction complete" << std::endl;
+    std::cout << "[BGE] Background extraction complete" << std::endl;
     if (diagnostics != nullptr) {
         diagnostics->success = any_channel_applied;
     }

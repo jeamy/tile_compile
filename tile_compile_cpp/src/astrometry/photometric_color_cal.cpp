@@ -689,10 +689,10 @@ std::vector<StarPhotometry> measure_stars(
         }
     }
 
-    std::cerr << "[PCC] Saturation guard: rejected=" << n_sat_rejected
+    std::cout << "[PCC] Saturation guard: rejected=" << n_sat_rejected
               << " sat_r=" << sat_r << " sat_g=" << sat_g << " sat_b=" << sat_b
               << " frac=" << sat_guard_frac << std::endl;
-    std::cerr << "[PCC] Background-safe annulus guard: rejected="
+    std::cout << "[PCC] Background-safe annulus guard: rejected="
               << n_bg_mask_rejected
               << " min_safe_fraction=" << min_safe_annulus_fraction
               << " bg_safe_mask_fraction=" << bg_safe_fraction
@@ -706,30 +706,30 @@ std::vector<StarPhotometry> measure_stars(
             w_min = std::min(w_min, w);
             w_max = std::max(w_max, w);
         }
-        std::cerr << "[PCC] Tile-quality weighting: enabled="
+        std::cout << "[PCC] Tile-quality weighting: enabled="
                   << (config.use_tile_quality_weighting ? "true" : "false")
                   << " rejected=" << n_tile_rejected
                   << " mean=" << (w_sum / static_cast<double>(tile_weights_used.size()))
                   << " min=" << w_min
                   << " max=" << w_max << std::endl;
     } else if (config.use_tile_quality_weighting) {
-        std::cerr << "[PCC] Tile-quality weighting: enabled=true rejected="
+        std::cout << "[PCC] Tile-quality weighting: enabled=true rejected="
                   << n_tile_rejected << " no valid weighted stars" << std::endl;
     }
 
     return result;
 }
 
-// ─── Color matrix fitting (Siril PCC method) ────────────────────────────
+// ─── Color matrix fitting (Siril SPCC method) ───────────────────────────
 //
-// Follows the Siril PCC algorithm (get_pcc_white_balance_coeffs):
-//   1. For each star: Teff → expected RGB via Planck→CIE XYZ→sRGB
-//   2. Per-star correction factor: k_c = expected_c / measured_flux_c
-//   3. Robust mean of all per-star factors → final kw[R], kw[G], kw[B]
-//   4. Normalize so max(kw) = 1
+// Follows Siril's get_spcc_white_balance_coeffs:
+//   1. Per star: measure image flux ratios (r/g, b/g) and catalog flux ratios
+//   2. Robust linear fit: image_rg = a + b * catalog_rg  (repeated median)
+//   3. Evaluate fit at white reference: kr = 1 / (a + b * 1.0)
+//   4. Normalize so max(kr, kg=1, kb) = 1
 //
-// This method does NOT require sensor-specific filter curves.
-// It only needs the effective temperature of each star.
+// The repeated median fit (Siegel 1982) is breakdown-point 0.5 and
+// handles both slope and intercept robustly unlike simple ratio medians.
 
 static double weighted_median(const std::vector<double> &vals,
                               const std::vector<double> &weights) {
@@ -753,6 +753,62 @@ static double weighted_median(const std::vector<double> &vals,
         if (acc >= half) return p.first;
     }
     return vw.back().first;
+}
+
+static double simple_median(std::vector<double> v) {
+    if (v.empty()) return 0.0;
+    const size_t n = v.size();
+    std::nth_element(v.begin(), v.begin() + n / 2, v.end());
+    if (n % 2 == 1) return v[n / 2];
+    const double hi = v[n / 2];
+    std::nth_element(v.begin(), v.begin() + n / 2 - 1, v.end());
+    return 0.5 * (v[n / 2 - 1] + hi);
+}
+
+// Siegel's repeated median estimator: robust linear fit y = a + b*x.
+// Breakdown point 0.5. Returns false if insufficient data.
+// deviation_out = MAD of residuals after fit.
+static bool repeated_median_fit(const std::vector<double> &x,
+                                 const std::vector<double> &y,
+                                 double &a_out, double &b_out,
+                                 double &deviation_out) {
+    const size_t n = x.size();
+    deviation_out = 0.0;
+    if (n < 3 || x.size() != y.size()) return false;
+
+    // For each i: median over j≠i of (y[j]-y[i])/(x[j]-x[i])
+    std::vector<double> slopes_i;
+    slopes_i.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        std::vector<double> slopes_j;
+        slopes_j.reserve(n - 1);
+        for (size_t j = 0; j < n; ++j) {
+            if (j == i) continue;
+            const double dx = x[j] - x[i];
+            if (std::abs(dx) < 1.0e-15) continue;
+            slopes_j.push_back((y[j] - y[i]) / dx);
+        }
+        if (slopes_j.empty()) continue;
+        slopes_i.push_back(simple_median(slopes_j));
+    }
+    if (slopes_i.size() < 3) return false;
+
+    b_out = simple_median(slopes_i);
+
+    // Intercept: median of (y[i] - b*x[i])
+    std::vector<double> intercepts;
+    intercepts.reserve(n);
+    for (size_t i = 0; i < n; ++i)
+        intercepts.push_back(y[i] - b_out * x[i]);
+    a_out = simple_median(intercepts);
+
+    // MAD of residuals
+    std::vector<double> resid;
+    resid.reserve(n);
+    for (size_t i = 0; i < n; ++i)
+        resid.push_back(std::abs(y[i] - (a_out + b_out * x[i])));
+    deviation_out = 1.4826 * simple_median(resid);
+    return true;
 }
 
 // Weighted robust location estimator with iterative sigma clipping around
@@ -895,108 +951,88 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
         return res;
     }
 
-    // PCC via log-chromaticity deltas (Siril-like robust color ratio solve).
-    // We fit signed deltas in log space:
-    //   d_rg = log(cat_r/cat_g) - log(flux_r/flux_g)
-    //   d_bg = log(cat_b/cat_g) - log(flux_b/flux_g)
-    // Then derive scales with G as anchor:
-    //   s_r/s_g = exp(d_rg),  s_b/s_g = exp(d_bg),  s_g = 1.
-    std::vector<double> d_rg_vec, d_bg_vec;
-    std::vector<double> w_rg_vec, w_bg_vec;
-    d_rg_vec.reserve(valid.size());
-    d_bg_vec.reserve(valid.size());
-    w_rg_vec.reserve(valid.size());
-    w_bg_vec.reserve(valid.size());
+    // Siril SPCC method: robust linear fit image_rg = a + b * catalog_rg,
+    // evaluated at white reference wrg=1 (solar-type star, no sensor DB).
+    // Uses Siegel's repeated median (breakdown point 0.5).
+    std::vector<double> cat_rg_vec, img_rg_vec;
+    std::vector<double> cat_bg_vec, img_bg_vec;
+    cat_rg_vec.reserve(valid.size());
+    img_rg_vec.reserve(valid.size());
+    cat_bg_vec.reserve(valid.size());
+    img_bg_vec.reserve(valid.size());
 
     for (const auto *s : valid) {
         if (!(s->flux_r > 0.0 && s->flux_g > 0.0 && s->flux_b > 0.0 &&
-              s->cat_r > 0.0 && s->cat_g > 0.0 && s->cat_b > 0.0)) {
+              s->cat_r > 0.0 && s->cat_g > 0.0 && s->cat_b > 0.0))
             continue;
-        }
-
         const double meas_rg = s->flux_r / s->flux_g;
         const double meas_bg = s->flux_b / s->flux_g;
-        const double cat_rg = s->cat_r / s->cat_g;
-        const double cat_bg = s->cat_b / s->cat_g;
-        if (!(meas_rg > 0.0 && meas_bg > 0.0 && cat_rg > 0.0 && cat_bg > 0.0)) {
+        const double c_rg    = s->cat_r  / s->cat_g;
+        const double c_bg    = s->cat_b  / s->cat_g;
+        if (!(meas_rg > 0.0 && meas_bg > 0.0 && c_rg > 0.0 && c_bg > 0.0))
             continue;
-        }
-
-        const double w = std::clamp(s->quality_weight, 1.0e-3, 10.0);
-        d_rg_vec.push_back(std::log(cat_rg) - std::log(meas_rg));
-        d_bg_vec.push_back(std::log(cat_bg) - std::log(meas_bg));
-        w_rg_vec.push_back(w);
-        w_bg_vec.push_back(w);
+        cat_rg_vec.push_back(c_rg);
+        img_rg_vec.push_back(meas_rg);
+        cat_bg_vec.push_back(c_bg);
+        img_bg_vec.push_back(meas_bg);
     }
 
-    if (d_rg_vec.size() < static_cast<size_t>(config.min_stars) ||
-        d_bg_vec.size() < static_cast<size_t>(config.min_stars)) {
-        res.error_message = "Not enough robust stars for log-chromaticity PCC";
+    if (cat_rg_vec.size() < static_cast<size_t>(config.min_stars)) {
+        res.error_message = "Not enough valid stars for repeated-median PCC fit";
         return res;
     }
 
-    double dev_rg = 0.0;
-    double dev_bg = 0.0;
-    const double d_rg = robust_mean_weighted(d_rg_vec, w_rg_vec, config.sigma_clip, dev_rg);
-    const double d_bg = robust_mean_weighted(d_bg_vec, w_bg_vec, config.sigma_clip, dev_bg);
-
-    if (d_rg_vec.size() < static_cast<size_t>(config.min_stars) ||
-        d_bg_vec.size() < static_cast<size_t>(config.min_stars)) {
-        res.error_message = "Not enough stars after weighted sigma clipping";
+    double a_rg = 0.0, b_rg = 1.0, dev_rg = 0.0;
+    double a_bg = 0.0, b_bg = 1.0, dev_bg = 0.0;
+    if (!repeated_median_fit(cat_rg_vec, img_rg_vec, a_rg, b_rg, dev_rg)) {
+        res.error_message = "repeated_median_fit failed for R/G";
+        return res;
+    }
+    if (!repeated_median_fit(cat_bg_vec, img_bg_vec, a_bg, b_bg, dev_bg)) {
+        res.error_message = "repeated_median_fit failed for B/G";
         return res;
     }
 
-    // G is the luminance anchor (G=1.0), matching Siril's get_pcc_white_balance_coeffs.
-    // R and B are scaled relative to G from the log-chromaticity deltas.
-    // Chroma compression toward identity is applied only to R and B deviations from 1.
-    const double chroma_strength = std::clamp(config.chroma_strength, 0.0, 1.0);  // 1.0 = full correction, 0.0 = no correction
-    auto compress_deviation = [&](double raw_scale) {
-        // compress the log-delta toward zero, keeping G-anchor at 1
-        const double log_k = std::log(std::max(raw_scale, 1e-9));
-        return std::exp(log_k * chroma_strength);
-    };
+    // White reference at catalog_rg = 1.0 (solar G2V, no sensor database).
+    // kr = 1 / (a + b * 1.0)  — same as Siril's wrg/wbg evaluation.
+    const double wrg = 1.0;
+    const double wbg = 1.0;
+    double kw_r = 1.0 / (a_rg + b_rg * wrg);
+    double kw_g = 1.0;
+    double kw_b = 1.0 / (a_bg + b_bg * wbg);
 
-    double kw_r = compress_deviation(std::exp(d_rg));
-    double kw_g = 1.0;   // G is always the anchor
-    double kw_b = compress_deviation(std::exp(d_bg));
+    std::cout << "[PCC] Repeated-median fit R/G: a=" << a_rg << " b=" << b_rg
+              << " dev=" << dev_rg << " kr_raw=" << kw_r << std::endl;
+    std::cout << "[PCC] Repeated-median fit B/G: a=" << a_bg << " b=" << b_bg
+              << " dev=" << dev_bg << " kb_raw=" << kw_b << std::endl;
 
-    // Guardrails relative to G=1: cap R and B deviations.
-    // Tighten bounds when robust scatter is high to avoid chroma runaway.
-    const double dev_max = std::max(dev_rg, dev_bg);
-    double k_max = std::max(1.05, static_cast<double>(config.k_max));
-    // Optionally tighten bounds when robust scatter is high to avoid chroma runaway.
-    if (dev_max > 0.50) {
-        k_max = std::min(k_max, 1.30);
-    } else if (dev_max > 0.35) {
-        k_max = std::min(k_max, 1.60);
+    if (!std::isfinite(kw_r) || kw_r <= 0.0 ||
+        !std::isfinite(kw_b) || kw_b <= 0.0) {
+        res.error_message = "Degenerate PCC fit: non-positive scale factor";
+        return res;
     }
-    const double k_min = 1.0 / k_max;
+
+    // Normalize so max(kw_r, kw_g, kw_b) = 1  (Siril: kw[c] /= max(kw))
+    const double kw_max = std::max({kw_r, kw_g, kw_b});
+    kw_r /= kw_max;
+    kw_g /= kw_max;
+    kw_b /= kw_max;
+
+    // Guardrails: prevent extreme scales (degenerate fields / bad photometry).
+    constexpr double k_min = 0.35;
+    constexpr double k_max = 1.00;  // always 1 after max-normalization
     kw_r = std::clamp(kw_r, k_min, k_max);
+    kw_g = std::clamp(kw_g, k_min, k_max);
     kw_b = std::clamp(kw_b, k_min, k_max);
 
-    std::cerr << "[PCC] Log-chroma deltas: d_rg=" << d_rg << " (dev=" << dev_rg << ")"
-              << " d_bg=" << d_bg << " (dev=" << dev_bg << ")"
-              << " stars=" << d_rg_vec.size() << std::endl;
-    std::cerr << "[PCC] Guardrail bounds: min=" << k_min
-              << " max=" << k_max << std::endl;
-    if (!w_rg_vec.empty()) {
-        double w_sum = 0.0;
-        double w_min = std::numeric_limits<double>::infinity();
-        double w_max = 0.0;
-        for (double w : w_rg_vec) {
-            w_sum += w;
-            w_min = std::min(w_min, w);
-            w_max = std::max(w_max, w);
-        }
-        std::cerr << "[PCC] Weighted fit stats: n=" << w_rg_vec.size()
-                  << " mean_w=" << (w_sum / static_cast<double>(w_rg_vec.size()))
-                  << " min_w=" << w_min
-                  << " max_w=" << w_max << std::endl;
-    }
+    std::cout << "[PCC] Scale factors after norm+clamp: R=" << kw_r
+              << " G=" << kw_g << " B=" << kw_b << std::endl;
+
+    const size_t n_used = cat_rg_vec.size();
 
     // Build diagonal color matrix
     res.matrix = {{{kw_r, 0, 0}, {0, kw_g, 0}, {0, 0, kw_b}}};
-    res.n_stars_used = static_cast<int>(std::min(d_rg_vec.size(), d_bg_vec.size()));
+    res.n_stars_used = static_cast<int>(n_used);
     res.residual_rms = std::max(dev_rg, dev_bg);
     res.determinant = kw_r * kw_g * kw_b;
     const double s0 = std::abs(kw_r);
@@ -1007,7 +1043,7 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     res.condition_number =
         (s_min > 1.0e-12) ? (s_max / s_min) : std::numeric_limits<double>::infinity();
 
-    std::cerr << "[PCC] Matrix stability: det=" << res.determinant
+    std::cout << "[PCC] Matrix stability: det=" << res.determinant
               << " cond=" << res.condition_number
               << " residual=" << res.residual_rms << std::endl;
 
@@ -1030,7 +1066,7 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     }
 
     res.success = true;
-    std::cerr << "[PCC] Scale factors: R=" << kw_r
+    std::cout << "[PCC] Scale factors: R=" << kw_r
               << " G=" << kw_g << " B=" << kw_b << std::endl;
     return res;
 }
@@ -1424,15 +1460,15 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     if (rows <= 0 || cols <= 0) return;
 
     if (verbose) {
-        std::cerr << "[PCC] Background levels: R=" << ctx.bg_r
+        std::cout << "[PCC] Background levels: R=" << ctx.bg_r
                   << " G=" << ctx.bg_g << " B=" << ctx.bg_b
                   << " -> bg_out=" << ctx.bg_out << std::endl;
-        std::cerr << "[PCC] Shadow blend thresholds: lo=" << ctx.shadow_lo
+        std::cout << "[PCC] Shadow blend thresholds: lo=" << ctx.shadow_lo
                   << " hi=" << ctx.shadow_hi << std::endl;
-        std::cerr << "[PCC] Highlight blend thresholds: lo=" << ctx.blend_lo
+        std::cout << "[PCC] Highlight blend thresholds: lo=" << ctx.blend_lo
                   << " hi=" << ctx.blend_hi << std::endl;
-        std::cerr << "[PCC] Shadow attenuation floor=" << kShadowAttenFloor << std::endl;
-        std::cerr << "[PCC] Highlight attenuation floor=" << kHighlightAttenFloor << std::endl;
+        std::cout << "[PCC] Shadow attenuation floor=" << kShadowAttenFloor << std::endl;
+        std::cout << "[PCC] Highlight attenuation floor=" << kHighlightAttenFloor << std::endl;
     }
 
     size_t valid_px = 0;
@@ -1472,7 +1508,7 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     const size_t skipped_px = (total_px >= valid_px) ? (total_px - valid_px) : 0;
     const double frac = (total_px > 0) ? (static_cast<double>(valid_px) / static_cast<double>(total_px)) : 0.0;
     if (verbose) {
-        std::cerr << "[PCC] Apply valid pixels: " << valid_px << "/" << total_px
+        std::cout << "[PCC] Apply valid pixels: " << valid_px << "/" << total_px
                   << " (" << (100.0 * frac) << "%)  skipped=" << skipped_px
                   << std::endl;
     }
@@ -1494,24 +1530,24 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                   const std::vector<GaiaStar> &catalog_stars,
                   const PCCConfig &config) {
 
-    std::cerr << "[PCC] Measuring " << catalog_stars.size()
+    std::cout << "[PCC] Measuring " << catalog_stars.size()
               << " catalog stars in image..." << std::endl;
 
     auto photometry = measure_stars(R, G, B, wcs, catalog_stars, config);
 
     int n_valid = 0;
     for (const auto &s : photometry) if (s.valid) ++n_valid;
-    std::cerr << "[PCC] " << n_valid << "/" << photometry.size()
+    std::cout << "[PCC] " << n_valid << "/" << photometry.size()
               << " stars with valid photometry" << std::endl;
 
     auto result = fit_color_matrix(photometry, config);
 
     if (result.success) {
-        std::cerr << "[PCC] Color matrix fit: " << result.n_stars_used
+        std::cout << "[PCC] Color matrix fit: " << result.n_stars_used
                   << " stars, RMS=" << result.residual_rms << std::endl;
-        std::cerr << "[PCC] Matrix:" << std::endl;
+        std::cout << "[PCC] Matrix:" << std::endl;
         for (int i = 0; i < 3; ++i) {
-            std::cerr << "  [" << result.matrix[i][0] << ", "
+            std::cout << "  [" << result.matrix[i][0] << ", "
                       << result.matrix[i][1] << ", "
                       << result.matrix[i][2] << "]" << std::endl;
         }
@@ -1543,10 +1579,10 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
         const bool use_sampled_eval = bg_samples.size() >= 512;
         if (use_sampled_eval) {
-            std::cerr << "[PCC] Damping evaluator: sampled background points="
+            std::cout << "[PCC] Damping evaluator: sampled background points="
                       << bg_samples.size() << std::endl;
         } else {
-            std::cerr << "[PCC] Damping evaluator fallback: full-frame candidate evaluation"
+            std::cout << "[PCC] Damping evaluator fallback: full-frame candidate evaluation"
                       << std::endl;
         }
 
@@ -1679,10 +1715,10 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         }
 
         if (chosen_alpha_r < 0.999 || chosen_alpha_b < 0.999) {
-            std::cerr << "[PCC] Adaptive damping applied: alpha_r=" << chosen_alpha_r
+            std::cout << "[PCC] Adaptive damping applied: alpha_r=" << chosen_alpha_r
                       << " alpha_b=" << chosen_alpha_b
                       << " (background chroma guard)" << std::endl;
-            std::cerr << "[PCC] Background chroma std pre/post: rg="
+            std::cout << "[PCC] Background chroma std pre/post: rg="
                       << pre_rg_std << " -> " << best_post_rg_std
                       << ", bg=" << pre_bg_std << " -> " << best_post_bg_std
                       << ", score=" << best_score << std::endl;
@@ -1698,17 +1734,17 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             result.residual_rms = applied_residual_rms;
             result.n_stars_used = applied_n_stars_used;
             if (std::abs(result.residual_rms - residual_before_apply) > 1.0e-6) {
-                std::cerr << "[PCC] Residual RMS updated for applied matrix: "
+                std::cout << "[PCC] Residual RMS updated for applied matrix: "
                           << residual_before_apply << " -> " << result.residual_rms
                           << " (stars=" << result.n_stars_used << ")" << std::endl;
             }
         } else {
-            std::cerr << "[PCC] Warning: failed to recompute residual RMS for applied matrix; "
+            std::cout << "[PCC] Warning: failed to recompute residual RMS for applied matrix; "
                       << "keeping fit residual=" << residual_before_apply << std::endl;
         }
 
         apply_color_matrix(R, G, B, result.matrix);
-        std::cerr << "[PCC] Color correction applied." << std::endl;
+        std::cout << "[PCC] Color correction applied." << std::endl;
     } else {
         std::cerr << "[PCC] Failed: " << result.error_message << std::endl;
     }
