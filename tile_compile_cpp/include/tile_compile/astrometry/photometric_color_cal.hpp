@@ -58,7 +58,7 @@ struct PCCConfig {
     
     bool apply_attenuation = false;
     double chroma_strength = 1.00;
-    double k_max = 3.50;
+    double k_max = 3.20;
 };
 
 // PCC result

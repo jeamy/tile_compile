@@ -317,7 +317,7 @@ struct PCCConfig {
   
   bool apply_attenuation = false;
   float chroma_strength = 1.00f;
-  float k_max = 3.50f;
+  float k_max = 3.20f;
 };
 
 struct ValidationConfig {

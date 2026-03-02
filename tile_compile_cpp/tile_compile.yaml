@@ -258,7 +258,7 @@ pcc:
   siril_catalog_dir: "" # leer => Standardkatalogpfad
   apply_attenuation: false
   chroma_strength: 1.0
-  k_max: 3.5 # fuer linearen PCC-Apply: vermeidet Gruenstich in hellen Strukturen bei stabil neutralem Hintergrund
+  k_max: 3.2 # fuer linearen PCC-Apply: vermeidet Gruenstich in hellen Strukturen bei stabil neutralem Hintergrund
   
 stacking:
   method: rej # rej|average
