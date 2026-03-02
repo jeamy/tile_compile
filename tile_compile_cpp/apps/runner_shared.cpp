@@ -119,6 +119,9 @@ astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src) {
   dst.annulus_inner_fwhm_mult = src.annulus_inner_fwhm_mult;
   dst.annulus_outer_fwhm_mult = src.annulus_outer_fwhm_mult;
   dst.min_aperture_px = src.min_aperture_px;
+  dst.apply_attenuation = src.apply_attenuation;
+  dst.chroma_strength = src.chroma_strength;
+  dst.k_max = src.k_max;
   return dst;
 }
 

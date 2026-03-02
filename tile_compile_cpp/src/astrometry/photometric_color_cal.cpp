@@ -951,34 +951,43 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
         return res;
     }
 
-    // Siril SPCC method: robust linear fit image_rg = a + b * catalog_rg,
-    // evaluated at white reference wrg=1 (solar-type star, no sensor DB).
-    // Uses Siegel's repeated median (breakdown point 0.5).
+    // Siril-like robust ratio fit:
+    // fit image ratios vs catalog ratios, then evaluate at an adaptive
+    // white reference derived from the catalog colors present in this frame.
     std::vector<double> cat_rg_vec, img_rg_vec;
     std::vector<double> cat_bg_vec, img_bg_vec;
+    std::vector<double> w_vec;
     cat_rg_vec.reserve(valid.size());
     img_rg_vec.reserve(valid.size());
     cat_bg_vec.reserve(valid.size());
     img_bg_vec.reserve(valid.size());
+    w_vec.reserve(valid.size());
 
     for (const auto *s : valid) {
         if (!(s->flux_r > 0.0 && s->flux_g > 0.0 && s->flux_b > 0.0 &&
-              s->cat_r > 0.0 && s->cat_g > 0.0 && s->cat_b > 0.0))
+              s->cat_r > 0.0 && s->cat_g > 0.0 && s->cat_b > 0.0)) {
             continue;
+        }
         const double meas_rg = s->flux_r / s->flux_g;
         const double meas_bg = s->flux_b / s->flux_g;
-        const double c_rg    = s->cat_r  / s->cat_g;
-        const double c_bg    = s->cat_b  / s->cat_g;
-        if (!(meas_rg > 0.0 && meas_bg > 0.0 && c_rg > 0.0 && c_bg > 0.0))
+        const double c_rg = s->cat_r / s->cat_g;
+        const double c_bg = s->cat_b / s->cat_g;
+        if (!(std::isfinite(meas_rg) && meas_rg > 0.0 &&
+              std::isfinite(meas_bg) && meas_bg > 0.0 &&
+              std::isfinite(c_rg) && c_rg > 0.0 &&
+              std::isfinite(c_bg) && c_bg > 0.0)) {
             continue;
+        }
+        const double w = std::clamp(s->quality_weight, 1.0e-3, 10.0);
         cat_rg_vec.push_back(c_rg);
         img_rg_vec.push_back(meas_rg);
         cat_bg_vec.push_back(c_bg);
         img_bg_vec.push_back(meas_bg);
+        w_vec.push_back(w);
     }
 
     if (cat_rg_vec.size() < static_cast<size_t>(config.min_stars)) {
-        res.error_message = "Not enough valid stars for repeated-median PCC fit";
+        res.error_message = "Not enough valid stars for adaptive-ratio PCC fit";
         return res;
     }
 
@@ -993,47 +1002,51 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
         return res;
     }
 
-    // White reference at catalog_rg = 1.0 (solar G2V, no sensor database).
-    // kr = 1 / (a + b * 1.0)  — same as Siril's wrg/wbg evaluation.
-    const double wrg = 1.0;
-    const double wbg = 1.0;
+    double wrg = weighted_median(cat_rg_vec, w_vec);
+    double wbg = weighted_median(cat_bg_vec, w_vec);
+    if (!(std::isfinite(wrg) && wrg > 0.0)) wrg = 1.0;
+    if (!(std::isfinite(wbg) && wbg > 0.0)) wbg = 1.0;
+
     double kw_r = 1.0 / (a_rg + b_rg * wrg);
     double kw_g = 1.0;
     double kw_b = 1.0 / (a_bg + b_bg * wbg);
-
-    std::cout << "[PCC] Repeated-median fit R/G: a=" << a_rg << " b=" << b_rg
-              << " dev=" << dev_rg << " kr_raw=" << kw_r << std::endl;
-    std::cout << "[PCC] Repeated-median fit B/G: a=" << a_bg << " b=" << b_bg
-              << " dev=" << dev_bg << " kb_raw=" << kw_b << std::endl;
-
     if (!std::isfinite(kw_r) || kw_r <= 0.0 ||
         !std::isfinite(kw_b) || kw_b <= 0.0) {
-        res.error_message = "Degenerate PCC fit: non-positive scale factor";
+        res.error_message = "Degenerate PCC fit: non-positive adaptive-ratio scale factor";
         return res;
     }
 
-    // Normalize so max(kw_r, kw_g, kw_b) = 1  (Siril: kw[c] /= max(kw))
+    const double raw_k_max = std::max(1.0, static_cast<double>(config.k_max));
+    kw_r = std::min(kw_r, raw_k_max);
+    kw_g = std::min(kw_g, raw_k_max);
+    kw_b = std::min(kw_b, raw_k_max);
+
     const double kw_max = std::max({kw_r, kw_g, kw_b});
-    kw_r /= kw_max;
-    kw_g /= kw_max;
-    kw_b /= kw_max;
+    kw_r = std::max(1.0e-3, kw_r / kw_max);
+    kw_g = std::max(1.0e-3, kw_g / kw_max);
+    kw_b = std::max(1.0e-3, kw_b / kw_max);
 
-    // Guardrails: prevent extreme scales (degenerate fields / bad photometry).
-    constexpr double k_min = 0.35;
-    constexpr double k_max = 1.00;  // always 1 after max-normalization
-    kw_r = std::clamp(kw_r, k_min, k_max);
-    kw_g = std::clamp(kw_g, k_min, k_max);
-    kw_b = std::clamp(kw_b, k_min, k_max);
+    std::cout << "[PCC] Adaptive white reference: wrg=" << wrg
+              << " wbg=" << wbg << std::endl;
+    std::cout << "[PCC] Repeated-median fit R/G: a=" << a_rg
+              << " b=" << b_rg << " dev=" << dev_rg << std::endl;
+    std::cout << "[PCC] Repeated-median fit B/G: a=" << a_bg
+              << " b=" << b_bg << " dev=" << dev_bg << std::endl;
+    std::cout << "[PCC] Scale factors raw (before norm): R=" << (kw_r * kw_max)
+              << " G=" << (kw_g * kw_max) << " B=" << (kw_b * kw_max)
+              << std::endl;
+    std::cout << "[PCC] Scale factors after norm: R=" << kw_r
+              << " G=" << kw_g << " B=" << kw_b
+              << " (raw_k_max=" << raw_k_max << ")" << std::endl;
 
-    std::cout << "[PCC] Scale factors after norm+clamp: R=" << kw_r
-              << " G=" << kw_g << " B=" << kw_b << std::endl;
-
-    const size_t n_used = cat_rg_vec.size();
-
-    // Build diagonal color matrix
     res.matrix = {{{kw_r, 0, 0}, {0, kw_g, 0}, {0, 0, kw_b}}};
-    res.n_stars_used = static_cast<int>(n_used);
-    res.residual_rms = std::max(dev_rg, dev_bg);
+    res.n_stars_used = static_cast<int>(cat_rg_vec.size());
+    int residual_used = 0;
+    res.residual_rms =
+        recompute_residual_rms_for_matrix(stars, res.matrix, config.sigma_clip, &residual_used);
+    if (residual_used > 0) {
+        res.n_stars_used = residual_used;
+    }
     res.determinant = kw_r * kw_g * kw_b;
     const double s0 = std::abs(kw_r);
     const double s1 = std::abs(kw_g);
@@ -1415,6 +1428,61 @@ static PCCBackgroundStdPair sampled_background_std_after_matrix(
     return out;
 }
 
+static bool estimate_channel_background_median(
+    const Matrix2Df &ch, const std::vector<uint8_t> &bg_mask, double *median_out) {
+    if (median_out == nullptr) return false;
+    if (bg_mask.size() != static_cast<size_t>(ch.rows() * ch.cols())) return false;
+    std::vector<float> samples;
+    samples.reserve(bg_mask.size() / 4);
+    for (int y = 0; y < ch.rows(); ++y) {
+        for (int x = 0; x < ch.cols(); ++x) {
+            const size_t idx = static_cast<size_t>(y * ch.cols() + x);
+            if (bg_mask[idx] == 0) continue;
+            const float v = ch(y, x);
+            if (std::isfinite(v) && v > 0.0f) samples.push_back(v);
+        }
+    }
+    if (samples.size() < 2048) return false;
+    std::sort(samples.begin(), samples.end());
+    *median_out = static_cast<double>(samples[samples.size() / 2]);
+    return std::isfinite(*median_out);
+}
+
+static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B) {
+    const std::vector<uint8_t> bg_mask =
+        image::build_chroma_background_mask_from_rgb(R, G, B);
+    if (bg_mask.empty()) return;
+
+    double bg_r = 0.0;
+    double bg_g = 0.0;
+    double bg_b = 0.0;
+    if (!estimate_channel_background_median(R, bg_mask, &bg_r) ||
+        !estimate_channel_background_median(G, bg_mask, &bg_g) ||
+        !estimate_channel_background_median(B, bg_mask, &bg_b)) {
+        return;
+    }
+
+    const double bg_ref = (bg_r + bg_g + bg_b) / 3.0;
+    const float dr = static_cast<float>(bg_ref - bg_r);
+    const float dg = static_cast<float>(bg_ref - bg_g);
+    const float db = static_cast<float>(bg_ref - bg_b);
+
+    for (int y = 0; y < R.rows(); ++y) {
+        for (int x = 0; x < R.cols(); ++x) {
+            const float r = R(y, x);
+            const float g = G(y, x);
+            const float b = B(y, x);
+            if (std::isfinite(r)) R(y, x) = std::max(0.0f, r + dr);
+            if (std::isfinite(g)) G(y, x) = std::max(0.0f, g + dg);
+            if (std::isfinite(b)) B(y, x) = std::max(0.0f, b + db);
+        }
+    }
+
+    std::cout << "[PCC] Background neutralization applied: "
+              << "medians R/G/B=" << bg_r << "/" << bg_g << "/" << bg_b
+              << " -> target=" << bg_ref << std::endl;
+}
+
 
 static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                            const ColorMatrix &m, bool verbose) {
@@ -1422,8 +1490,11 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
     const int cols = R.cols();
     if (rows <= 0 || cols <= 0) return;
 
-    // Pure linear application: no background anchoring, no attenuation.
-    // This matches typical PCC behavior (Siril-like white balance coefficients).
+    // Linear application with shared background anchoring.
+    // Keeping a common background pivot avoids colored sky bias when
+    // `apply_attenuation=false` and channel gains differ strongly.
+    const PCCAttenuationContext ctx = build_pcc_attenuation_context(R, G, B);
+
     size_t valid_px = 0;
     const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
 
@@ -1437,17 +1508,21 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
                 continue;
             }
             ++valid_px;
-            const float nr = static_cast<float>(m[0][0] * r0 + m[0][1] * g0 + m[0][2] * b0);
-            const float ng = static_cast<float>(m[1][0] * r0 + m[1][1] * g0 + m[1][2] * b0);
-            const float nb = static_cast<float>(m[2][0] * r0 + m[2][1] * g0 + m[2][2] * b0);
-            R(y, x) = (std::isfinite(nr) ? nr : 0.0f);
-            G(y, x) = (std::isfinite(ng) ? ng : 0.0f);
-            B(y, x) = (std::isfinite(nb) ? nb : 0.0f);
+            const float dr = r0 - ctx.bg_out;
+            const float dg = g0 - ctx.bg_out;
+            const float db = b0 - ctx.bg_out;
+            float nr = 0.0f;
+            float ng = 0.0f;
+            float nb = 0.0f;
+            apply_color_matrix_to_deltas(m, 1.0f, dr, dg, db, &nr, &ng, &nb);
+            R(y, x) = (std::isfinite(nr) ? (ctx.bg_out + nr) : 0.0f);
+            G(y, x) = (std::isfinite(ng) ? (ctx.bg_out + ng) : 0.0f);
+            B(y, x) = (std::isfinite(nb) ? (ctx.bg_out + nb) : 0.0f);
         }
     }
     if (verbose) {
         const double frac = (total_px > 0) ? (static_cast<double>(valid_px) / static_cast<double>(total_px)) : 0.0;
-        std::cerr << "[PCC] Apply(simple) valid pixels: " << valid_px << "/" << total_px
+        std::cerr << "[PCC] Apply(simple, anchored) valid pixels: " << valid_px << "/" << total_px
                   << " (" << (100.0 * frac) << "%)" << std::endl;
     }
 }
@@ -1588,7 +1663,17 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
         constexpr double kStdHardCap = 1.08;    // never allow >8% background-std worsening
         constexpr double kWorsenBudget = 0.01;  // prefer <=1% worsening when possible
-        const std::array<double, 7> strengths = {1.0, 0.85, 0.70, 0.55, 0.40, 0.25, 0.0};
+        const double chroma_strength = std::clamp(config.chroma_strength, 0.0, 1.0);
+        const std::array<double, 7> base_strengths = {1.0, 0.85, 0.70, 0.55, 0.40, 0.25, 0.0};
+        std::array<double, 7> strengths{};
+        for (size_t i = 0; i < base_strengths.size(); ++i) {
+            strengths[i] = base_strengths[i] * chroma_strength;
+        }
+        strengths.back() = 0.0;
+        if (chroma_strength < 0.999) {
+            std::cout << "[PCC] Chroma strength limit active: " << chroma_strength
+                      << std::endl;
+        }
         double chosen_alpha_r = 1.0;
         double chosen_alpha_b = 1.0;
         ColorMatrix chosen_matrix = result.matrix;
@@ -1743,7 +1828,11 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                       << "keeping fit residual=" << residual_before_apply << std::endl;
         }
 
-        apply_color_matrix(R, G, B, result.matrix);
+        apply_color_matrix(R, G, B, result.matrix, config.apply_attenuation);
+        std::cout << "[PCC] Apply mode: "
+                  << (config.apply_attenuation ? "attenuated" : "linear")
+                  << std::endl;
+        neutralize_background_offsets(R, G, B);
         std::cout << "[PCC] Color correction applied." << std::endl;
     } else {
         std::cerr << "[PCC] Failed: " << result.error_message << std::endl;
