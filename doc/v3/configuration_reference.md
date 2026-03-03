@@ -6,6 +6,10 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 **Schema-Version:** v3  
 **Referenz:** Methodik v3.3
 
+**Dokumentationsstand (2026-03-03):**
+- `bge.fit.robust_loss` und `bge.fit.huber_delta` sind als Benutzerparameter dokumentiert und konfigurierbar.
+- PCC-Dokumentation umfasst die aktiven Stabilitäts- und Apply-Parameter (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
+
 **💡 Für praktische Beispiele und Anwendungsfälle siehe:** [Konfigurationsbeispiele & Best Practices](configuration_examples_practical_de.md)
 
 ## Inhaltsverzeichnis
@@ -1815,6 +1819,26 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 
 **Zweck:** Lokales Annulus-Hintergrundmodell fuer Sternphotometrie (`plane` empfohlen bei Gradienten).
 
+### `pcc.max_condition_number`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | `>= 1.0` |
+| **Default** | `3.0` |
+
+**Zweck:** Obergrenze der Matrix-Konditionszahl; verhindert instabile PCC-Loesungen.
+
+### `pcc.max_residual_rms`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | `> 0` |
+| **Default** | `0.35` |
+
+**Zweck:** Obergrenze fuer robusten Fit-Residuen-RMS; verwirft verrauschte/instabile PCC-Fits.
+
 ---
 
 ### `pcc.radii_mode`
@@ -1851,9 +1875,36 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 
 **Zweck:** Lokaler Siril-Katalogpfad; leer = Standardpfad.
 
+### `pcc.apply_attenuation`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert adaptive Daempfung der PCC-Matrixanwendung in Schatten/Highlights.
+
+### `pcc.chroma_strength`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Default** | `1.0` |
+
+**Zweck:** Globaler Staerkefaktor fuer Chroma-Korrektur bei PCC-Apply.
+
+### `pcc.k_max`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Default** | `3.2` |
+
+**Zweck:** Obergrenze fuer Korrekturstaerke im linearen PCC-Apply (verringert Farbstiche in hellen Strukturen).
+
 ---
 
-## 18. Stacking
+## 19. Stacking
 
 Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 
@@ -2124,7 +2175,7 @@ Diese Option zielt auf **fixe Sensordefekte** (RGB-Einzelpixel), die in jedem Fr
 
 ---
 
-## 19. Validation
+## 20. Validation
 
 Qualitätsprüfung des Rekonstruktionsergebnisses (nach Phase 10, vor Debayer).
 
@@ -2185,7 +2236,7 @@ Qualitätsprüfung des Rekonstruktionsergebnisses (nach Phase 10, vor Debayer).
 
 ---
 
-## 20. Runtime Limits
+## 21. Runtime Limits
 
 Laufzeit-Beschränkungen.
 
@@ -2612,7 +2663,11 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `pcc.aperture_radius_px`, `annulus_inner_px`, `annulus_outer_px`: Photometrie-Aperturgeometrie.
 - `pcc.min_stars`: Mindestanzahl gültiger Sterne für stabilen PCC-Fit.
 - `pcc.sigma_clip`: Outlier-Rejection im PCC-Fit.
+- `pcc.background_model`: lokales Hintergrundmodell fuer Sternphotometrie.
+- `pcc.max_condition_number`, `pcc.max_residual_rms`: Stabilitaetsgrenzen fuer Matrix/Fit.
+- `pcc.radii_mode`, `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`: adaptive Radiussteuerung.
 - `pcc.siril_catalog_dir`: optionaler lokaler Siril-Katalogpfad.
+- `pcc.apply_attenuation`, `pcc.chroma_strength`, `pcc.k_max`: optionale Apply-Daempfung/Chroma-Staerke.
 - `stacking.method`: finaler Kombinationsmodus (`rej` vs `average`).
 - `stacking.sigma_clip.sigma_low`, `sigma_high`: untere/obere Rejection-Schwellen.
 - `stacking.sigma_clip.max_iters`: maximale Clip-Iterationen.

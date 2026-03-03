@@ -4,6 +4,11 @@
 
 This guide complements the configuration reference with practical examples, edge cases, and use cases based on methodology v3.3.
 
+## Update Status (2026-03-03)
+
+- `bge.fit.robust_loss` and `bge.fit.huber_delta` are available again as user-facing parameters.
+- PCC examples were aligned with the current parameter set (without `pcc.method`).
+
 ---
 
 ## Background Gradient Extraction (BGE) - NEW in v3.3
@@ -28,6 +33,8 @@ bge:
   sample_quantile: 0.20  # Conservative, resistant to faint objects
   fit:
     method: rbf  # Flexible, recommended baseline
+    robust_loss: huber  # huber | tukey
+    huber_delta: 1.5
     rbf_phi: multiquadric  # Good compromise
     rbf_mu_factor: 1.0  # Standard smoothing
 ```
@@ -41,6 +48,7 @@ bge:
   structure_thresh_percentile: 0.95  # Exclude more tiles
   fit:
     method: rbf
+    robust_loss: tukey  # stronger outlier suppression
     rbf_phi: multiquadric
     rbf_mu_factor: 0.8  # Less smoothing for detail
 ```
@@ -72,11 +80,16 @@ bge:
 ```yaml
 pcc:
   background_model: plane      # median | plane
+  max_condition_number: 3.0
+  max_residual_rms: 0.35
   radii_mode: auto_fwhm        # fixed | auto_fwhm
   aperture_fwhm_mult: 1.8
   annulus_inner_fwhm_mult: 3.0
   annulus_outer_fwhm_mult: 5.0
   min_aperture_px: 4.0
+  apply_attenuation: false
+  chroma_strength: 1.0
+  k_max: 3.2
 ```
 
 ---
@@ -605,7 +618,8 @@ debayer:
 pcc:
   enabled: true
   source: auto
-  method: proportion
+  background_model: plane
+  radii_mode: auto_fwhm
 ```
 
 ### Monochrome

@@ -268,7 +268,7 @@ struct BGEConfig {
   // Surface fitting (v3.3 §6.3.4, §6.3.7)
   struct {
     std::string method = "rbf"; // poly | spline | bicubic | rbf | modeled_mask_mesh
-    std::string robust_loss = "huber";
+    std::string robust_loss = "huber"; // huber | tukey
     float huber_delta = 1.5f;
     int irls_max_iterations = 10;
     float irls_tolerance = 1e-4f;

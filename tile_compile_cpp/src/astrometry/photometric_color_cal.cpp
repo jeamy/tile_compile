@@ -23,6 +23,54 @@ struct PlaneFit {
     bool ok = false;
 };
 
+struct TileLookupCache {
+    int bin_size = 64;
+    int bins_x = 0;
+    int bins_y = 0;
+    bool valid = false;
+    std::vector<std::vector<int>> bins;
+};
+
+static TileLookupCache build_tile_lookup_cache(const TileGrid &grid) {
+    TileLookupCache cache;
+    if (grid.tiles.empty()) return cache;
+
+    int max_x = 0;
+    int max_y = 0;
+    for (const auto &t : grid.tiles) {
+        max_x = std::max(max_x, t.x + t.width);
+        max_y = std::max(max_y, t.y + t.height);
+    }
+    if (max_x <= 0 || max_y <= 0) return cache;
+
+    cache.bins_x = std::max(1, (max_x + cache.bin_size - 1) / cache.bin_size);
+    cache.bins_y = std::max(1, (max_y + cache.bin_size - 1) / cache.bin_size);
+    cache.bins.assign(static_cast<size_t>(cache.bins_x * cache.bins_y), {});
+
+    for (size_t i = 0; i < grid.tiles.size(); ++i) {
+        const auto &t = grid.tiles[i];
+        const int tx0 = std::max(0, t.x);
+        const int ty0 = std::max(0, t.y);
+        const int tx1 = std::max(tx0, t.x + t.width - 1);
+        const int ty1 = std::max(ty0, t.y + t.height - 1);
+
+        const int bx0 = std::clamp(tx0 / cache.bin_size, 0, cache.bins_x - 1);
+        const int by0 = std::clamp(ty0 / cache.bin_size, 0, cache.bins_y - 1);
+        const int bx1 = std::clamp(tx1 / cache.bin_size, 0, cache.bins_x - 1);
+        const int by1 = std::clamp(ty1 / cache.bin_size, 0, cache.bins_y - 1);
+
+        for (int by = by0; by <= by1; ++by) {
+            for (int bx = bx0; bx <= bx1; ++bx) {
+                cache.bins[static_cast<size_t>(by * cache.bins_x + bx)]
+                    .push_back(static_cast<int>(i));
+            }
+        }
+    }
+
+    cache.valid = true;
+    return cache;
+}
+
 static PlaneFit fit_sky_plane_huber(const std::vector<double> &xs,
                                     const std::vector<double> &ys,
                                     const std::vector<double> &vs,
@@ -130,13 +178,34 @@ static PlaneFit fit_sky_plane_huber(const std::vector<double> &xs,
     return pf;
 }
 
-static int find_tile_index_for_pixel(const TileGrid &grid, double px, double py) {
+static int find_tile_index_for_pixel(const TileGrid &grid, double px, double py,
+                                     const TileLookupCache *cache = nullptr) {
     if (grid.tiles.empty()) return -1;
     const int x = static_cast<int>(std::lround(px));
     const int y = static_cast<int>(std::lround(py));
+
+    auto tile_contains = [x, y](const Tile &t) {
+        return x >= t.x && x < (t.x + t.width) && y >= t.y && y < (t.y + t.height);
+    };
+
+    if (cache != nullptr && cache->valid && x >= 0 && y >= 0) {
+        const int bx = x / cache->bin_size;
+        const int by = y / cache->bin_size;
+        if (bx >= 0 && bx < cache->bins_x && by >= 0 && by < cache->bins_y) {
+            const auto &bucket =
+                cache->bins[static_cast<size_t>(by * cache->bins_x + bx)];
+            for (int idx : bucket) {
+                if (idx < 0 || idx >= static_cast<int>(grid.tiles.size())) continue;
+                if (tile_contains(grid.tiles[static_cast<size_t>(idx)])) {
+                    return idx;
+                }
+            }
+        }
+    }
+
     for (size_t i = 0; i < grid.tiles.size(); ++i) {
         const auto &t = grid.tiles[i];
-        if (x >= t.x && x < (t.x + t.width) && y >= t.y && y < (t.y + t.height)) {
+        if (tile_contains(t)) {
             return static_cast<int>(i);
         }
     }
@@ -145,13 +214,14 @@ static int find_tile_index_for_pixel(const TileGrid &grid, double px, double py)
 
 static double tile_quality_weight_for_star(double px, double py,
                                            const PCCConfig &config,
-                                           bool *reject_out) {
+                                           bool *reject_out,
+                                           const TileLookupCache *tile_lookup = nullptr) {
     if (reject_out) *reject_out = false;
     if (!config.use_tile_quality_weighting) return 1.0;
     if (config.tile_metrics.empty() || config.tile_grid.tiles.empty()) return 1.0;
     if (config.tile_metrics.size() != config.tile_grid.tiles.size()) return 1.0;
 
-    const int idx = find_tile_index_for_pixel(config.tile_grid, px, py);
+    const int idx = find_tile_index_for_pixel(config.tile_grid, px, py, tile_lookup);
     if (idx < 0) return 1.0;
 
     const TileMetrics &tm = config.tile_metrics[static_cast<size_t>(idx)];
@@ -550,6 +620,13 @@ std::vector<StarPhotometry> measure_stars(
             : static_cast<double>(bg_safe_count) / static_cast<double>(bg_safe_mask.size());
     const double min_safe_annulus_fraction =
         std::clamp(0.25 + 0.50 * bg_safe_fraction, 0.25, 0.55);
+    const TileLookupCache tile_lookup =
+        (config.use_tile_quality_weighting &&
+         !config.tile_metrics.empty() &&
+         config.tile_metrics.size() == config.tile_grid.tiles.size())
+            ? build_tile_lookup_cache(config.tile_grid)
+            : TileLookupCache{};
+    const TileLookupCache *tile_lookup_ptr = tile_lookup.valid ? &tile_lookup : nullptr;
     auto run_pass = [&](bool enable_bg_guard,
                         std::vector<StarPhotometry>* out_result,
                         int* n_sat_rejected,
@@ -604,7 +681,9 @@ std::vector<StarPhotometry> measure_stars(
             sp.mag = star.mag;
 
             bool tile_reject = false;
-            sp.quality_weight = tile_quality_weight_for_star(px, py, config, &tile_reject);
+            sp.quality_weight =
+                tile_quality_weight_for_star(px, py, config, &tile_reject,
+                                             tile_lookup_ptr);
             if (tile_reject || !(std::isfinite(sp.quality_weight) && sp.quality_weight > 0.0)) {
                 ++(*n_tile_rejected);
                 continue;

@@ -223,7 +223,7 @@ bge:
   fit:
     method: rbf # poly | spline | bicubic | rbf | modeled_mask_mesh (Default: rbf)
     robust_loss: huber # huber | tukey (Default: huber)
-    huber_delta: 1.5 # Default: 1.5
+    huber_delta: 1.5 # >0, Default: 1.5 (wirksam bei robust_loss=huber)
     irls_max_iterations: 10 # Default: 10
     irls_tolerance: 1e-4 # Default: 1e-4
     

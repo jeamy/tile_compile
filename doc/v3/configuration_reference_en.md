@@ -6,6 +6,10 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 **Schema version:** v3  
 **Reference:** Methodology v3.3
 
+**Documentation status (2026-03-03):**
+- `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
+- PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
+
 **💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
 
 ## Table of Contents
@@ -967,6 +971,8 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 - `bge.enabled`: Enable/disable (default: `false`)
 - `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
 - `bge.fit.method`: Surface fitting method - `rbf`, `poly`, `spline`, `bicubic`, `modeled_mask_mesh` (default `rbf`)
+- `bge.fit.robust_loss`: Robust IRLS loss - `huber` or `tukey` (default `huber`)
+- `bge.fit.huber_delta`: Huber transition parameter (default `1.5`, used when `robust_loss=huber`)
 - `bge.fit.rbf_phi`: RBF kernel - `multiquadric`, `thinplate`, `gaussian` (default `multiquadric`)
 - `bge.autotune.enabled`: Deterministic test-adjust-test autotune (default `false`)
 - `bge.autotune.strategy`: `conservative|extended` (default `conservative`)
@@ -976,6 +982,26 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 - `bge.autotune.beta_roughness`: objective weight for roughness term (minimum `0`, default `0.10`)
 
 **Recommendation:** Enable with `bge.enabled: true` when gradients are visible (urban light pollution, moonlight) or when PCC shows color shifts across the field.
+
+### `bge.fit.robust_loss`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `huber`, `tukey` |
+| **Default** | `"huber"` |
+
+**Purpose:** Robust loss function used in BGE IRLS fitting.
+
+### `bge.fit.huber_delta`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `> 0` |
+| **Default** | `1.5` |
+
+**Purpose:** Huber transition parameter (active when `bge.fit.robust_loss=huber`).
 
 ---
 
@@ -1063,6 +1089,26 @@ Photometric Color Calibration settings.
 
 **Purpose:** Local sky-annulus background model for stellar photometry (`plane` recommended under gradients, fallback to `median` if plane fit fails).
 
+### `pcc.max_condition_number`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `>= 1.0` |
+| **Default** | `3.0` |
+
+**Purpose:** Upper bound for PCC matrix condition number; rejects numerically unstable solutions.
+
+### `pcc.max_residual_rms`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `> 0` |
+| **Default** | `0.35` |
+
+**Purpose:** Upper bound for robust fit residual RMS; rejects noisy/unstable PCC fits.
+
 ### `pcc.radii_mode`
 
 | Property | Value |
@@ -1093,9 +1139,36 @@ Photometric Color Calibration settings.
 
 **Purpose:** Optional local Siril catalog path.
 
+### `pcc.apply_attenuation`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Enables adaptive attenuation during PCC matrix application (helps in deep shadows/highlights).
+
+### `pcc.chroma_strength`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `1.0` |
+
+**Purpose:** Global strength factor for PCC chroma correction during apply.
+
+### `pcc.k_max`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `3.2` |
+
+**Purpose:** Upper bound for linear PCC apply strength (limits over-correction in bright structures).
+
 ---
 
-## 18. Stacking
+## 19. Stacking
 
 Final stacking settings.
 
@@ -1260,7 +1333,7 @@ This targets **fixed sensor defects** (RGB single-pixel speckles) that appear at
 
 ---
 
-## 19. Validation
+## 20. Validation
 
 Validation and quality control.
 
@@ -1302,7 +1375,7 @@ Validation and quality control.
 
 ---
 
-## 20. Runtime Limits
+## 21. Runtime Limits
 
 Runtime and resource limits.
 
@@ -1482,7 +1555,11 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `pcc.aperture_radius_px`, `annulus_inner_px`, `annulus_outer_px`: photometric aperture geometry.
 - `pcc.min_stars`: minimum matched stars for stable PCC fit.
 - `pcc.sigma_clip`: outlier rejection in PCC regression.
+- `pcc.background_model`: local annulus background model.
+- `pcc.max_condition_number`, `pcc.max_residual_rms`: matrix/fit stability limits.
+- `pcc.radii_mode`, `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`: adaptive radius controls.
 - `pcc.siril_catalog_dir`: local Siril catalog path override.
+- `pcc.apply_attenuation`, `pcc.chroma_strength`, `pcc.k_max`: optional apply attenuation/chroma controls.
 - `stacking.method`: final combine mode (`rej` sigma-clip vs `average`).
 - `stacking.sigma_clip.sigma_low`, `sigma_high`: lower/upper rejection thresholds.
 - `stacking.sigma_clip.max_iters`: clipping iteration cap.

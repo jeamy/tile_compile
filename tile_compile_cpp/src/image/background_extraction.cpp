@@ -7,6 +7,7 @@
 #include <iostream>
 #include <limits>
 #include <queue>
+#include <unordered_map>
 
 namespace tile_compile::image {
 
@@ -109,9 +110,24 @@ std::vector<uint8_t> dilate_mask(const std::vector<uint8_t>& mask, int w, int h,
     return out;
 }
 
-float robust_weight_from_loss(const std::string& loss, float r, float param) {
-    if (loss == "tukey") return tukey_weight(r, std::max(param, kTiny));
-    return huber_weight(r, std::max(param, kTiny));
+using RobustWeightFn = float (*)(float, float);
+
+RobustWeightFn resolve_robust_weight_fn(const std::string& loss) {
+    return (loss == "tukey") ? &tukey_weight : &huber_weight;
+}
+
+float robust_weight_from_loss(RobustWeightFn weight_fn, float r, float param) {
+    return weight_fn(r, std::max(param, kTiny));
+}
+
+void update_robust_weights(const Eigen::VectorXf& residual,
+                           float param,
+                           RobustWeightFn weight_fn,
+                           Eigen::VectorXf* out_weights) {
+    const int n = static_cast<int>(residual.size());
+    for (int i = 0; i < n; ++i) {
+        (*out_weights)(i) = robust_weight_from_loss(weight_fn, residual(i), param);
+    }
 }
 
 BGEValueStats stats_from_values(const std::vector<float>& values) {
@@ -1492,6 +1508,7 @@ Matrix2Df fit_rbf_surface(
     Eigen::VectorXf w_rel(M);
     std::vector<float> bg_values;
     bg_values.reserve(static_cast<size_t>(M));
+    const auto robust_weight_fn = resolve_robust_weight_fn(config.fit.robust_loss);
     for (int i = 0; i < M; ++i) {
         b(i) = grid_cells[i].bg_value;
         w_rel(i) = std::max(1.0e-3f, grid_cells[i].weight);
@@ -1523,10 +1540,8 @@ Matrix2Df fit_rbf_surface(
             u = u_new;
 
             Eigen::VectorXf residual = b - Phi_base * u;
-            for (int i = 0; i < M; ++i) {
-                w_rob(i) = robust_weight_from_loss(config.fit.robust_loss,
-                                                   residual(i), config.fit.huber_delta);
-            }
+            update_robust_weights(residual, config.fit.huber_delta,
+                                  robust_weight_fn, &w_rob);
 
             if (step <= config.fit.irls_tolerance * scale) break;
         }
@@ -1675,15 +1690,27 @@ Matrix2Df fit_polynomial_surface(
     Eigen::MatrixXf A(M, n_terms);
     Eigen::VectorXf b(M);
     Eigen::VectorXf w_rel(M);
+    std::vector<float> x_pows(static_cast<size_t>(order + 1), 1.0f);
+    std::vector<float> y_pows(static_cast<size_t>(order + 1), 1.0f);
     
     for (int i = 0; i < M; ++i) {
         float x_norm = grid_cells[i].center_x * x_scale + x_offset;
         float y_norm = grid_cells[i].center_y * y_scale + y_offset;
+
+        x_pows[0] = 1.0f;
+        y_pows[0] = 1.0f;
+        for (int p = 1; p <= order; ++p) {
+            x_pows[static_cast<size_t>(p)] =
+                x_pows[static_cast<size_t>(p - 1)] * x_norm;
+            y_pows[static_cast<size_t>(p)] =
+                y_pows[static_cast<size_t>(p - 1)] * y_norm;
+        }
         
         int col = 0;
         for (int m = 0; m <= order; ++m) {
             for (int n = 0; n <= order - m; ++n) {
-                A(i, col) = std::pow(x_norm, m) * std::pow(y_norm, n);
+                A(i, col) = x_pows[static_cast<size_t>(m)] *
+                            y_pows[static_cast<size_t>(n)];
                 ++col;
             }
         }
@@ -1691,6 +1718,7 @@ Matrix2Df fit_polynomial_surface(
         b(i) = grid_cells[i].bg_value;
         w_rel(i) = std::max(1.0e-3f, grid_cells[i].weight);
     }
+    const auto robust_weight_fn = resolve_robust_weight_fn(config.fit.robust_loss);
 
     // Robust IRLS polynomial fitting (v3.3 §6.3.7)
     Eigen::VectorXf coeffs = Eigen::VectorXf::Zero(n_terms);
@@ -1707,10 +1735,8 @@ Matrix2Df fit_polynomial_surface(
         coeffs = coeffs_new;
 
         Eigen::VectorXf residual = b - A * coeffs;
-        for (int i = 0; i < M; ++i) {
-            w_rob(i) = robust_weight_from_loss(config.fit.robust_loss,
-                                               residual(i), config.fit.huber_delta);
-        }
+        update_robust_weights(residual, config.fit.huber_delta,
+                              robust_weight_fn, &w_rob);
 
         if (step <= config.fit.irls_tolerance * scale) {
             break;
@@ -1719,18 +1745,42 @@ Matrix2Df fit_polynomial_surface(
     
     // Evaluate polynomial at all image pixels
     Matrix2Df surface = Matrix2Df::Zero(image_height, image_width);
+    std::vector<std::vector<float>> x_power_table(
+        static_cast<size_t>(image_width),
+        std::vector<float>(static_cast<size_t>(order + 1), 1.0f));
+    std::vector<std::vector<float>> y_power_table(
+        static_cast<size_t>(image_height),
+        std::vector<float>(static_cast<size_t>(order + 1), 1.0f));
+
+    for (int x = 0; x < image_width; ++x) {
+        const float x_norm = x * x_scale + x_offset;
+        auto& xp = x_power_table[static_cast<size_t>(x)];
+        xp[0] = 1.0f;
+        for (int p = 1; p <= order; ++p) {
+            xp[static_cast<size_t>(p)] = xp[static_cast<size_t>(p - 1)] * x_norm;
+        }
+    }
+    for (int y = 0; y < image_height; ++y) {
+        const float y_norm = y * y_scale + y_offset;
+        auto& yp = y_power_table[static_cast<size_t>(y)];
+        yp[0] = 1.0f;
+        for (int p = 1; p <= order; ++p) {
+            yp[static_cast<size_t>(p)] = yp[static_cast<size_t>(p - 1)] * y_norm;
+        }
+    }
     
     #pragma omp parallel for collapse(2)
     for (int y = 0; y < image_height; ++y) {
         for (int x = 0; x < image_width; ++x) {
-            float x_norm = x * x_scale + x_offset;
-            float y_norm = y * y_scale + y_offset;
+            const auto& xp = x_power_table[static_cast<size_t>(x)];
+            const auto& yp = y_power_table[static_cast<size_t>(y)];
             
             float sum = 0.0f;
             int col = 0;
             for (int m = 0; m <= order; ++m) {
                 for (int n = 0; n <= order - m; ++n) {
-                    sum += coeffs(col) * std::pow(x_norm, m) * std::pow(y_norm, n);
+                    sum += coeffs(col) * xp[static_cast<size_t>(m)] *
+                           yp[static_cast<size_t>(n)];
                     ++col;
                 }
             }
@@ -1959,24 +2009,32 @@ static float eval_model_roughness(const Matrix2Df& model, int step) {
     return robust_median(std::move(curvature_energy));
 }
 
-static BGECandidateResult try_bge_candidate(const Matrix2Df& channel,
-                                            const std::vector<TileMetrics>& tile_metrics,
-                                            const TileGrid& tile_grid,
-                                            const BGEConfig& cfg_try,
-                                            int grid_spacing) {
-    BGECandidateResult out;
-    out.cfg = cfg_try;
-    out.grid_spacing = grid_spacing;
+struct BGECandidatePrep {
+    bool valid = false;
+    std::vector<GridCell> train_cells;
+    std::vector<GridCell> val_cells;
+    float bg_median = kTiny;
+};
 
-    auto tile_samples = extract_tile_background_samples(channel, tile_metrics, tile_grid, cfg_try);
-    auto grid_cells_all = aggregate_to_coarse_grid(tile_samples, channel.cols(), channel.rows(), grid_spacing, cfg_try);
+static BGECandidatePrep build_bge_candidate_prep(
+    const Matrix2Df& channel,
+    const std::vector<TileMetrics>& tile_metrics,
+    const TileGrid& tile_grid,
+    const BGEConfig& cfg_try,
+    int grid_spacing) {
+    BGECandidatePrep prep;
+
+    auto tile_samples =
+        extract_tile_background_samples(channel, tile_metrics, tile_grid, cfg_try);
+    auto grid_cells_all = aggregate_to_coarse_grid(
+        tile_samples, channel.cols(), channel.rows(), grid_spacing, cfg_try);
 
     std::vector<GridCell> cells;
     cells.reserve(grid_cells_all.size());
     for (const auto& gc : grid_cells_all) {
         if (gc.valid) cells.push_back(gc);
     }
-    if (cells.size() < 6) return out;
+    if (cells.size() < 6) return prep;
 
     std::sort(cells.begin(), cells.end(), [](const GridCell& a, const GridCell& b) {
         if (a.cell_y != b.cell_y) return a.cell_y < b.cell_y;
@@ -1985,29 +2043,44 @@ static BGECandidateResult try_bge_candidate(const Matrix2Df& channel,
 
     std::vector<int> train_idx;
     std::vector<int> val_idx;
-    deterministic_split_indices(static_cast<int>(cells.size()), cfg_try.autotune.holdout_fraction,
+    deterministic_split_indices(static_cast<int>(cells.size()),
+                                cfg_try.autotune.holdout_fraction,
                                 &train_idx, &val_idx);
 
-    std::vector<GridCell> train_cells;
-    std::vector<GridCell> val_cells;
-    train_cells.reserve(train_idx.size());
-    val_cells.reserve(val_idx.size());
-    for (int i : train_idx) train_cells.push_back(cells[static_cast<size_t>(i)]);
-    for (int i : val_idx) val_cells.push_back(cells[static_cast<size_t>(i)]);
-
-    auto bg_model = fit_background_surface(train_cells, channel.cols(), channel.rows(), grid_spacing, cfg_try);
-    if (!bg_model.success) return out;
-
-    out.cv_rms = eval_model_rms_at_cells(bg_model.model, val_cells);
-    const int step = std::max(4, grid_spacing / 4);
-    out.flatness = eval_model_flatness(bg_model.model, step);
-    out.roughness = eval_model_roughness(bg_model.model, step);
+    prep.train_cells.reserve(train_idx.size());
+    prep.val_cells.reserve(val_idx.size());
+    for (int i : train_idx) prep.train_cells.push_back(cells[static_cast<size_t>(i)]);
+    for (int i : val_idx) prep.val_cells.push_back(cells[static_cast<size_t>(i)]);
 
     std::vector<float> bvals;
     bvals.reserve(cells.size());
     for (const auto& gc : cells) bvals.push_back(gc.bg_value);
-    const float bmed = std::max(kTiny, robust_median(std::move(bvals)));
+    prep.bg_median = std::max(kTiny, robust_median(std::move(bvals)));
+    prep.valid = !prep.train_cells.empty() && !prep.val_cells.empty() &&
+                 std::isfinite(prep.bg_median) && prep.bg_median > 0.0f;
+    return prep;
+}
 
+static BGECandidateResult try_bge_candidate_prepared(
+    const Matrix2Df& channel,
+    const BGEConfig& cfg_try,
+    int grid_spacing,
+    const BGECandidatePrep& prep) {
+    BGECandidateResult out;
+    out.cfg = cfg_try;
+    out.grid_spacing = grid_spacing;
+    if (!prep.valid) return out;
+
+    auto bg_model = fit_background_surface(prep.train_cells, channel.cols(),
+                                           channel.rows(), grid_spacing, cfg_try);
+    if (!bg_model.success) return out;
+
+    out.cv_rms = eval_model_rms_at_cells(bg_model.model, prep.val_cells);
+    const int step = std::max(4, grid_spacing / 4);
+    out.flatness = eval_model_flatness(bg_model.model, step);
+    out.roughness = eval_model_roughness(bg_model.model, step);
+
+    const float bmed = std::max(kTiny, prep.bg_median);
     const float n_cv = out.cv_rms / bmed;
     const float n_flat = out.flatness / bmed;
     const float n_rough = out.roughness / bmed;
@@ -2102,6 +2175,13 @@ static BGECandidateResult auto_tune_bge_config_conservative(
 
     BGECandidateResult best;
     int evals = 0;
+    auto prep_cache_key = [](float q, float sp) -> uint64_t {
+        const int32_t qk = static_cast<int32_t>(std::lround(q * 1.0e6f));
+        const int32_t spk = static_cast<int32_t>(std::lround(sp * 1.0e6f));
+        return (static_cast<uint64_t>(static_cast<uint32_t>(qk)) << 32) |
+               static_cast<uint64_t>(static_cast<uint32_t>(spk));
+    };
+    std::unordered_map<uint64_t, BGECandidatePrep> prep_cache;
 
     for (const auto& fit_method : fit_methods) {
         std::vector<float> method_mu_factors;
@@ -2113,18 +2193,36 @@ static BGECandidateResult auto_tune_bge_config_conservative(
 
         for (float q : quantiles) {
             for (float sp : structure_p) {
+                const float q_clamped = std::clamp(q, 0.05f, 0.50f);
+                const float sp_clamped = std::clamp(sp, 0.50f, 0.99f);
+                const uint64_t cache_key = prep_cache_key(q_clamped, sp_clamped);
+                auto prep_it = prep_cache.find(cache_key);
+                if (prep_it == prep_cache.end()) {
+                    BGEConfig prep_cfg = base_cfg;
+                    prep_cfg.sample_quantile = q_clamped;
+                    prep_cfg.structure_thresh_percentile = sp_clamped;
+                    prep_it = prep_cache
+                                  .emplace(cache_key,
+                                           build_bge_candidate_prep(
+                                               channel, tile_metrics, tile_grid,
+                                               prep_cfg, base_grid_spacing))
+                                  .first;
+                }
+                const BGECandidatePrep& prep = prep_it->second;
+
                 for (float mf : method_mu_factors) {
                     if (evals >= std::max(1, base_cfg.autotune.max_evals)) break;
                     BGEConfig cfg_try = base_cfg;
                     cfg_try.fit.method = fit_method;
-                    cfg_try.sample_quantile = std::clamp(q, 0.05f, 0.50f);
-                    cfg_try.structure_thresh_percentile = std::clamp(sp, 0.50f, 0.99f);
+                    cfg_try.sample_quantile = q_clamped;
+                    cfg_try.structure_thresh_percentile = sp_clamped;
                     if (fit_method == "rbf") {
                         cfg_try.fit.rbf_mu_factor = std::max(0.2f, mf);
                     }
 
-                    BGECandidateResult res = try_bge_candidate(
-                        channel, tile_metrics, tile_grid, cfg_try, base_grid_spacing);
+                    BGECandidateResult res =
+                        try_bge_candidate_prepared(channel, cfg_try,
+                                                   base_grid_spacing, prep);
                     ++evals;
                     if (!res.success) continue;
 

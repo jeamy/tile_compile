@@ -1176,7 +1176,8 @@ void Config::validate() const {
     throw ValidationError("bge.grid parameters are out of range");
   }
   if (bge.fit.irls_max_iterations < 1 || bge.fit.irls_tolerance <= 0.0f ||
-      bge.fit.huber_delta <= 0.0f || bge.fit.rbf_mu_factor <= 0.0f ||
+      bge.fit.huber_delta <= 0.0f ||
+      bge.fit.rbf_mu_factor <= 0.0f ||
       bge.fit.rbf_lambda <= 0.0f || bge.fit.rbf_epsilon <= 0.0f) {
     throw ValidationError("bge.fit parameters are out of range");
   }

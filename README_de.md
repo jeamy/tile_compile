@@ -466,6 +466,16 @@ ctest --output-on-failure
 
 ## Changelog
 
+### (2026-03-03)
+
+**BGE/PCC Konfigurations- und Doku-Abgleich:**
+
+- Benutzerkonfigurierbare BGE-Fit-Parameter `bge.fit.robust_loss` und `bge.fit.huber_delta` wiederhergestellt.
+- Parser/Serializer/Schema-Unterstützung für diese Keys in der Runtime-Konfigurationsoberfläche wieder aktiviert.
+- Runner-Mapping übernimmt wieder die konfigurierten Werte (kein internes Erzwingen auf feste Defaults).
+- BGE-Konfig-Artefakte enthalten in Pipeline- und Resume-Pfad wieder `robust_loss` und `huber_delta`.
+- BGE/PCC-Dokumentation und praktische Beispiele (DE/EN) auf den aktuellen Parametersatz aktualisiert.
+
 ### (2026-02-26)
 
 **BGE-Phasensichtbarkeit / Vergleichs-Outputs:**

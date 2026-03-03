@@ -471,6 +471,16 @@ ctest --output-on-failure
 
 ## Changelog
 
+### (2026-03-03)
+
+**BGE/PCC configuration and docs alignment:**
+
+- Restored user-facing BGE fit parameters `bge.fit.robust_loss` and `bge.fit.huber_delta`.
+- Re-enabled parse/serialize/schema support for these keys in the runtime config surface.
+- Runner mapping now forwards the configured values (no internal forced override).
+- BGE config artifacts in both pipeline and resume paths include `robust_loss` and `huber_delta` again.
+- Updated BGE/PCC docs and practical examples (DE/EN) to match current behavior and active parameter set.
+
 ### (2026-02-26)
 
 **BGE Phase Visibility / Comparison Outputs:**
