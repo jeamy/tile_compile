@@ -1,6 +1,6 @@
 # Tile-Compile
 
-Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer Bildstapel (Methodik v3.3).
+Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer image stacks (Methodik v3.3).
 
 Wir stellen eine neuartige Methodik zur Rekonstruktion hochwertiger astronomischer Bilder aus Kurzzeitbelichtungs-Deep-Sky-Datensätzen vor. Konventionelle Stacking-Methoden beruhen häufig auf einer binären Frame-Auswahl ("Lucky Imaging"), wodurch erhebliche Teile der gesammelten Frames verworfen werden. Unser Ansatz, **Tile-Based Quality Reconstruction (TBQR)**, ersetzt diese starre Frame-Auswahl durch ein robustes räumlich-zeitliches Qualitätsmodell. Indem wir Frames in lokale Tiles zerlegen und die Qualität entlang zweier orthogonaler Achsen modellieren — globale atmosphärische Transparenz/Rauschen und lokale strukturelle Schärfe — rekonstruieren wir ein Signal, das an jedem Pixel physikalisch und statistisch optimal ist. Wir zeigen, dass diese Methode die volle photometrische Tiefe des Datensatzes bewahrt und zugleich eine überlegene Auflösungsverbesserung gegenüber traditionellen Referenz-Stacks erzielt.
 
@@ -16,6 +16,7 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 - Prozessfluss (Implementierung): `doc/v3/process_flow/`
 - Englische Schritt-für-Schritt-Anleitung: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - Englisches Haupt-README: [English README](README.md)
+- Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan – Funktionsweise des Systems](doc/v3/process_flow/data_flow_user_description_de.md)
 
 Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 

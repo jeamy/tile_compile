@@ -16,6 +16,8 @@ While the methodology was originally conceived to address the specific challenge
 - Implementation process flow: [Process flow](doc/v3/process_flow/README.md)
 - English step-by-step guide: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - German README snapshot: [German README](README_de.md)
+- Data flow (user-friendly): [Process Flow – How the System Works](doc/v3/process_flow/data_flow_user_description_en.md)
+- Data flow (user-friendly, German): [Ablaufplan – Funktionsweise des Systems](doc/v3/process_flow/data_flow_user_description.md)
 
 Given a directory of FITS lights, the pipeline can:
 

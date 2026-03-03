@@ -125,6 +125,12 @@ Useful options:
 
 Allowed `--from-phase` values are currently `ASTROMETRY`, `BGE`, or `PCC`.
 
+Notes:
+
+- Resume is intended for the *post-run* phases that operate on run outputs (for example: solving WCS, background extraction, and photometric color calibration).
+- Make sure the run directory contains the expected inputs (for example `outputs/stacked_rgb.fits` or whatever your config produces), as well as the run snapshot `config.yaml`.
+- If you changed your config after the run, prefer editing `runs/<run_id>/config.yaml` (the run snapshot) so that the resumed phases use consistent settings.
+
 ## 6) Use utility CLI commands
 
 ### Scan input directory
@@ -215,6 +221,18 @@ Use this sequence for a complete run from scan to outputs.
 2. If warnings appear, inspect run logs after completion:
    - `runs/<run_id>/logs/run_events.jsonl`
 3. Use `tile_compile_cli get-run-status` for a quick status summary if needed.
+
+### Step 6a: Resume ASTROMETRY / BGE / PCC (CLI-assisted)
+
+The GUI currently does not implement an in-app resume action. To resume a run, use the runner CLI:
+
+```bash
+./tile_compile_runner resume \
+  --run-dir /path/to/runs/<run_id> \
+  --from-phase ASTROMETRY
+```
+
+Then reopen the run in the GUI (History tab / run folder) and inspect updated outputs and diagnostics.
 
 ### Step 7: (Optional) Astrometry, BGE, and PCC
 

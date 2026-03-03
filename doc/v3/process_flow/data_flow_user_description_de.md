@@ -4,7 +4,12 @@
 
 Das System verarbeitet viele Astro-Einzelbilder (FITS) zu **einem sauberen, scharfen und farblich konsistenten Endbild**.
 
-Der Ablauf folgt klaren Verarbeitungsschritten: prüfen, ausrichten, bewerten, tile-basiert rekonstruieren sowie abschließend farblich und astrometrisch kalibrieren.
+Der Ablauf folgt klaren Verarbeitungsschritten: prüfen, ausrichten, bewerten, tile-basiert rekonstruieren sowie abschließend astrometrisch und farblich kalibrieren.
+
+Wichtige Begriffe (v3.3):
+
+- **Methodik-Profil:** `assumptions.pipeline_profile` steuert, ob die Pipeline strikt normativ („strict“) oder pragmatisch („practical“) ausgerichtet ist.
+- **Resume:** Post-Run-Phasen können aus einem bestehenden Run-Verzeichnis fortgesetzt werden (derzeit `ASTROMETRY`, `BGE`, `PCC`).
 
 ---
 
@@ -290,12 +295,33 @@ Ergebnis:
 
 ## Typische Ausgabedateien
 
-- `outputs/stacked.fits` (lineares Endbild)
-- `outputs/stacked_rgb.fits` (RGB nach Debayer)
-- `outputs/stacked_rgb_pcc.fits` (nach Farbkalibrierung)
-- WCS-/Astrometrie-Artefakte
-- JSON-Artefakte pro Phase (Qualität, Gewichte, BGE, Validation)
-- Lauf-Logs (`run_events.jsonl`)
+Ein Run erzeugt typischerweise ein Verzeichnis `runs/<run_id>/` mit:
+
+- `outputs/`
+  - `stacked.fits` (lineares Endbild)
+  - `stacked_rgb.fits` (RGB nach Debayer)
+  - `stacked_rgb_bge.fits` (optional: nach Background Gradient Extraction)
+  - `stacked_rgb_pcc.fits` (nach Farbkalibrierung)
+- `artifacts/`
+  - JSON-Diagnostik pro Phase (Qualität, Gewichte, Validation, BGE, PCC)
+  - Report-Assets (z. B. `report.html`, `report.css`, PNGs)
+- `logs/`
+  - `run_events.jsonl` (Event-Timeline)
+- `config.yaml` (Snapshot der für diesen Run verwendeten Konfiguration)
+
+Hinweis: Die exakten Dateinamen hängen von deiner Konfiguration ab. Entscheidend ist die Struktur (`outputs/`, `artifacts/`, `logs/`, `config.yaml`).
+
+---
+
+## Resume (Post-Run)
+
+Wenn ein Run bereits existiert und du nur die Post-Processing-Phasen erneut ausführen willst (z. B. Astrometrie / BGE / PCC), kannst du fortsetzen:
+
+```text
+./tile_compile_runner resume --run-dir runs/<run_id> --from-phase ASTROMETRY
+```
+
+Dabei wird aus dem Run-Verzeichnis gearbeitet (inkl. `config.yaml` Snapshot).
 
 ---
 

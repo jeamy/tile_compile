@@ -184,6 +184,13 @@ jobs:
         run: |
           $Tag = "${{ needs.meta.outputs.tag }}"
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          Write-Host "Listing build dist directories (for diagnostics)..."
+          if (Test-Path "C:\windows-tile-compile-build") {
+            Get-ChildItem -Force "C:\windows-tile-compile-build" | Format-Table -AutoSize
+          }
+          if (Test-Path "C:\windows-tile-compile-build\dist") {
+            Get-ChildItem -Recurse -Force "C:\windows-tile-compile-build\dist" | Select-Object FullName, Length | Format-Table -AutoSize
+          }
           $src = "C:\windows-tile-compile-build\dist\tile_compile_cpp-windows-release.zip"
           if (!(Test-Path $src)) {
             throw "Windows Release ZIP nicht gefunden: $src"

@@ -505,7 +505,8 @@ powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\tc_zip.ps1"
 if exist "%ZIP_FULL%" (
   echo Release-Zip erstellt: %ZIP_FULL%
 ) else (
-  echo WARNUNG: ZIP-Erstellung fehlgeschlagen. Release-Verzeichnis liegt unter: %DIST_DIR%
+  echo FEHLER: ZIP-Erstellung fehlgeschlagen. Release-Verzeichnis liegt unter: %DIST_DIR%
+  goto :error
 )
 del "%TEMP%\tc_zip.ps1" 2>NUL
 
