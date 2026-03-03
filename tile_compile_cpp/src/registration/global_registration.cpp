@@ -1262,7 +1262,7 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
   if (diag) {
     auto stars_ref = detect_stars_simple(ref, rcfg.star_topk);
     auto stars_mov = detect_stars_simple(mov, rcfg.star_topk);
-    std::cerr << "[REG-DIAG#" << diag_id << "] ncc_identity=" << out.ncc_identity
+    std::cout << "[REG-DIAG#" << diag_id << "] ncc_identity=" << out.ncc_identity
               << " stars_ref=" << stars_ref.size()
               << " stars_mov=" << stars_mov.size()
               << " img=" << mov.rows() << "x" << mov.cols()
@@ -1276,7 +1276,7 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
                         const std::string &method) -> bool {
     if (!rr.success) {
       if (diag) {
-        std::cerr << "[REG-DIAG#" << diag_id << "] " << method
+        std::cout << "[REG-DIAG#" << diag_id << "] " << method
                   << " FAIL: " << rr.error_message << std::endl;
       }
       return false;
@@ -1284,7 +1284,7 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
     Matrix2Df warped = apply_warp(mov, rr.warp);
     float ncc = compute_ncc(warped, ref);
     if (diag) {
-      std::cerr << "[REG-DIAG#" << diag_id << "] " << method
+      std::cout << "[REG-DIAG#" << diag_id << "] " << method
                 << " success=" << rr.success << " ncc_warped=" << ncc
                 << " threshold=" << (out.ncc_identity + 0.01f)
                 << " tx=" << rr.warp(0,2) << " ty=" << rr.warp(1,2)
@@ -1510,7 +1510,7 @@ register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
             out.errors[static_cast<size_t>(i)] = "temporal_i-1";
             temporal_success = true;
             
-            std::cerr << "[REG-TEMPORAL] Frame " << i << " registered via i-1, ncc=" 
+            std::cout << "[REG-TEMPORAL] Frame " << i << " registered via i-1, ncc=" 
                       << ncc_chained << std::endl;
           }
         }
@@ -1538,7 +1538,7 @@ register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
             out.errors[static_cast<size_t>(i)] = "temporal_i+1";
             temporal_success = true;
             
-            std::cerr << "[REG-TEMPORAL] Frame " << i << " registered via i+1, ncc=" 
+            std::cout << "[REG-TEMPORAL] Frame " << i << " registered via i+1, ncc=" 
                       << ncc_chained << std::endl;
           }
         }

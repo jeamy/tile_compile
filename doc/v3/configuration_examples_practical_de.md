@@ -2,7 +2,95 @@
 
 **[🇬🇧 English Version](configuration_examples_practical_en.md)**
 
-Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen, Grenzbereichen und Anwendungsfällen basierend auf der Methodik v3.2.2.
+Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen, Grenzbereichen und Anwendungsfällen basierend auf der Methodik v3.3.
+
+## Änderungsstand (2026-03-03)
+
+- `bge.fit.robust_loss` und `bge.fit.huber_delta` sind wieder als Benutzerparameter verfügbar.
+- PCC-Beispiele wurden auf den aktuellen Parametersatz (ohne `pcc.method`) aktualisiert.
+
+---
+
+## Background Gradient Extraction (BGE) - NEU in v3.3
+
+**Wann aktivieren:**
+- Sichtbare Hintergrundgradienten (Lichtverschmutzung, Mondlicht)
+- PCC zeigt Farbverschiebungen über das Bildfeld
+- Städtische/vorstädtische Standorte
+
+**Empfohlene Konfiguration:**
+
+```yaml
+bge:
+  enabled: true
+  autotune:
+    enabled: false
+    strategy: conservative
+    max_evals: 24
+    holdout_fraction: 0.25
+    alpha_flatness: 0.25
+    beta_roughness: 0.10
+  sample_quantile: 0.20  # Konservativ, resistent gegen schwache Objekte
+  fit:
+    method: rbf  # Flexibel, empfohlen
+    robust_loss: huber  # huber | tukey
+    huber_delta: 1.5
+    rbf_phi: multiquadric  # Guter Kompromiss
+    rbf_mu_factor: 1.0  # Standard-Glättung
+```
+
+**Für starke Gradienten (z.B. Stadtrand):**
+
+```yaml
+bge:
+  enabled: true
+  sample_quantile: 0.15  # Noch konservativer
+  structure_thresh_percentile: 0.95  # Mehr Tiles ausschließen
+  fit:
+    method: rbf
+    robust_loss: tukey  # aggressivere Outlier-Daempfung
+    rbf_phi: multiquadric
+    rbf_mu_factor: 0.8  # Etwas weniger Glättung für Details
+```
+
+**Für großflächige diffuse Vordergrundobjekte (z.B. M31 / M42):**
+
+```yaml
+bge:
+  enabled: true
+  fit:
+    method: modeled_mask_mesh  # Vordergrundbewusstes Mesh-Himmelsmodell
+```
+
+**Für schwache Gradienten (z.B. Mondlicht):**
+
+```yaml
+bge:
+  enabled: true
+  sample_quantile: 0.25  # Weniger konservativ
+  fit:
+    method: poly  # Einfacher für schwache Gradienten
+    polynomial_order: 2
+```
+
+**Wichtig:** BGE läuft **vor** PCC. Wenn BGE aktiviert ist, sollte PCC danach bessere Ergebnisse liefern.
+
+**PCC-v3.3.6-Optionen (empfohlen mit BGE):**
+
+```yaml
+pcc:
+  background_model: plane      # median | plane
+  max_condition_number: 3.0
+  max_residual_rms: 0.35
+  radii_mode: auto_fwhm        # fixed | auto_fwhm
+  aperture_fwhm_mult: 1.8
+  annulus_inner_fwhm_mult: 3.0
+  annulus_outer_fwhm_mult: 5.0
+  min_aperture_px: 4.0
+  apply_attenuation: false
+  chroma_strength: 1.0
+  k_max: 3.2
+```
 
 ---
 
@@ -531,7 +619,8 @@ debayer:
 pcc:
   enabled: true
   source: auto
-  method: proportion
+  background_model: plane
+  radii_mode: auto_fwhm
 ```
 
 ### Monochrome

@@ -4,7 +4,11 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 
 **Quelle der Wahrheit für Defaults:** `include/tile_compile/config/configuration.hpp`  
 **Schema-Version:** v3  
-**Referenz:** Methodik v3.2
+**Referenz:** Methodik v3.3
+
+**Dokumentationsstand (2026-03-03):**
+- `bge.fit.robust_loss` und `bge.fit.huber_delta` sind als Benutzerparameter dokumentiert und konfigurierbar.
+- PCC-Dokumentation umfasst die aktiven Stabilitäts- und Apply-Parameter (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
 
 **💡 Für praktische Beispiele und Anwendungsfälle siehe:** [Konfigurationsbeispiele & Best Practices](configuration_examples_practical_de.md)
 
@@ -26,10 +30,11 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 14. [Reconstruction](#14-reconstruction)
 15. [Debayer](#15-debayer)
 16. [Astrometry](#16-astrometry)
-17. [PCC](#17-pcc)
-18. [Stacking](#18-stacking)
-19. [Validation](#19-validation)
-20. [Runtime Limits](#20-runtime-limits)
+17. [BGE (Background Gradient Extraction)](#17-bge-background-gradient-extraction) **NEU in v3.3**
+18. [PCC](#18-pcc)
+19. [Stacking](#19-stacking)
+20. [Validation](#20-validation)
+21. [Runtime Limits](#21-runtime-limits)
 
 ---
 
@@ -1442,7 +1447,298 @@ Tile-basierte Rekonstruktion (Phase 7: TILE_RECONSTRUCTION). Diese Einstellungen
 
 ---
 
-## 17. PCC
+## 17. BGE (Background Gradient Extraction)
+
+**NEU in v3.3** - Optionale Hintergrund-Gradienten-Extraktion vor PCC (Methodologie v3.3 §6.3)
+
+BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht, Airglow) **vor** der photometrischen Farbkalibrierung, um Farbverzerrungen durch spektral ungleichmäßige Gradienten zu vermeiden.
+
+**Implementationshinweis (v3.3.6):** BGE nutzt Tile-Qualitätsdaten aus `LOCAL_METRICS` direkt für die Sample-Selektion/-Gewichtung:
+- `type` + `star_count`: Sternreiche STAR-Tiles werden konservativ ausgeschlossen bzw. abgewertet.
+- `fwhm`: skaliert die effektive Sternmasken-Dilatation pro Tile.
+- `quality_score`: geht als zusätzlicher Gewichtungsfaktor in die Tile-Sample-Relevanz ein.
+
+### `bge.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert/deaktiviert Background Gradient Extraction.
+
+**Empfehlung:** Aktivieren bei sichtbaren Gradienten (städtische Lichtverschmutzung, Mondlicht) oder wenn PCC Farbverschiebungen über das Bildfeld zeigt.
+
+### `bge.sample_quantile`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Bereich** | `(0.0, 0.5]` |
+| **Default** | `0.20` |
+
+**Zweck:** Quantil für Tile-Hintergrund-Schätzung (v3.3 §6.3.2b).
+
+- **0.20** (default): Konservativ, resistent gegen schwache Objektkontamination
+- **0.50**: Median, geeignet für Felder mit starker Maskierung
+
+### `bge.structure_thresh_percentile`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Bereich** | `[0.0, 1.0]` |
+| **Default** | `0.90` |
+
+**Zweck:** Perzentil-Schwelle für High-Structure-Tiles (v3.3 §6.3.2a).
+
+Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlossen.
+
+### `bge.min_tiles_per_cell`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `3` |
+
+**Zweck:** Mindestanzahl Tile-Samples pro Grid-Cell für valide Hintergrund-Schätzung (v3.3 §6.3.3d).
+
+### `bge.mask.star_dilate_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `4` |
+
+**Zweck:** Dilatation der Stern-Maske in Pixeln (v3.3 §6.3.2a).
+
+**Empfehlung:** 2-6 px je nach Sternauflösung.
+
+### `bge.mask.sat_dilate_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `4` |
+
+**Zweck:** Dilatation der Sättigungs-Maske in Pixeln (v3.3 §6.3.2a).
+
+### `bge.grid.N_g`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `32` |
+
+**Zweck:** Ziel-Grid-Auflösung: `G = min(W,H) / N_g` (v3.3 §6.3.8).
+
+**Empfehlung:** 24-48 für typische DSO-Aufnahmen.
+
+### `bge.grid.G_min_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `64` |
+
+**Zweck:** Minimaler Grid-Abstand in Pixeln (v3.3 §6.3.8).
+
+### `bge.grid.G_max_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `0.25` |
+
+**Zweck:** Maximaler Grid-Abstand als Bruchteil von `min(W,H)` (v3.3 §6.3.8).
+
+### `bge.grid.insufficient_cell_strategy`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `discard`, `nearest`, `radius_expand` |
+| **Default** | `"discard"` |
+
+**Zweck:** Strategie für Grid-Cells mit zu wenigen Samples (v3.3 §6.3.3d).
+
+- **`discard`**: Cell wird vom Fit ausgeschlossen (konservativ)
+- **`nearest`**: Nearest-Neighbor-Fill (experimentell)
+- **`radius_expand`**: Radius-Expansion (experimentell)
+
+### `bge.fit.method`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `rbf`, `poly`, `spline`, `bicubic`, `modeled_mask_mesh` |
+| **Default** | `"rbf"` |
+
+**Zweck:** Surface-Fitting-Methode (v3.3 §6.3.7).
+
+- **`rbf`**: Radial Basis Functions (empfohlen, flexibel)
+- **`poly`**: Robustes Polynom (Order 2-3)
+- **`spline`**: Thin-plate Spline
+- **`bicubic`**: Bicubic Spline
+- **`modeled_mask_mesh`**: Segmentierungs- und maskengestützter Mesh-Sky-Fit mit heller Quellenmodellierung (empfohlen bei großflächigem Nebel/Vordergrund wie M31/M42)
+
+### `bge.fit.robust_loss`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `huber`, `tukey` |
+| **Default** | `"huber"` |
+
+**Zweck:** Robust-Loss-Funktion für IRLS (v3.3 §6.3.7).
+
+### `bge.fit.huber_delta`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `1.5` |
+
+**Zweck:** Huber-Loss-Parameter δ.
+
+### `bge.fit.irls_max_iterations`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Default** | `10` |
+
+**Zweck:** Maximale IRLS-Iterationen.
+
+### `bge.fit.irls_tolerance`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `1e-4` |
+
+**Zweck:** IRLS-Konvergenz-Toleranz.
+
+### `bge.fit.polynomial_order`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Werte** | `2`, `3` |
+| **Default** | `2` |
+
+**Zweck:** Polynom-Ordnung (nur wenn `method=poly`).
+
+### `bge.fit.rbf_phi`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `multiquadric`, `thinplate`, `gaussian` |
+| **Default** | `"multiquadric"` |
+
+**Zweck:** RBF-Kernel-Typ (nur wenn `method=rbf`, v3.3 §6.3.7).
+
+- **`multiquadric`**: `φ(d;μ) = √(d² + μ²)` (empfohlen)
+- **`thinplate`**: `φ(d) = d² log(d)` (scale-invariant)
+- **`gaussian`**: `φ(d;μ) = exp(-d²/(2μ²))` (glatt)
+
+### `bge.fit.rbf_mu_factor`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `1.0` |
+
+**Zweck:** RBF-Shape-Parameter: `μ = rbf_mu_factor * G` (v3.3 §6.3.7).
+
+**Empfehlung:** 0.5-2.0 je nach gewünschter Glättung.
+
+### `bge.fit.rbf_lambda`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `1e-6` |
+
+**Zweck:** RBF-Regularisierung λ (verhindert Overfitting, v3.3 §6.3.7).
+
+### `bge.fit.rbf_epsilon`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Default** | `1e-10` |
+
+**Zweck:** Numerische Stabilisierung für Thin-plate RBF bei d=0 (v3.3 §6.3.7).
+
+### `bge.autotune.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert deterministisches konservatives Auto-Tuning von BGE (v3.3.6 §6.3.7).
+
+### `bge.autotune.strategy`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `conservative`, `extended` |
+| **Default** | `"conservative"` |
+
+**Zweck:** Umfang des Kandidatenraums fuer Auto-Tuning.
+
+### `bge.autotune.max_evals`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 1 |
+| **Default** | `24` |
+
+**Zweck:** Harte Obergrenze getesteter Parameter-Kandidaten.
+
+### `bge.autotune.holdout_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Bereich** | `[0.05, 0.50]` |
+| **Default** | `0.25` |
+
+**Zweck:** Deterministischer Validierungsanteil fuer `E_cv` im Ziel `J`.
+
+### `bge.autotune.alpha_flatness`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Minimum** | 0 |
+| **Default** | `0.25` |
+
+**Zweck:** Gewichtung des Flatness-Terms `E_flat` in `J`.
+
+### `bge.autotune.beta_roughness`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Minimum** | 0 |
+| **Default** | `0.10` |
+
+**Zweck:** Gewichtung des Roughness-Terms `E_rough` in `J`.
+
+---
+
+## 18. PCC
+
+**Implementationshinweis (v3.3.6):** Wenn Tile-Metriken und Tile-Grid verfügbar und konsistent sind, nutzt PCC diese automatisch zur robusten Sterngewichtung:
+- `quality_score`: exponentielle Gewichtung pro Stern (Tile-basiert).
+- `gradient_energy/noise`: Struktur-Penalty und Reject für stark strukturierte Tiles.
+- `star_count`: leichte Abwertung sehr sternreicher Tiles.
 
 ### `pcc.enabled`
 
@@ -1513,6 +1809,63 @@ Tile-basierte Rekonstruktion (Phase 7: TILE_RECONSTRUCTION). Diese Einstellungen
 
 ---
 
+### `pcc.background_model`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `median`, `plane` |
+| **Default** | `"plane"` |
+
+**Zweck:** Lokales Annulus-Hintergrundmodell fuer Sternphotometrie (`plane` empfohlen bei Gradienten).
+
+### `pcc.max_condition_number`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | `>= 1.0` |
+| **Default** | `3.0` |
+
+**Zweck:** Obergrenze der Matrix-Konditionszahl; verhindert instabile PCC-Loesungen.
+
+### `pcc.max_residual_rms`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | `> 0` |
+| **Default** | `0.35` |
+
+**Zweck:** Obergrenze fuer robusten Fit-Residuen-RMS; verwirft verrauschte/instabile PCC-Fits.
+
+---
+
+### `pcc.radii_mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `fixed`, `auto_fwhm` |
+| **Default** | `"auto_fwhm"` |
+
+**Zweck:** Radiusmodus fuer Apertur/Annulus (`auto_fwhm` = adaptive Radien aus Seeing-FWHM).
+
+---
+
+### `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`
+
+| Key | Typ | Default | Constraint |
+|-----|-----|---------|------------|
+| `pcc.aperture_fwhm_mult` | number | `1.8` | >0 |
+| `pcc.annulus_inner_fwhm_mult` | number | `3.0` | >0 |
+| `pcc.annulus_outer_fwhm_mult` | number | `5.0` | >0 |
+| `pcc.min_aperture_px` | number | `4.0` | >0 |
+
+**Zweck:** Konservative Parameter fuer FWHM-adaptive PCC-Radien (v3.3.6 §6.4.2).
+
+---
+
 ### `pcc.siril_catalog_dir`
 
 | Eigenschaft | Wert |
@@ -1522,9 +1875,36 @@ Tile-basierte Rekonstruktion (Phase 7: TILE_RECONSTRUCTION). Diese Einstellungen
 
 **Zweck:** Lokaler Siril-Katalogpfad; leer = Standardpfad.
 
+### `pcc.apply_attenuation`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert adaptive Daempfung der PCC-Matrixanwendung in Schatten/Highlights.
+
+### `pcc.chroma_strength`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Default** | `1.0` |
+
+**Zweck:** Globaler Staerkefaktor fuer Chroma-Korrektur bei PCC-Apply.
+
+### `pcc.k_max`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Default** | `3.2` |
+
+**Zweck:** Obergrenze fuer Korrekturstaerke im linearen PCC-Apply (verringert Farbstiche in hellen Strukturen).
+
 ---
 
-## 18. Stacking
+## 19. Stacking
 
 Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 
@@ -1795,7 +2175,7 @@ Diese Option zielt auf **fixe Sensordefekte** (RGB-Einzelpixel), die in jedem Fr
 
 ---
 
-## 19. Validation
+## 20. Validation
 
 Qualitätsprüfung des Rekonstruktionsergebnisses (nach Phase 10, vor Debayer).
 
@@ -1856,7 +2236,7 @@ Qualitätsprüfung des Rekonstruktionsergebnisses (nach Phase 10, vor Debayer).
 
 ---
 
-## 20. Runtime Limits
+## 21. Runtime Limits
 
 Laufzeit-Beschränkungen.
 
@@ -2283,7 +2663,11 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `pcc.aperture_radius_px`, `annulus_inner_px`, `annulus_outer_px`: Photometrie-Aperturgeometrie.
 - `pcc.min_stars`: Mindestanzahl gültiger Sterne für stabilen PCC-Fit.
 - `pcc.sigma_clip`: Outlier-Rejection im PCC-Fit.
+- `pcc.background_model`: lokales Hintergrundmodell fuer Sternphotometrie.
+- `pcc.max_condition_number`, `pcc.max_residual_rms`: Stabilitaetsgrenzen fuer Matrix/Fit.
+- `pcc.radii_mode`, `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`: adaptive Radiussteuerung.
 - `pcc.siril_catalog_dir`: optionaler lokaler Siril-Katalogpfad.
+- `pcc.apply_attenuation`, `pcc.chroma_strength`, `pcc.k_max`: optionale Apply-Daempfung/Chroma-Staerke.
 - `stacking.method`: finaler Kombinationsmodus (`rej` vs `average`).
 - `stacking.sigma_clip.sigma_low`, `sigma_high`: untere/obere Rejection-Schwellen.
 - `stacking.sigma_clip.max_iters`: maximale Clip-Iterationen.

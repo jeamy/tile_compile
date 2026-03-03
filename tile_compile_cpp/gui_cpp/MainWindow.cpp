@@ -927,9 +927,51 @@ void MainWindow::update_history_runs_dir() {
 }
 
 void MainWindow::ensure_startup_paths() {
+    if (!run_tab_) return;
+
     if (run_tab_ && run_tab_->get_working_dir().isEmpty()) {
         run_tab_->set_working_dir(QString::fromStdString(project_root_));
     }
+
+#ifdef __APPLE__
+    // Finder-launched .app bundles should not write runs into Contents/MacOS.
+    // Use ~/tile_compile/runs by default.
+    bool in_app_bundle = false;
+    try {
+        namespace fs = std::filesystem;
+        fs::path p(QCoreApplication::applicationDirPath().toStdString());
+        while (!p.empty()) {
+            if (p.extension() == ".app") {
+                in_app_bundle = true;
+                break;
+            }
+            if (p == p.root_path()) break;
+            p = p.parent_path();
+        }
+    } catch (...) {
+        in_app_bundle = false;
+    }
+
+    if (in_app_bundle) {
+        const QString base_dir = QDir::cleanPath(QDir::home().filePath("tile_compile"));
+        const QString runs_abs = QDir(base_dir).filePath("runs");
+        QDir().mkpath(base_dir);
+        QDir().mkpath(runs_abs);
+
+        const QString current_runs = run_tab_->get_runs_dir().trimmed();
+        if (current_runs.isEmpty() || current_runs == "runs") {
+            run_tab_->set_runs_dir(runs_abs);
+        }
+
+        const QString current_working = run_tab_->get_working_dir().trimmed();
+        const QString packaged_root = QString::fromStdString(project_root_);
+        if (current_working.isEmpty() || current_working == packaged_root) {
+            run_tab_->set_working_dir(base_dir);
+        }
+    }
+#endif
+
+    update_history_runs_dir();
 }
 
 }

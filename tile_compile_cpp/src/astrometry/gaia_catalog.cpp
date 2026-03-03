@@ -301,7 +301,7 @@ std::vector<GaiaStar> siril_gaia_cone_search(
         std::string chunk_path = cat_dir + "/" + fname;
 
         if (!fs::exists(chunk_path)) {
-            std::cerr << "[PCC] Chunk file not found: " << chunk_path << std::endl;
+            std::cout << "[PCC] Chunk file not found: " << chunk_path << std::endl;
             continue;
         }
 
@@ -582,10 +582,10 @@ std::vector<GaiaStar> vizier_gaia_cone_search(
         << "&-out.max=10000"
         << "&Gmag=<" << mag_limit;
 
-    std::cerr << "[PCC] VizieR Gaia query..." << std::endl;
+    std::cout << "[PCC] VizieR Gaia query..." << std::endl;
     std::string tsv = http_get(url.str(), 60);
     if (tsv.empty()) {
-        std::cerr << "[PCC] VizieR Gaia query returned empty response" << std::endl;
+        std::cout << "[PCC] VizieR Gaia query returned empty response" << std::endl;
         return results;
     }
 
@@ -604,7 +604,7 @@ std::vector<GaiaStar> vizier_gaia_cone_search(
         } catch (...) {}
     });
 
-    std::cerr << "[PCC] VizieR Gaia: " << results.size()
+    std::cout << "[PCC] VizieR Gaia: " << results.size()
               << " stars with Teff" << std::endl;
     return results;
 }
@@ -628,10 +628,10 @@ std::vector<GaiaStar> vizier_apass_cone_search(
         << "&-out.max=10000"
         << "&Vmag=<" << mag_limit;
 
-    std::cerr << "[PCC] VizieR APASS query..." << std::endl;
+    std::cout << "[PCC] VizieR APASS query..." << std::endl;
     std::string tsv = http_get(url.str(), 60);
     if (tsv.empty()) {
-        std::cerr << "[PCC] VizieR APASS query returned empty response" << std::endl;
+        std::cout << "[PCC] VizieR APASS query returned empty response" << std::endl;
         return results;
     }
 
@@ -655,7 +655,7 @@ std::vector<GaiaStar> vizier_apass_cone_search(
         } catch (...) {}
     });
 
-    std::cerr << "[PCC] VizieR APASS: " << results.size()
+    std::cout << "[PCC] VizieR APASS: " << results.size()
               << " stars with Teff" << std::endl;
     return results;
 }
@@ -686,14 +686,13 @@ std::vector<int> missing_siril_catalog_chunks(const std::string &catalog_dir) {
     return missing;
 }
 
-bool download_siril_catalog_chunk(
-    int chunk_id, const std::string &dest_dir,
-    std::function<void(size_t, size_t)> progress_cb) {
+bool download_chunk_if_needed(const std::string& cat_dir, int chunk_id,
+                              std::function<void(double)> progress_cb) {
 
     if (chunk_id < 0 || chunk_id >= SIRIL_CATALOG_NUM_CHUNKS) return false;
 
     // Ensure destination directory exists
-    fs::create_directories(dest_dir);
+    fs::create_directories(cat_dir);
 
     std::string url = siril_catalog_chunk_url(chunk_id);
 
@@ -701,22 +700,28 @@ bool download_siril_catalog_chunk(
     char bz2_fname[128];
     std::snprintf(bz2_fname, sizeof(bz2_fname),
                   "siril_cat1_healpix8_xpsamp_%d.dat.bz2", chunk_id);
-    std::string bz2_path = dest_dir + "/" + bz2_fname;
+    std::string bz2_path = cat_dir + "/" + bz2_fname;
 
     char dat_fname[128];
     std::snprintf(dat_fname, sizeof(dat_fname),
                   "siril_cat1_healpix8_xpsamp_%d.dat", chunk_id);
-    std::string dat_path = dest_dir + "/" + dat_fname;
+    std::string dat_path = cat_dir + "/" + dat_fname;
 
     // Skip if already exists
     if (fs::exists(dat_path)) {
-        std::cerr << "[PCC] Chunk " << chunk_id << " already exists" << std::endl;
+        std::cout << "[PCC] Chunk " << chunk_id << " already exists" << std::endl;
         return true;
     }
 
-    std::cerr << "[PCC] Downloading chunk " << chunk_id << "..." << std::endl;
+    std::cout << "[PCC] Downloading chunk " << chunk_id << "..." << std::endl;
 
-    if (!http_download(url, bz2_path, 3600, progress_cb)) {
+    auto progress_adapter = [&](size_t downloaded, size_t total) {
+        if (!progress_cb) return;
+        if (total == 0) return;
+        progress_cb(static_cast<double>(downloaded) / static_cast<double>(total));
+    };
+
+    if (!http_download(url, bz2_path, 3600, progress_adapter)) {
         fs::remove(bz2_path);
         return false;
     }
@@ -733,7 +738,7 @@ bool download_siril_catalog_chunk(
     // Remove .bz2 after successful decompression
     fs::remove(bz2_path);
 
-    std::cerr << "[PCC] Chunk " << chunk_id << " downloaded and decompressed"
+    std::cout << "[PCC] Chunk " << chunk_id << " downloaded and decompressed"
               << std::endl;
     return true;
 }

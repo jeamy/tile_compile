@@ -1,6 +1,6 @@
 # Tile-Compile
 
-Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer Bildstapel (Methodik v3.2).
+Tile-Compile ist ein Toolkit für **tile-basierte Qualitätsrekonstruktion** astronomischer Bildstapel (Methodik v3.3).
 
 Wir stellen eine neuartige Methodik zur Rekonstruktion hochwertiger astronomischer Bilder aus Kurzzeitbelichtungs-Deep-Sky-Datensätzen vor. Konventionelle Stacking-Methoden beruhen häufig auf einer binären Frame-Auswahl ("Lucky Imaging"), wodurch erhebliche Teile der gesammelten Frames verworfen werden. Unser Ansatz, **Tile-Based Quality Reconstruction (TBQR)**, ersetzt diese starre Frame-Auswahl durch ein robustes räumlich-zeitliches Qualitätsmodell. Indem wir Frames in lokale Tiles zerlegen und die Qualität entlang zweier orthogonaler Achsen modellieren — globale atmosphärische Transparenz/Rauschen und lokale strukturelle Schärfe — rekonstruieren wir ein Signal, das an jedem Pixel physikalisch und statistisch optimal ist. Wir zeigen, dass diese Methode die volle photometrische Tiefe des Datensatzes bewahrt und zugleich eine überlegene Auflösungsverbesserung gegenüber traditionellen Referenz-Stacks erzielt.
 
@@ -10,9 +10,9 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 
 > **Hinweis:** Dies ist experimentelle Software, die primär für die Verarbeitung von Bildern von Smart-Teleskopen entwickelt wurde (z.B. DWARF, Seestar, ZWO SeeStar, usw.). Obwohl sie für die allgemeine astronomische Bildverarbeitung konzipiert ist, wurde sie für die spezifischen Eigenschaften und Herausforderungen von Smart-Teleskop-Daten optimiert.
 
-## Dokumentation (v3.2)
+## Dokumentation (v3.3)
 
-- Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.2.2](doc/v3/tile_based_quality_reconstruction_methodology_v3.2.2_en.md)
+- Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.3.4](doc/v3/tile_based_quality_reconstruction_methodology_v3.3.4_en.md)
 - Prozessfluss (Implementierung): `doc/v3/process_flow/`
 - Englische Schritt-für-Schritt-Anleitung: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - Englisches Haupt-README: [English README](README.md)
@@ -27,6 +27,7 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 - Ergebnis via **Sigma-Clip** stacken
 - OSC-Daten **debayern**
 - **Astrometrie** (ASTAP/WCS) ausführen
+- optionale **Background Gradient Extraction** (BGE, vor PCC) ausführen
 - **photometrische Farbkalibrierung** (PCC) anwenden
 - finale Ausgaben plus **Diagnose-Artefakte** (JSON) schreiben
 
@@ -34,7 +35,7 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 
 | Version | Verzeichnis | Status | Backend |
 |---------|-------------|--------|---------|
-| C++ | `tile_compile_cpp/` | Aktiv (v3.2) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
+| C++ | `tile_compile_cpp/` | Aktiv (v3.3) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
 
 ## Pipeline-Phasen
 
@@ -55,8 +56,9 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 | 12 | STACKING | Finales lineares Stacking |
 | 13 | DEBAYER | OSC-Demosaicing zu RGB (MONO-Pass-Through) |
 | 14 | ASTROMETRY | Astrometrisches Solving / WCS |
-| 15 | PCC | Photometrische Farbkalibrierung |
-| 16 | DONE | Finaler Status (`ok` oder `validation_failed`) |
+| 15 | BGE | Optionale RGB-Hintergrund-Gradientenentfernung vor PCC |
+| 16 | PCC | Photometrische Farbkalibrierung |
+| 17 | DONE | Finaler Status (`ok` oder `validation_failed`) |
 
 Detaillierte Phasen-Dokumentation: `doc/v3/process_flow/`
 
@@ -314,8 +316,10 @@ Fortsetzungsmodus (Resume):
 ```bash
 ./tile_compile_runner resume \
   --run-dir /path/to/runs/<run_id> \
-  --from-phase PCC
+  --from-phase BGE
 ```
+
+Unterstützte Resume-Phasen: `ASTROMETRY`, `BGE`, `PCC`.
 
 ### CLI Scan (Frame-Erkennung)
 
@@ -353,6 +357,7 @@ Nach einem erfolgreichen Lauf (`runs/<run_id>/`):
   - `reconstructed_L.fit`
   - `stacked_rgb.fits` (OSC)
   - `stacked_rgb_solve.fits` / WCS-Artefakte
+  - `stacked_rgb_bge.fits` (BGE-only Snapshot vor PCC)
   - `stacked_rgb_pcc.fits`
   - `synthetic_*.fit` (modusabhängig)
 - `artifacts/`
@@ -364,6 +369,7 @@ Nach einem erfolgreichen Lauf (`runs/<run_id>/`):
   - `tile_reconstruction.json`
   - `state_clustering.json`
   - `synthetic_frames.json`
+  - `bge.json`
   - `validation.json`
   - `report.html`, `report.css`, `*.png`
 - `logs/run_events.jsonl`
@@ -404,6 +410,7 @@ Der Bericht aggregiert Daten aus Artifact-JSON-Dateien, `logs/run_events.jsonl` 
 - Registrierungs-Drift/CC/Rotation-Diagnosen
 - Tile- und Rekonstruktions-Heatmaps
 - Clustering- und Zusammenfassungen synthetischer Frames
+- BGE-Diagnostik (Grid-Zellen, Residuen, Kanalverschiebungen)
 - Validierungsmetriken (einschließlich Tile-Pattern-Indikatoren)
 - Pipeline-Timeline und Frame-Usage-Funnel
 
@@ -459,6 +466,29 @@ ctest --output-on-failure
 
 ## Changelog
 
+### (2026-03-03)
+
+**BGE/PCC Konfigurations- und Doku-Abgleich:**
+
+- Benutzerkonfigurierbare BGE-Fit-Parameter `bge.fit.robust_loss` und `bge.fit.huber_delta` wiederhergestellt.
+- Parser/Serializer/Schema-Unterstützung für diese Keys in der Runtime-Konfigurationsoberfläche wieder aktiviert.
+- Runner-Mapping übernimmt wieder die konfigurierten Werte (kein internes Erzwingen auf feste Defaults).
+- BGE-Konfig-Artefakte enthalten in Pipeline- und Resume-Pfad wieder `robust_loss` und `huber_delta`.
+- BGE/PCC-Dokumentation und praktische Beispiele (DE/EN) auf den aktuellen Parametersatz aktualisiert.
+
+### (2026-02-26)
+
+**BGE-Phasensichtbarkeit / Vergleichs-Outputs:**
+
+- BGE wird jetzt als eigene Pipeline-Enum-Phase (`BGE=15`) zwischen `ASTROMETRY` und `PCC` emittiert.
+- Die GUI zeigt BGE explizit in der Phasenanzeige, inklusive BGE-Substep-Progress.
+- Neuer expliziter Pre-PCC-Output `outputs/stacked_rgb_bge.fits` für direkten Vergleich BGE-only vs. BGE+PCC.
+- Konfig-Dokumentation/Beispiele auf v3.3.6-Optionssatz aktualisiert:
+  - `bge.autotune.*` (`enabled`, `strategy`, `max_evals`, `holdout_fraction`, `alpha_flatness`, `beta_roughness`)
+  - `pcc.background_model`
+  - `pcc.radii_mode`
+  - `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`
+
 ### (2026-02-25)
 
 **Registration / Canvas / Farbkorrektheits-Fixes:**
@@ -477,6 +507,13 @@ ctest --output-on-failure
 
 - `doc/v3/process_flow/*` auf den aktuellen Produktionsstand gebracht, inkl. `PREWARP`, `COMMON_OVERLAP`, Canvas/Offset-Propagation und aktueller Enum-Phasenreihenfolge.
 
+**BGE (Background Gradient Extraction):**
+
+- Optionale BGE-Stufe vor PCC ergänzt, die den modellierten Hintergrund direkt von den RGB-Kanälen subtrahiert.
+- Vordergrundbewusste BGE-Fit-Methode `modeled_mask_mesh` ergänzt, um in schwierigen Feldern mit großflächigen diffusen Objekten (z.B. M31/M42) Farbwolken vor PCC zu reduzieren.
+- Neues Artefakt `artifacts/bge.json` mit kanalweisen Diagnosedaten (Tile-Samples, Grid-Zellen, Residuenstatistik).
+- Report-Generator um eigenen BGE-Abschnitt mit Zusammenfassungsplots und Residuenanalyse erweitert.
+
 ### (2026-02-17)
 
 **Neue Registrierungs-Features für Alt/Az-Montierungen in Polarnähe:**
@@ -493,4 +530,4 @@ ctest --output-on-failure
 
 **Dokumentation:**
 
-- **Neu**: [Praktische Konfigurationsbeispiele & Best Practices](doc/v3/configuration_examples_practical_de.md) - Umfassender Leitfaden mit Anwendungsfällen für verschiedene Brennweiten, Seeing-Bedingungen, Montierungstypen und Kamera-Setups (DWARF, Seestar, DSLR, Mono CCD). Enthält Parameter-Empfehlungen basierend auf Methodik v3.2.2.
+- **Neu**: [Praktische Konfigurationsbeispiele & Best Practices](doc/v3/configuration_examples_practical_de.md) - Umfassender Leitfaden mit Anwendungsfällen für verschiedene Brennweiten, Seeing-Bedingungen, Montierungstypen und Kamera-Setups (DWARF, Seestar, DSLR, Mono CCD). Enthält Parameter-Empfehlungen basierend auf Methodik v3.3.4.

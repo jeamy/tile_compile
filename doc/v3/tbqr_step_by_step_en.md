@@ -2,6 +2,10 @@
 
 This guide explains how to run the active C++ pipeline (`tile_compile_cpp`) from build to finished outputs.
 
+**Update note (2026-03-03):**
+- Resume supports `ASTROMETRY`, `BGE`, and `PCC`.
+- BGE runs before PCC; BGE configuration includes user-facing robust controls (`bge.fit.robust_loss`, `bge.fit.huber_delta`).
+
 ## 1) Prerequisites
 
 Required dependencies:
@@ -112,10 +116,10 @@ Useful options:
 ```bash
 ./tile_compile_runner resume \
   --run-dir /path/to/runs/<run_id> \
-  --from-phase PCC
+  --from-phase BGE
 ```
 
-Allowed `--from-phase` values are currently `ASTROMETRY` or `PCC`.
+Allowed `--from-phase` values are currently `ASTROMETRY`, `BGE`, or `PCC`.
 
 ## 6) Use utility CLI commands
 
@@ -208,11 +212,12 @@ Use this sequence for a complete run from scan to outputs.
    - `runs/<run_id>/logs/run_events.jsonl`
 3. Use `tile_compile_cli get-run-status` for a quick status summary if needed.
 
-### Step 7: (Optional) Astrometry and PCC
+### Step 7: (Optional) Astrometry, BGE, and PCC
 
 1. In **Astrometry**, solve `stacked_rgb.fits` (or your selected output) to write WCS.
-2. In **PCC**, run photometric color calibration on the solved RGB result.
-3. Save calibrated output (for example `stacked_rgb_pcc.fits`).
+2. If **BGE** is enabled, run background gradient extraction before PCC (intermediate output example: `stacked_rgb_bge.fits`).
+3. In **PCC**, run photometric color calibration on the solved/BGE-corrected RGB result.
+4. Save calibrated output (for example `stacked_rgb_pcc.fits`).
 
 ### Step 8: Verify final outputs
 

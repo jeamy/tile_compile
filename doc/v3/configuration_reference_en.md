@@ -4,7 +4,11 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 
 **Source of truth for defaults:** `include/tile_compile/config/configuration.hpp`  
 **Schema version:** v3  
-**Reference:** Methodology v3.2
+**Reference:** Methodology v3.3
+
+**Documentation status (2026-03-03):**
+- `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
+- PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
 
 **💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
 
@@ -26,10 +30,11 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 14. [Reconstruction](#14-reconstruction)
 15. [Debayer](#15-debayer)
 16. [Astrometry](#16-astrometry)
-17. [PCC](#17-pcc)
-18. [Stacking](#18-stacking)
-19. [Validation](#19-validation)
-20. [Runtime Limits](#20-runtime-limits)
+17. [BGE (Background Gradient Extraction)](#17-bge-background-gradient-extraction) **NEW in v3.3**
+18. [PCC](#18-pcc)
+19. [Stacking](#19-stacking)
+20. [Validation](#20-validation)
+21. [Runtime Limits](#21-runtime-limits)
 
 ---
 
@@ -951,9 +956,63 @@ Astrometry solving settings.
 
 ---
 
-## 17. PCC
+## 17. BGE (Background Gradient Extraction)
+
+**NEW in v3.3** - Optional background gradient extraction before PCC (Methodology v3.3 §6.3)
+
+BGE removes large-scale background gradients (light pollution, moonlight, airglow) **before** photometric color calibration to avoid color bias from spectrally non-uniform gradients.
+
+**Implementation note (v3.3.6):** BGE directly uses tile-quality data from `LOCAL_METRICS` for sample selection/weighting:
+- `type` + `star_count`: star-dense STAR tiles are conservatively excluded or down-weighted.
+- `fwhm`: scales effective star-mask dilation per tile.
+- `quality_score`: applied as an additional tile-sample reliability factor.
+
+**Key BGE parameters:**
+- `bge.enabled`: Enable/disable (default: `false`)
+- `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
+- `bge.fit.method`: Surface fitting method - `rbf`, `poly`, `spline`, `bicubic`, `modeled_mask_mesh` (default `rbf`)
+- `bge.fit.robust_loss`: Robust IRLS loss - `huber` or `tukey` (default `huber`)
+- `bge.fit.huber_delta`: Huber transition parameter (default `1.5`, used when `robust_loss=huber`)
+- `bge.fit.rbf_phi`: RBF kernel - `multiquadric`, `thinplate`, `gaussian` (default `multiquadric`)
+- `bge.autotune.enabled`: Deterministic test-adjust-test autotune (default `false`)
+- `bge.autotune.strategy`: `conservative|extended` (default `conservative`)
+- `bge.autotune.max_evals`: hard cap for tested candidates (minimum `1`, default `24`)
+- `bge.autotune.holdout_fraction`: deterministic CV split fraction (range `[0.05, 0.50]`, default `0.25`)
+- `bge.autotune.alpha_flatness`: objective weight for flatness term (minimum `0`, default `0.25`)
+- `bge.autotune.beta_roughness`: objective weight for roughness term (minimum `0`, default `0.10`)
+
+**Recommendation:** Enable with `bge.enabled: true` when gradients are visible (urban light pollution, moonlight) or when PCC shows color shifts across the field.
+
+### `bge.fit.robust_loss`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `huber`, `tukey` |
+| **Default** | `"huber"` |
+
+**Purpose:** Robust loss function used in BGE IRLS fitting.
+
+### `bge.fit.huber_delta`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `> 0` |
+| **Default** | `1.5` |
+
+**Purpose:** Huber transition parameter (active when `bge.fit.robust_loss=huber`).
+
+---
+
+## 18. PCC
 
 Photometric Color Calibration settings.
+
+**Implementation note (v3.3.6):** If tile metrics and tile geometry are available and size-consistent, PCC automatically uses them for robust per-star weighting:
+- `quality_score`: exponential per-star weight factor (tile-based).
+- `gradient_energy/noise`: structure penalty and reject for highly structured tiles.
+- `star_count`: mild down-weighting for very star-dense tiles.
 
 ### `pcc.enabled`
 
@@ -1020,6 +1079,57 @@ Photometric Color Calibration settings.
 
 **Purpose:** Outlier rejection threshold in PCC fitting.
 
+### `pcc.background_model`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `median`, `plane` |
+| **Default** | `"plane"` |
+
+**Purpose:** Local sky-annulus background model for stellar photometry (`plane` recommended under gradients, fallback to `median` if plane fit fails).
+
+### `pcc.max_condition_number`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `>= 1.0` |
+| **Default** | `3.0` |
+
+**Purpose:** Upper bound for PCC matrix condition number; rejects numerically unstable solutions.
+
+### `pcc.max_residual_rms`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `> 0` |
+| **Default** | `0.35` |
+
+**Purpose:** Upper bound for robust fit residual RMS; rejects noisy/unstable PCC fits.
+
+### `pcc.radii_mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `fixed`, `auto_fwhm` |
+| **Default** | `"auto_fwhm"` |
+
+**Purpose:** Radius handling mode. `auto_fwhm` derives aperture/annulus radii from seeing FWHM using the multipliers below.
+
+### `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`
+
+| Key | Type | Default |
+|-----|------|---------|
+| `pcc.aperture_fwhm_mult` | number (>0) | `1.8` |
+| `pcc.annulus_inner_fwhm_mult` | number (>0) | `3.0` |
+| `pcc.annulus_outer_fwhm_mult` | number (>0) | `5.0` |
+| `pcc.min_aperture_px` | number (>0) | `4.0` |
+
+**Purpose:** Conservative FWHM-adaptive radius controls (v3.3.6 §6.4.2).
+
 ### `pcc.siril_catalog_dir`
 
 | Property | Value |
@@ -1029,9 +1139,36 @@ Photometric Color Calibration settings.
 
 **Purpose:** Optional local Siril catalog path.
 
+### `pcc.apply_attenuation`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Enables adaptive attenuation during PCC matrix application (helps in deep shadows/highlights).
+
+### `pcc.chroma_strength`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `1.0` |
+
+**Purpose:** Global strength factor for PCC chroma correction during apply.
+
+### `pcc.k_max`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `3.2` |
+
+**Purpose:** Upper bound for linear PCC apply strength (limits over-correction in bright structures).
+
 ---
 
-## 18. Stacking
+## 19. Stacking
 
 Final stacking settings.
 
@@ -1196,7 +1333,7 @@ This targets **fixed sensor defects** (RGB single-pixel speckles) that appear at
 
 ---
 
-## 19. Validation
+## 20. Validation
 
 Validation and quality control.
 
@@ -1238,7 +1375,7 @@ Validation and quality control.
 
 ---
 
-## 20. Runtime Limits
+## 21. Runtime Limits
 
 Runtime and resource limits.
 
@@ -1418,7 +1555,11 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `pcc.aperture_radius_px`, `annulus_inner_px`, `annulus_outer_px`: photometric aperture geometry.
 - `pcc.min_stars`: minimum matched stars for stable PCC fit.
 - `pcc.sigma_clip`: outlier rejection in PCC regression.
+- `pcc.background_model`: local annulus background model.
+- `pcc.max_condition_number`, `pcc.max_residual_rms`: matrix/fit stability limits.
+- `pcc.radii_mode`, `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`: adaptive radius controls.
 - `pcc.siril_catalog_dir`: local Siril catalog path override.
+- `pcc.apply_attenuation`, `pcc.chroma_strength`, `pcc.k_max`: optional apply attenuation/chroma controls.
 - `stacking.method`: final combine mode (`rej` sigma-clip vs `average`).
 - `stacking.sigma_clip.sigma_low`, `sigma_high`: lower/upper rejection thresholds.
 - `stacking.sigma_clip.max_iters`: clipping iteration cap.

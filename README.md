@@ -1,6 +1,6 @@
 # Tile-Compile
 
-Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (methodology v3.2).
+Tile-Compile is a toolkit for **tile-based quality reconstruction** of astronomical image stacks (methodology v3.3).
 
 We present a novel methodology for the reconstruction of high-quality astronomical images from short-exposure deep-sky datasets. Conventional stacking methods often rely on binary frame selection ("lucky imaging"), which discards significant portions of collected frames. Our approach, **Tile-Based Quality Reconstruction (TBQR)**, replaces rigid frame selection with a robust spatio-temporal quality model. By decomposing frames into local tiles and modeling quality along two orthogonal axes—global atmospheric transparency/noise and local structural sharpness—we reconstruct a signal that is physically and statistically optimal at every pixel. We demonstrate that this method preserves the full photometric depth of the dataset while achieving superior resolution improvement compared to traditional reference stacks.
 
@@ -10,9 +10,9 @@ While the methodology was originally conceived to address the specific challenge
 
 > **Note:** This is experimental software primarily developed for processing images from smart telescopes (e.g., DWARF, Seestar, ZWO SeeStar, etc.). While designed for general astronomical image processing, it has been optimized for the specific characteristics and challenges of smart telescope data.
 
-## Documentation (v3.2)
+## Documentation (v3.3)
 
-- Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.2.2](doc/v3/tile_based_quality_reconstruction_methodology_v3.2.2_en.md)
+- Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.3.4](doc/v3/tile_based_quality_reconstruction_methodology_v3.3.4_en.md)
 - Implementation process flow: [Process flow](doc/v3/process_flow/README.md)
 - English step-by-step guide: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - German README snapshot: [German README](README_de.md)
@@ -27,6 +27,7 @@ Given a directory of FITS lights, the pipeline can:
 - **stack** using sigma-clip or weighted averaging
 - **debayer** OSC/CFA data
 - run **astrometry** (WCS)
+- run optional **background gradient extraction** (BGE, pre-PCC)
 - run **photometric color calibration** (PCC)
 - write final outputs and detailed diagnostic artifacts
 
@@ -34,7 +35,7 @@ Given a directory of FITS lights, the pipeline can:
 
 | Version | Directory | Status | Backend |
 |---------|-----------|--------|---------|
-| C++ | `tile_compile_cpp/` | Active (v3.2) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
+| C++ | `tile_compile_cpp/` | Active (v3.3) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
 
 ## Pipeline Phases
 
@@ -55,8 +56,9 @@ Given a directory of FITS lights, the pipeline can:
 | 12 | STACKING | Final linear stacking |
 | 13 | DEBAYER | OSC demosaic to RGB (MONO pass-through) |
 | 14 | ASTROMETRY | Plate solving / WCS |
-| 15 | PCC | Photometric color calibration |
-| 16 | DONE | Final status (`ok` or `validation_failed`) |
+| 15 | BGE | Optional RGB background gradient extraction before PCC |
+| 16 | PCC | Photometric color calibration |
+| 17 | DONE | Final status (`ok` or `validation_failed`) |
 
 Detailed phase docs: `doc/v3/process_flow/`
 
@@ -159,6 +161,7 @@ Inside `tile_compile_cpp/`, platform-specific release scripts are available:
 
 - Linux (native): `build_linux_release.sh`
 - Linux (Docker Ubuntu 20.04 / glibc 2.31): `build_linux_release_docker_ubuntu2004.sh`
+- Linux (AppImage native): `build_linux_appimage.sh`
 - Linux (AppImage Docker): `build_linux_appimage_docker.sh`
 - macOS: `build_macos_release.sh`
 - Windows: `build_windows_release.bat` (auto-detects MSYS2 if installed)
@@ -178,6 +181,11 @@ bash build_linux_release_docker_ubuntu2004.sh --skip-build
 cd tile_compile_cpp
 # Docker 
 bash build_linux_appimage_docker.sh
+# optional: skip image rebuild
+bash build_linux_appimage_docker.sh --skip-build
+
+# Native (requires appimagetool, downloaded automatically if missing)
+bash build_linux_appimage.sh
 
 ```
 
@@ -186,6 +194,7 @@ The AppImage is a portable single-file executable that runs on most Linux distri
 Release outputs are written to `tile_compile_cpp/dist/`:
 
 - Linux: `dist/linux/` + `dist/tile_compile_cpp-linux-release.zip`
+- Linux AppImage: `dist/tile_compile_cpp-x86_64.AppImage`
 - Windows: `dist/windows/` + `dist/tile_compile_cpp-windows-release.zip`
 - macOS: `dist/macos/tile_compile_gui.app` + optional `dist/tile_compile_cpp-macos.dmg`
 
@@ -219,8 +228,6 @@ macOS note:
 export CMAKE_PREFIX_PATH="$HOME/Qt/<version>/macos"
 export Qt6_DIR="$HOME/Qt/<version>/macos/lib/cmake/Qt6"
 ```
-
-**Note:** If the release package does not include the YAML configs, use the example profiles in `examples/` as templates and copy the desired options into your own `tile_compile.yaml`.
 
 Not included by design:
 
@@ -314,8 +321,10 @@ Resume mode:
 ```bash
 ./tile_compile_runner resume \
   --run-dir /path/to/runs/<run_id> \
-  --from-phase PCC
+  --from-phase BGE
 ```
+
+Supported resume phases: `ASTROMETRY`, `BGE`, `PCC`.
 
 ### CLI Scan
 
@@ -353,6 +362,7 @@ After a successful run (`runs/<run_id>/`):
   - `reconstructed_L.fit`
   - `stacked_rgb.fits` (OSC)
   - `stacked_rgb_solve.fits` / WCS artifacts
+  - `stacked_rgb_bge.fits` (BGE-only snapshot before PCC)
   - `stacked_rgb_pcc.fits`
   - `synthetic_*.fit` (mode-dependent)
 - `artifacts/`
@@ -364,6 +374,7 @@ After a successful run (`runs/<run_id>/`):
   - `tile_reconstruction.json`
   - `state_clustering.json`
   - `synthetic_frames.json`
+  - `bge.json`
   - `validation.json`
   - `report.html`, `report.css`, `*.png`
 - `logs/run_events.jsonl`
@@ -404,6 +415,7 @@ The report aggregates data from artifact JSON files, `logs/run_events.jsonl`, an
 - registration drift/CC/rotation diagnostics
 - tile and reconstruction heatmaps
 - clustering/synthetic frame summaries
+- BGE diagnostics (grid cells, residuals, channel shifts)
 - validation metrics (including tile-pattern indicators)
 - pipeline timeline and frame-usage funnel
 
@@ -459,6 +471,30 @@ ctest --output-on-failure
 
 ## Changelog
 
+### (2026-03-03)
+
+**BGE/PCC configuration and docs alignment:**
+
+- Restored user-facing BGE fit parameters `bge.fit.robust_loss` and `bge.fit.huber_delta`.
+- Re-enabled parse/serialize/schema support for these keys in the runtime config surface.
+- Runner mapping now forwards the configured values (no internal forced override).
+- BGE config artifacts in both pipeline and resume paths include `robust_loss` and `huber_delta` again.
+- Updated BGE/PCC docs and practical examples (DE/EN) to match current behavior and active parameter set.
+
+### (2026-02-26)
+
+**BGE Phase Visibility / Comparison Outputs:**
+
+- BGE is now emitted as a dedicated pipeline enum phase (`BGE=15`) between `ASTROMETRY` and `PCC`.
+- GUI phase progress now shows BGE explicitly, including BGE substep progress updates.
+- Added explicit pre-PCC output `outputs/stacked_rgb_bge.fits` for direct BGE-only vs BGE+PCC comparison.
+- Configuration docs/examples updated for v3.3.6 option set:
+  - `bge.autotune.*` (`enabled`, `strategy`, `max_evals`, `holdout_fraction`, `alpha_flatness`, `beta_roughness`)
+  - `pcc.background_model`
+  - `pcc.max_condition_number`, `pcc.max_residual_rms`
+  - `pcc.radii_mode`
+  - `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`
+
 ### (2026-02-25)
 
 **Registration / Canvas / Color-Correctness Fixes:**
@@ -476,6 +512,13 @@ ctest --output-on-failure
 **Documentation Refresh:**
 
 - `doc/v3/process_flow/*` updated to the current production pipeline state, including `PREWARP`, `COMMON_OVERLAP`, canvas/offset propagation, and current enum phase ordering.
+
+**BGE (Background Gradient Extraction):**
+
+- Added optional pre-PCC BGE stage that directly subtracts modeled background from RGB channels.
+- Added foreground-aware BGE fit method `modeled_mask_mesh` for difficult fields with large diffuse objects (e.g. M31/M42) to reduce color-cloud artifacts before PCC.
+- Added `artifacts/bge.json` with per-channel diagnostics (tile samples, grid cells, residual statistics).
+- Extended report generation to include a dedicated BGE section with summary plots and residual analysis.
 
 ### (2026-02-19)
 
@@ -499,4 +542,4 @@ ctest --output-on-failure
 
 **Documentation:**
 
-- **New**: [Practical Configuration Examples & Best Practices](doc/v3/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.2.2.
+- **New**: [Practical Configuration Examples & Best Practices](doc/v3/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.3.4.

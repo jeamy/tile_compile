@@ -610,26 +610,6 @@ Procedure:
 
 ---
 
-## 10. Change History
-
-| Date | Version | Change |
-|---|---|---|
-| 2026-02-18 | v3.2.2.4 | §5.7.1: `m_t` redefined as `median(R_{t,c})` before background subtraction (was `median(abs(X_t))` after subtraction). The old formulation yielded `m_t ≈ 0` for sky-dominated tiles, causing §5.7.1a to crush dynamic range to ~0.1 % (M31 core observed at 0.9 % instead of ~90 %). / §5.7.1: `m_t` neu definiert als `median(R_{t,c})` vor der Hintergrundsubtraktion (vorher `median(abs(X_t))` nach Subtraktion). Die alte Formulierung lieferte `m_t ≈ 0` für himmeldominierte Tiles und komprimierte den Dynamikbereich in §5.7.1a auf ~0,1 % (M31-Kern bei 0,9 % statt ~90 % beobachtet). |
-| 2026-02-15 | v3.2.2.3 | Clarified invariant semantics: no quality-based frame selection while allowing deterministic registration validity gating for geometrically invalid frames |
-| 2026-02-15 | v3.2.2.2 | Replaced cluster-size weighted final stacking with quality-weighted cluster aggregation (exp(kappa_cluster * Q_k)) including optional dominance cap |
-| 2026-02-15 | v3.2.2.1 | Enforced overlap clipping in tile geometry; added photometric restoration after OLA; replaced uniform per-cluster averaging with cluster-size weighted final stack |
-| 2026-02-13 | v3.2.2 | Path A removed; CFA-based registration and channel-separation path defined as the only normative path up to phase 2 |
-| 2026-02-13 | v3.2.2 | Consolidation after mathematical diagnostics |
-| 2026-02-13 | v3.2.2 | Linearity semantics clarified |
-| 2026-02-13 | v3.2.2 | Reduced-mode boundaries made explicit |
-| 2026-02-13 | v3.2.2 | Notation unified to `f,t,c` |
-| 2026-02-13 | v3.2.2 | Tile reconstruction/fallbacks merged into a consistent block |
-| 2026-02-13 | v3.2.2 | Discrete Hann definition fixed normatively |
-| 2026-02-13 | v3.2.2 | PCC test criterion replaced with a technically robust version |
-
-
----
-
-## 11. Core Statement
+## 10. Core Statement
 
 The method replaces rigid search for "best frames" with robust spatio-temporal quality modeling, retains all geometrically valid frames without downstream quality-based culling, and reconstructs signal where it is physically and statistically most reliable.

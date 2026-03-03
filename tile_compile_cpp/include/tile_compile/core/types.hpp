@@ -170,8 +170,9 @@ enum class Phase {
     STACKING = 12,
     DEBAYER = 13,
     ASTROMETRY = 14,
-    PCC = 15,
-    DONE = 16
+    BGE = 15,
+    PCC = 16,
+    DONE = 17
 };
 
 inline std::string phase_to_string(Phase phase) {
@@ -191,6 +192,7 @@ inline std::string phase_to_string(Phase phase) {
         case Phase::STACKING: return "STACKING";
         case Phase::DEBAYER: return "DEBAYER";
         case Phase::ASTROMETRY: return "ASTROMETRY";
+        case Phase::BGE: return "BGE";
         case Phase::PCC: return "PCC";
         case Phase::DONE: return "DONE";
         default: return "UNKNOWN";
@@ -202,7 +204,7 @@ inline int phase_to_int(Phase phase) {
 }
 
 inline Phase int_to_phase(int i) {
-    if (i >= 0 && i <= 16) {
+    if (i >= 0 && i <= 17) {
         return static_cast<Phase>(i);
     }
     return Phase::SCAN_INPUT;

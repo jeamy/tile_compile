@@ -2,7 +2,95 @@
 
 **[🇩🇪 Deutsche Version](configuration_examples_practical_de.md)**
 
-This guide complements the configuration reference with practical examples, boundary ranges, and use cases based on methodology v3.2.2.
+This guide complements the configuration reference with practical examples, edge cases, and use cases based on methodology v3.3.
+
+## Update Status (2026-03-03)
+
+- `bge.fit.robust_loss` and `bge.fit.huber_delta` are available again as user-facing parameters.
+- PCC examples were aligned with the current parameter set (without `pcc.method`).
+
+---
+
+## Background Gradient Extraction (BGE) - NEW in v3.3
+
+**When to enable:**
+- Visible background gradients (light pollution, moonlight)
+- PCC shows color shifts across the field
+- Urban/suburban imaging sites
+
+**Recommended configuration:**
+
+```yaml
+bge:
+  enabled: true
+  autotune:
+    enabled: false
+    strategy: conservative
+    max_evals: 24
+    holdout_fraction: 0.25
+    alpha_flatness: 0.25
+    beta_roughness: 0.10
+  sample_quantile: 0.20  # Conservative, resistant to faint objects
+  fit:
+    method: rbf  # Flexible, recommended baseline
+    robust_loss: huber  # huber | tukey
+    huber_delta: 1.5
+    rbf_phi: multiquadric  # Good compromise
+    rbf_mu_factor: 1.0  # Standard smoothing
+```
+
+**For strong gradients (e.g. city outskirts):**
+
+```yaml
+bge:
+  enabled: true
+  sample_quantile: 0.15  # More conservative
+  structure_thresh_percentile: 0.95  # Exclude more tiles
+  fit:
+    method: rbf
+    robust_loss: tukey  # stronger outlier suppression
+    rbf_phi: multiquadric
+    rbf_mu_factor: 0.8  # Less smoothing for detail
+```
+
+**For large diffuse foreground objects (e.g. M31 / M42):**
+
+```yaml
+bge:
+  enabled: true
+  fit:
+    method: modeled_mask_mesh  # Foreground-aware mesh sky model
+```
+
+**For weak gradients (e.g. moonlight):**
+
+```yaml
+bge:
+  enabled: true
+  sample_quantile: 0.25  # Less conservative
+  fit:
+    method: poly  # Simpler for weak gradients
+    polynomial_order: 2
+```
+
+**Important:** BGE runs **before** PCC. When BGE is enabled, PCC should produce better results afterward.
+
+**PCC v3.3.6 options (recommended with BGE):**
+
+```yaml
+pcc:
+  background_model: plane      # median | plane
+  max_condition_number: 3.0
+  max_residual_rms: 0.35
+  radii_mode: auto_fwhm        # fixed | auto_fwhm
+  aperture_fwhm_mult: 1.8
+  annulus_inner_fwhm_mult: 3.0
+  annulus_outer_fwhm_mult: 5.0
+  min_aperture_px: 4.0
+  apply_attenuation: false
+  chroma_strength: 1.0
+  k_max: 3.2
+```
 
 ---
 
@@ -530,7 +618,8 @@ debayer:
 pcc:
   enabled: true
   source: auto
-  method: proportion
+  background_model: plane
+  radii_mode: auto_fwhm
 ```
 
 ### Monochrome

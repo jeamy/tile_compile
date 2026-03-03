@@ -5,6 +5,7 @@
 #include "tile_compile/core/mode_gating.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/image/background_extraction.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
@@ -563,6 +564,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   std::vector<std::vector<TileMetrics>> local_metrics;
   std::vector<std::vector<float>> local_weights;
+  std::vector<TileMetrics> bge_tile_metrics_cache;
+  TileGrid bge_tile_grid_cache;
   std::vector<float> tile_fwhm_median;
   std::vector<int> tile_valid_counts;
   std::vector<uint8_t> tile_fallback_used;
@@ -1831,6 +1834,82 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                         {{"n_clusters", n_clusters}}, log_file);
     }
 
+    // Aggregate tile metrics over frames for downstream BGE/PCC usage.
+    if (!local_metrics.empty()) {
+      const size_t n_tiles = local_metrics.front().size();
+      const bool consistent = std::all_of(
+          local_metrics.begin(), local_metrics.end(),
+          [n_tiles](const auto &fm) { return fm.size() == n_tiles; });
+      if (!consistent || n_tiles == 0) {
+        bge_tile_metrics_cache = local_metrics.front();
+      } else {
+        auto median_or_zero = [](std::vector<float> vals) -> float {
+          if (vals.empty()) return 0.0f;
+          return core::median_of(vals);
+        };
+
+        bge_tile_metrics_cache.assign(n_tiles, TileMetrics{});
+        for (size_t ti = 0; ti < n_tiles; ++ti) {
+          std::vector<float> fwhm_vals;
+          std::vector<float> round_vals;
+          std::vector<float> contrast_vals;
+          std::vector<float> sharp_vals;
+          std::vector<float> bg_vals;
+          std::vector<float> noise_vals;
+          std::vector<float> grad_vals;
+          std::vector<float> q_vals;
+          std::vector<float> star_count_vals;
+          int star_votes = 0;
+          int structure_votes = 0;
+
+          fwhm_vals.reserve(local_metrics.size());
+          round_vals.reserve(local_metrics.size());
+          contrast_vals.reserve(local_metrics.size());
+          sharp_vals.reserve(local_metrics.size());
+          bg_vals.reserve(local_metrics.size());
+          noise_vals.reserve(local_metrics.size());
+          grad_vals.reserve(local_metrics.size());
+          q_vals.reserve(local_metrics.size());
+          star_count_vals.reserve(local_metrics.size());
+
+          for (const auto &fm : local_metrics) {
+            const auto &tm = fm[ti];
+            if (std::isfinite(tm.fwhm)) fwhm_vals.push_back(tm.fwhm);
+            if (std::isfinite(tm.roundness)) round_vals.push_back(tm.roundness);
+            if (std::isfinite(tm.contrast)) contrast_vals.push_back(tm.contrast);
+            if (std::isfinite(tm.sharpness)) sharp_vals.push_back(tm.sharpness);
+            if (std::isfinite(tm.background)) bg_vals.push_back(tm.background);
+            if (std::isfinite(tm.noise)) noise_vals.push_back(tm.noise);
+            if (std::isfinite(tm.gradient_energy)) grad_vals.push_back(tm.gradient_energy);
+            if (std::isfinite(tm.quality_score)) q_vals.push_back(tm.quality_score);
+            star_count_vals.push_back(static_cast<float>(tm.star_count));
+            if (tm.type == TileType::STAR) {
+              ++star_votes;
+            } else {
+              ++structure_votes;
+            }
+          }
+
+          TileMetrics agg{};
+          agg.fwhm = median_or_zero(std::move(fwhm_vals));
+          agg.roundness = median_or_zero(std::move(round_vals));
+          agg.contrast = median_or_zero(std::move(contrast_vals));
+          agg.sharpness = median_or_zero(std::move(sharp_vals));
+          agg.background = median_or_zero(std::move(bg_vals));
+          agg.noise = median_or_zero(std::move(noise_vals));
+          agg.gradient_energy = median_or_zero(std::move(grad_vals));
+          agg.quality_score = median_or_zero(std::move(q_vals));
+          agg.star_count = static_cast<int>(
+              std::lround(median_or_zero(std::move(star_count_vals))));
+          agg.type = (star_votes >= structure_votes) ? TileType::STAR
+                                                     : TileType::STRUCTURE;
+          bge_tile_metrics_cache[ti] = agg;
+        }
+      }
+    } else {
+      bge_tile_metrics_cache.clear();
+    }
+
     // --- Memory release: local_metrics no longer needed after clustering ---
     { std::vector<std::vector<TileMetrics>>().swap(local_metrics); }
 
@@ -2665,6 +2744,40 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     bool have_rgb = false;
     fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
     fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
+    auto stretch_rgb_for_output = [](Matrix2Df& R_ch, Matrix2Df& G_ch,
+                                     Matrix2Df& B_ch,
+                                     const char* stage_tag) -> bool {
+      float vmin = std::numeric_limits<float>::max();
+      float vmax = std::numeric_limits<float>::lowest();
+      for (auto *ch : {&R_ch, &G_ch, &B_ch}) {
+        for (Eigen::Index k = 0; k < ch->size(); ++k) {
+          const float v = ch->data()[k];
+          // Exclude canvas dead area (zero pixels) from stretch range.
+          if (std::isfinite(v) && v > 0.0f) {
+            if (v < vmin) vmin = v;
+            if (v > vmax) vmax = v;
+          }
+        }
+      }
+      const float range = vmax - vmin;
+      if (!(range > 1.0e-6f)) return false;
+
+      const float scale = 65535.0f / range;
+      for (auto *ch : {&R_ch, &G_ch, &B_ch}) {
+        for (Eigen::Index k = 0; k < ch->size(); ++k) {
+          const float v = ch->data()[k];
+          if (std::isfinite(v) && v > 0.0f) {
+            ch->data()[k] = (v - vmin) * scale;
+          } else {
+            ch->data()[k] = 0.0f;
+          }
+        }
+      }
+
+      std::cout << "[" << stage_tag << "] RGB output stretch: [" << vmin << ".."
+                << vmax << "] -> [0..65535]" << std::endl;
+      return true;
+    };
 
     if (detected_mode == ColorMode::OSC) {
       if (recon_R.size() == recon.size() && recon_R.size() > 0 &&
@@ -2691,42 +2804,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       G_out.array() += output_pedestal;
       B_out.array() += output_pedestal;
 
-      // Keep a separate copy for on-disk outputs (may be stretched for viewing)
+      // Keep a separate copy for on-disk outputs (always linear here).
       R_disk = R_out;
       G_disk = G_out;
       B_disk = B_out;
-
-      // Linear stretch RGB to full 16-bit range (joint min/max preserves color)
-      if (cfg.stacking.output_stretch) {
-        float vmin = std::numeric_limits<float>::max();
-        float vmax = std::numeric_limits<float>::lowest();
-        for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
-          for (Eigen::Index k = 0; k < ch->size(); ++k) {
-            float v = ch->data()[k];
-            // Exclude canvas dead area (zero pixels) from stretch range.
-            if (std::isfinite(v) && v > 0.0f) {
-              if (v < vmin) vmin = v;
-              if (v > vmax) vmax = v;
-            }
-          }
-        }
-        float range = vmax - vmin;
-        if (range > 1.0e-6f) {
-          float scale = 65535.0f / range;
-          for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
-            for (Eigen::Index k = 0; k < ch->size(); ++k) {
-              float v = ch->data()[k];
-              if (std::isfinite(v) && v > 0.0f) {
-                ch->data()[k] = (v - vmin) * scale;
-              } else {
-                ch->data()[k] = 0.0f;
-              }
-            }
-          }
-          std::cout << "[Debayer] RGB output stretch: [" << vmin << ".." << vmax
-                    << "] -> [0..65535]" << std::endl;
-        }
-      }
 
       io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_disk,
                            first_hdr);
@@ -2799,7 +2880,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             " -d " + shell_quote(astap_data) +
             " -r " + std::to_string(cfg.astrometry.search_radius);
 
-        std::cerr << "[ASTROMETRY] Running: " << cmd << std::endl;
+        std::cout << "[ASTROMETRY] Running: " << cmd << std::endl;
         int ret = std::system(cmd.c_str());
 
         // ASTAP writes a .wcs file next to the input
@@ -2838,9 +2919,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           if (have_rgb) {
             try {
               io::write_fits_rgb(stacked_rgb_path, R_disk, G_disk, B_disk, first_hdr);
-              std::cerr << "[ASTROMETRY] WCS keywords written to " << stacked_rgb_path << std::endl;
+              std::cout << "[ASTROMETRY] WCS keywords written to " << stacked_rgb_path << std::endl;
             } catch (const std::exception &e) {
-              std::cerr << "[ASTROMETRY] Could not update stacked_rgb.fits: " << e.what() << std::endl;
+              std::cout << "[ASTROMETRY] Could not update stacked_rgb.fits: " << e.what() << std::endl;
             }
             try {
               io::write_fits_rgb(stacked_rgb_solve_path, R_out, G_out, B_out, first_hdr);
@@ -2853,7 +2934,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           try {
             fs::copy_file(wcs_path, wcs_artifact,
                           fs::copy_options::overwrite_existing);
-            std::cerr << "[ASTROMETRY] WCS saved to " << wcs_artifact << std::endl;
+            std::cout << "[ASTROMETRY] WCS saved to " << wcs_artifact << std::endl;
           } catch (const std::exception &e) {
             std::cerr << "[ASTROMETRY] Could not copy .wcs: " << e.what() << std::endl;
           }
@@ -2875,20 +2956,218 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
+    // Apply stretch only to the final RGB outputs when no downstream color stage
+    // is enabled: stacked_rgb + stacked_rgb_solve are the final products here.
+    if (have_rgb && cfg.stacking.output_stretch &&
+        !cfg.bge.enabled && !cfg.pcc.enabled) {
+      Matrix2Df R_final = R_out;
+      Matrix2Df G_final = G_out;
+      Matrix2Df B_final = B_out;
+      stretch_rgb_for_output(R_final, G_final, B_final, "FINAL");
+      io::write_fits_rgb(stacked_rgb_path, R_final, G_final, B_final, first_hdr);
+      io::write_fits_rgb(stacked_rgb_solve_path,
+                         R_final, G_final, B_final, first_hdr);
+    }
+
     // --- Memory release: R_disk/G_disk/B_disk no longer needed after astrometry ---
     R_disk.resize(0, 0);
     G_disk.resize(0, 0);
     B_disk.resize(0, 0);
 
+    // Phase 11.5: BGE (Background Gradient Extraction) - v3.3 §6.3
+    // Must run BEFORE PCC to remove gradients that would bias color calibration
+    emitter.phase_start(run_id, Phase::BGE, "BGE", log_file);
+
+    if (!cfg.bge.enabled) {
+      emitter.phase_end(run_id, Phase::BGE, "skipped",
+                        {{"reason", "disabled"}}, log_file);
+    } else if (!have_rgb) {
+      emitter.phase_end(run_id, Phase::BGE, "skipped",
+                        {{"reason", "no_rgb_data"}}, log_file);
+    } else {
+      constexpr int bge_progress_total = 4;
+      emitter.phase_progress_counts(run_id, Phase::BGE, 0, bge_progress_total,
+                                    "prepare", "BGE", log_file);
+      std::cerr << "[BGE] Starting background gradient extraction (v3.3 §6.3)" << std::endl;
+
+      // BGE requires tile metrics from LOCAL_METRICS and matching tile geometry.
+      // Prefer final post-PREWARP canvas tiles, but ensure strict compatibility
+      // with metric vector length when available.
+      TileGrid bge_tile_grid;
+      bge_tile_grid.tile_size = uniform_tile_size;
+      bge_tile_grid.overlap_fraction = overlap_fraction;
+      bge_tile_grid.rows = 0;
+      bge_tile_grid.cols = 0;
+
+      const std::vector<Tile>* bge_tiles_source = &tiles;
+      if (!bge_tile_metrics_cache.empty()) {
+        const size_t metrics_tile_count = bge_tile_metrics_cache.size();
+        if (metrics_tile_count == tiles_phase56.size()) {
+          bge_tiles_source = &tiles_phase56;
+        } else if (metrics_tile_count == tiles.size()) {
+          bge_tiles_source = &tiles;
+        }
+      }
+      bge_tile_grid.tiles = *bge_tiles_source;
+
+      if (!bge_tile_grid.tiles.empty()) {
+        int max_row = 0;
+        int max_col = 0;
+        for (const auto &t : bge_tile_grid.tiles) {
+          max_row = std::max(max_row, t.row + 1);
+          max_col = std::max(max_col, t.col + 1);
+        }
+        bge_tile_grid.rows = max_row;
+        bge_tile_grid.cols = max_col;
+      }
+      bge_tile_grid_cache = bge_tile_grid;
+
+      // BGE requires tile metrics - use from LOCAL_METRICS phase
+      image::BGEDiagnostics bge_diag;
+      bool bge_have_local_metrics = !bge_tile_metrics_cache.empty();
+      bool bge_have_bge_grid = !bge_tile_grid.tiles.empty();
+      bool bge_have_tile_data = bge_have_local_metrics && bge_have_bge_grid;
+      bool bge_metrics_tiles_match = false;
+      emitter.phase_progress_counts(run_id, Phase::BGE, 1, bge_progress_total,
+                                    "collect_tiles", "BGE", log_file);
+
+      if (!bge_tile_metrics_cache.empty() && !bge_tile_grid.tiles.empty()) {
+        const auto& tile_metrics_for_bge = bge_tile_metrics_cache;
+        bge_metrics_tiles_match =
+            (tile_metrics_for_bge.size() == bge_tile_grid.tiles.size());
+
+        image::BGEConfig bge_cfg =
+            tile_compile::runner::to_image_bge_config(cfg.bge);
+
+        if (!bge_metrics_tiles_match) {
+          std::cerr << "[BGE] Warning: tile metric/grid size mismatch (metrics="
+                    << tile_metrics_for_bge.size() << ", tiles="
+                    << bge_tile_grid.tiles.size() << "), skipping BGE"
+                    << std::endl;
+        } else {
+          emitter.phase_progress_counts(run_id, Phase::BGE, 2, bge_progress_total,
+                                        "fit_apply", "BGE", log_file);
+          bool bge_success = image::apply_background_extraction(
+              R_out, G_out, B_out,
+              tile_metrics_for_bge,
+              bge_tile_grid,
+              bge_cfg,
+              &bge_diag);
+
+          if (bge_success) {
+            std::cerr << "[BGE] Background extraction completed successfully" << std::endl;
+          } else {
+            std::cerr << "[BGE] Background extraction skipped or failed" << std::endl;
+          }
+        }
+      } else {
+        std::cerr << "[BGE] Warning: No tile metrics available, skipping BGE" << std::endl;
+      }
+
+      core::json bge_artifact = tile_compile::runner::bge_diag_to_json(
+          bge_diag, cfg.bge.enabled, bge_have_tile_data, bge_metrics_tiles_match);
+      bge_artifact["have_local_metrics"] = bge_have_local_metrics;
+      bge_artifact["have_bge_grid"] = bge_have_bge_grid;
+      bge_artifact["local_metrics_tiles"] =
+          static_cast<int>(bge_tile_metrics_cache.size());
+      bge_artifact["bge_grid_tiles"] = static_cast<int>(bge_tile_grid.tiles.size());
+      bge_artifact["config"] = {
+          {"sample_quantile", cfg.bge.sample_quantile},
+          {"structure_thresh_percentile", cfg.bge.structure_thresh_percentile},
+          {"min_tiles_per_cell", cfg.bge.min_tiles_per_cell},
+          {"mask",
+           {
+               {"star_dilate_px", cfg.bge.mask.star_dilate_px},
+               {"sat_dilate_px", cfg.bge.mask.sat_dilate_px},
+           }},
+          {"grid",
+           {
+               {"N_g", cfg.bge.grid.N_g},
+               {"G_min_px", cfg.bge.grid.G_min_px},
+               {"G_max_fraction", cfg.bge.grid.G_max_fraction},
+               {"insufficient_cell_strategy",
+                cfg.bge.grid.insufficient_cell_strategy},
+           }},
+          {"fit",
+           {
+               {"method", cfg.bge.fit.method},
+               {"robust_loss", cfg.bge.fit.robust_loss},
+               {"huber_delta", cfg.bge.fit.huber_delta},
+               {"irls_max_iterations", cfg.bge.fit.irls_max_iterations},
+               {"irls_tolerance", cfg.bge.fit.irls_tolerance},
+               {"polynomial_order", cfg.bge.fit.polynomial_order},
+               {"rbf_phi", cfg.bge.fit.rbf_phi},
+               {"rbf_mu_factor", cfg.bge.fit.rbf_mu_factor},
+               {"rbf_lambda", cfg.bge.fit.rbf_lambda},
+               {"rbf_epsilon", cfg.bge.fit.rbf_epsilon},
+           }},
+          {"autotune",
+           {
+               {"enabled", cfg.bge.autotune.enabled},
+               {"max_evals", cfg.bge.autotune.max_evals},
+               {"holdout_fraction", cfg.bge.autotune.holdout_fraction},
+               {"alpha_flatness", cfg.bge.autotune.alpha_flatness},
+               {"beta_roughness", cfg.bge.autotune.beta_roughness},
+               {"strategy", cfg.bge.autotune.strategy},
+           }},
+      };
+      fs::path bge_artifact_path = run_dir / "artifacts" / "bge.json";
+      core::write_text(bge_artifact_path, bge_artifact.dump(2));
+      emitter.phase_progress_counts(run_id, Phase::BGE, 3, bge_progress_total,
+                                    "write_artifact", "BGE", log_file);
+
+      core::json bge_phase_extra = {
+          {"requested", cfg.bge.enabled},
+          {"attempted", bge_diag.attempted},
+          {"success", bge_diag.success},
+          {"have_tile_data", bge_have_tile_data},
+          {"metrics_tiles_match", bge_metrics_tiles_match},
+          {"artifact", bge_artifact_path.string()},
+      };
+      if (!bge_have_tile_data) {
+        bge_phase_extra["reason"] = "no_tile_data";
+      } else if (!bge_metrics_tiles_match) {
+        bge_phase_extra["reason"] = "tile_metric_grid_mismatch";
+      } else if (bge_diag.attempted && !bge_diag.success) {
+        bge_phase_extra["reason"] = "fit_failed";
+      }
+
+      emitter.phase_progress_counts(run_id, Phase::BGE, 4, bge_progress_total,
+                                    "finalize", "BGE", log_file);
+
+      emitter.phase_end(run_id, Phase::BGE,
+                        bge_diag.success ? "ok" : "skipped",
+                        bge_phase_extra, log_file);
+    }
+
     // Phase 12: PCC (Photometric Color Calibration)
     emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
 
+    fs::path stacked_rgb_bge_path = run_dir / "outputs" / "stacked_rgb_bge.fits";
+    if (have_rgb) {
+      // Persist explicit pre-PCC snapshot (after BGE/astrometry preparation)
+      // to allow a direct BGE-only vs BGE+PCC comparison.
+      Matrix2Df R_bge_disk = R_out;
+      Matrix2Df G_bge_disk = G_out;
+      Matrix2Df B_bge_disk = B_out;
+      const bool bge_is_final_output = cfg.bge.enabled && !cfg.pcc.enabled;
+      if (cfg.stacking.output_stretch && bge_is_final_output) {
+        stretch_rgb_for_output(R_bge_disk, G_bge_disk, B_bge_disk, "BGE");
+      }
+      io::write_fits_rgb(stacked_rgb_bge_path,
+                         R_bge_disk, G_bge_disk, B_bge_disk, first_hdr);
+    }
+
     if (!cfg.pcc.enabled) {
       emitter.phase_end(run_id, Phase::PCC, "skipped",
-                        {{"reason", "disabled"}}, log_file);
+                        {{"reason", "disabled"},
+                         {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                        log_file);
     } else if (!have_wcs) {
       emitter.phase_end(run_id, Phase::PCC, "skipped",
-                        {{"reason", "no_wcs"}}, log_file);
+                        {{"reason", "no_wcs"},
+                         {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                        log_file);
     } else if (!have_rgb) {
       emitter.phase_end(run_id, Phase::PCC, "skipped",
                         {{"reason", "no_rgb_data"}}, log_file);
@@ -2897,78 +3176,43 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       // auto: siril → vizier_gaia → vizier_apass
       double search_r = wcs.search_radius_deg();
       std::string source = cfg.pcc.source;
-      std::string used_source;
-      std::vector<astro::GaiaStar> stars;
-
-      auto try_siril = [&]() -> bool {
-        std::string cat_dir = cfg.pcc.siril_catalog_dir;
-        if (cat_dir.empty()) cat_dir = astro::default_siril_gaia_catalog_dir();
-        if (!astro::is_siril_gaia_catalog_available(cat_dir)) return false;
-        std::cerr << "[PCC] Querying Siril Gaia catalog at RA="
-                  << wcs.crval1 << " Dec=" << wcs.crval2
-                  << " r=" << search_r << " deg" << std::endl;
-        stars = astro::siril_gaia_cone_search(
-            cat_dir, wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
-        if (!stars.empty()) { used_source = "siril"; return true; }
-        return false;
-      };
-
-      auto try_vizier_gaia = [&]() -> bool {
-        std::cerr << "[PCC] Querying VizieR Gaia DR3 at RA="
-                  << wcs.crval1 << " Dec=" << wcs.crval2
-                  << " r=" << search_r << " deg" << std::endl;
-        stars = astro::vizier_gaia_cone_search(
-            wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
-        if (!stars.empty()) { used_source = "vizier_gaia"; return true; }
-        return false;
-      };
-
-      auto try_vizier_apass = [&]() -> bool {
-        std::cerr << "[PCC] Querying VizieR APASS DR9 at RA="
-                  << wcs.crval1 << " Dec=" << wcs.crval2
-                  << " r=" << search_r << " deg" << std::endl;
-        stars = astro::vizier_apass_cone_search(
-            wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
-        if (!stars.empty()) { used_source = "vizier_apass"; return true; }
-        return false;
-      };
-
-      if (source == "siril") {
-        try_siril();
-      } else if (source == "vizier_gaia") {
-        try_vizier_gaia();
-      } else if (source == "vizier_apass") {
-        try_vizier_apass();
-      } else {
-        // auto: try all sources in order
-        if (!try_siril()) {
-          std::cerr << "[PCC] Siril catalog not available, trying VizieR Gaia..." << std::endl;
-          if (!try_vizier_gaia()) {
-            std::cerr << "[PCC] VizieR Gaia failed, trying VizieR APASS..." << std::endl;
-            try_vizier_apass();
-          }
-        }
-      }
-
-      std::cerr << "[PCC] Found " << stars.size() << " catalog stars"
-                << " (source: " << (used_source.empty() ? "none" : used_source) << ")"
-                << std::endl;
+      tile_compile::runner::PCCCatalogQueryResult catalog =
+          tile_compile::runner::query_pcc_catalog_stars(
+              wcs, cfg.pcc, std::cerr, "[PCC]");
+      std::string used_source = catalog.used_source;
+      std::vector<astro::GaiaStar> stars = std::move(catalog.stars);
 
       if (stars.empty()) {
         emitter.phase_end(run_id, Phase::PCC, "skipped",
                           {{"reason", "no_catalog_stars"},
                            {"search_radius_deg", search_r},
-                           {"source", source}}, log_file);
+                           {"source", source},
+                           {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                          log_file);
       } else {
         // Build PCC config from pipeline config
-        astro::PCCConfig pcc_cfg;
-        pcc_cfg.aperture_radius_px = cfg.pcc.aperture_radius_px;
-        pcc_cfg.annulus_inner_px = cfg.pcc.annulus_inner_px;
-        pcc_cfg.annulus_outer_px = cfg.pcc.annulus_outer_px;
-        pcc_cfg.mag_limit = cfg.pcc.mag_limit;
-        pcc_cfg.mag_bright_limit = cfg.pcc.mag_bright_limit;
-        pcc_cfg.min_stars = cfg.pcc.min_stars;
-        pcc_cfg.sigma_clip = cfg.pcc.sigma_clip;
+        astro::PCCConfig pcc_cfg =
+            tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
+        if (!bge_tile_metrics_cache.empty() &&
+            bge_tile_metrics_cache.size() == bge_tile_grid_cache.tiles.size()) {
+          pcc_cfg.use_tile_quality_weighting = true;
+          pcc_cfg.tile_grid = bge_tile_grid_cache;
+          pcc_cfg.tile_metrics = bge_tile_metrics_cache;
+        }
+
+        if (pcc_cfg.radii_mode == "auto_fwhm") {
+          const double F = std::max(0.0, static_cast<double>(seeing_fwhm_med));
+          const double r_ap = std::max(static_cast<double>(pcc_cfg.min_aperture_px),
+                                       pcc_cfg.aperture_fwhm_mult * F);
+          const double r_in = std::max(r_ap + 1.0,
+                                       pcc_cfg.annulus_inner_fwhm_mult * F);
+          const double r_out = std::max(r_in + 2.0,
+                                        pcc_cfg.annulus_outer_fwhm_mult * F);
+
+          pcc_cfg.aperture_radius_px = r_ap;
+          pcc_cfg.annulus_inner_px = r_in;
+          pcc_cfg.annulus_outer_px = r_out;
+        }
 
         auto result = astro::run_pcc(R_out, G_out, B_out, wcs, stars, pcc_cfg);
 
@@ -2978,31 +3222,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           Matrix2Df G_pcc_disk = G_out;
           Matrix2Df B_pcc_disk = B_out;
           if (cfg.stacking.output_stretch) {
-            float vmin = std::numeric_limits<float>::max();
-            float vmax = std::numeric_limits<float>::lowest();
-            for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
-              for (Eigen::Index k = 0; k < ch->size(); ++k) {
-                float v = ch->data()[k];
-                if (std::isfinite(v) && v > 0.0f) {
-                  if (v < vmin) vmin = v;
-                  if (v > vmax) vmax = v;
-                }
-              }
-            }
-            float range = vmax - vmin;
-            if (range > 1.0e-6f) {
-              float scale = 65535.0f / range;
-              for (auto *ch : {&R_pcc_disk, &G_pcc_disk, &B_pcc_disk}) {
-                for (Eigen::Index k = 0; k < ch->size(); ++k) {
-                  float v = ch->data()[k];
-                  if (std::isfinite(v) && v > 0.0f) {
-                    ch->data()[k] = (v - vmin) * scale;
-                  } else {
-                    ch->data()[k] = 0.0f;
-                  }
-                }
-              }
-            }
+            stretch_rgb_for_output(R_pcc_disk, G_pcc_disk, B_pcc_disk, "PCC");
           }
           io::write_fits_float(run_dir / "outputs" / "pcc_R.fit",
                                R_pcc_disk, first_hdr);
@@ -3024,15 +3244,41 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                             {{"stars_matched", result.n_stars_matched},
                              {"stars_used", result.n_stars_used},
                              {"residual_rms", result.residual_rms},
+                             {"determinant", result.determinant},
+                             {"condition_number", result.condition_number},
+                             {"apply_mode",
+                              pcc_cfg.apply_attenuation ? "attenuated" : "linear"},
+                             {"apply_attenuation", pcc_cfg.apply_attenuation},
+                             {"chroma_strength", pcc_cfg.chroma_strength},
+                             {"k_max", pcc_cfg.k_max},
+                             {"radii_mode", pcc_cfg.radii_mode},
+                             {"aperture_radius_px", pcc_cfg.aperture_radius_px},
+                             {"annulus_inner_px", pcc_cfg.annulus_inner_px},
+                             {"annulus_outer_px", pcc_cfg.annulus_outer_px},
                              {"matrix", matrix_json},
-                             {"source", used_source}},
+                             {"source", used_source},
+                             {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                             log_file);
         } else {
           emitter.phase_end(run_id, Phase::PCC, "skipped",
                             {{"reason", "fit_failed"},
                              {"error", result.error_message},
                              {"stars_matched", result.n_stars_matched},
-                             {"source", used_source}},
+                             {"stars_used", result.n_stars_used},
+                             {"residual_rms", result.residual_rms},
+                             {"determinant", result.determinant},
+                             {"condition_number", result.condition_number},
+                             {"apply_mode",
+                              pcc_cfg.apply_attenuation ? "attenuated" : "linear"},
+                             {"apply_attenuation", pcc_cfg.apply_attenuation},
+                             {"chroma_strength", pcc_cfg.chroma_strength},
+                             {"k_max", pcc_cfg.k_max},
+                             {"radii_mode", pcc_cfg.radii_mode},
+                             {"aperture_radius_px", pcc_cfg.aperture_radius_px},
+                             {"annulus_inner_px", pcc_cfg.annulus_inner_px},
+                             {"annulus_outer_px", pcc_cfg.annulus_outer_px},
+                             {"source", used_source},
+                             {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                             log_file);
         }
       }

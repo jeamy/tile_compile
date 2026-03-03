@@ -424,6 +424,78 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.astrometry.search_radius = a["search_radius"].as<int>();
   }
 
+  if (node["bge"]) {
+    auto b = node["bge"];
+    if (b["enabled"])
+      cfg.bge.enabled = b["enabled"].as<bool>();
+    if (b["sample_quantile"])
+      cfg.bge.sample_quantile = b["sample_quantile"].as<float>();
+    if (b["structure_thresh_percentile"])
+      cfg.bge.structure_thresh_percentile = b["structure_thresh_percentile"].as<float>();
+    if (b["min_tiles_per_cell"])
+      cfg.bge.min_tiles_per_cell = b["min_tiles_per_cell"].as<int>();
+    
+    if (b["mask"]) {
+      auto m = b["mask"];
+      if (m["star_dilate_px"])
+        cfg.bge.mask.star_dilate_px = m["star_dilate_px"].as<int>();
+      if (m["sat_dilate_px"])
+        cfg.bge.mask.sat_dilate_px = m["sat_dilate_px"].as<int>();
+    }
+    
+    if (b["grid"]) {
+      auto g = b["grid"];
+      if (g["N_g"])
+        cfg.bge.grid.N_g = g["N_g"].as<int>();
+      if (g["G_min_px"])
+        cfg.bge.grid.G_min_px = g["G_min_px"].as<int>();
+      if (g["G_max_fraction"])
+        cfg.bge.grid.G_max_fraction = g["G_max_fraction"].as<float>();
+      if (g["insufficient_cell_strategy"])
+        cfg.bge.grid.insufficient_cell_strategy = g["insufficient_cell_strategy"].as<std::string>();
+    }
+    
+    if (b["fit"]) {
+      auto f = b["fit"];
+      if (f["method"])
+        cfg.bge.fit.method = f["method"].as<std::string>();
+      if (f["robust_loss"])
+        cfg.bge.fit.robust_loss = f["robust_loss"].as<std::string>();
+      if (f["huber_delta"])
+        cfg.bge.fit.huber_delta = f["huber_delta"].as<float>();
+      if (f["irls_max_iterations"])
+        cfg.bge.fit.irls_max_iterations = f["irls_max_iterations"].as<int>();
+      if (f["irls_tolerance"])
+        cfg.bge.fit.irls_tolerance = f["irls_tolerance"].as<float>();
+      if (f["polynomial_order"])
+        cfg.bge.fit.polynomial_order = f["polynomial_order"].as<int>();
+      if (f["rbf_phi"])
+        cfg.bge.fit.rbf_phi = f["rbf_phi"].as<std::string>();
+      if (f["rbf_mu_factor"])
+        cfg.bge.fit.rbf_mu_factor = f["rbf_mu_factor"].as<float>();
+      if (f["rbf_lambda"])
+        cfg.bge.fit.rbf_lambda = f["rbf_lambda"].as<float>();
+      if (f["rbf_epsilon"])
+        cfg.bge.fit.rbf_epsilon = f["rbf_epsilon"].as<float>();
+    }
+
+    if (b["autotune"]) {
+      auto a = b["autotune"];
+      if (a["enabled"])
+        cfg.bge.autotune.enabled = a["enabled"].as<bool>();
+      if (a["max_evals"])
+        cfg.bge.autotune.max_evals = a["max_evals"].as<int>();
+      if (a["holdout_fraction"])
+        cfg.bge.autotune.holdout_fraction = a["holdout_fraction"].as<float>();
+      if (a["alpha_flatness"])
+        cfg.bge.autotune.alpha_flatness = a["alpha_flatness"].as<float>();
+      if (a["beta_roughness"])
+        cfg.bge.autotune.beta_roughness = a["beta_roughness"].as<float>();
+      if (a["strategy"])
+        cfg.bge.autotune.strategy = a["strategy"].as<std::string>();
+    }
+  }
+
   if (node["pcc"]) {
     auto p = node["pcc"];
     if (p["enabled"])
@@ -444,8 +516,31 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.pcc.min_stars = p["min_stars"].as<int>();
     if (p["sigma_clip"])
       cfg.pcc.sigma_clip = p["sigma_clip"].as<float>();
+    if (p["background_model"])
+      cfg.pcc.background_model = p["background_model"].as<std::string>();
+    if (p["max_condition_number"])
+      cfg.pcc.max_condition_number = p["max_condition_number"].as<float>();
+    if (p["max_residual_rms"])
+      cfg.pcc.max_residual_rms = p["max_residual_rms"].as<float>();
+    if (p["radii_mode"])
+      cfg.pcc.radii_mode = p["radii_mode"].as<std::string>();
+    if (p["aperture_fwhm_mult"])
+      cfg.pcc.aperture_fwhm_mult = p["aperture_fwhm_mult"].as<float>();
+    if (p["annulus_inner_fwhm_mult"])
+      cfg.pcc.annulus_inner_fwhm_mult = p["annulus_inner_fwhm_mult"].as<float>();
+    if (p["annulus_outer_fwhm_mult"])
+      cfg.pcc.annulus_outer_fwhm_mult = p["annulus_outer_fwhm_mult"].as<float>();
+    if (p["min_aperture_px"])
+      cfg.pcc.min_aperture_px = p["min_aperture_px"].as<float>();
     if (p["siril_catalog_dir"])
       cfg.pcc.siril_catalog_dir = p["siril_catalog_dir"].as<std::string>();
+
+    if (p["apply_attenuation"])
+      cfg.pcc.apply_attenuation = p["apply_attenuation"].as<bool>();
+    if (p["chroma_strength"])
+      cfg.pcc.chroma_strength = p["chroma_strength"].as<float>();
+    if (p["k_max"])
+      cfg.pcc.k_max = p["k_max"].as<float>();
   }
 
   if (node["stacking"]) {
@@ -720,6 +815,33 @@ YAML::Node Config::to_yaml() const {
   node["astrometry"]["astap_data_dir"] = astrometry.astap_data_dir;
   node["astrometry"]["search_radius"] = astrometry.search_radius;
 
+  node["bge"]["enabled"] = bge.enabled;
+  node["bge"]["sample_quantile"] = bge.sample_quantile;
+  node["bge"]["structure_thresh_percentile"] = bge.structure_thresh_percentile;
+  node["bge"]["min_tiles_per_cell"] = bge.min_tiles_per_cell;
+  node["bge"]["mask"]["star_dilate_px"] = bge.mask.star_dilate_px;
+  node["bge"]["mask"]["sat_dilate_px"] = bge.mask.sat_dilate_px;
+  node["bge"]["grid"]["N_g"] = bge.grid.N_g;
+  node["bge"]["grid"]["G_min_px"] = bge.grid.G_min_px;
+  node["bge"]["grid"]["G_max_fraction"] = bge.grid.G_max_fraction;
+  node["bge"]["grid"]["insufficient_cell_strategy"] = bge.grid.insufficient_cell_strategy;
+  node["bge"]["fit"]["method"] = bge.fit.method;
+  node["bge"]["fit"]["robust_loss"] = bge.fit.robust_loss;
+  node["bge"]["fit"]["huber_delta"] = bge.fit.huber_delta;
+  node["bge"]["fit"]["irls_max_iterations"] = bge.fit.irls_max_iterations;
+  node["bge"]["fit"]["irls_tolerance"] = bge.fit.irls_tolerance;
+  node["bge"]["fit"]["polynomial_order"] = bge.fit.polynomial_order;
+  node["bge"]["fit"]["rbf_phi"] = bge.fit.rbf_phi;
+  node["bge"]["fit"]["rbf_mu_factor"] = bge.fit.rbf_mu_factor;
+  node["bge"]["fit"]["rbf_lambda"] = bge.fit.rbf_lambda;
+  node["bge"]["fit"]["rbf_epsilon"] = bge.fit.rbf_epsilon;
+  node["bge"]["autotune"]["enabled"] = bge.autotune.enabled;
+  node["bge"]["autotune"]["max_evals"] = bge.autotune.max_evals;
+  node["bge"]["autotune"]["holdout_fraction"] = bge.autotune.holdout_fraction;
+  node["bge"]["autotune"]["alpha_flatness"] = bge.autotune.alpha_flatness;
+  node["bge"]["autotune"]["beta_roughness"] = bge.autotune.beta_roughness;
+  node["bge"]["autotune"]["strategy"] = bge.autotune.strategy;
+
   node["pcc"]["enabled"] = pcc.enabled;
   node["pcc"]["source"] = pcc.source;
   node["pcc"]["mag_limit"] = pcc.mag_limit;
@@ -729,7 +851,18 @@ YAML::Node Config::to_yaml() const {
   node["pcc"]["annulus_outer_px"] = pcc.annulus_outer_px;
   node["pcc"]["min_stars"] = pcc.min_stars;
   node["pcc"]["sigma_clip"] = pcc.sigma_clip;
+  node["pcc"]["background_model"] = pcc.background_model;
+  node["pcc"]["max_condition_number"] = pcc.max_condition_number;
+  node["pcc"]["max_residual_rms"] = pcc.max_residual_rms;
+  node["pcc"]["radii_mode"] = pcc.radii_mode;
+  node["pcc"]["aperture_fwhm_mult"] = pcc.aperture_fwhm_mult;
+  node["pcc"]["annulus_inner_fwhm_mult"] = pcc.annulus_inner_fwhm_mult;
+  node["pcc"]["annulus_outer_fwhm_mult"] = pcc.annulus_outer_fwhm_mult;
+  node["pcc"]["min_aperture_px"] = pcc.min_aperture_px;
   node["pcc"]["siril_catalog_dir"] = pcc.siril_catalog_dir;
+  node["pcc"]["apply_attenuation"] = pcc.apply_attenuation;
+  node["pcc"]["chroma_strength"] = pcc.chroma_strength;
+  node["pcc"]["k_max"] = pcc.k_max;
 
   node["stacking"]["method"] = stacking.method;
   node["stacking"]["sigma_clip"]["sigma_low"] = stacking.sigma_clip.sigma_low;
@@ -1028,6 +1161,81 @@ void Config::validate() const {
     throw ValidationError("reconstruction.window_function must be 'hanning'");
   }
 
+  if (bge.sample_quantile <= 0.0f || bge.sample_quantile > 0.5f) {
+    throw ValidationError("bge.sample_quantile must be in (0,0.5]");
+  }
+  if (bge.structure_thresh_percentile < 0.0f ||
+      bge.structure_thresh_percentile > 1.0f) {
+    throw ValidationError("bge.structure_thresh_percentile must be in [0,1]");
+  }
+  if (bge.min_tiles_per_cell < 1) {
+    throw ValidationError("bge.min_tiles_per_cell must be >= 1");
+  }
+  if (bge.grid.N_g < 1 || bge.grid.G_min_px < 1 ||
+      bge.grid.G_max_fraction <= 0.0f || bge.grid.G_max_fraction > 1.0f) {
+    throw ValidationError("bge.grid parameters are out of range");
+  }
+  if (bge.fit.irls_max_iterations < 1 || bge.fit.irls_tolerance <= 0.0f ||
+      bge.fit.huber_delta <= 0.0f ||
+      bge.fit.rbf_mu_factor <= 0.0f ||
+      bge.fit.rbf_lambda <= 0.0f || bge.fit.rbf_epsilon <= 0.0f) {
+    throw ValidationError("bge.fit parameters are out of range");
+  }
+  if (bge.fit.method != "poly" && bge.fit.method != "spline" &&
+      bge.fit.method != "bicubic" && bge.fit.method != "rbf" &&
+      bge.fit.method != "modeled_mask_mesh") {
+    throw ValidationError(
+        "bge.fit.method must be one of: poly|spline|bicubic|rbf|modeled_mask_mesh");
+  }
+  if (bge.fit.robust_loss != "huber" && bge.fit.robust_loss != "tukey") {
+    throw ValidationError("bge.fit.robust_loss must be 'huber' or 'tukey'");
+  }
+  if (bge.fit.rbf_phi != "thinplate" && bge.fit.rbf_phi != "multiquadric" &&
+      bge.fit.rbf_phi != "gaussian") {
+    throw ValidationError(
+        "bge.fit.rbf_phi must be one of: thinplate|multiquadric|gaussian");
+  }
+  if (bge.autotune.max_evals < 1 ||
+      bge.autotune.holdout_fraction < 0.05f ||
+      bge.autotune.holdout_fraction > 0.50f ||
+      bge.autotune.alpha_flatness < 0.0f ||
+      bge.autotune.beta_roughness < 0.0f) {
+    throw ValidationError("bge.autotune parameters are out of range");
+  }
+  if (bge.autotune.strategy != "conservative" &&
+      bge.autotune.strategy != "extended") {
+    throw ValidationError(
+        "bge.autotune.strategy must be 'conservative' or 'extended'");
+  }
+
+  if (pcc.aperture_radius_px <= 0.0f || pcc.annulus_inner_px <= 0.0f ||
+      pcc.annulus_outer_px <= 0.0f) {
+    throw ValidationError("pcc aperture and annulus radii must be > 0");
+  }
+  if (pcc.min_stars < 3 || pcc.sigma_clip <= 0.0f) {
+    throw ValidationError("pcc.min_stars must be >= 3 and sigma_clip > 0");
+  }
+  if (pcc.background_model != "median" && pcc.background_model != "plane") {
+    throw ValidationError("pcc.background_model must be 'median' or 'plane'");
+  }
+  if (pcc.max_condition_number < 1.0f || pcc.max_residual_rms <= 0.0f) {
+    throw ValidationError(
+        "pcc.max_condition_number must be >= 1 and max_residual_rms > 0");
+  }
+  if (pcc.radii_mode != "fixed" && pcc.radii_mode != "auto_fwhm") {
+    throw ValidationError("pcc.radii_mode must be 'fixed' or 'auto_fwhm'");
+  }
+  if (pcc.aperture_fwhm_mult <= 0.0f || pcc.annulus_inner_fwhm_mult <= 0.0f ||
+      pcc.annulus_outer_fwhm_mult <= 0.0f || pcc.min_aperture_px <= 0.0f) {
+    throw ValidationError("pcc adaptive radii parameters must be > 0");
+  }
+  if (pcc.chroma_strength < 0.0f || pcc.chroma_strength > 1.0f) {
+    throw ValidationError("pcc.chroma_strength must be in [0,1]");
+  }
+  if (pcc.k_max <= 0.0f) {
+    throw ValidationError("pcc.k_max must be > 0");
+  }
+
   if (stacking.method != "average" && stacking.method != "rej") {
     throw ValidationError("stacking.method must be 'average' or 'rej'");
   }
@@ -1225,7 +1433,18 @@ std::string get_schema_json() {
                       "annulus_outer_px":{"type":"number","exclusiveMinimum":0},
                       "min_stars":{"type":"integer","minimum":3},
                       "sigma_clip":{"type":"number","exclusiveMinimum":0},
-                      "siril_catalog_dir":{"type":"string"} } },
+                      "background_model":{"type":"string","enum":["median","plane"]},
+                      "max_condition_number":{"type":"number","minimum":1},
+                      "max_residual_rms":{"type":"number","exclusiveMinimum":0},
+                      "radii_mode":{"type":"string","enum":["fixed","auto_fwhm"]},
+                      "aperture_fwhm_mult":{"type":"number","exclusiveMinimum":0},
+                      "annulus_inner_fwhm_mult":{"type":"number","exclusiveMinimum":0},
+                      "annulus_outer_fwhm_mult":{"type":"number","exclusiveMinimum":0},
+                      "min_aperture_px":{"type":"number","exclusiveMinimum":0},
+                      "siril_catalog_dir":{"type":"string"},
+                      "apply_attenuation":{"type":"boolean"},
+                      "chroma_strength":{"type":"number","minimum":0,"maximum":1},
+                      "k_max":{"type":"number","exclusiveMinimum":0} } },
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},
                       "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},

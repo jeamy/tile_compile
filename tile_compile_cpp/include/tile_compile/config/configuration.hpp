@@ -243,6 +243,53 @@ struct AstrometryConfig {
   int search_radius = 180;        // degrees (180 = blind solve)
 };
 
+struct BGEConfig {
+  bool enabled = false;
+  
+  // Tile sampling (v3.3 §6.3.2)
+  float sample_quantile = 0.20f;
+  float structure_thresh_percentile = 0.90f;
+  int min_tiles_per_cell = 3;
+  
+  // Masks (v3.3 §6.3.2a)
+  struct {
+    int star_dilate_px = 4;
+    int sat_dilate_px = 4;
+  } mask;
+  
+  // Grid (v3.3 §6.3.3, §6.3.8)
+  struct {
+    int N_g = 32;
+    int G_min_px = 64;
+    float G_max_fraction = 0.25f;
+    std::string insufficient_cell_strategy = "discard";
+  } grid;
+  
+  // Surface fitting (v3.3 §6.3.4, §6.3.7)
+  struct {
+    std::string method = "rbf"; // poly | spline | bicubic | rbf | modeled_mask_mesh
+    std::string robust_loss = "huber"; // huber | tukey
+    float huber_delta = 1.5f;
+    int irls_max_iterations = 10;
+    float irls_tolerance = 1e-4f;
+    int polynomial_order = 2;
+    std::string rbf_phi = "multiquadric";
+    float rbf_mu_factor = 1.0f;
+    float rbf_lambda = 1e-6f;
+    float rbf_epsilon = 1e-10f;
+  } fit;
+
+  // Autotuning (v3.3.6)
+  struct {
+    bool enabled = false;
+    int max_evals = 24;
+    float holdout_fraction = 0.25f;
+    float alpha_flatness = 0.25f;
+    float beta_roughness = 0.10f;
+    std::string strategy = "conservative"; // conservative | extended
+  } autotune;
+};
+
 struct PCCConfig {
   bool enabled = false;
   std::string source = "auto";    // auto | siril | vizier_gaia | vizier_apass
@@ -253,7 +300,24 @@ struct PCCConfig {
   float annulus_outer_px = 18.0f;
   int min_stars = 10;
   float sigma_clip = 2.5f;
+
+  // Local annulus background model (v3.3.6 §6.4)
+  std::string background_model = "plane"; // median | plane
+  float max_condition_number = 3.0f; // >= 1, rejects unstable PCC matrices
+  float max_residual_rms = 0.35f;    // > 0, rejects noisy PCC fits
+
+  // Adaptive radii (v3.3.6 §6.4)
+  std::string radii_mode = "auto_fwhm"; // fixed | auto_fwhm
+  float aperture_fwhm_mult = 1.8f;
+  float annulus_inner_fwhm_mult = 3.0f;
+  float annulus_outer_fwhm_mult = 5.0f;
+  float min_aperture_px = 4.0f;
+
   std::string siril_catalog_dir;  // empty = default path
+  
+  bool apply_attenuation = false;
+  float chroma_strength = 1.00f;
+  float k_max = 3.20f;
 };
 
 struct ValidationConfig {
@@ -291,6 +355,7 @@ struct Config {
   ReconstructionConfig reconstruction;
   bool debayer = true;
   AstrometryConfig astrometry;
+  BGEConfig bge;
   PCCConfig pcc;
   StackingConfig stacking;
   ValidationConfig validation;

@@ -116,6 +116,41 @@ def _plot_timeseries(vals: list[float], title: str, ylabel: str, out: Path,
     return True
 
 
+def _plot_bge_grid_cells(channels: list[dict], title: str, out: Path) -> bool:
+    if plt is None or not channels:
+        return False
+    valid_channels = [c for c in channels if c.get("grid_cells")]
+    if not valid_channels:
+        return False
+
+    ncols = len(valid_channels)
+    fig, axes = plt.subplots(1, ncols, figsize=(4.2 * ncols, 3.8), dpi=150)
+    if ncols == 1:
+        axes = [axes]
+
+    for ax, ch in zip(axes, valid_channels):
+        grid_cells = ch.get("grid_cells", [])
+        xs = [float(gc.get("center_x", 0.0)) for gc in grid_cells]
+        ys = [float(gc.get("center_y", 0.0)) for gc in grid_cells]
+        vals = [float(gc.get("bg_value", 0.0)) for gc in grid_cells]
+        if not xs or not ys or not vals:
+            ax.set_title(f"{ch.get('channel', '?')} (no data)", fontsize=9)
+            continue
+        sc = ax.scatter(xs, ys, c=vals, cmap="viridis", s=18, alpha=0.9)
+        ax.set_title(f"Channel {ch.get('channel', '?')}", fontsize=9)
+        ax.set_xlabel("x (px)", fontsize=8)
+        ax.set_ylabel("y (px)", fontsize=8)
+        ax.invert_yaxis()
+        ax.tick_params(labelsize=7)
+        fig.colorbar(sc, ax=ax, shrink=0.75)
+
+    fig.suptitle(title, fontsize=11)
+    fig.tight_layout()
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    return True
+
+
 def _plot_histogram(vals: list[float], title: str, xlabel: str, out: Path,
                     color: str = "#7aa2f7", bins: int = 60) -> bool:
     if plt is None or not vals:
@@ -1370,6 +1405,128 @@ def _gen_synthetic(artifacts_dir: Path, syn: dict) -> tuple[list[str], list[str]
     return pngs, evals, explanations
 
 
+def _gen_bge(artifacts_dir: Path, bge: dict) -> tuple[list[str], list[str], dict[str, str]]:
+    pngs: list[str] = []
+    evals: list[str] = []
+    explanations: dict[str, str] = {}
+
+    if not bge:
+        evals.append("no bge.json data")
+        return pngs, evals, explanations
+
+    summary = bge.get("summary", {})
+    requested = bool(bge.get("requested", False))
+    attempted = bool(bge.get("attempted", False))
+    success = bool(bge.get("success", False))
+    evals.append(f"requested={requested}, attempted={attempted}, success={success}")
+    evals.append(
+        "channels applied="
+        f"{summary.get('channels_applied', 0)}/{summary.get('channels_total', 0)}, "
+        f"fit success={summary.get('channels_fit_success', 0)}"
+    )
+    evals.append(
+        "tile samples valid="
+        f"{summary.get('tile_samples_valid', 0)}/{summary.get('tile_samples_total', 0)}, "
+        f"grid cells valid={summary.get('grid_cells_valid', 0)}"
+    )
+
+    channels = bge.get("channels", [])
+    if not isinstance(channels, list) or not channels:
+        evals.append("WARNING: no channel diagnostics in bge artifact")
+        return pngs, evals, explanations
+
+    labels: list[str] = []
+    mean_shifts: list[float] = []
+    residual_stds: list[float] = []
+    valid_ratios: list[float] = []
+
+    for ch in channels:
+        name = str(ch.get("channel", "?"))
+        labels.append(name)
+        mean_shifts.append(float(ch.get("mean_shift", 0.0)))
+        residual_stds.append(float(ch.get("residual_stats", {}).get("std", 0.0)))
+        total = float(ch.get("tile_samples_total", 0) or 0)
+        valid = float(ch.get("tile_samples_valid", 0) or 0)
+        valid_ratios.append((valid / total) if total > 0 else 0.0)
+
+    fn = "bge_channel_summary.png"
+    if plt is not None and labels:
+        fig, axes = plt.subplots(1, 3, figsize=(12, 3.3), dpi=150)
+
+        axes[0].bar(labels, mean_shifts, color=["#ff6b6b", "#50fa7b", "#6c9eff"][:len(labels)], alpha=0.85)
+        axes[0].set_title("BGE mean shift", fontsize=10)
+        axes[0].set_ylabel("output_mean - input_mean", fontsize=8)
+        axes[0].tick_params(labelsize=8)
+
+        axes[1].bar(labels, residual_stds, color="#8be9fd", alpha=0.85)
+        axes[1].set_title("Residual std @ grid cells", fontsize=10)
+        axes[1].set_ylabel("std", fontsize=8)
+        axes[1].tick_params(labelsize=8)
+
+        axes[2].bar(labels, valid_ratios, color="#f1fa8c", alpha=0.85)
+        axes[2].set_ylim(0.0, 1.0)
+        axes[2].set_title("Valid tile-sample ratio", fontsize=10)
+        axes[2].set_ylabel("ratio", fontsize=8)
+        axes[2].tick_params(labelsize=8)
+
+        fig.tight_layout()
+        fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
+        plt.close(fig)
+        pngs.append(fn)
+        explanations[fn] = (
+            '<h4>BGE Kanalzusammenfassung</h4>'
+            '<p>Links: mittlere additive Verschiebung pro Kanal durch BGE. '
+            'Mitte: Restfehler-Standardabweichung an Grid-Zellen. '
+            'Rechts: Anteil gültiger Tile-Samples.</p>'
+        )
+
+    residual_series: dict[str, list[float]] = {}
+    for ch in channels:
+        name = str(ch.get("channel", "?"))
+        vals = [float(v) for v in ch.get("residual_values", []) if np.isfinite(v)]
+        if vals:
+            residual_series[name] = vals
+    if residual_series:
+        fn = "bge_residual_hist.png"
+        if plt is not None:
+            fig, ax = plt.subplots(figsize=(6.3, 3.5), dpi=150)
+            color_map = {"R": "#ff6b6b", "G": "#50fa7b", "B": "#6c9eff"}
+            for name, vals in residual_series.items():
+                a = np.asarray(vals, dtype=np.float64)
+                if a.size < 2:
+                    continue
+                lo, hi = float(np.percentile(a, 1)), float(np.percentile(a, 99))
+                if hi <= lo:
+                    continue
+                ax.hist(a, bins=45, range=(lo, hi), alpha=0.35,
+                        label=name, color=color_map.get(name, "#7aa2f7"))
+            ax.set_title("BGE residual distribution", fontsize=10)
+            ax.set_xlabel("residual", fontsize=9)
+            ax.set_ylabel("count", fontsize=9)
+            ax.legend(fontsize=8)
+            ax.tick_params(labelsize=8)
+            fig.tight_layout()
+            fig.savefig(_fig_path(artifacts_dir, fn), bbox_inches="tight")
+            plt.close(fig)
+            pngs.append(fn)
+            explanations[fn] = (
+                '<h4>Residuen-Verteilung</h4>'
+                '<p>Verteilung der Residuen an den Grid-Zellen je Kanal. '
+                'Engere Verteilungen bedeuten stabilere Modellanpassung.</p>'
+            )
+
+    fn = "bge_grid_cells.png"
+    if _plot_bge_grid_cells(channels, "BGE grid-cell background values", _fig_path(artifacts_dir, fn)):
+        pngs.append(fn)
+        explanations[fn] = (
+            '<h4>Grid-Zellen (räumlich)</h4>'
+            '<p>Räumliche Verteilung der aggregierten Hintergrundwerte pro Kanal '
+            'auf den BGE-Stützpunkten.</p>'
+        )
+
+    return pngs, evals, explanations
+
+
 def _gen_validation(artifacts_dir: Path, val: dict) -> tuple[list[str], list[str], dict[str, str]]:
     pngs: list[str] = []
     evals: list[str] = []
@@ -1880,6 +2037,7 @@ def generate_report(run_dir: Path) -> Path:
     recon = _read_json(artifacts_dir / "tile_reconstruction.json")
     cl = _read_json(artifacts_dir / "state_clustering.json")
     syn = _read_json(artifacts_dir / "synthetic_frames.json")
+    bge = _read_json(artifacts_dir / "bge.json")
     val = _read_json(artifacts_dir / "validation.json")
     common_overlap = _read_json(artifacts_dir / "common_overlap.json")
     events = _read_jsonl(logs_path)
@@ -1960,12 +2118,19 @@ def generate_report(run_dir: Path) -> Path:
         sy_pngs, sy_evals, sy_expl = _gen_synthetic(artifacts_dir, syn)
         sections.append(("Synthetic Frames", _make_card_html("Synthetic frame info", sy_pngs, sy_evals, explanations=sy_expl)))
 
-    # 9. Validation
+    # 9. BGE
+    if bge:
+        bge_pngs, bge_evals, bge_expl = _gen_bge(artifacts_dir, bge)
+        sections.append(("Background Gradient Extraction (BGE)",
+                        _make_card_html("BGE diagnostics", bge_pngs, bge_evals,
+                                        _infer_status(bge_evals), explanations=bge_expl)))
+
+    # 10. Validation
     if val:
         v_pngs, v_evals, v_expl = _gen_validation(artifacts_dir, val)
         sections.append(("Validation", _make_card_html("Quality validation", v_pngs, v_evals, _infer_status(v_evals), explanations=v_expl)))
 
-    # 10. Common overlap diagnostics
+    # 11. Common overlap diagnostics
     if common_overlap:
         co_pngs, co_evals, co_expl = _gen_common_overlap(artifacts_dir, common_overlap)
         sections.append(("Common Overlap", _make_card_html("Post-PREWARP overlap diagnostics", co_pngs, co_evals, _infer_status(co_evals), explanations=co_expl)))

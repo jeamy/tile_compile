@@ -313,6 +313,37 @@ exec "$DIR/tile_compile_runner" "$@"
 EOF
 chmod +x "$DIST_DIR/run_tile_compile_runner.sh" 2>/dev/null || true
 
+# Verify runtime dependencies are fully resolved in the bundle.
+verify_ldd_target() {
+  local target="$1"
+  local report="$2"
+  if [ ! -e "$target" ]; then
+    return 0
+  fi
+  env LD_LIBRARY_PATH="$DIST_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+      QT_PLUGIN_PATH="$DIST_DIR/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}" \
+      QT_QPA_PLATFORM_PLUGIN_PATH="$DIST_DIR/plugins/platforms${QT_QPA_PLATFORM_PLUGIN_PATH:+:$QT_QPA_PLATFORM_PLUGIN_PATH}" \
+      ldd "$target" > "$report" 2>&1 || true
+
+  if grep -q "not found" "$report"; then
+    echo "FEHLER: Ungeloeste Abhaengigkeiten in $target" >&2
+    cat "$report" >&2
+    exit 1
+  fi
+}
+
+echo "Pruefe Runtime-Abhaengigkeiten..."
+verify_ldd_target "$DIST_DIR/tile_compile_gui" "$DIST_DIR/ldd_gui.txt"
+verify_ldd_target "$DIST_DIR/tile_compile_runner" "$DIST_DIR/ldd_runner.txt"
+verify_ldd_target "$DIST_DIR/tile_compile_cli" "$DIST_DIR/ldd_cli.txt"
+
+if [ -d "$DIST_DIR/plugins" ]; then
+  while IFS= read -r so; do
+    [ -f "$so" ] || continue
+    verify_ldd_target "$so" "$DIST_DIR/ldd_$(basename "$so").txt"
+  done < <(find "$DIST_DIR/plugins" -type f -name "*.so" 2>/dev/null)
+fi
+
 if command -v zip &>/dev/null; then
   echo ""
   echo "Erzeuge Release-Zip: $ZIP_NAME"

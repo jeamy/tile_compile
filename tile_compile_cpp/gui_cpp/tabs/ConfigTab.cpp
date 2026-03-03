@@ -472,6 +472,18 @@ void ConfigTab::build_paths_ui(QVBoxLayout *parent) {
     make_dspin(spn_pcc_sigma_, 1.0, 10.0, 2.5, 1, " σ");
     pcc_form->addRow("Sigma clip:", spn_pcc_sigma_);
 
+    chk_pcc_apply_attenuation_ = new QCheckBox("Apply attenuation");
+    chk_pcc_apply_attenuation_->setChecked(false);
+    pcc_form->addRow("", chk_pcc_apply_attenuation_);
+    connect(chk_pcc_apply_attenuation_, &QCheckBox::toggled,
+            this, &ConfigTab::on_path_editor_changed);
+
+    make_dspin(spn_pcc_chroma_strength_, 0.0, 1.0, 1.0, 2, "");
+    pcc_form->addRow("Chroma strength:", spn_pcc_chroma_strength_);
+
+    make_dspin(spn_pcc_k_max_, 0.1, 10.0, 3.2, 2, "");
+    pcc_form->addRow("k max:", spn_pcc_k_max_);
+
     parent->addWidget(pcc_box);
 }
 
@@ -521,6 +533,9 @@ void ConfigTab::sync_paths_to_yaml() {
         cfg["pcc"]["annulus_outer_px"] = spn_pcc_ann_outer_->value();
         cfg["pcc"]["min_stars"] = spn_pcc_min_stars_->value();
         cfg["pcc"]["sigma_clip"] = spn_pcc_sigma_->value();
+        cfg["pcc"]["apply_attenuation"] = chk_pcc_apply_attenuation_->isChecked();
+        cfg["pcc"]["chroma_strength"] = spn_pcc_chroma_strength_->value();
+        cfg["pcc"]["k_max"] = spn_pcc_k_max_->value();
 
         YAML::Emitter out;
         out << cfg;
@@ -585,6 +600,9 @@ void ConfigTab::sync_paths_from_yaml(const QString &yaml_text) {
             set_dbl(spn_pcc_ann_outer_, p["annulus_outer_px"]);
             set_int(spn_pcc_min_stars_, p["min_stars"]);
             set_dbl(spn_pcc_sigma_, p["sigma_clip"]);
+            set_bool(chk_pcc_apply_attenuation_, p["apply_attenuation"]);
+            set_dbl(spn_pcc_chroma_strength_, p["chroma_strength"]);
+            set_dbl(spn_pcc_k_max_, p["k_max"]);
         }
     } catch (...) {
         // Ignore parse errors

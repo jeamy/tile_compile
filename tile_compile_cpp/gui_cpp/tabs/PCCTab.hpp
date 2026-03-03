@@ -44,8 +44,6 @@ class PCCTab : public QWidget {
     void on_chunk_download_progress(qint64 received, qint64 total);
     void on_chunk_download_finished();
 
-    std::string project_root_;
-
     // Input
     QLineEdit *edt_fits_path_ = nullptr;
     QLineEdit *edt_wcs_path_ = nullptr;

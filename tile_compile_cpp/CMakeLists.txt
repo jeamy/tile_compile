@@ -324,6 +324,7 @@ set(LIB_SOURCES
     src/image/processing.cpp
     src/image/cfa_processing.cpp
     src/image/normalization.cpp
+    src/image/background_extraction.cpp
     src/registration/registration.cpp
     src/registration/global_registration.cpp
     src/metrics/metrics.cpp
@@ -411,6 +412,15 @@ else()
 endif()
 target_include_directories(tile_compile_gui PRIVATE gui_cpp)
 target_link_libraries(tile_compile_gui PRIVATE tile_compile_lib Qt6::Widgets Qt6::Network)
+
+# Ensure GUI subsystem on Windows so no console window is created for the GUI app.
+if(WIN32)
+    if(MSVC)
+        target_link_options(tile_compile_gui PRIVATE "/SUBSYSTEM:WINDOWS")
+    elseif(MINGW)
+        target_link_options(tile_compile_gui PRIVATE "-mwindows")
+    endif()
+endif()
 
 set_target_properties(tile_compile_gui PROPERTIES
     AUTOMOC_PATH_PREFIX OFF
