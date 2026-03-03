@@ -22,7 +22,8 @@ namespace astro = tile_compile::astrometry;
 namespace io = tile_compile::io;
 
 PCCTab::PCCTab(const std::string &project_root, QWidget *parent)
-    : QWidget(parent), project_root_(project_root) {
+    : QWidget(parent) {
+    (void)project_root;
     nam_ = new QNetworkAccessManager(this);
     build_ui();
     update_catalog_status();

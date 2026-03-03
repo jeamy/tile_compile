@@ -91,6 +91,9 @@ class ConfigTab : public QWidget {
     QDoubleSpinBox *spn_pcc_ann_outer_ = nullptr;
     QSpinBox  *spn_pcc_min_stars_ = nullptr;
     QDoubleSpinBox *spn_pcc_sigma_ = nullptr;
+    QCheckBox *chk_pcc_apply_attenuation_ = nullptr;
+    QDoubleSpinBox *spn_pcc_chroma_strength_ = nullptr;
+    QDoubleSpinBox *spn_pcc_k_max_ = nullptr;
 };
 
 }

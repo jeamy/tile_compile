@@ -976,21 +976,6 @@ float rbf_kernel_gaussian(float d, float mu) {
     return std::exp(-d * d / (2.0f * mu * mu));
 }
 
-// Robust loss functions (v3.3 §6.3.7)
-float huber_loss(float r, float delta) {
-    float abs_r = std::abs(r);
-    return (abs_r <= delta) ? (0.5f * r * r) : (delta * (abs_r - 0.5f * delta));
-}
-
-float tukey_loss(float r, float c) {
-    float abs_r = std::abs(r);
-    if (abs_r <= c) {
-        float u = r / c;
-        return (c * c / 6.0f) * (1.0f - std::pow(1.0f - u * u, 3.0f));
-    }
-    return c * c / 6.0f;
-}
-
 float huber_weight(float r, float delta) {
     float abs_r = std::abs(r);
     return (abs_r <= delta) ? 1.0f : (delta / abs_r);
@@ -2192,6 +2177,7 @@ bool apply_background_extraction(
         diagnostics->autotune_strategy = config.autotune.strategy;
         diagnostics->autotune_max_evals = config.autotune.max_evals;
         diagnostics->autotune_evals = 0;
+        diagnostics->autotune_selected_fit_method = config.fit.method;
         diagnostics->autotune_best_objective = 0.0f;
         diagnostics->autotune_best_objective_raw = 0.0f;
         diagnostics->autotune_best_objective_normalized = 0.0f;
@@ -2424,6 +2410,7 @@ bool apply_background_extraction(
         BGEChannelDiagnostics ch_diag;
         ch_diag.channel_name = channel_name;
         ch_diag.autotune_enabled = config.autotune.enabled && !use_modeled_mask_mesh;
+        ch_diag.autotune_selected_fit_method = config.fit.method;
         ch_diag.autotune_selected_grid_spacing = grid_spacing;
         ch_diag.input_stats = stats_from_matrix(channel_before);
         
@@ -2496,6 +2483,7 @@ bool apply_background_extraction(
                         diagnostics->autotune_best_cv_rms = tune_res.cv_rms;
                         diagnostics->autotune_best_flatness = tune_res.flatness;
                         diagnostics->autotune_best_roughness = tune_res.roughness;
+                        diagnostics->autotune_selected_fit_method = tune_res.cfg.fit.method;
                         diagnostics->autotune_selected_sample_quantile =
                             tune_res.cfg.sample_quantile;
                         diagnostics->autotune_selected_structure_thresh_percentile =
@@ -2507,6 +2495,7 @@ bool apply_background_extraction(
             }
 
             ch_diag.autotune_evals = tune_res.evals;
+            ch_diag.autotune_selected_fit_method = channel_cfg.fit.method;
             ch_diag.autotune_selected_grid_spacing = channel_grid_spacing;
             ch_diag.autotune_fallback_used = !tune_res.success;
             if (tune_res.success) {
@@ -2684,6 +2673,7 @@ bool apply_background_extraction(
                     diagnostics->safety_fallback_method = chosen_method;
                     diagnostics->safety_fallback_reason = "background_chroma_worsened";
                     diagnostics->method = chosen_method;
+                    diagnostics->autotune_selected_fit_method = chosen_method;
                     diagnostics->robust_loss = fb_diag.robust_loss;
                     diagnostics->grid_spacing = fb_diag.grid_spacing;
                     diagnostics->channels = std::move(fb_diag.channels);

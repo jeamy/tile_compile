@@ -2,11 +2,13 @@
 
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/image/background_extraction.hpp"
 
 #include <cstdint>
 #include <filesystem>
+#include <ostream>
 #include <streambuf>
 #include <string>
 #include <vector>
@@ -21,6 +23,21 @@ bool message_indicates_disk_full(const std::string &message);
 
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src);
 astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src);
+
+tile_compile::core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
+                                          bool requested,
+                                          bool have_tile_data,
+                                          bool metrics_tiles_match);
+
+struct PCCCatalogQueryResult {
+  std::vector<astrometry::GaiaStar> stars;
+  std::string used_source;
+};
+
+PCCCatalogQueryResult query_pcc_catalog_stars(const astrometry::WCS &wcs,
+                                              const config::PCCConfig &cfg,
+                                              std::ostream &log_stream,
+                                              const std::string &log_prefix);
 
 class TeeBuf : public std::streambuf {
 public:

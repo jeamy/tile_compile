@@ -535,12 +535,12 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (p["siril_catalog_dir"])
       cfg.pcc.siril_catalog_dir = p["siril_catalog_dir"].as<std::string>();
 
-if (p["apply_attenuation"])
-  cfg.pcc.apply_attenuation = p["apply_attenuation"].as<bool>();
-if (p["chroma_strength"])
-  cfg.pcc.chroma_strength = p["chroma_strength"].as<float>();
-if (p["k_max"])
-  cfg.pcc.k_max = p["k_max"].as<float>();
+    if (p["apply_attenuation"])
+      cfg.pcc.apply_attenuation = p["apply_attenuation"].as<bool>();
+    if (p["chroma_strength"])
+      cfg.pcc.chroma_strength = p["chroma_strength"].as<float>();
+    if (p["k_max"])
+      cfg.pcc.k_max = p["k_max"].as<float>();
   }
 
   if (node["stacking"]) {
@@ -860,6 +860,9 @@ YAML::Node Config::to_yaml() const {
   node["pcc"]["annulus_outer_fwhm_mult"] = pcc.annulus_outer_fwhm_mult;
   node["pcc"]["min_aperture_px"] = pcc.min_aperture_px;
   node["pcc"]["siril_catalog_dir"] = pcc.siril_catalog_dir;
+  node["pcc"]["apply_attenuation"] = pcc.apply_attenuation;
+  node["pcc"]["chroma_strength"] = pcc.chroma_strength;
+  node["pcc"]["k_max"] = pcc.k_max;
 
   node["stacking"]["method"] = stacking.method;
   node["stacking"]["sigma_clip"]["sigma_low"] = stacking.sigma_clip.sigma_low;
@@ -1225,6 +1228,12 @@ void Config::validate() const {
       pcc.annulus_outer_fwhm_mult <= 0.0f || pcc.min_aperture_px <= 0.0f) {
     throw ValidationError("pcc adaptive radii parameters must be > 0");
   }
+  if (pcc.chroma_strength < 0.0f || pcc.chroma_strength > 1.0f) {
+    throw ValidationError("pcc.chroma_strength must be in [0,1]");
+  }
+  if (pcc.k_max <= 0.0f) {
+    throw ValidationError("pcc.k_max must be > 0");
+  }
 
   if (stacking.method != "average" && stacking.method != "rej") {
     throw ValidationError("stacking.method must be 'average' or 'rej'");
@@ -1431,7 +1440,10 @@ std::string get_schema_json() {
                       "annulus_inner_fwhm_mult":{"type":"number","exclusiveMinimum":0},
                       "annulus_outer_fwhm_mult":{"type":"number","exclusiveMinimum":0},
                       "min_aperture_px":{"type":"number","exclusiveMinimum":0},
-                      "siril_catalog_dir":{"type":"string"} } },
+                      "siril_catalog_dir":{"type":"string"},
+                      "apply_attenuation":{"type":"boolean"},
+                      "chroma_strength":{"type":"number","minimum":0,"maximum":1},
+                      "k_max":{"type":"number","exclusiveMinimum":0} } },
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},
                       "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},

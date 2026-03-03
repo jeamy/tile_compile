@@ -2990,157 +2990,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                     "prepare", "BGE", log_file);
       std::cerr << "[BGE] Starting background gradient extraction (v3.3 §6.3)" << std::endl;
 
-      auto bge_value_stats_to_json = [](const image::BGEValueStats &s) {
-        return core::json{{"n", s.n},
-                          {"min", s.min},
-                          {"max", s.max},
-                          {"median", s.median},
-                          {"mean", s.mean},
-                          {"std", s.std}};
-      };
-
-      auto bge_diag_to_json = [&](const image::BGEDiagnostics &diag,
-                                  bool requested,
-                                  bool have_tile_data,
-                                  bool metrics_tiles_match) {
-        core::json out;
-        out["requested"] = requested;
-        out["attempted"] = diag.attempted;
-        out["success"] = diag.success;
-        out["have_tile_data"] = have_tile_data;
-        out["metrics_tiles_match"] = metrics_tiles_match;
-        out["image_width"] = diag.image_width;
-        out["image_height"] = diag.image_height;
-        out["grid_spacing"] = diag.grid_spacing;
-        out["method"] = diag.method;
-        out["robust_loss"] = diag.robust_loss;
-        out["insufficient_cell_strategy"] = diag.insufficient_cell_strategy;
-        out["autotune"] = {
-            {"enabled", diag.autotune_enabled},
-            {"strategy", diag.autotune_strategy},
-            {"max_evals", diag.autotune_max_evals},
-            {"evals_performed", diag.autotune_evals},
-            {"fallback_used", diag.autotune_fallback_used},
-            {"best",
-             {
-                 {"sample_quantile", diag.autotune_selected_sample_quantile},
-                 {"structure_thresh_percentile",
-                  diag.autotune_selected_structure_thresh_percentile},
-                 {"rbf_mu_factor", diag.autotune_selected_rbf_mu_factor},
-                 {"objective", diag.autotune_best_objective},
-                 {"objective_raw", diag.autotune_best_objective_raw},
-                 {"objective_normalized", diag.autotune_best_objective_normalized},
-                 {"cv_rms", diag.autotune_best_cv_rms},
-                 {"flatness", diag.autotune_best_flatness},
-                 {"roughness", diag.autotune_best_roughness},
-             }},
-            // Backward-compatible flat aliases
-            {"evals", diag.autotune_evals},
-            {"best_objective", diag.autotune_best_objective},
-            {"best_objective_raw", diag.autotune_best_objective_raw},
-            {"best_objective_normalized", diag.autotune_best_objective_normalized},
-            {"best_cv_rms", diag.autotune_best_cv_rms},
-            {"best_flatness", diag.autotune_best_flatness},
-            {"best_roughness", diag.autotune_best_roughness},
-            {"selected_sample_quantile", diag.autotune_selected_sample_quantile},
-            {"selected_structure_thresh_percentile",
-             diag.autotune_selected_structure_thresh_percentile},
-            {"selected_rbf_mu_factor", diag.autotune_selected_rbf_mu_factor},
-        };
-        out["safety_fallback"] = {
-            {"triggered", diag.safety_fallback_triggered},
-            {"method", diag.safety_fallback_method},
-            {"reason", diag.safety_fallback_reason},
-        };
-        out["channels"] = core::json::array();
-
-        int channels_applied = 0;
-        int channels_fit_success = 0;
-        int tile_samples_valid_total = 0;
-        int tile_samples_total_total = 0;
-        int grid_cells_valid_total = 0;
-
-        for (const auto &ch : diag.channels) {
-          if (ch.applied)
-            ++channels_applied;
-          if (ch.fit_success)
-            ++channels_fit_success;
-          tile_samples_valid_total += ch.tile_samples_valid;
-          tile_samples_total_total += ch.tile_samples_total;
-          grid_cells_valid_total += ch.grid_cells_valid;
-
-          core::json ch_json;
-          ch_json["channel"] = ch.channel_name;
-          ch_json["applied"] = ch.applied;
-          ch_json["fit_success"] = ch.fit_success;
-          ch_json["autotune"] = {
-              {"enabled", ch.autotune_enabled},
-              {"evals_performed", ch.autotune_evals},
-              {"fallback_used", ch.autotune_fallback_used},
-              {"selected_grid_spacing", ch.autotune_selected_grid_spacing},
-              {"best",
-               {
-                   {"sample_quantile", ch.autotune_selected_sample_quantile},
-                   {"structure_thresh_percentile",
-                    ch.autotune_selected_structure_thresh_percentile},
-                   {"rbf_mu_factor", ch.autotune_selected_rbf_mu_factor},
-                   {"objective", ch.autotune_best_objective},
-                   {"objective_raw", ch.autotune_best_objective_raw},
-                   {"objective_normalized",
-                    ch.autotune_best_objective_normalized},
-                   {"cv_rms", ch.autotune_best_cv_rms},
-                   {"flatness", ch.autotune_best_flatness},
-                   {"roughness", ch.autotune_best_roughness},
-               }},
-          };
-          ch_json["tile_samples_total"] = ch.tile_samples_total;
-          ch_json["tile_samples_valid"] = ch.tile_samples_valid;
-          ch_json["grid_cells_valid"] = ch.grid_cells_valid;
-          ch_json["fit_rms_residual"] = ch.fit_rms_residual;
-          ch_json["mean_shift"] = ch.mean_shift;
-          ch_json["guard_flat_pre"] = ch.guard_flat_pre;
-          ch_json["guard_flat_post"] = ch.guard_flat_post;
-          ch_json["guard_slope_pre"] = ch.guard_slope_pre;
-          ch_json["guard_slope_post"] = ch.guard_slope_post;
-          ch_json["guard_rejected"] = ch.guard_rejected;
-          ch_json["input_stats"] = bge_value_stats_to_json(ch.input_stats);
-          ch_json["output_stats"] = bge_value_stats_to_json(ch.output_stats);
-          ch_json["model_stats"] = bge_value_stats_to_json(ch.model_stats);
-          ch_json["sample_bg_stats"] = bge_value_stats_to_json(ch.sample_bg_stats);
-          ch_json["sample_weight_stats"] =
-              bge_value_stats_to_json(ch.sample_weight_stats);
-          ch_json["residual_stats"] = bge_value_stats_to_json(ch.residual_stats);
-          ch_json["sample_bg_values"] = ch.sample_bg_values;
-          ch_json["sample_weight_values"] = ch.sample_weight_values;
-          ch_json["residual_values"] = ch.residual_values;
-          ch_json["grid_cells"] = core::json::array();
-          for (const auto &gc : ch.grid_cells) {
-            ch_json["grid_cells"].push_back({
-                {"cell_x", gc.cell_x},
-                {"cell_y", gc.cell_y},
-                {"center_x", gc.center_x},
-                {"center_y", gc.center_y},
-                {"bg_value", gc.bg_value},
-                {"weight", gc.weight},
-                {"n_samples", gc.n_samples},
-                {"valid", gc.valid},
-            });
-          }
-
-          out["channels"].push_back(std::move(ch_json));
-        }
-
-        out["summary"] = {
-            {"channels_total", static_cast<int>(diag.channels.size())},
-            {"channels_applied", channels_applied},
-            {"channels_fit_success", channels_fit_success},
-            {"tile_samples_total", tile_samples_total_total},
-            {"tile_samples_valid", tile_samples_valid_total},
-            {"grid_cells_valid", grid_cells_valid_total},
-        };
-        return out;
-      };
-
       // BGE requires tile metrics from LOCAL_METRICS and matching tile geometry.
       // Prefer final post-PREWARP canvas tiles, but ensure strict compatibility
       // with metric vector length when available.
@@ -3215,7 +3064,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         std::cerr << "[BGE] Warning: No tile metrics available, skipping BGE" << std::endl;
       }
 
-      core::json bge_artifact = bge_diag_to_json(
+      core::json bge_artifact = tile_compile::runner::bge_diag_to_json(
           bge_diag, cfg.bge.enabled, bge_have_tile_data, bge_metrics_tiles_match);
       bge_artifact["have_local_metrics"] = bge_have_local_metrics;
       bge_artifact["have_bge_grid"] = bge_have_bge_grid;
@@ -3327,62 +3176,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       // auto: siril → vizier_gaia → vizier_apass
       double search_r = wcs.search_radius_deg();
       std::string source = cfg.pcc.source;
-      std::string used_source;
-      std::vector<astro::GaiaStar> stars;
-
-      auto try_siril = [&]() -> bool {
-        std::string cat_dir = cfg.pcc.siril_catalog_dir;
-        if (cat_dir.empty()) cat_dir = astro::default_siril_gaia_catalog_dir();
-        if (!astro::is_siril_gaia_catalog_available(cat_dir)) return false;
-        std::cerr << "[PCC] Querying Siril Gaia catalog at RA="
-                  << wcs.crval1 << " Dec=" << wcs.crval2
-                  << " r=" << search_r << " deg" << std::endl;
-        stars = astro::siril_gaia_cone_search(
-            cat_dir, wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
-        if (!stars.empty()) { used_source = "siril"; return true; }
-        return false;
-      };
-
-      auto try_vizier_gaia = [&]() -> bool {
-        std::cerr << "[PCC] Querying VizieR Gaia DR3 at RA="
-                  << wcs.crval1 << " Dec=" << wcs.crval2
-                  << " r=" << search_r << " deg" << std::endl;
-        stars = astro::vizier_gaia_cone_search(
-            wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
-        if (!stars.empty()) { used_source = "vizier_gaia"; return true; }
-        return false;
-      };
-
-      auto try_vizier_apass = [&]() -> bool {
-        std::cerr << "[PCC] Querying VizieR APASS DR9 at RA="
-                  << wcs.crval1 << " Dec=" << wcs.crval2
-                  << " r=" << search_r << " deg" << std::endl;
-        stars = astro::vizier_apass_cone_search(
-            wcs.crval1, wcs.crval2, search_r, cfg.pcc.mag_limit);
-        if (!stars.empty()) { used_source = "vizier_apass"; return true; }
-        return false;
-      };
-
-      if (source == "siril") {
-        try_siril();
-      } else if (source == "vizier_gaia") {
-        try_vizier_gaia();
-      } else if (source == "vizier_apass") {
-        try_vizier_apass();
-      } else {
-        // auto: try all sources in order
-        if (!try_siril()) {
-          std::cerr << "[PCC] Siril catalog not available, trying VizieR Gaia..." << std::endl;
-          if (!try_vizier_gaia()) {
-            std::cerr << "[PCC] VizieR Gaia failed, trying VizieR APASS..." << std::endl;
-            try_vizier_apass();
-          }
-        }
-      }
-
-      std::cerr << "[PCC] Found " << stars.size() << " catalog stars"
-                << " (source: " << (used_source.empty() ? "none" : used_source) << ")"
-                << std::endl;
+      tile_compile::runner::PCCCatalogQueryResult catalog =
+          tile_compile::runner::query_pcc_catalog_stars(
+              wcs, cfg.pcc, std::cerr, "[PCC]");
+      std::string used_source = catalog.used_source;
+      std::vector<astro::GaiaStar> stars = std::move(catalog.stars);
 
       if (stars.empty()) {
         emitter.phase_end(run_id, Phase::PCC, "skipped",
@@ -3448,6 +3246,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"residual_rms", result.residual_rms},
                              {"determinant", result.determinant},
                              {"condition_number", result.condition_number},
+                             {"apply_mode",
+                              pcc_cfg.apply_attenuation ? "attenuated" : "linear"},
+                             {"apply_attenuation", pcc_cfg.apply_attenuation},
+                             {"chroma_strength", pcc_cfg.chroma_strength},
+                             {"k_max", pcc_cfg.k_max},
+                             {"radii_mode", pcc_cfg.radii_mode},
+                             {"aperture_radius_px", pcc_cfg.aperture_radius_px},
+                             {"annulus_inner_px", pcc_cfg.annulus_inner_px},
+                             {"annulus_outer_px", pcc_cfg.annulus_outer_px},
                              {"matrix", matrix_json},
                              {"source", used_source},
                              {"input_rgb_bge", stacked_rgb_bge_path.string()}},
@@ -3461,6 +3268,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"residual_rms", result.residual_rms},
                              {"determinant", result.determinant},
                              {"condition_number", result.condition_number},
+                             {"apply_mode",
+                              pcc_cfg.apply_attenuation ? "attenuated" : "linear"},
+                             {"apply_attenuation", pcc_cfg.apply_attenuation},
+                             {"chroma_strength", pcc_cfg.chroma_strength},
+                             {"k_max", pcc_cfg.k_max},
+                             {"radii_mode", pcc_cfg.radii_mode},
+                             {"aperture_radius_px", pcc_cfg.aperture_radius_px},
+                             {"annulus_inner_px", pcc_cfg.annulus_inner_px},
+                             {"annulus_outer_px", pcc_cfg.annulus_outer_px},
                              {"source", used_source},
                              {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                             log_file);

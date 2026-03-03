@@ -106,6 +106,7 @@ struct BGEChannelDiagnostics {
     bool autotune_enabled = false;
     int autotune_evals = 0;
     bool autotune_fallback_used = false;
+    std::string autotune_selected_fit_method;
     float autotune_best_objective = 0.0f; // Backward-compatible alias of objective_raw
     float autotune_best_objective_raw = 0.0f;
     float autotune_best_objective_normalized = 0.0f;
@@ -151,6 +152,7 @@ struct BGEDiagnostics {
     std::string autotune_strategy;
     int autotune_max_evals = 0;
     int autotune_evals = 0;
+    std::string autotune_selected_fit_method;
     float autotune_best_objective = 0.0f; // Backward-compatible alias of objective_raw
     float autotune_best_objective_raw = 0.0f;
     float autotune_best_objective_normalized = 0.0f;
@@ -229,8 +231,6 @@ float rbf_kernel_thinplate(float d, float epsilon);
 float rbf_kernel_gaussian(float d, float mu);
 
 // Robust loss functions (v3.3 §6.3.7)
-float huber_loss(float r, float delta);
-float tukey_loss(float r, float c);
 float huber_weight(float r, float delta);
 float tukey_weight(float r, float c);
 
