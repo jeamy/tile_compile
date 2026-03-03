@@ -12,12 +12,11 @@ While the methodology was originally conceived to address the specific challenge
 
 ## Documentation (v3.3)
 
-- Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.3.4](doc/v3/tile_based_quality_reconstruction_methodology_v3.3.4_en.md)
+- Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.3.4](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.6_en.md)
 - Implementation process flow: [Process flow](doc/v3/process_flow/README.md)
 - English step-by-step guide: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - German README snapshot: [German README](README_de.md)
 - Data flow (user-friendly): [Process Flow – How the System Works](doc/v3/process_flow/data_flow_user_description_en.md)
-- Data flow (user-friendly, German): [Ablaufplan – Funktionsweise des Systems](doc/v3/process_flow/data_flow_user_description.md)
 
 Given a directory of FITS lights, the pipeline can:
 

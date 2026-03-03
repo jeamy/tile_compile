@@ -12,7 +12,7 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 
 ## Dokumentation (v3.3)
 
-- Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.3.4](doc/v3/tile_based_quality_reconstruction_methodology_v3.3.4_en.md)
+- Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.3.4](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.6_en.md)
 - Prozessfluss (Implementierung): `doc/v3/process_flow/`
 - Englische Schritt-für-Schritt-Anleitung: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - Englisches Haupt-README: [English README](README.md)
