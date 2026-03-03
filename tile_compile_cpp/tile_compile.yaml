@@ -275,8 +275,8 @@ stacking:
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
     cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
-  common_overlap_required_fraction: 0.1 # nur Pixel verwenden, die in 70% der nutzbaren Frames Daten haben
-  tile_common_valid_min_fraction: 0.1 # Tile nur nutzen, wenn mind. 50% im gemeinsamen Overlap liegen
+  common_overlap_required_fraction: 0.6 # nur Pixel verwenden, die in 70% der nutzbaren Frames Daten haben
+  tile_common_valid_min_fraction: 0.5 # Tile nur nutzen, wenn mind. 50% im gemeinsamen Overlap liegen
   output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)

@@ -182,8 +182,18 @@ jobs:
             throw "Build-Skript nicht gefunden: $script"
           }
 
+          Write-Host "MSYSTEM=$env:MSYSTEM"
+          Write-Host "RUNNER_TEMP=$env:RUNNER_TEMP"
+          Write-Host "MSYS2_LOCATION=$env:MSYS2_LOCATION"
+          $pacmanCmd = Get-Command pacman.exe -ErrorAction SilentlyContinue
+          if ($pacmanCmd) {
+            Write-Host "pacman.exe in PATH: $($pacmanCmd.Source)"
+          } else {
+            Write-Host "pacman.exe not in PATH for pwsh step (ok, script does fallback detection)."
+          }
+
           Write-Host "Running: $script"
-          cmd.exe /v:on /c "`"$script`""
+          & $script
           if ($LASTEXITCODE -ne 0) {
             throw "build_windows_release.bat fehlgeschlagen (ExitCode=$LASTEXITCODE)"
           }

@@ -21,30 +21,52 @@ rem [0] Abhaengigkeiten pruefen und installieren
 rem ===========================================================================
 set MISSING_DEPS=
 
-rem Pruefe MSYS2-Pfade fuer Tools
+rem MSYS2 Root/Praefix robust erkennen (lokal + GitHub Actions)
+set "MSYS2_PATH="
+set "MSYS2_PREFIX="
+set "MSYS2_USR_BIN="
 set "MSYS2_MINGW_BIN="
-if exist "C:\msys64\mingw64\bin\g++.exe" (
-  set "MSYS2_MINGW_BIN=C:\msys64\mingw64\bin"
-) else if exist "C:\msys64\ucrt64\bin\g++.exe" (
-  set "MSYS2_MINGW_BIN=C:\msys64\ucrt64\bin"
-) else if exist "C:\msys64\clang64\bin\clang++.exe" (
-  set "MSYS2_MINGW_BIN=C:\msys64\clang64\bin"
-) else if exist "C:\msys2\mingw64\bin\g++.exe" (
-  set "MSYS2_MINGW_BIN=C:\msys2\mingw64\bin"
+if defined MSYS2_LOCATION if exist "%MSYS2_LOCATION%\usr\bin\pacman.exe" set "MSYS2_PATH=%MSYS2_LOCATION%"
+if not defined MSYS2_PATH if defined RUNNER_TEMP if exist "%RUNNER_TEMP%\msys64\usr\bin\pacman.exe" set "MSYS2_PATH=%RUNNER_TEMP%\msys64"
+if not defined MSYS2_PATH if exist "C:\msys64\usr\bin\pacman.exe" set "MSYS2_PATH=C:\msys64"
+if not defined MSYS2_PATH if exist "C:\msys2\usr\bin\pacman.exe" set "MSYS2_PATH=C:\msys2"
+
+if not defined MSYS2_PATH (
+  for /f "delims=" %%P in ('where pacman.exe 2^>NUL') do (
+    set "PACMAN_FROM_PATH=%%~fP"
+    goto :pacman_path_found
+  )
+)
+:pacman_path_found
+if not defined MSYS2_PATH if defined PACMAN_FROM_PATH (
+  for %%I in ("!PACMAN_FROM_PATH!\..\..\..") do set "MSYS2_PATH=%%~fI"
+)
+
+if defined MSYS2_PATH (
+  set "MSYS2_USR_BIN=%MSYS2_PATH%\usr\bin"
+  if /I "%MSYSTEM%"=="MINGW64" if exist "%MSYS2_PATH%\mingw64\bin\g++.exe" set "MSYS2_PREFIX=%MSYS2_PATH%\mingw64"
+  if /I "%MSYSTEM%"=="UCRT64" if exist "%MSYS2_PATH%\ucrt64\bin\g++.exe" set "MSYS2_PREFIX=%MSYS2_PATH%\ucrt64"
+  if /I "%MSYSTEM%"=="CLANG64" if exist "%MSYS2_PATH%\clang64\bin\clang++.exe" set "MSYS2_PREFIX=%MSYS2_PATH%\clang64"
+  if not defined MSYS2_PREFIX if exist "%MSYS2_PATH%\mingw64\bin\g++.exe" set "MSYS2_PREFIX=%MSYS2_PATH%\mingw64"
+  if not defined MSYS2_PREFIX if exist "%MSYS2_PATH%\ucrt64\bin\g++.exe" set "MSYS2_PREFIX=%MSYS2_PATH%\ucrt64"
+  if not defined MSYS2_PREFIX if exist "%MSYS2_PATH%\clang64\bin\clang++.exe" set "MSYS2_PREFIX=%MSYS2_PATH%\clang64"
+  if defined MSYS2_PREFIX set "MSYS2_MINGW_BIN=%MSYS2_PREFIX%\bin"
 )
 
 if defined MSYS2_MINGW_BIN (
-  set "PATH=%MSYS2_MINGW_BIN%;%PATH%"
+  if defined MSYS2_USR_BIN (
+    set "PATH=%MSYS2_MINGW_BIN%;%MSYS2_USR_BIN%;%PATH%"
+  ) else (
+    set "PATH=%MSYS2_MINGW_BIN%;%PATH%"
+  )
   echo Erkannt: MSYS2/MinGW unter %MSYS2_MINGW_BIN%
 )
 
 where cmake >NUL 2>&1
 if errorlevel 1 (
-  rem Versuche cmake aus MSYS2-Pfaden
-  if exist "C:\msys64\usr\bin\cmake.exe" (
-    set "PATH=C:\msys64\usr\bin;%PATH%"
-  ) else if exist "C:\msys2\usr\bin\cmake.exe" (
-    set "PATH=C:\msys2\usr\bin;%PATH%"
+  rem Versuche cmake aus erkanntem MSYS2 usr/bin
+  if defined MSYS2_USR_BIN if exist "%MSYS2_USR_BIN%\cmake.exe" (
+    set "PATH=%MSYS2_USR_BIN%;%PATH%"
   )
 )
 where cmake >NUL 2>&1
@@ -60,10 +82,7 @@ if not errorlevel 1 set QT6_FOUND=1
 
 if exist "C:\Qt\6.10.1\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
 if exist "C:\Qt\6.8.2\mingw_64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
-if exist "C:\msys64\mingw64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
-if exist "C:\msys64\ucrt64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
-if exist "C:\msys64\clang64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
-if exist "C:\msys2\mingw64\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
+if defined MSYS2_PREFIX if exist "%MSYS2_PREFIX%\lib\cmake\Qt6\Qt6Config.cmake" set QT6_FOUND=1
 
 if "%QT6_FOUND%"=="0" set MISSING_DEPS=!MISSING_DEPS! qt6
 
@@ -72,10 +91,7 @@ set OPENCV_FOUND=0
 pkg-config --exists opencv4 2>NUL
 if not errorlevel 1 set OPENCV_FOUND=1
 
-if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
-if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
-if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
-if exist "C:\msys2\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
+if defined MSYS2_PREFIX if exist "%MSYS2_PREFIX%\lib\cmake\opencv4\OpenCVConfig.cmake" set OPENCV_FOUND=1
 
 if "%OPENCV_FOUND%"=="0" set MISSING_DEPS=!MISSING_DEPS! opencv
 
@@ -94,15 +110,7 @@ echo [0.5/4] Versuche automatische Installation via MSYS2...
 echo.
 
 set MSYS2_FOUND=0
-set MSYS2_PATH=
-
-if exist "C:\msys64\usr\bin\pacman.exe" (
-  set MSYS2_FOUND=1
-  set "MSYS2_PATH=C:\msys64"
-) else if exist "C:\msys2\usr\bin\pacman.exe" (
-  set MSYS2_FOUND=1
-  set "MSYS2_PATH=C:\msys2"
-)
+if defined MSYS2_PATH if exist "%MSYS2_PATH%\usr\bin\pacman.exe" set MSYS2_FOUND=1
 
 if "%MSYS2_FOUND%"=="0" (
   echo ===========================================================================
@@ -181,16 +189,24 @@ rem ===========================================================================
 echo [1/4] Erkenne Build-Umgebung...
 
 set USE_MINGW=1
-set MSYS2_PREFIX=
+if not defined MSYS2_PREFIX (
+  if defined MSYS2_PATH (
+    if exist "%MSYS2_PATH%\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" set "MSYS2_PREFIX=%MSYS2_PATH%\mingw64"
+    if not defined MSYS2_PREFIX if exist "%MSYS2_PATH%\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" set "MSYS2_PREFIX=%MSYS2_PATH%\ucrt64"
+    if not defined MSYS2_PREFIX if exist "%MSYS2_PATH%\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" set "MSYS2_PREFIX=%MSYS2_PATH%\clang64"
+  )
+)
 
-if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" (
-  set "MSYS2_PREFIX=C:\msys64\mingw64"
-) else if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" (
-  set "MSYS2_PREFIX=C:\msys64\ucrt64"
-) else if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" (
-  set "MSYS2_PREFIX=C:\msys64\clang64"
-) else if exist "C:\msys2\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" (
-  set "MSYS2_PREFIX=C:\msys2\mingw64"
+if not defined MSYS2_PREFIX (
+  if exist "C:\msys64\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+    set "MSYS2_PREFIX=C:\msys64\mingw64"
+  ) else if exist "C:\msys64\ucrt64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+    set "MSYS2_PREFIX=C:\msys64\ucrt64"
+  ) else if exist "C:\msys64\clang64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+    set "MSYS2_PREFIX=C:\msys64\clang64"
+  ) else if exist "C:\msys2\mingw64\lib\cmake\opencv4\OpenCVConfig.cmake" (
+    set "MSYS2_PREFIX=C:\msys2\mingw64"
+  )
 )
 
 if not defined MSYS2_PREFIX (
