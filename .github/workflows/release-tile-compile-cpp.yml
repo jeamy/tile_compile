@@ -98,8 +98,6 @@ jobs:
         include:
           - os: macos-14
             suffix: macos14
-          - os: macos-13
-            suffix: macos13
     steps:
       - name: Checkout
         uses: actions/checkout@v4
