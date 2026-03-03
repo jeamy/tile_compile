@@ -473,6 +473,16 @@ ctest --output-on-failure
 
 ### (2026-03-03)
 
+**Methodology alignment (v3.3.6 strict profile):**
+
+- Added `assumptions.pipeline_profile: practical|strict` to switch between compatibility mode and strict normative behavior.
+- In `strict` profile, REGISTRATION/PREWARP is executed before CHANNEL_SPLIT/NORMALIZATION/GLOBAL_METRICS.
+- In `strict` profile, reduced/full gating enforces full mode only from `N >= 200`.
+- In `strict` profile, phase-7 tile normalization before OLA is always enabled.
+- PCC `auto_fwhm` now falls back deterministically to `FWHM=0` when seeing is unavailable.
+- Added `registration.enable_star_pair_fallback` (default `true`); strict profile disables it to match the normative cascade order.
+- Updated config schema/sample config and v3 reference docs (DE/EN) for these settings.
+
 **BGE/PCC configuration and docs alignment:**
 
 - Restored user-facing BGE fit parameters `bge.fit.robust_loss` and `bge.fit.huber_delta`.

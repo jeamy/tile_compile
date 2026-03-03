@@ -468,6 +468,16 @@ ctest --output-on-failure
 
 ### (2026-03-03)
 
+**Methodik-Angleichung (v3.3.6 Strict-Profil):**
+
+- `assumptions.pipeline_profile: practical|strict` ergänzt (Kompatibilitätsmodus vs. strikt normatives Verhalten).
+- Im `strict`-Profil laufen REGISTRATION/PREWARP vor CHANNEL_SPLIT/NORMALIZATION/GLOBAL_METRICS.
+- Im `strict`-Profil wird Full-Mode erst ab `N >= 200` erzwungen.
+- Im `strict`-Profil ist die Phase-7-Tile-Normalisierung vor OLA immer aktiv.
+- PCC `auto_fwhm` fällt bei fehlendem Seeing deterministisch auf `FWHM=0` zurück.
+- `registration.enable_star_pair_fallback` ergänzt (Default `true`); im strict-Profil deaktiviert für normativen Cascade-Order.
+- Konfig-Schema, Beispielkonfig und v3-Referenzdokumente (DE/EN) entsprechend aktualisiert.
+
 **BGE/PCC Konfigurations- und Doku-Abgleich:**
 
 - Benutzerkonfigurierbare BGE-Fit-Parameter `bge.fit.robust_loss` und `bge.fit.huber_delta` wiederhergestellt.

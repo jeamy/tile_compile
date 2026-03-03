@@ -137,6 +137,8 @@ Config Config::from_yaml(const YAML::Node &node) {
 
   if (node["assumptions"]) {
     auto a = node["assumptions"];
+    if (a["pipeline_profile"])
+      cfg.assumptions.pipeline_profile = a["pipeline_profile"].as<std::string>();
     if (a["frames_min"])
       cfg.assumptions.frames_min = a["frames_min"].as<int>();
     if (a["frames_optimal"])
@@ -170,6 +172,9 @@ Config Config::from_yaml(const YAML::Node &node) {
     auto r = node["registration"];
     if (r["engine"])
       cfg.registration.engine = r["engine"].as<std::string>();
+    if (r["enable_star_pair_fallback"])
+      cfg.registration.enable_star_pair_fallback =
+          r["enable_star_pair_fallback"].as<bool>();
     if (r["allow_rotation"])
       cfg.registration.allow_rotation = r["allow_rotation"].as<bool>();
     if (r["star_topk"])
@@ -687,6 +692,7 @@ YAML::Node Config::to_yaml() const {
   node["calibration"]["flat_master"] = calibration.flat_master;
   node["calibration"]["pattern"] = calibration.pattern;
 
+  node["assumptions"]["pipeline_profile"] = assumptions.pipeline_profile;
   node["assumptions"]["frames_min"] = assumptions.frames_min;
   node["assumptions"]["frames_optimal"] = assumptions.frames_optimal;
   node["assumptions"]["frames_reduced_threshold"] =
@@ -705,6 +711,8 @@ YAML::Node Config::to_yaml() const {
   node["normalization"]["per_channel"] = normalization.per_channel;
 
   node["registration"]["engine"] = registration.engine;
+  node["registration"]["enable_star_pair_fallback"] =
+      registration.enable_star_pair_fallback;
   node["registration"]["allow_rotation"] = registration.allow_rotation;
   node["registration"]["star_topk"] = registration.star_topk;
   node["registration"]["star_min_inliers"] = registration.star_min_inliers;
@@ -945,6 +953,11 @@ void Config::validate() const {
         "linearity.strictness must be 'strict', 'moderate', or 'permissive'");
   }
 
+  if (assumptions.pipeline_profile != "practical" &&
+      assumptions.pipeline_profile != "strict") {
+    throw ValidationError(
+        "assumptions.pipeline_profile must be 'practical' or 'strict'");
+  }
   if (assumptions.frames_min < 1)
     throw ValidationError("assumptions.frames_min must be >= 1");
   if (assumptions.frames_optimal < 1)
@@ -1326,7 +1339,8 @@ std::string get_schema_json() {
                       "bias_master":{"type":"string"}, "dark_master":{"type":"string"}, "flat_master":{"type":"string"},
                       "pattern":{"type":"string"} } },
     "assumptions": { "type":"object",
-      "properties": { "frames_min":{"type":"integer","minimum":1},
+      "properties": { "pipeline_profile":{"type":"string","enum":["practical","strict"]},
+                      "frames_min":{"type":"integer","minimum":1},
                       "frames_optimal":{"type":"integer","minimum":1},
                       "frames_reduced_threshold":{"type":"integer","minimum":1},
                       "exposure_time_tolerance_percent":{"type":"number","minimum":0},
@@ -1338,6 +1352,7 @@ std::string get_schema_json() {
                       "per_channel":{"type":"boolean"} } },
     "registration": { "type":"object",
       "properties": { "engine":{"type":"string","enum":["triangle_star_matching","star_similarity","hybrid_phase_ecc"]},
+                      "enable_star_pair_fallback":{"type":"boolean"},
                       "allow_rotation":{"type":"boolean"},
                       "star_topk":{"type":"integer","minimum":3},
                       "star_min_inliers":{"type":"integer","minimum":2},

@@ -61,6 +61,7 @@ struct CalibrationConfig {
 };
 
 struct AssumptionsConfig {
+  std::string pipeline_profile = "practical"; // practical | strict
   int frames_min = 50;
   int frames_optimal = 800;
   int frames_reduced_threshold = 200;
@@ -78,6 +79,7 @@ struct NormalizationConfig {
 struct RegistrationConfig {
   std::string engine = "triangle_star_matching"; // triangle_star_matching |
                                                  // star_similarity | hybrid_phase_ecc
+  bool enable_star_pair_fallback = true;
   bool allow_rotation = true;
   int star_topk = 120;
   int star_min_inliers = 6;

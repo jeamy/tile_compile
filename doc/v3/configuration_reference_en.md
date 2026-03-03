@@ -305,6 +305,31 @@ Calibration frame processing.
 
 Physical assumptions about the data.
 
+### `assumptions.pipeline_profile`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `practical`, `strict` |
+| **Default** | `"practical"` |
+
+**Purpose:** Select compatibility-oriented behavior (`practical`) or v3.3.6 normative enforcement (`strict`).
+
+| Aspect | `practical` | `strict` |
+|--------|-------------|----------|
+| Phase order | compatibility/classic | REGISTRATION/PREWARP before CHANNEL_SPLIT/NORMALIZATION/GLOBAL_METRICS |
+| Reduced→Full gate | `frames_reduced_threshold` | `max(200, frames_reduced_threshold)` |
+| Registration cascade | Star-Pairs optional (default on) | Star-Pairs off (`registration.enable_star_pair_fallback=false`) |
+| Phase-7 tile normalization | may be disabled in reduced/emergency | always enabled |
+| PCC `auto_fwhm` fallback | compatibility/heuristic | deterministic `FWHM=0` if seeing unavailable |
+
+In **strict** profile:
+
+- registration/prewarp is executed before channel split + normalization + global metrics,
+- reduced/full gating enforces at least `N >= 200` for full mode,
+- phase-7 tile normalization is always active,
+- PCC auto-FWHM falls back deterministically to `FWHM=0` when unavailable.
+
 ### `assumptions.frames_min`
 
 | Property | Value |
@@ -331,6 +356,8 @@ Physical assumptions about the data.
 | **Default** | `200` |
 
 **Purpose:** Threshold for reduced mode decisions.
+
+**Strict profile note:** runtime enforces `max(200, frames_reduced_threshold)` to match v3.3.6 reduced/full boundaries.
 
 ### `assumptions.exposure_time_tolerance_percent`
 
@@ -419,7 +446,23 @@ Image registration settings.
 | **`hybrid_phase_ecc`** | Phase correlation + ECC | No star detection needed, for nebulae |
 | **`robust_phase_ecc`** | LoG gradient preprocessing + pyramid Phase+ECC | **Recommended for clouds/nebula**, removes gradients before correlation |
 
-**Cascade (always):** Triangle Stars → Star Pairs → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity fallback
+**Cascade:**
+
+- with `registration.enable_star_pair_fallback=true` (practical default):
+  Triangle Stars → Star Pairs → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity fallback
+- with `registration.enable_star_pair_fallback=false` (strict):
+  Triangle Stars → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity fallback
+
+### `registration.enable_star_pair_fallback`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable/disable the extra Star-Pairs fallback stage between Triangle Stars and Trail Endpoints.
+
+For strict methodology alignment, set this to `false`.
 
 **Temporal-Smoothing (v3.2.3+, automatically active):** When direct registration `i→ref` fails, the runner automatically tries:
 1. `i→(i-1)→ref` — register to previous frame, then chain warps
@@ -1463,6 +1506,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `calibration.bias_master`, `dark_master`, `flat_master`: explicit master calibration file paths.
 - `calibration.pattern`: file glob for calibration frame loading.
 - `assumptions.frames_min`: minimum frame count expectation for stable methodology.
+- `assumptions.pipeline_profile`: selects practical compatibility behavior vs strict normative v3.3.6 behavior.
 - `assumptions.frames_optimal`: target count for full-quality behavior.
 - `assumptions.frames_reduced_threshold`: switch point between reduced and full pipeline behavior.
 - `assumptions.exposure_time_tolerance_percent`: acceptable sub-exposure dispersion.
@@ -1475,6 +1519,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `normalization.mode`: background-centric vs median-centric normalization strategy.
 - `normalization.per_channel`: per-channel (OSC/RGB) normalization preserving channel balance.
 - `registration.engine`: preferred first engine; runtime still executes multi-stage fallback cascade.
+- `registration.enable_star_pair_fallback`: enables/disables the extra non-normative Star-Pairs fallback stage.
 - `registration.allow_rotation`: permits rotational components in global warps (required for Alt/Az).
 - `registration.star_topk`: number of strongest stars used by star-based engines.
 - `registration.star_min_inliers`: minimum accepted inlier correspondences.

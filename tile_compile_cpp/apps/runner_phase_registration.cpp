@@ -129,6 +129,11 @@ bool run_phase_registration_prewarp(
     const VectorXf &global_weights, const io::FitsHeader &first_header,
     core::EventEmitter &emitter, std::ostream &log_file,
     PhaseRegistrationContext &out) {
+  config::RegistrationConfig registration_cfg = cfg.registration;
+  if (cfg.assumptions.pipeline_profile == "strict") {
+    registration_cfg.enable_star_pair_fallback = false;
+  }
+
   auto load_frame_normalized =
       [&](size_t frame_index) -> std::pair<Matrix2Df, io::FitsHeader> {
     auto frame_pair = io::read_fits_float(frames[frame_index]);
@@ -162,7 +167,7 @@ bool run_phase_registration_prewarp(
   std::vector<float> global_frame_cc(frames.size(), 0.0f);
   std::string global_reg_status = "skipped";
   core::json global_reg_extra;
-  int global_ref_idx = 0;
+  int global_ref_idx = frames.empty() ? 0 : static_cast<int>(frames.size() / 2);
   // pick best by global_weight, fallback quality_score, fallback mid-frame
   if (!frame_metrics.empty()) {
     float best_w = -1.0f;
@@ -276,7 +281,7 @@ bool run_phase_registration_prewarp(
                   } else {
                     // Delegate to canonical cascade in module
                     auto sfr = registration::register_single_frame(
-                        mov_reg, ref_reg, cfg.registration);
+                        mov_reg, ref_reg, registration_cfg);
 
                     if (sfr.reg.success) {
                       global_frame_cc[fi] = sfr.reg.correlation;

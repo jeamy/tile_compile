@@ -8,6 +8,20 @@ This guide complements the configuration reference with practical examples, edge
 
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are available again as user-facing parameters.
 - PCC examples were aligned with the current parameter set (without `pcc.method`).
+- Added `assumptions.pipeline_profile` (`practical|strict`) for explicit methodology profile selection.
+- Added `registration.enable_star_pair_fallback` to control the optional non-normative star-pair stage.
+
+**Strict v3.3.6 baseline snippet:**
+
+```yaml
+assumptions:
+  pipeline_profile: strict
+  frames_reduced_threshold: 200
+
+registration:
+  engine: triangle_star_matching
+  enable_star_pair_fallback: false
+```
 
 ---
 

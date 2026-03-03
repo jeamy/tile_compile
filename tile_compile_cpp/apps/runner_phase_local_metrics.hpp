@@ -4,6 +4,7 @@
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
+#include "tile_compile/image/normalization.hpp"
 
 #include <string>
 #include <vector>
@@ -20,7 +21,10 @@ bool run_phase_local_metrics(
     int common_mask_width, int common_mask_height,
     const std::vector<uint8_t> &tile_common_valid,
     float tile_common_min_fraction,
-    const DiskCacheFrameStore &prewarped_frames, core::EventEmitter &emitter,
+    const DiskCacheFrameStore &prewarped_frames,
+    const std::vector<image::NormalizationScales> &norm_scales,
+    ColorMode detected_mode, const std::string &detected_bayer_str,
+    bool apply_normalization_to_tiles, core::EventEmitter &emitter,
     std::ostream &log_file, std::vector<std::vector<TileMetrics>> &local_metrics,
     std::vector<std::vector<float>> &local_weights,
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,

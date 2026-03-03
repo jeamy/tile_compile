@@ -5,6 +5,7 @@
 #include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QCheckBox>
+#include <QComboBox>
 #include <map>
 #include <string>
 
@@ -29,6 +30,7 @@ class AssumptionsWidget : public QWidget {
   private:
     void build_ui();
 
+    QComboBox *pipeline_profile_ = nullptr;
     QDoubleSpinBox *exposure_tolerance_ = nullptr;
     QSpinBox *frames_min_ = nullptr;
     QSpinBox *frames_reduced_ = nullptr;

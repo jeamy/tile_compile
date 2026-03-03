@@ -1,6 +1,7 @@
 #include "runner_phase_local_metrics.hpp"
 
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/image/normalization.hpp"
 #include "tile_compile/metrics/tile_metrics.hpp"
 
 #include <algorithm>
@@ -27,7 +28,10 @@ bool run_phase_local_metrics(
     int common_mask_width, int common_mask_height,
     const std::vector<uint8_t> &tile_common_valid,
     float tile_common_min_fraction,
-    const DiskCacheFrameStore &prewarped_frames, core::EventEmitter &emitter,
+    const DiskCacheFrameStore &prewarped_frames,
+    const std::vector<image::NormalizationScales> &norm_scales,
+    ColorMode detected_mode, const std::string &detected_bayer_str,
+    bool apply_normalization_to_tiles, core::EventEmitter &emitter,
     std::ostream &log_file, std::vector<std::vector<TileMetrics>> &local_metrics,
     std::vector<std::vector<float>> &local_weights,
     std::vector<float> &tile_quality_median, std::vector<uint8_t> &tile_is_star,
@@ -147,6 +151,13 @@ bool run_phase_local_metrics(
               // Tiles are defined in canvas coordinates, so no extra tile offset
               // must be applied here.
               Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t, 0, 0);
+
+              if (apply_normalization_to_tiles && fi < norm_scales.size() &&
+                  tile_img.size() > 0) {
+                image::apply_normalization_inplace(
+                    tile_img, norm_scales[fi], detected_mode,
+                    detected_bayer_str, t.x, t.y);
+              }
 
               if (tile_img.size() <= 0) {
                 local_metrics[fi].push_back(make_zero_metrics());
