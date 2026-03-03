@@ -409,7 +409,8 @@ rewrite_target_deps() {
 echo "Bündele Non-Qt-Dylibs rekursiv..."
 BUNDLE_QUEUE="$(mktemp)"
 BUNDLE_DONE="$(mktemp)"
-trap 'rm -f "$BUNDLE_QUEUE" "$BUNDLE_DONE"' EXIT
+BUNDLE_NEW="$(mktemp)"
+trap 'rm -f "$BUNDLE_QUEUE" "$BUNDLE_DONE" "$BUNDLE_NEW"' EXIT
 
 printf '%s\n' \
   "$APP_BUNDLE/Contents/MacOS/tile_compile_gui" \
@@ -421,13 +422,20 @@ if [ -d "$APP_BUNDLE/Contents/PlugIns" ]; then
   find "$APP_BUNDLE/Contents/PlugIns" -type f >> "$BUNDLE_QUEUE"
 fi
 if [ -d "$APP_BUNDLE/Contents/Frameworks" ]; then
-  find "$APP_BUNDLE/Contents/Frameworks" -type f >> "$BUNDLE_QUEUE"
+  find "$APP_BUNDLE/Contents/Frameworks" -type f \( -name "*.dylib" -o -name "*.so" \) >> "$BUNDLE_QUEUE"
+  find "$APP_BUNDLE/Contents/Frameworks" -type f -perm +111 >> "$BUNDLE_QUEUE"
 fi
 
-while true; do
+MAX_ITERATIONS=20
+iteration=0
+while [ "$iteration" -lt "$MAX_ITERATIONS" ]; do
+  iteration=$((iteration + 1))
+  : > "$BUNDLE_NEW"
   did_work=0
+  
   while IFS= read -r target; do
     [ -n "$target" ] || continue
+    [ -f "$target" ] || continue
     if grep -Fqx "$target" "$BUNDLE_DONE" 2>/dev/null; then
       continue
     fi
@@ -435,8 +443,20 @@ while true; do
     rewrite_target_deps "$target"
     did_work=1
   done < "$BUNDLE_QUEUE"
+  
+  if [ -d "$APP_BUNDLE/Contents/Frameworks" ]; then
+    find "$APP_BUNDLE/Contents/Frameworks" -type f \( -name "*.dylib" -o -name "*.so" \) >> "$BUNDLE_NEW"
+    find "$APP_BUNDLE/Contents/Frameworks" -type f -perm +111 >> "$BUNDLE_NEW"
+  fi
+  
+  sort -u "$BUNDLE_NEW" > "$BUNDLE_QUEUE"
+  
   [ "$did_work" -eq 1 ] || break
 done
+
+if [ "$iteration" -ge "$MAX_ITERATIONS" ]; then
+  echo "WARNUNG: Maximale Iterationen ($MAX_ITERATIONS) beim Dylib-Bundling erreicht." >&2
+fi
 
 echo "Prüfe verbleibende externe Dylib-Referenzen..."
 UNRESOLVED_REPORT="$DIST_DIR/otool_unresolved.txt"

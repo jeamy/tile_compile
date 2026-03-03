@@ -25,7 +25,11 @@ std::vector<std::string> BackendClient::resolve_backend_cmd() const {
     const std::string backend_bin = cli.value("backend_bin", "");
     
     if (!backend_bin.empty()) {
-        return {backend_bin};
+        std::string resolved_path = backend_bin;
+        if (backend_bin.rfind("./", 0) == 0 || backend_bin.rfind("../", 0) == 0 || backend_bin[0] != '/') {
+            resolved_path = project_root_ + "/" + backend_bin;
+        }
+        return {resolved_path};
     }
     
     throw std::runtime_error("backend_bin not configured in constants.js");

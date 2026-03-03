@@ -500,15 +500,19 @@ set "ZIP_FULL=%BUILD_DIR%\dist\%ZIP_NAME%"
 if exist "%ZIP_FULL%" del /F /Q "%ZIP_FULL%"
 echo.
 echo Erzeuge Release-Zip: %ZIP_NAME%
-echo Compress-Archive -Path '%DIST_DIR%' -DestinationPath '%ZIP_FULL%' -Force > "%TEMP%\tc_zip.ps1"
-powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\tc_zip.ps1"
+echo Source: %DIST_DIR%
+echo Target: %ZIP_FULL%
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "try { Compress-Archive -Path '%DIST_DIR%' -DestinationPath '%ZIP_FULL%' -Force -ErrorAction Stop; exit 0 } catch { Write-Error $_.Exception.Message; exit 1 }"
+if errorlevel 1 (
+  echo FEHLER: PowerShell Compress-Archive fehlgeschlagen.
+  goto :error
+)
 if exist "%ZIP_FULL%" (
   echo Release-Zip erstellt: %ZIP_FULL%
 ) else (
   echo FEHLER: ZIP-Erstellung fehlgeschlagen. Release-Verzeichnis liegt unter: %DIST_DIR%
   goto :error
 )
-del "%TEMP%\tc_zip.ps1" 2>NUL
 
 echo.
 echo ===========================================================================
