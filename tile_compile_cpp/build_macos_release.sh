@@ -379,10 +379,11 @@ bundle_abs_dep() {
   local dst="$APP_BUNDLE/Contents/Frameworks/$base"
   if [ ! -e "$dst" ]; then
     cp -L "$dep" "$dst" 2>/dev/null || return 0
-    chmod u+w "$dst" 2>/dev/null || true
-    install_name_tool -id "@rpath/$base" "$dst" 2>/dev/null || true
     printf '%s\n' "$dst" >> "$BUNDLE_QUEUE"
   fi
+  chmod u+w "$dst" 2>/dev/null || true
+  # Ensure bundled dylibs never keep an absolute install_name.
+  install_name_tool -id "@rpath/$base" "$dst" 2>/dev/null || true
 }
 
 rewrite_target_deps() {
@@ -414,6 +415,28 @@ rewrite_target_deps() {
   install_name_tool -add_rpath "@loader_path/../Frameworks" "$target" 2>/dev/null || true
 }
 
+rewrite_target_id_if_external() {
+  local target="$1"
+  [ -e "$target" ] || return 1
+  chmod u+w "$target" 2>/dev/null || true
+  if ! otool -D "$target" >/dev/null 2>&1; then
+    return 1
+  fi
+  local current_id
+  current_id="$(otool -D "$target" 2>/dev/null | tail -n +2 | head -n 1)"
+  [ -n "$current_id" ] || return 1
+  case "$current_id" in
+    /opt/homebrew/*|/usr/local/*|/opt/local/*)
+      local base
+      base="$(basename "$target")"
+      if install_name_tool -id "@rpath/$base" "$target" 2>/dev/null; then
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
 collect_macho_targets() {
   find "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Frameworks" "$APP_BUNDLE/Contents/PlugIns" \
     -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so" \) 2>/dev/null
@@ -424,6 +447,9 @@ rewrite_all_external_refs() {
   while IFS= read -r target; do
     [ -n "$target" ] || continue
     chmod u+w "$target" 2>/dev/null || true
+    if rewrite_target_id_if_external "$target"; then
+      any_changed=1
+    fi
     if ! otool -L "$target" >/dev/null 2>&1; then
       continue
     fi

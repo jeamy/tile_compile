@@ -170,28 +170,8 @@ echo ===========================================================================
 echo Installation abgeschlossen!
 echo ===========================================================================
 echo.
-echo WICHTIG: Du musst das Terminal jetzt NEU STARTEN, damit die neuen
-echo          Abhaengigkeiten im PATH gefunden werden.
-echo.
-if /I "%CI%"=="true" (
-  echo CI erkannt - fahre ohne interaktiven Neustart fort.
-  goto :deps_done
-)
-if /I "%GITHUB_ACTIONS%"=="true" (
-  echo GitHub Actions erkannt - fahre ohne interaktiven Neustart fort.
-  goto :deps_done
-)
-
-echo Moechtest du jetzt neu starten und dann automatisch weitermachen?
-set /p RESTART="Neustarten und weitermachen? (j/n): "
-if /I "%RESTART%"=="j" (
-  echo Starte neu...
-  start "" "%~f0"
-  exit
-) else (
-  echo Bitte starte das Terminal neu und fuehre das Script erneut aus.
-  exit /B 0
-)
+echo Fahre ohne interaktiven Neustart fort.
+echo Das Script setzt die benoetigten Pfade im weiteren Verlauf explizit.
 
 :deps_done
 echo.

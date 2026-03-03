@@ -194,6 +194,17 @@ jobs:
             "$distRoot\windows\tile_compile_cpp-windows-release.zip"
           )
           $src = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (!$src) {
+            $windowsDist = "$distRoot\windows"
+            $fallbackZip = "$distRoot\tile_compile_cpp-windows-release.zip"
+            if (Test-Path $windowsDist) {
+              Write-Host "No prebuilt ZIP found. Creating fallback ZIP from: $windowsDist"
+              Compress-Archive -Path $windowsDist -DestinationPath $fallbackZip -Force
+              if (Test-Path $fallbackZip) {
+                $src = $fallbackZip
+              }
+            }
+          }
           if (!$src -and (Test-Path $distRoot)) {
             $src = Get-ChildItem -Path $distRoot -Recurse -File -Filter "tile_compile_cpp-windows-release.zip" -ErrorAction SilentlyContinue `
               | Select-Object -First 1 -ExpandProperty FullName
