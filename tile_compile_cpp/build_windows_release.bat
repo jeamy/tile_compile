@@ -421,8 +421,8 @@ if not exist "%DIST_BIN%\qt.conf" (
   )
 )
 
-echo Kopiere notwendige Runtime-DLLs (Fallback) aus %MSYS2_PREFIX%\bin ...
-echo   [1/5] Toolchain + Core...
+echo Kopiere notwendige Runtime-DLLs (Fallback) aus %MSYS2_PREFIX%\bin
+echo   [1/5] Toolchain + Core
 for %%D in (libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll) do (
   if exist "%MSYS2_PREFIX%\bin\%%D" copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_BIN%" >NUL
 )
@@ -430,7 +430,7 @@ for %%D in (libintl-8.dll libiconv-2.dll libunistring-5.dll libpcre2-8-0.dll) do
   if exist "%MSYS2_PREFIX%\bin\%%D" copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_BIN%" >NUL
 )
 
-echo   [2/5] Compression + Crypto...
+echo   [2/5] Compression + Crypto
 for %%F in ("%MSYS2_PREFIX%\bin\zlib*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\libbz2*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\liblzma*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
@@ -449,18 +449,18 @@ for %%F in ("%MSYS2_PREFIX%\bin\libidn2*.dll") do copy /Y "%%F" "%DIST_BIN%" >NU
 for %%F in ("%MSYS2_PREFIX%\bin\libpsl*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\libb2*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 
-echo   [3/5] Project Dependencies...
+echo   [3/5] Project Dependencies
 for %%F in ("%MSYS2_PREFIX%\bin\libcfitsio*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\libyaml-cpp*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 
-echo   [4/5] OpenCV + Image Formats...
+echo   [4/5] OpenCV + Image Formats
 for %%F in ("%MSYS2_PREFIX%\bin\libopencv*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\libpng*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\libjpeg*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\libtiff*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\libwebp*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 
-echo   [5/5] FFmpeg + Qt Text Rendering...
+echo   [5/5] FFmpeg + Qt Text Rendering
 for %%F in ("%MSYS2_PREFIX%\bin\avcodec*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\avformat*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 for %%F in ("%MSYS2_PREFIX%\bin\avutil*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
@@ -476,14 +476,14 @@ for %%F in ("%MSYS2_PREFIX%\bin\libdouble-conversion*.dll") do copy /Y "%%F" "%D
 for %%F in ("%MSYS2_PREFIX%\bin\libmd4c*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 
 if exist "%OBJDUMP_EXE%" (
-  echo Starte transitive DLL-Suche (objdump sweep)...
+  echo Starte transitive DLL-Suche (objdump sweep)
   call :run_dep_sweep
 ) else (
   echo WARNUNG: objdump nicht gefunden. Transitive DLL-Suche uebersprungen.
 )
 
 if exist "%MSYS2_PREFIX%\bin\ntldd.exe" (
-  echo Pruefe DLL-Abhaengigkeiten mit ntldd...
+  echo Pruefe DLL-Abhaengigkeiten mit ntldd
   "%MSYS2_PREFIX%\bin\ntldd.exe" -R "%DIST_BIN%\tile_compile_runner.exe" > "%DIST_DIR%\ntldd_runner.txt"
   "%MSYS2_PREFIX%\bin\ntldd.exe" -R "%DIST_BIN%\tile_compile_cli.exe" > "%DIST_DIR%\ntldd_cli.txt"
   "%MSYS2_PREFIX%\bin\ntldd.exe" -R "%DIST_BIN%\tile_compile_gui.exe" > "%DIST_DIR%\ntldd_gui.txt"
@@ -546,7 +546,7 @@ set DEP_PASS=0
 for /L %%P in (1,1,10) do (
   set /a DEP_PASS+=1
   set "COPIED_THIS_PASS=0"
-  echo   Pass !DEP_PASS!...
+  echo   Pass !DEP_PASS!
 
   if exist "%DIST_BIN%\tile_compile_gui.exe" call :scan_binary_deps "%DIST_BIN%\tile_compile_gui.exe"
   if exist "%DIST_BIN%\tile_compile_runner.exe" call :scan_binary_deps "%DIST_BIN%\tile_compile_runner.exe"
