@@ -64,6 +64,9 @@ They are kept in sync with v3.3 runner/config parser defaults, including:
   - Adaptive grid spacing scales with image dimensions
   - Writes `artifacts/bge.json` with per-channel diagnostics (samples, grid cells, residual stats)
   - Included in `generate_report.py` as BGE section with dedicated plots
+  - Includes channel apply guards:
+    - `bge.min_valid_sample_fraction_for_apply` (default `0.30`)
+    - `bge.min_valid_samples_for_apply` (default `96`)
   - Includes deterministic autotune block:
     - `bge.autotune.enabled`
     - `bge.autotune.strategy` (`conservative|extended`)
@@ -127,6 +130,7 @@ They are kept in sync with v3.3 runner/config parser defaults, including:
    - (optional) tune `stacking.cluster_quality_weighting.*` if cluster weighting is too strong/weak
    - (optional) tune `stacking.common_overlap_*` only if you intentionally want more edge coverage
    - (optional, v3.3) enable `bge.enabled: true` if gradients are visible (urban light pollution, moonlight)
+   - (optional, v3.3) for dense nebulosity/star fields, reduce `bge.min_valid_sample_fraction_for_apply` carefully (e.g. `0.30 -> 0.28`)
    - (optional, v3.3) if mild red cast remains: reduce `bge.structure_thresh_percentile` (e.g. 0.90 -> 0.75)
    - (optional, v3.3) if residual cast persists: try `bge.fit.robust_loss: tukey`
 2. Run directly with:

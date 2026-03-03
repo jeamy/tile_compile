@@ -488,6 +488,7 @@ ctest --output-on-failure
 **BGE/PCC configuration and docs alignment:**
 
 - Restored user-facing BGE fit parameters `bge.fit.robust_loss` and `bge.fit.huber_delta`.
+- Added user-facing BGE apply guards `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply`.
 - Re-enabled parse/serialize/schema support for these keys in the runtime config surface.
 - Runner mapping now forwards the configured values (no internal forced override).
 - BGE config artifacts in both pipeline and resume paths include `robust_loss` and `huber_delta` again.

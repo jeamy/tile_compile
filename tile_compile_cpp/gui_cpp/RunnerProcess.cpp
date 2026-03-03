@@ -12,6 +12,9 @@ RunnerProcess::RunnerProcess(QObject *parent) : QObject(parent) {
 #ifdef _WIN32
     proc_->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
         args->flags |= CREATE_NO_WINDOW;
+        args->flags &= ~CREATE_NEW_CONSOLE;
+        args->startupInfo->dwFlags |= STARTF_USESHOWWINDOW;
+        args->startupInfo->wShowWindow = SW_HIDE;
     });
 #endif
     

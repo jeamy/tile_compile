@@ -2,7 +2,7 @@
 # tile_compile_cpp - macOS Release Build
 # Prüft Abhängigkeiten, baut Release und erstellt eine portable Dist.
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
@@ -373,6 +373,7 @@ bundle_abs_dep() {
   local dst="$APP_BUNDLE/Contents/Frameworks/$base"
   if [ ! -e "$dst" ]; then
     cp -L "$dep" "$dst" 2>/dev/null || return 0
+    chmod u+w "$dst" 2>/dev/null || true
     install_name_tool -id "@rpath/$base" "$dst" 2>/dev/null || true
     printf '%s\n' "$dst" >> "$BUNDLE_QUEUE"
   fi
@@ -381,6 +382,7 @@ bundle_abs_dep() {
 rewrite_target_deps() {
   local target="$1"
   [ -e "$target" ] || return 0
+  chmod u+w "$target" 2>/dev/null || true
   if ! otool -L "$target" >/dev/null 2>&1; then
     return 0
   fi
@@ -404,6 +406,42 @@ rewrite_target_deps() {
 
   install_name_tool -add_rpath "@executable_path/../Frameworks" "$target" 2>/dev/null || true
   install_name_tool -add_rpath "@loader_path/../Frameworks" "$target" 2>/dev/null || true
+}
+
+collect_macho_targets() {
+  find "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Frameworks" "$APP_BUNDLE/Contents/PlugIns" \
+    -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so" \) 2>/dev/null
+}
+
+rewrite_all_external_refs() {
+  local any_changed=0
+  while IFS= read -r target; do
+    [ -n "$target" ] || continue
+    chmod u+w "$target" 2>/dev/null || true
+    if ! otool -L "$target" >/dev/null 2>&1; then
+      continue
+    fi
+    while IFS= read -r dep; do
+      [ -n "$dep" ] || continue
+      case "$dep" in
+        /opt/homebrew/*|/usr/local/*|/opt/local/*)
+          local base
+          base="$(basename "$dep")"
+          bundle_abs_dep "$dep"
+          if [ -e "$APP_BUNDLE/Contents/Frameworks/$base" ]; then
+            if install_name_tool -change "$dep" "@rpath/$base" "$target" 2>/dev/null; then
+              any_changed=1
+            fi
+          fi
+          ;;
+      esac
+    done < <(otool -L "$target" 2>/dev/null | tail -n +2 | awk '{print $1}')
+  done < <(collect_macho_targets)
+
+  if [ "$any_changed" -eq 1 ]; then
+    return 0
+  fi
+  return 1
 }
 
 echo "Bündele Non-Qt-Dylibs rekursiv..."
@@ -458,6 +496,16 @@ if [ "$iteration" -ge "$MAX_ITERATIONS" ]; then
   echo "WARNUNG: Maximale Iterationen ($MAX_ITERATIONS) beim Dylib-Bundling erreicht." >&2
 fi
 
+# Hardening pass: some Homebrew/MacPorts libs still keep absolute references
+# after recursive copying; force-rewrite until stable.
+for pass in 1 2 3; do
+  if rewrite_all_external_refs; then
+    :
+  else
+    break
+  fi
+done
+
 echo "Prüfe verbleibende externe Dylib-Referenzen..."
 UNRESOLVED_REPORT="$DIST_DIR/otool_unresolved.txt"
 : > "$UNRESOLVED_REPORT"
@@ -474,7 +522,7 @@ while IFS= read -r target; do
         ;;
     esac
   done < <(otool -L "$target" 2>/dev/null | tail -n +2 | awk '{print $1}')
-done < "$BUNDLE_DONE"
+done < <(collect_macho_targets)
 
 if [ -s "$UNRESOLVED_REPORT" ]; then
   echo "FEHLER: Ungebündelte externe macOS-Abhängigkeiten gefunden:" >&2

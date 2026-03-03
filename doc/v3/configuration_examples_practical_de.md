@@ -7,6 +7,7 @@ Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen,
 ## Änderungsstand (2026-03-03)
 
 - `bge.fit.robust_loss` und `bge.fit.huber_delta` sind wieder als Benutzerparameter verfügbar.
+- Neue BGE-Apply-Grenzwerte `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` dokumentiert.
 - PCC-Beispiele wurden auf den aktuellen Parametersatz (ohne `pcc.method`) aktualisiert.
 - `assumptions.pipeline_profile` (`practical|strict`) für explizite Methodik-Profile ergänzt.
 - `registration.enable_star_pair_fallback` ergänzt, um die optionale nicht-normative Star-Pair-Stufe zu steuern.
@@ -45,6 +46,8 @@ bge:
     alpha_flatness: 0.25
     beta_roughness: 0.10
   sample_quantile: 0.20  # Konservativ, resistent gegen schwache Objekte
+  min_valid_sample_fraction_for_apply: 0.30  # Kanal-Apply-Grenze (rel. Anteil)
+  min_valid_samples_for_apply: 96  # Kanal-Apply-Grenze (absolute Samples)
   fit:
     method: rbf  # Flexibel, empfohlen
     robust_loss: huber  # huber | tukey
@@ -60,6 +63,8 @@ bge:
   enabled: true
   sample_quantile: 0.15  # Noch konservativer
   structure_thresh_percentile: 0.95  # Mehr Tiles ausschließen
+  min_valid_sample_fraction_for_apply: 0.30
+  min_valid_samples_for_apply: 96
   fit:
     method: rbf
     robust_loss: tukey  # aggressivere Outlier-Daempfung
@@ -72,6 +77,8 @@ bge:
 ```yaml
 bge:
   enabled: true
+  min_valid_sample_fraction_for_apply: 0.28  # Toleranter fuer dichte Nebel-/Sternfelder
+  min_valid_samples_for_apply: 96
   fit:
     method: modeled_mask_mesh  # Vordergrundbewusstes Mesh-Himmelsmodell
 ```
@@ -82,6 +89,8 @@ bge:
 bge:
   enabled: true
   sample_quantile: 0.25  # Weniger konservativ
+  min_valid_sample_fraction_for_apply: 0.30
+  min_valid_samples_for_apply: 96
   fit:
     method: poly  # Einfacher für schwache Gradienten
     polynomial_order: 2

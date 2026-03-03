@@ -198,6 +198,8 @@ bge:
   sample_quantile: 0.20 # Quantil fuer Tile-Background (0.20 = konservativ, 0.50 = median)
   structure_thresh_percentile: 0.90 # High-Structure-Tiles ausschliessen
   min_tiles_per_cell: 3 # Mindestanzahl Tiles pro Grid-Cell
+  min_valid_sample_fraction_for_apply: 0.30 # Mindestanteil valider robuster Tile-Samples je Kanal
+  min_valid_samples_for_apply: 96 # absolute Untergrenze robuster Tile-Samples je Kanal
   mask:
     star_dilate_px: 4
     sat_dilate_px: 4

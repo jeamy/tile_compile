@@ -8,6 +8,7 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 
 **Documentation status (2026-03-03):**
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
+- `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented as BGE channel-apply guards.
 - PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
 
 **💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
@@ -1013,6 +1014,8 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 **Key BGE parameters:**
 - `bge.enabled`: Enable/disable (default: `false`)
 - `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
+- `bge.min_valid_sample_fraction_for_apply`: Minimum valid tile-sample fraction required per channel before BGE apply (range `(0, 1]`, default `0.30`)
+- `bge.min_valid_samples_for_apply`: Minimum absolute valid tile-sample count required per channel before BGE apply (minimum `1`, default `96`)
 - `bge.fit.method`: Surface fitting method - `rbf`, `poly`, `spline`, `bicubic`, `modeled_mask_mesh` (default `rbf`)
 - `bge.fit.robust_loss`: Robust IRLS loss - `huber` or `tukey` (default `huber`)
 - `bge.fit.huber_delta`: Huber transition parameter (default `1.5`, used when `robust_loss=huber`)
@@ -1025,6 +1028,26 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 - `bge.autotune.beta_roughness`: objective weight for roughness term (minimum `0`, default `0.10`)
 
 **Recommendation:** Enable with `bge.enabled: true` when gradients are visible (urban light pollution, moonlight) or when PCC shows color shifts across the field.
+
+### `bge.min_valid_sample_fraction_for_apply`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `(0.0, 1.0]` |
+| **Default** | `0.30` |
+
+**Purpose:** Per-channel safety gate for BGE application. If `valid_tile_samples / total_tile_samples` is below this value, BGE is skipped for that channel.
+
+### `bge.min_valid_samples_for_apply`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `1` |
+| **Default** | `96` |
+
+**Purpose:** Absolute per-channel safety gate for BGE application. If valid robust tile samples are fewer than this value, BGE is skipped for that channel.
 
 ### `bge.fit.robust_loss`
 

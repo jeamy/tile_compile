@@ -208,7 +208,9 @@ bge:
   sample_quantile: 0.15 # Bereich (0,0.5], Spec-Default: 0.20 (0.50 = Median)
   structure_thresh_percentile: 0.80 # Bereich [0,1], Spec-Default: 0.90
   min_tiles_per_cell: 3 # >=1, Spec-Default: 3
-  
+  min_valid_sample_fraction_for_apply: 0.28
+  min_valid_samples_for_apply: 96
+
   # Masken (v3.3 §6.3.2a)
   mask:
     star_dilate_px: 6 # Spec-Default: 4 (typisch 2..6)
@@ -251,7 +253,7 @@ pcc:
   siril_catalog_dir: "" # leer => Standardkatalogpfad
   background_model: plane # median | plane (Default: plane)
   max_condition_number: 3.0 # >=1, Stabilitaetsgrenze fuer PCC-Matrix
-  max_residual_rms: 0.45 # >0, maximale robuste Fit-Abweichung
+  max_residual_rms: 0.50 # >0, maximale robuste Fit-Abweichung
   radii_mode: auto_fwhm # fixed | auto_fwhm (Default: auto_fwhm)
   aperture_fwhm_mult: 1.8 # >0, Default: 1.8
   annulus_inner_fwhm_mult: 3.0 # >0, Default: 3.0
@@ -273,8 +275,8 @@ stacking:
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
     cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
-  common_overlap_required_fraction: 0.7 # nur Pixel verwenden, die in 70% der nutzbaren Frames Daten haben
-  tile_common_valid_min_fraction: 0.5 # Tile nur nutzen, wenn mind. 50% im gemeinsamen Overlap liegen
+  common_overlap_required_fraction: 0.1 # nur Pixel verwenden, die in 70% der nutzbaren Frames Daten haben
+  tile_common_valid_min_fraction: 0.1 # Tile nur nutzen, wenn mind. 50% im gemeinsamen Overlap liegen
   output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)

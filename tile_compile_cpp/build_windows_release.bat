@@ -391,8 +391,11 @@ for %%B in (tile_compile_gui.exe tile_compile_runner.exe tile_compile_cli.exe) d
 )
 
 mkdir "%DIST_DIR%\gui_cpp" 2>NUL
+mkdir "%DIST_BIN%\gui_cpp" 2>NUL
 copy /Y "%PROJECT_DIR%\gui_cpp\constants.js" "%DIST_DIR%\gui_cpp" >NUL
 copy /Y "%PROJECT_DIR%\gui_cpp\styles.qss" "%DIST_DIR%\gui_cpp" >NUL
+copy /Y "%PROJECT_DIR%\gui_cpp\constants.js" "%DIST_BIN%\gui_cpp" >NUL
+copy /Y "%PROJECT_DIR%\gui_cpp\styles.qss" "%DIST_BIN%\gui_cpp" >NUL
 
 for %%F in (tile_compile.yaml tile_compile.schema.yaml tile_compile.schema.json) do (
   copy /Y "%PROJECT_DIR%\%%F" "%DIST_DIR%" >NUL
@@ -518,6 +521,18 @@ echo.
 echo ===========================================================================
 echo   Release-Build FERTIG!
 echo ===========================================================================
+echo.
+set "VBS_LAUNCHER=%DIST_DIR%\start_tile_compile_gui.vbs"
+> "%VBS_LAUNCHER%" (
+  echo Set fso = CreateObject("Scripting.FileSystemObject"^)
+  echo baseDir = fso.GetParentFolderName(WScript.ScriptFullName^)
+  echo exePath = baseDir ^& "\bin\tile_compile_gui.exe"
+  echo Set shell = CreateObject("WScript.Shell"^)
+  echo shell.CurrentDirectory = baseDir ^& "\bin"
+  echo shell.Run Chr(34^)^& exePath ^& Chr(34^), 0, False
+)
+echo GUI-Launcher ^(ohne Konsole^):
+echo   %VBS_LAUNCHER%
 echo.
 echo Distribution liegt unter:
 echo   %DIST_DIR%

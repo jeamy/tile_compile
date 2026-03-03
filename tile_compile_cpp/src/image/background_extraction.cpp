@@ -15,8 +15,6 @@ namespace {
 
 constexpr float kTiny = 1.0e-12f;
 constexpr float kMinUsableTileFraction = 0.10f;
-constexpr float kMinValidSampleFractionForApply = 0.30f;
-constexpr int kMinValidSamplesForApply = 96;
 
 float clamp01(float v) { return std::max(0.0f, std::min(1.0f, v)); }
 
@@ -2638,11 +2636,17 @@ bool apply_background_extraction(
         const float valid_fraction =
             static_cast<float>(ch_diag.tile_samples_valid) /
             static_cast<float>(n_total_samples);
-        if (ch_diag.tile_samples_valid < kMinValidSamplesForApply ||
-            valid_fraction < kMinValidSampleFractionForApply) {
+        const int min_valid_samples_for_apply =
+            std::max(1, channel_cfg.min_valid_samples_for_apply);
+        const float min_valid_fraction_for_apply =
+            std::clamp(channel_cfg.min_valid_sample_fraction_for_apply, 0.0f, 1.0f);
+        if (ch_diag.tile_samples_valid < min_valid_samples_for_apply ||
+            valid_fraction < min_valid_fraction_for_apply) {
             std::cout << "[BGE]   Warning: insufficient robust tile samples for channel "
                       << channel_name << " (" << ch_diag.tile_samples_valid << "/"
                       << ch_diag.tile_samples_total << ", frac=" << valid_fraction
+                      << ", required>=" << min_valid_samples_for_apply
+                      << " and frac>=" << min_valid_fraction_for_apply
                       << "), skipping channel" << std::endl;
             if (diagnostics != nullptr) diagnostics->channels.push_back(std::move(ch_diag));
             continue;

@@ -191,10 +191,23 @@ jobs:
           if (Test-Path "C:\windows-tile-compile-build\dist") {
             Get-ChildItem -Recurse -Force "C:\windows-tile-compile-build\dist" | Select-Object FullName, Length | Format-Table -AutoSize
           }
-          $src = "C:\windows-tile-compile-build\dist\tile_compile_cpp-windows-release.zip"
-          if (!(Test-Path $src)) {
-            throw "Windows Release ZIP nicht gefunden: $src"
+          $candidates = @(
+            "C:\windows-tile-compile-build\dist\tile_compile_cpp-windows-release.zip",
+            "C:\windows-tile-compile-build\dist\windows\tile_compile_cpp-windows-release.zip",
+            "${{ github.workspace }}\tile_compile_cpp\dist\tile_compile_cpp-windows-release.zip",
+            "${{ github.workspace }}\tile_compile_cpp\dist\windows\tile_compile_cpp-windows-release.zip"
+          )
+          $src = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (!$src) {
+            Write-Host "No ZIP found in expected candidates:"
+            $candidates | ForEach-Object { Write-Host "  - $_" }
+            if (Test-Path "${{ github.workspace }}") {
+              Write-Host "Recursive dist listing from workspace (diagnostics):"
+              Get-ChildItem -Recurse -Force "${{ github.workspace }}\tile_compile_cpp\dist" -ErrorAction SilentlyContinue | Select-Object FullName, Length | Format-Table -AutoSize
+            }
+            throw "Windows Release ZIP nicht gefunden."
           }
+          Write-Host "Using ZIP source: $src"
           Copy-Item $src "artifacts\tile_compile_cpp-windows-$Tag.zip" -Force
 
       - name: Upload artifact

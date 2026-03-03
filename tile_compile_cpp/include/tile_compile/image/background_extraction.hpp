@@ -18,6 +18,8 @@ struct BGEConfig {
     float sample_quantile = 0.20f;
     float structure_thresh_percentile = 0.90f;
     int min_tiles_per_cell = 3;
+    float min_valid_sample_fraction_for_apply = 0.30f;
+    int min_valid_samples_for_apply = 96;
     
     // Masks (§6.3.2a)
     struct {

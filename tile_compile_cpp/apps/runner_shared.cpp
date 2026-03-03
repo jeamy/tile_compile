@@ -90,6 +90,9 @@ image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   dst.sample_quantile = src.sample_quantile;
   dst.structure_thresh_percentile = src.structure_thresh_percentile;
   dst.min_tiles_per_cell = src.min_tiles_per_cell;
+  dst.min_valid_sample_fraction_for_apply =
+      src.min_valid_sample_fraction_for_apply;
+  dst.min_valid_samples_for_apply = src.min_valid_samples_for_apply;
   dst.mask.star_dilate_px = src.mask.star_dilate_px;
   dst.mask.sat_dilate_px = src.mask.sat_dilate_px;
   dst.grid.N_g = src.grid.N_g;

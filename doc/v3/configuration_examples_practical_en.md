@@ -7,6 +7,7 @@ This guide complements the configuration reference with practical examples, edge
 ## Update Status (2026-03-03)
 
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are available again as user-facing parameters.
+- New BGE apply guards `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented.
 - PCC examples were aligned with the current parameter set (without `pcc.method`).
 - Added `assumptions.pipeline_profile` (`practical|strict`) for explicit methodology profile selection.
 - Added `registration.enable_star_pair_fallback` to control the optional non-normative star-pair stage.
@@ -45,6 +46,8 @@ bge:
     alpha_flatness: 0.25
     beta_roughness: 0.10
   sample_quantile: 0.20  # Conservative, resistant to faint objects
+  min_valid_sample_fraction_for_apply: 0.30  # Per-channel apply guard (fraction)
+  min_valid_samples_for_apply: 96  # Per-channel apply guard (absolute count)
   fit:
     method: rbf  # Flexible, recommended baseline
     robust_loss: huber  # huber | tukey
@@ -60,6 +63,8 @@ bge:
   enabled: true
   sample_quantile: 0.15  # More conservative
   structure_thresh_percentile: 0.95  # Exclude more tiles
+  min_valid_sample_fraction_for_apply: 0.30
+  min_valid_samples_for_apply: 96
   fit:
     method: rbf
     robust_loss: tukey  # stronger outlier suppression
@@ -72,6 +77,8 @@ bge:
 ```yaml
 bge:
   enabled: true
+  min_valid_sample_fraction_for_apply: 0.28  # More tolerant for dense nebulosity/star fields
+  min_valid_samples_for_apply: 96
   fit:
     method: modeled_mask_mesh  # Foreground-aware mesh sky model
 ```
@@ -82,6 +89,8 @@ bge:
 bge:
   enabled: true
   sample_quantile: 0.25  # Less conservative
+  min_valid_sample_fraction_for_apply: 0.30
+  min_valid_samples_for_apply: 96
   fit:
     method: poly  # Simpler for weak gradients
     polynomial_order: 2

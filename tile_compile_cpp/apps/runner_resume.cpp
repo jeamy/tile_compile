@@ -566,6 +566,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         {"sample_quantile", cfg.bge.sample_quantile},
         {"structure_thresh_percentile", cfg.bge.structure_thresh_percentile},
         {"min_tiles_per_cell", cfg.bge.min_tiles_per_cell},
+        {"min_valid_sample_fraction_for_apply",
+         cfg.bge.min_valid_sample_fraction_for_apply},
+        {"min_valid_samples_for_apply", cfg.bge.min_valid_samples_for_apply},
         {"mask",
          {
              {"star_dilate_px", cfg.bge.mask.star_dilate_px},

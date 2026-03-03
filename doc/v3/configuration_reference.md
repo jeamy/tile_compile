@@ -8,6 +8,7 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 
 **Dokumentationsstand (2026-03-03):**
 - `bge.fit.robust_loss` und `bge.fit.huber_delta` sind als Benutzerparameter dokumentiert und konfigurierbar.
+- `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` sind als kanalweise BGE-Apply-Grenzwerte dokumentiert.
 - PCC-Dokumentation umfasst die aktiven Stabilitäts- und Apply-Parameter (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
 
 **💡 Für praktische Beispiele und Anwendungsfälle siehe:** [Konfigurationsbeispiele & Best Practices](configuration_examples_practical_de.md)
@@ -1545,6 +1546,26 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 | **Default** | `3` |
 
 **Zweck:** Mindestanzahl Tile-Samples pro Grid-Cell für valide Hintergrund-Schätzung (v3.3 §6.3.3d).
+
+### `bge.min_valid_sample_fraction_for_apply`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Bereich** | `(0.0, 1.0]` |
+| **Default** | `0.30` |
+
+**Zweck:** Kanalweise Sicherheitsgrenze für BGE-Apply. Wenn `valid_tile_samples / total_tile_samples` unter diesem Wert liegt, wird BGE für den Kanal übersprungen.
+
+### `bge.min_valid_samples_for_apply`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | `1` |
+| **Default** | `96` |
+
+**Zweck:** Absolute kanalweise Sicherheitsgrenze für BGE-Apply. Wenn weniger robuste valide Tile-Samples als dieser Wert vorhanden sind, wird BGE für den Kanal übersprungen.
 
 ### `bge.mask.star_dilate_px`
 

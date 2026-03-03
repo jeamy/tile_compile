@@ -209,6 +209,8 @@ bge:
   sample_quantile: 0.15             # conservative background sampling
   structure_thresh_percentile: 0.80 # exclude high-structure tiles
   min_tiles_per_cell: 3
+  min_valid_sample_fraction_for_apply: 0.28  # slightly relaxed for dense nebulosity/star fields
+  min_valid_samples_for_apply: 96
   
   # Masking
   mask:

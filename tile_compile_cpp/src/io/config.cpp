@@ -439,6 +439,12 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.bge.structure_thresh_percentile = b["structure_thresh_percentile"].as<float>();
     if (b["min_tiles_per_cell"])
       cfg.bge.min_tiles_per_cell = b["min_tiles_per_cell"].as<int>();
+    if (b["min_valid_sample_fraction_for_apply"])
+      cfg.bge.min_valid_sample_fraction_for_apply =
+          b["min_valid_sample_fraction_for_apply"].as<float>();
+    if (b["min_valid_samples_for_apply"])
+      cfg.bge.min_valid_samples_for_apply =
+          b["min_valid_samples_for_apply"].as<int>();
     
     if (b["mask"]) {
       auto m = b["mask"];
@@ -827,6 +833,10 @@ YAML::Node Config::to_yaml() const {
   node["bge"]["sample_quantile"] = bge.sample_quantile;
   node["bge"]["structure_thresh_percentile"] = bge.structure_thresh_percentile;
   node["bge"]["min_tiles_per_cell"] = bge.min_tiles_per_cell;
+  node["bge"]["min_valid_sample_fraction_for_apply"] =
+      bge.min_valid_sample_fraction_for_apply;
+  node["bge"]["min_valid_samples_for_apply"] =
+      bge.min_valid_samples_for_apply;
   node["bge"]["mask"]["star_dilate_px"] = bge.mask.star_dilate_px;
   node["bge"]["mask"]["sat_dilate_px"] = bge.mask.sat_dilate_px;
   node["bge"]["grid"]["N_g"] = bge.grid.N_g;
@@ -1183,6 +1193,14 @@ void Config::validate() const {
   }
   if (bge.min_tiles_per_cell < 1) {
     throw ValidationError("bge.min_tiles_per_cell must be >= 1");
+  }
+  if (bge.min_valid_sample_fraction_for_apply <= 0.0f ||
+      bge.min_valid_sample_fraction_for_apply > 1.0f) {
+    throw ValidationError(
+        "bge.min_valid_sample_fraction_for_apply must be in (0,1]");
+  }
+  if (bge.min_valid_samples_for_apply < 1) {
+    throw ValidationError("bge.min_valid_samples_for_apply must be >= 1");
   }
   if (bge.grid.N_g < 1 || bge.grid.G_min_px < 1 ||
       bge.grid.G_max_fraction <= 0.0f || bge.grid.G_max_fraction > 1.0f) {

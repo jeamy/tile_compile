@@ -1,5 +1,7 @@
 #include "BackendClient.hpp"
 
+#include <QCoreApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QProcess>
 #include <QStringList>
@@ -23,15 +25,57 @@ std::vector<std::string> BackendClient::backend_cmd() const {
 std::vector<std::string> BackendClient::resolve_backend_cmd() const {
     const auto cli = constants_.value("CLI", nlohmann::json::object());
     const std::string backend_bin = cli.value("backend_bin", "");
-    
+
     if (!backend_bin.empty()) {
-        std::string resolved_path = backend_bin;
-        if (backend_bin.rfind("./", 0) == 0 || backend_bin.rfind("../", 0) == 0 || backend_bin[0] != '/') {
-            resolved_path = project_root_ + "/" + backend_bin;
+        const QString backend_q = QString::fromStdString(backend_bin);
+        const QString app_dir = QCoreApplication::applicationDirPath();
+        const QString project_root_q = QString::fromStdString(project_root_);
+
+        QStringList candidates;
+        auto push_candidate = [&candidates](const QString& p) {
+            const QString clean = QDir::cleanPath(p);
+            if (!clean.isEmpty() && !candidates.contains(clean)) candidates.push_back(clean);
+        };
+
+        const QFileInfo backend_info(backend_q);
+        if (backend_info.isAbsolute()) {
+            push_candidate(backend_q);
+        } else {
+            QString stripped = backend_q;
+            if (stripped.startsWith("./") || stripped.startsWith(".\\")) {
+                stripped = stripped.mid(2);
+            }
+            push_candidate(QDir(app_dir).absoluteFilePath(backend_q));
+            push_candidate(QDir(app_dir).absoluteFilePath(stripped));
+            push_candidate(QDir(project_root_q).absoluteFilePath(backend_q));
+            push_candidate(QDir(project_root_q).absoluteFilePath(stripped));
+            // Windows release layout: constants are often one level above bin/.
+            push_candidate(QDir(project_root_q + "/bin").absoluteFilePath(stripped));
         }
-        return {resolved_path};
+
+#ifdef _WIN32
+        QStringList exe_candidates;
+        for (const QString& c : candidates) {
+            if (!c.endsWith(".exe", Qt::CaseInsensitive)) {
+                exe_candidates.push_back(c + ".exe");
+            }
+        }
+        for (const QString& c : exe_candidates) {
+            push_candidate(c);
+        }
+#endif
+
+        for (const QString& c : candidates) {
+            if (QFileInfo::exists(c)) {
+                return {QDir::toNativeSeparators(c).toStdString()};
+            }
+        }
+
+        if (!candidates.isEmpty()) {
+            return {QDir::toNativeSeparators(candidates.front()).toStdString()};
+        }
     }
-    
+
     throw std::runtime_error("backend_bin not configured in constants.js");
 }
 
@@ -41,25 +85,6 @@ nlohmann::json BackendClient::run_json(const std::string &cwd,
                                        int timeout_ms) const {
     const auto cmd = resolve_backend_cmd();
     std::string exe = cmd[0];
-#ifdef _WIN32
-    if (exe.rfind("./", 0) == 0) {
-        exe = ".\\" + exe.substr(2);
-    }
-    if (!exe.empty()) {
-        const std::string exe_ext = ".exe";
-        const bool has_exe_suffix = exe.size() >= exe_ext.size() &&
-                                    exe.substr(exe.size() - exe_ext.size()) == exe_ext;
-        if (!has_exe_suffix) {
-            const QString qexe = QString::fromStdString(exe);
-            if (!QFileInfo::exists(qexe)) {
-                const std::string candidate = exe + exe_ext;
-                if (QFileInfo::exists(QString::fromStdString(candidate))) {
-                    exe = candidate;
-                }
-            }
-        }
-    }
-#endif
 
     if (!exe.empty() && !QFileInfo::exists(QString::fromStdString(exe))) {
         throw std::runtime_error(
@@ -77,6 +102,9 @@ nlohmann::json BackendClient::run_json(const std::string &cwd,
 #ifdef _WIN32
     proc.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
         args->flags |= CREATE_NO_WINDOW;
+        args->flags &= ~CREATE_NEW_CONSOLE;
+        args->startupInfo->dwFlags |= STARTF_USESHOWWINDOW;
+        args->startupInfo->wShowWindow = SW_HIDE;
     });
 #endif
 
