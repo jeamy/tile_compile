@@ -174,10 +174,35 @@ jobs:
             mingw-w64-x86_64-ntldd
 
       - name: Build and package (release script)
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          set -euo pipefail
-          cmd.exe /v:on /c "@echo on && tile_compile_cpp\\build_windows_release.bat"
+          $workspaceRoot = "${{ github.workspace }}"
+          $script = Join-Path $workspaceRoot "tile_compile_cpp\build_windows_release.bat"
+          if (!(Test-Path $script)) {
+            throw "Build-Skript nicht gefunden: $script"
+          }
+
+          Write-Host "Running: $script"
+          cmd.exe /v:on /c "`"$script`""
+          if ($LASTEXITCODE -ne 0) {
+            throw "build_windows_release.bat fehlgeschlagen (ExitCode=$LASTEXITCODE)"
+          }
+
+          $expectedRoots = @(
+            "$workspaceRoot\tile_compile_cpp\dist",
+            "$workspaceRoot\tile_compile_cpp\build\windows-release",
+            "C:\windows-tile-compile-build"
+          )
+          $anyRootExists = $false
+          foreach ($root in $expectedRoots) {
+            if (Test-Path $root) {
+              $anyRootExists = $true
+              break
+            }
+          }
+          if (-not $anyRootExists) {
+            throw "Build-Skript lief ohne Fehlercode, aber es wurden keine erwarteten Output-Ordner erzeugt."
+          }
 
       - name: Collect artifacts
         shell: pwsh
