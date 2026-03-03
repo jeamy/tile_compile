@@ -799,13 +799,16 @@ std::vector<StarPhotometry> measure_stars(
     return result;
 }
 
-// ─── Color matrix fitting (Siril SPCC method) ───────────────────────────
+// ─── Color matrix fitting (Siril SPCC-inspired) ─────────────────────────
 //
-// Follows Siril's get_spcc_white_balance_coeffs:
+// Inspired by Siril's get_spcc_white_balance_coeffs:
 //   1. Per star: measure image flux ratios (r/g, b/g) and catalog flux ratios
 //   2. Robust linear fit: image_rg = a + b * catalog_rg  (repeated median)
-//   3. Evaluate fit at white reference: kr = 1 / (a + b * 1.0)
+//   3. Evaluate fit at a white reference
 //   4. Normalize so max(kr, kg=1, kb) = 1
+//
+// Note: Siril SPCC evaluates at a selected white reference spectrum. Here we
+// derive an adaptive white reference from the catalog colors present in-frame.
 //
 // The repeated median fit (Siegel 1982) is breakdown-point 0.5 and
 // handles both slope and intercept robustly unlike simple ratio medians.

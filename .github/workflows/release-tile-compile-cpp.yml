@@ -174,10 +174,10 @@ jobs:
             mingw-w64-x86_64-ntldd
 
       - name: Build and package (release script)
-        shell: cmd
+        shell: msys2 {0}
         run: |
-          set PATH=C:\msys64\mingw64\bin;C:\msys64\usr\bin;%PATH%
-          tile_compile_cpp\build_windows_release.bat
+          set -euo pipefail
+          cmd.exe /v:on /c "@echo on && tile_compile_cpp\\build_windows_release.bat"
 
       - name: Collect artifacts
         shell: pwsh
