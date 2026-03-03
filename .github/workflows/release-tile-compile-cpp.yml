@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SKIP_DEPS=1 bash tile_compile_cpp/build_linux_release_docker_ubuntu2004.sh.sh
+          SKIP_DEPS=1 bash tile_compile_cpp/build_linux_release.sh
 
       - name: Collect artifacts
         shell: bash
