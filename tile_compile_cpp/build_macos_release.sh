@@ -15,6 +15,12 @@ if ! [[ "$MACOS_MAJOR" =~ ^[0-9]+$ ]]; then
   MACOS_MAJOR=0
 fi
 
+# Optional env vars may be unset in CI; initialize them for `set -u` safety.
+: "${CMAKE_PREFIX_PATH:=}"
+: "${PKG_CONFIG_PATH:=}"
+: "${OpenCV_DIR:=}"
+: "${Qt6_DIR:=}"
+
 echo "=== tile_compile_cpp - macOS Release Build ==="
 echo ""
 

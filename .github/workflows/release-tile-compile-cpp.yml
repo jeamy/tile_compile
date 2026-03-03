@@ -184,26 +184,26 @@ jobs:
         run: |
           $Tag = "${{ needs.meta.outputs.tag }}"
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          Write-Host "Listing build dist directories (for diagnostics)..."
-          if (Test-Path "C:\windows-tile-compile-build") {
-            Get-ChildItem -Force "C:\windows-tile-compile-build" | Format-Table -AutoSize
-          }
-          if (Test-Path "C:\windows-tile-compile-build\dist") {
-            Get-ChildItem -Recurse -Force "C:\windows-tile-compile-build\dist" | Select-Object FullName, Length | Format-Table -AutoSize
+          $distRoot = "${{ github.workspace }}\tile_compile_cpp\dist"
+          Write-Host "Listing workspace dist directory (for diagnostics): $distRoot"
+          if (Test-Path $distRoot) {
+            Get-ChildItem -Recurse -Force $distRoot | Select-Object FullName, Length | Format-Table -AutoSize
           }
           $candidates = @(
-            "C:\windows-tile-compile-build\dist\tile_compile_cpp-windows-release.zip",
-            "C:\windows-tile-compile-build\dist\windows\tile_compile_cpp-windows-release.zip",
-            "${{ github.workspace }}\tile_compile_cpp\dist\tile_compile_cpp-windows-release.zip",
-            "${{ github.workspace }}\tile_compile_cpp\dist\windows\tile_compile_cpp-windows-release.zip"
+            "$distRoot\tile_compile_cpp-windows-release.zip",
+            "$distRoot\windows\tile_compile_cpp-windows-release.zip"
           )
           $src = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (!$src -and (Test-Path $distRoot)) {
+            $src = Get-ChildItem -Path $distRoot -Recurse -File -Filter "tile_compile_cpp-windows-release.zip" -ErrorAction SilentlyContinue `
+              | Select-Object -First 1 -ExpandProperty FullName
+          }
           if (!$src) {
             Write-Host "No ZIP found in expected candidates:"
             $candidates | ForEach-Object { Write-Host "  - $_" }
-            if (Test-Path "${{ github.workspace }}") {
+            if (Test-Path $distRoot) {
               Write-Host "Recursive dist listing from workspace (diagnostics):"
-              Get-ChildItem -Recurse -Force "${{ github.workspace }}\tile_compile_cpp\dist" -ErrorAction SilentlyContinue | Select-Object FullName, Length | Format-Table -AutoSize
+              Get-ChildItem -Recurse -Force $distRoot -ErrorAction SilentlyContinue | Select-Object FullName, Length | Format-Table -AutoSize
             }
             throw "Windows Release ZIP nicht gefunden."
           }

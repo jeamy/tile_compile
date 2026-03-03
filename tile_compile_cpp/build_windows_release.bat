@@ -7,8 +7,9 @@ setlocal ENABLEDELAYEDEXPANSION
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "PROJECT_DIR=%SCRIPT_DIR%"
-set "BUILD_DIR=C:\windows-tile-compile-build"
-set "DIST_DIR=%BUILD_DIR%\dist\windows"
+set "BUILD_DIR=%PROJECT_DIR%\build\windows-release"
+set "DIST_ROOT=%PROJECT_DIR%\dist"
+set "DIST_DIR=%DIST_ROOT%\windows"
 set BUILD_TYPE=Release
 
 echo === tile_compile_cpp - Windows Release Build ===
@@ -172,6 +173,15 @@ echo.
 echo WICHTIG: Du musst das Terminal jetzt NEU STARTEN, damit die neuen
 echo          Abhaengigkeiten im PATH gefunden werden.
 echo.
+if /I "%CI%"=="true" (
+  echo CI erkannt - fahre ohne interaktiven Neustart fort.
+  goto :deps_done
+)
+if /I "%GITHUB_ACTIONS%"=="true" (
+  echo GitHub Actions erkannt - fahre ohne interaktiven Neustart fort.
+  goto :deps_done
+)
+
 echo Moechtest du jetzt neu starten und dann automatisch weitermachen?
 set /p RESTART="Neustarten und weitermachen? (j/n): "
 if /I "%RESTART%"=="j" (
@@ -497,9 +507,9 @@ if exist "%MSYS2_PREFIX%\bin\ntldd.exe" (
   echo WARNUNG: ntldd.exe nicht gefunden. Verifikation uebersprungen.
 )
 
-if not exist "%BUILD_DIR%\dist" mkdir "%BUILD_DIR%\dist"
+if not exist "%DIST_ROOT%" mkdir "%DIST_ROOT%"
 set ZIP_NAME=tile_compile_cpp-windows-release.zip
-set "ZIP_FULL=%BUILD_DIR%\dist\%ZIP_NAME%"
+set "ZIP_FULL=%DIST_ROOT%\%ZIP_NAME%"
 if exist "%ZIP_FULL%" del /F /Q "%ZIP_FULL%"
 echo.
 echo Erzeuge Release-Zip: %ZIP_NAME%
