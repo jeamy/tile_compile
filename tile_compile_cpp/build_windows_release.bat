@@ -257,6 +257,7 @@ if not defined OpenCV_DIR (
 
 set "OBJDUMP_EXE=%MSYS2_PREFIX%\bin\objdump.exe"
 if not exist "%OBJDUMP_EXE%" set "OBJDUMP_EXE=%MSYS2_PREFIX%\bin\x86_64-w64-mingw32-objdump.exe"
+if not exist "%OBJDUMP_EXE%" if defined MSYS2_USR_BIN if exist "%MSYS2_USR_BIN%\objdump.exe" set "OBJDUMP_EXE=%MSYS2_USR_BIN%\objdump.exe"
 if not exist "%OBJDUMP_EXE%" (
   for %%P in (objdump.exe x86_64-w64-mingw32-objdump.exe) do (
     for %%Q in (%%~$PATH:P) do (
@@ -495,12 +496,25 @@ if exist "%OBJDUMP_EXE%" (
 
 if exist "%MSYS2_PREFIX%\bin\ntldd.exe" (
   echo Pruefe DLL-Abhaengigkeiten mit ntldd
-  "%MSYS2_PREFIX%\bin\ntldd.exe" -R "%DIST_BIN%\tile_compile_runner.exe" > "%DIST_DIR%\ntldd_runner.txt"
-  "%MSYS2_PREFIX%\bin\ntldd.exe" -R "%DIST_BIN%\tile_compile_cli.exe" > "%DIST_DIR%\ntldd_cli.txt"
-  "%MSYS2_PREFIX%\bin\ntldd.exe" -R "%DIST_BIN%\tile_compile_gui.exe" > "%DIST_DIR%\ntldd_gui.txt"
-  findstr /I /R "not found missing" "%DIST_DIR%\ntldd_runner.txt" >NUL && goto :error
-  findstr /I /R "not found missing" "%DIST_DIR%\ntldd_cli.txt" >NUL && goto :error
-  findstr /I /R "not found missing" "%DIST_DIR%\ntldd_gui.txt" >NUL && goto :error
+  set "NTLDD_EXE=%MSYS2_PREFIX%\bin\ntldd.exe"
+  call :run_ntldd_sweep
+  "%NTLDD_EXE%" -R "%DIST_BIN%\tile_compile_runner.exe" > "%DIST_DIR%\ntldd_runner.txt"
+  "%NTLDD_EXE%" -R "%DIST_BIN%\tile_compile_cli.exe" > "%DIST_DIR%\ntldd_cli.txt"
+  "%NTLDD_EXE%" -R "%DIST_BIN%\tile_compile_gui.exe" > "%DIST_DIR%\ntldd_gui.txt"
+  set "NTLDD_MISSING_REPORT=%DIST_DIR%\ntldd_missing.txt"
+  type NUL > "%NTLDD_MISSING_REPORT%"
+  for %%R in (runner cli gui) do (
+    for /f "delims=" %%L in ('findstr /I /R "not found missing" "%DIST_DIR%\ntldd_%%R.txt" 2^>NUL ^| findstr /I /V /C:"api-ms-win-" /C:"ext-ms-win-"') do (
+      >> "%NTLDD_MISSING_REPORT%" echo [%%R] %%L
+    )
+  )
+  for %%S in ("%NTLDD_MISSING_REPORT%") do (
+    if %%~zS GTR 0 (
+      echo FEHLER: Fehlende DLL-Abhaengigkeiten laut ntldd:
+      type "%NTLDD_MISSING_REPORT%"
+      goto :error
+    )
+  )
 ) else (
   echo WARNUNG: ntldd.exe nicht gefunden. Verifikation uebersprungen.
 )
@@ -563,6 +577,53 @@ exit /B 0
 echo.
 echo Build fehlgeschlagen.
 exit /B 1
+
+:run_ntldd_sweep
+set NTLDD_PASS=0
+for /L %%P in (1,1,8) do (
+  set /a NTLDD_PASS+=1
+  set "COPIED_THIS_PASS=0"
+  echo   NTLDD-Pass !NTLDD_PASS!
+
+  if exist "%DIST_BIN%\tile_compile_runner.exe" (
+    "%NTLDD_EXE%" -R "%DIST_BIN%\tile_compile_runner.exe" > "%DIST_DIR%\ntldd_runner.txt"
+    call :copy_missing_from_ntldd_report "%DIST_DIR%\ntldd_runner.txt"
+  )
+  if exist "%DIST_BIN%\tile_compile_cli.exe" (
+    "%NTLDD_EXE%" -R "%DIST_BIN%\tile_compile_cli.exe" > "%DIST_DIR%\ntldd_cli.txt"
+    call :copy_missing_from_ntldd_report "%DIST_DIR%\ntldd_cli.txt"
+  )
+  if exist "%DIST_BIN%\tile_compile_gui.exe" (
+    "%NTLDD_EXE%" -R "%DIST_BIN%\tile_compile_gui.exe" > "%DIST_DIR%\ntldd_gui.txt"
+    call :copy_missing_from_ntldd_report "%DIST_DIR%\ntldd_gui.txt"
+  )
+
+  if "!COPIED_THIS_PASS!"=="0" (
+    echo   Keine neuen DLLs in NTLDD-Pass !NTLDD_PASS!, Sweep beendet.
+    goto :run_ntldd_sweep_done
+  )
+)
+
+:run_ntldd_sweep_done
+echo   NTLDD-Sweep abgeschlossen nach !NTLDD_PASS! Pass(es).
+exit /B 0
+
+:copy_missing_from_ntldd_report
+set "NTLDD_REPORT=%~1"
+if not exist "%NTLDD_REPORT%" exit /B 0
+
+for /f "usebackq tokens=1" %%A in (`findstr /I /C:"=> not found" "%NTLDD_REPORT%" 2^>NUL`) do (
+  set "MISSING_DLL=%%~A"
+  for %%X in ("!MISSING_DLL!") do set "MISSING_DLL=%%~nxX"
+  if /I "!MISSING_DLL:~-4!"==".dll" call :copy_dep_dll "!MISSING_DLL!"
+)
+
+for /f "usebackq tokens=1" %%A in (`findstr /I /R "\.dll.*missing" "%NTLDD_REPORT%" 2^>NUL`) do (
+  set "MISSING_DLL=%%~A"
+  for %%X in ("!MISSING_DLL!") do set "MISSING_DLL=%%~nxX"
+  if /I "!MISSING_DLL:~-4!"==".dll" call :copy_dep_dll "!MISSING_DLL!"
+)
+exit /B 0
 
 :run_dep_sweep
 set DEP_PASS=0
