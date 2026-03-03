@@ -184,40 +184,67 @@ jobs:
         run: |
           $Tag = "${{ needs.meta.outputs.tag }}"
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          $distRoot = "${{ github.workspace }}\tile_compile_cpp\dist"
-          Write-Host "Listing workspace dist directory (for diagnostics): $distRoot"
-          if (Test-Path $distRoot) {
-            Get-ChildItem -Recurse -Force $distRoot | Select-Object FullName, Length | Format-Table -AutoSize
+          $workspaceRoot = "${{ github.workspace }}"
+          $searchRoots = @(
+            "$workspaceRoot\tile_compile_cpp\dist",
+            "$workspaceRoot\tile_compile_cpp\build\windows-release\dist",
+            "$workspaceRoot\tile_compile_cpp\build\windows-release",
+            "C:\windows-tile-compile-build\dist",
+            "C:\windows-tile-compile-build"
+          ) | Select-Object -Unique
+
+          Write-Host "Diagnostic listing for known output roots:"
+          $searchRoots | ForEach-Object {
+            if (Test-Path $_) {
+              Write-Host "  found: $_"
+              Get-ChildItem -Recurse -Force $_ -ErrorAction SilentlyContinue | Select-Object FullName, Length | Format-Table -AutoSize
+            } else {
+              Write-Host "  missing: $_"
+            }
           }
-          $candidates = @(
-            "$distRoot\tile_compile_cpp-windows-release.zip",
-            "$distRoot\windows\tile_compile_cpp-windows-release.zip"
-          )
-          $src = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          $zipName = "tile_compile_cpp-windows-release.zip"
+          $zipCandidates = @()
+          foreach ($root in $searchRoots) {
+            $zipCandidates += "$root\$zipName"
+            $zipCandidates += "$root\windows\$zipName"
+          }
+          $zipCandidates = $zipCandidates | Select-Object -Unique
+          $src = $zipCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+
           if (!$src) {
-            $windowsDist = "$distRoot\windows"
-            $fallbackZip = "$distRoot\tile_compile_cpp-windows-release.zip"
-            if (Test-Path $windowsDist) {
-              Write-Host "No prebuilt ZIP found. Creating fallback ZIP from: $windowsDist"
-              Compress-Archive -Path $windowsDist -DestinationPath $fallbackZip -Force
-              if (Test-Path $fallbackZip) {
-                $src = $fallbackZip
+            $src = $searchRoots `
+              | Where-Object { Test-Path $_ } `
+              | ForEach-Object { Get-ChildItem -Path $_ -Recurse -File -Filter $zipName -ErrorAction SilentlyContinue } `
+              | Select-Object -First 1 -ExpandProperty FullName
+          }
+
+          if (!$src) {
+            $distDir = $searchRoots `
+              | Where-Object { Test-Path $_ } `
+              | ForEach-Object { Get-ChildItem -Path $_ -Recurse -File -Filter "tile_compile_gui.exe" -ErrorAction SilentlyContinue } `
+              | ForEach-Object { Split-Path (Split-Path $_.FullName -Parent) -Parent } `
+              | Where-Object { Test-Path "$_\bin\tile_compile_gui.exe" } `
+              | Select-Object -First 1
+
+            if ($distDir) {
+              $generatedZip = "$workspaceRoot\tile_compile_cpp\dist\$zipName"
+              New-Item -ItemType Directory -Path (Split-Path $generatedZip -Parent) -Force | Out-Null
+              if (Test-Path $generatedZip) { Remove-Item -Force $generatedZip }
+              Write-Host "No prebuilt ZIP found. Creating fallback ZIP from: $distDir"
+              Compress-Archive -Path $distDir -DestinationPath $generatedZip -Force
+              if (Test-Path $generatedZip) {
+                $src = $generatedZip
               }
             }
           }
-          if (!$src -and (Test-Path $distRoot)) {
-            $src = Get-ChildItem -Path $distRoot -Recurse -File -Filter "tile_compile_cpp-windows-release.zip" -ErrorAction SilentlyContinue `
-              | Select-Object -First 1 -ExpandProperty FullName
-          }
+
           if (!$src) {
             Write-Host "No ZIP found in expected candidates:"
-            $candidates | ForEach-Object { Write-Host "  - $_" }
-            if (Test-Path $distRoot) {
-              Write-Host "Recursive dist listing from workspace (diagnostics):"
-              Get-ChildItem -Recurse -Force $distRoot -ErrorAction SilentlyContinue | Select-Object FullName, Length | Format-Table -AutoSize
-            }
+            $zipCandidates | ForEach-Object { Write-Host "  - $_" }
             throw "Windows Release ZIP nicht gefunden."
           }
+
           Write-Host "Using ZIP source: $src"
           Copy-Item $src "artifacts\tile_compile_cpp-windows-$Tag.zip" -Force
 

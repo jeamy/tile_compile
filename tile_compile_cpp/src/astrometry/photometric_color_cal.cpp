@@ -554,6 +554,57 @@ static double annulus_safe_fraction(const std::vector<uint8_t> &safe_mask,
     return (n_total > 0) ? (static_cast<double>(n_safe) / static_cast<double>(n_total)) : 0.0;
 }
 
+static std::vector<uint8_t> build_common_support_mask_from_rgb(const Matrix2Df &R,
+                                                                const Matrix2Df &G,
+                                                                const Matrix2Df &B) {
+    const int rows = R.rows();
+    const int cols = R.cols();
+    std::vector<uint8_t> mask(static_cast<size_t>(std::max(0, rows * cols)), 0);
+    if (rows <= 0 || cols <= 0) return mask;
+
+    // Canvas dead area marker is encoded as exact 0 in all channels.
+    // Keep any finite non-all-zero pixel as potentially valid support.
+    for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < cols; ++x) {
+            const float r = R(y, x);
+            const float g = G(y, x);
+            const float b = B(y, x);
+            if (!(std::isfinite(r) && std::isfinite(g) && std::isfinite(b))) continue;
+            if (r == 0.0f && g == 0.0f && b == 0.0f) continue;
+            mask[static_cast<size_t>(y * cols + x)] = 1;
+        }
+    }
+    return mask;
+}
+
+static double radial_support_fraction(const std::vector<uint8_t> &mask,
+                                      int rows, int cols,
+                                      double cx, double cy,
+                                      double r_inner, double r_outer) {
+    if (rows <= 0 || cols <= 0 || mask.empty()) return 0.0;
+    const int x0 = std::max(0, static_cast<int>(cx - r_outer - 1));
+    const int x1 = std::min(cols - 1, static_cast<int>(cx + r_outer + 1));
+    const int y0 = std::max(0, static_cast<int>(cy - r_outer - 1));
+    const int y1 = std::min(rows - 1, static_cast<int>(cy + r_outer + 1));
+    const double r_in2 = std::max(0.0, r_inner * r_inner);
+    const double r_out2 = std::max(r_in2, r_outer * r_outer);
+
+    int n_total = 0;
+    int n_ok = 0;
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            const double dx = x - cx;
+            const double dy = y - cy;
+            const double d2 = dx * dx + dy * dy;
+            if (d2 < r_in2 || d2 > r_out2) continue;
+            ++n_total;
+            const size_t idx = static_cast<size_t>(y * cols + x);
+            if (idx < mask.size() && mask[idx] != 0) ++n_ok;
+        }
+    }
+    return (n_total > 0) ? (static_cast<double>(n_ok) / static_cast<double>(n_total)) : 0.0;
+}
+
 static ColorMatrix blend_matrix_with_identity_per_channel(
     const ColorMatrix &m, double alpha_r, double alpha_b) {
     alpha_r = std::clamp(alpha_r, 0.0, 1.0);
@@ -620,6 +671,27 @@ std::vector<StarPhotometry> measure_stars(
             : static_cast<double>(bg_safe_count) / static_cast<double>(bg_safe_mask.size());
     const double min_safe_annulus_fraction =
         std::clamp(0.25 + 0.50 * bg_safe_fraction, 0.25, 0.55);
+    std::vector<uint8_t> common_support_mask;
+    if (config.common_mask_rows == rows &&
+        config.common_mask_cols == cols &&
+        config.common_valid_mask.size() == static_cast<size_t>(rows * cols)) {
+        common_support_mask = config.common_valid_mask;
+    } else {
+        common_support_mask = build_common_support_mask_from_rgb(R, G, B);
+    }
+    int common_support_count = 0;
+    for (uint8_t v : common_support_mask) {
+        if (v != 0) ++common_support_count;
+    }
+    const double common_support_fraction =
+        common_support_mask.empty()
+            ? 0.0
+            : static_cast<double>(common_support_count) /
+                  static_cast<double>(common_support_mask.size());
+    const double min_aperture_common_fraction =
+        std::clamp(config.min_aperture_common_fraction, 0.50, 1.0);
+    const double min_annulus_common_fraction =
+        std::clamp(config.min_annulus_common_fraction, 0.30, 1.0);
     const TileLookupCache tile_lookup =
         (config.use_tile_quality_weighting &&
          !config.tile_metrics.empty() &&
@@ -631,12 +703,14 @@ std::vector<StarPhotometry> measure_stars(
                         std::vector<StarPhotometry>* out_result,
                         int* n_sat_rejected,
                         int* n_tile_rejected,
+                        int* n_common_rejected,
                         int* n_bg_mask_rejected,
                         std::vector<double>* tile_weights_used) {
         out_result->clear();
         out_result->reserve(catalog_stars.size());
         *n_sat_rejected = 0;
         *n_tile_rejected = 0;
+        *n_common_rejected = 0;
         *n_bg_mask_rejected = 0;
         tile_weights_used->clear();
         tile_weights_used->reserve(catalog_stars.size());
@@ -689,6 +763,18 @@ std::vector<StarPhotometry> measure_stars(
                 continue;
             }
 
+            const double aperture_common_fraction = radial_support_fraction(
+                common_support_mask, rows, cols, px, py, 0.0,
+                config.aperture_radius_px);
+            const double annulus_common_fraction = radial_support_fraction(
+                common_support_mask, rows, cols, px, py,
+                config.annulus_inner_px, config.annulus_outer_px);
+            if (aperture_common_fraction < min_aperture_common_fraction ||
+                annulus_common_fraction < min_annulus_common_fraction) {
+                ++(*n_common_rejected);
+                continue;
+            }
+
             if (enable_bg_guard) {
                 const double safe_fraction = annulus_safe_fraction(
                     bg_safe_mask, rows, cols, px, py,
@@ -731,9 +817,11 @@ std::vector<StarPhotometry> measure_stars(
     std::vector<double> first_pass_weights;
     int first_sat_rej = 0;
     int first_tile_rej = 0;
+    int first_common_rej = 0;
     int first_bg_rej = 0;
     run_pass(true, &first_pass_result,
-             &first_sat_rej, &first_tile_rej, &first_bg_rej, &first_pass_weights);
+             &first_sat_rej, &first_tile_rej, &first_common_rej, &first_bg_rej,
+             &first_pass_weights);
 
     auto count_valid = [](const std::vector<StarPhotometry>& stars) {
         int n = 0;
@@ -745,6 +833,7 @@ std::vector<StarPhotometry> measure_stars(
 
     int n_sat_rejected = first_sat_rej;
     int n_tile_rejected = first_tile_rej;
+    int n_common_rejected = first_common_rej;
     int n_bg_mask_rejected = first_bg_rej;
     std::vector<double> tile_weights_used = first_pass_weights;
     result = std::move(first_pass_result);
@@ -755,14 +844,17 @@ std::vector<StarPhotometry> measure_stars(
         std::vector<double> relaxed_weights;
         int relaxed_sat_rej = 0;
         int relaxed_tile_rej = 0;
+        int relaxed_common_rej = 0;
         int relaxed_bg_rej = 0;
         run_pass(false, &relaxed_result,
-                 &relaxed_sat_rej, &relaxed_tile_rej, &relaxed_bg_rej, &relaxed_weights);
+                 &relaxed_sat_rej, &relaxed_tile_rej, &relaxed_common_rej,
+                 &relaxed_bg_rej, &relaxed_weights);
         if (count_valid(relaxed_result) > count_valid(result)) {
             result = std::move(relaxed_result);
             tile_weights_used = std::move(relaxed_weights);
             n_sat_rejected = relaxed_sat_rej;
             n_tile_rejected = relaxed_tile_rej;
+            n_common_rejected = relaxed_common_rej;
             n_bg_mask_rejected = relaxed_bg_rej;
             used_bg_guard = false;
         }
@@ -771,6 +863,11 @@ std::vector<StarPhotometry> measure_stars(
     std::cout << "[PCC] Saturation guard: rejected=" << n_sat_rejected
               << " sat_r=" << sat_r << " sat_g=" << sat_g << " sat_b=" << sat_b
               << " frac=" << sat_guard_frac << std::endl;
+    std::cout << "[PCC] Common-support guard: rejected="
+              << n_common_rejected
+              << " min_ap=" << min_aperture_common_fraction
+              << " min_ann=" << min_annulus_common_fraction
+              << " support_fraction=" << common_support_fraction << std::endl;
     std::cout << "[PCC] Background-safe annulus guard: rejected="
               << n_bg_mask_rejected
               << " min_safe_fraction=" << min_safe_annulus_fraction
@@ -1554,6 +1651,11 @@ static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df 
             const float r = R(y, x);
             const float g = G(y, x);
             const float b = B(y, x);
+            if (std::isfinite(r) && std::isfinite(g) && std::isfinite(b) &&
+                r == 0.0f && g == 0.0f && b == 0.0f) {
+                // Preserve canvas dead area marker exactly at zero.
+                continue;
+            }
             if (std::isfinite(r)) R(y, x) = std::max(0.0f, r + dr);
             if (std::isfinite(g)) G(y, x) = std::max(0.0f, g + dg);
             if (std::isfinite(b)) B(y, x) = std::max(0.0f, b + db);
@@ -1587,6 +1689,10 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
             const float b0 = B(y, x);
             if (!(std::isfinite(r0) && std::isfinite(g0) && std::isfinite(b0))) {
                 R(y, x) = 0.0f; G(y, x) = 0.0f; B(y, x) = 0.0f;
+                continue;
+            }
+            if (r0 == 0.0f && g0 == 0.0f && b0 == 0.0f) {
+                // Keep canvas dead area at zero in linear apply mode.
                 continue;
             }
             ++valid_px;

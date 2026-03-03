@@ -13,6 +13,12 @@ struct BGEConfig {
     // Internal safety knob (not YAML-exposed): relax channel acceptance
     // guards for controlled fallback retries on difficult fields.
     bool internal_relaxed_channel_guards = false;
+    // Internal common-overlap support mask (not YAML-exposed). When set,
+    // BGE rejects tiles with insufficient support in the common-valid region.
+    std::vector<uint8_t> common_valid_mask;
+    int common_mask_rows = 0;
+    int common_mask_cols = 0;
+    float min_tile_common_support_fraction = 0.60f;
     
     // Tile sampling (§6.3.2)
     float sample_quantile = 0.20f;

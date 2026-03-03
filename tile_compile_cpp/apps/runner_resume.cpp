@@ -547,6 +547,32 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     if (bge_have_tile_data && bge_metrics_tiles_match) {
       image::BGEConfig bge_cfg =
           tile_compile::runner::to_image_bge_config(cfg.bge);
+      if (rgb.R.rows() > 0 && rgb.R.cols() > 0 &&
+          rgb.R.rows() == rgb.G.rows() && rgb.R.rows() == rgb.B.rows() &&
+          rgb.R.cols() == rgb.G.cols() && rgb.R.cols() == rgb.B.cols()) {
+        const int rows = rgb.R.rows();
+        const int cols = rgb.R.cols();
+        bge_cfg.common_valid_mask.assign(
+            static_cast<size_t>(rows * cols), static_cast<uint8_t>(0));
+        for (int y = 0; y < rows; ++y) {
+          for (int x = 0; x < cols; ++x) {
+            const float r = rgb.R(y, x);
+            const float g = rgb.G(y, x);
+            const float b = rgb.B(y, x);
+            if (!(std::isfinite(r) && std::isfinite(g) && std::isfinite(b))) {
+              continue;
+            }
+            if (r == 0.0f && g == 0.0f && b == 0.0f) {
+              continue;
+            }
+            bge_cfg.common_valid_mask[static_cast<size_t>(y * cols + x)] = 1;
+          }
+        }
+        bge_cfg.common_mask_rows = rows;
+        bge_cfg.common_mask_cols = cols;
+        bge_cfg.min_tile_common_support_fraction =
+            std::max(0.60f, cfg.stacking.tile_common_valid_min_fraction);
+      }
 
       (void)image::apply_background_extraction(rgb.R, rgb.G, rgb.B,
                                                bge_tile_metrics, bge_tile_grid,
@@ -569,6 +595,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         {"min_valid_sample_fraction_for_apply",
          cfg.bge.min_valid_sample_fraction_for_apply},
         {"min_valid_samples_for_apply", cfg.bge.min_valid_samples_for_apply},
+        {"internal_min_tile_common_support_fraction",
+         std::max(0.60f, cfg.stacking.tile_common_valid_min_fraction)},
         {"mask",
          {
              {"star_dilate_px", cfg.bge.mask.star_dilate_px},
@@ -722,6 +750,30 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     astro::PCCConfig pcc_cfg =
         tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
+    if (rgb.R.rows() > 0 && rgb.R.cols() > 0 &&
+        rgb.R.rows() == rgb.G.rows() && rgb.R.rows() == rgb.B.rows() &&
+        rgb.R.cols() == rgb.G.cols() && rgb.R.cols() == rgb.B.cols()) {
+      const int rows = rgb.R.rows();
+      const int cols = rgb.R.cols();
+      pcc_cfg.common_valid_mask.assign(
+          static_cast<size_t>(rows * cols), static_cast<uint8_t>(0));
+      for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < cols; ++x) {
+          const float r = rgb.R(y, x);
+          const float g = rgb.G(y, x);
+          const float b = rgb.B(y, x);
+          if (!(std::isfinite(r) && std::isfinite(g) && std::isfinite(b))) {
+            continue;
+          }
+          if (r == 0.0f && g == 0.0f && b == 0.0f) {
+            continue;
+          }
+          pcc_cfg.common_valid_mask[static_cast<size_t>(y * cols + x)] = 1;
+        }
+      }
+      pcc_cfg.common_mask_rows = rows;
+      pcc_cfg.common_mask_cols = cols;
+    }
 
     load_bge_tile_context_if_needed();
     if (bge_metrics_tiles_match) {

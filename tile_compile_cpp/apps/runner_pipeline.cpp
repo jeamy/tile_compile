@@ -3165,6 +3165,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
         image::BGEConfig bge_cfg =
             tile_compile::runner::to_image_bge_config(cfg.bge);
+        if (common_valid_mask.size() ==
+            static_cast<size_t>(canvas_width) * static_cast<size_t>(canvas_height)) {
+          bge_cfg.common_valid_mask = common_valid_mask;
+          bge_cfg.common_mask_rows = canvas_height;
+          bge_cfg.common_mask_cols = canvas_width;
+          // Keep BGE robust even when stacking overlap is intentionally loose.
+          bge_cfg.min_tile_common_support_fraction =
+              std::max(0.60f, tile_common_min_fraction);
+        }
 
         if (!bge_metrics_tiles_match) {
           std::cerr << "[BGE] Warning: tile metric/grid size mismatch (metrics="
@@ -3205,6 +3214,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           {"min_valid_sample_fraction_for_apply",
            cfg.bge.min_valid_sample_fraction_for_apply},
           {"min_valid_samples_for_apply", cfg.bge.min_valid_samples_for_apply},
+          {"internal_min_tile_common_support_fraction",
+           std::max(0.60f, tile_common_min_fraction)},
           {"mask",
            {
                {"star_dilate_px", cfg.bge.mask.star_dilate_px},
@@ -3323,6 +3334,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // Build PCC config from pipeline config
         astro::PCCConfig pcc_cfg =
             tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
+        if (common_valid_mask.size() ==
+            static_cast<size_t>(std::max(0, canvas_height)) *
+                static_cast<size_t>(std::max(0, canvas_width))) {
+          pcc_cfg.common_valid_mask = common_valid_mask;
+          pcc_cfg.common_mask_rows = canvas_height;
+          pcc_cfg.common_mask_cols = canvas_width;
+        }
         if (!bge_tile_metrics_cache.empty() &&
             bge_tile_metrics_cache.size() == bge_tile_grid_cache.tiles.size()) {
           pcc_cfg.use_tile_quality_weighting = true;

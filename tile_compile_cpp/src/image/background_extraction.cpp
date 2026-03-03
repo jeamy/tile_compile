@@ -1037,6 +1037,14 @@ std::vector<TileBGSample> extract_tile_background_samples(
     }
 
     const size_t n_tiles = std::min(tile_metrics.size(), tile_grid.tiles.size());
+    const bool have_common_mask =
+        config.common_mask_rows == channel.rows() &&
+        config.common_mask_cols == channel.cols() &&
+        config.common_valid_mask.size() ==
+            static_cast<size_t>(channel.rows() * channel.cols());
+    const float min_common_support =
+        std::clamp(config.min_tile_common_support_fraction, 0.0f, 1.0f);
+    int rejected_common_support = 0;
 
     int informative_metric_tiles = 0;
     for (size_t ti = 0; ti < n_tiles; ++ti) {
@@ -1132,12 +1140,44 @@ std::vector<TileBGSample> extract_tile_background_samples(
         Matrix2Df tile_view = channel.block(y0, x0, y1 - y0, x1 - x0);
         const int tw = x1 - x0;
         const int th = y1 - y0;
+        const int tile_px = tw * th;
+        std::vector<uint8_t> tile_common_support(static_cast<size_t>(tile_px), 1);
+        int supported_px = tile_px;
+        if (have_common_mask) {
+            supported_px = 0;
+            for (int yy = 0; yy < th; ++yy) {
+                const int gy = y0 + yy;
+                const size_t row_off =
+                    static_cast<size_t>(gy) * static_cast<size_t>(config.common_mask_cols);
+                for (int xx = 0; xx < tw; ++xx) {
+                    const int gx = x0 + xx;
+                    const uint8_t supported =
+                        config.common_valid_mask[row_off + static_cast<size_t>(gx)] != 0 ? 1 : 0;
+                    tile_common_support[static_cast<size_t>(yy * tw + xx)] = supported;
+                    supported_px += (supported != 0) ? 1 : 0;
+                }
+            }
+            const float support_fraction =
+                (tile_px > 0)
+                    ? (static_cast<float>(supported_px) / static_cast<float>(tile_px))
+                    : 0.0f;
+            if (!(std::isfinite(support_fraction)) ||
+                support_fraction < min_common_support) {
+                ++rejected_common_support;
+                samples.push_back(sample);
+                continue;
+            }
+        }
 
         std::vector<float> finite_values;
         finite_values.reserve(static_cast<size_t>(tw * th));
         int zero_pixel_count = 0;
         for (int yy = 0; yy < th; ++yy) {
             for (int xx = 0; xx < tw; ++xx) {
+                const size_t i = static_cast<size_t>(yy * tw + xx);
+                if (tile_common_support[i] == 0) {
+                    continue;
+                }
                 float v = tile_view(yy, xx);
                 if (std::isfinite(v)) {
                     finite_values.push_back(v);
@@ -1206,6 +1246,8 @@ std::vector<TileBGSample> extract_tile_background_samples(
         sat_mask = dilate_mask(sat_mask, tw, th, std::max(0, config.mask.sat_dilate_px));
 
         // Per-pixel structure metric from local gradients.
+        std::vector<float> supported_gradients;
+        supported_gradients.reserve(static_cast<size_t>(supported_px > 0 ? supported_px : tile_px));
         for (int yy = 0; yy < th; ++yy) {
             const int ym = std::max(0, yy - 1);
             const int yp = std::min(th - 1, yy + 1);
@@ -1214,14 +1256,23 @@ std::vector<TileBGSample> extract_tile_background_samples(
                 const int xp = std::min(tw - 1, xx + 1);
                 const float gx = std::abs(tile_view(yy, xp) - tile_view(yy, xm));
                 const float gy = std::abs(tile_view(yp, xx) - tile_view(ym, xx));
-                tile_gradients.push_back(gx + gy);
+                const float grad = gx + gy;
+                tile_gradients.push_back(grad);
+                if (tile_common_support[static_cast<size_t>(yy * tw + xx)] != 0) {
+                    supported_gradients.push_back(grad);
+                }
             }
         }
-        const float grad_thresh = robust_quantile(tile_gradients, config.structure_thresh_percentile);
+        const float grad_thresh = robust_quantile(
+            supported_gradients.empty() ? tile_gradients : supported_gradients,
+            config.structure_thresh_percentile);
 
         for (int yy = 0; yy < th; ++yy) {
             for (int xx = 0; xx < tw; ++xx) {
                 const size_t i = static_cast<size_t>(yy * tw + xx);
+                if (tile_common_support[i] == 0) {
+                    continue;
+                }
                 float v = tile_view(yy, xx);
                 const bool structure_bad = tile_gradients[i] > grad_thresh;
                 const bool masked = (star_mask[i] != 0) || (sat_mask[i] != 0) || structure_bad;
@@ -1272,6 +1323,13 @@ std::vector<TileBGSample> extract_tile_background_samples(
         
         sample.valid = true;
         samples.push_back(sample);
+    }
+
+    if (have_common_mask && n_tiles > 0) {
+        std::cout << "[BGE]   Common-support tile guard: rejected="
+                  << rejected_common_support << "/" << n_tiles
+                  << " (min_fraction=" << min_common_support << ")"
+                  << std::endl;
     }
     
     return samples;

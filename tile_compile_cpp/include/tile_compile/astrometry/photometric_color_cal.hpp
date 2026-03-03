@@ -55,6 +55,15 @@ struct PCCConfig {
     float tile_structure_reject = 8.0f;
     float tile_weight_min = 0.25f;
     float tile_weight_max = 2.0f;
+
+    // Optional per-pixel common-overlap support mask from reconstruction.
+    // When provided, PCC rejects stars whose aperture/annulus is not
+    // sufficiently supported by the common-valid canvas region.
+    std::vector<uint8_t> common_valid_mask;
+    int common_mask_rows = 0;
+    int common_mask_cols = 0;
+    double min_aperture_common_fraction = 0.85;
+    double min_annulus_common_fraction = 0.70;
     
     bool apply_attenuation = false;
     double chroma_strength = 1.00;
