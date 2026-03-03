@@ -50,7 +50,7 @@ if defined MSYS2_PATH (
   if not defined MSYS2_PREFIX if exist "%MSYS2_PATH%\mingw64\bin\g++.exe" set "MSYS2_PREFIX=%MSYS2_PATH%\mingw64"
   if not defined MSYS2_PREFIX if exist "%MSYS2_PATH%\ucrt64\bin\g++.exe" set "MSYS2_PREFIX=%MSYS2_PATH%\ucrt64"
   if not defined MSYS2_PREFIX if exist "%MSYS2_PATH%\clang64\bin\clang++.exe" set "MSYS2_PREFIX=%MSYS2_PATH%\clang64"
-  if defined MSYS2_PREFIX set "MSYS2_MINGW_BIN=%MSYS2_PREFIX%\bin"
+  if defined MSYS2_PREFIX set "MSYS2_MINGW_BIN=!MSYS2_PREFIX!\bin"
 )
 
 if defined MSYS2_MINGW_BIN (
@@ -60,6 +60,8 @@ if defined MSYS2_MINGW_BIN (
     set "PATH=%MSYS2_MINGW_BIN%;%PATH%"
   )
   echo Erkannt: MSYS2/MinGW unter %MSYS2_MINGW_BIN%
+  echo Erkannt: MSYS2 Root unter %MSYS2_PATH%
+  echo Erkannt: MSYS2 Prefix unter %MSYS2_PREFIX%
 )
 
 where cmake >NUL 2>&1
