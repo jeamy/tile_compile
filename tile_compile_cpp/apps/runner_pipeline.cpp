@@ -12,6 +12,7 @@
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/linearity.hpp"
 #include "tile_compile/metrics/metrics.hpp"
+#include "tile_compile/metrics/tile_metrics.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/astrometry/wcs.hpp"
@@ -421,6 +422,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   emitter.phase_end(run_id, Phase::SCAN_INPUT, "ok", scan_extra, log_file);
 
+  const bool strict_profile = (cfg.assumptions.pipeline_profile == "strict");
+  runner::PhaseRegistrationContext phase_registration_ctx;
+  bool registration_precomputed_for_strict = false;
+
+  if (strict_profile) {
+    std::vector<NormalizationScales> strict_identity_norm_scales(frames.size());
+    if (detected_mode == ColorMode::OSC) {
+      for (auto &s : strict_identity_norm_scales) {
+        s.is_osc = true;
+      }
+    }
+    std::vector<FrameMetrics> strict_empty_frame_metrics;
+    VectorXf strict_empty_global_weights;
+    if (!runner::run_phase_registration_prewarp(
+            run_id, cfg, frames, run_dir, height, width, detected_mode,
+            detected_bayer_str, strict_identity_norm_scales,
+            strict_empty_frame_metrics, strict_empty_global_weights,
+            first_header, emitter, log_file, phase_registration_ctx)) {
+      return 1;
+    }
+    registration_precomputed_for_strict = true;
+  }
+
   runner::PhaseMetricsContext phase_metrics_ctx;
   if (!runner::run_phase_channel_split_normalization_global_metrics(
           run_id, cfg, frames, run_dir, detected_mode, detected_bayer_str,
@@ -441,6 +465,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   emitter.phase_start(run_id, Phase::TILE_GRID, "TILE_GRID", log_file);
 
   float seeing_fwhm_med = 3.0f;
+  bool have_seeing_fwhm = false;
   {
     // Robust FWHM probing: measure on up to 5 evenly-spaced frames,
     // take median of all successful measurements (not just the first).
@@ -463,8 +488,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (fwhm > 0.0f && std::isfinite(fwhm))
         fwhm_probes.push_back(fwhm);
     }
-    if (!fwhm_probes.empty())
+    if (!fwhm_probes.empty()) {
       seeing_fwhm_med = core::median_of(fwhm_probes);
+      have_seeing_fwhm = true;
+    }
   }
 
   int seeing_tile_size = 0;
@@ -597,12 +624,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     first_hdr = std::move(first_pair.second);
   }
 
-  runner::PhaseRegistrationContext phase_registration_ctx;
-  if (!runner::run_phase_registration_prewarp(
-          run_id, cfg, frames, run_dir, height, width, detected_mode,
-          detected_bayer_str, norm_scales, frame_metrics, global_weights,
-          first_header, emitter, log_file, phase_registration_ctx)) {
-    return 1;
+  if (!registration_precomputed_for_strict) {
+    if (!runner::run_phase_registration_prewarp(
+            run_id, cfg, frames, run_dir, height, width, detected_mode,
+            detected_bayer_str, norm_scales, frame_metrics, global_weights,
+            first_header, emitter, log_file, phase_registration_ctx)) {
+      return 1;
+    }
   }
 
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
@@ -814,8 +842,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   }
 
   constexpr int kReducedModeMinFrames = 50;
+  const int reduced_threshold =
+      strict_profile ? std::max(200, cfg.assumptions.frames_reduced_threshold)
+                     : cfg.assumptions.frames_reduced_threshold;
   const core::ModeGateDecision gate = core::evaluate_mode_gate(
-      n_usable_frames, cfg.assumptions.frames_reduced_threshold,
+      n_usable_frames, reduced_threshold,
       cfg.runtime_limits.allow_emergency_mode, kReducedModeMinFrames);
   const bool emergency_mode = gate.emergency_mode;
   if (gate.should_abort) {
@@ -843,7 +874,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             run_id, cfg, frames, run_dir, frame_has_data, tiles_phase56,
             common_valid_mask, canvas_width, canvas_height,
             tile_common_valid, tile_common_min_fraction,
-            prewarped_frames, emitter, log_file, local_metrics, local_weights,
+            prewarped_frames, norm_scales, detected_mode, detected_bayer_str,
+            strict_profile, emitter, log_file, local_metrics, local_weights,
             tile_quality_median, tile_is_star, tile_fwhm_median,
             canvas_tile_offset_x, canvas_tile_offset_y)) {
       return 1;
@@ -993,7 +1025,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     //  - Full mode: keep v3.2 §5.7.1 normalization (used as intermediate stage)
     //  - Reduced/emergency: disable per-tile normalization to preserve visual
     //    continuity and avoid tile-contrast pumping in the final output
-    const bool apply_phase7_tile_norm = !skip_clustering_in_reduced;
+    const bool apply_phase7_tile_norm =
+        strict_profile ? true : !skip_clustering_in_reduced;
 
     // Thread-safe structures for parallel processing
     std::mutex recon_mutex;
@@ -1054,10 +1087,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       const Tile &t = tiles_phase56[ti];
 
       auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
-        // Extract tile from pre-warped full frame (already normalized + warped).
+        // Extract tile from pre-warped full frame.
         // PREWARP already composes the registration offset into stored frames.
         // tiles_phase56 is built in canvas coordinates, so no extra offset here.
-        return prewarped_frames.extract_tile(fi, t, 0, 0);
+        Matrix2Df tile = prewarped_frames.extract_tile(fi, t, 0, 0);
+        if (strict_profile && fi < norm_scales.size() && tile.size() > 0) {
+          image::apply_normalization_inplace(tile, norm_scales[fi], detected_mode,
+                                             detected_bayer_str, t.x, t.y);
+        }
+        return tile;
       };
 
       // Use shared pre-computed windows for uniform tiles; compute only for
@@ -1089,10 +1127,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         const int origin_y = std::max(0, t.y);
 
         std::vector<size_t> valid_frames;
-        std::vector<float> weights_valid;
+        std::vector<float> global_weights_valid;
+        std::vector<float> local_weights_valid;
         std::vector<Matrix2Df> valid_mosaics;
         valid_frames.reserve(frames.size());
-        weights_valid.reserve(frames.size());
+        global_weights_valid.reserve(frames.size());
+        local_weights_valid.reserve(frames.size());
         valid_mosaics.reserve(frames.size());
 
         // Single pass: extract tiles, determine validity, compute weights,
@@ -1117,7 +1157,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               (fi < local_weights.size() && ti < local_weights[fi].size())
                   ? local_weights[fi][ti]
                   : 1.0f;
-          weights_valid.push_back(G_f * L_ft);
+          global_weights_valid.push_back(G_f);
+          local_weights_valid.push_back(L_ft);
         }
 
         if (valid_frames.empty()) {
@@ -1128,6 +1169,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         auto stack_channel = [&](int which) -> Matrix2Df {
           std::vector<Matrix2Df> chan_tiles;
           chan_tiles.reserve(valid_mosaics.size());
+          std::vector<float> channel_weights;
+          channel_weights.reserve(valid_mosaics.size());
 
           for (size_t k = 0; k < valid_mosaics.size(); ++k) {
             auto deb = image::debayer_nearest_neighbor(valid_mosaics[k], detected_bayer,
@@ -1146,8 +1189,86 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             chan_tiles.push_back(std::move(chan));
           }
 
+          if (strict_profile) {
+            const float eps = 1.0e-12f;
+            std::vector<TileMetrics> ch_metrics;
+            ch_metrics.reserve(chan_tiles.size());
+            for (const auto &ct : chan_tiles) {
+              ch_metrics.push_back(metrics::calculate_tile_metrics(ct));
+            }
+
+            std::vector<float> fwhm;
+            std::vector<float> roundness;
+            std::vector<float> contrast;
+            std::vector<float> bg;
+            std::vector<float> en;
+            std::vector<float> star_counts;
+            fwhm.reserve(ch_metrics.size());
+            roundness.reserve(ch_metrics.size());
+            contrast.reserve(ch_metrics.size());
+            bg.reserve(ch_metrics.size());
+            en.reserve(ch_metrics.size());
+            star_counts.reserve(ch_metrics.size());
+            for (const auto &tm : ch_metrics) {
+              fwhm.push_back(tm.fwhm);
+              roundness.push_back(tm.roundness);
+              contrast.push_back(tm.contrast);
+              bg.push_back(tm.background);
+              en.push_back((tm.noise > eps) ? (tm.gradient_energy / tm.noise) : 0.0f);
+              star_counts.push_back(static_cast<float>(tm.star_count));
+            }
+
+            std::vector<float> sc_tmp = star_counts;
+            const float sc_med = sc_tmp.empty() ? 0.0f : core::median_of(sc_tmp);
+            const TileType tile_type =
+                (sc_med >= static_cast<float>(cfg.tile.star_min_count))
+                    ? TileType::STAR
+                    : TileType::STRUCTURE;
+
+            std::vector<float> fwhm_t, r_t, c_t, b_t, en_t;
+            core::robust_zscore(fwhm, fwhm_t);
+            core::robust_zscore(roundness, r_t);
+            core::robust_zscore(contrast, c_t);
+            core::robust_zscore(bg, b_t);
+            core::robust_zscore(en, en_t);
+
+            auto clip3 = [&](float x) -> float {
+              return std::min(std::max(x, cfg.local_metrics.clamp[0]),
+                              cfg.local_metrics.clamp[1]);
+            };
+
+            for (size_t i = 0; i < ch_metrics.size(); ++i) {
+              float q = 0.0f;
+              if (tile_type == TileType::STAR) {
+                q = cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_t[i]) +
+                    cfg.local_metrics.star_mode.weights.roundness * (r_t[i]) +
+                    cfg.local_metrics.star_mode.weights.contrast * (c_t[i]);
+              } else {
+                q = cfg.local_metrics.structure_mode.metric_weight * (en_t[i]) +
+                    cfg.local_metrics.structure_mode.background_weight * (-b_t[i]);
+              }
+              q = clip3(q);
+              const float L_ft_c = std::exp(q);
+              const float G_fc =
+                  (i < global_weights_valid.size()) ? global_weights_valid[i] : 1.0f;
+              channel_weights.push_back(G_fc * L_ft_c);
+            }
+          } else {
+            for (size_t i = 0; i < chan_tiles.size(); ++i) {
+              const float G_fc =
+                  (i < global_weights_valid.size()) ? global_weights_valid[i] : 1.0f;
+              const float L_ft =
+                  (i < local_weights_valid.size()) ? local_weights_valid[i] : 1.0f;
+              channel_weights.push_back(G_fc * L_ft);
+            }
+          }
+
+          if (channel_weights.size() != chan_tiles.size()) {
+            channel_weights.assign(chan_tiles.size(), 1.0f);
+          }
+
           auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
-              chan_tiles, weights_valid, cfg.stacking.sigma_clip.sigma_low,
+              chan_tiles, channel_weights, cfg.stacking.sigma_clip.sigma_low,
               cfg.stacking.sigma_clip.sigma_high,
               cfg.stacking.sigma_clip.max_iters,
               cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
@@ -1993,6 +2114,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               if (!frame_mask[fi] || !frame_has_data[fi])
                 continue;
               Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t, 0, 0);
+              if (strict_profile && fi < norm_scales.size() &&
+                  tile_img.size() > 0) {
+                image::apply_normalization_inplace(
+                    tile_img, norm_scales[fi], detected_mode,
+                    detected_bayer_str, t.x, t.y);
+              }
               if (tile_img.rows() != t.height || tile_img.cols() != t.width)
                 continue;
               apply_common_overlap_to_tile(tile_img, t);
@@ -3201,7 +3328,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
 
         if (pcc_cfg.radii_mode == "auto_fwhm") {
-          const double F = std::max(0.0, static_cast<double>(seeing_fwhm_med));
+          const double F = have_seeing_fwhm
+                               ? std::max(0.0,
+                                          static_cast<double>(seeing_fwhm_med))
+                               : 0.0;
           const double r_ap = std::max(static_cast<double>(pcc_cfg.min_aperture_px),
                                        pcc_cfg.aperture_fwhm_mult * F);
           const double r_in = std::max(r_ap + 1.0,

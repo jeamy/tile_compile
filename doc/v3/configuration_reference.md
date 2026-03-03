@@ -420,6 +420,31 @@ Kalibrierungs-Einstellungen (Bias, Dark, Flat). Wird **vor** der Pipeline auf di
 
 Schwellenwerte und Annahmen für Pipeline-Entscheidungen (Normal Mode vs. Reduced Mode).
 
+### `assumptions.pipeline_profile`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string (enum) |
+| **Werte** | `practical`, `strict` |
+| **Default** | `"practical"` |
+
+**Zweck:** Umschalten zwischen kompatiblem Betriebsmodus (`practical`) und methodikstriktem Verhalten (`strict`, v3.3.6).
+
+| Aspekt | `practical` | `strict` |
+|--------|-------------|----------|
+| Phasenreihenfolge | kompatibel/klassisch | REGISTRATION/PREWARP vor CHANNEL_SPLIT/NORMALIZATION/GLOBAL_METRICS |
+| Reduced→Full Gate | `frames_reduced_threshold` | `max(200, frames_reduced_threshold)` |
+| Registration Cascade | Star-Pairs optional (Default an) | Star-Pairs aus (`registration.enable_star_pair_fallback=false`) |
+| Phase-7 Tile-Normalisierung | Reduced/Emergency kann deaktivieren | immer aktiv |
+| PCC `auto_fwhm` Fallback | kompatibel/heuristisch | deterministisch `FWHM=0` falls Seeing fehlt |
+
+Im **strict**-Profil gilt zusätzlich:
+
+- REGISTRATION/PREWARP läuft vor CHANNEL_SPLIT/NORMALIZATION/GLOBAL_METRICS,
+- Full-Mode erst ab mindestens `N >= 200`,
+- Tile-Normalisierung vor OLA ist immer aktiv,
+- PCC `auto_fwhm` fällt bei fehlendem Seeing deterministisch auf `FWHM=0` zurück.
+
 ### `assumptions.frames_min`
 
 | Eigenschaft | Wert |
@@ -455,6 +480,8 @@ Schwellenwerte und Annahmen für Pipeline-Entscheidungen (Normal Mode vs. Reduce
 | **Default** | `200` |
 
 **Zweck:** Schwellenwert für den Wechsel zwischen Normal Mode und Reduced Mode.
+
+**Strict-Hinweis:** Zur v3.3.6-Angleichung erzwingt die Runtime `max(200, frames_reduced_threshold)`.
 
 | Frame-Anzahl | Modus |
 |-------------|-------|
@@ -573,7 +600,23 @@ Geometrische Registrierung (Ausrichtung) aller Frames auf einen Referenz-Frame.
 | **`hybrid_phase_ecc`** | Phase-Korrelation + ECC | Ohne Sternerkennung, für Nebel |
 | **`robust_phase_ecc`** | LoG-Gradient-Preprocessing + Pyramiden-Phase+ECC | **Empfohlen bei Wolken/Nebel**, entfernt Gradienten vor Korrelation |
 
-**Kaskade (immer):** Triangle Stars → Star Pairs → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity-Fallback
+**Kaskade:**
+
+- mit `registration.enable_star_pair_fallback=true` (practical-Default):
+  Triangle Stars → Star Pairs → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity-Fallback
+- mit `registration.enable_star_pair_fallback=false` (strict):
+  Triangle Stars → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity-Fallback
+
+### `registration.enable_star_pair_fallback`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert/deaktiviert den zusätzlichen Star-Pairs-Fallback zwischen Triangle Stars und Trail Endpoints.
+
+Für strikte Methodik-Ausrichtung auf `false` setzen.
 
 **Temporal-Smoothing (v3.2.3+, automatisch aktiv):** Bei fehlgeschlagener direkter Registrierung `i→ref` wird automatisch versucht:
 1. `i→(i-1)→ref` — Registrierung zum Vorgänger-Frame, dann Warp-Verkettung
@@ -2570,6 +2613,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `calibration.bias_dir`, `darks_dir`, `flats_dir`: Quellordner für Kalibrierframe-Findung.
 - `calibration.bias_master`, `dark_master`, `flat_master`: explizite Pfade zu Master-Kalibrierframes.
 - `calibration.pattern`: Glob-Muster für Kalibrierdatei-Lookup.
+- `assumptions.pipeline_profile`: wählt kompatibles (`practical`) oder strikt methodisches (`strict`) Laufzeitverhalten.
 - `assumptions.frames_min`: Mindestrahmenzahl-Erwartung für stabile Methodik.
 - `assumptions.frames_optimal`: Zielrahmenzahl für volle Qualitätsstabilität.
 - `assumptions.frames_reduced_threshold`: Umschaltpunkt Reduced- vs. Full-Mode.
@@ -2583,6 +2627,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `normalization.mode`: Hintergrund- vs. Median-zentrierte Normalisierungsstrategie.
 - `normalization.per_channel`: kanalweise (OSC/RGB) Normalisierung zur Balance-Erhaltung.
 - `registration.engine`: bevorzugte Startmethode; Laufzeit nutzt trotzdem Fallback-Kaskade.
+- `registration.enable_star_pair_fallback`: aktiviert/deaktiviert den zusätzlichen (nicht-normativen) Star-Pairs-Fallback.
 - `registration.allow_rotation`: erlaubt Rotationsanteile in globalen Warps (Pflicht für Alt/Az).
 - `registration.star_topk`: Anzahl starker Sterne für sternbasierte Engines.
 - `registration.star_min_inliers`: minimale akzeptierte Inlier-Korrespondenzen.

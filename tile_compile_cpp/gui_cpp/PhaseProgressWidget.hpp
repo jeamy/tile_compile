@@ -17,6 +17,7 @@ class PhaseProgressWidget : public QWidget {
     explicit PhaseProgressWidget(QWidget *parent = nullptr);
 
     void reset();
+    void set_pipeline_profile(const std::string &profile);
     void set_reduced_mode(bool enabled, int frame_count = 0);
     void update_phase(const std::string &phase_name, const std::string &status,
                       int progress_current = 0, int progress_total = 0,
@@ -27,11 +28,13 @@ class PhaseProgressWidget : public QWidget {
 
   private:
     void build_ui();
+    void apply_display_order(const std::string &profile);
     
     QLabel *reduced_mode_label_ = nullptr;
     QLabel *current_input_label_ = nullptr;
     QProgressBar *progress_bar_ = nullptr;
     QLabel *error_label_ = nullptr;
+    QGridLayout *grid_ = nullptr;
     
     std::map<int, QLabel*> phase_labels_;
     std::map<int, QLabel*> phase_status_labels_;
@@ -39,6 +42,7 @@ class PhaseProgressWidget : public QWidget {
     
     bool reduced_mode_ = false;
     std::string last_error_text_;
+    std::string pipeline_profile_ = "practical";
 };
 
 }

@@ -59,6 +59,10 @@ properties:
   assumptions:
     type: object
     properties:
+      pipeline_profile:
+        type: string
+        enum: [practical, strict]
+        description: "Pipeline behavior profile: practical keeps compatibility defaults, strict enforces v3.3.6 normative constraints."
       frames_min: {type: integer, minimum: 1}
       frames_optimal: {type: integer, minimum: 1}
       frames_reduced_threshold:
@@ -88,6 +92,9 @@ properties:
         type: string
         enum: [triangle_star_matching, star_similarity, hybrid_phase_ecc, robust_phase_ecc]
         description: "Primary registration engine. robust_phase_ecc recommended for nebula/clouds (LoG gradient preprocessing). triangle_star_matching for clear skies (faster, rotation-invariant)."
+      enable_star_pair_fallback:
+        type: boolean
+        description: "Enable additional star-pair fallback between primary triangle and normative fallback cascade. strict profile disables this."
       allow_rotation: {type: boolean}
       star_topk: {type: integer, minimum: 3}
       star_min_inliers: {type: integer, minimum: 2}

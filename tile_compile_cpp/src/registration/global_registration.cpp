@@ -1308,7 +1308,7 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
                                 rcfg.star_topk, rcfg.star_min_inliers,
                                 rcfg.star_inlier_tol_px),
           "triangle");
-      if (!accepted) {
+      if (!accepted && rcfg.enable_star_pair_fallback) {
         accepted = try_method(
             star_registration_similarity(
                 mov, ref, rcfg.allow_rotation, rcfg.star_topk,

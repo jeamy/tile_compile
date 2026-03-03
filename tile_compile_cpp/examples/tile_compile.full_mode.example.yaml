@@ -57,6 +57,7 @@ calibration:
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz" # Dateimaske fuer Kalibrierdaten (inkl. komprimierte .fz)
 
 assumptions:
+  pipeline_profile: practical # practical|strict
   frames_min: 50 # normative Untergrenze; darunter Abort/Emergency
   frames_optimal: 800 # Zielbereich fuer optimale Robustheit
   frames_reduced_threshold: 150 # ab hier Full Mode (N>=150)
@@ -71,6 +72,7 @@ normalization:
 
 registration:
   engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
+  enable_star_pair_fallback: true
   allow_rotation: true # PFLICHT fuer Alt/Az: Feldrotation ueber Session
   star_topk: 150 # mehr Sterne fuer robustes Matching bei Rotation/Wolken
   star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching

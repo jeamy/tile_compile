@@ -13,15 +13,15 @@ struct PhaseInfo {
     const char *desc;
 };
 
-// Display order mirrors actual runtime order; ids keep enum values.
-constexpr PhaseInfo METHODIK_V4_PHASES[] = {
+// Canonical phase definitions (id/name/tooltip). Display order is profile-dependent.
+constexpr PhaseInfo ALL_PHASES[] = {
     {0, "SCAN_INPUT", "Eingabe-Validierung"},
+    {1, "REGISTRATION", "Globale Registrierung (Warp-Schätzung)"},
+    {2, "PREWARP", "Vollauflosungs-Prewarp vor Tile-Extraktion"},
     {3, "CHANNEL_SPLIT", "Kanal-Trennung (R/G/B)"},
     {4, "NORMALIZATION", "Globale lineare Normalisierung"},
     {5, "GLOBAL_METRICS", "Globale Frame-Metriken (B, σ, E)"},
     {6, "TILE_GRID", "FWHM-basierte Tile-Geometrie"},
-    {1, "REGISTRATION", "Globale Registrierung (CFA/Siril)"},
-    {2, "PREWARP", "Vollauflosungs-Prewarp vor Tile-Extraktion"},
     {7, "COMMON_OVERLAP", "Gemeinsamer Overlap / Maskenbildung"},
     {8, "LOCAL_METRICS", "Lokale Tile-Metriken"},
     {9, "TILE_RECONSTRUCTION", "Tile-Rekonstruktion (Overlap-Add)"},
@@ -35,7 +35,17 @@ constexpr PhaseInfo METHODIK_V4_PHASES[] = {
     {17, "DONE", "Abschluss"},
 };
 
-constexpr int NUM_PHASES = sizeof(METHODIK_V4_PHASES) / sizeof(METHODIK_V4_PHASES[0]);
+constexpr int NUM_PHASES = sizeof(ALL_PHASES) / sizeof(ALL_PHASES[0]);
+
+// strict: mirrors v3.3.6 runtime order
+constexpr int STRICT_ORDER[] = {
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+};
+
+// practical: compatibility order (historical GUI ordering)
+constexpr int PRACTICAL_ORDER[] = {
+    0, 3, 4, 5, 6, 1, 2, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+};
 }
 
 void PhaseProgressWidget::set_current_input_dir(const QString &input_dir, int index, int total) {
@@ -83,11 +93,11 @@ void PhaseProgressWidget::build_ui() {
     progress_bar_->setValue(0);
     layout->addWidget(progress_bar_);
 
-    auto *grid = new QGridLayout();
-    grid->setSpacing(6);
+    grid_ = new QGridLayout();
+    grid_->setSpacing(6);
 
     for (int i = 0; i < NUM_PHASES; ++i) {
-        const auto &phase = METHODIK_V4_PHASES[i];
+        const auto &phase = ALL_PHASES[i];
 
         auto *name_label = new QLabel(QString("%1. %2").arg(i).arg(phase.name));
         name_label->setToolTip(phase.desc);
@@ -106,16 +116,13 @@ void PhaseProgressWidget::build_ui() {
         progress_bar->setMaximumHeight(18);
         progress_bar->setVisible(false);
 
-        grid->addWidget(name_label, i, 0);
-        grid->addWidget(status_label, i, 1);
-        grid->addWidget(progress_bar, i, 2);
-
         phase_labels_[phase.id] = name_label;
         phase_status_labels_[phase.id] = status_label;
         phase_progress_bars_[phase.id] = progress_bar;
     }
 
-    layout->addLayout(grid);
+    apply_display_order(pipeline_profile_);
+    layout->addLayout(grid_);
 
     error_label_ = new QLabel("");
     error_label_->setObjectName("PhaseErrorDetail");
@@ -123,6 +130,69 @@ void PhaseProgressWidget::build_ui() {
     error_label_->setVisible(false);
     layout->addWidget(error_label_);
     layout->addStretch(1);
+}
+
+void PhaseProgressWidget::set_pipeline_profile(const std::string &profile) {
+    const std::string next = (profile == "strict") ? "strict" : "practical";
+    if (next == pipeline_profile_) {
+        return;
+    }
+    pipeline_profile_ = next;
+    apply_display_order(pipeline_profile_);
+}
+
+void PhaseProgressWidget::apply_display_order(const std::string &profile) {
+    if (!grid_) {
+        return;
+    }
+
+    const int *order = STRICT_ORDER;
+    int order_len = static_cast<int>(sizeof(STRICT_ORDER) / sizeof(STRICT_ORDER[0]));
+    if (profile == "practical") {
+        order = PRACTICAL_ORDER;
+        order_len = static_cast<int>(sizeof(PRACTICAL_ORDER) / sizeof(PRACTICAL_ORDER[0]));
+    }
+
+    // Clear layout items but keep widgets alive (owned elsewhere / parented).
+    while (grid_->count() > 0) {
+        grid_->takeAt(0);
+    }
+
+    auto phase_info_for_id = [](int id) -> const PhaseInfo * {
+        for (int i = 0; i < NUM_PHASES; ++i) {
+            if (ALL_PHASES[i].id == id) {
+                return &ALL_PHASES[i];
+            }
+        }
+        return nullptr;
+    };
+
+    for (int row = 0; row < order_len; ++row) {
+        const int id = order[row];
+        const PhaseInfo *info = phase_info_for_id(id);
+        if (!info) {
+            continue;
+        }
+
+        auto it_name = phase_labels_.find(id);
+        auto it_status = phase_status_labels_.find(id);
+        auto it_bar = phase_progress_bars_.find(id);
+        if (it_name == phase_labels_.end() || it_status == phase_status_labels_.end() ||
+            it_bar == phase_progress_bars_.end()) {
+            continue;
+        }
+
+        QLabel *name_label = it_name->second;
+        QLabel *status_label = it_status->second;
+        QProgressBar *bar = it_bar->second;
+
+        name_label->setText(QString("%1. %2").arg(row).arg(info->name));
+        name_label->setToolTip(info->desc);
+
+        grid_->addWidget(name_label, row, 0);
+        grid_->addWidget(status_label, row, 1);
+        grid_->addWidget(bar, row, 2);
+    }
 }
 
 void PhaseProgressWidget::reset() {
@@ -167,8 +237,8 @@ void PhaseProgressWidget::update_phase(const std::string &phase_name, const std:
                                        const std::string &substep, const std::string &pass_info) {
     int phase_id = -1;
     for (int i = 0; i < NUM_PHASES; ++i) {
-        if (METHODIK_V4_PHASES[i].name == phase_name) {
-            phase_id = METHODIK_V4_PHASES[i].id;
+        if (ALL_PHASES[i].name == phase_name) {
+            phase_id = ALL_PHASES[i].id;
             break;
         }
     }

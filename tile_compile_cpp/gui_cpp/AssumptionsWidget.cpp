@@ -13,6 +13,7 @@ constexpr double EXPOSURE_TIME_TOLERANCE_PERCENT = 5.0;
 constexpr int FRAMES_MIN = 50;
 constexpr int FRAMES_OPTIMAL = 800;
 constexpr int FRAMES_REDUCED_THRESHOLD = 200;
+constexpr const char *PIPELINE_PROFILE_DEFAULT = "practical";
 constexpr double REGISTRATION_RESIDUAL_WARN_PX = 0.5;
 constexpr double REGISTRATION_RESIDUAL_MAX_PX = 1.0;
 constexpr double ELONGATION_WARN = 0.3;
@@ -58,6 +59,19 @@ void AssumptionsWidget::build_ui() {
         lbl->setWordWrap(true);
         hard_layout->addWidget(lbl);
     }
+
+    auto *profile_row = new QHBoxLayout();
+    profile_row->addWidget(new QLabel("• Pipeline-Profil:"));
+    pipeline_profile_ = new QComboBox();
+    pipeline_profile_->addItem("practical");
+    pipeline_profile_->addItem("strict");
+    pipeline_profile_->setCurrentText(QString::fromUtf8(PIPELINE_PROFILE_DEFAULT));
+    pipeline_profile_->setFixedWidth(140);
+    connect(pipeline_profile_, &QComboBox::currentTextChanged,
+            this, &AssumptionsWidget::assumptions_changed);
+    profile_row->addWidget(pipeline_profile_);
+    profile_row->addStretch(1);
+    hard_layout->addLayout(profile_row);
     
     auto *exp_row = new QHBoxLayout();
     exp_row->addWidget(new QLabel("• Einheitliche Belichtungszeit (Toleranz: ±"));
@@ -226,6 +240,7 @@ void AssumptionsWidget::build_ui() {
 }
 
 void AssumptionsWidget::reset_to_defaults() {
+    pipeline_profile_->blockSignals(true);
     exposure_tolerance_->blockSignals(true);
     frames_min_->blockSignals(true);
     frames_reduced_->blockSignals(true);
@@ -239,6 +254,7 @@ void AssumptionsWidget::reset_to_defaults() {
     cluster_min_->blockSignals(true);
     cluster_max_->blockSignals(true);
 
+    pipeline_profile_->setCurrentText(QString::fromUtf8(PIPELINE_PROFILE_DEFAULT));
     exposure_tolerance_->setValue(EXPOSURE_TIME_TOLERANCE_PERCENT);
     frames_min_->setValue(FRAMES_MIN);
     frames_reduced_->setValue(FRAMES_REDUCED_THRESHOLD);
@@ -252,6 +268,7 @@ void AssumptionsWidget::reset_to_defaults() {
     cluster_min_->setValue(REDUCED_MODE_CLUSTER_MIN);
     cluster_max_->setValue(REDUCED_MODE_CLUSTER_MAX);
 
+    pipeline_profile_->blockSignals(false);
     exposure_tolerance_->blockSignals(false);
     frames_min_->blockSignals(false);
     frames_reduced_->blockSignals(false);
@@ -268,6 +285,7 @@ void AssumptionsWidget::reset_to_defaults() {
 
 nlohmann::json AssumptionsWidget::get_assumptions() const {
     return {
+        {"pipeline_profile", pipeline_profile_->currentText().toStdString()},
         {"frames_min", frames_min_->value()},
         {"frames_optimal", frames_optimal_->value()},
         {"frames_reduced_threshold", frames_reduced_->value()},
@@ -283,6 +301,24 @@ nlohmann::json AssumptionsWidget::get_assumptions() const {
 }
 
 void AssumptionsWidget::set_assumptions(const nlohmann::json &assumptions) {
+    pipeline_profile_->blockSignals(true);
+    exposure_tolerance_->blockSignals(true);
+    frames_min_->blockSignals(true);
+    frames_reduced_->blockSignals(true);
+    frames_optimal_->blockSignals(true);
+    reg_warn_->blockSignals(true);
+    reg_max_->blockSignals(true);
+    elong_warn_->blockSignals(true);
+    elong_max_->blockSignals(true);
+    tracking_error_max_->blockSignals(true);
+    skip_clustering_->blockSignals(true);
+    cluster_min_->blockSignals(true);
+    cluster_max_->blockSignals(true);
+
+    if (assumptions.contains("pipeline_profile") && assumptions["pipeline_profile"].is_string()) {
+        pipeline_profile_->setCurrentText(
+            QString::fromStdString(assumptions["pipeline_profile"].get<std::string>()));
+    }
     if (assumptions.contains("frames_min")) {
         frames_min_->setValue(assumptions["frames_min"].get<int>());
     }
@@ -320,6 +356,22 @@ void AssumptionsWidget::set_assumptions(const nlohmann::json &assumptions) {
             cluster_max_->setValue(rng[1].get<int>());
         }
     }
+
+    pipeline_profile_->blockSignals(false);
+    exposure_tolerance_->blockSignals(false);
+    frames_min_->blockSignals(false);
+    frames_reduced_->blockSignals(false);
+    frames_optimal_->blockSignals(false);
+    reg_warn_->blockSignals(false);
+    reg_max_->blockSignals(false);
+    elong_warn_->blockSignals(false);
+    elong_max_->blockSignals(false);
+    tracking_error_max_->blockSignals(false);
+    skip_clustering_->blockSignals(false);
+    cluster_min_->blockSignals(false);
+    cluster_max_->blockSignals(false);
+
+    emit assumptions_changed();
 }
 
 void AssumptionsWidget::update_reduced_mode_status(int frame_count) {

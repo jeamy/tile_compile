@@ -5,6 +5,11 @@ all currently available config options with inline explanations.
 
 They are kept in sync with v3.3 runner/config parser defaults, including:
 
+- `assumptions.pipeline_profile`
+  - selects `practical` (compatibility behavior) vs `strict` (v3.3.6 normative alignment).
+- `registration.enable_star_pair_fallback`
+  - controls whether the optional Star-Pairs stage is used in the global registration cascade.
+
 - `dithering.*`
   - documents acquisition dithering expectation and shift threshold used for diagnostics.
 - `chroma_denoise.*`

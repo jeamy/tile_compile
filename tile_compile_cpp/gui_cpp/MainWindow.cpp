@@ -150,6 +150,15 @@ void MainWindow::build_ui() {
     assumptions_page_layout->addWidget(assumptions_box, 1);
     tabs_->addTab(wrap_scroll(assumptions_page), "Assumptions");
     connect(assumptions_widget_, &AssumptionsWidget::assumptions_changed, this, [this]() {
+        try {
+            const auto assumptions = assumptions_widget_->get_assumptions();
+            if (phase_progress_) {
+                phase_progress_->set_pipeline_profile(
+                    assumptions.value("pipeline_profile", "practical"));
+            }
+        } catch (...) {
+            // ignore
+        }
         if (frame_count_ > 0) {
             assumptions_widget_->update_reduced_mode_status(frame_count_);
         }
@@ -176,6 +185,15 @@ void MainWindow::build_ui() {
     progress_box_layout->addWidget(phase_progress_);
     progress_page_layout->addWidget(progress_box, 1);
     tabs_->addTab(wrap_scroll(progress_page), "Pipeline Progress");
+
+    // Initial sync: apply current assumptions profile to phase display.
+    try {
+        const auto assumptions = assumptions_widget_->get_assumptions();
+        phase_progress_->set_pipeline_profile(
+            assumptions.value("pipeline_profile", "practical"));
+    } catch (...) {
+        // ignore
+    }
     
     // Current Run Tab
     current_run_tab_ = new CurrentRunTab(this);
@@ -382,6 +400,40 @@ void MainWindow::on_start_run_clicked() {
     
     const QString config_yaml = config_tab->get_config_yaml();
     const bool use_stdin_config = !config_yaml.trimmed().isEmpty();
+
+    // Keep PhaseProgressWidget display order in sync with the actually used config,
+    // even if the user did not explicitly click "Load config" beforehand.
+    try {
+        std::string profile = "practical";
+        if (use_stdin_config) {
+            const YAML::Node cfg = YAML::Load(config_yaml.toStdString());
+            if (cfg["assumptions"] && cfg["assumptions"]["pipeline_profile"] &&
+                cfg["assumptions"]["pipeline_profile"].IsScalar()) {
+                profile = cfg["assumptions"]["pipeline_profile"].as<std::string>();
+            }
+        } else {
+            QString path_qs = config_tab->get_config_path().trimmed();
+            if (path_qs.isEmpty()) {
+                path_qs = "tile_compile.yaml";
+            }
+            std::filesystem::path cfg_path = path_qs.toStdString();
+            if (!cfg_path.is_absolute()) {
+                cfg_path = std::filesystem::path(project_root_) / cfg_path.string();
+            }
+            if (std::filesystem::exists(cfg_path)) {
+                const YAML::Node cfg = YAML::LoadFile(cfg_path.string());
+                if (cfg["assumptions"] && cfg["assumptions"]["pipeline_profile"] &&
+                    cfg["assumptions"]["pipeline_profile"].IsScalar()) {
+                    profile = cfg["assumptions"]["pipeline_profile"].as<std::string>();
+                }
+            }
+        }
+        if (phase_progress_) {
+            phase_progress_->set_pipeline_profile(profile);
+        }
+    } catch (...) {
+        // ignore
+    }
 
     batch_input_dirs_ = input_dirs;
     batch_input_subdirs_ = run_tab->get_input_subdirs();
