@@ -14,11 +14,10 @@ struct BGEConfig {
     // guards for controlled fallback retries on difficult fields.
     bool internal_relaxed_channel_guards = false;
     // Internal common-overlap support mask (not YAML-exposed). When set,
-    // BGE rejects tiles with insufficient support in the common-valid region.
+    // BGE excludes canvas pixels from all computations.
     std::vector<uint8_t> common_valid_mask;
     int common_mask_rows = 0;
     int common_mask_cols = 0;
-    float min_tile_common_support_fraction = 0.60f;
     
     // Tile sampling (§6.3.2)
     float sample_quantile = 0.20f;
@@ -178,8 +177,11 @@ struct BGEDiagnostics {
 };
 
 // Shared background/chroma utilities used by BGE diagnostics and PCC damping.
+// Uses external canvas validity mask: pixels where valid_mask[i]==0 are
+// treated as canvas (excluded before any gradient/luma thresholding).
 std::vector<uint8_t> build_chroma_background_mask_from_rgb(
-    const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B);
+    const Matrix2Df& R, const Matrix2Df& G, const Matrix2Df& B,
+    const std::vector<uint8_t>& valid_mask);
 float log_chroma_std_background(const Matrix2Df& A, const Matrix2Df& G,
                                 const std::vector<uint8_t>& bg_mask);
 
@@ -241,5 +243,13 @@ float rbf_kernel_gaussian(float d, float mu);
 // Robust loss functions (v3.3 §6.3.7)
 float huber_weight(float r, float delta);
 float tukey_weight(float r, float c);
+
+// BGE guard metrics — accept optional canvas validity mask.
+// When provided, pixels where valid_mask[y*W+x]==0 are excluded
+// (canvas border pixels from bilinear warp interpolation).
+float spatial_background_spread(const Matrix2Df& img,
+    const std::vector<uint8_t>* valid_mask = nullptr);
+float coarse_background_plane_slope(const Matrix2Df& img,
+    const std::vector<uint8_t>* valid_mask = nullptr);
 
 } // namespace tile_compile::image

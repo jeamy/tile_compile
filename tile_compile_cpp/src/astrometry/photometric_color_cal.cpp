@@ -559,29 +559,6 @@ static double annulus_safe_fraction(const std::vector<uint8_t> &safe_mask,
     return (n_total > 0) ? (static_cast<double>(n_safe) / static_cast<double>(n_total)) : 0.0;
 }
 
-static std::vector<uint8_t> build_common_support_mask_from_rgb(const Matrix2Df &R,
-                                                                const Matrix2Df &G,
-                                                                const Matrix2Df &B) {
-    const int rows = R.rows();
-    const int cols = R.cols();
-    std::vector<uint8_t> mask(static_cast<size_t>(std::max(0, rows * cols)), 0);
-    if (rows <= 0 || cols <= 0) return mask;
-
-    // Canvas dead area is encoded as non-finite sentinel (and legacy all-zero).
-    // Keep any finite non-all-zero pixel as potentially valid support.
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-            const float r = R(y, x);
-            const float g = G(y, x);
-            const float b = B(y, x);
-            if (!(std::isfinite(r) && std::isfinite(g) && std::isfinite(b))) continue;
-            if (r == 0.0f && g == 0.0f && b == 0.0f) continue;
-            mask[static_cast<size_t>(y * cols + x)] = 1;
-        }
-    }
-    return mask;
-}
-
 static int keep_largest_connected_component(std::vector<uint8_t> &mask,
                                             int rows, int cols) {
     if (rows <= 0 || cols <= 0 || mask.size() != static_cast<size_t>(rows * cols)) {
@@ -740,16 +717,18 @@ std::vector<StarPhotometry> measure_stars(
     const float sat_g = sampled_high_percentile(G, 8, 0.999f);
     const float sat_b = sampled_high_percentile(B, 8, 0.999f);
     constexpr float sat_guard_frac = 0.995f;
-    const std::vector<uint8_t> bg_safe_mask =
-        image::build_chroma_background_mask_from_rgb(R, G, B);
     std::vector<uint8_t> common_support_mask;
     if (config.common_mask_rows == rows &&
         config.common_mask_cols == cols &&
         config.common_valid_mask.size() == static_cast<size_t>(rows * cols)) {
         common_support_mask = config.common_valid_mask;
     } else {
-        common_support_mask = build_common_support_mask_from_rgb(R, G, B);
+        std::cout << "[PCC] Error: missing/invalid canvas mask; aborting star measurement"
+                  << std::endl;
+        return result;
     }
+    const std::vector<uint8_t> bg_safe_mask =
+        image::build_chroma_background_mask_from_rgb(R, G, B, common_support_mask);
     const int support_before_cc =
         static_cast<int>(std::count_if(common_support_mask.begin(),
                                        common_support_mask.end(),
@@ -1722,9 +1701,13 @@ static bool estimate_channel_background_median(
     return std::isfinite(*median_out);
 }
 
-static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B) {
+static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
+                                          const std::vector<uint8_t> &canvas_mask) {
+    if (canvas_mask.size() != static_cast<size_t>(R.rows() * R.cols())) {
+        return;
+    }
     const std::vector<uint8_t> bg_mask =
-        image::build_chroma_background_mask_from_rgb(R, G, B);
+        image::build_chroma_background_mask_from_rgb(R, G, B, canvas_mask);
     if (bg_mask.empty()) return;
 
     double bg_r = 0.0;
@@ -1928,8 +1911,22 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         const Matrix2Df R_in = R;
         const Matrix2Df G_in = G;
         const Matrix2Df B_in = B;
+        const int img_px = R_in.rows() * R_in.cols();
+        const bool have_canvas_mask =
+            !config.common_valid_mask.empty() &&
+            config.common_mask_rows == R_in.rows() &&
+            config.common_mask_cols == R_in.cols() &&
+            static_cast<int>(config.common_valid_mask.size()) == img_px;
+        if (!have_canvas_mask) {
+            result.success = false;
+            result.error_message = "Missing/invalid canvas mask for PCC background analysis";
+            return result;
+        }
         const std::vector<uint8_t> bg_mask =
-            image::build_chroma_background_mask_from_rgb(R_in, G_in, B_in);
+            image::build_chroma_background_mask_from_rgb(
+                R_in, G_in, B_in, config.common_valid_mask);
+        std::cerr << "[PCC] Using canvas valid mask for background chroma analysis ("
+                  << config.common_mask_rows << "x" << config.common_mask_cols << ")" << std::endl;
         const double pre_rg_std_full =
             static_cast<double>(image::log_chroma_std_background(R_in, G_in, bg_mask));
         const double pre_bg_std_full =
@@ -2130,7 +2127,7 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         std::cout << "[PCC] Apply mode: "
                   << (config.apply_attenuation ? "attenuated" : "linear")
                   << std::endl;
-        neutralize_background_offsets(R, G, B);
+        neutralize_background_offsets(R, G, B, config.common_valid_mask);
         std::cout << "[PCC] Color correction applied." << std::endl;
     } else {
         std::cerr << "[PCC] Failed: " << result.error_message << std::endl;
