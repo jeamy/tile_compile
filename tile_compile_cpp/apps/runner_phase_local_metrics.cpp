@@ -165,11 +165,14 @@ bool run_phase_local_metrics(
                 continue;
               }
 
-              apply_common_overlap_to_tile(tile_img, t);
-              if (!tile_has_common_data(tile_img, ti)) {
-                local_metrics[fi].push_back(make_zero_metrics());
-                local_weights[fi].push_back(0.0f);
-                continue;
+              {
+                Matrix2Df tile_masked = tile_img;
+                apply_common_overlap_to_tile(tile_masked, t);
+                if (!tile_has_common_data(tile_masked, ti)) {
+                  local_metrics[fi].push_back(make_zero_metrics());
+                  local_weights[fi].push_back(0.0f);
+                  continue;
+                }
               }
 
               TileMetrics tm = metrics::calculate_tile_metrics(tile_img);
