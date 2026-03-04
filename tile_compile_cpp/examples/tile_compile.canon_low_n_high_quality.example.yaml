@@ -11,14 +11,11 @@ pipeline:
 
 output:
   registered_dir: registered # Ausgabeordner fuer registrierte Frames
-  artifacts_dir: artifacts # Ausgabeordner fuer JSON-Artefakte/Diagnosen
   write_registered_frames: true # registrierte Einzelbilder speichern
 
 data:
   # image_width: 5202 # optional: aus FITS Header ableiten lassen oder fix setzen
   # image_height: 3464 # optional: aus FITS Header ableiten lassen oder fix setzen
-  frames_min: 30 # Legacy-Mindestwert, parallel zu assumptions.frames_min
-  frames_target: 0 # 0 = unbegrenzt, sonst Zielanzahl fuer Auswahl/Begrenzung
   # color_mode: OSC # optional, wird i.d.R. aus Header erkannt
   # bayer_pattern: GBRG # optional, wird i.d.R. aus Header erkannt
   linear_required: true # nur lineare Daten verarbeiten

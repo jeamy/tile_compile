@@ -49,8 +49,6 @@ Config Config::from_yaml(const YAML::Node &node) {
     auto o = node["output"];
     if (o["registered_dir"])
       cfg.output.registered_dir = o["registered_dir"].as<std::string>();
-    if (o["artifacts_dir"])
-      cfg.output.artifacts_dir = o["artifacts_dir"].as<std::string>();
     if (o["write_registered_frames"])
       cfg.output.write_registered_frames =
           o["write_registered_frames"].as<bool>();
@@ -64,10 +62,6 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.data.image_width = d["image_width"].as<int>();
     if (d["image_height"])
       cfg.data.image_height = d["image_height"].as<int>();
-    if (d["frames_min"])
-      cfg.data.frames_min = d["frames_min"].as<int>();
-    if (d["frames_target"])
-      cfg.data.frames_target = d["frames_target"].as<int>();
     if (d["color_mode"])
       cfg.data.color_mode = d["color_mode"].as<std::string>();
     if (d["bayer_pattern"])
@@ -614,14 +608,11 @@ YAML::Node Config::to_yaml() const {
   node["pipeline"]["abort_on_fail"] = pipeline.abort_on_fail;
 
   node["output"]["registered_dir"] = output.registered_dir;
-  node["output"]["artifacts_dir"] = output.artifacts_dir;
   node["output"]["write_registered_frames"] = output.write_registered_frames;
   node["output"]["crop_to_nonzero_bbox"] = output.crop_to_nonzero_bbox;
 
   node["data"]["image_width"] = data.image_width;
   node["data"]["image_height"] = data.image_height;
-  node["data"]["frames_min"] = data.frames_min;
-  node["data"]["frames_target"] = data.frames_target;
   node["data"]["color_mode"] = data.color_mode;
   node["data"]["bayer_pattern"] = data.bayer_pattern;
   node["data"]["linear_required"] = data.linear_required;
@@ -880,12 +871,6 @@ void Config::validate() const {
   if (data.image_width < 0 || data.image_height < 0) {
     throw ValidationError(
         "data.image_width and data.image_height must be >= 0");
-  }
-  if (data.frames_min < 1) {
-    throw ValidationError("data.frames_min must be >= 1");
-  }
-  if (data.frames_target < 0) {
-    throw ValidationError("data.frames_target must be >= 0");
   }
   if (data.color_mode != "OSC" && data.color_mode != "MONO" &&
       data.color_mode != "RGB") {
@@ -1256,13 +1241,10 @@ std::string get_schema_json() {
                       "abort_on_fail":{"type":"boolean"} } },
     "output": { "type":"object",
       "properties": { "registered_dir":{"type":"string"},
-                      "artifacts_dir":{"type":"string"},
                       "write_registered_frames":{"type":"boolean"} } },
     "data": { "type":"object",
       "properties": { "image_width":{"type":"integer","minimum":0},
                       "image_height":{"type":"integer","minimum":0},
-                      "frames_min":{"type":"integer","minimum":1},
-                      "frames_target":{"type":"integer","minimum":0},
                       "color_mode":{"type":"string","enum":["OSC","MONO","RGB"]},
                       "bayer_pattern":{"type":"string"},
                       "linear_required":{"type":"boolean","deprecated":true,

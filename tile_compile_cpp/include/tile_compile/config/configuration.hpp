@@ -16,7 +16,6 @@ struct PipelineConfig {
 
 struct OutputConfig {
   std::string registered_dir = "registered";
-  std::string artifacts_dir = "artifacts";
   bool write_registered_frames = false;
   bool crop_to_nonzero_bbox = true;
 };
@@ -24,8 +23,6 @@ struct OutputConfig {
 struct DataConfig {
   int image_width = 0;
   int image_height = 0;
-  int frames_min = 0;
-  int frames_target = 0;
   std::string color_mode = "OSC";
   std::string bayer_pattern = "GBRG";
   bool linear_required = true;

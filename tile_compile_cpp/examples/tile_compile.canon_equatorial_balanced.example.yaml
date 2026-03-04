@@ -10,15 +10,12 @@ pipeline:
 
 output:
   registered_dir: registered # Ausgabeordner fuer registrierte Frames
-  artifacts_dir: artifacts # Ausgabeordner fuer JSON-Artefakte/Diagnosen
   write_registered_frames: true # registrierte Einzelbilder speichern
   crop_to_nonzero_bbox: true # finalen Stack auf Bounding Box nicht-null Pixel zuschneiden
 
 data:
   # image_width: 5202 # optional: aus FITS Header ableiten lassen oder fix setzen
   # image_height: 3464 # optional: aus FITS Header ableiten lassen oder fix setzen
-  frames_min: 50 # Legacy-Mindestwert, parallel zu assumptions.frames_min
-  frames_target: 0 # 0 = unbegrenzt, sonst Zielanzahl fuer Auswahl/Begrenzung
   # color_mode: OSC # optional, wird i.d.R. aus Header erkannt
   # bayer_pattern: RGGB # Canon meist RGGB; je nach Kamera pruefen
   linear_required: true # nur lineare Daten verarbeiten

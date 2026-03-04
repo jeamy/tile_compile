@@ -24,9 +24,6 @@
         "registered_dir": {
           "type": "string"
         },
-        "artifacts_dir": {
-          "type": "string"
-        },
         "write_registered_frames": {
           "type": "boolean"
         },
@@ -43,14 +40,6 @@
           "minimum": 0
         },
         "image_height": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "frames_min": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "frames_target": {
           "type": "integer",
           "minimum": 0
         },

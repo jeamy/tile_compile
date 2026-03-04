@@ -17,13 +17,10 @@ pipeline:
 
 output:
   registered_dir: registered
-  artifacts_dir: artifacts
   write_registered_frames: true
   crop_to_nonzero_bbox: true
 
 data:
-  frames_min: 30
-  frames_target: 0
   linear_required: true
 
 input:
