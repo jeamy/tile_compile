@@ -609,10 +609,21 @@ static ColorMatrix blend_matrix_with_identity_per_channel(
     const ColorMatrix &m, double alpha_r, double alpha_b) {
     alpha_r = std::clamp(alpha_r, 0.0, 1.0);
     alpha_b = std::clamp(alpha_b, 0.0, 1.0);
-    ColorMatrix out = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+    // Use a neutral diagonal anchor at the current green scale (m[1][1]).
+    // This preserves color-neutral fallback behavior in linear mode:
+    // alpha=0 => diag(kg, kg, kg) instead of [1, kg, 1], avoiding red/magenta bias.
+    const double kg = (std::isfinite(m[1][1]) && m[1][1] > 0.0) ? m[1][1] : 1.0;
+    ColorMatrix out = {{{kg, 0, 0}, {0, kg, 0}, {0, 0, kg}}};
     for (int r = 0; r < 3; ++r) {
         for (int c = 0; c < 3; ++c) {
-            const double ident = (r == c) ? 1.0 : 0.0;
+            double ident = 0.0;
+            if (r == 0 && c == 0) {
+                ident = kg;
+            } else if (r == 1 && c == 1) {
+                ident = kg;
+            } else if (r == 2 && c == 2) {
+                ident = kg;
+            }
             double a = 1.0;
             if (r == 0) {
                 a = alpha_r;
