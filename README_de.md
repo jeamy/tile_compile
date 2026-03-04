@@ -99,9 +99,9 @@ Siehe auch: [Examples README](tile_compile_cpp/examples/README.md)
 
 **Vorkompilierte Binaries zum Testen verfügbar:**
 
-- **Windows**: `tile_compile_cpp-windows-v0.0.3.zip`
-- **Linux**: `tile_compile_cpp-linux-v0.0.3.zip`
-- **macOS**: `tile_compile_cpp-macos14-v0.0.3.dmg `
+- **Windows**: `tile_compile_cpp-windows-v0.0.2.zip`
+- **Linux**: ` tile_compile_cpp-linux-v0.0.3.zip `
+- **macOS**: `tile_compile_cpp-macos-v0.0.2.dmg`
 
 Download von: [GitHub Releases](https://github.com/your-repo/tile_compile/releases/tag/v0.0.2)
 
