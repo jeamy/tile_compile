@@ -2464,7 +2464,11 @@ bool apply_background_extraction(
         for (int y = 0; y < H; ++y) {
             for (int x = 0; x < W; ++x) {
                 const float vin = channel_before(y, x);
-                if (!(std::isfinite(vin) && vin > 0.0f)) {
+                if (!std::isfinite(vin)) {
+                    corrected(y, x) = std::numeric_limits<float>::quiet_NaN();
+                    continue;
+                }
+                if (vin <= 0.0f) {
                     corrected(y, x) = 0.0f;
                     continue;
                 }

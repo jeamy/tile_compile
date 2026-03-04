@@ -562,7 +562,7 @@ static std::vector<uint8_t> build_common_support_mask_from_rgb(const Matrix2Df &
     std::vector<uint8_t> mask(static_cast<size_t>(std::max(0, rows * cols)), 0);
     if (rows <= 0 || cols <= 0) return mask;
 
-    // Canvas dead area marker is encoded as exact 0 in all channels.
+    // Canvas dead area is encoded as non-finite sentinel (and legacy all-zero).
     // Keep any finite non-all-zero pixel as potentially valid support.
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
@@ -1651,9 +1651,12 @@ static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df 
             const float r = R(y, x);
             const float g = G(y, x);
             const float b = B(y, x);
-            if (std::isfinite(r) && std::isfinite(g) && std::isfinite(b) &&
-                r == 0.0f && g == 0.0f && b == 0.0f) {
-                // Preserve canvas dead area marker exactly at zero.
+            if (!(std::isfinite(r) && std::isfinite(g) && std::isfinite(b))) {
+                // Preserve non-finite canvas sentinel exactly.
+                continue;
+            }
+            if (r == 0.0f && g == 0.0f && b == 0.0f) {
+                // Preserve legacy zero canvas marker.
                 continue;
             }
             if (std::isfinite(r)) R(y, x) = std::max(0.0f, r + dr);
@@ -1688,7 +1691,8 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
             const float g0 = G(y, x);
             const float b0 = B(y, x);
             if (!(std::isfinite(r0) && std::isfinite(g0) && std::isfinite(b0))) {
-                R(y, x) = 0.0f; G(y, x) = 0.0f; B(y, x) = 0.0f;
+                const float invalid = std::numeric_limits<float>::quiet_NaN();
+                R(y, x) = invalid; G(y, x) = invalid; B(y, x) = invalid;
                 continue;
             }
             if (r0 == 0.0f && g0 == 0.0f && b0 == 0.0f) {
@@ -1703,9 +1707,12 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
             float ng = 0.0f;
             float nb = 0.0f;
             apply_color_matrix_to_deltas(m, 1.0f, dr, dg, db, &nr, &ng, &nb);
-            R(y, x) = (std::isfinite(nr) ? (ctx.bg_out + nr) : 0.0f);
-            G(y, x) = (std::isfinite(ng) ? (ctx.bg_out + ng) : 0.0f);
-            B(y, x) = (std::isfinite(nb) ? (ctx.bg_out + nb) : 0.0f);
+            R(y, x) = (std::isfinite(nr) ? (ctx.bg_out + nr)
+                                         : std::numeric_limits<float>::quiet_NaN());
+            G(y, x) = (std::isfinite(ng) ? (ctx.bg_out + ng)
+                                         : std::numeric_limits<float>::quiet_NaN());
+            B(y, x) = (std::isfinite(nb) ? (ctx.bg_out + nb)
+                                         : std::numeric_limits<float>::quiet_NaN());
         }
     }
     if (verbose) {
@@ -1742,8 +1749,14 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             const float r0 = R(y, x);
             const float g0 = G(y, x);
             const float b0 = B(y, x);
-            if (!(std::isfinite(r0) && r0 > 0.0f && std::isfinite(g0) && g0 > 0.0f &&
-                  std::isfinite(b0) && b0 > 0.0f)) {
+            if (!(std::isfinite(r0) && std::isfinite(g0) && std::isfinite(b0))) {
+                const float invalid = std::numeric_limits<float>::quiet_NaN();
+                R(y, x) = invalid;
+                G(y, x) = invalid;
+                B(y, x) = invalid;
+                continue;
+            }
+            if (!(r0 > 0.0f && g0 > 0.0f && b0 > 0.0f)) {
                 R(y, x) = 0.0f;
                 G(y, x) = 0.0f;
                 B(y, x) = 0.0f;
@@ -1761,10 +1774,12 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             float ng = 0.0f;
             float nb = 0.0f;
             apply_color_matrix_to_deltas(m, atten, dr, dg, db, &nr, &ng, &nb);
-
-            R(y, x) = ctx.bg_out + nr;
-            G(y, x) = ctx.bg_out + ng;
-            B(y, x) = ctx.bg_out + nb;
+            R(y, x) = std::isfinite(nr) ? (ctx.bg_out + nr)
+                                        : std::numeric_limits<float>::quiet_NaN();
+            G(y, x) = std::isfinite(ng) ? (ctx.bg_out + ng)
+                                        : std::numeric_limits<float>::quiet_NaN();
+            B(y, x) = std::isfinite(nb) ? (ctx.bg_out + nb)
+                                        : std::numeric_limits<float>::quiet_NaN();
         }
     }
 

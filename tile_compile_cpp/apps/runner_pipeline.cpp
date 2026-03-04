@@ -1493,6 +1493,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             int ix = x0 + xx;
             if (iy < 0 || iy >= recon.rows() || ix < 0 || ix >= recon.cols())
               continue;
+            const size_t common_idx =
+                static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
+                static_cast<size_t>(ix);
+            if (common_idx >= common_valid_mask.size() ||
+                common_valid_mask[common_idx] == 0) {
+              continue;
+            }
             float win = hann_y[static_cast<size_t>(yy)] *
                         hann_x[static_cast<size_t>(xx)];
             if (osc_mode) {
@@ -1563,11 +1570,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           recon_G.data()[i] /= ws;
           recon_B.data()[i] /= ws;
         } else {
-          // Keep canvas dead area as zero so later statistics/stacking can
-          // reliably exclude non-data pixels.
-          recon_R.data()[i] = 0.0f;
-          recon_G.data()[i] = 0.0f;
-          recon_B.data()[i] = 0.0f;
+          // Mark canvas dead area with NaN sentinel (impossible sensor value)
+          // so downstream logic can reject it robustly via std::isfinite().
+          const float invalid = std::numeric_limits<float>::quiet_NaN();
+          recon_R.data()[i] = invalid;
+          recon_G.data()[i] = invalid;
+          recon_B.data()[i] = invalid;
         }
       }
 
@@ -1615,9 +1623,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         if (ws > eps_ws) {
           recon.data()[i] /= ws;
         } else {
-          // Keep canvas dead area as zero so later statistics/stacking can
-          // reliably exclude non-data pixels.
-          recon.data()[i] = 0.0f;
+          // Mark canvas dead area with NaN sentinel (impossible sensor value)
+          // so downstream logic can reject it robustly via std::isfinite().
+          recon.data()[i] = std::numeric_limits<float>::quiet_NaN();
         }
       }
 
@@ -2181,6 +2189,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                   const int ix = x0 + xx;
                   if (iy < 0 || iy >= out.rows() || ix < 0 || ix >= out.cols())
                     continue;
+                  const size_t common_idx =
+                      static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
+                      static_cast<size_t>(ix);
+                  if (common_idx >= common_valid_mask.size() ||
+                      common_valid_mask[common_idx] == 0) {
+                    continue;
+                  }
                   const float win = hann_y[static_cast<size_t>(yy)] *
                                     hann_x[static_cast<size_t>(xx)];
                   out(iy, ix) += tile_rec(yy, xx) * win;
@@ -2728,8 +2743,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
       bool tile_pattern_ok = true;
       if (cfg.validation.require_no_tile_pattern) {
-        cv::Mat img_cv(recon.rows(), recon.cols(), CV_32F,
-                       const_cast<float *>(recon.data()));
+        Matrix2Df recon_validation = recon;
+        for (Eigen::Index i = 0; i < recon_validation.size(); ++i) {
+          if (!std::isfinite(recon_validation.data()[i])) {
+            recon_validation.data()[i] = 0.0f;
+          }
+        }
+        cv::Mat img_cv(recon_validation.rows(), recon_validation.cols(), CV_32F,
+                       const_cast<float *>(recon_validation.data()));
         cv::Mat gx, gy;
         cv::Sobel(img_cv, gx, CV_32F, 1, 0, 3);
         cv::Sobel(img_cv, gy, CV_32F, 0, 1, 3);
