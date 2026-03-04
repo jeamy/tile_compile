@@ -3355,13 +3355,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // Build PCC config from pipeline config
         astro::PCCConfig pcc_cfg =
             tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
-        if (common_valid_mask.size() ==
-            static_cast<size_t>(std::max(0, canvas_height)) *
-                static_cast<size_t>(std::max(0, canvas_width))) {
-          pcc_cfg.common_valid_mask = common_valid_mask;
-          pcc_cfg.common_mask_rows = canvas_height;
-          pcc_cfg.common_mask_cols = canvas_width;
-        }
+        // PCC builds its own support mask from the actual stacked RGB image
+        // (build_common_support_mask_from_rgb). The stacking common_valid_mask
+        // must NOT be passed here: it depends on common_overlap_required_fraction
+        // and would cause PCC star selection (and thus color output) to vary
+        // with that parameter even when the stacked image is identical.
         if (!bge_tile_metrics_cache.empty() &&
             bge_tile_metrics_cache.size() == bge_tile_grid_cache.tiles.size()) {
           pcc_cfg.use_tile_quality_weighting = true;
