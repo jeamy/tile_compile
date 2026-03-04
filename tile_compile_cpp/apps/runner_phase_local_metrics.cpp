@@ -27,7 +27,6 @@ bool run_phase_local_metrics(
     const std::vector<uint8_t> &common_valid_mask,
     int common_mask_width, int common_mask_height,
     const std::vector<uint8_t> &tile_common_valid,
-    float tile_common_min_fraction,
     const DiskCacheFrameStore &prewarped_frames,
     const std::vector<image::NormalizationScales> &norm_scales,
     ColorMode detected_mode, const std::string &detected_bayer_str,
@@ -66,18 +65,12 @@ bool run_phase_local_metrics(
   auto tile_has_common_data = [&](const Matrix2Df &tile, size_t ti) -> bool {
     if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0)
       return false;
-    const int total = static_cast<int>(tile.size());
-    if (total <= 0)
-      return false;
-    int nonzero = 0;
-    for (int i = 0; i < total; ++i) {
-      if (tile.data()[i] > 0.0f)
-        ++nonzero;
+    for (Eigen::Index i = 0; i < tile.size(); ++i) {
+      if (tile.data()[i] > 0.0f) {
+        return true;
+      }
     }
-    const int required_nonzero =
-        std::max(1, static_cast<int>(std::ceil(
-                        static_cast<float>(total) * tile_common_min_fraction)));
-    return nonzero >= required_nonzero;
+    return false;
   };
 
   auto compute_worker_count = [&](size_t task_count) -> int {

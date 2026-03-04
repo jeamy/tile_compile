@@ -767,16 +767,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   // Post-PREWARP overlap extension:
   //  - Maintain per-pixel coverage count across usable prewarped frames
-  //  - Derive a common-valid mask from a required frame coverage threshold
-  //  - Use strict per-tile common-overlap acceptance to avoid edge-driven bias
-  const float common_coverage_fraction = cfg.stacking.common_overlap_required_fraction;
-  const float tile_common_min_fraction = cfg.stacking.tile_common_valid_min_fraction;
-  const int total_usable_frames = std::max(1, n_usable_frames);
-  const int required_common_frames =
-      std::max(1, std::min(total_usable_frames,
-                           static_cast<int>(std::ceil(
-                               static_cast<float>(total_usable_frames) *
-                               common_coverage_fraction))));
+  //  - Derive a common-valid mask from any positive frame coverage
+  //    (explicit canvas exclusion only)
+  constexpr int required_common_frames = 1;
 
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *
@@ -847,7 +840,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               ? (static_cast<float>(tile_common) / static_cast<float>(tile_total))
               : 0.0f;
       tile_common_overlap_ratio[ti] = ratio;
-      if (ratio >= tile_common_min_fraction) {
+      if (tile_common > 0) {
         tile_common_valid[ti] = 1;
       }
 
@@ -869,8 +862,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     overlap_artifact["usable_frames"] = n_usable_frames;
     overlap_artifact["loaded_frames"] = static_cast<int>(loaded_frames);
     overlap_artifact["required_common_frames"] = required_common_frames;
-    overlap_artifact["required_common_fraction"] = common_coverage_fraction;
-    overlap_artifact["tile_common_min_fraction"] = tile_common_min_fraction;
     overlap_artifact["common_pixels"] = static_cast<uint64_t>(common_pixels);
     overlap_artifact["common_fraction"] =
         (canvas_px > 0)
@@ -918,7 +909,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             {"usable_frames", n_usable_frames},
             {"loaded_frames", static_cast<int>(loaded_frames)},
             {"required_common_frames", required_common_frames},
-            {"required_common_fraction", common_coverage_fraction},
             {"common_pixels", static_cast<uint64_t>(common_pixels)},
             {"common_fraction",
              (canvas_px > 0)
@@ -964,7 +954,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (!runner::run_phase_local_metrics(
             run_id, cfg, frames, run_dir, frame_has_data, tiles_phase56,
             common_valid_mask, canvas_width, canvas_height,
-            tile_common_valid, tile_common_min_fraction,
+            tile_common_valid,
             prewarped_frames, norm_scales, detected_mode, detected_bayer_str,
             strict_profile, emitter, log_file, local_metrics, local_weights,
             tile_quality_median, tile_is_star, tile_fwhm_median,
@@ -1158,18 +1148,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0) {
         return false;
       }
-      const int total = static_cast<int>(tile.size());
-      if (total <= 0)
-        return false;
-      int nonzero = 0;
-      for (int i = 0; i < total; ++i) {
-        if (tile.data()[i] > 0.0f)
-          ++nonzero;
+      for (Eigen::Index i = 0; i < tile.size(); ++i) {
+        if (tile.data()[i] > 0.0f) {
+          return true;
+        }
       }
-      const int required_nonzero =
-          std::max(1, static_cast<int>(std::ceil(
-                          static_cast<float>(total) * tile_common_min_fraction)));
-      return nonzero >= required_nonzero;
+      return false;
     };
 
     // Worker function for parallel tile processing (v3: global warp only, no

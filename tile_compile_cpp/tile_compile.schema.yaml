@@ -13,8 +13,6 @@ properties:
       registered_dir: {type: string}
       artifacts_dir: {type: string}
       write_registered_frames: {type: boolean}
-      write_global_metrics: {type: boolean}
-      write_global_registration: {type: boolean}
       crop_to_nonzero_bbox: {type: boolean}
   data:
     type: object
@@ -169,16 +167,6 @@ properties:
         properties:
           mode: {type: string, enum: [chroma_only]}
           amount: {type: number, minimum: 0, maximum: 1}
-  wiener_denoise:
-    type: object
-    properties:
-      enabled: {type: boolean}
-      snr_threshold: {type: number, minimum: 0}
-      q_min: {type: number, minimum: -1}
-      q_max: {type: number, minimum: 0, maximum: 1}
-      q_step: {type: number, exclusiveMinimum: 0}
-      min_snr: {type: number, minimum: 0}
-      max_iterations: {type: integer, minimum: 1}
   global_metrics:
     type: object
     properties:
@@ -246,11 +234,6 @@ properties:
             items: {type: integer, minimum: 1}
             minItems: 2
             maxItems: 2
-  reconstruction:
-    type: object
-    properties:
-      weighting_function: {type: string, enum: [linear]}
-      window_function: {type: string, enum: [hanning]}
   debayer: {type: boolean}
   astrometry:
     type: object
@@ -349,16 +332,6 @@ properties:
             type: number
             exclusiveMinimum: 0
             description: "Nur mit cap_enabled=true: begrenzt Gewicht auf w_k <= cap_ratio * median_j(w_j)."
-      common_overlap_required_fraction:
-        type: number
-        exclusiveMinimum: 0
-        maximum: 1
-        description: "Mindestanteil nutzbarer Frames pro Pixel fuer Post-PREWARP-Berechnungen (1.0 = strikte Schnittmenge aller Frames)."
-      tile_common_valid_min_fraction:
-        type: number
-        exclusiveMinimum: 0
-        maximum: 1
-        description: "Mindestanteil gueltiger Common-Overlap-Pixel innerhalb eines Tiles, damit das Tile in Metriken/Rekonstruktion verwendet wird."
       output_stretch:
         type: boolean
         description: "Optionaler linearer Anzeige-Stretch auf den Ausgabe-Daten (Post-Processing, nicht Teil des linearen Pflichtkerns)."

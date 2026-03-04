@@ -13,8 +13,6 @@ output:
   registered_dir: registered # Ausgabeordner fuer registrierte Frames
   artifacts_dir: artifacts # Ausgabeordner fuer JSON-Artefakte/Diagnosen
   write_registered_frames: true # registrierte Einzelbilder speichern
-  write_global_metrics: true # global_metrics.json speichern
-  write_global_registration: true # global_registration.json speichern
 
 data:
   image_width: 3840 # erwartete Bildbreite (px)
@@ -171,9 +169,6 @@ synthetic:
     mode: kmeans # kmeans|quantile
     cluster_count_range: [3, 12] # [k_min, k_max] fuer kleine Datensaetze
 
-reconstruction:
-  weighting_function: linear # aktuell linear
-  window_function: hanning # OLA-Fensterfunktion
 
 debayer: false # MONO-Ausgabe bleibt monochrom
 
@@ -249,8 +244,6 @@ stacking:
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
     cap_enabled: false # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
-  common_overlap_required_fraction: 1.0 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
-  tile_common_valid_min_fraction: 0.90 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0)

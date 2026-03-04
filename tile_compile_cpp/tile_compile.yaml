@@ -21,8 +21,6 @@ output:
   registered_dir: registered # Ausgabeordner fuer registrierte Frames
   artifacts_dir: artifacts # Ausgabeordner fuer JSON-Artefakte/Diagnosen
   write_registered_frames: true # registrierte Einzelbilder speichern
-  write_global_metrics: true # global_metrics.json speichern
-  write_global_registration: true # global_registration.json speichern
   crop_to_nonzero_bbox: true # finalen Stack auf Bounding Box nicht-null Pixel zuschneiden
 
 data:
@@ -182,9 +180,6 @@ synthetic:
     mode: kmeans # kmeans|quantile
     cluster_count_range: [3, 12] # [k_min, k_max] fuer kleinere Datensaetze
 
-reconstruction:
-  weighting_function: linear # aktuell linear
-  window_function: hanning # OLA-Fensterfunktion
 
 debayer: true # OSC-Mosaik am Ende in RGB debayern
 
@@ -275,8 +270,6 @@ stacking:
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
     cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
-  common_overlap_required_fraction: 0.6 # nur Pixel verwenden, die in 70% der nutzbaren Frames Daten haben
-  tile_common_valid_min_fraction: 0.5 # Tile nur nutzen, wenn mind. 50% im gemeinsamen Overlap liegen
   output_stretch: true # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)

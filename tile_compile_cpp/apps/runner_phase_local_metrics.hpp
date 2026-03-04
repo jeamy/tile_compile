@@ -20,7 +20,6 @@ bool run_phase_local_metrics(
     const std::vector<uint8_t> &common_valid_mask,
     int common_mask_width, int common_mask_height,
     const std::vector<uint8_t> &tile_common_valid,
-    float tile_common_min_fraction,
     const DiskCacheFrameStore &prewarped_frames,
     const std::vector<image::NormalizationScales> &norm_scales,
     ColorMode detected_mode, const std::string &detected_bayer_str,
