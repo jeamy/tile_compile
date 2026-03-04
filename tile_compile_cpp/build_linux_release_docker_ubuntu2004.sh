@@ -64,6 +64,11 @@ if [ ! -f "$SCRIPT_DIR/dist/tile_compile_cpp-linux-release.zip" ]; then
   echo "Das unkomprimierte Release liegt unter: $SCRIPT_DIR/dist/linux"
 fi
 
+if [ ! -f "$SCRIPT_DIR/dist/tile_compile_cpp-linux-x86_64.AppImage" ]; then
+  echo "FEHLER: AppImage wurde nicht erzeugt (dist/tile_compile_cpp-linux-x86_64.AppImage fehlt)." >&2
+  exit 1
+fi
+
 echo ""
 echo "Fertig. Output unter:"
 echo "  $SCRIPT_DIR/dist/"

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <queue>
 #include <vector>
 
 namespace tile_compile::astrometry {
@@ -527,6 +528,7 @@ static float sampled_high_percentile(const Matrix2Df &img, int step, float q) {
 }
 
 static double annulus_safe_fraction(const std::vector<uint8_t> &safe_mask,
+                                    const std::vector<uint8_t> *support_mask,
                                     int rows, int cols,
                                     double cx, double cy,
                                     double r_in, double r_out) {
@@ -546,8 +548,11 @@ static double annulus_safe_fraction(const std::vector<uint8_t> &safe_mask,
             const double dy = y - cy;
             const double d2 = dx * dx + dy * dy;
             if (d2 < r_in2 || d2 > r_out2) continue;
-            ++n_total;
             const size_t idx = static_cast<size_t>(y * cols + x);
+            if (support_mask != nullptr) {
+                if (idx >= support_mask->size() || (*support_mask)[idx] == 0) continue;
+            }
+            ++n_total;
             if (idx < safe_mask.size() && safe_mask[idx] != 0) ++n_safe;
         }
     }
@@ -575,6 +580,71 @@ static std::vector<uint8_t> build_common_support_mask_from_rgb(const Matrix2Df &
         }
     }
     return mask;
+}
+
+static int keep_largest_connected_component(std::vector<uint8_t> &mask,
+                                            int rows, int cols) {
+    if (rows <= 0 || cols <= 0 || mask.size() != static_cast<size_t>(rows * cols)) {
+        return 0;
+    }
+
+    std::vector<uint8_t> visited(mask.size(), 0);
+    std::vector<int> best_component;
+    best_component.reserve(mask.size() / 2);
+
+    const int dx8[8] = {-1, 0, 1, -1, 1, -1, 0, 1};
+    const int dy8[8] = {-1, -1, -1, 0, 0, 1, 1, 1};
+    std::queue<int> q;
+    std::vector<int> current;
+    current.reserve(4096);
+
+    for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < cols; ++x) {
+            const int root = y * cols + x;
+            if (mask[static_cast<size_t>(root)] == 0 || visited[static_cast<size_t>(root)] != 0) {
+                continue;
+            }
+
+            current.clear();
+            visited[static_cast<size_t>(root)] = 1;
+            q.push(root);
+
+            while (!q.empty()) {
+                const int idx = q.front();
+                q.pop();
+                current.push_back(idx);
+
+                const int cy = idx / cols;
+                const int cx = idx - cy * cols;
+                for (int k = 0; k < 8; ++k) {
+                    const int nx = cx + dx8[k];
+                    const int ny = cy + dy8[k];
+                    if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+                    const int nidx = ny * cols + nx;
+                    const size_t npos = static_cast<size_t>(nidx);
+                    if (mask[npos] == 0 || visited[npos] != 0) continue;
+                    visited[npos] = 1;
+                    q.push(nidx);
+                }
+            }
+
+            if (current.size() > best_component.size()) {
+                best_component = current;
+            }
+        }
+    }
+
+    if (best_component.empty()) {
+        std::fill(mask.begin(), mask.end(), static_cast<uint8_t>(0));
+        return 0;
+    }
+
+    std::vector<uint8_t> out(mask.size(), 0);
+    for (int idx : best_component) {
+        out[static_cast<size_t>(idx)] = 1;
+    }
+    mask.swap(out);
+    return static_cast<int>(best_component.size());
 }
 
 static double radial_support_fraction(const std::vector<uint8_t> &mask,
@@ -672,16 +742,6 @@ std::vector<StarPhotometry> measure_stars(
     constexpr float sat_guard_frac = 0.995f;
     const std::vector<uint8_t> bg_safe_mask =
         image::build_chroma_background_mask_from_rgb(R, G, B);
-    int bg_safe_count = 0;
-    for (uint8_t v : bg_safe_mask) {
-        if (v != 0) ++bg_safe_count;
-    }
-    const double bg_safe_fraction =
-        bg_safe_mask.empty()
-            ? 0.0
-            : static_cast<double>(bg_safe_count) / static_cast<double>(bg_safe_mask.size());
-    const double min_safe_annulus_fraction =
-        std::clamp(0.25 + 0.50 * bg_safe_fraction, 0.25, 0.55);
     std::vector<uint8_t> common_support_mask;
     if (config.common_mask_rows == rows &&
         config.common_mask_cols == cols &&
@@ -690,6 +750,12 @@ std::vector<StarPhotometry> measure_stars(
     } else {
         common_support_mask = build_common_support_mask_from_rgb(R, G, B);
     }
+    const int support_before_cc =
+        static_cast<int>(std::count_if(common_support_mask.begin(),
+                                       common_support_mask.end(),
+                                       [](uint8_t v) { return v != 0; }));
+    const int support_after_cc =
+        keep_largest_connected_component(common_support_mask, rows, cols);
     int common_support_count = 0;
     for (uint8_t v : common_support_mask) {
         if (v != 0) ++common_support_count;
@@ -699,6 +765,22 @@ std::vector<StarPhotometry> measure_stars(
             ? 0.0
             : static_cast<double>(common_support_count) /
                   static_cast<double>(common_support_mask.size());
+    int bg_safe_count_on_common_support = 0;
+    const size_t n_px = std::min(bg_safe_mask.size(), common_support_mask.size());
+    for (size_t i = 0; i < n_px; ++i) {
+        if (bg_safe_mask[i] != 0) {
+            if (common_support_mask[i] != 0) {
+                ++bg_safe_count_on_common_support;
+            }
+        }
+    }
+    const double bg_safe_fraction =
+        (common_support_count > 0)
+            ? (static_cast<double>(bg_safe_count_on_common_support) /
+               static_cast<double>(common_support_count))
+            : 0.0;
+    const double min_safe_annulus_fraction =
+        std::clamp(0.25 + 0.50 * bg_safe_fraction, 0.25, 0.55);
     const double min_aperture_common_fraction =
         std::clamp(config.min_aperture_common_fraction, 0.50, 1.0);
     const double min_annulus_common_fraction =
@@ -788,7 +870,7 @@ std::vector<StarPhotometry> measure_stars(
 
             if (enable_bg_guard) {
                 const double safe_fraction = annulus_safe_fraction(
-                    bg_safe_mask, rows, cols, px, py,
+                    bg_safe_mask, &common_support_mask, rows, cols, px, py,
                     config.annulus_inner_px, config.annulus_outer_px);
                 if (safe_fraction < min_safe_annulus_fraction) {
                     ++(*n_bg_mask_rejected);
@@ -878,7 +960,9 @@ std::vector<StarPhotometry> measure_stars(
               << n_common_rejected
               << " min_ap=" << min_aperture_common_fraction
               << " min_ann=" << min_annulus_common_fraction
-              << " support_fraction=" << common_support_fraction << std::endl;
+              << " support_fraction=" << common_support_fraction
+              << " support_cc=" << support_after_cc << "/" << support_before_cc
+              << std::endl;
     std::cout << "[PCC] Background-safe annulus guard: rejected="
               << n_bg_mask_rejected
               << " min_safe_fraction=" << min_safe_annulus_fraction

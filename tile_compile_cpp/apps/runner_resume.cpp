@@ -776,11 +776,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
 
     load_bge_tile_context_if_needed();
-    if (bge_metrics_tiles_match) {
-      pcc_cfg.use_tile_quality_weighting = true;
-      pcc_cfg.tile_grid = bge_tile_grid;
-      pcc_cfg.tile_metrics = bge_tile_metrics;
-    }
+    // PCC canvas policy: no tile-based star weighting/gating.
+    pcc_cfg.use_tile_quality_weighting = false;
 
     if (pcc_cfg.radii_mode == "auto_fwhm") {
       // Resume path prefers persisted seeing estimate from tile_grid artifact

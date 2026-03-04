@@ -10,6 +10,8 @@ RUN apt-get update \
         build-essential \
         cmake \
         git \
+        curl \
+        wget \
         zip \
         pkg-config \
         patchelf \

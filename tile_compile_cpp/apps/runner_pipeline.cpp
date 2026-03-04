@@ -3186,11 +3186,32 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
         image::BGEConfig bge_cfg =
             tile_compile::runner::to_image_bge_config(cfg.bge);
-        if (common_valid_mask.size() ==
-            static_cast<size_t>(canvas_width) * static_cast<size_t>(canvas_height)) {
-          bge_cfg.common_valid_mask = common_valid_mask;
-          bge_cfg.common_mask_rows = canvas_height;
-          bge_cfg.common_mask_cols = canvas_width;
+        // BGE canvas policy:
+        // - Use only finite, non-zero RGB pixels as valid support.
+        // - Do not derive BGE support from COMMON_OVERLAP thresholds.
+        if (R_out.rows() > 0 && R_out.cols() > 0 &&
+            R_out.rows() == G_out.rows() && R_out.rows() == B_out.rows() &&
+            R_out.cols() == G_out.cols() && R_out.cols() == B_out.cols()) {
+          const int rows = R_out.rows();
+          const int cols = R_out.cols();
+          bge_cfg.common_valid_mask.assign(
+              static_cast<size_t>(rows * cols), static_cast<uint8_t>(0));
+          for (int y = 0; y < rows; ++y) {
+            for (int x = 0; x < cols; ++x) {
+              const float r = R_out(y, x);
+              const float g = G_out(y, x);
+              const float b = B_out(y, x);
+              if (!(std::isfinite(r) && std::isfinite(g) && std::isfinite(b))) {
+                continue;
+              }
+              if (r == 0.0f && g == 0.0f && b == 0.0f) {
+                continue;
+              }
+              bge_cfg.common_valid_mask[static_cast<size_t>(y * cols + x)] = 1;
+            }
+          }
+          bge_cfg.common_mask_rows = rows;
+          bge_cfg.common_mask_cols = cols;
           // Keep BGE robust even when stacking overlap is intentionally loose.
           bge_cfg.min_tile_common_support_fraction =
               std::max(0.60f, tile_common_min_fraction);
@@ -3355,19 +3376,34 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // Build PCC config from pipeline config
         astro::PCCConfig pcc_cfg =
             tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
-        if (common_valid_mask.size() ==
-            static_cast<size_t>(std::max(0, canvas_height)) *
-                static_cast<size_t>(std::max(0, canvas_width))) {
-          pcc_cfg.common_valid_mask = common_valid_mask;
-          pcc_cfg.common_mask_rows = canvas_height;
-          pcc_cfg.common_mask_cols = canvas_width;
+        // PCC canvas policy:
+        // - Use only finite, non-zero RGB pixels as valid support.
+        // - Do not use COMMON_OVERLAP mask or tile-based star weighting.
+        if (R_out.rows() > 0 && R_out.cols() > 0 &&
+            R_out.rows() == G_out.rows() && R_out.rows() == B_out.rows() &&
+            R_out.cols() == G_out.cols() && R_out.cols() == B_out.cols()) {
+          const int rows = R_out.rows();
+          const int cols = R_out.cols();
+          pcc_cfg.common_valid_mask.assign(
+              static_cast<size_t>(rows * cols), static_cast<uint8_t>(0));
+          for (int y = 0; y < rows; ++y) {
+            for (int x = 0; x < cols; ++x) {
+              const float r = R_out(y, x);
+              const float g = G_out(y, x);
+              const float b = B_out(y, x);
+              if (!(std::isfinite(r) && std::isfinite(g) && std::isfinite(b))) {
+                continue;
+              }
+              if (r == 0.0f && g == 0.0f && b == 0.0f) {
+                continue;
+              }
+              pcc_cfg.common_valid_mask[static_cast<size_t>(y * cols + x)] = 1;
+            }
+          }
+          pcc_cfg.common_mask_rows = rows;
+          pcc_cfg.common_mask_cols = cols;
         }
-        if (!bge_tile_metrics_cache.empty() &&
-            bge_tile_metrics_cache.size() == bge_tile_grid_cache.tiles.size()) {
-          pcc_cfg.use_tile_quality_weighting = true;
-          pcc_cfg.tile_grid = bge_tile_grid_cache;
-          pcc_cfg.tile_metrics = bge_tile_metrics_cache;
-        }
+        pcc_cfg.use_tile_quality_weighting = false;
 
         if (pcc_cfg.radii_mode == "auto_fwhm") {
           const double F = have_seeing_fwhm
