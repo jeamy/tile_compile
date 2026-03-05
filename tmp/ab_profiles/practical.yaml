@@ -209,7 +209,7 @@ stacking:
     kappa_cluster: 1.0
     cap_enabled: true
     cap_ratio: 20.0
-  output_stretch: true
+  output_stretch: false
   cosmetic_correction: true
   cosmetic_correction_sigma: 5.0
   per_frame_cosmetic_correction: true

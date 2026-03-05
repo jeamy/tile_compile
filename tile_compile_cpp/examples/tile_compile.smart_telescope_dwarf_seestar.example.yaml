@@ -241,26 +241,26 @@ pcc:
   min_aperture_px: 4.0
   siril_catalog_dir: "" # leer => Standardkatalogpfad
   apply_attenuation: false
-  chroma_strength: 1.0
-  k_max: 3.2 # fuer linearen PCC-Apply: vermeidet Gruenstich in hellen Strukturen bei stabil neutralem Hintergrund
+  chroma_strength: 0.9
+  k_max: 2.4 # fuer linearen PCC-Apply: vermeidet Gruenstich in hellen Strukturen bei stabil neutralem Hintergrund
 
 stacking:
   method: rej # rej|average
   sigma_clip:
-    sigma_low: 2.3 # moderater Outlier-Schutz
-    sigma_high: 2.3 # symmetrisch
+    sigma_low: 1.8 # moderater Outlier-Schutz
+    sigma_high: 1.8 # symmetrisch
     max_iters: 3 # maximale Clip-Iterationen
     min_fraction: 0.4 # bei vielen bewoelkten Frames darf mehr geclippt werden
   cluster_quality_weighting:
-    enabled: true # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
+    enabled: false # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
     cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
-  output_stretch: true # optionales Display-Stretch (Post)
+  output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: true # optionale Kosmetik (Post)
-  cosmetic_correction_sigma: 5.0  # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
+  cosmetic_correction_sigma: 4.0 # konservativ: nur echte Hot Pixel (sigma=3 wuerde Galaxienkerne zerstoeren)
   per_frame_cosmetic_correction: true
-  per_frame_cosmetic_correction_sigma: 3.0 # aggressiver als Post-Stack (fixe Defekte, kein Galaxienkern-Risiko)
+  per_frame_cosmetic_correction_sigma: 2.5 # aggressiver als Post-Stack (fixe Defekte, kein Galaxienkern-Risiko)
 
 validation:
   min_fwhm_improvement_percent: 3.0 # etwas realistischere Schwelle fuer kompakte Systeme

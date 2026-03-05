@@ -191,7 +191,7 @@ bge:
   # Autotune: Balanced strategy with emphasis on flatness
   autotune:
     enabled: true
-    strategy: balanced              # balanced (vs conservative) for better gradient handling
+    strategy: extended              # extended (vs conservative) for better gradient handling
     max_evals: 32                   # increased from 24 for more thorough optimization
     holdout_fraction: 0.20
     alpha_flatness: 0.40            # increased from 0.30 - more weight on smooth gradients
@@ -249,26 +249,26 @@ pcc:
   annulus_outer_fwhm_mult: 5.0
   min_aperture_px: 4.0
   apply_attenuation: false
-  chroma_strength: 1.0
-  k_max: 3.2
+  chroma_strength: 0.9
+  k_max: 2.4
 
 stacking:
   method: rej
   sigma_clip:
-    sigma_low: 2.0
-    sigma_high: 2.0
+    sigma_low: 1.8
+    sigma_high: 1.8
     max_iters: 4
     min_fraction: 0.4
   cluster_quality_weighting:
-    enabled: true
+    enabled: false
     kappa_cluster: 1.0
     cap_enabled: true
     cap_ratio: 20.0
-  output_stretch: true
+  output_stretch: false
   cosmetic_correction: true
-  cosmetic_correction_sigma: 5.0
+  cosmetic_correction_sigma: 4.0
   per_frame_cosmetic_correction: true
-  per_frame_cosmetic_correction_sigma: 3.0
+  per_frame_cosmetic_correction_sigma: 2.5
 
 validation:
   min_fwhm_improvement_percent: 3.0

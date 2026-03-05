@@ -232,8 +232,8 @@ pcc:
 stacking:
   method: average # rej|average (konservativ, ohne Sigma-Clip-Ausreisserverwerfung)
   sigma_clip:
-    sigma_low: 2.0 # untere Sigma-Grenze
-    sigma_high: 2.0 # obere Sigma-Grenze
+    sigma_low: 1.8 # untere Sigma-Grenze
+    sigma_high: 1.8 # obere Sigma-Grenze
     max_iters: 3 # maximale Clip-Iterationen
     min_fraction: 0.5 # Mindestanteil verbleibender Samples
   cluster_quality_weighting:
@@ -243,9 +243,9 @@ stacking:
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
-  cosmetic_correction_sigma: 5.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0)
+  cosmetic_correction_sigma: 4.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0)
   per_frame_cosmetic_correction: false # Hotpixel-Korrektur pro Frame vor dem Stack (fixe Sensordefekte)
-  per_frame_cosmetic_correction_sigma: 5.0 # Sigma-Schwelle fuer per_frame_cosmetic_correction (Default: 5.0)
+  per_frame_cosmetic_correction_sigma: 2.5 # Sigma-Schwelle fuer per_frame_cosmetic_correction (Default: 5.0)
 
 validation:
   min_fwhm_improvement_percent: 0.0 # bei Small-N FWHM-Verbesserung nicht hart erzwingen
