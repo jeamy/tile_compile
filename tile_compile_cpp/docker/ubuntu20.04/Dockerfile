@@ -14,6 +14,7 @@ RUN apt-get update \
         git \
         curl \
         wget \
+        file \
         zip \
         pkg-config \
         patchelf \
