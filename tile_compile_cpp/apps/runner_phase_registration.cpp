@@ -130,9 +130,6 @@ bool run_phase_registration_prewarp(
     core::EventEmitter &emitter, std::ostream &log_file,
     PhaseRegistrationContext &out) {
   config::RegistrationConfig registration_cfg = cfg.registration;
-  if (cfg.assumptions.pipeline_profile == "strict") {
-    registration_cfg.enable_star_pair_fallback = false;
-  }
 
   auto load_frame_normalized =
       [&](size_t frame_index) -> std::pair<Matrix2Df, io::FitsHeader> {
@@ -141,23 +138,6 @@ bool run_phase_registration_prewarp(
     image::apply_normalization_inplace(img, norm_scales[frame_index],
                                        detected_mode, detected_bayer_str, 0, 0);
     return {img, frame_pair.second};
-  };
-
-  // Config parameters (v3: single global registration, no tile-ECC)
-  auto compute_worker_count = [&](size_t task_count) -> int {
-    int workers = cfg.runtime_limits.parallel_workers;
-    if (workers < 1) {
-      workers = 1;
-    }
-    int cpu_cores = static_cast<int>(std::thread::hardware_concurrency());
-    if (cpu_cores > 0) {
-      workers = std::min(workers, cpu_cores);
-    }
-    if (task_count > 0) {
-      workers =
-          std::min(workers, static_cast<int>(std::max<size_t>(1, task_count)));
-    }
-    return std::max(1, workers);
   };
 
   emitter.phase_start(run_id, Phase::REGISTRATION, "REGISTRATION", log_file);
@@ -226,7 +206,8 @@ bool run_phase_registration_prewarp(
                     << std::endl;
         }
 
-        const int reg_workers = compute_worker_count(frames.size());
+        const int reg_workers = compute_adaptive_worker_count(
+            cfg, frames.size(), frames, WorkerParallelProfile::MixedIo);
         std::cout << "[REGISTRATION] Using " << reg_workers
                   << " parallel workers for " << frames.size() << " frames"
                   << std::endl;
@@ -808,11 +789,11 @@ bool run_phase_registration_prewarp(
   DiskCacheFrameStore prewarped_frames(
       run_dir / ".prewarped_cache", frames.size(), canvas_height, canvas_width);
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
-  const int prewarp_workers = compute_worker_count(frames.size());
+  const int prewarp_workers = compute_adaptive_worker_count(
+      cfg, frames.size(), frames, WorkerParallelProfile::IoHeavy);
   std::cout << "[PREWARP] Using " << prewarp_workers
             << " parallel workers for " << frames.size() << " frames"
             << std::endl;
-  std::mutex prewarp_store_mutex;
   std::mutex prewarp_log_mutex;
   std::mutex prewarp_progress_mutex;
   std::atomic<size_t> prewarp_next{0};
@@ -872,12 +853,8 @@ bool run_phase_registration_prewarp(
           warped = image::apply_global_warp(img, w, detected_mode, canvas_height, canvas_width);
         }
         if (warped.size() > 0) {
-          bool has_data = false;
-          {
-            std::lock_guard<std::mutex> lock(prewarp_store_mutex);
-            prewarped_frames.store(fi, warped);
-            has_data = prewarped_frames.has_data(fi);
-          }
+          prewarped_frames.store(fi, warped);
+          const bool has_data = prewarped_frames.has_data(fi);
           if (has_data) {
             frame_has_data[fi] = 1;
             n_frames_with_data.fetch_add(1, std::memory_order_relaxed);

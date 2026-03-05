@@ -314,22 +314,18 @@ Physical assumptions about the data.
 | **Values** | `practical`, `strict` |
 | **Default** | `"practical"` |
 
-**Purpose:** Select compatibility-oriented behavior (`practical`) or v3.3.6 normative enforcement (`strict`).
+**Purpose:** Select profile label for methodology traceability (`practical` / `strict`).
 
 | Aspect | `practical` | `strict` |
 |--------|-------------|----------|
-| Phase order | compatibility/classic | REGISTRATION/PREWARP before CHANNEL_SPLIT/NORMALIZATION/GLOBAL_METRICS |
-| Reduced→Full gate | `frames_reduced_threshold` | `max(200, frames_reduced_threshold)` |
-| Registration cascade | Star-Pairs optional (default on) | Star-Pairs off (`registration.enable_star_pair_fallback=false`) |
-| Phase-7 tile normalization | may be disabled in reduced/emergency | always enabled |
-| PCC `auto_fwhm` fallback | compatibility/heuristic | deterministic `FWHM=0` if seeing unavailable |
+| Runtime core execution path | unified | unified |
+| Phase order | same runtime order | same runtime order |
+| Reduced→Full gate | `frames_reduced_threshold` | `frames_reduced_threshold` |
+| Registration cascade behavior | controlled by `registration.enable_star_pair_fallback` | controlled by `registration.enable_star_pair_fallback` |
+| Phase-7 tile normalization | full mode on, reduced/emergency per config | full mode on, reduced/emergency per config |
+| PCC `auto_fwhm` fallback | same runtime behavior | same runtime behavior |
 
-In **strict** profile:
-
-- registration/prewarp is executed before channel split + normalization + global metrics,
-- reduced/full gating enforces at least `N >= 200` for full mode,
-- phase-7 tile normalization is always active,
-- PCC auto-FWHM falls back deterministically to `FWHM=0` when unavailable.
+Current implementation note: `pipeline_profile` is retained for compatibility and reporting, while the image-processing core runs with a unified runtime path.
 
 ### `assumptions.frames_min`
 
@@ -358,7 +354,7 @@ In **strict** profile:
 
 **Purpose:** Threshold for reduced mode decisions.
 
-**Strict profile note:** runtime enforces `max(200, frames_reduced_threshold)` to match v3.3.6 reduced/full boundaries.
+Runtime uses `frames_reduced_threshold` directly in both profiles.
 
 ### `assumptions.exposure_time_tolerance_percent`
 
@@ -449,9 +445,9 @@ Image registration settings.
 
 **Cascade:**
 
-- with `registration.enable_star_pair_fallback=true` (practical default):
+- with `registration.enable_star_pair_fallback=true`:
   Triangle Stars → Star Pairs → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity fallback
-- with `registration.enable_star_pair_fallback=false` (strict):
+- with `registration.enable_star_pair_fallback=false`:
   Triangle Stars → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity fallback
 
 ### `registration.enable_star_pair_fallback`
@@ -463,7 +459,7 @@ Image registration settings.
 
 **Purpose:** Enable/disable the extra Star-Pairs fallback stage between Triangle Stars and Trail Endpoints.
 
-For strict methodology alignment, set this to `false`.
+Set to `false` to disable the Star-Pairs stage for a stricter fallback policy.
 
 **Temporal-Smoothing (v3.2.3+, automatically active):** When direct registration `i→ref` fails, the runner automatically tries:
 1. `i→(i-1)→ref` — register to previous frame, then chain warps
@@ -1529,7 +1525,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `calibration.bias_master`, `dark_master`, `flat_master`: explicit master calibration file paths.
 - `calibration.pattern`: file glob for calibration frame loading.
 - `assumptions.frames_min`: minimum frame count expectation for stable methodology.
-- `assumptions.pipeline_profile`: selects practical compatibility behavior vs strict normative v3.3.6 behavior.
+- `assumptions.pipeline_profile`: profile label for compatibility/reporting; runtime core path is unified.
 - `assumptions.frames_optimal`: target count for full-quality behavior.
 - `assumptions.frames_reduced_threshold`: switch point between reduced and full pipeline behavior.
 - `assumptions.exposure_time_tolerance_percent`: acceptable sub-exposure dispersion.

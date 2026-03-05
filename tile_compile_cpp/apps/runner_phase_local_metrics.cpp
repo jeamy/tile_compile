@@ -39,56 +39,6 @@ bool run_phase_local_metrics(
   (void)tile_offset_x;
   (void)tile_offset_y;
 
-  auto apply_common_overlap_to_tile = [&](Matrix2Df &tile, const Tile &t) {
-    if (tile.rows() != t.height || tile.cols() != t.width)
-      return;
-    for (int yy = 0; yy < t.height; ++yy) {
-      const int gy = t.y + yy;
-      if (gy < 0 || gy >= common_mask_height)
-        continue;
-      const size_t row_off =
-          static_cast<size_t>(gy) * static_cast<size_t>(common_mask_width);
-      for (int xx = 0; xx < t.width; ++xx) {
-        const int gx = t.x + xx;
-        if (gx < 0 || gx >= common_mask_width) {
-          tile(yy, xx) = 0.0f;
-          continue;
-        }
-        if (row_off + static_cast<size_t>(gx) >= common_valid_mask.size() ||
-            common_valid_mask[row_off + static_cast<size_t>(gx)] == 0) {
-          tile(yy, xx) = 0.0f;
-        }
-      }
-    }
-  };
-
-  auto tile_has_common_data = [&](const Matrix2Df &tile, size_t ti) -> bool {
-    if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0)
-      return false;
-    for (Eigen::Index i = 0; i < tile.size(); ++i) {
-      if (tile.data()[i] > 0.0f) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  auto compute_worker_count = [&](size_t task_count) -> int {
-    int workers = cfg.runtime_limits.parallel_workers;
-    if (workers < 1) {
-      workers = 1;
-    }
-    int cpu_cores = static_cast<int>(std::thread::hardware_concurrency());
-    if (cpu_cores > 0) {
-      workers = std::min(workers, cpu_cores);
-    }
-    if (task_count > 0) {
-      workers =
-          std::min(workers, static_cast<int>(std::max<size_t>(1, task_count)));
-    }
-    return std::max(1, workers);
-  };
-
     // Phase 5: LOCAL_METRICS (compute tile metrics per frame)
     emitter.phase_start(run_id, Phase::LOCAL_METRICS, "LOCAL_METRICS",
                         log_file);
@@ -96,7 +46,8 @@ bool run_phase_local_metrics(
     local_metrics.assign(frames.size(), {});
     local_weights.assign(frames.size(), {});
 
-    const int local_metrics_workers = compute_worker_count(frames.size());
+    const int local_metrics_workers = compute_adaptive_worker_count(
+        cfg, frames.size(), frames, WorkerParallelProfile::CpuBound);
     std::cout << "[LOCAL_METRICS] Using " << local_metrics_workers
               << " parallel workers for " << frames.size() << " frames"
               << std::endl;
@@ -139,6 +90,11 @@ bool run_phase_local_metrics(
             }
           } else {
             for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+              if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0) {
+                local_metrics[fi].push_back(make_zero_metrics());
+                local_weights[fi].push_back(0.0f);
+                continue;
+              }
               const Tile &t = tiles_phase56[ti];
               // PREWARP already composes canvas offset into the stored frames.
               // Tiles are defined in canvas coordinates, so no extra tile offset
@@ -158,14 +114,16 @@ bool run_phase_local_metrics(
                 continue;
               }
 
-              {
-                Matrix2Df tile_masked = tile_img;
-                apply_common_overlap_to_tile(tile_masked, t);
-                if (!tile_has_common_data(tile_masked, ti)) {
-                  local_metrics[fi].push_back(make_zero_metrics());
-                  local_weights[fi].push_back(0.0f);
-                  continue;
-                }
+              // Enforce COMMON_OVERLAP support before metric extraction so
+              // canvas pixels are excluded from all downstream BGE weighting.
+              apply_common_overlap_to_tile_inplace(
+                  tile_img, t, common_valid_mask, common_mask_width,
+                  common_mask_height);
+              if (!tile_has_nonzero_common_data(tile_img, ti,
+                                                tile_common_valid)) {
+                local_metrics[fi].push_back(make_zero_metrics());
+                local_weights[fi].push_back(0.0f);
+                continue;
               }
 
               TileMetrics tm = metrics::calculate_tile_metrics(tile_img);
@@ -314,34 +272,47 @@ bool run_phase_local_metrics(
         }
       }
 
+      const size_t artifact_entries = frames.size() * tiles_phase56.size();
+      constexpr size_t kLocalMetricsArtifactMaxEntries = 120000;
+      const bool write_full_local_metrics_artifact =
+          (cfg.pipeline.mode != "production") ||
+          (artifact_entries <= kLocalMetricsArtifactMaxEntries);
+
       core::json artifact;
       artifact["num_frames"] = static_cast<int>(frames.size());
       artifact["num_tiles"] = static_cast<int>(tiles_phase56.size());
-      artifact["tile_metrics"] = core::json::array();
+      artifact["entry_count"] = static_cast<uint64_t>(artifact_entries);
+      artifact["full_tile_metrics_written"] = write_full_local_metrics_artifact;
+      artifact["entry_limit_full_write"] =
+          static_cast<uint64_t>(kLocalMetricsArtifactMaxEntries);
 
-      for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
-        core::json fm = core::json::array();
-        for (size_t ti = 0; ti < local_metrics[fi].size(); ++ti) {
-          const auto &m = local_metrics[fi][ti];
-          fm.push_back({
-              {"fwhm", m.fwhm},
-              {"roundness", m.roundness},
-              {"contrast", m.contrast},
-              {"sharpness", m.sharpness},
-              {"background", m.background},
-              {"noise", m.noise},
-              {"gradient_energy", m.gradient_energy},
-              {"star_count", m.star_count},
-              {"tile_type", (m.type == TileType::STAR) ? "STAR" : "STRUCTURE"},
-              {"quality_score", m.quality_score},
-              {"local_weight", local_weights[fi][ti]},
-          });
+      if (write_full_local_metrics_artifact) {
+        artifact["tile_metrics"] = core::json::array();
+        for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
+          core::json fm = core::json::array();
+          for (size_t ti = 0; ti < local_metrics[fi].size(); ++ti) {
+            const auto &m = local_metrics[fi][ti];
+            fm.push_back({
+                {"fwhm", m.fwhm},
+                {"roundness", m.roundness},
+                {"contrast", m.contrast},
+                {"sharpness", m.sharpness},
+                {"background", m.background},
+                {"noise", m.noise},
+                {"gradient_energy", m.gradient_energy},
+                {"star_count", m.star_count},
+                {"tile_type", (m.type == TileType::STAR) ? "STAR" : "STRUCTURE"},
+                {"quality_score", m.quality_score},
+                {"local_weight", local_weights[fi][ti]},
+            });
+          }
+          artifact["tile_metrics"].push_back(fm);
         }
-        artifact["tile_metrics"].push_back(fm);
+      } else {
+        artifact["reason"] = "omitted_large_dataset";
       }
 
-      core::write_text(run_dir / "artifacts" / "local_metrics.json",
-                       artifact.dump(2));
+      core::write_text(run_dir / "artifacts" / "local_metrics.json", artifact.dump(2));
     }
 
     emitter.phase_end(run_id, Phase::LOCAL_METRICS, "ok",

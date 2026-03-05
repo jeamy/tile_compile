@@ -292,9 +292,13 @@ static void teff_to_rgb(double T, double &r, double &g, double &b) {
 
 static double aperture_flux(const Matrix2Df &img, double cx, double cy,
                             double r_ap, double r_ann_in, double r_ann_out,
-                            const std::string &background_model) {
+                            const std::string &background_model,
+                            const std::vector<uint8_t> *support_mask = nullptr) {
     int rows = img.rows();
     int cols = img.cols();
+    const bool use_support_mask =
+        (support_mask != nullptr &&
+         support_mask->size() == static_cast<size_t>(rows * cols));
 
     int x0 = std::max(0, static_cast<int>(cx - r_ann_out - 1));
     int x1 = std::min(cols - 1, static_cast<int>(cx + r_ann_out + 1));
@@ -317,6 +321,10 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
             double dy = y - cy;
             double d2 = dx * dx + dy * dy;
             if (d2 >= r_in2 && d2 <= r_out2) {
+                const size_t idx = static_cast<size_t>(y * cols + x);
+                if (use_support_mask && (*support_mask)[idx] == 0) {
+                    continue;
+                }
                 float v = img(y, x);
                 if (std::isfinite(v) && v > 0.0f) {
                     sky_pixels.push_back(v);
@@ -364,6 +372,10 @@ static double aperture_flux(const Matrix2Df &img, double cx, double cy,
             double dx = x - cx;
             double dy = y - cy;
             if (dx * dx + dy * dy <= r_ap2) {
+                const size_t idx = static_cast<size_t>(y * cols + x);
+                if (use_support_mask && (*support_mask)[idx] == 0) {
+                    continue;
+                }
                 float v = img(y, x);
                 if (std::isfinite(v) && v > 0.0f) {
                     double bg_here = sky_bg_median;
@@ -722,13 +734,16 @@ std::vector<StarPhotometry> measure_stars(
 
             sp.flux_r = aperture_flux(R, px, py, config.aperture_radius_px,
                                       config.annulus_inner_px, config.annulus_outer_px,
-                                      config.background_model);
+                                      config.background_model,
+                                      &common_support_mask);
             sp.flux_g = aperture_flux(G, px, py, config.aperture_radius_px,
                                       config.annulus_inner_px, config.annulus_outer_px,
-                                      config.background_model);
+                                      config.background_model,
+                                      &common_support_mask);
             sp.flux_b = aperture_flux(B, px, py, config.aperture_radius_px,
                                       config.annulus_inner_px, config.annulus_outer_px,
-                                      config.background_model);
+                                      config.background_model,
+                                      &common_support_mask);
 
             double teff = star.teff;
             if (teff <= 0 && !star.xp_flux.empty())
@@ -1178,15 +1193,23 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
 // ─── Apply color matrix ─────────────────────────────────────────────────
 
 // Estimate per-channel background as the median of a subsample
-static float estimate_background(const Matrix2Df &img) {
+static float estimate_background(const Matrix2Df &img,
+                                 const std::vector<uint8_t> *valid_mask = nullptr) {
     int rows = img.rows();
     int cols = img.cols();
+    const bool use_mask =
+        (valid_mask != nullptr &&
+         valid_mask->size() == static_cast<size_t>(rows * cols));
     // Sample every 8th pixel for speed
     std::vector<float> samples;
     samples.reserve((rows / 8 + 1) * (cols / 8 + 1));
     for (int y = 0; y < rows; y += 8)
         for (int x = 0; x < cols; x += 8)
         {
+            const size_t idx = static_cast<size_t>(y * cols + x);
+            if (use_mask && (*valid_mask)[idx] == 0) {
+                continue;
+            }
             float v = img(y, x);
             if (std::isfinite(v) && v > 0.0f) {
                 samples.push_back(v);
@@ -1280,21 +1303,29 @@ struct PCCAttenuationContext {
 
 static PCCAttenuationContext build_pcc_attenuation_context(const Matrix2Df &R,
                                                            const Matrix2Df &G,
-                                                           const Matrix2Df &B) {
+                                                           const Matrix2Df &B,
+                                                           const std::vector<uint8_t> *valid_mask = nullptr) {
     PCCAttenuationContext ctx;
     ctx.rows = R.rows();
     ctx.cols = R.cols();
     if (ctx.rows <= 0 || ctx.cols <= 0) return ctx;
+    const bool use_mask =
+        (valid_mask != nullptr &&
+         valid_mask->size() == static_cast<size_t>(ctx.rows * ctx.cols));
 
-    ctx.bg_r = estimate_background(R);
-    ctx.bg_g = estimate_background(G);
-    ctx.bg_b = estimate_background(B);
+    ctx.bg_r = estimate_background(R, valid_mask);
+    ctx.bg_g = estimate_background(G, valid_mask);
+    ctx.bg_b = estimate_background(B, valid_mask);
     ctx.bg_out = (ctx.bg_r + ctx.bg_g + ctx.bg_b) / 3.0f;
 
     std::vector<float> signal_luma;
     signal_luma.reserve((ctx.rows / 4 + 1) * (ctx.cols / 4 + 1));
     for (int y = 0; y < ctx.rows; y += 4) {
         for (int x = 0; x < ctx.cols; x += 4) {
+            const size_t idx = static_cast<size_t>(y * ctx.cols + x);
+            if (use_mask && (*valid_mask)[idx] == 0) {
+                continue;
+            }
             const float r0 = R(y, x);
             const float g0 = G(y, x);
             const float b0 = B(y, x);
@@ -1335,6 +1366,9 @@ static PCCAttenuationContext build_pcc_attenuation_context(const Matrix2Df &R,
     for (int y = 0; y < ctx.rows; ++y) {
         for (int x = 0; x < ctx.cols; ++x) {
             const size_t p = static_cast<size_t>(y * ctx.cols + x);
+            if (use_mask && (*valid_mask)[p] == 0) {
+                continue;
+            }
             const float r0 = R(y, x);
             const float g0 = G(y, x);
             const float b0 = B(y, x);
@@ -1399,7 +1433,8 @@ struct PCCBackgroundSample {
 static std::vector<PCCBackgroundSample> build_pcc_background_samples(
     const Matrix2Df &R, const Matrix2Df &G, const Matrix2Df &B,
     const std::vector<uint8_t> &bg_mask,
-    const PCCAttenuationContext &ctx) {
+    const PCCAttenuationContext &ctx,
+    bool use_attenuation) {
     std::vector<PCCBackgroundSample> samples;
     if (ctx.rows <= 0 || ctx.cols <= 0 ||
         bg_mask.size() != static_cast<size_t>(ctx.rows * ctx.cols) ||
@@ -1439,7 +1474,7 @@ static std::vector<PCCBackgroundSample> build_pcc_background_samples(
             samples.push_back(PCCBackgroundSample{
                 r0 - ctx.bg_out, g0 - ctx.bg_out, b0 - ctx.bg_out,
                 ctx.bg_out,
-                attenuation_from_luma(luma, ctx)});
+                use_attenuation ? attenuation_from_luma(luma, ctx) : 1.0f});
         }
     }
 
@@ -1461,7 +1496,7 @@ static std::vector<PCCBackgroundSample> build_pcc_background_samples(
                 samples.push_back(PCCBackgroundSample{
                     r0 - ctx.bg_out, g0 - ctx.bg_out, b0 - ctx.bg_out,
                     ctx.bg_out,
-                    attenuation_from_luma(luma, ctx)});
+                    use_attenuation ? attenuation_from_luma(luma, ctx) : 1.0f});
             }
         }
     }
@@ -1564,6 +1599,13 @@ static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df 
 
     for (int y = 0; y < R.rows(); ++y) {
         for (int x = 0; x < R.cols(); ++x) {
+            const size_t idx = static_cast<size_t>(y * R.cols() + x);
+            if (canvas_mask[idx] == 0) {
+                R(y, x) = 0.0f;
+                G(y, x) = 0.0f;
+                B(y, x) = 0.0f;
+                continue;
+            }
             const float r = R(y, x);
             const float g = G(y, x);
             const float b = B(y, x);
@@ -1588,21 +1630,33 @@ static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df 
 
 
 static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
-                                           const ColorMatrix &m, bool verbose) {
+                                           const ColorMatrix &m, bool verbose,
+                                           const std::vector<uint8_t> *valid_mask = nullptr) {
     const int rows = R.rows();
     const int cols = R.cols();
     if (rows <= 0 || cols <= 0) return;
+    const bool use_mask =
+        (valid_mask != nullptr &&
+         valid_mask->size() == static_cast<size_t>(rows * cols));
 
     // Linear application with shared background anchoring.
     // Keeping a common background pivot avoids colored sky bias when
     // `apply_attenuation=false` and channel gains differ strongly.
-    const PCCAttenuationContext ctx = build_pcc_attenuation_context(R, G, B);
+    const PCCAttenuationContext ctx =
+        build_pcc_attenuation_context(R, G, B, valid_mask);
 
     size_t valid_px = 0;
     const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
 
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
+            const size_t idx = static_cast<size_t>(y * cols + x);
+            if (use_mask && (*valid_mask)[idx] == 0) {
+                R(y, x) = 0.0f;
+                G(y, x) = 0.0f;
+                B(y, x) = 0.0f;
+                continue;
+            }
             const float r0 = R(y, x);
             const float g0 = G(y, x);
             const float b0 = B(y, x);
@@ -1639,11 +1693,16 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
 }
 
 static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
-                                    const ColorMatrix &m, bool verbose) {
-    const PCCAttenuationContext ctx = build_pcc_attenuation_context(R, G, B);
+                                    const ColorMatrix &m, bool verbose,
+                                    const std::vector<uint8_t> *valid_mask = nullptr) {
+    const PCCAttenuationContext ctx =
+        build_pcc_attenuation_context(R, G, B, valid_mask);
     const int rows = ctx.rows;
     const int cols = ctx.cols;
     if (rows <= 0 || cols <= 0) return;
+    const bool use_mask =
+        (valid_mask != nullptr &&
+         valid_mask->size() == static_cast<size_t>(rows * cols));
 
     if (verbose) {
         std::cout << "[PCC] Background levels: R=" << ctx.bg_r
@@ -1662,6 +1721,13 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
+            const size_t idx = static_cast<size_t>(y * cols + x);
+            if (use_mask && (*valid_mask)[idx] == 0) {
+                R(y, x) = 0.0f;
+                G(y, x) = 0.0f;
+                B(y, x) = 0.0f;
+                continue;
+            }
             const float r0 = R(y, x);
             const float g0 = G(y, x);
             const float b0 = B(y, x);
@@ -1684,7 +1750,6 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             const float dr = r0 - ctx.bg_out;
             const float dg = g0 - ctx.bg_out;
             const float db = b0 - ctx.bg_out;
-            const size_t idx = static_cast<size_t>(y * cols + x);
             const float atten = attenuation_from_luma(ctx.luma_smooth[idx], ctx);
             float nr = 0.0f;
             float ng = 0.0f;
@@ -1711,9 +1776,9 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 void apply_color_matrix(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                         const ColorMatrix &m, bool apply_attenuation) {
     if (apply_attenuation) {
-        apply_color_matrix_impl(R, G, B, m, true);
+        apply_color_matrix_impl(R, G, B, m, true, nullptr);
     } else {
-        apply_color_matrix_impl_simple(R, G, B, m, true);
+        apply_color_matrix_impl_simple(R, G, B, m, true, nullptr);
     }
 }
 
@@ -1787,9 +1852,11 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             static_cast<double>(image::log_chroma_std_background(B_in, G_in, bg_mask));
 
         const PCCAttenuationContext sample_ctx =
-            build_pcc_attenuation_context(R_in, G_in, B_in);
+            build_pcc_attenuation_context(R_in, G_in, B_in,
+                                          &config.common_valid_mask);
         const std::vector<PCCBackgroundSample> bg_samples =
-            build_pcc_background_samples(R_in, G_in, B_in, bg_mask, sample_ctx);
+            build_pcc_background_samples(R_in, G_in, B_in, bg_mask, sample_ctx,
+                                         config.apply_attenuation);
         const ColorMatrix identity = {{{1.0, 0.0, 0.0},
                                        {0.0, 1.0, 0.0},
                                        {0.0, 0.0, 1.0}}};
@@ -1800,6 +1867,30 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             std::isfinite(pre_sample_std.rg_std) ? pre_sample_std.rg_std : pre_rg_std_full;
         const double pre_bg_std =
             std::isfinite(pre_sample_std.bg_std) ? pre_sample_std.bg_std : pre_bg_std_full;
+        const bool matrix_is_diagonal =
+            std::abs(result.matrix[0][1]) < 1.0e-9 &&
+            std::abs(result.matrix[0][2]) < 1.0e-9 &&
+            std::abs(result.matrix[1][0]) < 1.0e-9 &&
+            std::abs(result.matrix[1][2]) < 1.0e-9 &&
+            std::abs(result.matrix[2][0]) < 1.0e-9 &&
+            std::abs(result.matrix[2][1]) < 1.0e-9;
+        const bool skip_adaptive_damping =
+            (!config.apply_attenuation && matrix_is_diagonal);
+
+        if (skip_adaptive_damping) {
+            const double chroma_strength =
+                std::clamp(config.chroma_strength, 0.0, 1.0);
+            if (chroma_strength < 0.999) {
+                result.matrix = blend_matrix_with_identity_per_channel(
+                    result.matrix, chroma_strength, chroma_strength);
+                update_result_matrix_metrics(&result);
+                std::cout << "[PCC] Chroma strength limit active (linear-diagonal): "
+                          << chroma_strength << std::endl;
+            }
+            std::cout << "[PCC] Linear diagonal PCC: skipping adaptive "
+                         "background-chroma damping guard"
+                      << std::endl;
+        } else {
 
         const bool use_sampled_eval = bg_samples.size() >= 512;
         if (use_sampled_eval) {
@@ -1813,8 +1904,11 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         constexpr double kStdHardCap = 1.08;    // never allow >8% background-std worsening
         constexpr double kWorsenBudget = 0.01;  // prefer <=1% worsening when possible
         const double chroma_strength = std::clamp(config.chroma_strength, 0.0, 1.0);
-        const std::array<double, 7> base_strengths = {1.0, 0.85, 0.70, 0.55, 0.40, 0.25, 0.0};
-        std::array<double, 7> strengths{};
+        // Keep dense low-alpha candidates so the guard can keep a small but
+        // effective correction instead of collapsing to full identity.
+        const std::array<double, 11> base_strengths = {
+            1.0, 0.85, 0.70, 0.55, 0.40, 0.25, 0.15, 0.10, 0.05, 0.02, 0.0};
+        std::array<double, 11> strengths{};
         for (size_t i = 0; i < base_strengths.size(); ++i) {
             strengths[i] = base_strengths[i] * chroma_strength;
         }
@@ -1838,6 +1932,17 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         double fallback_alpha_b = chosen_alpha_b;
         double fallback_post_rg_std = best_post_rg_std;
         double fallback_post_bg_std = best_post_bg_std;
+        bool found_best_star_candidate = false;
+        double best_star_candidate_residual = std::numeric_limits<double>::infinity();
+        ColorMatrix best_star_candidate_matrix = chosen_matrix;
+        double best_star_candidate_alpha_r = chosen_alpha_r;
+        double best_star_candidate_alpha_b = chosen_alpha_b;
+        double best_star_candidate_post_rg_std = best_post_rg_std;
+        double best_star_candidate_post_bg_std = best_post_bg_std;
+        const double identity_residual_rms =
+            recompute_residual_rms_for_matrix(photometry, identity, config.sigma_clip, nullptr);
+        const bool have_identity_residual =
+            std::isfinite(identity_residual_rms) && identity_residual_rms > 0.0;
 
         auto eval_candidate_std = [&](const ColorMatrix &candidate) {
             if (use_sampled_eval) {
@@ -1846,7 +1951,13 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             Matrix2Df Rt = R_in;
             Matrix2Df Gt = G_in;
             Matrix2Df Bt = B_in;
-            apply_color_matrix_impl(Rt, Gt, Bt, candidate, false);
+            if (config.apply_attenuation) {
+                apply_color_matrix_impl(Rt, Gt, Bt, candidate, false,
+                                        &config.common_valid_mask);
+            } else {
+                apply_color_matrix_impl_simple(Rt, Gt, Bt, candidate, false,
+                                               &config.common_valid_mask);
+            }
             PCCBackgroundStdPair out;
             out.rg_std =
                 static_cast<double>(image::log_chroma_std_background(Rt, Gt, bg_mask));
@@ -1891,13 +2002,38 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                     std::max(0.0, -rel_rg) + std::max(0.0, -rel_bg);
                 const double imbalance = std::abs(rel_rg - rel_bg);
                 const double total_abs = std::abs(rel_rg) + std::abs(rel_bg);
+                const int candidate_stars_used = static_cast<int>(result.n_stars_used);
+                const double candidate_residual =
+                    recompute_residual_rms_for_matrix(photometry, candidate,
+                                                      config.sigma_clip, nullptr);
+                const bool have_candidate_residual =
+                    std::isfinite(candidate_residual) && candidate_stars_used >= config.min_stars;
+                const double star_residual_gain =
+                    (have_identity_residual && have_candidate_residual)
+                        ? std::clamp((identity_residual_rms - candidate_residual) /
+                                         std::max(1.0e-6, identity_residual_rms),
+                                     -1.0, 1.0)
+                        : 0.0;
+
+                if ((alpha_r > 1.0e-6 || alpha_b > 1.0e-6) && have_candidate_residual &&
+                    (!found_best_star_candidate ||
+                     candidate_residual < best_star_candidate_residual)) {
+                    found_best_star_candidate = true;
+                    best_star_candidate_residual = candidate_residual;
+                    best_star_candidate_matrix = candidate;
+                    best_star_candidate_alpha_r = alpha_r;
+                    best_star_candidate_alpha_b = alpha_b;
+                    best_star_candidate_post_rg_std = post_rg_std;
+                    best_star_candidate_post_bg_std = post_bg_std;
+                }
 
                 // Fallback soft objective:
                 // stronger correction is rewarded, but background chroma drift is
                 // penalized much harder than in earlier revisions.
                 const double fallback_score =
                     1.25 * gain - 4.5 * worsen_penalty - 1.4 * imbalance -
-                    0.35 * total_abs + 0.70 * improve_bonus;
+                    0.35 * total_abs + 0.70 * improve_bonus +
+                    1.80 * star_residual_gain;
                 if (!found_fallback_candidate || fallback_score > best_fallback_score) {
                     found_fallback_candidate = true;
                     best_fallback_score = fallback_score;
@@ -1916,7 +2052,7 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                 if (within_budget) {
                     const double budget_score =
                         gain + 0.60 * improve_bonus - 0.80 * imbalance -
-                        0.20 * worsen_penalty;
+                        0.20 * worsen_penalty + 1.40 * star_residual_gain;
                     if (!found_budget_candidate || budget_score > best_budget_score) {
                         found_budget_candidate = true;
                         best_budget_score = budget_score;
@@ -1954,6 +2090,29 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         if (chosen_alpha_r <= 1.0e-6 && chosen_alpha_b <= 1.0e-6) {
             chosen_matrix = identity;
         }
+        // If the background guard drives us to identity but a low-alpha candidate
+        // (still hard-cap compliant) materially improves stellar residuals,
+        // keep that candidate instead of disabling PCC entirely.
+        if (chosen_alpha_r <= 1.0e-6 && chosen_alpha_b <= 1.0e-6 &&
+            found_best_star_candidate &&
+            std::isfinite(best_star_candidate_residual) &&
+            ((have_identity_residual &&
+              best_star_candidate_residual <
+                  identity_residual_rms * 0.97) ||
+             (!have_identity_residual &&
+              best_star_candidate_residual < config.max_residual_rms))) {
+            chosen_alpha_r = best_star_candidate_alpha_r;
+            chosen_alpha_b = best_star_candidate_alpha_b;
+            chosen_matrix = best_star_candidate_matrix;
+            best_post_rg_std = best_star_candidate_post_rg_std;
+            best_post_bg_std = best_star_candidate_post_bg_std;
+            best_score = std::max(best_score, 0.0);
+            std::cout << "[PCC] Guard-safe star-residual fallback: alpha_r="
+                      << chosen_alpha_r << " alpha_b=" << chosen_alpha_b
+                      << " identity_rms=" << identity_residual_rms
+                      << " candidate_rms=" << best_star_candidate_residual
+                      << std::endl;
+        }
 
         if (chosen_alpha_r < 0.999 || chosen_alpha_b < 0.999) {
             std::cout << "[PCC] Adaptive damping applied: alpha_r=" << chosen_alpha_r
@@ -1965,6 +2124,7 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                       << ", score=" << best_score << std::endl;
             result.matrix = chosen_matrix;
             update_result_matrix_metrics(&result);
+        }
         }
 
         const double residual_before_apply = result.residual_rms;
@@ -1984,7 +2144,13 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                       << "keeping fit residual=" << residual_before_apply << std::endl;
         }
 
-        apply_color_matrix(R, G, B, result.matrix, config.apply_attenuation);
+        if (config.apply_attenuation) {
+            apply_color_matrix_impl(R, G, B, result.matrix, true,
+                                    &config.common_valid_mask);
+        } else {
+            apply_color_matrix_impl_simple(R, G, B, result.matrix, true,
+                                           &config.common_valid_mask);
+        }
         image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
         std::cout << "[PCC] Apply mode: "
                   << (config.apply_attenuation ? "attenuated" : "linear")

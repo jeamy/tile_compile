@@ -429,22 +429,18 @@ Schwellenwerte und Annahmen für Pipeline-Entscheidungen (Normal Mode vs. Reduce
 | **Werte** | `practical`, `strict` |
 | **Default** | `"practical"` |
 
-**Zweck:** Umschalten zwischen kompatiblem Betriebsmodus (`practical`) und methodikstriktem Verhalten (`strict`, v3.3.6).
+**Zweck:** Profil-Label für Methodik-Traceability (`practical` / `strict`).
 
 | Aspekt | `practical` | `strict` |
 |--------|-------------|----------|
-| Phasenreihenfolge | kompatibel/klassisch | REGISTRATION/PREWARP vor CHANNEL_SPLIT/NORMALIZATION/GLOBAL_METRICS |
-| Reduced→Full Gate | `frames_reduced_threshold` | `max(200, frames_reduced_threshold)` |
-| Registration Cascade | Star-Pairs optional (Default an) | Star-Pairs aus (`registration.enable_star_pair_fallback=false`) |
-| Phase-7 Tile-Normalisierung | Reduced/Emergency kann deaktivieren | immer aktiv |
-| PCC `auto_fwhm` Fallback | kompatibel/heuristisch | deterministisch `FWHM=0` falls Seeing fehlt |
+| Runtime-Core-Ausführungspfad | vereinheitlicht | vereinheitlicht |
+| Phasenreihenfolge | gleiche Runtime-Reihenfolge | gleiche Runtime-Reihenfolge |
+| Reduced→Full Gate | `frames_reduced_threshold` | `frames_reduced_threshold` |
+| Registration-Cascade-Verhalten | über `registration.enable_star_pair_fallback` gesteuert | über `registration.enable_star_pair_fallback` gesteuert |
+| Phase-7 Tile-Normalisierung | Full-Mode aktiv, Reduced/Emergency konfigurationsabhängig | Full-Mode aktiv, Reduced/Emergency konfigurationsabhängig |
+| PCC `auto_fwhm` Fallback | gleiches Runtime-Verhalten | gleiches Runtime-Verhalten |
 
-Im **strict**-Profil gilt zusätzlich:
-
-- REGISTRATION/PREWARP läuft vor CHANNEL_SPLIT/NORMALIZATION/GLOBAL_METRICS,
-- Full-Mode erst ab mindestens `N >= 200`,
-- Tile-Normalisierung vor OLA ist immer aktiv,
-- PCC `auto_fwhm` fällt bei fehlendem Seeing deterministisch auf `FWHM=0` zurück.
+Aktueller Implementierungs-Hinweis: `pipeline_profile` bleibt für Kompatibilität und Reporting erhalten; der Bildverarbeitungs-Core läuft über einen gemeinsamen Runtime-Pfad.
 
 ### `assumptions.frames_min`
 
@@ -482,7 +478,7 @@ Im **strict**-Profil gilt zusätzlich:
 
 **Zweck:** Schwellenwert für den Wechsel zwischen Normal Mode und Reduced Mode.
 
-**Strict-Hinweis:** Zur v3.3.6-Angleichung erzwingt die Runtime `max(200, frames_reduced_threshold)`.
+Die Runtime verwendet in beiden Profilen direkt `frames_reduced_threshold`.
 
 | Frame-Anzahl | Modus |
 |-------------|-------|
@@ -603,9 +599,9 @@ Geometrische Registrierung (Ausrichtung) aller Frames auf einen Referenz-Frame.
 
 **Kaskade:**
 
-- mit `registration.enable_star_pair_fallback=true` (practical-Default):
+- mit `registration.enable_star_pair_fallback=true`:
   Triangle Stars → Star Pairs → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity-Fallback
-- mit `registration.enable_star_pair_fallback=false` (strict):
+- mit `registration.enable_star_pair_fallback=false`:
   Triangle Stars → Trail Endpoints → AKAZE Features → Robust Phase+ECC → Hybrid Phase+ECC → Identity-Fallback
 
 ### `registration.enable_star_pair_fallback`
@@ -617,7 +613,7 @@ Geometrische Registrierung (Ausrichtung) aller Frames auf einen Referenz-Frame.
 
 **Zweck:** Aktiviert/deaktiviert den zusätzlichen Star-Pairs-Fallback zwischen Triangle Stars und Trail Endpoints.
 
-Für strikte Methodik-Ausrichtung auf `false` setzen.
+Auf `false` setzen, um die Star-Pairs-Stufe für eine strengere Fallback-Policy zu deaktivieren.
 
 **Temporal-Smoothing (v3.2.3+, automatisch aktiv):** Bei fehlgeschlagener direkter Registrierung `i→ref` wird automatisch versucht:
 1. `i→(i-1)→ref` — Registrierung zum Vorgänger-Frame, dann Warp-Verkettung
@@ -2634,7 +2630,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `calibration.bias_dir`, `darks_dir`, `flats_dir`: Quellordner für Kalibrierframe-Findung.
 - `calibration.bias_master`, `dark_master`, `flat_master`: explizite Pfade zu Master-Kalibrierframes.
 - `calibration.pattern`: Glob-Muster für Kalibrierdatei-Lookup.
-- `assumptions.pipeline_profile`: wählt kompatibles (`practical`) oder strikt methodisches (`strict`) Laufzeitverhalten.
+- `assumptions.pipeline_profile`: Profil-Label für Kompatibilität/Reporting; der Runtime-Core-Pfad ist vereinheitlicht.
 - `assumptions.frames_min`: Mindestrahmenzahl-Erwartung für stabile Methodik.
 - `assumptions.frames_optimal`: Zielrahmenzahl für volle Qualitätsstabilität.
 - `assumptions.frames_reduced_threshold`: Umschaltpunkt Reduced- vs. Full-Mode.

@@ -2600,6 +2600,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   const Matrix2Df B_input = B;
 
   bool any_channel_applied = false;
+  int channels_applied_total = 0;
   bool global_autotune_set = false;
 
   const bool use_modeled_mask_mesh = (config.fit.method == "modeled_mask_mesh");
@@ -2858,6 +2859,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       if (finalize_channel_from_model(channel, channel_name, channel_before,
                                       bg_model, ch_diag)) {
         any_channel_applied = true;
+        ++channels_applied_total;
       }
 
       if (diagnostics != nullptr)
@@ -2996,10 +2998,39 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     if (finalize_channel_from_model(channel, channel_name, channel_before,
                                     bg_model, ch_diag)) {
       any_channel_applied = true;
+      ++channels_applied_total;
     }
 
     if (diagnostics != nullptr)
       diagnostics->channels.push_back(std::move(ch_diag));
+  }
+
+  // Hard chroma policy: BGE must be applied atomically across RGB.
+  // A partial per-channel apply can introduce color casts (e.g. green bias)
+  // that PCC cannot reliably undo in bright nebulosity.
+  if (channels_applied_total > 0 && channels_applied_total < 3) {
+    std::cerr << "[BGE] Partial channel application (" << channels_applied_total
+              << "/3) rejected; reverting all channels to pre-BGE state"
+              << std::endl;
+    R = R_input;
+    G = G_input;
+    B = B_input;
+    any_channel_applied = false;
+    channels_applied_total = 0;
+    if (diagnostics != nullptr) {
+      diagnostics->safety_fallback_triggered = true;
+      diagnostics->safety_fallback_method = "revert_rgb";
+      diagnostics->safety_fallback_reason = "partial_channel_application";
+      for (auto &ch : diagnostics->channels) {
+        if (!ch.applied)
+          continue;
+        ch.applied = false;
+        ch.output_stats = ch.input_stats;
+        ch.mean_shift = 0.0f;
+        ch.residual_values.clear();
+        ch.residual_stats = BGEValueStats{};
+      }
+    }
   }
 
   if (use_modeled_mask_mesh && any_channel_applied) {
@@ -3097,6 +3128,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         G = std::move(G_fb);
         B = std::move(B_fb);
         any_channel_applied = true;
+        channels_applied_total = 3;
         if (diagnostics != nullptr) {
           diagnostics->safety_fallback_triggered = true;
           diagnostics->safety_fallback_method = chosen_method;
@@ -3115,6 +3147,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         G = G_input;
         B = B_input;
         any_channel_applied = false;
+        channels_applied_total = 0;
         if (diagnostics != nullptr) {
           diagnostics->safety_fallback_triggered = true;
           diagnostics->safety_fallback_method = "rbf->poly";

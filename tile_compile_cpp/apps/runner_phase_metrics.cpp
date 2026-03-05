@@ -1,4 +1,5 @@
 #include "runner_phase_metrics.hpp"
+#include "runner_shared.hpp"
 
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
@@ -60,21 +61,8 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::vector<float> B_g(frames.size(), 0.0f);
   std::vector<float> B_b(frames.size(), 0.0f);
 
-  int normalization_workers = cfg.runtime_limits.parallel_workers;
-  if (normalization_workers < 1) {
-    normalization_workers = 1;
-  }
-  int normalization_cpu_cores =
-      static_cast<int>(std::thread::hardware_concurrency());
-  if (normalization_cpu_cores > 0) {
-    normalization_workers = std::min(normalization_workers, normalization_cpu_cores);
-  }
-  if (!frames.empty()) {
-    normalization_workers = std::min(
-        normalization_workers,
-        static_cast<int>(std::max<size_t>(1, frames.size())));
-  }
-  normalization_workers = std::max(1, normalization_workers);
+  const int normalization_workers = compute_adaptive_worker_count(
+      cfg, frames.size(), frames, WorkerParallelProfile::MixedIo);
 
   std::cout << "[NORMALIZATION] Using " << normalization_workers
             << " parallel workers for " << frames.size() << " frames"
@@ -324,59 +312,120 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::vector<metrics::FrameStarMetrics> frame_star_metrics;
   frame_star_metrics.resize(frames.size());
   int ref_star_count = 0;
+  const int global_metrics_workers = compute_adaptive_worker_count(
+      cfg, frames.size(), frames, WorkerParallelProfile::MixedIo);
 
-  // First pass: compute metrics + star metrics for all frames
-  for (size_t i = 0; i < frames.size(); ++i) {
-    const auto &path = frames[i];
-    try {
-      auto frame_pair = io::read_fits_float(path);
-      Matrix2Df img = frame_pair.first;
-      if (img.size() <= 0) {
-        emitter.warning(run_id,
-                        "GLOBAL_METRICS: empty frame for " +
-                            path.filename().string(),
-                        log_file);
-        FrameMetrics m;
-        m.background = 0.0f;
-        m.noise = 0.0f;
-        m.gradient_energy = 0.0f;
-        m.quality_score = 1.0f;
-        frame_metrics[i] = m;
-        frame_star_metrics[i] = metrics::FrameStarMetrics{};
-      } else {
-        image::apply_normalization_inplace(img, norm_scales[i], detected_mode,
-                                           detected_bayer_str, 0, 0);
-        FrameMetrics m = metrics::calculate_frame_metrics(img);
-        // Methodik v3: for the global background metric B_f, use the raw
-        // (pre-normalization) background estimate from the normalization stage.
-        if (detected_mode == ColorMode::OSC) {
-          const float b_raw = 0.25f * B_r[i] + 0.5f * B_g[i] + 0.25f * B_b[i];
-          if (std::isfinite(b_raw))
-            m.background = b_raw;
-        } else {
-          const float b_raw = B_mono[i];
-          if (std::isfinite(b_raw))
-            m.background = b_raw;
-        }
-        frame_metrics[i] = m;
-        frame_star_metrics[i] = metrics::measure_frame_stars(img, 0);
+  std::cout << "[GLOBAL_METRICS] Using " << global_metrics_workers
+            << " parallel workers for " << frames.size() << " frames"
+            << std::endl;
+
+  std::atomic<size_t> gm_next{0};
+  std::atomic<size_t> gm_done{0};
+  std::atomic<bool> gm_failed{false};
+  std::mutex gm_error_mutex;
+  std::mutex gm_log_mutex;
+  std::mutex gm_progress_mutex;
+  std::string gm_error;
+
+  auto global_metrics_worker = [&]() {
+    while (true) {
+      const size_t i = gm_next.fetch_add(1);
+      if (i >= frames.size()) {
+        break;
       }
-    } catch (const std::exception &e) {
-      emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "error",
-                        {{"error", e.what()}}, log_file);
-      emitter.run_end(run_id, false, "error", log_file);
-      std::cerr << "Error during GLOBAL_METRICS: " << e.what() << std::endl;
-      return false;
-    }
+      const auto &path = frames[i];
+      try {
+        auto frame_pair = io::read_fits_float(path);
+        Matrix2Df img = frame_pair.first;
+        if (img.size() <= 0) {
+          {
+            std::lock_guard<std::mutex> lock(gm_log_mutex);
+            emitter.warning(run_id,
+                            "GLOBAL_METRICS: empty frame for " +
+                                path.filename().string(),
+                            log_file);
+          }
+          FrameMetrics m;
+          m.background = 0.0f;
+          m.noise = 0.0f;
+          m.gradient_energy = 0.0f;
+          m.quality_score = 1.0f;
+          frame_metrics[i] = m;
+          frame_star_metrics[i] = metrics::FrameStarMetrics{};
+        } else {
+          image::apply_normalization_inplace(img, norm_scales[i], detected_mode,
+                                             detected_bayer_str, 0, 0);
+          FrameMetrics m = metrics::calculate_frame_metrics(img);
+          // Methodik v3: for the global background metric B_f, use the raw
+          // (pre-normalization) background estimate from the normalization
+          // stage.
+          if (detected_mode == ColorMode::OSC) {
+            const float b_raw = 0.25f * B_r[i] + 0.5f * B_g[i] + 0.25f * B_b[i];
+            if (std::isfinite(b_raw))
+              m.background = b_raw;
+          } else {
+            const float b_raw = B_mono[i];
+            if (std::isfinite(b_raw))
+              m.background = b_raw;
+          }
+          frame_metrics[i] = m;
+          frame_star_metrics[i] = metrics::measure_frame_stars(img, 0);
+        }
+      } catch (const std::exception &e) {
+        gm_failed.store(true, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(gm_error_mutex);
+        if (gm_error.empty()) {
+          gm_error = e.what();
+        }
+      } catch (...) {
+        gm_failed.store(true, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(gm_error_mutex);
+        if (gm_error.empty()) {
+          gm_error = "unknown_error";
+        }
+      }
 
-    const float progress =
-        frames.empty()
-            ? 1.0f
-            : static_cast<float>(i + 1) / static_cast<float>(frames.size());
-    emitter.phase_progress(run_id, Phase::GLOBAL_METRICS, progress,
-                           "metrics " + std::to_string(i + 1) + "/" +
-                               std::to_string(frames.size()),
-                           log_file);
+      const size_t done = gm_done.fetch_add(1) + 1;
+      if (done % 2 == 0 || done == frames.size()) {
+        const float progress =
+            frames.empty()
+                ? 1.0f
+                : static_cast<float>(done) / static_cast<float>(frames.size());
+        std::lock_guard<std::mutex> lock(gm_progress_mutex);
+        emitter.phase_progress(run_id, Phase::GLOBAL_METRICS, progress,
+                               "metrics " + std::to_string(done) + "/" +
+                                   std::to_string(frames.size()) +
+                                   " workers=" +
+                                   std::to_string(global_metrics_workers),
+                               log_file);
+      }
+    }
+  };
+
+  if (global_metrics_workers > 1) {
+    std::vector<std::thread> workers;
+    workers.reserve(static_cast<size_t>(global_metrics_workers));
+    for (int w = 0; w < global_metrics_workers; ++w) {
+      workers.emplace_back(global_metrics_worker);
+    }
+    for (auto &worker : workers) {
+      if (worker.joinable()) {
+        worker.join();
+      }
+    }
+  } else {
+    global_metrics_worker();
+  }
+
+  if (gm_failed.load(std::memory_order_relaxed)) {
+    emitter.phase_end(run_id, Phase::GLOBAL_METRICS, "error",
+                      {{"error", gm_error.empty() ? "unknown_error"
+                                                   : gm_error}},
+                      log_file);
+    emitter.run_end(run_id, false, "error", log_file);
+    std::cerr << "Error during GLOBAL_METRICS: "
+              << (gm_error.empty() ? "unknown_error" : gm_error) << std::endl;
+    return false;
   }
 
   // Determine reference star count (max) and recompute wFWHM

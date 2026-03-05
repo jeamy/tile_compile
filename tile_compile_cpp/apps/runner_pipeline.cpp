@@ -452,28 +452,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   emitter.phase_end(run_id, Phase::SCAN_INPUT, "ok", scan_extra, log_file);
 
-  const bool strict_profile = (cfg.assumptions.pipeline_profile == "strict");
   runner::PhaseRegistrationContext phase_registration_ctx;
-  bool registration_precomputed_for_strict = false;
-
-  if (strict_profile) {
-    std::vector<NormalizationScales> strict_identity_norm_scales(frames.size());
-    if (detected_mode == ColorMode::OSC) {
-      for (auto &s : strict_identity_norm_scales) {
-        s.is_osc = true;
-      }
-    }
-    std::vector<FrameMetrics> strict_empty_frame_metrics;
-    VectorXf strict_empty_global_weights;
-    if (!runner::run_phase_registration_prewarp(
-            run_id, cfg, frames, run_dir, height, width, detected_mode,
-            detected_bayer_str, strict_identity_norm_scales,
-            strict_empty_frame_metrics, strict_empty_global_weights,
-            first_header, emitter, log_file, phase_registration_ctx)) {
-      return 1;
-    }
-    registration_precomputed_for_strict = true;
-  }
 
   runner::PhaseMetricsContext phase_metrics_ctx;
   if (!runner::run_phase_channel_split_normalization_global_metrics(
@@ -654,13 +633,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     first_hdr = std::move(first_pair.second);
   }
 
-  if (!registration_precomputed_for_strict) {
-    if (!runner::run_phase_registration_prewarp(
-            run_id, cfg, frames, run_dir, height, width, detected_mode,
-            detected_bayer_str, norm_scales, frame_metrics, global_weights,
-            first_header, emitter, log_file, phase_registration_ctx)) {
-      return 1;
-    }
+  if (!runner::run_phase_registration_prewarp(
+          run_id, cfg, frames, run_dir, height, width, detected_mode,
+          detected_bayer_str, norm_scales, frame_metrics, global_weights,
+          first_header, emitter, log_file, phase_registration_ctx)) {
+    return 1;
   }
 
   auto &prewarped_frames = phase_registration_ctx.prewarped_frames;
@@ -881,9 +858,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   }
 
   constexpr int kReducedModeMinFrames = 50;
-  const int reduced_threshold =
-      strict_profile ? std::max(200, cfg.assumptions.frames_reduced_threshold)
-                     : cfg.assumptions.frames_reduced_threshold;
+  const int reduced_threshold = cfg.assumptions.frames_reduced_threshold;
   const core::ModeGateDecision gate = core::evaluate_mode_gate(
       n_usable_frames, reduced_threshold,
       cfg.runtime_limits.allow_emergency_mode, kReducedModeMinFrames);
@@ -914,7 +889,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             common_valid_mask, canvas_width, canvas_height,
             tile_common_valid,
             prewarped_frames, norm_scales, detected_mode, detected_bayer_str,
-            strict_profile, emitter, log_file, local_metrics, local_weights,
+            false, emitter, log_file, local_metrics, local_weights,
             tile_quality_median, tile_is_star, tile_fwhm_median,
             canvas_tile_offset_x, canvas_tile_offset_y)) {
       return 1;
@@ -1004,7 +979,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       parallel_tiles = 1;
 
     // OSC RGB stacking can be memory-heavy. Cap worker count based on an
-    // estimate of per-tile storage (one channel worth of frame tiles).
+    // estimate of per-tile storage (debayer cache for R/G/B frame tiles).
     if (osc_mode && !tiles_phase56.empty()) {
       size_t max_tile_px = 0;
       for (const auto &t : tiles_phase56) {
@@ -1013,12 +988,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         if (px > max_tile_px)
           max_tile_px = px;
       }
-      // Peak per worker is ~ N_frames * tile_pixels * sizeof(float)
-      // (channel stacking is sequential, so not multiplied by 3).
+      // Peak per worker is ~ N_frames * tile_pixels * sizeof(float) * 3
+      // because OSC tile debayer results are cached once as R/G/B planes.
       const int n_frames_with_data_i = n_usable_frames;
       const size_t bytes_per_worker =
           max_tile_px * static_cast<size_t>(std::max(1, n_frames_with_data_i)) *
-          sizeof(float);
+          sizeof(float) * 3u;
       const size_t budget =
           static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget)) *
           1024ull * 1024ull;
@@ -1064,11 +1039,26 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     //  - Full mode: keep v3.2 §5.7.1 normalization (used as intermediate stage)
     //  - Reduced/emergency: disable per-tile normalization to preserve visual
     //    continuity and avoid tile-contrast pumping in the final output
-    const bool apply_phase7_tile_norm =
-        strict_profile ? true : !skip_clustering_in_reduced;
+    const bool apply_phase7_tile_norm = !skip_clustering_in_reduced;
 
-    // Thread-safe structures for parallel processing
-    std::mutex recon_mutex;
+    // Thread-safe structures for parallel processing.
+    // Use row-stripe locks for overlap-add to reduce lock contention.
+    constexpr size_t kReconStripeCount = 64;
+    const int recon_rows = static_cast<int>(recon.rows());
+    const size_t recon_stripe_count =
+        std::max<size_t>(1, std::min<size_t>(
+                                kReconStripeCount,
+                                static_cast<size_t>(std::max(1, recon_rows))));
+    std::vector<std::mutex> recon_stripe_mutexes(recon_stripe_count);
+    auto recon_stripe_for_row = [&](int y) -> size_t {
+      if (recon_rows <= 1 || recon_stripe_mutexes.size() <= 1) {
+        return 0;
+      }
+      const int y_clamped = std::clamp(y, 0, recon_rows - 1);
+      const size_t num = static_cast<size_t>(y_clamped) * recon_stripe_mutexes.size();
+      const size_t den = static_cast<size_t>(std::max(1, recon_rows));
+      return std::min(recon_stripe_mutexes.size() - 1, num / den);
+    };
     std::mutex progress_mutex;
     std::atomic<size_t> tiles_completed{0};
     std::atomic<size_t> tiles_failed{0};
@@ -1077,42 +1067,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // share the same dimensions), avoiding redundant recomputation per tile.
     const std::vector<float> shared_hann_x = reconstruction::make_hann_1d(uniform_tile_size);
     const std::vector<float> shared_hann_y = reconstruction::make_hann_1d(uniform_tile_size);
-
-    auto apply_common_overlap_to_tile = [&](Matrix2Df &tile,
-                                            const Tile &t) {
-      if (tile.rows() != t.height || tile.cols() != t.width)
-        return;
-      for (int yy = 0; yy < t.height; ++yy) {
-        const int gy = t.y + yy;
-        if (gy < 0 || gy >= canvas_height)
-          continue;
-        const size_t row_off = static_cast<size_t>(gy) *
-                               static_cast<size_t>(canvas_width);
-        for (int xx = 0; xx < t.width; ++xx) {
-          const int gx = t.x + xx;
-          if (gx < 0 || gx >= canvas_width) {
-            tile(yy, xx) = 0.0f;
-            continue;
-          }
-          if (common_valid_mask[row_off + static_cast<size_t>(gx)] == 0) {
-            tile(yy, xx) = 0.0f;
-          }
-        }
-      }
-    };
-
-    // Helper: a tile contributes only if enough common-overlap pixels carry data.
-    auto tile_has_data = [&](const Matrix2Df &tile, size_t ti) -> bool {
-      if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0) {
-        return false;
-      }
-      for (Eigen::Index i = 0; i < tile.size(); ++i) {
-        if (tile.data()[i] > 0.0f) {
-          return true;
-        }
-      }
-      return false;
-    };
 
     // Worker function for parallel tile processing (v3: global warp only, no
     // local ECC)
@@ -1124,10 +1078,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // PREWARP already composes the registration offset into stored frames.
         // tiles_phase56 is built in canvas coordinates, so no extra offset here.
         Matrix2Df tile = prewarped_frames.extract_tile(fi, t, 0, 0);
-        if (strict_profile && fi < norm_scales.size() && tile.size() > 0) {
-          image::apply_normalization_inplace(tile, norm_scales[fi], detected_mode,
-                                             detected_bayer_str, t.x, t.y);
-        }
         return tile;
       };
 
@@ -1153,23 +1103,23 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
       if (osc_mode) {
         // Methodik v3 (OSC): stack in RGB space (debayer-before-stack).
-        // Important: keep peak memory bounded. We therefore stack channels
-        // sequentially (R then G then B) instead of holding 3× frame tiles.
+        // Debayer each valid frame tile once, cache R/G/B tiles, then run
+        // per-channel sigma-clip stacks on the cached planes.
 
         const int origin_x = std::max(0, t.x);
         const int origin_y = std::max(0, t.y);
 
-        std::vector<size_t> valid_frames;
-        std::vector<float> global_weights_valid;
-        std::vector<float> local_weights_valid;
-        std::vector<Matrix2Df> valid_mosaics;
-        valid_frames.reserve(frames.size());
-        global_weights_valid.reserve(frames.size());
-        local_weights_valid.reserve(frames.size());
-        valid_mosaics.reserve(frames.size());
+        std::vector<float> channel_weights;
+        std::vector<Matrix2Df> valid_tiles_R;
+        std::vector<Matrix2Df> valid_tiles_G;
+        std::vector<Matrix2Df> valid_tiles_B;
+        channel_weights.reserve(frames.size());
+        valid_tiles_R.reserve(frames.size());
+        valid_tiles_G.reserve(frames.size());
+        valid_tiles_B.reserve(frames.size());
 
-        // Single pass: extract tiles, determine validity, compute weights,
-        // and cache mosaics to avoid re-extraction during per-channel stacking.
+        // Single pass: extract tile, debayer once, apply overlap mask on all
+        // channels, cache R/G/B tiles, and compute shared channel weights.
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (!frame_has_data[fi])
             continue;
@@ -1179,8 +1129,20 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0)
             continue;
 
-          valid_frames.push_back(fi);
-          valid_mosaics.push_back(std::move(tile_mosaic));
+          auto deb = image::debayer_nearest_neighbor(tile_mosaic, detected_bayer,
+                                                     origin_x, origin_y);
+          // Apply common-overlap mask AFTER debayering so that all three
+          // channels are zeroed symmetrically at masked positions.
+          tile_compile::runner::apply_common_overlap_to_tile_inplace(
+              deb.R, t, common_valid_mask, canvas_width, canvas_height);
+          tile_compile::runner::apply_common_overlap_to_tile_inplace(
+              deb.G, t, common_valid_mask, canvas_width, canvas_height);
+          tile_compile::runner::apply_common_overlap_to_tile_inplace(
+              deb.B, t, common_valid_mask, canvas_width, canvas_height);
+
+          valid_tiles_R.push_back(std::move(deb.R));
+          valid_tiles_G.push_back(std::move(deb.G));
+          valid_tiles_B.push_back(std::move(deb.B));
           frame_valid_tile_counts[fi].fetch_add(1);
 
           float G_f = (fi < static_cast<size_t>(global_weights.size()))
@@ -1190,114 +1152,25 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               (fi < local_weights.size() && ti < local_weights[fi].size())
                   ? local_weights[fi][ti]
                   : 1.0f;
-          global_weights_valid.push_back(G_f);
-          local_weights_valid.push_back(L_ft);
+          channel_weights.push_back(G_f * L_ft);
         }
 
-        if (valid_frames.empty()) {
+        if (valid_tiles_G.empty()) {
           tiles_failed++;
           return;
         }
 
-        auto stack_channel = [&](int which) -> Matrix2Df {
-          std::vector<Matrix2Df> chan_tiles;
-          chan_tiles.reserve(valid_mosaics.size());
-          std::vector<float> channel_weights;
-          channel_weights.reserve(valid_mosaics.size());
-
-          for (size_t k = 0; k < valid_mosaics.size(); ++k) {
-            auto deb = image::debayer_nearest_neighbor(valid_mosaics[k], detected_bayer,
-                                                       origin_x, origin_y);
-            Matrix2Df chan;
-            if (which == 0) {
-              chan = std::move(deb.R);
-            } else if (which == 1) {
-              chan = std::move(deb.G);
-            } else {
-              chan = std::move(deb.B);
-            }
-            // Apply common-overlap mask AFTER debayering so that all three
-            // channels are zeroed symmetrically at masked positions.
-            apply_common_overlap_to_tile(chan, t);
-            chan_tiles.push_back(std::move(chan));
-          }
-
-          if (strict_profile) {
-            const float eps = 1.0e-12f;
-            std::vector<TileMetrics> ch_metrics;
-            ch_metrics.reserve(chan_tiles.size());
-            for (const auto &ct : chan_tiles) {
-              ch_metrics.push_back(metrics::calculate_tile_metrics(ct));
-            }
-
-            std::vector<float> fwhm;
-            std::vector<float> roundness;
-            std::vector<float> contrast;
-            std::vector<float> bg;
-            std::vector<float> en;
-            std::vector<float> star_counts;
-            fwhm.reserve(ch_metrics.size());
-            roundness.reserve(ch_metrics.size());
-            contrast.reserve(ch_metrics.size());
-            bg.reserve(ch_metrics.size());
-            en.reserve(ch_metrics.size());
-            star_counts.reserve(ch_metrics.size());
-            for (const auto &tm : ch_metrics) {
-              fwhm.push_back(tm.fwhm);
-              roundness.push_back(tm.roundness);
-              contrast.push_back(tm.contrast);
-              bg.push_back(tm.background);
-              en.push_back((tm.noise > eps) ? (tm.gradient_energy / tm.noise) : 0.0f);
-              star_counts.push_back(static_cast<float>(tm.star_count));
-            }
-
-            std::vector<float> sc_tmp = star_counts;
-            const float sc_med = sc_tmp.empty() ? 0.0f : core::median_of(sc_tmp);
-            const TileType tile_type =
-                (sc_med >= static_cast<float>(cfg.tile.star_min_count))
-                    ? TileType::STAR
-                    : TileType::STRUCTURE;
-
-            std::vector<float> fwhm_t, r_t, c_t, b_t, en_t;
-            core::robust_zscore(fwhm, fwhm_t);
-            core::robust_zscore(roundness, r_t);
-            core::robust_zscore(contrast, c_t);
-            core::robust_zscore(bg, b_t);
-            core::robust_zscore(en, en_t);
-
-            auto clip3 = [&](float x) -> float {
-              return std::min(std::max(x, cfg.local_metrics.clamp[0]),
-                              cfg.local_metrics.clamp[1]);
-            };
-
-            for (size_t i = 0; i < ch_metrics.size(); ++i) {
-              float q = 0.0f;
-              if (tile_type == TileType::STAR) {
-                q = cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_t[i]) +
-                    cfg.local_metrics.star_mode.weights.roundness * (r_t[i]) +
-                    cfg.local_metrics.star_mode.weights.contrast * (c_t[i]);
-              } else {
-                q = cfg.local_metrics.structure_mode.metric_weight * (en_t[i]) +
-                    cfg.local_metrics.structure_mode.background_weight * (-b_t[i]);
-              }
-              q = clip3(q);
-              const float L_ft_c = std::exp(q);
-              const float G_fc =
-                  (i < global_weights_valid.size()) ? global_weights_valid[i] : 1.0f;
-              channel_weights.push_back(G_fc * L_ft_c);
-            }
-          } else {
-            for (size_t i = 0; i < chan_tiles.size(); ++i) {
-              const float G_fc =
-                  (i < global_weights_valid.size()) ? global_weights_valid[i] : 1.0f;
-              const float L_ft =
-                  (i < local_weights_valid.size()) ? local_weights_valid[i] : 1.0f;
-              channel_weights.push_back(G_fc * L_ft);
-            }
-          }
-
+        auto stack_channel = [&](const std::vector<Matrix2Df> &chan_tiles)
+            -> Matrix2Df {
           if (channel_weights.size() != chan_tiles.size()) {
-            channel_weights.assign(chan_tiles.size(), 1.0f);
+            std::vector<float> fallback_weights(chan_tiles.size(), 1.0f);
+            auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
+                chan_tiles, fallback_weights, cfg.stacking.sigma_clip.sigma_low,
+                cfg.stacking.sigma_clip.sigma_high,
+                cfg.stacking.sigma_clip.max_iters,
+                cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+            used_weight_fallback = used_weight_fallback || wr.fallback_used;
+            return std::move(wr.tile);
           }
 
           auto wr = reconstruction::sigma_clip_weighted_tile_with_fallback(
@@ -1309,10 +1182,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           return std::move(wr.tile);
         };
 
-        tile_rec_R = stack_channel(0);
-        tile_rec_G = stack_channel(1);
-        tile_rec_B = stack_channel(2);
-        valid_mosaics.clear();
+        tile_rec_R = stack_channel(valid_tiles_R);
+        tile_rec_G = stack_channel(valid_tiles_G);
+        tile_rec_B = stack_channel(valid_tiles_B);
 
         if (tile_rec_R.size() <= 0 || tile_rec_G.size() <= 0 ||
             tile_rec_B.size() <= 0) {
@@ -1322,7 +1194,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
         // Post-metrics are computed on G as a stable luminance proxy.
         tile_rec = tile_rec_G;
-        n_valid = valid_frames.size();
+        n_valid = valid_tiles_G.size();
       } else {
         std::vector<Matrix2Df> warped_tiles;
         warped_tiles.reserve(frames.size());
@@ -1333,9 +1205,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           Matrix2Df tile_img = load_tile_normalized(fi);
           if (tile_img.rows() != t.height || tile_img.cols() != t.width)
             continue;
-          apply_common_overlap_to_tile(tile_img, t);
+          tile_compile::runner::apply_common_overlap_to_tile_inplace(
+              tile_img, t, common_valid_mask, canvas_width, canvas_height);
           // Skip tiles that fail strict common-overlap criteria.
-          if (!tile_has_data(tile_img, ti))
+          if (!tile_compile::runner::tile_has_nonzero_common_data(
+                  tile_img, ti, tile_common_valid))
             continue;
 
           warped_tiles.push_back(std::move(tile_img));
@@ -1517,14 +1391,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
 
       {
-        std::lock_guard<std::mutex> lock(recon_mutex);
         int x0 = std::max(0, t.x);
         int y0 = std::max(0, t.y);
         for (int yy = 0; yy < tile_rec.rows(); ++yy) {
+          const int iy = y0 + yy;
+          if (iy < 0 || iy >= recon.rows()) {
+            continue;
+          }
+          const size_t stripe = recon_stripe_for_row(iy);
+          std::lock_guard<std::mutex> lock(recon_stripe_mutexes[stripe]);
           for (int xx = 0; xx < tile_rec.cols(); ++xx) {
-            int iy = y0 + yy;
             int ix = x0 + xx;
-            if (iy < 0 || iy >= recon.rows() || ix < 0 || ix >= recon.cols())
+            if (ix < 0 || ix >= recon.cols())
               continue;
             const size_t common_idx =
                 static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
@@ -2155,17 +2033,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               if (!frame_mask[fi] || !frame_has_data[fi])
                 continue;
               Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t, 0, 0);
-              if (strict_profile && fi < norm_scales.size() &&
-                  tile_img.size() > 0) {
-                image::apply_normalization_inplace(
-                    tile_img, norm_scales[fi], detected_mode,
-                    detected_bayer_str, t.x, t.y);
-              }
               if (tile_img.rows() != t.height || tile_img.cols() != t.width)
                 continue;
-              apply_common_overlap_to_tile(tile_img, t);
+              tile_compile::runner::apply_common_overlap_to_tile_inplace(
+                  tile_img, t, common_valid_mask, canvas_width, canvas_height);
               // Skip tiles that fail strict common-overlap criteria.
-              if (!tile_has_data(tile_img, ti))
+              if (!tile_compile::runner::tile_has_nonzero_common_data(
+                      tile_img, ti, tile_common_valid))
                 continue;
               cluster_tiles.push_back(std::move(tile_img));
 

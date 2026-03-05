@@ -8,7 +8,9 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
+#include <thread>
 
 #ifdef _WIN32
 #include <io.h>
@@ -39,6 +41,82 @@ core::json bge_value_stats_to_json(const image::BGEValueStats &s) {
                     {"median", s.median},
                     {"mean", s.mean},
                     {"std", s.std}};
+}
+
+void unmap_view(void *ptr, size_t bytes) {
+  if (ptr == nullptr) {
+    return;
+  }
+#ifdef _WIN32
+  UnmapViewOfFile(ptr);
+#else
+  ::munmap(ptr, bytes);
+#endif
+}
+
+size_t sample_average_file_bytes(const std::vector<fs::path> &paths,
+                                 size_t max_samples) {
+  if (paths.empty() || max_samples == 0) {
+    return 0;
+  }
+  const size_t sample_count = std::min(max_samples, paths.size());
+  const size_t stride = std::max<size_t>(1, paths.size() / sample_count);
+  uint64_t total = 0;
+  size_t used = 0;
+  for (size_t i = 0; i < paths.size() && used < sample_count; i += stride) {
+    std::error_code ec;
+    const auto sz = fs::file_size(paths[i], ec);
+    if (ec || sz <= 0) {
+      continue;
+    }
+    total += static_cast<uint64_t>(sz);
+    ++used;
+  }
+  if (used == 0 && !paths.empty()) {
+    std::error_code ec;
+    const auto sz = fs::file_size(paths.front(), ec);
+    if (!ec && sz > 0) {
+      return static_cast<size_t>(sz);
+    }
+  }
+  return (used > 0) ? static_cast<size_t>(total / used) : 0;
+}
+
+int cap_workers_for_io_profile(size_t avg_frame_bytes, size_t task_count,
+                               WorkerParallelProfile profile) {
+  constexpr size_t MiB = 1024u * 1024u;
+
+  int io_cap = std::numeric_limits<int>::max();
+  if (profile == WorkerParallelProfile::IoHeavy) {
+    if (avg_frame_bytes >= 96u * MiB) {
+      io_cap = 2;
+    } else if (avg_frame_bytes >= 64u * MiB) {
+      io_cap = 3;
+    } else if (avg_frame_bytes >= 32u * MiB) {
+      io_cap = 4;
+    } else if (avg_frame_bytes >= 16u * MiB) {
+      io_cap = 6;
+    }
+  } else if (profile == WorkerParallelProfile::MixedIo) {
+    if (avg_frame_bytes >= 96u * MiB) {
+      io_cap = 3;
+    } else if (avg_frame_bytes >= 64u * MiB) {
+      io_cap = 4;
+    } else if (avg_frame_bytes >= 32u * MiB) {
+      io_cap = 6;
+    } else if (avg_frame_bytes >= 16u * MiB) {
+      io_cap = 8;
+    }
+  }
+
+  if (task_count >= 1000) {
+    io_cap = std::min(io_cap,
+                      profile == WorkerParallelProfile::IoHeavy ? 4 : 6);
+  } else if (task_count >= 400) {
+    io_cap = std::min(io_cap,
+                      profile == WorkerParallelProfile::IoHeavy ? 5 : 8);
+  }
+  return io_cap;
 }
 
 } // namespace
@@ -75,6 +153,41 @@ uint64_t estimate_total_file_bytes(const std::vector<fs::path> &paths) {
     }
   }
   return total;
+}
+
+int compute_adaptive_worker_count(
+    const config::Config &cfg, size_t task_count,
+    const std::vector<std::filesystem::path> &frames,
+    WorkerParallelProfile profile) {
+  int workers = cfg.runtime_limits.parallel_workers;
+  if (workers < 1) {
+    workers = 1;
+  }
+  const int cpu_cores = static_cast<int>(std::thread::hardware_concurrency());
+  if (cpu_cores > 0) {
+    workers = std::min(workers, cpu_cores);
+  }
+  if (task_count > 0) {
+    workers =
+        std::min(workers, static_cast<int>(std::max<size_t>(1, task_count)));
+  }
+  workers = std::max(1, workers);
+  if (workers <= 1 || profile == WorkerParallelProfile::CpuBound ||
+      frames.empty()) {
+    return workers;
+  }
+
+  const size_t avg_frame_bytes = sample_average_file_bytes(frames, 24);
+  if (avg_frame_bytes == 0) {
+    return workers;
+  }
+
+  const int io_cap =
+      cap_workers_for_io_profile(avg_frame_bytes, task_count, profile);
+  if (io_cap <= 0 || io_cap == std::numeric_limits<int>::max()) {
+    return workers;
+  }
+  return std::max(1, std::min(workers, io_cap));
 }
 
 bool message_indicates_disk_full(const std::string &message) {
@@ -448,7 +561,8 @@ DiskCacheFrameStore::DiskCacheFrameStore(const fs::path &cache_dir,
     : cache_dir_(cache_dir), rows_(rows), cols_(cols),
       frame_bytes_(static_cast<size_t>(rows) * static_cast<size_t>(cols) *
                    sizeof(float)),
-      has_data_(n_frames, false) {
+      has_data_(n_frames, static_cast<uint8_t>(0)),
+      mapped_views_(n_frames, nullptr) {
   fs::create_directories(cache_dir_);
 }
 
@@ -456,7 +570,15 @@ DiskCacheFrameStore::~DiskCacheFrameStore() { cleanup(); }
 
 DiskCacheFrameStore::DiskCacheFrameStore(DiskCacheFrameStore &&o) noexcept
     : cache_dir_(std::move(o.cache_dir_)), rows_(o.rows_), cols_(o.cols_),
-      frame_bytes_(o.frame_bytes_), has_data_(std::move(o.has_data_)) {}
+      frame_bytes_(o.frame_bytes_), has_data_(std::move(o.has_data_)),
+      mapped_views_(std::move(o.mapped_views_)) {
+  o.rows_ = 0;
+  o.cols_ = 0;
+  o.frame_bytes_ = 0;
+  o.cache_dir_.clear();
+  o.has_data_.clear();
+  o.mapped_views_.clear();
+}
 
 DiskCacheFrameStore &DiskCacheFrameStore::operator=(DiskCacheFrameStore &&o) noexcept {
   if (this != &o) {
@@ -466,33 +588,52 @@ DiskCacheFrameStore &DiskCacheFrameStore::operator=(DiskCacheFrameStore &&o) noe
     cols_ = o.cols_;
     frame_bytes_ = o.frame_bytes_;
     has_data_ = std::move(o.has_data_);
+    mapped_views_ = std::move(o.mapped_views_);
+    o.rows_ = 0;
+    o.cols_ = 0;
+    o.frame_bytes_ = 0;
+    o.cache_dir_.clear();
+    o.has_data_.clear();
+    o.mapped_views_.clear();
   }
   return *this;
 }
 
 void DiskCacheFrameStore::store(size_t fi, const Matrix2Df &frame) {
+  if (fi >= has_data_.size()) {
+    return;
+  }
   if (frame.rows() != rows_ || frame.cols() != cols_) {
     std::cout << "[DiskCache] Frame " << fi << " size mismatch: got " 
               << frame.rows() << "x" << frame.cols() << ", expected " 
               << rows_ << "x" << cols_ << std::endl;
+    has_data_[fi] = static_cast<uint8_t>(0);
     return;
   }
+  // Drop a stale mapping before rewriting the file.
+  invalidate_mapping(fi);
   fs::path p = frame_path(fi);
 #ifdef _WIN32
   HANDLE hFile = CreateFileW(p.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-  if (hFile == INVALID_HANDLE_VALUE)
+  if (hFile == INVALID_HANDLE_VALUE) {
+    has_data_[fi] = static_cast<uint8_t>(0);
     return;
+  }
   DWORD written = 0;
   const char *src = reinterpret_cast<const char *>(frame.data());
   WriteFile(hFile, src, static_cast<DWORD>(frame_bytes_), &written, NULL);
   CloseHandle(hFile);
   if (written == frame_bytes_) {
-    has_data_[fi] = true;
+    has_data_[fi] = static_cast<uint8_t>(1);
+  } else {
+    has_data_[fi] = static_cast<uint8_t>(0);
   }
 #else
   int fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
-  if (fd < 0)
+  if (fd < 0) {
+    has_data_[fi] = static_cast<uint8_t>(0);
     return;
+  }
   size_t written = 0;
   const char *src = reinterpret_cast<const char *>(frame.data());
   while (written < frame_bytes_) {
@@ -503,75 +644,28 @@ void DiskCacheFrameStore::store(size_t fi, const Matrix2Df &frame) {
   }
   ::close(fd);
   if (written == frame_bytes_) {
-    has_data_[fi] = true;
+    has_data_[fi] = static_cast<uint8_t>(1);
+  } else {
+    has_data_[fi] = static_cast<uint8_t>(0);
   }
 #endif
 }
 
 Matrix2Df DiskCacheFrameStore::load(size_t fi) const {
-  if (fi >= has_data_.size() || !has_data_[fi])
-    return Matrix2Df();
-  fs::path p = frame_path(fi);
-#ifdef _WIN32
-  HANDLE hFile = CreateFileW(p.c_str(), GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-  if (hFile == INVALID_HANDLE_VALUE)
-    return Matrix2Df();
-  HANDLE hMapping = CreateFileMappingW(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
-  CloseHandle(hFile);
-  if (!hMapping)
-    return Matrix2Df();
-  void *ptr = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, frame_bytes_);
-  CloseHandle(hMapping);
-  if (!ptr)
+  const float *src = mapped_frame_ptr(fi);
+  if (src == nullptr)
     return Matrix2Df();
   Matrix2Df out(rows_, cols_);
-  std::memcpy(out.data(), ptr, frame_bytes_);
-  UnmapViewOfFile(ptr);
+  std::memcpy(out.data(), src, frame_bytes_);
   return out;
-#else
-  int fd = ::open(p.c_str(), O_RDONLY);
-  if (fd < 0)
-    return Matrix2Df();
-  void *ptr = ::mmap(nullptr, frame_bytes_, PROT_READ, MAP_PRIVATE, fd, 0);
-  ::close(fd);
-  if (ptr == MAP_FAILED)
-    return Matrix2Df();
-  Matrix2Df out(rows_, cols_);
-  std::memcpy(out.data(), ptr, frame_bytes_);
-  ::munmap(ptr, frame_bytes_);
-  return out;
-#endif
 }
 
 Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t,
                                             int offset_x,
                                             int offset_y) const {
-  if (fi >= has_data_.size() || !has_data_[fi])
+  const float *src = mapped_frame_ptr(fi);
+  if (src == nullptr)
     return Matrix2Df();
-  fs::path p = frame_path(fi);
-#ifdef _WIN32
-  HANDLE hFile = CreateFileW(p.c_str(), GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-  if (hFile == INVALID_HANDLE_VALUE)
-    return Matrix2Df();
-  HANDLE hMapping = CreateFileMappingW(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
-  CloseHandle(hFile);
-  if (!hMapping)
-    return Matrix2Df();
-  void *ptr = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, frame_bytes_);
-  CloseHandle(hMapping);
-  if (!ptr)
-    return Matrix2Df();
-#else
-  int fd = ::open(p.c_str(), O_RDONLY);
-  if (fd < 0)
-    return Matrix2Df();
-  void *ptr = ::mmap(nullptr, frame_bytes_, PROT_READ, MAP_PRIVATE, fd, 0);
-  ::close(fd);
-  if (ptr == MAP_FAILED)
-    return Matrix2Df();
-#endif
-
-  const float *src = static_cast<const float *>(ptr);
   int x0 = std::max(0, t.x + offset_x);
   int y0 = std::max(0, t.y + offset_y);
   int tw = t.width;
@@ -581,11 +675,6 @@ Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t,
   if (y0 + th > rows_)
     th = rows_ - y0;
   if (tw <= 0 || th <= 0) {
-#ifdef _WIN32
-    UnmapViewOfFile(ptr);
-#else
-    ::munmap(ptr, frame_bytes_);
-#endif
     return Matrix2Df();
   }
 
@@ -598,16 +687,97 @@ Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t,
         tile.data() + static_cast<size_t>(r) * static_cast<size_t>(tw);
     std::memcpy(row_dst, row_src, static_cast<size_t>(tw) * sizeof(float));
   }
-#ifdef _WIN32
-  UnmapViewOfFile(ptr);
-#else
-  ::munmap(ptr, frame_bytes_);
-#endif
   return tile;
 }
 
+const float *DiskCacheFrameStore::mapped_frame_ptr(size_t fi) const {
+  if (fi >= has_data_.size() || has_data_[fi] == 0) {
+    return nullptr;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(mapped_mutex_);
+    if (fi < mapped_views_.size() && mapped_views_[fi] != nullptr) {
+      return static_cast<const float *>(mapped_views_[fi]);
+    }
+  }
+
+  fs::path p = frame_path(fi);
+  void *new_view = nullptr;
+#ifdef _WIN32
+  HANDLE hFile = CreateFileW(p.c_str(), GENERIC_READ, 0, NULL, OPEN_EXISTING,
+                             FILE_ATTRIBUTE_NORMAL, NULL);
+  if (hFile == INVALID_HANDLE_VALUE) {
+    return nullptr;
+  }
+  HANDLE hMapping = CreateFileMappingW(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+  if (!hMapping) {
+    CloseHandle(hFile);
+    return nullptr;
+  }
+  new_view = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, frame_bytes_);
+  CloseHandle(hMapping);
+  CloseHandle(hFile);
+  if (!new_view) {
+    return nullptr;
+  }
+#else
+  int fd = ::open(p.c_str(), O_RDONLY);
+  if (fd < 0) {
+    return nullptr;
+  }
+  new_view = ::mmap(nullptr, frame_bytes_, PROT_READ, MAP_PRIVATE, fd, 0);
+  ::close(fd);
+  if (new_view == MAP_FAILED) {
+    return nullptr;
+  }
+#endif
+
+  void *existing_view = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(mapped_mutex_);
+    if (fi >= mapped_views_.size()) {
+      unmap_view(new_view, frame_bytes_);
+      return nullptr;
+    }
+    if (mapped_views_[fi] == nullptr) {
+      mapped_views_[fi] = new_view;
+      return static_cast<const float *>(new_view);
+    }
+    existing_view = mapped_views_[fi];
+  }
+
+  // Another worker installed the mapping first.
+  unmap_view(new_view, frame_bytes_);
+  return static_cast<const float *>(existing_view);
+}
+
+void DiskCacheFrameStore::invalidate_mapping(size_t fi) {
+  void *view = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(mapped_mutex_);
+    if (fi >= mapped_views_.size()) {
+      return;
+    }
+    view = mapped_views_[fi];
+    mapped_views_[fi] = nullptr;
+  }
+  unmap_view(view, frame_bytes_);
+}
+
+void DiskCacheFrameStore::clear_mappings() {
+  std::vector<void *> views;
+  {
+    std::lock_guard<std::mutex> lock(mapped_mutex_);
+    views.swap(mapped_views_);
+  }
+  for (void *view : views) {
+    unmap_view(view, frame_bytes_);
+  }
+}
+
 bool DiskCacheFrameStore::has_data(size_t fi) const {
-  return fi < has_data_.size() && has_data_[fi];
+  return fi < has_data_.size() && has_data_[fi] != 0;
 }
 
 size_t DiskCacheFrameStore::size() const { return has_data_.size(); }
@@ -617,11 +787,16 @@ int DiskCacheFrameStore::rows() const { return rows_; }
 int DiskCacheFrameStore::cols() const { return cols_; }
 
 void DiskCacheFrameStore::cleanup() {
+  clear_mappings();
   if (!cache_dir_.empty() && fs::exists(cache_dir_)) {
     std::error_code ec;
     fs::remove_all(cache_dir_, ec);
   }
   has_data_.clear();
+  cache_dir_.clear();
+  rows_ = 0;
+  cols_ = 0;
+  frame_bytes_ = 0;
 }
 
 fs::path DiskCacheFrameStore::frame_path(size_t fi) const {

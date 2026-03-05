@@ -86,7 +86,7 @@ Copy one file and adjust at least:
 - `input.pattern`
 - `data.image_width` / `data.image_height` (if needed)
 - `data.bayer_pattern` (for OSC/CFA datasets)
-- `assumptions.pipeline_profile` (`strict` for normative v3.3.6 alignment)
+- `assumptions.pipeline_profile` (`strict` for explicit per-channel v3.3.6 alignment, `practical` to allow CFA-proxy core path)
 - `registration.enable_star_pair_fallback` (`false` in strict profile)
 
 Example:

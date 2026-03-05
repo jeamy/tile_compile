@@ -55,7 +55,7 @@ The method models two orthogonal quality axes:
 
 - Input data are linear (no stretch, no tone curves)
 - Uniform exposure time (tolerance +-5%)
-- Per-channel processing after channel separation
+- Per-channel reconstruction semantics from phase 3 onward (explicit split in `strict`, CFA-proxy equivalent core allowed in `practical`)
 - No quality-based frame selection
 - Registered geometry is expressed in the same pixel reference
 
@@ -79,12 +79,22 @@ The method models two orthogonal quality axes:
 - Standard action: controlled abort with diagnostics
 - Optional only via explicit `runtime.allow_emergency_mode: true`: emergency mode with warning status
 
+### 2.5 Profile-Dependent Channel Semantics (Binding)
+
+- `strict`: explicit channel separation is completed by phase 2; phases 3-10 run per channel.
+- `practical`: a CFA-proxy core path is allowed; explicit RGB separation may be deferred to the channel-stack stage.
+- For the `practical` CFA-proxy core path, all of the following remain mandatory:
+  1. linear and deterministic reconstruction behavior in the shared core,
+  2. channel-equivalent weighting/estimation semantics (no hidden cross-channel coupling in the core estimator),
+  3. CFA phase preservation for geometric operations,
+  4. explicit RGB domain before color calibration extensions (BGE/PCC), with unchanged canvas-mask exclusion policy.
+
 ---
 
 ## 3. Pipeline Overview (Normative)
 
 1. Registration and geometric harmonization
-2. Channel separation
+2. Channel separation (explicit or profile-allowed deferred split via CFA-proxy core)
 3. Global linear normalization
 4. Global frame metrics and global weights
 5. Tile geometry
@@ -103,13 +113,15 @@ Optional/feature-gated: local denoisers, sigma-clipping variants, WCS/PCC.
 ## 4. Registration and Channel Separation up to Phase 2 (Normative)
 
 Up to and including phase 2, the CFA-based registration and channel-separation path applies.
-From phase 3 onward, the shared core applies.
+From phase 3 onward, the shared core applies in a profile-dependent form:
+- `strict`: explicit per-channel core,
+- `practical`: CFA-proxy equivalent core.
 
 ### 4.1 CFA-Based Registration Path
 
 - Registration on a CFA luminance proxy
 - CFA-aware warp by subplanes (`warp_cfa_mosaic_via_subplanes`)
-- Channel separation afterwards
+- Channel separation afterwards (`strict`) or deferred split at channel-stack stage (`practical`, CFA-proxy core path)
 
 ### 4.2 Registration Cascade
 
@@ -127,6 +139,14 @@ Acceptance criterion per attempt:
 
 - `NCC(warped, ref) > NCC(identity, ref) + delta_ncc`
 - Default `delta_ncc = 0.01`
+
+### 4.3 CFA-Proxy Core Path in Practical Profile (Binding)
+
+Allowed only when `assumptions.pipeline_profile: practical`.
+
+- Global/local metrics and tile reconstruction may operate on CFA-proxy inputs instead of early explicit RGB planes.
+- This is conformant only if the channel semantics and linearity constraints from §2.5 are preserved.
+- Explicit RGB data are still required before BGE/PCC and for final RGB outputs.
 
 ---
 
@@ -830,7 +850,7 @@ Note: The legacy PCC test "no negative matrix element" is **no longer** required
 
 ### Mandatory Core
 
-- CFA-based registration path up to channel separation
+- CFA-based registration path up to explicit or deferred (profile-dependent) channel separation
 - global normalization
 - global/local metrics and weights
 - tile reconstruction including consolidated fallbacks
@@ -853,6 +873,11 @@ For operational use, complete reference configurations are provided:
 - `tile_compile_cpp/examples/tile_compile.smart_telescope_dwarf_seestar.example.yaml`
 
 All profiles include **all available configuration options** with inline comments.
+Profile semantics note:
+
+- `strict`: requires explicit channel separation by phase 2 and a per-channel shared core.
+- `practical`: allows the CFA-proxy core path from §2.5/§4.3.
+
 Procedure:
 
 1. copy the appropriate profile,
