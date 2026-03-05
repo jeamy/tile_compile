@@ -6,7 +6,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         software-properties-common \
+        python3-launchpadlib \
         gnupg \
+        dirmngr \        
         build-essential \
         cmake \
         git \
