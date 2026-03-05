@@ -1,6 +1,7 @@
 #include "runner_shared.hpp"
 
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/io/fits_io.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -82,6 +83,66 @@ bool message_indicates_disk_full(const std::string &message) {
          (m.find("disk full") != std::string::npos) ||
          (m.find("not enough space") != std::string::npos) ||
          (m.find("enospc") != std::string::npos);
+}
+
+bool load_canvas_mask_fits(const fs::path &mask_path, int rows, int cols,
+                           std::vector<uint8_t> &out_mask,
+                           std::string &error_out) {
+  if (rows <= 0 || cols <= 0) {
+    error_out = "invalid target image size for canvas mask";
+    return false;
+  }
+  if (!fs::exists(mask_path)) {
+    error_out = "missing canvas mask: " + mask_path.string();
+    return false;
+  }
+  try {
+    auto mask_pair = tile_compile::io::read_fits_float(mask_path);
+    const auto &mask_img = mask_pair.first;
+    if (mask_img.rows() != rows || mask_img.cols() != cols) {
+      error_out = "canvas mask size mismatch: got " +
+                  std::to_string(mask_img.cols()) + "x" +
+                  std::to_string(mask_img.rows()) + ", expected " +
+                  std::to_string(cols) + "x" + std::to_string(rows);
+      return false;
+    }
+
+    out_mask.assign(static_cast<size_t>(rows * cols), static_cast<uint8_t>(0));
+    int valid_count = 0;
+    for (int y = 0; y < rows; ++y) {
+      for (int x = 0; x < cols; ++x) {
+        if (mask_img(y, x) > 0.5f) {
+          out_mask[static_cast<size_t>(y * cols + x)] = 1;
+          ++valid_count;
+        }
+      }
+    }
+    if (valid_count <= 0) {
+      error_out = "canvas mask contains zero valid pixels";
+      return false;
+    }
+    return true;
+  } catch (const std::exception &e) {
+    error_out = std::string("cannot read canvas mask: ") + e.what();
+    return false;
+  }
+}
+
+bool load_canvas_mask_for_rgb(const fs::path &mask_path, const Matrix2Df &R,
+                              const Matrix2Df &G, const Matrix2Df &B,
+                              std::vector<uint8_t> &out_mask, int &rows_out,
+                              int &cols_out, std::string &error_out) {
+  rows_out = 0;
+  cols_out = 0;
+  if (R.rows() <= 0 || R.cols() <= 0 || R.rows() != G.rows() ||
+      R.rows() != B.rows() || R.cols() != G.cols() || R.cols() != B.cols()) {
+    error_out = "invalid RGB dimensions";
+    return false;
+  }
+  rows_out = R.rows();
+  cols_out = R.cols();
+  return load_canvas_mask_fits(mask_path, rows_out, cols_out, out_mask,
+                               error_out);
 }
 
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {

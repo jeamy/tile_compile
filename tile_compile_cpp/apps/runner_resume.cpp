@@ -32,48 +32,6 @@ using tile_compile::TileGrid;
 using tile_compile::TileMetrics;
 using tile_compile::TileType;
 
-bool load_canvas_mask_fits(const fs::path &mask_path, int rows, int cols,
-                           std::vector<uint8_t> &out_mask,
-                           std::string &error_out) {
-  if (rows <= 0 || cols <= 0) {
-    error_out = "invalid target image size for canvas mask";
-    return false;
-  }
-  if (!fs::exists(mask_path)) {
-    error_out = "missing canvas mask: " + mask_path.string();
-    return false;
-  }
-  try {
-    auto mask_pair = tile_compile::io::read_fits_float(mask_path);
-    const auto &mask_img = mask_pair.first;
-    if (mask_img.rows() != rows || mask_img.cols() != cols) {
-      error_out = "canvas mask size mismatch: got " +
-                  std::to_string(mask_img.cols()) + "x" +
-                  std::to_string(mask_img.rows()) + ", expected " +
-                  std::to_string(cols) + "x" + std::to_string(rows);
-      return false;
-    }
-    out_mask.assign(static_cast<size_t>(rows * cols), static_cast<uint8_t>(0));
-    int valid_count = 0;
-    for (int y = 0; y < rows; ++y) {
-      for (int x = 0; x < cols; ++x) {
-        if (mask_img(y, x) > 0.5f) {
-          out_mask[static_cast<size_t>(y * cols + x)] = 1;
-          ++valid_count;
-        }
-      }
-    }
-    if (valid_count <= 0) {
-      error_out = "canvas mask contains zero valid pixels";
-      return false;
-    }
-    return true;
-  } catch (const std::exception &e) {
-    error_out = std::string("cannot read canvas mask: ") + e.what();
-    return false;
-  }
-}
-
 TileMetrics parse_tile_metrics_json(const tile_compile::core::json &j) {
   TileMetrics tm{};
   tm.fwhm = j.value("fwhm", 0.0f);
@@ -589,27 +547,24 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     if (bge_have_tile_data && bge_metrics_tiles_match) {
       image::BGEConfig bge_cfg =
           tile_compile::runner::to_image_bge_config(cfg.bge);
-      if (rgb.R.rows() > 0 && rgb.R.cols() > 0 &&
-          rgb.R.rows() == rgb.G.rows() && rgb.R.rows() == rgb.B.rows() &&
-          rgb.R.cols() == rgb.G.cols() && rgb.R.cols() == rgb.B.cols()) {
-        const int rows = rgb.R.rows();
-        const int cols = rgb.R.cols();
-        const fs::path canvas_mask_path = run_dir / "outputs" / "canvas_mask.fits";
-        std::string mask_error;
-        if (!load_canvas_mask_fits(canvas_mask_path, rows, cols,
-                                   bge_cfg.common_valid_mask, mask_error)) {
-          emitter.phase_end(run_id, Phase::BGE, "error",
-                            {{"reason", "canvas_mask_invalid"},
-                             {"error", mask_error},
-                             {"canvas_mask", canvas_mask_path.string()}},
-                            log_file);
-          return false;
-        }
-        bge_cfg.common_mask_rows = rows;
-        bge_cfg.common_mask_cols = cols;
-        std::cout << "[BGE][resume] Loaded canvas_mask.fits ("
-                  << cols << "x" << rows << ")" << std::endl;
+      const fs::path canvas_mask_path = run_dir / "outputs" / "canvas_mask.fits";
+      std::string mask_error;
+      int rows = 0;
+      int cols = 0;
+      if (!tile_compile::runner::load_canvas_mask_for_rgb(
+              canvas_mask_path, rgb.R, rgb.G, rgb.B, bge_cfg.common_valid_mask,
+              rows, cols, mask_error)) {
+        emitter.phase_end(run_id, Phase::BGE, "error",
+                          {{"reason", "canvas_mask_invalid"},
+                           {"error", mask_error},
+                           {"canvas_mask", canvas_mask_path.string()}},
+                          log_file);
+        return false;
       }
+      bge_cfg.common_mask_rows = rows;
+      bge_cfg.common_mask_cols = cols;
+      std::cout << "[BGE][resume] Loaded canvas_mask.fits ("
+                << cols << "x" << rows << ")" << std::endl;
 
       (void)image::apply_background_extraction(rgb.R, rgb.G, rgb.B,
                                                bge_tile_metrics, bge_tile_grid,
@@ -791,15 +746,14 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     astro::PCCConfig pcc_cfg =
         tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
-    if (rgb.R.rows() > 0 && rgb.R.cols() > 0 &&
-        rgb.R.rows() == rgb.G.rows() && rgb.R.rows() == rgb.B.rows() &&
-        rgb.R.cols() == rgb.G.cols() && rgb.R.cols() == rgb.B.cols()) {
-      const int rows = rgb.R.rows();
-      const int cols = rgb.R.cols();
+    {
       const fs::path canvas_mask_path = run_dir / "outputs" / "canvas_mask.fits";
       std::string mask_error;
-      if (!load_canvas_mask_fits(canvas_mask_path, rows, cols,
-                                 pcc_cfg.common_valid_mask, mask_error)) {
+      int rows = 0;
+      int cols = 0;
+      if (!tile_compile::runner::load_canvas_mask_for_rgb(
+              canvas_mask_path, rgb.R, rgb.G, rgb.B, pcc_cfg.common_valid_mask,
+              rows, cols, mask_error)) {
         emitter.phase_end(run_id, Phase::PCC, "error",
                           {{"reason", "canvas_mask_invalid"},
                            {"error", mask_error},
@@ -815,10 +769,6 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       std::cout << "[PCC][resume] Loaded canvas_mask.fits ("
                 << cols << "x" << rows << ")" << std::endl;
     }
-
-    load_bge_tile_context_if_needed();
-    // PCC canvas policy: no tile-based star weighting/gating.
-    pcc_cfg.use_tile_quality_weighting = false;
 
     if (pcc_cfg.radii_mode == "auto_fwhm") {
       // Resume path prefers persisted seeing estimate from tile_grid artifact

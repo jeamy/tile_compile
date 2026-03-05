@@ -24,54 +24,6 @@ struct PlaneFit {
     bool ok = false;
 };
 
-struct TileLookupCache {
-    int bin_size = 64;
-    int bins_x = 0;
-    int bins_y = 0;
-    bool valid = false;
-    std::vector<std::vector<int>> bins;
-};
-
-static TileLookupCache build_tile_lookup_cache(const TileGrid &grid) {
-    TileLookupCache cache;
-    if (grid.tiles.empty()) return cache;
-
-    int max_x = 0;
-    int max_y = 0;
-    for (const auto &t : grid.tiles) {
-        max_x = std::max(max_x, t.x + t.width);
-        max_y = std::max(max_y, t.y + t.height);
-    }
-    if (max_x <= 0 || max_y <= 0) return cache;
-
-    cache.bins_x = std::max(1, (max_x + cache.bin_size - 1) / cache.bin_size);
-    cache.bins_y = std::max(1, (max_y + cache.bin_size - 1) / cache.bin_size);
-    cache.bins.assign(static_cast<size_t>(cache.bins_x * cache.bins_y), {});
-
-    for (size_t i = 0; i < grid.tiles.size(); ++i) {
-        const auto &t = grid.tiles[i];
-        const int tx0 = std::max(0, t.x);
-        const int ty0 = std::max(0, t.y);
-        const int tx1 = std::max(tx0, t.x + t.width - 1);
-        const int ty1 = std::max(ty0, t.y + t.height - 1);
-
-        const int bx0 = std::clamp(tx0 / cache.bin_size, 0, cache.bins_x - 1);
-        const int by0 = std::clamp(ty0 / cache.bin_size, 0, cache.bins_y - 1);
-        const int bx1 = std::clamp(tx1 / cache.bin_size, 0, cache.bins_x - 1);
-        const int by1 = std::clamp(ty1 / cache.bin_size, 0, cache.bins_y - 1);
-
-        for (int by = by0; by <= by1; ++by) {
-            for (int bx = bx0; bx <= bx1; ++bx) {
-                cache.bins[static_cast<size_t>(by * cache.bins_x + bx)]
-                    .push_back(static_cast<int>(i));
-            }
-        }
-    }
-
-    cache.valid = true;
-    return cache;
-}
-
 static PlaneFit fit_sky_plane_huber(const std::vector<double> &xs,
                                     const std::vector<double> &ys,
                                     const std::vector<double> &vs,
@@ -179,75 +131,6 @@ static PlaneFit fit_sky_plane_huber(const std::vector<double> &xs,
     return pf;
 }
 
-static int find_tile_index_for_pixel(const TileGrid &grid, double px, double py,
-                                     const TileLookupCache *cache = nullptr) {
-    if (grid.tiles.empty()) return -1;
-    const int x = static_cast<int>(std::lround(px));
-    const int y = static_cast<int>(std::lround(py));
-
-    auto tile_contains = [x, y](const Tile &t) {
-        return x >= t.x && x < (t.x + t.width) && y >= t.y && y < (t.y + t.height);
-    };
-
-    if (cache != nullptr && cache->valid && x >= 0 && y >= 0) {
-        const int bx = x / cache->bin_size;
-        const int by = y / cache->bin_size;
-        if (bx >= 0 && bx < cache->bins_x && by >= 0 && by < cache->bins_y) {
-            const auto &bucket =
-                cache->bins[static_cast<size_t>(by * cache->bins_x + bx)];
-            for (int idx : bucket) {
-                if (idx < 0 || idx >= static_cast<int>(grid.tiles.size())) continue;
-                if (tile_contains(grid.tiles[static_cast<size_t>(idx)])) {
-                    return idx;
-                }
-            }
-        }
-    }
-
-    for (size_t i = 0; i < grid.tiles.size(); ++i) {
-        const auto &t = grid.tiles[i];
-        if (tile_contains(t)) {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
-}
-
-static double tile_quality_weight_for_star(double px, double py,
-                                           const PCCConfig &config,
-                                           bool *reject_out,
-                                           const TileLookupCache *tile_lookup = nullptr) {
-    if (reject_out) *reject_out = false;
-    if (!config.use_tile_quality_weighting) return 1.0;
-    if (config.tile_metrics.empty() || config.tile_grid.tiles.empty()) return 1.0;
-    if (config.tile_metrics.size() != config.tile_grid.tiles.size()) return 1.0;
-
-    const int idx = find_tile_index_for_pixel(config.tile_grid, px, py, tile_lookup);
-    if (idx < 0) return 1.0;
-
-    const TileMetrics &tm = config.tile_metrics[static_cast<size_t>(idx)];
-    const float noise = std::max(1.0e-6f, tm.noise);
-    const float structure = std::isfinite(tm.gradient_energy) ? (tm.gradient_energy / noise) : 0.0f;
-
-    if (std::isfinite(structure) && structure > config.tile_structure_reject) {
-        if (reject_out) *reject_out = true;
-        return 0.0;
-    }
-
-    const float q = std::isfinite(tm.quality_score) ? tm.quality_score : 0.0f;
-    const double quality_term =
-        std::exp(static_cast<double>(config.tile_quality_kappa) * static_cast<double>(q));
-    const double structure_term = std::exp(
-        -0.35 * static_cast<double>(std::max(0.0f, structure - config.tile_structure_ref)));
-    const double star_penalty =
-        1.0 / (1.0 + 0.03 * static_cast<double>(std::max(0, tm.star_count - 4)));
-
-    double w = quality_term * structure_term * star_penalty;
-    const double wmin = std::max(1.0e-3, static_cast<double>(config.tile_weight_min));
-    const double wmax = std::max(wmin, static_cast<double>(config.tile_weight_max));
-    w = std::clamp(w, wmin, wmax);
-    return w;
-}
 
 } // namespace
 
@@ -764,28 +647,16 @@ std::vector<StarPhotometry> measure_stars(
         std::clamp(config.min_aperture_common_fraction, 0.50, 1.0);
     const double min_annulus_common_fraction =
         std::clamp(config.min_annulus_common_fraction, 0.30, 1.0);
-    const TileLookupCache tile_lookup =
-        (config.use_tile_quality_weighting &&
-         !config.tile_metrics.empty() &&
-         config.tile_metrics.size() == config.tile_grid.tiles.size())
-            ? build_tile_lookup_cache(config.tile_grid)
-            : TileLookupCache{};
-    const TileLookupCache *tile_lookup_ptr = tile_lookup.valid ? &tile_lookup : nullptr;
     auto run_pass = [&](bool enable_bg_guard,
                         std::vector<StarPhotometry>* out_result,
                         int* n_sat_rejected,
-                        int* n_tile_rejected,
                         int* n_common_rejected,
-                        int* n_bg_mask_rejected,
-                        std::vector<double>* tile_weights_used) {
+                        int* n_bg_mask_rejected) {
         out_result->clear();
         out_result->reserve(catalog_stars.size());
         *n_sat_rejected = 0;
-        *n_tile_rejected = 0;
         *n_common_rejected = 0;
         *n_bg_mask_rejected = 0;
-        tile_weights_used->clear();
-        tile_weights_used->reserve(catalog_stars.size());
 
         for (const auto &star : catalog_stars) {
             if (star.mag > config.mag_limit || star.mag < config.mag_bright_limit) continue;
@@ -825,15 +696,7 @@ std::vector<StarPhotometry> measure_stars(
             sp.px = px;
             sp.py = py;
             sp.mag = star.mag;
-
-            bool tile_reject = false;
-            sp.quality_weight =
-                tile_quality_weight_for_star(px, py, config, &tile_reject,
-                                             tile_lookup_ptr);
-            if (tile_reject || !(std::isfinite(sp.quality_weight) && sp.quality_weight > 0.0)) {
-                ++(*n_tile_rejected);
-                continue;
-            }
+            sp.quality_weight = 1.0;
 
             const double aperture_common_fraction = radial_support_fraction(
                 common_support_mask, rows, cols, px, py, 0.0,
@@ -878,22 +741,16 @@ std::vector<StarPhotometry> measure_stars(
 
             sp.valid = (sp.flux_r > 0 && sp.flux_g > 0 && sp.flux_b > 0 &&
                         sp.cat_r > 0 && sp.cat_g > 0 && sp.cat_b > 0);
-            if (sp.valid) {
-                tile_weights_used->push_back(sp.quality_weight);
-            }
             out_result->push_back(sp);
         }
     };
 
     std::vector<StarPhotometry> first_pass_result;
-    std::vector<double> first_pass_weights;
     int first_sat_rej = 0;
-    int first_tile_rej = 0;
     int first_common_rej = 0;
     int first_bg_rej = 0;
     run_pass(true, &first_pass_result,
-             &first_sat_rej, &first_tile_rej, &first_common_rej, &first_bg_rej,
-             &first_pass_weights);
+             &first_sat_rej, &first_common_rej, &first_bg_rej);
 
     auto count_valid = [](const std::vector<StarPhotometry>& stars) {
         int n = 0;
@@ -904,28 +761,22 @@ std::vector<StarPhotometry> measure_stars(
     };
 
     int n_sat_rejected = first_sat_rej;
-    int n_tile_rejected = first_tile_rej;
     int n_common_rejected = first_common_rej;
     int n_bg_mask_rejected = first_bg_rej;
-    std::vector<double> tile_weights_used = first_pass_weights;
     result = std::move(first_pass_result);
     bool used_bg_guard = true;
 
     if (count_valid(result) < config.min_stars && first_bg_rej > 0) {
         std::vector<StarPhotometry> relaxed_result;
-        std::vector<double> relaxed_weights;
         int relaxed_sat_rej = 0;
-        int relaxed_tile_rej = 0;
         int relaxed_common_rej = 0;
         int relaxed_bg_rej = 0;
         run_pass(false, &relaxed_result,
-                 &relaxed_sat_rej, &relaxed_tile_rej, &relaxed_common_rej,
-                 &relaxed_bg_rej, &relaxed_weights);
+                 &relaxed_sat_rej, &relaxed_common_rej,
+                 &relaxed_bg_rej);
         if (count_valid(relaxed_result) > count_valid(result)) {
             result = std::move(relaxed_result);
-            tile_weights_used = std::move(relaxed_weights);
             n_sat_rejected = relaxed_sat_rej;
-            n_tile_rejected = relaxed_tile_rej;
             n_common_rejected = relaxed_common_rej;
             n_bg_mask_rejected = relaxed_bg_rej;
             used_bg_guard = false;
@@ -947,25 +798,6 @@ std::vector<StarPhotometry> measure_stars(
               << " min_safe_fraction=" << min_safe_annulus_fraction
               << " bg_safe_mask_fraction=" << bg_safe_fraction
               << " enabled=" << (used_bg_guard ? "true" : "false") << std::endl;
-    if (!tile_weights_used.empty()) {
-        double w_sum = 0.0;
-        double w_min = std::numeric_limits<double>::infinity();
-        double w_max = 0.0;
-        for (double w : tile_weights_used) {
-            w_sum += w;
-            w_min = std::min(w_min, w);
-            w_max = std::max(w_max, w);
-        }
-        std::cout << "[PCC] Tile-quality weighting: enabled="
-                  << (config.use_tile_quality_weighting ? "true" : "false")
-                  << " rejected=" << n_tile_rejected
-                  << " mean=" << (w_sum / static_cast<double>(tile_weights_used.size()))
-                  << " min=" << w_min
-                  << " max=" << w_max << std::endl;
-    } else if (config.use_tile_quality_weighting) {
-        std::cout << "[PCC] Tile-quality weighting: enabled=true rejected="
-                  << n_tile_rejected << " no valid weighted stars" << std::endl;
-    }
 
     return result;
 }
@@ -976,7 +808,7 @@ std::vector<StarPhotometry> measure_stars(
 //   1. Per star: measure image flux ratios (r/g, b/g) and catalog flux ratios
 //   2. Robust linear fit: image_rg = a + b * catalog_rg  (repeated median)
 //   3. Evaluate fit at a white reference
-//   4. Normalize so max(kr, kg=1, kb) = 1
+//   4. Normalize with green anchor (kg=1)
 //
 // Note: Siril SPCC evaluates at a selected white reference spectrum. Here we
 // derive an adaptive white reference from the catalog colors present in-frame.
@@ -1274,10 +1106,19 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     kw_g = std::min(kw_g, raw_k_max);
     kw_b = std::min(kw_b, raw_k_max);
 
-    const double kw_max = std::max({kw_r, kw_g, kw_b});
-    kw_r = std::max(1.0e-3, kw_r / kw_max);
-    kw_g = std::max(1.0e-3, kw_g / kw_max);
-    kw_b = std::max(1.0e-3, kw_b / kw_max);
+    // Anchor gains to green (kg = 1) instead of max-normalizing all channels.
+    // Max-normalization can push m11 away from 1 and, in combination with
+    // strong damping, collapse PCC to a near-gray global scale.
+    // Green anchoring keeps the PCC matrix photometrically interpretable:
+    //   measured_rg * kw_r  -> target_rg
+    //   measured_bg * kw_b  -> target_bg
+    // while preserving kg as the chromatic reference channel.
+    const double kg_anchor = std::max(1.0e-6, kw_g);
+    kw_r = std::max(1.0e-3, kw_r / kg_anchor);
+    kw_g = 1.0;
+    kw_b = std::max(1.0e-3, kw_b / kg_anchor);
+    kw_r = std::min(kw_r, raw_k_max);
+    kw_b = std::min(kw_b, raw_k_max);
 
     std::cout << "[PCC] Adaptive white reference: wrg=" << wrg
               << " wbg=" << wbg << std::endl;
@@ -1285,10 +1126,7 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
               << " b=" << b_rg << " dev=" << dev_rg << std::endl;
     std::cout << "[PCC] Repeated-median fit B/G: a=" << a_bg
               << " b=" << b_bg << " dev=" << dev_bg << std::endl;
-    std::cout << "[PCC] Scale factors raw (before norm): R=" << (kw_r * kw_max)
-              << " G=" << (kw_g * kw_max) << " B=" << (kw_b * kw_max)
-              << std::endl;
-    std::cout << "[PCC] Scale factors after norm: R=" << kw_r
+    std::cout << "[PCC] Scale factors after green-anchor norm: R=" << kw_r
               << " G=" << kw_g << " B=" << kw_b
               << " (raw_k_max=" << raw_k_max << ")" << std::endl;
 
@@ -1885,6 +1723,33 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                   const WCS &wcs,
                   const std::vector<GaiaStar> &catalog_stars,
                   const PCCConfig &config) {
+    const int rows = R.rows();
+    const int cols = R.cols();
+    const bool valid_rgb_dims =
+        (rows > 0 && cols > 0 &&
+         G.rows() == rows && B.rows() == rows &&
+         G.cols() == cols && B.cols() == cols);
+    const bool have_canvas_mask =
+        valid_rgb_dims &&
+        !config.common_valid_mask.empty() &&
+        config.common_mask_rows == rows &&
+        config.common_mask_cols == cols &&
+        image::canvas_mask_matches_image(config.common_valid_mask, rows, cols);
+    if (!have_canvas_mask) {
+        PCCResult fail;
+        fail.success = false;
+        fail.matrix = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+        fail.n_stars_matched = 0;
+        fail.n_stars_used = 0;
+        fail.residual_rms = 0.0;
+        fail.determinant = 1.0;
+        fail.condition_number = 1.0;
+        fail.error_message = "Missing/invalid canvas mask for PCC";
+        return fail;
+    }
+    // Hard policy: canvas-masked pixels are excluded globally from PCC and
+    // always kept at zero.
+    image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
 
     std::cout << "[PCC] Measuring " << catalog_stars.size()
               << " catalog stars in image..." << std::endl;
@@ -1911,17 +1776,6 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         const Matrix2Df R_in = R;
         const Matrix2Df G_in = G;
         const Matrix2Df B_in = B;
-        const int img_px = R_in.rows() * R_in.cols();
-        const bool have_canvas_mask =
-            !config.common_valid_mask.empty() &&
-            config.common_mask_rows == R_in.rows() &&
-            config.common_mask_cols == R_in.cols() &&
-            static_cast<int>(config.common_valid_mask.size()) == img_px;
-        if (!have_canvas_mask) {
-            result.success = false;
-            result.error_message = "Missing/invalid canvas mask for PCC background analysis";
-            return result;
-        }
         const std::vector<uint8_t> bg_mask =
             image::build_chroma_background_mask_from_rgb(
                 R_in, G_in, B_in, config.common_valid_mask);
@@ -2094,6 +1948,13 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             best_post_bg_std = pre_bg_std;
         }
 
+        // If damping fully disables both chroma corrections, enforce a true
+        // no-op PCC matrix. This avoids unintended global rescaling when
+        // m11 != 1 and keeps "PCC disabled by guard" behavior color-neutral.
+        if (chosen_alpha_r <= 1.0e-6 && chosen_alpha_b <= 1.0e-6) {
+            chosen_matrix = identity;
+        }
+
         if (chosen_alpha_r < 0.999 || chosen_alpha_b < 0.999) {
             std::cout << "[PCC] Adaptive damping applied: alpha_r=" << chosen_alpha_r
                       << " alpha_b=" << chosen_alpha_b
@@ -2124,10 +1985,12 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         }
 
         apply_color_matrix(R, G, B, result.matrix, config.apply_attenuation);
+        image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
         std::cout << "[PCC] Apply mode: "
                   << (config.apply_attenuation ? "attenuated" : "linear")
                   << std::endl;
         neutralize_background_offsets(R, G, B, config.common_valid_mask);
+        image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
         std::cout << "[PCC] Color correction applied." << std::endl;
     } else {
         std::cerr << "[PCC] Failed: " << result.error_message << std::endl;

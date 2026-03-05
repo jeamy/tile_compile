@@ -21,6 +21,17 @@ uint64_t estimate_total_file_bytes(const std::vector<std::filesystem::path> &pat
 
 bool message_indicates_disk_full(const std::string &message);
 
+bool load_canvas_mask_fits(const std::filesystem::path &mask_path, int rows,
+                           int cols, std::vector<uint8_t> &out_mask,
+                           std::string &error_out);
+
+bool load_canvas_mask_for_rgb(const std::filesystem::path &mask_path,
+                              const Matrix2Df &R, const Matrix2Df &G,
+                              const Matrix2Df &B,
+                              std::vector<uint8_t> &out_mask,
+                              int &rows_out, int &cols_out,
+                              std::string &error_out);
+
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src);
 astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src);
 

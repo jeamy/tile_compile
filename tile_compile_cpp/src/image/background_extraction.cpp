@@ -184,6 +184,36 @@ BGEValueStats stats_from_matrix(const Matrix2Df &m) {
 
 } // namespace
 
+bool canvas_mask_matches_image(const std::vector<uint8_t> &mask, int rows,
+                               int cols) {
+  if (rows <= 0 || cols <= 0)
+    return false;
+  return mask.size() == static_cast<size_t>(rows * cols);
+}
+
+void enforce_canvas_mask_on_rgb(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
+                                const std::vector<uint8_t> &mask) {
+  const int rows = R.rows();
+  const int cols = R.cols();
+  if (!canvas_mask_matches_image(mask, rows, cols))
+    return;
+  if (G.rows() != rows || G.cols() != cols || B.rows() != rows ||
+      B.cols() != cols) {
+    return;
+  }
+  for (int y = 0; y < rows; ++y) {
+    const size_t row_off = static_cast<size_t>(y) * static_cast<size_t>(cols);
+    for (int x = 0; x < cols; ++x) {
+      const size_t idx = row_off + static_cast<size_t>(x);
+      if (mask[idx] == 0) {
+        R(y, x) = 0.0f;
+        G(y, x) = 0.0f;
+        B(y, x) = 0.0f;
+      }
+    }
+  }
+}
+
 float spatial_background_spread(const Matrix2Df &img,
                                 const std::vector<uint8_t> *valid_mask) {
   const int H = static_cast<int>(img.rows());
@@ -2544,6 +2574,9 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
               << std::endl;
     return false;
   }
+  // Hard policy: canvas-masked pixels are excluded globally from BGE and kept
+  // at zero throughout color processing.
+  enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
 
   if (diagnostics != nullptr) {
     diagnostics->image_width = W;
@@ -2658,6 +2691,11 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     Matrix2Df corrected = channel_before;
     for (int y = 0; y < H; ++y) {
       for (int x = 0; x < W; ++x) {
+        const size_t idx = static_cast<size_t>(y * W + x);
+        if (config.common_valid_mask[idx] == 0) {
+          corrected(y, x) = 0.0f;
+          continue;
+        }
         const float vin = channel_before(y, x);
         if (!std::isfinite(vin)) {
           corrected(y, x) = std::numeric_limits<float>::quiet_NaN();
@@ -3088,6 +3126,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     }
   }
 
+  enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
   std::cout << "[BGE] Background extraction complete" << std::endl;
   if (diagnostics != nullptr) {
     diagnostics->success = any_channel_applied;

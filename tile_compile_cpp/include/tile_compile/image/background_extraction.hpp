@@ -185,6 +185,11 @@ std::vector<uint8_t> build_chroma_background_mask_from_rgb(
 float log_chroma_std_background(const Matrix2Df& A, const Matrix2Df& G,
                                 const std::vector<uint8_t>& bg_mask);
 
+// Canvas-mask utilities shared by BGE/PCC.
+bool canvas_mask_matches_image(const std::vector<uint8_t>& mask, int rows, int cols);
+void enforce_canvas_mask_on_rgb(Matrix2Df& R, Matrix2Df& G, Matrix2Df& B,
+                                const std::vector<uint8_t>& mask);
+
 // Main BGE function (v3.3 §6.3)
 // Extracts and subtracts large-scale background gradients from RGB channels
 // Returns true if BGE was applied successfully
