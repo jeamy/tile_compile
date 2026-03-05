@@ -467,6 +467,32 @@ ctest --output-on-failure
 
 ## Changelog
 
+### (2026-03-05, spätere Aktualisierung)
+
+**Strict/Practical Runtime-Vereinheitlichung + Verifikation:**
+
+- Laufzeit-Core-Pfad der Bildverarbeitung für `assumptions.pipeline_profile: strict|practical` vereinheitlicht.
+- Strict-spezifische Ausführungszweige im Hot-Path entfernt:
+  - kein strict-only Pre-Registration-Reihenfolgepfad mehr,
+  - kein strict-only Reduced/Full-Gate-Override (`max(200, threshold)`),
+  - kein strict-only Tile-Re-Normalisierungszweig,
+  - kein strict-only Kanal-Reweighting-Zweig im OSC-Tile-Stacking.
+- Registration erzwingt in strict nicht mehr `registration.enable_star_pair_fallback=false`.
+- Konfig-Referenzdoku (DE/EN) auf das aktuelle Runtime-Verhalten der Profile abgeglichen.
+- A/B-Evidenzläufe (`max_frames=80`) hinzugefügt; gleicher Core-Flow, nur geringe numerische Fit-Varianz.
+
+### (2026-03-05)
+
+**Performance- und Durchsatz-Optimierungen (große Datensätze, 1000+ Frames):**
+
+- Adaptive Worker-Auswahl je Phase ergänzt, mit I/O-bewusster Obergrenze auf Basis gesampelter Framegröße und Task-Anzahl.
+- `DiskCacheFrameStore` nutzt jetzt persistente Memory-Mappings pro Frame mit Invalidation beim Überschreiben; das reduziert wiederholte open/mmap/unmap-Kosten beim Tile-Zugriff.
+- Globaler PREWARP-Store-Mutex entfernt, sodass Cache-Schreibvorgänge parallel laufen können.
+- `GLOBAL_METRICS` läuft jetzt im parallelen Worker-Pool mit thread-sicherer Progress- und Fehleraggregation.
+- `TILE_RECONSTRUCTION`-Overlap-Add von einem globalen Lock auf Row-Stripe-Locking umgestellt, um Lock-Contention zu reduzieren.
+- Im OSC-Tile-Rekonstruktionspfad wird jedes valide Frame-Tile nur noch einmal debayert und als R/G/B für die Kanal-Stacks wiederverwendet.
+- `LOCAL_METRICS` überspringt global ungültige Tiles jetzt vor der Extraktion und begrenzt bei großen Produktionsläufen das Schreiben sehr großer Voll-Artefakte.
+
 ### (2026-03-03)
 
 **Methodik-Angleichung (v3.3.6 Strict-Profil):**

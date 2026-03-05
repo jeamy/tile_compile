@@ -117,3 +117,17 @@ Interpretation:
   - `apps/runner_shared.hpp:36-72`
   - used from `runner_phase_local_metrics.cpp` and `runner_pipeline.cpp`
 - Residual cleanup candidate (non-blocking): `reg_reject_orientation_outliers` appears reported but not actively incremented in current rejection logic.
+
+## Update: Strict vs Practical A/B After Runtime Unification (2026-03-05)
+
+Observed:
+- Core phase behavior is equivalent in both runs (same phase flow, same frame/tile counts, same validation status class).
+- PCC fit is close but not bit-identical:
+  - strict matrix: `diag(1.061874, 1.0, 1.958385)`, `stars_used=472`, `rms=0.3553`
+  - practical matrix: `diag(1.067537, 1.0, 1.953069)`, `stars_used=477`, `rms=0.3469`
+- Chroma-bin deltas remain small between profiles:
+  - PCC `core_99_99.9`: `Δ(R/G)=+0.003877`, `Δ(B/G)=-0.001107`
+  - PCC `bright_90_99`: `Δ(R/G)=+0.002686`, `Δ(B/G)=-0.000130`
+
+Interpretation:
+- Remaining numerical differences are consistent with non-bitwise deterministic behavior in late estimation stages (registration/BGE/PCC sampling/fits), not with an intentional strict-vs-practical algorithm branch in the runtime core path.

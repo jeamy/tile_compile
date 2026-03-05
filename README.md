@@ -473,6 +473,32 @@ ctest --output-on-failure
 
 ## Changelog
 
+### (2026-03-05, later update)
+
+**Strict/Practical runtime unification + verification:**
+
+- Unified the image-processing runtime core path for `assumptions.pipeline_profile: strict|practical`.
+- Removed strict-only execution branches in the hot path:
+  - no strict-only pre-registration order path,
+  - no strict-only reduced/full gate override (`max(200, threshold)`),
+  - no strict-only tile re-normalization branch,
+  - no strict-only channel re-weighting branch in OSC tile stacking.
+- Registration no longer force-overrides `registration.enable_star_pair_fallback=false` in strict mode.
+- Updated config reference docs (EN/DE) so profile text matches current runtime behavior.
+- Added A/B evidence run pair (`max_frames=80`) confirming same core flow with only minor numeric fit variance.
+
+### (2026-03-05)
+
+**Performance and throughput optimization (large datasets, 1000+ frames):**
+
+- Added adaptive worker selection per phase with I/O-aware caps based on sampled frame size and task count.
+- `DiskCacheFrameStore` now uses persistent memory-mapped frame views with rewrite invalidation, reducing repeated open/mmap/unmap overhead for tile access.
+- Removed the global PREWARP store mutex so frame-cache writes can proceed concurrently.
+- `GLOBAL_METRICS` now runs in a parallel worker pool with thread-safe progress and error aggregation.
+- `TILE_RECONSTRUCTION` overlap-add switched from a single global lock to row-stripe locking to reduce contention.
+- In OSC tile reconstruction, each valid frame tile is debayered once and cached as R/G/B planes for reuse across channel stacks.
+- `LOCAL_METRICS` now skips globally invalid tiles before extraction and limits heavy full-matrix artifact writes for large production runs.
+
 ### (2026-03-03)
 
 **Methodology alignment (v3.3.6 strict profile):**
