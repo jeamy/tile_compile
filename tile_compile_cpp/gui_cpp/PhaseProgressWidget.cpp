@@ -13,7 +13,8 @@ struct PhaseInfo {
     const char *desc;
 };
 
-// Canonical phase definitions (id/name/tooltip). Display order is profile-dependent.
+// Canonical phase definitions (id/name/tooltip).
+// Display order follows runtime execution order.
 constexpr PhaseInfo ALL_PHASES[] = {
     {0, "SCAN_INPUT", "Eingabe-Validierung"},
     {1, "REGISTRATION", "Globale Registrierung (Warp-Schätzung)"},
@@ -37,12 +38,13 @@ constexpr PhaseInfo ALL_PHASES[] = {
 
 constexpr int NUM_PHASES = sizeof(ALL_PHASES) / sizeof(ALL_PHASES[0]);
 
-// strict: mirrors v3.3.6 runtime order
+// Runtime execution order (current): SCAN -> CHANNEL_SPLIT..TILE_GRID -> REGISTRATION/PREWARP -> ...
+// Keep strict/practical aligned with the unified runtime core path.
 constexpr int STRICT_ORDER[] = {
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+    0, 3, 4, 5, 6, 1, 2, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
 };
 
-// practical: compatibility order (historical GUI ordering)
+// Practical uses the same runtime order.
 constexpr int PRACTICAL_ORDER[] = {
     0, 3, 4, 5, 6, 1, 2, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
 };
@@ -99,7 +101,8 @@ void PhaseProgressWidget::build_ui() {
     for (int i = 0; i < NUM_PHASES; ++i) {
         const auto &phase = ALL_PHASES[i];
 
-        auto *name_label = new QLabel(QString("%1. %2").arg(i).arg(phase.name));
+        auto *name_label =
+            new QLabel(QString("%1. %2").arg(i + 1).arg(phase.name));
         name_label->setToolTip(phase.desc);
 
         auto *status_label = new QLabel("pending");
@@ -186,7 +189,7 @@ void PhaseProgressWidget::apply_display_order(const std::string &profile) {
         QLabel *status_label = it_status->second;
         QProgressBar *bar = it_bar->second;
 
-        name_label->setText(QString("%1. %2").arg(row).arg(info->name));
+        name_label->setText(QString("%1. %2").arg(row + 1).arg(info->name));
         name_label->setToolTip(info->desc);
 
         grid_->addWidget(name_label, row, 0);
