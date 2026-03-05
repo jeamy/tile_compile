@@ -209,6 +209,47 @@ jobs:
             throw "Build-Skript lief ohne Fehlercode, aber es wurden keine erwarteten Output-Ordner erzeugt."
           }
 
+      - name: Smoke test packaged runner/cli
+        shell: pwsh
+        run: |
+          $workspaceRoot = "${{ github.workspace }}"
+          $searchRoots = @(
+            "$workspaceRoot\tile_compile_cpp\dist",
+            "$workspaceRoot\tile_compile_cpp\build\windows-release\dist",
+            "$workspaceRoot\tile_compile_cpp\build\windows-release",
+            "C:\windows-tile-compile-build\dist",
+            "C:\windows-tile-compile-build"
+          ) | Select-Object -Unique
+
+          $runner = $searchRoots |
+            Where-Object { Test-Path $_ } |
+            ForEach-Object { Get-ChildItem -Path $_ -Recurse -File -Filter "tile_compile_runner.exe" -ErrorAction SilentlyContinue } |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          $cli = $searchRoots |
+            Where-Object { Test-Path $_ } |
+            ForEach-Object { Get-ChildItem -Path $_ -Recurse -File -Filter "tile_compile_cli.exe" -ErrorAction SilentlyContinue } |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          if (!$runner) { throw "tile_compile_runner.exe nicht gefunden." }
+          if (!$cli) { throw "tile_compile_cli.exe nicht gefunden." }
+
+          Write-Host "Smoke test runner: $runner --help"
+          & $runner --help *> $null
+          $runnerExit = $LASTEXITCODE
+          Write-Host "runner exit code: $runnerExit"
+          if ($runnerExit -eq -1073741515 -or $runnerExit -eq 3221225781) {
+            throw "Runner Loader-Fehler 0xC0000135 (fehlende DLL)."
+          }
+
+          Write-Host "Smoke test cli: $cli --help"
+          & $cli --help *> $null
+          $cliExit = $LASTEXITCODE
+          Write-Host "cli exit code: $cliExit"
+          if ($cliExit -eq -1073741515 -or $cliExit -eq 3221225781) {
+            throw "CLI Loader-Fehler 0xC0000135 (fehlende DLL)."
+          }
+
       - name: Collect artifacts
         shell: pwsh
         run: |

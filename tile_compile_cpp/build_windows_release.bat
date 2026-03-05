@@ -441,6 +441,8 @@ for %%D in (libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll) do (
 for %%D in (libintl-8.dll libiconv-2.dll libunistring-5.dll libpcre2-8-0.dll) do (
   if exist "%MSYS2_PREFIX%\bin\%%D" copy /Y "%MSYS2_PREFIX%\bin\%%D" "%DIST_BIN%" >NUL
 )
+for %%F in ("%MSYS2_PREFIX%\bin\libgomp*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
+for %%F in ("%MSYS2_PREFIX%\bin\libquadmath*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
 
 echo   [2/5] Compression + Crypto
 for %%F in ("%MSYS2_PREFIX%\bin\zlib*.dll") do copy /Y "%%F" "%DIST_BIN%" >NUL 2>NUL
@@ -519,6 +521,10 @@ if exist "%MSYS2_PREFIX%\bin\ntldd.exe" (
   echo WARNUNG: ntldd.exe nicht gefunden. Verifikation uebersprungen.
 )
 
+echo Fuehre Loader-Smoke-Tests aus...
+call :smoke_test_binary "%DIST_BIN%\tile_compile_runner.exe" "runner" "--help"
+call :smoke_test_binary "%DIST_BIN%\tile_compile_cli.exe" "cli" "--help"
+
 if not exist "%DIST_ROOT%" mkdir "%DIST_ROOT%"
 set ZIP_NAME=tile_compile_cpp-windows-release.zip
 set "ZIP_FULL=%DIST_ROOT%\%ZIP_NAME%"
@@ -577,6 +583,27 @@ exit /B 0
 echo.
 echo Build fehlgeschlagen.
 exit /B 1
+
+:smoke_test_binary
+set "SMOKE_BIN=%~1"
+set "SMOKE_NAME=%~2"
+set "SMOKE_ARG=%~3"
+if not exist "%SMOKE_BIN%" (
+  echo FEHLER: Smoke-Test-Binaerdatei nicht gefunden: %SMOKE_BIN%
+  goto :error
+)
+echo   Teste %SMOKE_NAME%: %SMOKE_BIN% %SMOKE_ARG%
+"%SMOKE_BIN%" %SMOKE_ARG% >NUL 2>NUL
+set "SMOKE_EXIT=%ERRORLEVEL%"
+if "%SMOKE_EXIT%"=="-1073741515" (
+  echo FEHLER: %SMOKE_NAME% startet nicht ^(Windows loader error 0xC0000135, fehlende DLL^).
+  goto :error
+)
+if "%SMOKE_EXIT%"=="3221225781" (
+  echo FEHLER: %SMOKE_NAME% startet nicht ^(Windows loader error 0xC0000135, fehlende DLL^).
+  goto :error
+)
+exit /B 0
 
 :run_ntldd_sweep
 set NTLDD_PASS=0
@@ -644,6 +671,8 @@ for /L %%P in (1,1,10) do (
   if exist "%DIST_BIN%\styles" (
     for %%B in ("%DIST_BIN%\styles\*.dll") do call :scan_binary_deps "%%B"
   )
+
+  for %%B in ("%DIST_BIN%\*.dll") do call :scan_binary_deps "%%B"
 
   if "!COPIED_THIS_PASS!"=="0" (
     echo   Keine neuen DLLs in Pass !DEP_PASS!, Sweep beendet.

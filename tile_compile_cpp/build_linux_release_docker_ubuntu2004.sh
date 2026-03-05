@@ -34,23 +34,30 @@ docker run --rm \
   -v "$SCRIPT_DIR:/work" \
   -w /work \
   "$IMAGE_NAME" \
-  bash -lc "
-    echo 'Pruefe und installiere fehlende Abhaengigkeiten...'
+  bash -lc '
+    echo "Pruefe und installiere fehlende Abhaengigkeiten..."
     apt-get update > /dev/null 2>&1
+    MISSING_PKGS=()
     if ! dpkg -l | grep -q nlohmann-json3-dev; then
-      echo 'Installiere nlohmann-json3-dev...'
-      apt-get install -y nlohmann-json3-dev > /dev/null 2>&1
+      MISSING_PKGS+=(nlohmann-json3-dev)
     fi
-    echo 'Starte Build...'
+    if ! command -v file >/dev/null 2>&1; then
+      MISSING_PKGS+=(file)
+    fi
+    if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+      echo "Installiere fehlende Pakete: ${MISSING_PKGS[*]}..."
+      apt-get install -y "${MISSING_PKGS[@]}" > /dev/null 2>&1
+    fi
+    echo "Starte Build..."
     rm -rf build-linux-release
-    
+
     # Ueberspringe Dependency-Check im Build-Script (bereits im Container installiert)
     export SKIP_DEPS=1
     bash build_linux_release.sh
-  " || {
+  ' || {
   echo ""
   echo "Falls der Build wegen fehlender Abhängigkeiten fehlschlägt, versuche:"
-  echo "  docker run --rm -v '$SCRIPT_DIR:/work' -w /work '$IMAGE_NAME' bash -lc 'apt-get update && apt-get install -y nlohmann-json3-dev && bash build_linux_release.sh'"
+  echo "  docker run --rm -v '$SCRIPT_DIR:/work' -w /work '$IMAGE_NAME' bash -lc 'apt-get update && apt-get install -y nlohmann-json3-dev file && bash build_linux_release.sh'"
   exit 1
 }
 
