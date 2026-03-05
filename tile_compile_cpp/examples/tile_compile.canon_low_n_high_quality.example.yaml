@@ -11,16 +11,11 @@ pipeline:
 
 output:
   registered_dir: registered # Ausgabeordner fuer registrierte Frames
-  artifacts_dir: artifacts # Ausgabeordner fuer JSON-Artefakte/Diagnosen
   write_registered_frames: true # registrierte Einzelbilder speichern
-  write_global_metrics: true # global_metrics.json speichern
-  write_global_registration: true # global_registration.json speichern
 
 data:
   # image_width: 5202 # optional: aus FITS Header ableiten lassen oder fix setzen
   # image_height: 3464 # optional: aus FITS Header ableiten lassen oder fix setzen
-  frames_min: 30 # Legacy-Mindestwert, parallel zu assumptions.frames_min
-  frames_target: 0 # 0 = unbegrenzt, sonst Zielanzahl fuer Auswahl/Begrenzung
   # color_mode: OSC # optional, wird i.d.R. aus Header erkannt
   # bayer_pattern: GBRG # optional, wird i.d.R. aus Header erkannt
   linear_required: true # nur lineare Daten verarbeiten
@@ -171,9 +166,6 @@ synthetic:
     mode: kmeans # kmeans|quantile
     cluster_count_range: [3, 12] # [k_min, k_max] fuer kleinere Datensaetze
 
-reconstruction:
-  weighting_function: linear # aktuell linear
-  window_function: hanning # OLA-Fensterfunktion
 
 debayer: true # OSC-Mosaik am Ende in RGB debayern
 
@@ -249,8 +241,6 @@ stacking:
     kappa_cluster: 0.5 # low-N/high-quality konservativ: moderate Gewichtung
     cap_enabled: true # Dominanz einzelner Cluster begrenzen
     cap_ratio: 10.0 # konservativ stabil: w_k <= 10 * median_j(w_j)
-  common_overlap_required_fraction: 1.0 # nur Pixel verwenden, die in allen nutzbaren Frames Daten haben
-  tile_common_valid_min_fraction: 0.90 # Tile nur nutzen, wenn mind. 90% im gemeinsamen Overlap liegen
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 5.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, empfohlen fuer OSC: 10.0)

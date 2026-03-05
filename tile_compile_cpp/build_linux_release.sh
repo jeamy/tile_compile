@@ -10,6 +10,7 @@ BUILD_DIR="$PROJECT_DIR/build-linux-release"
 DIST_DIR="$PROJECT_DIR/dist/linux"
 BUILD_TYPE="Release"
 ZIP_NAME="tile_compile_cpp-linux-release.zip"
+APPIMAGE_NAME="tile_compile_cpp-linux-x86_64.AppImage"
 
 echo "=== tile_compile_cpp - Linux Release Build ==="
 echo ""
@@ -343,6 +344,78 @@ if [ -d "$DIST_DIR/plugins" ]; then
     verify_ldd_target "$so" "$DIST_DIR/ldd_$(basename "$so").txt"
   done < <(find "$DIST_DIR/plugins" -type f -name "*.so" 2>/dev/null)
 fi
+
+create_appimage() {
+  local appdir="$PROJECT_DIR/dist/tile_compile_cpp.AppDir"
+  local output_appimage="$PROJECT_DIR/dist/$APPIMAGE_NAME"
+  local appimagetool_bin=""
+  local appimagetool_appimage="$PROJECT_DIR/dist/appimagetool-x86_64.AppImage"
+
+  rm -rf "$appdir"
+  mkdir -p "$appdir/usr/bin"
+
+  cp -a "$DIST_DIR/." "$appdir/usr/bin/"
+
+  cat > "$appdir/AppRun" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$HERE/usr/bin/run_tile_compile_gui.sh" "$@"
+EOF
+  chmod +x "$appdir/AppRun"
+
+  cat > "$appdir/tile_compile_gui.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=tile_compile_cpp
+Exec=run_tile_compile_gui.sh
+Icon=tile_compile_gui
+Categories=Science;
+Terminal=false
+EOF
+
+  mkdir -p "$appdir/usr/share/applications" "$appdir/usr/share/icons/hicolor/256x256/apps"
+  cp "$appdir/tile_compile_gui.desktop" "$appdir/usr/share/applications/tile_compile_gui.desktop"
+
+  cat > "$PROJECT_DIR/dist/.tile_compile_icon_base64" <<'EOF'
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5Wn6kAAAAASUVORK5CYII=
+EOF
+  base64 -d "$PROJECT_DIR/dist/.tile_compile_icon_base64" > "$appdir/tile_compile_gui.png"
+  cp "$appdir/tile_compile_gui.png" "$appdir/.DirIcon"
+  cp "$appdir/tile_compile_gui.png" "$appdir/usr/share/icons/hicolor/256x256/apps/tile_compile_gui.png"
+  rm -f "$PROJECT_DIR/dist/.tile_compile_icon_base64"
+
+  if command -v appimagetool >/dev/null 2>&1; then
+    appimagetool_bin="$(command -v appimagetool)"
+  elif [ -x "$appimagetool_appimage" ]; then
+    appimagetool_bin="$appimagetool_appimage"
+  elif command -v curl >/dev/null 2>&1; then
+    echo "Lade appimagetool..."
+    curl -fsSL -o "$appimagetool_appimage" \
+      "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+    chmod +x "$appimagetool_appimage"
+    appimagetool_bin="$appimagetool_appimage"
+  elif command -v wget >/dev/null 2>&1; then
+    echo "Lade appimagetool..."
+    wget -q -O "$appimagetool_appimage" \
+      "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+    chmod +x "$appimagetool_appimage"
+    appimagetool_bin="$appimagetool_appimage"
+  else
+    echo "WARNUNG: Weder appimagetool noch curl/wget vorhanden. AppImage wird uebersprungen."
+    return 0
+  fi
+
+  rm -f "$output_appimage"
+  echo "Erzeuge AppImage: $APPIMAGE_NAME"
+  ARCH=x86_64 "$appimagetool_bin" --appimage-extract-and-run "$appdir" "$output_appimage"
+  if [ ! -f "$output_appimage" ]; then
+    echo "FEHLER: AppImage wurde nicht erzeugt." >&2
+    return 1
+  fi
+}
+
+create_appimage
 
 if command -v zip &>/dev/null; then
   echo ""

@@ -49,16 +49,9 @@ Config Config::from_yaml(const YAML::Node &node) {
     auto o = node["output"];
     if (o["registered_dir"])
       cfg.output.registered_dir = o["registered_dir"].as<std::string>();
-    if (o["artifacts_dir"])
-      cfg.output.artifacts_dir = o["artifacts_dir"].as<std::string>();
     if (o["write_registered_frames"])
       cfg.output.write_registered_frames =
           o["write_registered_frames"].as<bool>();
-    if (o["write_global_metrics"])
-      cfg.output.write_global_metrics = o["write_global_metrics"].as<bool>();
-    if (o["write_global_registration"])
-      cfg.output.write_global_registration =
-          o["write_global_registration"].as<bool>();
     if (o["crop_to_nonzero_bbox"])
       cfg.output.crop_to_nonzero_bbox = o["crop_to_nonzero_bbox"].as<bool>();
   }
@@ -69,10 +62,6 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.data.image_width = d["image_width"].as<int>();
     if (d["image_height"])
       cfg.data.image_height = d["image_height"].as<int>();
-    if (d["frames_min"])
-      cfg.data.frames_min = d["frames_min"].as<int>();
-    if (d["frames_target"])
-      cfg.data.frames_target = d["frames_target"].as<int>();
     if (d["color_mode"])
       cfg.data.color_mode = d["color_mode"].as<std::string>();
     if (d["bayer_pattern"])
@@ -242,27 +231,6 @@ Config Config::from_yaml(const YAML::Node &node) {
     }
   }
 
-  // Legacy: parse old "wiener_denoise" key into tile_denoise.wiener
-  if (node["wiener_denoise"]) {
-    auto w = node["wiener_denoise"];
-    if (w["enabled"])
-      cfg.tile_denoise.wiener.enabled = w["enabled"].as<bool>();
-    if (w["snr_threshold"])
-      cfg.tile_denoise.wiener.snr_threshold = w["snr_threshold"].as<float>();
-    if (w["q_min"])
-      cfg.tile_denoise.wiener.q_min = w["q_min"].as<float>();
-    if (w["q_max"])
-      cfg.tile_denoise.wiener.q_max = w["q_max"].as<float>();
-    if (w["q_step"])
-      cfg.tile_denoise.wiener.q_step = w["q_step"].as<float>();
-    if (w["min_snr"])
-      cfg.tile_denoise.wiener.min_snr = w["min_snr"].as<float>();
-    if (w["max_iterations"])
-      cfg.tile_denoise.wiener.max_iterations = w["max_iterations"].as<int>();
-  }
-  // Sync legacy alias
-  cfg.wiener_denoise = cfg.tile_denoise.wiener;
-
   if (node["chroma_denoise"]) {
     auto cd = node["chroma_denoise"];
     if (cd["enabled"])
@@ -402,16 +370,6 @@ Config Config::from_yaml(const YAML::Node &node) {
       read_int_pair(cl["cluster_count_range"],
                     cfg.synthetic.clustering.cluster_count_range);
     }
-  }
-
-  if (node["reconstruction"]) {
-    auto r = node["reconstruction"];
-    if (r["weighting_function"])
-      cfg.reconstruction.weighting_function =
-          r["weighting_function"].as<std::string>();
-    if (r["window_function"])
-      cfg.reconstruction.window_function =
-          r["window_function"].as<std::string>();
   }
 
   if (node["debayer"])
@@ -584,14 +542,6 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.stacking.cluster_quality_weighting.cap_ratio =
             cqw["cap_ratio"].as<float>();
     }
-    if (st["common_overlap_required_fraction"]) {
-      cfg.stacking.common_overlap_required_fraction =
-          st["common_overlap_required_fraction"].as<float>();
-    }
-    if (st["tile_common_valid_min_fraction"]) {
-      cfg.stacking.tile_common_valid_min_fraction =
-          st["tile_common_valid_min_fraction"].as<float>();
-    }
     if (st["output_stretch"])
       cfg.stacking.output_stretch = st["output_stretch"].as<bool>();
     if (st["cosmetic_correction"])
@@ -658,17 +608,11 @@ YAML::Node Config::to_yaml() const {
   node["pipeline"]["abort_on_fail"] = pipeline.abort_on_fail;
 
   node["output"]["registered_dir"] = output.registered_dir;
-  node["output"]["artifacts_dir"] = output.artifacts_dir;
   node["output"]["write_registered_frames"] = output.write_registered_frames;
-  node["output"]["write_global_metrics"] = output.write_global_metrics;
-  node["output"]["write_global_registration"] =
-      output.write_global_registration;
   node["output"]["crop_to_nonzero_bbox"] = output.crop_to_nonzero_bbox;
 
   node["data"]["image_width"] = data.image_width;
   node["data"]["image_height"] = data.image_height;
-  node["data"]["frames_min"] = data.frames_min;
-  node["data"]["frames_target"] = data.frames_target;
   node["data"]["color_mode"] = data.color_mode;
   node["data"]["bayer_pattern"] = data.bayer_pattern;
   node["data"]["linear_required"] = data.linear_required;
@@ -818,10 +762,6 @@ YAML::Node Config::to_yaml() const {
   node["synthetic"]["clustering"]["cluster_count_range"].push_back(
       synthetic.clustering.cluster_count_range[1]);
 
-  node["reconstruction"]["weighting_function"] =
-      reconstruction.weighting_function;
-  node["reconstruction"]["window_function"] = reconstruction.window_function;
-
   node["debayer"] = debayer;
 
   node["astrometry"]["enabled"] = astrometry.enabled;
@@ -896,10 +836,6 @@ YAML::Node Config::to_yaml() const {
       stacking.cluster_quality_weighting.cap_enabled;
   node["stacking"]["cluster_quality_weighting"]["cap_ratio"] =
       stacking.cluster_quality_weighting.cap_ratio;
-  node["stacking"]["common_overlap_required_fraction"] =
-      stacking.common_overlap_required_fraction;
-  node["stacking"]["tile_common_valid_min_fraction"] =
-      stacking.tile_common_valid_min_fraction;
   node["stacking"]["output_stretch"] = stacking.output_stretch;
   node["stacking"]["cosmetic_correction"] =
       stacking.cosmetic_correction;
@@ -935,12 +871,6 @@ void Config::validate() const {
   if (data.image_width < 0 || data.image_height < 0) {
     throw ValidationError(
         "data.image_width and data.image_height must be >= 0");
-  }
-  if (data.frames_min < 1) {
-    throw ValidationError("data.frames_min must be >= 1");
-  }
-  if (data.frames_target < 0) {
-    throw ValidationError("data.frames_target must be >= 0");
   }
   if (data.color_mode != "OSC" && data.color_mode != "MONO" &&
       data.color_mode != "RGB") {
@@ -1177,13 +1107,6 @@ void Config::validate() const {
     throw ValidationError("synthetic.frames_max must be >= frames_min");
   }
 
-  if (reconstruction.weighting_function != "linear") {
-    throw ValidationError("reconstruction.weighting_function must be 'linear'");
-  }
-  if (reconstruction.window_function != "hanning") {
-    throw ValidationError("reconstruction.window_function must be 'hanning'");
-  }
-
   if (bge.sample_quantile <= 0.0f || bge.sample_quantile > 0.5f) {
     throw ValidationError("bge.sample_quantile must be in (0,0.5]");
   }
@@ -1289,16 +1212,6 @@ void Config::validate() const {
     throw ValidationError("stacking.cluster_quality_weighting.cap_ratio must be "
                           "> 0 when cap_enabled=true");
   }
-  if (stacking.common_overlap_required_fraction <= 0.0f ||
-      stacking.common_overlap_required_fraction > 1.0f) {
-    throw ValidationError(
-        "stacking.common_overlap_required_fraction must be in (0,1]");
-  }
-  if (stacking.tile_common_valid_min_fraction <= 0.0f ||
-      stacking.tile_common_valid_min_fraction > 1.0f) {
-    throw ValidationError(
-        "stacking.tile_common_valid_min_fraction must be in (0,1]");
-  }
   if (stacking.cosmetic_correction_sigma <= 0.0f) {
     throw ValidationError("stacking.cosmetic_correction_sigma must be > 0");
   }
@@ -1328,15 +1241,10 @@ std::string get_schema_json() {
                       "abort_on_fail":{"type":"boolean"} } },
     "output": { "type":"object",
       "properties": { "registered_dir":{"type":"string"},
-                      "artifacts_dir":{"type":"string"},
-                      "write_registered_frames":{"type":"boolean"},
-                      "write_global_metrics":{"type":"boolean"},
-                      "write_global_registration":{"type":"boolean"} } },
+                      "write_registered_frames":{"type":"boolean"} } },
     "data": { "type":"object",
       "properties": { "image_width":{"type":"integer","minimum":0},
                       "image_height":{"type":"integer","minimum":0},
-                      "frames_min":{"type":"integer","minimum":1},
-                      "frames_target":{"type":"integer","minimum":0},
                       "color_mode":{"type":"string","enum":["OSC","MONO","RGB"]},
                       "bayer_pattern":{"type":"string"},
                       "linear_required":{"type":"boolean","deprecated":true,
@@ -1419,14 +1327,6 @@ std::string get_schema_json() {
                       "blend":{"type":"object","properties":{
                         "mode":{"type":"string","enum":["chroma_only"]},
                         "amount":{"type":"number","minimum":0,"maximum":1}}} } },
-    "wiener_denoise": { "type":"object",
-      "properties": { "enabled":{"type":"boolean"},
-                      "snr_threshold":{"type":"number","minimum":0},
-                      "q_min":{"type":"number","minimum":-1},
-                      "q_max":{"type":"number","minimum":0,"maximum":1},
-                      "q_step":{"type":"number","exclusiveMinimum":0},
-                      "min_snr":{"type":"number","minimum":0},
-                      "max_iterations":{"type":"integer","minimum":1} } },
     "global_metrics": { "type":"object",
       "properties": { "adaptive_weights":{"type":"boolean"},
                       "weight_exponent_scale":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames."},
@@ -1447,9 +1347,6 @@ std::string get_schema_json() {
                       "frames_min":{"type":"integer","minimum":1},
                       "frames_max":{"type":"integer","minimum":1},
                       "clustering":{"type":"object","properties":{"mode":{"type":"string","enum":["kmeans","quantile"]},"cluster_count_range":{"type":"array","items":{"type":"integer","minimum":1},"minItems":2,"maxItems":2}}} } },
-    "reconstruction": { "type":"object",
-      "properties": { "weighting_function":{"type":"string","enum":["linear"]},
-                      "window_function":{"type":"string","enum":["hanning"]} } },
     "debayer": {"type":"boolean"},
     "astrometry": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},

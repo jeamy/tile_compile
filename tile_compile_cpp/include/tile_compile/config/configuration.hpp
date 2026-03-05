@@ -16,18 +16,13 @@ struct PipelineConfig {
 
 struct OutputConfig {
   std::string registered_dir = "registered";
-  std::string artifacts_dir = "artifacts";
   bool write_registered_frames = false;
-  bool write_global_metrics = true;
-  bool write_global_registration = true;
   bool crop_to_nonzero_bbox = true;
 };
 
 struct DataConfig {
   int image_width = 0;
   int image_height = 0;
-  int frames_min = 0;
-  int frames_target = 0;
   std::string color_mode = "OSC";
   std::string bayer_pattern = "GBRG";
   bool linear_required = true;
@@ -204,11 +199,6 @@ struct SyntheticConfig {
   int frames_max = 30;
 };
 
-struct ReconstructionConfig {
-  std::string weighting_function = "linear";
-  std::string window_function = "hanning";
-};
-
 struct StackingConfig {
   struct SigmaClipConfig {
     float sigma_low = 2.0f;
@@ -225,12 +215,6 @@ struct StackingConfig {
   } cluster_quality_weighting;
 
   std::string method = "rej";
-  // Require this fraction of usable frames to have valid (>0) data at a pixel
-  // for inclusion in post-PREWARP calculations (1.0 => strict intersection).
-  float common_overlap_required_fraction = 1.0f;
-  // Require this fraction of valid pixels in a tile to belong to the common
-  // overlap mask for tile eligibility.
-  float tile_common_valid_min_fraction = 0.9f;
   bool output_stretch = false;
   bool cosmetic_correction = false;
   float cosmetic_correction_sigma = 5.0f;
@@ -354,12 +338,10 @@ struct Config {
   DitheringConfig dithering;
   TileDenoiseConfig tile_denoise;
   ChromaDenoiseConfig chroma_denoise;
-  WienerDenoiseConfig wiener_denoise; // legacy alias → tile_denoise.wiener
   GlobalMetricsConfig global_metrics;
   TileConfig tile;
   LocalMetricsConfig local_metrics;
   SyntheticConfig synthetic;
-  ReconstructionConfig reconstruction;
   bool debayer = true;
   AstrometryConfig astrometry;
   BGEConfig bge;

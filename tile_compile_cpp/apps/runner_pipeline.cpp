@@ -57,6 +57,78 @@ using tile_compile::runner::format_bytes;
 using tile_compile::runner::message_indicates_disk_full;
 
 using NormalizationScales = image::NormalizationScales;
+
+bool write_canvas_mask_fits(const fs::path &mask_path,
+                            const std::vector<uint8_t> &mask,
+                            int rows, int cols,
+                            const tile_compile::io::FitsHeader &header,
+                            std::string &error_out) {
+  if (rows <= 0 || cols <= 0) {
+    error_out = "invalid canvas mask dimensions";
+    return false;
+  }
+  if (mask.size() != static_cast<size_t>(rows * cols)) {
+    error_out = "canvas mask size mismatch while writing";
+    return false;
+  }
+  Matrix2Df mask_img(rows, cols);
+  for (int y = 0; y < rows; ++y) {
+    for (int x = 0; x < cols; ++x) {
+      mask_img(y, x) =
+          (mask[static_cast<size_t>(y * cols + x)] != 0) ? 1.0f : 0.0f;
+    }
+  }
+  try {
+    fs::create_directories(mask_path.parent_path());
+    tile_compile::io::write_fits_float(mask_path, mask_img, header);
+    return true;
+  } catch (const std::exception &e) {
+    error_out = std::string("cannot write canvas mask: ") + e.what();
+    return false;
+  }
+}
+
+bool load_canvas_mask_fits(const fs::path &mask_path, int rows, int cols,
+                           std::vector<uint8_t> &out_mask,
+                           std::string &error_out) {
+  if (rows <= 0 || cols <= 0) {
+    error_out = "invalid target image size for canvas mask";
+    return false;
+  }
+  if (!fs::exists(mask_path)) {
+    error_out = "missing canvas mask: " + mask_path.string();
+    return false;
+  }
+  try {
+    auto mask_pair = tile_compile::io::read_fits_float(mask_path);
+    const auto &mask_img = mask_pair.first;
+    if (mask_img.rows() != rows || mask_img.cols() != cols) {
+      error_out = "canvas mask size mismatch: got " +
+                  std::to_string(mask_img.cols()) + "x" +
+                  std::to_string(mask_img.rows()) + ", expected " +
+                  std::to_string(cols) + "x" + std::to_string(rows);
+      return false;
+    }
+    out_mask.assign(static_cast<size_t>(rows * cols), static_cast<uint8_t>(0));
+    int valid_count = 0;
+    for (int y = 0; y < rows; ++y) {
+      for (int x = 0; x < cols; ++x) {
+        if (mask_img(y, x) > 0.5f) {
+          out_mask[static_cast<size_t>(y * cols + x)] = 1;
+          ++valid_count;
+        }
+      }
+    }
+    if (valid_count <= 0) {
+      error_out = "canvas mask contains zero valid pixels";
+      return false;
+    }
+    return true;
+  } catch (const std::exception &e) {
+    error_out = std::string("cannot read canvas mask: ") + e.what();
+    return false;
+  }
+}
 } // namespace
 
 int run_pipeline_command(const std::string &config_path, const std::string &input_dir,
@@ -695,16 +767,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   // Post-PREWARP overlap extension:
   //  - Maintain per-pixel coverage count across usable prewarped frames
-  //  - Derive a common-valid mask from a required frame coverage threshold
-  //  - Use strict per-tile common-overlap acceptance to avoid edge-driven bias
-  const float common_coverage_fraction = cfg.stacking.common_overlap_required_fraction;
-  const float tile_common_min_fraction = cfg.stacking.tile_common_valid_min_fraction;
-  const int total_usable_frames = std::max(1, n_usable_frames);
-  const int required_common_frames =
-      std::max(1, std::min(total_usable_frames,
-                           static_cast<int>(std::ceil(
-                               static_cast<float>(total_usable_frames) *
-                               common_coverage_fraction))));
+  //  - Derive a common-valid mask from any positive frame coverage
+  //    (explicit canvas exclusion only)
+  constexpr int required_common_frames = 1;
 
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *
@@ -775,7 +840,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               ? (static_cast<float>(tile_common) / static_cast<float>(tile_total))
               : 0.0f;
       tile_common_overlap_ratio[ti] = ratio;
-      if (ratio >= tile_common_min_fraction) {
+      if (tile_common > 0) {
         tile_common_valid[ti] = 1;
       }
 
@@ -797,8 +862,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     overlap_artifact["usable_frames"] = n_usable_frames;
     overlap_artifact["loaded_frames"] = static_cast<int>(loaded_frames);
     overlap_artifact["required_common_frames"] = required_common_frames;
-    overlap_artifact["required_common_fraction"] = common_coverage_fraction;
-    overlap_artifact["tile_common_min_fraction"] = tile_common_min_fraction;
     overlap_artifact["common_pixels"] = static_cast<uint64_t>(common_pixels);
     overlap_artifact["common_fraction"] =
         (canvas_px > 0)
@@ -821,13 +884,31 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     core::write_text(run_dir / "artifacts" / "common_overlap.json",
                      overlap_artifact.dump(2));
 
+    {
+      const fs::path mask_path = run_dir / "outputs" / "canvas_mask.fits";
+      std::string mask_write_error;
+      if (!write_canvas_mask_fits(mask_path, common_valid_mask, canvas_height,
+                                  canvas_width, first_hdr, mask_write_error)) {
+        emitter.phase_end(run_id, Phase::COMMON_OVERLAP, "error",
+                          {{"reason", "canvas_mask_write_failed"},
+                           {"error", mask_write_error},
+                           {"canvas_mask", mask_path.string()}},
+                          log_file);
+        emitter.run_end(run_id, false, "error", log_file);
+        std::cerr << "Error: " << mask_write_error << std::endl;
+        return 1;
+      }
+      std::cout << "[COMMON_OVERLAP] Canvas mask saved: " << mask_path << " ("
+                << canvas_width << "x" << canvas_height << ", valid="
+                << common_pixels << "/" << canvas_px << ")" << std::endl;
+    }
+
     emitter.phase_end(
         run_id, Phase::COMMON_OVERLAP, "ok",
         {
             {"usable_frames", n_usable_frames},
             {"loaded_frames", static_cast<int>(loaded_frames)},
             {"required_common_frames", required_common_frames},
-            {"required_common_fraction", common_coverage_fraction},
             {"common_pixels", static_cast<uint64_t>(common_pixels)},
             {"common_fraction",
              (canvas_px > 0)
@@ -873,7 +954,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (!runner::run_phase_local_metrics(
             run_id, cfg, frames, run_dir, frame_has_data, tiles_phase56,
             common_valid_mask, canvas_width, canvas_height,
-            tile_common_valid, tile_common_min_fraction,
+            tile_common_valid,
             prewarped_frames, norm_scales, detected_mode, detected_bayer_str,
             strict_profile, emitter, log_file, local_metrics, local_weights,
             tile_quality_median, tile_is_star, tile_fwhm_median,
@@ -1067,18 +1148,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0) {
         return false;
       }
-      const int total = static_cast<int>(tile.size());
-      if (total <= 0)
-        return false;
-      int nonzero = 0;
-      for (int i = 0; i < total; ++i) {
-        if (tile.data()[i] > 0.0f)
-          ++nonzero;
+      for (Eigen::Index i = 0; i < tile.size(); ++i) {
+        if (tile.data()[i] > 0.0f) {
+          return true;
+        }
       }
-      const int required_nonzero =
-          std::max(1, static_cast<int>(std::ceil(
-                          static_cast<float>(total) * tile_common_min_fraction)));
-      return nonzero >= required_nonzero;
+      return false;
     };
 
     // Worker function for parallel tile processing (v3: global warp only, no
@@ -2881,6 +2956,43 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
         debayer_tile_offset_x -= min_x;
         debayer_tile_offset_y -= min_y;
+
+        const size_t full_mask_px =
+            static_cast<size_t>(full_rows) * static_cast<size_t>(full_cols);
+        if (common_valid_mask.size() == full_mask_px) {
+          std::vector<uint8_t> cropped_mask(
+              static_cast<size_t>(crop_h * crop_w), static_cast<uint8_t>(0));
+          for (int y = 0; y < crop_h; ++y) {
+            const int sy = min_y + y;
+            const size_t src_row_off =
+                static_cast<size_t>(sy) * static_cast<size_t>(full_cols);
+            const size_t dst_row_off =
+                static_cast<size_t>(y) * static_cast<size_t>(crop_w);
+            for (int x = 0; x < crop_w; ++x) {
+              const int sx = min_x + x;
+              cropped_mask[dst_row_off + static_cast<size_t>(x)] =
+                  common_valid_mask[src_row_off + static_cast<size_t>(sx)];
+            }
+          }
+          common_valid_mask.swap(cropped_mask);
+
+          const fs::path mask_path = run_dir / "outputs" / "canvas_mask.fits";
+          std::string mask_write_error;
+          if (!write_canvas_mask_fits(mask_path, common_valid_mask, crop_h, crop_w,
+                                      first_hdr, mask_write_error)) {
+            emitter.run_end(run_id, false, "error", log_file);
+            std::cerr << "Error: " << mask_write_error << std::endl;
+            return 1;
+          }
+          std::cout << "[COMMON_OVERLAP] Canvas mask updated after crop: "
+                    << mask_path << " (" << crop_w << "x" << crop_h << ")"
+                    << std::endl;
+        } else {
+          emitter.run_end(run_id, false, "error", log_file);
+          std::cerr << "Error: internal canvas mask size mismatch during crop"
+                    << std::endl;
+          return 1;
+        }
       }
     }
 
@@ -3186,14 +3298,28 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
         image::BGEConfig bge_cfg =
             tile_compile::runner::to_image_bge_config(cfg.bge);
-        if (common_valid_mask.size() ==
-            static_cast<size_t>(canvas_width) * static_cast<size_t>(canvas_height)) {
-          bge_cfg.common_valid_mask = common_valid_mask;
-          bge_cfg.common_mask_rows = canvas_height;
-          bge_cfg.common_mask_cols = canvas_width;
-          // Keep BGE robust even when stacking overlap is intentionally loose.
-          bge_cfg.min_tile_common_support_fraction =
-              std::max(0.60f, tile_common_min_fraction);
+        if (R_out.rows() > 0 && R_out.cols() > 0 &&
+            R_out.rows() == G_out.rows() && R_out.rows() == B_out.rows() &&
+            R_out.cols() == G_out.cols() && R_out.cols() == B_out.cols()) {
+          const int rows = R_out.rows();
+          const int cols = R_out.cols();
+          const fs::path canvas_mask_path = run_dir / "outputs" / "canvas_mask.fits";
+          std::string mask_error;
+          if (!load_canvas_mask_fits(canvas_mask_path, rows, cols,
+                                     bge_cfg.common_valid_mask, mask_error)) {
+            emitter.phase_end(run_id, Phase::BGE, "error",
+                              {{"reason", "canvas_mask_invalid"},
+                               {"error", mask_error},
+                               {"canvas_mask", canvas_mask_path.string()}},
+                              log_file);
+            emitter.run_end(run_id, false, "error", log_file);
+            std::cerr << "Error: " << mask_error << std::endl;
+            return 1;
+          }
+          bge_cfg.common_mask_rows = rows;
+          bge_cfg.common_mask_cols = cols;
+          std::cout << "[BGE] Loaded canvas_mask.fits (" << cols << "x"
+                    << rows << ")" << std::endl;
         }
 
         if (!bge_metrics_tiles_match) {
@@ -3235,8 +3361,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           {"min_valid_sample_fraction_for_apply",
            cfg.bge.min_valid_sample_fraction_for_apply},
           {"min_valid_samples_for_apply", cfg.bge.min_valid_samples_for_apply},
-          {"internal_min_tile_common_support_fraction",
-           std::max(0.60f, tile_common_min_fraction)},
           {"mask",
            {
                {"star_dilate_px", cfg.bge.mask.star_dilate_px},
@@ -3355,17 +3479,42 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // Build PCC config from pipeline config
         astro::PCCConfig pcc_cfg =
             tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
-        // PCC builds its own support mask from the actual stacked RGB image
-        // (build_common_support_mask_from_rgb). The stacking common_valid_mask
-        // must NOT be passed here: it depends on common_overlap_required_fraction
-        // and would cause PCC star selection (and thus color output) to vary
-        // with that parameter even when the stacked image is identical.
-        if (!bge_tile_metrics_cache.empty() &&
-            bge_tile_metrics_cache.size() == bge_tile_grid_cache.tiles.size()) {
-          pcc_cfg.use_tile_quality_weighting = true;
-          pcc_cfg.tile_grid = bge_tile_grid_cache;
-          pcc_cfg.tile_metrics = bge_tile_metrics_cache;
+        // PCC canvas policy:
+        // - Use only the explicit canvas mask from COMMON_OVERLAP phase.
+        // - Do not use tile-based star weighting.
+        if (R_out.rows() > 0 && R_out.cols() > 0 &&
+            R_out.rows() == G_out.rows() && R_out.rows() == B_out.rows() &&
+            R_out.cols() == G_out.cols() && R_out.cols() == B_out.cols()) {
+          const int rows = R_out.rows();
+          const int cols = R_out.cols();
+          const fs::path canvas_mask_path = run_dir / "outputs" / "canvas_mask.fits";
+          std::string mask_error;
+          if (!load_canvas_mask_fits(canvas_mask_path, rows, cols,
+                                     pcc_cfg.common_valid_mask, mask_error)) {
+            emitter.phase_end(run_id, Phase::PCC, "error",
+                              {{"reason", "canvas_mask_invalid"},
+                               {"error", mask_error},
+                               {"canvas_mask", canvas_mask_path.string()},
+                               {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                              log_file);
+            emitter.run_end(run_id, false, "error", log_file);
+            std::cerr << "Error: " << mask_error << std::endl;
+            return 1;
+          }
+          pcc_cfg.common_mask_rows = rows;
+          pcc_cfg.common_mask_cols = cols;
+          std::cout << "[PCC] Loaded canvas_mask.fits (" << cols << "x"
+                    << rows << ")" << std::endl;
+        } else {
+          emitter.phase_end(run_id, Phase::PCC, "error",
+                            {{"reason", "invalid_rgb_dimensions"},
+                             {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                            log_file);
+          emitter.run_end(run_id, false, "error", log_file);
+          std::cerr << "Error: invalid RGB dimensions for PCC" << std::endl;
+          return 1;
         }
+        pcc_cfg.use_tile_quality_weighting = false;
 
         if (pcc_cfg.radii_mode == "auto_fwhm") {
           const double F = have_seeing_fwhm

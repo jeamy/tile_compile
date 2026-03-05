@@ -1,2 +1,0 @@
-#!/bin/bash
-exec "/home/mux/programme/tile_compile/tile_compile_cpp/.tools/appimagetool-x86_64.AppImage" "$@"
