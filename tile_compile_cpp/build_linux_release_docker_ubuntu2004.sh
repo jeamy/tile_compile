@@ -48,6 +48,13 @@ docker run --rm \
       echo "Installiere fehlende Pakete: ${MISSING_PKGS[*]}..."
       apt-get install -y "${MISSING_PKGS[@]}" > /dev/null 2>&1
     fi
+    if ! command -v file >/dev/null 2>&1; then
+      MISSING_PKGS+=(file)
+    fi
+    if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+      echo "Installiere fehlende Pakete: ${MISSING_PKGS[*]}..."
+      apt-get install -y "${MISSING_PKGS[@]}" > /dev/null 2>&1
+    fi
     echo "Starte Build..."
     rm -rf build-linux-release
 

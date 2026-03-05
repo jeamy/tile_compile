@@ -8,7 +8,7 @@ RUN apt-get update \
         software-properties-common \
         python3-launchpadlib \
         gnupg \
-        dirmngr \
+        dirmngr \        
         build-essential \
         cmake \
         git \
