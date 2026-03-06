@@ -286,9 +286,23 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 mkdir -p "$APP_BUNDLE/Contents/Frameworks"
 mkdir -p "$APP_BUNDLE/Contents/PlugIns"
 
-mv "$DIST_DIR/tile_compile_gui" "$APP_BUNDLE/Contents/MacOS/tile_compile_gui"
+mv "$DIST_DIR/tile_compile_gui" "$APP_BUNDLE/Contents/MacOS/tile_compile_gui_bin"
 cp "$DIST_DIR/tile_compile_runner" "$APP_BUNDLE/Contents/MacOS/tile_compile_runner"
 cp "$DIST_DIR/tile_compile_cli" "$APP_BUNDLE/Contents/MacOS/tile_compile_cli"
+
+cat > "$APP_BUNDLE/Contents/MacOS/tile_compile_gui" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+APP_BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORK_DIR_DEFAULT="$HOME/tile_compile"
+WORK_DIR="${TILE_COMPILE_WORK_DIR:-$WORK_DIR_DEFAULT}"
+mkdir -p "$WORK_DIR"
+cd "$WORK_DIR"
+
+exec "$APP_BIN_DIR/tile_compile_gui_bin" "$@"
+EOF
+chmod +x "$APP_BUNDLE/Contents/MacOS/tile_compile_gui"
 
 mkdir -p "$APP_BUNDLE/Contents/MacOS/gui_cpp"
 cp "$DIST_DIR/gui_cpp/constants.js" "$APP_BUNDLE/Contents/MacOS/gui_cpp/"
@@ -349,7 +363,7 @@ Qml2Imports=.
 EOF
 
   if command -v install_name_tool &>/dev/null; then
-    install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/tile_compile_gui" || true
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/tile_compile_gui_bin" || true
     install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/tile_compile_runner" || true
     install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/tile_compile_cli" || true
   fi
@@ -483,7 +497,7 @@ BUNDLE_NEW="$(mktemp)"
 trap 'rm -f "$BUNDLE_QUEUE" "$BUNDLE_DONE" "$BUNDLE_NEW"' EXIT
 
 printf '%s\n' \
-  "$APP_BUNDLE/Contents/MacOS/tile_compile_gui" \
+  "$APP_BUNDLE/Contents/MacOS/tile_compile_gui_bin" \
   "$APP_BUNDLE/Contents/MacOS/tile_compile_runner" \
   "$APP_BUNDLE/Contents/MacOS/tile_compile_cli" \
   > "$BUNDLE_QUEUE"
