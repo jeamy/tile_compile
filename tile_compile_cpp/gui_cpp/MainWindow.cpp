@@ -22,6 +22,7 @@
 #include <QDateTime>
 #include <QUuid>
 #include <QCoreApplication>
+#include <QProcessEnvironment>
 #include <filesystem>
 #include <thread>
 #include <yaml-cpp/yaml.h>
@@ -1018,6 +1019,32 @@ void MainWindow::ensure_startup_paths() {
         const QString current_working = run_tab_->get_working_dir().trimmed();
         const QString packaged_root = QString::fromStdString(project_root_);
         if (current_working.isEmpty() || current_working == packaged_root) {
+            run_tab_->set_working_dir(base_dir);
+        }
+    }
+#endif
+
+#ifdef __linux__
+    // AppImage launches binaries from a transient mount under /tmp/.mount_*.
+    // Ensure default working/runs paths are in user home instead.
+    const QString app_dir = QDir::cleanPath(QCoreApplication::applicationDirPath());
+    const bool appimage_env = QProcessEnvironment::systemEnvironment().contains("APPIMAGE");
+    const bool appimage_mount = app_dir.contains("/.mount_");
+
+    if (appimage_env || appimage_mount) {
+        const QString base_dir = QDir::cleanPath(QDir::home().filePath("tile_compile"));
+        const QString runs_abs = QDir(base_dir).filePath("runs");
+        QDir().mkpath(base_dir);
+        QDir().mkpath(runs_abs);
+
+        const QString current_runs = run_tab_->get_runs_dir().trimmed();
+        if (current_runs.isEmpty() || current_runs == "runs") {
+            run_tab_->set_runs_dir(runs_abs);
+        }
+
+        const QString current_working = run_tab_->get_working_dir().trimmed();
+        const QString packaged_root = QString::fromStdString(project_root_);
+        if (current_working.isEmpty() || current_working == packaged_root || current_working.startsWith("/tmp/.mount_")) {
             run_tab_->set_working_dir(base_dir);
         }
     }
