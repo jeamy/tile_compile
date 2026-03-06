@@ -472,6 +472,16 @@ ctest --output-on-failure
 - Includes GUI, CLI, and runner executables
 - Experimental release for testing purposes
 
+### v0.0.3 (2026-03-05)
+
+- Improved BGE/PCC pipeline with clearer phase visibility, stronger guardrails, and a more consistent config surface.
+- Expanded parallel execution in compute-heavy stages.
+- Multiple phase optimizations for more stable behavior and lower runtime overhead.
+
+### v0.0.4 (2026-03-06)
+
+- Fixed Alt/Az registration for datasets with large field rotation.
+
 ## Changelog
 
 ### (2026-03-05, later update)
