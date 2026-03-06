@@ -104,12 +104,8 @@ Siehe auch: [Examples README](tile_compile_cpp/examples/README.md)
 ## Binary Releases (Experimentell)
 
 **Vorkompilierte Binaries zum Testen verfügbar:**
+Download von: [GitHub Releases](https://github.com/jeamy/tile_compile/releases)
 
-- **Windows**: `tile_compile_cpp-windows-v0.0.2.zip`
-- **Linux**: ` tile_compile_cpp-linux-v0.0.3.zip `
-- **macOS**: `tile_compile_cpp-macos-v0.0.2.dmg`
-
-Download von: [GitHub Releases](https://github.com/your-repo/tile_compile/releases/tag/v0.0.2)
 
 **⚠️ Wichtig:** Dies sind experimentelle Releases zu Testzwecken. Nutzung auf eigene Gefahr. Bitte melden Sie gefundene Probleme.
 

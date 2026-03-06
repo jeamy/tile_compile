@@ -105,14 +105,7 @@ See also: [Examples README](tile_compile_cpp/examples/README.md)
 ## Binary Releases (Experimental)
 
 **Pre-built binaries are available for testing:**
-
-- `tile_compile_cpp-linux-v0.0.3.AppImage`
-- `tile_compile_cpp-linux-v0.0.3.zip`
-- `tile_compile_cpp-macos14-v0.0.3.dmg`
-- `tile_compile_cpp-macos14-v0.0.3.zip`
-- `tile_compile_cpp-windows-v0.0.3.zip`
-
-Download from: [GitHub Releases](https://github.com/jeamy/tile_compile/releases/tag/v0.0.3)
+Download from: [GitHub Releases](https://github.com/jeamy/tile_compile/releases)
 
 **⚠️ Important:** These are experimental releases for testing purposes. Use at your own risk. Please report any issues found.
 
