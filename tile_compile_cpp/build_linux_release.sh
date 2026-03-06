@@ -292,6 +292,11 @@ set -e
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+WORK_DIR_DEFAULT="$HOME/tile_compile"
+WORK_DIR="${TILE_COMPILE_WORK_DIR:-$WORK_DIR_DEFAULT}"
+mkdir -p "$WORK_DIR"
+cd "$WORK_DIR"
+
 export LD_LIBRARY_PATH="$DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export QT_PLUGIN_PATH="$DIR/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
 export QT_QPA_PLATFORM_PLUGIN_PATH="$DIR/plugins/platforms"
@@ -305,6 +310,11 @@ cat > "$DIST_DIR/run_tile_compile_runner.sh" <<'EOF'
 set -e
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+WORK_DIR_DEFAULT="$HOME/tile_compile"
+WORK_DIR="${TILE_COMPILE_WORK_DIR:-$WORK_DIR_DEFAULT}"
+mkdir -p "$WORK_DIR"
+cd "$WORK_DIR"
 
 export LD_LIBRARY_PATH="$DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export QT_PLUGIN_PATH="$DIR/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
