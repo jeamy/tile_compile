@@ -13,10 +13,16 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 ## Dokumentation (v3.3)
 
 - Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.3.6](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.6_en.md)
+- Methodik-Paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](doc/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
 - Prozessfluss (Implementierung): [Process flow (German)](doc/v3/process_flow/README_de.md)
 - Englische Schritt-für-Schritt-Anleitung: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - Englisches Haupt-README: [English README](README.md)
 - Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan – Funktionsweise des Systems](doc/v3/process_flow/data_flow_user_description_de.md)
+
+## Datenquellen Für Das Paper-Beispiel
+
+- M31-Lights für den Paper-Beispiellauf: [M31 lights](https://wolke.eibrain.org/index.php/s/Z88dmWizEJYjwBe)
+- M31-Run für den Paper-Beispiellauf: [M31 run](https://wolke.eibrain.org/index.php/s/tfSycSNEzdL7jje)
 
 Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 

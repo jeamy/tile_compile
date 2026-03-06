@@ -75,6 +75,8 @@ Thumbs.db
 # ArXiv paper files
 *arxiv*
 arxiv*/
+*zenodo*
+zenodo*/
 
 
 # Environment files

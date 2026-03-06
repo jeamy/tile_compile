@@ -147,33 +147,95 @@ bool run_phase_registration_prewarp(
   std::vector<float> global_frame_cc(frames.size(), 0.0f);
   std::string global_reg_status = "skipped";
   core::json global_reg_extra;
-  int global_ref_idx = frames.empty() ? 0 : static_cast<int>(frames.size() / 2);
-  // pick best by global_weight, fallback quality_score, fallback mid-frame
+  const int temporal_center_idx =
+      frames.empty() ? 0 : static_cast<int>(frames.size() / 2);
+  int global_ref_idx = temporal_center_idx;
+  std::string ref_frame_strategy = "temporal_center";
+
+  // Pick a reference frame that is both high quality and temporally central.
+  // This is more stable for long Alt/Az sessions with strong field rotation
+  // than selecting the single highest-weight frame near sequence edges.
   if (!frame_metrics.empty()) {
-    float best_w = -1.0f;
+    struct RefCandidate {
+      int idx = 0;
+      float score = 0.0f;
+      float quality = 0.0f;
+    };
+
+    std::vector<RefCandidate> candidates;
+    candidates.reserve(frame_metrics.size());
+    std::vector<float> scores;
+    scores.reserve(frame_metrics.size());
+
     for (int i = 0; i < static_cast<int>(frame_metrics.size()); ++i) {
-      float w = (i < global_weights.size()) ? global_weights[i]
-                                            : frame_metrics[i].quality_score;
-      if (w > best_w) {
-        best_w = w;
-        global_ref_idx = i;
+      float score = (i < global_weights.size()) ? global_weights[i]
+                                                : frame_metrics[i].quality_score;
+      if (!std::isfinite(score)) {
+        score = frame_metrics[i].quality_score;
+      }
+      candidates.push_back(
+          {i, score, static_cast<float>(frame_metrics[i].quality_score)});
+      scores.push_back(score);
+    }
+
+    const int n = static_cast<int>(candidates.size());
+    const int top_count = std::max(1, std::min(n, std::max(16, n / 5)));
+    std::nth_element(scores.begin(),
+                     scores.begin() + static_cast<long>(top_count - 1),
+                     scores.end(), std::greater<float>());
+    const float top_cutoff = scores[static_cast<size_t>(top_count - 1)];
+
+    bool found_top_centered = false;
+    int best_dist = std::numeric_limits<int>::max();
+    float best_score = -std::numeric_limits<float>::infinity();
+    for (const auto &c : candidates) {
+      if (c.score < top_cutoff) {
+        continue;
+      }
+      const int d = std::abs(c.idx - temporal_center_idx);
+      if (!found_top_centered || d < best_dist ||
+          (d == best_dist && c.score > best_score)) {
+        found_top_centered = true;
+        best_dist = d;
+        best_score = c.score;
+        global_ref_idx = c.idx;
       }
     }
-    if (best_w < 0.05f) {
-      // fallback to highest quality_score
-      float best_q = frame_metrics[global_ref_idx].quality_score;
-      for (int i = 0; i < static_cast<int>(frame_metrics.size()); ++i) {
-        if (frame_metrics[i].quality_score > best_q) {
-          best_q = frame_metrics[i].quality_score;
-          global_ref_idx = i;
+
+    if (found_top_centered) {
+      ref_frame_strategy = "quality_topk_centered";
+    }
+
+    if (!found_top_centered || best_score < 0.05f) {
+      bool found_quality = false;
+      int quality_dist = std::numeric_limits<int>::max();
+      float best_quality = -std::numeric_limits<float>::infinity();
+      for (const auto &c : candidates) {
+        const int d = std::abs(c.idx - temporal_center_idx);
+        if (!found_quality || c.quality > best_quality ||
+            (c.quality == best_quality && d < quality_dist)) {
+          found_quality = true;
+          best_quality = c.quality;
+          quality_dist = d;
+          global_ref_idx = c.idx;
         }
       }
+      if (found_quality) {
+        ref_frame_strategy = "quality_score_fallback";
+      } else {
+        global_ref_idx = temporal_center_idx;
+        ref_frame_strategy = "temporal_center_fallback";
+      }
     }
   }
+
   if (global_ref_idx < 0 || global_ref_idx >= static_cast<int>(frames.size())) {
-    global_ref_idx = static_cast<int>(frames.size() / 2);
+    global_ref_idx = temporal_center_idx;
+    ref_frame_strategy = "temporal_center_bounds_fallback";
   }
   global_reg_extra["ref_frame"] = global_ref_idx;
+  global_reg_extra["ref_frame_center"] = temporal_center_idx;
+  global_reg_extra["ref_frame_strategy"] = ref_frame_strategy;
 
   if (!frames.empty()) {
     try {
