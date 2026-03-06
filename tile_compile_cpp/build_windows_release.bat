@@ -587,14 +587,17 @@ for /L %%P in (1,1,8) do (
 
   if exist "%DIST_BIN%\tile_compile_runner.exe" (
     "%NTLDD_EXE%" -R "%DIST_BIN%\tile_compile_runner.exe" > "%DIST_DIR%\ntldd_runner.txt"
+    call :copy_resolved_from_ntldd_report "%DIST_DIR%\ntldd_runner.txt"
     call :copy_missing_from_ntldd_report "%DIST_DIR%\ntldd_runner.txt"
   )
   if exist "%DIST_BIN%\tile_compile_cli.exe" (
     "%NTLDD_EXE%" -R "%DIST_BIN%\tile_compile_cli.exe" > "%DIST_DIR%\ntldd_cli.txt"
+    call :copy_resolved_from_ntldd_report "%DIST_DIR%\ntldd_cli.txt"
     call :copy_missing_from_ntldd_report "%DIST_DIR%\ntldd_cli.txt"
   )
   if exist "%DIST_BIN%\tile_compile_gui.exe" (
     "%NTLDD_EXE%" -R "%DIST_BIN%\tile_compile_gui.exe" > "%DIST_DIR%\ntldd_gui.txt"
+    call :copy_resolved_from_ntldd_report "%DIST_DIR%\ntldd_gui.txt"
     call :copy_missing_from_ntldd_report "%DIST_DIR%\ntldd_gui.txt"
   )
 
@@ -622,6 +625,20 @@ for /f "usebackq tokens=1" %%A in (`findstr /I /R "\.dll.*missing" "%NTLDD_REPOR
   set "MISSING_DLL=%%~A"
   for %%X in ("!MISSING_DLL!") do set "MISSING_DLL=%%~nxX"
   if /I "!MISSING_DLL:~-4!"==".dll" call :copy_dep_dll "!MISSING_DLL!"
+)
+exit /B 0
+
+:copy_resolved_from_ntldd_report
+set "NTLDD_REPORT=%~1"
+if not exist "%NTLDD_REPORT%" exit /B 0
+
+for /f "usebackq tokens=1,2" %%A in (`findstr /I /R "\.dll .*=>" "%NTLDD_REPORT%" 2^>NUL`) do (
+  if /I "%%B"=="=>" (
+    set "RESOLVED_DLL=%%~nxA"
+    if /I "!RESOLVED_DLL:~-4!"==".dll" (
+      call :copy_dep_dll "!RESOLVED_DLL!"
+    )
+  )
 )
 exit /B 0
 
