@@ -97,9 +97,15 @@ They are kept in sync with v3.3 runner/config parser defaults, including:
 - `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
   - Suggested full config for DWARF / ZWO Seestar OSC stacks.
   - Chroma denoise profile: balanced (moderate chroma noise reduction, works with and without darks).
+- `tile_compile.smart_telescope_very_bright_star.example.yaml`
+  - Suggested DWARF / Seestar OSC config for fields dominated by one very bright or saturated star.
+  - Anti-seam focus for compact Alt/Az datasets: larger tiles, softer weighting, stronger halo protection.
 - `tile_compile.canon_low_n_high_quality.example.yaml`
   - Suggested OSC config for Canon-style datasets with low frame count but high/consistent quality.
   - Anti-grid focus for reduced/emergency operation: larger tiles, higher overlap, conservative weighting.
+- `tile_compile.very_bright_star_anti_seam.example.yaml`
+  - Suggested OSC config for datasets dominated by one or a few very bright/saturated stars.
+  - Anti-seam focus: larger tiles, softer local weighting, stronger halo protection in BGE/PCC-related settings.
 - `tile_compile.canon_equatorial_balanced.example.yaml`
   - Suggested OSC config for Canon/DSLR on equatorial mount (well-tracked, balanced quality/safety).
   - Registration is intentionally stricter than Alt/Az while still compatible with modeled fallback for failed direct registrations.

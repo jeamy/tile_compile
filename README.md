@@ -96,7 +96,9 @@ Complete standalone example configs are available under `tile_compile_cpp/exampl
 - `tile_compile.reduced_mode.example.yaml`
 - `tile_compile.emergency_mode.example.yaml`
 - `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
+- `tile_compile.smart_telescope_very_bright_star.example.yaml`
 - `tile_compile.canon_low_n_high_quality.example.yaml`
+- `tile_compile.very_bright_star_anti_seam.example.yaml`
 - `tile_compile.mono_full_mode.example.yaml`
 - `tile_compile.mono_small_n_anti_grid.example.yaml` (recommended for MONO low-frame datasets, e.g. ~10..40, to reduce tile-pattern risk)
 
