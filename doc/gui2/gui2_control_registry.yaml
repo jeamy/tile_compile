@@ -63,6 +63,22 @@ controls:
     action: open_history_tools
     backend_binding: client.routing
     status: TODO
+  - control_id: nav.astrometry
+    screen: shell
+    type: link
+    label_key: ui.nav.astrometry
+    tooltip_key: ui.tooltip.shell.nav_astrometry
+    action: open_astrometry
+    backend_binding: client.routing
+    status: TODO
+  - control_id: nav.pcc
+    screen: shell
+    type: link
+    label_key: ui.nav.pcc
+    tooltip_key: ui.tooltip.shell.nav_pcc
+    action: open_pcc
+    backend_binding: client.routing
+    status: TODO
   - control_id: nav.live_log
     screen: shell
     type: link
@@ -305,6 +321,22 @@ controls:
     action: filter_parameters
     backend_binding: parameter.index
     status: TODO
+  - control_id: parameter.search.results
+    screen: parameter_studio
+    type: panel
+    label_key: ui.panel.parameter_search_results
+    tooltip_key: ui.tooltip.parameter.search_results
+    action: show_search_results
+    backend_binding: parameter.search.results
+    status: TODO
+  - control_id: parameter.preset.select
+    screen: parameter_studio
+    type: select
+    label_key: ui.field.preset
+    tooltip_key: ui.tooltip.parameter.preset_select
+    action: select_preset
+    backend_binding: preset.catalog.selected
+    status: TODO
   - control_id: parameter.preset_apply
     screen: parameter_studio
     type: button
@@ -344,6 +376,22 @@ controls:
     tooltip_key: ui.tooltip.parameter.category_item
     action: filter_by_category
     backend_binding: parameter.category.filter
+    status: TODO
+  - control_id: parameter.full_editor
+    screen: parameter_studio
+    type: panel
+    label_key: ui.panel.parameter_full_editor
+    tooltip_key: ui.tooltip.parameter.full_editor
+    action: render_full_editor_by_category
+    backend_binding: parameter.editor_index
+    status: TODO
+  - control_id: parameter.value.*
+    screen: parameter_studio
+    type: input
+    label_key: ui.field.parameter_dynamic_value
+    tooltip_key: ui.tooltip.parameter.dynamic_value
+    action: set_value
+    backend_binding: config.path.write
     status: TODO
   - control_id: parameter.explain.info
     screen: parameter_studio
@@ -610,43 +658,19 @@ controls:
     action: resume_from_phase
     backend_binding: runner.resume.phase
     status: TODO
-  - control_id: monitor.phase.stacking
-    screen: run_monitor
-    type: row_action
-    label_key: phase.stacking
-    tooltip_key: ui.tooltip.monitor.phase_stacking
-    action: resume_from_phase
-    backend_binding: runner.resume.phase
-    status: TODO
-  - control_id: monitor.phase.bge
-    screen: run_monitor
-    type: row_action
-    label_key: phase.bge
-    tooltip_key: ui.tooltip.monitor.phase_bge
-    action: resume_from_phase
-    backend_binding: runner.resume.phase
-    status: TODO
-  - control_id: monitor.phase.pcc
-    screen: run_monitor
-    type: row_action
-    label_key: phase.pcc
-    tooltip_key: ui.tooltip.monitor.phase_pcc
-    action: resume_from_phase
-    backend_binding: runner.resume.phase
-    status: TODO
-  - control_id: monitor.phase.calibration
-    screen: run_monitor
-    type: row_action
-    label_key: phase.calibration
-    tooltip_key: ui.tooltip.monitor.phase_calibration
-    action: resume_from_phase
-    backend_binding: runner.resume.phase
-    status: TODO
   - control_id: monitor.phase.prewarp
     screen: run_monitor
     type: row_action
     label_key: phase.prewarp
     tooltip_key: ui.tooltip.monitor.phase_prewarp
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.common_overlap
+    screen: run_monitor
+    type: row_action
+    label_key: phase.common_overlap
+    tooltip_key: ui.tooltip.monitor.phase_common_overlap
     action: resume_from_phase
     backend_binding: runner.resume.phase
     status: TODO
@@ -682,6 +706,22 @@ controls:
     action: resume_from_phase
     backend_binding: runner.resume.phase
     status: TODO
+  - control_id: monitor.phase.stacking
+    screen: run_monitor
+    type: row_action
+    label_key: phase.stacking
+    tooltip_key: ui.tooltip.monitor.phase_stacking
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.debayer
+    screen: run_monitor
+    type: row_action
+    label_key: phase.debayer
+    tooltip_key: ui.tooltip.monitor.phase_debayer
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
   - control_id: monitor.phase.astrometry
     screen: run_monitor
     type: row_action
@@ -689,6 +729,30 @@ controls:
     tooltip_key: ui.tooltip.monitor.phase_astrometry
     action: resume_from_phase
     backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.bge
+    screen: run_monitor
+    type: row_action
+    label_key: phase.bge
+    tooltip_key: ui.tooltip.monitor.phase_bge
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.pcc
+    screen: run_monitor
+    type: row_action
+    label_key: phase.pcc
+    tooltip_key: ui.tooltip.monitor.phase_pcc
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.progress_pct
+    screen: run_monitor
+    type: indicator
+    label_key: ui.field.phase_progress_pct
+    tooltip_key: ui.tooltip.monitor.phase_progress_pct
+    action: show_phase_progress_pct
+    backend_binding: run.phase_progress_map
     status: TODO
   - control_id: monitor.filter.L
     screen: run_monitor
@@ -795,8 +859,24 @@ controls:
     action: open_report
     backend_binding: report.open
     status: TODO
-  - control_id: tools.astrometry.binary
+  - control_id: history.open_astrometry
     screen: history_tools
+    type: link
+    label_key: ui.nav.astrometry
+    tooltip_key: ui.tooltip.history.open_astrometry
+    action: route_astrometry
+    backend_binding: client.routing
+    status: TODO
+  - control_id: history.open_pcc
+    screen: history_tools
+    type: link
+    label_key: ui.nav.pcc
+    tooltip_key: ui.tooltip.history.open_pcc
+    action: route_pcc
+    backend_binding: client.routing
+    status: TODO
+  - control_id: tools.astrometry.binary
+    screen: astrometry
     type: input
     label_key: tools.astrometry.binary
     tooltip_key: ui.tooltip.tools.astrometry_binary
@@ -804,7 +884,7 @@ controls:
     backend_binding: tools.astrometry.binary
     status: TODO
   - control_id: tools.astrometry.catalog
-    screen: history_tools
+    screen: astrometry
     type: input
     label_key: tools.astrometry.catalog
     tooltip_key: ui.tooltip.tools.astrometry_catalog
@@ -812,7 +892,7 @@ controls:
     backend_binding: tools.astrometry.catalog
     status: TODO
   - control_id: tools.astrometry.file
-    screen: history_tools
+    screen: astrometry
     type: input
     label_key: tools.astrometry.file
     tooltip_key: ui.tooltip.tools.astrometry_file
@@ -820,15 +900,87 @@ controls:
     backend_binding: tools.astrometry.solve_file
     status: TODO
   - control_id: tools.astrometry.solve
-    screen: history_tools
+    screen: astrometry
     type: button
     label_key: ui.button.solve
     tooltip_key: ui.tooltip.tools.astrometry_solve
     action: run_astrometry_solve
     backend_binding: astrometry.runner
     status: TODO
+  - control_id: tools.astrometry.data_dir
+    screen: astrometry
+    type: input
+    label_key: tools.astrometry.data_dir
+    tooltip_key: ui.tooltip.tools.astrometry_data_dir
+    action: set_astrometry_data_dir
+    backend_binding: tools.astrometry.data_dir
+    status: TODO
+  - control_id: tools.astrometry.detect
+    screen: astrometry
+    type: button
+    label_key: ui.button.detect_astap
+    tooltip_key: ui.tooltip.tools.astrometry_detect
+    action: detect_astap
+    backend_binding: astrometry.setup.detect
+    status: TODO
+  - control_id: tools.astrometry.install_cli
+    screen: astrometry
+    type: button
+    label_key: ui.button.install_astap_cli
+    tooltip_key: ui.tooltip.tools.astrometry_install_cli
+    action: install_astap_cli
+    backend_binding: astrometry.setup.install_cli
+    status: TODO
+  - control_id: tools.astrometry.download_catalog
+    screen: astrometry
+    type: button
+    label_key: ui.button.download_catalog
+    tooltip_key: ui.tooltip.tools.astrometry_download_catalog
+    action: download_astap_catalog
+    backend_binding: astrometry.catalog.download
+    status: TODO
+  - control_id: tools.astrometry.cancel_download
+    screen: astrometry
+    type: button
+    label_key: ui.button.cancel
+    tooltip_key: ui.tooltip.tools.astrometry_cancel_download
+    action: cancel_astap_download
+    backend_binding: astrometry.catalog.cancel
+    status: TODO
+  - control_id: tools.astrometry.browse_file
+    screen: astrometry
+    type: button
+    label_key: ui.button.browse
+    tooltip_key: ui.tooltip.tools.astrometry_browse_file
+    action: browse_astrometry_file
+    backend_binding: fs.pick.file
+    status: TODO
+  - control_id: tools.astrometry.browse_binary
+    screen: astrometry
+    type: button
+    label_key: ui.button.browse
+    tooltip_key: ui.tooltip.tools.astrometry_browse_binary
+    action: browse_astrometry_binary
+    backend_binding: fs.pick.file
+    status: TODO
+  - control_id: tools.astrometry.browse_data_dir
+    screen: astrometry
+    type: button
+    label_key: ui.button.browse
+    tooltip_key: ui.tooltip.tools.astrometry_browse_data_dir
+    action: browse_astrometry_data_dir
+    backend_binding: fs.pick.dir
+    status: TODO
+  - control_id: tools.astrometry.save_solved
+    screen: astrometry
+    type: button
+    label_key: ui.button.save_solved
+    tooltip_key: ui.tooltip.tools.astrometry_save_solved
+    action: save_solved_fits
+    backend_binding: astrometry.output.save_solved
+    status: TODO
   - control_id: tools.pcc.source
-    screen: history_tools
+    screen: pcc
     type: input
     label_key: tools.pcc.source
     tooltip_key: ui.tooltip.tools.pcc_source
@@ -836,7 +988,7 @@ controls:
     backend_binding: tools.pcc.source
     status: TODO
   - control_id: tools.pcc.sigma
-    screen: history_tools
+    screen: pcc
     type: input
     label_key: tools.pcc.sigma
     tooltip_key: ui.tooltip.tools.pcc_sigma
@@ -844,7 +996,7 @@ controls:
     backend_binding: tools.pcc.sigma
     status: TODO
   - control_id: tools.pcc.min_stars
-    screen: history_tools
+    screen: pcc
     type: input
     label_key: tools.pcc.min_stars
     tooltip_key: ui.tooltip.tools.pcc_min_stars
@@ -852,7 +1004,7 @@ controls:
     backend_binding: tools.pcc.min_stars
     status: TODO
   - control_id: tools.pcc.run
-    screen: history_tools
+    screen: pcc
     type: button
     label_key: ui.button.run_pcc
     tooltip_key: ui.tooltip.tools.pcc_run
@@ -860,12 +1012,84 @@ controls:
     backend_binding: pcc.runner
     status: TODO
   - control_id: tools.pcc.save_corrected
-    screen: history_tools
+    screen: pcc
     type: button
     label_key: ui.button.save_corrected
     tooltip_key: ui.tooltip.tools.pcc_save_corrected
     action: save_corrected
     backend_binding: pcc.output.save
+    status: TODO
+  - control_id: tools.pcc.rgb_fits
+    screen: pcc
+    type: input
+    label_key: tools.pcc.rgb_fits
+    tooltip_key: ui.tooltip.tools.pcc_rgb_fits
+    action: set_pcc_rgb_fits
+    backend_binding: tools.pcc.rgb_fits
+    status: TODO
+  - control_id: tools.pcc.wcs_file
+    screen: pcc
+    type: input
+    label_key: tools.pcc.wcs_file
+    tooltip_key: ui.tooltip.tools.pcc_wcs_file
+    action: set_pcc_wcs_file
+    backend_binding: tools.pcc.wcs_file
+    status: TODO
+  - control_id: tools.pcc.browse_rgb
+    screen: pcc
+    type: button
+    label_key: ui.button.browse_rgb
+    tooltip_key: ui.tooltip.tools.pcc_browse_rgb
+    action: browse_pcc_rgb
+    backend_binding: fs.pick.file
+    status: TODO
+  - control_id: tools.pcc.browse_wcs
+    screen: pcc
+    type: button
+    label_key: ui.button.browse_wcs
+    tooltip_key: ui.tooltip.tools.pcc_browse_wcs
+    action: browse_pcc_wcs
+    backend_binding: fs.pick.file
+    status: TODO
+  - control_id: tools.pcc.siril_catalog_dir
+    screen: pcc
+    type: input
+    label_key: tools.pcc.siril_catalog_dir
+    tooltip_key: ui.tooltip.tools.pcc_siril_catalog_dir
+    action: set_pcc_siril_catalog_dir
+    backend_binding: tools.pcc.siril_catalog_dir
+    status: TODO
+  - control_id: tools.pcc.browse_catalog_dir
+    screen: pcc
+    type: button
+    label_key: ui.button.browse
+    tooltip_key: ui.tooltip.tools.pcc_browse_catalog_dir
+    action: browse_pcc_catalog_dir
+    backend_binding: fs.pick.dir
+    status: TODO
+  - control_id: tools.pcc.download_missing
+    screen: pcc
+    type: button
+    label_key: ui.button.download_missing
+    tooltip_key: ui.tooltip.tools.pcc_download_missing
+    action: download_missing_siril_chunks
+    backend_binding: pcc.catalog.download_missing
+    status: TODO
+  - control_id: tools.pcc.cancel_download
+    screen: pcc
+    type: button
+    label_key: ui.button.cancel
+    tooltip_key: ui.tooltip.tools.pcc_cancel_download
+    action: cancel_siril_download
+    backend_binding: pcc.catalog.cancel
+    status: TODO
+  - control_id: tools.pcc.check_online
+    screen: pcc
+    type: button
+    label_key: ui.button.check_online
+    tooltip_key: ui.tooltip.tools.pcc_check_online
+    action: check_online_catalog
+    backend_binding: pcc.catalog.check_online
     status: TODO
   - control_id: layout.hotspot.shell
     screen: layout_1920
@@ -1254,10 +1478,10 @@ legacy_parity:
     gui2_target: History+Tools
     status: TODO
   - legacy_tab: Astrometry
-    gui2_target: History+Tools
+    gui2_target: Astrometry
     status: TODO
   - legacy_tab: PCC
-    gui2_target: History+Tools
+    gui2_target: PCC
     status: TODO
   - legacy_tab: Live log
     gui2_target: Run Monitor + Live Log

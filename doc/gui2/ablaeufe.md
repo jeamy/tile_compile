@@ -101,8 +101,8 @@ Ergebnis: operativer Betrieb inklusive Fehlerfall/Recovery bleibt in einer konsi
 
 1. `history-tools.html` oeffnen.
 2. Run in Historie waehlen.
-3. Optional Astrometry-Solve oder `Run PCC` starten.
-4. Optional `Save Corrected` fuer PCC-Ergebnis nutzen.
+3. Fuer Plate-Solve auf `astrometry.html` wechseln.
+4. Fuer Farbkalibrierung auf `pcc.html` wechseln (`Run PCC`, `Save Corrected`).
 5. Bei Bedarf fuer Reports nach `run-monitor.html` wechseln und dort `Generate Stats` ausfuehren.
 
 Ergebnis: Nachbearbeitung und Laufvergleich sind nicht mehr getrennte Funktionsinseln.
@@ -169,6 +169,6 @@ Ergebnis: es bleibt keine Funktion unimplementiert oder undokumentiert.
 
 ## Klickdummy-Hotspots
 
-- Sidebar-Hotspots sind in den Desktop-Screens vollstaendig aktiv (Dashboard, Input&Scan, Parameter Studio, Assumptions, Run Monitor, History, Astrometry&PCC, Live Log).
+- Sidebar-Hotspots sind in den Desktop-Screens vollstaendig aktiv (Dashboard, Input&Scan, Parameter Studio, Assumptions, Run Monitor, History, Astrometry, PCC, Live Log).
 - Kernaktionen (Parameter speichern, Run starten, Report) sind als Hotspots hinterlegt.
 - Ablaufkarte (`flow.html`) verlinkt Knoten direkt auf die passenden Screens.

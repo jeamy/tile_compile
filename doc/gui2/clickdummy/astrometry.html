@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Astrometry</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="screen-placeholder.css?v=2">
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a data-control="nav.start" href="index.html">Start</a>
+    <div class="pill-sep"></div>
+    <a data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a class="active" data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+    <a data-control="nav.pcc" href="pcc.html">PCC</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
+    <div class="pill-sep"></div>
+    <a data-control="nav.layout_1920" href="layout-1920.html">Layout 1920</a>
+    <a data-control="nav.flow" href="flow.html">Ablauf</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
+
+  <main>
+    <p class="intro">ASTAP CLI + Sternkatalog-Setup und Plate-Solve (entspricht der bestehenden GUI-Funktionalitaet inkl. Download/Status).</p>
+
+    <div class="placeholder-screen">
+      <div class="placeholder-sidebar">
+        <div class="ps-label">Navigation</div>
+        <a class="ps-item" data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+        <a class="ps-item" data-control="nav.input_scan" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item" data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item" data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+        <a class="ps-item" data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item" data-control="nav.history_tools" href="history-tools.html">History + Tools</a>
+        <a class="ps-item ps-active" data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+        <a class="ps-item" data-control="nav.pcc" href="pcc.html">PCC</a>
+        <a class="ps-item" data-control="nav.live_log" href="live-log.html">Live Log</a>
+      </div>
+
+      <div class="placeholder-content">
+        <h2>Astrometry</h2>
+        <p class="ps-sub">ASTAP Setup, SourceForge-Downloads, Katalogstatus und Plate-Solve mit WCS-Resultaten.</p>
+
+        <section class="ps-section">
+          <div class="ps-section-title">ASTAP Setup</div>
+          <div class="ps-row">
+            <label for="tools-astrometry-bin">ASTAP CLI</label>
+            <input id="tools-astrometry-bin" data-control="tools.astrometry.binary" class="ps-input ps-wide" type="text" value="~/.local/share/tile_compile/astap/astap_cli" title="Pfad zur ASTAP-CLI Binary.">
+          </div>
+          <div class="ps-actions" style="margin-top:8px;">
+            <button data-control="tools.astrometry.browse_binary" class="ps-btn ps-btn-secondary" title="ASTAP-CLI-Datei auswaehlen.">Browse ASTAP CLI</button>
+          </div>
+          <div class="ps-row">
+            <label for="tools-astrometry-data-dir">ASTAP Data Dir</label>
+            <input id="tools-astrometry-data-dir" data-control="tools.astrometry.data_dir" class="ps-input ps-wide" type="text" value="~/.local/share/tile_compile/astap" title="ASTAP-Datenverzeichnis (Kataloge + Downloads).">
+          </div>
+          <div class="ps-actions" style="margin-top:8px;">
+            <button data-control="tools.astrometry.browse_data_dir" class="ps-btn ps-btn-secondary" title="ASTAP-Datenverzeichnis auswaehlen.">Browse ASTAP Data Dir</button>
+          </div>
+          <div class="ps-row">
+            <label>Status</label>
+            <span class="ps-chip ps-chip-ok" data-control="tools.astrometry.status" title="Installationsstatus der ASTAP-CLI.">Installed</span>
+          </div>
+          <div class="ps-actions" style="margin-top:8px;">
+            <button data-control="tools.astrometry.detect" class="ps-btn ps-btn-secondary" title="ASTAP Binary im konfigurierten Pfad pruefen.">Detect ASTAP</button>
+            <button data-control="tools.astrometry.install_cli" class="ps-btn" title="ASTAP CLI von SourceForge herunterladen und installieren.">Install/Reinstall ASTAP CLI</button>
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div class="ps-section-title">Star Database</div>
+          <div class="ps-row">
+            <label for="tools-astrometry-catalog">Catalog</label>
+            <select id="tools-astrometry-catalog" data-control="tools.astrometry.catalog" class="ps-select" title="ASTAP-Sternkatalog waehlen.">
+              <option>D05 (~100 MB)</option>
+              <option>D20 (~400 MB)</option>
+              <option selected>D50 (~800 MB, empfohlen)</option>
+              <option>D80 (~1.25 GB)</option>
+            </select>
+          </div>
+          <div class="ps-note">Status: D50 installiert, D80 fehlt. Download-Quelle: SourceForge ASTAP Star Databases.</div>
+          <div class="ps-actions" style="margin-top:8px;">
+            <button data-control="tools.astrometry.download_catalog" class="ps-btn" title="Ausgewaehlten ASTAP-Sternkatalog herunterladen und entpacken.">Download Catalog</button>
+            <button data-control="tools.astrometry.cancel_download" class="ps-btn ps-btn-secondary" title="Aktiven ASTAP-Katalogdownload abbrechen.">Cancel Download</button>
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div class="ps-section-title">Plate Solve</div>
+          <div class="ps-row">
+            <label for="tools-astrometry-file">FITS File</label>
+            <input id="tools-astrometry-file" data-control="tools.astrometry.file" class="ps-input ps-wide" type="text" value="stacked_m31.fit" title="Zu loesende FITS-Datei.">
+          </div>
+          <div class="ps-actions" style="margin-top:8px;">
+            <button data-control="tools.astrometry.browse_file" class="ps-btn ps-btn-secondary" title="FITS-Datei auswaehlen.">Browse</button>
+            <button data-control="tools.astrometry.solve" class="ps-btn" title="Plate-Solve mit ASTAP starten.">Solve</button>
+            <button data-control="tools.astrometry.save_solved" class="ps-btn ps-btn-secondary" title="FITS mit WCS-Header speichern.">Save Solved</button>
+          </div>
+          <div class="ps-grid-3" style="margin-top:10px;">
+            <div class="ps-row"><label>RA (J2000)</label><input class="ps-input" type="text" value="10.684700 deg" readonly title="Resultat aus WCS."></div>
+            <div class="ps-row"><label>Dec (J2000)</label><input class="ps-input" type="text" value="41.269000 deg" readonly title="Resultat aus WCS."></div>
+            <div class="ps-row"><label>Pixel Scale</label><input class="ps-input" type="text" value="1.69 arcsec/px" readonly title="Resultat aus WCS."></div>
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div class="ps-section-title">Log</div>
+          <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:220px;overflow:auto;">
+[astap] Downloading D50 star database from SourceForge...
+[astap] Download complete.
+[astap] Extracting ...
+[astap] Solving: stacked_m31.fit
+[astap] Plate solve successful.
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <p class="footer-note">Astrometry-Screen deckt die C++-GUI-Funktionen ab: CLI-Install, Katalog-Download, Solve, Save-Solved.</p>
+  </main>
+</body>
+</html>

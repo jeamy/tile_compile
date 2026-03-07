@@ -9,8 +9,10 @@ Primare Navigation (persistent):
 3. Parameter Studio
 4. Assumptions
 5. Run Monitor
-6. History + Tools (Astrometry + PCC)
-7. Live Log
+6. History + Tools (History-Fokus)
+7. Astrometry
+8. PCC
+9. Live Log
 
 Damit bleiben alle bisherigen Bereiche erhalten, aber in einem konsistenten Design- und Interaktionssystem.
 
@@ -42,8 +44,18 @@ Damit bleiben alle bisherigen Bereiche erhalten, aber in einem konsistenten Desi
 ### Parameter Studio
 
 - Suchleiste ueber alle Parameterpfade (`section.key.subkey`).
+  - Live-Suche ohne separaten Such-Button.
+  - Ergebnisliste erscheint direkt unter dem Suchfeld (editierbare Treffer mit Kategoriehinweis).
+  - Enter springt zum ersten Formular-Treffer und markiert das Feld kurz.
+- Preset-Auswahl im Kopfbereich (`Preset` Select) plus Aktion `Preset anwenden`.
+  - Preset-Katalog wird aus allen Dateien `tile_compile_cpp/examples/*.example.yaml` gebildet.
 - Linke Kategorie-Spalte mit klarer Gruppierung (Pipeline, Registration, BGE, PCC, ...).
-- Mittlerer Formbereich mit allen Keys (inkl. verschachtelter Objekte).
+- Mittlerer Formbereich als Abschnittseditor:
+  - zeigt pro gewaehlter Kategorie alle zugehoerigen Parameter als editierbare Felder.
+  - basiert auf dem vereinheitlichten Editor-Index aus Schema + YAML (`param_editor_index.json`).
+- Kategorienavigation arbeitet als Filter:
+  - Klick auf Kategorie zeigt den vollstaendigen Editierbereich dieser Kategorie.
+  - `Alle` zeigt nur Uebersicht/Hinweise, nicht alle Felder gleichzeitig.
 - Rechtes Explain-Panel:
   - Kurz-Erklaerung pro Parameter
   - erlaubte Werte / Range
@@ -56,12 +68,14 @@ Damit bleiben alle bisherigen Bereiche erhalten, aber in einem konsistenten Desi
   - helle Sterne
   - wenige Frames
   - starker Gradient
+  - Delta-Panel aktualisiert sich dynamisch aus den aktiv ausgewaehlten Situationen.
 - Aktionen: Preset anwenden, Situation anwenden, validieren, speichern.
 
 ### Run Monitor
 
 - Batch-Kontextleiste (`n/m`, aktueller Input, run_id, aktueller Filter und Filterindex).
-- Phasenliste mit Statuschips und Fortschrittsbalken je Phase.
+- Phasenliste in Runner-Reihenfolge mit Statuschips und Prozentanzeige je Phase:
+  - `SCAN_INPUT -> CHANNEL_SPLIT -> NORMALIZATION -> GLOBAL_METRICS -> TILE_GRID -> REGISTRATION -> PREWARP -> COMMON_OVERLAP -> LOCAL_METRICS -> TILE_RECONSTRUCTION -> STATE_CLUSTERING -> SYNTHETIC_FRAMES -> STACKING -> DEBAYER -> ASTROMETRY -> BGE -> PCC`.
 - Live-Log mit Warnungs-Highlighting.
 - `Stats` direkt unter dem Live-Log:
   - `Generate Stats`
@@ -72,10 +86,48 @@ Damit bleiben alle bisherigen Bereiche erhalten, aber in einem konsistenten Desi
 ### History + Tools
 
 - Historientabelle mit Selektion und Vergleich.
-- Astrometry-Toolpanel im selben Kontext.
-- PCC-Toolpanel fuer Nachbearbeitung (`Run PCC`, `Save Corrected`).
 - Direkte Uebernahme eines Runs als "Current".
-- Hinweisbereich mit Deep-Link zu `Run Monitor` fuer `Generate Stats`.
+- Hinweisbereich mit Deep-Links zu `Astrometry`, `PCC` und `Run Monitor` (Stats).
+
+### Astrometry
+
+- Eigenstaendiger Tool-Screen fuer ASTAP-Workflow.
+- Setup-Bereich:
+  - ASTAP CLI Pfad
+  - ASTAP Data Dir
+  - beide Felder mit Dateisystem-Auswahl (`Browse File` / `Browse Dir`)
+  - Install/Reinstall ASTAP CLI
+  - Installationsstatus
+- Star-Database-Bereich:
+  - D05/D20/D50/D80 Auswahl
+  - Download und Cancel
+  - Installations-/Partial-Status
+- Plate-Solve-Bereich:
+  - FITS-Datei auswaehlen
+  - Solve starten
+  - Save Solved (WCS in FITS schreiben)
+  - Ergebnisfelder (RA/Dec/FOV/Rotation/Scale)
+- Log/Progress-Bereich fuer Download und Solve.
+
+### PCC
+
+- Eigenstaendiger Tool-Screen fuer photometrische Farbkalibration.
+- Input-Bereich:
+  - RGB-FITS
+  - WCS-Datei
+  - Browse-Aktionen
+- Quellen-Bereich:
+  - `siril`, `vizier_gaia`, `vizier_apass`
+  - Siril-Katalogstatus (`48 Chunks`) und Katalogpfad
+  - Katalogpfad mit Verzeichnis-Auswahl (`Browse Catalog Dir`)
+  - Download Missing Chunks / Cancel
+  - Online-Source-Check fuer VizieR
+- Parameter-Bereich:
+  - `mag_limit`, `mag_bright_limit`, `min_stars`, `sigma_clip`, Apertur/Annulus
+- Aktionen:
+  - `Run PCC`
+  - `Save Corrected`
+- Ergebnis-/Log-Bereich mit Sternzahlen, Residual und Matrix.
 
 ## 3) Parametereingabe: vollstaendig und einfach
 
@@ -165,6 +217,7 @@ Quelle der Metadaten:
 - Resume ist moeglich:
   1. pro Filtereintrag (letzter fehlerhafter/abgebrochener Filter)
   2. pro Phase innerhalb des Filtereintrags
+- Resume-Button ist initial deaktiviert und wird erst nach explizitem Phase-Klick aktiv.
 - UI zeigt immer den Resume-Target-Kontext: `Filter=Ha, Phase=BGE`.
 - Vor jedem Resume bleibt die vorherige Config-Revision erhalten (kein Ueberschreiben).
 - Resume kann explizit mit gewaehlter Config-Revision starten.
@@ -298,7 +351,8 @@ Pflichtumfang in GUI 2:
 - Scan- und Kalibrier-Logik bleibt erhalten, wird besser strukturiert.
 - Config/YAML-Workflow bleibt erhalten, wird um vollstaendige Feldpflege erweitert.
 - Run-/Batch-Steuerung bleibt erhalten, bekommt besseren Zustandskontext.
-- Astrometry/PCC bleiben in History+Tools, Stats ist im Run Monitor unter dem Live-Log integriert.
+- Astrometry und PCC sind eigene Screens; History+Tools enthaelt die Historie und Deep-Links.
+- Stats ist im Run Monitor unter dem Live-Log integriert.
 - Live-Log bleibt erhalten, wird im Run Monitor priorisiert.
 
 ## 10) Technischer Uebergangspfad (HTML + FastAPI, ohne Qt-GUI)
@@ -346,9 +400,10 @@ Pflichtumfang in GUI 2:
 
 ## 11.4 Trennung PCC und Stats
 
-1. `PCC` bleibt in `History + Tools` (Run PCC, Save Corrected).
-2. `Stats` liegt im `Run Monitor` direkt unter `Live Log`.
-3. Stats-Aufruf nutzt aktiven Run-Kontext und erzeugt Report-Artefakte im Run-Ordner.
+1. `PCC` liegt auf eigener Seite `PCC` (Run PCC, Save Corrected, Katalogdownload).
+2. `Astrometry` liegt auf eigener Seite `Astrometry` (ASTAP Setup, Katalogdownload, Solve).
+3. `Stats` liegt im `Run Monitor` direkt unter `Live Log`.
+4. Stats-Aufruf nutzt aktiven Run-Kontext und erzeugt Report-Artefakte im Run-Ordner.
 
 ## 12) Implementierungsstrategie (synchron zur Funktionsmatrix)
 
@@ -378,8 +433,9 @@ Pflichtumfang in GUI 2:
 ## 12.5 Phase E - History + Astrometry/PCC
 
 1. Historientabelle, Current-Run-Selektion, Report-Zugriff.
-2. Astrometry- und PCC-Tools im selben Screen.
-3. Sauberer Wechsel zwischen History-Analyse und Run-Monitor-Stats.
+2. Eigenstaendige Astrometry-Seite (ASTAP Setup/Download/Solve).
+3. Eigenstaendige PCC-Seite (Siril/VizieR, Chunk-Download, Run/Save).
+4. Sauberer Wechsel zwischen History, Tool-Screens und Run-Monitor-Stats.
 
 ## 12.6 Phase F - Abnahme
 

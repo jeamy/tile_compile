@@ -40,7 +40,10 @@ additional_keys:
   - param.calibration.use_flat.label
   - param.calibration.flats_dir.label
   - assumptions.pipeline_mode_info
-  - phase.calibration
+  - ui.panel.parameter_search_results
+  - ui.tooltip.parameter.search_results
+  - phase.common_overlap
+  - phase.debayer
   - phase.prewarp
   - phase.local_metrics
   - phase.tile_reconstruction

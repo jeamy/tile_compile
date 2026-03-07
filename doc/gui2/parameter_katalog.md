@@ -254,9 +254,8 @@ Quelle: `tile_compile_cpp/tile_compile.yaml`, `tile_compile_cpp/tile_compile.sch
 - Referenzseite: `doc/gui2/clickdummy/parameter-studio.html`.
 - Linie-B Pflichtcontrols sind im Dummy als interaktive Felder vorhanden:
   - Suche, Preset, YAML-Sync, Validierung, Save/Reset/Diff
-  - Registration-Kernfelder
-  - BGE-Kernfelder
-  - PCC-Kernfelder
+  - Suchergebnis-Panel direkt unter dem Suchfeld (editierbare Treffer + Kategorie)
+  - Abschnittseditor mit vollstaendiger Editierbarkeit aller Parameter je Kategorie
   - Deprecated-Feld `data.linear_required`
   - Situation Assistant (Alt/Az, Rotation, helle Sterne, wenige Frames, Gradient)
-- Die Vollabdeckung des gesamten Parameterbaums bleibt ueber Suchindex + Kategorien an `parameter_katalog.md` gebunden.
+- Die Vollabdeckung des gesamten Parameterbaums wird ueber den Editor-Index (Schema + YAML) und Kategorienavigation sichergestellt.

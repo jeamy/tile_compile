@@ -307,6 +307,18 @@ pip-compile web_backend/requirements-dev.in -o web_backend/requirements-dev.txt
 | `GET` | `/api/runs/{run_id}/logs` | Logs | `tile_compile_cli get-run-logs ...` |
 | `GET` | `/api/runs/{run_id}/artifacts` | Artefakte | `tile_compile_cli list-artifacts ...` |
 | `POST` | `/api/runs/{run_id}/stats` | Report erstellen | `python3 tile_compile_cpp/scripts/generate_report.py <run_dir>` |
+| `POST` | `/api/tools/astrometry/detect` | ASTAP-Status pruefen | ASTAP-Binary probe |
+| `POST` | `/api/tools/astrometry/install-cli` | ASTAP CLI installieren | Download + entpacken + chmod |
+| `POST` | `/api/tools/astrometry/catalog/download` | ASTAP-Katalog laden | SourceForge download + extract |
+| `POST` | `/api/tools/astrometry/catalog/cancel` | ASTAP-Download abbrechen | cancel active task |
+| `POST` | `/api/tools/astrometry/solve` | Plate-Solve starten | ASTAP CLI solve call |
+| `POST` | `/api/tools/astrometry/save-solved` | Solved FITS speichern | write WCS headers to FITS |
+| `GET` | `/api/tools/pcc/siril/status` | Siril-Katalogstatus lesen | chunk scan (48 files) |
+| `POST` | `/api/tools/pcc/siril/download-missing` | fehlende Siril-Chunks laden | chunk download + bzip2 decompress |
+| `POST` | `/api/tools/pcc/siril/cancel` | Siril-Download abbrechen | cancel active task |
+| `POST` | `/api/tools/pcc/check-online` | VizieR-Quelle pruefen | online cone-search probe |
+| `POST` | `/api/tools/pcc/run` | PCC ausfuehren | PCC engine run |
+| `POST` | `/api/tools/pcc/save-corrected` | PCC-Output speichern | write corrected FITS |
 
 ## 6.3 Resume + Config-Versionierung
 

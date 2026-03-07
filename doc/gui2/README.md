@@ -9,7 +9,7 @@ Dieses Verzeichnis enthaelt das komplette Redesign-Paket fuer eine modernisierte
   - `gui2_02_dashboard.png`: Dashboard + Guided Run
   - `gui2_03_parameter_studio.png`: Vollstaendige Parametereingabe inkl. Explain/Situation/i18n
   - `gui2_04_run_monitor.png`: Live-Phasen, Logs, Stats, Artefakte
-  - `gui2_05_history_tools.png`: Historie + Astrometry/PCC
+  - `gui2_05_history_tools.png`: Historie (Tools als eigene Screens)
   - `gui2_07_flow_overview.png`: Ablauf-Blueprint
   - `gui2_08_layout_1920_overlay.png`: Detailliertes 1920er Raster-Overlay (Shell, Spalten, Interaktionszonen)
   - `gui2_09_layout_1920_measurelines.png`: Zweite Overlay-Variante mit expliziten Pixelmasslinien je Screen
@@ -18,7 +18,8 @@ Dieses Verzeichnis enthaelt das komplette Redesign-Paket fuer eine modernisierte
   - Einstieg: `clickdummy/index.html`
   - Wizard-Ablauf (detailliert): `clickdummy/wizard.html`
   - Layout-Raster-Ansicht: `clickdummy/layout-1920.html`
-  - zusaetzliche Sidebar-Pfade: `clickdummy/input-scan.html`, `clickdummy/assumptions.html`, `clickdummy/live-log.html`
+  - zusaetzliche Sidebar-Pfade: `clickdummy/input-scan.html`, `clickdummy/assumptions.html`, `clickdummy/live-log.html`, `clickdummy/astrometry.html`, `clickdummy/pcc.html`
+  - Vollstaendiger Editor-Index: `clickdummy/param_editor_index.json` und `clickdummy/param_editor_index.js` (vereinigt Schema + YAML fuer vollstaendige Editierbarkeit)
   - globale Theme-/Font-Basis: `clickdummy/theme.css`, `clickdummy/theme.js`, `clickdummy/assets/fonts/*`
 - `designvorschlaege.md`
   - Designalternativen, Empfehlung und Modernisierung aller GUI-Bereiche
@@ -50,6 +51,8 @@ Dieses Verzeichnis enthaelt das komplette Redesign-Paket fuer eine modernisierte
   - Klickdummy-Flows und End-to-End-Ablaufe
 - `parameter_katalog.md`
   - Vollstaendige Parameterliste aus `tile_compile.yaml` + GUI-Laufzeitparameter
+- `parameter_coverage_yaml_vs_schema.md`
+  - Delta-Report zwischen `tile_compile.yaml` und `tile_compile.schema.yaml` (fehlende/zusatzliche Parameter)
 - `scripts/`
   - `generate_mockups.py`: erzeugt alle PNG-Mockups neu
   - `check_layout_1920_spacing.py`: validiert verbindliche Spacing-Tokens und Mindestabstaende

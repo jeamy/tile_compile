@@ -3,6 +3,19 @@
   "title": "tile_compile v3 config",
   "type": "object",
   "properties": {
+    "run_dir": {
+      "type": "string"
+    },
+    "log_level": {
+      "type": "string",
+      "enum": [
+        "trace",
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ]
+    },
     "pipeline": {
       "type": "object",
       "properties": {
@@ -58,6 +71,25 @@
           "type": "boolean",
           "deprecated": true,
           "description": "Deprecated: non-lineare Frames werden im Runner nur noch gewarnt (warn_only), nicht entfernt."
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string"
+        },
+        "sort": {
+          "type": "string",
+          "enum": [
+            "numeric",
+            "lexicographic"
+          ]
+        },
+        "max_frames": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -207,7 +239,7 @@
     },
     "registration": {
       "type": "object",
-      "description": "Registration with Temporal-Smoothing (v3.2.3+): Automatically uses neighbor frames (i-1, i+1) for failed registrations. Adaptive star detection: Falls back to 2.5\u03c3 threshold when <topk/2 stars detected.",
+      "description": "Registration with Temporal-Smoothing (v3.2.3+): Automatically uses neighbor frames (i-1, i+1) for failed registrations. Adaptive star detection: Falls back to 2.5σ threshold when <topk/2 stars detected.",
       "properties": {
         "engine": {
           "type": "string",
@@ -642,6 +674,14 @@
         "enabled": {
           "type": "boolean"
         },
+        "apply_attenuation": {
+          "type": "boolean"
+        },
+        "chroma_strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
         "source": {
           "type": "string",
           "enum": [
@@ -688,6 +728,14 @@
             "plane"
           ]
         },
+        "max_condition_number": {
+          "type": "number",
+          "minimum": 1
+        },
+        "max_residual_rms": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
         "radii_mode": {
           "type": "string",
           "enum": [
@@ -708,6 +756,10 @@
           "exclusiveMinimum": 0
         },
         "min_aperture_px": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "k_max": {
           "type": "number",
           "exclusiveMinimum": 0
         },
@@ -767,6 +819,15 @@
         "min_tiles_per_cell": {
           "type": "integer",
           "minimum": 1
+        },
+        "min_valid_sample_fraction_for_apply": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_valid_samples_for_apply": {
+          "type": "integer",
+          "minimum": 0
         },
         "mask": {
           "type": "object",

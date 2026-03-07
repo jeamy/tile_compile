@@ -31,6 +31,8 @@ Nicht uebersetzt bleiben technische Schluessel/Bezeichner wie `pcc.k_max` oder `
   - `ui.nav.dashboard`
   - `ui.nav.input_scan`
   - `ui.nav.assumptions`
+  - `ui.nav.astrometry`
+  - `ui.nav.pcc`
   - `ui.nav.live_log`
   - `ui.button.validate`
   - `ui.tooltip.dashboard.run_start`
@@ -45,13 +47,23 @@ Nicht uebersetzt bleiben technische Schluessel/Bezeichner wie `pcc.k_max` oder `
   - `ui.field.runs_dir`
   - `ui.field.run_name`
   - `ui.field.run_path_preview`
+  - `ui.field.preset`
   - `ui.field.resume_config_revision`
+  - `ui.field.phase_progress_pct`
+  - `ui.field.parameter_dynamic_value`
+  - `ui.panel.parameter_search_results`
+  - `ui.panel.parameter_full_editor`
   - `ui.tooltip.parameter.search`
+  - `ui.tooltip.parameter.search_results`
+  - `ui.tooltip.parameter.preset_select`
+  - `ui.tooltip.parameter.dynamic_value`
+  - `ui.tooltip.parameter.full_editor`
   - `param.registration.allow_rotation.short_help`
   - `scenario.altaz.title`
   - `queue.filter.title`
   - `queue.filter.progress`
   - `queue.resume.target`
+  - `ui.tooltip.monitor.phase_progress_pct`
   - `monitor.stats.generate`
   - `monitor.stats.open_folder`
   - `monitor.stats.command_hint`
@@ -70,7 +82,8 @@ Nicht uebersetzt bleiben technische Schluessel/Bezeichner wie `pcc.k_max` oder `
   - `queue.filter.SII`
   - `queue.row.run_label`
   - `param.data.bayer_pattern.label`
-  - `phase.calibration`
+  - `phase.common_overlap`
+  - `phase.debayer`
   - `phase.prewarp`
   - `phase.local_metrics`
   - `phase.tile_reconstruction`
@@ -96,17 +109,20 @@ Nicht uebersetzt bleiben technische Schluessel/Bezeichner wie `pcc.k_max` oder `
 ## Aktueller Scope-Stand (synchron)
 
 - Stats liegt i18n-seitig im `Run Monitor` (`monitor.stats.*`).
-- PCC bleibt i18n-seitig in `History+Tools` (`tools.pcc.*`).
+- PCC liegt i18n-seitig auf eigener Seite `PCC` (`tools.pcc.*`).
+- Astrometry liegt i18n-seitig auf eigener Seite `Astrometry` (`tools.astrometry.*`).
 - MONO-Queue-Eingaben je Filter sind ueber `queue.row.*` abgedeckt, inkl. `queue.row.run_label`.
-- Navigation umfasst alle Shell-Ziele (`ui.nav.*`, inkl. `input_scan`, `assumptions`, `live_log`).
+- Navigation umfasst alle Shell-Ziele (`ui.nav.*`, inkl. `input_scan`, `assumptions`, `astrometry`, `pcc`, `live_log`).
 - Alle 5 Situation-Szenarien abgedeckt: `altaz`, `rotation`, `bright_stars`, `few_frames`, `gradient`.
-- Alle C++-Phasen als Resume-Ziele abgedeckt: inkl. `calibration`, `prewarp`, `local_metrics`, `tile_reconstruction`, `state_clustering`, `synthetic_frames`, `astrometry`.
+- Alle C++-Phasen als Resume-Ziele abgedeckt: inkl. `common_overlap`, `prewarp`, `local_metrics`, `tile_reconstruction`, `state_clustering`, `synthetic_frames`, `debayer`, `astrometry`.
 - Filter-Chips MONO komplett: `L`, `R`, `G`, `B`, `Ha`, `OIII`, `SII`.
 - `data.bayer_pattern` als konfigurierbares Feld in Input & Scan abgedeckt (`param.data.bayer_pattern.label`).
+- Parameter-Suche inkl. Ergebnispanel ist i18n-seitig abgedeckt (`ui.panel.parameter_search_results`, `ui.tooltip.parameter.search_results`).
+- Parameter-Studio Abschnittseditor ist i18n-seitig abgedeckt (`ui.panel.parameter_full_editor`, `ui.tooltip.parameter.full_editor`).
 - Assumptions-Screen: alle Felder mit `param.assumptions.*` und `ui.tooltip.assumptions.*` abgedeckt.
 - Wizard-Screen: alle Steps mit `ui.tooltip.wizard.*` abgedeckt.
 - Input & Scan-Screen: alle Felder und Kalibrierungs-Controls mit `ui.tooltip.input_scan.*` abgedeckt.
-- `de.json` und `en.json`: alle 304 Keys uebersetzt, kein `TODO::` mehr vorhanden.
+- `de.json` und `en.json`: alle 312 Keys uebersetzt, kein `TODO::` mehr vorhanden.
 
 ## Runtime-Verhalten
 

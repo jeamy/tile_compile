@@ -54,7 +54,7 @@ HTML-Clickdummy-Umsetzung:
 4. **State-Model**
    - Zentraler GUI-State: `project`, `scan`, `config`, `config_revisions`, `queue`, `run`, `history`, `tools`, `i18n`.
 5. **Screen-Implementierung**
-   - Reihenfolge: Dashboard -> Input&Scan -> Parameter Studio -> Assumptions -> Run Monitor -> History+Tools -> Live Log.
+   - Reihenfolge: Dashboard -> Input&Scan -> Parameter Studio -> Assumptions -> Run Monitor -> History+Tools -> Astrometry -> PCC -> Live Log.
    - Referenzseiten: `doc/gui2/clickdummy/*.html` (HTML-only, keine PNG-Referenz notwendig).
 6. **Funktionsparitaet**
    - Legacy-Feature-Mapping gegen Registry abhaken.
@@ -74,6 +74,8 @@ HTML-Clickdummy-Umsetzung:
 | `nav.assumptions` | Link | Assumptions oeffnen | client routing |
 | `nav.run_monitor` | Link | Run Monitor oeffnen | client routing |
 | `nav.history_tools` | Link | History+Tools oeffnen | client routing |
+| `nav.astrometry` | Link | Astrometry oeffnen | client routing |
+| `nav.pcc` | Link | PCC oeffnen | client routing |
 | `nav.live_log` | Link | Live Log oeffnen | client routing |
 | `nav.layout_1920` | Link | Layout-Review oeffnen | client routing |
 | `nav.flow` | Link | Ablaufkarte oeffnen | client routing |
@@ -131,14 +133,20 @@ HTML-Clickdummy-Umsetzung:
 
 ## 4.4 Parameter Studio
 
+Hinweis: Einzelzeilen wie `parameter.registration.*` sind Kernbeispiele; die Vollabdeckung aller Parameter erfolgt ueber den dynamischen Abschnittseditor `parameter.value.*`.
+
 | control_id | Typ | Aktion | backend_binding |
 |---|---|---|---|
-| `parameter.search` | Suchfeld | Parameter filtern | parameter index |
+| `parameter.search` | Suchfeld | Live-Suche ueber `section.key.subkey`, Enter springt zum ersten Formular-Treffer | parameter index |
+| `parameter.search.results` | Panel | Trefferliste unter dem Suchfeld anzeigen (editierbare Treffer inkl. Kategorie) | parameter.search.results |
+| `parameter.preset.select` | Select | Preset auswaehlen (alle `examples/*.example.yaml`) | preset catalog read |
 | `parameter.preset_apply` | Button | Preset anwenden | config patch apply |
 | `parameter.situation_apply` | Button | Szenario anwenden | scenario delta engine |
 | `parameter.yaml_sync` | Button | YAML laden/sync | yaml parser/serializer |
 | `parameter.validate` | Button | Validierung starten | schema + semantic validator |
 | `parameter.category.*` | Liste | Kategorie filtern | local ui state |
+| `parameter.full_editor` | Panel | alle Parameter der aktiven Kategorie editierbar rendern | parameter.editor_index |
+| `parameter.value.*` | Dynamische Felder | Wert fuer jeden Parameterpfad setzen | config path write |
 | `parameter.registration.engine` | Feld | Wert setzen | config path write |
 | `parameter.registration.allow_rotation` | Feld | Wert setzen | config path write |
 | `parameter.registration.star_topk` | Feld | Wert setzen | config path write |
@@ -172,16 +180,18 @@ HTML-Clickdummy-Umsetzung:
 | `monitor.phase.global_metrics` | Zeile/Action | Resume ab Phase | runner resume |
 | `monitor.phase.tile_grid` | Zeile/Action | Resume ab Phase | runner resume |
 | `monitor.phase.registration` | Zeile/Action | Resume ab Phase | runner resume |
-| `monitor.phase.stacking` | Zeile/Action | Resume ab Phase | runner resume |
-| `monitor.phase.bge` | Zeile/Action | Resume ab Phase | runner resume |
-| `monitor.phase.pcc` | Zeile/Action | Resume ab Phase | runner resume |
-| `monitor.phase.calibration` | Zeile/Action | Resume ab Phase | runner resume |
 | `monitor.phase.prewarp` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.common_overlap` | Zeile/Action | Resume ab Phase | runner resume |
 | `monitor.phase.local_metrics` | Zeile/Action | Resume ab Phase | runner resume |
 | `monitor.phase.tile_reconstruction` | Zeile/Action | Resume ab Phase | runner resume |
 | `monitor.phase.state_clustering` | Zeile/Action | Resume ab Phase | runner resume |
 | `monitor.phase.synthetic_frames` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.stacking` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.debayer` | Zeile/Action | Resume ab Phase | runner resume |
 | `monitor.phase.astrometry` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.bge` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.pcc` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.progress_pct` | Readonly | Prozentfortschritt je Phase anzeigen | run.phase_progress_map |
 | `monitor.filter.L` | Chip/Action | Filterkontext setzen | queue state |
 | `monitor.filter.R` | Chip/Action | Filterkontext setzen | queue state |
 | `monitor.filter.G` | Chip/Action | Filterkontext setzen | queue state |
@@ -189,7 +199,7 @@ HTML-Clickdummy-Umsetzung:
 | `monitor.filter.Ha` | Chip/Action | Filterkontext setzen | queue state |
 | `monitor.filter.OIII` | Chip/Action | Filterkontext setzen | queue state |
 | `monitor.filter.SII` | Chip/Action | Filterkontext setzen | queue state |
-| `monitor.resume` | Button | Resume starten | runner resume |
+| `monitor.resume` | Button | Resume starten (erst aktiv nach Phase-Klick) | runner resume |
 | `monitor.resume.config_revision` | Select | Config-Revision fuer Resume waehlen | run.resume.config_revision |
 | `monitor.resume.restore_revision` | Button | Aeltere Config-Revision wiederherstellen | config.revision.restore |
 | `monitor.report` | Button | Reportansicht | report open |
@@ -205,17 +215,47 @@ HTML-Clickdummy-Umsetzung:
 | `history.refresh` | Button | Historie aktualisieren | run index refresh |
 | `history.set_current` | Button | als Current Run setzen | current run pointer |
 | `history.open_report` | Button | Report oeffnen | report open |
+| `nav.astrometry` | Link | Astrometry-Toolseite oeffnen | client routing |
+| `nav.pcc` | Link | PCC-Toolseite oeffnen | client routing |
+
+## 4.7 Astrometry
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
 | `tools.astrometry.binary` | Feld | ASTAP-Binary setzen | tools config write |
+| `tools.astrometry.data_dir` | Feld | ASTAP-Datenverzeichnis setzen | tools config write |
+| `tools.astrometry.detect` | Button | ASTAP-Status pruefen | astrometry.setup.detect |
+| `tools.astrometry.install_cli` | Button | ASTAP CLI herunterladen/installieren | astrometry.setup.install_cli |
 | `tools.astrometry.catalog` | Feld | Katalog setzen | tools config write |
+| `tools.astrometry.download_catalog` | Button | ASTAP-Katalog laden | astrometry.catalog.download |
+| `tools.astrometry.cancel_download` | Button | Download abbrechen | astrometry.catalog.cancel |
 | `tools.astrometry.file` | Feld | Solve-Datei setzen | tools config write |
+| `tools.astrometry.browse_file` | Button | Solve-Datei waehlen | fs.pick.file |
+| `tools.astrometry.browse_binary` | Button | ASTAP-CLI-Datei waehlen | fs.pick.file |
+| `tools.astrometry.browse_data_dir` | Button | ASTAP-Datenverzeichnis waehlen | fs.pick.dir |
 | `tools.astrometry.solve` | Button | Plate Solve starten | astrometry runner |
+| `tools.astrometry.save_solved` | Button | FITS mit WCS speichern | astrometry.save_solved |
+
+## 4.8 PCC
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
+| `tools.pcc.rgb_fits` | Feld | RGB-FITS setzen | tools config write |
+| `tools.pcc.wcs_file` | Feld | WCS-Datei setzen | tools config write |
+| `tools.pcc.browse_rgb` | Button | RGB-Datei waehlen | fs.pick.file |
+| `tools.pcc.browse_wcs` | Button | WCS-Datei waehlen | fs.pick.file |
 | `tools.pcc.source` | Feld | PCC source setzen | tools config write |
 | `tools.pcc.sigma` | Feld | PCC sigma setzen | tools config write |
 | `tools.pcc.min_stars` | Feld | PCC min stars setzen | tools config write |
+| `tools.pcc.siril_catalog_dir` | Feld | Siril-Katalogordner setzen | tools config write |
+| `tools.pcc.browse_catalog_dir` | Button | Siril-Katalogverzeichnis waehlen | fs.pick.dir |
+| `tools.pcc.download_missing` | Button | fehlende Siril-Chunks laden | pcc.catalog.download_missing |
+| `tools.pcc.cancel_download` | Button | laufenden Download abbrechen | pcc.catalog.cancel |
+| `tools.pcc.check_online` | Button | Online-Quelle pruefen | pcc.catalog.check_online |
 | `tools.pcc.run` | Button | PCC Quicktest starten | pcc runner |
 | `tools.pcc.save_corrected` | Button | korrigiertes Ergebnis speichern | file writer |
 
-## 4.7 Assumptions
+## 4.9 Assumptions
 
 | control_id | Typ | Aktion | backend_binding |
 |---|---|---|---|
@@ -228,7 +268,7 @@ HTML-Clickdummy-Umsetzung:
 | `assumptions.exposure_time_tolerance_percent` | Feld | Belichtungszeit-Toleranz in Prozent | config.assumptions.exposure_time_tolerance_percent |
 | `assumptions.pipeline_mode_info` | Info-Panel | Aktuellen Modus anzeigen (Full/Reduced/Emergency) | config.assumptions.read |
 
-## 4.8 Wizard (Guided Run)
+## 4.10 Wizard (Guided Run)
 
 | control_id | Typ | Aktion | backend_binding |
 |---|---|---|---|
@@ -367,8 +407,8 @@ HTML-Clickdummy-Umsetzung:
 | Pipeline Progress | Run Monitor | `TODO/IN_PROGRESS/DONE` |
 | Current run | Run Monitor | `TODO/IN_PROGRESS/DONE` |
 | Run history | History+Tools | `TODO/IN_PROGRESS/DONE` |
-| Astrometry | History+Tools | `TODO/IN_PROGRESS/DONE` |
-| PCC | History+Tools | `TODO/IN_PROGRESS/DONE` |
+| Astrometry | Astrometry | `TODO/IN_PROGRESS/DONE` |
+| PCC | PCC | `TODO/IN_PROGRESS/DONE` |
 | Live log | Run Monitor/Live Log | `TODO/IN_PROGRESS/DONE` |
 
 ## 8) Abnahmetests (keine Funktion vergessen)
@@ -434,7 +474,7 @@ HTML-Clickdummy-Umsetzung:
 3. `parameter.save` persistiert die Aenderung als neue Config-Version fuer den aktiven Run.
 4. Nach `run-monitor` wechseln und optional `monitor.filter.*` setzen.
 5. Gewuenschte Revision in `monitor.resume.config_revision` waehlen.
-6. Gewuenschte Phase per Klick waehlen (`monitor.phase.*`) oder `monitor.resume` mit `from_phase`.
+6. Gewuenschte Phase per Klick waehlen (`monitor.phase.*`); erst danach wird `monitor.resume` aktiv.
 7. Bei Bedarf alte Konfiguration via `monitor.resume.restore_revision` wiederherstellen.
 8. Alte Revisionen bleiben immer erhalten (append-only Historie).
 9. Runner-Aufruf enthaelt:
@@ -445,19 +485,22 @@ HTML-Clickdummy-Umsetzung:
 10. Run-Monitor zeigt bestaetigten Resume-Kontext:
    - `Resume: Filter R (2/5) ab BGE mit Config rev <id>`.
 
-## 9.4 Stats und PCC aufgetrennt
+## 9.4 Stats, Astrometry und PCC aufgetrennt
 
-1. In `history-tools` bleibt PCC:
-   - `tools.pcc.source`
-   - `tools.pcc.sigma`
-   - `tools.pcc.min_stars`
-   - `tools.pcc.run`
-   - `tools.pcc.save_corrected`
-2. In `run-monitor` liegt Stats:
+1. In `history-tools` bleibt Historie + Deep-Link auf Tools.
+2. `astrometry` ist eigene Seite:
+   - ASTAP CLI installieren/pruefen
+   - Katalog downloaden/abbrechen
+   - Solve + Save Solved
+3. `pcc` ist eigene Seite:
+   - Siril- oder VizieR-Quelle waehlen
+   - fehlende Siril-Chunks downloaden/abbrechen
+   - PCC run/save corrected
+4. In `run-monitor` liegt Stats:
    - `monitor.stats.generate`
    - `monitor.stats.open_folder`
-3. `monitor.stats.generate` nutzt den aktiven/selektierten Run-Kontext.
-4. Ergebnisartefakte erscheinen im Run-Ordner und Artefaktpanel.
+5. `monitor.stats.generate` nutzt den aktiven/selektierten Run-Kontext.
+6. Ergebnisartefakte erscheinen im Run-Ordner und Artefaktpanel.
 
 ## 10) Implementierungsstrategie (Phasen und Workpackages)
 
@@ -503,11 +546,12 @@ HTML-Clickdummy-Umsetzung:
 ## 10.5 Phase E - History + Astrometry/PCC
 
 1. Historientabelle mit Selektion/Refresh/Report.
-2. Astrometry-Panel.
-3. PCC-Panel (bleibt hier, nicht im Run Monitor).
+2. Astrometry-Screen (Setup, Download, Solve, Save).
+3. PCC-Screen (Siril/VizieR, Download, Run, Save).
 4. Tests:
+   - ASTAP CLI/Katalog Downloadpfade.
    - PCC Quicktest und Save-Corrected.
-   - Uebergang History <-> Run Monitor stabil.
+   - Uebergang History <-> Astrometry/PCC <-> Run Monitor stabil.
 
 ## 10.6 Phase F - Hardening und Abnahme
 

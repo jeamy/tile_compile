@@ -35,7 +35,7 @@ Vertikale Aufteilung:
 
 ## 3) Main-Area Grid (Linie B)
 
-Standard fuer grosse Inhaltsseiten (`Dashboard`, `Parameter Studio`, `Run Monitor`, `History+Tools`):
+Standard fuer grosse Inhaltsseiten (`Dashboard`, `Parameter Studio`, `Run Monitor`, `History+Tools`, `Astrometry`, `PCC`):
 
 - Main Card Wrapper: `x=356`, `y=230`, `w=1538`, `h=798`
 - Innenabstand Wrapper: `24 px`
@@ -115,7 +115,7 @@ Orientierungswerte aus HTML-Referenz:
 - History: `x=382..1242`
 - Tools: `x=1260..1868`
 - Stats-Funktionen sind aus History+Tools in den Run Monitor verlagert.
-- History+Tools enthaelt Astrometry plus PCC-Toolpanel.
+- Astrometry und PCC sind eigenstaendige Screens; History+Tools enthaelt nur Historie + Deep-Links.
 
 ## 5) Typografie-Skala (Desktop 1920)
 
@@ -153,9 +153,9 @@ Alle Werte sind als zentrale Sollwerte im Layout-Spec und in den Clickdummy-CSS-
 | `run_monitor.artifact_list_first_y` | `480` | Erste Artefaktzeile |
 | `run_monitor.artifact_button_row_y` | `804` | Y von `Resume`/`Report` |
 | `run_monitor.artifact_secondary_button_y` | `868` | Y von `Run-Ordner offnen` |
-| `history_tools.astrometry_first_input_y` | `356` | Erstes Astrometry-Feld |
-| `history_tools.astrometry_row_step` | `86` | Vertikaler Schritt Astrometry-Felder |
-| `history_tools.astrometry_plate_solve_y` | `528` | Y von `Plate Solve File` + `Solve` |
+| `astrometry.first_input_y` | `356` | Erstes Astrometry-Feld |
+| `astrometry.row_step` | `86` | Vertikaler Schritt Astrometry-Felder |
+| `astrometry.plate_solve_y` | `528` | Y von `Plate Solve File` + `Solve` |
 
 ## 6.2 Spacing-Pruefregeln (automatisch pruefbar)
 
@@ -234,8 +234,8 @@ Fuer die Web-Umsetzung empfiehlt sich:
 | Run Monitor | Live Log + Stats | `1048,358,420,638` | `54.58 / 33.15 / 21.88 / 59.07` |
 | Run Monitor | Artefakte | `1486,358,382,638` | `77.40 / 33.15 / 19.90 / 59.07` |
 | History+Tools | Historie | `382,266,860,730` | `19.90 / 24.63 / 44.79 / 67.59` |
-| History+Tools | Tools oben | `1260,266,608,382` | `65.62 / 24.63 / 31.67 / 35.37` |
-| History+Tools | Tools unten | `1260,666,608,330` | `65.62 / 61.67 / 31.67 / 30.56` |
+| Astrometry | Setup/Katalog/Solve | `382,266,1486,730` | `19.90 / 24.63 / 77.40 / 67.59` |
+| PCC | Input/Katalog/Parameter | `382,266,1486,730` | `19.90 / 24.63 / 77.40 / 67.59` |
 | Run Monitor | Generate Stats Button | `1084,860,166,52` | `56.46 / 79.63 / 8.65 / 4.81` |
 | Run Monitor | Open Stats Folder | `1260,860,174,52` | `65.63 / 79.63 / 9.06 / 4.81` |
 
@@ -251,6 +251,8 @@ Die Seite `clickdummy/layout-1920.html` dokumentiert die Rasterzonen als HTML-Re
 | Parameter Zone | `34.58,74.63,58.33,3.52` | `parameter-studio.html` |
 | Run Monitor Zone | `34.58,79.44,58.33,3.52` | `run-monitor.html` |
 | History+Tools Zone | `34.58,84.26,58.33,3.52` | `history-tools.html` |
+| Astrometry Zone | `34.58,89.07,58.33,3.52` | `astrometry.html` |
+| PCC Zone | `34.58,93.89,58.33,3.52` | `pcc.html` |
 
 ## 12) Referenzmodus der Spezifikation
 
