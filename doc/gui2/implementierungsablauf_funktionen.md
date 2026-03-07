@@ -561,3 +561,319 @@ Hinweis: Einzelzeilen wie `parameter.registration.*` sind Kernbeispiele; die Vol
 2. Spacing/Theme/Font Gates.
 3. Legacy-Parity-Tabelle auf `DONE`.
 4. Finales Dokumentations-Review (`detailkonzept.md` <-> diese Datei).
+
+## 11) Backend-Implementierung (FastAPI)
+
+## 11.1 Zielbild
+
+1. GUI2-Frontend spricht ausschliesslich mit FastAPI (`REST + WebSocket`).
+2. FastAPI kapselt alle Aufrufe von `tile_compile_cli` und `tile_compile_runner`.
+3. Keine direkte Prozesssteuerung aus dem Browser.
+4. Jeder mutierende API-Call schreibt ein `ui_event` (Audit + Replay).
+
+## 11.2 Service-Aufteilung im Backend
+
+1. `ConfigService`
+   - Schema lesen, YAML validieren, Preset laden, Config-Revisionsverwaltung.
+2. `ScanService`
+   - Input-Scan, Guardrail-Readiness, KPI-Berechnung (`scan_quality`, `warnings`).
+3. `RunService`
+   - Run-Start (OSC/MONO Queue), Resume, Stop, Status-Polling.
+4. `HistoryService`
+   - Runs auflisten, Current-Run setzen, Artefakte/Reports lesen.
+5. `AstrometryService`
+   - ASTAP detect/install, Katalogdownload/cancel, solve/save_solved.
+6. `PCCService`
+   - Siril-Status, Missing-Chunk Download/cancel, Online-Check, run/save_corrected.
+7. `StatsService`
+   - `generate_report.py` starten, Status und Output-Ordner bereitstellen.
+8. `StreamService`
+   - WebSocket fuer Live-Log, Phasenfortschritt, Queue-Status, Job-Status.
+
+## 11.3 API-Ablauf (End-to-End)
+
+## 11.3.1 Dashboard Schnellstart
+
+1. Frontend laedt `GET /api/app/state`.
+2. Frontend laedt `GET /api/guardrails` und `GET /api/scan/quality`.
+3. Bei `POST /api/runs/start`:
+   - Backend validiert Guardrails.
+   - Backend validiert `runs_dir`/`run_name`.
+   - Backend erzeugt Config-Revision.
+   - Backend startet Runner-Prozess.
+   - Frontend subscribed `WS /api/ws/runs/{run_id}`.
+
+## 11.3.2 Resume per Phase
+
+1. Phase-Klick setzt lokal `selected_phase`.
+2. `monitor.resume` erst aktiv bei gesetzter Phase.
+3. Frontend sendet `POST /api/runs/{run_id}/resume` mit:
+   - `from_phase`
+   - `config_revision_id`
+   - `filter_context` (bei MONO Queue)
+4. Backend prueft Revisionsdatei + Run-Kontext.
+5. Backend startet `tile_compile_runner resume ...`.
+6. Status/Logs laufen via WebSocket in Run Monitor.
+
+## 11.3.3 Astrometry Tool-Flow
+
+1. `POST /api/tools/astrometry/detect`.
+2. Optional `POST /api/tools/astrometry/install-cli`.
+3. Optional `POST /api/tools/astrometry/catalog/download` + `.../cancel`.
+4. `POST /api/tools/astrometry/solve`.
+5. Optional `POST /api/tools/astrometry/save-solved`.
+
+## 11.3.4 PCC Tool-Flow
+
+1. `GET /api/tools/pcc/siril/status`.
+2. Optional `POST /api/tools/pcc/siril/download-missing` + `.../cancel`.
+3. Optional `POST /api/tools/pcc/check-online`.
+4. `POST /api/tools/pcc/run`.
+5. Optional `POST /api/tools/pcc/save-corrected`.
+
+## 11.4 Job-/Prozessmodell
+
+1. Lange Tasks laufen als Backend-Jobs (nicht als blockierende HTTP-Requests).
+2. Jeder Job hat:
+   - `job_id`
+   - `type`
+   - `state` (`pending|running|ok|error|cancelled`)
+   - `started_at`, `ended_at`
+   - `run_id` (optional)
+3. HTTP startet Job und liefert `202 Accepted` + `job_id`.
+4. Fortschritt via:
+   - `WS /api/ws/jobs/{job_id}` oder
+   - `GET /api/jobs/{job_id}`.
+5. Cancel ueber `POST /api/jobs/{job_id}/cancel`.
+
+## 11.5 Fehler- und Sicherheitsregeln
+
+1. Prozessaufrufe nur mit Whitelist-Kommandos + validierten Argumenten.
+2. Keine Shell-Konkatenation mit untrusted Input.
+3. Dateisystemzugriffe auf erlaubte Root-Pfade begrenzen.
+4. Einheitliches Fehlerformat:
+   - `code`
+   - `message`
+   - `hint`
+   - `details` (optional)
+5. Katalogdownloads sind cancellable und idempotent.
+
+## 11.6 Teststrategie Backend
+
+1. API-Contract-Tests (Request/Response je Endpoint).
+2. Prozessadapter-Mocks fuer CLI/Runner.
+3. Integrations-Tests mit echten Binaries fuer:
+   - Scan
+   - Validate
+   - Run/Resume
+   - Stats
+4. Tool-Tests fuer Astrometry/PCC:
+   - detect/install/download/cancel
+   - run/save
+5. WebSocket-Tests fuer Phase-Progress und Live-Log.
+
+## 11.7 Vollstaendiger API-Vertrag (FastAPI v1)
+
+Basis:
+
+1. Prefix: `/api`
+2. Content-Type Request/Response: `application/json`
+3. Zeitformat: ISO-8601 UTC (`2026-03-07T22:16:08Z`)
+4. IDs: `run_id`, `job_id`, `revision_id` als Strings
+
+## 11.7.1 Einheitliches Fehlerformat
+
+Alle Fehlerantworten (`4xx/5xx`) liefern:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "config contains invalid values",
+    "hint": "check field pcc.sigma_clip",
+    "details": {"path": "pcc.sigma_clip"}
+  }
+}
+```
+
+## 11.7.2 REST Endpunkte (Core)
+
+| HTTP | Endpoint | Zweck | Response |
+|---|---|---|---|
+| `GET` | `/api/version` | Backend/CLI/Runner Versionen | `{api, backend, cli, runner}` |
+| `GET` | `/api/app/state` | Initialer UI-State | `AppState` |
+| `GET` | `/api/app/constants` | Enum/Phasen/Defaults | `AppConstants` |
+| `GET` | `/api/config/schema` | Schema lesen | JSON-Schema |
+| `GET` | `/api/config/current` | Aktuelle Config | `{config, source}` |
+| `POST` | `/api/config/validate` | Config validieren | `{ok, errors[], warnings[]}` |
+| `POST` | `/api/config/save` | Config speichern + Revision erzeugen | `{revision_id, path}` |
+| `GET` | `/api/config/presets` | Preset-Katalog | `{items[]}` |
+| `POST` | `/api/config/presets/apply` | Preset anwenden | `{config, applied_paths[]}` |
+| `GET` | `/api/config/revisions` | Revisionsliste | `{items[]}` |
+| `POST` | `/api/config/revisions/{revision_id}/restore` | Revision aktiv setzen | `{ok, active_revision_id}` |
+| `POST` | `/api/scan` | Input-Scan starten | `{job_id}` |
+| `GET` | `/api/scan/quality` | KPI Scan-Qualitaet | `{score, factors[]}` |
+| `GET` | `/api/guardrails` | Readiness-Zustand | `{status, checks[]}` |
+| `GET` | `/api/runs` | Runs listen | `{items[], total}` |
+| `GET` | `/api/runs/{run_id}/status` | Runstatus + Phasen | `RunStatus` |
+| `GET` | `/api/runs/{run_id}/logs` | Logauszug | `{lines[], cursor}` |
+| `GET` | `/api/runs/{run_id}/artifacts` | Artefaktliste | `{items[]}` |
+| `POST` | `/api/runs/start` | Run/Queue starten | `{run_id, job_id}` |
+| `POST` | `/api/runs/{run_id}/resume` | Resume ab Phase | `{run_id, job_id}` |
+| `POST` | `/api/runs/{run_id}/stop` | Lauf stoppen | `{ok}` |
+| `POST` | `/api/runs/{run_id}/set-current` | Current Run setzen | `{ok, run_id}` |
+| `POST` | `/api/runs/{run_id}/stats` | Stats-Report erzeugen | `{job_id}` |
+| `GET` | `/api/runs/{run_id}/stats/status` | Stats-Status | `{state, output_dir, report_path}` |
+
+## 11.7.3 REST Endpunkte (Astrometry/PCC)
+
+| HTTP | Endpoint | Zweck | Response |
+|---|---|---|---|
+| `POST` | `/api/tools/astrometry/detect` | ASTAP detect | `{installed, binary, data_dir}` |
+| `POST` | `/api/tools/astrometry/install-cli` | ASTAP CLI installieren | `{job_id}` |
+| `POST` | `/api/tools/astrometry/catalog/download` | ASTAP-Katalog downloaden | `{job_id}` |
+| `POST` | `/api/tools/astrometry/catalog/cancel` | ASTAP-Download abbrechen | `{ok}` |
+| `POST` | `/api/tools/astrometry/solve` | Plate-Solve starten | `{job_id}` |
+| `POST` | `/api/tools/astrometry/save-solved` | FITS mit WCS speichern | `{output_path}` |
+| `GET` | `/api/tools/pcc/siril/status` | Siril-Chunkstatus | `{installed, total, missing[]}` |
+| `POST` | `/api/tools/pcc/siril/download-missing` | Missing Chunks laden | `{job_id}` |
+| `POST` | `/api/tools/pcc/siril/cancel` | PCC-Download abbrechen | `{ok}` |
+| `POST` | `/api/tools/pcc/check-online` | VizieR Reachability pruefen | `{ok, latency_ms}` |
+| `POST` | `/api/tools/pcc/run` | PCC Run | `{job_id}` |
+| `POST` | `/api/tools/pcc/save-corrected` | PCC Result speichern | `{output_rgb, output_channels[]}` |
+
+## 11.7.4 REST Endpunkte (Jobs)
+
+| HTTP | Endpoint | Zweck | Response |
+|---|---|---|---|
+| `GET` | `/api/jobs/{job_id}` | Jobstatus lesen | `JobStatus` |
+| `GET` | `/api/jobs` | Jobs filtern/listen | `{items[]}` |
+| `POST` | `/api/jobs/{job_id}/cancel` | Job abbrechen | `{ok}` |
+
+## 11.7.5 WebSocket Endpunkte
+
+| WS | Zweck |
+|---|---|
+| `/api/ws/runs/{run_id}` | Phase/Lauf/Queue/Log Events fuer Run Monitor |
+| `/api/ws/jobs/{job_id}` | Feingranulare Job-Events fuer Tool- und Downloadjobs |
+| `/api/ws/system` | optionale globale Events (health/version/warnings) |
+
+## 11.7.6 Event-Vertrag Run-Stream
+
+Pflicht-Events:
+
+1. `phase_start`
+2. `phase_progress`
+3. `phase_end`
+4. `run_end`
+5. `queue_progress` (MONO)
+6. `log_line`
+
+Beispiele:
+
+```json
+{"type":"phase_start","run_id":"20260307_221530_9f2a","filter":"R","phase":"NORMALIZATION","phase_index":3,"phase_count":17,"ts":"2026-03-07T22:16:04Z"}
+```
+
+```json
+{"type":"phase_progress","run_id":"20260307_221530_9f2a","filter":"R","phase":"NORMALIZATION","current":842,"total":1264,"pct":66.6,"eta_s":501,"ts":"2026-03-07T22:16:08Z"}
+```
+
+```json
+{"type":"phase_end","run_id":"20260307_221530_9f2a","filter":"R","phase":"NORMALIZATION","status":"ok","duration_ms":183245,"artifacts":["/runs/.../normalization_report.json"],"ts":"2026-03-07T22:19:07Z"}
+```
+
+```json
+{"type":"run_end","run_id":"20260307_221530_9f2a","status":"ok","duration_ms":2156345,"ts":"2026-03-07T22:52:11Z"}
+```
+
+FE-Regel:
+
+1. `monitor.resume` bleibt disabled, bis `selected_phase` gesetzt ist.
+2. Bei WS-Disconnect: `GET /api/runs/{run_id}/status` fuer Resync.
+
+## 11.7.7 Wichtige Request-Modelle
+
+`POST /api/runs/start`
+
+```json
+{
+  "config_revision_id": "config_rev_20260307T221530Z",
+  "runs_dir": "/data/tile_runs",
+  "run_name": "M31_altaz_test",
+  "color_mode": "MONO",
+  "filter_queue": [
+    {"filter_name":"L","input_dir":"/data/m31/L","pattern":"*.fits","run_label":"L","enabled":true}
+  ]
+}
+```
+
+`POST /api/runs/{run_id}/resume`
+
+```json
+{
+  "from_phase": "BGE",
+  "config_revision_id": "config_rev_20260307T221530Z",
+  "filter_context": {"filter_name":"R","index":2}
+}
+```
+
+`POST /api/tools/astrometry/solve`
+
+```json
+{
+  "astap_binary": "/home/user/.local/share/tile_compile/astap/astap_cli",
+  "astap_data_dir": "/home/user/.local/share/tile_compile/astap",
+  "fits_path": "/runs/xyz/stacked_m31.fit",
+  "search_radius_deg": 180
+}
+```
+
+`POST /api/tools/pcc/run`
+
+```json
+{
+  "rgb_fits": "/runs/xyz/stacked_rgb.fit",
+  "wcs_file": "/runs/xyz/stacked_rgb.wcs",
+  "source": "siril",
+  "siril_catalog_dir": "/home/user/.local/share/siril/siril_cat1_healpix8_xpsamp",
+  "params": {"mag_limit":14.0,"mag_bright_limit":6.0,"min_stars":10,"sigma_clip":2.5}
+}
+```
+
+## 11.7.8 Statuscodes (verbindlich)
+
+1. `200` fuer sync read/success.
+2. `202` fuer async Jobstart.
+3. `400` fuer Request-Fehler.
+4. `404` fuer unbekannte `run_id/job_id/revision_id`.
+5. `409` fuer Zustandskonflikte (z. B. Resume ohne Phase, Run bereits aktiv).
+6. `422` fuer Schema-/Feldvalidierung.
+7. `500` fuer unerwartete Backendfehler.
+
+## 12) FastAPI vs. Drogon (Einschaetzung)
+
+## 12.1 Kurzfazit
+
+1. Fuer dieses Projekt ist **FastAPI klar die pragmatischere Wahl**.
+2. Drogon ist technisch stark, aber hier mit hoeherem Integrationsaufwand.
+
+## 12.2 Warum FastAPI hier besser passt
+
+1. Bestehende Stats-/Tool-Skripte sind bereits Python-basiert (`generate_report.py`, Diagnose-Tools).
+2. API- und DTO-Entwicklung mit Pydantic ist schneller und wartbarer.
+3. WebSocket/SSE + JSON-Serialisierung sind mit FastAPI sofort produktiv nutzbar.
+4. Team-/Operations-Aufwand fuer Release und Debugging ist geringer.
+5. C++ bleibt auf seine Staerke fokussiert (Runner/CLI/Algorithmen), statt zweiten C++-Webstack einzufuehren.
+
+## 12.3 Wann Drogon sinnvoll waere
+
+1. Wenn ein reiner C++-Stack ohne Python-Abhaengigkeiten strategisch zwingend ist.
+2. Wenn sehr hohe API-Last (nicht Runner-Last) die zentrale Bottleneck ist.
+3. Wenn ein dediziertes C++-Backend-Team dauerhaft verfuegbar ist.
+
+## 12.4 Empfehlung
+
+1. GUI2 Backend mit FastAPI umsetzen.
+2. Runner/CLI als stabile Prozessadapter beibehalten.
+3. Entscheidung in einem spaeteren Architektur-Review nur dann neu bewerten, wenn echte Performance-/Betriebsdaten FastAPI als Engpass zeigen.
