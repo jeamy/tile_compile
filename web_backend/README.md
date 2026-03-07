@@ -34,9 +34,17 @@ Die API in `web_backend/app/api` ist auf den GUI2-Vertrag verdrahtet:
 
 Hinweis: Tool-Aktionen fuer ASTAP/Siril sind als echte Download-/Install-/Solve-Jobs implementiert.
 Abhaengigkeiten auf dem Host: `unzip` (ASTAP zip), optional `dpkg-deb` fuer ASTAP D80 `.deb`-Katalog.
+Download-Jobs unterstuetzen Retry/Resume (`retry_count`, `retry_backoff_sec`, `resume`, `timeout_s`, `force_restart`).
+Zusaetzliche Retry-Aliase:
+- `POST /api/tools/astrometry/install-cli/retry`
+- `POST /api/tools/astrometry/catalog/download/retry`
+- `POST /api/tools/pcc/siril/download-missing/retry`
 
 Run-Monitoring nutzt primär `logs/run_events.jsonl` (mit Fallback auf `events.jsonl`), inkl. Phase-Status und Gesamt-Progress.
 `POST /api/runs/start` unterstützt neben `input_dir` auch serielle Queues über `queue[]` oder `input_dirs[]`.
+
+FE-Job-Contract (Live-Felder in `job.data`):  
+[fe_contract_tools_jobs.md](/media/data/programming/tile_compile/web_backend/fe_contract_tools_jobs.md)
 
 ## Tests
 

@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas import JobAccepted
 from app.services.command_runner import launch_background_command
+from app.services.downloads import DownloadAborted, DownloadOptions, download_file_with_retry
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 
@@ -58,16 +59,30 @@ def astrometry_install(request: Request, payload: dict[str, Any] | None = None) 
     body = payload or {}
     data_dir = _resolve_astap_data_dir(body)
     url = str(body.get("url") or ASTAP_CLI_URL)
+    options = _download_options_from_payload(body, default_timeout_s=1800)
+    force_restart = bool(body.get("force_restart", False))
 
     def _worker(job_id: str) -> None:
         data_dir.mkdir(parents=True, exist_ok=True)
         archive_path = data_dir / "astap_cli.zip"
-        request.app.state.job_store.merge_data(job_id, {"stage": "download", "url": url, "data_dir": str(data_dir)})
-        _download_file(
+        if force_restart:
+            archive_path.unlink(missing_ok=True)
+        request.app.state.job_store.merge_data(
+            job_id,
+            {
+                "stage": "download",
+                "url": url,
+                "data_dir": str(data_dir),
+                "resume_enabled": options.resume,
+                "retry_count": options.retry_count,
+            },
+        )
+        download_file_with_retry(
             url,
             archive_path,
+            options=options,
             progress_cb=lambda r, t: _set_download_progress(request, job_id, r, t),
-            timeout_s=1800,
+            state_cb=lambda patch: _set_download_state(request, job_id, patch),
         )
 
         request.app.state.job_store.merge_data(job_id, {"stage": "extract", "archive": str(archive_path)})
@@ -100,19 +115,31 @@ def astrometry_catalog_download(request: Request, payload: dict[str, Any] | None
     data_dir = _resolve_astap_data_dir(body)
     filename = ASTAP_CATALOGS[catalog_id]["filename"]
     url = str(body.get("url") or f"{ASTAP_SF_BASE}{filename}/download")
+    options = _download_options_from_payload(body, default_timeout_s=1800)
+    force_restart = bool(body.get("force_restart", False))
 
     def _worker(job_id: str) -> None:
         data_dir.mkdir(parents=True, exist_ok=True)
         archive_path = data_dir / filename
+        if force_restart:
+            archive_path.unlink(missing_ok=True)
         request.app.state.job_store.merge_data(
             job_id,
-            {"stage": "download", "catalog_id": catalog_id, "url": url, "archive": str(archive_path)},
+            {
+                "stage": "download",
+                "catalog_id": catalog_id,
+                "url": url,
+                "archive": str(archive_path),
+                "resume_enabled": options.resume,
+                "retry_count": options.retry_count,
+            },
         )
-        _download_file(
+        download_file_with_retry(
             url,
             archive_path,
+            options=options,
             progress_cb=lambda r, t: _set_download_progress(request, job_id, r, t),
-            timeout_s=1800,
+            state_cb=lambda patch: _set_download_state(request, job_id, patch),
         )
 
         request.app.state.job_store.merge_data(job_id, {"stage": "extract"})
@@ -131,6 +158,20 @@ def astrometry_catalog_download(request: Request, payload: dict[str, Any] | None
         {"payload": body, "catalog_id": catalog_id},
         _worker,
     )
+
+
+@router.post("/astrometry/install-cli/retry", response_model=JobAccepted)
+def astrometry_install_retry(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
+    body = dict(payload or {})
+    body.setdefault("resume", True)
+    return astrometry_install(request, body)
+
+
+@router.post("/astrometry/catalog/download/retry", response_model=JobAccepted)
+def astrometry_catalog_download_retry(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
+    body = dict(payload or {})
+    body.setdefault("resume", True)
+    return astrometry_catalog_download(request, body)
 
 
 @router.post("/astrometry/catalog/cancel")
@@ -235,6 +276,8 @@ def pcc_siril_download_missing(request: Request, payload: dict[str, Any] | None 
     catalog_dir = Path(str(body.get("catalog_dir", _default_siril_catalog_dir()))).expanduser()
     chunk_ids_raw = body.get("chunk_ids")
     max_chunks = int(body.get("max_chunks", 0))
+    options = _download_options_from_payload(body, default_timeout_s=3600)
+    force_restart = bool(body.get("force_restart", False))
 
     chunk_ids: list[int] | None = None
     if isinstance(chunk_ids_raw, list):
@@ -257,14 +300,27 @@ def pcc_siril_download_missing(request: Request, payload: dict[str, Any] | None 
 
         request.app.state.job_store.merge_data(
             job_id,
-            {"catalog_dir": str(catalog_dir), "pending_chunks": missing, "total_chunks": len(missing)},
+            {
+                "catalog_dir": str(catalog_dir),
+                "pending_chunks": missing,
+                "total_chunks": len(missing),
+                "resume_enabled": options.resume,
+                "retry_count": options.retry_count,
+            },
         )
 
         for i, chunk in enumerate(missing):
             if _is_job_cancelled(request, job_id):
                 return
             request.app.state.job_store.merge_data(job_id, {"current_chunk": chunk, "current_index": i})
-            _download_siril_chunk(request, job_id, catalog_dir, chunk)
+            _download_siril_chunk(
+                request,
+                job_id,
+                catalog_dir,
+                chunk,
+                options=options,
+                force_restart=force_restart,
+            )
             request.app.state.job_store.merge_data(job_id, {"completed_chunks": i + 1})
 
         request.app.state.job_store.merge_data(job_id, {"pending_chunks": [], "missing_after": _missing_siril_chunks(catalog_dir)})
@@ -275,6 +331,13 @@ def pcc_siril_download_missing(request: Request, payload: dict[str, Any] | None 
         {"payload": body},
         _worker,
     )
+
+
+@router.post("/pcc/siril/download-missing/retry", response_model=JobAccepted)
+def pcc_siril_download_missing_retry(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
+    body = dict(payload or {})
+    body.setdefault("resume", True)
+    return pcc_siril_download_missing(request, body)
 
 
 @router.post("/pcc/siril/cancel")
@@ -368,7 +431,7 @@ def _start_custom_job(
             current = request.app.state.job_store.get(job.job_id)
             if current and current.state != "cancelled":
                 request.app.state.job_store.set_state(job.job_id, "ok")
-        except _JobCancelled:
+        except (DownloadAborted, _JobCancelled):
             request.app.state.job_store.set_state(job.job_id, "cancelled")
         except Exception as exc:
             request.app.state.job_store.merge_data(job.job_id, {"error": str(exc)})
@@ -457,29 +520,12 @@ def _set_download_progress(request: Request, job_id: str, received: int, total: 
         progress = max(0.0, min(1.0, float(received) / float(total)))
     request.app.state.job_store.merge_data(job_id, {"bytes_received": int(received), "bytes_total": int(total), "progress": progress})
     if _is_job_cancelled(request, job_id):
-        raise _JobCancelled()
+        raise DownloadAborted()
 
-
-def _download_file(
-    url: str,
-    dest_path: Path,
-    progress_cb: Callable[[int, int], None] | None = None,
-    timeout_s: int = 120,
-) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "TileCompileGUI2/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-        total = int(resp.headers.get("Content-Length", "0") or 0)
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        received = 0
-        with dest_path.open("wb") as f:
-            while True:
-                chunk = resp.read(1024 * 256)
-                if not chunk:
-                    break
-                f.write(chunk)
-                received += len(chunk)
-                if progress_cb:
-                    progress_cb(received, total)
+def _set_download_state(request: Request, job_id: str, patch: dict[str, Any]) -> None:
+    request.app.state.job_store.merge_data(job_id, patch)
+    if _is_job_cancelled(request, job_id):
+        raise DownloadAborted()
 
 
 def _guess_wcs_path(fits_path: Path) -> Path:
@@ -500,18 +546,29 @@ def _missing_siril_chunks(catalog_dir: Path) -> list[int]:
     return missing
 
 
-def _download_siril_chunk(request: Request, job_id: str, catalog_dir: Path, chunk_id: int) -> None:
+def _download_siril_chunk(
+    request: Request,
+    job_id: str,
+    catalog_dir: Path,
+    chunk_id: int,
+    *,
+    options: DownloadOptions,
+    force_restart: bool = False,
+) -> None:
     dat_path = catalog_dir / f"siril_cat1_healpix8_xpsamp_{chunk_id}.dat"
     if dat_path.exists():
         return
     bz2_path = catalog_dir / f"siril_cat1_healpix8_xpsamp_{chunk_id}.dat.bz2"
+    if force_restart:
+        bz2_path.unlink(missing_ok=True)
     url = SIRIL_URL_TEMPLATE.format(chunk=chunk_id)
     try:
-        _download_file(
+        download_file_with_retry(
             url,
             bz2_path,
+            options=options,
             progress_cb=lambda r, t: _set_download_progress(request, job_id, r, t),
-            timeout_s=3600,
+            state_cb=lambda patch: _set_download_state(request, job_id, patch),
         )
         request.app.state.job_store.merge_data(job_id, {"stage": "decompress", "chunk_id": chunk_id})
         with bz2.open(bz2_path, "rb") as src, dat_path.open("wb") as dst:
@@ -527,3 +584,22 @@ def _is_job_cancelled(request: Request, job_id: str) -> bool:
 
 class _JobCancelled(RuntimeError):
     pass
+
+
+def _download_options_from_payload(payload: dict[str, Any], *, default_timeout_s: int) -> DownloadOptions:
+    retry_count = int(payload.get("retry_count", 2))
+    retry_backoff_s = float(payload.get("retry_backoff_sec", 1.5))
+    resume = bool(payload.get("resume", True))
+    timeout_s = int(payload.get("timeout_s", default_timeout_s))
+    if retry_count < 0:
+        retry_count = 0
+    if timeout_s < 1:
+        timeout_s = default_timeout_s
+    if retry_backoff_s < 0:
+        retry_backoff_s = 0.0
+    return DownloadOptions(
+        timeout_s=timeout_s,
+        retry_count=retry_count,
+        retry_backoff_s=retry_backoff_s,
+        resume=resume,
+    )
