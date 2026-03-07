@@ -34,7 +34,7 @@
   --font-ui: "GUI2 Inria Sans", "Segoe UI", sans-serif;
   --font-title: "GUI2 Inria Serif", Georgia, serif;
 
-  --layout-min-width: 1024px;
+  --layout-min-width: 1920px;
   --layout-content-width: min(1920px, 100%);
   --layout-topbar-height: 76px;
 

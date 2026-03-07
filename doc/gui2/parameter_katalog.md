@@ -248,3 +248,15 @@ Quelle: `tile_compile_cpp/tile_compile.yaml`, `tile_compile_cpp/tile_compile.sch
 - Guardrails markieren Werte ausserhalb empfohlener Bereiche sofort inline.
 - Jeder Parameter hat eine Kurz-Erklaerung im Explain-Panel.
 - Presets koennen auf Teilbereiche angewendet werden (z. B. nur `bge.*` oder `pcc.*`).
+
+## 5) Parameter-Studio Abgleich (Clickdummy Stand)
+
+- Referenzseite: `doc/gui2/clickdummy/parameter-studio.html`.
+- Linie-B Pflichtcontrols sind im Dummy als interaktive Felder vorhanden:
+  - Suche, Preset, YAML-Sync, Validierung, Save/Reset/Diff
+  - Registration-Kernfelder
+  - BGE-Kernfelder
+  - PCC-Kernfelder
+  - Deprecated-Feld `data.linear_required`
+  - Situation Assistant (Alt/Az, Rotation, helle Sterne, wenige Frames, Gradient)
+- Die Vollabdeckung des gesamten Parameterbaums bleibt ueber Suchindex + Kategorien an `parameter_katalog.md` gebunden.

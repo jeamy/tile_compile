@@ -6,50 +6,58 @@
   <title>GUI 2 - Ablauf</title>
   <link rel="stylesheet" href="style.css?v=2">
   <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
 </head>
 <body>
   <nav class="pill-nav">
-    <a href="index.html">Start</a>
+    <a data-control="nav.start" href="index.html">Start</a>
     <div class="pill-sep"></div>
-    <a href="dashboard.html">Dashboard</a>
-    <a href="input-scan.html">Input&amp;Scan</a>
-    <a href="assumptions.html">Assumptions</a>
-    <a href="parameter-studio.html">Parameter Studio</a>
-    <a href="run-monitor.html">Run Monitor</a>
-    <a href="history-tools.html">History+Tools</a>
-    <a href="live-log.html">Live Log</a>
+    <a data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
     <div class="pill-sep"></div>
-    <a href="layout-1920.html">Layout 1920</a>
-    <a class="active" href="flow.html">Ablauf</a>
+    <a data-control="nav.layout_1920" href="layout-1920.html">Layout 1920</a>
+    <a class="active" data-control="nav.flow" href="flow.html">Ablauf</a>
     <a href="wizard.html">Wizard</a>
   </nav>
 
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
+
   <main>
     <div class="content-panel">
-      <p class="intro">Ablaufübersicht: MONO-Filter-Queue, Wizard-Schritte und Resume mit Config-Revision.</p>
+      <p class="intro">Ablaufuebersicht: MONO-Filter-Queue, Wizard-Schritte und Resume mit Config-Revision.</p>
+      <div data-control="flow.node.*" hidden></div>
 
       <div class="cards">
-        <a class="card" href="input-scan.html" style="text-decoration:none;color:inherit;">
+        <a class="card" data-control="flow.node.input_scan" href="input-scan.html" style="text-decoration:none;color:inherit;">
           <h3>1. Input & Scan</h3>
-          <p>Eingabeordner konfigurieren, Scan starten, Bayer-Pattern bestätigen.</p>
+          <p>Eingabeordner konfigurieren, Scan starten, Bayer-Pattern bestaetigen.</p>
         </a>
-        <a class="card" href="dashboard.html" style="text-decoration:none;color:inherit;">
+        <a class="card" data-control="flow.node.dashboard" href="dashboard.html" style="text-decoration:none;color:inherit;">
           <h3>2. Dashboard</h3>
           <p>Schnellstart mit Guided Run, Readiness Guardrails und Pipeline-Vorschau.</p>
         </a>
-        <a class="card" href="parameter-studio.html" style="text-decoration:none;color:inherit;">
+        <a class="card" data-control="flow.node.parameter_studio" href="parameter-studio.html" style="text-decoration:none;color:inherit;">
           <h3>3. Parameter Studio</h3>
           <p>Alle Parameter editieren, Presets anwenden, validieren.</p>
         </a>
-        <a class="card" href="run-monitor.html" style="text-decoration:none;color:inherit;">
+        <a class="card" data-control="flow.node.run_monitor" href="run-monitor.html" style="text-decoration:none;color:inherit;">
           <h3>4. Run Monitor</h3>
           <p>Phasen-Fortschritt, Resume-Optionen, Config-Revision.</p>
         </a>
-        <a class="card" href="history-tools.html" style="text-decoration:none;color:inherit;">
+        <a class="card" data-control="flow.node.history_tools" href="history-tools.html" style="text-decoration:none;color:inherit;">
           <h3>5. History & Tools</h3>
           <p>Run-Historie, Astrometry Plate Solve, PCC.</p>
         </a>
-        <a class="card" href="live-log.html" style="text-decoration:none;color:inherit;">
+        <a class="card" data-control="flow.node.live_log" href="live-log.html" style="text-decoration:none;color:inherit;">
           <h3>6. Live Log</h3>
           <p>Echtzeit-Log-Ausgabe mit Filteroptionen.</p>
         </a>

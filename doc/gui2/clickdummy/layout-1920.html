@@ -6,33 +6,40 @@
   <title>GUI 2 - Layout 1920</title>
   <link rel="stylesheet" href="style.css?v=2">
   <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
 </head>
 <body>
   <nav class="pill-nav">
-    <a href="index.html">Start</a>
+    <a data-control="nav.start" href="index.html">Start</a>
     <div class="pill-sep"></div>
-    <a href="dashboard.html">Dashboard</a>
-    <a href="input-scan.html">Input&amp;Scan</a>
-    <a href="assumptions.html">Assumptions</a>
-    <a href="parameter-studio.html">Parameter Studio</a>
-    <a href="run-monitor.html">Run Monitor</a>
-    <a href="history-tools.html">History+Tools</a>
-    <a href="live-log.html">Live Log</a>
+    <a data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
     <div class="pill-sep"></div>
-    <a class="active" href="layout-1920.html">Layout 1920</a>
-    <a href="flow.html">Ablauf</a>
+    <a class="active" data-control="nav.layout_1920" href="layout-1920.html">Layout 1920</a>
+    <a data-control="nav.flow" href="flow.html">Ablauf</a>
     <a href="wizard.html">Wizard</a>
   </nav>
+
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
 
   <main>
     <div class="content-panel">
       <h2>Layout 1920</h2>
-      <p class="intro">Technische Rasteransicht für die Desktop-Baseline 1920x1080: Shell, Main-Wrapper, Spaltenbreiten und Interaktionszonen.</p>
+      <p class="intro">Technische Rasteransicht fuer die Desktop-Baseline 1920x1080: Shell, Main-Wrapper, Spaltenbreiten und Interaktionszonen.</p>
 
       <div class="spec-list">
         <a class="spec-item" href="../layout_1920_spec.md" style="text-decoration:none;color:inherit;">
           <h4>Spec Datei</h4>
-          <p>Volle Rasterdefinition mit Koordinaten, Breiten, Gutter und Resizing-Regeln.</p>
+          <p>Volle Rasterdefinition mit Koordinaten, Breiten, Gutter und Resizing-Regeln (HTML-only Referenz, ohne PNG-Overlay).</p>
         </a>
         <div class="spec-item">
           <h4>Shell</h4>
@@ -49,6 +56,14 @@
       </div>
 
       <div class="cards">
+        <div class="card">
+          <h3>Layout-Links (Matrix)</h3>
+          <p>Diese zwei Controls entsprechen den Dokumentations-Hotspots der Funktionsmatrix.</p>
+          <div class="ps-actions" style="margin-top:10px;">
+            <a data-control="layout.hotspot.shell" class="ps-btn ps-btn-secondary" href="dashboard.html">Shell Zone</a>
+            <a data-control="layout.hotspot.main_wrapper" class="ps-btn ps-btn-secondary" href="parameter-studio.html">Main Wrapper Zone</a>
+          </div>
+        </div>
         <div class="card">
           <h3>Shell / App-Rahmen</h3>
           <p>x=24, y=24, w=1872, h=1032</p>
@@ -95,19 +110,19 @@
       <div class="spec-list">
         <div class="spec-item">
           <h4>Buttons</h4>
-          <p>Primary Buttons: 52 px Höhe, klarer Call-to-Action, rechtsbündig in Aktionsreihen.</p>
+          <p>Primary Buttons: 52 px Hoehe, klarer Call-to-Action, rechtsbuendig in Aktionsreihen.</p>
         </div>
         <div class="spec-item">
           <h4>Inputs</h4>
-          <p>Formfelder: 40 px Höhe, Labels direkt darüber, horizontale Reihen nur bei kurzen Feldern.</p>
+          <p>Formfelder: 40 px Hoehe, Labels direkt darueber, horizontale Reihen nur bei kurzen Feldern.</p>
         </div>
         <div class="spec-item">
           <h4>Status-Chips</h4>
-          <p>Min. 34 px Höhe, Farbcodierung für OK / CHECK / ERROR, immer innerhalb von Kartenzeilen.</p>
+          <p>Min. 34 px Hoehe, Farbcodierung fuer OK / CHECK / ERROR, immer innerhalb von Kartenzeilen.</p>
         </div>
         <div class="spec-item">
           <h4>Resizing-Regeln</h4>
-          <p>Seitenspalten bleiben logisch gruppiert; bei enger Breite dürfen Karten umbrechen, nicht überlappen.</p>
+          <p>Desktop-Regel: bei Breite &lt; 1920 wird horizontal gescrollt (kein Kompaktlayout).</p>
         </div>
       </div>
 

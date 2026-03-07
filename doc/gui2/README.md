@@ -22,6 +22,9 @@ Dieses Verzeichnis enthaelt das komplette Redesign-Paket fuer eine modernisierte
   - globale Theme-/Font-Basis: `clickdummy/theme.css`, `clickdummy/theme.js`, `clickdummy/assets/fonts/*`
 - `designvorschlaege.md`
   - Designalternativen, Empfehlung und Modernisierung aller GUI-Bereiche
+- `konsistenzcheck_html_dummy_2026-03-07.md`
+  - Abgleich Clickdummy vs. Detailkonzept/Implementierung/Layout/Katalog
+  - dokumentierte Luecken und durchgefuehrte Synchronisierung
 - `detailkonzept.md`
   - Detaillierte UI-Spezifikation (Layout, Komponenten, Guardrails, Situation Assistant)
   - inkl. MONO Multi-Filter Queue (serielle Abarbeitung)
@@ -36,6 +39,10 @@ Dieses Verzeichnis enthaelt das komplette Redesign-Paket fuer eine modernisierte
   - inkl. MONO-Beispielprofile aus `tile_compile_cpp/examples/*.example.yaml`
 - `i18n_konzept.md`
   - Sprachkonzept fuer DE/EN inkl. Parameter-Kurztexte
+- `html_fastapi_architektur.md`
+  - Zielarchitektur fuer HTML-Frontend mit FastAPI-Backend
+  - Installationsanforderungen fuer macOS/Windows/Linux (inkl. `venv`, C++ Libs)
+  - Build-, Release- und CI-Management fuer Web + Runner/CLI
 - `i18n/`
   - `de.json`, `en.json` als Laufzeit-Locales
   - `additional_keys.yaml` fuer nicht direkt Control-gebundene Texte (z. B. Szenario- oder Command-Hinweise)
@@ -59,14 +66,17 @@ Empfohlen ist **Variante B - Parameter Studio** (siehe `mockups/gui2_01_styleboa
 3. Detail- und Ablaufbeschreibung lesen: `doc/gui2/detailkonzept.md` und `doc/gui2/ablaeufe.md`.
 4. Szenario- und i18n-Teil pruefen: `doc/gui2/szenario_empfehlungen.md` und `doc/gui2/i18n_konzept.md`.
 5. Parameterabdeckung pruefen: `doc/gui2/parameter_katalog.md`.
-6. Layout-Raster im Klickdummy pruefen: `doc/gui2/clickdummy/layout-1920.html` und `doc/gui2/layout_1920_spec.md`.
-7. i18n-Sync pruefen: `python3 doc/gui2/scripts/sync_i18n_from_registry.py --check`.
-8. Wizard-Flow pruefen: `doc/gui2/clickdummy/wizard.html` plus `doc/gui2/ablaeufe.md`.
+6. Web-Architektur und Deployment pruefen: `doc/gui2/html_fastapi_architektur.md`.
+7. Layout-Raster im Klickdummy pruefen: `doc/gui2/clickdummy/layout-1920.html` und `doc/gui2/layout_1920_spec.md`.
+8. i18n-Sync pruefen: `python3 doc/gui2/scripts/sync_i18n_from_registry.py --check`.
+9. Wizard-Flow pruefen: `doc/gui2/clickdummy/wizard.html` plus `doc/gui2/ablaeufe.md`.
 
 ## Scope
 
 - Die GUI-2-Konzeption ist jetzt explizit auf Desktop optimiert.
 - Layout-Baseline: mindestens `1920x1080`.
+- HTML-Clickdummy ist die primare Referenz der aktuellen GUI-2-Spezifikation.
+- Mockup-PNGs sind optionales Historienmaterial, aber keine normative Sollquelle mehr.
 - Resume arbeitet mit Config-Revisionshistorie (alte Konfigurationen bleiben erhalten und sind wiederherstellbar).
 - `runs_dir` ist frei waehlbar; Run-Namen sind frei definierbar, der Zielordner endet immer mit `<YYYYMMDD_HHMMSS>`.
 

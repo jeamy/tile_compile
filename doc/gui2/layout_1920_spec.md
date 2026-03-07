@@ -6,7 +6,7 @@ Diese Spezifikation definiert ein fixes Desktop-Layout fuer `1920x1080` als Prim
 
 - Viewport: `1920 x 1080`
 - Outer Margin: `24 px` links/rechts
-- Topbar Height: `76 px` (von y=20 bis y=96 im Mockup)
+- Topbar Height: `76 px` (y=20..96 in der HTML-Referenz)
 - Content Start: `y = 116 px`
 - Global Gap (zwischen Hauptbereichen): `24 px`
 - Card Radius:
@@ -53,7 +53,7 @@ Empfohlene Spaltenlogik im Wrapper:
 - Rechtes Guardrail-Panel: `664 px`
 - Unteres Pipeline-Panel: volle Wrapper-Breite
 
-Orientierungswerte aus Mockup:
+Orientierungswerte aus HTML-Referenz:
 
 - Guided Run: `x=356..1210`
 - Guardrails: `x=1230..1894`
@@ -76,7 +76,7 @@ Zwischenabstand:
 - links -> mitte: `16-18 px`
 - mitte -> rechts: `18 px`
 
-Orientierungswerte aus Mockup:
+Orientierungswerte aus HTML-Referenz:
 
 - Links: `x=382..732`
 - Mitte: `x=748..1380`
@@ -94,7 +94,7 @@ Drei feste Spalten im Wrapper:
 2. Live Log: `420 px`
 3. Artefakte/Actions: `382 px`
 
-Orientierungswerte aus Mockup:
+Orientierungswerte aus HTML-Referenz:
 
 - Phasen: `x=382..1030`
 - Live Log + Stats: `x=1048..1468`
@@ -110,7 +110,7 @@ Zweispaltenlayout:
 1. History links: `860 px`
 2. Tools rechts: `608 px`
 
-Orientierungswerte aus Mockup:
+Orientierungswerte aus HTML-Referenz:
 
 - History: `x=382..1242`
 - Tools: `x=1260..1868`
@@ -137,7 +137,7 @@ Mindestgroessen fuer klickbare Ziele:
 
 ## 6.1 Verbindliche Spacing-Tabelle (Tokens)
 
-Alle Werte sind als zentrale Tokens in `scripts/generate_mockups.py` unter `SPACING_1920` gepflegt.
+Alle Werte sind als zentrale Sollwerte im Layout-Spec und in den Clickdummy-CSS-Dateien (`theme.css`, `screen-placeholder.css`) zu halten.
 
 | Token | Wert | Bedeutung |
 |---|---|---|
@@ -193,19 +193,23 @@ Nur bei `Result: OK` gilt das Layout als spacing-konform.
   - `>1920 px`: mehr Seitenrand links/rechts.
   - `<1920 px`: horizontaler Scroll statt Umbruch auf Kompaktlayout.
 
-## 8) Mapping zu den vorhandenen Assets
+## 8) Mapping zu den vorhandenen Assets (HTML-only)
 
-- Referenzbilder liegen unter `doc/gui2/mockups/*.png` und sind auf 1920-Basis gerendert.
-- Klickdummy (`doc/gui2/clickdummy/*.html`) nutzt relative Hotspots, die auf diese 1920-Komposition abgestimmt sind.
+- Primare Referenzseiten liegen unter `doc/gui2/clickdummy/*.html`.
+- Das Layout wird direkt ueber HTML-Struktur und CSS definiert, nicht ueber PNG-Overlays.
+- Technische Referenz fuer Rasterregeln:
+  - `doc/gui2/clickdummy/theme.css`
+  - `doc/gui2/clickdummy/screen-placeholder.css`
+  - diese Spezifikation
 
-## 9) Implementierungshinweis (Qt)
+## 9) Implementierungshinweis (Web/FastAPI)
 
-Fuer die erste Qt-Umsetzung empfiehlt sich:
+Fuer die Web-Umsetzung empfiehlt sich:
 
-1. Feste Mindestbreite des MainWindow: `1920`.
-2. Splitter mit fixierten initialen Breiten gemaess Abschnitt 4.
-3. Spaltenbreiten als zentral definierte Konstante (`Layout1920Spec`).
-4. Pixel-Snap (int-Rundung) fuer alle Breiten, um 1px-Flimmern zu vermeiden.
+1. Feste Mindestbreite der App-Shell: `1920`.
+2. Spaltenbreiten als zentrale CSS-Tokens und konstante Grid-Definition.
+3. Pixel-Snap (int-Rundung) fuer Breiten/Abstaende, um 1px-Artefakte zu vermeiden.
+4. API-getriebene Datenbindung ohne Layout-Logik im Backend.
 
 ## 10) Koordinatenmatrix (px + Prozent vom 1920x1080 Canvas)
 
@@ -237,30 +241,21 @@ Fuer die erste Qt-Umsetzung empfiehlt sich:
 
 ## 11) Klickdummy-Mapping (Layout-Review)
 
-Die Seite `clickdummy/layout-1920.html` nutzt `mockups/gui2_08_layout_1920_overlay.png` und bindet die Rasterzonen als direkte Hotspots:
+Die Seite `clickdummy/layout-1920.html` dokumentiert die Rasterzonen als HTML-Referenz:
 
-| Hotspot | Relativ (%) | Ziel |
+| Bereich/Link | Relativ (%) | Ziel |
 |---|---|---|
-| Sidebar / Shell | `1.25,10.74,15.62,87.04` | `dashboard.html` |
+| Shell | `1.25,10.74,15.62,87.04` | `dashboard.html` |
 | Main Wrapper | `18.54,21.30,80.10,73.89` | `parameter-studio.html` |
-| Split Dashboard | `34.58,69.81,58.33,3.52` | `dashboard.html` |
-| Split Parameter | `34.58,74.63,58.33,3.52` | `parameter-studio.html` |
-| Split Run Monitor | `34.58,79.44,58.33,3.52` | `run-monitor.html` |
-| Split History+Tools | `34.58,84.26,58.33,3.52` | `history-tools.html` |
+| Dashboard Zone | `34.58,69.81,58.33,3.52` | `dashboard.html` |
+| Parameter Zone | `34.58,74.63,58.33,3.52` | `parameter-studio.html` |
+| Run Monitor Zone | `34.58,79.44,58.33,3.52` | `run-monitor.html` |
+| History+Tools Zone | `34.58,84.26,58.33,3.52` | `history-tools.html` |
 
-## 12) Mockup-Referenz fuer Spezifikation
+## 12) Referenzmodus der Spezifikation
 
-- Generator: `scripts/generate_mockups.py`
-- Neues Referenzbild: `mockups/gui2_08_layout_1920_overlay.png`
-- Zweite Overlay-Variante: `mockups/gui2_09_layout_1920_measurelines.png`
-- Das Bild visualisiert:
-  - Shell-Breiten (`Sidebar 300`, `Main 1538`)
-  - Main-Wrapper (`1538 x 798`)
-  - Split-Breiten pro Screen (`Dashboard`, `Parameter`, `Run`, `History`)
-  - Mindestgroessen fuer Interaktionsziele
-- Die zweite Variante visualisiert zusaetzlich:
-  - explizite Pixelmasslinien je Screen
-  - Inset-/Gap-Masse (`0/26 px`, `16/18/20 px`)
+- Diese Spezifikation wird direkt gegen die HTML-Dummies geprueft.
+- PNG-Mockups sind optionales Historienmaterial, aber nicht mehr normative Sollquelle.
 
 ## 13) Review-Checkliste (detailliert)
 
@@ -269,4 +264,4 @@ Die Seite `clickdummy/layout-1920.html` nutzt `mockups/gui2_08_layout_1920_overl
 3. Screen-Spalten stimmen mit Abschnitt 4/10.
 4. Primaraktionen sind mindestens `52 px` hoch.
 5. Zeilen-Resumes im Run-Monitor sind mindestens `48 px` hoch.
-6. Klickdummy-Hotspots treffen die Panelgrenzen sichtbar korrekt.
+6. Klickdummy-Zonen und Navigationslinks verweisen konsistent auf die Zielscreens.

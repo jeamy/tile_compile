@@ -35,6 +35,12 @@ Key-Schema:
   - `ui.tooltip.parameter.registration.star_topk`
   - `ui.tooltip.monitor.stats_generate`
 
+HTML-Clickdummy-Umsetzung:
+
+- Primar ueber `title` oder `data-tooltip` pro Control.
+- Zusaetzliche Absicherung ueber `doc/gui2/clickdummy/tooltips.js` (setzt Fallback-Tooltips auf alle interaktiven Elemente).
+- Control-Mapping im Dummy ueber `data-control=\"<control_id>\"`.
+
 ## 3) Migrationsreihenfolge (ohne Funktionsverlust)
 
 1. **Bestandsfreeze**
@@ -49,6 +55,7 @@ Key-Schema:
    - Zentraler GUI-State: `project`, `scan`, `config`, `config_revisions`, `queue`, `run`, `history`, `tools`, `i18n`.
 5. **Screen-Implementierung**
    - Reihenfolge: Dashboard -> Input&Scan -> Parameter Studio -> Assumptions -> Run Monitor -> History+Tools -> Live Log.
+   - Referenzseiten: `doc/gui2/clickdummy/*.html` (HTML-only, keine PNG-Referenz notwendig).
 6. **Funktionsparitaet**
    - Legacy-Feature-Mapping gegen Registry abhaken.
 7. **Abnahmesuite**

@@ -5,57 +5,161 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GUI 2 - Wizard Ablauf</title>
   <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="screen-placeholder.css?v=2">
   <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
 </head>
 <body>
   <nav class="pill-nav">
-    <a href="index.html">Start</a>
+    <a data-control="nav.start" href="index.html">Start</a>
     <div class="pill-sep"></div>
-    <a href="dashboard.html">Dashboard</a>
-    <a href="input-scan.html">Input&amp;Scan</a>
-    <a href="assumptions.html">Assumptions</a>
-    <a href="parameter-studio.html">Parameter Studio</a>
-    <a href="run-monitor.html">Run Monitor</a>
-    <a href="history-tools.html">History+Tools</a>
-    <a href="live-log.html">Live Log</a>
+    <a data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
     <div class="pill-sep"></div>
-    <a href="layout-1920.html">Layout 1920</a>
-    <a href="flow.html">Ablauf</a>
+    <a data-control="nav.layout_1920" href="layout-1920.html">Layout 1920</a>
+    <a data-control="nav.flow" href="flow.html">Ablauf</a>
     <a class="active" href="wizard.html">Wizard</a>
   </nav>
 
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
+
   <main>
     <div class="content-panel">
-      <p class="intro">Detaillierter Wizard-Ablauf: Input → Run-Ziel (runs_dir, run_name) → Queue → Preset/Szenario → Validation → Start → Resume mit Config-Revision.</p>
+      <p class="intro">Detaillierter Guided-Run: Input -> Calibration -> Queue -> Preset/Situation -> Validation -> Start -> Resume.</p>
 
-      <div class="cards">
-        <a class="card" href="dashboard.html" style="text-decoration:none;color:inherit;">
-          <h3>1. Input + Run-Ziel</h3>
-          <p>`input_dirs`, `runs_dir`, `run_name`; Preview zeigt `<run_name>_<YYYYMMDD_HHMMSS>`.</p>
-        </a>
-        <a class="card" href="dashboard.html" style="text-decoration:none;color:inherit;">
-          <h3>2. MONO Queue</h3>
-          <p>Filterliste (`L/R/G/B/Ha...`) mit je `input_dir`, optional `pattern`, seriell `Filter i/N`.</p>
-        </a>
-        <a class="card" href="parameter-studio.html" style="text-decoration:none;color:inherit;">
-          <h3>3. Preset + Parameter</h3>
-          <p>Preset/Situation anwenden, alle Felder editieren, Explain + YAML-Diff pruefen.</p>
-        </a>
-        <a class="card" href="parameter-studio.html" style="text-decoration:none;color:inherit;">
-          <h3>4. Validation</h3>
-          <p>Schema+Semantik validieren; bei `error` bleibt Start/Resume blockiert.</p>
-        </a>
-        <a class="card" href="run-monitor.html" style="text-decoration:none;color:inherit;">
-          <h3>5. Start + Monitor</h3>
-          <p>Queue starten, Live-Phasen verfolgen, Stats im Run Monitor ausloesen.</p>
-        </a>
-        <a class="card" href="run-monitor.html" style="text-decoration:none;color:inherit;">
-          <h3>6. Resume + Revision</h3>
-          <p>Phase anklicken, Config-Revision waehlen, bei Bedarf alte Revision wiederherstellen (`Restore Revision`).</p>
-        </a>
+      <div class="ps-layout-2">
+        <section class="ps-col">
+          <div class="ps-section">
+            <div class="ps-section-title">Step 1: Input + Run-Ziel</div>
+            <div class="ps-row">
+              <label for="wizard-input-input-dirs">input_dirs</label>
+              <input id="wizard-input-input-dirs" data-control="wizard.input.input_dirs" class="ps-input ps-wide" type="text" value="/data/m31/2026-03-01, /data/m31/2026-03-02" title="Input-Ordner fuer den Wizard-Draft.">
+            </div>
+            <div class="ps-row">
+              <label for="wizard-input-pattern">pattern</label>
+              <input id="wizard-input-pattern" data-control="wizard.input.pattern" class="ps-input" type="text" value="*.fits" title="Dateimuster fuer Inputdateien.">
+            </div>
+            <div class="ps-row">
+              <label for="wizard-input-color-mode">color_mode</label>
+              <select id="wizard-input-color-mode" data-control="wizard.input.color_mode" class="ps-select" title="Farbmodus fuer den Run-Draft.">
+                <option>OSC</option>
+                <option selected>MONO</option>
+              </select>
+            </div>
+            <div class="ps-row">
+              <label for="wizard-input-runs-dir">runs_dir</label>
+              <input id="wizard-input-runs-dir" data-control="wizard.input.runs_dir" class="ps-input ps-wide" type="text" value="/data/tile_runs" title="Ausgabeordner fuer Runs.">
+            </div>
+            <div class="ps-row">
+              <label for="wizard-input-run-name">run_name</label>
+              <input id="wizard-input-run-name" data-control="wizard.input.run_name" class="ps-input" type="text" value="M31_altaz_test" title="Freier Basisname fuer den Run.">
+              <span class="ps-hint">Preview: <code>M31_altaz_test_20260307_221530</code></span>
+            </div>
+          </div>
+
+          <div class="ps-section">
+            <div class="ps-section-title">Step 2: Calibration</div>
+            <div class="ps-row">
+              <input id="wizard-calibration-use-bias" data-control="wizard.calibration.use_bias" type="checkbox" checked title="Bias-Kalibrierung aktivieren.">
+              <label for="wizard-calibration-use-bias">use_bias</label>
+              <input id="wizard-calibration-bias-dir" data-control="wizard.calibration.bias_dir" class="ps-input ps-wide" type="text" value="/data/calib/bias" title="Bias-Ordner fuer Wizard-Draft.">
+            </div>
+            <div class="ps-row">
+              <input id="wizard-calibration-use-dark" data-control="wizard.calibration.use_dark" type="checkbox" checked title="Dark-Kalibrierung aktivieren.">
+              <label for="wizard-calibration-use-dark">use_dark</label>
+              <input id="wizard-calibration-darks-dir" data-control="wizard.calibration.darks_dir" class="ps-input ps-wide" type="text" value="/data/calib/darks" title="Dark-Ordner fuer Wizard-Draft.">
+            </div>
+            <div class="ps-row">
+              <input id="wizard-calibration-use-flat" data-control="wizard.calibration.use_flat" type="checkbox" title="Flat-Kalibrierung aktivieren.">
+              <label for="wizard-calibration-use-flat">use_flat</label>
+              <input id="wizard-calibration-flats-dir" data-control="wizard.calibration.flats_dir" class="ps-input ps-wide" type="text" value="/data/calib/flats" title="Flat-Ordner fuer Wizard-Draft.">
+            </div>
+          </div>
+
+          <div class="ps-section">
+            <div class="ps-section-title">Step 3: MONO Queue</div>
+            <div class="ps-queue-block" style="margin-top:0;">
+              <div class="ps-queue-head">
+                <div>Filter</div>
+                <div>Input Dir</div>
+                <div>Pattern</div>
+                <div>Run Label</div>
+                <div>Aktiv</div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select data-control="wizard.queue.row.filter_name" class="ps-select"><option selected>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><input data-control="wizard.queue.row.input_dir" class="ps-input" type="text" value="/data/m31/L" title="Input-Ordner fuer Queue-Zeile."></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="*.fit"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="L_sessionA"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select data-control="wizard.queue.row.filter_name" class="ps-select"><option>L</option><option selected>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><input data-control="wizard.queue.row.input_dir" class="ps-input" type="text" value="/data/m31/R" title="Input-Ordner fuer Queue-Zeile."></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="*.fit"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="R_sessionA"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ps-section">
+            <div class="ps-section-title">Step 4: Preset + Situation + Validation</div>
+            <div class="ps-row">
+              <label for="wizard-preset-select">preset</label>
+              <select id="wizard-preset-select" data-control="wizard.preset.select" class="ps-select" title="Preset fuer Wizard-Draft waehlen.">
+                <option selected>Smart Telescope Strict</option>
+                <option>Ultra Conservative</option>
+                <option>Small-N Anti-Grid</option>
+              </select>
+            </div>
+            <div class="ps-row">
+              <label>Szenarien</label>
+              <button id="wizard-situation-apply" data-control="wizard.situation.apply" class="ps-btn ps-btn-secondary ps-btn-compact" title="Szenario-Deltas auf Draft anwenden.">Szenario anwenden</button>
+              <span class="ps-hint">Alt/Az + starke Rotation + helle Sterne</span>
+            </div>
+            <div id="wizard-validation-result" data-control="wizard.validation.result" class="ps-result" style="margin-top:8px;">
+              <div class="ps-result-title">Validation</div>
+              <div>Schema: <b>OK</b> | Semantik: <b>WARN</b> | Guardrails: <b>CHECK</b> (BGE/PCC Werte).</div>
+            </div>
+          </div>
+
+          <div class="ps-actions">
+            <button id="wizard-nav-back" data-control="wizard.nav.back" class="ps-btn ps-btn-secondary" title="Zum vorherigen Wizard-Schritt.">Zurueck</button>
+            <button id="wizard-nav-next" data-control="wizard.nav.next" class="ps-btn ps-btn-secondary" title="Zum naechsten Wizard-Schritt.">Weiter</button>
+            <a id="wizard-start" data-control="wizard.start" class="ps-btn" href="run-monitor.html" title="Run mit aktuellem Wizard-Draft starten.">Run starten</a>
+          </div>
+        </section>
+
+        <aside class="ps-col">
+          <div class="ps-section">
+            <div class="ps-section-title">Implementierungskette</div>
+            <div class="ps-note" style="line-height:1.6;">
+              <code>wizard_init</code> -> <code>scan_preview</code> -> <code>build_queue</code> ->
+              <code>apply_preset/apply_scenarios</code> -> <code>validate_config</code> ->
+              <code>persist_config_revision</code> -> <code>resolve_run_output_dir</code> -> <code>start_serial_queue</code>
+            </div>
+          </div>
+
+          <div class="ps-section">
+            <div class="ps-section-title">Resume aus Wizard-Kontext</div>
+            <div class="ps-note">Nach Parameteraenderung wird immer eine neue Config-Revision erzeugt. Resume kann danach im Run Monitor per Phase-Klick mit gewaehlter Revision gestartet werden.</div>
+            <div class="ps-actions" style="margin-top:10px;">
+              <a class="ps-btn ps-btn-secondary" data-control="nav.run_monitor" href="run-monitor.html">Zum Run Monitor</a>
+              <a class="ps-btn ps-btn-secondary" data-control="nav.parameter_studio" href="parameter-studio.html">Zum Parameter Studio</a>
+            </div>
+          </div>
+        </aside>
       </div>
-
-      <p class="footer-note">Implementierungsabbildung: `wizard_init -> scan_preview -> build_queue -> apply_preset/apply_scenarios -> validate_config -> persist_config_revision -> resolve_run_output_dir -> start_serial_queue`.</p>
     </div>
   </main>
 </body>

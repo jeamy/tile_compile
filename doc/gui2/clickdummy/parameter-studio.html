@@ -7,104 +7,258 @@
   <link rel="stylesheet" href="style.css?v=2">
   <link rel="stylesheet" href="screen-placeholder.css?v=2">
   <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
 </head>
 <body>
   <nav class="pill-nav">
-    <a href="index.html">Start</a>
+    <a data-control="nav.start" href="index.html">Start</a>
     <div class="pill-sep"></div>
-    <a href="dashboard.html">Dashboard</a>
-    <a href="input-scan.html">Input&amp;Scan</a>
-    <a href="assumptions.html">Assumptions</a>
-    <a class="active" href="parameter-studio.html">Parameter Studio</a>
-    <a href="run-monitor.html">Run Monitor</a>
-    <a href="history-tools.html">History+Tools</a>
-    <a href="live-log.html">Live Log</a>
+    <a data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a class="active" data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
     <div class="pill-sep"></div>
-    <a href="layout-1920.html">Layout 1920</a>
-    <a href="flow.html">Ablauf</a>
+    <a data-control="nav.layout_1920" href="layout-1920.html">Layout 1920</a>
+    <a data-control="nav.flow" href="flow.html">Ablauf</a>
     <a href="wizard.html">Wizard</a>
   </nav>
 
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
+
   <main>
-    <p class="intro">Alle verwendeten Parameter in einer konsistenten, filterbaren und validierbaren Oberfläche.</p>
+    <p class="intro">Vollstaendige Parametereingabe mit Suche, Explain-Panel, Szenario-Empfehlungen und YAML-Diff.</p>
 
     <div class="placeholder-screen">
       <div class="placeholder-sidebar">
         <div class="ps-label">Navigation</div>
-        <a class="ps-item" href="dashboard.html">Dashboard</a>
-        <a class="ps-item" href="input-scan.html">Input &amp; Scan</a>
-        <a class="ps-item ps-active" href="parameter-studio.html">Parameter Studio</a>
-        <a class="ps-item" href="assumptions.html">Assumptions</a>
-        <a class="ps-item" href="run-monitor.html">Run Monitor</a>
-        <a class="ps-item" href="history-tools.html">History + Tools</a>
-        <a class="ps-item" href="live-log.html">Live Log</a>
+        <a class="ps-item" data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+        <a class="ps-item" data-control="nav.input_scan" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item ps-active" data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item" data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+        <a class="ps-item" data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item" data-control="nav.history_tools" href="history-tools.html">History + Tools</a>
+        <a class="ps-item" data-control="nav.live_log" href="live-log.html">Live Log</a>
       </div>
 
       <div class="placeholder-content">
         <h2>Parameter Studio</h2>
-        <p class="ps-sub">Alle verwendeten Parameter in einer konsistenten, filterbaren und validierbaren Oberfläche.</p>
+        <p class="ps-sub">Linie B: alle relevanten Parameter mit Kurz-Erklaerung, Tooltips, Szenariohinweisen und geplanter Vollabdeckung aus <code>parameter_katalog.md</code>.</p>
 
-        <div class="ps-section">
-          <div class="ps-section-title">Registration</div>
-          <div class="ps-row">
-            <label>registration_method</label>
-            <select class="ps-select"><option selected>hybrid_phase_ecc</option><option>phase_correlation</option><option>robust_phase_ecc</option></select>
-          </div>
-          <div class="ps-row">
-            <label>registration_max_shift_percent</label>
-            <input class="ps-input ps-short" type="number" value="15.0" step="0.1">
-            <span class="ps-hint">Max. Verschiebung in % der Bildgröße</span>
-          </div>
-          <div class="ps-row">
-            <label>registration_min_correlation</label>
-            <input class="ps-input ps-short" type="number" value="0.3" step="0.01">
-          </div>
-        </div>
+        <div class="ps-layout-3">
+          <div data-control="parameter.category.*" hidden></div>
+          <aside class="ps-col">
+            <div class="ps-section">
+              <div class="ps-section-title">Kategorien</div>
+              <div class="ps-list">
+                <button id="parameter-category-registration" data-control="parameter.category.registration" data-tooltip="Kategorie Registration filtern.">Registration</button>
+                <button id="parameter-category-bge" data-control="parameter.category.bge" data-tooltip="Kategorie BGE filtern.">BGE</button>
+                <button id="parameter-category-pcc" data-control="parameter.category.pcc" data-tooltip="Kategorie PCC filtern.">PCC</button>
+                <button id="parameter-category-input" data-control="parameter.category.input_scan" data-tooltip="Kategorie Input &amp; Scan filtern.">Input &amp; Scan</button>
+                <button id="parameter-category-runtime" data-control="parameter.category.runtime_limits" data-tooltip="Kategorie Runtime Limits filtern.">Runtime Limits</button>
+                <button id="parameter-category-calibration" data-control="parameter.category.calibration" data-tooltip="Kategorie Calibration filtern.">Calibration</button>
+                <button id="parameter-category-assumptions" data-control="parameter.category.assumptions" data-tooltip="Kategorie Assumptions filtern.">Assumptions</button>
+                <button id="parameter-category-data" class="is-active" data-control="parameter.category.data" data-tooltip="Kategorie Data inklusive Deprecated anzeigen.">Data (inkl. Deprecated)</button>
+              </div>
+            </div>
+          </aside>
 
-        <div class="ps-section">
-          <div class="ps-section-title">Tile Grid</div>
-          <div class="ps-row">
-            <label>tile_size</label>
-            <input class="ps-input ps-short" type="number" value="256">
-          </div>
-          <div class="ps-row">
-            <label>tile_overlap</label>
-            <input class="ps-input ps-short" type="number" value="64">
-          </div>
-        </div>
+          <section class="ps-col">
+            <div class="ps-section">
+              <div class="ps-section-title">Suche + Aktionen</div>
+              <div class="ps-row">
+                <label for="parameter-search">Parameter suchen</label>
+                <input id="parameter-search" data-control="parameter.search" class="ps-input ps-wide" type="text" value="registration.star_topk" title="Filtert ueber section.key.subkey.">
+              </div>
+              <div class="ps-actions" style="margin-top:8px;">
+                <button id="parameter-preset-apply" data-control="parameter.preset_apply" class="ps-btn ps-btn-secondary" title="Preset auf aktuelle Konfiguration anwenden.">Preset anwenden</button>
+                <button id="parameter-yaml-sync" data-control="parameter.yaml_sync" class="ps-btn ps-btn-secondary" title="YAML laden/synchronisieren.">YAML Sync</button>
+                <button id="parameter-validate" data-control="parameter.validate" class="ps-btn ps-btn-secondary" title="Schema- und Semantikvalidierung ausfuehren.">Validieren</button>
+              </div>
+            </div>
 
-        <div class="ps-section">
-          <div class="ps-section-title">Background Extraction</div>
-          <div class="ps-row">
-            <label>bge_method</label>
-            <select class="ps-select"><option selected>median_filter</option><option>morphological</option></select>
-          </div>
-          <div class="ps-row">
-            <label>bge_kernel_size</label>
-            <input class="ps-input ps-short" type="number" value="25">
-          </div>
-        </div>
+            <div class="ps-section">
+              <div class="ps-section-title">Registration</div>
+              <div class="ps-row">
+                <label for="parameter-registration-engine">registration.engine</label>
+                <select id="parameter-registration-engine" data-control="parameter.registration.engine" class="ps-select" title="Hauptmethode fuer Bildregistrierung.">
+                  <option selected>triangle_star_matching</option>
+                  <option>phase_correlation</option>
+                  <option>robust_phase_ecc</option>
+                </select>
+                <span class="ps-tag reco">Empfohlen: Alt/Az</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-registration-allow-rotation">registration.allow_rotation</label>
+                <select id="parameter-registration-allow-rotation" data-control="parameter.registration.allow_rotation" class="ps-select" title="Erlaubt Rotationsanteile im Registrierungsmodell.">
+                  <option selected>true</option>
+                  <option>false</option>
+                </select>
+                <span class="ps-hint">Kurz: fuer Alt/Az und starke Rotation aktiv lassen.</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-registration-star-topk">registration.star_topk</label>
+                <input id="parameter-registration-star-topk" data-control="parameter.registration.star_topk" class="ps-input ps-short" type="number" value="180" title="Anzahl Top-Sterne fuer Matching.">
+                <span class="ps-hint">Kurz: mehr Sterne erhoehen Robustheit, kosten aber Laufzeit.</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-registration-star-inlier">registration.star_inlier_tol_px</label>
+                <input id="parameter-registration-star-inlier" data-control="parameter.registration.star_inlier_tol_px" class="ps-input ps-short" type="number" step="0.1" value="4.0" title="Toleranz fuer Star-Inlier in Pixeln.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-registration-reject-cc">registration.reject_cc_min_abs</label>
+                <input id="parameter-registration-reject-cc" data-control="parameter.registration.reject_cc_min_abs" class="ps-input ps-short" type="number" step="0.01" value="0.30" title="Mindestwert fuer Cross-Correlation bei Match-Reject.">
+              </div>
+            </div>
 
-        <div class="ps-section">
-          <div class="ps-section-title">Photometric Color Calibration</div>
-          <div class="ps-row">
-            <label>pcc_reference_catalog</label>
-            <select class="ps-select"><option selected>gaia_dr3</option><option>tycho2</option></select>
-          </div>
-          <div class="ps-row">
-            <label>pcc_max_stars</label>
-            <input class="ps-input ps-short" type="number" value="500">
-          </div>
-        </div>
+            <div class="ps-section">
+              <div class="ps-section-title">BGE</div>
+              <div class="ps-row">
+                <label for="parameter-bge-enabled">bge.enabled</label>
+                <select id="parameter-bge-enabled" data-control="parameter.bge.enabled" class="ps-select" title="Aktiviert Background Extraction.">
+                  <option selected>true</option>
+                  <option>false</option>
+                </select>
+                <span class="ps-tag reco">Empfohlen: Gradient</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-bge-fit-method">bge.fit.method</label>
+                <select id="parameter-bge-fit-method" data-control="parameter.bge.fit_method" class="ps-select" title="BGE-Fit-Methode.">
+                  <option selected>rbf</option>
+                  <option>polynomial</option>
+                </select>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-bge-rbf-lambda">bge.fit.rbf_lambda</label>
+                <input id="parameter-bge-rbf-lambda" data-control="parameter.bge.rbf_lambda" class="ps-input ps-short" type="text" value="1e-2" title="Regularisierung fuer RBF-Fit.">
+                <span class="ps-hint">Kurz: hoehere Werte stabilisieren bei starkem Gradient.</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-bge-sample-quantile">bge.sample_quantile</label>
+                <input id="parameter-bge-sample-quantile" class="ps-input ps-short" type="number" step="0.01" value="0.15" title="Quantil fuer robuste Hintergrund-Samples.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-bge-min-tiles">bge.min_tiles_per_cell</label>
+                <input id="parameter-bge-min-tiles" class="ps-input ps-short" type="number" value="3" title="Mindestanzahl Tiles je BGE-Zelle.">
+              </div>
+            </div>
 
-        <div class="ps-actions">
-          <button class="ps-btn ps-btn-secondary">Validieren</button>
-          <a class="ps-btn" href="run-monitor.html">Speichern und weiter</a>
+            <div class="ps-section">
+              <div class="ps-section-title">PCC</div>
+              <div class="ps-row">
+                <label for="parameter-pcc-source">pcc.source</label>
+                <select id="parameter-pcc-source" data-control="parameter.pcc.source" class="ps-select" title="Quelle fuer Photometric Color Calibration.">
+                  <option selected>siril</option>
+                  <option>internal</option>
+                </select>
+                <span class="ps-tag reco">Empfohlen: helle Sterne</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-pcc-sigma">pcc.sigma_clip</label>
+                <input id="parameter-pcc-sigma" data-control="parameter.pcc.sigma_clip" class="ps-input ps-short" type="number" step="0.1" value="2.5" title="Sigma-Clip fuer PCC Fit.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-pcc-kmax">pcc.k_max</label>
+                <input id="parameter-pcc-kmax" data-control="parameter.pcc.k_max" class="ps-input ps-short" type="number" step="0.1" value="2.4" title="Maximale lineare PCC Gain-Verstaerkung.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-pcc-min-stars">pcc.min_stars</label>
+                <input id="parameter-pcc-min-stars" class="ps-input ps-short" type="number" value="10" title="Mindestanzahl Sterne fuer stabilen PCC Fit.">
+              </div>
+            </div>
+
+            <div class="ps-section">
+              <div class="ps-section-title">Data (Deprecated)</div>
+              <div class="ps-row">
+                <label for="parameter-data-linear-required">data.linear_required</label>
+                <select id="parameter-data-linear-required" class="ps-select" title="Deprecated: Feld bleibt nur fuer Rueckwaertskompatibilitaet sichtbar.">
+                  <option selected>true</option>
+                  <option>false</option>
+                </select>
+                <span class="ps-tag">deprecated</span>
+                <span class="ps-hint">Dieses Feld wird spaeter entfernt. Standardwert beibehalten.</span>
+              </div>
+            </div>
+
+            <div class="ps-section">
+              <div class="ps-section-title">Vollabdeckung laut Parameterkatalog</div>
+              <p class="ps-note">Der produktive Parameterbaum umfasst alle YAML-Keys und Runtime-Keys aus <code>parameter_katalog.md</code>. Der Klickdummy zeigt die zentralen Kernfelder plus Such-/Kategoriefluss der Linie B.</p>
+              <div class="ps-chip-row" style="margin-top:10px;">
+                <span class="ps-tag">Pipeline</span>
+                <span class="ps-tag">Normalization</span>
+                <span class="ps-tag">Stacking</span>
+                <span class="ps-tag">Tile</span>
+                <span class="ps-tag">Global Metrics</span>
+                <span class="ps-tag">Local Metrics</span>
+                <span class="ps-tag">Runtime Limits</span>
+                <span class="ps-tag">Validation</span>
+              </div>
+            </div>
+
+            <div class="ps-actions">
+              <button id="parameter-reset-default" data-control="parameter.reset_default" class="ps-btn ps-btn-secondary" title="Alle Werte auf Default zuruecksetzen.">Auf Default</button>
+              <button id="parameter-review-changes" data-control="parameter.review_changes" class="ps-btn ps-btn-secondary" title="Aenderungen und Auswirkungen im Diff anzeigen.">Aenderungen pruefen</button>
+              <button id="parameter-save" data-control="parameter.save" class="ps-btn" title="Neue Config-Revision speichern (append-only).">Speichern</button>
+            </div>
+          </section>
+
+          <aside class="ps-col">
+            <div id="parameter-explain-info" data-control="parameter.explain.info" class="ps-section">
+              <div class="ps-section-title">Explain</div>
+              <div class="ps-kv">
+                <strong>Pfad</strong><span>registration.star_topk</span>
+                <strong>Kurzhilfe</strong><span>Anzahl Top-Sterne fuer Matching; mehr Robustheit bei schwieriger Registrierung.</span>
+                <strong>Default</strong><span>150</span>
+                <strong>Range</strong><span>50..500</span>
+                <strong>Risiko</strong><span>Zu hoch: mehr Laufzeit, moegliche Fehlmatches bei verrauschten Daten.</span>
+                <strong>Phase</strong><span>REGISTRATION</span>
+              </div>
+            </div>
+
+            <div class="ps-section">
+              <div class="ps-section-title">Situation Assistant</div>
+              <div class="ps-chip-row">
+                <button id="parameter-situation-altaz" data-control="parameter.situation.altaz" class="ps-chip-btn">Alt/Az</button>
+                <button id="parameter-situation-rotation" data-control="parameter.situation.rotation" class="ps-chip-btn">Starke Rotation</button>
+                <button id="parameter-situation-bright" data-control="parameter.situation.bright_stars" class="ps-chip-btn">Helle Sterne</button>
+                <button id="parameter-situation-few" data-control="parameter.situation.few_frames" class="ps-chip-btn">Wenige Frames</button>
+                <button id="parameter-situation-gradient" data-control="parameter.situation.gradient" class="ps-chip-btn active">Starker Gradient</button>
+              </div>
+              <div class="ps-note" style="margin-top:10px;">Empfohlene Deltas (Gradient): <code>bge.fit.method=rbf</code>, <code>bge.fit.rbf_lambda=1e-2</code>, <code>bge.sample_quantile=0.15</code>.</div>
+              <div class="ps-actions" style="margin-top:12px;">
+                <button id="parameter-situation-apply" data-control="parameter.situation_apply" class="ps-btn ps-btn-secondary" title="Alle ausgewaehlten Szenario-Deltas auf die Konfiguration anwenden.">Situation anwenden</button>
+              </div>
+            </div>
+
+            <div id="parameter-diff-panel" data-control="parameter.diff_panel" class="ps-section">
+              <div class="ps-section-title">YAML Diff (Preview)</div>
+              <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:260px;overflow:auto;">
+- registration.star_topk: 150
++ registration.star_topk: 180
+- bge.fit.rbf_lambda: 1e-3
++ bge.fit.rbf_lambda: 1e-2
+- pcc.k_max: 2.0
++ pcc.k_max: 2.4
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
     </div>
 
-    <p class="footer-note">Parameter Studio: Alle Konfigurationsparameter zentral verwalten, validieren und als Preset speichern.</p>
+    <p class="footer-note">Parameter Studio: alle Eingaben mit Tooltip, Kurz-Erklaerung und Szenario-Empfehlung. Vollstaendigkeit wird gegen <code>parameter_katalog.md</code> und Funktionsmatrix geprueft.</p>
   </main>
+
+  <script>
+    document.querySelectorAll('.ps-chip-btn').forEach((btn) => {
+      btn.addEventListener('click', () => btn.classList.toggle('active'));
+    });
+  </script>
 </body>
 </html>

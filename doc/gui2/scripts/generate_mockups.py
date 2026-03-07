@@ -51,12 +51,12 @@ LAYOUT_1920 = {
 SPACING_1920 = {
     "global": {
         "wrapper_inner_padding": 24,
-        "field_label_to_input_gap": 10,
+        "field_label_to_input_gap": 12,
     },
     "dashboard": {
-        "readiness_first_row_y": 520,
-        "readiness_row_h": 60,
-        "readiness_row_step": 80,
+        "readiness_first_row_y": 470,
+        "readiness_row_h": 46,
+        "readiness_row_step": 56,
     },
     "parameter_studio": {
         "registration_row1_y": 424,

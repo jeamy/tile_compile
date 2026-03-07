@@ -21,11 +21,15 @@ Damit bleiben alle bisherigen Bereiche erhalten, aber in einem konsistenten Desi
 - Auf kleineren Breiten kann horizontaler Scroll entstehen; das ist in diesem Konzept akzeptiert.
 - Konkrete Raster- und Breitenwerte: `layout_1920_spec.md`.
 
+## 1.2 Referenzgrundlage (HTML-only)
+
+- Dieses Konzept referenziert die klickbaren HTML-Dummies unter `doc/gui2/clickdummy/` als primare UI-Quelle.
+- PNG-Mockups sind nicht mehr normative Referenz fuer das Detailkonzept.
+- Layout- und Interaktionsregeln werden ueber HTML/CSS-Struktur + `layout_1920_spec.md` beschrieben.
+
 ## 2) Screenspezifikation
 
 ### Dashboard
-
-Referenz: `mockups/gui2_02_dashboard.png`
 
 - Oberer KPI-Block: Frames, Scan-Qualitaet, Warnungen, letzter Lauf.
   - `Scan-Qualitaet`: normierter Score `0..1` aus Scanindikatoren (z. B. Sternfindung, Hintergrundstabilitaet, Pattern-Konsistenz).
@@ -36,8 +40,6 @@ Referenz: `mockups/gui2_02_dashboard.png`
 - Pipeline-Vorschau: erwartete Phasenfolge vor dem Start.
 
 ### Parameter Studio
-
-Referenz: `mockups/gui2_03_parameter_studio.png`
 
 - Suchleiste ueber alle Parameterpfade (`section.key.subkey`).
 - Linke Kategorie-Spalte mit klarer Gruppierung (Pipeline, Registration, BGE, PCC, ...).
@@ -58,8 +60,6 @@ Referenz: `mockups/gui2_03_parameter_studio.png`
 
 ### Run Monitor
 
-Referenz: `mockups/gui2_04_run_monitor.png`
-
 - Batch-Kontextleiste (`n/m`, aktueller Input, run_id, aktueller Filter und Filterindex).
 - Phasenliste mit Statuschips und Fortschrittsbalken je Phase.
 - Live-Log mit Warnungs-Highlighting.
@@ -70,8 +70,6 @@ Referenz: `mockups/gui2_04_run_monitor.png`
 - Artefaktliste und Aktionen (Resume, Report, Run-Ordner).
 
 ### History + Tools
-
-Referenz: `mockups/gui2_05_history_tools.png`
 
 - Historientabelle mit Selektion und Vergleich.
 - Astrometry-Toolpanel im selben Kontext.
@@ -281,7 +279,7 @@ Pflichtumfang in GUI 2:
 - `LocaleSwitch` (DE/EN)
 - `TooltipLayer` (einheitliches Verhalten fuer alle Controls)
 
-## 8) Design Tokens (aus dem Mockup)
+## 8) Design Tokens 
 
 - Grundfarben:
   - Hintergrund: `#f3f7fc -> #e5eef5`
@@ -303,15 +301,15 @@ Pflichtumfang in GUI 2:
 - Astrometry/PCC bleiben in History+Tools, Stats ist im Run Monitor unter dem Live-Log integriert.
 - Live-Log bleibt erhalten, wird im Run Monitor priorisiert.
 
-## 10) Technischer Uebergangspfad
+## 10) Technischer Uebergangspfad (HTML + FastAPI, ohne Qt-GUI)
 
-1. Neues Komponenten-Set (Cards, Fields, Chips) auf bestehender Qt-Struktur einziehen.
-2. Parameter Studio als zentrale Tab-Seite aufbauen.
-3. Parameter-Knowledge-Layer und i18n-Keys anbinden.
-4. MONO Multi-Filter Queue (seriell) im Run-Dashboard und Run-Monitor integrieren.
-5. Situation Assistant mit regelbasierten Parameter-Deltas einbauen.
-6. Alte Tabs schrittweise in neue Seiten integrieren (funktional identisch, visuell modernisiert).
-7. Klickdummy und Mockups als Umsetzungsreferenz fuer Pixel-/Layout-Review nutzen.
+1. HTML-Komponenten-Set (Cards, Fields, Chips, Tooltips) im Web-Frontend etablieren.
+2. FastAPI-Adapter fuer Runner/CLI-Endpunkte und Event-Streaming aufsetzen.
+3. Parameter Studio als zentrale Web-Seite mit Such-/Explain-/Diff-Layer umsetzen.
+4. Parameter-Knowledge-Layer und i18n-Keys anbinden.
+5. MONO Multi-Filter Queue (seriell) im Dashboard und Run Monitor integrieren.
+6. Situation Assistant mit regelbasierten Parameter-Deltas einbauen.
+7. Bestehende Funktionsbereiche aus der alten GUI in HTML-Seiten ueberfuehren (funktional identisch, visuell modernisiert).
 8. Verbindliche Screen-Reihenfolge fuer die Implementierung:
    - Dashboard -> Input&Scan -> Parameter Studio -> Assumptions -> Run Monitor -> History+Tools -> Live Log.
 
