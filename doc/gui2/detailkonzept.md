@@ -37,6 +37,10 @@ Damit bleiben alle bisherigen Bereiche erhalten, aber in einem konsistenten Desi
   - `Scan-Qualitaet`: normierter Score `0..1` aus Scanindikatoren (z. B. Sternfindung, Hintergrundstabilitaet, Pattern-Konsistenz).
   - `Warnungen`: Anzahl offener, nicht-blockierender Warnungen aus Scan/Validierung/Guardrails.
 - Guided-Run-Karte: Eingabedirs, Farbmodus, Preset, Startaktionen.
+- Guided-Run-Karte mit Modusschalter:
+  - `Einfach`: nur Kernfelder fuer Schnellstart.
+  - `Erweitert`: zusaetzlich `runs_dir`, `run_name`, Output-Preview und MONO-Queue.
+- Voller Schritt-fuer-Schritt Wizard bleibt auf eigener Seite (`wizard.html`).
 - MONO-Queue-Block: Filterliste mit Reihenfolge (`L, R, G, B, Ha, OIII, SII`), je Eintrag Input-Ordner und Status.
 - Readiness Guardrails: explizite Startbedingungen als Checkliste.
 - Pipeline-Vorschau: erwartete Phasenfolge vor dem Start.

@@ -136,6 +136,22 @@ controls:
     action: open_guided_wizard
     backend_binding: wizard.init
     status: TODO
+  - control_id: dashboard.guided.mode_simple
+    screen: dashboard
+    type: toggle
+    label_key: ui.mode.simple
+    tooltip_key: ui.tooltip.dashboard.guided_mode_simple
+    action: set_guided_mode_simple
+    backend_binding: dashboard.guided_mode
+    status: TODO
+  - control_id: dashboard.guided.mode_advanced
+    screen: dashboard
+    type: toggle
+    label_key: ui.mode.advanced
+    tooltip_key: ui.tooltip.dashboard.guided_mode_advanced
+    action: set_guided_mode_advanced
+    backend_binding: dashboard.guided_mode
+    status: TODO
   - control_id: dashboard.kpi.scan_quality
     screen: dashboard
     type: kpi_link

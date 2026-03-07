@@ -85,6 +85,11 @@
           <div class="ps-section">
             <div style="font-size:20px;font-weight:700;margin-bottom:8px;">Guided Run</div>
             <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">1) Input/Run-Ziel  2) Preset + Parameter  3) Validieren  4) Batch starten</div>
+            <div class="ps-chip-row" style="margin-bottom:12px;">
+              <button id="dashboard-guided-mode-simple" data-control="dashboard.guided.mode_simple" class="ps-chip-btn active" type="button" title="Einfacher Modus: nur Kernfelder anzeigen.">Einfach</button>
+              <button id="dashboard-guided-mode-advanced" data-control="dashboard.guided.mode_advanced" class="ps-chip-btn" type="button" title="Erweiterter Modus: Runs Dir, Name, Preview und MONO-Queue anzeigen.">Erweitert</button>
+              <a id="dashboard-guided-open-wizard" data-control="dashboard.quick.start_wizard" class="ps-btn ps-btn-secondary ps-btn-compact" href="wizard.html" title="Vollen Wizard-Flow auf eigener Seite oeffnen." style="margin-left:auto;">Wizard Seite</a>
+            </div>
             
             <div class="ps-row">
               <label>Input Dirs</label>
@@ -93,7 +98,7 @@
                 <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
               </div>
             </div>
-            <div class="ps-row">
+            <div class="ps-row guided-advanced">
               <label>Runs Dir</label>
               <div class="ps-inline-cluster">
                 <input id="dashboard-run-runs-dir" data-control="dashboard.run.runs_dir" class="ps-input ps-wide" type="text" value="/data/tile_runs" title="Run-Ausgabeordner waehlen.">
@@ -119,26 +124,26 @@
                 <option>tile_compile.very_bright_star_anti_seam.example.yaml</option>
               </select>
             </div>
-            <div class="ps-row">
+            <div class="ps-row guided-advanced">
               <label>Run Name</label>
               <div class="ps-inline-stack">
                 <input id="dashboard-run-name" data-control="dashboard.run.name" class="ps-input" type="text" value="M31_altaz_test" style="width:220px;" title="Freien Run-Namen setzen.">
                 <span class="ps-hint">Output-Ordner wird automatisch als <code>runs_dir/run_name_YYYYMMDD_HHMMSS</code> erzeugt.</span>
               </div>
             </div>
-            <div class="ps-row">
+            <div class="ps-row guided-advanced">
               <label>Output Dir Preview</label>
               <div class="ps-inline-stack">
                 <input id="dashboard-run-path-preview" data-control="dashboard.run.path_preview" class="ps-input ps-wide ps-preview-field" type="text" value="/data/tile_runs/M31_altaz_test_20260307_221530" readonly title="Finalen Run-Pfad vor Start anzeigen.">
                 <span class="ps-hint">Suffix: aktueller Startzeitpunkt des Runs im Format <code>YYYYMMDD_HHMMSS</code>.</span>
               </div>
             </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;margin-bottom:4px;">
+            <div class="guided-advanced" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;margin-bottom:4px;">
               <div class="ps-section-title" style="margin:0;">MONO Queue</div>
               <button id="dashboard-queue-edit" data-control="dashboard.queue.edit" class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Queue-Editor oeffnen und Reihenfolge bearbeiten.">Queue Editor</button>
             </div>
-            <div class="ps-hint" style="margin-bottom:10px;">Pro Filter eigener Input-Ordner, optionales Pattern und Run-Label. Reihenfolge wird seriell als <code>Filter i/N</code> abgearbeitet.</div>
-            <div class="ps-queue-block" style="margin-top:0;">
+            <div class="ps-hint guided-advanced" style="margin-bottom:10px;">Pro Filter eigener Input-Ordner, optionales Pattern und Run-Label. Reihenfolge wird seriell als <code>Filter i/N</code> abgearbeitet.</div>
+            <div class="ps-queue-block guided-advanced" style="margin-top:0;">
               <div class="ps-queue-head">
                 <div>Filter</div>
                 <div>Input Dir</div>
@@ -239,5 +244,25 @@
 
     <p class="footer-note">Ablaufempfehlung: Dashboard (runs_dir + run_name) → Parameter Studio → Run Monitor → History+Tools.</p>
   </main>
+<script>
+  (function () {
+    const btnSimple = document.getElementById('dashboard-guided-mode-simple');
+    const btnAdvanced = document.getElementById('dashboard-guided-mode-advanced');
+    const advancedNodes = document.querySelectorAll('.guided-advanced');
+
+    function setMode(mode) {
+      const isAdvanced = mode === 'advanced';
+      advancedNodes.forEach((el) => {
+        el.style.display = isAdvanced ? '' : 'none';
+      });
+      btnSimple.classList.toggle('active', !isAdvanced);
+      btnAdvanced.classList.toggle('active', isAdvanced);
+    }
+
+    btnSimple.addEventListener('click', () => setMode('simple'));
+    btnAdvanced.addEventListener('click', () => setMode('advanced'));
+    setMode('simple');
+  })();
+</script>
 </body>
 </html>

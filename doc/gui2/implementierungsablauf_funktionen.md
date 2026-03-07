@@ -108,6 +108,8 @@ HTML-Clickdummy-Umsetzung:
 | control_id | Typ | Aktion | backend_binding |
 |---|---|---|---|
 | `dashboard.quick.start_wizard` | Button | New Guided Run starten | wizard init |
+| `dashboard.guided.mode_simple` | Toggle | Guided Run auf Einfach stellen | dashboard.guided_mode |
+| `dashboard.guided.mode_advanced` | Toggle | Guided Run auf Erweitert stellen | dashboard.guided_mode |
 | `dashboard.kpi.scan_quality` | KPI/Link | Scan-Qualitaet-Details oeffnen | scan.quality.summary |
 | `dashboard.kpi.open_warnings` | KPI/Link | Warnungsliste oeffnen | guardrail.warning.index |
 | `dashboard.input_dirs` | Feld | Input-Ordner setzen | project.scan.inputs |
