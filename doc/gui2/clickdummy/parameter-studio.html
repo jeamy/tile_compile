@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Parameter Studio</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="screen-placeholder.css?v=2">
+  <script src="theme.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a href="index.html">Start</a>
+    <div class="pill-sep"></div>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="input-scan.html">Input&amp;Scan</a>
+    <a href="assumptions.html">Assumptions</a>
+    <a class="active" href="parameter-studio.html">Parameter Studio</a>
+    <a href="run-monitor.html">Run Monitor</a>
+    <a href="history-tools.html">History+Tools</a>
+    <a href="live-log.html">Live Log</a>
+    <div class="pill-sep"></div>
+    <a href="layout-1920.html">Layout 1920</a>
+    <a href="flow.html">Ablauf</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <main>
+    <p class="intro">Alle verwendeten Parameter in einer konsistenten, filterbaren und validierbaren Oberfläche.</p>
+
+    <div class="placeholder-screen">
+      <div class="placeholder-sidebar">
+        <div class="ps-label">Navigation</div>
+        <a class="ps-item" href="dashboard.html">Dashboard</a>
+        <a class="ps-item" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item ps-active" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item" href="assumptions.html">Assumptions</a>
+        <a class="ps-item" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item" href="history-tools.html">History + Tools</a>
+        <a class="ps-item" href="live-log.html">Live Log</a>
+      </div>
+
+      <div class="placeholder-content">
+        <h2>Parameter Studio</h2>
+        <p class="ps-sub">Alle verwendeten Parameter in einer konsistenten, filterbaren und validierbaren Oberfläche.</p>
+
+        <div class="ps-section">
+          <div class="ps-section-title">Registration</div>
+          <div class="ps-row">
+            <label>registration_method</label>
+            <select class="ps-select"><option selected>hybrid_phase_ecc</option><option>phase_correlation</option><option>robust_phase_ecc</option></select>
+          </div>
+          <div class="ps-row">
+            <label>registration_max_shift_percent</label>
+            <input class="ps-input ps-short" type="number" value="15.0" step="0.1">
+            <span class="ps-hint">Max. Verschiebung in % der Bildgröße</span>
+          </div>
+          <div class="ps-row">
+            <label>registration_min_correlation</label>
+            <input class="ps-input ps-short" type="number" value="0.3" step="0.01">
+          </div>
+        </div>
+
+        <div class="ps-section">
+          <div class="ps-section-title">Tile Grid</div>
+          <div class="ps-row">
+            <label>tile_size</label>
+            <input class="ps-input ps-short" type="number" value="256">
+          </div>
+          <div class="ps-row">
+            <label>tile_overlap</label>
+            <input class="ps-input ps-short" type="number" value="64">
+          </div>
+        </div>
+
+        <div class="ps-section">
+          <div class="ps-section-title">Background Extraction</div>
+          <div class="ps-row">
+            <label>bge_method</label>
+            <select class="ps-select"><option selected>median_filter</option><option>morphological</option></select>
+          </div>
+          <div class="ps-row">
+            <label>bge_kernel_size</label>
+            <input class="ps-input ps-short" type="number" value="25">
+          </div>
+        </div>
+
+        <div class="ps-section">
+          <div class="ps-section-title">Photometric Color Calibration</div>
+          <div class="ps-row">
+            <label>pcc_reference_catalog</label>
+            <select class="ps-select"><option selected>gaia_dr3</option><option>tycho2</option></select>
+          </div>
+          <div class="ps-row">
+            <label>pcc_max_stars</label>
+            <input class="ps-input ps-short" type="number" value="500">
+          </div>
+        </div>
+
+        <div class="ps-actions">
+          <button class="ps-btn ps-btn-secondary">Validieren</button>
+          <a class="ps-btn" href="run-monitor.html">Speichern und weiter</a>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer-note">Parameter Studio: Alle Konfigurationsparameter zentral verwalten, validieren und als Preset speichern.</p>
+  </main>
+</body>
+</html>

@@ -1,0 +1,86 @@
+@font-face {
+  font-family: "GUI2 Inria Sans";
+  src: url("assets/fonts/InriaSans-Regular.otf") format("opentype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GUI2 Inria Sans";
+  src: url("assets/fonts/InriaSans-Bold.otf") format("opentype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GUI2 Inria Serif";
+  src: url("assets/fonts/InriaSerif-Regular.otf") format("opentype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GUI2 Inria Serif";
+  src: url("assets/fonts/InriaSerif-Bold.otf") format("opentype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+:root {
+  --font-ui: "GUI2 Inria Sans", "Segoe UI", sans-serif;
+  --font-title: "GUI2 Inria Serif", Georgia, serif;
+
+  --layout-min-width: 1024px;
+  --layout-content-width: min(1920px, 100%);
+  --layout-topbar-height: 76px;
+
+  --radius-screen: 16px;
+  --radius-card: 14px;
+  --radius-hotspot: 10px;
+
+  --bg: #eef4fa;
+  --bg2: #dde8f2;
+  --surface: #ffffff;
+  --line: #cfdbe7;
+  --ink: #1b2737;
+  --muted: #5d7087;
+  --primary: #15808d;
+  --primary-soft: #d9f0f3;
+}
+
+html[data-theme="observatory"] {
+  --bg: #eef4fa;
+  --bg2: #dde8f2;
+  --surface: #ffffff;
+  --line: #cfdbe7;
+  --ink: #1b2737;
+  --muted: #5d7087;
+  --primary: #15808d;
+  --primary-soft: #d9f0f3;
+}
+
+html[data-theme="slate"] {
+  --bg: #eff2f6;
+  --bg2: #dde4ec;
+  --surface: #ffffff;
+  --line: #c8d3de;
+  --ink: #172636;
+  --muted: #5a6d82;
+  --primary: #2a6c8f;
+  --primary-soft: #dceaf3;
+}
+
+html[data-theme="sand"] {
+  --bg: #f4f2ec;
+  --bg2: #e8e2d7;
+  --surface: #fffcf6;
+  --line: #d8cfbe;
+  --ink: #2a2d33;
+  --muted: #6e6a60;
+  --primary: #1f7f75;
+  --primary-soft: #d7ece8;
+}

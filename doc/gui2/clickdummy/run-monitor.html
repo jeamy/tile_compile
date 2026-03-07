@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Run Monitor</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="screen-placeholder.css?v=2">
+  <script src="theme.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a href="index.html">Start</a>
+    <div class="pill-sep"></div>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="input-scan.html">Input&amp;Scan</a>
+    <a href="assumptions.html">Assumptions</a>
+    <a href="parameter-studio.html">Parameter Studio</a>
+    <a class="active" href="run-monitor.html">Run Monitor</a>
+    <a href="history-tools.html">History+Tools</a>
+    <a href="live-log.html">Live Log</a>
+    <div class="pill-sep"></div>
+    <a href="layout-1920.html">Layout 1920</a>
+    <a href="flow.html">Ablauf</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <main>
+    <p class="intro">Echtzeit-Überwachung des laufenden Runs mit Phase-Fortschritt, Resume-Optionen und Artefakt-Zugriff.</p>
+
+    <div class="placeholder-screen">
+      <div class="placeholder-sidebar">
+        <div class="ps-label">Navigation</div>
+        <a class="ps-item" href="dashboard.html">Dashboard</a>
+        <a class="ps-item" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item" href="assumptions.html">Assumptions</a>
+        <a class="ps-item ps-active" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item" href="history-tools.html">History + Tools</a>
+        <a class="ps-item" href="live-log.html">Live Log</a>
+      </div>
+
+      <div class="placeholder-content">
+        <h2>Run Monitor</h2>
+        <p class="ps-sub">Echtzeit-Überwachung des laufenden Runs mit Phase-Fortschritt, Resume-Optionen und Artefakt-Zugriff.</p>
+
+        <div class="ps-section">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div style="font-size:20px;font-weight:700;">Pipeline Phasen</div>
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;">Stop</button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#d1f4e0;border:1px solid #a8d8de;border-radius:6px;">
+              <span style="padding:4px 10px;background:#15808d;color:#fff;border-radius:4px;font-size:12px;font-weight:700;">✓</span>
+              <span style="font-weight:600;">SCAN_INPUT</span>
+              <span style="margin-left:auto;font-size:13px;color:var(--muted);">1,264 frames</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#d1f4e0;border:1px solid #a8d8de;border-radius:6px;">
+              <span style="padding:4px 10px;background:#15808d;color:#fff;border-radius:4px;font-size:12px;font-weight:700;">✓</span>
+              <span style="font-weight:600;">CHANNEL_SPLIT</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#fff3cd;border:1px solid #fde68a;border-radius:6px;">
+              <span style="padding:4px 10px;background:#d97706;color:#fff;border-radius:4px;font-size:12px;font-weight:700;">▶</span>
+              <span style="font-weight:600;">NORMALIZATION</span>
+              <span style="margin-left:auto;font-size:13px;color:var(--muted);">67%</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#f8fafb;border:1px solid var(--line);border-radius:6px;">
+              <span style="padding:4px 10px;background:#e0e0e0;color:var(--muted);border-radius:4px;font-size:12px;font-weight:700;">○</span>
+              <span style="font-weight:600;color:var(--muted);">GLOBAL_METRICS</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#f8fafb;border:1px solid var(--line);border-radius:6px;">
+              <span style="padding:4px 10px;background:#e0e0e0;color:var(--muted);border-radius:4px;font-size:12px;font-weight:700;">○</span>
+              <span style="font-weight:600;color:var(--muted);">TILE_GRID</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#f8fafb;border:1px solid var(--line);border-radius:6px;">
+              <span style="padding:4px 10px;background:#e0e0e0;color:var(--muted);border-radius:4px;font-size:12px;font-weight:700;">○</span>
+              <span style="font-weight:600;color:var(--muted);">REGISTRATION</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#f8fafb;border:1px solid var(--line);border-radius:6px;">
+              <span style="padding:4px 10px;background:#e0e0e0;color:var(--muted);border-radius:4px;font-size:12px;font-weight:700;">○</span>
+              <span style="font-weight:600;color:var(--muted);">STACKING</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#f8fafb;border:1px solid var(--line);border-radius:6px;">
+              <span style="padding:4px 10px;background:#e0e0e0;color:var(--muted);border-radius:4px;font-size:12px;font-weight:700;">○</span>
+              <span style="font-weight:600;color:var(--muted);">BGE</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#f8fafb;border:1px solid var(--line);border-radius:6px;">
+              <span style="padding:4px 10px;background:#e0e0e0;color:var(--muted);border-radius:4px;font-size:12px;font-weight:700;">○</span>
+              <span style="font-weight:600;color:var(--muted);">PCC</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px;">
+          <div class="ps-section">
+            <div class="ps-section-title">Config-Revision</div>
+            <select class="ps-select" style="width:100%;"><option selected>rev_20260307_0912</option><option>rev_20260306_1845</option></select>
+            <div class="ps-actions" style="margin-top:12px;">
+              <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;">Restore Rev</button>
+              <a class="ps-btn ps-btn-secondary" href="history-tools.html" style="padding:6px 16px;">Run-Ordner</a>
+            </div>
+          </div>
+
+          <div class="ps-section">
+            <div class="ps-section-title">Stats & Artefakte</div>
+            <div class="ps-actions">
+              <button class="ps-btn ps-btn-secondary">Generate Stats</button>
+              <button class="ps-btn ps-btn-secondary">Open Stats Folder</button>
+            </div>
+            <div class="ps-actions" style="margin-top:8px;">
+              <a class="ps-btn ps-btn-secondary" href="history-tools.html">Resume</a>
+              <a class="ps-btn ps-btn-secondary" href="history-tools.html">Report</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer-note">Run Monitor: Phasen-Fortschritt, Resume-Optionen, Config-Revision-Verwaltung und Artefakt-Zugriff.</p>
+  </main>
+</body>
+</html>

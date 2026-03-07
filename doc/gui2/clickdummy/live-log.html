@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Live Log</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="screen-placeholder.css?v=2">
+  <script src="theme.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a href="index.html">Start</a>
+    <div class="pill-sep"></div>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="input-scan.html">Input&amp;Scan</a>
+    <a href="assumptions.html">Assumptions</a>
+    <a href="parameter-studio.html">Parameter Studio</a>
+    <a href="run-monitor.html">Run Monitor</a>
+    <a href="history-tools.html">History+Tools</a>
+    <a class="active" href="live-log.html">Live Log</a>
+    <div class="pill-sep"></div>
+    <a href="layout-1920.html">Layout 1920</a>
+    <a href="flow.html">Ablauf</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <main>
+    <p class="intro">Echtzeit-Log-Ausgabe des laufenden Runs mit Filteroptionen.</p>
+
+    <div class="placeholder-screen">
+      <div class="placeholder-sidebar">
+        <div class="ps-label">Navigation</div>
+        <a class="ps-item" href="dashboard.html">Dashboard</a>
+        <a class="ps-item" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item" href="assumptions.html">Assumptions</a>
+        <a class="ps-item" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item" href="history-tools.html">History + Tools</a>
+        <a class="ps-item ps-active" href="live-log.html">Live Log</a>
+      </div>
+
+      <div class="placeholder-content">
+        <h2>Live Log</h2>
+        <p class="ps-sub">Echtzeit-Log-Ausgabe des laufenden Runs mit Filteroptionen.</p>
+
+        <div class="ps-section">
+          <div style="display:flex;gap:10px;margin-bottom:12px;">
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;font-size:13px;">All</button>
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;font-size:13px;">Info</button>
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;font-size:13px;">Warning</button>
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;font-size:13px;">Error</button>
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;font-size:13px;margin-left:auto;">Clear</button>
+          </div>
+          <div style="background:#1a1a1a;color:#e0e0e0;padding:14px;border-radius:8px;font-family:monospace;font-size:12px;line-height:1.6;max-height:500px;overflow-y:auto;">
+            <div style="color:#4ade80;">[2026-03-07 17:54:12] INFO: Starting NORMALIZATION phase</div>
+            <div style="color:#e0e0e0;">[2026-03-07 17:54:12] Processing frame 001/1264</div>
+            <div style="color:#e0e0e0;">[2026-03-07 17:54:13] Processing frame 002/1264</div>
+            <div style="color:#e0e0e0;">[2026-03-07 17:54:13] Processing frame 003/1264</div>
+            <div style="color:#fbbf24;">[2026-03-07 17:54:14] WARNING: Frame 004 has low SNR (12.3)</div>
+            <div style="color:#e0e0e0;">[2026-03-07 17:54:14] Processing frame 005/1264</div>
+            <div style="color:#e0e0e0;">[2026-03-07 17:54:15] Processing frame 006/1264</div>
+            <div style="color:#4ade80;">[2026-03-07 17:54:15] INFO: Normalization progress: 67%</div>
+            <div style="color:#e0e0e0;">[2026-03-07 17:54:16] Processing frame 847/1264</div>
+            <div style="color:#e0e0e0;">[2026-03-07 17:54:16] Processing frame 848/1264</div>
+          </div>
+        </div>
+
+        <div class="ps-actions" style="margin-top:16px;">
+          <button class="ps-btn ps-btn-secondary">Export Log</button>
+          <a class="ps-btn ps-btn-secondary" href="run-monitor.html">Back to Monitor</a>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer-note">Live Log: Echtzeit-Ausgabe aller Log-Meldungen mit Filterung nach Level (Info, Warning, Error).</p>
+  </main>
+</body>
+</html>

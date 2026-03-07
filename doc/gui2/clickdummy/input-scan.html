@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Input & Scan</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="screen-placeholder.css?v=2">
+  <script src="theme.js" defer></script>
+</head>
+  <body>
+   <nav class="pill-nav">
+     <a href="index.html">Start</a>
+     <div class="pill-sep"></div>
+     <a href="dashboard.html">Dashboard</a>
+     <a class="active" href="input-scan.html">Input&amp;Scan</a>
+     <a href="assumptions.html">Assumptions</a>
+     <a href="parameter-studio.html">Parameter Studio</a>
+     <a href="run-monitor.html">Run Monitor</a>
+     <a href="history-tools.html">History+Tools</a>
+     <a href="live-log.html">Live Log</a>
+     <div class="pill-sep"></div>
+     <a href="layout-1920.html">Layout 1920</a>
+     <a href="flow.html">Ablauf</a>
+     <a href="wizard.html">Wizard</a>
+   </nav>
+
+   <main>
+    <p class="intro">Input-Ordner, Scan-Konfiguration und Kalibrierpfade. Kein eigenes Mockup-PNG — dieser Screen wird als HTML-Placeholder interaktiv gehalten.</p>
+
+    <div class="placeholder-screen">
+      <div class="placeholder-sidebar">
+        <div class="ps-label">Navigation</div>
+        <a class="ps-item" href="dashboard.html">Dashboard</a>
+        <a class="ps-item ps-active" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item" href="assumptions.html">Assumptions</a>
+        <a class="ps-item" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item" href="history-tools.html">History + Tools</a>
+        <a class="ps-item" href="live-log.html">Live Log</a>
+      </div>
+
+      <div class="placeholder-content">
+        <h2>Input &amp; Scan</h2>
+        <p class="ps-sub">Eingabeordner konfigurieren, Scan starten, Bayer-Pattern bestätigen, Kalibrierpfade setzen.</p>
+
+        <div class="ps-section">
+          <div class="ps-row">
+            <label>Eingabeordner</label>
+            <input class="ps-input ps-wide" type="text" value="/data/m31/2026-03-01, /data/m31/2026-03-02" id="inp-dirs">
+          </div>
+          <div class="ps-row">
+            <label>Dateimuster</label>
+            <input class="ps-input" type="text" value="*.fits" id="inp-pattern">
+          </div>
+          <div class="ps-row">
+            <label>Max. Frames</label>
+            <input class="ps-input ps-short" type="number" value="0" id="inp-maxframes">
+            <span class="ps-hint">(0 = unbegrenzt)</span>
+          </div>
+          <div class="ps-row">
+            <label>Sortierung</label>
+            <select class="ps-select" id="inp-sort">
+              <option>numeric</option><option>name</option><option>date</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label>Farbmodus</label>
+            <select class="ps-select" id="inp-colormode">
+              <option>OSC</option><option selected>MONO</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label>Bayer-Pattern</label>
+            <select class="ps-select" id="inp-bayer">
+              <option selected>auto (aus FITS-Header)</option>
+              <option>RGGB</option><option>GBRG</option><option>GRBG</option><option>BGGR</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label>Checksummen</label>
+            <input type="checkbox" id="inp-checksums"> <span class="ps-hint">MD5/SHA beim Scan berechnen</span>
+          </div>
+        </div>
+
+        <div class="ps-section">
+          <div class="ps-section-title">Kalibrierung</div>
+          <div class="ps-row">
+            <input type="checkbox" id="cal-bias" checked> <label for="cal-bias">Bias</label>
+            <input class="ps-input ps-wide" type="text" value="/data/calib/bias" id="cal-bias-dir">
+          </div>
+          <div class="ps-row">
+            <input type="checkbox" id="cal-dark" checked> <label for="cal-dark">Dark</label>
+            <input class="ps-input ps-wide" type="text" value="/data/calib/darks" id="cal-dark-dir">
+          </div>
+          <div class="ps-row">
+            <input type="checkbox" id="cal-flat"> <label for="cal-flat">Flat</label>
+            <input class="ps-input ps-wide" type="text" value="" id="cal-flat-dir" placeholder="/data/calib/flats">
+          </div>
+        </div>
+
+        <div class="ps-actions">
+          <button class="ps-btn" id="btn-scan" onclick="runScan()">Scan starten</button>
+          <a class="ps-btn ps-btn-secondary" href="parameter-studio.html">Parameter Studio</a>
+          <a class="ps-btn ps-btn-secondary" href="dashboard.html">Zurück zum Dashboard</a>
+        </div>
+
+        <div class="ps-result" id="scan-result" style="display:none;">
+          <div class="ps-result-title">Scan-Ergebnis</div>
+          <div id="scan-result-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <p id="scan-note" class="footer-note">Controls: Eingabeordner, Bayer-Pattern, Kalibrierframes. Scan-Ergebnis erscheint nach Klick auf "Scan starten".</p>
+  </main>
+  <script>
+    function runScan() {
+      const dirs = document.getElementById("inp-dirs").value;
+      const bayer = document.getElementById("inp-bayer").value;
+      const colormode = document.getElementById("inp-colormode").value;
+      const result = document.getElementById("scan-result");
+      const body = document.getElementById("scan-result-body");
+      body.innerHTML = `<b>Frames gefunden:</b> 1.264 &nbsp;|&nbsp; <b>Farbmodus:</b> ${colormode} &nbsp;|&nbsp; <b>Bayer:</b> ${bayer}<br>
+        <b>Ordner:</b> ${dirs}<br>
+        <span style="color:#15808d">✓ Scan erfolgreich — keine Warnungen</span>`;
+      result.style.display = "block";
+      document.getElementById("scan-note").textContent = "Scan abgeschlossen. Bayer-Pattern aus FITS-Header erkannt. Weiter: Parameter Studio oder Run starten.";
+    }
+  </script>
+</body>
+</html>

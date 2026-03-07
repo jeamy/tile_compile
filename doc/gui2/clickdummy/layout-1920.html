@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Layout 1920</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <script src="theme.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a href="index.html">Start</a>
+    <div class="pill-sep"></div>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="input-scan.html">Input&amp;Scan</a>
+    <a href="assumptions.html">Assumptions</a>
+    <a href="parameter-studio.html">Parameter Studio</a>
+    <a href="run-monitor.html">Run Monitor</a>
+    <a href="history-tools.html">History+Tools</a>
+    <a href="live-log.html">Live Log</a>
+    <div class="pill-sep"></div>
+    <a class="active" href="layout-1920.html">Layout 1920</a>
+    <a href="flow.html">Ablauf</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <main>
+    <div class="content-panel">
+      <h2>Layout 1920</h2>
+      <p class="intro">Technische Rasteransicht für die Desktop-Baseline 1920x1080: Shell, Main-Wrapper, Spaltenbreiten und Interaktionszonen.</p>
+
+      <div class="spec-list">
+        <a class="spec-item" href="../layout_1920_spec.md" style="text-decoration:none;color:inherit;">
+          <h4>Spec Datei</h4>
+          <p>Volle Rasterdefinition mit Koordinaten, Breiten, Gutter und Resizing-Regeln.</p>
+        </a>
+        <div class="spec-item">
+          <h4>Shell</h4>
+          <p>Sidebar 300 px, Main Area 1538 px, Outer Margin 24 px, Topbar 76 px.</p>
+        </div>
+        <div class="spec-item">
+          <h4>Main Wrapper</h4>
+          <p>x=356, y=230, w=1538, h=798. Innenabstand 24 px, Gutter standard 18 px.</p>
+        </div>
+        <div class="spec-item">
+          <h4>Interaktion</h4>
+          <p>Primary >=52 px, Secondary >=44 px, Zeilenaktionen >=48 px, Chips >=34 px.</p>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <h3>Shell / App-Rahmen</h3>
+          <p>x=24, y=24, w=1872, h=1032</p>
+          <p>Topbar: h=76</p>
+          <p>Sidebar: x=24, y=118, w=300, h=914</p>
+          <p>Main Area: x=356, y=118, w=1538, h=914</p>
+        </div>
+        <div class="card">
+          <h3>Main Wrapper</h3>
+          <p>x=356, y=230, w=1538, h=798</p>
+          <p>Innenabstand: 24 px</p>
+          <p>Standard-Gutter: 18 px</p>
+          <p>Kartenradius: 18 px</p>
+        </div>
+        <div class="card">
+          <h3>Dashboard</h3>
+          <p>Metrics: vier Karten in Reihe, y≈250</p>
+          <p>Guided Run: x=356..1210, y=402..860</p>
+          <p>Guardrails: x=1230..1894, y=402..860</p>
+          <p>Pipeline Preview: untere Vollbreiten-Zeile</p>
+        </div>
+        <div class="card">
+          <h3>Parameter Studio</h3>
+          <p>Drei Spalten:</p>
+          <p>col1: x=382..732</p>
+          <p>col2: x=748..1380</p>
+          <p>col3: x=1398..1868</p>
+        </div>
+        <div class="card">
+          <h3>Run Monitor</h3>
+          <p>Drei Spalten:</p>
+          <p>run1: x=382..1030</p>
+          <p>run2: x=1048..1468</p>
+          <p>run3: x=1486..1868</p>
+        </div>
+        <div class="card">
+          <h3>History + Tools</h3>
+          <p>Historie links: x=382..1242, y=266..996</p>
+          <p>Astrometry rechts oben: x=1260..1868, y=266..648</p>
+          <p>PCC rechts unten: x=1260..1868, y=666..996</p>
+        </div>
+      </div>
+
+      <div class="spec-list">
+        <div class="spec-item">
+          <h4>Buttons</h4>
+          <p>Primary Buttons: 52 px Höhe, klarer Call-to-Action, rechtsbündig in Aktionsreihen.</p>
+        </div>
+        <div class="spec-item">
+          <h4>Inputs</h4>
+          <p>Formfelder: 40 px Höhe, Labels direkt darüber, horizontale Reihen nur bei kurzen Feldern.</p>
+        </div>
+        <div class="spec-item">
+          <h4>Status-Chips</h4>
+          <p>Min. 34 px Höhe, Farbcodierung für OK / CHECK / ERROR, immer innerhalb von Kartenzeilen.</p>
+        </div>
+        <div class="spec-item">
+          <h4>Resizing-Regeln</h4>
+          <p>Seitenspalten bleiben logisch gruppiert; bei enger Breite dürfen Karten umbrechen, nicht überlappen.</p>
+        </div>
+      </div>
+
+      <p class="footer-note">Klick auf die vier Split-Zeilen springt direkt zum passenden Screen des Klickdummys.</p>
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,1264 @@
+version: 1
+scope: gui2
+description: "Zentrale Control-Registry fuer Funktionsparitaet und Implementierungs-Tracking."
+status_values:
+  - TODO
+  - IN_PROGRESS
+  - DONE
+
+controls:
+  - control_id: nav.start
+    screen: shell
+    type: link
+    label_key: ui.nav.start
+    tooltip_key: ui.tooltip.shell.nav_start
+    action: open_start
+    backend_binding: client.routing
+    status: TODO
+  - control_id: nav.dashboard
+    screen: shell
+    type: link
+    label_key: ui.nav.dashboard
+    tooltip_key: ui.tooltip.shell.nav_dashboard
+    action: open_dashboard
+    backend_binding: client.routing
+    status: TODO
+  - control_id: nav.input_scan
+    screen: shell
+    type: link
+    label_key: ui.nav.input_scan
+    tooltip_key: ui.tooltip.shell.nav_input_scan
+    action: open_input_scan
+    backend_binding: client.routing
+    status: TODO
+  - control_id: nav.parameter_studio
+    screen: shell
+    type: link
+    label_key: ui.nav.parameter_studio
+    tooltip_key: ui.tooltip.shell.nav_parameter_studio
+    action: open_parameter_studio
+    backend_binding: client.routing
+    status: TODO
+  - control_id: nav.assumptions
+    screen: shell
+    type: link
+    label_key: ui.nav.assumptions
+    tooltip_key: ui.tooltip.shell.nav_assumptions
+    action: open_assumptions
+    backend_binding: client.routing
+    status: TODO
+  - control_id: nav.run_monitor
+    screen: shell
+    type: link
+    label_key: ui.nav.run_monitor
+    tooltip_key: ui.tooltip.shell.nav_run_monitor
+    action: open_run_monitor
+    backend_binding: client.routing
+    status: TODO
+  - control_id: nav.history_tools
+    screen: shell
+    type: link
+    label_key: ui.nav.history_tools
+    tooltip_key: ui.tooltip.shell.nav_history_tools
+    action: open_history_tools
+    backend_binding: client.routing
+    status: TODO
+  - control_id: nav.live_log
+    screen: shell
+    type: link
+    label_key: ui.nav.live_log
+    tooltip_key: ui.tooltip.shell.nav_live_log
+    action: open_live_log
+    backend_binding: client.routing
+    status: TODO
+  - control_id: nav.layout_1920
+    screen: shell
+    type: link
+    label_key: ui.nav.layout_1920
+    tooltip_key: ui.tooltip.shell.nav_layout_1920
+    action: open_layout_1920
+    backend_binding: client.routing
+    status: TODO
+  - control_id: nav.flow
+    screen: shell
+    type: link
+    label_key: ui.nav.flow
+    tooltip_key: ui.tooltip.shell.nav_flow
+    action: open_flow
+    backend_binding: client.routing
+    status: TODO
+  - control_id: locale.de
+    screen: shell
+    type: toggle
+    label_key: ui.locale.de
+    tooltip_key: ui.tooltip.shell.locale_de
+    action: set_locale_de
+    backend_binding: i18n.store.locale
+    status: TODO
+  - control_id: locale.en
+    screen: shell
+    type: toggle
+    label_key: ui.locale.en
+    tooltip_key: ui.tooltip.shell.locale_en
+    action: set_locale_en
+    backend_binding: i18n.store.locale
+    status: TODO
+  - control_id: status.run_ready
+    screen: shell
+    type: status_chip
+    label_key: ui.status.run_ready
+    tooltip_key: ui.tooltip.shell.run_ready
+    action: open_guardrail_summary
+    backend_binding: runtime.guardrails.summary
+    status: TODO
+
+  - control_id: dashboard.quick.start_wizard
+    screen: dashboard
+    type: button
+    label_key: ui.button.start_wizard
+    tooltip_key: ui.tooltip.dashboard.start_wizard
+    action: open_guided_wizard
+    backend_binding: wizard.init
+    status: TODO
+  - control_id: dashboard.kpi.scan_quality
+    screen: dashboard
+    type: kpi_link
+    label_key: dashboard.kpi.scan_quality
+    tooltip_key: ui.tooltip.dashboard.kpi_scan_quality
+    action: open_scan_quality_details
+    backend_binding: scan.quality.summary
+    status: TODO
+  - control_id: dashboard.kpi.open_warnings
+    screen: dashboard
+    type: kpi_link
+    label_key: dashboard.kpi.open_warnings
+    tooltip_key: ui.tooltip.dashboard.kpi_open_warnings
+    action: open_warning_list
+    backend_binding: guardrail.warning.index
+    status: TODO
+  - control_id: dashboard.input_dirs
+    screen: dashboard
+    type: input
+    label_key: ui.field.input_dirs
+    tooltip_key: ui.tooltip.dashboard.input_dirs
+    action: set_input_dirs
+    backend_binding: project.scan.inputs
+    status: TODO
+  - control_id: dashboard.color_mode
+    screen: dashboard
+    type: select
+    label_key: ui.field.color_mode
+    tooltip_key: ui.tooltip.dashboard.color_mode
+    action: set_color_mode
+    backend_binding: project.scan.color_mode
+    status: TODO
+  - control_id: dashboard.preset
+    screen: dashboard
+    type: select
+    label_key: ui.field.preset
+    tooltip_key: ui.tooltip.dashboard.preset
+    action: apply_preset
+    backend_binding: config.preset.apply
+    status: TODO
+  - control_id: dashboard.run.runs_dir
+    screen: dashboard
+    type: input_dir
+    label_key: ui.field.runs_dir
+    tooltip_key: ui.tooltip.dashboard.runs_dir
+    action: set_runs_dir
+    backend_binding: run.runs_dir
+    status: TODO
+  - control_id: dashboard.run.name
+    screen: dashboard
+    type: input
+    label_key: ui.field.run_name
+    tooltip_key: ui.tooltip.dashboard.run_name
+    action: set_run_name
+    backend_binding: run.run_name
+    status: TODO
+  - control_id: dashboard.run.path_preview
+    screen: dashboard
+    type: readonly
+    label_key: ui.field.run_path_preview
+    tooltip_key: ui.tooltip.dashboard.run_path_preview
+    action: show_run_path_preview
+    backend_binding: run.output_dir_preview
+    status: TODO
+  - control_id: dashboard.queue.edit
+    screen: dashboard
+    type: button
+    label_key: ui.button.queue_edit
+    tooltip_key: ui.tooltip.dashboard.queue_edit
+    action: open_queue_editor
+    backend_binding: run.filter_queue
+    status: TODO
+  - control_id: dashboard.queue.row.filter_name
+    screen: dashboard
+    type: select
+    label_key: queue.row.filter_name
+    tooltip_key: ui.tooltip.dashboard.queue_filter_name
+    action: set_queue_filter_name
+    backend_binding: run.filter_queue[].filter_name
+    status: TODO
+  - control_id: dashboard.queue.row.input_dir
+    screen: dashboard
+    type: input
+    label_key: queue.row.input_dir
+    tooltip_key: ui.tooltip.dashboard.queue_input_dir
+    action: set_queue_input_dir
+    backend_binding: run.filter_queue[].input_dir
+    status: TODO
+  - control_id: dashboard.queue.row.pattern
+    screen: dashboard
+    type: input
+    label_key: queue.row.pattern
+    tooltip_key: ui.tooltip.dashboard.queue_pattern
+    action: set_queue_pattern
+    backend_binding: run.filter_queue[].pattern
+    status: TODO
+  - control_id: dashboard.queue.row.enabled
+    screen: dashboard
+    type: toggle
+    label_key: queue.row.enabled
+    tooltip_key: ui.tooltip.dashboard.queue_enabled
+    action: set_queue_enabled
+    backend_binding: run.filter_queue[].enabled
+    status: TODO
+  - control_id: dashboard.queue.row.run_label
+    screen: dashboard
+    type: input
+    label_key: queue.row.run_label
+    tooltip_key: ui.tooltip.dashboard.queue_run_label
+    action: set_queue_run_label
+    backend_binding: run.filter_queue[].run_label
+    status: TODO
+  - control_id: dashboard.scan_refresh
+    screen: dashboard
+    type: button
+    label_key: ui.button.scan_refresh
+    tooltip_key: ui.tooltip.dashboard.scan_refresh
+    action: run_scan
+    backend_binding: scan.service
+    status: TODO
+  - control_id: dashboard.open_parameter_studio
+    screen: dashboard
+    type: button
+    label_key: ui.button.open_parameter_studio
+    tooltip_key: ui.tooltip.dashboard.open_parameter_studio
+    action: route_parameter_studio
+    backend_binding: client.routing
+    status: TODO
+  - control_id: dashboard.run_start
+    screen: dashboard
+    type: button
+    label_key: ui.button.run_start
+    tooltip_key: ui.tooltip.dashboard.run_start
+    action: start_serial_queue
+    backend_binding: runner.start
+    status: TODO
+  - control_id: dashboard.guardrail.scan_ok
+    screen: dashboard
+    type: row_action
+    label_key: ui.guardrail.scan_ok
+    tooltip_key: ui.tooltip.dashboard.guardrail_scan_ok
+    action: open_scan_details
+    backend_binding: guardrail.deep_link
+    status: TODO
+  - control_id: dashboard.guardrail.color_mode
+    screen: dashboard
+    type: row_action
+    label_key: ui.guardrail.color_mode
+    tooltip_key: ui.tooltip.dashboard.guardrail_color_mode
+    action: open_color_mode_details
+    backend_binding: guardrail.deep_link
+    status: TODO
+  - control_id: dashboard.guardrail.config_valid
+    screen: dashboard
+    type: row_action
+    label_key: ui.guardrail.config_valid
+    tooltip_key: ui.tooltip.dashboard.guardrail_config_valid
+    action: open_validation_details
+    backend_binding: guardrail.deep_link
+    status: TODO
+  - control_id: dashboard.guardrail.calibration_paths
+    screen: dashboard
+    type: row_action
+    label_key: ui.guardrail.calibration_paths
+    tooltip_key: ui.tooltip.dashboard.guardrail_calibration_paths
+    action: open_calibration_details
+    backend_binding: guardrail.deep_link
+    status: TODO
+  - control_id: dashboard.guardrail.bge_pcc
+    screen: dashboard
+    type: row_action
+    label_key: ui.guardrail.bge_pcc
+    tooltip_key: ui.tooltip.dashboard.guardrail_bge_pcc
+    action: open_bge_pcc_details
+    backend_binding: guardrail.deep_link
+    status: TODO
+
+  - control_id: parameter.search
+    screen: parameter_studio
+    type: input
+    label_key: ui.field.parameter_search
+    tooltip_key: ui.tooltip.parameter.search
+    action: filter_parameters
+    backend_binding: parameter.index
+    status: TODO
+  - control_id: parameter.preset_apply
+    screen: parameter_studio
+    type: button
+    label_key: ui.button.preset
+    tooltip_key: ui.tooltip.parameter.preset_apply
+    action: apply_preset
+    backend_binding: config.patch.apply
+    status: TODO
+  - control_id: parameter.situation_apply
+    screen: parameter_studio
+    type: button
+    label_key: ui.button.situation
+    tooltip_key: ui.tooltip.parameter.situation_apply
+    action: apply_scenarios
+    backend_binding: scenario.engine
+    status: TODO
+  - control_id: parameter.yaml_sync
+    screen: parameter_studio
+    type: button
+    label_key: ui.button.yaml_sync
+    tooltip_key: ui.tooltip.parameter.yaml_sync
+    action: sync_yaml
+    backend_binding: yaml.io
+    status: TODO
+  - control_id: parameter.validate
+    screen: parameter_studio
+    type: button
+    label_key: ui.button.validate
+    tooltip_key: ui.tooltip.parameter.validate
+    action: validate_config
+    backend_binding: validator.schema_semantic
+    status: TODO
+  - control_id: parameter.category.*
+    screen: parameter_studio
+    type: list
+    label_key: parameter.category.item
+    tooltip_key: ui.tooltip.parameter.category_item
+    action: filter_by_category
+    backend_binding: parameter.category.filter
+    status: TODO
+  - control_id: parameter.explain.info
+    screen: parameter_studio
+    type: panel
+    label_key: parameter.explain.info
+    tooltip_key: ui.tooltip.parameter.explain_info
+    action: show_parameter_metadata
+    backend_binding: parameter.metadata.lookup
+    status: TODO
+  - control_id: parameter.situation.altaz
+    screen: parameter_studio
+    type: toggle
+    label_key: scenario.altaz
+    tooltip_key: ui.tooltip.parameter.situation_altaz
+    action: toggle_scenario
+    backend_binding: scenario.engine
+    status: TODO
+  - control_id: parameter.situation.rotation
+    screen: parameter_studio
+    type: toggle
+    label_key: scenario.rotation
+    tooltip_key: ui.tooltip.parameter.situation_rotation
+    action: toggle_scenario
+    backend_binding: scenario.engine
+    status: TODO
+  - control_id: parameter.situation.bright_stars
+    screen: parameter_studio
+    type: toggle
+    label_key: scenario.bright_stars
+    tooltip_key: ui.tooltip.parameter.situation_bright_stars
+    action: toggle_scenario
+    backend_binding: scenario.engine
+    status: TODO
+  - control_id: parameter.situation.few_frames
+    screen: parameter_studio
+    type: toggle
+    label_key: scenario.few_frames
+    tooltip_key: ui.tooltip.parameter.situation_few_frames
+    action: toggle_scenario
+    backend_binding: scenario.engine
+    status: TODO
+  - control_id: parameter.situation.gradient
+    screen: parameter_studio
+    type: toggle
+    label_key: scenario.gradient
+    tooltip_key: ui.tooltip.parameter.situation_gradient
+    action: toggle_scenario
+    backend_binding: scenario.engine
+    status: TODO
+  - control_id: parameter.diff_panel
+    screen: parameter_studio
+    type: panel
+    label_key: parameter.diff.panel
+    tooltip_key: ui.tooltip.parameter.diff_panel
+    action: show_yaml_diff
+    backend_binding: diff.engine
+    status: TODO
+  - control_id: parameter.save
+    screen: parameter_studio
+    type: button
+    label_key: ui.button.save
+    tooltip_key: ui.tooltip.parameter.save
+    action: save_config
+    backend_binding: config.persist
+    status: TODO
+  - control_id: parameter.reset_default
+    screen: parameter_studio
+    type: button
+    label_key: ui.button.reset_default
+    tooltip_key: ui.tooltip.parameter.reset_default
+    action: reset_defaults
+    backend_binding: config.reset
+    status: TODO
+  - control_id: parameter.review_changes
+    screen: parameter_studio
+    type: button
+    label_key: ui.button.review_changes
+    tooltip_key: ui.tooltip.parameter.review_changes
+    action: show_diff
+    backend_binding: diff.engine
+    status: TODO
+  - control_id: parameter.registration.engine
+    screen: parameter_studio
+    type: input
+    label_key: param.registration.engine.label
+    tooltip_key: ui.tooltip.parameter.registration_engine
+    action: set_value
+    backend_binding: config.registration.engine
+    status: TODO
+  - control_id: parameter.registration.allow_rotation
+    screen: parameter_studio
+    type: input
+    label_key: param.registration.allow_rotation.label
+    tooltip_key: ui.tooltip.parameter.registration_allow_rotation
+    action: set_value
+    backend_binding: config.registration.allow_rotation
+    status: TODO
+  - control_id: parameter.registration.star_topk
+    screen: parameter_studio
+    type: input
+    label_key: param.registration.star_topk.label
+    tooltip_key: ui.tooltip.parameter.registration_star_topk
+    action: set_value
+    backend_binding: config.registration.star_topk
+    status: TODO
+  - control_id: parameter.registration.star_inlier_tol_px
+    screen: parameter_studio
+    type: input
+    label_key: param.registration.star_inlier_tol_px.label
+    tooltip_key: ui.tooltip.parameter.registration_star_inlier_tol_px
+    action: set_value
+    backend_binding: config.registration.star_inlier_tol_px
+    status: TODO
+  - control_id: parameter.registration.reject_cc_min_abs
+    screen: parameter_studio
+    type: input
+    label_key: param.registration.reject_cc_min_abs.label
+    tooltip_key: ui.tooltip.parameter.registration_reject_cc_min_abs
+    action: set_value
+    backend_binding: config.registration.reject_cc_min_abs
+    status: TODO
+  - control_id: parameter.bge.enabled
+    screen: parameter_studio
+    type: input
+    label_key: param.bge.enabled.label
+    tooltip_key: ui.tooltip.parameter.bge_enabled
+    action: set_value
+    backend_binding: config.bge.enabled
+    status: TODO
+  - control_id: parameter.bge.fit_method
+    screen: parameter_studio
+    type: input
+    label_key: param.bge.fit_method.label
+    tooltip_key: ui.tooltip.parameter.bge_fit_method
+    action: set_value
+    backend_binding: config.bge.fit.method
+    status: TODO
+  - control_id: parameter.bge.rbf_lambda
+    screen: parameter_studio
+    type: input
+    label_key: param.bge.rbf_lambda.label
+    tooltip_key: ui.tooltip.parameter.bge_rbf_lambda
+    action: set_value
+    backend_binding: config.bge.fit.rbf_lambda
+    status: TODO
+  - control_id: parameter.pcc.source
+    screen: parameter_studio
+    type: input
+    label_key: param.pcc.source.label
+    tooltip_key: ui.tooltip.parameter.pcc_source
+    action: set_value
+    backend_binding: config.pcc.source
+    status: TODO
+  - control_id: parameter.pcc.sigma_clip
+    screen: parameter_studio
+    type: input
+    label_key: param.pcc.sigma_clip.label
+    tooltip_key: ui.tooltip.parameter.pcc_sigma_clip
+    action: set_value
+    backend_binding: config.pcc.sigma_clip
+    status: TODO
+  - control_id: parameter.pcc.k_max
+    screen: parameter_studio
+    type: input
+    label_key: param.pcc.k_max.label
+    tooltip_key: ui.tooltip.parameter.pcc_k_max
+    action: set_value
+    backend_binding: config.pcc.k_max
+    status: TODO
+
+  - control_id: monitor.stop
+    screen: run_monitor
+    type: button
+    label_key: ui.button.stop
+    tooltip_key: ui.tooltip.monitor.stop
+    action: stop_run
+    backend_binding: runner.stop
+    status: TODO
+  - control_id: monitor.resume
+    screen: run_monitor
+    type: button
+    label_key: ui.button.resume
+    tooltip_key: ui.tooltip.monitor.resume
+    action: resume_run
+    backend_binding: runner.resume
+    status: TODO
+  - control_id: monitor.resume.config_revision
+    screen: run_monitor
+    type: select
+    label_key: ui.field.resume_config_revision
+    tooltip_key: ui.tooltip.monitor.resume_config_revision
+    action: set_resume_config_revision
+    backend_binding: run.resume.config_revision
+    status: TODO
+  - control_id: monitor.resume.restore_revision
+    screen: run_monitor
+    type: button
+    label_key: ui.button.restore_config_revision
+    tooltip_key: ui.tooltip.monitor.restore_config_revision
+    action: restore_config_revision
+    backend_binding: config.revision.restore
+    status: TODO
+  - control_id: monitor.report
+    screen: run_monitor
+    type: button
+    label_key: ui.button.report
+    tooltip_key: ui.tooltip.monitor.report
+    action: open_report
+    backend_binding: report.open
+    status: TODO
+  - control_id: monitor.open_run_folder
+    screen: run_monitor
+    type: button
+    label_key: ui.button.open_run_folder
+    tooltip_key: ui.tooltip.monitor.open_run_folder
+    action: open_run_folder
+    backend_binding: fs.open
+    status: TODO
+  - control_id: monitor.phase.scan_input
+    screen: run_monitor
+    type: row_action
+    label_key: phase.scan_input
+    tooltip_key: ui.tooltip.monitor.phase_scan_input
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.channel_split
+    screen: run_monitor
+    type: row_action
+    label_key: phase.channel_split
+    tooltip_key: ui.tooltip.monitor.phase_channel_split
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.normalization
+    screen: run_monitor
+    type: row_action
+    label_key: phase.normalization
+    tooltip_key: ui.tooltip.monitor.phase_normalization
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.global_metrics
+    screen: run_monitor
+    type: row_action
+    label_key: phase.global_metrics
+    tooltip_key: ui.tooltip.monitor.phase_global_metrics
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.tile_grid
+    screen: run_monitor
+    type: row_action
+    label_key: phase.tile_grid
+    tooltip_key: ui.tooltip.monitor.phase_tile_grid
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.registration
+    screen: run_monitor
+    type: row_action
+    label_key: phase.registration
+    tooltip_key: ui.tooltip.monitor.phase_registration
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.stacking
+    screen: run_monitor
+    type: row_action
+    label_key: phase.stacking
+    tooltip_key: ui.tooltip.monitor.phase_stacking
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.bge
+    screen: run_monitor
+    type: row_action
+    label_key: phase.bge
+    tooltip_key: ui.tooltip.monitor.phase_bge
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.pcc
+    screen: run_monitor
+    type: row_action
+    label_key: phase.pcc
+    tooltip_key: ui.tooltip.monitor.phase_pcc
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.calibration
+    screen: run_monitor
+    type: row_action
+    label_key: phase.calibration
+    tooltip_key: ui.tooltip.monitor.phase_calibration
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.prewarp
+    screen: run_monitor
+    type: row_action
+    label_key: phase.prewarp
+    tooltip_key: ui.tooltip.monitor.phase_prewarp
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.local_metrics
+    screen: run_monitor
+    type: row_action
+    label_key: phase.local_metrics
+    tooltip_key: ui.tooltip.monitor.phase_local_metrics
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.tile_reconstruction
+    screen: run_monitor
+    type: row_action
+    label_key: phase.tile_reconstruction
+    tooltip_key: ui.tooltip.monitor.phase_tile_reconstruction
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.state_clustering
+    screen: run_monitor
+    type: row_action
+    label_key: phase.state_clustering
+    tooltip_key: ui.tooltip.monitor.phase_state_clustering
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.synthetic_frames
+    screen: run_monitor
+    type: row_action
+    label_key: phase.synthetic_frames
+    tooltip_key: ui.tooltip.monitor.phase_synthetic_frames
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.phase.astrometry
+    screen: run_monitor
+    type: row_action
+    label_key: phase.astrometry
+    tooltip_key: ui.tooltip.monitor.phase_astrometry
+    action: resume_from_phase
+    backend_binding: runner.resume.phase
+    status: TODO
+  - control_id: monitor.filter.L
+    screen: run_monitor
+    type: chip_action
+    label_key: queue.filter.L
+    tooltip_key: ui.tooltip.monitor.filter_L
+    action: set_active_filter
+    backend_binding: run.active_filter_index
+    status: TODO
+  - control_id: monitor.filter.R
+    screen: run_monitor
+    type: chip_action
+    label_key: queue.filter.R
+    tooltip_key: ui.tooltip.monitor.filter_R
+    action: set_active_filter
+    backend_binding: run.active_filter_index
+    status: TODO
+  - control_id: monitor.filter.G
+    screen: run_monitor
+    type: chip_action
+    label_key: queue.filter.G
+    tooltip_key: ui.tooltip.monitor.filter_G
+    action: set_active_filter
+    backend_binding: run.active_filter_index
+    status: TODO
+  - control_id: monitor.filter.B
+    screen: run_monitor
+    type: chip_action
+    label_key: queue.filter.B
+    tooltip_key: ui.tooltip.monitor.filter_B
+    action: set_active_filter
+    backend_binding: run.active_filter_index
+    status: TODO
+  - control_id: monitor.filter.Ha
+    screen: run_monitor
+    type: chip_action
+    label_key: queue.filter.Ha
+    tooltip_key: ui.tooltip.monitor.filter_Ha
+    action: set_active_filter
+    backend_binding: run.active_filter_index
+    status: TODO
+  - control_id: monitor.filter.OIII
+    screen: run_monitor
+    type: chip_action
+    label_key: queue.filter.OIII
+    tooltip_key: ui.tooltip.monitor.filter_OIII
+    action: set_active_filter
+    backend_binding: run.active_filter_index
+    status: TODO
+  - control_id: monitor.filter.SII
+    screen: run_monitor
+    type: chip_action
+    label_key: queue.filter.SII
+    tooltip_key: ui.tooltip.monitor.filter_SII
+    action: set_active_filter
+    backend_binding: run.active_filter_index
+    status: TODO
+  - control_id: monitor.stats.generate
+    screen: run_monitor
+    type: button
+    label_key: monitor.stats.generate
+    tooltip_key: ui.tooltip.monitor.stats_generate
+    action: generate_stats
+    backend_binding: runner.stats.generate_report
+    status: TODO
+  - control_id: monitor.stats.open_folder
+    screen: run_monitor
+    type: button
+    label_key: monitor.stats.open_folder
+    tooltip_key: ui.tooltip.monitor.stats_open_folder
+    action: open_stats_folder
+    backend_binding: fs.open.stats_dir
+    status: TODO
+
+  - control_id: history.row_select
+    screen: history_tools
+    type: table_row
+    label_key: history.row.select
+    tooltip_key: ui.tooltip.history.row_select
+    action: select_run
+    backend_binding: history.selected_run
+    status: TODO
+  - control_id: history.refresh
+    screen: history_tools
+    type: button
+    label_key: ui.button.refresh
+    tooltip_key: ui.tooltip.history.refresh
+    action: refresh_history
+    backend_binding: history.refresh
+    status: TODO
+  - control_id: history.set_current
+    screen: history_tools
+    type: button
+    label_key: ui.button.set_current
+    tooltip_key: ui.tooltip.history.set_current
+    action: set_current_run
+    backend_binding: run.current.pointer
+    status: TODO
+  - control_id: history.open_report
+    screen: history_tools
+    type: button
+    label_key: ui.button.report_open
+    tooltip_key: ui.tooltip.history.open_report
+    action: open_report
+    backend_binding: report.open
+    status: TODO
+  - control_id: tools.astrometry.binary
+    screen: history_tools
+    type: input
+    label_key: tools.astrometry.binary
+    tooltip_key: ui.tooltip.tools.astrometry_binary
+    action: set_astrometry_binary
+    backend_binding: tools.astrometry.binary
+    status: TODO
+  - control_id: tools.astrometry.catalog
+    screen: history_tools
+    type: input
+    label_key: tools.astrometry.catalog
+    tooltip_key: ui.tooltip.tools.astrometry_catalog
+    action: set_astrometry_catalog
+    backend_binding: tools.astrometry.catalog
+    status: TODO
+  - control_id: tools.astrometry.file
+    screen: history_tools
+    type: input
+    label_key: tools.astrometry.file
+    tooltip_key: ui.tooltip.tools.astrometry_file
+    action: set_astrometry_file
+    backend_binding: tools.astrometry.solve_file
+    status: TODO
+  - control_id: tools.astrometry.solve
+    screen: history_tools
+    type: button
+    label_key: ui.button.solve
+    tooltip_key: ui.tooltip.tools.astrometry_solve
+    action: run_astrometry_solve
+    backend_binding: astrometry.runner
+    status: TODO
+  - control_id: tools.pcc.source
+    screen: history_tools
+    type: input
+    label_key: tools.pcc.source
+    tooltip_key: ui.tooltip.tools.pcc_source
+    action: set_pcc_source
+    backend_binding: tools.pcc.source
+    status: TODO
+  - control_id: tools.pcc.sigma
+    screen: history_tools
+    type: input
+    label_key: tools.pcc.sigma
+    tooltip_key: ui.tooltip.tools.pcc_sigma
+    action: set_pcc_sigma
+    backend_binding: tools.pcc.sigma
+    status: TODO
+  - control_id: tools.pcc.min_stars
+    screen: history_tools
+    type: input
+    label_key: tools.pcc.min_stars
+    tooltip_key: ui.tooltip.tools.pcc_min_stars
+    action: set_pcc_min_stars
+    backend_binding: tools.pcc.min_stars
+    status: TODO
+  - control_id: tools.pcc.run
+    screen: history_tools
+    type: button
+    label_key: ui.button.run_pcc
+    tooltip_key: ui.tooltip.tools.pcc_run
+    action: run_pcc
+    backend_binding: pcc.runner
+    status: TODO
+  - control_id: tools.pcc.save_corrected
+    screen: history_tools
+    type: button
+    label_key: ui.button.save_corrected
+    tooltip_key: ui.tooltip.tools.pcc_save_corrected
+    action: save_corrected
+    backend_binding: pcc.output.save
+    status: TODO
+  - control_id: layout.hotspot.shell
+    screen: layout_1920
+    type: hotspot
+    label_key: layout.hotspot.shell
+    tooltip_key: ui.tooltip.layout.hotspot_shell
+    action: open_dashboard_shell_mapping
+    backend_binding: doc.navigation
+    status: TODO
+  - control_id: layout.hotspot.main_wrapper
+    screen: layout_1920
+    type: hotspot
+    label_key: layout.hotspot.main_wrapper
+    tooltip_key: ui.tooltip.layout.hotspot_main_wrapper
+    action: open_main_wrapper_mapping
+    backend_binding: doc.navigation
+    status: TODO
+  - control_id: flow.node.*
+    screen: flow
+    type: hotspot
+    label_key: flow.node
+    tooltip_key: ui.tooltip.flow.node
+    action: open_flow_target
+    backend_binding: doc.navigation
+    status: TODO
+
+  - control_id: assumptions.pipeline_profile
+    screen: assumptions
+    type: select
+    label_key: param.assumptions.pipeline_profile.label
+    tooltip_key: ui.tooltip.assumptions.pipeline_profile
+    action: set_value
+    backend_binding: config.assumptions.pipeline_profile
+    status: TODO
+  - control_id: assumptions.frames_min
+    screen: assumptions
+    type: input
+    label_key: param.assumptions.frames_min.label
+    tooltip_key: ui.tooltip.assumptions.frames_min
+    action: set_value
+    backend_binding: config.assumptions.frames_min
+    status: TODO
+  - control_id: assumptions.frames_optimal
+    screen: assumptions
+    type: input
+    label_key: param.assumptions.frames_optimal.label
+    tooltip_key: ui.tooltip.assumptions.frames_optimal
+    action: set_value
+    backend_binding: config.assumptions.frames_optimal
+    status: TODO
+  - control_id: assumptions.frames_reduced_threshold
+    screen: assumptions
+    type: input
+    label_key: param.assumptions.frames_reduced_threshold.label
+    tooltip_key: ui.tooltip.assumptions.frames_reduced_threshold
+    action: set_value
+    backend_binding: config.assumptions.frames_reduced_threshold
+    status: TODO
+  - control_id: assumptions.reduced_mode_skip_clustering
+    screen: assumptions
+    type: toggle
+    label_key: param.assumptions.reduced_mode_skip_clustering.label
+    tooltip_key: ui.tooltip.assumptions.reduced_mode_skip_clustering
+    action: set_value
+    backend_binding: config.assumptions.reduced_mode_skip_clustering
+    status: TODO
+  - control_id: assumptions.reduced_mode_cluster_range
+    screen: assumptions
+    type: input
+    label_key: param.assumptions.reduced_mode_cluster_range.label
+    tooltip_key: ui.tooltip.assumptions.reduced_mode_cluster_range
+    action: set_value
+    backend_binding: config.assumptions.reduced_mode_cluster_range
+    status: TODO
+  - control_id: assumptions.exposure_time_tolerance_percent
+    screen: assumptions
+    type: input
+    label_key: param.assumptions.exposure_time_tolerance_percent.label
+    tooltip_key: ui.tooltip.assumptions.exposure_time_tolerance_percent
+    action: set_value
+    backend_binding: config.assumptions.exposure_time_tolerance_percent
+    status: TODO
+  - control_id: assumptions.pipeline_mode_info
+    screen: assumptions
+    type: info_panel
+    label_key: assumptions.pipeline_mode_info
+    tooltip_key: ui.tooltip.assumptions.pipeline_mode_info
+    action: show_mode_info
+    backend_binding: config.assumptions.read
+    status: TODO
+
+  - control_id: input_scan.input_dirs
+    screen: input_scan
+    type: input_dir_list
+    label_key: ui.field.input_dirs
+    tooltip_key: ui.tooltip.input_scan.input_dirs
+    action: set_input_dirs
+    backend_binding: project.scan.inputs
+    status: TODO
+  - control_id: input_scan.pattern
+    screen: input_scan
+    type: input
+    label_key: ui.field.pattern
+    tooltip_key: ui.tooltip.input_scan.pattern
+    action: set_pattern
+    backend_binding: project.scan.pattern
+    status: TODO
+  - control_id: input_scan.max_frames
+    screen: input_scan
+    type: input
+    label_key: param.input.max_frames.label
+    tooltip_key: ui.tooltip.input_scan.max_frames
+    action: set_value
+    backend_binding: config.input.max_frames
+    status: TODO
+  - control_id: input_scan.sort
+    screen: input_scan
+    type: select
+    label_key: param.input.sort.label
+    tooltip_key: ui.tooltip.input_scan.sort
+    action: set_value
+    backend_binding: config.input.sort
+    status: TODO
+  - control_id: input_scan.color_mode_confirm
+    screen: input_scan
+    type: select
+    label_key: ui.field.color_mode
+    tooltip_key: ui.tooltip.input_scan.color_mode_confirm
+    action: confirm_color_mode
+    backend_binding: project.scan.color_mode
+    status: TODO
+  - control_id: input_scan.bayer_pattern
+    screen: input_scan
+    type: select
+    label_key: param.data.bayer_pattern.label
+    tooltip_key: ui.tooltip.input_scan.bayer_pattern
+    action: set_value
+    backend_binding: config.data.bayer_pattern
+    status: TODO
+  - control_id: input_scan.with_checksums
+    screen: input_scan
+    type: toggle
+    label_key: ui.field.with_checksums
+    tooltip_key: ui.tooltip.input_scan.with_checksums
+    action: set_with_checksums
+    backend_binding: project.scan.with_checksums
+    status: TODO
+  - control_id: input_scan.scan_run
+    screen: input_scan
+    type: button
+    label_key: ui.button.scan_refresh
+    tooltip_key: ui.tooltip.input_scan.scan_run
+    action: run_scan
+    backend_binding: scan.service
+    status: TODO
+  - control_id: input_scan.scan_results
+    screen: input_scan
+    type: readonly_panel
+    label_key: ui.panel.scan_results
+    tooltip_key: ui.tooltip.input_scan.scan_results
+    action: show_scan_results
+    backend_binding: scan.results.read
+    status: TODO
+  - control_id: input_scan.calibration.use_bias
+    screen: input_scan
+    type: toggle
+    label_key: param.calibration.use_bias.label
+    tooltip_key: ui.tooltip.input_scan.calibration_use_bias
+    action: set_value
+    backend_binding: config.calibration.use_bias
+    status: TODO
+  - control_id: input_scan.calibration.bias_dir
+    screen: input_scan
+    type: input_dir
+    label_key: param.calibration.bias_dir.label
+    tooltip_key: ui.tooltip.input_scan.calibration_bias_dir
+    action: set_value
+    backend_binding: config.calibration.bias_dir
+    status: TODO
+  - control_id: input_scan.calibration.use_dark
+    screen: input_scan
+    type: toggle
+    label_key: param.calibration.use_dark.label
+    tooltip_key: ui.tooltip.input_scan.calibration_use_dark
+    action: set_value
+    backend_binding: config.calibration.use_dark
+    status: TODO
+  - control_id: input_scan.calibration.darks_dir
+    screen: input_scan
+    type: input_dir
+    label_key: param.calibration.darks_dir.label
+    tooltip_key: ui.tooltip.input_scan.calibration_darks_dir
+    action: set_value
+    backend_binding: config.calibration.darks_dir
+    status: TODO
+  - control_id: input_scan.calibration.use_flat
+    screen: input_scan
+    type: toggle
+    label_key: param.calibration.use_flat.label
+    tooltip_key: ui.tooltip.input_scan.calibration_use_flat
+    action: set_value
+    backend_binding: config.calibration.use_flat
+    status: TODO
+  - control_id: input_scan.calibration.flats_dir
+    screen: input_scan
+    type: input_dir
+    label_key: param.calibration.flats_dir.label
+    tooltip_key: ui.tooltip.input_scan.calibration_flats_dir
+    action: set_value
+    backend_binding: config.calibration.flats_dir
+    status: TODO
+
+  - control_id: wizard.input.input_dirs
+    screen: wizard
+    type: input_dir_list
+    label_key: ui.field.input_dirs
+    tooltip_key: ui.tooltip.wizard.input_dirs
+    action: set_input_dirs
+    backend_binding: wizard.draft.inputs
+    status: TODO
+  - control_id: wizard.input.pattern
+    screen: wizard
+    type: input
+    label_key: ui.field.pattern
+    tooltip_key: ui.tooltip.wizard.pattern
+    action: set_pattern
+    backend_binding: wizard.draft.pattern
+    status: TODO
+  - control_id: wizard.input.color_mode
+    screen: wizard
+    type: select
+    label_key: ui.field.color_mode
+    tooltip_key: ui.tooltip.wizard.color_mode
+    action: set_color_mode
+    backend_binding: wizard.draft.color_mode
+    status: TODO
+  - control_id: wizard.input.runs_dir
+    screen: wizard
+    type: input_dir
+    label_key: ui.field.runs_dir
+    tooltip_key: ui.tooltip.wizard.runs_dir
+    action: set_runs_dir
+    backend_binding: wizard.draft.runs_dir
+    status: TODO
+  - control_id: wizard.input.run_name
+    screen: wizard
+    type: input
+    label_key: ui.field.run_name
+    tooltip_key: ui.tooltip.wizard.run_name
+    action: set_run_name
+    backend_binding: wizard.draft.run_name
+    status: TODO
+  - control_id: wizard.calibration.use_bias
+    screen: wizard
+    type: toggle
+    label_key: param.calibration.use_bias.label
+    tooltip_key: ui.tooltip.wizard.calibration_use_bias
+    action: set_value
+    backend_binding: wizard.draft.calibration.use_bias
+    status: TODO
+  - control_id: wizard.calibration.bias_dir
+    screen: wizard
+    type: input_dir
+    label_key: param.calibration.bias_dir.label
+    tooltip_key: ui.tooltip.wizard.calibration_bias_dir
+    action: set_value
+    backend_binding: wizard.draft.calibration.bias_dir
+    status: TODO
+  - control_id: wizard.calibration.use_dark
+    screen: wizard
+    type: toggle
+    label_key: param.calibration.use_dark.label
+    tooltip_key: ui.tooltip.wizard.calibration_use_dark
+    action: set_value
+    backend_binding: wizard.draft.calibration.use_dark
+    status: TODO
+  - control_id: wizard.calibration.darks_dir
+    screen: wizard
+    type: input_dir
+    label_key: param.calibration.darks_dir.label
+    tooltip_key: ui.tooltip.wizard.calibration_darks_dir
+    action: set_value
+    backend_binding: wizard.draft.calibration.darks_dir
+    status: TODO
+  - control_id: wizard.calibration.use_flat
+    screen: wizard
+    type: toggle
+    label_key: param.calibration.use_flat.label
+    tooltip_key: ui.tooltip.wizard.calibration_use_flat
+    action: set_value
+    backend_binding: wizard.draft.calibration.use_flat
+    status: TODO
+  - control_id: wizard.calibration.flats_dir
+    screen: wizard
+    type: input_dir
+    label_key: param.calibration.flats_dir.label
+    tooltip_key: ui.tooltip.wizard.calibration_flats_dir
+    action: set_value
+    backend_binding: wizard.draft.calibration.flats_dir
+    status: TODO
+  - control_id: wizard.queue.row.filter_name
+    screen: wizard
+    type: select
+    label_key: queue.row.filter_name
+    tooltip_key: ui.tooltip.wizard.queue_filter_name
+    action: set_queue_filter_name
+    backend_binding: wizard.draft.filter_queue[].filter_name
+    status: TODO
+  - control_id: wizard.queue.row.input_dir
+    screen: wizard
+    type: input
+    label_key: queue.row.input_dir
+    tooltip_key: ui.tooltip.wizard.queue_input_dir
+    action: set_queue_input_dir
+    backend_binding: wizard.draft.filter_queue[].input_dir
+    status: TODO
+  - control_id: wizard.preset.select
+    screen: wizard
+    type: select
+    label_key: ui.field.preset
+    tooltip_key: ui.tooltip.wizard.preset_select
+    action: apply_preset
+    backend_binding: wizard.draft.preset_id
+    status: TODO
+  - control_id: wizard.situation.apply
+    screen: wizard
+    type: button
+    label_key: ui.button.situation
+    tooltip_key: ui.tooltip.wizard.situation_apply
+    action: apply_scenarios
+    backend_binding: wizard.draft.scenarios
+    status: TODO
+  - control_id: wizard.validation.result
+    screen: wizard
+    type: readonly_panel
+    label_key: ui.panel.validation_result
+    tooltip_key: ui.tooltip.wizard.validation_result
+    action: show_validation_result
+    backend_binding: validator.result.read
+    status: TODO
+  - control_id: wizard.start
+    screen: wizard
+    type: button
+    label_key: ui.button.run_start
+    tooltip_key: ui.tooltip.wizard.start
+    action: start_run_from_wizard
+    backend_binding: runner.start
+    status: TODO
+  - control_id: wizard.nav.back
+    screen: wizard
+    type: button
+    label_key: ui.button.back
+    tooltip_key: ui.tooltip.wizard.nav_back
+    action: wizard_prev_step
+    backend_binding: wizard.state.step
+    status: TODO
+  - control_id: wizard.nav.next
+    screen: wizard
+    type: button
+    label_key: ui.button.next
+    tooltip_key: ui.tooltip.wizard.nav_next
+    action: wizard_next_step
+    backend_binding: wizard.state.step
+    status: TODO
+
+legacy_parity:
+  - legacy_tab: Scan
+    gui2_target: Dashboard + Input&Scan
+    status: TODO
+  - legacy_tab: Configuration
+    gui2_target: Parameter Studio
+    status: TODO
+  - legacy_tab: Assumptions
+    gui2_target: Assumptions
+    status: TODO
+  - legacy_tab: Run
+    gui2_target: Dashboard + Run Monitor
+    status: TODO
+  - legacy_tab: Pipeline Progress
+    gui2_target: Run Monitor
+    status: TODO
+  - legacy_tab: Current run
+    gui2_target: Run Monitor
+    status: TODO
+  - legacy_tab: Run history
+    gui2_target: History+Tools
+    status: TODO
+  - legacy_tab: Astrometry
+    gui2_target: History+Tools
+    status: TODO
+  - legacy_tab: PCC
+    gui2_target: History+Tools
+    status: TODO
+  - legacy_tab: Live log
+    gui2_target: Run Monitor + Live Log
+    status: TODO

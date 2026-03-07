@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Assumptions</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="screen-placeholder.css?v=2">
+  <script src="theme.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a href="index.html">Start</a>
+    <div class="pill-sep"></div>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="input-scan.html">Input&amp;Scan</a>
+    <a class="active" href="assumptions.html">Assumptions</a>
+    <a href="parameter-studio.html">Parameter Studio</a>
+    <a href="run-monitor.html">Run Monitor</a>
+    <a href="history-tools.html">History+Tools</a>
+    <a href="live-log.html">Live Log</a>
+    <div class="pill-sep"></div>
+    <a href="layout-1920.html">Layout 1920</a>
+    <a href="flow.html">Ablauf</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <main>
+    <p class="intro">Pipeline-Annahmen: Frame-Schwellen, Pipeline-Profil, Reduced-Mode-Regeln. HTML-Placeholder ohne eigenes Mockup-PNG.</p>
+
+    <div class="placeholder-screen">
+      <div class="placeholder-sidebar">
+        <div class="ps-label">Navigation</div>
+        <a class="ps-item" href="dashboard.html">Dashboard</a>
+        <a class="ps-item" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item ps-active" href="assumptions.html">Assumptions</a>
+        <a class="ps-item" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item" href="history-tools.html">History + Tools</a>
+        <a class="ps-item" href="live-log.html">Live Log</a>
+      </div>
+
+      <div class="placeholder-content">
+        <h2>Assumptions</h2>
+        <p class="ps-sub">Pipeline-Profil und Frame-Schwellen bestimmen den Modus: Full / Reduced / Emergency.</p>
+
+        <div class="ps-section">
+          <div class="ps-row">
+            <label>Pipeline-Profil</label>
+            <select class="ps-select" id="asmpt-profile" onchange="updateMode()">
+              <option selected>practical</option>
+              <option>strict</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label>Frames Minimum</label>
+            <input class="ps-input ps-short" type="number" value="8" id="asmpt-min" onchange="updateMode()">
+          </div>
+          <div class="ps-row">
+            <label>Frames Optimal</label>
+            <input class="ps-input ps-short" type="number" value="30" id="asmpt-opt" onchange="updateMode()">
+          </div>
+          <div class="ps-row">
+            <label>Reduced-Mode Schwelle</label>
+            <input class="ps-input ps-short" type="number" value="15" id="asmpt-reduced" onchange="updateMode()">
+            <span class="ps-hint">Frames &lt; Schwelle → Reduced-Mode</span>
+          </div>
+          <div class="ps-row">
+            <label>Clustering überspringen</label>
+            <input type="checkbox" id="asmpt-skip-cluster"> <span class="ps-hint">im Reduced-Mode</span>
+          </div>
+          <div class="ps-row">
+            <label>Cluster-Bereich</label>
+            <input class="ps-input ps-short" type="text" value="2–6" id="asmpt-cluster-range">
+          </div>
+          <div class="ps-row">
+            <label>Belichtungszeit-Toleranz (%)</label>
+            <input class="ps-input ps-short" type="number" value="10" id="asmpt-exp-tol">
+          </div>
+        </div>
+
+        <div class="ps-info-panel" id="mode-panel">
+          <div class="ps-info-title">Aktueller Pipeline-Modus</div>
+          <div id="mode-display" class="ps-mode-full">Full Mode (≥ 15 Frames)</div>
+          <div class="ps-mode-hint" id="mode-hint">Alle Pipeline-Phasen aktiv inkl. Clustering und Synthetik.</div>
+        </div>
+
+        <div class="ps-actions">
+          <a class="ps-btn ps-btn-secondary" href="parameter-studio.html">Parameter Studio</a>
+          <a class="ps-btn ps-btn-secondary" href="dashboard.html">Dashboard</a>
+        </div>
+      </div>
+    </div>
+
+    <p id="asmpt-note" class="footer-note">Assumptions steuern wann der Runner in Reduced-Mode oder Emergency-Mode wechselt.</p>
+  </main>
+  <script>
+    function updateMode() {
+      const frames = parseInt(document.getElementById("asmpt-reduced").value) || 15;
+      const opt = parseInt(document.getElementById("asmpt-opt").value) || 30;
+      const min = parseInt(document.getElementById("asmpt-min").value) || 8;
+      const disp = document.getElementById("mode-display");
+      const hint = document.getElementById("mode-hint");
+      disp.className = "";
+      if (frames >= opt) {
+        disp.textContent = "Full Mode (≥ " + opt + " Frames)";
+        disp.className = "ps-mode-full";
+        hint.textContent = "Alle Pipeline-Phasen aktiv inkl. Clustering und Synthetik.";
+      } else if (frames >= min) {
+        disp.textContent = "Reduced Mode (" + min + "–" + (opt-1) + " Frames)";
+        disp.className = "ps-mode-reduced";
+        hint.textContent = "Clustering optional, Synthetik eingeschränkt.";
+      } else {
+        disp.textContent = "Emergency Mode (< " + min + " Frames)";
+        disp.className = "ps-mode-emergency";
+        hint.textContent = "Nur Basis-Stacking, keine Metriken, keine Synthetik.";
+      }
+    }
+  </script>
+</body>
+</html>

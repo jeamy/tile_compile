@@ -5,6 +5,16 @@
 run_dir: ./run_mono_small_n_ultra_conservative
 log_level: info # trace|debug|info|warn|error
 
+scenario_profile:
+  id: mono_small_n_ultra_conservative
+  title: MONO Small-N Ultra Conservative
+  intent: "Sehr kleines N, maximale Stabilitaet und Frame-Erhalt."
+  gui2_scenarios: [mono, very_small_n, ultra_conservative, alt_az, rotation_robust]
+  recommended_for:
+    - "N_usable in etwa 8..25"
+    - "sehr schwierige Bedingungen, Frame-Erhalt vor Aggressivitaet"
+  priority: maximum_stability
+
 pipeline:
   mode: production # production|test
   abort_on_fail: false # true => Lauf bei kritischem Phasenfehler sofort beenden

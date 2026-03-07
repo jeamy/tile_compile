@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - History & Tools</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="screen-placeholder.css?v=2">
+  <script src="theme.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a href="index.html">Start</a>
+    <div class="pill-sep"></div>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="input-scan.html">Input&amp;Scan</a>
+    <a href="assumptions.html">Assumptions</a>
+    <a href="parameter-studio.html">Parameter Studio</a>
+    <a href="run-monitor.html">Run Monitor</a>
+    <a class="active" href="history-tools.html">History+Tools</a>
+    <a href="live-log.html">Live Log</a>
+    <div class="pill-sep"></div>
+    <a href="layout-1920.html">Layout 1920</a>
+    <a href="flow.html">Ablauf</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <main>
+    <p class="intro">Run-Historie, Astrometry und PCC in einem Screen.</p>
+
+    <div class="placeholder-screen">
+      <div class="placeholder-sidebar">
+        <div class="ps-label">Navigation</div>
+        <a class="ps-item" href="dashboard.html">Dashboard</a>
+        <a class="ps-item" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item" href="assumptions.html">Assumptions</a>
+        <a class="ps-item" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item ps-active" href="history-tools.html">History + Tools</a>
+        <a class="ps-item" href="live-log.html">Live Log</a>
+      </div>
+
+      <div class="placeholder-content">
+        <h2>History & Tools</h2>
+        <p class="ps-sub">Run-Historie, Astrometry und PCC in einem Screen.</p>
+
+        <div class="ps-section" id="history-block">
+          <div class="ps-section-title">Run-Historie</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <a href="run-monitor.html" style="display:flex;align-items:center;gap:10px;padding:10px;background:#fff3cd;border:1px solid #fde68a;border-radius:6px;text-decoration:none;color:inherit;">
+              <span style="padding:4px 10px;background:#d97706;color:#fff;border-radius:4px;font-size:11px;font-weight:700;">RUNNING</span>
+              <span style="font-weight:600;">20260307_ab12</span>
+              <span style="margin-left:auto;font-size:13px;color:var(--muted);">M31_altaz_test</span>
+            </a>
+            <a href="run-monitor.html" style="display:flex;align-items:center;gap:10px;padding:10px;background:#f8fafb;border:1px solid var(--line);border-radius:6px;text-decoration:none;color:inherit;">
+              <span style="padding:4px 10px;background:#d1f4e0;color:#15808d;border-radius:4px;font-size:11px;font-weight:700;">COMPLETED</span>
+              <span style="font-weight:600;">20260306_f93e</span>
+              <span style="margin-left:auto;font-size:13px;color:var(--muted);">IC434_test</span>
+            </a>
+            <a href="run-monitor.html" style="display:flex;align-items:center;gap:10px;padding:10px;background:#fee;border:1px solid #fcc;border-radius:6px;text-decoration:none;color:inherit;">
+              <span style="padding:4px 10px;background:#dc2626;color:#fff;border-radius:4px;font-size:11px;font-weight:700;">ERROR</span>
+              <span style="font-weight:600;">20260305_a124</span>
+              <span style="margin-left:auto;font-size:13px;color:var(--muted);">NGC7000</span>
+            </a>
+          </div>
+          <div class="ps-actions" style="margin-top:12px;">
+            <button class="ps-btn ps-btn-secondary">Refresh</button>
+            <a class="ps-btn ps-btn-secondary" href="run-monitor.html">Als Current Run</a>
+            <button class="ps-btn ps-btn-secondary">Report öffnen</button>
+          </div>
+        </div>
+
+        <div id="tools-block" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px;">
+          <div class="ps-section">
+            <div class="ps-section-title">Astrometry</div>
+            <div class="ps-row">
+              <label>Datei zum Solven</label>
+              <input class="ps-input ps-wide" type="text" value="/data/tile_runs/20260306_f93e/recon/final_rgb.tif">
+            </div>
+            <div class="ps-row">
+              <label>Solver-Profil</label>
+              <select class="ps-select"><option selected>astap-default</option><option>wide-field</option><option>narrow-field</option></select>
+            </div>
+            <div class="ps-row">
+              <label>Plate Solve</label>
+              <button class="ps-btn ps-btn-secondary">Solve</button>
+            </div>
+            <div style="margin-top:10px;padding:10px;background:#f0f9ff;border:1px solid #bae0f5;border-radius:6px;font-size:13px;">
+              <div style="font-weight:700;margin-bottom:4px;">Ergebnis:</div>
+              <div>RA: 00h 42m 44s | Dec: +41° 16' 09"</div>
+              <div>Rotation: 123.4° | Scale: 2.1 arcsec/px</div>
+            </div>
+          </div>
+
+          <div class="ps-section">
+            <div class="ps-section-title">Photometric Color Calibration</div>
+            <div class="ps-row">
+              <label>Datei für PCC</label>
+              <input class="ps-input ps-wide" type="text" value="/data/tile_runs/20260306_f93e/recon/final_rgb.tif">
+            </div>
+            <div class="ps-row">
+              <label>Sternkatalog</label>
+              <select class="ps-select"><option selected>Gaia DR3</option><option>APASS</option><option>Pan-STARRS</option></select>
+            </div>
+            <div class="ps-actions">
+              <button class="ps-btn ps-btn-secondary">Run PCC</button>
+              <button class="ps-btn ps-btn-secondary">Save Corrected</button>
+            </div>
+            <div style="margin-top:10px;padding:10px;background:#f0f9ff;border:1px solid #bae0f5;border-radius:6px;font-size:13px;">
+              <div style="font-weight:700;margin-bottom:4px;">Status:</div>
+              <div>Catalog: Gaia DR3 | Stars: 487</div>
+              <div>R: 0.98 | G: 1.02 | B: 0.99</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer-note">History & Tools: Run-Historie, Astrometry Plate Solve und Photometric Color Calibration.</p>
+  </main>
+</body>
+</html>

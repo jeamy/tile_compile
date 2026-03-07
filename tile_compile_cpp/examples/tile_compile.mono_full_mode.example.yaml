@@ -5,6 +5,16 @@
 run_dir: ./run_mono_full_mode
 log_level: info # trace|debug|info|warn|error
 
+scenario_profile:
+  id: mono_full_mode
+  title: MONO Full Mode
+  intent: "Robuster MONO-Betrieb mit Full-Mode Datensatzgroesse."
+  gui2_scenarios: [mono, full_mode, alt_az, rotation_robust]
+  recommended_for:
+    - "N_usable >= assumptions.frames_reduced_threshold"
+    - "Alt/Az Sessions mit Feldrotation und Wolkenluecken"
+  priority: balanced_quality
+
 pipeline:
   mode: production # production|test
   abort_on_fail: false # true => Lauf bei kritischem Phasenfehler sofort beenden

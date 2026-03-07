@@ -5,6 +5,16 @@
 run_dir: ./run_mono_small_n_anti_grid
 log_level: info # trace|debug|info|warn|error
 
+scenario_profile:
+  id: mono_small_n_anti_grid
+  title: MONO Small-N Anti-Grid
+  intent: "Kleines N mit Fokus auf stabile Tile-Naehte und Pattern-Vermeidung."
+  gui2_scenarios: [mono, small_n, anti_grid, alt_az, rotation_robust]
+  recommended_for:
+    - "N_usable in etwa 10..40"
+    - "sichtbare Tile-Naehte oder instabile lokale Gewichtung"
+  priority: seam_stability
+
 pipeline:
   mode: production # production|test
   abort_on_fail: false # true => Lauf bei kritischem Phasenfehler sofort beenden

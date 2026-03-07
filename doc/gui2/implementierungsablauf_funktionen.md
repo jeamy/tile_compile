@@ -1,0 +1,510 @@
+# Implementierungsablauf und Funktionsmatrix GUI 2
+
+Ziel: lueckenlose Umsetzung aller GUI-2-Funktionen ohne Funktionsverlust gegenueber `gui_cpp`.
+
+## 1) Abnahmeregeln (verbindlich)
+
+1. Jeder interaktive Control-Eintrag hat:
+   - `control_id`
+   - `screen`
+   - `label_key`
+   - `tooltip_key`
+   - `action`
+   - `backend_binding`
+2. Kein Control ohne Tooltip.
+3. Kein Start (`Run starten`) bei offenen `error`-Guardrails.
+4. Jede Aktion schreibt ein Event in den Run/GUI-Event-Stream.
+5. Jede Funktion hat einen manuellen und einen automatisierten Abnahmetest.
+6. Jede `parameter.save`-Aktion erzeugt eine neue Config-Revision (append-only, keine Ueberschreibung).
+7. Der Run-Ordnername endet immer mit Startdatum/-zeit im Format `YYYYMMDD_HHMMSS`.
+
+## 2) Tooltip-Standard (verbindlich)
+
+Fuer alle Controls gilt:
+
+- Buttons: kurzer Zweck + Nebenwirkung.
+- Eingabefelder: Bedeutung + erlaubter Wertebereich + Default.
+- Tabellenzeilen/Links: was geoeffnet/gestartet wird.
+- Statuschips: aktueller Zustand + Ursprung (z. B. letzte Validierung).
+
+Key-Schema:
+
+- `ui.tooltip.<screen>.<control_id>`
+- Beispiele:
+  - `ui.tooltip.dashboard.run_start`
+  - `ui.tooltip.parameter.registration.star_topk`
+  - `ui.tooltip.monitor.stats_generate`
+
+## 3) Migrationsreihenfolge (ohne Funktionsverlust)
+
+1. **Bestandsfreeze**
+   - Bestehende `gui_cpp`-Funktionen je Tab inventarisieren.
+   - Jede Alt-Funktion bekommt `legacy_id`.
+2. **Control-Registry anlegen**
+   - Zentrale Datei `gui2_control_registry.yaml` pflegen.
+   - Alle Controls aus Abschnitt 4 mit Status (`TODO/IN_PROGRESS/DONE`) fuehren.
+3. **i18n + Tooltip-Layer**
+   - `label_key` und `tooltip_key` fuer alle Registry-Eintraege.
+4. **State-Model**
+   - Zentraler GUI-State: `project`, `scan`, `config`, `config_revisions`, `queue`, `run`, `history`, `tools`, `i18n`.
+5. **Screen-Implementierung**
+   - Reihenfolge: Dashboard -> Input&Scan -> Parameter Studio -> Assumptions -> Run Monitor -> History+Tools -> Live Log.
+6. **Funktionsparitaet**
+   - Legacy-Feature-Mapping gegen Registry abhaken.
+7. **Abnahmesuite**
+   - E2E-Flows + Kontrolllisten aus Abschnitt 8.
+
+## 4) Vollstaendige Funktionsmatrix (Controls)
+
+## 4.1 Global / Shell
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
+| `nav.start` | Link | zur Startseite | client routing |
+| `nav.dashboard` | Link | Dashboard oeffnen | client routing |
+| `nav.input_scan` | Link | Input&Scan oeffnen | client routing |
+| `nav.parameter_studio` | Link | Parameter Studio oeffnen | client routing |
+| `nav.assumptions` | Link | Assumptions oeffnen | client routing |
+| `nav.run_monitor` | Link | Run Monitor oeffnen | client routing |
+| `nav.history_tools` | Link | History+Tools oeffnen | client routing |
+| `nav.live_log` | Link | Live Log oeffnen | client routing |
+| `nav.layout_1920` | Link | Layout-Review oeffnen | client routing |
+| `nav.flow` | Link | Ablaufkarte oeffnen | client routing |
+| `locale.de` | Toggle | Sprache auf DE | i18n store update |
+| `locale.en` | Toggle | Sprache auf EN | i18n store update |
+| `status.run_ready` | Statuschip | Guardrail-Details zeigen | guardrail summary read |
+
+## 4.2 Input & Scan
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
+| `input_scan.input_dirs` | Feld/Liste | Input-Ordner setzen (Mehrfachauswahl) | project.scan.inputs |
+| `input_scan.pattern` | Feld | Dateimuster setzen | project.scan.pattern |
+| `input_scan.max_frames` | Feld | Max. Frame-Anzahl setzen | config.input.max_frames |
+| `input_scan.sort` | Select | Sortierreihenfolge setzen | config.input.sort |
+| `input_scan.color_mode_confirm` | Select | Farbmodus bestaetigen (OSC/MONO) | project.scan.color_mode |
+| `input_scan.bayer_pattern` | Select | Bayer-Pattern explizit setzen (RGGB/GBRG/GRBG/BGGR/auto) | config.data.bayer_pattern |
+| `input_scan.with_checksums` | Toggle | Checksummen-Scan aktivieren | project.scan.with_checksums |
+| `input_scan.scan_run` | Button | Scan ausfuehren | scan service |
+| `input_scan.scan_results` | Readonly-Panel | Scan-Ergebnis anzeigen (Frame-Anzahl, Bayer-Info, Warnungen) | scan.results.read |
+| `input_scan.calibration.use_bias` | Toggle | Bias-Kalibrierung aktivieren | config.calibration.use_bias |
+| `input_scan.calibration.bias_dir` | Feld/Folder | Bias-Ordner setzen | config.calibration.bias_dir |
+| `input_scan.calibration.use_dark` | Toggle | Dark-Kalibrierung aktivieren | config.calibration.use_dark |
+| `input_scan.calibration.darks_dir` | Feld/Folder | Dark-Ordner setzen | config.calibration.darks_dir |
+| `input_scan.calibration.use_flat` | Toggle | Flat-Kalibrierung aktivieren | config.calibration.use_flat |
+| `input_scan.calibration.flats_dir` | Feld/Folder | Flat-Ordner setzen | config.calibration.flats_dir |
+
+## 4.3 Dashboard
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
+| `dashboard.quick.start_wizard` | Button | New Guided Run starten | wizard init |
+| `dashboard.kpi.scan_quality` | KPI/Link | Scan-Qualitaet-Details oeffnen | scan.quality.summary |
+| `dashboard.kpi.open_warnings` | KPI/Link | Warnungsliste oeffnen | guardrail.warning.index |
+| `dashboard.input_dirs` | Feld | Input-Ordner setzen | project.scan.inputs |
+| `dashboard.color_mode` | Feld/Select | Farbmodus bestaetigen | project.scan.color_mode |
+| `dashboard.preset` | Select | Preset waehlen | config preset apply |
+| `dashboard.run.runs_dir` | Feld/Folder | Run-Ausgabeordner waehlen | run.runs_dir |
+| `dashboard.run.name` | Feld | Freien Run-Namen setzen | run.run_name |
+| `dashboard.run.path_preview` | Readonly | Finalen Run-Pfad anzeigen | run.output_dir_preview |
+| `dashboard.queue.edit` | Button/Link | MONO-Queue Editor oeffnen | queue editor open |
+| `dashboard.queue.row.filter_name` | Feld/Select | MONO-Filter setzen (`L/R/G/B/Ha/...`) | run.filter_queue[].filter_name |
+| `dashboard.queue.row.input_dir` | Feld | Input-Ordner je Filter setzen | run.filter_queue[].input_dir |
+| `dashboard.queue.row.pattern` | Feld | Optionales Pattern je Filter setzen | run.filter_queue[].pattern |
+| `dashboard.queue.row.enabled` | Toggle | Filtereintrag aktiv/inaktiv | run.filter_queue[].enabled |
+| `dashboard.queue.row.run_label` | Feld | Optionales Label/Subfolder je Filtereintrag | run.filter_queue[].run_label |
+| `dashboard.scan_refresh` | Button | Scan neu | scan service |
+| `dashboard.open_parameter_studio` | Button | Studio oeffnen | client routing |
+| `dashboard.run_start` | Button | Queue/Run starten | runner start |
+| `dashboard.guardrail.scan_ok` | Zeile | zu Scan-Fehlern springen | guardrail deep-link |
+| `dashboard.guardrail.color_mode` | Zeile | zu Farbmodus springen | guardrail deep-link |
+| `dashboard.guardrail.config_valid` | Zeile | zu Parameterfehlern springen | guardrail deep-link |
+| `dashboard.guardrail.calibration_paths` | Zeile | zu Kalibrierpfaden springen | guardrail deep-link |
+| `dashboard.guardrail.bge_pcc` | Zeile | zu BGE/PCC-Werten springen | guardrail deep-link |
+
+## 4.4 Parameter Studio
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
+| `parameter.search` | Suchfeld | Parameter filtern | parameter index |
+| `parameter.preset_apply` | Button | Preset anwenden | config patch apply |
+| `parameter.situation_apply` | Button | Szenario anwenden | scenario delta engine |
+| `parameter.yaml_sync` | Button | YAML laden/sync | yaml parser/serializer |
+| `parameter.validate` | Button | Validierung starten | schema + semantic validator |
+| `parameter.category.*` | Liste | Kategorie filtern | local ui state |
+| `parameter.registration.engine` | Feld | Wert setzen | config path write |
+| `parameter.registration.allow_rotation` | Feld | Wert setzen | config path write |
+| `parameter.registration.star_topk` | Feld | Wert setzen | config path write |
+| `parameter.registration.star_inlier_tol_px` | Feld | Wert setzen | config path write |
+| `parameter.registration.reject_cc_min_abs` | Feld | Wert setzen | config path write |
+| `parameter.bge.enabled` | Feld | Wert setzen | config path write |
+| `parameter.bge.fit_method` | Feld | Wert setzen | config path write |
+| `parameter.bge.rbf_lambda` | Feld | Wert setzen | config path write |
+| `parameter.pcc.source` | Feld | Wert setzen | config path write |
+| `parameter.pcc.sigma_clip` | Feld | Wert setzen | config path write |
+| `parameter.pcc.k_max` | Feld | Wert setzen | config path write |
+| `parameter.reset_default` | Button | auf Defaults zurueck | config reset |
+| `parameter.review_changes` | Button | Diff/Impact anzeigen | diff engine |
+| `parameter.save` | Button | speichern | config persist |
+| `parameter.explain.info` | Panel | Kurzinfo/Range/Risiko | metadata lookup |
+| `parameter.situation.altaz` | Toggle | Delta markieren | scenario engine |
+| `parameter.situation.rotation` | Toggle | Delta markieren | scenario engine |
+| `parameter.situation.bright_stars` | Toggle | Delta markieren | scenario engine |
+| `parameter.situation.few_frames` | Toggle | Delta markieren | scenario engine |
+| `parameter.situation.gradient` | Toggle | Delta markieren | scenario engine |
+| `parameter.diff_panel` | Panel | YAML-Diff anzeigen | diff engine |
+
+## 4.5 Run Monitor
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
+| `monitor.stop` | Button | Lauf stoppen | runner stop |
+| `monitor.phase.scan_input` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.channel_split` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.normalization` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.global_metrics` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.tile_grid` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.registration` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.stacking` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.bge` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.pcc` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.calibration` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.prewarp` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.local_metrics` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.tile_reconstruction` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.state_clustering` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.synthetic_frames` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.phase.astrometry` | Zeile/Action | Resume ab Phase | runner resume |
+| `monitor.filter.L` | Chip/Action | Filterkontext setzen | queue state |
+| `monitor.filter.R` | Chip/Action | Filterkontext setzen | queue state |
+| `monitor.filter.G` | Chip/Action | Filterkontext setzen | queue state |
+| `monitor.filter.B` | Chip/Action | Filterkontext setzen | queue state |
+| `monitor.filter.Ha` | Chip/Action | Filterkontext setzen | queue state |
+| `monitor.filter.OIII` | Chip/Action | Filterkontext setzen | queue state |
+| `monitor.filter.SII` | Chip/Action | Filterkontext setzen | queue state |
+| `monitor.resume` | Button | Resume starten | runner resume |
+| `monitor.resume.config_revision` | Select | Config-Revision fuer Resume waehlen | run.resume.config_revision |
+| `monitor.resume.restore_revision` | Button | Aeltere Config-Revision wiederherstellen | config.revision.restore |
+| `monitor.report` | Button | Reportansicht | report open |
+| `monitor.open_run_folder` | Button | Run-Ordner | file-open action |
+| `monitor.stats.generate` | Button | Stats erstellen | runner.stats.generate_report (Pfad wird zur Laufzeit aus Konfiguration aufgeloest) |
+| `monitor.stats.open_folder` | Button | Stats-Ordner oeffnen | file-open action |
+
+## 4.6 History + Tools
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
+| `history.row_select` | Tabellenzeile | Run als aktiv waehlen | history state |
+| `history.refresh` | Button | Historie aktualisieren | run index refresh |
+| `history.set_current` | Button | als Current Run setzen | current run pointer |
+| `history.open_report` | Button | Report oeffnen | report open |
+| `tools.astrometry.binary` | Feld | ASTAP-Binary setzen | tools config write |
+| `tools.astrometry.catalog` | Feld | Katalog setzen | tools config write |
+| `tools.astrometry.file` | Feld | Solve-Datei setzen | tools config write |
+| `tools.astrometry.solve` | Button | Plate Solve starten | astrometry runner |
+| `tools.pcc.source` | Feld | PCC source setzen | tools config write |
+| `tools.pcc.sigma` | Feld | PCC sigma setzen | tools config write |
+| `tools.pcc.min_stars` | Feld | PCC min stars setzen | tools config write |
+| `tools.pcc.run` | Button | PCC Quicktest starten | pcc runner |
+| `tools.pcc.save_corrected` | Button | korrigiertes Ergebnis speichern | file writer |
+
+## 4.7 Assumptions
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
+| `assumptions.pipeline_profile` | Select | Pipeline-Profil setzen (`strict`/`practical`) | config.assumptions.pipeline_profile |
+| `assumptions.frames_min` | Feld | Mindestanzahl Frames | config.assumptions.frames_min |
+| `assumptions.frames_optimal` | Feld | Optimale Frame-Anzahl | config.assumptions.frames_optimal |
+| `assumptions.frames_reduced_threshold` | Feld | Schwelle fuer Reduced-Mode | config.assumptions.frames_reduced_threshold |
+| `assumptions.reduced_mode_skip_clustering` | Toggle | Clustering im Reduced-Mode ueberspringen | config.assumptions.reduced_mode_skip_clustering |
+| `assumptions.reduced_mode_cluster_range` | Feld | Min/Max Cluster im Reduced-Mode | config.assumptions.reduced_mode_cluster_range |
+| `assumptions.exposure_time_tolerance_percent` | Feld | Belichtungszeit-Toleranz in Prozent | config.assumptions.exposure_time_tolerance_percent |
+| `assumptions.pipeline_mode_info` | Info-Panel | Aktuellen Modus anzeigen (Full/Reduced/Emergency) | config.assumptions.read |
+
+## 4.8 Wizard (Guided Run)
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
+| `wizard.input.input_dirs` | Feld/Liste | Input-Ordner setzen | wizard.draft.inputs |
+| `wizard.input.pattern` | Feld | Dateimuster setzen | wizard.draft.pattern |
+| `wizard.input.color_mode` | Select | Farbmodus setzen | wizard.draft.color_mode |
+| `wizard.input.runs_dir` | Feld/Folder | Ausgabeordner setzen | wizard.draft.runs_dir |
+| `wizard.input.run_name` | Feld | Run-Name setzen | wizard.draft.run_name |
+| `wizard.calibration.use_bias` | Toggle | Bias aktivieren | wizard.draft.calibration.use_bias |
+| `wizard.calibration.bias_dir` | Feld/Folder | Bias-Ordner setzen | wizard.draft.calibration.bias_dir |
+| `wizard.calibration.use_dark` | Toggle | Dark aktivieren | wizard.draft.calibration.use_dark |
+| `wizard.calibration.darks_dir` | Feld/Folder | Dark-Ordner setzen | wizard.draft.calibration.darks_dir |
+| `wizard.calibration.use_flat` | Toggle | Flat aktivieren | wizard.draft.calibration.use_flat |
+| `wizard.calibration.flats_dir` | Feld/Folder | Flat-Ordner setzen | wizard.draft.calibration.flats_dir |
+| `wizard.queue.row.filter_name` | Select | MONO-Filter setzen | wizard.draft.filter_queue[].filter_name |
+| `wizard.queue.row.input_dir` | Feld | Input-Ordner je Filter | wizard.draft.filter_queue[].input_dir |
+| `wizard.preset.select` | Select | Preset waehlen | wizard.draft.preset_id |
+| `wizard.situation.apply` | Button | Situationsdeltas anwenden | wizard.draft.scenarios |
+| `wizard.validation.result` | Readonly-Panel | Validierungsergebnis anzeigen | validator.result.read |
+| `wizard.start` | Button | Run starten | runner.start |
+| `wizard.nav.back` | Button | Vorheriger Schritt | wizard.state.step |
+| `wizard.nav.next` | Button | Naechster Schritt | wizard.state.step |
+
+## 4.9 Layout/Flow (Dokuseiten)
+
+| control_id | Typ | Aktion | backend_binding |
+|---|---|---|---|
+| `layout.hotspot.shell` | Hotspot | Shell-Mapping pruefen | doc navigation |
+| `layout.hotspot.main_wrapper` | Hotspot | Wrapper-Mapping pruefen | doc navigation |
+| `flow.node.*` | Hotspot | zur Zielseite springen | doc navigation |
+
+## 5) New Guided Run: detaillierter Implementierungsablauf
+
+## 5.1 Benutzerablauf
+
+1. Nutzer klickt `dashboard.quick.start_wizard`.
+2. Wizard Schritt `Input`:
+   - Input-Ordner erfassen.
+   - Pattern setzen.
+   - Farbmodus bestaetigen.
+   - `runs_dir` waehlen.
+   - `run_name` frei setzen.
+3. Wizard Schritt `Calibration`:
+   - Bias/Dark/Flat Pfade setzen.
+4. Wizard Schritt `Queue`:
+   - MONO-Filtereintraege erfassen (`filter_name`, `input_dir`, optional `run_label`, `pattern`, `enabled`).
+   - Reihenfolge pruefen.
+5. Wizard Schritt `Preset + Situation`:
+   - Preset waehlen.
+   - Szenario-Deltas anwenden (Alt/Az, Rotation, helle Sterne, ...).
+6. Wizard Schritt `Validation`:
+   - Schema + Semantik + Guardrails.
+   - Fehlerliste mit Deep-Links.
+7. Wizard Schritt `Review + Start`:
+   - YAML-Diff und Startparameter anzeigen.
+   - Finalen Ausgabeordner als Preview anzeigen (`<run_name>_<YYYYMMDD_HHMMSS>`).
+   - Start bestaetigen.
+8. Run Monitor oeffnen.
+
+## 5.2 Technische Pipeline
+
+1. `wizard_init(project_id)`
+2. `scan_preview(inputs, pattern)`
+3. `build_queue(entries[])`
+4. `apply_preset(preset_id)`
+5. `apply_scenarios(scenarios[])`
+6. `validate_config(config)`
+7. `persist_config_revision(config, run_context)`
+8. `resolve_run_output_dir(runs_dir, run_name, start_timestamp)`
+9. `start_serial_queue(queue, config_revision)`
+10. `subscribe_run_events(run_id)`
+
+## 5.3 Datenobjekte
+
+- `GuidedRunDraft`
+  - `inputs[]`
+  - `calibration`
+  - `color_mode`
+  - `runs_dir`
+  - `run_name`
+  - `filter_queue[]`
+  - `preset_id`
+  - `scenarios[]`
+  - `config_patch`
+- `RunStartPayload`
+  - `config_path`
+  - `config_revision`
+  - `filter_queue`
+  - `resume_policy`
+  - `output_dir_name`
+  - `working_dir`
+
+## 5.4 Fehlerfaelle (muss implementiert werden)
+
+1. Input-Ordner leer/nicht lesbar.
+2. Queue leer oder alle Eintraege `enabled=false`.
+3. Konflikt zwischen Preset und manuellen Overrides.
+4. Validierung `error` blockiert Start.
+5. Runner-Startfehler (Prozessstart).
+6. Scriptfehler bei `Generate Stats`.
+7. `run.runs_dir` nicht vorhanden oder nicht schreibbar.
+8. `run.run_name` ungueltig (leerer/unerlaubter Dateiname).
+9. Ausgewaehlte Config-Revision fuer Resume nicht mehr aufloesbar.
+
+## 6) Stats-Button Implementierung (Run Monitor unter Live Log)
+
+## 6.1 Trigger-Regel
+
+- Wenn `python3` verfuegbar:
+  - Kommando:
+    - Kommando wird zur Laufzeit aufgeloest (siehe Detailkonzept §4.5: `stats_script_path` aus gui2.json, Env-Var `TILE_COMPILE_STATS_SCRIPT`, oder relativ zur Binary)
+- Wenn `python3` fehlt:
+  - UI zeigt klaren Fehler + Install-Hinweis.
+
+## 6.2 Aufrufe
+
+1. Button `monitor.stats.generate`:
+   - startet Stats fuer aktuell selektierten Run.
+
+## 6.3 Ergebnisdarstellung
+
+- Status im Toolpanel:
+  - `pending`, `running`, `ok`, `error`
+- Bei `ok`:
+  - Button `monitor.stats.open_folder` aktiv.
+  - Link auf erzeugte Artefakte.
+
+## 7) Paritaets-Checkliste gegen alte Tabs
+
+| Legacy-Bereich (`gui_cpp`) | GUI2-Ziel | Statusfeld fuer Umsetzung |
+|---|---|---|
+| Scan | Dashboard + Input&Scan | `TODO/IN_PROGRESS/DONE` |
+| Configuration | Parameter Studio | `TODO/IN_PROGRESS/DONE` |
+| Assumptions | Assumptions | `TODO/IN_PROGRESS/DONE` |
+| Run | Dashboard/Run Monitor | `TODO/IN_PROGRESS/DONE` |
+| Pipeline Progress | Run Monitor | `TODO/IN_PROGRESS/DONE` |
+| Current run | Run Monitor | `TODO/IN_PROGRESS/DONE` |
+| Run history | History+Tools | `TODO/IN_PROGRESS/DONE` |
+| Astrometry | History+Tools | `TODO/IN_PROGRESS/DONE` |
+| PCC | History+Tools | `TODO/IN_PROGRESS/DONE` |
+| Live log | Run Monitor/Live Log | `TODO/IN_PROGRESS/DONE` |
+
+## 8) Abnahmetests (keine Funktion vergessen)
+
+1. **Control Coverage Test**
+   - Jede Zeile aus Abschnitt 4 einmal ausfuehren.
+2. **Tooltip Coverage Test**
+   - Fuer jede `control_id` existiert `tooltip_key`.
+3. **Guided Run E2E**
+   - Start Wizard bis Run Monitor ohne manuelle YAML-Edits.
+4. **MONO Queue E2E**
+   - Mindestens 3 Filter, strikt serieller Ablauf.
+5. **Resume E2E**
+   - Resume ab Phase und Filter.
+   - Resume mit expliziter Config-Revision.
+6. **Config-Revisionshistorie E2E**
+   - Nach mehreren Saves sind alte Revisionen intakt und wiederherstellbar.
+7. **Run-Name/Output-Pfad E2E**
+   - Frei gesetzter Run-Name + automatisches Datums-Suffix im Zielordner.
+8. **Stats E2E**
+   - Generate-Button im Run Monitor + Open-Stats-Folder.
+9. **i18n E2E**
+   - DE/EN fuer Labels + Tooltips + Warnungen.
+10. **Parity Audit**
+   - Legacy-Tabelle vollstaendig auf `DONE`.
+11. **Spacing Gate**
+   - `python3 doc/gui2/scripts/check_layout_1920_spacing.py` liefert `Result: OK`.
+12. **Theme/Font Gate**
+   - Themes funktionieren ueber `?theme=observatory|slate|sand`.
+   - Lokale Fonts aus `clickdummy/assets/fonts` werden auf allen Ziel-OS geladen.
+
+## 9) Detaillierte Ablaeufe (Control-gebunden)
+
+## 9.1 Dashboard-KPI und Readiness
+
+1. `dashboard.kpi.scan_quality` zeigt Score `0..1` plus Trend.
+2. Klick auf `dashboard.kpi.scan_quality` oeffnet Ursachenliste (Sterne/Gradient/SNR).
+3. `dashboard.kpi.open_warnings` zeigt Anzahl nicht-blockierender Warnungen.
+4. Klick auf `dashboard.kpi.open_warnings` oeffnet Warnungsliste mit Deep-Links.
+5. `dashboard.guardrail.*`-Zeilen springen direkt in den betroffenen Screenbereich.
+6. `dashboard.run_start` bleibt gesperrt, solange mindestens ein `error`-Guardrail offen ist.
+
+## 9.2 MONO Queue statt OSC Single-Input
+
+1. `dashboard.color_mode` auf MONO stellen.
+2. `dashboard.queue.edit` oeffnen.
+3. Pro Filter Eintrag setzen:
+   - `dashboard.queue.row.filter_name`
+   - `dashboard.queue.row.input_dir`
+   - optional `dashboard.queue.row.pattern`
+   - optional `dashboard.queue.row.enabled=false` fuer Skip
+4. Reihenfolge validieren (`L->R->G->B->Ha...`).
+5. `dashboard.run_start` startet serielle Abarbeitung als `run.filter_queue[]`.
+6. `monitor.filter.*` und Batch-Leiste zeigen `Filter i/N`.
+
+## 9.3 Parameteraenderung -> Speichern -> Resume per Phase-Klick
+
+1. In `parameter-studio` Werte aendern:
+   - z. B. `parameter.registration.star_topk`, `parameter.bge.rbf_lambda`, `parameter.pcc.k_max`.
+2. `parameter.validate` ausfuehren:
+   - bei `error` kein Resume erlaubt.
+   - bei `warn` Resume erlaubt, Warnung im Kontext anzeigen.
+3. `parameter.save` persistiert die Aenderung als neue Config-Version fuer den aktiven Run.
+4. Nach `run-monitor` wechseln und optional `monitor.filter.*` setzen.
+5. Gewuenschte Revision in `monitor.resume.config_revision` waehlen.
+6. Gewuenschte Phase per Klick waehlen (`monitor.phase.*`) oder `monitor.resume` mit `from_phase`.
+7. Bei Bedarf alte Konfiguration via `monitor.resume.restore_revision` wiederherstellen.
+8. Alte Revisionen bleiben immer erhalten (append-only Historie).
+9. Runner-Aufruf enthaelt:
+   - `run_dir`
+   - `filter_context`
+   - `from_phase`
+   - `config_revision` (gewaehlte Version)
+10. Run-Monitor zeigt bestaetigten Resume-Kontext:
+   - `Resume: Filter R (2/5) ab BGE mit Config rev <id>`.
+
+## 9.4 Stats und PCC aufgetrennt
+
+1. In `history-tools` bleibt PCC:
+   - `tools.pcc.source`
+   - `tools.pcc.sigma`
+   - `tools.pcc.min_stars`
+   - `tools.pcc.run`
+   - `tools.pcc.save_corrected`
+2. In `run-monitor` liegt Stats:
+   - `monitor.stats.generate`
+   - `monitor.stats.open_folder`
+3. `monitor.stats.generate` nutzt den aktiven/selektierten Run-Kontext.
+4. Ergebnisartefakte erscheinen im Run-Ordner und Artefaktpanel.
+
+## 10) Implementierungsstrategie (Phasen und Workpackages)
+
+## 10.1 Phase A - Fundament
+
+1. Zentrales State-Model implementieren (`project`, `scan`, `config`, `config_revisions`, `queue`, `run`, `history`, `tools`, `i18n`).
+2. Event-Stream etablieren (jede Aktion schreibt `ui_event` + optional `run_event`).
+3. Guardrail-Service und Warning-Index als API bereitstellen.
+
+## 10.2 Phase B - Dashboard + Queue
+
+1. KPI-Aggregator fuer `scan_quality` und `open_warnings` implementieren.
+2. Queue-Editor fuer `run.filter_queue[]` bauen.
+3. Start-Gating (`error` blockiert Start) hart verdrahten.
+4. Run-Zielpfad:
+   - `run.runs_dir` validieren (existiert/schreibbar).
+   - `run.run_name` pruefen/sanitisieren.
+   - Zielname immer `<run_name>_<YYYYMMDD_HHMMSS>`.
+5. Tests:
+   - Queue leer -> Start blockiert.
+   - MONO mit 3+ Filtern -> serieller Laufstart korrekt.
+
+## 10.3 Phase C - Parameter Studio
+
+1. Parameterindex + Suche + Kategorien.
+2. Bidirektionale YAML-Synchronisierung.
+3. Situation Assistant + Explain-Metadaten.
+4. Tests:
+   - Schema- und Semantikvalidierung.
+   - i18n-String-Abdeckung DE/EN.
+
+## 10.4 Phase D - Run Monitor + Stats
+
+1. Phasenliste, Filterkontext, Resume-Flow.
+2. Stats-Panel unter Live Log (`monitor.stats.*`).
+3. Command-Execution-Adapter fuer `generate_report.py`.
+4. Tests:
+   - Stats bei fehlendem Python -> klarer Fehler.
+   - Stats bei vorhandenem Kontext -> Artefakte erzeugt.
+   - Parameteraenderung + Resume ab Phase nutzt neue Config-Version.
+   - Restore auf alte Config-Version und erneutes Resume funktioniert.
+
+## 10.5 Phase E - History + Astrometry/PCC
+
+1. Historientabelle mit Selektion/Refresh/Report.
+2. Astrometry-Panel.
+3. PCC-Panel (bleibt hier, nicht im Run Monitor).
+4. Tests:
+   - PCC Quicktest und Save-Corrected.
+   - Uebergang History <-> Run Monitor stabil.
+
+## 10.6 Phase F - Hardening und Abnahme
+
+1. Vollstaendiger Control-Coverage-Test gegen Abschnitt 4.
+2. Spacing/Theme/Font Gates.
+3. Legacy-Parity-Tabelle auf `DONE`.
+4. Finales Dokumentations-Review (`detailkonzept.md` <-> diese Datei).
