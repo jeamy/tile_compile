@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
+from app.services.ui_events import record_ui_event
+
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
@@ -24,6 +26,14 @@ def cancel(job_id: str, request: Request) -> dict:
     j = request.app.state.job_store.cancel(job_id)
     if j is None:
         raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": f"job '{job_id}' not found"}})
+    record_ui_event(
+        request,
+        event="job.cancel",
+        source="jobs.cancel",
+        run_id=str(j.data.get("run_id")) if isinstance(j.data, dict) and j.data.get("run_id") else None,
+        job_id=job_id,
+        payload={"job_type": j.job_type},
+    )
     return {"ok": True}
 
 

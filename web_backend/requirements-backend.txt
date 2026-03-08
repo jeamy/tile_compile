@@ -6,3 +6,4 @@ python-multipart
 PyYAML
 orjson
 pytest
+httpx

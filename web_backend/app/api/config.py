@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +7,8 @@ import yaml
 from fastapi import APIRouter, HTTPException, Request
 
 from app.services.command_runner import CommandExecutionError, run_command, run_json_command
+from app.services.config_revisions import create_revision, get_revision, list_revisions, restore_revision
+from app.services.ui_events import record_ui_event
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -102,19 +102,23 @@ def save_config(payload: dict[str, Any], request: Request) -> dict[str, Any]:
             status_code=502,
             detail={"error": {"code": "BAD_BACKEND_RESPONSE", "message": "save-config returned invalid response"}},
         )
-    revision_id = f"cfg_{uuid.uuid4().hex[:10]}"
-    revision = {
-        "revision_id": revision_id,
-        "path": result.get("path", str(target)),
-        "created_at": datetime.utcnow().isoformat() + "Z",
-        "source": "save_config",
-    }
-    request.app.state.config_revisions.insert(0, revision)
-    request.app.state.active_config_revision_id = revision_id
+    saved_path = Path(str(result.get("path", str(target)))).expanduser()
+    revision = create_revision(
+        request.app,
+        path=saved_path,
+        yaml_text=text,
+        source="save_config",
+    )
+    record_ui_event(
+        request,
+        event="config.save",
+        source="config.save",
+        payload={"path": str(saved_path), "saved": bool(result.get("saved", False)), "revision_id": revision["revision_id"]},
+    )
     return {
-        "path": result.get("path", str(target)),
+        "path": str(saved_path),
         "saved": bool(result.get("saved", False)),
-        "revision_id": revision_id,
+        "revision_id": revision["revision_id"],
     }
 
 
@@ -157,25 +161,36 @@ def presets_apply(payload: dict[str, Any], request: Request) -> dict[str, Any]:
             status_code=502,
             detail={"error": {"code": "BAD_BACKEND_RESPONSE", "message": "load-config returned invalid response"}},
         )
+    record_ui_event(
+        request,
+        event="config.preset.apply",
+        source="config.presets_apply",
+        payload={"preset_path": str(path)},
+    )
     return {"config": result.get("yaml", ""), "applied_paths": [str(path)]}
 
 
 @router.get("/revisions")
 def revisions(request: Request) -> dict[str, Any]:
-    return {"items": list(request.app.state.config_revisions), "active_revision_id": request.app.state.active_config_revision_id}
+    return {"items": list_revisions(request.app), "active_revision_id": request.app.state.active_config_revision_id}
 
 
 @router.post("/revisions/{revision_id}/restore")
 def revision_restore(revision_id: str, request: Request) -> dict[str, Any]:
-    items = request.app.state.config_revisions
-    for item in items:
-        if item.get("revision_id") == revision_id:
-            request.app.state.active_config_revision_id = revision_id
-            return {"ok": True, "active_revision_id": revision_id}
-    raise HTTPException(
-        status_code=404,
-        detail={"error": {"code": "NOT_FOUND", "message": f"revision '{revision_id}' not found"}},
+    item = get_revision(request.app, revision_id)
+    if item is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "NOT_FOUND", "message": f"revision '{revision_id}' not found"}},
+        )
+    revision = restore_revision(request.app, revision_id)
+    record_ui_event(
+        request,
+        event="config.revision.restore",
+        source="config.revision_restore",
+        payload={"revision_id": revision_id, "path": revision.get("path")},
     )
+    return {"ok": True, "active_revision_id": revision_id}
 
 
 def _http_502_command_failed(message: str, result: Any) -> HTTPException:

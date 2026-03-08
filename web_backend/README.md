@@ -25,6 +25,7 @@ Falls nicht gesetzt, werden Standardpfade unter `tile_compile_cpp/build/...` ver
 
 Die API in `web_backend/app/api` ist auf den GUI2-Vertrag verdrahtet:
 - App State/Constants
+- UI Event Audit/Replay (`GET /api/app/ui-events`)
 - Config (Schema, current, validate, save, presets, revisions)
 - Scan/Quality/Guardrails
 - Runs (list/status/logs/artifacts/start/resume/stop/stats)
@@ -42,6 +43,19 @@ Zusaetzliche Retry-Aliase:
 
 Run-Monitoring nutzt primär `logs/run_events.jsonl` (mit Fallback auf `events.jsonl`), inkl. Phase-Status und Gesamt-Progress.
 `POST /api/runs/start` unterstützt neben `input_dir` auch serielle Queues über `queue[]` oder `input_dirs[]`.
+`POST /api/runs/start` blockiert bei Guardrail-`error` (HTTP `409`).
+`POST /api/runs/{run_id}/resume` erfordert `from_phase` + `config_revision_id` (HTTP `409`/`404` bei Verstoß).
+Zusätzlicher Restore-Endpunkt für Resume-Flows:
+- `POST /api/runs/{run_id}/config-revisions/{revision_id}/restore`
+
+Asynchrone Job-Starts liefern `202 Accepted`, u. a.:
+- `/api/scan`
+- `/api/runs/start`, `/api/runs/{run_id}/resume`, `/api/runs/{run_id}/stats`
+- Tool-Job-Endpunkte (`install/download/solve/run`)
+
+Run-WebSocket (`/api/ws/runs/{run_id}`) streamt vertragliche Events:
+- `phase_start`, `phase_progress`, `phase_end`, `run_end`, `queue_progress`, `log_line`
+- plus `run_status` als Resync-Fallback.
 
 FE-Job-Contract (Live-Felder in `job.data`):  
 [fe_contract_tools_jobs.md](/media/data/programming/tile_compile/web_backend/fe_contract_tools_jobs.md)

@@ -9,8 +9,11 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas import JobAccepted
 from app.services.command_runner import launch_background_command, resolve_python, run_command
+from app.services.config_revisions import create_revision, get_revision, restore_revision
+from app.services.guardrails import compute_guardrails, has_blocking_guardrail
 from app.services.queue_utils import extract_queue_specs
 from app.services.run_inspector import discover_runs, read_run_log_lines, read_run_status
+from app.services.ui_events import record_ui_event
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -60,12 +63,57 @@ def run_artifacts(run_id: str, request: Request, runs_dir: str | None = None) ->
     return {"items": result.parsed_json.get("artifacts", [])}
 
 
-@router.post("/start")
+@router.post("/start", status_code=202)
 def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     runtime = request.app.state.runtime
-    queue_specs = extract_queue_specs(payload)
+    guardrails = compute_guardrails(request.app.state.job_store)
+    if has_blocking_guardrail(guardrails):
+        record_ui_event(
+            request,
+            event="run.start.blocked",
+            source="runs.run_start",
+            payload={"reason": "guardrail_error", "guardrails": guardrails},
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "GUARDRAIL_BLOCKED",
+                    "message": "run start blocked by guardrails",
+                    "details": guardrails,
+                }
+            },
+        )
+
+    run_name = str(payload.get("run_name", "")).strip()
+    run_id_override = str(payload.get("run_id", "")).strip() or None
+    if run_name and run_id_override is None:
+        run_id_override = run_name
+
+    config_yaml = _resolve_config_yaml(runtime=runtime, payload=payload)
+    config_target = Path(str(payload.get("config_path", runtime.default_config_path))).expanduser()
+    revision = create_revision(
+        request.app,
+        path=config_target,
+        yaml_text=config_yaml,
+        source="run_start",
+        run_id=run_id_override,
+    )
+    payload_with_revision = dict(payload)
+    payload_with_revision["config_revision_id"] = revision["revision_id"]
+
+    queue_specs = extract_queue_specs(payload_with_revision)
     if queue_specs:
-        return _start_queue_run(request, payload, queue_specs)
+        result = _start_queue_run(request, payload_with_revision, queue_specs)
+        record_ui_event(
+            request,
+            event="run.start.queue",
+            source="runs.run_start",
+            run_id=str(result.get("run_id")),
+            job_id=str(result.get("job_id")),
+            payload={"revision_id": revision["revision_id"], "queue_size": len(queue_specs)},
+        )
+        return result
 
     input_dir = payload.get("input_dir")
     if not input_dir:
@@ -76,17 +124,19 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
     cmd, stdin_text, resolved_runs_dir = _build_run_command(
         runtime=runtime,
-        payload=payload,
+        payload=payload_with_revision,
         input_dir=str(input_dir),
-        run_id_override=payload.get("run_id"),
+        run_id_override=run_id_override,
     )
+    resolved_runs_dir.mkdir(parents=True, exist_ok=True)
     job = request.app.state.job_store.create(
         "run_start",
         {
             "input_dir": str(input_dir),
             "runs_dir": str(resolved_runs_dir),
-            "run_id": payload.get("run_id"),
+            "run_id": run_id_override,
             "command": cmd,
+            "config_revision_id": revision["revision_id"],
         },
     )
     request.app.state.job_store.set_state(job.job_id, "running")
@@ -97,13 +147,40 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         cwd=runtime.project_root,
         stdin_text=stdin_text,
     )
-    return {"run_id": payload.get("run_id") or "pending", "job_id": job.job_id}
+    record_ui_event(
+        request,
+        event="run.start",
+        source="runs.run_start",
+        run_id=run_id_override or "pending",
+        job_id=job.job_id,
+        payload={"input_dir": str(input_dir), "runs_dir": str(resolved_runs_dir), "revision_id": revision["revision_id"]},
+    )
+    return {"run_id": run_id_override or "pending", "job_id": job.job_id}
 
 
-@router.post("/{run_id}/resume")
+@router.post("/{run_id}/resume", status_code=202)
 def run_resume(run_id: str, request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     runtime = request.app.state.runtime
-    from_phase = str(payload.get("from_phase", "PCC")).upper()
+    from_phase_raw = str(payload.get("from_phase", "")).strip()
+    if not from_phase_raw:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": {"code": "RESUME_PHASE_REQUIRED", "message": "from_phase is required for resume"}},
+        )
+    from_phase = from_phase_raw.upper()
+    revision_id = str(payload.get("config_revision_id", "")).strip()
+    if not revision_id:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": {"code": "REVISION_REQUIRED", "message": "config_revision_id is required for resume"}},
+        )
+    revision = get_revision(request.app, revision_id)
+    if revision is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "NOT_FOUND", "message": f"revision '{revision_id}' not found"}},
+        )
+    restore_revision(request.app, revision_id)
     run_dir = payload.get("run_dir")
     resolved_run_dir = Path(run_dir).expanduser() if run_dir else runtime.resolve_run_dir(run_id, payload.get("runs_dir"))
     cmd = [
@@ -116,7 +193,14 @@ def run_resume(run_id: str, request: Request, payload: dict[str, Any]) -> dict[s
     ]
     job = request.app.state.job_store.create(
         "run_resume",
-        {"run_id": run_id, "run_dir": str(resolved_run_dir), "from_phase": from_phase, "command": cmd},
+        {
+            "run_id": run_id,
+            "run_dir": str(resolved_run_dir),
+            "from_phase": from_phase,
+            "config_revision_id": revision_id,
+            "filter_context": payload.get("filter_context"),
+            "command": cmd,
+        },
     )
     request.app.state.job_store.set_state(job.job_id, "running")
     launch_background_command(
@@ -124,6 +208,14 @@ def run_resume(run_id: str, request: Request, payload: dict[str, Any]) -> dict[s
         job_id=job.job_id,
         command=cmd,
         cwd=runtime.project_root,
+    )
+    record_ui_event(
+        request,
+        event="run.resume",
+        source="runs.run_resume",
+        run_id=run_id,
+        job_id=job.job_id,
+        payload={"from_phase": from_phase, "config_revision_id": revision_id, "filter_context": payload.get("filter_context")},
     )
     return {"run_id": run_id, "job_id": job.job_id}
 
@@ -139,16 +231,31 @@ def run_stop(run_id: str, request: Request, runs_dir: str | None = None) -> dict
         if job.data.get("run_dir") == run_dir or str(job.data.get("run_id", "")) == run_id:
             request.app.state.job_store.cancel(job.job_id)
             cancelled = True
+            record_ui_event(
+                request,
+                event="run.stop",
+                source="runs.run_stop",
+                run_id=run_id,
+                job_id=job.job_id,
+                payload={"run_dir": run_dir},
+            )
     return {"ok": cancelled}
 
 
 @router.post("/{run_id}/set-current")
 def run_set_current(run_id: str, request: Request) -> dict[str, Any]:
     request.app.state.current_run_id = run_id
+    record_ui_event(
+        request,
+        event="run.set_current",
+        source="runs.run_set_current",
+        run_id=run_id,
+        payload={"run_id": run_id},
+    )
     return {"ok": True, "run_id": run_id}
 
 
-@router.post("/{run_id}/stats", response_model=JobAccepted)
+@router.post("/{run_id}/stats", response_model=JobAccepted, status_code=202)
 def run_stats(run_id: str, request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
     runtime = request.app.state.runtime
     body = payload or {}
@@ -166,6 +273,14 @@ def run_stats(run_id: str, request: Request, payload: dict[str, Any] | None = No
         job_id=job.job_id,
         command=cmd,
         cwd=runtime.project_root,
+    )
+    record_ui_event(
+        request,
+        event="run.stats",
+        source="runs.run_stats",
+        run_id=run_id,
+        job_id=job.job_id,
+        payload={"run_dir": str(resolved_run_dir)},
     )
     return JobAccepted(job_id=job.job_id, state="running")
 
@@ -185,6 +300,25 @@ def run_stats_status(run_id: str, request: Request) -> dict[str, Any]:
             "job_id": job.job_id,
         }
     return {"state": "unknown", "output_dir": "", "report_path": ""}
+
+
+@router.post("/{run_id}/config-revisions/{revision_id}/restore")
+def run_revision_restore(run_id: str, revision_id: str, request: Request) -> dict[str, Any]:
+    revision = get_revision(request.app, revision_id)
+    if revision is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "NOT_FOUND", "message": f"revision '{revision_id}' not found"}},
+        )
+    restore_revision(request.app, revision_id)
+    record_ui_event(
+        request,
+        event="run.revision.restore",
+        source="runs.run_revision_restore",
+        run_id=run_id,
+        payload={"revision_id": revision_id, "path": revision.get("path")},
+    )
+    return {"ok": True, "run_id": run_id, "active_revision_id": revision_id}
 
 
 def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -208,9 +342,18 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
             "run_id": payload.get("run_id"),
             "runs_dir": str(request.app.state.runtime.resolve_runs_dir(payload.get("runs_dir"))),
             "queue": queue_summary,
+            "config_revision_id": payload.get("config_revision_id"),
         },
     )
     request.app.state.job_store.set_state(job.job_id, "running")
+    record_ui_event(
+        request,
+        event="run.queue.start",
+        source="runs._start_queue_run",
+        run_id=str(payload.get("run_id") or "queue"),
+        job_id=job.job_id,
+        payload={"queue": queue_summary},
+    )
 
     def _worker() -> None:
         queue_state = list(queue_summary)
@@ -240,6 +383,14 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
                 queue_state[i]["state"] = "running"
                 queue_state[i]["run_id"] = run_id_override
                 request.app.state.job_store.merge_data(job.job_id, {"queue": queue_state, "current_index": i, "command": cmd})
+                record_ui_event(
+                    request,
+                    event="run.queue.item.start",
+                    source="runs._start_queue_run",
+                    run_id=str(run_id_override or payload.get("run_id") or "queue"),
+                    job_id=job.job_id,
+                    payload={"index": i, "filter": suffix, "input_dir": str(input_dir)},
+                )
 
                 proc = subprocess.Popen(
                     cmd,
@@ -266,13 +417,37 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
                 )
                 if proc.returncode != 0:
                     request.app.state.job_store.set_state(job.job_id, "error")
+                    record_ui_event(
+                        request,
+                        event="run.queue.item.error",
+                        source="runs._start_queue_run",
+                        run_id=str(run_id_override or payload.get("run_id") or "queue"),
+                        job_id=job.job_id,
+                        payload={"index": i, "filter": suffix, "exit_code": int(proc.returncode)},
+                    )
                     return
 
             request.app.state.job_store.set_state(job.job_id, "ok")
+            record_ui_event(
+                request,
+                event="run.queue.end",
+                source="runs._start_queue_run",
+                run_id=str(payload.get("run_id") or "queue"),
+                job_id=job.job_id,
+                payload={"status": "ok"},
+            )
         except Exception as exc:
             request.app.state.job_store.merge_data(job.job_id, {"error": str(exc), "queue": queue_state})
             if request.app.state.job_store.get(job.job_id) and request.app.state.job_store.get(job.job_id).state != "cancelled":
                 request.app.state.job_store.set_state(job.job_id, "error")
+            record_ui_event(
+                request,
+                event="run.queue.error",
+                source="runs._start_queue_run",
+                run_id=str(payload.get("run_id") or "queue"),
+                job_id=job.job_id,
+                payload={"error": str(exc)},
+            )
         finally:
             request.app.state.job_store.clear_process(job.job_id)
 
@@ -324,6 +499,18 @@ def _build_run_command(
     if dry_run:
         cmd.append("--dry-run")
     return cmd, stdin_text, resolved_runs_dir
+
+
+def _resolve_config_yaml(*, runtime: Any, payload: dict[str, Any]) -> str:
+    if payload.get("config_yaml"):
+        return str(payload.get("config_yaml"))
+
+    config_path_raw = payload.get("config_path")
+    config_path = Path(str(config_path_raw)).expanduser() if config_path_raw else runtime.default_config_path
+    try:
+        return config_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
 
 
 def _http_502(message: str, result: Any) -> HTTPException:

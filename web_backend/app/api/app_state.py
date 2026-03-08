@@ -12,6 +12,7 @@ router = APIRouter(prefix="/app", tags=["app"])
 @router.get("/state")
 def app_state(request: Request) -> dict[str, Any]:
     runtime = request.app.state.runtime
+    ui_events = request.app.state.ui_event_store
     return {
         "project": {
             "project_root": str(runtime.project_root),
@@ -28,6 +29,7 @@ def app_state(request: Request) -> dict[str, Any]:
         "run": {},
         "history": {},
         "tools": {},
+        "events": {"latest_seq": ui_events.latest_seq},
         "i18n": {"locale": "de"},
     }
 
@@ -39,3 +41,10 @@ def app_constants() -> dict[str, Any]:
         "color_modes": ["OSC", "MONO", "RGB"],
         "resume_from": ["ASTROMETRY", "BGE", "PCC"],
     }
+
+
+@router.get("/ui-events")
+def app_ui_events(request: Request, after_seq: int = 0, limit: int = 200) -> dict[str, Any]:
+    items = request.app.state.ui_event_store.list(after_seq=max(0, int(after_seq)), limit=int(limit))
+    latest_seq = request.app.state.ui_event_store.latest_seq
+    return {"items": items, "latest_seq": latest_seq}

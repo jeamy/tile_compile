@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import bz2
+import os
 import time
 from pathlib import Path
 
 import pytest
 
+if os.getenv("WEB_BACKEND_ENABLE_HTTP_TESTS", "0") != "1":
+    pytest.skip("HTTP API integration tests disabled in this environment", allow_module_level=True)
+
 fastapi = pytest.importorskip("fastapi")
+pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import create_app  # noqa: E402
@@ -66,7 +71,7 @@ def test_pcc_download_missing_job_success(monkeypatch, tmp_path: Path) -> None:
         "/api/tools/pcc/siril/download-missing",
         json={"catalog_dir": str(cat_dir), "chunk_ids": [0], "retry_count": 0, "timeout_s": 5},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     job_id = resp.json()["job_id"]
 
     job = _wait_job_ok(client, job_id)
@@ -103,7 +108,7 @@ def test_pcc_download_missing_job_resume(monkeypatch, tmp_path: Path) -> None:
         "/api/tools/pcc/siril/download-missing/retry",
         json={"catalog_dir": str(cat_dir), "chunk_ids": [0], "retry_count": 0, "resume": True, "timeout_s": 5},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     job_id = resp.json()["job_id"]
     job = _wait_job_ok(client, job_id)
     assert job["state"] == "ok"

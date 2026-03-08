@@ -86,3 +86,5 @@ zenodo*/
 .env.development
 *.env
 
+# Web backend runtime logs
+web_backend/runtime/*.jsonl

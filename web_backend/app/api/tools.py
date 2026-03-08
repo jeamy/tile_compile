@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.schemas import JobAccepted
 from app.services.command_runner import launch_background_command
 from app.services.downloads import DownloadAborted, DownloadOptions, download_file_with_retry
+from app.services.ui_events import record_ui_event
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 
@@ -54,7 +55,7 @@ def astrometry_detect(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@router.post("/astrometry/install-cli", response_model=JobAccepted)
+@router.post("/astrometry/install-cli", response_model=JobAccepted, status_code=202)
 def astrometry_install(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
     body = payload or {}
     data_dir = _resolve_astap_data_dir(body)
@@ -99,10 +100,18 @@ def astrometry_install(request: Request, payload: dict[str, Any] | None = None) 
         target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         request.app.state.job_store.merge_data(job_id, {"stage": "done", "binary": str(target)})
 
-    return _start_custom_job(request, "astrometry_install_cli", {"payload": body}, _worker)
+    accepted = _start_custom_job(request, "astrometry_install_cli", {"payload": body}, _worker)
+    record_ui_event(
+        request,
+        event="tools.astrometry.install_cli",
+        source="tools.astrometry_install",
+        job_id=accepted.job_id,
+        payload={"data_dir": str(data_dir)},
+    )
+    return accepted
 
 
-@router.post("/astrometry/catalog/download", response_model=JobAccepted)
+@router.post("/astrometry/catalog/download", response_model=JobAccepted, status_code=202)
 def astrometry_catalog_download(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
     body = payload or {}
     catalog_id = str(body.get("catalog_id", "d50")).lower()
@@ -152,22 +161,30 @@ def astrometry_catalog_download(request: Request, payload: dict[str, Any] | None
         archive_path.unlink(missing_ok=True)
         request.app.state.job_store.merge_data(job_id, {"stage": "done", "installed": _is_astap_catalog_installed(data_dir, catalog_id)})
 
-    return _start_custom_job(
+    accepted = _start_custom_job(
         request,
         "astrometry_catalog_download",
         {"payload": body, "catalog_id": catalog_id},
         _worker,
     )
+    record_ui_event(
+        request,
+        event="tools.astrometry.catalog.download",
+        source="tools.astrometry_catalog_download",
+        job_id=accepted.job_id,
+        payload={"catalog_id": catalog_id, "data_dir": str(data_dir)},
+    )
+    return accepted
 
 
-@router.post("/astrometry/install-cli/retry", response_model=JobAccepted)
+@router.post("/astrometry/install-cli/retry", response_model=JobAccepted, status_code=202)
 def astrometry_install_retry(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
     body = dict(payload or {})
     body.setdefault("resume", True)
     return astrometry_install(request, body)
 
 
-@router.post("/astrometry/catalog/download/retry", response_model=JobAccepted)
+@router.post("/astrometry/catalog/download/retry", response_model=JobAccepted, status_code=202)
 def astrometry_catalog_download_retry(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
     body = dict(payload or {})
     body.setdefault("resume", True)
@@ -181,10 +198,17 @@ def astrometry_catalog_cancel(request: Request) -> dict[str, Any]:
         if job.job_type == "astrometry_catalog_download" and job.state == "running":
             request.app.state.job_store.cancel(job.job_id)
             cancelled = True
+            record_ui_event(
+                request,
+                event="tools.astrometry.catalog.cancel",
+                source="tools.astrometry_catalog_cancel",
+                job_id=job.job_id,
+                payload={"ok": True},
+            )
     return {"ok": cancelled}
 
 
-@router.post("/astrometry/solve", response_model=JobAccepted)
+@router.post("/astrometry/solve", response_model=JobAccepted, status_code=202)
 def astrometry_solve(request: Request, payload: dict[str, Any]) -> JobAccepted:
     solve_file = str(payload.get("solve_file", "")).strip()
     if not solve_file:
@@ -229,11 +253,18 @@ def astrometry_solve(request: Request, payload: dict[str, Any]) -> JobAccepted:
         command=cmd,
         cwd=request.app.state.runtime.project_root,
     )
+    record_ui_event(
+        request,
+        event="tools.astrometry.solve",
+        source="tools.astrometry_solve",
+        job_id=job.job_id,
+        payload={"solve_file": str(fits_path), "wcs_path": str(wcs_path)},
+    )
     return JobAccepted(job_id=job.job_id, state="running")
 
 
 @router.post("/astrometry/save-solved")
-def astrometry_save_solved(payload: dict[str, Any]) -> dict[str, Any]:
+def astrometry_save_solved(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     input_path = payload.get("input_path")
     output_path = payload.get("output_path")
     if not input_path or not output_path:
@@ -259,6 +290,12 @@ def astrometry_save_solved(payload: dict[str, Any]) -> dict[str, Any]:
             dst_wcs = dst.with_suffix(".wcs")
             shutil.copy2(src_wcs, dst_wcs)
             copied_wcs = str(dst_wcs)
+    record_ui_event(
+        request,
+        event="tools.astrometry.save_solved",
+        source="tools.astrometry_save_solved",
+        payload={"output_path": str(dst), "wcs_path": copied_wcs},
+    )
     return {"output_path": str(dst), "wcs_path": copied_wcs}
 
 
@@ -270,7 +307,7 @@ def pcc_siril_status(catalog_dir: str | None = None) -> dict[str, Any]:
     return {"installed": installed, "total": SIRIL_NUM_CHUNKS, "missing": missing, "catalog_dir": str(path)}
 
 
-@router.post("/pcc/siril/download-missing", response_model=JobAccepted)
+@router.post("/pcc/siril/download-missing", response_model=JobAccepted, status_code=202)
 def pcc_siril_download_missing(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
     body = payload or {}
     catalog_dir = Path(str(body.get("catalog_dir", _default_siril_catalog_dir()))).expanduser()
@@ -325,15 +362,23 @@ def pcc_siril_download_missing(request: Request, payload: dict[str, Any] | None 
 
         request.app.state.job_store.merge_data(job_id, {"pending_chunks": [], "missing_after": _missing_siril_chunks(catalog_dir)})
 
-    return _start_custom_job(
+    accepted = _start_custom_job(
         request,
         "pcc_siril_download",
         {"payload": body},
         _worker,
     )
+    record_ui_event(
+        request,
+        event="tools.pcc.siril.download_missing",
+        source="tools.pcc_siril_download_missing",
+        job_id=accepted.job_id,
+        payload={"catalog_dir": str(catalog_dir)},
+    )
+    return accepted
 
 
-@router.post("/pcc/siril/download-missing/retry", response_model=JobAccepted)
+@router.post("/pcc/siril/download-missing/retry", response_model=JobAccepted, status_code=202)
 def pcc_siril_download_missing_retry(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
     body = dict(payload or {})
     body.setdefault("resume", True)
@@ -347,11 +392,18 @@ def pcc_siril_cancel(request: Request) -> dict[str, Any]:
         if job.job_type == "pcc_siril_download" and job.state == "running":
             request.app.state.job_store.cancel(job.job_id)
             cancelled = True
+            record_ui_event(
+                request,
+                event="tools.pcc.siril.cancel",
+                source="tools.pcc_siril_cancel",
+                job_id=job.job_id,
+                payload={"ok": True},
+            )
     return {"ok": cancelled}
 
 
 @router.post("/pcc/check-online")
-def pcc_check_online() -> dict[str, Any]:
+def pcc_check_online(request: Request) -> dict[str, Any]:
     test_url = (
         "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?"
         "-source=I/355/gaiadr3&-c=0%200&-c.rd=0.01&-out=RA_ICRS,DE_ICRS,Gmag&-out.max=1"
@@ -361,13 +413,27 @@ def pcc_check_online() -> dict[str, Any]:
         with urllib.request.urlopen(test_url, timeout=10) as resp:
             _ = resp.read(2048)
         latency = int((time.perf_counter() - t0) * 1000)
-        return {"ok": True, "latency_ms": latency}
+        response = {"ok": True, "latency_ms": latency}
+        record_ui_event(
+            request,
+            event="tools.pcc.check_online",
+            source="tools.pcc_check_online",
+            payload=response,
+        )
+        return response
     except Exception as exc:
         latency = int((time.perf_counter() - t0) * 1000)
-        return {"ok": False, "latency_ms": latency, "error": str(exc)}
+        response = {"ok": False, "latency_ms": latency, "error": str(exc)}
+        record_ui_event(
+            request,
+            event="tools.pcc.check_online",
+            source="tools.pcc_check_online",
+            payload=response,
+        )
+        return response
 
 
-@router.post("/pcc/run", response_model=JobAccepted)
+@router.post("/pcc/run", response_model=JobAccepted, status_code=202)
 def pcc_run(request: Request, payload: dict[str, Any]) -> JobAccepted:
     runtime = request.app.state.runtime
     input_rgb = payload.get("input_rgb")
@@ -401,11 +467,18 @@ def pcc_run(request: Request, payload: dict[str, Any]) -> JobAccepted:
         command=cmd,
         cwd=runtime.project_root,
     )
+    record_ui_event(
+        request,
+        event="tools.pcc.run",
+        source="tools.pcc_run",
+        job_id=job.job_id,
+        payload={"input_rgb": str(input_rgb), "output_rgb": str(output_rgb)},
+    )
     return JobAccepted(job_id=job.job_id, state="running")
 
 
 @router.post("/pcc/save-corrected")
-def pcc_save_corrected(payload: dict[str, Any]) -> dict[str, Any]:
+def pcc_save_corrected(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     output_rgb = payload.get("output_rgb")
     if not output_rgb:
         raise HTTPException(
@@ -413,7 +486,14 @@ def pcc_save_corrected(payload: dict[str, Any]) -> dict[str, Any]:
             detail={"error": {"code": "BAD_REQUEST", "message": "output_rgb is required"}},
         )
     output_channels = payload.get("output_channels", [])
-    return {"output_rgb": str(output_rgb), "output_channels": output_channels}
+    response = {"output_rgb": str(output_rgb), "output_channels": output_channels}
+    record_ui_event(
+        request,
+        event="tools.pcc.save_corrected",
+        source="tools.pcc_save_corrected",
+        payload=response,
+    )
+    return response
 
 
 def _start_custom_job(

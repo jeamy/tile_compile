@@ -6,11 +6,13 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas import JobAccepted
 from app.services.command_runner import launch_background_command
+from app.services.guardrails import compute_guardrails
+from app.services.ui_events import record_ui_event
 
 router = APIRouter(tags=["scan"])
 
 
-@router.post("/scan", response_model=JobAccepted)
+@router.post("/scan", response_model=JobAccepted, status_code=202)
 def scan(request: Request, payload: dict[str, Any]) -> JobAccepted:
     runtime = request.app.state.runtime
     input_path = payload.get("input_path")
@@ -42,6 +44,13 @@ def scan(request: Request, payload: dict[str, Any]) -> JobAccepted:
         command=cmd,
         cwd=runtime.project_root,
     )
+    record_ui_event(
+        request,
+        event="scan.start",
+        source="scan.scan",
+        job_id=job.job_id,
+        payload={"input_path": str(input_path), "frames_min": frames_min, "with_checksums": with_checksums},
+    )
     return JobAccepted(job_id=job.job_id, state="running")
 
 
@@ -67,24 +76,4 @@ def scan_quality(request: Request) -> dict[str, Any]:
 
 @router.get("/guardrails")
 def guardrails(request: Request) -> dict[str, Any]:
-    items = request.app.state.job_store.list()
-    scan_job = next((j for j in items if j.job_type == "scan"), None)
-    if scan_job is None:
-        return {
-            "status": "check",
-            "checks": [
-                {"id": "scan", "status": "check", "label": "Scan ausstehend"},
-            ],
-        }
-
-    result = scan_job.data.get("result", {})
-    errors = result.get("errors", []) if isinstance(result, dict) else []
-    checks = [
-        {
-            "id": "scan_ok",
-            "status": "ok" if not errors else "error",
-            "label": "Scan erfolgreich" if not errors else "Scan mit Fehlern",
-        }
-    ]
-    status = "ok" if not errors else "error"
-    return {"status": status, "checks": checks}
+    return compute_guardrails(request.app.state.job_store)
