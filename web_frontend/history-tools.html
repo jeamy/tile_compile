@@ -38,6 +38,48 @@
         </section>
 
         <section class="ps-section">
+          <div class="ps-section-title">Ausgewählter Run</div>
+          <div class="ps-grid-3">
+            <div class="ps-row"><label for="history-selected-run-id">Run ID</label><input id="history-selected-run-id" class="ps-input" type="text" value="-" readonly></div>
+            <div class="ps-row"><label for="history-selected-status">Status</label><input id="history-selected-status" class="ps-input" type="text" value="-" readonly></div>
+            <div class="ps-row"><label for="history-selected-phase">Aktuelle Phase</label><input id="history-selected-phase" class="ps-input" type="text" value="-" readonly></div>
+            <div class="ps-row"><label for="history-selected-progress">Fortschritt</label><input id="history-selected-progress" class="ps-input" type="text" value="-" readonly></div>
+            <div class="ps-row"><label for="history-selected-artifacts">Artefakte</label><input id="history-selected-artifacts" class="ps-input" type="text" value="-" readonly></div>
+            <div class="ps-row"><label for="history-selected-report">Report</label><input id="history-selected-report" class="ps-input" type="text" value="-" readonly></div>
+          </div>
+          <div class="ps-row" style="margin-top:10px;">
+            <label for="history-selected-run-dir">Run-Ordner</label>
+            <input id="history-selected-run-dir" class="ps-input ps-wide" type="text" value="-" readonly>
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div class="ps-section-title">Run-Vergleich</div>
+          <div class="ps-row">
+            <label for="history-compare-run-id">Vergleichs-Run</label>
+            <select id="history-compare-run-id" class="ps-select ps-wide">
+              <option value="">-</option>
+            </select>
+          </div>
+          <div class="ps-actions">
+            <button id="history-compare-use-current" data-control="history.compare.use_current" class="ps-btn ps-btn-secondary" title="Aktuellen Run als Vergleich wählen.">Current als Vergleich</button>
+            <button id="history-compare-clear" data-control="history.compare.clear" class="ps-btn ps-btn-secondary" title="Vergleich entfernen.">Vergleich löschen</button>
+          </div>
+          <div class="ps-grid-3">
+            <div class="ps-row"><label for="history-compare-status">Status</label><input id="history-compare-status" class="ps-input" type="text" value="-" readonly></div>
+            <div class="ps-row"><label for="history-compare-phase">Aktuelle Phase</label><input id="history-compare-phase" class="ps-input" type="text" value="-" readonly></div>
+            <div class="ps-row"><label for="history-compare-progress">Fortschritt</label><input id="history-compare-progress" class="ps-input" type="text" value="-" readonly></div>
+            <div class="ps-row"><label for="history-compare-artifacts">Artefakte</label><input id="history-compare-artifacts" class="ps-input" type="text" value="-" readonly></div>
+            <div class="ps-row"><label for="history-compare-report">Report</label><input id="history-compare-report" class="ps-input" type="text" value="-" readonly></div>
+            <div class="ps-row"><label for="history-compare-summary">Vergleich</label><input id="history-compare-summary" class="ps-input" type="text" value="-" readonly></div>
+          </div>
+          <div class="ps-row" style="margin-top:10px;">
+            <label for="history-compare-run-dir">Vergleichs-Ordner</label>
+            <input id="history-compare-run-dir" class="ps-input ps-wide" type="text" value="-" readonly>
+          </div>
+        </section>
+
+        <section class="ps-section">
           <div class="ps-section-title">Tools-Deep-Links</div>
           <p class="ps-note">Generate Stats bleibt ausschließlich im Run Monitor unter Live Log.</p>
           <div class="ps-actions" style="margin-top:8px;">

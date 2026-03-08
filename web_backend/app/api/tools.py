@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import bz2
+import math
 import shutil
 import stat
 import subprocess
@@ -15,7 +16,7 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas import JobAccepted
-from app.services.command_runner import SecurityPolicyError, launch_background_command
+from app.services.command_runner import SecurityPolicyError, launch_background_command, run_command
 from app.services.downloads import DownloadAborted, DownloadOptions, download_file_with_retry
 from app.services.http_errors import http_from_security_error
 from app.services.ui_events import record_ui_event
@@ -257,26 +258,45 @@ def astrometry_solve(request: Request, payload: dict[str, Any]) -> JobAccepted:
         "-r",
         str(search_radius),
     ]
-    job = request.app.state.job_store.create(
+
+    def _worker(job_id: str) -> None:
+        result = run_command(
+            cmd,
+            cwd=runtime.project_root,
+            timeout_sec=max(30, int(payload.get("timeout_s", 300))),
+            command_policy=request.app.state.command_policy,
+        )
+        request.app.state.job_store.set_exit_code(job_id, result.exit_code)
+        data_patch: dict[str, Any] = {
+            "command": cmd,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "wcs_path": str(wcs_path),
+        }
+        if result.exit_code != 0:
+            request.app.state.job_store.merge_data(job_id, data_patch)
+            raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "ASTAP solve failed")
+        if not wcs_path.exists():
+            request.app.state.job_store.merge_data(job_id, data_patch)
+            raise RuntimeError("ASTAP solve completed without producing a WCS file")
+        summary = _parse_astrometry_wcs_summary(wcs_path)
+        data_patch["result"] = {"wcs_path": str(wcs_path), **summary}
+        request.app.state.job_store.merge_data(job_id, data_patch)
+
+    accepted = _start_custom_job(
+        request,
         "astrometry_solve",
         {"payload": payload, "command": cmd, "wcs_path": str(wcs_path)},
-    )
-    request.app.state.job_store.set_state(job.job_id, "running")
-    launch_background_command(
-        job_store=request.app.state.job_store,
-        job_id=job.job_id,
-        command=cmd,
-        cwd=runtime.project_root,
-        command_policy=request.app.state.command_policy,
+        _worker,
     )
     record_ui_event(
         request,
         event="tools.astrometry.solve",
         source="tools.astrometry_solve",
-        job_id=job.job_id,
+        job_id=accepted.job_id,
         payload={"solve_file": str(fits_path), "wcs_path": str(wcs_path)},
     )
-    return JobAccepted(job_id=job.job_id, state="running")
+    return accepted
 
 
 @router.post("/astrometry/save-solved")
@@ -778,6 +798,60 @@ def _guess_wcs_path(fits_path: Path) -> Path:
         if lower.endswith(ext):
             return fits_path.with_name(name[: -len(ext)] + ".wcs")
     return fits_path.with_suffix(fits_path.suffix + ".wcs")
+
+
+def _parse_astrometry_wcs_summary(wcs_path: Path) -> dict[str, Any]:
+    values: dict[str, float] = {}
+    for line in wcs_path.read_text(errors="ignore").splitlines():
+        if "=" not in line:
+            continue
+        key_raw, value_raw = line.split("=", 1)
+        key = key_raw.strip()
+        token = value_raw.split("/", 1)[0].strip().strip("'\"")
+        if not key or not token:
+            continue
+        try:
+            values[key] = float(token)
+        except ValueError:
+            continue
+
+    crval1 = values.get("CRVAL1")
+    crval2 = values.get("CRVAL2")
+    crpix1 = values.get("CRPIX1", 0.0)
+    crpix2 = values.get("CRPIX2", 0.0)
+    naxis1_raw = values.get("NAXIS1", crpix1 * 2.0)
+    naxis2_raw = values.get("NAXIS2", crpix2 * 2.0)
+    naxis1 = int(round(naxis1_raw)) if naxis1_raw else 0
+    naxis2 = int(round(naxis2_raw)) if naxis2_raw else 0
+
+    cd11 = values.get("CD1_1")
+    cd12 = values.get("CD1_2")
+    cd21 = values.get("CD2_1")
+    cd22 = values.get("CD2_2")
+    if all(v is not None for v in (cd11, cd12, cd21, cd22)):
+        scale_x = math.hypot(float(cd11), float(cd21))
+        scale_y = math.hypot(float(cd12), float(cd22))
+        pixel_scale_arcsec = ((scale_x + scale_y) / 2.0) * 3600.0
+        rotation_deg = math.degrees(math.atan2(float(cd21), float(cd11)))
+    else:
+        cdelt1 = values.get("CDELT1", 0.0)
+        cdelt2 = values.get("CDELT2", 0.0)
+        pixel_scale_arcsec = ((abs(cdelt1) + abs(cdelt2)) / 2.0) * 3600.0 if (cdelt1 or cdelt2) else 0.0
+        rotation_deg = values.get("CROTA2", values.get("CROTA1", 0.0))
+
+    fov_width_deg = (pixel_scale_arcsec * naxis1 / 3600.0) if pixel_scale_arcsec and naxis1 else 0.0
+    fov_height_deg = (pixel_scale_arcsec * naxis2 / 3600.0) if pixel_scale_arcsec and naxis2 else 0.0
+
+    return {
+        "ra_deg": crval1,
+        "dec_deg": crval2,
+        "pixel_scale_arcsec": pixel_scale_arcsec,
+        "rotation_deg": rotation_deg,
+        "fov_width_deg": fov_width_deg,
+        "fov_height_deg": fov_height_deg,
+        "image_width": naxis1,
+        "image_height": naxis2,
+    }
 
 
 def _missing_siril_chunks(catalog_dir: Path) -> list[int]:

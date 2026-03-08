@@ -10,6 +10,7 @@ const uiState = {
   currentRunId: localStorage.getItem("gui2.currentRunId") || "",
   currentRunDir: "",
   selectedHistoryRunId: "",
+  compareHistoryRunId: "",
   configYaml: "",
   configObject: null,
   parameterDirty: {},
@@ -20,9 +21,6 @@ const uiState = {
   lastAstrometryWcs: "",
   lastPccOutput: "",
   lastPccChannels: [],
-  lastPccResult: null,
-  locale: localStorage.getItem(LOCALE_KEY) || "de",
-  projectRunsDir: "",
 };
 
 const PARAM_CONTROL_PATHS = {
@@ -133,7 +131,7 @@ async function withPathGrantRetry(fn, { fallbackPath = "" } = {}) {
       `Pfad ist aktuell nicht freigegeben:\n${candidatePath}\n\nZugriff fuer diese Sitzung erlauben?`,
     );
     if (!allow) throw err;
-    await api.post("/api/fs/grant-root", { path: candidatePath });
+    await api.post(API_ENDPOINTS.fs.grantRoot, { path: candidatePath });
     return fn();
   }
 }
@@ -182,7 +180,7 @@ async function waitForJob(jobId, { timeoutMs = 240000, onTick, allowMissing = fa
   while (Date.now() - started < timeoutMs) {
     let job;
     try {
-      job = await api.get(`/api/jobs/${encodeURIComponent(jobId)}`);
+      job = await api.get(API_ENDPOINTS.jobs.byId(jobId));
     } catch (err) {
       if (allowMissing && Number(err?.status) === 404) {
         return { job_id: jobId, state: "missing", data: {} };
@@ -431,6 +429,45 @@ function renderDashboardScanKpis(summary, qualityScore) {
   if (pathState) pathState.textContent = data.input_path || "kein Scan";
 }
 
+function renderDashboardLastRunKpi(appState) {
+  const card = $("dashboard-kpi-last-run");
+  const statusEl = $("dashboard-kpi-last-run-status");
+  const metaEl = $("dashboard-kpi-last-run-meta");
+  if (!card || !statusEl || !metaEl) return;
+  const recentRuns = Array.isArray(appState?.history?.recent) ? appState.history.recent : [];
+  const latest = recentRuns[0] || null;
+  if (!latest) {
+    statusEl.textContent = "-";
+    metaEl.textContent = "kein Run";
+    card.onclick = () => {
+      window.location.href = "history-tools.html";
+    };
+    return;
+  }
+  const statusText = String(latest?.status || appState?.run?.current?.status || "unknown").toUpperCase();
+  const runId = String(latest?.run_id || latest?.name || "-");
+  const modifiedText = formatUiDateTime(latest?.modified);
+  statusEl.textContent = statusText;
+  metaEl.textContent = modifiedText !== "-" ? `${runId} • ${modifiedText}` : runId;
+  card.onclick = () => {
+    window.location.href = "history-tools.html";
+  };
+}
+
+function formatUiDateTime(isoRaw) {
+  const iso = String(isoRaw || "").trim();
+  if (!iso) return "-";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(uiState.locale === "en" ? "en-GB" : "de-DE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function deriveOutputPath(inputPath, suffix) {
   const s = String(inputPath || "").trim();
   if (!s) return "";
@@ -471,8 +508,8 @@ function ensureRunIdFromHeader() {
 async function initGlobalState() {
   try {
     const [guardrails, appState] = await Promise.all([
-      api.get("/api/guardrails"),
-      api.get("/api/app/state"),
+      api.get(API_ENDPOINTS.guardrails.root),
+      api.get(API_ENDPOINTS.app.state),
     ]);
     setRunReady(guardrails?.status || "check");
     const rid = appState?.project?.current_run_id;
@@ -538,7 +575,7 @@ async function executeScanFlow({
   const payload = buildScanPayloadFromDirs(dirs, framesMin, withChecksums);
 
   try {
-    const accepted = await withPathGrantRetry(() => api.post("/api/scan", payload), {
+    const accepted = await withPathGrantRetry(() => api.post(API_ENDPOINTS.scan.root, payload), {
       fallbackPath: dirs[0] || "",
     });
     if (resultPanel) resultPanel.style.display = "block";
@@ -546,7 +583,7 @@ async function executeScanFlow({
     setText(resultBody, { state: accepted.state, message: "Scan gestartet..." });
     const job = await waitForJob(accepted.job_id, { allowMissing: true });
     if (String(job?.state) === "missing") {
-      const latest = await api.get("/api/scan/latest");
+      const latest = await api.get(API_ENDPOINTS.scan.latest);
       const summary = summarizeScanResult(latest, payload.input_path);
       renderScanSummary(summaryPrefix, summary);
       applyDetectedColorModeToSelect($("inp-colormode"), summary);
@@ -568,7 +605,7 @@ async function executeScanFlow({
     setText(resultBody, result);
     let summary = summarizeScanResult(result, payload.input_path);
     try {
-      const latest = await api.get("/api/scan/latest");
+      const latest = await api.get(API_ENDPOINTS.scan.latest);
       summary = summarizeScanResult(latest, payload.input_path);
     } catch {
       // keep local summary from job payload
@@ -620,7 +657,7 @@ function bindScanPages() {
   }
   void (async () => {
     try {
-      const latest = await api.get("/api/scan/latest");
+      const latest = await api.get(API_ENDPOINTS.scan.latest);
       const summary = summarizeScanResult(latest);
       if (summary.has_scan) {
         $("scan-result").style.display = "block";
@@ -657,7 +694,7 @@ async function ensureConfigYaml() {
     uiState.configYaml = draft;
     return draft;
   }
-  const current = await api.get("/api/config/current");
+  const current = await api.get(API_ENDPOINTS.config.current);
   uiState.configYaml = String(current?.config || "");
   setConfigDraft(uiState.configYaml);
   return uiState.configYaml;
@@ -665,7 +702,7 @@ async function ensureConfigYaml() {
 
 async function patchConfig({ updates = [], persist = false, yamlText } = {}) {
   const baseYaml = yamlText !== undefined ? String(yamlText || "") : await ensureConfigYaml();
-  const result = await api.post("/api/config/patch", {
+  const result = await api.post(API_ENDPOINTS.config.patch, {
     yaml: baseYaml,
     updates,
     parse_values: true,
@@ -763,7 +800,7 @@ async function bindParameterStudio() {
   };
 
   try {
-    const presets = await api.get("/api/config/presets");
+    const presets = await api.get(API_ENDPOINTS.config.presets);
     if (Array.isArray(presets?.items) && presets.items.length > 0) {
       const old = presetSelect.value;
       presetSelect.innerHTML = "";
@@ -787,7 +824,7 @@ async function bindParameterStudio() {
 
   $("parameter-yaml-sync")?.addEventListener("click", async () => {
     try {
-      const current = await api.get("/api/config/current");
+      const current = await api.get(API_ENDPOINTS.config.current);
       uiState.configYaml = String(current?.config || "");
       setConfigDraft(uiState.configYaml);
       uiState.parameterDirty = {};
@@ -807,7 +844,7 @@ async function bindParameterStudio() {
         setFooter("Kein Preset ausgewaehlt.", true);
         return;
       }
-      const applied = await api.post("/api/config/presets/apply", { path });
+      const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
       uiState.configYaml = String(applied?.config || "");
       setConfigDraft(uiState.configYaml);
       uiState.parameterDirty = {};
@@ -823,7 +860,7 @@ async function bindParameterStudio() {
   $("parameter-validate")?.addEventListener("click", async () => {
     try {
       const patched = await applyPreview({ persist: false });
-      const result = await api.post("/api/config/validate", { yaml: patched?.config_yaml || "" });
+      const result = await api.post(API_ENDPOINTS.config.validate, { yaml: patched?.config_yaml || "" });
       setParameterPreview(result);
       setFooter(result.ok ? "Validierung OK." : "Validierung hat Fehler.");
     } catch (err) {
@@ -852,7 +889,7 @@ async function bindParameterStudio() {
 
   $("parameter-reset-default")?.addEventListener("click", async () => {
     try {
-      const current = await api.get("/api/config/current");
+      const current = await api.get(API_ENDPOINTS.config.current);
       uiState.parameterDirty = {};
       uiState.configYaml = String(current?.config || "");
       setConfigDraft(uiState.configYaml);
@@ -948,7 +985,7 @@ function setPhaseRow(phaseName, status, pctRaw) {
 }
 
 async function loadRunStatus(runId) {
-  const status = await api.get(`/api/runs/${encodeURIComponent(runId)}/status`);
+  const status = await api.get(API_ENDPOINTS.runs.status(runId));
   uiState.currentRunDir = String(status?.run_dir || "");
   if (Array.isArray(status?.phases)) {
     for (const p of status.phases) {
@@ -966,7 +1003,7 @@ async function loadRunRevisions() {
   const sel = $("monitor-resume-config-revision");
   if (!sel) return;
   const old = sel.value;
-  const revisions = await api.get("/api/config/revisions");
+  const revisions = await api.get(API_ENDPOINTS.config.revisions);
   sel.innerHTML = "";
   for (const item of revisions.items || []) {
     const opt = document.createElement("option");
@@ -982,7 +1019,7 @@ function connectRunMonitorStream(runId) {
   if (uiState.runSocket) uiState.runSocket.close();
   const logBox = runMonitorLogBox();
   uiState.runSocket = api.ws(
-    `/api/ws/runs/${encodeURIComponent(runId)}`,
+    API_ENDPOINTS.ws.run(runId),
     (event) => {
       appendLine(logBox, JSON.stringify(event));
       if (event?.type === "phase_progress" || event?.type === "phase_end" || event?.type === "phase_start") {
@@ -1010,7 +1047,7 @@ async function bindRunMonitor() {
   let runId = ensureRunIdFromHeader();
   if (!runId) {
     try {
-      const appState = await api.get("/api/app/state");
+      const appState = await api.get(API_ENDPOINTS.app.state);
       runId = appState?.project?.current_run_id || "";
     } catch {
       runId = "";
@@ -1020,14 +1057,6 @@ async function bindRunMonitor() {
   if (!uiState.currentRunId) {
     setFooter("Kein aktueller Run gesetzt. Bitte in History einen Run als Current markieren.", true);
     return;
-  }
-
-  try {
-    await loadRunRevisions();
-    await loadRunStatus(uiState.currentRunId);
-    connectRunMonitorStream(uiState.currentRunId);
-  } catch (err) {
-    setFooter(`Run-Monitor Initialisierung fehlgeschlagen: ${errorText(err)}`, true);
   }
 
   const updateResumeEnabled = () => {
@@ -1053,7 +1082,7 @@ async function bindRunMonitor() {
 
   $("monitor-stop")?.addEventListener("click", async () => {
     try {
-      const result = await api.post(`/api/runs/${encodeURIComponent(uiState.currentRunId)}/stop`, {});
+      const result = await api.post(API_ENDPOINTS.runs.stop(uiState.currentRunId), {});
       if (result.ok) {
         const stoppedJobs = Array.isArray(result.cancelled_jobs) ? result.cancelled_jobs.length : 0;
         const killedPids = Array.isArray(result.killed_pids) ? result.killed_pids.length : 0;
@@ -1075,7 +1104,7 @@ async function bindRunMonitor() {
       return;
     }
     try {
-      const accepted = await api.post(`/api/runs/${encodeURIComponent(uiState.currentRunId)}/resume`, {
+      const accepted = await api.post(API_ENDPOINTS.runs.resume(uiState.currentRunId), {
         from_phase: phase,
         config_revision_id: revisionId,
         run_dir: uiState.currentRunDir || undefined,
@@ -1096,8 +1125,8 @@ async function bindRunMonitor() {
       return;
     }
     try {
-      await api.post(`/api/runs/${encodeURIComponent(uiState.currentRunId)}/config-revisions/${encodeURIComponent(revisionId)}/restore`, {});
-      const current = await api.get("/api/config/current");
+      await api.post(API_ENDPOINTS.runs.restoreRevision(uiState.currentRunId, revisionId), {});
+      const current = await api.get(API_ENDPOINTS.config.current);
       setConfigDraft(String(current?.config || ""));
       setFooter(`Revision ${revisionId} wiederhergestellt.`);
     } catch (err) {
@@ -1107,11 +1136,12 @@ async function bindRunMonitor() {
 
   $("monitor-stats-generate")?.addEventListener("click", async () => {
     try {
-      const accepted = await api.post(`/api/runs/${encodeURIComponent(uiState.currentRunId)}/stats`, {
+      const accepted = await api.post(API_ENDPOINTS.runs.stats(uiState.currentRunId), {
         run_dir: uiState.currentRunDir || undefined,
       });
       setFooter(`Stats-Generierung gestartet (Job ${accepted.job_id}).`);
       await waitForJob(accepted.job_id);
+      await refreshArtifacts();
     } catch (err) {
       setFooter(`Stats-Generierung fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -1119,7 +1149,7 @@ async function bindRunMonitor() {
 
   $("monitor-stats-open-folder")?.addEventListener("click", async () => {
     try {
-      const status = await api.get(`/api/runs/${encodeURIComponent(uiState.currentRunId)}/stats/status`);
+      const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId));
       setFooter(`Stats-Ordner: ${status.output_dir || "-"}`);
     } catch (err) {
       setFooter(`Stats-Status fehlgeschlagen: ${errorText(err)}`, true);
@@ -1128,7 +1158,7 @@ async function bindRunMonitor() {
 
   $("monitor-report")?.addEventListener("click", async () => {
     try {
-      const status = await api.get(`/api/runs/${encodeURIComponent(uiState.currentRunId)}/stats/status`);
+      const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId));
       setFooter(`Report: ${status.report_path || "-"}`);
     } catch (err) {
       setFooter(`Report-Status fehlgeschlagen: ${errorText(err)}`, true);
@@ -1138,21 +1168,211 @@ async function bindRunMonitor() {
   $("monitor-open-run-folder")?.addEventListener("click", () => {
     setFooter(`Run-Ordner: ${uiState.currentRunDir || "-"}`);
   });
+
+  const artifactSection = Array.from(document.querySelectorAll(".ps-section")).find((sec) => {
+    const title = sec.querySelector(".ps-section-title");
+    return title && String(title.textContent || "").trim() === "Artefakte";
+  });
+  const artifactList = artifactSection?.querySelector("ul.ps-list") || null;
+  const formatBytes = (sizeRaw) => {
+    const size = Number(sizeRaw);
+    if (!Number.isFinite(size) || size < 0) return "-";
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  };
+  const renderArtifacts = (items) => {
+    if (!artifactList) return;
+    const artifacts = Array.isArray(items) ? items : [];
+    if (artifacts.length === 0) {
+      artifactList.innerHTML = "<li><button>Keine Artefakte gefunden</button></li>";
+      return;
+    }
+    artifactList.innerHTML = artifacts
+      .slice(0, 50)
+      .map((item) => {
+        const filename = String(item?.filename || item?.relative_path || item?.path || "artifact");
+        const fullPath = String(item?.path || "");
+        const relativePath = String(item?.relative_path || filename);
+        const sizeText = formatBytes(item?.size_bytes);
+        return `<li><button data-artifact-path="${fullPath.replace(/"/g, "&quot;")}" title="${relativePath}">${filename} (${sizeText})</button></li>`;
+      })
+      .join("");
+    artifactList.querySelectorAll("button[data-artifact-path]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setFooter(`Artefakt: ${btn.getAttribute("data-artifact-path") || "-"}`);
+      });
+    });
+  };
+  const refreshArtifacts = async () => {
+    const result = await api.get(API_ENDPOINTS.runs.artifacts(uiState.currentRunId));
+    renderArtifacts(result?.items || []);
+  };
+
+  try {
+    await loadRunRevisions();
+    await loadRunStatus(uiState.currentRunId);
+    await refreshArtifacts();
+    connectRunMonitorStream(uiState.currentRunId);
+  } catch (err) {
+    setFooter(`Run-Monitor Initialisierung fehlgeschlagen: ${errorText(err)}`, true);
+  }
 }
 
 async function bindHistoryPage() {
   const list = document.querySelector(".ps-section ul.ps-list");
   if (!list || !$("history-refresh")) return;
 
-  const render = async () => {
-    const runs = await api.get("/api/runs");
-    const items = runs.items || [];
-    if (items.length === 0) {
-      list.innerHTML = "<li><button>Keine Runs gefunden</button></li>";
+  const selectedRunIdField = $("history-selected-run-id");
+  const selectedStatusField = $("history-selected-status");
+  const selectedPhaseField = $("history-selected-phase");
+  const selectedProgressField = $("history-selected-progress");
+  const selectedArtifactsField = $("history-selected-artifacts");
+  const selectedReportField = $("history-selected-report");
+  const selectedRunDirField = $("history-selected-run-dir");
+  const compareRunSelect = $("history-compare-run-id");
+  const compareStatusField = $("history-compare-status");
+  const comparePhaseField = $("history-compare-phase");
+  const compareProgressField = $("history-compare-progress");
+  const compareArtifactsField = $("history-compare-artifacts");
+  const compareReportField = $("history-compare-report");
+  const compareRunDirField = $("history-compare-run-dir");
+  const compareSummaryField = $("history-compare-summary");
+
+  const setHistoryFieldValue = (el, value) => {
+    if (!el) return;
+    el.value = value === null || value === undefined || value === "" ? "-" : String(value);
+  };
+  const formatHistoryProgress = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "-";
+    const pct = numeric <= 1 ? numeric * 100 : numeric;
+    return `${pct.toFixed(1)}%`;
+  };
+  const clearHistoryDetails = (refs, summaryText = "-") => {
+    setHistoryFieldValue(refs.runIdField, "-");
+    setHistoryFieldValue(refs.statusField, "-");
+    setHistoryFieldValue(refs.phaseField, "-");
+    setHistoryFieldValue(refs.progressField, "-");
+    setHistoryFieldValue(refs.artifactsField, "-");
+    setHistoryFieldValue(refs.reportField, "-");
+    setHistoryFieldValue(refs.runDirField, "-");
+    if (refs.summaryField) setHistoryFieldValue(refs.summaryField, summaryText);
+  };
+  const applyHistorySnapshot = (snapshot, refs) => {
+    if (!snapshot) {
+      clearHistoryDetails(refs);
       return;
     }
+    setHistoryFieldValue(refs.runIdField, snapshot.runId);
+    setHistoryFieldValue(refs.statusField, snapshot.status);
+    setHistoryFieldValue(refs.phaseField, snapshot.currentPhase);
+    setHistoryFieldValue(refs.progressField, snapshot.progressText);
+    setHistoryFieldValue(refs.artifactsField, String(snapshot.artifactCount));
+    setHistoryFieldValue(refs.reportField, snapshot.reportPath);
+    setHistoryFieldValue(refs.runDirField, snapshot.runDir);
+  };
+  const loadRunSnapshot = async (runId) => {
+    if (!runId) return null;
+    const [runStatus, statsStatus, artifactResult] = await Promise.all([
+      api.get(API_ENDPOINTS.runs.status(runId)),
+      api.get(API_ENDPOINTS.runs.statsStatus(runId)).catch(() => ({ report_path: "", output_dir: "", state: "unknown" })),
+      api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => ({ items: [] })),
+    ]);
+    const artifacts = Array.isArray(artifactResult?.items) ? artifactResult.items : [];
+    const progressValue = Number(runStatus?.progress);
+    return {
+      runId,
+      status: runStatus?.status || "-",
+      currentPhase: runStatus?.current_phase || "-",
+      progressValue,
+      progressText: formatHistoryProgress(runStatus?.progress),
+      artifactCount: artifacts.length,
+      reportPath: statsStatus?.report_path || "-",
+      runDir: runStatus?.run_dir || "-",
+    };
+  };
+  const selectedRefs = {
+    runIdField: selectedRunIdField,
+    statusField: selectedStatusField,
+    phaseField: selectedPhaseField,
+    progressField: selectedProgressField,
+    artifactsField: selectedArtifactsField,
+    reportField: selectedReportField,
+    runDirField: selectedRunDirField,
+  };
+  const compareRefs = {
+    runIdField: compareRunSelect,
+    statusField: compareStatusField,
+    phaseField: comparePhaseField,
+    progressField: compareProgressField,
+    artifactsField: compareArtifactsField,
+    reportField: compareReportField,
+    runDirField: compareRunDirField,
+    summaryField: compareSummaryField,
+  };
+  const renderSelectedRunDetails = async () => {
     if (!uiState.selectedHistoryRunId) {
-      uiState.selectedHistoryRunId = uiState.currentRunId || items[0].run_id;
+      clearHistoryDetails(selectedRefs);
+      return null;
+    }
+    const snapshot = await loadRunSnapshot(uiState.selectedHistoryRunId);
+    applyHistorySnapshot(snapshot, selectedRefs);
+    return snapshot;
+  };
+  const renderCompareOptions = (items) => {
+    if (!compareRunSelect) return;
+    const compareCandidates = items.filter((item) => item.run_id !== uiState.selectedHistoryRunId);
+    compareRunSelect.innerHTML = [
+      '<option value="">-</option>',
+      ...compareCandidates.map(
+        (item) => `<option value="${item.run_id}">${item.status.toUpperCase()} ${item.run_id} | ${item.name}</option>`,
+      ),
+    ].join("");
+    if (!compareCandidates.some((item) => item.run_id === uiState.compareHistoryRunId)) {
+      uiState.compareHistoryRunId = "";
+    }
+    compareRunSelect.value = uiState.compareHistoryRunId || "";
+  };
+  const renderCompareDetails = async (selectedSnapshot) => {
+    if (!uiState.compareHistoryRunId || uiState.compareHistoryRunId === uiState.selectedHistoryRunId) {
+      clearHistoryDetails(compareRefs, "Vergleichs-Run wählen");
+      if (compareRunSelect) compareRunSelect.value = "";
+      return;
+    }
+    const snapshot = await loadRunSnapshot(uiState.compareHistoryRunId);
+    applyHistorySnapshot(snapshot, compareRefs);
+    const baseProgress = Number(selectedSnapshot?.progressValue);
+    const compareProgress = Number(snapshot?.progressValue);
+    const progressDelta = Number.isFinite(baseProgress) && Number.isFinite(compareProgress)
+      ? `${compareProgress >= baseProgress ? "+" : ""}${((compareProgress - baseProgress) * 100).toFixed(1)} pp`
+      : "-";
+    const artifactDelta = Number(snapshot?.artifactCount || 0) - Number(selectedSnapshot?.artifactCount || 0);
+    const artifactDeltaText = `${artifactDelta >= 0 ? "+" : ""}${artifactDelta}`;
+    const statusText = selectedSnapshot && snapshot && String(selectedSnapshot.status) === String(snapshot.status)
+      ? `Status gleich (${snapshot.status})`
+      : `Status ${selectedSnapshot?.status || "-"} vs ${snapshot?.status || "-"}`;
+    setHistoryFieldValue(compareSummaryField, `${statusText} | Δ Artefakte ${artifactDeltaText} | Δ Fortschritt ${progressDelta}`);
+  };
+
+  const render = async () => {
+    const runs = await api.get(API_ENDPOINTS.runs.list);
+    const items = Array.isArray(runs?.items) ? runs.items : [];
+    if (items.length === 0) {
+      list.innerHTML = "<li><button>Keine Runs gefunden</button></li>";
+      clearHistoryDetails(selectedRefs);
+      clearHistoryDetails(compareRefs, "Vergleichs-Run wählen");
+      if (compareRunSelect) compareRunSelect.innerHTML = '<option value="">-</option>';
+      return;
+    }
+    if (!items.some((item) => item.run_id === uiState.selectedHistoryRunId)) {
+      uiState.selectedHistoryRunId = uiState.currentRunId && items.some((item) => item.run_id === uiState.currentRunId)
+        ? uiState.currentRunId
+        : items[0].run_id;
+    }
+    if (uiState.compareHistoryRunId === uiState.selectedHistoryRunId) {
+      uiState.compareHistoryRunId = "";
     }
     list.innerHTML = items
       .slice(0, 50)
@@ -1164,16 +1384,22 @@ async function bindHistoryPage() {
     list.querySelectorAll("button[data-run-id]").forEach((btn) => {
       btn.addEventListener("click", () => {
         uiState.selectedHistoryRunId = btn.getAttribute("data-run-id") || "";
-        render().catch(() => {});
+        if (uiState.compareHistoryRunId === uiState.selectedHistoryRunId) uiState.compareHistoryRunId = "";
+        render().catch((err) => {
+          setFooter(`History laden fehlgeschlagen: ${errorText(err)}`, true);
+        });
       });
     });
+    renderCompareOptions(items);
+    const selectedSnapshot = await renderSelectedRunDetails();
+    await renderCompareDetails(selectedSnapshot);
   };
 
   $("history-refresh").addEventListener("click", () => void render());
   $("history-set-current")?.addEventListener("click", async () => {
     if (!uiState.selectedHistoryRunId) return;
     try {
-      await api.post(`/api/runs/${encodeURIComponent(uiState.selectedHistoryRunId)}/set-current`, {});
+      await api.post(API_ENDPOINTS.runs.setCurrent(uiState.selectedHistoryRunId), {});
       setCurrentRunId(uiState.selectedHistoryRunId);
       setFooter(`Current Run gesetzt: ${uiState.selectedHistoryRunId}`);
     } catch (err) {
@@ -1184,11 +1410,41 @@ async function bindHistoryPage() {
   $("history-open-report")?.addEventListener("click", async () => {
     if (!uiState.selectedHistoryRunId) return;
     try {
-      const status = await api.get(`/api/runs/${encodeURIComponent(uiState.selectedHistoryRunId)}/stats/status`);
+      const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.selectedHistoryRunId));
+      setHistoryFieldValue(selectedReportField, status.report_path || "-");
       setFooter(`Report: ${status.report_path || "-"}`);
     } catch (err) {
       setFooter(`Report-Status fehlgeschlagen: ${errorText(err)}`, true);
     }
+  });
+
+  compareRunSelect?.addEventListener("change", () => {
+    uiState.compareHistoryRunId = String(compareRunSelect.value || "").trim();
+    render().catch((err) => {
+      setFooter(`History laden fehlgeschlagen: ${errorText(err)}`, true);
+    });
+  });
+
+  $("history-compare-use-current")?.addEventListener("click", () => {
+    if (!uiState.currentRunId) {
+      setFooter("Kein Current Run gesetzt.", true);
+      return;
+    }
+    if (uiState.currentRunId === uiState.selectedHistoryRunId) {
+      setFooter("Current Run ist bereits der ausgewählte Run. Bitte anderen Haupt-Run wählen.", true);
+      return;
+    }
+    uiState.compareHistoryRunId = uiState.currentRunId;
+    render().catch((err) => {
+      setFooter(`History laden fehlgeschlagen: ${errorText(err)}`, true);
+    });
+  });
+
+  $("history-compare-clear")?.addEventListener("click", () => {
+    uiState.compareHistoryRunId = "";
+    render().catch((err) => {
+      setFooter(`History laden fehlgeschlagen: ${errorText(err)}`, true);
+    });
   });
 
   try {
@@ -1203,14 +1459,51 @@ async function bindAstrometryPage() {
   const logBox = findLogBoxBySectionTitle("Log");
   const statusChip = document.querySelector("[data-control='tools.astrometry.status']");
 
+  const raField = $("tools-astrometry-ra");
+  const decField = $("tools-astrometry-dec");
+  const pixelScaleField = $("tools-astrometry-pixel-scale");
+  const rotationField = $("tools-astrometry-rotation");
+  const fovField = $("tools-astrometry-fov");
+
   const append = (msg) => appendLine(logBox, typeof msg === "string" ? msg : JSON.stringify(msg));
+  const setFieldValue = (el, value) => {
+    if (!el) return;
+    el.value = value === null || value === undefined || value === "" ? "-" : String(value);
+  };
+  const formatDeg = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? `${numeric.toFixed(6)} deg` : "-";
+  };
+  const formatPixelScale = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? `${numeric.toFixed(3)} arcsec/px` : "-";
+  };
+  const formatFov = (widthDeg, heightDeg) => {
+    const w = Number(widthDeg);
+    const h = Number(heightDeg);
+    return Number.isFinite(w) && Number.isFinite(h) ? `${w.toFixed(3)} x ${h.toFixed(3)} deg` : "-";
+  };
+  const applyAstrometryResult = (payload) => {
+    if (!payload || typeof payload !== "object") return;
+    setFieldValue(raField, formatDeg(payload.ra_deg));
+    setFieldValue(decField, formatDeg(payload.dec_deg));
+    setFieldValue(pixelScaleField, formatPixelScale(payload.pixel_scale_arcsec));
+    setFieldValue(rotationField, formatDeg(payload.rotation_deg));
+    setFieldValue(fovField, formatFov(payload.fov_width_deg, payload.fov_height_deg));
+    if (payload.wcs_path) {
+      uiState.lastAstrometryWcs = String(payload.wcs_path);
+    }
+  };
 
   async function detect() {
     const payload = {
       astap_cli: $("tools-astrometry-bin")?.value || "",
       astap_data_dir: $("tools-astrometry-data-dir")?.value || "",
     };
-    const result = await api.post("/api/tools/astrometry/detect", payload);
+    const result = await withPathGrantRetry(
+      () => api.post(API_ENDPOINTS.astrometry.detect, payload),
+      { fallbackPath: payload.astap_cli || payload.astap_data_dir },
+    );
     if (statusChip) statusChip.textContent = result.installed ? "Installed" : "Missing";
     append(result);
   }
@@ -1226,9 +1519,11 @@ async function bindAstrometryPage() {
 
   document.querySelector("[data-control='tools.astrometry.install_cli']")?.addEventListener("click", async () => {
     try {
-      const accepted = await api.post("/api/tools/astrometry/install-cli", {
-        astap_data_dir: $("tools-astrometry-data-dir")?.value || "",
-      });
+      const astapDataDir = $("tools-astrometry-data-dir")?.value || "";
+      const accepted = await withPathGrantRetry(
+        () => api.post(API_ENDPOINTS.astrometry.installCli, { astap_data_dir: astapDataDir }),
+        { fallbackPath: astapDataDir },
+      );
       append(accepted);
       const job = await waitForJob(accepted.job_id, { onTick: (j) => append({ state: j.state, progress: j.data?.progress ?? null }) });
       append(job);
@@ -1244,12 +1539,16 @@ async function bindAstrometryPage() {
       const txt = String(sel?.value || "").toLowerCase();
       const match = txt.match(/d\d+/);
       const catalogId = match ? match[0] : "d50";
-      const accepted = await api.post("/api/tools/astrometry/catalog/download", {
-        catalog_id: catalogId,
-        astap_data_dir: $("tools-astrometry-data-dir")?.value || "",
-      });
+      const astapDataDir = $("tools-astrometry-data-dir")?.value || "";
+      const accepted = await withPathGrantRetry(
+        () => api.post(API_ENDPOINTS.astrometry.downloadCatalog, {
+          catalog_id: catalogId,
+          astap_data_dir: astapDataDir,
+        }),
+        { fallbackPath: astapDataDir },
+      );
       append(accepted);
-      const job = await waitForJob(accepted.job_id, { onTick: (j) => append({ state: j.state, progress: j.data?.progress ?? null }) });
+      const job = await waitForJob(accepted.job_id, { onTick: (j) => append({ state: j.state, current_chunk: j.data?.current_chunk }) });
       append(job);
     } catch (err) {
       setFooter(`Catalog-Download fehlgeschlagen: ${errorText(err)}`, true);
@@ -1258,7 +1557,7 @@ async function bindAstrometryPage() {
 
   document.querySelector("[data-control='tools.astrometry.cancel_download']")?.addEventListener("click", async () => {
     try {
-      const result = await api.post("/api/tools/astrometry/catalog/cancel", {});
+      const result = await api.post(API_ENDPOINTS.astrometry.cancelDownload, {});
       append(result);
     } catch (err) {
       setFooter(`Catalog-Cancel fehlgeschlagen: ${errorText(err)}`, true);
@@ -1267,15 +1566,28 @@ async function bindAstrometryPage() {
 
   document.querySelector("[data-control='tools.astrometry.solve']")?.addEventListener("click", async () => {
     try {
-      const accepted = await api.post("/api/tools/astrometry/solve", {
+      const payload = {
         solve_file: $("tools-astrometry-file")?.value || "",
         astap_cli: $("tools-astrometry-bin")?.value || "",
         astap_data_dir: $("tools-astrometry-data-dir")?.value || "",
-      });
+      };
+      const accepted = await withPathGrantRetry(
+        () => api.post(API_ENDPOINTS.astrometry.solve, payload),
+        { fallbackPath: payload.solve_file || payload.astap_cli || payload.astap_data_dir },
+      );
       append(accepted);
       const job = await waitForJob(accepted.job_id);
-      uiState.lastAstrometryWcs = String(job?.data?.wcs_path || "");
+      const jobResult = job?.data?.result;
+      if (jobResult) {
+        applyAstrometryResult(jobResult);
+        append(jobResult);
+      }
+      uiState.lastAstrometryWcs = String(jobResult?.wcs_path || job?.data?.wcs_path || "");
       append(job);
+      if (String(job?.state || "") !== "ok") {
+        throw new Error(jobResult?.error || job?.data?.stderr || "ASTAP solve failed");
+      }
+      setFooter(`Solve erfolgreich: ${uiState.lastAstrometryWcs || "WCS erstellt"}`);
     } catch (err) {
       setFooter(`Solve fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -1287,11 +1599,14 @@ async function bindAstrometryPage() {
       const defaultOutput = deriveOutputPath(input, "_solved");
       const output = window.prompt("Output-FITS Pfad:", defaultOutput);
       if (!output) return;
-      const result = await api.post("/api/tools/astrometry/save-solved", {
-        input_path: input,
-        output_path: output,
-        wcs_path: uiState.lastAstrometryWcs || undefined,
-      });
+      const result = await withPathGrantRetry(
+        () => api.post(API_ENDPOINTS.astrometry.saveSolved, {
+          input_path: input,
+          output_path: output,
+          wcs_path: uiState.lastAstrometryWcs || undefined,
+        }),
+        { fallbackPath: input || uiState.lastAstrometryWcs || parentDirOfPath(output) },
+      );
       append(result);
       setFooter(`Saved: ${result.output_path || output}`);
     } catch (err) {
@@ -1515,12 +1830,12 @@ async function bindLiveLogPage() {
     return;
   }
   try {
-    const logs = await api.get(`/api/runs/${encodeURIComponent(runId)}/logs?tail=250`);
+    const logs = await api.get(API_ENDPOINTS.runs.logs(runId, 250));
     uiState.liveLines = (logs.lines || []).map((line) => ({ line, level: detectLevel(line) }));
     render();
     if (uiState.liveSocket) uiState.liveSocket.close();
     uiState.liveSocket = api.ws(
-      `/api/ws/runs/${encodeURIComponent(runId)}`,
+      API_ENDPOINTS.ws.run(runId),
       (event) => {
         const line = typeof event === "string" ? event : JSON.stringify(event);
         uiState.liveLines.push({ line, level: detectLevel(line) });
@@ -1593,7 +1908,7 @@ async function populatePresetSelect(selectId, keepCurrent = true) {
   const select = $(selectId);
   if (!select) return;
   const old = select.value;
-  const presets = await api.get("/api/config/presets");
+  const presets = await api.get(API_ENDPOINTS.config.presets);
   if (!Array.isArray(presets?.items) || presets.items.length === 0) return;
   select.innerHTML = "";
   presets.items.forEach((item) => {
@@ -1693,7 +2008,7 @@ async function startRunFromCurrentForm({ source }) {
   if (!payload.input_dir && !payload.queue && !payload.input_dirs) {
     throw new Error("Bitte mindestens einen Eingabeordner setzen.");
   }
-  return withPathGrantRetry(() => api.post("/api/runs/start", payload), {
+  return withPathGrantRetry(() => api.post(API_ENDPOINTS.runs.start, payload), {
     fallbackPath: String(payload.runs_dir || inputDirs[0] || ""),
   });
 }
@@ -1706,10 +2021,11 @@ async function bindDashboard() {
     runsDirInput.value = uiState.projectRunsDir;
   }
   try {
-    const [quality, guardrails, latestScan] = await Promise.all([
-      api.get("/api/scan/quality"),
-      api.get("/api/guardrails"),
-      api.get("/api/scan/latest"),
+    const [quality, guardrails, latestScan, appState] = await Promise.all([
+      api.get(API_ENDPOINTS.scan.quality),
+      api.get(API_ENDPOINTS.guardrails.root),
+      api.get(API_ENDPOINTS.scan.latest),
+      api.get(API_ENDPOINTS.app.state),
     ]);
     setRunReady(guardrails?.status || "check");
     const summary = summarizeScanResult(
@@ -1717,6 +2033,7 @@ async function bindDashboard() {
       String($("dashboard-input-dirs")?.value || "").trim(),
     );
     renderDashboardScanKpis(summary, quality?.score ?? 0);
+    renderDashboardLastRunKpi(appState);
     renderScanSummary("dashboard-scan", summary);
     applyDetectedColorModeToSelect($("dashboard-color-mode"), summary);
     applyDetectedColorModeToSelect($("inp-colormode"), summary);
@@ -1771,7 +2088,7 @@ async function bindDashboard() {
       try {
         const path = String($("dashboard-preset")?.value || "").trim();
         if (!path) return;
-        const applied = await api.post("/api/config/presets/apply", { path });
+        const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
         setConfigDraft(String(applied?.config || ""));
         setFooter("Preset fuer Guided Run aktualisiert.");
       } catch (err) {
@@ -1782,7 +2099,7 @@ async function bindDashboard() {
     $("dashboard-run-start")?.addEventListener("click", async (ev) => {
       ev.preventDefault();
       try {
-        const latestGuardrails = await api.get("/api/guardrails");
+        const latestGuardrails = await api.get(API_ENDPOINTS.guardrails.root);
         if (String(latestGuardrails?.status || "").toLowerCase() === "error") {
           setFooter("Run blockiert: Guardrail-Status ist ERROR.", true);
           return;
@@ -1807,7 +2124,7 @@ async function bindDashboard() {
         const accepted = await withPathGrantRetry(
           () =>
             api.post(
-              "/api/scan",
+              API_ENDPOINTS.scan.root,
               buildScanPayloadFromDirs(
                 dirs,
                 1,
@@ -1819,9 +2136,9 @@ async function bindDashboard() {
         setFooter(`Scan gestartet (Job ${accepted.job_id}).`);
         await waitForJob(accepted.job_id, { allowMissing: true });
         const [quality2, guardrails2, latest2] = await Promise.all([
-          api.get("/api/scan/quality"),
-          api.get("/api/guardrails"),
-          api.get("/api/scan/latest"),
+          api.get(API_ENDPOINTS.scan.quality),
+          api.get(API_ENDPOINTS.guardrails.root),
+          api.get(API_ENDPOINTS.scan.latest),
         ]);
         const summary2 = summarizeScanResult(latest2?.has_scan ? latest2 : quality2?.scan || {}, dirs[0] || "");
         renderDashboardScanKpis(summary2, quality2?.score ?? 0);
@@ -1913,9 +2230,9 @@ async function bindWizard() {
     try {
       const path = String($("wizard-preset-select")?.value || "").trim();
       if (!path) return;
-      const applied = await api.post("/api/config/presets/apply", { path });
+      const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
       setConfigDraft(String(applied?.config || ""));
-      const v = await api.post("/api/config/validate", { yaml: String(applied?.config || "") });
+      const v = await api.post(API_ENDPOINTS.config.validate, { yaml: String(applied?.config || "") });
       const box = $("wizard-validation-result");
       if (box) box.innerHTML = `<div class="ps-result-title">Validation</div><div>Schema: <b>${v.ok ? "OK" : "ERROR"}</b> | Fehler: <b>${(v.errors || []).length}</b> | Warnungen: <b>${(v.warnings || []).length}</b></div>`;
       setFooter("Wizard-Preset angewendet.");
@@ -1937,7 +2254,7 @@ async function bindWizard() {
         return;
       }
       const patched = await patchConfig({ updates, persist: false });
-      const v = await api.post("/api/config/validate", { yaml: patched?.config_yaml || "" });
+      const v = await api.post(API_ENDPOINTS.config.validate, { yaml: patched?.config_yaml || "" });
       const box = $("wizard-validation-result");
       if (box) box.innerHTML = `<div class="ps-result-title">Validation</div><div>Schema: <b>${v.ok ? "OK" : "ERROR"}</b> | Fehler: <b>${(v.errors || []).length}</b> | Warnungen: <b>${(v.warnings || []).length}</b></div>`;
       setFooter(`Wizard-Szenario angewendet (${updates.length} Deltas).`);

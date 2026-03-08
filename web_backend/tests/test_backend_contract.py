@@ -82,6 +82,28 @@ def test_scan_latest_and_app_state_include_summary() -> None:
     assert scan_state["last_scan"]["frames_detected"] == 123
 
 
+def test_app_state_includes_current_run_and_history_summary(tmp_path: Path) -> None:
+    app = create_app()
+    app.state.runtime.runs_dir = tmp_path
+    client = TestClient(app)
+
+    run_dir = tmp_path / "r1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "events.jsonl").write_text(json.dumps({"type": "run_end", "success": True}) + "\n", encoding="utf-8")
+    app.state.current_run_id = "r1"
+
+    resp = client.get("/api/app/state")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["run"]["current"]["run_id"] == "r1"
+    assert body["run"]["current"]["run_dir"] == str(run_dir)
+    assert body["run"]["current"]["status"] == "completed"
+    assert body["history"]["total_runs"] == 1
+    assert len(body["history"]["recent"]) == 1
+    assert body["history"]["recent"][0]["run_id"] == "r1"
+
+
 def test_run_start_blocked_by_guardrail_error() -> None:
     app = create_app()
     client = TestClient(app)

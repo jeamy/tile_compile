@@ -79,9 +79,11 @@
             <button data-control="tools.astrometry.save_solved" class="ps-btn ps-btn-secondary" title="FITS mit WCS-Header speichern.">Save Solved</button>
           </div>
           <div class="ps-grid-3" style="margin-top:10px;">
-            <div class="ps-row"><label>RA (J2000)</label><input class="ps-input" type="text" value="10.684700 deg" readonly title="Resultat aus WCS."></div>
-            <div class="ps-row"><label>Dec (J2000)</label><input class="ps-input" type="text" value="41.269000 deg" readonly title="Resultat aus WCS."></div>
-            <div class="ps-row"><label>Pixel Scale</label><input class="ps-input" type="text" value="1.69 arcsec/px" readonly title="Resultat aus WCS."></div>
+            <div class="ps-row"><label>RA (J2000)</label><input id="tools-astrometry-ra" class="ps-input" type="text" value="10.684700 deg" readonly title="Resultat aus WCS."></div>
+            <div class="ps-row"><label>Dec (J2000)</label><input id="tools-astrometry-dec" class="ps-input" type="text" value="41.269000 deg" readonly title="Resultat aus WCS."></div>
+            <div class="ps-row"><label>Pixel Scale</label><input id="tools-astrometry-pixel-scale" class="ps-input" type="text" value="1.69 arcsec/px" readonly title="Resultat aus WCS."></div>
+            <div class="ps-row"><label>Rotation</label><input id="tools-astrometry-rotation" class="ps-input" type="text" value="-" readonly title="Rotation aus WCS."></div>
+            <div class="ps-row"><label>FOV</label><input id="tools-astrometry-fov" class="ps-input" type="text" value="-" readonly title="Bildfeld aus WCS."></div>
           </div>
         </section>
 
