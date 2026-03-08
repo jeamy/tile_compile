@@ -2,12 +2,33 @@
 
 ## Start (Dev)
 
+Empfohlen (venv + requirements + uvicorn in einem Schritt):
+
+```bash
+cd /media/data/programming/tile_compile
+./start_backend.sh
+```
+
+Optionen:
+
+```bash
+./start_backend.sh --host 0.0.0.0 --port 8080
+./start_backend.sh --no-install
+./start_backend.sh --venv /tmp/tile_compile_venv --python python3
+```
+
+Manuell:
+
 ```bash
 cd /media/data/programming/tile_compile
 source .venv/bin/activate
 pip install -r web_backend/requirements-backend.txt
 uvicorn app.main:app --app-dir web_backend --reload --port 8080
 ```
+
+Frontend:
+
+- `http://127.0.0.1:8080/ui/` (neues produktives Web-Frontend unter `web_frontend/`)
 
 ## Konfiguration (Runtime)
 
@@ -19,6 +40,12 @@ Optionale Env-Variablen:
 - `TILE_COMPILE_CONFIG_PATH` (Default Config-Datei)
 - `TILE_COMPILE_STATS_SCRIPT` (Default: `tile_compile_cpp/scripts/generate_report.py`)
 - `TILE_COMPILE_ALLOWED_ROOTS` (Pfadliste, getrennt mit `:`; beschraenkt erlaubte Dateisystem-Zugriffe)
+- `TILE_COMPILE_INPUT_SEARCH_ROOTS` (Pfadliste, getrennt mit `:`; Suchbasen fuer relative Eingaben wie `IC434_ligths_all`)
+
+Hinweis zu relativen Eingaben:
+- `input_path`/`input_dir` duerfen absolut oder relativ sein.
+- Relative Werte werden nur gegen `TILE_COMPILE_INPUT_SEARCH_ROOTS` aufgeloest.
+- Ohne gesetztes `TILE_COMPILE_INPUT_SEARCH_ROOTS` sind relative Inputs deaktiviert (dann absolute Pfade verwenden).
 
 Falls nicht gesetzt, werden Standardpfade unter `tile_compile_cpp/build/...` verwendet.
 

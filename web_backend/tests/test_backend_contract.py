@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,54 @@ def test_ui_events_replay_after_mutating_call() -> None:
     assert items
     assert items[-1]["event"] == "scan.start"
     assert items[-1]["job_id"] == job_id
+
+
+def test_scan_latest_and_app_state_include_summary() -> None:
+    app = create_app()
+    client = TestClient(app)
+
+    initial = client.get("/api/scan/latest")
+    assert initial.status_code == 200
+    assert initial.json()["has_scan"] is False
+
+    app.state.last_scan_input_path = "/tmp/legacy_input"
+    scan_job = app.state.job_store.create(
+        "scan",
+        {
+            "input_path": "/tmp/legacy_input",
+            "result": {
+                "ok": True,
+                "input_path": "/tmp/legacy_input",
+                "frames_detected": 123,
+                "image_width": 3008,
+                "image_height": 3008,
+                "color_mode": "OSC",
+                "color_mode_candidates": ["OSC"],
+                "bayer_pattern": "RGGB",
+                "requires_user_confirmation": False,
+                "errors": [],
+                "warnings": [{"code": "w1"}],
+            },
+        },
+    )
+    app.state.job_store.set_state(scan_job.job_id, "ok")
+
+    latest = client.get("/api/scan/latest")
+    assert latest.status_code == 200
+    body = latest.json()
+    assert body["has_scan"] is True
+    assert body["frames_detected"] == 123
+    assert body["color_mode"] == "OSC"
+    assert body["image_width"] == 3008
+    assert body["image_height"] == 3008
+    assert body["bayer_pattern"] == "RGGB"
+    assert len(body["warnings"]) == 1
+
+    state = client.get("/api/app/state")
+    assert state.status_code == 200
+    scan_state = state.json()["scan"]
+    assert scan_state["last_input_path"] == "/tmp/legacy_input"
+    assert scan_state["last_scan"]["frames_detected"] == 123
 
 
 def test_run_start_blocked_by_guardrail_error() -> None:
@@ -157,3 +206,75 @@ def test_ws_job_stream_contains_job_data() -> None:
     assert event["job_id"] == job.job_id
     assert event["state"] == "running"
     assert event["data"]["run_id"] == "r5"
+
+
+def test_scan_multi_input_aggregates_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    app = create_app()
+    app.state.runtime.allowed_roots.append(tmp_path)
+    client = TestClient(app)
+
+    d1 = tmp_path / "in_l"
+    d2 = tmp_path / "in_r"
+    d1.mkdir(parents=True, exist_ok=True)
+    d2.mkdir(parents=True, exist_ok=True)
+
+    def _fake_run_command(command, **kwargs):  # noqa: ANN001
+        _ = kwargs
+        input_path = str(command[2])
+        if input_path.endswith("in_l"):
+            parsed = {
+                "ok": True,
+                "input_path": input_path,
+                "frames_detected": 12,
+                "image_width": 3008,
+                "image_height": 3008,
+                "color_mode": "MONO",
+                "color_mode_candidates": ["MONO"],
+                "bayer_pattern": None,
+                "requires_user_confirmation": False,
+                "errors": [],
+                "warnings": [],
+                "frames": [],
+            }
+        else:
+            parsed = {
+                "ok": True,
+                "input_path": input_path,
+                "frames_detected": 18,
+                "image_width": 3008,
+                "image_height": 3008,
+                "color_mode": "MONO",
+                "color_mode_candidates": ["MONO"],
+                "bayer_pattern": None,
+                "requires_user_confirmation": False,
+                "errors": [],
+                "warnings": [],
+                "frames": [],
+            }
+        return type("ScanResult", (), {"exit_code": 0, "parsed_json": parsed, "stderr": ""})()
+
+    monkeypatch.setattr("app.api.scan.run_command", _fake_run_command)
+
+    resp = client.post("/api/scan", json={"input_dirs": [str(d1), str(d2)], "frames_min": 3})
+    assert resp.status_code == 202
+    job_id = resp.json()["job_id"]
+
+    deadline = time.time() + 3.0
+    job_state = "running"
+    while time.time() < deadline:
+        job_resp = client.get(f"/api/jobs/{job_id}")
+        assert job_resp.status_code == 200
+        job_state = job_resp.json()["state"]
+        if job_state in {"ok", "error", "cancelled"}:
+            break
+        time.sleep(0.05)
+    assert job_state == "ok"
+
+    latest = client.get("/api/scan/latest")
+    assert latest.status_code == 200
+    body = latest.json()
+    assert body["ok"] is True
+    assert body["frames_detected"] == 30
+    assert body["color_mode"] == "MONO"
+    assert body["input_dirs"] == [str(d1), str(d2)]
+    assert len(body.get("per_dir_results", [])) == 2

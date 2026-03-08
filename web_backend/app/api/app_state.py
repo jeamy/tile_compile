@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from app.services.run_inspector import PHASE_ORDER
+from app.services.scan_summary import latest_scan_job, summarize_scan_job
 
 router = APIRouter(prefix="/app", tags=["app"])
 
@@ -13,6 +14,9 @@ router = APIRouter(prefix="/app", tags=["app"])
 def app_state(request: Request) -> dict[str, Any]:
     runtime = request.app.state.runtime
     ui_events = request.app.state.ui_event_store
+    fallback_input_path = str(getattr(request.app.state, "last_scan_input_path", "") or "")
+    scan_job = latest_scan_job(request.app.state.job_store)
+    scan_summary = summarize_scan_job(scan_job, fallback_input_path=fallback_input_path)
     return {
         "project": {
             "project_root": str(runtime.project_root),
@@ -20,7 +24,10 @@ def app_state(request: Request) -> dict[str, Any]:
             "default_config_path": str(runtime.default_config_path),
             "current_run_id": request.app.state.current_run_id,
         },
-        "scan": {},
+        "scan": {
+            "last_input_path": scan_summary.get("input_path", fallback_input_path),
+            "last_scan": scan_summary,
+        },
         "config": {
             "active_revision_id": request.app.state.active_config_revision_id,
             "revision_count": len(request.app.state.config_revisions),

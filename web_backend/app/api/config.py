@@ -247,6 +247,112 @@ def revision_restore(revision_id: str, request: Request) -> dict[str, Any]:
     return {"ok": True, "active_revision_id": revision_id}
 
 
+@router.post("/patch")
+def patch_config(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    runtime = request.app.state.runtime
+    path = payload.get("path")
+    yaml_text = payload.get("yaml")
+    config_object = payload.get("config")
+    updates = payload.get("updates") or []
+    parse_values = bool(payload.get("parse_values", True))
+    persist = bool(payload.get("persist", False))
+
+    try:
+        target = runtime.ensure_path_allowed(
+            Path(path).expanduser() if path else runtime.default_config_path,
+            label="config_path",
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
+
+    if yaml_text:
+        base = yaml.safe_load(str(yaml_text)) or {}
+    elif isinstance(config_object, dict):
+        base = dict(config_object)
+    else:
+        try:
+            current_text = target.read_text(encoding="utf-8")
+        except OSError:
+            current_text = ""
+        base = yaml.safe_load(current_text) or {}
+
+    if not isinstance(base, dict):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "BAD_REQUEST", "message": "base config must be a mapping"}},
+        )
+
+    if not isinstance(updates, list):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "BAD_REQUEST", "message": "updates must be a list"}},
+        )
+
+    applied: list[dict[str, Any]] = []
+    for entry in updates:
+        if not isinstance(entry, dict):
+            continue
+        dotted = str(entry.get("path", "")).strip()
+        if not dotted:
+            continue
+        value = entry.get("value")
+        if parse_values and isinstance(value, str):
+            value = _parse_value(value)
+        _set_dotted(base, dotted, value)
+        applied.append({"path": dotted, "value": value})
+
+    merged_yaml = yaml.safe_dump(base, sort_keys=False, allow_unicode=False)
+    result: dict[str, Any] = {
+        "path": str(target),
+        "config": base,
+        "config_yaml": merged_yaml,
+        "applied": applied,
+    }
+
+    if persist:
+        try:
+            saved = run_json_command(
+                [str(runtime.cli_path), "save-config", str(target), "--stdin"],
+                cwd=runtime.project_root,
+                stdin_text=merged_yaml,
+                command_policy=request.app.state.command_policy,
+            )
+        except CommandExecutionError as exc:
+            raise _http_502_command_failed("save-config failed", exc) from exc
+        except SecurityPolicyError as exc:
+            raise http_from_security_error(exc) from exc
+
+        if not isinstance(saved, dict):
+            raise HTTPException(
+                status_code=502,
+                detail={"error": {"code": "BAD_BACKEND_RESPONSE", "message": "save-config returned invalid response"}},
+            )
+
+        saved_path = Path(str(saved.get("path", str(target)))).expanduser()
+        revision = create_revision(
+            request.app,
+            path=saved_path,
+            yaml_text=merged_yaml,
+            source="config_patch",
+        )
+        request.app.state.active_config_revision_id = revision["revision_id"]
+        record_ui_event(
+            request,
+            event="config.patch.save",
+            source="config.patch",
+            payload={"path": str(saved_path), "revision_id": revision["revision_id"], "applied_count": len(applied)},
+        )
+        result.update(
+            {
+                "saved": bool(saved.get("saved", False)),
+                "revision_id": revision["revision_id"],
+                "path": str(saved_path),
+            }
+        )
+
+    return result
+
+
 def _http_502_command_failed(message: str, result: Any) -> HTTPException:
     return HTTPException(
         status_code=502,
@@ -262,3 +368,27 @@ def _http_502_command_failed(message: str, result: Any) -> HTTPException:
             }
         },
     )
+
+
+def _set_dotted(root: dict[str, Any], dotted: str, value: Any) -> None:
+    node: dict[str, Any] = root
+    parts = [part for part in dotted.split(".") if part]
+    if not parts:
+        return
+    for key in parts[:-1]:
+        current = node.get(key)
+        if not isinstance(current, dict):
+            current = {}
+            node[key] = current
+        node = current
+    node[parts[-1]] = value
+
+
+def _parse_value(raw: str) -> Any:
+    text = raw.strip()
+    if text == "":
+        return ""
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError:
+        return raw

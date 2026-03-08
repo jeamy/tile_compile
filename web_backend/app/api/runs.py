@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -14,9 +15,12 @@ from app.services.guardrails import compute_guardrails, has_blocking_guardrail
 from app.services.http_errors import http_from_security_error
 from app.services.queue_utils import extract_queue_specs
 from app.services.run_inspector import discover_runs, read_run_log_lines, read_run_status
+from app.services.time_utils import utc_now
 from app.services.ui_events import record_ui_event
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+_RUN_ID_TS_RE = re.compile(r"_(\d{8}_\d{6})$")
+_RUN_ID_INVALID_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 @router.get("")
@@ -99,10 +103,18 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-    run_name = str(payload.get("run_name", "")).strip()
-    run_id_override = str(payload.get("run_id", "")).strip() or None
-    if run_name and run_id_override is None:
-        run_id_override = run_name
+    run_name_raw = str(payload.get("run_name", "")).strip()
+    run_name = _sanitize_run_token(run_name_raw) if run_name_raw else ""
+    if run_name_raw and not run_name:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "RUN_NAME_INVALID", "message": "run_name is invalid after sanitization"}},
+        )
+
+    run_id_raw = str(payload.get("run_id", "")).strip()
+    if run_name and not run_id_raw:
+        run_id_raw = run_name
+    run_id_override = _normalize_run_id(run_id_raw) if run_id_raw else None
 
     try:
         config_target = runtime.ensure_path_allowed(
@@ -120,15 +132,19 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         run_id=run_id_override,
     )
     payload_with_revision = dict(payload)
+    if run_id_override:
+        payload_with_revision["run_id"] = run_id_override
     payload_with_revision["config_revision_id"] = revision["revision_id"]
 
     queue_specs = extract_queue_specs(payload_with_revision)
     if queue_specs:
+        if not payload_with_revision.get("run_id"):
+            payload_with_revision["run_id"] = _normalize_run_id(run_name or "queue")
         for spec in queue_specs:
             input_dir_spec = spec.get("input_dir")
             if input_dir_spec:
                 try:
-                    checked = runtime.ensure_path_allowed(
+                    checked = runtime.resolve_input_path(
                         str(input_dir_spec),
                         must_exist=True,
                         label="queue_input_dir",
@@ -136,6 +152,15 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
                 except SecurityPolicyError as exc:
                     raise http_from_security_error(exc) from exc
                 spec["input_dir"] = str(checked)
+            run_label_raw = str(spec.get("run_id", "")).strip()
+            if run_label_raw:
+                normalized = _normalize_run_id(run_label_raw)
+                if not normalized:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"error": {"code": "RUN_NAME_INVALID", "message": "queue run_label is invalid"}},
+                    )
+                spec["run_id"] = normalized
         result = _start_queue_run(request, payload_with_revision, queue_specs)
         record_ui_event(
             request,
@@ -155,7 +180,7 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     try:
-        input_dir_checked = runtime.ensure_path_allowed(str(input_dir), must_exist=True, label="input_dir")
+        input_dir_checked = runtime.resolve_input_path(str(input_dir), must_exist=True, label="input_dir")
         cmd, stdin_text, resolved_runs_dir = _build_run_command(
             runtime=runtime,
             payload=payload_with_revision,
@@ -379,6 +404,9 @@ def run_revision_restore(run_id: str, revision_id: str, request: Request) -> dic
 
 def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: list[dict[str, Any]]) -> dict[str, Any]:
     runtime = request.app.state.runtime
+    queue_run_id = str(payload.get("run_id") or "").strip()
+    if not queue_run_id:
+        queue_run_id = _normalize_run_id("queue") or "queue"
     queue_summary = []
     for i, spec in enumerate(queue_specs):
         queue_summary.append(
@@ -386,7 +414,7 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
                 "index": i,
                 "filter": spec.get("filter") or spec.get("name"),
                 "input_dir": str(spec.get("input_dir")),
-                "run_id": spec.get("run_id"),
+                "run_id": spec.get("run_id") or "",
                 "state": "pending",
                 "exit_code": None,
             }
@@ -395,7 +423,7 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
     job = request.app.state.job_store.create(
         "run_queue",
         {
-            "run_id": payload.get("run_id"),
+            "run_id": queue_run_id,
             "runs_dir": str(request.app.state.runtime.resolve_runs_dir(payload.get("runs_dir"))),
             "queue": queue_summary,
             "config_revision_id": payload.get("config_revision_id"),
@@ -406,14 +434,15 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
         request,
         event="run.queue.start",
         source="runs._start_queue_run",
-        run_id=str(payload.get("run_id") or "queue"),
+        run_id=queue_run_id,
         job_id=job.job_id,
         payload={"queue": queue_summary},
     )
 
     def _worker() -> None:
         queue_state = list(queue_summary)
-        base_run_id = payload.get("run_id")
+        base_run_id = str(payload.get("run_id") or "").strip()
+        base_no_ts = _strip_timestamp_suffix(base_run_id) if base_run_id else "queue"
         try:
             for i, spec in enumerate(queue_specs):
                 job_snapshot = request.app.state.job_store.get(job.job_id)
@@ -421,7 +450,11 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
                     return
 
                 suffix = spec.get("filter") or spec.get("name") or f"q{i + 1:02d}"
-                run_id_override = spec.get("run_id") or (f"{base_run_id}_{suffix}" if base_run_id else None)
+                raw_item_run_id = str(spec.get("run_id") or "").strip()
+                if raw_item_run_id:
+                    run_id_override = _normalize_run_id(raw_item_run_id)
+                else:
+                    run_id_override = _normalize_run_id(f"{base_no_ts}_{suffix}")
                 input_dir = spec.get("input_dir")
                 if not input_dir:
                     queue_state[i]["state"] = "error"
@@ -489,7 +522,7 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
                 request,
                 event="run.queue.end",
                 source="runs._start_queue_run",
-                run_id=str(payload.get("run_id") or "queue"),
+                run_id=queue_run_id,
                 job_id=job.job_id,
                 payload={"status": "ok"},
             )
@@ -501,7 +534,7 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
                 request,
                 event="run.queue.error",
                 source="runs._start_queue_run",
-                run_id=str(payload.get("run_id") or "queue"),
+                run_id=queue_run_id,
                 job_id=job.job_id,
                 payload={"error": str(exc)},
             )
@@ -510,7 +543,7 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
 
     thread = threading.Thread(target=_worker, name=f"run-queue-{job.job_id}", daemon=True)
     thread.start()
-    return {"run_id": payload.get("run_id") or "queue", "job_id": job.job_id}
+    return {"run_id": queue_run_id, "job_id": job.job_id}
 
 
 def _build_run_command(
@@ -529,7 +562,7 @@ def _build_run_command(
     max_tiles = int(payload.get("max_tiles", 0))
 
     resolved_runs_dir = runtime.resolve_runs_dir(runs_dir)
-    checked_input_dir = runtime.ensure_path_allowed(Path(input_dir).expanduser(), must_exist=True, label="input_dir")
+    checked_input_dir = runtime.resolve_input_path(Path(input_dir).expanduser(), must_exist=True, label="input_dir")
     checked_config_path = runtime.ensure_path_allowed(
         Path(str(config_path if config_path else runtime.default_config_path)).expanduser(),
         label="config_path",
@@ -593,3 +626,33 @@ def _http_502(message: str, result: Any) -> HTTPException:
             }
         },
     )
+
+
+def _timestamp_suffix() -> str:
+    return utc_now().strftime("%Y%m%d_%H%M%S")
+
+
+def _sanitize_run_token(raw: str) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    value = value.replace("\\", "_").replace("/", "_").replace(" ", "_")
+    value = _RUN_ID_INVALID_RE.sub("_", value)
+    value = re.sub(r"_+", "_", value)
+    return value.strip("._-")
+
+
+def _normalize_run_id(raw: str) -> str:
+    token = _sanitize_run_token(raw)
+    if not token:
+        return ""
+    if _RUN_ID_TS_RE.search(token):
+        return token
+    return f"{token}_{_timestamp_suffix()}"
+
+
+def _strip_timestamp_suffix(run_id: str) -> str:
+    value = str(run_id or "").strip()
+    if not value:
+        return ""
+    return _RUN_ID_TS_RE.sub("", value)

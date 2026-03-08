@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - History</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="layout-panels.css?v=2">
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a data-control="nav.dashboard" href="index.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a class="active" data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+    <a data-control="nav.pcc" href="pcc.html">PCC</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
+
+  <main>
+    <p class="intro">Run-Historie mit Run-Auswahl. Astrometry und PCC sind als eigene Screens ausgelagert wie in der bestehenden GUI.</p>
+
+    <div class="app-screen">
+      <div class="app-sidebar">
+        <div class="ps-label">Navigation</div>
+        <a class="ps-item" data-control="nav.dashboard" href="index.html">Dashboard</a>
+        <a class="ps-item" data-control="nav.input_scan" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item" data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item" data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+        <a class="ps-item" data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item ps-active" data-control="nav.history_tools" href="history-tools.html">History + Tools</a>
+        <a class="ps-item" data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+        <a class="ps-item" data-control="nav.pcc" href="pcc.html">PCC</a>
+        <a class="ps-item" data-control="nav.live_log" href="live-log.html">Live Log</a>
+      </div>
+
+      <div class="app-content">
+        <h2>History</h2>
+        <p class="ps-sub">Historie bleibt separat; operative Tools sind auf dedizierten Seiten: <b>Astrometry</b> und <b>PCC</b>.</p>
+
+        <section class="ps-section">
+          <div class="ps-section-title">Run-Historie</div>
+          <ul class="ps-list">
+            <li><button id="history-row-select-running" data-control="history.row_select" class="is-active" title="Run als aktiv markieren.">RUNNING 20260307_221530_9f2a | M31_altaz_test</button></li>
+            <li><button id="history-row-select-ok" data-control="history.row_select" title="Run als aktiv markieren.">OK 20260306_184430_ae7f9950 | IC434_test</button></li>
+            <li><button id="history-row-select-error" data-control="history.row_select" title="Run als aktiv markieren.">ERROR 20260305_231155_a124 | NGC7000</button></li>
+          </ul>
+          <div class="ps-actions" style="margin-top:12px;">
+            <button id="history-refresh" data-control="history.refresh" class="ps-btn ps-btn-secondary" title="Run-Historie neu laden.">Refresh</button>
+            <button id="history-set-current" data-control="history.set_current" class="ps-btn ps-btn-secondary" title="Ausgewaehlten Run als Current setzen.">Als Current Run</button>
+            <button id="history-open-report" data-control="history.open_report" class="ps-btn ps-btn-secondary" title="Report fuer ausgewaehlten Run oeffnen.">Report oeffnen</button>
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div class="ps-section-title">Tools-Deep-Links</div>
+          <p class="ps-note">Generate Stats bleibt ausschließlich im Run Monitor unter Live Log.</p>
+          <div class="ps-actions" style="margin-top:8px;">
+            <a class="ps-btn" data-control="nav.astrometry" href="astrometry.html" title="Astrometry-Setup und Plate-Solve oeffnen.">Astrometry oeffnen</a>
+            <a class="ps-btn ps-btn-secondary" data-control="nav.pcc" href="pcc.html" title="PCC-Setup und Katalogverwaltung oeffnen.">PCC oeffnen</a>
+            <a class="ps-btn ps-btn-secondary" data-control="nav.run_monitor" href="run-monitor.html" title="Run Monitor mit Stats-Funktionen oeffnen.">Run Monitor + Stats</a>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <p class="footer-note">History + Tools bildet die Historie ab; Astrometry/PCC laufen als eigene Screens mit erweitertem Setup.</p>
+  </main>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

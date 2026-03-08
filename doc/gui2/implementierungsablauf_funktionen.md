@@ -637,40 +637,50 @@ Hinweis: Einzelzeilen wie `parameter.registration.*` sind Kernbeispiele; die Vol
 2. Jeder Job hat:
    - `job_id`
    - `type`
-   - `state` (`pending|running|ok|error|cancelled`)
-   - `started_at`, `ended_at`
    - `run_id` (optional)
+   - `state` (`pending|running|ok|error|cancelled`)
+   - `created_at`, `updated_at`
+   - `started_at`, `ended_at`
 3. HTTP startet Job und liefert `202 Accepted` + `job_id`.
 4. Fortschritt via:
    - `WS /api/ws/jobs/{job_id}` oder
    - `GET /api/jobs/{job_id}`.
-5. Cancel ueber `POST /api/jobs/{job_id}/cancel`.
+5. `WS /api/ws/jobs/{job_id}` liefert zusaetzlich `data` (Live-Felder fuer FE).
+6. Cancel ueber `POST /api/jobs/{job_id}/cancel`.
 
 ## 11.5 Fehler- und Sicherheitsregeln
 
 1. Prozessaufrufe nur mit Whitelist-Kommandos + validierten Argumenten.
 2. Keine Shell-Konkatenation mit untrusted Input.
 3. Dateisystemzugriffe auf erlaubte Root-Pfade begrenzen.
+   - Policy-Rootliste per `TILE_COMPILE_ALLOWED_ROOTS` (Pfadliste, `:`-getrennt).
+   - Fehlercodes fuer Policy: `PATH_NOT_ALLOWED`, `PATH_NOT_FOUND`.
 4. Einheitliches Fehlerformat:
    - `code`
    - `message`
    - `hint`
    - `details` (optional)
+   - Alle `4xx/5xx` liefern Top-Level `{ "error": { ... } }`.
 5. Katalogdownloads sind cancellable und idempotent.
+6. Zeitstempel im Backend sind UTC-aware (ISO-8601 mit `Z`).
 
 ## 11.6 Teststrategie Backend
 
 1. API-Contract-Tests (Request/Response je Endpoint).
 2. Prozessadapter-Mocks fuer CLI/Runner.
-3. Integrations-Tests mit echten Binaries fuer:
+3. Sicherheits-Unit-Tests:
+   - Command-Whitelist (`COMMAND_NOT_ALLOWED`)
+   - Path-Policy (`PATH_NOT_ALLOWED`, `PATH_NOT_FOUND`)
+4. WebSocket-Tests fuer Phase-Progress, Run-Ende und Job-Stream (`data` Feld).
+5. Integrations-Tests mit echten Binaries (opt-in, z. B. `WEB_BACKEND_ENABLE_BINARY_TESTS=1`) fuer:
    - Scan
    - Validate
    - Run/Resume
    - Stats
-4. Tool-Tests fuer Astrometry/PCC:
+6. Tool-Tests fuer Astrometry/PCC:
    - detect/install/download/cancel
    - run/save
-5. WebSocket-Tests fuer Phase-Progress und Live-Log.
+7. Persistenz-/Audit-Tests fuer `ui_event` Replay (`GET /api/app/ui-events`).
 
 ## 11.7 Vollstaendiger API-Vertrag (FastAPI v1)
 
@@ -703,6 +713,7 @@ Alle Fehlerantworten (`4xx/5xx`) liefern:
 | `GET` | `/api/version` | Backend/CLI/Runner Versionen | `{api, backend, cli, runner}` |
 | `GET` | `/api/app/state` | Initialer UI-State | `AppState` |
 | `GET` | `/api/app/constants` | Enum/Phasen/Defaults | `AppConstants` |
+| `GET` | `/api/app/ui-events` | UI Audit/Replay Stream lesen | `{items[], latest_seq}` |
 | `GET` | `/api/config/schema` | Schema lesen | JSON-Schema |
 | `GET` | `/api/config/current` | Aktuelle Config | `{config, source}` |
 | `POST` | `/api/config/validate` | Config validieren | `{ok, errors[], warnings[]}` |
@@ -720,6 +731,7 @@ Alle Fehlerantworten (`4xx/5xx`) liefern:
 | `GET` | `/api/runs/{run_id}/artifacts` | Artefaktliste | `{items[]}` |
 | `POST` | `/api/runs/start` | Run/Queue starten | `{run_id, job_id}` |
 | `POST` | `/api/runs/{run_id}/resume` | Resume ab Phase | `{run_id, job_id}` |
+| `POST` | `/api/runs/{run_id}/config-revisions/{revision_id}/restore` | Revision fuer Resume-Flow wiederherstellen | `{ok, run_id, active_revision_id}` |
 | `POST` | `/api/runs/{run_id}/stop` | Lauf stoppen | `{ok}` |
 | `POST` | `/api/runs/{run_id}/set-current` | Current Run setzen | `{ok, run_id}` |
 | `POST` | `/api/runs/{run_id}/stats` | Stats-Report erzeugen | `{job_id}` |
@@ -731,12 +743,15 @@ Alle Fehlerantworten (`4xx/5xx`) liefern:
 |---|---|---|---|
 | `POST` | `/api/tools/astrometry/detect` | ASTAP detect | `{installed, binary, data_dir}` |
 | `POST` | `/api/tools/astrometry/install-cli` | ASTAP CLI installieren | `{job_id}` |
+| `POST` | `/api/tools/astrometry/install-cli/retry` | ASTAP CLI Download fortsetzen | `{job_id}` |
 | `POST` | `/api/tools/astrometry/catalog/download` | ASTAP-Katalog downloaden | `{job_id}` |
+| `POST` | `/api/tools/astrometry/catalog/download/retry` | ASTAP-Katalog Download fortsetzen | `{job_id}` |
 | `POST` | `/api/tools/astrometry/catalog/cancel` | ASTAP-Download abbrechen | `{ok}` |
 | `POST` | `/api/tools/astrometry/solve` | Plate-Solve starten | `{job_id}` |
 | `POST` | `/api/tools/astrometry/save-solved` | FITS mit WCS speichern | `{output_path}` |
 | `GET` | `/api/tools/pcc/siril/status` | Siril-Chunkstatus | `{installed, total, missing[]}` |
 | `POST` | `/api/tools/pcc/siril/download-missing` | Missing Chunks laden | `{job_id}` |
+| `POST` | `/api/tools/pcc/siril/download-missing/retry` | Missing Chunks Download fortsetzen | `{job_id}` |
 | `POST` | `/api/tools/pcc/siril/cancel` | PCC-Download abbrechen | `{ok}` |
 | `POST` | `/api/tools/pcc/check-online` | VizieR Reachability pruefen | `{ok, latency_ms}` |
 | `POST` | `/api/tools/pcc/run` | PCC Run | `{job_id}` |
@@ -746,7 +761,7 @@ Alle Fehlerantworten (`4xx/5xx`) liefern:
 
 | HTTP | Endpoint | Zweck | Response |
 |---|---|---|---|
-| `GET` | `/api/jobs/{job_id}` | Jobstatus lesen | `JobStatus` |
+| `GET` | `/api/jobs/{job_id}` | Jobstatus lesen | `JobStatus` (`created_at`,`updated_at`,`started_at`,`ended_at`,`run_id`) |
 | `GET` | `/api/jobs` | Jobs filtern/listen | `{items[]}` |
 | `POST` | `/api/jobs/{job_id}/cancel` | Job abbrechen | `{ok}` |
 
@@ -754,8 +769,8 @@ Alle Fehlerantworten (`4xx/5xx`) liefern:
 
 | WS | Zweck |
 |---|---|
-| `/api/ws/runs/{run_id}` | Phase/Lauf/Queue/Log Events fuer Run Monitor |
-| `/api/ws/jobs/{job_id}` | Feingranulare Job-Events fuer Tool- und Downloadjobs |
+| `/api/ws/runs/{run_id}` | Phase/Lauf/Queue/Log Events fuer Run Monitor, inkl. `run_status` Resync-Fallback |
+| `/api/ws/jobs/{job_id}` | Feingranulare Job-Events fuer Tool- und Downloadjobs (`data` inkl.) |
 | `/api/ws/system` | optionale globale Events (health/version/warnings) |
 
 ## 11.7.6 Event-Vertrag Run-Stream
@@ -768,6 +783,10 @@ Pflicht-Events:
 4. `run_end`
 5. `queue_progress` (MONO)
 6. `log_line`
+
+Optionales Stabilitaets-Event:
+
+1. `run_status` (Resync-Fallback bei ausbleibenden Detail-Events)
 
 Beispiele:
 
@@ -790,7 +809,7 @@ Beispiele:
 FE-Regel:
 
 1. `monitor.resume` bleibt disabled, bis `selected_phase` gesetzt ist.
-2. Bei WS-Disconnect: `GET /api/runs/{run_id}/status` fuer Resync.
+2. Bei WS-Disconnect oder Stream-Luecke: `GET /api/runs/{run_id}/status` fuer Resync.
 
 ## 11.7.7 Wichtige Request-Modelle
 

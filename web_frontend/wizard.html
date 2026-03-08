@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Wizard</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="layout-panels.css?v=2">
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a data-control="nav.dashboard" href="index.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+    <a data-control="nav.pcc" href="pcc.html">PCC</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
+    <a class="active" href="wizard.html">Wizard</a>
+  </nav>
+
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
+
+  <main>
+    <div class="content-panel">
+      <p class="intro">Guided Run Wizard. Step 1-3 sind identisch zu Input &amp; Scan (Input, MONO Queue, Kalibrierung).</p>
+
+      <div class="ps-layout-2">
+        <section class="ps-col">
+          <div class="ps-section">
+            <div class="ps-section-title">Step 1: Input &amp; Scan</div>
+            <div class="ps-row">
+              <label>Eingabeordner</label>
+              <div class="ps-inline-cluster">
+                <input class="ps-input ps-wide" type="text" value="" id="inp-dirs" data-control="input_scan.input_dirs" title="Mehrere Input-Ordner fuer den Scan setzen.">
+                <button class="ps-btn ps-btn-secondary ps-btn-compact" id="wizard-inp-dirs-browse-btn" type="button" title="Input-Ordner per Verzeichnisdialog auswaehlen.">Browse…</button>
+              </div>
+            </div>
+            <div class="ps-row">
+              <label>Runs Dir</label>
+              <div class="ps-inline-cluster">
+                <input class="ps-input ps-wide" type="text" value="" id="wizard-runs-dir" data-control="wizard.input.runs_dir" title="Run-Ausgabeordner waehlen.">
+                <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Runs-Ordner auswaehlen.">Browse…</button>
+              </div>
+            </div>
+            <div class="ps-row">
+              <label>Run Name</label>
+              <input class="ps-input" type="text" value="" id="wizard-run-name" data-control="wizard.input.run_name" title="Freien Run-Namen setzen.">
+              <span class="ps-hint">Suffix wird automatisch als <code>_YYYYMMDD_HHMMSS</code> gesetzt.</span>
+            </div>
+            <div class="ps-row">
+              <label>Output Preview</label>
+              <input class="ps-input ps-wide ps-preview-field" type="text" value="" id="wizard-run-path-preview" readonly title="Finalen Run-Pfad vor Start anzeigen.">
+            </div>
+            <div class="ps-row">
+              <label>Dateimuster</label>
+              <input class="ps-input" type="text" value="*.fits" id="inp-pattern" data-control="input_scan.pattern" title="Dateimuster fuer Input-Scan setzen.">
+            </div>
+            <div class="ps-row">
+              <label>Frames Minimum</label>
+              <input class="ps-input ps-short" type="number" value="30" id="inp-frames-min" data-control="scan.frames_min" title="Mindestanzahl Frames fuer Scan-Bewertung.">
+              <span class="ps-hint">Guardrail: unterhalb wird Reduced-/Emergency-Mode relevant.</span>
+            </div>
+            <div class="ps-row">
+              <label>Max. Frames</label>
+              <input class="ps-input ps-short" type="number" value="0" id="inp-maxframes" data-control="input_scan.max_frames" title="Maximale Anzahl Frames fuer den Input-Scan (0=unbegrenzt).">
+              <span class="ps-hint">(0 = unbegrenzt)</span>
+            </div>
+            <div class="ps-row">
+              <label>Sortierung</label>
+              <select class="ps-select" id="inp-sort" data-control="input_scan.sort" title="Sortierreihenfolge der Inputdateien.">
+                <option>numeric</option><option>name</option><option>date</option>
+              </select>
+            </div>
+            <div class="ps-row">
+              <label>Farbmodus</label>
+              <select class="ps-select" id="inp-colormode" data-control="input_scan.color_mode_confirm" title="Farbmodus bestaetigen (OSC/MONO).">
+                <option>OSC</option><option selected>MONO</option>
+              </select>
+            </div>
+            <div class="ps-row">
+              <label>Bayer-Pattern</label>
+              <select class="ps-select" id="inp-bayer" data-control="input_scan.bayer_pattern" title="Bayer-Pattern explizit setzen oder auto aus Header nutzen.">
+                <option selected>auto (aus FITS-Header)</option>
+                <option>RGGB</option><option>GBRG</option><option>GRBG</option><option>BGGR</option>
+              </select>
+            </div>
+            <div class="ps-row">
+              <label>Checksummen</label>
+              <input type="checkbox" id="inp-checksums" data-control="input_scan.with_checksums" title="Optionalen Checksummen-Scan aktivieren."> <span class="ps-hint">MD5/SHA beim Scan berechnen</span>
+            </div>
+          </div>
+
+          <div class="ps-section">
+            <div class="ps-section-title">Step 2: MONO Filter-Queue</div>
+            <div class="ps-sub" style="margin-bottom:12px;">Bei <code>MONO</code> wird pro Filter ein eigener <code>input_dir</code> erfasst und seriell als <code>Filter i/N</code> abgearbeitet.</div>
+            <div class="ps-queue-block">
+              <div class="ps-queue-head">
+                <div>Filter</div>
+                <div>Input Dir</div>
+                <div>Pattern</div>
+                <div>Run Label</div>
+                <div>Aktiv</div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select class="ps-select"><option selected>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für L wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option selected>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für R wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option selected>G</option><option>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für G wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option selected>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für B wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option>B</option><option selected>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für Ha wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ps-section">
+            <div class="ps-section-title">Step 3: Kalibrierung</div>
+            <div class="ps-row">
+              <input type="checkbox" id="cal-bias" checked data-control="input_scan.calibration.use_bias" title="Bias-Kalibrierung aktivieren/deaktivieren."> <label for="cal-bias">Bias</label>
+              <select class="ps-select" style="width:190px;">
+                <option selected>Bias-Ordner</option>
+                <option>Master Bias Datei</option>
+                <option>Master Bias Pattern</option>
+              </select>
+              <div class="ps-inline-cluster">
+                <input class="ps-input ps-wide" type="text" value="" id="cal-bias-dir" data-control="input_scan.calibration.bias_dir" placeholder="/data/calib/bias oder /data/calib/master_bias*" title="Bias-Ordner setzen.">
+                <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
+              </div>
+            </div>
+            <div class="ps-row">
+              <input type="checkbox" id="cal-dark" checked data-control="input_scan.calibration.use_dark" title="Dark-Kalibrierung aktivieren/deaktivieren."> <label for="cal-dark">Dark</label>
+              <select class="ps-select" style="width:190px;">
+                <option selected>Darks-Ordner</option>
+                <option>Master Dark Datei</option>
+                <option>Master Dark Pattern</option>
+              </select>
+              <div class="ps-inline-cluster">
+                <input class="ps-input ps-wide" type="text" value="" id="cal-dark-dir" data-control="input_scan.calibration.darks_dir" placeholder="/data/calib/darks oder /data/calib/masterdark*" title="Dark-Ordner setzen.">
+                <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
+              </div>
+            </div>
+            <div class="ps-row">
+              <input type="checkbox" id="cal-flat" data-control="input_scan.calibration.use_flat" title="Flat-Kalibrierung aktivieren/deaktivieren."> <label for="cal-flat">Flat</label>
+              <select class="ps-select" style="width:190px;">
+                <option selected>Flats-Ordner</option>
+                <option>Master Flat Datei</option>
+                <option>Master Flat Pattern</option>
+              </select>
+              <div class="ps-inline-cluster">
+                <input class="ps-input ps-wide" type="text" value="" id="cal-flat-dir" data-control="input_scan.calibration.flats_dir" placeholder="/data/calib/flats oder /data/calib/masterflat*" title="Flat-Ordner setzen.">
+                <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="ps-actions">
+            <button class="ps-btn" id="btn-scan" data-control="input_scan.scan_run" onclick="runScan()" title="Input-Scan starten und Ergebnisse aktualisieren.">Scan starten</button>
+            <button id="wizard-nav-next" data-control="wizard.nav.next" class="ps-btn ps-btn-secondary" title="Zum naechsten Wizard-Schritt.">Weiter zu Preset/Validation</button>
+          </div>
+
+          <div class="ps-result" id="scan-result" data-control="input_scan.scan_results" style="display:none;">
+            <div class="ps-result-title">Scan-Ergebnis</div>
+            <div class="ps-kv" style="margin-bottom:10px;">
+              <strong>Status</strong><span id="scan-summary-status">-</span>
+              <strong>Input Path</strong><span id="scan-summary-input-path">-</span>
+              <strong>Frames entdeckt</strong><span id="scan-summary-frames">0</span>
+              <strong>Color Mode</strong><span id="scan-summary-color-mode">UNKNOWN</span>
+              <strong>Mode Kandidaten</strong><span id="scan-summary-candidates">-</span>
+              <strong>Bildgroesse</strong><span id="scan-summary-size">0 x 0</span>
+              <strong>Bayer Pattern</strong><span id="scan-summary-bayer">-</span>
+              <strong>User-Bestaetigung</strong><span id="scan-summary-confirm">nein</span>
+              <strong>Fehler</strong><span id="scan-summary-errors">0</span>
+              <strong>Warnungen</strong><span id="scan-summary-warnings">0</span>
+            </div>
+            <div class="ps-section-title" style="margin-bottom:6px;">Rohdaten</div>
+            <pre id="scan-result-body" style="margin:0;font-family:monospace;font-size:12px;white-space:pre-wrap;"></pre>
+          </div>
+
+          <div class="ps-section">
+            <div class="ps-section-title">Step 4: Preset + Situation + Validation</div>
+            <div class="ps-row">
+              <label for="wizard-preset-select">preset</label>
+              <select id="wizard-preset-select" data-control="wizard.preset.select" class="ps-select" title="Preset fuer Wizard-Draft waehlen.">
+                <option selected>tile_compile.mono_full_mode.example.yaml</option>
+                <option>tile_compile.canon_equatorial_balanced.example.yaml</option>
+                <option>tile_compile.canon_low_n_high_quality.example.yaml</option>
+                <option>tile_compile.emergency_mode.example.yaml</option>
+                <option>tile_compile.full_mode.example.yaml</option>
+                <option>tile_compile.ic434_test.example.yaml</option>
+                <option>tile_compile.mono_small_n_anti_grid.example.yaml</option>
+                <option>tile_compile.mono_small_n_ultra_conservative.example.yaml</option>
+                <option>tile_compile.reduced_mode.example.yaml</option>
+                <option>tile_compile.smart_telescope_dwarf_seestar.example.yaml</option>
+                <option>tile_compile.smart_telescope_very_bright_star.example.yaml</option>
+                <option>tile_compile.very_bright_star_anti_seam.example.yaml</option>
+              </select>
+            </div>
+            <div class="ps-row">
+              <label>Szenarien</label>
+              <button id="wizard-situation-apply" data-control="wizard.situation.apply" class="ps-btn ps-btn-secondary ps-btn-compact" title="Szenario-Deltas auf Draft anwenden.">Szenario anwenden</button>
+              <span class="ps-hint">Alt/Az + starke Rotation + helle Sterne</span>
+            </div>
+            <div id="wizard-validation-result" data-control="wizard.validation.result" class="ps-result" style="margin-top:8px;">
+              <div class="ps-result-title">Validation</div>
+              <div>Schema: <b>OK</b> | Semantik: <b>WARN</b> | Guardrails: <b>CHECK</b> (BGE/PCC Werte).</div>
+            </div>
+          </div>
+
+          <div class="ps-actions">
+            <button id="wizard-nav-back" data-control="wizard.nav.back" class="ps-btn ps-btn-secondary" title="Zum vorherigen Wizard-Schritt.">Zurueck</button>
+            <a class="ps-btn ps-btn-secondary" data-control="nav.parameter_studio" href="parameter-studio.html">Zum Parameter Studio</a>
+            <a id="wizard-start" data-control="wizard.start" class="ps-btn" href="run-monitor.html" title="Run mit aktuellem Wizard-Draft starten.">Run starten</a>
+          </div>
+        </section>
+
+        <aside class="ps-col">
+          <div class="ps-section">
+            <div class="ps-section-title">Implementierungskette</div>
+            <div class="ps-note" style="line-height:1.6;">
+              <code>wizard_init</code> -> <code>scan_preview</code> -> <code>build_queue</code> ->
+              <code>apply_preset/apply_scenarios</code> -> <code>validate_config</code> ->
+              <code>persist_config_revision</code> -> <code>resolve_run_output_dir</code> -> <code>start_serial_queue</code>
+            </div>
+          </div>
+
+          <div class="ps-section">
+            <div class="ps-section-title">Resume aus Wizard-Kontext</div>
+            <div class="ps-note">Nach Parameteraenderung wird immer eine neue Config-Revision erzeugt. Resume kann danach im Run Monitor per Phase-Klick mit gewaehlter Revision gestartet werden.</div>
+            <div class="ps-actions" style="margin-top:10px;">
+              <a class="ps-btn ps-btn-secondary" data-control="nav.run_monitor" href="run-monitor.html">Zum Run Monitor</a>
+              <a class="ps-btn ps-btn-secondary" data-control="nav.parameter_studio" href="parameter-studio.html">Zum Parameter Studio</a>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <p id="scan-note" class="footer-note">Controls: Eingabeordner, Bayer-Pattern, Kalibrierframes. Scan-Ergebnis erscheint nach Klick auf "Scan starten".</p>
+    </div>
+  </main>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

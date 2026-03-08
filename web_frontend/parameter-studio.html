@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Parameter Studio</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="layout-panels.css?v=2">
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a data-control="nav.dashboard" href="index.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a class="active" data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+    <a data-control="nav.pcc" href="pcc.html">PCC</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
+
+  <main>
+    <p class="intro">Vollstaendige Parametereingabe mit Suche, Explain-Panel, Szenario-Empfehlungen und YAML-Diff.</p>
+
+    <div class="app-screen">
+      <div class="app-sidebar">
+        <div class="ps-label">Navigation</div>
+        <a class="ps-item" data-control="nav.dashboard" href="index.html">Dashboard</a>
+        <a class="ps-item" data-control="nav.input_scan" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item ps-active" data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item" data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+        <a class="ps-item" data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item" data-control="nav.history_tools" href="history-tools.html">History + Tools</a>
+        <a class="ps-item" data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+        <a class="ps-item" data-control="nav.pcc" href="pcc.html">PCC</a>
+        <a class="ps-item" data-control="nav.live_log" href="live-log.html">Live Log</a>
+      </div>
+
+      <div class="app-content">
+        <h2>Parameter Studio</h2>
+        <p class="ps-sub">Linie B: alle relevanten Parameter mit Kurz-Erklaerung, Tooltips, Szenariohinweisen und geplanter Vollabdeckung aus <code>parameter_katalog.md</code>.</p>
+
+        <div class="ps-layout-3">
+          <div data-control="parameter.category.*" hidden></div>
+          <aside class="ps-col">
+            <div class="ps-section">
+              <div class="ps-section-title">Kategorien</div>
+              <div id="parameter-category-list" class="ps-list">
+                <button id="parameter-category-all" data-control="parameter.category.all" data-category="all" data-tooltip="Alle Kategorien anzeigen.">Alle</button>
+                <button id="parameter-category-system" data-control="parameter.category.system" data-category="system" data-tooltip="run_dir und log_level bearbeiten.">System</button>
+                <button id="parameter-category-pipeline" data-control="parameter.category.pipeline" data-category="pipeline" data-tooltip="Pipeline-Parameter bearbeiten.">Pipeline</button>
+                <button id="parameter-category-output" data-control="parameter.category.output" data-category="output" data-tooltip="Output-Parameter bearbeiten.">Output</button>
+                <button id="parameter-category-input" data-control="parameter.category.input_scan" data-category="input_scan" data-tooltip="Input &amp; Scan Parameter bearbeiten.">Input &amp; Scan</button>
+                <button id="parameter-category-linearity" data-control="parameter.category.linearity" data-category="linearity" data-tooltip="Linearity-Parameter bearbeiten.">Linearity</button>
+                <button id="parameter-category-calibration" data-control="parameter.category.calibration" data-category="calibration" data-tooltip="Calibration-Parameter bearbeiten.">Calibration</button>
+                <button id="parameter-category-assumptions" data-control="parameter.category.assumptions" data-category="assumptions" data-tooltip="Assumptions-Parameter bearbeiten.">Assumptions</button>
+                <button id="parameter-category-normalization" data-control="parameter.category.normalization" data-category="normalization" data-tooltip="Normalization-Parameter bearbeiten.">Normalization</button>
+                <button id="parameter-category-registration" class="is-active" data-control="parameter.category.registration" data-category="registration" data-tooltip="Registration-Parameter bearbeiten.">Registration</button>
+                <button id="parameter-category-dithering" data-control="parameter.category.dithering" data-category="dithering" data-tooltip="Dithering-Parameter bearbeiten.">Dithering</button>
+                <button id="parameter-category-tile-denoise" data-control="parameter.category.tile_denoise" data-category="tile_denoise" data-tooltip="Tile-Denoise-Parameter bearbeiten.">Tile Denoise</button>
+                <button id="parameter-category-chroma-denoise" data-control="parameter.category.chroma_denoise" data-category="chroma_denoise" data-tooltip="Chroma-Denoise-Parameter bearbeiten.">Chroma Denoise</button>
+                <button id="parameter-category-global-metrics" data-control="parameter.category.global_metrics" data-category="global_metrics" data-tooltip="Global-Metrics-Parameter bearbeiten.">Global Metrics</button>
+                <button id="parameter-category-tile" data-control="parameter.category.tile" data-category="tile" data-tooltip="Tile-Parameter bearbeiten.">Tile</button>
+                <button id="parameter-category-local-metrics" data-control="parameter.category.local_metrics" data-category="local_metrics" data-tooltip="Local-Metrics-Parameter bearbeiten.">Local Metrics</button>
+                <button id="parameter-category-synthetic" data-control="parameter.category.synthetic" data-category="synthetic" data-tooltip="Synthetic-Parameter bearbeiten.">Synthetic</button>
+                <button id="parameter-category-debayer" data-control="parameter.category.debayer" data-category="debayer" data-tooltip="Debayer-Parameter bearbeiten.">Debayer</button>
+                <button id="parameter-category-astrometry" data-control="parameter.category.astrometry" data-category="astrometry" data-tooltip="Astrometry-Parameter bearbeiten.">Astrometry</button>
+                <button id="parameter-category-bge" data-control="parameter.category.bge" data-category="bge" data-tooltip="BGE-Parameter bearbeiten.">BGE</button>
+                <button id="parameter-category-pcc" data-control="parameter.category.pcc" data-category="pcc" data-tooltip="PCC-Parameter bearbeiten.">PCC</button>
+                <button id="parameter-category-stacking" data-control="parameter.category.stacking" data-category="stacking" data-tooltip="Stacking-Parameter bearbeiten.">Stacking</button>
+                <button id="parameter-category-runtime" data-control="parameter.category.runtime_limits" data-category="runtime_limits" data-tooltip="Runtime-Limits bearbeiten.">Runtime Limits</button>
+                <button id="parameter-category-validation" data-control="parameter.category.validation" data-category="validation" data-tooltip="Validation-Parameter bearbeiten.">Validation</button>
+                <button id="parameter-category-data" data-control="parameter.category.data" data-category="data" data-tooltip="Data-Parameter inklusive Deprecated bearbeiten.">Data</button>
+              </div>
+            </div>
+          </aside>
+
+          <section class="ps-col">
+            <div class="ps-section">
+              <div class="ps-section-title">Suche + Aktionen</div>
+              <div class="ps-row">
+                <label for="parameter-preset-select">Preset</label>
+                <select id="parameter-preset-select" data-control="parameter.preset.select" class="ps-select" title="Preset fuer das Parameter Studio auswaehlen.">
+                  <option selected>tile_compile.mono_full_mode.example.yaml</option>
+                  <option>tile_compile.canon_equatorial_balanced.example.yaml</option>
+                  <option>tile_compile.canon_low_n_high_quality.example.yaml</option>
+                  <option>tile_compile.emergency_mode.example.yaml</option>
+                  <option>tile_compile.full_mode.example.yaml</option>
+                  <option>tile_compile.ic434_test.example.yaml</option>
+                  <option>tile_compile.mono_small_n_anti_grid.example.yaml</option>
+                  <option>tile_compile.mono_small_n_ultra_conservative.example.yaml</option>
+                  <option>tile_compile.reduced_mode.example.yaml</option>
+                  <option>tile_compile.smart_telescope_dwarf_seestar.example.yaml</option>
+                  <option>tile_compile.smart_telescope_very_bright_star.example.yaml</option>
+                  <option>tile_compile.very_bright_star_anti_seam.example.yaml</option>
+                </select>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-search">Parameter suchen</label>
+                <input id="parameter-search" data-control="parameter.search" class="ps-input ps-wide" type="text" value="" placeholder="z. B. registration.star_topk oder pcc.k_max" title="Live-Suche ueber section.key.subkey; Enter springt zum ersten Treffer.">
+              </div>
+              <div class="ps-actions" style="margin-top:8px;">
+                <button id="parameter-preset-apply" data-control="parameter.preset_apply" class="ps-btn ps-btn-secondary" title="Preset auf aktuelle Konfiguration anwenden.">Preset anwenden</button>
+                <button id="parameter-yaml-sync" data-control="parameter.yaml_sync" class="ps-btn ps-btn-secondary" title="YAML laden/synchronisieren.">YAML Sync</button>
+                <button id="parameter-validate" data-control="parameter.validate" class="ps-btn ps-btn-secondary" title="Schema- und Semantikvalidierung ausfuehren.">Validieren</button>
+              </div>
+              <div id="parameter-search-results-panel" data-control="parameter.search.results" class="ps-search-panel">
+                <div id="parameter-search-summary" class="ps-note">Keine Suche aktiv.</div>
+                <div id="parameter-search-results" class="ps-search-list"></div>
+              </div>
+            </div>
+
+            <div id="parameter-full-editor-group" class="ps-section ps-parameter-group" data-control="parameter.full_editor" data-category="editor_dynamic">
+              <div class="ps-section-title">Abschnittseditor (vollstaendig)</div>
+              <p class="ps-note">Alle Parameter der gewaehlten Kategorie sind editierbar. Es wird nicht alles gleichzeitig angezeigt.</p>
+              <div id="parameter-editor-meta" class="ps-note" style="margin-top:8px;"></div>
+              <div id="parameter-editor-fields"></div>
+            </div>
+
+            <div class="ps-section ps-parameter-group" data-category="registration">
+              <div class="ps-section-title">Registration</div>
+              <div class="ps-row">
+                <label for="parameter-registration-engine">registration.engine</label>
+                <select id="parameter-registration-engine" data-control="parameter.registration.engine" class="ps-select" title="Hauptmethode fuer Bildregistrierung.">
+                  <option selected>triangle_star_matching</option>
+                  <option>phase_correlation</option>
+                  <option>robust_phase_ecc</option>
+                </select>
+                <span class="ps-tag reco">Empfohlen: Alt/Az</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-registration-allow-rotation">registration.allow_rotation</label>
+                <select id="parameter-registration-allow-rotation" data-control="parameter.registration.allow_rotation" class="ps-select" title="Erlaubt Rotationsanteile im Registrierungsmodell.">
+                  <option selected>true</option>
+                  <option>false</option>
+                </select>
+                <span class="ps-hint">Kurz: fuer Alt/Az und starke Rotation aktiv lassen.</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-registration-star-topk">registration.star_topk</label>
+                <input id="parameter-registration-star-topk" data-control="parameter.registration.star_topk" class="ps-input ps-short" type="number" value="180" title="Anzahl Top-Sterne fuer Matching.">
+                <span class="ps-hint">Kurz: mehr Sterne erhoehen Robustheit, kosten aber Laufzeit.</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-registration-star-inlier">registration.star_inlier_tol_px</label>
+                <input id="parameter-registration-star-inlier" data-control="parameter.registration.star_inlier_tol_px" class="ps-input ps-short" type="number" step="0.1" value="4.0" title="Toleranz fuer Star-Inlier in Pixeln.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-registration-reject-cc">registration.reject_cc_min_abs</label>
+                <input id="parameter-registration-reject-cc" data-control="parameter.registration.reject_cc_min_abs" class="ps-input ps-short" type="number" step="0.01" value="0.30" title="Mindestwert fuer Cross-Correlation bei Match-Reject.">
+              </div>
+            </div>
+
+            <div class="ps-section ps-parameter-group" data-category="bge">
+              <div class="ps-section-title">BGE</div>
+              <div class="ps-row">
+                <label for="parameter-bge-enabled">bge.enabled</label>
+                <select id="parameter-bge-enabled" data-control="parameter.bge.enabled" class="ps-select" title="Aktiviert Background Extraction.">
+                  <option selected>true</option>
+                  <option>false</option>
+                </select>
+                <span class="ps-tag reco">Empfohlen: Gradient</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-bge-fit-method">bge.fit.method</label>
+                <select id="parameter-bge-fit-method" data-control="parameter.bge.fit_method" class="ps-select" title="BGE-Fit-Methode.">
+                  <option selected>rbf</option>
+                  <option>polynomial</option>
+                </select>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-bge-rbf-lambda">bge.fit.rbf_lambda</label>
+                <input id="parameter-bge-rbf-lambda" data-control="parameter.bge.rbf_lambda" class="ps-input ps-short" type="text" value="1e-2" title="Regularisierung fuer RBF-Fit.">
+                <span class="ps-hint">Kurz: hoehere Werte stabilisieren bei starkem Gradient.</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-bge-sample-quantile">bge.sample_quantile</label>
+                <input id="parameter-bge-sample-quantile" class="ps-input ps-short" type="number" step="0.01" value="0.15" title="Quantil fuer robuste Hintergrund-Samples.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-bge-min-tiles">bge.min_tiles_per_cell</label>
+                <input id="parameter-bge-min-tiles" class="ps-input ps-short" type="number" value="3" title="Mindestanzahl Tiles je BGE-Zelle.">
+              </div>
+            </div>
+
+            <div class="ps-section ps-parameter-group" data-category="pcc">
+              <div class="ps-section-title">PCC</div>
+              <div class="ps-row">
+                <label for="parameter-pcc-source">pcc.source</label>
+                <select id="parameter-pcc-source" data-control="parameter.pcc.source" class="ps-select" title="Quelle fuer Photometric Color Calibration.">
+                  <option selected>siril</option>
+                  <option>internal</option>
+                </select>
+                <span class="ps-tag reco">Empfohlen: helle Sterne</span>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-pcc-sigma">pcc.sigma_clip</label>
+                <input id="parameter-pcc-sigma" data-control="parameter.pcc.sigma_clip" class="ps-input ps-short" type="number" step="0.1" value="2.5" title="Sigma-Clip fuer PCC Fit.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-pcc-kmax">pcc.k_max</label>
+                <input id="parameter-pcc-kmax" data-control="parameter.pcc.k_max" class="ps-input ps-short" type="number" step="0.1" value="2.4" title="Maximale lineare PCC Gain-Verstaerkung.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-pcc-min-stars">pcc.min_stars</label>
+                <input id="parameter-pcc-min-stars" class="ps-input ps-short" type="number" value="10" title="Mindestanzahl Sterne fuer stabilen PCC Fit.">
+              </div>
+            </div>
+
+            <div class="ps-section ps-parameter-group" data-category="data">
+              <div class="ps-section-title">Data (Deprecated)</div>
+              <div class="ps-row">
+                <label for="parameter-data-linear-required">data.linear_required</label>
+                <select id="parameter-data-linear-required" class="ps-select" title="Deprecated: Feld bleibt nur fuer Rueckwaertskompatibilitaet sichtbar.">
+                  <option selected>true</option>
+                  <option>false</option>
+                </select>
+                <span class="ps-tag">deprecated</span>
+                <span class="ps-hint">Dieses Feld wird spaeter entfernt. Standardwert beibehalten.</span>
+              </div>
+            </div>
+
+            <div class="ps-section ps-parameter-group" data-category="input_scan">
+              <div class="ps-section-title">Input &amp; Scan</div>
+              <div class="ps-row">
+                <label for="parameter-input-pattern">input.pattern</label>
+                <input id="parameter-input-pattern" class="ps-input" type="text" value="./data/*.fits" title="Dateimuster fuer Inputdateien.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-input-max-frames">input.max_frames</label>
+                <input id="parameter-input-max-frames" class="ps-input ps-short" type="number" value="0" title="Maximale Anzahl Frames (0=unbegrenzt).">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-data-bayer">data.bayer_pattern</label>
+                <select id="parameter-data-bayer" class="ps-select" title="Bayer-Pattern fuer OSC oder auto aus FITS-Header.">
+                  <option selected>auto</option>
+                  <option>RGGB</option>
+                  <option>GBRG</option>
+                  <option>GRBG</option>
+                  <option>BGGR</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="ps-section ps-parameter-group" data-category="runtime_limits">
+              <div class="ps-section-title">Runtime Limits</div>
+              <div class="ps-row">
+                <label for="parameter-runtime-workers">runtime_limits.parallel_workers</label>
+                <input id="parameter-runtime-workers" class="ps-input ps-short" type="number" value="8" title="Anzahl paralleler Worker.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-runtime-memory">runtime_limits.memory_budget</label>
+                <input id="parameter-runtime-memory" class="ps-input ps-short" type="number" value="2048" title="Speicherbudget in MiB.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-runtime-hard-abort">runtime_limits.hard_abort_hours</label>
+                <input id="parameter-runtime-hard-abort" class="ps-input ps-short" type="number" step="0.5" value="6.0" title="Hard-Abort Zeitlimit in Stunden.">
+              </div>
+            </div>
+
+            <div class="ps-section ps-parameter-group" data-category="calibration">
+              <div class="ps-section-title">Calibration</div>
+              <div class="ps-row">
+                <label for="parameter-cal-use-dark">calibration.use_dark</label>
+                <select id="parameter-cal-use-dark" class="ps-select" title="Dark-Kalibrierung aktivieren/deaktivieren.">
+                  <option selected>true</option>
+                  <option>false</option>
+                </select>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-cal-darks-dir">calibration.darks_dir</label>
+                <input id="parameter-cal-darks-dir" class="ps-input ps-wide" type="text" value="/data/calib/darks" title="Pfad zum Dark-Ordner.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-cal-use-flat">calibration.use_flat</label>
+                <select id="parameter-cal-use-flat" class="ps-select" title="Flat-Kalibrierung aktivieren/deaktivieren.">
+                  <option>true</option>
+                  <option selected>false</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="ps-section ps-parameter-group" data-category="assumptions">
+              <div class="ps-section-title">Assumptions</div>
+              <div class="ps-row">
+                <label for="parameter-ass-pipeline-profile">assumptions.pipeline_profile</label>
+                <select id="parameter-ass-pipeline-profile" class="ps-select" title="Profil fuer Full/Reduced/Emergency Verhalten.">
+                  <option selected>strict</option>
+                  <option>practical</option>
+                </select>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-ass-frames-min">assumptions.frames_min</label>
+                <input id="parameter-ass-frames-min" class="ps-input ps-short" type="number" value="30" title="Mindestanzahl Frames.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-ass-frames-optimal">assumptions.frames_optimal</label>
+                <input id="parameter-ass-frames-optimal" class="ps-input ps-short" type="number" value="300" title="Optimale Frame-Anzahl.">
+              </div>
+            </div>
+
+            <div class="ps-section ps-parameter-group" data-category="all">
+              <div class="ps-section-title">Vollabdeckung laut Parameterkatalog</div>
+              <p class="ps-note">Der produktive Parameterbaum umfasst alle YAML-Keys und Runtime-Keys aus <code>parameter_katalog.md</code>. Die Seite zeigt die zentralen Kernfelder plus Such-/Kategoriefluss der Linie B.</p>
+              <div class="ps-chip-row" style="margin-top:10px;">
+                <span class="ps-tag">Pipeline</span>
+                <span class="ps-tag">Normalization</span>
+                <span class="ps-tag">Stacking</span>
+                <span class="ps-tag">Tile</span>
+                <span class="ps-tag">Global Metrics</span>
+                <span class="ps-tag">Local Metrics</span>
+                <span class="ps-tag">Runtime Limits</span>
+                <span class="ps-tag">Validation</span>
+              </div>
+            </div>
+
+            <div class="ps-actions">
+              <button id="parameter-reset-default" data-control="parameter.reset_default" class="ps-btn ps-btn-secondary" title="Alle Werte auf Default zuruecksetzen.">Auf Default</button>
+              <button id="parameter-review-changes" data-control="parameter.review_changes" class="ps-btn ps-btn-secondary" title="Aenderungen und Auswirkungen im Diff anzeigen.">Aenderungen pruefen</button>
+              <button id="parameter-save" data-control="parameter.save" class="ps-btn" title="Neue Config-Revision speichern (append-only).">Speichern</button>
+            </div>
+          </section>
+
+          <aside class="ps-col">
+            <div id="parameter-explain-info" data-control="parameter.explain.info" class="ps-section">
+              <div class="ps-section-title">Explain</div>
+              <div class="ps-kv">
+                <strong>Pfad</strong><span>registration.star_topk</span>
+                <strong>Kurzhilfe</strong><span>Anzahl Top-Sterne fuer Matching; mehr Robustheit bei schwieriger Registrierung.</span>
+                <strong>Default</strong><span>150</span>
+                <strong>Range</strong><span>50..500</span>
+                <strong>Risiko</strong><span>Zu hoch: mehr Laufzeit, moegliche Fehlmatches bei verrauschten Daten.</span>
+                <strong>Phase</strong><span>REGISTRATION</span>
+              </div>
+            </div>
+
+            <div class="ps-section">
+              <div class="ps-section-title">Situation Assistant</div>
+              <div class="ps-chip-row">
+                <button id="parameter-situation-altaz" data-control="parameter.situation.altaz" data-scenario="altaz" class="ps-chip-btn">Alt/Az</button>
+                <button id="parameter-situation-rotation" data-control="parameter.situation.rotation" data-scenario="rotation" class="ps-chip-btn">Starke Rotation</button>
+                <button id="parameter-situation-bright" data-control="parameter.situation.bright_stars" data-scenario="bright_stars" class="ps-chip-btn">Helle Sterne</button>
+                <button id="parameter-situation-few" data-control="parameter.situation.few_frames" data-scenario="few_frames" class="ps-chip-btn">Wenige Frames</button>
+                <button id="parameter-situation-gradient" data-control="parameter.situation.gradient" data-scenario="gradient" class="ps-chip-btn active">Starker Gradient</button>
+              </div>
+              <div id="parameter-situation-summary" class="ps-note" style="margin-top:10px;"></div>
+              <div id="parameter-situation-deltas" class="ps-note" style="margin-top:8px;"></div>
+              <div class="ps-actions" style="margin-top:12px;">
+                <button id="parameter-situation-apply" data-control="parameter.situation_apply" class="ps-btn ps-btn-secondary" title="Alle ausgewaehlten Szenario-Deltas auf die Konfiguration anwenden.">Situation anwenden</button>
+              </div>
+            </div>
+
+            <div id="parameter-diff-panel" data-control="parameter.diff_panel" class="ps-section">
+              <div class="ps-section-title">YAML Diff (Preview)</div>
+              <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:260px;overflow:auto;">
+- registration.star_topk: 150
++ registration.star_topk: 180
+- bge.fit.rbf_lambda: 1e-3
++ bge.fit.rbf_lambda: 1e-2
+- pcc.k_max: 2.0
++ pcc.k_max: 2.4
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer-note">Parameter Studio: alle Eingaben mit Tooltip, Kurz-Erklaerung und Szenario-Empfehlung. Vollstaendigkeit wird gegen <code>parameter_katalog.md</code> und Funktionsmatrix geprueft.</p>
+  </main>
+
+  <script src="param_editor_index.js"></script>
+  <script>
+    const categoryButtons = document.querySelectorAll('#parameter-category-list button[data-category]');
+    const parameterGroups = document.querySelectorAll('.ps-parameter-group');
+    const activeCategoryField = document.getElementById('parameter-search');
+    const editorGroup = document.getElementById('parameter-full-editor-group');
+    const editorMetaEl = document.getElementById('parameter-editor-meta');
+    const editorFieldsEl = document.getElementById('parameter-editor-fields');
+    const searchInput = document.getElementById('parameter-search');
+    const searchSummaryEl = document.getElementById('parameter-search-summary');
+    const searchResultsEl = document.getElementById('parameter-search-results');
+    const paramEditorIndex = Array.isArray(window.PARAM_EDITOR_INDEX) ? window.PARAM_EDITOR_INDEX : [];
+    let activeCategory = 'registration';
+
+    function setCategory(category) {
+      activeCategory = category;
+      categoryButtons.forEach((btn) => {
+        if (btn.dataset.category === category) {
+          btn.classList.add('is-active');
+        } else {
+          btn.classList.remove('is-active');
+        }
+      });
+
+      parameterGroups.forEach((group) => {
+        group.style.display = 'none';
+      });
+
+      if (category === 'all') {
+        document.querySelectorAll('.ps-parameter-group[data-category="all"]').forEach((group) => {
+          group.style.display = '';
+        });
+        return;
+      }
+
+      if (editorGroup) {
+        editorGroup.style.display = '';
+      }
+      renderDynamicEditor(category);
+    }
+
+    categoryButtons.forEach((btn) => {
+      btn.addEventListener('click', () => setCategory(btn.dataset.category));
+    });
+
+    function escapeHtml(text) {
+      return String(text)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function formatValue(value) {
+      if (Array.isArray(value) || (value && typeof value === 'object')) {
+        return JSON.stringify(value);
+      }
+      return String(value);
+    }
+
+    function hasOwn(obj, key) {
+      return Object.prototype.hasOwnProperty.call(obj, key);
+    }
+
+    function rangeHint(entry) {
+      const hints = [];
+      if (hasOwn(entry, 'minimum')) {
+        hints.push('min=' + entry.minimum);
+      }
+      if (hasOwn(entry, 'exclusiveMinimum')) {
+        hints.push('>' + entry.exclusiveMinimum);
+      }
+      if (hasOwn(entry, 'maximum')) {
+        hints.push('max=' + entry.maximum);
+      }
+      if (hasOwn(entry, 'exclusiveMaximum')) {
+        hints.push('<' + entry.exclusiveMaximum);
+      }
+      return hints.join(', ');
+    }
+
+    function inputControlHtml(entry, value, fieldId) {
+      const safeTitle = escapeHtml((entry.description || '').toString());
+      if (Array.isArray(entry.enum) && entry.enum.length > 0) {
+        const current = String(value);
+        const options = entry.enum.map((opt) => {
+          const selected = String(opt) === current ? ' selected' : '';
+          return '<option' + selected + '>' + escapeHtml(opt) + '</option>';
+        }).join('');
+        return '<select id="' + fieldId + '" class="ps-select" title="' + safeTitle + '">' + options + '</select>';
+      }
+
+      if (entry.type === 'boolean') {
+        const boolValue = String(value).toLowerCase() === 'true';
+        return '<select id="' + fieldId + '" class="ps-select" title="' + safeTitle + '">' +
+          '<option' + (boolValue ? ' selected' : '') + '>true</option>' +
+          '<option' + (!boolValue ? ' selected' : '') + '>false</option>' +
+          '</select>';
+      }
+
+      if (entry.type === 'integer' || entry.type === 'number') {
+        const step = entry.type === 'integer' ? '1' : 'any';
+        return '<input id="' + fieldId + '" class="ps-input ps-short" type="number" step="' + step + '" value="' + escapeHtml(value) + '" title="' + safeTitle + '">';
+      }
+
+      return '<input id="' + fieldId + '" class="ps-input ps-wide" type="text" value="' + escapeHtml(value) + '" title="' + safeTitle + '">';
+    }
+
+    function renderDynamicEditor(category) {
+      if (!editorMetaEl || !editorFieldsEl) {
+        return;
+      }
+
+      const entries = paramEditorIndex
+        .filter((entry) => entry.category === category)
+        .sort((a, b) => a.path.localeCompare(b.path));
+
+      editorMetaEl.innerHTML = '<b>' + escapeHtml(category) + '</b> - ' + entries.length + ' editierbare Parameter';
+
+      const rows = entries.map((entry) => {
+        const fieldId = 'param-edit-' + entry.path.replace(/[^a-zA-Z0-9_]+/g, '_');
+        const value = hasOwn(entry, 'yaml_default') ? formatValue(entry.yaml_default) : '';
+        const hints = [];
+        hints.push(entry.type || 'any');
+        if (entry.source === 'yaml_only') {
+          hints.push('yaml-only');
+        } else {
+          hints.push('schema');
+        }
+        const range = rangeHint(entry);
+        if (range) {
+          hints.push(range);
+        }
+        if (entry.deprecated) {
+          hints.push('deprecated');
+        }
+
+        return '' +
+          '<div class="ps-row ps-dyn-row" data-path="' + escapeHtml(entry.path) + '">' +
+            '<label for="' + fieldId + '">' + escapeHtml(entry.path) + '</label>' +
+            inputControlHtml(entry, value, fieldId) +
+            '<span class="ps-hint">' + escapeHtml(hints.join(' | ')) + '</span>' +
+          '</div>';
+      });
+
+      editorFieldsEl.innerHTML = rows.join('');
+      if (entries.length === 0) {
+        editorFieldsEl.innerHTML = '<div class="ps-note">Keine Parameter in dieser Kategorie.</div>';
+      }
+    }
+
+    function clearSearchHits() {
+      document.querySelectorAll('.ps-dyn-row.ps-search-hit').forEach((row) => {
+        row.classList.remove('ps-search-hit');
+      });
+    }
+
+    function jumpToPath(path) {
+      const entry = paramEditorIndex.find((item) => item.path === path);
+      if (!entry) {
+        return;
+      }
+      setCategory(entry.category || 'all');
+      clearSearchHits();
+      const row = editorFieldsEl.querySelector('.ps-dyn-row[data-path="' + path.replaceAll('"', '\\"') + '"]');
+      if (row) {
+        row.classList.add('ps-search-hit');
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        window.setTimeout(() => row.classList.remove('ps-search-hit'), 1400);
+      }
+    }
+
+    function renderSearchResults() {
+      if (!searchInput || !searchSummaryEl || !searchResultsEl) {
+        return;
+      }
+
+      const queryRaw = searchInput.value || '';
+      const query = queryRaw.trim().toLowerCase();
+      if (!query) {
+        searchSummaryEl.textContent = 'Keine Suche aktiv.';
+        searchResultsEl.innerHTML = '';
+        clearSearchHits();
+        return;
+      }
+
+      const matches = paramEditorIndex.filter((entry) => entry.path.toLowerCase().includes(query));
+      const total = matches.length;
+      searchSummaryEl.innerHTML = '<b>' + total + '</b> Treffer fuer <code>' + escapeHtml(queryRaw.trim()) + '</code>.';
+
+      const maxRows = 40;
+      const lines = [];
+
+      matches.slice(0, maxRows).forEach((entry) => {
+        const source = entry.source === 'yaml_only' ? 'yaml-only' : 'schema';
+        lines.push(
+          '<button class="ps-search-item is-form" type="button" data-path="' + escapeHtml(entry.path) + '" data-category="' + escapeHtml(entry.category) + '">' +
+            '<code>' + escapeHtml(entry.path) + '</code>' +
+            '<span>' + escapeHtml(entry.category + ' | ' + source) + '</span>' +
+          '</button>'
+        );
+      });
+
+      if (total > maxRows) {
+        lines.push('<div class="ps-note">Weitere Treffer ausgeblendet ...</div>');
+      }
+      if (lines.length === 0) {
+        lines.push('<div class="ps-note">Keine Treffer.</div>');
+      }
+      searchResultsEl.innerHTML = lines.join('');
+
+      searchResultsEl.querySelectorAll('.ps-search-item.is-form').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const path = btn.getAttribute('data-path') || '';
+          jumpToPath(path);
+        });
+      });
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', renderSearchResults);
+      searchInput.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') {
+          return;
+        }
+        const first = paramEditorIndex.find((entry) =>
+          entry.path.toLowerCase().includes((searchInput.value || '').trim().toLowerCase())
+        );
+        if (first) {
+          jumpToPath(first.path);
+        }
+      });
+    }
+
+    if (activeCategoryField && !activeCategoryField.value) {
+      activeCategoryField.placeholder = 'z. B. registration.star_topk oder pcc.k_max';
+    }
+    setCategory(activeCategory);
+    renderSearchResults();
+
+    const scenarioNames = {
+      altaz: 'Alt/Az',
+      rotation: 'Starke Rotation',
+      bright_stars: 'Helle Sterne',
+      few_frames: 'Wenige Frames',
+      gradient: 'Starker Gradient'
+    };
+
+    const scenarioDeltas = {
+      altaz: [
+        ['registration.allow_rotation', 'true', 'Rotation im Modell erlauben'],
+        ['registration.star_topk', '180', 'mehr Sternkandidaten'],
+        ['registration.reject_shift_px_min', '120', 'grosse natuerliche Shifts tolerieren'],
+        ['registration.reject_shift_median_multiplier', '5.0', 'breite Shift-Verteilung']
+      ],
+      rotation: [
+        ['registration.engine', 'robust_phase_ecc', 'robuster bei Feldrotation'],
+        ['registration.allow_rotation', 'true', 'zwingend bei Rotation'],
+        ['registration.star_inlier_tol_px', '4.0', 'tolerantere Inlier-Bedingung'],
+        ['registration.reject_cc_min_abs', '0.30', 'zu harte CC-Grenzen vermeiden']
+      ],
+      bright_stars: [
+        ['pcc.mag_bright_limit', '6', 'sehr helle Sterne begrenzen'],
+        ['pcc.k_max', '2.4', 'extreme Farbgains begrenzen'],
+        ['pcc.sigma_clip', '2.7', 'robustere Ausreisserunterdrueckung'],
+        ['bge.mask.star_dilate_px', '6', 'Sternumgebung staerker maskieren']
+      ],
+      few_frames: [
+        ['assumptions.frames_reduced_threshold', '200', 'frueher in Reduced-Mode wechseln'],
+        ['assumptions.reduced_mode_skip_clustering', 'true', 'instabile Clusterbildung vermeiden'],
+        ['synthetic.frames_min', '4', 'minimale Synthetic-Basis sichern'],
+        ['synthetic.clustering.cluster_count_range', '[3,10]', 'kleinere Clusterzahl']
+      ],
+      gradient: [
+        ['bge.enabled', 'true', 'Gradient aktiv modellieren'],
+        ['bge.fit.method', 'rbf', 'flexibles Gradientenmodell'],
+        ['bge.fit.rbf_lambda', '1e-2', 'Regularisierung gegen Ueberschwingen'],
+        ['bge.sample_quantile', '0.15', 'robuste Hintergrundsamples'],
+        ['bge.structure_thresh_percentile', '0.80', 'Struktur vom Hintergrund trennen']
+      ]
+    };
+
+    function renderSituationDeltas() {
+      const summaryEl = document.getElementById('parameter-situation-summary');
+      const deltasEl = document.getElementById('parameter-situation-deltas');
+      const activeScenarios = Array.from(document.querySelectorAll('.ps-chip-btn.active'))
+        .map((el) => el.dataset.scenario)
+        .filter(Boolean);
+
+      if (activeScenarios.length === 0) {
+        summaryEl.textContent = 'Keine Situation aktiv.';
+        deltasEl.textContent = 'Keine empfohlenen Deltas.';
+        return;
+      }
+
+      const labelList = activeScenarios.map((k) => scenarioNames[k] || k);
+      summaryEl.innerHTML = 'Aktive Situationen: <b>' + labelList.join(', ') + '</b>';
+
+      const merged = new Map();
+      activeScenarios.forEach((scenarioKey) => {
+        (scenarioDeltas[scenarioKey] || []).forEach(([path, value, reason]) => {
+          if (!merged.has(path)) {
+            merged.set(path, { values: new Set(), reasons: [] });
+          }
+          const entry = merged.get(path);
+          entry.values.add(value);
+          entry.reasons.push(reason);
+        });
+      });
+
+      const lines = Array.from(merged.entries()).map(([path, info]) => {
+        const values = Array.from(info.values);
+        const conflict = values.length > 1;
+        const valueText = conflict ? values.join(' | ') + ' (Konflikt)' : values[0];
+        return '<div><code>' + path + '=' + valueText + '</code> - ' + info.reasons[0] + '</div>';
+      });
+
+      deltasEl.innerHTML = lines.join('');
+    }
+
+    document.querySelectorAll('.ps-chip-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('active');
+        renderSituationDeltas();
+      });
+    });
+
+    renderSituationDeltas();
+  </script>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

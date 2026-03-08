@@ -23,6 +23,7 @@ class BackendRuntime:
     default_config_path: Path
     stats_script: Path
     allowed_roots: list[Path]
+    input_search_roots: list[Path]
 
     @staticmethod
     def autodetect() -> "BackendRuntime":
@@ -34,6 +35,7 @@ class BackendRuntime:
         config_env = os.getenv("TILE_COMPILE_CONFIG_PATH")
         stats_env = os.getenv("TILE_COMPILE_STATS_SCRIPT")
         allowed_roots_env = os.getenv("TILE_COMPILE_ALLOWED_ROOTS")
+        input_roots_env = os.getenv("TILE_COMPILE_INPUT_SEARCH_ROOTS")
 
         cli_path = _resolve_binary(
             cli_env,
@@ -68,6 +70,7 @@ class BackendRuntime:
                 Path("/media"),
             ],
         )
+        input_search_roots = _resolve_allowed_roots(input_roots_env, defaults=[])
         return BackendRuntime(
             project_root=project_root,
             cli_path=cli_path,
@@ -76,6 +79,7 @@ class BackendRuntime:
             default_config_path=default_config_path,
             stats_script=stats_script,
             allowed_roots=allowed_roots,
+            input_search_roots=input_search_roots,
         )
 
     def resolve_run_dir(self, run_id_or_path: str, runs_dir_override: str | None = None) -> Path:
@@ -116,6 +120,51 @@ class BackendRuntime:
                 "allowed_roots": [str(x) for x in self.allowed_roots],
             },
         )
+
+    def resolve_input_path(
+        self,
+        path: Path | str,
+        *,
+        must_exist: bool = False,
+        label: str = "input_path",
+    ) -> Path:
+        raw = Path(path).expanduser()
+        if raw.is_absolute():
+            checked = self.ensure_path_allowed(raw, must_exist=False, label=label)
+            if must_exist and not checked.exists():
+                raise SecurityPolicyError(
+                    code="PATH_NOT_FOUND",
+                    message=f"{label} does not exist",
+                    details={"path": str(raw)},
+                )
+            return checked
+
+        tried: list[str] = []
+        for base in self.input_search_roots:
+            try:
+                base_checked = self.ensure_path_allowed(base, must_exist=False, label=f"{label}_base")
+            except SecurityPolicyError:
+                continue
+            probe = base_checked / raw
+            try:
+                probe_checked = self.ensure_path_allowed(probe, must_exist=False, label=label)
+            except SecurityPolicyError:
+                continue
+            tried.append(str(probe_checked))
+            if probe_checked.exists():
+                return probe_checked
+
+        if must_exist:
+            raise SecurityPolicyError(
+                code="PATH_NOT_FOUND",
+                message=f"{label} does not exist or relative lookup is not configured",
+                details={
+                    "path": str(path),
+                    "tried": tried,
+                    "hint": "Use an absolute path, or configure TILE_COMPILE_INPUT_SEARCH_ROOTS for relative inputs",
+                },
+            )
+        return raw
 
 
 @dataclass

@@ -26,6 +26,7 @@ def _runtime(tmp_path: Path) -> BackendRuntime:
         default_config_path=cfg,
         stats_script=stats,
         allowed_roots=[tmp_path, Path("/tmp")],
+        input_search_roots=[tmp_path],
     )
 
 
@@ -64,3 +65,15 @@ def test_command_policy_restricts_python_to_stats_script(tmp_path: Path) -> None
     with pytest.raises(SecurityPolicyError) as exc:
         policy.validate(["python3", str(other_script), str(runtime.runs_dir)])
     assert exc.value.code == "COMMAND_NOT_ALLOWED"
+
+
+def test_resolve_input_path_uses_search_roots(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    cache_root = tmp_path / "cache"
+    cache_root.mkdir(parents=True, exist_ok=True)
+    runtime.input_search_roots = [cache_root]
+    target = cache_root / "IC434_ligths_all"
+    target.mkdir(parents=True, exist_ok=True)
+
+    resolved = runtime.resolve_input_path("IC434_ligths_all", must_exist=True, label="input_path")
+    assert resolved == target

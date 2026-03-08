@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api import app_state, config, jobs, runs, scan, system, tools, ws
 from app.error_handlers import register_error_handlers
@@ -19,6 +21,7 @@ def create_app() -> FastAPI:
     app.state.config_revisions = []
     app.state.active_config_revision_id = None
     app.state.current_run_id = None
+    app.state.last_scan_input_path = ""
     app.state.ui_event_store = UiEventStore(runtime.project_root / "web_backend/runtime/ui_events.jsonl")
 
     app.include_router(system.router, prefix="/api")
@@ -29,6 +32,15 @@ def create_app() -> FastAPI:
     app.include_router(tools.router, prefix="/api")
     app.include_router(jobs.router, prefix="/api")
     app.include_router(ws.router, prefix="/api")
+
+    frontend_dir = runtime.project_root / "web_frontend"
+    if frontend_dir.exists():
+        app.mount("/ui", StaticFiles(directory=str(frontend_dir), html=True), name="ui")
+
+        @app.get("/", include_in_schema=False)
+        def root_redirect() -> RedirectResponse:
+            return RedirectResponse(url="/ui/")
+
     return app
 
 

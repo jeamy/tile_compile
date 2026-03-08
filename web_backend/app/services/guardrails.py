@@ -19,6 +19,10 @@ def compute_guardrails(job_store: InMemoryJobStore) -> dict[str, Any]:
     result = scan_job.data.get("result", {})
     errors = result.get("errors", []) if isinstance(result, dict) else []
     warnings = result.get("warnings", []) if isinstance(result, dict) else []
+    requires_confirm = bool(result.get("requires_user_confirmation", False)) if isinstance(result, dict) else False
+    color_mode = str(result.get("color_mode", "UNKNOWN")).upper() if isinstance(result, dict) else "UNKNOWN"
+    color_mode_check_status = "check" if requires_confirm or color_mode in {"", "UNKNOWN"} else "ok"
+    color_mode_label = "Color mode bestaetigen" if color_mode_check_status == "check" else f"Color mode: {color_mode}"
 
     checks = [
         {
@@ -26,6 +30,12 @@ def compute_guardrails(job_store: InMemoryJobStore) -> dict[str, Any]:
             "status": "ok" if not errors else "error",
             "label": "Scan erfolgreich" if not errors else "Scan mit Fehlern",
             "count": len(errors),
+        },
+        {
+            "id": "color_mode",
+            "status": color_mode_check_status,
+            "label": color_mode_label,
+            "value": color_mode,
         },
         {
             "id": "scan_warnings",
