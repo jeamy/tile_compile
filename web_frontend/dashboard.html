@@ -6,48 +6,18 @@
   <title>GUI 2 - Dashboard</title>
   <link rel="stylesheet" href="style.css?v=2">
   <link rel="stylesheet" href="layout-panels.css?v=2">
+  <script src="shell.js" defer></script>
   <script src="theme.js" defer></script>
   <script src="tooltips.js" defer></script>
 </head>
 <body>
-  <nav class="pill-nav">
-    <a class="active" data-control="nav.dashboard" href="index.html">Dashboard</a>
-    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
-    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
-    <a data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
-    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
-    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
-    <a data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
-    <a data-control="nav.pcc" href="pcc.html">PCC</a>
-    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
-    <a href="wizard.html">Wizard</a>
-  </nav>
-
-  <div class="pill-subbar">
-    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
-    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
-    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
-  </div>
+  <div data-shell-header></div>
 
   <main>
     <p class="intro">Schnellstart, Run-Readiness und Status aller Kernmodule in einem Blick.</p>
 
     <div class="app-screen">
-      <div class="app-sidebar">
-        <div class="ps-label">Navigation</div>
-        <a class="ps-item ps-active" data-control="nav.dashboard" href="index.html">Dashboard</a>
-        <a class="ps-item" data-control="nav.input_scan" href="input-scan.html">Input &amp; Scan</a>
-        <a class="ps-item" data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
-        <a class="ps-item" data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
-        <a class="ps-item" data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
-        <a class="ps-item" data-control="nav.history_tools" href="history-tools.html">History + Tools</a>
-        <a class="ps-item" data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
-        <a class="ps-item" data-control="nav.pcc" href="pcc.html">PCC</a>
-        <a class="ps-item" data-control="nav.live_log" href="live-log.html">Live Log</a>
-        <div style="margin-top:auto;padding:16px;">
-          <a id="dashboard-quick-start-wizard" data-control="dashboard.quick.start_wizard" class="ps-btn" href="wizard.html" style="display:block;text-align:center;padding:10px;" title="Neuen Guided Run starten.">Start Wizard</a>
-        </div>
-      </div>
+      <div class="app-sidebar" data-shell-sidebar></div>
 
       <div class="app-content">
         <h2>Projekt Dashboard</h2>

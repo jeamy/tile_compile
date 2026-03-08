@@ -1046,7 +1046,14 @@ async function bindRunMonitor() {
   $("monitor-stop")?.addEventListener("click", async () => {
     try {
       const result = await api.post(`/api/runs/${encodeURIComponent(uiState.currentRunId)}/stop`, {});
-      setFooter(result.ok ? "Stop-Signal gesendet." : "Kein laufender Job gefunden.");
+      if (result.ok) {
+        const stoppedJobs = Array.isArray(result.cancelled_jobs) ? result.cancelled_jobs.length : 0;
+        const killedPids = Array.isArray(result.killed_pids) ? result.killed_pids.length : 0;
+        setFooter(`Stop gesendet. Jobs beendet: ${stoppedJobs}, verwaiste Prozesse beendet: ${killedPids}.`);
+      } else {
+        setFooter("Kein laufender Job/Prozess für diesen Run gefunden.", true);
+      }
+      await loadRunStatus(uiState.currentRunId);
     } catch (err) {
       setFooter(`Stop fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -1392,7 +1399,23 @@ async function bindLiveLogPage() {
 
   function render() {
     const lines = uiState.liveLines.filter((item) => uiState.liveFilter === "all" || item.level === uiState.liveFilter);
-    box.textContent = lines.map((item) => item.line).join("\n");
+    const escapeHtml = (text) =>
+      String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    const colorByLevel = {
+      info: "#e5edf6",
+      warning: "#f59e0b",
+      error: "#ef4444",
+    };
+    box.innerHTML = lines
+      .map((item) => {
+        const level = String(item.level || "info");
+        const color = colorByLevel[level] || colorByLevel.info;
+        return `<div style="color:${color};white-space:pre-wrap;">${escapeHtml(item.line)}</div>`;
+      })
+      .join("");
   }
 
   levelButtons.forEach((btn) => {

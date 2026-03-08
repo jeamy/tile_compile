@@ -364,6 +364,7 @@ def launch_background_command(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                start_new_session=True,
             )
             job_store.set_process(job_id, proc)
             stdout, stderr = proc.communicate(stdin_text)

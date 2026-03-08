@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import signal
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -94,16 +96,38 @@ class InMemoryJobStore:
             self._processes.pop(job_id, None)
 
     def cancel(self, job_id: str) -> Job | None:
+        process: Popen[str] | None = None
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
                 return None
             process = self._processes.get(job_id)
-            if process is not None and process.poll() is None:
+
+        if process is not None and process.poll() is None:
+            # The backend launches commands in their own session. Kill the process
+            # group first so child processes do not survive as orphans.
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except Exception:
                 try:
                     process.terminate()
                 except OSError:
                     pass
+            try:
+                process.wait(timeout=2.0)
+            except Exception:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except Exception:
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return None
             job.state = "cancelled"
             now = utc_now()
             job.updated_at = now

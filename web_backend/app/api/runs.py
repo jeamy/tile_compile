@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 import re
+import signal
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -115,6 +118,10 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     if run_name and not run_id_raw:
         run_id_raw = run_name
     run_id_override = _normalize_run_id(run_id_raw) if run_id_raw else None
+    if not run_id_override:
+        input_hint = _sanitize_run_token(Path(str(payload.get("input_dir", ""))).expanduser().name)
+        if input_hint:
+            run_id_override = _normalize_run_id(run_name or input_hint)
 
     try:
         config_target = runtime.ensure_path_allowed(
@@ -170,6 +177,7 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
             job_id=str(result.get("job_id")),
             payload={"revision_id": revision["revision_id"], "queue_size": len(queue_specs)},
         )
+        request.app.state.current_run_id = str(result.get("run_id") or "")
         return result
 
     input_dir = payload.get("input_dir")
@@ -178,6 +186,10 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
             status_code=400,
             detail={"error": {"code": "BAD_REQUEST", "message": "input_dir is required"}},
         )
+    if not run_id_override:
+        input_name = _sanitize_run_token(Path(str(input_dir)).expanduser().name)
+        run_id_override = _normalize_run_id(run_name or input_name or "run")
+        payload_with_revision["run_id"] = run_id_override
 
     try:
         input_dir_checked = runtime.resolve_input_path(str(input_dir), must_exist=True, label="input_dir")
@@ -213,11 +225,12 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         request,
         event="run.start",
         source="runs.run_start",
-        run_id=run_id_override or "pending",
+        run_id=run_id_override,
         job_id=job.job_id,
         payload={"input_dir": str(input_dir_checked), "runs_dir": str(resolved_runs_dir), "revision_id": revision["revision_id"]},
     )
-    return {"run_id": run_id_override or "pending", "job_id": job.job_id}
+    request.app.state.current_run_id = run_id_override
+    return {"run_id": run_id_override, "job_id": job.job_id}
 
 
 @router.post("/{run_id}/resume", status_code=202)
@@ -298,12 +311,23 @@ def run_stop(run_id: str, request: Request, runs_dir: str | None = None) -> dict
     except SecurityPolicyError as exc:
         raise http_from_security_error(exc) from exc
     cancelled = False
+    cancelled_jobs: list[str] = []
     for job in request.app.state.job_store.list():
         if job.state != "running":
             continue
-        if job.data.get("run_dir") == run_dir or str(job.data.get("run_id", "")) == run_id:
+        job_run_dir = str(job.data.get("run_dir", ""))
+        job_run_id = str(job.data.get("run_id", ""))
+        job_runs_dir = str(job.data.get("runs_dir", ""))
+        is_pending_target = run_id.strip().lower() == "pending"
+        matches_run = (
+            job_run_dir == run_dir
+            or job_run_id == run_id
+            or (is_pending_target and job_runs_dir and run_dir.startswith(job_runs_dir))
+        )
+        if matches_run:
             request.app.state.job_store.cancel(job.job_id)
             cancelled = True
+            cancelled_jobs.append(job.job_id)
             record_ui_event(
                 request,
                 event="run.stop",
@@ -312,7 +336,38 @@ def run_stop(run_id: str, request: Request, runs_dir: str | None = None) -> dict
                 job_id=job.job_id,
                 payload={"run_dir": run_dir},
             )
-    return {"ok": cancelled}
+    if not cancelled and run_id.strip().lower() == "pending":
+        pending_candidates = [
+            job
+            for job in request.app.state.job_store.list()
+            if job.state == "running" and str(job.job_type).startswith("run_")
+        ]
+        if len(pending_candidates) == 1:
+            job = pending_candidates[0]
+            request.app.state.job_store.cancel(job.job_id)
+            cancelled = True
+            cancelled_jobs.append(job.job_id)
+            record_ui_event(
+                request,
+                event="run.stop",
+                source="runs.run_stop",
+                run_id=run_id,
+                job_id=job.job_id,
+                payload={"run_dir": run_dir, "fallback": "single_running_run"},
+            )
+    killed_pids: list[int] = []
+    if not cancelled:
+        killed_pids = _terminate_orphan_runner_processes(runtime=runtime, run_id=run_id, run_dir=run_dir)
+        if killed_pids:
+            cancelled = True
+            record_ui_event(
+                request,
+                event="run.stop.orphan",
+                source="runs.run_stop",
+                run_id=run_id,
+                payload={"run_dir": run_dir, "killed_pids": killed_pids},
+            )
+    return {"ok": cancelled, "cancelled_jobs": cancelled_jobs, "killed_pids": killed_pids}
 
 
 @router.post("/{run_id}/set-current")
@@ -489,6 +544,7 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    start_new_session=True,
                 )
                 request.app.state.job_store.set_process(job.job_id, proc)
                 stdout, stderr = proc.communicate(stdin_text)
@@ -656,3 +712,84 @@ def _strip_timestamp_suffix(run_id: str) -> str:
     if not value:
         return ""
     return _RUN_ID_TS_RE.sub("", value)
+
+
+def _terminate_orphan_runner_processes(*, runtime: Any, run_id: str, run_dir: str) -> list[int]:
+    if os.name != "posix":
+        return []
+    runner_name = Path(str(runtime.runner_path)).name
+    killed: list[int] = []
+    for pid, argv in _iter_process_cmdlines():
+        if pid == os.getpid():
+            continue
+        if not _is_runner_command(argv, runner_name):
+            continue
+        joined = " ".join(argv)
+        if run_id not in joined and run_dir not in joined:
+            continue
+        if _terminate_pid_group(pid):
+            killed.append(pid)
+    return killed
+
+
+def _iter_process_cmdlines() -> list[tuple[int, list[str]]]:
+    proc_root = Path("/proc")
+    out: list[tuple[int, list[str]]] = []
+    if not proc_root.exists():
+        return out
+    for proc_dir in proc_root.iterdir():
+        if not proc_dir.is_dir() or not proc_dir.name.isdigit():
+            continue
+        pid = int(proc_dir.name)
+        cmdline_path = proc_dir / "cmdline"
+        try:
+            raw = cmdline_path.read_bytes()
+        except OSError:
+            continue
+        parts = [part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part]
+        if not parts:
+            continue
+        out.append((pid, parts))
+    return out
+
+
+def _is_runner_command(argv: list[str], runner_name: str) -> bool:
+    if not argv:
+        return False
+    exe_name = Path(str(argv[0])).name
+    if exe_name != runner_name and "tile_compile_runner" not in exe_name:
+        return False
+    return any(arg in {"run", "resume"} for arg in argv[1:])
+
+
+def _terminate_pid_group(pid: int) -> bool:
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except Exception:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except Exception:
+            return False
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        if not _pid_exists(pid):
+            return True
+        time.sleep(0.1)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except Exception:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except Exception:
+            return False
+    return True
+
+
+def _pid_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
