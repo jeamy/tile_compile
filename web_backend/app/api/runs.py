@@ -8,9 +8,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas import JobAccepted
-from app.services.command_runner import launch_background_command, resolve_python, run_command
+from app.services.command_runner import SecurityPolicyError, launch_background_command, resolve_python, run_command
 from app.services.config_revisions import create_revision, get_revision, restore_revision
 from app.services.guardrails import compute_guardrails, has_blocking_guardrail
+from app.services.http_errors import http_from_security_error
 from app.services.queue_utils import extract_queue_specs
 from app.services.run_inspector import discover_runs, read_run_log_lines, read_run_status
 from app.services.ui_events import record_ui_event
@@ -21,7 +22,10 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 @router.get("")
 def list_runs(request: Request, runs_dir: str | None = None) -> dict[str, Any]:
     runtime = request.app.state.runtime
-    resolved_runs_dir = runtime.resolve_runs_dir(runs_dir)
+    try:
+        resolved_runs_dir = runtime.resolve_runs_dir(runs_dir)
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     items = discover_runs(resolved_runs_dir)
     return {"items": items, "total": len(items)}
 
@@ -29,7 +33,10 @@ def list_runs(request: Request, runs_dir: str | None = None) -> dict[str, Any]:
 @router.get("/{run_id}/status")
 def run_status(run_id: str, request: Request, runs_dir: str | None = None) -> dict[str, Any]:
     runtime = request.app.state.runtime
-    run_dir = runtime.resolve_run_dir(run_id, runs_dir)
+    try:
+        run_dir = runtime.resolve_run_dir(run_id, runs_dir)
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     status = read_run_status(run_dir)
     return {
         "run_id": run_id,
@@ -45,7 +52,10 @@ def run_status(run_id: str, request: Request, runs_dir: str | None = None) -> di
 @router.get("/{run_id}/logs")
 def run_logs(run_id: str, request: Request, tail: int = 200, runs_dir: str | None = None) -> dict[str, Any]:
     runtime = request.app.state.runtime
-    run_dir = runtime.resolve_run_dir(run_id, runs_dir)
+    try:
+        run_dir = runtime.resolve_run_dir(run_id, runs_dir)
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     lines = read_run_log_lines(run_dir, tail=max(0, int(tail)))
     return {"lines": lines, "cursor": None}
 
@@ -53,11 +63,15 @@ def run_logs(run_id: str, request: Request, tail: int = 200, runs_dir: str | Non
 @router.get("/{run_id}/artifacts")
 def run_artifacts(run_id: str, request: Request, runs_dir: str | None = None) -> dict[str, Any]:
     runtime = request.app.state.runtime
-    run_dir = runtime.resolve_run_dir(run_id, runs_dir)
-    result = run_command(
-        [str(runtime.cli_path), "list-artifacts", str(run_dir)],
-        cwd=runtime.project_root,
-    )
+    try:
+        run_dir = runtime.resolve_run_dir(run_id, runs_dir)
+        result = run_command(
+            [str(runtime.cli_path), "list-artifacts", str(run_dir)],
+            cwd=runtime.project_root,
+            command_policy=request.app.state.command_policy,
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     if result.exit_code != 0 or not isinstance(result.parsed_json, dict):
         raise _http_502("list-artifacts failed", result)
     return {"items": result.parsed_json.get("artifacts", [])}
@@ -90,8 +104,14 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     if run_name and run_id_override is None:
         run_id_override = run_name
 
-    config_yaml = _resolve_config_yaml(runtime=runtime, payload=payload)
-    config_target = Path(str(payload.get("config_path", runtime.default_config_path))).expanduser()
+    try:
+        config_target = runtime.ensure_path_allowed(
+            Path(str(payload.get("config_path", runtime.default_config_path))).expanduser(),
+            label="config_path",
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
+    config_yaml = _resolve_config_yaml(runtime=runtime, payload={**payload, "config_path": str(config_target)})
     revision = create_revision(
         request.app,
         path=config_target,
@@ -104,6 +124,18 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
     queue_specs = extract_queue_specs(payload_with_revision)
     if queue_specs:
+        for spec in queue_specs:
+            input_dir_spec = spec.get("input_dir")
+            if input_dir_spec:
+                try:
+                    checked = runtime.ensure_path_allowed(
+                        str(input_dir_spec),
+                        must_exist=True,
+                        label="queue_input_dir",
+                    )
+                except SecurityPolicyError as exc:
+                    raise http_from_security_error(exc) from exc
+                spec["input_dir"] = str(checked)
         result = _start_queue_run(request, payload_with_revision, queue_specs)
         record_ui_event(
             request,
@@ -122,17 +154,21 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
             detail={"error": {"code": "BAD_REQUEST", "message": "input_dir is required"}},
         )
 
-    cmd, stdin_text, resolved_runs_dir = _build_run_command(
-        runtime=runtime,
-        payload=payload_with_revision,
-        input_dir=str(input_dir),
-        run_id_override=run_id_override,
-    )
+    try:
+        input_dir_checked = runtime.ensure_path_allowed(str(input_dir), must_exist=True, label="input_dir")
+        cmd, stdin_text, resolved_runs_dir = _build_run_command(
+            runtime=runtime,
+            payload=payload_with_revision,
+            input_dir=str(input_dir_checked),
+            run_id_override=run_id_override,
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     resolved_runs_dir.mkdir(parents=True, exist_ok=True)
     job = request.app.state.job_store.create(
         "run_start",
         {
-            "input_dir": str(input_dir),
+            "input_dir": str(input_dir_checked),
             "runs_dir": str(resolved_runs_dir),
             "run_id": run_id_override,
             "command": cmd,
@@ -146,6 +182,7 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         command=cmd,
         cwd=runtime.project_root,
         stdin_text=stdin_text,
+        command_policy=request.app.state.command_policy,
     )
     record_ui_event(
         request,
@@ -153,7 +190,7 @@ def run_start(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         source="runs.run_start",
         run_id=run_id_override or "pending",
         job_id=job.job_id,
-        payload={"input_dir": str(input_dir), "runs_dir": str(resolved_runs_dir), "revision_id": revision["revision_id"]},
+        payload={"input_dir": str(input_dir_checked), "runs_dir": str(resolved_runs_dir), "revision_id": revision["revision_id"]},
     )
     return {"run_id": run_id_override or "pending", "job_id": job.job_id}
 
@@ -180,9 +217,16 @@ def run_resume(run_id: str, request: Request, payload: dict[str, Any]) -> dict[s
             status_code=404,
             detail={"error": {"code": "NOT_FOUND", "message": f"revision '{revision_id}' not found"}},
         )
-    restore_revision(request.app, revision_id)
-    run_dir = payload.get("run_dir")
-    resolved_run_dir = Path(run_dir).expanduser() if run_dir else runtime.resolve_run_dir(run_id, payload.get("runs_dir"))
+    try:
+        restore_revision(request.app, revision_id)
+        run_dir = payload.get("run_dir")
+        resolved_run_dir = (
+            runtime.ensure_path_allowed(Path(run_dir).expanduser(), must_exist=False, label="run_dir")
+            if run_dir
+            else runtime.ensure_path_allowed(runtime.resolve_run_dir(run_id, payload.get("runs_dir")), must_exist=False, label="run_dir")
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     cmd = [
         str(runtime.runner_path),
         "resume",
@@ -208,6 +252,7 @@ def run_resume(run_id: str, request: Request, payload: dict[str, Any]) -> dict[s
         job_id=job.job_id,
         command=cmd,
         cwd=runtime.project_root,
+        command_policy=request.app.state.command_policy,
     )
     record_ui_event(
         request,
@@ -223,7 +268,10 @@ def run_resume(run_id: str, request: Request, payload: dict[str, Any]) -> dict[s
 @router.post("/{run_id}/stop")
 def run_stop(run_id: str, request: Request, runs_dir: str | None = None) -> dict[str, Any]:
     runtime = request.app.state.runtime
-    run_dir = str(runtime.resolve_run_dir(run_id, runs_dir))
+    try:
+        run_dir = str(runtime.resolve_run_dir(run_id, runs_dir))
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     cancelled = False
     for job in request.app.state.job_store.list():
         if job.state != "running":
@@ -260,7 +308,14 @@ def run_stats(run_id: str, request: Request, payload: dict[str, Any] | None = No
     runtime = request.app.state.runtime
     body = payload or {}
     run_dir = body.get("run_dir")
-    resolved_run_dir = Path(run_dir).expanduser() if run_dir else runtime.resolve_run_dir(run_id, body.get("runs_dir"))
+    try:
+        resolved_run_dir = (
+            runtime.ensure_path_allowed(Path(run_dir).expanduser(), label="run_dir")
+            if run_dir
+            else runtime.resolve_run_dir(run_id, body.get("runs_dir"))
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     python_bin = resolve_python()
     cmd = [python_bin, str(runtime.stats_script), str(resolved_run_dir)]
     job = request.app.state.job_store.create(
@@ -273,6 +328,7 @@ def run_stats(run_id: str, request: Request, payload: dict[str, Any] | None = No
         job_id=job.job_id,
         command=cmd,
         cwd=runtime.project_root,
+        command_policy=request.app.state.command_policy,
     )
     record_ui_event(
         request,
@@ -380,6 +436,7 @@ def _start_queue_run(request: Request, payload: dict[str, Any], queue_specs: lis
                     input_dir=str(input_dir),
                     run_id_override=run_id_override,
                 )
+                request.app.state.command_policy.validate(cmd)
                 queue_state[i]["state"] = "running"
                 queue_state[i]["run_id"] = run_id_override
                 request.app.state.job_store.merge_data(job.job_id, {"queue": queue_state, "current_index": i, "command": cmd})
@@ -472,13 +529,18 @@ def _build_run_command(
     max_tiles = int(payload.get("max_tiles", 0))
 
     resolved_runs_dir = runtime.resolve_runs_dir(runs_dir)
+    checked_input_dir = runtime.ensure_path_allowed(Path(input_dir).expanduser(), must_exist=True, label="input_dir")
+    checked_config_path = runtime.ensure_path_allowed(
+        Path(str(config_path if config_path else runtime.default_config_path)).expanduser(),
+        label="config_path",
+    )
     cmd = [
         str(runtime.runner_path),
         "run",
         "--config",
-        str(config_path if config_path else runtime.default_config_path),
+        str(checked_config_path),
         "--input-dir",
-        str(input_dir),
+        str(checked_input_dir),
         "--runs-dir",
         str(resolved_runs_dir),
     ]
@@ -506,7 +568,10 @@ def _resolve_config_yaml(*, runtime: Any, payload: dict[str, Any]) -> str:
         return str(payload.get("config_yaml"))
 
     config_path_raw = payload.get("config_path")
-    config_path = Path(str(config_path_raw)).expanduser() if config_path_raw else runtime.default_config_path
+    config_path = runtime.ensure_path_allowed(
+        Path(str(config_path_raw)).expanduser() if config_path_raw else runtime.default_config_path,
+        label="config_path",
+    )
     try:
         return config_path.read_text(encoding="utf-8")
     except OSError:

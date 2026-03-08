@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from app.services.time_utils import utc_now_iso
 
 def tail_run_stream_events(run_dir: Path, *, cursor: int = 0, max_events: int = 300) -> tuple[list[dict[str, Any]], int]:
     path = _find_event_file(run_dir)
@@ -157,7 +157,7 @@ def _resolve_run_id(raw: dict[str, Any]) -> str:
 def _event_ts(value: Any) -> str:
     if isinstance(value, str) and value:
         return value
-    return datetime.utcnow().isoformat() + "Z"
+    return utc_now_iso()
 
 
 def _find_event_file(run_dir: Path) -> Path | None:

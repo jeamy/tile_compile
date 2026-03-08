@@ -7,14 +7,18 @@ from datetime import datetime
 from subprocess import Popen
 from typing import Any
 
+from app.services.time_utils import utc_now
+
 
 @dataclass
 class Job:
     job_id: str
     job_type: str
     state: str = "pending"
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
     data: dict[str, Any] = field(default_factory=dict)
     pid: int | None = None
     exit_code: int | None = None
@@ -49,7 +53,12 @@ class InMemoryJobStore:
             if job is None:
                 return None
             job.state = state
-            job.updated_at = datetime.utcnow()
+            now = utc_now()
+            job.updated_at = now
+            if state == "running" and job.started_at is None:
+                job.started_at = now
+            if state in {"ok", "error", "cancelled"}:
+                job.ended_at = now
             return job
 
     def merge_data(self, job_id: str, patch: dict[str, Any]) -> Job | None:
@@ -58,7 +67,7 @@ class InMemoryJobStore:
             if job is None:
                 return None
             job.data.update(patch)
-            job.updated_at = datetime.utcnow()
+            job.updated_at = utc_now()
             return job
 
     def set_process(self, job_id: str, process: Popen[str]) -> Job | None:
@@ -68,7 +77,7 @@ class InMemoryJobStore:
                 return None
             self._processes[job_id] = process
             job.pid = process.pid
-            job.updated_at = datetime.utcnow()
+            job.updated_at = utc_now()
             return job
 
     def set_exit_code(self, job_id: str, exit_code: int) -> Job | None:
@@ -77,7 +86,7 @@ class InMemoryJobStore:
             if job is None:
                 return None
             job.exit_code = exit_code
-            job.updated_at = datetime.utcnow()
+            job.updated_at = utc_now()
             return job
 
     def clear_process(self, job_id: str) -> None:
@@ -96,5 +105,9 @@ class InMemoryJobStore:
                 except OSError:
                     pass
             job.state = "cancelled"
-            job.updated_at = datetime.utcnow()
+            now = utc_now()
+            job.updated_at = now
+            if job.started_at is None:
+                job.started_at = now
+            job.ended_at = now
             return job

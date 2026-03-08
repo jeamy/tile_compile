@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.services.command_runner import SecurityPolicyError
 from app.services.run_inspector import read_run_status
 from app.services.run_stream import build_queue_progress_event, tail_run_stream_events
+from app.services.time_utils import utc_now_iso
 
 router = APIRouter(tags=["ws"])
 
@@ -23,7 +24,23 @@ async def ws_run(websocket: WebSocket, run_id: str) -> None:
     try:
         while True:
             runtime = websocket.app.state.runtime
-            run_dir = runtime.resolve_run_dir(run_id)
+            try:
+                run_dir = runtime.resolve_run_dir(run_id)
+            except SecurityPolicyError as exc:
+                await websocket.send_json(
+                    {
+                        "type": "run_stream_error",
+                        "run_id": run_id,
+                        "ts": utc_now_iso(),
+                        "payload": {
+                            "code": exc.code,
+                            "message": exc.message,
+                            "details": exc.details or {},
+                        },
+                    }
+                )
+                await asyncio.sleep(2)
+                continue
             stream_events, cursor = await asyncio.to_thread(tail_run_stream_events, run_dir, cursor=cursor, max_events=200)
 
             for event in stream_events:
@@ -48,7 +65,7 @@ async def ws_run(websocket: WebSocket, run_id: str) -> None:
                         "type": "run_end",
                         "run_id": run_id,
                         "status": "ok" if state == "completed" else "error",
-                        "ts": datetime.utcnow().isoformat() + "Z",
+                        "ts": utc_now_iso(),
                         "payload": {
                             "state": state,
                             "progress": status.get("progress", 0.0),
@@ -67,7 +84,7 @@ async def ws_run(websocket: WebSocket, run_id: str) -> None:
                         "state": state,
                         "phase": status.get("current_phase"),
                         "pct": _to_pct(status.get("progress", 0.0)),
-                        "ts": datetime.utcnow().isoformat() + "Z",
+                        "ts": utc_now_iso(),
                         "payload": status,
                     }
                 )
@@ -91,7 +108,7 @@ async def ws_job(websocket: WebSocket, job_id: str) -> None:
                     "state": job.state if job else "unknown",
                     "pid": job.pid if job else None,
                     "exit_code": job.exit_code if job else None,
-                    "ts": datetime.utcnow().isoformat() + "Z",
+                    "ts": utc_now_iso(),
                     "data": job.data if job else {},
                 }
             )
@@ -109,7 +126,7 @@ async def ws_system(websocket: WebSocket) -> None:
             await websocket.send_json(
                 {
                     "type": "system_heartbeat",
-                    "ts": datetime.utcnow().isoformat() + "Z",
+                    "ts": utc_now_iso(),
                     "status": "ok",
                     "payload": {
                         "cli": str(runtime.cli_path),

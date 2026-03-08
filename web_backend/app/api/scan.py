@@ -5,8 +5,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas import JobAccepted
-from app.services.command_runner import launch_background_command
+from app.services.command_runner import SecurityPolicyError, launch_background_command
 from app.services.guardrails import compute_guardrails
+from app.services.http_errors import http_from_security_error
 from app.services.ui_events import record_ui_event
 
 router = APIRouter(tags=["scan"])
@@ -23,8 +24,12 @@ def scan(request: Request, payload: dict[str, Any]) -> JobAccepted:
         )
     frames_min = int(payload.get("frames_min", 1))
     with_checksums = bool(payload.get("with_checksums", False))
+    try:
+        input_path_checked = runtime.ensure_path_allowed(str(input_path), must_exist=False, label="input_path")
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
 
-    cmd = [str(runtime.cli_path), "scan", str(input_path), "--frames-min", str(frames_min)]
+    cmd = [str(runtime.cli_path), "scan", str(input_path_checked), "--frames-min", str(frames_min)]
     if with_checksums:
         cmd.append("--with-checksums")
 
@@ -43,13 +48,14 @@ def scan(request: Request, payload: dict[str, Any]) -> JobAccepted:
         job_id=job.job_id,
         command=cmd,
         cwd=runtime.project_root,
+        command_policy=request.app.state.command_policy,
     )
     record_ui_event(
         request,
         event="scan.start",
         source="scan.scan",
         job_id=job.job_id,
-        payload={"input_path": str(input_path), "frames_min": frames_min, "with_checksums": with_checksums},
+        payload={"input_path": str(input_path_checked), "frames_min": frames_min, "with_checksums": with_checksums},
     )
     return JobAccepted(job_id=job.job_id, state="running")
 

@@ -4,7 +4,9 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
+from datetime import UTC, datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,7 @@ class BackendRuntime:
     runs_dir: Path
     default_config_path: Path
     stats_script: Path
+    allowed_roots: list[Path]
 
     @staticmethod
     def autodetect() -> "BackendRuntime":
@@ -30,6 +33,7 @@ class BackendRuntime:
         runs_env = os.getenv("TILE_COMPILE_RUNS_DIR")
         config_env = os.getenv("TILE_COMPILE_CONFIG_PATH")
         stats_env = os.getenv("TILE_COMPILE_STATS_SCRIPT")
+        allowed_roots_env = os.getenv("TILE_COMPILE_ALLOWED_ROOTS")
 
         cli_path = _resolve_binary(
             cli_env,
@@ -54,6 +58,16 @@ class BackendRuntime:
             if stats_env
             else project_root / "tile_compile_cpp/scripts/generate_report.py"
         )
+        allowed_roots = _resolve_allowed_roots(
+            allowed_roots_env,
+            defaults=[
+                project_root,
+                runs_dir,
+                Path.home(),
+                Path("/tmp"),
+                Path("/media"),
+            ],
+        )
         return BackendRuntime(
             project_root=project_root,
             cli_path=cli_path,
@@ -61,17 +75,57 @@ class BackendRuntime:
             runs_dir=runs_dir,
             default_config_path=default_config_path,
             stats_script=stats_script,
+            allowed_roots=allowed_roots,
         )
 
     def resolve_run_dir(self, run_id_or_path: str, runs_dir_override: str | None = None) -> Path:
         candidate = Path(run_id_or_path).expanduser()
         if candidate.is_absolute():
-            return candidate
-        base = Path(runs_dir_override).expanduser() if runs_dir_override else self.runs_dir
-        return base / run_id_or_path
+            return self.ensure_path_allowed(candidate, label="run_dir")
+        base = self.resolve_runs_dir(runs_dir_override)
+        return self.ensure_path_allowed(base / run_id_or_path, label="run_dir")
 
     def resolve_runs_dir(self, runs_dir_override: str | None = None) -> Path:
-        return Path(runs_dir_override).expanduser() if runs_dir_override else self.runs_dir
+        candidate = Path(runs_dir_override).expanduser() if runs_dir_override else self.runs_dir
+        return self.ensure_path_allowed(candidate, label="runs_dir")
+
+    def ensure_path_allowed(
+        self,
+        path: Path | str,
+        *,
+        must_exist: bool = False,
+        label: str = "path",
+    ) -> Path:
+        candidate = Path(path).expanduser()
+        resolved = candidate.resolve(strict=False)
+        for root in self.allowed_roots:
+            root_resolved = root.expanduser().resolve(strict=False)
+            if resolved == root_resolved or resolved.is_relative_to(root_resolved):
+                if must_exist and not candidate.exists():
+                    raise SecurityPolicyError(
+                        code="PATH_NOT_FOUND",
+                        message=f"{label} does not exist",
+                        details={"path": str(candidate)},
+                    )
+                return candidate
+        raise SecurityPolicyError(
+            code="PATH_NOT_ALLOWED",
+            message=f"{label} is outside allowed roots",
+            details={
+                "path": str(candidate),
+                "allowed_roots": [str(x) for x in self.allowed_roots],
+            },
+        )
+
+
+@dataclass
+class SecurityPolicyError(RuntimeError):
+    code: str
+    message: str
+    details: dict[str, Any] | None = None
+
+    def __str__(self) -> str:
+        return self.message
 
 
 @dataclass
@@ -92,13 +146,83 @@ class CommandExecutionError(RuntimeError):
         self.stderr = stderr
 
 
+class CommandPolicy:
+    """Allow only explicit trusted executables and safe invocation patterns."""
+
+    def __init__(self, runtime: BackendRuntime) -> None:
+        self.runtime = runtime
+        self._allowed_exact = {
+            runtime.cli_path.expanduser().resolve(strict=False),
+            runtime.runner_path.expanduser().resolve(strict=False),
+        }
+        self._allowed_named = {"astap", "astap_cli", "dpkg-deb", "unzip"}
+        self._python_execs = {
+            Path(sys.executable).expanduser().resolve(strict=False),
+        }
+        for name in ("python3", "python"):
+            resolved = shutil.which(name)
+            if resolved:
+                self._python_execs.add(Path(resolved).expanduser().resolve(strict=False))
+
+    def validate(self, command: list[str]) -> None:
+        if not command:
+            raise SecurityPolicyError(code="COMMAND_INVALID", message="empty command is not allowed")
+        executable = self._resolve_executable(command[0])
+        executable_name = executable.name
+
+        if executable in self._allowed_exact:
+            return
+        if executable in self._python_execs:
+            self._validate_python_command(command)
+            return
+        if executable_name in self._allowed_named:
+            return
+
+        raise SecurityPolicyError(
+            code="COMMAND_NOT_ALLOWED",
+            message="command executable is not whitelisted",
+            details={"executable": str(executable)},
+        )
+
+    def _validate_python_command(self, command: list[str]) -> None:
+        if len(command) < 2:
+            raise SecurityPolicyError(
+                code="COMMAND_NOT_ALLOWED",
+                message="python invocation without script is not allowed",
+            )
+        script = Path(command[1]).expanduser()
+        script_resolved = script.resolve(strict=False)
+        stats_script_resolved = self.runtime.stats_script.expanduser().resolve(strict=False)
+        if script_resolved != stats_script_resolved:
+            raise SecurityPolicyError(
+                code="COMMAND_NOT_ALLOWED",
+                message="python invocation is restricted to stats script",
+                details={"script": str(script), "allowed_script": str(self.runtime.stats_script)},
+            )
+        self.runtime.ensure_path_allowed(script, must_exist=True, label="stats_script")
+        if len(command) >= 3:
+            self.runtime.ensure_path_allowed(Path(command[2]), label="stats_run_dir")
+
+    def _resolve_executable(self, executable: str) -> Path:
+        candidate = Path(executable).expanduser()
+        if candidate.is_absolute():
+            return candidate.resolve(strict=False)
+        found = shutil.which(executable)
+        if found:
+            return Path(found).expanduser().resolve(strict=False)
+        return candidate.resolve(strict=False)
+
+
 def run_command(
     command: list[str],
     *,
     cwd: Path | None = None,
     timeout_sec: int = 120,
     stdin_text: str | None = None,
+    command_policy: CommandPolicy | None = None,
 ) -> CommandResult:
+    if command_policy is not None:
+        command_policy.validate(command)
     try:
         proc = subprocess.run(
             command,
@@ -141,8 +265,15 @@ def run_json_command(
     cwd: Path | None = None,
     timeout_sec: int = 120,
     stdin_text: str | None = None,
+    command_policy: CommandPolicy | None = None,
 ) -> dict[str, Any] | list[Any]:
-    result = run_command(command, cwd=cwd, timeout_sec=timeout_sec, stdin_text=stdin_text)
+    result = run_command(
+        command,
+        cwd=cwd,
+        timeout_sec=timeout_sec,
+        stdin_text=stdin_text,
+        command_policy=command_policy,
+    )
     if result.exit_code != 0:
         raise CommandExecutionError(
             "command failed",
@@ -169,7 +300,11 @@ def launch_background_command(
     command: list[str],
     cwd: Path | None = None,
     stdin_text: str | None = None,
+    command_policy: CommandPolicy | None = None,
 ) -> None:
+    if command_policy is not None:
+        command_policy.validate(command)
+
     def _worker() -> None:
         proc: subprocess.Popen[str] | None = None
         try:
@@ -241,3 +376,15 @@ def _try_parse_json(text: str) -> dict[str, Any] | list[Any] | None:
         return None
     except json.JSONDecodeError:
         return None
+
+
+def _resolve_allowed_roots(raw: str | None, *, defaults: list[Path]) -> list[Path]:
+    if not raw:
+        return defaults
+    items: list[Path] = []
+    for part in raw.split(os.pathsep):
+        token = part.strip()
+        if not token:
+            continue
+        items.append(Path(token).expanduser())
+    return items or defaults

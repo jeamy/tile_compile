@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
-
-if os.getenv("WEB_BACKEND_ENABLE_HTTP_TESTS", "0") != "1":
-    pytest.skip("HTTP API integration tests disabled in this environment", allow_module_level=True)
 
 fastapi = pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
@@ -47,7 +43,7 @@ def test_run_start_blocked_by_guardrail_error() -> None:
     resp = client.post("/api/runs/start", json={"input_dir": "/tmp/input"})
     assert resp.status_code == 409
     body = resp.json()
-    assert body["detail"]["error"]["code"] == "GUARDRAIL_BLOCKED"
+    assert body["error"]["code"] == "GUARDRAIL_BLOCKED"
 
 
 def test_resume_requires_phase_and_revision(tmp_path: Path) -> None:
@@ -57,7 +53,7 @@ def test_resume_requires_phase_and_revision(tmp_path: Path) -> None:
 
     missing = client.post("/api/runs/r1/resume", json={})
     assert missing.status_code == 409
-    assert missing.json()["detail"]["error"]["code"] == "RESUME_PHASE_REQUIRED"
+    assert missing.json()["error"]["code"] == "RESUME_PHASE_REQUIRED"
 
     missing_rev = client.post("/api/runs/r1/resume", json={"from_phase": "PCC", "config_revision_id": "cfg_missing"})
     assert missing_rev.status_code == 404
@@ -110,3 +106,54 @@ def test_ws_run_emits_phase_events(tmp_path: Path) -> None:
 
     assert first["type"] == "phase_start"
     assert second["type"] in {"phase_progress", "run_status"}
+
+
+def test_jobs_endpoint_contains_started_and_ended_timestamps() -> None:
+    app = create_app()
+    client = TestClient(app)
+
+    job = app.state.job_store.create("sample", {"run_id": "r_test"})
+    app.state.job_store.set_state(job.job_id, "running")
+    app.state.job_store.set_state(job.job_id, "ok")
+
+    resp = client.get(f"/api/jobs/{job.job_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["run_id"] == "r_test"
+    assert data["started_at"] is not None
+    assert data["ended_at"] is not None
+
+
+def test_error_envelope_for_http_exceptions() -> None:
+    app = create_app()
+    client = TestClient(app)
+    resp = client.post("/api/runs/r1/resume", json={})
+    assert resp.status_code == 409
+    body = resp.json()
+    assert "error" in body
+    assert body["error"]["code"] == "RESUME_PHASE_REQUIRED"
+    assert "message" in body["error"]
+
+
+def test_error_envelope_for_unknown_route() -> None:
+    app = create_app()
+    client = TestClient(app)
+    resp = client.get("/api/does-not-exist")
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body["error"]["code"] == "NOT_FOUND"
+
+
+def test_ws_job_stream_contains_job_data() -> None:
+    app = create_app()
+    client = TestClient(app)
+    job = app.state.job_store.create("scan", {"run_id": "r5", "step": "test"})
+    app.state.job_store.set_state(job.job_id, "running")
+
+    with client.websocket_connect(f"/api/ws/jobs/{job.job_id}") as ws:
+        event = ws.receive_json()
+
+    assert event["type"] == "job_progress"
+    assert event["job_id"] == job.job_id
+    assert event["state"] == "running"
+    assert event["data"]["run_id"] == "r5"

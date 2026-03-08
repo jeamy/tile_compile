@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 import bz2
-import os
 import time
 from pathlib import Path
 
 import pytest
-
-if os.getenv("WEB_BACKEND_ENABLE_HTTP_TESTS", "0") != "1":
-    pytest.skip("HTTP API integration tests disabled in this environment", allow_module_level=True)
 
 fastapi = pytest.importorskip("fastapi")
 pytest.importorskip("httpx")

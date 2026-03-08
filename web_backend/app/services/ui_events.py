@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from app.services.time_utils import isoformat_z, utc_now
+
 
 @dataclass
 class UiEvent:
@@ -21,7 +23,7 @@ class UiEvent:
     def as_dict(self) -> dict[str, Any]:
         return {
             "seq": self.seq,
-            "ts": self.ts.isoformat() + "Z",
+            "ts": isoformat_z(self.ts),
             "event": self.event,
             "source": self.source,
             "run_id": self.run_id,
@@ -54,7 +56,7 @@ class UiEventStore:
             self._seq += 1
             item = UiEvent(
                 seq=self._seq,
-                ts=datetime.utcnow(),
+                ts=utc_now(),
                 event=event,
                 source=source,
                 payload=payload or {},

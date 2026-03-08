@@ -18,6 +18,7 @@ Optionale Env-Variablen:
 - `TILE_COMPILE_RUNS_DIR` (Default Runs-Verzeichnis)
 - `TILE_COMPILE_CONFIG_PATH` (Default Config-Datei)
 - `TILE_COMPILE_STATS_SCRIPT` (Default: `tile_compile_cpp/scripts/generate_report.py`)
+- `TILE_COMPILE_ALLOWED_ROOTS` (Pfadliste, getrennt mit `:`; beschraenkt erlaubte Dateisystem-Zugriffe)
 
 Falls nicht gesetzt, werden Standardpfade unter `tile_compile_cpp/build/...` verwendet.
 
@@ -57,11 +58,27 @@ Run-WebSocket (`/api/ws/runs/{run_id}`) streamt vertragliche Events:
 - `phase_start`, `phase_progress`, `phase_end`, `run_end`, `queue_progress`, `log_line`
 - plus `run_status` als Resync-Fallback.
 
+Sicherheitsregeln im Backend:
+- Command-Whitelist: nur freigegebene Executables (`tile_compile_cli`, `tile_compile_runner`, Stats-Script via Python, ASTAP/dpkg-deb).
+- Path-Policy: API-Pfade werden gegen `TILE_COMPILE_ALLOWED_ROOTS` validiert (`PATH_NOT_ALLOWED`, `PATH_NOT_FOUND` als `422`).
+- Einheitliches Fehlerformat fuer `4xx/5xx`: immer `{ \"error\": { code, message, hint?, details? } }`.
+
 FE-Job-Contract (Live-Felder in `job.data`):  
 [fe_contract_tools_jobs.md](/media/data/programming/tile_compile/web_backend/fe_contract_tools_jobs.md)
+
+Jobstatus (`GET /api/jobs`, `GET /api/jobs/{job_id}`) liefert:
+- `created_at`, `updated_at`
+- `started_at`, `ended_at`
+- `run_id` (falls vorhanden)
 
 ## Tests
 
 ```bash
 python3 -m pytest -q web_backend/tests
+```
+
+Optionale echte Binary-Integrationstests:
+
+```bash
+WEB_BACKEND_ENABLE_BINARY_TESTS=1 python3 -m pytest -q -rs web_backend/tests/test_integration_binaries.py
 ```

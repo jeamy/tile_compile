@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
+from app.services.time_utils import isoformat_z
 from app.services.ui_events import record_ui_event
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -41,10 +42,13 @@ def _job_to_dict(job_obj: object) -> dict:
     return {
         "job_id": job_obj.job_id,
         "type": job_obj.job_type,
+        "run_id": job_obj.data.get("run_id") if isinstance(job_obj.data, dict) else None,
         "state": job_obj.state,
         "pid": job_obj.pid,
         "exit_code": job_obj.exit_code,
-        "created_at": job_obj.created_at.isoformat() + "Z",
-        "updated_at": job_obj.updated_at.isoformat() + "Z",
+        "created_at": isoformat_z(job_obj.created_at),
+        "updated_at": isoformat_z(job_obj.updated_at),
+        "started_at": isoformat_z(job_obj.started_at) if job_obj.started_at else None,
+        "ended_at": isoformat_z(job_obj.ended_at) if job_obj.ended_at else None,
         "data": job_obj.data,
     }

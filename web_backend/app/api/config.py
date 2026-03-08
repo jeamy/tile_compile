@@ -6,8 +6,9 @@ from typing import Any
 import yaml
 from fastapi import APIRouter, HTTPException, Request
 
-from app.services.command_runner import CommandExecutionError, run_command, run_json_command
+from app.services.command_runner import CommandExecutionError, SecurityPolicyError, run_command, run_json_command
 from app.services.config_revisions import create_revision, get_revision, list_revisions, restore_revision
+from app.services.http_errors import http_from_security_error
 from app.services.ui_events import record_ui_event
 
 router = APIRouter(prefix="/config", tags=["config"])
@@ -16,7 +17,14 @@ router = APIRouter(prefix="/config", tags=["config"])
 @router.get("/schema")
 def config_schema(request: Request) -> dict[str, Any]:
     runtime = request.app.state.runtime
-    result = run_command([str(runtime.cli_path), "get-schema"], cwd=runtime.project_root)
+    try:
+        result = run_command(
+            [str(runtime.cli_path), "get-schema"],
+            cwd=runtime.project_root,
+            command_policy=request.app.state.command_policy,
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     if result.exit_code != 0 or not isinstance(result.parsed_json, dict):
         raise _http_502_command_failed("failed to fetch schema", result)
     return result.parsed_json
@@ -25,8 +33,19 @@ def config_schema(request: Request) -> dict[str, Any]:
 @router.get("/current")
 def config_current(request: Request, path: str | None = None) -> dict[str, Any]:
     runtime = request.app.state.runtime
-    config_path = Path(path).expanduser() if path else runtime.default_config_path
-    result = run_command([str(runtime.cli_path), "load-config", str(config_path)], cwd=runtime.project_root)
+    try:
+        config_path = runtime.ensure_path_allowed(
+            Path(path).expanduser() if path else runtime.default_config_path,
+            must_exist=True,
+            label="config_path",
+        )
+        result = run_command(
+            [str(runtime.cli_path), "load-config", str(config_path)],
+            cwd=runtime.project_root,
+            command_policy=request.app.state.command_policy,
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     if result.exit_code != 0 or not isinstance(result.parsed_json, dict):
         raise _http_502_command_failed("failed to load config", result)
     return {"config": result.parsed_json.get("yaml", ""), "source": str(config_path)}
@@ -42,24 +61,37 @@ def validate_config(payload: dict[str, Any], request: Request) -> dict[str, Any]
     stdin_text: str | None = None
     cmd = [str(runtime.cli_path), "validate-config"]
 
-    if config_path:
-        cmd.extend(["--path", str(Path(config_path).expanduser())])
-    else:
-        if yaml_text:
-            stdin_text = str(yaml_text)
-        elif isinstance(config_object, dict):
-            stdin_text = yaml.safe_dump(config_object, sort_keys=False)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail={"error": {"code": "BAD_REQUEST", "message": "provide one of: path, yaml, or config"}},
+    try:
+        if config_path:
+            config_path_resolved = runtime.ensure_path_allowed(
+                Path(config_path).expanduser(),
+                must_exist=True,
+                label="config_path",
             )
-        cmd.append("--stdin")
+            cmd.extend(["--path", str(config_path_resolved)])
+        else:
+            if yaml_text:
+                stdin_text = str(yaml_text)
+            elif isinstance(config_object, dict):
+                stdin_text = yaml.safe_dump(config_object, sort_keys=False)
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": {"code": "BAD_REQUEST", "message": "provide one of: path, yaml, or config"}},
+                )
+            cmd.append("--stdin")
 
-    if strict:
-        cmd.append("--strict-exit-codes")
+        if strict:
+            cmd.append("--strict-exit-codes")
 
-    result = run_command(cmd, cwd=runtime.project_root, stdin_text=stdin_text)
+        result = run_command(
+            cmd,
+            cwd=runtime.project_root,
+            stdin_text=stdin_text,
+            command_policy=request.app.state.command_policy,
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     if not isinstance(result.parsed_json, dict):
         raise _http_502_command_failed("validate-config returned non-json", result)
 
@@ -77,7 +109,13 @@ def save_config(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     path = payload.get("path")
     yaml_text = payload.get("yaml")
     config_object = payload.get("config")
-    target = Path(path).expanduser() if path else runtime.default_config_path
+    try:
+        target = runtime.ensure_path_allowed(
+            Path(path).expanduser() if path else runtime.default_config_path,
+            label="config_path",
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
 
     if yaml_text:
         text = str(yaml_text)
@@ -94,9 +132,12 @@ def save_config(payload: dict[str, Any], request: Request) -> dict[str, Any]:
             [str(runtime.cli_path), "save-config", str(target), "--stdin"],
             cwd=runtime.project_root,
             stdin_text=text,
+            command_policy=request.app.state.command_policy,
         )
     except CommandExecutionError as exc:
         raise _http_502_command_failed("save-config failed", exc) from exc
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     if not isinstance(result, dict):
         raise HTTPException(
             status_code=502,
@@ -153,9 +194,19 @@ def presets_apply(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     if not path.is_absolute():
         path = runtime.project_root / path
     try:
-        result = run_json_command([str(runtime.cli_path), "load-config", str(path)], cwd=runtime.project_root)
+        path = runtime.ensure_path_allowed(path, must_exist=True, label="preset_path")
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
+    try:
+        result = run_json_command(
+            [str(runtime.cli_path), "load-config", str(path)],
+            cwd=runtime.project_root,
+            command_policy=request.app.state.command_policy,
+        )
     except CommandExecutionError as exc:
         raise _http_502_command_failed("load-config failed", exc) from exc
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     if not isinstance(result, dict):
         raise HTTPException(
             status_code=502,
@@ -183,7 +234,10 @@ def revision_restore(revision_id: str, request: Request) -> dict[str, Any]:
             status_code=404,
             detail={"error": {"code": "NOT_FOUND", "message": f"revision '{revision_id}' not found"}},
         )
-    revision = restore_revision(request.app, revision_id)
+    try:
+        revision = restore_revision(request.app, revision_id)
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     record_ui_event(
         request,
         event="config.revision.restore",

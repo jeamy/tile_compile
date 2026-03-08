@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.services.time_utils import utc_now
+
 
 class ApiErrorBody(BaseModel):
     code: str
@@ -20,7 +22,7 @@ class ApiErrorEnvelope(BaseModel):
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     api: str = "gui2-fastapi"
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utc_now)
 
 
 class VersionResponse(BaseModel):
@@ -48,5 +50,5 @@ class PhaseEvent(BaseModel):
     filter: str | None = None
     phase: str | None = None
     pct: float | None = None
-    ts: datetime = Field(default_factory=datetime.utcnow)
+    ts: datetime = Field(default_factory=utc_now)
     payload: dict[str, Any] = Field(default_factory=dict)

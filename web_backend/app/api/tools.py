@@ -15,8 +15,9 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException, Request
 
 from app.schemas import JobAccepted
-from app.services.command_runner import launch_background_command
+from app.services.command_runner import SecurityPolicyError, launch_background_command
 from app.services.downloads import DownloadAborted, DownloadOptions, download_file_with_retry
+from app.services.http_errors import http_from_security_error
 from app.services.ui_events import record_ui_event
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -37,10 +38,18 @@ SIRIL_URL_TEMPLATE = "https://zenodo.org/records/14738271/files/siril_cat1_healp
 
 
 @router.post("/astrometry/detect")
-def astrometry_detect(payload: dict[str, Any]) -> dict[str, Any]:
-    astap_data_dir = _resolve_astap_data_dir(payload)
-    catalog_dir = Path(str(payload.get("catalog_dir", ""))).expanduser() if payload.get("catalog_dir") else astap_data_dir
-    astap_bin = _resolve_astap_bin(payload, astap_data_dir)
+def astrometry_detect(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    runtime = request.app.state.runtime
+    try:
+        astap_data_dir = _resolve_astap_data_dir(payload, runtime)
+        catalog_dir = (
+            runtime.ensure_path_allowed(Path(str(payload.get("catalog_dir", ""))).expanduser(), label="catalog_dir")
+            if payload.get("catalog_dir")
+            else astap_data_dir
+        )
+        astap_bin = _resolve_astap_bin(payload, astap_data_dir, runtime)
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
 
     catalog_states: dict[str, bool] = {}
     for cat_id in ASTAP_CATALOGS:
@@ -58,7 +67,11 @@ def astrometry_detect(payload: dict[str, Any]) -> dict[str, Any]:
 @router.post("/astrometry/install-cli", response_model=JobAccepted, status_code=202)
 def astrometry_install(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
     body = payload or {}
-    data_dir = _resolve_astap_data_dir(body)
+    runtime = request.app.state.runtime
+    try:
+        data_dir = _resolve_astap_data_dir(body, runtime)
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     url = str(body.get("url") or ASTAP_CLI_URL)
     options = _download_options_from_payload(body, default_timeout_s=1800)
     force_restart = bool(body.get("force_restart", False))
@@ -121,7 +134,11 @@ def astrometry_catalog_download(request: Request, payload: dict[str, Any] | None
             detail={"error": {"code": "BAD_REQUEST", "message": f"unknown catalog_id '{catalog_id}'"}},
         )
 
-    data_dir = _resolve_astap_data_dir(body)
+    runtime = request.app.state.runtime
+    try:
+        data_dir = _resolve_astap_data_dir(body, runtime)
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     filename = ASTAP_CATALOGS[catalog_id]["filename"]
     url = str(body.get("url") or f"{ASTAP_SF_BASE}{filename}/download")
     options = _download_options_from_payload(body, default_timeout_s=1800)
@@ -155,7 +172,7 @@ def astrometry_catalog_download(request: Request, payload: dict[str, Any] | None
         if archive_path.suffix.lower() == ".zip":
             _safe_extract_zip(archive_path, data_dir)
         elif archive_path.suffix.lower() == ".deb":
-            _extract_deb_catalog(archive_path, data_dir, catalog_id)
+            _extract_deb_catalog(archive_path, data_dir, catalog_id, command_policy=request.app.state.command_policy)
         else:
             raise RuntimeError(f"unsupported archive format: {archive_path.name}")
         archive_path.unlink(missing_ok=True)
@@ -216,15 +233,13 @@ def astrometry_solve(request: Request, payload: dict[str, Any]) -> JobAccepted:
             status_code=400,
             detail={"error": {"code": "BAD_REQUEST", "message": "solve_file is required"}},
         )
-    fits_path = Path(solve_file).expanduser()
-    if not fits_path.exists():
-        raise HTTPException(
-            status_code=400,
-            detail={"error": {"code": "BAD_REQUEST", "message": f"solve_file not found: {fits_path}"}},
-        )
-
-    astap_data_dir = _resolve_astap_data_dir(payload)
-    astap_bin = _resolve_astap_bin(payload, astap_data_dir)
+    runtime = request.app.state.runtime
+    try:
+        fits_path = runtime.ensure_path_allowed(Path(solve_file).expanduser(), must_exist=True, label="solve_file")
+        astap_data_dir = _resolve_astap_data_dir(payload, runtime)
+        astap_bin = _resolve_astap_bin(payload, astap_data_dir, runtime)
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     if astap_bin is None or not astap_bin.exists():
         raise HTTPException(
             status_code=400,
@@ -251,7 +266,8 @@ def astrometry_solve(request: Request, payload: dict[str, Any]) -> JobAccepted:
         job_store=request.app.state.job_store,
         job_id=job.job_id,
         command=cmd,
-        cwd=request.app.state.runtime.project_root,
+        cwd=runtime.project_root,
+        command_policy=request.app.state.command_policy,
     )
     record_ui_event(
         request,
@@ -272,20 +288,19 @@ def astrometry_save_solved(request: Request, payload: dict[str, Any]) -> dict[st
             status_code=400,
             detail={"error": {"code": "BAD_REQUEST", "message": "input_path and output_path are required"}},
         )
-    src = Path(str(input_path)).expanduser()
-    dst = Path(str(output_path)).expanduser()
-    if not src.exists():
-        raise HTTPException(
-            status_code=400,
-            detail={"error": {"code": "BAD_REQUEST", "message": f"input_path not found: {src}"}},
-        )
+    runtime = request.app.state.runtime
+    try:
+        src = runtime.ensure_path_allowed(Path(str(input_path)).expanduser(), must_exist=True, label="input_path")
+        dst = runtime.ensure_path_allowed(Path(str(output_path)).expanduser(), label="output_path")
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
 
     wcs_path = payload.get("wcs_path")
     copied_wcs = None
     if wcs_path:
-        src_wcs = Path(str(wcs_path)).expanduser()
+        src_wcs = runtime.ensure_path_allowed(Path(str(wcs_path)).expanduser(), label="wcs_path")
         if src_wcs.exists():
             dst_wcs = dst.with_suffix(".wcs")
             shutil.copy2(src_wcs, dst_wcs)
@@ -300,8 +315,16 @@ def astrometry_save_solved(request: Request, payload: dict[str, Any]) -> dict[st
 
 
 @router.get("/pcc/siril/status")
-def pcc_siril_status(catalog_dir: str | None = None) -> dict[str, Any]:
-    path = Path(catalog_dir).expanduser() if catalog_dir else _default_siril_catalog_dir()
+def pcc_siril_status(request: Request, catalog_dir: str | None = None) -> dict[str, Any]:
+    runtime = request.app.state.runtime
+    try:
+        path = (
+            runtime.ensure_path_allowed(Path(catalog_dir).expanduser(), label="catalog_dir")
+            if catalog_dir
+            else runtime.ensure_path_allowed(_default_siril_catalog_dir(), label="catalog_dir")
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     missing = _missing_siril_chunks(path)
     installed = SIRIL_NUM_CHUNKS - len(missing)
     return {"installed": installed, "total": SIRIL_NUM_CHUNKS, "missing": missing, "catalog_dir": str(path)}
@@ -310,7 +333,14 @@ def pcc_siril_status(catalog_dir: str | None = None) -> dict[str, Any]:
 @router.post("/pcc/siril/download-missing", response_model=JobAccepted, status_code=202)
 def pcc_siril_download_missing(request: Request, payload: dict[str, Any] | None = None) -> JobAccepted:
     body = payload or {}
-    catalog_dir = Path(str(body.get("catalog_dir", _default_siril_catalog_dir()))).expanduser()
+    runtime = request.app.state.runtime
+    try:
+        catalog_dir = runtime.ensure_path_allowed(
+            Path(str(body.get("catalog_dir", _default_siril_catalog_dir()))).expanduser(),
+            label="catalog_dir",
+        )
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
     chunk_ids_raw = body.get("chunk_ids")
     max_chunks = int(body.get("max_chunks", 0))
     options = _download_options_from_payload(body, default_timeout_s=3600)
@@ -444,6 +474,12 @@ def pcc_run(request: Request, payload: dict[str, Any]) -> JobAccepted:
             detail={"error": {"code": "BAD_REQUEST", "message": "input_rgb and output_rgb are required"}},
         )
 
+    try:
+        input_rgb = str(runtime.ensure_path_allowed(Path(str(input_rgb)).expanduser(), must_exist=True, label="input_rgb"))
+        output_rgb = str(runtime.ensure_path_allowed(Path(str(output_rgb)).expanduser(), label="output_rgb"))
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
+
     r_scale = float(payload.get("r", 1.0))
     g_scale = float(payload.get("g", 1.0))
     b_scale = float(payload.get("b", 1.0))
@@ -466,6 +502,7 @@ def pcc_run(request: Request, payload: dict[str, Any]) -> JobAccepted:
         job_id=job.job_id,
         command=cmd,
         cwd=runtime.project_root,
+        command_policy=request.app.state.command_policy,
     )
     record_ui_event(
         request,
@@ -485,8 +522,18 @@ def pcc_save_corrected(request: Request, payload: dict[str, Any]) -> dict[str, A
             status_code=400,
             detail={"error": {"code": "BAD_REQUEST", "message": "output_rgb is required"}},
         )
-    output_channels = payload.get("output_channels", [])
-    response = {"output_rgb": str(output_rgb), "output_channels": output_channels}
+    runtime = request.app.state.runtime
+    try:
+        out_rgb = runtime.ensure_path_allowed(Path(str(output_rgb)).expanduser(), label="output_rgb")
+        output_channels_raw = payload.get("output_channels", [])
+        output_channels: list[str] = []
+        if isinstance(output_channels_raw, list):
+            for channel_path in output_channels_raw:
+                checked = runtime.ensure_path_allowed(Path(str(channel_path)).expanduser(), label="output_channel")
+                output_channels.append(str(checked))
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
+    response = {"output_rgb": str(out_rgb), "output_channels": output_channels}
     record_ui_event(
         request,
         event="tools.pcc.save_corrected",
@@ -524,15 +571,15 @@ def _start_custom_job(
     return JobAccepted(job_id=job.job_id, state="running")
 
 
-def _resolve_astap_data_dir(payload: dict[str, Any]) -> Path:
+def _resolve_astap_data_dir(payload: dict[str, Any], runtime: Any) -> Path:
     if payload.get("astap_data_dir"):
-        return Path(str(payload["astap_data_dir"])).expanduser()
-    return _default_astap_data_dir()
+        return runtime.ensure_path_allowed(Path(str(payload["astap_data_dir"])).expanduser(), label="astap_data_dir")
+    return runtime.ensure_path_allowed(_default_astap_data_dir(), label="astap_data_dir")
 
 
-def _resolve_astap_bin(payload: dict[str, Any], astap_data_dir: Path) -> Path | None:
+def _resolve_astap_bin(payload: dict[str, Any], astap_data_dir: Path, runtime: Any) -> Path | None:
     if payload.get("astap_cli"):
-        return Path(str(payload["astap_cli"])).expanduser()
+        return runtime.ensure_path_allowed(Path(str(payload["astap_cli"])).expanduser(), label="astap_cli")
     default = astap_data_dir / "astap_cli"
     if default.exists():
         return default
@@ -576,10 +623,17 @@ def _find_astap_candidate(data_dir: Path) -> Path | None:
     return None
 
 
-def _extract_deb_catalog(archive_path: Path, data_dir: Path, catalog_id: str) -> None:
+def _extract_deb_catalog(
+    archive_path: Path,
+    data_dir: Path,
+    catalog_id: str,
+    *,
+    command_policy: Any,
+) -> None:
     dpkg = shutil.which("dpkg-deb")
     if not dpkg:
         raise RuntimeError("dpkg-deb is required to extract .deb catalog archives")
+    command_policy.validate([dpkg, "-x", str(archive_path), "tmp"])
     with tempfile.TemporaryDirectory(prefix="astap_deb_") as tmp:
         tmp_dir = Path(tmp)
         proc = subprocess.run([dpkg, "-x", str(archive_path), str(tmp_dir)], capture_output=True, text=True, check=False)

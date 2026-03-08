@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
+from app.services.time_utils import utc_now_iso
 
 
 def create_revision(
@@ -21,7 +21,7 @@ def create_revision(
     revision = {
         "revision_id": revision_id,
         "path": str(path),
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": utc_now_iso(),
         "source": source,
         "run_id": run_id,
         "yaml": yaml_text,
@@ -56,7 +56,8 @@ def restore_revision(app: Any, revision_id: str) -> dict[str, Any]:
         raise KeyError(revision_id)
 
     yaml_text = revision.get("yaml")
-    path = Path(str(revision.get("path", ""))).expanduser()
+    runtime = app.state.runtime
+    path = runtime.ensure_path_allowed(Path(str(revision.get("path", ""))).expanduser(), label="revision_path")
     if isinstance(yaml_text, str) and yaml_text.strip():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml_text, encoding="utf-8")
