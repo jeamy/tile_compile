@@ -23,8 +23,13 @@
 #include <vector>
 #include <openssl/evp.h>
 
+#include <cctype>
+
 namespace fs = std::filesystem;
 using json = nlohmann::json;
+
+static std::string to_lower_copy(std::string value);
+static bool parse_boolish(const std::string& value);
 
 static std::string get_executable_dir() {
     return fs::current_path().string();
@@ -890,9 +895,174 @@ int cmd_list_artifacts(const std::string& run_dir) {
     return 0;
 }
 
+int cmd_pcc_run(const std::string& input_path,
+                const std::string& output_path,
+                const std::string& wcs_path,
+                const std::string& source,
+                const std::string& siril_catalog_dir,
+                const tile_compile::astrometry::PCCConfig& config) {
+    namespace io = tile_compile::io;
+    namespace astro = tile_compile::astrometry;
+
+    json result;
+    result["input_rgb"] = input_path;
+    result["output_rgb"] = output_path;
+    result["wcs_file"] = wcs_path;
+
+    try {
+        const std::string source_requested = source.empty() ? "auto" : to_lower_copy(source);
+        result["source_requested"] = source_requested;
+        result["catalog_dir"] = siril_catalog_dir.empty() ? astro::default_siril_gaia_catalog_dir() : siril_catalog_dir;
+
+        astro::WCS wcs = astro::parse_wcs_file(wcs_path);
+        if (!wcs.valid()) {
+            result["ok"] = false;
+            result["error"] = "Invalid WCS solution";
+            print_json(result);
+            return 1;
+        }
+
+        result["wcs"] = {
+            {"ra_deg", wcs.crval1},
+            {"dec_deg", wcs.crval2},
+            {"pixel_scale_arcsec", wcs.pixel_scale_arcsec()},
+            {"image_width", wcs.naxis1},
+            {"image_height", wcs.naxis2},
+        };
+
+        const double search_r = wcs.search_radius_deg();
+        std::vector<astro::GaiaStar> stars;
+        std::string used_source;
+
+        auto try_siril = [&]() -> bool {
+            const std::string cat_dir = siril_catalog_dir.empty() ? astro::default_siril_gaia_catalog_dir() : siril_catalog_dir;
+            result["catalog_dir"] = cat_dir;
+            if (!astro::is_siril_gaia_catalog_available(cat_dir)) {
+                return false;
+            }
+            stars = astro::siril_gaia_cone_search(cat_dir, wcs.crval1, wcs.crval2, search_r, config.mag_limit);
+            if (!stars.empty()) {
+                used_source = "siril";
+                return true;
+            }
+            return false;
+        };
+
+        auto try_vizier_gaia = [&]() -> bool {
+            stars = astro::vizier_gaia_cone_search(wcs.crval1, wcs.crval2, search_r, config.mag_limit);
+            if (!stars.empty()) {
+                used_source = "vizier_gaia";
+                return true;
+            }
+            return false;
+        };
+
+        auto try_vizier_apass = [&]() -> bool {
+            stars = astro::vizier_apass_cone_search(wcs.crval1, wcs.crval2, search_r, config.mag_limit);
+            if (!stars.empty()) {
+                used_source = "vizier_apass";
+                return true;
+            }
+            return false;
+        };
+
+        bool query_ok = false;
+        if (source_requested == "siril") {
+            query_ok = try_siril();
+        } else if (source_requested == "vizier_gaia") {
+            query_ok = try_vizier_gaia();
+        } else if (source_requested == "vizier_apass") {
+            query_ok = try_vizier_apass();
+        } else {
+            query_ok = try_siril() || try_vizier_gaia() || try_vizier_apass();
+        }
+
+        result["search_radius_deg"] = search_r;
+        result["stars_catalog"] = static_cast<int>(stars.size());
+        result["source"] = used_source;
+
+        if (!query_ok) {
+            result["ok"] = false;
+            result["error"] = "No catalog stars found for requested PCC source";
+            print_json(result);
+            return 1;
+        }
+
+        io::RGBImage rgb = io::read_fits_rgb(fs::path(input_path));
+        auto pcc_result = astro::run_pcc(rgb.R, rgb.G, rgb.B, wcs, stars, config);
+
+        result["stars_matched"] = pcc_result.n_stars_matched;
+        result["stars_used"] = pcc_result.n_stars_used;
+        result["residual_rms"] = pcc_result.residual_rms;
+        result["determinant"] = pcc_result.determinant;
+        result["condition_number"] = pcc_result.condition_number;
+        result["apply_attenuation"] = config.apply_attenuation;
+        result["chroma_strength"] = config.chroma_strength;
+        result["k_max"] = config.k_max;
+        result["aperture_radius_px"] = config.aperture_radius_px;
+        result["annulus_inner_px"] = config.annulus_inner_px;
+        result["annulus_outer_px"] = config.annulus_outer_px;
+
+        json matrix_json = json::array();
+        for (int r = 0; r < 3; ++r) {
+            matrix_json.push_back(json::array({
+                pcc_result.matrix[r][0],
+                pcc_result.matrix[r][1],
+                pcc_result.matrix[r][2],
+            }));
+        }
+        result["matrix"] = matrix_json;
+
+        if (!pcc_result.success) {
+            result["ok"] = false;
+            result["error"] = pcc_result.error_message;
+            print_json(result);
+            return 1;
+        }
+
+        const fs::path out_path(output_path);
+        if (out_path.has_parent_path()) {
+            fs::create_directories(out_path.parent_path());
+        }
+        io::write_fits_rgb(out_path, rgb.R, rgb.G, rgb.B, rgb.header);
+
+        const fs::path out_dir = out_path.has_parent_path() ? out_path.parent_path() : fs::current_path();
+        const std::string stem = out_path.stem().string().empty() ? "pcc" : out_path.stem().string();
+        const fs::path out_r = out_dir / (stem + "_R.fit");
+        const fs::path out_g = out_dir / (stem + "_G.fit");
+        const fs::path out_b = out_dir / (stem + "_B.fit");
+        io::write_fits_float(out_r, rgb.R, rgb.header);
+        io::write_fits_float(out_g, rgb.G, rgb.header);
+        io::write_fits_float(out_b, rgb.B, rgb.header);
+
+        result["ok"] = true;
+        result["output_rgb"] = out_path.string();
+        result["output_channels"] = json::array({out_r.string(), out_g.string(), out_b.string()});
+        print_json(result);
+        return 0;
+    } catch (const std::exception& e) {
+        result["ok"] = false;
+        result["error"] = e.what();
+        print_json(result);
+        return 1;
+    }
+}
+
 // ============================================================================
 // Main
 // ============================================================================
+static std::string to_lower_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+static bool parse_boolish(const std::string& value) {
+    const std::string lower = to_lower_copy(value);
+    return lower == "1" || lower == "true" || lower == "yes" || lower == "on";
+}
+
 void print_usage() {
     std::cout << "Usage: tile_compile_cli <command> [options]\n"
               << "\nCommands:\n"
@@ -908,6 +1078,7 @@ void print_usage() {
               << "  get-run-logs <run_dir> [--tail N]  Get run logs\n"
               << "  list-artifacts <run_dir>        List artifacts in run directory\n"
               << "  fits-stats <path>               Print basic statistics for a FITS image\n"
+              << "  pcc-run <in> <out> --wcs <wcs> [--source S]  Run full PCC and write corrected RGB FITS\n"
               << "  pcc-apply <in> <out> [--r X] [--g Y] [--b Z]  Apply diagonal PCC matrix to RGB FITS cube\n";
 }
 
@@ -1049,6 +1220,40 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         return cmd_fits_stats(path);
+    }
+
+    if (command == "pcc-run") {
+        std::string in_path = get_positional(0);
+        std::string out_path = get_positional(1);
+        std::string wcs_path = get_arg("--wcs");
+        if (in_path.empty() || out_path.empty() || wcs_path.empty()) {
+            std::cerr << "pcc-run requires <input_rgb_fits> <output_rgb_fits> and --wcs <wcs_file>\n";
+            return 1;
+        }
+        tile_compile::astrometry::PCCConfig cfg;
+        std::string source = get_arg("--source");
+        std::string siril_catalog_dir = get_arg("--siril-catalog-dir");
+        std::string mag_limit_str = get_arg("--mag-limit");
+        std::string mag_bright_limit_str = get_arg("--mag-bright-limit");
+        std::string min_stars_str = get_arg("--min-stars");
+        std::string sigma_clip_str = get_arg("--sigma-clip");
+        std::string aperture_radius_str = get_arg("--aperture-radius-px");
+        std::string annulus_inner_str = get_arg("--annulus-inner-px");
+        std::string annulus_outer_str = get_arg("--annulus-outer-px");
+        std::string apply_attenuation_str = get_arg("--apply-attenuation");
+        std::string chroma_strength_str = get_arg("--chroma-strength");
+        std::string k_max_str = get_arg("--k-max");
+        if (!mag_limit_str.empty()) cfg.mag_limit = std::stod(mag_limit_str);
+        if (!mag_bright_limit_str.empty()) cfg.mag_bright_limit = std::stod(mag_bright_limit_str);
+        if (!min_stars_str.empty()) cfg.min_stars = std::stoi(min_stars_str);
+        if (!sigma_clip_str.empty()) cfg.sigma_clip = std::stod(sigma_clip_str);
+        if (!aperture_radius_str.empty()) cfg.aperture_radius_px = std::stod(aperture_radius_str);
+        if (!annulus_inner_str.empty()) cfg.annulus_inner_px = std::stod(annulus_inner_str);
+        if (!annulus_outer_str.empty()) cfg.annulus_outer_px = std::stod(annulus_outer_str);
+        if (!apply_attenuation_str.empty()) cfg.apply_attenuation = parse_boolish(apply_attenuation_str);
+        if (!chroma_strength_str.empty()) cfg.chroma_strength = std::stod(chroma_strength_str);
+        if (!k_max_str.empty()) cfg.k_max = std::stod(k_max_str);
+        return cmd_pcc_run(in_path, out_path, wcs_path, source, siril_catalog_dir, cfg);
     }
 
     if (command == "pcc-apply") {

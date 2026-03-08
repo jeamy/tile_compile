@@ -463,38 +463,140 @@ def pcc_check_online(request: Request) -> dict[str, Any]:
         return response
 
 
+def _payload_text(payload: dict[str, Any], key: str, *, default: str = "") -> str:
+    value = payload.get(key, default)
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def _payload_float(payload: dict[str, Any], key: str) -> float | None:
+    raw = payload.get(key)
+    if raw is None or raw == "":
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "BAD_REQUEST", "message": f"invalid float for '{key}'"}},
+        ) from exc
+
+
+def _payload_int(payload: dict[str, Any], key: str) -> int | None:
+    raw = payload.get(key)
+    if raw is None or raw == "":
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "BAD_REQUEST", "message": f"invalid integer for '{key}'"}},
+        ) from exc
+
+
+def _payload_bool(payload: dict[str, Any], key: str) -> bool | None:
+    raw = payload.get(key)
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    raise HTTPException(
+        status_code=422,
+        detail={"error": {"code": "BAD_REQUEST", "message": f"invalid boolean for '{key}'"}},
+    )
+
+
+def _download_options_from_payload(payload: dict[str, Any], *, default_timeout_s: int) -> DownloadOptions:
+    retry_count = int(payload.get("retry_count", 2))
+    retry_backoff_s = float(payload.get("retry_backoff_sec", 1.5))
+    resume = bool(payload.get("resume", True))
+    timeout_s = int(payload.get("timeout_s", default_timeout_s))
+    if retry_count < 0:
+        retry_count = 0
+    if timeout_s < 1:
+        timeout_s = default_timeout_s
+    if retry_backoff_s < 0:
+        retry_backoff_s = 0.0
+    return DownloadOptions(
+        timeout_s=timeout_s,
+        retry_count=retry_count,
+        retry_backoff_s=retry_backoff_s,
+        resume=resume,
+    )
+
+
 @router.post("/pcc/run", response_model=JobAccepted, status_code=202)
 def pcc_run(request: Request, payload: dict[str, Any]) -> JobAccepted:
     runtime = request.app.state.runtime
     input_rgb = payload.get("input_rgb")
     output_rgb = payload.get("output_rgb")
-    if not input_rgb or not output_rgb:
+    wcs_file = payload.get("wcs_file")
+    if not input_rgb or not output_rgb or not wcs_file:
         raise HTTPException(
             status_code=400,
-            detail={"error": {"code": "BAD_REQUEST", "message": "input_rgb and output_rgb are required"}},
+            detail={"error": {"code": "BAD_REQUEST", "message": "input_rgb, output_rgb and wcs_file are required"}},
+        )
+
+    source = _payload_text(payload, "source", default="auto").lower() or "auto"
+    if source not in {"auto", "siril", "vizier_gaia", "vizier_apass"}:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "BAD_REQUEST", "message": f"unsupported pcc source '{source}'"}},
         )
 
     try:
         input_rgb = str(runtime.ensure_path_allowed(Path(str(input_rgb)).expanduser(), must_exist=True, label="input_rgb"))
         output_rgb = str(runtime.ensure_path_allowed(Path(str(output_rgb)).expanduser(), label="output_rgb"))
+        wcs_file = str(runtime.ensure_path_allowed(Path(str(wcs_file)).expanduser(), must_exist=True, label="wcs_file"))
+        catalog_dir = _payload_text(payload, "catalog_dir")
+        resolved_catalog_dir = (
+            str(runtime.ensure_path_allowed(Path(catalog_dir).expanduser(), label="catalog_dir"))
+            if catalog_dir
+            else ""
+        )
     except SecurityPolicyError as exc:
         raise http_from_security_error(exc) from exc
 
-    r_scale = float(payload.get("r", 1.0))
-    g_scale = float(payload.get("g", 1.0))
-    b_scale = float(payload.get("b", 1.0))
     cmd = [
         str(runtime.cli_path),
-        "pcc-apply",
+        "pcc-run",
         str(input_rgb),
         str(output_rgb),
-        "--r",
-        str(r_scale),
-        "--g",
-        str(g_scale),
-        "--b",
-        str(b_scale),
+        "--wcs",
+        str(wcs_file),
+        "--source",
+        source,
     ]
+    if resolved_catalog_dir:
+        cmd.extend(["--siril-catalog-dir", resolved_catalog_dir])
+
+    numeric_options = [
+        ("mag_limit", "--mag-limit", _payload_float(payload, "mag_limit")),
+        ("mag_bright_limit", "--mag-bright-limit", _payload_float(payload, "mag_bright_limit")),
+        ("min_stars", "--min-stars", _payload_int(payload, "min_stars")),
+        ("sigma_clip", "--sigma-clip", _payload_float(payload, "sigma_clip")),
+        ("aperture_radius_px", "--aperture-radius-px", _payload_float(payload, "aperture_radius_px")),
+        ("annulus_inner_px", "--annulus-inner-px", _payload_float(payload, "annulus_inner_px")),
+        ("annulus_outer_px", "--annulus-outer-px", _payload_float(payload, "annulus_outer_px")),
+        ("chroma_strength", "--chroma-strength", _payload_float(payload, "chroma_strength")),
+        ("k_max", "--k-max", _payload_float(payload, "k_max")),
+    ]
+    for _name, option, value in numeric_options:
+        if value is None:
+            continue
+        cmd.extend([option, str(value)])
+
+    apply_attenuation = _payload_bool(payload, "apply_attenuation")
+    if apply_attenuation is not None:
+        cmd.extend(["--apply-attenuation", "1" if apply_attenuation else "0"])
+
     job = request.app.state.job_store.create("pcc_run", {"payload": payload, "command": cmd})
     request.app.state.job_store.set_state(job.job_id, "running")
     launch_background_command(
@@ -509,7 +611,13 @@ def pcc_run(request: Request, payload: dict[str, Any]) -> JobAccepted:
         event="tools.pcc.run",
         source="tools.pcc_run",
         job_id=job.job_id,
-        payload={"input_rgb": str(input_rgb), "output_rgb": str(output_rgb)},
+        payload={
+            "input_rgb": str(input_rgb),
+            "output_rgb": str(output_rgb),
+            "wcs_file": str(wcs_file),
+            "source": source,
+            "catalog_dir": resolved_catalog_dir,
+        },
     )
     return JobAccepted(job_id=job.job_id, state="running")
 
@@ -656,6 +764,7 @@ def _set_download_progress(request: Request, job_id: str, received: int, total: 
     if _is_job_cancelled(request, job_id):
         raise DownloadAborted()
 
+
 def _set_download_state(request: Request, job_id: str, patch: dict[str, Any]) -> None:
     request.app.state.job_store.merge_data(job_id, patch)
     if _is_job_cancelled(request, job_id):
@@ -718,22 +827,3 @@ def _is_job_cancelled(request: Request, job_id: str) -> bool:
 
 class _JobCancelled(RuntimeError):
     pass
-
-
-def _download_options_from_payload(payload: dict[str, Any], *, default_timeout_s: int) -> DownloadOptions:
-    retry_count = int(payload.get("retry_count", 2))
-    retry_backoff_s = float(payload.get("retry_backoff_sec", 1.5))
-    resume = bool(payload.get("resume", True))
-    timeout_s = int(payload.get("timeout_s", default_timeout_s))
-    if retry_count < 0:
-        retry_count = 0
-    if timeout_s < 1:
-        timeout_s = default_timeout_s
-    if retry_backoff_s < 0:
-        retry_backoff_s = 0.0
-    return DownloadOptions(
-        timeout_s=timeout_s,
-        retry_count=retry_count,
-        retry_backoff_s=retry_backoff_s,
-        resume=resume,
-    )

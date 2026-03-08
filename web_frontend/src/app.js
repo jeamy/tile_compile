@@ -1,4 +1,5 @@
 import { ApiClient } from "./api.js";
+import { API_ENDPOINTS } from "./constants.js";
 
 const api = new ApiClient(localStorage.getItem("gui2.backendBase") || "");
 const CONFIG_DRAFT_KEY = "gui2.configYamlDraft";
@@ -18,6 +19,8 @@ const uiState = {
   liveFilter: "all",
   lastAstrometryWcs: "",
   lastPccOutput: "",
+  lastPccChannels: [],
+  lastPccResult: null,
   locale: localStorage.getItem(LOCALE_KEY) || "de",
   projectRunsDir: "",
 };
@@ -49,6 +52,7 @@ const PARAM_ID_PATHS = {
   "parameter-cal-use-dark": "calibration.use_dark",
   "parameter-cal-darks-dir": "calibration.darks_dir",
   "parameter-cal-use-flat": "calibration.use_flat",
+  "parameter-cal-flats-dir": "calibration.flats_dir",
   "parameter-ass-pipeline-profile": "assumptions.pipeline_profile",
   "parameter-ass-frames-min": "assumptions.frames_min",
   "parameter-ass-frames-optimal": "assumptions.frames_optimal",
@@ -435,6 +439,14 @@ function deriveOutputPath(inputPath, suffix) {
   return `${s.slice(0, idx)}${suffix}${s.slice(idx)}`;
 }
 
+function parentDirOfPath(pathValue) {
+  const s = String(pathValue || "").trim();
+  if (!s) return "";
+  const slash = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
+  if (slash <= 0) return "";
+  return s.slice(0, slash);
+}
+
 function ensureRunIdFromHeader() {
   if (uiState.currentRunId) return uiState.currentRunId;
   const sub = document.querySelector(".app-content .ps-sub");
@@ -780,9 +792,7 @@ async function bindParameterStudio() {
       setConfigDraft(uiState.configYaml);
       uiState.parameterDirty = {};
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
-      if (parsed?.config) {
-        syncParameterFieldsFromConfig(parsed.config);
-      }
+      if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
       setParameterPreview(uiState.configYaml);
       setFooter("YAML aus Backend synchronisiert.");
     } catch (err) {
@@ -802,9 +812,7 @@ async function bindParameterStudio() {
       setConfigDraft(uiState.configYaml);
       uiState.parameterDirty = {};
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
-      if (parsed?.config) {
-        syncParameterFieldsFromConfig(parsed.config);
-      }
+      if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
       setParameterPreview(String(parsed?.config_yaml || uiState.configYaml));
       setFooter("Preset angewendet.");
     } catch (err) {
@@ -1051,7 +1059,7 @@ async function bindRunMonitor() {
         const killedPids = Array.isArray(result.killed_pids) ? result.killed_pids.length : 0;
         setFooter(`Stop gesendet. Jobs beendet: ${stoppedJobs}, verwaiste Prozesse beendet: ${killedPids}.`);
       } else {
-        setFooter("Kein laufender Job/Prozess für diesen Run gefunden.", true);
+        setFooter("Kein laufender Job/Prozess fuer diesen Run gefunden.", true);
       }
       await loadRunStatus(uiState.currentRunId);
     } catch (err) {
@@ -1297,12 +1305,58 @@ async function bindPccPage() {
   const logBox = findLogBoxBySectionTitle("Result + Log");
   const statusField = document.querySelector("[data-control='tools.pcc.siril_status']");
 
+  const missingField = $("tools-pcc-missing-chunks");
+  const starsMatchedField = $("tools-pcc-stars-matched");
+  const starsUsedField = $("tools-pcc-stars-used");
+  const residualField = $("tools-pcc-residual-rms");
+  const matrixField = $("tools-pcc-matrix");
+
   const append = (msg) => appendLine(logBox, typeof msg === "string" ? msg : JSON.stringify(msg));
+  const setInputValue = (el, value) => {
+    if (!el) return;
+    el.value = value === null || value === undefined ? "" : String(value);
+  };
+  const readNumber = (id) => {
+    const raw = String($(id)?.value || "").trim();
+    return raw === "" ? undefined : Number(raw);
+  };
+  const readInteger = (id) => {
+    const raw = String($(id)?.value || "").trim();
+    return raw === "" ? undefined : parseInt(raw, 10);
+  };
+  const formatMatrix = (matrix) => {
+    if (!Array.isArray(matrix)) return "-";
+    return matrix
+      .map((row) => (Array.isArray(row) ? `[${row.map((value) => Number(value).toFixed(6)).join(", ")}]` : ""))
+      .filter(Boolean)
+      .join("\n") || "-";
+  };
+  const applyPccResult = (payload) => {
+    if (!payload || typeof payload !== "object") return;
+    setInputValue(starsMatchedField, payload.stars_matched ?? payload.n_stars_matched ?? "");
+    setInputValue(starsUsedField, payload.stars_used ?? payload.n_stars_used ?? "");
+    setInputValue(residualField, payload.residual_rms ?? "");
+    setInputValue(matrixField, formatMatrix(payload.matrix));
+    if (payload.output_rgb) {
+      uiState.lastPccOutput = String(payload.output_rgb);
+    }
+    if (Array.isArray(payload.output_channels)) {
+      uiState.lastPccChannels = payload.output_channels.map((item) => String(item));
+    }
+    uiState.lastPccResult = payload;
+  };
 
   const refreshStatus = async () => {
     const catalogDir = $("tools-pcc-catalog-dir")?.value || "";
-    const status = await api.get(`/api/tools/pcc/siril/status?catalog_dir=${encodeURIComponent(catalogDir)}`);
+    const status = await withPathGrantRetry(
+      () => api.get(API_ENDPOINTS.pcc.sirilStatus(catalogDir)),
+      { fallbackPath: catalogDir },
+    );
     if (statusField) statusField.value = `${status.installed}/${status.total} installiert`;
+    if (missingField) missingField.value = String(Array.isArray(status.missing) ? status.missing.length : "");
+    if (status.catalog_dir && !String($("tools-pcc-catalog-dir")?.value || "").trim()) {
+      setInputValue($("tools-pcc-catalog-dir"), status.catalog_dir);
+    }
     append(status);
   };
 
@@ -1314,9 +1368,11 @@ async function bindPccPage() {
 
   document.querySelector("[data-control='tools.pcc.download_missing']")?.addEventListener("click", async () => {
     try {
-      const accepted = await api.post("/api/tools/pcc/siril/download-missing", {
-        catalog_dir: $("tools-pcc-catalog-dir")?.value || "",
-      });
+      const catalogDir = $("tools-pcc-catalog-dir")?.value || "";
+      const accepted = await withPathGrantRetry(
+        () => api.post(API_ENDPOINTS.pcc.downloadMissing, { catalog_dir: catalogDir }),
+        { fallbackPath: catalogDir },
+      );
       append(accepted);
       const job = await waitForJob(accepted.job_id, { onTick: (j) => append({ state: j.state, current_chunk: j.data?.current_chunk }) });
       append(job);
@@ -1328,7 +1384,7 @@ async function bindPccPage() {
 
   document.querySelector("[data-control='tools.pcc.cancel_download']")?.addEventListener("click", async () => {
     try {
-      const result = await api.post("/api/tools/pcc/siril/cancel", {});
+      const result = await api.post(API_ENDPOINTS.pcc.cancelDownload, {});
       append(result);
     } catch (err) {
       setFooter(`PCC Cancel fehlgeschlagen: ${errorText(err)}`, true);
@@ -1337,7 +1393,7 @@ async function bindPccPage() {
 
   document.querySelector("[data-control='tools.pcc.check_online']")?.addEventListener("click", async () => {
     try {
-      const result = await api.post("/api/tools/pcc/check-online", {});
+      const result = await api.post(API_ENDPOINTS.pcc.checkOnline, {});
       append(result);
       setFooter(result.ok ? `Online source OK (${result.latency_ms} ms)` : "Online source nicht erreichbar.", !result.ok);
     } catch (err) {
@@ -1350,17 +1406,36 @@ async function bindPccPage() {
       const input = $("tools-pcc-rgb")?.value || "";
       const defaultOutput = deriveOutputPath(input, "_pcc");
       const output = window.prompt("Output RGB FITS Pfad:", defaultOutput) || defaultOutput;
-      const accepted = await api.post("/api/tools/pcc/run", {
+      const payload = {
         input_rgb: input,
         output_rgb: output,
-        r: 1.0,
-        g: 1.0,
-        b: 1.0,
-      });
-      uiState.lastPccOutput = output;
+        wcs_file: $("tools-pcc-wcs")?.value || "",
+        source: $("tools-pcc-source")?.value || "siril",
+        catalog_dir: $("tools-pcc-catalog-dir")?.value || "",
+        mag_limit: readNumber("tools-pcc-mag-limit"),
+        mag_bright_limit: readNumber("tools-pcc-mag-bright"),
+        min_stars: readInteger("tools-pcc-min-stars"),
+        sigma_clip: readNumber("tools-pcc-sigma"),
+        aperture_radius_px: readNumber("tools-pcc-aperture"),
+        annulus_inner_px: readNumber("tools-pcc-annulus-in"),
+        annulus_outer_px: readNumber("tools-pcc-annulus-out"),
+      };
+      const accepted = await withPathGrantRetry(
+        () => api.post(API_ENDPOINTS.pcc.run, payload),
+        { fallbackPath: input || payload.wcs_file || payload.catalog_dir || parentDirOfPath(output) },
+      );
       append(accepted);
       const job = await waitForJob(accepted.job_id);
+      const jobResult = job?.data?.result;
+      if (jobResult) {
+        applyPccResult(jobResult);
+        append(jobResult);
+      }
       append(job);
+      if (String(job?.state || "") !== "ok") {
+        throw new Error(jobResult?.error || job?.data?.stderr || "PCC job failed");
+      }
+      setFooter(`PCC abgeschlossen: ${jobResult?.stars_used ?? "-"} Sterne genutzt.`);
     } catch (err) {
       setFooter(`Run PCC fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -1369,7 +1444,10 @@ async function bindPccPage() {
   document.querySelector("[data-control='tools.pcc.save_corrected']")?.addEventListener("click", async () => {
     try {
       const output = uiState.lastPccOutput || $("tools-pcc-rgb")?.value || "";
-      const result = await api.post("/api/tools/pcc/save-corrected", { output_rgb: output });
+      const result = await withPathGrantRetry(
+        () => api.post(API_ENDPOINTS.pcc.saveCorrected, { output_rgb: output, output_channels: uiState.lastPccChannels }),
+        { fallbackPath: output },
+      );
       append(result);
       setFooter(`Save Corrected: ${result.output_rgb || "-"}`);
     } catch (err) {
