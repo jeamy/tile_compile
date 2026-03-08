@@ -162,9 +162,17 @@ function setFooter(text, isError = false) {
   el.style.color = isError ? "#b91c1c" : "";
 }
 
-function setRunReady(status) {
+function setRunReady(status, runStatus = "") {
   const chip = $("status-run-ready");
   if (!chip) return;
+  const runNormalized = String(runStatus || "").toLowerCase();
+  if (["running", "queued", "starting"].includes(runNormalized)) {
+    chip.textContent = t("ui.status.run_ready_running", "Run Running");
+    chip.style.background = "#dbeafe";
+    chip.style.borderColor = "#bfdbfe";
+    chip.style.color = "#1d4ed8";
+    return;
+  }
   const normalized = String(status || "check").toLowerCase();
   chip.textContent = normalized === "ok"
     ? t("ui.status.run_ready_ok", "Run Ready")
@@ -469,18 +477,24 @@ function summarizeScanResult(raw, fallbackInputPath = "") {
 
 function renderScanSummary(prefix, summary) {
   const data = summarizeScanResult(summary);
-  const status = !data.has_scan ? "Kein Scan" : data.ok ? "OK" : data.errors.length > 0 ? "ERROR" : "CHECK";
+  const status = !data.has_scan
+    ? t("ui.status.scan_none", "Kein Scan")
+    : data.ok
+      ? t("ui.status.scan_ok", "OK")
+      : data.errors.length > 0
+        ? t("ui.status.scan_error", "ERROR")
+        : t("ui.status.scan_check", "CHECK");
   const sizeText =
-    data.image_width > 0 && data.image_height > 0 ? `${data.image_width} x ${data.image_height}` : "unbekannt";
+    data.image_width > 0 && data.image_height > 0 ? `${data.image_width} x ${data.image_height}` : t("ui.value.unknown_size", "unbekannt");
   const candidates = data.color_mode_candidates.length > 0 ? data.color_mode_candidates.join(", ") : "-";
   setText($(`${prefix}-status`), status);
   setText($(`${prefix}-input-path`), data.input_path || "-");
   setText($(`${prefix}-frames`), String(data.frames_detected));
-  setText($(`${prefix}-color-mode`), data.color_mode || "UNKNOWN");
+  setText($(`${prefix}-color-mode`), data.color_mode || t("ui.value.unknown_color_mode", "UNKNOWN"));
   setText($(`${prefix}-candidates`), candidates);
   setText($(`${prefix}-size`), sizeText);
   setText($(`${prefix}-bayer`), data.bayer_pattern || "-");
-  setText($(`${prefix}-confirm`), data.requires_user_confirmation ? "ja" : "nein");
+  setText($(`${prefix}-confirm`), data.requires_user_confirmation ? t("ui.value.yes", "ja") : t("ui.value.no", "nein"));
   setText($(`${prefix}-errors`), String(data.errors.length));
   setText($(`${prefix}-warnings`), String(data.warnings.length));
   return data;
@@ -608,7 +622,7 @@ async function initGlobalState() {
       api.get(API_ENDPOINTS.guardrails.root),
       api.get(API_ENDPOINTS.app.state),
     ]);
-    setRunReady(guardrails?.status || "check");
+    setRunReady(guardrails?.status || "check", appState?.run?.current?.status || "");
     const rid = String(appState?.project?.current_run_id || "").trim();
     if (rid) setCurrentRunId(rid);
     else clearCurrentRunId();
@@ -1211,11 +1225,14 @@ async function bindRunMonitor() {
 
   const startBtn = $("monitor-start");
   const stopBtn = $("monitor-stop");
+  const statsGenerateBtn = $("monitor-stats-generate");
+  const statsOpenFolderBtn = $("monitor-stats-open-folder");
   const sub = document.querySelector(".app-content .ps-sub");
   const updateResumeEnabled = () => {
     const phase = runMonitorSelectedPhase();
     const revisionId = $("monitor-resume-config-revision")?.value || "";
     setDisabledLike($("monitor-resume"), !uiState.currentRunId || !phase || !revisionId);
+    setDisabledLike($("monitor-resume-restore-revision"), !revisionId);
   };
   document.querySelectorAll(".ps-phase-row").forEach((row) => {
     row.addEventListener("click", () => {
@@ -1236,7 +1253,11 @@ async function bindRunMonitor() {
     const title = sec.querySelector(".ps-section-title");
     return title && String(title.textContent || "").trim() === "Artefakte";
   });
-  const artifactList = artifactSection?.querySelector("ul.ps-list") || null;
+  const artifactList = $("monitor-artifact-list") || artifactSection?.querySelector("ul.ps-list") || null;
+  const artifactViewer = $("monitor-artifact-viewer");
+  const artifactViewerTitle = $("monitor-artifact-viewer-title");
+  const artifactViewerBody = $("monitor-artifact-viewer-body");
+  const artifactViewerClose = $("monitor-artifact-viewer-close");
   const formatBytes = (sizeRaw) => {
     const size = Number(sizeRaw);
     if (!Number.isFinite(size) || size < 0) return "-";
@@ -1245,9 +1266,61 @@ async function bindRunMonitor() {
     if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
     return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
+  const isDisplayArtifact = (item) => {
+    const filename = String(item?.filename || item?.relative_path || item?.path || "").trim();
+    if (!filename) return false;
+    if (/\.(fit|fits)$/i.test(filename)) return false;
+    if (/^frame_\d+\.(fit|fits)$/i.test(filename)) return false;
+    if (/(^|\/|\\)frame_\d+\.(fit|fits)$/i.test(String(item?.path || ""))) return false;
+    return true;
+  };
+  const formatArtifactContent = (payload) => {
+    if (payload?.is_json && payload?.json !== null && payload?.json !== undefined) {
+      return JSON.stringify(payload.json, null, 2);
+    }
+    const filename = String(payload?.filename || "").toLowerCase();
+    const text = String(payload?.text || "");
+    if (filename.endsWith(".jsonl")) {
+      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      try {
+        return JSON.stringify(lines.map((line) => JSON.parse(line)), null, 2);
+      } catch {
+        return text;
+      }
+    }
+    try {
+      return JSON.stringify(JSON.parse(text), null, 2);
+    } catch {
+      return text;
+    }
+  };
+  const closeArtifactViewer = () => {
+    if (!artifactViewer) return;
+    artifactViewer.hidden = true;
+  };
+  const openArtifactViewer = async (path, title) => {
+    if (!uiState.currentRunId || !artifactViewer || !artifactViewerBody) return;
+    artifactViewer.hidden = false;
+    if (artifactViewerTitle) artifactViewerTitle.textContent = title || "Artefakt";
+    artifactViewerBody.textContent = "Lade Artefakt ...";
+    try {
+      const payload = await api.get(API_ENDPOINTS.runs.artifactView(uiState.currentRunId, path));
+      if (artifactViewerTitle) artifactViewerTitle.textContent = String(payload?.filename || title || "Artefakt");
+      artifactViewerBody.textContent = formatArtifactContent(payload);
+    } catch (err) {
+      artifactViewerBody.textContent = `Artefakt konnte nicht geladen werden:\n${errorText(err)}`;
+    }
+  };
+  artifactViewerClose?.addEventListener("click", closeArtifactViewer);
+  artifactViewer?.addEventListener("click", (ev) => {
+    if (ev.target === artifactViewer) closeArtifactViewer();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") closeArtifactViewer();
+  });
   const renderArtifacts = (items) => {
     if (!artifactList) return;
-    const artifacts = Array.isArray(items) ? items : [];
+    const artifacts = (Array.isArray(items) ? items : []).filter(isDisplayArtifact);
     if (artifacts.length === 0) {
       artifactList.innerHTML = "<li><button>Keine Artefakte gefunden</button></li>";
       return;
@@ -1256,15 +1329,18 @@ async function bindRunMonitor() {
       .slice(0, 50)
       .map((item) => {
         const filename = String(item?.filename || item?.relative_path || item?.path || "artifact");
-        const fullPath = String(item?.path || "");
         const relativePath = String(item?.relative_path || filename);
+        const artifactPath = String(item?.relative_path || item?.filename || item?.path || "");
         const sizeText = formatBytes(item?.size_bytes);
-        return `<li><button data-artifact-path="${fullPath.replace(/"/g, "&quot;")}" title="${relativePath}">${filename} (${sizeText})</button></li>`;
+        return `<li><button data-artifact-path="${artifactPath.replace(/"/g, "&quot;")}" title="${relativePath}">${filename} (${sizeText})</button></li>`;
       })
       .join("");
     artifactList.querySelectorAll("button[data-artifact-path]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        setFooter(`Artefakt: ${btn.getAttribute("data-artifact-path") || "-"}`);
+        void openArtifactViewer(
+          btn.getAttribute("data-artifact-path") || "",
+          btn.textContent || btn.getAttribute("title") || "Artefakt",
+        );
       });
     });
   };
@@ -1277,8 +1353,11 @@ async function bindRunMonitor() {
     renderArtifacts(result?.items || []);
   };
   const setMonitorActionState = (isActive) => {
+    const hasRun = Boolean(String(uiState.currentRunId || "").trim());
     setDisabledLike(startBtn, isActive);
     setDisabledLike(stopBtn, !isActive);
+    setDisabledLike(statsGenerateBtn, isActive || !hasRun);
+    setDisabledLike(statsOpenFolderBtn, isActive || !hasRun);
   };
   const resetPhaseRows = () => {
     document.querySelectorAll(".ps-phase-row").forEach((row) => {
@@ -1386,6 +1465,13 @@ async function bindRunMonitor() {
 
   $("monitor-stats-generate")?.addEventListener("click", async () => {
     try {
+      const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} } }));
+      const currentStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
+      if (["running", "queued", "starting"].includes(currentStatus)) {
+        setMonitorActionState(true);
+        setFooter("Stats erst nach beendetem Run verfuegbar.", true);
+        return;
+      }
       const accepted = await api.post(API_ENDPOINTS.runs.stats(uiState.currentRunId), {
         run_dir: uiState.currentRunDir || undefined,
       });
@@ -1399,6 +1485,13 @@ async function bindRunMonitor() {
 
   $("monitor-stats-open-folder")?.addEventListener("click", async () => {
     try {
+      const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} } }));
+      const currentStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
+      if (["running", "queued", "starting"].includes(currentStatus)) {
+        setMonitorActionState(true);
+        setFooter("Stats-Ordner erst nach beendetem Run verfuegbar.", true);
+        return;
+      }
       const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId));
       setFooter(`Stats-Ordner: ${status.output_dir || "-"}`);
     } catch (err) {
@@ -2235,7 +2328,7 @@ async function bindDashboard() {
       api.get(API_ENDPOINTS.scan.latest),
       api.get(API_ENDPOINTS.app.state),
     ]);
-    setRunReady(guardrails?.status || "check");
+    setRunReady(guardrails?.status || "check", appState?.run?.current?.status || "");
     const summary = summarizeScanResult(
       latestScan?.has_scan ? latestScan : quality?.scan || {},
       String($("dashboard-input-dirs")?.value || "").trim(),
@@ -2307,17 +2400,22 @@ async function bindDashboard() {
 
     $("dashboard-run-start")?.addEventListener("click", async (ev) => {
       ev.preventDefault();
+      const runStartButton = $("dashboard-run-start");
       try {
+        setDisabledLike(runStartButton, true);
         const latestGuardrails = await api.get(API_ENDPOINTS.guardrails.root);
         if (String(latestGuardrails?.status || "").toLowerCase() === "error") {
+          setDisabledLike(runStartButton, false);
           setFooter("Run blockiert: Guardrail-Status ist ERROR.", true);
           return;
         }
         const accepted = await startRunFromCurrentForm({ source: "dashboard" });
         setCurrentRunId(accepted?.run_id || uiState.currentRunId);
+        setRunReady(latestGuardrails?.status || "check", "running");
         setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
         window.location.href = "run-monitor.html";
       } catch (err) {
+        setDisabledLike(runStartButton, false);
         setFooter(`Run-Start fehlgeschlagen: ${errorText(err)}`, true);
       }
     });
@@ -2359,7 +2457,8 @@ async function bindDashboard() {
         renderScanSummary("dashboard-scan", summary2);
         applyDetectedColorModeToSelect($("dashboard-color-mode"), summary2);
         applyDetectedColorModeToSelect($("inp-colormode"), summary2);
-        setRunReady(guardrails2?.status || "check");
+        const appState2 = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
+        setRunReady(guardrails2?.status || "check", appState2?.run?.current?.status || "");
         const scanCheck2 = (guardrails2?.checks || []).find((c) => c.id === "scan_ok");
         const warnCheck2 = (guardrails2?.checks || []).find((c) => c.id === "scan_warnings");
         const colorModeCheck2 = (guardrails2?.checks || []).find((c) => c.id === "color_mode");
@@ -2373,7 +2472,6 @@ async function bindDashboard() {
           colorModeCheck2?.status || warnCheck2?.status || "check",
           colorModeCheck2?.label || "Color mode bestaetigen",
         );
-        const appState2 = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
         renderDashboardLastRunKpi(appState2);
         await renderDashboardDerivedGuardrails(appState2);
         if (String(job?.state) === "missing") {

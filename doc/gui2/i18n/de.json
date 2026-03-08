@@ -129,7 +129,7 @@
   "ui.button.set_current": "Als aktuellen Run setzen",
   "ui.button.situation": "Situation",
   "ui.button.solve": "Lösen",
-  "ui.button.start_wizard": "Neuer geführter Run",
+  "ui.button.start_wizard": "Wizard",
   "ui.button.stop": "Stop",
   "ui.button.validate": "Validieren",
   "ui.button.yaml_sync": "YAML sync",

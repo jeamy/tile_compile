@@ -375,7 +375,7 @@ Hinweis: Einzelzeilen wie `parameter.registration.*` sind Kernbeispiele; die Vol
 8. `run.run_name` ungueltig (leerer/unerlaubter Dateiname).
 9. Ausgewaehlte Config-Revision fuer Resume nicht mehr aufloesbar.
 
-## 6) Stats-Button Implementierung (Run Monitor unter Live Log)
+## 6) Stats-Button Implementierung 
 
 ## 6.1 Trigger-Regel
 

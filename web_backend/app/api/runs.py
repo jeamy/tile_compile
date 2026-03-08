@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import signal
@@ -83,6 +84,54 @@ def run_artifacts(run_id: str, request: Request, runs_dir: str | None = None) ->
     if result.exit_code != 0 or not isinstance(result.parsed_json, dict):
         raise _http_502("list-artifacts failed", result)
     return {"items": result.parsed_json.get("artifacts", [])}
+
+
+@router.get("/{run_id}/artifacts/view")
+def run_artifact_view(run_id: str, path: str, request: Request, runs_dir: str | None = None) -> dict[str, Any]:
+    runtime = request.app.state.runtime
+    raw_path = str(path or "").strip()
+    if not raw_path:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "BAD_REQUEST", "message": "path is required"}},
+        )
+    try:
+        run_dir = runtime.resolve_run_dir(run_id, runs_dir)
+        run_dir_resolved = run_dir.resolve(strict=False)
+        candidate = (run_dir / raw_path).resolve(strict=False) if not Path(raw_path).is_absolute() else Path(raw_path).expanduser().resolve(strict=False)
+        if run_dir_resolved not in candidate.parents and candidate != run_dir_resolved:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": {"code": "ARTIFACT_PATH_INVALID", "message": "artifact path must stay inside run directory"}},
+            )
+        checked = runtime.ensure_path_allowed(candidate, must_exist=True, label="artifact_path")
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
+    if not checked.is_file():
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "ARTIFACT_NOT_FILE", "message": "artifact path is not a file"}},
+        )
+    try:
+        text = checked.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "ARTIFACT_READ_FAILED", "message": str(exc)}}
+        ) from exc
+    text = text[:400000]
+    parsed_json = None
+    try:
+        parsed_json = json.loads(text)
+    except Exception:
+        parsed_json = None
+    return {
+        "path": str(checked),
+        "filename": checked.name,
+        "is_json": parsed_json is not None,
+        "json": parsed_json,
+        "text": text,
+    }
 
 
 @router.post("/start", status_code=202)

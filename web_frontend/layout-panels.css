@@ -255,6 +255,59 @@
   font-size: 14px;
 }
 
+.ps-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.ps-modal-backdrop[hidden] {
+  display: none;
+}
+
+.ps-modal-card {
+  width: min(720px, 92vw);
+  max-height: 82vh;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  display: flex;
+  flex-direction: column;
+}
+
+.ps-modal-card-wide {
+  width: min(980px, 94vw);
+}
+
+.ps-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ps-modal-code {
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #e5edf6;
+  background: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .ps-inline-cluster {
   display: flex;
   align-items: center;

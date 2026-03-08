@@ -117,7 +117,7 @@ GUI-2-Zielstruktur:
 | Current run | Run Monitor + History Detail | Refresh/Resume/Report in einheitlichem Detailpanel |
 | Run history | History | Vergleichsfaehige Tabelle mit Schnellaktionen |
 | Astrometry + PCC | History + Tools | Tool-Bereich im selben Kontext wie Run-Historie |
-| Stats | Run Monitor (unter Live Log) | Operative Report-Erzeugung ohne Screenwechsel |
+| Stats | Run Monitor | Operative Report-Erzeugung ohne Screenwechsel |
 | Live log | Run Monitor (und optional Drawer) | Logfilter, Tail, Event-Highlights, direkt gekoppelt mit Stats |
 
 ## Visuelle Leitplanken

@@ -76,7 +76,7 @@
             </div>
 
             <div class="ps-section">
-              <div class="ps-section-title">Stats (unter Live Log)</div>
+              <div class="ps-section-title">Stats</div>
               <div class="ps-note" style="margin-bottom:10px;">Script-Pfad wird zur Laufzeit aufgeloest: <code>TILE_COMPILE_STATS_SCRIPT</code> / gui2.json / relativer Fallback.</div>
               <div class="ps-actions" style="margin-top:0;">
                 <button id="monitor-stats-generate" data-control="monitor.stats.generate" class="ps-btn" title="Report fuer den aktiven Run erzeugen.">Generate Stats</button>
@@ -105,7 +105,7 @@
 
             <div class="ps-section">
               <div class="ps-section-title">Artefakte</div>
-              <ul class="ps-list">
+              <ul id="monitor-artifact-list" class="ps-list">
                 <li><button title="run_events.jsonl anzeigen.">run_events.jsonl (324 KB)</button></li>
                 <li><button title="reconstructed_R.fit anzeigen.">reconstructed_R.fit (98 MB)</button></li>
                 <li><button title="reconstructed_G.fit anzeigen.">reconstructed_G.fit (97 MB)</button></li>
@@ -119,6 +119,16 @@
             </div>
           </aside>
         </div>
+      </div>
+    </div>
+
+    <div id="monitor-artifact-viewer" class="ps-modal-backdrop" hidden>
+      <div class="ps-modal-card ps-modal-card-wide">
+        <div class="ps-modal-head">
+          <strong id="monitor-artifact-viewer-title">Artefakt</strong>
+          <button id="monitor-artifact-viewer-close" class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Schließen</button>
+        </div>
+        <pre id="monitor-artifact-viewer-body" class="ps-modal-code">{}</pre>
       </div>
     </div>
 

@@ -47,25 +47,25 @@
         </div>
 
         <div class="ps-section">
-          <div style="font-size:20px;font-weight:700;margin-bottom:10px;">Letzter Input-Scan</div>
+          <div style="font-size:20px;font-weight:700;margin-bottom:10px;" data-i18n="page.dashboard.last_scan">Letzter Input-Scan</div>
           <div class="ps-kv">
-            <strong>Status</strong><span id="dashboard-scan-status">-</span>
-            <strong>Input Path</strong><span id="dashboard-scan-input-path">-</span>
-            <strong>Frames entdeckt</strong><span id="dashboard-scan-frames">0</span>
-            <strong>Color Mode</strong><span id="dashboard-scan-color-mode">UNKNOWN</span>
-            <strong>Mode Kandidaten</strong><span id="dashboard-scan-candidates">-</span>
-            <strong>Bildgroesse</strong><span id="dashboard-scan-size">0 x 0</span>
-            <strong>Bayer Pattern</strong><span id="dashboard-scan-bayer">-</span>
-            <strong>User-Bestaetigung</strong><span id="dashboard-scan-confirm">nein</span>
-            <strong>Fehler</strong><span id="dashboard-scan-errors">0</span>
-            <strong>Warnungen</strong><span id="dashboard-scan-warnings">0</span>
+            <strong data-i18n="ui.field.status">Status</strong><span id="dashboard-scan-status">-</span>
+            <strong data-i18n="ui.field.input_path">Input Path</strong><span id="dashboard-scan-input-path">-</span>
+            <strong data-i18n="page.dashboard.kpi.frames_detected">Frames entdeckt</strong><span id="dashboard-scan-frames">0</span>
+            <strong data-i18n="ui.field.color_mode">Color Mode</strong><span id="dashboard-scan-color-mode">UNKNOWN</span>
+            <strong data-i18n="ui.field.mode_candidates">Mode Kandidaten</strong><span id="dashboard-scan-candidates">-</span>
+            <strong data-i18n="ui.field.image_size">Bildgroesse</strong><span id="dashboard-scan-size">0 x 0</span>
+            <strong data-i18n="ui.field.bayer_pattern">Bayer Pattern</strong><span id="dashboard-scan-bayer">-</span>
+            <strong data-i18n="ui.field.user_confirmation">User-Bestaetigung</strong><span id="dashboard-scan-confirm">nein</span>
+            <strong data-i18n="ui.field.errors">Fehler</strong><span id="dashboard-scan-errors">0</span>
+            <strong data-i18n="ui.field.warnings">Warnungen</strong><span id="dashboard-scan-warnings">0</span>
           </div>
         </div>
 
         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-bottom:20px;">
           <div class="ps-section">
-            <div style="font-size:20px;font-weight:700;margin-bottom:8px;">Guided Run</div>
-            <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">1) Input/Run-Ziel  2) Preset + Parameter  3) Validieren  4) Batch starten</div>
+            <div style="font-size:20px;font-weight:700;margin-bottom:8px;" data-i18n="page.dashboard.guided_run">Run</div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:16px;" data-i18n="page.dashboard.guided_steps">1) Input/Run-Ziel  2) Preset + Parameter  3) Validieren  4) Batch starten</div>
             <div class="ps-chip-row" style="margin-bottom:12px;">
               <button id="dashboard-guided-mode-simple" data-control="dashboard.guided.mode_simple" data-i18n="ui.mode.simple" data-i18n-title="ui.tooltip.dashboard.guided_mode_simple" class="ps-chip-btn active" type="button" title="Einfacher Modus: nur Kernfelder anzeigen.">Einfach</button>
               <button id="dashboard-guided-mode-advanced" data-control="dashboard.guided.mode_advanced" data-i18n="ui.mode.advanced" data-i18n-title="ui.tooltip.dashboard.guided_mode_advanced" class="ps-chip-btn" type="button" title="Erweiterter Modus: Runs Dir, Name, Preview und MONO-Queue anzeigen.">Erweitert</button>
@@ -73,23 +73,25 @@
             </div>
             
             <div class="ps-row">
-              <label data-i18n="ui.field.input_dirs">Input Dirs</label>
+              <label id="dashboard-label-input-dirs" data-i18n="ui.field.input_dirs">Input Dirs</label>
               <div class="ps-inline-cluster">
                 <input id="dashboard-input-dirs" data-control="dashboard.input_dirs" data-i18n-title="ui.tooltip.dashboard.input_dirs" class="ps-input ps-wide" type="text" value="" title="Input-Ordner fuer Guided Run setzen.">
                 <button class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.browse" type="button">Browse…</button>
               </div>
             </div>
-            <div class="ps-row guided-advanced">
-              <label data-i18n="ui.field.runs_dir">Runs Dir</label>
+            <div class="ps-row">
+              <label id="dashboard-label-runs-dir" data-i18n="ui.field.runs_dir">Runs Dir</label>
               <div class="ps-inline-cluster">
                 <input id="dashboard-run-runs-dir" data-control="dashboard.run.runs_dir" data-i18n-title="ui.tooltip.dashboard.runs_dir" class="ps-input ps-wide" type="text" value="" title="Run-Ausgabeordner waehlen.">
                 <button class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.browse" type="button">Browse…</button>
               </div>
             </div>
             <div class="ps-row">
-              <label data-i18n="ui.field.color_mode">Farbmodus</label>
+              <label id="dashboard-label-color-mode" data-i18n="ui.field.color_mode">Farbmodus</label>
               <select id="dashboard-color-mode" data-control="dashboard.color_mode" data-i18n-title="ui.tooltip.dashboard.color_mode" class="ps-select" style="width:120px;" title="Farbmodus bestaetigen."><option selected>MONO</option><option>OSC</option></select>
-              <label class="ps-inline-label" data-i18n="ui.field.preset">Preset</label>
+            </div>
+            <div class="ps-row">
+              <label id="dashboard-label-preset" data-i18n="ui.field.preset">Preset</label>
               <select id="dashboard-preset" data-control="dashboard.preset" data-i18n-title="ui.tooltip.dashboard.preset" class="ps-select" style="width:280px;" title="Preset fuer den Run waehlen.">
                 <option selected>tile_compile.mono_full_mode.example.yaml</option>
                 <option>tile_compile.canon_equatorial_balanced.example.yaml</option>
@@ -105,15 +107,15 @@
                 <option>tile_compile.very_bright_star_anti_seam.example.yaml</option>
               </select>
             </div>
-            <div class="ps-row guided-advanced">
-              <label data-i18n="ui.field.run_name">Run Name</label>
+            <div class="ps-row">
+              <label id="dashboard-label-run-name" data-i18n="ui.field.run_name">Run Name</label>
               <div class="ps-inline-stack">
                 <input id="dashboard-run-name" data-control="dashboard.run.name" data-i18n-title="ui.tooltip.dashboard.run_name" class="ps-input" type="text" value="" style="width:220px;" title="Freien Run-Namen setzen.">
                 <span class="ps-hint">Output-Ordner wird automatisch als <code>runs_dir/run_name_YYYYMMDD_HHMMSS</code> erzeugt.</span>
               </div>
             </div>
             <div class="ps-row guided-advanced">
-              <label data-i18n="ui.field.run_path_preview">Output Dir Preview</label>
+              <label id="dashboard-label-run-path" data-i18n="ui.field.run_path_preview">Output Dir Preview</label>
               <div class="ps-inline-stack">
                 <input id="dashboard-run-path-preview" data-control="dashboard.run.path_preview" data-i18n-title="ui.tooltip.dashboard.run_path_preview" class="ps-input ps-wide ps-preview-field" type="text" value="" readonly title="Finalen Run-Pfad vor Start anzeigen.">
                 <span class="ps-hint">Suffix: aktueller Startzeitpunkt des Runs im Format <code>YYYYMMDD_HHMMSS</code>.</span>
@@ -170,7 +172,7 @@
             </div>
             <div class="ps-actions">
               <button id="dashboard-scan-refresh" data-control="dashboard.scan_refresh" class="ps-btn ps-btn-secondary" type="button" title="Scan ausfuehren.">Scan</button>
-              <a id="dashboard-run-start" data-control="dashboard.run_start" class="ps-btn" href="run-monitor.html" title="Run/Queue starten (nur ohne error-Guardrail).">Run starten</a>
+              <a id="dashboard-run-start" data-control="dashboard.run_start" data-i18n="ui.button.run_start" data-i18n-title="ui.tooltip.dashboard.run_start" class="ps-btn" href="run-monitor.html" title="Run/Queue starten (nur ohne error-Guardrail).">Run starten</a>
             </div>
           </div>
 
