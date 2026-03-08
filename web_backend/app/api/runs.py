@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import signal
+import shutil
 import subprocess
 import threading
 import time
@@ -379,6 +380,39 @@ def run_set_current(run_id: str, request: Request) -> dict[str, Any]:
         source="runs.run_set_current",
         run_id=run_id,
         payload={"run_id": run_id},
+    )
+    return {"ok": True, "run_id": run_id}
+
+
+@router.post("/{run_id}/delete")
+def run_delete(run_id: str, request: Request, runs_dir: str | None = None) -> dict[str, Any]:
+    runtime = request.app.state.runtime
+    try:
+        run_dir = runtime.resolve_run_dir(run_id, runs_dir)
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
+    if not run_dir.exists() or not run_dir.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "NOT_FOUND", "message": f"run '{run_id}' not found"}},
+        )
+    for job in request.app.state.job_store.list():
+        if job.state != "running":
+            continue
+        if str(job.data.get("run_id", "")) == run_id or str(job.data.get("run_dir", "")) == str(run_dir):
+            raise HTTPException(
+                status_code=409,
+                detail={"error": {"code": "RUN_ACTIVE", "message": "cannot delete active run"}},
+            )
+    shutil.rmtree(run_dir)
+    if str(getattr(request.app.state, "current_run_id", "") or "") == run_id:
+        request.app.state.current_run_id = ""
+    record_ui_event(
+        request,
+        event="run.delete",
+        source="runs.run_delete",
+        run_id=run_id,
+        payload={"run_dir": str(run_dir)},
     )
     return {"ok": True, "run_id": run_id}
 

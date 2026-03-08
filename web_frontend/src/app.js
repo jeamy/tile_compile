@@ -1,5 +1,6 @@
 import { ApiClient } from "./api.js";
 import { API_ENDPOINTS } from "./constants.js";
+import { applyLocaleMessages, t } from "./i18n.js";
 
 const api = new ApiClient(localStorage.getItem("gui2.backendBase") || "");
 const CONFIG_DRAFT_KEY = "gui2.configYamlDraft";
@@ -21,6 +22,9 @@ const uiState = {
   lastAstrometryWcs: "",
   lastPccOutput: "",
   lastPccChannels: [],
+  lastPccResult: null,
+  locale: localStorage.getItem(LOCALE_KEY) || "de",
+  projectRunsDir: "",
 };
 
 const PARAM_CONTROL_PATHS = {
@@ -142,6 +146,11 @@ function setCurrentRunId(runId) {
   localStorage.setItem("gui2.currentRunId", uiState.currentRunId);
 }
 
+function clearCurrentRunId() {
+  uiState.currentRunId = "";
+  localStorage.removeItem("gui2.currentRunId");
+}
+
 function footerEl() {
   return $("scan-note") || document.querySelector(".footer-note");
 }
@@ -157,7 +166,11 @@ function setRunReady(status) {
   const chip = $("status-run-ready");
   if (!chip) return;
   const normalized = String(status || "check").toLowerCase();
-  chip.textContent = normalized === "ok" ? "Run Ready" : normalized === "error" ? "Run Blocked" : "Run Check";
+  chip.textContent = normalized === "ok"
+    ? t("ui.status.run_ready_ok", "Run Ready")
+    : normalized === "error"
+      ? t("ui.status.run_ready_blocked", "Run Blocked")
+      : t("ui.status.run_ready_check", "Run Check");
   if (normalized === "ok") {
     chip.style.background = "#dff7e8";
     chip.style.borderColor = "#b7e8cc";
@@ -343,6 +356,87 @@ function restoreLastInputDirs(...ids) {
   });
 }
 
+function firstNonEmptyText(...values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function sanitizeRunName(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+}
+
+function suggestRunNameFromInputs(dirs) {
+  const firstDir = Array.isArray(dirs) && dirs.length > 0 ? String(dirs[0] || "").trim() : "";
+  const leaf = firstDir
+    ? firstDir.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() || "run"
+    : "run";
+  return sanitizeRunName(leaf) || "run";
+}
+
+async function resolveConfigYamlForRun() {
+  return await ensureConfigYaml();
+}
+
+async function startRunFromCurrentForm({ source = "" } = {}) {
+  const normalizedSource = String(source || "").trim().toLowerCase();
+  const useDashboardFields = normalizedSource === "dashboard";
+  const useWizardFields = normalizedSource === "wizard";
+  const inputDirsText = useDashboardFields
+    ? String($("dashboard-input-dirs")?.value || "")
+    : useWizardFields
+      ? String($("inp-dirs")?.value || "")
+      : firstNonEmptyText(localStorage.getItem(LAST_INPUT_DIRS_KEY), $("dashboard-input-dirs")?.value, $("inp-dirs")?.value);
+  const inputDirs = parseInputDirs(inputDirsText);
+  if (inputDirs.length === 0) {
+    throw new Error("Bitte mindestens einen Eingabeordner setzen.");
+  }
+  persistLastInputDirs(inputDirsText);
+
+  const runNameEl = useDashboardFields ? $("dashboard-run-name") : useWizardFields ? $("wizard-run-name") : null;
+  const runsDirEl = useDashboardFields ? $("dashboard-run-runs-dir") : useWizardFields ? $("wizard-runs-dir") : null;
+  const runName = sanitizeRunName(runNameEl?.value || "") || suggestRunNameFromInputs(inputDirs);
+  if (runNameEl) runNameEl.value = runName;
+  const runsDir = firstNonEmptyText(runsDirEl?.value, uiState.projectRunsDir);
+  if (runsDirEl && !String(runsDirEl.value || "").trim() && runsDir) {
+    runsDirEl.value = runsDir;
+  }
+  const colorMode = firstNonEmptyText(
+    useDashboardFields ? $("dashboard-color-mode")?.value : "",
+    useWizardFields ? $("inp-colormode")?.value : "",
+    $("dashboard-color-mode")?.value,
+    $("inp-colormode")?.value,
+    "OSC",
+  ).toUpperCase();
+
+  const payload = {
+    color_mode: colorMode,
+    run_name: runName || undefined,
+    runs_dir: runsDir || undefined,
+    config_yaml: await resolveConfigYamlForRun(),
+  };
+  const queue = useDashboardFields || useWizardFields ? collectQueueRows() : [];
+  if (queue.length > 0) {
+    payload.queue = queue;
+  } else if (inputDirs.length > 1 && colorMode === "MONO") {
+    payload.input_dirs = inputDirs.map((dir) => ({ input_dir: dir }));
+  } else {
+    payload.input_dir = inputDirs[0] || "";
+  }
+  if (!payload.input_dir && !payload.queue && !payload.input_dirs) {
+    throw new Error("Bitte mindestens einen Eingabeordner setzen.");
+  }
+  return withPathGrantRetry(() => api.post(API_ENDPOINTS.runs.start, payload), {
+    fallbackPath: String(payload.runs_dir || inputDirs[0] || ""),
+  });
+}
+
 function summarizeScanResult(raw, fallbackInputPath = "") {
   const src = raw && typeof raw === "object" ? raw : {};
   const errors = Array.isArray(src.errors) ? src.errors : [];
@@ -434,21 +528,24 @@ function renderDashboardLastRunKpi(appState) {
   const statusEl = $("dashboard-kpi-last-run-status");
   const metaEl = $("dashboard-kpi-last-run-meta");
   if (!card || !statusEl || !metaEl) return;
-  const recentRuns = Array.isArray(appState?.history?.recent) ? appState.history.recent : [];
-  const latest = recentRuns[0] || null;
-  if (!latest) {
+  const currentRun = appState?.run?.current || {};
+  const runId = String(currentRun?.run_id || "").trim();
+  if (!runId) {
     statusEl.textContent = "-";
-    metaEl.textContent = "kein Run";
+    metaEl.textContent = "kein aktueller Projekt-Run";
     card.onclick = () => {
       window.location.href = "history-tools.html";
     };
     return;
   }
-  const statusText = String(latest?.status || appState?.run?.current?.status || "unknown").toUpperCase();
-  const runId = String(latest?.run_id || latest?.name || "-");
-  const modifiedText = formatUiDateTime(latest?.modified);
+  const statusText = String(currentRun?.status || "unknown").toUpperCase();
+  const progressValue = Number(currentRun?.progress);
+  const progressText = Number.isFinite(progressValue)
+    ? `${(progressValue <= 1 ? progressValue * 100 : progressValue).toFixed(1)}%`
+    : "-";
+  const phaseText = String(currentRun?.current_phase || "").trim();
   statusEl.textContent = statusText;
-  metaEl.textContent = modifiedText !== "-" ? `${runId} • ${modifiedText}` : runId;
+  metaEl.textContent = [runId, phaseText || null, progressText !== "-" ? progressText : null].filter(Boolean).join(" • ");
   card.onclick = () => {
     window.location.href = "history-tools.html";
   };
@@ -512,8 +609,9 @@ async function initGlobalState() {
       api.get(API_ENDPOINTS.app.state),
     ]);
     setRunReady(guardrails?.status || "check");
-    const rid = appState?.project?.current_run_id;
+    const rid = String(appState?.project?.current_run_id || "").trim();
     if (rid) setCurrentRunId(rid);
+    else clearCurrentRunId();
     const runsDir = String(appState?.project?.runs_dir || "").trim();
     if (runsDir) uiState.projectRunsDir = runsDir;
     const scanPath = String(appState?.scan?.last_input_path || "").trim();
@@ -523,19 +621,24 @@ async function initGlobalState() {
   }
 }
 
-function applyLocale(localeRaw) {
+async function applyLocale(localeRaw) {
   const locale = String(localeRaw || "de").toLowerCase() === "en" ? "en" : "de";
   uiState.locale = locale;
   localStorage.setItem(LOCALE_KEY, locale);
   document.documentElement.setAttribute("lang", locale);
   $("locale-de")?.classList.toggle("active", locale === "de");
   $("locale-en")?.classList.toggle("active", locale === "en");
+  await applyLocaleMessages(locale);
 }
 
 function bindLocaleControls() {
-  applyLocale(uiState.locale);
-  $("locale-de")?.addEventListener("click", () => applyLocale("de"));
-  $("locale-en")?.addEventListener("click", () => applyLocale("en"));
+  void applyLocale(uiState.locale);
+  $("locale-de")?.addEventListener("click", () => {
+    void applyLocale("de");
+  });
+  $("locale-en")?.addEventListener("click", () => {
+    void applyLocale("en");
+  });
 }
 
 function buildScanPayloadFromDirs(dirs, framesMin, withChecksums) {
@@ -681,10 +784,38 @@ function parameterDiffBox() {
   return document.querySelector("#parameter-diff-panel div[style*='font-family:monospace']");
 }
 
+function parameterValidateStatusEl() {
+  return $("parameter-validate-status");
+}
+
 function setParameterPreview(value) {
   const box = parameterDiffBox();
   if (!box) return;
   setText(box, value);
+}
+
+function setParameterValidateStatus(result, fallbackText = "") {
+  const el = parameterValidateStatusEl();
+  if (!el) return;
+  if (!result || typeof result !== "object") {
+    el.textContent = fallbackText || "Validierung: nicht geprüft";
+    el.style.color = "";
+    return;
+  }
+  const errors = Array.isArray(result.errors) ? result.errors.length : 0;
+  const warnings = Array.isArray(result.warnings) ? result.warnings.length : 0;
+  if (errors > 0) {
+    el.textContent = `Validierung: ERROR (${errors} Fehler, ${warnings} Warnungen)`;
+    el.style.color = "#b91c1c";
+    return;
+  }
+  if (warnings > 0) {
+    el.textContent = `Validierung: WARN (${warnings} Warnungen)`;
+    el.style.color = "#b45309";
+    return;
+  }
+  el.textContent = "Validierung: OK";
+  el.style.color = "#166534";
 }
 
 async function ensureConfigYaml() {
@@ -818,6 +949,7 @@ async function bindParameterStudio() {
       syncParameterFieldsFromConfig(parsed.config);
     }
     setParameterPreview(currentYaml);
+    setParameterValidateStatus(null, "Validierung: nicht geprüft");
   } catch (err) {
     setFooter(`Preset-Liste konnte nicht geladen werden: ${errorText(err)}`, true);
   }
@@ -831,6 +963,7 @@ async function bindParameterStudio() {
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
       setParameterPreview(uiState.configYaml);
+      setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setFooter("YAML aus Backend synchronisiert.");
     } catch (err) {
       setFooter(`YAML Sync fehlgeschlagen: ${errorText(err)}`, true);
@@ -851,6 +984,7 @@ async function bindParameterStudio() {
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
       setParameterPreview(String(parsed?.config_yaml || uiState.configYaml));
+      setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setFooter("Preset angewendet.");
     } catch (err) {
       setFooter(`Preset anwenden fehlgeschlagen: ${errorText(err)}`, true);
@@ -861,9 +995,10 @@ async function bindParameterStudio() {
     try {
       const patched = await applyPreview({ persist: false });
       const result = await api.post(API_ENDPOINTS.config.validate, { yaml: patched?.config_yaml || "" });
-      setParameterPreview(result);
+      setParameterValidateStatus(result);
       setFooter(result.ok ? "Validierung OK." : "Validierung hat Fehler.");
     } catch (err) {
+      setParameterValidateStatus(null, "Validierung: fehlgeschlagen");
       setFooter(`Validierung fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
@@ -872,6 +1007,7 @@ async function bindParameterStudio() {
     try {
       const result = await applyPreview({ persist: true });
       setParameterPreview(result);
+      setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setFooter(`Config gespeichert. Revision: ${result?.revision_id || "-"}`);
     } catch (err) {
       setFooter(`Speichern fehlgeschlagen: ${errorText(err)}`, true);
@@ -881,6 +1017,7 @@ async function bindParameterStudio() {
   $("parameter-review-changes")?.addEventListener("click", async () => {
     try {
       const result = await applyPreview({ persist: false });
+      setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setFooter(`YAML-Vorschau aktualisiert (${result?.applied?.length || 0} Aenderungen).`);
     } catch (err) {
       setFooter(`Vorschau fehlgeschlagen: ${errorText(err)}`, true);
@@ -896,6 +1033,7 @@ async function bindParameterStudio() {
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
       setParameterPreview(uiState.configYaml);
+      setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setFooter("Werte auf aktuelle Config zurueckgesetzt.");
     } catch (err) {
       setFooter(`Reset fehlgeschlagen: ${errorText(err)}`, true);
@@ -918,6 +1056,7 @@ async function bindParameterStudio() {
       uiState.parameterDirty = {};
       if (patched?.config) syncParameterFieldsFromConfig(patched.config);
       setParameterPreview(patched?.config_yaml || "");
+      setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setFooter(`Situation angewendet (${scenarioUpdates.length} Deltas).`);
     } catch (err) {
       setFooter(`Situation anwenden fehlgeschlagen: ${errorText(err)}`, true);
@@ -931,6 +1070,32 @@ async function bindParameterStudio() {
       }, 0);
     });
   });
+}
+
+async function populatePresetSelect(selectId, preserveCurrentValue = true) {
+  const select = $(selectId);
+  if (!select) return;
+  const oldValue = String(select.value || "").trim();
+  const presets = await api.get(API_ENDPOINTS.config.presets);
+  const items = Array.isArray(presets?.items) ? presets.items : [];
+  if (items.length === 0) return;
+  select.innerHTML = "";
+  for (const item of items) {
+    const opt = document.createElement("option");
+    opt.value = String(item?.path || "");
+    opt.textContent = String(item?.name || item?.path || "preset");
+    select.appendChild(opt);
+  }
+  if (preserveCurrentValue && oldValue) {
+    const matching = Array.from(select.options).find((opt) => String(opt.value || "") === oldValue || String(opt.textContent || "") === oldValue);
+    if (matching) {
+      select.value = matching.value;
+      return;
+    }
+  }
+  if (!preserveCurrentValue && items[0]?.path) {
+    select.value = String(items[0].path);
+  }
 }
 
 function runMonitorSelectedPhase() {
@@ -1044,25 +1209,13 @@ function connectRunMonitorStream(runId) {
 async function bindRunMonitor() {
   if (!$("monitor-stop")) return;
 
-  let runId = ensureRunIdFromHeader();
-  if (!runId) {
-    try {
-      const appState = await api.get(API_ENDPOINTS.app.state);
-      runId = appState?.project?.current_run_id || "";
-    } catch {
-      runId = "";
-    }
-  }
-  if (runId) setCurrentRunId(runId);
-  if (!uiState.currentRunId) {
-    setFooter("Kein aktueller Run gesetzt. Bitte in History einen Run als Current markieren.", true);
-    return;
-  }
-
+  const startBtn = $("monitor-start");
+  const stopBtn = $("monitor-stop");
+  const sub = document.querySelector(".app-content .ps-sub");
   const updateResumeEnabled = () => {
     const phase = runMonitorSelectedPhase();
     const revisionId = $("monitor-resume-config-revision")?.value || "";
-    setDisabledLike($("monitor-resume"), !phase || !revisionId);
+    setDisabledLike($("monitor-resume"), !uiState.currentRunId || !phase || !revisionId);
   };
   document.querySelectorAll(".ps-phase-row").forEach((row) => {
     row.addEventListener("click", () => {
@@ -1078,9 +1231,105 @@ async function bindRunMonitor() {
     });
   });
   $("monitor-resume-config-revision")?.addEventListener("change", updateResumeEnabled);
+
+  const artifactSection = Array.from(document.querySelectorAll(".ps-section")).find((sec) => {
+    const title = sec.querySelector(".ps-section-title");
+    return title && String(title.textContent || "").trim() === "Artefakte";
+  });
+  const artifactList = artifactSection?.querySelector("ul.ps-list") || null;
+  const formatBytes = (sizeRaw) => {
+    const size = Number(sizeRaw);
+    if (!Number.isFinite(size) || size < 0) return "-";
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  };
+  const renderArtifacts = (items) => {
+    if (!artifactList) return;
+    const artifacts = Array.isArray(items) ? items : [];
+    if (artifacts.length === 0) {
+      artifactList.innerHTML = "<li><button>Keine Artefakte gefunden</button></li>";
+      return;
+    }
+    artifactList.innerHTML = artifacts
+      .slice(0, 50)
+      .map((item) => {
+        const filename = String(item?.filename || item?.relative_path || item?.path || "artifact");
+        const fullPath = String(item?.path || "");
+        const relativePath = String(item?.relative_path || filename);
+        const sizeText = formatBytes(item?.size_bytes);
+        return `<li><button data-artifact-path="${fullPath.replace(/"/g, "&quot;")}" title="${relativePath}">${filename} (${sizeText})</button></li>`;
+      })
+      .join("");
+    artifactList.querySelectorAll("button[data-artifact-path]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setFooter(`Artefakt: ${btn.getAttribute("data-artifact-path") || "-"}`);
+      });
+    });
+  };
+  const refreshArtifacts = async () => {
+    if (!uiState.currentRunId) {
+      renderArtifacts([]);
+      return;
+    }
+    const result = await api.get(API_ENDPOINTS.runs.artifacts(uiState.currentRunId));
+    renderArtifacts(result?.items || []);
+  };
+  const setMonitorActionState = (isActive) => {
+    setDisabledLike(startBtn, isActive);
+    setDisabledLike(stopBtn, !isActive);
+  };
+  const resetPhaseRows = () => {
+    document.querySelectorAll(".ps-phase-row").forEach((row) => {
+      row.classList.remove("done", "running", "error", "is-selected");
+      row.classList.add("pending");
+      const stateEl = row.querySelector(".state");
+      if (stateEl) stateEl.textContent = "P";
+      const pctEl = row.querySelector(".phase-progress");
+      if (pctEl) pctEl.textContent = "0%";
+    });
+  };
+  const renderNoRunState = (text) => {
+    if (uiState.runSocket) {
+      uiState.runSocket.close();
+      uiState.runSocket = null;
+    }
+    uiState.currentRunDir = "";
+    resetPhaseRows();
+    renderArtifacts([]);
+    const logBox = runMonitorLogBox();
+    if (logBox) logBox.textContent = "";
+    if (sub) sub.textContent = text;
+  };
+
   updateResumeEnabled();
 
+  $("monitor-start")?.addEventListener("click", async () => {
+    try {
+      const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} }, project: {} }));
+      const currentStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
+      if (currentStatus === "running") {
+        setMonitorActionState(true);
+        setFooter("Es läuft bereits ein aktiver Run.", true);
+        return;
+      }
+      const latestGuardrails = await api.get(API_ENDPOINTS.guardrails.root);
+      if (String(latestGuardrails?.status || "").toLowerCase() === "error") {
+        setFooter("Run blockiert: Guardrail-Status ist ERROR.", true);
+        return;
+      }
+      const accepted = await startRunFromCurrentForm({ source: "monitor" });
+      setCurrentRunId(accepted?.run_id || uiState.currentRunId);
+      setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
+      window.location.href = "run-monitor.html";
+    } catch (err) {
+      setFooter(`Run-Start fehlgeschlagen: ${errorText(err)}`, true);
+    }
+  });
+
   $("monitor-stop")?.addEventListener("click", async () => {
+    if (!uiState.currentRunId) return;
     try {
       const result = await api.post(API_ENDPOINTS.runs.stop(uiState.currentRunId), {});
       if (result.ok) {
@@ -1090,7 +1339,8 @@ async function bindRunMonitor() {
       } else {
         setFooter("Kein laufender Job/Prozess fuer diesen Run gefunden.", true);
       }
-      await loadRunStatus(uiState.currentRunId);
+      const status = await loadRunStatus(uiState.currentRunId);
+      setMonitorActionState(String(status?.status || "").toLowerCase() === "running");
     } catch (err) {
       setFooter(`Stop fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -1169,52 +1419,31 @@ async function bindRunMonitor() {
     setFooter(`Run-Ordner: ${uiState.currentRunDir || "-"}`);
   });
 
-  const artifactSection = Array.from(document.querySelectorAll(".ps-section")).find((sec) => {
-    const title = sec.querySelector(".ps-section-title");
-    return title && String(title.textContent || "").trim() === "Artefakte";
-  });
-  const artifactList = artifactSection?.querySelector("ul.ps-list") || null;
-  const formatBytes = (sizeRaw) => {
-    const size = Number(sizeRaw);
-    if (!Number.isFinite(size) || size < 0) return "-";
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-    if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-  };
-  const renderArtifacts = (items) => {
-    if (!artifactList) return;
-    const artifacts = Array.isArray(items) ? items : [];
-    if (artifacts.length === 0) {
-      artifactList.innerHTML = "<li><button>Keine Artefakte gefunden</button></li>";
-      return;
-    }
-    artifactList.innerHTML = artifacts
-      .slice(0, 50)
-      .map((item) => {
-        const filename = String(item?.filename || item?.relative_path || item?.path || "artifact");
-        const fullPath = String(item?.path || "");
-        const relativePath = String(item?.relative_path || filename);
-        const sizeText = formatBytes(item?.size_bytes);
-        return `<li><button data-artifact-path="${fullPath.replace(/"/g, "&quot;")}" title="${relativePath}">${filename} (${sizeText})</button></li>`;
-      })
-      .join("");
-    artifactList.querySelectorAll("button[data-artifact-path]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        setFooter(`Artefakt: ${btn.getAttribute("data-artifact-path") || "-"}`);
-      });
-    });
-  };
-  const refreshArtifacts = async () => {
-    const result = await api.get(API_ENDPOINTS.runs.artifacts(uiState.currentRunId));
-    renderArtifacts(result?.items || []);
-  };
-
   try {
     await loadRunRevisions();
-    await loadRunStatus(uiState.currentRunId);
+    const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ project: {}, run: { current: {} } }));
+    const currentRunId = String(appState?.project?.current_run_id || "").trim();
+    if (currentRunId) setCurrentRunId(currentRunId);
+    const hintedRunId = currentRunId || ensureRunIdFromHeader();
+    if (!currentRunId && !hintedRunId) {
+      clearCurrentRunId();
+      setMonitorActionState(false);
+      renderNoRunState("Kein aktiver Run. Start über Run starten.");
+      updateResumeEnabled();
+      return;
+    }
+    if (!currentRunId && hintedRunId) setCurrentRunId(hintedRunId);
+    const status = await loadRunStatus(uiState.currentRunId);
     await refreshArtifacts();
-    connectRunMonitorStream(uiState.currentRunId);
+    const isActive = String(status?.status || appState?.run?.current?.status || "").toLowerCase() === "running";
+    setMonitorActionState(isActive);
+    if (isActive) {
+      connectRunMonitorStream(uiState.currentRunId);
+    } else if (uiState.runSocket) {
+      uiState.runSocket.close();
+      uiState.runSocket = null;
+    }
+    updateResumeEnabled();
   } catch (err) {
     setFooter(`Run-Monitor Initialisierung fehlgeschlagen: ${errorText(err)}`, true);
   }
@@ -1224,6 +1453,7 @@ async function bindHistoryPage() {
   const list = document.querySelector(".ps-section ul.ps-list");
   if (!list || !$("history-refresh")) return;
 
+  const historySourcePath = $("history-source-path");
   const selectedRunIdField = $("history-selected-run-id");
   const selectedStatusField = $("history-selected-status");
   const selectedPhaseField = $("history-selected-phase");
@@ -1357,7 +1587,14 @@ async function bindHistoryPage() {
   };
 
   const render = async () => {
-    const runs = await api.get(API_ENDPOINTS.runs.list);
+    const [runs, appState] = await Promise.all([
+      api.get(API_ENDPOINTS.runs.list),
+      api.get(API_ENDPOINTS.app.state).catch(() => ({ project: {} })),
+    ]);
+    if (historySourcePath) {
+      const runsDir = String(appState?.project?.runs_dir || "").trim();
+      historySourcePath.textContent = runsDir ? `Quelle: ${runsDir}` : "Quelle: -";
+    }
     const items = Array.isArray(runs?.items) ? runs.items : [];
     if (items.length === 0) {
       list.innerHTML = "<li><button>Keine Runs gefunden</button></li>";
@@ -1415,6 +1652,23 @@ async function bindHistoryPage() {
       setFooter(`Report: ${status.report_path || "-"}`);
     } catch (err) {
       setFooter(`Report-Status fehlgeschlagen: ${errorText(err)}`, true);
+    }
+  });
+
+  $("history-delete-run")?.addEventListener("click", async () => {
+    const runId = String(uiState.selectedHistoryRunId || "").trim();
+    if (!runId) return;
+    const confirmed = window.confirm(`Run wirklich löschen?\n${runId}`);
+    if (!confirmed) return;
+    try {
+      await api.post(API_ENDPOINTS.runs.delete(runId), {});
+      if (uiState.currentRunId === runId) clearCurrentRunId();
+      if (uiState.compareHistoryRunId === runId) uiState.compareHistoryRunId = "";
+      if (uiState.selectedHistoryRunId === runId) uiState.selectedHistoryRunId = "";
+      setFooter(`Run gelöscht: ${runId}`);
+      await render();
+    } catch (err) {
+      setFooter(`Run-Löschen fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
 
@@ -1790,13 +2044,14 @@ async function bindLiveLogPage() {
     return "info";
   }
 
+  const escapeHtml = (text) =>
+    String(text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
   function render() {
     const lines = uiState.liveLines.filter((item) => uiState.liveFilter === "all" || item.level === uiState.liveFilter);
-    const escapeHtml = (text) =>
-      String(text)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
     const colorByLevel = {
       info: "#e5edf6",
       warning: "#f59e0b",
@@ -1811,6 +2066,11 @@ async function bindLiveLogPage() {
       .join("");
   }
 
+  const renderEmptyState = (text) => {
+    uiState.liveLines = [];
+    box.innerHTML = `<div style="color:#9ca3af;white-space:pre-wrap;">${escapeHtml(text)}</div>`;
+  };
+
   levelButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       const t = String(btn.textContent || "").trim().toLowerCase();
@@ -1824,8 +2084,25 @@ async function bindLiveLogPage() {
     });
   });
 
-  const runId = uiState.currentRunId || ensureRunIdFromHeader();
+  if (uiState.liveSocket) {
+    uiState.liveSocket.close();
+    uiState.liveSocket = null;
+  }
+
+  let runId = "";
+  try {
+    const appState = await api.get(API_ENDPOINTS.app.state);
+    runId = String(appState?.project?.current_run_id || "").trim();
+    if (runId) setCurrentRunId(runId);
+    else clearCurrentRunId();
+  } catch (err) {
+    renderEmptyState("Live Log nicht verfügbar.");
+    setFooter(`Live Log konnte nicht initialisiert werden: ${errorText(err)}`, true);
+    return;
+  }
+
   if (!runId) {
+    renderEmptyState("Kein aktiver Run.");
     setFooter("Kein aktueller Run gesetzt. Bitte in History einen Run als Current markieren.", true);
     return;
   }
@@ -1857,6 +2134,12 @@ function findMonoQueueSection() {
 }
 
 function setMonoQueueVisible(isMono) {
+  const dashboardAdvancedBtn = $("dashboard-guided-mode-advanced");
+  const dashboardHasModeToggle = Boolean($("dashboard-guided-mode-simple") || dashboardAdvancedBtn);
+  const dashboardAdvancedVisible = !dashboardHasModeToggle || Boolean(dashboardAdvancedBtn?.classList.contains("active"));
+  document.querySelectorAll(".guided-mono-only").forEach((el) => {
+    el.style.display = isMono && dashboardAdvancedVisible ? "" : "none";
+  });
   const sec = findMonoQueueSection();
   if (!sec) return;
   sec.style.display = isMono ? "" : "none";
@@ -1904,113 +2187,38 @@ function renderGuardrailRow(row, status, label) {
   if (txt && label) txt.textContent = label;
 }
 
-async function populatePresetSelect(selectId, keepCurrent = true) {
-  const select = $(selectId);
-  if (!select) return;
-  const old = select.value;
-  const presets = await api.get(API_ENDPOINTS.config.presets);
-  if (!Array.isArray(presets?.items) || presets.items.length === 0) return;
-  select.innerHTML = "";
-  presets.items.forEach((item) => {
-    const opt = document.createElement("option");
-    opt.value = item.path;
-    opt.textContent = item.name;
-    select.appendChild(opt);
-  });
-  if (keepCurrent && old) select.value = old;
-}
-
-function sanitizeRunName(raw) {
-  let value = String(raw || "").trim();
-  if (!value) return "";
-  value = value.replace(/[\\/]+/g, "_").replace(/\s+/g, "_");
-  value = value.replace(/[^A-Za-z0-9._-]+/g, "_");
-  value = value.replace(/_+/g, "_");
-  return value.replace(/^[._-]+|[._-]+$/g, "");
-}
-
-function suggestRunNameFromInputs(inputDirs) {
-  const first = String(inputDirs?.[0] || "").trim();
-  if (!first) return `run_${timestampSuffix()}`;
-  const trimmed = first.endsWith("/") ? first.slice(0, -1) : first;
-  const base = trimmed.split(/[\\/]/).filter(Boolean).pop() || "run";
-  const safe = sanitizeRunName(base);
-  return safe || `run_${timestampSuffix()}`;
-}
-
-function collectInputCalibrationUpdates() {
-  const updates = [];
-  const push = (selector, path) => {
-    const el = selector.startsWith("#")
-      ? document.getElementById(selector.slice(1))
-      : document.querySelector(selector);
-    if (!el) return;
-    updates.push({ path, value: readFieldValue(el) });
-  };
-  push("#inp-pattern", "input.pattern");
-  push("#inp-maxframes", "input.max_frames");
-  push("#inp-sort", "input.sort");
-  push("#inp-bayer", "data.bayer_pattern");
-  push("#cal-bias", "calibration.use_bias");
-  push("#cal-bias-dir", "calibration.bias_dir");
-  push("#cal-dark", "calibration.use_dark");
-  push("#cal-dark-dir", "calibration.darks_dir");
-  push("#cal-flat", "calibration.use_flat");
-  push("#cal-flat-dir", "calibration.flats_dir");
-  return updates;
-}
-
-async function resolveConfigYamlForRun({ source }) {
-  const updates = source === "wizard" ? collectInputCalibrationUpdates() : [];
-  if (updates.length === 0) return ensureConfigYaml();
-  const patched = await patchConfig({ updates, persist: false });
-  return String(patched?.config_yaml || "");
-}
-
-async function startRunFromCurrentForm({ source }) {
-  const isDashboard = source === "dashboard";
-  const inputDirsEl = isDashboard ? $("dashboard-input-dirs") : $("inp-dirs");
-  const colorModeEl = isDashboard ? $("dashboard-color-mode") : $("inp-colormode");
-  const runsDirEl = isDashboard ? $("dashboard-run-runs-dir") : $("wizard-runs-dir");
-  const runNameEl = isDashboard ? $("dashboard-run-name") : $("wizard-run-name");
-
-  const inputDirs = parseInputDirs(inputDirsEl?.value || "");
-  if (inputDirs.length > 0) {
-    persistLastInputDirs(inputDirs.join(", "));
-  }
-  const colorMode = String(colorModeEl?.value || "OSC").toUpperCase();
-  const queue = colorMode === "MONO" ? collectQueueRows() : [];
-  let runName = sanitizeRunName(runNameEl?.value || "");
-  if (!runName) runName = suggestRunNameFromInputs(inputDirs);
-  if (runNameEl) runNameEl.value = runName;
-  if (runName) {
-    queue.forEach((item, idx) => {
-      if (!item.run_id) {
-        const suffix = item.filter || `q${idx + 1}`;
-        item.run_id = sanitizeRunName(`${runName}_${suffix}`) || `${runName}_${suffix}`;
-      }
-    });
+async function renderDashboardDerivedGuardrails(appState) {
+  let configValidation = null;
+  try {
+    const yaml = await ensureConfigYaml();
+    if (yaml) {
+      configValidation = await api.post(API_ENDPOINTS.config.validate, { yaml });
+    }
+  } catch {
+    configValidation = null;
   }
 
-  const payload = {
-    color_mode: colorMode,
-    run_name: runName || undefined,
-    runs_dir: String(runsDirEl?.value || "").trim() || undefined,
-    config_yaml: await resolveConfigYamlForRun({ source }),
-  };
-  if (queue.length > 0) {
-    payload.queue = queue;
-  } else if (inputDirs.length > 1 && colorMode === "MONO") {
-    payload.input_dirs = inputDirs.map((dir) => ({ input_dir: dir }));
-  } else {
-    payload.input_dir = inputDirs[0] || "";
-  }
-  if (!payload.input_dir && !payload.queue && !payload.input_dirs) {
-    throw new Error("Bitte mindestens einen Eingabeordner setzen.");
-  }
-  return withPathGrantRetry(() => api.post(API_ENDPOINTS.runs.start, payload), {
-    fallbackPath: String(payload.runs_dir || inputDirs[0] || ""),
-  });
+  const validationErrors = Array.isArray(configValidation?.errors) ? configValidation.errors.length : 0;
+  const validationWarnings = Array.isArray(configValidation?.warnings) ? configValidation.warnings.length : 0;
+  const currentRunId = String(appState?.run?.current?.run_id || "").trim();
+
+  renderGuardrailRow(
+    $("dashboard-guardrail-config-valid"),
+    !configValidation ? "check" : validationErrors > 0 ? "error" : validationWarnings > 0 ? "check" : "ok",
+    !configValidation
+      ? "Config nicht geprüft"
+      : validationErrors > 0
+        ? `Config mit ${validationErrors} Fehlern`
+        : validationWarnings > 0
+          ? `Config validiert (${validationWarnings} Warnungen)`
+          : "Config validiert",
+  );
+  renderGuardrailRow($("dashboard-guardrail-calibration-paths"), "check", "Kalibrierpfade nicht separat geprüft");
+  renderGuardrailRow(
+    $("dashboard-guardrail-bge-pcc"),
+    "check",
+    currentRunId ? "BGE/PCC nicht automatisch bewertet" : "BGE/PCC nicht geprüft (kein Run)",
+  );
 }
 
 async function bindDashboard() {
@@ -2040,7 +2248,7 @@ async function bindDashboard() {
     const mergedInputText = summary.input_dirs?.length > 0 ? summary.input_dirs.join(", ") : summary.input_path;
     if (mergedInputText) {
       $("dashboard-input-dirs") && ($("dashboard-input-dirs").value = mergedInputText);
-      persistLastInputDirs(summary.input_path);
+      persistLastInputDirs(mergedInputText);
       restoreLastInputDirs("dashboard-input-dirs");
     }
 
@@ -2055,6 +2263,7 @@ async function bindDashboard() {
       colorModeCheck?.status || warnCheck?.status || "check",
       colorModeCheck?.label || "Color mode bestaetigen",
     );
+    await renderDashboardDerivedGuardrails(appState);
 
     await populatePresetSelect("dashboard-preset", false);
 
@@ -2134,13 +2343,18 @@ async function bindDashboard() {
           { fallbackPath: dirs[0] || "" },
         );
         setFooter(`Scan gestartet (Job ${accepted.job_id}).`);
-        await waitForJob(accepted.job_id, { allowMissing: true });
+        const job = await waitForJob(accepted.job_id, { allowMissing: true });
         const [quality2, guardrails2, latest2] = await Promise.all([
           api.get(API_ENDPOINTS.scan.quality),
           api.get(API_ENDPOINTS.guardrails.root),
           api.get(API_ENDPOINTS.scan.latest),
         ]);
         const summary2 = summarizeScanResult(latest2?.has_scan ? latest2 : quality2?.scan || {}, dirs[0] || "");
+        const mergedInputText2 = summary2.input_dirs?.length > 0 ? summary2.input_dirs.join(", ") : summary2.input_path;
+        if (mergedInputText2 && $("dashboard-input-dirs")) {
+          $("dashboard-input-dirs").value = mergedInputText2;
+          persistLastInputDirs(mergedInputText2);
+        }
         renderDashboardScanKpis(summary2, quality2?.score ?? 0);
         renderScanSummary("dashboard-scan", summary2);
         applyDetectedColorModeToSelect($("dashboard-color-mode"), summary2);
@@ -2159,8 +2373,22 @@ async function bindDashboard() {
           colorModeCheck2?.status || warnCheck2?.status || "check",
           colorModeCheck2?.label || "Color mode bestaetigen",
         );
+        const appState2 = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
+        renderDashboardLastRunKpi(appState2);
+        await renderDashboardDerivedGuardrails(appState2);
+        if (String(job?.state) === "missing") {
+          setFooter(
+            "Scan-Status war kurzzeitig nicht abrufbar (Backend-Reload). Letztes Scan-Ergebnis wurde geladen.",
+            true,
+          );
+        } else {
+          setFooter(
+            job?.state === "ok" ? "Scan abgeschlossen." : `Scan beendet mit Status: ${job?.state || "unknown"}`,
+            job?.state !== "ok",
+          );
+        }
       } catch (err) {
-        setFooter(`Scan neu fehlgeschlagen: ${errorText(err)}`, true);
+        setFooter(`Scan fehlgeschlagen: ${errorText(err)}`, true);
       }
     });
     const deepLinks = {

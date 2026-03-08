@@ -104,6 +104,23 @@ def test_app_state_includes_current_run_and_history_summary(tmp_path: Path) -> N
     assert body["history"]["recent"][0]["run_id"] == "r1"
 
 
+def test_run_delete_removes_history_entry_and_clears_current(tmp_path: Path) -> None:
+    app = create_app()
+    app.state.runtime.runs_dir = tmp_path
+    client = TestClient(app)
+
+    run_dir = tmp_path / "r_delete"
+    run_dir.mkdir(parents=True)
+    (run_dir / "events.jsonl").write_text(json.dumps({"type": "run_end", "success": True}) + "\n", encoding="utf-8")
+    app.state.current_run_id = "r_delete"
+
+    resp = client.post("/api/runs/r_delete/delete")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert not run_dir.exists()
+    assert app.state.current_run_id == ""
+
+
 def test_run_start_blocked_by_guardrail_error() -> None:
     app = create_app()
     client = TestClient(app)

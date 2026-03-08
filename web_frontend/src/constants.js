@@ -29,6 +29,7 @@ export const API_ENDPOINTS = {
     start: "/api/runs/start",
     status: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/status`,
     artifacts: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/artifacts`,
+    delete: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/delete`,
     stop: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/stop`,
     resume: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/resume`,
     stats: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/stats`,

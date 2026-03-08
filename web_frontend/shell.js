@@ -41,29 +41,33 @@
 
   function navLink(item, activeKey) {
     const classes = item.key === activeKey ? " class=\"active\"" : "";
-    const dataControl = item.control ? ` data-control=\"${item.control}\"` : "";
-    return `<a${classes}${dataControl} href=\"${item.href}\">${item.label}</a>`;
+    const dataControl = item.control ? ` data-control="${item.control}"` : "";
+    const dataI18n = item.control ? ` data-i18n="ui.${item.control}"` : "";
+    const dataTitle = item.control ? ` data-i18n-title="ui.tooltip.shell.${item.control.replaceAll(".", "_")}"` : "";
+    return `<a${classes}${dataControl}${dataI18n}${dataTitle} href="${item.href}">${item.label}</a>`;
   }
 
   function sidebarLink(item, activeKey) {
     const classes = item.key === activeKey ? "ps-item ps-active" : "ps-item";
-    const dataControl = item.control ? ` data-control=\"${item.control}\"` : "";
-    return `<a class=\"${classes}\"${dataControl} href=\"${item.href}\">${item.label}</a>`;
+    const dataControl = item.control ? ` data-control="${item.control}"` : "";
+    const dataI18n = item.control ? ` data-i18n="ui.${item.control}"` : "";
+    const dataTitle = item.control ? ` data-i18n-title="ui.tooltip.shell.${item.control.replaceAll(".", "_")}"` : "";
+    return `<a class="${classes}"${dataControl}${dataI18n}${dataTitle} href="${item.href}">${item.label}</a>`;
   }
 
   function renderHeader(activeKey) {
     const nav = HEADER_NAV_ITEMS.map((item) => navLink(item, activeKey)).join("\n    ");
     return `
-  <nav class=\"pill-nav\">\n    ${nav}\n  </nav>\n\n  <div class=\"pill-subbar\">\n    <button id=\"locale-de\" data-control=\"locale.de\" class=\"locale-btn active\" title=\"Sprache auf Deutsch setzen.\">DE</button>\n    <button id=\"locale-en\" data-control=\"locale.en\" class=\"locale-btn\" title=\"Language to English.\">EN</button>\n    <span id=\"status-run-ready\" data-control=\"status.run_ready\" class=\"run-ready-chip\" title=\"Readiness-Guardrails anzeigen.\">Run Ready</span>\n  </div>\n`;
+  <nav class="pill-nav">\n    ${nav}\n  </nav>\n\n  <div class="pill-subbar">\n    <button id="locale-de" data-control="locale.de" data-i18n="ui.locale.de" data-i18n-title="ui.tooltip.shell.locale_de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>\n    <button id="locale-en" data-control="locale.en" data-i18n="ui.locale.en" data-i18n-title="ui.tooltip.shell.locale_en" class="locale-btn" title="Language to English.">EN</button>\n    <span id="status-run-ready" data-control="status.run_ready" data-i18n-title="ui.tooltip.shell.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>\n  </div>\n`;
   }
 
   function renderSidebar(activeKey) {
     const links = SIDEBAR_ITEMS.map((item) => sidebarLink(item, activeKey)).join("\n        ");
     const quickStart =
       activeKey === "dashboard"
-        ? "\n        <div style=\"margin-top:auto;padding:16px;\">\n          <a id=\"dashboard-quick-start-wizard\" data-control=\"dashboard.quick.start_wizard\" class=\"ps-btn\" href=\"wizard.html\" style=\"display:block;text-align:center;padding:10px;\" title=\"Neuen Guided Run starten.\">Start Wizard</a>\n        </div>"
+        ? "\n        <div style=\"margin-top:auto;padding:16px;\">\n          <a id=\"dashboard-quick-start-wizard\" data-control=\"dashboard.quick.start_wizard\" data-i18n=\"ui.button.start_wizard\" data-i18n-title=\"ui.tooltip.dashboard.start_wizard\" class=\"ps-btn\" href=\"wizard.html\" style=\"display:block;text-align:center;padding:10px;\" title=\"Neuen Guided Run starten.\">Start Wizard</a>\n        </div>"
         : "";
-    return `<div class=\"ps-label\">Navigation</div>\n        ${links}${quickStart}`;
+    return `<div class="ps-label" data-i18n="page.shared.navigation">Navigation</div>\n        ${links}${quickStart}`;
   }
 
   const activeKey = currentPageKey();

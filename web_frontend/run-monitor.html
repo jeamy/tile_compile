@@ -28,7 +28,10 @@
             <div class="ps-section">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
                 <div class="ps-section-title" style="margin:0;">Pipeline Phasen</div>
-                <button id="monitor-stop" data-control="monitor.stop" class="ps-btn ps-btn-secondary ps-btn-compact" title="Lauf kontrolliert stoppen.">Stop</button>
+                <div class="ps-actions" style="margin:0;">
+                  <button id="monitor-start" data-control="monitor.start" class="ps-btn ps-btn-compact" type="button" title="Run mit letztem Input und aktueller Config starten.">Run starten</button>
+                  <button id="monitor-stop" data-control="monitor.stop" class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Lauf kontrolliert stoppen." disabled>Stop</button>
+                </div>
               </div>
 
               <div class="ps-chip-row" style="margin-bottom:12px;">
@@ -122,26 +125,6 @@
     <p class="footer-note">Run Monitor bildet die Funktionsmatrix 4.5 ab: Phasenklick-Resume, Filterchips, Revisionssteuerung und Stats unter Live Log.</p>
   </main>
 
-  <script>
-    document.querySelectorAll('.ps-chip-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const group = btn.parentElement;
-        group.querySelectorAll('.ps-chip-btn').forEach((el) => el.classList.remove('active'));
-        btn.classList.add('active');
-      });
-    });
-
-    const resumeBtn = document.getElementById('monitor-resume');
-    const phaseButtons = document.querySelectorAll('.ps-phase-row');
-    phaseButtons.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        phaseButtons.forEach((el) => el.classList.remove('is-selected'));
-        btn.classList.add('is-selected');
-        resumeBtn.disabled = false;
-        resumeBtn.setAttribute('title', 'Resume ab ' + btn.querySelector('.phase-name').textContent + ' mit gewaehlter Revision starten.');
-      });
-    });
-  </script>
   <script type="module" src="src/app.js"></script>
 </body>
 </html>

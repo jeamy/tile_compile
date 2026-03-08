@@ -211,7 +211,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function inferBrowseMode(button, target) {
     const controlId = (button.getAttribute("data-control") || "").trim().toLowerCase();
     const targetId = String(target?.id || "").toLowerCase();
+    const rowSelectText = String(button.closest(".ps-row")?.querySelector("select")?.value || "").trim().toLowerCase();
     if (
+      rowSelectText.includes("datei") ||
       controlId.includes("browse_file") ||
       controlId.includes("browse_rgb") ||
       controlId.includes("browse_wcs") ||
@@ -244,7 +246,6 @@ document.addEventListener("DOMContentLoaded", () => {
       "    <span id='path-picker-mode' style='margin-left:auto;font-size:12px;color:#64748b;'></span>",
       "  </div>",
       "  <div style='padding:10px 14px;border-bottom:1px solid #d9e3ec;display:flex;gap:8px;align-items:center;'>",
-      "    <button id='path-picker-up' type='button' style='padding:6px 10px;border:1px solid #c8d4df;border-radius:8px;background:#fff;cursor:pointer;'>Up</button>",
       "    <input id='path-picker-current' type='text' style='flex:1;min-width:0;padding:7px 10px;border:1px solid #c8d4df;border-radius:8px;'>",
       "    <button id='path-picker-go' type='button' style='padding:6px 10px;border:1px solid #c8d4df;border-radius:8px;background:#fff;cursor:pointer;'>Go</button>",
       "  </div>",
@@ -261,16 +262,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderPickerEntries(listEl, data, mode, onOpenDir, onPickFile, onPickPath) {
     listEl.innerHTML = "";
-    const parent = data?.parent;
-    if (parent) {
-      const upRow = document.createElement("button");
-      upRow.type = "button";
-      upRow.textContent = "⬆  ..";
-      upRow.style.cssText =
-        "display:block;width:100%;text-align:left;padding:8px 10px;border:1px solid #dbe4ec;border-radius:8px;background:#fff;margin:4px 0;cursor:pointer;";
-      upRow.addEventListener("click", () => onOpenDir(parent));
-      listEl.appendChild(upRow);
-    }
     (data?.items || []).forEach((item) => {
       const row = document.createElement("div");
       row.style.cssText =
@@ -299,7 +290,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const modeEl = document.getElementById("path-picker-mode");
     const currentEl = document.getElementById("path-picker-current");
     const listEl = document.getElementById("path-picker-list");
-    const upBtn = document.getElementById("path-picker-up");
     const goBtn = document.getElementById("path-picker-go");
     const cancelBtn = document.getElementById("path-picker-cancel");
     const selectBtn = document.getElementById("path-picker-select");
@@ -354,7 +344,6 @@ document.addEventListener("DOMContentLoaded", () => {
           currentEl.value = pickedPath;
         },
       );
-      upBtn.disabled = !data.parent;
     }
 
     const roots = await apiGet("/api/fs/roots");
@@ -377,10 +366,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!candidate) return;
       done(candidate);
     };
-    const onUp = () => {
-      const typed = String(currentEl.value || "").trim();
-      if (typed) void openPath(typed);
-    };
     const onGo = () => {
       const typed = String(currentEl.value || "").trim();
       if (typed) void openPath(typed);
@@ -391,7 +376,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     cancelBtn.addEventListener("click", onCancel, { once: true });
     selectBtn.addEventListener("click", onSelect, { once: true });
-    upBtn.addEventListener("click", onUp);
     goBtn.addEventListener("click", onGo);
     overlay.addEventListener("click", onOverlay);
     overlay.style.display = "block";
@@ -399,7 +383,6 @@ document.addEventListener("DOMContentLoaded", () => {
     return new Promise((resolve) => {
       resolvePromise = resolve;
     }).finally(() => {
-      upBtn.removeEventListener("click", onUp);
       goBtn.removeEventListener("click", onGo);
       overlay.removeEventListener("click", onOverlay);
     });

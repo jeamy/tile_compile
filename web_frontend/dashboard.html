@@ -40,9 +40,9 @@
             <div id="dashboard-kpi-path-state" style="font-size:12px;color:#d97706;">kein Scan</div>
           </div>
           <div id="dashboard-kpi-last-run" data-control="dashboard.kpi.last_run" style="padding:14px;background:#f8fafb;border:1px solid var(--line);border-radius:10px;" title="Letzten Run in der Historie ansehen.">
-            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">Letzter Lauf</div>
+            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">Projekt-Run</div>
             <div id="dashboard-kpi-last-run-status" style="font-size:28px;font-weight:700;color:var(--ink);">-</div>
-            <div id="dashboard-kpi-last-run-meta" style="font-size:12px;color:#15808d;">kein Run</div>
+            <div id="dashboard-kpi-last-run-meta" style="font-size:12px;color:#15808d;">kein aktueller Projekt-Run</div>
           </div>
         </div>
 
@@ -169,8 +169,7 @@
               </div>
             </div>
             <div class="ps-actions">
-              <button id="dashboard-scan-refresh" data-control="dashboard.scan_refresh" class="ps-btn ps-btn-secondary" type="button" title="Scan erneut ausfuehren.">Scan neu</button>
-              <a id="dashboard-open-parameter-studio" data-control="dashboard.open_parameter_studio" class="ps-btn ps-btn-secondary" href="parameter-studio.html" title="Parameter Studio oeffnen.">Parameter Studio</a>
+              <button id="dashboard-scan-refresh" data-control="dashboard.scan_refresh" class="ps-btn ps-btn-secondary" type="button" title="Scan ausfuehren.">Scan</button>
               <a id="dashboard-run-start" data-control="dashboard.run_start" class="ps-btn" href="run-monitor.html" title="Run/Queue starten (nur ohne error-Guardrail).">Run starten</a>
             </div>
           </div>
@@ -185,17 +184,17 @@
               <span style="padding:2px 8px;background:#d1f4e0;color:#15808d;border-radius:4px;font-size:11px;font-weight:700;">OK</span>
               <span style="font-size:14px;font-weight:600;">Color mode bestätigt</span>
             </div>
-            <div id="dashboard-guardrail-config-valid" data-control="dashboard.guardrail.config_valid" style="display:flex;align-items:center;gap:10px;padding:8px;background:#fffbf0;border:1px solid #fde68a;border-radius:6px;margin-bottom:6px;" title="Zu Validierungsfehlern im Parameter Studio springen.">
+            <div id="dashboard-guardrail-config-valid" data-control="dashboard.guardrail.config_valid" style="display:flex;align-items:center;gap:10px;padding:8px;background:#fffbf0;border:1px solid #fde68a;border-radius:6px;margin-bottom:6px;" title="Zu Validierungsfehlern in den Konfigurationswerten springen.">
               <span style="padding:2px 8px;background:#fde68a;color:#d97706;border-radius:4px;font-size:11px;font-weight:700;">CHECK</span>
-              <span style="font-size:14px;font-weight:600;">Config validiert</span>
+              <span style="font-size:14px;font-weight:600;">Config nicht geprüft</span>
             </div>
             <div id="dashboard-guardrail-calibration-paths" data-control="dashboard.guardrail.calibration_paths" style="display:flex;align-items:center;gap:10px;padding:8px;background:#f7fcff;border:1px solid #dce7ed;border-radius:6px;margin-bottom:6px;" title="Zu Kalibrierpfaden in Input & Scan springen.">
-              <span style="padding:2px 8px;background:#d1f4e0;color:#15808d;border-radius:4px;font-size:11px;font-weight:700;">OK</span>
-              <span style="font-size:14px;font-weight:600;">Kalibrierpfade vollständig</span>
-            </div>
-            <div id="dashboard-guardrail-bge-pcc" data-control="dashboard.guardrail.bge_pcc" style="display:flex;align-items:center;gap:10px;padding:8px;background:#fffbf0;border:1px solid #fde68a;border-radius:6px;" title="Zu BGE/PCC Feldern im Parameter Studio springen.">
               <span style="padding:2px 8px;background:#fde68a;color:#d97706;border-radius:4px;font-size:11px;font-weight:700;">CHECK</span>
-              <span style="font-size:14px;font-weight:600;">BGE/PCC Werte im Rahmen</span>
+              <span style="font-size:14px;font-weight:600;">Kalibrierpfade nicht separat geprüft</span>
+            </div>
+            <div id="dashboard-guardrail-bge-pcc" data-control="dashboard.guardrail.bge_pcc" style="display:flex;align-items:center;gap:10px;padding:8px;background:#fffbf0;border:1px solid #fde68a;border-radius:6px;" title="Zu BGE/PCC Feldern in den Konfigurationswerten springen.">
+              <span style="padding:2px 8px;background:#fde68a;color:#d97706;border-radius:4px;font-size:11px;font-weight:700;">CHECK</span>
+              <span style="font-size:14px;font-weight:600;">BGE/PCC nicht geprüft</span>
             </div>
           </div>
         </div>
@@ -223,7 +222,7 @@
       </div>
     </div>
 
-    <p class="footer-note">Empfohlene Reihenfolge: Dashboard (runs_dir + run_name) → Parameter Studio → Run Monitor → History+Tools.</p>
+    <p class="footer-note">Empfohlene Reihenfolge: Dashboard (runs_dir + run_name) → Run Monitor → History+Tools.</p>
   </main>
 <script>
   (function () {

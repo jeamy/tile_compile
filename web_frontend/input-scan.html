@@ -126,7 +126,6 @@
             <select class="ps-select" style="width:190px;">
               <option selected>Bias-Ordner</option>
               <option>Master Bias Datei</option>
-              <option>Master Bias Pattern</option>
             </select>
             <div class="ps-inline-cluster">
               <input class="ps-input ps-wide" type="text" value="" id="cal-bias-dir" data-control="input_scan.calibration.bias_dir" placeholder="/data/calib/bias oder /data/calib/master_bias*" title="Bias-Ordner setzen.">
@@ -138,7 +137,6 @@
             <select class="ps-select" style="width:190px;">
               <option selected>Darks-Ordner</option>
               <option>Master Dark Datei</option>
-              <option>Master Dark Pattern</option>
             </select>
             <div class="ps-inline-cluster">
               <input class="ps-input ps-wide" type="text" value="" id="cal-dark-dir" data-control="input_scan.calibration.darks_dir" placeholder="/data/calib/darks oder /data/calib/masterdark*" title="Dark-Ordner setzen.">
@@ -150,7 +148,6 @@
             <select class="ps-select" style="width:190px;">
               <option selected>Flats-Ordner</option>
               <option>Master Flat Datei</option>
-              <option>Master Flat Pattern</option>
             </select>
             <div class="ps-inline-cluster">
               <input class="ps-input ps-wide" type="text" value="" id="cal-flat-dir" data-control="input_scan.calibration.flats_dir" placeholder="/data/calib/flats oder /data/calib/masterflat*" title="Flat-Ordner setzen.">
@@ -160,9 +157,7 @@
         </div>
 
         <div class="ps-actions">
-          <button class="ps-btn" id="btn-scan" data-control="input_scan.scan_run" onclick="runScan()" title="Input-Scan starten und Ergebnisse aktualisieren.">Scan starten</button>
-          <a class="ps-btn ps-btn-secondary" data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
-          <a class="ps-btn ps-btn-secondary" data-control="nav.dashboard" href="index.html">Zurück zum Dashboard</a>
+          <button class="ps-btn" id="btn-scan" data-control="input_scan.scan_run" onclick="runScan()" title="Input-Scan starten und Ergebnisse aktualisieren.">Scan</button>
         </div>
 
         <div class="ps-result" id="scan-result" data-control="input_scan.scan_results" style="display:none;">
