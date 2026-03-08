@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 PHASE_ORDER: list[str] = [
     "SCAN_INPUT",
@@ -65,6 +67,7 @@ def read_run_status(run_dir: Path) -> dict[str, Any]:
         "run_dir": str(run_dir),
         "exists": run_dir.exists(),
         "status": "unknown",
+        "color_mode": _read_run_color_mode(run_dir),
         "current_phase": None,
         "progress": 0.0,
         "phases": [{"phase": p, "status": "pending", "pct": 0.0} for p in PHASE_ORDER],
@@ -188,6 +191,25 @@ def _find_event_file(run_dir: Path) -> Path | None:
         if candidate.exists():
             return candidate
     return None
+
+
+def _read_run_color_mode(run_dir: Path) -> str:
+    config_path = run_dir / "config.yaml"
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return "UNKNOWN"
+    try:
+        parsed = yaml.safe_load(text) or {}
+    except yaml.YAMLError:
+        return "UNKNOWN"
+    if not isinstance(parsed, dict):
+        return "UNKNOWN"
+    data = parsed.get("data")
+    if not isinstance(data, dict):
+        return "UNKNOWN"
+    color_mode = str(data.get("color_mode") or "").strip().upper()
+    return color_mode if color_mode else "UNKNOWN"
 
 
 def _extract_run_id_from_events(event_file: Path) -> str | None:

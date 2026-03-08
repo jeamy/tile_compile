@@ -51,6 +51,7 @@ def run_status(run_id: str, request: Request, runs_dir: str | None = None) -> di
         "run_id": run_id,
         "run_dir": str(run_dir),
         "status": status.get("status", "unknown"),
+        "color_mode": status.get("color_mode", "UNKNOWN"),
         "current_phase": status.get("current_phase"),
         "progress": status.get("progress", 0.0),
         "phases": status.get("phases", []),

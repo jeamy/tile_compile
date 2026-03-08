@@ -1118,9 +1118,27 @@ function runMonitorSelectedPhase() {
 }
 
 function runMonitorSelectedFilter() {
+  const chipRow = document.querySelector(".ps-chip-row");
+  if (chipRow && chipRow.style.display === "none") return "";
   const selected = document.querySelector(".ps-chip-btn.active[id^='monitor-filter-']");
   if (!selected) return "";
   return String(selected.textContent || "").trim().toUpperCase();
+}
+
+function setRunMonitorFilterVisibility(colorModeRaw) {
+  const chipRow = document.querySelector(".ps-chip-row");
+  if (!chipRow) return;
+  const colorMode = String(colorModeRaw || "").trim().toUpperCase();
+  const hideFilters = colorMode === "OSC";
+  chipRow.style.display = hideFilters ? "none" : "";
+  const chipButtons = Array.from(document.querySelectorAll(".ps-chip-btn[id^='monitor-filter-']"));
+  if (hideFilters) {
+    chipButtons.forEach((btn) => btn.classList.remove("active"));
+    return;
+  }
+  if (!document.querySelector(".ps-chip-btn.active[id^='monitor-filter-']")) {
+    chipButtons[0]?.classList.add("active");
+  }
 }
 
 function runMonitorLogBox() {
@@ -1166,6 +1184,7 @@ function setPhaseRow(phaseName, status, pctRaw) {
 async function loadRunStatus(runId) {
   const status = await api.get(API_ENDPOINTS.runs.status(runId));
   uiState.currentRunDir = String(status?.run_dir || "");
+  setRunMonitorFilterVisibility(status?.color_mode || "");
   if (Array.isArray(status?.phases)) {
     for (const p of status.phases) {
       setPhaseRow(p.phase, p.status, p.pct);
