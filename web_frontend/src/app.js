@@ -39,6 +39,16 @@ const PARAM_CONTROL_PATHS = {
   "parameter.pcc.source": "pcc.source",
   "parameter.pcc.sigma_clip": "pcc.sigma_clip",
   "parameter.pcc.k_max": "pcc.k_max",
+  "input_scan.pattern": "input.pattern",
+  "input_scan.max_frames": "input.max_frames",
+  "input_scan.color_mode_confirm": "data.color_mode",
+  "input_scan.bayer_pattern": "data.bayer_pattern",
+  "input_scan.calibration.use_bias": "calibration.use_bias",
+  "input_scan.calibration.bias_dir": "calibration.bias_dir",
+  "input_scan.calibration.use_dark": "calibration.use_dark",
+  "input_scan.calibration.darks_dir": "calibration.darks_dir",
+  "input_scan.calibration.use_flat": "calibration.use_flat",
+  "input_scan.calibration.flats_dir": "calibration.flats_dir",
 };
 
 const PARAM_ID_PATHS = {
@@ -458,13 +468,18 @@ function summarizeScanResult(raw, fallbackInputPath = "") {
   const hasScan = typeof src.has_scan === "boolean" ? src.has_scan : Object.keys(src).length > 0;
   const ok = typeof src.ok === "boolean" ? src.ok : errors.length === 0;
   const inputDirs = Array.isArray(src.input_dirs) ? src.input_dirs.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const colorMode = String(src.color_mode || "UNKNOWN");
+  const normalizedColorMode = normalizeDetectedColorMode(colorMode);
+  if (normalizedColorMode) {
+    localStorage.setItem("gui2.lastScanColorMode", normalizedColorMode);
+  }
   return {
     has_scan: hasScan,
     ok,
     input_path: String(src.input_path || fallbackInputPath || ""),
     input_dirs: inputDirs,
     frames_detected: Number.isFinite(framesDetected) ? framesDetected : 0,
-    color_mode: String(src.color_mode || "UNKNOWN"),
+    color_mode: colorMode,
     color_mode_candidates: candidates,
     image_width: Number.isFinite(width) ? width : 0,
     image_height: Number.isFinite(height) ? height : 0,
@@ -766,6 +781,25 @@ function bindScanPages() {
   window.runScan = () => {
     void executeScanFlow();
   };
+  const syncScanConfigField = async (el) => {
+    const path = parameterPathFromElement(el);
+    if (!path) return;
+    try {
+      await patchConfig({ updates: [{ path, value: readFieldValue(el) }], persist: false });
+    } catch (err) {
+      setFooter(`Input-Config-Update fehlgeschlagen: ${errorText(err)}`, true);
+    }
+  };
+  document.querySelectorAll(".app-content [data-control]").forEach((el) => {
+    const path = parameterPathFromElement(el);
+    if (!path) return;
+    el.addEventListener("input", () => {
+      void syncScanConfigField(el);
+    });
+    el.addEventListener("change", () => {
+      void syncScanConfigField(el);
+    });
+  });
   const colorModeEl = $("inp-colormode");
   if (colorModeEl) {
     const updateQueue = () => setMonoQueueVisible(String(colorModeEl.value || "").toUpperCase() === "MONO");
@@ -774,6 +808,10 @@ function bindScanPages() {
   }
   void (async () => {
     try {
+      const parsed = await patchConfig({ updates: [], persist: false });
+      if (parsed?.config) {
+        syncParameterFieldsFromConfig(parsed.config);
+      }
       const latest = await api.get(API_ENDPOINTS.scan.latest);
       const summary = summarizeScanResult(latest);
       if (summary.has_scan) {
@@ -1118,7 +1156,7 @@ function runMonitorSelectedPhase() {
 }
 
 function runMonitorSelectedFilter() {
-  const chipRow = document.querySelector(".ps-chip-row");
+  const chipRow = $("monitor-filter-row");
   if (chipRow && chipRow.style.display === "none") return "";
   const selected = document.querySelector(".ps-chip-btn.active[id^='monitor-filter-']");
   if (!selected) return "";
@@ -1126,7 +1164,7 @@ function runMonitorSelectedFilter() {
 }
 
 function setRunMonitorFilterVisibility(colorModeRaw) {
-  const chipRow = document.querySelector(".ps-chip-row");
+  const chipRow = $("monitor-filter-row");
   if (!chipRow) return;
   const colorMode = String(colorModeRaw || "").trim().toUpperCase();
   const hideFilters = colorMode === "OSC";
@@ -1184,7 +1222,9 @@ function setPhaseRow(phaseName, status, pctRaw) {
 async function loadRunStatus(runId) {
   const status = await api.get(API_ENDPOINTS.runs.status(runId));
   uiState.currentRunDir = String(status?.run_dir || "");
-  setRunMonitorFilterVisibility(status?.color_mode || "");
+  const fallbackScanColorMode = String(localStorage.getItem("gui2.lastScanColorMode") || "").trim().toUpperCase();
+  const effectiveColorMode = String(status?.color_mode || "").trim().toUpperCase() || fallbackScanColorMode;
+  setRunMonitorFilterVisibility(effectiveColorMode);
   if (Array.isArray(status?.phases)) {
     for (const p of status.phases) {
       setPhaseRow(p.phase, p.status, p.pct);

@@ -207,9 +207,27 @@ def _read_run_color_mode(run_dir: Path) -> str:
         return "UNKNOWN"
     data = parsed.get("data")
     if not isinstance(data, dict):
-        return "UNKNOWN"
+        return _read_event_color_mode(run_dir)
     color_mode = str(data.get("color_mode") or "").strip().upper()
-    return color_mode if color_mode else "UNKNOWN"
+    if color_mode:
+        return color_mode
+    return _read_event_color_mode(run_dir)
+
+
+def _read_event_color_mode(run_dir: Path) -> str:
+    event_file = _find_event_file(run_dir)
+    if event_file is None:
+        return "UNKNOWN"
+    for ev in _iter_jsonl(event_file):
+        color_mode = str(ev.get("color_mode") or "").strip().upper()
+        if color_mode:
+            return color_mode
+        payload = ev.get("payload")
+        if isinstance(payload, dict):
+            payload_color_mode = str(payload.get("color_mode") or "").strip().upper()
+            if payload_color_mode:
+                return payload_color_mode
+    return "UNKNOWN"
 
 
 def _extract_run_id_from_events(event_file: Path) -> str | None:
