@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <curl/curl.h>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -11,14 +12,6 @@
 #include <set>
 #include <sstream>
 #include <vector>
-
-#include <QCoreApplication>
-#include <QEventLoop>
-#include <QFile>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
-#include <QUrl>
 
 namespace tile_compile::astrometry {
 
@@ -415,101 +408,143 @@ double synthetic_flux(const std::vector<float> &xp_flux,
     return (norm > 0) ? total / norm : 0.0;
 }
 
-// ─── Qt Network helpers ──────────────────────────────────────────────────
+// ─── HTTP helpers via libcurl ───────────────────────────────────────────
 
-// Ensure a QCoreApplication exists (needed for Qt event loop).
-// Runner and GUI already create one; for standalone tests we create a minimal one.
-static void ensure_qapp() {
-    if (!QCoreApplication::instance()) {
-        static int argc = 1;
-        static char arg0[] = "tile_compile";
-        static char *argv[] = { arg0, nullptr };
-        new QCoreApplication(argc, argv);
+struct CurlWriteBuffer {
+    std::string *text = nullptr;
+    std::ofstream *file = nullptr;
+};
+
+struct CurlProgressContext {
+    std::function<void(size_t, size_t)> progress_cb;
+};
+
+static void ensure_curl_ready() {
+    static const bool initialized = []() {
+        return curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
+    }();
+    if (!initialized) {
+        throw std::runtime_error("curl_global_init failed");
     }
 }
 
-// Synchronous HTTP GET using Qt6::Network.  Returns response body, empty on error.
+static size_t curl_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    const size_t total = size * nmemb;
+    auto *buffer = static_cast<CurlWriteBuffer*>(userdata);
+    if (buffer == nullptr) return 0;
+    if (buffer->text != nullptr) {
+        buffer->text->append(ptr, total);
+        return total;
+    }
+    if (buffer->file != nullptr) {
+        buffer->file->write(ptr, static_cast<std::streamsize>(total));
+        return buffer->file->good() ? total : 0;
+    }
+    return 0;
+}
+
+static int curl_progress_callback(void *clientp,
+                                  curl_off_t dltotal,
+                                  curl_off_t dlnow,
+                                  curl_off_t /*ultotal*/,
+                                  curl_off_t /*ulnow*/) {
+    auto *ctx = static_cast<CurlProgressContext*>(clientp);
+    if (ctx != nullptr && ctx->progress_cb && dltotal > 0) {
+        ctx->progress_cb(static_cast<size_t>(dlnow), static_cast<size_t>(dltotal));
+    }
+    return 0;
+}
+
+static std::string curl_error_message(CURLcode code, const char *buffer) {
+    if (buffer != nullptr && *buffer != '\0') return std::string(buffer);
+    return curl_easy_strerror(code);
+}
+
+static bool configure_curl_common(CURL *curl, const std::string &url, int timeout_sec, char *error_buffer) {
+    if (curl == nullptr) return false;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "tile_compile/1.0");
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, std::max(1, timeout_sec));
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, std::max(1, timeout_sec));
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, error_buffer);
+    return true;
+}
+
+// Synchronous HTTP GET using libcurl.  Returns response body, empty on error.
 static std::string http_get(const std::string &url, int timeout_sec = 30) {
-    ensure_qapp();
+    ensure_curl_ready();
 
-    QNetworkAccessManager mgr;
-    QNetworkRequest req(QUrl(QString::fromStdString(url)));
-    req.setHeader(QNetworkRequest::UserAgentHeader, "tile_compile/1.0");
-    req.setTransferTimeout(timeout_sec * 1000);
-
-    QNetworkReply *reply = mgr.get(req);
-
-    // Block until finished
-    QEventLoop loop;
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-
-    if (reply->error() != QNetworkReply::NoError) {
-        std::cerr << "[PCC] HTTP GET failed: "
-                  << reply->errorString().toStdString()
-                  << " url=" << url << std::endl;
-        reply->deleteLater();
+    std::string body;
+    CurlWriteBuffer write_buffer{&body, nullptr};
+    char error_buffer[CURL_ERROR_SIZE] = {0};
+    CURL *curl = curl_easy_init();
+    if (curl == nullptr) {
+        std::cerr << "[PCC] HTTP GET failed: curl_easy_init failed url=" << url << std::endl;
         return {};
     }
+    configure_curl_common(curl, url, timeout_sec, error_buffer);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write_buffer);
 
-    // Follow redirects (Qt6 handles most automatically, but just in case)
-    QByteArray data = reply->readAll();
-    reply->deleteLater();
-    return std::string(data.constData(), data.size());
+    const CURLcode code = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_cleanup(curl);
+
+    if (code != CURLE_OK || http_code >= 400) {
+        std::cerr << "[PCC] HTTP GET failed: "
+                  << curl_error_message(code, error_buffer)
+                  << " http=" << http_code
+                  << " url=" << url << std::endl;
+        return {};
+    }
+    return body;
 }
 
 // Synchronous HTTP download to file with progress callback.
 static bool http_download(const std::string &url, const std::string &dest_path,
                           int timeout_sec = 3600,
                           std::function<void(size_t, size_t)> progress_cb = nullptr) {
-    ensure_qapp();
+    ensure_curl_ready();
 
-    QNetworkAccessManager mgr;
-    QNetworkRequest req(QUrl(QString::fromStdString(url)));
-    req.setHeader(QNetworkRequest::UserAgentHeader, "tile_compile/1.0");
-    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                     QNetworkRequest::NoLessSafeRedirectPolicy);
-    req.setTransferTimeout(timeout_sec * 1000);
-
-    QNetworkReply *reply = mgr.get(req);
-
-    QFile outfile(QString::fromStdString(dest_path));
-    if (!outfile.open(QIODevice::WriteOnly)) {
-        reply->abort();
-        reply->deleteLater();
+    std::ofstream outfile(dest_path, std::ios::binary);
+    if (!outfile.is_open()) {
         return false;
     }
 
-    // Connect progress
+    CurlWriteBuffer write_buffer{nullptr, &outfile};
+    CurlProgressContext progress_ctx{progress_cb};
+    char error_buffer[CURL_ERROR_SIZE] = {0};
+    CURL *curl = curl_easy_init();
+    if (curl == nullptr) {
+        outfile.close();
+        fs::remove(dest_path);
+        return false;
+    }
+    configure_curl_common(curl, url, timeout_sec, error_buffer);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write_buffer);
     if (progress_cb) {
-        QObject::connect(reply, &QNetworkReply::downloadProgress,
-            [&](qint64 received, qint64 total) {
-                if (total > 0)
-                    progress_cb(static_cast<size_t>(received),
-                                static_cast<size_t>(total));
-            });
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, curl_progress_callback);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress_ctx);
     }
 
-    // Write data as it arrives
-    QObject::connect(reply, &QNetworkReply::readyRead, [&]() {
-        outfile.write(reply->readAll());
-    });
-
-    QEventLoop loop;
-    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-
-    // Write any remaining data
-    outfile.write(reply->readAll());
+    const CURLcode code = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_cleanup(curl);
     outfile.close();
 
-    bool ok = (reply->error() == QNetworkReply::NoError);
+    const bool ok = (code == CURLE_OK && http_code < 400);
     if (!ok) {
         std::cerr << "[PCC] Download failed: "
-                  << reply->errorString().toStdString() << std::endl;
-        QFile::remove(QString::fromStdString(dest_path));
+                  << curl_error_message(code, error_buffer)
+                  << " http=" << http_code << std::endl;
+        fs::remove(dest_path);
     }
-    reply->deleteLater();
     return ok;
 }
 

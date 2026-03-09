@@ -294,10 +294,9 @@ if(NOT OpenSSL_FOUND)
     endif()
 endif()
 
-# Qt6 Core + Network for lib (HTTP queries)
-find_package(Qt6 REQUIRED COMPONENTS Core Network)
+find_package(CURL REQUIRED)
 if(BUILD_QT_GUI)
-    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 endif()
 
 # Optional: spdlog for logging
@@ -351,8 +350,7 @@ target_link_libraries(tile_compile_lib PUBLIC
     ${CFITSIO_LIBRARIES}
     ${YAML_CPP_LIBRARIES}
     OpenSSL::Crypto
-    Qt6::Core
-    Qt6::Network
+    CURL::libcurl
 )
 
 if(nlohmann_json_FOUND)
