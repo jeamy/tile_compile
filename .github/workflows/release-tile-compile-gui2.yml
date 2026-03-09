@@ -360,7 +360,9 @@ jobs:
             ntldd -R "$exe" 2>/dev/null \
               | awk '{
                   for (i = 1; i <= NF; ++i) {
-                    if ($i ~ /(^[A-Za-z]:.*\\.dll$|^\\/.*\\.dll$)/) print $i;
+                    path = $i
+                    gsub(/\r/, "", path)
+                    if (tolower(path) ~ /\.dll$/ && (path ~ /^[A-Za-z]:/ || path ~ /^\//)) print path;
                   }
                 }' \
               | sort -u \
