@@ -135,19 +135,28 @@ sudo apt-get update
 sudo apt-get install -y \
   build-essential cmake pkg-config \
   libeigen3-dev libopencv-dev libcfitsio-dev libyaml-cpp-dev nlohmann-json3-dev libssl-dev \
-  qt6-base-dev qt6-tools-dev libgl1-mesa-dev
+  libcurl4-openssl-dev
+```
+
+Linux (Fedora):
+
+```bash
+sudo dnf install -y \
+  gcc-c++ cmake pkgconf-pkg-config ninja-build \
+  eigen3-devel opencv-devel cfitsio-devel yaml-cpp-devel nlohmann-json-devel openssl-devel \
+  libcurl-devel
 ```
 
 macOS (Homebrew, Kernbibliotheken):
 
 ```bash
-brew install cmake pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl
+brew install cmake pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl curl
 ```
 
 Windows:
 
-- MinGW/MSYS2: `mingw-w64-x86_64-eigen3`, `mingw-w64-x86_64-opencv`, `mingw-w64-x86_64-cfitsio`, `mingw-w64-x86_64-yaml-cpp`, `mingw-w64-x86_64-nlohmann-json`, `mingw-w64-x86_64-openssl`, `mingw-w64-x86_64-pkgconf`
-- MSVC/vcpkg: `eigen3`, `opencv`, `cfitsio`, `yaml-cpp`, `nlohmann-json`, `openssl`, `pkgconf`
+- MinGW/MSYS2: `mingw-w64-x86_64-eigen3`, `mingw-w64-x86_64-opencv`, `mingw-w64-x86_64-cfitsio`, `mingw-w64-x86_64-yaml-cpp`, `mingw-w64-x86_64-nlohmann-json`, `mingw-w64-x86_64-openssl`, `mingw-w64-x86_64-curl`, `mingw-w64-x86_64-pkgconf`
+- MSVC/vcpkg: `eigen3`, `opencv`, `cfitsio`, `yaml-cpp`, `nlohmann-json`, `openssl`, `curl`, `pkgconf`
 
 ### Kompilieren
 
