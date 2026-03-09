@@ -1324,6 +1324,10 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
       accepted = try_method(
           hybrid_phase_ecc(mov, ref, rcfg.allow_rotation),
           "hybrid_phase_ecc");
+    } else if (rcfg.engine == "robust_phase_ecc") {
+      accepted = try_method(
+          robust_phase_ecc(mov, ref, rcfg.allow_rotation),
+          "robust_phase_ecc");
     } else {
       // Default: triangle
       accepted = try_method(

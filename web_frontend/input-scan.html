@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Input & Scan</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="layout-panels.css?v=2">
+  <script src="shell.js" defer></script>
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+  <body>
+  <div data-shell-header></div>
+
+  <main>
+    <p class="intro">Input-Ordner, Scan-Konfiguration und Kalibrierpfade. Dieser Screen ist voll in die produktive Weboberflaeche integriert.</p>
+
+    <div class="app-screen">
+      <div class="app-sidebar" data-shell-sidebar></div>
+
+      <div class="app-content">
+        <h2>Input &amp; Scan</h2>
+        <p class="ps-sub">Eingabeordner konfigurieren, Scan starten, Bayer-Pattern bestätigen, Kalibrierpfade setzen.</p>
+
+        <div class="ps-section">
+          <div class="ps-row">
+            <label>Eingabeordner</label>
+            <div class="ps-inline-cluster">
+              <input class="ps-input ps-wide" type="text" value="" id="inp-dirs" data-control="input_scan.input_dirs" title="Mehrere Input-Ordner fuer den Scan setzen.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="inp-dirs-browse-btn" type="button" title="Input-Ordner per Verzeichnisdialog auswaehlen.">Browse…</button>
+            </div>
+          </div>
+          <div class="ps-row">
+            <label>Dateimuster</label>
+            <input class="ps-input" type="text" value="*.fits" id="inp-pattern" data-control="input_scan.pattern" title="Dateimuster fuer Input-Scan setzen.">
+          </div>
+          <div class="ps-row">
+            <label>Frames Minimum</label>
+            <input class="ps-input ps-short" type="number" value="30" id="inp-frames-min" data-control="scan.frames_min" title="Mindestanzahl Frames fuer Scan-Bewertung.">
+            <span class="ps-hint">Guardrail: unterhalb wird Reduced-/Emergency-Mode relevant.</span>
+          </div>
+          <div class="ps-row">
+            <label>Max. Frames</label>
+            <input class="ps-input ps-short" type="number" value="0" id="inp-maxframes" data-control="input_scan.max_frames" title="Maximale Anzahl Frames fuer den Input-Scan (0=unbegrenzt).">
+            <span class="ps-hint">(0 = unbegrenzt)</span>
+          </div>
+          <div class="ps-row">
+            <label>Sortierung</label>
+            <select class="ps-select" id="inp-sort" data-control="input_scan.sort" title="Sortierreihenfolge der Inputdateien.">
+              <option>numeric</option><option>name</option><option>date</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label>Farbmodus</label>
+            <select class="ps-select" id="inp-colormode" data-control="input_scan.color_mode_confirm" title="Farbmodus bestaetigen (OSC/MONO).">
+              <option>OSC</option><option selected>MONO</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label>Bayer-Pattern</label>
+            <select class="ps-select" id="inp-bayer" data-control="input_scan.bayer_pattern" title="Bayer-Pattern explizit setzen oder auto aus Header nutzen.">
+              <option selected>auto (aus FITS-Header)</option>
+              <option>RGGB</option><option>GBRG</option><option>GRBG</option><option>BGGR</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label>Checksummen</label>
+            <input type="checkbox" id="inp-checksums" data-control="input_scan.with_checksums" title="Optionalen Checksummen-Scan aktivieren."> <span class="ps-hint">MD5/SHA beim Scan berechnen</span>
+          </div>
+        </div>
+
+        <div class="ps-section">
+          <div class="ps-section-title">MONO Filter-Queue</div>
+          <div class="ps-sub" style="margin-bottom:12px;">Bei <code>MONO</code> wird pro Filter ein eigener <code>input_dir</code> erfasst und seriell als <code>Filter i/N</code> abgearbeitet.</div>
+          <div class="ps-queue-block">
+            <div class="ps-queue-head">
+              <div>Filter</div>
+              <div>Input Dir</div>
+              <div>Pattern</div>
+              <div>Run Label</div>
+              <div>Aktiv</div>
+            </div>
+            <div class="ps-queue-row">
+              <div class="ps-queue-cell"><select class="ps-select"><option selected>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für L wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+              <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+            </div>
+            <div class="ps-queue-row">
+              <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option selected>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für R wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+              <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+            </div>
+            <div class="ps-queue-row">
+              <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option selected>G</option><option>B</option><option>Ha</option></select></div>
+              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für G wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+              <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+            </div>
+            <div class="ps-queue-row">
+              <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option selected>B</option><option>Ha</option></select></div>
+              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für B wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+              <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+            </div>
+            <div class="ps-queue-row">
+              <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option>B</option><option selected>Ha</option></select></div>
+              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für Ha wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+              <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ps-section">
+          <div class="ps-section-title">Kalibrierung</div>
+          <div class="ps-row">
+            <input type="checkbox" id="cal-bias" checked data-control="input_scan.calibration.use_bias" title="Bias-Kalibrierung aktivieren/deaktivieren."> <label for="cal-bias">Bias</label>
+            <select class="ps-select" style="width:190px;">
+              <option selected>Bias-Ordner</option>
+              <option>Master Bias Datei</option>
+            </select>
+            <div class="ps-inline-cluster">
+              <input class="ps-input ps-wide" type="text" value="" id="cal-bias-dir" data-control="input_scan.calibration.bias_dir" placeholder="/data/calib/bias oder /data/calib/master_bias*" title="Bias-Ordner setzen.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
+            </div>
+          </div>
+          <div class="ps-row">
+            <input type="checkbox" id="cal-dark" checked data-control="input_scan.calibration.use_dark" title="Dark-Kalibrierung aktivieren/deaktivieren."> <label for="cal-dark">Dark</label>
+            <select class="ps-select" style="width:190px;">
+              <option selected>Darks-Ordner</option>
+              <option>Master Dark Datei</option>
+            </select>
+            <div class="ps-inline-cluster">
+              <input class="ps-input ps-wide" type="text" value="" id="cal-dark-dir" data-control="input_scan.calibration.darks_dir" placeholder="/data/calib/darks oder /data/calib/masterdark*" title="Dark-Ordner setzen.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
+            </div>
+          </div>
+          <div class="ps-row">
+            <input type="checkbox" id="cal-flat" data-control="input_scan.calibration.use_flat" title="Flat-Kalibrierung aktivieren/deaktivieren."> <label for="cal-flat">Flat</label>
+            <select class="ps-select" style="width:190px;">
+              <option selected>Flats-Ordner</option>
+              <option>Master Flat Datei</option>
+            </select>
+            <div class="ps-inline-cluster">
+              <input class="ps-input ps-wide" type="text" value="" id="cal-flat-dir" data-control="input_scan.calibration.flats_dir" placeholder="/data/calib/flats oder /data/calib/masterflat*" title="Flat-Ordner setzen.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ps-actions">
+          <button class="ps-btn" id="btn-scan" data-control="input_scan.scan_run" onclick="runScan()" title="Input-Scan starten und Ergebnisse aktualisieren.">Scan</button>
+        </div>
+
+        <div class="ps-result" id="scan-result" data-control="input_scan.scan_results" style="display:none;">
+          <div class="ps-result-title">Scan-Ergebnis</div>
+          <div class="ps-kv" style="margin-bottom:10px;">
+            <strong>Status</strong><span id="scan-summary-status">-</span>
+            <strong>Input Path</strong><span id="scan-summary-input-path">-</span>
+            <strong>Frames entdeckt</strong><span id="scan-summary-frames">0</span>
+            <strong>Color Mode</strong><span id="scan-summary-color-mode">UNKNOWN</span>
+            <strong>Mode Kandidaten</strong><span id="scan-summary-candidates">-</span>
+            <strong>Bildgroesse</strong><span id="scan-summary-size">0 x 0</span>
+            <strong>Bayer Pattern</strong><span id="scan-summary-bayer">-</span>
+            <strong>User-Bestaetigung</strong><span id="scan-summary-confirm">nein</span>
+            <strong>Fehler</strong><span id="scan-summary-errors">0</span>
+            <strong>Warnungen</strong><span id="scan-summary-warnings">0</span>
+          </div>
+          <div class="ps-section-title" style="margin-bottom:6px;">Rohdaten</div>
+          <pre id="scan-result-body" style="margin:0;font-family:monospace;font-size:12px;white-space:pre-wrap;"></pre>
+        </div>
+      </div>
+    </div>
+
+    <p id="scan-note" class="footer-note">Controls: Eingabeordner, Bayer-Pattern, Kalibrierframes. Scan-Ergebnis erscheint nach Klick auf "Scan starten".</p>
+  </main>
+  <script type="module" src="src/app.js?v=7"></script>
+</body>
+</html>

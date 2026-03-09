@@ -73,7 +73,8 @@ struct NormalizationConfig {
 
 struct RegistrationConfig {
   std::string engine = "triangle_star_matching"; // triangle_star_matching |
-                                                 // star_similarity | hybrid_phase_ecc
+                                                 // star_similarity | hybrid_phase_ecc |
+                                                 // robust_phase_ecc
   bool enable_star_pair_fallback = true;
   bool allow_rotation = true;
   int star_topk = 120;

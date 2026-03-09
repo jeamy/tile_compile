@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Dashboard</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="layout-panels.css?v=2">
+  <script src="shell.js" defer></script>
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <div data-shell-header></div>
+
+  <main>
+    <p class="intro" data-i18n="page.dashboard.intro">Schnellstart, Run-Readiness und Status aller Kernmodule in einem Blick.</p>
+
+    <div class="app-screen">
+      <div class="app-sidebar" data-shell-sidebar></div>
+
+      <div class="app-content">
+        <h2 data-i18n="page.dashboard.heading">Projekt Dashboard</h2>
+        <p class="ps-sub" data-i18n="page.dashboard.sub">Schnellstart, Run-Readiness und Status aller Kernmodule in einem Blick.</p>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;">
+          <div id="dashboard-kpi-scan-quality" data-control="dashboard.kpi.scan_quality" style="padding:14px;background:#f8fafb;border:1px solid var(--line);border-radius:10px;" title="Details zur Scan-Qualitaet oeffnen.">
+            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">Frames entdeckt</div>
+            <div style="font-size:28px;font-weight:700;color:var(--ink);">0</div>
+            <div id="dashboard-kpi-color-mode" style="font-size:12px;color:#15808d;">Color: UNKNOWN</div>
+          </div>
+          <div id="dashboard-kpi-open-warnings" data-control="dashboard.kpi.open_warnings" style="padding:14px;background:#f8fafb;border:1px solid var(--line);border-radius:10px;" title="Warnungsliste oeffnen.">
+            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">Scan-Qualität</div>
+            <div style="font-size:28px;font-weight:700;color:var(--ink);">0.00</div>
+            <div id="dashboard-kpi-scan-size" style="font-size:12px;color:#15808d;">0 x 0 px</div>
+          </div>
+          <div id="dashboard-kpi-guardrail-warnings" data-control="dashboard.kpi.open_warnings" style="padding:14px;background:#f8fafb;border:1px solid var(--line);border-radius:10px;">
+            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">Offene Warnungen</div>
+            <div style="font-size:28px;font-weight:700;color:var(--ink);">0</div>
+            <div id="dashboard-kpi-path-state" style="font-size:12px;color:#d97706;">kein Scan</div>
+          </div>
+          <div style="padding:14px;background:#f8fafb;border:1px solid var(--line);border-radius:10px;">
+            <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">Letzter Lauf</div>
+            <div style="font-size:28px;font-weight:700;color:var(--ink);">OK</div>
+            <div style="font-size:12px;color:#15808d;">2h 13m</div>
+          </div>
+        </div>
+
+        <div class="ps-section">
+          <div style="font-size:20px;font-weight:700;margin-bottom:10px;" data-i18n="page.dashboard.last_scan">Letzter Input-Scan</div>
+          <div class="ps-kv">
+            <strong data-i18n="ui.field.status">Status</strong><span id="dashboard-scan-status">-</span>
+            <strong data-i18n="ui.field.input_path">Input Path</strong><span id="dashboard-scan-input-path">-</span>
+            <strong data-i18n="page.dashboard.kpi.frames_detected">Frames entdeckt</strong><span id="dashboard-scan-frames">0</span>
+            <strong data-i18n="ui.field.color_mode">Color Mode</strong><span id="dashboard-scan-color-mode">UNKNOWN</span>
+            <strong data-i18n="ui.field.mode_candidates">Mode Kandidaten</strong><span id="dashboard-scan-candidates">-</span>
+            <strong data-i18n="ui.field.image_size">Bildgroesse</strong><span id="dashboard-scan-size">0 x 0</span>
+            <strong data-i18n="ui.field.bayer_pattern">Bayer Pattern</strong><span id="dashboard-scan-bayer">-</span>
+            <strong data-i18n="ui.field.user_confirmation">User-Bestaetigung</strong><span id="dashboard-scan-confirm">nein</span>
+            <strong data-i18n="ui.field.errors">Fehler</strong><span id="dashboard-scan-errors">0</span>
+            <strong data-i18n="ui.field.warnings">Warnungen</strong><span id="dashboard-scan-warnings">0</span>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-bottom:20px;">
+          <div class="ps-section">
+            <div style="font-size:20px;font-weight:700;margin-bottom:8px;" data-i18n="page.dashboard.guided_run">Run</div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:16px;" data-i18n="page.dashboard.guided_steps">1) Input/Run-Ziel  2) Preset + Parameter  3) Validieren  4) Batch starten</div>
+            <div class="ps-chip-row" style="margin-bottom:12px;">
+              <button id="dashboard-guided-mode-simple" data-control="dashboard.guided.mode_simple" data-i18n="ui.mode.simple" data-i18n-title="ui.tooltip.dashboard.guided_mode_simple" class="ps-chip-btn active" type="button" title="Einfacher Modus: nur Kernfelder anzeigen.">Einfach</button>
+              <button id="dashboard-guided-mode-advanced" data-control="dashboard.guided.mode_advanced" data-i18n="ui.mode.advanced" data-i18n-title="ui.tooltip.dashboard.guided_mode_advanced" class="ps-chip-btn" type="button" title="Erweiterter Modus: Runs Dir, Name, Preview und MONO-Queue anzeigen.">Erweitert</button>
+              <a id="dashboard-guided-open-wizard" data-control="dashboard.quick.start_wizard" data-i18n="page.dashboard.wizard_page" data-i18n-title="ui.tooltip.dashboard.start_wizard" class="ps-btn ps-btn-secondary ps-btn-compact" href="wizard.html" title="Vollen Wizard-Flow auf eigener Seite oeffnen." style="margin-left:auto;">Wizard Seite</a>
+            </div>
+            
+            <div class="ps-row">
+              <label id="dashboard-label-input-dirs" data-i18n="ui.field.input_dirs">Input Dirs</label>
+              <div class="ps-inline-cluster">
+                <input id="dashboard-input-dirs" data-control="dashboard.input_dirs" data-i18n-title="ui.tooltip.dashboard.input_dirs" class="ps-input ps-wide" type="text" value="" title="Input-Ordner fuer Guided Run setzen.">
+                <button class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.browse" type="button">Browse…</button>
+              </div>
+            </div>
+            <div class="ps-row">
+              <label id="dashboard-label-runs-dir" data-i18n="ui.field.runs_dir">Runs Dir</label>
+              <div class="ps-inline-cluster">
+                <input id="dashboard-run-runs-dir" data-control="dashboard.run.runs_dir" data-i18n-title="ui.tooltip.dashboard.runs_dir" class="ps-input ps-wide" type="text" value="" title="Run-Ausgabeordner waehlen.">
+                <button class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.browse" type="button">Browse…</button>
+              </div>
+            </div>
+            <div class="ps-row">
+              <label id="dashboard-label-color-mode" data-i18n="ui.field.color_mode">Farbmodus</label>
+              <select id="dashboard-color-mode" data-control="dashboard.color_mode" data-i18n-title="ui.tooltip.dashboard.color_mode" class="ps-select" style="width:120px;" title="Farbmodus bestaetigen."><option selected>MONO</option><option>OSC</option></select>
+            </div>
+            <div class="ps-row">
+              <label id="dashboard-label-preset" data-i18n="ui.field.preset">Preset</label>
+              <select id="dashboard-preset" data-control="dashboard.preset" data-i18n-title="ui.tooltip.dashboard.preset" class="ps-select" style="width:280px;" title="Preset fuer den Run waehlen.">
+                <option selected>tile_compile.mono_full_mode.example.yaml</option>
+                <option>tile_compile.canon_equatorial_balanced.example.yaml</option>
+                <option>tile_compile.canon_low_n_high_quality.example.yaml</option>
+                <option>tile_compile.emergency_mode.example.yaml</option>
+                <option>tile_compile.full_mode.example.yaml</option>
+                <option>tile_compile.ic434_test.example.yaml</option>
+                <option>tile_compile.mono_small_n_anti_grid.example.yaml</option>
+                <option>tile_compile.mono_small_n_ultra_conservative.example.yaml</option>
+                <option>tile_compile.reduced_mode.example.yaml</option>
+                <option>tile_compile.smart_telescope_dwarf_seestar.example.yaml</option>
+                <option>tile_compile.smart_telescope_very_bright_star.example.yaml</option>
+                <option>tile_compile.very_bright_star_anti_seam.example.yaml</option>
+              </select>
+            </div>
+            <div class="ps-row">
+              <label id="dashboard-label-run-name" data-i18n="ui.field.run_name">Run Name</label>
+              <div class="ps-inline-stack">
+                <input id="dashboard-run-name" data-control="dashboard.run.name" data-i18n-title="ui.tooltip.dashboard.run_name" class="ps-input" type="text" value="" style="width:220px;" title="Freien Run-Namen setzen.">
+                <span class="ps-hint">Output-Ordner wird automatisch als <code>runs_dir/run_name_YYYYMMDD_HHMMSS</code> erzeugt.</span>
+              </div>
+            </div>
+            <div class="ps-row guided-advanced">
+              <label id="dashboard-label-run-path" data-i18n="ui.field.run_path_preview">Output Dir Preview</label>
+              <div class="ps-inline-stack">
+                <input id="dashboard-run-path-preview" data-control="dashboard.run.path_preview" data-i18n-title="ui.tooltip.dashboard.run_path_preview" class="ps-input ps-wide ps-preview-field" type="text" value="" readonly title="Finalen Run-Pfad vor Start anzeigen.">
+                <span class="ps-hint">Suffix: aktueller Startzeitpunkt des Runs im Format <code>YYYYMMDD_HHMMSS</code>.</span>
+              </div>
+            </div>
+            <div class="guided-advanced guided-mono-only" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;margin-bottom:4px;">
+              <div class="ps-section-title" style="margin:0;">MONO Queue</div>
+              <button id="dashboard-queue-edit" data-control="dashboard.queue.edit" class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Queue-Editor oeffnen und Reihenfolge bearbeiten.">Queue Editor</button>
+            </div>
+            <div class="ps-hint guided-advanced guided-mono-only" style="margin-bottom:10px;">Pro Filter eigener Input-Ordner, optionales Pattern und Run-Label. Reihenfolge wird seriell als <code>Filter i/N</code> abgearbeitet.</div>
+            <div class="ps-queue-block guided-advanced guided-mono-only" style="margin-top:0;">
+              <div class="ps-queue-head">
+                <div>Filter</div>
+                <div>Input Dir</div>
+                <div>Pattern</div>
+                <div>Run Label</div>
+                <div>Aktiv</div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select class="ps-select" data-control="dashboard.queue.row.filter_name" title="Filterbezeichner fuer Queue-Eintrag setzen."><option selected>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" data-control="dashboard.queue.row.input_dir" type="text" value="" placeholder="Verzeichnis fuer L waehlen" title="Input-Ordner fuer Queue-Eintrag setzen."><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Ordnerdialog fuer Queue-Eintrag oeffnen.">Browse…</button></div></div>
+                <div class="ps-queue-cell"><input class="ps-input" data-control="dashboard.queue.row.pattern" type="text" value="" placeholder="optional, z. B. *.fits" title="Optionales Pattern fuer Queue-Eintrag."></div>
+                <div class="ps-queue-cell"><input class="ps-input" data-control="dashboard.queue.row.run_label" type="text" value="" placeholder="optional" title="Optionales Run-Label/Subfolder fuer Queue-Eintrag."></div>
+                <div class="ps-queue-toggle"><input type="checkbox" data-control="dashboard.queue.row.enabled" checked title="Queue-Eintrag aktiv/inaktiv setzen."><span>on</span></div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option selected>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für R wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option selected>G</option><option>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für G wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option selected>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für B wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+              <div class="ps-queue-row">
+                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option>B</option><option selected>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für Ha wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
+                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
+                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              </div>
+            </div>
+            <div class="ps-actions">
+              <button id="dashboard-scan-refresh" data-control="dashboard.scan_refresh" class="ps-btn ps-btn-secondary" type="button" title="Scan ausfuehren.">Scan</button>
+              <a id="dashboard-run-start" data-control="dashboard.run_start" data-i18n="ui.button.run_start" data-i18n-title="ui.tooltip.dashboard.run_start" class="ps-btn" href="run-monitor.html" title="Run/Queue starten (nur ohne error-Guardrail).">Run starten</a>
+            </div>
+          </div>
+
+          <div class="ps-section">
+            <div style="font-size:20px;font-weight:700;margin-bottom:12px;">Readiness Guardrails</div>
+            <div id="dashboard-guardrail-scan-ok" data-control="dashboard.guardrail.scan_ok" style="display:flex;align-items:center;gap:10px;padding:8px;background:#f7fcff;border:1px solid #dce7ed;border-radius:6px;margin-bottom:6px;" title="Zum betroffenen Scanbereich springen.">
+              <span style="padding:2px 8px;background:#d1f4e0;color:#15808d;border-radius:4px;font-size:11px;font-weight:700;">OK</span>
+              <span style="font-size:14px;font-weight:600;">Scan erfolgreich</span>
+            </div>
+            <div id="dashboard-guardrail-color-mode" data-control="dashboard.guardrail.color_mode" style="display:flex;align-items:center;gap:10px;padding:8px;background:#f7fcff;border:1px solid #dce7ed;border-radius:6px;margin-bottom:6px;" title="Zum Farbmodus-Feld springen.">
+              <span style="padding:2px 8px;background:#d1f4e0;color:#15808d;border-radius:4px;font-size:11px;font-weight:700;">OK</span>
+              <span style="font-size:14px;font-weight:600;">Color mode bestätigt</span>
+            </div>
+            <div id="dashboard-guardrail-config-valid" data-control="dashboard.guardrail.config_valid" style="display:flex;align-items:center;gap:10px;padding:8px;background:#fffbf0;border:1px solid #fde68a;border-radius:6px;margin-bottom:6px;" title="Zu Validierungsfehlern in den Konfigurationswerten springen.">
+              <span style="padding:2px 8px;background:#fde68a;color:#d97706;border-radius:4px;font-size:11px;font-weight:700;">CHECK</span>
+              <span style="font-size:14px;font-weight:600;">Config validiert</span>
+            </div>
+            <div id="dashboard-guardrail-calibration-paths" data-control="dashboard.guardrail.calibration_paths" style="display:flex;align-items:center;gap:10px;padding:8px;background:#f7fcff;border:1px solid #dce7ed;border-radius:6px;margin-bottom:6px;" title="Zu Kalibrierpfaden in Input & Scan springen.">
+              <span style="padding:2px 8px;background:#d1f4e0;color:#15808d;border-radius:4px;font-size:11px;font-weight:700;">OK</span>
+              <span style="font-size:14px;font-weight:600;">Kalibrierpfade vollständig</span>
+            </div>
+            <div id="dashboard-guardrail-bge-pcc" data-control="dashboard.guardrail.bge_pcc" style="display:flex;align-items:center;gap:10px;padding:8px;background:#fffbf0;border:1px solid #fde68a;border-radius:6px;" title="Zu BGE/PCC Feldern in den Konfigurationswerten springen.">
+              <span style="padding:2px 8px;background:#fde68a;color:#d97706;border-radius:4px;font-size:11px;font-weight:700;">CHECK</span>
+              <span style="font-size:14px;font-weight:600;">BGE/PCC Werte im Rahmen</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ps-section">
+          <div style="font-size:20px;font-weight:700;margin-bottom:12px;">Pipeline Vorschau</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="padding:6px 14px;background:#d1f4e0;color:#15808d;border-radius:6px;font-size:13px;font-weight:700;">SCAN</span>
+            <span style="color:var(--muted);">→</span>
+            <span style="padding:6px 14px;background:#d1f4e0;color:#15808d;border-radius:6px;font-size:13px;font-weight:700;">REG</span>
+            <span style="color:var(--muted);">→</span>
+            <span style="padding:6px 14px;background:#d1f4e0;color:#15808d;border-radius:6px;font-size:13px;font-weight:700;">TILES</span>
+            <span style="color:var(--muted);">→</span>
+            <span style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">STACK</span>
+            <span style="color:var(--muted);">→</span>
+            <span style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">ASTROM</span>
+            <span style="color:var(--muted);">→</span>
+            <span style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">BGE</span>
+            <span style="color:var(--muted);">→</span>
+            <span style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">PCC</span>
+            <span style="color:var(--muted);">→</span>
+            <span style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">DONE</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer-note">Empfohlene Reihenfolge: Dashboard (runs_dir + run_name) → Run Monitor → History+Tools.</p>
+  </main>
+<script>
+  (function () {
+    const btnSimple = document.getElementById('dashboard-guided-mode-simple');
+    const btnAdvanced = document.getElementById('dashboard-guided-mode-advanced');
+    const advancedNodes = document.querySelectorAll('.guided-advanced:not(.guided-mono-only)');
+    const monoOnlyNodes = document.querySelectorAll('.guided-mono-only');
+    const colorMode = document.getElementById('dashboard-color-mode');
+    const detectedMode = String(localStorage.getItem('gui2.lastScanColorMode') || '').trim().toUpperCase();
+
+    function setMode(mode) {
+      const isAdvanced = mode === 'advanced';
+      advancedNodes.forEach((el) => {
+        el.style.display = isAdvanced ? '' : 'none';
+      });
+      const isMono = detectedMode === 'OSC' ? false : String(colorMode?.value || '').toUpperCase() === 'MONO';
+      monoOnlyNodes.forEach((el) => {
+        el.style.display = isAdvanced && isMono ? '' : 'none';
+      });
+      btnSimple.classList.toggle('active', !isAdvanced);
+      btnAdvanced.classList.toggle('active', isAdvanced);
+    }
+
+    btnSimple.addEventListener('click', () => setMode('simple'));
+    btnAdvanced.addEventListener('click', () => setMode('advanced'));
+    colorMode?.addEventListener('change', () => {
+      setMode(btnAdvanced.classList.contains('active') ? 'advanced' : 'simple');
+    });
+    setMode('simple');
+  })();
+</script>
+  <script type="module" src="src/app.js?v=7"></script>
+</body>
+</html>

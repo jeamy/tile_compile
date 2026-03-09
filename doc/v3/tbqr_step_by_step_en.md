@@ -1,6 +1,6 @@
 # TBQR Step-by-Step Guide (English)
 
-This guide explains how to run the active C++ pipeline (`tile_compile_cpp`) from build to finished outputs.
+This guide explains how to run the active C++ pipeline (`tile_compile_cpp`) and how GUI2 interacts with it through the FastAPI backend.
 
 **Update note (2026-03-03):**
 - Resume supports `ASTROMETRY`, `BGE`, and `PCC`.
@@ -36,7 +36,6 @@ This creates (among others):
 
 - `tile_compile_runner` (main pipeline runner)
 - `tile_compile_cli` (utility CLI)
-- `tile_compile_gui` (Qt GUI)
 
 ## 2a) Build and run with Docker (optional)
 
@@ -169,62 +168,80 @@ Notes:
 ./tile_compile_cli list-artifacts /path/to/runs/<run_id>
 ```
 
-## 7) Run the GUI (optional)
+## 7) Run GUI2 (recommended UI path)
+
+Development start from repository root:
 
 ```bash
-./tile_compile_gui
+./start_backend.sh
 ```
 
-## 8) GUI step-by-step workflow (English)
+Then open:
+
+```text
+http://127.0.0.1:8080/ui/
+```
+
+Release bundles start GUI2 via:
+
+- Linux: `start_gui2.sh`
+- macOS: `start_gui2.command`
+- Windows: `start_gui2.bat`
+
+GUI2 is not a separate native processing engine. It uses FastAPI as the UI/backend layer and delegates all scan, run, resume, astrometry, PCC, and report actions to `tile_compile_cli` and `tile_compile_runner`.
+
+## 8) GUI2 workflow
 
 Use this sequence for a complete run from scan to outputs.
 
-### Step 1: Open the GUI and load your config
+### Step 1: Open GUI2 and inspect runtime defaults
 
-1. Start `tile_compile_gui` from `tile_compile_cpp/build`.
-2. Open your YAML config (or start from defaults).
-3. Confirm key fields:
-   - `run_dir`
-   - `input.pattern`
-   - calibration toggles (`use_bias`, `use_dark`, `use_flat`)
+1. Open the Dashboard at `/ui/`.
+2. Verify the active runs directory, default config source, and guardrail state.
+3. If needed, switch to the Wizard or Input & Scan directly.
 
-### Step 2: Scan your input frames
+### Step 2: Scan the input frames
 
-1. Go to the **Scan** tab.
-2. Set input directory and pattern.
+1. Open **Input & Scan** or **Wizard** step 1.
+2. Select one absolute input directory or a serial MONO filter queue.
 3. Run scan and verify:
    - detected frame count
-   - OSC/MONO detection
+   - detected color mode (`OSC` / `MONO`)
+   - image size
    - Bayer pattern (for OSC)
 
-### Step 3: Review or adjust calibration (optional)
+### Step 3: Review calibration inputs
 
-1. If needed, enable bias/dark/flat calibration.
-2. Set master files or source directories.
-3. Keep disabled if your lights are already calibrated.
+1. Configure bias/dark/flat only if the dataset is not already calibrated.
+2. Select directories or master files as needed.
+3. Keep disabled if you want the pipeline to use already calibrated lights.
 
-### Step 4: Validate configuration
+### Step 4: Adjust and validate parameters
 
-1. Open the configuration tab/editor.
-2. Validate config before running.
-3. Fix any reported schema or value issues.
+1. Open **Parameter Studio**.
+2. Edit parameters by section, use search, and inspect the Explain panel.
+3. Validate the configuration before starting a run.
 
-### Step 5: Start pipeline run
+### Step 5: Start a run
 
-1. Go to the **Run** tab.
-2. Set runs directory and output subfolder naming.
-3. Start the run and monitor progress by phase.
+1. Start from **Dashboard**, **Wizard**, or the dedicated run controls.
+2. Select the runs directory and run name / label where applicable.
+3. Start the run and switch to **Run Monitor**.
 
-### Step 6: Monitor logs and status
+### Step 6: Monitor progress and logs
 
-1. Watch live status/progress in the GUI.
-2. If warnings appear, inspect run logs after completion:
+1. Use **Run Monitor** for phase state, phase progress, artifacts, and resume target selection.
+2. Use **Live Log** for the streaming log output.
+3. For completed or failed runs, inspect:
    - `runs/<run_id>/logs/run_events.jsonl`
-3. Use `tile_compile_cli get-run-status` for a quick status summary if needed.
+   - `runs/<run_id>/artifacts/`
+   - `runs/<run_id>/outputs/`
 
-### Step 6a: Resume ASTROMETRY / BGE / PCC (CLI-assisted)
+### Step 7: Resume post-run phases if needed
 
-The GUI currently does not implement an in-app resume action. To resume a run, use the runner CLI:
+GUI2 supports resume flows through the backend for `ASTROMETRY`, `BGE`, and `PCC`.
+
+CLI equivalent:
 
 ```bash
 ./tile_compile_runner resume \
@@ -232,16 +249,14 @@ The GUI currently does not implement an in-app resume action. To resume a run, u
   --from-phase ASTROMETRY
 ```
 
-Then reopen the run in the GUI (History tab / run folder) and inspect updated outputs and diagnostics.
+### Step 8: Astrometry, BGE, and PCC
 
-### Step 7: (Optional) Astrometry, BGE, and PCC
+1. Use **Astrometry** to solve the RGB output and write WCS.
+2. If enabled, run **BGE** before PCC.
+3. Use **PCC** on the solved or BGE-corrected RGB result.
+4. Generate the final calibrated output and optional stats/report assets.
 
-1. In **Astrometry**, solve `stacked_rgb.fits` (or your selected output) to write WCS.
-2. If **BGE** is enabled, run background gradient extraction before PCC (intermediate output example: `stacked_rgb_bge.fits`).
-3. In **PCC**, run photometric color calibration on the solved/BGE-corrected RGB result.
-4. Save calibrated output (for example `stacked_rgb_pcc.fits`).
-
-### Step 8: Verify final outputs
+### Step 9: Verify final outputs
 
 Check run directory contents:
 

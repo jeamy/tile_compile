@@ -926,11 +926,12 @@ void Config::validate() const {
   }
 
   if (registration.engine != "hybrid_phase_ecc" &&
+      registration.engine != "robust_phase_ecc" &&
       registration.engine != "star_similarity" &&
       registration.engine != "triangle_star_matching") {
     throw ValidationError(
         "registration.engine must be 'triangle_star_matching', "
-        "'star_similarity', or 'hybrid_phase_ecc'");
+        "'star_similarity', 'hybrid_phase_ecc', or 'robust_phase_ecc'");
   }
   if (registration.star_topk < 3) {
     throw ValidationError("registration.star_topk must be >= 3");
@@ -1277,7 +1278,7 @@ std::string get_schema_json() {
                       "mode":{"type":"string","enum":["background","median"]},
                       "per_channel":{"type":"boolean"} } },
     "registration": { "type":"object",
-      "properties": { "engine":{"type":"string","enum":["triangle_star_matching","star_similarity","hybrid_phase_ecc"]},
+      "properties": { "engine":{"type":"string","enum":["triangle_star_matching","star_similarity","hybrid_phase_ecc","robust_phase_ecc"]},
                       "enable_star_pair_fallback":{"type":"boolean"},
                       "allow_rotation":{"type":"boolean"},
                       "star_topk":{"type":"integer","minimum":3},

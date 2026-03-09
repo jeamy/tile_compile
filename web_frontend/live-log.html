@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Live Log</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="layout-panels.css?v=2">
+  <script src="shell.js" defer></script>
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <div data-shell-header></div>
+
+  <main>
+    <p class="intro">Echtzeit-Log-Ausgabe des laufenden Runs mit Filteroptionen.</p>
+
+    <div class="app-screen">
+      <div class="app-sidebar" data-shell-sidebar></div>
+
+      <div class="app-content">
+        <h2>Live Log</h2>
+        <p class="ps-sub">Echtzeit-Log-Ausgabe des laufenden Runs mit Filteroptionen.</p>
+
+        <div class="ps-section">
+          <div style="display:flex;gap:10px;margin-bottom:12px;">
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;font-size:13px;">All</button>
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;font-size:13px;">Info</button>
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;font-size:13px;">Warning</button>
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;font-size:13px;">Error</button>
+            <button class="ps-btn ps-btn-secondary" style="padding:6px 16px;font-size:13px;margin-left:auto;">Clear</button>
+          </div>
+          <div style="background:#1a1a1a;color:#e0e0e0;padding:14px;border-radius:8px;font-family:monospace;font-size:12px;line-height:1.6;max-height:500px;overflow-y:auto;">
+          </div>
+        </div>
+
+        <div class="ps-actions" style="margin-top:16px;">
+          <button class="ps-btn ps-btn-secondary">Export Log</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer-note">Live Log: Echtzeit-Ausgabe aller Log-Meldungen mit Filterung nach Level (Info, Warning, Error).</p>
+  </main>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

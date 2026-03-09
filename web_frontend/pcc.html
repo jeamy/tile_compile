@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - PCC</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="layout-panels.css?v=2">
+  <script src="shell.js" defer></script>
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <div data-shell-header></div>
+
+  <main>
+    <p class="intro">Photometric Color Calibration mit Siril- oder Online-Katalogquellen, inkl. Chunk-Download und Cancel wie in der bestehenden GUI.</p>
+
+    <div class="app-screen">
+      <div class="app-sidebar" data-shell-sidebar></div>
+
+      <div class="app-content">
+        <h2>PCC</h2>
+        <p class="ps-sub">RGB+WCS Input, Catalog Source (Siril/VizieR), Download-Management und Ergebnismatrix.</p>
+
+        <section class="ps-section">
+          <div class="ps-section-title">Input</div>
+          <div class="ps-row">
+            <label for="tools-pcc-rgb">RGB FITS</label>
+            <input id="tools-pcc-rgb" data-control="tools.pcc.rgb_fits" class="ps-input ps-wide" type="text" value="stacked_rgb.fit" title="Pfad zur RGB-FITS-Datei fuer PCC.">
+          </div>
+          <div class="ps-row">
+            <label for="tools-pcc-wcs">WCS File</label>
+            <input id="tools-pcc-wcs" data-control="tools.pcc.wcs_file" class="ps-input ps-wide" type="text" value="stacked_rgb.wcs" title="Pfad zur WCS-Datei.">
+          </div>
+          <div class="ps-actions" style="margin-top:8px;">
+            <button data-control="tools.pcc.browse_rgb" class="ps-btn ps-btn-secondary" title="RGB-FITS auswaehlen.">Browse RGB</button>
+            <button data-control="tools.pcc.browse_wcs" class="ps-btn ps-btn-secondary" title="WCS-Datei auswaehlen.">Browse WCS</button>
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div class="ps-section-title">Catalog Source</div>
+          <div class="ps-row">
+            <label for="tools-pcc-source">Source</label>
+            <select id="tools-pcc-source" data-control="tools.pcc.source" class="ps-select" title="Sternkatalogquelle fuer PCC auswaehlen.">
+              <option selected>siril</option>
+              <option>vizier_gaia</option>
+              <option>vizier_apass</option>
+            </select>
+          </div>
+          <div class="ps-note">Siril: lokale Gaia-DR3-XP Chunks (48 Dateien). Online: direkte VizieR-Abfrage ohne lokalen Download.</div>
+          <div class="ps-grid-3" style="margin-top:10px;">
+            <div class="ps-row"><label>Siril Status</label><input data-control="tools.pcc.siril_status" class="ps-input" type="text" value="Partial - 31/48 installiert" readonly title="Installationsstatus der Siril-Katalogchunks."></div>
+            <div class="ps-row"><label>Missing Chunks</label><input id="tools-pcc-missing-chunks" class="ps-input" type="text" value="17" readonly title="Noch fehlende Chunks."></div>
+            <div class="ps-row"><label>Catalog Dir</label><input id="tools-pcc-catalog-dir" data-control="tools.pcc.siril_catalog_dir" class="ps-input" type="text" value="~/.local/share/siril/siril_cat1_healpix8_xpsamp" title="Pfad zum Siril-Katalogordner."></div>
+          </div>
+          <div class="ps-actions" style="margin-top:8px;">
+            <button data-control="tools.pcc.browse_catalog_dir" class="ps-btn ps-btn-secondary" title="Siril-Katalogverzeichnis auswaehlen.">Browse Catalog Dir</button>
+            <button data-control="tools.pcc.download_missing" class="ps-btn" title="Fehlende Siril-Katalogchunks herunterladen und entpacken.">Download Missing Chunks</button>
+            <button data-control="tools.pcc.cancel_download" class="ps-btn ps-btn-secondary" title="Laufenden Katalogdownload abbrechen.">Cancel Download</button>
+            <button data-control="tools.pcc.check_online" class="ps-btn ps-btn-secondary" title="Online-Katalogquelle testen (VizieR).">Check Online Source</button>
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div class="ps-section-title">PCC Parameters</div>
+          <div class="ps-grid-3">
+            <div class="ps-row"><label for="tools-pcc-mag-limit">mag_limit</label><input id="tools-pcc-mag-limit" data-control="tools.pcc.mag_limit" class="ps-input" type="number" step="0.1" value="14.0" title="Schwache Grenzhelligkeit fuer Katalogsterne."></div>
+            <div class="ps-row"><label for="tools-pcc-mag-bright">mag_bright_limit</label><input id="tools-pcc-mag-bright" data-control="tools.pcc.mag_bright_limit" class="ps-input" type="number" step="0.1" value="6.0" title="Helle Grenzhelligkeit fuer Katalogsterne."></div>
+            <div class="ps-row"><label for="tools-pcc-min-stars">min_stars</label><input id="tools-pcc-min-stars" data-control="tools.pcc.min_stars" class="ps-input" type="number" value="10" title="Mindestanzahl Sterne fuer stabilen Fit."></div>
+            <div class="ps-row"><label for="tools-pcc-sigma">sigma_clip</label><input id="tools-pcc-sigma" data-control="tools.pcc.sigma" class="ps-input" type="number" step="0.1" value="2.5" title="Sigma-Clipping fuer Fit-Ausreisser."></div>
+            <div class="ps-row"><label for="tools-pcc-aperture">aperture_radius_px</label><input id="tools-pcc-aperture" data-control="tools.pcc.aperture_radius_px" class="ps-input" type="number" step="0.1" value="8.0" title="Apertur-Radius in Pixel."></div>
+            <div class="ps-row"><label for="tools-pcc-annulus-in">annulus_inner_px</label><input id="tools-pcc-annulus-in" data-control="tools.pcc.annulus_inner_px" class="ps-input" type="number" step="0.1" value="12.0" title="Innerer Annulus-Radius."></div>
+            <div class="ps-row"><label for="tools-pcc-annulus-out">annulus_outer_px</label><input id="tools-pcc-annulus-out" data-control="tools.pcc.annulus_outer_px" class="ps-input" type="number" step="0.1" value="18.0" title="Aeusserer Annulus-Radius."></div>
+          </div>
+          <div class="ps-actions" style="margin-top:8px;">
+            <button data-control="tools.pcc.run" class="ps-btn" title="PCC starten.">Run PCC</button>
+            <button data-control="tools.pcc.save_corrected" class="ps-btn ps-btn-secondary" title="Farbkorrigiertes Ergebnis speichern.">Save Corrected</button>
+          </div>
+        </section>
+
+        <section class="ps-section">
+          <div class="ps-section-title">Result + Log</div>
+          <div class="ps-grid-3" style="margin-bottom:10px;">
+            <div class="ps-row"><label>Stars matched</label><input id="tools-pcc-stars-matched" class="ps-input" type="text" value="162" readonly title="Anzahl gematchter Sterne."></div>
+            <div class="ps-row"><label>Stars used</label><input id="tools-pcc-stars-used" class="ps-input" type="text" value="128" readonly title="Anzahl verwendeter Sterne."></div>
+            <div class="ps-row"><label>Residual RMS</label><input id="tools-pcc-residual-rms" class="ps-input" type="text" value="0.024" readonly title="Restfehler des PCC-Fits."></div>
+          </div>
+          <div class="ps-row" style="margin-bottom:10px;"><label for="tools-pcc-matrix">Color Matrix</label><textarea id="tools-pcc-matrix" class="ps-input" rows="4" readonly title="Ermittelte PCC-Farbmatrix.">-</textarea></div>
+          <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:180px;overflow:auto;">
+[PCC] Downloading 17 missing catalog chunks...
+[PCC] Chunk 7/17 downloaded and decompressed.
+[PCC] Querying source=siril RA=10.68 Dec=41.27 r=1.52 deg
+[PCC] Found 844 catalog stars
+[PCC] Success! Use Save Corrected.
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <p class="footer-note">PCC-Screen deckt die C++-GUI-Features ab: Siril Chunk-Download/Cancel, Online-Sources, Run und Save.</p>
+  </main>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

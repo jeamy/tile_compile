@@ -1,7 +1,6 @@
 #include "runner_pipeline.hpp"
 #include "runner_resume.hpp"
 
-#include <QCoreApplication>
 #include <iostream>
 #include <string>
 
@@ -40,8 +39,6 @@ int run_command(const std::string &config_path, const std::string &input_dir,
 }
 
 int main(int argc, char *argv[]) {
-  QCoreApplication qapp(argc, argv);  // needed for Qt6::Network event loop
-
 #ifdef HAVE_CLI11
   CLI::App app{"Tile-Compile Runner (C++)"};
 

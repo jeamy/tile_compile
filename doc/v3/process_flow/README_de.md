@@ -8,6 +8,8 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gew
 
 **Implementierung:** C++ mit Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
+**GUI2-Integration:** Der produktive GUI-Pfad nutzt das Web-Frontend plus FastAPI-Backend. FastAPI orchestriert die C++ Pipeline über `tile_compile_cli` und `tile_compile_runner`; die Verarbeitungslogik bleibt vollständig im C++ Kern.
+
 ## Aktuelle Pipeline-Phasen (C++ Implementierung, v3.3)
 
 Quelle der Phasenreihenfolge: `tile_compile::Phase` in `include/tile_compile/core/types.hpp`.

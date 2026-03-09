@@ -65,7 +65,7 @@ normalization:
   per_channel: true # bei OSC pro Bayer-Kanal normalisieren
 
 registration:
-  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
+  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc|robust_phase_ecc
   enable_star_pair_fallback: true
   allow_rotation: true # auch bei EQ sinnvoll (Residualrotation, leichtes Drift)
   star_topk: 120 # ausreichend bei stabilen EQ-Serien

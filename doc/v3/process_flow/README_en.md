@@ -8,6 +8,8 @@ The pipeline processes **FITS frames** (mono or OSC/CFA) and produces a weighted
 
 **Implementation:** C++ with Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
+**GUI2 integration:** The productive GUI path uses the web frontend plus the FastAPI backend. FastAPI orchestrates the C++ pipeline by invoking `tile_compile_cli` and `tile_compile_runner`; it does not reimplement the processing logic.
+
 ## Current pipeline phases (C++ implementation, v3.3)
 
 Source of the phase order: `tile_compile::Phase` in `include/tile_compile/core/types.hpp`.

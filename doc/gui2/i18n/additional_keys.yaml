@@ -1,0 +1,56 @@
+# Zusätzliche i18n-Keys ausserhalb der Control-Registry.
+# Diese Keys sind weiterhin GUI-relevant (z. B. dynamische Texte, Explain/Szenario-Metadaten).
+
+additional_keys:
+  - monitor.stats.command_hint
+  - queue.filter.title
+  - queue.filter.progress
+  - queue.filter.OIII
+  - queue.filter.SII
+  - queue.resume.target
+  - queue.row.run_label
+  - scenario.altaz.title
+  - scenario.altaz.reason.rotation
+  - scenario.rotation.title
+  - scenario.rotation.reason.robustness
+  - scenario.bright_stars.title
+  - scenario.bright_stars.reason.halos
+  - scenario.few_frames.title
+  - scenario.few_frames.reason.stability
+  - scenario.gradient.title
+  - scenario.gradient.reason.background
+  - scenario.few_frames
+  - scenario.gradient
+  - param.registration.allow_rotation.short_help
+  - param.pcc.k_max.short_help
+  - param.data.bayer_pattern.label
+  - param.assumptions.pipeline_profile.label
+  - param.assumptions.frames_min.label
+  - param.assumptions.frames_optimal.label
+  - param.assumptions.frames_reduced_threshold.label
+  - param.assumptions.reduced_mode_skip_clustering.label
+  - param.assumptions.reduced_mode_cluster_range.label
+  - param.assumptions.exposure_time_tolerance_percent.label
+  - param.input.max_frames.label
+  - param.input.sort.label
+  - param.calibration.use_bias.label
+  - param.calibration.bias_dir.label
+  - param.calibration.use_dark.label
+  - param.calibration.darks_dir.label
+  - param.calibration.use_flat.label
+  - param.calibration.flats_dir.label
+  - assumptions.pipeline_mode_info
+  - ui.panel.parameter_search_results
+  - ui.tooltip.parameter.search_results
+  - phase.common_overlap
+  - phase.debayer
+  - phase.prewarp
+  - phase.local_metrics
+  - phase.tile_reconstruction
+  - phase.state_clustering
+  - phase.synthetic_frames
+  - phase.astrometry
+  - ui.panel.scan_results
+  - ui.panel.validation_result
+  - ui.field.pattern
+  - ui.field.with_checksums

@@ -2,6 +2,8 @@ $schema: "http://json-schema.org/draft-07/schema#"
 title: tile_compile v3 config
 type: object
 properties:
+  run_dir: {type: string}
+  log_level: {type: string, enum: [trace, debug, info, warn, error]}
   pipeline:
     type: object
     properties:
@@ -24,6 +26,12 @@ properties:
         type: boolean
         deprecated: true
         description: "Deprecated: non-lineare Frames werden im Runner nur noch gewarnt (warn_only), nicht entfernt."
+  input:
+    type: object
+    properties:
+      pattern: {type: string}
+      sort: {type: string, enum: [numeric, lexicographic]}
+      max_frames: {type: integer, minimum: 0}
   linearity:
     type: object
     properties:
@@ -243,6 +251,8 @@ properties:
     type: object
     properties:
       enabled: {type: boolean}
+      apply_attenuation: {type: boolean}
+      chroma_strength: {type: number, minimum: 0, maximum: 1}
       source: {type: string, enum: [auto, siril, vizier_gaia, vizier_apass]}
       mag_limit: {type: number, minimum: 1, maximum: 22}
       mag_bright_limit: {type: number, minimum: 0, maximum: 15}
@@ -259,6 +269,7 @@ properties:
       annulus_inner_fwhm_mult: {type: number, exclusiveMinimum: 0}
       annulus_outer_fwhm_mult: {type: number, exclusiveMinimum: 0}
       min_aperture_px: {type: number, exclusiveMinimum: 0}
+      k_max: {type: number, exclusiveMinimum: 0}
       siril_catalog_dir: {type: string}
   bge:
     type: object
@@ -276,6 +287,8 @@ properties:
       sample_quantile: {type: number, exclusiveMinimum: 0, maximum: 0.5}
       structure_thresh_percentile: {type: number, minimum: 0, maximum: 1}
       min_tiles_per_cell: {type: integer, minimum: 1}
+      min_valid_sample_fraction_for_apply: {type: number, minimum: 0, maximum: 1}
+      min_valid_samples_for_apply: {type: integer, minimum: 0}
       mask:
         type: object
         properties:

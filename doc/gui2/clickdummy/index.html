@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 Klickdummy</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a class="active" data-control="nav.start" href="index.html">Start</a>
+    <div class="pill-sep"></div>
+    <a data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+    <a data-control="nav.pcc" href="pcc.html">PCC</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
+    <div class="pill-sep"></div>
+    <a data-control="nav.layout_1920" href="layout-1920.html">Layout 1920</a>
+    <a data-control="nav.flow" href="flow.html">Ablauf</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
+
+  <main>
+    <div class="content-panel">
+      <p class="intro">Interaktiver Klickdummy für das GUI-2-Konzept. Alle Screens sind jetzt in reinem HTML/CSS umgesetzt.</p>
+
+      <div class="cards">
+        <a class="card" data-control="nav.dashboard" href="dashboard.html" style="text-decoration:none;color:inherit;">
+          <h3>1. Dashboard</h3>
+          <p>Schnellstart, Guardrails und MONO-Queue-Setup.</p>
+        </a>
+        <a class="card" data-control="nav.parameter_studio" href="parameter-studio.html" style="text-decoration:none;color:inherit;">
+          <h3>2. Parameter Studio</h3>
+          <p>Alle verwendeten Parameter als Formular mit Kurz-Erklaerungen + YAML-Diff.</p>
+        </a>
+        <a class="card" data-control="nav.run_monitor" href="run-monitor.html" style="text-decoration:none;color:inherit;">
+          <h3>3. Run Monitor</h3>
+          <p>Phasen, Filter i/N, Live Log, Stats, Artefakte und Resume-Einstiegspunkte.</p>
+        </a>
+        <a class="card" data-control="nav.history_tools" href="history-tools.html" style="text-decoration:none;color:inherit;">
+          <h3>4. History + Tools</h3>
+          <p>Run-Vergleich, Current-Run-Auswahl und Reports.</p>
+        </a>
+        <a class="card" data-control="nav.astrometry" href="astrometry.html" style="text-decoration:none;color:inherit;">
+          <h3>5. Astrometry</h3>
+          <p>ASTAP CLI Setup, Katalog-Download, Plate-Solve und WCS-Output.</p>
+        </a>
+        <a class="card" data-control="nav.pcc" href="pcc.html" style="text-decoration:none;color:inherit;">
+          <h3>6. PCC</h3>
+          <p>Siril/VizieR Katalogquellen, Chunk-Download und Farbkalibration.</p>
+        </a>
+        <a class="card" data-control="nav.layout_1920" href="layout-1920.html" style="text-decoration:none;color:inherit;">
+          <h3>7. Layout 1920</h3>
+          <p>Pixelraster, Panel-Breiten, Gutter und Interaktionszonen im Detail.</p>
+        </a>
+        <a class="card" data-control="nav.input_scan" href="input-scan.html" style="text-decoration:none;color:inherit;">
+          <h3>8. Input & Scan</h3>
+          <p>Eingabepfade, Scan-Kontext und Vorab-Checks (Klickdummy-Placeholder).</p>
+        </a>
+        <a class="card" data-control="nav.assumptions" href="assumptions.html" style="text-decoration:none;color:inherit;">
+          <h3>9. Assumptions</h3>
+          <p>Annahmen-/Regelkontext als eigener Klickpfad (Placeholder bis finaler Screen).</p>
+        </a>
+        <a class="card" data-control="nav.live_log" href="live-log.html" style="text-decoration:none;color:inherit;">
+          <h3>10. Live Log</h3>
+          <p>Echtzeit-Log-Ausgabe des laufenden Runs mit Filteroptionen.</p>
+        </a>
+        <a class="card" data-control="nav.flow" href="flow.html" style="text-decoration:none;color:inherit;">
+          <h3>11. Ablauf</h3>
+          <p>Übersicht über den kompletten Workflow von Input bis Output.</p>
+        </a>
+        <a class="card" href="wizard.html" style="text-decoration:none;color:inherit;">
+          <h3>12. Wizard</h3>
+          <p>Schrittfolge Input → Queue → Preset → Validation → Start.</p>
+        </a>
+      </div>
+
+      <p class="footer-note">Alle Screens sind in reinem HTML/CSS umgesetzt. Theme-Switch per URL: <code>?theme=observatory|slate|sand</code>.</p>
+    </div>
+  </main>
+</body>
+</html>

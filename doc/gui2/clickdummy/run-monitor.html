@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Run Monitor</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="screen-placeholder.css?v=2">
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a data-control="nav.start" href="index.html">Start</a>
+    <div class="pill-sep"></div>
+    <a data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a class="active" data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+    <a data-control="nav.pcc" href="pcc.html">PCC</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
+    <div class="pill-sep"></div>
+    <a data-control="nav.layout_1920" href="layout-1920.html">Layout 1920</a>
+    <a data-control="nav.flow" href="flow.html">Ablauf</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
+
+  <main>
+    <p class="intro">Phasenfortschritt, Filterkontext, Resume pro Phase und Stats direkt unter dem Live Log.</p>
+
+    <div class="placeholder-screen">
+      <div class="placeholder-sidebar">
+        <div class="ps-label">Navigation</div>
+        <a class="ps-item" data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+        <a class="ps-item" data-control="nav.input_scan" href="input-scan.html">Input &amp; Scan</a>
+        <a class="ps-item" data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+        <a class="ps-item" data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+        <a class="ps-item ps-active" data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+        <a class="ps-item" data-control="nav.history_tools" href="history-tools.html">History + Tools</a>
+        <a class="ps-item" data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+        <a class="ps-item" data-control="nav.pcc" href="pcc.html">PCC</a>
+        <a class="ps-item" data-control="nav.live_log" href="live-log.html">Live Log</a>
+      </div>
+
+      <div class="placeholder-content">
+        <h2>Run Monitor</h2>
+        <p class="ps-sub">Filter <code>2/5 (R)</code>, Run-ID <code>20260307_221530_9f2a</code>, Status <code>NORMALIZATION running</code>.</p>
+
+        <div class="ps-layout-3">
+          <section class="ps-col">
+            <div class="ps-section">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
+                <div class="ps-section-title" style="margin:0;">Pipeline Phasen</div>
+                <button id="monitor-stop" data-control="monitor.stop" class="ps-btn ps-btn-secondary ps-btn-compact" title="Lauf kontrolliert stoppen.">Stop</button>
+              </div>
+
+              <div class="ps-chip-row" style="margin-bottom:12px;">
+                <button id="monitor-filter-L" data-control="monitor.filter.L" class="ps-chip-btn" title="Filterkontext L waehlen.">L</button>
+                <button id="monitor-filter-R" data-control="monitor.filter.R" class="ps-chip-btn active" title="Filterkontext R waehlen.">R</button>
+                <button id="monitor-filter-G" data-control="monitor.filter.G" class="ps-chip-btn" title="Filterkontext G waehlen.">G</button>
+                <button id="monitor-filter-B" data-control="monitor.filter.B" class="ps-chip-btn" title="Filterkontext B waehlen.">B</button>
+                <button id="monitor-filter-Ha" data-control="monitor.filter.Ha" class="ps-chip-btn" title="Filterkontext Ha waehlen.">Ha</button>
+                <button id="monitor-filter-OIII" data-control="monitor.filter.OIII" class="ps-chip-btn" title="Filterkontext OIII waehlen.">OIII</button>
+                <button id="monitor-filter-SII" data-control="monitor.filter.SII" class="ps-chip-btn" title="Filterkontext SII waehlen.">SII</button>
+              </div>
+
+              <div class="ps-phase-list">
+                <button id="monitor-phase-scan-input" data-control="monitor.phase.scan_input" class="ps-phase-row done" title="Resume ab SCAN_INPUT starten."><span class="state">OK</span><span class="phase-name">SCAN_INPUT</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">100%</span></button>
+                <button id="monitor-phase-channel-split" data-control="monitor.phase.channel_split" class="ps-phase-row done" title="Resume ab CHANNEL_SPLIT starten."><span class="state">OK</span><span class="phase-name">CHANNEL_SPLIT</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">100%</span></button>
+                <button id="monitor-phase-normalization" data-control="monitor.phase.normalization" class="ps-phase-row running" title="Resume ab NORMALIZATION starten."><span class="state">RUN</span><span class="phase-name">NORMALIZATION</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">67%</span></button>
+                <button id="monitor-phase-global-metrics" data-control="monitor.phase.global_metrics" class="ps-phase-row pending" title="Resume ab GLOBAL_METRICS starten."><span class="state">P</span><span class="phase-name">GLOBAL_METRICS</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-tile-grid" data-control="monitor.phase.tile_grid" class="ps-phase-row pending" title="Resume ab TILE_GRID starten."><span class="state">P</span><span class="phase-name">TILE_GRID</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-registration" data-control="monitor.phase.registration" class="ps-phase-row pending" title="Resume ab REGISTRATION starten."><span class="state">P</span><span class="phase-name">REGISTRATION</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-prewarp" data-control="monitor.phase.prewarp" class="ps-phase-row pending" title="Resume ab PREWARP starten."><span class="state">P</span><span class="phase-name">PREWARP</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-common-overlap" data-control="monitor.phase.common_overlap" class="ps-phase-row pending" title="Resume ab COMMON_OVERLAP starten."><span class="state">P</span><span class="phase-name">COMMON_OVERLAP</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-local-metrics" data-control="monitor.phase.local_metrics" class="ps-phase-row pending" title="Resume ab LOCAL_METRICS starten."><span class="state">P</span><span class="phase-name">LOCAL_METRICS</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-tile-reconstruction" data-control="monitor.phase.tile_reconstruction" class="ps-phase-row pending" title="Resume ab TILE_RECONSTRUCTION starten."><span class="state">P</span><span class="phase-name">TILE_RECONSTRUCTION</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-state-clustering" data-control="monitor.phase.state_clustering" class="ps-phase-row pending" title="Resume ab STATE_CLUSTERING starten."><span class="state">P</span><span class="phase-name">STATE_CLUSTERING</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-synthetic-frames" data-control="monitor.phase.synthetic_frames" class="ps-phase-row pending" title="Resume ab SYNTHETIC_FRAMES starten."><span class="state">P</span><span class="phase-name">SYNTHETIC_FRAMES</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-stacking" data-control="monitor.phase.stacking" class="ps-phase-row pending" title="Resume ab STACKING starten."><span class="state">P</span><span class="phase-name">STACKING</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-debayer" data-control="monitor.phase.debayer" class="ps-phase-row pending" title="Resume ab DEBAYER starten."><span class="state">P</span><span class="phase-name">DEBAYER</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-astrometry" data-control="monitor.phase.astrometry" class="ps-phase-row pending" title="Resume ab ASTROMETRY starten."><span class="state">P</span><span class="phase-name">ASTROMETRY</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-bge" data-control="monitor.phase.bge" class="ps-phase-row pending" title="Resume ab BGE starten."><span class="state">P</span><span class="phase-name">BGE</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-pcc" data-control="monitor.phase.pcc" class="ps-phase-row pending" title="Resume ab PCC starten."><span class="state">P</span><span class="phase-name">PCC</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+              </div>
+            </div>
+          </section>
+
+          <section class="ps-col">
+            <div class="ps-section" style="margin-bottom:18px;">
+              <div class="ps-section-title">Live Log</div>
+              <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:300px;overflow:auto;">
+[2026-03-07 22:16:04] INFO  queue_filter=R idx=2/5 phase=NORMALIZATION start
+[2026-03-07 22:16:05] INFO  frame=842/1264 mode=mono
+[2026-03-07 22:16:06] WARN  low_snr frame=844 snr=11.8
+[2026-03-07 22:16:08] INFO  progress=67% eta=00:08:21
+              </div>
+            </div>
+
+            <div class="ps-section">
+              <div class="ps-section-title">Stats (unter Live Log)</div>
+              <div class="ps-note" style="margin-bottom:10px;">Script-Pfad wird zur Laufzeit aufgeloest: <code>TILE_COMPILE_STATS_SCRIPT</code> / gui2.json / relativer Fallback.</div>
+              <div class="ps-actions" style="margin-top:0;">
+                <button id="monitor-stats-generate" data-control="monitor.stats.generate" class="ps-btn" title="Report fuer den aktiven Run erzeugen.">Generate Stats</button>
+                <button id="monitor-stats-open-folder" data-control="monitor.stats.open_folder" class="ps-btn ps-btn-secondary" title="Stats-Ordner des aktiven Runs oeffnen.">Open Stats Folder</button>
+              </div>
+            </div>
+          </section>
+
+          <aside class="ps-col">
+            <div class="ps-section">
+              <div class="ps-section-title">Resume + Config-Revision</div>
+              <div class="ps-note">Resume bleibt deaktiviert, bis eine Zielphase in der Pipeline angeklickt wurde.</div>
+              <div class="ps-row">
+                <label for="monitor-resume-config-revision">Config Revision</label>
+                <select id="monitor-resume-config-revision" data-control="monitor.resume.config_revision" class="ps-select" title="Revision fuer Resume waehlen.">
+                  <option selected>config_rev_20260307T221530Z</option>
+                  <option>config_rev_20260307T220855Z</option>
+                  <option>config_rev_20260307T215002Z</option>
+                </select>
+              </div>
+              <div class="ps-actions" style="margin-top:10px;">
+                <button id="monitor-resume" data-control="monitor.resume" class="ps-btn" title="Resume mit gewaehlter Phase/Revision starten." disabled>Resume starten</button>
+                <button id="monitor-resume-restore-revision" data-control="monitor.resume.restore_revision" class="ps-btn ps-btn-secondary" title="Aeltere Config-Revision wiederherstellen.">Restore Revision</button>
+              </div>
+            </div>
+
+            <div class="ps-section">
+              <div class="ps-section-title">Artefakte</div>
+              <ul class="ps-list">
+                <li><button title="run_events.jsonl anzeigen.">run_events.jsonl (324 KB)</button></li>
+                <li><button title="reconstructed_R.fit anzeigen.">reconstructed_R.fit (98 MB)</button></li>
+                <li><button title="reconstructed_G.fit anzeigen.">reconstructed_G.fit (97 MB)</button></li>
+                <li><button title="reconstructed_B.fit anzeigen.">reconstructed_B.fit (96 MB)</button></li>
+                <li><button title="pcc_report.json anzeigen.">pcc_report.json (17 KB)</button></li>
+              </ul>
+              <div class="ps-actions" style="margin-top:12px;">
+                <button id="monitor-report" data-control="monitor.report" class="ps-btn ps-btn-secondary" title="HTML Report des Runs oeffnen.">Report</button>
+                <button id="monitor-open-run-folder" data-control="monitor.open_run_folder" class="ps-btn ps-btn-secondary" title="Run-Ordner im Dateimanager oeffnen.">Run-Ordner oeffnen</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer-note">Run Monitor bildet die Funktionsmatrix 4.5 ab: Phasenklick-Resume, Filterchips, Revisionssteuerung und Stats unter Live Log.</p>
+  </main>
+
+  <script>
+    document.querySelectorAll('.ps-chip-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const group = btn.parentElement;
+        group.querySelectorAll('.ps-chip-btn').forEach((el) => el.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    const resumeBtn = document.getElementById('monitor-resume');
+    const phaseButtons = document.querySelectorAll('.ps-phase-row');
+    phaseButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        phaseButtons.forEach((el) => el.classList.remove('is-selected'));
+        btn.classList.add('is-selected');
+        resumeBtn.disabled = false;
+        resumeBtn.setAttribute('title', 'Resume ab ' + btn.querySelector('.phase-name').textContent + ' mit gewaehlter Revision starten.');
+      });
+    });
+  </script>
+</body>
+</html>

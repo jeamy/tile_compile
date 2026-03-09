@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Layout 1920</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <nav class="pill-nav">
+    <a data-control="nav.start" href="index.html">Start</a>
+    <div class="pill-sep"></div>
+    <a data-control="nav.dashboard" href="dashboard.html">Dashboard</a>
+    <a data-control="nav.input_scan" href="input-scan.html">Input&amp;Scan</a>
+    <a data-control="nav.assumptions" href="assumptions.html">Assumptions</a>
+    <a data-control="nav.parameter_studio" href="parameter-studio.html">Parameter Studio</a>
+    <a data-control="nav.run_monitor" href="run-monitor.html">Run Monitor</a>
+    <a data-control="nav.history_tools" href="history-tools.html">History+Tools</a>
+    <a data-control="nav.astrometry" href="astrometry.html">Astrometry</a>
+    <a data-control="nav.pcc" href="pcc.html">PCC</a>
+    <a data-control="nav.live_log" href="live-log.html">Live Log</a>
+    <div class="pill-sep"></div>
+    <a class="active" data-control="nav.layout_1920" href="layout-1920.html">Layout 1920</a>
+    <a data-control="nav.flow" href="flow.html">Ablauf</a>
+    <a href="wizard.html">Wizard</a>
+  </nav>
+
+  <div class="pill-subbar">
+    <button id="locale-de" data-control="locale.de" class="locale-btn active" title="Sprache auf Deutsch setzen.">DE</button>
+    <button id="locale-en" data-control="locale.en" class="locale-btn" title="Language to English.">EN</button>
+    <span id="status-run-ready" data-control="status.run_ready" class="run-ready-chip" title="Readiness-Guardrails anzeigen.">Run Ready</span>
+  </div>
+
+  <main>
+    <div class="content-panel">
+      <h2>Layout 1920</h2>
+      <p class="intro">Technische Rasteransicht fuer die Desktop-Baseline 1920x1080: Shell, Main-Wrapper, Spaltenbreiten und Interaktionszonen.</p>
+
+      <div class="spec-list">
+        <a class="spec-item" href="../layout_1920_spec.md" style="text-decoration:none;color:inherit;">
+          <h4>Spec Datei</h4>
+          <p>Volle Rasterdefinition mit Koordinaten, Breiten, Gutter und Resizing-Regeln (HTML-only Referenz, ohne PNG-Overlay).</p>
+        </a>
+        <div class="spec-item">
+          <h4>Shell</h4>
+          <p>Sidebar 300 px, Main Area 1538 px, Outer Margin 24 px, Topbar 76 px.</p>
+        </div>
+        <div class="spec-item">
+          <h4>Main Wrapper</h4>
+          <p>x=356, y=230, w=1538, h=798. Innenabstand 24 px, Gutter standard 18 px.</p>
+        </div>
+        <div class="spec-item">
+          <h4>Interaktion</h4>
+          <p>Primary >=52 px, Secondary >=44 px, Zeilenaktionen >=48 px, Chips >=34 px.</p>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <h3>Layout-Links (Matrix)</h3>
+          <p>Diese zwei Controls entsprechen den Dokumentations-Hotspots der Funktionsmatrix.</p>
+          <div class="ps-actions" style="margin-top:10px;">
+            <a data-control="layout.hotspot.shell" class="ps-btn ps-btn-secondary" href="dashboard.html">Shell Zone</a>
+            <a data-control="layout.hotspot.main_wrapper" class="ps-btn ps-btn-secondary" href="parameter-studio.html">Main Wrapper Zone</a>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Shell / App-Rahmen</h3>
+          <p>x=24, y=24, w=1872, h=1032</p>
+          <p>Topbar: h=76</p>
+          <p>Sidebar: x=24, y=118, w=300, h=914</p>
+          <p>Main Area: x=356, y=118, w=1538, h=914</p>
+        </div>
+        <div class="card">
+          <h3>Main Wrapper</h3>
+          <p>x=356, y=230, w=1538, h=798</p>
+          <p>Innenabstand: 24 px</p>
+          <p>Standard-Gutter: 18 px</p>
+          <p>Kartenradius: 18 px</p>
+        </div>
+        <div class="card">
+          <h3>Dashboard</h3>
+          <p>Metrics: vier Karten in Reihe, y≈250</p>
+          <p>Guided Run: x=356..1210, y=402..860</p>
+          <p>Guardrails: x=1230..1894, y=402..860</p>
+          <p>Pipeline Preview: untere Vollbreiten-Zeile</p>
+        </div>
+        <div class="card">
+          <h3>Parameter Studio</h3>
+          <p>Drei Spalten:</p>
+          <p>col1: x=382..732</p>
+          <p>col2: x=748..1380</p>
+          <p>col3: x=1398..1868</p>
+        </div>
+        <div class="card">
+          <h3>Run Monitor</h3>
+          <p>Drei Spalten:</p>
+          <p>run1: x=382..1030</p>
+          <p>run2: x=1048..1468</p>
+          <p>run3: x=1486..1868</p>
+        </div>
+        <div class="card">
+          <h3>History + Tool-Screens</h3>
+          <p>Historie links: x=382..1242, y=266..996</p>
+          <p>Astrometry: eigener 3-Spalten-Contentbereich (x=382..1868, y=266..996)</p>
+          <p>PCC: eigener 3-Spalten-Contentbereich (x=382..1868, y=266..996)</p>
+        </div>
+      </div>
+
+      <div class="spec-list">
+        <div class="spec-item">
+          <h4>Buttons</h4>
+          <p>Primary Buttons: 52 px Hoehe, klarer Call-to-Action, rechtsbuendig in Aktionsreihen.</p>
+        </div>
+        <div class="spec-item">
+          <h4>Inputs</h4>
+          <p>Formfelder: 40 px Hoehe, Labels direkt darueber, horizontale Reihen nur bei kurzen Feldern.</p>
+        </div>
+        <div class="spec-item">
+          <h4>Status-Chips</h4>
+          <p>Min. 34 px Hoehe, Farbcodierung fuer OK / CHECK / ERROR, immer innerhalb von Kartenzeilen.</p>
+        </div>
+        <div class="spec-item">
+          <h4>Resizing-Regeln</h4>
+          <p>Desktop-Regel: bei Breite &lt; 1920 wird horizontal gescrollt (kein Kompaktlayout).</p>
+        </div>
+      </div>
+
+      <p class="footer-note">Klick auf die vier Split-Zeilen springt direkt zum passenden Screen des Klickdummys.</p>
+    </div>
+  </main>
+</body>
+</html>

@@ -5,6 +5,16 @@
 run_dir: ./run_mono_small_n_anti_grid
 log_level: info # trace|debug|info|warn|error
 
+scenario_profile:
+  id: mono_small_n_anti_grid
+  title: MONO Small-N Anti-Grid
+  intent: "Kleines N mit Fokus auf stabile Tile-Naehte und Pattern-Vermeidung."
+  gui2_scenarios: [mono, small_n, anti_grid, alt_az, rotation_robust]
+  recommended_for:
+    - "N_usable in etwa 10..40"
+    - "sichtbare Tile-Naehte oder instabile lokale Gewichtung"
+  priority: seam_stability
+
 pipeline:
   mode: production # production|test
   abort_on_fail: false # true => Lauf bei kritischem Phasenfehler sofort beenden
@@ -65,7 +75,7 @@ normalization:
   per_channel: true # bei MONO ohne Einfluss, bleibt fuer Schema-Konsistenz gesetzt
 
 registration:
-  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc
+  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc|robust_phase_ecc
   enable_star_pair_fallback: true
   allow_rotation: true # PFLICHT fuer Alt/Az: Feldrotation ueber Session
   star_topk: 150 # mehr Sterne fuer robustes Matching bei Rotation/Wolken

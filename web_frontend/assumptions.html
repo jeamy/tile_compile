@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GUI 2 - Assumptions</title>
+  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="layout-panels.css?v=2">
+  <script src="shell.js" defer></script>
+  <script src="theme.js" defer></script>
+  <script src="tooltips.js" defer></script>
+</head>
+<body>
+  <div data-shell-header></div>
+
+  <main>
+    <p class="intro">Pipeline-Annahmen: Frame-Schwellen, Pipeline-Profil, Reduced-Mode-Regeln. Produktive Seite fuer Annahmen und Regelkontext.</p>
+
+    <div class="app-screen">
+      <div class="app-sidebar" data-shell-sidebar></div>
+
+      <div class="app-content">
+        <h2>Assumptions</h2>
+        <p class="ps-sub">Pipeline-Profil und Frame-Schwellen bestimmen den Modus: Full / Reduced / Emergency.</p>
+
+        <div class="ps-section">
+          <div class="ps-row">
+            <label>Pipeline-Profil</label>
+            <select class="ps-select" id="asmpt-profile" data-control="assumptions.pipeline_profile" onchange="updateMode()" title="Pipeline-Profil strict/practical setzen.">
+              <option selected>practical</option>
+              <option>strict</option>
+            </select>
+          </div>
+          <div class="ps-row">
+            <label>Frames Minimum</label>
+            <input class="ps-input ps-short" type="number" value="8" id="asmpt-min" data-control="assumptions.frames_min" onchange="updateMode()" title="Mindestanzahl Frames fuer Annahmen setzen.">
+          </div>
+          <div class="ps-row">
+            <label>Frames Optimal</label>
+            <input class="ps-input ps-short" type="number" value="30" id="asmpt-opt" data-control="assumptions.frames_optimal" onchange="updateMode()" title="Optimale Frame-Anzahl setzen.">
+          </div>
+          <div class="ps-row">
+            <label>Reduced-Mode Schwelle</label>
+            <input class="ps-input ps-short" type="number" value="15" id="asmpt-reduced" data-control="assumptions.frames_reduced_threshold" onchange="updateMode()" title="Schwelle fuer Reduced-Mode setzen.">
+            <span class="ps-hint">Frames &lt; Schwelle → Reduced-Mode</span>
+          </div>
+          <div class="ps-row">
+            <label>Clustering überspringen</label>
+            <input type="checkbox" id="asmpt-skip-cluster" data-control="assumptions.reduced_mode_skip_clustering" title="Clustering im Reduced-Mode ueberspringen."> <span class="ps-hint">im Reduced-Mode</span>
+          </div>
+          <div class="ps-row">
+            <label>Cluster-Bereich</label>
+            <input class="ps-input ps-short" type="text" value="2-6" id="asmpt-cluster-range" data-control="assumptions.reduced_mode_cluster_range" title="Clusterbereich im Reduced-Mode setzen.">
+          </div>
+          <div class="ps-row">
+            <label>Belichtungszeit-Toleranz (%)</label>
+            <input class="ps-input ps-short" type="number" value="10" id="asmpt-exp-tol" data-control="assumptions.exposure_time_tolerance_percent" title="Belichtungszeit-Toleranz in Prozent setzen.">
+          </div>
+        </div>
+
+        <div class="ps-info-panel" id="mode-panel" data-control="assumptions.pipeline_mode_info">
+          <div class="ps-info-title">Aktueller Pipeline-Modus</div>
+          <div id="mode-display" class="ps-mode-full">Full Mode (≥ 15 Frames)</div>
+          <div class="ps-mode-hint" id="mode-hint">Alle Pipeline-Phasen aktiv inkl. Clustering und Synthetik.</div>
+        </div>
+
+      </div>
+    </div>
+
+    <p id="asmpt-note" class="footer-note">Assumptions steuern wann der Runner in Reduced-Mode oder Emergency-Mode wechselt.</p>
+  </main>
+  <script>
+    function localeText(key, fallback) {
+      const messages = window.GUI2_LOCALE_MESSAGES || {};
+      return Object.prototype.hasOwnProperty.call(messages, key) ? messages[key] : fallback;
+    }
+
+    function updateMode() {
+      const frames = parseInt(document.getElementById("asmpt-reduced").value) || 15;
+      const opt = parseInt(document.getElementById("asmpt-opt").value) || 30;
+      const min = parseInt(document.getElementById("asmpt-min").value) || 8;
+      const disp = document.getElementById("mode-display");
+      const hint = document.getElementById("mode-hint");
+      disp.className = "";
+      if (frames >= opt) {
+        disp.textContent = localeText("page.assumptions.mode_full", "Full Mode") + " (≥ " + opt + " " + localeText("page.shared.frames", "Frames") + ")";
+        disp.className = "ps-mode-full";
+        hint.textContent = localeText("page.assumptions.mode_full_hint", "Alle Pipeline-Phasen aktiv inkl. Clustering und Synthetik.");
+      } else if (frames >= min) {
+        disp.textContent = localeText("page.assumptions.mode_reduced", "Reduced Mode") + " (" + min + "–" + (opt-1) + " " + localeText("page.shared.frames", "Frames") + ")";
+        disp.className = "ps-mode-reduced";
+        hint.textContent = localeText("page.assumptions.mode_reduced_hint", "Clustering optional, Synthetik eingeschränkt.");
+      } else {
+        disp.textContent = localeText("page.assumptions.mode_emergency", "Emergency Mode") + " (< " + min + " " + localeText("page.shared.frames", "Frames") + ")";
+        disp.className = "ps-mode-emergency";
+        hint.textContent = localeText("page.assumptions.mode_emergency_hint", "Nur Basis-Stacking, keine Metriken, keine Synthetik.");
+      }
+    }
+
+    document.addEventListener("gui2:locale-changed", updateMode);
+  </script>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

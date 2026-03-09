@@ -163,7 +163,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace
 RUN mkdir -p /workspace/tile_compile_cpp
 
-# Copy only files needed to build runner/cli/gui (avoid copying runs/, build/, caches, etc.)
+# Copy only files needed to build runner/cli (avoid copying runs/, build/, caches, etc.)
 COPY tile_compile_cpp/CMakeLists.txt /workspace/tile_compile_cpp/CMakeLists.txt
 COPY tile_compile_cpp/tile_compile.yaml /workspace/tile_compile_cpp/
 COPY tile_compile_cpp/tile_compile.schema.yaml /workspace/tile_compile_cpp/
@@ -171,10 +171,9 @@ COPY tile_compile_cpp/tile_compile.schema.json /workspace/tile_compile_cpp/
 COPY tile_compile_cpp/include /workspace/tile_compile_cpp/include
 COPY tile_compile_cpp/src /workspace/tile_compile_cpp/src
 COPY tile_compile_cpp/apps /workspace/tile_compile_cpp/apps
-COPY tile_compile_cpp/gui_cpp /workspace/tile_compile_cpp/gui_cpp
 
 RUN rm -rf /workspace/tile_compile_cpp/build \
- && cmake -S /workspace/tile_compile_cpp -B /workspace/tile_compile_cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
+ && cmake -S /workspace/tile_compile_cpp -B /workspace/tile_compile_cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_QT_GUI=OFF \
  && cmake --build /workspace/tile_compile_cpp/build -j"$(nproc)"
 
 WORKDIR /workspace/tile_compile_cpp/build
