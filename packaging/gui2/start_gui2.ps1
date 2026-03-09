@@ -60,6 +60,13 @@ function Test-ServerReady {
   }
 }
 
+function Open-BrowserIfEnabled {
+  if ($env:TILE_COMPILE_GUI2_NO_BROWSER -eq "1") {
+    return
+  }
+  Start-Process $Url
+}
+
 function Sync-Payload {
   New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
   $null = robocopy $PayloadDir $InstallRoot /MIR /NFL /NDL /NJH /NJS /NP
@@ -122,6 +129,14 @@ $env:TILE_COMPILE_CONFIG_PATH = Join-Path $InstallRoot "tile_compile_cpp\tile_co
 $env:TILE_COMPILE_STATS_SCRIPT = Join-Path $InstallRoot "tile_compile_cpp\scripts\generate_report.py"
 $env:TILE_COMPILE_ALLOWED_ROOTS = "$InstallRoot;$env:USERPROFILE"
 $env:PYTHONUNBUFFERED = "1"
+$LibDir = Join-Path $InstallRoot "tile_compile_cpp\lib"
+if (Test-Path $LibDir) {
+  if ($env:PATH) {
+    $env:PATH = "$LibDir;$env:PATH"
+  } else {
+    $env:PATH = $LibDir
+  }
+}
 
 if (-not (Test-ServerReady)) {
   Write-Info "Starte FastAPI-Backend auf $Url"
@@ -138,7 +153,7 @@ if (-not (Test-ServerReady)) {
 
 for ($i = 0; $i -lt 20; $i++) {
   if (Test-ServerReady) {
-    Start-Process $Url
+    Open-BrowserIfEnabled
     exit 0
   }
   Start-Sleep -Seconds 1

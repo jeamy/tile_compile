@@ -145,6 +145,9 @@ PY
 }
 
 open_browser() {
+  if [[ "${TILE_COMPILE_GUI2_NO_BROWSER:-0}" == "1" ]]; then
+    return
+  fi
   if have_command xdg-open; then
     xdg-open "${URL}" >/dev/null 2>&1 &
     return
@@ -159,6 +162,7 @@ open_browser() {
 start_backend() {
   local venv_python="$1"
   local log_file="${LOG_DIR}/gui2-backend.log"
+  local lib_dir="${INSTALL_ROOT}/tile_compile_cpp/lib"
 
   export TILE_COMPILE_CLI="${INSTALL_ROOT}/tile_compile_cpp/build/tile_compile_cli"
   export TILE_COMPILE_RUNNER="${INSTALL_ROOT}/tile_compile_cpp/build/tile_compile_runner"
@@ -167,6 +171,10 @@ start_backend() {
   export TILE_COMPILE_STATS_SCRIPT="${INSTALL_ROOT}/tile_compile_cpp/scripts/generate_report.py"
   export TILE_COMPILE_ALLOWED_ROOTS="${INSTALL_ROOT}:$(printf '%s' "${HOME}"):/tmp:/media"
   export PYTHONUNBUFFERED="1"
+  if [[ -d "${lib_dir}" ]]; then
+    export LD_LIBRARY_PATH="${lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+    export DYLD_LIBRARY_PATH="${lib_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+  fi
 
   nohup "${venv_python}" -m uvicorn app.main:app \
     --app-dir "${INSTALL_ROOT}/web_backend" \
