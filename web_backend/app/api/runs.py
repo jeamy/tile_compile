@@ -333,19 +333,15 @@ def run_resume(run_id: str, request: Request, payload: dict[str, Any]) -> dict[s
         )
     from_phase = from_phase_raw.upper()
     revision_id = str(payload.get("config_revision_id", "")).strip()
-    if not revision_id:
-        raise HTTPException(
-            status_code=409,
-            detail={"error": {"code": "REVISION_REQUIRED", "message": "config_revision_id is required for resume"}},
-        )
-    revision = get_revision(request.app, revision_id)
-    if revision is None:
+    revision = get_revision(request.app, revision_id) if revision_id else None
+    if revision_id and revision is None:
         raise HTTPException(
             status_code=404,
             detail={"error": {"code": "NOT_FOUND", "message": f"revision '{revision_id}' not found"}},
         )
     try:
-        restore_revision(request.app, revision_id)
+        if revision_id:
+            restore_revision(request.app, revision_id)
         run_dir = payload.get("run_dir")
         resolved_run_dir = (
             runtime.ensure_path_allowed(Path(run_dir).expanduser(), must_exist=False, label="run_dir")

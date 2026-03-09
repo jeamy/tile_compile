@@ -5,12 +5,14 @@ import { applyLocaleMessages, t } from "./i18n.js";
 const api = new ApiClient(localStorage.getItem("gui2.backendBase") || "");
 const CONFIG_DRAFT_KEY = "gui2.configYamlDraft";
 const CONFIG_VALIDATION_STATE_KEY = "gui2.configValidationState";
+const HISTORY_CURRENT_RUN_KEY = "gui2.historyCurrentRunId";
 const LOCALE_KEY = "gui2.locale";
 const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
 
 const uiState = {
   currentRunId: localStorage.getItem("gui2.currentRunId") || "",
   currentRunDir: "",
+  missingHistoryRunIds: new Set(),
   defaultConfigPath: "",
   selectedHistoryRunId: "",
   compareHistoryRunId: "",
@@ -164,9 +166,25 @@ function setCurrentRunId(runId) {
   localStorage.setItem("gui2.currentRunId", uiState.currentRunId);
 }
 
+function markCurrentRunFromHistory(runId) {
+  const value = String(runId || "").trim();
+  if (!value) return;
+  localStorage.setItem(HISTORY_CURRENT_RUN_KEY, value);
+}
+
+function clearCurrentRunHistoryMark() {
+  localStorage.removeItem(HISTORY_CURRENT_RUN_KEY);
+}
+
+function isCurrentRunFromHistory() {
+  const marked = String(localStorage.getItem(HISTORY_CURRENT_RUN_KEY) || "").trim();
+  return Boolean(marked) && marked === String(uiState.currentRunId || "").trim();
+}
+
 function clearCurrentRunId() {
   uiState.currentRunId = "";
   localStorage.removeItem("gui2.currentRunId");
+  clearCurrentRunHistoryMark();
 }
 
 function footerEl() {
@@ -1097,6 +1115,21 @@ function statsFailedMessage(err) {
     .replace("{error}", errorText(err));
 }
 
+function historyDeleteStartedMessage(runId) {
+  return t("ui.message.history_delete_started", "Eintrag wird gelöscht: {run_id}")
+    .replace("{run_id}", String(runId || "-"));
+}
+
+function historyDeleteDoneMessage(runId) {
+  return t("ui.message.history_delete_done", "Eintrag gelöscht: {run_id}")
+    .replace("{run_id}", String(runId || "-"));
+}
+
+function historyDeleteFailedMessage(err) {
+  return t("ui.message.history_delete_failed", "Eintrag-Löschen fehlgeschlagen: {error}")
+    .replace("{error}", errorText(err));
+}
+
 function isRunActiveStatus(status) {
   return ["running", "queued", "starting"].includes(String(status || "").trim().toLowerCase());
 }
@@ -1113,6 +1146,7 @@ async function isMonitorRunCurrentlyActive() {
 
 async function getRunStartValidationBlockReason() {
   if (await isMonitorRunCurrentlyActive()) return "";
+  if (isCurrentRunFromHistory()) return "";
   const yaml = await resolveConfigYamlForRun();
   const validation = getConfigValidationState();
   if (!validation || String(validation.yaml || "") !== String(yaml || "")) {
@@ -1507,6 +1541,36 @@ function runMonitorSelectedPhase() {
   return selected ? String(selected.textContent || "").trim().toUpperCase() : "";
 }
 
+function setMonitorResumeInfo(message = "") {
+  const el = $("monitor-resume-info");
+  if (!el) return;
+  const text = String(message || "").trim();
+  el.textContent = text;
+  el.style.display = text ? "" : "none";
+}
+
+function applyRunMonitorResumePhaseAvailability(resumePhases) {
+  const allowed = new Set(
+    Array.isArray(resumePhases) && resumePhases.length > 0
+      ? resumePhases.map((phase) => String(phase || "").trim().toUpperCase()).filter(Boolean)
+      : ["ASTROMETRY", "BGE", "PCC"],
+  );
+  document.querySelectorAll(".ps-phase-row").forEach((row) => {
+    const phaseName = String(row.querySelector(".phase-name")?.textContent || "").trim().toUpperCase();
+    const resumable = allowed.has(phaseName);
+    row.dataset.resumeAllowed = resumable ? "1" : "0";
+    if (!resumable) {
+      row.classList.remove("is-selected");
+      row.style.opacity = "0.6";
+      row.style.cursor = "not-allowed";
+      row.title = `Resume aktuell nur ab ${Array.from(allowed).join(", ")} unterstützt.`;
+      return;
+    }
+    row.style.opacity = "";
+    row.style.cursor = "pointer";
+  });
+}
+
 function runMonitorSelectedFilter() {
   const chipRow = $("monitor-filter-row");
   if (chipRow && chipRow.style.display === "none") return "";
@@ -1674,6 +1738,18 @@ function connectRunMonitorStream(runId) {
           setPhaseRow(p.phase, p.status, p.pct);
         }
       }
+      const eventType = String(event?.type || "").trim().toLowerCase();
+      const terminalRunStatus = String(event?.payload?.status || event?.status || "").trim().toLowerCase();
+      const isTerminalRunEvent =
+        eventType === "run_end"
+        || eventType === "resume_end"
+        || (
+          eventType === "run_status"
+          && ["completed", "failed", "cancelled", "aborted", "error", "done", "finished"].includes(terminalRunStatus)
+        );
+      if (isTerminalRunEvent) {
+        window.setTimeout(() => window.location.reload(), 250);
+      }
     },
     (err) => {
       enqueueRunMonitorLogLine(`ws_error: ${String(err)}`);
@@ -1693,11 +1769,26 @@ async function bindRunMonitor() {
   const updateResumeEnabled = () => {
     const phase = runMonitorSelectedPhase();
     const revisionId = $("monitor-resume-config-revision")?.value || "";
-    setDisabledLike($("monitor-resume"), !uiState.currentRunId || !phase || !revisionId);
+    const selectedRow = document.querySelector(".ps-phase-row.is-selected");
+    const resumable = String(selectedRow?.dataset?.resumeAllowed || "") === "1";
+    const showHistoryResumeHint = isCurrentRunFromHistory();
+    setDisabledLike($("monitor-resume"), !uiState.currentRunId || !phase || !resumable);
     setDisabledLike($("monitor-resume-restore-revision"), !revisionId);
+    setMonitorResumeInfo(
+      showHistoryResumeHint
+        ? t(
+            "ui.message.resume_info_history_bge_requires_artifacts",
+            "Hinweis fuer History-Resume: Der Run verwendet seine vorhandenen Artefakte. Resume ab BGE berechnet BGE nur neu, wenn passende Local-Metrics- und BGE-Grid-Artefakte im Run vorhanden sind. Fehlen sie, wird BGE uebersprungen.",
+          )
+        : "",
+    );
   };
   document.querySelectorAll(".ps-phase-row").forEach((row) => {
     row.addEventListener("click", () => {
+      if (String(row.dataset.resumeAllowed || "") !== "1") {
+        setFooter("Resume ist aktuell nur ab ASTROMETRY, BGE oder PCC unterstützt.", true);
+        return;
+      }
       document.querySelectorAll(".ps-phase-row").forEach((x) => x.classList.remove("is-selected"));
       row.classList.add("is-selected");
       updateResumeEnabled();
@@ -1910,6 +2001,7 @@ async function bindRunMonitor() {
       }
       const accepted = await startRunFromCurrentForm({ source: "monitor" });
       setCurrentRunId(accepted?.run_id || uiState.currentRunId);
+      clearCurrentRunHistoryMark();
       setMonitorStartValidationMessage("");
       setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
       window.location.reload();
@@ -1939,20 +2031,19 @@ async function bindRunMonitor() {
   $("monitor-resume")?.addEventListener("click", async () => {
     const phase = runMonitorSelectedPhase();
     const revisionId = $("monitor-resume-config-revision")?.value || "";
-    if (!phase || !revisionId) {
-      setFooter("Bitte Phase und Config-Revision waehlen.", true);
+    if (!phase) {
+      setFooter("Bitte Zielphase waehlen.", true);
       return;
     }
     try {
       const accepted = await api.post(API_ENDPOINTS.runs.resume(uiState.currentRunId), {
         from_phase: phase,
-        config_revision_id: revisionId,
+        config_revision_id: revisionId || undefined,
         run_dir: uiState.currentRunDir || undefined,
         filter_context: runMonitorSelectedFilter() || undefined,
       });
       setFooter(`Resume gestartet (Job ${accepted.job_id}).`);
-      await waitForJob(accepted.job_id);
-      await loadRunStatus(uiState.currentRunId);
+      window.location.reload();
     } catch (err) {
       setFooter(`Resume fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -2058,6 +2149,8 @@ async function bindRunMonitor() {
   });
 
   try {
+    const appConstants = await api.get(API_ENDPOINTS.app.constants).catch(() => null);
+    applyRunMonitorResumePhaseAvailability(appConstants?.resume_from);
     await loadRunRevisions();
     const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ project: {}, run: { current: {} } }));
     const currentRunId = String(appState?.project?.current_run_id || "").trim();
@@ -2161,8 +2254,18 @@ async function bindHistoryPage() {
   };
   const loadRunSnapshot = async (runId) => {
     if (!runId) return null;
-    const [runStatus, statsStatus, artifactResult] = await Promise.all([
-      api.get(API_ENDPOINTS.runs.status(runId)),
+    let runStatus;
+    try {
+      runStatus = await api.get(API_ENDPOINTS.runs.status(runId));
+    } catch (err) {
+      if (Number(err?.status) === 404) {
+        uiState.missingHistoryRunIds.add(String(runId));
+        return null;
+      }
+      throw err;
+    }
+    uiState.missingHistoryRunIds.delete(String(runId));
+    const [statsStatus, artifactResult] = await Promise.all([
       api.get(API_ENDPOINTS.runs.statsStatus(runId)).catch(() => ({ report_path: "", output_dir: "", state: "unknown" })),
       api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => ({ items: [] })),
     ]);
@@ -2216,6 +2319,13 @@ async function bindHistoryPage() {
       return null;
     }
     const snapshot = await loadRunSnapshot(uiState.selectedHistoryRunId);
+    if (!snapshot) {
+      uiState.selectedHistoryRunId = "";
+      selectedSnapshotCache = null;
+      clearHistoryDetails(selectedRefs);
+      updateHistoryActionState(null);
+      return null;
+    }
     selectedSnapshotCache = snapshot;
     applyHistorySnapshot(snapshot, selectedRefs);
     updateHistoryActionState(snapshot);
@@ -2242,6 +2352,12 @@ async function bindHistoryPage() {
       return;
     }
     const snapshot = await loadRunSnapshot(uiState.compareHistoryRunId);
+    if (!snapshot) {
+      uiState.compareHistoryRunId = "";
+      clearHistoryDetails(compareRefs, "Vergleichs-Run wählen");
+      if (compareRunSelect) compareRunSelect.value = "";
+      return;
+    }
     applyHistorySnapshot(snapshot, compareRefs);
     const baseProgress = Number(selectedSnapshot?.progressValue);
     const compareProgress = Number(snapshot?.progressValue);
@@ -2265,7 +2381,8 @@ async function bindHistoryPage() {
       const runsDir = String(appState?.project?.runs_dir || "").trim();
       historySourcePath.textContent = runsDir ? `Quelle: ${runsDir}` : "Quelle: -";
     }
-    const items = Array.isArray(runs?.items) ? runs.items : [];
+    const items = (Array.isArray(runs?.items) ? runs.items : [])
+      .filter((item) => !uiState.missingHistoryRunIds.has(String(item?.run_id || "")));
     if (items.length === 0) {
       list.innerHTML = "<li><button>Keine Runs gefunden</button></li>";
       clearHistoryDetails(selectedRefs);
@@ -2310,7 +2427,9 @@ async function bindHistoryPage() {
     try {
       await api.post(API_ENDPOINTS.runs.setCurrent(uiState.selectedHistoryRunId), {});
       setCurrentRunId(uiState.selectedHistoryRunId);
+      markCurrentRunFromHistory(uiState.selectedHistoryRunId);
       setFooter(`Current Run gesetzt: ${uiState.selectedHistoryRunId}`);
+      window.location.href = "run-monitor.html";
     } catch (err) {
       setFooter(`Set Current fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -2372,14 +2491,15 @@ async function bindHistoryPage() {
     const confirmed = window.confirm(`Run wirklich löschen?\n${runId}`);
     if (!confirmed) return;
     try {
+      setFooter(historyDeleteStartedMessage(runId));
       await api.post(API_ENDPOINTS.runs.delete(runId), {});
       if (uiState.currentRunId === runId) clearCurrentRunId();
       if (uiState.compareHistoryRunId === runId) uiState.compareHistoryRunId = "";
       if (uiState.selectedHistoryRunId === runId) uiState.selectedHistoryRunId = "";
-      setFooter(`Run gelöscht: ${runId}`);
+      setFooter(historyDeleteDoneMessage(runId));
       await render();
     } catch (err) {
-      setFooter(`Run-Löschen fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(historyDeleteFailedMessage(err), true);
     }
   });
 
@@ -3076,6 +3196,7 @@ async function bindDashboard() {
         }
         const accepted = await startRunFromCurrentForm({ source: "dashboard" });
         setCurrentRunId(accepted?.run_id || uiState.currentRunId);
+        clearCurrentRunHistoryMark();
         setRunReady(latestGuardrails?.status || "check", "running");
         setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
         window.location.href = "run-monitor.html";
@@ -3259,6 +3380,7 @@ async function bindWizard() {
     try {
       const accepted = await startRunFromCurrentForm({ source: "wizard" });
       setCurrentRunId(accepted?.run_id || uiState.currentRunId);
+      clearCurrentRunHistoryMark();
       setFooter(`Wizard-Run gestartet (Job ${accepted?.job_id || "-"}).`);
       window.location.href = "run-monitor.html";
     } catch (err) {

@@ -24,6 +24,23 @@ def tail_run_stream_events(run_dir: Path, *, cursor: int = 0, max_events: int = 
                 try:
                     item = json.loads(raw)
                 except json.JSONDecodeError:
+                    events.append(
+                        {
+                            "type": "log_line",
+                            "run_id": "unknown",
+                            "phase": None,
+                            "filter": None,
+                            "pct": None,
+                            "ts": utc_now_iso(),
+                            "payload": {
+                                "message": raw,
+                                "raw": raw,
+                            },
+                        }
+                    )
+                    new_cursor = line_no
+                    if len(events) >= max_events:
+                        break
                     continue
                 if not isinstance(item, dict):
                     continue

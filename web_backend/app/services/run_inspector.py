@@ -82,6 +82,7 @@ def read_run_status(run_dir: Path) -> dict[str, Any]:
     current_phase: str | None = None
     last_progress: dict[str, float] = {}
     events_tail: list[dict[str, Any]] = []
+    resume_from_phase: str | None = None
 
     for ev in _iter_jsonl(event_file):
         events_tail.append(ev)
@@ -120,6 +121,27 @@ def read_run_status(run_dir: Path) -> dict[str, Any]:
                     current_phase = None
                 if raw in {"error", "aborted"}:
                     run_status = "failed"
+
+        if event_type == "resume_start":
+            resume_phase_raw = str(ev.get("from_phase", "") or ev.get("payload", {}).get("from_phase", "")).strip().upper()
+            if resume_phase_raw:
+                resume_from_phase = resume_phase_raw
+                current_phase = resume_phase_raw
+                if run_status in {"unknown", "pending", "completed"}:
+                    run_status = "running"
+                if resume_phase_raw in PHASE_ORDER:
+                    resume_idx = PHASE_ORDER.index(resume_phase_raw)
+                    for prev_phase in PHASE_ORDER[:resume_idx]:
+                        prev_state = phases.get(prev_phase)
+                        if prev_state and prev_state["status"] == "pending":
+                            prev_state["status"] = "ok"
+                            prev_state["pct"] = max(float(prev_state["pct"]), 1.0)
+
+        if event_type == "resume_end":
+            success = bool(ev.get("success", ev.get("payload", {}).get("success", False)))
+            run_status = "completed" if success else "failed"
+            if success and current_phase == resume_from_phase:
+                current_phase = None
 
         if event_type == "run_end":
             run_status = "completed" if bool(ev.get("success", False)) else "failed"

@@ -329,12 +329,23 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
   }
 
-  auto run_astrometry_if_needed = [&]() {
-    if (have_wcs)
-      return;
-
+  auto run_astrometry_if_needed = [&](bool force_rerun = false) {
     core::EventEmitter emitter;
     emitter.phase_start(run_id, Phase::ASTROMETRY, "ASTROMETRY", log_file);
+
+    if (have_wcs && !force_rerun) {
+      emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
+                        {{"reason", "existing_wcs"},
+                         {"wcs_file",
+                          (run_dir / "artifacts" / "stacked_rgb.wcs")
+                              .string()}},
+                        log_file);
+      return;
+    }
+
+    if (force_rerun) {
+      have_wcs = false;
+    }
 
     if (!cfg.astrometry.enabled) {
       emitter.phase_end(run_id, Phase::ASTROMETRY, "skipped",
@@ -651,7 +662,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   };
 
   if (phase_l == "astrometry") {
-    run_astrometry_if_needed();
+    run_astrometry_if_needed(true);
     phase_l = "bge";
   }
   if (phase_l == "bge") {
