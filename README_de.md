@@ -461,7 +461,22 @@ ctest --output-on-failure
 
 - Alt/Az-Registrierung für Datensätze mit großer Feldrotation korrigiert.
 
+### v0.0.5 (2026-03-09)
+
+- GUI2 als empfohlene Oberfläche etabliert, mit Web-Frontend, FastAPI-Backend und plattformübergreifenden Release-Bundles.
+- DE/EN-i18n-Abdeckung in GUI2 und Parameter-Studio erweitert; Dokumentation und Backend-Konfigurationshandling darauf abgestimmt.
+- Den bisherigen Qt6-GUI-Pfad nach `legacy/` verschoben und den aktiv gepflegten GUI2-Start-/Packaging-Weg klarer dokumentiert.
+
 ## Changelog
+
+### (2026-03-09)
+
+**GUI2-Release + i18n-Refresh:**
+
+- Den webbasierten GUI2-Stack (`web_frontend/` + `web_backend/`) als empfohlenen UI-Pfad etabliert und die Top-Level-Dokumentation entsprechend aktualisiert.
+- Einen dedizierten GUI2-Release-Workflow samt Launcher-Packaging für Linux, macOS und Windows unter `.github/workflows/release-tile-compile-gui2.yml` und `packaging/gui2/` ergänzt.
+- Frontend-Lokalisierung und Übersetzungen im Parameter-Studio deutlich erweitert; dazu passende Updates am Backend-Konfigurationsvertrag und an den Tests ergänzt.
+- Den früheren Qt6-GUI-/Build-Script-Pfad nach `legacy/` verschoben, damit die gepflegte GUI2-Strecke klar von der Legacy-Desktop-Implementierung getrennt ist.
 
 ### (2026-03-05, spätere Aktualisierung)
 

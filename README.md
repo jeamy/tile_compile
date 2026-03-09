@@ -448,7 +448,22 @@ ctest --output-on-failure
 
 - Fixed Alt/Az registration for datasets with large field rotation.
 
+### v0.0.5 (2026-03-09)
+
+- Promoted GUI2 as the recommended interface with a web frontend, FastAPI backend, and cross-platform release bundles.
+- Expanded DE/EN i18n coverage in the GUI2 frontend and parameter studio, with aligned docs and backend config handling.
+- Moved the previous Qt6 GUI path into `legacy/` and clarified the actively maintained GUI2 packaging/start workflow.
+
 ## Changelog
+
+### (2026-03-09)
+
+**GUI2 release + i18n refresh:**
+
+- Promoted the web-based GUI2 stack (`web_frontend/` + `web_backend/`) to the recommended UI path and updated the top-level docs accordingly.
+- Added the dedicated GUI2 release workflow and launcher packaging for Linux, macOS, and Windows under `.github/workflows/release-tile-compile-gui2.yml` and `packaging/gui2/`.
+- Expanded frontend localization coverage and parameter-studio translations, with matching backend config contract updates and tests.
+- Moved the earlier Qt6 GUI/build-script path into `legacy/` to separate the maintained GUI2 route from the legacy desktop implementation.
 
 ### (2026-03-05, later update)
 
