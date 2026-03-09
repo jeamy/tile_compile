@@ -233,13 +233,14 @@
     const advancedNodes = document.querySelectorAll('.guided-advanced:not(.guided-mono-only)');
     const monoOnlyNodes = document.querySelectorAll('.guided-mono-only');
     const colorMode = document.getElementById('dashboard-color-mode');
+    const detectedMode = String(localStorage.getItem('gui2.lastScanColorMode') || '').trim().toUpperCase();
 
     function setMode(mode) {
       const isAdvanced = mode === 'advanced';
       advancedNodes.forEach((el) => {
         el.style.display = isAdvanced ? '' : 'none';
       });
-      const isMono = String(colorMode?.value || '').toUpperCase() === 'MONO';
+      const isMono = detectedMode === 'OSC' ? false : String(colorMode?.value || '').toUpperCase() === 'MONO';
       monoOnlyNodes.forEach((el) => {
         el.style.display = isAdvanced && isMono ? '' : 'none';
       });
@@ -255,6 +256,6 @@
     setMode('simple');
   })();
 </script>
-  <script type="module" src="src/app.js"></script>
+  <script type="module" src="src/app.js?v=7"></script>
 </body>
 </html>

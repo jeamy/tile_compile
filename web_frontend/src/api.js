@@ -32,6 +32,10 @@ export class ApiClient {
     return socket;
   }
 
+  httpUrl(path) {
+    return this._toHttpUrl(path);
+  }
+
   async _request(method, path, body) {
     const url = this._toHttpUrl(path);
     const resp = await fetch(url, {

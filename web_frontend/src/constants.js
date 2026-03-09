@@ -1,6 +1,7 @@
 export const API_ENDPOINTS = {
   fs: {
     grantRoot: "/api/fs/grant-root",
+    openPath: "/api/fs/open",
   },
   jobs: {
     byId: (jobId) => `/api/jobs/${encodeURIComponent(String(jobId || ""))}`,
@@ -31,6 +32,7 @@ export const API_ENDPOINTS = {
     status: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/status`,
     artifacts: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/artifacts`,
     artifactView: (runId, path = "") => `/api/runs/${encodeURIComponent(String(runId || ""))}/artifacts/view?path=${encodeURIComponent(String(path || ""))}`,
+    artifactRaw: (runId, path = "") => `/api/runs/${encodeURIComponent(String(runId || ""))}/artifacts/raw/${String(path || "").split("/").map((part) => encodeURIComponent(part)).join("/")}`,
     delete: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/delete`,
     stop: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/stop`,
     resume: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/resume`,

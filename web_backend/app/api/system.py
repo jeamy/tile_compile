@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -161,3 +165,56 @@ def fs_grant_root(request: Request, payload: dict | None = None) -> dict:
             return {"ok": True, "path": str(candidate), "allowed_roots": [str(x) for x in runtime.allowed_roots]}
     runtime.allowed_roots.append(candidate)
     return {"ok": True, "path": str(candidate), "allowed_roots": [str(x) for x in runtime.allowed_roots]}
+
+
+@router.post("/fs/open")
+def fs_open(request: Request, payload: dict | None = None) -> dict:
+    body = payload or {}
+    raw_path = str(body.get("path") or "").strip()
+    if not raw_path:
+      raise HTTPException(
+          status_code=400,
+          detail={"error": {"code": "BAD_REQUEST", "message": "path is required"}},
+      )
+
+    runtime = request.app.state.runtime
+    try:
+        checked = runtime.ensure_path_allowed(Path(raw_path).expanduser(), must_exist=True, label="open_path")
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
+
+    target = checked.resolve(strict=False)
+    if sys.platform == "darwin":
+        command = ["open", str(target)]
+    elif os.name == "nt":
+        try:
+            os.startfile(str(target))
+        except OSError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": {"code": "OPEN_FAILED", "message": str(exc), "details": {"path": str(target)}}},
+            ) from exc
+        return {"ok": True, "path": str(target), "command": ["startfile", str(target)]}
+    else:
+        opener = shutil.which("xdg-open")
+        if not opener:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": {"code": "OPEN_UNAVAILABLE", "message": "xdg-open is not available", "details": {"path": str(target)}}},
+            )
+        command = [opener, str(target)]
+
+    try:
+        subprocess.Popen(
+            command,
+            cwd=str(target.parent if target.is_file() else target),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "OPEN_FAILED", "message": str(exc), "details": {"path": str(target)}}},
+        ) from exc
+    return {"ok": True, "path": str(target), "command": command}

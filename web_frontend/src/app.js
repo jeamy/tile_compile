@@ -32,6 +32,7 @@ const uiState = {
   lastPccResult: null,
   locale: localStorage.getItem(LOCALE_KEY) || "de",
   projectRunsDir: "",
+  monitorStatsStatus: null,
 };
 
 const PARAM_CONTROL_PATHS = {
@@ -253,6 +254,7 @@ function appendLine(el, line) {
 
 function scrollLogToEnd(el) {
   if (!el) return;
+  if (typeof el.matches === "function" && el.matches(":hover")) return;
   el.scrollTop = el.scrollHeight;
 }
 
@@ -924,7 +926,7 @@ function bindScanPages() {
   });
   const colorModeEl = $("inp-colormode");
   if (colorModeEl) {
-    const updateQueue = () => setMonoQueueVisible(String(colorModeEl.value || "").toUpperCase() === "MONO");
+    const updateQueue = () => setMonoQueueVisible(colorModeEl.value || "");
     colorModeEl.addEventListener("change", updateQueue);
     updateQueue();
   }
@@ -1060,7 +1062,57 @@ function setMonitorStartValidationMessage(text = "") {
   el.style.display = message ? "block" : "none";
 }
 
+function monitorReportBtn() {
+  return $("monitor-report");
+}
+
+function setInlineAsyncStatus(el, text = "", tone = "idle") {
+  if (!el) return;
+  const message = String(text || "").trim();
+  el.textContent = message;
+  el.style.display = message ? "inline-flex" : "none";
+  if (!message) return;
+  if (tone === "ok") {
+    el.style.color = "#166534";
+    return;
+  }
+  if (tone === "error") {
+    el.style.color = "#b91c1c";
+    return;
+  }
+  if (tone === "running") {
+    el.style.color = "#b45309";
+    return;
+  }
+  el.style.color = "#475569";
+}
+
+function statsStartedMessage(jobId) {
+  return t("ui.message.stats_started", "Stats-Generierung gestartet (Job {job_id}).")
+    .replace("{job_id}", String(jobId || "-"));
+}
+
+function statsFailedMessage(err) {
+  return t("ui.message.stats_failed", "Stats-Generierung fehlgeschlagen: {error}")
+    .replace("{error}", errorText(err));
+}
+
+function isRunActiveStatus(status) {
+  return ["running", "queued", "starting"].includes(String(status || "").trim().toLowerCase());
+}
+
+async function isMonitorRunCurrentlyActive() {
+  try {
+    const appState = await api.get(API_ENDPOINTS.app.state);
+    if (isRunActiveStatus(appState?.run?.current?.status)) return true;
+  } catch {
+    // Ignore status probe errors and fall back to local validation state.
+  }
+  return false;
+}
+
 async function getRunStartValidationBlockReason() {
+  if (await isMonitorRunCurrentlyActive()) return "";
   const yaml = await resolveConfigYamlForRun();
   const validation = getConfigValidationState();
   if (!validation || String(validation.yaml || "") !== String(yaml || "")) {
@@ -1483,6 +1535,55 @@ function runMonitorLogBox() {
   return findLogBoxBySectionTitle("Live Log");
 }
 
+function artifactPathFromAbsolutePath(baseDir, targetPath, fallbackPath = "") {
+  const base = String(baseDir || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const target = String(targetPath || "").trim().replace(/\\/g, "/");
+  if (!target) return String(fallbackPath || "");
+  if (!base) return target;
+  if (target === base) return "";
+  if (target.startsWith(`${base}/`)) return target.slice(base.length + 1);
+  return String(fallbackPath || target);
+}
+
+function setMonitorReportAvailable(enabled) {
+  setDisabledLike(monitorReportBtn(), !enabled);
+}
+
+async function openExternalPath(path) {
+  const targetPath = String(path || "").trim();
+  if (!targetPath) throw new Error("Pfad fehlt.");
+  return withPathGrantRetry(
+    () => api.post(API_ENDPOINTS.fs.openPath, { path: targetPath }),
+    { fallbackPath: targetPath },
+  );
+}
+
+function reportArtifactPath(runDir, reportPath) {
+  return artifactPathFromAbsolutePath(runDir, reportPath, "artifacts/report.html");
+}
+
+function openRunReportInNewTab(runId, runDir, reportPath) {
+  const artifactPath = reportArtifactPath(runDir, reportPath);
+  if (!runId || !artifactPath) {
+    throw new Error("Report nicht verfuegbar.");
+  }
+  const reportUrl = api.httpUrl(API_ENDPOINTS.runs.artifactRaw(runId, artifactPath));
+  const targetWindow = window.open(reportUrl, "_blank");
+  if (!targetWindow) {
+    throw new Error("Report konnte nicht in neuem Tab geoeffnet werden.");
+  }
+  return { artifactPath, reportUrl };
+}
+
+function findReportArtifactPath(artifacts) {
+  const items = Array.isArray(artifacts) ? artifacts : [];
+  const match = items.find((item) => {
+    const relativePath = String(item?.relative_path || item?.filename || item?.path || "").replace(/\\/g, "/").toLowerCase();
+    return relativePath === "artifacts/report.html" || relativePath.endsWith("/artifacts/report.html");
+  });
+  return match ? String(match.relative_path || match.filename || match.path || "").replace(/\\/g, "/") : "";
+}
+
 function setPhaseRow(phaseName, status, pctRaw) {
   const row = Array.from(document.querySelectorAll(".ps-phase-row")).find((el) => {
     const name = el.querySelector(".phase-name");
@@ -1587,6 +1688,7 @@ async function bindRunMonitor() {
   const stopBtn = $("monitor-stop");
   const statsGenerateBtn = $("monitor-stats-generate");
   const statsOpenFolderBtn = $("monitor-stats-open-folder");
+  const statsStatusEl = $("monitor-stats-status");
   const sub = document.querySelector(".app-content .ps-sub");
   const updateResumeEnabled = () => {
     const phase = runMonitorSelectedPhase();
@@ -1671,6 +1773,14 @@ async function bindRunMonitor() {
       artifactViewerBody.textContent = `Artefakt konnte nicht geladen werden:\n${errorText(err)}`;
     }
   };
+  const ensureCurrentRunStatus = async () => {
+    if (uiState.currentRunDir && uiState.currentRunId) {
+      return { run_dir: uiState.currentRunDir, run_id: uiState.currentRunId };
+    }
+    if (!uiState.currentRunId) return null;
+    const status = await loadRunStatus(uiState.currentRunId);
+    return status;
+  };
   artifactViewerClose?.addEventListener("click", closeArtifactViewer);
   artifactViewer?.addEventListener("click", (ev) => {
     if (ev.target === artifactViewer) closeArtifactViewer();
@@ -1712,12 +1822,36 @@ async function bindRunMonitor() {
     const result = await api.get(API_ENDPOINTS.runs.artifacts(uiState.currentRunId));
     renderArtifacts(result?.items || []);
   };
+  const refreshStatsActions = async () => {
+    if (!uiState.currentRunId) {
+      uiState.monitorStatsStatus = null;
+      setMonitorReportAvailable(false);
+      setInlineAsyncStatus(statsStatusEl, "");
+      return null;
+    }
+    const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId)).catch(() => null);
+    uiState.monitorStatsStatus = status;
+    const hasReport = Boolean(String(status?.report_path || "").trim());
+    setMonitorReportAvailable(hasReport);
+    if (String(status?.state || "").toLowerCase() === "running") {
+      setInlineAsyncStatus(statsStatusEl, t("ui.status.stats_running", "Stats laeuft"), "running");
+    } else if (hasReport) {
+      setInlineAsyncStatus(statsStatusEl, t("ui.status.stats_completed", "Stats beendet"), "ok");
+    } else {
+      setInlineAsyncStatus(statsStatusEl, "");
+    }
+    return status;
+  };
   const setMonitorActionState = (isActive) => {
     const hasRun = Boolean(String(uiState.currentRunId || "").trim());
     setDisabledLike(startBtn, isActive);
     setDisabledLike(stopBtn, !isActive);
     setDisabledLike(statsGenerateBtn, isActive || !hasRun);
     setDisabledLike(statsOpenFolderBtn, isActive || !hasRun);
+    if (isActive || !hasRun) {
+      setMonitorReportAvailable(false);
+      if (!hasRun) setInlineAsyncStatus(statsStatusEl, "");
+    }
   };
   const resetPhaseRows = () => {
     document.querySelectorAll(".ps-phase-row").forEach((row) => {
@@ -1743,6 +1877,7 @@ async function bindRunMonitor() {
     uiState.currentRunDir = "";
     resetPhaseRows();
     renderArtifacts([]);
+    setMonitorReportAvailable(false);
     const logBox = runMonitorLogBox();
     if (logBox) {
       logBox.textContent = "";
@@ -1843,7 +1978,7 @@ async function bindRunMonitor() {
     try {
       const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} } }));
       const currentStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
-      if (["running", "queued", "starting"].includes(currentStatus)) {
+      if (isRunActiveStatus(currentStatus)) {
         setMonitorActionState(true);
         setFooter("Stats erst nach beendetem Run verfuegbar.", true);
         return;
@@ -1851,11 +1986,14 @@ async function bindRunMonitor() {
       const accepted = await api.post(API_ENDPOINTS.runs.stats(uiState.currentRunId), {
         run_dir: uiState.currentRunDir || undefined,
       });
-      setFooter(`Stats-Generierung gestartet (Job ${accepted.job_id}).`);
+      setInlineAsyncStatus(statsStatusEl, t("ui.status.stats_running", "Stats laeuft"), "running");
+      setFooter(statsStartedMessage(accepted.job_id));
       await waitForJob(accepted.job_id);
       await refreshArtifacts();
+      await refreshStatsActions();
+      setFooter(t("ui.message.stats_completed", "Stats-Generierung beendet."));
     } catch (err) {
-      setFooter(`Stats-Generierung fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(statsFailedMessage(err), true);
     }
   });
 
@@ -1863,13 +2001,19 @@ async function bindRunMonitor() {
     try {
       const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} } }));
       const currentStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
-      if (["running", "queued", "starting"].includes(currentStatus)) {
+      if (isRunActiveStatus(currentStatus)) {
         setMonitorActionState(true);
         setFooter("Stats-Ordner erst nach beendetem Run verfuegbar.", true);
         return;
       }
       const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId));
-      setFooter(`Stats-Ordner: ${status.output_dir || "-"}`);
+      const targetDir = String(status.output_dir || "").trim();
+      if (!targetDir) {
+        setFooter("Stats-Ordner nicht verfuegbar.", true);
+        return;
+      }
+      await openExternalPath(targetDir);
+      setFooter(`Stats-Ordner: ${targetDir}`);
     } catch (err) {
       setFooter(`Stats-Status fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -1881,15 +2025,36 @@ async function bindRunMonitor() {
 
   $("monitor-report")?.addEventListener("click", async () => {
     try {
-      const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId));
-      setFooter(`Report: ${status.report_path || "-"}`);
+      const status = uiState.monitorStatsStatus;
+      if (!status?.report_path) {
+        setFooter("Report erst nach Generate Stats verfuegbar.", true);
+        return;
+      }
+      const runStatus = uiState.currentRunDir ? { run_dir: uiState.currentRunDir } : await ensureCurrentRunStatus();
+      const { artifactPath } = openRunReportInNewTab(
+        uiState.currentRunId,
+        runStatus?.run_dir || uiState.currentRunDir,
+        status.report_path,
+      );
+      setFooter(`Report: ${status.report_path || artifactPath}`);
     } catch (err) {
       setFooter(`Report-Status fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
 
-  $("monitor-open-run-folder")?.addEventListener("click", () => {
-    setFooter(`Run-Ordner: ${uiState.currentRunDir || "-"}`);
+  $("monitor-open-run-folder")?.addEventListener("click", async () => {
+    try {
+      const runStatus = await ensureCurrentRunStatus();
+      const runDir = String(runStatus?.run_dir || uiState.currentRunDir || "").trim();
+      if (!runDir) {
+        setFooter("Run-Ordner nicht verfuegbar.", true);
+        return;
+      }
+      await openExternalPath(runDir);
+      setFooter(`Run-Ordner: ${runDir}`);
+    } catch (err) {
+      setFooter(`Run-Ordner konnte nicht geoeffnet werden: ${errorText(err)}`, true);
+    }
   });
 
   try {
@@ -1908,9 +2073,11 @@ async function bindRunMonitor() {
     if (!currentRunId && hintedRunId) setCurrentRunId(hintedRunId);
     const status = await loadRunStatus(uiState.currentRunId);
     await refreshArtifacts();
-    const isActive = String(status?.status || appState?.run?.current?.status || "").toLowerCase() === "running";
+    await refreshStatsActions();
+    const isActive = isRunActiveStatus(status?.status || appState?.run?.current?.status || "");
     setMonitorActionState(isActive);
     if (isActive) {
+      setMonitorStartValidationMessage("");
       connectRunMonitorStream(uiState.currentRunId);
     } else if (uiState.runSocket) {
       uiState.runSocket.close();
@@ -1934,6 +2101,10 @@ async function bindHistoryPage() {
   const selectedArtifactsField = $("history-selected-artifacts");
   const selectedReportField = $("history-selected-report");
   const selectedRunDirField = $("history-selected-run-dir");
+  const historyStatsGenerateBtn = $("history-stats-generate");
+  const historyStatsOpenFolderBtn = $("history-stats-open-folder");
+  const historyOpenReportBtn = $("history-open-report");
+  const historyStatsStatusEl = $("history-stats-status");
   const compareRunSelect = $("history-compare-run-id");
   const compareStatusField = $("history-compare-status");
   const comparePhaseField = $("history-compare-phase");
@@ -1942,6 +2113,7 @@ async function bindHistoryPage() {
   const compareReportField = $("history-compare-report");
   const compareRunDirField = $("history-compare-run-dir");
   const compareSummaryField = $("history-compare-summary");
+  let selectedSnapshotCache = null;
 
   const setHistoryFieldValue = (el, value) => {
     if (!el) return;
@@ -1976,6 +2148,17 @@ async function bindHistoryPage() {
     setHistoryFieldValue(refs.reportField, snapshot.reportPath);
     setHistoryFieldValue(refs.runDirField, snapshot.runDir);
   };
+  const updateHistoryActionState = (snapshot) => {
+    const hasRun = Boolean(String(snapshot?.runId || uiState.selectedHistoryRunId || "").trim());
+    const hasReport = Boolean(String(snapshot?.reportPath || "").trim() && String(snapshot?.reportPath || "").trim() !== "-");
+    setDisabledLike(historyStatsGenerateBtn, !hasRun);
+    setDisabledLike(historyStatsOpenFolderBtn, !hasReport);
+    setDisabledLike(historyOpenReportBtn, !hasReport);
+    if (!hasRun) setInlineAsyncStatus(historyStatsStatusEl, "");
+    else if (String(snapshot?.statsState || "").toLowerCase() === "running") setInlineAsyncStatus(historyStatsStatusEl, t("ui.status.stats_running", "Stats laeuft"), "running");
+    else if (hasReport) setInlineAsyncStatus(historyStatsStatusEl, t("ui.status.stats_completed", "Stats beendet"), "ok");
+    else setInlineAsyncStatus(historyStatsStatusEl, "");
+  };
   const loadRunSnapshot = async (runId) => {
     if (!runId) return null;
     const [runStatus, statsStatus, artifactResult] = await Promise.all([
@@ -1984,6 +2167,14 @@ async function bindHistoryPage() {
       api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => ({ items: [] })),
     ]);
     const artifacts = Array.isArray(artifactResult?.items) ? artifactResult.items : [];
+    const runDir = String(runStatus?.run_dir || "-");
+    const reportArtifactPath = findReportArtifactPath(artifacts);
+    const resolvedReportPath = String(statsStatus?.report_path || "").trim()
+      || (reportArtifactPath && runDir && runDir !== "-" ? `${runDir}/${reportArtifactPath}` : "");
+    const resolvedStatsOutputDir = String(statsStatus?.output_dir || "").trim()
+      || (resolvedReportPath ? parentDirOfPath(resolvedReportPath) : "");
+    const resolvedStatsState = String(statsStatus?.state || "").trim()
+      || (resolvedReportPath ? "ok" : "unknown");
     const progressValue = Number(runStatus?.progress);
     return {
       runId,
@@ -1992,8 +2183,10 @@ async function bindHistoryPage() {
       progressValue,
       progressText: formatHistoryProgress(runStatus?.progress),
       artifactCount: artifacts.length,
-      reportPath: statsStatus?.report_path || "-",
-      runDir: runStatus?.run_dir || "-",
+      reportPath: resolvedReportPath || "-",
+      statsOutputDir: resolvedStatsOutputDir || "",
+      statsState: resolvedStatsState || "unknown",
+      runDir,
     };
   };
   const selectedRefs = {
@@ -2018,10 +2211,14 @@ async function bindHistoryPage() {
   const renderSelectedRunDetails = async () => {
     if (!uiState.selectedHistoryRunId) {
       clearHistoryDetails(selectedRefs);
+      selectedSnapshotCache = null;
+      updateHistoryActionState(null);
       return null;
     }
     const snapshot = await loadRunSnapshot(uiState.selectedHistoryRunId);
+    selectedSnapshotCache = snapshot;
     applyHistorySnapshot(snapshot, selectedRefs);
+    updateHistoryActionState(snapshot);
     return snapshot;
   };
   const renderCompareOptions = (items) => {
@@ -2074,6 +2271,8 @@ async function bindHistoryPage() {
       clearHistoryDetails(selectedRefs);
       clearHistoryDetails(compareRefs, "Vergleichs-Run wählen");
       if (compareRunSelect) compareRunSelect.innerHTML = '<option value="">-</option>';
+      selectedSnapshotCache = null;
+      updateHistoryActionState(null);
       return;
     }
     if (!items.some((item) => item.run_id === uiState.selectedHistoryRunId)) {
@@ -2117,12 +2316,51 @@ async function bindHistoryPage() {
     }
   });
 
+  $("history-stats-generate")?.addEventListener("click", async () => {
+    const runId = String(uiState.selectedHistoryRunId || "").trim();
+    if (!runId) return;
+    try {
+      const runDir = String(selectedSnapshotCache?.runDir || "").trim();
+      const accepted = await api.post(API_ENDPOINTS.runs.stats(runId), {
+        run_dir: runDir && runDir !== "-" ? runDir : undefined,
+      });
+      setInlineAsyncStatus(historyStatsStatusEl, t("ui.status.stats_running", "Stats laeuft"), "running");
+      setFooter(statsStartedMessage(accepted.job_id));
+      await waitForJob(accepted.job_id);
+      await render();
+      setFooter(t("ui.message.stats_completed", "Stats-Generierung beendet."));
+    } catch (err) {
+      setFooter(statsFailedMessage(err), true);
+    }
+  });
+
+  $("history-stats-open-folder")?.addEventListener("click", async () => {
+    const snapshot = selectedSnapshotCache;
+    const targetDir = String(snapshot?.statsOutputDir || "").trim();
+    if (!targetDir) {
+      setFooter("Stats-Ordner nicht verfuegbar.", true);
+      return;
+    }
+    try {
+      await openExternalPath(targetDir);
+      setFooter(`Stats-Ordner: ${targetDir}`);
+    } catch (err) {
+      setFooter(`Stats-Ordner konnte nicht geoeffnet werden: ${errorText(err)}`, true);
+    }
+  });
+
   $("history-open-report")?.addEventListener("click", async () => {
     if (!uiState.selectedHistoryRunId) return;
     try {
-      const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.selectedHistoryRunId));
-      setHistoryFieldValue(selectedReportField, status.report_path || "-");
-      setFooter(`Report: ${status.report_path || "-"}`);
+      const snapshot = selectedSnapshotCache;
+      const reportPath = String(snapshot?.reportPath || "").trim();
+      if (!reportPath || reportPath === "-") {
+        setFooter("Report erst nach Generate Stats verfuegbar.", true);
+        return;
+      }
+      const { artifactPath } = openRunReportInNewTab(uiState.selectedHistoryRunId, snapshot?.runDir, reportPath);
+      setHistoryFieldValue(selectedReportField, reportPath);
+      setFooter(`Report: ${reportPath || artifactPath}`);
     } catch (err) {
       setFooter(`Report-Status fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -2633,11 +2871,27 @@ async function bindLiveLogPage() {
 function findMonoQueueSection() {
   return Array.from(document.querySelectorAll(".ps-section")).find((sec) => {
     const title = sec.querySelector(".ps-section-title");
-    return title && String(title.textContent || "").toLowerCase().includes("mono filter-queue");
+    const normalized = String(title?.textContent || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+    return normalized.includes("mono filter queue");
   });
 }
 
-function setMonoQueueVisible(isMono) {
+function getPersistedDetectedColorMode() {
+  return normalizeDetectedColorMode(localStorage.getItem("gui2.lastScanColorMode") || "");
+}
+
+function shouldShowMonoUi(selectedModeRaw) {
+  const selectedMode = normalizeDetectedColorMode(selectedModeRaw);
+  const detectedMode = getPersistedDetectedColorMode();
+  if (detectedMode === "OSC") return false;
+  return selectedMode === "MONO";
+}
+
+function setMonoQueueVisible(selectedModeRaw) {
+  const isMono = shouldShowMonoUi(selectedModeRaw);
   const dashboardAdvancedBtn = $("dashboard-guided-mode-advanced");
   const dashboardHasModeToggle = Boolean($("dashboard-guided-mode-simple") || dashboardAdvancedBtn);
   const dashboardAdvancedVisible = !dashboardHasModeToggle || Boolean(dashboardAdvancedBtn?.classList.contains("active"));
@@ -2787,9 +3041,9 @@ async function bindDashboard() {
     preview();
 
     $("dashboard-color-mode")?.addEventListener("change", () => {
-      setMonoQueueVisible(String($("dashboard-color-mode")?.value || "").toUpperCase() === "MONO");
+      setMonoQueueVisible($("dashboard-color-mode")?.value || "");
     });
-    setMonoQueueVisible(String($("dashboard-color-mode")?.value || "").toUpperCase() === "MONO");
+    setMonoQueueVisible($("dashboard-color-mode")?.value || "");
     if ($("dashboard-run-name") && !String($("dashboard-run-name").value || "").trim()) {
       $("dashboard-run-name").value = suggestRunNameFromInputs(parseInputDirs($("dashboard-input-dirs")?.value || ""));
     }
@@ -2943,9 +3197,9 @@ async function bindWizard() {
   }
 
   $("inp-colormode")?.addEventListener("change", () => {
-    setMonoQueueVisible(String($("inp-colormode")?.value || "").toUpperCase() === "MONO");
+    setMonoQueueVisible($("inp-colormode")?.value || "");
   });
-  setMonoQueueVisible(String($("inp-colormode")?.value || "").toUpperCase() === "MONO");
+  setMonoQueueVisible($("inp-colormode")?.value || "");
   $("wizard-runs-dir")?.addEventListener("input", updateWizardPreview);
   $("wizard-run-name")?.addEventListener("input", updateWizardPreview);
   $("inp-dirs")?.addEventListener("input", updateWizardPreview);

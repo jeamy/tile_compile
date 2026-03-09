@@ -34,8 +34,11 @@
           <div class="ps-actions" style="margin-top:12px;">
             <button id="history-refresh" data-control="history.refresh" class="ps-btn ps-btn-secondary" title="Run-Historie neu laden.">Refresh</button>
             <button id="history-set-current" data-control="history.set_current" class="ps-btn ps-btn-secondary" title="Ausgewaehlten Run als Current setzen.">Als Current Run</button>
+            <button id="history-stats-generate" data-control="monitor.stats.generate" class="ps-btn ps-btn-secondary" title="Stats fuer ausgewaehlten Run erzeugen.">Generate Stats</button>
+            <button id="history-stats-open-folder" data-control="monitor.stats.open_folder" class="ps-btn ps-btn-secondary" title="Stats-Ordner fuer ausgewaehlten Run oeffnen." disabled>Open Stats Folder</button>
             <button id="history-open-report" data-control="history.open_report" class="ps-btn ps-btn-secondary" title="Report fuer ausgewaehlten Run oeffnen.">Report oeffnen</button>
             <button id="history-delete-run" data-control="history.delete" class="ps-btn ps-btn-secondary" title="Ausgewaehlten Historie-Eintrag löschen.">Eintrag löschen</button>
+            <span id="history-stats-status" style="display:none;margin-left:8px;font-size:13px;font-weight:600;"></span>
           </div>
         </section>
 
@@ -86,6 +89,6 @@
 
     <p class="footer-note">History + Tools bildet die Historie ab; Astrometry/PCC laufen als eigene Screens mit erweitertem Setup.</p>
   </main>
-  <script type="module" src="src/app.js"></script>
+  <script type="module" src="src/app.js?v=8"></script>
 </body>
 </html>

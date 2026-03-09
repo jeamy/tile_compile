@@ -190,6 +190,8 @@ const PAGE_BINDINGS = {
     { selector: ".ps-section-title", key: "page.history.run_history", index: 0 },
     { selector: "#history-refresh", key: "ui.button.refresh" },
     { selector: "#history-set-current", key: "ui.button.set_current" },
+    { selector: "#history-stats-generate", key: "monitor.stats.generate" },
+    { selector: "#history-stats-open-folder", key: "monitor.stats.open_folder" },
     { selector: "#history-open-report", key: "page.history.open_report" },
     { selector: "#history-delete-run", key: "page.history.delete_entry" },
     { selector: ".ps-section-title", key: "page.history.selected_run", index: 1 },

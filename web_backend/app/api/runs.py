@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from app.schemas import JobAccepted
 from app.services.command_runner import SecurityPolicyError, launch_background_command, resolve_python, run_command
@@ -133,6 +134,43 @@ def run_artifact_view(run_id: str, path: str, request: Request, runs_dir: str | 
         "json": parsed_json,
         "text": text,
     }
+
+
+@router.get("/{run_id}/artifacts/raw/{artifact_path:path}")
+def run_artifact_raw(run_id: str, artifact_path: str, request: Request, runs_dir: str | None = None) -> FileResponse:
+    runtime = request.app.state.runtime
+    raw_path = str(artifact_path or "").strip()
+    if not raw_path:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "BAD_REQUEST", "message": "artifact_path is required"}},
+        )
+    try:
+        run_dir = runtime.resolve_run_dir(run_id, runs_dir)
+        run_dir_resolved = run_dir.resolve(strict=False)
+        candidate = (run_dir / raw_path).resolve(strict=False)
+        if run_dir_resolved not in candidate.parents and candidate != run_dir_resolved:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": {"code": "ARTIFACT_PATH_INVALID", "message": "artifact path must stay inside run directory"}},
+            )
+        checked = runtime.ensure_path_allowed(candidate, must_exist=True, label="artifact_path")
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
+    if not checked.is_file():
+        raise HTTPException(
+            status_code=422,
+            detail={"error": {"code": "ARTIFACT_NOT_FILE", "message": "artifact path is not a file"}},
+        )
+    media_type = None
+    headers = {"Content-Disposition": f'inline; filename="{checked.name}"'}
+    if checked.suffix.lower() in {".html", ".htm"}:
+        media_type = "text/html; charset=utf-8"
+    elif checked.suffix.lower() == ".css":
+        media_type = "text/css; charset=utf-8"
+    elif checked.suffix.lower() == ".js":
+        media_type = "application/javascript; charset=utf-8"
+    return FileResponse(path=str(checked), media_type=media_type, headers=headers)
 
 
 @router.post("/start", status_code=202)
@@ -480,7 +518,7 @@ def run_stats(run_id: str, request: Request, payload: dict[str, Any] | None = No
         )
     except SecurityPolicyError as exc:
         raise http_from_security_error(exc) from exc
-    python_bin = resolve_python()
+    python_bin = resolve_python(runtime)
     cmd = [python_bin, str(runtime.stats_script), str(resolved_run_dir)]
     job = request.app.state.job_store.create(
         "stats",
@@ -507,6 +545,7 @@ def run_stats(run_id: str, request: Request, payload: dict[str, Any] | None = No
 
 @router.get("/{run_id}/stats/status")
 def run_stats_status(run_id: str, request: Request) -> dict[str, Any]:
+    runtime = request.app.state.runtime
     for job in request.app.state.job_store.list():
         if job.job_type != "stats":
             continue
@@ -518,6 +557,18 @@ def run_stats_status(run_id: str, request: Request) -> dict[str, Any]:
             "output_dir": str(report_path.parent),
             "report_path": str(report_path),
             "job_id": job.job_id,
+        }
+    try:
+        run_dir = runtime.resolve_run_dir(run_id, None)
+    except SecurityPolicyError as exc:
+        raise http_from_security_error(exc) from exc
+    report_path = run_dir / "artifacts" / "report.html"
+    if report_path.exists() and report_path.is_file():
+        return {
+            "state": "ok",
+            "output_dir": str(report_path.parent),
+            "report_path": str(report_path),
+            "job_id": "",
         }
     return {"state": "unknown", "output_dir": "", "report_path": ""}
 

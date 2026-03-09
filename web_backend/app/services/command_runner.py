@@ -208,6 +208,9 @@ class CommandPolicy:
         self._python_execs = {
             Path(sys.executable).expanduser().resolve(strict=False),
         }
+        for candidate in _preferred_python_candidates(runtime.project_root):
+            if candidate.exists():
+                self._python_execs.add(candidate.expanduser().resolve(strict=False))
         for name in ("python3", "python"):
             resolved = shutil.which(name)
             if resolved:
@@ -398,8 +401,20 @@ def launch_background_command(
     thread.start()
 
 
-def resolve_python() -> str:
+def resolve_python(runtime: BackendRuntime | None = None) -> str:
+    project_root = runtime.project_root if runtime is not None else Path(__file__).resolve().parents[3]
+    for candidate in _preferred_python_candidates(project_root):
+        if candidate.exists():
+            return str(candidate)
     return shutil.which("python3") or shutil.which("python") or "python3"
+
+
+def _preferred_python_candidates(project_root: Path) -> list[Path]:
+    return [
+        project_root / ".venv/bin/python3",
+        project_root / ".venv/bin/python",
+        project_root / ".venv/Scripts/python.exe",
+    ]
 
 
 def _resolve_binary(env_path: str | None, fallback_candidates: list[Path]) -> Path:

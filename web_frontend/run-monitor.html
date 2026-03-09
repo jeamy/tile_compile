@@ -82,6 +82,8 @@
               <div class="ps-actions" style="margin-top:0;">
                 <button id="monitor-stats-generate" data-control="monitor.stats.generate" class="ps-btn" title="Report fuer den aktiven Run erzeugen.">Generate Stats</button>
                 <button id="monitor-stats-open-folder" data-control="monitor.stats.open_folder" class="ps-btn ps-btn-secondary" title="Stats-Ordner des aktiven Runs oeffnen.">Open Stats Folder</button>
+                <button id="monitor-report" data-control="monitor.report" class="ps-btn ps-btn-secondary" type="button" title="HTML Report des Runs in neuem Tab oeffnen." disabled>Open Report</button>
+                <span id="monitor-stats-status" style="display:none;margin-left:8px;font-size:13px;font-weight:600;"></span>
               </div>
             </div>
           </section>
@@ -114,7 +116,6 @@
                 <li><button title="pcc_report.json anzeigen.">pcc_report.json (17 KB)</button></li>
               </ul>
               <div class="ps-actions" style="margin-top:12px;">
-                <button id="monitor-report" data-control="monitor.report" class="ps-btn ps-btn-secondary" title="HTML Report des Runs oeffnen.">Report</button>
                 <button id="monitor-open-run-folder" data-control="monitor.open_run_folder" class="ps-btn ps-btn-secondary" title="Run-Ordner im Dateimanager oeffnen.">Run-Ordner oeffnen</button>
               </div>
             </div>
@@ -136,6 +137,6 @@
     <p class="footer-note">Run Monitor bildet die Funktionsmatrix 4.5 ab: Phasenklick-Resume, Filterchips, Revisionssteuerung und Stats unter Live Log.</p>
   </main>
 
-  <script type="module" src="src/app.js?v=5"></script>
+  <script type="module" src="src/app.js?v=8"></script>
 </body>
 </html>
