@@ -402,8 +402,8 @@ jobs:
           }
           $pidFile = Join-Path $homeDir "tilecompile\logs\gui2-backend.pid"
           if (Test-Path $pidFile) {
-            $pid = Get-Content $pidFile -ErrorAction SilentlyContinue
-            if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+            $backendPid = Get-Content $pidFile -ErrorAction SilentlyContinue
+            if ($backendPid) { Stop-Process -Id $backendPid -Force -ErrorAction SilentlyContinue }
           }
 
       - name: Create zip
