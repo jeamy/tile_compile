@@ -317,3 +317,25 @@ def test_scan_multi_input_aggregates_summary(monkeypatch: pytest.MonkeyPatch, tm
     assert body["color_mode"] == "MONO"
     assert body["input_dirs"] == [str(d1), str(d2)]
     assert len(body.get("per_dir_results", [])) == 2
+
+
+def test_config_current_falls_back_to_file_read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    app = create_app()
+    app.state.runtime.allowed_roots.append(tmp_path)
+    cfg = tmp_path / "tile_compile.yaml"
+    cfg.write_text("pcc:\n  sigma_clip: 2.5\n", encoding="utf-8")
+    app.state.runtime.default_config_path = cfg
+    client = TestClient(app)
+
+    def _fake_run_command(*args, **kwargs):  # noqa: ANN002, ANN003
+        _ = args, kwargs
+        return type("ConfigResult", (), {"exit_code": 1, "parsed_json": None, "stdout": "", "stderr": "failed"})()
+
+    monkeypatch.setattr("app.api.config.run_command", _fake_run_command)
+
+    resp = client.get("/api/config/current")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == str(cfg)
+    assert "sigma_clip: 2.5" in body["config"]
+    assert body["fallback"] == "file_read"

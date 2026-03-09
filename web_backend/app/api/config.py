@@ -46,9 +46,14 @@ def config_current(request: Request, path: str | None = None) -> dict[str, Any]:
         )
     except SecurityPolicyError as exc:
         raise http_from_security_error(exc) from exc
-    if result.exit_code != 0 or not isinstance(result.parsed_json, dict):
+    if result.exit_code == 0 and isinstance(result.parsed_json, dict):
+        return {"config": result.parsed_json.get("yaml", ""), "source": str(config_path)}
+    # Fallback for environments where CLI load-config may fail despite readable config file.
+    try:
+        yaml_text = config_path.read_text(encoding="utf-8")
+    except OSError:
         raise _http_502_command_failed("failed to load config", result)
-    return {"config": result.parsed_json.get("yaml", ""), "source": str(config_path)}
+    return {"config": yaml_text, "source": str(config_path), "fallback": "file_read"}
 
 
 @router.post("/validate")
