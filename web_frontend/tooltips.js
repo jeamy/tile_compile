@@ -107,6 +107,63 @@ document.addEventListener("DOMContentLoaded", () => {
     return s.startsWith("/") || /^[A-Za-z]:[\\/]/.test(s) || s.startsWith("\\\\");
   }
 
+  function normalizePathSeparators(value) {
+    return String(value || "").replace(/\\/g, "/");
+  }
+
+  function i18nText(key, fallback) {
+    return String(window.GUI2_LOCALE_MESSAGES?.[key] || fallback || "");
+  }
+
+  function joinPath(basePath, childPath) {
+    const base = normalizePathSeparators(basePath).replace(/\/+$/, "");
+    const child = normalizePathSeparators(childPath).replace(/^\/+/, "");
+    if (!base) return child ? `/${child}` : "/";
+    if (!child) return base || "/";
+    return `${base}/${child}`;
+  }
+
+  function splitPathParts(value) {
+    const raw = normalizePathSeparators(value).trim().replace(/\/+$/, "");
+    if (!raw) return { dir: "", base: "" };
+    const slash = raw.lastIndexOf("/");
+    if (slash < 0) return { dir: "", base: raw };
+    if (slash === 0) return { dir: "/", base: raw.slice(1) };
+    return { dir: raw.slice(0, slash), base: raw.slice(slash + 1) };
+  }
+
+  function normalizeAbsolutePath(value) {
+    const raw = normalizePathSeparators(value).trim();
+    if (!raw) return "";
+    const isUnc = raw.startsWith("//");
+    const prefixMatch = raw.match(/^[A-Za-z]:/);
+    const prefix = prefixMatch ? prefixMatch[0] : isUnc ? "//" : raw.startsWith("/") ? "/" : "";
+    const withoutPrefix = prefix ? raw.slice(prefix.length) : raw;
+    const parts = withoutPrefix.split("/").filter(Boolean);
+    const normalized = [];
+    parts.forEach((part) => {
+      if (part === ".") return;
+      if (part === "..") {
+        if (normalized.length > 0 && normalized[normalized.length - 1] !== "..") normalized.pop();
+        else if (!prefix) normalized.push("..");
+        return;
+      }
+      normalized.push(part);
+    });
+    const joined = normalized.join("/");
+    if (prefix === "/") return joined ? `/${joined}` : "/";
+    if (prefix === "//") return joined ? `//${joined}` : "//";
+    if (prefixMatch) return joined ? `${prefix}/${joined}` : `${prefix}/`;
+    return joined;
+  }
+
+  function resolvePickerInputPath(typedValue, currentPath) {
+    const typed = String(typedValue || "").trim();
+    if (!typed) return "";
+    if (isAbsolutePath(typed)) return normalizeAbsolutePath(typed);
+    return normalizeAbsolutePath(joinPath(currentPath || "/", typed));
+  }
+
   applyFallbackTooltips(document);
   const tooltipObserver = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
@@ -249,6 +306,10 @@ document.addEventListener("DOMContentLoaded", () => {
       "    <input id='path-picker-current' type='text' style='flex:1;min-width:0;padding:7px 10px;border:1px solid #c8d4df;border-radius:8px;'>",
       "    <button id='path-picker-go' type='button' style='padding:6px 10px;border:1px solid #c8d4df;border-radius:8px;background:#fff;cursor:pointer;'>Go</button>",
       "  </div>",
+      "  <div id='path-picker-save-row' style='display:none;padding:10px 14px;border-bottom:1px solid #d9e3ec;gap:8px;align-items:center;'>",
+      "    <label id='path-picker-filename-label' for='path-picker-filename' style='font-size:13px;color:#475569;white-space:nowrap;'>Dateiname</label>",
+      "    <input id='path-picker-filename' type='text' style='flex:1;min-width:0;padding:7px 10px;border:1px solid #c8d4df;border-radius:8px;'>",
+      "  </div>",
       "  <div id='path-picker-list' style='padding:6px 10px;overflow:auto;min-height:280px;'></div>",
       "  <div style='padding:12px 14px;border-top:1px solid #d9e3ec;display:flex;gap:8px;justify-content:flex-end;'>",
       "    <button id='path-picker-cancel' type='button' style='padding:8px 12px;border:1px solid #c8d4df;border-radius:8px;background:#fff;cursor:pointer;'>Abbrechen</button>",
@@ -262,6 +323,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderPickerEntries(listEl, data, mode, onOpenDir, onPickFile, onPickPath) {
     listEl.innerHTML = "";
+    const fileSelectable = mode === "file" || mode === "save-file";
+    if (data?.parent) {
+      const parentRow = document.createElement("div");
+      parentRow.style.cssText =
+        "display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid #d7e2eb;border-radius:6px;font-weight:600;";
+      parentRow.style.cursor = "pointer";
+      parentRow.title = "Ins Elternverzeichnis wechseln";
+      const parentName = document.createElement("span");
+      parentName.textContent = "📁 ..";
+      parentName.style.cssText = "flex:1;min-width:0;";
+      parentRow.appendChild(parentName);
+      parentRow.addEventListener("click", () => onPickPath(data.parent));
+      parentRow.addEventListener("dblclick", () => onOpenDir(data.parent));
+      listEl.appendChild(parentRow);
+    }
     (data?.items || []).forEach((item) => {
       const row = document.createElement("div");
       row.style.cssText =
@@ -275,9 +351,9 @@ document.addEventListener("DOMContentLoaded", () => {
         row.title = "Doppelklick: Verzeichnis öffnen";
         row.addEventListener("click", () => onPickPath(item.path));
         row.addEventListener("dblclick", () => onOpenDir(item.path));
-      } else if (mode === "file") {
+      } else if (fileSelectable) {
         row.style.cursor = "pointer";
-        row.title = "Doppelklick: Datei auswählen";
+        row.title = mode === "save-file" ? "Klick: Datei zum Überschreiben auswählen" : "Doppelklick: Datei auswählen";
         row.addEventListener("click", () => onPickPath(item.path));
         row.addEventListener("dblclick", () => onPickFile(item.path));
       }
@@ -285,17 +361,41 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  async function pickPathValue(currentValue, mode) {
+  async function pickPathValue(currentValue, modeOrOptions) {
+    const options =
+      typeof modeOrOptions === "string"
+        ? { mode: modeOrOptions }
+        : modeOrOptions && typeof modeOrOptions === "object"
+          ? { ...modeOrOptions }
+          : { mode: "dir" };
+    const mode = String(options.mode || "dir").trim();
+    const isFileMode = mode === "file" || mode === "save-file";
+    const isSaveFileMode = mode === "save-file";
     const overlay = ensurePathPickerElements();
     const modeEl = document.getElementById("path-picker-mode");
     const currentEl = document.getElementById("path-picker-current");
+    const saveRowEl = document.getElementById("path-picker-save-row");
+    const fileNameLabelEl = document.getElementById("path-picker-filename-label");
+    const fileNameEl = document.getElementById("path-picker-filename");
     const listEl = document.getElementById("path-picker-list");
     const goBtn = document.getElementById("path-picker-go");
     const cancelBtn = document.getElementById("path-picker-cancel");
     const selectBtn = document.getElementById("path-picker-select");
 
-    modeEl.textContent = mode === "file" ? "Dateiauswahl" : "Verzeichnisauswahl";
-    selectBtn.textContent = mode === "file" ? "Datei übernehmen" : "Verzeichnis übernehmen";
+    modeEl.textContent = isSaveFileMode
+      ? i18nText("ui.dialog.save_file", "Datei speichern unter")
+      : isFileMode
+        ? i18nText("ui.dialog.pick_file", "Dateiauswahl")
+        : i18nText("ui.dialog.pick_directory", "Verzeichnisauswahl");
+    selectBtn.textContent = isSaveFileMode
+      ? i18nText("ui.button.save_file", "Datei speichern")
+      : isFileMode
+        ? i18nText("ui.button.use_file", "Datei übernehmen")
+        : i18nText("ui.button.use_directory", "Verzeichnis übernehmen");
+    cancelBtn.textContent = i18nText("ui.button.cancel", "Abbrechen");
+    goBtn.textContent = i18nText("ui.button.go", "Go");
+    fileNameLabelEl.textContent = i18nText("ui.field.file_name", "Dateiname");
+    saveRowEl.style.display = isSaveFileMode ? "flex" : "none";
 
     let resolvePromise;
     const done = (value) => {
@@ -306,17 +406,39 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentPath = String(currentValue || "").trim();
     let selectedFile = "";
 
+    if (isSaveFileMode) {
+      const initialName = String(options.defaultFileName || "").trim();
+      const parts = splitPathParts(currentPath);
+      if (parts.dir && parts.base) {
+        currentPath = parts.dir;
+        fileNameEl.value = parts.base;
+      } else {
+        fileNameEl.value = initialName;
+      }
+    } else {
+      fileNameEl.value = "";
+    }
+
     async function openPath(path, allowGrant = true) {
       const p = String(path || "").trim();
       const query = new URLSearchParams({
         path: p,
-        include_files: mode === "file" ? "1" : "0",
+        include_files: isFileMode ? "1" : "0",
       });
       let data;
       try {
         data = await apiGet(`/api/fs/list?${query.toString()}`);
       } catch (err) {
         const code = err?.payload?.error?.code || "";
+        if (isSaveFileMode && code === "NOT_A_DIRECTORY" && isAbsolutePath(p)) {
+          const parentPath = resolvePickerInputPath("..", p);
+          if (parentPath && parentPath !== p) {
+            await openPath(parentPath, allowGrant);
+            const parts = splitPathParts(p);
+            if (parts.base) fileNameEl.value = parts.base;
+            return;
+          }
+        }
         if (allowGrant && code === "PATH_NOT_ALLOWED" && isAbsolutePath(p)) {
           const allow = window.confirm(
             `Pfad ist aktuell nicht freigegeben:\n${p}\n\nSoll dieser Pfad für die aktuelle Sitzung freigegeben werden?`,
@@ -338,12 +460,35 @@ document.addEventListener("DOMContentLoaded", () => {
         (dirPath) => void openPath(dirPath),
         (filePath) => {
           selectedFile = filePath;
-          currentEl.value = filePath;
+          if (isSaveFileMode) {
+            const parts = splitPathParts(filePath);
+            currentPath = parts.dir || currentPath;
+            currentEl.value = currentPath;
+            fileNameEl.value = parts.base || fileNameEl.value;
+          } else {
+            currentEl.value = filePath;
+          }
         },
         (pickedPath) => {
-          currentEl.value = pickedPath;
+          if (isSaveFileMode) {
+            const parts = splitPathParts(pickedPath);
+            if (parts.dir) {
+              currentPath = parts.dir;
+              currentEl.value = currentPath;
+              if (parts.base) fileNameEl.value = parts.base;
+            } else {
+              currentEl.value = pickedPath;
+            }
+          } else {
+            currentEl.value = pickedPath;
+          }
         },
       );
+      if (isSaveFileMode && isAbsolutePath(p) && p !== currentPath) {
+        const parts = splitPathParts(p);
+        if (parts.dir) currentEl.value = parts.dir;
+        if (parts.base) fileNameEl.value = parts.base;
+      }
     }
 
     const roots = await apiGet("/api/fs/roots");
@@ -362,13 +507,33 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const onCancel = () => done(null);
     const onSelect = () => {
-      const candidate = String(currentEl.value || "").trim();
+      let candidate;
+      if (isSaveFileMode) {
+        const rawDir = String(currentEl.value || "").trim();
+        const rawFile = String(fileNameEl.value || "").trim();
+        const parts = splitPathParts(rawDir);
+        const baseDir = rawFile ? rawDir : parts.dir || rawDir;
+        const finalFile = rawFile || parts.base;
+        candidate = joinPath(baseDir, finalFile);
+      } else {
+        candidate = String(currentEl.value || "").trim();
+      }
       if (!candidate) return;
       done(candidate);
     };
     const onGo = () => {
-      const typed = String(currentEl.value || "").trim();
-      if (typed) void openPath(typed);
+      const resolved = resolvePickerInputPath(currentEl.value, currentPath);
+      if (resolved) void openPath(resolved);
+    };
+    const onCurrentKeydown = (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      onGo();
+    };
+    const onFileNameKeydown = (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      onSelect();
     };
     const onOverlay = (ev) => {
       if (ev.target === overlay) done(null);
@@ -377,6 +542,8 @@ document.addEventListener("DOMContentLoaded", () => {
     cancelBtn.addEventListener("click", onCancel, { once: true });
     selectBtn.addEventListener("click", onSelect, { once: true });
     goBtn.addEventListener("click", onGo);
+    currentEl.addEventListener("keydown", onCurrentKeydown);
+    fileNameEl.addEventListener("keydown", onFileNameKeydown);
     overlay.addEventListener("click", onOverlay);
     overlay.style.display = "block";
 
@@ -384,9 +551,13 @@ document.addEventListener("DOMContentLoaded", () => {
       resolvePromise = resolve;
     }).finally(() => {
       goBtn.removeEventListener("click", onGo);
+      currentEl.removeEventListener("keydown", onCurrentKeydown);
+      fileNameEl.removeEventListener("keydown", onFileNameKeydown);
       overlay.removeEventListener("click", onOverlay);
     });
   }
+
+  window.gui2PickPathValue = pickPathValue;
 
   const browseButtons = Array.from(document.querySelectorAll("button")).filter((btn) => {
     const txt = (btn.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();

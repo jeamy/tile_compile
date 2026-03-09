@@ -4,20 +4,27 @@ import { applyLocaleMessages, t } from "./i18n.js";
 
 const api = new ApiClient(localStorage.getItem("gui2.backendBase") || "");
 const CONFIG_DRAFT_KEY = "gui2.configYamlDraft";
+const CONFIG_VALIDATION_STATE_KEY = "gui2.configValidationState";
 const LOCALE_KEY = "gui2.locale";
 const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
 
 const uiState = {
   currentRunId: localStorage.getItem("gui2.currentRunId") || "",
   currentRunDir: "",
+  defaultConfigPath: "",
   selectedHistoryRunId: "",
   compareHistoryRunId: "",
   configYaml: "",
   configObject: null,
   parameterDirty: {},
   runSocket: null,
+  runLogLines: [],
+  runLogPending: [],
+  runLogFlushTimer: null,
   liveSocket: null,
   liveLines: [],
+  livePendingLines: [],
+  liveLogFlushTimer: null,
   liveFilter: "all",
   lastAstrometryWcs: "",
   lastPccOutput: "",
@@ -244,6 +251,38 @@ function appendLine(el, line) {
   el.textContent = merged.slice(-300).join("\n");
 }
 
+function scrollLogToEnd(el) {
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+}
+
+function flushRunMonitorLog() {
+  if (uiState.runLogFlushTimer) {
+    clearTimeout(uiState.runLogFlushTimer);
+    uiState.runLogFlushTimer = null;
+  }
+  if (uiState.runLogPending.length === 0) return;
+  uiState.runLogLines.push(...uiState.runLogPending);
+  uiState.runLogLines = uiState.runLogLines.slice(-300);
+  uiState.runLogPending = [];
+  const logBox = runMonitorLogBox();
+  if (!logBox) return;
+  logBox.textContent = uiState.runLogLines.join("\n");
+  scrollLogToEnd(logBox);
+}
+
+function scheduleRunMonitorLogFlush() {
+  if (uiState.runLogFlushTimer) return;
+  uiState.runLogFlushTimer = window.setTimeout(() => {
+    flushRunMonitorLog();
+  }, 5000);
+}
+
+function enqueueRunMonitorLogLine(line) {
+  uiState.runLogPending.push(String(line));
+  scheduleRunMonitorLogFlush();
+}
+
 function setText(el, value) {
   if (!el) return;
   el.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
@@ -257,6 +296,30 @@ function setConfigDraft(yamlText) {
   if (!yamlText) return;
   uiState.configYaml = String(yamlText);
   localStorage.setItem(CONFIG_DRAFT_KEY, uiState.configYaml);
+}
+
+function getConfigValidationState() {
+  try {
+    const raw = localStorage.getItem(CONFIG_VALIDATION_STATE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setConfigValidationState({ yaml = "", ok = false } = {}) {
+  localStorage.setItem(
+    CONFIG_VALIDATION_STATE_KEY,
+    JSON.stringify({
+      yaml: String(yaml || ""),
+      ok: Boolean(ok),
+      updated_at: new Date().toISOString(),
+    }),
+  );
+}
+
+function clearConfigValidationState() {
+  localStorage.removeItem(CONFIG_VALIDATION_STATE_KEY);
 }
 
 function setDisabledLike(el, disabled) {
@@ -610,6 +673,63 @@ function parentDirOfPath(pathValue) {
   return s.slice(0, slash);
 }
 
+function pathBaseName(pathValue) {
+  const s = String(pathValue || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  if (!s) return "";
+  const idx = s.lastIndexOf("/");
+  return idx >= 0 ? s.slice(idx + 1) : s;
+}
+
+function joinPath(basePath, childName) {
+  const base = String(basePath || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const child = String(childName || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!base) return child ? `/${child}` : "/";
+  if (!child) return base;
+  return `${base}/${child}`;
+}
+
+function ensureYamlFileName(fileName) {
+  const trimmed = String(fileName || "").trim();
+  if (!trimmed) return "";
+  if (/\.(yaml|yml)$/i.test(trimmed)) return trimmed;
+  return `${trimmed}.yaml`;
+}
+
+function deriveParameterSaveDefaultDir() {
+  const presetDir = parentDirOfPath(String($("parameter-preset-select")?.value || "").trim());
+  if (presetDir) return presetDir;
+  return firstNonEmptyText(uiState.projectRunsDir, parentDirOfPath(uiState.defaultConfigPath));
+}
+
+function deriveParameterSaveDefaultName() {
+  return firstNonEmptyText(pathBaseName(uiState.defaultConfigPath), "tile_compile.example.yaml");
+}
+
+async function pickDirectoryPath(initialPath) {
+  if (typeof window.gui2PickPathValue === "function") {
+    return window.gui2PickPathValue(initialPath, "dir");
+  }
+  const typed = window.prompt("Verzeichnis eingeben", initialPath || "");
+  return String(typed || "").trim() || null;
+}
+
+async function chooseConfigSaveAsPath() {
+  const defaultDir = deriveParameterSaveDefaultDir();
+  const defaultName = deriveParameterSaveDefaultName();
+  const defaultPath = joinPath(defaultDir, defaultName);
+  if (typeof window.gui2PickPathValue === "function") {
+    const pickedPath = await window.gui2PickPathValue(defaultPath, { mode: "save-file", defaultFileName: defaultName });
+    const normalizedPickedPath = ensureYamlFileName(String(pickedPath || "").trim());
+    return normalizedPickedPath || null;
+  }
+  const typedPath = window.prompt("Dateipfad fuer Speichern unter", defaultPath);
+  const normalizedPath = ensureYamlFileName(typedPath);
+  return normalizedPath || null;
+}
+
 function ensureRunIdFromHeader() {
   if (uiState.currentRunId) return uiState.currentRunId;
   const sub = document.querySelector(".app-content .ps-sub");
@@ -643,6 +763,8 @@ async function initGlobalState() {
     else clearCurrentRunId();
     const runsDir = String(appState?.project?.runs_dir || "").trim();
     if (runsDir) uiState.projectRunsDir = runsDir;
+    const defaultConfigPath = String(appState?.project?.default_config_path || "").trim();
+    if (defaultConfigPath) uiState.defaultConfigPath = defaultConfigPath;
     const scanPath = String(appState?.scan?.last_input_path || "").trim();
     if (scanPath) persistLastInputDirs(scanPath);
   } catch (err) {
@@ -840,10 +962,120 @@ function parameterValidateStatusEl() {
   return $("parameter-validate-status");
 }
 
+function parameterValidateDetailsEl() {
+  return $("parameter-validate-details");
+}
+
+function parameterSituationApplyStatusEl() {
+  return $("parameter-situation-apply-status");
+}
+
+function monitorStartValidationEl() {
+  return $("monitor-start-validation");
+}
+
 function setParameterPreview(value) {
   const box = parameterDiffBox();
   if (!box) return;
   setText(box, value);
+}
+
+function clearChildren(node) {
+  while (node?.firstChild) node.removeChild(node.firstChild);
+}
+
+function formatValidationIssue(issue) {
+  if (typeof issue === "string") return issue;
+  if (!issue || typeof issue !== "object") return String(issue || "");
+  const path = firstNonEmptyText(issue.path, issue.instance_path, issue.schema_path, issue.field, issue.param);
+  const code = firstNonEmptyText(issue.code, issue.keyword, issue.type);
+  const message = firstNonEmptyText(issue.message, issue.error, issue.detail, issue.reason);
+  const parts = [];
+  if (path) parts.push(path);
+  if (code) parts.push(`[${code}]`);
+  if (message) parts.push(message);
+  if (parts.length > 0) return parts.join(": ");
+  try {
+    return JSON.stringify(issue);
+  } catch {
+    return String(issue);
+  }
+}
+
+function setParameterValidateDetails(result) {
+  const el = parameterValidateDetailsEl();
+  if (!el) return;
+  clearChildren(el);
+  if (!result || typeof result !== "object") {
+    el.style.display = "none";
+    return;
+  }
+  const groups = [
+    { label: "Fehler", items: Array.isArray(result.errors) ? result.errors : [], color: "#b91c1c" },
+    { label: "Warnungen", items: Array.isArray(result.warnings) ? result.warnings : [], color: "#b45309" },
+  ].filter((group) => group.items.length > 0);
+  if (groups.length === 0) {
+    el.style.display = "none";
+    return;
+  }
+  groups.forEach((group) => {
+    const title = document.createElement("div");
+    title.textContent = `${group.label} (${group.items.length})`;
+    title.style.marginTop = "8px";
+    title.style.fontWeight = "600";
+    title.style.color = group.color;
+    el.appendChild(title);
+
+    const list = document.createElement("ul");
+    list.style.margin = "6px 0 0 18px";
+    list.style.padding = "0";
+    group.items.forEach((item) => {
+      const li = document.createElement("li");
+      li.textContent = formatValidationIssue(item);
+      li.style.marginBottom = "4px";
+      list.appendChild(li);
+    });
+    el.appendChild(list);
+  });
+  el.style.display = "block";
+}
+
+function setSituationApplyStatus(applied, text = "") {
+  const el = parameterSituationApplyStatusEl();
+  if (!el) return;
+  if (!applied) {
+    el.style.display = "none";
+    el.textContent = text || t("ui.status.situation_idle", "Noch nicht angewendet");
+    return;
+  }
+  el.style.display = "inline-flex";
+  el.textContent = text || t("ui.status.situation_applied", "Angewendet");
+}
+
+function setMonitorStartValidationMessage(text = "") {
+  const el = monitorStartValidationEl();
+  if (!el) return;
+  const message = String(text || "").trim();
+  el.textContent = message;
+  el.style.display = message ? "block" : "none";
+}
+
+async function getRunStartValidationBlockReason() {
+  const yaml = await resolveConfigYamlForRun();
+  const validation = getConfigValidationState();
+  if (!validation || String(validation.yaml || "") !== String(yaml || "")) {
+    return t("ui.message.monitor_validation_required", "Run blockiert: Konfiguration im Parameter Studio validieren.");
+  }
+  if (!validation.ok) {
+    return t("ui.message.monitor_validation_failed", "Run blockiert: letzte Validierung der Konfiguration ist fehlgeschlagen.");
+  }
+  return "";
+}
+
+async function refreshRunMonitorValidationMessage() {
+  const message = await getRunStartValidationBlockReason();
+  setMonitorStartValidationMessage(message);
+  return message;
 }
 
 function setParameterValidateStatus(result, fallbackText = "") {
@@ -857,12 +1089,14 @@ function setParameterValidateStatus(result, fallbackText = "") {
   const errors = Array.isArray(result.errors) ? result.errors.length : 0;
   const warnings = Array.isArray(result.warnings) ? result.warnings.length : 0;
   if (errors > 0) {
-    el.textContent = `Validierung: ERROR (${errors} Fehler, ${warnings} Warnungen)`;
+    const firstError = formatValidationIssue(result.errors?.[0]);
+    el.textContent = `Validierung: ERROR (${errors} Fehler, ${warnings} Warnungen)${firstError ? ` - ${firstError}` : ""}`;
     el.style.color = "#b91c1c";
     return;
   }
   if (warnings > 0) {
-    el.textContent = `Validierung: WARN (${warnings} Warnungen)`;
+    const firstWarning = formatValidationIssue(result.warnings?.[0]);
+    el.textContent = `Validierung: WARN (${warnings} Warnungen)${firstWarning ? ` - ${firstWarning}` : ""}`;
     el.style.color = "#b45309";
     return;
   }
@@ -897,6 +1131,19 @@ async function patchConfig({ updates = [], persist = false, yamlText } = {}) {
   if (result?.config && typeof result.config === "object") {
     uiState.configObject = result.config;
   }
+  return result;
+}
+
+async function saveParameterConfig(targetPath = "") {
+  const patched = await patchConfig({ updates: collectParameterDirtyUpdates(), persist: false });
+  const result = await api.post(API_ENDPOINTS.config.save, {
+    yaml: patched?.config_yaml || "",
+    path: targetPath || undefined,
+  });
+  uiState.configYaml = String(patched?.config_yaml || "");
+  setConfigDraft(uiState.configYaml);
+  uiState.parameterDirty = {};
+  setParameterPreview(uiState.configYaml);
   return result;
 }
 
@@ -1002,6 +1249,9 @@ async function bindParameterStudio() {
     }
     setParameterPreview(currentYaml);
     setParameterValidateStatus(null, "Validierung: nicht geprüft");
+    setParameterValidateDetails(null);
+    setSituationApplyStatus(false);
+    clearConfigValidationState();
   } catch (err) {
     setFooter(`Preset-Liste konnte nicht geladen werden: ${errorText(err)}`, true);
   }
@@ -1016,6 +1266,9 @@ async function bindParameterStudio() {
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
       setParameterPreview(uiState.configYaml);
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterValidateDetails(null);
+      setSituationApplyStatus(false);
+      clearConfigValidationState();
       setFooter("YAML aus Backend synchronisiert.");
     } catch (err) {
       setFooter(`YAML Sync fehlgeschlagen: ${errorText(err)}`, true);
@@ -1037,6 +1290,9 @@ async function bindParameterStudio() {
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
       setParameterPreview(String(parsed?.config_yaml || uiState.configYaml));
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterValidateDetails(null);
+      setSituationApplyStatus(false);
+      clearConfigValidationState();
       setFooter("Preset angewendet.");
     } catch (err) {
       setFooter(`Preset anwenden fehlgeschlagen: ${errorText(err)}`, true);
@@ -1048,21 +1304,42 @@ async function bindParameterStudio() {
       const patched = await applyPreview({ persist: false });
       const result = await api.post(API_ENDPOINTS.config.validate, { yaml: patched?.config_yaml || "" });
       setParameterValidateStatus(result);
+      setParameterValidateDetails(result);
+      setConfigValidationState({ yaml: patched?.config_yaml || "", ok: Boolean(result?.ok) });
       setFooter(result.ok ? "Validierung OK." : "Validierung hat Fehler.");
     } catch (err) {
       setParameterValidateStatus(null, "Validierung: fehlgeschlagen");
+      setParameterValidateDetails(null);
+      clearConfigValidationState();
       setFooter(`Validierung fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
 
   $("parameter-save")?.addEventListener("click", async () => {
     try {
-      const result = await applyPreview({ persist: true });
-      setParameterPreview(result);
+      const result = await saveParameterConfig("");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterValidateDetails(null);
+      setSituationApplyStatus(false);
+      clearConfigValidationState();
       setFooter(`Config gespeichert. Revision: ${result?.revision_id || "-"}`);
     } catch (err) {
       setFooter(`Speichern fehlgeschlagen: ${errorText(err)}`, true);
+    }
+  });
+
+  $("parameter-save-as")?.addEventListener("click", async () => {
+    try {
+      const targetPath = await chooseConfigSaveAsPath();
+      if (!targetPath) return;
+      const result = await saveParameterConfig(targetPath);
+      setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterValidateDetails(null);
+      setSituationApplyStatus(false);
+      clearConfigValidationState();
+      setFooter(`Config gespeichert unter ${result?.path || targetPath}. Revision: ${result?.revision_id || "-"}`);
+    } catch (err) {
+      setFooter(`Speichern unter fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
 
@@ -1070,6 +1347,9 @@ async function bindParameterStudio() {
     try {
       const result = await applyPreview({ persist: false });
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterValidateDetails(null);
+      setSituationApplyStatus(false);
+      clearConfigValidationState();
       setFooter(`YAML-Vorschau aktualisiert (${result?.applied?.length || 0} Aenderungen).`);
     } catch (err) {
       setFooter(`Vorschau fehlgeschlagen: ${errorText(err)}`, true);
@@ -1086,6 +1366,9 @@ async function bindParameterStudio() {
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
       setParameterPreview(uiState.configYaml);
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterValidateDetails(null);
+      setSituationApplyStatus(false);
+      clearConfigValidationState();
       setFooter("Werte auf aktuelle Config zurueckgesetzt.");
     } catch (err) {
       setFooter(`Reset fehlgeschlagen: ${errorText(err)}`, true);
@@ -1109,10 +1392,27 @@ async function bindParameterStudio() {
       if (patched?.config) syncParameterFieldsFromConfig(patched.config);
       setParameterPreview(patched?.config_yaml || "");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterValidateDetails(null);
+      setSituationApplyStatus(true, `${t("ui.status.situation_applied", "Angewendet")} (${scenarioUpdates.length})`);
+      clearConfigValidationState();
       setFooter(`Situation angewendet (${scenarioUpdates.length} Deltas).`);
     } catch (err) {
       setFooter(`Situation anwenden fehlgeschlagen: ${errorText(err)}`, true);
     }
+  });
+
+  document.querySelectorAll(".ps-chip-btn[data-scenario]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      window.setTimeout(() => setSituationApplyStatus(false), 0);
+    });
+  });
+
+  document.addEventListener("gui2:locale-changed", () => {
+    const statusEl = parameterSituationApplyStatusEl();
+    if (!statusEl || statusEl.style.display === "none") return;
+    const countMatch = String(statusEl.textContent || "").match(/\((\d+)\)\s*$/);
+    const countText = countMatch ? ` (${countMatch[1]})` : "";
+    setSituationApplyStatus(true, `${t("ui.status.situation_applied", "Angewendet")}${countText}`);
   });
 
   document.querySelectorAll("#parameter-category-list button[data-category]").forEach((btn) => {
@@ -1256,10 +1556,11 @@ function connectRunMonitorStream(runId) {
   if (!runId) return;
   if (uiState.runSocket) uiState.runSocket.close();
   const logBox = runMonitorLogBox();
+  if (logBox) scrollLogToEnd(logBox);
   uiState.runSocket = api.ws(
     API_ENDPOINTS.ws.run(runId),
     (event) => {
-      appendLine(logBox, JSON.stringify(event));
+      enqueueRunMonitorLogLine(JSON.stringify(event));
       if (event?.type === "phase_progress" || event?.type === "phase_end" || event?.type === "phase_start") {
         const payload = event.payload || {};
         const phase = payload.phase_name || payload.phase || event.phase || "";
@@ -1274,7 +1575,7 @@ function connectRunMonitorStream(runId) {
       }
     },
     (err) => {
-      appendLine(logBox, `ws_error: ${String(err)}`);
+      enqueueRunMonitorLogLine(`ws_error: ${String(err)}`);
     },
   );
 }
@@ -1433,18 +1734,33 @@ async function bindRunMonitor() {
       uiState.runSocket.close();
       uiState.runSocket = null;
     }
+    if (uiState.runLogFlushTimer) {
+      clearTimeout(uiState.runLogFlushTimer);
+      uiState.runLogFlushTimer = null;
+    }
+    uiState.runLogLines = [];
+    uiState.runLogPending = [];
     uiState.currentRunDir = "";
     resetPhaseRows();
     renderArtifacts([]);
     const logBox = runMonitorLogBox();
-    if (logBox) logBox.textContent = "";
+    if (logBox) {
+      logBox.textContent = "";
+      scrollLogToEnd(logBox);
+    }
     if (sub) sub.textContent = text;
   };
 
   updateResumeEnabled();
+  void refreshRunMonitorValidationMessage();
 
   $("monitor-start")?.addEventListener("click", async () => {
     try {
+      const validationMessage = await refreshRunMonitorValidationMessage();
+      if (validationMessage) {
+        setFooter(validationMessage, true);
+        return;
+      }
       const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} }, project: {} }));
       const currentStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
       if (currentStatus === "running") {
@@ -1459,8 +1775,9 @@ async function bindRunMonitor() {
       }
       const accepted = await startRunFromCurrentForm({ source: "monitor" });
       setCurrentRunId(accepted?.run_id || uiState.currentRunId);
+      setMonitorStartValidationMessage("");
       setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
-      window.location.href = "run-monitor.html";
+      window.location.reload();
     } catch (err) {
       setFooter(`Run-Start fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -1556,6 +1873,10 @@ async function bindRunMonitor() {
     } catch (err) {
       setFooter(`Stats-Status fehlgeschlagen: ${errorText(err)}`, true);
     }
+  });
+
+  document.addEventListener("gui2:locale-changed", () => {
+    void refreshRunMonitorValidationMessage();
   });
 
   $("monitor-report")?.addEventListener("click", async () => {
@@ -2216,11 +2537,33 @@ async function bindLiveLogPage() {
         return `<div style="color:${color};white-space:pre-wrap;">${escapeHtml(item.line)}</div>`;
       })
       .join("");
+    scrollLogToEnd(box);
+  }
+
+  function flushLiveLog() {
+    if (uiState.liveLogFlushTimer) {
+      clearTimeout(uiState.liveLogFlushTimer);
+      uiState.liveLogFlushTimer = null;
+    }
+    if (uiState.livePendingLines.length === 0) return;
+    uiState.liveLines.push(...uiState.livePendingLines);
+    if (uiState.liveLines.length > 600) uiState.liveLines = uiState.liveLines.slice(-600);
+    uiState.livePendingLines = [];
+    render();
+  }
+
+  function scheduleLiveLogFlush() {
+    if (uiState.liveLogFlushTimer) return;
+    uiState.liveLogFlushTimer = window.setTimeout(() => {
+      flushLiveLog();
+    }, 5000);
   }
 
   const renderEmptyState = (text) => {
     uiState.liveLines = [];
+    uiState.livePendingLines = [];
     box.innerHTML = `<div style="color:#9ca3af;white-space:pre-wrap;">${escapeHtml(text)}</div>`;
+    scrollLogToEnd(box);
   };
 
   levelButtons.forEach((btn) => {
@@ -2228,6 +2571,11 @@ async function bindLiveLogPage() {
       const t = String(btn.textContent || "").trim().toLowerCase();
       if (t === "clear") {
         uiState.liveLines = [];
+        uiState.livePendingLines = [];
+        if (uiState.liveLogFlushTimer) {
+          clearTimeout(uiState.liveLogFlushTimer);
+          uiState.liveLogFlushTimer = null;
+        }
         render();
         return;
       }
@@ -2240,6 +2588,11 @@ async function bindLiveLogPage() {
     uiState.liveSocket.close();
     uiState.liveSocket = null;
   }
+  if (uiState.liveLogFlushTimer) {
+    clearTimeout(uiState.liveLogFlushTimer);
+    uiState.liveLogFlushTimer = null;
+  }
+  uiState.livePendingLines = [];
 
   let runId = "";
   try {
@@ -2267,9 +2620,8 @@ async function bindLiveLogPage() {
       API_ENDPOINTS.ws.run(runId),
       (event) => {
         const line = typeof event === "string" ? event : JSON.stringify(event);
-        uiState.liveLines.push({ line, level: detectLevel(line) });
-        if (uiState.liveLines.length > 600) uiState.liveLines = uiState.liveLines.slice(-600);
-        render();
+        uiState.livePendingLines.push({ line, level: detectLevel(line) });
+        scheduleLiveLogFlush();
       },
       () => {},
     );

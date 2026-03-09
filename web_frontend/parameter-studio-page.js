@@ -74,13 +74,37 @@
   let activeCategory = "registration";
   let activeExplainPath = "registration.star_topk";
 
+  function textFor(key, fallback) {
+    return localeMessages[key] || fallback;
+  }
+
   const scenarioNames = {
-    altaz: "Alt/Az",
-    rotation: "Starke Rotation",
-    bright_stars: "Helle Sterne",
-    few_frames: "Wenige Frames",
-    gradient: "Starker Gradient",
+    altaz: () => textFor("page.parameter_studio.scenario.altaz", "Alt/Az"),
+    rotation: () => textFor("page.parameter_studio.scenario.rotation", "Starke Rotation"),
+    bright_stars: () => textFor("page.parameter_studio.scenario.bright_stars", "Helle Sterne"),
+    few_frames: () => textFor("page.parameter_studio.scenario.few_frames", "Wenige Frames"),
+    gradient: () => textFor("page.parameter_studio.scenario.gradient", "Starker Gradient"),
   };
+
+  function categoryLabel(category) {
+    const button = categoryButtons.find((item) => item.dataset.category === category);
+    return String(button?.textContent || category || "").trim();
+  }
+
+  function orderedCategories(entries) {
+    const fromButtons = categoryButtons
+      .map((button) => String(button.dataset.category || "").trim())
+      .filter((category) => category && category !== "all");
+    const entryCategories = Array.from(
+      new Set(entries.map((entry) => String(entry.category || "").trim()).filter(Boolean)),
+    );
+    const seen = new Set();
+    return [...fromButtons, ...entryCategories].filter((category) => {
+      if (seen.has(category)) return false;
+      seen.add(category);
+      return true;
+    });
+  }
 
   const scenarioDeltas = {
     altaz: [
@@ -420,17 +444,8 @@
     return `<input id="${fieldId}" class="ps-input ps-wide" type="text" value="${escapeHtml(value)}" title="${safeTitle}">`;
   }
 
-  function renderDynamicEditor(category) {
-    if (!editorMetaEl || !editorFieldsEl) return;
-    const entries = paramEditorIndex
-      .filter((entry) => category === "all" || entry.category === category)
-      .sort((a, b) => String(a.path).localeCompare(String(b.path)));
-    editorMetaEl.innerHTML = `<b>${escapeHtml(category)}</b> - ${entries.length} editierbare Parameter`;
-    if (entries.length === 0) {
-      editorFieldsEl.innerHTML = '<div class="ps-note">Keine Parameter in dieser Kategorie.</div>';
-      return;
-    }
-    editorFieldsEl.innerHTML = entries.map((entry) => {
+  function renderDynamicRows(entries) {
+    return entries.map((entry) => {
       const fieldId = `param-edit-${entry.path.replace(/[^a-zA-Z0-9_]+/g, "_")}`;
       const value = hasOwn(entry, "yaml_default") ? formatValue(entry.yaml_default) : "";
       const hints = [entry.type || "any", entry.source === "yaml_only" ? "yaml-only" : "schema"];
@@ -439,6 +454,37 @@
       if (entry.deprecated) hints.push("deprecated");
       return `<div class="ps-row ps-dyn-row" data-path="${escapeHtml(entry.path)}"><label for="${fieldId}">${escapeHtml(entry.path)}</label>${inputControlHtml(entry, value, fieldId)}<span class="ps-hint">${escapeHtml(hints.join(" | "))}</span></div>`;
     }).join("");
+  }
+
+  function renderDynamicEditor(category) {
+    if (!editorMetaEl || !editorFieldsEl) return;
+    const entries = paramEditorIndex
+      .filter((entry) => category === "all" || entry.category === category)
+      .sort((a, b) => String(a.path).localeCompare(String(b.path)));
+    editorMetaEl.innerHTML =
+      category === "all"
+        ? `<b>Alle</b> - ${entries.length} editierbare Parameter, geordnet nach Kategorien`
+        : `<b>${escapeHtml(category)}</b> - ${entries.length} editierbare Parameter`;
+    if (entries.length === 0) {
+      editorFieldsEl.innerHTML = '<div class="ps-note">Keine Parameter in dieser Kategorie.</div>';
+      return;
+    }
+    if (category === "all") {
+      const grouped = orderedCategories(entries)
+        .map((groupCategory) => {
+          const groupEntries = entries.filter((entry) => entry.category === groupCategory);
+          if (groupEntries.length === 0) return "";
+          return [
+            `<div class="ps-section-title" style="margin-top:18px;">${escapeHtml(categoryLabel(groupCategory))}</div>`,
+            renderDynamicRows(groupEntries),
+          ].join("");
+        })
+        .filter(Boolean)
+        .join("");
+      editorFieldsEl.innerHTML = grouped;
+    } else {
+      editorFieldsEl.innerHTML = renderDynamicRows(entries);
+    }
     bindExplainInteractions(editorFieldsEl);
   }
 
@@ -451,9 +497,6 @@
       group.style.display = "none";
     });
     if (category === "all") {
-      parameterGroups.forEach((group) => {
-        group.style.display = "";
-      });
       if (editorGroup) editorGroup.style.display = "";
       renderDynamicEditor("all");
       bindExplainInteractions(document);
@@ -517,16 +560,27 @@
   function renderSituationDeltas() {
     const summaryEl = document.getElementById("parameter-situation-summary");
     const deltasEl = document.getElementById("parameter-situation-deltas");
+    const chipLabels = [
+      ["parameter-situation-altaz", "altaz"],
+      ["parameter-situation-rotation", "rotation"],
+      ["parameter-situation-bright", "bright_stars"],
+      ["parameter-situation-few", "few_frames"],
+      ["parameter-situation-gradient", "gradient"],
+    ];
+    chipLabels.forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = scenarioNames[key]?.() || key;
+    });
     const activeScenarios = Array.from(document.querySelectorAll(".ps-chip-btn.active"))
       .map((el) => el.dataset.scenario)
       .filter(Boolean);
     if (!summaryEl || !deltasEl) return;
     if (activeScenarios.length === 0) {
-      summaryEl.textContent = "Keine Situation aktiv.";
-      deltasEl.textContent = "Keine empfohlenen Deltas.";
+      summaryEl.textContent = textFor("page.parameter_studio.situation_none", "Keine Situation aktiv.");
+      deltasEl.textContent = textFor("page.parameter_studio.situation_no_deltas", "Keine empfohlenen Deltas.");
       return;
     }
-    summaryEl.innerHTML = `Aktive Situationen: <b>${activeScenarios.map((key) => scenarioNames[key] || key).join(", ")}</b>`;
+    summaryEl.innerHTML = `${textFor("page.parameter_studio.situation_active", "Aktive Situationen")}: <b>${activeScenarios.map((key) => scenarioNames[key]?.() || key).join(", ")}</b>`;
     const merged = new Map();
     activeScenarios.forEach((scenarioKey) => {
       (scenarioDeltas[scenarioKey] || []).forEach(([path, value, reason]) => {
@@ -547,6 +601,7 @@
     await loadLocaleMessages();
     if (activeExplainPath) updateExplainPanel(activeExplainPath);
     renderSearchResults();
+    renderSituationDeltas();
   }
 
   async function init() {
@@ -569,10 +624,7 @@
         if (first) jumpToPath(first.path);
       });
     }
-    document.getElementById("locale-de")?.addEventListener("click", () => {
-      window.setTimeout(() => void refreshLocaleSensitiveUi(), 0);
-    });
-    document.getElementById("locale-en")?.addEventListener("click", () => {
+    document.addEventListener("gui2:locale-changed", () => {
       window.setTimeout(() => void refreshLocaleSensitiveUi(), 0);
     });
     setCategory(activeCategory);

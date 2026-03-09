@@ -22,6 +22,7 @@ export const API_ENDPOINTS = {
     presets: "/api/config/presets",
     applyPreset: "/api/config/presets/apply",
     validate: "/api/config/validate",
+    save: "/api/config/save",
     revisions: "/api/config/revisions",
   },
   runs: {

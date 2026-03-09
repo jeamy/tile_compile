@@ -88,6 +88,7 @@
                 <button id="parameter-validate" data-control="parameter.validate" class="ps-btn ps-btn-secondary" title="Schema- und Semantikvalidierung ausfuehren.">Validieren</button>
                 <span id="parameter-validate-status" class="ps-hint" style="margin-left:6px;">Validierung: nicht geprüft</span>
               </div>
+              <div id="parameter-validate-details" class="ps-note" style="margin-top:10px;display:none;white-space:normal;"></div>
               <div id="parameter-search-results-panel" data-control="parameter.search.results" class="ps-search-panel">
                 <div id="parameter-search-summary" class="ps-note">Keine Suche aktiv.</div>
                 <div id="parameter-search-results" class="ps-search-list"></div>
@@ -107,7 +108,8 @@
                 <label for="parameter-registration-engine">registration.engine</label>
                 <select id="parameter-registration-engine" data-control="parameter.registration.engine" class="ps-select" title="Hauptmethode fuer Bildregistrierung.">
                   <option selected>triangle_star_matching</option>
-                  <option>phase_correlation</option>
+                  <option>star_similarity</option>
+                  <option>hybrid_phase_ecc</option>
                   <option>robust_phase_ecc</option>
                 </select>
                 <span class="ps-tag reco">Empfohlen: Alt/Az</span>
@@ -283,25 +285,11 @@
               </div>
             </div>
 
-            <div class="ps-section ps-parameter-group" data-category="all">
-              <div class="ps-section-title">Vollabdeckung laut Parameterkatalog</div>
-              <p class="ps-note">Der produktive Parameterbaum umfasst alle YAML-Keys und Runtime-Keys aus <code>parameter_katalog.md</code>. Die Seite zeigt die zentralen Kernfelder plus Such-/Kategoriefluss der Linie B.</p>
-              <div class="ps-chip-row" style="margin-top:10px;">
-                <span class="ps-tag">Pipeline</span>
-                <span class="ps-tag">Normalization</span>
-                <span class="ps-tag">Stacking</span>
-                <span class="ps-tag">Tile</span>
-                <span class="ps-tag">Global Metrics</span>
-                <span class="ps-tag">Local Metrics</span>
-                <span class="ps-tag">Runtime Limits</span>
-                <span class="ps-tag">Validation</span>
-              </div>
-            </div>
-
             <div class="ps-actions">
               <button id="parameter-reset-default" data-control="parameter.reset_default" class="ps-btn ps-btn-secondary" title="Alle Werte auf Default zuruecksetzen.">Auf Default</button>
               <button id="parameter-review-changes" data-control="parameter.review_changes" class="ps-btn ps-btn-secondary" title="Aenderungen und Auswirkungen im Diff anzeigen.">Aenderungen pruefen</button>
               <button id="parameter-save" data-control="parameter.save" class="ps-btn" title="Neue Config-Revision speichern (append-only).">Speichern</button>
+              <button id="parameter-save-as" data-control="parameter.save_as" class="ps-btn ps-btn-secondary" title="Konfiguration unter neuem Pfad speichern.">Speichern unter</button>
             </div>
           </section>
 
@@ -325,7 +313,7 @@
             </div>
 
             <div class="ps-section">
-              <div class="ps-section-title">Situation Assistant</div>
+              <div id="parameter-situation-title" class="ps-section-title">Situation Assistant</div>
               <div class="ps-chip-row">
                 <button id="parameter-situation-altaz" data-control="parameter.situation.altaz" data-scenario="altaz" class="ps-chip-btn">Alt/Az</button>
                 <button id="parameter-situation-rotation" data-control="parameter.situation.rotation" data-scenario="rotation" class="ps-chip-btn">Starke Rotation</button>
@@ -337,18 +325,13 @@
               <div id="parameter-situation-deltas" class="ps-note" style="margin-top:8px;"></div>
               <div class="ps-actions" style="margin-top:12px;">
                 <button id="parameter-situation-apply" data-control="parameter.situation_apply" class="ps-btn ps-btn-secondary" title="Alle ausgewaehlten Szenario-Deltas auf die Konfiguration anwenden.">Situation anwenden</button>
+                <span id="parameter-situation-apply-status" class="ps-hint" style="display:none;padding:6px 10px;border-radius:999px;background:#ecfdf3;border:1px solid #86efac;color:#166534;font-weight:600;">Angewendet</span>
               </div>
             </div>
 
             <div id="parameter-diff-panel" data-control="parameter.diff_panel" class="ps-section">
               <div class="ps-section-title">YAML Diff (Preview)</div>
               <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:260px;overflow:auto;">
-- registration.star_topk: 150
-+ registration.star_topk: 180
-- bge.fit.rbf_lambda: 1e-3
-+ bge.fit.rbf_lambda: 1e-2
-- pcc.k_max: 2.0
-+ pcc.k_max: 2.4
               </div>
             </div>
           </aside>
