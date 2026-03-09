@@ -98,7 +98,20 @@ def validate_config(payload: dict[str, Any], request: Request) -> dict[str, Any]
     except SecurityPolicyError as exc:
         raise http_from_security_error(exc) from exc
     if not isinstance(result.parsed_json, dict):
-        raise _http_502_command_failed("validate-config returned non-json", result)
+        details = []
+        stderr = str(getattr(result, "stderr", "") or "").strip()
+        stdout = str(getattr(result, "stdout", "") or "").strip()
+        if stderr:
+            details.append(f"stderr: {stderr}")
+        if stdout:
+            details.append(f"stdout: {stdout}")
+        if not details:
+            details.append("validate-config returned non-json output")
+        return {
+            "ok": False,
+            "errors": details,
+            "warnings": ["CLI validation backend returned unexpected output"],
+        }
 
     parsed = result.parsed_json
     return {

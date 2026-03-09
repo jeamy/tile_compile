@@ -1,8 +1,10 @@
 # GUI2 FastAPI Backend
 
+FastAPI ist der produktive Adapter zwischen GUI2 und dem C++ Kern. Das Backend liefert das Frontend unter `/ui/` aus, validiert Pfade, startet `tile_compile_cli` / `tile_compile_runner`, streamt Statusdaten und vereinheitlicht Fehler- und Job-Responses.
+
 ## Start (Dev)
 
-Empfohlen (venv + requirements + uvicorn in einem Schritt):
+Empfohlen:
 
 ```bash
 cd /media/data/programming/tile_compile
@@ -26,9 +28,9 @@ pip install -r web_backend/requirements-backend.txt
 uvicorn app.main:app --app-dir web_backend --reload --port 8080
 ```
 
-Frontend:
+Produktive UI:
 
-- `http://127.0.0.1:8080/ui/` (neues produktives Web-Frontend unter `web_frontend/`)
+- `http://127.0.0.1:8080/ui/`
 
 ## Konfiguration (Runtime)
 
@@ -45,7 +47,7 @@ Optionale Env-Variablen:
 Hinweis zu relativen Eingaben:
 - `input_path`/`input_dir` duerfen absolut oder relativ sein.
 - Relative Werte werden nur gegen `TILE_COMPILE_INPUT_SEARCH_ROOTS` aufgeloest.
-- Ohne gesetztes `TILE_COMPILE_INPUT_SEARCH_ROOTS` sind relative Inputs deaktiviert (dann absolute Pfade verwenden).
+- Ohne gesetztes `TILE_COMPILE_INPUT_SEARCH_ROOTS` sind relative Inputs deaktiviert; fuer GUI2 werden daher in der Regel absolute Pfade verwendet.
 
 Falls nicht gesetzt, werden Standardpfade unter `tile_compile_cpp/build/...` verwendet.
 
@@ -89,6 +91,8 @@ Sicherheitsregeln im Backend:
 - Command-Whitelist: nur freigegebene Executables (`tile_compile_cli`, `tile_compile_runner`, Stats-Script via Python, ASTAP/dpkg-deb).
 - Path-Policy: API-Pfade werden gegen `TILE_COMPILE_ALLOWED_ROOTS` validiert (`PATH_NOT_ALLOWED`, `PATH_NOT_FOUND` als `422`).
 - Einheitliches Fehlerformat fuer `4xx/5xx`: immer `{ \"error\": { code, message, hint?, details? } }`.
+- `GET /api/config/current` faellt bei CLI-Ladefehlern auf direktes Dateilesen zurueck.
+- `POST /api/config/validate` liefert bei unerwarteter CLI-Ausgabe `ok=false` mit Fehlerdetails statt eines generischen `502`, damit GUI2 die Ursache sichtbar machen kann.
 
 FE-Job-Contract (Live-Felder in `job.data`):  
 [fe_contract_tools_jobs.md](/media/data/programming/tile_compile/web_backend/fe_contract_tools_jobs.md)

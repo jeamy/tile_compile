@@ -108,35 +108,35 @@
 
   const scenarioDeltas = {
     altaz: [
-      ["registration.allow_rotation", "true", "Rotation im Modell erlauben"],
-      ["registration.star_topk", "180", "mehr Sternkandidaten"],
-      ["registration.reject_shift_px_min", "120", "grosse natuerliche Shifts tolerieren"],
-      ["registration.reject_shift_median_multiplier", "5.0", "breite Shift-Verteilung"],
+      ["registration.allow_rotation", "true", "allow_rotation"],
+      ["registration.star_topk", "180", "more_star_candidates"],
+      ["registration.reject_shift_px_min", "120", "tolerate_large_natural_shifts"],
+      ["registration.reject_shift_median_multiplier", "5.0", "wider_shift_distribution"],
     ],
     rotation: [
-      ["registration.engine", "robust_phase_ecc", "robuster bei Feldrotation"],
-      ["registration.allow_rotation", "true", "zwingend bei Rotation"],
-      ["registration.star_inlier_tol_px", "4.0", "tolerantere Inlier-Bedingung"],
-      ["registration.reject_cc_min_abs", "0.30", "zu harte CC-Grenzen vermeiden"],
+      ["registration.engine", "robust_phase_ecc", "robust_for_field_rotation"],
+      ["registration.allow_rotation", "true", "required_for_rotation"],
+      ["registration.star_inlier_tol_px", "4.0", "more_tolerant_inlier_condition"],
+      ["registration.reject_cc_min_abs", "0.30", "avoid_too_strict_cc_limits"],
     ],
     bright_stars: [
-      ["pcc.mag_bright_limit", "6", "sehr helle Sterne begrenzen"],
-      ["pcc.k_max", "2.4", "extreme Farbgains begrenzen"],
-      ["pcc.sigma_clip", "2.7", "robustere Ausreisserunterdrueckung"],
-      ["bge.mask.star_dilate_px", "6", "Sternumgebung staerker maskieren"],
+      ["pcc.mag_bright_limit", "6", "limit_very_bright_stars"],
+      ["pcc.k_max", "2.4", "limit_extreme_color_gains"],
+      ["pcc.sigma_clip", "2.7", "more_robust_outlier_suppression"],
+      ["bge.mask.star_dilate_px", "6", "mask_star_surroundings_stronger"],
     ],
     few_frames: [
-      ["assumptions.frames_reduced_threshold", "200", "frueher in Reduced-Mode wechseln"],
-      ["assumptions.reduced_mode_skip_clustering", "true", "instabile Clusterbildung vermeiden"],
-      ["synthetic.frames_min", "4", "minimale Synthetic-Basis sichern"],
-      ["synthetic.clustering.cluster_count_range", "[3,10]", "kleinere Clusterzahl"],
+      ["assumptions.frames_reduced_threshold", "200", "switch_earlier_to_reduced_mode"],
+      ["assumptions.reduced_mode_skip_clustering", "true", "avoid_unstable_clustering"],
+      ["synthetic.frames_min", "4", "ensure_minimum_synthetic_base"],
+      ["synthetic.clustering.cluster_count_range", "[3,10]", "smaller_cluster_count"],
     ],
     gradient: [
-      ["bge.enabled", "true", "Gradient aktiv modellieren"],
-      ["bge.fit.method", "rbf", "flexibles Gradientenmodell"],
-      ["bge.fit.rbf_lambda", "1e-2", "Regularisierung gegen Ueberschwingen"],
-      ["bge.sample_quantile", "0.15", "robuste Hintergrundsamples"],
-      ["bge.structure_thresh_percentile", "0.80", "Struktur vom Hintergrund trennen"],
+      ["bge.enabled", "true", "model_gradient_explicitly"],
+      ["bge.fit.method", "rbf", "flexible_gradient_model"],
+      ["bge.fit.rbf_lambda", "1e-2", "regularization_against_overshoot"],
+      ["bge.sample_quantile", "0.15", "robust_background_samples"],
+      ["bge.structure_thresh_percentile", "0.80", "separate_structure_from_background"],
     ],
   };
 
@@ -267,10 +267,31 @@
   }
 
   function deriveRisk(entry) {
-    if (entry.deprecated) return "Deprecated: Feld nur fuer Rueckwaertskompatibilitaet verwenden.";
-    if (entry.range) return "Ausserhalb des erlaubten Bereichs drohen Validierungsfehler oder instabiles Verhalten.";
-    if (entry.scenarioHint && entry.scenarioHint !== "-") return `Im Szenario '${entry.scenarioHint}' sorgfaeltig abstimmen.`;
-    return "Kein expliziter Risiko-Hinweis in den Quellen.";
+    const isGerman = getLocale() === "de";
+    if (entry.deprecated) {
+      return textFor(
+        "page.parameter_studio.explain.risk.deprecated",
+        isGerman
+          ? "Deprecated: Feld nur fuer Rueckwaertskompatibilitaet verwenden."
+          : "Deprecated: keep this field for backward compatibility only.",
+      );
+    }
+    if (entry.range) {
+      return textFor(
+        "page.parameter_studio.explain.risk.out_of_range",
+        isGerman
+          ? "Ausserhalb des erlaubten Bereichs drohen Validierungsfehler oder instabiles Verhalten."
+          : "Out-of-range values may cause validation errors or unstable behavior.",
+      );
+    }
+    if (entry.scenarioHint && entry.scenarioHint !== "-") {
+      return textFor(
+        "page.parameter_studio.explain.risk.scenario",
+        isGerman ? "Im Szenario '{scenario}' sorgfaeltig abstimmen." : "Tune carefully for scenario '{scenario}'.",
+      )
+        .replace("{scenario}", entry.scenarioHint);
+    }
+    return "-";
   }
 
   function buildExplainEntry(path, schemaEntry, katalogEntry, refDeEntry, refEnEntry, editorEntry) {
@@ -448,10 +469,15 @@
     return entries.map((entry) => {
       const fieldId = `param-edit-${entry.path.replace(/[^a-zA-Z0-9_]+/g, "_")}`;
       const value = hasOwn(entry, "yaml_default") ? formatValue(entry.yaml_default) : "";
-      const hints = [entry.type || "any", entry.source === "yaml_only" ? "yaml-only" : "schema"];
+      const hints = [
+        entry.type || textFor("page.parameter_studio.hint.any", "any"),
+        entry.source === "yaml_only"
+          ? textFor("page.parameter_studio.hint.yaml_only", "yaml-only")
+          : textFor("page.parameter_studio.hint.schema", "schema"),
+      ];
       const range = computeRange(entry);
       if (range) hints.push(range);
-      if (entry.deprecated) hints.push("deprecated");
+      if (entry.deprecated) hints.push(textFor("page.parameter_studio.hint.deprecated", "deprecated"));
       return `<div class="ps-row ps-dyn-row" data-path="${escapeHtml(entry.path)}"><label for="${fieldId}">${escapeHtml(entry.path)}</label>${inputControlHtml(entry, value, fieldId)}<span class="ps-hint">${escapeHtml(hints.join(" | "))}</span></div>`;
     }).join("");
   }
@@ -463,10 +489,10 @@
       .sort((a, b) => String(a.path).localeCompare(String(b.path)));
     editorMetaEl.innerHTML =
       category === "all"
-        ? `<b>Alle</b> - ${entries.length} editierbare Parameter, geordnet nach Kategorien`
-        : `<b>${escapeHtml(category)}</b> - ${entries.length} editierbare Parameter`;
+        ? `<b>${escapeHtml(textFor("page.parameter_studio.editor.all", "All"))}</b> - ${entries.length} ${escapeHtml(textFor("page.parameter_studio.editor.editable_count", "editable parameters, grouped by category"))}`
+        : `<b>${escapeHtml(category)}</b> - ${entries.length} ${escapeHtml(textFor("page.parameter_studio.editor.editable_short", "editable parameters"))}`;
     if (entries.length === 0) {
-      editorFieldsEl.innerHTML = '<div class="ps-note">Keine Parameter in dieser Kategorie.</div>';
+      editorFieldsEl.innerHTML = `<div class="ps-note">${escapeHtml(textFor("page.parameter_studio.editor.none_in_category", "No parameters in this category."))}</div>`;
       return;
     }
     if (category === "all") {
@@ -536,19 +562,21 @@
     const queryRaw = String(searchInput.value || "");
     const query = queryRaw.trim().toLowerCase();
     if (!query) {
-      searchSummaryEl.textContent = "Keine Suche aktiv.";
+      searchSummaryEl.textContent = textFor("page.parameter_studio.search.none_active", "No active search.");
       searchResultsEl.innerHTML = "";
       clearSearchHits();
       return;
     }
     const matches = paramEditorIndex.filter((entry) => String(entry.path || "").toLowerCase().includes(query));
-    searchSummaryEl.innerHTML = `<b>${matches.length}</b> Treffer fuer <code>${escapeHtml(queryRaw.trim())}</code>.`;
+    searchSummaryEl.innerHTML = `<b>${matches.length}</b> ${escapeHtml(textFor("page.parameter_studio.search.hits_for", "hits for"))} <code>${escapeHtml(queryRaw.trim())}</code>.`;
     const lines = matches.slice(0, 40).map((entry) => {
-      const source = entry.source === "yaml_only" ? "yaml-only" : "schema";
+      const source = entry.source === "yaml_only"
+        ? textFor("page.parameter_studio.hint.yaml_only", "yaml-only")
+        : textFor("page.parameter_studio.hint.schema", "schema");
       return `<button class="ps-search-item is-form" type="button" data-path="${escapeHtml(entry.path)}"><code>${escapeHtml(entry.path)}</code><span>${escapeHtml(entry.category + " | " + source)}</span></button>`;
     });
-    if (matches.length > 40) lines.push('<div class="ps-note">Weitere Treffer ausgeblendet ...</div>');
-    if (lines.length === 0) lines.push('<div class="ps-note">Keine Treffer.</div>');
+    if (matches.length > 40) lines.push(`<div class="ps-note">${escapeHtml(textFor("page.parameter_studio.search.more_hidden", "More hits hidden ..."))}</div>`);
+    if (lines.length === 0) lines.push(`<div class="ps-note">${escapeHtml(textFor("page.parameter_studio.search.none", "No hits."))}</div>`);
     searchResultsEl.innerHTML = lines.join("");
     searchResultsEl.querySelectorAll(".ps-search-item.is-form").forEach((button) => {
       button.addEventListener("click", () => {
@@ -592,8 +620,12 @@
     });
     deltasEl.innerHTML = Array.from(merged.entries()).map(([path, info]) => {
       const values = Array.from(info.values);
-      const valueText = values.length > 1 ? `${values.join(" | ")} (Konflikt)` : values[0];
-      return `<div><code>${escapeHtml(path)}=${escapeHtml(valueText)}</code> - ${escapeHtml(info.reasons[0] || "")}</div>`;
+      const valueText = values.length > 1
+        ? `${values.join(" | ")} (${textFor("page.parameter_studio.conflict", "Conflict")})`
+        : values[0];
+      const reasonKey = `page.parameter_studio.delta_reason.${info.reasons[0] || ""}`;
+      const reasonText = textFor(reasonKey, info.reasons[0] || "");
+      return `<div><code>${escapeHtml(path)}=${escapeHtml(valueText)}</code> - ${escapeHtml(reasonText)}</div>`;
     }).join("");
   }
 

@@ -1,6 +1,6 @@
 # tile_compile GUI2 Release Bundle
 
-This directory contains the launcher scripts and packaging helpers for the GUI2 desktop release.
+This directory contains the launcher scripts and packaging helpers for the GUI2 release bundle. GUI2 consists of the web frontend, the FastAPI backend, and the native C++ runner/CLI.
 
 ## Bundle Layout
 
@@ -34,10 +34,12 @@ After that it:
 3. aborts with a clear message if Python is not installed
 4. creates `~/.venv` inside the user install directory
 5. always installs `web_backend/requirements-backend.txt`
-6. starts the FastAPI backend
+6. starts the FastAPI backend in the foreground
 7. opens the browser on `/ui/`
 
 Without Python the app does not work, because GUI2 depends on the FastAPI backend and the report generation path.
+
+The backend is intentionally started in the foreground so it can be stopped directly with `Ctrl+C` on Linux/macOS or in the launcher console on Windows.
 
 ## Build Dependencies
 

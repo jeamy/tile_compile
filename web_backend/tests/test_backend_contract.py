@@ -339,3 +339,20 @@ def test_config_current_falls_back_to_file_read(monkeypatch: pytest.MonkeyPatch,
     assert body["source"] == str(cfg)
     assert "sigma_clip: 2.5" in body["config"]
     assert body["fallback"] == "file_read"
+
+
+def test_config_validate_non_json_cli_output_returns_ok_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = create_app()
+    client = TestClient(app)
+
+    def _fake_run_command(*args, **kwargs):  # noqa: ANN002, ANN003
+        _ = args, kwargs
+        return type("ValidateResult", (), {"exit_code": 1, "parsed_json": None, "stdout": "", "stderr": "missing libxyz.so"})()
+
+    monkeypatch.setattr("app.api.config.run_command", _fake_run_command)
+
+    resp = client.post("/api/config/validate", json={"yaml": "pcc:\n  sigma_clip: 2.5\n"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert any("missing libxyz.so" in str(item) for item in body.get("errors", []))

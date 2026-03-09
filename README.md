@@ -15,7 +15,7 @@ While the methodology was originally conceived to address the specific challenge
 - Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.3.6](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.6_en.md)
 - Methodology paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](doc/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
 - Implementation process flow: [Process flow (English)](doc/v3/process_flow/README_en.md)
-- Implementation process flow (German): [Process flow](doc/v3/process_flow/README.md)
+- Implementation process flow (German): [Process flow](doc/v3/process_flow/README_de.md)
 - English step-by-step guide: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - German README snapshot: [German README](README_de.md)
 - Data flow (user-friendly): [Process Flow – How the System Works](doc/v3/process_flow/data_flow_user_description_en.md)
@@ -39,11 +39,13 @@ Given a directory of FITS lights, the pipeline can:
 - run **photometric color calibration** (PCC)
 - write final outputs and detailed diagnostic artifacts
 
-## Active Version
+## Active Components
 
-| Version | Directory | Status | Backend |
-|---------|-----------|--------|---------|
-| C++ | `tile_compile_cpp/` | Active (v3.3) | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
+| Component | Directory | Status | Stack |
+|-----------|-----------|--------|-------|
+| Core pipeline | `tile_compile_cpp/` | Active | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
+| GUI2 backend | `web_backend/` | Active | FastAPI + Python |
+| GUI2 frontend | `web_frontend/` | Active | HTML + CSS + JavaScript |
 
 ## Pipeline Phases
 
@@ -104,14 +106,44 @@ Complete standalone example configs are available under `tile_compile_cpp/exampl
 
 See also: [Examples README](tile_compile_cpp/examples/README.md)
 
-## Binary Releases (Experimental)
+## Binary Releases (GUI2)
 
-**Pre-built binaries are available for testing:**
-Download from: [GitHub Releases](https://github.com/jeamy/tile_compile/releases)
+Pre-built GUI2 release bundles are published via [GitHub Releases](https://github.com/jeamy/tile_compile/releases).
 
-**⚠️ Important:** These are experimental releases for testing purposes. Use at your own risk. Please report any issues found.
+Each bundle contains:
 
-## Quickstart (C++)
+- GUI2 frontend (`web_frontend/`)
+- FastAPI backend (`web_backend/`)
+- native C++ tools (`tile_compile_runner`, `tile_compile_cli`)
+- launchers for Linux, macOS, and Windows
+
+At runtime, GUI2 always uses the local FastAPI backend as the process adapter for the C++ runner/CLI.
+
+## Quickstart
+
+### GUI2 (recommended)
+
+Development start from repository root:
+
+```bash
+./start_backend.sh
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080/ui/
+```
+
+Release bundle start:
+
+- Linux: `start_gui2.sh`
+- macOS: `start_gui2.command`
+- Windows: `start_gui2.bat`
+
+The launcher prepares a Python environment, starts the FastAPI backend in the foreground, and opens the browser to the local GUI2 URL.
+
+### C++ CLI / runner
 
 For a full beginner-friendly walkthrough, see:
 [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
@@ -167,81 +199,13 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . -j$(nproc)
 ```
 
-### Release build scripts (portable app bundles)
+### Release build + packaging
 
-> **Warning:** The build scripts are experimental early versions. Use at your own risk.
+GUI2 release bundles are built by:
 
-Inside `tile_compile_cpp/`, platform-specific release scripts are available:
+- `.github/workflows/release-tile-compile-gui2.yml`
 
-- Linux (native): `build_linux_release.sh`
-- Linux (Docker Ubuntu 20.04 / glibc 2.31): `build_linux_release_docker_ubuntu2004.sh`
-- Linux (AppImage native): `build_linux_appimage.sh`
-- Linux (AppImage Docker): `build_linux_appimage_docker.sh`
-- macOS: `build_macos_release.sh`
-- Windows: `build_windows_release.bat` (auto-detects MSYS2 if installed)
-
-**Linux Docker wrapper (recommended for broad Linux compatibility):**
-
-```bash
-cd tile_compile_cpp
-bash build_linux_release_docker_ubuntu2004.sh
-# optional: skip image rebuild
-bash build_linux_release_docker_ubuntu2004.sh --skip-build
-```
-
-**Linux AppImage (portable single-file executable):**
-
-```bash
-cd tile_compile_cpp
-# Docker 
-bash build_linux_appimage_docker.sh
-# optional: skip image rebuild
-bash build_linux_appimage_docker.sh --skip-build
-
-# Native (requires appimagetool, downloaded automatically if missing)
-bash build_linux_appimage.sh
-
-```
-
-The AppImage is a portable single-file executable that runs on most Linux distributions without installation.
-
-Release outputs are written to `tile_compile_cpp/dist/`:
-
-- Linux: `dist/linux/` + `dist/tile_compile_cpp-linux-release.zip`
-- Linux AppImage: `dist/tile_compile_cpp-x86_64.AppImage`
-- Windows: `dist/windows/` + `dist/tile_compile_cpp-windows-release.zip`
-- macOS: `dist/macos/tile_compile_gui.app` + optional `dist/tile_compile_cpp-macos.dmg`
-
-Included runtime files in release bundles:
-
-- executables (`tile_compile_gui`, `tile_compile_runner`, `tile_compile_cli`)
-- GUI runtime files (`gui_cpp/constants.js`, `gui_cpp/styles.qss`)
-- config + schemas (`tile_compile.yaml`, `tile_compile.schema.yaml`, `tile_compile.schema.json`)
-- example profiles (`examples/`)
-
-Windows note:
-
-- The build script automatically detects MSYS2 installations at `C:\msys64\mingw64` (or `ucrt64`/`clang64`) and sets `CMAKE_PREFIX_PATH` accordingly.
-- If MSYS2 is not installed, install dependencies via:
-  - **Option A (MinGW)**: Install MSYS2 from https://www.msys2.org/, then in MSYS2 MinGW64 shell:
-    ```bash
-    pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf
-    pacman -S --needed mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl
-    ```
-  - **Option B (MSVC)**: Install vcpkg and set `VCPKG_ROOT`, then:
-    ```bat
-    vcpkg install eigen3:x64-windows opencv4:x64-windows cfitsio:x64-windows yaml-cpp:x64-windows nlohmann-json:x64-windows openssl:x64-windows qt6:x64-windows
-    ```
-
-macOS note:
-
-- On older macOS versions, Homebrew `qt` may require Ventura and fail to install.
-- In that case, install Qt6 via the Qt Online Installer (for example under `~/Qt/<version>/macos`) and optionally set:
-
-```bash
-export CMAKE_PREFIX_PATH="$HOME/Qt/<version>/macos"
-export Qt6_DIR="$HOME/Qt/<version>/macos/lib/cmake/Qt6"
-```
+The workflow builds Qt-free C++ binaries, bundles `web_backend/` and `web_frontend/`, adds the GUI2 launchers, and creates ZIP artifacts for Linux, macOS, and Windows.
 
 Not included by design:
 
@@ -282,34 +246,13 @@ Examples:
 
 Use `run-shell` if you need additional mounts (e.g., config/input directories) and then start the runner manually.
 
-#### Windows start notes (Docker)
+#### Windows notes (Docker / CLI workflow)
 
 Use a Linux shell (WSL2 Ubuntu) to run the helper script:
 
 ```bash
 bash scripts/docker_compile_and_run.sh build-image
 bash scripts/docker_compile_and_run.sh run-app -- run --config /mnt/config/tile_compile.yaml --input-dir /mnt/input --runs-dir /workspace/tile_compile_cpp/runs
-```
-
-GUI on Windows:
-
-- Recommended: Windows 11 + WSLg, then run:
-
-```bash
-bash scripts/docker_compile_and_run.sh run-gui
-```
-
-- Without WSLg, use an X server (e.g. VcXsrv), export `DISPLAY`, and run GUI manually:
-
-```bash
-export DISPLAY=host.docker.internal:0.0
-docker run --rm -it \
-  -e DISPLAY=$DISPLAY \
-  -e QT_QPA_PLATFORM=xcb \
-  -v "$(pwd)/tile_compile_cpp/runs:/workspace/tile_compile_cpp/runs" \
-  -w /workspace/tile_compile_cpp/build \
-  tile_compile_cpp:dev \
-  ./tile_compile_gui
 ```
 
 ### CLI Runner
@@ -361,11 +304,21 @@ Supported resume phases: `ASTROMETRY`, `BGE`, `PCC`.
 ./tile_compile_cli list-artifacts /path/to/runs/<run_id>
 ```
 
-### GUI (Qt6)
+### GUI2 integration
+
+The recommended UI path is the web-based GUI2:
+
+- backend: `web_backend/`
+- frontend: `web_frontend/`
+- orchestration: FastAPI -> `tile_compile_cli` / `tile_compile_runner`
+
+Development start:
 
 ```bash
-./tile_compile_gui
+./start_backend.sh
 ```
+
+Open `http://127.0.0.1:8080/ui/`.
 
 ## Outputs
 
@@ -443,23 +396,25 @@ The report aggregates data from artifact JSON files, `logs/run_events.jsonl`, an
 
 ```text
 tile_compile/
+├── web_frontend/           # GUI2 HTML/CSS/JS frontend
+├── web_backend/            # GUI2 FastAPI backend
 ├── tile_compile_cpp/
-│   ├── apps/
+│   ├── apps/                # runner/cli entry points
 │   ├── include/tile_compile/
 │   ├── src/
-│   ├── gui_cpp/
+│   ├── examples/            # example configs
+│   ├── scripts/             # reports, helper scripts
 │   ├── tests/
-│   ├── generate_report.py
 │   ├── tile_compile.yaml
 │   ├── tile_compile.schema.json
 │   └── tile_compile.schema.yaml
-├── tile_compile_python/  # legacy
+├── packaging/gui2/          # GUI2 release launchers/bundle helpers
+├── docker/                  # Docker build/runtime images
 ├── doc/
-│   └── v3/
-│       ├── process_flow/
-│       ├── tbqr_step_by_step_en.md
-│       └── tile_basierte_qualitatsrekonstruktion_methodik_v_3.2.2_en.md
-├── runs/
+│   ├── v3/                  # methodology and process-flow docs
+│   └── gui2/                # GUI2 concept/reference docs
+├── start_backend.sh         # dev start for FastAPI + GUI2
+├── start_gui2_docker.sh     # run GUI2 in Docker
 ├── README.md
 └── README_de.md
 ```
