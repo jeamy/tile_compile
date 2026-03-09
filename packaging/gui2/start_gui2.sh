@@ -159,9 +159,8 @@ open_browser() {
   log "Kein Browser-Launcher gefunden. Oeffne ${URL} manuell."
 }
 
-start_backend() {
+run_backend_foreground() {
   local venv_python="$1"
-  local log_file="${LOG_DIR}/gui2-backend.log"
   local lib_dir="${INSTALL_ROOT}/tile_compile_cpp/lib"
 
   export TILE_COMPILE_CLI="${INSTALL_ROOT}/tile_compile_cpp/build/tile_compile_cli"
@@ -176,12 +175,12 @@ start_backend() {
     export DYLD_LIBRARY_PATH="${lib_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
   fi
 
-  nohup "${venv_python}" -m uvicorn app.main:app \
+  log "Starte FastAPI-Backend im Vordergrund auf ${URL} (Ctrl+C zum Beenden)."
+  ( sleep 1; open_browser ) &
+  exec "${venv_python}" -m uvicorn app.main:app \
     --app-dir "${INSTALL_ROOT}/web_backend" \
     --host "${HOST}" \
-    --port "${PORT}" \
-    >"${log_file}" 2>&1 &
-  echo "$!" > "${PID_FILE}"
+    --port "${PORT}"
 }
 
 main() {
@@ -209,33 +208,13 @@ main() {
   "${venv_python}" -m pip install --upgrade pip
   "${venv_python}" -m pip install -r "${INSTALL_ROOT}/web_backend/requirements-backend.txt"
 
-  if [[ -f "${PID_FILE}" ]]; then
-    local existing_pid
-    existing_pid="$(cat "${PID_FILE}" 2>/dev/null || true)"
-    if [[ -n "${existing_pid}" ]] && kill -0 "${existing_pid}" >/dev/null 2>&1; then
-      if server_ready "${venv_python}"; then
-        log "GUI2-Backend laeuft bereits."
-        open_browser
-        exit 0
-      fi
-    fi
+  if server_ready "${venv_python}"; then
+    log "GUI2-Backend laeuft bereits."
+    open_browser
+    exit 0
   fi
 
-  if ! server_ready "${venv_python}"; then
-    log "Starte FastAPI-Backend auf ${URL}"
-    start_backend "${venv_python}"
-  fi
-
-  for _ in $(seq 1 20); do
-    if server_ready "${venv_python}"; then
-      open_browser
-      exit 0
-    fi
-    sleep 1
-  done
-
-  log "Backend wurde nicht rechtzeitig erreichbar. Siehe ${LOG_DIR}/gui2-backend.log"
-  exit 1
+  run_backend_foreground "${venv_python}"
 }
 
 main "$@"

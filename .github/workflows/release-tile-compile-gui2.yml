@@ -126,7 +126,8 @@ jobs:
           ROOT="${PWD}/bundle/tile_compile_gui2-linux-${TAG}"
           export HOME="${PWD}/smoke-home-linux"
           export TILE_COMPILE_GUI2_NO_BROWSER=1
-          bash "${ROOT}/start_gui2.sh"
+          bash "${ROOT}/start_gui2.sh" >/tmp/out_gui2_smoke_linux.txt 2>&1 &
+          START_PID=$!
           python3 - <<'PY'
           import json
           import time
@@ -144,10 +145,8 @@ jobs:
           else:
               raise SystemExit("backend smoke test failed")
           PY
-          PID_FILE="${HOME}/tilecompile/logs/gui2-backend.pid"
-          if [[ -f "${PID_FILE}" ]]; then
-            kill "$(cat "${PID_FILE}")" || true
-          fi
+          kill "${START_PID}" || true
+          wait "${START_PID}" 2>/dev/null || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -268,7 +267,8 @@ jobs:
           ROOT="${PWD}/bundle/tile_compile_gui2-macos14-${TAG}"
           export HOME="${PWD}/smoke-home-macos"
           export TILE_COMPILE_GUI2_NO_BROWSER=1
-          bash "${ROOT}/start_gui2.sh"
+          bash "${ROOT}/start_gui2.sh" >/tmp/out_gui2_smoke_macos.txt 2>&1 &
+          START_PID=$!
           python3 - <<'PY'
           import json
           import time
@@ -286,10 +286,8 @@ jobs:
           else:
               raise SystemExit("backend smoke test failed")
           PY
-          PID_FILE="${HOME}/tilecompile/logs/gui2-backend.pid"
-          if [[ -f "${PID_FILE}" ]]; then
-            kill "$(cat "${PID_FILE}")" || true
-          fi
+          kill "${START_PID}" || true
+          wait "${START_PID}" 2>/dev/null || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -384,7 +382,8 @@ jobs:
           New-Item -ItemType Directory -Path $homeDir -Force | Out-Null
           $env:USERPROFILE = $homeDir
           $env:TILE_COMPILE_GUI2_NO_BROWSER = "1"
-          & (Join-Path $root "start_gui2.bat")
+          $startScript = Join-Path $root "start_gui2.ps1"
+          $launcher = Start-Process -FilePath "powershell" -ArgumentList @("-ExecutionPolicy","Bypass","-File",$startScript) -PassThru
           $deadline = (Get-Date).AddSeconds(45)
           $ok = $false
           while ((Get-Date) -lt $deadline) {
@@ -400,10 +399,8 @@ jobs:
           if (-not $ok) {
             throw "backend smoke test failed"
           }
-          $pidFile = Join-Path $homeDir "tilecompile\logs\gui2-backend.pid"
-          if (Test-Path $pidFile) {
-            $backendPid = Get-Content $pidFile -ErrorAction SilentlyContinue
-            if ($backendPid) { Stop-Process -Id $backendPid -Force -ErrorAction SilentlyContinue }
+          if ($launcher -and -not $launcher.HasExited) {
+            cmd /c "taskkill /PID $($launcher.Id) /T /F" | Out-Null
           }
 
       - name: Create zip

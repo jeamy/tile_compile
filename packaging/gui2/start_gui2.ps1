@@ -6,13 +6,26 @@ $InstallRoot = Join-Path $env:USERPROFILE "tilecompile"
 $VenvDir = Join-Path $InstallRoot ".venv"
 $LogDir = Join-Path $InstallRoot "logs"
 $RunsDir = Join-Path $InstallRoot "runs"
-$PidFile = Join-Path $LogDir "gui2-backend.pid"
 $Port = if ($env:TILE_COMPILE_GUI2_PORT) { [int]$env:TILE_COMPILE_GUI2_PORT } else { 8080 }
 $HostName = "127.0.0.1"
 $Url = "http://${HostName}:${Port}/ui/"
 
 function Write-Info($Message) {
   Write-Host "[gui2] $Message"
+}
+
+function Test-PythonCommand {
+  param([string[]]$PythonCommand)
+  try {
+    if ($PythonCommand.Length -gt 1) {
+      & $PythonCommand[0] $PythonCommand[1..($PythonCommand.Length - 1)] -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" *> $null
+    } else {
+      & $PythonCommand[0] -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" *> $null
+    }
+    return ($LASTEXITCODE -eq 0)
+  } catch {
+    return $false
+  }
 }
 
 function Get-PythonCommand {
@@ -24,7 +37,9 @@ function Get-PythonCommand {
   foreach ($candidate in $candidates) {
     $exe = $candidate[0]
     if (Get-Command $exe -ErrorAction SilentlyContinue) {
-      return $candidate
+      if (Test-PythonCommand -PythonCommand $candidate) {
+        return $candidate
+      }
     }
   }
   return $null
@@ -103,7 +118,7 @@ if (-not $PythonCommand) {
   $PythonCommand = Get-PythonCommand
 }
 if (-not $PythonCommand) {
-  throw "Start abgebrochen: Python konnte nicht automatisch installiert werden. Die App funktioniert ohne Python nicht."
+  throw "Start abgebrochen: Python 3.11+ konnte nicht gefunden oder installiert werden. Die App funktioniert ohne Python nicht."
 }
 
 Sync-Payload
@@ -138,25 +153,31 @@ if (Test-Path $LibDir) {
   }
 }
 
-if (-not (Test-ServerReady)) {
-  Write-Info "Starte FastAPI-Backend auf $Url"
-  $stdoutLog = Join-Path $LogDir "gui2-backend.log"
-  $stderrLog = Join-Path $LogDir "gui2-backend.err.log"
-  $process = Start-Process -FilePath $VenvPython `
-    -ArgumentList @("-m", "uvicorn", "app.main:app", "--app-dir", (Join-Path $InstallRoot "web_backend"), "--host", $HostName, "--port", "$Port") `
-    -WorkingDirectory $InstallRoot `
-    -RedirectStandardOutput $stdoutLog `
-    -RedirectStandardError $stderrLog `
-    -PassThru
-  Set-Content -Path $PidFile -Value $process.Id -Encoding ascii
+if (Test-ServerReady) {
+  Write-Info "GUI2-Backend laeuft bereits."
+  Open-BrowserIfEnabled
+  exit 0
 }
 
-for ($i = 0; $i -lt 20; $i++) {
-  if (Test-ServerReady) {
-    Open-BrowserIfEnabled
-    exit 0
-  }
-  Start-Sleep -Seconds 1
+Write-Info "Starte FastAPI-Backend im Vordergrund auf $Url (Ctrl+C zum Beenden)."
+$BrowserUrl = $Url
+if ($env:TILE_COMPILE_GUI2_NO_BROWSER -ne "1") {
+  Start-Job -ScriptBlock {
+    param([string]$url)
+    for ($i = 0; $i -lt 30; $i++) {
+      try {
+        $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2
+        if ($resp.StatusCode -lt 500) {
+          Start-Process $url
+          return
+        }
+      } catch {}
+      Start-Sleep -Seconds 1
+    }
+  } -ArgumentList $BrowserUrl | Out-Null
 }
 
-throw "Backend wurde nicht rechtzeitig erreichbar. Siehe $LogDir"
+& $VenvPython -m uvicorn app.main:app --app-dir (Join-Path $InstallRoot "web_backend") --host $HostName --port "$Port"
+if ($LASTEXITCODE -ne 0) {
+  throw "Backend-Prozess mit ExitCode $LASTEXITCODE beendet."
+}

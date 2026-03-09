@@ -198,6 +198,16 @@ function setFooter(text, isError = false) {
   el.style.color = isError ? "#b91c1c" : "";
 }
 
+function scanErrorFromResult(result) {
+  const errors = Array.isArray(result?.errors) ? result.errors : [];
+  const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+  const firstError = errors.find((e) => String(e?.message || "").trim()) || errors[0];
+  if (firstError) return String(firstError.message || firstError.code || "Unbekannter Scan-Fehler");
+  const firstWarn = warnings.find((w) => String(w?.message || "").trim()) || warnings[0];
+  if (firstWarn) return String(firstWarn.message || firstWarn.code || "Scan-Warnung");
+  return "";
+}
+
 function setRunReady(status, runStatus = "") {
   const chip = $("status-run-ready");
   if (!chip) return;
@@ -892,7 +902,12 @@ async function executeScanFlow({
       if ($(inputDirsId)) $(inputDirsId).value = mergedInputText;
       persistLastInputDirs(summary.input_path);
     }
-    setFooter(job.state === "ok" ? "Scan abgeschlossen." : `Scan beendet mit Status: ${job.state}`, job.state !== "ok");
+    if (job.state === "ok") {
+      setFooter("Scan abgeschlossen.");
+    } else {
+      const detail = scanErrorFromResult(result);
+      setFooter(detail ? `Scan fehlgeschlagen: ${detail}` : `Scan beendet mit Status: ${job.state}`, true);
+    }
     await initGlobalState();
   } catch (err) {
     const code = apiErrorCode(err);
@@ -3266,10 +3281,15 @@ async function bindDashboard() {
             true,
           );
         } else {
-          setFooter(
-            job?.state === "ok" ? "Scan abgeschlossen." : `Scan beendet mit Status: ${job?.state || "unknown"}`,
-            job?.state !== "ok",
-          );
+          if (job?.state === "ok") {
+            setFooter("Scan abgeschlossen.");
+          } else {
+            const detail = scanErrorFromResult(job?.data?.result || {});
+            setFooter(
+              detail ? `Scan fehlgeschlagen: ${detail}` : `Scan beendet mit Status: ${job?.state || "unknown"}`,
+              true,
+            );
+          }
         }
       } catch (err) {
         setFooter(`Scan fehlgeschlagen: ${errorText(err)}`, true);
