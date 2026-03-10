@@ -15,6 +15,7 @@
 #include <fstream>
 #include <memory>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
 
@@ -75,6 +76,19 @@ int main(int argc, char* argv[]) {
             return res;
         });
     }
+
+    CROW_ROUTE(app, "/api/<path>")
+    ([](const crow::request&, std::string) {
+        nlohmann::json body = {
+            {"error", {
+                {"code", "NOT_FOUND"},
+                {"message", "Not Found"}
+            }}
+        };
+        crow::response res(404, body.dump());
+        res.set_header("Content-Type", "application/json");
+        return res;
+    });
 
     // Redirect root to /ui/
     CROW_ROUTE(app, "/")

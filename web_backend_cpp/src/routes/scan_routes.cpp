@@ -2,6 +2,8 @@
 #include "services/scan_summary.hpp"
 #include <nlohmann/json.hpp>
 
+namespace fs = std::filesystem;
+
 static crow::response json_resp(const nlohmann::json& j, int status = 200) {
     crow::response res(status, j.dump());
     res.set_header("Content-Type", "application/json");
@@ -9,6 +11,12 @@ static crow::response json_resp(const nlohmann::json& j, int status = 200) {
 }
 static crow::response err_resp(const std::string& msg, int status = 400) {
     return json_resp({{"error", {{"message", msg}}}}, status);
+}
+static crow::response err_resp(const std::string& code,
+                               const std::string& msg,
+                               int status,
+                               const nlohmann::json& details) {
+    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
 }
 
 void register_scan_routes(CrowApp& app,
@@ -19,17 +27,39 @@ void register_scan_routes(CrowApp& app,
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded()) return err_resp("Invalid JSON");
 
-        std::string input_dir  = body.value("input_dir",  "");
+        std::string input_dir  = body.value("input_dir", body.value("input_path", ""));
         int frames_min         = body.value("frames_min", 1);
         bool with_checksums    = body.value("with_checksums", false);
 
         nlohmann::json input_dirs_arr = nlohmann::json::array();
-        if (body.contains("input_dirs") && body["input_dirs"].is_array())
-            input_dirs_arr = body["input_dirs"];
-        else if (!input_dir.empty())
+        if (body.contains("input_dirs") && body["input_dirs"].is_array()) {
+            for (const auto& item : body["input_dirs"]) {
+                if (item.is_string()) {
+                    std::string path = item.get<std::string>();
+                    if (!path.empty()) input_dirs_arr.push_back(path);
+                } else if (item.is_object() && item.contains("input_dir") && item["input_dir"].is_string()) {
+                    std::string path = item["input_dir"].get<std::string>();
+                    if (!path.empty()) input_dirs_arr.push_back(path);
+                } else if (item.is_object() && item.contains("input_path") && item["input_path"].is_string()) {
+                    std::string path = item["input_path"].get<std::string>();
+                    if (!path.empty()) input_dirs_arr.push_back(path);
+                }
+            }
+        } else if (!input_dir.empty())
             input_dirs_arr.push_back(input_dir);
 
         if (input_dirs_arr.empty()) return err_resp("No input_dir(s) provided");
+
+        for (const auto& item : input_dirs_arr) {
+            std::string path = item.get<std::string>();
+            if (!state->runtime.is_path_allowed(fs::path(path))) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + path, 403, {{"path", path}});
+            }
+        }
+
+        if (input_dir.empty() && !input_dirs_arr.empty() && input_dirs_arr.front().is_string()) {
+            input_dir = input_dirs_arr.front().get<std::string>();
+        }
 
         if (!input_dir.empty()) {
             std::lock_guard<std::mutex> lk(state->state_mutex);

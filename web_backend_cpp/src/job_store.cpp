@@ -3,15 +3,40 @@
 #include <iomanip>
 #include <chrono>
 
+namespace {
+
+std::string utc_now_iso() {
+    using namespace std::chrono;
+    const auto now = system_clock::now();
+    const auto tt = system_clock::to_time_t(now);
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &tt);
+#else
+    gmtime_r(&tt, &tm);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+}
+
+}
+
 nlohmann::json job_to_json(const Job& j) {
     return {
         {"job_id",    j.job_id},
         {"type",      j.type},
+        {"run_id",    j.data.is_object() && j.data.contains("run_id") ? j.data["run_id"] : (j.run_id.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.run_id))},
         {"state",     job_state_str(j.state)},
+        {"pid",       nullptr},
+        {"exit_code", j.data.is_object() && j.data.contains("exit_code") ? j.data["exit_code"] : nlohmann::json(nullptr)},
+        {"created_at", j.created_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.created_at)},
+        {"updated_at", j.updated_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.updated_at)},
+        {"started_at", j.started_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.started_at)},
+        {"ended_at",   j.ended_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.ended_at)},
         {"data",      j.data},
-        {"progress",  j.progress},
         {"error",     j.error_message},
-        {"run_id",    j.run_id},
+        {"progress",  j.progress},
     };
 }
 
@@ -26,6 +51,8 @@ std::string InMemoryJobStore::create(const std::string& type, const std::string&
     j.type   = type;
     j.run_id = run_id;
     j.state  = JobState::pending;
+    j.created_at = utc_now_iso();
+    j.updated_at = j.created_at;
     _jobs[id] = std::move(j);
     _order.push_back(id);
     return id;
@@ -43,9 +70,16 @@ bool InMemoryJobStore::update_state(const std::string& job_id, JobState state,
     std::lock_guard<std::mutex> lk(_mutex);
     auto it = _jobs.find(job_id);
     if (it == _jobs.end()) return false;
+    if (state == JobState::running && it->second.started_at.empty()) {
+        it->second.started_at = utc_now_iso();
+    }
     it->second.state = state;
     if (!data.is_null()) it->second.data = data;
     if (!error.empty())  it->second.error_message = error;
+    it->second.updated_at = utc_now_iso();
+    if ((state == JobState::ok || state == JobState::error || state == JobState::cancelled) && it->second.ended_at.empty()) {
+        it->second.ended_at = it->second.updated_at;
+    }
     return true;
 }
 
@@ -54,6 +88,7 @@ bool InMemoryJobStore::update_progress(const std::string& job_id, double progres
     auto it = _jobs.find(job_id);
     if (it == _jobs.end()) return false;
     it->second.progress = progress;
+    it->second.updated_at = utc_now_iso();
     return true;
 }
 
@@ -63,6 +98,8 @@ bool InMemoryJobStore::cancel(const std::string& job_id) {
     if (it == _jobs.end()) return false;
     if (it->second.state == JobState::running || it->second.state == JobState::pending)
         it->second.state = JobState::cancelled;
+    it->second.updated_at = utc_now_iso();
+    if (it->second.ended_at.empty()) it->second.ended_at = it->second.updated_at;
     return true;
 }
 

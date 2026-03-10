@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include <mutex>
 #include <memory>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -30,6 +31,7 @@ struct BackendRuntime {
     fs::path resolve_run_dir(const std::string& run_id) const;
     bool is_path_allowed(const fs::path& p) const;
     void grant_root(const fs::path& p);
+    std::vector<fs::path> allowed_roots() const;
 
 private:
     mutable std::unique_ptr<std::mutex> _roots_mutex;

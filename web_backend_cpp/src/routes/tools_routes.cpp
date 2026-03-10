@@ -5,6 +5,7 @@
 #include <curl/curl.h>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <atomic>
 #include <mutex>
 #include <memory>
@@ -49,13 +50,6 @@ fs::path default_astap_data_dir() {
 
 fs::path default_siril_catalog_dir() {
     return user_home_dir() / ".local" / "share" / "siril" / "siril_cat1_healpix8_xpsamp";
-}
-
-fs::path allow_path(BackendRuntime& runtime, const fs::path& path, bool create_parent = false) {
-    if (!runtime.is_path_allowed(path)) {
-        runtime.grant_root(create_parent ? path.parent_path() : path);
-    }
-    return path;
 }
 
 bool is_astap_catalog_installed(const fs::path& catalog_dir, const std::string& catalog_id) {
@@ -147,6 +141,21 @@ static crow::response json_resp(const nlohmann::json& j, int status = 200) {
 static crow::response err_resp(const std::string& msg, int status = 400) {
     return json_resp({{"error", {{"message", msg}}}}, status);
 }
+static crow::response err_resp(const std::string& code,
+                               const std::string& msg,
+                               int status,
+                               const nlohmann::json& details) {
+    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
+}
+
+static std::optional<std::string> denied_path(const BackendRuntime& runtime,
+                                              const fs::path& access_path,
+                                              const fs::path& reported_path = {}) {
+    if (access_path.empty() || access_path.is_relative()) return std::nullopt;
+    if (runtime.is_path_allowed(access_path)) return std::nullopt;
+    fs::path path_for_error = reported_path.empty() ? access_path : reported_path;
+    return path_for_error.string();
+}
 
 // Shared cancel flags per job (simple global map protected by mutex)
 static std::mutex g_cancel_mutex;
@@ -178,28 +187,61 @@ void register_tools_routes(CrowApp& app,
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         std::string astap_cli      = body.is_discarded() ? "" : body.value("astap_cli", "");
         std::string astap_data_dir = body.is_discarded() ? "" : body.value("astap_data_dir", "");
+        std::string catalog_dir_str = body.is_discarded() ? "" : body.value("catalog_dir", "");
 
-        if (astap_cli.empty()) astap_cli = "astap_cli";
+        if (!astap_cli.empty()) {
+            if (auto denied = denied_path(state->runtime, fs::path(astap_cli)); denied) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+            }
+        }
+        if (!astap_data_dir.empty()) {
+            if (auto denied = denied_path(state->runtime, fs::path(astap_data_dir)); denied) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+            }
+        }
 
-        auto res = run_subprocess({astap_cli, "-h"});
+        fs::path data_dir = astap_data_dir.empty() ? default_astap_data_dir() : fs::path(astap_data_dir);
+        fs::path catalog_dir = catalog_dir_str.empty() ? data_dir : fs::path(catalog_dir_str);
+        if (!catalog_dir_str.empty()) {
+            if (auto denied = denied_path(state->runtime, catalog_dir); denied) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+            }
+        }
+
+        fs::path binary_path;
+        if (!astap_cli.empty()) {
+            binary_path = fs::path(astap_cli);
+        } else {
+            fs::path candidate = data_dir / "astap_cli";
+            if (fs::exists(candidate)) binary_path = candidate;
+            else binary_path = fs::path("astap_cli");
+        }
+
+        auto res = run_subprocess({binary_path.string(), "-h"});
         bool installed = (res.exit_code == 0 || res.exit_code == 1);
 
+        nlohmann::json catalogs = nlohmann::json::object();
+        for (const auto& [catalog_id, _] : ASTAP_CATALOGS) catalogs[catalog_id] = is_astap_catalog_installed(catalog_dir, catalog_id);
+
         return json_resp({
-            {"installed",     installed},
-            {"astap_cli",     astap_cli},
-            {"astap_data_dir",astap_data_dir},
-            {"version",       installed ? "detected" : ""},
+            {"installed",  installed},
+            {"binary",     installed ? binary_path.string() : std::string()},
+            {"data_dir",   data_dir.string()},
+            {"catalog_dir", catalog_dir.string()},
+            {"catalogs",   catalogs},
         });
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/install-cli").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
-        fs::path data_dir = allow_path(state->runtime,
-            body.is_discarded() || body.value("astap_data_dir", "").empty()
-                ? default_astap_data_dir()
-                : fs::path(body.value("astap_data_dir", "")),
-            true);
+        fs::path data_dir = body.is_discarded() || body.value("astap_data_dir", "").empty()
+            ? default_astap_data_dir()
+            : fs::path(body.value("astap_data_dir", ""));
+        if (auto denied = denied_path(state->runtime, data_dir); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+
         auto cancel_flag_ptr = get_or_create_flag("astap_install");
         cancel_flag_ptr->store(false);
         std::string job_id = state->job_store.create("astrometry_install");
@@ -223,21 +265,60 @@ void register_tools_routes(CrowApp& app,
                     {{"data_dir", data_dir.string()}}, e.what());
             }
         }).detach();
-        return json_resp({{"job_id", job_id}, {"state", "running"}});
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+    });
+
+    CROW_ROUTE(app, "/api/tools/astrometry/install-cli/retry").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = nlohmann::json::parse(req.body, nullptr, false);
+        if (body.is_discarded()) body = nlohmann::json::object();
+        body["resume"] = true;
+        auto body2 = body;
+        fs::path data_dir = body2.is_discarded() || body2.value("astap_data_dir", "").empty()
+            ? default_astap_data_dir()
+            : fs::path(body2.value("astap_data_dir", ""));
+        if (auto denied = denied_path(state->runtime, data_dir); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+        auto cancel_flag_ptr = get_or_create_flag("astap_install");
+        cancel_flag_ptr->store(false);
+        std::string job_id = state->job_store.create("astrometry_install");
+        state->job_store.update_state(job_id, JobState::running, {{"data_dir", data_dir.string()}, {"url", ASTAP_CLI_URL}, {"resume", true}});
+        std::thread([state, job_id, data_dir, cancel_flag_ptr]() {
+            try {
+                fs::create_directories(data_dir);
+                fs::path archive = data_dir / "astap_cli.zip";
+                auto dl = download_file(ASTAP_CLI_URL, archive, *cancel_flag_ptr);
+                if (!dl.ok) throw std::runtime_error(dl.error);
+                std::string error;
+                if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
+                fs::remove(archive);
+                fs::path candidate = find_astap_candidate(data_dir);
+                if (candidate.empty()) throw std::runtime_error("astap_cli executable not found after extraction");
+                fs::path target = data_dir / candidate.filename();
+                if (candidate != target) fs::copy_file(candidate, target, fs::copy_options::overwrite_existing);
+                state->job_store.update_state(job_id, JobState::ok, {{"binary", target.string()}, {"data_dir", data_dir.string()}, {"resume", true}});
+            } catch (const std::exception& e) {
+                state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
+                    {{"data_dir", data_dir.string()}, {"resume", true}}, e.what());
+            }
+        }).detach();
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/catalog/download").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded() || !body.contains("catalog_id"))
-            return err_resp("Missing catalog_id");
-
-        std::string catalog_id = body["catalog_id"].get<std::string>();
+        if (body.is_discarded()) body = nlohmann::json::object();
+        std::string catalog_id = body.value("catalog_id", std::string("d50"));
         auto it = ASTAP_CATALOGS.find(catalog_id);
-        if (it == ASTAP_CATALOGS.end()) return err_resp("unknown catalog_id", 400);
-        fs::path data_dir = allow_path(state->runtime,
-            body.value("astap_data_dir", "").empty() ? default_astap_data_dir() : fs::path(body.value("astap_data_dir", "")),
-            true);
+        if (it == ASTAP_CATALOGS.end()) return err_resp("BAD_REQUEST", "unknown catalog_id '" + catalog_id + "'", 400, nlohmann::json::object());
+        fs::path data_dir = body.value("astap_data_dir", "").empty()
+            ? default_astap_data_dir()
+            : fs::path(body.value("astap_data_dir", ""));
+        if (auto denied = denied_path(state->runtime, data_dir); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
 
         auto cancel_flag_ptr = get_or_create_flag("astap_catalog");
         cancel_flag_ptr->store(false);
@@ -274,39 +355,117 @@ void register_tools_routes(CrowApp& app,
                     {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}}, e.what());
             }
         }).detach();
-        return json_resp({{"job_id", job_id}, {"state", "running"}});
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+    });
+
+    CROW_ROUTE(app, "/api/tools/astrometry/catalog/download/retry").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = nlohmann::json::parse(req.body, nullptr, false);
+        if (body.is_discarded()) body = nlohmann::json::object();
+        body["resume"] = true;
+        std::string catalog_id = body.value("catalog_id", std::string("d50"));
+        auto it = ASTAP_CATALOGS.find(catalog_id);
+        if (it == ASTAP_CATALOGS.end()) return err_resp("BAD_REQUEST", "unknown catalog_id '" + catalog_id + "'", 400, nlohmann::json::object());
+        fs::path data_dir = body.value("astap_data_dir", "").empty()
+            ? default_astap_data_dir()
+            : fs::path(body.value("astap_data_dir", ""));
+        if (auto denied = denied_path(state->runtime, data_dir); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+        auto cancel_flag_ptr = get_or_create_flag("astap_catalog");
+        cancel_flag_ptr->store(false);
+        std::string job_id = state->job_store.create("astrometry_catalog_download");
+        state->job_store.update_state(job_id, JobState::running, {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}, {"resume", true}});
+        std::thread([state, job_id, catalog_id, filename = it->second, data_dir, cancel_flag_ptr]() {
+            try {
+                fs::create_directories(data_dir);
+                fs::path archive = data_dir / filename;
+                auto dl = download_file(std::string(ASTAP_SF_BASE) + filename + "/download", archive, *cancel_flag_ptr);
+                if (!dl.ok) throw std::runtime_error(dl.error);
+                std::string error;
+                if (archive.extension() == ".zip") {
+                    if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
+                } else if (archive.extension() == ".deb") {
+                    fs::path tmp = data_dir / "_deb_extract";
+                    fs::create_directories(tmp);
+                    if (!extract_deb_archive(archive, tmp, error)) throw std::runtime_error(error);
+                    for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
+                        if (!entry.is_regular_file()) continue;
+                        const auto name = entry.path().filename().string();
+                        if (name.rfind(catalog_id + "_", 0) == 0) {
+                            fs::copy_file(entry.path(), data_dir / entry.path().filename(), fs::copy_options::overwrite_existing);
+                        }
+                    }
+                    fs::remove_all(tmp);
+                } else {
+                    throw std::runtime_error("unsupported archive format");
+                }
+                fs::remove(archive);
+                state->job_store.update_state(job_id, JobState::ok, {{"catalog_id", catalog_id}, {"installed", is_astap_catalog_installed(data_dir, catalog_id)}, {"data_dir", data_dir.string()}, {"resume", true}});
+            } catch (const std::exception& e) {
+                state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
+                    {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}, {"resume", true}}, e.what());
+            }
+        }).detach();
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/catalog/cancel").methods("POST"_method)
     ([state](const crow::request&) {
         cancel_flag("astap_catalog");
+        bool cancelled = false;
         auto jobs = state->job_store.list(50);
         for (auto& j : jobs) {
             if (j.type == "astrometry_catalog_download" &&
                 (j.state == JobState::running || j.state == JobState::pending)) {
-                state->subprocess_manager.cancel(j.job_id);
-                return json_resp({{"ok", true}, {"cancelled_job", j.job_id}});
+                state->job_store.cancel(j.job_id);
+                cancelled = true;
             }
         }
-        return json_resp({{"ok", true}, {"cancelled_job", nullptr}});
+        return json_resp({{"ok", cancelled}});
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/solve").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded() || !body.contains("solve_file"))
-            return err_resp("Missing solve_file");
+            return err_resp("BAD_REQUEST", "solve_file is required", 400, nlohmann::json::object());
 
         std::string solve_file     = body["solve_file"].get<std::string>();
-        std::string astap_cli      = body.value("astap_cli", "astap_cli");
+        std::string astap_cli      = body.value("astap_cli", "");
         std::string astap_data_dir = body.value("astap_data_dir", "");
 
-        std::vector<std::string> args = {astap_cli, "-f", solve_file, "-wcs"};
+        if (auto denied = denied_path(state->runtime, fs::path(solve_file)); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+        if (!astap_cli.empty()) {
+            if (auto denied = denied_path(state->runtime, fs::path(astap_cli)); denied) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+            }
+        }
+        if (!astap_data_dir.empty()) {
+            if (auto denied = denied_path(state->runtime, fs::path(astap_data_dir)); denied) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+            }
+        }
+
+        fs::path astap_bin;
+        if (!astap_cli.empty()) astap_bin = fs::path(astap_cli);
+        else {
+            fs::path default_bin = (astap_data_dir.empty() ? default_astap_data_dir() : fs::path(astap_data_dir)) / "astap_cli";
+            astap_bin = fs::exists(default_bin) ? default_bin : fs::path("astap_cli");
+        }
+        auto probe = run_subprocess({astap_bin.string(), "-h"});
+        if (!(probe.exit_code == 0 || probe.exit_code == 1)) {
+            return err_resp("BAD_REQUEST", "ASTAP CLI not found; install or provide astap_cli path", 400, nlohmann::json::object());
+        }
+
+        std::vector<std::string> args = {astap_bin.string(), "-f", solve_file, "-wcs"};
         if (!astap_data_dir.empty()) { args.push_back("-d"); args.push_back(astap_data_dir); }
 
         std::string job_id = state->subprocess_manager.launch("astrometry_solve", args,
                                                                state->runtime.project_root.string());
-        return json_resp({{"job_id", job_id}, {"state", "running"}});
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/save-solved").methods("POST"_method)
@@ -320,14 +479,23 @@ void register_tools_routes(CrowApp& app,
         if (input_path.empty() || output_path.empty())
             return err_resp("input_path and output_path required");
 
-        fs::path input = allow_path(state->runtime, fs::path(input_path));
-        fs::path output = allow_path(state->runtime, fs::path(output_path), true);
+        fs::path input = fs::path(input_path);
+        fs::path output = fs::path(output_path);
+        if (auto denied = denied_path(state->runtime, input); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+        if (auto denied = denied_path(state->runtime, output); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
         if (!fs::exists(input)) return err_resp("input_path not found", 404);
         fs::create_directories(output.parent_path());
         fs::copy_file(input, output, fs::copy_options::overwrite_existing);
         std::string copied_wcs;
         if (!wcs_path.empty()) {
-            fs::path wcs = allow_path(state->runtime, fs::path(wcs_path));
+            fs::path wcs = fs::path(wcs_path);
+            if (auto denied = denied_path(state->runtime, wcs); denied) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+            }
             if (fs::exists(wcs)) {
                 fs::path out_wcs = output;
                 out_wcs.replace_extension(".wcs");
@@ -335,7 +503,7 @@ void register_tools_routes(CrowApp& app,
                 copied_wcs = out_wcs.string();
             }
         }
-        return json_resp({{"ok", true}, {"output_path", output.string()}, {"wcs_path", copied_wcs}});
+        return json_resp({{"output_path", output.string()}, {"wcs_path", copied_wcs.empty() ? nlohmann::json(nullptr) : nlohmann::json(copied_wcs)}});
     });
 
     // ---------------------------------------------------------------
@@ -344,11 +512,12 @@ void register_tools_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/tools/pcc/siril/status").methods("GET"_method)
     ([state](const crow::request& req) {
-        fs::path catalog_dir = allow_path(state->runtime,
-            req.url_params.get("catalog_dir") && std::string(req.url_params.get("catalog_dir")).size() > 0
-                ? fs::path(req.url_params.get("catalog_dir"))
-                : default_siril_catalog_dir(),
-            true);
+        fs::path catalog_dir = req.url_params.get("catalog_dir") && std::string(req.url_params.get("catalog_dir")).size() > 0
+            ? fs::path(req.url_params.get("catalog_dir"))
+            : default_siril_catalog_dir();
+        if (auto denied = denied_path(state->runtime, catalog_dir); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
         auto missing = missing_siril_chunks(catalog_dir);
         return json_resp({
             {"installed",   SIRIL_NUM_CHUNKS - static_cast<int>(missing.size())},
@@ -361,11 +530,12 @@ void register_tools_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/tools/pcc/siril/download-missing").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
-        fs::path catalog_dir = allow_path(state->runtime,
-            body.is_discarded() || body.value("catalog_dir", "").empty()
-                ? default_siril_catalog_dir()
-                : fs::path(body.value("catalog_dir", "")),
-            true);
+        fs::path catalog_dir = body.is_discarded() || body.value("catalog_dir", "").empty()
+            ? default_siril_catalog_dir()
+            : fs::path(body.value("catalog_dir", ""));
+        if (auto denied = denied_path(state->runtime, catalog_dir); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
 
         auto cancel_flag_ptr = get_or_create_flag("pcc_siril");
         cancel_flag_ptr->store(false);
@@ -398,21 +568,67 @@ void register_tools_routes(CrowApp& app,
                     {{"catalog_dir", catalog_dir.string()}}, e.what());
             }
         }).detach();
-        return json_resp({{"job_id", job_id}, {"state", "running"}});
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+    });
+
+    CROW_ROUTE(app, "/api/tools/pcc/siril/download-missing/retry").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = nlohmann::json::parse(req.body, nullptr, false);
+        if (body.is_discarded()) body = nlohmann::json::object();
+        body["resume"] = true;
+        fs::path catalog_dir = body.value("catalog_dir", "").empty()
+            ? default_siril_catalog_dir()
+            : fs::path(body.value("catalog_dir", ""));
+        if (auto denied = denied_path(state->runtime, catalog_dir); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+        auto cancel_flag_ptr = get_or_create_flag("pcc_siril");
+        cancel_flag_ptr->store(false);
+        std::string job_id = state->job_store.create("pcc_siril_download");
+        state->job_store.update_state(job_id, JobState::running, {{"catalog_dir", catalog_dir.string()}, {"resume", true}});
+        std::thread([state, job_id, catalog_dir, cancel_flag_ptr]() {
+            try {
+                fs::create_directories(catalog_dir);
+                auto missing = missing_siril_chunks(catalog_dir);
+                int completed = 0;
+                for (int chunk : missing) {
+                    if (cancel_flag_ptr->load()) {
+                        state->job_store.update_state(job_id, JobState::cancelled, {{"catalog_dir", catalog_dir.string()}, {"current_chunk", chunk}, {"resume", true}});
+                        return;
+                    }
+                    fs::path archive = catalog_dir / ("siril_cat1_healpix8_xpsamp_" + std::to_string(chunk) + ".dat.bz2");
+                    auto dl = download_file(siril_chunk_url(chunk), archive, *cancel_flag_ptr,
+                        [state, job_id, completed, total = static_cast<int>(missing.size())](double ratio) {
+                            state->job_store.update_progress(job_id, total > 0 ? ((completed + ratio) / total) * 100.0 : 100.0);
+                        });
+                    if (!dl.ok) throw std::runtime_error(dl.error);
+                    std::string error;
+                    if (!decompress_bz2_archive(archive, error)) throw std::runtime_error(error);
+                    ++completed;
+                    state->job_store.update_progress(job_id, missing.empty() ? 100.0 : (100.0 * completed / missing.size()));
+                }
+                state->job_store.update_state(job_id, JobState::ok, {{"catalog_dir", catalog_dir.string()}, {"missing_after", missing_siril_chunks(catalog_dir)}, {"resume", true}});
+            } catch (const std::exception& e) {
+                state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
+                    {{"catalog_dir", catalog_dir.string()}, {"resume", true}}, e.what());
+            }
+        }).detach();
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 
     CROW_ROUTE(app, "/api/tools/pcc/siril/cancel").methods("POST"_method)
     ([state](const crow::request&) {
         cancel_flag("pcc_siril");
+        bool cancelled = false;
         auto jobs = state->job_store.list(50);
         for (auto& j : jobs) {
             if (j.type == "pcc_siril_download" &&
                 (j.state == JobState::running || j.state == JobState::pending)) {
-                state->subprocess_manager.cancel(j.job_id);
-                return json_resp({{"ok", true}, {"cancelled_job", j.job_id}});
+                state->job_store.cancel(j.job_id);
+                cancelled = true;
             }
         }
-        return json_resp({{"ok", true}, {"cancelled_job", nullptr}});
+        return json_resp({{"ok", cancelled}});
     });
 
     CROW_ROUTE(app, "/api/tools/pcc/check-online").methods("POST"_method)
@@ -436,14 +652,35 @@ void register_tools_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/tools/pcc/run").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded() || !body.contains("input_rgb") || !body.contains("output_rgb"))
-            return err_resp("input_rgb and output_rgb required");
+        if (body.is_discarded() || !body.contains("input_rgb") || !body.contains("output_rgb") || !body.contains("wcs_file"))
+            return err_resp("BAD_REQUEST", "input_rgb, output_rgb and wcs_file are required", 400, nlohmann::json::object());
 
         std::string input_rgb   = body["input_rgb"].get<std::string>();
         std::string output_rgb  = body["output_rgb"].get<std::string>();
         std::string wcs_file    = body.value("wcs_file", "");
-        std::string source      = body.value("source", "siril");
+        std::string source      = body.value("source", "auto");
         std::string catalog_dir = body.value("catalog_dir", "");
+
+        if (source != "auto" && source != "siril" && source != "vizier_gaia" && source != "vizier_apass") {
+            return err_resp("BAD_REQUEST", "unsupported pcc source '" + source + "'", 422, nlohmann::json::object());
+        }
+
+        if (auto denied = denied_path(state->runtime, fs::path(input_rgb)); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+        if (auto denied = denied_path(state->runtime, fs::path(output_rgb)); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+        if (!wcs_file.empty()) {
+            if (auto denied = denied_path(state->runtime, fs::path(wcs_file)); denied) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+            }
+        }
+        if (!catalog_dir.empty()) {
+            if (auto denied = denied_path(state->runtime, fs::path(catalog_dir)); denied) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+            }
+        }
 
         std::vector<std::string> args = {state->runtime.cli_exe, "pcc-run"};
         args.push_back(input_rgb);
@@ -461,23 +698,32 @@ void register_tools_routes(CrowApp& app,
 
         std::string job_id = state->subprocess_manager.launch("pcc_run", args,
                                                                state->runtime.project_root.string());
-        return json_resp({{"job_id", job_id}, {"state", "running"}});
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 
     CROW_ROUTE(app, "/api/tools/pcc/save-corrected").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded() || !body.contains("output_rgb"))
-            return err_resp("output_rgb required");
+            return err_resp("BAD_REQUEST", "output_rgb is required", 400, nlohmann::json::object());
 
         std::string output_rgb = body["output_rgb"].get<std::string>();
+        if (auto denied = denied_path(state->runtime, fs::path(output_rgb)); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
 
         nlohmann::json channels = nlohmann::json::array();
-        if (body.contains("output_channels") && body["output_channels"].is_array())
-            channels = body["output_channels"];
+        if (body.contains("output_channels") && body["output_channels"].is_array()) {
+            for (const auto& channel : body["output_channels"]) {
+                std::string channel_path = channel.get<std::string>();
+                if (auto denied = denied_path(state->runtime, fs::path(channel_path)); denied) {
+                    return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+                }
+                channels.push_back(channel_path);
+            }
+        }
 
         return json_resp({
-            {"ok",              true},
             {"output_rgb",      output_rgb},
             {"output_channels", channels},
         });

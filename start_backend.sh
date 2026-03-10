@@ -82,6 +82,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -L "${RUNS_DIR}" && ! -e "${RUNS_DIR}" ]]; then
+  echo "[backend] Runs directory path is a broken symlink: ${RUNS_DIR}" >&2
+  echo "[backend] Fix the symlink target or start with --runs-dir <directory>." >&2
+  exit 1
+fi
+
+if [[ -e "${RUNS_DIR}" && ! -d "${RUNS_DIR}" ]]; then
+  echo "[backend] Runs directory path exists but is not a directory: ${RUNS_DIR}" >&2
+  exit 1
+fi
+
 mkdir -p "${RUNS_DIR}"
 
 if [[ "${DO_BUILD}" == "1" ]]; then

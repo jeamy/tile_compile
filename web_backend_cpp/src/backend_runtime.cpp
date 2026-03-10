@@ -88,6 +88,14 @@ bool BackendRuntime::is_path_allowed(const fs::path& p) const {
     return false;
 }
 
+std::vector<fs::path> BackendRuntime::allowed_roots() const {
+    std::lock_guard<std::mutex> lk(*_roots_mutex);
+    std::vector<fs::path> roots;
+    roots.reserve(_allowed_roots.size());
+    for (const auto& root : _allowed_roots) roots.emplace_back(root);
+    return roots;
+}
+
 void BackendRuntime::grant_root(const fs::path& p) {
     std::lock_guard<std::mutex> lk(*_roots_mutex);
     _allowed_roots.insert(p.string());

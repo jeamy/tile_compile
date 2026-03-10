@@ -27,6 +27,10 @@ struct Job {
     double progress{0.0};
     std::string error_message;
     std::string run_id;
+    std::string created_at;
+    std::string updated_at;
+    std::string started_at;
+    std::string ended_at;
 };
 
 nlohmann::json job_to_json(const Job& j);

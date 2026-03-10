@@ -9,9 +9,15 @@ static crow::response json_resp(const nlohmann::json& j, int status = 200) {
 static crow::response err_resp(const std::string& msg, int status = 400) {
     return json_resp({{"error", {{"message", msg}}}}, status);
 }
+static crow::response err_resp(const std::string& code,
+                               const std::string& msg,
+                               int status,
+                               const nlohmann::json& details = nlohmann::json::object()) {
+    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
+}
 
 void register_jobs_routes(CrowApp& app,
-                           std::shared_ptr<AppState> state) {
+                          std::shared_ptr<AppState> state) {
 
     CROW_ROUTE(app, "/api/jobs").methods("GET"_method)
     ([state](const crow::request& req) {
@@ -27,14 +33,14 @@ void register_jobs_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/jobs/<string>").methods("GET"_method)
     ([state](const crow::request&, std::string job_id) {
         auto job = state->job_store.get(job_id);
-        if (!job) return err_resp("Job not found: " + job_id, 404);
+        if (!job) return err_resp("NOT_FOUND", "job '" + job_id + "' not found", 404);
         return json_resp(job_to_json(*job));
     });
 
     CROW_ROUTE(app, "/api/jobs/<string>/cancel").methods("POST"_method)
     ([state](const crow::request&, std::string job_id) {
         bool ok = state->subprocess_manager.cancel(job_id);
-        if (!ok) return err_resp("Job not found: " + job_id, 404);
-        return json_resp({{"ok", true}, {"job_id", job_id}});
+        if (!ok) return err_resp("NOT_FOUND", "job '" + job_id + "' not found", 404);
+        return json_resp({{"ok", true}});
     });
 }
