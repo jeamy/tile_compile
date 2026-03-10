@@ -117,6 +117,13 @@ bool InMemoryJobStore::set_pid(const std::string& job_id, std::optional<int> pid
     return true;
 }
 
+bool InMemoryJobStore::is_cancelled(const std::string& job_id) const {
+    std::lock_guard<std::mutex> lk(_mutex);
+    auto it = _jobs.find(job_id);
+    if (it == _jobs.end()) return false;
+    return it->second.state == JobState::cancelled;
+}
+
 bool InMemoryJobStore::cancel(const std::string& job_id) {
     std::lock_guard<std::mutex> lk(_mutex);
     auto it = _jobs.find(job_id);

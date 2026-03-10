@@ -170,7 +170,12 @@
             </div>
             <div class="ps-actions">
               <button id="dashboard-scan-refresh" data-control="dashboard.scan_refresh" class="ps-btn ps-btn-secondary" type="button" title="Scan ausfuehren.">Scan</button>
-              <a id="dashboard-run-start" data-control="dashboard.run_start" class="ps-btn" href="run-monitor.html" title="Run/Queue starten (nur ohne error-Guardrail).">Run starten</a>
+              <button id="dashboard-validate" data-control="dashboard.validate" class="ps-btn ps-btn-secondary" type="button" title="Schema und Semantik validieren.">Validieren</button>
+              <a id="dashboard-run-start" data-control="dashboard.run_start" class="ps-btn" href="run-monitor.html" title="Run/Queue starten (nur mit erfolgreicher Validierung)." aria-disabled="true" style="opacity:0.55;pointer-events:none;">Run starten</a>
+            </div>
+            <div style="margin-top:10px;">
+              <span id="dashboard-validate-status" class="ps-hint" style="margin-left:0;">Validierung: nicht geprüft</span>
+              <div id="dashboard-validate-details" class="ps-note" style="margin-top:10px;display:none;white-space:normal;"></div>
             </div>
           </div>
 
@@ -201,22 +206,22 @@
 
         <div class="ps-section">
           <div style="font-size:20px;font-weight:700;margin-bottom:12px;">Pipeline Vorschau</div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <span style="padding:6px 14px;background:#d1f4e0;color:#15808d;border-radius:6px;font-size:13px;font-weight:700;">SCAN</span>
+          <div id="dashboard-pipeline-preview" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span data-pipeline-step="SCAN" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">SCAN</span>
             <span style="color:var(--muted);">→</span>
-            <span style="padding:6px 14px;background:#d1f4e0;color:#15808d;border-radius:6px;font-size:13px;font-weight:700;">REG</span>
+            <span data-pipeline-step="REG" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">REG</span>
             <span style="color:var(--muted);">→</span>
-            <span style="padding:6px 14px;background:#d1f4e0;color:#15808d;border-radius:6px;font-size:13px;font-weight:700;">TILES</span>
+            <span data-pipeline-step="TILES" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">TILES</span>
             <span style="color:var(--muted);">→</span>
-            <span style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">STACK</span>
+            <span data-pipeline-step="STACK" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">STACK</span>
             <span style="color:var(--muted);">→</span>
-            <span style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">ASTROM</span>
+            <span data-pipeline-step="ASTROM" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">ASTROM</span>
             <span style="color:var(--muted);">→</span>
-            <span style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">BGE</span>
+            <span data-pipeline-step="BGE" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">BGE</span>
             <span style="color:var(--muted);">→</span>
-            <span style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">PCC</span>
+            <span data-pipeline-step="PCC" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">PCC</span>
             <span style="color:var(--muted);">→</span>
-            <span style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">DONE</span>
+            <span data-pipeline-step="DONE" style="padding:6px 14px;background:#f0f0f0;color:var(--muted);border-radius:6px;font-size:13px;font-weight:700;">DONE</span>
           </div>
         </div>
       </div>

@@ -6,8 +6,11 @@
 nlohmann::json config_revision_to_json(const ConfigRevision& r) {
     return {
         {"revision_id", r.revision_id},
+        {"path",        r.path},
+        {"created_at",  r.created_at},
         {"source",      r.source},
-        {"timestamp",   r.timestamp},
+        {"run_id",      r.run_id.has_value() ? nlohmann::json(*r.run_id) : nlohmann::json(nullptr)},
+        {"has_snapshot", !r.yaml_text.empty()},
     };
 }
 
@@ -19,13 +22,18 @@ static std::string now_iso() {
     return oss.str();
 }
 
-std::string ConfigRevisionStore::add(const std::string& yaml_text, const std::string& source) {
+std::string ConfigRevisionStore::add(const fs::path& path,
+                                     const std::string& yaml_text,
+                                     const std::string& source,
+                                     const std::optional<std::string>& run_id) {
     std::lock_guard<std::mutex> lk(_mutex);
     ConfigRevision r;
-    r.revision_id = "rev_" + std::to_string(++_counter);
-    r.source      = source;
-    r.yaml_text   = yaml_text;
-    r.timestamp   = now_iso();
+    r.revision_id = "cfg_" + std::to_string(++_counter);
+    r.path = path.string();
+    r.source = source;
+    r.created_at = now_iso();
+    r.run_id = run_id;
+    r.yaml_text = yaml_text;
     _revisions.push_back(r);
     return r.revision_id;
 }

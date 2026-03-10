@@ -12,7 +12,14 @@
 #include <regex>
 #include <thread>
 #include <chrono>
+#include <set>
+#include <cctype>
+#include <cerrno>
 #include <cstdlib>
+#ifndef _WIN32
+#include <signal.h>
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -228,6 +235,113 @@ static nlohmann::json queue_job_payload(const nlohmann::json& queue,
     };
 }
 
+static std::string normalize_queue_filter_name(const std::string& raw) {
+    std::string out;
+    out.reserve(raw.size());
+    for (char ch : raw) {
+        if (std::isspace(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-') continue;
+        out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
+    }
+    if (out == "HALPHA") return "HA";
+    return out;
+}
+
+static nlohmann::json queue_filters_for_run(InMemoryJobStore& store, const std::string& run_id) {
+    for (const auto& job : store.list(200)) {
+        if (job.type != "run_queue") continue;
+        if (!job.data.is_object()) continue;
+        if (job.data.value("run_id", std::string()) != run_id) continue;
+        const auto queue = job.data.value("queue", nlohmann::json::array());
+        if (!queue.is_array()) return nlohmann::json::array();
+
+        nlohmann::json filters = nlohmann::json::array();
+        std::set<std::string> seen;
+        for (const auto& item : queue) {
+            if (!item.is_object()) continue;
+            std::string filter = normalize_queue_filter_name(item.value("filter", std::string()));
+            if (filter.empty() || seen.find(filter) != seen.end()) continue;
+            seen.insert(filter);
+            filters.push_back(filter);
+        }
+        return filters;
+    }
+    return nlohmann::json::array();
+}
+
+#ifndef _WIN32
+static bool pid_exists(pid_t pid) {
+    if (pid <= 0) return false;
+    if (kill(pid, 0) == 0) return true;
+    return errno == EPERM;
+}
+
+static bool terminate_pid_group(pid_t pid) {
+    if (pid <= 0) return false;
+    if (kill(-pid, SIGTERM) != 0) {
+        if (kill(pid, SIGTERM) != 0) return false;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (!pid_exists(pid)) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (kill(-pid, SIGKILL) != 0) {
+        if (kill(pid, SIGKILL) != 0) return false;
+    }
+    return true;
+}
+
+static std::vector<int> terminate_orphan_runner_processes(const BackendRuntime& runtime,
+                                                          const std::string& run_id,
+                                                          const std::string& run_dir) {
+    std::vector<int> killed;
+    const std::string runner_name = fs::path(runtime.runner_exe).filename().string();
+    for (const auto& entry : fs::directory_iterator("/proc")) {
+        if (!entry.is_directory()) continue;
+        const std::string pid_text = entry.path().filename().string();
+        if (pid_text.empty() || !std::all_of(pid_text.begin(), pid_text.end(), ::isdigit)) continue;
+        int pid = 0;
+        try {
+            pid = std::stoi(pid_text);
+        } catch (...) {
+            continue;
+        }
+        if (pid == static_cast<int>(::getpid())) continue;
+
+        std::ifstream cmdline(entry.path() / "cmdline", std::ios::binary);
+        if (!cmdline) continue;
+        std::string raw((std::istreambuf_iterator<char>(cmdline)), std::istreambuf_iterator<char>());
+        if (raw.empty()) continue;
+
+        std::vector<std::string> argv;
+        size_t start = 0;
+        while (start < raw.size()) {
+            size_t end = raw.find('\0', start);
+            if (end == std::string::npos) end = raw.size();
+            if (end > start) argv.push_back(raw.substr(start, end - start));
+            start = end + 1;
+        }
+        if (argv.empty()) continue;
+
+        const std::string exe_name = fs::path(argv.front()).filename().string();
+        if (exe_name != runner_name && exe_name.find("tile_compile_runner") == std::string::npos) continue;
+        const bool is_runner = std::any_of(argv.begin() + 1, argv.end(), [](const std::string& arg) {
+            return arg == "run" || arg == "resume";
+        });
+        if (!is_runner) continue;
+
+        std::string joined;
+        for (const auto& part : argv) {
+            if (!joined.empty()) joined += ' ';
+            joined += part;
+        }
+        if (joined.find(run_id) == std::string::npos && joined.find(run_dir) == std::string::npos) continue;
+        if (terminate_pid_group(static_cast<pid_t>(pid))) killed.push_back(pid);
+    }
+    return killed;
+}
+#endif
+
 static std::vector<std::string> runner_run_args(const std::shared_ptr<AppState>& state,
                                                 const std::string& config_path,
                                                 const std::string& input_dir,
@@ -282,6 +396,7 @@ void register_runs_routes(CrowApp& app,
 
         auto guardrails = scan_guardrails(state->job_store);
         if (guardrails.value("status", std::string()) == "error") {
+            state->ui_event_store.push("run.start.blocked", "runs.run_start", {{"reason", "guardrail_error"}, {"guardrails", guardrails}});
             return err_resp("GUARDRAIL_BLOCKED", "run start blocked by guardrails", 409, guardrails);
         }
 
@@ -296,9 +411,29 @@ void register_runs_routes(CrowApp& app,
         if (input_dirs.empty() && queue_items.empty())
             return err_resp("BAD_REQUEST", "input_dir is required", 400, nlohmann::json::object());
 
-        for (const auto& dir : input_dirs) {
-            if (!state->runtime.is_path_allowed(fs::path(dir))) {
+        for (auto& dir : input_dirs) {
+            auto resolved = state->runtime.resolve_input_path(fs::path(dir), !fs::path(dir).is_absolute());
+            if (resolved.status == PathStatus::not_allowed) {
                 return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + dir, 403, {{"path", dir}});
+            }
+            if (resolved.status == PathStatus::not_found) {
+                return err_resp("PATH_NOT_FOUND", "Path not found: " + dir, 422, {{"path", dir}});
+            }
+            dir = resolved.path.string();
+        }
+        if (queue_items.is_array()) {
+            for (auto& item : queue_items) {
+                if (!item.is_object()) continue;
+                std::string raw_input_dir = item.value("input_dir", "");
+                if (raw_input_dir.empty()) continue;
+                auto resolved = state->runtime.resolve_input_path(fs::path(raw_input_dir), !fs::path(raw_input_dir).is_absolute());
+                if (resolved.status == PathStatus::not_allowed) {
+                    return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + raw_input_dir, 403, {{"path", raw_input_dir}});
+                }
+                if (resolved.status == PathStatus::not_found) {
+                    return err_resp("PATH_NOT_FOUND", "Path not found: " + raw_input_dir, 422, {{"path", raw_input_dir}});
+                }
+                item["input_dir"] = resolved.path.string();
             }
         }
 
@@ -313,7 +448,7 @@ void register_runs_routes(CrowApp& app,
             if (!out) return err_resp("Cannot write config: " + state->runtime.default_config_path.string(), 500);
             out << prepared_config_yaml;
         }
-        std::string revision_id = state->revision_store.add(prepared_config_yaml, "run_start");
+        std::string revision_id = state->revision_store.add(state->runtime.default_config_path, prepared_config_yaml, "run_start", base_run_id);
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->active_config_revision_id = revision_id;
@@ -329,7 +464,12 @@ void register_runs_routes(CrowApp& app,
                 std::lock_guard<std::mutex> lk(state->state_mutex);
                 state->current_run_id = effective_run_id;
             }
-            state->ui_event_store.push("run_started", {{"job_id", job_id}, {"run_id", effective_run_id}});
+            state->ui_event_store.push(
+                "run.start.queue",
+                "runs.run_start",
+                {{"revision_id", revision_id}, {"queue_size", static_cast<int>(queue_items.size())}},
+                effective_run_id,
+                job_id);
             std::thread([state, job_id, queue_items, runs_dir, effective_config_path]() mutable {
                 fs::path staging_root = fs::path(runs_dir) / ".queue_staging" / job_id;
                 std::error_code ec;
@@ -423,7 +563,12 @@ void register_runs_routes(CrowApp& app,
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->current_run_id = effective_run_id;
         }
-        state->ui_event_store.push("run_started", {{"job_id", job_id}, {"run_id", effective_run_id}});
+        state->ui_event_store.push(
+            "run.start",
+            "runs.run_start",
+            {{"input_dir", input_dirs.front()}, {"runs_dir", runs_dir}, {"revision_id", revision_id}},
+            effective_run_id,
+            job_id);
         return json_resp({{"job_id", job_id}, {"run_id", effective_run_id}}, 202);
     });
 
@@ -437,6 +582,7 @@ void register_runs_routes(CrowApp& app,
                 {"run_dir", run_dir.string()},
                 {"status", status.value("status", "unknown")},
                 {"color_mode", status.value("color_mode", "UNKNOWN")},
+                {"queue_filters", queue_filters_for_run(state->job_store, run_id)},
                 {"current_phase", status.contains("current_phase") ? status["current_phase"] : nlohmann::json(nullptr)},
                 {"progress", status.value("progress", 0.0)},
                 {"phases", status.value("phases", nlohmann::json::array())},
@@ -508,7 +654,19 @@ void register_runs_routes(CrowApp& app,
                 }
             }
         }
-        state->ui_event_store.push("run_stopped", {{"run_id", run_id}});
+#ifndef _WIN32
+        if (!cancelled) {
+            auto orphan_pids = terminate_orphan_runner_processes(state->runtime, run_id, resolved_run_dir.string());
+            for (int pid : orphan_pids) killed_pids.push_back(pid);
+            if (!orphan_pids.empty()) {
+                cancelled = true;
+                state->ui_event_store.push("run.stop.orphan", "runs.run_stop", {{"run_dir", resolved_run_dir.string()}, {"killed_pids", orphan_pids}}, run_id);
+            }
+        }
+#endif
+        if (cancelled) {
+            state->ui_event_store.push("run.stop", "runs.run_stop", {{"run_dir", has_resolved_run_dir ? resolved_run_dir.string() : std::string()}, {"cancelled_jobs", cancelled_jobs}, {"killed_pids", killed_pids}}, run_id);
+        }
         return json_resp({{"ok", cancelled}, {"run_id", run_id}, {"cancelled_jobs", cancelled_jobs}, {"killed_pids", killed_pids}});
     });
 
@@ -554,7 +712,12 @@ void register_runs_routes(CrowApp& app,
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->current_run_id = run_id;
         }
-        state->ui_event_store.push("run_resumed", {{"job_id", job_id}, {"run_id", run_id}, {"filter_context", filter_ctx}});
+        state->ui_event_store.push(
+            "run.resume",
+            "runs.run_resume",
+            {{"from_phase", from_phase}, {"config_revision_id", rev_id}, {"filter_context", filter_ctx.empty() ? nlohmann::json(nullptr) : nlohmann::json(filter_ctx)}},
+            run_id,
+            job_id);
         return json_resp({{"job_id", job_id}, {"run_id", run_id}}, 202);
     });
 
@@ -658,7 +821,7 @@ void register_runs_routes(CrowApp& app,
                 std::lock_guard<std::mutex> lk(state->state_mutex);
                 if (state->current_run_id == run_id) state->current_run_id = "";
             }
-            state->ui_event_store.push("run_deleted", {{"run_id", run_id}});
+            state->ui_event_store.push("run.delete", "runs.run_delete", {{"run_dir", run_dir.string()}}, run_id);
             return json_resp({{"ok", true}, {"run_id", run_id}});
         } catch (const std::exception& e) {
             return err_resp(e.what(), 404);
@@ -671,7 +834,7 @@ void register_runs_routes(CrowApp& app,
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->current_run_id = run_id;
         }
-        state->ui_event_store.push("current_run_changed", {{"run_id", run_id}});
+        state->ui_event_store.push("run.set_current", "runs.run_set_current", {{"run_id", run_id}}, run_id);
         return json_resp({{"ok", true}, {"run_id", run_id}});
     });
 
@@ -698,28 +861,51 @@ void register_runs_routes(CrowApp& app,
             {"run_dir", run_dir.string()}
         });
         std::thread([state, job_id, run_id, run_dir]() {
-            auto result = generate_run_report(run_dir);
-            nlohmann::json data = result;
-            data["run_id"] = run_id;
-            data["run_dir"] = run_dir.string();
-            if (result.value("ok", false)) {
-                state->job_store.update_state(job_id, JobState::ok, data);
-            } else {
-                state->job_store.update_state(job_id, JobState::error, data,
-                    result.value("error", std::string("report generation failed")));
+            try {
+                auto result = generate_run_report(run_dir);
+                nlohmann::json data = result;
+                data["run_id"] = run_id;
+                data["run_dir"] = run_dir.string();
+                if (result.value("ok", false)) {
+                    state->job_store.update_state(job_id, JobState::ok, data);
+                } else {
+                    state->job_store.update_state(job_id, JobState::error, data,
+                        result.value("error", std::string("report generation failed")));
+                }
+            } catch (const std::exception& e) {
+                state->job_store.update_state(job_id, JobState::error, {
+                    {"ok", false},
+                    {"run_id", run_id},
+                    {"run_dir", run_dir.string()},
+                    {"error", e.what()}
+                }, e.what());
+            } catch (...) {
+                state->job_store.update_state(job_id, JobState::error, {
+                    {"ok", false},
+                    {"run_id", run_id},
+                    {"run_dir", run_dir.string()},
+                    {"error", "unknown stats generation error"}
+                }, "unknown stats generation error");
             }
         }).detach();
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/stats/status").methods("GET"_method)
-    ([state](const crow::request&, std::string run_id) {
+    ([state](const crow::request& req, std::string run_id) {
         try {
-            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
+            fs::path run_dir;
+            if (!run_dir_str.empty()) run_dir = fs::path(run_dir_str);
+            else run_dir = state->runtime.resolve_run_dir(run_id);
+            if (!state->runtime.is_path_allowed(run_dir)) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + run_dir.string(), 403, {{"path", run_dir.string()}});
+            }
             fs::path stats_dir  = run_dir / "artifacts";
             fs::path report_path = stats_dir / "report.html";
+            fs::path summary_path = stats_dir / "stats.json";
             std::string state_str = "unknown";
-            if (fs::exists(report_path)) state_str = "ok";
+            if (fs::exists(report_path) || fs::exists(summary_path)) state_str = "ok";
 
             auto jobs = state->job_store.list(200);
             std::string job_id;
@@ -734,6 +920,7 @@ void register_runs_routes(CrowApp& app,
                 {"state",       state_str},
                 {"output_dir",  stats_dir.string()},
                 {"report_path", fs::exists(report_path) ? report_path.string() : ""},
+                {"summary_path", fs::exists(summary_path) ? summary_path.string() : ""},
                 {"job_id",      job_id},
             });
         } catch (const std::exception& e) {
@@ -745,12 +932,17 @@ void register_runs_routes(CrowApp& app,
     ([state](const crow::request&, std::string run_id, std::string rev_id) {
         auto rev = state->revision_store.get(rev_id);
         if (!rev) return err_resp("Revision not found: " + rev_id, 404);
+        fs::path target = rev->path.empty() ? state->runtime.default_config_path : fs::path(rev->path);
+        if (!state->runtime.is_path_allowed(target)) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + target.string(), 403, {{"path", target.string()}});
+        }
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
-            std::ofstream out(state->runtime.default_config_path);
+            std::ofstream out(target);
             if (out) out << rev->yaml_text;
             state->active_config_revision_id = rev_id;
         }
+        state->ui_event_store.push("run.revision.restore", "runs.run_revision_restore", {{"revision_id", rev_id}, {"path", target.string()}}, run_id);
         return json_resp({{"ok", true}, {"run_id", run_id}, {"active_revision_id", rev_id}});
     });
 }

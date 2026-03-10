@@ -57,35 +57,37 @@ void register_scan_routes(CrowApp& app,
 
         if (input_dirs_arr.empty()) return err_resp("No input_dir(s) provided");
 
-        for (const auto& item : input_dirs_arr) {
-            std::string path = item.get<std::string>();
-            if (!state->runtime.is_path_allowed(fs::path(path))) {
-                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + path, 403, {{"path", path}});
+        std::vector<std::string> requested_inputs;
+        for (const auto& d : input_dirs_arr) requested_inputs.push_back(d.get<std::string>());
+        std::vector<std::string> resolved_inputs;
+        resolved_inputs.reserve(requested_inputs.size());
+        for (const auto& raw : requested_inputs) {
+            auto resolved = state->runtime.resolve_input_path(fs::path(raw), !fs::path(raw).is_absolute());
+            if (resolved.status == PathStatus::not_allowed) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + raw, 403, {{"path", raw}});
             }
+            if (resolved.status == PathStatus::not_found) {
+                return err_resp("PATH_NOT_FOUND", "Path not found: " + raw, 422, {{"path", raw}});
+            }
+            resolved_inputs.push_back(resolved.path.string());
         }
 
-        if (input_dir.empty() && !input_dirs_arr.empty() && input_dirs_arr.front().is_string()) {
-            input_dir = input_dirs_arr.front().get<std::string>();
-        }
-
+        if (!resolved_inputs.empty()) input_dir = resolved_inputs.front();
         if (!input_dir.empty()) {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->last_scan_input_path = input_dir;
         }
 
-        std::vector<std::string> requested_inputs;
-        for (const auto& d : input_dirs_arr) requested_inputs.push_back(d.get<std::string>());
-
         nlohmann::json initial_data = {
             {"input_path", input_dir},
-            {"input_dirs", requested_inputs},
+            {"input_dirs", resolved_inputs},
             {"frames_min", frames_min},
             {"with_checksums", with_checksums},
         };
 
         std::string job_id;
-        if (requested_inputs.size() == 1) {
-            std::vector<std::string> args = {state->runtime.cli_exe, "scan", requested_inputs.front(), "--frames-min", std::to_string(frames_min), "--json"};
+        if (resolved_inputs.size() == 1) {
+            std::vector<std::string> args = {state->runtime.cli_exe, "scan", resolved_inputs.front(), "--frames-min", std::to_string(frames_min), "--json"};
             if (with_checksums) args.push_back("--with-checksums");
             initial_data["command"] = args;
             job_id = state->subprocess_manager.launch("scan", args,
@@ -95,7 +97,7 @@ void register_scan_routes(CrowApp& app,
         } else {
             job_id = state->job_store.create("scan");
             state->job_store.update_state(job_id, JobState::running, initial_data);
-            std::thread([state, job_id, requested_inputs, frames_min, with_checksums]() {
+            std::thread([state, job_id, resolved_inputs, frames_min, with_checksums]() {
                 try {
                     nlohmann::json per_dir_results = nlohmann::json::array();
                     std::vector<std::string> color_modes_detected;
@@ -110,14 +112,14 @@ void register_scan_routes(CrowApp& app,
                     nlohmann::json all_warnings = nlohmann::json::array();
                     nlohmann::json all_frames = nlohmann::json::array();
 
-                    for (size_t index = 0; index < requested_inputs.size(); ++index) {
+                    for (size_t index = 0; index < resolved_inputs.size(); ++index) {
                         auto snapshot = state->job_store.get(job_id);
                         if (snapshot && snapshot->state == JobState::cancelled) return;
 
                         std::vector<std::string> args = {
                             state->runtime.cli_exe,
                             "scan",
-                            requested_inputs[index],
+                            resolved_inputs[index],
                             "--frames-min",
                             std::to_string(frames_min),
                             "--json"
@@ -142,7 +144,7 @@ void register_scan_routes(CrowApp& app,
                         }
 
                         nlohmann::json item = {
-                            {"input_path", requested_inputs[index]},
+                            {"input_path", resolved_inputs[index]},
                             {"ok", res.exit_code == 0 && item_errors.empty()},
                             {"frames_detected", parsed.value("frames_detected", 0)},
                             {"image_width", parsed.value("image_width", 0)},
@@ -186,10 +188,10 @@ void register_scan_routes(CrowApp& app,
                         }
 
                         state->job_store.update_state(job_id, JobState::running, {
-                            {"input_path", requested_inputs[index]},
-                            {"input_dirs", requested_inputs},
+                            {"input_path", resolved_inputs[index]},
+                            {"input_dirs", resolved_inputs},
                             {"current_index", static_cast<int>(index)},
-                            {"progress", static_cast<double>(index + 1) / static_cast<double>(requested_inputs.size())},
+                            {"progress", static_cast<double>(index + 1) / static_cast<double>(resolved_inputs.size())},
                             {"per_dir_results", per_dir_results}
                         });
                     }
@@ -202,8 +204,8 @@ void register_scan_routes(CrowApp& app,
 
                     nlohmann::json summary = {
                         {"ok", ok && all_errors.empty()},
-                        {"input_path", requested_inputs.front()},
-                        {"input_dirs", requested_inputs},
+                        {"input_path", resolved_inputs.front()},
+                        {"input_dirs", resolved_inputs},
                         {"frames_detected", frames_detected_total},
                         {"image_width", image_width},
                         {"image_height", image_height},
@@ -217,8 +219,8 @@ void register_scan_routes(CrowApp& app,
                         {"per_dir_results", per_dir_results},
                     };
                     state->job_store.update_state(job_id, summary.value("ok", false) ? JobState::ok : JobState::error, {
-                        {"input_path", requested_inputs.front()},
-                        {"input_dirs", requested_inputs},
+                        {"input_path", resolved_inputs.front()},
+                        {"input_dirs", resolved_inputs},
                         {"result", summary}
                     });
                 } catch (const std::exception& e) {
@@ -227,7 +229,17 @@ void register_scan_routes(CrowApp& app,
             }).detach();
         }
 
-        state->ui_event_store.push("scan.start", {{"job_id", job_id}, {"input_dirs", requested_inputs}});
+        state->ui_event_store.push(
+            "scan.start",
+            "scan.scan",
+            {
+                {"input_path", input_dir},
+                {"input_dirs", resolved_inputs},
+                {"frames_min", frames_min},
+                {"with_checksums", with_checksums},
+            },
+            std::nullopt,
+            job_id);
         return json_resp({{"job_id", job_id}, {"state", "running"}});
     });
 

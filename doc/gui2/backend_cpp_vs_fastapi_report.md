@@ -15,7 +15,14 @@ Seit der Erstfassung dieses Reports wurden im C++-Backend bereits mehrere Prio-1
 - `pcc/run` reicht jetzt den erweiterten FastAPI-Parameterumfang an die CLI weiter (`mag_bright_limit`, Aperture/Annulus, `chroma_strength`, `k_max`, `apply_attenuation`).
 - `runs/{run_id}/stop` ist jetzt naeher am FastAPI-Verhalten und liefert `ok=false`, wenn nichts getroffen wurde, sowie belegte `killed_pids`.
 
-Offen bleiben damit vor allem die noch nicht voll portierten Bereiche rund um reichere UI-Events, vollstaendige Download-Retry/Resume-Semantik auf FastAPI-Niveau und die letzten Vertragsdetails einzelner Tool-Jobs.
+Mit der aktuellen Umsetzungsrunde wurden auch die zuvor offenen Prio-Punkte geschlossen:
+
+- `jobs/{job_id}/cancel` wirkt jetzt generisch fuer Subprozess-, Download- und sonstige Custom-Jobs.
+- Download-Jobs liefern Retry-/Resume-Metadaten inkl. `attempt`, `status_code`, `resumed`, `existing_bytes`, `bytes_*` und nutzen HTTP-Resume via Range/`CURLOPT_RESUME_FROM_LARGE`.
+- UI-Events liegen jetzt im reicheren FastAPI-Schema vor, werden als JSONL persistiert und beim Start fuer Replay wieder eingelesen.
+- Config-Routen nutzen jetzt den CLI-Pfad (`load-config`, `save-config`, `validate-config`) und die Pfadauflosung wurde auf robuste kanonische Unterpfadpruefung mit relativer Aufloesung angeglichen.
+
+Offen bleibt damit im Wesentlichen nur die fehlende eigene Contract-/Integrationstest-Suite fuer das C++-Backend.
 
 ## Scope
 
@@ -25,24 +32,25 @@ Verglichen wurden:
 - Referenz: FastAPI-Implementierung aus Branch `master` unter `web_backend`
 - Frontend-Nutzung: `web_frontend`
 
-Zusätzlich wurde das C++-Backend erfolgreich gebaut:
+Zusaetzlich wurde das C++-Backend erfolgreich gebaut:
 
-- `cmake -S web_backend_cpp -B /tmp/tile_compile_web_backend_build`
-- `cmake --build /tmp/tile_compile_web_backend_build -j2`
+- `cmake --build web_backend_cpp/build -j2`
+- `ctest --output-on-failure` in `web_backend_cpp/build` wurde ausgefuehrt; es sind dort aktuell keine Tests registriert.
 
 ## Kurzfazit
 
 Auf Route-Ebene ist das Crow/C++-Backend nahezu vollstaendig: die im FastAPI-Backend vorhandenen API- und WebSocket-Endpunkte sind im C++-Backend ebenfalls angelegt.
 
-Auf Vertrags- und Verhaltens-Ebene ist die Portierung aber noch nicht vollstaendig. Es gibt mehrere relevante Abweichungen, durch die das Frontend nur teilweise korrekt abgedeckt ist:
+Auf Vertrags- und Verhaltens-Ebene ist die Portierung inzwischen weitgehend auf FastAPI-Niveau:
 
-- erledigt: Multi-Input-Scan wurde auf FastAPI-aehnliche Aggregation umgestellt.
-- erledigt: Run-Monitor/Phasenmodell wurde auf den Frontend-Vertrag angeglichen.
-- teilweise offen: Tool-Jobs (Astrometry/PCC/Downloads) sind deutlich naeher am Vertrag, aber Retry/Resume/UI-Event-Details fehlen noch.
-- teilweise offen: Cancellation ist fuer Subprozesse jetzt echt implementiert; Download-/Custom-Jobs sind noch nicht voll generisch an `jobs/{id}/cancel` angekoppelt.
-- teilweise offen: Artifact-Pfadsicherheit wurde korrigiert; die globale Pfadpolicy ist weiterhin einfacher als im FastAPI-Backend.
+- erledigt: Multi-Input-Scan, Run-Monitor-Phasenmodell und Artifact-Pfadsicherheit
+- erledigt: generische Job-Cancellation inkl. Download-/Custom-Jobs
+- erledigt: Download-Retry/Resume-Vertrag inkl. Resume-Metadaten und HTTP-Resume
+- erledigt: UI-Events inkl. Eventnamen, Top-Level-Feldern und JSONL-Replay
+- erledigt: Config-Routen ueber CLI-Vertrag sowie robuste Pfadauflosung
+- offen: automatisierte C++-Contract-/Integrationstests fehlen weiterhin
 
-Fazit: "Route vorhanden" ist weitgehend erreicht, "FastAPI-Verhalten und Frontend-Vertrag vollstaendig ersetzt" noch nicht.
+Fazit: "FastAPI-Verhalten und Frontend-Vertrag vollstaendig ersetzt" ist fuer den derzeit sichtbaren Implementierungsstand weitgehend erreicht; das Hauptrisiko liegt jetzt in fehlender automatisierter Absicherung.
 
 ## 1. Route-Abdeckung
 
@@ -63,7 +71,7 @@ Bewertung:
 - Route-Matrix gegen FastAPI: weitgehend vollstaendig
 - kein grober "Endpoint fehlt komplett"-Befund
 
-### 1.2 Nicht vom Frontend genutzte oder derzeit sekundäre Routen
+### 1.2 Nicht vom Frontend genutzte oder derzeit sekundaere Routen
 
 Im aktuellen `web_frontend` werden einige vorhandene Backend-Routen nicht oder kaum genutzt:
 
@@ -147,56 +155,46 @@ Bewertung: erledigt.
 
 ### 2.3 Prozessabbruch/Cancellation ist im C++-Backend nicht sauber implementiert
 
-Status: TEILWEISE ERLEDIGT
+Status: ERLEDIGT
 
-Der kritische Teil dieses Punkts ist inzwischen umgesetzt:
+Inzwischen umgesetzt:
 
 - `SubprocessManager::cancel()` verfolgt jetzt echte PIDs und beendet laufende Prozesse
-- `runs/stop` liefert nicht mehr pauschal Erfolg und kann `killed_pids` befuellen
+- `POST /api/jobs/{job_id}/cancel` markiert Jobs generisch im `job_store` als `cancelled` und wirkt dadurch auch fuer Download-/Custom-Threads
+- Download-/Custom-Jobs pollen `job_store.is_cancelled(job_id)` und brechen generisch ab
+- `runs/{run_id}/stop` liefert nicht mehr pauschal Erfolg, kann `killed_pids` befuellen und besitzt jetzt einen Orphan-Fallback (`run.stop.orphan`)
 
 Relevante Stellen:
 
 - `web_backend_cpp/src/subprocess_manager.cpp`
+- `web_backend_cpp/src/routes/jobs_routes.cpp`
 - `web_backend_cpp/src/routes/runs_routes.cpp`
+- `web_backend_cpp/src/routes/tools_routes.cpp`
 
-Weiter offen:
-
-- Download-/Custom-Threads (Astrometry/PCC Downloads) hoeren nicht auf `POST /api/jobs/{job_id}/cancel`, sondern nur auf separate globale Cancel-Flags je Toolgruppe.
-
-Bewertung: deutlich verbessert, aber noch nicht voll FastAPI-aequivalent.
+Bewertung: fachlich auf FastAPI-Niveau angeglichen.
 
 ### 2.4 Pfadpruefung ist deutlich schwaecher als in FastAPI
 
-Status: TEILWEISE ERLEDIGT
+Status: ERLEDIGT
 
-Das C++-Backend nutzt fuer Allowlisting im Kern nur einen Prefix-Stringvergleich:
+Die fruehere String-Prefix-Logik wurde ersetzt. Das C++-Backend nutzt jetzt:
 
 - `web_backend_cpp/src/backend_runtime.cpp`
 
-Das ist gegenueber FastAPI (`ensure_path_allowed`, `resolve_input_path`) deutlich schwaecher.
+- kanonische Unterpfadpruefung statt Prefix-Stringvergleich
+- Standard-Allowlist inkl. Projektwurzel, `runs`, `$HOME`, `/tmp`, `/media`
+- `resolve_input_path()` fuer relative Pfade und `input_search_roots`
+- sichere Aufloesung auch fuer Tool- und Config-Pfade
 
-Besonders problematisch war:
-
-- `/api/runs/{run_id}/artifacts/view`
-- `/api/runs/{run_id}/artifacts/raw/...`
-
-Dieser Artifact-spezifische Sicherheitsmangel wurde inzwischen behoben. Die C++-Routen erzwingen jetzt, dass der Zielpfad innerhalb des jeweiligen Run-Verzeichnisses bleibt:
+Zusätzlich bleiben die Artifact-Routen weiterhin explizit auf das jeweilige Run-Verzeichnis begrenzt:
 
 - `web_backend_cpp/src/routes/runs_routes.cpp`
 
-Die FastAPI-Version schuetzt genau diesen Fall explizit:
-
-- `master:web_backend/app/api/runs.py`
-
-Weiter offen:
-
-- die globale Allowlist-/Pfadpolicy des C++-Backends ist insgesamt immer noch einfacher als die FastAPI-Variante
-
-Bewertung: Artifact-Pfade erledigt, globale Pfadpolicy teilweise offen.
+Bewertung: die vormals offene Pfadpolicy ist funktional angeglichen.
 
 ### 2.5 Tool-Job-Vertrag ist nicht auf FastAPI-Niveau
 
-Status: TEILWEISE ERLEDIGT
+Status: ERLEDIGT
 
 Im FastAPI-Backend und im Contract-Dokument fuer Tool-Jobs sind u. a. vorgesehen:
 
@@ -217,11 +215,13 @@ Siehe:
 - `master:web_backend/fe_contract_tools_jobs.md`
 - `master:web_backend/app/api/tools.py`
 
-Im C++-Backend wurde hier inzwischen ein relevanter Teil nachgezogen:
+Im C++-Backend ist dieser Vertrag jetzt ebenfalls umgesetzt:
 
 - laufende `progress`-Updates werden jetzt im Job-`data` mitgefuehrt
-- Download-Jobs fuehren jetzt u. a. `stage`, `current_chunk`, `pending_chunks`, `completed_chunks`
+- Download-Jobs fuehren jetzt `bytes_received`, `bytes_total`, `attempt`, `status_code`, `resumed`, `existing_bytes`, `retry_count`, `resume_enabled`
+- PCC-Downloads fuehren zusaetzlich `current_chunk`, `pending_chunks`, `completed_chunks`, `stage`
 - generische Subprozess-Jobs behalten initiale Vertragsdaten auch nach Abschluss
+- Retry-Backoff und HTTP-Resume sind im `download_manager` implementiert; Teil-Downloads bleiben fuer spaeteres Resume erhalten
 
 Relevante Stellen:
 
@@ -229,16 +229,7 @@ Relevante Stellen:
 - `web_backend_cpp/src/routes/tools_routes.cpp`
 - `web_backend_cpp/src/subprocess_manager.cpp`
 
-Weiter offen:
-
-- `bytes_received`
-- `bytes_total`
-- `attempt`
-- `status_code`
-- `existing_bytes`
-- echte HTTP-Resume-/Retry-Semantik auf FastAPI-Niveau
-
-Bewertung: verbessert, aber noch offen.
+Bewertung: fuer den sichtbaren Job-Vertrag an FastAPI angeglichen.
 
 ### 2.6 Astrometry-Solve liefert nicht den erwarteten Ergebnisvertrag
 
@@ -300,15 +291,22 @@ Das C++-Backend unterstuetzt inzwischen nicht mehr nur den Minimalumfang. Nachge
 - `k_max`
 - `apply_attenuation`
 
-Weiter offen ist vor allem die vollstaendige Gleichheit des Ergebnisobjekts:
+Fuer die aktuell vom Frontend gelesenen Kernfelder ist der Stand deutlich besser als in der Erstfassung:
+
+- der CLI-Output von `tile_compile_cli pcc-run` enthaelt `stars_matched`, `stars_used`, `residual_rms` und `matrix`
+- `SubprocessManager` uebernimmt JSON-stdout in `job.data.result`, so dass diese Felder im Frontend ankommen koennen
+
+Weiter offen ist vor allem die fehlende explizite Backend-Normalisierung und Absicherung per Contract-Test:
 
 - `web_backend_cpp/src/routes/tools_routes.cpp`
+- `web_backend_cpp/src/subprocess_manager.cpp`
+- `tile_compile_cpp/apps/cli_main.cpp`
 
-Bewertung: Parameterseite stark verbessert, Ergebnisvertrag noch nicht voll abgeschlossen.
+Bewertung: Parameterseite weitgehend portiert; Ergebnisvertrag wirkt fuer die aktuelle UI weitgehend nutzbar, ist aber noch nicht testseitig abgesichert.
 
 ### 2.8 App-Constants/UI-Events weichen vom Vertrag ab
 
-Status: TEILWEISE ERLEDIGT
+Status: ERLEDIGT
 
 Erledigt:
 
@@ -320,34 +318,41 @@ Siehe:
 - `master:web_backend/app/api/app_state.py`
 - `web_backend_cpp/src/routes/app_state_routes.cpp`
 
-Weiter offen bei UI-Events:
+Erledigt bei UI-Events:
 
-- FastAPI nutzt reichere Eventstrukturen und Eventnamen wie `scan.start`, `run.start`, `run.resume`
-- C++-Events enthalten nur `{seq,event,data}` statt der reicheren Top-Level-Felder
+- reichere Eventstruktur mit `seq`, `ts`, `event`, `source`, `run_id`, `job_id`, `payload`
+- angeglichene Eventnamen wie `scan.start`, `run.start`, `run.stop`, `run.resume`, `config.save`, `config.patch.save`
+- JSONL-Persistenz unter `web_backend_cpp/runtime/ui_events.jsonl`
+- Replay beim Start durch Einlesen des JSONL-Logs in den In-Memory-Store
 
 Siehe:
 
 - `web_backend_cpp/src/ui_event_store.cpp`
-- `master:web_backend/tests/test_backend_contract.py`
+- `web_backend_cpp/src/routes/runs_routes.cpp`
+- `web_backend_cpp/src/routes/config_routes.cpp`
+- `web_backend_cpp/src/routes/tools_routes.cpp`
 
-Bewertung: `app/constants` erledigt, UI-Events noch offen.
+Bewertung: `app/constants` und `ui-events` sind vertraglich angeglichen.
 
 ### 2.9 Config-Endpunkte sind funktional einfacher als FastAPI
 
-Abweichungen im C++-Backend:
+Status: ERLEDIGT
 
-- `/api/config/current` liest Datei direkt; kein `load-config`-CLI-Pfad, keine `fallback=file_read`-Semantik
-- nicht vorhandene Datei fuehrt effektiv zu leerem YAML mit `200`, statt sauberem Fehlerbild
-- `/api/config/validate` akzeptiert praktisch nur `yaml`, nicht gleichwertig `path` oder `config`
-- `warnings` aus CLI werden nicht durchgereicht
-- `/api/config/schema` liefert Rohtext statt geparstes Schemaobjekt
+Die frueheren Abweichungen wurden in `web_backend_cpp/src/routes/config_routes.cpp` geschlossen:
+
+- `/api/config/schema` liefert das geparste Schemaobjekt ueber den CLI-Pfad
+- `/api/config/current` nutzt `load-config` und faellt nur noch explizit mit `fallback=file_read` zurueck
+- `/api/config/validate` akzeptiert `path`, `yaml` und `config` und reicht `warnings` durch
+- `/api/config/save` und `/api/config/patch` nutzen `save-config --stdin`
+- `/api/config/presets/apply` nutzt `load-config`
+- Revisions enthalten jetzt `revision_id`, `path`, `source`, `created_at`, `run_id`
+- relative Config-Pfade werden robust aufgeloest und gegen die globale Pfadpolicy geprueft
 
 Siehe:
 
 - `web_backend_cpp/src/routes/config_routes.cpp`
-- `master:web_backend/app/api/config.py`
 
-Bewertung: mittel.
+Bewertung: der Config-Vertrag ist funktional auf FastAPI-Niveau angeglichen.
 
 ## 3. Frontend-Abdeckung durch das neue Backend
 
@@ -357,27 +362,30 @@ Ja, fast alle vom Frontend verwendeten API-Pfade existieren im C++-Backend.
 
 ## 3.2 Funktions-seitig
 
-Nein, nicht vollstaendig.
+Weitgehend ja.
 
 ### Dashboard / Wizard / Input & Scan
 
 Teilweise abgedeckt:
 
 - Guardrails, App-State, Config, Run-Start, Presets, FS-Browser sind vorhanden.
+- Multi-Input-Scan inkl. Aggregation ist inzwischen auf Frontend-Niveau angenaehert.
 
-Nicht vollstaendig:
+Rest-Risiko:
 
-- MONO-Queue/Run-Queue ist vorhanden, aber Cancellation/Status ist noch nicht voll auf Referenzniveau.
+- keine eigene C++-Contract-Testabdeckung vorhanden
 
 ### Run Monitor
 
 Nur teilweise abgedeckt:
 
 - Run-Status, Logs, Artifacts, Stats, Resume-Routen existieren.
+- Phasenmodell und `resume_from` passen inzwischen zum Frontend.
 
-Wesentliche Restluecke:
+Wesentlich verbessert:
 
-- UI-Event-/Stream-Details sind noch nicht voll auf FastAPI-Niveau.
+- UI-Event-/Stream-Details sind jetzt auf den FastAPI-Vertrag normalisiert.
+- `app/ui-events` liefert Replay-faehige Eventdaten mit `latest_seq`.
 
 ### History + Tools
 
@@ -385,29 +393,31 @@ Teilweise abgedeckt:
 
 - Run-Liste, Set-Current, Delete, Stats vorhanden.
 
-Risiken:
+Rest-Risiken:
 
-- Job-/Run-Cancel ist verbessert, aber fuer alle Custom-/Download-Jobs noch nicht voll einheitlich
+- Tool-Seiten bleiben besonders sensitiv gegen ungetestete Vertragsregressionen
 
 ### Astrometry
 
 Nur teilweise abgedeckt:
 
 - Detect, Install, Catalog-Download, Solve, Save-Solved existieren.
+- `solve` liefert inzwischen die vom Frontend benoetigten WCS-/Summary-Felder.
 
-Aber:
+Ergaenzt:
 
-- Download-Retry/Resume-Vertrag ist noch nicht vollstaendig
+- Download-Retry/Resume-Vertrag ist jetzt backend-seitig vorhanden
 
 ### PCC
 
 Nur teilweise abgedeckt:
 
 - Status, Download, Online-Check, Run, Save-Corrected existieren.
+- `pcc/run` akzeptiert inzwischen den erweiterten Parametersatz, und die aktuell von der UI gelesenen Ergebnisfelder koennen ueber CLI-JSON durchgereicht werden.
 
 Aber:
 
-- Ergebnisvertrag fuer Frontend unvollstaendig
+- der Ergebnisvertrag ist weiterhin nicht per eigener C++-Contract-Test-Suite abgesichert
 
 ### Live Log
 
@@ -415,9 +425,9 @@ Teilweise abgedeckt:
 
 - Logs und Run-WebSocket existieren.
 
-Aber:
+Rest-Risiko:
 
-- wegen Event-Normalisierung und UI-Event-Vertrag noch nicht auf Referenzniveau
+- keine automatisierte Absicherung gegen kuenftige Event-/Log-Regressionsfehler
 
 ## 4. Tote/ungenutzte Teile, Demo-Daten, technische Altlasten
 
@@ -470,6 +480,9 @@ Bewertung:
 
 - erledigt: `download_manager.cpp` nutzt `on_progress` jetzt
 - erledigt: `runs/stop` kann `killed_pids` jetzt befuellen
+- erledigt: `download_manager.cpp` kennt jetzt HTTP-Resume sowie Attempt-/Status-Metadatenmodell
+- erledigt: `ui_event_store.cpp` persistiert JSONL und liefert das reichere Eventschema
+- erledigt: `backend_runtime.cpp` prueft Pfade ueber robuste kanonische Nachfahr-Pruefung
 - mehrere Fehler-Envelopes sind inkonsistent detailarm im Vergleich zum FastAPI-Backend
 
 ## 5. Priorisierte To-do-Liste
@@ -478,19 +491,20 @@ Bewertung:
 
 - erledigt: Run-Inspector/`PHASE_ORDER` auf FastAPI-/Frontend-Modell umstellen
 - erledigt: echte Prozessbeendigung fuer `cancel`, `jobs/{id}/cancel`, `runs/{id}/stop` fuer Subprozess-Jobs
-- teilweise erledigt: sichere Pfadauflösung fuer Artifact-View/Raw und globale Allowlist-Checks
+- erledigt: sichere Pfadaufloesung fuer Artifact-View/Raw und globale Allowlist-Checks
+- erledigt: generische Cancel-Semantik fuer Custom-/Download-Jobs ueber `jobs/{id}/cancel`
 - erledigt: Multi-Input-Scan wie FastAPI aggregierend implementieren
 
 ### Prio 2
 
 - erledigt: Astrometry-Solve-Ergebnisvertrag portieren (`wcs_path`, RA/DEC, Scale, Rotation, FOV)
-- teilweise erledigt: PCC-Run-Optionen und Ergebnisvertrag vollstaendig portieren
-- teilweise erledigt: Tool-Download-Contract inkl. Progress/Resume/Retry sauber implementieren
+- teilweise erledigt: PCC-Run-Optionen portieren; Ergebnisvertrag nun per CLI-JSON nutzbar machen und per Test absichern
+- erledigt: Tool-Download-Contract inkl. `bytes_*`, `attempt`, `status_code`, `existing_bytes`, HTTP-Resume/Retry sauber implementieren
+- erledigt: `ui-events` inkl. Eventnamen, Top-Level-Feldern und Persistenz auf FastAPI-Vertrag angleichen
 
 ### Prio 3
 
-- teilweise erledigt: `app/constants`, `ui-events`, Fehler-Envelopes auf FastAPI-Vertrag angleichen
-- Config-Endpunkte fachlich an FastAPI annähern
+- teilweise erledigt: `app/constants` und Config-Endpunkte angeglichen; Fehler-Envelopes bleiben offen
 - ungenutzten Frontend-Code (`src/main.js`) entfernen oder klar markieren
 - statische Demo-/Placeholder-Inhalte in HTML reduzieren
 
@@ -504,10 +518,10 @@ Das Crow/C++-Backend ist als struktureller Ersatz fuer das FastAPI-Backend schon
 
 Aber:
 
-- die vertragstreue Portierung ist noch nicht abgeschlossen
-- mehrere Frontend-Kernflows sind inzwischen funktional deutlich naeher an der FastAPI-Referenz
-- vor allem UI-Events, Download-Retry/Resume-Details, Config-Vertrag und Teile des PCC-Ergebnisvertrags sind noch nicht auf Referenzniveau
+- die vertragstreue Portierung ist im sichtbaren Implementierungsstand weitgehend abgeschlossen
+- mehrere Frontend-Kernflows sind jetzt funktional auf Referenzniveau
+- das Hauptdefizit ist fehlende automatisierte C++-Absicherung statt sichtbarer API-Luecken
 
 Empfehlung:
 
-Das C++-Backend ist funktional deutlich naeher an einem echten Ersatz fuer die FastAPI-Referenz als zu Beginn der Analyse. Vor einem Switch sollten aber die noch offenen Restpunkte aus Prio 2/3 und vor allem eine neue C++-Contract-Test-Suite folgen.
+Das C++-Backend ist jetzt ein plausibler funktionaler Ersatz fuer die FastAPI-Referenz. Vor einem produktiven Switch sollte vor allem eine eigene C++-Contract-/Integrationstest-Suite nachgezogen werden, damit der nun angeglichene Vertrag stabil bleibt.

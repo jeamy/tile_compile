@@ -39,8 +39,21 @@ void register_jobs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/jobs/<string>/cancel").methods("POST"_method)
     ([state](const crow::request&, std::string job_id) {
-        bool ok = state->subprocess_manager.cancel(job_id);
-        if (!ok) return err_resp("NOT_FOUND", "job '" + job_id + "' not found", 404);
+        auto job = state->job_store.get(job_id);
+        if (!job) return err_resp("NOT_FOUND", "job '" + job_id + "' not found", 404);
+
+        const bool subprocess_cancelled = state->subprocess_manager.cancel(job_id);
+        state->job_store.cancel(job_id);
+        state->ui_event_store.push(
+            "job.cancel",
+            "jobs.cancel",
+            {
+                {"ok", true},
+                {"job_type", job->type},
+                {"subprocess_cancelled", subprocess_cancelled},
+            },
+            job->run_id.empty() ? std::nullopt : std::optional<std::string>(job->run_id),
+            job_id);
         return json_resp({{"ok", true}});
     });
 }

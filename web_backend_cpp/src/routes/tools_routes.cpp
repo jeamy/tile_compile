@@ -3,17 +3,23 @@
 #include "subprocess_manager.hpp"
 #include <nlohmann/json.hpp>
 #include <curl/curl.h>
+#include <algorithm>
+#include <cctype>
+#include <map>
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <atomic>
-#include <mutex>
-#include <memory>
-#include <thread>
-#include <cstdlib>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <limits>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <sstream>
+#include <stdexcept>
+#include <thread>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -54,6 +60,32 @@ fs::path default_siril_catalog_dir() {
     return user_home_dir() / ".local" / "share" / "siril" / "siril_cat1_healpix8_xpsamp";
 }
 
+fs::path expand_user_path(const fs::path& raw) {
+    if (raw.empty()) return raw;
+    const std::string text = raw.string();
+    if (text == "~") return user_home_dir();
+    if (text.rfind("~/", 0) == 0 || text.rfind("~\\", 0) == 0) {
+        return user_home_dir() / text.substr(2);
+    }
+    return raw;
+}
+
+fs::path path_from_user_input(const std::string& raw, const fs::path& fallback) {
+    if (raw.empty()) return fallback;
+    return expand_user_path(fs::path(raw));
+}
+
+bool is_command_name(const std::string& raw) {
+    if (raw.empty()) return false;
+    const fs::path path(raw);
+    if (path.is_absolute()) return false;
+    return raw.find('/') == std::string::npos && raw.find('\\') == std::string::npos;
+}
+
+bool is_astap_binary_name(const std::string& name) {
+    return name == "astap_cli" || name == "astap_cli.exe" || name == "astap";
+}
+
 bool is_astap_catalog_installed(const fs::path& catalog_dir, const std::string& catalog_id) {
     if (!fs::exists(catalog_dir)) return false;
     const std::string prefix = catalog_id + "_";
@@ -80,10 +112,68 @@ std::string siril_chunk_url(int chunk) {
 }
 
 fs::path find_astap_candidate(const fs::path& root) {
-    for (const auto& entry : fs::recursive_directory_iterator(root)) {
-        if (!entry.is_regular_file()) continue;
-        const auto name = entry.path().filename().string();
-        if (name == "astap_cli" || name == "astap_cli.exe" || name == "astap") return entry.path();
+    const fs::path expanded = expand_user_path(root);
+    std::error_code ec;
+    if (expanded.empty() || !fs::exists(expanded, ec)) return {};
+    if (fs::is_regular_file(expanded, ec) && is_astap_binary_name(expanded.filename().string())) {
+        return expanded;
+    }
+    if (!fs::is_directory(expanded, ec)) return {};
+    fs::recursive_directory_iterator end;
+    for (fs::recursive_directory_iterator it(expanded, fs::directory_options::skip_permission_denied, ec); it != end; it.increment(ec)) {
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        if (!it->is_regular_file(ec)) continue;
+        const auto name = it->path().filename().string();
+        if (is_astap_binary_name(name)) return it->path();
+    }
+    return {};
+}
+
+bool astap_probe_ok(const fs::path& candidate) {
+    if (candidate.empty()) return false;
+    auto res = run_subprocess({candidate.string(), "-h"});
+    return res.exit_code == 0 || res.exit_code == 1;
+}
+
+fs::path resolve_astap_binary(const std::string& astap_cli_raw, const fs::path& data_dir) {
+    std::vector<fs::path> candidates;
+    const auto add_candidate = [&candidates](const fs::path& raw_candidate) {
+        const fs::path candidate = expand_user_path(raw_candidate);
+        if (candidate.empty()) return;
+        if (std::find(candidates.begin(), candidates.end(), candidate) != candidates.end()) return;
+        candidates.push_back(candidate);
+    };
+    const auto add_search_root = [&add_candidate](const fs::path& root) {
+        if (root.empty()) return;
+        add_candidate(root / "astap_cli");
+        add_candidate(root / "astap_cli.exe");
+        add_candidate(root / "astap");
+        const fs::path nested = find_astap_candidate(root);
+        if (!nested.empty()) add_candidate(nested);
+    };
+
+    if (!astap_cli_raw.empty()) {
+        if (is_command_name(astap_cli_raw)) {
+            add_candidate(fs::path(astap_cli_raw));
+        } else {
+            const fs::path explicit_path = expand_user_path(fs::path(astap_cli_raw));
+            std::error_code ec;
+            if (fs::is_directory(explicit_path, ec)) add_search_root(explicit_path);
+            else add_candidate(explicit_path);
+        }
+    }
+
+    add_search_root(data_dir);
+    add_search_root(data_dir / "bin");
+    add_search_root(data_dir / "usr" / "bin");
+    add_candidate(fs::path("astap_cli"));
+    add_candidate(fs::path("astap"));
+
+    for (const auto& candidate : candidates) {
+        if (astap_probe_ok(candidate)) return candidate;
     }
     return {};
 }
@@ -192,8 +282,44 @@ bool extract_deb_archive(const fs::path& archive, const fs::path& dest, std::str
     return false;
 #else
     auto res = run_subprocess({"dpkg-deb", "-x", archive.string(), dest.string()});
-    if (res.exit_code != 0) {
-        error = res.stderr_str.empty() ? res.stdout_str : res.stderr_str;
+    if (res.exit_code == 0) return true;
+
+    const std::string dpkg_error = res.stderr_str.empty() ? res.stdout_str : res.stderr_str;
+    fs::path ar_tmp = dest / "_deb_ar";
+    std::error_code ec;
+    fs::remove_all(ar_tmp, ec);
+    fs::create_directories(ar_tmp, ec);
+
+    auto ar_res = run_subprocess({"ar", "x", archive.string()}, ar_tmp.string());
+    if (ar_res.exit_code != 0) {
+        std::string ar_error = ar_res.stderr_str.empty() ? ar_res.stdout_str : ar_res.stderr_str;
+        error = "dpkg-deb failed";
+        if (!dpkg_error.empty()) error += ": " + dpkg_error;
+        if (!ar_error.empty()) error += " | ar fallback failed: " + ar_error;
+        fs::remove_all(ar_tmp, ec);
+        return false;
+    }
+
+    fs::path data_archive;
+    for (const char* name : {"data.tar.zst", "data.tar.xz", "data.tar.gz", "data.tar.bz2", "data.tar"}) {
+        fs::path candidate = ar_tmp / name;
+        if (fs::exists(candidate)) {
+            data_archive = candidate;
+            break;
+        }
+    }
+    if (data_archive.empty()) {
+        error = "deb archive missing data payload";
+        if (!dpkg_error.empty()) error += " (dpkg-deb: " + dpkg_error + ")";
+        fs::remove_all(ar_tmp, ec);
+        return false;
+    }
+
+    auto tar_res = run_subprocess({"tar", "-xf", data_archive.string(), "-C", dest.string()});
+    fs::remove_all(ar_tmp, ec);
+    if (tar_res.exit_code != 0) {
+        error = tar_res.stderr_str.empty() ? tar_res.stdout_str : tar_res.stderr_str;
+        if (!dpkg_error.empty()) error += " | dpkg-deb: " + dpkg_error;
         return false;
     }
     return true;
@@ -283,32 +409,391 @@ static crow::response err_resp(const std::string& code,
 static std::optional<std::string> denied_path(const BackendRuntime& runtime,
                                               const fs::path& access_path,
                                               const fs::path& reported_path = {}) {
-    if (access_path.empty() || access_path.is_relative()) return std::nullopt;
-    if (runtime.is_path_allowed(access_path)) return std::nullopt;
-    fs::path path_for_error = reported_path.empty() ? access_path : reported_path;
+    if (access_path.empty()) return std::nullopt;
+    auto resolved = runtime.resolve_input_path(access_path, false);
+    if (resolved.status != PathStatus::not_allowed) return std::nullopt;
+    fs::path path_for_error = reported_path.empty()
+        ? (access_path.is_absolute() ? access_path : resolved.path)
+        : reported_path;
     return path_for_error.string();
 }
 
-// Shared cancel flags per job (simple global map protected by mutex)
-static std::mutex g_cancel_mutex;
-static std::unordered_map<std::string, std::shared_ptr<std::atomic<bool>>> g_cancel_flags;
+struct JobCancelled : std::runtime_error {
+    JobCancelled() : std::runtime_error("cancelled") {}
+};
 
-static std::shared_ptr<std::atomic<bool>> get_or_create_flag(const std::string& key) {
-    std::lock_guard<std::mutex> lk(g_cancel_mutex);
-    auto it = g_cancel_flags.find(key);
-    if (it != g_cancel_flags.end()) return it->second;
-    auto flag = std::make_shared<std::atomic<bool>>(false);
-    g_cancel_flags[key] = flag;
-    return flag;
+static DownloadOptions download_options_from_payload(const nlohmann::json& payload, long default_timeout_s) {
+    DownloadOptions options;
+    options.timeout_s = payload.value("timeout_s", default_timeout_s);
+    options.retry_count = std::max(0, payload.value("retry_count", 2));
+    options.retry_backoff_s = std::max(0.0, payload.value("retry_backoff_sec", 1.5));
+    options.resume = payload.value("resume", true);
+    return options;
 }
-static void cancel_flag(const std::string& key) {
-    std::lock_guard<std::mutex> lk(g_cancel_mutex);
-    auto it = g_cancel_flags.find(key);
-    if (it != g_cancel_flags.end()) it->second->store(true);
+
+static void throw_if_job_cancelled(const std::shared_ptr<AppState>& state, const std::string& job_id) {
+    if (state->job_store.is_cancelled(job_id)) throw JobCancelled();
+}
+
+static void set_download_progress(const std::shared_ptr<AppState>& state,
+                                  const std::string& job_id,
+                                  std::uintmax_t received,
+                                  std::uintmax_t total) {
+    nlohmann::json progress_value = nullptr;
+    if (total > 0) {
+        progress_value = static_cast<double>(received) / static_cast<double>(total);
+    }
+    nlohmann::json patch = {
+        {"bytes_received", received},
+        {"bytes_total", total},
+        {"progress", progress_value},
+    };
+    state->job_store.merge_data(job_id, patch);
+    if (total > 0) state->job_store.update_progress(job_id, (static_cast<double>(received) / static_cast<double>(total)) * 100.0);
+    throw_if_job_cancelled(state, job_id);
+}
+
+static void set_download_state(const std::shared_ptr<AppState>& state,
+                               const std::string& job_id,
+                               const nlohmann::json& patch) {
+    state->job_store.merge_data(job_id, patch);
+    throw_if_job_cancelled(state, job_id);
+}
+
+static void finish_job_cancelled(const std::shared_ptr<AppState>& state,
+                                 const std::string& job_id,
+                                 const nlohmann::json& patch = nlohmann::json::object()) {
+    nlohmann::json data = patch;
+    if (auto snapshot = state->job_store.get(job_id); snapshot && snapshot->data.is_object()) {
+        for (auto it = snapshot->data.begin(); it != snapshot->data.end(); ++it) {
+            if (!data.contains(it.key())) data[it.key()] = it.value();
+        }
+    }
+    state->job_store.update_state(job_id, JobState::cancelled, data);
 }
 
 void register_tools_routes(CrowApp& app,
                              std::shared_ptr<AppState> state) {
+    auto cancel_jobs_by_type = [state](const std::string& type,
+                                       const std::string& event,
+                                       const std::string& source) -> crow::response {
+        bool cancelled = false;
+        auto jobs = state->job_store.list(200);
+        for (const auto& job : jobs) {
+            if (job.type != type) continue;
+            if (job.state != JobState::running && job.state != JobState::pending) continue;
+            if (state->job_store.cancel(job.job_id)) {
+                cancelled = true;
+                state->ui_event_store.push(event, source, {{"ok", true}}, std::nullopt, job.job_id);
+            }
+        }
+        return json_resp({{"ok", cancelled}});
+    };
+
+    auto start_astrometry_install = [state](nlohmann::json body) -> crow::response {
+        fs::path data_dir = path_from_user_input(body.value("astap_data_dir", ""), default_astap_data_dir());
+        if (auto denied = denied_path(state->runtime, data_dir); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+
+        const DownloadOptions options = download_options_from_payload(body, 1800);
+        const bool force_restart = body.value("force_restart", false);
+        std::string job_id = state->job_store.create("astrometry_install_cli");
+        state->job_store.update_state(job_id, JobState::running, {
+            {"data_dir", data_dir.string()},
+            {"url", ASTAP_CLI_URL},
+            {"stage", "download"},
+            {"progress", 0.0},
+            {"resume_enabled", options.resume},
+            {"retry_count", options.retry_count},
+        });
+
+        std::thread([state, job_id, data_dir, options, force_restart]() {
+            try {
+                fs::create_directories(data_dir);
+                fs::path archive = data_dir / "astap_cli.zip";
+                if (force_restart) {
+                    std::error_code ec;
+                    fs::remove(archive, ec);
+                }
+                auto dl = download_file_with_retry(
+                    ASTAP_CLI_URL,
+                    archive,
+                    options,
+                    [state, job_id]() { return state->job_store.is_cancelled(job_id); },
+                    [state, job_id](std::uintmax_t received, std::uintmax_t total) {
+                        set_download_progress(state, job_id, received, total);
+                    },
+                    [state, job_id](const nlohmann::json& patch) {
+                        nlohmann::json merged = patch;
+                        merged["stage"] = "download";
+                        set_download_state(state, job_id, merged);
+                    });
+                if (!dl.ok) {
+                    if (dl.error == "cancelled" || state->job_store.is_cancelled(job_id)) throw JobCancelled();
+                    throw std::runtime_error(dl.error);
+                }
+
+                set_download_state(state, job_id, {{"stage", "extract"}, {"archive", archive.string()}});
+                std::string error;
+                if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
+                std::error_code rm_ec;
+                fs::remove(archive, rm_ec);
+
+                fs::path candidate = find_astap_candidate(data_dir);
+                if (candidate.empty()) throw std::runtime_error("astap_cli executable not found after extraction");
+                fs::path target = data_dir / candidate.filename();
+                if (candidate != target) fs::copy_file(candidate, target, fs::copy_options::overwrite_existing);
+
+                state->job_store.merge_data(job_id, {
+                    {"binary", target.string()},
+                    {"data_dir", data_dir.string()},
+                    {"stage", "done"},
+                    {"progress", 1.0},
+                });
+                auto snapshot = state->job_store.get(job_id);
+                state->job_store.update_state(job_id, JobState::ok, snapshot && snapshot->data.is_object() ? snapshot->data : nlohmann::json::object());
+            } catch (const JobCancelled&) {
+                finish_job_cancelled(state, job_id);
+            } catch (const std::exception& e) {
+                auto snapshot = state->job_store.get(job_id);
+                nlohmann::json data = snapshot && snapshot->data.is_object() ? snapshot->data : nlohmann::json::object();
+                data["error"] = e.what();
+                if (state->job_store.is_cancelled(job_id)) finish_job_cancelled(state, job_id, data);
+                else state->job_store.update_state(job_id, JobState::error, data, e.what());
+            }
+        }).detach();
+
+        state->ui_event_store.push("tools.astrometry.install_cli", "tools.astrometry_install", {{"data_dir", data_dir.string()}}, std::nullopt, job_id);
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+    };
+
+    auto start_astrometry_catalog_download = [state](nlohmann::json body) -> crow::response {
+        const std::string catalog_id = body.value("catalog_id", std::string("d50"));
+        auto it = ASTAP_CATALOGS.find(catalog_id);
+        if (it == ASTAP_CATALOGS.end()) {
+            return err_resp("BAD_REQUEST", "unknown catalog_id '" + catalog_id + "'", 400, nlohmann::json::object());
+        }
+
+        fs::path data_dir = path_from_user_input(body.value("astap_data_dir", ""), default_astap_data_dir());
+        if (auto denied = denied_path(state->runtime, data_dir); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+
+        const DownloadOptions options = download_options_from_payload(body, 1800);
+        const bool force_restart = body.value("force_restart", false);
+        const std::string url = std::string(ASTAP_SF_BASE) + it->second + "/download";
+        std::string job_id = state->job_store.create("astrometry_catalog_download");
+        state->job_store.update_state(job_id, JobState::running, {
+            {"catalog_id", catalog_id},
+            {"url", url},
+            {"data_dir", data_dir.string()},
+            {"stage", "download"},
+            {"progress", 0.0},
+            {"resume_enabled", options.resume},
+            {"retry_count", options.retry_count},
+        });
+
+        std::thread([state, job_id, catalog_id, filename = it->second, data_dir, options, force_restart, url]() {
+            try {
+                fs::create_directories(data_dir);
+                fs::path archive = data_dir / filename;
+                if (force_restart) {
+                    std::error_code ec;
+                    fs::remove(archive, ec);
+                }
+                auto dl = download_file_with_retry(
+                    url,
+                    archive,
+                    options,
+                    [state, job_id]() { return state->job_store.is_cancelled(job_id); },
+                    [state, job_id](std::uintmax_t received, std::uintmax_t total) {
+                        set_download_progress(state, job_id, received, total);
+                    },
+                    [state, job_id](const nlohmann::json& patch) {
+                        nlohmann::json merged = patch;
+                        merged["stage"] = "download";
+                        set_download_state(state, job_id, merged);
+                    });
+                if (!dl.ok) {
+                    if (dl.error == "cancelled" || state->job_store.is_cancelled(job_id)) throw JobCancelled();
+                    throw std::runtime_error(dl.error);
+                }
+
+                set_download_state(state, job_id, {{"stage", "extract"}, {"archive", archive.string()}});
+                std::string error;
+                if (archive.extension() == ".zip") {
+                    if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
+                } else if (archive.extension() == ".deb") {
+                    fs::path tmp = data_dir / "_deb_extract";
+                    fs::create_directories(tmp);
+                    if (!extract_deb_archive(archive, tmp, error)) throw std::runtime_error(error);
+                    for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
+                        if (!entry.is_regular_file()) continue;
+                        const auto name = entry.path().filename().string();
+                        if (name.rfind(catalog_id + "_", 0) == 0) {
+                            fs::copy_file(entry.path(), data_dir / entry.path().filename(), fs::copy_options::overwrite_existing);
+                        }
+                    }
+                    std::error_code ec;
+                    fs::remove_all(tmp, ec);
+                } else {
+                    throw std::runtime_error("unsupported archive format");
+                }
+                std::error_code rm_ec;
+                fs::remove(archive, rm_ec);
+
+                state->job_store.merge_data(job_id, {
+                    {"catalog_id", catalog_id},
+                    {"installed", is_astap_catalog_installed(data_dir, catalog_id)},
+                    {"data_dir", data_dir.string()},
+                    {"stage", "done"},
+                    {"progress", 1.0},
+                });
+                auto snapshot = state->job_store.get(job_id);
+                state->job_store.update_state(job_id, JobState::ok, snapshot && snapshot->data.is_object() ? snapshot->data : nlohmann::json::object());
+            } catch (const JobCancelled&) {
+                finish_job_cancelled(state, job_id);
+            } catch (const std::exception& e) {
+                auto snapshot = state->job_store.get(job_id);
+                nlohmann::json data = snapshot && snapshot->data.is_object() ? snapshot->data : nlohmann::json::object();
+                data["error"] = e.what();
+                if (state->job_store.is_cancelled(job_id)) finish_job_cancelled(state, job_id, data);
+                else state->job_store.update_state(job_id, JobState::error, data, e.what());
+            }
+        }).detach();
+
+        state->ui_event_store.push("tools.astrometry.catalog.download", "tools.astrometry_catalog_download", {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}}, std::nullopt, job_id);
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+    };
+
+    auto start_pcc_siril_download = [state](nlohmann::json body) -> crow::response {
+        fs::path catalog_dir = path_from_user_input(body.value("catalog_dir", ""), default_siril_catalog_dir());
+        if (auto denied = denied_path(state->runtime, catalog_dir); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+
+        const DownloadOptions options = download_options_from_payload(body, 3600);
+        const bool force_restart = body.value("force_restart", false);
+        nlohmann::json requested_chunks = nlohmann::json::array();
+        if (body.contains("chunk_ids") && body["chunk_ids"].is_array()) {
+            for (const auto& item : body["chunk_ids"]) {
+                try {
+                    int idx = item.get<int>();
+                    if (idx >= 0 && idx < SIRIL_NUM_CHUNKS) requested_chunks.push_back(idx);
+                } catch (...) {}
+            }
+        }
+        const int max_chunks = body.value("max_chunks", 0);
+        std::string job_id = state->job_store.create("pcc_siril_download");
+        state->job_store.update_state(job_id, JobState::running, {
+            {"catalog_dir", catalog_dir.string()},
+            {"pending_chunks", requested_chunks},
+            {"total_chunks", 0},
+            {"progress", 0.0},
+            {"resume_enabled", options.resume},
+            {"retry_count", options.retry_count},
+        });
+
+        std::thread([state, job_id, catalog_dir, options, force_restart, requested_chunks, max_chunks]() {
+            try {
+                fs::create_directories(catalog_dir);
+                auto missing = missing_siril_chunks(catalog_dir);
+                if (!requested_chunks.empty()) {
+                    std::vector<int> requested;
+                    for (const auto& item : requested_chunks) requested.push_back(item.get<int>());
+                    missing.erase(std::remove_if(missing.begin(), missing.end(), [&requested](int value) {
+                        return std::find(requested.begin(), requested.end(), value) == requested.end();
+                    }), missing.end());
+                }
+                if (max_chunks > 0 && static_cast<int>(missing.size()) > max_chunks) {
+                    missing.resize(static_cast<size_t>(max_chunks));
+                }
+
+                nlohmann::json pending_chunks = nlohmann::json::array();
+                for (int chunk : missing) pending_chunks.push_back(chunk);
+                state->job_store.merge_data(job_id, {
+                    {"catalog_dir", catalog_dir.string()},
+                    {"pending_chunks", pending_chunks},
+                    {"total_chunks", static_cast<int>(missing.size())},
+                    {"current_index", 0},
+                    {"completed_chunks", 0},
+                    {"stage", "download"},
+                });
+
+                int completed = 0;
+                for (size_t index = 0; index < missing.size(); ++index) {
+                    throw_if_job_cancelled(state, job_id);
+                    const int chunk = missing[index];
+                    state->job_store.merge_data(job_id, {
+                        {"current_chunk", chunk},
+                        {"current_index", static_cast<int>(index)},
+                        {"completed_chunks", completed},
+                    });
+
+                    fs::path archive = catalog_dir / ("siril_cat1_healpix8_xpsamp_" + std::to_string(chunk) + ".dat.bz2");
+                    if (force_restart) {
+                        std::error_code ec;
+                        fs::remove(archive, ec);
+                    }
+                    auto dl = download_file_with_retry(
+                        siril_chunk_url(chunk),
+                        archive,
+                        options,
+                        [state, job_id]() { return state->job_store.is_cancelled(job_id); },
+                        [state, job_id](std::uintmax_t received, std::uintmax_t total) {
+                            set_download_progress(state, job_id, received, total);
+                        },
+                        [state, job_id, chunk](const nlohmann::json& patch) {
+                            nlohmann::json merged = patch;
+                            merged["stage"] = "download";
+                            merged["chunk_id"] = chunk;
+                            set_download_state(state, job_id, merged);
+                        });
+                    if (!dl.ok) {
+                        if (dl.error == "cancelled" || state->job_store.is_cancelled(job_id)) throw JobCancelled();
+                        throw std::runtime_error(dl.error);
+                    }
+
+                    set_download_state(state, job_id, {{"stage", "decompress"}, {"chunk_id", chunk}, {"archive", archive.string()}});
+                    std::string error;
+                    if (!decompress_bz2_archive(archive, error)) throw std::runtime_error(error);
+                    std::error_code rm_ec;
+                    fs::remove(archive, rm_ec);
+
+                    ++completed;
+                    if (!pending_chunks.empty()) pending_chunks.erase(pending_chunks.begin());
+                    state->job_store.merge_data(job_id, {
+                        {"completed_chunks", completed},
+                        {"pending_chunks", pending_chunks},
+                        {"stage", "download"},
+                        {"progress", missing.empty() ? 1.0 : static_cast<double>(completed) / static_cast<double>(missing.size())},
+                    });
+                }
+
+                state->job_store.merge_data(job_id, {
+                    {"missing_after", missing_siril_chunks(catalog_dir)},
+                    {"pending_chunks", nlohmann::json::array()},
+                    {"completed_chunks", completed},
+                    {"stage", "done"},
+                    {"progress", 1.0},
+                });
+                auto snapshot = state->job_store.get(job_id);
+                state->job_store.update_state(job_id, JobState::ok, snapshot && snapshot->data.is_object() ? snapshot->data : nlohmann::json::object());
+            } catch (const JobCancelled&) {
+                finish_job_cancelled(state, job_id);
+            } catch (const std::exception& e) {
+                auto snapshot = state->job_store.get(job_id);
+                nlohmann::json data = snapshot && snapshot->data.is_object() ? snapshot->data : nlohmann::json::object();
+                data["error"] = e.what();
+                if (state->job_store.is_cancelled(job_id)) finish_job_cancelled(state, job_id, data);
+                else state->job_store.update_state(job_id, JobState::error, data, e.what());
+            }
+        }).detach();
+
+        state->ui_event_store.push("tools.pcc.siril.download_missing", "tools.pcc_siril_download_missing", {{"catalog_dir", catalog_dir.string()}}, std::nullopt, job_id);
+        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+    };
 
     // ---------------------------------------------------------------
     // ASTROMETRY (ASTAP)
@@ -321,36 +806,29 @@ void register_tools_routes(CrowApp& app,
         std::string astap_data_dir = body.is_discarded() ? "" : body.value("astap_data_dir", "");
         std::string catalog_dir_str = body.is_discarded() ? "" : body.value("catalog_dir", "");
 
-        if (!astap_cli.empty()) {
-            if (auto denied = denied_path(state->runtime, fs::path(astap_cli)); denied) {
+        if (!astap_cli.empty() && !is_command_name(astap_cli)) {
+            fs::path cli_path = expand_user_path(fs::path(astap_cli));
+            if (auto denied = denied_path(state->runtime, cli_path, cli_path); denied) {
                 return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
             }
         }
         if (!astap_data_dir.empty()) {
-            if (auto denied = denied_path(state->runtime, fs::path(astap_data_dir)); denied) {
+            fs::path data_dir_path = expand_user_path(fs::path(astap_data_dir));
+            if (auto denied = denied_path(state->runtime, data_dir_path, data_dir_path); denied) {
                 return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
             }
         }
 
-        fs::path data_dir = astap_data_dir.empty() ? default_astap_data_dir() : fs::path(astap_data_dir);
-        fs::path catalog_dir = catalog_dir_str.empty() ? data_dir : fs::path(catalog_dir_str);
+        fs::path data_dir = path_from_user_input(astap_data_dir, default_astap_data_dir());
+        fs::path catalog_dir = catalog_dir_str.empty() ? data_dir : expand_user_path(fs::path(catalog_dir_str));
         if (!catalog_dir_str.empty()) {
             if (auto denied = denied_path(state->runtime, catalog_dir); denied) {
                 return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
             }
         }
 
-        fs::path binary_path;
-        if (!astap_cli.empty()) {
-            binary_path = fs::path(astap_cli);
-        } else {
-            fs::path candidate = data_dir / "astap_cli";
-            if (fs::exists(candidate)) binary_path = candidate;
-            else binary_path = fs::path("astap_cli");
-        }
-
-        auto res = run_subprocess({binary_path.string(), "-h"});
-        bool installed = (res.exit_code == 0 || res.exit_code == 1);
+        fs::path binary_path = resolve_astap_binary(astap_cli, data_dir);
+        bool installed = !binary_path.empty();
 
         nlohmann::json catalogs = nlohmann::json::object();
         for (const auto& [catalog_id, _] : ASTAP_CATALOGS) catalogs[catalog_id] = is_astap_catalog_installed(catalog_dir, catalog_id);
@@ -365,266 +843,38 @@ void register_tools_routes(CrowApp& app,
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/install-cli").methods("POST"_method)
-    ([state](const crow::request& req) {
+    ([start_astrometry_install](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
-        fs::path data_dir = body.is_discarded() || body.value("astap_data_dir", "").empty()
-            ? default_astap_data_dir()
-            : fs::path(body.value("astap_data_dir", ""));
-        if (auto denied = denied_path(state->runtime, data_dir); denied) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
-        }
-
-        auto cancel_flag_ptr = get_or_create_flag("astap_install");
-        cancel_flag_ptr->store(false);
-        std::string job_id = state->job_store.create("astrometry_install");
-        state->job_store.update_state(job_id, JobState::running, {
-            {"data_dir", data_dir.string()},
-            {"url", ASTAP_CLI_URL},
-            {"stage", "download"},
-            {"progress", 0.0}
-        });
-        std::thread([state, job_id, data_dir, cancel_flag_ptr]() {
-            try {
-                fs::create_directories(data_dir);
-                fs::path archive = data_dir / "astap_cli.zip";
-                auto dl = download_file(ASTAP_CLI_URL, archive, *cancel_flag_ptr,
-                    [state, job_id](double ratio) {
-                        state->job_store.update_progress(job_id, ratio * 100.0);
-                        state->job_store.merge_data(job_id, {{"progress", ratio}, {"stage", "download"}});
-                    });
-                if (!dl.ok) throw std::runtime_error(dl.error);
-                state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
-                std::string error;
-                if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
-                fs::remove(archive);
-                fs::path candidate = find_astap_candidate(data_dir);
-                if (candidate.empty()) throw std::runtime_error("astap_cli executable not found after extraction");
-                fs::path target = data_dir / candidate.filename();
-                if (candidate != target) fs::copy_file(candidate, target, fs::copy_options::overwrite_existing);
-                state->job_store.update_progress(job_id, 100.0);
-                state->job_store.update_state(job_id, JobState::ok, {
-                    {"binary", target.string()},
-                    {"data_dir", data_dir.string()},
-                    {"stage", "done"},
-                    {"progress", 1.0}
-                });
-            } catch (const std::exception& e) {
-                state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"data_dir", data_dir.string()}, {"stage", "download"}}, e.what());
-            }
-        }).detach();
-        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+        if (body.is_discarded()) body = nlohmann::json::object();
+        return start_astrometry_install(body);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/install-cli/retry").methods("POST"_method)
-    ([state](const crow::request& req) {
+    ([start_astrometry_install](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded()) body = nlohmann::json::object();
         body["resume"] = true;
-        auto body2 = body;
-        fs::path data_dir = body2.is_discarded() || body2.value("astap_data_dir", "").empty()
-            ? default_astap_data_dir()
-            : fs::path(body2.value("astap_data_dir", ""));
-        if (auto denied = denied_path(state->runtime, data_dir); denied) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
-        }
-        auto cancel_flag_ptr = get_or_create_flag("astap_install");
-        cancel_flag_ptr->store(false);
-        std::string job_id = state->job_store.create("astrometry_install");
-        state->job_store.update_state(job_id, JobState::running, {
-            {"data_dir", data_dir.string()},
-            {"url", ASTAP_CLI_URL},
-            {"resume", true},
-            {"stage", "download"},
-            {"progress", 0.0}
-        });
-        std::thread([state, job_id, data_dir, cancel_flag_ptr]() {
-            try {
-                fs::create_directories(data_dir);
-                fs::path archive = data_dir / "astap_cli.zip";
-                auto dl = download_file(ASTAP_CLI_URL, archive, *cancel_flag_ptr,
-                    [state, job_id](double ratio) {
-                        state->job_store.update_progress(job_id, ratio * 100.0);
-                        state->job_store.merge_data(job_id, {{"progress", ratio}, {"stage", "download"}});
-                    });
-                if (!dl.ok) throw std::runtime_error(dl.error);
-                state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
-                std::string error;
-                if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
-                fs::remove(archive);
-                fs::path candidate = find_astap_candidate(data_dir);
-                if (candidate.empty()) throw std::runtime_error("astap_cli executable not found after extraction");
-                fs::path target = data_dir / candidate.filename();
-                if (candidate != target) fs::copy_file(candidate, target, fs::copy_options::overwrite_existing);
-                state->job_store.update_progress(job_id, 100.0);
-                state->job_store.update_state(job_id, JobState::ok, {
-                    {"binary", target.string()},
-                    {"data_dir", data_dir.string()},
-                    {"resume", true},
-                    {"stage", "done"},
-                    {"progress", 1.0}
-                });
-            } catch (const std::exception& e) {
-                state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"data_dir", data_dir.string()}, {"resume", true}, {"stage", "download"}}, e.what());
-            }
-        }).detach();
-        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+        return start_astrometry_install(body);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/catalog/download").methods("POST"_method)
-    ([state](const crow::request& req) {
+    ([start_astrometry_catalog_download](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded()) body = nlohmann::json::object();
-        std::string catalog_id = body.value("catalog_id", std::string("d50"));
-        auto it = ASTAP_CATALOGS.find(catalog_id);
-        if (it == ASTAP_CATALOGS.end()) return err_resp("BAD_REQUEST", "unknown catalog_id '" + catalog_id + "'", 400, nlohmann::json::object());
-        fs::path data_dir = body.value("astap_data_dir", "").empty()
-            ? default_astap_data_dir()
-            : fs::path(body.value("astap_data_dir", ""));
-        if (auto denied = denied_path(state->runtime, data_dir); denied) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
-        }
-
-        auto cancel_flag_ptr = get_or_create_flag("astap_catalog");
-        cancel_flag_ptr->store(false);
-        std::string job_id = state->job_store.create("astrometry_catalog_download");
-        state->job_store.update_state(job_id, JobState::running, {
-            {"catalog_id", catalog_id},
-            {"data_dir", data_dir.string()},
-            {"stage", "download"},
-            {"progress", 0.0}
-        });
-        std::thread([state, job_id, catalog_id, filename = it->second, data_dir, cancel_flag_ptr]() {
-            try {
-                fs::create_directories(data_dir);
-                fs::path archive = data_dir / filename;
-                auto dl = download_file(std::string(ASTAP_SF_BASE) + filename + "/download", archive, *cancel_flag_ptr,
-                    [state, job_id](double ratio) {
-                        state->job_store.update_progress(job_id, ratio * 100.0);
-                        state->job_store.merge_data(job_id, {{"progress", ratio}, {"stage", "download"}});
-                    });
-                if (!dl.ok) throw std::runtime_error(dl.error);
-                state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
-                std::string error;
-                if (archive.extension() == ".zip") {
-                    if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
-                } else if (archive.extension() == ".deb") {
-                    fs::path tmp = data_dir / "_deb_extract";
-                    fs::create_directories(tmp);
-                    if (!extract_deb_archive(archive, tmp, error)) throw std::runtime_error(error);
-                    for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
-                        if (!entry.is_regular_file()) continue;
-                        const auto name = entry.path().filename().string();
-                        if (name.rfind(catalog_id + "_", 0) == 0) {
-                            fs::copy_file(entry.path(), data_dir / entry.path().filename(), fs::copy_options::overwrite_existing);
-                        }
-                    }
-                    fs::remove_all(tmp);
-                } else {
-                    throw std::runtime_error("unsupported archive format");
-                }
-                fs::remove(archive);
-                state->job_store.update_progress(job_id, 100.0);
-                state->job_store.update_state(job_id, JobState::ok, {
-                    {"catalog_id", catalog_id},
-                    {"installed", is_astap_catalog_installed(data_dir, catalog_id)},
-                    {"data_dir", data_dir.string()},
-                    {"stage", "done"},
-                    {"progress", 1.0}
-                });
-            } catch (const std::exception& e) {
-                state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}, {"stage", "download"}}, e.what());
-            }
-        }).detach();
-        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+        return start_astrometry_catalog_download(body);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/catalog/download/retry").methods("POST"_method)
-    ([state](const crow::request& req) {
+    ([start_astrometry_catalog_download](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded()) body = nlohmann::json::object();
         body["resume"] = true;
-        std::string catalog_id = body.value("catalog_id", std::string("d50"));
-        auto it = ASTAP_CATALOGS.find(catalog_id);
-        if (it == ASTAP_CATALOGS.end()) return err_resp("BAD_REQUEST", "unknown catalog_id '" + catalog_id + "'", 400, nlohmann::json::object());
-        fs::path data_dir = body.value("astap_data_dir", "").empty()
-            ? default_astap_data_dir()
-            : fs::path(body.value("astap_data_dir", ""));
-        if (auto denied = denied_path(state->runtime, data_dir); denied) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
-        }
-        auto cancel_flag_ptr = get_or_create_flag("astap_catalog");
-        cancel_flag_ptr->store(false);
-        std::string job_id = state->job_store.create("astrometry_catalog_download");
-        state->job_store.update_state(job_id, JobState::running, {
-            {"catalog_id", catalog_id},
-            {"data_dir", data_dir.string()},
-            {"resume", true},
-            {"stage", "download"},
-            {"progress", 0.0}
-        });
-        std::thread([state, job_id, catalog_id, filename = it->second, data_dir, cancel_flag_ptr]() {
-            try {
-                fs::create_directories(data_dir);
-                fs::path archive = data_dir / filename;
-                auto dl = download_file(std::string(ASTAP_SF_BASE) + filename + "/download", archive, *cancel_flag_ptr,
-                    [state, job_id](double ratio) {
-                        state->job_store.update_progress(job_id, ratio * 100.0);
-                        state->job_store.merge_data(job_id, {{"progress", ratio}, {"stage", "download"}});
-                    });
-                if (!dl.ok) throw std::runtime_error(dl.error);
-                state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
-                std::string error;
-                if (archive.extension() == ".zip") {
-                    if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
-                } else if (archive.extension() == ".deb") {
-                    fs::path tmp = data_dir / "_deb_extract";
-                    fs::create_directories(tmp);
-                    if (!extract_deb_archive(archive, tmp, error)) throw std::runtime_error(error);
-                    for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
-                        if (!entry.is_regular_file()) continue;
-                        const auto name = entry.path().filename().string();
-                        if (name.rfind(catalog_id + "_", 0) == 0) {
-                            fs::copy_file(entry.path(), data_dir / entry.path().filename(), fs::copy_options::overwrite_existing);
-                        }
-                    }
-                    fs::remove_all(tmp);
-                } else {
-                    throw std::runtime_error("unsupported archive format");
-                }
-                fs::remove(archive);
-                state->job_store.update_progress(job_id, 100.0);
-                state->job_store.update_state(job_id, JobState::ok, {
-                    {"catalog_id", catalog_id},
-                    {"installed", is_astap_catalog_installed(data_dir, catalog_id)},
-                    {"data_dir", data_dir.string()},
-                    {"resume", true},
-                    {"stage", "done"},
-                    {"progress", 1.0}
-                });
-            } catch (const std::exception& e) {
-                state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}, {"resume", true}, {"stage", "download"}}, e.what());
-            }
-        }).detach();
-        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+        return start_astrometry_catalog_download(body);
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/catalog/cancel").methods("POST"_method)
-    ([state](const crow::request&) {
-        cancel_flag("astap_catalog");
-        bool cancelled = false;
-        auto jobs = state->job_store.list(50);
-        for (auto& j : jobs) {
-            if (j.type == "astrometry_catalog_download" &&
-                (j.state == JobState::running || j.state == JobState::pending)) {
-                state->job_store.cancel(j.job_id);
-                cancelled = true;
-            }
-        }
-        return json_resp({{"ok", cancelled}});
+    ([cancel_jobs_by_type](const crow::request&) {
+        return cancel_jobs_by_type("astrometry_catalog_download", "tools.astrometry.catalog.cancel", "tools.astrometry_catalog_cancel");
     });
 
     CROW_ROUTE(app, "/api/tools/astrometry/solve").methods("POST"_method)
@@ -640,30 +890,27 @@ void register_tools_routes(CrowApp& app,
         if (auto denied = denied_path(state->runtime, fs::path(solve_file)); denied) {
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
         }
-        if (!astap_cli.empty()) {
-            if (auto denied = denied_path(state->runtime, fs::path(astap_cli)); denied) {
+        if (!astap_cli.empty() && !is_command_name(astap_cli)) {
+            fs::path cli_path = expand_user_path(fs::path(astap_cli));
+            if (auto denied = denied_path(state->runtime, cli_path, cli_path); denied) {
                 return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
             }
         }
         if (!astap_data_dir.empty()) {
-            if (auto denied = denied_path(state->runtime, fs::path(astap_data_dir)); denied) {
+            fs::path data_dir_path = expand_user_path(fs::path(astap_data_dir));
+            if (auto denied = denied_path(state->runtime, data_dir_path, data_dir_path); denied) {
                 return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
             }
         }
 
-        fs::path resolved_astap_data_dir = astap_data_dir.empty() ? default_astap_data_dir() : fs::path(astap_data_dir);
-        if (auto denied = denied_path(state->runtime, resolved_astap_data_dir, fs::path(astap_data_dir.empty() ? resolved_astap_data_dir : fs::path(astap_data_dir))); denied) {
+        fs::path resolved_astap_data_dir = path_from_user_input(astap_data_dir, default_astap_data_dir());
+        fs::path reported_astap_dir = astap_data_dir.empty() ? resolved_astap_data_dir : expand_user_path(fs::path(astap_data_dir));
+        if (auto denied = denied_path(state->runtime, resolved_astap_data_dir, reported_astap_dir); denied) {
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
         }
 
-        fs::path astap_bin;
-        if (!astap_cli.empty()) astap_bin = fs::path(astap_cli);
-        else {
-            fs::path default_bin = resolved_astap_data_dir / "astap_cli";
-            astap_bin = fs::exists(default_bin) ? default_bin : fs::path("astap_cli");
-        }
-        auto probe = run_subprocess({astap_bin.string(), "-h"});
-        if (!(probe.exit_code == 0 || probe.exit_code == 1)) {
+        fs::path astap_bin = resolve_astap_binary(astap_cli, resolved_astap_data_dir);
+        if (astap_bin.empty()) {
             return err_resp("BAD_REQUEST", "ASTAP CLI not found; install or provide astap_cli path", 400, nlohmann::json::object());
         }
 
@@ -709,6 +956,7 @@ void register_tools_routes(CrowApp& app,
             data["result"]["wcs_path"] = wcs_path.string();
             state->job_store.update_state(job_id, JobState::ok, data);
         }).detach();
+        state->ui_event_store.push("tools.astrometry.solve", "tools.astrometry_solve", {{"solve_file", solve_file}, {"wcs_path", wcs_path.string()}}, std::nullopt, job_id);
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 
@@ -747,6 +995,7 @@ void register_tools_routes(CrowApp& app,
                 copied_wcs = out_wcs.string();
             }
         }
+        state->ui_event_store.push("tools.astrometry.save_solved", "tools.astrometry_save_solved", {{"output_path", output.string()}, {"wcs_path", copied_wcs.empty() ? nlohmann::json(nullptr) : nlohmann::json(copied_wcs)}});
         return json_resp({{"output_path", output.string()}, {"wcs_path", copied_wcs.empty() ? nlohmann::json(nullptr) : nlohmann::json(copied_wcs)}});
     });
 
@@ -757,7 +1006,7 @@ void register_tools_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/tools/pcc/siril/status").methods("GET"_method)
     ([state](const crow::request& req) {
         fs::path catalog_dir = req.url_params.get("catalog_dir") && std::string(req.url_params.get("catalog_dir")).size() > 0
-            ? fs::path(req.url_params.get("catalog_dir"))
+            ? expand_user_path(fs::path(req.url_params.get("catalog_dir")))
             : default_siril_catalog_dir();
         if (auto denied = denied_path(state->runtime, catalog_dir); denied) {
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
@@ -772,241 +1021,27 @@ void register_tools_routes(CrowApp& app,
     });
 
     CROW_ROUTE(app, "/api/tools/pcc/siril/download-missing").methods("POST"_method)
-    ([state](const crow::request& req) {
+    ([start_pcc_siril_download](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
-        fs::path catalog_dir = body.is_discarded() || body.value("catalog_dir", "").empty()
-            ? default_siril_catalog_dir()
-            : fs::path(body.value("catalog_dir", ""));
-        if (auto denied = denied_path(state->runtime, catalog_dir); denied) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
-        }
-
-        auto cancel_flag_ptr = get_or_create_flag("pcc_siril");
-        cancel_flag_ptr->store(false);
-        nlohmann::json requested_chunks = nlohmann::json::array();
-        if (body.contains("chunk_ids") && body["chunk_ids"].is_array()) {
-            for (const auto& item : body["chunk_ids"]) {
-                try {
-                    int idx = item.get<int>();
-                    if (idx >= 0 && idx < SIRIL_NUM_CHUNKS) requested_chunks.push_back(idx);
-                } catch (...) {}
-            }
-        }
-        int max_chunks = body.value("max_chunks", 0);
-        std::string job_id = state->job_store.create("pcc_siril_download");
-        state->job_store.update_state(job_id, JobState::running, {
-            {"catalog_dir", catalog_dir.string()},
-            {"pending_chunks", requested_chunks},
-            {"total_chunks", 0},
-            {"progress", 0.0}
-        });
-        std::thread([state, job_id, catalog_dir, cancel_flag_ptr, requested_chunks, max_chunks]() {
-            try {
-                fs::create_directories(catalog_dir);
-                auto missing = missing_siril_chunks(catalog_dir);
-                if (!requested_chunks.empty()) {
-                    std::vector<int> requested;
-                    for (const auto& item : requested_chunks) requested.push_back(item.get<int>());
-                    missing.erase(std::remove_if(missing.begin(), missing.end(), [&requested](int value) {
-                        return std::find(requested.begin(), requested.end(), value) == requested.end();
-                    }), missing.end());
-                }
-                if (max_chunks > 0 && static_cast<int>(missing.size()) > max_chunks) missing.resize(static_cast<size_t>(max_chunks));
-                nlohmann::json pending_chunks = nlohmann::json::array();
-                for (int chunk : missing) pending_chunks.push_back(chunk);
-                state->job_store.merge_data(job_id, {
-                    {"pending_chunks", pending_chunks},
-                    {"total_chunks", static_cast<int>(missing.size())},
-                    {"current_index", 0},
-                    {"completed_chunks", 0},
-                    {"stage", "download"}
-                });
-                int completed = 0;
-                for (size_t index = 0; index < missing.size(); ++index) {
-                    int chunk = missing[index];
-                    if (cancel_flag_ptr->load()) {
-                        state->job_store.update_state(job_id, JobState::cancelled, {
-                            {"catalog_dir", catalog_dir.string()},
-                            {"current_chunk", chunk},
-                            {"current_index", static_cast<int>(index)},
-                            {"completed_chunks", completed},
-                            {"pending_chunks", pending_chunks},
-                            {"stage", "download"}
-                        });
-                        return;
-                    }
-                    state->job_store.merge_data(job_id, {
-                        {"current_chunk", chunk},
-                        {"current_index", static_cast<int>(index)},
-                        {"completed_chunks", completed}
-                    });
-                    fs::path archive = catalog_dir / ("siril_cat1_healpix8_xpsamp_" + std::to_string(chunk) + ".dat.bz2");
-                    auto dl = download_file(siril_chunk_url(chunk), archive, *cancel_flag_ptr,
-                        [state, job_id, completed, total = static_cast<int>(missing.size())](double ratio) {
-                            double aggregate = total > 0 ? ((static_cast<double>(completed) + ratio) / static_cast<double>(total)) : 1.0;
-                            state->job_store.update_progress(job_id, aggregate * 100.0);
-                            state->job_store.merge_data(job_id, {{"progress", aggregate}});
-                        });
-                    if (!dl.ok) throw std::runtime_error(dl.error);
-                    std::string error;
-                    state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
-                    if (!decompress_bz2_archive(archive, error)) throw std::runtime_error(error);
-                    ++completed;
-                    if (!pending_chunks.empty()) pending_chunks.erase(pending_chunks.begin());
-                    const double aggregate = missing.empty() ? 1.0 : (static_cast<double>(completed) / static_cast<double>(missing.size()));
-                    state->job_store.update_progress(job_id, aggregate * 100.0);
-                    state->job_store.merge_data(job_id, {
-                        {"progress", aggregate},
-                        {"completed_chunks", completed},
-                        {"pending_chunks", pending_chunks},
-                        {"stage", "download"}
-                    });
-                }
-                state->job_store.update_state(job_id, JobState::ok, {
-                    {"catalog_dir", catalog_dir.string()},
-                    {"missing_after", missing_siril_chunks(catalog_dir)},
-                    {"pending_chunks", nlohmann::json::array()},
-                    {"completed_chunks", completed},
-                    {"stage", "done"},
-                    {"progress", 1.0}
-                });
-            } catch (const std::exception& e) {
-                state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"catalog_dir", catalog_dir.string()}, {"stage", "download"}}, e.what());
-            }
-        }).detach();
-        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+        if (body.is_discarded()) body = nlohmann::json::object();
+        return start_pcc_siril_download(body);
     });
 
     CROW_ROUTE(app, "/api/tools/pcc/siril/download-missing/retry").methods("POST"_method)
-    ([state](const crow::request& req) {
+    ([start_pcc_siril_download](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded()) body = nlohmann::json::object();
         body["resume"] = true;
-        fs::path catalog_dir = body.value("catalog_dir", "").empty()
-            ? default_siril_catalog_dir()
-            : fs::path(body.value("catalog_dir", ""));
-        if (auto denied = denied_path(state->runtime, catalog_dir); denied) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
-        }
-        auto cancel_flag_ptr = get_or_create_flag("pcc_siril");
-        cancel_flag_ptr->store(false);
-        nlohmann::json requested_chunks = nlohmann::json::array();
-        if (body.contains("chunk_ids") && body["chunk_ids"].is_array()) {
-            for (const auto& item : body["chunk_ids"]) {
-                try {
-                    int idx = item.get<int>();
-                    if (idx >= 0 && idx < SIRIL_NUM_CHUNKS) requested_chunks.push_back(idx);
-                } catch (...) {}
-            }
-        }
-        int max_chunks = body.value("max_chunks", 0);
-        std::string job_id = state->job_store.create("pcc_siril_download");
-        state->job_store.update_state(job_id, JobState::running, {
-            {"catalog_dir", catalog_dir.string()},
-            {"resume", true},
-            {"pending_chunks", requested_chunks},
-            {"total_chunks", 0},
-            {"progress", 0.0}
-        });
-        std::thread([state, job_id, catalog_dir, cancel_flag_ptr, requested_chunks, max_chunks]() {
-            try {
-                fs::create_directories(catalog_dir);
-                auto missing = missing_siril_chunks(catalog_dir);
-                if (!requested_chunks.empty()) {
-                    std::vector<int> requested;
-                    for (const auto& item : requested_chunks) requested.push_back(item.get<int>());
-                    missing.erase(std::remove_if(missing.begin(), missing.end(), [&requested](int value) {
-                        return std::find(requested.begin(), requested.end(), value) == requested.end();
-                    }), missing.end());
-                }
-                if (max_chunks > 0 && static_cast<int>(missing.size()) > max_chunks) missing.resize(static_cast<size_t>(max_chunks));
-                nlohmann::json pending_chunks = nlohmann::json::array();
-                for (int chunk : missing) pending_chunks.push_back(chunk);
-                state->job_store.merge_data(job_id, {
-                    {"pending_chunks", pending_chunks},
-                    {"total_chunks", static_cast<int>(missing.size())},
-                    {"current_index", 0},
-                    {"completed_chunks", 0},
-                    {"stage", "download"}
-                });
-                int completed = 0;
-                for (size_t index = 0; index < missing.size(); ++index) {
-                    int chunk = missing[index];
-                    if (cancel_flag_ptr->load()) {
-                        state->job_store.update_state(job_id, JobState::cancelled, {
-                            {"catalog_dir", catalog_dir.string()},
-                            {"current_chunk", chunk},
-                            {"current_index", static_cast<int>(index)},
-                            {"completed_chunks", completed},
-                            {"pending_chunks", pending_chunks},
-                            {"resume", true},
-                            {"stage", "download"}
-                        });
-                        return;
-                    }
-                    state->job_store.merge_data(job_id, {
-                        {"current_chunk", chunk},
-                        {"current_index", static_cast<int>(index)},
-                        {"completed_chunks", completed}
-                    });
-                    fs::path archive = catalog_dir / ("siril_cat1_healpix8_xpsamp_" + std::to_string(chunk) + ".dat.bz2");
-                    auto dl = download_file(siril_chunk_url(chunk), archive, *cancel_flag_ptr,
-                        [state, job_id, completed, total = static_cast<int>(missing.size())](double ratio) {
-                            double aggregate = total > 0 ? ((static_cast<double>(completed) + ratio) / static_cast<double>(total)) : 1.0;
-                            state->job_store.update_progress(job_id, aggregate * 100.0);
-                            state->job_store.merge_data(job_id, {{"progress", aggregate}});
-                        });
-                    if (!dl.ok) throw std::runtime_error(dl.error);
-                    std::string error;
-                    state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
-                    if (!decompress_bz2_archive(archive, error)) throw std::runtime_error(error);
-                    ++completed;
-                    if (!pending_chunks.empty()) pending_chunks.erase(pending_chunks.begin());
-                    const double aggregate = missing.empty() ? 1.0 : (static_cast<double>(completed) / static_cast<double>(missing.size()));
-                    state->job_store.update_progress(job_id, aggregate * 100.0);
-                    state->job_store.merge_data(job_id, {
-                        {"progress", aggregate},
-                        {"completed_chunks", completed},
-                        {"pending_chunks", pending_chunks},
-                        {"stage", "download"}
-                    });
-                }
-                state->job_store.update_state(job_id, JobState::ok, {
-                    {"catalog_dir", catalog_dir.string()},
-                    {"missing_after", missing_siril_chunks(catalog_dir)},
-                    {"pending_chunks", nlohmann::json::array()},
-                    {"completed_chunks", completed},
-                    {"resume", true},
-                    {"stage", "done"},
-                    {"progress", 1.0}
-                });
-            } catch (const std::exception& e) {
-                state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"catalog_dir", catalog_dir.string()}, {"resume", true}, {"stage", "download"}}, e.what());
-            }
-        }).detach();
-        return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
+        return start_pcc_siril_download(body);
     });
 
     CROW_ROUTE(app, "/api/tools/pcc/siril/cancel").methods("POST"_method)
-    ([state](const crow::request&) {
-        cancel_flag("pcc_siril");
-        bool cancelled = false;
-        auto jobs = state->job_store.list(50);
-        for (auto& j : jobs) {
-            if (j.type == "pcc_siril_download" &&
-                (j.state == JobState::running || j.state == JobState::pending)) {
-                state->job_store.cancel(j.job_id);
-                cancelled = true;
-            }
-        }
-        return json_resp({{"ok", cancelled}});
+    ([cancel_jobs_by_type](const crow::request&) {
+        return cancel_jobs_by_type("pcc_siril_download", "tools.pcc.siril.cancel", "tools.pcc_siril_cancel");
     });
 
     CROW_ROUTE(app, "/api/tools/pcc/check-online").methods("POST"_method)
     ([state](const crow::request&) {
-        (void)state;
         const std::string url = "https://vizier.cds.unistra.fr/viz-bin/asu-tsv?-source=I/355/gaiadr3&-c=0%200&-c.rd=0.01&-out=RA_ICRS,DE_ICRS,Gmag&-out.max=1";
         CURL* curl = curl_easy_init();
         if (!curl) return json_resp({{"ok", false}, {"latency_ms", 0}, {"error", "curl init failed"}});
@@ -1018,8 +1053,11 @@ void register_tools_routes(CrowApp& app,
         CURLcode rc = curl_easy_perform(curl);
         long latency_ms = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count());
         curl_easy_cleanup(curl);
-        if (rc == CURLE_OK) return json_resp({{"ok", true}, {"latency_ms", latency_ms}});
-        return json_resp({{"ok", false}, {"latency_ms", latency_ms}, {"error", curl_easy_strerror(rc)}});
+        nlohmann::json response = rc == CURLE_OK
+            ? nlohmann::json{{"ok", true}, {"latency_ms", latency_ms}}
+            : nlohmann::json{{"ok", false}, {"latency_ms", latency_ms}, {"error", curl_easy_strerror(rc)}};
+        state->ui_event_store.push("tools.pcc.check_online", "tools.pcc_check_online", response);
+        return json_resp(response);
     });
 
     CROW_ROUTE(app, "/api/tools/pcc/run").methods("POST"_method)
@@ -1028,11 +1066,11 @@ void register_tools_routes(CrowApp& app,
         if (body.is_discarded() || !body.contains("input_rgb") || !body.contains("output_rgb") || !body.contains("wcs_file"))
             return err_resp("BAD_REQUEST", "input_rgb, output_rgb and wcs_file are required", 400, nlohmann::json::object());
 
-        std::string input_rgb   = body["input_rgb"].get<std::string>();
-        std::string output_rgb  = body["output_rgb"].get<std::string>();
-        std::string wcs_file    = body.value("wcs_file", "");
+        std::string input_rgb   = expand_user_path(fs::path(body["input_rgb"].get<std::string>())).string();
+        std::string output_rgb  = expand_user_path(fs::path(body["output_rgb"].get<std::string>())).string();
+        std::string wcs_file    = expand_user_path(fs::path(body.value("wcs_file", ""))).string();
         std::string source      = body.value("source", "auto");
-        std::string catalog_dir = body.value("catalog_dir", "");
+        std::string catalog_dir = expand_user_path(fs::path(body.value("catalog_dir", ""))).string();
 
         if (source != "auto" && source != "siril" && source != "vizier_gaia" && source != "vizier_apass") {
             return err_resp("BAD_REQUEST", "unsupported pcc source '" + source + "'", 422, nlohmann::json::object());
@@ -1107,6 +1145,7 @@ void register_tools_routes(CrowApp& app,
                                                                    {"source", source},
                                                                    {"catalog_dir", catalog_dir}
                                                                });
+        state->ui_event_store.push("tools.pcc.run", "tools.pcc_run", {{"input_rgb", input_rgb}, {"output_rgb", output_rgb}, {"wcs_file", wcs_file}, {"source", source}, {"catalog_dir", catalog_dir}}, std::nullopt, job_id);
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 
@@ -1132,9 +1171,11 @@ void register_tools_routes(CrowApp& app,
             }
         }
 
-        return json_resp({
+        nlohmann::json response = {
             {"output_rgb",      output_rgb},
             {"output_channels", channels},
-        });
+        };
+        state->ui_event_store.push("tools.pcc.save_corrected", "tools.pcc_save_corrected", response);
+        return json_resp(response);
     });
 }

@@ -1,42 +1,78 @@
 #include "routes/config_routes.hpp"
 #include "subprocess_manager.hpp"
-#include <nlohmann/json.hpp>
-#include <yaml-cpp/yaml.h>
-#include <fstream>
-#include <sstream>
-#include <filesystem>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
+#include <sstream>
+#include <yaml-cpp/yaml.h>
 
 namespace fs = std::filesystem;
 
-static crow::response json_resp(const nlohmann::json& j, int status = 200) {
+namespace {
+
+crow::response json_resp(const nlohmann::json& j, int status = 200) {
     crow::response res(status, j.dump());
     res.set_header("Content-Type", "application/json");
     return res;
 }
-static crow::response err_resp(const std::string& msg, int status = 400) {
+
+crow::response err_resp(const std::string& msg, int status = 400) {
     return json_resp({{"error", {{"message", msg}}}}, status);
 }
-static crow::response err_resp(const std::string& code,
-                               const std::string& msg,
-                               int status,
-                               const nlohmann::json& details) {
+
+crow::response err_resp(const std::string& code,
+                        const std::string& msg,
+                        int status,
+                        const nlohmann::json& details = nlohmann::json::object()) {
     return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", details}}}}, status);
 }
 
-static std::string read_file_str(const fs::path& p) {
+std::string read_file_str(const fs::path& p) {
     std::ifstream f(p);
     if (!f) return "";
-    return std::string((std::istreambuf_iterator<char>(f)),
-                        std::istreambuf_iterator<char>());
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
-static YAML::Node json_to_yaml_node(const nlohmann::json& value) {
+nlohmann::json allowed_roots_json(const BackendRuntime& runtime) {
+    nlohmann::json roots = nlohmann::json::array();
+    for (const auto& root : runtime.allowed_roots()) roots.push_back(root.string());
+    return roots;
+}
+
+std::optional<crow::response> validate_path(const std::shared_ptr<AppState>& state,
+                                            fs::path& path,
+                                            const std::string& label,
+                                            bool must_exist = false) {
+    auto resolved = state->runtime.resolve_input_path(path, must_exist);
+    path = resolved.path;
+    if (resolved.status == PathStatus::not_allowed) {
+        return err_resp("PATH_NOT_ALLOWED", label + " is outside allowed roots", 422, {{"path", path.string()}, {"allowed_roots", allowed_roots_json(state->runtime)}});
+    }
+    if (resolved.status == PathStatus::not_found) {
+        return err_resp("PATH_NOT_FOUND", label + " does not exist", 422, {{"path", path.string()}});
+    }
+    return std::nullopt;
+}
+
+std::optional<nlohmann::json> parse_json(const std::string& raw) {
+    auto parsed = nlohmann::json::parse(raw, nullptr, false);
+    if (parsed.is_discarded()) return std::nullopt;
+    return parsed;
+}
+
+crow::response backend_command_failed(const std::string& message, const SubprocessResult& result) {
+    return err_resp("BACKEND_COMMAND_FAILED", message, 502, {
+        {"exit_code", result.exit_code},
+        {"stdout", result.stdout_str},
+        {"stderr", result.stderr_str},
+    });
+}
+
+YAML::Node json_to_yaml_node(const nlohmann::json& value) {
     if (value.is_object()) {
         YAML::Node node(YAML::NodeType::Map);
-        for (auto it = value.begin(); it != value.end(); ++it) {
-            node[it.key()] = json_to_yaml_node(it.value());
-        }
+        for (auto it = value.begin(); it != value.end(); ++it) node[it.key()] = json_to_yaml_node(it.value());
         return node;
     }
     if (value.is_array()) {
@@ -52,13 +88,11 @@ static YAML::Node json_to_yaml_node(const nlohmann::json& value) {
     return YAML::Node(value.get<std::string>());
 }
 
-static nlohmann::json yaml_to_json(const YAML::Node& node) {
+nlohmann::json yaml_to_json(const YAML::Node& node) {
     if (!node || node.IsNull()) return nullptr;
     if (node.IsMap()) {
         nlohmann::json out = nlohmann::json::object();
-        for (auto it = node.begin(); it != node.end(); ++it) {
-            out[it->first.as<std::string>()] = yaml_to_json(it->second);
-        }
+        for (auto it = node.begin(); it != node.end(); ++it) out[it->first.as<std::string>()] = yaml_to_json(it->second);
         return out;
     }
     if (node.IsSequence()) {
@@ -73,195 +107,146 @@ static nlohmann::json yaml_to_json(const YAML::Node& node) {
     return nullptr;
 }
 
-// Equivalent to Python's _set_dotted(yaml_text, path, value, parse_values=True)
-static void set_dotted(YAML::Node& root, const std::string& dotted_path,
-                       const std::string& value_str, bool parse_values = true) {
-    std::vector<std::string> keys;
-    std::istringstream iss(dotted_path);
-    std::string key;
-    while (std::getline(iss, key, '.')) keys.push_back(key);
-    if (keys.empty()) return;
-
-    YAML::Node cur = root;
-    for (size_t i = 0; i + 1 < keys.size(); ++i) {
-        if (!cur[keys[i]]) cur[keys[i]] = YAML::Node(YAML::NodeType::Map);
-        cur = cur[keys[i]];
-    }
-    if (parse_values) {
-        try {
-            cur[keys.back()] = YAML::Load(value_str);
-            return;
-        } catch (...) {}
-    }
-    cur[keys.back()] = value_str;
+std::string yaml_dump(const nlohmann::json& value) {
+    std::ostringstream oss;
+    oss << json_to_yaml_node(value);
+    return oss.str();
 }
 
+nlohmann::json parse_scalar_value(const nlohmann::json& raw_value, bool parse_values) {
+    if (!parse_values || !raw_value.is_string()) return raw_value;
+    try {
+        return yaml_to_json(YAML::Load(raw_value.get<std::string>()));
+    } catch (...) {
+        return raw_value;
+    }
+}
+
+void set_dotted(nlohmann::json& root, const std::string& dotted_path, const nlohmann::json& value) {
+    std::vector<std::string> parts;
+    std::istringstream iss(dotted_path);
+    std::string part;
+    while (std::getline(iss, part, '.')) {
+        if (!part.empty()) parts.push_back(part);
+    }
+    if (parts.empty()) return;
+
+    nlohmann::json* node = &root;
+    for (size_t i = 0; i + 1 < parts.size(); ++i) {
+        if (!node->contains(parts[i]) || !(*node)[parts[i]].is_object()) (*node)[parts[i]] = nlohmann::json::object();
+        node = &(*node)[parts[i]];
+    }
+    (*node)[parts.back()] = value;
+}
+
+} // namespace
+
 void register_config_routes(CrowApp& app,
-                              std::shared_ptr<AppState> state,
-                              std::shared_ptr<ConfigRevisionStore> /*unused*/) {
+                            std::shared_ptr<AppState> state,
+                            std::shared_ptr<ConfigRevisionStore> /*unused*/) {
+
+    CROW_ROUTE(app, "/api/config/schema").methods("GET"_method)
+    ([state](const crow::request&) {
+        SubprocessResult res = run_subprocess({state->runtime.cli_exe, "get-schema"}, state->runtime.project_root.string());
+        auto parsed = parse_json(res.stdout_str);
+        if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("failed to fetch schema", res);
+        return json_resp(*parsed);
+    });
 
     CROW_ROUTE(app, "/api/config/current").methods("GET"_method)
     ([state](const crow::request& req) {
-        std::string path = req.url_params.get("path") ? req.url_params.get("path") : "";
-        fs::path config_path = path.empty() ? state->runtime.default_config_path : fs::path(path);
-        if (!state->runtime.is_path_allowed(config_path)) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + config_path.string(), 403, {{"path", config_path.string()}});
+        fs::path config_path = req.url_params.get("path") ? fs::path(req.url_params.get("path")) : state->runtime.default_config_path;
+        if (auto err = validate_path(state, config_path, "config_path", true)) return std::move(*err);
+
+        SubprocessResult res = run_subprocess({state->runtime.cli_exe, "load-config", config_path.string()}, state->runtime.project_root.string());
+        auto parsed = parse_json(res.stdout_str);
+        if (res.exit_code == 0 && parsed && parsed->is_object()) {
+            return json_resp({{"config", parsed->value("yaml", std::string())}, {"source", config_path.string()}});
         }
-        std::string yaml_text = read_file_str(config_path);
-        return json_resp({{"config", yaml_text},
-                          {"source", config_path.string()}});
+
+        std::ifstream in(config_path);
+        if (!in) return backend_command_failed("failed to load config", res);
+        std::string yaml_text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        return json_resp({{"config", yaml_text}, {"source", config_path.string()}, {"fallback", "file_read"}});
     });
 
     CROW_ROUTE(app, "/api/config/validate").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded() || !body.contains("yaml"))
-            return err_resp("Missing 'yaml'");
-        std::string yaml_text = body["yaml"].get<std::string>();
+        if (body.is_discarded()) body = nlohmann::json::object();
 
-        SubprocessResult res = run_subprocess({
-            state->runtime.cli_exe, "validate-config",
-            "--stdin"
-        }, state->runtime.project_root.string(), yaml_text);
+        bool strict = body.value("strict_exit_codes", false);
+        std::vector<std::string> cmd = {state->runtime.cli_exe, "validate-config"};
+        std::string stdin_text;
 
-        if (res.exit_code == 0) {
-            try {
-                auto j = nlohmann::json::parse(res.stdout_str);
-                return json_resp({
-                    {"ok", j.value("valid", false)},
-                    {"valid", j.value("valid", false)},
-                    {"errors", j.value("errors", nlohmann::json::array())},
-                    {"warnings", nlohmann::json::array()}
-                });
-            } catch (...) {}
-            return json_resp({{"ok", true}, {"errors", nlohmann::json::array()},
-                              {"warnings", nlohmann::json::array()}});
+        if (body.contains("path") && body["path"].is_string() && !body["path"].get<std::string>().empty()) {
+            fs::path config_path = body["path"].get<std::string>();
+            if (auto err = validate_path(state, config_path, "config_path", true)) return std::move(*err);
+            cmd.push_back("--path");
+            cmd.push_back(config_path.string());
+        } else if (body.contains("yaml") && body["yaml"].is_string()) {
+            stdin_text = body["yaml"].get<std::string>();
+            cmd.push_back("--stdin");
+        } else if (body.contains("config") && body["config"].is_object()) {
+            stdin_text = yaml_dump(body["config"]);
+            cmd.push_back("--stdin");
+        } else {
+            return err_resp("BAD_REQUEST", "provide one of: path, yaml, or config", 400);
         }
-        try {
-            auto j = nlohmann::json::parse(res.stdout_str);
-            return json_resp({
-                {"ok", j.value("valid", false)},
-                {"valid", j.value("valid", false)},
-                {"errors", j.value("errors", nlohmann::json::array())},
-                {"warnings", nlohmann::json::array()}
-            });
-        } catch (...) {}
-        return json_resp({{"ok", false},
-                          {"errors", nlohmann::json::array({res.stderr_str})},
-                          {"warnings", nlohmann::json::array()}});
+
+        if (strict) cmd.push_back("--strict-exit-codes");
+        SubprocessResult res = run_subprocess(cmd, state->runtime.project_root.string(), stdin_text);
+        auto parsed = parse_json(res.stdout_str);
+        if (!parsed || !parsed->is_object()) {
+            nlohmann::json details = nlohmann::json::array();
+            if (!res.stderr_str.empty()) details.push_back("stderr: " + res.stderr_str);
+            if (!res.stdout_str.empty()) details.push_back("stdout: " + res.stdout_str);
+            if (details.empty()) details.push_back("validate-config returned non-json output");
+            return json_resp({{"ok", false}, {"errors", details}, {"warnings", nlohmann::json::array({"CLI validation backend returned unexpected output"})}});
+        }
+
+        return json_resp({
+            {"ok", parsed->value("valid", false)},
+            {"errors", parsed->value("errors", nlohmann::json::array())},
+            {"warnings", parsed->value("warnings", nlohmann::json::array())},
+        });
     });
 
     CROW_ROUTE(app, "/api/config/save").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded()) return err_resp("Invalid JSON");
-        std::string target_path = body.value("path", state->runtime.default_config_path.string());
-        if (!state->runtime.is_path_allowed(fs::path(target_path))) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + target_path, 403, {{"path", target_path}});
-        }
+
+        fs::path target = body.contains("path") && body["path"].is_string()
+            ? fs::path(body["path"].get<std::string>())
+            : state->runtime.default_config_path;
+        if (auto err = validate_path(state, target, "config_path")) return std::move(*err);
 
         std::string yaml_text;
         if (body.contains("yaml") && body["yaml"].is_string()) {
             yaml_text = body["yaml"].get<std::string>();
         } else if (body.contains("config") && body["config"].is_object()) {
-            std::ostringstream oss;
-            oss << json_to_yaml_node(body["config"]);
-            yaml_text = oss.str();
+            yaml_text = yaml_dump(body["config"]);
         } else {
-            return err_resp("BAD_REQUEST", "provide yaml or config object", 400, nlohmann::json::object());
+            return err_resp("BAD_REQUEST", "provide yaml or config object", 400);
         }
 
-        std::ofstream out(target_path);
-        if (!out) return err_resp("Cannot write: " + target_path, 500);
-        out << yaml_text;
+        SubprocessResult res = run_subprocess({state->runtime.cli_exe, "save-config", target.string(), "--stdin"},
+                                              state->runtime.project_root.string(),
+                                              yaml_text);
+        auto parsed = parse_json(res.stdout_str);
+        if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("save-config failed", res);
 
-        std::string rev_id = state->revision_store.add(yaml_text, "save");
+        fs::path saved_path = parsed->contains("path") && (*parsed)["path"].is_string()
+            ? fs::path((*parsed)["path"].get<std::string>())
+            : target;
+        std::string rev_id = state->revision_store.add(saved_path, yaml_text, "save_config");
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->active_config_revision_id = rev_id;
         }
-        state->ui_event_store.push("config_saved", {{"path", target_path}, {"revision_id", rev_id}});
-        return json_resp({{"path", target_path}, {"saved", true}, {"revision_id", rev_id}});
-    });
-
-    CROW_ROUTE(app, "/api/config/patch").methods("POST"_method)
-    ([state](const crow::request& req) {
-        auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded()) return err_resp("Invalid JSON");
-
-        fs::path target_path = body.contains("path") && body["path"].is_string()
-            ? fs::path(body["path"].get<std::string>())
-            : state->runtime.default_config_path;
-        if (!state->runtime.is_path_allowed(target_path)) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + target_path.string(), 403, {{"path", target_path.string()}});
-        }
-
-        std::string base_yaml;
-        if (body.contains("yaml") && body["yaml"].is_string())
-            base_yaml = body["yaml"].get<std::string>();
-        else if (body.contains("config") && body["config"].is_object()) {
-            std::ostringstream oss;
-            oss << json_to_yaml_node(body["config"]);
-            base_yaml = oss.str();
-        }
-        else
-            base_yaml = read_file_str(target_path);
-
-        bool parse_values = body.value("parse_values", true);
-        bool persist = body.value("persist", false);
-        nlohmann::json applied = nlohmann::json::array();
-
-        YAML::Node root;
-        try { root = YAML::Load(base_yaml); } catch (const std::exception& e) {
-            return err_resp(std::string("YAML parse error: ") + e.what());
-        }
-        if (!root || !root.IsMap()) root = YAML::Node(YAML::NodeType::Map);
-
-        if (body.contains("updates") && body["updates"].is_array()) {
-            for (auto& upd : body["updates"]) {
-                std::string path = upd.value("path", "");
-                std::string value = upd.value("value", "");
-                if (!path.empty()) {
-                    set_dotted(root, path, value, parse_values);
-                    YAML::Node current = root;
-                    std::istringstream iss(path);
-                    std::string key;
-                    while (std::getline(iss, key, '.')) {
-                        if (key.empty() || !current[key]) { current = YAML::Node(); break; }
-                        current = current[key];
-                    }
-                    applied.push_back({{"path", path}, {"value", yaml_to_json(current)}});
-                }
-            }
-        }
-
-        std::ostringstream oss;
-        oss << root;
-        std::string patched_yaml = oss.str();
-
-        nlohmann::json response = {
-            {"path", target_path.string()},
-            {"config", yaml_to_json(root)},
-            {"config_yaml", patched_yaml},
-            {"applied", applied}
-        };
-
-        if (persist) {
-            std::ofstream out(target_path);
-            if (!out) return err_resp("Cannot write: " + target_path.string(), 500);
-            out << patched_yaml;
-
-            std::string rev_id = state->revision_store.add(patched_yaml, "patch");
-            {
-                std::lock_guard<std::mutex> lk(state->state_mutex);
-                state->active_config_revision_id = rev_id;
-            }
-            state->ui_event_store.push("config_patched", {{"path", target_path.string()}, {"revision_id", rev_id}});
-            response["saved"] = true;
-            response["revision_id"] = rev_id;
-        }
-
-        return json_resp(response);
+        state->ui_event_store.push("config.save", "config.save", {{"path", saved_path.string()}, {"saved", parsed->value("saved", false)}, {"revision_id", rev_id}});
+        return json_resp({{"path", saved_path.string()}, {"saved", parsed->value("saved", false)}, {"revision_id", rev_id}});
     });
 
     CROW_ROUTE(app, "/api/config/presets").methods("GET"_method)
@@ -273,11 +258,7 @@ void register_config_routes(CrowApp& app,
             std::string ext = entry.path().extension().string();
             if (ext != ".yaml" && ext != ".yml") continue;
             if (entry.path().filename().string().find("example") == std::string::npos) continue;
-            items.push_back({
-                {"id", entry.path().stem().string()},
-                {"name", entry.path().filename().string()},
-                {"path", entry.path().string()},
-            });
+            items.push_back({{"id", entry.path().stem().string()}, {"name", entry.path().filename().string()}, {"path", entry.path().string()}});
         }
         return json_resp({{"items", items}});
     });
@@ -285,47 +266,137 @@ void register_config_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/config/presets/apply").methods("POST"_method)
     ([state](const crow::request& req) {
         auto body = nlohmann::json::parse(req.body, nullptr, false);
-        if (body.is_discarded() || !body.contains("path"))
-            return err_resp("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
-        fs::path path = fs::path(body["path"].get<std::string>());
-        if (path.is_relative()) path = state->runtime.project_root / path;
-        if (!state->runtime.is_path_allowed(path)) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + path.string(), 403, {{"path", path.string()}});
+        if (body.is_discarded() || !body.contains("path") || !body["path"].is_string()) {
+            return err_resp("BAD_REQUEST", "path is required", 400);
         }
-        std::string yaml_text = read_file_str(path);
-        if (yaml_text.empty()) return err_resp("Preset not found: " + path.string(), 404);
-        return json_resp({{"config", yaml_text}, {"applied_paths", nlohmann::json::array({path.string()})}});
+
+        fs::path preset_path = fs::path(body["path"].get<std::string>());
+        if (preset_path.is_relative()) preset_path = state->runtime.project_root / preset_path;
+        if (auto err = validate_path(state, preset_path, "preset_path", true)) return std::move(*err);
+
+        SubprocessResult res = run_subprocess({state->runtime.cli_exe, "load-config", preset_path.string()}, state->runtime.project_root.string());
+        auto parsed = parse_json(res.stdout_str);
+        if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("load-config failed", res);
+
+        state->ui_event_store.push("config.preset.apply", "config.presets_apply", {{"preset_path", preset_path.string()}});
+        return json_resp({{"config", parsed->value("yaml", std::string())}, {"applied_paths", nlohmann::json::array({preset_path.string()})}});
     });
 
     CROW_ROUTE(app, "/api/config/revisions").methods("GET"_method)
     ([state]() {
-        auto list = state->revision_store.list();
+        auto revisions = state->revision_store.list();
         nlohmann::json items = nlohmann::json::array();
-        for (auto& r : list) items.push_back(config_revision_to_json(r));
+        for (const auto& revision : revisions) items.push_back(config_revision_to_json(revision));
         return json_resp({{"items", items}, {"active_revision_id", state->active_config_revision_id}});
     });
 
     CROW_ROUTE(app, "/api/config/revisions/<string>/restore").methods("POST"_method)
     ([state](const crow::request&, std::string rev_id) {
         auto rev = state->revision_store.get(rev_id);
-        if (!rev) return err_resp("Revision not found: " + rev_id, 404);
-        if (!state->runtime.is_path_allowed(state->runtime.default_config_path)) {
-            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + state->runtime.default_config_path.string(), 403, {{"path", state->runtime.default_config_path.string()}});
+        if (!rev) return err_resp("NOT_FOUND", "revision '" + rev_id + "' not found", 404);
+
+        fs::path target = rev->path.empty() ? state->runtime.default_config_path : fs::path(rev->path);
+        if (auto err = validate_path(state, target, "revision_path")) return std::move(*err);
+
+        if (!target.parent_path().empty()) fs::create_directories(target.parent_path());
+        if (!rev->yaml_text.empty()) {
+            std::ofstream out(target);
+            if (!out) return err_resp("BACKEND_COMMAND_FAILED", "failed to restore revision", 502, {{"path", target.string()}});
+            out << rev->yaml_text;
+        } else if (!fs::exists(target)) {
+            std::ofstream out(target);
+            if (!out) return err_resp("BACKEND_COMMAND_FAILED", "failed to restore revision", 502, {{"path", target.string()}});
+            out << "{}\n";
         }
-        std::ofstream out(state->runtime.default_config_path);
-        if (!out) return err_resp("Cannot write: " + state->runtime.default_config_path.string(), 500);
-        out << rev->yaml_text;
+
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->active_config_revision_id = rev_id;
         }
+        state->ui_event_store.push("config.revision.restore", "config.revision_restore", {{"revision_id", rev_id}, {"path", target.string()}});
         return json_resp({{"ok", true}, {"active_revision_id", rev_id}});
     });
 
-    CROW_ROUTE(app, "/api/config/schema").methods("GET"_method)
-    ([state]() {
-        std::string schema_text = read_file_str(state->runtime.schema_path);
-        return json_resp({{"schema", schema_text},
-                          {"path",   state->runtime.schema_path.string()}});
+    CROW_ROUTE(app, "/api/config/patch").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = nlohmann::json::parse(req.body, nullptr, false);
+        if (body.is_discarded()) return err_resp("Invalid JSON");
+
+        fs::path target = body.contains("path") && body["path"].is_string()
+            ? fs::path(body["path"].get<std::string>())
+            : state->runtime.default_config_path;
+        if (auto err = validate_path(state, target, "config_path")) return std::move(*err);
+
+        nlohmann::json base = nlohmann::json::object();
+        if (body.contains("yaml") && body["yaml"].is_string()) {
+            try {
+                base = yaml_to_json(YAML::Load(body["yaml"].get<std::string>()));
+            } catch (const std::exception& e) {
+                return err_resp("BAD_REQUEST", std::string("YAML parse error: ") + e.what(), 400);
+            }
+        } else if (body.contains("config") && body["config"].is_object()) {
+            base = body["config"];
+        } else {
+            std::string current_text = read_file_str(target);
+            if (!current_text.empty()) {
+                try {
+                    base = yaml_to_json(YAML::Load(current_text));
+                } catch (const std::exception& e) {
+                    return err_resp("BAD_REQUEST", std::string("YAML parse error: ") + e.what(), 400);
+                }
+            }
+        }
+
+        if (!base.is_object()) {
+            return err_resp("BAD_REQUEST", "base config must be a mapping", 400);
+        }
+        if (body.contains("updates") && !body["updates"].is_array()) {
+            return err_resp("BAD_REQUEST", "updates must be a list", 400);
+        }
+
+        const bool parse_values = body.value("parse_values", true);
+        const bool persist = body.value("persist", false);
+        nlohmann::json applied = nlohmann::json::array();
+        if (body.contains("updates") && body["updates"].is_array()) {
+            for (const auto& entry : body["updates"]) {
+                if (!entry.is_object()) continue;
+                const std::string dotted = entry.value("path", "");
+                if (dotted.empty()) continue;
+                nlohmann::json value = entry.contains("value") ? parse_scalar_value(entry["value"], parse_values) : nlohmann::json(nullptr);
+                set_dotted(base, dotted, value);
+                applied.push_back({{"path", dotted}, {"value", value}});
+            }
+        }
+
+        const std::string merged_yaml = yaml_dump(base);
+        nlohmann::json result = {
+            {"path", target.string()},
+            {"config", base},
+            {"config_yaml", merged_yaml},
+            {"applied", applied},
+        };
+
+        if (persist) {
+            SubprocessResult res = run_subprocess({state->runtime.cli_exe, "save-config", target.string(), "--stdin"},
+                                                  state->runtime.project_root.string(),
+                                                  merged_yaml);
+            auto parsed = parse_json(res.stdout_str);
+            if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("save-config failed", res);
+
+            fs::path saved_path = parsed->contains("path") && (*parsed)["path"].is_string()
+                ? fs::path((*parsed)["path"].get<std::string>())
+                : target;
+            std::string rev_id = state->revision_store.add(saved_path, merged_yaml, "config_patch");
+            {
+                std::lock_guard<std::mutex> lk(state->state_mutex);
+                state->active_config_revision_id = rev_id;
+            }
+            state->ui_event_store.push("config.patch.save", "config.patch", {{"path", saved_path.string()}, {"revision_id", rev_id}, {"applied_count", static_cast<int>(applied.size())}});
+            result["saved"] = parsed->value("saved", false);
+            result["revision_id"] = rev_id;
+            result["path"] = saved_path.string();
+        }
+
+        return json_resp(result);
     });
 }

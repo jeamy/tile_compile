@@ -45,6 +45,7 @@ public:
     bool merge_data(const std::string& job_id, const nlohmann::json& patch);
     bool update_progress(const std::string& job_id, double progress);
     bool set_pid(const std::string& job_id, std::optional<int> pid);
+    bool is_cancelled(const std::string& job_id) const;
     bool cancel(const std::string& job_id);
     std::vector<Job> list(int limit = 100) const;
 

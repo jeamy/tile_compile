@@ -12,6 +12,7 @@ const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
 const uiState = {
   currentRunId: localStorage.getItem("gui2.currentRunId") || "",
   currentRunDir: "",
+  currentRunColorMode: "",
   missingHistoryRunIds: new Set(),
   defaultConfigPath: "",
   selectedHistoryRunId: "",
@@ -35,7 +36,19 @@ const uiState = {
   locale: localStorage.getItem(LOCALE_KEY) || "de",
   projectRunsDir: "",
   monitorStatsStatus: null,
+  dashboardGuardrailStatus: "",
 };
+
+const DASHBOARD_PIPELINE_GROUPS = [
+  { key: "SCAN", phases: ["SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS"] },
+  { key: "REG", phases: ["REGISTRATION", "PREWARP", "COMMON_OVERLAP"] },
+  { key: "TILES", phases: ["TILE_GRID", "LOCAL_METRICS", "TILE_RECONSTRUCTION", "STATE_CLUSTERING", "SYNTHETIC_FRAMES"] },
+  { key: "STACK", phases: ["STACKING", "DEBAYER"] },
+  { key: "ASTROM", phases: ["ASTROMETRY"] },
+  { key: "BGE", phases: ["BGE"] },
+  { key: "PCC", phases: ["PCC"] },
+  { key: "DONE", phases: [] },
+];
 
 const PARAM_CONTROL_PATHS = {
   "parameter.registration.engine": "registration.engine",
@@ -275,9 +288,264 @@ function findLogBoxBySectionTitle(titlePrefix) {
 
 function appendLine(el, line) {
   if (!el) return;
-  const old = el.textContent ? `${el.textContent}\n` : "";
-  const merged = `${old}${line}`.split("\n");
-  el.textContent = merged.slice(-300).join("\n");
+  const text = String(line ?? "").trim();
+  if (!text) return;
+  const lines = String(el.textContent || "")
+    .split("\n")
+    .filter(Boolean);
+  if (lines[lines.length - 1] === text) return;
+  lines.push(text);
+  el.textContent = lines.slice(-300).join("\n");
+}
+
+function compactLogMessage(raw) {
+  return String(raw ?? "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function maybeParseJsonLine(raw) {
+  if (typeof raw !== "string") return raw;
+  const trimmed = raw.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) return raw;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return raw;
+  }
+}
+
+function humanizeLogToken(raw) {
+  return String(raw || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function shortLogTimestamp(isoRaw) {
+  const iso = String(isoRaw || "").trim();
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function formatLogPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "";
+  const pct = numeric <= 1 ? numeric * 100 : numeric;
+  return `${pct.toFixed(pct >= 10 ? 0 : 1)}%`;
+}
+
+function formatLogBytes(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let amount = numeric;
+  let unitIndex = 0;
+  while (amount >= 1024 && unitIndex < units.length - 1) {
+    amount /= 1024;
+    unitIndex += 1;
+  }
+  const digits = amount >= 100 || unitIndex === 0 ? 0 : amount >= 10 ? 1 : 2;
+  return `${amount.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function formatCatalogSummary(catalogs) {
+  if (!catalogs || typeof catalogs !== "object") return "";
+  const items = Object.entries(catalogs)
+    .map(([key, value]) => `${String(key || "").toUpperCase()}:${value ? "ok" : "missing"}`)
+    .filter(Boolean);
+  return items.join(", ");
+}
+
+function genericLogSummary(entry) {
+  if (!entry || typeof entry !== "object") return "";
+  const simpleParts = [];
+  const simpleState = humanizeLogToken(entry.state || entry.status || "");
+  const simplePct = formatLogPercent(entry.progress ?? entry.pct);
+  if (simpleState) simpleParts.push(simpleState);
+  if (entry.stage) simpleParts.push(humanizeLogToken(entry.stage));
+  if (simplePct) simpleParts.push(simplePct);
+  if (Number.isFinite(Number(entry.current_chunk))) simpleParts.push(`chunk ${entry.current_chunk}`);
+  const simpleError = compactLogMessage(entry.error || "");
+  if (simpleError) simpleParts.push(simpleError);
+  if (simpleParts.length > 0) return simpleParts.join(" | ");
+
+  const parts = [];
+  for (const [key, value] of Object.entries(entry)) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "object") continue;
+    if (["stdout", "stderr", "command", "matrix"].includes(key)) continue;
+    parts.push(`${humanizeLogToken(key)}=${value}`);
+    if (parts.length >= 6) break;
+  }
+  return parts.join(" | ");
+}
+
+function formatRunStreamLog(entry, { suppressRunStatus = false } = {}) {
+  if (!entry || typeof entry !== "object") return "";
+  const type = String(entry.type || "").trim().toLowerCase();
+  if (!type) return "";
+  const ts = shortLogTimestamp(entry.ts);
+  const prefix = ts ? `${ts} | ` : "";
+  const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : {};
+  const phase = humanizeLogToken(entry.phase || payload.phase_name || payload.phase || "");
+  const pct = formatLogPercent(entry.pct ?? payload.progress ?? payload.pct);
+  const message = compactLogMessage(payload.message || entry.message || "");
+
+  if (type === "phase_start") {
+    return `${prefix}${phase || "Phase"} | gestartet`;
+  }
+  if (type === "phase_progress") {
+    const parts = [phase || "Phase"];
+    if (pct) parts.push(pct);
+    const current = Number(entry.current ?? payload.current);
+    const total = Number(entry.total ?? payload.total);
+    if (Number.isFinite(current) && Number.isFinite(total) && total > 0) parts.push(`${current}/${total}`);
+    if (message) parts.push(message);
+    return `${prefix}${parts.join(" | ")}`;
+  }
+  if (type === "phase_end") {
+    const status = String(payload.status || entry.status || "ok").trim().toUpperCase();
+    const parts = [phase || "Phase", status || "OK"];
+    if (pct) parts.push(pct);
+    if (message) parts.push(message);
+    return `${prefix}${parts.join(" | ")}`;
+  }
+  if (type === "queue_progress") {
+    const done = Number(payload.done);
+    const total = Number(payload.total);
+    const parts = ["Queue"];
+    if (Number.isFinite(done) && Number.isFinite(total) && total > 0) parts.push(`${done}/${total}`);
+    if (pct) parts.push(pct);
+    const filter = humanizeLogToken(entry.filter || "");
+    if (filter) parts.push(`filter ${filter}`);
+    return `${prefix}${parts.join(" | ")}`;
+  }
+  if (type === "run_end") {
+    const parts = ["Run beendet", humanizeLogToken(payload.state || entry.status || "done")];
+    const currentPhase = humanizeLogToken(payload.current_phase || "");
+    if (currentPhase) parts.push(currentPhase);
+    return `${prefix}${parts.filter(Boolean).join(" | ")}`;
+  }
+  if (type === "run_stream_error") {
+    return `${prefix}Stream error | ${message || "unbekannt"}`;
+  }
+  if (type === "run_status") {
+    const state = String(payload.status || entry.state || "").trim().toLowerCase();
+    const terminal = ["completed", "failed", "cancelled", "aborted", "error", "done", "finished"].includes(state);
+    if (suppressRunStatus && !terminal) return "";
+    const parts = ["Run", humanizeLogToken(state || "status")];
+    if (phase) parts.push(phase);
+    if (pct) parts.push(pct);
+    return `${prefix}${parts.join(" | ")}`;
+  }
+  if (type === "log_line") {
+    const parts = [];
+    if (phase) parts.push(phase);
+    if (message) parts.push(message);
+    return parts.length > 0 ? `${prefix}${parts.join(" | ")}` : "";
+  }
+  return "";
+}
+
+function formatAstrometryLog(entry) {
+  if (!entry || typeof entry !== "object") return "";
+  if (Object.prototype.hasOwnProperty.call(entry, "installed") && (Object.prototype.hasOwnProperty.call(entry, "binary") || Object.prototype.hasOwnProperty.call(entry, "catalogs"))) {
+    const parts = [entry.installed ? "ASTAP gefunden" : "ASTAP fehlt"];
+    if (entry.binary) parts.push(String(entry.binary));
+    if (entry.data_dir) parts.push(`dir ${entry.data_dir}`);
+    const catalogs = formatCatalogSummary(entry.catalogs);
+    if (catalogs) parts.push(`catalogs ${catalogs}`);
+    return parts.join(" | ");
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, "ra_deg") || Object.prototype.hasOwnProperty.call(entry, "wcs_path")) {
+    const parts = ["Plate solve"];
+    if (Number.isFinite(Number(entry.ra_deg)) && Number.isFinite(Number(entry.dec_deg))) {
+      parts.push(`RA ${Number(entry.ra_deg).toFixed(6)} deg`);
+      parts.push(`Dec ${Number(entry.dec_deg).toFixed(6)} deg`);
+    }
+    if (Number.isFinite(Number(entry.pixel_scale_arcsec))) parts.push(`Scale ${Number(entry.pixel_scale_arcsec).toFixed(3)} arcsec/px`);
+    if (entry.wcs_path) parts.push(String(entry.wcs_path));
+    return parts.join(" | ");
+  }
+  if (entry.output_path || entry.saved) {
+    return `Solved FITS gespeichert | ${entry.output_path || "-"}`;
+  }
+  return "";
+}
+
+function formatPccLog(entry) {
+  if (!entry || typeof entry !== "object") return "";
+  if (Object.prototype.hasOwnProperty.call(entry, "installed") && Object.prototype.hasOwnProperty.call(entry, "total") && Array.isArray(entry.missing)) {
+    const parts = [`Siril catalog ${entry.installed}/${entry.total}`];
+    if (entry.missing.length > 0) parts.push(`missing ${entry.missing.length}`);
+    if (entry.catalog_dir) parts.push(String(entry.catalog_dir));
+    return parts.join(" | ");
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, "latency_ms") && Object.prototype.hasOwnProperty.call(entry, "ok")) {
+    return `Online source ${entry.ok ? "OK" : "fehler"} | ${entry.latency_ms} ms${entry.error ? ` | ${entry.error}` : ""}`;
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, "stars_used") || Object.prototype.hasOwnProperty.call(entry, "stars_matched") || Object.prototype.hasOwnProperty.call(entry, "residual_rms")) {
+    const parts = ["PCC"];
+    if (entry.stars_matched ?? entry.n_stars_matched) parts.push(`matched ${entry.stars_matched ?? entry.n_stars_matched}`);
+    if (entry.stars_used ?? entry.n_stars_used) parts.push(`used ${entry.stars_used ?? entry.n_stars_used}`);
+    if (entry.residual_rms !== undefined && entry.residual_rms !== null && entry.residual_rms !== "") parts.push(`RMS ${entry.residual_rms}`);
+    if (entry.output_rgb) parts.push(String(entry.output_rgb));
+    return parts.join(" | ");
+  }
+  if (entry.output_rgb && Array.isArray(entry.output_channels)) {
+    return `PCC gespeichert | ${entry.output_rgb}`;
+  }
+  return "";
+}
+
+function formatJobLog(entry) {
+  if (!entry || typeof entry !== "object" || !entry.job_id) return "";
+  const state = humanizeLogToken(entry.state || "");
+  const data = entry.data && typeof entry.data === "object" ? entry.data : {};
+  const parts = [`Job ${entry.job_id}`];
+  if (state) parts.push(state);
+  if (data.stage) parts.push(humanizeLogToken(data.stage));
+  if (data.catalog_id) parts.push(String(data.catalog_id).toUpperCase());
+  if (Number.isFinite(Number(data.current_chunk))) parts.push(`chunk ${data.current_chunk}`);
+  const pct = formatLogPercent(data.progress);
+  if (pct) parts.push(pct);
+  const received = formatLogBytes(data.bytes_received);
+  const total = formatLogBytes(data.bytes_total);
+  if (received && total) parts.push(`${received}/${total}`);
+  else if (received) parts.push(received);
+  if (data.resumed) parts.push("resume");
+  if (Number.isFinite(Number(data.attempt))) parts.push(`attempt ${data.attempt}`);
+  if (Number.isFinite(Number(data.status_code)) && Number(data.status_code) > 0) parts.push(`HTTP ${data.status_code}`);
+  if (data.retrying) parts.push("retry");
+  const error = compactLogMessage(data.error || entry.error || "");
+  if (error) parts.push(error);
+  return parts.join(" | ");
+}
+
+function formatStructuredLogLine(entry, options = {}) {
+  const parsed = maybeParseJsonLine(entry);
+  if (typeof parsed === "string") return compactLogMessage(parsed);
+  if (!parsed || typeof parsed !== "object") return String(parsed ?? "");
+  return formatRunStreamLog(parsed, options)
+    || formatAstrometryLog(parsed)
+    || formatPccLog(parsed)
+    || formatJobLog(parsed)
+    || genericLogSummary(parsed)
+    || compactLogMessage(JSON.stringify(parsed));
+}
+
+function appendStructuredLog(el, entry, options = {}) {
+  const line = formatStructuredLogLine(entry, options);
+  if (!line) return;
+  appendLine(el, line);
+  scrollLogToEnd(el);
 }
 
 function scrollLogToEnd(el) {
@@ -337,12 +605,14 @@ function getConfigValidationState() {
   }
 }
 
-function setConfigValidationState({ yaml = "", ok = false } = {}) {
+function setConfigValidationState({ yaml = "", ok = false, errors = [], warnings = [] } = {}) {
   localStorage.setItem(
     CONFIG_VALIDATION_STATE_KEY,
     JSON.stringify({
       yaml: String(yaml || ""),
       ok: Boolean(ok),
+      errors: Array.isArray(errors) ? errors : [],
+      warnings: Array.isArray(warnings) ? warnings : [],
       updated_at: new Date().toISOString(),
     }),
   );
@@ -356,6 +626,7 @@ function setDisabledLike(el, disabled) {
   if (!el) return;
   const isOff = Boolean(disabled);
   if ("disabled" in el) el.disabled = isOff;
+  el.setAttribute("aria-disabled", isOff ? "true" : "false");
   el.style.opacity = isOff ? "0.55" : "";
   el.style.pointerEvents = isOff ? "none" : "";
 }
@@ -703,6 +974,14 @@ function parentDirOfPath(pathValue) {
   return s.slice(0, slash);
 }
 
+function shouldKeepAstapSelection(rawInput, detectedBinary) {
+  const selected = String(rawInput || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const binary = String(detectedBinary || "").trim().replace(/\\/g, "/");
+  if (!selected || !binary) return false;
+  if (selected === binary) return false;
+  return binary.startsWith(`${selected}/`);
+}
+
 function pathBaseName(pathValue) {
   const s = String(pathValue || "")
     .trim()
@@ -1001,6 +1280,18 @@ function parameterValidateDetailsEl() {
   return $("parameter-validate-details");
 }
 
+function dashboardValidateStatusEl() {
+  return $("dashboard-validate-status");
+}
+
+function dashboardValidateDetailsEl() {
+  return $("dashboard-validate-details");
+}
+
+function wizardValidationResultEl() {
+  return $("wizard-validation-result");
+}
+
 function parameterSituationApplyStatusEl() {
   return $("parameter-situation-apply-status");
 }
@@ -1037,8 +1328,7 @@ function formatValidationIssue(issue) {
   }
 }
 
-function setParameterValidateDetails(result) {
-  const el = parameterValidateDetailsEl();
+function setValidationDetailsBox(el, result) {
   if (!el) return;
   clearChildren(el);
   if (!result || typeof result !== "object") {
@@ -1073,6 +1363,35 @@ function setParameterValidateDetails(result) {
     el.appendChild(list);
   });
   el.style.display = "block";
+}
+
+function setValidationStatusText(el, result, fallbackText = "") {
+  if (!el) return;
+  if (!result || typeof result !== "object") {
+    el.textContent = fallbackText || "Validierung: nicht geprüft";
+    el.style.color = "";
+    return;
+  }
+  const errors = Array.isArray(result.errors) ? result.errors.length : 0;
+  const warnings = Array.isArray(result.warnings) ? result.warnings.length : 0;
+  if (errors > 0) {
+    const firstError = formatValidationIssue(result.errors?.[0]);
+    el.textContent = `Validierung: ERROR (${errors} Fehler, ${warnings} Warnungen)${firstError ? ` - ${firstError}` : ""}`;
+    el.style.color = "#b91c1c";
+    return;
+  }
+  if (warnings > 0) {
+    const firstWarning = formatValidationIssue(result.warnings?.[0]);
+    el.textContent = `Validierung: WARN (${warnings} Warnungen)${firstWarning ? ` - ${firstWarning}` : ""}`;
+    el.style.color = "#b45309";
+    return;
+  }
+  el.textContent = "Validierung: OK";
+  el.style.color = "#166534";
+}
+
+function setParameterValidateDetails(result) {
+  setValidationDetailsBox(parameterValidateDetailsEl(), result);
 }
 
 function setSituationApplyStatus(applied, text = "") {
@@ -1180,29 +1499,49 @@ async function refreshRunMonitorValidationMessage() {
 }
 
 function setParameterValidateStatus(result, fallbackText = "") {
-  const el = parameterValidateStatusEl();
-  if (!el) return;
+  setValidationStatusText(parameterValidateStatusEl(), result, fallbackText);
+}
+
+function setDashboardValidateStatus(result, fallbackText = "") {
+  setValidationStatusText(dashboardValidateStatusEl(), result, fallbackText);
+}
+
+function setDashboardValidateDetails(result) {
+  setValidationDetailsBox(dashboardValidateDetailsEl(), result);
+}
+
+function updateWizardStartState(validationState) {
+  const wizardStart = $("wizard-start");
+  if (!wizardStart) return;
+  const validationOk = Boolean(validationState?.ok);
+  setDisabledLike(wizardStart, !validationOk);
+  if (!validationState) {
+    wizardStart.title = "Run mit aktuellem Wizard-Draft starten (zuerst erfolgreiche Validierung erforderlich).";
+  } else if (!validationOk) {
+    wizardStart.title = "Run mit aktuellem Wizard-Draft starten (Validierung hat Fehler).";
+  } else {
+    wizardStart.title = "Run mit aktuellem Wizard-Draft starten.";
+  }
+}
+
+function setWizardValidationResult(result, fallbackText = "") {
+  const box = wizardValidationResultEl();
+  if (!box) return;
+
+  const title = `<div class="ps-result-title">Validation</div>`;
   if (!result || typeof result !== "object") {
-    el.textContent = fallbackText || "Validierung: nicht geprüft";
-    el.style.color = "";
+    const text = String(fallbackText || "Validierung ausstehend.");
+    box.innerHTML = `${title}<div>${text}</div>`;
     return;
   }
-  const errors = Array.isArray(result.errors) ? result.errors.length : 0;
-  const warnings = Array.isArray(result.warnings) ? result.warnings.length : 0;
-  if (errors > 0) {
-    const firstError = formatValidationIssue(result.errors?.[0]);
-    el.textContent = `Validierung: ERROR (${errors} Fehler, ${warnings} Warnungen)${firstError ? ` - ${firstError}` : ""}`;
-    el.style.color = "#b91c1c";
-    return;
-  }
-  if (warnings > 0) {
-    const firstWarning = formatValidationIssue(result.warnings?.[0]);
-    el.textContent = `Validierung: WARN (${warnings} Warnungen)${firstWarning ? ` - ${firstWarning}` : ""}`;
-    el.style.color = "#b45309";
-    return;
-  }
-  el.textContent = "Validierung: OK";
-  el.style.color = "#166534";
+
+  const errors = Array.isArray(result.errors) ? result.errors : [];
+  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  const state = errors.length > 0 ? "ERROR" : result.ok ? "OK" : "ERROR";
+  const firstIssue = errors[0] || warnings[0] || null;
+  const issueText = firstIssue ? formatValidationIssue(firstIssue) : "";
+  box.innerHTML =
+    `${title}<div>Schema: <b>${state}</b> | Fehler: <b>${errors.length}</b> | Warnungen: <b>${warnings.length}</b>${issueText ? ` | Hinweis: <b>${issueText}</b>` : ""}</div>`;
 }
 
 async function ensureConfigYaml() {
@@ -1406,7 +1745,12 @@ async function bindParameterStudio() {
       const result = await api.post(API_ENDPOINTS.config.validate, { yaml: patched?.config_yaml || "" });
       setParameterValidateStatus(result);
       setParameterValidateDetails(result);
-      setConfigValidationState({ yaml: patched?.config_yaml || "", ok: Boolean(result?.ok) });
+      setConfigValidationState({
+        yaml: patched?.config_yaml || "",
+        ok: Boolean(result?.ok),
+        errors: Array.isArray(result?.errors) ? result.errors : [],
+        warnings: Array.isArray(result?.warnings) ? result.warnings : [],
+      });
       setFooter(result.ok ? "Validierung OK." : "Validierung hat Fehler.");
     } catch (err) {
       setParameterValidateStatus(null, "Validierung: fehlgeschlagen");
@@ -1594,20 +1938,85 @@ function runMonitorSelectedFilter() {
   return String(selected.textContent || "").trim().toUpperCase();
 }
 
-function setRunMonitorFilterVisibility(colorModeRaw) {
+function runMonitorFilterButtons() {
+  return Array.from(document.querySelectorAll(".ps-chip-btn[id^='monitor-filter-']"));
+}
+
+function normalizeMonitorFilterName(raw) {
+  const token = String(raw || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, "");
+  if (!token) return "";
+  if (token === "HALPHA") return "HA";
+  return token;
+}
+
+function collectActiveRunMonitorFilters(queueItemsRaw = null) {
+  const source = Array.isArray(queueItemsRaw) ? queueItemsRaw : collectQueueRows();
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    const rawFilter = typeof item === "string" ? item : item?.filter || item?.filter_name || "";
+    const filter = normalizeMonitorFilterName(rawFilter);
+    if (!filter || seen.has(filter)) continue;
+    seen.add(filter);
+    out.push(filter);
+  }
+  return out;
+}
+
+function runMonitorEffectiveColorMode(colorModeRaw = "") {
+  return normalizeDetectedColorMode(
+    firstNonEmptyText(colorModeRaw, uiState.currentRunColorMode, getPersistedDetectedColorMode(), ""),
+  );
+}
+
+function setRunMonitorFilterVisibility(colorModeRaw, queueItemsRaw = null) {
   const chipRow = $("monitor-filter-row");
   if (!chipRow) return;
-  const colorMode = String(colorModeRaw || "").trim().toUpperCase();
-  const hideFilters = colorMode === "OSC";
+  const chipButtons = runMonitorFilterButtons();
+  const colorMode = runMonitorEffectiveColorMode(colorModeRaw);
+  const activeFilters = collectActiveRunMonitorFilters(queueItemsRaw).filter((filter) => chipButtons.some((btn) => normalizeMonitorFilterName(btn.textContent) === filter));
+  const hideFilters = colorMode !== "MONO" || activeFilters.length === 0;
   chipRow.style.display = hideFilters ? "none" : "";
-  const chipButtons = Array.from(document.querySelectorAll(".ps-chip-btn[id^='monitor-filter-']"));
   if (hideFilters) {
-    chipButtons.forEach((btn) => btn.classList.remove("active"));
+    chipButtons.forEach((btn) => {
+      btn.style.display = "";
+      btn.classList.remove("active");
+    });
     return;
   }
+  const activeSet = new Set(activeFilters);
+  chipButtons.forEach((btn) => {
+    const filter = normalizeMonitorFilterName(btn.textContent);
+    const visible = activeSet.has(filter);
+    btn.style.display = visible ? "" : "none";
+    if (!visible) btn.classList.remove("active");
+  });
   if (!document.querySelector(".ps-chip-btn.active[id^='monitor-filter-']")) {
-    chipButtons[0]?.classList.add("active");
+    chipButtons.find((btn) => btn.style.display !== "none")?.classList.add("active");
   }
+}
+
+function bindRunMonitorFilterSync() {
+  const refresh = () => {
+    setRunMonitorFilterVisibility(
+      firstNonEmptyText($("dashboard-color-mode")?.value, $("inp-colormode")?.value, uiState.currentRunColorMode, ""),
+    );
+  };
+  document.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.id === "dashboard-color-mode" || target.id === "inp-colormode" || target.closest(".ps-queue-row")) {
+      refresh();
+    }
+  });
+  document.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(".ps-queue-row")) refresh();
+  });
 }
 
 function runMonitorLogBox() {
@@ -1704,7 +2113,8 @@ async function loadRunStatus(runId) {
   uiState.currentRunDir = String(status?.run_dir || "");
   const fallbackScanColorMode = String(localStorage.getItem("gui2.lastScanColorMode") || "").trim().toUpperCase();
   const effectiveColorMode = String(status?.color_mode || "").trim().toUpperCase() || fallbackScanColorMode;
-  setRunMonitorFilterVisibility(effectiveColorMode);
+  uiState.currentRunColorMode = effectiveColorMode;
+  setRunMonitorFilterVisibility(effectiveColorMode, Array.isArray(status?.queue_filters) ? status.queue_filters : null);
   if (Array.isArray(status?.phases)) {
     for (const p of status.phases) {
       setPhaseRow(p.phase, p.status, p.pct);
@@ -1740,7 +2150,9 @@ function connectRunMonitorStream(runId) {
   uiState.runSocket = api.ws(
     API_ENDPOINTS.ws.run(runId),
     (event) => {
-      enqueueRunMonitorLogLine(JSON.stringify(event));
+      const eventType = String(event?.type || "").trim().toLowerCase();
+      const line = formatStructuredLogLine(event, { suppressRunStatus: true });
+      if (line) enqueueRunMonitorLogLine(line);
       if (event?.type === "phase_progress" || event?.type === "phase_end" || event?.type === "phase_start") {
         const payload = event.payload || {};
         const phase = payload.phase_name || payload.phase || event.phase || "";
@@ -1753,7 +2165,9 @@ function connectRunMonitorStream(runId) {
           setPhaseRow(p.phase, p.status, p.pct);
         }
       }
-      const eventType = String(event?.type || "").trim().toLowerCase();
+      if (eventType === "queue_progress") {
+        setRunMonitorFilterVisibility(uiState.currentRunColorMode, Array.isArray(event?.payload?.queue) ? event.payload.queue : null);
+      }
       const terminalRunStatus = String(event?.payload?.status || event?.status || "").trim().toLowerCase();
       const isTerminalRunEvent =
         eventType === "run_end"
@@ -1935,7 +2349,7 @@ async function bindRunMonitor() {
       setInlineAsyncStatus(statsStatusEl, "");
       return null;
     }
-    const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId)).catch(() => null);
+    const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId, uiState.currentRunDir)).catch(() => null);
     uiState.monitorStatsStatus = status;
     const hasReport = Boolean(String(status?.report_path || "").trim());
     setMonitorReportAvailable(hasReport);
@@ -2112,7 +2526,7 @@ async function bindRunMonitor() {
         setFooter("Stats-Ordner erst nach beendetem Run verfuegbar.", true);
         return;
       }
-      const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId));
+      const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId, uiState.currentRunDir));
       const targetDir = String(status.output_dir || "").trim();
       if (!targetDir) {
         setFooter("Stats-Ordner nicht verfuegbar.", true);
@@ -2281,7 +2695,7 @@ async function bindHistoryPage() {
     }
     uiState.missingHistoryRunIds.delete(String(runId));
     const [statsStatus, artifactResult] = await Promise.all([
-      api.get(API_ENDPOINTS.runs.statsStatus(runId)).catch(() => ({ report_path: "", output_dir: "", state: "unknown" })),
+      api.get(API_ENDPOINTS.runs.statsStatus(runId, runDir)).catch(() => ({ report_path: "", output_dir: "", state: "unknown" })),
       api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => ({ items: [] })),
     ]);
     const artifacts = Array.isArray(artifactResult?.items) ? artifactResult.items : [];
@@ -2558,14 +2972,18 @@ async function bindAstrometryPage() {
   if (!$("tools-astrometry-bin")) return;
   const logBox = findLogBoxBySectionTitle("Log");
   const statusChip = document.querySelector("[data-control='tools.astrometry.status']");
+  if (logBox) logBox.textContent = "";
 
   const raField = $("tools-astrometry-ra");
   const decField = $("tools-astrometry-dec");
   const pixelScaleField = $("tools-astrometry-pixel-scale");
   const rotationField = $("tools-astrometry-rotation");
   const fovField = $("tools-astrometry-fov");
+  const binaryInput = $("tools-astrometry-bin");
+  const dataDirInput = $("tools-astrometry-data-dir");
+  let autoResolving = false;
 
-  const append = (msg) => appendLine(logBox, typeof msg === "string" ? msg : JSON.stringify(msg));
+  const append = (msg) => appendStructuredLog(logBox, msg, { suppressRunStatus: true });
   const setFieldValue = (el, value) => {
     if (!el) return;
     el.value = value === null || value === undefined || value === "" ? "-" : String(value);
@@ -2595,23 +3013,49 @@ async function bindAstrometryPage() {
     }
   };
 
-  async function detect() {
+  async function detect({ logResult = true } = {}) {
+    const selectedBinary = String(binaryInput?.value || "").trim();
     const payload = {
-      astap_cli: $("tools-astrometry-bin")?.value || "",
-      astap_data_dir: $("tools-astrometry-data-dir")?.value || "",
+      astap_cli: selectedBinary,
+      astap_data_dir: dataDirInput?.value || "",
     };
     const result = await withPathGrantRetry(
       () => api.post(API_ENDPOINTS.astrometry.detect, payload),
       { fallbackPath: payload.astap_cli || payload.astap_data_dir },
     );
     if (statusChip) statusChip.textContent = result.installed ? "Installed" : "Missing";
-    append(result);
+    if (binaryInput && result.binary && !shouldKeepAstapSelection(selectedBinary, result.binary)) {
+      binaryInput.value = String(result.binary);
+    }
+    if (dataDirInput && result.data_dir) dataDirInput.value = String(result.data_dir);
+    if (logResult) append(result);
+    return result;
+  }
+
+  async function autoResolveSelection(origin) {
+    if (autoResolving) return;
+    autoResolving = true;
+    try {
+      const result = await detect({ logResult: true });
+      if (result.installed) {
+        const location = origin === "data-dir"
+          ? String(result.binary || result.data_dir || "")
+          : String(result.binary || "");
+        setFooter(location ? `ASTAP erkannt: ${location}` : "ASTAP erkannt.");
+      } else {
+        setFooter("ASTAP im ausgewaehlten Pfad nicht gefunden.", true);
+      }
+    } catch (err) {
+      setFooter(`ASTAP-Pfadauflosung fehlgeschlagen: ${errorText(err)}`, true);
+    } finally {
+      autoResolving = false;
+    }
   }
 
   document.querySelector("[data-control='tools.astrometry.detect']")?.addEventListener("click", async () => {
     try {
-      await detect();
-      setFooter("Astrometry-Detection aktualisiert.");
+      const result = await detect();
+      setFooter(result.installed ? `ASTAP gefunden: ${result.binary || "-"}` : "ASTAP nicht gefunden.", !result.installed);
     } catch (err) {
       setFooter(`Astrometry detect fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -2627,7 +3071,7 @@ async function bindAstrometryPage() {
       append(accepted);
       const job = await waitForJob(accepted.job_id, { onTick: (j) => append({ state: j.state, progress: j.data?.progress ?? null }) });
       append(job);
-      await detect();
+      await detect({ logResult: false });
     } catch (err) {
       setFooter(`ASTAP Install fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -2713,12 +3157,26 @@ async function bindAstrometryPage() {
       setFooter(`Save Solved fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
+
+  [binaryInput, dataDirInput].forEach((input) => {
+    input?.addEventListener("input", (event) => {
+      if (event.isTrusted || autoResolving) return;
+      void autoResolveSelection(input === dataDirInput ? "data-dir" : "binary");
+    });
+  });
+
+  try {
+    await detect({ logResult: false });
+  } catch {
+    if (statusChip) statusChip.textContent = "Missing";
+  }
 }
 
 async function bindPccPage() {
   if (!$("tools-pcc-rgb")) return;
   const logBox = findLogBoxBySectionTitle("Result + Log");
   const statusField = document.querySelector("[data-control='tools.pcc.siril_status']");
+  if (logBox) logBox.textContent = "";
 
   const missingField = $("tools-pcc-missing-chunks");
   const starsMatchedField = $("tools-pcc-stars-matched");
@@ -2726,7 +3184,7 @@ async function bindPccPage() {
   const residualField = $("tools-pcc-residual-rms");
   const matrixField = $("tools-pcc-matrix");
 
-  const append = (msg) => appendLine(logBox, typeof msg === "string" ? msg : JSON.stringify(msg));
+  const append = (msg) => appendStructuredLog(logBox, msg, { suppressRunStatus: true });
   const setInputValue = (el, value) => {
     if (!el) return;
     el.value = value === null || value === undefined ? "" : String(value);
@@ -2986,13 +3444,17 @@ async function bindLiveLogPage() {
   }
   try {
     const logs = await api.get(API_ENDPOINTS.runs.logs(runId, 250));
-    uiState.liveLines = (logs.lines || []).map((line) => ({ line, level: detectLevel(line) }));
+    uiState.liveLines = (logs.lines || [])
+      .map((line) => formatStructuredLogLine(line, { suppressRunStatus: true }) || String(line || "").trim())
+      .filter(Boolean)
+      .map((line) => ({ line, level: detectLevel(line) }));
     render();
     if (uiState.liveSocket) uiState.liveSocket.close();
     uiState.liveSocket = api.ws(
       API_ENDPOINTS.ws.run(runId),
       (event) => {
-        const line = typeof event === "string" ? event : JSON.stringify(event);
+        const line = formatStructuredLogLine(event, { suppressRunStatus: true });
+        if (!line) return;
         uiState.livePendingLines.push({ line, level: detectLevel(line) });
         scheduleLiveLogFlush();
       },
@@ -3034,8 +3496,8 @@ function setMonoQueueVisible(selectedModeRaw) {
     el.style.display = isMono && dashboardAdvancedVisible ? "" : "none";
   });
   const sec = findMonoQueueSection();
-  if (!sec) return;
-  sec.style.display = isMono ? "" : "none";
+  if (sec) sec.style.display = isMono ? "" : "none";
+  setRunMonitorFilterVisibility(selectedModeRaw);
 }
 
 function collectQueueRows() {
@@ -3080,42 +3542,195 @@ function renderGuardrailRow(row, status, label) {
   if (txt && label) txt.textContent = label;
 }
 
-async function renderDashboardDerivedGuardrails(appState) {
-  let configValidation = null;
-  try {
-    const yaml = await ensureConfigYaml();
-    if (yaml) {
-      configValidation = await api.post(API_ENDPOINTS.config.validate, { yaml });
-    }
-  } catch {
-    configValidation = null;
+function currentValidationStateForYaml(yamlText) {
+  const validation = getConfigValidationState();
+  if (!validation) return null;
+  return String(validation.yaml || "") === String(yamlText || "") ? validation : null;
+}
+
+function updateDashboardRunStartState(validationState, guardrailStatus = uiState.dashboardGuardrailStatus) {
+  const runStart = $("dashboard-run-start");
+  if (!runStart) return;
+  const guardrailError = String(guardrailStatus || "").trim().toLowerCase() === "error";
+  const validationOk = Boolean(validationState?.ok);
+  setDisabledLike(runStart, guardrailError || !validationOk);
+  if (guardrailError) {
+    runStart.title = "Run/Queue starten ist blockiert: Guardrail-Status ist ERROR.";
+  } else if (!validationState) {
+    runStart.title = "Run/Queue starten ist blockiert: zuerst Validieren.";
+  } else if (!validationOk) {
+    runStart.title = "Run/Queue starten ist blockiert: Validierung hat Fehler.";
+  } else {
+    runStart.title = "Run/Queue starten.";
+  }
+}
+
+function dashboardPipelineStepElements() {
+  return Array.from(document.querySelectorAll("#dashboard-pipeline-preview [data-pipeline-step]"));
+}
+
+function setDashboardPipelineStepVisual(el, state, pct = 0) {
+  if (!el) return;
+  const normalized = String(state || "pending").trim().toLowerCase();
+  const label = String(el.getAttribute("data-pipeline-step") || el.textContent || "").trim();
+  let background = "#f0f0f0";
+  let color = "#64748b";
+  if (normalized === "done") {
+    background = "#d1f4e0";
+    color = "#15808d";
+  } else if (normalized === "running") {
+    background = "#dbeafe";
+    color = "#1d4ed8";
+  } else if (normalized === "error") {
+    background = "#fee2e2";
+    color = "#b91c1c";
+  }
+  el.textContent = label;
+  el.style.background = background;
+  el.style.color = color;
+  el.title = pct > 0 ? `${label} (${Math.round(pct)}%)` : label;
+}
+
+function normalizePipelinePhaseState(status) {
+  const normalized = String(status || "pending").trim().toLowerCase();
+  if (["ok", "completed", "done", "finished", "skipped"].includes(normalized)) return "done";
+  if (["running", "active", "started"].includes(normalized)) return "running";
+  if (["error", "failed", "aborted", "cancelled"].includes(normalized)) return "error";
+  return "pending";
+}
+
+function summarizeDashboardPipelineGroup(group, phaseEntries, runStatus, currentPhase) {
+  if (group.key === "DONE") {
+    const normalizedRunStatus = String(runStatus || "").trim().toLowerCase();
+    if (["completed", "done", "finished"].includes(normalizedRunStatus)) return { state: "done", pct: 100 };
+    if (["failed", "error", "aborted", "cancelled"].includes(normalizedRunStatus)) return { state: "error", pct: 0 };
+    return { state: "pending", pct: 0 };
   }
 
+  const phaseStates = group.phases.map((phase) => {
+    const entry = phaseEntries.get(phase);
+    const state = normalizePipelinePhaseState(entry?.status);
+    let pct = Number(entry?.pct || 0);
+    if (Number.isFinite(pct) && pct <= 1.0) pct *= 100.0;
+    if (!Number.isFinite(pct)) pct = 0;
+    if (state === "done") pct = 100;
+    pct = Math.max(0, Math.min(100, pct));
+    return { state, pct };
+  });
+
+  if (phaseStates.some((item) => item.state === "error")) {
+    return { state: "error", pct: Math.max(...phaseStates.map((item) => item.pct), 0) };
+  }
+
+  if (phaseStates.length > 0 && phaseStates.every((item) => item.state === "done")) {
+    return { state: "done", pct: 100 };
+  }
+
+  const currentInGroup = group.phases.includes(currentPhase);
+  const anyRunning = currentInGroup || phaseStates.some((item) => item.state === "running");
+  const anyStarted = phaseStates.some((item) => item.state === "done" || item.state === "running" || item.pct > 0);
+  const pct = phaseStates.length > 0
+    ? phaseStates.reduce((sum, item) => sum + item.pct, 0) / phaseStates.length
+    : 0;
+
+  if (anyRunning || anyStarted) return { state: "running", pct };
+  return { state: "pending", pct: 0 };
+}
+
+async function renderDashboardPipelinePreview(appState) {
+  const stepEls = dashboardPipelineStepElements();
+  if (stepEls.length === 0) return;
+
+  stepEls.forEach((el) => setDashboardPipelineStepVisual(el, "pending", 0));
+
+  const runId = String(appState?.run?.current?.run_id || "").trim();
+  if (!runId) return;
+
+  let status = null;
+  try {
+    status = await api.get(API_ENDPOINTS.runs.status(runId));
+  } catch {
+    status = {
+      status: String(appState?.run?.current?.status || "unknown"),
+      current_phase: String(appState?.run?.current?.current_phase || ""),
+      phases: [],
+    };
+  }
+
+  const phaseEntries = new Map();
+  if (Array.isArray(status?.phases)) {
+    status.phases.forEach((entry) => {
+      const phase = String(entry?.phase || "").trim().toUpperCase();
+      if (phase) phaseEntries.set(phase, entry);
+    });
+  }
+
+  const currentPhase = String(status?.current_phase || "").trim().toUpperCase();
+  if (phaseEntries.size === 0 && currentPhase) {
+    const currentGroupIndex = DASHBOARD_PIPELINE_GROUPS.findIndex((group) => group.phases.includes(currentPhase));
+    stepEls.forEach((el, index) => {
+      const step = String(el.getAttribute("data-pipeline-step") || "").trim().toUpperCase();
+      if (step === "DONE") {
+        setDashboardPipelineStepVisual(el, summarizeDashboardPipelineGroup({ key: "DONE", phases: [] }, phaseEntries, status?.status, currentPhase).state, 0);
+        return;
+      }
+      if (currentGroupIndex >= 0) {
+        if (index < currentGroupIndex) setDashboardPipelineStepVisual(el, "done", 100);
+        else if (index === currentGroupIndex) setDashboardPipelineStepVisual(el, "running", 0);
+      }
+    });
+    return;
+  }
+
+  DASHBOARD_PIPELINE_GROUPS.forEach((group) => {
+    const el = stepEls.find((node) => String(node.getAttribute("data-pipeline-step") || "").trim().toUpperCase() === group.key);
+    if (!el) return;
+    const summary = summarizeDashboardPipelineGroup(group, phaseEntries, status?.status, currentPhase);
+    setDashboardPipelineStepVisual(el, summary.state, summary.pct);
+  });
+}
+
+async function renderDashboardDerivedGuardrails(appState) {
+  let yaml = "";
+  try {
+    yaml = await ensureConfigYaml();
+  } catch {
+    yaml = "";
+  }
+
+  const configValidation = currentValidationStateForYaml(yaml);
   const validationErrors = Array.isArray(configValidation?.errors) ? configValidation.errors.length : 0;
   const validationWarnings = Array.isArray(configValidation?.warnings) ? configValidation.warnings.length : 0;
+  const validationHasErrors = Boolean(configValidation) && (!configValidation.ok || validationErrors > 0);
   const currentRunId = String(appState?.run?.current?.run_id || "").trim();
 
   renderGuardrailRow(
     $("dashboard-guardrail-config-valid"),
-    !configValidation ? "check" : validationErrors > 0 ? "error" : validationWarnings > 0 ? "check" : "ok",
+    !configValidation ? "check" : validationHasErrors ? "error" : validationWarnings > 0 ? "check" : "ok",
     !configValidation
       ? "Config nicht geprüft"
-      : validationErrors > 0
-        ? `Config mit ${validationErrors} Fehlern`
+      : validationHasErrors
+        ? (validationErrors > 0 ? `Config mit ${validationErrors} Fehlern` : "Config mit Fehlern")
         : validationWarnings > 0
           ? `Config validiert (${validationWarnings} Warnungen)`
           : "Config validiert",
   );
+  setDashboardValidateStatus(configValidation, "Validierung: nicht geprüft");
+  setDashboardValidateDetails(configValidation);
   renderGuardrailRow($("dashboard-guardrail-calibration-paths"), "check", "Kalibrierpfade nicht separat geprüft");
   renderGuardrailRow(
     $("dashboard-guardrail-bge-pcc"),
     "check",
     currentRunId ? "BGE/PCC nicht automatisch bewertet" : "BGE/PCC nicht geprüft (kein Run)",
   );
+  updateDashboardRunStartState(configValidation);
 }
 
 async function bindDashboard() {
   if (!$("dashboard-kpi-scan-quality")) return;
+  setDisabledLike($("dashboard-run-start"), true);
+  setDashboardValidateStatus(null, "Validierung: nicht geprüft");
+  setDashboardValidateDetails(null);
   bindInputDirMemory("dashboard-input-dirs");
   const runsDirInput = $("dashboard-run-runs-dir");
   if (runsDirInput && !String(runsDirInput.value || "").trim() && uiState.projectRunsDir) {
@@ -3128,6 +3743,7 @@ async function bindDashboard() {
       api.get(API_ENDPOINTS.scan.latest),
       api.get(API_ENDPOINTS.app.state),
     ]);
+    uiState.dashboardGuardrailStatus = String(guardrails?.status || "");
     setRunReady(guardrails?.status || "check", appState?.run?.current?.status || "");
     const summary = summarizeScanResult(
       latestScan?.has_scan ? latestScan : quality?.scan || {},
@@ -3135,6 +3751,7 @@ async function bindDashboard() {
     );
     renderDashboardScanKpis(summary, quality?.score ?? 0);
     renderDashboardLastRunKpi(appState);
+    await renderDashboardPipelinePreview(appState);
     renderScanSummary("dashboard-scan", summary);
     applyDetectedColorModeToSelect($("dashboard-color-mode"), summary);
     applyDetectedColorModeToSelect($("inp-colormode"), summary);
@@ -3144,9 +3761,6 @@ async function bindDashboard() {
       persistLastInputDirs(mergedInputText);
       restoreLastInputDirs("dashboard-input-dirs");
     }
-
-    const runStart = $("dashboard-run-start");
-    setDisabledLike(runStart, String(guardrails?.status || "").toLowerCase() === "error");
     const scanCheck = (guardrails?.checks || []).find((c) => c.id === "scan_ok");
     const warnCheck = (guardrails?.checks || []).find((c) => c.id === "scan_warnings");
     const colorModeCheck = (guardrails?.checks || []).find((c) => c.id === "color_mode");
@@ -3192,9 +3806,41 @@ async function bindDashboard() {
         if (!path) return;
         const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
         setConfigDraft(String(applied?.config || ""));
+        clearConfigValidationState();
+        const appStateNow = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
+        await renderDashboardDerivedGuardrails(appStateNow);
         setFooter("Preset fuer Guided Run aktualisiert.");
       } catch (err) {
         setFooter(`Preset-Laden fehlgeschlagen: ${errorText(err)}`, true);
+      }
+    });
+
+    $("dashboard-validate")?.addEventListener("click", async () => {
+      const validateButton = $("dashboard-validate");
+      try {
+        setDisabledLike(validateButton, true);
+        setDashboardValidateStatus(null, "Validierung läuft...");
+        setDashboardValidateDetails(null);
+        const yaml = await ensureConfigYaml();
+        const result = await api.post(API_ENDPOINTS.config.validate, { yaml });
+        setConfigValidationState({
+          yaml,
+          ok: Boolean(result?.ok),
+          errors: Array.isArray(result?.errors) ? result.errors : [],
+          warnings: Array.isArray(result?.warnings) ? result.warnings : [],
+        });
+        const appStateNow = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
+        await renderDashboardDerivedGuardrails(appStateNow);
+        setFooter(result?.ok ? "Validierung OK." : "Validierung hat Fehler.");
+      } catch (err) {
+        clearConfigValidationState();
+        const appStateNow = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
+        await renderDashboardDerivedGuardrails(appStateNow);
+        setDashboardValidateStatus(null, "Validierung: fehlgeschlagen");
+        setDashboardValidateDetails(null);
+        setFooter(`Validierung fehlgeschlagen: ${errorText(err)}`, true);
+      } finally {
+        setDisabledLike(validateButton, false);
       }
     });
 
@@ -3204,9 +3850,22 @@ async function bindDashboard() {
       try {
         setDisabledLike(runStartButton, true);
         const latestGuardrails = await api.get(API_ENDPOINTS.guardrails.root);
+        uiState.dashboardGuardrailStatus = String(latestGuardrails?.status || "");
+        const yaml = await ensureConfigYaml();
+        const validation = currentValidationStateForYaml(yaml);
         if (String(latestGuardrails?.status || "").toLowerCase() === "error") {
-          setDisabledLike(runStartButton, false);
+          updateDashboardRunStartState(validation, latestGuardrails?.status || "");
           setFooter("Run blockiert: Guardrail-Status ist ERROR.", true);
+          return;
+        }
+        if (!validation) {
+          updateDashboardRunStartState(null, latestGuardrails?.status || "");
+          setFooter("Run blockiert: zuerst Validieren.", true);
+          return;
+        }
+        if (!validation.ok) {
+          updateDashboardRunStartState(validation, latestGuardrails?.status || "");
+          setFooter("Run blockiert: Validierung hat Fehler.", true);
           return;
         }
         const accepted = await startRunFromCurrentForm({ source: "dashboard" });
@@ -3216,7 +3875,8 @@ async function bindDashboard() {
         setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
         window.location.href = "run-monitor.html";
       } catch (err) {
-        setDisabledLike(runStartButton, false);
+        const yaml = await ensureConfigYaml().catch(() => "");
+        updateDashboardRunStartState(currentValidationStateForYaml(yaml), uiState.dashboardGuardrailStatus);
         setFooter(`Run-Start fehlgeschlagen: ${errorText(err)}`, true);
       }
     });
@@ -3259,6 +3919,7 @@ async function bindDashboard() {
         applyDetectedColorModeToSelect($("dashboard-color-mode"), summary2);
         applyDetectedColorModeToSelect($("inp-colormode"), summary2);
         const appState2 = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
+        uiState.dashboardGuardrailStatus = String(guardrails2?.status || "");
         setRunReady(guardrails2?.status || "check", appState2?.run?.current?.status || "");
         const scanCheck2 = (guardrails2?.checks || []).find((c) => c.id === "scan_ok");
         const warnCheck2 = (guardrails2?.checks || []).find((c) => c.id === "scan_warnings");
@@ -3274,6 +3935,7 @@ async function bindDashboard() {
           colorModeCheck2?.label || "Color mode bestaetigen",
         );
         renderDashboardLastRunKpi(appState2);
+        await renderDashboardPipelinePreview(appState2);
         await renderDashboardDerivedGuardrails(appState2);
         if (String(job?.state) === "missing") {
           setFooter(
@@ -3314,10 +3976,46 @@ async function bindDashboard() {
 
 async function bindWizard() {
   if (pageName() !== "wizard.html") return;
+  updateWizardStartState(null);
+  setWizardValidationResult(null, "Validierung ausstehend.");
   const wizardRunsDir = $("wizard-runs-dir");
   if (wizardRunsDir && !String(wizardRunsDir.value || "").trim() && uiState.projectRunsDir) {
     wizardRunsDir.value = uiState.projectRunsDir;
   }
+  const applyWizardValidationState = (validationState, fallbackText = "Validierung ausstehend.") => {
+    if (validationState) {
+      setWizardValidationResult({
+        ok: Boolean(validationState.ok),
+        errors: Array.isArray(validationState.errors) ? validationState.errors : [],
+        warnings: Array.isArray(validationState.warnings) ? validationState.warnings : [],
+      });
+    } else {
+      setWizardValidationResult(null, fallbackText);
+    }
+    updateWizardStartState(validationState);
+  };
+  const validateWizardYaml = async (yamlText, { quiet = false, pendingText = "Validierung läuft..." } = {}) => {
+    const yaml = String(yamlText || "");
+    applyWizardValidationState(null, pendingText);
+    try {
+      const result = await api.post(API_ENDPOINTS.config.validate, { yaml });
+      setConfigValidationState({
+        yaml,
+        ok: Boolean(result?.ok),
+        errors: Array.isArray(result?.errors) ? result.errors : [],
+        warnings: Array.isArray(result?.warnings) ? result.warnings : [],
+      });
+      applyWizardValidationState(currentValidationStateForYaml(yaml));
+      return result;
+    } catch (err) {
+      clearConfigValidationState();
+      applyWizardValidationState(null, "Validierung fehlgeschlagen.");
+      if (!quiet) {
+        setFooter(`Wizard-Validierung fehlgeschlagen: ${errorText(err)}`, true);
+      }
+      throw err;
+    }
+  };
   const updateWizardPreview = () => {
     const runsDir = String($("wizard-runs-dir")?.value || "").trim();
     const dirs = parseInputDirs(String($("inp-dirs")?.value || ""));
@@ -3363,11 +4061,10 @@ async function bindWizard() {
       const path = String($("wizard-preset-select")?.value || "").trim();
       if (!path) return;
       const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
-      setConfigDraft(String(applied?.config || ""));
-      const v = await api.post(API_ENDPOINTS.config.validate, { yaml: String(applied?.config || "") });
-      const box = $("wizard-validation-result");
-      if (box) box.innerHTML = `<div class="ps-result-title">Validation</div><div>Schema: <b>${v.ok ? "OK" : "ERROR"}</b> | Fehler: <b>${(v.errors || []).length}</b> | Warnungen: <b>${(v.warnings || []).length}</b></div>`;
-      setFooter("Wizard-Preset angewendet.");
+      const yaml = String(applied?.config || "");
+      setConfigDraft(yaml);
+      const v = await validateWizardYaml(yaml, { quiet: true });
+      setFooter(v.ok ? "Wizard-Preset angewendet. Validierung OK." : "Wizard-Preset angewendet. Validierung hat Fehler.", !v.ok);
     } catch (err) {
       setFooter(`Wizard-Preset fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -3386,10 +4083,13 @@ async function bindWizard() {
         return;
       }
       const patched = await patchConfig({ updates, persist: false });
-      const v = await api.post(API_ENDPOINTS.config.validate, { yaml: patched?.config_yaml || "" });
-      const box = $("wizard-validation-result");
-      if (box) box.innerHTML = `<div class="ps-result-title">Validation</div><div>Schema: <b>${v.ok ? "OK" : "ERROR"}</b> | Fehler: <b>${(v.errors || []).length}</b> | Warnungen: <b>${(v.warnings || []).length}</b></div>`;
-      setFooter(`Wizard-Szenario angewendet (${updates.length} Deltas).`);
+      const v = await validateWizardYaml(patched?.config_yaml || "", { quiet: true });
+      setFooter(
+        v.ok
+          ? `Wizard-Szenario angewendet (${updates.length} Deltas). Validierung OK.`
+          : `Wizard-Szenario angewendet (${updates.length} Deltas). Validierung hat Fehler.`,
+        !v.ok,
+      );
     } catch (err) {
       setFooter(`Wizard-Szenario fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -3398,6 +4098,18 @@ async function bindWizard() {
   $("wizard-start")?.addEventListener("click", async (ev) => {
     ev.preventDefault();
     try {
+      const yaml = await ensureConfigYaml();
+      const validation = currentValidationStateForYaml(yaml);
+      if (!validation) {
+        updateWizardStartState(null);
+        setFooter("Wizard-Run blockiert: zuerst erfolgreiche Validierung abwarten.", true);
+        return;
+      }
+      if (!validation.ok) {
+        updateWizardStartState(validation);
+        setFooter("Wizard-Run blockiert: Validierung hat Fehler.", true);
+        return;
+      }
       const accepted = await startRunFromCurrentForm({ source: "wizard" });
       setCurrentRunId(accepted?.run_id || uiState.currentRunId);
       clearCurrentRunHistoryMark();
@@ -3407,6 +4119,19 @@ async function bindWizard() {
       setFooter(`Wizard-Runstart fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
+
+  try {
+    const initialYaml = await ensureConfigYaml();
+    const existingValidation = currentValidationStateForYaml(initialYaml);
+    if (existingValidation) {
+      applyWizardValidationState(existingValidation);
+    } else {
+      await validateWizardYaml(initialYaml, { quiet: true, pendingText: "Validierung läuft..." });
+    }
+  } catch (err) {
+    applyWizardValidationState(null, "Validierung fehlgeschlagen.");
+    setFooter(`Wizard-Validierung konnte nicht initialisiert werden: ${errorText(err)}`, true);
+  }
 }
 
 async function bindAssumptions() {
@@ -3441,6 +4166,7 @@ async function bindAssumptions() {
 async function init() {
   bindLocaleControls();
   await initGlobalState();
+  bindRunMonitorFilterSync();
   bindScanPages();
   await bindParameterStudio();
   await bindRunMonitor();
