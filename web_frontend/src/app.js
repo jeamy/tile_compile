@@ -68,11 +68,11 @@ const PARAM_CONTROL_PATHS = {
   "input_scan.color_mode_confirm": "data.color_mode",
   "input_scan.bayer_pattern": "data.bayer_pattern",
   "input_scan.calibration.use_bias": "calibration.use_bias",
-  "input_scan.calibration.bias_dir": "calibration.bias_dir",
+  "input_scan.calibration.bias_use_master": "calibration.bias_use_master",
   "input_scan.calibration.use_dark": "calibration.use_dark",
-  "input_scan.calibration.darks_dir": "calibration.darks_dir",
+  "input_scan.calibration.dark_use_master": "calibration.dark_use_master",
   "input_scan.calibration.use_flat": "calibration.use_flat",
-  "input_scan.calibration.flats_dir": "calibration.flats_dir",
+  "input_scan.calibration.flat_use_master": "calibration.flat_use_master",
 };
 
 const PARAM_ID_PATHS = {
@@ -103,6 +103,42 @@ const ASSUMPTION_ID_PATHS = {
   "asmpt-cluster-range": "assumptions.reduced_mode_cluster_range",
   "asmpt-exp-tol": "assumptions.exposure_time_tolerance_percent",
 };
+
+const SCAN_CALIBRATION_BINDINGS = [
+  {
+    sourceId: "cal-bias-source",
+    inputId: "cal-bias-dir",
+    useMasterPath: "calibration.bias_use_master",
+    dirPath: "calibration.bias_dir",
+    masterPath: "calibration.bias_master",
+    dirPlaceholder: "/data/calib/bias",
+    masterPlaceholder: "/data/calib/master_bias*",
+    dirTitle: "Bias-Ordner setzen.",
+    masterTitle: "Master-Bias-Datei setzen.",
+  },
+  {
+    sourceId: "cal-dark-source",
+    inputId: "cal-dark-dir",
+    useMasterPath: "calibration.dark_use_master",
+    dirPath: "calibration.darks_dir",
+    masterPath: "calibration.dark_master",
+    dirPlaceholder: "/data/calib/darks",
+    masterPlaceholder: "/data/calib/masterdark*",
+    dirTitle: "Dark-Ordner setzen.",
+    masterTitle: "Master-Dark-Datei setzen.",
+  },
+  {
+    sourceId: "cal-flat-source",
+    inputId: "cal-flat-dir",
+    useMasterPath: "calibration.flat_use_master",
+    dirPath: "calibration.flats_dir",
+    masterPath: "calibration.flat_master",
+    dirPlaceholder: "/data/calib/flats",
+    masterPlaceholder: "/data/calib/masterflat*",
+    dirTitle: "Flat-Ordner setzen.",
+    masterTitle: "Master-Flat-Datei setzen.",
+  },
+];
 
 const SCENARIO_DELTAS = {
   altaz: [
@@ -687,6 +723,40 @@ function getByPath(root, dotted) {
   return cur;
 }
 
+function scanCalibrationBindingForElement(el) {
+  if (!el) return null;
+  const id = String(el.id || "");
+  return SCAN_CALIBRATION_BINDINGS.find((binding) => binding.sourceId === id || binding.inputId === id) || null;
+}
+
+function scanCalibrationUseMaster(binding) {
+  return readFieldValue($(binding?.sourceId)) === true;
+}
+
+function scanCalibrationActivePath(binding, useMaster = scanCalibrationUseMaster(binding)) {
+  return useMaster ? binding.masterPath : binding.dirPath;
+}
+
+function syncScanCalibrationInputPresentation(binding, useMaster) {
+  const input = $(binding?.inputId);
+  if (!input) return;
+  input.placeholder = useMaster ? binding.masterPlaceholder : binding.dirPlaceholder;
+  input.title = useMaster ? binding.masterTitle : binding.dirTitle;
+}
+
+function syncScanCalibrationUiFromConfig(config) {
+  SCAN_CALIBRATION_BINDINGS.forEach((binding) => {
+    const sourceEl = $(binding.sourceId);
+    const inputEl = $(binding.inputId);
+    if (!sourceEl || !inputEl) return;
+    const useMaster = Boolean(getByPath(config, binding.useMasterPath));
+    writeFieldValue(sourceEl, useMaster);
+    syncScanCalibrationInputPresentation(binding, useMaster);
+    const activeValue = getByPath(config, scanCalibrationActivePath(binding, useMaster));
+    inputEl.value = activeValue === undefined || activeValue === null ? "" : String(activeValue);
+  });
+}
+
 function updatesFromMap(pathBySelector) {
   const updates = [];
   for (const [selector, path] of pathBySelector) {
@@ -1219,9 +1289,32 @@ function bindScanPages() {
     void executeScanFlow();
   };
   const syncScanConfigField = async (el) => {
-    const path = parameterPathFromElement(el);
-    if (!path) return;
+    const calibrationBinding = scanCalibrationBindingForElement(el);
     try {
+      if (calibrationBinding) {
+        const updates = [];
+        if (String(el.id || "") === calibrationBinding.sourceId) {
+          updates.push({
+            path: calibrationBinding.useMasterPath,
+            value: readFieldValue(el),
+          });
+        } else if (String(el.id || "") === calibrationBinding.inputId) {
+          updates.push({
+            path: scanCalibrationActivePath(calibrationBinding),
+            value: readFieldValue(el),
+          });
+        }
+        if (updates.length === 0) return;
+        const patched = await patchConfig({ updates, persist: false });
+        if (patched?.config) {
+          syncScanCalibrationUiFromConfig(patched.config);
+        } else {
+          syncScanCalibrationInputPresentation(calibrationBinding, scanCalibrationUseMaster(calibrationBinding));
+        }
+        return;
+      }
+      const path = parameterPathFromElement(el);
+      if (!path) return;
       await patchConfig({ updates: [{ path, value: readFieldValue(el) }], persist: false });
     } catch (err) {
       setFooter(`Input-Config-Update fehlgeschlagen: ${errorText(err)}`, true);
@@ -1781,6 +1874,7 @@ function syncParameterFieldsFromConfig(config) {
     if (!el) return;
     writeFieldValue(el, getByPath(config, path));
   });
+  syncScanCalibrationUiFromConfig(config);
 }
 
 function activeScenarioKeys(scopeSelector = "#parameter-studio-root") {

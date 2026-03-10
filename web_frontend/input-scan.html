@@ -123,9 +123,9 @@
           <div class="ps-section-title">Kalibrierung</div>
           <div class="ps-row">
             <input type="checkbox" id="cal-bias" checked data-control="input_scan.calibration.use_bias" title="Bias-Kalibrierung aktivieren/deaktivieren."> <label for="cal-bias">Bias</label>
-            <select class="ps-select" style="width:190px;">
-              <option selected>Bias-Ordner</option>
-              <option>Master Bias Datei</option>
+            <select class="ps-select" id="cal-bias-source" data-control="input_scan.calibration.bias_use_master" style="width:190px;">
+              <option value="false" selected>Bias-Ordner</option>
+              <option value="true">Master Bias Datei</option>
             </select>
             <div class="ps-inline-cluster">
               <input class="ps-input ps-wide" type="text" value="" id="cal-bias-dir" data-control="input_scan.calibration.bias_dir" placeholder="/data/calib/bias oder /data/calib/master_bias*" title="Bias-Ordner setzen.">
@@ -134,9 +134,9 @@
           </div>
           <div class="ps-row">
             <input type="checkbox" id="cal-dark" checked data-control="input_scan.calibration.use_dark" title="Dark-Kalibrierung aktivieren/deaktivieren."> <label for="cal-dark">Dark</label>
-            <select class="ps-select" style="width:190px;">
-              <option selected>Darks-Ordner</option>
-              <option>Master Dark Datei</option>
+            <select class="ps-select" id="cal-dark-source" data-control="input_scan.calibration.dark_use_master" style="width:190px;">
+              <option value="false" selected>Darks-Ordner</option>
+              <option value="true">Master Dark Datei</option>
             </select>
             <div class="ps-inline-cluster">
               <input class="ps-input ps-wide" type="text" value="" id="cal-dark-dir" data-control="input_scan.calibration.darks_dir" placeholder="/data/calib/darks oder /data/calib/masterdark*" title="Dark-Ordner setzen.">
@@ -145,9 +145,9 @@
           </div>
           <div class="ps-row">
             <input type="checkbox" id="cal-flat" data-control="input_scan.calibration.use_flat" title="Flat-Kalibrierung aktivieren/deaktivieren."> <label for="cal-flat">Flat</label>
-            <select class="ps-select" style="width:190px;">
-              <option selected>Flats-Ordner</option>
-              <option>Master Flat Datei</option>
+            <select class="ps-select" id="cal-flat-source" data-control="input_scan.calibration.flat_use_master" style="width:190px;">
+              <option value="false" selected>Flats-Ordner</option>
+              <option value="true">Master Flat Datei</option>
             </select>
             <div class="ps-inline-cluster">
               <input class="ps-input ps-wide" type="text" value="" id="cal-flat-dir" data-control="input_scan.calibration.flats_dir" placeholder="/data/calib/flats oder /data/calib/masterflat*" title="Flat-Ordner setzen.">
