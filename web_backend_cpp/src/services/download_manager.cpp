@@ -10,10 +10,20 @@ static size_t write_to_file(void* ptr, size_t size, size_t nmemb, void* userdata
     return size * nmemb;
 }
 
+struct ProgressState {
+    std::atomic<bool>* cancelled{nullptr};
+    std::function<void(double)> on_progress;
+};
+
 static int progress_cb(void* userdata, curl_off_t dltotal, curl_off_t dlnow,
                        curl_off_t, curl_off_t) {
-    std::atomic<bool>* cancelled = static_cast<std::atomic<bool>*>(userdata);
-    return cancelled->load() ? 1 : 0;
+    ProgressState* state = static_cast<ProgressState*>(userdata);
+    if (state && state->on_progress) {
+        double ratio = 0.0;
+        if (dltotal > 0) ratio = static_cast<double>(dlnow) / static_cast<double>(dltotal);
+        state->on_progress(ratio);
+    }
+    return (state && state->cancelled && state->cancelled->load()) ? 1 : 0;
 }
 
 DownloadResult download_file(const std::string& url,
@@ -23,6 +33,7 @@ DownloadResult download_file(const std::string& url,
     DownloadResult res;
     CURL* curl = curl_easy_init();
     if (!curl) { res.error = "curl_easy_init failed"; return res; }
+    ProgressState progress_state{&cancelled, on_progress};
 
     fs::create_directories(dest.parent_path());
     std::ofstream out(dest, std::ios::binary);
@@ -34,7 +45,7 @@ DownloadResult download_file(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &cancelled);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress_state);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
 

@@ -12,6 +12,8 @@
 #include <thread>
 #include <cstdlib>
 #include <chrono>
+#include <cmath>
+#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -84,6 +86,90 @@ fs::path find_astap_candidate(const fs::path& root) {
         if (name == "astap_cli" || name == "astap_cli.exe" || name == "astap") return entry.path();
     }
     return {};
+}
+
+fs::path guess_wcs_path(const fs::path& fits_path) {
+    const std::string name = fits_path.filename().string();
+    std::string lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    for (const std::string& ext : {".fits.fz", ".fit.fz", ".fts.fz", ".fits", ".fit", ".fts"}) {
+        if (lower.size() >= ext.size() && lower.compare(lower.size() - ext.size(), ext.size(), ext) == 0) {
+            return fits_path.parent_path() / (name.substr(0, name.size() - ext.size()) + ".wcs");
+        }
+    }
+    return fits_path;
+}
+
+nlohmann::json parse_astrometry_wcs_summary(const fs::path& wcs_path) {
+    std::ifstream in(wcs_path);
+    std::map<std::string, double> values;
+    std::string line;
+    while (std::getline(in, line)) {
+        const auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = line.substr(0, eq);
+        std::string raw = line.substr(eq + 1);
+        key.erase(std::remove_if(key.begin(), key.end(), ::isspace), key.end());
+        const auto slash = raw.find('/');
+        if (slash != std::string::npos) raw = raw.substr(0, slash);
+        raw.erase(0, raw.find_first_not_of(" \t'\""));
+        raw.erase(raw.find_last_not_of(" \t'\"") + 1);
+        if (key.empty() || raw.empty()) continue;
+        try {
+            values[key] = std::stod(raw);
+        } catch (...) {}
+    }
+
+    const auto get_value = [&values](const std::string& key, double fallback = 0.0) {
+        auto it = values.find(key);
+        return it == values.end() ? fallback : it->second;
+    };
+    const auto has_value = [&values](const std::string& key) {
+        return values.find(key) != values.end();
+    };
+
+    const double crval1 = has_value("CRVAL1") ? get_value("CRVAL1") : std::numeric_limits<double>::quiet_NaN();
+    const double crval2 = has_value("CRVAL2") ? get_value("CRVAL2") : std::numeric_limits<double>::quiet_NaN();
+    const double crpix1 = get_value("CRPIX1");
+    const double crpix2 = get_value("CRPIX2");
+    const double naxis1_raw = has_value("NAXIS1") ? get_value("NAXIS1") : crpix1 * 2.0;
+    const double naxis2_raw = has_value("NAXIS2") ? get_value("NAXIS2") : crpix2 * 2.0;
+    const int image_width = naxis1_raw > 0.0 ? static_cast<int>(std::llround(naxis1_raw)) : 0;
+    const int image_height = naxis2_raw > 0.0 ? static_cast<int>(std::llround(naxis2_raw)) : 0;
+
+    double pixel_scale_arcsec = 0.0;
+    double rotation_deg = 0.0;
+    if (has_value("CD1_1") && has_value("CD1_2") && has_value("CD2_1") && has_value("CD2_2")) {
+        const double cd11 = get_value("CD1_1");
+        const double cd12 = get_value("CD1_2");
+        const double cd21 = get_value("CD2_1");
+        const double cd22 = get_value("CD2_2");
+        const double scale_x = std::hypot(cd11, cd21);
+        const double scale_y = std::hypot(cd12, cd22);
+        pixel_scale_arcsec = ((scale_x + scale_y) / 2.0) * 3600.0;
+        rotation_deg = std::atan2(cd21, cd11) * 180.0 / M_PI;
+    } else {
+        const double cdelt1 = get_value("CDELT1");
+        const double cdelt2 = get_value("CDELT2");
+        if (cdelt1 != 0.0 || cdelt2 != 0.0) pixel_scale_arcsec = ((std::abs(cdelt1) + std::abs(cdelt2)) / 2.0) * 3600.0;
+        if (has_value("CROTA2")) rotation_deg = get_value("CROTA2");
+        else if (has_value("CROTA1")) rotation_deg = get_value("CROTA1");
+    }
+
+    const double fov_width_deg = (pixel_scale_arcsec > 0.0 && image_width > 0) ? (pixel_scale_arcsec * image_width / 3600.0) : 0.0;
+    const double fov_height_deg = (pixel_scale_arcsec > 0.0 && image_height > 0) ? (pixel_scale_arcsec * image_height / 3600.0) : 0.0;
+
+    nlohmann::json out = {
+        {"ra_deg", std::isnan(crval1) ? nlohmann::json(nullptr) : nlohmann::json(crval1)},
+        {"dec_deg", std::isnan(crval2) ? nlohmann::json(nullptr) : nlohmann::json(crval2)},
+        {"pixel_scale_arcsec", pixel_scale_arcsec},
+        {"rotation_deg", rotation_deg},
+        {"fov_width_deg", fov_width_deg},
+        {"fov_height_deg", fov_height_deg},
+        {"image_width", image_width},
+        {"image_height", image_height},
+    };
+    return out;
 }
 
 bool extract_zip_archive(const fs::path& archive, const fs::path& dest, std::string& error) {
@@ -460,11 +546,42 @@ void register_tools_routes(CrowApp& app,
             return err_resp("BAD_REQUEST", "ASTAP CLI not found; install or provide astap_cli path", 400, nlohmann::json::object());
         }
 
-        std::vector<std::string> args = {astap_bin.string(), "-f", solve_file, "-wcs"};
+        const int search_radius = body.contains("search_radius_deg") && !body["search_radius_deg"].is_null()
+            ? body["search_radius_deg"].get<int>()
+            : 180;
+        const fs::path wcs_path = guess_wcs_path(fs::path(solve_file));
+
+        std::vector<std::string> args = {astap_bin.string(), "-f", solve_file, "-r", std::to_string(search_radius)};
         if (!astap_data_dir.empty()) { args.push_back("-d"); args.push_back(astap_data_dir); }
 
-        std::string job_id = state->subprocess_manager.launch("astrometry_solve", args,
-                                                               state->runtime.project_root.string());
+        std::string job_id = state->job_store.create("astrometry_solve");
+        state->job_store.update_state(job_id, JobState::running, {
+            {"command", args},
+            {"wcs_path", wcs_path.string()}
+        });
+        std::thread([state, job_id, args, wcs_path]() {
+            auto res = run_subprocess(args, state->runtime.project_root.string());
+            nlohmann::json data = {
+                {"command", args},
+                {"stdout", res.stdout_str},
+                {"stderr", res.stderr_str},
+                {"exit_code", res.exit_code},
+                {"wcs_path", wcs_path.string()},
+            };
+            if (res.exit_code != 0) {
+                state->job_store.update_state(job_id, JobState::error, data,
+                    res.stderr_str.empty() ? "ASTAP solve failed" : res.stderr_str.substr(0, 256));
+                return;
+            }
+            if (!fs::exists(wcs_path)) {
+                state->job_store.update_state(job_id, JobState::error, data,
+                    "ASTAP solve completed without producing a WCS file");
+                return;
+            }
+            data["result"] = parse_astrometry_wcs_summary(wcs_path);
+            data["result"]["wcs_path"] = wcs_path.string();
+            state->job_store.update_state(job_id, JobState::ok, data);
+        }).detach();
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 

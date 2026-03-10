@@ -82,6 +82,27 @@ static std::string read_file_str(const fs::path& path) {
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
+static std::optional<fs::path> resolve_artifact_path(const fs::path& run_dir, const std::string& raw_path) {
+    const std::string trimmed = raw_path;
+    if (trimmed.empty()) return std::nullopt;
+
+    std::error_code ec;
+    const fs::path run_dir_resolved = fs::weakly_canonical(run_dir, ec);
+    if (ec) return std::nullopt;
+
+    fs::path candidate = fs::path(trimmed);
+    if (!candidate.is_absolute()) candidate = run_dir_resolved / candidate;
+    candidate = fs::weakly_canonical(candidate, ec);
+    if (ec) return std::nullopt;
+
+    if (candidate != run_dir_resolved) {
+        const std::string run_prefix = run_dir_resolved.string() + fs::path::preferred_separator;
+        const std::string candidate_str = candidate.string();
+        if (candidate_str.rfind(run_prefix, 0) != 0) return std::nullopt;
+    }
+    return candidate;
+}
+
 static std::string apply_color_mode_to_yaml(const std::string& base_yaml, const std::string& color_mode) {
     if (base_yaml.empty() || color_mode.empty()) return base_yaml;
     try {
@@ -521,21 +542,29 @@ void register_runs_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/runs/<string>/artifacts/view").methods("GET"_method)
     ([state](const crow::request& req, std::string run_id) {
         std::string rel_path = req.url_params.get("path") ? req.url_params.get("path") : "";
+        if (rel_path.empty()) {
+            return err_resp("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
+        }
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
-            fs::path full = run_dir / rel_path;
-            if (!fs::exists(full)) return err_resp("Artifact not found", 404);
-            std::ifstream f(full);
+            auto full = resolve_artifact_path(run_dir, rel_path);
+            if (!full) {
+                return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 422, nlohmann::json::object());
+            }
+            if (!fs::exists(*full) || !fs::is_regular_file(*full)) {
+                return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 422, nlohmann::json::object());
+            }
+            std::ifstream f(*full);
             std::string content((std::istreambuf_iterator<char>(f)),
                                   std::istreambuf_iterator<char>());
-            std::string ext = full.extension().string();
+            std::string ext = full->extension().string();
             if (ext == ".json" || ext == ".jsonl") {
                 try {
                     auto j = nlohmann::json::parse(content);
-                    return json_resp({{"json", j}, {"is_json", true}, {"text", content}, {"filename", full.filename().string()}, {"path", rel_path}});
+                    return json_resp({{"json", j}, {"is_json", true}, {"text", content}, {"filename", full->filename().string()}, {"path", full->string()}});
                 } catch (...) {}
             }
-            return json_resp({{"text", content}, {"is_json", false}, {"filename", full.filename().string()}, {"path", rel_path}});
+            return json_resp({{"text", content}, {"is_json", false}, {"filename", full->filename().string()}, {"path", full->string()}});
         } catch (const std::exception& e) {
             return err_resp(e.what(), 404);
         }
@@ -545,19 +574,22 @@ void register_runs_routes(CrowApp& app,
     ([state](const crow::request&, std::string run_id, std::string rel_path) {
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
-            fs::path full = run_dir / rel_path;
-            if (!fs::exists(full)) return crow::response(404);
-            std::ifstream f(full, std::ios::binary);
+            auto full = resolve_artifact_path(run_dir, rel_path);
+            if (!full) return err_resp("ARTIFACT_PATH_INVALID", "artifact path must stay inside run directory", 422, nlohmann::json::object());
+            if (!fs::exists(*full) || !fs::is_regular_file(*full)) return err_resp("ARTIFACT_NOT_FILE", "artifact path is not a file", 422, nlohmann::json::object());
+            std::ifstream f(*full, std::ios::binary);
             std::string body((std::istreambuf_iterator<char>(f)),
                               std::istreambuf_iterator<char>());
             crow::response res(200, body);
-            std::string ext = full.extension().string();
+            std::string ext = full->extension().string();
             if      (ext == ".html") res.set_header("Content-Type", "text/html");
             else if (ext == ".json") res.set_header("Content-Type", "application/json");
             else if (ext == ".png")  res.set_header("Content-Type", "image/png");
             else                     res.set_header("Content-Type", "application/octet-stream");
             return res;
-        } catch (...) { return crow::response(404); }
+        } catch (const std::exception& e) {
+            return err_resp(e.what(), 404);
+        }
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/delete").methods("POST"_method)

@@ -7,13 +7,29 @@
 namespace fs = std::filesystem;
 
 static const std::vector<std::string> PHASE_ORDER = {
-    "scan", "local_metrics", "metrics", "registration",
-    "stacking", "clustering", "bge", "pcc", "validation"
+    "SCAN_INPUT",
+    "CHANNEL_SPLIT",
+    "NORMALIZATION",
+    "GLOBAL_METRICS",
+    "TILE_GRID",
+    "REGISTRATION",
+    "PREWARP",
+    "COMMON_OVERLAP",
+    "LOCAL_METRICS",
+    "TILE_RECONSTRUCTION",
+    "STATE_CLUSTERING",
+    "SYNTHETIC_FRAMES",
+    "STACKING",
+    "DEBAYER",
+    "ASTROMETRY",
+    "BGE",
+    "PCC"
 };
 
 static const std::vector<std::string> RESUME_FROM_PHASES = {
-    "local_metrics", "metrics", "registration",
-    "stacking", "clustering", "bge", "pcc", "validation"
+    "ASTROMETRY",
+    "BGE",
+    "PCC"
 };
 
 nlohmann::json read_run_status(const fs::path& run_dir);

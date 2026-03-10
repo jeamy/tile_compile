@@ -69,18 +69,24 @@ void register_app_state_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/app/constants").methods("GET"_method)
     ([](const crow::request&) {
         return json_resp({
-            {"phase_order", PHASE_ORDER},
+            {"phases", PHASE_ORDER},
             {"resume_from", RESUME_FROM_PHASES},
-            {"color_modes", {"OSC", "MONO", "NARROW"}},
+            {"color_modes", {"OSC", "MONO", "RGB"}},
         });
     });
 
     CROW_ROUTE(app, "/api/app/ui-events").methods("GET"_method)
     ([state](const crow::request& req) {
         int since = 0;
-        if (req.url_params.get("since_seq"))
+        int limit = 200;
+        if (req.url_params.get("after_seq")) {
+            try { since = std::stoi(req.url_params.get("after_seq")); } catch (...) {}
+        } else if (req.url_params.get("since_seq")) {
             try { since = std::stoi(req.url_params.get("since_seq")); } catch (...) {}
-        auto events = state->ui_event_store.list(since);
+        }
+        if (req.url_params.get("limit"))
+            try { limit = std::stoi(req.url_params.get("limit")); } catch (...) {}
+        auto events = state->ui_event_store.list(std::max(0, since), std::max(1, limit));
         nlohmann::json items = nlohmann::json::array();
         for (auto& e : events) items.push_back(ui_event_to_json(e));
         return json_resp({{"items", items}, {"latest_seq", state->ui_event_store.latest_seq()}});
