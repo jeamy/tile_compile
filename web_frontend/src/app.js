@@ -13,6 +13,7 @@ const uiState = {
   currentRunId: localStorage.getItem("gui2.currentRunId") || "",
   currentRunDir: "",
   currentRunColorMode: "",
+  parameterBaseYaml: "",
   missingHistoryRunIds: new Set(),
   defaultConfigPath: "",
   selectedHistoryRunId: "",
@@ -1272,6 +1273,128 @@ function parameterDiffBox() {
   return document.querySelector("#parameter-diff-panel div[style*='font-family:monospace']");
 }
 
+function setParameterBaseYaml(yamlText) {
+  uiState.parameterBaseYaml = String(yamlText || "");
+}
+
+function splitYamlLines(text) {
+  const normalized = String(text || "").replace(/\r/g, "");
+  return normalized === "" ? [] : normalized.split("\n");
+}
+
+function computeYamlDiffOperations(beforeText, afterText) {
+  const before = splitYamlLines(beforeText);
+  const after = splitYamlLines(afterText);
+  let prefix = 0;
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1;
+
+  let suffix = 0;
+  while (
+    suffix < before.length - prefix
+    && suffix < after.length - prefix
+    && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+
+  const beforeMid = before.slice(prefix, before.length - suffix);
+  const afterMid = after.slice(prefix, after.length - suffix);
+  const dp = Array.from({ length: beforeMid.length + 1 }, () => Array(afterMid.length + 1).fill(0));
+
+  for (let i = beforeMid.length - 1; i >= 0; i -= 1) {
+    for (let j = afterMid.length - 1; j >= 0; j -= 1) {
+      dp[i][j] = beforeMid[i] === afterMid[j]
+        ? dp[i + 1][j + 1] + 1
+        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const ops = [];
+  let oldLine = 1;
+  let newLine = 1;
+
+  for (let i = 0; i < prefix; i += 1) {
+    ops.push({ type: "context", oldLine, newLine, text: before[i] });
+    oldLine += 1;
+    newLine += 1;
+  }
+
+  let i = 0;
+  let j = 0;
+  while (i < beforeMid.length && j < afterMid.length) {
+    if (beforeMid[i] === afterMid[j]) {
+      ops.push({ type: "context", oldLine, newLine, text: beforeMid[i] });
+      i += 1;
+      j += 1;
+      oldLine += 1;
+      newLine += 1;
+      continue;
+    }
+    if (dp[i + 1][j] >= dp[i][j + 1]) {
+      ops.push({ type: "remove", oldLine, newLine: "", text: beforeMid[i] });
+      i += 1;
+      oldLine += 1;
+    } else {
+      ops.push({ type: "add", oldLine: "", newLine, text: afterMid[j] });
+      j += 1;
+      newLine += 1;
+    }
+  }
+  while (i < beforeMid.length) {
+    ops.push({ type: "remove", oldLine, newLine: "", text: beforeMid[i] });
+    i += 1;
+    oldLine += 1;
+  }
+  while (j < afterMid.length) {
+    ops.push({ type: "add", oldLine: "", newLine, text: afterMid[j] });
+    j += 1;
+    newLine += 1;
+  }
+  for (let k = before.length - suffix; k < before.length; k += 1) {
+    ops.push({ type: "context", oldLine, newLine, text: before[k] });
+    oldLine += 1;
+    newLine += 1;
+  }
+  return ops;
+}
+
+function renderYamlDiffHtml(beforeText, afterText) {
+  const escapeHtml = (text) => String(text ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+  const ops = computeYamlDiffOperations(beforeText, afterText);
+  const added = ops.filter((item) => item.type === "add").length;
+  const removed = ops.filter((item) => item.type === "remove").length;
+  const summary = added === 0 && removed === 0
+    ? t("page.parameter_studio.diff.no_changes", "Keine lokalen YAML-Aenderungen.")
+    : t("page.parameter_studio.diff.summary", "Aenderungen: +{added} / -{removed}")
+      .replace("{added}", String(added))
+      .replace("{removed}", String(removed));
+
+  const rows = ops.map((item) => {
+    const tone = item.type === "add"
+      ? { bg: "rgba(34,197,94,0.15)", fg: "#bbf7d0", sign: "+" }
+      : item.type === "remove"
+        ? { bg: "rgba(248,113,113,0.16)", fg: "#fecaca", sign: "-" }
+        : { bg: "transparent", fg: "#e5edf6", sign: " " };
+    return `<div style="display:grid;grid-template-columns:28px 44px 44px minmax(0,1fr);gap:10px;padding:2px 8px;background:${tone.bg};color:${tone.fg};border-radius:6px;">
+      <span>${tone.sign}</span>
+      <span style="color:#94a3b8;">${item.oldLine || ""}</span>
+      <span style="color:#94a3b8;">${item.newLine || ""}</span>
+      <span style="white-space:pre-wrap;word-break:break-word;">${escapeHtml(item.text)}</span>
+    </div>`;
+  }).join("");
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:#cbd5e1;font-weight:700;">
+      <span>${escapeHtml(summary)}</span>
+      <span style="font-size:11px;color:#94a3b8;">old | new</span>
+    </div>
+    <div style="display:grid;gap:2px;">${rows || `<div style="color:#94a3b8;">${escapeHtml(summary)}</div>`}</div>
+  `;
+}
+
 function parameterValidateStatusEl() {
   return $("parameter-validate-status");
 }
@@ -1303,7 +1426,9 @@ function monitorStartValidationEl() {
 function setParameterPreview(value) {
   const box = parameterDiffBox();
   if (!box) return;
-  setText(box, value);
+  const previewYaml = String(value || "");
+  const baseYaml = uiState.parameterBaseYaml || previewYaml;
+  box.innerHTML = renderYamlDiffHtml(baseYaml, previewYaml);
 }
 
 function clearChildren(node) {
@@ -1582,6 +1707,7 @@ async function saveParameterConfig(targetPath = "") {
   });
   uiState.configYaml = String(patched?.config_yaml || "");
   setConfigDraft(uiState.configYaml);
+  setParameterBaseYaml(uiState.configYaml);
   uiState.parameterDirty = {};
   setParameterPreview(uiState.configYaml);
   return result;
@@ -1687,6 +1813,7 @@ async function bindParameterStudio() {
     if (parsed?.config) {
       syncParameterFieldsFromConfig(parsed.config);
     }
+    setParameterBaseYaml(currentYaml);
     setParameterPreview(currentYaml);
     setParameterValidateStatus(null, "Validierung: nicht geprüft");
     setParameterValidateDetails(null);
@@ -1704,6 +1831,7 @@ async function bindParameterStudio() {
       uiState.parameterDirty = {};
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
+      setParameterBaseYaml(uiState.configYaml);
       setParameterPreview(uiState.configYaml);
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setParameterValidateDetails(null);
@@ -1728,6 +1856,7 @@ async function bindParameterStudio() {
       uiState.parameterDirty = {};
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
+      setParameterBaseYaml(String(parsed?.config_yaml || uiState.configYaml));
       setParameterPreview(String(parsed?.config_yaml || uiState.configYaml));
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setParameterValidateDetails(null);
@@ -1809,6 +1938,7 @@ async function bindParameterStudio() {
       setConfigDraft(uiState.configYaml);
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
+      setParameterBaseYaml(uiState.configYaml);
       setParameterPreview(uiState.configYaml);
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setParameterValidateDetails(null);

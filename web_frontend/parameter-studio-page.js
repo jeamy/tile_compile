@@ -182,6 +182,25 @@
     return localeMessages[`param.${path}.short_help`] || fallback || "-";
   }
 
+  function normalizeExplainText(value) {
+    return String(value || "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function sameExplainText(a, b) {
+    return normalizeExplainText(a).toLowerCase() === normalizeExplainText(b).toLowerCase();
+  }
+
+  function typeLabelForEntry(entry) {
+    const type = String(entry?.type || "").trim();
+    if (!type) return "-";
+    if (Array.isArray(entry?.enum) && entry.enum.length > 0) {
+      return `${type} (${entry.enum.map((item) => String(item)).join(" | ")})`;
+    }
+    return type;
+  }
+
   function parseParameterKatalog(text) {
     const map = new Map();
     String(text || "").split(/\r?\n/).forEach((line) => {
@@ -291,7 +310,12 @@
       )
         .replace("{scenario}", entry.scenarioHint);
     }
-    return "-";
+    return textFor(
+      "page.parameter_studio.explain.risk.none",
+      isGerman
+        ? "Kein expliziter Risiko-Hinweis in den Quellen."
+        : "No explicit risk hint in the sources.",
+    );
   }
 
   function buildExplainEntry(path, schemaEntry, katalogEntry, refDeEntry, refEnEntry, editorEntry) {
@@ -308,11 +332,7 @@
       range,
       description,
       shortExplanation: katalogEntry?.shortExplanation || description,
-      risk: deriveRisk({ deprecated: Boolean(schemaEntry?.deprecated || editorEntry?.deprecated), range, scenarioHint: katalogEntry?.scenarioHint || "" }),
-      scenarioHint: katalogEntry?.scenarioHint || "-",
       guiTarget: katalogEntry?.guiTarget || category,
-      referenceDe: refDeEntry?.purpose || "-",
-      referenceEn: refEnEntry?.purpose || "-",
       deprecated: Boolean(schemaEntry?.deprecated || editorEntry?.deprecated),
       type: editorEntry?.type || schemaEntry?.type || katalogEntry?.katalogType || "",
       enum: editorEntry?.enum || schemaEntry?.enum || [],
@@ -388,25 +408,20 @@
       shortExplanation: "-",
       defaultValue: "-",
       range: "-",
-      risk: "-",
-      scenarioHint: "-",
       guiTarget: "-",
-      referenceDe: "-",
-      referenceEn: "-",
+      type: "-",
     };
     activeExplainPath = normalizedPath;
+    const shortHelp = shortHelpForPath(normalizedPath, entry.shortExplanation || entry.description || "-");
     setExplainField("parameter-explain-label", entry.label || normalizedPath);
     setExplainField("parameter-explain-path", normalizedPath);
     setExplainField("parameter-explain-category", entry.category || "-");
-    setExplainField("parameter-explain-short", shortHelpForPath(normalizedPath, entry.shortExplanation || entry.description || "-"));
+    setExplainField("parameter-explain-type", typeLabelForEntry(entry));
+    setExplainField("parameter-explain-short", shortHelp);
     setExplainField("parameter-explain-default", entry.defaultValue);
     setExplainField("parameter-explain-range", entry.range || "-");
-    setExplainField("parameter-explain-risk", entry.risk || "-");
     setExplainField("parameter-explain-phase", entry.phase || "-");
-    setExplainField("parameter-explain-scenario", entry.scenarioHint || "-");
     setExplainField("parameter-explain-target", entry.guiTarget || "-");
-    setExplainField("parameter-explain-reference-de", entry.referenceDe || "-");
-    setExplainField("parameter-explain-reference-en", entry.referenceEn || "-");
   }
 
   function resolvePathFromElement(el) {
@@ -444,8 +459,12 @@
     });
   }
 
+  function tooltipForEntry(entry, value) {
+    return shortHelpForPath(entry.path, entry.shortExplanation || entry.description || value || "-");
+  }
+
   function inputControlHtml(entry, value, fieldId) {
-    const safeTitle = escapeHtml((entry.description || "").toString());
+    const safeTitle = escapeHtml(tooltipForEntry(entry, value));
     if (Array.isArray(entry.enum) && entry.enum.length > 0) {
       const current = String(value);
       const options = entry.enum.map((opt) => {
@@ -469,6 +488,7 @@
     return entries.map((entry) => {
       const fieldId = `param-edit-${entry.path.replace(/[^a-zA-Z0-9_]+/g, "_")}`;
       const value = hasOwn(entry, "yaml_default") ? formatValue(entry.yaml_default) : "";
+      const tooltip = escapeHtml(tooltipForEntry(entry, value));
       const hints = [
         entry.type || textFor("page.parameter_studio.hint.any", "any"),
         entry.source === "yaml_only"
@@ -478,7 +498,7 @@
       const range = computeRange(entry);
       if (range) hints.push(range);
       if (entry.deprecated) hints.push(textFor("page.parameter_studio.hint.deprecated", "deprecated"));
-      return `<div class="ps-row ps-dyn-row" data-path="${escapeHtml(entry.path)}"><label for="${fieldId}">${escapeHtml(entry.path)}</label>${inputControlHtml(entry, value, fieldId)}<span class="ps-hint">${escapeHtml(hints.join(" | "))}</span></div>`;
+      return `<div class="ps-row ps-dyn-row" data-path="${escapeHtml(entry.path)}" title="${tooltip}"><label for="${fieldId}" title="${tooltip}">${escapeHtml(entry.path)}</label>${inputControlHtml(entry, value, fieldId)}<span class="ps-hint">${escapeHtml(hints.join(" | "))}</span></div>`;
     }).join("");
   }
 
