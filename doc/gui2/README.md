@@ -41,8 +41,8 @@ Dieses Verzeichnis enthaelt das komplette Redesign-Paket fuer eine modernisierte
 - `i18n_konzept.md`
   - Sprachkonzept fuer DE/EN inkl. Parameter-Kurztexte
 - `html_fastapi_architektur.md`
-  - Zielarchitektur fuer HTML-Frontend mit FastAPI-Backend
-  - Installationsanforderungen fuer macOS/Windows/Linux (inkl. `venv`, C++ Libs)
+  - Architekturdokument fuer den webbasierten GUI2-Stack
+  - produktiver Pfad: `web_backend_cpp/` mit Crow/C++-Backend
   - Build-, Release- und CI-Management fuer Web + Runner/CLI
 - `i18n/`
   - `de.json`, `en.json` als Laufzeit-Locales
@@ -69,7 +69,7 @@ Empfohlen ist **Variante B - Parameter Studio** (siehe `mockups/gui2_01_styleboa
 3. Detail- und Ablaufbeschreibung lesen: `doc/gui2/detailkonzept.md` und `doc/gui2/ablaeufe.md`.
 4. Szenario- und i18n-Teil pruefen: `doc/gui2/szenario_empfehlungen.md` und `doc/gui2/i18n_konzept.md`.
 5. Parameterabdeckung pruefen: `doc/gui2/parameter_katalog.md`.
-6. Web-Architektur und Deployment pruefen: `doc/gui2/html_fastapi_architektur.md`.
+6. Web-Architektur und Deployment pruefen: `doc/gui2/html_fastapi_architektur.md` plus die aktuelle Umsetzung in `web_backend_cpp/`.
 7. Layout-Raster im Klickdummy pruefen: `doc/gui2/clickdummy/layout-1920.html` und `doc/gui2/layout_1920_spec.md`.
 8. i18n-Sync pruefen: `python3 doc/gui2/scripts/sync_i18n_from_registry.py --check`.
 9. Wizard-Flow pruefen: `doc/gui2/clickdummy/wizard.html` plus `doc/gui2/ablaeufe.md`.

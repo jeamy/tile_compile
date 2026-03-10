@@ -8,7 +8,7 @@ The pipeline processes **FITS frames** (mono or OSC/CFA) and produces a weighted
 
 **Implementation:** C++ with Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
-**GUI2 integration:** The productive GUI path uses the web frontend plus the FastAPI backend. FastAPI orchestrates the C++ pipeline by invoking `tile_compile_cli` and `tile_compile_runner`; it does not reimplement the processing logic.
+**GUI2 integration:** The productive GUI path uses the web frontend plus the Crow/C++ backend. Crow orchestrates the C++ pipeline by invoking `tile_compile_cli` and `tile_compile_runner`; it does not reimplement the processing logic.
 
 ## Current pipeline phases (C++ implementation, v3.3)
 
@@ -320,12 +320,12 @@ Each run produces 11 JSON artifact files in `<run_dir>/artifacts/`:
 
 ### Report generation and readable data
 
-For consolidated analysis, use the report generator `tile_compile_cpp/generate_report.py`.
+For consolidated analysis, generate the report via the integrated CLI/backend path.
 
 Invocation:
 
 ```text
-python tile_compile_cpp/generate_report.py runs/<run_id>
+./tile_compile_cli generate-report runs/<run_id>
 ```
 
 Generated outputs:
@@ -373,7 +373,7 @@ runs/<run_id>/
 │   ├── synthetic_frames.json
 │   ├── bge.json
 │   ├── validation.json
-│   ├── report.html       # (via generate_report.py)
+│   ├── report.html       # generated via CLI/backend report path
 │   └── *.png             # chart images
 └── outputs/
     ├── stacked.fits
@@ -397,10 +397,13 @@ runs/<run_id>/
 
 ## References
 
-- **Normative specification:** `/doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.6_en.md`
-- **C++ implementation:** `/tile_compile_cpp/apps/runner_pipeline.cpp`
-- **Configuration:** `/tile_compile_cpp/include/tile_compile/config/configuration.hpp`
-- **Report generator:** `/tile_compile_cpp/generate_report.py`
+### Normative specification
+  - `/doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.6_en.md`
+
+### C++ implementation
+  - `/tile_compile_cpp/apps/runner_pipeline.cpp`
+  - **Configuration:** `/tile_compile_cpp/include/tile_compile/config/configuration.hpp`
+  - **Report generator:** `/web_backend_cpp/src/services/report_generator.cpp`
 
 ---
 

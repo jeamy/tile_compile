@@ -202,7 +202,7 @@ Nur bei `Result: OK` gilt das Layout als spacing-konform.
   - `doc/gui2/clickdummy/screen-placeholder.css`
   - diese Spezifikation
 
-## 9) Implementierungshinweis (Web/FastAPI)
+## 9) Implementierungshinweis (Web/Crow)
 
 Fuer die Web-Umsetzung empfiehlt sich:
 

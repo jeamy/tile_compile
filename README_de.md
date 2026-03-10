@@ -43,7 +43,7 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 | Komponente | Verzeichnis | Status | Stack |
 |-----------|-------------|--------|-------|
 | Kernpipeline | `tile_compile_cpp/` | Aktiv | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
-| GUI2 Backend | `web_backend/` | Aktiv | FastAPI + Python |
+| GUI2 Backend | `web_backend_cpp/` | Aktiv | Crow + C++17 |
 | GUI2 Frontend | `web_frontend/` | Aktiv | HTML + CSS + JavaScript |
 
 ## Pipeline-Phasen
@@ -112,11 +112,11 @@ Vorkompilierte GUI2-Release-Bundles werden über [GitHub Releases](https://githu
 Jedes Bundle enthält:
 
 - GUI2 Frontend (`web_frontend/`)
-- FastAPI Backend (`web_backend/`)
-- native C++ Werkzeuge (`tile_compile_runner`, `tile_compile_cli`)
+- Crow-Backend (`web_backend_cpp/`)
+- native C++ Werkzeuge (`tile_compile_runner`, `tile_compile_cli`, `tile_compile_web_backend`)
 - Starter für Linux, macOS und Windows
 
-Zur Laufzeit arbeitet GUI2 immer über das lokale FastAPI-Backend als Adapter auf den C++ Runner und die C++ CLI.
+Zur Laufzeit arbeitet GUI2 über das lokale Crow/C++-Backend als Adapter auf den C++ Runner und die C++ CLI.
 
 ## Schnellstart
 
@@ -140,7 +140,7 @@ Release-Bundle-Start:
 - macOS: `start_gui2.command`
 - Windows: `start_gui2.bat`
 
-Der Starter richtet eine Python-Umgebung ein, startet das FastAPI-Backend im Vordergrund und öffnet den Browser auf die lokale GUI2-URL.
+Der Starter kopiert die gebündelte Payload in ein benutzerspezifisches Installationsverzeichnis, startet das Crow-Backend im Vordergrund und öffnet den Browser auf die lokale GUI2-URL.
 
 ### C++ CLI / Runner
 
@@ -204,7 +204,7 @@ GUI2-Release-Bundles werden gebaut über:
 
 - `.github/workflows/release-tile-compile-gui2.yml`
 
-Der Workflow baut Qt-freie C++-Binaries, bündelt `web_backend/` und `web_frontend/`, ergänzt die GUI2-Starter und erzeugt ZIP-Artefakte für Linux, macOS und Windows.
+Der Workflow baut die Qt-freien C++-Binaries, bündelt `web_backend_cpp/` und `web_frontend/`, ergänzt die GUI2-Starter und erzeugt ZIP-Artefakte für Linux, macOS und Windows.
 
 Bewusst nicht enthalten:
 
@@ -321,9 +321,9 @@ Unterstützte Resume-Phasen: `ASTROMETRY`, `BGE`, `PCC`.
 
 Der empfohlene UI-Pfad ist die webbasierte GUI2:
 
-- Backend: `web_backend/`
+- Backend: `web_backend_cpp/`
 - Frontend: `web_frontend/`
-- Orchestrierung: FastAPI -> `tile_compile_cli` / `tile_compile_runner`
+- Orchestrierung: Crow-Backend -> `tile_compile_cli` / `tile_compile_runner`
 
 Entwicklungsstart:
 
@@ -374,12 +374,12 @@ Für optionale Farbkalibrierung und astrometrisches Solving kann die Pipeline ex
 
 Wenn diese Ressourcen nicht installiert sind, funktioniert die Kernrekonstruktion weiterhin, aber ASTROMETRY- und PCC-Phasen können je nach Konfiguration übersprungen werden oder fehlschlagen.
 
-## Diagnosebericht (`tile_compile_cpp/generate_report.py`)
+## Diagnosebericht (`report.html` über C++-Backend)
 
-Erzeuge einen HTML-Qualitätsbericht aus einem abgeschlossenen Lauf:
+Erzeuge einen HTML-Qualitätsbericht aus einem abgeschlossenen Lauf entweder über GUI2 oder direkt über die CLI:
 
 ```bash
-python tile_compile_cpp/generate_report.py runs/<run_id>
+./tile_compile_cli generate-report runs/<run_id>
 ```
 
 Ausgabe:
@@ -410,13 +410,13 @@ Der Bericht aggregiert Daten aus Artifact-JSON-Dateien, `logs/run_events.jsonl` 
 ```text
 tile_compile/
 ├── web_frontend/           # GUI2 HTML/CSS/JS Frontend
-├── web_backend/            # GUI2 FastAPI Backend
+├── web_backend_cpp/        # GUI2 Crow/C++ Backend
 ├── tile_compile_cpp/
 │   ├── apps/                # Runner/CLI Entry-Points
 │   ├── include/tile_compile/
 │   ├── src/
 │   ├── examples/            # Beispielkonfigurationen
-│   ├── scripts/             # Reports und Hilfsskripte
+│   ├── scripts/             # Hilfsskripte
 │   ├── tests/
 │   ├── tile_compile.yaml
 │   ├── tile_compile.schema.json
@@ -426,7 +426,7 @@ tile_compile/
 ├── doc/
 │   ├── v3/                  # Methodik- und Prozessfluss-Doku
 │   └── gui2/                # GUI2 Konzept-/Referenzdokumente
-├── start_backend.sh         # Dev-Start fuer FastAPI + GUI2
+├── start_backend.sh         # Dev-Start fuer Crow-Backend + GUI2
 ├── start_gui2_docker.sh     # GUI2 in Docker starten
 ├── README.md
 └── README_de.md
@@ -467,16 +467,30 @@ ctest --output-on-failure
 - DE/EN-i18n-Abdeckung in GUI2 und Parameter-Studio erweitert; Dokumentation und Backend-Konfigurationshandling darauf abgestimmt.
 - Den bisherigen Qt6-GUI-Pfad nach `legacy/` verschoben und den aktiv gepflegten GUI2-Start-/Packaging-Weg klarer dokumentiert.
 
+### v0.0.6 (2026-03-10)
+
+- Produktive Migration auf das Crow/C++-Backend abgeschlossen.
+- Integrierte C++-Report-Generierung aktiviert.
+- Launcher, Docker-Packaging und GitHub-Workflows auf direkten Start des C++-Backends umgestellt.
+
 ## Changelog
 
 ### (2026-03-09)
 
 **GUI2-Release + i18n-Refresh:**
 
-- Den webbasierten GUI2-Stack (`web_frontend/` + `web_backend/`) als empfohlenen UI-Pfad etabliert und die Top-Level-Dokumentation entsprechend aktualisiert.
+- Den webbasierten GUI2-Stack (`web_frontend/` + `web_backend_cpp/`) als empfohlenen UI-Pfad etabliert und die Top-Level-Dokumentation entsprechend aktualisiert.
 - Einen dedizierten GUI2-Release-Workflow samt Launcher-Packaging für Linux, macOS und Windows unter `.github/workflows/release-tile-compile-gui2.yml` und `packaging/gui2/` ergänzt.
 - Frontend-Lokalisierung und Übersetzungen im Parameter-Studio deutlich erweitert; dazu passende Updates am Backend-Konfigurationsvertrag und an den Tests ergänzt.
 - Den früheren Qt6-GUI-/Build-Script-Pfad nach `legacy/` verschoben, damit die gepflegte GUI2-Strecke klar von der Legacy-Desktop-Implementierung getrennt ist.
+
+### (2026-03-10)
+
+**Python-Eliminierung im produktiven GUI2-Pfad:**
+
+- GUI2-Laufzeit, Packaging, Docker und CI auf das Crow/C++-Backend umgestellt.
+- Die produktive Python-Abhängigkeit für Stats-/Report-Erzeugung entfernt; diese läuft nun über den integrierten C++-Backendpfad und CLI-Support.
+- Repository-Struktur und GUI2-Dokumentation auf `web_backend_cpp/` als gepflegte Backend-Implementierung aktualisiert.
 
 ### (2026-03-05, spätere Aktualisierung)
 

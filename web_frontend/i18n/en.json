@@ -6,7 +6,7 @@
   "history.row.select": "Select run",
   "layout.hotspot.main_wrapper": "Main wrapper",
   "layout.hotspot.shell": "Shell / sidebar",
-  "monitor.stats.command_hint": "Command: python3 generate_report.py (path resolved from configuration)",
+  "monitor.stats.command_hint": "Command: built-in C++ report generation via backend job",
   "monitor.stats.generate": "Generate stats",
   "monitor.stats.open_folder": "Open stats folder",
   "param.assumptions.exposure_time_tolerance_percent.label": "Exposure time tolerance (%)",

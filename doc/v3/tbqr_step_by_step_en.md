@@ -1,6 +1,6 @@
 # TBQR Step-by-Step Guide (English)
 
-This guide explains how to run the active C++ pipeline (`tile_compile_cpp`) and how GUI2 interacts with it through the FastAPI backend.
+This guide explains how to run the active C++ pipeline (`tile_compile_cpp`) and how GUI2 interacts with it through the Crow/C++ backend.
 
 **Update note (2026-03-03):**
 - Resume supports `ASTROMETRY`, `BGE`, and `PCC`.
@@ -188,7 +188,7 @@ Release bundles start GUI2 via:
 - macOS: `start_gui2.command`
 - Windows: `start_gui2.bat`
 
-GUI2 is not a separate native processing engine. It uses FastAPI as the UI/backend layer and delegates all scan, run, resume, astrometry, PCC, and report actions to `tile_compile_cli` and `tile_compile_runner`.
+GUI2 is not a separate native processing engine. It uses the Crow/C++ backend as the UI/backend layer and delegates all scan, run, resume, astrometry, PCC, and report actions to `tile_compile_cli` and `tile_compile_runner`.
 
 ## 8) GUI2 workflow
 
@@ -278,7 +278,7 @@ A successful run creates `runs/<run_id>/` with:
 From repository root:
 
 ```bash
-python tile_compile_cpp/generate_report.py runs/<run_id>
+./tile_compile_cli generate-report runs/<run_id>
 ```
 
 Expected output files:

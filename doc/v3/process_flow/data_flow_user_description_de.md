@@ -325,12 +325,12 @@ Dabei wird aus dem Run-Verzeichnis gearbeitet (inkl. `config.yaml` Snapshot).
 
 ---
 
-## Auswertung mit `tile_compile_cpp/generate_report.py`
+## Auswertung mit dem integrierten Report-Generator
 
 Für die strukturierte Qualitätsanalyse kann aus einem Run-Verzeichnis ein HTML-Report erzeugt werden:
 
 ```text
-python tile_compile_cpp/generate_report.py runs/<run_id>
+./tile_compile_cli generate-report runs/<run_id>
 ```
 
 Der Report wird unter `runs/<run_id>/artifacts/report.html` abgelegt und ergänzt durch `report.css` sowie PNG-Diagramme.

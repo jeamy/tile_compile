@@ -8,7 +8,7 @@ Berücksichtigt wurden dabei:
 
 - GUI2-Sollbild aus `doc/gui2/detailkonzept.md`
 - Parameter-Coverage aus `doc/gui2/parameter_coverage_yaml_vs_schema.md`
-- Ist-Stand in `web_backend/app/api/*`
+- Ist-Stand in `web_backend_cpp/src/routes/*`
 - Ist-Stand in `web_frontend/*.html` und `web_frontend/src/app.js`
 - Legacy-Referenz in `legacy/qt6_gui/gui_cpp/*`
 

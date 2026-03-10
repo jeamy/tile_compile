@@ -8,7 +8,7 @@ Die Pipeline verarbeitet **FITS-Frames** (Mono oder OSC/CFA) und erzeugt ein gew
 
 **Implementierung:** C++ mit Eigen, OpenCV, cfitsio, nlohmann/json, YAML-cpp.
 
-**GUI2-Integration:** Der produktive GUI-Pfad nutzt das Web-Frontend plus FastAPI-Backend. FastAPI orchestriert die C++ Pipeline über `tile_compile_cli` und `tile_compile_runner`; die Verarbeitungslogik bleibt vollständig im C++ Kern.
+**GUI2-Integration:** Der produktive GUI-Pfad nutzt das Web-Frontend plus Crow/C++ Backend. Crow orchestriert die C++ Pipeline über `tile_compile_cli` und `tile_compile_runner`; die Verarbeitungslogik bleibt vollständig im C++ Kern.
 
 ## Aktuelle Pipeline-Phasen (C++ Implementierung, v3.3)
 
@@ -314,13 +314,12 @@ Jeder Run erzeugt 11 JSON-Artefakt-Dateien in `<run_dir>/artifacts/`:
 
 ### Report-Generierung und auswertbare Daten
 
-Zur konsolidierten Analyse eines Runs steht der Report-Generator
-`tile_compile_cpp/generate_report.py` zur Verfügung.
+Zur konsolidierten Analyse eines Runs wird der Report über den integrierten CLI-/Backendpfad erzeugt.
 
 Aufruf:
 
 ```text
-python tile_compile_cpp/generate_report.py runs/<run_id>
+./tile_compile_cli generate-report runs/<run_id>
 ```
 
 Erzeugte Ausgaben:
@@ -365,7 +364,7 @@ runs/<run_id>/
 │   ├── synthetic_frames.json
 │   ├── bge.json
 │   ├── validation.json
-│   ├── report.html       # (via generate_report.py)
+│   ├── report.html       # erzeugt über CLI-/Backend-Reportpfad
 │   └── *.png             # Chart-Bilder
 └── outputs/
     ├── stacked.fits
@@ -389,10 +388,13 @@ runs/<run_id>/
 
 ## Referenzen
 
-- **Normative Spezifikation**: `/doc/v3/tile_based_quality_reconstruction_methodology_v3.3.4_en.md`
-- **C++ Implementierung**: `/tile_compile_cpp/apps/runner_pipeline.cpp`
+### Normative Spezifikation
+- `/doc/v3/tile_based_quality_reconstruction_methodology_v3.3.4_en.md`
+
+### C++ Implementierung
+- `/tile_compile_cpp/apps/runner_pipeline.cpp`
 - **Konfiguration**: `/tile_compile_cpp/include/tile_compile/config/configuration.hpp`
-- **Report-Generator**: `/tile_compile_cpp/generate_report.py`
+- **Report-Generator**: `/web_backend_cpp/src/services/report_generator.cpp`
 
 ---
 

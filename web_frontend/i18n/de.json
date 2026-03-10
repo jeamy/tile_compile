@@ -6,7 +6,7 @@
   "history.row.select": "Run auswählen",
   "layout.hotspot.main_wrapper": "Haupt-Wrapper",
   "layout.hotspot.shell": "Shell / Sidebar",
-  "monitor.stats.command_hint": "Befehl: python3 generate_report.py (Pfad wird aus Konfiguration geladen)",
+  "monitor.stats.command_hint": "Befehl: integrierte C++-Report-Generierung über Backend-Job",
   "monitor.stats.generate": "Stats erstellen",
   "monitor.stats.open_folder": "Stats-Ordner öffnen",
   "param.assumptions.exposure_time_tolerance_percent.label": "Belichtungszeit-Toleranz (%)",

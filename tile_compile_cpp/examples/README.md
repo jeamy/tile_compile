@@ -60,7 +60,7 @@ They are kept in sync with v3.3 runner/config parser defaults, including:
   - Weighted regularized robust regression (IRLS with Huber/Tukey loss)
   - Adaptive grid spacing scales with image dimensions
   - Writes `artifacts/bge.json` with per-channel diagnostics (samples, grid cells, residual stats)
-  - Included in `generate_report.py` as BGE section with dedicated plots
+  - Included in the integrated report generation as a BGE section with dedicated plots
   - Includes channel apply guards:
     - `bge.min_valid_sample_fraction_for_apply` (default `0.30`)
     - `bge.min_valid_samples_for_apply` (default `96`)

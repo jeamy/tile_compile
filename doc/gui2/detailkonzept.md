@@ -258,16 +258,12 @@ config: {}
 - Beim naechsten `parameter.save` wird eine **neue** Revision angelegt, die alte bleibt unveraendert.
 - Beim GUI-Start: falls `config_active_revision.txt` fehlt, wird die juengste Revision geladen.
 
-## 4.5 generate_report.py: Pfad-Parametrisierung
+## 4.5 Stats-/Report-Erzeugung
 
-- Der Pfad zum Stats-Script wird **nicht** hardcodiert.
-- Suchstrategie (in dieser Reihenfolge):
-  1. GUI-Konfigurationsdatei `~/.config/tile_compile/gui2.json` Schluessel `stats_script_path`
-  2. Umgebungsvariable `TILE_COMPILE_STATS_SCRIPT`
-  3. Relativ zur Launcher-Binary: `../scripts/generate_report.py`
-  4. Fallback-Anzeige: GUI zeigt Fehlermeldung mit Hinweis auf manuelle Konfiguration.
-- Das aufgeloeste Kommando wird vor Ausfuehrung im Stats-Panel angezeigt (Readonly).
-- `monitor.stats.generate` mappt im Backend auf `runner.stats.generate_report`, der Adapter loest den Pfad zur Laufzeit auf.
+- Der Stats-/Reportpfad ist produktiv im Crow/C++-Backend integriert.
+- GUI2 muss keinen externen Python-Scriptpfad mehr aufloesen.
+- `monitor.stats.generate` mappt im Backend auf die integrierte Report-Erzeugung fuer das jeweilige Run-Verzeichnis.
+- Das Stats-Panel zeigt den Backend-Jobpfad als readonly Hinweis an.
 
 ## 4.6 Run-Zielverzeichnis und Run-Naming
 
@@ -355,14 +351,14 @@ Pflichtumfang in GUI 2:
 - Scan- und Kalibrier-Logik bleibt erhalten, wird besser strukturiert.
 - Config/YAML-Workflow bleibt erhalten, wird um vollstaendige Feldpflege erweitert.
 - Run-/Batch-Steuerung bleibt erhalten, bekommt besseren Zustandskontext.
-- Astrometry und PCC sind eigene Screens; History+Tools enthaelt die Historie und Deep-Links.
-- Stats ist im Run Monitor unter dem Live-Log integriert.
-- Live-Log bleibt erhalten, wird im Run Monitor priorisiert.
+  - Astrometry und PCC sind eigene Screens; History+Tools enthaelt die Historie und Deep-Links.
+  - Stats ist im Run Monitor unter dem Live-Log integriert.
+  - Live-Log bleibt erhalten, wird im Run Monitor priorisiert.
 
-## 10) Technischer Uebergangspfad (HTML + FastAPI, ohne Qt-GUI)
+## 10) Technischer Uebergangspfad (HTML + Crow/C++, ohne Qt-GUI)
 
 1. HTML-Komponenten-Set (Cards, Fields, Chips, Tooltips) im Web-Frontend etablieren.
-2. FastAPI-Adapter fuer Runner/CLI-Endpunkte und Event-Streaming aufsetzen.
+2. Crow/C++-Adapter fuer Runner/CLI-Endpunkte und Event-Streaming aufsetzen.
 3. Parameter Studio als zentrale Web-Seite mit Such-/Explain-/Diff-Layer umsetzen.
 4. Parameter-Knowledge-Layer und i18n-Keys anbinden.
 5. MONO Multi-Filter Queue (seriell) im Dashboard und Run Monitor integrieren.
@@ -432,7 +428,7 @@ Pflichtumfang in GUI 2:
 
 1. Phasenmonitor, Resume, Filterkontext.
 2. Stats-Panel unter Live Log (`Generate Stats`, `Open Stats Folder`).
-3. Integration von `generate_report.py` inkl. Fehlerpfad ohne Python.
+3. Integration der integrierten Backend-Report-Erzeugung ohne externen Python-Pfad.
 
 ## 12.5 Phase E - History + Astrometry/PCC
 

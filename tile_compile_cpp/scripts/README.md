@@ -95,26 +95,3 @@ python3 lco_bulk_download.py --object IC434 --n 50 --out /tmp/lco --filters rp,g
 
 # Additionally try to funpack *.fits.fz -> *.fits (requires 'funpack' in PATH)
 python3 lco_bulk_download.py --object IC434 --n 50 --out /tmp/lco --filters rp,gp,ip --zip --extract --funpack
-```
-
-## `generate_report.py`
-
-Generate an HTML report for a `tile_compile_cpp` run directory (charts + summary tables). It writes into the run’s `artifacts/` directory.
-
-### Syntax
-
-```bash
-python3 generate_report.py /path/to/runs/<run_id>
-```
-
-### Output
-
-- `<run_dir>/artifacts/report.html`
-- `<run_dir>/artifacts/report.css`
-- `<run_dir>/artifacts/*.png`
-
-### Examples
-
-```bash
-python3 generate_report.py ./runs/2026-02-14_15-40-00
-```

@@ -4,14 +4,14 @@ Gepruefte Quellen:
 
 - `doc/gui2/clickdummy/*.html`
 - `doc/gui2/detailkonzept.md`
-- `doc/gui2/html_fastapi_architektur.md`
+- `doc/gui2/html_fastapi_architektur.md` (Architekturdokument, heute Crow/C++-Stand)
 - `doc/gui2/implementierungsablauf_funktionen.md`
 - `doc/gui2/layout_1920_spec.md`
 - `doc/gui2/parameter_katalog.md`
 
 ## Ergebnis
 
-Gesamtstatus: **synchronisiert** (HTML-only Zielbild, FastAPI-Backend, Desktop 1920).
+Gesamtstatus: **synchronisiert** (HTML-only Zielbild, Crow/C++-Backend, Desktop 1920).
 
 ## Gepruefte Punkte und Anpassungen
 
@@ -52,11 +52,11 @@ Gesamtstatus: **synchronisiert** (HTML-only Zielbild, FastAPI-Backend, Desktop 1
 
 8. Detailkonzept ohne Mockup-PNG als Sollquelle
 - Ergaenzt: HTML-only Referenzgrundlage.
-- Technischer Pfad auf HTML+FastAPI (ohne Qt-GUI) umgestellt.
+- Technischer Pfad auf HTML + Crow/C++-Backend (ohne Qt-GUI) umgestellt.
 - Datei: `doc/gui2/detailkonzept.md`.
 
 9. Layout-Spec aktualisiert
-- Mockup-/PNG-/Qt-Referenzen auf HTML-only und Web/FastAPI angepasst.
+- Mockup-/PNG-/Qt-Referenzen auf HTML-only und Web/Crow angepasst.
 - Datei: `doc/gui2/layout_1920_spec.md`.
 
 10. Implementierungsmatrix + Katalog synchronisiert
