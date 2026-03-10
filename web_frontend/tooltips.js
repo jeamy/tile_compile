@@ -268,7 +268,10 @@ document.addEventListener("DOMContentLoaded", () => {
   function inferBrowseMode(button, target) {
     const controlId = (button.getAttribute("data-control") || "").trim().toLowerCase();
     const targetId = String(target?.id || "").toLowerCase();
-    const rowSelectText = String(button.closest(".ps-row")?.querySelector("select")?.value || "").trim().toLowerCase();
+    const rowSelect = button.closest(".ps-row")?.querySelector("select");
+    const rowSelectText = String(
+      rowSelect?.selectedOptions?.[0]?.textContent || rowSelect?.value || "",
+    ).trim().toLowerCase();
     if (
       rowSelectText.includes("datei") ||
       controlId.includes("browse_file") ||
