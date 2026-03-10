@@ -1399,6 +1399,10 @@ function parameterValidateStatusEl() {
   return $("parameter-validate-status");
 }
 
+function parameterPresetStatusEl() {
+  return $("parameter-preset-status");
+}
+
 function parameterValidateDetailsEl() {
   return $("parameter-validate-details");
 }
@@ -1517,6 +1521,15 @@ function setValidationStatusText(el, result, fallbackText = "") {
 
 function setParameterValidateDetails(result) {
   setValidationDetailsBox(parameterValidateDetailsEl(), result);
+}
+
+function setParameterPresetStatus(text = "") {
+  const el = parameterPresetStatusEl();
+  if (!el) return;
+  const message = String(text || "").trim();
+  el.textContent = message;
+  el.style.display = message ? "inline-flex" : "none";
+  el.style.color = message ? "#166534" : "";
 }
 
 function setSituationApplyStatus(applied, text = "") {
@@ -1816,6 +1829,7 @@ async function bindParameterStudio() {
     setParameterBaseYaml(currentYaml);
     setParameterPreview(currentYaml);
     setParameterValidateStatus(null, "Validierung: nicht geprüft");
+    setParameterPresetStatus("");
     setParameterValidateDetails(null);
     setSituationApplyStatus(false);
     clearConfigValidationState();
@@ -1834,6 +1848,7 @@ async function bindParameterStudio() {
       setParameterBaseYaml(uiState.configYaml);
       setParameterPreview(uiState.configYaml);
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterPresetStatus("");
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
       clearConfigValidationState();
@@ -1859,6 +1874,7 @@ async function bindParameterStudio() {
       setParameterBaseYaml(String(parsed?.config_yaml || uiState.configYaml));
       setParameterPreview(String(parsed?.config_yaml || uiState.configYaml));
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterPresetStatus(t("ui.status.parameter_preset_applied", "Preset wurde angewendet."));
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
       clearConfigValidationState();
@@ -1872,6 +1888,7 @@ async function bindParameterStudio() {
     try {
       const patched = await applyPreview({ persist: false });
       const result = await api.post(API_ENDPOINTS.config.validate, { yaml: patched?.config_yaml || "" });
+      setParameterPresetStatus("");
       setParameterValidateStatus(result);
       setParameterValidateDetails(result);
       setConfigValidationState({
@@ -1882,6 +1899,7 @@ async function bindParameterStudio() {
       });
       setFooter(result.ok ? "Validierung OK." : "Validierung hat Fehler.");
     } catch (err) {
+      setParameterPresetStatus("");
       setParameterValidateStatus(null, "Validierung: fehlgeschlagen");
       setParameterValidateDetails(null);
       clearConfigValidationState();
@@ -1892,6 +1910,7 @@ async function bindParameterStudio() {
   $("parameter-save")?.addEventListener("click", async () => {
     try {
       const result = await saveParameterConfig("");
+      setParameterPresetStatus("");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
@@ -1907,6 +1926,7 @@ async function bindParameterStudio() {
       const targetPath = await chooseConfigSaveAsPath();
       if (!targetPath) return;
       const result = await saveParameterConfig(targetPath);
+      setParameterPresetStatus("");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
@@ -1920,6 +1940,7 @@ async function bindParameterStudio() {
   $("parameter-review-changes")?.addEventListener("click", async () => {
     try {
       const result = await applyPreview({ persist: false });
+      setParameterPresetStatus("");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
@@ -1941,6 +1962,7 @@ async function bindParameterStudio() {
       setParameterBaseYaml(uiState.configYaml);
       setParameterPreview(uiState.configYaml);
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterPresetStatus("");
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
       clearConfigValidationState();
@@ -1967,6 +1989,7 @@ async function bindParameterStudio() {
       if (patched?.config) syncParameterFieldsFromConfig(patched.config);
       setParameterPreview(patched?.config_yaml || "");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterPresetStatus("");
       setParameterValidateDetails(null);
       setSituationApplyStatus(true, `${t("ui.status.situation_applied", "Angewendet")} (${scenarioUpdates.length})`);
       clearConfigValidationState();
@@ -2307,7 +2330,17 @@ function connectRunMonitorStream(runId) {
           && ["completed", "failed", "cancelled", "aborted", "error", "done", "finished"].includes(terminalRunStatus)
         );
       if (isTerminalRunEvent) {
-        window.setTimeout(() => window.location.reload(), 250);
+        window.setTimeout(() => {
+          document.dispatchEvent(
+            new CustomEvent("gui2:run-monitor-terminal", {
+              detail: {
+                eventType,
+                status: terminalRunStatus,
+                runId,
+              },
+            }),
+          );
+        }, 250);
       }
     },
     (err) => {
@@ -2535,6 +2568,31 @@ async function bindRunMonitor() {
     }
     if (sub) sub.textContent = text;
   };
+  const refreshCurrentRunMonitorState = async ({ reconnectSocket = false } = {}) => {
+    if (!uiState.currentRunId) return null;
+    const status = await loadRunStatus(uiState.currentRunId);
+    await refreshArtifacts();
+    await refreshStatsActions();
+    const isActive = isRunActiveStatus(status?.status || "");
+    setMonitorActionState(isActive);
+    if (reconnectSocket) {
+      if (isActive) {
+        connectRunMonitorStream(uiState.currentRunId);
+      } else if (uiState.runSocket) {
+        uiState.runSocket.close();
+        uiState.runSocket = null;
+      }
+    }
+    updateResumeEnabled();
+    return status;
+  };
+  document.addEventListener("gui2:run-monitor-terminal", (event) => {
+    const detail = event?.detail || {};
+    if (String(detail.runId || "").trim() && String(detail.runId || "").trim() !== String(uiState.currentRunId || "").trim()) {
+      return;
+    }
+    void refreshCurrentRunMonitorState({ reconnectSocket: true });
+  });
 
   updateResumeEnabled();
   void refreshRunMonitorValidationMessage();
@@ -2563,7 +2621,7 @@ async function bindRunMonitor() {
       clearCurrentRunHistoryMark();
       setMonitorStartValidationMessage("");
       setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
-      window.location.reload();
+      await refreshCurrentRunMonitorState({ reconnectSocket: true });
     } catch (err) {
       setFooter(`Run-Start fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -2602,7 +2660,7 @@ async function bindRunMonitor() {
         filter_context: runMonitorSelectedFilter() || undefined,
       });
       setFooter(`Resume gestartet (Job ${accepted.job_id}).`);
-      window.location.reload();
+      await refreshCurrentRunMonitorState({ reconnectSocket: true });
     } catch (err) {
       setFooter(`Resume fehlgeschlagen: ${errorText(err)}`, true);
     }

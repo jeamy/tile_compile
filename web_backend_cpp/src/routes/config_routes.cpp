@@ -18,7 +18,12 @@ crow::response json_resp(const nlohmann::json& j, int status = 200) {
 }
 
 crow::response err_resp(const std::string& msg, int status = 400) {
-    return json_resp({{"error", {{"message", msg}}}}, status);
+    std::string code = "BAD_REQUEST";
+    if (status == 404) code = "NOT_FOUND";
+    else if (status == 403) code = "FORBIDDEN";
+    else if (status == 422) code = "UNPROCESSABLE_ENTITY";
+    else if (status >= 500) code = "INTERNAL_ERROR";
+    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", nlohmann::json::object()}}}}, status);
 }
 
 crow::response err_resp(const std::string& code,
@@ -47,7 +52,7 @@ std::optional<crow::response> validate_path(const std::shared_ptr<AppState>& sta
     auto resolved = state->runtime.resolve_input_path(path, must_exist);
     path = resolved.path;
     if (resolved.status == PathStatus::not_allowed) {
-        return err_resp("PATH_NOT_ALLOWED", label + " is outside allowed roots", 422, {{"path", path.string()}, {"allowed_roots", allowed_roots_json(state->runtime)}});
+        return err_resp("PATH_NOT_ALLOWED", label + " is outside allowed roots", 403, {{"path", path.string()}, {"allowed_roots", allowed_roots_json(state->runtime)}});
     }
     if (resolved.status == PathStatus::not_found) {
         return err_resp("PATH_NOT_FOUND", label + " does not exist", 422, {{"path", path.string()}});

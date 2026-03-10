@@ -63,20 +63,7 @@
               <div class="ps-section-title">Suche + Aktionen</div>
               <div class="ps-row">
                 <label for="parameter-preset-select">Preset</label>
-                <select id="parameter-preset-select" data-control="parameter.preset.select" class="ps-select" title="Preset fuer das Parameter Studio auswaehlen.">
-                  <option selected>tile_compile.mono_full_mode.example.yaml</option>
-                  <option>tile_compile.canon_equatorial_balanced.example.yaml</option>
-                  <option>tile_compile.canon_low_n_high_quality.example.yaml</option>
-                  <option>tile_compile.emergency_mode.example.yaml</option>
-                  <option>tile_compile.full_mode.example.yaml</option>
-                  <option>tile_compile.ic434_test.example.yaml</option>
-                  <option>tile_compile.mono_small_n_anti_grid.example.yaml</option>
-                  <option>tile_compile.mono_small_n_ultra_conservative.example.yaml</option>
-                  <option>tile_compile.reduced_mode.example.yaml</option>
-                  <option>tile_compile.smart_telescope_dwarf_seestar.example.yaml</option>
-                  <option>tile_compile.smart_telescope_very_bright_star.example.yaml</option>
-                  <option>tile_compile.very_bright_star_anti_seam.example.yaml</option>
-                </select>
+                <select id="parameter-preset-select" data-control="parameter.preset.select" class="ps-select" title="Preset fuer das Parameter Studio auswaehlen."></select>
               </div>
               <div class="ps-row">
                 <label for="parameter-search">Parameter suchen</label>
@@ -86,6 +73,7 @@
                 <button id="parameter-preset-apply" data-control="parameter.preset_apply" class="ps-btn ps-btn-secondary" title="Preset auf aktuelle Konfiguration anwenden.">Preset anwenden</button>
                 <button id="parameter-yaml-sync" data-control="parameter.yaml_sync" class="ps-btn ps-btn-secondary" title="YAML laden/synchronisieren.">YAML Sync</button>
                 <button id="parameter-validate" data-control="parameter.validate" class="ps-btn ps-btn-secondary" title="Schema- und Semantikvalidierung ausfuehren.">Validieren</button>
+                <span id="parameter-preset-status" class="ps-hint" style="margin-left:6px;display:none;"></span>
                 <span id="parameter-validate-status" class="ps-hint" style="margin-left:6px;">Validierung: nicht geprüft</span>
               </div>
               <div id="parameter-validate-details" class="ps-note" style="margin-top:10px;display:none;white-space:normal;"></div>
@@ -255,7 +243,7 @@
               </div>
               <div class="ps-row">
                 <label for="parameter-cal-darks-dir">calibration.darks_dir</label>
-                <input id="parameter-cal-darks-dir" class="ps-input ps-wide" type="text" value="/data/calib/darks" title="Pfad zum Dark-Ordner.">
+                <input id="parameter-cal-darks-dir" class="ps-input ps-wide" type="text" value="" title="Pfad zum Dark-Ordner.">
               </div>
               <div class="ps-row">
                 <label for="parameter-cal-use-flat">calibration.use_flat</label>

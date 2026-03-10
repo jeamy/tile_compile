@@ -7,7 +7,12 @@ static crow::response json_resp(const nlohmann::json& j, int status = 200) {
     return res;
 }
 static crow::response err_resp(const std::string& msg, int status = 400) {
-    return json_resp({{"error", {{"message", msg}}}}, status);
+    std::string code = "BAD_REQUEST";
+    if (status == 404) code = "NOT_FOUND";
+    else if (status == 403) code = "FORBIDDEN";
+    else if (status == 422) code = "UNPROCESSABLE_ENTITY";
+    else if (status >= 500) code = "INTERNAL_ERROR";
+    return json_resp({{"error", {{"code", code}, {"message", msg}, {"details", nlohmann::json::object()}}}}, status);
 }
 static crow::response err_resp(const std::string& code,
                                const std::string& msg,

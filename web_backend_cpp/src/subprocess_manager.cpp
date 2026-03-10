@@ -286,6 +286,13 @@ std::string SubprocessManager::launch(const std::string& type,
             try {
                 auto j = nlohmann::json::parse(res.stdout_str);
                 data["result"] = j;
+                if (j.is_object()) {
+                    for (auto it = j.begin(); it != j.end(); ++it) {
+                        if (!data.contains(it.key()) || data[it.key()].is_null()) {
+                            data[it.key()] = it.value();
+                        }
+                    }
+                }
             } catch (...) {}
             _store.update_state(job_id, JobState::ok, data);
         } else {

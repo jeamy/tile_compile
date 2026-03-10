@@ -21,8 +21,11 @@ Mit der aktuellen Umsetzungsrunde wurden auch die zuvor offenen Prio-Punkte gesc
 - Download-Jobs liefern Retry-/Resume-Metadaten inkl. `attempt`, `status_code`, `resumed`, `existing_bytes`, `bytes_*` und nutzen HTTP-Resume via Range/`CURLOPT_RESUME_FROM_LARGE`.
 - UI-Events liegen jetzt im reicheren FastAPI-Schema vor, werden als JSONL persistiert und beim Start fuer Replay wieder eingelesen.
 - Config-Routen nutzen jetzt den CLI-Pfad (`load-config`, `save-config`, `validate-config`) und die Pfadauflosung wurde auf robuste kanonische Unterpfadpruefung mit relativer Aufloesung angeglichen.
+- Unter `web_backend_cpp/tests` existiert jetzt eine eigene Contract-/Integrationstest-Suite, die per `ctest` laeuft und Kernvertraege fuer Config, Runs, Tools/Jobs und UI-Serving absichert.
+- Der PCC-Ergebnisvertrag wird jetzt nicht nur unter `job.data.result`, sondern fuer relevante Felder auch auf Top-Level im Job-`data` gespiegelt.
+- Einfache Fehlerpfade liefern jetzt ebenfalls strukturierte Error-Envelopes mit `code`, `message` und `details`.
 
-Offen bleibt damit im Wesentlichen nur die fehlende eigene Contract-/Integrationstest-Suite fuer das C++-Backend.
+Offen bleiben damit nur noch kleinere UI-Aufraeumarbeiten bei statischen Placeholder-Inhalten.
 
 ## Scope
 
@@ -35,7 +38,7 @@ Verglichen wurden:
 Zusaetzlich wurde das C++-Backend erfolgreich gebaut:
 
 - `cmake --build web_backend_cpp/build -j2`
-- `ctest --output-on-failure` in `web_backend_cpp/build` wurde ausgefuehrt; es sind dort aktuell keine Tests registriert.
+- `ctest --output-on-failure` in `web_backend_cpp/build` fuehrt jetzt die neue C++-Contract-/Integrationstest-Suite aus.
 
 ## Kurzfazit
 
@@ -48,7 +51,7 @@ Auf Vertrags- und Verhaltens-Ebene ist die Portierung inzwischen weitgehend auf 
 - erledigt: Download-Retry/Resume-Vertrag inkl. Resume-Metadaten und HTTP-Resume
 - erledigt: UI-Events inkl. Eventnamen, Top-Level-Feldern und JSONL-Replay
 - erledigt: Config-Routen ueber CLI-Vertrag sowie robuste Pfadauflosung
-- offen: automatisierte C++-Contract-/Integrationstests fehlen weiterhin
+- erledigt: automatisierte C++-Contract-/Integrationstests sind vorhanden
 
 Fazit: "FastAPI-Verhalten und Frontend-Vertrag vollstaendig ersetzt" ist fuer den derzeit sichtbaren Implementierungsstand weitgehend erreicht; das Hauptrisiko liegt jetzt in fehlender automatisierter Absicherung.
 
@@ -296,13 +299,13 @@ Fuer die aktuell vom Frontend gelesenen Kernfelder ist der Stand deutlich besser
 - der CLI-Output von `tile_compile_cli pcc-run` enthaelt `stars_matched`, `stars_used`, `residual_rms` und `matrix`
 - `SubprocessManager` uebernimmt JSON-stdout in `job.data.result`, so dass diese Felder im Frontend ankommen koennen
 
-Weiter offen ist vor allem die fehlende explizite Backend-Normalisierung und Absicherung per Contract-Test:
+Inzwischen ebenfalls erledigt:
 
 - `web_backend_cpp/src/routes/tools_routes.cpp`
 - `web_backend_cpp/src/subprocess_manager.cpp`
 - `tile_compile_cpp/apps/cli_main.cpp`
 
-Bewertung: Parameterseite weitgehend portiert; Ergebnisvertrag wirkt fuer die aktuelle UI weitgehend nutzbar, ist aber noch nicht testseitig abgesichert.
+Bewertung: Parameterseite weitgehend portiert; Ergebnisvertrag ist fuer die aktuelle UI direkt nutzbar und jetzt auch per C++-Contract-Test abgesichert.
 
 ### 2.8 App-Constants/UI-Events weichen vom Vertrag ab
 
@@ -433,12 +436,9 @@ Rest-Risiko:
 
 ### 4.1 Offensichtlich ungenutzter Frontend-Code
 
-`web_frontend/src/main.js` ist im aktuellen HTML nicht eingebunden.
+Status: ERLEDIGT
 
-Bewertung:
-
-- wahrscheinlich Alt-/Prototyp-Code
-- kann bei Wartung und Analyse stoeren
+`web_frontend/src/main.js` wurde entfernt.
 
 ### 4.2 Demo-/Placeholder-Daten in HTML-Seiten
 
@@ -463,9 +463,11 @@ Das ist nicht zwingend falsch, wirkt aber teils wie Demo-/Mock-Zustand statt rei
 
 ### 4.3 C++-Backend ohne eigene Test-Suite
 
-Unter `web_backend_cpp` gibt es derzeit keine eigene Test-Suite.
+Status: ERLEDIGT
 
-Im FastAPI-Backend existieren dagegen Contract-/Tool-/Queue-Tests:
+Unter `web_backend_cpp/tests` gibt es jetzt eine eigene Test-Suite mit Contract-/Tool-/Run-Abdeckung.
+
+Referenzrahmen aus dem FastAPI-Backend:
 
 - `master:web_backend/tests/test_backend_contract.py`
 - `master:web_backend/tests/test_tools_api_jobs.py`
@@ -473,8 +475,8 @@ Im FastAPI-Backend existieren dagegen Contract-/Tool-/Queue-Tests:
 
 Bewertung:
 
-- grosse funktionale Unterschiede bleiben derzeit unautomatisiert
-- besonders riskant bei API-Vertragsportierung
+- zentrale Vertraege werden jetzt automatisiert geprueft
+- API-Portierungsregressionen sind damit deutlich besser abgesichert
 
 ### 4.4 Kleine technische Auffaelligkeiten im C++-Code
 
@@ -483,7 +485,7 @@ Bewertung:
 - erledigt: `download_manager.cpp` kennt jetzt HTTP-Resume sowie Attempt-/Status-Metadatenmodell
 - erledigt: `ui_event_store.cpp` persistiert JSONL und liefert das reichere Eventschema
 - erledigt: `backend_runtime.cpp` prueft Pfade ueber robuste kanonische Nachfahr-Pruefung
-- mehrere Fehler-Envelopes sind inkonsistent detailarm im Vergleich zum FastAPI-Backend
+- einfache Fehlerpfade liefern jetzt ebenfalls strukturierte Error-Envelopes
 
 ## 5. Priorisierte To-do-Liste
 
@@ -498,14 +500,13 @@ Bewertung:
 ### Prio 2
 
 - erledigt: Astrometry-Solve-Ergebnisvertrag portieren (`wcs_path`, RA/DEC, Scale, Rotation, FOV)
-- teilweise erledigt: PCC-Run-Optionen portieren; Ergebnisvertrag nun per CLI-JSON nutzbar machen und per Test absichern
+- erledigt: PCC-Run-Optionen portieren; Ergebnisvertrag auf Top-Level spiegeln und per Test absichern
 - erledigt: Tool-Download-Contract inkl. `bytes_*`, `attempt`, `status_code`, `existing_bytes`, HTTP-Resume/Retry sauber implementieren
 - erledigt: `ui-events` inkl. Eventnamen, Top-Level-Feldern und Persistenz auf FastAPI-Vertrag angleichen
 
 ### Prio 3
 
-- teilweise erledigt: `app/constants` und Config-Endpunkte angeglichen; Fehler-Envelopes bleiben offen
-- ungenutzten Frontend-Code (`src/main.js`) entfernen oder klar markieren
+- erledigt: `app/constants` und Config-Endpunkte angeglichen; einfache Fehler-Envelopes sind strukturiert
 - statische Demo-/Placeholder-Inhalte in HTML reduzieren
 
 ## 6. Gesamtbewertung
@@ -524,4 +525,4 @@ Aber:
 
 Empfehlung:
 
-Das C++-Backend ist jetzt ein plausibler funktionaler Ersatz fuer die FastAPI-Referenz. Vor einem produktiven Switch sollte vor allem eine eigene C++-Contract-/Integrationstest-Suite nachgezogen werden, damit der nun angeglichene Vertrag stabil bleibt.
+Das C++-Backend ist jetzt ein plausibler funktionaler Ersatz fuer die FastAPI-Referenz. Der groesste Restpunkt liegt nicht mehr im Backend-Vertrag, sondern in weiterem UI-Aufraeumen statischer Placeholder-Inhalte.

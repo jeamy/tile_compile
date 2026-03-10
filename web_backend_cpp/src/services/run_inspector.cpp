@@ -208,6 +208,10 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
             }
 
             if (event_type == "phase_start") {
+                if ((*phase_state).value("status", std::string()) != "running" ||
+                    (*phase_state).value("pct", 0.0) >= 1.0) {
+                    (*phase_state)["pct"] = 0.0;
+                }
                 (*phase_state)["status"] = "running";
                 current_phase = phase_name;
                 if (run_status == "unknown" || run_status == "pending") run_status = "running";
@@ -249,6 +253,12 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                         if (phases.contains(*pit) && phases[*pit].value("status", std::string()) == "pending") {
                             phases[*pit]["status"] = "ok";
                             phases[*pit]["pct"] = 1.0;
+                        }
+                    }
+                    for (auto pit = it; pit != PHASE_ORDER.end(); ++pit) {
+                        if (phases.contains(*pit)) {
+                            phases[*pit]["status"] = (*pit == resume_from_phase) ? "running" : "pending";
+                            phases[*pit]["pct"] = 0.0;
                         }
                     }
                 }

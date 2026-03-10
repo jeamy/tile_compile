@@ -381,6 +381,7 @@
   "ui.status.stats_running": "Stats Generierung läuft",
   "ui.status.stats_completed": "Stats Generierung beendet",
   "ui.status.situation_applied": "Angewendet",
+  "ui.status.parameter_preset_applied": "Preset wurde angewendet.",
   "ui.status.situation_idle": "Noch nicht angewendet",
   "ui.dialog.save_file": "Datei speichern unter",
   "ui.dialog.pick_file": "Dateiauswahl",
