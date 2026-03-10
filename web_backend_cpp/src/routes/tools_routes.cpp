@@ -217,6 +217,52 @@ size_t curl_discard_write(char* ptr, size_t size, size_t nmemb, void*) {
     return size * nmemb;
 }
 
+std::string payload_text(const nlohmann::json& payload, const std::string& key, const std::string& fallback = "") {
+    if (!payload.is_object() || !payload.contains(key) || payload[key].is_null()) return fallback;
+    if (payload[key].is_string()) return payload[key].get<std::string>();
+    return payload[key].dump();
+}
+
+std::optional<double> payload_float(const nlohmann::json& payload, const std::string& key) {
+    if (!payload.is_object() || !payload.contains(key) || payload[key].is_null()) return std::nullopt;
+    try {
+        if (payload[key].is_string()) {
+            std::string raw = payload[key].get<std::string>();
+            if (raw.empty()) return std::nullopt;
+            return std::stod(raw);
+        }
+        return payload[key].get<double>();
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<int> payload_int(const nlohmann::json& payload, const std::string& key) {
+    if (!payload.is_object() || !payload.contains(key) || payload[key].is_null()) return std::nullopt;
+    try {
+        if (payload[key].is_string()) {
+            std::string raw = payload[key].get<std::string>();
+            if (raw.empty()) return std::nullopt;
+            return std::stoi(raw);
+        }
+        return payload[key].get<int>();
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<bool> payload_bool(const nlohmann::json& payload, const std::string& key) {
+    if (!payload.is_object() || !payload.contains(key) || payload[key].is_null()) return std::nullopt;
+    try {
+        if (payload[key].is_boolean()) return payload[key].get<bool>();
+        std::string raw = payload[key].is_string() ? payload[key].get<std::string>() : payload[key].dump();
+        std::transform(raw.begin(), raw.end(), raw.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (raw == "1" || raw == "true" || raw == "yes" || raw == "on") return true;
+        if (raw == "0" || raw == "false" || raw == "no" || raw == "off") return false;
+    } catch (...) {}
+    return std::nullopt;
+}
+
 } // namespace
 
 static crow::response json_resp(const nlohmann::json& j, int status = 200) {
@@ -331,13 +377,23 @@ void register_tools_routes(CrowApp& app,
         auto cancel_flag_ptr = get_or_create_flag("astap_install");
         cancel_flag_ptr->store(false);
         std::string job_id = state->job_store.create("astrometry_install");
-        state->job_store.update_state(job_id, JobState::running, {{"data_dir", data_dir.string()}, {"url", ASTAP_CLI_URL}});
+        state->job_store.update_state(job_id, JobState::running, {
+            {"data_dir", data_dir.string()},
+            {"url", ASTAP_CLI_URL},
+            {"stage", "download"},
+            {"progress", 0.0}
+        });
         std::thread([state, job_id, data_dir, cancel_flag_ptr]() {
             try {
                 fs::create_directories(data_dir);
                 fs::path archive = data_dir / "astap_cli.zip";
-                auto dl = download_file(ASTAP_CLI_URL, archive, *cancel_flag_ptr);
+                auto dl = download_file(ASTAP_CLI_URL, archive, *cancel_flag_ptr,
+                    [state, job_id](double ratio) {
+                        state->job_store.update_progress(job_id, ratio * 100.0);
+                        state->job_store.merge_data(job_id, {{"progress", ratio}, {"stage", "download"}});
+                    });
                 if (!dl.ok) throw std::runtime_error(dl.error);
+                state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
                 std::string error;
                 if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
                 fs::remove(archive);
@@ -345,10 +401,16 @@ void register_tools_routes(CrowApp& app,
                 if (candidate.empty()) throw std::runtime_error("astap_cli executable not found after extraction");
                 fs::path target = data_dir / candidate.filename();
                 if (candidate != target) fs::copy_file(candidate, target, fs::copy_options::overwrite_existing);
-                state->job_store.update_state(job_id, JobState::ok, {{"binary", target.string()}, {"data_dir", data_dir.string()}});
+                state->job_store.update_progress(job_id, 100.0);
+                state->job_store.update_state(job_id, JobState::ok, {
+                    {"binary", target.string()},
+                    {"data_dir", data_dir.string()},
+                    {"stage", "done"},
+                    {"progress", 1.0}
+                });
             } catch (const std::exception& e) {
                 state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"data_dir", data_dir.string()}}, e.what());
+                    {{"data_dir", data_dir.string()}, {"stage", "download"}}, e.what());
             }
         }).detach();
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
@@ -369,13 +431,24 @@ void register_tools_routes(CrowApp& app,
         auto cancel_flag_ptr = get_or_create_flag("astap_install");
         cancel_flag_ptr->store(false);
         std::string job_id = state->job_store.create("astrometry_install");
-        state->job_store.update_state(job_id, JobState::running, {{"data_dir", data_dir.string()}, {"url", ASTAP_CLI_URL}, {"resume", true}});
+        state->job_store.update_state(job_id, JobState::running, {
+            {"data_dir", data_dir.string()},
+            {"url", ASTAP_CLI_URL},
+            {"resume", true},
+            {"stage", "download"},
+            {"progress", 0.0}
+        });
         std::thread([state, job_id, data_dir, cancel_flag_ptr]() {
             try {
                 fs::create_directories(data_dir);
                 fs::path archive = data_dir / "astap_cli.zip";
-                auto dl = download_file(ASTAP_CLI_URL, archive, *cancel_flag_ptr);
+                auto dl = download_file(ASTAP_CLI_URL, archive, *cancel_flag_ptr,
+                    [state, job_id](double ratio) {
+                        state->job_store.update_progress(job_id, ratio * 100.0);
+                        state->job_store.merge_data(job_id, {{"progress", ratio}, {"stage", "download"}});
+                    });
                 if (!dl.ok) throw std::runtime_error(dl.error);
+                state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
                 std::string error;
                 if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
                 fs::remove(archive);
@@ -383,10 +456,17 @@ void register_tools_routes(CrowApp& app,
                 if (candidate.empty()) throw std::runtime_error("astap_cli executable not found after extraction");
                 fs::path target = data_dir / candidate.filename();
                 if (candidate != target) fs::copy_file(candidate, target, fs::copy_options::overwrite_existing);
-                state->job_store.update_state(job_id, JobState::ok, {{"binary", target.string()}, {"data_dir", data_dir.string()}, {"resume", true}});
+                state->job_store.update_progress(job_id, 100.0);
+                state->job_store.update_state(job_id, JobState::ok, {
+                    {"binary", target.string()},
+                    {"data_dir", data_dir.string()},
+                    {"resume", true},
+                    {"stage", "done"},
+                    {"progress", 1.0}
+                });
             } catch (const std::exception& e) {
                 state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"data_dir", data_dir.string()}, {"resume", true}}, e.what());
+                    {{"data_dir", data_dir.string()}, {"resume", true}, {"stage", "download"}}, e.what());
             }
         }).detach();
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
@@ -409,13 +489,23 @@ void register_tools_routes(CrowApp& app,
         auto cancel_flag_ptr = get_or_create_flag("astap_catalog");
         cancel_flag_ptr->store(false);
         std::string job_id = state->job_store.create("astrometry_catalog_download");
-        state->job_store.update_state(job_id, JobState::running, {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}});
+        state->job_store.update_state(job_id, JobState::running, {
+            {"catalog_id", catalog_id},
+            {"data_dir", data_dir.string()},
+            {"stage", "download"},
+            {"progress", 0.0}
+        });
         std::thread([state, job_id, catalog_id, filename = it->second, data_dir, cancel_flag_ptr]() {
             try {
                 fs::create_directories(data_dir);
                 fs::path archive = data_dir / filename;
-                auto dl = download_file(std::string(ASTAP_SF_BASE) + filename + "/download", archive, *cancel_flag_ptr);
+                auto dl = download_file(std::string(ASTAP_SF_BASE) + filename + "/download", archive, *cancel_flag_ptr,
+                    [state, job_id](double ratio) {
+                        state->job_store.update_progress(job_id, ratio * 100.0);
+                        state->job_store.merge_data(job_id, {{"progress", ratio}, {"stage", "download"}});
+                    });
                 if (!dl.ok) throw std::runtime_error(dl.error);
+                state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
                 std::string error;
                 if (archive.extension() == ".zip") {
                     if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
@@ -435,10 +525,17 @@ void register_tools_routes(CrowApp& app,
                     throw std::runtime_error("unsupported archive format");
                 }
                 fs::remove(archive);
-                state->job_store.update_state(job_id, JobState::ok, {{"catalog_id", catalog_id}, {"installed", is_astap_catalog_installed(data_dir, catalog_id)}, {"data_dir", data_dir.string()}});
+                state->job_store.update_progress(job_id, 100.0);
+                state->job_store.update_state(job_id, JobState::ok, {
+                    {"catalog_id", catalog_id},
+                    {"installed", is_astap_catalog_installed(data_dir, catalog_id)},
+                    {"data_dir", data_dir.string()},
+                    {"stage", "done"},
+                    {"progress", 1.0}
+                });
             } catch (const std::exception& e) {
                 state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}}, e.what());
+                    {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}, {"stage", "download"}}, e.what());
             }
         }).detach();
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
@@ -461,13 +558,24 @@ void register_tools_routes(CrowApp& app,
         auto cancel_flag_ptr = get_or_create_flag("astap_catalog");
         cancel_flag_ptr->store(false);
         std::string job_id = state->job_store.create("astrometry_catalog_download");
-        state->job_store.update_state(job_id, JobState::running, {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}, {"resume", true}});
+        state->job_store.update_state(job_id, JobState::running, {
+            {"catalog_id", catalog_id},
+            {"data_dir", data_dir.string()},
+            {"resume", true},
+            {"stage", "download"},
+            {"progress", 0.0}
+        });
         std::thread([state, job_id, catalog_id, filename = it->second, data_dir, cancel_flag_ptr]() {
             try {
                 fs::create_directories(data_dir);
                 fs::path archive = data_dir / filename;
-                auto dl = download_file(std::string(ASTAP_SF_BASE) + filename + "/download", archive, *cancel_flag_ptr);
+                auto dl = download_file(std::string(ASTAP_SF_BASE) + filename + "/download", archive, *cancel_flag_ptr,
+                    [state, job_id](double ratio) {
+                        state->job_store.update_progress(job_id, ratio * 100.0);
+                        state->job_store.merge_data(job_id, {{"progress", ratio}, {"stage", "download"}});
+                    });
                 if (!dl.ok) throw std::runtime_error(dl.error);
+                state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
                 std::string error;
                 if (archive.extension() == ".zip") {
                     if (!extract_zip_archive(archive, data_dir, error)) throw std::runtime_error(error);
@@ -487,10 +595,18 @@ void register_tools_routes(CrowApp& app,
                     throw std::runtime_error("unsupported archive format");
                 }
                 fs::remove(archive);
-                state->job_store.update_state(job_id, JobState::ok, {{"catalog_id", catalog_id}, {"installed", is_astap_catalog_installed(data_dir, catalog_id)}, {"data_dir", data_dir.string()}, {"resume", true}});
+                state->job_store.update_progress(job_id, 100.0);
+                state->job_store.update_state(job_id, JobState::ok, {
+                    {"catalog_id", catalog_id},
+                    {"installed", is_astap_catalog_installed(data_dir, catalog_id)},
+                    {"data_dir", data_dir.string()},
+                    {"resume", true},
+                    {"stage", "done"},
+                    {"progress", 1.0}
+                });
             } catch (const std::exception& e) {
                 state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}, {"resume", true}}, e.what());
+                    {{"catalog_id", catalog_id}, {"data_dir", data_dir.string()}, {"resume", true}, {"stage", "download"}}, e.what());
             }
         }).detach();
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
@@ -535,10 +651,15 @@ void register_tools_routes(CrowApp& app,
             }
         }
 
+        fs::path resolved_astap_data_dir = astap_data_dir.empty() ? default_astap_data_dir() : fs::path(astap_data_dir);
+        if (auto denied = denied_path(state->runtime, resolved_astap_data_dir, fs::path(astap_data_dir.empty() ? resolved_astap_data_dir : fs::path(astap_data_dir))); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
+
         fs::path astap_bin;
         if (!astap_cli.empty()) astap_bin = fs::path(astap_cli);
         else {
-            fs::path default_bin = (astap_data_dir.empty() ? default_astap_data_dir() : fs::path(astap_data_dir)) / "astap_cli";
+            fs::path default_bin = resolved_astap_data_dir / "astap_cli";
             astap_bin = fs::exists(default_bin) ? default_bin : fs::path("astap_cli");
         }
         auto probe = run_subprocess({astap_bin.string(), "-h"});
@@ -551,13 +672,19 @@ void register_tools_routes(CrowApp& app,
             : 180;
         const fs::path wcs_path = guess_wcs_path(fs::path(solve_file));
 
-        std::vector<std::string> args = {astap_bin.string(), "-f", solve_file, "-r", std::to_string(search_radius)};
-        if (!astap_data_dir.empty()) { args.push_back("-d"); args.push_back(astap_data_dir); }
+        std::vector<std::string> args = {
+            astap_bin.string(),
+            "-f", solve_file,
+            "-d", resolved_astap_data_dir.string(),
+            "-r", std::to_string(search_radius)
+        };
 
         std::string job_id = state->job_store.create("astrometry_solve");
         state->job_store.update_state(job_id, JobState::running, {
             {"command", args},
-            {"wcs_path", wcs_path.string()}
+            {"wcs_path", wcs_path.string()},
+            {"solve_file", solve_file},
+            {"astap_data_dir", resolved_astap_data_dir.string()}
         });
         std::thread([state, job_id, args, wcs_path]() {
             auto res = run_subprocess(args, state->runtime.project_root.string());
@@ -656,33 +783,96 @@ void register_tools_routes(CrowApp& app,
 
         auto cancel_flag_ptr = get_or_create_flag("pcc_siril");
         cancel_flag_ptr->store(false);
+        nlohmann::json requested_chunks = nlohmann::json::array();
+        if (body.contains("chunk_ids") && body["chunk_ids"].is_array()) {
+            for (const auto& item : body["chunk_ids"]) {
+                try {
+                    int idx = item.get<int>();
+                    if (idx >= 0 && idx < SIRIL_NUM_CHUNKS) requested_chunks.push_back(idx);
+                } catch (...) {}
+            }
+        }
+        int max_chunks = body.value("max_chunks", 0);
         std::string job_id = state->job_store.create("pcc_siril_download");
-        state->job_store.update_state(job_id, JobState::running, {{"catalog_dir", catalog_dir.string()}});
-        std::thread([state, job_id, catalog_dir, cancel_flag_ptr]() {
+        state->job_store.update_state(job_id, JobState::running, {
+            {"catalog_dir", catalog_dir.string()},
+            {"pending_chunks", requested_chunks},
+            {"total_chunks", 0},
+            {"progress", 0.0}
+        });
+        std::thread([state, job_id, catalog_dir, cancel_flag_ptr, requested_chunks, max_chunks]() {
             try {
                 fs::create_directories(catalog_dir);
                 auto missing = missing_siril_chunks(catalog_dir);
+                if (!requested_chunks.empty()) {
+                    std::vector<int> requested;
+                    for (const auto& item : requested_chunks) requested.push_back(item.get<int>());
+                    missing.erase(std::remove_if(missing.begin(), missing.end(), [&requested](int value) {
+                        return std::find(requested.begin(), requested.end(), value) == requested.end();
+                    }), missing.end());
+                }
+                if (max_chunks > 0 && static_cast<int>(missing.size()) > max_chunks) missing.resize(static_cast<size_t>(max_chunks));
+                nlohmann::json pending_chunks = nlohmann::json::array();
+                for (int chunk : missing) pending_chunks.push_back(chunk);
+                state->job_store.merge_data(job_id, {
+                    {"pending_chunks", pending_chunks},
+                    {"total_chunks", static_cast<int>(missing.size())},
+                    {"current_index", 0},
+                    {"completed_chunks", 0},
+                    {"stage", "download"}
+                });
                 int completed = 0;
-                for (int chunk : missing) {
+                for (size_t index = 0; index < missing.size(); ++index) {
+                    int chunk = missing[index];
                     if (cancel_flag_ptr->load()) {
-                        state->job_store.update_state(job_id, JobState::cancelled, {{"catalog_dir", catalog_dir.string()}, {"current_chunk", chunk}});
+                        state->job_store.update_state(job_id, JobState::cancelled, {
+                            {"catalog_dir", catalog_dir.string()},
+                            {"current_chunk", chunk},
+                            {"current_index", static_cast<int>(index)},
+                            {"completed_chunks", completed},
+                            {"pending_chunks", pending_chunks},
+                            {"stage", "download"}
+                        });
                         return;
                     }
+                    state->job_store.merge_data(job_id, {
+                        {"current_chunk", chunk},
+                        {"current_index", static_cast<int>(index)},
+                        {"completed_chunks", completed}
+                    });
                     fs::path archive = catalog_dir / ("siril_cat1_healpix8_xpsamp_" + std::to_string(chunk) + ".dat.bz2");
                     auto dl = download_file(siril_chunk_url(chunk), archive, *cancel_flag_ptr,
                         [state, job_id, completed, total = static_cast<int>(missing.size())](double ratio) {
-                            state->job_store.update_progress(job_id, total > 0 ? ((completed + ratio) / total) * 100.0 : 100.0);
+                            double aggregate = total > 0 ? ((static_cast<double>(completed) + ratio) / static_cast<double>(total)) : 1.0;
+                            state->job_store.update_progress(job_id, aggregate * 100.0);
+                            state->job_store.merge_data(job_id, {{"progress", aggregate}});
                         });
                     if (!dl.ok) throw std::runtime_error(dl.error);
                     std::string error;
+                    state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
                     if (!decompress_bz2_archive(archive, error)) throw std::runtime_error(error);
                     ++completed;
-                    state->job_store.update_progress(job_id, missing.empty() ? 100.0 : (100.0 * completed / missing.size()));
+                    if (!pending_chunks.empty()) pending_chunks.erase(pending_chunks.begin());
+                    const double aggregate = missing.empty() ? 1.0 : (static_cast<double>(completed) / static_cast<double>(missing.size()));
+                    state->job_store.update_progress(job_id, aggregate * 100.0);
+                    state->job_store.merge_data(job_id, {
+                        {"progress", aggregate},
+                        {"completed_chunks", completed},
+                        {"pending_chunks", pending_chunks},
+                        {"stage", "download"}
+                    });
                 }
-                state->job_store.update_state(job_id, JobState::ok, {{"catalog_dir", catalog_dir.string()}, {"missing_after", missing_siril_chunks(catalog_dir)}});
+                state->job_store.update_state(job_id, JobState::ok, {
+                    {"catalog_dir", catalog_dir.string()},
+                    {"missing_after", missing_siril_chunks(catalog_dir)},
+                    {"pending_chunks", nlohmann::json::array()},
+                    {"completed_chunks", completed},
+                    {"stage", "done"},
+                    {"progress", 1.0}
+                });
             } catch (const std::exception& e) {
                 state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"catalog_dir", catalog_dir.string()}}, e.what());
+                    {{"catalog_dir", catalog_dir.string()}, {"stage", "download"}}, e.what());
             }
         }).detach();
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
@@ -701,33 +891,99 @@ void register_tools_routes(CrowApp& app,
         }
         auto cancel_flag_ptr = get_or_create_flag("pcc_siril");
         cancel_flag_ptr->store(false);
+        nlohmann::json requested_chunks = nlohmann::json::array();
+        if (body.contains("chunk_ids") && body["chunk_ids"].is_array()) {
+            for (const auto& item : body["chunk_ids"]) {
+                try {
+                    int idx = item.get<int>();
+                    if (idx >= 0 && idx < SIRIL_NUM_CHUNKS) requested_chunks.push_back(idx);
+                } catch (...) {}
+            }
+        }
+        int max_chunks = body.value("max_chunks", 0);
         std::string job_id = state->job_store.create("pcc_siril_download");
-        state->job_store.update_state(job_id, JobState::running, {{"catalog_dir", catalog_dir.string()}, {"resume", true}});
-        std::thread([state, job_id, catalog_dir, cancel_flag_ptr]() {
+        state->job_store.update_state(job_id, JobState::running, {
+            {"catalog_dir", catalog_dir.string()},
+            {"resume", true},
+            {"pending_chunks", requested_chunks},
+            {"total_chunks", 0},
+            {"progress", 0.0}
+        });
+        std::thread([state, job_id, catalog_dir, cancel_flag_ptr, requested_chunks, max_chunks]() {
             try {
                 fs::create_directories(catalog_dir);
                 auto missing = missing_siril_chunks(catalog_dir);
+                if (!requested_chunks.empty()) {
+                    std::vector<int> requested;
+                    for (const auto& item : requested_chunks) requested.push_back(item.get<int>());
+                    missing.erase(std::remove_if(missing.begin(), missing.end(), [&requested](int value) {
+                        return std::find(requested.begin(), requested.end(), value) == requested.end();
+                    }), missing.end());
+                }
+                if (max_chunks > 0 && static_cast<int>(missing.size()) > max_chunks) missing.resize(static_cast<size_t>(max_chunks));
+                nlohmann::json pending_chunks = nlohmann::json::array();
+                for (int chunk : missing) pending_chunks.push_back(chunk);
+                state->job_store.merge_data(job_id, {
+                    {"pending_chunks", pending_chunks},
+                    {"total_chunks", static_cast<int>(missing.size())},
+                    {"current_index", 0},
+                    {"completed_chunks", 0},
+                    {"stage", "download"}
+                });
                 int completed = 0;
-                for (int chunk : missing) {
+                for (size_t index = 0; index < missing.size(); ++index) {
+                    int chunk = missing[index];
                     if (cancel_flag_ptr->load()) {
-                        state->job_store.update_state(job_id, JobState::cancelled, {{"catalog_dir", catalog_dir.string()}, {"current_chunk", chunk}, {"resume", true}});
+                        state->job_store.update_state(job_id, JobState::cancelled, {
+                            {"catalog_dir", catalog_dir.string()},
+                            {"current_chunk", chunk},
+                            {"current_index", static_cast<int>(index)},
+                            {"completed_chunks", completed},
+                            {"pending_chunks", pending_chunks},
+                            {"resume", true},
+                            {"stage", "download"}
+                        });
                         return;
                     }
+                    state->job_store.merge_data(job_id, {
+                        {"current_chunk", chunk},
+                        {"current_index", static_cast<int>(index)},
+                        {"completed_chunks", completed}
+                    });
                     fs::path archive = catalog_dir / ("siril_cat1_healpix8_xpsamp_" + std::to_string(chunk) + ".dat.bz2");
                     auto dl = download_file(siril_chunk_url(chunk), archive, *cancel_flag_ptr,
                         [state, job_id, completed, total = static_cast<int>(missing.size())](double ratio) {
-                            state->job_store.update_progress(job_id, total > 0 ? ((completed + ratio) / total) * 100.0 : 100.0);
+                            double aggregate = total > 0 ? ((static_cast<double>(completed) + ratio) / static_cast<double>(total)) : 1.0;
+                            state->job_store.update_progress(job_id, aggregate * 100.0);
+                            state->job_store.merge_data(job_id, {{"progress", aggregate}});
                         });
                     if (!dl.ok) throw std::runtime_error(dl.error);
                     std::string error;
+                    state->job_store.merge_data(job_id, {{"stage", "extract"}, {"archive", archive.string()}});
                     if (!decompress_bz2_archive(archive, error)) throw std::runtime_error(error);
                     ++completed;
-                    state->job_store.update_progress(job_id, missing.empty() ? 100.0 : (100.0 * completed / missing.size()));
+                    if (!pending_chunks.empty()) pending_chunks.erase(pending_chunks.begin());
+                    const double aggregate = missing.empty() ? 1.0 : (static_cast<double>(completed) / static_cast<double>(missing.size()));
+                    state->job_store.update_progress(job_id, aggregate * 100.0);
+                    state->job_store.merge_data(job_id, {
+                        {"progress", aggregate},
+                        {"completed_chunks", completed},
+                        {"pending_chunks", pending_chunks},
+                        {"stage", "download"}
+                    });
                 }
-                state->job_store.update_state(job_id, JobState::ok, {{"catalog_dir", catalog_dir.string()}, {"missing_after", missing_siril_chunks(catalog_dir)}, {"resume", true}});
+                state->job_store.update_state(job_id, JobState::ok, {
+                    {"catalog_dir", catalog_dir.string()},
+                    {"missing_after", missing_siril_chunks(catalog_dir)},
+                    {"pending_chunks", nlohmann::json::array()},
+                    {"completed_chunks", completed},
+                    {"resume", true},
+                    {"stage", "done"},
+                    {"progress", 1.0}
+                });
             } catch (const std::exception& e) {
                 state->job_store.update_state(job_id, cancel_flag_ptr->load() ? JobState::cancelled : JobState::error,
-                    {{"catalog_dir", catalog_dir.string()}, {"resume", true}}, e.what());
+                    {{"catalog_dir", catalog_dir.string()}, {"resume", true}, {"stage", "download"}}, e.what());
             }
         }).detach();
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
@@ -798,6 +1054,18 @@ void register_tools_routes(CrowApp& app,
                 return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
             }
         }
+        if (!fs::exists(fs::path(input_rgb))) {
+            return err_resp("PATH_NOT_FOUND", "input_rgb not found", 422, {{"path", input_rgb}});
+        }
+        if (!fs::exists(fs::path(wcs_file))) {
+            return err_resp("PATH_NOT_FOUND", "wcs_file not found", 422, {{"path", wcs_file}});
+        }
+        if (!catalog_dir.empty() && !fs::exists(fs::path(catalog_dir))) {
+            return err_resp("PATH_NOT_FOUND", "catalog_dir not found", 422, {{"path", catalog_dir}});
+        }
+
+        std::error_code ec;
+        fs::create_directories(fs::path(output_rgb).parent_path(), ec);
 
         std::vector<std::string> args = {state->runtime.cli_exe, "pcc-run"};
         args.push_back(input_rgb);
@@ -806,15 +1074,39 @@ void register_tools_routes(CrowApp& app,
         if (!source.empty())      { args.push_back("--source"); args.push_back(source); }
         if (!catalog_dir.empty()) { args.push_back("--siril-catalog-dir"); args.push_back(catalog_dir); }
 
-        if (body.contains("mag_limit") && !body["mag_limit"].is_null())
-            { args.push_back("--mag-limit"); args.push_back(std::to_string(body["mag_limit"].get<double>())); }
-        if (body.contains("min_stars") && !body["min_stars"].is_null())
-            { args.push_back("--min-stars"); args.push_back(std::to_string(body["min_stars"].get<int>())); }
-        if (body.contains("sigma_clip") && !body["sigma_clip"].is_null())
-            { args.push_back("--sigma-clip"); args.push_back(std::to_string(body["sigma_clip"].get<double>())); }
+        if (auto value = payload_float(body, "mag_limit"); value.has_value())
+            { args.push_back("--mag-limit"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "mag_bright_limit"); value.has_value())
+            { args.push_back("--mag-bright-limit"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_int(body, "min_stars"); value.has_value())
+            { args.push_back("--min-stars"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "sigma_clip"); value.has_value())
+            { args.push_back("--sigma-clip"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "aperture_radius_px"); value.has_value())
+            { args.push_back("--aperture-radius-px"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "annulus_inner_px"); value.has_value())
+            { args.push_back("--annulus-inner-px"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "annulus_outer_px"); value.has_value())
+            { args.push_back("--annulus-outer-px"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "chroma_strength"); value.has_value())
+            { args.push_back("--chroma-strength"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "k_max"); value.has_value())
+            { args.push_back("--k-max"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_bool(body, "apply_attenuation"); value.has_value())
+            { args.push_back("--apply-attenuation"); args.push_back(*value ? "1" : "0"); }
 
         std::string job_id = state->subprocess_manager.launch("pcc_run", args,
-                                                               state->runtime.project_root.string());
+                                                               state->runtime.project_root.string(),
+                                                               "",
+                                                               {
+                                                                   {"payload", body},
+                                                                   {"command", args},
+                                                                   {"input_rgb", input_rgb},
+                                                                   {"output_rgb", output_rgb},
+                                                                   {"wcs_file", wcs_file},
+                                                                   {"source", source},
+                                                                   {"catalog_dir", catalog_dir}
+                                                               });
         return json_resp({{"job_id", job_id}, {"state", "running"}}, 202);
     });
 

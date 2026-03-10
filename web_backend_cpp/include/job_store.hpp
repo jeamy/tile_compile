@@ -25,6 +25,7 @@ struct Job {
     JobState state{JobState::pending};
     nlohmann::json data{};
     double progress{0.0};
+    std::optional<int> pid;
     std::string error_message;
     std::string run_id;
     std::string created_at;
@@ -41,7 +42,9 @@ public:
     std::optional<Job> get(const std::string& job_id) const;
     bool update_state(const std::string& job_id, JobState state,
                       const nlohmann::json& data = {}, const std::string& error = "");
+    bool merge_data(const std::string& job_id, const nlohmann::json& patch);
     bool update_progress(const std::string& job_id, double progress);
+    bool set_pid(const std::string& job_id, std::optional<int> pid);
     bool cancel(const std::string& job_id);
     std::vector<Job> list(int limit = 100) const;
 

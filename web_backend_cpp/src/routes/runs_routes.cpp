@@ -448,20 +448,68 @@ void register_runs_routes(CrowApp& app,
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/stop").methods("POST"_method)
-    ([state](const crow::request&, std::string run_id) {
+    ([state](const crow::request& req, std::string run_id) {
+        std::string runs_dir = req.url_params.get("runs_dir") ? req.url_params.get("runs_dir") : state->runtime.runs_dir.string();
+        fs::path resolved_run_dir;
+        bool has_resolved_run_dir = false;
+        if (run_id == "pending") {
+            resolved_run_dir = fs::path(runs_dir);
+            has_resolved_run_dir = true;
+        } else {
+            try {
+                resolved_run_dir = state->runtime.resolve_run_dir(run_id);
+                has_resolved_run_dir = true;
+            } catch (...) {}
+        }
+
         auto jobs = state->job_store.list(500);
         nlohmann::json cancelled_jobs = nlohmann::json::array();
         nlohmann::json killed_pids = nlohmann::json::array();
+        bool cancelled = false;
         for (const auto& job : jobs) {
-            bool matches = job.run_id == run_id;
-            if (!matches && job.type == "run_queue" && job.data.is_object()) {
-                matches = job.data.value("run_id", std::string()) == run_id;
+            if (job.state != JobState::running && job.state != JobState::pending) continue;
+
+            std::string job_run_dir = job.data.is_object() ? job.data.value("run_dir", std::string()) : std::string();
+            std::string job_run_id = job.data.is_object() ? job.data.value("run_id", std::string()) : job.run_id;
+            std::string job_runs_dir = job.data.is_object() ? job.data.value("runs_dir", std::string()) : std::string();
+            bool matches = job_run_id == run_id;
+
+            if (!matches && has_resolved_run_dir) {
+                matches = job_run_dir == resolved_run_dir.string();
+            }
+            if (!matches && run_id == "pending" && has_resolved_run_dir && !job_runs_dir.empty()) {
+                matches = resolved_run_dir.string().rfind(job_runs_dir, 0) == 0;
             }
             if (!matches) continue;
-            if (state->subprocess_manager.cancel(job.job_id)) cancelled_jobs.push_back(job.job_id);
+
+            if (job.pid.has_value()) killed_pids.push_back(*job.pid);
+            if (state->subprocess_manager.cancel(job.job_id)) {
+                cancelled_jobs.push_back(job.job_id);
+                cancelled = true;
+            }
+        }
+
+        if (!cancelled && run_id == "pending") {
+            std::optional<Job> single_running;
+            for (const auto& job : jobs) {
+                if (job.state != JobState::running) continue;
+                if (job.type.rfind("run", 0) != 0) continue;
+                if (single_running.has_value()) {
+                    single_running.reset();
+                    break;
+                }
+                single_running = job;
+            }
+            if (single_running.has_value()) {
+                if (single_running->pid.has_value()) killed_pids.push_back(*single_running->pid);
+                if (state->subprocess_manager.cancel(single_running->job_id)) {
+                    cancelled_jobs.push_back(single_running->job_id);
+                    cancelled = true;
+                }
+            }
         }
         state->ui_event_store.push("run_stopped", {{"run_id", run_id}});
-        return json_resp({{"ok", true}, {"run_id", run_id}, {"cancelled_jobs", cancelled_jobs}, {"killed_pids", killed_pids}});
+        return json_resp({{"ok", cancelled}, {"run_id", run_id}, {"cancelled_jobs", cancelled_jobs}, {"killed_pids", killed_pids}});
     });
 
     CROW_ROUTE(app, "/api/runs/<string>/resume").methods("POST"_method)

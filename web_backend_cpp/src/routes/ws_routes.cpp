@@ -290,7 +290,7 @@ void stream_job(crow::websocket::connection& conn, const std::shared_ptr<JobWsCo
             {"type", "job_progress"},
             {"job_id", ctx->job_id},
             {"state", job ? job_state_str(job->state) : std::string("unknown")},
-            {"pid", nullptr},
+            {"pid", job && job->pid.has_value() ? json(*job->pid) : json(nullptr)},
             {"exit_code", job && job->data.contains("exit_code") ? job->data["exit_code"] : json(nullptr)},
             {"ts", utc_now_iso()},
             {"data", job ? job->data : json::object()}

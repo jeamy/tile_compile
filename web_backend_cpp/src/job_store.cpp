@@ -28,7 +28,7 @@ nlohmann::json job_to_json(const Job& j) {
         {"type",      j.type},
         {"run_id",    j.data.is_object() && j.data.contains("run_id") ? j.data["run_id"] : (j.run_id.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.run_id))},
         {"state",     job_state_str(j.state)},
-        {"pid",       nullptr},
+        {"pid",       j.pid.has_value() ? nlohmann::json(*j.pid) : nlohmann::json(nullptr)},
         {"exit_code", j.data.is_object() && j.data.contains("exit_code") ? j.data["exit_code"] : nlohmann::json(nullptr)},
         {"created_at", j.created_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.created_at)},
         {"updated_at", j.updated_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.updated_at)},
@@ -83,11 +83,36 @@ bool InMemoryJobStore::update_state(const std::string& job_id, JobState state,
     return true;
 }
 
+bool InMemoryJobStore::merge_data(const std::string& job_id, const nlohmann::json& patch) {
+    std::lock_guard<std::mutex> lk(_mutex);
+    auto it = _jobs.find(job_id);
+    if (it == _jobs.end()) return false;
+    if (!patch.is_object()) {
+        it->second.data = patch;
+    } else {
+        if (!it->second.data.is_object()) it->second.data = nlohmann::json::object();
+        for (auto patch_it = patch.begin(); patch_it != patch.end(); ++patch_it) {
+            it->second.data[patch_it.key()] = patch_it.value();
+        }
+    }
+    it->second.updated_at = utc_now_iso();
+    return true;
+}
+
 bool InMemoryJobStore::update_progress(const std::string& job_id, double progress) {
     std::lock_guard<std::mutex> lk(_mutex);
     auto it = _jobs.find(job_id);
     if (it == _jobs.end()) return false;
     it->second.progress = progress;
+    it->second.updated_at = utc_now_iso();
+    return true;
+}
+
+bool InMemoryJobStore::set_pid(const std::string& job_id, std::optional<int> pid) {
+    std::lock_guard<std::mutex> lk(_mutex);
+    auto it = _jobs.find(job_id);
+    if (it == _jobs.end()) return false;
+    it->second.pid = pid;
     it->second.updated_at = utc_now_iso();
     return true;
 }
