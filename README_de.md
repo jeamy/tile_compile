@@ -467,7 +467,7 @@ ctest --output-on-failure
 - DE/EN-i18n-Abdeckung in GUI2 und Parameter-Studio erweitert; Dokumentation und Backend-Konfigurationshandling darauf abgestimmt.
 - Den bisherigen Qt6-GUI-Pfad nach `legacy/` verschoben und den aktiv gepflegten GUI2-Start-/Packaging-Weg klarer dokumentiert.
 
-### v0.0.6 (2026-03-10)
+### v0.0.6 (2026-03-11)
 
 - Produktive Migration auf das Crow/C++-Backend abgeschlossen.
 - Integrierte C++-Report-Generierung aktiviert.

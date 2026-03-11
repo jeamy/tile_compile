@@ -108,9 +108,11 @@ static std::optional<fs::path> resolve_artifact_path(const fs::path& run_dir, co
     if (ec) return std::nullopt;
 
     if (candidate != run_dir_resolved) {
-        const std::string run_prefix = run_dir_resolved.string() + fs::path::preferred_separator;
-        const std::string candidate_str = candidate.string();
-        if (candidate_str.rfind(run_prefix, 0) != 0) return std::nullopt;
+        const fs::path rel = candidate.lexically_relative(run_dir_resolved);
+        if (rel.empty()) return std::nullopt;
+        for (const auto& part : rel) {
+            if (part == "..") return std::nullopt;
+        }
     }
     return candidate;
 }
