@@ -30,6 +30,7 @@ RUN cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui2-release -G Ninja \
 
 RUN cmake -S web_backend_cpp -B web_backend_cpp/build-release -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_TESTS=OFF \
       -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF \
     && cmake --build web_backend_cpp/build-release -j"$(nproc)"
 

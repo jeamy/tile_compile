@@ -9,6 +9,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(TILE_COMPILE_BACKEND_STATIC_STDLIB "Link libgcc/libstdc++ statically for release builds" OFF)
+option(BUILD_TESTS "Build backend test executables" ON)
 
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG   "-g -O0 -Wall -Wextra")
@@ -169,61 +170,63 @@ message(STATUS "yaml-cpp   : ${YAML_CPP_LIBRARIES}")
 message(STATUS "curl       : ${CURL_LIBRARIES}")
 message(STATUS "")
 
-enable_testing()
+if(BUILD_TESTS)
+    enable_testing()
 
-add_library(web_backend_cpp_test_support STATIC
-    tests/backend_test_harness.cpp
-)
-target_include_directories(web_backend_cpp_test_support PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-if(TARGET nlohmann_json::nlohmann_json)
-    target_link_libraries(web_backend_cpp_test_support PRIVATE nlohmann_json::nlohmann_json)
-else()
-    target_include_directories(web_backend_cpp_test_support PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
-endif()
-target_link_libraries(web_backend_cpp_test_support PRIVATE CURL::libcurl Threads::Threads)
-
-add_executable(fake_tile_compile_cli tests/fixtures/fake_tile_compile_cli.cpp)
-target_include_directories(fake_tile_compile_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-if(TARGET nlohmann_json::nlohmann_json)
-    target_link_libraries(fake_tile_compile_cli PRIVATE nlohmann_json::nlohmann_json)
-else()
-    target_include_directories(fake_tile_compile_cli PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
-endif()
-
-add_executable(fake_tile_compile_runner tests/fixtures/fake_tile_compile_runner.cpp)
-target_include_directories(fake_tile_compile_runner PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-if(TARGET nlohmann_json::nlohmann_json)
-    target_link_libraries(fake_tile_compile_runner PRIVATE nlohmann_json::nlohmann_json)
-else()
-    target_include_directories(fake_tile_compile_runner PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
-endif()
-
-function(add_backend_cpp_test target_name source_file)
-    add_executable(${target_name} ${source_file})
-    target_include_directories(${target_name} PRIVATE
+    add_library(web_backend_cpp_test_support STATIC
+        tests/backend_test_harness.cpp
+    )
+    target_include_directories(web_backend_cpp_test_support PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
     if(TARGET nlohmann_json::nlohmann_json)
-        target_link_libraries(${target_name} PRIVATE web_backend_cpp_test_support nlohmann_json::nlohmann_json)
+        target_link_libraries(web_backend_cpp_test_support PRIVATE nlohmann_json::nlohmann_json)
     else()
-        target_link_libraries(${target_name} PRIVATE web_backend_cpp_test_support)
-        target_include_directories(${target_name} PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
+        target_include_directories(web_backend_cpp_test_support PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
     endif()
-    add_test(
-        NAME ${target_name}
-        COMMAND ${target_name}
-                $<TARGET_FILE:tile_compile_web_backend>
-                $<TARGET_FILE:fake_tile_compile_cli>
-                $<TARGET_FILE:fake_tile_compile_runner>
-                ${CMAKE_CURRENT_SOURCE_DIR}/..
-    )
-endfunction()
+    target_link_libraries(web_backend_cpp_test_support PRIVATE CURL::libcurl Threads::Threads)
 
-add_backend_cpp_test(web_backend_cpp_contract tests/test_backend_contract.cpp)
-add_backend_cpp_test(web_backend_cpp_tools_jobs tests/test_tools_api_jobs.cpp)
-add_backend_cpp_test(web_backend_cpp_runs_queue tests/test_runs_queue.cpp)
-add_backend_cpp_test(web_backend_cpp_run_status_resume_progress tests/test_run_status_resume_progress.cpp)
+    add_executable(fake_tile_compile_cli tests/fixtures/fake_tile_compile_cli.cpp)
+    target_include_directories(fake_tile_compile_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    if(TARGET nlohmann_json::nlohmann_json)
+        target_link_libraries(fake_tile_compile_cli PRIVATE nlohmann_json::nlohmann_json)
+    else()
+        target_include_directories(fake_tile_compile_cli PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
+    endif()
+
+    add_executable(fake_tile_compile_runner tests/fixtures/fake_tile_compile_runner.cpp)
+    target_include_directories(fake_tile_compile_runner PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    if(TARGET nlohmann_json::nlohmann_json)
+        target_link_libraries(fake_tile_compile_runner PRIVATE nlohmann_json::nlohmann_json)
+    else()
+        target_include_directories(fake_tile_compile_runner PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
+    endif()
+
+    function(add_backend_cpp_test target_name source_file)
+        add_executable(${target_name} ${source_file})
+        target_include_directories(${target_name} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+        )
+        if(TARGET nlohmann_json::nlohmann_json)
+            target_link_libraries(${target_name} PRIVATE web_backend_cpp_test_support nlohmann_json::nlohmann_json)
+        else()
+            target_link_libraries(${target_name} PRIVATE web_backend_cpp_test_support)
+            target_include_directories(${target_name} PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
+        endif()
+        add_test(
+            NAME ${target_name}
+            COMMAND ${target_name}
+                    $<TARGET_FILE:tile_compile_web_backend>
+                    $<TARGET_FILE:fake_tile_compile_cli>
+                    $<TARGET_FILE:fake_tile_compile_runner>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/..
+        )
+    endfunction()
+
+    add_backend_cpp_test(web_backend_cpp_contract tests/test_backend_contract.cpp)
+    add_backend_cpp_test(web_backend_cpp_tools_jobs tests/test_tools_api_jobs.cpp)
+    add_backend_cpp_test(web_backend_cpp_runs_queue tests/test_runs_queue.cpp)
+    add_backend_cpp_test(web_backend_cpp_run_status_resume_progress tests/test_run_status_resume_progress.cpp)
+endif()

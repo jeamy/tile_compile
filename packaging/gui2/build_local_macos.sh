@@ -57,6 +57,7 @@ build_all() {
 
   cmake -S "${PROJECT_ROOT}/web_backend_cpp" -B "${BACKEND_BUILD_DIR}" -G Ninja \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+    -DBUILD_TESTS=OFF \
     -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF
   cmake --build "${BACKEND_BUILD_DIR}" -j"$(sysctl -n hw.ncpu)"
 }
