@@ -147,6 +147,10 @@ if(WIN32)
         WIN32_LEAN_AND_MEAN
         NOMINMAX
     )
+    target_link_libraries(tile_compile_web_backend PRIVATE
+        ws2_32
+        mswsock
+    )
 endif()
 
 # Linux: statisch libgcc/libstdc++ optional in Release fuer maximale Portabilitaet
