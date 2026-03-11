@@ -197,6 +197,7 @@ Notes:
 
 - `ninja` is required for the local GUI2 packaging scripts.
 - On macOS 12, the default Homebrew `opencv` formula is currently not supported. The Homebrew-based path therefore effectively requires macOS 13+ for OpenCV, unless you provide a separate working OpenCV installation yourself.
+- If a downloaded GUI2/release bundle is blocked by Gatekeeper with messages such as “developer cannot be identified” or a bundled `.dylib` cannot be opened, remove the quarantine flag from the extracted release folder with `xattr -dr com.apple.quarantine /path/to/extracted_release` and then start the bundle again.
 
 Windows:
 
