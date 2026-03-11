@@ -54,6 +54,7 @@ open_browser() {
 
 run_backend_foreground() {
   local lib_dir="${INSTALL_ROOT}/tile_compile_cpp/lib"
+  local backend_lib_dir="${INSTALL_ROOT}/web_backend_cpp/lib"
   local backend_pid=""
 
   if [[ ! -x "${BACKEND_BIN}" ]]; then
@@ -72,9 +73,18 @@ run_backend_foreground() {
   export TILE_COMPILE_PRESETS_DIR="${INSTALL_ROOT}/tile_compile_cpp/examples"
   export TILE_COMPILE_UI_DIR="${INSTALL_ROOT}/web_frontend"
   export TILE_COMPILE_ALLOWED_ROOTS="${INSTALL_ROOT}:$(printf '%s' "${HOME}"):/tmp:/media"
+  local lib_paths=()
   if [[ -d "${lib_dir}" ]]; then
-    export LD_LIBRARY_PATH="${lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-    export DYLD_LIBRARY_PATH="${lib_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+    lib_paths+=("${lib_dir}")
+  fi
+  if [[ -d "${backend_lib_dir}" ]]; then
+    lib_paths+=("${backend_lib_dir}")
+  fi
+  if [[ "${#lib_paths[@]}" -gt 0 ]]; then
+    local joined_libs
+    joined_libs="$(IFS=:; printf '%s' "${lib_paths[*]}")"
+    export LD_LIBRARY_PATH="${joined_libs}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+    export DYLD_LIBRARY_PATH="${joined_libs}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
   fi
 
   cleanup_backend() {

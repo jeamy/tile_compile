@@ -240,6 +240,17 @@ Release-Bundles starten GUI2 über:
 - macOS: `start_gui2.command`
 - Windows: `start_gui2.bat`
 
+Mindestbetriebssysteme für die aktuellen GUI2-Release-Bundles:
+
+- Linux: x86_64-Linux mit `glibc >= 2.39` (Ubuntu 24.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)
+- macOS: macOS 13+
+- Windows: Windows 10 x64 oder neuer
+
+Hinweise:
+
+- macOS ist derzeit ab Version 13 vorgesehen. Es ist also nicht erst macOS 15+ nötig, aber macOS 12 und älter sind nicht die dokumentierte Release-Basis.
+- Linux-Bundles enthalten keine `glibc`; ältere Distributionen als die aktuelle Build-Basis sind daher nicht garantiert lauffähig.
+
 GUI2 ist keine eigenständige native Processing-Engine. Es nutzt das Crow/C++-Backend als UI-/Backend-Schicht und delegiert alle Scan-, Run-, Resume-, Astrometrie-, PCC- und Report-Aktionen an `tile_compile_cli` und `tile_compile_runner`.
 
 ## 8) GUI2-Workflow

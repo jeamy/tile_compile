@@ -38,6 +38,20 @@ No Python runtime, virtual environment, or pip installation is required in the p
 
 The backend is intentionally started under the launcher shell so the terminal window stays attached after startup and can stop the server directly with `Ctrl+C` on Linux/macOS or in the launcher console on Windows.
 
+## Minimum OS Versions
+
+Current practical minimums for the packaged GUI2 release bundles are:
+
+- Linux: x86_64 Linux with `glibc >= 2.39` (the current release workflow builds on Ubuntu 24.04; Ubuntu 24.04 or equivalent is the safe baseline)
+- macOS: macOS 13+
+- Windows: Windows 10 x64 or newer
+
+Notes:
+
+- macOS release bundles are now built with an explicit deployment target and are intended to run from macOS 13 upward, not only on the exact build host version.
+- Linux compatibility below the CI build baseline is not guaranteed for the current ZIP bundles because `glibc` is not bundled.
+- Windows packaging is built and smoke-tested on `windows-2022`; Windows 10/11 x64 is the intended baseline.
+
 ## Build Dependencies
 
 The current native C++ build requirements for the GUI2 release are:

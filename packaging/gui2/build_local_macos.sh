@@ -8,6 +8,7 @@ TAG="${TAG:-local}"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 BUILD_SUFFIX="${BUILD_SUFFIX:-build-gui2-release}"
 PORT="${PORT:-8080}"
+MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 SKIP_BUILD=0
 SKIP_SMOKE=0
 
@@ -20,12 +21,13 @@ Options:
   --build-type <type>    CMake build type (default: ${BUILD_TYPE})
   --build-suffix <name>  Build dir suffix (default: ${BUILD_SUFFIX})
   --port <port>          Smoke-test port (default: ${PORT})
+  --macos-target <ver>   macOS deployment target (default: ${MACOSX_DEPLOYMENT_TARGET})
   --skip-build           Skip configure/build
   --skip-smoke           Skip smoke test
   -h, --help             Show this help
 
 Environment overrides:
-  TAG, BUILD_TYPE, BUILD_SUFFIX, PORT
+  TAG, BUILD_TYPE, BUILD_SUFFIX, PORT, MACOSX_DEPLOYMENT_TARGET
 EOF
 }
 
@@ -35,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     --build-type) BUILD_TYPE="$2"; shift 2 ;;
     --build-suffix) BUILD_SUFFIX="$2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
+    --macos-target) MACOSX_DEPLOYMENT_TARGET="$2"; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
     --skip-smoke) SKIP_SMOKE=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -96,11 +99,13 @@ preflight_macos() {
 build_all() {
   cmake -S "${PROJECT_ROOT}/tile_compile_cpp" -B "${RUNNER_BUILD_DIR}" -G Ninja \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET}" \
     -DBUILD_TESTS=OFF
   cmake --build "${RUNNER_BUILD_DIR}" -j"$(sysctl -n hw.ncpu)"
 
   cmake -S "${PROJECT_ROOT}/web_backend_cpp" -B "${BACKEND_BUILD_DIR}" -G Ninja \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET}" \
     -DBUILD_TESTS=OFF \
     -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF
   cmake --build "${BACKEND_BUILD_DIR}" -j"$(sysctl -n hw.ncpu)"
@@ -165,12 +170,12 @@ macos_should_skip_bundle_dep() {
   local dep="$1"
   local name="$2"
   case "$name" in
-    libc++*.dylib|libunwind*.dylib|libc++abi*.dylib|libstdc++*.dylib|libgcc_s*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
+    libstdc++*.dylib|libgcc_s*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
       return 0
       ;;
   esac
   case "$dep" in
-    */lib/clang/*|*/opt/llvm/lib/*)
+    */lib/clang/*)
       return 0
       ;;
   esac
@@ -204,9 +209,6 @@ assemble_bundle() {
         rewrite_macos_refs "$dylib" dylib
       done
   find "${PAYLOAD}/tile_compile_cpp/lib" -type f \( \
-      -name "libc++*.dylib" -o \
-      -name "libc++abi*.dylib" -o \
-      -name "libunwind*.dylib" -o \
       -name "libstdc++*.dylib" -o \
       -name "libgcc_s*.dylib" -o \
       -name "libclang_rt*.dylib" \) -delete
@@ -251,6 +253,7 @@ PY
 
 main() {
   preflight_macos
+  echo "[gui2-package] Using macOS deployment target ${MACOSX_DEPLOYMENT_TARGET}"
   [[ "${SKIP_BUILD}" == "1" ]] || build_all
   assemble_bundle
   [[ "${SKIP_SMOKE}" == "1" ]] || smoke_test
