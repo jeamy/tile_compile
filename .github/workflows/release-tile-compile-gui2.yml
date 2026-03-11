@@ -158,9 +158,19 @@ jobs:
           path: artifacts/tile_compile_gui2-linux-${{ needs.meta.outputs.tag }}.zip
 
   package-macos:
-    name: Package GUI2 macOS
-    runs-on: macos-14
+    name: Package GUI2 macOS (${{ matrix.variant_name }})
+    runs-on: ${{ matrix.runner }}
     needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            variant_name: Apple Silicon
+            artifact_suffix: macos-apple
+          - runner: macos-15-intel
+            variant_name: Intel
+            artifact_suffix: macos-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -192,7 +202,7 @@ jobs:
           set -euo pipefail
           TAG="${{ needs.meta.outputs.tag }}"
           mkdir -p artifacts
-          ROOT="bundle/tile_compile_gui2-macos14-${TAG}"
+          ROOT="bundle/tile_compile_gui2-${{ matrix.artifact_suffix }}-${TAG}"
           PAYLOAD="${ROOT}/payload"
           mkdir -p "${PAYLOAD}/tile_compile_cpp/build" "${PAYLOAD}/tile_compile_cpp/lib" "${PAYLOAD}/web_backend_cpp/build"
           cp packaging/gui2/start_gui2.sh "${ROOT}/start_gui2.sh"
@@ -266,14 +276,14 @@ jobs:
                 rewrite_macos_refs "$dylib" dylib
               done
           printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui2-release-tag"
-          ditto -c -k --sequesterRsrc --keepParent "${ROOT}" "artifacts/tile_compile_gui2-macos14-${TAG}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "${ROOT}" "artifacts/tile_compile_gui2-${{ matrix.artifact_suffix }}-${TAG}.zip"
 
       - name: Smoke test bundle
         shell: bash
         run: |
           set -euo pipefail
           TAG="${{ needs.meta.outputs.tag }}"
-          ROOT="${PWD}/bundle/tile_compile_gui2-macos14-${TAG}"
+          ROOT="${PWD}/bundle/tile_compile_gui2-${{ matrix.artifact_suffix }}-${TAG}"
           export HOME="${PWD}/smoke-home-macos"
           export TILE_COMPILE_GUI2_NO_BROWSER=1
           bash "${ROOT}/start_gui2.sh" >/tmp/out_gui2_smoke_macos.txt 2>&1 &
@@ -301,8 +311,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tile_compile_gui2-macos14-${{ needs.meta.outputs.tag }}
-          path: artifacts/tile_compile_gui2-macos14-${{ needs.meta.outputs.tag }}.zip
+          name: tile_compile_gui2-${{ matrix.artifact_suffix }}-${{ needs.meta.outputs.tag }}
+          path: artifacts/tile_compile_gui2-${{ matrix.artifact_suffix }}-${{ needs.meta.outputs.tag }}.zip
 
   package-windows:
     name: Package GUI2 Windows

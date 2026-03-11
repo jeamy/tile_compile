@@ -17,6 +17,7 @@ While the methodology was originally conceived to address the specific challenge
 - Implementation process flow: [Process flow (English)](doc/v3/process_flow/README_en.md)
 - Implementation process flow (German): [Process flow](doc/v3/process_flow/README_de.md)
 - English step-by-step guide: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
+- German step-by-step guide: [Schritt-für-Schritt-Anleitung](doc/v3/tbqr_step_by_step_de.md)
 - German README snapshot: [German README](README_de.md)
 - Data flow (user-friendly): [Process Flow – How the System Works](doc/v3/process_flow/data_flow_user_description_en.md)
 
@@ -48,6 +49,8 @@ Given a directory of FITS lights, the pipeline can:
 | GUI2 frontend | `web_frontend/` | Active | HTML + CSS + JavaScript |
 
 ## Pipeline Phases
+
+In practical use, the overall workflow is intentionally simple: after you provide the input data and a manageable set of configuration parameters, the pipeline processes the dataset automatically from stacking through astrometry, optional background handling, and PCC to the final result. No complicated manual intermediate steps are required for a normal run. At the same time, the system remains fully configurable in depth, so every stage can still be tuned in fine detail whenever you need tighter control over registration, tiling, reconstruction, stacking, or post-processing behavior.
 
 | ID | Phase | Description |
 |----|-------|-------------|
@@ -212,7 +215,7 @@ GUI2 release bundles are built by:
 
 - `.github/workflows/release-tile-compile-gui2.yml`
 
-The workflow builds the Qt-free C++ binaries, bundles `web_backend_cpp/` and `web_frontend/`, adds the GUI2 launchers, and creates ZIP artifacts for Linux, macOS, and Windows.
+The workflow builds the Qt-free C++ binaries, bundles `web_backend_cpp/` and `web_frontend/`, adds the GUI2 launchers, and creates ZIP artifacts for Linux, Windows, macOS Apple Silicon, and macOS Intel.
 
 Not included by design:
 

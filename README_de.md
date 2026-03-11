@@ -15,6 +15,7 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 - Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.3.6](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.6_en.md)
 - Methodik-Paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](doc/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
 - Prozessfluss (Implementierung): [Process flow (German)](doc/v3/process_flow/README_de.md)
+- Deutsche Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](doc/v3/tbqr_step_by_step_de.md)
 - Englische Schritt-für-Schritt-Anleitung: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
 - Englisches Haupt-README: [English README](README.md)
 - Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan – Funktionsweise des Systems](doc/v3/process_flow/data_flow_user_description_de.md)
@@ -47,6 +48,8 @@ Aus einem Verzeichnis mit FITS-Lights kann die Pipeline:
 | GUI2 Frontend | `web_frontend/` | Aktiv | HTML + CSS + JavaScript |
 
 ## Pipeline-Phasen
+
+Im praktischen Einsatz ist der Gesamtworkflow bewusst einfach gehalten: Nach der Auswahl der Eingabedaten und einiger überschaubarer Konfigurationsparameter arbeitet die Pipeline den Datensatz automatisch vom Stacking über Astrometrie und optionale Hintergrundbehandlung bis hin zum PCC-Endergebnis ab. Für einen normalen Lauf sind keine komplizierten manuellen Zwischenschritte erforderlich. Gleichzeitig bleibt das System bis ins Detail konfigurierbar, sodass sich jede Phase bei Bedarf sehr fein anpassen lässt, etwa für Registrierung, Tile-Geometrie, Rekonstruktion, Stacking oder die nachgelagerte Verarbeitung.
 
 | ID | Phase | Beschreibung |
 |----|-------|-------------|
