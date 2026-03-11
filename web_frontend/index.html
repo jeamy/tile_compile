@@ -95,6 +95,14 @@
               <select id="dashboard-preset" data-control="dashboard.preset" data-i18n-title="ui.tooltip.dashboard.preset" class="ps-select" style="width:280px;" title="Preset fuer den Run waehlen."></select>
             </div>
             <div class="ps-row">
+              <label for="dashboard-preset-dir" data-i18n="ui.field.preset_dir">Preset Dir</label>
+              <div class="ps-inline-cluster">
+                <input id="dashboard-preset-dir" data-control="dashboard.preset_dir" data-i18n-title="ui.tooltip.dashboard.preset_dir" class="ps-input ps-wide" type="text" value="" title="Preset-Verzeichnis setzen oder leer lassen fuer examples.">
+                <button id="dashboard-preset-dir-browse" class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.browse" type="button">Browse…</button>
+                <button id="dashboard-preset-dir-reload" class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.reload" type="button">Reload</button>
+              </div>
+            </div>
+            <div class="ps-row">
               <label id="dashboard-label-run-name" data-i18n="ui.field.run_name">Run Name</label>
               <div class="ps-inline-stack">
                 <input id="dashboard-run-name" data-control="dashboard.run.name" data-i18n-title="ui.tooltip.dashboard.run_name" class="ps-input" type="text" value="" style="width:220px;" title="Freien Run-Namen setzen.">

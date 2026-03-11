@@ -1,3 +1,10 @@
+
+
+
+
+
+
+
 # v3.2 EMERGENCY-MODE Referenzkonfiguration (vollstaendig, alle Optionen)
 # Zielzustand: N_usable < 50 und runtime_limits.allow_emergency_mode = true
 # Alt/Az-optimiert: robuste Registrierung bei Feldrotation und Wolkenluecken.

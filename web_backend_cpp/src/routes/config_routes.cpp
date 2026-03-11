@@ -255,17 +255,33 @@ void register_config_routes(CrowApp& app,
     });
 
     CROW_ROUTE(app, "/api/config/presets").methods("GET"_method)
-    ([state]() {
+    ([state](const crow::request& req) {
         nlohmann::json items = nlohmann::json::array();
-        if (!fs::is_directory(state->runtime.presets_dir)) return json_resp({{"items", items}});
-        for (auto& entry : fs::directory_iterator(state->runtime.presets_dir)) {
+        fs::path presets_dir = state->runtime.presets_dir;
+        bool fallback_used = false;
+        if (const char* dir_arg = req.url_params.get("dir")) {
+            std::string raw_dir = dir_arg;
+            if (!raw_dir.empty()) {
+                fs::path requested_dir = fs::path(raw_dir);
+                if (auto err = validate_path(state, requested_dir, "presets_dir", true)) {
+                    const auto status = err->code;
+                    if (status == 403) return std::move(*err);
+                    fallback_used = true;
+                } else if (!fs::is_directory(requested_dir)) {
+                    fallback_used = true;
+                } else {
+                    presets_dir = requested_dir;
+                }
+            }
+        }
+        if (!fs::is_directory(presets_dir)) return json_resp({{"items", items}, {"dir", presets_dir.string()}, {"fallback_used", fallback_used}});
+        for (auto& entry : fs::directory_iterator(presets_dir)) {
             if (!entry.is_regular_file()) continue;
             std::string ext = entry.path().extension().string();
             if (ext != ".yaml" && ext != ".yml") continue;
-            if (entry.path().filename().string().find("example") == std::string::npos) continue;
             items.push_back({{"id", entry.path().stem().string()}, {"name", entry.path().filename().string()}, {"path", entry.path().string()}});
         }
-        return json_resp({{"items", items}});
+        return json_resp({{"items", items}, {"dir", presets_dir.string()}, {"fallback_used", fallback_used}});
     });
 
     CROW_ROUTE(app, "/api/config/presets/apply").methods("POST"_method)

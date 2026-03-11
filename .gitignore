@@ -18,6 +18,9 @@ tile_compile_cpp/build-*/
 tile_compile_cpp/cmake-build-*/
 tile_compile_cpp/dist/
 tile_compile_cpp/.cache
+web_backend_cpp/build/
+web_backend_cpp/build-*/
+web_backend_cpp/cmake-build-*/
 *.o
 *.a
 *.so
@@ -45,6 +48,10 @@ logs/
 *.log
 build/
 runtime/
+bundle/
+smoke-home-linux/
+smoke-home-macos/
+smoke-home-windows/
 
 # GUI state files
 .tile_compile/

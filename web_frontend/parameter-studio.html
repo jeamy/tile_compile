@@ -66,6 +66,14 @@
                 <select id="parameter-preset-select" data-control="parameter.preset.select" class="ps-select" title="Preset fuer das Parameter Studio auswaehlen."></select>
               </div>
               <div class="ps-row">
+                <label for="parameter-preset-dir" data-i18n="ui.field.preset_dir">Preset Dir</label>
+                <div class="ps-inline-cluster">
+                  <input id="parameter-preset-dir" data-control="parameter.preset.dir" data-i18n-title="ui.tooltip.parameter.preset_dir" class="ps-input ps-wide" type="text" value="" title="Preset-Verzeichnis setzen oder leer lassen fuer examples.">
+                  <button id="parameter-preset-dir-browse" class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.browse" type="button">Browse…</button>
+                  <button id="parameter-preset-dir-reload" class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.reload" type="button">Reload</button>
+                </div>
+              </div>
+              <div class="ps-row">
                 <label for="parameter-search">Parameter suchen</label>
                 <input id="parameter-search" data-control="parameter.search" class="ps-input ps-wide" type="text" value="" placeholder="z. B. registration.star_topk oder pcc.k_max" title="Live-Suche ueber section.key.subkey; Enter springt zum ersten Treffer.">
               </div>

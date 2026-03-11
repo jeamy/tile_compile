@@ -40,7 +40,7 @@ The backend is intentionally started in the foreground so it can be stopped dire
 
 ## Build Dependencies
 
-GUI2 itself no longer depends on Qt in the release path. The current native C++ build requirements for the GUI2 release are:
+The current native C++ build requirements for the GUI2 release are:
 
 - Linux: `libcurl4-openssl-dev`
 - macOS: `curl`
@@ -54,7 +54,7 @@ The GitHub Actions workflow is:
 
 - `.github/workflows/release-tile-compile-gui2.yml`
 
-It builds the Qt-free runner binaries and the Crow backend, bundles GUI2 files, copies native runtime libraries, runs a smoke test, and uploads release ZIP artifacts.
+It builds the runner binaries and the Crow backend, bundles GUI2 files, copies native runtime libraries, runs a smoke test, and uploads release ZIP artifacts.
 
 ## Local Packaging
 

@@ -989,6 +989,7 @@ std::string svg_spatial_tile_heatmap(const json& tiles,
                                      const std::string& title,
                                      const std::string& label,
                                      const std::string& cmap = "viridis",
+                                     bool force_unit_interval = false,
                                      bool show_grid = true,
                                      int width = 760,
                                      int height = 520) {
@@ -1005,16 +1006,15 @@ std::string svg_spatial_tile_heatmap(const json& tiles,
     double lo = s.min;
     double hi = s.max;
     const bool flat_map = !(s.max > s.min);
-    if (s.min >= 0.0 && s.max <= 1.0) {
+    if (flat_map) {
+        lo = s.min;
+        hi = s.max;
+    } else if (force_unit_interval) {
         lo = 0.0;
         hi = 1.0;
     } else if (s.n >= 20 && s.p99 > s.p01) {
         lo = s.p01;
         hi = s.p99;
-    }
-    if (flat_map) {
-        lo = s.min;
-        hi = s.max;
     }
 
     const double scale = std::min(620.0 / static_cast<double>(img_w), 400.0 / static_cast<double>(img_h));
@@ -1931,7 +1931,7 @@ std::optional<ReportSection> gen_local_metrics(const json& lm, const json& tg) {
                                         {"<span class=\"good\">Gut:</span> Sternreiche Regionen liefern robuste lokale Metriken.",
                                          "<span class=\"neutral\">Neutral:</span> Sternarme Hintergrund- oder Nebelbereiche sind nicht automatisch schlecht, aber statistisch schwächer abgestützt."})});
         if (have_tile_types) {
-            charts.push_back({svg_spatial_tile_heatmap(tiles, tile_type_map, img_w, img_h, "Tile type map", "STAR=1", "viridis"),
+            charts.push_back({svg_spatial_tile_heatmap(tiles, tile_type_map, img_w, img_h, "Tile type map", "STAR=1", "viridis", true),
                               explain_panel("Tile-Typ-Karte",
                                             {"Die Karte visualisiert die Tile-Klassifikation der lokalen Metrikstufe, z. B. sterngetrieben versus struktur-/hintergrunddominiert.",
                                              "Sie hilft zu verstehen, warum verschiedene Regionen spaeter unterschiedlich gewichtet oder verarbeitet werden."},

@@ -43,6 +43,7 @@ void register_app_state_routes(CrowApp& app,
         resp["project"] = {
             {"project_root",        rt.project_root.string()},
             {"runs_dir",            rt.runs_dir.string()},
+            {"presets_dir",         rt.presets_dir.string()},
             {"default_config_path", rt.default_config_path.string()},
             {"current_run_id",      state->current_run_id},
         };

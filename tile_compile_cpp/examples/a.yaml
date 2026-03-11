@@ -1,3 +1,6 @@
+
+
+
 run_dir: ./run_very_bright_star_anti_seam
 log_level: info
 pipeline:

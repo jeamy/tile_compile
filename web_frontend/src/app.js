@@ -8,6 +8,7 @@ const CONFIG_VALIDATION_STATE_KEY = "gui2.configValidationState";
 const HISTORY_CURRENT_RUN_KEY = "gui2.historyCurrentRunId";
 const LOCALE_KEY = "gui2.locale";
 const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
+const PRESETS_DIR_KEY = "gui2.presetsDir";
 
 const uiState = {
   currentRunId: localStorage.getItem("gui2.currentRunId") || "",
@@ -36,6 +37,7 @@ const uiState = {
   lastPccResult: null,
   locale: localStorage.getItem(LOCALE_KEY) || "de",
   projectRunsDir: "",
+  projectPresetsDir: "",
   monitorStatsStatus: null,
   dashboardGuardrailStatus: "",
   runReadyStatus: "check",
@@ -799,6 +801,30 @@ function persistLastInputDirs(rawValue) {
   localStorage.setItem(LAST_INPUT_DIRS_KEY, value);
 }
 
+function persistPresetsDir(rawValue) {
+  const value = String(rawValue || "").trim();
+  if (!value) {
+    localStorage.removeItem(PRESETS_DIR_KEY);
+    return;
+  }
+  if (!isAbsolutePath(value)) return;
+  localStorage.setItem(PRESETS_DIR_KEY, value);
+}
+
+function selectedPresetsDir() {
+  const stored = String(localStorage.getItem(PRESETS_DIR_KEY) || "").trim();
+  if (stored) return stored;
+  return String(uiState.projectPresetsDir || "").trim();
+}
+
+function syncPresetDirInputs() {
+  const value = selectedPresetsDir();
+  ["dashboard-preset-dir", "parameter-preset-dir", "wizard-preset-dir"].forEach((id) => {
+    const el = $(id);
+    if (el) el.value = value;
+  });
+}
+
 function restoreLastInputDirs(...ids) {
   const value = String(localStorage.getItem(LAST_INPUT_DIRS_KEY) || "").trim();
   if (!value) return;
@@ -1088,6 +1114,8 @@ function ensureYamlFileName(fileName) {
 }
 
 function deriveParameterSaveDefaultDir() {
+  const explicitPresetDir = String($("parameter-preset-dir")?.value || "").trim();
+  if (explicitPresetDir) return explicitPresetDir;
   const presetDir = parentDirOfPath(String($("parameter-preset-select")?.value || "").trim());
   if (presetDir) return presetDir;
   return firstNonEmptyText(uiState.projectRunsDir, parentDirOfPath(uiState.defaultConfigPath));
@@ -1103,6 +1131,78 @@ async function pickDirectoryPath(initialPath) {
   }
   const typed = window.prompt("Verzeichnis eingeben", initialPath || "");
   return String(typed || "").trim() || null;
+}
+
+async function fetchPresetsForDir(dir = "") {
+  return api.get(API_ENDPOINTS.config.presets(dir));
+}
+
+async function refreshPresetSelect(selectId, preserveCurrentValue = true, dir = "") {
+  const select = $(selectId);
+  if (!select) return null;
+  const oldValue = String(select.value || "").trim();
+  const presets = await withPathGrantRetry(
+    () => fetchPresetsForDir(dir),
+    { fallbackPath: dir },
+  );
+  const items = Array.isArray(presets?.items) ? presets.items : [];
+  select.innerHTML = "";
+  for (const item of items) {
+    const opt = document.createElement("option");
+    opt.value = String(item?.path || "");
+    opt.textContent = String(item?.name || item?.path || "preset");
+    select.appendChild(opt);
+  }
+  if (preserveCurrentValue && oldValue) {
+    const matching = Array.from(select.options).find((opt) => String(opt.value || "") === oldValue || String(opt.textContent || "") === oldValue);
+    if (matching) {
+      select.value = matching.value;
+    }
+  } else if (items[0]?.path) {
+    select.value = String(items[0].path);
+  }
+  return presets;
+}
+
+async function bindPresetDirectoryControl({ inputId, browseId, reloadId, selectId }) {
+  const input = $(inputId);
+  if (!input) return;
+  input.value = selectedPresetsDir();
+  const reload = async ({ preserveCurrentValue = true } = {}) => {
+    const dir = String(input.value || "").trim();
+    persistPresetsDir(dir);
+    syncPresetDirInputs();
+    const result = await refreshPresetSelect(selectId, preserveCurrentValue, dir);
+    if (result?.dir && result.fallback_used) {
+      persistPresetsDir(result.dir);
+      syncPresetDirInputs();
+    }
+    return result;
+  };
+  input.addEventListener("change", () => {
+    const dir = String(input.value || "").trim();
+    persistPresetsDir(dir);
+    syncPresetDirInputs();
+  });
+  $(browseId)?.addEventListener("click", async () => {
+    try {
+      const chosen = await pickDirectoryPath(String(input.value || "").trim() || selectedPresetsDir());
+      if (!chosen) return;
+      input.value = chosen;
+      await reload({ preserveCurrentValue: false });
+      setFooter("Preset-Verzeichnis aktualisiert.");
+    } catch (err) {
+      setFooter(`Preset-Verzeichnis konnte nicht geladen werden: ${errorText(err)}`, true);
+    }
+  });
+  $(reloadId)?.addEventListener("click", async () => {
+    try {
+      await reload({ preserveCurrentValue: true });
+      setFooter("Preset-Liste aktualisiert.");
+    } catch (err) {
+      setFooter(`Preset-Liste konnte nicht geladen werden: ${errorText(err)}`, true);
+    }
+  });
 }
 
 async function chooseConfigSaveAsPath() {
@@ -1152,8 +1252,11 @@ async function initGlobalState() {
     else clearCurrentRunId();
     const runsDir = String(appState?.project?.runs_dir || "").trim();
     if (runsDir) uiState.projectRunsDir = runsDir;
+    const presetsDir = String(appState?.project?.presets_dir || "").trim();
+    if (presetsDir) uiState.projectPresetsDir = presetsDir;
     const defaultConfigPath = String(appState?.project?.default_config_path || "").trim();
     if (defaultConfigPath) uiState.defaultConfigPath = defaultConfigPath;
+    syncPresetDirInputs();
     const scanPath = String(appState?.scan?.last_input_path || "").trim();
     if (scanPath) persistLastInputDirs(scanPath);
   } catch (err) {
@@ -1901,6 +2004,12 @@ async function bindParameterStudio() {
   if (!presetSelect) return;
 
   bindParameterDirtyTracking();
+  await bindPresetDirectoryControl({
+    inputId: "parameter-preset-dir",
+    browseId: "parameter-preset-dir-browse",
+    reloadId: "parameter-preset-dir-reload",
+    selectId: "parameter-preset-select",
+  });
 
   const applyPreview = async ({ persist = false } = {}) => {
     const updates = collectParameterDirtyUpdates();
@@ -1916,18 +2025,7 @@ async function bindParameterStudio() {
   };
 
   try {
-    const presets = await api.get(API_ENDPOINTS.config.presets);
-    if (Array.isArray(presets?.items) && presets.items.length > 0) {
-      const old = presetSelect.value;
-      presetSelect.innerHTML = "";
-      for (const item of presets.items) {
-        const opt = document.createElement("option");
-        opt.value = item.path;
-        opt.textContent = item.name;
-        presetSelect.appendChild(opt);
-      }
-      if (old) presetSelect.value = old;
-    }
+    await populatePresetSelect("parameter-preset-select", true);
     const currentYaml = await ensureConfigYaml();
     const parsed = await patchConfig({ yamlText: currentYaml, updates: [] });
     if (parsed?.config) {
@@ -2130,29 +2228,7 @@ async function bindParameterStudio() {
 }
 
 async function populatePresetSelect(selectId, preserveCurrentValue = true) {
-  const select = $(selectId);
-  if (!select) return;
-  const oldValue = String(select.value || "").trim();
-  const presets = await api.get(API_ENDPOINTS.config.presets);
-  const items = Array.isArray(presets?.items) ? presets.items : [];
-  if (items.length === 0) return;
-  select.innerHTML = "";
-  for (const item of items) {
-    const opt = document.createElement("option");
-    opt.value = String(item?.path || "");
-    opt.textContent = String(item?.name || item?.path || "preset");
-    select.appendChild(opt);
-  }
-  if (preserveCurrentValue && oldValue) {
-    const matching = Array.from(select.options).find((opt) => String(opt.value || "") === oldValue || String(opt.textContent || "") === oldValue);
-    if (matching) {
-      select.value = matching.value;
-      return;
-    }
-  }
-  if (!preserveCurrentValue && items[0]?.path) {
-    select.value = String(items[0].path);
-  }
+  await refreshPresetSelect(selectId, preserveCurrentValue, selectedPresetsDir());
 }
 
 function runMonitorSelectedPhase() {
@@ -4067,6 +4143,12 @@ async function bindDashboard() {
     );
     await renderDashboardDerivedGuardrails(appState);
 
+    await bindPresetDirectoryControl({
+      inputId: "dashboard-preset-dir",
+      browseId: "dashboard-preset-dir-browse",
+      reloadId: "dashboard-preset-dir-reload",
+      selectId: "dashboard-preset",
+    });
     await populatePresetSelect("dashboard-preset", false);
 
     const preview = () => {
@@ -4325,6 +4407,12 @@ async function bindWizard() {
     previewEl.value = `${runsDir}/${suggested}_${timestampSuffix()}`;
   };
   try {
+    await bindPresetDirectoryControl({
+      inputId: "wizard-preset-dir",
+      browseId: "wizard-preset-dir-browse",
+      reloadId: "wizard-preset-dir-reload",
+      selectId: "wizard-preset-select",
+    });
     await populatePresetSelect("wizard-preset-select", true);
   } catch (err) {
     setFooter(`Wizard-Presetliste konnte nicht geladen werden: ${errorText(err)}`, true);

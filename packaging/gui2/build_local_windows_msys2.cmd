@@ -11,6 +11,39 @@ PORT="${PORT:-8080}"
 SKIP_BUILD=0
 SKIP_SMOKE=0
 
+require_cmd() {
+  local name="$1"
+  command -v "$name" >/dev/null 2>&1 || {
+    echo "Missing required command: $name" >&2
+    exit 1
+  }
+}
+
+parallel_jobs() {
+  if command -v nproc >/dev/null 2>&1; then
+    nproc
+    return
+  fi
+  echo 4
+}
+
+verify_environment() {
+  if [[ "${OS:-}" != "Windows_NT" ]]; then
+    echo "This script must run on Windows." >&2
+    exit 1
+  fi
+  if [[ "${MSYSTEM:-}" != "MINGW64" ]]; then
+    echo "Run this script from an MSYS2 MinGW64 shell." >&2
+    exit 1
+  fi
+
+  require_cmd cmake
+  require_cmd ninja
+  require_cmd ntldd
+  require_cmd cygpath
+  require_cmd powershell.exe
+}
+
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [options]
@@ -57,13 +90,13 @@ build_all() {
   cmake -S "${PROJECT_ROOT}/tile_compile_cpp" -B "${RUNNER_BUILD_DIR}" -G Ninja \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DBUILD_TESTS=OFF
-  cmake --build "${RUNNER_BUILD_DIR}" -j"$(nproc)"
+  cmake --build "${RUNNER_BUILD_DIR}" -j"$(parallel_jobs)"
 
   cmake -S "${PROJECT_ROOT}/web_backend_cpp" -B "${BACKEND_BUILD_DIR}" -G Ninja \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DBUILD_TESTS=OFF \
     -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF
-  cmake --build "${BACKEND_BUILD_DIR}" -j"$(nproc)"
+  cmake --build "${BACKEND_BUILD_DIR}" -j"$(parallel_jobs)"
 }
 
 copy_deps() {
@@ -107,6 +140,7 @@ smoke_test() {
   local home_win
   root_win="$(cygpath -w "${ROOT}")"
   home_win="$(cygpath -w "${PROJECT_ROOT}/smoke-home-windows")"
+  rm -rf "${PROJECT_ROOT}/smoke-home-windows"
   mkdir -p "${PROJECT_ROOT}/smoke-home-windows"
   powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "
     \$ErrorActionPreference = 'Stop'
@@ -118,24 +152,28 @@ smoke_test() {
     \$env:TILE_COMPILE_GUI2_NO_BROWSER = '1'
     \$env:TILE_COMPILE_GUI2_PORT = '${PORT}'
     \$startScript = Join-Path \$root 'start_gui2.ps1'
-    \$launcher = Start-Process -FilePath 'powershell' -ArgumentList @('-ExecutionPolicy','Bypass','-File',\$startScript) -PassThru
-    \$deadline = (Get-Date).AddSeconds(45)
-    \$ok = \$false
-    while ((Get-Date) -lt \$deadline) {
-      try {
-        \$resp = Invoke-WebRequest -Uri 'http://127.0.0.1:${PORT}/api/app/state' -UseBasicParsing -TimeoutSec 2
-        if (\$resp.StatusCode -lt 500) {
-          \$ok = \$true
-          break
-        }
-      } catch {}
-      Start-Sleep -Seconds 1
-    }
-    if (-not \$ok) {
-      throw 'backend smoke test failed'
-    }
-    if (\$launcher -and -not \$launcher.HasExited) {
-      cmd /c \"taskkill /PID \$((\$launcher).Id) /T /F\" | Out-Null
+    \$launcher = \$null
+    try {
+      \$launcher = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',\$startScript) -PassThru
+      \$deadline = (Get-Date).AddSeconds(45)
+      \$ok = \$false
+      while ((Get-Date) -lt \$deadline) {
+        try {
+          \$resp = Invoke-WebRequest -Uri 'http://127.0.0.1:${PORT}/api/app/state' -UseBasicParsing -TimeoutSec 2
+          if (\$resp.StatusCode -lt 500) {
+            \$ok = \$true
+            break
+          }
+        } catch {}
+        Start-Sleep -Seconds 1
+      }
+      if (-not \$ok) {
+        throw 'backend smoke test failed'
+      }
+    } finally {
+      if (\$launcher -and -not \$launcher.HasExited) {
+        cmd /c \"taskkill /PID \$((\$launcher).Id) /T /F\" | Out-Null
+      }
     }
   "
 }
@@ -155,6 +193,7 @@ create_zip() {
 }
 
 main() {
+  verify_environment
   [[ "${SKIP_BUILD}" == "1" ]] || build_all
   assemble_bundle
   [[ "${SKIP_SMOKE}" == "1" ]] || smoke_test

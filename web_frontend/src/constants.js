@@ -21,7 +21,12 @@ export const API_ENDPOINTS = {
   config: {
     current: "/api/config/current",
     patch: "/api/config/patch",
-    presets: "/api/config/presets",
+    presets: (dir = "") => {
+      const query = String(dir || "").trim()
+        ? `?dir=${encodeURIComponent(String(dir || "").trim())}`
+        : "";
+      return `/api/config/presets${query}`;
+    },
     applyPreset: "/api/config/presets/apply",
     validate: "/api/config/validate",
     save: "/api/config/save",
