@@ -148,6 +148,17 @@ Release-Bundle-Start:
 
 Der Starter kopiert die gebündelte Payload in ein benutzerspezifisches Installationsverzeichnis, startet das Crow-Backend im Vordergrund und öffnet den Browser auf die lokale GUI2-URL.
 
+Mindestbetriebssysteme für die aktuellen GUI2-Release-Bundles:
+
+- Linux: x86_64-Linux mit `glibc >= 2.39` (Ubuntu 24.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)
+- macOS: macOS 13+
+- Windows: Windows 10 x64 oder neuer
+
+Hinweise:
+
+- macOS ist derzeit ab Version 13 vorgesehen. Es ist also nicht erst macOS 15+ nötig, aber macOS 12 und älter sind nicht die dokumentierte Release-Basis.
+- Linux-Bundles enthalten keine `glibc`; ältere Distributionen als die aktuelle Build-Basis sind daher nicht garantiert lauffähig.
+
 ### C++ CLI / Runner
 
 Für eine vollständige anfängerfreundliche Anleitung siehe:

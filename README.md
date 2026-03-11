@@ -149,6 +149,17 @@ Release bundle start:
 
 The launcher copies the bundled payload into a per-user install directory, starts the Crow backend in the foreground, and opens the browser to the local GUI2 URL.
 
+Minimum OS versions for the current GUI2 release bundles:
+
+- Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
+- macOS: macOS 13+
+- Windows: Windows 10 x64 or newer
+
+Notes:
+
+- macOS support is currently intended from version 13 upward. It is not restricted to macOS 15+, but macOS 12 and older are not the documented release baseline.
+- Linux bundles do not bundle `glibc`, so older distributions than the current build baseline are not guaranteed to work.
+
 ### C++ CLI / runner
 
 For a full beginner-friendly walkthrough, see:
