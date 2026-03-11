@@ -117,9 +117,9 @@ collect_macos_libs() {
         case "$dep" in
           /usr/lib/*|/System/*) continue ;;
         esac
-        case "$name" in
-          libc++.1.dylib|libc++abi.1.dylib|libunwind.1.dylib) continue ;;
-        esac
+        if macos_should_skip_bundle_dep "$dep" "$name"; then
+          continue
+        fi
         [[ -f "$dep" ]] || continue
         local dst="${PAYLOAD}/tile_compile_cpp/lib/${name}"
         if [[ ! -f "$dst" ]]; then
@@ -148,9 +148,9 @@ rewrite_macos_refs() {
         case "$dep" in
           /usr/lib/*|/System/*) continue ;;
         esac
-        case "$name" in
-          libc++.1.dylib|libc++abi.1.dylib|libunwind.1.dylib) continue ;;
-        esac
+        if macos_should_skip_bundle_dep "$dep" "$name"; then
+          continue
+        fi
         local bundled="${PAYLOAD}/tile_compile_cpp/lib/${name}"
         [[ -f "$bundled" ]] || continue
         if [[ "$mode" == "exe" ]]; then
@@ -159,6 +159,22 @@ rewrite_macos_refs() {
           install_name_tool -change "$dep" "@loader_path/${name}" "$target" || true
         fi
       done
+}
+
+macos_should_skip_bundle_dep() {
+  local dep="$1"
+  local name="$2"
+  case "$name" in
+    libc++*.dylib|libunwind*.dylib|libc++abi*.dylib|libstdc++*.dylib|libgcc_s*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
+      return 0
+      ;;
+  esac
+  case "$dep" in
+    */lib/clang/*|*/opt/llvm/lib/*)
+      return 0
+      ;;
+  esac
+  return 1
 }
 
 assemble_bundle() {
@@ -187,6 +203,13 @@ assemble_bundle() {
     | while IFS= read -r -d '' dylib; do
         rewrite_macos_refs "$dylib" dylib
       done
+  find "${PAYLOAD}/tile_compile_cpp/lib" -type f \( \
+      -name "libc++*.dylib" -o \
+      -name "libc++abi*.dylib" -o \
+      -name "libunwind*.dylib" -o \
+      -name "libstdc++*.dylib" -o \
+      -name "libgcc_s*.dylib" -o \
+      -name "libclang_rt*.dylib" \) -delete
   printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui2-release-tag"
   ditto -c -k --sequesterRsrc --keepParent "${ROOT}" "${ARTIFACTS_DIR}/tile_compile_gui2-macos-${TAG}.zip"
 }
