@@ -141,6 +141,14 @@ target_compile_definitions(tile_compile_web_backend PRIVATE
     CROW_ENFORCE_WS_SPEC
 )
 
+if(WIN32)
+    target_compile_definitions(tile_compile_web_backend PRIVATE
+        _WIN32_WINNT=0x0601
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+endif()
+
 # Linux: statisch libgcc/libstdc++ optional in Release fuer maximale Portabilitaet
 if(UNIX AND NOT APPLE AND CMAKE_BUILD_TYPE STREQUAL "Release" AND TILE_COMPILE_BACKEND_STATIC_STDLIB)
     target_link_options(tile_compile_web_backend PRIVATE

@@ -14,6 +14,7 @@
 #include <map>
 #include <numeric>
 #include <optional>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -103,6 +104,65 @@ std::string read_text(const fs::path& path) {
     std::ostringstream ss;
     ss << in.rdbuf();
     return ss.str();
+}
+
+std::string env_or(const char* key, const std::string& fallback = "") {
+    if (!key || !*key) return fallback;
+    const char* value = std::getenv(key);
+    if (!value || !*value) return fallback;
+    return std::string(value);
+}
+
+std::string normalize_report_locale(std::string locale) {
+    std::transform(locale.begin(), locale.end(), locale.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (locale == "en" || locale.rfind("en_", 0) == 0 || locale.rfind("en-", 0) == 0) return "en";
+    return "de";
+}
+
+fs::path report_i18n_path(const std::string& locale) {
+    const std::string ui_dir = env_or("TILE_COMPILE_UI_DIR", "");
+    if (!ui_dir.empty()) return fs::path(ui_dir) / "i18n" / ("report_" + locale + ".json");
+    return fs::path("web_frontend") / "i18n" / ("report_" + locale + ".json");
+}
+
+json read_json_if_exists(const fs::path& path);
+
+json load_report_translations(const std::string& locale) {
+    const json parsed = read_json_if_exists(report_i18n_path(locale));
+    if (parsed.is_object() && parsed.contains("translations") && parsed["translations"].is_object()) {
+        return parsed["translations"];
+    }
+    if (parsed.is_object()) return parsed;
+    return json::object();
+}
+
+void replace_all_in_place(std::string& text, const std::string& needle, const std::string& replacement) {
+    if (needle.empty() || needle == replacement) return;
+    std::string::size_type pos = 0;
+    while ((pos = text.find(needle, pos)) != std::string::npos) {
+        text.replace(pos, needle.size(), replacement);
+        pos += replacement.size();
+    }
+}
+
+std::string apply_report_translations(std::string html, const std::string& locale) {
+    const json translations = load_report_translations(locale);
+    if (!translations.is_object() || translations.empty()) return html;
+
+    std::vector<std::pair<std::string, std::string>> pairs;
+    pairs.reserve(translations.size());
+    for (auto it = translations.begin(); it != translations.end(); ++it) {
+        if (!it.value().is_string()) continue;
+        pairs.emplace_back(it.key(), it.value().get<std::string>());
+    }
+    std::sort(pairs.begin(), pairs.end(), [](const auto& a, const auto& b) {
+        return a.first.size() > b.first.size();
+    });
+    for (const auto& [src, dst] : pairs) replace_all_in_place(html, src, dst);
+    replace_all_in_place(html, "lang=\"en\"", "lang=\"" + locale + "\"");
+    return html;
 }
 
 json read_json_if_exists(const fs::path& path) {
@@ -944,6 +1004,7 @@ std::string svg_spatial_tile_heatmap(const json& tiles,
     auto s = basic_stats(used_values);
     double lo = s.min;
     double hi = s.max;
+    const bool flat_map = !(s.max > s.min);
     if (s.min >= 0.0 && s.max <= 1.0) {
         lo = 0.0;
         hi = 1.0;
@@ -951,9 +1012,9 @@ std::string svg_spatial_tile_heatmap(const json& tiles,
         lo = s.p01;
         hi = s.p99;
     }
-    if (!(hi > lo)) {
-        lo -= 1.0;
-        hi += 1.0;
+    if (flat_map) {
+        lo = s.min;
+        hi = s.max;
     }
 
     const double scale = std::min(620.0 / static_cast<double>(img_w), 400.0 / static_cast<double>(img_h));
@@ -982,20 +1043,32 @@ std::string svg_spatial_tile_heatmap(const json& tiles,
         if (show_grid) out << " stroke=\"#0f172a\" stroke-width=\"0.4\"";
         out << "/>";
     }
-    for (int i = 0; i < 64; ++i) {
-        const double t = static_cast<double>(i) / 63.0;
-        const double y = y0 + panel_h - t * panel_h;
-        out << "<rect x=\"" << cbx << "\" y=\"" << y << "\" width=\"" << cbw << "\" height=\"" << (panel_h / 63.0 + 1.0)
-            << "\" fill=\"" << colormap_hex(cmap, t) << "\"/>";
+    if (flat_map) {
+        out << "<rect x=\"" << cbx << "\" y=\"" << y0 << "\" width=\"" << cbw << "\" height=\"" << panel_h
+            << "\" fill=\"" << colormap_hex(cmap, 0.5) << "\"/>";
+    } else {
+        for (int i = 0; i < 64; ++i) {
+            const double t = static_cast<double>(i) / 63.0;
+            const double y = y0 + panel_h - t * panel_h;
+            out << "<rect x=\"" << cbx << "\" y=\"" << y << "\" width=\"" << cbw << "\" height=\"" << (panel_h / 63.0 + 1.0)
+                << "\" fill=\"" << colormap_hex(cmap, t) << "\"/>";
+        }
     }
     out << "<rect x=\"" << cbx << "\" y=\"" << y0 << "\" width=\"" << cbw << "\" height=\"" << panel_h
         << "\" fill=\"none\" class=\"svg-axis\"/>";
     out << "<text x=\"" << cbx << "\" y=\"" << (height - 16)
         << "\" class=\"svg-label\">" << html_escape(label) << "</text>";
-    out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + 4)
-        << "\" class=\"svg-tick\">" << html_escape(format_number(hi, 2)) << "</text>";
-    out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + panel_h)
-        << "\" class=\"svg-tick\">" << html_escape(format_number(lo, 2)) << "</text>";
+    if (flat_map) {
+        out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + panel_h * 0.5)
+            << "\" class=\"svg-tick\">" << html_escape(format_number(s.min, 2)) << "</text>";
+        out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + panel_h * 0.5 + 16)
+            << "\" class=\"svg-tick\">konstant</text>";
+    } else {
+        out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + 4)
+            << "\" class=\"svg-tick\">" << html_escape(format_number(hi, 2)) << "</text>";
+        out << "<text x=\"" << (cbx + cbw + 8) << "\" y=\"" << (y0 + panel_h)
+            << "\" class=\"svg-tick\">" << html_escape(format_number(lo, 2)) << "</text>";
+    }
     out << "</svg>";
     return out.str();
 }
@@ -1913,13 +1986,15 @@ std::optional<ReportSection> gen_reconstruction(const json& recon, const json& t
         if (!valid_counts.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, valid_counts, img_w, img_h, "Valid frames per tile", "frames", "YlGn"),
                                                      explain_panel("Gueltige Frames pro Tile",
                                                                    {"Diese Karte zeigt, wie viele Einzelbilder je Tile nach allen relevanten Filtern effektiv in die Rekonstruktion eingegangen sind.",
-                                                                    "Sie macht sichtbar, wo die Pipeline lokal statistisch stark oder dünn abgestützt arbeitet."},
+                                                                    "Sie macht sichtbar, wo die Pipeline lokal statistisch stark oder dünn abgestützt arbeitet.",
+                                                                    "Wenn die Karte nahezu einfarbig ist, bedeutet das hier meist tatsächlich eine gleichmäßige Abdeckung und nicht automatisch ein Problem im Rendering."},
                                                                    {"<span class=\"good\">Gut:</span> Möglichst homogene und ausreichend hohe Counts.",
                                                                     "<span class=\"bad\">Auffällig:</span> Tiles mit sehr niedrigen Counts sind lokal fragiler und können Bias oder Artefaktrisiko tragen."})});
         if (!mean_cc.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, mean_cc, img_w, img_h, "Mean correlation per tile", "CC", "viridis"),
                                                 explain_panel("Mittlere Korrelation pro Tile",
                                                               {"Zeigt die mittlere Ähnlichkeit der in ein Tile eingehenden Framebeiträge.",
-                                                               "Hohe Werte bedeuten lokal konsistente Geometrie und Signalstruktur."},
+                                                               "Hohe Werte bedeuten lokal konsistente Geometrie und Signalstruktur.",
+                                                               "Wenn die Karte überall fast identisch aussieht oder numerisch bei 1.0 sättigt, ist die Metrik in diesem Run kaum noch diskriminierend und trennt die Tiles nicht mehr sichtbar."},
                                                               {"<span class=\"good\">Gut:</span> Hohe, gleichmäßige CC-Werte.",
                                                                "<span class=\"bad\">Auffällig:</span> Lokale CC-Einbrüche deuten auf problematische Ausrichtung oder wechselhafte lokale Datenqualität hin."})});
         if (!post_snr.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, post_snr, img_w, img_h, "Post-reconstruction SNR", "SNR", "plasma"),
@@ -1931,7 +2006,8 @@ std::optional<ReportSection> gen_reconstruction(const json& recon, const json& t
         if (!post_contrast.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, post_contrast, img_w, img_h, "Post contrast per tile", "contrast", "cividis"),
                                                       explain_panel("Post-Kontrast pro Tile",
                                                                     {"Der Plot zeigt, wie stark der lokale Kontrast nach der Rekonstruktion ausfällt.",
-                                                                     "Er hilft dabei, flache Regionen von detailreichen und eventuell überbetonten Regionen zu unterscheiden."},
+                                                                     "Er hilft dabei, flache Regionen von detailreichen und eventuell überbetonten Regionen zu unterscheiden.",
+                                                                     "Anders als Counts oder CC ist diese Karte typischerweise nicht homogen: das Motiv selbst erzeugt echte räumliche Kontrastunterschiede über das Feld."},
                                                                     {"<span class=\"good\">Gut:</span> Kontrast folgt dem Motiv und wirkt plausibel räumlich verteilt.",
                                                                      "<span class=\"bad\">Auffällig:</span> Isolierte Kontrastinseln oder harte Unterschiede zwischen Nachbartiles können auf Rekonstruktionsartefakte hinweisen."})});
         if (!post_bg.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, post_bg, img_w, img_h, "Post background per tile", "background", "gray"),
@@ -1968,6 +2044,7 @@ std::optional<ReportSection> gen_reconstruction(const json& recon, const json& t
         evals.push_back("valid counts: median=" + format_number(s.median, 0) +
                         ", min=" + format_number(s.min, 0) +
                         ", max=" + format_number(s.max, 0));
+        if (!(s.max > s.min)) evals.push_back("valid counts: tile map is constant");
         int low = 0;
         for (double v : valid_counts) if (std::isfinite(v) && v < 3.0) ++low;
         if (low > 0) evals.push_back("WARNING: " + std::to_string(low) + " tiles with < 3 valid frames");
@@ -1976,6 +2053,7 @@ std::optional<ReportSection> gen_reconstruction(const json& recon, const json& t
         const auto s = basic_stats(mean_cc);
         evals.push_back("tile CC: median=" + format_number(s.median, 4) +
                         ", min=" + format_number(s.min, 4));
+        if (!(s.max > s.min)) evals.push_back("tile CC: tile map is constant");
     }
     if (!post_snr.empty()) {
         const auto s = basic_stats(post_snr);
@@ -2257,7 +2335,8 @@ std::string build_report_html(const fs::path& run_dir,
                               const json& bge,
                               const json& val,
                               const json& common_overlap,
-                              const std::string& config_yaml) {
+                              const std::string& config_yaml,
+                              const std::string& locale) {
     std::vector<std::string> meta_lines = {
         "run_id: " + run_dir.filename().string(),
         "run_dir: " + run_dir.string(),
@@ -2336,13 +2415,14 @@ std::string build_report_html(const fs::path& run_dir,
     }
     html << "<div class=\"footer\">Generated by tile_compile_web_backend (C++ inline SVG report)</div>";
     html << "</main></body></html>";
-    return html.str();
+    return apply_report_translations(html.str(), locale);
 }
 
 } // namespace
 
 nlohmann::json generate_run_report(const fs::path& run_dir) {
     try {
+        const std::string locale = normalize_report_locale(env_or("TILE_COMPILE_REPORT_LOCALE", "de"));
         const fs::path artifacts_dir = run_dir / "artifacts";
         fs::create_directories(artifacts_dir);
 
@@ -2377,7 +2457,7 @@ nlohmann::json generate_run_report(const fs::path& run_dir) {
 
         const std::string report_html = build_report_html(run_dir, status, artifacts_before, events,
                                                           norm, gm, tg, reg, lm, recon, cl,
-                                                          syn, bge, val, common_overlap, config_yaml);
+                                                          syn, bge, val, common_overlap, config_yaml, locale);
 
         std::ofstream report_out(report_path, std::ios::binary);
         if (!report_out) {
@@ -2414,6 +2494,7 @@ nlohmann::json generate_run_report(const fs::path& run_dir) {
             {"artifact_count", artifacts_after.is_array() ? artifacts_after.size() : 0},
             {"event_count", events.size()},
             {"report_format", "inline_svg"},
+            {"report_locale", locale},
         };
     } catch (const std::exception& e) {
         return {

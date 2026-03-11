@@ -4,6 +4,10 @@
 #include <filesystem>
 #include <algorithm>
 #include <cstdlib>
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 namespace fs = std::filesystem;
 
