@@ -38,7 +38,6 @@ Backend-spezifische Build-Abhängigkeiten:
 Hinweise:
 
 - Crow und Asio werden über den CMake-Build des Backends eingebunden.
-- GUI2 hängt im aktiven Build-, Runtime- und Packaging-Pfad nicht mehr von Qt ab.
 - Das Frontend selbst benötigt für den normalen Betrieb keine JS-Build-Toolchain; es wird als statischer Dateisatz ausgeliefert.
 
 Beispielpakete je Plattform:

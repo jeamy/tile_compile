@@ -38,7 +38,6 @@ Backend-specific build dependencies:
 Notes:
 
 - Crow and Asio are fetched by the backend CMake build.
-- GUI2 no longer depends on Qt in the active build, runtime, or packaging path.
 - The frontend itself does not require a JS build toolchain for normal use; it is shipped as static files.
 
 Platform package examples:
