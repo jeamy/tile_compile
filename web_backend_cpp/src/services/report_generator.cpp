@@ -1260,13 +1260,13 @@ std::optional<ReportSection> gen_timeline(const std::vector<json>& events) {
             "Pipeline-Laufzeit pro Phase",
             {
                 "Jeder Balken zeigt die gemessene Netto-Dauer einer Pipeline-Phase zwischen <code>phase_start</code> und <code>phase_end</code>.",
-                "Der Plot beantwortet primar die Frage, <em>wo</em> die Laufzeit verbrannt wird: I/O, Registrierung, lokale Metriken, Rekonstruktion oder nachgelagerte Korrekturen."
+                "Der Plot beantwortet primär die Frage, <em>wo</em> die Laufzeit verbrannt wird: I/O, Registrierung, lokale Metriken, Rekonstruktion oder nachgelagerte Korrekturen."
             },
             {
                 "<span class=\"good\">Gut:</span> Die teuersten Phasen sind fachlich erwartbar, z. B. Registrierung, Local Metrics oder Rekonstruktion.",
                 "<span class=\"neutral\">Neutral:</span> Einzelne lange Balken sind normal, wenn viele Frames, grosse Bilder oder viele Tiles verarbeitet wurden.",
-                "<span class=\"bad\">Auffaellig:</span> Unverhaeltnismaessig lange Scan-, Load- oder PREWARP-Phasen deuten eher auf I/O-, Pfad- oder Datenlayout-Probleme als auf Bildinhalt hin.",
-                "Starke Unterschiede zwischen nominal aehnlichen Phasen koennen auf Fallbacks, Wiederholungen oder instabile Eingangsdaten hinweisen."
+                "<span class=\"bad\">Auffällig:</span> Unverhältnismäßig lange Scan-, Load- oder PREWARP-Phasen deuten eher auf I/O-, Pfad- oder Datenlayout-Probleme als auf Bildinhalt hin.",
+                "Starke Unterschiede zwischen nominal ähnlichen Phasen können auf Fallbacks, Wiederholungen oder instabile Eingangsdaten hinweisen."
             }
         )
     }};
@@ -1384,14 +1384,14 @@ std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events, co
         explain_panel(
             "Frame-Funnel",
             {
-                "Der Funnel zeigt, wie viele Frames nach den wichtigsten Akzeptanzstufen uebrig bleiben: entdeckt, nach Scan/Linearity, nach Registrierung und ggf. vor der Synthetik.",
-                "Damit wird sofort sichtbar, ob Verluste frueh im Intake oder erst spaeter durch Registrierung und Qualitätsfilter entstehen."
+                "Der Funnel zeigt, wie viele Frames nach den wichtigsten Akzeptanzstufen übrig bleiben: entdeckt, nach Scan/Linearity, nach Registrierung und ggf. vor der Synthetik.",
+                "Damit wird sofort sichtbar, ob Verluste früh im Intake oder erst später durch Registrierung und Qualitätsfilter entstehen."
             },
             {
                 "<span class=\"good\">Gut:</span> Nur moderater Abfall von links nach rechts, besonders zwischen Scan und registrierbaren Frames.",
                 "<span class=\"neutral\">Neutral:</span> Ein kleiner Verlust durch Linearity-Checks oder CC-basierte Ablehnung ist normal.",
-                "<span class=\"bad\">Auffaellig:</span> Ein starker Einbruch vor oder nach der Registrierung bedeutet, dass ein grosser Teil des Datensatzes nicht robust nutzbar war.",
-                "Die Balkenfarbe codiert die Retention relativ zur Anfangsmenge: gruen = hoch, gelb = merklicher Verlust, rot = kritischer Verlust."
+                "<span class=\"bad\">Auffällig:</span> Ein starker Einbruch vor oder nach der Registrierung bedeutet, dass ein großer Teil des Datensatzes nicht robust nutzbar war.",
+                "Die Balkenfarbe codiert die Retention relativ zur Anfangsmenge: grün = hoch, gelb = merklicher Verlust, rot = kritischer Verlust."
             }
         )
     }};
@@ -1402,12 +1402,12 @@ std::optional<ReportSection> gen_frame_usage(const std::vector<json>& events, co
                 "Verlustursachen",
                 {
                     "Das Kreisdiagramm zerlegt die Gesamtmenge in genutzte Frames und die wichtigsten Verlustursachen, z. B. Linearity-Removal, Identity-Fallback oder negative CC-Werte.",
-                    "Es beantwortet damit nicht nur <em>wieviel</em> verloren ging, sondern <em>warum</em>."
+                    "Es beantwortet damit nicht nur <em>wie viel</em> verloren ging, sondern <em>warum</em>."
                 },
                 {
-                    "<span class=\"good\">Gruener Anteil:</span> Effektiv genutzte Frames, die im weiteren Pipeline-Verlauf tragen.",
+                    "<span class=\"good\">Grüner Anteil:</span> Effektiv genutzte Frames, die im weiteren Pipeline-Verlauf tragen.",
                     "<span class=\"neutral\">Gelbe Anteile:</span> Grenzwertige, aber typische Verluste durch Registrierung oder konservative Filterung.",
-                    "<span class=\"bad\">Grosse nicht-gruene Segmente:</span> Deuten auf Akquisitionsprobleme, Wolken, Drift oder eine schwache Registrierbarkeit des Materials hin."
+                    "<span class=\"bad\">Große nicht-grüne Segmente:</span> Deuten auf Akquisitionsprobleme, Wolken, Drift oder eine schwache Registrierbarkeit des Materials hin."
                 }
             )
         });
@@ -1432,14 +1432,14 @@ std::optional<ReportSection> gen_normalization(const json& norm) {
             explain_panel(
                 "Hintergrund pro OSC-Kanal",
                 {
-                    "Der Plot zeigt den geschaetzten Himmelshintergrund pro Frame getrennt nach R-, G- und B-Kanal.",
-                    "Er ist wichtig, um Transparenzwechsel, Mondlicht, Farbgradienten und kanalabhaengige Hintergrundverschiebungen frueh zu erkennen."
+                    "Der Plot zeigt den geschätzten Himmelshintergrund pro Frame getrennt nach R-, G- und B-Kanal.",
+                    "Er ist wichtig, um Transparenzwechsel, Mondlicht, Farbgradienten und kanalabhängige Hintergrundverschiebungen früh zu erkennen."
                 },
                 {
-                    "<span class=\"good\">Gut:</span> Alle Kanaele verlaufen relativ stabil und in aehnlicher Form.",
-                    "<span class=\"neutral\">Neutral:</span> Ein sanfter gemeinsamer Drift ueber alle Kanaele spricht oft fuer langsame Bedingungen a la steigende Luftfeuchte oder Himmelsaufhellung.",
-                    "<span class=\"bad\">Auffaellig:</span> Starke Spruenge, entkoppelte Kanaele oder grosse Offset-Unterschiede deuten auf Wolken, Gradienten oder Farbstiche in der Aufnahme hin.",
-                    "Die Normalisierung muss genau diese Unterschiede spaeter kompensieren; je staerker die Schwankung, desto wichtiger ist der Schritt."
+                    "<span class=\"good\">Gut:</span> Alle Kanäle verlaufen relativ stabil und in ähnlicher Form.",
+                    "<span class=\"neutral\">Neutral:</span> Ein sanfter gemeinsamer Drift über alle Kanäle spricht oft für langsame Bedingungen wie steigende Luftfeuchte oder Himmelsaufhellung.",
+                    "<span class=\"bad\">Auffällig:</span> Starke Sprünge, entkoppelte Kanäle oder große Offset-Unterschiede deuten auf Wolken, Gradienten oder Farbstiche in der Aufnahme hin.",
+                    "Die Normalisierung muss genau diese Unterschiede später kompensieren; je stärker die Schwankung, desto wichtiger ist der Schritt."
                 }
             )
         });
@@ -1457,13 +1457,13 @@ std::optional<ReportSection> gen_normalization(const json& norm) {
             explain_panel(
                 "Mono-Hintergrund",
                 {
-                    "Dies ist der globale Hintergrundschaetzer pro Frame fuer MONO-Daten.",
-                    "Der Verlauf zeigt, ob der Datensatz ueber die Session hinweg photometrisch stabil geblieben ist."
+                    "Dies ist der globale Hintergrundschätzer pro Frame für MONO-Daten.",
+                    "Der Verlauf zeigt, ob der Datensatz über die Session hinweg photometrisch stabil geblieben ist."
                 },
                 {
                     "<span class=\"good\">Gut:</span> Flacher Verlauf nahe am Median mit nur kleinen Schwankungen.",
                     "<span class=\"neutral\">Neutral:</span> Langsame Drift ist oft noch handhabbar und wird in der Normalisierung abgefedert.",
-                    "<span class=\"bad\">Auffaellig:</span> Harte Peaks oder Einbrueche deuten typischerweise auf Wolken, Lichtverschmutzungswechsel, Tau oder sonstige Transparenzspruenge hin."
+                    "<span class=\"bad\">Auffällig:</span> Harte Peaks oder Einbrüche deuten typischerweise auf Wolken, Lichtverschmutzungswechsel, Tau oder sonstige Transparenzsprünge hin."
                 }
             )
         });
@@ -1498,109 +1498,109 @@ std::optional<ReportSection> gen_global_metrics(const json& gm) {
             "Frame-Hintergrund",
             {
                 "Zeigt den mittleren Hintergrund jedes Frames nach dem Scan-/Metrikschritt.",
-                "Der Plot beantwortet, wie stabil der Himmelshintergrund ueber die Session war und welche Frames photometrisch auffaellig sind."
+                "Der Plot beantwortet, wie stabil der Himmelshintergrund über die Session war und welche Frames photometrisch auffällig sind."
             },
             {
-                "<span class=\"good\">Gut:</span> Gleichmaessiger Verlauf nahe am Median.",
-                "<span class=\"bad\">Auffaellig:</span> Peaks oder starke Drift sprechen fuer Wolken, Tau, Mondlicht oder Lichtverschmutzungswechsel.",
-                "Frames mit problematischem Hintergrund werden im globalen Gewicht spaeter deutlich abgestraft."
+                "<span class=\"good\">Gut:</span> Gleichmäßiger Verlauf nahe am Median.",
+                "<span class=\"bad\">Auffällig:</span> Peaks oder starke Drift sprechen für Wolken, Tau, Mondlicht oder Lichtverschmutzungswechsel.",
+                "Frames mit problematischem Hintergrund werden im globalen Gewicht später deutlich abgestraft."
             }
         )},
         {svg_timeseries(noise, "Frame noise level", "noise", "#f87171"), explain_panel(
             "Rauschpegel pro Frame",
             {
-                "Dies ist ein robuster Rauschschaetzer fuer jedes Einzelbild.",
-                "Hohe Werte bedeuten nicht automatisch schlechte Sterne, aber ein schlechteres Signal-Rausch-Verhaeltnis und damit geringeren Nutzwert im Stack."
+                "Dies ist ein robuster Rauschschätzer für jedes Einzelbild.",
+                "Hohe Werte bedeuten nicht automatisch schlechte Sterne, aber ein schlechteres Signal-Rausch-Verhältnis und damit geringeren Nutzwert im Stack."
             },
             {
                 "<span class=\"good\">Gut:</span> Niedriger und relativ stabiler Rauschlevel.",
                 "<span class=\"neutral\">Neutral:</span> Etwas Streuung ist bei realen Bedingungen normal.",
-                "<span class=\"bad\">Auffaellig:</span> Einzelne hohe Spitzen deuten oft auf Wolken, instabile Transparenz oder sehr schwache Frames."
+                "<span class=\"bad\">Auffällig:</span> Einzelne hohe Spitzen deuten oft auf Wolken, instabile Transparenz oder sehr schwache Frames."
             }
         )},
         {svg_timeseries(grad, "Frame gradient energy", "gradient", "#4ade80"), explain_panel(
             "Gradientenenergie",
             {
                 "Die Gradientenenergie misst, wie viel Struktur, Kantenenergie und lokaler Detailkontrast im Frame steckt.",
-                "Sie reagiert sowohl auf echte Schaerfe als auch auf stoerende Strukturen wie Wolkenkanten und ist deshalb bewusst nur als Einzelmetrik zu lesen, nicht als Gesamtnote."
+                "Sie reagiert sowohl auf echte Schärfe als auch auf störende Strukturen wie Wolkenkanten und ist deshalb bewusst nur als Einzelmetrik zu lesen, nicht als Gesamtnote."
             },
             {
                 "<span class=\"good\">Gut:</span> Hohe Werte sind nur dann positiv, wenn gleichzeitig FWHM, Hintergrund und Rauschen ebenfalls plausibel gut aussehen.",
-                "<span class=\"neutral\">Neutral:</span> Ein isoliert hoher Gradient ist noch kein Qualitaetsbeweis, sondern nur ein Hinweis auf viel lokale Struktur.",
-                "<span class=\"bad\">Auffaellig:</span> Hohe Gradientenspitzen bei gleichzeitig schlechtem Hintergrund oder hohem Rauschen kommen oft von Wolken, Gradienten oder unruhigen Strukturen und nicht von echter Bildqualitaet."
+                "<span class=\"neutral\">Neutral:</span> Ein isoliert hoher Gradient ist noch kein Qualitätsbeweis, sondern nur ein Hinweis auf viel lokale Struktur.",
+                "<span class=\"bad\">Auffällig:</span> Hohe Gradientenspitzen bei gleichzeitig schlechtem Hintergrund oder hohem Rauschen kommen oft von Wolken, Gradienten oder unruhigen Strukturen und nicht von echter Bildqualität."
             }
         )},
         {svg_timeseries(gw, "Global frame weight", "weight", "#fbbf24"), explain_panel(
             "Globales Frame-Gewicht",
             {
-                "Dies ist das kombinierte globale Qualitaetsgewicht, mit dem der Frame spaeter in der Pipeline bewertet wird.",
-                "Es verdichtet Hintergrund, Rauschen und Strukturinformation zu einer einzelnen Nutzbarkeitskennzahl und ist damit die bereinigte Gesamtaussage ueber die Verwendbarkeit eines Frames."
+                "Dies ist das kombinierte globale Qualitätsgewicht, mit dem der Frame später in der Pipeline bewertet wird.",
+                "Es verdichtet Hintergrund, Rauschen und Strukturinformation zu einer einzelnen Nutzbarkeitskennzahl und ist damit die bereinigte Gesamtaussage über die Verwendbarkeit eines Frames."
             },
             {
                 "<span class=\"good\">Gut:</span> Hohe Werte markieren Frames, bei denen die Gesamtkombination aus niedrigem Hintergrund, niedrigem Rauschen und brauchbarer Struktur stimmt.",
                 "<span class=\"neutral\">Neutral:</span> Eine gewisse Streuung ist bei wechselnden Bedingungen normal, weil nicht jeder Frame gleich gut ist.",
-                "<span class=\"bad\">Auffaellig:</span> Viele sehr niedrige Gewichte bedeuten, dass ein relevanter Teil des Datensatzes in der Gesamtschau nur schwach oder problematisch ist, selbst wenn einzelne Einzelmetriken zeitweise gut aussahen."
+                "<span class=\"bad\">Auffällig:</span> Viele sehr niedrige Gewichte bedeuten, dass ein relevanter Teil des Datensatzes in der Gesamtschau nur schwach oder problematisch ist, selbst wenn einzelne Einzelmetriken zeitweise gut aussahen."
             }
         )},
         {svg_histogram(gw, "Global weight distribution", "weight", "#fbbf24"), explain_panel(
             "Verteilung der globalen Gewichte",
             {
-                "Das Histogramm zeigt, wie die Einzelgewichte ueber alle Frames verteilt sind.",
+                "Das Histogramm zeigt, wie die Einzelgewichte über alle Frames verteilt sind.",
                 "Es hilft zu unterscheiden, ob der Datensatz homogen gut, zweigeteilt oder breit streuend problematisch ist."
             },
             {
-                "<span class=\"good\">Gut:</span> Ein kompakter Peak im oberen Bereich bedeutet gleichmaessig gutes Material.",
+                "<span class=\"good\">Gut:</span> Ein kompakter Peak im oberen Bereich bedeutet gleichmäßig gutes Material.",
                 "<span class=\"neutral\">Neutral:</span> Eine zweigipflige Verteilung weist oft auf gute und schlechte Subsets innerhalb derselben Session hin.",
-                "<span class=\"bad\">Auffaellig:</span> Eine breite linke Flanke oder viele sehr kleine Gewichte sprechen fuer viele schwache Frames."
+                "<span class=\"bad\">Auffällig:</span> Eine breite linke Flanke oder viele sehr kleine Gewichte sprechen für viele schwache Frames."
             }
         )},
         {svg_timeseries(fwhm, "FWHM per frame", "FWHM (px)", "#c084fc"), explain_panel(
             "FWHM pro Frame",
             {
-                "Die FWHM beschreibt die Sternbreite in Pixeln und ist einer der direktesten Schaerfe-Indikatoren im Datensatz.",
-                "Niedrige FWHM bedeutet kompakte Sterne, hohe FWHM steht fuer Seeing-, Fokus- oder Nachfuehrprobleme."
+                "Die FWHM beschreibt die Sternbreite in Pixeln und ist einer der direktesten Schärfe-Indikatoren im Datensatz.",
+                "Niedrige FWHM bedeutet kompakte Sterne, hohe FWHM steht für Seeing-, Fokus- oder Nachführprobleme."
             },
             {
-                "<span class=\"good\">Gut:</span> Niedrige und moeglichst stabile Werte.",
-                "<span class=\"neutral\">Neutral:</span> Sanfte Trends koennen echtes Seeing-Drift ueber die Nacht zeigen.",
-                "<span class=\"bad\">Auffaellig:</span> Hohe Peaks oder breite Streuung bedeuten deutliche Unschaerfephasen."
+                "<span class=\"good\">Gut:</span> Niedrige und möglichst stabile Werte.",
+                "<span class=\"neutral\">Neutral:</span> Sanfte Trends können echtes Seeing-Drift über die Nacht zeigen.",
+                "<span class=\"bad\">Auffällig:</span> Hohe Peaks oder breite Streuung bedeuten deutliche Unschärfephasen."
             }
         )},
         {svg_timeseries(roundness, "Roundness per frame", "roundness", "#22d3ee"), explain_panel(
             "Sternrundheit",
             {
-                "Die Rundheit beschreibt, wie kreisfoermig die Sternprofile sind; Werte nahe 1 sind ideal.",
+                "Die Rundheit beschreibt, wie kreisförmig die Sternprofile sind; Werte nahe 1 sind ideal.",
                 "Sie reagiert besonders auf Trackingfehler, Wind, Verkippung oder systematische Sternelongation."
             },
             {
                 "<span class=\"good\">Gut:</span> Werte nahe 1 mit geringer Streuung.",
                 "<span class=\"neutral\">Neutral:</span> Leichte Abweichungen sind tolerierbar, wenn sie nicht systematisch wegdriften.",
-                "<span class=\"bad\">Auffaellig:</span> Niedrige oder stark schwankende Werte deuten auf elongierte Sterne und mechanische/geometrische Probleme hin."
+                "<span class=\"bad\">Auffällig:</span> Niedrige oder stark schwankende Werte deuten auf elongierte Sterne und mechanische/geometrische Probleme hin."
             }
         )},
         {svg_timeseries(star_count, "Detected stars per frame", "stars", "#fde047"), explain_panel(
             "Erkannte Sterne",
             {
                 "Der Plot zeigt, wie viele Sterne im jeweiligen Frame robust detektiert wurden.",
-                "Er ist ein schneller Proxy fuer Transparenz, Fokus und Nutzbarkeit des Materials."
+                "Er ist ein schneller Proxy für Transparenz, Fokus und Nutzbarkeit des Materials."
             },
             {
                 "<span class=\"good\">Gut:</span> Hohe und stabile Sternanzahl.",
                 "<span class=\"neutral\">Neutral:</span> Moderate Schwankungen je nach Feldinhalt oder Seeing sind normal.",
-                "<span class=\"bad\">Auffaellig:</span> Einbrueche sprechen oft fuer Wolken, Defokus, Tau oder starke Hintergrundprobleme."
+                "<span class=\"bad\">Auffällig:</span> Einbrüche sprechen oft für Wolken, Defokus, Tau oder starke Hintergrundprobleme."
             }
         )},
         {svg_scatter(fwhm, roundness, star_count, "FWHM vs roundness", "FWHM (px)", "roundness"), explain_panel(
             "FWHM gegen Rundheit",
             {
-                "Jeder Punkt repraesentiert einen Frame. Die Position kombiniert zwei zentrale Sternqualitaetsmetriken: Schaerfe und Form.",
+                "Jeder Punkt repräsentiert einen Frame. Die Position kombiniert zwei zentrale Sternqualitätsmetriken: Schärfe und Form.",
                 "Die Farbskala folgt der Frame-Reihenfolge und macht dadurch auch zeitliche Drift sichtbar."
             },
             {
                 "<span class=\"good\">Gut:</span> Ein kompakter Cluster bei niedriger FWHM und Rundheit nahe 1.",
-                "<span class=\"neutral\">Neutral:</span> Mehrere Cluster koennen auf unterschiedliche Wetter- oder Fokusphasen hindeuten.",
-                "<span class=\"bad\">Auffaellig:</span> Ausreisser mit hoher FWHM und schlechter Rundheit sind die schlechtesten Kandidaten im Datensatz.",
-                "Ein systematischer Farbverlauf der Punkte zeigt, ob sich die Qualitaet im Laufe der Session verbessert oder verschlechtert hat."
+                "<span class=\"neutral\">Neutral:</span> Mehrere Cluster können auf unterschiedliche Wetter- oder Fokusphasen hindeuten.",
+                "<span class=\"bad\">Auffällig:</span> Ausreißer mit hoher FWHM und schlechter Rundheit sind die schlechtesten Kandidaten im Datensatz.",
+                "Ein systematischer Farbverlauf der Punkte zeigt, ob sich die Qualität im Laufe der Session verbessert oder verschlechtert hat."
             }
         )},
     };
@@ -1650,13 +1650,13 @@ std::optional<ReportSection> gen_tile_grid(const json& tg) {
         explain_panel(
             "Tile-Raster",
             {
-                "Die Grafik zeigt die reale Zerlegung des Bildes in ueberlappende Tiles.",
-                "Dieses Raster ist die Grundlage fuer lokale Metriken, tile-spezifische Gewichte und die spaetere Rekonstruktion."
+                "Die Grafik zeigt die reale Zerlegung des Bildes in überlappende Tiles.",
+                "Dieses Raster ist die Grundlage für lokale Metriken, tile-spezifische Gewichte und die spätere Rekonstruktion."
             },
             {
                 "Mehr Tiles bedeuten feinere lokale Steuerung, aber auch mehr Rechen- und Verwaltungsaufwand.",
-                "Die Ueberlappung ist notwendig, damit beim Zusammenbau keine harten Kachelgrenzen sichtbar bleiben.",
-                "Ein plausibles Raster deckt das gesamte Bild homogen ab und zeigt keine offensichtlichen Luecken."
+                "Die Überlappung ist notwendig, damit beim Zusammenbau keine harten Kachelgrenzen sichtbar bleiben.",
+                "Ein plausibles Raster deckt das gesamte Bild homogen ab und zeigt keine offensichtlichen Lücken."
             }
         )
     }};
@@ -1686,55 +1686,55 @@ std::optional<ReportSection> gen_registration(const json& reg) {
                 "Die Farbskala transportiert die Reihenfolge der Frames und hilft, Driftmuster zu erkennen."
             },
             {
-                "<span class=\"good\">Gut:</span> Kompakte Punktwolke ohne starke Ausreisser.",
-                "<span class=\"neutral\">Neutral:</span> Eine langsame gerichtete Drift ist bei Session-Drift moeglich.",
-                "<span class=\"bad\">Auffaellig:</span> Grosse Streuung oder isolierte Cluster sprechen fuer instabile Nachfuehrung, Wind oder problematische Registrierung."
+                "<span class=\"good\">Gut:</span> Kompakte Punktwolke ohne starke Ausreißer.",
+                "<span class=\"neutral\">Neutral:</span> Eine langsame gerichtete Drift ist bei Session-Drift möglich.",
+                "<span class=\"bad\">Auffällig:</span> Große Streuung oder isolierte Cluster sprechen für instabile Nachführung, Wind oder problematische Registrierung."
             }
         )},
         {svg_multi_timeseries({{"tx", tx}, {"ty", ty}}, "Translation over time", "shift (px)"), explain_panel(
-            "Translation ueber die Zeit",
+            "Translation über die Zeit",
             {
-                "Hier werden die Registrierungsverschiebungen als Zeitreihe getrennt fuer tx und ty gezeigt.",
-                "Das macht sichtbar, ob die Montierung gleichmaessig driftet oder ob es abrupte Spruenge gab."
+                "Hier werden die Registrierungsverschiebungen als Zeitreihe getrennt für tx und ty gezeigt.",
+                "Das macht sichtbar, ob die Montierung gleichmäßig driftet oder ob es abrupte Sprünge gab."
             },
             {
                 "<span class=\"good\">Gut:</span> Ruhige, langsam verlaufende Kurven.",
-                "<span class=\"bad\">Auffaellig:</span> Stufen, Spruenge oder chaotische Zickzack-Muster deuten auf Tracking- oder Matching-Probleme hin."
+                "<span class=\"bad\">Auffällig:</span> Stufen, Sprünge oder chaotische Zickzack-Muster deuten auf Tracking- oder Matching-Probleme hin."
             }
         )},
         {svg_histogram(ccs, "Registration CC distribution", "CC", "#4ade80"), explain_panel(
             "Registrierungs-CC",
             {
-                "Das Histogramm zeigt die Verteilung des Korrelationskoeffizienten der Registrierung ueber alle Frames.",
-                "CC ist ein direkter Qualitaetsindikator dafuer, wie sicher ein Frame an das Referenzbild angepasst werden konnte."
+                "Das Histogramm zeigt die Verteilung des Korrelationskoeffizienten der Registrierung über alle Frames.",
+                "CC ist ein direkter Qualitätsindikator dafür, wie sicher ein Frame an das Referenzbild angepasst werden konnte."
             },
             {
                 "<span class=\"good\">Gut:</span> Hohe Konzentration bei grossen CC-Werten.",
                 "<span class=\"neutral\">Neutral:</span> Ein gewisser linker Auslauf ist bei schwierigen Sessions normal.",
-                "<span class=\"bad\">Auffaellig:</span> Viele kleine CC-Werte bedeuten, dass zahlreiche Frames geometrisch oder photometrisch schlecht matchbar waren."
+                "<span class=\"bad\">Auffällig:</span> Viele kleine CC-Werte bedeuten, dass zahlreiche Frames geometrisch oder photometrisch schlecht matchbar waren."
             }
         )},
         {svg_timeseries(rotations, "Rotation angle", "deg", "#f87171"), explain_panel(
             "Rotation pro Frame",
             {
-                "Zeigt den relativen Rotationswinkel jedes Frames gegenueber dem Referenzframe.",
+                "Zeigt den relativen Rotationswinkel jedes Frames gegenüber dem Referenzframe.",
                 "Besonders relevant bei Feldrotation, Alt/Az-Aufnahmen oder langen Sessions mit Rotationsanteil."
             },
             {
                 "<span class=\"good\">Gut:</span> Kleiner und glatter Verlauf, wenn kaum Rotation erwartet wird.",
                 "<span class=\"neutral\">Neutral:</span> Gleichmaessige monotone Rotation kann physikalisch normal sein.",
-                "<span class=\"bad\">Auffaellig:</span> Sprunghafte Richtungswechsel oder starke Ausreisser sprechen eher fuer Registrierungsinstabilitaet als fuer echte Geometrie."
+                "<span class=\"bad\">Auffällig:</span> Sprunghafte Richtungswechsel oder starke Ausreißer sprechen eher für Registrierungsinstabilität als für echte Geometrie."
             }
         )},
         {svg_timeseries(scales, "Scale factor", "scale", "#fbbf24"), explain_panel(
             "Skalenfaktor",
             {
-                "Der Plot zeigt, ob Frames relativ zum Referenzframe vergroessert oder verkleinert werden mussten.",
+                "Der Plot zeigt, ob Frames relativ zum Referenzframe vergrößert oder verkleinert werden mussten.",
                 "Skalendrift ist oft ein Hinweis auf Fokuswanderung, Atmosphaerik oder inkonsistente Geometrie."
             },
             {
                 "<span class=\"good\">Gut:</span> Werte nahe 1 mit geringer Streuung.",
-                "<span class=\"bad\">Auffaellig:</span> Systematische Drift oder starke Ausreisser deuten auf optische/geometrische Instabilitaet hin."
+                "<span class=\"bad\">Auffällig:</span> Systematische Drift oder starke Ausreißer deuten auf optische/geometrische Instabilität hin."
             }
         )},
     };
@@ -1835,28 +1835,28 @@ std::optional<ReportSection> gen_local_metrics(const json& lm, const json& tg) {
     if (tiles.is_array() && !tiles.empty() && img_w > 0 && img_h > 0) {
         charts.push_back({svg_spatial_tile_heatmap(tiles, mean_fwhm, img_w, img_h, "Mean FWHM per tile", "FWHM (px)", "inferno"),
                           explain_panel("Mittlere FWHM pro Tile",
-                                        {"Diese Heatmap zeigt, in welchen Bildregionen die Sterne im Mittel schaerfer oder unschaerfer sind.",
-                                         "Sie macht raeumlich sichtbar, ob das Bildfeld homogen fokussiert ist oder ob Rand-/Eckenprobleme vorliegen."},
+                                        {"Diese Heatmap zeigt, in welchen Bildregionen die Sterne im Mittel schärfer oder unschärfer sind.",
+                                         "Sie macht räumlich sichtbar, ob das Bildfeld homogen fokussiert ist oder ob Rand-/Eckenprobleme vorliegen."},
                                         {"<span class=\"good\">Gut:</span> Homogene Verteilung ohne starke Hotspots.",
-                                         "<span class=\"bad\">Auffaellig:</span> Lokale Inseln mit hoher FWHM deuten auf Feldkruemmung, Tilt oder ortsabhaengige Bildqualitaetsprobleme hin."})});
+                                         "<span class=\"bad\">Auffällig:</span> Lokale Inseln mit hoher FWHM deuten auf Feldkrümmung, Tilt oder ortsabhängige Bildqualitätsprobleme hin."})});
         charts.push_back({svg_spatial_tile_heatmap(tiles, mean_quality, img_w, img_h, "Mean quality score per tile", "quality", "viridis"),
-                          explain_panel("Mittlerer Qualitaetsscore pro Tile",
-                                        {"Der Score aggregiert lokale Bildqualitaet ueber alle Frames fuer jede Bildregion.",
+                          explain_panel("Mittlerer Qualitätsscore pro Tile",
+                                        {"Der Score aggregiert lokale Bildqualität über alle Frames für jede Bildregion.",
                                          "Die Karte zeigt damit, wo die Pipeline im Feld konsistent gutes oder schwaches Material gesehen hat."},
-                                        {"<span class=\"good\">Gut:</span> Hohe und relativ gleichmaessige Qualitaet ueber das Feld.",
-                                         "<span class=\"bad\">Auffaellig:</span> Deutliche Flecken oder Gradienten zeigen raeumlich ungleichmaessige Datenguete."})});
+                                        {"<span class=\"good\">Gut:</span> Hohe und relativ gleichmäßige Qualität über das Feld.",
+                                         "<span class=\"bad\">Auffällig:</span> Deutliche Flecken oder Gradienten zeigen räumlich ungleichmäßige Datengüte."})});
         charts.push_back({svg_spatial_tile_heatmap(tiles, mean_weight, img_w, img_h, "Mean local weight per tile", "weight", "plasma"),
                           explain_panel("Mittleres lokales Gewicht",
                                         {"Diese Heatmap zeigt, welche Tiles im Mittel stark bzw. schwach in die lokale Rekonstruktion eingehen.",
                                          "Sie ist besonders wichtig, um zu sehen, ob einzelne Bildregionen systematisch untergewichtet werden."},
                                         {"<span class=\"good\">Gut:</span> Plausible Unterschiede ohne extreme Null-/Hotspot-Zonen.",
-                                         "<span class=\"bad\">Auffaellig:</span> Sehr schwache Regionen markieren Feldbereiche mit dauerhaft schlechter lokaler Nutzbarkeit."})});
+                                         "<span class=\"bad\">Auffällig:</span> Sehr schwache Regionen markieren Feldbereiche mit dauerhaft schlechter lokaler Nutzbarkeit."})});
         charts.push_back({svg_spatial_tile_heatmap(tiles, mean_stars, img_w, img_h, "Mean stars per tile", "stars", "YlGnBu"),
                           explain_panel("Mittlere Sternanzahl pro Tile",
                                         {"Hier wird sichtbar, welche Tiles im Mittel viele bzw. wenige detektierbare Sterne enthalten.",
-                                         "Das ist sowohl feldabhaengig als auch qualitaetsabhaengig und erklaert Unterschiede in lokaler Stabilitaet."},
+                                         "Das ist sowohl feldabhängig als auch qualitätsabhängig und erklärt Unterschiede in lokaler Stabilität."},
                                         {"<span class=\"good\">Gut:</span> Sternreiche Regionen liefern robuste lokale Metriken.",
-                                         "<span class=\"neutral\">Neutral:</span> Sternarme Hintergrund- oder Nebelbereiche sind nicht automatisch schlecht, aber statistisch schwacher abgestuetzt."})});
+                                         "<span class=\"neutral\">Neutral:</span> Sternarme Hintergrund- oder Nebelbereiche sind nicht automatisch schlecht, aber statistisch schwächer abgestützt."})});
         if (have_tile_types) {
             charts.push_back({svg_spatial_tile_heatmap(tiles, tile_type_map, img_w, img_h, "Tile type map", "STAR=1", "viridis"),
                               explain_panel("Tile-Typ-Karte",
@@ -1869,11 +1869,11 @@ std::optional<ReportSection> gen_local_metrics(const json& lm, const json& tg) {
     charts.push_back({
         svg_multi_timeseries({{"mean quality", per_frame_quality}, {"mean weight", per_frame_weight}},
                              "Per-frame tile quality and weight", "value"),
-        explain_panel("Frame-Mittel ueber alle Tiles",
-                      {"Die beiden Kurven mitteln lokale Qualitaet und lokales Gewicht pro Frame ueber das gesamte Feld.",
-                       "Damit wird sichtbar, wie sich die lokale Feldqualitaet zeitlich entwickelt, ohne einzelne Tiles isoliert betrachten zu muessen."},
+        explain_panel("Frame-Mittel über alle Tiles",
+                      {"Die beiden Kurven mitteln lokale Qualität und lokales Gewicht pro Frame über das gesamte Feld.",
+                       "Damit wird sichtbar, wie sich die lokale Feldqualität zeitlich entwickelt, ohne einzelne Tiles isoliert betrachten zu müssen."},
                       {"<span class=\"good\">Gut:</span> Beide Kurven bleiben relativ stabil und folgen plausibel dem Sessionverlauf.",
-                       "<span class=\"bad\">Auffaellig:</span> Starke Einbrueche markieren Frames, in denen die lokale Bildqualitaet breitflaechig kollabiert ist."})
+                       "<span class=\"bad\">Auffällig:</span> Starke Einbrüche markieren Frames, in denen die lokale Bildqualität breitflächig kollabiert ist."})
     });
 
     std::vector<std::string> evals = {
@@ -1913,52 +1913,52 @@ std::optional<ReportSection> gen_reconstruction(const json& recon, const json& t
         if (!valid_counts.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, valid_counts, img_w, img_h, "Valid frames per tile", "frames", "YlGn"),
                                                      explain_panel("Gueltige Frames pro Tile",
                                                                    {"Diese Karte zeigt, wie viele Einzelbilder je Tile nach allen relevanten Filtern effektiv in die Rekonstruktion eingegangen sind.",
-                                                                    "Sie macht sichtbar, wo die Pipeline lokal statistisch stark oder duenn abgestuetzt arbeitet."},
-                                                                   {"<span class=\"good\">Gut:</span> Moeglichst homogene und ausreichend hohe Counts.",
-                                                                    "<span class=\"bad\">Auffaellig:</span> Tiles mit sehr niedrigen Counts sind lokal fragiler und koennen Bias oder Artefaktrisiko tragen."})});
+                                                                    "Sie macht sichtbar, wo die Pipeline lokal statistisch stark oder dünn abgestützt arbeitet."},
+                                                                   {"<span class=\"good\">Gut:</span> Möglichst homogene und ausreichend hohe Counts.",
+                                                                    "<span class=\"bad\">Auffällig:</span> Tiles mit sehr niedrigen Counts sind lokal fragiler und können Bias oder Artefaktrisiko tragen."})});
         if (!mean_cc.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, mean_cc, img_w, img_h, "Mean correlation per tile", "CC", "viridis"),
                                                 explain_panel("Mittlere Korrelation pro Tile",
-                                                              {"Zeigt die mittlere Aehnlichkeit der in ein Tile eingehenden Framebeitraege.",
+                                                              {"Zeigt die mittlere Ähnlichkeit der in ein Tile eingehenden Framebeiträge.",
                                                                "Hohe Werte bedeuten lokal konsistente Geometrie und Signalstruktur."},
-                                                              {"<span class=\"good\">Gut:</span> Hohe, gleichmaessige CC-Werte.",
-                                                               "<span class=\"bad\">Auffaellig:</span> Lokale CC-Einbrueche deuten auf problematische Ausrichtung oder wechselhafte lokale Datenqualitaet hin."})});
+                                                              {"<span class=\"good\">Gut:</span> Hohe, gleichmäßige CC-Werte.",
+                                                               "<span class=\"bad\">Auffällig:</span> Lokale CC-Einbrüche deuten auf problematische Ausrichtung oder wechselhafte lokale Datenqualität hin."})});
         if (!post_snr.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, post_snr, img_w, img_h, "Post-reconstruction SNR", "SNR", "plasma"),
                                                  explain_panel("Post-Rekonstruktions-SNR",
                                                                {"Diese Heatmap zeigt einen tileweisen SNR-Proxy nach der lokalen Rekonstruktion.",
                                                                 "Sie beantwortet, in welchen Bildbereichen die Rekonstruktion statistisch stark oder schwach ausfaellt."},
                                                                {"<span class=\"good\">Gut:</span> Hohe Werte in signalreichen Regionen ohne unplausible Flecken.",
-                                                                "<span class=\"bad\">Auffaellig:</span> Sehr niedrige oder stark inhomogene SNR-Muster koennen auf instabile Tile-Beitraege hinweisen."})});
+                                                                "<span class=\"bad\">Auffällig:</span> Sehr niedrige oder stark inhomogene SNR-Muster können auf instabile Tile-Beiträge hinweisen."})});
         if (!post_contrast.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, post_contrast, img_w, img_h, "Post contrast per tile", "contrast", "cividis"),
                                                       explain_panel("Post-Kontrast pro Tile",
-                                                                    {"Der Plot zeigt, wie stark der lokale Kontrast nach der Rekonstruktion ausfaellt.",
-                                                                     "Er hilft dabei, flache Regionen von detailreichen und eventuell ueberbetonten Regionen zu unterscheiden."},
-                                                                    {"<span class=\"good\">Gut:</span> Kontrast folgt dem Motiv und wirkt plausibel raeumlich verteilt.",
-                                                                     "<span class=\"bad\">Auffaellig:</span> Isolierte Kontrastinseln oder harte Unterschiede zwischen Nachbartiles koennen auf Rekonstruktionsartefakte hinweisen."})});
+                                                                    {"Der Plot zeigt, wie stark der lokale Kontrast nach der Rekonstruktion ausfällt.",
+                                                                     "Er hilft dabei, flache Regionen von detailreichen und eventuell überbetonten Regionen zu unterscheiden."},
+                                                                    {"<span class=\"good\">Gut:</span> Kontrast folgt dem Motiv und wirkt plausibel räumlich verteilt.",
+                                                                     "<span class=\"bad\">Auffällig:</span> Isolierte Kontrastinseln oder harte Unterschiede zwischen Nachbartiles können auf Rekonstruktionsartefakte hinweisen."})});
         if (!post_bg.empty()) charts.push_back({svg_spatial_tile_heatmap(tiles, post_bg, img_w, img_h, "Post background per tile", "background", "gray"),
                                                 explain_panel("Post-Hintergrund pro Tile",
                                                               {"Diese Karte zeigt den lokalen Hintergrund nach der Rekonstruktion.",
                                                                "Sie ist wichtig, um Restgradienten oder tileweise Offset-Unterschiede sichtbar zu machen."},
                                                               {"<span class=\"good\">Gut:</span> Ruhiger, homogen wirkender Hintergrund.",
-                                                               "<span class=\"bad\">Auffaellig:</span> Raeumliche Hintergrundspruenge koennen spaeter sichtbare Tile- oder Gradientenartefakte erzeugen."})});
+                                                               "<span class=\"bad\">Auffällig:</span> Räumliche Hintergrundsprünge können später sichtbare Tile- oder Gradientenartefakte erzeugen."})});
     }
     if (!valid_counts.empty()) charts.push_back({svg_histogram(valid_counts, "Valid frame count distribution", "valid frames", "#4ade80"),
-                                                 explain_panel("Verteilung gueltiger Frame-Anzahlen",
-                                                               {"Histogramm der effektiven Beitragshaeufigkeit pro Tile.",
-                                                                "Es zeigt, ob wenige Tiles statistisch aus dem Rahmen fallen oder ob die Rekonstruktion breit abgestuetzt ist."},
+                                                 explain_panel("Verteilung gültiger Frame-Anzahlen",
+                                                               {"Histogramm der effektiven Beitragshäufigkeit pro Tile.",
+                                                                "Es zeigt, ob wenige Tiles statistisch aus dem Rahmen fallen oder ob die Rekonstruktion breit abgestützt ist."},
                                                                {"<span class=\"good\">Gut:</span> Konzentration in einem plausiblen, nicht zu niedrigen Bereich.",
-                                                                "<span class=\"bad\">Auffaellig:</span> Eine starke linke Flanke zeigt viele duenn abgestuetzte Tiles."})});
+                                                                "<span class=\"bad\">Auffällig:</span> Eine starke linke Flanke zeigt viele dünn abgestützte Tiles."})});
     if (!mean_cc.empty()) charts.push_back({svg_histogram(mean_cc, "Mean correlation distribution", "CC", "#60a5fa"),
                                             explain_panel("Verteilung tileweiser Korrelation",
-                                                          {"Zeigt, wie sich die mittlere Tile-Korrelation ueber das gesamte Feld verteilt.",
-                                                           "Damit laesst sich erkennen, ob lokale Ausrichtung/Konsistenz grossflaechig gut oder nur partiell robust ist."},
+                                                          {"Zeigt, wie sich die mittlere Tile-Korrelation über das gesamte Feld verteilt.",
+                                                           "Damit lässt sich erkennen, ob lokale Ausrichtung/Konsistenz großflächig gut oder nur partiell robust ist."},
                                                           {"<span class=\"good\">Gut:</span> Schwerpunkt bei hohen Werten.",
-                                                           "<span class=\"bad\">Auffaellig:</span> Breite Verteilung oder viele kleine Werte deuten auf schwache tileweise Konsistenz hin."})});
+                                                           "<span class=\"bad\">Auffällig:</span> Breite Verteilung oder viele kleine Werte deuten auf schwache tileweise Konsistenz hin."})});
     if (!post_snr.empty()) charts.push_back({svg_histogram(post_snr, "Post-reconstruction SNR distribution", "SNR", "#fbbf24"),
                                              explain_panel("Verteilung des Post-SNR",
-                                                           {"Dieses Histogramm verdichtet den tileweisen SNR-Proxy zu einer globalen Uebersicht.",
-                                                            "Es hilft zu sehen, ob die Rekonstruktion ueberwiegend robust oder nur in Teilflaechen stark ist."},
+                                                           {"Dieses Histogramm verdichtet den tileweisen SNR-Proxy zu einer globalen Übersicht.",
+                                                            "Es hilft zu sehen, ob die Rekonstruktion überwiegend robust oder nur in Teilflächen stark ist."},
                                                            {"<span class=\"good\">Gut:</span> Solider Schwerpunkt ohne langen Niedrig-SNR-Auslauf.",
-                                                            "<span class=\"bad\">Auffaellig:</span> Viele Tiles mit schwachem SNR reduzieren die Stabilitaet des Endergebnisses."})});
+                                                            "<span class=\"bad\">Auffällig:</span> Viele Tiles mit schwachem SNR reduzieren die Stabilität des Endergebnisses."})});
 
     std::vector<std::string> evals = {
         "frames: " + json_string_or(recon, "num_frames", "?") + ", tiles: " + json_string_or(recon, "num_tiles", "?")
@@ -1997,29 +1997,29 @@ std::optional<ReportSection> gen_clustering(const json& cl) {
 
     std::vector<ChartBlock> charts = {
         {svg_bar(labels, sizes, "Cluster sizes", "frames"), explain_panel(
-            "Clustergroessen",
+            "Clustergrößen",
             {
-                "Jeder Balken zeigt, wie viele Frames einem Clustering-Zustand bzw. Qualitaetscluster zugeordnet wurden.",
-                "Der Plot beantwortet, ob die Session aus wenigen dominanten Zustaenden oder vielen kleinen Subgruppen besteht."
+                "Jeder Balken zeigt, wie viele Frames einem Clustering-Zustand bzw. Qualitätscluster zugeordnet wurden.",
+                "Der Plot beantwortet, ob die Session aus wenigen dominanten Zuständen oder vielen kleinen Subgruppen besteht."
             },
             {
-                "<span class=\"good\">Gut:</span> Plausible Clusterverteilung ohne unerklaerliche Mini-Clusterflut.",
-                "<span class=\"neutral\">Neutral:</span> Ungleiche Cluster sind normal, wenn Wetter- oder Qualitaetsphasen unterschiedlich lang waren.",
-                "<span class=\"bad\">Auffaellig:</span> Viele sehr kleine Cluster koennen auf instabile Merkmale oder ueberempfindliches Clustering hinweisen."
+                "<span class=\"good\">Gut:</span> Plausible Clusterverteilung ohne unerklärliche Mini-Clusterflut.",
+                "<span class=\"neutral\">Neutral:</span> Ungleiche Cluster sind normal, wenn Wetter- oder Qualitätsphasen unterschiedlich lang waren.",
+                "<span class=\"bad\">Auffällig:</span> Viele sehr kleine Cluster können auf instabile Merkmale oder überempfindliches Clustering hinweisen."
             }
         )}
     };
     if (!cluster_labels.empty()) {
         charts.push_back({svg_timeseries(cluster_labels, "Cluster label over time", "cluster", "#60a5fa", false),
                           explain_panel(
-                              "Clusterlabel ueber die Zeit",
+                              "Clusterlabel über die Zeit",
                               {
-                                  "Die Zeitreihe zeigt fuer jeden Frame, welchem Cluster er zugeordnet wurde.",
-                                  "So wird sichtbar, ob Cluster echte Session-Phasen repraesentieren oder nur bunt durchmischt auftreten."
+                                  "Die Zeitreihe zeigt für jeden Frame, welchem Cluster er zugeordnet wurde.",
+                                  "So wird sichtbar, ob Cluster echte Session-Phasen repräsentieren oder nur bunt durchmischt auftreten."
                               },
                               {
-                                  "<span class=\"good\">Gut:</span> Laengere zusammenhaengende Bloecke koennen reale Zustandsphasen der Session abbilden.",
-                                  "<span class=\"bad\">Auffaellig:</span> Starkes Hin-und-Her zwischen Clustern in kurzer Folge spricht eher fuer verrauschte Merkmale als fuer stabile Zustaende."
+                                  "<span class=\"good\">Gut:</span> Längere zusammenhängende Blöcke können reale Zustandsphasen der Session abbilden.",
+                                  "<span class=\"bad\">Auffällig:</span> Starkes Hin-und-Her zwischen Clustern in kurzer Folge spricht eher für verrauschte Merkmale als für stabile Zustände."
                               }
                           )});
     }
@@ -2051,15 +2051,15 @@ std::optional<ReportSection> gen_synthetic(const json& syn) {
         for (size_t i = 0; i < quality.size(); ++i) labels.push_back("S" + std::to_string(i));
         charts.push_back({svg_bar(labels, quality, "Synthetic cluster quality", "quality", {}, 640, 300),
                           explain_panel(
-                              "Qualitaet synthetischer Frames",
+                              "Qualität synthetischer Frames",
                               {
-                                  "Jeder Balken entspricht einem synthetischen Frame bzw. dem zugrunde liegenden Cluster-Qualitaetsscore.",
+                                  "Jeder Balken entspricht einem synthetischen Frame bzw. dem zugrunde liegenden Cluster-Qualitätsscore.",
                                   "Der Plot zeigt, welche Cluster spaeter besonders stark oder schwach in die finale Aggregation eingehen."
                               },
                               {
-                                  "<span class=\"good\">Gut:</span> Mehrere solide Cluster mit plausibler Qualitaet.",
+                                  "<span class=\"good\">Gut:</span> Mehrere solide Cluster mit plausibler Qualität.",
                                   "<span class=\"neutral\">Neutral:</span> Einzelne schwache Cluster sind tolerierbar, wenn starke Cluster dominieren.",
-                                  "<span class=\"bad\">Auffaellig:</span> Ueberwiegend schwache oder stark streuende Clusterqualitaet reduziert den Nutzen der Synthetik."
+                                  "<span class=\"bad\">Auffällig:</span> Überwiegend schwache oder stark streuende Clusterqualität reduziert den Nutzen der Synthetik."
                               }
                           )});
     }
@@ -2099,34 +2099,34 @@ std::optional<ReportSection> gen_bge(const json& bge) {
         charts.push_back({svg_bar(labels, mean_shifts, "BGE mean shift", "shift"), explain_panel(
             "BGE Mean Shift",
             {
-                "Dieser Balkenplot zeigt die additive Hintergrundverschiebung, die BGE pro Kanal schaetzen musste.",
+                "Dieser Balkenplot zeigt die additive Hintergrundverschiebung, die BGE pro Kanal schätzen musste.",
                 "Er beschreibt also, wie stark der lokale Hintergrund vor der Korrektur versetzt war."
             },
             {
-                "Groessere Werte bedeuten staerkere Korrektureingriffe.",
-                "<span class=\"bad\">Auffaellig:</span> Sehr ungleiche Kanaele oder extreme Shifts deuten auf deutliche Gradienten- oder Farbhintergrundprobleme hin."
+                "Größere Werte bedeuten stärkere Korrektureingriffe.",
+                "<span class=\"bad\">Auffällig:</span> Sehr ungleiche Kanäle oder extreme Shifts deuten auf deutliche Gradienten- oder Farbhintergrundprobleme hin."
             }
         )});
         charts.push_back({svg_bar(labels, residual_stds, "BGE residual std", "std"), explain_panel(
             "BGE Residual-Spread",
             {
-                "Zeigt die Streuung der Residuen an den BGE-Stuetzpunkten nach dem Fit.",
-                "Damit wird bewertet, wie sauber das Modell den Hintergrund erklaeren konnte."
+                "Zeigt die Streuung der Residuen an den BGE-Stützpunkten nach dem Fit.",
+                "Damit wird bewertet, wie sauber das Modell den Hintergrund erklären konnte."
             },
             {
                 "<span class=\"good\">Gut:</span> Kleine Residual-Std bedeutet ein ruhiger, konsistenter Restfehler.",
-                "<span class=\"bad\">Auffaellig:</span> Hohe Residuen sprechen fuer zu komplexe Strukturen, zu wenig gueltige Samples oder ein unpassendes Modell."
+                "<span class=\"bad\">Auffällig:</span> Hohe Residuen sprechen für zu komplexe Strukturen, zu wenig gültige Samples oder ein unpassendes Modell."
             }
         )});
         charts.push_back({svg_bar(labels, valid_ratios, "Valid tile-sample ratio", "ratio"), explain_panel(
-            "Anteil gueltiger BGE-Samples",
+            "Anteil gültiger BGE-Samples",
             {
-                "Dieser Plot zeigt, welcher Anteil der theoretisch verfuegbaren BGE-Samples pro Kanal tatsaechlich als gueltig in den Fit einging.",
-                "Ein niedriger Anteil bedeutet, dass der Fit auf wenig belastbare Stuetzpunkte zurueckgreifen musste."
+                "Dieser Plot zeigt, welcher Anteil der theoretisch verfügbaren BGE-Samples pro Kanal tatsächlich als gültig in den Fit einging.",
+                "Ein niedriger Anteil bedeutet, dass der Fit auf wenig belastbare Stützpunkte zurückgreifen musste."
             },
             {
-                "<span class=\"good\">Gut:</span> Hoher gueltiger Anteil pro Kanal.",
-                "<span class=\"bad\">Auffaellig:</span> Niedrige Werte reduzieren die Stabilitaet und koennen Restgradienten hinterlassen."
+                "<span class=\"good\">Gut:</span> Hoher gültiger Anteil pro Kanal.",
+                "<span class=\"bad\">Auffällig:</span> Niedrige Werte reduzieren die Stabilität und können Restgradienten hinterlassen."
             }
         )});
     }
@@ -2198,13 +2198,13 @@ std::optional<ReportSection> gen_common_overlap(const json& co) {
         {svg_histogram(ratios, "Tile common-overlap ratio", "common ratio", "#22d3ee"), explain_panel(
             "Common-Overlap-Ratio pro Tile",
             {
-                "Das Histogramm beschreibt, welcher Anteil der Pixel pro Tile in der gemeinsamen, ueber alle nutzbaren Frames stabil ueberlappenden Region liegt.",
-                "Es ist damit ein wichtiger Indikator fuer geometrische Abdeckung und statistische Fairness lokaler Metriken."
+                "Das Histogramm beschreibt, welcher Anteil der Pixel pro Tile in der gemeinsamen, über alle nutzbaren Frames stabil überlappenden Region liegt.",
+                "Es ist damit ein wichtiger Indikator für geometrische Abdeckung und statistische Fairness lokaler Metriken."
             },
             {
                 "<span class=\"good\">Gut:</span> Schwerpunkt nahe hoher Ratios bedeutet stabile gemeinsame Abdeckung.",
-                "<span class=\"neutral\">Neutral:</span> Ein Randabfall ist bei Feldrotation oder ungleichmaessiger Abdeckung typisch.",
-                "<span class=\"bad\">Auffaellig:</span> Viele niedrige Ratios bedeuten, dass grosse Teile des Felds lokal nur schwach gemeinsam beobachtet wurden."
+                "<span class=\"neutral\">Neutral:</span> Ein Randabfall ist bei Feldrotation oder ungleichmäßiger Abdeckung typisch.",
+                "<span class=\"bad\">Auffällig:</span> Viele niedrige Ratios bedeuten, dass große Teile des Felds lokal nur schwach gemeinsam beobachtet wurden."
             }
         )}
     };
@@ -2214,15 +2214,15 @@ std::optional<ReportSection> gen_common_overlap(const json& co) {
         charts.push_back({
             svg_spatial_tile_heatmap(co["tiles"], ratios, img_w, img_h, "Spatial common-overlap ratio", "common ratio", "viridis"),
             explain_panel(
-                "Raeumliche Common-Overlap-Karte",
+                "Räumliche Common-Overlap-Karte",
                 {
                     "Diese Karte zeigt die gemeinsame Abdeckung nicht als Verteilung, sondern direkt an der realen Bildposition jedes Tiles.",
-                    "Damit erkennt man sofort, welche Feldbereiche geometrisch gut abgestuetzt sind und wo die Session lokal ausduennt."
+                    "Damit erkennt man sofort, welche Feldbereiche geometrisch gut abgestützt sind und wo die Session lokal ausdünnt."
                 },
                 {
-                    "<span class=\"good\">Gut:</span> Homogene, breitflaechig hohe Abdeckung.",
-                    "<span class=\"neutral\">Neutral:</span> Abfall an den Raendern ist oft physikalisch normal.",
-                    "<span class=\"bad\">Auffaellig:</span> Inselartige Luecken oder starke Inhomogenitaet koennen spaeter lokale Bias- und Rekonstruktionsprobleme verursachen."
+                    "<span class=\"good\">Gut:</span> Homogene, breitflächig hohe Abdeckung.",
+                    "<span class=\"neutral\">Neutral:</span> Abfall an den Rändern ist oft physikalisch normal.",
+                    "<span class=\"bad\">Auffällig:</span> Inselartige Lücken oder starke Inhomogenität können später lokale Bias- und Rekonstruktionsprobleme verursachen."
                 }
             )
         });
