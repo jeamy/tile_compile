@@ -54,6 +54,7 @@ open_browser() {
 
 run_backend_foreground() {
   local lib_dir="${INSTALL_ROOT}/tile_compile_cpp/lib"
+  local backend_pid=""
 
   if [[ ! -x "${BACKEND_BIN}" ]]; then
     log "Backend-Binary nicht gefunden: ${BACKEND_BIN}"
@@ -76,9 +77,34 @@ run_backend_foreground() {
     export DYLD_LIBRARY_PATH="${lib_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
   fi
 
+  cleanup_backend() {
+    local exit_code="${1:-0}"
+    trap - EXIT INT TERM
+    if [[ -n "${backend_pid}" ]] && kill -0 "${backend_pid}" 2>/dev/null; then
+      log "Beende Crow-Backend."
+      kill "${backend_pid}" 2>/dev/null || true
+      wait "${backend_pid}" 2>/dev/null || true
+    fi
+    return "${exit_code}"
+  }
+
   log "Starte Crow-Backend im Vordergrund auf ${URL} (Ctrl+C zum Beenden)."
   ( sleep 1; open_browser ) &
-  exec "${BACKEND_BIN}"
+  "${BACKEND_BIN}" &
+  backend_pid="$!"
+  log "Crow-Backend laeuft mit PID ${backend_pid}."
+
+  trap 'cleanup_backend $?' EXIT
+  trap 'exit 130' INT TERM
+
+  local exit_code=0
+  if wait "${backend_pid}"; then
+    exit_code=0
+  else
+    exit_code=$?
+  fi
+  cleanup_backend "${exit_code}"
+  return "${exit_code}"
 }
 
 main() {

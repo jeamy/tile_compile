@@ -94,7 +94,25 @@ if ($env:TILE_COMPILE_GUI2_NO_BROWSER -ne "1") {
   } -ArgumentList $BrowserUrl | Out-Null
 }
 
-& $BackendBin
-if ($LASTEXITCODE -ne 0) {
-  throw "Backend-Prozess mit ExitCode $LASTEXITCODE beendet."
+$backendProcess = $null
+$exitCode = 0
+try {
+  $backendProcess = Start-Process -FilePath $BackendBin -WorkingDirectory $InstallRoot -NoNewWindow -PassThru
+  Write-Info "Crow-Backend laeuft mit PID $($backendProcess.Id)."
+  Wait-Process -Id $backendProcess.Id
+  $backendProcess.Refresh()
+  $exitCode = $backendProcess.ExitCode
+} finally {
+  if ($backendProcess) {
+    $backendProcess.Refresh()
+    if (-not $backendProcess.HasExited) {
+      Write-Info "Beende Crow-Backend."
+      Stop-Process -Id $backendProcess.Id
+      Wait-Process -Id $backendProcess.Id -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+if ($exitCode -ne 0) {
+  throw "Backend-Prozess mit ExitCode $exitCode beendet."
 }

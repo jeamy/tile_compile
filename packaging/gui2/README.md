@@ -36,7 +36,7 @@ After that it:
 
 No Python runtime, virtual environment, or pip installation is required in the productive release path.
 
-The backend is intentionally started in the foreground so it can be stopped directly with `Ctrl+C` on Linux/macOS or in the launcher console on Windows.
+The backend is intentionally started under the launcher shell so the terminal window stays attached after startup and can stop the server directly with `Ctrl+C` on Linux/macOS or in the launcher console on Windows.
 
 ## Build Dependencies
 

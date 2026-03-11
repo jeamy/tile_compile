@@ -112,12 +112,15 @@ collect_macos_libs() {
     | tail -n +2 \
     | awk '{print $1}' \
     | while read -r dep; do
+        local name
+        name="$(basename "$dep")"
         case "$dep" in
           /usr/lib/*|/System/*) continue ;;
         esac
+        case "$name" in
+          libc++.1.dylib|libc++abi.1.dylib|libunwind.1.dylib) continue ;;
+        esac
         [[ -f "$dep" ]] || continue
-        local name
-        name="$(basename "$dep")"
         local dst="${PAYLOAD}/tile_compile_cpp/lib/${name}"
         if [[ ! -f "$dst" ]]; then
           cp "$dep" "$dst"
@@ -140,11 +143,14 @@ rewrite_macos_refs() {
     | tail -n +2 \
     | awk '{print $1}' \
     | while read -r dep; do
+        local name
+        name="$(basename "$dep")"
         case "$dep" in
           /usr/lib/*|/System/*) continue ;;
         esac
-        local name
-        name="$(basename "$dep")"
+        case "$name" in
+          libc++.1.dylib|libc++abi.1.dylib|libunwind.1.dylib) continue ;;
+        esac
         local bundled="${PAYLOAD}/tile_compile_cpp/lib/${name}"
         [[ -f "$bundled" ]] || continue
         if [[ "$mode" == "exe" ]]; then
