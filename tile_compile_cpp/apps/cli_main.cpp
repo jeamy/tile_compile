@@ -36,7 +36,7 @@ static std::string get_executable_dir() {
 }
 
 static std::string default_gui_state_path() {
-    return (fs::path(get_executable_dir()) / "tile_compile_gui_state.json").string();
+    return (fs::path(get_executable_dir()) / "tile_compile_state.json").string();
 }
 
 static void print_json(const json& j) {

@@ -538,10 +538,10 @@ Hinweis: Einzelzeilen wie `parameter.registration.*` sind Kernbeispiele; die Vol
 
 1. Phasenliste, Filterkontext, Resume-Flow.
 2. Stats-Panel unter Live Log (`monitor.stats.*`).
-3. Command-Execution-Adapter fuer `generate_report.py`.
+3. Backend-Jobpfad fuer integrierte Report-Erzeugung.
 4. Tests:
-   - Stats bei fehlendem Python -> klarer Fehler.
-   - Stats bei vorhandenem Kontext -> Artefakte erzeugt.
+   - Stats-Job ohne externen Python-Pfad startet stabil.
+   - Stats bei vorhandenem Kontext erzeugen Report-Artefakte.
    - Parameteraenderung + Resume ab Phase nutzt neue Config-Version.
    - Restore auf alte Config-Version und erneutes Resume funktioniert.
 
@@ -562,12 +562,12 @@ Hinweis: Einzelzeilen wie `parameter.registration.*` sind Kernbeispiele; die Vol
 3. Legacy-Parity-Tabelle auf `DONE`.
 4. Finales Dokumentations-Review (`detailkonzept.md` <-> diese Datei).
 
-## 11) Backend-Implementierung (FastAPI)
+## 11) Backend-Implementierung (Crow/C++)
 
 ## 11.1 Zielbild
 
-1. GUI2-Frontend spricht ausschliesslich mit FastAPI (`REST + WebSocket`).
-2. FastAPI kapselt alle Aufrufe von `tile_compile_cli` und `tile_compile_runner`.
+1. GUI2-Frontend spricht ausschliesslich mit dem Crow/C++-Backend (`REST + WebSocket`).
+2. Das Crow/C++-Backend kapselt alle Aufrufe von `tile_compile_cli` und `tile_compile_runner`.
 3. Keine direkte Prozesssteuerung aus dem Browser.
 4. Jeder mutierende API-Call schreibt ein `ui_event` (Audit + Replay).
 
@@ -586,7 +586,7 @@ Hinweis: Einzelzeilen wie `parameter.registration.*` sind Kernbeispiele; die Vol
 6. `PCCService`
    - Siril-Status, Missing-Chunk Download/cancel, Online-Check, run/save_corrected.
 7. `StatsService`
-   - `generate_report.py` starten, Status und Output-Ordner bereitstellen.
+   - integrierte Report-Erzeugung starten, Status und Output-Ordner bereitstellen.
 8. `StreamService`
    - WebSocket fuer Live-Log, Phasenfortschritt, Queue-Status, Job-Status.
 
@@ -682,7 +682,7 @@ Hinweis: Einzelzeilen wie `parameter.registration.*` sind Kernbeispiele; die Vol
    - run/save
 7. Persistenz-/Audit-Tests fuer `ui_event` Replay (`GET /api/app/ui-events`).
 
-## 11.7 Vollstaendiger API-Vertrag (FastAPI v1)
+## 11.7 Vollstaendiger API-Vertrag (Crow Backend v1)
 
 Basis:
 
@@ -870,29 +870,26 @@ FE-Regel:
 6. `422` fuer Schema-/Feldvalidierung.
 7. `500` fuer unerwartete Backendfehler.
 
-## 12) FastAPI vs. Drogon (Einschaetzung)
+## 12) Historische Architekturentscheidung
 
-## 12.1 Kurzfazit
+## 12.1 Ausgangslage
 
-1. Fuer dieses Projekt ist **FastAPI klar die pragmatischere Wahl**.
-2. Drogon ist technisch stark, aber hier mit hoeherem Integrationsaufwand.
+1. Diese Bewertung beschreibt einen fruehen Zwischenstand vor der produktiven Crow-Migration.
+2. Der aktuelle produktive Stand ist `web_backend_cpp/` mit Crow/C++.
 
-## 12.2 Warum FastAPI hier besser passt
+## 12.2 Historische Abwaegung
 
-1. Bestehende Stats-/Tool-Skripte sind bereits Python-basiert (`generate_report.py`, Diagnose-Tools).
-2. API- und DTO-Entwicklung mit Pydantic ist schneller und wartbarer.
-3. WebSocket/SSE + JSON-Serialisierung sind mit FastAPI sofort produktiv nutzbar.
-4. Team-/Operations-Aufwand fuer Release und Debugging ist geringer.
-5. C++ bleibt auf seine Staerke fokussiert (Runner/CLI/Algorithmen), statt zweiten C++-Webstack einzufuehren.
+1. Damals waren Stats-/Toolpfade noch teilweise Python-basiert.
+2. Heute sind produktive Runtime, Streaming und Report-Erzeugung in den Crow/C++-Pfad migriert.
+3. Diese Passage dient nur noch als Historie der fruehen Bewertungsphase.
 
-## 12.3 Wann Drogon sinnvoll waere
+## 12.3 Ergebnis
 
-1. Wenn ein reiner C++-Stack ohne Python-Abhaengigkeiten strategisch zwingend ist.
-2. Wenn sehr hohe API-Last (nicht Runner-Last) die zentrale Bottleneck ist.
-3. Wenn ein dediziertes C++-Backend-Team dauerhaft verfuegbar ist.
+1. Der produktive GUI2-Backendpfad ist heute Crow/C++.
+2. Runner/CLI bleiben die stabilen Prozessadapter.
+3. Das alte Zwischenzielbild ist durch die implementierte Crow-Migration ueberholt.
 
 ## 12.4 Empfehlung
 
-1. GUI2 Backend mit FastAPI umsetzen.
-2. Runner/CLI als stabile Prozessadapter beibehalten.
-3. Entscheidung in einem spaeteren Architektur-Review nur dann neu bewerten, wenn echte Performance-/Betriebsdaten FastAPI als Engpass zeigen.
+1. Fuer die aktuelle Produktivdokumentation gilt `web_backend_cpp/` als massgeblicher Backendpfad.
+2. Historische Architekturabwaegungen sollten nur noch als Migrationskontext gelesen werden.

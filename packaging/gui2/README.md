@@ -1,6 +1,6 @@
 # tile_compile GUI2 Release Bundle
 
-This directory contains the launcher scripts and packaging helpers for the GUI2 release bundle. GUI2 consists of the web frontend, the FastAPI backend, and the native C++ runner/CLI.
+This directory contains the launcher scripts and packaging helpers for the GUI2 release bundle. GUI2 consists of the web frontend, the Crow/C++ backend, and the native C++ runner/CLI.
 
 ## Bundle Layout
 
@@ -10,11 +10,11 @@ The generated release archive contains:
 - `start_gui2.command` for macOS
 - `start_gui2.bat` and `start_gui2.ps1` for Windows
 - `payload/` with:
-  - `web_backend/`
+  - `web_backend_cpp/`
   - `web_frontend/`
   - `tile_compile_cpp/build/` with `tile_compile_runner` and `tile_compile_cli`
+  - `web_backend_cpp/build/` with `tile_compile_web_backend`
   - `tile_compile_cpp/lib/` with bundled native runtime libraries
-  - `tile_compile_cpp/scripts/`
   - `tile_compile_cpp/examples/`
   - `tile_compile_cpp/tile_compile.yaml`
   - `tile_compile_cpp/tile_compile.schema.yaml`
@@ -29,21 +29,18 @@ The launcher does not run directly from the extracted archive forever. On start 
 
 After that it:
 
-1. checks whether Python 3.11+ is available
-2. asks whether Python should be installed if it is missing
-3. aborts with a clear message if Python is not installed
-4. creates `~/.venv` inside the user install directory
-5. always installs `web_backend/requirements-backend.txt`
-6. starts the FastAPI backend in the foreground
-7. opens the browser on `/ui/`
+1. copies the bundled payload into the user install directory
+2. reuses the bundled native libraries
+3. starts the Crow backend in the foreground
+4. opens the browser on `/ui/`
 
-Without Python the app does not work, because GUI2 depends on the FastAPI backend and the report generation path.
+No Python runtime, virtual environment, or pip installation is required in the productive release path.
 
 The backend is intentionally started in the foreground so it can be stopped directly with `Ctrl+C` on Linux/macOS or in the launcher console on Windows.
 
 ## Build Dependencies
 
-GUI2 itself no longer depends on Qt in the release path. The current native C++ build requirements for the GUI2 release are:
+The current native C++ build requirements for the GUI2 release are:
 
 - Linux: `libcurl4-openssl-dev`
 - macOS: `curl`
@@ -51,10 +48,47 @@ GUI2 itself no longer depends on Qt in the release path. The current native C++ 
 
 Other core dependencies still include Eigen, OpenCV, cfitsio, yaml-cpp, nlohmann-json and OpenSSL.
 
+macOS notes:
+
+- `packaging/gui2/build_local_macos.sh` requires `xcode-select --install`, `cmake`, `ninja`, `pkg-config`, and `python3`.
+- On macOS 12, Homebrew's default `opencv` formula is not supported. The Homebrew-based packaging path therefore effectively requires macOS 13+ unless OpenCV is provided from another working installation.
+
 ## CI Workflow
 
 The GitHub Actions workflow is:
 
 - `.github/workflows/release-tile-compile-gui2.yml`
 
-It builds the Qt-free runner binaries, bundles GUI2 files, copies native runtime libraries, runs a smoke test, and uploads release ZIP artifacts.
+It builds the runner binaries and the Crow backend, bundles GUI2 files, copies native runtime libraries, runs a smoke test, and uploads release ZIP artifacts.
+
+## Local Packaging
+
+To reproduce the release-style packaging locally, use the scripts in this directory:
+
+- Linux: `packaging/gui2/build_local_linux.sh`
+- macOS: `packaging/gui2/build_local_macos.sh`
+- Windows (MSYS2 MinGW64): `packaging/gui2/build_local_windows_msys2.sh`
+
+They mirror the release workflow closely:
+
+1. build `tile_compile_cpp` (`tile_compile_runner`, `tile_compile_cli`)
+2. build `tile_compile_web_backend`
+3. assemble the GUI2 bundle with `payload/`
+4. collect native runtime libraries
+5. run a smoke test against `/api/app/state`
+6. create the ZIP artifact in `artifacts/`
+
+Examples:
+
+```bash
+packaging/gui2/build_local_linux.sh --tag dev
+packaging/gui2/build_local_macos.sh --tag dev
+packaging/gui2/build_local_windows_msys2.sh --tag dev
+```
+
+Common options:
+
+- `--skip-build` to reuse existing build directories
+- `--skip-smoke` to skip the launch test
+- `--build-type <type>` to switch CMake configuration
+- `--port <port>` to change the smoke-test port

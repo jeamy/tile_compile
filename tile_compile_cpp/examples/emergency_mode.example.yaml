@@ -1,0 +1,269 @@
+
+
+
+
+
+
+
+# v3.2 EMERGENCY-MODE Referenzkonfiguration (vollstaendig, alle Optionen)
+# Zielzustand: N_usable < 50 und runtime_limits.allow_emergency_mode = true
+# Alt/Az-optimiert: robuste Registrierung bei Feldrotation und Wolkenluecken.
+
+run_dir: ./run_emergency_mode
+log_level: info # trace|debug|info|warn|error
+
+pipeline:
+  mode: production # production|test
+  abort_on_fail: false # true => Lauf bei kritischem Phasenfehler sofort beenden
+
+output:
+  registered_dir: registered # Ausgabeordner fuer registrierte Frames
+  write_registered_frames: true # registrierte Einzelbilder speichern
+  crop_to_nonzero_bbox: true # finalen Stack auf Bounding Box nicht-null Pixel zuschneiden
+
+data:
+  image_width: 3840 # erwartete Bildbreite (px)
+  image_height: 2160 # erwartete Bildhoehe (px)
+  color_mode: OSC # OSC|MONO|RGB
+  bayer_pattern: GBRG # RGGB|BGGR|GRBG|GBRG
+  linear_required: true # nur lineare Daten verarbeiten
+
+input:
+  pattern: ./data/*.fits # Input-Glob fuer Rohframes
+  sort: numeric # numeric|lexicographic
+  max_frames: 0 # 0 = alle; >0 limitiert Inputanzahl
+
+linearity:
+  enabled: true # Linearity-Check aktiv
+  max_frames: 8 # max. Frames fuer den Check
+  min_overall_linearity: 0.9 # Mindestscore fuer linearity gate
+  strictness: strict # strict|moderate|permissive
+
+calibration:
+  use_bias: false # Bias-Korrektur aktivieren
+  use_dark: false # Dark-Korrektur aktivieren
+  use_flat: false # Flat-Korrektur aktivieren
+  bias_use_master: false # vorhandenes Master-Bias direkt nutzen
+  dark_use_master: false # vorhandenes Master-Dark direkt nutzen
+  flat_use_master: false # vorhandenes Master-Flat direkt nutzen
+  dark_auto_select: true # passendes Dark automatisch waehlen
+  dark_match_exposure_tolerance_percent: 5.0 # Toleranz bei Dark-Auswahl
+  dark_match_use_temp: false # Temperaturmatching fuer Darks
+  dark_match_temp_tolerance_c: 2.0 # Temperaturtoleranz in Grad C
+  bias_dir: "" # Verzeichnis mit Bias-Frames
+  darks_dir: "" # Verzeichnis mit Dark-Frames
+  flats_dir: "" # Verzeichnis mit Flat-Frames
+  bias_master: "" # Pfad zu Master-Bias
+  dark_master: "" # Pfad zu Master-Dark
+  flat_master: "" # Pfad zu Master-Flat
+  pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz" # Dateimaske fuer Kalibrierdaten (inkl. komprimierte .fz)
+
+assumptions:
+  pipeline_profile: practical # practical|strict
+  frames_min: 50 # normative Untergrenze; darunter nur Emergency statt hartem Abort
+  frames_optimal: 800 # Zielbereich fuer optimale Robustheit
+  frames_reduced_threshold: 200 # bei Emergency stets unterschritten
+  exposure_time_tolerance_percent: 5.0 # Toleranz fuer Input-Konsistenz
+  reduced_mode_skip_clustering: true # Emergency-Modus: Clustering/Synthetic optional skip
+  reduced_mode_cluster_range: [5, 10] # Cluster-Range in Reduced/Emergency-Betrieb
+
+normalization:
+  enabled: true # fuer Methodik v3.x verpflichtend
+  mode: background # background|median
+  per_channel: true # bei OSC pro Bayer-Kanal normalisieren
+
+registration:
+  engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc|robust_phase_ecc
+  enable_star_pair_fallback: true
+  allow_rotation: true # PFLICHT fuer Alt/Az: Feldrotation ueber Session
+  star_topk: 150 # mehr Sterne fuer robustes Matching bei Rotation/Wolken
+  star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching
+  star_inlier_tol_px: 4.0 # toleranter fuer Rotationsresiduen
+  star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
+  reject_outliers: true # globale Registrierungs-Ausreisser verwerfen
+  reject_cc_min_abs: 0.30 # bei Randrotation/Wolken etwas toleranter
+  reject_cc_mad_multiplier: 4.0 # robuster CC-Schwellenfaktor (median - k*MAD)
+  reject_shift_px_min: 100.0 # Alt/Az: grosse Shifts durch Feldrotation sind normal
+  reject_shift_median_multiplier: 5.0 # weite Shift-Verteilung zulassen
+  reject_scale_min: 0.92 # minimale erlaubte Similarity-Skalierung
+  reject_scale_max: 1.08 # maximale erlaubte Similarity-Skalierung
+  # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
+  # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
+
+dithering:
+  enabled: true # true bei aktivem Dithering waehrend Aufnahme
+  min_shift_px: 0.7 # Schwellwert, ab dem ein Shift als Dither-Schritt gezaehlt wird
+
+tile_denoise:
+  soft_threshold:
+    enabled: true # Highpass + Soft-Threshold pro Tile
+    blur_kernel: 31 # Hintergrundschaetzer-Kernel (ungerade)
+    alpha: 1.8 # Schwellwertfaktor (tau = alpha*sigma)
+    skip_star_tiles: true # sternreiche Tiles vom Denoise ausnehmen
+  wiener:
+    enabled: true # Wiener-Denoise im Frequenzraum
+    snr_threshold: 5.0 # oberhalb keine Wiener-Filterung
+    q_min: -0.5 # untere Strukturqualitaetsgrenze
+    q_max: 1.0 # obere Strukturqualitaetsgrenze
+    q_step: 0.1 # Schrittweite in q-Optimierung
+    min_snr: 2.0 # minimaler SNR fuer stabile Schaetzung
+    max_iterations: 10 # Iterationslimit der Wiener-Optimierung
+
+chroma_denoise:
+  enabled: true # Farbrausch-Reduktion nur fuer OSC/RGB-Workflow
+  color_space: ycbcr_linear # ycbcr_linear|opponent_linear
+  apply_stage: post_stack_linear # pre_stack_tiles|post_stack_linear
+  protect_luma: true # schuetzt Stern-/Strukturkanten vor Farbausbluten
+  luma_guard_strength: 0.75 # 0..1, hoeher = staerkerer Strukturschutz
+  star_protection:
+    enabled: true # helle Sterne und deren Umfeld weniger filtern
+    threshold_sigma: 2.2 # Schwellwert fuer Sternmaske relativ zur lokalen Helligkeit
+    dilate_px: 2 # Schutzmaske um Sterne erweitern (Pixel)
+  structure_protection:
+    enabled: true # starke Gradienten (Nebelkanten/Details) schuetzen
+    gradient_percentile: 85 # Percentil fuer Strukturmaske
+  chroma_wavelet:
+    enabled: true # multi-scale Chroma-Shrinkage
+    levels: 3 # Anzahl Skalenebenen
+    threshold_scale: 1.5 # aggressiver fuer starkes Farbrauschen
+    soft_k: 1.0 # Formfaktor der Soft-Schrumpfung
+  chroma_bilateral:
+    enabled: true # erhaelt Kanten bei zusaetzlicher Chroma-Glaettung
+    sigma_spatial: 1.2 # Raeumliche Reichweite
+    sigma_range: 0.05 # staerkere Chroma-Glattung
+  blend:
+    mode: chroma_only # aktuell nur chroma_only unterstuetzt
+    amount: 0.95 # aggressiver Preset fuer Emergency-Mode
+  # Preset-Hinweis:
+  # conservative: amount 0.65, threshold_scale 1.0, sigma_range 0.025
+  # balanced:     amount 0.85, threshold_scale 1.25, sigma_range 0.035
+  # aggressive:   amount 0.95, threshold_scale 1.5, sigma_range 0.05
+
+global_metrics:
+  adaptive_weights: true # adaptive Gewichtung nach Metrikvarianz
+  weight_exponent_scale: 1.8 # k in G_f = exp(k*Q_f)
+  weights:
+    background: 0.4 # Gewicht fuer Hintergrundmetrik
+    noise: 0.3 # Gewicht fuer Rauschmetrik
+    gradient: 0.30 # Gewicht fuer Struktur/Gradientenenergie
+  clamp: [-3.0, 3.0] # Clipping-Grenzen fuer z-Score-Metriken
+
+tile:
+  size_factor: 32 # Tilegroesse als Teiler/Basisfaktor
+  min_size: 64 # minimale Tilekante in Pixel
+  max_divisor: 6 # Begrenzung der Tileunterteilung
+  overlap_fraction: 0.25 # OLA-Ueberlappungsanteil
+  star_min_count: 8 # Schwelle fuer star tile Klassifikation
+
+local_metrics:
+  clamp: [-3.0, 3.0] # Clipping fuer lokale z-Score-Metriken
+  star_mode:
+    weights:
+      fwhm: 0.6 # Gewicht Stern-FWHM
+      roundness: 0.2 # Gewicht Sternrundheit
+      contrast: 0.2 # Gewicht Sternkontrast
+  structure_mode:
+    metric_weight: 0.7 # Gewicht Strukturmetrik
+    background_weight: 0.3 # Gewicht lokaler Hintergrundterm
+
+synthetic:
+  weighting: tile_weighted # global|tile_weighted
+  frames_min: 5 # Mindestframes pro Cluster fuer Synthetic
+  frames_max: 30 # Obergrenze erzeugter Synthetic-Frames
+  clustering:
+    mode: kmeans # kmeans|quantile
+    cluster_count_range: [5, 30] # [k_min, k_max]
+
+
+debayer: true # OSC-Mosaik am Ende in RGB debayern
+
+astrometry:
+  enabled: true # WCS-Solve aktiv
+  astap_bin: "" # leer => Systempfad
+  astap_data_dir: /media/data/Astro/astap # ASTAP-Datenverzeichnis
+  search_radius: 183 # Suchradius in Grad
+
+
+bge:
+  enabled: false # Background Gradient Extraction (v3.3 §6.3): entfernt Lichtverschmutzung/Gradienten vor PCC
+  autotune:
+    enabled: false # optionales deterministisches BGE-Autotuning (v3.3.6 §6.3.7)
+    strategy: conservative # conservative | extended
+    max_evals: 24 # harte Obergrenze getesteter Kandidaten
+    holdout_fraction: 0.25 # CV-Anteil, gueltig in [0.05, 0.50]
+    alpha_flatness: 0.25 # Gewicht E_flat im Ziel J
+    beta_roughness: 0.10 # Gewicht E_rough im Ziel J
+
+  sample_quantile: 0.20 # Quantil fuer Tile-Background (0.20 = konservativ, 0.50 = median)
+  structure_thresh_percentile: 0.90 # High-Structure-Tiles ausschliessen
+  min_tiles_per_cell: 3 # Mindestanzahl Tiles pro Grid-Cell
+  min_valid_sample_fraction_for_apply: 0.30 # Mindestanteil valider robuster Tile-Samples je Kanal
+  min_valid_samples_for_apply: 96 # absolute Untergrenze robuster Tile-Samples je Kanal
+  mask:
+    star_dilate_px: 4
+    sat_dilate_px: 4
+  grid:
+    N_g: 32
+    G_min_px: 64
+    G_max_fraction: 0.25
+    insufficient_cell_strategy: discard # discard | nearest | radius_expand
+  fit:
+    method: rbf # poly | spline | bicubic | rbf | modeled_mask_mesh
+    robust_loss: huber # huber | tukey
+    huber_delta: 1.5
+    irls_max_iterations: 10
+    irls_tolerance: 1e-4
+    polynomial_order: 2
+    rbf_phi: multiquadric # thinplate | multiquadric | gaussian
+    rbf_mu_factor: 1.5 # breitere RBF-Basis, vermeidet Wolkenbildung
+    rbf_lambda: 1e-2 # staerkere Regularisierung, verhindert RBF-Ueberschwinger
+    rbf_epsilon: 1.0 # sinnvoller Startwert fuer Multiquadric
+
+pcc:
+  enabled: true # Photometrische Farbkalibrierung aktiv
+  source: siril # auto|siril|vizier_gaia|vizier_apass
+  mag_limit: 14 # maximal beruecksichtigte Sternhelligkeit
+  mag_bright_limit: 6 # helle Sterne fuer robustes Fit begrenzen
+  aperture_radius_px: 8 # Photometrie-Apertur
+  annulus_inner_px: 10 # Hintergrundring innen
+  annulus_outer_px: 16 # Hintergrundring aussen
+  min_stars: 3 # Mindestanzahl Referenzsterne
+  sigma_clip: 2.5 # Sigma-Clipping fuer Regressionsfit
+  background_model: plane # median | plane
+  radii_mode: auto_fwhm # fixed | auto_fwhm
+  aperture_fwhm_mult: 1.8
+  annulus_inner_fwhm_mult: 3.0
+  annulus_outer_fwhm_mult: 5.0
+  min_aperture_px: 4.0
+  siril_catalog_dir: "" # leer => Standardkatalogpfad
+
+stacking:
+  method: rej # rej|average
+  sigma_clip:
+    sigma_low: 1.8 # toleranter bei modellierten Warp-Residuen
+    sigma_high: 1.8 # symmetrisch
+    max_iters: 3 # maximale Clip-Iterationen
+    min_fraction: 0.4 # bei Wolkenphasen darf mehr geclippt werden
+  cluster_quality_weighting:
+    enabled: false # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
+    kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k (typisch Q_k in [-3,+3])
+    cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
+    cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
+  output_stretch: false # optionales Display-Stretch (Post)
+  cosmetic_correction: false # optionale Kosmetik (Post)
+  cosmetic_correction_sigma: 4.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, empfohlen fuer OSC: 10.0)
+  per_frame_cosmetic_correction: false # Hotpixel-Korrektur pro Frame vor dem Stack (fixe Sensordefekte)
+  per_frame_cosmetic_correction_sigma: 2.5 # Sigma-Schwelle fuer per_frame_cosmetic_correction (Default: 5.0)
+
+validation:
+  min_fwhm_improvement_percent: 5.0 # Mindestverbesserung Sternschaerfe
+  max_background_rms_increase_percent: 0.0 # Hintergrund darf nicht schlechter werden
+  min_tile_weight_variance: 0.1 # Mindeststreuung lokaler Gewichte
+  require_no_tile_pattern: true # Grid-Artefakte muessen ausbleiben
+
+runtime_limits:
+  parallel_workers: 4 # Anzahl paralleler Worker fuer Tile-Phasen (CPU/memory capped)
+  memory_budget: 2048 # MiB Budget fuer OSC-Worker-Cap in Tile-Rekonstruktion
+  tile_analysis_max_factor_vs_stack: 3.0 # Guardrail Laufzeit Tile-Analyse
+  hard_abort_hours: 6.0 # harte Laufzeitgrenze
+  allow_emergency_mode: true # Emergency-Profil erlaubt Lauf mit N<50

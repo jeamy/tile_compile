@@ -3,6 +3,7 @@ let currentLocale = "de";
 
 const CONTROL_TEXT_KEYS = {
   "dashboard.quick.start_wizard": "ui.button.start_wizard",
+  "dashboard.validate": "ui.button.validate",
   "history.refresh": "ui.button.refresh",
   "history.set_current": "ui.button.set_current",
   "monitor.start": "ui.button.run_start",
@@ -50,6 +51,7 @@ const CONTROL_TITLE_KEYS = {
   "nav.pcc": "ui.tooltip.shell.nav_pcc",
   "nav.live_log": "ui.tooltip.shell.nav_live_log",
   "dashboard.quick.start_wizard": "ui.tooltip.dashboard.start_wizard",
+  "dashboard.validate": "ui.tooltip.parameter.validate",
   "history.refresh": "ui.tooltip.history.refresh",
   "history.set_current": "ui.tooltip.history.set_current",
   "monitor.stop": "ui.tooltip.monitor.stop",

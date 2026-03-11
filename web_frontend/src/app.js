@@ -8,10 +8,13 @@ const CONFIG_VALIDATION_STATE_KEY = "gui2.configValidationState";
 const HISTORY_CURRENT_RUN_KEY = "gui2.historyCurrentRunId";
 const LOCALE_KEY = "gui2.locale";
 const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
+const PRESETS_DIR_KEY = "gui2.presetsDir";
 
 const uiState = {
   currentRunId: localStorage.getItem("gui2.currentRunId") || "",
   currentRunDir: "",
+  currentRunColorMode: "",
+  parameterBaseYaml: "",
   missingHistoryRunIds: new Set(),
   defaultConfigPath: "",
   selectedHistoryRunId: "",
@@ -34,8 +37,23 @@ const uiState = {
   lastPccResult: null,
   locale: localStorage.getItem(LOCALE_KEY) || "de",
   projectRunsDir: "",
+  projectPresetsDir: "",
   monitorStatsStatus: null,
+  dashboardGuardrailStatus: "",
+  runReadyStatus: "check",
+  runProcessStatus: "",
 };
+
+const DASHBOARD_PIPELINE_GROUPS = [
+  { key: "SCAN", phases: ["SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS"] },
+  { key: "REG", phases: ["REGISTRATION", "PREWARP", "COMMON_OVERLAP"] },
+  { key: "TILES", phases: ["TILE_GRID", "LOCAL_METRICS", "TILE_RECONSTRUCTION", "STATE_CLUSTERING", "SYNTHETIC_FRAMES"] },
+  { key: "STACK", phases: ["STACKING", "DEBAYER"] },
+  { key: "ASTROM", phases: ["ASTROMETRY"] },
+  { key: "BGE", phases: ["BGE"] },
+  { key: "PCC", phases: ["PCC"] },
+  { key: "DONE", phases: [] },
+];
 
 const PARAM_CONTROL_PATHS = {
   "parameter.registration.engine": "registration.engine",
@@ -54,11 +72,11 @@ const PARAM_CONTROL_PATHS = {
   "input_scan.color_mode_confirm": "data.color_mode",
   "input_scan.bayer_pattern": "data.bayer_pattern",
   "input_scan.calibration.use_bias": "calibration.use_bias",
-  "input_scan.calibration.bias_dir": "calibration.bias_dir",
+  "input_scan.calibration.bias_use_master": "calibration.bias_use_master",
   "input_scan.calibration.use_dark": "calibration.use_dark",
-  "input_scan.calibration.darks_dir": "calibration.darks_dir",
+  "input_scan.calibration.dark_use_master": "calibration.dark_use_master",
   "input_scan.calibration.use_flat": "calibration.use_flat",
-  "input_scan.calibration.flats_dir": "calibration.flats_dir",
+  "input_scan.calibration.flat_use_master": "calibration.flat_use_master",
 };
 
 const PARAM_ID_PATHS = {
@@ -89,6 +107,42 @@ const ASSUMPTION_ID_PATHS = {
   "asmpt-cluster-range": "assumptions.reduced_mode_cluster_range",
   "asmpt-exp-tol": "assumptions.exposure_time_tolerance_percent",
 };
+
+const SCAN_CALIBRATION_BINDINGS = [
+  {
+    sourceId: "cal-bias-source",
+    inputId: "cal-bias-dir",
+    useMasterPath: "calibration.bias_use_master",
+    dirPath: "calibration.bias_dir",
+    masterPath: "calibration.bias_master",
+    dirPlaceholder: "Bias-Ordner waehlen",
+    masterPlaceholder: "Master-Bias-Datei waehlen",
+    dirTitle: "Bias-Ordner setzen.",
+    masterTitle: "Master-Bias-Datei setzen.",
+  },
+  {
+    sourceId: "cal-dark-source",
+    inputId: "cal-dark-dir",
+    useMasterPath: "calibration.dark_use_master",
+    dirPath: "calibration.darks_dir",
+    masterPath: "calibration.dark_master",
+    dirPlaceholder: "Dark-Ordner waehlen",
+    masterPlaceholder: "Master-Dark-Datei waehlen",
+    dirTitle: "Dark-Ordner setzen.",
+    masterTitle: "Master-Dark-Datei setzen.",
+  },
+  {
+    sourceId: "cal-flat-source",
+    inputId: "cal-flat-dir",
+    useMasterPath: "calibration.flat_use_master",
+    dirPath: "calibration.flats_dir",
+    masterPath: "calibration.flat_master",
+    dirPlaceholder: "Flat-Ordner waehlen",
+    masterPlaceholder: "Master-Flat-Datei waehlen",
+    dirTitle: "Flat-Ordner setzen.",
+    masterTitle: "Master-Flat-Datei setzen.",
+  },
+];
 
 const SCENARIO_DELTAS = {
   altaz: [
@@ -209,37 +263,39 @@ function scanErrorFromResult(result) {
 }
 
 function setRunReady(status, runStatus = "") {
+  uiState.runReadyStatus = String(status || "check");
+  uiState.runProcessStatus = String(runStatus || "");
   const chip = $("status-run-ready");
-  if (!chip) return;
+  const guardrailChip = $("status-guardrail");
+  if (!chip && !guardrailChip) return;
   const runNormalized = String(runStatus || "").toLowerCase();
+  const applyChip = (node, variant, text) => {
+    if (!node) return;
+    node.textContent = text;
+    node.className = `shell-status-chip shell-status-chip-${variant}`;
+  };
+  const guardrailNormalized = String(status || "check").toLowerCase();
+  const guardrailText = guardrailNormalized === "ok"
+    ? t("ui.status.guardrail_ok", "Guardrails: OK")
+    : guardrailNormalized === "error"
+      ? t("ui.status.guardrail_error", "Guardrails: blocked")
+      : t("ui.status.guardrail_check", "Guardrails: check");
+  applyChip(
+    guardrailChip,
+    guardrailNormalized === "ok" ? "ok" : guardrailNormalized === "error" ? "error" : "check",
+    guardrailText,
+  );
   if (["running", "queued", "starting"].includes(runNormalized)) {
-    chip.textContent = t("ui.status.run_ready_running", "Run Running");
-    chip.style.background = "#dbeafe";
-    chip.style.borderColor = "#bfdbfe";
-    chip.style.color = "#1d4ed8";
+    applyChip(chip, "running", t("ui.status.run_ready_running", "Status: run running"));
     return;
   }
   const normalized = String(status || "check").toLowerCase();
-  chip.textContent = normalized === "ok"
-    ? t("ui.status.run_ready_ok", "Run Ready")
+  const statusText = normalized === "ok"
+    ? t("ui.status.run_ready_ok", "Status: ready to run")
     : normalized === "error"
-      ? t("ui.status.run_ready_blocked", "Run Blocked")
-      : t("ui.status.run_ready_check", "Run Check");
-  if (normalized === "ok") {
-    chip.style.background = "#dff7e8";
-    chip.style.borderColor = "#b7e8cc";
-    chip.style.color = "#166534";
-    return;
-  }
-  if (normalized === "error") {
-    chip.style.background = "#fee2e2";
-    chip.style.borderColor = "#fecaca";
-    chip.style.color = "#991b1b";
-    return;
-  }
-  chip.style.background = "#fef3c7";
-  chip.style.borderColor = "#fde68a";
-  chip.style.color = "#92400e";
+      ? t("ui.status.run_ready_blocked", "Status: blocked")
+      : t("ui.status.run_ready_check", "Status: check");
+  applyChip(chip, normalized === "ok" ? "ok" : normalized === "error" ? "error" : "check", statusText);
 }
 
 async function waitForJob(jobId, { timeoutMs = 240000, onTick, allowMissing = false } = {}) {
@@ -275,9 +331,264 @@ function findLogBoxBySectionTitle(titlePrefix) {
 
 function appendLine(el, line) {
   if (!el) return;
-  const old = el.textContent ? `${el.textContent}\n` : "";
-  const merged = `${old}${line}`.split("\n");
-  el.textContent = merged.slice(-300).join("\n");
+  const text = String(line ?? "").trim();
+  if (!text) return;
+  const lines = String(el.textContent || "")
+    .split("\n")
+    .filter(Boolean);
+  if (lines[lines.length - 1] === text) return;
+  lines.push(text);
+  el.textContent = lines.slice(-300).join("\n");
+}
+
+function compactLogMessage(raw) {
+  return String(raw ?? "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function maybeParseJsonLine(raw) {
+  if (typeof raw !== "string") return raw;
+  const trimmed = raw.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) return raw;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return raw;
+  }
+}
+
+function humanizeLogToken(raw) {
+  return String(raw || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function shortLogTimestamp(isoRaw) {
+  const iso = String(isoRaw || "").trim();
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function formatLogPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "";
+  const pct = numeric <= 1 ? numeric * 100 : numeric;
+  return `${pct.toFixed(pct >= 10 ? 0 : 1)}%`;
+}
+
+function formatLogBytes(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let amount = numeric;
+  let unitIndex = 0;
+  while (amount >= 1024 && unitIndex < units.length - 1) {
+    amount /= 1024;
+    unitIndex += 1;
+  }
+  const digits = amount >= 100 || unitIndex === 0 ? 0 : amount >= 10 ? 1 : 2;
+  return `${amount.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function formatCatalogSummary(catalogs) {
+  if (!catalogs || typeof catalogs !== "object") return "";
+  const items = Object.entries(catalogs)
+    .map(([key, value]) => `${String(key || "").toUpperCase()}:${value ? "ok" : "missing"}`)
+    .filter(Boolean);
+  return items.join(", ");
+}
+
+function genericLogSummary(entry) {
+  if (!entry || typeof entry !== "object") return "";
+  const simpleParts = [];
+  const simpleState = humanizeLogToken(entry.state || entry.status || "");
+  const simplePct = formatLogPercent(entry.progress ?? entry.pct);
+  if (simpleState) simpleParts.push(simpleState);
+  if (entry.stage) simpleParts.push(humanizeLogToken(entry.stage));
+  if (simplePct) simpleParts.push(simplePct);
+  if (Number.isFinite(Number(entry.current_chunk))) simpleParts.push(`chunk ${entry.current_chunk}`);
+  const simpleError = compactLogMessage(entry.error || "");
+  if (simpleError) simpleParts.push(simpleError);
+  if (simpleParts.length > 0) return simpleParts.join(" | ");
+
+  const parts = [];
+  for (const [key, value] of Object.entries(entry)) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "object") continue;
+    if (["stdout", "stderr", "command", "matrix"].includes(key)) continue;
+    parts.push(`${humanizeLogToken(key)}=${value}`);
+    if (parts.length >= 6) break;
+  }
+  return parts.join(" | ");
+}
+
+function formatRunStreamLog(entry, { suppressRunStatus = false } = {}) {
+  if (!entry || typeof entry !== "object") return "";
+  const type = String(entry.type || "").trim().toLowerCase();
+  if (!type) return "";
+  const ts = shortLogTimestamp(entry.ts);
+  const prefix = ts ? `${ts} | ` : "";
+  const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : {};
+  const phase = humanizeLogToken(entry.phase || payload.phase_name || payload.phase || "");
+  const pct = formatLogPercent(entry.pct ?? payload.progress ?? payload.pct);
+  const message = compactLogMessage(payload.message || entry.message || "");
+
+  if (type === "phase_start") {
+    return `${prefix}${phase || "Phase"} | gestartet`;
+  }
+  if (type === "phase_progress") {
+    const parts = [phase || "Phase"];
+    if (pct) parts.push(pct);
+    const current = Number(entry.current ?? payload.current);
+    const total = Number(entry.total ?? payload.total);
+    if (Number.isFinite(current) && Number.isFinite(total) && total > 0) parts.push(`${current}/${total}`);
+    if (message) parts.push(message);
+    return `${prefix}${parts.join(" | ")}`;
+  }
+  if (type === "phase_end") {
+    const status = String(payload.status || entry.status || "ok").trim().toUpperCase();
+    const parts = [phase || "Phase", status || "OK"];
+    if (pct) parts.push(pct);
+    if (message) parts.push(message);
+    return `${prefix}${parts.join(" | ")}`;
+  }
+  if (type === "queue_progress") {
+    const done = Number(payload.done);
+    const total = Number(payload.total);
+    const parts = ["Queue"];
+    if (Number.isFinite(done) && Number.isFinite(total) && total > 0) parts.push(`${done}/${total}`);
+    if (pct) parts.push(pct);
+    const filter = humanizeLogToken(entry.filter || "");
+    if (filter) parts.push(`filter ${filter}`);
+    return `${prefix}${parts.join(" | ")}`;
+  }
+  if (type === "run_end") {
+    const parts = ["Run beendet", humanizeLogToken(payload.state || entry.status || "done")];
+    const currentPhase = humanizeLogToken(payload.current_phase || "");
+    if (currentPhase) parts.push(currentPhase);
+    return `${prefix}${parts.filter(Boolean).join(" | ")}`;
+  }
+  if (type === "run_stream_error") {
+    return `${prefix}Stream error | ${message || "unbekannt"}`;
+  }
+  if (type === "run_status") {
+    const state = String(payload.status || entry.state || "").trim().toLowerCase();
+    const terminal = ["completed", "failed", "cancelled", "aborted", "error", "done", "finished"].includes(state);
+    if (suppressRunStatus && !terminal) return "";
+    const parts = ["Run", humanizeLogToken(state || "status")];
+    if (phase) parts.push(phase);
+    if (pct) parts.push(pct);
+    return `${prefix}${parts.join(" | ")}`;
+  }
+  if (type === "log_line") {
+    const parts = [];
+    if (phase) parts.push(phase);
+    if (message) parts.push(message);
+    return parts.length > 0 ? `${prefix}${parts.join(" | ")}` : "";
+  }
+  return "";
+}
+
+function formatAstrometryLog(entry) {
+  if (!entry || typeof entry !== "object") return "";
+  if (Object.prototype.hasOwnProperty.call(entry, "installed") && (Object.prototype.hasOwnProperty.call(entry, "binary") || Object.prototype.hasOwnProperty.call(entry, "catalogs"))) {
+    const parts = [entry.installed ? "ASTAP gefunden" : "ASTAP fehlt"];
+    if (entry.binary) parts.push(String(entry.binary));
+    if (entry.data_dir) parts.push(`dir ${entry.data_dir}`);
+    const catalogs = formatCatalogSummary(entry.catalogs);
+    if (catalogs) parts.push(`catalogs ${catalogs}`);
+    return parts.join(" | ");
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, "ra_deg") || Object.prototype.hasOwnProperty.call(entry, "wcs_path")) {
+    const parts = ["Plate solve"];
+    if (Number.isFinite(Number(entry.ra_deg)) && Number.isFinite(Number(entry.dec_deg))) {
+      parts.push(`RA ${Number(entry.ra_deg).toFixed(6)} deg`);
+      parts.push(`Dec ${Number(entry.dec_deg).toFixed(6)} deg`);
+    }
+    if (Number.isFinite(Number(entry.pixel_scale_arcsec))) parts.push(`Scale ${Number(entry.pixel_scale_arcsec).toFixed(3)} arcsec/px`);
+    if (entry.wcs_path) parts.push(String(entry.wcs_path));
+    return parts.join(" | ");
+  }
+  if (entry.output_path || entry.saved) {
+    return `Solved FITS gespeichert | ${entry.output_path || "-"}`;
+  }
+  return "";
+}
+
+function formatPccLog(entry) {
+  if (!entry || typeof entry !== "object") return "";
+  if (Object.prototype.hasOwnProperty.call(entry, "installed") && Object.prototype.hasOwnProperty.call(entry, "total") && Array.isArray(entry.missing)) {
+    const parts = [`Siril catalog ${entry.installed}/${entry.total}`];
+    if (entry.missing.length > 0) parts.push(`missing ${entry.missing.length}`);
+    if (entry.catalog_dir) parts.push(String(entry.catalog_dir));
+    return parts.join(" | ");
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, "latency_ms") && Object.prototype.hasOwnProperty.call(entry, "ok")) {
+    return `Online source ${entry.ok ? "OK" : "fehler"} | ${entry.latency_ms} ms${entry.error ? ` | ${entry.error}` : ""}`;
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, "stars_used") || Object.prototype.hasOwnProperty.call(entry, "stars_matched") || Object.prototype.hasOwnProperty.call(entry, "residual_rms")) {
+    const parts = ["PCC"];
+    if (entry.stars_matched ?? entry.n_stars_matched) parts.push(`matched ${entry.stars_matched ?? entry.n_stars_matched}`);
+    if (entry.stars_used ?? entry.n_stars_used) parts.push(`used ${entry.stars_used ?? entry.n_stars_used}`);
+    if (entry.residual_rms !== undefined && entry.residual_rms !== null && entry.residual_rms !== "") parts.push(`RMS ${entry.residual_rms}`);
+    if (entry.output_rgb) parts.push(String(entry.output_rgb));
+    return parts.join(" | ");
+  }
+  if (entry.output_rgb && Array.isArray(entry.output_channels)) {
+    return `PCC gespeichert | ${entry.output_rgb}`;
+  }
+  return "";
+}
+
+function formatJobLog(entry) {
+  if (!entry || typeof entry !== "object" || !entry.job_id) return "";
+  const state = humanizeLogToken(entry.state || "");
+  const data = entry.data && typeof entry.data === "object" ? entry.data : {};
+  const parts = [`Job ${entry.job_id}`];
+  if (state) parts.push(state);
+  if (data.stage) parts.push(humanizeLogToken(data.stage));
+  if (data.catalog_id) parts.push(String(data.catalog_id).toUpperCase());
+  if (Number.isFinite(Number(data.current_chunk))) parts.push(`chunk ${data.current_chunk}`);
+  const pct = formatLogPercent(data.progress);
+  if (pct) parts.push(pct);
+  const received = formatLogBytes(data.bytes_received);
+  const total = formatLogBytes(data.bytes_total);
+  if (received && total) parts.push(`${received}/${total}`);
+  else if (received) parts.push(received);
+  if (data.resumed) parts.push("resume");
+  if (Number.isFinite(Number(data.attempt))) parts.push(`attempt ${data.attempt}`);
+  if (Number.isFinite(Number(data.status_code)) && Number(data.status_code) > 0) parts.push(`HTTP ${data.status_code}`);
+  if (data.retrying) parts.push("retry");
+  const error = compactLogMessage(data.error || entry.error || "");
+  if (error) parts.push(error);
+  return parts.join(" | ");
+}
+
+function formatStructuredLogLine(entry, options = {}) {
+  const parsed = maybeParseJsonLine(entry);
+  if (typeof parsed === "string") return compactLogMessage(parsed);
+  if (!parsed || typeof parsed !== "object") return String(parsed ?? "");
+  return formatRunStreamLog(parsed, options)
+    || formatAstrometryLog(parsed)
+    || formatPccLog(parsed)
+    || formatJobLog(parsed)
+    || genericLogSummary(parsed)
+    || compactLogMessage(JSON.stringify(parsed));
+}
+
+function appendStructuredLog(el, entry, options = {}) {
+  const line = formatStructuredLogLine(entry, options);
+  if (!line) return;
+  appendLine(el, line);
+  scrollLogToEnd(el);
 }
 
 function scrollLogToEnd(el) {
@@ -337,12 +648,14 @@ function getConfigValidationState() {
   }
 }
 
-function setConfigValidationState({ yaml = "", ok = false } = {}) {
+function setConfigValidationState({ yaml = "", ok = false, errors = [], warnings = [] } = {}) {
   localStorage.setItem(
     CONFIG_VALIDATION_STATE_KEY,
     JSON.stringify({
       yaml: String(yaml || ""),
       ok: Boolean(ok),
+      errors: Array.isArray(errors) ? errors : [],
+      warnings: Array.isArray(warnings) ? warnings : [],
       updated_at: new Date().toISOString(),
     }),
   );
@@ -356,6 +669,7 @@ function setDisabledLike(el, disabled) {
   if (!el) return;
   const isOff = Boolean(disabled);
   if ("disabled" in el) el.disabled = isOff;
+  el.setAttribute("aria-disabled", isOff ? "true" : "false");
   el.style.opacity = isOff ? "0.55" : "";
   el.style.pointerEvents = isOff ? "none" : "";
 }
@@ -415,6 +729,40 @@ function getByPath(root, dotted) {
   return cur;
 }
 
+function scanCalibrationBindingForElement(el) {
+  if (!el) return null;
+  const id = String(el.id || "");
+  return SCAN_CALIBRATION_BINDINGS.find((binding) => binding.sourceId === id || binding.inputId === id) || null;
+}
+
+function scanCalibrationUseMaster(binding) {
+  return readFieldValue($(binding?.sourceId)) === true;
+}
+
+function scanCalibrationActivePath(binding, useMaster = scanCalibrationUseMaster(binding)) {
+  return useMaster ? binding.masterPath : binding.dirPath;
+}
+
+function syncScanCalibrationInputPresentation(binding, useMaster) {
+  const input = $(binding?.inputId);
+  if (!input) return;
+  input.placeholder = useMaster ? binding.masterPlaceholder : binding.dirPlaceholder;
+  input.title = useMaster ? binding.masterTitle : binding.dirTitle;
+}
+
+function syncScanCalibrationUiFromConfig(config) {
+  SCAN_CALIBRATION_BINDINGS.forEach((binding) => {
+    const sourceEl = $(binding.sourceId);
+    const inputEl = $(binding.inputId);
+    if (!sourceEl || !inputEl) return;
+    const useMaster = Boolean(getByPath(config, binding.useMasterPath));
+    writeFieldValue(sourceEl, useMaster);
+    syncScanCalibrationInputPresentation(binding, useMaster);
+    const activeValue = getByPath(config, scanCalibrationActivePath(binding, useMaster));
+    inputEl.value = activeValue === undefined || activeValue === null ? "" : String(activeValue);
+  });
+}
+
 function updatesFromMap(pathBySelector) {
   const updates = [];
   for (const [selector, path] of pathBySelector) {
@@ -451,6 +799,30 @@ function persistLastInputDirs(rawValue) {
   const dirs = parseInputDirs(value);
   if (!allAbsolutePaths(dirs)) return;
   localStorage.setItem(LAST_INPUT_DIRS_KEY, value);
+}
+
+function persistPresetsDir(rawValue) {
+  const value = String(rawValue || "").trim();
+  if (!value) {
+    localStorage.removeItem(PRESETS_DIR_KEY);
+    return;
+  }
+  if (!isAbsolutePath(value)) return;
+  localStorage.setItem(PRESETS_DIR_KEY, value);
+}
+
+function selectedPresetsDir() {
+  const stored = String(localStorage.getItem(PRESETS_DIR_KEY) || "").trim();
+  if (stored) return stored;
+  return String(uiState.projectPresetsDir || "").trim();
+}
+
+function syncPresetDirInputs() {
+  const value = selectedPresetsDir();
+  ["dashboard-preset-dir", "parameter-preset-dir", "wizard-preset-dir"].forEach((id) => {
+    const el = $(id);
+    if (el) el.value = value;
+  });
 }
 
 function restoreLastInputDirs(...ids) {
@@ -561,7 +933,7 @@ function summarizeScanResult(raw, fallbackInputPath = "") {
   const hasScan = typeof src.has_scan === "boolean" ? src.has_scan : Object.keys(src).length > 0;
   const ok = typeof src.ok === "boolean" ? src.ok : errors.length === 0;
   const inputDirs = Array.isArray(src.input_dirs) ? src.input_dirs.map((x) => String(x || "").trim()).filter(Boolean) : [];
-  const colorMode = String(src.color_mode || "UNKNOWN");
+  const colorMode = String(src.color_mode || "");
   const normalizedColorMode = normalizeDetectedColorMode(colorMode);
   if (normalizedColorMode) {
     localStorage.setItem("gui2.lastScanColorMode", normalizedColorMode);
@@ -592,19 +964,22 @@ function renderScanSummary(prefix, summary) {
       : data.errors.length > 0
         ? t("ui.status.scan_error", "ERROR")
         : t("ui.status.scan_check", "CHECK");
-  const sizeText =
-    data.image_width > 0 && data.image_height > 0 ? `${data.image_width} x ${data.image_height}` : t("ui.value.unknown_size", "unbekannt");
+  const sizeText = data.image_width > 0 && data.image_height > 0 ? `${data.image_width} x ${data.image_height}` : "-";
   const candidates = data.color_mode_candidates.length > 0 ? data.color_mode_candidates.join(", ") : "-";
+  const framesText = data.has_scan ? String(data.frames_detected) : "-";
+  const colorModeText = data.color_mode || "-";
+  const errorCountText = data.has_scan ? String(data.errors.length) : "-";
+  const warningCountText = data.has_scan ? String(data.warnings.length) : "-";
   setText($(`${prefix}-status`), status);
   setText($(`${prefix}-input-path`), data.input_path || "-");
-  setText($(`${prefix}-frames`), String(data.frames_detected));
-  setText($(`${prefix}-color-mode`), data.color_mode || t("ui.value.unknown_color_mode", "UNKNOWN"));
+  setText($(`${prefix}-frames`), framesText);
+  setText($(`${prefix}-color-mode`), colorModeText);
   setText($(`${prefix}-candidates`), candidates);
   setText($(`${prefix}-size`), sizeText);
   setText($(`${prefix}-bayer`), data.bayer_pattern || "-");
   setText($(`${prefix}-confirm`), data.requires_user_confirmation ? t("ui.value.yes", "ja") : t("ui.value.no", "nein"));
-  setText($(`${prefix}-errors`), String(data.errors.length));
-  setText($(`${prefix}-warnings`), String(data.warnings.length));
+  setText($(`${prefix}-errors`), errorCountText);
+  setText($(`${prefix}-warnings`), warningCountText);
   return data;
 }
 
@@ -629,20 +1004,22 @@ function applyDetectedColorModeToSelect(selectEl, scanSummary) {
 function renderDashboardScanKpis(summary, qualityScore) {
   const data = summarizeScanResult(summary);
   const framesKpi = document.querySelector("#dashboard-kpi-scan-quality div:nth-child(2)");
-  if (framesKpi) framesKpi.textContent = String(data.frames_detected);
+  if (framesKpi) framesKpi.textContent = data.has_scan ? String(data.frames_detected) : "-";
   const colorChip = $("dashboard-kpi-color-mode");
-  if (colorChip) colorChip.textContent = `Color: ${data.color_mode || "UNKNOWN"}`;
+  if (colorChip) colorChip.textContent = `Color: ${data.color_mode || "-"}`;
 
   const qualityKpi = document.querySelector("#dashboard-kpi-open-warnings div:nth-child(2)");
-  if (qualityKpi) qualityKpi.textContent = Number.isFinite(Number(qualityScore)) ? Number(qualityScore).toFixed(3) : "0.000";
+  if (qualityKpi) qualityKpi.textContent = data.has_scan && Number.isFinite(Number(qualityScore)) ? Number(qualityScore).toFixed(3) : "-";
   const sizeChip = $("dashboard-kpi-scan-size");
-  if (sizeChip) sizeChip.textContent = `${data.image_width || 0} x ${data.image_height || 0} px`;
+  if (sizeChip) {
+    sizeChip.textContent = data.image_width > 0 && data.image_height > 0 ? `${data.image_width} x ${data.image_height} px` : "-";
+  }
 
   const warningCount = data.errors.length + data.warnings.length;
   const warnKpi = document.querySelector("#dashboard-kpi-guardrail-warnings div:nth-child(2)");
-  if (warnKpi) warnKpi.textContent = String(warningCount);
+  if (warnKpi) warnKpi.textContent = data.has_scan ? String(warningCount) : "-";
   const pathState = $("dashboard-kpi-path-state");
-  if (pathState) pathState.textContent = data.input_path || "kein Scan";
+  if (pathState) pathState.textContent = data.input_path || "-";
 }
 
 function renderDashboardLastRunKpi(appState) {
@@ -703,6 +1080,14 @@ function parentDirOfPath(pathValue) {
   return s.slice(0, slash);
 }
 
+function shouldKeepAstapSelection(rawInput, detectedBinary) {
+  const selected = String(rawInput || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const binary = String(detectedBinary || "").trim().replace(/\\/g, "/");
+  if (!selected || !binary) return false;
+  if (selected === binary) return false;
+  return binary.startsWith(`${selected}/`);
+}
+
 function pathBaseName(pathValue) {
   const s = String(pathValue || "")
     .trim()
@@ -729,6 +1114,8 @@ function ensureYamlFileName(fileName) {
 }
 
 function deriveParameterSaveDefaultDir() {
+  const explicitPresetDir = String($("parameter-preset-dir")?.value || "").trim();
+  if (explicitPresetDir) return explicitPresetDir;
   const presetDir = parentDirOfPath(String($("parameter-preset-select")?.value || "").trim());
   if (presetDir) return presetDir;
   return firstNonEmptyText(uiState.projectRunsDir, parentDirOfPath(uiState.defaultConfigPath));
@@ -744,6 +1131,78 @@ async function pickDirectoryPath(initialPath) {
   }
   const typed = window.prompt("Verzeichnis eingeben", initialPath || "");
   return String(typed || "").trim() || null;
+}
+
+async function fetchPresetsForDir(dir = "") {
+  return api.get(API_ENDPOINTS.config.presets(dir));
+}
+
+async function refreshPresetSelect(selectId, preserveCurrentValue = true, dir = "") {
+  const select = $(selectId);
+  if (!select) return null;
+  const oldValue = String(select.value || "").trim();
+  const presets = await withPathGrantRetry(
+    () => fetchPresetsForDir(dir),
+    { fallbackPath: dir },
+  );
+  const items = Array.isArray(presets?.items) ? presets.items : [];
+  select.innerHTML = "";
+  for (const item of items) {
+    const opt = document.createElement("option");
+    opt.value = String(item?.path || "");
+    opt.textContent = String(item?.name || item?.path || "preset");
+    select.appendChild(opt);
+  }
+  if (preserveCurrentValue && oldValue) {
+    const matching = Array.from(select.options).find((opt) => String(opt.value || "") === oldValue || String(opt.textContent || "") === oldValue);
+    if (matching) {
+      select.value = matching.value;
+    }
+  } else if (items[0]?.path) {
+    select.value = String(items[0].path);
+  }
+  return presets;
+}
+
+async function bindPresetDirectoryControl({ inputId, browseId, reloadId, selectId }) {
+  const input = $(inputId);
+  if (!input) return;
+  input.value = selectedPresetsDir();
+  const reload = async ({ preserveCurrentValue = true } = {}) => {
+    const dir = String(input.value || "").trim();
+    persistPresetsDir(dir);
+    syncPresetDirInputs();
+    const result = await refreshPresetSelect(selectId, preserveCurrentValue, dir);
+    if (result?.dir && result.fallback_used) {
+      persistPresetsDir(result.dir);
+      syncPresetDirInputs();
+    }
+    return result;
+  };
+  input.addEventListener("change", () => {
+    const dir = String(input.value || "").trim();
+    persistPresetsDir(dir);
+    syncPresetDirInputs();
+  });
+  $(browseId)?.addEventListener("click", async () => {
+    try {
+      const chosen = await pickDirectoryPath(String(input.value || "").trim() || selectedPresetsDir());
+      if (!chosen) return;
+      input.value = chosen;
+      await reload({ preserveCurrentValue: false });
+      setFooter("Preset-Verzeichnis aktualisiert.");
+    } catch (err) {
+      setFooter(`Preset-Verzeichnis konnte nicht geladen werden: ${errorText(err)}`, true);
+    }
+  });
+  $(reloadId)?.addEventListener("click", async () => {
+    try {
+      await reload({ preserveCurrentValue: true });
+      setFooter("Preset-Liste aktualisiert.");
+    } catch (err) {
+      setFooter(`Preset-Liste konnte nicht geladen werden: ${errorText(err)}`, true);
+    }
+  });
 }
 
 async function chooseConfigSaveAsPath() {
@@ -793,8 +1252,11 @@ async function initGlobalState() {
     else clearCurrentRunId();
     const runsDir = String(appState?.project?.runs_dir || "").trim();
     if (runsDir) uiState.projectRunsDir = runsDir;
+    const presetsDir = String(appState?.project?.presets_dir || "").trim();
+    if (presetsDir) uiState.projectPresetsDir = presetsDir;
     const defaultConfigPath = String(appState?.project?.default_config_path || "").trim();
     if (defaultConfigPath) uiState.defaultConfigPath = defaultConfigPath;
+    syncPresetDirInputs();
     const scanPath = String(appState?.scan?.last_input_path || "").trim();
     if (scanPath) persistLastInputDirs(scanPath);
   } catch (err) {
@@ -821,6 +1283,10 @@ function bindLocaleControls() {
     void applyLocale("en");
   });
 }
+
+document.addEventListener("gui2:locale-changed", () => {
+  setRunReady(uiState.runReadyStatus, uiState.runProcessStatus);
+});
 
 function buildScanPayloadFromDirs(dirs, framesMin, withChecksums) {
   const payload = {
@@ -863,7 +1329,7 @@ async function executeScanFlow({
       fallbackPath: dirs[0] || "",
     });
     if (resultPanel) resultPanel.style.display = "block";
-    renderScanSummary(summaryPrefix, { has_scan: true, input_path: payload.input_path, color_mode: "UNKNOWN" });
+    renderScanSummary(summaryPrefix, { has_scan: true, input_path: payload.input_path });
     setText(resultBody, { state: accepted.state, message: "Scan gestartet..." });
     const job = await waitForJob(accepted.job_id, { allowMissing: true });
     if (String(job?.state) === "missing") {
@@ -939,9 +1405,32 @@ function bindScanPages() {
     void executeScanFlow();
   };
   const syncScanConfigField = async (el) => {
-    const path = parameterPathFromElement(el);
-    if (!path) return;
+    const calibrationBinding = scanCalibrationBindingForElement(el);
     try {
+      if (calibrationBinding) {
+        const updates = [];
+        if (String(el.id || "") === calibrationBinding.sourceId) {
+          updates.push({
+            path: calibrationBinding.useMasterPath,
+            value: readFieldValue(el),
+          });
+        } else if (String(el.id || "") === calibrationBinding.inputId) {
+          updates.push({
+            path: scanCalibrationActivePath(calibrationBinding),
+            value: readFieldValue(el),
+          });
+        }
+        if (updates.length === 0) return;
+        const patched = await patchConfig({ updates, persist: false });
+        if (patched?.config) {
+          syncScanCalibrationUiFromConfig(patched.config);
+        } else {
+          syncScanCalibrationInputPresentation(calibrationBinding, scanCalibrationUseMaster(calibrationBinding));
+        }
+        return;
+      }
+      const path = parameterPathFromElement(el);
+      if (!path) return;
       await patchConfig({ updates: [{ path, value: readFieldValue(el) }], persist: false });
     } catch (err) {
       setFooter(`Input-Config-Update fehlgeschlagen: ${errorText(err)}`, true);
@@ -993,12 +1482,150 @@ function parameterDiffBox() {
   return document.querySelector("#parameter-diff-panel div[style*='font-family:monospace']");
 }
 
+function setParameterBaseYaml(yamlText) {
+  uiState.parameterBaseYaml = String(yamlText || "");
+}
+
+function splitYamlLines(text) {
+  const normalized = String(text || "").replace(/\r/g, "");
+  return normalized === "" ? [] : normalized.split("\n");
+}
+
+function computeYamlDiffOperations(beforeText, afterText) {
+  const before = splitYamlLines(beforeText);
+  const after = splitYamlLines(afterText);
+  let prefix = 0;
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1;
+
+  let suffix = 0;
+  while (
+    suffix < before.length - prefix
+    && suffix < after.length - prefix
+    && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+
+  const beforeMid = before.slice(prefix, before.length - suffix);
+  const afterMid = after.slice(prefix, after.length - suffix);
+  const dp = Array.from({ length: beforeMid.length + 1 }, () => Array(afterMid.length + 1).fill(0));
+
+  for (let i = beforeMid.length - 1; i >= 0; i -= 1) {
+    for (let j = afterMid.length - 1; j >= 0; j -= 1) {
+      dp[i][j] = beforeMid[i] === afterMid[j]
+        ? dp[i + 1][j + 1] + 1
+        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const ops = [];
+  let oldLine = 1;
+  let newLine = 1;
+
+  for (let i = 0; i < prefix; i += 1) {
+    ops.push({ type: "context", oldLine, newLine, text: before[i] });
+    oldLine += 1;
+    newLine += 1;
+  }
+
+  let i = 0;
+  let j = 0;
+  while (i < beforeMid.length && j < afterMid.length) {
+    if (beforeMid[i] === afterMid[j]) {
+      ops.push({ type: "context", oldLine, newLine, text: beforeMid[i] });
+      i += 1;
+      j += 1;
+      oldLine += 1;
+      newLine += 1;
+      continue;
+    }
+    if (dp[i + 1][j] >= dp[i][j + 1]) {
+      ops.push({ type: "remove", oldLine, newLine: "", text: beforeMid[i] });
+      i += 1;
+      oldLine += 1;
+    } else {
+      ops.push({ type: "add", oldLine: "", newLine, text: afterMid[j] });
+      j += 1;
+      newLine += 1;
+    }
+  }
+  while (i < beforeMid.length) {
+    ops.push({ type: "remove", oldLine, newLine: "", text: beforeMid[i] });
+    i += 1;
+    oldLine += 1;
+  }
+  while (j < afterMid.length) {
+    ops.push({ type: "add", oldLine: "", newLine, text: afterMid[j] });
+    j += 1;
+    newLine += 1;
+  }
+  for (let k = before.length - suffix; k < before.length; k += 1) {
+    ops.push({ type: "context", oldLine, newLine, text: before[k] });
+    oldLine += 1;
+    newLine += 1;
+  }
+  return ops;
+}
+
+function renderYamlDiffHtml(beforeText, afterText) {
+  const escapeHtml = (text) => String(text ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+  const ops = computeYamlDiffOperations(beforeText, afterText);
+  const added = ops.filter((item) => item.type === "add").length;
+  const removed = ops.filter((item) => item.type === "remove").length;
+  const summary = added === 0 && removed === 0
+    ? t("page.parameter_studio.diff.no_changes", "Keine lokalen YAML-Aenderungen.")
+    : t("page.parameter_studio.diff.summary", "Aenderungen: +{added} / -{removed}")
+      .replace("{added}", String(added))
+      .replace("{removed}", String(removed));
+
+  const rows = ops.map((item) => {
+    const tone = item.type === "add"
+      ? { bg: "rgba(34,197,94,0.15)", fg: "#bbf7d0", sign: "+" }
+      : item.type === "remove"
+        ? { bg: "rgba(248,113,113,0.16)", fg: "#fecaca", sign: "-" }
+        : { bg: "transparent", fg: "#e5edf6", sign: " " };
+    return `<div style="display:grid;grid-template-columns:28px 44px 44px minmax(0,1fr);gap:10px;padding:2px 8px;background:${tone.bg};color:${tone.fg};border-radius:6px;">
+      <span>${tone.sign}</span>
+      <span style="color:#94a3b8;">${item.oldLine || ""}</span>
+      <span style="color:#94a3b8;">${item.newLine || ""}</span>
+      <span style="white-space:pre-wrap;word-break:break-word;">${escapeHtml(item.text)}</span>
+    </div>`;
+  }).join("");
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:#cbd5e1;font-weight:700;">
+      <span>${escapeHtml(summary)}</span>
+      <span style="font-size:11px;color:#94a3b8;">old | new</span>
+    </div>
+    <div style="display:grid;gap:2px;">${rows || `<div style="color:#94a3b8;">${escapeHtml(summary)}</div>`}</div>
+  `;
+}
+
 function parameterValidateStatusEl() {
   return $("parameter-validate-status");
 }
 
+function parameterPresetStatusEl() {
+  return $("parameter-preset-status");
+}
+
 function parameterValidateDetailsEl() {
   return $("parameter-validate-details");
+}
+
+function dashboardValidateStatusEl() {
+  return $("dashboard-validate-status");
+}
+
+function dashboardValidateDetailsEl() {
+  return $("dashboard-validate-details");
+}
+
+function wizardValidationResultEl() {
+  return $("wizard-validation-result");
 }
 
 function parameterSituationApplyStatusEl() {
@@ -1012,7 +1639,9 @@ function monitorStartValidationEl() {
 function setParameterPreview(value) {
   const box = parameterDiffBox();
   if (!box) return;
-  setText(box, value);
+  const previewYaml = String(value || "");
+  const baseYaml = uiState.parameterBaseYaml || previewYaml;
+  box.innerHTML = renderYamlDiffHtml(baseYaml, previewYaml);
 }
 
 function clearChildren(node) {
@@ -1037,8 +1666,7 @@ function formatValidationIssue(issue) {
   }
 }
 
-function setParameterValidateDetails(result) {
-  const el = parameterValidateDetailsEl();
+function setValidationDetailsBox(el, result) {
   if (!el) return;
   clearChildren(el);
   if (!result || typeof result !== "object") {
@@ -1073,6 +1701,44 @@ function setParameterValidateDetails(result) {
     el.appendChild(list);
   });
   el.style.display = "block";
+}
+
+function setValidationStatusText(el, result, fallbackText = "") {
+  if (!el) return;
+  if (!result || typeof result !== "object") {
+    el.textContent = fallbackText || "Validierung: nicht geprüft";
+    el.style.color = "";
+    return;
+  }
+  const errors = Array.isArray(result.errors) ? result.errors.length : 0;
+  const warnings = Array.isArray(result.warnings) ? result.warnings.length : 0;
+  if (errors > 0) {
+    const firstError = formatValidationIssue(result.errors?.[0]);
+    el.textContent = `Validierung: ERROR (${errors} Fehler, ${warnings} Warnungen)${firstError ? ` - ${firstError}` : ""}`;
+    el.style.color = "#b91c1c";
+    return;
+  }
+  if (warnings > 0) {
+    const firstWarning = formatValidationIssue(result.warnings?.[0]);
+    el.textContent = `Validierung: WARN (${warnings} Warnungen)${firstWarning ? ` - ${firstWarning}` : ""}`;
+    el.style.color = "#b45309";
+    return;
+  }
+  el.textContent = "Validierung: OK";
+  el.style.color = "#166534";
+}
+
+function setParameterValidateDetails(result) {
+  setValidationDetailsBox(parameterValidateDetailsEl(), result);
+}
+
+function setParameterPresetStatus(text = "") {
+  const el = parameterPresetStatusEl();
+  if (!el) return;
+  const message = String(text || "").trim();
+  el.textContent = message;
+  el.style.display = message ? "inline-flex" : "none";
+  el.style.color = message ? "#166534" : "";
 }
 
 function setSituationApplyStatus(applied, text = "") {
@@ -1180,29 +1846,49 @@ async function refreshRunMonitorValidationMessage() {
 }
 
 function setParameterValidateStatus(result, fallbackText = "") {
-  const el = parameterValidateStatusEl();
-  if (!el) return;
+  setValidationStatusText(parameterValidateStatusEl(), result, fallbackText);
+}
+
+function setDashboardValidateStatus(result, fallbackText = "") {
+  setValidationStatusText(dashboardValidateStatusEl(), result, fallbackText);
+}
+
+function setDashboardValidateDetails(result) {
+  setValidationDetailsBox(dashboardValidateDetailsEl(), result);
+}
+
+function updateWizardStartState(validationState) {
+  const wizardStart = $("wizard-start");
+  if (!wizardStart) return;
+  const validationOk = Boolean(validationState?.ok);
+  setDisabledLike(wizardStart, !validationOk);
+  if (!validationState) {
+    wizardStart.title = "Run mit aktuellem Wizard-Draft starten (zuerst erfolgreiche Validierung erforderlich).";
+  } else if (!validationOk) {
+    wizardStart.title = "Run mit aktuellem Wizard-Draft starten (Validierung hat Fehler).";
+  } else {
+    wizardStart.title = "Run mit aktuellem Wizard-Draft starten.";
+  }
+}
+
+function setWizardValidationResult(result, fallbackText = "") {
+  const box = wizardValidationResultEl();
+  if (!box) return;
+
+  const title = `<div class="ps-result-title">Validation</div>`;
   if (!result || typeof result !== "object") {
-    el.textContent = fallbackText || "Validierung: nicht geprüft";
-    el.style.color = "";
+    const text = String(fallbackText || "Validierung ausstehend.");
+    box.innerHTML = `${title}<div>${text}</div>`;
     return;
   }
-  const errors = Array.isArray(result.errors) ? result.errors.length : 0;
-  const warnings = Array.isArray(result.warnings) ? result.warnings.length : 0;
-  if (errors > 0) {
-    const firstError = formatValidationIssue(result.errors?.[0]);
-    el.textContent = `Validierung: ERROR (${errors} Fehler, ${warnings} Warnungen)${firstError ? ` - ${firstError}` : ""}`;
-    el.style.color = "#b91c1c";
-    return;
-  }
-  if (warnings > 0) {
-    const firstWarning = formatValidationIssue(result.warnings?.[0]);
-    el.textContent = `Validierung: WARN (${warnings} Warnungen)${firstWarning ? ` - ${firstWarning}` : ""}`;
-    el.style.color = "#b45309";
-    return;
-  }
-  el.textContent = "Validierung: OK";
-  el.style.color = "#166534";
+
+  const errors = Array.isArray(result.errors) ? result.errors : [];
+  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  const state = errors.length > 0 ? "ERROR" : result.ok ? "OK" : "ERROR";
+  const firstIssue = errors[0] || warnings[0] || null;
+  const issueText = firstIssue ? formatValidationIssue(firstIssue) : "";
+  box.innerHTML =
+    `${title}<div>Schema: <b>${state}</b> | Fehler: <b>${errors.length}</b> | Warnungen: <b>${warnings.length}</b>${issueText ? ` | Hinweis: <b>${issueText}</b>` : ""}</div>`;
 }
 
 async function ensureConfigYaml() {
@@ -1243,6 +1929,7 @@ async function saveParameterConfig(targetPath = "") {
   });
   uiState.configYaml = String(patched?.config_yaml || "");
   setConfigDraft(uiState.configYaml);
+  setParameterBaseYaml(uiState.configYaml);
   uiState.parameterDirty = {};
   setParameterPreview(uiState.configYaml);
   return result;
@@ -1303,6 +1990,7 @@ function syncParameterFieldsFromConfig(config) {
     if (!el) return;
     writeFieldValue(el, getByPath(config, path));
   });
+  syncScanCalibrationUiFromConfig(config);
 }
 
 function activeScenarioKeys(scopeSelector = "#parameter-studio-root") {
@@ -1316,6 +2004,12 @@ async function bindParameterStudio() {
   if (!presetSelect) return;
 
   bindParameterDirtyTracking();
+  await bindPresetDirectoryControl({
+    inputId: "parameter-preset-dir",
+    browseId: "parameter-preset-dir-browse",
+    reloadId: "parameter-preset-dir-reload",
+    selectId: "parameter-preset-select",
+  });
 
   const applyPreview = async ({ persist = false } = {}) => {
     const updates = collectParameterDirtyUpdates();
@@ -1331,25 +2025,16 @@ async function bindParameterStudio() {
   };
 
   try {
-    const presets = await api.get(API_ENDPOINTS.config.presets);
-    if (Array.isArray(presets?.items) && presets.items.length > 0) {
-      const old = presetSelect.value;
-      presetSelect.innerHTML = "";
-      for (const item of presets.items) {
-        const opt = document.createElement("option");
-        opt.value = item.path;
-        opt.textContent = item.name;
-        presetSelect.appendChild(opt);
-      }
-      if (old) presetSelect.value = old;
-    }
+    await populatePresetSelect("parameter-preset-select", true);
     const currentYaml = await ensureConfigYaml();
     const parsed = await patchConfig({ yamlText: currentYaml, updates: [] });
     if (parsed?.config) {
       syncParameterFieldsFromConfig(parsed.config);
     }
+    setParameterBaseYaml(currentYaml);
     setParameterPreview(currentYaml);
     setParameterValidateStatus(null, "Validierung: nicht geprüft");
+    setParameterPresetStatus("");
     setParameterValidateDetails(null);
     setSituationApplyStatus(false);
     clearConfigValidationState();
@@ -1365,8 +2050,10 @@ async function bindParameterStudio() {
       uiState.parameterDirty = {};
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
+      setParameterBaseYaml(uiState.configYaml);
       setParameterPreview(uiState.configYaml);
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterPresetStatus("");
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
       clearConfigValidationState();
@@ -1389,8 +2076,10 @@ async function bindParameterStudio() {
       uiState.parameterDirty = {};
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
+      setParameterBaseYaml(String(parsed?.config_yaml || uiState.configYaml));
       setParameterPreview(String(parsed?.config_yaml || uiState.configYaml));
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterPresetStatus(t("ui.status.parameter_preset_applied", "Preset wurde angewendet."));
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
       clearConfigValidationState();
@@ -1404,11 +2093,18 @@ async function bindParameterStudio() {
     try {
       const patched = await applyPreview({ persist: false });
       const result = await api.post(API_ENDPOINTS.config.validate, { yaml: patched?.config_yaml || "" });
+      setParameterPresetStatus("");
       setParameterValidateStatus(result);
       setParameterValidateDetails(result);
-      setConfigValidationState({ yaml: patched?.config_yaml || "", ok: Boolean(result?.ok) });
+      setConfigValidationState({
+        yaml: patched?.config_yaml || "",
+        ok: Boolean(result?.ok),
+        errors: Array.isArray(result?.errors) ? result.errors : [],
+        warnings: Array.isArray(result?.warnings) ? result.warnings : [],
+      });
       setFooter(result.ok ? "Validierung OK." : "Validierung hat Fehler.");
     } catch (err) {
+      setParameterPresetStatus("");
       setParameterValidateStatus(null, "Validierung: fehlgeschlagen");
       setParameterValidateDetails(null);
       clearConfigValidationState();
@@ -1419,6 +2115,7 @@ async function bindParameterStudio() {
   $("parameter-save")?.addEventListener("click", async () => {
     try {
       const result = await saveParameterConfig("");
+      setParameterPresetStatus("");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
@@ -1434,6 +2131,7 @@ async function bindParameterStudio() {
       const targetPath = await chooseConfigSaveAsPath();
       if (!targetPath) return;
       const result = await saveParameterConfig(targetPath);
+      setParameterPresetStatus("");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
@@ -1447,6 +2145,7 @@ async function bindParameterStudio() {
   $("parameter-review-changes")?.addEventListener("click", async () => {
     try {
       const result = await applyPreview({ persist: false });
+      setParameterPresetStatus("");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
@@ -1465,8 +2164,10 @@ async function bindParameterStudio() {
       setConfigDraft(uiState.configYaml);
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
+      setParameterBaseYaml(uiState.configYaml);
       setParameterPreview(uiState.configYaml);
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterPresetStatus("");
       setParameterValidateDetails(null);
       setSituationApplyStatus(false);
       clearConfigValidationState();
@@ -1493,6 +2194,7 @@ async function bindParameterStudio() {
       if (patched?.config) syncParameterFieldsFromConfig(patched.config);
       setParameterPreview(patched?.config_yaml || "");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");
+      setParameterPresetStatus("");
       setParameterValidateDetails(null);
       setSituationApplyStatus(true, `${t("ui.status.situation_applied", "Angewendet")} (${scenarioUpdates.length})`);
       clearConfigValidationState();
@@ -1526,29 +2228,7 @@ async function bindParameterStudio() {
 }
 
 async function populatePresetSelect(selectId, preserveCurrentValue = true) {
-  const select = $(selectId);
-  if (!select) return;
-  const oldValue = String(select.value || "").trim();
-  const presets = await api.get(API_ENDPOINTS.config.presets);
-  const items = Array.isArray(presets?.items) ? presets.items : [];
-  if (items.length === 0) return;
-  select.innerHTML = "";
-  for (const item of items) {
-    const opt = document.createElement("option");
-    opt.value = String(item?.path || "");
-    opt.textContent = String(item?.name || item?.path || "preset");
-    select.appendChild(opt);
-  }
-  if (preserveCurrentValue && oldValue) {
-    const matching = Array.from(select.options).find((opt) => String(opt.value || "") === oldValue || String(opt.textContent || "") === oldValue);
-    if (matching) {
-      select.value = matching.value;
-      return;
-    }
-  }
-  if (!preserveCurrentValue && items[0]?.path) {
-    select.value = String(items[0].path);
-  }
+  await refreshPresetSelect(selectId, preserveCurrentValue, selectedPresetsDir());
 }
 
 function runMonitorSelectedPhase() {
@@ -1594,20 +2274,85 @@ function runMonitorSelectedFilter() {
   return String(selected.textContent || "").trim().toUpperCase();
 }
 
-function setRunMonitorFilterVisibility(colorModeRaw) {
+function runMonitorFilterButtons() {
+  return Array.from(document.querySelectorAll(".ps-chip-btn[id^='monitor-filter-']"));
+}
+
+function normalizeMonitorFilterName(raw) {
+  const token = String(raw || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, "");
+  if (!token) return "";
+  if (token === "HALPHA") return "HA";
+  return token;
+}
+
+function collectActiveRunMonitorFilters(queueItemsRaw = null) {
+  const source = Array.isArray(queueItemsRaw) ? queueItemsRaw : collectQueueRows();
+  const out = [];
+  const seen = new Set();
+  for (const item of source) {
+    const rawFilter = typeof item === "string" ? item : item?.filter || item?.filter_name || "";
+    const filter = normalizeMonitorFilterName(rawFilter);
+    if (!filter || seen.has(filter)) continue;
+    seen.add(filter);
+    out.push(filter);
+  }
+  return out;
+}
+
+function runMonitorEffectiveColorMode(colorModeRaw = "") {
+  return normalizeDetectedColorMode(
+    firstNonEmptyText(colorModeRaw, uiState.currentRunColorMode, getPersistedDetectedColorMode(), ""),
+  );
+}
+
+function setRunMonitorFilterVisibility(colorModeRaw, queueItemsRaw = null) {
   const chipRow = $("monitor-filter-row");
   if (!chipRow) return;
-  const colorMode = String(colorModeRaw || "").trim().toUpperCase();
-  const hideFilters = colorMode === "OSC";
+  const chipButtons = runMonitorFilterButtons();
+  const colorMode = runMonitorEffectiveColorMode(colorModeRaw);
+  const activeFilters = collectActiveRunMonitorFilters(queueItemsRaw).filter((filter) => chipButtons.some((btn) => normalizeMonitorFilterName(btn.textContent) === filter));
+  const hideFilters = colorMode !== "MONO" || activeFilters.length === 0;
   chipRow.style.display = hideFilters ? "none" : "";
-  const chipButtons = Array.from(document.querySelectorAll(".ps-chip-btn[id^='monitor-filter-']"));
   if (hideFilters) {
-    chipButtons.forEach((btn) => btn.classList.remove("active"));
+    chipButtons.forEach((btn) => {
+      btn.style.display = "";
+      btn.classList.remove("active");
+    });
     return;
   }
+  const activeSet = new Set(activeFilters);
+  chipButtons.forEach((btn) => {
+    const filter = normalizeMonitorFilterName(btn.textContent);
+    const visible = activeSet.has(filter);
+    btn.style.display = visible ? "" : "none";
+    if (!visible) btn.classList.remove("active");
+  });
   if (!document.querySelector(".ps-chip-btn.active[id^='monitor-filter-']")) {
-    chipButtons[0]?.classList.add("active");
+    chipButtons.find((btn) => btn.style.display !== "none")?.classList.add("active");
   }
+}
+
+function bindRunMonitorFilterSync() {
+  const refresh = () => {
+    setRunMonitorFilterVisibility(
+      firstNonEmptyText($("dashboard-color-mode")?.value, $("inp-colormode")?.value, uiState.currentRunColorMode, ""),
+    );
+  };
+  document.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.id === "dashboard-color-mode" || target.id === "inp-colormode" || target.closest(".ps-queue-row")) {
+      refresh();
+    }
+  });
+  document.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(".ps-queue-row")) refresh();
+  });
 }
 
 function runMonitorLogBox() {
@@ -1704,7 +2449,8 @@ async function loadRunStatus(runId) {
   uiState.currentRunDir = String(status?.run_dir || "");
   const fallbackScanColorMode = String(localStorage.getItem("gui2.lastScanColorMode") || "").trim().toUpperCase();
   const effectiveColorMode = String(status?.color_mode || "").trim().toUpperCase() || fallbackScanColorMode;
-  setRunMonitorFilterVisibility(effectiveColorMode);
+  uiState.currentRunColorMode = effectiveColorMode;
+  setRunMonitorFilterVisibility(effectiveColorMode, Array.isArray(status?.queue_filters) ? status.queue_filters : null);
   if (Array.isArray(status?.phases)) {
     for (const p of status.phases) {
       setPhaseRow(p.phase, p.status, p.pct);
@@ -1740,7 +2486,9 @@ function connectRunMonitorStream(runId) {
   uiState.runSocket = api.ws(
     API_ENDPOINTS.ws.run(runId),
     (event) => {
-      enqueueRunMonitorLogLine(JSON.stringify(event));
+      const eventType = String(event?.type || "").trim().toLowerCase();
+      const line = formatStructuredLogLine(event, { suppressRunStatus: true });
+      if (line) enqueueRunMonitorLogLine(line);
       if (event?.type === "phase_progress" || event?.type === "phase_end" || event?.type === "phase_start") {
         const payload = event.payload || {};
         const phase = payload.phase_name || payload.phase || event.phase || "";
@@ -1753,7 +2501,9 @@ function connectRunMonitorStream(runId) {
           setPhaseRow(p.phase, p.status, p.pct);
         }
       }
-      const eventType = String(event?.type || "").trim().toLowerCase();
+      if (eventType === "queue_progress") {
+        setRunMonitorFilterVisibility(uiState.currentRunColorMode, Array.isArray(event?.payload?.queue) ? event.payload.queue : null);
+      }
       const terminalRunStatus = String(event?.payload?.status || event?.status || "").trim().toLowerCase();
       const isTerminalRunEvent =
         eventType === "run_end"
@@ -1763,7 +2513,17 @@ function connectRunMonitorStream(runId) {
           && ["completed", "failed", "cancelled", "aborted", "error", "done", "finished"].includes(terminalRunStatus)
         );
       if (isTerminalRunEvent) {
-        window.setTimeout(() => window.location.reload(), 250);
+        window.setTimeout(() => {
+          document.dispatchEvent(
+            new CustomEvent("gui2:run-monitor-terminal", {
+              detail: {
+                eventType,
+                status: terminalRunStatus,
+                runId,
+              },
+            }),
+          );
+        }, 250);
       }
     },
     (err) => {
@@ -1935,7 +2695,7 @@ async function bindRunMonitor() {
       setInlineAsyncStatus(statsStatusEl, "");
       return null;
     }
-    const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId)).catch(() => null);
+    const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId, uiState.currentRunDir)).catch(() => null);
     uiState.monitorStatsStatus = status;
     const hasReport = Boolean(String(status?.report_path || "").trim());
     setMonitorReportAvailable(hasReport);
@@ -1991,6 +2751,31 @@ async function bindRunMonitor() {
     }
     if (sub) sub.textContent = text;
   };
+  const refreshCurrentRunMonitorState = async ({ reconnectSocket = false } = {}) => {
+    if (!uiState.currentRunId) return null;
+    const status = await loadRunStatus(uiState.currentRunId);
+    await refreshArtifacts();
+    await refreshStatsActions();
+    const isActive = isRunActiveStatus(status?.status || "");
+    setMonitorActionState(isActive);
+    if (reconnectSocket) {
+      if (isActive) {
+        connectRunMonitorStream(uiState.currentRunId);
+      } else if (uiState.runSocket) {
+        uiState.runSocket.close();
+        uiState.runSocket = null;
+      }
+    }
+    updateResumeEnabled();
+    return status;
+  };
+  document.addEventListener("gui2:run-monitor-terminal", (event) => {
+    const detail = event?.detail || {};
+    if (String(detail.runId || "").trim() && String(detail.runId || "").trim() !== String(uiState.currentRunId || "").trim()) {
+      return;
+    }
+    void refreshCurrentRunMonitorState({ reconnectSocket: true });
+  });
 
   updateResumeEnabled();
   void refreshRunMonitorValidationMessage();
@@ -2019,7 +2804,7 @@ async function bindRunMonitor() {
       clearCurrentRunHistoryMark();
       setMonitorStartValidationMessage("");
       setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
-      window.location.reload();
+      await refreshCurrentRunMonitorState({ reconnectSocket: true });
     } catch (err) {
       setFooter(`Run-Start fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -2058,7 +2843,7 @@ async function bindRunMonitor() {
         filter_context: runMonitorSelectedFilter() || undefined,
       });
       setFooter(`Resume gestartet (Job ${accepted.job_id}).`);
-      window.location.reload();
+      await refreshCurrentRunMonitorState({ reconnectSocket: true });
     } catch (err) {
       setFooter(`Resume fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -2112,7 +2897,7 @@ async function bindRunMonitor() {
         setFooter("Stats-Ordner erst nach beendetem Run verfuegbar.", true);
         return;
       }
-      const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId));
+      const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId, uiState.currentRunDir));
       const targetDir = String(status.output_dir || "").trim();
       if (!targetDir) {
         setFooter("Stats-Ordner nicht verfuegbar.", true);
@@ -2280,12 +3065,12 @@ async function bindHistoryPage() {
       throw err;
     }
     uiState.missingHistoryRunIds.delete(String(runId));
+    const runDir = String(runStatus?.run_dir || "-");
     const [statsStatus, artifactResult] = await Promise.all([
-      api.get(API_ENDPOINTS.runs.statsStatus(runId)).catch(() => ({ report_path: "", output_dir: "", state: "unknown" })),
+      api.get(API_ENDPOINTS.runs.statsStatus(runId, runDir)).catch(() => ({ report_path: "", output_dir: "", state: "unknown" })),
       api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => ({ items: [] })),
     ]);
     const artifacts = Array.isArray(artifactResult?.items) ? artifactResult.items : [];
-    const runDir = String(runStatus?.run_dir || "-");
     const reportArtifactPath = findReportArtifactPath(artifacts);
     const resolvedReportPath = String(statsStatus?.report_path || "").trim()
       || (reportArtifactPath && runDir && runDir !== "-" ? `${runDir}/${reportArtifactPath}` : "");
@@ -2558,14 +3343,18 @@ async function bindAstrometryPage() {
   if (!$("tools-astrometry-bin")) return;
   const logBox = findLogBoxBySectionTitle("Log");
   const statusChip = document.querySelector("[data-control='tools.astrometry.status']");
+  if (logBox) logBox.textContent = "";
 
   const raField = $("tools-astrometry-ra");
   const decField = $("tools-astrometry-dec");
   const pixelScaleField = $("tools-astrometry-pixel-scale");
   const rotationField = $("tools-astrometry-rotation");
   const fovField = $("tools-astrometry-fov");
+  const binaryInput = $("tools-astrometry-bin");
+  const dataDirInput = $("tools-astrometry-data-dir");
+  let autoResolving = false;
 
-  const append = (msg) => appendLine(logBox, typeof msg === "string" ? msg : JSON.stringify(msg));
+  const append = (msg) => appendStructuredLog(logBox, msg, { suppressRunStatus: true });
   const setFieldValue = (el, value) => {
     if (!el) return;
     el.value = value === null || value === undefined || value === "" ? "-" : String(value);
@@ -2595,23 +3384,49 @@ async function bindAstrometryPage() {
     }
   };
 
-  async function detect() {
+  async function detect({ logResult = true } = {}) {
+    const selectedBinary = String(binaryInput?.value || "").trim();
     const payload = {
-      astap_cli: $("tools-astrometry-bin")?.value || "",
-      astap_data_dir: $("tools-astrometry-data-dir")?.value || "",
+      astap_cli: selectedBinary,
+      astap_data_dir: dataDirInput?.value || "",
     };
     const result = await withPathGrantRetry(
       () => api.post(API_ENDPOINTS.astrometry.detect, payload),
       { fallbackPath: payload.astap_cli || payload.astap_data_dir },
     );
     if (statusChip) statusChip.textContent = result.installed ? "Installed" : "Missing";
-    append(result);
+    if (binaryInput && result.binary && !shouldKeepAstapSelection(selectedBinary, result.binary)) {
+      binaryInput.value = String(result.binary);
+    }
+    if (dataDirInput && result.data_dir) dataDirInput.value = String(result.data_dir);
+    if (logResult) append(result);
+    return result;
+  }
+
+  async function autoResolveSelection(origin) {
+    if (autoResolving) return;
+    autoResolving = true;
+    try {
+      const result = await detect({ logResult: true });
+      if (result.installed) {
+        const location = origin === "data-dir"
+          ? String(result.binary || result.data_dir || "")
+          : String(result.binary || "");
+        setFooter(location ? `ASTAP erkannt: ${location}` : "ASTAP erkannt.");
+      } else {
+        setFooter("ASTAP im ausgewaehlten Pfad nicht gefunden.", true);
+      }
+    } catch (err) {
+      setFooter(`ASTAP-Pfadauflosung fehlgeschlagen: ${errorText(err)}`, true);
+    } finally {
+      autoResolving = false;
+    }
   }
 
   document.querySelector("[data-control='tools.astrometry.detect']")?.addEventListener("click", async () => {
     try {
-      await detect();
-      setFooter("Astrometry-Detection aktualisiert.");
+      const result = await detect();
+      setFooter(result.installed ? `ASTAP gefunden: ${result.binary || "-"}` : "ASTAP nicht gefunden.", !result.installed);
     } catch (err) {
       setFooter(`Astrometry detect fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -2627,7 +3442,7 @@ async function bindAstrometryPage() {
       append(accepted);
       const job = await waitForJob(accepted.job_id, { onTick: (j) => append({ state: j.state, progress: j.data?.progress ?? null }) });
       append(job);
-      await detect();
+      await detect({ logResult: false });
     } catch (err) {
       setFooter(`ASTAP Install fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -2713,12 +3528,26 @@ async function bindAstrometryPage() {
       setFooter(`Save Solved fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
+
+  [binaryInput, dataDirInput].forEach((input) => {
+    input?.addEventListener("input", (event) => {
+      if (event.isTrusted || autoResolving) return;
+      void autoResolveSelection(input === dataDirInput ? "data-dir" : "binary");
+    });
+  });
+
+  try {
+    await detect({ logResult: false });
+  } catch {
+    if (statusChip) statusChip.textContent = "Missing";
+  }
 }
 
 async function bindPccPage() {
   if (!$("tools-pcc-rgb")) return;
   const logBox = findLogBoxBySectionTitle("Result + Log");
   const statusField = document.querySelector("[data-control='tools.pcc.siril_status']");
+  if (logBox) logBox.textContent = "";
 
   const missingField = $("tools-pcc-missing-chunks");
   const starsMatchedField = $("tools-pcc-stars-matched");
@@ -2726,7 +3555,7 @@ async function bindPccPage() {
   const residualField = $("tools-pcc-residual-rms");
   const matrixField = $("tools-pcc-matrix");
 
-  const append = (msg) => appendLine(logBox, typeof msg === "string" ? msg : JSON.stringify(msg));
+  const append = (msg) => appendStructuredLog(logBox, msg, { suppressRunStatus: true });
   const setInputValue = (el, value) => {
     if (!el) return;
     el.value = value === null || value === undefined ? "" : String(value);
@@ -2986,13 +3815,17 @@ async function bindLiveLogPage() {
   }
   try {
     const logs = await api.get(API_ENDPOINTS.runs.logs(runId, 250));
-    uiState.liveLines = (logs.lines || []).map((line) => ({ line, level: detectLevel(line) }));
+    uiState.liveLines = (logs.lines || [])
+      .map((line) => formatStructuredLogLine(line, { suppressRunStatus: true }) || String(line || "").trim())
+      .filter(Boolean)
+      .map((line) => ({ line, level: detectLevel(line) }));
     render();
     if (uiState.liveSocket) uiState.liveSocket.close();
     uiState.liveSocket = api.ws(
       API_ENDPOINTS.ws.run(runId),
       (event) => {
-        const line = typeof event === "string" ? event : JSON.stringify(event);
+        const line = formatStructuredLogLine(event, { suppressRunStatus: true });
+        if (!line) return;
         uiState.livePendingLines.push({ line, level: detectLevel(line) });
         scheduleLiveLogFlush();
       },
@@ -3034,8 +3867,8 @@ function setMonoQueueVisible(selectedModeRaw) {
     el.style.display = isMono && dashboardAdvancedVisible ? "" : "none";
   });
   const sec = findMonoQueueSection();
-  if (!sec) return;
-  sec.style.display = isMono ? "" : "none";
+  if (sec) sec.style.display = isMono ? "" : "none";
+  setRunMonitorFilterVisibility(selectedModeRaw);
 }
 
 function collectQueueRows() {
@@ -3080,42 +3913,195 @@ function renderGuardrailRow(row, status, label) {
   if (txt && label) txt.textContent = label;
 }
 
-async function renderDashboardDerivedGuardrails(appState) {
-  let configValidation = null;
-  try {
-    const yaml = await ensureConfigYaml();
-    if (yaml) {
-      configValidation = await api.post(API_ENDPOINTS.config.validate, { yaml });
-    }
-  } catch {
-    configValidation = null;
+function currentValidationStateForYaml(yamlText) {
+  const validation = getConfigValidationState();
+  if (!validation) return null;
+  return String(validation.yaml || "") === String(yamlText || "") ? validation : null;
+}
+
+function updateDashboardRunStartState(validationState, guardrailStatus = uiState.dashboardGuardrailStatus) {
+  const runStart = $("dashboard-run-start");
+  if (!runStart) return;
+  const guardrailError = String(guardrailStatus || "").trim().toLowerCase() === "error";
+  const validationOk = Boolean(validationState?.ok);
+  setDisabledLike(runStart, guardrailError || !validationOk);
+  if (guardrailError) {
+    runStart.title = "Run/Queue starten ist blockiert: Guardrail-Status ist ERROR.";
+  } else if (!validationState) {
+    runStart.title = "Run/Queue starten ist blockiert: zuerst Validieren.";
+  } else if (!validationOk) {
+    runStart.title = "Run/Queue starten ist blockiert: Validierung hat Fehler.";
+  } else {
+    runStart.title = "Run/Queue starten.";
+  }
+}
+
+function dashboardPipelineStepElements() {
+  return Array.from(document.querySelectorAll("#dashboard-pipeline-preview [data-pipeline-step]"));
+}
+
+function setDashboardPipelineStepVisual(el, state, pct = 0) {
+  if (!el) return;
+  const normalized = String(state || "pending").trim().toLowerCase();
+  const label = String(el.getAttribute("data-pipeline-step") || el.textContent || "").trim();
+  let background = "#f0f0f0";
+  let color = "#64748b";
+  if (normalized === "done") {
+    background = "#d1f4e0";
+    color = "#15808d";
+  } else if (normalized === "running") {
+    background = "#dbeafe";
+    color = "#1d4ed8";
+  } else if (normalized === "error") {
+    background = "#fee2e2";
+    color = "#b91c1c";
+  }
+  el.textContent = label;
+  el.style.background = background;
+  el.style.color = color;
+  el.title = pct > 0 ? `${label} (${Math.round(pct)}%)` : label;
+}
+
+function normalizePipelinePhaseState(status) {
+  const normalized = String(status || "pending").trim().toLowerCase();
+  if (["ok", "completed", "done", "finished", "skipped"].includes(normalized)) return "done";
+  if (["running", "active", "started"].includes(normalized)) return "running";
+  if (["error", "failed", "aborted", "cancelled"].includes(normalized)) return "error";
+  return "pending";
+}
+
+function summarizeDashboardPipelineGroup(group, phaseEntries, runStatus, currentPhase) {
+  if (group.key === "DONE") {
+    const normalizedRunStatus = String(runStatus || "").trim().toLowerCase();
+    if (["completed", "done", "finished"].includes(normalizedRunStatus)) return { state: "done", pct: 100 };
+    if (["failed", "error", "aborted", "cancelled"].includes(normalizedRunStatus)) return { state: "error", pct: 0 };
+    return { state: "pending", pct: 0 };
   }
 
+  const phaseStates = group.phases.map((phase) => {
+    const entry = phaseEntries.get(phase);
+    const state = normalizePipelinePhaseState(entry?.status);
+    let pct = Number(entry?.pct || 0);
+    if (Number.isFinite(pct) && pct <= 1.0) pct *= 100.0;
+    if (!Number.isFinite(pct)) pct = 0;
+    if (state === "done") pct = 100;
+    pct = Math.max(0, Math.min(100, pct));
+    return { state, pct };
+  });
+
+  if (phaseStates.some((item) => item.state === "error")) {
+    return { state: "error", pct: Math.max(...phaseStates.map((item) => item.pct), 0) };
+  }
+
+  if (phaseStates.length > 0 && phaseStates.every((item) => item.state === "done")) {
+    return { state: "done", pct: 100 };
+  }
+
+  const currentInGroup = group.phases.includes(currentPhase);
+  const anyRunning = currentInGroup || phaseStates.some((item) => item.state === "running");
+  const anyStarted = phaseStates.some((item) => item.state === "done" || item.state === "running" || item.pct > 0);
+  const pct = phaseStates.length > 0
+    ? phaseStates.reduce((sum, item) => sum + item.pct, 0) / phaseStates.length
+    : 0;
+
+  if (anyRunning || anyStarted) return { state: "running", pct };
+  return { state: "pending", pct: 0 };
+}
+
+async function renderDashboardPipelinePreview(appState) {
+  const stepEls = dashboardPipelineStepElements();
+  if (stepEls.length === 0) return;
+
+  stepEls.forEach((el) => setDashboardPipelineStepVisual(el, "pending", 0));
+
+  const runId = String(appState?.run?.current?.run_id || "").trim();
+  if (!runId) return;
+
+  let status = null;
+  try {
+    status = await api.get(API_ENDPOINTS.runs.status(runId));
+  } catch {
+    status = {
+      status: String(appState?.run?.current?.status || "unknown"),
+      current_phase: String(appState?.run?.current?.current_phase || ""),
+      phases: [],
+    };
+  }
+
+  const phaseEntries = new Map();
+  if (Array.isArray(status?.phases)) {
+    status.phases.forEach((entry) => {
+      const phase = String(entry?.phase || "").trim().toUpperCase();
+      if (phase) phaseEntries.set(phase, entry);
+    });
+  }
+
+  const currentPhase = String(status?.current_phase || "").trim().toUpperCase();
+  if (phaseEntries.size === 0 && currentPhase) {
+    const currentGroupIndex = DASHBOARD_PIPELINE_GROUPS.findIndex((group) => group.phases.includes(currentPhase));
+    stepEls.forEach((el, index) => {
+      const step = String(el.getAttribute("data-pipeline-step") || "").trim().toUpperCase();
+      if (step === "DONE") {
+        setDashboardPipelineStepVisual(el, summarizeDashboardPipelineGroup({ key: "DONE", phases: [] }, phaseEntries, status?.status, currentPhase).state, 0);
+        return;
+      }
+      if (currentGroupIndex >= 0) {
+        if (index < currentGroupIndex) setDashboardPipelineStepVisual(el, "done", 100);
+        else if (index === currentGroupIndex) setDashboardPipelineStepVisual(el, "running", 0);
+      }
+    });
+    return;
+  }
+
+  DASHBOARD_PIPELINE_GROUPS.forEach((group) => {
+    const el = stepEls.find((node) => String(node.getAttribute("data-pipeline-step") || "").trim().toUpperCase() === group.key);
+    if (!el) return;
+    const summary = summarizeDashboardPipelineGroup(group, phaseEntries, status?.status, currentPhase);
+    setDashboardPipelineStepVisual(el, summary.state, summary.pct);
+  });
+}
+
+async function renderDashboardDerivedGuardrails(appState) {
+  let yaml = "";
+  try {
+    yaml = await ensureConfigYaml();
+  } catch {
+    yaml = "";
+  }
+
+  const configValidation = currentValidationStateForYaml(yaml);
   const validationErrors = Array.isArray(configValidation?.errors) ? configValidation.errors.length : 0;
   const validationWarnings = Array.isArray(configValidation?.warnings) ? configValidation.warnings.length : 0;
+  const validationHasErrors = Boolean(configValidation) && (!configValidation.ok || validationErrors > 0);
   const currentRunId = String(appState?.run?.current?.run_id || "").trim();
 
   renderGuardrailRow(
     $("dashboard-guardrail-config-valid"),
-    !configValidation ? "check" : validationErrors > 0 ? "error" : validationWarnings > 0 ? "check" : "ok",
+    !configValidation ? "check" : validationHasErrors ? "error" : validationWarnings > 0 ? "check" : "ok",
     !configValidation
       ? "Config nicht geprüft"
-      : validationErrors > 0
-        ? `Config mit ${validationErrors} Fehlern`
+      : validationHasErrors
+        ? (validationErrors > 0 ? `Config mit ${validationErrors} Fehlern` : "Config mit Fehlern")
         : validationWarnings > 0
           ? `Config validiert (${validationWarnings} Warnungen)`
           : "Config validiert",
   );
+  setDashboardValidateStatus(configValidation, "Validierung: nicht geprüft");
+  setDashboardValidateDetails(configValidation);
   renderGuardrailRow($("dashboard-guardrail-calibration-paths"), "check", "Kalibrierpfade nicht separat geprüft");
   renderGuardrailRow(
     $("dashboard-guardrail-bge-pcc"),
     "check",
     currentRunId ? "BGE/PCC nicht automatisch bewertet" : "BGE/PCC nicht geprüft (kein Run)",
   );
+  updateDashboardRunStartState(configValidation);
 }
 
 async function bindDashboard() {
   if (!$("dashboard-kpi-scan-quality")) return;
+  setDisabledLike($("dashboard-run-start"), true);
+  setDashboardValidateStatus(null, "Validierung: nicht geprüft");
+  setDashboardValidateDetails(null);
   bindInputDirMemory("dashboard-input-dirs");
   const runsDirInput = $("dashboard-run-runs-dir");
   if (runsDirInput && !String(runsDirInput.value || "").trim() && uiState.projectRunsDir) {
@@ -3128,6 +4114,7 @@ async function bindDashboard() {
       api.get(API_ENDPOINTS.scan.latest),
       api.get(API_ENDPOINTS.app.state),
     ]);
+    uiState.dashboardGuardrailStatus = String(guardrails?.status || "");
     setRunReady(guardrails?.status || "check", appState?.run?.current?.status || "");
     const summary = summarizeScanResult(
       latestScan?.has_scan ? latestScan : quality?.scan || {},
@@ -3135,6 +4122,7 @@ async function bindDashboard() {
     );
     renderDashboardScanKpis(summary, quality?.score ?? 0);
     renderDashboardLastRunKpi(appState);
+    await renderDashboardPipelinePreview(appState);
     renderScanSummary("dashboard-scan", summary);
     applyDetectedColorModeToSelect($("dashboard-color-mode"), summary);
     applyDetectedColorModeToSelect($("inp-colormode"), summary);
@@ -3144,9 +4132,6 @@ async function bindDashboard() {
       persistLastInputDirs(mergedInputText);
       restoreLastInputDirs("dashboard-input-dirs");
     }
-
-    const runStart = $("dashboard-run-start");
-    setDisabledLike(runStart, String(guardrails?.status || "").toLowerCase() === "error");
     const scanCheck = (guardrails?.checks || []).find((c) => c.id === "scan_ok");
     const warnCheck = (guardrails?.checks || []).find((c) => c.id === "scan_warnings");
     const colorModeCheck = (guardrails?.checks || []).find((c) => c.id === "color_mode");
@@ -3158,6 +4143,12 @@ async function bindDashboard() {
     );
     await renderDashboardDerivedGuardrails(appState);
 
+    await bindPresetDirectoryControl({
+      inputId: "dashboard-preset-dir",
+      browseId: "dashboard-preset-dir-browse",
+      reloadId: "dashboard-preset-dir-reload",
+      selectId: "dashboard-preset",
+    });
     await populatePresetSelect("dashboard-preset", false);
 
     const preview = () => {
@@ -3192,9 +4183,41 @@ async function bindDashboard() {
         if (!path) return;
         const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
         setConfigDraft(String(applied?.config || ""));
+        clearConfigValidationState();
+        const appStateNow = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
+        await renderDashboardDerivedGuardrails(appStateNow);
         setFooter("Preset fuer Guided Run aktualisiert.");
       } catch (err) {
         setFooter(`Preset-Laden fehlgeschlagen: ${errorText(err)}`, true);
+      }
+    });
+
+    $("dashboard-validate")?.addEventListener("click", async () => {
+      const validateButton = $("dashboard-validate");
+      try {
+        setDisabledLike(validateButton, true);
+        setDashboardValidateStatus(null, "Validierung läuft...");
+        setDashboardValidateDetails(null);
+        const yaml = await ensureConfigYaml();
+        const result = await api.post(API_ENDPOINTS.config.validate, { yaml });
+        setConfigValidationState({
+          yaml,
+          ok: Boolean(result?.ok),
+          errors: Array.isArray(result?.errors) ? result.errors : [],
+          warnings: Array.isArray(result?.warnings) ? result.warnings : [],
+        });
+        const appStateNow = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
+        await renderDashboardDerivedGuardrails(appStateNow);
+        setFooter(result?.ok ? "Validierung OK." : "Validierung hat Fehler.");
+      } catch (err) {
+        clearConfigValidationState();
+        const appStateNow = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
+        await renderDashboardDerivedGuardrails(appStateNow);
+        setDashboardValidateStatus(null, "Validierung: fehlgeschlagen");
+        setDashboardValidateDetails(null);
+        setFooter(`Validierung fehlgeschlagen: ${errorText(err)}`, true);
+      } finally {
+        setDisabledLike(validateButton, false);
       }
     });
 
@@ -3204,9 +4227,22 @@ async function bindDashboard() {
       try {
         setDisabledLike(runStartButton, true);
         const latestGuardrails = await api.get(API_ENDPOINTS.guardrails.root);
+        uiState.dashboardGuardrailStatus = String(latestGuardrails?.status || "");
+        const yaml = await ensureConfigYaml();
+        const validation = currentValidationStateForYaml(yaml);
         if (String(latestGuardrails?.status || "").toLowerCase() === "error") {
-          setDisabledLike(runStartButton, false);
+          updateDashboardRunStartState(validation, latestGuardrails?.status || "");
           setFooter("Run blockiert: Guardrail-Status ist ERROR.", true);
+          return;
+        }
+        if (!validation) {
+          updateDashboardRunStartState(null, latestGuardrails?.status || "");
+          setFooter("Run blockiert: zuerst Validieren.", true);
+          return;
+        }
+        if (!validation.ok) {
+          updateDashboardRunStartState(validation, latestGuardrails?.status || "");
+          setFooter("Run blockiert: Validierung hat Fehler.", true);
           return;
         }
         const accepted = await startRunFromCurrentForm({ source: "dashboard" });
@@ -3216,7 +4252,8 @@ async function bindDashboard() {
         setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
         window.location.href = "run-monitor.html";
       } catch (err) {
-        setDisabledLike(runStartButton, false);
+        const yaml = await ensureConfigYaml().catch(() => "");
+        updateDashboardRunStartState(currentValidationStateForYaml(yaml), uiState.dashboardGuardrailStatus);
         setFooter(`Run-Start fehlgeschlagen: ${errorText(err)}`, true);
       }
     });
@@ -3259,6 +4296,7 @@ async function bindDashboard() {
         applyDetectedColorModeToSelect($("dashboard-color-mode"), summary2);
         applyDetectedColorModeToSelect($("inp-colormode"), summary2);
         const appState2 = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
+        uiState.dashboardGuardrailStatus = String(guardrails2?.status || "");
         setRunReady(guardrails2?.status || "check", appState2?.run?.current?.status || "");
         const scanCheck2 = (guardrails2?.checks || []).find((c) => c.id === "scan_ok");
         const warnCheck2 = (guardrails2?.checks || []).find((c) => c.id === "scan_warnings");
@@ -3274,6 +4312,7 @@ async function bindDashboard() {
           colorModeCheck2?.label || "Color mode bestaetigen",
         );
         renderDashboardLastRunKpi(appState2);
+        await renderDashboardPipelinePreview(appState2);
         await renderDashboardDerivedGuardrails(appState2);
         if (String(job?.state) === "missing") {
           setFooter(
@@ -3314,10 +4353,46 @@ async function bindDashboard() {
 
 async function bindWizard() {
   if (pageName() !== "wizard.html") return;
+  updateWizardStartState(null);
+  setWizardValidationResult(null, "Validierung ausstehend.");
   const wizardRunsDir = $("wizard-runs-dir");
   if (wizardRunsDir && !String(wizardRunsDir.value || "").trim() && uiState.projectRunsDir) {
     wizardRunsDir.value = uiState.projectRunsDir;
   }
+  const applyWizardValidationState = (validationState, fallbackText = "Validierung ausstehend.") => {
+    if (validationState) {
+      setWizardValidationResult({
+        ok: Boolean(validationState.ok),
+        errors: Array.isArray(validationState.errors) ? validationState.errors : [],
+        warnings: Array.isArray(validationState.warnings) ? validationState.warnings : [],
+      });
+    } else {
+      setWizardValidationResult(null, fallbackText);
+    }
+    updateWizardStartState(validationState);
+  };
+  const validateWizardYaml = async (yamlText, { quiet = false, pendingText = "Validierung läuft..." } = {}) => {
+    const yaml = String(yamlText || "");
+    applyWizardValidationState(null, pendingText);
+    try {
+      const result = await api.post(API_ENDPOINTS.config.validate, { yaml });
+      setConfigValidationState({
+        yaml,
+        ok: Boolean(result?.ok),
+        errors: Array.isArray(result?.errors) ? result.errors : [],
+        warnings: Array.isArray(result?.warnings) ? result.warnings : [],
+      });
+      applyWizardValidationState(currentValidationStateForYaml(yaml));
+      return result;
+    } catch (err) {
+      clearConfigValidationState();
+      applyWizardValidationState(null, "Validierung fehlgeschlagen.");
+      if (!quiet) {
+        setFooter(`Wizard-Validierung fehlgeschlagen: ${errorText(err)}`, true);
+      }
+      throw err;
+    }
+  };
   const updateWizardPreview = () => {
     const runsDir = String($("wizard-runs-dir")?.value || "").trim();
     const dirs = parseInputDirs(String($("inp-dirs")?.value || ""));
@@ -3332,6 +4407,12 @@ async function bindWizard() {
     previewEl.value = `${runsDir}/${suggested}_${timestampSuffix()}`;
   };
   try {
+    await bindPresetDirectoryControl({
+      inputId: "wizard-preset-dir",
+      browseId: "wizard-preset-dir-browse",
+      reloadId: "wizard-preset-dir-reload",
+      selectId: "wizard-preset-select",
+    });
     await populatePresetSelect("wizard-preset-select", true);
   } catch (err) {
     setFooter(`Wizard-Presetliste konnte nicht geladen werden: ${errorText(err)}`, true);
@@ -3363,11 +4444,10 @@ async function bindWizard() {
       const path = String($("wizard-preset-select")?.value || "").trim();
       if (!path) return;
       const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
-      setConfigDraft(String(applied?.config || ""));
-      const v = await api.post(API_ENDPOINTS.config.validate, { yaml: String(applied?.config || "") });
-      const box = $("wizard-validation-result");
-      if (box) box.innerHTML = `<div class="ps-result-title">Validation</div><div>Schema: <b>${v.ok ? "OK" : "ERROR"}</b> | Fehler: <b>${(v.errors || []).length}</b> | Warnungen: <b>${(v.warnings || []).length}</b></div>`;
-      setFooter("Wizard-Preset angewendet.");
+      const yaml = String(applied?.config || "");
+      setConfigDraft(yaml);
+      const v = await validateWizardYaml(yaml, { quiet: true });
+      setFooter(v.ok ? "Wizard-Preset angewendet. Validierung OK." : "Wizard-Preset angewendet. Validierung hat Fehler.", !v.ok);
     } catch (err) {
       setFooter(`Wizard-Preset fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -3386,10 +4466,13 @@ async function bindWizard() {
         return;
       }
       const patched = await patchConfig({ updates, persist: false });
-      const v = await api.post(API_ENDPOINTS.config.validate, { yaml: patched?.config_yaml || "" });
-      const box = $("wizard-validation-result");
-      if (box) box.innerHTML = `<div class="ps-result-title">Validation</div><div>Schema: <b>${v.ok ? "OK" : "ERROR"}</b> | Fehler: <b>${(v.errors || []).length}</b> | Warnungen: <b>${(v.warnings || []).length}</b></div>`;
-      setFooter(`Wizard-Szenario angewendet (${updates.length} Deltas).`);
+      const v = await validateWizardYaml(patched?.config_yaml || "", { quiet: true });
+      setFooter(
+        v.ok
+          ? `Wizard-Szenario angewendet (${updates.length} Deltas). Validierung OK.`
+          : `Wizard-Szenario angewendet (${updates.length} Deltas). Validierung hat Fehler.`,
+        !v.ok,
+      );
     } catch (err) {
       setFooter(`Wizard-Szenario fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -3398,6 +4481,18 @@ async function bindWizard() {
   $("wizard-start")?.addEventListener("click", async (ev) => {
     ev.preventDefault();
     try {
+      const yaml = await ensureConfigYaml();
+      const validation = currentValidationStateForYaml(yaml);
+      if (!validation) {
+        updateWizardStartState(null);
+        setFooter("Wizard-Run blockiert: zuerst erfolgreiche Validierung abwarten.", true);
+        return;
+      }
+      if (!validation.ok) {
+        updateWizardStartState(validation);
+        setFooter("Wizard-Run blockiert: Validierung hat Fehler.", true);
+        return;
+      }
       const accepted = await startRunFromCurrentForm({ source: "wizard" });
       setCurrentRunId(accepted?.run_id || uiState.currentRunId);
       clearCurrentRunHistoryMark();
@@ -3407,6 +4502,19 @@ async function bindWizard() {
       setFooter(`Wizard-Runstart fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
+
+  try {
+    const initialYaml = await ensureConfigYaml();
+    const existingValidation = currentValidationStateForYaml(initialYaml);
+    if (existingValidation) {
+      applyWizardValidationState(existingValidation);
+    } else {
+      await validateWizardYaml(initialYaml, { quiet: true, pendingText: "Validierung läuft..." });
+    }
+  } catch (err) {
+    applyWizardValidationState(null, "Validierung fehlgeschlagen.");
+    setFooter(`Wizard-Validierung konnte nicht initialisiert werden: ${errorText(err)}`, true);
+  }
 }
 
 async function bindAssumptions() {
@@ -3441,6 +4549,7 @@ async function bindAssumptions() {
 async function init() {
   bindLocaleControls();
   await initGlobalState();
+  bindRunMonitorFilterSync();
   bindScanPages();
   await bindParameterStudio();
   await bindRunMonitor();

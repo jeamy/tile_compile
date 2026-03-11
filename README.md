@@ -17,6 +17,7 @@ While the methodology was originally conceived to address the specific challenge
 - Implementation process flow: [Process flow (English)](doc/v3/process_flow/README_en.md)
 - Implementation process flow (German): [Process flow](doc/v3/process_flow/README_de.md)
 - English step-by-step guide: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
+- German step-by-step guide: [Schritt-für-Schritt-Anleitung](doc/v3/tbqr_step_by_step_de.md)
 - German README snapshot: [German README](README_de.md)
 - Data flow (user-friendly): [Process Flow – How the System Works](doc/v3/process_flow/data_flow_user_description_en.md)
 
@@ -44,10 +45,12 @@ Given a directory of FITS lights, the pipeline can:
 | Component | Directory | Status | Stack |
 |-----------|-----------|--------|-------|
 | Core pipeline | `tile_compile_cpp/` | Active | C++17 + Eigen + OpenCV + cfitsio + yaml-cpp |
-| GUI2 backend | `web_backend/` | Active | FastAPI + Python |
+| GUI2 backend | `web_backend_cpp/` | Active | Crow + C++17 |
 | GUI2 frontend | `web_frontend/` | Active | HTML + CSS + JavaScript |
 
 ## Pipeline Phases
+
+In practical use, the overall workflow is intentionally simple: after you provide the input data and a manageable set of configuration parameters, the pipeline processes the dataset automatically from stacking through astrometry, optional background handling, and PCC to the final result. No complicated manual intermediate steps are required for a normal run. At the same time, the system remains fully configurable in depth, so every stage can still be tuned in fine detail whenever you need tighter control over registration, tiling, reconstruction, stacking, or post-processing behavior.
 
 | ID | Phase | Description |
 |----|-------|-------------|
@@ -113,11 +116,11 @@ Pre-built GUI2 release bundles are published via [GitHub Releases](https://githu
 Each bundle contains:
 
 - GUI2 frontend (`web_frontend/`)
-- FastAPI backend (`web_backend/`)
-- native C++ tools (`tile_compile_runner`, `tile_compile_cli`)
+- Crow backend (`web_backend_cpp/`)
+- native C++ tools (`tile_compile_runner`, `tile_compile_cli`, `tile_compile_web_backend`)
 - launchers for Linux, macOS, and Windows
 
-At runtime, GUI2 always uses the local FastAPI backend as the process adapter for the C++ runner/CLI.
+At runtime, GUI2 uses the local Crow/C++ backend as the process adapter for the C++ runner/CLI.
 
 ## Quickstart
 
@@ -141,7 +144,7 @@ Release bundle start:
 - macOS: `start_gui2.command`
 - Windows: `start_gui2.bat`
 
-The launcher prepares a Python environment, starts the FastAPI backend in the foreground, and opens the browser to the local GUI2 URL.
+The launcher copies the bundled payload into a per-user install directory, starts the Crow backend in the foreground, and opens the browser to the local GUI2 URL.
 
 ### C++ CLI / runner
 
@@ -182,8 +185,15 @@ sudo dnf install -y \
 macOS (Homebrew, core libs):
 
 ```bash
-brew install cmake pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl curl
+xcode-select --install
+brew install cmake ninja pkg-config eigen cfitsio yaml-cpp nlohmann-json openssl curl
+brew install opencv
 ```
+
+Notes:
+
+- `ninja` is required for the local GUI2 packaging scripts.
+- On macOS 12, the default Homebrew `opencv` formula is currently not supported. The Homebrew-based path therefore effectively requires macOS 13+ for OpenCV, unless you provide a separate working OpenCV installation yourself.
 
 Windows:
 
@@ -205,7 +215,7 @@ GUI2 release bundles are built by:
 
 - `.github/workflows/release-tile-compile-gui2.yml`
 
-The workflow builds Qt-free C++ binaries, bundles `web_backend/` and `web_frontend/`, adds the GUI2 launchers, and creates ZIP artifacts for Linux, macOS, and Windows.
+The workflow builds the Qt-free C++ binaries, bundles `web_backend_cpp/` and `web_frontend/`, adds the GUI2 launchers, and creates ZIP artifacts for Linux, Windows, macOS Apple Silicon, and macOS Intel.
 
 Not included by design:
 
@@ -308,9 +318,9 @@ Supported resume phases: `ASTROMETRY`, `BGE`, `PCC`.
 
 The recommended UI path is the web-based GUI2:
 
-- backend: `web_backend/`
+- backend: `web_backend_cpp/`
 - frontend: `web_frontend/`
-- orchestration: FastAPI -> `tile_compile_cli` / `tile_compile_runner`
+- orchestration: Crow backend -> `tile_compile_cli` / `tile_compile_runner`
 
 Development start:
 
@@ -361,12 +371,12 @@ For optional color calibration and astrometric solving, the pipeline can use ext
 
 If these resources are not installed, core reconstruction still works, but ASTROMETRY/PCC phases may be skipped or fail depending on configuration.
 
-## Diagnostic Report (`tile_compile_cpp/generate_report.py`)
+## Diagnostic Report (`report.html` via C++ backend)
 
-Generate an HTML quality report from a finished run:
+Generate an HTML quality report from a finished run either via GUI2 or directly through the CLI:
 
 ```bash
-python tile_compile_cpp/generate_report.py runs/<run_id>
+./tile_compile_cli generate-report runs/<run_id>
 ```
 
 Output:
@@ -397,13 +407,13 @@ The report aggregates data from artifact JSON files, `logs/run_events.jsonl`, an
 ```text
 tile_compile/
 ├── web_frontend/           # GUI2 HTML/CSS/JS frontend
-├── web_backend/            # GUI2 FastAPI backend
+├── web_backend_cpp/        # GUI2 Crow/C++ backend
 ├── tile_compile_cpp/
 │   ├── apps/                # runner/cli entry points
 │   ├── include/tile_compile/
 │   ├── src/
 │   ├── examples/            # example configs
-│   ├── scripts/             # reports, helper scripts
+│   ├── scripts/             # helper scripts
 │   ├── tests/
 │   ├── tile_compile.yaml
 │   ├── tile_compile.schema.json
@@ -413,7 +423,7 @@ tile_compile/
 ├── doc/
 │   ├── v3/                  # methodology and process-flow docs
 │   └── gui2/                # GUI2 concept/reference docs
-├── start_backend.sh         # dev start for FastAPI + GUI2
+├── start_backend.sh         # dev start for Crow backend + GUI2
 ├── start_gui2_docker.sh     # run GUI2 in Docker
 ├── README.md
 └── README_de.md
@@ -454,16 +464,30 @@ ctest --output-on-failure
 - Expanded DE/EN i18n coverage in the GUI2 frontend and parameter studio, with aligned docs and backend config handling.
 - Moved the previous Qt6 GUI path into `legacy/` and clarified the actively maintained GUI2 packaging/start workflow.
 
+### v0.0.6 (2026-03-11)
+
+- Completed the productive migration to the Crow/C++ backend.
+- Integrated C++ report generation.
+- Updated launcher scripts, Docker packaging, and GitHub workflows to build and run the C++ backend directly.
+
 ## Changelog
 
 ### (2026-03-09)
 
 **GUI2 release + i18n refresh:**
 
-- Promoted the web-based GUI2 stack (`web_frontend/` + `web_backend/`) to the recommended UI path and updated the top-level docs accordingly.
+- Promoted the web-based GUI2 stack (`web_frontend/` + `web_backend_cpp/`) to the recommended UI path and updated the top-level docs accordingly.
 - Added the dedicated GUI2 release workflow and launcher packaging for Linux, macOS, and Windows under `.github/workflows/release-tile-compile-gui2.yml` and `packaging/gui2/`.
 - Expanded frontend localization coverage and parameter-studio translations, with matching backend config contract updates and tests.
 - Moved the earlier Qt6 GUI/build-script path into `legacy/` to separate the maintained GUI2 route from the legacy desktop implementation.
+
+### (2026-03-10)
+
+**Python elimination in the productive GUI2 path:**
+
+- Switched GUI2 runtime, packaging, Docker, and CI to the Crow/C++ backend.
+- Removed the productive Python dependency for stats/report generation; this now runs via the integrated C++ backend path and CLI support.
+- Updated the repository structure and GUI2 documentation to reflect `web_backend_cpp/` as the maintained backend implementation.
 
 ### (2026-03-05, later update)
 

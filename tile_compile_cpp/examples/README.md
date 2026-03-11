@@ -60,7 +60,7 @@ They are kept in sync with v3.3 runner/config parser defaults, including:
   - Weighted regularized robust regression (IRLS with Huber/Tukey loss)
   - Adaptive grid spacing scales with image dimensions
   - Writes `artifacts/bge.json` with per-channel diagnostics (samples, grid cells, residual stats)
-  - Included in `generate_report.py` as BGE section with dedicated plots
+  - Included in the integrated report generation as a BGE section with dedicated plots
   - Includes channel apply guards:
     - `bge.min_valid_sample_fraction_for_apply` (default `0.30`)
     - `bge.min_valid_samples_for_apply` (default `96`)
@@ -85,37 +85,37 @@ They are kept in sync with v3.3 runner/config parser defaults, including:
 
 ## Profiles
 
-- `tile_compile.full_mode.example.yaml`
+- `full_mode.example.yaml`
   - For datasets with enough usable frames for full mode.
   - Chroma denoise profile: balanced (reference values).
-- `tile_compile.reduced_mode.example.yaml`
+- `reduced_mode.example.yaml`
   - For 50..(frames_reduced_threshold-1) usable frames.
   - Chroma denoise profile: moderately conservative (detail-preserving).
-- `tile_compile.emergency_mode.example.yaml`
+- `emergency_mode.example.yaml`
   - Enables emergency reduced mode for datasets with <50 usable frames.
   - Chroma denoise profile: aggressive (strong chroma noise suppression).
-- `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
+- `smart_telescope_dwarf_seestar.example.yaml`
   - Suggested full config for DWARF / ZWO Seestar OSC stacks.
   - Chroma denoise profile: balanced (moderate chroma noise reduction, works with and without darks).
-- `tile_compile.smart_telescope_very_bright_star.example.yaml`
+- `smart_telescope_very_bright_star.example.yaml`
   - Suggested DWARF / Seestar OSC config for fields dominated by one very bright or saturated star.
   - Anti-seam focus for compact Alt/Az datasets: larger tiles, softer weighting, stronger halo protection.
-- `tile_compile.canon_low_n_high_quality.example.yaml`
+- `canon_low_n_high_quality.example.yaml`
   - Suggested OSC config for Canon-style datasets with low frame count but high/consistent quality.
   - Anti-grid focus for reduced/emergency operation: larger tiles, higher overlap, conservative weighting.
-- `tile_compile.very_bright_star_anti_seam.example.yaml`
+- `very_bright_star_anti_seam.example.yaml`
   - Suggested OSC config for datasets dominated by one or a few very bright/saturated stars.
   - Anti-seam focus: larger tiles, softer local weighting, stronger halo protection in BGE/PCC-related settings.
-- `tile_compile.canon_equatorial_balanced.example.yaml`
+- `canon_equatorial_balanced.example.yaml`
   - Suggested OSC config for Canon/DSLR on equatorial mount (well-tracked, balanced quality/safety).
   - Registration is intentionally stricter than Alt/Az while still compatible with modeled fallback for failed direct registrations.
-- `tile_compile.mono_full_mode.example.yaml`
+- `mono_full_mode.example.yaml`
   - Suggested full config for MONO datasets in full mode.
   - Chroma denoise block included for completeness, but disabled by default.
-- `tile_compile.mono_small_n_anti_grid.example.yaml`
+- `mono_small_n_anti_grid.example.yaml`
   - Suggested MONO config for small frame counts (e.g. 10..40) where tile seams/patterns can appear.
   - Anti-grid focus: larger tiles, higher overlap, conservative local weighting, reduced denoise aggressiveness.
-- `tile_compile.mono_small_n_ultra_conservative.example.yaml`
+- `mono_small_n_ultra_conservative.example.yaml`
   - Suggested MONO config for very small frame counts (e.g. 8..25) where maximum seam stability is preferred over aggressive enhancement.
   - Ultra-conservative focus: tile denoise disabled, very soft local weighting, larger tiles and higher overlap.
 
@@ -128,7 +128,7 @@ They are kept in sync with v3.3 runner/config parser defaults, including:
    - `data.bayer_pattern`
    - (optional) tune `dithering.min_shift_px` to your mount behavior
    - (optional) tune `registration.reject_*` thresholds if frames are over- or under-rejected
-   - (optional, Alt/Az near polar region) prefer `tile_compile.smart_telescope_altaz_polar_near.example.yaml` as baseline
+   - (optional, Alt/Az near polar region) prefer `smart_telescope_altaz_polar_near.example.yaml` as baseline
    - (optional, OSC) tune `chroma_denoise.blend.amount` and `chroma_denoise.apply_stage`
    - (optional) tune `stacking.cluster_quality_weighting.*` if cluster weighting is too strong/weak
    - (optional) tune `stacking.common_overlap_*` only if you intentionally want more edge coverage
@@ -139,7 +139,7 @@ They are kept in sync with v3.3 runner/config parser defaults, including:
 2. Run directly with:
 
 ```bash
-./build/tile_compile_runner --config examples/tile_compile.full_mode.example.yaml
+./build/tile_compile_runner --config examples/full_mode.example.yaml
 ```
 
 ### Optional: merge workflow (overlay style)

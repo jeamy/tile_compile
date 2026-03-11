@@ -95,36 +95,8 @@
                 <div>Aktiv</div>
               </div>
               <div class="ps-queue-row">
-                <div class="ps-queue-cell"><select class="ps-select"><option selected>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
-                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für L wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-              </div>
-              <div class="ps-queue-row">
-                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option selected>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
-                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für R wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-              </div>
-              <div class="ps-queue-row">
-                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option selected>G</option><option>B</option><option>Ha</option></select></div>
-                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für G wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-              </div>
-              <div class="ps-queue-row">
-                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option selected>B</option><option>Ha</option></select></div>
-                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für B wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-              </div>
-              <div class="ps-queue-row">
-                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option>B</option><option selected>Ha</option></select></div>
-                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für Ha wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+                <div class="ps-queue-cell"><select class="ps-select"><option selected value="">-</option><option>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis waehlen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
                 <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
                 <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
                 <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
@@ -141,7 +113,7 @@
                 <option>Master Bias Datei</option>
               </select>
               <div class="ps-inline-cluster">
-                <input class="ps-input ps-wide" type="text" value="" id="cal-bias-dir" data-control="input_scan.calibration.bias_dir" placeholder="/data/calib/bias oder /data/calib/master_bias*" title="Bias-Ordner setzen.">
+                <input class="ps-input ps-wide" type="text" value="" id="cal-bias-dir" data-control="input_scan.calibration.bias_dir" placeholder="Bias-Ordner oder Master-Bias-Datei" title="Bias-Ordner setzen.">
                 <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
               </div>
             </div>
@@ -152,7 +124,7 @@
                 <option>Master Dark Datei</option>
               </select>
               <div class="ps-inline-cluster">
-                <input class="ps-input ps-wide" type="text" value="" id="cal-dark-dir" data-control="input_scan.calibration.darks_dir" placeholder="/data/calib/darks oder /data/calib/masterdark*" title="Dark-Ordner setzen.">
+                <input class="ps-input ps-wide" type="text" value="" id="cal-dark-dir" data-control="input_scan.calibration.darks_dir" placeholder="Dark-Ordner oder Master-Dark-Datei" title="Dark-Ordner setzen.">
                 <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
               </div>
             </div>
@@ -163,7 +135,7 @@
                 <option>Master Flat Datei</option>
               </select>
               <div class="ps-inline-cluster">
-                <input class="ps-input ps-wide" type="text" value="" id="cal-flat-dir" data-control="input_scan.calibration.flats_dir" placeholder="/data/calib/flats oder /data/calib/masterflat*" title="Flat-Ordner setzen.">
+                <input class="ps-input ps-wide" type="text" value="" id="cal-flat-dir" data-control="input_scan.calibration.flats_dir" placeholder="Flat-Ordner oder Master-Flat-Datei" title="Flat-Ordner setzen.">
                 <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
               </div>
             </div>
@@ -180,9 +152,9 @@
               <strong>Status</strong><span id="scan-summary-status">-</span>
               <strong>Input Path</strong><span id="scan-summary-input-path">-</span>
               <strong>Frames entdeckt</strong><span id="scan-summary-frames">0</span>
-              <strong>Color Mode</strong><span id="scan-summary-color-mode">UNKNOWN</span>
+              <strong>Color Mode</strong><span id="scan-summary-color-mode">-</span>
               <strong>Mode Kandidaten</strong><span id="scan-summary-candidates">-</span>
-              <strong>Bildgroesse</strong><span id="scan-summary-size">0 x 0</span>
+              <strong>Bildgroesse</strong><span id="scan-summary-size">-</span>
               <strong>Bayer Pattern</strong><span id="scan-summary-bayer">-</span>
               <strong>User-Bestaetigung</strong><span id="scan-summary-confirm">nein</span>
               <strong>Fehler</strong><span id="scan-summary-errors">0</span>
@@ -196,20 +168,15 @@
             <div class="ps-section-title">Step 4: Preset + Situation + Validation</div>
             <div class="ps-row">
               <label for="wizard-preset-select">preset</label>
-              <select id="wizard-preset-select" data-control="wizard.preset.select" class="ps-select" title="Preset fuer Wizard-Draft waehlen.">
-                <option selected>tile_compile.mono_full_mode.example.yaml</option>
-                <option>tile_compile.canon_equatorial_balanced.example.yaml</option>
-                <option>tile_compile.canon_low_n_high_quality.example.yaml</option>
-                <option>tile_compile.emergency_mode.example.yaml</option>
-                <option>tile_compile.full_mode.example.yaml</option>
-                <option>tile_compile.ic434_test.example.yaml</option>
-                <option>tile_compile.mono_small_n_anti_grid.example.yaml</option>
-                <option>tile_compile.mono_small_n_ultra_conservative.example.yaml</option>
-                <option>tile_compile.reduced_mode.example.yaml</option>
-                <option>tile_compile.smart_telescope_dwarf_seestar.example.yaml</option>
-                <option>tile_compile.smart_telescope_very_bright_star.example.yaml</option>
-                <option>tile_compile.very_bright_star_anti_seam.example.yaml</option>
-              </select>
+              <select id="wizard-preset-select" data-control="wizard.preset.select" class="ps-select" title="Preset fuer Wizard-Draft waehlen."></select>
+            </div>
+            <div class="ps-row">
+              <label for="wizard-preset-dir" data-i18n="ui.field.preset_dir">Preset Dir</label>
+              <div class="ps-inline-cluster">
+                <input id="wizard-preset-dir" data-control="wizard.preset.dir" data-i18n-title="ui.tooltip.wizard.preset_dir" class="ps-input ps-wide" type="text" value="" title="Preset-Verzeichnis setzen oder leer lassen fuer examples.">
+                <button id="wizard-preset-dir-browse" class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.browse" type="button">Browse…</button>
+                <button id="wizard-preset-dir-reload" class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.reload" type="button">Reload</button>
+              </div>
             </div>
             <div class="ps-row">
               <label>Szenarien</label>
@@ -225,7 +192,7 @@
           <div class="ps-actions">
             <button id="wizard-nav-back" data-control="wizard.nav.back" class="ps-btn ps-btn-secondary" title="Zum vorherigen Wizard-Schritt.">Zurueck</button>
             <a class="ps-btn ps-btn-secondary" data-control="nav.parameter_studio" data-i18n="ui.button.open_parameter_studio" href="parameter-studio.html">Zum Parameter Studio</a>
-            <a id="wizard-start" data-control="wizard.start" class="ps-btn" href="run-monitor.html" title="Run mit aktuellem Wizard-Draft starten.">Run starten</a>
+            <a id="wizard-start" data-control="wizard.start" class="ps-btn" href="run-monitor.html" title="Run mit aktuellem Wizard-Draft starten (nur mit erfolgreicher Validierung)." aria-disabled="true" style="opacity:0.55;pointer-events:none;">Run starten</a>
           </div>
         </section>
 

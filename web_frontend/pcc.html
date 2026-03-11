@@ -27,11 +27,11 @@
           <div class="ps-section-title">Input</div>
           <div class="ps-row">
             <label for="tools-pcc-rgb">RGB FITS</label>
-            <input id="tools-pcc-rgb" data-control="tools.pcc.rgb_fits" class="ps-input ps-wide" type="text" value="stacked_rgb.fit" title="Pfad zur RGB-FITS-Datei fuer PCC.">
+            <input id="tools-pcc-rgb" data-control="tools.pcc.rgb_fits" class="ps-input ps-wide" type="text" value="" title="Pfad zur RGB-FITS-Datei fuer PCC.">
           </div>
           <div class="ps-row">
             <label for="tools-pcc-wcs">WCS File</label>
-            <input id="tools-pcc-wcs" data-control="tools.pcc.wcs_file" class="ps-input ps-wide" type="text" value="stacked_rgb.wcs" title="Pfad zur WCS-Datei.">
+            <input id="tools-pcc-wcs" data-control="tools.pcc.wcs_file" class="ps-input ps-wide" type="text" value="" title="Pfad zur WCS-Datei.">
           </div>
           <div class="ps-actions" style="margin-top:8px;">
             <button data-control="tools.pcc.browse_rgb" class="ps-btn ps-btn-secondary" title="RGB-FITS auswaehlen.">Browse RGB</button>
@@ -51,9 +51,9 @@
           </div>
           <div class="ps-note">Siril: lokale Gaia-DR3-XP Chunks (48 Dateien). Online: direkte VizieR-Abfrage ohne lokalen Download.</div>
           <div class="ps-grid-3" style="margin-top:10px;">
-            <div class="ps-row"><label>Siril Status</label><input data-control="tools.pcc.siril_status" class="ps-input" type="text" value="Partial - 31/48 installiert" readonly title="Installationsstatus der Siril-Katalogchunks."></div>
-            <div class="ps-row"><label>Missing Chunks</label><input id="tools-pcc-missing-chunks" class="ps-input" type="text" value="17" readonly title="Noch fehlende Chunks."></div>
-            <div class="ps-row"><label>Catalog Dir</label><input id="tools-pcc-catalog-dir" data-control="tools.pcc.siril_catalog_dir" class="ps-input" type="text" value="~/.local/share/siril/siril_cat1_healpix8_xpsamp" title="Pfad zum Siril-Katalogordner."></div>
+            <div class="ps-row"><label>Siril Status</label><input data-control="tools.pcc.siril_status" class="ps-input" type="text" value="" readonly title="Installationsstatus der Siril-Katalogchunks."></div>
+            <div class="ps-row"><label>Missing Chunks</label><input id="tools-pcc-missing-chunks" class="ps-input" type="text" value="" readonly title="Noch fehlende Chunks."></div>
+            <div class="ps-row"><label>Catalog Dir</label><input id="tools-pcc-catalog-dir" data-control="tools.pcc.siril_catalog_dir" class="ps-input" type="text" value="" title="Pfad zum Siril-Katalogordner."></div>
           </div>
           <div class="ps-actions" style="margin-top:8px;">
             <button data-control="tools.pcc.browse_catalog_dir" class="ps-btn ps-btn-secondary" title="Siril-Katalogverzeichnis auswaehlen.">Browse Catalog Dir</button>
@@ -83,18 +83,12 @@
         <section class="ps-section">
           <div class="ps-section-title">Result + Log</div>
           <div class="ps-grid-3" style="margin-bottom:10px;">
-            <div class="ps-row"><label>Stars matched</label><input id="tools-pcc-stars-matched" class="ps-input" type="text" value="162" readonly title="Anzahl gematchter Sterne."></div>
-            <div class="ps-row"><label>Stars used</label><input id="tools-pcc-stars-used" class="ps-input" type="text" value="128" readonly title="Anzahl verwendeter Sterne."></div>
-            <div class="ps-row"><label>Residual RMS</label><input id="tools-pcc-residual-rms" class="ps-input" type="text" value="0.024" readonly title="Restfehler des PCC-Fits."></div>
+            <div class="ps-row"><label>Stars matched</label><input id="tools-pcc-stars-matched" class="ps-input" type="text" value="" readonly title="Anzahl gematchter Sterne."></div>
+            <div class="ps-row"><label>Stars used</label><input id="tools-pcc-stars-used" class="ps-input" type="text" value="" readonly title="Anzahl verwendeter Sterne."></div>
+            <div class="ps-row"><label>Residual RMS</label><input id="tools-pcc-residual-rms" class="ps-input" type="text" value="" readonly title="Restfehler des PCC-Fits."></div>
           </div>
           <div class="ps-row" style="margin-bottom:10px;"><label for="tools-pcc-matrix">Color Matrix</label><textarea id="tools-pcc-matrix" class="ps-input" rows="4" readonly title="Ermittelte PCC-Farbmatrix.">-</textarea></div>
-          <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:180px;overflow:auto;">
-[PCC] Downloading 17 missing catalog chunks...
-[PCC] Chunk 7/17 downloaded and decompressed.
-[PCC] Querying source=siril RA=10.68 Dec=41.27 r=1.52 deg
-[PCC] Found 844 catalog stars
-[PCC] Success! Use Save Corrected.
-          </div>
+          <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:180px;overflow:auto;"></div>
         </section>
       </div>
     </div>

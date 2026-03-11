@@ -20,7 +20,6 @@ Usage:
   $(basename "$0") build-image [--image <name>]
   $(basename "$0") run-shell   [--image <name>] [--name <container>] [mount opts]
   $(basename "$0") run-app     [--image <name>] [mount opts] -- <runner args>
-  $(basename "$0") run-gui     [--image <name>] [mount opts] [-- <gui args>]
 
 Mount opts:
   --runs-host-dir <path>        Host runs directory
@@ -34,7 +33,6 @@ Description:
   build-image  Builds a Docker image and compiles tile_compile_cpp inside the image.
   run-shell    Starts an interactive container shell with default runs volume mounted.
   run-app      Runs ./tile_compile_runner inside the container.
-  run-gui      Runs ./tile_compile_gui inside the container with X11 forwarding.
 
 Defaults:
   image name:         ${IMAGE_NAME}
@@ -52,12 +50,9 @@ Examples:
   $(basename "$0") run-app -- run --config /mnt/config/tile_compile.yaml --input-dir /mnt/input --runs-dir ${RUNS_CONTAINER_DIR}
   $(basename "$0") run-app --config-host-dir /data/config --input-host-dir /data/lights -- \\
     run --config /mnt/config/tile_compile.yaml --input-dir /mnt/input --runs-dir ${RUNS_CONTAINER_DIR}
-  $(basename "$0") run-gui
-
 Notes:
   - The default runs volume maps host '${RUNS_HOST_DIR}' to container '${RUNS_CONTAINER_DIR}'.
   - Optional config/input mounts are read-only and disabled by default.
-  - For run-gui, allow local Docker access once on the host: xhost +local:docker
 EOF
 }
 
@@ -155,7 +150,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libyaml-cpp-dev \
     nlohmann-json3-dev \
     libssl-dev \
-    qt6-base-dev \
     libspdlog-dev \
     python3 \
  && rm -rf /var/lib/apt/lists/*
@@ -173,7 +167,7 @@ COPY tile_compile_cpp/src /workspace/tile_compile_cpp/src
 COPY tile_compile_cpp/apps /workspace/tile_compile_cpp/apps
 
 RUN rm -rf /workspace/tile_compile_cpp/build \
- && cmake -S /workspace/tile_compile_cpp -B /workspace/tile_compile_cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DBUILD_QT_GUI=OFF \
+ && cmake -S /workspace/tile_compile_cpp -B /workspace/tile_compile_cpp/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF \
  && cmake --build /workspace/tile_compile_cpp/build -j"$(nproc)"
 
 WORKDIR /workspace/tile_compile_cpp/build
@@ -211,26 +205,6 @@ run_app() {
     ./tile_compile_runner "${REM_ARGS[@]}"
 }
 
-run_gui() {
-  mkdir -p "${RUNS_HOST_DIR}"
-  validate_optional_mounts
-  build_mount_args
-
-  if [[ -z "${DISPLAY:-}" ]]; then
-    echo "ERROR: DISPLAY is not set. Start from a graphical session." >&2
-    exit 2
-  fi
-
-  docker run --rm -it \
-    -e DISPLAY="${DISPLAY}" \
-    -e QT_QPA_PLATFORM=xcb \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-    "${MOUNT_ARGS[@]}" \
-    -w /workspace/tile_compile_cpp/build \
-    "${IMAGE_NAME}" \
-    ./tile_compile_gui "${REM_ARGS[@]}"
-}
-
 if [[ $# -lt 1 ]]; then
   usage
   exit 1
@@ -250,9 +224,6 @@ case "${COMMAND}" in
     ;;
   run-app)
     run_app
-    ;;
-  run-gui)
-    run_gui
     ;;
   --help|-h|help)
     usage

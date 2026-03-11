@@ -365,12 +365,12 @@ This operates from the run directory (including the `config.yaml` snapshot).
 
 ---
 
-## Evaluation with `tile_compile_cpp/generate_report.py`
+## Evaluation with the integrated report generator
 
 For structured analysis you can generate an HTML report from a run directory:
 
 ```text
-python tile_compile_cpp/generate_report.py runs/<run_id>
+./tile_compile_cli generate-report runs/<run_id>
 ```
 
 The report is written to `runs/<run_id>/artifacts/report.html` and is accompanied by `report.css` and PNG charts.

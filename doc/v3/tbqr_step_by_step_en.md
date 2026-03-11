@@ -1,6 +1,6 @@
 # TBQR Step-by-Step Guide (English)
 
-This guide explains how to run the active C++ pipeline (`tile_compile_cpp`) and how GUI2 interacts with it through the FastAPI backend.
+This guide explains how to run the active C++ pipeline (`tile_compile_cpp`) and how GUI2 interacts with it through the Crow/C++ backend.
 
 **Update note (2026-03-03):**
 - Resume supports `ASTROMETRY`, `BGE`, and `PCC`.
@@ -10,15 +10,45 @@ This guide explains how to run the active C++ pipeline (`tile_compile_cpp`) and 
 
 ## 1) Prerequisites
 
-Required dependencies:
+This repository currently consists of three relevant runtime/build parts:
 
-- CMake >= 3.21
-- C++17 compiler (GCC 11+ or Clang 14+)
-- OpenCV >= 4.5
+- `tile_compile_cpp` for the native runner and CLI
+- `web_backend_cpp` for the Crow/C++ backend
+- `web_frontend` for the static HTML/CSS/JS GUI2 files
+
+Required core build dependencies:
+
+- CMake >= 3.21 recommended
+- C++17 compiler
+- Ninja recommended
+- pkg-config
 - Eigen3
+- OpenCV >= 4.5
 - cfitsio
 - yaml-cpp
 - nlohmann-json
+- OpenSSL
+- libcurl
+
+Backend-specific build dependencies:
+
+- Crow
+- Asio
+
+Notes:
+
+- Crow and Asio are fetched by the backend CMake build.
+- The frontend itself does not require a JS build toolchain for normal use; it is shipped as static files.
+
+Platform package examples:
+
+- Linux: `build-essential cmake ninja-build pkg-config libeigen3-dev libopencv-dev libcfitsio-dev libyaml-cpp-dev nlohmann-json3-dev libssl-dev libcurl4-openssl-dev`
+- macOS: `xcode-select --install` first, then `brew install cmake ninja pkg-config eigen cfitsio yaml-cpp nlohmann-json openssl curl` and `brew install opencv`
+- Windows MSYS2 MinGW64: `mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl mingw-w64-x86_64-curl mingw-w64-x86_64-ntldd`
+
+macOS note:
+
+- Homebrew's default `opencv` formula currently requires a newer macOS release than macOS 12. For the documented Homebrew path, macOS 13+ is therefore the practical baseline unless OpenCV is provided separately.
 
 ## 2) Build the C++ tools
 
@@ -36,6 +66,27 @@ This creates (among others):
 
 - `tile_compile_runner` (main pipeline runner)
 - `tile_compile_cli` (utility CLI)
+
+## 2b) Build the Crow/C++ backend
+
+From the repository root:
+
+```bash
+cd web_backend_cpp
+mkdir -p build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+cmake --build . -j$(nproc)
+```
+
+This creates:
+
+- `tile_compile_web_backend` (Crow/C++ API and UI backend)
+
+Notes:
+
+- The backend links against `yaml-cpp`, `OpenSSL`, and `libcurl`.
+- On Windows, the backend also needs Winsock system libraries at link time; this is already handled in the backend CMake setup.
 
 ## 2a) Build and run with Docker (optional)
 
@@ -188,7 +239,7 @@ Release bundles start GUI2 via:
 - macOS: `start_gui2.command`
 - Windows: `start_gui2.bat`
 
-GUI2 is not a separate native processing engine. It uses FastAPI as the UI/backend layer and delegates all scan, run, resume, astrometry, PCC, and report actions to `tile_compile_cli` and `tile_compile_runner`.
+GUI2 is not a separate native processing engine. It uses the Crow/C++ backend as the UI/backend layer and delegates all scan, run, resume, astrometry, PCC, and report actions to `tile_compile_cli` and `tile_compile_runner`.
 
 ## 8) GUI2 workflow
 
@@ -278,7 +329,7 @@ A successful run creates `runs/<run_id>/` with:
 From repository root:
 
 ```bash
-python tile_compile_cpp/generate_report.py runs/<run_id>
+./tile_compile_cli generate-report runs/<run_id>
 ```
 
 Expected output files:

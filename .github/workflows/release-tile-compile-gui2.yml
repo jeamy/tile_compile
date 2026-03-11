@@ -65,15 +65,19 @@ jobs:
             libeigen3-dev libopencv-dev libcfitsio-dev libyaml-cpp-dev nlohmann-json3-dev libssl-dev \
             libcurl4-openssl-dev
 
-      - name: Build Qt-free runner binaries
+      - name: Build runner binaries
         shell: bash
         run: |
           set -euo pipefail
           cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTS=OFF \
-            -DBUILD_QT_GUI=OFF
+            -DBUILD_TESTS=OFF
           cmake --build tile_compile_cpp/build-gui2-release -j"$(nproc)"
+          cmake -S web_backend_cpp -B web_backend_cpp/build-gui2-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF \
+            -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF
+          cmake --build web_backend_cpp/build-gui2-release -j"$(nproc)"
 
       - name: Assemble GUI2 bundle
         shell: bash
@@ -83,20 +87,18 @@ jobs:
           mkdir -p artifacts
           ROOT="bundle/tile_compile_gui2-linux-${TAG}"
           PAYLOAD="${ROOT}/payload"
-          mkdir -p "${PAYLOAD}/tile_compile_cpp/build" "${PAYLOAD}/tile_compile_cpp/lib" "${PAYLOAD}/tile_compile_cpp/scripts" "${PAYLOAD}/web_backend/runtime"
+          mkdir -p "${PAYLOAD}/tile_compile_cpp/build" "${PAYLOAD}/tile_compile_cpp/lib" "${PAYLOAD}/web_backend_cpp/build"
           cp packaging/gui2/start_gui2.sh "${ROOT}/start_gui2.sh"
           cp packaging/gui2/start_gui2.command "${ROOT}/start_gui2.command"
           chmod +x "${ROOT}/start_gui2.sh" "${ROOT}/start_gui2.command"
-          cp -a web_backend/app "${PAYLOAD}/web_backend/"
-          cp web_backend/requirements-backend.txt "${PAYLOAD}/web_backend/"
           cp -a web_frontend "${PAYLOAD}/"
           cp -a tile_compile_cpp/examples "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.yaml "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.schema.yaml "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.schema.json "${PAYLOAD}/tile_compile_cpp/"
-          cp -a tile_compile_cpp/scripts/. "${PAYLOAD}/tile_compile_cpp/scripts/"
           cp tile_compile_cpp/build-gui2-release/tile_compile_runner "${PAYLOAD}/tile_compile_cpp/build/"
           cp tile_compile_cpp/build-gui2-release/tile_compile_cli "${PAYLOAD}/tile_compile_cpp/build/"
+          cp web_backend_cpp/build-gui2-release/tile_compile_web_backend "${PAYLOAD}/web_backend_cpp/build/"
           bundle_linux_libs() {
             local exe="$1"
             ldd "$exe" \
@@ -112,6 +114,7 @@ jobs:
           }
           bundle_linux_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner"
           bundle_linux_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_cli"
+          bundle_linux_libs "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend"
           printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui2-release-tag"
           (
             cd bundle
@@ -155,9 +158,19 @@ jobs:
           path: artifacts/tile_compile_gui2-linux-${{ needs.meta.outputs.tag }}.zip
 
   package-macos:
-    name: Package GUI2 macOS
-    runs-on: macos-14
+    name: Package GUI2 macOS (${{ matrix.variant_name }})
+    runs-on: ${{ matrix.runner }}
     needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            variant_name: Apple Silicon
+            artifact_suffix: macos-apple
+          - runner: macos-15-intel
+            variant_name: Intel
+            artifact_suffix: macos-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -169,15 +182,19 @@ jobs:
           brew update
           brew install cmake ninja pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl curl zip
 
-      - name: Build Qt-free runner binaries
+      - name: Build runner binaries
         shell: bash
         run: |
           set -euo pipefail
           cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTS=OFF \
-            -DBUILD_QT_GUI=OFF
+            -DBUILD_TESTS=OFF
           cmake --build tile_compile_cpp/build-gui2-release -j"$(sysctl -n hw.ncpu)"
+          cmake -S web_backend_cpp -B web_backend_cpp/build-gui2-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF \
+            -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF
+          cmake --build web_backend_cpp/build-gui2-release -j"$(sysctl -n hw.ncpu)"
 
       - name: Assemble GUI2 bundle
         shell: bash
@@ -185,22 +202,20 @@ jobs:
           set -euo pipefail
           TAG="${{ needs.meta.outputs.tag }}"
           mkdir -p artifacts
-          ROOT="bundle/tile_compile_gui2-macos14-${TAG}"
+          ROOT="bundle/tile_compile_gui2-${{ matrix.artifact_suffix }}-${TAG}"
           PAYLOAD="${ROOT}/payload"
-          mkdir -p "${PAYLOAD}/tile_compile_cpp/build" "${PAYLOAD}/tile_compile_cpp/lib" "${PAYLOAD}/tile_compile_cpp/scripts" "${PAYLOAD}/web_backend/runtime"
+          mkdir -p "${PAYLOAD}/tile_compile_cpp/build" "${PAYLOAD}/tile_compile_cpp/lib" "${PAYLOAD}/web_backend_cpp/build"
           cp packaging/gui2/start_gui2.sh "${ROOT}/start_gui2.sh"
           cp packaging/gui2/start_gui2.command "${ROOT}/start_gui2.command"
           chmod +x "${ROOT}/start_gui2.sh" "${ROOT}/start_gui2.command"
-          cp -a web_backend/app "${PAYLOAD}/web_backend/"
-          cp web_backend/requirements-backend.txt "${PAYLOAD}/web_backend/"
           cp -a web_frontend "${PAYLOAD}/"
           cp -a tile_compile_cpp/examples "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.yaml "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.schema.yaml "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.schema.json "${PAYLOAD}/tile_compile_cpp/"
-          cp -a tile_compile_cpp/scripts/. "${PAYLOAD}/tile_compile_cpp/scripts/"
           cp tile_compile_cpp/build-gui2-release/tile_compile_runner "${PAYLOAD}/tile_compile_cpp/build/"
           cp tile_compile_cpp/build-gui2-release/tile_compile_cli "${PAYLOAD}/tile_compile_cpp/build/"
+          cp web_backend_cpp/build-gui2-release/tile_compile_web_backend "${PAYLOAD}/web_backend_cpp/build/"
           collect_macos_libs() {
             local target="$1"
             otool -L "$target" \
@@ -250,21 +265,25 @@ jobs:
           }
           collect_macos_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner"
           collect_macos_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_cli"
+          collect_macos_libs "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend"
           rewrite_macos_refs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner" exe
           rewrite_macos_refs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_cli" exe
+          rewrite_macos_refs "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend" exe
+          install_name_tool -add_rpath "@executable_path/../../tile_compile_cpp/lib" \
+            "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend" 2>/dev/null || true
           find "${PAYLOAD}/tile_compile_cpp/lib" -type f \( -name "*.dylib" -o -name "*.so*" \) -print0 \
             | while IFS= read -r -d '' dylib; do
                 rewrite_macos_refs "$dylib" dylib
               done
           printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui2-release-tag"
-          ditto -c -k --sequesterRsrc --keepParent "${ROOT}" "artifacts/tile_compile_gui2-macos14-${TAG}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "${ROOT}" "artifacts/tile_compile_gui2-${{ matrix.artifact_suffix }}-${TAG}.zip"
 
       - name: Smoke test bundle
         shell: bash
         run: |
           set -euo pipefail
           TAG="${{ needs.meta.outputs.tag }}"
-          ROOT="${PWD}/bundle/tile_compile_gui2-macos14-${TAG}"
+          ROOT="${PWD}/bundle/tile_compile_gui2-${{ matrix.artifact_suffix }}-${TAG}"
           export HOME="${PWD}/smoke-home-macos"
           export TILE_COMPILE_GUI2_NO_BROWSER=1
           bash "${ROOT}/start_gui2.sh" >/tmp/out_gui2_smoke_macos.txt 2>&1 &
@@ -292,8 +311,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tile_compile_gui2-macos14-${{ needs.meta.outputs.tag }}
-          path: artifacts/tile_compile_gui2-macos14-${{ needs.meta.outputs.tag }}.zip
+          name: tile_compile_gui2-${{ matrix.artifact_suffix }}-${{ needs.meta.outputs.tag }}
+          path: artifacts/tile_compile_gui2-${{ matrix.artifact_suffix }}-${{ needs.meta.outputs.tag }}.zip
 
   package-windows:
     name: Package GUI2 Windows
@@ -322,15 +341,19 @@ jobs:
             mingw-w64-x86_64-curl
             mingw-w64-x86_64-ntldd
 
-      - name: Build Qt-free runner binaries
+      - name: Build runner binaries
         shell: msys2 {0}
         run: |
           set -euo pipefail
           cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTS=OFF \
-            -DBUILD_QT_GUI=OFF
+            -DBUILD_TESTS=OFF
           cmake --build tile_compile_cpp/build-gui2-release -j"$(nproc)"
+          cmake -S web_backend_cpp -B web_backend_cpp/build-gui2-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF \
+            -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF
+          cmake --build web_backend_cpp/build-gui2-release -j"$(nproc)"
 
       - name: Assemble GUI2 bundle
         shell: msys2 {0}
@@ -340,19 +363,18 @@ jobs:
           ROOT="bundle/tile_compile_gui2-windows-${TAG}"
           PAYLOAD="${ROOT}/payload"
           DIST_BIN="${PAYLOAD}/tile_compile_cpp/build"
-          mkdir -p "${DIST_BIN}" "${PAYLOAD}/tile_compile_cpp/lib" "${PAYLOAD}/tile_compile_cpp/scripts" "${PAYLOAD}/web_backend/runtime"
+          BACKEND_BIN_DIR="${PAYLOAD}/web_backend_cpp/build"
+          mkdir -p "${DIST_BIN}" "${PAYLOAD}/tile_compile_cpp/lib" "${BACKEND_BIN_DIR}"
           cp packaging/gui2/start_gui2.bat "${ROOT}/start_gui2.bat"
           cp packaging/gui2/start_gui2.ps1 "${ROOT}/start_gui2.ps1"
-          cp -a web_backend/app "${PAYLOAD}/web_backend/"
-          cp web_backend/requirements-backend.txt "${PAYLOAD}/web_backend/"
           cp -a web_frontend "${PAYLOAD}/"
           cp -a tile_compile_cpp/examples "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.yaml "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.schema.yaml "${PAYLOAD}/tile_compile_cpp/"
           cp tile_compile_cpp/tile_compile.schema.json "${PAYLOAD}/tile_compile_cpp/"
-          cp -a tile_compile_cpp/scripts/. "${PAYLOAD}/tile_compile_cpp/scripts/"
           cp tile_compile_cpp/build-gui2-release/tile_compile_runner.exe "${DIST_BIN}/"
           cp tile_compile_cpp/build-gui2-release/tile_compile_cli.exe "${DIST_BIN}/"
+          cp web_backend_cpp/build-gui2-release/tile_compile_web_backend.exe "${BACKEND_BIN_DIR}/"
           copy_deps() {
             local exe="$1"
             ntldd -R "$exe" 2>/dev/null \
@@ -371,6 +393,7 @@ jobs:
           }
           copy_deps "${DIST_BIN}/tile_compile_runner.exe"
           copy_deps "${DIST_BIN}/tile_compile_cli.exe"
+          copy_deps "${BACKEND_BIN_DIR}/tile_compile_web_backend.exe"
           printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui2-release-tag"
 
       - name: Smoke test bundle

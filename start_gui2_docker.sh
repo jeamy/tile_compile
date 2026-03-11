@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}"
 
-IMAGE_TAG="${IMAGE_TAG:-tile-compile-gui2:ubuntu20.04}"
-CONTAINER_NAME="${CONTAINER_NAME:-tile-compile-gui2}"
+IMAGE_TAG="${IMAGE_TAG:-tile-compile-web-backend:ubuntu20.04}"
+CONTAINER_NAME="${CONTAINER_NAME:-tile-compile-web-backend}"
 HOST_PORT="${HOST_PORT:-8080}"
 INPUT_DIR="${INPUT_DIR:-${PROJECT_ROOT}/tmp/docker-input}"
 RUNS_DIR="${RUNS_DIR:-${PROJECT_ROOT}/tmp/docker-runs}"
@@ -72,8 +72,17 @@ docker run -d \
   -v "${INPUT_DIR}:/data/input" \
   -v "${RUNS_DIR}:/data/runs" \
   "${MOUNT_EXTRA[@]}" \
+  -e TILE_COMPILE_PROJECT_ROOT="/opt/tile_compile" \
+  -e TILE_COMPILE_HOST="0.0.0.0" \
+  -e TILE_COMPILE_PORT="8080" \
   -e TILE_COMPILE_ALLOWED_ROOTS="${ALLOWED_ROOTS}" \
   -e TILE_COMPILE_RUNS_DIR="/data/runs" \
+  -e TILE_COMPILE_UI_DIR="/opt/tile_compile/web_frontend" \
+  -e TILE_COMPILE_CONFIG="/opt/tile_compile/tile_compile_cpp/tile_compile.yaml" \
+  -e TILE_COMPILE_SCHEMA="/opt/tile_compile/tile_compile_cpp/tile_compile.schema.yaml" \
+  -e TILE_COMPILE_PRESETS_DIR="/opt/tile_compile/tile_compile_cpp/examples" \
+  -e TILE_COMPILE_CLI="/opt/tile_compile/tile_compile_cpp/build/tile_compile_cli" \
+  -e TILE_COMPILE_RUNNER="/opt/tile_compile/tile_compile_cpp/build/tile_compile_runner" \
   "${IMAGE_TAG}" >/dev/null
 
 echo "[docker] Container logs:"

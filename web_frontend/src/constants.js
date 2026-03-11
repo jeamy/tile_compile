@@ -21,7 +21,12 @@ export const API_ENDPOINTS = {
   config: {
     current: "/api/config/current",
     patch: "/api/config/patch",
-    presets: "/api/config/presets",
+    presets: (dir = "") => {
+      const query = String(dir || "").trim()
+        ? `?dir=${encodeURIComponent(String(dir || "").trim())}`
+        : "";
+      return `/api/config/presets${query}`;
+    },
     applyPreset: "/api/config/presets/apply",
     validate: "/api/config/validate",
     save: "/api/config/save",
@@ -38,7 +43,12 @@ export const API_ENDPOINTS = {
     stop: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/stop`,
     resume: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/resume`,
     stats: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/stats`,
-    statsStatus: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/stats/status`,
+    statsStatus: (runId, runDir = "") => {
+      const query = String(runDir || "").trim()
+        ? `?run_dir=${encodeURIComponent(String(runDir || ""))}`
+        : "";
+      return `/api/runs/${encodeURIComponent(String(runId || ""))}/stats/status${query}`;
+    },
     logs: (runId, tail = 250) => `/api/runs/${encodeURIComponent(String(runId || ""))}/logs?tail=${encodeURIComponent(String(tail))}`,
     setCurrent: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/set-current`,
     restoreRevision: (runId, revisionId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/config-revisions/${encodeURIComponent(String(revisionId || ""))}/restore`,

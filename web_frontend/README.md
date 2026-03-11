@@ -1,11 +1,11 @@
 # GUI2 Web Frontend
 
-Produktives HTML-Frontend fuer GUI2. Das Frontend wird vom FastAPI-Backend unter `/ui/` ausgeliefert und steuert die C++-Werkzeuge ausschliesslich ueber HTTP und WebSocket.
+Produktives HTML-Frontend fuer GUI2. Das Frontend wird vom Crow/C++-Backend unter `/ui/` ausgeliefert und steuert die C++-Werkzeuge ausschliesslich ueber HTTP und WebSocket.
 
 ## Rolle im System
 
 - `web_frontend/`: produktive Oberflaeche
-- `web_backend/`: API- und Prozess-Adapter
+- `web_backend_cpp/`: API- und Prozess-Adapter
 - `tile_compile_cpp/`: Runner und CLI fuer Scan, Runs, Resume, Astrometry, PCC und Reports
 
 Startseite ist das Dashboard (`/ui/` -> `index.html`).

@@ -37,7 +37,7 @@
 
               <div id="monitor-filter-row" class="ps-chip-row" style="margin-bottom:12px;">
                 <button id="monitor-filter-L" data-control="monitor.filter.L" class="ps-chip-btn" title="Filterkontext L waehlen.">L</button>
-                <button id="monitor-filter-R" data-control="monitor.filter.R" class="ps-chip-btn active" title="Filterkontext R waehlen.">R</button>
+                <button id="monitor-filter-R" data-control="monitor.filter.R" class="ps-chip-btn" title="Filterkontext R waehlen.">R</button>
                 <button id="monitor-filter-G" data-control="monitor.filter.G" class="ps-chip-btn" title="Filterkontext G waehlen.">G</button>
                 <button id="monitor-filter-B" data-control="monitor.filter.B" class="ps-chip-btn" title="Filterkontext B waehlen.">B</button>
                 <button id="monitor-filter-Ha" data-control="monitor.filter.Ha" class="ps-chip-btn" title="Filterkontext Ha waehlen.">Ha</button>
@@ -46,9 +46,9 @@
               </div>
 
               <div class="ps-phase-list">
-                <button id="monitor-phase-scan-input" data-control="monitor.phase.scan_input" class="ps-phase-row done" title="Resume ab SCAN_INPUT starten."><span class="state">OK</span><span class="phase-name">SCAN_INPUT</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">100%</span></button>
-                <button id="monitor-phase-channel-split" data-control="monitor.phase.channel_split" class="ps-phase-row done" title="Resume ab CHANNEL_SPLIT starten."><span class="state">OK</span><span class="phase-name">CHANNEL_SPLIT</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">100%</span></button>
-                <button id="monitor-phase-normalization" data-control="monitor.phase.normalization" class="ps-phase-row running" title="Resume ab NORMALIZATION starten."><span class="state">RUN</span><span class="phase-name">NORMALIZATION</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">67%</span></button>
+                <button id="monitor-phase-scan-input" data-control="monitor.phase.scan_input" class="ps-phase-row pending" title="Resume ab SCAN_INPUT starten."><span class="state">P</span><span class="phase-name">SCAN_INPUT</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-channel-split" data-control="monitor.phase.channel_split" class="ps-phase-row pending" title="Resume ab CHANNEL_SPLIT starten."><span class="state">P</span><span class="phase-name">CHANNEL_SPLIT</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-normalization" data-control="monitor.phase.normalization" class="ps-phase-row pending" title="Resume ab NORMALIZATION starten."><span class="state">P</span><span class="phase-name">NORMALIZATION</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
                 <button id="monitor-phase-global-metrics" data-control="monitor.phase.global_metrics" class="ps-phase-row pending" title="Resume ab GLOBAL_METRICS starten."><span class="state">P</span><span class="phase-name">GLOBAL_METRICS</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
                 <button id="monitor-phase-tile-grid" data-control="monitor.phase.tile_grid" class="ps-phase-row pending" title="Resume ab TILE_GRID starten."><span class="state">P</span><span class="phase-name">TILE_GRID</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
                 <button id="monitor-phase-registration" data-control="monitor.phase.registration" class="ps-phase-row pending" title="Resume ab REGISTRATION starten."><span class="state">P</span><span class="phase-name">REGISTRATION</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
@@ -70,10 +70,7 @@
           <section class="ps-col">
             <div class="ps-section" style="margin-bottom:18px;">
               <div class="ps-section-title">Live Log</div>
-              <div id="monitor-live-log" style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:855px;overflow:auto;">
-                <pre>
-                </pre>
-              </div>
+              <div id="monitor-live-log" style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:855px;overflow:auto;white-space:pre-wrap;margin:0;"></div>
             </div>
 
             <div class="ps-section">
@@ -94,11 +91,7 @@
               <div class="ps-note">Resume bleibt deaktiviert, bis eine Zielphase in der Pipeline angeklickt wurde.</div>
               <div class="ps-row">
                 <label for="monitor-resume-config-revision">Config Revision</label>
-                <select id="monitor-resume-config-revision" data-control="monitor.resume.config_revision" class="ps-select" title="Revision fuer Resume waehlen.">
-                  <option selected>config_rev_20260307T221530Z</option>
-                  <option>config_rev_20260307T220855Z</option>
-                  <option>config_rev_20260307T215002Z</option>
-                </select>
+                <select id="monitor-resume-config-revision" data-control="monitor.resume.config_revision" class="ps-select" title="Revision fuer Resume waehlen."></select>
               </div>
               <div class="ps-actions" style="margin-top:10px;">
                 <button id="monitor-resume" data-control="monitor.resume" class="ps-btn" title="Resume mit gewaehlter Phase/Revision starten." disabled>Resume starten</button>
@@ -109,13 +102,7 @@
 
             <div class="ps-section">
               <div class="ps-section-title">Artefakte</div>
-              <ul id="monitor-artifact-list" class="ps-list">
-                <li><button title="run_events.jsonl anzeigen.">run_events.jsonl (324 KB)</button></li>
-                <li><button title="reconstructed_R.fit anzeigen.">reconstructed_R.fit (98 MB)</button></li>
-                <li><button title="reconstructed_G.fit anzeigen.">reconstructed_G.fit (97 MB)</button></li>
-                <li><button title="reconstructed_B.fit anzeigen.">reconstructed_B.fit (96 MB)</button></li>
-                <li><button title="pcc_report.json anzeigen.">pcc_report.json (17 KB)</button></li>
-              </ul>
+              <ul id="monitor-artifact-list" class="ps-list"></ul>
               <div class="ps-actions" style="margin-top:12px;">
                 <button id="monitor-open-run-folder" data-control="monitor.open_run_folder" class="ps-btn ps-btn-secondary" title="Run-Ordner im Dateimanager oeffnen.">Run-Ordner oeffnen</button>
               </div>

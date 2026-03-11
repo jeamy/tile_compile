@@ -82,36 +82,8 @@
               <div>Aktiv</div>
             </div>
             <div class="ps-queue-row">
-              <div class="ps-queue-cell"><select class="ps-select"><option selected>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
-              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für L wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-              <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-            </div>
-            <div class="ps-queue-row">
-              <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option selected>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
-              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für R wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-              <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-            </div>
-            <div class="ps-queue-row">
-              <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option selected>G</option><option>B</option><option>Ha</option></select></div>
-              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für G wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-              <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-            </div>
-            <div class="ps-queue-row">
-              <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option selected>B</option><option>Ha</option></select></div>
-              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für B wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-              <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-              <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-            </div>
-            <div class="ps-queue-row">
-              <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option>B</option><option selected>Ha</option></select></div>
-              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für Ha wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
+              <div class="ps-queue-cell"><select class="ps-select"><option selected value="">-</option><option>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+              <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis waehlen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
               <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
               <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
               <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
@@ -123,34 +95,34 @@
           <div class="ps-section-title">Kalibrierung</div>
           <div class="ps-row">
             <input type="checkbox" id="cal-bias" checked data-control="input_scan.calibration.use_bias" title="Bias-Kalibrierung aktivieren/deaktivieren."> <label for="cal-bias">Bias</label>
-            <select class="ps-select" style="width:190px;">
-              <option selected>Bias-Ordner</option>
-              <option>Master Bias Datei</option>
+            <select class="ps-select" id="cal-bias-source" data-control="input_scan.calibration.bias_use_master" style="width:190px;">
+              <option value="false" selected>Bias-Ordner</option>
+              <option value="true">Master Bias Datei</option>
             </select>
             <div class="ps-inline-cluster">
-              <input class="ps-input ps-wide" type="text" value="" id="cal-bias-dir" data-control="input_scan.calibration.bias_dir" placeholder="/data/calib/bias oder /data/calib/master_bias*" title="Bias-Ordner setzen.">
+              <input class="ps-input ps-wide" type="text" value="" id="cal-bias-dir" data-control="input_scan.calibration.bias_dir" placeholder="Bias-Ordner oder Master-Bias-Datei" title="Bias-Ordner setzen.">
               <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
             </div>
           </div>
           <div class="ps-row">
             <input type="checkbox" id="cal-dark" checked data-control="input_scan.calibration.use_dark" title="Dark-Kalibrierung aktivieren/deaktivieren."> <label for="cal-dark">Dark</label>
-            <select class="ps-select" style="width:190px;">
-              <option selected>Darks-Ordner</option>
-              <option>Master Dark Datei</option>
+            <select class="ps-select" id="cal-dark-source" data-control="input_scan.calibration.dark_use_master" style="width:190px;">
+              <option value="false" selected>Darks-Ordner</option>
+              <option value="true">Master Dark Datei</option>
             </select>
             <div class="ps-inline-cluster">
-              <input class="ps-input ps-wide" type="text" value="" id="cal-dark-dir" data-control="input_scan.calibration.darks_dir" placeholder="/data/calib/darks oder /data/calib/masterdark*" title="Dark-Ordner setzen.">
+              <input class="ps-input ps-wide" type="text" value="" id="cal-dark-dir" data-control="input_scan.calibration.darks_dir" placeholder="Dark-Ordner oder Master-Dark-Datei" title="Dark-Ordner setzen.">
               <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
             </div>
           </div>
           <div class="ps-row">
             <input type="checkbox" id="cal-flat" data-control="input_scan.calibration.use_flat" title="Flat-Kalibrierung aktivieren/deaktivieren."> <label for="cal-flat">Flat</label>
-            <select class="ps-select" style="width:190px;">
-              <option selected>Flats-Ordner</option>
-              <option>Master Flat Datei</option>
+            <select class="ps-select" id="cal-flat-source" data-control="input_scan.calibration.flat_use_master" style="width:190px;">
+              <option value="false" selected>Flats-Ordner</option>
+              <option value="true">Master Flat Datei</option>
             </select>
             <div class="ps-inline-cluster">
-              <input class="ps-input ps-wide" type="text" value="" id="cal-flat-dir" data-control="input_scan.calibration.flats_dir" placeholder="/data/calib/flats oder /data/calib/masterflat*" title="Flat-Ordner setzen.">
+              <input class="ps-input ps-wide" type="text" value="" id="cal-flat-dir" data-control="input_scan.calibration.flats_dir" placeholder="Flat-Ordner oder Master-Flat-Datei" title="Flat-Ordner setzen.">
               <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
             </div>
           </div>
@@ -166,9 +138,9 @@
             <strong>Status</strong><span id="scan-summary-status">-</span>
             <strong>Input Path</strong><span id="scan-summary-input-path">-</span>
             <strong>Frames entdeckt</strong><span id="scan-summary-frames">0</span>
-            <strong>Color Mode</strong><span id="scan-summary-color-mode">UNKNOWN</span>
+            <strong>Color Mode</strong><span id="scan-summary-color-mode">-</span>
             <strong>Mode Kandidaten</strong><span id="scan-summary-candidates">-</span>
-            <strong>Bildgroesse</strong><span id="scan-summary-size">0 x 0</span>
+            <strong>Bildgroesse</strong><span id="scan-summary-size">-</span>
             <strong>Bayer Pattern</strong><span id="scan-summary-bayer">-</span>
             <strong>User-Bestaetigung</strong><span id="scan-summary-confirm">nein</span>
             <strong>Fehler</strong><span id="scan-summary-errors">0</span>
