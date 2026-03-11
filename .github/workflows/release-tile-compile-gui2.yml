@@ -32,6 +32,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.ref_type }}" != "branch" ]]; then
+            echo "Workflow dispatch must run from a branch, not from tag '${{ github.ref_name }}'." >&2
+            echo "Select the branch with the release fixes in the GitHub Actions UI and pass the release tag only via the input field." >&2
+            exit 1
+          fi
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
             TAG="${{ inputs.tag }}"
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -46,6 +51,7 @@ jobs:
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Resolved tag: $TAG"
+          echo "Source ref: ${{ github.ref }} (${{ github.sha }})"
 
   package-linux:
     name: Package GUI2 Linux
