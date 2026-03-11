@@ -660,12 +660,28 @@ Matrix2Df DiskCacheFrameStore::load(size_t fi) const {
   return out;
 }
 
+const float *DiskCacheFrameStore::frame_data(size_t fi) const {
+  return mapped_frame_ptr(fi);
+}
+
 Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t,
                                             int offset_x,
                                             int offset_y) const {
-  const float *src = mapped_frame_ptr(fi);
-  if (src == nullptr)
+  Matrix2Df tile;
+  if (!extract_tile_into(fi, t, tile, offset_x, offset_y)) {
     return Matrix2Df();
+  }
+  return tile;
+}
+
+bool DiskCacheFrameStore::extract_tile_into(size_t fi, const Tile &t,
+                                            Matrix2Df &out, int offset_x,
+                                            int offset_y) const {
+  const float *src = mapped_frame_ptr(fi);
+  if (src == nullptr) {
+    out.resize(0, 0);
+    return false;
+  }
   int x0 = std::max(0, t.x + offset_x);
   int y0 = std::max(0, t.y + offset_y);
   int tw = t.width;
@@ -675,19 +691,22 @@ Matrix2Df DiskCacheFrameStore::extract_tile(size_t fi, const Tile &t,
   if (y0 + th > rows_)
     th = rows_ - y0;
   if (tw <= 0 || th <= 0) {
-    return Matrix2Df();
+    out.resize(0, 0);
+    return false;
   }
 
-  Matrix2Df tile(th, tw);
+  if (out.rows() != th || out.cols() != tw) {
+    out.resize(th, tw);
+  }
   for (int r = 0; r < th; ++r) {
     const float *row_src = src + static_cast<size_t>(y0 + r) *
                                      static_cast<size_t>(cols_) +
                            static_cast<size_t>(x0);
     float *row_dst =
-        tile.data() + static_cast<size_t>(r) * static_cast<size_t>(tw);
+        out.data() + static_cast<size_t>(r) * static_cast<size_t>(tw);
     std::memcpy(row_dst, row_src, static_cast<size_t>(tw) * sizeof(float));
   }
-  return tile;
+  return true;
 }
 
 const float *DiskCacheFrameStore::mapped_frame_ptr(size_t fi) const {

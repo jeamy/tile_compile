@@ -71,6 +71,56 @@ inline void apply_common_overlap_to_tile_inplace(
   }
 }
 
+inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
+    Matrix2Df &tile, const Tile &t, const std::vector<uint8_t> &common_valid_mask,
+    int common_mask_width, int common_mask_height) {
+  if (tile.rows() != t.height || tile.cols() != t.width)
+    return false;
+  if (common_mask_width <= 0 || common_mask_height <= 0 ||
+      common_valid_mask.empty()) {
+    return false;
+  }
+
+  const int tile_cols = static_cast<int>(tile.cols());
+  const size_t mask_size = common_valid_mask.size();
+  float *tile_data = tile.data();
+  bool any_nonzero = false;
+
+  for (int yy = 0; yy < t.height; ++yy) {
+    const int gy = t.y + yy;
+    const size_t tile_row_off =
+        static_cast<size_t>(yy) * static_cast<size_t>(tile_cols);
+
+    if (gy < 0 || gy >= common_mask_height) {
+      for (int xx = 0; xx < t.width; ++xx) {
+        tile_data[tile_row_off + static_cast<size_t>(xx)] = 0.0f;
+      }
+      continue;
+    }
+
+    const size_t row_off =
+        static_cast<size_t>(gy) * static_cast<size_t>(common_mask_width);
+
+    for (int xx = 0; xx < t.width; ++xx) {
+      const int gx = t.x + xx;
+      float &v = tile_data[tile_row_off + static_cast<size_t>(xx)];
+      if (gx < 0 || gx >= common_mask_width) {
+        v = 0.0f;
+        continue;
+      }
+      const size_t mask_idx = row_off + static_cast<size_t>(gx);
+      if (mask_idx >= mask_size || common_valid_mask[mask_idx] == 0) {
+        v = 0.0f;
+        continue;
+      }
+      if (v > 0.0f) {
+        any_nonzero = true;
+      }
+    }
+  }
+  return any_nonzero;
+}
+
 // Fast tile-gating helper used after COMMON_OVERLAP masking.
 inline bool tile_has_nonzero_common_data(
     const Matrix2Df &tile, size_t tile_index,
@@ -144,8 +194,11 @@ public:
 
   void store(size_t fi, const Matrix2Df &frame);
   Matrix2Df load(size_t fi) const;
+  const float *frame_data(size_t fi) const;
   Matrix2Df extract_tile(size_t fi, const Tile &t, int offset_x = 0,
                          int offset_y = 0) const;
+  bool extract_tile_into(size_t fi, const Tile &t, Matrix2Df &out,
+                         int offset_x = 0, int offset_y = 0) const;
 
   bool has_data(size_t fi) const;
   size_t size() const;

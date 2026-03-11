@@ -29,7 +29,7 @@ bge:
     method: rbf
     polynomial_order: 2
     rbf_epsilon: 0.69999999999999996
-    rbf_lambda: 0.01
+    rbf_lambda: 0.029999999999999999
     rbf_mu_factor: 1.8
     rbf_phi: multiquadric
     robust_loss: huber
@@ -164,7 +164,7 @@ pipeline:
 registration:
   allow_rotation: true
   enable_star_pair_fallback: true
-  engine: robust_phase_ecc
+  engine: triangle_star_matching
   reject_cc_mad_multiplier: 4
   reject_cc_min_abs: 0.29999999999999999
   reject_outliers: true

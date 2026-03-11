@@ -494,6 +494,22 @@ ctest --output-on-failure
 - Integrierte C++-Report-Generierung aktiviert.
 - Launcher, Docker-Packaging und GitHub-Workflows auf direkten Start des C++-Backends umgestellt.
 
+## v0.0.7 (2026-03-11)
+
+Unterstützt nun:
+- Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
+- macOS: macOS 13+
+- Windows: Windows 10 x64 or newer
+
+## v0.0.8 (2026-03-11)
+
+- zero-copy COMMON_OVERLAP
+- Scratch-Reuse in LOCAL_METRICS
+- weniger Lock-Contention im tile_weighted-OLA
+- schnellerer Sigma-Clip-Kern
+- weniger Tile-Kopien im tile_weighted-Pfad
+- parallele BGE-Autotune-Kandidatenbewertung
+
 ## Changelog
 
 ### (2026-03-09)

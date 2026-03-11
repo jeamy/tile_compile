@@ -485,6 +485,22 @@ ctest --output-on-failure
 - Integrated C++ report generation.
 - Updated launcher scripts, Docker packaging, and GitHub workflows to build and run the C++ backend directly.
 
+## v0.0.7 (2026-03-11)
+
+Supports now:
+- Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
+- macOS: macOS 13+
+- Windows: Windows 10 x64 or newer
+
+## v0.0.8 (2026-03-11)
+
+- zero-copy COMMON_OVERLAP
+- Scratch reuse in LOCAL_METRICS
+- reduced lock contention in tile_weighted-OLA
+- faster sigma-clip kernel
+- fewer tile copies in tile_weighted path
+- parallel BGE autotune candidate evaluation
+
 ## Changelog
 
 ### (2026-03-09)

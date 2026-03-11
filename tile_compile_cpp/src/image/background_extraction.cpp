@@ -2267,6 +2267,12 @@ struct BGECandidatePrep {
   float bg_median = kTiny;
 };
 
+struct BGECandidateJob {
+  BGEConfig cfg;
+  int grid_spacing = 0;
+  const BGECandidatePrep *prep = nullptr;
+};
+
 static BGECandidatePrep build_bge_candidate_prep(
     const Matrix2Df &channel, const std::vector<TileMetrics> &tile_metrics,
     const TileGrid &tile_grid, const BGEConfig &cfg_try, int grid_spacing) {
@@ -2436,7 +2442,6 @@ static BGECandidateResult auto_tune_bge_config_conservative(
   }
 
   BGECandidateResult best;
-  int evals = 0;
   auto prep_cache_key = [](float q, float sp) -> uint64_t {
     const int32_t qk = static_cast<int32_t>(std::lround(q * 1.0e6f));
     const int32_t spk = static_cast<int32_t>(std::lround(sp * 1.0e6f));
@@ -2444,6 +2449,8 @@ static BGECandidateResult auto_tune_bge_config_conservative(
            static_cast<uint64_t>(static_cast<uint32_t>(spk));
   };
   std::unordered_map<uint64_t, BGECandidatePrep> prep_cache;
+  std::vector<BGECandidateJob> jobs;
+  jobs.reserve(static_cast<size_t>(std::max(1, base_cfg.autotune.max_evals)));
 
   for (const auto &fit_method : fit_methods) {
     std::vector<float> method_mu_factors;
@@ -2473,7 +2480,8 @@ static BGECandidateResult auto_tune_bge_config_conservative(
         const BGECandidatePrep &prep = prep_it->second;
 
         for (float mf : method_mu_factors) {
-          if (evals >= std::max(1, base_cfg.autotune.max_evals))
+          if (static_cast<int>(jobs.size()) >=
+              std::max(1, base_cfg.autotune.max_evals))
             break;
           BGEConfig cfg_try = base_cfg;
           cfg_try.fit.method = fit_method;
@@ -2482,41 +2490,52 @@ static BGECandidateResult auto_tune_bge_config_conservative(
           if (fit_method == "rbf") {
             cfg_try.fit.rbf_mu_factor = std::max(0.2f, mf);
           }
-
-          BGECandidateResult res = try_bge_candidate_prepared(
-              channel, cfg_try, base_grid_spacing, prep);
-          ++evals;
-          if (!res.success)
-            continue;
-
-          if (!best.success || res.objective < best.objective) {
-            best = res;
-          } else if (std::fabs(res.objective - best.objective) < 1e-6f) {
-            if (res.roughness < best.roughness) {
-              best = res;
-            } else if (std::fabs(res.roughness - best.roughness) < 1e-6f) {
-              // Deterministic tie-break: prefer coarser effective model.
-              if (res.cfg.fit.rbf_mu_factor > best.cfg.fit.rbf_mu_factor) {
-                best = res;
-              }
-            }
-          }
+          jobs.push_back(BGECandidateJob{cfg_try, base_grid_spacing, &prep});
         }
-        if (evals >= std::max(1, base_cfg.autotune.max_evals))
+        if (static_cast<int>(jobs.size()) >=
+            std::max(1, base_cfg.autotune.max_evals))
           break;
       }
-      if (evals >= std::max(1, base_cfg.autotune.max_evals))
+      if (static_cast<int>(jobs.size()) >=
+          std::max(1, base_cfg.autotune.max_evals))
         break;
     }
-    if (evals >= std::max(1, base_cfg.autotune.max_evals))
+    if (static_cast<int>(jobs.size()) >=
+        std::max(1, base_cfg.autotune.max_evals))
       break;
+  }
+
+  std::vector<BGECandidateResult> results(jobs.size());
+#pragma omp parallel for if(jobs.size() > 1)
+  for (int i = 0; i < static_cast<int>(jobs.size()); ++i) {
+    const auto &job = jobs[static_cast<size_t>(i)];
+    results[static_cast<size_t>(i)] = try_bge_candidate_prepared(
+        channel, job.cfg, job.grid_spacing, *job.prep);
+  }
+
+  for (const auto &res : results) {
+    if (!res.success)
+      continue;
+
+    if (!best.success || res.objective < best.objective) {
+      best = res;
+    } else if (std::fabs(res.objective - best.objective) < 1e-6f) {
+      if (res.roughness < best.roughness) {
+        best = res;
+      } else if (std::fabs(res.roughness - best.roughness) < 1e-6f) {
+        // Deterministic tie-break: prefer coarser effective model.
+        if (res.cfg.fit.rbf_mu_factor > best.cfg.fit.rbf_mu_factor) {
+          best = res;
+        }
+      }
+    }
   }
 
   if (!best.success) {
     best.cfg = base_cfg;
     best.grid_spacing = base_grid_spacing;
   }
-  best.evals = evals;
+  best.evals = static_cast<int>(jobs.size());
   return best;
 }
 

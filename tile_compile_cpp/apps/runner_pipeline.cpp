@@ -721,11 +721,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     for (size_t fi = 0; fi < frames.size(); ++fi) {
       if (!frame_has_data[fi])
         continue;
-      Matrix2Df src = prewarped_frames.load(fi);
-      if (src.rows() != canvas_height || src.cols() != canvas_width)
+      const float *p = prewarped_frames.frame_data(fi);
+      if (p == nullptr)
         continue;
       ++loaded_frames;
-      const float *p = src.data();
       for (size_t i = 0; i < canvas_px; ++i) {
         if (p[i] > 0.0f) {
           ++overlap_coverage_count[i];
@@ -1973,6 +1972,21 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         Matrix2Df out = Matrix2Df::Zero(canvas_height, canvas_width);
         Matrix2Df weight_ola = Matrix2Df::Zero(canvas_height, canvas_width);
         std::atomic<bool> any_tile{false};
+        const int recon_rows = std::max(1, canvas_height);
+        const size_t recon_stripe_count =
+            static_cast<size_t>(std::max(1, std::min<int>(
+                cfg.runtime_limits.parallel_workers, recon_rows)));
+        std::vector<std::mutex> recon_stripe_mutexes(recon_stripe_count);
+        auto recon_stripe_for_row = [&](int y) -> size_t {
+          if (recon_rows <= 1 || recon_stripe_mutexes.size() <= 1) {
+            return 0;
+          }
+          const int y_clamped = std::clamp(y, 0, recon_rows - 1);
+          const size_t num =
+              static_cast<size_t>(y_clamped) * recon_stripe_mutexes.size();
+          const size_t den = static_cast<size_t>(recon_rows);
+          return std::min(recon_stripe_mutexes.size() - 1, num / den);
+        };
 
         auto normalize_tile_for_ola = [&](Matrix2Df &t_img,
                                           std::vector<float> &tmp) {
@@ -1998,7 +2012,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                                  reconstruction::make_hann_1d(tile.height)});
         }
 
-        std::mutex recon_mutex;
         std::atomic<size_t> next_tile{0};
 
         int subset_workers = 1;
@@ -2032,16 +2045,22 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             for (size_t fi = 0; fi < frame_mask.size() && fi < frames.size(); ++fi) {
               if (!frame_mask[fi] || !frame_has_data[fi])
                 continue;
-              Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t, 0, 0);
-              if (tile_img.rows() != t.height || tile_img.cols() != t.width)
+              if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0)
                 continue;
-              tile_compile::runner::apply_common_overlap_to_tile_inplace(
-                  tile_img, t, common_valid_mask, canvas_width, canvas_height);
-              // Skip tiles that fail strict common-overlap criteria.
-              if (!tile_compile::runner::tile_has_nonzero_common_data(
-                      tile_img, ti, tile_common_valid))
+              cluster_tiles.emplace_back();
+              Matrix2Df &tile_img = cluster_tiles.back();
+              if (!prewarped_frames.extract_tile_into(fi, t, tile_img, 0, 0) ||
+                  tile_img.rows() != t.height || tile_img.cols() != t.width) {
+                cluster_tiles.pop_back();
                 continue;
-              cluster_tiles.push_back(std::move(tile_img));
+              }
+              if (!tile_compile::runner::
+                      apply_common_overlap_to_tile_inplace_and_check_nonzero(
+                          tile_img, t, common_valid_mask, canvas_width,
+                          canvas_height)) {
+                cluster_tiles.pop_back();
+                continue;
+              }
 
               float G_f = (fi < static_cast<size_t>(global_weights.size()))
                               ? global_weights[static_cast<int>(fi)]
@@ -2088,26 +2107,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             const int x0 = std::max(0, t.x);
             const int y0 = std::max(0, t.y);
 
-            {
-              std::lock_guard<std::mutex> lock(recon_mutex);
-              for (int yy = 0; yy < tile_rec.rows(); ++yy) {
-                for (int xx = 0; xx < tile_rec.cols(); ++xx) {
-                  const int iy = y0 + yy;
-                  const int ix = x0 + xx;
-                  if (iy < 0 || iy >= out.rows() || ix < 0 || ix >= out.cols())
-                    continue;
-                  const size_t common_idx =
-                      static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
-                      static_cast<size_t>(ix);
-                  if (common_idx >= common_valid_mask.size() ||
-                      common_valid_mask[common_idx] == 0) {
-                    continue;
-                  }
-                  const float win = hann_y[static_cast<size_t>(yy)] *
-                                    hann_x[static_cast<size_t>(xx)];
-                  out(iy, ix) += tile_rec(yy, xx) * win;
-                  weight_ola(iy, ix) += win;
+            for (int yy = 0; yy < tile_rec.rows(); ++yy) {
+              const int iy = y0 + yy;
+              if (iy < 0 || iy >= out.rows())
+                continue;
+              const size_t stripe = recon_stripe_for_row(iy);
+              std::lock_guard<std::mutex> lock(recon_stripe_mutexes[stripe]);
+              for (int xx = 0; xx < tile_rec.cols(); ++xx) {
+                const int ix = x0 + xx;
+                if (ix < 0 || ix >= out.cols())
+                  continue;
+                const size_t common_idx =
+                    static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
+                    static_cast<size_t>(ix);
+                if (common_idx >= common_valid_mask.size() ||
+                    common_valid_mask[common_idx] == 0) {
+                  continue;
                 }
+                const float win = hann_y[static_cast<size_t>(yy)] *
+                                  hann_x[static_cast<size_t>(xx)];
+                out(iy, ix) += tile_rec(yy, xx) * win;
+                weight_ola(iy, ix) += win;
               }
             }
             any_tile.store(true, std::memory_order_relaxed);

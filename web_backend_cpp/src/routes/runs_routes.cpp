@@ -7,11 +7,13 @@
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <filesystem>
 #include <regex>
 #include <thread>
 #include <chrono>
+#include <ctime>
 #include <set>
 #include <cctype>
 #include <cerrno>
@@ -55,6 +57,31 @@ static std::string sanitize_run_id(std::string value) {
     while (!value.empty() && value.back() == '_') value.pop_back();
     if (value.empty()) value = "run";
     return value;
+}
+
+static std::string current_run_timestamp() {
+    const auto now = std::chrono::system_clock::now();
+    const auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_buf{};
+#ifdef _WIN32
+    localtime_s(&tm_buf, &time_t_now);
+#else
+    localtime_r(&time_t_now, &tm_buf);
+#endif
+
+    std::ostringstream oss;
+    oss << std::put_time(&tm_buf, "%Y%m%d_%H%M%S");
+    return oss.str();
+}
+
+static std::string make_effective_run_id(const nlohmann::json& body) {
+    const std::string raw_run_id = body.value("run_id", "");
+    if (!raw_run_id.empty()) return sanitize_run_id(raw_run_id);
+
+    const std::string raw_run_name = body.value("run_name", "");
+    const std::string base_name = raw_run_name.empty() ? std::string("run")
+                                                       : sanitize_run_id(raw_run_name);
+    return base_name + "_" + current_run_timestamp();
 }
 
 static std::string wildcard_to_regex(const std::string& pattern) {
@@ -275,6 +302,35 @@ static nlohmann::json queue_filters_for_run(InMemoryJobStore& store, const std::
     return nlohmann::json::array();
 }
 
+static std::optional<nlohmann::json> pending_run_status(const std::shared_ptr<AppState>& state,
+                                                        const std::string& run_id) {
+    for (const auto& job : state->job_store.list(500)) {
+        if (job.state != JobState::pending && job.state != JobState::running) continue;
+        const std::string job_run_id = job.data.is_object()
+            ? job.data.value("run_id", std::string())
+            : job.run_id;
+        if (job_run_id != run_id) continue;
+
+        const std::string runs_dir = job.data.is_object()
+            ? job.data.value("runs_dir", state->runtime.runs_dir.string())
+            : state->runtime.runs_dir.string();
+        const fs::path predicted_run_dir = fs::path(runs_dir) / run_id;
+        const std::string state_text = job.state == JobState::running ? "running" : "pending";
+        return nlohmann::json{
+            {"run_id", run_id},
+            {"run_dir", predicted_run_dir.string()},
+            {"status", state_text},
+            {"color_mode", "UNKNOWN"},
+            {"queue_filters", queue_filters_for_run(state->job_store, run_id)},
+            {"current_phase", nullptr},
+            {"progress", job.progress},
+            {"phases", nlohmann::json::array()},
+            {"events", nlohmann::json::array()},
+        };
+    }
+    return std::nullopt;
+}
+
 #ifndef _WIN32
 static bool pid_exists(pid_t pid) {
     if (pid <= 0) return false;
@@ -409,7 +465,7 @@ void register_runs_routes(CrowApp& app,
 
         auto input_dirs = collect_input_dirs(body);
         std::string runs_dir    = body.value("runs_dir", state->runtime.runs_dir.string());
-        std::string run_id      = body.value("run_id", body.value("run_name", ""));
+        std::string run_id      = make_effective_run_id(body);
         std::string color_mode  = body.value("color_mode", "");
         std::string config_yaml = body.value("config_yaml", "");
         std::string base_run_id = sanitize_run_id(run_id.empty() ? "run" : run_id);
@@ -596,6 +652,9 @@ void register_runs_routes(CrowApp& app,
                 {"events", status.value("events", nlohmann::json::array())},
             });
         } catch (const std::exception& e) {
+            if (auto pending = pending_run_status(state, run_id)) {
+                return json_resp(*pending);
+            }
             return err_resp(e.what(), 404);
         }
     });

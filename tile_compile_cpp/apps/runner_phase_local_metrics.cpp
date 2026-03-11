@@ -80,6 +80,7 @@ bool run_phase_local_metrics(
           break;
         }
         try {
+          Matrix2Df tile_img;
           local_metrics[fi].reserve(tiles_phase56.size());
           local_weights[fi].reserve(tiles_phase56.size());
 
@@ -99,7 +100,11 @@ bool run_phase_local_metrics(
               // PREWARP already composes canvas offset into the stored frames.
               // Tiles are defined in canvas coordinates, so no extra tile offset
               // must be applied here.
-              Matrix2Df tile_img = prewarped_frames.extract_tile(fi, t, 0, 0);
+              if (!prewarped_frames.extract_tile_into(fi, t, tile_img, 0, 0)) {
+                local_metrics[fi].push_back(make_zero_metrics());
+                local_weights[fi].push_back(0.0f);
+                continue;
+              }
 
               if (apply_normalization_to_tiles && fi < norm_scales.size() &&
                   tile_img.size() > 0) {
