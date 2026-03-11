@@ -1298,16 +1298,22 @@ struct PCCAttenuationContext {
     float shadow_hi = 0.0f;
     float blend_lo = 0.0f;
     float blend_hi = 0.0f;
+    float shadow_floor = kShadowAttenFloor;
+    float highlight_floor = kHighlightAttenFloor;
     std::vector<float> luma_smooth;
 };
 
 static PCCAttenuationContext build_pcc_attenuation_context(const Matrix2Df &R,
                                                            const Matrix2Df &G,
                                                            const Matrix2Df &B,
-                                                           const std::vector<uint8_t> *valid_mask = nullptr) {
+                                                           const std::vector<uint8_t> *valid_mask = nullptr,
+                                                           float shadow_floor = kShadowAttenFloor,
+                                                           float highlight_floor = kHighlightAttenFloor) {
     PCCAttenuationContext ctx;
     ctx.rows = R.rows();
     ctx.cols = R.cols();
+    ctx.shadow_floor = shadow_floor;
+    ctx.highlight_floor = highlight_floor;
     if (ctx.rows <= 0 || ctx.cols <= 0) return ctx;
     const bool use_mask =
         (valid_mask != nullptr &&
@@ -1394,7 +1400,7 @@ static float attenuation_from_luma(float luma, const PCCAttenuationContext &ctx)
         float t = (luma - ctx.shadow_lo) / (ctx.shadow_hi - ctx.shadow_lo);
         t = std::clamp(t, 0.0f, 1.0f);
         const float s = t * t * (3.0f - 2.0f * t);
-        atten_shadows = kShadowAttenFloor + (1.0f - kShadowAttenFloor) * s;
+        atten_shadows = ctx.shadow_floor + (1.0f - ctx.shadow_floor) * s;
     }
 
     float atten_highlights = 1.0f;
@@ -1402,7 +1408,7 @@ static float attenuation_from_luma(float luma, const PCCAttenuationContext &ctx)
         float t = (luma - ctx.blend_lo) / (ctx.blend_hi - ctx.blend_lo);
         t = std::clamp(t, 0.0f, 1.0f);
         const float s = t * t * (3.0f - 2.0f * t);
-        atten_highlights = 1.0f - (1.0f - kHighlightAttenFloor) * s;
+        atten_highlights = 1.0f - (1.0f - ctx.highlight_floor) * s;
     }
     return std::min(atten_shadows, atten_highlights);
 }
@@ -1694,9 +1700,12 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
 
 static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                     const ColorMatrix &m, bool verbose,
-                                    const std::vector<uint8_t> *valid_mask = nullptr) {
+                                    const std::vector<uint8_t> *valid_mask = nullptr,
+                                    float shadow_floor = kShadowAttenFloor,
+                                    float highlight_floor = kHighlightAttenFloor) {
     const PCCAttenuationContext ctx =
-        build_pcc_attenuation_context(R, G, B, valid_mask);
+        build_pcc_attenuation_context(R, G, B, valid_mask,
+                                      shadow_floor, highlight_floor);
     const int rows = ctx.rows;
     const int cols = ctx.cols;
     if (rows <= 0 || cols <= 0) return;
@@ -1712,8 +1721,8 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                   << " hi=" << ctx.shadow_hi << std::endl;
         std::cout << "[PCC] Highlight blend thresholds: lo=" << ctx.blend_lo
                   << " hi=" << ctx.blend_hi << std::endl;
-        std::cout << "[PCC] Shadow attenuation floor=" << kShadowAttenFloor << std::endl;
-        std::cout << "[PCC] Highlight attenuation floor=" << kHighlightAttenFloor << std::endl;
+        std::cout << "[PCC] Shadow attenuation floor=" << ctx.shadow_floor << std::endl;
+        std::cout << "[PCC] Highlight attenuation floor=" << ctx.highlight_floor << std::endl;
     }
 
     size_t valid_px = 0;
@@ -1851,12 +1860,38 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         const double pre_bg_std_full =
             static_cast<double>(image::log_chroma_std_background(B_in, G_in, bg_mask));
 
+        const bool matrix_is_diagonal =
+            std::abs(result.matrix[0][1]) < 1.0e-9 &&
+            std::abs(result.matrix[0][2]) < 1.0e-9 &&
+            std::abs(result.matrix[1][0]) < 1.0e-9 &&
+            std::abs(result.matrix[1][2]) < 1.0e-9 &&
+            std::abs(result.matrix[2][0]) < 1.0e-9 &&
+            std::abs(result.matrix[2][1]) < 1.0e-9;
+        const double diagonal_r_gain = std::abs(result.matrix[0][0]);
+        const double diagonal_b_gain = std::abs(result.matrix[2][2]);
+        const bool auto_diagonal_attenuation =
+            (!config.apply_attenuation && matrix_is_diagonal &&
+             std::max(diagonal_r_gain, diagonal_b_gain) > 1.15);
+        const bool effective_apply_attenuation =
+            (config.apply_attenuation || auto_diagonal_attenuation);
+        const float effective_shadow_floor =
+            auto_diagonal_attenuation ? 0.0f : kShadowAttenFloor;
+        const float effective_highlight_floor =
+            auto_diagonal_attenuation ? 1.0f : kHighlightAttenFloor;
+        if (auto_diagonal_attenuation) {
+            std::cout << "[PCC] Linear diagonal PCC: auto-enabling attenuated apply "
+                         "for strong channel gains"
+                      << " (R=" << result.matrix[0][0]
+                      << ", B=" << result.matrix[2][2] << ")" << std::endl;
+        }
         const PCCAttenuationContext sample_ctx =
             build_pcc_attenuation_context(R_in, G_in, B_in,
-                                          &config.common_valid_mask);
+                                          &config.common_valid_mask,
+                                          effective_shadow_floor,
+                                          effective_highlight_floor);
         const std::vector<PCCBackgroundSample> bg_samples =
             build_pcc_background_samples(R_in, G_in, B_in, bg_mask, sample_ctx,
-                                         config.apply_attenuation);
+                                         effective_apply_attenuation);
         const ColorMatrix identity = {{{1.0, 0.0, 0.0},
                                        {0.0, 1.0, 0.0},
                                        {0.0, 0.0, 1.0}}};
@@ -1867,264 +1902,245 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             std::isfinite(pre_sample_std.rg_std) ? pre_sample_std.rg_std : pre_rg_std_full;
         const double pre_bg_std =
             std::isfinite(pre_sample_std.bg_std) ? pre_sample_std.bg_std : pre_bg_std_full;
-        const bool matrix_is_diagonal =
-            std::abs(result.matrix[0][1]) < 1.0e-9 &&
-            std::abs(result.matrix[0][2]) < 1.0e-9 &&
-            std::abs(result.matrix[1][0]) < 1.0e-9 &&
-            std::abs(result.matrix[1][2]) < 1.0e-9 &&
-            std::abs(result.matrix[2][0]) < 1.0e-9 &&
-            std::abs(result.matrix[2][1]) < 1.0e-9;
-        const bool skip_adaptive_damping =
-            (!config.apply_attenuation && matrix_is_diagonal);
 
-        if (skip_adaptive_damping) {
-            const double chroma_strength =
-                std::clamp(config.chroma_strength, 0.0, 1.0);
-            if (chroma_strength < 0.999) {
-                result.matrix = blend_matrix_with_identity_per_channel(
-                    result.matrix, chroma_strength, chroma_strength);
-                update_result_matrix_metrics(&result);
-                std::cout << "[PCC] Chroma strength limit active (linear-diagonal): "
-                          << chroma_strength << std::endl;
-            }
-            std::cout << "[PCC] Linear diagonal PCC: skipping adaptive "
-                         "background-chroma damping guard"
-                      << std::endl;
-        } else {
-
-        const bool use_sampled_eval = bg_samples.size() >= 512;
-        if (use_sampled_eval) {
-            std::cout << "[PCC] Damping evaluator: sampled background points="
-                      << bg_samples.size() << std::endl;
-        } else {
-            std::cout << "[PCC] Damping evaluator fallback: full-frame candidate evaluation"
-                      << std::endl;
-        }
-
-        constexpr double kStdHardCap = 1.08;    // never allow >8% background-std worsening
-        constexpr double kWorsenBudget = 0.01;  // prefer <=1% worsening when possible
         const double chroma_strength = std::clamp(config.chroma_strength, 0.0, 1.0);
-        // Keep dense low-alpha candidates so the guard can keep a small but
-        // effective correction instead of collapsing to full identity.
-        const std::array<double, 11> base_strengths = {
-            1.0, 0.85, 0.70, 0.55, 0.40, 0.25, 0.15, 0.10, 0.05, 0.02, 0.0};
-        std::array<double, 11> strengths{};
-        for (size_t i = 0; i < base_strengths.size(); ++i) {
-            strengths[i] = base_strengths[i] * chroma_strength;
-        }
-        strengths.back() = 0.0;
         if (chroma_strength < 0.999) {
             std::cout << "[PCC] Chroma strength limit active: " << chroma_strength
                       << std::endl;
         }
-        double chosen_alpha_r = 1.0;
-        double chosen_alpha_b = 1.0;
-        ColorMatrix chosen_matrix = result.matrix;
-        double best_score = 0.0;
-        double best_post_rg_std = pre_rg_std;
-        double best_post_bg_std = pre_bg_std;
-        bool found_budget_candidate = false;
-        bool found_fallback_candidate = false;
-        double best_budget_score = -std::numeric_limits<double>::infinity();
-        double best_fallback_score = -std::numeric_limits<double>::infinity();
-        ColorMatrix fallback_matrix = chosen_matrix;
-        double fallback_alpha_r = chosen_alpha_r;
-        double fallback_alpha_b = chosen_alpha_b;
-        double fallback_post_rg_std = best_post_rg_std;
-        double fallback_post_bg_std = best_post_bg_std;
-        bool found_best_star_candidate = false;
-        double best_star_candidate_residual = std::numeric_limits<double>::infinity();
-        ColorMatrix best_star_candidate_matrix = chosen_matrix;
-        double best_star_candidate_alpha_r = chosen_alpha_r;
-        double best_star_candidate_alpha_b = chosen_alpha_b;
-        double best_star_candidate_post_rg_std = best_post_rg_std;
-        double best_star_candidate_post_bg_std = best_post_bg_std;
-        const double identity_residual_rms =
-            recompute_residual_rms_for_matrix(photometry, identity, config.sigma_clip, nullptr);
-        const bool have_identity_residual =
-            std::isfinite(identity_residual_rms) && identity_residual_rms > 0.0;
-
-        auto eval_candidate_std = [&](const ColorMatrix &candidate) {
+        if (auto_diagonal_attenuation) {
+            if (chroma_strength < 0.999) {
+                result.matrix = blend_matrix_with_identity_per_channel(
+                    result.matrix, chroma_strength, chroma_strength);
+                update_result_matrix_metrics(&result);
+            }
+            const PCCBackgroundStdPair post_std =
+                sampled_background_std_after_matrix(bg_samples, result.matrix);
+            std::cout << "[PCC] Auto attenuated diagonal apply: using full fitted gains "
+                         "with shadow-safe attenuation"
+                      << std::endl;
+            std::cout << "[PCC] Background chroma std pre/post: rg="
+                      << pre_rg_std << " -> " << post_std.rg_std
+                      << ", bg=" << pre_bg_std << " -> " << post_std.bg_std
+                      << std::endl;
+        } else {
+            const bool use_sampled_eval = bg_samples.size() >= 512;
             if (use_sampled_eval) {
-                return sampled_background_std_after_matrix(bg_samples, candidate);
-            }
-            Matrix2Df Rt = R_in;
-            Matrix2Df Gt = G_in;
-            Matrix2Df Bt = B_in;
-            if (config.apply_attenuation) {
-                apply_color_matrix_impl(Rt, Gt, Bt, candidate, false,
-                                        &config.common_valid_mask);
+                std::cout << "[PCC] Damping evaluator: sampled background points="
+                          << bg_samples.size() << std::endl;
             } else {
-                apply_color_matrix_impl_simple(Rt, Gt, Bt, candidate, false,
-                                               &config.common_valid_mask);
+                std::cout << "[PCC] Damping evaluator fallback: full-frame candidate evaluation"
+                          << std::endl;
             }
-            PCCBackgroundStdPair out;
-            out.rg_std =
-                static_cast<double>(image::log_chroma_std_background(Rt, Gt, bg_mask));
-            out.bg_std =
-                static_cast<double>(image::log_chroma_std_background(Bt, Gt, bg_mask));
-            return out;
-        };
 
-        auto hard_ok = [&](double pre, double post) {
-            if (!(std::isfinite(pre) && pre > 0.0)) return true;
-            return std::isfinite(post) && post <= pre * kStdHardCap;
-        };
+            constexpr double kStdHardCap = 1.08;    // never allow >8% background-std worsening
+            constexpr double kWorsenBudget = 0.01;  // prefer <=1% worsening when possible
+            // Keep dense low-alpha candidates so the guard can keep a small but
+            // effective correction instead of collapsing to full identity.
+            const std::array<double, 11> base_strengths = {
+                1.0, 0.85, 0.70, 0.55, 0.40, 0.25, 0.15, 0.10, 0.05, 0.02, 0.0};
+            std::array<double, 11> strengths{};
+            for (size_t i = 0; i < base_strengths.size(); ++i) {
+                strengths[i] = base_strengths[i] * chroma_strength;
+            }
+            strengths.back() = 0.0;
+            double chosen_alpha_r = 1.0;
+            double chosen_alpha_b = 1.0;
+            ColorMatrix chosen_matrix = result.matrix;
+            double best_score = 0.0;
+            double best_post_rg_std = pre_rg_std;
+            double best_post_bg_std = pre_bg_std;
+            bool found_budget_candidate = false;
+            bool found_fallback_candidate = false;
+            double best_budget_score = -std::numeric_limits<double>::infinity();
+            double best_fallback_score = -std::numeric_limits<double>::infinity();
+            ColorMatrix fallback_matrix = chosen_matrix;
+            double fallback_alpha_r = chosen_alpha_r;
+            double fallback_alpha_b = chosen_alpha_b;
+            double fallback_post_rg_std = best_post_rg_std;
+            double fallback_post_bg_std = best_post_bg_std;
+            bool found_best_star_candidate = false;
+            double best_star_candidate_residual = std::numeric_limits<double>::infinity();
+            ColorMatrix best_star_candidate_matrix = chosen_matrix;
+            double best_star_candidate_alpha_r = chosen_alpha_r;
+            double best_star_candidate_alpha_b = chosen_alpha_b;
+            double best_star_candidate_post_rg_std = best_post_rg_std;
+            double best_star_candidate_post_bg_std = best_post_bg_std;
+            const double identity_residual_rms =
+                recompute_residual_rms_for_matrix(photometry, identity, config.sigma_clip, nullptr);
+            const bool have_identity_residual =
+                std::isfinite(identity_residual_rms) && identity_residual_rms > 0.0;
 
-        for (double alpha_r : strengths) {
-            for (double alpha_b : strengths) {
-                const ColorMatrix candidate =
-                    blend_matrix_with_identity_per_channel(result.matrix, alpha_r, alpha_b);
-                const PCCBackgroundStdPair post_std = eval_candidate_std(candidate);
-                const double post_rg_std = post_std.rg_std;
-                const double post_bg_std = post_std.bg_std;
-
-                // Hard safety cap against strong background chroma worsening.
-                const bool rg_hard_ok = hard_ok(pre_rg_std, post_rg_std);
-                const bool bg_hard_ok = hard_ok(pre_bg_std, post_bg_std);
-                if (!(rg_hard_ok && bg_hard_ok)) {
-                    continue;
+            auto eval_candidate_std = [&](const ColorMatrix &candidate) {
+                if (use_sampled_eval) {
+                    return sampled_background_std_after_matrix(bg_samples, candidate);
                 }
-
-                const double rel_rg =
-                    (std::isfinite(pre_rg_std) && pre_rg_std > 0.0 && std::isfinite(post_rg_std))
-                        ? (post_rg_std / pre_rg_std - 1.0)
-                        : 0.0;
-                const double rel_bg =
-                    (std::isfinite(pre_bg_std) && pre_bg_std > 0.0 && std::isfinite(post_bg_std))
-                        ? (post_bg_std / pre_bg_std - 1.0)
-                        : 0.0;
-
-                const double gain = 0.5 * (alpha_r + alpha_b); // [0..1]
-                const double worsen_penalty =
-                    std::max(0.0, rel_rg) + std::max(0.0, rel_bg);
-                const double improve_bonus =
-                    std::max(0.0, -rel_rg) + std::max(0.0, -rel_bg);
-                const double imbalance = std::abs(rel_rg - rel_bg);
-                const double total_abs = std::abs(rel_rg) + std::abs(rel_bg);
-                const int candidate_stars_used = static_cast<int>(result.n_stars_used);
-                const double candidate_residual =
-                    recompute_residual_rms_for_matrix(photometry, candidate,
-                                                      config.sigma_clip, nullptr);
-                const bool have_candidate_residual =
-                    std::isfinite(candidate_residual) && candidate_stars_used >= config.min_stars;
-                const double star_residual_gain =
-                    (have_identity_residual && have_candidate_residual)
-                        ? std::clamp((identity_residual_rms - candidate_residual) /
-                                         std::max(1.0e-6, identity_residual_rms),
-                                     -1.0, 1.0)
-                        : 0.0;
-
-                if ((alpha_r > 1.0e-6 || alpha_b > 1.0e-6) && have_candidate_residual &&
-                    (!found_best_star_candidate ||
-                     candidate_residual < best_star_candidate_residual)) {
-                    found_best_star_candidate = true;
-                    best_star_candidate_residual = candidate_residual;
-                    best_star_candidate_matrix = candidate;
-                    best_star_candidate_alpha_r = alpha_r;
-                    best_star_candidate_alpha_b = alpha_b;
-                    best_star_candidate_post_rg_std = post_rg_std;
-                    best_star_candidate_post_bg_std = post_bg_std;
+                Matrix2Df Rt = R_in;
+                Matrix2Df Gt = G_in;
+                Matrix2Df Bt = B_in;
+                if (effective_apply_attenuation) {
+                    apply_color_matrix_impl(Rt, Gt, Bt, candidate, false,
+                                            &config.common_valid_mask,
+                                            effective_shadow_floor,
+                                            effective_highlight_floor);
+                } else {
+                    apply_color_matrix_impl_simple(Rt, Gt, Bt, candidate, false,
+                                                   &config.common_valid_mask);
                 }
+                PCCBackgroundStdPair out;
+                out.rg_std =
+                    static_cast<double>(image::log_chroma_std_background(Rt, Gt, bg_mask));
+                out.bg_std =
+                    static_cast<double>(image::log_chroma_std_background(Bt, Gt, bg_mask));
+                return out;
+            };
 
-                // Fallback soft objective:
-                // stronger correction is rewarded, but background chroma drift is
-                // penalized much harder than in earlier revisions.
-                const double fallback_score =
-                    1.25 * gain - 4.5 * worsen_penalty - 1.4 * imbalance -
-                    0.35 * total_abs + 0.70 * improve_bonus +
-                    1.80 * star_residual_gain;
-                if (!found_fallback_candidate || fallback_score > best_fallback_score) {
-                    found_fallback_candidate = true;
-                    best_fallback_score = fallback_score;
-                    fallback_matrix = candidate;
-                    fallback_alpha_r = alpha_r;
-                    fallback_alpha_b = alpha_b;
-                    fallback_post_rg_std = post_rg_std;
-                    fallback_post_bg_std = post_bg_std;
-                }
+            auto hard_ok = [&](double pre, double post) {
+                if (!(std::isfinite(pre) && pre > 0.0)) return true;
+                return std::isfinite(post) && post <= pre * kStdHardCap;
+            };
 
-                // Primary objective:
-                // if any candidate stays within a strict 1% worsening budget, pick
-                // the strongest correction among those budget-compliant candidates.
-                const bool within_budget =
-                    (rel_rg <= kWorsenBudget) && (rel_bg <= kWorsenBudget);
-                if (within_budget) {
-                    const double budget_score =
-                        gain + 0.60 * improve_bonus - 0.80 * imbalance -
-                        0.20 * worsen_penalty + 1.40 * star_residual_gain;
-                    if (!found_budget_candidate || budget_score > best_budget_score) {
-                        found_budget_candidate = true;
-                        best_budget_score = budget_score;
-                        chosen_alpha_r = alpha_r;
-                        chosen_alpha_b = alpha_b;
-                        chosen_matrix = candidate;
-                        best_post_rg_std = post_rg_std;
-                        best_post_bg_std = post_bg_std;
+            for (double alpha_r : strengths) {
+                for (double alpha_b : strengths) {
+                    const ColorMatrix candidate =
+                        blend_matrix_with_identity_per_channel(result.matrix, alpha_r, alpha_b);
+                    const PCCBackgroundStdPair post_std = eval_candidate_std(candidate);
+                    const double post_rg_std = post_std.rg_std;
+                    const double post_bg_std = post_std.bg_std;
+
+                    const bool rg_hard_ok = hard_ok(pre_rg_std, post_rg_std);
+                    const bool bg_hard_ok = hard_ok(pre_bg_std, post_bg_std);
+                    if (!(rg_hard_ok && bg_hard_ok)) {
+                        continue;
+                    }
+
+                    const double rel_rg =
+                        (std::isfinite(pre_rg_std) && pre_rg_std > 0.0 && std::isfinite(post_rg_std))
+                            ? (post_rg_std / pre_rg_std - 1.0)
+                            : 0.0;
+                    const double rel_bg =
+                        (std::isfinite(pre_bg_std) && pre_bg_std > 0.0 && std::isfinite(post_bg_std))
+                            ? (post_bg_std / pre_bg_std - 1.0)
+                            : 0.0;
+
+                    const double gain = 0.5 * (alpha_r + alpha_b);
+                    const double worsen_penalty =
+                        std::max(0.0, rel_rg) + std::max(0.0, rel_bg);
+                    const double improve_bonus =
+                        std::max(0.0, -rel_rg) + std::max(0.0, -rel_bg);
+                    const double imbalance = std::abs(rel_rg - rel_bg);
+                    const double total_abs = std::abs(rel_rg) + std::abs(rel_bg);
+                    const int candidate_stars_used = static_cast<int>(result.n_stars_used);
+                    const double candidate_residual =
+                        recompute_residual_rms_for_matrix(photometry, candidate,
+                                                          config.sigma_clip, nullptr);
+                    const bool have_candidate_residual =
+                        std::isfinite(candidate_residual) && candidate_stars_used >= config.min_stars;
+                    const double star_residual_gain =
+                        (have_identity_residual && have_candidate_residual)
+                            ? std::clamp((identity_residual_rms - candidate_residual) /
+                                             std::max(1.0e-6, identity_residual_rms),
+                                         -1.0, 1.0)
+                            : 0.0;
+
+                    if ((alpha_r > 1.0e-6 || alpha_b > 1.0e-6) && have_candidate_residual &&
+                        (!found_best_star_candidate ||
+                         candidate_residual < best_star_candidate_residual)) {
+                        found_best_star_candidate = true;
+                        best_star_candidate_residual = candidate_residual;
+                        best_star_candidate_matrix = candidate;
+                        best_star_candidate_alpha_r = alpha_r;
+                        best_star_candidate_alpha_b = alpha_b;
+                        best_star_candidate_post_rg_std = post_rg_std;
+                        best_star_candidate_post_bg_std = post_bg_std;
+                    }
+
+                    const double fallback_score =
+                        1.25 * gain - 4.5 * worsen_penalty - 1.4 * imbalance -
+                        0.35 * total_abs + 0.70 * improve_bonus +
+                        1.80 * star_residual_gain;
+                    if (!found_fallback_candidate || fallback_score > best_fallback_score) {
+                        found_fallback_candidate = true;
+                        best_fallback_score = fallback_score;
+                        fallback_matrix = candidate;
+                        fallback_alpha_r = alpha_r;
+                        fallback_alpha_b = alpha_b;
+                        fallback_post_rg_std = post_rg_std;
+                        fallback_post_bg_std = post_bg_std;
+                    }
+
+                    const bool within_budget =
+                        (rel_rg <= kWorsenBudget) && (rel_bg <= kWorsenBudget);
+                    if (within_budget) {
+                        const double budget_score =
+                            gain + 0.60 * improve_bonus - 0.80 * imbalance -
+                            0.20 * worsen_penalty + 1.40 * star_residual_gain;
+                        if (!found_budget_candidate || budget_score > best_budget_score) {
+                            found_budget_candidate = true;
+                            best_budget_score = budget_score;
+                            chosen_alpha_r = alpha_r;
+                            chosen_alpha_b = alpha_b;
+                            chosen_matrix = candidate;
+                            best_post_rg_std = post_rg_std;
+                            best_post_bg_std = post_bg_std;
+                        }
                     }
                 }
             }
-        }
 
-        if (found_budget_candidate) {
-            best_score = best_budget_score;
-        } else if (found_fallback_candidate) {
-            best_score = best_fallback_score;
-            chosen_alpha_r = fallback_alpha_r;
-            chosen_alpha_b = fallback_alpha_b;
-            chosen_matrix = fallback_matrix;
-            best_post_rg_std = fallback_post_rg_std;
-            best_post_bg_std = fallback_post_bg_std;
-        } else {
-            chosen_alpha_r = 0.0;
-            chosen_alpha_b = 0.0;
-            chosen_matrix =
-                blend_matrix_with_identity_per_channel(result.matrix, 0.0, 0.0);
-            best_post_rg_std = pre_rg_std;
-            best_post_bg_std = pre_bg_std;
-        }
+            if (found_budget_candidate) {
+                best_score = best_budget_score;
+            } else if (found_fallback_candidate) {
+                best_score = best_fallback_score;
+                chosen_alpha_r = fallback_alpha_r;
+                chosen_alpha_b = fallback_alpha_b;
+                chosen_matrix = fallback_matrix;
+                best_post_rg_std = fallback_post_rg_std;
+                best_post_bg_std = fallback_post_bg_std;
+            } else {
+                chosen_alpha_r = 0.0;
+                chosen_alpha_b = 0.0;
+                chosen_matrix =
+                    blend_matrix_with_identity_per_channel(result.matrix, 0.0, 0.0);
+                best_post_rg_std = pre_rg_std;
+                best_post_bg_std = pre_bg_std;
+            }
 
-        // If damping fully disables both chroma corrections, enforce a true
-        // no-op PCC matrix. This avoids unintended global rescaling when
-        // m11 != 1 and keeps "PCC disabled by guard" behavior color-neutral.
-        if (chosen_alpha_r <= 1.0e-6 && chosen_alpha_b <= 1.0e-6) {
-            chosen_matrix = identity;
-        }
-        // If the background guard drives us to identity but a low-alpha candidate
-        // (still hard-cap compliant) materially improves stellar residuals,
-        // keep that candidate instead of disabling PCC entirely.
-        if (chosen_alpha_r <= 1.0e-6 && chosen_alpha_b <= 1.0e-6 &&
-            found_best_star_candidate &&
-            std::isfinite(best_star_candidate_residual) &&
-            ((have_identity_residual &&
-              best_star_candidate_residual <
-                  identity_residual_rms * 0.97) ||
-             (!have_identity_residual &&
-              best_star_candidate_residual < config.max_residual_rms))) {
-            chosen_alpha_r = best_star_candidate_alpha_r;
-            chosen_alpha_b = best_star_candidate_alpha_b;
-            chosen_matrix = best_star_candidate_matrix;
-            best_post_rg_std = best_star_candidate_post_rg_std;
-            best_post_bg_std = best_star_candidate_post_bg_std;
-            best_score = std::max(best_score, 0.0);
-            std::cout << "[PCC] Guard-safe star-residual fallback: alpha_r="
-                      << chosen_alpha_r << " alpha_b=" << chosen_alpha_b
-                      << " identity_rms=" << identity_residual_rms
-                      << " candidate_rms=" << best_star_candidate_residual
-                      << std::endl;
-        }
+            if (chosen_alpha_r <= 1.0e-6 && chosen_alpha_b <= 1.0e-6) {
+                chosen_matrix = identity;
+            }
+            if (chosen_alpha_r <= 1.0e-6 && chosen_alpha_b <= 1.0e-6 &&
+                found_best_star_candidate &&
+                std::isfinite(best_star_candidate_residual) &&
+                ((have_identity_residual &&
+                  best_star_candidate_residual <
+                      identity_residual_rms * 0.97) ||
+                 (!have_identity_residual &&
+                  best_star_candidate_residual < config.max_residual_rms))) {
+                chosen_alpha_r = best_star_candidate_alpha_r;
+                chosen_alpha_b = best_star_candidate_alpha_b;
+                chosen_matrix = best_star_candidate_matrix;
+                best_post_rg_std = best_star_candidate_post_rg_std;
+                best_post_bg_std = best_star_candidate_post_bg_std;
+                best_score = std::max(best_score, 0.0);
+                std::cout << "[PCC] Guard-safe star-residual fallback: alpha_r="
+                          << chosen_alpha_r << " alpha_b=" << chosen_alpha_b
+                          << " identity_rms=" << identity_residual_rms
+                          << " candidate_rms=" << best_star_candidate_residual
+                          << std::endl;
+            }
 
-        if (chosen_alpha_r < 0.999 || chosen_alpha_b < 0.999) {
-            std::cout << "[PCC] Adaptive damping applied: alpha_r=" << chosen_alpha_r
-                      << " alpha_b=" << chosen_alpha_b
-                      << " (background chroma guard)" << std::endl;
-            std::cout << "[PCC] Background chroma std pre/post: rg="
-                      << pre_rg_std << " -> " << best_post_rg_std
-                      << ", bg=" << pre_bg_std << " -> " << best_post_bg_std
-                      << ", score=" << best_score << std::endl;
-            result.matrix = chosen_matrix;
-            update_result_matrix_metrics(&result);
-        }
+            if (chosen_alpha_r < 0.999 || chosen_alpha_b < 0.999) {
+                std::cout << "[PCC] Adaptive damping applied: alpha_r=" << chosen_alpha_r
+                          << " alpha_b=" << chosen_alpha_b
+                          << " (background chroma guard)" << std::endl;
+                std::cout << "[PCC] Background chroma std pre/post: rg="
+                          << pre_rg_std << " -> " << best_post_rg_std
+                          << ", bg=" << pre_bg_std << " -> " << best_post_bg_std
+                          << ", score=" << best_score << std::endl;
+                result.matrix = chosen_matrix;
+                update_result_matrix_metrics(&result);
+            }
         }
 
         const double residual_before_apply = result.residual_rms;
@@ -2144,16 +2160,22 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                       << "keeping fit residual=" << residual_before_apply << std::endl;
         }
 
-        if (config.apply_attenuation) {
+        if (effective_apply_attenuation) {
             apply_color_matrix_impl(R, G, B, result.matrix, true,
-                                    &config.common_valid_mask);
+                                    &config.common_valid_mask,
+                                    effective_shadow_floor,
+                                    effective_highlight_floor);
         } else {
             apply_color_matrix_impl_simple(R, G, B, result.matrix, true,
                                            &config.common_valid_mask);
         }
+        result.apply_mode = effective_apply_attenuation
+                                ? (config.apply_attenuation ? "attenuated"
+                                                            : "attenuated_auto")
+                                : "linear";
         image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
         std::cout << "[PCC] Apply mode: "
-                  << (config.apply_attenuation ? "attenuated" : "linear")
+                  << result.apply_mode
                   << std::endl;
         neutralize_background_offsets(R, G, B, config.common_valid_mask);
         image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);

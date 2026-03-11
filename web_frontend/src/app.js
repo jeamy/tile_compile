@@ -9,6 +9,35 @@ const HISTORY_CURRENT_RUN_KEY = "gui2.historyCurrentRunId";
 const LOCALE_KEY = "gui2.locale";
 const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
 const PRESETS_DIR_KEY = "gui2.presetsDir";
+const CALIBRATION_PATH_KEY_PREFIX = "gui2.calibrationPath";
+const UI_STORAGE_KEYS = {
+  dashboardRunsDir: "gui2.dashboard.runsDir",
+  dashboardRunName: "gui2.dashboard.runName",
+  dashboardQueue: "gui2.dashboard.queueDraft",
+  dashboardPreset: "gui2.dashboard.presetPath",
+  wizardRunsDir: "gui2.wizard.runsDir",
+  wizardRunName: "gui2.wizard.runName",
+  wizardQueue: "gui2.wizard.queueDraft",
+  wizardPreset: "gui2.wizard.presetPath",
+  historySelectedRunId: "gui2.history.selectedRunId",
+  historyCompareRunId: "gui2.history.compareRunId",
+  liveFilter: "gui2.live.filter",
+  astrometryBinary: "gui2.tools.astrometry.binary",
+  astrometryDataDir: "gui2.tools.astrometry.dataDir",
+  astrometryFile: "gui2.tools.astrometry.file",
+  astrometryCatalog: "gui2.tools.astrometry.catalog",
+  pccRgb: "gui2.tools.pcc.rgb",
+  pccWcs: "gui2.tools.pcc.wcs",
+  pccSource: "gui2.tools.pcc.source",
+  pccCatalogDir: "gui2.tools.pcc.catalogDir",
+  pccMagLimit: "gui2.tools.pcc.magLimit",
+  pccMagBrightLimit: "gui2.tools.pcc.magBrightLimit",
+  pccMinStars: "gui2.tools.pcc.minStars",
+  pccSigma: "gui2.tools.pcc.sigma",
+  pccAperture: "gui2.tools.pcc.aperture",
+  pccAnnulusInner: "gui2.tools.pcc.annulusInner",
+  pccAnnulusOuter: "gui2.tools.pcc.annulusOuter",
+};
 
 const uiState = {
   currentRunId: localStorage.getItem("gui2.currentRunId") || "",
@@ -17,8 +46,8 @@ const uiState = {
   parameterBaseYaml: "",
   missingHistoryRunIds: new Set(),
   defaultConfigPath: "",
-  selectedHistoryRunId: "",
-  compareHistoryRunId: "",
+  selectedHistoryRunId: localStorage.getItem(UI_STORAGE_KEYS.historySelectedRunId) || "",
+  compareHistoryRunId: localStorage.getItem(UI_STORAGE_KEYS.historyCompareRunId) || "",
   configYaml: "",
   configObject: null,
   parameterDirty: {},
@@ -30,7 +59,7 @@ const uiState = {
   liveLines: [],
   livePendingLines: [],
   liveLogFlushTimer: null,
-  liveFilter: "all",
+  liveFilter: localStorage.getItem(UI_STORAGE_KEYS.liveFilter) || "all",
   lastAstrometryWcs: "",
   lastPccOutput: "",
   lastPccChannels: [],
@@ -110,6 +139,7 @@ const ASSUMPTION_ID_PATHS = {
 
 const SCAN_CALIBRATION_BINDINGS = [
   {
+    storageKey: "bias",
     sourceId: "cal-bias-source",
     inputId: "cal-bias-dir",
     useMasterPath: "calibration.bias_use_master",
@@ -121,6 +151,7 @@ const SCAN_CALIBRATION_BINDINGS = [
     masterTitle: "Master-Bias-Datei setzen.",
   },
   {
+    storageKey: "dark",
     sourceId: "cal-dark-source",
     inputId: "cal-dark-dir",
     useMasterPath: "calibration.dark_use_master",
@@ -132,6 +163,7 @@ const SCAN_CALIBRATION_BINDINGS = [
     masterTitle: "Master-Dark-Datei setzen.",
   },
   {
+    storageKey: "flat",
     sourceId: "cal-flat-source",
     inputId: "cal-flat-dir",
     useMasterPath: "calibration.flat_use_master",
@@ -743,6 +775,33 @@ function scanCalibrationActivePath(binding, useMaster = scanCalibrationUseMaster
   return useMaster ? binding.masterPath : binding.dirPath;
 }
 
+function calibrationStorageKey(binding, useMaster) {
+  const stem = String(binding?.storageKey || binding?.inputId || "cal").trim();
+  return `${CALIBRATION_PATH_KEY_PREFIX}.${stem}.${useMaster ? "master" : "dir"}`;
+}
+
+function storedCalibrationPath(binding, useMaster) {
+  const value = String(localStorage.getItem(calibrationStorageKey(binding, useMaster)) || "").trim();
+  if (!value) return "";
+  if (!isAbsolutePath(value)) {
+    localStorage.removeItem(calibrationStorageKey(binding, useMaster));
+    return "";
+  }
+  return value;
+}
+
+function persistCalibrationPath(binding, useMaster, rawValue) {
+  if (!binding) return;
+  const key = calibrationStorageKey(binding, useMaster);
+  const value = String(rawValue || "").trim();
+  if (!value) {
+    localStorage.removeItem(key);
+    return;
+  }
+  if (!isAbsolutePath(value)) return;
+  localStorage.setItem(key, value);
+}
+
 function syncScanCalibrationInputPresentation(binding, useMaster) {
   const input = $(binding?.inputId);
   if (!input) return;
@@ -759,8 +818,32 @@ function syncScanCalibrationUiFromConfig(config) {
     writeFieldValue(sourceEl, useMaster);
     syncScanCalibrationInputPresentation(binding, useMaster);
     const activeValue = getByPath(config, scanCalibrationActivePath(binding, useMaster));
-    inputEl.value = activeValue === undefined || activeValue === null ? "" : String(activeValue);
+    const preferredValue =
+      activeValue === undefined || activeValue === null || String(activeValue).trim() === ""
+        ? storedCalibrationPath(binding, useMaster)
+        : String(activeValue);
+    inputEl.value = preferredValue;
   });
+}
+
+async function restoreStoredCalibrationPathsIntoConfig(config) {
+  if (!config || typeof config !== "object") return config;
+  const updates = [];
+  SCAN_CALIBRATION_BINDINGS.forEach((binding) => {
+    const useMaster = Boolean(getByPath(config, binding.useMasterPath));
+    const activePath = scanCalibrationActivePath(binding, useMaster);
+    const currentValue = String(getByPath(config, activePath) || "").trim();
+    if (currentValue) {
+      persistCalibrationPath(binding, useMaster, currentValue);
+      return;
+    }
+    const storedValue = storedCalibrationPath(binding, useMaster);
+    if (!storedValue) return;
+    updates.push({ path: activePath, value: storedValue });
+  });
+  if (updates.length === 0) return config;
+  const patched = await patchConfig({ updates, persist: false });
+  return patched?.config && typeof patched.config === "object" ? patched.config : config;
 }
 
 function updatesFromMap(pathBySelector) {
@@ -823,6 +906,128 @@ function syncPresetDirInputs() {
     const el = $(id);
     if (el) el.value = value;
   });
+}
+
+function storedTextValue(key, { absolute = false } = {}) {
+  const value = String(localStorage.getItem(key) || "").trim();
+  if (!value) return "";
+  if (absolute && !isAbsolutePath(value)) {
+    localStorage.removeItem(key);
+    return "";
+  }
+  return value;
+}
+
+function persistTextValue(key, rawValue, { absolute = false } = {}) {
+  const value = String(rawValue || "").trim();
+  if (!value) {
+    localStorage.removeItem(key);
+    return;
+  }
+  if (absolute && !isAbsolutePath(value)) return;
+  localStorage.setItem(key, value);
+}
+
+function bindStoredField(id, key, { absolute = false, normalize = null, overwrite = false } = {}) {
+  const el = $(id);
+  if (!el) return;
+  const stored = storedTextValue(key, { absolute });
+  if ((overwrite || !String(el.value || "").trim()) && stored) {
+    el.value = stored;
+  }
+  const persist = () => {
+    const raw = normalize ? normalize(el.value) : String(el.value || "").trim();
+    if (normalize && raw !== el.value) el.value = raw;
+    persistTextValue(key, raw, { absolute });
+  };
+  el.addEventListener("input", persist);
+  el.addEventListener("change", persist);
+}
+
+function restoreStoredSelectValue(selectId, key, { absolute = false } = {}) {
+  const select = $(selectId);
+  if (!select) return "";
+  const stored = storedTextValue(key, { absolute });
+  if (!stored) return "";
+  const option = Array.from(select.options || []).find((item) => String(item.value || "") === stored);
+  if (!option) return "";
+  select.value = option.value;
+  return option.value;
+}
+
+function bindStoredSelect(selectId, key, { absolute = false } = {}) {
+  const select = $(selectId);
+  if (!select) return;
+  restoreStoredSelectValue(selectId, key, { absolute });
+  persistTextValue(key, String(select.value || "").trim(), { absolute });
+  const persist = () => persistTextValue(key, String(select.value || "").trim(), { absolute });
+  select.addEventListener("input", persist);
+  select.addEventListener("change", persist);
+}
+
+function collectQueueDraftRows(scope = document) {
+  return Array.from(scope.querySelectorAll(".ps-queue-row")).map((row) => {
+    const select = row.querySelector("select");
+    const inputs = Array.from(row.querySelectorAll("input[type='text']"));
+    const enabled = row.querySelector("input[type='checkbox']");
+    return {
+      filter: String(select?.value || "").trim(),
+      input_dir: String(inputs[0]?.value || "").trim(),
+      pattern: String(inputs[1]?.value || "").trim(),
+      run_id: String(inputs[2]?.value || "").trim(),
+      enabled: enabled ? Boolean(enabled.checked) : true,
+    };
+  });
+}
+
+function restoreQueueDraftRows(key, scope = document) {
+  let rows = [];
+  try {
+    const parsed = JSON.parse(String(localStorage.getItem(key) || "[]"));
+    rows = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    localStorage.removeItem(key);
+    return;
+  }
+  if (rows.length === 0) return;
+  Array.from(scope.querySelectorAll(".ps-queue-row")).forEach((row, index) => {
+    const item = rows[index];
+    if (!item || typeof item !== "object") return;
+    const select = row.querySelector("select");
+    const inputs = Array.from(row.querySelectorAll("input[type='text']"));
+    const enabled = row.querySelector("input[type='checkbox']");
+    if (select) select.value = String(item.filter || "");
+    if (inputs[0]) inputs[0].value = String(item.input_dir || "");
+    if (inputs[1]) inputs[1].value = String(item.pattern || "");
+    if (inputs[2]) inputs[2].value = String(item.run_id || "");
+    if (enabled) enabled.checked = item.enabled !== false;
+  });
+}
+
+function bindQueueDraftPersistence(key, scope = document) {
+  const rows = Array.from(scope.querySelectorAll(".ps-queue-row"));
+  if (rows.length === 0) return;
+  restoreQueueDraftRows(key, scope);
+  const persist = () => {
+    const items = collectQueueDraftRows(scope);
+    const hasContent = items.some((item) => !item.enabled || item.filter || item.input_dir || item.pattern || item.run_id);
+    if (!hasContent) {
+      localStorage.removeItem(key);
+      return;
+    }
+    localStorage.setItem(key, JSON.stringify(items));
+  };
+  rows.forEach((row) => {
+    row.querySelectorAll("input,select").forEach((el) => {
+      el.addEventListener("input", persist);
+      el.addEventListener("change", persist);
+    });
+  });
+}
+
+function persistHistorySelectionState() {
+  persistTextValue(UI_STORAGE_KEYS.historySelectedRunId, uiState.selectedHistoryRunId);
+  persistTextValue(UI_STORAGE_KEYS.historyCompareRunId, uiState.compareHistoryRunId);
 }
 
 function restoreLastInputDirs(...ids) {
@@ -889,6 +1094,14 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
   const runsDir = firstNonEmptyText(runsDirEl?.value, uiState.projectRunsDir);
   if (runsDirEl && !String(runsDirEl.value || "").trim() && runsDir) {
     runsDirEl.value = runsDir;
+  }
+  if (useDashboardFields) {
+    persistTextValue(UI_STORAGE_KEYS.dashboardRunName, runName);
+    persistTextValue(UI_STORAGE_KEYS.dashboardRunsDir, runsDir, { absolute: true });
+  }
+  if (useWizardFields) {
+    persistTextValue(UI_STORAGE_KEYS.wizardRunName, runName);
+    persistTextValue(UI_STORAGE_KEYS.wizardRunsDir, runsDir, { absolute: true });
   }
   const colorMode = firstNonEmptyText(
     useDashboardFields ? $("dashboard-color-mode")?.value : "",
@@ -1415,6 +1628,11 @@ function bindScanPages() {
             value: readFieldValue(el),
           });
         } else if (String(el.id || "") === calibrationBinding.inputId) {
+          persistCalibrationPath(
+            calibrationBinding,
+            scanCalibrationUseMaster(calibrationBinding),
+            readFieldValue(el),
+          );
           updates.push({
             path: scanCalibrationActivePath(calibrationBinding),
             value: readFieldValue(el),
@@ -1423,9 +1641,17 @@ function bindScanPages() {
         if (updates.length === 0) return;
         const patched = await patchConfig({ updates, persist: false });
         if (patched?.config) {
-          syncScanCalibrationUiFromConfig(patched.config);
+          const hydratedConfig = await restoreStoredCalibrationPathsIntoConfig(patched.config);
+          syncScanCalibrationUiFromConfig(hydratedConfig);
         } else {
           syncScanCalibrationInputPresentation(calibrationBinding, scanCalibrationUseMaster(calibrationBinding));
+          const inputEl = $(calibrationBinding.inputId);
+          if (inputEl && !String(inputEl.value || "").trim()) {
+            inputEl.value = storedCalibrationPath(
+              calibrationBinding,
+              scanCalibrationUseMaster(calibrationBinding),
+            );
+          }
         }
         return;
       }
@@ -1456,7 +1682,8 @@ function bindScanPages() {
     try {
       const parsed = await patchConfig({ updates: [], persist: false });
       if (parsed?.config) {
-        syncParameterFieldsFromConfig(parsed.config);
+        const hydratedConfig = await restoreStoredCalibrationPathsIntoConfig(parsed.config);
+        syncParameterFieldsFromConfig(hydratedConfig);
       }
       const latest = await api.get(API_ENDPOINTS.scan.latest);
       const summary = summarizeScanResult(latest);
@@ -3116,6 +3343,7 @@ async function bindHistoryPage() {
       clearHistoryDetails(selectedRefs);
       selectedSnapshotCache = null;
       updateHistoryActionState(null);
+      persistHistorySelectionState();
       return null;
     }
     const snapshot = await loadRunSnapshot(uiState.selectedHistoryRunId);
@@ -3124,6 +3352,7 @@ async function bindHistoryPage() {
       selectedSnapshotCache = null;
       clearHistoryDetails(selectedRefs);
       updateHistoryActionState(null);
+      persistHistorySelectionState();
       return null;
     }
     selectedSnapshotCache = snapshot;
@@ -3144,11 +3373,13 @@ async function bindHistoryPage() {
       uiState.compareHistoryRunId = "";
     }
     compareRunSelect.value = uiState.compareHistoryRunId || "";
+    persistHistorySelectionState();
   };
   const renderCompareDetails = async (selectedSnapshot) => {
     if (!uiState.compareHistoryRunId || uiState.compareHistoryRunId === uiState.selectedHistoryRunId) {
       clearHistoryDetails(compareRefs, "Vergleichs-Run wählen");
       if (compareRunSelect) compareRunSelect.value = "";
+      persistHistorySelectionState();
       return;
     }
     const snapshot = await loadRunSnapshot(uiState.compareHistoryRunId);
@@ -3156,6 +3387,7 @@ async function bindHistoryPage() {
       uiState.compareHistoryRunId = "";
       clearHistoryDetails(compareRefs, "Vergleichs-Run wählen");
       if (compareRunSelect) compareRunSelect.value = "";
+      persistHistorySelectionState();
       return;
     }
     applyHistorySnapshot(snapshot, compareRefs);
@@ -3190,6 +3422,9 @@ async function bindHistoryPage() {
       if (compareRunSelect) compareRunSelect.innerHTML = '<option value="">-</option>';
       selectedSnapshotCache = null;
       updateHistoryActionState(null);
+      uiState.selectedHistoryRunId = "";
+      uiState.compareHistoryRunId = "";
+      persistHistorySelectionState();
       return;
     }
     if (!items.some((item) => item.run_id === uiState.selectedHistoryRunId)) {
@@ -3200,6 +3435,7 @@ async function bindHistoryPage() {
     if (uiState.compareHistoryRunId === uiState.selectedHistoryRunId) {
       uiState.compareHistoryRunId = "";
     }
+    persistHistorySelectionState();
     list.innerHTML = items
       .slice(0, 50)
       .map((item) => {
@@ -3211,6 +3447,7 @@ async function bindHistoryPage() {
       btn.addEventListener("click", () => {
         uiState.selectedHistoryRunId = btn.getAttribute("data-run-id") || "";
         if (uiState.compareHistoryRunId === uiState.selectedHistoryRunId) uiState.compareHistoryRunId = "";
+        persistHistorySelectionState();
         render().catch((err) => {
           setFooter(`History laden fehlgeschlagen: ${errorText(err)}`, true);
         });
@@ -3296,6 +3533,7 @@ async function bindHistoryPage() {
       if (uiState.currentRunId === runId) clearCurrentRunId();
       if (uiState.compareHistoryRunId === runId) uiState.compareHistoryRunId = "";
       if (uiState.selectedHistoryRunId === runId) uiState.selectedHistoryRunId = "";
+      persistHistorySelectionState();
       setFooter(historyDeleteDoneMessage(runId));
       await render();
     } catch (err) {
@@ -3305,6 +3543,7 @@ async function bindHistoryPage() {
 
   compareRunSelect?.addEventListener("change", () => {
     uiState.compareHistoryRunId = String(compareRunSelect.value || "").trim();
+    persistHistorySelectionState();
     render().catch((err) => {
       setFooter(`History laden fehlgeschlagen: ${errorText(err)}`, true);
     });
@@ -3320,6 +3559,7 @@ async function bindHistoryPage() {
       return;
     }
     uiState.compareHistoryRunId = uiState.currentRunId;
+    persistHistorySelectionState();
     render().catch((err) => {
       setFooter(`History laden fehlgeschlagen: ${errorText(err)}`, true);
     });
@@ -3327,6 +3567,7 @@ async function bindHistoryPage() {
 
   $("history-compare-clear")?.addEventListener("click", () => {
     uiState.compareHistoryRunId = "";
+    persistHistorySelectionState();
     render().catch((err) => {
       setFooter(`History laden fehlgeschlagen: ${errorText(err)}`, true);
     });
@@ -3353,6 +3594,11 @@ async function bindAstrometryPage() {
   const binaryInput = $("tools-astrometry-bin");
   const dataDirInput = $("tools-astrometry-data-dir");
   let autoResolving = false;
+
+  bindStoredField("tools-astrometry-bin", UI_STORAGE_KEYS.astrometryBinary, { absolute: true });
+  bindStoredField("tools-astrometry-data-dir", UI_STORAGE_KEYS.astrometryDataDir, { absolute: true });
+  bindStoredField("tools-astrometry-file", UI_STORAGE_KEYS.astrometryFile, { absolute: true });
+  bindStoredField("tools-astrometry-catalog", UI_STORAGE_KEYS.astrometryCatalog, { overwrite: true });
 
   const append = (msg) => appendStructuredLog(logBox, msg, { suppressRunStatus: true });
   const setFieldValue = (el, value) => {
@@ -3397,8 +3643,12 @@ async function bindAstrometryPage() {
     if (statusChip) statusChip.textContent = result.installed ? "Installed" : "Missing";
     if (binaryInput && result.binary && !shouldKeepAstapSelection(selectedBinary, result.binary)) {
       binaryInput.value = String(result.binary);
+      persistTextValue(UI_STORAGE_KEYS.astrometryBinary, binaryInput.value, { absolute: true });
     }
-    if (dataDirInput && result.data_dir) dataDirInput.value = String(result.data_dir);
+    if (dataDirInput && result.data_dir) {
+      dataDirInput.value = String(result.data_dir);
+      persistTextValue(UI_STORAGE_KEYS.astrometryDataDir, dataDirInput.value, { absolute: true });
+    }
     if (logResult) append(result);
     return result;
   }
@@ -3549,6 +3799,20 @@ async function bindPccPage() {
   const statusField = document.querySelector("[data-control='tools.pcc.siril_status']");
   if (logBox) logBox.textContent = "";
 
+  [
+    ["tools-pcc-rgb", UI_STORAGE_KEYS.pccRgb, true],
+    ["tools-pcc-wcs", UI_STORAGE_KEYS.pccWcs, true],
+    ["tools-pcc-source", UI_STORAGE_KEYS.pccSource, false],
+    ["tools-pcc-catalog-dir", UI_STORAGE_KEYS.pccCatalogDir, true],
+    ["tools-pcc-mag-limit", UI_STORAGE_KEYS.pccMagLimit, false],
+    ["tools-pcc-mag-bright", UI_STORAGE_KEYS.pccMagBrightLimit, false],
+    ["tools-pcc-min-stars", UI_STORAGE_KEYS.pccMinStars, false],
+    ["tools-pcc-sigma", UI_STORAGE_KEYS.pccSigma, false],
+    ["tools-pcc-aperture", UI_STORAGE_KEYS.pccAperture, false],
+    ["tools-pcc-annulus-in", UI_STORAGE_KEYS.pccAnnulusInner, false],
+    ["tools-pcc-annulus-out", UI_STORAGE_KEYS.pccAnnulusOuter, false],
+  ].forEach(([id, key, absolute]) => bindStoredField(id, key, { absolute, overwrite: id === "tools-pcc-source" }));
+
   const missingField = $("tools-pcc-missing-chunks");
   const starsMatchedField = $("tools-pcc-stars-matched");
   const starsUsedField = $("tools-pcc-stars-used");
@@ -3600,6 +3864,7 @@ async function bindPccPage() {
     if (missingField) missingField.value = String(Array.isArray(status.missing) ? status.missing.length : "");
     if (status.catalog_dir && !String($("tools-pcc-catalog-dir")?.value || "").trim()) {
       setInputValue($("tools-pcc-catalog-dir"), status.catalog_dir);
+      persistTextValue(UI_STORAGE_KEYS.pccCatalogDir, status.catalog_dir, { absolute: true });
     }
     append(status);
   };
@@ -3782,9 +4047,15 @@ async function bindLiveLogPage() {
         return;
       }
       uiState.liveFilter = t;
+      persistTextValue(UI_STORAGE_KEYS.liveFilter, uiState.liveFilter);
       render();
     });
   });
+
+  if (!["all", "info", "warning", "error"].includes(String(uiState.liveFilter || "").toLowerCase())) {
+    uiState.liveFilter = "all";
+    persistTextValue(UI_STORAGE_KEYS.liveFilter, uiState.liveFilter);
+  }
 
   if (uiState.liveSocket) {
     uiState.liveSocket.close();
@@ -3872,17 +4143,13 @@ function setMonoQueueVisible(selectedModeRaw) {
 }
 
 function collectQueueRows() {
-  const rows = Array.from(document.querySelectorAll(".ps-queue-row"));
   const out = [];
-  for (const row of rows) {
-    const select = row.querySelector("select");
-    const inputs = Array.from(row.querySelectorAll("input[type='text']"));
-    const enabled = row.querySelector("input[type='checkbox']");
-    const filter = String(select?.value || "").trim();
-    const inputDir = String(inputs[0]?.value || "").trim();
-    const pattern = String(inputs[1]?.value || "").trim();
-    const runLabel = String(inputs[2]?.value || "").trim();
-    const isOn = enabled ? Boolean(enabled.checked) : true;
+  for (const row of collectQueueDraftRows()) {
+    const filter = String(row.filter || "").trim();
+    const inputDir = String(row.input_dir || "").trim();
+    const pattern = String(row.pattern || "").trim();
+    const runLabel = String(row.run_id || "").trim();
+    const isOn = row.enabled !== false;
     if (!isOn || !inputDir) continue;
     const item = { filter, input_dir: inputDir };
     if (pattern) item.pattern = pattern;
@@ -4103,6 +4370,9 @@ async function bindDashboard() {
   setDashboardValidateStatus(null, "Validierung: nicht geprüft");
   setDashboardValidateDetails(null);
   bindInputDirMemory("dashboard-input-dirs");
+  bindStoredField("dashboard-run-runs-dir", UI_STORAGE_KEYS.dashboardRunsDir, { absolute: true });
+  bindStoredField("dashboard-run-name", UI_STORAGE_KEYS.dashboardRunName, { normalize: sanitizeRunName });
+  bindQueueDraftPersistence(UI_STORAGE_KEYS.dashboardQueue);
   const runsDirInput = $("dashboard-run-runs-dir");
   if (runsDirInput && !String(runsDirInput.value || "").trim() && uiState.projectRunsDir) {
     runsDirInput.value = uiState.projectRunsDir;
@@ -4150,11 +4420,15 @@ async function bindDashboard() {
       selectId: "dashboard-preset",
     });
     await populatePresetSelect("dashboard-preset", false);
+    restoreStoredSelectValue("dashboard-preset", UI_STORAGE_KEYS.dashboardPreset, { absolute: true });
+    bindStoredSelect("dashboard-preset", UI_STORAGE_KEYS.dashboardPreset, { absolute: true });
 
     const preview = () => {
       const runsDir = String($("dashboard-run-runs-dir")?.value || "").trim();
       const runName = sanitizeRunName(String($("dashboard-run-name")?.value || ""));
       if ($("dashboard-run-name")) $("dashboard-run-name").value = runName;
+      persistTextValue(UI_STORAGE_KEYS.dashboardRunName, runName);
+      persistTextValue(UI_STORAGE_KEYS.dashboardRunsDir, runsDir, { absolute: true });
       if (!$("dashboard-run-path-preview")) return;
       if (!runsDir || !runName) {
         $("dashboard-run-path-preview").value = "";
@@ -4355,6 +4629,9 @@ async function bindWizard() {
   if (pageName() !== "wizard.html") return;
   updateWizardStartState(null);
   setWizardValidationResult(null, "Validierung ausstehend.");
+  bindStoredField("wizard-runs-dir", UI_STORAGE_KEYS.wizardRunsDir, { absolute: true });
+  bindStoredField("wizard-run-name", UI_STORAGE_KEYS.wizardRunName, { normalize: sanitizeRunName });
+  bindQueueDraftPersistence(UI_STORAGE_KEYS.wizardQueue);
   const wizardRunsDir = $("wizard-runs-dir");
   if (wizardRunsDir && !String(wizardRunsDir.value || "").trim() && uiState.projectRunsDir) {
     wizardRunsDir.value = uiState.projectRunsDir;
@@ -4398,6 +4675,8 @@ async function bindWizard() {
     const dirs = parseInputDirs(String($("inp-dirs")?.value || ""));
     const suggested = sanitizeRunName(String($("wizard-run-name")?.value || "")) || suggestRunNameFromInputs(dirs);
     if ($("wizard-run-name")) $("wizard-run-name").value = suggested;
+    persistTextValue(UI_STORAGE_KEYS.wizardRunName, suggested);
+    persistTextValue(UI_STORAGE_KEYS.wizardRunsDir, runsDir, { absolute: true });
     const previewEl = $("wizard-run-path-preview");
     if (!previewEl) return;
     if (!runsDir || !suggested) {
@@ -4414,6 +4693,8 @@ async function bindWizard() {
       selectId: "wizard-preset-select",
     });
     await populatePresetSelect("wizard-preset-select", true);
+    restoreStoredSelectValue("wizard-preset-select", UI_STORAGE_KEYS.wizardPreset, { absolute: true });
+    bindStoredSelect("wizard-preset-select", UI_STORAGE_KEYS.wizardPreset, { absolute: true });
   } catch (err) {
     setFooter(`Wizard-Presetliste konnte nicht geladen werden: ${errorText(err)}`, true);
   }

@@ -1,5 +1,10 @@
 (function () {
   const LOCALE_KEY = "gui2.locale";
+  const PARAMETER_UI_KEYS = {
+    category: "gui2.parameterStudio.category",
+    search: "gui2.parameterStudio.search",
+    scenarios: "gui2.parameterStudio.scenarios",
+  };
   const PARAM_CONTROL_PATHS = {
     "parameter.registration.engine": "registration.engine",
     "parameter.registration.allow_rotation": "registration.allow_rotation",
@@ -73,6 +78,31 @@
   let localeMessages = {};
   let activeCategory = "registration";
   let activeExplainPath = "registration.star_topk";
+
+  function persistCategory(category) {
+    const value = String(category || "").trim();
+    if (!value) {
+      localStorage.removeItem(PARAMETER_UI_KEYS.category);
+      return;
+    }
+    localStorage.setItem(PARAMETER_UI_KEYS.category, value);
+  }
+
+  function persistSearch(rawValue) {
+    const value = String(rawValue || "");
+    if (!value.trim()) {
+      localStorage.removeItem(PARAMETER_UI_KEYS.search);
+      return;
+    }
+    localStorage.setItem(PARAMETER_UI_KEYS.search, value);
+  }
+
+  function persistScenarioState() {
+    const active = Array.from(document.querySelectorAll(".ps-chip-btn.active"))
+      .map((el) => String(el.dataset.scenario || "").trim())
+      .filter(Boolean);
+    localStorage.setItem(PARAMETER_UI_KEYS.scenarios, JSON.stringify(active));
+  }
 
   function textFor(key, fallback) {
     return localeMessages[key] || fallback;
@@ -536,6 +566,7 @@
 
   function setCategory(category) {
     activeCategory = category;
+    persistCategory(category);
     categoryButtons.forEach((btn) => {
       btn.classList.toggle("is-active", btn.dataset.category === category);
     });
@@ -665,11 +696,17 @@
     document.querySelectorAll(".ps-chip-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         btn.classList.toggle("active");
+        persistScenarioState();
         renderSituationDeltas();
       });
     });
     if (searchInput) {
+      const storedSearch = String(localStorage.getItem(PARAMETER_UI_KEYS.search) || "");
+      if (!String(searchInput.value || "").trim() && storedSearch.trim()) {
+        searchInput.value = storedSearch;
+      }
       searchInput.addEventListener("input", renderSearchResults);
+      searchInput.addEventListener("input", () => persistSearch(searchInput.value));
       searchInput.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
         const first = paramEditorIndex.find((entry) => String(entry.path || "").toLowerCase().includes(String(searchInput.value || "").trim().toLowerCase()));
@@ -679,6 +716,24 @@
     document.addEventListener("gui2:locale-changed", () => {
       window.setTimeout(() => void refreshLocaleSensitiveUi(), 0);
     });
+    const storedCategory = String(localStorage.getItem(PARAMETER_UI_KEYS.category) || "").trim();
+    if (storedCategory && categoryButtons.some((btn) => btn.dataset.category === storedCategory)) {
+      activeCategory = storedCategory;
+    }
+    try {
+      const storedRaw = localStorage.getItem(PARAMETER_UI_KEYS.scenarios);
+      if (storedRaw !== null) {
+        const storedScenarios = JSON.parse(String(storedRaw || "[]"));
+        if (Array.isArray(storedScenarios)) {
+          const activeSet = new Set(storedScenarios.map((value) => String(value || "").trim()).filter(Boolean));
+          document.querySelectorAll(".ps-chip-btn[data-scenario]").forEach((btn) => {
+            btn.classList.toggle("active", activeSet.has(String(btn.dataset.scenario || "").trim()));
+          });
+        }
+      }
+    } catch {
+      localStorage.removeItem(PARAMETER_UI_KEYS.scenarios);
+    }
     setCategory(activeCategory);
     bindExplainInteractions(document);
     updateExplainPanel(activeExplainPath);

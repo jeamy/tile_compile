@@ -200,6 +200,7 @@
   </main>
 <script>
   (function () {
+    const MODE_KEY = 'gui2.dashboard.guidedMode';
     const btnSimple = document.getElementById('dashboard-guided-mode-simple');
     const btnAdvanced = document.getElementById('dashboard-guided-mode-advanced');
     const advancedNodes = document.querySelectorAll('.guided-advanced:not(.guided-mono-only)');
@@ -209,6 +210,7 @@
 
     function setMode(mode) {
       const isAdvanced = mode === 'advanced';
+      localStorage.setItem(MODE_KEY, isAdvanced ? 'advanced' : 'simple');
       advancedNodes.forEach((el) => {
         el.style.display = isAdvanced ? '' : 'none';
       });
@@ -225,7 +227,8 @@
     colorMode?.addEventListener('change', () => {
       setMode(btnAdvanced.classList.contains('active') ? 'advanced' : 'simple');
     });
-    setMode('simple');
+    const storedMode = String(localStorage.getItem(MODE_KEY) || '').trim().toLowerCase();
+    setMode(storedMode === 'advanced' ? 'advanced' : 'simple');
   })();
 </script>
   <script type="module" src="src/app.js?v=7"></script>

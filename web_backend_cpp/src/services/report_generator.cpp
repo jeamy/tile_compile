@@ -817,6 +817,7 @@ std::string svg_bar(const std::vector<std::string>& labels,
     const double ph = height - 92.0;
     const double step = pw / static_cast<double>(labels.size());
     const double bar_w = std::max(6.0, step * 0.72);
+    const double min_visible_h = 2.0;
 
     std::ostringstream out;
     out << svg_begin(width, height, title);
@@ -831,11 +832,19 @@ std::string svg_bar(const std::vector<std::string>& labels,
 
     for (size_t i = 0; i < labels.size(); ++i) {
         const double x = x0 + i * step + (step - bar_w) * 0.5;
-        const double h = scale_linear(values[i], 0.0, top_val, 0.0, ph);
-        const double y = y0 + ph - h;
         const std::string color = i < colors.size() ? colors[i] : colormap_hex("plasma", static_cast<double>(i) / std::max<size_t>(1, labels.size() - 1));
-        out << "<rect x=\"" << x << "\" y=\"" << y << "\" width=\"" << bar_w << "\" height=\"" << h
-            << "\" rx=\"3\" fill=\"" << color << "\" opacity=\"0.9\"/>";
+        const double raw_h = std::max(0.0, scale_linear(values[i], 0.0, top_val, 0.0, ph));
+        const double draw_h = raw_h > 0.0 ? std::max(raw_h, min_visible_h) : 0.0;
+        const double y = y0 + ph - draw_h;
+        out << "<rect x=\"" << x << "\" y=\"" << y0 << "\" width=\"" << bar_w << "\" height=\"" << ph
+            << "\" rx=\"3\" fill=\"none\" stroke=\"#1e293b\" stroke-width=\"0.8\" opacity=\"0.55\"/>";
+        if (draw_h > 0.0) {
+            out << "<rect x=\"" << x << "\" y=\"" << y << "\" width=\"" << bar_w << "\" height=\"" << draw_h
+                << "\" rx=\"3\" fill=\"" << color << "\" opacity=\"0.9\"/>";
+        } else {
+            out << "<line x1=\"" << (x + 1.0) << "\" y1=\"" << (y0 + ph - 1.0) << "\" x2=\"" << (x + bar_w - 1.0)
+                << "\" y2=\"" << (y0 + ph - 1.0) << "\" stroke=\"" << color << "\" stroke-width=\"2\" opacity=\"0.9\"/>";
+        }
         if (labels.size() <= 12) {
             out << "<text x=\"" << (x + bar_w * 0.5) << "\" y=\"" << (y - 6)
                 << "\" class=\"svg-tick\" text-anchor=\"middle\">" << html_escape(format_number(values[i], 2))
@@ -867,6 +876,7 @@ std::string svg_bar_horizontal(const std::vector<std::string>& labels,
     const double ph = height - 74.0;
     const double step = ph / static_cast<double>(labels.size());
     const double bar_h = std::max(14.0, step * 0.68);
+    const double min_visible_w = 2.0;
 
     std::ostringstream out;
     out << svg_begin(width, height, title);
@@ -889,14 +899,22 @@ std::string svg_bar_horizontal(const std::vector<std::string>& labels,
 
     for (size_t i = 0; i < labels.size(); ++i) {
         const double y = y0 + i * step + (step - bar_h) * 0.5;
-        const double w = scale_linear(values[i], 0.0, max_val, 0.0, pw);
         const std::string color = i < colors.size() ? colors[i] : colormap_hex("viridis", static_cast<double>(i) / std::max<size_t>(1, labels.size() - 1));
-        out << "<rect x=\"" << x0 << "\" y=\"" << y << "\" width=\"" << w << "\" height=\"" << bar_h
-            << "\" rx=\"4\" fill=\"" << color << "\" opacity=\"0.9\"/>";
+        const double raw_w = std::max(0.0, scale_linear(values[i], 0.0, max_val, 0.0, pw));
+        const double draw_w = raw_w > 0.0 ? std::max(raw_w, min_visible_w) : 0.0;
+        out << "<rect x=\"" << x0 << "\" y=\"" << y << "\" width=\"" << pw << "\" height=\"" << bar_h
+            << "\" rx=\"4\" fill=\"none\" stroke=\"#1e293b\" stroke-width=\"0.8\" opacity=\"0.55\"/>";
+        if (draw_w > 0.0) {
+            out << "<rect x=\"" << x0 << "\" y=\"" << y << "\" width=\"" << draw_w << "\" height=\"" << bar_h
+                << "\" rx=\"4\" fill=\"" << color << "\" opacity=\"0.9\"/>";
+        } else {
+            out << "<line x1=\"" << (x0 + 1.0) << "\" y1=\"" << (y + 1.0) << "\" x2=\"" << (x0 + 1.0)
+                << "\" y2=\"" << (y + bar_h - 1.0) << "\" stroke=\"" << color << "\" stroke-width=\"2\" opacity=\"0.9\"/>";
+        }
         out << "<text x=\"" << (x0 - 10) << "\" y=\"" << (y + bar_h * 0.5 + 4)
             << "\" class=\"svg-tick\" text-anchor=\"end\">" << html_escape(sanitize_label(labels[i]))
             << "</text>";
-        out << "<text x=\"" << (x0 + w + 8) << "\" y=\"" << (y + bar_h * 0.5 + 4)
+        out << "<text x=\"" << (x0 + draw_w + 8) << "\" y=\"" << (y + bar_h * 0.5 + 4)
             << "\" class=\"svg-tick\">" << html_escape(format_number(values[i], 2)) << "</text>";
     }
     out << "</svg>";

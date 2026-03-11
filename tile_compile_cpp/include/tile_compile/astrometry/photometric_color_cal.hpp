@@ -68,6 +68,7 @@ struct PCCResult {
     double residual_rms;      // RMS of fit residuals
     double determinant;       // determinant of fitted matrix
     double condition_number;  // condition number of fitted matrix
+    std::string apply_mode = "linear";
     bool   success;
     std::string error_message;
 };
