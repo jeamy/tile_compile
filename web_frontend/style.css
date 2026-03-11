@@ -80,6 +80,13 @@ nav a.active {
   align-items: center;
 }
 
+.pill-nav-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .pill-nav a {
   text-decoration: none;
   color: var(--ink);
@@ -91,6 +98,26 @@ nav a.active {
   background: #fff;
   white-space: nowrap;
   font-family: var(--font-ui);
+}
+
+.shell-help-toggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.shell-help-toggle:hover {
+  border-color: #a8d8de;
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 .pill-nav a.active {
@@ -115,6 +142,14 @@ nav a.active {
   align-items: center;
 }
 
+.pill-status-group {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .pill-subbar .locale-btn {
   min-width: 44px;
   height: 30px;
@@ -134,15 +169,168 @@ nav a.active {
   color: var(--primary);
 }
 
-.pill-subbar .run-ready-chip {
-  margin-left: auto;
-  border: 1px solid #b7e8cc;
-  background: #dff7e8;
-  color: #166534;
+.shell-status-chip {
+  border: 1px solid #fde68a;
+  background: #fef3c7;
+  color: #92400e;
   border-radius: 999px;
   padding: 5px 12px;
   font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.shell-status-chip-ok {
+  border-color: #b7e8cc;
+  background: #dff7e8;
+  color: #166534;
+}
+
+.shell-status-chip-error {
+  border-color: #fecaca;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.shell-status-chip-running {
+  border-color: #bfdbfe;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.shell-status-chip-check {
+  border-color: #fde68a;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.help-window {
+  position: fixed;
+  top: 108px;
+  right: 24px;
+  width: 460px;
+  min-width: 320px;
+  min-height: 260px;
+  max-width: min(92vw, 680px);
+  max-height: calc(100vh - 130px);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid #bfd4db;
+  border-radius: 16px;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+  resize: both;
+}
+
+.help-window[hidden] {
+  display: none;
+}
+
+.help-window.dragging {
+  user-select: none;
+  cursor: grabbing;
+}
+
+.help-window-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #f8fcfe, #eef6f8);
+  cursor: grab;
+}
+
+.help-window-title-wrap {
+  min-width: 0;
+}
+
+.help-window-title {
+  font-family: var(--font-title);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.help-window-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.help-window-close {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.help-window-content {
+  overflow: auto;
+  padding: 14px 16px 18px;
+}
+
+.help-window-intro {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.help-window-section + .help-window-section {
+  margin-top: 18px;
+}
+
+.help-window-section h4 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-family: var(--font-title);
+  color: var(--ink);
+}
+
+.help-window-section p {
+  margin: 0 0 10px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.help-window-section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.help-window-section li {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .pill-nav-tools {
+    margin-left: 0;
+  }
+
+  .pill-status-group {
+    width: 100%;
+  }
+
+  .help-window {
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    max-width: none;
+  }
 }
 
 main {

@@ -38,6 +38,8 @@ const uiState = {
   projectRunsDir: "",
   monitorStatsStatus: null,
   dashboardGuardrailStatus: "",
+  runReadyStatus: "check",
+  runProcessStatus: "",
 };
 
 const DASHBOARD_PIPELINE_GROUPS = [
@@ -259,37 +261,39 @@ function scanErrorFromResult(result) {
 }
 
 function setRunReady(status, runStatus = "") {
+  uiState.runReadyStatus = String(status || "check");
+  uiState.runProcessStatus = String(runStatus || "");
   const chip = $("status-run-ready");
-  if (!chip) return;
+  const guardrailChip = $("status-guardrail");
+  if (!chip && !guardrailChip) return;
   const runNormalized = String(runStatus || "").toLowerCase();
+  const applyChip = (node, variant, text) => {
+    if (!node) return;
+    node.textContent = text;
+    node.className = `shell-status-chip shell-status-chip-${variant}`;
+  };
+  const guardrailNormalized = String(status || "check").toLowerCase();
+  const guardrailText = guardrailNormalized === "ok"
+    ? t("ui.status.guardrail_ok", "Guardrails: OK")
+    : guardrailNormalized === "error"
+      ? t("ui.status.guardrail_error", "Guardrails: blocked")
+      : t("ui.status.guardrail_check", "Guardrails: check");
+  applyChip(
+    guardrailChip,
+    guardrailNormalized === "ok" ? "ok" : guardrailNormalized === "error" ? "error" : "check",
+    guardrailText,
+  );
   if (["running", "queued", "starting"].includes(runNormalized)) {
-    chip.textContent = t("ui.status.run_ready_running", "Run Running");
-    chip.style.background = "#dbeafe";
-    chip.style.borderColor = "#bfdbfe";
-    chip.style.color = "#1d4ed8";
+    applyChip(chip, "running", t("ui.status.run_ready_running", "Status: run running"));
     return;
   }
   const normalized = String(status || "check").toLowerCase();
-  chip.textContent = normalized === "ok"
-    ? t("ui.status.run_ready_ok", "Run Ready")
+  const statusText = normalized === "ok"
+    ? t("ui.status.run_ready_ok", "Status: ready to run")
     : normalized === "error"
-      ? t("ui.status.run_ready_blocked", "Run Blocked")
-      : t("ui.status.run_ready_check", "Run Check");
-  if (normalized === "ok") {
-    chip.style.background = "#dff7e8";
-    chip.style.borderColor = "#b7e8cc";
-    chip.style.color = "#166534";
-    return;
-  }
-  if (normalized === "error") {
-    chip.style.background = "#fee2e2";
-    chip.style.borderColor = "#fecaca";
-    chip.style.color = "#991b1b";
-    return;
-  }
-  chip.style.background = "#fef3c7";
-  chip.style.borderColor = "#fde68a";
-  chip.style.color = "#92400e";
+      ? t("ui.status.run_ready_blocked", "Status: blocked")
+      : t("ui.status.run_ready_check", "Status: check");
+  applyChip(chip, normalized === "ok" ? "ok" : normalized === "error" ? "error" : "check", statusText);
 }
 
 async function waitForJob(jobId, { timeoutMs = 240000, onTick, allowMissing = false } = {}) {
@@ -1176,6 +1180,10 @@ function bindLocaleControls() {
     void applyLocale("en");
   });
 }
+
+document.addEventListener("gui2:locale-changed", () => {
+  setRunReady(uiState.runReadyStatus, uiState.runProcessStatus);
+});
 
 function buildScanPayloadFromDirs(dirs, framesMin, withChecksums) {
   const payload = {
@@ -2981,12 +2989,12 @@ async function bindHistoryPage() {
       throw err;
     }
     uiState.missingHistoryRunIds.delete(String(runId));
+    const runDir = String(runStatus?.run_dir || "-");
     const [statsStatus, artifactResult] = await Promise.all([
       api.get(API_ENDPOINTS.runs.statsStatus(runId, runDir)).catch(() => ({ report_path: "", output_dir: "", state: "unknown" })),
       api.get(API_ENDPOINTS.runs.artifacts(runId)).catch(() => ({ items: [] })),
     ]);
     const artifacts = Array.isArray(artifactResult?.items) ? artifactResult.items : [];
-    const runDir = String(runStatus?.run_dir || "-");
     const reportArtifactPath = findReportArtifactPath(artifacts);
     const resolvedReportPath = String(statsStatus?.report_path || "").trim()
       || (reportArtifactPath && runDir && runDir !== "-" ? `${runDir}/${reportArtifactPath}` : "");
