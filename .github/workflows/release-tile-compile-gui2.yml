@@ -259,6 +259,8 @@ jobs:
           rewrite_macos_refs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner" exe
           rewrite_macos_refs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_cli" exe
           rewrite_macos_refs "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend" exe
+          install_name_tool -add_rpath "@executable_path/../../tile_compile_cpp/lib" \
+            "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend" 2>/dev/null || true
           find "${PAYLOAD}/tile_compile_cpp/lib" -type f \( -name "*.dylib" -o -name "*.so*" \) -print0 \
             | while IFS= read -r -d '' dylib; do
                 rewrite_macos_refs "$dylib" dylib
