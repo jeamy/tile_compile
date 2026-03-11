@@ -501,7 +501,22 @@ Supports now:
 - fewer tile copies in tile_weighted path
 - parallel BGE autotune candidate evaluation
 
+## v0.0.9 (2026-03-11)
+
+- Added Linux AppImage generation to the GitHub Actions release workflow.
+- Reworked PCC background-noise handling and connected UI/report updates so current PCC diagnostics are exposed more consistently in the GUI.
+
 ## Changelog
+
+### (2026-03-11)
+
+**Crow/C++ runtime, release packaging, and PCC update:**
+
+- Finalized the productive GUI2 path around the Crow/C++ backend, including integrated C++ report generation and aligned frontend/backend report handling.
+- Updated release packaging, local build/start scripts, and GitHub workflows for Linux, macOS, and Windows, including the documented GUI2 bundle OS baselines.
+- Added Linux AppImage creation to the GitHub Actions release workflow so releases now include a portable Linux artifact alongside the ZIP bundle.
+- Added date-aware run-directory naming and aligned route/websocket handling plus backend tests for the new naming behavior.
+- Reworked PCC background-noise handling and connected UI/report updates so current PCC diagnostics are exposed more consistently in the GUI.
 
 ### (2026-03-09)
 
