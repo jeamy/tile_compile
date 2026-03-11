@@ -55,3 +55,35 @@ The GitHub Actions workflow is:
 - `.github/workflows/release-tile-compile-gui2.yml`
 
 It builds the Qt-free runner binaries and the Crow backend, bundles GUI2 files, copies native runtime libraries, runs a smoke test, and uploads release ZIP artifacts.
+
+## Local Packaging
+
+To reproduce the release-style packaging locally, use the scripts in this directory:
+
+- Linux: `packaging/gui2/build_local_linux.sh`
+- macOS: `packaging/gui2/build_local_macos.sh`
+- Windows (MSYS2 MinGW64): `packaging/gui2/build_local_windows_msys2.sh`
+
+They mirror the release workflow closely:
+
+1. build `tile_compile_cpp` (`tile_compile_runner`, `tile_compile_cli`)
+2. build `tile_compile_web_backend`
+3. assemble the GUI2 bundle with `payload/`
+4. collect native runtime libraries
+5. run a smoke test against `/api/app/state`
+6. create the ZIP artifact in `artifacts/`
+
+Examples:
+
+```bash
+packaging/gui2/build_local_linux.sh --tag dev
+packaging/gui2/build_local_macos.sh --tag dev
+packaging/gui2/build_local_windows_msys2.sh --tag dev
+```
+
+Common options:
+
+- `--skip-build` to reuse existing build directories
+- `--skip-smoke` to skip the launch test
+- `--build-type <type>` to switch CMake configuration
+- `--port <port>` to change the smoke-test port

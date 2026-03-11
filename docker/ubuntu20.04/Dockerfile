@@ -26,7 +26,6 @@ COPY . /src
 RUN cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui2-release -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_TESTS=OFF \
-      -DBUILD_QT_GUI=OFF \
     && cmake --build tile_compile_cpp/build-gui2-release -j"$(nproc)"
 
 RUN cmake -S web_backend_cpp -B web_backend_cpp/build-release -G Ninja \

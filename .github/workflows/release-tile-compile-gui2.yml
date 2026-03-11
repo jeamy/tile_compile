@@ -65,14 +65,13 @@ jobs:
             libeigen3-dev libopencv-dev libcfitsio-dev libyaml-cpp-dev nlohmann-json3-dev libssl-dev \
             libcurl4-openssl-dev
 
-      - name: Build Qt-free runner binaries
+      - name: Build runner binaries
         shell: bash
         run: |
           set -euo pipefail
           cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTS=OFF \
-            -DBUILD_QT_GUI=OFF
+            -DBUILD_TESTS=OFF
           cmake --build tile_compile_cpp/build-gui2-release -j"$(nproc)"
           cmake -S web_backend_cpp -B web_backend_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -172,14 +171,13 @@ jobs:
           brew update
           brew install cmake ninja pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl curl zip
 
-      - name: Build Qt-free runner binaries
+      - name: Build runner binaries
         shell: bash
         run: |
           set -euo pipefail
           cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTS=OFF \
-            -DBUILD_QT_GUI=OFF
+            -DBUILD_TESTS=OFF
           cmake --build tile_compile_cpp/build-gui2-release -j"$(sysctl -n hw.ncpu)"
           cmake -S web_backend_cpp -B web_backend_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -331,14 +329,13 @@ jobs:
             mingw-w64-x86_64-curl
             mingw-w64-x86_64-ntldd
 
-      - name: Build Qt-free runner binaries
+      - name: Build runner binaries
         shell: msys2 {0}
         run: |
           set -euo pipefail
           cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTS=OFF \
-            -DBUILD_QT_GUI=OFF
+            -DBUILD_TESTS=OFF
           cmake --build tile_compile_cpp/build-gui2-release -j"$(nproc)"
           cmake -S web_backend_cpp -B web_backend_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \

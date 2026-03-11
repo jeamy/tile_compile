@@ -4,13 +4,6 @@ project(tile_compile VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-option(BUILD_QT_GUI "Build legacy Qt6 GUI executable" OFF)
-
-if(BUILD_QT_GUI)
-    set(CMAKE_AUTOMOC ON)
-    set(CMAKE_AUTORCC ON)
-    set(CMAKE_AUTOUIC ON)
-endif()
 
 # Build type
 if(NOT CMAKE_BUILD_TYPE)
@@ -297,9 +290,6 @@ if(NOT OpenSSL_FOUND)
 endif()
 
 find_package(CURL REQUIRED)
-if(BUILD_QT_GUI)
-    find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
-endif()
 
 # Optional: spdlog for logging
 find_package(spdlog QUIET)
@@ -392,48 +382,6 @@ if(CLI11_FOUND)
     target_compile_definitions(tile_compile_cli PRIVATE HAVE_CLI11)
 endif()
 
-if(BUILD_QT_GUI)
-    set(GUI_ROOT ${CMAKE_SOURCE_DIR}/../legacy/qt6_gui/gui_cpp)
-    set(GUI_SOURCES
-        ${GUI_ROOT}/main.cpp
-        ${GUI_ROOT}/MainWindow.cpp
-        ${GUI_ROOT}/PhaseProgressWidget.cpp
-        ${GUI_ROOT}/AssumptionsWidget.cpp
-        ${GUI_ROOT}/BackendClient.cpp
-        ${GUI_ROOT}/RunnerProcess.cpp
-        ${GUI_ROOT}/GuiConstants.cpp
-        ${GUI_ROOT}/tabs/ScanTab.cpp
-        ${GUI_ROOT}/tabs/ConfigTab.cpp
-        ${GUI_ROOT}/tabs/RunTab.cpp
-        ${GUI_ROOT}/tabs/CurrentRunTab.cpp
-        ${GUI_ROOT}/tabs/HistoryTab.cpp
-        ${GUI_ROOT}/tabs/AstrometryTab.cpp
-        ${GUI_ROOT}/tabs/PCCTab.cpp
-    )
-
-    if(WIN32)
-        add_executable(tile_compile_gui WIN32 ${GUI_SOURCES})
-    else()
-        add_executable(tile_compile_gui ${GUI_SOURCES})
-    endif()
-    target_include_directories(tile_compile_gui PRIVATE ${GUI_ROOT})
-    target_link_libraries(tile_compile_gui PRIVATE tile_compile_lib Qt6::Widgets Qt6::Network)
-
-    # Ensure GUI subsystem on Windows so no console window is created for the GUI app.
-    if(WIN32)
-        if(MSVC)
-            target_link_options(tile_compile_gui PRIVATE "/SUBSYSTEM:WINDOWS")
-        elseif(MINGW)
-            target_link_options(tile_compile_gui PRIVATE "-mwindows")
-        endif()
-    endif()
-
-    set_target_properties(tile_compile_gui PROPERTIES
-        AUTOMOC_PATH_PREFIX OFF
-        AUTOMOC_MOC_OPTIONS "-p;${GUI_ROOT}/"
-    )
-endif()
-
 if(APPLE)
     set(_TC_INSTALL_RPATH "@executable_path/../lib")
 elseif(UNIX)
@@ -441,30 +389,8 @@ elseif(UNIX)
 endif()
 
 if(UNIX)
-    if(BUILD_QT_GUI)
-        set_target_properties(tile_compile_runner tile_compile_cli tile_compile_gui PROPERTIES
-            INSTALL_RPATH "${_TC_INSTALL_RPATH}"
-        )
-    else()
-        set_target_properties(tile_compile_runner tile_compile_cli PROPERTIES
-            INSTALL_RPATH "${_TC_INSTALL_RPATH}"
-        )
-    endif()
-endif()
-
-if(BUILD_QT_GUI)
-    # Copy GUI resource files to build directory
-    configure_file(${CMAKE_SOURCE_DIR}/../legacy/qt6_gui/gui_cpp/constants.js ${CMAKE_BINARY_DIR}/gui_cpp/constants.js COPYONLY)
-    configure_file(${CMAKE_SOURCE_DIR}/../legacy/qt6_gui/gui_cpp/styles.qss ${CMAKE_BINARY_DIR}/gui_cpp/styles.qss COPYONLY)
-
-    # Also copy to same directory as executable for release
-    add_custom_command(TARGET tile_compile_gui POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/../legacy/qt6_gui/gui_cpp/constants.js
-            $<TARGET_FILE_DIR:tile_compile_gui>/gui_cpp/constants.js
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/../legacy/qt6_gui/gui_cpp/styles.qss
-            $<TARGET_FILE_DIR:tile_compile_gui>/gui_cpp/styles.qss
+    set_target_properties(tile_compile_runner tile_compile_cli PROPERTIES
+        INSTALL_RPATH "${_TC_INSTALL_RPATH}"
     )
 endif()
 
@@ -512,26 +438,19 @@ else()
 endif()
 
 # Install executables
-if(BUILD_QT_GUI)
-    install(TARGETS tile_compile_runner tile_compile_cli tile_compile_gui
-        RUNTIME DESTINATION bin
-    )
-else()
-    install(TARGETS tile_compile_runner tile_compile_cli
-        RUNTIME DESTINATION bin
-    )
-endif()
+install(TARGETS tile_compile_runner tile_compile_cli
+    RUNTIME DESTINATION bin
+)
 
 # Install runtime dependencies (CMake 3.21+ only)
-# For older CMake, build_windows_release.bat handles DLL copying manually
-if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.21" AND WIN32 AND BUILD_QT_GUI)
+# For older CMake, runtime dependency copying must be handled externally.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.21" AND WIN32)
     cmake_language(EVAL CODE "
         install(CODE \"
             file(GET_RUNTIME_DEPENDENCIES
                 EXECUTABLES
                     \\\${CMAKE_INSTALL_PREFIX}/bin/tile_compile_runner.exe
                     \\\${CMAKE_INSTALL_PREFIX}/bin/tile_compile_cli.exe
-                    \\\${CMAKE_INSTALL_PREFIX}/bin/tile_compile_gui.exe
                 RESOLVED_DEPENDENCIES_VAR resolved_deps
                 UNRESOLVED_DEPENDENCIES_VAR unresolved_deps
                 PRE_EXCLUDE_REGEXES \\\"api-ms-win-.*\\\" \\\"ext-ms-.*\\\"
@@ -559,6 +478,5 @@ message(STATUS "yaml-cpp: found")
 message(STATUS "nlohmann/json: ${nlohmann_json_FOUND}")
 message(STATUS "spdlog: ${spdlog_FOUND}")
 message(STATUS "CLI11: ${CLI11_FOUND}")
-message(STATUS "Build legacy Qt6 GUI: ${BUILD_QT_GUI}")
 message(STATUS "Catch2: ${Catch2_FOUND}")
 message(STATUS "")
