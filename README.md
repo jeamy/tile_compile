@@ -182,8 +182,15 @@ sudo dnf install -y \
 macOS (Homebrew, core libs):
 
 ```bash
-brew install cmake pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl curl
+xcode-select --install
+brew install cmake ninja pkg-config eigen cfitsio yaml-cpp nlohmann-json openssl curl
+brew install opencv
 ```
+
+Notes:
+
+- `ninja` is required for the local GUI2 packaging scripts.
+- On macOS 12, the default Homebrew `opencv` formula is currently not supported. The Homebrew-based path therefore effectively requires macOS 13+ for OpenCV, unless you provide a separate working OpenCV installation yourself.
 
 Windows:
 

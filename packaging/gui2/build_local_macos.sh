@@ -49,6 +49,50 @@ BUNDLE_DIR="${PROJECT_ROOT}/bundle"
 ROOT="${BUNDLE_DIR}/tile_compile_gui2-macos-${TAG}"
 PAYLOAD="${ROOT}/payload"
 
+require_cmd() {
+  local cmd="$1"
+  local hint="$2"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "[gui2-package] Missing required command: ${cmd}" >&2
+    echo "[gui2-package] ${hint}" >&2
+    exit 1
+  fi
+}
+
+preflight_macos() {
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "[gui2-package] This script must be run on macOS." >&2
+    exit 1
+  fi
+
+  local macos_major
+  macos_major="$(sw_vers -productVersion | awk -F. '{print $1}')"
+
+  require_cmd xcode-select "Install Xcode Command Line Tools with: xcode-select --install"
+  if ! xcrun --find clang++ >/dev/null 2>&1; then
+    echo "[gui2-package] No macOS C++ compiler found." >&2
+    echo "[gui2-package] Install Xcode Command Line Tools with: xcode-select --install" >&2
+    exit 1
+  fi
+
+  require_cmd cmake "Install CMake, for example with: brew install cmake"
+  require_cmd ninja "Install Ninja, for example with: brew install ninja"
+  require_cmd pkg-config "Install pkg-config, for example with: brew install pkg-config"
+  require_cmd otool "Xcode Command Line Tools are required."
+  require_cmd install_name_tool "Xcode Command Line Tools are required."
+  require_cmd ditto "macOS system tool 'ditto' is required."
+  require_cmd python3 "Install Python 3, for example with: brew install python"
+
+  if [[ "${macos_major}" -lt 13 ]]; then
+    if ! pkg-config --exists opencv4; then
+      echo "[gui2-package] OpenCV is not available via the default Homebrew formula on macOS 12." >&2
+      echo "[gui2-package] Homebrew currently requires newer macOS releases for its opencv formula." >&2
+      echo "[gui2-package] Use macOS 13+ for the Homebrew-based path, or provide a working local OpenCV installation with pkg-config metadata." >&2
+      exit 1
+    fi
+  fi
+}
+
 build_all() {
   cmake -S "${PROJECT_ROOT}/tile_compile_cpp" -B "${RUNNER_BUILD_DIR}" -G Ninja \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
@@ -177,6 +221,7 @@ PY
 }
 
 main() {
+  preflight_macos
   [[ "${SKIP_BUILD}" == "1" ]] || build_all
   assemble_bundle
   [[ "${SKIP_SMOKE}" == "1" ]] || smoke_test

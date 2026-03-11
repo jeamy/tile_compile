@@ -48,6 +48,11 @@ The current native C++ build requirements for the GUI2 release are:
 
 Other core dependencies still include Eigen, OpenCV, cfitsio, yaml-cpp, nlohmann-json and OpenSSL.
 
+macOS notes:
+
+- `packaging/gui2/build_local_macos.sh` requires `xcode-select --install`, `cmake`, `ninja`, `pkg-config`, and `python3`.
+- On macOS 12, Homebrew's default `opencv` formula is not supported. The Homebrew-based packaging path therefore effectively requires macOS 13+ unless OpenCV is provided from another working installation.
+
 ## CI Workflow
 
 The GitHub Actions workflow is:

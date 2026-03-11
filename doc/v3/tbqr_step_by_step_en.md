@@ -44,8 +44,12 @@ Notes:
 Platform package examples:
 
 - Linux: `build-essential cmake ninja-build pkg-config libeigen3-dev libopencv-dev libcfitsio-dev libyaml-cpp-dev nlohmann-json3-dev libssl-dev libcurl4-openssl-dev`
-- macOS: `cmake ninja pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openssl curl`
+- macOS: `xcode-select --install` first, then `brew install cmake ninja pkg-config eigen cfitsio yaml-cpp nlohmann-json openssl curl` and `brew install opencv`
 - Windows MSYS2 MinGW64: `mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf mingw-w64-x86_64-eigen3 mingw-w64-x86_64-opencv mingw-w64-x86_64-cfitsio mingw-w64-x86_64-yaml-cpp mingw-w64-x86_64-nlohmann-json mingw-w64-x86_64-openssl mingw-w64-x86_64-curl mingw-w64-x86_64-ntldd`
+
+macOS note:
+
+- Homebrew's default `opencv` formula currently requires a newer macOS release than macOS 12. For the documented Homebrew path, macOS 13+ is therefore the practical baseline unless OpenCV is provided separately.
 
 ## 2) Build the C++ tools
 
