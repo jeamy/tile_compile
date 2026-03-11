@@ -1,366 +1,504 @@
-# Ablaufplan – Funktionsweise des Systems
+# Ablaufplan – technischer Datenfluss des Systems
 
-## Kurz gesagt
+## Zielbild der Pipeline
 
-Das System verarbeitet viele Astro-Einzelbilder (FITS) zu **einem sauberen, scharfen und farblich konsistenten Endbild**.
+Das System verarbeitet eine Menge kalibrierter astronomischer Einzelaufnahmen zu einem reproduzierbaren Endprodukt im gemeinsamen geometrischen und photometrischen Referenzrahmen.
 
-Der Ablauf folgt klaren Verarbeitungsschritten: prüfen, ausrichten, bewerten, tile-basiert rekonstruieren sowie abschließend astrometrisch und farblich kalibrieren.
+Technisch besteht die Pipeline aus drei Hauptblöcken:
 
-Wichtige Begriffe (v3.3):
+- **Vorbereitung und Vereinheitlichung**
+  - Eingaben prüfen
+  - Geometrie vereinheitlichen
+  - Intensitäten normalisieren
+- **Qualitätsmodellierung und Rekonstruktion**
+  - globale und lokale Metriken berechnen
+  - tile-basierte Selektion und Rekonstruktion ausführen
+  - optional Zustände clustern und synthetische Frames erzeugen
+- **Post-Processing und Kalibrierung**
+  - Debayer
+  - Astrometrie / WCS
+  - optional BGE
+  - PCC
 
-- **Methodik-Profil:** `assumptions.pipeline_profile` steuert, ob die Pipeline strikt normativ („strict“) oder pragmatisch („practical“) ausgerichtet ist.
-- **Resume:** Post-Run-Phasen können aus einem bestehenden Run-Verzeichnis fortgesetzt werden (derzeit `ASTROMETRY`, `BGE`, `PCC`).
+Das primäre Ergebnis ist ein lineares Summenbild. Je nach Konfiguration entstehen zusätzlich debayerte, gradientenkorrigierte und photometrisch kalibrierte Ableitungen sowie strukturierte Diagnoseartefakte.
+
+## Zentrale Begriffe
+
+- **Run**
+  - Ein vollständiger Pipeline-Durchlauf mit eigenem Run-Verzeichnis unter `runs/<run_id>/`.
+- **Phase**
+  - Ein klar abgegrenzter Verarbeitungsschritt wie `REGISTRATION`, `LOCAL_METRICS` oder `PCC`.
+- **Artifact**
+  - Persistierte Diagnose- oder Zwischeninformation, typischerweise als JSON oder Report-Datei unter `artifacts/`.
+- **Event-Timeline**
+  - Zeitlich geordnete Laufereignisse in `logs/run_events.jsonl`.
+- **Methodik-Profil**
+  - `assumptions.pipeline_profile` bestimmt, ob die Pipeline eher streng normativ (`strict`) oder praktisch robust (`practical`) läuft.
+- **Resume**
+  - Bestehende Run-Verzeichnisse können für Post-Run-Phasen erneut verwendet werden, aktuell insbesondere ab `ASTROMETRY`, `BGE` oder `PCC`.
 
 ---
 
-## Skizze: Gesamtfluss
+## Gesamtfluss
 
 ```text
-Eingabe (viele FITS-Frames)
-        |
-        v
-[1] Prüfen & Vorbereiten
-        |
-        v
-[2] Bilder exakt ausrichten
-        |
-        v
-[3] Prewarp auf gemeinsamen Canvas
-        |
-        v
-[4] Kanal-Info + Helligkeit vergleichbar machen
-        |
-        v
-[5] Bild in Kacheln (Tiles) aufteilen
-        |
-        v
-[6] Common Overlap bestimmen (nur gemeinsame Datenbereiche)
-        |
-        v
-[7] Qualität je Tile messen + beste Infos je Tile zusammensetzen
-        |
-        v
-[8] Optional: ähnliche Zustände clustern -> synthetische Zwischenbilder
-        |
-        v
-[9] Finales Stacking (robustes Mitteln)
-        |
-        v
-[10] Debayer (bei OSC), Astrometrie, optional BGE, Farbkalibrierung (PCC)
-        |
-        v
-Ausgabe: finales FITS-Bild (+ RGB/PCC-Version, WCS, Artefakte, Logs)
+Input frames (FITS)
+   -> SCAN_INPUT
+   -> REGISTRATION
+   -> PREWARP
+   -> CHANNEL_SPLIT
+   -> NORMALIZATION
+   -> GLOBAL_METRICS
+   -> TILE_GRID
+   -> COMMON_OVERLAP
+   -> LOCAL_METRICS
+   -> TILE_RECONSTRUCTION
+   -> [optional] STATE_CLUSTERING
+   -> [optional] SYNTHETIC_FRAMES
+   -> STACKING
+   -> [optional / datenabhängig] DEBAYER
+   -> ASTROMETRY
+   -> [optional] BGE
+   -> [optional] PCC
+   -> DONE
 ```
 
 ---
 
-## Warum das Ganze in Tiles?
+## Warum tile-basiert gearbeitet wird
 
-In Astro-Serien ist die Qualität oft **nicht überall gleich**:
-- Seeing ändert sich,
-- Nachführfehler sind lokal verschieden,
-- einzelne Bereiche können unschärfer oder verrauschter sein.
+Eine globale Bewertung pro Frame ist für astrophotografische Serien oft nicht ausreichend. Die lokale Bildqualität variiert innerhalb desselben Frames unter anderem durch:
 
-Darum schaut das System nicht nur auf das ganze Bild, sondern auf viele kleine Bereiche (Tiles).
-So kann es pro Bereich entscheiden: **Welche Frames sind hier am besten?**
+- ortsabhängige Seeing-Unterschiede
+- lokale Guiding- oder Verformungseffekte
+- Randartefakte nach Warp/Rotation
+- ungleichmäßige Hintergrund- oder Rauschverteilungen
 
----
-
-## Schritt-für-Schritt in verständlicher Form
-
-## 0) Eingang prüfen (SCAN_INPUT)
-
-Was passiert:
-- Alle Eingabedateien werden gefunden.
-- Header/Modus werden geprüft (Mono oder OSC/CFA).
-- Offensichtliche Problemfälle werden aussortiert.
-- Es wird geprüft, ob genug Speicherplatz da ist.
-
-Ergebnis:
-- Eine bereinigte Liste nutzbarer Frames.
+Deshalb modelliert das System die Daten nicht nur auf Frame-Ebene, sondern zusätzlich auf Tile-Ebene. Dadurch kann pro Raumregion entschieden werden, welche Frames oder Frame-Anteile dort die höchste nutzbare Qualität liefern.
 
 ---
 
-## 1) Globale Ausrichtung (REGISTRATION)
+## Phasen im Detail
 
-Was passiert:
-- Das System sucht ein Referenzbild.
-- Alle anderen Frames werden darauf ausgerichtet.
-- Falls ein Verfahren nicht gut klappt, wird auf Fallbacks gewechselt.
+## 0) Eingang prüfen (`SCAN_INPUT`)
 
-Ergebnis:
-- Alle Frames liegen geometrisch möglichst deckungsgleich.
+**Eingabe**
 
-Skizze:
-```text
-vorher:    *   .*    ..*    *..
-nachher:   *    *      *      *
-```
+- ein Eingabepfad oder mehrere Eingabeverzeichnisse
+- FITS-Dateien mit Headern und Aufnahmemetadaten
 
----
+**Verarbeitung**
 
-## 2) Prewarp auf gemeinsamen Canvas (PREWARP)
+- Dateierkennung und Enumerierung der Eingaben
+- Plausibilitätsprüfung von Headern, Bit-Tiefe, Bildabmessungen und Farbmodus
+- Vorabklassifikation in Mono oder OSC/CFA
+- Erkennung offensichtlicher Ausschlussfälle
+- Prüfung, ob ausreichend Speicherplatz und Arbeitsverzeichnis-Kapazität verfügbar sind
 
-Was passiert:
-- Nach der Registrierung werden alle Frames auf einen gemeinsamen Zielbereich gewarpt.
-- Für OSC erfolgt das CFA-sicher (Subplane-Warp), damit das Bayer-Muster konsistent bleibt.
-- Bei Feldrotation wird die Canvas-Größe erweitert und Offsets (`tile_offset_x/y`) werden mitgeführt.
+**Ausgabe**
 
-Ergebnis:
-- Alle Folgephasen arbeiten auf derselben Geometrie und im selben Koordinatensystem.
+- bereinigte Frame-Liste
+- Scan-Zusammenfassung mit Metadaten, Warnungen und Fehlern
+- Guardrails für nachgelagerte Startentscheidungen
 
 ---
 
-## 3) Kanal-Info (CHANNEL_SPLIT)
+## 1) Globale Registrierung (`REGISTRATION`)
 
-Was passiert:
-- Für OSC/Mono wird festgelegt, wie später mit Farbkanälen gearbeitet wird.
-- In dieser Phase ist es vor allem Metadaten-Logik.
+**Ziel**
 
-Ergebnis:
-- Klarer Kanal-Plan für die nächsten Schritte.
+- alle Frames in ein gemeinsames geometrisches Bezugssystem überführen
 
----
+**Verarbeitung**
 
-## 4) Helligkeit angleichen (NORMALIZATION)
+- Auswahl eines Referenzframes
+- Schätzung geometrischer Transformationen relativ zum Referenzframe
+- Nutzung von Fallback-Strategien, falls das primäre Registrierungsverfahren unzureichend ist
+- Persistenz von Registrierungsmetrik und Transformationsparametern
 
-Was passiert:
-- Frames werden auf ein gemeinsames Helligkeitsniveau gebracht.
-- Hintergrund und Bildniveau werden vergleichbar gemacht.
+**Ausgabe**
 
-Ergebnis:
-- Unterschiedliche Aufnahmebedingungen wirken weniger störend.
+- registrierte Transformationsinformationen pro Frame
+- Qualitätsindikatoren wie Korrelation, Drift, Rotation oder Fehlversatz
 
 ---
 
-## 5) Globale Qualitätsbewertung (GLOBAL_METRICS)
+## 2) Prewarp auf gemeinsamen Canvas (`PREWARP`)
 
-Was passiert:
-- Jedes Frame bekommt globale Qualitätswerte (z. B. Schärfe/Signal).
-- Daraus entsteht ein globales Gewicht pro Frame.
+**Ziel**
 
-Ergebnis:
-- Gute Frames zählen später stärker, schwache weniger.
+- alle registrierten Frames auf denselben Zielcanvas und dieselbe Pixelgeometrie bringen
 
----
+**Verarbeitung**
 
-## 6) Tile-Gitter bauen (TILE_GRID)
+- Anwendung der berechneten Transformationen auf einen gemeinsamen Zielbereich
+- bei OSC/CFA: CFA-sicheres Warping über Subplane-Logik, damit das Bayer-Muster semantisch stabil bleibt
+- Erweiterung des Canvas bei Feldrotation oder Translation außerhalb der ursprünglichen Begrenzung
+- Verwaltung von Offsets wie `tile_offset_x` und `tile_offset_y`
 
-Was passiert:
-- Das Bild wird in viele leicht überlappende Kacheln geteilt.
-- Tile-Größe wird passend zur Datenqualität gewählt.
+**Ausgabe**
 
-Ergebnis:
-- Struktur, um lokal (statt nur global) zu entscheiden.
-
-Skizze:
-```text
-+----+----+----+
-| T1 | T2 | T3 |
-+----+----+----+
-| T4 | T5 | T6 |
-+----+----+----+
-| T7 | T8 | T9 |
-+----+----+----+
-```
+- prewarped Frames mit einheitlicher Geometrie
+- konsistenter Koordinatenraum für alle tile-basierten Folgeschritte
 
 ---
 
-## 7) Gemeinsamen Datenbereich bestimmen (COMMON_OVERLAP)
+## 3) Kanalmodell festlegen (`CHANNEL_SPLIT`)
 
-Was passiert:
-- Es wird berechnet, welche Pixel auf dem Canvas in allen relevanten Frames tatsächlich Daten tragen.
-- Daraus entstehen globale und tile-lokale Valid-Fraktionen.
-- Rand-/Leerbereiche durch Rotation/Translation werden maskiert.
+**Ziel**
 
-Ergebnis:
-- Rekonstruktion und Stacking nutzen nur robuste gemeinsame Bildbereiche.
+- ein konsistentes internes Kanalmodell für Mono- oder OSC-Daten definieren
 
----
+**Verarbeitung**
 
-## 8) Lokale Qualitätswerte je Tile (LOCAL_METRICS)
+- Festlegung, ob spätere Metriken und Rekonstruktionen auf Mono, CFA-Subplanes oder RGB-kompatiblen Repräsentationen operieren
+- Ableitung kanalbezogener Metadaten für nachgelagerte Stufen
 
-Was passiert:
-- Für jedes Frame und jedes Tile wird lokal bewertet.
-- So sieht das System, welche Bildteile in welchem Frame gut sind.
+**Ausgabe**
 
-Ergebnis:
-- Lokale Gewichte pro Tile und Frame.
+- Kanal- und Modusbeschreibung für weitere Phasen
 
 ---
 
-## 9) Tile-Rekonstruktion (TILE_RECONSTRUCTION)
+## 4) Normalisierung (`NORMALIZATION`)
 
-Was passiert:
-- Für jedes Tile werden die besten Informationen aus vielen Frames kombiniert.
-- Übergänge werden weich zusammengesetzt (damit keine harten Kanten entstehen).
+**Ziel**
 
-Ergebnis:
-- Ein rekonstruiertes Gesamtbild mit lokal optimierter Qualität.
+- Signal- und Hintergrundniveau zwischen Frames vergleichbar machen
 
-Skizze:
-```text
-Frame A ist in Tile links gut
-Frame B ist in Tile rechts gut
-=> Rekonstruktion nimmt links mehr aus A, rechts mehr aus B
-```
+**Verarbeitung**
 
----
+- Schätzung von Hintergrund- und Intensitätsstatistik pro Frame bzw. Kanal
+- Skalierung auf einen gemeinsamen Referenzzustand
+- Persistenz der Normalisierungsparameter
 
-## 10) Zustands-Cluster (STATE_CLUSTERING, optional)
+**Ausgabe**
 
-Was passiert:
-- Frames mit ähnlichem Zustand (z. B. ähnliche Qualität/Wetterlage) werden gruppiert.
-
-Ergebnis:
-- Bessere Trennung unterschiedlicher Aufnahmebedingungen.
+- normalisierte Frames oder äquivalente Normalisierungsparameter
+- Diagnostik zur Stabilität von Hintergrund und Signalniveau
 
 ---
 
-## 11) Synthetische Frames (SYNTHETIC_FRAMES, optional)
+## 5) Globale Qualitätsmetriken (`GLOBAL_METRICS`)
 
-Was passiert:
-- Aus Clustern werden stabile Zwischenbilder erzeugt.
-- Diese Zwischenbilder sind oft ruhiger und robuster.
+**Ziel**
 
-Ergebnis:
-- Bessere Grundlage für das finale Stacking.
+- pro Frame ein globales Qualitätsprofil ableiten
 
----
+**Verarbeitung**
 
-## 12) Finales Stacking (STACKING)
+- Berechnung globaler Kennzahlen wie Hintergrundniveau, Rauschen, Gradientenenergie, Sternmetriken oder globale Schärfeindikatoren
+- Ableitung eines globalen Frame-Gewichts
+- im `strict`-Profil: vollständige Bewertung auf der vereinheitlichten Geometrie vor lokalen Schritten
 
-Was passiert:
-- Alles wird final zusammengeführt.
-- Ausreißer werden robust behandelt (z. B. Satellitenspuren, einzelne Hotpixel-Spitzen).
+**Ausgabe**
 
-Ergebnis:
-- Ein lineares, sauberes Summenbild.
+- globale Metriken je Frame
+- globale Gewichte und Selektionsgrundlagen
 
 ---
 
-## 13) Debayer (DEBAYER, bei OSC)
+## 6) Tile-Gitter erzeugen (`TILE_GRID`)
 
-Was passiert:
-- Bei OSC/CFA wird aus dem Mosaik ein RGB-Bild erzeugt.
-- Bei Mono ist das meist ein Durchlauf ohne Umwandlung.
+**Ziel**
 
-Ergebnis:
-- Farbbild (oder Mono-Pass-through).
+- das Bildfeld in lokal auswertbare Regionen zerlegen
 
----
+**Verarbeitung**
 
-## 14) Astrometrie (ASTROMETRY)
+- Erzeugung eines überlappenden oder weich kombinierbaren Tile-Rasters
+- Parametrisierung von Tile-Größe, Überdeckung und gültiger Nutzungsregion
 
-Was passiert:
-- Das Bild wird am Himmel verortet (WCS/Plate Solving).
+**Ausgabe**
 
-Ergebnis:
-- Pixel haben Himmelskoordinaten-Bezug.
+- Tile-Geometrie als Grundlage für lokale Metriken und Rekonstruktion
 
 ---
 
-## 15) Hintergrund-Gradienten entfernen (BGE, optional)
+## 7) Gemeinsamen Überlappungsbereich bestimmen (`COMMON_OVERLAP`)
 
-Was passiert:
-- Optional wird vor PCC ein großskaliges Hintergrundmodell (pro RGB-Kanal) geschätzt.
-- Das Modell wird direkt von den RGB-Kanälen subtrahiert.
-- Diagnosedaten werden als `artifacts/bge.json` gespeichert.
+**Ziel**
 
-Ergebnis:
-- Weniger Gradienten-Einfluss (z. B. Lichtverschmutzung/Mondschein) auf die nachfolgende Farbkalibrierung.
+- nur Pixelbereiche verwenden, die nach dem Warp tatsächlich belastbare Daten tragen
 
----
+**Verarbeitung**
 
-## 16) Farbkalibrierung (PCC)
+- Ermittlung globaler und tile-lokaler Valid-Masken
+- Berechnung der gültigen Flächenanteile nach Warp, Translation und Rotation
+- Maskierung leerer oder unzureichend überlappender Randregionen
 
-Was passiert:
-- Farben werden über Sternkatalog-Abgleich auf realistischere Balance gebracht.
+**Ausgabe**
 
-Ergebnis:
-- Natürlichere, wissenschaftlich plausiblere Farben.
+- globale Valid-Fraktionen
+- tile-lokale Gültigkeitsmaße
+- robuste Nutzungsmaske für Rekonstruktion und Stacking
 
 ---
 
-## 17) Abschluss (DONE)
+## 8) Lokale Metriken je Tile (`LOCAL_METRICS`)
 
-Was passiert:
-- Pipeline endet mit Status (`ok` oder `validation_failed`).
-- Artefakte, Logs und Ausgaben liegen im Run-Ordner.
+**Ziel**
 
-Ergebnis:
-- Nachvollziehbarer, reproduzierbarer Endstand.
+- pro Tile und pro Frame die lokal beste Datenqualität modellieren
+
+**Verarbeitung**
+
+- lokale Schärfe-, Kontrast-, Rausch- oder Sternmetriken je Tile berechnen
+- Kombination mit globalen Gewichten und Valid-Masken
+- im `strict`-Profil auf prewarped Rohdaten zur geometrisch konsistenten Vergleichbarkeit
+
+**Ausgabe**
+
+- lokale Gewichte und lokale Qualitätsprofile für jede Tile/Frame-Kombination
 
 ---
 
-## Typische Ausgabedateien
+## 9) Tile-Rekonstruktion (`TILE_RECONSTRUCTION`)
 
-Ein Run erzeugt typischerweise ein Verzeichnis `runs/<run_id>/` mit:
+**Ziel**
+
+- aus den lokal besten Beiträgen ein räumlich konsistentes Zwischenbild rekonstruieren
+
+**Verarbeitung**
+
+- Selektion oder gewichtete Fusion der besten Tile-Beiträge
+- weiche Übergänge zwischen benachbarten Tiles, um Nahtartefakte zu vermeiden
+- Rekonstruktion auf Basis lokaler Qualitätskarten und Nutzungsgewichte
+
+**Ausgabe**
+
+- rekonstruiertes Bild mit lokal optimierter Informationsnutzung
+- Rekonstruktionsmetriken pro Tile
+
+---
+
+## 10) Zustands-Clustering (`STATE_CLUSTERING`, optional)
+
+**Ziel**
+
+- Frames mit ähnlichen Qualitäts- oder Beobachtungszuständen gruppieren
+
+**Verarbeitung**
+
+- Clustering anhand globaler und/oder lokaler Merkmalsräume
+- Trennung heterogener Teilpopulationen innerhalb einer Serie
+
+**Ausgabe**
+
+- Clusterzuordnung der Frames
+- Diagnostik zur Clusterstabilität und Clustergröße
+
+---
+
+## 11) Synthetische Frames (`SYNTHETIC_FRAMES`, optional)
+
+**Ziel**
+
+- aus Clustern robuste Zwischenrepräsentationen ableiten
+
+**Verarbeitung**
+
+- Aggregation von Frame-Gruppen zu synthetischen Repräsentanten
+- Reduktion von Varianz innerhalb eines Zustandsclusters
+
+**Ausgabe**
+
+- synthetische Frames als alternative Eingänge für spätere Aggregationsstufen
+
+---
+
+## 12) Finales Stacking (`STACKING`)
+
+**Ziel**
+
+- das finale lineare Summenbild erzeugen
+
+**Verarbeitung**
+
+- robuste Aggregation über rekonstruierte oder synthetische Zwischenstufen
+- Ausreißerunterdrückung für Hotpixel, Satellitenspuren oder sporadische Artefakte
+- gewichtete Fusion unter Berücksichtigung der zuvor berechneten Qualitätsmodelle
+
+**Ausgabe**
+
+- lineares Endbild, typischerweise `outputs/stacked.fits`
+
+---
+
+## 13) Debayer (`DEBAYER`, bei OSC)
+
+**Ziel**
+
+- CFA-/OSC-Daten in eine RGB-Repräsentation überführen
+
+**Verarbeitung**
+
+- Demosaicing auf dem gestackten oder entsprechend vorbereiteten linearen Datensatz
+- bei Mono: Durchreichen ohne Farbinterpolation
+
+**Ausgabe**
+
+- RGB-FITS, typischerweise `outputs/stacked_rgb.fits`
+
+---
+
+## 14) Astrometrie (`ASTROMETRY`)
+
+**Ziel**
+
+- WCS-Lösung für das Endbild erzeugen
+
+**Verarbeitung**
+
+- Plate Solving gegen Astrometrie-Werkzeuge und Kataloge
+- Eintrag oder Ableitung von Himmelskoordinatenbezug und Bildskalierung
+
+**Ausgabe**
+
+- WCS-informiertes Bild oder zugehörige WCS-Datei
+- Diagnoseartefakte zum Solve-Prozess
+
+---
+
+## 15) Background Gradient Extraction (`BGE`, optional)
+
+**Ziel**
+
+- großskalige Hintergrundgradienten vor der Farbkalibrierung reduzieren
+
+**Verarbeitung**
+
+- Schätzung eines Hintergrundmodells pro RGB-Kanal
+- Subtraktion des Modells vom RGB-Bild
+- Persistenz von Diagnosedaten, z. B. `artifacts/bge.json`
+
+**Ausgabe**
+
+- gradientenkorrigiertes RGB-Bild, typischerweise `outputs/stacked_rgb_bge.fits`
+- BGE-Diagnostik
+
+---
+
+## 16) Photometrische Farbkalibrierung (`PCC`)
+
+**Ziel**
+
+- das RGB-Bild auf eine astrophysikalisch plausiblere Farbbalance kalibrieren
+
+**Verarbeitung**
+
+- Match mit Sternkatalogen unter Nutzung der WCS-Information
+- Bestimmung und Anwendung von Farbskalierungs- bzw. Kalibrierfaktoren
+
+**Ausgabe**
+
+- photometrisch kalibriertes RGB-Bild, typischerweise `outputs/stacked_rgb_pcc.fits`
+- PCC-Diagnostik und ggf. Katalog-Nebenprodukte
+
+---
+
+## 17) Abschluss (`DONE`)
+
+**Ziel**
+
+- den Run in einen konsistenten Endzustand überführen
+
+**Verarbeitung**
+
+- Abschlussstatus persistieren, z. B. `ok` oder `validation_failed`
+- Artefakte, Logs und Konfigurationssnapshot vervollständigen
+
+**Ausgabe**
+
+- reproduzierbarer und auditierbarer Run-Stand
+
+---
+
+## Typische Run-Struktur
+
+Ein Run erzeugt typischerweise `runs/<run_id>/` mit folgender logischer Struktur:
 
 - `outputs/`
-  - `stacked.fits` (lineares Endbild)
-  - `stacked_rgb.fits` (RGB nach Debayer)
-  - `stacked_rgb_bge.fits` (optional: nach Background Gradient Extraction)
-  - `stacked_rgb_pcc.fits` (nach Farbkalibrierung)
+  - finale und abgeleitete FITS-Produkte
+  - z. B. `stacked.fits`, `stacked_rgb.fits`, `stacked_rgb_bge.fits`, `stacked_rgb_pcc.fits`
 - `artifacts/`
-  - JSON-Diagnostik pro Phase (Qualität, Gewichte, Validation, BGE, PCC)
-  - Report-Assets (z. B. `report.html`, `report.css`, PNGs)
+  - JSON-Diagnostik pro Phase
+  - Report-Dateien und Diagramme
 - `logs/`
-  - `run_events.jsonl` (Event-Timeline)
-- `config.yaml` (Snapshot der für diesen Run verwendeten Konfiguration)
+  - `run_events.jsonl` als Event-Timeline des Laufs
+- `config.yaml`
+  - Snapshot der tatsächlich verwendeten Konfiguration
 
-Hinweis: Die exakten Dateinamen hängen von deiner Konfiguration ab. Entscheidend ist die Struktur (`outputs/`, `artifacts/`, `logs/`, `config.yaml`).
+Wichtig ist weniger der exakte Dateiname als die Semantik: Ausgaben, Artefakte, Logs und Konfigurationssnapshot sind sauber getrennt abgelegt.
 
 ---
 
-## Resume (Post-Run)
+## Resume von Post-Run-Phasen
 
-Wenn ein Run bereits existiert und du nur die Post-Processing-Phasen erneut ausführen willst (z. B. Astrometrie / BGE / PCC), kannst du fortsetzen:
+Wenn ein Run bereits existiert, können Post-Processing-Phasen erneut auf Basis des vorhandenen Run-Zustands ausgeführt werden:
 
 ```text
 ./tile_compile_runner resume --run-dir runs/<run_id> --from-phase ASTROMETRY
 ```
 
-Dabei wird aus dem Run-Verzeichnis gearbeitet (inkl. `config.yaml` Snapshot).
+Dabei werden insbesondere verwendet:
+
+- der Konfigurationssnapshot `config.yaml`
+- vorhandene Outputs und Artefakte der früheren Phasen
+- das Run-Verzeichnis als maßgeblicher Arbeitskontext
+
+Resume ist damit kein „teilweise neuer Run“, sondern eine kontrollierte Fortsetzung auf Basis bereits persistierter Laufdaten.
 
 ---
 
 ## Auswertung mit dem integrierten Report-Generator
 
-Für die strukturierte Qualitätsanalyse kann aus einem Run-Verzeichnis ein HTML-Report erzeugt werden:
+Für technische Auswertung und Qualitätssicherung kann aus einem Run-Verzeichnis ein HTML-Report erzeugt werden:
 
 ```text
 ./tile_compile_cli generate-report runs/<run_id>
 ```
 
-Der Report wird unter `runs/<run_id>/artifacts/report.html` abgelegt und ergänzt durch `report.css` sowie PNG-Diagramme.
+Der Report liegt typischerweise unter `runs/<run_id>/artifacts/report.html` und korreliert Laufereignisse, Diagnoseartefakte und Konfiguration.
 
-Folgende Daten und Auswertungen können daraus direkt entnommen werden:
+Typische Auswertungsblöcke sind:
 
-- **Normalisierung**: Hintergrundverlauf (Mono bzw. R/G/B) und Stabilität über die Zeit.
-- **Globale Metriken**: Hintergrund, Rauschen, Gradientenenergie, globales Frame-Gewicht, Qualitätsverteilungen.
-- **Sternmetriken (Siril-ähnlich)**: FWHM, wFWHM, Rundheit, Sternanzahl, FWHM-vs-Rundheit-Plot.
-- **Registrierung**: Translation/Drift, Rotationsverlauf, CC-Verteilung.
-- **Tile-Analyse**: Tile-Grid, lokale Qualitätskarten, räumliche Heatmaps.
-- **Rekonstruktion**: Tile-Rekonstruktionskennzahlen (z. B. Kontrast/Hintergrund/SNR pro Tile).
-- **Clustering & Synthetic Frames**: Clustergrößen, Nutzung synthetischer Frames, Reduktionsverhalten.
-- **BGE**: Kanalweise Grid-Zellen, Residuenverteilungen und Hintergrundverschiebungen.
-- **Validation**: FWHM-Verbesserung, Tile-Pattern-Indikatoren, weitere Qualitätschecks.
-- **Pipeline-Timeline**: zeitlicher Ablauf der Phasen aus `run_events.jsonl`.
-- **Frame-Usage-Funnel**: Entwicklung von „discovered“ bis „stacked/synthetic“.
+- **Normalisierung**
+  - Hintergrundtrends und Stabilität der Intensitätsskalierung
+- **Globale Metriken**
+  - Hintergrund, Rauschen, Gradientenenergie, globale Gewichte, Verteilungen
+- **Sternmetriken**
+  - FWHM, wFWHM, Rundheit, Sternzahl, Korrelationsplots
+- **Registrierung**
+  - Drift, Rotation, Matching- bzw. Korrelationsqualität
+- **Tile-Analyse**
+  - Tile-Grid, lokale Qualitätskarten, Heatmaps
+- **Rekonstruktion**
+  - tile-lokale Rekonstruktionskennzahlen und Nutzungsbilder
+- **Clustering und Synthetic Frames**
+  - Clustergrößen, Reduktionsverhalten, Nutzung synthetischer Repräsentanten
+- **BGE / PCC**
+  - Hintergrundmodell, Residuen, Kalibrierungsdiagnostik
+- **Validation**
+  - abgeleitete Qualitätsindikatoren und Grenzwertprüfungen
+- **Timeline**
+  - zeitliche Sequenz der Phasen aus `run_events.jsonl`
 
-Zusätzlich bindet der Report die verwendete `config.yaml` ein. Dadurch ist die Ergebnisbewertung direkt mit den Laufparametern nachvollziehbar.
+Der Report bindet zusätzlich die verwendete `config.yaml` ein. Damit bleibt jeder Befund direkt auf den konkreten Parametrisierungszustand zurückführbar.
 
 ---
 
 ## Hinweise zur Interpretation
 
-1. **Linear bedeutet dunkel:** Ein lineares Astrobild wirkt in Viewer oft flach/dunkel, bis gestretcht wird.
-2. **Validation kann fehlschlagen, obwohl Bild brauchbar ist:** Dann sind Grenzwerte verletzt, nicht zwingend das ganze Ergebnis unbrauchbar.
-3. **Tile-basierte Methode optimiert lokal:** Das ist der Hauptvorteil gegenüber rein globalem Stacking.
+1. **Lineare Bilder wirken dunkel**
+   - Das ist erwartbar. Eine lineare Summenaufnahme ist nicht für sofortige visuelle Präsentation gestretcht.
+2. **`validation_failed` bedeutet nicht automatisch „nutzlos“**
+   - Es bedeutet zunächst, dass definierte Qualitäts- oder Guardrail-Kriterien verletzt wurden.
+3. **Tile-basierte Optimierung ist das Kernprinzip**
+   - Der wesentliche Mehrwert entsteht dadurch, dass lokale Qualität genutzt wird, statt globale Durchschnittsqualität blind auf alle Regionen zu übertragen.
 
 ---
 
 ## Kurzfazit
 
-> Viele Bilder rein -> sauber ausrichten -> lokal bewerten -> tile-weise bestes Signal kombinieren -> robust stacken -> Farbe/Himmel kalibrieren -> fertiges Astro-Endbild raus.
+> Die Pipeline transformiert eine heterogene Serie von FITS-Frames in einen gemeinsamen geometrischen und photometrischen Referenzraum, bewertet die Daten global und lokal, rekonstruiert das Signal tile-basiert und erzeugt daraus ein reproduzierbares Endbild samt Diagnostik, WCS- und optionaler Farbkalibrierung.

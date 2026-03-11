@@ -94,19 +94,22 @@ Detaillierte Phasen-Dokumentation: `doc/v3/process_flow/`
 
 ### Beispielprofile
 
-Vollständige eigenständige Beispielkonfigurationen sind verfügbar unter `tile_compile_cpp/examples/`:
+Vollständige eigenständige Beispielkonfigurationen sind verfügbar unter `tile_compile_cpp/examples/`.
+Die Dateinamen verwenden nicht mehr das ältere Präfix `tile_compile.`.
 
-- `tile_compile.full_mode.example.yaml`
-- `tile_compile.reduced_mode.example.yaml`
-- `tile_compile.emergency_mode.example.yaml`
-- `tile_compile.smart_telescope_dwarf_seestar.example.yaml`
-- `tile_compile.smart_telescope_very_bright_star.example.yaml`
-- `tile_compile.canon_low_n_high_quality.example.yaml`
-- `tile_compile.very_bright_star_anti_seam.example.yaml`
-- `tile_compile.mono_full_mode.example.yaml`
-- `tile_compile.mono_small_n_anti_grid.example.yaml` (empfohlen für MONO-Datensätze mit geringer Frame-Anzahl, z.B. ~10..40, zur Reduzierung von Tile-Muster-Risiko)
+- `full_mode.example.yaml`
+- `reduced_mode.example.yaml`
+- `emergency_mode.example.yaml`
+- `smart_telescope_dwarf_seestar.example.yaml`
+- `smart_telescope_very_bright_star.example.yaml`
+- `canon_low_n_high_quality.example.yaml`
+- `very_bright_star_anti_seam.example.yaml`
+- `canon_equatorial_balanced.example.yaml`
+- `mono_full_mode.example.yaml`
+- `mono_small_n_anti_grid.example.yaml` (empfohlen für MONO-Datensätze mit geringer Frame-Anzahl, z.B. ~10..40, zur Reduzierung von Tile-Muster-Risiko)
+- `mono_small_n_ultra_conservative.example.yaml` (empfohlen für sehr kleine MONO-Datensätze, z.B. ~8..25, wenn Nahtstabilität wichtiger ist als aggressive Verstärkung)
 
-Siehe auch: [Examples README](tile_compile_cpp/examples/README.md)
+Siehe auch: [Examples README](tile_compile_cpp/examples/README.md) für Einsatzzweck und Tuning-Schwerpunkt der einzelnen Profile.
 
 ## Binary Releases (GUI2)
 
