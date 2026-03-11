@@ -200,31 +200,28 @@ json queue_event_for_run(const AppState& state, const std::string& run_id) {
 
 std::optional<json> pending_run_status_event(const std::shared_ptr<AppState>& state,
                                              const std::string& run_id) {
-    for (const auto& job : state->job_store.list(200)) {
-        if (job.state != JobState::pending && job.state != JobState::running) continue;
-        const std::string job_run_id = job.data.is_object()
-            ? job.data.value("run_id", std::string())
-            : job.run_id;
-        if (job_run_id != run_id) continue;
+    const auto latest_job = latest_run_job(state->job_store, run_id, 200);
+    if (!latest_job.has_value()) return std::nullopt;
 
-        const std::string state_text = job.state == JobState::running ? "running" : "pending";
-        return json{
-            {"type", "run_status"},
-            {"run_id", run_id},
-            {"state", state_text},
-            {"phase", nullptr},
-            {"pct", job.progress},
-            {"ts", utc_now_iso()},
-            {"payload", {
-                {"status", state_text},
-                {"current_phase", nullptr},
-                {"progress", job.progress},
-                {"phases", json::array()},
-                {"events", json::array()},
-            }}
-        };
-    }
-    return std::nullopt;
+    json payload = {
+        {"status", "unknown"},
+        {"current_phase", nullptr},
+        {"progress", 0.0},
+        {"phases", json::array()},
+        {"events", json::array()},
+    };
+    apply_job_state_to_run_status(payload, latest_job);
+    const std::string state_text = payload.value("status", std::string("unknown"));
+    if (state_text == "unknown") return std::nullopt;
+    return json{
+        {"type", "run_status"},
+        {"run_id", run_id},
+        {"state", state_text},
+        {"phase", payload.contains("current_phase") ? payload["current_phase"] : json(nullptr)},
+        {"pct", payload.value("progress", 0.0)},
+        {"ts", utc_now_iso()},
+        {"payload", payload}
+    };
 }
 
 void send_json(crow::websocket::connection& conn, const json& j) {
@@ -271,6 +268,7 @@ void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsCo
             }
 
             auto status = read_run_status(run_dir);
+            apply_job_state_to_run_status(status, latest_run_job(ctx->state->job_store, ctx->run_id));
             const std::string state = status.value("status", std::string("unknown"));
             send_json(conn, {
                 {"type", "run_status"},

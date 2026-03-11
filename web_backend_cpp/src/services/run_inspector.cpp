@@ -166,6 +166,56 @@ std::string iso_utc_from_file_time(const fs::file_time_type& file_time) {
 
 }
 
+std::optional<Job> latest_run_job(const InMemoryJobStore& store, const std::string& run_id, int limit) {
+    if (run_id.empty()) return std::nullopt;
+    for (const auto& job : store.list(limit)) {
+        if (job.type.rfind("run", 0) != 0) continue;
+        const std::string job_run_id = job.data.is_object()
+            ? job.data.value("run_id", job.run_id)
+            : job.run_id;
+        if (job_run_id == run_id) return job;
+    }
+    return std::nullopt;
+}
+
+void apply_job_state_to_run_status(nlohmann::json& status, const std::optional<Job>& job) {
+    if (!job.has_value()) return;
+
+    const std::string state = job_state_str(job->state);
+    if (state == "pending" || state == "running") {
+        status["status"] = state;
+        if (!status.contains("progress") || !status["progress"].is_number()) {
+            status["progress"] = 0.0;
+        }
+        const double job_progress = std::clamp(job->progress / 100.0, 0.0, 1.0);
+        try {
+            const double current = status["progress"].get<double>();
+            status["progress"] = std::max(current, job_progress);
+        } catch (...) {
+            status["progress"] = job_progress;
+        }
+        return;
+    }
+
+    if (state == "cancelled") {
+        status["status"] = "cancelled";
+        status["current_phase"] = nullptr;
+        return;
+    }
+
+    if (state == "error") {
+        status["status"] = "failed";
+        status["current_phase"] = nullptr;
+        return;
+    }
+
+    if (state == "ok") {
+        status["status"] = "completed";
+        status["current_phase"] = nullptr;
+        status["progress"] = 1.0;
+    }
+}
+
 nlohmann::json read_run_status(const fs::path& run_dir) {
     nlohmann::json result = {
         {"run_dir", run_dir.string()},

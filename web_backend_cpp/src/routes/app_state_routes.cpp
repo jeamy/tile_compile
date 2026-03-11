@@ -25,6 +25,7 @@ void register_app_state_routes(CrowApp& app,
             try {
                 auto run_dir    = rt.resolve_run_dir(state->current_run_id);
                 auto run_status = read_run_status(run_dir);
+                apply_job_state_to_run_status(run_status, latest_run_job(state->job_store, state->current_run_id));
                 current_run = {
                     {"run_id",        state->current_run_id},
                     {"run_dir",       run_dir.string()},
@@ -34,6 +35,7 @@ void register_app_state_routes(CrowApp& app,
                 };
             } catch (...) {
                 current_run = {{"run_id", state->current_run_id}, {"status", "unknown"}};
+                apply_job_state_to_run_status(current_run, latest_run_job(state->job_store, state->current_run_id));
             }
         }
 

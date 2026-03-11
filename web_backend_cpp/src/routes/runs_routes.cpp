@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <sstream>
 #include <filesystem>
+#include <algorithm>
 #include <regex>
 #include <thread>
 #include <chrono>
@@ -304,31 +305,32 @@ static nlohmann::json queue_filters_for_run(InMemoryJobStore& store, const std::
 
 static std::optional<nlohmann::json> pending_run_status(const std::shared_ptr<AppState>& state,
                                                         const std::string& run_id) {
-    for (const auto& job : state->job_store.list(500)) {
-        if (job.state != JobState::pending && job.state != JobState::running) continue;
-        const std::string job_run_id = job.data.is_object()
-            ? job.data.value("run_id", std::string())
-            : job.run_id;
-        if (job_run_id != run_id) continue;
+    const auto latest_job = latest_run_job(state->job_store, run_id);
+    if (!latest_job.has_value()) return std::nullopt;
 
-        const std::string runs_dir = job.data.is_object()
-            ? job.data.value("runs_dir", state->runtime.runs_dir.string())
-            : state->runtime.runs_dir.string();
-        const fs::path predicted_run_dir = fs::path(runs_dir) / run_id;
-        const std::string state_text = job.state == JobState::running ? "running" : "pending";
-        return nlohmann::json{
-            {"run_id", run_id},
-            {"run_dir", predicted_run_dir.string()},
-            {"status", state_text},
-            {"color_mode", "UNKNOWN"},
-            {"queue_filters", queue_filters_for_run(state->job_store, run_id)},
-            {"current_phase", nullptr},
-            {"progress", job.progress},
-            {"phases", nlohmann::json::array()},
-            {"events", nlohmann::json::array()},
-        };
+    const std::string runs_dir = latest_job->data.is_object()
+        ? latest_job->data.value("runs_dir", state->runtime.runs_dir.string())
+        : state->runtime.runs_dir.string();
+    const fs::path predicted_run_dir = fs::path(runs_dir) / run_id;
+    nlohmann::json result{
+        {"run_id", run_id},
+        {"run_dir", predicted_run_dir.string()},
+        {"status", "unknown"},
+        {"color_mode", "UNKNOWN"},
+        {"queue_filters", queue_filters_for_run(state->job_store, run_id)},
+        {"current_phase", nullptr},
+        {"progress", 0.0},
+        {"phases", nlohmann::json::array()},
+        {"events", nlohmann::json::array()},
+    };
+    apply_job_state_to_run_status(result, latest_job);
+    if (result.value("status", std::string()) == "unknown") return std::nullopt;
+    if (result["progress"].is_number()) {
+        try {
+            result["progress"] = std::clamp(latest_job->progress / 100.0, 0.0, 1.0);
+        } catch (...) {}
     }
-    return std::nullopt;
+    return result;
 }
 
 #ifndef _WIN32
@@ -640,6 +642,7 @@ void register_runs_routes(CrowApp& app,
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             auto status  = read_run_status(run_dir);
+            apply_job_state_to_run_status(status, latest_run_job(state->job_store, run_id));
             return json_resp({
                 {"run_id", run_id},
                 {"run_dir", run_dir.string()},

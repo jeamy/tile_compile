@@ -178,6 +178,10 @@ jobs:
           </svg>
           EOF
 
+          cp "${APPDIR}/usr/share/applications/tile_compile_gui2.desktop" "${APPDIR}/tile_compile_gui2.desktop"
+          cp "${APPDIR}/usr/share/icons/hicolor/scalable/apps/tile_compile_gui2.svg" "${APPDIR}/tile_compile_gui2.svg"
+          desktop-file-validate "${APPDIR}/tile_compile_gui2.desktop"
+
           curl -fsSL -o "${APPIMAGE_TOOL}" \
             "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x "${APPIMAGE_TOOL}"
