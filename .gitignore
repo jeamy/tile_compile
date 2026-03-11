@@ -36,6 +36,7 @@ ctest_test.cmake
 DartConfiguration.tcl
 
 # Runtime / outputs
+*runs*
 runs/
 /runs/
 outputs/

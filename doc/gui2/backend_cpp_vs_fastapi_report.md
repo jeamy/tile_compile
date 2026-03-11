@@ -1,6 +1,6 @@
 # Vergleich Crow/C++ Backend vs. FastAPI-Backend (`master`)
 
-Stand: 2026-03-10
+Stand: 2026-03-11
 
 ## Update nach Umsetzungsrunden
 
@@ -25,7 +25,7 @@ Mit der aktuellen Umsetzungsrunde wurden auch die zuvor offenen Prio-Punkte gesc
 - Der PCC-Ergebnisvertrag wird jetzt nicht nur unter `job.data.result`, sondern fuer relevante Felder auch auf Top-Level im Job-`data` gespiegelt.
 - Einfache Fehlerpfade liefern jetzt ebenfalls strukturierte Error-Envelopes mit `code`, `message` und `details`.
 
-Offen bleiben damit nur noch kleinere UI-Aufraeumarbeiten bei statischen Placeholder-Inhalten.
+Offen bleiben damit nur noch kleinere UI-/Content-Feinschliffe ausserhalb des eigentlichen Backend-Vertrags.
 
 ## Scope
 
@@ -35,10 +35,10 @@ Verglichen wurden:
 - Referenz: FastAPI-Implementierung aus Branch `master` unter `web_backend`
 - Frontend-Nutzung: `web_frontend`
 
-Zusaetzlich wurde das C++-Backend erfolgreich gebaut:
+Zusaetzlich wurde das C++-Backend erfolgreich gebaut und getestet:
 
-- `cmake --build web_backend_cpp/build -j2`
-- `ctest --output-on-failure` in `web_backend_cpp/build` fuehrt jetzt die neue C++-Contract-/Integrationstest-Suite aus.
+- `cmake --build /tmp/tile_compile_web_backend_build -j2`
+- `ctest --output-on-failure` in `/tmp/tile_compile_web_backend_build` lief erfolgreich (`4/4` Tests)
 
 ## Kurzfazit
 
@@ -53,7 +53,7 @@ Auf Vertrags- und Verhaltens-Ebene ist die Portierung inzwischen weitgehend auf 
 - erledigt: Config-Routen ueber CLI-Vertrag sowie robuste Pfadauflosung
 - erledigt: automatisierte C++-Contract-/Integrationstests sind vorhanden
 
-Fazit: "FastAPI-Verhalten und Frontend-Vertrag vollstaendig ersetzt" ist fuer den derzeit sichtbaren Implementierungsstand weitgehend erreicht; das Hauptrisiko liegt jetzt in fehlender automatisierter Absicherung.
+Fazit: "FastAPI-Verhalten und Frontend-Vertrag vollstaendig ersetzt" ist fuer den derzeit sichtbaren Implementierungsstand backendseitig erreicht. Verbleibende Restpunkte liegen aktuell eher im UI-Feinschliff als im API-/Backend-Vertrag.
 
 ## 1. Route-Abdeckung
 
@@ -111,11 +111,7 @@ Referenz:
 - `web_backend_cpp/src/routes/scan_routes.cpp`
 - `master:web_backend/app/api/scan.py`
 
-Rest-Risiko:
-
-- keine eigene C++-Contract-Testabdeckung vorhanden
-
-Bewertung: erledigt, fachlich deutlich angenaehert.
+Bewertung: erledigt.
 
 ### 2.2 Run-Monitor-Phasenmodell ist nicht kompatibel zum Frontend
 
@@ -369,68 +365,50 @@ Weitgehend ja.
 
 ### Dashboard / Wizard / Input & Scan
 
-Teilweise abgedeckt:
+Funktional abgedeckt:
 
-- Guardrails, App-State, Config, Run-Start, Presets, FS-Browser sind vorhanden.
-- Multi-Input-Scan inkl. Aggregation ist inzwischen auf Frontend-Niveau angenaehert.
-
-Rest-Risiko:
-
-- keine eigene C++-Contract-Testabdeckung vorhanden
+- Guardrails, App-State, Config, Run-Start, Presets und FS-Browser sind vorhanden.
+- Multi-Input-Scan inkl. Aggregation ist auf den Frontend-Vertrag angeglichen.
+- Queue-/Scan-Verhalten ist durch die aktuelle C++-Testsuite grundlegend mit abgesichert.
 
 ### Run Monitor
 
-Nur teilweise abgedeckt:
+Funktional abgedeckt:
 
-- Run-Status, Logs, Artifacts, Stats, Resume-Routen existieren.
-- Phasenmodell und `resume_from` passen inzwischen zum Frontend.
-
-Wesentlich verbessert:
-
-- UI-Event-/Stream-Details sind jetzt auf den FastAPI-Vertrag normalisiert.
+- Run-Status, Logs, Artifacts, Stats und Resume-Routen existieren.
+- Phasenmodell und `resume_from` passen zum Frontend.
+- UI-Event-/Stream-Details sind auf den FastAPI-Vertrag normalisiert.
 - `app/ui-events` liefert Replay-faehige Eventdaten mit `latest_seq`.
 
 ### History + Tools
 
-Teilweise abgedeckt:
+Funktional abgedeckt:
 
-- Run-Liste, Set-Current, Delete, Stats vorhanden.
-
-Rest-Risiken:
-
-- Tool-Seiten bleiben besonders sensitiv gegen ungetestete Vertragsregressionen
+- Run-Liste, Set-Current, Delete und Stats sind vorhanden.
+- Tool-Seiten sind durch die vorhandenen Contract-/Integrationstests deutlich besser gegen Vertragsregressionen abgesichert.
 
 ### Astrometry
 
-Nur teilweise abgedeckt:
+Funktional abgedeckt:
 
-- Detect, Install, Catalog-Download, Solve, Save-Solved existieren.
-- `solve` liefert inzwischen die vom Frontend benoetigten WCS-/Summary-Felder.
-
-Ergaenzt:
-
-- Download-Retry/Resume-Vertrag ist jetzt backend-seitig vorhanden
+- Detect, Install, Catalog-Download, Solve und Save-Solved existieren.
+- `solve` liefert die vom Frontend benoetigten WCS-/Summary-Felder.
+- Download-Retry/Resume-Vertrag ist backend-seitig vorhanden.
 
 ### PCC
 
-Nur teilweise abgedeckt:
+Funktional abgedeckt:
 
-- Status, Download, Online-Check, Run, Save-Corrected existieren.
-- `pcc/run` akzeptiert inzwischen den erweiterten Parametersatz, und die aktuell von der UI gelesenen Ergebnisfelder koennen ueber CLI-JSON durchgereicht werden.
-
-Aber:
-
-- der Ergebnisvertrag ist weiterhin nicht per eigener C++-Contract-Test-Suite abgesichert
+- Status, Download, Online-Check, Run und Save-Corrected existieren.
+- `pcc/run` akzeptiert den erweiterten Parametersatz.
+- die aktuell von der UI gelesenen Ergebnisfelder werden ueber CLI-JSON durchgereicht und sind per C++-Contract-Test mit abgesichert.
 
 ### Live Log
 
-Teilweise abgedeckt:
+Funktional abgedeckt:
 
 - Logs und Run-WebSocket existieren.
-
-Rest-Risiko:
-
-- keine automatisierte Absicherung gegen kuenftige Event-/Log-Regressionsfehler
+- Event-/Log-Pfade sind durch die aktuelle Testsuite und den normalisierten UI-Event-Store deutlich robuster abgesichert.
 
 ## 4. Tote/ungenutzte Teile, Demo-Daten, technische Altlasten
 
@@ -438,17 +416,24 @@ Rest-Risiko:
 
 Status: ERLEDIGT
 
-`web_frontend/src/main.js` wurde entfernt.
+`web_frontend/src/main.js` existiert nicht mehr.
 
 ### 4.2 Demo-/Placeholder-Daten in HTML-Seiten
 
-Mehrere Seiten enthalten noch statische Demo- oder Placeholder-Inhalte:
+Status: WEITGEHEND BEREINIGT
 
-- vorkonfigurierte Preset-Optionen in HTML
-- vorbelegte Queue-Zeilen fuer `L/R/G/B/Ha`
-- statische Default-Statuszeilen
-- Beispiel-Revision in `run-monitor.html`
-- Beispielpfade wie `/data/calib/darks`
+Die groben Demo-/Mock-Inhalte wurden aus den HTML-Seiten entfernt:
+
+- vorbelegte Queue-Zeilen fuer `L/R/G/B/Ha` wurden auf einzelne neutrale Leerzeilen reduziert
+- statische Beispiel-Dateinamen in Astrometry/PCC wurden entfernt
+- statische Demo-Resultate in Astrometry/PCC wurden entfernt
+- konkrete Beispielpfade wie `/data/calib/darks` wurden durch generische Platzhalter ersetzt
+
+Verbleibend sind vor allem normale Formular-Defaults und Startwerte, z. B.:
+
+- neutrale leere Ergebnisfelder
+- fachliche Default-Parameter in `parameter-studio.html`, `pcc.html` und `assumptions.html`
+- initiale Status-/Leerwerte wie `-` in History- und Monitor-Feldern
 
 Beispiele:
 
@@ -458,14 +443,17 @@ Beispiele:
 - `web_frontend/wizard.html`
 - `web_frontend/parameter-studio.html`
 - `web_frontend/run-monitor.html`
+- `web_frontend/astrometry.html`
+- `web_frontend/pcc.html`
+- `web_frontend/assumptions.html`
 
-Das ist nicht zwingend falsch, wirkt aber teils wie Demo-/Mock-Zustand statt rein datengetriebener UI.
+Das ist funktional unkritisch; der verbliebene Rest ist eher normales UI-Bootstrapping als echter Demo-/Mock-Zustand.
 
 ### 4.3 C++-Backend ohne eigene Test-Suite
 
 Status: ERLEDIGT
 
-Unter `web_backend_cpp/tests` gibt es jetzt eine eigene Test-Suite mit Contract-/Tool-/Run-Abdeckung.
+Unter `web_backend_cpp/tests` gibt es jetzt eine eigene Test-Suite mit Contract-/Tool-/Run-Abdeckung. Verifiziert wurde sie in `/tmp/tile_compile_web_backend_build` mit `ctest` (`4/4` Tests erfolgreich).
 
 Referenzrahmen aus dem FastAPI-Backend:
 
@@ -507,22 +495,17 @@ Bewertung:
 ### Prio 3
 
 - erledigt: `app/constants` und Config-Endpunkte angeglichen; einfache Fehler-Envelopes sind strukturiert
-- statische Demo-/Placeholder-Inhalte in HTML reduzieren
+- weitgehend erledigt: statische Demo-/Placeholder-Inhalte in HTML reduziert; verblieben sind nur normale Formular-Defaults und neutrale Leerzustande
 
 ## 6. Gesamtbewertung
 
-Das Crow/C++-Backend ist als struktureller Ersatz fuer das FastAPI-Backend schon weit fortgeschritten:
+Das Crow/C++-Backend ist als funktionaler Ersatz fuer das FastAPI-Backend im frontend-relevanten Umfang erreicht:
 
 - gleiche Endpunktlandschaft
 - erfolgreicher Build
-- zentrale Features grundsaetzlich vorhanden
-
-Aber:
-
-- die vertragstreue Portierung ist im sichtbaren Implementierungsstand weitgehend abgeschlossen
-- mehrere Frontend-Kernflows sind jetzt funktional auf Referenzniveau
-- das Hauptdefizit ist fehlende automatisierte C++-Absicherung statt sichtbarer API-Luecken
+- erfolgreiche C++-Contract-/Integrationstests
+- zentrale Frontend-Kernflows auf Referenzniveau portiert
 
 Empfehlung:
 
-Das C++-Backend ist jetzt ein plausibler funktionaler Ersatz fuer die FastAPI-Referenz. Der groesste Restpunkt liegt nicht mehr im Backend-Vertrag, sondern in weiterem UI-Aufraeumen statischer Placeholder-Inhalte.
+Das C++-Backend kann fuer die bisher verglichene Frontend-Funktionalitaet als 1:1-Ersatz der FastAPI-Referenz bewertet werden. Restarbeit liegt aktuell eher in kleinen UI-/Content-Feinschliffen und optionaler weiterer Testvertiefung, nicht mehr in sichtbaren Vertragsluecken des Backends.

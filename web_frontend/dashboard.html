@@ -27,12 +27,12 @@
           <div id="dashboard-kpi-scan-quality" data-control="dashboard.kpi.scan_quality" style="padding:14px;background:#f8fafb;border:1px solid var(--line);border-radius:10px;" title="Details zur Scan-Qualitaet oeffnen.">
             <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">Frames entdeckt</div>
             <div style="font-size:28px;font-weight:700;color:var(--ink);">0</div>
-            <div id="dashboard-kpi-color-mode" style="font-size:12px;color:#15808d;">Color: UNKNOWN</div>
+            <div id="dashboard-kpi-color-mode" style="font-size:12px;color:#15808d;">Color: -</div>
           </div>
           <div id="dashboard-kpi-open-warnings" data-control="dashboard.kpi.open_warnings" style="padding:14px;background:#f8fafb;border:1px solid var(--line);border-radius:10px;" title="Warnungsliste oeffnen.">
             <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">Scan-Qualität</div>
             <div style="font-size:28px;font-weight:700;color:var(--ink);">0.00</div>
-            <div id="dashboard-kpi-scan-size" style="font-size:12px;color:#15808d;">0 x 0 px</div>
+            <div id="dashboard-kpi-scan-size" style="font-size:12px;color:#15808d;">-</div>
           </div>
           <div id="dashboard-kpi-guardrail-warnings" data-control="dashboard.kpi.open_warnings" style="padding:14px;background:#f8fafb;border:1px solid var(--line);border-radius:10px;">
             <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">Offene Warnungen</div>
@@ -52,9 +52,9 @@
             <strong>Status</strong><span id="dashboard-scan-status">-</span>
             <strong>Input Path</strong><span id="dashboard-scan-input-path">-</span>
             <strong>Frames entdeckt</strong><span id="dashboard-scan-frames">0</span>
-            <strong>Color Mode</strong><span id="dashboard-scan-color-mode">UNKNOWN</span>
+            <strong>Color Mode</strong><span id="dashboard-scan-color-mode">-</span>
             <strong>Mode Kandidaten</strong><span id="dashboard-scan-candidates">-</span>
-            <strong>Bildgroesse</strong><span id="dashboard-scan-size">0 x 0</span>
+            <strong>Bildgroesse</strong><span id="dashboard-scan-size">-</span>
             <strong>Bayer Pattern</strong><span id="dashboard-scan-bayer">-</span>
             <strong>User-Bestaetigung</strong><span id="dashboard-scan-confirm">nein</span>
             <strong>Fehler</strong><span id="dashboard-scan-errors">0</span>
@@ -120,39 +120,11 @@
                 <div>Aktiv</div>
               </div>
               <div class="ps-queue-row">
-                <div class="ps-queue-cell"><select class="ps-select" data-control="dashboard.queue.row.filter_name" title="Filterbezeichner fuer Queue-Eintrag setzen."><option selected>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
-                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" data-control="dashboard.queue.row.input_dir" type="text" value="" placeholder="Verzeichnis fuer L waehlen" title="Input-Ordner fuer Queue-Eintrag setzen."><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Ordnerdialog fuer Queue-Eintrag oeffnen.">Browse…</button></div></div>
+                <div class="ps-queue-cell"><select class="ps-select" data-control="dashboard.queue.row.filter_name" title="Filterbezeichner fuer Queue-Eintrag setzen."><option selected value="">-</option><option>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
+                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" data-control="dashboard.queue.row.input_dir" type="text" value="" placeholder="Verzeichnis waehlen" title="Input-Ordner fuer Queue-Eintrag setzen."><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Ordnerdialog fuer Queue-Eintrag oeffnen.">Browse…</button></div></div>
                 <div class="ps-queue-cell"><input class="ps-input" data-control="dashboard.queue.row.pattern" type="text" value="" placeholder="optional, z. B. *.fits" title="Optionales Pattern fuer Queue-Eintrag."></div>
                 <div class="ps-queue-cell"><input class="ps-input" data-control="dashboard.queue.row.run_label" type="text" value="" placeholder="optional" title="Optionales Run-Label/Subfolder fuer Queue-Eintrag."></div>
                 <div class="ps-queue-toggle"><input type="checkbox" data-control="dashboard.queue.row.enabled" checked title="Queue-Eintrag aktiv/inaktiv setzen."><span>on</span></div>
-              </div>
-              <div class="ps-queue-row">
-                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option selected>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
-                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für R wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-              </div>
-              <div class="ps-queue-row">
-                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option selected>G</option><option>B</option><option>Ha</option></select></div>
-                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für G wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-              </div>
-              <div class="ps-queue-row">
-                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option selected>B</option><option>Ha</option></select></div>
-                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für B wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
-              </div>
-              <div class="ps-queue-row">
-                <div class="ps-queue-cell"><select class="ps-select"><option>L</option><option>R</option><option>G</option><option>B</option><option selected>Ha</option></select></div>
-                <div class="ps-queue-cell"><div class="ps-inline-cluster"><input class="ps-input" type="text" value="" placeholder="Verzeichnis für Ha wählen"><button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button></div></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
-                <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
-                <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
               </div>
             </div>
             <div class="ps-actions">
@@ -169,12 +141,12 @@
           <div class="ps-section">
             <div style="font-size:20px;font-weight:700;margin-bottom:12px;">Readiness Guardrails</div>
             <div id="dashboard-guardrail-scan-ok" data-control="dashboard.guardrail.scan_ok" style="display:flex;align-items:center;gap:10px;padding:8px;background:#f7fcff;border:1px solid #dce7ed;border-radius:6px;margin-bottom:6px;" title="Zum betroffenen Scanbereich springen.">
-              <span style="padding:2px 8px;background:#d1f4e0;color:#15808d;border-radius:4px;font-size:11px;font-weight:700;">OK</span>
-              <span style="font-size:14px;font-weight:600;">Scan erfolgreich</span>
+              <span style="padding:2px 8px;background:#fde68a;color:#d97706;border-radius:4px;font-size:11px;font-weight:700;">CHECK</span>
+              <span style="font-size:14px;font-weight:600;">Scan nicht geprüft</span>
             </div>
             <div id="dashboard-guardrail-color-mode" data-control="dashboard.guardrail.color_mode" style="display:flex;align-items:center;gap:10px;padding:8px;background:#f7fcff;border:1px solid #dce7ed;border-radius:6px;margin-bottom:6px;" title="Zum Farbmodus-Feld springen.">
-              <span style="padding:2px 8px;background:#d1f4e0;color:#15808d;border-radius:4px;font-size:11px;font-weight:700;">OK</span>
-              <span style="font-size:14px;font-weight:600;">Color mode bestätigt</span>
+              <span style="padding:2px 8px;background:#fde68a;color:#d97706;border-radius:4px;font-size:11px;font-weight:700;">CHECK</span>
+              <span style="font-size:14px;font-weight:600;">Color mode nicht geprüft</span>
             </div>
             <div id="dashboard-guardrail-config-valid" data-control="dashboard.guardrail.config_valid" style="display:flex;align-items:center;gap:10px;padding:8px;background:#fffbf0;border:1px solid #fde68a;border-radius:6px;margin-bottom:6px;" title="Zu Validierungsfehlern in den Konfigurationswerten springen.">
               <span style="padding:2px 8px;background:#fde68a;color:#d97706;border-radius:4px;font-size:11px;font-weight:700;">CHECK</span>

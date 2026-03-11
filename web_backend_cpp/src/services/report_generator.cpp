@@ -507,13 +507,13 @@ std::string svg_timeseries(const std::vector<double>& raw_values,
         const double y = scale_linear(val, bounds.first, bounds.second, y0 + ph, y0);
         poly << x << ',' << y << ' ';
     }
-    out << "<polyline fill=\"none\" stroke=\"" << color << "\" stroke-width=\"2.4\" points=\""
+    out << "<polyline fill=\"none\" stroke=\"" << color << "\" stroke-width=\"1.2\" points=\""
         << poly.str() << "\"/>";
     if (values.size() <= 80) {
         for (const auto& [idx, val] : values) {
             const double x = scale_linear(static_cast<double>(idx), 0.0, static_cast<double>(max_index), x0, x0 + pw);
             const double y = scale_linear(val, bounds.first, bounds.second, y0 + ph, y0);
-            out << "<circle cx=\"" << x << "\" cy=\"" << y << "\" r=\"2.6\" fill=\"" << color << "\"/>";
+            out << "<circle cx=\"" << x << "\" cy=\"" << y << "\" r=\"2\" fill=\"" << color << "\"/>";
         }
     }
     out << "</svg>";
@@ -572,7 +572,7 @@ std::string svg_multi_timeseries(const std::map<std::string, std::vector<double>
         }
         if (!has_any) continue;
         const std::string color = palette[color_index % palette.size()];
-        out << "<polyline fill=\"none\" stroke=\"" << color << "\" stroke-width=\"2.2\" points=\""
+        out << "<polyline fill=\"none\" stroke=\"" << color << "\" stroke-width=\"1.2\" points=\""
             << poly.str() << "\"/>";
         out << "<line x1=\"" << legend_x << "\" y1=\"" << legend_y << "\" x2=\"" << (legend_x + 16)
             << "\" y2=\"" << legend_y << "\" stroke=\"" << color << "\" stroke-width=\"3\"/>";

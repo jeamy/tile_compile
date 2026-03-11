@@ -111,8 +111,8 @@ const SCAN_CALIBRATION_BINDINGS = [
     useMasterPath: "calibration.bias_use_master",
     dirPath: "calibration.bias_dir",
     masterPath: "calibration.bias_master",
-    dirPlaceholder: "/data/calib/bias",
-    masterPlaceholder: "/data/calib/master_bias*",
+    dirPlaceholder: "Bias-Ordner waehlen",
+    masterPlaceholder: "Master-Bias-Datei waehlen",
     dirTitle: "Bias-Ordner setzen.",
     masterTitle: "Master-Bias-Datei setzen.",
   },
@@ -122,8 +122,8 @@ const SCAN_CALIBRATION_BINDINGS = [
     useMasterPath: "calibration.dark_use_master",
     dirPath: "calibration.darks_dir",
     masterPath: "calibration.dark_master",
-    dirPlaceholder: "/data/calib/darks",
-    masterPlaceholder: "/data/calib/masterdark*",
+    dirPlaceholder: "Dark-Ordner waehlen",
+    masterPlaceholder: "Master-Dark-Datei waehlen",
     dirTitle: "Dark-Ordner setzen.",
     masterTitle: "Master-Dark-Datei setzen.",
   },
@@ -133,8 +133,8 @@ const SCAN_CALIBRATION_BINDINGS = [
     useMasterPath: "calibration.flat_use_master",
     dirPath: "calibration.flats_dir",
     masterPath: "calibration.flat_master",
-    dirPlaceholder: "/data/calib/flats",
-    masterPlaceholder: "/data/calib/masterflat*",
+    dirPlaceholder: "Flat-Ordner waehlen",
+    masterPlaceholder: "Master-Flat-Datei waehlen",
     dirTitle: "Flat-Ordner setzen.",
     masterTitle: "Master-Flat-Datei setzen.",
   },
@@ -903,7 +903,7 @@ function summarizeScanResult(raw, fallbackInputPath = "") {
   const hasScan = typeof src.has_scan === "boolean" ? src.has_scan : Object.keys(src).length > 0;
   const ok = typeof src.ok === "boolean" ? src.ok : errors.length === 0;
   const inputDirs = Array.isArray(src.input_dirs) ? src.input_dirs.map((x) => String(x || "").trim()).filter(Boolean) : [];
-  const colorMode = String(src.color_mode || "UNKNOWN");
+  const colorMode = String(src.color_mode || "");
   const normalizedColorMode = normalizeDetectedColorMode(colorMode);
   if (normalizedColorMode) {
     localStorage.setItem("gui2.lastScanColorMode", normalizedColorMode);
@@ -934,19 +934,22 @@ function renderScanSummary(prefix, summary) {
       : data.errors.length > 0
         ? t("ui.status.scan_error", "ERROR")
         : t("ui.status.scan_check", "CHECK");
-  const sizeText =
-    data.image_width > 0 && data.image_height > 0 ? `${data.image_width} x ${data.image_height}` : t("ui.value.unknown_size", "unbekannt");
+  const sizeText = data.image_width > 0 && data.image_height > 0 ? `${data.image_width} x ${data.image_height}` : "-";
   const candidates = data.color_mode_candidates.length > 0 ? data.color_mode_candidates.join(", ") : "-";
+  const framesText = data.has_scan ? String(data.frames_detected) : "-";
+  const colorModeText = data.color_mode || "-";
+  const errorCountText = data.has_scan ? String(data.errors.length) : "-";
+  const warningCountText = data.has_scan ? String(data.warnings.length) : "-";
   setText($(`${prefix}-status`), status);
   setText($(`${prefix}-input-path`), data.input_path || "-");
-  setText($(`${prefix}-frames`), String(data.frames_detected));
-  setText($(`${prefix}-color-mode`), data.color_mode || t("ui.value.unknown_color_mode", "UNKNOWN"));
+  setText($(`${prefix}-frames`), framesText);
+  setText($(`${prefix}-color-mode`), colorModeText);
   setText($(`${prefix}-candidates`), candidates);
   setText($(`${prefix}-size`), sizeText);
   setText($(`${prefix}-bayer`), data.bayer_pattern || "-");
   setText($(`${prefix}-confirm`), data.requires_user_confirmation ? t("ui.value.yes", "ja") : t("ui.value.no", "nein"));
-  setText($(`${prefix}-errors`), String(data.errors.length));
-  setText($(`${prefix}-warnings`), String(data.warnings.length));
+  setText($(`${prefix}-errors`), errorCountText);
+  setText($(`${prefix}-warnings`), warningCountText);
   return data;
 }
 
@@ -971,20 +974,22 @@ function applyDetectedColorModeToSelect(selectEl, scanSummary) {
 function renderDashboardScanKpis(summary, qualityScore) {
   const data = summarizeScanResult(summary);
   const framesKpi = document.querySelector("#dashboard-kpi-scan-quality div:nth-child(2)");
-  if (framesKpi) framesKpi.textContent = String(data.frames_detected);
+  if (framesKpi) framesKpi.textContent = data.has_scan ? String(data.frames_detected) : "-";
   const colorChip = $("dashboard-kpi-color-mode");
-  if (colorChip) colorChip.textContent = `Color: ${data.color_mode || "UNKNOWN"}`;
+  if (colorChip) colorChip.textContent = `Color: ${data.color_mode || "-"}`;
 
   const qualityKpi = document.querySelector("#dashboard-kpi-open-warnings div:nth-child(2)");
-  if (qualityKpi) qualityKpi.textContent = Number.isFinite(Number(qualityScore)) ? Number(qualityScore).toFixed(3) : "0.000";
+  if (qualityKpi) qualityKpi.textContent = data.has_scan && Number.isFinite(Number(qualityScore)) ? Number(qualityScore).toFixed(3) : "-";
   const sizeChip = $("dashboard-kpi-scan-size");
-  if (sizeChip) sizeChip.textContent = `${data.image_width || 0} x ${data.image_height || 0} px`;
+  if (sizeChip) {
+    sizeChip.textContent = data.image_width > 0 && data.image_height > 0 ? `${data.image_width} x ${data.image_height} px` : "-";
+  }
 
   const warningCount = data.errors.length + data.warnings.length;
   const warnKpi = document.querySelector("#dashboard-kpi-guardrail-warnings div:nth-child(2)");
-  if (warnKpi) warnKpi.textContent = String(warningCount);
+  if (warnKpi) warnKpi.textContent = data.has_scan ? String(warningCount) : "-";
   const pathState = $("dashboard-kpi-path-state");
-  if (pathState) pathState.textContent = data.input_path || "kein Scan";
+  if (pathState) pathState.textContent = data.input_path || "-";
 }
 
 function renderDashboardLastRunKpi(appState) {
@@ -1213,7 +1218,7 @@ async function executeScanFlow({
       fallbackPath: dirs[0] || "",
     });
     if (resultPanel) resultPanel.style.display = "block";
-    renderScanSummary(summaryPrefix, { has_scan: true, input_path: payload.input_path, color_mode: "UNKNOWN" });
+    renderScanSummary(summaryPrefix, { has_scan: true, input_path: payload.input_path });
     setText(resultBody, { state: accepted.state, message: "Scan gestartet..." });
     const job = await waitForJob(accepted.job_id, { allowMissing: true });
     if (String(job?.state) === "missing") {

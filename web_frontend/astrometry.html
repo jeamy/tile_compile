@@ -27,21 +27,21 @@
           <div class="ps-section-title">ASTAP Setup</div>
           <div class="ps-row">
             <label for="tools-astrometry-bin">ASTAP CLI</label>
-            <input id="tools-astrometry-bin" data-control="tools.astrometry.binary" class="ps-input ps-wide" type="text" value="~/.local/share/tile_compile/astap/astap_cli" title="Pfad zur ASTAP-CLI Binary.">
+            <input id="tools-astrometry-bin" data-control="tools.astrometry.binary" class="ps-input ps-wide" type="text" value="" title="Pfad zur ASTAP-CLI Binary.">
           </div>
           <div class="ps-actions" style="margin-top:8px;">
             <button data-control="tools.astrometry.browse_binary" class="ps-btn ps-btn-secondary" title="ASTAP-CLI-Datei auswaehlen.">Browse ASTAP CLI</button>
           </div>
           <div class="ps-row">
             <label for="tools-astrometry-data-dir">ASTAP Data Dir</label>
-            <input id="tools-astrometry-data-dir" data-control="tools.astrometry.data_dir" class="ps-input ps-wide" type="text" value="~/.local/share/tile_compile/astap" title="ASTAP-Datenverzeichnis (Kataloge + Downloads).">
+            <input id="tools-astrometry-data-dir" data-control="tools.astrometry.data_dir" class="ps-input ps-wide" type="text" value="" title="ASTAP-Datenverzeichnis (Kataloge + Downloads).">
           </div>
           <div class="ps-actions" style="margin-top:8px;">
             <button data-control="tools.astrometry.browse_data_dir" class="ps-btn ps-btn-secondary" title="ASTAP-Datenverzeichnis auswaehlen.">Browse ASTAP Data Dir</button>
           </div>
           <div class="ps-row">
             <label>Status</label>
-            <span class="ps-chip ps-chip-ok" data-control="tools.astrometry.status" title="Installationsstatus der ASTAP-CLI.">Installed</span>
+            <span class="ps-chip ps-chip-ok" data-control="tools.astrometry.status" title="Installationsstatus der ASTAP-CLI.">-</span>
           </div>
           <div class="ps-actions" style="margin-top:8px;">
             <button data-control="tools.astrometry.detect" class="ps-btn ps-btn-secondary" title="ASTAP Binary im konfigurierten Pfad pruefen.">Detect ASTAP</button>
@@ -60,7 +60,7 @@
               <option>D80 (~1.25 GB)</option>
             </select>
           </div>
-          <div class="ps-note">Status: D50 installiert, D80 fehlt. Download-Quelle: SourceForge ASTAP Star Databases.</div>
+          <div class="ps-note">Download-Quelle: SourceForge ASTAP Star Databases.</div>
           <div class="ps-actions" style="margin-top:8px;">
             <button data-control="tools.astrometry.download_catalog" class="ps-btn" title="Ausgewaehlten ASTAP-Sternkatalog herunterladen und entpacken.">Download Catalog</button>
             <button data-control="tools.astrometry.cancel_download" class="ps-btn ps-btn-secondary" title="Aktiven ASTAP-Katalogdownload abbrechen.">Cancel Download</button>
@@ -71,7 +71,7 @@
           <div class="ps-section-title">Plate Solve</div>
           <div class="ps-row">
             <label for="tools-astrometry-file">FITS File</label>
-            <input id="tools-astrometry-file" data-control="tools.astrometry.file" class="ps-input ps-wide" type="text" value="stacked_m31.fit" title="Zu loesende FITS-Datei.">
+            <input id="tools-astrometry-file" data-control="tools.astrometry.file" class="ps-input ps-wide" type="text" value="" title="Zu loesende FITS-Datei.">
           </div>
           <div class="ps-actions" style="margin-top:8px;">
             <button data-control="tools.astrometry.browse_file" class="ps-btn ps-btn-secondary" title="FITS-Datei auswaehlen.">Browse</button>
@@ -79,9 +79,9 @@
             <button data-control="tools.astrometry.save_solved" class="ps-btn ps-btn-secondary" title="FITS mit WCS-Header speichern.">Save Solved</button>
           </div>
           <div class="ps-grid-3" style="margin-top:10px;">
-            <div class="ps-row"><label>RA (J2000)</label><input id="tools-astrometry-ra" class="ps-input" type="text" value="10.684700 deg" readonly title="Resultat aus WCS."></div>
-            <div class="ps-row"><label>Dec (J2000)</label><input id="tools-astrometry-dec" class="ps-input" type="text" value="41.269000 deg" readonly title="Resultat aus WCS."></div>
-            <div class="ps-row"><label>Pixel Scale</label><input id="tools-astrometry-pixel-scale" class="ps-input" type="text" value="1.69 arcsec/px" readonly title="Resultat aus WCS."></div>
+            <div class="ps-row"><label>RA (J2000)</label><input id="tools-astrometry-ra" class="ps-input" type="text" value="-" readonly title="Resultat aus WCS."></div>
+            <div class="ps-row"><label>Dec (J2000)</label><input id="tools-astrometry-dec" class="ps-input" type="text" value="-" readonly title="Resultat aus WCS."></div>
+            <div class="ps-row"><label>Pixel Scale</label><input id="tools-astrometry-pixel-scale" class="ps-input" type="text" value="-" readonly title="Resultat aus WCS."></div>
             <div class="ps-row"><label>Rotation</label><input id="tools-astrometry-rotation" class="ps-input" type="text" value="-" readonly title="Rotation aus WCS."></div>
             <div class="ps-row"><label>FOV</label><input id="tools-astrometry-fov" class="ps-input" type="text" value="-" readonly title="Bildfeld aus WCS."></div>
           </div>
@@ -89,13 +89,7 @@
 
         <section class="ps-section">
           <div class="ps-section-title">Log</div>
-          <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:220px;overflow:auto;">
-[astap] Downloading D50 star database from SourceForge...
-[astap] Download complete.
-[astap] Extracting ...
-[astap] Solving: stacked_m31.fit
-[astap] Plate solve successful.
-          </div>
+          <div style="font-family:monospace;font-size:12px;line-height:1.55;background:#1f2937;color:#e5edf6;border-radius:8px;padding:12px;max-height:220px;overflow:auto;"></div>
         </section>
       </div>
     </div>

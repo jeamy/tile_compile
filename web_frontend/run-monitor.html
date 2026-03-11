@@ -37,7 +37,7 @@
 
               <div id="monitor-filter-row" class="ps-chip-row" style="margin-bottom:12px;">
                 <button id="monitor-filter-L" data-control="monitor.filter.L" class="ps-chip-btn" title="Filterkontext L waehlen.">L</button>
-                <button id="monitor-filter-R" data-control="monitor.filter.R" class="ps-chip-btn active" title="Filterkontext R waehlen.">R</button>
+                <button id="monitor-filter-R" data-control="monitor.filter.R" class="ps-chip-btn" title="Filterkontext R waehlen.">R</button>
                 <button id="monitor-filter-G" data-control="monitor.filter.G" class="ps-chip-btn" title="Filterkontext G waehlen.">G</button>
                 <button id="monitor-filter-B" data-control="monitor.filter.B" class="ps-chip-btn" title="Filterkontext B waehlen.">B</button>
                 <button id="monitor-filter-Ha" data-control="monitor.filter.Ha" class="ps-chip-btn" title="Filterkontext Ha waehlen.">Ha</button>
@@ -46,9 +46,9 @@
               </div>
 
               <div class="ps-phase-list">
-                <button id="monitor-phase-scan-input" data-control="monitor.phase.scan_input" class="ps-phase-row done" title="Resume ab SCAN_INPUT starten."><span class="state">OK</span><span class="phase-name">SCAN_INPUT</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">100%</span></button>
-                <button id="monitor-phase-channel-split" data-control="monitor.phase.channel_split" class="ps-phase-row done" title="Resume ab CHANNEL_SPLIT starten."><span class="state">OK</span><span class="phase-name">CHANNEL_SPLIT</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">100%</span></button>
-                <button id="monitor-phase-normalization" data-control="monitor.phase.normalization" class="ps-phase-row running" title="Resume ab NORMALIZATION starten."><span class="state">RUN</span><span class="phase-name">NORMALIZATION</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">67%</span></button>
+                <button id="monitor-phase-scan-input" data-control="monitor.phase.scan_input" class="ps-phase-row pending" title="Resume ab SCAN_INPUT starten."><span class="state">P</span><span class="phase-name">SCAN_INPUT</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-channel-split" data-control="monitor.phase.channel_split" class="ps-phase-row pending" title="Resume ab CHANNEL_SPLIT starten."><span class="state">P</span><span class="phase-name">CHANNEL_SPLIT</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
+                <button id="monitor-phase-normalization" data-control="monitor.phase.normalization" class="ps-phase-row pending" title="Resume ab NORMALIZATION starten."><span class="state">P</span><span class="phase-name">NORMALIZATION</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
                 <button id="monitor-phase-global-metrics" data-control="monitor.phase.global_metrics" class="ps-phase-row pending" title="Resume ab GLOBAL_METRICS starten."><span class="state">P</span><span class="phase-name">GLOBAL_METRICS</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
                 <button id="monitor-phase-tile-grid" data-control="monitor.phase.tile_grid" class="ps-phase-row pending" title="Resume ab TILE_GRID starten."><span class="state">P</span><span class="phase-name">TILE_GRID</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
                 <button id="monitor-phase-registration" data-control="monitor.phase.registration" class="ps-phase-row pending" title="Resume ab REGISTRATION starten."><span class="state">P</span><span class="phase-name">REGISTRATION</span><span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">0%</span></button>
