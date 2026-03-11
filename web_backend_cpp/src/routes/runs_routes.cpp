@@ -812,6 +812,9 @@ void register_runs_routes(CrowApp& app,
             auto items   = list_run_artifacts(run_dir);
             return json_resp({{"items", items}, {"run_id", run_id}});
         } catch (const std::exception& e) {
+            if (pending_run_status(state, run_id)) {
+                return json_resp({{"items", nlohmann::json::array()}, {"run_id", run_id}});
+            }
             return err_resp(e.what(), 404);
         }
     });

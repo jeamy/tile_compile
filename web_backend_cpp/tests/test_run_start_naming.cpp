@@ -35,6 +35,10 @@ int main(int argc, char** argv) {
             immediate_status["status"].get<std::string>() == "pending",
             "immediate status should expose pending or running state");
 
+        const auto immediate_artifacts = harness.get_json("/api/runs/" + generated_run_id + "/artifacts");
+        expect_equal(immediate_artifacts["_http_status"].get<long>(), 200L, "immediate artifacts status");
+        expect_true(immediate_artifacts["items"].is_array(), "immediate artifacts items array");
+
         const auto job = harness.wait_for_job(started["job_id"].get<std::string>());
         expect_equal(job["run_id"].get<std::string>(), generated_run_id, "job run id matches generated run id");
         expect_true(job["data"]["command"].is_array(), "job command is array");

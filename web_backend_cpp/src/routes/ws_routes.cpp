@@ -198,6 +198,35 @@ json queue_event_for_run(const AppState& state, const std::string& run_id) {
     return json();
 }
 
+std::optional<json> pending_run_status_event(const std::shared_ptr<AppState>& state,
+                                             const std::string& run_id) {
+    for (const auto& job : state->job_store.list(200)) {
+        if (job.state != JobState::pending && job.state != JobState::running) continue;
+        const std::string job_run_id = job.data.is_object()
+            ? job.data.value("run_id", std::string())
+            : job.run_id;
+        if (job_run_id != run_id) continue;
+
+        const std::string state_text = job.state == JobState::running ? "running" : "pending";
+        return json{
+            {"type", "run_status"},
+            {"run_id", run_id},
+            {"state", state_text},
+            {"phase", nullptr},
+            {"pct", job.progress},
+            {"ts", utc_now_iso()},
+            {"payload", {
+                {"status", state_text},
+                {"current_phase", nullptr},
+                {"progress", job.progress},
+                {"phases", json::array()},
+                {"events", json::array()},
+            }}
+        };
+    }
+    return std::nullopt;
+}
+
 void send_json(crow::websocket::connection& conn, const json& j) {
     conn.send_text(j.dump());
 }
@@ -270,12 +299,16 @@ void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsCo
                 ctx->last_terminal_state = state;
             }
         } catch (const std::exception& e) {
-            send_json(conn, {
-                {"type", "run_stream_error"},
-                {"run_id", ctx->run_id},
-                {"ts", utc_now_iso()},
-                {"payload", {{"message", e.what()}}}
-            });
+            if (auto pending = pending_run_status_event(ctx->state, ctx->run_id)) {
+                send_json(conn, *pending);
+            } else {
+                send_json(conn, {
+                    {"type", "run_stream_error"},
+                    {"run_id", ctx->run_id},
+                    {"ts", utc_now_iso()},
+                    {"payload", {{"message", e.what()}}}
+                });
+            }
         }
         for (int i = 0; i < 10 && !ctx->stop.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
