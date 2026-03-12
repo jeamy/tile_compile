@@ -90,7 +90,7 @@ preflight_macos() {
     if ! pkg-config --exists opencv4; then
       echo "[gui2-package] OpenCV is not available via the default Homebrew formula on macOS 12." >&2
       echo "[gui2-package] Homebrew currently requires newer macOS releases for its opencv formula." >&2
-      echo "[gui2-package] Use macOS 13+ for the Homebrew-based path, or provide a working local OpenCV installation with pkg-config metadata." >&2
+      echo "[gui2-package] Use macOS 15 for the Homebrew-based path, or provide a working local OpenCV installation with pkg-config metadata." >&2
       exit 1
     fi
   fi

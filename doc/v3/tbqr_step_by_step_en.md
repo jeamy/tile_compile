@@ -48,7 +48,7 @@ Platform package examples:
 
 macOS note:
 
-- Homebrew's default `opencv` formula currently requires a newer macOS release than macOS 12. For the documented Homebrew path, macOS 13+ is therefore the practical baseline unless OpenCV is provided separately.
+- Homebrew's default `opencv` formula currently requires a newer macOS release than macOS 12. For the documented Homebrew path, macOS 15 is therefore the practical baseline unless OpenCV is provided separately.
 - If a downloaded GUI2/release bundle is blocked by Gatekeeper with messages such as “developer cannot be identified” or a bundled `.dylib` cannot be opened, remove the quarantine flag from the extracted release folder with `xattr -dr com.apple.quarantine /path/to/extracted_release` and then start the bundle again.
 
 ## 2) Build the C++ tools
@@ -243,7 +243,7 @@ Release bundles start GUI2 via:
 Minimum OS versions for the current GUI2 release bundles:
 
 - Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
-- macOS: macOS 13+
+- macOS: macOS 15
 - Windows: Windows 10 x64 or newer
 
 Notes:

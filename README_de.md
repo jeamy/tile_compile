@@ -151,7 +151,7 @@ Der Starter kopiert die gebündelte Payload in ein benutzerspezifisches Installa
 Mindestbetriebssysteme für die aktuellen GUI2-Release-Bundles:
 
 - Linux: x86_64-Linux mit `glibc >= 2.39` (Ubuntu 24.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)
-- macOS: macOS 13+
+- macOS: macOS 15
 - Windows: Windows 10 x64 oder neuer
 
 Hinweise:
@@ -498,7 +498,7 @@ ctest --output-on-failure
 
 Unterstützt nun:
 - Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
-- macOS: macOS 13+
+- macOS: macOS 15
 - Windows: Windows 10 x64 or newer
 
 ## v0.0.8 (2026-03-11)

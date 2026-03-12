@@ -152,7 +152,7 @@ The launcher copies the bundled payload into a per-user install directory, start
 Minimum OS versions for the current GUI2 release bundles:
 
 - Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
-- macOS: macOS 13+
+- macOS: macOS 15
 - Windows: Windows 10 x64 or newer
 
 Notes:
@@ -207,7 +207,7 @@ brew install opencv
 Notes:
 
 - `ninja` is required for the local GUI2 packaging scripts.
-- On macOS 12, the default Homebrew `opencv` formula is currently not supported. The Homebrew-based path therefore effectively requires macOS 13+ for OpenCV, unless you provide a separate working OpenCV installation yourself.
+- On macOS 12, the default Homebrew `opencv` formula is currently not supported. The Homebrew-based path therefore effectively requires macOS 15 for OpenCV, unless you provide a separate working OpenCV installation yourself.
 - If a downloaded GUI2/release bundle is blocked by Gatekeeper with messages such as “developer cannot be identified” or a bundled `.dylib` cannot be opened, remove the quarantine flag from the extracted release folder with `xattr -dr com.apple.quarantine /path/to/extracted_release` and then start the bundle again.
 
 Windows:
@@ -489,7 +489,7 @@ ctest --output-on-failure
 
 Supports now:
 - Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
-- macOS: macOS 13+
+- macOS: macOS 15
 - Windows: Windows 10 x64 or newer
 
 ## v0.0.8 (2026-03-11)

@@ -276,7 +276,7 @@ jobs:
             variant_name: Apple Silicon
             artifact_suffix: macos-apple
             deployment_target: '14.0'
-          - runner: macos-13
+          - runner: macos-15-intel
             variant_name: Intel
             artifact_suffix: macos-intel
             deployment_target: '13.0'

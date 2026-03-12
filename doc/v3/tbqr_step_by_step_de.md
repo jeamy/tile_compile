@@ -48,7 +48,7 @@ Beispielpakete je Plattform:
 
 macOS-Hinweis:
 
-- Die Standard-`opencv`-Formel von Homebrew setzt derzeit ein neueres macOS als macOS 12 voraus. Für den dokumentierten Homebrew-Pfad ist macOS 13+ daher praktisch die sinnvolle Basis, sofern OpenCV nicht separat bereitgestellt wird.
+- Die Standard-`opencv`-Formel von Homebrew setzt derzeit ein neueres macOS als macOS 12 voraus. Für den dokumentierten Homebrew-Pfad ist macOS 15 daher praktisch die sinnvolle Basis, sofern OpenCV nicht separat bereitgestellt wird.
 - Wenn ein heruntergeladenes GUI2-/Release-Bundle von Gatekeeper mit Meldungen wie „Entwickler kann nicht identifiziert werden“ blockiert wird oder eine mitgelieferte `.dylib` nicht geöffnet werden kann, entferne das Quarantine-Flag am entpackten Release-Ordner mit `xattr -dr com.apple.quarantine /pfad/zum/entpackten_release` und starte das Bundle danach erneut.
 
 ## 2) Die C++-Werkzeuge bauen
@@ -243,7 +243,7 @@ Release-Bundles starten GUI2 über:
 Mindestbetriebssysteme für die aktuellen GUI2-Release-Bundles:
 
 - Linux: x86_64-Linux mit `glibc >= 2.39` (Ubuntu 24.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)
-- macOS: macOS 13+
+- macOS: macOS 15
 - Windows: Windows 10 x64 oder neuer
 
 Hinweise:

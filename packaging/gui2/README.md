@@ -43,7 +43,7 @@ The backend is intentionally started under the launcher shell so the terminal wi
 Current practical minimums for the packaged GUI2 release bundles are:
 
 - Linux: x86_64 Linux with `glibc >= 2.39` (the current release workflow builds on Ubuntu 24.04; Ubuntu 24.04 or equivalent is the safe baseline)
-- macOS: macOS 13+
+- macOS: macOS 15
 - Windows: Windows 10 x64 or newer
 
 Notes:
@@ -65,7 +65,7 @@ Other core dependencies still include Eigen, OpenCV, cfitsio, yaml-cpp, nlohmann
 macOS notes:
 
 - `packaging/gui2/build_local_macos.sh` requires `xcode-select --install`, `cmake`, `ninja`, `pkg-config`, and `python3`.
-- On macOS 12, Homebrew's default `opencv` formula is not supported. The Homebrew-based packaging path therefore effectively requires macOS 13+ unless OpenCV is provided from another working installation.
+- On macOS 12, Homebrew's default `opencv` formula is not supported. The Homebrew-based packaging path therefore effectively requires macOS 15 unless OpenCV is provided from another working installation.
 
 ## CI Workflow
 
