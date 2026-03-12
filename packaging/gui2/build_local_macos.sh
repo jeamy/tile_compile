@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 TAG="${TAG:-local}"
+ARTIFACT_PREFIX="${ARTIFACT_PREFIX:-tile_compile_gui2-macos}"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 BUILD_SUFFIX="${BUILD_SUFFIX:-build-gui2-release}"
 PORT="${PORT:-8080}"
@@ -18,6 +19,7 @@ Usage: $(basename "$0") [options]
 
 Options:
   --tag <tag>            Bundle tag suffix (default: ${TAG})
+  --artifact-prefix <p>  Bundle/artifact prefix (default: ${ARTIFACT_PREFIX})
   --build-type <type>    CMake build type (default: ${BUILD_TYPE})
   --build-suffix <name>  Build dir suffix (default: ${BUILD_SUFFIX})
   --port <port>          Smoke-test port (default: ${PORT})
@@ -27,13 +29,14 @@ Options:
   -h, --help             Show this help
 
 Environment overrides:
-  TAG, BUILD_TYPE, BUILD_SUFFIX, PORT, MACOSX_DEPLOYMENT_TARGET
+  TAG, ARTIFACT_PREFIX, BUILD_TYPE, BUILD_SUFFIX, PORT, MACOSX_DEPLOYMENT_TARGET
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag) TAG="$2"; shift 2 ;;
+    --artifact-prefix) ARTIFACT_PREFIX="$2"; shift 2 ;;
     --build-type) BUILD_TYPE="$2"; shift 2 ;;
     --build-suffix) BUILD_SUFFIX="$2"; shift 2 ;;
     --port) PORT="$2"; shift 2 ;;
@@ -49,7 +52,8 @@ RUNNER_BUILD_DIR="${PROJECT_ROOT}/tile_compile_cpp/${BUILD_SUFFIX}"
 BACKEND_BUILD_DIR="${PROJECT_ROOT}/web_backend_cpp/${BUILD_SUFFIX}"
 ARTIFACTS_DIR="${PROJECT_ROOT}/artifacts"
 BUNDLE_DIR="${PROJECT_ROOT}/bundle"
-ROOT="${BUNDLE_DIR}/tile_compile_gui2-macos-${TAG}"
+BUNDLE_NAME="${ARTIFACT_PREFIX}-${TAG}"
+ROOT="${BUNDLE_DIR}/${BUNDLE_NAME}"
 PAYLOAD="${ROOT}/payload"
 
 require_cmd() {
@@ -117,6 +121,7 @@ collect_macos_libs() {
     | tail -n +2 \
     | awk '{print $1}' \
     | while read -r dep; do
+        local resolved=""
         local name
         name="$(basename "$dep")"
         case "$dep" in
@@ -125,12 +130,13 @@ collect_macos_libs() {
         if macos_should_skip_bundle_dep "$dep" "$name"; then
           continue
         fi
-        [[ -f "$dep" ]] || continue
+        resolved="$(resolve_macos_dep_path "$target" "$dep")"
+        [[ -n "$resolved" && -f "$resolved" ]] || continue
         local dst="${PAYLOAD}/tile_compile_cpp/lib/${name}"
         if [[ ! -f "$dst" ]]; then
-          cp "$dep" "$dst"
+          cp "$resolved" "$dst"
           chmod u+w "$dst" || true
-          collect_macos_libs "$dst"
+          collect_macos_libs "$resolved"
         fi
       done
 }
@@ -170,16 +176,118 @@ macos_should_skip_bundle_dep() {
   local dep="$1"
   local name="$2"
   case "$name" in
-    libstdc++*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
+    libc++*.dylib|libunwind*.dylib|libc++abi*.dylib|libstdc++*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
       return 0
       ;;
   esac
   case "$dep" in
-    */lib/clang/*)
+    */lib/clang/*|*/opt/llvm/lib/*)
       return 0
       ;;
   esac
   return 1
+}
+
+expand_macos_special_path() {
+  local source="$1"
+  local candidate="$2"
+  local source_dir
+  source_dir="$(cd "$(dirname "$source")" && pwd)"
+  case "$candidate" in
+    @loader_path/*)
+      printf '%s\n' "${source_dir}/${candidate#@loader_path/}"
+      ;;
+    @executable_path/*)
+      printf '%s\n' "${source_dir}/${candidate#@executable_path/}"
+      ;;
+    *)
+      printf '%s\n' "$candidate"
+      ;;
+  esac
+}
+
+macos_rpaths_for_target() {
+  local target="$1"
+  otool -l "$target" \
+    | awk '
+        $1 == "cmd" && $2 == "LC_RPATH" { want = 1; next }
+        want && $1 == "path" { print $2; want = 0 }
+      ' \
+    | while read -r rpath; do
+        [[ -n "$rpath" ]] || continue
+        expand_macos_special_path "$target" "$rpath"
+      done
+}
+
+resolve_macos_dep_path() {
+  local source="$1"
+  local dep="$2"
+  local expanded=""
+  local name=""
+  local source_dir=""
+
+  case "$dep" in
+    /usr/lib/*|/System/*)
+      return 0
+      ;;
+  esac
+
+  expanded="$(expand_macos_special_path "$source" "$dep")"
+  if [[ "$expanded" = /* && -f "$expanded" ]]; then
+    printf '%s\n' "$expanded"
+    return 0
+  fi
+
+  name="$(basename "$dep")"
+  while IFS= read -r rpath; do
+    [[ -n "$rpath" ]] || continue
+    expanded="$(expand_macos_special_path "$source" "$rpath")/${name}"
+    if [[ -f "$expanded" ]]; then
+      printf '%s\n' "$expanded"
+      return 0
+    fi
+  done < <(macos_rpaths_for_target "$source")
+
+  source_dir="$(cd "$(dirname "$source")" && pwd)"
+  if [[ -f "${source_dir}/${name}" ]]; then
+    printf '%s\n' "${source_dir}/${name}"
+    return 0
+  fi
+
+  return 1
+}
+
+verify_macos_bundle_refs() {
+  local target=""
+  local dep=""
+  local bad=0
+  while IFS= read -r -d '' target; do
+    while IFS= read -r dep; do
+      local name=""
+      case "$dep" in
+        /usr/lib/*|/System/*|@loader_path/*|@executable_path/*)
+          continue
+          ;;
+      esac
+      if [[ "$dep" == @rpath/* ]]; then
+        name="$(basename "$dep")"
+        if ! macos_should_skip_bundle_dep "$dep" "$name" && [[ ! -f "${PAYLOAD}/tile_compile_cpp/lib/${name}" ]]; then
+          echo "[gui2-package] Missing bundled @rpath dependency in ${target}: ${dep}" >&2
+          bad=1
+        fi
+        continue
+      fi
+      if [[ "$dep" == /opt/homebrew/* || "$dep" == /usr/local/opt/* || "$dep" == /usr/local/Cellar/* ]]; then
+        echo "[gui2-package] Unbundled Homebrew dependency in ${target}: ${dep}" >&2
+        bad=1
+      fi
+    done < <(otool -L "$target" | tail -n +2 | awk '{print $1}')
+  done < <(find "${PAYLOAD}" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so*" \) -print0)
+
+  if [[ "$bad" != "0" ]]; then
+    echo "[gui2-package] Bundle verification failed." >&2
+    exit 1
+  fi
 }
 
 assemble_bundle() {
@@ -209,10 +317,14 @@ assemble_bundle() {
         rewrite_macos_refs "$dylib" dylib
       done
   find "${PAYLOAD}/tile_compile_cpp/lib" -type f \( \
+      -name "libc++*.dylib" -o \
+      -name "libc++abi*.dylib" -o \
+      -name "libunwind*.dylib" -o \
       -name "libstdc++*.dylib" -o \
       -name "libclang_rt*.dylib" \) -delete
   printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui2-release-tag"
-  ditto -c -k --sequesterRsrc --keepParent "${ROOT}" "${ARTIFACTS_DIR}/tile_compile_gui2-macos-${TAG}.zip"
+  verify_macos_bundle_refs
+  ditto -c -k --sequesterRsrc --keepParent "${ROOT}" "${ARTIFACTS_DIR}/${BUNDLE_NAME}.zip"
 }
 
 smoke_test() {
@@ -264,7 +376,7 @@ main() {
   [[ "${SKIP_BUILD}" == "1" ]] || build_all
   assemble_bundle
   [[ "${SKIP_SMOKE}" == "1" ]] || smoke_test
-  echo "[gui2-package] Created ${ARTIFACTS_DIR}/tile_compile_gui2-macos-${TAG}.zip"
+  echo "[gui2-package] Created ${ARTIFACTS_DIR}/${BUNDLE_NAME}.zip"
 }
 
 main
