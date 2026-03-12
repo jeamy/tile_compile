@@ -451,6 +451,11 @@ cd tile_compile_cpp/build
 ctest --output-on-failure
 ```
 
+## Attribution
+
+This project was built with assistance from Windsurf (agentic AI coding assistant), GPT 5.*,Claude 4.* Sonnet. Babysitting by a human in a virtual environment.
+
+
 ## Versions
 
 ### v0.0.1 (2026-02-15)

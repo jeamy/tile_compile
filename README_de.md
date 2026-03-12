@@ -460,6 +460,11 @@ cd tile_compile_cpp/build
 ctest --output-on-failure
 ```
 
+## Danksagung
+
+Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmierassistent), GPT 5.*, Claude 4.* Sonnet entwickelt. Überwachung durch einen Menschen in einer virtuellen Umgebung.
+
+
 ## Versionen
 
 ### v0.0.1 (2026-02-15)
