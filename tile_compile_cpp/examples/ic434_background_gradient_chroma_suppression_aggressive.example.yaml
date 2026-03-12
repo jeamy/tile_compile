@@ -1,0 +1,261 @@
+run_dir: ./run_ic434_background_gradient_chroma_suppression_aggressive
+log_level: info
+
+scenario_profile:
+  id: ic434_background_gradient_chroma_suppression_aggressive
+  title: IC434 Background Gradient Chroma Suppression Aggressive
+  intent: "IC434/OSC mit maximalem Fokus auf Hintergrundberuhigung, starke Gradientglaettung und minimale PCC-Chroma-Ausweitung."
+  gui2_scenarios: [osc, ic434, background_gradient, chroma_suppression, aggressive, nebula]
+  recommended_for:
+    - "IC434 / Horsehead Nebula mit hartnaeckigem links/rechts-Gradienten im Hintergrund"
+    - "wenn die normale IC434-Chroma-Suppression noch sichtbar zu viel Hintergrundfarbe uebrig laesst"
+  priority: maximum_background_suppression
+
+pipeline:
+  mode: production
+  abort_on_fail: false
+
+output:
+  registered_dir: registered
+  write_registered_frames: true
+  crop_to_nonzero_bbox: true
+
+data:
+  linear_required: true
+  color_mode: OSC
+
+input:
+  pattern: ./data/*.fits
+  sort: numeric
+  max_frames: 0
+
+linearity:
+  enabled: true
+  max_frames: 8
+  min_overall_linearity: 0.9
+  strictness: moderate
+
+calibration:
+  use_bias: false
+  use_dark: false
+  use_flat: false
+  bias_use_master: false
+  dark_use_master: false
+  flat_use_master: false
+  dark_auto_select: true
+  dark_match_exposure_tolerance_percent: 8.0
+  dark_match_use_temp: false
+  dark_match_temp_tolerance_c: 3.0
+  bias_dir: ""
+  darks_dir: ""
+  flats_dir: ""
+  bias_master: ""
+  dark_master: ""
+  flat_master: ""
+  pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
+
+assumptions:
+  pipeline_profile: practical
+  frames_min: 30
+  frames_optimal: 300
+  frames_reduced_threshold: 120
+  exposure_time_tolerance_percent: 8.0
+  reduced_mode_skip_clustering: true
+  reduced_mode_cluster_range: [3, 10]
+
+normalization:
+  enabled: true
+  mode: background
+  per_channel: true
+
+registration:
+  engine: triangle_star_matching
+  enable_star_pair_fallback: true
+  allow_rotation: true
+  star_topk: 150
+  star_min_inliers: 4
+  star_inlier_tol_px: 4.0
+  star_dist_bin_px: 5.0
+  reject_outliers: true
+  reject_cc_min_abs: 0.30
+  reject_cc_mad_multiplier: 4.0
+  reject_shift_px_min: 100.0
+  reject_shift_median_multiplier: 5.0
+  reject_scale_min: 0.92
+  reject_scale_max: 1.08
+
+dithering:
+  enabled: true
+  min_shift_px: 0.7
+
+tile_denoise:
+  soft_threshold:
+    enabled: true
+    blur_kernel: 21
+    alpha: 1.6
+    skip_star_tiles: true
+  wiener:
+    enabled: true
+    snr_threshold: 4.0
+    q_min: -0.5
+    q_max: 1.0
+    q_step: 0.1
+    min_snr: 2.0
+    max_iterations: 10
+
+chroma_denoise:
+  enabled: true
+  color_space: ycbcr_linear
+  apply_stage: post_stack_linear
+  protect_luma: true
+  luma_guard_strength: 0.90
+  star_protection:
+    enabled: true
+    threshold_sigma: 3.2
+    dilate_px: 3
+  structure_protection:
+    enabled: true
+    gradient_percentile: 93
+  chroma_wavelet:
+    enabled: true
+    levels: 4
+    threshold_scale: 2.8
+    soft_k: 1.3
+  chroma_bilateral:
+    enabled: true
+    sigma_spatial: 2.2
+    sigma_range: 0.035
+  blend:
+    mode: chroma_only
+    amount: 1.0
+
+global_metrics:
+  adaptive_weights: true
+  weight_exponent_scale: 1.2
+  weights:
+    background: 0.40
+    noise: 0.35
+    gradient: 0.25
+  clamp: [-3.0, 3.0]
+
+tile:
+  size_factor: 24
+  min_size: 48
+  max_divisor: 6
+  overlap_fraction: 0.30
+  star_min_count: 5
+
+local_metrics:
+  clamp: [-3.0, 3.0]
+  star_mode:
+    weights:
+      fwhm: 0.6
+      roundness: 0.2
+      contrast: 0.2
+  structure_mode:
+    metric_weight: 0.7
+    background_weight: 0.3
+
+synthetic:
+  weighting: tile_weighted
+  frames_min: 4
+  frames_max: 20
+  clustering:
+    mode: kmeans
+    cluster_count_range: [3, 12]
+
+debayer: true
+
+astrometry:
+  enabled: true
+  astap_bin: ""
+  astap_data_dir: /media/data/Astro/astap
+  search_radius: 183
+
+bge:
+  enabled: true
+  autotune:
+    enabled: true
+    strategy: extended
+    max_evals: 48
+    holdout_fraction: 0.20
+    alpha_flatness: 0.65
+    beta_roughness: 0.04
+  sample_quantile: 0.22
+  structure_thresh_percentile: 0.78
+  min_tiles_per_cell: 3
+  min_valid_sample_fraction_for_apply: 0.22
+  min_valid_samples_for_apply: 96
+  mask:
+    star_dilate_px: 8
+    sat_dilate_px: 8
+  grid:
+    N_g: 42
+    G_min_px: 48
+    G_max_fraction: 0.25
+    insufficient_cell_strategy: radius_expand
+  fit:
+    method: rbf
+    robust_loss: huber
+    huber_delta: 1.5
+    irls_max_iterations: 10
+    irls_tolerance: 1e-4
+    polynomial_order: 2
+    rbf_phi: multiquadric
+    rbf_mu_factor: 2.5
+    rbf_lambda: 1e-1
+    rbf_epsilon: 0.5
+
+pcc:
+  enabled: true
+  source: siril
+  mag_limit: 14
+  mag_bright_limit: 6
+  aperture_radius_px: 8
+  annulus_inner_px: 10
+  annulus_outer_px: 16
+  min_stars: 16
+  sigma_clip: 2.0
+  siril_catalog_dir: ""
+  background_model: median
+  max_condition_number: 2.2
+  max_residual_rms: 0.25
+  radii_mode: auto_fwhm
+  aperture_fwhm_mult: 1.8
+  annulus_inner_fwhm_mult: 3.0
+  annulus_outer_fwhm_mult: 5.0
+  min_aperture_px: 4.0
+  apply_attenuation: true
+  chroma_strength: 0.35
+  k_max: 1.8
+
+stacking:
+  method: rej
+  sigma_clip:
+    sigma_low: 1.8
+    sigma_high: 1.8
+    max_iters: 4
+    min_fraction: 0.4
+  cluster_quality_weighting:
+    enabled: false
+    kappa_cluster: 1.0
+    cap_enabled: true
+    cap_ratio: 20.0
+  output_stretch: false
+  cosmetic_correction: true
+  cosmetic_correction_sigma: 4.0
+  per_frame_cosmetic_correction: true
+  per_frame_cosmetic_correction_sigma: 2.5
+
+validation:
+  min_fwhm_improvement_percent: 3.0
+  max_background_rms_increase_percent: 2.0
+  min_tile_weight_variance: 0.05
+  require_no_tile_pattern: true
+
+runtime_limits:
+  parallel_workers: 8
+  memory_budget: 2048
+  tile_analysis_max_factor_vs_stack: 3.0
+  hard_abort_hours: 6.0
+  allow_emergency_mode: true

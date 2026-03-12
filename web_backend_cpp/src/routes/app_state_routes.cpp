@@ -1,12 +1,44 @@
 #include "routes/app_state_routes.hpp"
 #include "services/run_inspector.hpp"
 #include "services/scan_summary.hpp"
+#include <filesystem>
+#include <fstream>
 #include <nlohmann/json.hpp>
+
+namespace fs = std::filesystem;
 
 static crow::response json_resp(const nlohmann::json& j, int status = 200) {
     crow::response res(status, j.dump());
     res.set_header("Content-Type", "application/json");
     return res;
+}
+
+static fs::path ui_state_path(const std::shared_ptr<AppState>& state) {
+    return state->runtime.runtime_dir / "ui_state.json";
+}
+
+static void load_ui_state_unlocked(const std::shared_ptr<AppState>& state) {
+    if (state->ui_state_loaded) return;
+    state->ui_state = nlohmann::json::object();
+    const fs::path path = ui_state_path(state);
+    std::ifstream in(path);
+    if (in) {
+        nlohmann::json parsed = nlohmann::json::parse(in, nullptr, false);
+        if (!parsed.is_discarded() && parsed.is_object()) {
+            state->ui_state = std::move(parsed);
+        }
+    }
+    state->ui_state_loaded = true;
+}
+
+static bool save_ui_state_unlocked(const std::shared_ptr<AppState>& state) {
+    const fs::path path = ui_state_path(state);
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    std::ofstream out(path, std::ios::trunc);
+    if (!out) return false;
+    out << state->ui_state.dump(2);
+    return static_cast<bool>(out);
 }
 
 void register_app_state_routes(CrowApp& app,
@@ -15,6 +47,7 @@ void register_app_state_routes(CrowApp& app,
     CROW_ROUTE(app, "/api/app/state").methods("GET"_method)
     ([state](const crow::request&) {
         std::lock_guard<std::mutex> lk(state->state_mutex);
+        load_ui_state_unlocked(state);
         auto& rt = state->runtime;
 
         auto scan_job = latest_scan_job(state->job_store);
@@ -64,9 +97,39 @@ void register_app_state_routes(CrowApp& app,
             {"recent",     recent_runs},
         };
         resp["tools"]   = nlohmann::json::object();
+        resp["ui_state"] = state->ui_state;
         resp["events"]  = {{"latest_seq", state->ui_event_store.latest_seq()}};
-        resp["i18n"]    = {{"locale", "de"}};
+        resp["i18n"]    = {{"locale", state->ui_state.value("gui2.locale", std::string("de"))}};
         return json_resp(resp);
+    });
+
+    CROW_ROUTE(app, "/api/app/ui-state").methods("GET"_method)
+    ([state](const crow::request&) {
+        std::lock_guard<std::mutex> lk(state->state_mutex);
+        load_ui_state_unlocked(state);
+        return json_resp({{"state", state->ui_state}});
+    });
+
+    CROW_ROUTE(app, "/api/app/ui-state").methods("POST"_method)
+    ([state](const crow::request& req) {
+        auto body = nlohmann::json::parse(req.body, nullptr, false);
+        if (body.is_discarded()) {
+            return json_resp({{"error", {{"code", "BAD_REQUEST"}, {"message", "invalid JSON"}}}}, 400);
+        }
+        const nlohmann::json next_state = body.contains("state") ? body["state"] : body;
+        if (!next_state.is_object()) {
+            return json_resp({{"error", {{"code", "BAD_REQUEST"}, {"message", "state must be an object"}}}}, 400);
+        }
+        {
+            std::lock_guard<std::mutex> lk(state->state_mutex);
+            load_ui_state_unlocked(state);
+            state->ui_state = next_state;
+            if (!save_ui_state_unlocked(state)) {
+                return json_resp({{"error", {{"code", "INTERNAL_ERROR"}, {"message", "failed to save ui state"}}}}, 500);
+            }
+        }
+        state->ui_event_store.push("app.ui_state.save", "app.ui_state", {{"keys", static_cast<int>(next_state.size())}});
+        return json_resp({{"ok", true}, {"state", next_state}});
     });
 
     CROW_ROUTE(app, "/api/app/constants").methods("GET"_method)

@@ -170,7 +170,7 @@ macos_should_skip_bundle_dep() {
   local dep="$1"
   local name="$2"
   case "$name" in
-    libstdc++*.dylib|libgcc_s*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
+    libstdc++*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
       return 0
       ;;
   esac
@@ -210,7 +210,6 @@ assemble_bundle() {
       done
   find "${PAYLOAD}/tile_compile_cpp/lib" -type f \( \
       -name "libstdc++*.dylib" -o \
-      -name "libgcc_s*.dylib" -o \
       -name "libclang_rt*.dylib" \) -delete
   printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui2-release-tag"
   ditto -c -k --sequesterRsrc --keepParent "${ROOT}" "${ARTIFACTS_DIR}/tile_compile_gui2-macos-${TAG}.zip"
@@ -230,14 +229,15 @@ smoke_test() {
 import json
 import os
 import time
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 port = os.environ["TILE_COMPILE_GUI2_PORT"]
-url = f"http://127.0.0.1:{port}/api/app/state"
+state_url = f"http://127.0.0.1:{port}/api/app/state"
+validate_url = f"http://127.0.0.1:{port}/api/config/validate"
 deadline = time.time() + 30
 while time.time() < deadline:
     try:
-        with urlopen(url, timeout=2) as resp:
+        with urlopen(state_url, timeout=2) as resp:
             data = json.load(resp)
             assert isinstance(data, dict)
             break
@@ -245,6 +245,13 @@ while time.time() < deadline:
         time.sleep(1)
 else:
     raise SystemExit("backend smoke test failed")
+
+payload = json.dumps({"yaml": "pipeline:\n  mode: production\nnormalization:\n  enabled: true\n"}).encode("utf-8")
+req = Request(validate_url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+with urlopen(req, timeout=10) as resp:
+    result = json.load(resp)
+    assert isinstance(result, dict)
+    assert "ok" in result
 PY
   kill "${start_pid}" 2>/dev/null || true
   wait "${start_pid}" 2>/dev/null || true

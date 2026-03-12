@@ -204,7 +204,7 @@ jobs:
           python3 - <<'PY'
           import json
           import time
-          from urllib.request import urlopen
+          from urllib.request import Request, urlopen
 
           deadline = time.time() + 30
           while time.time() < deadline:
@@ -217,6 +217,18 @@ jobs:
                   time.sleep(1)
           else:
               raise SystemExit("backend smoke test failed")
+
+          payload = json.dumps({"yaml": "pipeline:\n  mode: production\nnormalization:\n  enabled: true\n"}).encode("utf-8")
+          req = Request(
+              "http://127.0.0.1:8080/api/config/validate",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urlopen(req, timeout=10) as resp:
+              result = json.load(resp)
+              assert isinstance(result, dict)
+              assert "ok" in result
           PY
           kill "${START_PID}" || true
           wait "${START_PID}" 2>/dev/null || true
@@ -384,7 +396,7 @@ jobs:
             local dep="$1"
             local name="$2"
             case "$name" in
-              libc++*.dylib|libunwind*.dylib|libc++abi*.dylib|libstdc++*.dylib|libgcc_s*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
+              libc++*.dylib|libunwind*.dylib|libc++abi*.dylib|libstdc++*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
                 return 0
                 ;;
             esac
@@ -412,7 +424,6 @@ jobs:
               -name "libc++abi*.dylib" -o \
               -name "libunwind*.dylib" -o \
               -name "libstdc++*.dylib" -o \
-              -name "libgcc_s*.dylib" -o \
               -name "libclang_rt*.dylib" \) -delete
           printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui2-release-tag"
           ditto -c -k --sequesterRsrc --keepParent "${ROOT}" "artifacts/tile_compile_gui2-${{ matrix.artifact_suffix }}-${TAG}.zip"
@@ -604,8 +615,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.meta.outputs.tag }}
-          name: tile_compile GUI2 ${{ needs.meta.outputs.tag }}
-          generate_release_notes: true
+          name: ${{ needs.meta.outputs.tag }}
+          generate_release_notes: false
           files: |
             dist/**/*.zip
             dist/**/*.AppImage

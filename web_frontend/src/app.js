@@ -11,6 +11,12 @@ const LOCALE_KEY = "gui2.locale";
 const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
 const PRESETS_DIR_KEY = "gui2.presetsDir";
 const CALIBRATION_PATH_KEY_PREFIX = "gui2.calibrationPath";
+const LAST_SCAN_COLOR_MODE_KEY = "gui2.lastScanColorMode";
+const ASTROMETRY_LAST_RESULT_KEY = "gui2.tools.astrometry.lastResult";
+const ASTROMETRY_LAST_WCS_KEY = "gui2.tools.astrometry.lastWcs";
+const PCC_LAST_OUTPUT_KEY = "gui2.tools.pcc.lastOutput";
+const PCC_LAST_CHANNELS_KEY = "gui2.tools.pcc.lastChannels";
+const PCC_LAST_RESULT_KEY = "gui2.tools.pcc.lastResult";
 const UI_STORAGE_KEYS = {
   dashboardRunsDir: "gui2.dashboard.runsDir",
   dashboardRunName: "gui2.dashboard.runName",
@@ -39,17 +45,22 @@ const UI_STORAGE_KEYS = {
   pccAperture: "gui2.tools.pcc.aperture",
   pccAnnulusInner: "gui2.tools.pcc.annulusInner",
   pccAnnulusOuter: "gui2.tools.pcc.annulusOuter",
+  astrometryLastResult: ASTROMETRY_LAST_RESULT_KEY,
+  astrometryLastWcs: ASTROMETRY_LAST_WCS_KEY,
+  pccLastOutput: PCC_LAST_OUTPUT_KEY,
+  pccLastChannels: PCC_LAST_CHANNELS_KEY,
+  pccLastResult: PCC_LAST_RESULT_KEY,
 };
 
 const uiState = {
-  currentRunId: localStorage.getItem("gui2.currentRunId") || "",
+  currentRunId: "",
   currentRunDir: "",
   currentRunColorMode: "",
   parameterBaseYaml: "",
   missingHistoryRunIds: new Set(),
   defaultConfigPath: "",
-  selectedHistoryRunId: localStorage.getItem(UI_STORAGE_KEYS.historySelectedRunId) || "",
-  compareHistoryRunId: localStorage.getItem(UI_STORAGE_KEYS.historyCompareRunId) || "",
+  selectedHistoryRunId: "",
+  compareHistoryRunId: "",
   configYaml: "",
   configObject: null,
   parameterDirty: {},
@@ -61,12 +72,12 @@ const uiState = {
   liveLines: [],
   livePendingLines: [],
   liveLogFlushTimer: null,
-  liveFilter: localStorage.getItem(UI_STORAGE_KEYS.liveFilter) || "all",
+  liveFilter: "all",
   lastAstrometryWcs: "",
   lastPccOutput: "",
   lastPccChannels: [],
   lastPccResult: null,
-  locale: localStorage.getItem(LOCALE_KEY) || "de",
+  locale: "de",
   projectRunsDir: "",
   projectPresetsDir: "",
   monitorStatsStatus: null,
@@ -74,6 +85,121 @@ const uiState = {
   runReadyStatus: "check",
   runProcessStatus: "",
 };
+
+let serverUiState = {};
+let serverUiStateLoaded = false;
+let serverUiStateSaveTimer = null;
+let serverUiStateSavePromise = Promise.resolve();
+const SERVER_UI_STATE_MIGRATION_KEYS = [
+  CONFIG_DRAFT_KEY,
+  CONFIG_VALIDATION_STATE_KEY,
+  PARAMETER_DIRTY_STATE_KEY,
+  HISTORY_CURRENT_RUN_KEY,
+  LOCALE_KEY,
+  LAST_INPUT_DIRS_KEY,
+  PRESETS_DIR_KEY,
+  LAST_SCAN_COLOR_MODE_KEY,
+  "gui2.currentRunId",
+  ...Object.values(UI_STORAGE_KEYS),
+];
+
+function legacyStorageGet(key) {
+  return localStorage.getItem(key);
+}
+
+function storedJsonValue(key, fallback = null) {
+  try {
+    const raw = readServerUiStateValue(key);
+    if (!raw) return fallback;
+    return JSON.parse(String(raw));
+  } catch {
+    writeServerUiStateValue(key, "");
+    return fallback;
+  }
+}
+
+function persistJsonValue(key, value) {
+  if (value === undefined || value === null) {
+    writeServerUiStateValue(key, "");
+    return;
+  }
+  writeServerUiStateValue(key, JSON.stringify(value));
+}
+
+function legacyStorageRemove(key) {
+  localStorage.removeItem(key);
+}
+
+function hasServerUiStateKey(key) {
+  return Object.prototype.hasOwnProperty.call(serverUiState, key);
+}
+
+function readServerUiStateValue(key) {
+  if (hasServerUiStateKey(key)) return serverUiState[key];
+  return legacyStorageGet(key);
+}
+
+function writeServerUiStateValue(key, value) {
+  if (value === undefined || value === null || value === "") delete serverUiState[key];
+  else serverUiState[key] = value;
+  if (!serverUiStateLoaded) return;
+  if (serverUiStateSaveTimer) window.clearTimeout(serverUiStateSaveTimer);
+  serverUiStateSaveTimer = window.setTimeout(() => {
+    serverUiStateSaveTimer = null;
+    const snapshot = { ...serverUiState };
+    serverUiStateSavePromise = api.post(API_ENDPOINTS.app.uiState, { state: snapshot })
+      .then((result) => {
+        const nextState = result?.state;
+        if (nextState && typeof nextState === "object" && !Array.isArray(nextState)) {
+          serverUiState = nextState;
+        }
+      })
+      .catch(() => {});
+  }, 120);
+}
+
+async function flushServerUiState() {
+  if (!serverUiStateLoaded) return;
+  if (serverUiStateSaveTimer) {
+    window.clearTimeout(serverUiStateSaveTimer);
+    serverUiStateSaveTimer = null;
+    const snapshot = { ...serverUiState };
+    serverUiStateSavePromise = api.post(API_ENDPOINTS.app.uiState, { state: snapshot })
+      .then((result) => {
+        const nextState = result?.state;
+        if (nextState && typeof nextState === "object" && !Array.isArray(nextState)) {
+          serverUiState = nextState;
+        }
+      })
+      .catch(() => {});
+  }
+  await serverUiStateSavePromise;
+}
+
+function hydrateServerUiState(nextState) {
+  serverUiState = nextState && typeof nextState === "object" && !Array.isArray(nextState)
+    ? { ...nextState }
+    : {};
+  let migrated = false;
+  SERVER_UI_STATE_MIGRATION_KEYS.forEach((key) => {
+    if (hasServerUiStateKey(key)) return;
+    const legacy = legacyStorageGet(key);
+    if (legacy === null || legacy === undefined || legacy === "") return;
+    serverUiState[key] = legacy;
+    migrated = true;
+  });
+  serverUiStateLoaded = true;
+  uiState.currentRunId = String(readServerUiStateValue("gui2.currentRunId") || "");
+  uiState.selectedHistoryRunId = String(readServerUiStateValue(UI_STORAGE_KEYS.historySelectedRunId) || "");
+  uiState.compareHistoryRunId = String(readServerUiStateValue(UI_STORAGE_KEYS.historyCompareRunId) || "");
+  uiState.liveFilter = String(readServerUiStateValue(UI_STORAGE_KEYS.liveFilter) || "all") || "all";
+  uiState.locale = String(readServerUiStateValue(LOCALE_KEY) || "de") || "de";
+  if (migrated) {
+    SERVER_UI_STATE_MIGRATION_KEYS.forEach((key) => legacyStorageRemove(key));
+    writeServerUiStateValue("__migration_marker__", "v1");
+    delete serverUiState.__migration_marker__;
+  }
+}
 
 const DASHBOARD_PIPELINE_GROUPS = [
   { key: "SCAN", phases: ["SCAN_INPUT", "CHANNEL_SPLIT", "NORMALIZATION", "GLOBAL_METRICS"] },
@@ -251,27 +377,27 @@ async function withPathGrantRetry(fn, { fallbackPath = "" } = {}) {
 function setCurrentRunId(runId) {
   if (!runId) return;
   uiState.currentRunId = String(runId);
-  localStorage.setItem("gui2.currentRunId", uiState.currentRunId);
+  writeServerUiStateValue("gui2.currentRunId", uiState.currentRunId);
 }
 
 function markCurrentRunFromHistory(runId) {
   const value = String(runId || "").trim();
   if (!value) return;
-  localStorage.setItem(HISTORY_CURRENT_RUN_KEY, value);
+  writeServerUiStateValue(HISTORY_CURRENT_RUN_KEY, value);
 }
 
 function clearCurrentRunHistoryMark() {
-  localStorage.removeItem(HISTORY_CURRENT_RUN_KEY);
+  writeServerUiStateValue(HISTORY_CURRENT_RUN_KEY, "");
 }
 
 function isCurrentRunFromHistory() {
-  const marked = String(localStorage.getItem(HISTORY_CURRENT_RUN_KEY) || "").trim();
+  const marked = String(readServerUiStateValue(HISTORY_CURRENT_RUN_KEY) || "").trim();
   return Boolean(marked) && marked === String(uiState.currentRunId || "").trim();
 }
 
 function clearCurrentRunId() {
   uiState.currentRunId = "";
-  localStorage.removeItem("gui2.currentRunId");
+  writeServerUiStateValue("gui2.currentRunId", "");
   clearCurrentRunHistoryMark();
 }
 
@@ -664,18 +790,19 @@ function setText(el, value) {
 }
 
 function getConfigDraft() {
-  return localStorage.getItem(CONFIG_DRAFT_KEY) || "";
+  return String(readServerUiStateValue(CONFIG_DRAFT_KEY) || "");
 }
 
 function setConfigDraft(yamlText) {
-  if (!yamlText) return;
-  uiState.configYaml = String(yamlText);
-  localStorage.setItem(CONFIG_DRAFT_KEY, uiState.configYaml);
+  const value = String(yamlText || "");
+  if (!value) return;
+  uiState.configYaml = value;
+  writeServerUiStateValue(CONFIG_DRAFT_KEY, uiState.configYaml);
 }
 
 function getConfigValidationState() {
   try {
-    const raw = localStorage.getItem(CONFIG_VALIDATION_STATE_KEY);
+    const raw = readServerUiStateValue(CONFIG_VALIDATION_STATE_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -683,7 +810,7 @@ function getConfigValidationState() {
 }
 
 function setConfigValidationState({ yaml = "", ok = false, errors = [], warnings = [] } = {}) {
-  localStorage.setItem(
+  writeServerUiStateValue(
     CONFIG_VALIDATION_STATE_KEY,
     JSON.stringify({
       yaml: String(yaml || ""),
@@ -696,16 +823,16 @@ function setConfigValidationState({ yaml = "", ok = false, errors = [], warnings
 }
 
 function clearConfigValidationState() {
-  localStorage.removeItem(CONFIG_VALIDATION_STATE_KEY);
+  writeServerUiStateValue(CONFIG_VALIDATION_STATE_KEY, "");
 }
 
 function getParameterDirtyState() {
   try {
-    const raw = localStorage.getItem(PARAMETER_DIRTY_STATE_KEY);
+    const raw = readServerUiStateValue(PARAMETER_DIRTY_STATE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   } catch {
-    localStorage.removeItem(PARAMETER_DIRTY_STATE_KEY);
+    writeServerUiStateValue(PARAMETER_DIRTY_STATE_KEY, "");
     return {};
   }
 }
@@ -713,14 +840,14 @@ function getParameterDirtyState() {
 function setParameterDirtyState(dirtyMap) {
   const payload = dirtyMap && typeof dirtyMap === "object" && !Array.isArray(dirtyMap) ? dirtyMap : {};
   if (Object.keys(payload).length === 0) {
-    localStorage.removeItem(PARAMETER_DIRTY_STATE_KEY);
+    writeServerUiStateValue(PARAMETER_DIRTY_STATE_KEY, "");
     return;
   }
-  localStorage.setItem(PARAMETER_DIRTY_STATE_KEY, JSON.stringify(payload));
+  writeServerUiStateValue(PARAMETER_DIRTY_STATE_KEY, JSON.stringify(payload));
 }
 
 function clearParameterDirtyState() {
-  localStorage.removeItem(PARAMETER_DIRTY_STATE_KEY);
+  writeServerUiStateValue(PARAMETER_DIRTY_STATE_KEY, "");
 }
 
 function setDisabledLike(el, disabled) {
@@ -807,10 +934,10 @@ function calibrationStorageKey(binding, useMaster) {
 }
 
 function storedCalibrationPath(binding, useMaster) {
-  const value = String(localStorage.getItem(calibrationStorageKey(binding, useMaster)) || "").trim();
+  const value = String(readServerUiStateValue(calibrationStorageKey(binding, useMaster)) || "").trim();
   if (!value) return "";
   if (!isAbsolutePath(value)) {
-    localStorage.removeItem(calibrationStorageKey(binding, useMaster));
+    writeServerUiStateValue(calibrationStorageKey(binding, useMaster), "");
     return "";
   }
   return value;
@@ -821,11 +948,11 @@ function persistCalibrationPath(binding, useMaster, rawValue) {
   const key = calibrationStorageKey(binding, useMaster);
   const value = String(rawValue || "").trim();
   if (!value) {
-    localStorage.removeItem(key);
+    writeServerUiStateValue(key, "");
     return;
   }
   if (!isAbsolutePath(value)) return;
-  localStorage.setItem(key, value);
+  writeServerUiStateValue(key, value);
 }
 
 function syncScanCalibrationInputPresentation(binding, useMaster) {
@@ -907,21 +1034,21 @@ function persistLastInputDirs(rawValue) {
   if (!value) return;
   const dirs = parseInputDirs(value);
   if (!allAbsolutePaths(dirs)) return;
-  localStorage.setItem(LAST_INPUT_DIRS_KEY, value);
+  writeServerUiStateValue(LAST_INPUT_DIRS_KEY, value);
 }
 
 function persistPresetsDir(rawValue) {
   const value = String(rawValue || "").trim();
   if (!value) {
-    localStorage.removeItem(PRESETS_DIR_KEY);
+    writeServerUiStateValue(PRESETS_DIR_KEY, "");
     return;
   }
   if (!isAbsolutePath(value)) return;
-  localStorage.setItem(PRESETS_DIR_KEY, value);
+  writeServerUiStateValue(PRESETS_DIR_KEY, value);
 }
 
 function selectedPresetsDir() {
-  const stored = String(localStorage.getItem(PRESETS_DIR_KEY) || "").trim();
+  const stored = String(readServerUiStateValue(PRESETS_DIR_KEY) || "").trim();
   if (stored) return stored;
   return String(uiState.projectPresetsDir || "").trim();
 }
@@ -935,10 +1062,10 @@ function syncPresetDirInputs() {
 }
 
 function storedTextValue(key, { absolute = false } = {}) {
-  const value = String(localStorage.getItem(key) || "").trim();
+  const value = String(readServerUiStateValue(key) || "").trim();
   if (!value) return "";
   if (absolute && !isAbsolutePath(value)) {
-    localStorage.removeItem(key);
+    writeServerUiStateValue(key, "");
     return "";
   }
   return value;
@@ -947,11 +1074,11 @@ function storedTextValue(key, { absolute = false } = {}) {
 function persistTextValue(key, rawValue, { absolute = false } = {}) {
   const value = String(rawValue || "").trim();
   if (!value) {
-    localStorage.removeItem(key);
+    writeServerUiStateValue(key, "");
     return;
   }
   if (absolute && !isAbsolutePath(value)) return;
-  localStorage.setItem(key, value);
+  writeServerUiStateValue(key, value);
 }
 
 function bindStoredField(id, key, { absolute = false, normalize = null, overwrite = false } = {}) {
@@ -1009,10 +1136,10 @@ function collectQueueDraftRows(scope = document) {
 function restoreQueueDraftRows(key, scope = document) {
   let rows = [];
   try {
-    const parsed = JSON.parse(String(localStorage.getItem(key) || "[]"));
+    const parsed = JSON.parse(String(readServerUiStateValue(key) || "[]"));
     rows = Array.isArray(parsed) ? parsed : [];
   } catch {
-    localStorage.removeItem(key);
+    writeServerUiStateValue(key, "");
     return;
   }
   if (rows.length === 0) return;
@@ -1038,10 +1165,10 @@ function bindQueueDraftPersistence(key, scope = document) {
     const items = collectQueueDraftRows(scope);
     const hasContent = items.some((item) => !item.enabled || item.filter || item.input_dir || item.pattern || item.run_id);
     if (!hasContent) {
-      localStorage.removeItem(key);
+      writeServerUiStateValue(key, "");
       return;
     }
-    localStorage.setItem(key, JSON.stringify(items));
+    writeServerUiStateValue(key, JSON.stringify(items));
   };
   rows.forEach((row) => {
     row.querySelectorAll("input,select").forEach((el) => {
@@ -1057,11 +1184,11 @@ function persistHistorySelectionState() {
 }
 
 function restoreLastInputDirs(...ids) {
-  const value = String(localStorage.getItem(LAST_INPUT_DIRS_KEY) || "").trim();
+  const value = String(readServerUiStateValue(LAST_INPUT_DIRS_KEY) || "").trim();
   if (!value) return;
   const dirs = parseInputDirs(value);
   if (!allAbsolutePaths(dirs)) {
-    localStorage.removeItem(LAST_INPUT_DIRS_KEY);
+    writeServerUiStateValue(LAST_INPUT_DIRS_KEY, "");
     return;
   }
   ids.forEach((id) => {
@@ -1094,6 +1221,77 @@ function suggestRunNameFromInputs(dirs) {
   return sanitizeRunName(leaf) || "run";
 }
 
+function explicitRunNameValue(inputId = "") {
+  return sanitizeRunName(String((inputId ? $(inputId) : null)?.value || ""));
+}
+
+function preferredStoredRunName() {
+  const dashboardName = sanitizeRunName(storedTextValue(UI_STORAGE_KEYS.dashboardRunName));
+  if (dashboardName) return dashboardName;
+  const wizardName = sanitizeRunName(storedTextValue(UI_STORAGE_KEYS.wizardRunName));
+  if (wizardName) return wizardName;
+  return "";
+}
+
+function preferredStoredPresetPath() {
+  return firstNonEmptyText(
+    storedTextValue(UI_STORAGE_KEYS.dashboardPreset, { absolute: true }),
+    storedTextValue(UI_STORAGE_KEYS.parameterPreset, { absolute: true }),
+    storedTextValue(UI_STORAGE_KEYS.wizardPreset, { absolute: true }),
+  );
+}
+
+function persistUnifiedPresetPath(path = "") {
+  persistTextValue(UI_STORAGE_KEYS.dashboardPreset, path, { absolute: true });
+  persistTextValue(UI_STORAGE_KEYS.parameterPreset, path, { absolute: true });
+  persistTextValue(UI_STORAGE_KEYS.wizardPreset, path, { absolute: true });
+}
+
+function syncPresetSelectValues(path = "") {
+  const normalized = String(path || "").trim();
+  ["dashboard-preset", "parameter-preset-select", "wizard-preset-select"].forEach((id) => {
+    const select = $(id);
+    if (!select || !normalized) return;
+    const option = Array.from(select.options || []).find((item) => String(item.value || "") === normalized);
+    if (option) select.value = normalized;
+  });
+}
+
+function syncUnifiedPresetSelection(path = "") {
+  const normalized = String(path || "").trim();
+  persistUnifiedPresetPath(normalized);
+  syncPresetSelectValues(normalized);
+}
+
+function restoreUnifiedPresetSelectValue(selectId) {
+  const select = $(selectId);
+  if (!select) return "";
+  const stored = preferredStoredPresetPath();
+  if (!stored) return "";
+  const option = Array.from(select.options || []).find((item) => String(item.value || "") === stored);
+  if (!option) return "";
+  select.value = option.value;
+  return option.value;
+}
+
+function bindUnifiedPresetSelect(selectId) {
+  const select = $(selectId);
+  if (!select) return;
+  restoreUnifiedPresetSelectValue(selectId);
+  syncUnifiedPresetSelection(String(select.value || "").trim());
+  const persist = () => syncUnifiedPresetSelection(String(select.value || "").trim());
+  select.addEventListener("input", persist);
+  select.addEventListener("change", persist);
+}
+
+function preferredRunName({ inputId = "", storageKey = "", fallbackDirs = [] } = {}) {
+  const inputValue = explicitRunNameValue(inputId);
+  if (inputValue) return inputValue;
+  const storedValue = storageKey ? storedTextValue(storageKey) : "";
+  if (storedValue) return sanitizeRunName(storedValue);
+  return suggestRunNameFromInputs(fallbackDirs);
+}
+
 async function resolveConfigYamlForRun() {
   return await ensureConfigYaml();
 }
@@ -1106,27 +1304,38 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
     ? String($("dashboard-input-dirs")?.value || "")
     : useWizardFields
       ? String($("inp-dirs")?.value || "")
-      : firstNonEmptyText(localStorage.getItem(LAST_INPUT_DIRS_KEY), $("dashboard-input-dirs")?.value, $("inp-dirs")?.value);
+      : firstNonEmptyText(readServerUiStateValue(LAST_INPUT_DIRS_KEY), $("dashboard-input-dirs")?.value, $("inp-dirs")?.value);
   const inputDirs = parseInputDirs(inputDirsText);
   if (inputDirs.length === 0) {
     throw new Error("Bitte mindestens einen Eingabeordner setzen.");
   }
   persistLastInputDirs(inputDirsText);
+  await flushServerUiState();
 
   const runNameEl = useDashboardFields ? $("dashboard-run-name") : useWizardFields ? $("wizard-run-name") : null;
   const runsDirEl = useDashboardFields ? $("dashboard-run-runs-dir") : useWizardFields ? $("wizard-runs-dir") : null;
-  const runName = sanitizeRunName(runNameEl?.value || "") || suggestRunNameFromInputs(inputDirs);
-  if (runNameEl) runNameEl.value = runName;
+  const configYaml = await resolveConfigYamlForRun();
+  const explicitRunName = useDashboardFields
+    ? explicitRunNameValue("dashboard-run-name")
+    : useWizardFields
+      ? explicitRunNameValue("wizard-run-name")
+      : sanitizeRunName(runNameEl?.value || "");
+  const runName = useDashboardFields
+    ? preferredRunName({ inputId: "dashboard-run-name", storageKey: UI_STORAGE_KEYS.dashboardRunName, fallbackDirs: inputDirs })
+    : useWizardFields
+      ? preferredRunName({ inputId: "wizard-run-name", storageKey: UI_STORAGE_KEYS.wizardRunName, fallbackDirs: inputDirs })
+      : explicitRunName || preferredStoredRunName() || suggestRunNameFromInputs(inputDirs);
+  if (runNameEl && explicitRunName) runNameEl.value = explicitRunName;
   const runsDir = firstNonEmptyText(runsDirEl?.value, uiState.projectRunsDir);
   if (runsDirEl && !String(runsDirEl.value || "").trim() && runsDir) {
     runsDirEl.value = runsDir;
   }
   if (useDashboardFields) {
-    persistTextValue(UI_STORAGE_KEYS.dashboardRunName, runName);
+    persistTextValue(UI_STORAGE_KEYS.dashboardRunName, explicitRunName);
     persistTextValue(UI_STORAGE_KEYS.dashboardRunsDir, runsDir, { absolute: true });
   }
   if (useWizardFields) {
-    persistTextValue(UI_STORAGE_KEYS.wizardRunName, runName);
+    persistTextValue(UI_STORAGE_KEYS.wizardRunName, explicitRunName);
     persistTextValue(UI_STORAGE_KEYS.wizardRunsDir, runsDir, { absolute: true });
   }
   const colorMode = firstNonEmptyText(
@@ -1141,7 +1350,7 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
     color_mode: colorMode,
     run_name: runName || undefined,
     runs_dir: runsDir || undefined,
-    config_yaml: await resolveConfigYamlForRun(),
+    config_yaml: configYaml,
   };
   const queue = useDashboardFields || useWizardFields ? collectQueueRows() : [];
   if (queue.length > 0) {
@@ -1175,7 +1384,7 @@ function summarizeScanResult(raw, fallbackInputPath = "") {
   const colorMode = String(src.color_mode || "");
   const normalizedColorMode = normalizeDetectedColorMode(colorMode);
   if (normalizedColorMode) {
-    localStorage.setItem("gui2.lastScanColorMode", normalizedColorMode);
+    writeServerUiStateValue(LAST_SCAN_COLOR_MODE_KEY, normalizedColorMode);
   }
   return {
     has_scan: hasScan,
@@ -1485,6 +1694,7 @@ async function initGlobalState() {
       api.get(API_ENDPOINTS.guardrails.root),
       api.get(API_ENDPOINTS.app.state),
     ]);
+    hydrateServerUiState(appState?.ui_state || {});
     setRunReady(guardrails?.status || "check", appState?.run?.current?.status || "");
     const rid = String(appState?.project?.current_run_id || "").trim();
     if (rid) setCurrentRunId(rid);
@@ -1506,7 +1716,7 @@ async function initGlobalState() {
 async function applyLocale(localeRaw) {
   const locale = String(localeRaw || "de").toLowerCase() === "en" ? "en" : "de";
   uiState.locale = locale;
-  localStorage.setItem(LOCALE_KEY, locale);
+  writeServerUiStateValue(LOCALE_KEY, locale);
   document.documentElement.setAttribute("lang", locale);
   $("locale-de")?.classList.toggle("active", locale === "de");
   $("locale-en")?.classList.toggle("active", locale === "en");
@@ -2175,6 +2385,7 @@ async function patchConfig({ updates = [], persist = false, yamlText } = {}) {
 }
 
 async function saveParameterConfig(targetPath = "") {
+  await flushServerUiState();
   const patched = await patchConfig({ updates: collectParameterDirtyUpdates(), persist: false });
   const result = await api.post(API_ENDPOINTS.config.save, {
     yaml: patched?.config_yaml || "",
@@ -2282,8 +2493,8 @@ async function bindParameterStudio() {
 
   try {
     await populatePresetSelect("parameter-preset-select", true);
-    restoreStoredSelectValue("parameter-preset-select", UI_STORAGE_KEYS.parameterPreset, { absolute: true });
-    bindStoredSelect("parameter-preset-select", UI_STORAGE_KEYS.parameterPreset, { absolute: true });
+    restoreUnifiedPresetSelectValue("parameter-preset-select");
+    bindUnifiedPresetSelect("parameter-preset-select");
     uiState.parameterDirty = getParameterDirtyState();
     const currentYaml = await ensureConfigYaml();
     const parsed = await patchConfig({ yamlText: currentYaml, updates: collectParameterDirtyUpdates() });
@@ -2330,6 +2541,7 @@ async function bindParameterStudio() {
         setFooter("Kein Preset ausgewaehlt.", true);
         return;
       }
+      syncUnifiedPresetSelection(path);
       const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
       uiState.configYaml = String(applied?.config || "");
       setConfigDraft(uiState.configYaml);
@@ -2710,7 +2922,7 @@ function setPhaseRow(phaseName, status, pctRaw) {
 async function loadRunStatus(runId) {
   const status = await api.get(API_ENDPOINTS.runs.status(runId));
   uiState.currentRunDir = String(status?.run_dir || "");
-  const fallbackScanColorMode = String(localStorage.getItem("gui2.lastScanColorMode") || "").trim().toUpperCase();
+  const fallbackScanColorMode = String(readServerUiStateValue(LAST_SCAN_COLOR_MODE_KEY) || "").trim().toUpperCase();
   const effectiveColorMode = String(status?.color_mode || "").trim().toUpperCase() || fallbackScanColorMode;
   uiState.currentRunColorMode = effectiveColorMode;
   setRunMonitorFilterVisibility(effectiveColorMode, Array.isArray(status?.queue_filters) ? status.queue_filters : null);
@@ -3663,8 +3875,19 @@ async function bindAstrometryPage() {
     setFieldValue(fovField, formatFov(payload.fov_width_deg, payload.fov_height_deg));
     if (payload.wcs_path) {
       uiState.lastAstrometryWcs = String(payload.wcs_path);
+      persistTextValue(UI_STORAGE_KEYS.astrometryLastWcs, uiState.lastAstrometryWcs, { absolute: true });
     }
+    persistJsonValue(UI_STORAGE_KEYS.astrometryLastResult, payload);
   };
+
+  const storedAstrometryWcs = storedTextValue(UI_STORAGE_KEYS.astrometryLastWcs, { absolute: true });
+  if (storedAstrometryWcs) {
+    uiState.lastAstrometryWcs = storedAstrometryWcs;
+  }
+  const storedAstrometryResult = storedJsonValue(UI_STORAGE_KEYS.astrometryLastResult, null);
+  if (storedAstrometryResult && typeof storedAstrometryResult === "object") {
+    applyAstrometryResult(storedAstrometryResult);
+  }
 
   async function detect({ logResult = true } = {}) {
     const selectedBinary = String(binaryInput?.value || "").trim();
@@ -3784,6 +4007,9 @@ async function bindAstrometryPage() {
         append(jobResult);
       }
       uiState.lastAstrometryWcs = String(jobResult?.wcs_path || job?.data?.wcs_path || "");
+      if (uiState.lastAstrometryWcs) {
+        persistTextValue(UI_STORAGE_KEYS.astrometryLastWcs, uiState.lastAstrometryWcs, { absolute: true });
+      }
       append(job);
       if (String(job?.state || "") !== "ok") {
         throw new Error(jobResult?.error || job?.data?.stderr || "ASTAP solve failed");
@@ -3883,12 +4109,29 @@ async function bindPccPage() {
     setInputValue(matrixField, formatMatrix(payload.matrix));
     if (payload.output_rgb) {
       uiState.lastPccOutput = String(payload.output_rgb);
+      persistTextValue(UI_STORAGE_KEYS.pccLastOutput, uiState.lastPccOutput, { absolute: true });
     }
     if (Array.isArray(payload.output_channels)) {
       uiState.lastPccChannels = payload.output_channels.map((item) => String(item));
+      persistJsonValue(UI_STORAGE_KEYS.pccLastChannels, uiState.lastPccChannels);
     }
     uiState.lastPccResult = payload;
+    persistJsonValue(UI_STORAGE_KEYS.pccLastResult, payload);
   };
+
+  const storedPccOutput = storedTextValue(UI_STORAGE_KEYS.pccLastOutput, { absolute: true });
+  if (storedPccOutput) {
+    uiState.lastPccOutput = storedPccOutput;
+  }
+  const storedPccChannels = storedJsonValue(UI_STORAGE_KEYS.pccLastChannels, []);
+  if (Array.isArray(storedPccChannels)) {
+    uiState.lastPccChannels = storedPccChannels.map((item) => String(item));
+  }
+  const storedPccResult = storedJsonValue(UI_STORAGE_KEYS.pccLastResult, null);
+  if (storedPccResult && typeof storedPccResult === "object") {
+    uiState.lastPccResult = storedPccResult;
+    applyPccResult(storedPccResult);
+  }
 
   const refreshStatus = async () => {
     const catalogDir = $("tools-pcc-catalog-dir")?.value || "";
@@ -4155,7 +4398,7 @@ function findMonoQueueSection() {
 }
 
 function getPersistedDetectedColorMode() {
-  return normalizeDetectedColorMode(localStorage.getItem("gui2.lastScanColorMode") || "");
+  return normalizeDetectedColorMode(readServerUiStateValue(LAST_SCAN_COLOR_MODE_KEY) || "");
 }
 
 function shouldShowMonoUi(selectedModeRaw) {
@@ -4456,14 +4699,19 @@ async function bindDashboard() {
       selectId: "dashboard-preset",
     });
     await populatePresetSelect("dashboard-preset", false);
-    restoreStoredSelectValue("dashboard-preset", UI_STORAGE_KEYS.dashboardPreset, { absolute: true });
-    bindStoredSelect("dashboard-preset", UI_STORAGE_KEYS.dashboardPreset, { absolute: true });
+    restoreUnifiedPresetSelectValue("dashboard-preset");
+    bindUnifiedPresetSelect("dashboard-preset");
 
     const preview = () => {
       const runsDir = String($("dashboard-run-runs-dir")?.value || "").trim();
-      const runName = sanitizeRunName(String($("dashboard-run-name")?.value || ""));
-      if ($("dashboard-run-name")) $("dashboard-run-name").value = runName;
-      persistTextValue(UI_STORAGE_KEYS.dashboardRunName, runName);
+      const rawRunName = String($("dashboard-run-name")?.value || "");
+      const sanitizedRunName = sanitizeRunName(rawRunName);
+      const runName = sanitizedRunName || preferredRunName({
+        inputId: "dashboard-run-name",
+        storageKey: UI_STORAGE_KEYS.dashboardRunName,
+        fallbackDirs: parseInputDirs($("dashboard-input-dirs")?.value || ""),
+      });
+      if ($("dashboard-run-name") && sanitizedRunName) $("dashboard-run-name").value = sanitizedRunName;
       persistTextValue(UI_STORAGE_KEYS.dashboardRunsDir, runsDir, { absolute: true });
       if (!$("dashboard-run-path-preview")) return;
       if (!runsDir || !runName) {
@@ -4480,9 +4728,6 @@ async function bindDashboard() {
       setMonoQueueVisible($("dashboard-color-mode")?.value || "");
     });
     setMonoQueueVisible($("dashboard-color-mode")?.value || "");
-    if ($("dashboard-run-name") && !String($("dashboard-run-name").value || "").trim()) {
-      $("dashboard-run-name").value = suggestRunNameFromInputs(parseInputDirs($("dashboard-input-dirs")?.value || ""));
-    }
     $("dashboard-input-dirs")?.addEventListener("change", preview);
     $("dashboard-input-dirs")?.addEventListener("input", preview);
     preview();
@@ -4491,8 +4736,12 @@ async function bindDashboard() {
       try {
         const path = String($("dashboard-preset")?.value || "").trim();
         if (!path) return;
+        syncUnifiedPresetSelection(path);
         const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
         setConfigDraft(String(applied?.config || ""));
+        uiState.parameterDirty = {};
+        clearParameterDirtyState();
+        preview();
         clearConfigValidationState();
         const appStateNow = await api.get(API_ENDPOINTS.app.state).catch(() => appState);
         await renderDashboardDerivedGuardrails(appStateNow);
@@ -4709,9 +4958,14 @@ async function bindWizard() {
   const updateWizardPreview = () => {
     const runsDir = String($("wizard-runs-dir")?.value || "").trim();
     const dirs = parseInputDirs(String($("inp-dirs")?.value || ""));
-    const suggested = sanitizeRunName(String($("wizard-run-name")?.value || "")) || suggestRunNameFromInputs(dirs);
-    if ($("wizard-run-name")) $("wizard-run-name").value = suggested;
-    persistTextValue(UI_STORAGE_KEYS.wizardRunName, suggested);
+    const rawRunName = String($("wizard-run-name")?.value || "");
+    const sanitizedRunName = sanitizeRunName(rawRunName);
+    const suggested = sanitizedRunName || preferredRunName({
+      inputId: "wizard-run-name",
+      storageKey: UI_STORAGE_KEYS.wizardRunName,
+      fallbackDirs: dirs,
+    });
+    if ($("wizard-run-name") && sanitizedRunName) $("wizard-run-name").value = sanitizedRunName;
     persistTextValue(UI_STORAGE_KEYS.wizardRunsDir, runsDir, { absolute: true });
     const previewEl = $("wizard-run-path-preview");
     if (!previewEl) return;
@@ -4729,8 +4983,8 @@ async function bindWizard() {
       selectId: "wizard-preset-select",
     });
     await populatePresetSelect("wizard-preset-select", true);
-    restoreStoredSelectValue("wizard-preset-select", UI_STORAGE_KEYS.wizardPreset, { absolute: true });
-    bindStoredSelect("wizard-preset-select", UI_STORAGE_KEYS.wizardPreset, { absolute: true });
+    restoreUnifiedPresetSelectValue("wizard-preset-select");
+    bindUnifiedPresetSelect("wizard-preset-select");
   } catch (err) {
     setFooter(`Wizard-Presetliste konnte nicht geladen werden: ${errorText(err)}`, true);
   }
@@ -4760,9 +5014,13 @@ async function bindWizard() {
     try {
       const path = String($("wizard-preset-select")?.value || "").trim();
       if (!path) return;
+      syncUnifiedPresetSelection(path);
       const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
       const yaml = String(applied?.config || "");
       setConfigDraft(yaml);
+      uiState.parameterDirty = {};
+      clearParameterDirtyState();
+      updateWizardPreview();
       const v = await validateWizardYaml(yaml, { quiet: true });
       setFooter(v.ok ? "Wizard-Preset angewendet. Validierung OK." : "Wizard-Preset angewendet. Validierung hat Fehler.", !v.ok);
     } catch (err) {
@@ -4864,8 +5122,8 @@ async function bindAssumptions() {
 }
 
 async function init() {
-  bindLocaleControls();
   await initGlobalState();
+  bindLocaleControls();
   bindRunMonitorFilterSync();
   bindScanPages();
   await bindParameterStudio();

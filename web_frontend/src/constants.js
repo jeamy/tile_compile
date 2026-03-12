@@ -12,6 +12,7 @@ export const API_ENDPOINTS = {
   app: {
     state: "/api/app/state",
     constants: "/api/app/constants",
+    uiState: "/api/app/ui-state",
   },
   scan: {
     root: "/api/scan",
