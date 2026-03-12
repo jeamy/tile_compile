@@ -208,19 +208,19 @@ expand_macos_special_path() {
 
 macos_rpaths_for_target() {
   local target="$1"
-  local -a raw_rpaths=()
+  local raw_rpaths=""
   local rpath=""
-  mapfile -t raw_rpaths < <(
+  raw_rpaths="$(
     otool -l "$target" \
       | awk '
           $1 == "cmd" && $2 == "LC_RPATH" { want = 1; next }
           want && $1 == "path" { print $2; want = 0 }
         '
-  )
-  for rpath in "${raw_rpaths[@]}"; do
+  )"
+  while IFS= read -r rpath; do
     [[ -n "$rpath" ]] || continue
     expand_macos_special_path "$target" "$rpath"
-  done
+  done <<< "$raw_rpaths"
 }
 
 resolve_macos_dep_path() {
@@ -229,7 +229,7 @@ resolve_macos_dep_path() {
   local expanded=""
   local name=""
   local source_dir=""
-  local -a resolved_rpaths=()
+  local resolved_rpaths=""
   local rpath=""
 
   case "$dep" in
@@ -245,15 +245,15 @@ resolve_macos_dep_path() {
   fi
 
   name="$(basename "$dep")"
-  mapfile -t resolved_rpaths < <(macos_rpaths_for_target "$source")
-  for rpath in "${resolved_rpaths[@]}"; do
+  resolved_rpaths="$(macos_rpaths_for_target "$source")"
+  while IFS= read -r rpath; do
     [[ -n "$rpath" ]] || continue
     expanded="$(expand_macos_special_path "$source" "$rpath")/${name}"
     if [[ -f "$expanded" ]]; then
       printf '%s\n' "$expanded"
       return 0
     fi
-  done
+  done <<< "$resolved_rpaths"
 
   source_dir="$(cd "$(dirname "$source")" && pwd)"
   if [[ -f "${source_dir}/${name}" ]]; then
