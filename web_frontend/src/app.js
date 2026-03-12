@@ -5,6 +5,7 @@ import { applyLocaleMessages, t } from "./i18n.js";
 const api = new ApiClient(localStorage.getItem("gui2.backendBase") || "");
 const CONFIG_DRAFT_KEY = "gui2.configYamlDraft";
 const CONFIG_VALIDATION_STATE_KEY = "gui2.configValidationState";
+const PARAMETER_DIRTY_STATE_KEY = "gui2.parameterDirtyState";
 const HISTORY_CURRENT_RUN_KEY = "gui2.historyCurrentRunId";
 const LOCALE_KEY = "gui2.locale";
 const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
@@ -15,6 +16,7 @@ const UI_STORAGE_KEYS = {
   dashboardRunName: "gui2.dashboard.runName",
   dashboardQueue: "gui2.dashboard.queueDraft",
   dashboardPreset: "gui2.dashboard.presetPath",
+  parameterPreset: "gui2.parameter.presetPath",
   wizardRunsDir: "gui2.wizard.runsDir",
   wizardRunName: "gui2.wizard.runName",
   wizardQueue: "gui2.wizard.queueDraft",
@@ -695,6 +697,30 @@ function setConfigValidationState({ yaml = "", ok = false, errors = [], warnings
 
 function clearConfigValidationState() {
   localStorage.removeItem(CONFIG_VALIDATION_STATE_KEY);
+}
+
+function getParameterDirtyState() {
+  try {
+    const raw = localStorage.getItem(PARAMETER_DIRTY_STATE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    localStorage.removeItem(PARAMETER_DIRTY_STATE_KEY);
+    return {};
+  }
+}
+
+function setParameterDirtyState(dirtyMap) {
+  const payload = dirtyMap && typeof dirtyMap === "object" && !Array.isArray(dirtyMap) ? dirtyMap : {};
+  if (Object.keys(payload).length === 0) {
+    localStorage.removeItem(PARAMETER_DIRTY_STATE_KEY);
+    return;
+  }
+  localStorage.setItem(PARAMETER_DIRTY_STATE_KEY, JSON.stringify(payload));
+}
+
+function clearParameterDirtyState() {
+  localStorage.removeItem(PARAMETER_DIRTY_STATE_KEY);
 }
 
 function setDisabledLike(el, disabled) {
@@ -2158,6 +2184,7 @@ async function saveParameterConfig(targetPath = "") {
   setConfigDraft(uiState.configYaml);
   setParameterBaseYaml(uiState.configYaml);
   uiState.parameterDirty = {};
+  clearParameterDirtyState();
   setParameterPreview(uiState.configYaml);
   return result;
 }
@@ -2182,6 +2209,7 @@ function bindParameterDirtyTracking() {
     const path = parameterPathFromElement(el);
     if (!path) return;
     uiState.parameterDirty[path] = readFieldValue(el);
+    setParameterDirtyState(uiState.parameterDirty);
   };
   root.addEventListener("input", onAny);
   root.addEventListener("change", onAny);
@@ -2247,19 +2275,23 @@ async function bindParameterStudio() {
     }
     if (persist) {
       uiState.parameterDirty = {};
+      clearParameterDirtyState();
     }
     return patched;
   };
 
   try {
     await populatePresetSelect("parameter-preset-select", true);
+    restoreStoredSelectValue("parameter-preset-select", UI_STORAGE_KEYS.parameterPreset, { absolute: true });
+    bindStoredSelect("parameter-preset-select", UI_STORAGE_KEYS.parameterPreset, { absolute: true });
+    uiState.parameterDirty = getParameterDirtyState();
     const currentYaml = await ensureConfigYaml();
-    const parsed = await patchConfig({ yamlText: currentYaml, updates: [] });
+    const parsed = await patchConfig({ yamlText: currentYaml, updates: collectParameterDirtyUpdates() });
     if (parsed?.config) {
       syncParameterFieldsFromConfig(parsed.config);
     }
     setParameterBaseYaml(currentYaml);
-    setParameterPreview(currentYaml);
+    setParameterPreview(parsed?.config_yaml || currentYaml);
     setParameterValidateStatus(null, "Validierung: nicht geprüft");
     setParameterPresetStatus("");
     setParameterValidateDetails(null);
@@ -2275,6 +2307,7 @@ async function bindParameterStudio() {
       uiState.configYaml = String(current?.config || "");
       setConfigDraft(uiState.configYaml);
       uiState.parameterDirty = {};
+      clearParameterDirtyState();
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
       setParameterBaseYaml(uiState.configYaml);
@@ -2301,6 +2334,7 @@ async function bindParameterStudio() {
       uiState.configYaml = String(applied?.config || "");
       setConfigDraft(uiState.configYaml);
       uiState.parameterDirty = {};
+      clearParameterDirtyState();
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
       if (parsed?.config) syncParameterFieldsFromConfig(parsed.config);
       setParameterBaseYaml(String(parsed?.config_yaml || uiState.configYaml));
@@ -2387,6 +2421,7 @@ async function bindParameterStudio() {
     try {
       const current = await api.get(API_ENDPOINTS.config.current);
       uiState.parameterDirty = {};
+      clearParameterDirtyState();
       uiState.configYaml = String(current?.config || "");
       setConfigDraft(uiState.configYaml);
       const parsed = await patchConfig({ yamlText: uiState.configYaml, updates: [] });
@@ -2418,6 +2453,7 @@ async function bindParameterStudio() {
       }
       const patched = await patchConfig({ updates: scenarioUpdates, persist: false });
       uiState.parameterDirty = {};
+      clearParameterDirtyState();
       if (patched?.config) syncParameterFieldsFromConfig(patched.config);
       setParameterPreview(patched?.config_yaml || "");
       setParameterValidateStatus(null, "Validierung: nicht geprüft");

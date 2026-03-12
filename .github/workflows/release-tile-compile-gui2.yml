@@ -266,6 +266,8 @@ jobs:
     name: Package GUI2 macOS (${{ matrix.variant_name }})
     runs-on: ${{ matrix.runner }}
     needs: meta
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
     strategy:
       fail-fast: false
       matrix:
@@ -273,9 +275,11 @@ jobs:
           - runner: macos-14
             variant_name: Apple Silicon
             artifact_suffix: macos-apple
-          - runner: macos-15-intel
+            deployment_target: '14.0'
+          - runner: macos-13
             variant_name: Intel
             artifact_suffix: macos-intel
+            deployment_target: '13.0'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -293,10 +297,12 @@ jobs:
           set -euo pipefail
           cmake -S tile_compile_cpp -B tile_compile_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET}" \
             -DBUILD_TESTS=OFF
           cmake --build tile_compile_cpp/build-gui2-release -j"$(sysctl -n hw.ncpu)"
           cmake -S web_backend_cpp -B web_backend_cpp/build-gui2-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET}" \
             -DBUILD_TESTS=OFF \
             -DTILE_COMPILE_BACKEND_STATIC_STDLIB=OFF
           cmake --build web_backend_cpp/build-gui2-release -j"$(sysctl -n hw.ncpu)"
