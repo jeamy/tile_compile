@@ -467,44 +467,20 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
-### v0.0.1 (2026-02-15)
+## v0.0.B (2026-03-12)
 
-- Erste öffentliche Version
+- Serverseitige Persistenz für den GUI2-UI-Draft-State über Backend-API und Statusspeicher ergänzt.
+- UX-relevante Frontend-Parameter aus dem lokalen Browser-Storage in einen zentralen servergestützten UI-State migriert.
+- Run-Namen, Preset-Auswahl, Config-Drafts, Validierungsstatus sowie Tool-Eingaben/-Ergebnisse konsistenter zwischen Dashboard, Parameter-Studio, Wizard und Tools synchronisiert.
 
-### v0.0.2 (2026-02-16)
+## v0.0.A (2026-03-12)
 
-- Erste Version mit vorkompilierten Paketen für Windows, Linux und macOS
-- Enthält GUI-, CLI- und Runner-Executables
-- Experimentelle Version zu Testzwecken
+- Bufixes
 
-### v0.0.3 (2026-03-05)
+## v0.0.9 (2026-03-11)
 
-- Verbesserte BGE/PCC-Pipeline mit klarerer Phasensichtbarkeit, stärkeren Guardrails und konsistenterer Konfigurationsoberfläche.
-- Erweiterte Parallelisierung in rechenintensiven Phasen.
-- Mehrere Phasen-Optimierungen für stabileres Verhalten und geringeren Laufzeit-Overhead.
-
-### v0.0.4 (2026-03-06)
-
-- Alt/Az-Registrierung für Datensätze mit großer Feldrotation korrigiert.
-
-### v0.0.5 (2026-03-09)
-
-- GUI2 als empfohlene Oberfläche etabliert, mit Web-Frontend, FastAPI-Backend und plattformübergreifenden Release-Bundles.
-- DE/EN-i18n-Abdeckung in GUI2 und Parameter-Studio erweitert; Dokumentation und Backend-Konfigurationshandling darauf abgestimmt.
-- Den bisherigen Qt6-GUI-Pfad nach `legacy/` verschoben und den aktiv gepflegten GUI2-Start-/Packaging-Weg klarer dokumentiert.
-
-### v0.0.6 (2026-03-11)
-
-- Produktive Migration auf das Crow/C++-Backend abgeschlossen.
-- Integrierte C++-Report-Generierung aktiviert.
-- Launcher, Docker-Packaging und GitHub-Workflows auf direkten Start des C++-Backends umgestellt.
-
-## v0.0.7 (2026-03-11)
-
-Unterstützt nun:
-- Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
-- macOS: macOS 15
-- Windows: Windows 10 x64 or newer
+- Linux-AppImage-Erzeugung im GitHub-Actions-Release-Workflow ergänzt.
+- PCC-Background-Noise-Behandlung überarbeitet und passende UI-/Report-Updates angebunden, damit aktuelle PCC-Diagnostik in der GUI konsistenter sichtbar ist.
 
 ## v0.0.8 (2026-03-11)
 
@@ -515,12 +491,54 @@ Unterstützt nun:
 - weniger Tile-Kopien im tile_weighted-Pfad
 - parallele BGE-Autotune-Kandidatenbewertung
 
-## v0.0.9 (2026-03-11)
+## v0.0.7 (2026-03-11)
 
-- Linux-AppImage-Erzeugung im GitHub-Actions-Release-Workflow ergänzt.
-- PCC-Background-Noise-Behandlung überarbeitet und passende UI-/Report-Updates angebunden, damit aktuelle PCC-Diagnostik in der GUI konsistenter sichtbar ist.
+- Unterstützt nun:
+  - Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
+  - macOS: macOS 15
+  - Windows: Windows 10 x64 or newer
+
+## v0.0.6 (2026-03-11)
+
+- Produktive Migration auf das Crow/C++-Backend abgeschlossen.
+- Integrierte C++-Report-Generierung aktiviert.
+- Launcher, Docker-Packaging und GitHub-Workflows auf direkten Start des C++-Backends umgestellt.
+
+## v0.0.5 (2026-03-09)
+
+- GUI2 als empfohlene Oberfläche etabliert, mit Web-Frontend, FastAPI-Backend und plattformübergreifenden Release-Bundles.
+- DE/EN-i18n-Abdeckung in GUI2 und Parameter-Studio erweitert; Dokumentation und Backend-Konfigurationshandling darauf abgestimmt.
+- Den bisherigen Qt6-GUI-Pfad nach `legacy/` verschoben und den aktiv gepflegten GUI2-Start-/Packaging-Weg klarer dokumentiert.
+
+## v0.0.4 (2026-03-06)
+
+- Alt/Az-Registrierung für Datensätze mit großer Feldrotation korrigiert.
+
+## v0.0.3 (2026-03-05)
+
+- Verbesserte BGE/PCC-Pipeline mit klarerer Phasensichtbarkeit, stärkeren Guardrails und konsistenterer Konfigurationsoberfläche.
+- Erweiterte Parallelisierung in rechenintensiven Phasen.
+- Mehrere Phasen-Optimierungen für stabileres Verhalten und geringeren Laufzeit-Overhead.
+
+## v0.0.2 (2026-02-16)
+
+- Erste Version mit vorkompilierten Paketen für Windows, Linux und macOS
+- Enthält GUI-, CLI- und Runner-Executables
+- Experimentelle Version zu Testzwecken
+
+## v0.0.1 (2026-02-15)
+
+- Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-12)
+
+**Serverseitige GUI2-UI-State-Persistenz:**
+
+- Persistenten Backend-Speicher samt API-Zugriff für den GUI2-UI-Draft-State ergänzt, sodass der Frontend-UX-State nicht mehr primär von lokalem Browser-Storage abhängt.
+- Die wesentlichen UX-relevanten Frontend-Parameter in den gemeinsamen servergestützten UI-State migriert, darunter Run-Benennung, Preset-Synchronisation, Config-Drafts, Validierungsstatus, Dirty-State, Queues sowie Tool-Pfad-/Input-Einstellungen.
+- Zusätzlichen sinnvollen Tool-Ergebniszustand über Reloads hinweg wiederherstellbar gemacht, während rein ephemerer Laufzeit-Anzeigezustand bewusst nicht persistent bleibt.
 
 ### (2026-03-11)
 

@@ -458,44 +458,20 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
-### v0.0.1 (2026-02-15)
+## v0.0.B (2026-03-12)
 
-- First public release
+- Added server-side persistence for the GUI2 UI draft state via backend API/state storage.
+- Migrated UX-relevant frontend parameters away from local browser storage to a central server-backed UI state.
+- Synchronized run names, preset selections, config drafts, validation state, and tool inputs/results more consistently across dashboard, parameter studio, wizard, and tools.
 
-### v0.0.2 (2026-02-16)
+## v0.0.A (2026-03-12)
 
-- First release with pre-built packages for Windows, Linux, and macOS
-- Includes GUI, CLI, and runner executables
-- Experimental release for testing purposes
+- Bugfixes
 
-### v0.0.3 (2026-03-05)
+## v0.0.9 (2026-03-11)
 
-- Improved BGE/PCC pipeline with clearer phase visibility, stronger guardrails, and a more consistent config surface.
-- Expanded parallel execution in compute-heavy stages.
-- Multiple phase optimizations for more stable behavior and lower runtime overhead.
-
-### v0.0.4 (2026-03-06)
-
-- Fixed Alt/Az registration for datasets with large field rotation.
-
-### v0.0.5 (2026-03-09)
-
-- Promoted GUI2 as the recommended interface with a web frontend, FastAPI backend, and cross-platform release bundles.
-- Expanded DE/EN i18n coverage in the GUI2 frontend and parameter studio, with aligned docs and backend config handling.
-- Moved the previous Qt6 GUI path into `legacy/` and clarified the actively maintained GUI2 packaging/start workflow.
-
-### v0.0.6 (2026-03-11)
-
-- Completed the productive migration to the Crow/C++ backend.
-- Integrated C++ report generation.
-- Updated launcher scripts, Docker packaging, and GitHub workflows to build and run the C++ backend directly.
-
-## v0.0.7 (2026-03-11)
-
-Supports now:
-- Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
-- macOS: macOS 15
-- Windows: Windows 10 x64 or newer
+- Added Linux AppImage generation to the GitHub Actions release workflow.
+- Reworked PCC background-noise handling and connected UI/report updates so current PCC diagnostics are exposed more consistently in the GUI.
 
 ## v0.0.8 (2026-03-11)
 
@@ -506,12 +482,54 @@ Supports now:
 - fewer tile copies in tile_weighted path
 - parallel BGE autotune candidate evaluation
 
-## v0.0.9 (2026-03-11)
+## v0.0.7 (2026-03-11)
 
-- Added Linux AppImage generation to the GitHub Actions release workflow.
-- Reworked PCC background-noise handling and connected UI/report updates so current PCC diagnostics are exposed more consistently in the GUI.
+- Supports now:
+  - Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
+  - macOS: macOS 15
+  - Windows: Windows 10 x64 or newer
+
+## v0.0.6 (2026-03-11)
+
+- Completed the productive migration to the Crow/C++ backend.
+- Integrated C++ report generation.
+- Updated launcher scripts, Docker packaging, and GitHub workflows to build and run the C++ backend directly.
+
+## v0.0.5 (2026-03-09)
+
+- Promoted GUI2 as the recommended interface with a web frontend, FastAPI backend, and cross-platform release bundles.
+- Expanded DE/EN i18n coverage in the GUI2 frontend and parameter studio, with aligned docs and backend config handling.
+- Moved the previous Qt6 GUI path into `legacy/` and clarified the actively maintained GUI2 packaging/start workflow.
+
+## v0.0.4 (2026-03-06)
+
+- Fixed Alt/Az registration for datasets with large field rotation.
+
+## v0.0.3 (2026-03-05)
+
+- Improved BGE/PCC pipeline with clearer phase visibility, stronger guardrails, and a more consistent config surface.
+- Expanded parallel execution in compute-heavy stages.
+- Multiple phase optimizations for more stable behavior and lower runtime overhead.
+
+## v0.0.2 (2026-02-16)
+
+- First release with pre-built packages for Windows, Linux, and macOS
+- Includes GUI, CLI, and runner executables
+- Experimental release for testing purposes
+
+## v0.0.1 (2026-02-15)
+
+- First public release
 
 ## Changelog
+
+### (2026-03-12)
+
+**Server-side GUI2 UI-state persistence:**
+
+- Added persistent backend storage plus API access for the GUI2 UI draft state so frontend UX state no longer depends primarily on local browser storage.
+- Migrated the major UX-relevant frontend parameters to the shared server-backed UI state, including run naming, preset synchronization, config drafts, validation state, dirty state, queues, and tool path/input settings.
+- Restored and synchronized additional tool result state across reloads where useful, while keeping purely ephemeral runtime display state non-persistent.
 
 ### (2026-03-11)
 
