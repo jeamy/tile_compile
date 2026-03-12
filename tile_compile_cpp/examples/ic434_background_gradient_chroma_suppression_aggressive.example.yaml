@@ -219,7 +219,7 @@ pcc:
   siril_catalog_dir: ""
   background_model: median
   max_condition_number: 2.2
-  max_residual_rms: 0.25
+  max_residual_rms: 0.30
   radii_mode: auto_fwhm
   aperture_fwhm_mult: 1.8
   annulus_inner_fwhm_mult: 3.0
