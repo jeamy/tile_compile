@@ -86,7 +86,6 @@ preflight_macos() {
   require_cmd ninja "Install Ninja, for example with: brew install ninja"
   require_cmd pkg-config "Install pkg-config, for example with: brew install pkg-config"
   require_cmd otool "Xcode Command Line Tools are required."
-  require_cmd install_name_tool "Xcode Command Line Tools are required."
   require_cmd ditto "macOS system tool 'ditto' is required."
   require_cmd python3 "Install Python 3, for example with: brew install python"
 
@@ -137,37 +136,6 @@ collect_macos_libs() {
           cp "$resolved" "$dst"
           chmod u+w "$dst" || true
           collect_macos_libs "$resolved"
-        fi
-      done
-}
-
-rewrite_macos_refs() {
-  local target="$1"
-  local mode="$2"
-  chmod u+w "$target" || true
-  if [[ "$mode" == "exe" ]]; then
-    install_name_tool -add_rpath "@executable_path/../lib" "$target" 2>/dev/null || true
-  else
-    install_name_tool -id "@loader_path/$(basename "$target")" "$target" || true
-  fi
-  otool -L "$target" \
-    | tail -n +2 \
-    | awk '{print $1}' \
-    | while read -r dep; do
-        local name
-        name="$(basename "$dep")"
-        case "$dep" in
-          /usr/lib/*|/System/*) continue ;;
-        esac
-        if macos_should_skip_bundle_dep "$dep" "$name"; then
-          continue
-        fi
-        local bundled="${PAYLOAD}/tile_compile_cpp/lib/${name}"
-        [[ -f "$bundled" ]] || continue
-        if [[ "$mode" == "exe" ]]; then
-          install_name_tool -change "$dep" "@rpath/${name}" "$target" || true
-        else
-          install_name_tool -change "$dep" "@loader_path/${name}" "$target" || true
         fi
       done
 }
@@ -285,8 +253,11 @@ verify_macos_bundle_refs() {
         continue
       fi
       if [[ "$dep" == /opt/homebrew/* || "$dep" == /usr/local/opt/* || "$dep" == /usr/local/Cellar/* ]]; then
-        echo "[gui2-package] Unbundled Homebrew dependency in ${target}: ${dep}" >&2
-        bad=1
+        name="$(basename "$dep")"
+        if ! macos_should_skip_bundle_dep "$dep" "$name" && [[ ! -f "${PAYLOAD}/tile_compile_cpp/lib/${name}" ]]; then
+          echo "[gui2-package] Missing bundled Homebrew dependency in ${target}: ${dep}" >&2
+          bad=1
+        fi
       fi
     done < <(otool -L "$target" | tail -n +2 | awk '{print $1}')
   done < <(find "${PAYLOAD}" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so*" \) -print0)
@@ -311,18 +282,10 @@ assemble_bundle() {
   cp "${RUNNER_BUILD_DIR}/tile_compile_runner" "${PAYLOAD}/tile_compile_cpp/build/"
   cp "${RUNNER_BUILD_DIR}/tile_compile_cli" "${PAYLOAD}/tile_compile_cpp/build/"
   cp "${BACKEND_BUILD_DIR}/tile_compile_web_backend" "${PAYLOAD}/web_backend_cpp/build/"
+  # Keep Homebrew install names untouched; the launcher exports DYLD_LIBRARY_PATH.
   collect_macos_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner"
   collect_macos_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_cli"
   collect_macos_libs "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend"
-  rewrite_macos_refs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner" exe
-  rewrite_macos_refs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_cli" exe
-  rewrite_macos_refs "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend" exe
-  install_name_tool -add_rpath "@executable_path/../../tile_compile_cpp/lib" \
-    "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend" 2>/dev/null || true
-  find "${PAYLOAD}/tile_compile_cpp/lib" -type f \( -name "*.dylib" -o -name "*.so*" \) -print0 \
-    | while IFS= read -r -d '' dylib; do
-        rewrite_macos_refs "$dylib" dylib
-      done
   find "${PAYLOAD}/tile_compile_cpp/lib" -type f \( \
       -name "libc++*.dylib" -o \
       -name "libc++abi*.dylib" -o \

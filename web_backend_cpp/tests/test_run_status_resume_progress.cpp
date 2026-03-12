@@ -30,6 +30,24 @@ int main(int argc, char** argv) {
             }
         }
         expect_true(found_bge, "bge phase present");
+
+        harness.create_run("skipped_phase_run", {
+            {{"ts", "2026-03-10T11:00:00Z"}, {"type", "phase_start"}, {"phase_name", "STATE_CLUSTERING"}},
+            {{"ts", "2026-03-10T11:00:01Z"}, {"type", "phase_end"}, {"phase_name", "STATE_CLUSTERING"}, {"status", "skipped"}},
+            {{"ts", "2026-03-10T11:00:02Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+
+        const auto skipped_status = harness.get_json("/api/runs/skipped_phase_run/status");
+        expect_equal(skipped_status["_http_status"].get<long>(), 200L, "skipped status code");
+        bool found_skipped = false;
+        for (const auto& item : skipped_status["phases"]) {
+            if (item.value("phase", "") == "STATE_CLUSTERING") {
+                found_skipped = true;
+                expect_equal(item["status"].get<std::string>(), "skipped", "state clustering skipped status");
+                expect_equal(item["pct"].get<double>(), 1.0, "state clustering skipped pct", 1e-9);
+            }
+        }
+        expect_true(found_skipped, "state clustering phase present");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

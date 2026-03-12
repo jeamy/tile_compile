@@ -2890,9 +2890,13 @@ function setPhaseRow(phaseName, status, pctRaw) {
   });
   if (!row) return;
 
-  row.classList.remove("done", "running", "pending", "error");
+  row.classList.remove("done", "running", "pending", "error", "skipped");
   const normalized = String(status || "pending").toLowerCase();
-  if (normalized === "ok" || normalized === "completed" || normalized === "done" || normalized === "skipped") {
+  if (normalized === "skipped") {
+    row.classList.add("skipped");
+    const stateEl = row.querySelector(".state");
+    if (stateEl) stateEl.textContent = "SKIP";
+  } else if (normalized === "ok" || normalized === "completed" || normalized === "done") {
     row.classList.add("done");
     const stateEl = row.querySelector(".state");
     if (stateEl) stateEl.textContent = "OK";
@@ -3196,7 +3200,7 @@ async function bindRunMonitor() {
   };
   const resetPhaseRows = () => {
     document.querySelectorAll(".ps-phase-row").forEach((row) => {
-      row.classList.remove("done", "running", "error", "is-selected");
+      row.classList.remove("done", "running", "error", "skipped", "is-selected");
       row.classList.add("pending");
       const stateEl = row.querySelector(".state");
       if (stateEl) stateEl.textContent = "P";

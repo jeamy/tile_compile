@@ -55,7 +55,8 @@ double overall_progress(const nlohmann::json& phases, const std::string& current
     int completed = 0;
     for (const auto& phase : PHASE_ORDER) {
         for (const auto& entry : phases) {
-            if (entry.value("phase", std::string()) == phase && entry.value("status", std::string()) == "ok") {
+            const std::string status = entry.value("status", std::string());
+            if (entry.value("phase", std::string()) == phase && (status == "ok" || status == "skipped")) {
                 ++completed;
                 break;
             }
@@ -278,7 +279,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
             } else if (event_type == "phase_end") {
                 std::string raw = ev.value("status", std::string("unknown"));
                 std::transform(raw.begin(), raw.end(), raw.begin(), ::tolower);
-                (*phase_state)["status"] = (raw == "ok" || raw == "skipped") ? "ok" : raw;
+                (*phase_state)["status"] = raw;
                 if (raw == "ok" || raw == "skipped") (*phase_state)["pct"] = 1.0;
                 if (current_phase == phase_name && (raw == "ok" || raw == "skipped" || raw == "error" || raw == "aborted")) {
                     current_phase.clear();
@@ -331,7 +332,8 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         if (!current_phase.empty()) run_status = "running";
         else {
             for (auto it = phases.begin(); it != phases.end(); ++it) {
-                if (it.value().value("status", std::string()) == "ok") {
+                const std::string phase_status = it.value().value("status", std::string());
+                if (phase_status == "ok" || phase_status == "skipped") {
                     run_status = "running";
                     break;
                 }

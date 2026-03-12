@@ -6,6 +6,7 @@
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/registration/global_registration.hpp"
 #include "tile_compile/registration/registration.hpp"
+#include "tile_compile/runner/registration_outlier_utils.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -28,6 +29,105 @@ namespace io = tile_compile::io;
 namespace registration = tile_compile::registration;
 
 namespace {
+
+constexpr float kPi = 3.14159265358979323846f;
+
+float wrap_angle_near(float angle, float reference) {
+  while (angle - reference > kPi) {
+    angle -= 2.0f * kPi;
+  }
+  while (angle - reference < -kPi) {
+    angle += 2.0f * kPi;
+  }
+  return angle;
+}
+
+std::vector<float> unwrap_angle_sequence(const std::vector<float> &angles) {
+  if (angles.empty()) {
+    return {};
+  }
+  std::vector<float> out = angles;
+  for (size_t i = 1; i < out.size(); ++i) {
+    out[i] = wrap_angle_near(out[i], out[i - 1]);
+  }
+  return out;
+}
+
+struct TemporalWarpSample {
+  float fi = 0.0f;
+  float ang = 0.0f;
+  float tx = 0.0f;
+  float ty = 0.0f;
+  float cc = 1.0f;
+};
+
+struct ScalarPolyFit {
+  Eigen::VectorXf coeffs;
+  float max_abs_residual = std::numeric_limits<float>::infinity();
+  float rms_residual = std::numeric_limits<float>::infinity();
+  bool ok = false;
+};
+
+struct WarpPredictionCandidate {
+  bool ok = false;
+  float ang = 0.0f;
+  float tx = 0.0f;
+  float ty = 0.0f;
+  float score = std::numeric_limits<float>::infinity();
+  float res_ang_deg = std::numeric_limits<float>::infinity();
+  float res_tx = std::numeric_limits<float>::infinity();
+  float res_ty = std::numeric_limits<float>::infinity();
+  int support = 0;
+  float span = 0.0f;
+};
+
+ScalarPolyFit fit_weighted_poly(const std::vector<float> &xs,
+                                const std::vector<float> &ys,
+                                const std::vector<float> &weights,
+                                int degree) {
+  ScalarPolyFit out;
+  const int n = static_cast<int>(xs.size());
+  if (n <= 0 || ys.size() != xs.size() || weights.size() != xs.size()) {
+    return out;
+  }
+  const int deg = std::max(0, std::min(degree, n - 1));
+  Eigen::MatrixXf A(n, deg + 1);
+  Eigen::VectorXf b(n);
+  for (int i = 0; i < n; ++i) {
+    const float w = std::sqrt(std::max(weights[static_cast<size_t>(i)], 1.0e-6f));
+    float xpow = 1.0f;
+    for (int j = 0; j <= deg; ++j) {
+      A(i, j) = w * xpow;
+      xpow *= xs[static_cast<size_t>(i)];
+    }
+    b(i) = w * ys[static_cast<size_t>(i)];
+  }
+  Eigen::ColPivHouseholderQR<Eigen::MatrixXf> qr(A);
+  if (qr.rank() <= 0) {
+    return out;
+  }
+  out.coeffs = qr.solve(b);
+  if (out.coeffs.size() != deg + 1) {
+    return out;
+  }
+  float max_abs = 0.0f;
+  float sum_sq = 0.0f;
+  for (int i = 0; i < n; ++i) {
+    float pred = 0.0f;
+    float xpow = 1.0f;
+    for (int j = 0; j < out.coeffs.size(); ++j) {
+      pred += out.coeffs(j) * xpow;
+      xpow *= xs[static_cast<size_t>(i)];
+    }
+    const float r = pred - ys[static_cast<size_t>(i)];
+    max_abs = std::max(max_abs, std::fabs(r));
+    sum_sq += r * r;
+  }
+  out.max_abs_residual = max_abs;
+  out.rms_residual = std::sqrt(sum_sq / static_cast<float>(n));
+  out.ok = true;
+  return out;
+}
 
 struct WarpBounds {
   int min_x = 0;
@@ -493,17 +593,22 @@ bool run_phase_registration_prewarp(
   if (cfg.registration.reject_outliers) {
     std::vector<float> cc_positive;
     cc_positive.reserve(frames.size());
-    std::vector<float> shift_mags_positive;
-    shift_mags_positive.reserve(frames.size());
+    std::vector<float> normal_shift_mags_positive;
+    normal_shift_mags_positive.reserve(frames.size());
+    std::vector<float> half_turn_shift_mags_positive;
+    half_turn_shift_mags_positive.reserve(frames.size());
     for (size_t fi = 0; fi < frames.size(); ++fi) {
       if (global_frame_cc[fi] <= 0.0f) {
         continue;
       }
       cc_positive.push_back(global_frame_cc[fi]);
       const auto &w = global_frame_warps[fi];
-      const float shift_mag =
-          std::sqrt(w(0, 2) * w(0, 2) + w(1, 2) * w(1, 2));
-      shift_mags_positive.push_back(shift_mag);
+      const auto shift_diag = registration_shift_diagnostics(w, width, height);
+      if (shift_diag.half_turn_family) {
+        half_turn_shift_mags_positive.push_back(shift_diag.shift_magnitude);
+      } else {
+        normal_shift_mags_positive.push_back(shift_diag.shift_magnitude);
+      }
     }
 
     auto robust_median = [](std::vector<float> values) -> float {
@@ -537,15 +642,20 @@ bool run_phase_registration_prewarp(
         cc_median - cfg.registration.reject_cc_mad_multiplier * cc_mad;
     const float cc_min_keep = std::max(cc_threshold_abs, cc_threshold_robust);
 
-    const float shift_median = robust_median(shift_mags_positive);
-    const float shift_limit =
+    const float normal_shift_median = robust_median(normal_shift_mags_positive);
+    const float normal_shift_limit =
         std::max(cfg.registration.reject_shift_px_min,
-                 cfg.registration.reject_shift_median_multiplier * shift_median);
+                 cfg.registration.reject_shift_median_multiplier * normal_shift_median);
+    const float half_turn_shift_median = robust_median(half_turn_shift_mags_positive);
+    const float half_turn_shift_limit =
+        std::max(cfg.registration.reject_shift_px_min,
+                 cfg.registration.reject_shift_median_multiplier * half_turn_shift_median);
 
     for (size_t fi = 0; fi < frames.size(); ++fi) {
       if (global_frame_cc[fi] <= 0.0f)
         continue;
       const auto &w = global_frame_warps[fi];
+      const auto shift_diag = registration_shift_diagnostics(w, width, height);
 
       bool reject = false;
       std::vector<std::string> reject_reasons;
@@ -579,8 +689,10 @@ bool run_phase_registration_prewarp(
       }
 
       if (!reject) {
-        const float shift_mag =
-            std::sqrt(w(0, 2) * w(0, 2) + w(1, 2) * w(1, 2));
+        const float shift_mag = shift_diag.shift_magnitude;
+        const float shift_limit = shift_diag.half_turn_family
+                                      ? half_turn_shift_limit
+                                      : normal_shift_limit;
         if (shift_mag > shift_limit) {
           reject = true;
           ++reg_reject_shift_outliers;
@@ -623,21 +735,26 @@ bool run_phase_registration_prewarp(
     // This retains ALL frames (methodology v3.2.2 §1.2) while providing
     // physically plausible geometry for frames where registration failed.
     {
-      std::vector<float> vfi, vang, vtx, vty;
+      std::vector<float> vfi, vang_raw, vtx, vty, vcc;
       for (size_t fi = 0; fi < frames.size(); ++fi) {
         if (!reg_rejected_mask[fi] && global_frame_cc[fi] > 0.0f) {
           const auto &w = global_frame_warps[fi];
           vfi.push_back(static_cast<float>(fi));
-          vang.push_back(std::atan2(w(0, 1), w(0, 0)));
+          vang_raw.push_back(std::atan2(w(0, 1), w(0, 0)));
           vtx.push_back(w(0, 2));
           vty.push_back(w(1, 2));
+          vcc.push_back(global_frame_cc[fi]);
         }
       }
 
       const int nv = static_cast<int>(vfi.size());
       int reg_model_predicted = 0;
+      int reg_model_local_refined = 0;
+      int reg_model_interpolated = 0;
+      int reg_model_blended = 0;
 
       if (nv >= 3) {
+        const std::vector<float> vang = unwrap_angle_sequence(vang_raw);
         // Normalise frame indices to [0,1] for numerical stability.
         const float fi_lo = vfi.front();
         const float fi_hi = vfi.back();
@@ -667,25 +784,253 @@ bool run_phase_registration_prewarp(
         const float res_tx = (V * cx - yx).cwiseAbs().maxCoeff();
         const float res_ty = (V * cy - yy).cwiseAbs().maxCoeff();
 
+        std::vector<TemporalWarpSample> valid_samples;
+        valid_samples.reserve(static_cast<size_t>(nv));
+        for (int i = 0; i < nv; ++i) {
+          valid_samples.push_back(
+              {vfi[static_cast<size_t>(i)], vang[static_cast<size_t>(i)],
+               vtx[static_cast<size_t>(i)], vty[static_cast<size_t>(i)],
+               vcc[static_cast<size_t>(i)]});
+        }
+
+        auto build_local_candidate = [&](size_t fi, int support_count)
+            -> WarpPredictionCandidate {
+          WarpPredictionCandidate out;
+          if (valid_samples.empty()) {
+            return out;
+          }
+          std::vector<std::pair<float, size_t>> by_dist;
+          by_dist.reserve(valid_samples.size());
+          for (size_t i = 0; i < valid_samples.size(); ++i) {
+            by_dist.emplace_back(
+                std::fabs(valid_samples[i].fi - static_cast<float>(fi)), i);
+          }
+          std::sort(by_dist.begin(), by_dist.end(),
+                    [](const auto &a, const auto &b) {
+                      if (a.first != b.first) {
+                        return a.first < b.first;
+                      }
+                      return a.second < b.second;
+                    });
+          if (by_dist.empty()) {
+            return out;
+          }
+          const int take_n =
+              std::max(1, std::min(support_count, static_cast<int>(by_dist.size())));
+          std::vector<size_t> chosen;
+          chosen.reserve(static_cast<size_t>(take_n));
+          for (int i = 0; i < take_n; ++i) {
+            chosen.push_back(by_dist[static_cast<size_t>(i)].second);
+          }
+          std::sort(chosen.begin(), chosen.end());
+
+          float max_abs_dist = 0.0f;
+          for (size_t idx : chosen) {
+            max_abs_dist = std::max(
+                max_abs_dist,
+                std::fabs(valid_samples[idx].fi - static_cast<float>(fi)));
+          }
+          max_abs_dist = std::max(max_abs_dist, 1.0f);
+
+          std::vector<float> xs;
+          std::vector<float> ws;
+          std::vector<float> ys_ang;
+          std::vector<float> ys_tx;
+          std::vector<float> ys_ty;
+          xs.reserve(chosen.size());
+          ws.reserve(chosen.size());
+          ys_ang.reserve(chosen.size());
+          ys_tx.reserve(chosen.size());
+          ys_ty.reserve(chosen.size());
+          for (size_t idx : chosen) {
+            const auto &s = valid_samples[idx];
+            const float x = (s.fi - static_cast<float>(fi)) / max_abs_dist;
+            const float u = std::min(1.0f, std::fabs(x));
+            const float tricube =
+                std::pow(std::max(0.0f, 1.0f - u * u * u), 3.0f);
+            const float w = std::max(1.0e-3f, tricube * std::max(0.05f, s.cc));
+            xs.push_back(x);
+            ws.push_back(w);
+            ys_ang.push_back(s.ang);
+            ys_tx.push_back(s.tx);
+            ys_ty.push_back(s.ty);
+          }
+
+          const int degree =
+              (take_n >= 5) ? 2 : ((take_n >= 2) ? 1 : 0);
+          const auto fit_ang = fit_weighted_poly(xs, ys_ang, ws, degree);
+          const auto fit_tx = fit_weighted_poly(xs, ys_tx, ws, degree);
+          const auto fit_ty = fit_weighted_poly(xs, ys_ty, ws, degree);
+          if (!fit_ang.ok || !fit_tx.ok || !fit_ty.ok ||
+              fit_ang.coeffs.size() == 0 || fit_tx.coeffs.size() == 0 ||
+              fit_ty.coeffs.size() == 0) {
+            return out;
+          }
+
+          out.ok = true;
+          out.ang = fit_ang.coeffs(0);
+          out.tx = fit_tx.coeffs(0);
+          out.ty = fit_ty.coeffs(0);
+          out.res_ang_deg = fit_ang.max_abs_residual * 57.29577951f;
+          out.res_tx = fit_tx.max_abs_residual;
+          out.res_ty = fit_ty.max_abs_residual;
+          out.support = take_n;
+          out.span = max_abs_dist;
+          out.score = out.res_ang_deg / 0.35f + out.res_tx / 20.0f +
+                      out.res_ty / 20.0f + 0.05f * max_abs_dist;
+          return out;
+        };
+
+        auto build_bridge_candidate = [&](size_t fi) -> WarpPredictionCandidate {
+          WarpPredictionCandidate out;
+          if (valid_samples.empty()) {
+            return out;
+          }
+          int right = -1;
+          for (int i = 0; i < nv; ++i) {
+            if (valid_samples[static_cast<size_t>(i)].fi >= static_cast<float>(fi)) {
+              right = i;
+              break;
+            }
+          }
+          if (right >= 0 && right < nv &&
+              valid_samples[static_cast<size_t>(right)].fi ==
+                  static_cast<float>(fi)) {
+            out.ok = true;
+            out.ang = valid_samples[static_cast<size_t>(right)].ang;
+            out.tx = valid_samples[static_cast<size_t>(right)].tx;
+            out.ty = valid_samples[static_cast<size_t>(right)].ty;
+            out.support = 1;
+            out.span = 0.0f;
+            out.score = 0.0f;
+            out.res_ang_deg = 0.0f;
+            out.res_tx = 0.0f;
+            out.res_ty = 0.0f;
+            return out;
+          }
+
+          if (right > 0 && right < nv) {
+            const auto &l = valid_samples[static_cast<size_t>(right - 1)];
+            const auto &r = valid_samples[static_cast<size_t>(right)];
+            const float denom = std::max(1.0f, r.fi - l.fi);
+            const float alpha = (static_cast<float>(fi) - l.fi) / denom;
+            out.ok = true;
+            out.ang = l.ang + alpha * (r.ang - l.ang);
+            out.tx = l.tx + alpha * (r.tx - l.tx);
+            out.ty = l.ty + alpha * (r.ty - l.ty);
+            out.support = 2;
+            out.span = r.fi - l.fi;
+            out.score = 0.5f + 0.05f * out.span;
+            out.res_ang_deg = 0.0f;
+            out.res_tx = 0.0f;
+            out.res_ty = 0.0f;
+            return out;
+          }
+
+          if (nv >= 2 && right == 0) {
+            const auto &s0 = valid_samples[0];
+            const auto &s1 = valid_samples[1];
+            const float denom = std::max(1.0f, s1.fi - s0.fi);
+            const float delta = static_cast<float>(fi) - s0.fi;
+            out.ok = true;
+            out.ang = s0.ang + delta * (s1.ang - s0.ang) / denom;
+            out.tx = s0.tx + delta * (s1.tx - s0.tx) / denom;
+            out.ty = s0.ty + delta * (s1.ty - s0.ty) / denom;
+            out.support = 2;
+            out.span = std::fabs(delta);
+            out.score = 1.0f + 0.08f * out.span;
+            out.res_ang_deg = 0.0f;
+            out.res_tx = 0.0f;
+            out.res_ty = 0.0f;
+            return out;
+          }
+
+          if (nv >= 2 && right < 0) {
+            const auto &s0 = valid_samples[static_cast<size_t>(nv - 2)];
+            const auto &s1 = valid_samples[static_cast<size_t>(nv - 1)];
+            const float denom = std::max(1.0f, s1.fi - s0.fi);
+            const float delta = static_cast<float>(fi) - s1.fi;
+            out.ok = true;
+            out.ang = s1.ang + delta * (s1.ang - s0.ang) / denom;
+            out.tx = s1.tx + delta * (s1.tx - s0.tx) / denom;
+            out.ty = s1.ty + delta * (s1.ty - s0.ty) / denom;
+            out.support = 2;
+            out.span = std::fabs(delta);
+            out.score = 1.0f + 0.08f * out.span;
+            out.res_ang_deg = 0.0f;
+            out.res_tx = 0.0f;
+            out.res_ty = 0.0f;
+            return out;
+          }
+
+          return out;
+        };
+
         // Predict warps for rejected frames and frames with cc=0
         // (completely failed registration, not caught by outlier filter)
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (!reg_rejected_mask[fi] && global_frame_cc[fi] > 0.0f) {
             continue;
           }
-          const float t =
-              (static_cast<float>(fi) - fi_lo) / fi_span;
-          const float pa = ca(0) + ca(1) * t + ca(2) * t * t;
-          const float px = cx(0) + cx(1) * t + cx(2) * t * t;
-          const float py = cy(0) + cy(1) * t + cy(2) * t * t;
+
+          const float t = (static_cast<float>(fi) - fi_lo) / fi_span;
+          WarpPredictionCandidate global_candidate;
+          global_candidate.ok = true;
+          global_candidate.ang = ca(0) + ca(1) * t + ca(2) * t * t;
+          global_candidate.tx = cx(0) + cx(1) * t + cx(2) * t * t;
+          global_candidate.ty = cy(0) + cy(1) * t + cy(2) * t * t;
+          global_candidate.score =
+              res_ang / 0.35f + res_tx / 20.0f + res_ty / 20.0f + 5.0f;
+
+          WarpPredictionCandidate best_local;
+          for (int support_count : {6, 8, 12, 16, 24, 32, 48}) {
+            if (support_count > nv) {
+              continue;
+            }
+            const auto cand = build_local_candidate(fi, support_count);
+            if (!cand.ok || cand.score >= best_local.score) {
+              continue;
+            }
+            best_local = cand;
+          }
+          const auto bridge_candidate = build_bridge_candidate(fi);
+
+          WarpPredictionCandidate chosen = global_candidate;
+          if (best_local.ok && bridge_candidate.ok) {
+            chosen.ok = true;
+            const float local_conf = 1.0f / (1.0f + std::max(0.0f, best_local.score));
+            const float bridge_conf =
+                1.0f / (1.0f + std::max(0.0f, bridge_candidate.score));
+            const float norm = std::max(1.0e-6f, local_conf + bridge_conf);
+            const float wl = local_conf / norm;
+            const float wb = bridge_conf / norm;
+            chosen.ang = bridge_candidate.ang +
+                         wl * (wrap_angle_near(best_local.ang, bridge_candidate.ang) -
+                               bridge_candidate.ang);
+            chosen.tx = wl * best_local.tx + wb * bridge_candidate.tx;
+            chosen.ty = wl * best_local.ty + wb * bridge_candidate.ty;
+            chosen.score = std::min(best_local.score, bridge_candidate.score);
+            chosen.res_ang_deg = best_local.res_ang_deg;
+            chosen.res_tx = best_local.res_tx;
+            chosen.res_ty = best_local.res_ty;
+            chosen.support = std::max(best_local.support, bridge_candidate.support);
+            chosen.span = std::max(best_local.span, bridge_candidate.span);
+            ++reg_model_blended;
+          } else if (best_local.ok) {
+            chosen = best_local;
+            ++reg_model_local_refined;
+          } else if (bridge_candidate.ok) {
+            chosen = bridge_candidate;
+            ++reg_model_interpolated;
+          }
 
           WarpMatrix w;
-          w(0, 0) = std::cos(pa);
-          w(0, 1) = std::sin(pa);
-          w(1, 0) = -std::sin(pa);
-          w(1, 1) = std::cos(pa);
-          w(0, 2) = px;
-          w(1, 2) = py;
+          w(0, 0) = std::cos(chosen.ang);
+          w(0, 1) = std::sin(chosen.ang);
+          w(1, 0) = -std::sin(chosen.ang);
+          w(1, 1) = std::cos(chosen.ang);
+          w(0, 2) = chosen.tx;
+          w(1, 2) = chosen.ty;
 
           global_frame_warps[fi] = w;
           // Small positive cc → included in prewarp but lower than valid
@@ -700,7 +1045,10 @@ bool run_phase_registration_prewarp(
               << reg_model_predicted << " rejected frames from " << nv
               << " valid warps (max residual: angle="
               << std::fixed << std::setprecision(2) << res_ang
-              << "deg tx=" << res_tx << "px ty=" << res_ty << "px)";
+              << "deg tx=" << res_tx << "px ty=" << res_ty << "px"
+              << ", local_refined=" << reg_model_local_refined
+              << ", interpolated=" << reg_model_interpolated
+              << ", blended=" << reg_model_blended << ")";
           emitter.warning(run_id, msg.str(), log_file);
           std::cout << "[REG-MODEL] " << msg.str() << std::endl;
         }
@@ -739,6 +1087,9 @@ bool run_phase_registration_prewarp(
       }
 
       global_reg_extra["reg_model_predicted"] = reg_model_predicted;
+      global_reg_extra["reg_model_local_refined"] = reg_model_local_refined;
+      global_reg_extra["reg_model_interpolated"] = reg_model_interpolated;
+      global_reg_extra["reg_model_blended"] = reg_model_blended;
     }
   }
   if (reg_reject_orientation_outliers > 0 ||

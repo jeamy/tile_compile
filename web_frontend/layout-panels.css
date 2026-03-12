@@ -466,6 +466,11 @@
   color: #15808d;
 }
 
+.ps-phase-row.skipped .state {
+  background: #fef3c7;
+  color: #b45309;
+}
+
 .ps-phase-row.running .state {
   background: #fde68a;
   color: #a16207;
@@ -496,6 +501,10 @@
 
 .ps-phase-row.done .phase-progress {
   color: #15808d;
+}
+
+.ps-phase-row.skipped .phase-progress {
+  color: #b45309;
 }
 
 .ps-phase-row.running .phase-progress {

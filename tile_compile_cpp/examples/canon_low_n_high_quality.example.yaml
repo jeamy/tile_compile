@@ -141,14 +141,14 @@ global_metrics:
   clamp: [-3.0, 3.0] # Clipping-Grenzen fuer z-Score-Metriken
 
 tile:
-  size_factor: 36 # groessere Tiles zur Reduktion blockiger Strukturen bei Low-N
-  min_size: 96 # groesseres Minimum fuer stabilere OLA-Transitionen
+  size_factor: 48 # groessere Tiles zur Reduktion blockiger Strukturen bei Low-N
+  min_size: 128 # groesseres Minimum fuer stabilere OLA-Transitionen
   max_divisor: 6 # Begrenzung der Tileunterteilung
-  overlap_fraction: 0.40 # mehr Ueberlappung fuer weichere Tile-Naehte
+  overlap_fraction: 0.50 # mehr Ueberlappung fuer weichere Tile-Naehte
   star_min_count: 8 # Schwelle fuer star tile Klassifikation
 
 local_metrics:
-  clamp: [-3.0, 3.0] # Clipping fuer lokale z-Score-Metriken
+  clamp: [-1.5, 1.5] # Clipping fuer lokale z-Score-Metriken
   star_mode:
     weights:
       fwhm: 0.6 # Gewicht Stern-FWHM
@@ -232,10 +232,10 @@ pcc:
 stacking:
   method: rej # rej|average
   sigma_clip:
-    sigma_low: 1.8 # toleranter bei modellierten Warp-Residuen
-    sigma_high: 1.8 # symmetrisch
+    sigma_low: 2.3 # toleranter bei modellierten Warp-Residuen
+    sigma_high: 2.3 # symmetrisch
     max_iters: 3 # maximale Clip-Iterationen
-    min_fraction: 0.4 # bei Wolkenphasen darf mehr geclippt werden
+    min_fraction: 0.5 # bei Wolkenphasen darf mehr geclippt werden
   cluster_quality_weighting:
     enabled: false # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
     kappa_cluster: 0.5 # low-N/high-quality konservativ: moderate Gewichtung
