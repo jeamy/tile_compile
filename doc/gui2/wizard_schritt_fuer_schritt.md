@@ -63,7 +63,7 @@ Dabei bearbeitest du jeden Abschnitt direkt in der dafuer vorgesehenen Seite.
 
 ## Schritt 3: Optionale MONO Queue pflegen
 
-![Step 3 - MONO Queue](mockups/expert_step_03_mono_queue.png)
+Step 3 - MONO Queue
 
 Dieser Schritt ist nur relevant, wenn du mit `MONO` arbeitest.
 

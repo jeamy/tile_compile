@@ -43,7 +43,7 @@ The wizard guides the user through these steps on a single page:
 
 ## Step 2: Optional MONO filter queue
 
-![Step 2 - MONO Queue](mockups/wizard_step_02_mono_queue.png)
+Step 2 - MONO Queue
 
 This step only matters when `MONO` is used.
 
