@@ -10,6 +10,7 @@ BUILD_TYPE="${BUILD_TYPE:-Release}"
 BUILD_SUFFIX="${BUILD_SUFFIX:-build-gui2-release}"
 PORT="${PORT:-8080}"
 MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+GUI2_PACKAGE_DEBUG="${GUI2_PACKAGE_DEBUG:-0}"
 SKIP_BUILD=0
 SKIP_SMOKE=0
 
@@ -29,7 +30,7 @@ Options:
   -h, --help             Show this help
 
 Environment overrides:
-  TAG, ARTIFACT_PREFIX, BUILD_TYPE, BUILD_SUFFIX, PORT, MACOSX_DEPLOYMENT_TARGET
+  TAG, ARTIFACT_PREFIX, BUILD_TYPE, BUILD_SUFFIX, PORT, MACOSX_DEPLOYMENT_TARGET, GUI2_PACKAGE_DEBUG
 EOF
 }
 
@@ -115,29 +116,65 @@ build_all() {
 }
 
 collect_macos_libs() {
+  local root_target="$1"
+  local seen_file=""
+  local deps_file=""
+  local queue=()
+  local queue_len=0
+  local index=0
+  local target=""
+  local dep=""
+  local resolved=""
+  local name=""
+  local dst=""
+
+  seen_file="$(mktemp)"
+  queue[0]="$root_target"
+  queue_len=1
+
+  while [[ "${index}" -lt "${queue_len}" ]]; do
+    target="${queue[${index}]}"
+    index=$((index + 1))
+    if grep -Fqx -- "$target" "$seen_file"; then
+      continue
+    fi
+    if [[ "${GUI2_PACKAGE_DEBUG}" == "1" ]]; then
+      echo "[gui2-package] scanning ${target}"
+    fi
+    printf '%s\n' "$target" >> "$seen_file"
+
+    deps_file="$(mktemp)"
+    macos_list_deps "$target" > "$deps_file"
+    while IFS= read -r dep || [[ -n "$dep" ]]; do
+      name="$(basename "$dep")"
+      case "$dep" in
+        /usr/lib/*|/System/*) continue ;;
+      esac
+      if macos_should_skip_bundle_dep "$dep" "$name"; then
+        continue
+      fi
+      resolved="$(resolve_macos_dep_path "$target" "$dep" || true)"
+      [[ -n "$resolved" && -f "$resolved" ]] || continue
+      dst="${PAYLOAD}/tile_compile_cpp/lib/${name}"
+      if [[ ! -f "$dst" ]]; then
+        cp "$resolved" "$dst"
+        chmod u+w "$dst" || true
+      fi
+      if ! grep -Fqx -- "$resolved" "$seen_file"; then
+        queue[${queue_len}]="$resolved"
+        queue_len=$((queue_len + 1))
+      fi
+    done < "$deps_file"
+    rm -f "$deps_file"
+    deps_file=""
+  done
+
+  rm -f "$seen_file"
+}
+
+macos_list_deps() {
   local target="$1"
-  otool -L "$target" \
-    | tail -n +2 \
-    | awk '{print $1}' \
-    | while read -r dep; do
-        local resolved=""
-        local name
-        name="$(basename "$dep")"
-        case "$dep" in
-          /usr/lib/*|/System/*) continue ;;
-        esac
-        if macos_should_skip_bundle_dep "$dep" "$name"; then
-          continue
-        fi
-        resolved="$(resolve_macos_dep_path "$target" "$dep")"
-        [[ -n "$resolved" && -f "$resolved" ]] || continue
-        local dst="${PAYLOAD}/tile_compile_cpp/lib/${name}"
-        if [[ ! -f "$dst" ]]; then
-          cp "$resolved" "$dst"
-          chmod u+w "$dst" || true
-          collect_macos_libs "$resolved"
-        fi
-      done
+  otool -L "$target" | tail -n +2 | awk '{print $1}'
 }
 
 macos_should_skip_bundle_dep() {
@@ -236,8 +273,17 @@ verify_macos_bundle_refs() {
   local target=""
   local dep=""
   local bad=0
-  while IFS= read -r -d '' target; do
-    while IFS= read -r dep; do
+  local targets_file=""
+  local deps_file=""
+
+  targets_file="$(mktemp)"
+  find "${PAYLOAD}" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so*" \) -print > "$targets_file"
+
+  while IFS= read -r target || [[ -n "$target" ]]; do
+    [[ -n "$target" ]] || continue
+    deps_file="$(mktemp)"
+    macos_list_deps "$target" > "$deps_file"
+    while IFS= read -r dep || [[ -n "$dep" ]]; do
       local name=""
       case "$dep" in
         /usr/lib/*|/System/*|@loader_path/*|@executable_path/*)
@@ -259,8 +305,12 @@ verify_macos_bundle_refs() {
           bad=1
         fi
       fi
-    done < <(otool -L "$target" | tail -n +2 | awk '{print $1}')
-  done < <(find "${PAYLOAD}" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so*" \) -print0)
+    done < "$deps_file"
+    rm -f "$deps_file"
+    deps_file=""
+  done < "$targets_file"
+
+  rm -f "$targets_file"
 
   if [[ "$bad" != "0" ]]; then
     echo "[gui2-package] Bundle verification failed." >&2
@@ -283,6 +333,7 @@ assemble_bundle() {
   cp "${RUNNER_BUILD_DIR}/tile_compile_cli" "${PAYLOAD}/tile_compile_cpp/build/"
   cp "${BACKEND_BUILD_DIR}/tile_compile_web_backend" "${PAYLOAD}/web_backend_cpp/build/"
   # Keep Homebrew install names untouched; the launcher exports DYLD_LIBRARY_PATH.
+  echo "[gui2-package] Collecting macOS runtime libraries"
   collect_macos_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner"
   collect_macos_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_cli"
   collect_macos_libs "${PAYLOAD}/web_backend_cpp/build/tile_compile_web_backend"
@@ -293,6 +344,7 @@ assemble_bundle() {
       -name "libstdc++*.dylib" -o \
       -name "libclang_rt*.dylib" \) -delete
   printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui2-release-tag"
+  echo "[gui2-package] Verifying bundled library references"
   verify_macos_bundle_refs
   ditto -c -k --sequesterRsrc --keepParent "${ROOT}" "${ARTIFACTS_DIR}/${BUNDLE_NAME}.zip"
 }
