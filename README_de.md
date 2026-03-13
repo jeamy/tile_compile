@@ -16,7 +16,9 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 - Methodik-Paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](doc/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
 - Prozessfluss (Implementierung): [Process flow (German)](doc/v3/process_flow/README_de.md)
 - Deutsche Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](doc/v3/tbqr_step_by_step_de.md)
-- Englische Schritt-für-Schritt-Anleitung: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
+- GUI2 Experteneingabe (Deutsch): [Experteneingabe Schritt-fuer-Schritt](doc/gui2/wizard_schritt_fuer_schritt.md)
+- GUI2 gefuehrter Wizard (Deutsch): [Gefuehrter Wizard Schritt-fuer-Schritt](doc/gui2/wizard_gefuehrter_run_schritt_fuer_schritt.md)
+- GUI2 Dashboard-Run (Deutsch): [Dashboard Run Schritt-fuer-Schritt](doc/gui2/dashboard_run_schritt_fuer_schritt.md)
 - Englisches Haupt-README: [English README](README.md)
 - Ablaufplan (verständliche Kurzbeschreibung): [Ablaufplan – Funktionsweise des Systems](doc/v3/process_flow/data_flow_user_description_de.md)
 
@@ -531,6 +533,12 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-13)
+
+**GUI2-Dokumentation erweitert und Benennungen bereinigt:**
+
+- Eigene GUI2-Schritt-fuer-Schritt-Anleitungen fuer die Hauptablaeufe in Deutsch und Englisch ergaenzt und verlinkt, inklusive Experteneingabe, gefuehrtem Wizard und Dashboard-Run.
 
 ### (2026-03-12)
 

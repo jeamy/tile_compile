@@ -48,6 +48,27 @@ int main(int argc, char** argv) {
             }
         }
         expect_true(found_skipped, "state clustering phase present");
+
+        harness.create_run("skipped_then_resume_ok_run", {
+            {{"ts", "2026-03-10T12:00:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
+            {{"ts", "2026-03-10T12:00:01Z"}, {"type", "phase_end"}, {"phase_name", "ASTROMETRY"}, {"status", "skipped"}},
+            {{"ts", "2026-03-10T12:00:02Z"}, {"type", "run_end"}, {"success", true}},
+            {{"ts", "2026-03-10T12:05:00Z"}, {"type", "resume_start"}, {"from_phase", "ASTROMETRY"}},
+            {{"ts", "2026-03-10T12:05:05Z"}, {"type", "resume_end"}, {"success", true}, {"status", "ok"}}
+        }, "OSC");
+
+        const auto resumed_ok_status = harness.get_json("/api/runs/skipped_then_resume_ok_run/status");
+        expect_equal(resumed_ok_status["_http_status"].get<long>(), 200L, "resumed skipped phase status code");
+        expect_equal(resumed_ok_status["status"].get<std::string>(), "completed", "resumed skipped run completed status");
+        bool found_resumed_phase = false;
+        for (const auto& item : resumed_ok_status["phases"]) {
+            if (item.value("phase", "") == "ASTROMETRY") {
+                found_resumed_phase = true;
+                expect_equal(item["status"].get<std::string>(), "ok", "astrometry status upgraded after successful resume");
+                expect_equal(item["pct"].get<double>(), 1.0, "astrometry pct upgraded after successful resume", 1e-9);
+            }
+        }
+        expect_true(found_resumed_phase, "astrometry phase present after successful resume");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

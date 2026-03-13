@@ -15,9 +15,10 @@ While the methodology was originally conceived to address the specific challenge
 - Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.3.6](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.6_en.md)
 - Methodology paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](doc/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
 - Implementation process flow: [Process flow (English)](doc/v3/process_flow/README_en.md)
-- Implementation process flow (German): [Process flow](doc/v3/process_flow/README_de.md)
 - English step-by-step guide: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
-- German step-by-step guide: [Schritt-für-Schritt-Anleitung](doc/v3/tbqr_step_by_step_de.md)
+- GUI2 expert input guide (English): [Expert Input Step-by-Step](doc/gui2/expert_input_step_by_step.md)
+- GUI2 guided wizard guide (English): [Guided Wizard Step-by-Step](doc/gui2/guided_wizard_step_by_step.md)
+- GUI2 dashboard run guide (English): [Dashboard Run Step-by-Step](doc/gui2/dashboard_run_step_by_step.md)
 - German README snapshot: [German README](README_de.md)
 - Data flow (user-friendly): [Process Flow – How the System Works](doc/v3/process_flow/data_flow_user_description_en.md)
 
@@ -522,6 +523,12 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-03-13)
+
+**GUI2 documentation expansion and naming cleanup:**
+
+- Added and linked dedicated GUI2 step-by-step guides for the main workflows in German and English, covering expert input, guided wizard, and dashboard run usage.
 
 ### (2026-03-12)
 

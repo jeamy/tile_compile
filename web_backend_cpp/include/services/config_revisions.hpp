@@ -35,3 +35,15 @@ private:
     std::vector<ConfigRevision> _revisions;
     int _counter{0};
 };
+
+fs::path run_config_revisions_dir(const fs::path& run_dir);
+
+std::string add_run_config_revision(const fs::path& run_dir,
+                                    const std::string& yaml_text,
+                                    const std::string& source = "run_config",
+                                    const std::optional<std::string>& run_id = std::nullopt);
+
+std::vector<ConfigRevision> list_run_config_revisions(const fs::path& run_dir);
+
+std::optional<ConfigRevision> get_run_config_revision(const fs::path& run_dir,
+                                                      const std::string& revision_id);

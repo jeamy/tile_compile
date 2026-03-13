@@ -88,14 +88,38 @@
           <aside class="ps-col">
             <div class="ps-section">
               <div class="ps-section-title">Resume + Config-Revision</div>
-              <div class="ps-note">Resume bleibt deaktiviert, bis eine Zielphase in der Pipeline angeklickt wurde.</div>
+              <div class="ps-note">Nach Run-Ende kann hier eine Run-Config geladen, editiert, als Template gespeichert und fuer Resume verwendet werden.</div>
               <div class="ps-row">
                 <label for="monitor-resume-config-revision">Config Revision</label>
                 <select id="monitor-resume-config-revision" data-control="monitor.resume.config_revision" class="ps-select" title="Revision fuer Resume waehlen."></select>
               </div>
               <div class="ps-actions" style="margin-top:10px;">
+                <button id="monitor-resume-load-current" class="ps-btn ps-btn-secondary" type="button" title="Aktive Run-Config in den Editor laden.">Run-Config laden</button>
+                <button id="monitor-resume-restore-revision" data-control="monitor.resume.restore_revision" class="ps-btn ps-btn-secondary" title="Ausgewaehlte Revision in den Editor laden.">Revision laden</button>
+              </div>
+              <div class="ps-row" style="margin-top:12px;">
+                <label for="monitor-resume-preset-select">Template</label>
+                <select id="monitor-resume-preset-select" class="ps-select" title="Template fuer Resume-Config auswaehlen."></select>
+              </div>
+              <div class="ps-row">
+                <label for="monitor-resume-preset-dir">Template Dir</label>
+                <div class="ps-inline-cluster">
+                  <input id="monitor-resume-preset-dir" class="ps-input ps-wide" type="text" value="" title="Template-Verzeichnis setzen oder leer lassen fuer examples.">
+                  <button id="monitor-resume-preset-dir-browse" class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
+                  <button id="monitor-resume-preset-dir-reload" class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Reload</button>
+                </div>
+              </div>
+              <div class="ps-actions" style="margin-top:10px;">
+                <button id="monitor-resume-apply-template" class="ps-btn ps-btn-secondary" type="button" title="Template in den Resume-Editor laden.">Template laden</button>
+                <button id="monitor-resume-save-template" class="ps-btn ps-btn-secondary" type="button" title="Editorinhalt als Template speichern.">Als Template speichern</button>
+              </div>
+              <div class="ps-row" style="margin-top:12px;">
+                <label for="monitor-resume-config-editor">Resume Config</label>
+                <textarea id="monitor-resume-config-editor" class="ps-input ps-wide" rows="16" spellcheck="false" title="YAML-Konfiguration fuer Resume."></textarea>
+              </div>
+              <div id="monitor-resume-config-status" class="ps-note" style="margin-top:10px;display:none;white-space:normal;"></div>
+              <div class="ps-actions" style="margin-top:10px;">
                 <button id="monitor-resume" data-control="monitor.resume" class="ps-btn" title="Resume mit gewaehlter Phase/Revision starten." disabled>Resume starten</button>
-                <button id="monitor-resume-restore-revision" data-control="monitor.resume.restore_revision" class="ps-btn ps-btn-secondary" title="Aeltere Config-Revision wiederherstellen.">Restore Revision</button>
               </div>
               <div id="monitor-resume-info" style="display:none;margin-top:10px;color:#92400e;font-size:13px;font-weight:600;"></div>
             </div>
@@ -125,6 +149,6 @@
     <p class="footer-note">Run Monitor bildet die Funktionsmatrix 4.5 ab: Phasenklick-Resume, Filterchips, Revisionssteuerung und Stats unter Live Log.</p>
   </main>
 
-  <script type="module" src="src/app.js?v=9"></script>
+  <script type="module" src="src/app.js?v=10"></script>
 </body>
 </html>

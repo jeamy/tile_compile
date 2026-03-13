@@ -125,30 +125,6 @@ std::string extract_run_id_from_events(const fs::path& event_file) {
     return "";
 }
 
-std::string format_event_line(const nlohmann::json& ev) {
-    std::vector<std::string> parts;
-    parts.push_back(ev.value("ts", std::string()));
-    parts.push_back(ev.value("type", std::string("event")));
-    std::string phase = phase_name_from_event(ev);
-    if (!phase.empty()) parts.push_back(phase);
-    std::string status = ev.value("status", std::string());
-    if (!status.empty()) parts.push_back("status=" + status);
-    double progress = ev.contains("progress") ? clamp_progress(ev["progress"]) : -1.0;
-    if (progress >= 0.0) {
-        std::ostringstream oss;
-        oss << std::fixed << std::setprecision(1) << (progress * 100.0) << "%";
-        parts.push_back(oss.str());
-    }
-    std::string message = ev.value("message", std::string());
-    if (!message.empty()) parts.push_back(message);
-    std::ostringstream out;
-    for (size_t i = 0; i < parts.size(); ++i) {
-        if (i) out << " | ";
-        out << parts[i];
-    }
-    return out.str();
-}
-
 std::string iso_utc_from_file_time(const fs::file_time_type& file_time) {
     const auto system_now = std::chrono::system_clock::now();
     const auto file_now = fs::file_time_type::clock::now();
@@ -320,7 +296,21 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
             bool success = ev.value("success", false);
             if (!success && ev.contains("payload") && ev["payload"].is_object()) success = ev["payload"].value("success", false);
             run_status = success ? "completed" : "failed";
-            if (success && current_phase == resume_from_phase) current_phase.clear();
+            if (success) {
+                if (!resume_from_phase.empty()) {
+                    nlohmann::json* phase_state = nullptr;
+                    if (phases.contains(resume_from_phase)) phase_state = &phases[resume_from_phase];
+                    else if (extra_phases.contains(resume_from_phase)) phase_state = &extra_phases[resume_from_phase];
+                    if (phase_state) {
+                        const std::string status_text = (*phase_state).value("status", std::string());
+                        if (status_text == "running" || status_text == "pending") {
+                            (*phase_state)["status"] = "ok";
+                            (*phase_state)["pct"] = 1.0;
+                        }
+                    }
+                }
+                if (current_phase == resume_from_phase) current_phase.clear();
+            }
         }
 
         if (event_type == "run_end") {
@@ -400,12 +390,21 @@ std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit) {
 std::string read_run_logs(const fs::path& run_dir, int tail) {
     auto event_file = find_event_file(run_dir);
     if (!event_file) return "";
+
+    std::ifstream in(*event_file);
+    if (!in) return "";
+
     std::vector<std::string> lines;
-    for (const auto& ev : iter_jsonl(*event_file)) lines.push_back(format_event_line(ev));
-    int start = (int)lines.size() - tail;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+        lines.push_back(line);
+    }
+
+    int start = static_cast<int>(lines.size()) - tail;
     if (start < 0) start = 0;
     std::ostringstream oss;
-    for (int i = start; i < (int)lines.size(); ++i)
+    for (int i = start; i < static_cast<int>(lines.size()); ++i)
         oss << lines[i] << "\n";
     return oss.str();
 }

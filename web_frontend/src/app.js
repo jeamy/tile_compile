@@ -590,6 +590,91 @@ function genericLogSummary(entry) {
   return parts.join(" | ");
 }
 
+function formatLogNumber(value, digits = 3) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "";
+  return numeric.toFixed(digits);
+}
+
+function pushLogPart(parts, value) {
+  const text = compactLogMessage(value);
+  if (text) parts.push(text);
+}
+
+function summarizePhaseEndPayload(phaseRaw, payload) {
+  if (!payload || typeof payload !== "object") return [];
+  const phase = String(phaseRaw || "").trim().toUpperCase();
+  const parts = [];
+
+  pushLogPart(parts, payload.reason);
+  pushLogPart(parts, payload.error);
+
+  if (Number.isFinite(Number(payload.exit_code))) {
+    parts.push(`exit ${payload.exit_code}`);
+  }
+
+  if (phase === "ASTROMETRY") {
+    const ra = formatLogNumber(payload.ra, 6);
+    const dec = formatLogNumber(payload.dec, 6);
+    const scale = formatLogNumber(payload.pixel_scale_arcsec, 3);
+    const rotation = formatLogNumber(payload.rotation_deg, 2);
+    if (ra && dec) parts.push(`RA ${ra} deg`, `Dec ${dec} deg`);
+    if (scale) parts.push(`Scale ${scale} arcsec/px`);
+    if (rotation) parts.push(`Rot ${rotation} deg`);
+    pushLogPart(parts, payload.astap_bin);
+    pushLogPart(parts, payload.wcs_file);
+  } else if (phase === "REGISTRATION") {
+    if (Number.isFinite(Number(payload.ref_frame))) parts.push(`ref ${payload.ref_frame}`);
+    pushLogPart(parts, payload.ref_frame_strategy);
+    if (Number.isFinite(Number(payload.frames_cc_positive))) parts.push(`cc>0 ${payload.frames_cc_positive}`);
+    if (Number.isFinite(Number(payload.frames_cc_zero))) parts.push(`cc=0 ${payload.frames_cc_zero}`);
+    const rejected = [
+      ["orient", payload.reg_reject_orientation_outliers],
+      ["reflect", payload.reg_reject_reflection_outliers],
+      ["scale", payload.reg_reject_scale_outliers],
+      ["cc", payload.reg_reject_cc_outliers],
+      ["shift", payload.reg_reject_shift_outliers],
+    ]
+      .filter(([, value]) => Number.isFinite(Number(value)) && Number(value) > 0)
+      .map(([label, value]) => `${label}=${value}`);
+    if (rejected.length > 0) parts.push(`reject ${rejected.join(",")}`);
+    const modeled = [
+      ["pred", payload.reg_model_predicted],
+      ["local", payload.reg_model_local_refined],
+      ["interp", payload.reg_model_interpolated],
+      ["blend", payload.reg_model_blended],
+    ]
+      .filter(([, value]) => Number.isFinite(Number(value)) && Number(value) > 0)
+      .map(([label, value]) => `${label}=${value}`);
+    if (modeled.length > 0) parts.push(`model ${modeled.join(",")}`);
+  } else if (phase === "PREWARP") {
+    if (Number.isFinite(Number(payload.num_frames_with_data)) && Number.isFinite(Number(payload.num_frames))) {
+      parts.push(`frames ${payload.num_frames_with_data}/${payload.num_frames}`);
+    }
+    if (Number.isFinite(Number(payload.canvas_width)) && Number.isFinite(Number(payload.canvas_height))) {
+      parts.push(`canvas ${payload.canvas_width}x${payload.canvas_height}`);
+    }
+    if (Number.isFinite(Number(payload.tile_offset_x)) && Number.isFinite(Number(payload.tile_offset_y))) {
+      parts.push(`offset ${payload.tile_offset_x},${payload.tile_offset_y}`);
+    }
+    if (Number.isFinite(Number(payload.workers))) parts.push(`workers ${payload.workers}`);
+  } else if (phase === "PCC") {
+    if (Number.isFinite(Number(payload.stars_matched))) parts.push(`matched ${payload.stars_matched}`);
+    if (Number.isFinite(Number(payload.stars_used))) parts.push(`used ${payload.stars_used}`);
+    const rms = formatLogNumber(payload.residual_rms, 4);
+    const det = formatLogNumber(payload.determinant, 4);
+    const cond = formatLogNumber(payload.condition_number, 3);
+    if (rms) parts.push(`RMS ${rms}`);
+    if (det) parts.push(`det ${det}`);
+    if (cond) parts.push(`cond ${cond}`);
+    pushLogPart(parts, payload.apply_mode);
+    pushLogPart(parts, payload.source);
+    pushLogPart(parts, payload.input_rgb_bge);
+  }
+
+  return parts;
+}
+
 function formatRunStreamLog(entry, { suppressRunStatus = false } = {}) {
   if (!entry || typeof entry !== "object") return "";
   const type = String(entry.type || "").trim().toLowerCase();
@@ -618,6 +703,7 @@ function formatRunStreamLog(entry, { suppressRunStatus = false } = {}) {
     const parts = [phase || "Phase", status || "OK"];
     if (pct) parts.push(pct);
     if (message) parts.push(message);
+    parts.push(...summarizePhaseEndPayload(phase, payload));
     return `${prefix}${parts.join(" | ")}`;
   }
   if (type === "queue_progress") {
@@ -1055,7 +1141,7 @@ function selectedPresetsDir() {
 
 function syncPresetDirInputs() {
   const value = selectedPresetsDir();
-  ["dashboard-preset-dir", "parameter-preset-dir", "wizard-preset-dir"].forEach((id) => {
+  ["dashboard-preset-dir", "parameter-preset-dir", "wizard-preset-dir", "monitor-resume-preset-dir"].forEach((id) => {
     const el = $(id);
     if (el) el.value = value;
   });
@@ -1249,7 +1335,7 @@ function persistUnifiedPresetPath(path = "") {
 
 function syncPresetSelectValues(path = "") {
   const normalized = String(path || "").trim();
-  ["dashboard-preset", "parameter-preset-select", "wizard-preset-select"].forEach((id) => {
+  ["dashboard-preset", "parameter-preset-select", "wizard-preset-select", "monitor-resume-preset-select"].forEach((id) => {
     const select = $(id);
     if (!select || !normalized) return;
     const option = Array.from(select.options || []).find((item) => String(item.value || "") === normalized);
@@ -1663,6 +1749,25 @@ async function chooseConfigSaveAsPath() {
     return normalizedPickedPath || null;
   }
   const typedPath = window.prompt("Dateipfad fuer Speichern unter", defaultPath);
+  const normalizedPath = ensureYamlFileName(typedPath);
+  return normalizedPath || null;
+}
+
+async function chooseRunMonitorTemplateSavePath() {
+  const runStem = String(uiState.currentRunId || "resume").trim().replace(/[^A-Za-z0-9._-]+/g, "_");
+  const defaultDir = firstNonEmptyText(
+    String($("monitor-resume-preset-dir")?.value || "").trim(),
+    selectedPresetsDir(),
+    parentDirOfPath(uiState.defaultConfigPath),
+  );
+  const defaultName = ensureYamlFileName(`${runStem || "resume"}_resume_template.yaml`);
+  const defaultPath = joinPath(defaultDir, defaultName);
+  if (typeof window.gui2PickPathValue === "function") {
+    const pickedPath = await window.gui2PickPathValue(defaultPath, { mode: "save-file", defaultFileName: defaultName });
+    const normalizedPickedPath = ensureYamlFileName(String(pickedPath || "").trim());
+    return normalizedPickedPath || null;
+  }
+  const typedPath = window.prompt("Dateipfad fuer Template speichern", defaultPath);
   const normalizedPath = ensureYamlFileName(typedPath);
   return normalizedPath || null;
 }
@@ -2945,16 +3050,68 @@ async function loadRunStatus(runId) {
 async function loadRunRevisions() {
   const sel = $("monitor-resume-config-revision");
   if (!sel) return;
+  if (!uiState.currentRunId) {
+    sel.innerHTML = "";
+    return;
+  }
   const old = sel.value;
-  const revisions = await api.get(API_ENDPOINTS.config.revisions);
+  const revisions = await api.get(API_ENDPOINTS.runs.configRevisions(uiState.currentRunId));
   sel.innerHTML = "";
   for (const item of revisions.items || []) {
     const opt = document.createElement("option");
     opt.value = item.revision_id;
-    opt.textContent = item.revision_id;
+    const source = String(item?.source || "revision").trim();
+    const created = String(item?.created_at || "").trim();
+    opt.textContent = created ? `${item.revision_id} | ${source} | ${created}` : `${item.revision_id} | ${source}`;
     sel.appendChild(opt);
   }
   if (old) sel.value = old;
+}
+
+function setRunMonitorConfigStatus(text = "") {
+  const el = $("monitor-resume-config-status");
+  if (!el) return;
+  const value = String(text || "").trim();
+  el.textContent = value;
+  el.style.display = value ? "" : "none";
+}
+
+function runMonitorConfigEditorValue() {
+  return String($("monitor-resume-config-editor")?.value || "");
+}
+
+function setRunMonitorConfigEditor(yamlText = "", { source = "", revisionId = "" } = {}) {
+  const editor = $("monitor-resume-config-editor");
+  if (!editor) return;
+  const value = String(yamlText || "");
+  editor.value = value;
+  editor.dataset.source = String(source || "");
+  editor.dataset.revisionId = String(revisionId || "");
+  const parts = [];
+  if (source) parts.push(`Quelle: ${source}`);
+  if (revisionId) parts.push(`Revision: ${revisionId}`);
+  parts.push(`Zeilen: ${value ? value.split(/\r?\n/).length : 0}`);
+  setRunMonitorConfigStatus(parts.join(" | "));
+}
+
+async function loadRunMonitorCurrentConfig() {
+  if (!uiState.currentRunId) return;
+  const current = await api.get(API_ENDPOINTS.runs.config(uiState.currentRunId));
+  const sourcePath = String(current?.path || "").trim();
+  setRunMonitorConfigEditor(String(current?.config || ""), {
+    source: sourcePath || "run/config.yaml",
+    revisionId: "",
+  });
+}
+
+async function loadRunMonitorSelectedRevision() {
+  const revisionId = String($("monitor-resume-config-revision")?.value || "").trim();
+  if (!uiState.currentRunId || !revisionId) return;
+  const revision = await api.get(API_ENDPOINTS.runs.configRevision(uiState.currentRunId, revisionId));
+  setRunMonitorConfigEditor(String(revision?.config || ""), {
+    source: String(revision?.source || "run_revision").trim(),
+    revisionId,
+  });
 }
 
 function connectRunMonitorStream(runId) {
@@ -3019,15 +3176,30 @@ async function bindRunMonitor() {
   const statsGenerateBtn = $("monitor-stats-generate");
   const statsOpenFolderBtn = $("monitor-stats-open-folder");
   const statsStatusEl = $("monitor-stats-status");
+  const resumeEditor = $("monitor-resume-config-editor");
+  const resumePresetSelect = $("monitor-resume-preset-select");
+  const resumeLoadCurrentBtn = $("monitor-resume-load-current");
+  const resumeApplyTemplateBtn = $("monitor-resume-apply-template");
+  const resumeSaveTemplateBtn = $("monitor-resume-save-template");
   const sub = document.querySelector(".app-content .ps-sub");
   const updateResumeEnabled = () => {
     const phase = runMonitorSelectedPhase();
-    const revisionId = $("monitor-resume-config-revision")?.value || "";
     const selectedRow = document.querySelector(".ps-phase-row.is-selected");
     const resumable = String(selectedRow?.dataset?.resumeAllowed || "") === "1";
     const showHistoryResumeHint = isCurrentRunFromHistory();
-    setDisabledLike($("monitor-resume"), !uiState.currentRunId || !phase || !resumable);
-    setDisabledLike($("monitor-resume-restore-revision"), !revisionId);
+    const hasYaml = String(runMonitorConfigEditorValue() || "").trim().length > 0;
+    const isActive = isRunActiveStatus(uiState.runProcessStatus || "");
+    setDisabledLike($("monitor-resume"), !uiState.currentRunId || !phase || !resumable || !hasYaml || isActive);
+    setDisabledLike($("monitor-resume-restore-revision"), !$("monitor-resume-config-revision")?.value || isActive);
+    setDisabledLike(resumeLoadCurrentBtn, !uiState.currentRunId || isActive);
+    setDisabledLike(resumeApplyTemplateBtn, !String(resumePresetSelect?.value || "").trim() || isActive);
+    setDisabledLike(resumeSaveTemplateBtn, !hasYaml || isActive);
+    setDisabledLike(resumePresetSelect, isActive);
+    setDisabledLike($("monitor-resume-preset-dir"), isActive);
+    setDisabledLike($("monitor-resume-preset-dir-browse"), isActive);
+    setDisabledLike($("monitor-resume-preset-dir-reload"), isActive);
+    setDisabledLike($("monitor-resume-config-revision"), isActive);
+    setDisabledLike(resumeEditor, isActive);
     setMonitorResumeInfo(
       showHistoryResumeHint
         ? t(
@@ -3055,6 +3227,20 @@ async function bindRunMonitor() {
     });
   });
   $("monitor-resume-config-revision")?.addEventListener("change", updateResumeEnabled);
+  resumePresetSelect?.addEventListener("change", updateResumeEnabled);
+  resumeEditor?.addEventListener("input", updateResumeEnabled);
+
+  if (resumePresetSelect) {
+    await bindPresetDirectoryControl({
+      inputId: "monitor-resume-preset-dir",
+      browseId: "monitor-resume-preset-dir-browse",
+      reloadId: "monitor-resume-preset-dir-reload",
+      selectId: "monitor-resume-preset-select",
+    });
+    await populatePresetSelect("monitor-resume-preset-select", true);
+    restoreUnifiedPresetSelectValue("monitor-resume-preset-select");
+    bindUnifiedPresetSelect("monitor-resume-preset-select");
+  }
 
   const artifactSection = Array.from(document.querySelectorAll(".ps-section")).find((sec) => {
     const title = sec.querySelector(".ps-section-title");
@@ -3189,6 +3375,7 @@ async function bindRunMonitor() {
   };
   const setMonitorActionState = (isActive) => {
     const hasRun = Boolean(String(uiState.currentRunId || "").trim());
+    uiState.runProcessStatus = isActive ? "running" : "idle";
     setDisabledLike(startBtn, isActive);
     setDisabledLike(stopBtn, !isActive);
     setDisabledLike(statsGenerateBtn, isActive || !hasRun);
@@ -3220,9 +3407,14 @@ async function bindRunMonitor() {
     uiState.runLogLines = [];
     uiState.runLogPending = [];
     uiState.currentRunDir = "";
+    uiState.runProcessStatus = "";
     resetPhaseRows();
     renderArtifacts([]);
     setMonitorReportAvailable(false);
+    setRunMonitorConfigEditor("", {});
+    setRunMonitorConfigStatus("");
+    const revisionSelect = $("monitor-resume-config-revision");
+    if (revisionSelect) revisionSelect.innerHTML = "";
     const logBox = runMonitorLogBox();
     if (logBox) {
       logBox.textContent = "";
@@ -3233,6 +3425,11 @@ async function bindRunMonitor() {
   const refreshCurrentRunMonitorState = async ({ reconnectSocket = false } = {}) => {
     if (!uiState.currentRunId) return null;
     const status = await loadRunStatus(uiState.currentRunId);
+    uiState.runProcessStatus = String(status?.status || "").trim().toLowerCase();
+    await loadRunRevisions();
+    if (!String(runMonitorConfigEditorValue() || "").trim()) {
+      await loadRunMonitorCurrentConfig().catch(() => {});
+    }
     await refreshArtifacts();
     await refreshStatsActions();
     const isActive = isRunActiveStatus(status?.status || "");
@@ -3307,20 +3504,76 @@ async function bindRunMonitor() {
     }
   });
 
+  resumeLoadCurrentBtn?.addEventListener("click", async () => {
+    try {
+      await loadRunMonitorCurrentConfig();
+      setFooter("Run-Config in den Resume-Editor geladen.");
+      updateResumeEnabled();
+    } catch (err) {
+      setFooter(`Run-Config laden fehlgeschlagen: ${errorText(err)}`, true);
+    }
+  });
+
+  resumeApplyTemplateBtn?.addEventListener("click", async () => {
+    try {
+      const path = String(resumePresetSelect?.value || "").trim();
+      if (!path) {
+        setFooter("Kein Template ausgewaehlt.", true);
+        return;
+      }
+      syncUnifiedPresetSelection(path);
+      const applied = await api.post(API_ENDPOINTS.config.applyPreset, { path });
+      setRunMonitorConfigEditor(String(applied?.config || ""), {
+        source: path,
+        revisionId: "",
+      });
+      setFooter("Template in den Resume-Editor geladen.");
+      updateResumeEnabled();
+    } catch (err) {
+      setFooter(`Template laden fehlgeschlagen: ${errorText(err)}`, true);
+    }
+  });
+
+  resumeSaveTemplateBtn?.addEventListener("click", async () => {
+    try {
+      const yaml = runMonitorConfigEditorValue();
+      if (!String(yaml || "").trim()) {
+        setFooter("Keine Resume-Config zum Speichern vorhanden.", true);
+        return;
+      }
+      const targetPath = await chooseRunMonitorTemplateSavePath();
+      if (!targetPath) return;
+      const saved = await api.post(API_ENDPOINTS.config.save, {
+        yaml,
+        path: targetPath,
+      });
+      await populatePresetSelect("monitor-resume-preset-select", false);
+      restoreUnifiedPresetSelectValue("monitor-resume-preset-select");
+      setFooter(`Template gespeichert unter ${saved?.path || targetPath}.`);
+    } catch (err) {
+      setFooter(`Template speichern fehlgeschlagen: ${errorText(err)}`, true);
+    }
+  });
+
   $("monitor-resume")?.addEventListener("click", async () => {
     const phase = runMonitorSelectedPhase();
-    const revisionId = $("monitor-resume-config-revision")?.value || "";
     if (!phase) {
       setFooter("Bitte Zielphase waehlen.", true);
       return;
     }
     try {
+      const yaml = runMonitorConfigEditorValue();
+      if (!String(yaml || "").trim()) {
+        setFooter("Bitte zuerst eine Resume-Config laden oder eingeben.", true);
+        return;
+      }
       const accepted = await api.post(API_ENDPOINTS.runs.resume(uiState.currentRunId), {
         from_phase: phase,
-        config_revision_id: revisionId || undefined,
+        config_yaml: yaml,
         run_dir: uiState.currentRunDir || undefined,
         filter_context: runMonitorSelectedFilter() || undefined,
       });
+      setConfigDraft(yaml);
       setFooter(`Resume gestartet (Job ${accepted.job_id}).`);
       await refreshCurrentRunMonitorState({ reconnectSocket: true });
     } catch (err) {
@@ -3335,12 +3588,11 @@ async function bindRunMonitor() {
       return;
     }
     try {
-      await api.post(API_ENDPOINTS.runs.restoreRevision(uiState.currentRunId, revisionId), {});
-      const current = await api.get(API_ENDPOINTS.config.current);
-      setConfigDraft(String(current?.config || ""));
-      setFooter(`Revision ${revisionId} wiederhergestellt.`);
+      await loadRunMonitorSelectedRevision();
+      setFooter(`Revision ${revisionId} in den Resume-Editor geladen.`);
+      updateResumeEnabled();
     } catch (err) {
-      setFooter(`Revision-Restore fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(`Revision laden fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
 
@@ -3444,6 +3696,9 @@ async function bindRunMonitor() {
     }
     if (!currentRunId && hintedRunId) setCurrentRunId(hintedRunId);
     const status = await loadRunStatus(uiState.currentRunId);
+    uiState.runProcessStatus = String(status?.status || "").trim().toLowerCase();
+    await loadRunRevisions();
+    await loadRunMonitorCurrentConfig().catch(() => {});
     await refreshArtifacts();
     await refreshStatsActions();
     const isActive = isRunActiveStatus(status?.status || appState?.run?.current?.status || "");

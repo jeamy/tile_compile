@@ -122,6 +122,38 @@ static std::string read_file_str(const fs::path& path) {
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
+static bool write_file_str(const fs::path& path, const std::string& text) {
+    if (!path.parent_path().empty()) {
+        std::error_code ec;
+        fs::create_directories(path.parent_path(), ec);
+    }
+    std::ofstream out(path, std::ios::out | std::ios::trunc);
+    if (!out) return false;
+    out << text;
+    return static_cast<bool>(out);
+}
+
+static std::optional<ConfigRevision> resolve_config_revision(const std::shared_ptr<AppState>& state,
+                                                             const fs::path& run_dir,
+                                                             const std::string& revision_id) {
+    if (revision_id.empty()) return std::nullopt;
+    if (auto run_revision = get_run_config_revision(run_dir, revision_id)) return run_revision;
+    return state->revision_store.get(revision_id);
+}
+
+static void persist_run_config_snapshot(const fs::path& run_dir,
+                                        const std::string& yaml_text,
+                                        const std::string& source,
+                                        const std::optional<std::string>& run_id = std::nullopt) {
+    if (yaml_text.empty()) return;
+    auto revisions = list_run_config_revisions(run_dir);
+    if (!revisions.empty()) {
+        auto latest = get_run_config_revision(run_dir, revisions.front().revision_id);
+        if (latest && latest->yaml_text == yaml_text) return;
+    }
+    add_run_config_revision(run_dir, yaml_text, source, run_id);
+}
+
 static std::optional<fs::path> resolve_artifact_path(const fs::path& run_dir, const std::string& raw_path) {
     const std::string trimmed = raw_path;
     if (trimmed.empty()) return std::nullopt;
@@ -535,7 +567,7 @@ void register_runs_routes(CrowApp& app,
                 {{"revision_id", revision_id}, {"queue_size", static_cast<int>(queue_items.size())}},
                 effective_run_id,
                 job_id);
-            std::thread([state, job_id, queue_items, runs_dir, effective_config_path]() mutable {
+            std::thread([state, job_id, queue_items, runs_dir, effective_config_path, prepared_config_yaml]() mutable {
                 fs::path staging_root = fs::path(runs_dir) / ".queue_staging" / job_id;
                 std::error_code ec;
                 fs::create_directories(staging_root, ec);
@@ -561,6 +593,11 @@ void register_runs_routes(CrowApp& app,
                         std::lock_guard<std::mutex> lk(state->state_mutex);
                         state->current_run_id = current_run_id;
                     }
+
+                    persist_run_config_snapshot(fs::path(runs_dir) / current_run_id,
+                                                prepared_config_yaml,
+                                                "run_start",
+                                                current_run_id);
 
                     state->job_store.update_state(job_id, JobState::running,
                         queue_job_payload(queue, static_cast<int>(i), current_run_id, runs_dir));
@@ -613,6 +650,10 @@ void register_runs_routes(CrowApp& app,
         }
 
         std::string effective_run_id = sanitize_run_id(run_id.empty() ? "run" : run_id);
+        persist_run_config_snapshot(fs::path(runs_dir) / effective_run_id,
+                                    prepared_config_yaml,
+                                    "run_start",
+                                    effective_run_id);
         auto args = runner_run_args(state, effective_config_path, input_dirs.front(), runs_dir, effective_run_id);
         std::string job_id = state->subprocess_manager.launch("run", args,
                                                                state->runtime.project_root.string(),
@@ -658,6 +699,59 @@ void register_runs_routes(CrowApp& app,
             if (auto pending = pending_run_status(state, run_id)) {
                 return json_resp(*pending);
             }
+            return err_resp(e.what(), 404);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/runs/<string>/config").methods("GET"_method)
+    ([state](const crow::request&, std::string run_id) {
+        try {
+            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            const fs::path config_path = run_dir / "config.yaml";
+            return json_resp({
+                {"run_id", run_id},
+                {"run_dir", run_dir.string()},
+                {"path", config_path.string()},
+                {"config", read_file_str(config_path)},
+            });
+        } catch (const std::exception& e) {
+            return err_resp(e.what(), 404);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/runs/<string>/config-revisions").methods("GET"_method)
+    ([state](const crow::request&, std::string run_id) {
+        try {
+            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            auto revisions = list_run_config_revisions(run_dir);
+            nlohmann::json items = nlohmann::json::array();
+            for (const auto& revision : revisions) items.push_back(config_revision_to_json(revision));
+            return json_resp({
+                {"run_id", run_id},
+                {"run_dir", run_dir.string()},
+                {"dir", run_config_revisions_dir(run_dir).string()},
+                {"items", items},
+            });
+        } catch (const std::exception& e) {
+            return err_resp(e.what(), 404);
+        }
+    });
+
+    CROW_ROUTE(app, "/api/runs/<string>/config-revisions/<string>").methods("GET"_method)
+    ([state](const crow::request&, std::string run_id, std::string rev_id) {
+        try {
+            auto run_dir = state->runtime.resolve_run_dir(run_id);
+            auto revision = get_run_config_revision(run_dir, rev_id);
+            if (!revision) return err_resp("NOT_FOUND", "revision '" + rev_id + "' not found", 404, nlohmann::json::object());
+            return json_resp({
+                {"run_id", run_id},
+                {"revision_id", rev_id},
+                {"path", revision->path},
+                {"source", revision->source},
+                {"created_at", revision->created_at},
+                {"config", revision->yaml_text},
+            });
+        } catch (const std::exception& e) {
             return err_resp(e.what(), 404);
         }
     });
@@ -747,6 +841,7 @@ void register_runs_routes(CrowApp& app,
         std::string from_phase   = body.value("from_phase",   "");
         std::string run_dir_str  = body.value("run_dir",      "");
         std::string rev_id       = body.value("config_revision_id", "");
+        std::string config_yaml  = body.value("config_yaml",  "");
         std::string filter_ctx   = body.value("filter_context", "");
 
         if (from_phase.empty()) return err_resp("RESUME_PHASE_REQUIRED", "from_phase is required for resume", 409, nlohmann::json::object());
@@ -762,12 +857,29 @@ void register_runs_routes(CrowApp& app,
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + run_dir.string(), 403, {{"path", run_dir.string()}});
         }
 
-        if (!rev_id.empty()) {
-            auto rev = state->revision_store.get(rev_id);
+        const fs::path run_config_path = run_dir / "config.yaml";
+        std::string requested_yaml = config_yaml;
+        if (requested_yaml.empty() && !rev_id.empty()) {
+            auto rev = resolve_config_revision(state, run_dir, rev_id);
             if (!rev) return err_resp("NOT_FOUND", "revision '" + rev_id + "' not found", 404, nlohmann::json::object());
-            std::ofstream out(run_dir / "config.yaml");
-            if (!out) return err_resp("Cannot write: " + (run_dir / "config.yaml").string(), 500);
-            out << rev->yaml_text;
+            requested_yaml = rev->yaml_text;
+        }
+
+        if (!requested_yaml.empty()) {
+            const std::string current_yaml = read_file_str(run_config_path);
+            if (!current_yaml.empty() && current_yaml != requested_yaml) {
+                persist_run_config_snapshot(run_dir, current_yaml, "resume_previous_config", run_id);
+            }
+            if (!write_file_str(run_config_path, requested_yaml)) {
+                return err_resp("Cannot write: " + run_config_path.string(), 500);
+            }
+            persist_run_config_snapshot(run_dir, requested_yaml, "resume_selected_config", run_id);
+            const std::string active_revision_id =
+                state->revision_store.add(run_config_path, requested_yaml, "resume_config", run_id);
+            {
+                std::lock_guard<std::mutex> lk(state->state_mutex);
+                state->active_config_revision_id = active_revision_id;
+            }
         }
 
         std::vector<std::string> args = {state->runtime.runner_exe, "resume"};
@@ -1002,16 +1114,28 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/config-revisions/<string>/restore").methods("POST"_method)
     ([state](const crow::request&, std::string run_id, std::string rev_id) {
-        auto rev = state->revision_store.get(rev_id);
+        fs::path run_dir;
+        try {
+            run_dir = state->runtime.resolve_run_dir(run_id);
+        } catch (const std::exception& e) {
+            return err_resp(e.what(), 404);
+        }
+        auto rev = resolve_config_revision(state, run_dir, rev_id);
         if (!rev) return err_resp("Revision not found: " + rev_id, 404);
-        fs::path target = rev->path.empty() ? state->runtime.default_config_path : fs::path(rev->path);
+        fs::path target = run_dir / "config.yaml";
         if (!state->runtime.is_path_allowed(target)) {
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + target.string(), 403, {{"path", target.string()}});
         }
+        const std::string current_yaml = read_file_str(target);
+        if (!current_yaml.empty() && current_yaml != rev->yaml_text) {
+            persist_run_config_snapshot(run_dir, current_yaml, "restore_previous_config", run_id);
+        }
+        if (!write_file_str(target, rev->yaml_text)) {
+            return err_resp("BACKEND_COMMAND_FAILED", "failed to restore revision", 502, {{"path", target.string()}});
+        }
+        persist_run_config_snapshot(run_dir, rev->yaml_text, "restore_selected_config", run_id);
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
-            std::ofstream out(target);
-            if (out) out << rev->yaml_text;
             state->active_config_revision_id = rev_id;
         }
         state->ui_event_store.push("run.revision.restore", "runs.run_revision_restore", {{"revision_id", rev_id}, {"path", target.string()}}, run_id);
