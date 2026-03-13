@@ -84,6 +84,7 @@ const uiState = {
   dashboardGuardrailStatus: "",
   runReadyStatus: "check",
   runProcessStatus: "",
+  configSchemaPaths: null,
 };
 
 let serverUiState = {};
@@ -988,7 +989,13 @@ function writeFieldValue(el, value) {
       return;
     }
   }
-  el.value = Array.isArray(value) || typeof value === "object" ? JSON.stringify(value) : String(value);
+  let displayValue = Array.isArray(value) || typeof value === "object" ? JSON.stringify(value) : String(value);
+  const path = parameterPathFromElement(el);
+  if (path.startsWith("stacking.tile_seam_harmonization.") && el.type === "number") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) displayValue = numeric.toFixed(2);
+  }
+  el.value = displayValue;
 }
 
 function getByPath(root, dotted) {
@@ -2505,14 +2512,64 @@ async function saveParameterConfig(targetPath = "") {
   return result;
 }
 
+function flattenConfigSchemaPaths(node, prefix = [], out = new Set()) {
+  if (!node || typeof node !== "object" || !node.properties || typeof node.properties !== "object") return out;
+  for (const [key, value] of Object.entries(node.properties)) {
+    const path = [...prefix, key];
+    if (value && typeof value === "object" && value.type === "object" && value.properties) {
+      flattenConfigSchemaPaths(value, path, out);
+      continue;
+    }
+    out.add(path.join("."));
+  }
+  return out;
+}
+
+async function ensureConfigSchemaPaths() {
+  if (uiState.configSchemaPaths instanceof Set) return uiState.configSchemaPaths;
+  try {
+    const schema = await api.get(API_ENDPOINTS.config.schema);
+    uiState.configSchemaPaths = flattenConfigSchemaPaths(schema);
+  } catch {
+    uiState.configSchemaPaths = null;
+  }
+  return uiState.configSchemaPaths;
+}
+
+function isKnownConfigSchemaPath(path) {
+  const normalized = String(path || "").trim();
+  if (!normalized) return false;
+  if (!(uiState.configSchemaPaths instanceof Set)) return true;
+  return uiState.configSchemaPaths.has(normalized);
+}
+
+function sanitizeParameterDirtyState(dirty) {
+  const source = dirty && typeof dirty === "object" ? dirty : {};
+  if (!(uiState.configSchemaPaths instanceof Set)) return { ...source };
+  const sanitized = {};
+  for (const [path, value] of Object.entries(source)) {
+    if (isKnownConfigSchemaPath(path)) sanitized[path] = value;
+  }
+  return sanitized;
+}
+
 function parameterPathFromElement(el) {
   if (!el) return "";
   const dynRow = el.closest(".ps-dyn-row[data-path]");
-  if (dynRow) return String(dynRow.getAttribute("data-path") || "");
+  if (dynRow) {
+    const path = String(dynRow.getAttribute("data-path") || "");
+    return isKnownConfigSchemaPath(path) ? path : "";
+  }
   const control = String(el.getAttribute("data-control") || "");
-  if (control && PARAM_CONTROL_PATHS[control]) return PARAM_CONTROL_PATHS[control];
+  if (control && PARAM_CONTROL_PATHS[control]) {
+    const path = PARAM_CONTROL_PATHS[control];
+    return isKnownConfigSchemaPath(path) ? path : "";
+  }
   const id = String(el.id || "");
-  if (id && PARAM_ID_PATHS[id]) return PARAM_ID_PATHS[id];
+  if (id && PARAM_ID_PATHS[id]) {
+    const path = PARAM_ID_PATHS[id];
+    return isKnownConfigSchemaPath(path) ? path : "";
+  }
   return "";
 }
 
@@ -2534,6 +2591,7 @@ function bindParameterDirtyTracking() {
 function collectParameterDirtyUpdates() {
   const out = [];
   for (const [path, value] of Object.entries(uiState.parameterDirty)) {
+    if (!isKnownConfigSchemaPath(path)) continue;
     out.push({ path, value });
   }
   return out;
@@ -2543,12 +2601,14 @@ function syncParameterFieldsFromConfig(config) {
   if (!config || typeof config !== "object") return;
 
   for (const [control, path] of Object.entries(PARAM_CONTROL_PATHS)) {
+    if (!isKnownConfigSchemaPath(path)) continue;
     const el = document.querySelector(`[data-control='${control}']`);
     if (!el) continue;
     const value = getByPath(config, path);
     writeFieldValue(el, value);
   }
   for (const [id, path] of Object.entries(PARAM_ID_PATHS)) {
+    if (!isKnownConfigSchemaPath(path)) continue;
     const el = document.getElementById(id);
     if (!el) continue;
     const value = getByPath(config, path);
@@ -2574,6 +2634,7 @@ async function bindParameterStudio() {
   const presetSelect = $("parameter-preset-select");
   if (!presetSelect) return;
 
+  await ensureConfigSchemaPaths();
   bindParameterDirtyTracking();
   await bindPresetDirectoryControl({
     inputId: "parameter-preset-dir",
@@ -2600,7 +2661,8 @@ async function bindParameterStudio() {
     await populatePresetSelect("parameter-preset-select", true);
     restoreUnifiedPresetSelectValue("parameter-preset-select");
     bindUnifiedPresetSelect("parameter-preset-select");
-    uiState.parameterDirty = getParameterDirtyState();
+    uiState.parameterDirty = sanitizeParameterDirtyState(getParameterDirtyState());
+    setParameterDirtyState(uiState.parameterDirty);
     const currentYaml = await ensureConfigYaml();
     const parsed = await patchConfig({ yamlText: currentYaml, updates: collectParameterDirtyUpdates() });
     if (parsed?.config) {
@@ -2759,13 +2821,23 @@ async function bindParameterStudio() {
   $("parameter-situation-apply")?.addEventListener("click", async () => {
     try {
       const scenarioUpdates = [];
+      const droppedPaths = new Set();
       for (const key of activeScenarioKeys(".app-content")) {
         for (const [path, value] of SCENARIO_DELTAS[key] || []) {
+          if (!isKnownConfigSchemaPath(path)) {
+            droppedPaths.add(path);
+            continue;
+          }
           scenarioUpdates.push({ path, value });
         }
       }
       if (scenarioUpdates.length === 0) {
-        setFooter("Keine Situation ausgewaehlt.", true);
+        setFooter(
+          droppedPaths.size > 0
+            ? "Keine anwendbaren Szenario-Deltas im aktuellen Schema gefunden."
+            : "Keine Situation ausgewaehlt.",
+          true,
+        );
         return;
       }
       const patched = await patchConfig({ updates: scenarioUpdates, persist: false });
@@ -2778,7 +2850,11 @@ async function bindParameterStudio() {
       setParameterValidateDetails(null);
       setSituationApplyStatus(true, `${t("ui.status.situation_applied", "Angewendet")} (${scenarioUpdates.length})`);
       clearConfigValidationState();
-      setFooter(`Situation angewendet (${scenarioUpdates.length} Deltas).`);
+      setFooter(
+        droppedPaths.size > 0
+          ? `Situation angewendet (${scenarioUpdates.length} Deltas, ${droppedPaths.size} veraltete Pfade ignoriert).`
+          : `Situation angewendet (${scenarioUpdates.length} Deltas).`,
+      );
     } catch (err) {
       setFooter(`Situation anwenden fehlgeschlagen: ${errorText(err)}`, true);
     }

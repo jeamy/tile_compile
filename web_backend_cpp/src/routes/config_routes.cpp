@@ -158,6 +158,14 @@ void register_config_routes(CrowApp& app,
         return json_resp(*parsed);
     });
 
+    CROW_ROUTE(app, "/api/config/defaults").methods("GET"_method)
+    ([state](const crow::request&) {
+        SubprocessResult res = run_subprocess({state->runtime.cli_exe, "dump-default-config"}, state->runtime.project_root.string());
+        auto parsed = parse_json(res.stdout_str);
+        if (res.exit_code != 0 || !parsed || !parsed->is_object()) return backend_command_failed("failed to fetch defaults", res);
+        return json_resp(*parsed);
+    });
+
     CROW_ROUTE(app, "/api/config/current").methods("GET"_method)
     ([state](const crow::request& req) {
         fs::path config_path = req.url_params.get("path") ? fs::path(req.url_params.get("path")) : state->runtime.default_config_path;

@@ -6,10 +6,11 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 **Schema version:** v3  
 **Reference:** Methodology v3.3
 
-**Documentation status (2026-03-03):**
+**Documentation status (2026-03-13):**
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
 - `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented as BGE channel-apply guards.
 - PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
+- `stacking.tile_seam_harmonization.*` documents the new conservative tile seam harmonization before OLA blending.
 
 **💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
 
@@ -83,15 +84,6 @@ Output file and directory configuration.
 
 **Purpose:** Subdirectory for registered frames (under `runs/<run_id>/outputs/`).
 
-### `output.artifacts_dir`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string |
-| **Default** | `"artifacts"` |
-
-**Purpose:** Subdirectory for JSON artifacts and reports.
-
 ### `output.write_registered_frames`
 
 | Property | Value |
@@ -100,26 +92,6 @@ Output file and directory configuration.
 | **Default** | `false` |
 
 **Purpose:** Persist registered frames as FITS (`reg_XXXXX.fit`).
-
-### `output.write_global_metrics`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Write `global_metrics.json`.
-
-### `output.write_global_registration`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Write `global_registration.json` (warp + cc per frame).
-
----
 
 ### `output.crop_to_nonzero_bbox`
 
@@ -159,24 +131,6 @@ Input data configuration.
 
 **Purpose:** Optional expected image height in pixels.
 
-### `data.frames_min`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `0` |
-
-**Purpose:** Expected minimum number of input frames (`0` disables this check).
-
-### `data.frames_target`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `0` |
-
-**Purpose:** Informational target number of frames.
-
 ### `data.color_mode`
 
 | Property | Value |
@@ -193,7 +147,7 @@ Input data configuration.
 |----------|-------|
 | **Type** | string (enum) |
 | **Values** | `RGGB`, `BGGR`, `GRBG`, `GBRG`, `NONE` |
-| **Default** | `"RGGB"` |
+| **Default** | `"GBRG"` |
 
 **Purpose:** Bayer matrix pattern for color filter arrays. `NONE` for monochrome data.
 
@@ -244,7 +198,7 @@ Linearity correction settings.
 | Property | Value |
 |----------|-------|
 | **Type** | string (enum) |
-| **Values** | `strict`, `warn`, `off` |
+| **Values** | `strict`, `moderate`, `permissive` |
 | **Default** | `"strict"` |
 
 **Purpose:** Controls whether linearity violations fail, warn, or are ignored.
@@ -260,7 +214,7 @@ Calibration frame processing.
 | Property | Value |
 |----------|-------|
 | **Type** | boolean |
-| **Default** | `true` |
+| **Default** | `false` (all three) |
 
 **Purpose:** Enable per-frame-type calibration stages.
 
@@ -282,6 +236,25 @@ Calibration frame processing.
 
 **Purpose:** Auto-select matching darks by exposure (and optionally temperature).
 
+### `calibration.dark_match_exposure_tolerance_percent`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `0` |
+| **Default** | `5.0` |
+
+**Purpose:** Maximum allowed exposure mismatch for dark matching in percent.
+
+### `calibration.dark_match_use_temp` / `calibration.dark_match_temp_tolerance_c`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean / number |
+| **Default** | `false` / `2.0` |
+
+**Purpose:** When `dark_match_use_temp=true`, sensor temperature is also considered for dark matching.
+
 ### `calibration.bias_dir` / `calibration.darks_dir` / `calibration.flats_dir`
 
 | Property | Value |
@@ -299,6 +272,15 @@ Calibration frame processing.
 | **Default** | `""` (disabled) |
 
 **Purpose:** Paths to precomputed master calibration files.
+
+### `calibration.pattern`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Default** | `"*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"` |
+
+**Purpose:** Glob pattern used for calibration file discovery.
 
 ---
 
@@ -914,27 +896,14 @@ Synthetic frame generation.
 
 ## 14. Reconstruction
 
-Image reconstruction settings.
+The current C++ config has **no standalone `reconstruction:` block**.
 
-### `reconstruction.weighting_function`
+Weighted tile reconstruction, Hanning OLA, and internal seam harmonization are runtime behavior of the runner, not separate top-level config keys. Relevant knobs currently live under:
 
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `linear` |
-| **Default** | `"linear"` |
-
-**Purpose:** Tile blending weighting function (fixed in current runner).
-
-### `reconstruction.window_function`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `hanning` |
-| **Default** | `"hanning"` |
-
-**Purpose:** Window function for overlap-add reconstruction.
+- `synthetic.*`
+- `stacking.*`
+- `tile.*`
+- `tile_denoise.*`
 
 ---
 
@@ -1024,6 +993,175 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 - `bge.autotune.beta_roughness`: objective weight for roughness term (minimum `0`, default `0.10`)
 
 **Recommendation:** Enable with `bge.enabled: true` when gradients are visible (urban light pollution, moonlight) or when PCC shows color shifts across the field.
+
+### `bge.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Enable or disable BGE before PCC.
+
+### `bge.sample_quantile`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `(0, 0.5]` |
+| **Default** | `0.20` |
+
+**Purpose:** Tile background quantile used to estimate robust background samples.
+
+### `bge.structure_thresh_percentile`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `0 – 1` |
+| **Default** | `0.90` |
+
+**Purpose:** Structure-threshold percentile used to reject structure-rich tiles or pixels from BGE sampling.
+
+### `bge.min_tiles_per_cell`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `1` |
+| **Default** | `3` |
+
+**Purpose:** Minimum number of valid tiles required per BGE grid cell.
+
+### `bge.mask.star_dilate_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `0` |
+| **Default** | `4` |
+
+**Purpose:** Star-mask dilation radius in pixels for BGE sample protection.
+
+### `bge.mask.sat_dilate_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `0` |
+| **Default** | `4` |
+
+**Purpose:** Saturation-mask dilation radius in pixels for BGE sample protection.
+
+### `bge.grid.N_g`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `1` |
+| **Default** | `32` |
+
+**Purpose:** Target BGE grid density / cell count driver.
+
+### `bge.grid.G_min_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `1` |
+| **Default** | `64` |
+
+**Purpose:** Minimum pixel size of a BGE grid cell.
+
+### `bge.grid.G_max_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `(0, 1]` |
+| **Default** | `0.25` |
+
+**Purpose:** Upper bound for grid-cell size relative to the image extent.
+
+### `bge.grid.insufficient_cell_strategy`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `discard`, `nearest`, `radius_expand` |
+| **Default** | `"discard"` |
+
+**Purpose:** Fallback strategy for grid cells with too few valid samples.
+
+### `bge.fit.method`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Values** | `rbf`, `poly`, `spline`, `bicubic`, `modeled_mask_mesh` |
+| **Default** | `"rbf"` |
+
+**Purpose:** Surface fitting method used by BGE.
+
+### `bge.fit.irls_max_iterations`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `1` |
+| **Default** | `10` |
+
+**Purpose:** Maximum number of IRLS iterations for robust BGE fitting.
+
+### `bge.fit.irls_tolerance`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `> 0` |
+| **Default** | `1e-4` |
+
+**Purpose:** Convergence tolerance for IRLS-based BGE fitting.
+
+### `bge.fit.polynomial_order`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Values** | `2`, `3` |
+| **Default** | `2` |
+
+**Purpose:** Polynomial order when `bge.fit.method=poly`.
+
+### `bge.fit.rbf_mu_factor`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `> 0` |
+| **Default** | `1.0` |
+
+**Purpose:** Scale factor for the adaptive RBF smoothing parameter.
+
+### `bge.fit.rbf_lambda`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `> 0` |
+| **Default** | `1e-6` |
+
+**Purpose:** Regularization strength for RBF fitting.
+
+### `bge.fit.rbf_epsilon`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `> 0` |
+| **Default** | `1e-10` |
+
+**Purpose:** Epsilon / support parameter for the RBF kernel.
 
 ### `bge.min_valid_sample_fraction_for_apply`
 
@@ -1298,35 +1436,101 @@ Final stacking settings.
 
 **Purpose:** Optional dominance cap: `w_k ≤ cap_ratio * median(w_j)` (only active when `cap_enabled=true`).
 
-### `stacking.common_overlap_required_fraction`
+### `stacking.tile_seam_harmonization.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable conservative tile seam harmonization in `TILE_RECONSTRUCTION` directly before Hanning OLA.
+
+- The estimator prefers smooth, dark background pixels instead of all tile pixels.
+- This targets visible tile boundaries caused by tile-to-tile level or scale drift.
+- Clustering, weights, and frame selection remain unchanged.
+
+### `stacking.tile_seam_harmonization.strength`
 
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Range** | `(0, 1]` |
-| **Default** | `1.0` |
+| **Range** | `0 – 1` |
+| **Default** | `0.75` |
 
-**Purpose:** Defines the required per-pixel frame coverage for post-PREWARP calculations.
+**Purpose:** Blend factor between legacy full-tile normalization and background-masked seam estimation.
 
-- `1.0` (recommended default): strict common intersection (pixel must be valid in all usable frames)
-- `< 1.0`: allows partially covered edge/canvas regions into statistics and tile processing
+- `0.0`: legacy behavior
+- `1.0`: maximum reliance on robust background samples
 
-**Recommendation:** keep `1.0` for rotating-field data (Alt/Az) to avoid geometry-driven bias and stripe/grid artifacts.
+**Recommendation:** `0.5 – 0.8` when tile seams are visible.
 
-### `stacking.tile_common_valid_min_fraction`
+### `stacking.tile_seam_harmonization.sample_quantile`
 
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Range** | `(0, 1]` |
-| **Default** | `0.9` |
+| **Range** | `(0, 1)` |
+| **Default** | `0.30` |
 
-**Purpose:** Tile-level acceptance threshold after common-overlap masking.
+**Purpose:** Brightness quantile used to keep darker pixels as background-mask candidates.
 
-- A tile is used only if at least this fraction of its pixels belongs to the common overlap
-- Higher values are stricter and reduce edge contamination
+### `stacking.tile_seam_harmonization.gradient_quantile`
 
-**Recommendation:** `0.9` for production, `0.75-0.85` only when deliberately accepting more edge coverage.
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `(0, 1)` |
+| **Default** | `0.70` |
+
+**Purpose:** Gradient quantile used to reject structure-rich pixels from the background mask.
+
+### `stacking.tile_seam_harmonization.min_sample_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `0 – 1` |
+| **Default** | `0.05` |
+
+**Purpose:** Minimum required masked background fraction relative to all finite tile pixels.
+
+**Behavior:** If the threshold is not met, the code falls back to the legacy full-tile estimate.
+
+### `stacking.tile_seam_harmonization.min_samples`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `1` |
+| **Default** | `64` |
+
+**Purpose:** Absolute minimum number of background samples for robust seam estimation.
+
+### `stacking.tile_seam_harmonization.scale_floor_factor`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `>0` |
+| **Default** | `0.50` |
+
+**Purpose:** Lower clamp for the seam-derived normalization scale relative to the legacy full-tile estimate.
+
+**Formula:** `scale >= full_scale * scale_floor_factor`
+
+### `stacking.tile_seam_harmonization.scale_ceil_factor`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | `>0` |
+| **Default** | `2.00` |
+
+**Purpose:** Upper clamp for the seam-derived normalization scale relative to the legacy full-tile estimate.
+
+**Formula:** `scale <= full_scale * scale_ceil_factor`
+
+**Important:** `scale_floor_factor <= scale_ceil_factor` must hold.
 
 ### `stacking.output_stretch`
 
@@ -1498,13 +1702,9 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `pipeline.mode`: selects production vs test control flow (same core phases, different strictness/debug posture).
 - `pipeline.abort_on_fail`: controls whether `phase_end(error)` aborts run immediately.
 - `output.registered_dir`: target folder name for registered frame outputs.
-- `output.artifacts_dir`: target folder name for JSON artifacts (`global_metrics.json`, `tile_reconstruction.json`, etc.).
 - `output.write_registered_frames`: writes per-frame registered FITS; increases IO and disk usage significantly.
-- `output.write_global_metrics`: enables writing global metric vectors (frame quality diagnostics).
-- `output.write_global_registration`: enables writing global warp/CC diagnostics.
+- `output.crop_to_nonzero_bbox`: crops the final stack to its non-empty bounding box.
 - `data.image_width`, `data.image_height`: optional expected dimensions; normally auto-detected from FITS headers.
-- `data.frames_min`: pre-run sanity threshold for minimum input count.
-- `data.frames_target`: informational target only; does not enforce rejection by itself.
 - `data.color_mode`: expected acquisition mode; runtime auto-detection can override with warning.
 - `data.bayer_pattern`: CFA layout for OSC processing and color reconstruction consistency.
 - `data.linear_required`: enables strict linearity requirement policy coupling with linearity diagnostics.
@@ -1603,8 +1803,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `synthetic.frames_max`: maximum number of synthetic outputs.
 - `synthetic.clustering.mode`: clustering backend for state grouping.
 - `synthetic.clustering.cluster_count_range`: allowed K-search window.
-- `reconstruction.weighting_function`: reconstruction weighting model (currently linear).
-- `reconstruction.window_function`: overlap-add window kernel (currently Hanning).
+- Reconstruction/OLA is currently internal runner behavior without a standalone `reconstruction:` config block.
 
 ### A.6 Debayer / Astrometry / PCC / Stacking / Validation / Runtime
 
@@ -1632,6 +1831,11 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `stacking.cluster_quality_weighting.kappa_cluster`: weighting exponent.
 - `stacking.cluster_quality_weighting.cap_enabled`: explicit dominance cap toggle.
 - `stacking.cluster_quality_weighting.cap_ratio`: dominance cap level when enabled.
+- `stacking.tile_seam_harmonization.enabled`: conservative background-based tile seam harmonization before OLA.
+- `stacking.tile_seam_harmonization.strength`: blend factor between full-tile and background-masked estimates.
+- `stacking.tile_seam_harmonization.sample_quantile`, `gradient_quantile`: select smooth dark background pixels.
+- `stacking.tile_seam_harmonization.min_sample_fraction`, `min_samples`: minimum support for robust seam estimation.
+- `stacking.tile_seam_harmonization.scale_floor_factor`, `scale_ceil_factor`: clamp window for seam-derived scale.
 - **Runtime safeguard:** for synthetic stacking, a default dominance cap is applied even when `cap_enabled=false` to avoid diffuse-signal collapse from a few dominant clusters.
 - `stacking.output_stretch`: optional display-oriented post-scale to 16-bit span.
 - `stacking.cosmetic_correction`: optional hot-pixel style correction after stacking.

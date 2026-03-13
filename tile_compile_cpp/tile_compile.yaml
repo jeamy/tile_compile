@@ -214,6 +214,8 @@ stacking:
     min_fraction: 0.40000000000000002
     sigma_high: 1.8
     sigma_low: 1.8
+  tile_seam_harmonization:
+    enabled: true
 synthetic:
   clustering:
     cluster_count_range:

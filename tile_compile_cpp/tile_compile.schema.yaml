@@ -2,8 +2,6 @@ $schema: "http://json-schema.org/draft-07/schema#"
 title: tile_compile v3 config
 type: object
 properties:
-  run_dir: {type: string}
-  log_level: {type: string, enum: [trace, debug, info, warn, error]}
   pipeline:
     type: object
     properties:
@@ -26,12 +24,6 @@ properties:
         type: boolean
         deprecated: true
         description: "Deprecated: non-lineare Frames werden im Runner nur noch gewarnt (warn_only), nicht entfernt."
-  input:
-    type: object
-    properties:
-      pattern: {type: string}
-      sort: {type: string, enum: [numeric, lexicographic]}
-      max_frames: {type: integer, minimum: 0}
   linearity:
     type: object
     properties:
@@ -287,8 +279,8 @@ properties:
       sample_quantile: {type: number, exclusiveMinimum: 0, maximum: 0.5}
       structure_thresh_percentile: {type: number, minimum: 0, maximum: 1}
       min_tiles_per_cell: {type: integer, minimum: 1}
-      min_valid_sample_fraction_for_apply: {type: number, minimum: 0, maximum: 1}
-      min_valid_samples_for_apply: {type: integer, minimum: 0}
+      min_valid_sample_fraction_for_apply: {type: number, exclusiveMinimum: 0, maximum: 1}
+      min_valid_samples_for_apply: {type: integer, minimum: 1}
       mask:
         type: object
         properties:
@@ -342,6 +334,44 @@ properties:
             type: number
             exclusiveMinimum: 0
             description: "Nur mit cap_enabled=true: begrenzt Gewicht auf w_k <= cap_ratio * median_j(w_j)."
+      tile_seam_harmonization:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            description: "Aktiviert konservative Tile-Seam-Harmonisierung direkt vor dem Hanning-OLA in TILE_RECONSTRUCTION."
+          strength:
+            type: number
+            minimum: 0
+            maximum: 1
+            description: "Mischfaktor zwischen Vollbild-Tile-Normierung und background-maskierter Seam-Schaetzung."
+          sample_quantile:
+            type: number
+            exclusiveMinimum: 0
+            exclusiveMaximum: 1
+            description: "Helligkeits-Quantil zur Auswahl dunkler Hintergrundpixel fuer die Seam-Maske."
+          gradient_quantile:
+            type: number
+            exclusiveMinimum: 0
+            exclusiveMaximum: 1
+            description: "Gradienten-Quantil zur Unterdrueckung strukturreicher Pixel in der Seam-Maske."
+          min_sample_fraction:
+            type: number
+            minimum: 0
+            maximum: 1
+            description: "Minimaler Anteil valider Hintergrund-Samples relativ zu allen finiten Tile-Pixeln."
+          min_samples:
+            type: integer
+            minimum: 1
+            description: "Absolute Mindestanzahl Hintergrund-Samples fuer robuste Seam-Schaetzung."
+          scale_floor_factor:
+            type: number
+            exclusiveMinimum: 0
+            description: "Untere Clamp-Grenze fuer den seam-basierten Normierungs-Scale relativ zur Vollbild-Schaetzung."
+          scale_ceil_factor:
+            type: number
+            exclusiveMinimum: 0
+            description: "Obere Clamp-Grenze fuer den seam-basierten Normierungs-Scale relativ zur Vollbild-Schaetzung."
       output_stretch:
         type: boolean
         description: "Optionaler linearer Anzeige-Stretch auf den Ausgabe-Daten (Post-Processing, nicht Teil des linearen Pflichtkerns)."

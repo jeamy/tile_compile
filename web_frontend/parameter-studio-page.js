@@ -72,8 +72,10 @@
   const searchInput = document.getElementById("parameter-search");
   const searchSummaryEl = document.getElementById("parameter-search-summary");
   const searchResultsEl = document.getElementById("parameter-search-results");
-  const paramEditorIndex = Array.isArray(window.PARAM_EDITOR_INDEX) ? window.PARAM_EDITOR_INDEX : [];
+  const legacyParamEditorIndex = Array.isArray(window.PARAM_EDITOR_INDEX) ? window.PARAM_EDITOR_INDEX : [];
+  let paramEditorIndex = [];
   const explainIndex = new Map();
+  const validSchemaPaths = new Set();
   const staticRows = Array.from(document.querySelectorAll(".ps-section.ps-parameter-group .ps-row"));
   let localeMessages = {};
   let activeCategory = "registration";
@@ -123,6 +125,7 @@
 
   function orderedCategories(entries) {
     const fromButtons = categoryButtons
+      .filter((button) => !button.hidden)
       .map((button) => String(button.dataset.category || "").trim())
       .filter((category) => category && category !== "all");
     const entryCategories = Array.from(
@@ -193,19 +196,40 @@
     return String(value);
   }
 
+  function formatEditorValue(entry, value) {
+    if (value === null || value === undefined || value === "") return value;
+    if (
+      entry?.type === "number" &&
+      String(entry?.path || "").startsWith("stacking.tile_seam_harmonization.")
+    ) {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return numeric.toFixed(2);
+    }
+    return value;
+  }
+
   function computeRange(entry) {
     if (entry.range) return String(entry.range);
     const hints = [];
-    if (hasOwn(entry, "minimum")) hints.push(`>= ${entry.minimum}`);
-    if (hasOwn(entry, "exclusiveMinimum")) hints.push(`> ${entry.exclusiveMinimum}`);
-    if (hasOwn(entry, "maximum")) hints.push(`<= ${entry.maximum}`);
-    if (hasOwn(entry, "exclusiveMaximum")) hints.push(`< ${entry.exclusiveMaximum}`);
+    if (entry?.minimum !== undefined && entry.minimum !== null) hints.push(`>= ${entry.minimum}`);
+    if (entry?.exclusiveMinimum !== undefined && entry.exclusiveMinimum !== null) hints.push(`> ${entry.exclusiveMinimum}`);
+    if (entry?.maximum !== undefined && entry.maximum !== null) hints.push(`<= ${entry.maximum}`);
+    if (entry?.exclusiveMaximum !== undefined && entry.exclusiveMaximum !== null) hints.push(`< ${entry.exclusiveMaximum}`);
     if (Array.isArray(entry.enum) && entry.enum.length > 0) hints.push(entry.enum.map((item) => String(item)).join(" | "));
     return hints.join(", ");
   }
 
   function labelForPath(path) {
     return localeMessages[`param.${path}.label`] || path;
+  }
+
+  function topLevelKeyForPath(path) {
+    return String(path || "").split(".")[0] || "";
+  }
+
+  function categoryForPath(path, editorEntry = {}) {
+    const fallback = topLevelKeyForPath(path);
+    return String(editorEntry?.category || fallback || "").trim() || fallback;
   }
 
   function shortHelpForPath(path, fallback) {
@@ -262,9 +286,9 @@
         if (tableMatch) {
           entry[tableMatch[1].trim().toLowerCase().replace(/\s+/g, "_")] = tableMatch[2].trim();
         }
-        const purposeMatch = line.match(/^\*\*Purpose:\*\*\s*(.+)$/);
+        const purposeMatch = line.match(/^\*\*(Purpose|Zweck):\*\*\s*(.+)$/);
         if (purposeMatch) {
-          entry.purpose = purposeMatch[1].trim();
+          entry.purpose = purposeMatch[2].trim();
         }
       });
       map.set(currentPath, entry);
@@ -315,6 +339,21 @@
     return out;
   }
 
+  function flattenConfigValues(node, prefix = [], out = new Map()) {
+    if (Array.isArray(node)) {
+      out.set(prefix.join("."), node.slice());
+      return out;
+    }
+    if (!node || typeof node !== "object") {
+      out.set(prefix.join("."), node);
+      return out;
+    }
+    Object.entries(node).forEach(([key, value]) => {
+      flattenConfigValues(value, [...prefix, key], out);
+    });
+    return out;
+  }
+
   function deriveRisk(entry) {
     const isGerman = getLocale() === "de";
     if (entry.deprecated) {
@@ -349,10 +388,10 @@
   }
 
   function buildExplainEntry(path, schemaEntry, katalogEntry, refDeEntry, refEnEntry, editorEntry) {
-    const firstKey = String(path || "").split(".")[0];
+    const firstKey = topLevelKeyForPath(path);
     const range = computeRange({ ...(schemaEntry || {}), ...(editorEntry || {}) });
     const description = editorEntry?.description || katalogEntry?.shortExplanation || schemaEntry?.description || refDeEntry?.purpose || refEnEntry?.purpose || "";
-    const category = editorEntry?.category || firstKey;
+    const category = categoryForPath(path, editorEntry);
     return {
       path,
       label: labelForPath(path),
@@ -395,19 +434,54 @@
   }
 
   async function buildExplainIndex() {
-    const [katalogText, schemaJson, refDeText, refEnText] = await Promise.all([
-      fetchText("../doc/gui2/parameter_katalog.md").catch(() => ""),
-      fetchJson("../tile_compile_cpp/tile_compile.schema.json").catch(() => ({})),
+    const [katalogText, schemaJson, defaultsJson, refDeText, refEnText] = await Promise.all([
+      fetchText("../doc/gui2/parameter_katalog.md")
+        .catch(() => fetchText("../doc/gui2/attic/parameter_katalog.md"))
+        .catch(() => ""),
+      fetchJson("../api/config/schema")
+        .catch(() => fetchJson("../tile_compile_cpp/tile_compile.schema.json"))
+        .catch(() => ({})),
+      fetchJson("../api/config/defaults").catch(() => ({ config: {} })),
       fetchText("../doc/v3/configuration_reference.md").catch(() => ""),
       fetchText("../doc/v3/configuration_reference_en.md").catch(() => ""),
     ]);
     const katalogMap = parseParameterKatalog(katalogText);
     const schemaMap = flattenSchema(schemaJson);
+    const defaultsMap = flattenConfigValues(defaultsJson?.config || {});
     const refDeMap = parseReferenceMarkdown(refDeText);
     const refEnMap = parseReferenceMarkdown(refEnText);
+    const legacyByPath = new Map(
+      legacyParamEditorIndex
+        .filter((entry) => entry && typeof entry === "object" && entry.path)
+        .map((entry) => [String(entry.path), entry]),
+    );
+
+    explainIndex.clear();
+    validSchemaPaths.clear();
+    paramEditorIndex = Array.from(schemaMap.entries())
+      .map(([path, schemaEntry]) => {
+        validSchemaPaths.add(path);
+        const legacyEntry = legacyByPath.get(path) || {};
+        return {
+          path,
+          category: categoryForPath(path, legacyEntry),
+          source: legacyEntry?.source || "schema",
+          type: legacyEntry?.type || schemaEntry?.type || "",
+          enum: legacyEntry?.enum || schemaEntry?.enum || [],
+          minimum: legacyEntry?.minimum ?? schemaEntry?.minimum,
+          maximum: legacyEntry?.maximum ?? schemaEntry?.maximum,
+          exclusiveMinimum: legacyEntry?.exclusiveMinimum ?? schemaEntry?.exclusiveMinimum,
+          exclusiveMaximum: legacyEntry?.exclusiveMaximum ?? schemaEntry?.exclusiveMaximum,
+          description: legacyEntry?.description || schemaEntry?.description || "",
+          deprecated: Boolean(legacyEntry?.deprecated || schemaEntry?.deprecated),
+          yaml_default: defaultsMap.has(path) ? defaultsMap.get(path) : legacyEntry?.yaml_default,
+        };
+      })
+      .sort((a, b) => String(a.path || "").localeCompare(String(b.path || "")));
 
     paramEditorIndex.forEach((editorEntry) => {
-      const path = String(editorEntry.path || "");
+      const path = String(editorEntry.path || "").trim();
+      if (!path) return;
       explainIndex.set(
         path,
         buildExplainEntry(
@@ -420,6 +494,44 @@
         ),
       );
     });
+  }
+
+  function syncStaticGroupsToSchema() {
+    parameterGroups.forEach((group) => {
+      if (group === editorGroup) return;
+      const rows = Array.from(group.querySelectorAll(".ps-row"));
+      if (rows.length === 0) {
+        group.dataset.schemaVisible = "0";
+        return;
+      }
+      let visibleCount = 0;
+      rows.forEach((row) => {
+        const path = resolvePathFromElement(row) || String(row.querySelector("label")?.textContent || "").trim();
+        const visible = path ? validSchemaPaths.has(path) : false;
+        row.style.display = visible ? "" : "none";
+        if (visible) visibleCount += 1;
+      });
+      group.dataset.schemaVisible = visibleCount > 0 ? "1" : "0";
+    });
+
+    const dynamicCategories = new Set(paramEditorIndex.map((entry) => String(entry.category || "").trim()).filter(Boolean));
+    categoryButtons.forEach((button) => {
+      const category = String(button.dataset.category || "").trim();
+      if (!category || category === "all") {
+        button.hidden = false;
+        return;
+      }
+      const hasDynamicEntries = dynamicCategories.has(category);
+      const hasStaticEntries = Array.from(document.querySelectorAll(`.ps-parameter-group[data-category="${category}"]`))
+        .some((group) => group !== editorGroup && group.dataset.schemaVisible === "1");
+      button.hidden = !(hasDynamicEntries || hasStaticEntries);
+    });
+
+    const activeButton = categoryButtons.find((button) => button.dataset.category === activeCategory && !button.hidden);
+    if (!activeButton) {
+      const fallback = categoryButtons.find((button) => (button.dataset.category || "") !== "all" && !button.hidden);
+      if (fallback) activeCategory = String(fallback.dataset.category || "all");
+    }
   }
 
   function setExplainField(id, value) {
@@ -490,7 +602,10 @@
   }
 
   function tooltipForEntry(entry, value) {
-    return shortHelpForPath(entry.path, entry.shortExplanation || entry.description || value || "-");
+    const path = String(entry?.path || "").trim();
+    const explainEntry = explainIndex.get(path) || entry || {};
+    const localized = path ? localeMessages[`param.${path}.short_help`] : "";
+    return localized || explainEntry.shortExplanation || explainEntry.description || entry?.shortExplanation || entry?.description || "-";
   }
 
   function inputControlHtml(entry, value, fieldId) {
@@ -517,7 +632,8 @@
   function renderDynamicRows(entries) {
     return entries.map((entry) => {
       const fieldId = `param-edit-${entry.path.replace(/[^a-zA-Z0-9_]+/g, "_")}`;
-      const value = hasOwn(entry, "yaml_default") ? formatValue(entry.yaml_default) : "";
+      const rawValue = hasOwn(entry, "yaml_default") ? entry.yaml_default : "";
+      const value = formatValue(formatEditorValue(entry, rawValue));
       const tooltip = escapeHtml(tooltipForEntry(entry, value));
       const hints = [
         entry.type || textFor("page.parameter_studio.hint.any", "any"),
@@ -565,25 +681,28 @@
   }
 
   function setCategory(category) {
-    activeCategory = category;
-    persistCategory(category);
+    const requested = categoryButtons.find((btn) => btn.dataset.category === category && !btn.hidden)
+      ? category
+      : (categoryButtons.find((btn) => (btn.dataset.category || "") !== "all" && !btn.hidden)?.dataset.category || "all");
+    activeCategory = requested;
+    persistCategory(requested);
     categoryButtons.forEach((btn) => {
-      btn.classList.toggle("is-active", btn.dataset.category === category);
+      btn.classList.toggle("is-active", btn.dataset.category === requested);
     });
     parameterGroups.forEach((group) => {
       group.style.display = "none";
     });
-    if (category === "all") {
+    if (requested === "all") {
       if (editorGroup) editorGroup.style.display = "";
       renderDynamicEditor("all");
       bindExplainInteractions(document);
       return;
     }
     if (editorGroup) editorGroup.style.display = "";
-    document.querySelectorAll(`.ps-parameter-group[data-category="${category}"]`).forEach((group) => {
-      group.style.display = "";
+    document.querySelectorAll(`.ps-parameter-group[data-category="${requested}"]`).forEach((group) => {
+      if (group === editorGroup || group.dataset.schemaVisible === "1") group.style.display = "";
     });
-    renderDynamicEditor(category);
+    renderDynamicEditor(requested);
     bindExplainInteractions(document);
   }
 
@@ -663,6 +782,7 @@
     const merged = new Map();
     activeScenarios.forEach((scenarioKey) => {
       (scenarioDeltas[scenarioKey] || []).forEach(([path, value, reason]) => {
+        if (!validSchemaPaths.has(path)) return;
         if (!merged.has(path)) merged.set(path, { values: new Set(), reasons: [] });
         const info = merged.get(path);
         info.values.add(value);
@@ -677,7 +797,7 @@
       const reasonKey = `page.parameter_studio.delta_reason.${info.reasons[0] || ""}`;
       const reasonText = textFor(reasonKey, info.reasons[0] || "");
       return `<div><code>${escapeHtml(path)}=${escapeHtml(valueText)}</code> - ${escapeHtml(reasonText)}</div>`;
-    }).join("");
+    }).join("") || textFor("page.parameter_studio.situation_no_deltas", "Keine empfohlenen Deltas.");
   }
 
   async function refreshLocaleSensitiveUi() {
@@ -690,6 +810,7 @@
   async function init() {
     await loadLocaleMessages();
     await buildExplainIndex();
+    syncStaticGroupsToSchema();
     categoryButtons.forEach((btn) => {
       btn.addEventListener("click", () => setCategory(btn.dataset.category || "all"));
     });
@@ -741,7 +862,7 @@
     renderSituationDeltas();
     staticRows.forEach((row) => {
       const path = resolvePathFromElement(row) || String(row.querySelector("label")?.textContent || "").trim();
-      if (path && !explainIndex.has(path)) {
+      if (path && validSchemaPaths.has(path) && !explainIndex.has(path)) {
         explainIndex.set(path, buildExplainEntry(path, {}, {}, {}, {}, { path, category: path.split(".")[0], type: "string", source: "manual" }));
       }
     });

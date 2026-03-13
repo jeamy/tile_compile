@@ -3,1057 +3,184 @@
   "title": "tile_compile v3 config",
   "type": "object",
   "properties": {
-    "run_dir": {
-      "type": "string"
-    },
-    "log_level": {
-      "type": "string",
-      "enum": [
-        "trace",
-        "debug",
-        "info",
-        "warn",
-        "error"
-      ]
-    },
-    "pipeline": {
-      "type": "object",
+    "pipeline": { "type":"object",
+      "properties": { "mode":{"type":"string","enum":["production","test"]},
+                      "abort_on_fail":{"type":"boolean"} } },
+    "output": { "type":"object",
+      "properties": { "registered_dir":{"type":"string"},
+                      "write_registered_frames":{"type":"boolean"},
+                      "crop_to_nonzero_bbox":{"type":"boolean"} } },
+    "data": { "type":"object",
+      "properties": { "image_width":{"type":"integer","minimum":0},
+                      "image_height":{"type":"integer","minimum":0},
+                      "color_mode":{"type":"string","enum":["OSC","MONO","RGB"]},
+                      "bayer_pattern":{"type":"string"},
+                      "linear_required":{"type":"boolean","deprecated":true,
+                                         "description":"Deprecated: non-linear frames are warn-only in the runner and are no longer removed."} } },
+    "linearity": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "max_frames":{"type":"integer","minimum":1},
+                      "min_overall_linearity":{"type":"number","minimum":0,"maximum":1},
+                      "strictness":{"type":"string","enum":["strict","moderate","permissive"]} } },
+    "calibration": { "type":"object",
+      "properties": { "use_bias":{"type":"boolean"}, "use_dark":{"type":"boolean"}, "use_flat":{"type":"boolean"},
+                      "bias_use_master":{"type":"boolean"}, "dark_use_master":{"type":"boolean"}, "flat_use_master":{"type":"boolean"},
+                      "dark_auto_select":{"type":"boolean"},
+                      "dark_match_exposure_tolerance_percent":{"type":"number","minimum":0},
+                      "dark_match_use_temp":{"type":"boolean"},
+                      "dark_match_temp_tolerance_c":{"type":"number","minimum":0},
+                      "bias_dir":{"type":"string"}, "darks_dir":{"type":"string"}, "flats_dir":{"type":"string"},
+                      "bias_master":{"type":"string"}, "dark_master":{"type":"string"}, "flat_master":{"type":"string"},
+                      "pattern":{"type":"string"} } },
+    "assumptions": { "type":"object",
+      "properties": { "pipeline_profile":{"type":"string","enum":["practical","strict"]},
+                      "frames_min":{"type":"integer","minimum":1},
+                      "frames_optimal":{"type":"integer","minimum":1},
+                      "frames_reduced_threshold":{"type":"integer","minimum":1},
+                      "exposure_time_tolerance_percent":{"type":"number","minimum":0},
+                      "reduced_mode_skip_clustering":{"type":"boolean"},
+                      "reduced_mode_cluster_range":{"type":"array","items":{"type":"integer","minimum":1},"minItems":2,"maxItems":2} } },
+    "normalization": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "mode":{"type":"string","enum":["background","median"]},
+                      "per_channel":{"type":"boolean"} } },
+    "registration": { "type":"object",
+      "properties": { "engine":{"type":"string","enum":["triangle_star_matching","star_similarity","hybrid_phase_ecc","robust_phase_ecc"]},
+                      "enable_star_pair_fallback":{"type":"boolean"},
+                      "allow_rotation":{"type":"boolean"},
+                      "star_topk":{"type":"integer","minimum":3},
+                      "star_min_inliers":{"type":"integer","minimum":2},
+                      "star_inlier_tol_px":{"type":"number","exclusiveMinimum":0},
+                      "star_dist_bin_px":{"type":"number","exclusiveMinimum":0},
+                      "reject_outliers":{"type":"boolean"},
+                      "reject_cc_min_abs":{"type":"number","minimum":0,"maximum":1},
+                      "reject_cc_mad_multiplier":{"type":"number","exclusiveMinimum":0},
+                      "reject_shift_px_min":{"type":"number","minimum":0},
+                      "reject_shift_median_multiplier":{"type":"number","exclusiveMinimum":0},
+                      "reject_scale_min":{"type":"number","exclusiveMinimum":0},
+                      "reject_scale_max":{"type":"number","exclusiveMinimum":0} } },
+    "dithering": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "min_shift_px":{"type":"number","minimum":0} } },
+    "tile_denoise": { "type":"object",
       "properties": {
-        "mode": {
-          "type": "string",
-          "enum": [
-            "production",
-            "test"
-          ]
-        },
-        "abort_on_fail": {
-          "type": "boolean"
-        }
-      }
-    },
-    "output": {
-      "type": "object",
-      "properties": {
-        "registered_dir": {
-          "type": "string"
-        },
-        "write_registered_frames": {
-          "type": "boolean"
-        },
-        "crop_to_nonzero_bbox": {
-          "type": "boolean"
-        }
-      }
-    },
-    "data": {
-      "type": "object",
-      "properties": {
-        "image_width": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "image_height": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "color_mode": {
-          "type": "string",
-          "enum": [
-            "OSC",
-            "MONO",
-            "RGB"
-          ]
-        },
-        "bayer_pattern": {
-          "type": "string"
-        },
-        "linear_required": {
-          "type": "boolean",
-          "deprecated": true,
-          "description": "Deprecated: non-lineare Frames werden im Runner nur noch gewarnt (warn_only), nicht entfernt."
-        }
-      }
-    },
-    "input": {
-      "type": "object",
-      "properties": {
-        "pattern": {
-          "type": "string"
-        },
-        "sort": {
-          "type": "string",
-          "enum": [
-            "numeric",
-            "lexicographic"
-          ]
-        },
-        "max_frames": {
-          "type": "integer",
-          "minimum": 0
-        }
-      }
-    },
-    "linearity": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "max_frames": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "min_overall_linearity": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "strictness": {
-          "type": "string",
-          "enum": [
-            "strict",
-            "moderate",
-            "permissive"
-          ]
-        }
-      }
-    },
-    "calibration": {
-      "type": "object",
-      "properties": {
-        "use_bias": {
-          "type": "boolean"
-        },
-        "use_dark": {
-          "type": "boolean"
-        },
-        "use_flat": {
-          "type": "boolean"
-        },
-        "bias_use_master": {
-          "type": "boolean"
-        },
-        "dark_use_master": {
-          "type": "boolean"
-        },
-        "flat_use_master": {
-          "type": "boolean"
-        },
-        "dark_auto_select": {
-          "type": "boolean"
-        },
-        "dark_match_exposure_tolerance_percent": {
-          "type": "number",
-          "minimum": 0
-        },
-        "dark_match_use_temp": {
-          "type": "boolean"
-        },
-        "dark_match_temp_tolerance_c": {
-          "type": "number",
-          "minimum": 0
-        },
-        "bias_dir": {
-          "type": "string"
-        },
-        "darks_dir": {
-          "type": "string"
-        },
-        "flats_dir": {
-          "type": "string"
-        },
-        "bias_master": {
-          "type": "string"
-        },
-        "dark_master": {
-          "type": "string"
-        },
-        "flat_master": {
-          "type": "string"
-        },
-        "pattern": {
-          "type": "string"
-        }
-      }
-    },
-    "assumptions": {
-      "type": "object",
-      "properties": {
-        "pipeline_profile": {
-          "type": "string",
-          "enum": [
-            "practical",
-            "strict"
-          ],
-          "description": "Pipeline behavior profile: practical keeps compatibility defaults, strict enforces v3.3.6 normative constraints."
-        },
-        "frames_min": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "frames_optimal": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "frames_reduced_threshold": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Schwelle fuer Full Mode: 50..(threshold-1) = Reduced Mode, ab threshold = Full Mode."
-        },
-        "exposure_time_tolerance_percent": {
-          "type": "number",
-          "minimum": 0
-        },
-        "reduced_mode_skip_clustering": {
-          "type": "boolean",
-          "description": "Wenn true, werden STATE_CLUSTERING und SYNTHETIC_FRAMES im Reduced-/Emergency-Mode uebersprungen."
-        },
-        "reduced_mode_cluster_range": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "minItems": 2,
-          "maxItems": 2
-        }
-      }
-    },
-    "normalization": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "mode": {
-          "type": "string",
-          "enum": [
-            "background",
-            "median"
-          ]
-        },
-        "per_channel": {
-          "type": "boolean"
-        }
-      }
-    },
-    "registration": {
-      "type": "object",
-      "description": "Registration with Temporal-Smoothing (v3.2.3+): Automatically uses neighbor frames (i-1, i+1) for failed registrations. Adaptive star detection: Falls back to 2.5σ threshold when <topk/2 stars detected.",
-      "properties": {
-        "engine": {
-          "type": "string",
-          "enum": [
-            "triangle_star_matching",
-            "star_similarity",
-            "hybrid_phase_ecc",
-            "robust_phase_ecc"
-          ],
-          "description": "Primary registration engine. robust_phase_ecc recommended for nebula/clouds (LoG gradient preprocessing). triangle_star_matching for clear skies (faster, rotation-invariant)."
-        },
-        "enable_star_pair_fallback": {
-          "type": "boolean",
-          "description": "Enable additional star-pair fallback between primary triangle and normative fallback cascade. strict profile disables this."
-        },
-        "allow_rotation": {
-          "type": "boolean"
-        },
-        "star_topk": {
-          "type": "integer",
-          "minimum": 3
-        },
-        "star_min_inliers": {
-          "type": "integer",
-          "minimum": 2
-        },
-        "star_inlier_tol_px": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "star_dist_bin_px": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "reject_outliers": {
-          "type": "boolean"
-        },
-        "reject_cc_min_abs": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "reject_cc_mad_multiplier": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "reject_shift_px_min": {
-          "type": "number",
-          "minimum": 0
-        },
-        "reject_shift_median_multiplier": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "reject_scale_min": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "reject_scale_max": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        }
-      }
-    },
-    "dithering": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "min_shift_px": {
-          "type": "number",
-          "minimum": 0
-        }
-      }
-    },
-    "tile_denoise": {
-      "type": "object",
-      "properties": {
-        "soft_threshold": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "blur_kernel": {
-              "type": "integer",
-              "minimum": 3
-            },
-            "alpha": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "skip_star_tiles": {
-              "type": "boolean"
-            }
-          }
-        },
-        "wiener": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "snr_threshold": {
-              "type": "number",
-              "minimum": 0
-            },
-            "q_min": {
-              "type": "number",
-              "minimum": -1
-            },
-            "q_max": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "q_step": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "min_snr": {
-              "type": "number",
-              "minimum": 0
-            },
-            "max_iterations": {
-              "type": "integer",
-              "minimum": 1
-            }
-          }
-        }
-      }
-    },
-    "chroma_denoise": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "color_space": {
-          "type": "string",
-          "enum": [
-            "ycbcr_linear",
-            "opponent_linear"
-          ]
-        },
-        "apply_stage": {
-          "type": "string",
-          "enum": [
-            "pre_stack_tiles",
-            "post_stack_linear"
-          ]
-        },
-        "protect_luma": {
-          "type": "boolean"
-        },
-        "luma_guard_strength": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "star_protection": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "threshold_sigma": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "dilate_px": {
-              "type": "integer",
-              "minimum": 0
-            }
-          }
-        },
-        "structure_protection": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "gradient_percentile": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 100
-            }
-          }
-        },
-        "chroma_wavelet": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "levels": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "threshold_scale": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "soft_k": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            }
-          }
-        },
-        "chroma_bilateral": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "sigma_spatial": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "sigma_range": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            }
-          }
-        },
-        "blend": {
-          "type": "object",
-          "properties": {
-            "mode": {
-              "type": "string",
-              "enum": [
-                "chroma_only"
-              ]
-            },
-            "amount": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            }
-          }
-        }
-      }
-    },
-    "global_metrics": {
-      "type": "object",
-      "properties": {
-        "adaptive_weights": {
-          "type": "boolean"
-        },
-        "weight_exponent_scale": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "description": "Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames. E.g. k=1.5 gives typical ratio ~20:1, k=2.0 gives ~54:1."
-        },
-        "weights": {
-          "type": "object",
-          "properties": {
-            "background": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "noise": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "gradient": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            }
-          }
-        },
-        "clamp": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 2,
-          "maxItems": 2
-        }
-      }
-    },
-    "tile": {
-      "type": "object",
-      "properties": {
-        "size_factor": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "min_size": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "max_divisor": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "overlap_fraction": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 0.5
-        },
-        "star_min_count": {
-          "type": "integer",
-          "minimum": 0
-        }
-      }
-    },
-    "local_metrics": {
-      "type": "object",
-      "properties": {
-        "clamp": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 2,
-          "maxItems": 2
-        },
-        "star_mode": {
-          "type": "object",
-          "properties": {
-            "weights": {
-              "type": "object",
-              "properties": {
-                "fwhm": {
-                  "type": "number",
-                  "minimum": 0,
-                  "maximum": 1
-                },
-                "roundness": {
-                  "type": "number",
-                  "minimum": 0,
-                  "maximum": 1
-                },
-                "contrast": {
-                  "type": "number",
-                  "minimum": 0,
-                  "maximum": 1
-                }
-              }
-            }
-          }
-        },
-        "structure_mode": {
-          "type": "object",
-          "properties": {
-            "background_weight": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "metric_weight": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            }
-          }
-        }
-      }
-    },
-    "synthetic": {
-      "type": "object",
-      "properties": {
-        "weighting": {
-          "type": "string",
-          "enum": [
-            "global",
-            "tile_weighted"
-          ],
-          "description": "global = nur G_f; tile_weighted = W_f,t = G_f*L_f,t mit tileweiser OLA-Rekonstruktion."
-        },
-        "frames_min": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "frames_max": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "clustering": {
-          "type": "object",
-          "properties": {
-            "mode": {
-              "type": "string",
-              "enum": [
-                "kmeans",
-                "quantile"
-              ]
-            },
-            "cluster_count_range": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "minItems": 2,
-              "maxItems": 2
-            }
-          }
-        }
-      }
-    },
-    "debayer": {
-      "type": "boolean"
-    },
-    "astrometry": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "astap_bin": {
-          "type": "string"
-        },
-        "astap_data_dir": {
-          "type": "string"
-        },
-        "search_radius": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 360
-        }
-      }
-    },
-    "pcc": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "apply_attenuation": {
-          "type": "boolean"
-        },
-        "chroma_strength": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "source": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "siril",
-            "vizier_gaia",
-            "vizier_apass"
-          ]
-        },
-        "mag_limit": {
-          "type": "number",
-          "minimum": 1,
-          "maximum": 22
-        },
-        "mag_bright_limit": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 15
-        },
-        "aperture_radius_px": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "annulus_inner_px": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "annulus_outer_px": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "min_stars": {
-          "type": "integer",
-          "minimum": 3
-        },
-        "sigma_clip": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "background_model": {
-          "type": "string",
-          "enum": [
-            "median",
-            "plane"
-          ]
-        },
-        "max_condition_number": {
-          "type": "number",
-          "minimum": 1
-        },
-        "max_residual_rms": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "radii_mode": {
-          "type": "string",
-          "enum": [
-            "fixed",
-            "auto_fwhm"
-          ]
-        },
-        "aperture_fwhm_mult": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "annulus_inner_fwhm_mult": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "annulus_outer_fwhm_mult": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "min_aperture_px": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "k_max": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "siril_catalog_dir": {
-          "type": "string"
-        }
-      }
-    },
-    "bge": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "autotune": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "strategy": {
-              "type": "string",
-              "enum": [
-                "conservative",
-                "extended"
-              ]
-            },
-            "max_evals": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "holdout_fraction": {
-              "type": "number",
-              "minimum": 0.05,
-              "maximum": 0.5
-            },
-            "alpha_flatness": {
-              "type": "number",
-              "minimum": 0
-            },
-            "beta_roughness": {
-              "type": "number",
-              "minimum": 0
-            }
-          }
-        },
-        "sample_quantile": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 0.5
-        },
-        "structure_thresh_percentile": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "min_tiles_per_cell": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "min_valid_sample_fraction_for_apply": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        },
-        "min_valid_samples_for_apply": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "mask": {
-          "type": "object",
-          "properties": {
-            "star_dilate_px": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "sat_dilate_px": {
-              "type": "integer",
-              "minimum": 0
-            }
-          }
-        },
-        "grid": {
-          "type": "object",
-          "properties": {
-            "N_g": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "G_min_px": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "G_max_fraction": {
-              "type": "number",
-              "exclusiveMinimum": 0,
-              "maximum": 1
-            },
-            "insufficient_cell_strategy": {
-              "type": "string",
-              "enum": [
-                "discard",
-                "nearest",
-                "radius_expand"
-              ]
-            }
-          }
-        },
-        "fit": {
-          "type": "object",
-          "properties": {
-            "method": {
-              "type": "string",
-              "enum": [
-                "poly",
-                "spline",
-                "bicubic",
-                "rbf",
-                "modeled_mask_mesh"
-              ]
-            },
-            "robust_loss": {
-              "type": "string",
-              "enum": [
-                "huber",
-                "tukey"
-              ]
-            },
-            "huber_delta": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "irls_max_iterations": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "irls_tolerance": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "polynomial_order": {
-              "type": "integer",
-              "enum": [
-                2,
-                3
-              ]
-            },
-            "rbf_phi": {
-              "type": "string",
-              "enum": [
-                "thinplate",
-                "multiquadric",
-                "gaussian"
-              ]
-            },
-            "rbf_mu_factor": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "rbf_lambda": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "rbf_epsilon": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            }
-          }
-        }
-      }
-    },
-    "stacking": {
-      "type": "object",
-      "properties": {
-        "method": {
-          "type": "string",
-          "enum": [
-            "rej",
-            "average"
-          ]
-        },
-        "sigma_clip": {
-          "type": "object",
-          "properties": {
-            "sigma_low": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "sigma_high": {
-              "type": "number",
-              "exclusiveMinimum": 0
-            },
-            "max_iters": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "min_fraction": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            }
-          }
-        },
-        "cluster_quality_weighting": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Aktiviert v3.2.2 Cluster-Qualitaetsgewichtung im finalen Stack: w_k = exp(kappa_cluster * Q_k)."
-            },
-            "kappa_cluster": {
-              "type": "number",
-              "exclusiveMinimum": 0,
-              "description": "Exponentfaktor fuer Cluster-Qualitaet Q_k (Q_k in [-3,+3])."
-            },
-            "cap_enabled": {
-              "type": "boolean",
-              "description": "Aktiviert optionales Dominanz-Cap fuer Clustergewichte."
-            },
-            "cap_ratio": {
-              "type": "number",
-              "exclusiveMinimum": 0,
-              "description": "Nur mit cap_enabled=true: begrenzt Gewicht auf w_k <= cap_ratio * median_j(w_j)."
-            }
-          }
-        },
-        "output_stretch": {
-          "type": "boolean",
-          "description": "Optionaler linearer Anzeige-Stretch auf den Ausgabe-Daten (Post-Processing, nicht Teil des linearen Pflichtkerns)."
-        },
-        "cosmetic_correction": {
-          "type": "boolean",
-          "description": "Optionale Hotpixel-/Artefakt-Kosmetik nach dem Stacken (Post-Processing, standardmaessig deaktiviert)."
-        },
-        "cosmetic_correction_sigma": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "description": "Schwellwert in Vielfachen der MAD-Sigma fuer die Hotpixel-Erkennung in cosmetic_correction. Niedrigerer Wert = aggressiver. Default: 5.0, empfohlen fuer OSC/Seestar: 10.0."
-        },
-        "per_frame_cosmetic_correction": {
-          "type": "boolean",
-          "description": "Hotpixel-Korrektur pro Frame VOR dem Stacken. Entfernt fixe Sensordefekte (immer gleiche Position), die Sigma-Clipping nicht erkennt. Empfohlen fuer OSC-Kameras mit fixen Hot Pixeln."
-        },
-        "per_frame_cosmetic_correction_sigma": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "description": "Sigma-Schwelle fuer per_frame_cosmetic_correction. Niedrigerer Wert = aggressiver. Default: 5.0. Fuer Seestar/OSC empfohlen: 5.0."
-        }
-      }
-    },
-    "validation": {
-      "type": "object",
-      "properties": {
-        "min_fwhm_improvement_percent": {
-          "type": "number"
-        },
-        "max_background_rms_increase_percent": {
-          "type": "number"
-        },
-        "min_tile_weight_variance": {
-          "type": "number",
-          "minimum": 0
-        },
-        "require_no_tile_pattern": {
-          "type": "boolean"
-        }
-      }
-    },
-    "runtime_limits": {
-      "type": "object",
-      "properties": {
-        "parallel_workers": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Anzahl paralleler Worker fuer Tile-Phasen; wird zusaetzlich durch CPU-Kerne und OSC-Speicherbudget begrenzt."
-        },
-        "memory_budget": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Speicherbudget in MiB fuer OSC-Worker-Cap bei Tile-Rekonstruktion."
-        },
-        "tile_analysis_max_factor_vs_stack": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "hard_abort_hours": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "allow_emergency_mode": {
-          "type": "boolean",
-          "description": "Erlaubt Emergency-Mode fuer Datensaetze mit <50 nutzbaren Frames; sonst wird der Lauf kontrolliert abgebrochen."
-        }
-      }
-    }
+        "soft_threshold": { "type":"object",
+          "properties": { "enabled":{"type":"boolean"},
+                          "blur_kernel":{"type":"integer","minimum":3},
+                          "alpha":{"type":"number","exclusiveMinimum":0},
+                          "skip_star_tiles":{"type":"boolean"} } },
+        "wiener": { "type":"object",
+          "properties": { "enabled":{"type":"boolean"},
+                          "snr_threshold":{"type":"number","minimum":0},
+                          "q_min":{"type":"number","minimum":-1},
+                          "q_max":{"type":"number","minimum":0,"maximum":1},
+                          "q_step":{"type":"number","exclusiveMinimum":0},
+                          "min_snr":{"type":"number","minimum":0},
+                          "max_iterations":{"type":"integer","minimum":1} } } } },
+    "chroma_denoise": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "color_space":{"type":"string","enum":["ycbcr_linear","opponent_linear"]},
+                      "apply_stage":{"type":"string","enum":["pre_stack_tiles","post_stack_linear"]},
+                      "protect_luma":{"type":"boolean"},
+                      "luma_guard_strength":{"type":"number","minimum":0,"maximum":1},
+                      "star_protection":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "threshold_sigma":{"type":"number","exclusiveMinimum":0},
+                        "dilate_px":{"type":"integer","minimum":0}}},
+                      "structure_protection":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "gradient_percentile":{"type":"number","minimum":0,"maximum":100}}},
+                      "chroma_wavelet":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "levels":{"type":"integer","minimum":1},
+                        "threshold_scale":{"type":"number","exclusiveMinimum":0},
+                        "soft_k":{"type":"number","exclusiveMinimum":0}}},
+                      "chroma_bilateral":{"type":"object","properties":{
+                        "enabled":{"type":"boolean"},
+                        "sigma_spatial":{"type":"number","exclusiveMinimum":0},
+                        "sigma_range":{"type":"number","exclusiveMinimum":0}}},
+                      "blend":{"type":"object","properties":{
+                        "mode":{"type":"string","enum":["chroma_only"]},
+                        "amount":{"type":"number","minimum":0,"maximum":1}}} } },
+    "global_metrics": { "type":"object",
+      "properties": { "adaptive_weights":{"type":"boolean"},
+                      "weight_exponent_scale":{"type":"number","exclusiveMinimum":0,"description":"Exponent scale k for G_f = exp(k * Q_f). k=1.0 (default) is standard, k>1 increases differentiation between good/bad frames."},
+                      "weights":{"type":"object","properties":{"background":{"type":"number","minimum":0,"maximum":1},"noise":{"type":"number","minimum":0,"maximum":1},"gradient":{"type":"number","minimum":0,"maximum":1}}},
+                      "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2} } },
+    "tile": { "type":"object",
+      "properties": { "size_factor":{"type":"integer","minimum":1},
+                      "min_size":{"type":"integer","minimum":1},
+                      "max_divisor":{"type":"integer","minimum":1},
+                      "overlap_fraction":{"type":"number","minimum":0,"maximum":0.5},
+                      "star_min_count":{"type":"integer","minimum":0} } },
+    "local_metrics": { "type":"object",
+      "properties": { "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},
+                      "star_mode":{"type":"object","properties":{"weights":{"type":"object","properties":{"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"contrast":{"type":"number","minimum":0,"maximum":1}}}}},
+                      "structure_mode":{"type":"object","properties":{"background_weight":{"type":"number","minimum":0,"maximum":1},"metric_weight":{"type":"number","minimum":0,"maximum":1}}} } },
+    "synthetic": { "type":"object",
+      "properties": { "weighting":{"type":"string","enum":["global","tile_weighted"]},
+                      "frames_min":{"type":"integer","minimum":1},
+                      "frames_max":{"type":"integer","minimum":1},
+                      "clustering":{"type":"object","properties":{"mode":{"type":"string","enum":["kmeans","quantile"]},"cluster_count_range":{"type":"array","items":{"type":"integer","minimum":1},"minItems":2,"maxItems":2}}} } },
+    "debayer": {"type":"boolean"},
+    "astrometry": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "astap_bin":{"type":"string"},
+                      "astap_data_dir":{"type":"string"},
+                      "search_radius":{"type":"integer","minimum":1,"maximum":360} } },
+    "bge": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "sample_quantile":{"type":"number","exclusiveMinimum":0,"maximum":0.5},
+                      "structure_thresh_percentile":{"type":"number","minimum":0,"maximum":1},
+                      "min_tiles_per_cell":{"type":"integer","minimum":1},
+                      "min_valid_sample_fraction_for_apply":{"type":"number","exclusiveMinimum":0,"maximum":1},
+                      "min_valid_samples_for_apply":{"type":"integer","minimum":1},
+                      "mask":{"type":"object","properties":{"star_dilate_px":{"type":"integer","minimum":0},"sat_dilate_px":{"type":"integer","minimum":0}}},
+                      "grid":{"type":"object","properties":{"N_g":{"type":"integer","minimum":1},"G_min_px":{"type":"integer","minimum":1},"G_max_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1},"insufficient_cell_strategy":{"type":"string","enum":["discard","nearest","radius_expand"]}}},
+                      "fit":{"type":"object","properties":{"method":{"type":"string","enum":["poly","spline","bicubic","rbf","modeled_mask_mesh"]},"robust_loss":{"type":"string","enum":["huber","tukey"]},"huber_delta":{"type":"number","exclusiveMinimum":0},"irls_max_iterations":{"type":"integer","minimum":1},"irls_tolerance":{"type":"number","exclusiveMinimum":0},"polynomial_order":{"type":"integer","enum":[2,3]},"rbf_phi":{"type":"string","enum":["thinplate","multiquadric","gaussian"]},"rbf_mu_factor":{"type":"number","exclusiveMinimum":0},"rbf_lambda":{"type":"number","exclusiveMinimum":0},"rbf_epsilon":{"type":"number","exclusiveMinimum":0}}},
+                      "autotune":{"type":"object","properties":{"enabled":{"type":"boolean"},"max_evals":{"type":"integer","minimum":1},"holdout_fraction":{"type":"number","minimum":0.05,"maximum":0.5},"alpha_flatness":{"type":"number","minimum":0},"beta_roughness":{"type":"number","minimum":0},"strategy":{"type":"string","enum":["conservative","extended"]}}} } },
+    "pcc": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "source":{"type":"string","enum":["auto","siril","vizier_gaia","vizier_apass"]},
+                      "mag_limit":{"type":"number","minimum":1,"maximum":22},
+                      "mag_bright_limit":{"type":"number","minimum":0,"maximum":15},
+                      "aperture_radius_px":{"type":"number","exclusiveMinimum":0},
+                      "annulus_inner_px":{"type":"number","exclusiveMinimum":0},
+                      "annulus_outer_px":{"type":"number","exclusiveMinimum":0},
+                      "min_stars":{"type":"integer","minimum":3},
+                      "sigma_clip":{"type":"number","exclusiveMinimum":0},
+                      "background_model":{"type":"string","enum":["median","plane"]},
+                      "max_condition_number":{"type":"number","minimum":1},
+                      "max_residual_rms":{"type":"number","exclusiveMinimum":0},
+                      "radii_mode":{"type":"string","enum":["fixed","auto_fwhm"]},
+                      "aperture_fwhm_mult":{"type":"number","exclusiveMinimum":0},
+                      "annulus_inner_fwhm_mult":{"type":"number","exclusiveMinimum":0},
+                      "annulus_outer_fwhm_mult":{"type":"number","exclusiveMinimum":0},
+                      "min_aperture_px":{"type":"number","exclusiveMinimum":0},
+                      "siril_catalog_dir":{"type":"string"},
+                      "apply_attenuation":{"type":"boolean"},
+                      "chroma_strength":{"type":"number","minimum":0,"maximum":1},
+                      "k_max":{"type":"number","exclusiveMinimum":0} } },
+    "stacking": { "type":"object",
+      "properties": { "method":{"type":"string","enum":["rej","average"]},
+                      "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},
+                      "cluster_quality_weighting":{"type":"object","properties":{"enabled":{"type":"boolean"},"kappa_cluster":{"type":"number","exclusiveMinimum":0,"description":"Quality-weight exponent for synthetic-cluster aggregation: w_k = exp(kappa_cluster * Q_k)."},"cap_enabled":{"type":"boolean"},"cap_ratio":{"type":"number","exclusiveMinimum":0,"description":"Optional dominance cap ratio for cluster weights: w_k <= cap_ratio * median_j(w_j)."}}},
+                      "tile_seam_harmonization":{"type":"object","properties":{"enabled":{"type":"boolean"},"strength":{"type":"number","minimum":0,"maximum":1},"sample_quantile":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1},"gradient_quantile":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1},"min_sample_fraction":{"type":"number","minimum":0,"maximum":1},"min_samples":{"type":"integer","minimum":1},"scale_floor_factor":{"type":"number","exclusiveMinimum":0},"scale_ceil_factor":{"type":"number","exclusiveMinimum":0}}},
+                      "output_stretch":{"type":"boolean"},
+                      "cosmetic_correction":{"type":"boolean"},
+                      "cosmetic_correction_sigma":{"type":"number","exclusiveMinimum":0},
+                      "per_frame_cosmetic_correction":{"type":"boolean"},
+                      "per_frame_cosmetic_correction_sigma":{"type":"number","exclusiveMinimum":0} } },
+    "validation": { "type":"object",
+      "properties": { "min_fwhm_improvement_percent":{"type":"number"},
+                      "max_background_rms_increase_percent":{"type":"number"},
+                      "min_tile_weight_variance":{"type":"number","minimum":0},
+                      "require_no_tile_pattern":{"type":"boolean"} } },
+    "runtime_limits": { "type":"object",
+      "properties": { "tile_analysis_max_factor_vs_stack":{"type":"number","exclusiveMinimum":0},
+                      "hard_abort_hours":{"type":"number","exclusiveMinimum":0},
+                      "allow_emergency_mode":{"type":"boolean"},
+                      "parallel_workers":{"type":"integer","minimum":1},
+                      "memory_budget":{"type":"integer","minimum":1} } }
   }
 }

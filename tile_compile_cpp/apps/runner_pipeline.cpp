@@ -51,12 +51,179 @@ using tile_compile::WarpMatrix;
 
 namespace image = tile_compile::image;
 namespace astro = tile_compile::astrometry;
+namespace core = tile_compile::core;
 using tile_compile::runner::TeeBuf;
 using tile_compile::runner::estimate_total_file_bytes;
 using tile_compile::runner::format_bytes;
 using tile_compile::runner::message_indicates_disk_full;
 
 using NormalizationScales = image::NormalizationScales;
+
+struct TileSeamStats {
+  float background = 0.0f;
+  float scale = 0.0f;
+  size_t sample_count = 0;
+  bool valid = false;
+};
+
+static std::vector<uint8_t>
+compute_tile_background_mask(
+    const Matrix2Df &luma,
+    const tile_compile::config::StackingConfig::TileSeamHarmonizationConfig
+        &cfg,
+    size_t &finite_count_out,
+    size_t &sample_count_out) {
+  finite_count_out = 0;
+  sample_count_out = 0;
+  std::vector<uint8_t> mask;
+  if (luma.rows() <= 0 || luma.cols() <= 0 || luma.size() <= 0) {
+    return mask;
+  }
+
+  const int rows = luma.rows();
+  const int cols = luma.cols();
+  mask.assign(static_cast<size_t>(rows * cols), 0u);
+
+  std::vector<float> values;
+  std::vector<float> gradients;
+  values.reserve(static_cast<size_t>(luma.size()));
+  gradients.reserve(static_cast<size_t>(luma.size()));
+
+  auto pixel = [&](int y, int x) -> float { return luma(y, x); };
+  auto finite_at = [&](int y, int x) -> bool {
+    return std::isfinite(pixel(y, x));
+  };
+
+  for (int y = 0; y < rows; ++y) {
+    for (int x = 0; x < cols; ++x) {
+      const float v = pixel(y, x);
+      if (!std::isfinite(v)) {
+        continue;
+      }
+      float grad = 0.0f;
+      int grad_terms = 0;
+      if (x > 0 && finite_at(y, x - 1)) {
+        grad += std::fabs(v - pixel(y, x - 1));
+        ++grad_terms;
+      }
+      if (x + 1 < cols && finite_at(y, x + 1)) {
+        grad += std::fabs(v - pixel(y, x + 1));
+        ++grad_terms;
+      }
+      if (y > 0 && finite_at(y - 1, x)) {
+        grad += std::fabs(v - pixel(y - 1, x));
+        ++grad_terms;
+      }
+      if (y + 1 < rows && finite_at(y + 1, x)) {
+        grad += std::fabs(v - pixel(y + 1, x));
+        ++grad_terms;
+      }
+      values.push_back(v);
+      gradients.push_back((grad_terms > 0) ? (grad / static_cast<float>(grad_terms))
+                                           : 0.0f);
+    }
+  }
+
+  finite_count_out = values.size();
+  if (values.empty() || gradients.empty()) {
+    return mask;
+  }
+
+  std::vector<float> sorted_values = values;
+  std::vector<float> sorted_gradients = gradients;
+  std::sort(sorted_values.begin(), sorted_values.end());
+  std::sort(sorted_gradients.begin(), sorted_gradients.end());
+  const float value_thresh = core::percentile_from_sorted(
+      sorted_values, 100.0f * cfg.sample_quantile);
+  const float grad_thresh = core::percentile_from_sorted(
+      sorted_gradients, 100.0f * cfg.gradient_quantile);
+
+  for (int y = 0; y < rows; ++y) {
+    for (int x = 0; x < cols; ++x) {
+      const float v = pixel(y, x);
+      if (!std::isfinite(v)) {
+        continue;
+      }
+      float grad = 0.0f;
+      int grad_terms = 0;
+      if (x > 0 && finite_at(y, x - 1)) {
+        grad += std::fabs(v - pixel(y, x - 1));
+        ++grad_terms;
+      }
+      if (x + 1 < cols && finite_at(y, x + 1)) {
+        grad += std::fabs(v - pixel(y, x + 1));
+        ++grad_terms;
+      }
+      if (y > 0 && finite_at(y - 1, x)) {
+        grad += std::fabs(v - pixel(y - 1, x));
+        ++grad_terms;
+      }
+      if (y + 1 < rows && finite_at(y + 1, x)) {
+        grad += std::fabs(v - pixel(y + 1, x));
+        ++grad_terms;
+      }
+      grad = (grad_terms > 0) ? (grad / static_cast<float>(grad_terms)) : 0.0f;
+      if (v <= value_thresh && grad <= grad_thresh) {
+        mask[static_cast<size_t>(y * cols + x)] = 1u;
+        ++sample_count_out;
+      }
+    }
+  }
+
+  const size_t min_by_fraction = static_cast<size_t>(
+      std::ceil(cfg.min_sample_fraction * static_cast<float>(finite_count_out)));
+  const size_t min_required = std::max(
+      static_cast<size_t>(std::max(1, cfg.min_samples)), min_by_fraction);
+  if (sample_count_out < min_required) {
+    std::fill(mask.begin(), mask.end(), 0u);
+    sample_count_out = 0;
+  }
+  return mask;
+}
+
+static TileSeamStats estimate_tile_seam_stats(
+    const Matrix2Df &src, const std::vector<uint8_t> &mask) {
+  TileSeamStats stats;
+  if (src.rows() <= 0 || src.cols() <= 0 || src.size() <= 0 || mask.empty()) {
+    return stats;
+  }
+
+  std::vector<float> samples;
+  samples.reserve(mask.size());
+  const int cols = src.cols();
+  for (int y = 0; y < src.rows(); ++y) {
+    for (int x = 0; x < src.cols(); ++x) {
+      const size_t idx = static_cast<size_t>(y * cols + x);
+      if (idx >= mask.size() || mask[idx] == 0u) {
+        continue;
+      }
+      const float v = src(y, x);
+      if (std::isfinite(v)) {
+        samples.push_back(v);
+      }
+    }
+  }
+
+  if (samples.empty()) {
+    return stats;
+  }
+
+  std::vector<float> bg_vals = samples;
+  const float background = core::median_of(bg_vals);
+  std::vector<float> abs_dev;
+  abs_dev.reserve(samples.size());
+  for (float v : samples) {
+    abs_dev.push_back(std::fabs(v - background));
+  }
+  const float scale =
+      abs_dev.empty() ? 0.0f : std::max(0.0f, core::median_of(abs_dev));
+  stats.background = background;
+  stats.scale = scale;
+  stats.sample_count = samples.size();
+  stats.valid = std::isfinite(background) && std::isfinite(scale) &&
+                scale >= 0.0f && stats.sample_count > 0;
+  return stats;
+}
 
 bool write_canvas_mask_fits(const fs::path &mask_path,
                             const std::vector<uint8_t> &mask,
@@ -1340,25 +1507,82 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                            norm_tmp.end());
           return norm_tmp[mid];
         };
-        auto center_by_median = [&](Matrix2Df &src) -> float {
-          const float bg = median_from_matrix(src, false);
-          for (Eigen::Index i = 0; i < src.size(); ++i) {
-            src.data()[i] -= bg;
+        auto blended_tile_norm = [&](const Matrix2Df &src,
+                                     const TileSeamStats *seam_stats)
+            -> std::pair<float, float> {
+          const float full_bg = median_from_matrix(src, false);
+          Matrix2Df centered = src;
+          for (Eigen::Index i = 0; i < centered.size(); ++i) {
+            centered.data()[i] -= full_bg;
           }
-          return bg;
+          const float full_scale = median_from_matrix(centered, true);
+          if (!cfg.stacking.tile_seam_harmonization.enabled ||
+              seam_stats == nullptr || !seam_stats->valid) {
+            return {full_bg, full_scale};
+          }
+          const auto &seam_cfg = cfg.stacking.tile_seam_harmonization;
+          const float strength = seam_cfg.strength;
+          const float bg = (1.0f - strength) * full_bg +
+                           strength * seam_stats->background;
+          float scale = full_scale;
+          if (full_scale >= kEpsMedian) {
+            const float floor_scale =
+                full_scale * seam_cfg.scale_floor_factor;
+            const float ceil_scale =
+                full_scale * seam_cfg.scale_ceil_factor;
+            const float seam_scale =
+                std::clamp(seam_stats->scale, floor_scale, ceil_scale);
+            scale =
+                (1.0f - strength) * full_scale + strength * seam_scale;
+          } else if (seam_stats->scale >= kEpsMedian) {
+            scale = seam_stats->scale;
+          }
+          return {bg, scale};
         };
 
+        size_t seam_finite_count_dummy = 0;
+        size_t seam_sample_count_dummy = 0;
+        const std::vector<uint8_t> seam_mask =
+            cfg.stacking.tile_seam_harmonization.enabled
+                ? compute_tile_background_mask(
+                      tile_rec, cfg.stacking.tile_seam_harmonization,
+                      seam_finite_count_dummy, seam_sample_count_dummy)
+                : std::vector<uint8_t>{};
+        const TileSeamStats seam_stats =
+            estimate_tile_seam_stats(tile_rec, seam_mask);
+
         if (osc_mode) {
-          const float bg_r = center_by_median(tile_rec_R);
-          const float bg_g = center_by_median(tile_rec_G);
-          const float bg_b = center_by_median(tile_rec_B);
+          const TileSeamStats seam_stats_r =
+              estimate_tile_seam_stats(tile_rec_R, seam_mask);
+          const TileSeamStats seam_stats_g =
+              estimate_tile_seam_stats(tile_rec_G, seam_mask);
+          const TileSeamStats seam_stats_b =
+              estimate_tile_seam_stats(tile_rec_B, seam_mask);
+
+          const auto [bg_r, unused_scale_r] =
+              blended_tile_norm(tile_rec_R, &seam_stats_r);
+          const auto [bg_g, unused_scale_g] =
+              blended_tile_norm(tile_rec_G, &seam_stats_g);
+          const auto [bg_b, unused_scale_b] =
+              blended_tile_norm(tile_rec_B, &seam_stats_b);
+          (void)unused_scale_r;
+          (void)unused_scale_g;
+          (void)unused_scale_b;
+          for (Eigen::Index i = 0; i < tile_rec_R.size(); ++i) {
+            tile_rec_R.data()[i] -= bg_r;
+            tile_rec_G.data()[i] -= bg_g;
+            tile_rec_B.data()[i] -= bg_b;
+          }
           tile_norm_bg_r[ti] = bg_r;
           tile_norm_bg_g[ti] = bg_g;
           tile_norm_bg_b[ti] = bg_b;
 
           tile_rec =
               0.25f * tile_rec_R + 0.5f * tile_rec_G + 0.25f * tile_rec_B;
-          const float m_shared = median_from_matrix(tile_rec, true);
+          const auto [unused_bg, m_shared] =
+              blended_tile_norm(tile_rec, seam_stats.valid ? &seam_stats
+                                                           : nullptr);
+          (void)unused_bg;
           if (m_shared >= kEpsMedian) {
             const float inv = 1.0f / m_shared;
             for (Eigen::Index i = 0; i < tile_rec_R.size(); ++i) {
@@ -1374,9 +1598,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             tile_norm_scale[ti] = 1.0f;
           }
         } else {
-          const float bg = center_by_median(tile_rec);
+          const auto [bg, m] =
+              blended_tile_norm(tile_rec, seam_stats.valid ? &seam_stats
+                                                           : nullptr);
+          for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {
+            tile_rec.data()[i] -= bg;
+          }
           tile_norm_bg_r[ti] = bg;
-          const float m = median_from_matrix(tile_rec, true);
           if (m >= kEpsMedian) {
             const float inv = 1.0f / m;
             for (Eigen::Index i = 0; i < tile_rec.size(); ++i) {

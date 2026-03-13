@@ -6,10 +6,13 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 **Schema-Version:** v3  
 **Referenz:** Methodik v3.3
 
-**Dokumentationsstand (2026-03-03):**
+**Dokumentationsstand (2026-03-13):**
 - `bge.fit.robust_loss` und `bge.fit.huber_delta` sind als Benutzerparameter dokumentiert und konfigurierbar.
 - `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` sind als kanalweise BGE-Apply-Grenzwerte dokumentiert.
 - PCC-Dokumentation umfasst die aktiven Stabilitäts- und Apply-Parameter (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
+- `stacking.tile_seam_harmonization.*` dokumentiert die neue konservative Tile-Seam-Harmonisierung vor dem OLA-Blending.
+- Referenzdoku, JSON-/YAML-Schema, Beispiel-Configs und GUI2-Parameter-Studio sind auf den aktuellen C++-Config-Stand abgeglichen.
+
 
 **💡 Für praktische Beispiele und Anwendungsfälle siehe:** [Konfigurationsbeispiele & Best Practices](configuration_examples_practical_de.md)
 
@@ -87,17 +90,6 @@ Steuerung der Ausgabeverzeichnisse und welche Zwischenergebnisse geschrieben wer
 
 ---
 
-### `output.artifacts_dir`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | string |
-| **Default** | `"artifacts"` |
-
-**Zweck:** Unterverzeichnis für JSON-Artefakte und Report-Dateien.
-
----
-
 ### `output.write_registered_frames`
 
 | Eigenschaft | Wert |
@@ -111,28 +103,6 @@ Steuerung der Ausgabeverzeichnisse und welche Zwischenergebnisse geschrieben wer
 - **`false`**: Registrierte Frames werden nur im Speicher gehalten
 
 **Hinweis:** In `tile_compile.yaml` steht `true`, der C++ Default ist `false`. Nur für Debugging empfohlen.
-
----
-
-### `output.write_global_metrics`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | boolean |
-| **Default** | `true` |
-
-**Zweck:** `global_metrics.json` Artefakt schreiben.
-
----
-
-### `output.write_global_registration`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | boolean |
-| **Default** | `true` |
-
-**Zweck:** `global_registration.json` Artefakt schreiben (Warp-Matrizen + CC pro Frame).
 
 ---
 
@@ -177,32 +147,6 @@ Bilddaten-Eigenschaften. Teilweise automatisch aus dem FITS-Header ermittelt, te
 | **Default** | `0` (automatisch erkannt) |
 
 **Zweck:** Bildhöhe in Pixeln. Wird aus FITS-Header (NAXIS2) gelesen.
-
----
-
-### `data.frames_min`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | integer |
-| **Minimum** | 1 |
-| **Default** | `0` |
-
-**Zweck:** Erwartete Mindestanzahl Frames im Input-Verzeichnis. `0` = keine Prüfung.
-
-**Hinweis:** Nicht zu verwechseln mit `assumptions.frames_min`, das für Pipeline-Entscheidungen (Reduced Mode) verwendet wird.
-
----
-
-### `data.frames_target`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | integer |
-| **Minimum** | 0 |
-| **Default** | `0` |
-
-**Zweck:** Erwartete Zielanzahl Frames. `0` = kein Ziel. Informativ, kein Abbruch.
 
 ---
 
@@ -1392,33 +1336,14 @@ Synthetische Frame-Erzeugung und Clustering (Phase 8+9).
 
 ## 14. Reconstruction
 
-Tile-basierte Rekonstruktion (Phase 7: TILE_RECONSTRUCTION). Diese Einstellungen sind **fest** gemäß Methodik v3.
+Die aktuelle C++-Konfiguration hat **keinen eigenen `reconstruction:` Block**.
 
-### `reconstruction.weighting_function`
+Gewichtete Tile-Rekonstruktion, Hanning-OLA und die interne Tile-Seam-Harmonisierung sind Laufzeitverhalten des Runners, aber keine eigenständigen Top-Level-Config-Schlüssel. Relevante Stellschrauben liegen derzeit unter:
 
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | string (enum) |
-| **Werte** | `linear` |
-| **Default** | `"linear"` |
-| **Konstant** | Ja |
-
-**Zweck:** Gewichtungsfunktion für Tile-Rekonstruktion. Fest auf `linear` (W_f,t = G_f × L_f,t, dann Exponential-Mapping in den Gewichten selbst).
-
----
-
-### `reconstruction.window_function`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | string (enum) |
-| **Werte** | `hanning` |
-| **Default** | `"hanning"` |
-| **Konstant** | Ja |
-
-**Zweck:** Fensterfunktion für Tile-Overlap-Add. Fest auf **Hanning** (2D separabel).
-
-**Formel:** `w(i) = 0.5 × (1 − cos(2π·i / (n−1)))`
+- `synthetic.*`
+- `stacking.*`
+- `tile.*`
+- `tile_denoise.*`
 
 ---
 
@@ -2132,37 +2057,115 @@ Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 
 ---
 
-### `stacking.common_overlap_required_fraction`
+### `stacking.tile_seam_harmonization.enabled`
 
 | Eigenschaft | Wert |
 |-------------|------|
-| **Typ** | number |
-| **Bereich** | `(0, 1]` |
-| **Default** | `1.0` |
+| **Typ** | boolean |
+| **Default** | `true` |
 
-**Zweck:** Definiert die erforderliche Pixel-Abdeckung über nutzbare Frames für alle Berechnungen nach PREWARP.
+**Zweck:** Aktiviert eine konservative Tile-Seam-Harmonisierung in `TILE_RECONSTRUCTION` direkt vor dem Hanning-OLA.
 
-- `1.0` (empfohlen): strikte Schnittmenge aller nutzbaren Frames
-- `< 1.0`: lässt teilweise überdeckte Rand-/Canvas-Bereiche in Statistiken und Tile-Verarbeitung zu
-
-**Empfehlung:** Für Feldrotation (Alt/Az) auf `1.0` lassen, damit keine geometriebedingten Bias- oder Stripe/Grid-Artefakte entstehen.
+- Die Schätzung verwendet bevorzugt glatte, dunkle Hintergrundpixel statt alle Pixel im Tile.
+- Ziel ist das Reduzieren sichtbarer Kachelgrenzen durch unterschiedliche Tile-Level oder Scale-Schätzungen.
+- Clustering, Gewichte und Frame-Selektion bleiben unverändert.
 
 ---
 
-### `stacking.tile_common_valid_min_fraction`
+### `stacking.tile_seam_harmonization.strength`
 
 | Eigenschaft | Wert |
 |-------------|------|
 | **Typ** | number |
-| **Bereich** | `(0, 1]` |
-| **Default** | `0.9` |
+| **Bereich** | `0 – 1` |
+| **Default** | `0.75` |
 
-**Zweck:** Tile-Akzeptanzschwelle nach Anwendung der Common-Overlap-Maske.
+**Zweck:** Mischfaktor zwischen bisheriger Vollbild-Tile-Normierung und background-maskierter Seam-Schätzung.
 
-- Ein Tile wird nur verwendet, wenn mindestens dieser Anteil seiner Pixel im gemeinsamen Overlap liegt
-- Höhere Werte sind strikter und reduzieren Randkontamination
+- `0.0`: altes Verhalten
+- `1.0`: maximale Orientierung an robusten Hintergrundsamples
 
-**Empfehlung:** `0.9` für Produktion; `0.75-0.85` nur bewusst, wenn mehr Randabdeckung zugelassen werden soll.
+**Empfehlung:** `0.5 – 0.8` bei sichtbaren Tile-Mustern.
+
+---
+
+### `stacking.tile_seam_harmonization.sample_quantile`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | `(0, 1)` |
+| **Default** | `0.30` |
+
+**Zweck:** Helligkeits-Quantil zur Auswahl dunkler Pixel als Kandidaten für die Hintergrundmaske.
+
+---
+
+### `stacking.tile_seam_harmonization.gradient_quantile`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | `(0, 1)` |
+| **Default** | `0.70` |
+
+**Zweck:** Gradienten-Quantil zur Unterdrückung strukturreicher Pixel in der Hintergrundmaske.
+
+---
+
+### `stacking.tile_seam_harmonization.min_sample_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | `0 – 1` |
+| **Default** | `0.05` |
+
+**Zweck:** Minimal erforderlicher Anteil maskierter Hintergrundpixel relativ zu allen finiten Tile-Pixeln.
+
+**Verhalten:** Wird die Schwelle nicht erreicht, fällt die Schätzung auf die bestehende Vollbild-Normierung zurück.
+
+---
+
+### `stacking.tile_seam_harmonization.min_samples`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | `1` |
+| **Default** | `64` |
+
+**Zweck:** Absolute Mindestanzahl Hintergrundsamples für die robuste Seam-Schätzung.
+
+---
+
+### `stacking.tile_seam_harmonization.scale_floor_factor`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | `>0` |
+| **Default** | `0.50` |
+
+**Zweck:** Untere Clamp-Grenze für den seam-basierten Normierungsmaßstab relativ zur Vollbild-Schätzung.
+
+**Formel:** `scale >= full_scale * scale_floor_factor`
+
+---
+
+### `stacking.tile_seam_harmonization.scale_ceil_factor`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | `>0` |
+| **Default** | `2.00` |
+
+**Zweck:** Obere Clamp-Grenze für den seam-basierten Normierungsmaßstab relativ zur Vollbild-Schätzung.
+
+**Formel:** `scale <= full_scale * scale_ceil_factor`
+
+**Wichtig:** `scale_floor_factor <= scale_ceil_factor` muss gelten.
 
 ---
 
@@ -2371,10 +2374,8 @@ pipeline:
 # Output
 output:
   registered_dir: registered
-  artifacts_dir: artifacts
   write_registered_frames: false
-  write_global_metrics: true
-  write_global_registration: true
+  crop_to_nonzero_bbox: true
 
 # Data
 data:
@@ -2498,11 +2499,6 @@ synthetic:
     mode: kmeans
     cluster_count_range: [5, 30]
 
-# Reconstruction (fest)
-reconstruction:
-  weighting_function: linear
-  window_function: hanning
-
 # Debayer
 debayer: true
 
@@ -2539,6 +2535,15 @@ stacking:
     kappa_cluster: 1.0
     cap_enabled: false
     cap_ratio: 20.0
+  tile_seam_harmonization:
+    enabled: true
+    strength: 0.75
+    sample_quantile: 0.30
+    gradient_quantile: 0.70
+    min_sample_fraction: 0.05
+    min_samples: 64
+    scale_floor_factor: 0.50
+    scale_ceil_factor: 2.00
   output_stretch: false
   cosmetic_correction: false
 
@@ -2564,17 +2569,17 @@ runtime_limits:
 
 ### Abweichungen `tile_compile.yaml` vs. C++ Defaults
 
-Die Datei `tile_compile.yaml` im Repository enthält eine **Test-/Debug-Konfiguration** die von den C++ Defaults abweicht:
+Die Datei `tile_compile.yaml` im Repository enthält eine **Beispiel-/Szenario-Konfiguration** und weicht bewusst von den reinen C++ Defaults ab. Zusätzlich enthält sie Workflow-Metadaten wie `run_dir`, `log_level` und `scenario_profile`, die nicht Teil des reinen C++-Schemas sind.
 
 | Key | `tile_compile.yaml` | C++ Default | Bemerkung |
 |-----|---------------------|-------------|-----------|
 | `pipeline.abort_on_fail` | `false` | `true` | Debug-freundlich |
 | `output.write_registered_frames` | `true` | `false` | Speicherintensiv |
-| `global_metrics.weights.background` | `0.45` | `0.4` | Abweichende Gewichtung |
+| `global_metrics.weights.background` | `0.40` | `0.4` | Praktisch identisch |
 | `global_metrics.weights.noise` | `0.35` | `0.3` | Abweichende Gewichtung |
-| `global_metrics.weights.gradient` | `0.20` | `0.3` | Abweichende Gewichtung |
-| `registration.star_topk` | `100` | `120` | Weniger Sterne |
-| `registration.star_inlier_tol_px` | `3.0` | `2.5` | Toleranter |
+| `global_metrics.weights.gradient` | `0.25` | `0.3` | Etwas geringere Gradient-Gewichtung |
+| `registration.star_topk` | `150` | `120` | Mehr Sterne |
+| `registration.star_inlier_tol_px` | `4.0` | `2.5` | Toleranter |
 | `registration.star_dist_bin_px` | `5.0` | `2.5` | Größere Bins |
 
 ### Schema-Validierung
@@ -2604,13 +2609,9 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `pipeline.mode`: wählt Produktions- vs. Testpfad (gleiche Kernphasen, anderes Striktheits-/Debug-Profil).
 - `pipeline.abort_on_fail`: steuert, ob bei `phase_end(error)` sofort abgebrochen wird.
 - `output.registered_dir`: Ziel-Unterordner für registrierte Frame-Ausgaben.
-- `output.artifacts_dir`: Ziel-Unterordner für JSON-Artefakte (`global_metrics.json`, `tile_reconstruction.json`, ...).
 - `output.write_registered_frames`: schreibt pro Frame registrierte FITS; erhöht IO- und Speicherbedarf stark.
-- `output.write_global_metrics`: aktiviert Schreiben globaler Metrikvektoren (Frame-Qualitätsdiagnose).
-- `output.write_global_registration`: aktiviert Schreiben globaler Warp/CC-Diagnose.
+- `output.crop_to_nonzero_bbox`: schneidet den finalen Stack auf die nichtleere Bounding Box zu.
 - `data.image_width`, `data.image_height`: optionale Erwartungswerte; normalerweise FITS-headerbasiert erkannt.
-- `data.frames_min`: Vorab-Sanity-Schwelle für minimale Input-Anzahl.
-- `data.frames_target`: rein informatives Ziel; erzwingt allein keinen Ausschluss.
 - `data.color_mode`: erwarteter Aufnahmemodus; Laufzeit-Autodetektion kann mit Warnung übersteuern.
 - `data.bayer_pattern`: CFA-Layout für OSC-Verarbeitung und korrekte Farbrekonstruktion.
 - `data.linear_required`: koppelt Policy für Linearitätsanforderung an Linearity-Diagnostik.
@@ -2709,8 +2710,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `synthetic.frames_max`: maximale Anzahl Synthetic-Outputs.
 - `synthetic.clustering.mode`: Clustering-Backend für Zustandsgruppen.
 - `synthetic.clustering.cluster_count_range`: erlaubtes K-Suchfenster.
-- `reconstruction.weighting_function`: Rekonstruktionsgewichtsmodell (aktuell linear).
-- `reconstruction.window_function`: Fensterkern für Overlap-Add (aktuell Hanning).
+- Rekonstruktion/OLA ist aktuell interner Runner-Ablauf ohne eigenen `reconstruction:`-Config-Block.
 
 ### A.6 Debayer / Astrometry / PCC / Stacking / Validation / Runtime
 
@@ -2738,6 +2738,11 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `stacking.cluster_quality_weighting.kappa_cluster`: Exponent der Qualitätsgewichtung.
 - `stacking.cluster_quality_weighting.cap_enabled`: expliziter Dominanz-Cap-Schalter.
 - `stacking.cluster_quality_weighting.cap_ratio`: Dominanz-Cap-Level bei aktivem Cap.
+- `stacking.tile_seam_harmonization.enabled`: konservative background-basierte Tile-Seam-Harmonisierung vor OLA.
+- `stacking.tile_seam_harmonization.strength`: Mischfaktor zwischen Vollbild- und maskierter Hintergrund-Schätzung.
+- `stacking.tile_seam_harmonization.sample_quantile`, `gradient_quantile`: Auswahl glatter dunkler Hintergrundpixel.
+- `stacking.tile_seam_harmonization.min_sample_fraction`, `min_samples`: Mindestabdeckung für robuste Seam-Schätzung.
+- `stacking.tile_seam_harmonization.scale_floor_factor`, `scale_ceil_factor`: Clamp-Fenster für seam-basierten Scale.
 - **Laufzeit-Schutz:** Für Synthetic-Stacking wird standardmäßig ein Dominanz-Cap angewendet, auch wenn `cap_enabled=false`, um Dynamik-Kollaps diffuser Signale zu verhindern.
 - `stacking.output_stretch`: optionales display-orientiertes Post-Scaling auf 16-bit-Spanne.
 - `stacking.cosmetic_correction`: optionale Hotpixel-artige Korrektur nach dem Stacking.

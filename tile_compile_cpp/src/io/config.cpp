@@ -542,6 +542,33 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.stacking.cluster_quality_weighting.cap_ratio =
             cqw["cap_ratio"].as<float>();
     }
+    if (st["tile_seam_harmonization"]) {
+      auto tsh = st["tile_seam_harmonization"];
+      if (tsh["enabled"])
+        cfg.stacking.tile_seam_harmonization.enabled =
+            tsh["enabled"].as<bool>();
+      if (tsh["strength"])
+        cfg.stacking.tile_seam_harmonization.strength =
+            tsh["strength"].as<float>();
+      if (tsh["sample_quantile"])
+        cfg.stacking.tile_seam_harmonization.sample_quantile =
+            tsh["sample_quantile"].as<float>();
+      if (tsh["gradient_quantile"])
+        cfg.stacking.tile_seam_harmonization.gradient_quantile =
+            tsh["gradient_quantile"].as<float>();
+      if (tsh["min_sample_fraction"])
+        cfg.stacking.tile_seam_harmonization.min_sample_fraction =
+            tsh["min_sample_fraction"].as<float>();
+      if (tsh["min_samples"])
+        cfg.stacking.tile_seam_harmonization.min_samples =
+            tsh["min_samples"].as<int>();
+      if (tsh["scale_floor_factor"])
+        cfg.stacking.tile_seam_harmonization.scale_floor_factor =
+            tsh["scale_floor_factor"].as<float>();
+      if (tsh["scale_ceil_factor"])
+        cfg.stacking.tile_seam_harmonization.scale_ceil_factor =
+            tsh["scale_ceil_factor"].as<float>();
+    }
     if (st["output_stretch"])
       cfg.stacking.output_stretch = st["output_stretch"].as<bool>();
     if (st["cosmetic_correction"])
@@ -836,6 +863,22 @@ YAML::Node Config::to_yaml() const {
       stacking.cluster_quality_weighting.cap_enabled;
   node["stacking"]["cluster_quality_weighting"]["cap_ratio"] =
       stacking.cluster_quality_weighting.cap_ratio;
+  node["stacking"]["tile_seam_harmonization"]["enabled"] =
+      stacking.tile_seam_harmonization.enabled;
+  node["stacking"]["tile_seam_harmonization"]["strength"] =
+      stacking.tile_seam_harmonization.strength;
+  node["stacking"]["tile_seam_harmonization"]["sample_quantile"] =
+      stacking.tile_seam_harmonization.sample_quantile;
+  node["stacking"]["tile_seam_harmonization"]["gradient_quantile"] =
+      stacking.tile_seam_harmonization.gradient_quantile;
+  node["stacking"]["tile_seam_harmonization"]["min_sample_fraction"] =
+      stacking.tile_seam_harmonization.min_sample_fraction;
+  node["stacking"]["tile_seam_harmonization"]["min_samples"] =
+      stacking.tile_seam_harmonization.min_samples;
+  node["stacking"]["tile_seam_harmonization"]["scale_floor_factor"] =
+      stacking.tile_seam_harmonization.scale_floor_factor;
+  node["stacking"]["tile_seam_harmonization"]["scale_ceil_factor"] =
+      stacking.tile_seam_harmonization.scale_ceil_factor;
   node["stacking"]["output_stretch"] = stacking.output_stretch;
   node["stacking"]["cosmetic_correction"] =
       stacking.cosmetic_correction;
@@ -1213,6 +1256,41 @@ void Config::validate() const {
     throw ValidationError("stacking.cluster_quality_weighting.cap_ratio must be "
                           "> 0 when cap_enabled=true");
   }
+  if (!is_between_0_1(stacking.tile_seam_harmonization.strength)) {
+    throw ValidationError(
+        "stacking.tile_seam_harmonization.strength must be in [0,1]");
+  }
+  if (stacking.tile_seam_harmonization.sample_quantile <= 0.0f ||
+      stacking.tile_seam_harmonization.sample_quantile >= 1.0f) {
+    throw ValidationError(
+        "stacking.tile_seam_harmonization.sample_quantile must be in (0,1)");
+  }
+  if (stacking.tile_seam_harmonization.gradient_quantile <= 0.0f ||
+      stacking.tile_seam_harmonization.gradient_quantile >= 1.0f) {
+    throw ValidationError(
+        "stacking.tile_seam_harmonization.gradient_quantile must be in (0,1)");
+  }
+  if (!is_between_0_1(stacking.tile_seam_harmonization.min_sample_fraction)) {
+    throw ValidationError(
+        "stacking.tile_seam_harmonization.min_sample_fraction must be in [0,1]");
+  }
+  if (stacking.tile_seam_harmonization.min_samples < 1) {
+    throw ValidationError(
+        "stacking.tile_seam_harmonization.min_samples must be >= 1");
+  }
+  if (stacking.tile_seam_harmonization.scale_floor_factor <= 0.0f) {
+    throw ValidationError(
+        "stacking.tile_seam_harmonization.scale_floor_factor must be > 0");
+  }
+  if (stacking.tile_seam_harmonization.scale_ceil_factor <= 0.0f) {
+    throw ValidationError(
+        "stacking.tile_seam_harmonization.scale_ceil_factor must be > 0");
+  }
+  if (stacking.tile_seam_harmonization.scale_floor_factor >
+      stacking.tile_seam_harmonization.scale_ceil_factor) {
+    throw ValidationError(
+        "stacking.tile_seam_harmonization.scale_floor_factor must be <= scale_ceil_factor");
+  }
   if (stacking.cosmetic_correction_sigma <= 0.0f) {
     throw ValidationError("stacking.cosmetic_correction_sigma must be > 0");
   }
@@ -1242,7 +1320,8 @@ std::string get_schema_json() {
                       "abort_on_fail":{"type":"boolean"} } },
     "output": { "type":"object",
       "properties": { "registered_dir":{"type":"string"},
-                      "write_registered_frames":{"type":"boolean"} } },
+                      "write_registered_frames":{"type":"boolean"},
+                      "crop_to_nonzero_bbox":{"type":"boolean"} } },
     "data": { "type":"object",
       "properties": { "image_width":{"type":"integer","minimum":0},
                       "image_height":{"type":"integer","minimum":0},
@@ -1284,7 +1363,14 @@ std::string get_schema_json() {
                       "star_topk":{"type":"integer","minimum":3},
                       "star_min_inliers":{"type":"integer","minimum":2},
                       "star_inlier_tol_px":{"type":"number","exclusiveMinimum":0},
-                      "star_dist_bin_px":{"type":"number","exclusiveMinimum":0} } },
+                      "star_dist_bin_px":{"type":"number","exclusiveMinimum":0},
+                      "reject_outliers":{"type":"boolean"},
+                      "reject_cc_min_abs":{"type":"number","minimum":0,"maximum":1},
+                      "reject_cc_mad_multiplier":{"type":"number","exclusiveMinimum":0},
+                      "reject_shift_px_min":{"type":"number","minimum":0},
+                      "reject_shift_median_multiplier":{"type":"number","exclusiveMinimum":0},
+                      "reject_scale_min":{"type":"number","exclusiveMinimum":0},
+                      "reject_scale_max":{"type":"number","exclusiveMinimum":0} } },
     "dithering": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "min_shift_px":{"type":"number","minimum":0} } },
@@ -1354,6 +1440,17 @@ std::string get_schema_json() {
                       "astap_bin":{"type":"string"},
                       "astap_data_dir":{"type":"string"},
                       "search_radius":{"type":"integer","minimum":1,"maximum":360} } },
+    "bge": { "type":"object",
+      "properties": { "enabled":{"type":"boolean"},
+                      "sample_quantile":{"type":"number","exclusiveMinimum":0,"maximum":0.5},
+                      "structure_thresh_percentile":{"type":"number","minimum":0,"maximum":1},
+                      "min_tiles_per_cell":{"type":"integer","minimum":1},
+                      "min_valid_sample_fraction_for_apply":{"type":"number","exclusiveMinimum":0,"maximum":1},
+                      "min_valid_samples_for_apply":{"type":"integer","minimum":1},
+                      "mask":{"type":"object","properties":{"star_dilate_px":{"type":"integer","minimum":0},"sat_dilate_px":{"type":"integer","minimum":0}}},
+                      "grid":{"type":"object","properties":{"N_g":{"type":"integer","minimum":1},"G_min_px":{"type":"integer","minimum":1},"G_max_fraction":{"type":"number","exclusiveMinimum":0,"maximum":1},"insufficient_cell_strategy":{"type":"string","enum":["discard","nearest","radius_expand"]}}},
+                      "fit":{"type":"object","properties":{"method":{"type":"string","enum":["poly","spline","bicubic","rbf","modeled_mask_mesh"]},"robust_loss":{"type":"string","enum":["huber","tukey"]},"huber_delta":{"type":"number","exclusiveMinimum":0},"irls_max_iterations":{"type":"integer","minimum":1},"irls_tolerance":{"type":"number","exclusiveMinimum":0},"polynomial_order":{"type":"integer","enum":[2,3]},"rbf_phi":{"type":"string","enum":["thinplate","multiquadric","gaussian"]},"rbf_mu_factor":{"type":"number","exclusiveMinimum":0},"rbf_lambda":{"type":"number","exclusiveMinimum":0},"rbf_epsilon":{"type":"number","exclusiveMinimum":0}}},
+                      "autotune":{"type":"object","properties":{"enabled":{"type":"boolean"},"max_evals":{"type":"integer","minimum":1},"holdout_fraction":{"type":"number","minimum":0.05,"maximum":0.5},"alpha_flatness":{"type":"number","minimum":0},"beta_roughness":{"type":"number","minimum":0},"strategy":{"type":"string","enum":["conservative","extended"]}}} } },
     "pcc": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "source":{"type":"string","enum":["auto","siril","vizier_gaia","vizier_apass"]},
@@ -1380,8 +1477,12 @@ std::string get_schema_json() {
       "properties": { "method":{"type":"string","enum":["rej","average"]},
                       "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},
                       "cluster_quality_weighting":{"type":"object","properties":{"enabled":{"type":"boolean"},"kappa_cluster":{"type":"number","exclusiveMinimum":0,"description":"Quality-weight exponent for synthetic-cluster aggregation: w_k = exp(kappa_cluster * Q_k)."},"cap_enabled":{"type":"boolean"},"cap_ratio":{"type":"number","exclusiveMinimum":0,"description":"Optional dominance cap ratio for cluster weights: w_k <= cap_ratio * median_j(w_j)."}}},
+                      "tile_seam_harmonization":{"type":"object","properties":{"enabled":{"type":"boolean"},"strength":{"type":"number","minimum":0,"maximum":1},"sample_quantile":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1},"gradient_quantile":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1},"min_sample_fraction":{"type":"number","minimum":0,"maximum":1},"min_samples":{"type":"integer","minimum":1},"scale_floor_factor":{"type":"number","exclusiveMinimum":0},"scale_ceil_factor":{"type":"number","exclusiveMinimum":0}}},
                       "output_stretch":{"type":"boolean"},
-                      "cosmetic_correction":{"type":"boolean"} } },
+                      "cosmetic_correction":{"type":"boolean"},
+                      "cosmetic_correction_sigma":{"type":"number","exclusiveMinimum":0},
+                      "per_frame_cosmetic_correction":{"type":"boolean"},
+                      "per_frame_cosmetic_correction_sigma":{"type":"number","exclusiveMinimum":0} } },
     "validation": { "type":"object",
       "properties": { "min_fwhm_improvement_percent":{"type":"number"},
                       "max_background_rms_increase_percent":{"type":"number"},

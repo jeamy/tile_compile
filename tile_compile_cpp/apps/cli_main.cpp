@@ -8,6 +8,7 @@
 #include <fitsio.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -62,6 +63,35 @@ static std::string read_stdin() {
     std::ostringstream ss;
     ss << std::cin.rdbuf();
     return ss.str();
+}
+
+static json yaml_node_to_json(const YAML::Node& node) {
+    if (node.IsMap()) {
+        json out = json::object();
+        for (auto it = node.begin(); it != node.end(); ++it) {
+            out[it->first.as<std::string>()] = yaml_node_to_json(it->second);
+        }
+        return out;
+    }
+    if (node.IsSequence()) {
+        json out = json::array();
+        for (auto it = node.begin(); it != node.end(); ++it) out.push_back(yaml_node_to_json(*it));
+        return out;
+    }
+    if (node.IsScalar()) {
+        const std::string raw = node.Scalar();
+        if (raw == "true") return true;
+        if (raw == "false") return false;
+        char* end = nullptr;
+        errno = 0;
+        long long i = std::strtoll(raw.c_str(), &end, 10);
+        if (end && end != raw.c_str() && *end == '\0' && errno == 0) return i;
+        errno = 0;
+        double d = std::strtod(raw.c_str(), &end);
+        if (end && end != raw.c_str() && *end == '\0' && errno == 0) return d;
+        return raw;
+    }
+    return nullptr;
 }
 
 static std::string compute_sha256_file(const fs::path& path) {
@@ -307,6 +337,20 @@ static json fits_stats_file(const fs::path& path) {
 // ============================================================================
 int cmd_get_schema() {
     std::cout << tile_compile::config::get_schema_json() << std::endl;
+    return 0;
+}
+
+int cmd_dump_default_config() {
+    tile_compile::config::Config cfg;
+    YAML::Node node = cfg.to_yaml();
+    YAML::Emitter emitter;
+    emitter << node;
+
+    json result;
+    result["ok"] = true;
+    result["config"] = yaml_node_to_json(node);
+    result["yaml"] = std::string(emitter.c_str());
+    print_json(result);
     return 0;
 }
 
@@ -1067,6 +1111,7 @@ void print_usage() {
     std::cout << "Usage: tile_compile_cli <command> [options]\n"
               << "\nCommands:\n"
               << "  get-schema                      Print JSON schema for config\n"
+              << "  dump-default-config             Print default config as JSON/YAML\n"
               << "  load-gui-state [--path P]       Load GUI state from file\n"
               << "  save-gui-state [--path P] [--stdin | JSON]  Save GUI state\n"
               << "  load-config <path>              Load config YAML file\n"
@@ -1122,6 +1167,10 @@ int main(int argc, char* argv[]) {
     
     if (command == "get-schema") {
         return cmd_get_schema();
+    }
+
+    if (command == "dump-default-config") {
+        return cmd_dump_default_config();
     }
     
     if (command == "load-gui-state") {

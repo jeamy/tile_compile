@@ -20,6 +20,8 @@ export const API_ENDPOINTS = {
     quality: "/api/scan/quality",
   },
   config: {
+    schema: "/api/config/schema",
+    defaults: "/api/config/defaults",
     current: "/api/config/current",
     patch: "/api/config/patch",
     presets: (dir = "") => {
