@@ -140,6 +140,77 @@ stacking:
 
 ---
 
+## Sichtbare Kachelgrenzen reduzieren (`stacking.tile_seam_harmonization.*`)
+
+Der Parameterblock arbeitet in `TILE_RECONSTRUCTION` overlap-basiert:
+
+- benachbarte Tiles werden in ihren realen Überlappungen verglichen
+- es werden nur glatte, dunkle Hintergrundpixel verwendet
+- daraus wird ein global konsistentes Offset-/Scale-Feld über alle Tiles gelöst
+
+**Guter Startpunkt bei sichtbarer Kachelstruktur:**
+
+```yaml
+stacking:
+  tile_seam_harmonization:
+    enabled: true
+    strength: 0.75
+    sample_quantile: 0.30
+    gradient_quantile: 0.70
+    min_sample_fraction: 0.05
+    min_samples: 64
+    scale_floor_factor: 0.50
+    scale_ceil_factor: 2.00
+```
+
+**Für klar sichtbare Tile-Nähte im schwachen Hintergrund:**
+
+```yaml
+stacking:
+  tile_seam_harmonization:
+    enabled: true
+    strength: 0.90
+    sample_quantile: 0.20
+    gradient_quantile: 0.50
+    min_sample_fraction: 0.03
+    min_samples: 48
+    scale_floor_factor: 0.80
+    scale_ceil_factor: 1.25
+```
+
+- Mehr `strength` verstärkt die global gelöste Seam-Korrektur.
+- Niedrigere `sample_quantile` und `gradient_quantile` machen die Overlap-Maske konservativer.
+- Engere `scale_*`-Grenzen verhindern aggressive tileweise Kontrastsprünge.
+
+**Für große diffuse Objekte (M31, M42, IC434) mit Nebel in den Overlaps:**
+
+```yaml
+stacking:
+  tile_seam_harmonization:
+    enabled: true
+    strength: 0.85
+    sample_quantile: 0.12
+    gradient_quantile: 0.35
+    min_sample_fraction: 0.02
+    min_samples: 32
+    scale_floor_factor: 0.90
+    scale_ceil_factor: 1.10
+```
+
+- Diese Variante ist strenger bei der Auswahl sauberer Hintergrundpixel.
+- Sinnvoll, wenn Nebel- oder Sternstruktur die Overlap-Schätzung sonst kontaminiert.
+
+**Wenn die Kachelstruktur danach immer noch kaum reagiert:**
+
+- Ursache ist wahrscheinlich nicht primär ein Level-/Scale-Seam-Problem.
+- Dann eher prüfen:
+  - `tile.overlap_fraction`
+  - `tile_denoise.*`
+  - `stacking.output_stretch`
+  - nachgelagerte Unterschiede aus `BGE` oder `PCC`
+
+---
+
 ## Hotpixel / RGB-Einzelpixel-Artefakte (fixe Sensordefekte)
 
 Wenn im finalen Bild **isolierte rote/grüne/blaue Einzelpixel** bleiben, sind das meist **fixe Hot Pixel** (Sensorfehler), die in jedem Frame an der gleichen Position auftreten. Diese überleben Sigma-Clipping im Stack, weil sie nicht als Ausreißer über Frames hinweg erscheinen.

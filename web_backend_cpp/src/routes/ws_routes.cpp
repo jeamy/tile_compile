@@ -76,7 +76,11 @@ json normalize_event(const json& raw, const std::string& fallback_run_id) {
     }
 
     if (type != "phase_start" && type != "phase_progress" && type != "phase_end" &&
-        type != "run_end" && type != "queue_progress" && type != "log_line") {
+        type != "run_start" && type != "run_end" &&
+        type != "resume_start" && type != "resume_end" &&
+        type != "queue_progress" &&
+        type != "warning" && type != "error" &&
+        type != "log_line") {
         return {
             {"type", "log_line"},
             {"run_id", run_id},

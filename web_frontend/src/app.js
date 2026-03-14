@@ -602,6 +602,45 @@ function pushLogPart(parts, value) {
   if (text) parts.push(text);
 }
 
+function normalizeLogLevel(raw) {
+  const level = String(raw || "").trim().toLowerCase();
+  if (["error", "err", "fatal"].includes(level)) return "error";
+  if (["warning", "warn", "skipped"].includes(level)) return "warning";
+  return "info";
+}
+
+function detectStructuredLogLevel(entry) {
+  const parsed = maybeParseJsonLine(entry);
+  if (typeof parsed === "string") {
+    const lower = parsed.toLowerCase();
+    if (lower.includes("error") || lower.includes("failed") || lower.includes("fatal")) return "error";
+    if (lower.includes("warning") || lower.includes("warn") || lower.includes("skipped")) return "warning";
+    return "info";
+  }
+  if (!parsed || typeof parsed !== "object") return "info";
+
+  const type = String(parsed.type || "").trim().toLowerCase();
+  const payload = parsed.payload && typeof parsed.payload === "object" ? parsed.payload : parsed;
+  const status = String(payload.status || parsed.status || "").trim().toLowerCase();
+  const severity = String(payload.severity || parsed.severity || "").trim().toLowerCase();
+  const message = compactLogMessage(payload.message || parsed.message || payload.error || parsed.error || "").toLowerCase();
+
+  if (type === "error" || type === "run_stream_error") return "error";
+  if (type === "warning") return "warning";
+  if (["error", "failed", "aborted", "cancelled"].includes(status)) return "error";
+  if (["warning", "warn", "skipped"].includes(status)) return "warning";
+  if (severity) return normalizeLogLevel(severity);
+  if (message.includes("error") || message.includes("failed") || message.includes("fatal")) return "error";
+  if (message.includes("warning") || message.includes("warn") || message.includes("skipped")) return "warning";
+  return "info";
+}
+
+function liveLogTag(level) {
+  if (level === "error") return "ERR";
+  if (level === "warning") return "WARN";
+  return "INFO";
+}
+
 function summarizePhaseEndPayload(phaseRaw, payload) {
   if (!payload || typeof payload !== "object") return [];
   const phase = String(phaseRaw || "").trim().toUpperCase();
@@ -685,10 +724,10 @@ function formatRunStreamLog(entry, { suppressRunStatus = false } = {}) {
   const payload = entry.payload && typeof entry.payload === "object" ? entry.payload : {};
   const phase = humanizeLogToken(entry.phase || payload.phase_name || payload.phase || "");
   const pct = formatLogPercent(entry.pct ?? payload.progress ?? payload.pct);
-  const message = compactLogMessage(payload.message || entry.message || "");
+  const message = compactLogMessage(payload.message || entry.message || payload.substep || entry.substep || "");
 
   if (type === "phase_start") {
-    return `${prefix}${phase || "Phase"} | gestartet`;
+    return `${prefix}${phase || "Phase"} | start`;
   }
   if (type === "phase_progress") {
     const parts = [phase || "Phase"];
@@ -696,6 +735,7 @@ function formatRunStreamLog(entry, { suppressRunStatus = false } = {}) {
     const current = Number(entry.current ?? payload.current);
     const total = Number(entry.total ?? payload.total);
     if (Number.isFinite(current) && Number.isFinite(total) && total > 0) parts.push(`${current}/${total}`);
+    pushLogPart(parts, payload.pass || entry.pass);
     if (message) parts.push(message);
     return `${prefix}${parts.join(" | ")}`;
   }
@@ -717,11 +757,35 @@ function formatRunStreamLog(entry, { suppressRunStatus = false } = {}) {
     if (filter) parts.push(`filter ${filter}`);
     return `${prefix}${parts.join(" | ")}`;
   }
+  if (type === "run_start") {
+    const parts = ["Run", "start"];
+    pushLogPart(parts, payload.run_dir || entry.run_dir);
+    return `${prefix}${parts.join(" | ")}`;
+  }
   if (type === "run_end") {
     const parts = ["Run beendet", humanizeLogToken(payload.state || entry.status || "done")];
     const currentPhase = humanizeLogToken(payload.current_phase || "");
     if (currentPhase) parts.push(currentPhase);
     return `${prefix}${parts.filter(Boolean).join(" | ")}`;
+  }
+  if (type === "resume_start") {
+    const fromPhase = humanizeLogToken(payload.from_phase || entry.from_phase || "");
+    return `${prefix}${["Resume", "start", fromPhase].filter(Boolean).join(" | ")}`;
+  }
+  if (type === "resume_end") {
+    const ok = payload.success ?? entry.success;
+    const fromPhase = humanizeLogToken(payload.from_phase || entry.from_phase || "");
+    const parts = ["Resume", ok ? "OK" : "ERROR"];
+    if (fromPhase) parts.push(fromPhase);
+    pushLogPart(parts, payload.error || entry.error);
+    return `${prefix}${parts.join(" | ")}`;
+  }
+  if (type === "warning" || type === "error") {
+    const label = type === "error" ? "Fehler" : "Warnung";
+    const parts = [label];
+    if (phase) parts.push(phase);
+    if (message) parts.push(message);
+    return `${prefix}${parts.join(" | ")}`;
   }
   if (type === "run_stream_error") {
     return `${prefix}Stream error | ${message || "unbekannt"}`;
@@ -4591,13 +4655,6 @@ async function bindLiveLogPage() {
     return ["all", "info", "warning", "error", "clear"].includes(t);
   });
 
-  function detectLevel(line) {
-    const lower = String(line).toLowerCase();
-    if (lower.includes("error")) return "error";
-    if (lower.includes("warn")) return "warning";
-    return "info";
-  }
-
   const escapeHtml = (text) =>
     String(text)
       .replace(/&/g, "&amp;")
@@ -4606,16 +4663,16 @@ async function bindLiveLogPage() {
 
   function render() {
     const lines = uiState.liveLines.filter((item) => uiState.liveFilter === "all" || item.level === uiState.liveFilter);
-    const colorByLevel = {
-      info: "#e5edf6",
-      warning: "#f59e0b",
-      error: "#ef4444",
+    const paletteByLevel = {
+      info: { text: "#e5edf6", badgeBg: "#334155", badgeFg: "#dbeafe", lineBg: "transparent", border: "#334155" },
+      warning: { text: "#fdba74", badgeBg: "#7c2d12", badgeFg: "#ffedd5", lineBg: "rgba(249, 115, 22, 0.08)", border: "#f59e0b" },
+      error: { text: "#fca5a5", badgeBg: "#7f1d1d", badgeFg: "#fee2e2", lineBg: "rgba(239, 68, 68, 0.1)", border: "#ef4444" },
     };
     box.innerHTML = lines
       .map((item) => {
         const level = String(item.level || "info");
-        const color = colorByLevel[level] || colorByLevel.info;
-        return `<div style="color:${color};white-space:pre-wrap;">${escapeHtml(item.line)}</div>`;
+        const palette = paletteByLevel[level] || paletteByLevel.info;
+        return `<div style="display:flex;gap:10px;align-items:flex-start;padding:4px 0 4px 10px;border-left:3px solid ${palette.border};background:${palette.lineBg};color:${palette.text};white-space:pre-wrap;"><span style="flex:0 0 auto;display:inline-block;min-width:42px;padding:1px 6px;border-radius:999px;background:${palette.badgeBg};color:${palette.badgeFg};font-size:11px;font-weight:700;line-height:1.5;text-align:center;">${liveLogTag(level)}</span><span style="display:block;min-width:0;">${escapeHtml(item.line)}</span></div>`;
       })
       .join("");
     scrollLogToEnd(box);
@@ -4701,9 +4758,13 @@ async function bindLiveLogPage() {
   try {
     const logs = await api.get(API_ENDPOINTS.runs.logs(runId, 250));
     uiState.liveLines = (logs.lines || [])
-      .map((line) => formatStructuredLogLine(line, { suppressRunStatus: true }) || String(line || "").trim())
-      .filter(Boolean)
-      .map((line) => ({ line, level: detectLevel(line) }));
+      .map((line) => ({
+        line: formatStructuredLogLine(line, { suppressRunStatus: true }) || String(line || "").trim(),
+        level: detectStructuredLogLevel(line),
+      }))
+      .filter((item) => item.line)
+      .map((item) => ({ line: item.line, level: item.level }))
+      .filter(Boolean);
     render();
     if (uiState.liveSocket) uiState.liveSocket.close();
     uiState.liveSocket = api.ws(
@@ -4711,7 +4772,7 @@ async function bindLiveLogPage() {
       (event) => {
         const line = formatStructuredLogLine(event, { suppressRunStatus: true });
         if (!line) return;
-        uiState.livePendingLines.push({ line, level: detectLevel(line) });
+        uiState.livePendingLines.push({ line, level: detectStructuredLogLevel(event) });
         scheduleLiveLogFlush();
       },
       () => {},

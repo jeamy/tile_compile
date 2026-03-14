@@ -5,7 +5,7 @@
 
 ## Übersicht
 
-Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruiert als gewichtetes Mittel über alle Frames, wobei das effektive Gewicht `W_f,t = G_f × L_f,t` die Frame-Qualität (global) und die lokale Tile-Qualität kombiniert. Die rekonstruierten Tiles werden mittels **Hanning-Overlap-Add** zu einem nahtlosen Gesamtbild zusammengefügt.
+Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruiert als gewichtetes Mittel über alle Frames, wobei das effektive Gewicht `W_f,t = G_f × L_f,t` die Frame-Qualität (global) und die lokale Tile-Qualität kombiniert. Danach folgt eine **tile-übergreifende Seam-Harmonisierung auf Basis realer Tile-Overlaps**, bevor die Tiles mittels **Hanning-Overlap-Add** zu einem Gesamtbild zusammengefügt werden.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -15,12 +15,13 @@ Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruie
 │  2. Effektives Gewicht W_f,t = G_f × L_f,t           │
 │  3. Gewichtetes Mittel:                              │
 │     tile_rec = Σ W_f,t · tile_f / Σ W_f,t            │
-│  4. Per-Tile Background-Normalisierung               │
-│  5. Post-Metriken (Contrast, BG, SNR)                │
-│  6. Hanning-Window × tile_rec → Overlap-Add          │
+│  4. Post-Metriken (Contrast, BG, SNR)                │
+│  5. Overlap-basierte Seam-Beobachtungen              │
+│  6. Globaler Offset-/Scale-Solver über Nachbarn      │
+│  7. Korrigiertes Tile → Hanning-Overlap-Add          │
 │                                                      │
 │  Danach:                                             │
-│  7. recon(y,x) /= weight_sum(y,x)                    │
+│  8. recon(y,x) /= weight_sum(y,x)                    │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -97,30 +98,7 @@ tile_t = Σ_f (W_f,t · tile_f,t) / Σ_f W_f,t
 - Bei `wsum = 0`: Fallback auf gleichmäßige Gewichtung (1.0)
 - Alle Frames werden verwendet (v3: keine Frame-Selektion)
 
-## 4. Per-Tile Background-Normalisierung
-
-```cpp
-// Methodik v3 §A.6
-std::vector<float> rec_px(tile_rec.size());
-std::memcpy(rec_px.data(), tile_rec.data(), sizeof(float) * rec_px.size());
-float tile_bg = core::median_of(rec_px);
-
-Matrix2Df ref_tile = extract_tile(prewarped_frames[global_ref_idx], t);
-float ref_bg = core::median_of(ref_px);
-
-float offset = ref_bg - tile_bg;
-if (std::isfinite(offset) && std::fabs(offset) < 0.5f) {
-    for (Eigen::Index k = 0; k < tile_rec.size(); ++k)
-        tile_rec.data()[k] += offset;
-}
-```
-
-- **Zweck**: Verhindert sichtbare Tile-Grenzen durch unterschiedliche Background-Levels
-- **Referenz**: Background des Referenz-Frames im gleichen Tile-Bereich
-- **Offset**: Differenz Referenz-BG − Rekonstruktions-BG → addiert
-- **Safety**: Nur wenn Offset endlich und < 0.5 (verhindert Artefakte bei problematischen Tiles)
-
-## 5. Post-Warp-Metriken
+## 4. Post-Warp-Metriken
 
 ```cpp
 auto [contrast, background, snr] = compute_post_warp_metrics(tile_rec);
@@ -137,22 +115,84 @@ tile_post_snr[ti] = snr;
 
 Diese Metriken werden im Artifact `tile_reconstruction.json` gespeichert und in der Report-Heatmap visualisiert.
 
+## 5. Overlap-basierte Seam-Harmonisierung
+
+Die eigentliche Kachelunterdrückung passiert jetzt **nicht mehr nur tile-intern**, sondern über reale Überlappungen benachbarter Tiles.
+
+### 5.1 Hintergrundmaske pro Tile
+
+```cpp
+mask = compute_tile_background_mask(tile_rec, seam_cfg, finite_count, sample_count);
+```
+
+- Selektiert nur **dunkle, glatte** Pixel
+- Schwellen:
+  - `sample_quantile`
+  - `gradient_quantile`
+  - `min_sample_fraction`
+  - `min_samples`
+- Ziel: Nur robuste Hintergrundpixel für Seam-Schätzung verwenden
+
+### 5.2 Beobachtungen aus Nachbar-Overlaps
+
+```cpp
+obs = estimate_tile_overlap_observation(
+    lhs_tile, rhs_tile,
+    lhs_image, rhs_image,
+    lhs_mask, rhs_mask,
+    pair_min_samples);
+```
+
+Für jedes Nachbarpaar werden in der gemeinsamen Overlap-Zone geschätzt:
+
+- `background_delta = bg_rhs - bg_lhs`
+- `log_scale_delta = log(scale_rhs) - log(scale_lhs)`
+- `weight = sample_count`
+
+Dabei wird nur auf Pixeln gearbeitet, die in **beiden** Tiles durch die Hintergrundmaske akzeptiert wurden.
+
+### 5.3 Globaler Solver
+
+```cpp
+field = solve_tile_seam_field(tile_count, observations, solve_scale);
+```
+
+- Löst ein globales Gleichungssystem über alle Tile-Nachbarschaften
+- Ergebnis:
+  - relatives Background-Feld pro Tile
+  - relatives Log-Scale-Feld pro Tile
+- Die Felder werden anschließend auf Median 0 zentriert
+
+Damit werden nicht nur einzelne Tiles „auf ein Niveau gezogen“, sondern die **gesamte Tile-Nachbarschaft konsistent ausgeglichen**.
+
+### 5.4 Anwendung der Korrektur
+
+Für MONO:
+
+```cpp
+tile = (tile - base_bg) * scale_factor + base_bg + bg_corr;
+```
+
+Für OSC:
+
+- Background-Korrektur pro Kanal `R/G/B`
+- gemeinsamer Scale-Faktor aus der Luma-Schätzung
+
+Die Stärke wird über `stacking.tile_seam_harmonization.strength` geblendet. Der Scale-Faktor wird zusätzlich durch
+
+- `scale_floor_factor`
+- `scale_ceil_factor`
+
+begrenzt.
+
 ## 6. Hanning-Overlap-Add
 
 ```cpp
-std::vector<float> hann_x = make_hann_1d(t.width);
-std::vector<float> hann_y = make_hann_1d(t.height);
-
-{
-    std::lock_guard<std::mutex> lock(recon_mutex);
-    for (int yy = 0; yy < tile_rec.rows(); ++yy) {
-        for (int xx = 0; xx < tile_rec.cols(); ++xx) {
-            int iy = y0 + yy;
-            int ix = x0 + xx;
-            float win = hann_y[yy] * hann_x[xx];
-            recon(iy, ix) += tile_rec(yy, xx) * win;
-            weight_sum(iy, ix) += win;
-        }
+for (int yy = 0; yy < tile.rows(); ++yy) {
+    for (int xx = 0; xx < tile.cols(); ++xx) {
+        float win = hann_y[yy] * hann_x[xx];
+        recon(iy, ix) += tile(yy, xx) * win;
+        weight_sum(iy, ix) += win;
     }
 }
 ```
@@ -189,11 +229,14 @@ for (int i = 0; i < recon.size(); ++i) {
 |----------|-----|-------------|
 | `recon` | Matrix2Df | Rekonstruiertes Gesamtbild (W×H) |
 | `weight_sum` | Matrix2Df | Akkumulierte Fenstergewichte |
+| `reconstructed_tiles[ti]` | Matrix2Df | Fertig rekonstruierte Einzeltiles vor OLA |
 | `tile_valid_counts[ti]` | int | Anzahl gültiger Frames pro Tile |
 | `tile_mean_correlations[ti]` | float | Mittlere Korrelation (=1.0, global warp) |
 | `tile_post_contrast[ti]` | float | Post-Contrast pro Tile |
 | `tile_post_background[ti]` | float | Post-Background pro Tile |
 | `tile_post_snr[ti]` | float | Post-SNR pro Tile |
+| `tile_norm_bg_*[ti]` | float | angewendete Seam-Background-Korrektur |
+| `tile_norm_scale[ti]` | float | angewendeter gemeinsamer Tile-Scale-Faktor |
 
 ## Artifact: `tile_reconstruction.json`
 
@@ -201,11 +244,17 @@ for (int i = 0; i < recon.size(); ++i) {
 {
   "num_frames": 100,
   "num_tiles": 1200,
+  "tile_seam_mode": "overlap_global",
+  "tile_seam_pair_count": 2200,
+  "tile_seam_bg_observations": 2174,
+  "tile_seam_scale_observations": 2158,
   "tile_valid_counts": [100, 100, 99, ...],
   "tile_mean_correlations": [1.0, 1.0, 1.0, ...],
   "tile_post_contrast": [0.0012, 0.0015, ...],
   "tile_post_background": [1.001, 1.002, ...],
-  "tile_post_snr_proxy": [45.2, 38.7, ...]
+  "tile_post_snr_proxy": [45.2, 38.7, ...],
+  "tile_seam_bg_correction": [-0.03, -0.01, 0.00, ...],
+  "tile_seam_scale_factor": [0.98, 1.01, 1.00, ...]
 }
 ```
 
@@ -214,8 +263,10 @@ for (int i = 0; i < recon.size(); ++i) {
 | Situation | Verhalten |
 |-----------|-----------|
 | Leeres Tile (keine gültigen Frames) | `tiles_failed++`, Tile übersprungen |
+| Zu wenig gültige Hintergrundsamples im Tile | Tile bleibt ohne Seam-Beobachtung |
+| Keine belastbaren Overlap-Beobachtungen | Seam-Solver liefert neutrale Korrektur |
 | weight_sum = 0 an Pixel | Fallback: Referenz-Frame-Pixel |
-| offset nicht finite oder > 0.5 | BG-Normalisierung übersprungen |
+| Problematische Scale-Schätzung | Korrektur durch `scale_floor_factor` / `scale_ceil_factor` geklemmt |
 
 ## Nächste Phase
 

@@ -140,6 +140,77 @@ stacking:
 
 ---
 
+## Reduce visible tile boundaries (`stacking.tile_seam_harmonization.*`)
+
+This parameter block now works in an overlap-based way inside `TILE_RECONSTRUCTION`:
+
+- neighboring tiles are compared in their real overlap regions
+- only smooth, dark background pixels are used
+- a globally consistent offset/scale field is solved across all tiles
+
+**Good starting point for visible tile structure:**
+
+```yaml
+stacking:
+  tile_seam_harmonization:
+    enabled: true
+    strength: 0.75
+    sample_quantile: 0.30
+    gradient_quantile: 0.70
+    min_sample_fraction: 0.05
+    min_samples: 64
+    scale_floor_factor: 0.50
+    scale_ceil_factor: 2.00
+```
+
+**For clearly visible tile seams in weak background regions:**
+
+```yaml
+stacking:
+  tile_seam_harmonization:
+    enabled: true
+    strength: 0.90
+    sample_quantile: 0.20
+    gradient_quantile: 0.50
+    min_sample_fraction: 0.03
+    min_samples: 48
+    scale_floor_factor: 0.80
+    scale_ceil_factor: 1.25
+```
+
+- Higher `strength` amplifies the globally solved seam correction.
+- Lower `sample_quantile` and `gradient_quantile` make the overlap mask more conservative.
+- Tighter `scale_*` limits prevent aggressive tile-wise contrast jumps.
+
+**For large diffuse targets (M31, M42, IC434) with nebulosity inside overlaps:**
+
+```yaml
+stacking:
+  tile_seam_harmonization:
+    enabled: true
+    strength: 0.85
+    sample_quantile: 0.12
+    gradient_quantile: 0.35
+    min_sample_fraction: 0.02
+    min_samples: 32
+    scale_floor_factor: 0.90
+    scale_ceil_factor: 1.10
+```
+
+- This version is stricter about selecting clean background pixels.
+- Useful when nebulosity or star structure would otherwise contaminate the overlap estimate.
+
+**If the tile pattern still barely reacts afterward:**
+
+- the issue is probably not primarily a level/scale seam problem
+- then check instead:
+  - `tile.overlap_fraction`
+  - `tile_denoise.*`
+  - `stacking.output_stretch`
+  - downstream differences introduced by `BGE` or `PCC`
+
+---
+
 ## Hot pixels / RGB single-pixel artifacts (fixed sensor defects)
 
 If the final image still shows **isolated red/green/blue single pixels**, these are typically **fixed hot pixels** (sensor defects) that occur at the same coordinates in every frame. They can survive stack sigma clipping because they are not outliers across frames.

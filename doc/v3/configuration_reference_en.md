@@ -10,7 +10,7 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
 - `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented as BGE channel-apply guards.
 - PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
-- `stacking.tile_seam_harmonization.*` documents the new conservative tile seam harmonization before OLA blending.
+- `stacking.tile_seam_harmonization.*` documents the new overlap-based tile seam harmonization before OLA blending.
 
 **💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
 
@@ -1443,10 +1443,11 @@ Final stacking settings.
 | **Type** | boolean |
 | **Default** | `true` |
 
-**Purpose:** Enable conservative tile seam harmonization in `TILE_RECONSTRUCTION` directly before Hanning OLA.
+**Purpose:** Enable overlap-based tile seam harmonization in `TILE_RECONSTRUCTION` directly before Hanning OLA.
 
-- The estimator prefers smooth, dark background pixels instead of all tile pixels.
-- This targets visible tile boundaries caused by tile-to-tile level or scale drift.
+- Neighboring tiles are compared through their real overlap regions instead of only tile-internal statistics.
+- The estimator prefers smooth, dark background pixels inside those overlap regions.
+- A globally consistent offset/scale field is solved from the neighborhood observations.
 - Clustering, weights, and frame selection remain unchanged.
 
 ### `stacking.tile_seam_harmonization.strength`
@@ -1457,12 +1458,12 @@ Final stacking settings.
 | **Range** | `0 – 1` |
 | **Default** | `0.75` |
 
-**Purpose:** Blend factor between legacy full-tile normalization and background-masked seam estimation.
+**Purpose:** Strength of the overlap-based seam correction.
 
-- `0.0`: legacy behavior
-- `1.0`: maximum reliance on robust background samples
+- `0.0`: no additional seam correction
+- `1.0`: full reliance on the globally solved overlap-based corrections
 
-**Recommendation:** `0.5 – 0.8` when tile seams are visible.
+**Recommendation:** `0.6 – 0.9` when tile seams are visible.
 
 ### `stacking.tile_seam_harmonization.sample_quantile`
 
@@ -1472,7 +1473,10 @@ Final stacking settings.
 | **Range** | `(0, 1)` |
 | **Default** | `0.30` |
 
-**Purpose:** Brightness quantile used to keep darker pixels as background-mask candidates.
+**Purpose:** Brightness quantile used to keep darker pixels as candidates for the overlap background mask.
+
+- Lower values are more conservative and reduce object contamination.
+- Affects only seam-observation pixel selection, not clustering or weighting.
 
 ### `stacking.tile_seam_harmonization.gradient_quantile`
 
@@ -1482,7 +1486,10 @@ Final stacking settings.
 | **Range** | `(0, 1)` |
 | **Default** | `0.70` |
 
-**Purpose:** Gradient quantile used to reject structure-rich pixels from the background mask.
+**Purpose:** Gradient quantile used to reject structure-rich pixels from the overlap background mask.
+
+- Lower values keep only smoother background regions.
+- Higher values increase sample density but risk more nebulosity/star contamination.
 
 ### `stacking.tile_seam_harmonization.min_sample_fraction`
 
@@ -1492,9 +1499,9 @@ Final stacking settings.
 | **Range** | `0 – 1` |
 | **Default** | `0.05` |
 
-**Purpose:** Minimum required masked background fraction relative to all finite tile pixels.
+**Purpose:** Minimum required masked background fraction relative to all finite pixels of a tile.
 
-**Behavior:** If the threshold is not met, the code falls back to the legacy full-tile estimate.
+**Behavior:** Tiles below this threshold do not contribute reliable seam observations and are weakly constrained or ignored by the global solver.
 
 ### `stacking.tile_seam_harmonization.min_samples`
 
@@ -1504,7 +1511,7 @@ Final stacking settings.
 | **Minimum** | `1` |
 | **Default** | `64` |
 
-**Purpose:** Absolute minimum number of background samples for robust seam estimation.
+**Purpose:** Absolute minimum number of background samples for reliable overlap-based seam estimation.
 
 ### `stacking.tile_seam_harmonization.scale_floor_factor`
 
@@ -1514,9 +1521,9 @@ Final stacking settings.
 | **Minimum** | `>0` |
 | **Default** | `0.50` |
 
-**Purpose:** Lower clamp for the seam-derived normalization scale relative to the legacy full-tile estimate.
+**Purpose:** Lower clamp for the tile scale factor derived from the global seam solver.
 
-**Formula:** `scale >= full_scale * scale_floor_factor`
+**Effect:** Prevents over-aggressive contrast expansion from uncertain overlap estimates.
 
 ### `stacking.tile_seam_harmonization.scale_ceil_factor`
 
@@ -1526,9 +1533,9 @@ Final stacking settings.
 | **Minimum** | `>0` |
 | **Default** | `2.00` |
 
-**Purpose:** Upper clamp for the seam-derived normalization scale relative to the legacy full-tile estimate.
+**Purpose:** Upper clamp for the tile scale factor derived from the global seam solver.
 
-**Formula:** `scale <= full_scale * scale_ceil_factor`
+**Effect:** Prevents over-aggressive dimming or brightening of individual tiles.
 
 **Important:** `scale_floor_factor <= scale_ceil_factor` must hold.
 
@@ -1831,11 +1838,11 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `stacking.cluster_quality_weighting.kappa_cluster`: weighting exponent.
 - `stacking.cluster_quality_weighting.cap_enabled`: explicit dominance cap toggle.
 - `stacking.cluster_quality_weighting.cap_ratio`: dominance cap level when enabled.
-- `stacking.tile_seam_harmonization.enabled`: conservative background-based tile seam harmonization before OLA.
-- `stacking.tile_seam_harmonization.strength`: blend factor between full-tile and background-masked estimates.
-- `stacking.tile_seam_harmonization.sample_quantile`, `gradient_quantile`: select smooth dark background pixels.
-- `stacking.tile_seam_harmonization.min_sample_fraction`, `min_samples`: minimum support for robust seam estimation.
-- `stacking.tile_seam_harmonization.scale_floor_factor`, `scale_ceil_factor`: clamp window for seam-derived scale.
+- `stacking.tile_seam_harmonization.enabled`: enables overlap-based tile seam harmonization before OLA.
+- `stacking.tile_seam_harmonization.strength`: strength of the globally solved seam correction.
+- `stacking.tile_seam_harmonization.sample_quantile`, `gradient_quantile`: select smooth dark background pixels in tile overlaps.
+- `stacking.tile_seam_harmonization.min_sample_fraction`, `min_samples`: minimum support for reliable overlap observations.
+- `stacking.tile_seam_harmonization.scale_floor_factor`, `scale_ceil_factor`: clamp window for the globally solved tile scale factor.
 - **Runtime safeguard:** for synthetic stacking, a default dominance cap is applied even when `cap_enabled=false` to avoid diffuse-signal collapse from a few dominant clusters.
 - `stacking.output_stretch`: optional display-oriented post-scale to 16-bit span.
 - `stacking.cosmetic_correction`: optional hot-pixel style correction after stacking.
