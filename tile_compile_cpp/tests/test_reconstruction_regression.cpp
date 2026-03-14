@@ -1,10 +1,13 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
 #include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 using tile_compile::Matrix2Df;
+using tile_compile::Tile;
+using tile_compile::reconstruction::analyze_tile_boundaries;
 using tile_compile::reconstruction::sigma_clip_weighted_tile_with_fallback;
 
 TEST_CASE("tile_weighted_path_uses_all_frames_without_preselection") {
@@ -57,6 +60,93 @@ TEST_CASE("tile_weighted_path_is_deterministic") {
       REQUIRE(out_a.tile(y, x) == Catch::Approx(out_b.tile(y, x)).margin(1e-12));
     }
   }
+}
+
+TEST_CASE("tile_boundary_diagnostics_reports_constant_overlap_offset") {
+  std::vector<Tile> tiles = {
+      Tile{0, 0, 4, 4, 0, 0},
+      Tile{2, 0, 4, 4, 0, 1},
+  };
+  std::vector<Matrix2Df> images(2, Matrix2Df::Zero(4, 4));
+  images[1].setConstant(2.0f);
+  std::vector<uint8_t> valid = {1u, 1u};
+
+  const auto diagnostics = analyze_tile_boundaries(tiles, images, valid);
+
+  REQUIRE(diagnostics.pair_count == 1);
+  REQUIRE(diagnostics.observed_pair_count == 1);
+  REQUIRE(diagnostics.sample_count == 8);
+  REQUIRE(diagnostics.pair_diagnostics.size() == 1);
+  REQUIRE(diagnostics.pair_diagnostics[0].mean_abs_diff ==
+          Catch::Approx(2.0f).margin(1e-6));
+  REQUIRE(diagnostics.pair_diagnostics[0].mean_signed_diff ==
+          Catch::Approx(2.0f).margin(1e-6));
+  REQUIRE(diagnostics.pair_diagnostics[0].p95_abs_diff ==
+          Catch::Approx(2.0f).margin(1e-6));
+}
+
+TEST_CASE("tile_boundary_diagnostics_sorts_worst_pairs_by_mean_abs_diff") {
+  std::vector<Tile> tiles = {
+      Tile{0, 0, 4, 4, 0, 0},
+      Tile{2, 0, 4, 4, 0, 1},
+      Tile{4, 0, 4, 4, 0, 2},
+  };
+  std::vector<Matrix2Df> images(3, Matrix2Df::Zero(4, 4));
+  images[1].setConstant(1.0f);
+  images[2].setConstant(4.0f);
+  std::vector<uint8_t> valid = {1u, 1u, 1u};
+
+  const auto diagnostics = analyze_tile_boundaries(tiles, images, valid);
+
+  REQUIRE(diagnostics.observed_pair_count == 2);
+  REQUIRE(diagnostics.pair_diagnostics.size() == 2);
+  REQUIRE(diagnostics.pair_diagnostics[0].lhs == 1);
+  REQUIRE(diagnostics.pair_diagnostics[0].rhs == 2);
+  REQUIRE(diagnostics.pair_diagnostics[0].mean_abs_diff ==
+          Catch::Approx(3.0f).margin(1e-6));
+  REQUIRE(diagnostics.pair_mean_abs_diff_p95 >=
+          diagnostics.pair_mean_abs_diff_mean);
+}
+
+TEST_CASE("tile_boundary_diagnostics_skips_invalid_tiles") {
+  std::vector<Tile> tiles = {
+      Tile{0, 0, 4, 4, 0, 0},
+      Tile{2, 0, 4, 4, 0, 1},
+  };
+  std::vector<Matrix2Df> images(2, Matrix2Df::Zero(4, 4));
+  std::vector<uint8_t> valid = {1u, 0u};
+
+  const auto diagnostics = analyze_tile_boundaries(tiles, images, valid);
+
+  REQUIRE(diagnostics.pair_count == 0);
+  REQUIRE(diagnostics.observed_pair_count == 0);
+  REQUIRE(diagnostics.pair_diagnostics.empty());
+}
+
+TEST_CASE("tile_boundary_diagnostics_respects_common_canvas_mask") {
+  std::vector<Tile> tiles = {
+      Tile{0, 0, 4, 4, 0, 0},
+      Tile{2, 0, 4, 4, 0, 1},
+  };
+  std::vector<Matrix2Df> images(2, Matrix2Df::Zero(4, 4));
+  images[1].setConstant(5.0f);
+  std::vector<uint8_t> valid = {1u, 1u};
+  std::vector<uint8_t> common_mask(24, 0u);
+  for (int y = 0; y < 4; ++y) {
+    common_mask[static_cast<size_t>(y * 6 + 2)] = 1u;
+  }
+
+  const auto diagnostics =
+      analyze_tile_boundaries(tiles, images, valid, common_mask, 6, 4);
+
+  REQUIRE(diagnostics.pair_count == 1);
+  REQUIRE(diagnostics.observed_pair_count == 1);
+  REQUIRE(diagnostics.sample_count == 4);
+  REQUIRE(diagnostics.pair_diagnostics.size() == 1);
+  REQUIRE(diagnostics.pair_diagnostics[0].mean_abs_diff ==
+          Catch::Approx(5.0f).margin(1e-6));
+  REQUIRE(diagnostics.pair_diagnostics[0].p95_abs_diff ==
+          Catch::Approx(5.0f).margin(1e-6));
 }
 #else
 int tile_compile_tests_reconstruction_regression_stub() { return 0; }

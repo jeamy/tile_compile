@@ -472,7 +472,7 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 ## v0.0.C (2026-03-13)
 
 - GUI2-Parameter- und Konfigurationshandling mit aktuellem C++-Config-Schema, Defaults und Referenzdokus synchronisiert.
-- Konservative `stacking.tile_seam_harmonization.*`-Steuerung ergänzt, um sichtbare Tile-Nähte in schwierigen Datensätzen zu reduzieren.
+- Boundary-Diagnostik für sichtbare Tile-Mismatches in `TILE_RECONSTRUCTION` ergänzt und der ineffektive dedizierte Seam-Korrektur-Config-Block wieder entfernt.
 - Run-Monitor um Resume-Config-/Template-/Revisions-Flows, detailliertere Live-Logs und robustere Statuskorrektur nach erfolgreichem Resume erweitert.
 
 ## v0.0.B (2026-03-12)
@@ -542,9 +542,9 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ### (2026-03-13)
 
-**GUI2-Config-/Studio-Sync + Tile-Seam-Update:**
+**GUI2-Config-/Studio-Sync + Tile-Boundary-Diagnostik:**
 
-- Konservative `stacking.tile_seam_harmonization.*`-Parameter in der C++-Pipeline ergänzt, um sichtbare Tile-Nähte durch lokale Level-/Scale-Sprünge zu reduzieren.
+- Das ineffektive `stacking.tile_seam_harmonization.*`-Experiment aus der aktiven C++-Konfigurationsoberfläche entfernt und durch reine Tile-Boundary-Diagnostik in `TILE_RECONSTRUCTION` ersetzt.
 - Config-Code, generierte Schemas, Beispiel-Configs und DE/EN-Referenzdokus mit der aktiven C++-Konfigurationsoberfläche synchronisiert.
 - Das Parameter-Studio so überarbeitet, dass Parameterbestand, Defaults, Wertebereiche, Tooltips und Filterung aus aktuellem Schema und Default-Config stammen statt aus veralteten manuellen Listen.
 - GUI2-Live-Log und Run-Monitor erweitert, inklusive detaillierterer Phaseninformationen, Resume-Config-Editing/Template-Flows, gespeicherter Config-Revisionen und korrekter Phasenstatus-Anhebung nach erfolgreichem Resume.

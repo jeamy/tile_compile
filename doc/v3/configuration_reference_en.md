@@ -10,7 +10,7 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
 - `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented as BGE channel-apply guards.
 - PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
-- `stacking.tile_seam_harmonization.*` documents the new overlap-based tile seam harmonization before OLA blending.
+- `TILE_RECONSTRUCTION` boundary diagnostics are documented as runtime artifacts; there is currently no dedicated seam-correction config block.
 
 **💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
 
@@ -898,7 +898,7 @@ Synthetic frame generation.
 
 The current C++ config has **no standalone `reconstruction:` block**.
 
-Weighted tile reconstruction, Hanning OLA, and internal seam harmonization are runtime behavior of the runner, not separate top-level config keys. Relevant knobs currently live under:
+Weighted tile reconstruction, Hanning OLA, and boundary diagnostics are runtime behavior of the runner, not separate top-level config keys. Relevant knobs currently live under:
 
 - `synthetic.*`
 - `stacking.*`
@@ -1436,108 +1436,24 @@ Final stacking settings.
 
 **Purpose:** Optional dominance cap: `w_k ≤ cap_ratio * median(w_j)` (only active when `cap_enabled=true`).
 
-### `stacking.tile_seam_harmonization.enabled`
+### Boundary Diagnostics in `TILE_RECONSTRUCTION`
 
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
+There is currently **no dedicated seam-correction parameter block** in the active C++ config.
 
-**Purpose:** Enable overlap-based tile seam harmonization in `TILE_RECONSTRUCTION` directly before Hanning OLA.
+Visible tile boundaries are instead analyzed through runtime artifacts written by `TILE_RECONSTRUCTION`, especially:
 
-- Neighboring tiles are compared through their real overlap regions instead of only tile-internal statistics.
-- The estimator prefers smooth, dark background pixels inside those overlap regions.
-- A globally consistent offset/scale field is solved from the neighborhood observations.
-- Clustering, weights, and frame selection remain unchanged.
+- `tile_boundary_raw_pair_mean_abs_diff_p95`
+- `tile_boundary_normalized_pair_mean_abs_diff_p95`
+- `tile_boundary_pair_count`
+- `tile_boundary_observation_count`
+- `tile_boundary_pair_mean_abs_diff_mean`
+- `tile_boundary_pair_mean_abs_diff_p95`
+- `tile_boundary_post_background_delta_p95_abs`
+- `tile_boundary_top_pairs`
+- `tile_norm_bg_r` / `tile_norm_bg_g` / `tile_norm_bg_b`
+- `tile_norm_scale`
 
-### `stacking.tile_seam_harmonization.strength`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | `0 – 1` |
-| **Default** | `0.75` |
-
-**Purpose:** Strength of the overlap-based seam correction.
-
-- `0.0`: no additional seam correction
-- `1.0`: full reliance on the globally solved overlap-based corrections
-
-**Recommendation:** `0.6 – 0.9` when tile seams are visible.
-
-### `stacking.tile_seam_harmonization.sample_quantile`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | `(0, 1)` |
-| **Default** | `0.30` |
-
-**Purpose:** Brightness quantile used to keep darker pixels as candidates for the overlap background mask.
-
-- Lower values are more conservative and reduce object contamination.
-- Affects only seam-observation pixel selection, not clustering or weighting.
-
-### `stacking.tile_seam_harmonization.gradient_quantile`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | `(0, 1)` |
-| **Default** | `0.70` |
-
-**Purpose:** Gradient quantile used to reject structure-rich pixels from the overlap background mask.
-
-- Lower values keep only smoother background regions.
-- Higher values increase sample density but risk more nebulosity/star contamination.
-
-### `stacking.tile_seam_harmonization.min_sample_fraction`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Range** | `0 – 1` |
-| **Default** | `0.05` |
-
-**Purpose:** Minimum required masked background fraction relative to all finite pixels of a tile.
-
-**Behavior:** Tiles below this threshold do not contribute reliable seam observations and are weakly constrained or ignored by the global solver.
-
-### `stacking.tile_seam_harmonization.min_samples`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Minimum** | `1` |
-| **Default** | `64` |
-
-**Purpose:** Absolute minimum number of background samples for reliable overlap-based seam estimation.
-
-### `stacking.tile_seam_harmonization.scale_floor_factor`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Minimum** | `>0` |
-| **Default** | `0.50` |
-
-**Purpose:** Lower clamp for the tile scale factor derived from the global seam solver.
-
-**Effect:** Prevents over-aggressive contrast expansion from uncertain overlap estimates.
-
-### `stacking.tile_seam_harmonization.scale_ceil_factor`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Minimum** | `>0` |
-| **Default** | `2.00` |
-
-**Purpose:** Upper clamp for the tile scale factor derived from the global seam solver.
-
-**Effect:** Prevents over-aggressive dimming or brightening of individual tiles.
-
-**Important:** `scale_floor_factor <= scale_ceil_factor` must hold.
+`tile_boundary_raw_*` measures the mismatch before the optional per-tile normalization, `tile_boundary_normalized_*` on the actual OLA input. These diagnostics use the common canvas-valid mask, describe the actual mismatch of neighboring tiles at the OLA input stage, and do not modify the reconstruction result.
 
 ### `stacking.output_stretch`
 
@@ -1838,11 +1754,6 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `stacking.cluster_quality_weighting.kappa_cluster`: weighting exponent.
 - `stacking.cluster_quality_weighting.cap_enabled`: explicit dominance cap toggle.
 - `stacking.cluster_quality_weighting.cap_ratio`: dominance cap level when enabled.
-- `stacking.tile_seam_harmonization.enabled`: enables overlap-based tile seam harmonization before OLA.
-- `stacking.tile_seam_harmonization.strength`: strength of the globally solved seam correction.
-- `stacking.tile_seam_harmonization.sample_quantile`, `gradient_quantile`: select smooth dark background pixels in tile overlaps.
-- `stacking.tile_seam_harmonization.min_sample_fraction`, `min_samples`: minimum support for reliable overlap observations.
-- `stacking.tile_seam_harmonization.scale_floor_factor`, `scale_ceil_factor`: clamp window for the globally solved tile scale factor.
 - **Runtime safeguard:** for synthetic stacking, a default dominance cap is applied even when `cap_enabled=false` to avoid diffuse-signal collapse from a few dominant clusters.
 - `stacking.output_stretch`: optional display-oriented post-scale to 16-bit span.
 - `stacking.cosmetic_correction`: optional hot-pixel style correction after stacking.

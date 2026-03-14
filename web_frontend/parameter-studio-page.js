@@ -198,13 +198,6 @@
 
   function formatEditorValue(entry, value) {
     if (value === null || value === undefined || value === "") return value;
-    if (
-      entry?.type === "number" &&
-      String(entry?.path || "").startsWith("stacking.tile_seam_harmonization.")
-    ) {
-      const numeric = Number(value);
-      if (Number.isFinite(numeric)) return numeric.toFixed(2);
-    }
     return value;
   }
 

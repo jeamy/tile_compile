@@ -241,15 +241,6 @@ stacking:
     kappa_cluster: 0.7 # moderat: vermeidet Dominanz einzelner Cluster
     cap_enabled: true # Dominanz einzelner Cluster begrenzen
     cap_ratio: 20.0 # w_k <= 20 * median_j(w_j)
-  tile_seam_harmonization:
-    enabled: true
-    strength: 0.75
-    sample_quantile: 0.30
-    gradient_quantile: 0.70
-    min_sample_fraction: 0.05
-    min_samples: 64
-    scale_floor_factor: 0.50
-    scale_ceil_factor: 2.00
   output_stretch: false # optionales Display-Stretch (Post)
   cosmetic_correction: false # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 4.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, empfohlen fuer OSC: 10.0)

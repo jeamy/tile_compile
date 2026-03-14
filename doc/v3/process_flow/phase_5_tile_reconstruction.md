@@ -5,7 +5,7 @@
 
 ## Übersicht
 
-Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruiert als gewichtetes Mittel über alle Frames, wobei das effektive Gewicht `W_f,t = G_f × L_f,t` die Frame-Qualität (global) und die lokale Tile-Qualität kombiniert. Danach folgt eine **tile-übergreifende Seam-Harmonisierung auf Basis realer Tile-Overlaps**, bevor die Tiles mittels **Hanning-Overlap-Add** zu einem Gesamtbild zusammengefügt werden.
+Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruiert als gewichtetes Mittel über alle Frames, wobei das effektive Gewicht `W_f,t = G_f × L_f,t` die Frame-Qualität (global) und die lokale Tile-Qualität kombiniert. Danach folgt die normative **Tile-Normalisierung vor OLA** sowie eine **Boundary-Diagnostik** der tatsächlichen OLA-Eingangstiles. Erst dann werden die Tiles mittels **Hanning-Overlap-Add** zu einem Gesamtbild zusammengefügt.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -16,9 +16,9 @@ Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruie
 │  3. Gewichtetes Mittel:                              │
 │     tile_rec = Σ W_f,t · tile_f / Σ W_f,t            │
 │  4. Post-Metriken (Contrast, BG, SNR)                │
-│  5. Overlap-basierte Seam-Beobachtungen              │
-│  6. Globaler Offset-/Scale-Solver über Nachbarn      │
-│  7. Korrigiertes Tile → Hanning-Overlap-Add          │
+│  5. Tile-Normalisierung vor OLA                      │
+│  6. Boundary-Diagnostik der Nachbar-Tiles            │
+│  7. Normalisiertes Tile → Hanning-Overlap-Add        │
 │                                                      │
 │  Danach:                                             │
 │  8. recon(y,x) /= weight_sum(y,x)                    │
@@ -115,75 +115,40 @@ tile_post_snr[ti] = snr;
 
 Diese Metriken werden im Artifact `tile_reconstruction.json` gespeichert und in der Report-Heatmap visualisiert.
 
-## 5. Overlap-basierte Seam-Harmonisierung
+## 5. Boundary-Diagnostik vor OLA
 
-Die eigentliche Kachelunterdrückung passiert jetzt **nicht mehr nur tile-intern**, sondern über reale Überlappungen benachbarter Tiles.
+Die tatsächlich in OLA eingehenden Tiles werden paarweise über ihre realen Overlaps verglichen, ohne das Ergebnis zu verändern.
 
-### 5.1 Hintergrundmaske pro Tile
+Für jedes benachbarte Tile-Paar werden auf dem normalisierten OLA-Eingang unter anderem bestimmt:
 
-```cpp
-mask = compute_tile_background_mask(tile_rec, seam_cfg, finite_count, sample_count);
-```
+- `mean_abs_diff`
+- `p95_abs_diff`
+- `mean_signed_diff`
+- `sample_count`
 
-- Selektiert nur **dunkle, glatte** Pixel
-- Schwellen:
-  - `sample_quantile`
-  - `gradient_quantile`
-  - `min_sample_fraction`
-  - `min_samples`
-- Ziel: Nur robuste Hintergrundpixel für Seam-Schätzung verwenden
+Damit wird gemessen, wie stark benachbarte Tiles bereits **vor** dem Hanning-Overlap-Add auseinanderlaufen.
 
-### 5.2 Beobachtungen aus Nachbar-Overlaps
+### 5.1 Zusätzliche Paar-Metadaten
 
-```cpp
-obs = estimate_tile_overlap_observation(
-    lhs_tile, rhs_tile,
-    lhs_image, rhs_image,
-    lhs_mask, rhs_mask,
-    pair_min_samples);
-```
+Neben den direkten Overlap-Differenzen werden pro Nachbarpaar auch tilebezogene Abweichungen zusammengefasst:
 
-Für jedes Nachbarpaar werden in der gemeinsamen Overlap-Zone geschätzt:
+- Differenz der `tile_valid_counts`
+- Differenz der `tile_post_background`-Werte
+- Differenz der `tile_post_snr_proxy`-Werte
+- Differenz der `tile_mean_correlations`
+- Fallback-Mismatch (`fallback_used` links/rechts unterschiedlich)
 
-- `background_delta = bg_rhs - bg_lhs`
-- `log_scale_delta = log(scale_rhs) - log(scale_lhs)`
-- `weight = sample_count`
+Diese Diagnose erklärt oft besser als ein reiner Bildvergleich, warum sichtbare Kachelgrenzen entstehen.
 
-Dabei wird nur auf Pixeln gearbeitet, die in **beiden** Tiles durch die Hintergrundmaske akzeptiert wurden.
+### 5.2 Nicht-invasive Diagnostik
 
-### 5.3 Globaler Solver
+Die Boundary-Diagnostik ist bewusst **nicht-invasiv**:
 
-```cpp
-field = solve_tile_seam_field(tile_count, observations, solve_scale);
-```
+- keine Änderung der rekonstruierten Tiles
+- keine zusätzliche Tile-Korrektur
+- keine Rückkopplung in Gewichte, Clipping oder OLA
 
-- Löst ein globales Gleichungssystem über alle Tile-Nachbarschaften
-- Ergebnis:
-  - relatives Background-Feld pro Tile
-  - relatives Log-Scale-Feld pro Tile
-- Die Felder werden anschließend auf Median 0 zentriert
-
-Damit werden nicht nur einzelne Tiles „auf ein Niveau gezogen“, sondern die **gesamte Tile-Nachbarschaft konsistent ausgeglichen**.
-
-### 5.4 Anwendung der Korrektur
-
-Für MONO:
-
-```cpp
-tile = (tile - base_bg) * scale_factor + base_bg + bg_corr;
-```
-
-Für OSC:
-
-- Background-Korrektur pro Kanal `R/G/B`
-- gemeinsamer Scale-Faktor aus der Luma-Schätzung
-
-Die Stärke wird über `stacking.tile_seam_harmonization.strength` geblendet. Der Scale-Faktor wird zusätzlich durch
-
-- `scale_floor_factor`
-- `scale_ceil_factor`
-
-begrenzt.
+Damit bleibt die lineare Rekonstruktionssemantik unverändert.
 
 ## 6. Hanning-Overlap-Add
 
@@ -235,8 +200,8 @@ for (int i = 0; i < recon.size(); ++i) {
 | `tile_post_contrast[ti]` | float | Post-Contrast pro Tile |
 | `tile_post_background[ti]` | float | Post-Background pro Tile |
 | `tile_post_snr[ti]` | float | Post-SNR pro Tile |
-| `tile_norm_bg_*[ti]` | float | angewendete Seam-Background-Korrektur |
-| `tile_norm_scale[ti]` | float | angewendeter gemeinsamer Tile-Scale-Faktor |
+| `tile_norm_bg_*[ti]` | float | Tile-Background für die normative Vor-OLA-Normalisierung |
+| `tile_norm_scale[ti]` | float | gemeinsamer Tile-Scale-Faktor für die Vor-OLA-Normalisierung |
 
 ## Artifact: `tile_reconstruction.json`
 
@@ -244,29 +209,62 @@ for (int i = 0; i < recon.size(); ++i) {
 {
   "num_frames": 100,
   "num_tiles": 1200,
-  "tile_seam_mode": "overlap_global",
-  "tile_seam_pair_count": 2200,
-  "tile_seam_bg_observations": 2174,
-  "tile_seam_scale_observations": 2158,
+  "tile_boundary_analysis_uses_common_canvas_mask": true,
+  "tile_boundary_raw_analysis_input": "pre_ola_raw",
+  "tile_boundary_normalized_analysis_input": "pre_ola_normalized",
+  "tile_boundary_analysis_input": "pre_ola_normalized",
+  "tile_boundary_raw_pair_mean_abs_diff_p95": 0.0048,
+  "tile_boundary_normalized_pair_mean_abs_diff_p95": 0.0064,
+  "tile_boundary_pair_count": 2200,
+  "tile_boundary_observation_count": 380,
+  "tile_boundary_sample_count": 184000,
+  "tile_boundary_pair_mean_abs_diff_mean": 0.0021,
+  "tile_boundary_pair_mean_abs_diff_p95": 0.0064,
+  "tile_boundary_post_background_delta_p95_abs": 0.0017,
+  "tile_boundary_post_snr_delta_p95_abs": 8.3,
   "tile_valid_counts": [100, 100, 99, ...],
+  "tile_norm_bg_r": [1.001, 1.004, ...],
+  "tile_norm_bg_g": [1.002, 1.005, ...],
+  "tile_norm_bg_b": [0.998, 1.001, ...],
+  "tile_norm_scale": [0.98, 1.01, ...],
   "tile_mean_correlations": [1.0, 1.0, 1.0, ...],
   "tile_post_contrast": [0.0012, 0.0015, ...],
   "tile_post_background": [1.001, 1.002, ...],
   "tile_post_snr_proxy": [45.2, 38.7, ...],
-  "tile_seam_bg_correction": [-0.03, -0.01, 0.00, ...],
-  "tile_seam_scale_factor": [0.98, 1.01, 1.00, ...]
+  "tile_boundary_raw_top_pairs": [
+    {
+      "lhs_index": 17,
+      "rhs_index": 18,
+      "sample_count": 2048,
+      "mean_abs_diff": 0.0068
+    }
+  ],
+  "tile_boundary_top_pairs": [
+    {
+      "lhs_index": 17,
+      "rhs_index": 18,
+      "lhs_row": 1,
+      "lhs_col": 4,
+      "rhs_row": 1,
+      "rhs_col": 5,
+      "sample_count": 2048,
+      "mean_abs_diff": 0.0091,
+      "p95_abs_diff": 0.0174
+    }
+  ]
 }
 ```
+
+Die Boundary-Diagnostik verwendet nur Pixel innerhalb der `COMMON_OVERLAP`-/Canvas-Maske. Ausmaskierte Canvas-Zonen werden bei den Boundary-Metriken nicht als Nullwerte mitgezählt.
 
 ## Fehlerbehandlung
 
 | Situation | Verhalten |
 |-----------|-----------|
 | Leeres Tile (keine gültigen Frames) | `tiles_failed++`, Tile übersprungen |
-| Zu wenig gültige Hintergrundsamples im Tile | Tile bleibt ohne Seam-Beobachtung |
-| Keine belastbaren Overlap-Beobachtungen | Seam-Solver liefert neutrale Korrektur |
-| weight_sum = 0 an Pixel | Fallback: Referenz-Frame-Pixel |
-| Problematische Scale-Schätzung | Korrektur durch `scale_floor_factor` / `scale_ceil_factor` geklemmt |
+| Zu wenig gültige Overlap-Samples | Nachbarpaar liefert keine Boundary-Beobachtung |
+| weight_sum = 0 an Pixel | Pixel wird als `NaN` markiert |
+| Auffällige Nachbargrenzen | erscheinen nur in der Boundary-Diagnostik, nicht als Tile-Eingriff |
 
 ## Nächste Phase
 

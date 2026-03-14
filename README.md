@@ -462,7 +462,7 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 ## v0.0.C (2026-03-13)
 
 - GUI2 parameter/config handling synchronized with the current C++ config schema, defaults, and reference docs.
-- Added conservative `stacking.tile_seam_harmonization.*` controls to reduce visible tile seams in difficult datasets.
+- Added boundary diagnostics for visible tile mismatches in `TILE_RECONSTRUCTION` and removed the ineffective dedicated seam-correction config block.
 - Expanded run-monitor resume handling, live-log detail visibility, and config revision/template flows.
 
 ## v0.0.B (2026-03-12)
@@ -532,9 +532,9 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ### (2026-03-13)
 
-**GUI2 config/studio sync + tile-seam update:**
+**GUI2 config/studio sync + tile-boundary diagnostics update:**
 
-- Added conservative `stacking.tile_seam_harmonization.*` controls in the C++ pipeline to reduce visible tile seams caused by local tile-level drift.
+- Removed the ineffective `stacking.tile_seam_harmonization.*` experiment from the active C++ config surface and replaced it with read-only tile-boundary diagnostics in `TILE_RECONSTRUCTION`.
 - Synchronized config code, generated schemas, example configs, and DE/EN reference docs with the active C++ config surface.
 - Reworked Parameter Studio so parameter inventory, defaults, ranges, tooltips, and filtering are driven from the current schema/default config instead of stale manual lists.
 - Extended GUI2 live-log and run-monitor behavior, including richer phase details, resume config editing/template flows, stored config revisions, and corrected phase status after successful resume.

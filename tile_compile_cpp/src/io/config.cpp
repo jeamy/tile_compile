@@ -621,33 +621,6 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.stacking.cluster_quality_weighting.cap_ratio =
             cqw["cap_ratio"].as<float>();
     }
-    if (st["tile_seam_harmonization"]) {
-      auto tsh = st["tile_seam_harmonization"];
-      if (tsh["enabled"])
-        cfg.stacking.tile_seam_harmonization.enabled =
-            tsh["enabled"].as<bool>();
-      if (tsh["strength"])
-        cfg.stacking.tile_seam_harmonization.strength =
-            tsh["strength"].as<float>();
-      if (tsh["sample_quantile"])
-        cfg.stacking.tile_seam_harmonization.sample_quantile =
-            tsh["sample_quantile"].as<float>();
-      if (tsh["gradient_quantile"])
-        cfg.stacking.tile_seam_harmonization.gradient_quantile =
-            tsh["gradient_quantile"].as<float>();
-      if (tsh["min_sample_fraction"])
-        cfg.stacking.tile_seam_harmonization.min_sample_fraction =
-            tsh["min_sample_fraction"].as<float>();
-      if (tsh["min_samples"])
-        cfg.stacking.tile_seam_harmonization.min_samples =
-            tsh["min_samples"].as<int>();
-      if (tsh["scale_floor_factor"])
-        cfg.stacking.tile_seam_harmonization.scale_floor_factor =
-            tsh["scale_floor_factor"].as<float>();
-      if (tsh["scale_ceil_factor"])
-        cfg.stacking.tile_seam_harmonization.scale_ceil_factor =
-            tsh["scale_ceil_factor"].as<float>();
-    }
     if (st["output_stretch"])
       cfg.stacking.output_stretch = st["output_stretch"].as<bool>();
     if (st["cosmetic_correction"])
@@ -943,22 +916,6 @@ YAML::Node Config::to_yaml() const {
       stacking.cluster_quality_weighting.cap_enabled;
   node["stacking"]["cluster_quality_weighting"]["cap_ratio"] =
       stacking.cluster_quality_weighting.cap_ratio;
-  node["stacking"]["tile_seam_harmonization"]["enabled"] =
-      stacking.tile_seam_harmonization.enabled;
-  node["stacking"]["tile_seam_harmonization"]["strength"] =
-      stacking.tile_seam_harmonization.strength;
-  node["stacking"]["tile_seam_harmonization"]["sample_quantile"] =
-      stacking.tile_seam_harmonization.sample_quantile;
-  node["stacking"]["tile_seam_harmonization"]["gradient_quantile"] =
-      stacking.tile_seam_harmonization.gradient_quantile;
-  node["stacking"]["tile_seam_harmonization"]["min_sample_fraction"] =
-      stacking.tile_seam_harmonization.min_sample_fraction;
-  node["stacking"]["tile_seam_harmonization"]["min_samples"] =
-      stacking.tile_seam_harmonization.min_samples;
-  node["stacking"]["tile_seam_harmonization"]["scale_floor_factor"] =
-      stacking.tile_seam_harmonization.scale_floor_factor;
-  node["stacking"]["tile_seam_harmonization"]["scale_ceil_factor"] =
-      stacking.tile_seam_harmonization.scale_ceil_factor;
   node["stacking"]["output_stretch"] = stacking.output_stretch;
   node["stacking"]["cosmetic_correction"] =
       stacking.cosmetic_correction;
@@ -1336,41 +1293,6 @@ void Config::validate() const {
     throw ValidationError("stacking.cluster_quality_weighting.cap_ratio must be "
                           "> 0 when cap_enabled=true");
   }
-  if (!is_between_0_1(stacking.tile_seam_harmonization.strength)) {
-    throw ValidationError(
-        "stacking.tile_seam_harmonization.strength must be in [0,1]");
-  }
-  if (stacking.tile_seam_harmonization.sample_quantile <= 0.0f ||
-      stacking.tile_seam_harmonization.sample_quantile >= 1.0f) {
-    throw ValidationError(
-        "stacking.tile_seam_harmonization.sample_quantile must be in (0,1)");
-  }
-  if (stacking.tile_seam_harmonization.gradient_quantile <= 0.0f ||
-      stacking.tile_seam_harmonization.gradient_quantile >= 1.0f) {
-    throw ValidationError(
-        "stacking.tile_seam_harmonization.gradient_quantile must be in (0,1)");
-  }
-  if (!is_between_0_1(stacking.tile_seam_harmonization.min_sample_fraction)) {
-    throw ValidationError(
-        "stacking.tile_seam_harmonization.min_sample_fraction must be in [0,1]");
-  }
-  if (stacking.tile_seam_harmonization.min_samples < 1) {
-    throw ValidationError(
-        "stacking.tile_seam_harmonization.min_samples must be >= 1");
-  }
-  if (stacking.tile_seam_harmonization.scale_floor_factor <= 0.0f) {
-    throw ValidationError(
-        "stacking.tile_seam_harmonization.scale_floor_factor must be > 0");
-  }
-  if (stacking.tile_seam_harmonization.scale_ceil_factor <= 0.0f) {
-    throw ValidationError(
-        "stacking.tile_seam_harmonization.scale_ceil_factor must be > 0");
-  }
-  if (stacking.tile_seam_harmonization.scale_floor_factor >
-      stacking.tile_seam_harmonization.scale_ceil_factor) {
-    throw ValidationError(
-        "stacking.tile_seam_harmonization.scale_floor_factor must be <= scale_ceil_factor");
-  }
   if (stacking.cosmetic_correction_sigma <= 0.0f) {
     throw ValidationError("stacking.cosmetic_correction_sigma must be > 0");
   }
@@ -1557,7 +1479,6 @@ std::string get_schema_json() {
       "properties": { "method":{"type":"string","enum":["rej","average"]},
                       "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},
                       "cluster_quality_weighting":{"type":"object","properties":{"enabled":{"type":"boolean"},"kappa_cluster":{"type":"number","exclusiveMinimum":0,"description":"Quality-weight exponent for synthetic-cluster aggregation: w_k = exp(kappa_cluster * Q_k)."},"cap_enabled":{"type":"boolean"},"cap_ratio":{"type":"number","exclusiveMinimum":0,"description":"Optional dominance cap ratio for cluster weights: w_k <= cap_ratio * median_j(w_j)."}}},
-                      "tile_seam_harmonization":{"type":"object","properties":{"enabled":{"type":"boolean"},"strength":{"type":"number","minimum":0,"maximum":1},"sample_quantile":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1},"gradient_quantile":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1},"min_sample_fraction":{"type":"number","minimum":0,"maximum":1},"min_samples":{"type":"integer","minimum":1},"scale_floor_factor":{"type":"number","exclusiveMinimum":0},"scale_ceil_factor":{"type":"number","exclusiveMinimum":0}}},
                       "output_stretch":{"type":"boolean"},
                       "cosmetic_correction":{"type":"boolean"},
                       "cosmetic_correction_sigma":{"type":"number","exclusiveMinimum":0},

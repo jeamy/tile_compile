@@ -140,74 +140,35 @@ stacking:
 
 ---
 
-## Sichtbare Kachelgrenzen reduzieren (`stacking.tile_seam_harmonization.*`)
+## Sichtbare Kachelgrenzen diagnostizieren (Artefakte)
 
-Der Parameterblock arbeitet in `TILE_RECONSTRUCTION` overlap-basiert:
+Es gibt aktuell keinen dedizierten Seam-Korrektur-Parameterblock.
 
-- benachbarte Tiles werden in ihren realen Überlappungen verglichen
-- es werden nur glatte, dunkle Hintergrundpixel verwendet
-- daraus wird ein global konsistentes Offset-/Scale-Feld über alle Tiles gelöst
+Wenn sichtbare Kachelstruktur auftritt, prüfe nach dem Run `artifacts/tile_reconstruction.json`, insbesondere:
 
-**Guter Startpunkt bei sichtbarer Kachelstruktur:**
+- `tile_boundary_raw_pair_mean_abs_diff_p95`
+- `tile_boundary_normalized_pair_mean_abs_diff_p95`
+- `tile_boundary_pair_mean_abs_diff_p95`
+- `tile_boundary_post_background_delta_p95_abs`
+- `tile_boundary_post_snr_delta_p95_abs`
+- `tile_boundary_top_pairs`
+- `tile_norm_scale`
 
-```yaml
-stacking:
-  tile_seam_harmonization:
-    enabled: true
-    strength: 0.75
-    sample_quantile: 0.30
-    gradient_quantile: 0.70
-    min_sample_fraction: 0.05
-    min_samples: 64
-    scale_floor_factor: 0.50
-    scale_ceil_factor: 2.00
-```
+Interpretation:
 
-**Für klar sichtbare Tile-Nähte im schwachen Hintergrund:**
+- hohe `tile_boundary_raw_pair_mean_abs_diff_*`-Werte bedeuten, dass sich benachbarte Tiles schon vor der optionalen Tile-Normalisierung deutlich unterscheiden
+- wenn `tile_boundary_normalized_pair_mean_abs_diff_*` deutlich höher liegt als der Raw-Wert, verschärft die Tile-Normalisierung die Naht
+- hohe `tile_boundary_post_background_delta_*`-Werte deuten auf tileweisen Hintergrunddrift
+- hohe `tile_boundary_post_snr_delta_*`-Werte sprechen für divergierende Support-/Qualitätslage benachbarter Tiles
+- `tile_boundary_top_pairs` listet die problematischsten Nachbarpaare mit Tile-Indizes, Grid-Positionen, Valid-Counts, Fallback-Flags und Post-Metriken
+- über `tile_norm_scale` und `tile_norm_bg_*` an genau diesen Tile-Indizes lässt sich prüfen, ob die Normierung die Tile-Population auseinanderzieht
 
-```yaml
-stacking:
-  tile_seam_harmonization:
-    enabled: true
-    strength: 0.90
-    sample_quantile: 0.20
-    gradient_quantile: 0.50
-    min_sample_fraction: 0.03
-    min_samples: 48
-    scale_floor_factor: 0.80
-    scale_ceil_factor: 1.25
-```
+Wenn die Kachelstruktur sichtbar ist und diese Boundary-Diagnostik ebenfalls hoch ausfällt, zuerst prüfen:
 
-- Mehr `strength` verstärkt die global gelöste Seam-Korrektur.
-- Niedrigere `sample_quantile` und `gradient_quantile` machen die Overlap-Maske konservativer.
-- Engere `scale_*`-Grenzen verhindern aggressive tileweise Kontrastsprünge.
-
-**Für große diffuse Objekte (M31, M42, IC434) mit Nebel in den Overlaps:**
-
-```yaml
-stacking:
-  tile_seam_harmonization:
-    enabled: true
-    strength: 0.85
-    sample_quantile: 0.12
-    gradient_quantile: 0.35
-    min_sample_fraction: 0.02
-    min_samples: 32
-    scale_floor_factor: 0.90
-    scale_ceil_factor: 1.10
-```
-
-- Diese Variante ist strenger bei der Auswahl sauberer Hintergrundpixel.
-- Sinnvoll, wenn Nebel- oder Sternstruktur die Overlap-Schätzung sonst kontaminiert.
-
-**Wenn die Kachelstruktur danach immer noch kaum reagiert:**
-
-- Ursache ist wahrscheinlich nicht primär ein Level-/Scale-Seam-Problem.
-- Dann eher prüfen:
-  - `tile.overlap_fraction`
-  - `tile_denoise.*`
-  - `stacking.output_stretch`
-  - nachgelagerte Unterschiede aus `BGE` oder `PCC`
+- `tile.overlap_fraction`
+- `tile_denoise.*`
+- `stacking.output_stretch`
+- nachgelagerte Unterschiede aus `BGE` oder `PCC`
 
 ---
 

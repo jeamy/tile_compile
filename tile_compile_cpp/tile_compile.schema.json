@@ -165,7 +165,6 @@
       "properties": { "method":{"type":"string","enum":["rej","average"]},
                       "sigma_clip":{"type":"object","properties":{"sigma_low":{"type":"number","exclusiveMinimum":0},"sigma_high":{"type":"number","exclusiveMinimum":0},"max_iters":{"type":"integer","minimum":1},"min_fraction":{"type":"number","minimum":0,"maximum":1}}},
                       "cluster_quality_weighting":{"type":"object","properties":{"enabled":{"type":"boolean"},"kappa_cluster":{"type":"number","exclusiveMinimum":0,"description":"Quality-weight exponent for synthetic-cluster aggregation: w_k = exp(kappa_cluster * Q_k)."},"cap_enabled":{"type":"boolean"},"cap_ratio":{"type":"number","exclusiveMinimum":0,"description":"Optional dominance cap ratio for cluster weights: w_k <= cap_ratio * median_j(w_j)."}}},
-                      "tile_seam_harmonization":{"type":"object","properties":{"enabled":{"type":"boolean"},"strength":{"type":"number","minimum":0,"maximum":1},"sample_quantile":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1},"gradient_quantile":{"type":"number","exclusiveMinimum":0,"exclusiveMaximum":1},"min_sample_fraction":{"type":"number","minimum":0,"maximum":1},"min_samples":{"type":"integer","minimum":1},"scale_floor_factor":{"type":"number","exclusiveMinimum":0},"scale_ceil_factor":{"type":"number","exclusiveMinimum":0}}},
                       "output_stretch":{"type":"boolean"},
                       "cosmetic_correction":{"type":"boolean"},
                       "cosmetic_correction_sigma":{"type":"number","exclusiveMinimum":0},

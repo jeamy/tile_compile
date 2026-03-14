@@ -25,7 +25,7 @@ bge:
   fit:
     huber_delta: 1.5
     irls_max_iterations: 10
-    irls_tolerance: 1e-4
+    irls_tolerance: 1.00e-04
     method: rbf
     polynomial_order: 2
     rbf_epsilon: 0.8
@@ -206,7 +206,7 @@ stacking:
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   method: rej
-  output_stretch: false
+  output_stretch: true
   per_frame_cosmetic_correction: true
   per_frame_cosmetic_correction_sigma: 2.5
   sigma_clip:
@@ -214,15 +214,6 @@ stacking:
     min_fraction: 0.4
     sigma_high: 1.8
     sigma_low: 1.8
-  tile_seam_harmonization:
-    enabled: true
-    gradient_quantile: 0.3
-    min_sample_fraction: 0.01
-    min_samples: 24
-    sample_quantile: 0.1
-    scale_ceil_factor: 1.1
-    scale_floor_factor: 0.9
-    strength: 1
 synthetic:
   clustering:
     cluster_count_range:

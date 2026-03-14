@@ -1054,11 +1054,6 @@ function writeFieldValue(el, value) {
     }
   }
   let displayValue = Array.isArray(value) || typeof value === "object" ? JSON.stringify(value) : String(value);
-  const path = parameterPathFromElement(el);
-  if (path.startsWith("stacking.tile_seam_harmonization.") && el.type === "number") {
-    const numeric = Number(value);
-    if (Number.isFinite(numeric)) displayValue = numeric.toFixed(2);
-  }
   el.value = displayValue;
 }
 

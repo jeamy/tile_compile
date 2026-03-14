@@ -15,6 +15,7 @@
 #include "tile_compile/metrics/tile_metrics.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
 #include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/astrometry/gaia_catalog.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
@@ -32,6 +33,7 @@
 #include <iostream>
 #include <limits>
 #include <mutex>
+#include <numeric>
 #include <opencv2/opencv.hpp>
 #include <random>
 #include <sstream>
@@ -52,189 +54,13 @@ using tile_compile::WarpMatrix;
 namespace image = tile_compile::image;
 namespace astro = tile_compile::astrometry;
 namespace core = tile_compile::core;
+namespace reconstruction = tile_compile::reconstruction;
 using tile_compile::runner::TeeBuf;
 using tile_compile::runner::estimate_total_file_bytes;
 using tile_compile::runner::format_bytes;
 using tile_compile::runner::message_indicates_disk_full;
 
 using NormalizationScales = image::NormalizationScales;
-
-struct TileSeamStats {
-  float background = 0.0f;
-  float scale = 0.0f;
-  size_t sample_count = 0;
-  bool valid = false;
-};
-
-struct TileSeamObservation {
-  size_t lhs = 0;
-  size_t rhs = 0;
-  float background_delta = 0.0f;
-  float log_scale_delta = 0.0f;
-  float weight = 0.0f;
-  size_t sample_count = 0;
-  bool scale_valid = false;
-  bool valid = false;
-};
-
-static std::vector<uint8_t>
-compute_tile_background_mask(
-    const Matrix2Df &luma,
-    const tile_compile::config::StackingConfig::TileSeamHarmonizationConfig
-        &cfg,
-    size_t &finite_count_out,
-    size_t &sample_count_out) {
-  finite_count_out = 0;
-  sample_count_out = 0;
-  std::vector<uint8_t> mask;
-  if (luma.rows() <= 0 || luma.cols() <= 0 || luma.size() <= 0) {
-    return mask;
-  }
-
-  const int rows = luma.rows();
-  const int cols = luma.cols();
-  mask.assign(static_cast<size_t>(rows * cols), 0u);
-
-  std::vector<float> values;
-  std::vector<float> gradients;
-  values.reserve(static_cast<size_t>(luma.size()));
-  gradients.reserve(static_cast<size_t>(luma.size()));
-
-  auto pixel = [&](int y, int x) -> float { return luma(y, x); };
-  auto finite_at = [&](int y, int x) -> bool {
-    return std::isfinite(pixel(y, x));
-  };
-
-  for (int y = 0; y < rows; ++y) {
-    for (int x = 0; x < cols; ++x) {
-      const float v = pixel(y, x);
-      if (!std::isfinite(v)) {
-        continue;
-      }
-      float grad = 0.0f;
-      int grad_terms = 0;
-      if (x > 0 && finite_at(y, x - 1)) {
-        grad += std::fabs(v - pixel(y, x - 1));
-        ++grad_terms;
-      }
-      if (x + 1 < cols && finite_at(y, x + 1)) {
-        grad += std::fabs(v - pixel(y, x + 1));
-        ++grad_terms;
-      }
-      if (y > 0 && finite_at(y - 1, x)) {
-        grad += std::fabs(v - pixel(y - 1, x));
-        ++grad_terms;
-      }
-      if (y + 1 < rows && finite_at(y + 1, x)) {
-        grad += std::fabs(v - pixel(y + 1, x));
-        ++grad_terms;
-      }
-      values.push_back(v);
-      gradients.push_back((grad_terms > 0) ? (grad / static_cast<float>(grad_terms))
-                                           : 0.0f);
-    }
-  }
-
-  finite_count_out = values.size();
-  if (values.empty() || gradients.empty()) {
-    return mask;
-  }
-
-  std::vector<float> sorted_values = values;
-  std::vector<float> sorted_gradients = gradients;
-  std::sort(sorted_values.begin(), sorted_values.end());
-  std::sort(sorted_gradients.begin(), sorted_gradients.end());
-  const float value_thresh = core::percentile_from_sorted(
-      sorted_values, 100.0f * cfg.sample_quantile);
-  const float grad_thresh = core::percentile_from_sorted(
-      sorted_gradients, 100.0f * cfg.gradient_quantile);
-
-  for (int y = 0; y < rows; ++y) {
-    for (int x = 0; x < cols; ++x) {
-      const float v = pixel(y, x);
-      if (!std::isfinite(v)) {
-        continue;
-      }
-      float grad = 0.0f;
-      int grad_terms = 0;
-      if (x > 0 && finite_at(y, x - 1)) {
-        grad += std::fabs(v - pixel(y, x - 1));
-        ++grad_terms;
-      }
-      if (x + 1 < cols && finite_at(y, x + 1)) {
-        grad += std::fabs(v - pixel(y, x + 1));
-        ++grad_terms;
-      }
-      if (y > 0 && finite_at(y - 1, x)) {
-        grad += std::fabs(v - pixel(y - 1, x));
-        ++grad_terms;
-      }
-      if (y + 1 < rows && finite_at(y + 1, x)) {
-        grad += std::fabs(v - pixel(y + 1, x));
-        ++grad_terms;
-      }
-      grad = (grad_terms > 0) ? (grad / static_cast<float>(grad_terms)) : 0.0f;
-      if (v <= value_thresh && grad <= grad_thresh) {
-        mask[static_cast<size_t>(y * cols + x)] = 1u;
-        ++sample_count_out;
-      }
-    }
-  }
-
-  const size_t min_by_fraction = static_cast<size_t>(
-      std::ceil(cfg.min_sample_fraction * static_cast<float>(finite_count_out)));
-  const size_t min_required = std::max(
-      static_cast<size_t>(std::max(1, cfg.min_samples)), min_by_fraction);
-  if (sample_count_out < min_required) {
-    std::fill(mask.begin(), mask.end(), 0u);
-    sample_count_out = 0;
-  }
-  return mask;
-}
-
-static TileSeamStats estimate_tile_seam_stats(
-    const Matrix2Df &src, const std::vector<uint8_t> &mask) {
-  TileSeamStats stats;
-  if (src.rows() <= 0 || src.cols() <= 0 || src.size() <= 0 || mask.empty()) {
-    return stats;
-  }
-
-  std::vector<float> samples;
-  samples.reserve(mask.size());
-  const int cols = src.cols();
-  for (int y = 0; y < src.rows(); ++y) {
-    for (int x = 0; x < src.cols(); ++x) {
-      const size_t idx = static_cast<size_t>(y * cols + x);
-      if (idx >= mask.size() || mask[idx] == 0u) {
-        continue;
-      }
-      const float v = src(y, x);
-      if (std::isfinite(v)) {
-        samples.push_back(v);
-      }
-    }
-  }
-
-  if (samples.empty()) {
-    return stats;
-  }
-
-  std::vector<float> bg_vals = samples;
-  const float background = core::median_of(bg_vals);
-  std::vector<float> abs_dev;
-  abs_dev.reserve(samples.size());
-  for (float v : samples) {
-    abs_dev.push_back(std::fabs(v - background));
-  }
-  const float scale =
-      abs_dev.empty() ? 0.0f : std::max(0.0f, core::median_of(abs_dev));
-  stats.background = background;
-  stats.scale = scale;
-  stats.sample_count = samples.size();
-  stats.valid = std::isfinite(background) && std::isfinite(scale) &&
-                scale >= 0.0f && stats.sample_count > 0;
-  return stats;
-}
 
 static float median_from_matrix(const Matrix2Df &src, bool abs_values,
                                 float center = 0.0f) {
@@ -253,173 +79,6 @@ static float median_from_matrix(const Matrix2Df &src, bool abs_values,
   std::nth_element(values.begin(), values.begin() + static_cast<long>(mid),
                    values.end());
   return values[mid];
-}
-
-static TileSeamObservation estimate_tile_overlap_observation(
-    size_t lhs_index, size_t rhs_index, const Tile &lhs_tile,
-    const Tile &rhs_tile, const Matrix2Df &lhs, const Matrix2Df &rhs,
-    const std::vector<uint8_t> &lhs_mask, const std::vector<uint8_t> &rhs_mask,
-    int min_samples) {
-  TileSeamObservation obs;
-  obs.lhs = lhs_index;
-  obs.rhs = rhs_index;
-
-  if (lhs.size() <= 0 || rhs.size() <= 0 || lhs_mask.empty() || rhs_mask.empty()) {
-    return obs;
-  }
-
-  const int overlap_x0 = std::max(lhs_tile.x, rhs_tile.x);
-  const int overlap_y0 = std::max(lhs_tile.y, rhs_tile.y);
-  const int overlap_x1 =
-      std::min(lhs_tile.x + lhs_tile.width, rhs_tile.x + rhs_tile.width);
-  const int overlap_y1 =
-      std::min(lhs_tile.y + lhs_tile.height, rhs_tile.y + rhs_tile.height);
-  const int overlap_w = overlap_x1 - overlap_x0;
-  const int overlap_h = overlap_y1 - overlap_y0;
-  if (overlap_w <= 0 || overlap_h <= 0) {
-    return obs;
-  }
-
-  const bool side_by_side =
-      overlap_h >= std::max(8, std::min(lhs_tile.height, rhs_tile.height) / 2);
-  const bool stacked =
-      overlap_w >= std::max(8, std::min(lhs_tile.width, rhs_tile.width) / 2);
-  if (!side_by_side && !stacked) {
-    return obs;
-  }
-
-  std::vector<float> lhs_samples;
-  std::vector<float> rhs_samples;
-  lhs_samples.reserve(static_cast<size_t>(overlap_w * overlap_h));
-  rhs_samples.reserve(static_cast<size_t>(overlap_w * overlap_h));
-
-  for (int gy = overlap_y0; gy < overlap_y1; ++gy) {
-    const int lhs_y = gy - lhs_tile.y;
-    const int rhs_y = gy - rhs_tile.y;
-    for (int gx = overlap_x0; gx < overlap_x1; ++gx) {
-      const int lhs_x = gx - lhs_tile.x;
-      const int rhs_x = gx - rhs_tile.x;
-      const size_t lhs_idx =
-          static_cast<size_t>(lhs_y * lhs.cols() + lhs_x);
-      const size_t rhs_idx =
-          static_cast<size_t>(rhs_y * rhs.cols() + rhs_x);
-      if (lhs_idx >= lhs_mask.size() || rhs_idx >= rhs_mask.size() ||
-          lhs_mask[lhs_idx] == 0u || rhs_mask[rhs_idx] == 0u) {
-        continue;
-      }
-      const float lhs_v = lhs(lhs_y, lhs_x);
-      const float rhs_v = rhs(rhs_y, rhs_x);
-      if (!std::isfinite(lhs_v) || !std::isfinite(rhs_v)) {
-        continue;
-      }
-      lhs_samples.push_back(lhs_v);
-      rhs_samples.push_back(rhs_v);
-    }
-  }
-
-  if (lhs_samples.size() < static_cast<size_t>(std::max(1, min_samples)) ||
-      rhs_samples.size() != lhs_samples.size()) {
-    return obs;
-  }
-
-  std::vector<float> lhs_bg = lhs_samples;
-  std::vector<float> rhs_bg = rhs_samples;
-  const float lhs_background = core::median_of(lhs_bg);
-  const float rhs_background = core::median_of(rhs_bg);
-  std::vector<float> lhs_abs_dev;
-  std::vector<float> rhs_abs_dev;
-  lhs_abs_dev.reserve(lhs_samples.size());
-  rhs_abs_dev.reserve(rhs_samples.size());
-  for (size_t i = 0; i < lhs_samples.size(); ++i) {
-    lhs_abs_dev.push_back(std::fabs(lhs_samples[i] - lhs_background));
-    rhs_abs_dev.push_back(std::fabs(rhs_samples[i] - rhs_background));
-  }
-  const float lhs_scale =
-      lhs_abs_dev.empty() ? 0.0f : std::max(0.0f, core::median_of(lhs_abs_dev));
-  const float rhs_scale =
-      rhs_abs_dev.empty() ? 0.0f : std::max(0.0f, core::median_of(rhs_abs_dev));
-
-  obs.background_delta = rhs_background - lhs_background;
-  obs.sample_count = lhs_samples.size();
-  obs.weight = static_cast<float>(obs.sample_count);
-  obs.scale_valid = lhs_scale > 1.0e-6f && rhs_scale > 1.0e-6f;
-  if (obs.scale_valid) {
-    obs.log_scale_delta = std::log(rhs_scale) - std::log(lhs_scale);
-  }
-  obs.valid = std::isfinite(obs.background_delta) && std::isfinite(obs.weight) &&
-              obs.weight > 0.0f;
-  return obs;
-}
-
-static std::vector<float> solve_tile_seam_field(
-    size_t tile_count, const std::vector<TileSeamObservation> &observations,
-    bool solve_scale) {
-  std::vector<float> result(tile_count, 0.0f);
-  if (tile_count == 0) {
-    return result;
-  }
-
-  Eigen::MatrixXd normal =
-      Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(tile_count),
-                            static_cast<Eigen::Index>(tile_count));
-  Eigen::VectorXd rhs =
-      Eigen::VectorXd::Zero(static_cast<Eigen::Index>(tile_count));
-  std::vector<double> node_weight(tile_count, 0.0);
-  double total_weight = 0.0;
-
-  for (const auto &obs : observations) {
-    if (!obs.valid || obs.lhs >= tile_count || obs.rhs >= tile_count) {
-      continue;
-    }
-    if (solve_scale && !obs.scale_valid) {
-      continue;
-    }
-    const double w = std::max(1.0, static_cast<double>(obs.weight));
-    const double d = static_cast<double>(solve_scale ? obs.log_scale_delta
-                                                     : obs.background_delta);
-    const Eigen::Index a = static_cast<Eigen::Index>(obs.lhs);
-    const Eigen::Index b = static_cast<Eigen::Index>(obs.rhs);
-    normal(a, a) += w;
-    normal(b, b) += w;
-    normal(a, b) -= w;
-    normal(b, a) -= w;
-    rhs(a) -= w * d;
-    rhs(b) += w * d;
-    node_weight[obs.lhs] += w;
-    node_weight[obs.rhs] += w;
-    total_weight += w;
-  }
-
-  if (total_weight <= 0.0) {
-    return result;
-  }
-
-  size_t anchor = 0;
-  for (size_t i = 1; i < node_weight.size(); ++i) {
-    if (node_weight[i] > node_weight[anchor]) {
-      anchor = i;
-    }
-  }
-  const double anchor_weight =
-      std::max(1.0, total_weight / static_cast<double>(std::max<size_t>(1, tile_count)));
-  normal(static_cast<Eigen::Index>(anchor), static_cast<Eigen::Index>(anchor)) +=
-      anchor_weight;
-  for (Eigen::Index i = 0; i < normal.rows(); ++i) {
-    normal(i, i) += 1e-8;
-  }
-
-  const Eigen::LDLT<Eigen::MatrixXd> ldlt(normal);
-  if (ldlt.info() != Eigen::Success) {
-    return result;
-  }
-  const Eigen::VectorXd solved = ldlt.solve(rhs);
-  if (ldlt.info() != Eigen::Success) {
-    return result;
-  }
-  for (size_t i = 0; i < tile_count; ++i) {
-    result[i] = static_cast<float>(solved(static_cast<Eigen::Index>(i)));
-  }
-  return result;
 }
 
 bool write_canvas_mask_fits(const fs::path &mask_path,
@@ -1397,6 +1056,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     tile_mean_dx.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dy.assign(tiles_phase56.size(), 0.0f);
     std::vector<uint8_t> tile_reconstructed_valid(tiles_phase56.size(), 0u);
+    reconstruction::TileBoundaryDiagnostics boundary_diagnostics_raw;
+    reconstruction::TileBoundaryDiagnostics boundary_diagnostics_normalized;
+    float boundary_valid_count_delta_mean_abs = 0.0f;
+    float boundary_valid_count_delta_p95_abs = 0.0f;
+    float boundary_post_background_delta_mean_abs = 0.0f;
+    float boundary_post_background_delta_p95_abs = 0.0f;
+    float boundary_post_snr_delta_mean_abs = 0.0f;
+    float boundary_post_snr_delta_p95_abs = 0.0f;
+    float boundary_mean_correlation_delta_mean_abs = 0.0f;
+    float boundary_mean_correlation_delta_p95_abs = 0.0f;
+    int boundary_fallback_mismatch_count = 0;
     std::vector<Matrix2Df> reconstructed_tiles(tiles_phase56.size());
     std::vector<Matrix2Df> reconstructed_tiles_R;
     std::vector<Matrix2Df> reconstructed_tiles_G;
@@ -1717,12 +1387,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
-    const bool use_overlap_seam =
-        apply_phase7_tile_norm && cfg.stacking.tile_seam_harmonization.enabled;
-    size_t seam_pair_count = 0;
-    size_t seam_bg_observation_count = 0;
-    size_t seam_scale_observation_count = 0;
-
     if (apply_phase7_tile_norm) {
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
         if (tile_reconstructed_valid[ti] == 0u) {
@@ -1742,185 +1406,125 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           tile_full_bg_r[ti] = tile_full_bg_mono[ti];
         }
       }
-
-      if (use_overlap_seam) {
-        const auto &seam_cfg = cfg.stacking.tile_seam_harmonization;
-        std::vector<std::vector<uint8_t>> tile_seam_masks(tiles_phase56.size());
-        std::vector<size_t> tile_seam_finite_counts(tiles_phase56.size(), 0u);
-        std::vector<size_t> tile_seam_sample_counts(tiles_phase56.size(), 0u);
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-          if (tile_reconstructed_valid[ti] == 0u) {
-            continue;
-          }
-          tile_seam_masks[ti] = compute_tile_background_mask(
-              reconstructed_tiles[ti], seam_cfg, tile_seam_finite_counts[ti],
-              tile_seam_sample_counts[ti]);
+      for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+        if (tile_reconstructed_valid[ti] == 0u) {
+          continue;
         }
-
-        auto pair_key = [](int row, int col) -> long long {
-          return (static_cast<long long>(row) << 32) ^
-                 static_cast<unsigned int>(col);
-        };
-        std::unordered_map<long long, size_t> tile_index_by_grid;
-        tile_index_by_grid.reserve(tiles_phase56.size());
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-          tile_index_by_grid[pair_key(tiles_phase56[ti].row, tiles_phase56[ti].col)] =
-              ti;
-        }
-
-        std::vector<std::pair<size_t, size_t>> seam_pairs;
-        seam_pairs.reserve(tiles_phase56.size() * 2);
-        auto push_pair = [&](size_t lhs, size_t rhs) {
-          if (lhs >= tiles_phase56.size() || rhs >= tiles_phase56.size() ||
-              lhs == rhs || tile_reconstructed_valid[lhs] == 0u ||
-              tile_reconstructed_valid[rhs] == 0u) {
-            return;
-          }
-          seam_pairs.push_back({lhs, rhs});
-        };
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-          const Tile &tile = tiles_phase56[ti];
-          auto right_it = tile_index_by_grid.find(pair_key(tile.row, tile.col + 1));
-          if (right_it != tile_index_by_grid.end()) {
-            push_pair(ti, right_it->second);
-          }
-          auto down_it = tile_index_by_grid.find(pair_key(tile.row + 1, tile.col));
-          if (down_it != tile_index_by_grid.end()) {
-            push_pair(ti, down_it->second);
-          }
-        }
-        if (seam_pairs.empty()) {
-          for (size_t lhs = 0; lhs < tiles_phase56.size(); ++lhs) {
-            if (tile_reconstructed_valid[lhs] == 0u) {
-              continue;
-            }
-            for (size_t rhs = lhs + 1; rhs < tiles_phase56.size(); ++rhs) {
-              if (tile_reconstructed_valid[rhs] == 0u) {
-                continue;
-              }
-              const Tile &a = tiles_phase56[lhs];
-              const Tile &b = tiles_phase56[rhs];
-              const bool overlap = a.x < (b.x + b.width) &&
-                                   b.x < (a.x + a.width) &&
-                                   a.y < (b.y + b.height) &&
-                                   b.y < (a.y + a.height);
-              if (overlap) {
-                seam_pairs.push_back({lhs, rhs});
-              }
-            }
-          }
-        }
-        seam_pair_count = seam_pairs.size();
-
-        const int pair_min_samples =
-            std::max(8, seam_cfg.min_samples / 2);
-        auto build_observations =
-            [&](const std::vector<Matrix2Df> &tile_images)
-            -> std::vector<TileSeamObservation> {
-          std::vector<TileSeamObservation> observations;
-          observations.reserve(seam_pairs.size());
-          for (const auto &[lhs, rhs] : seam_pairs) {
-            const TileSeamObservation obs = estimate_tile_overlap_observation(
-                lhs, rhs, tiles_phase56[lhs], tiles_phase56[rhs],
-                tile_images[lhs], tile_images[rhs], tile_seam_masks[lhs],
-                tile_seam_masks[rhs], pair_min_samples);
-            if (obs.valid) {
-              observations.push_back(obs);
-            }
-          }
-          return observations;
-        };
-
-        auto center_valid_field = [&](std::vector<float> &field) {
-          std::vector<float> values;
-          values.reserve(field.size());
-          for (size_t ti = 0; ti < field.size(); ++ti) {
-            if (tile_reconstructed_valid[ti] != 0u &&
-                std::isfinite(field[ti])) {
-              values.push_back(field[ti]);
-            }
-          }
-          if (values.empty()) {
-            return;
-          }
-          const float center = core::median_of(values);
-          for (float &v : field) {
-            if (std::isfinite(v)) {
-              v -= center;
-            }
-          }
-        };
-
-        const auto mono_obs = build_observations(reconstructed_tiles);
-        seam_bg_observation_count = mono_obs.size();
-        seam_scale_observation_count =
-            static_cast<size_t>(std::count_if(
-                mono_obs.begin(), mono_obs.end(),
-                [](const TileSeamObservation &obs) { return obs.scale_valid; }));
-
-        std::vector<float> mono_bg_field =
-            solve_tile_seam_field(tiles_phase56.size(), mono_obs, false);
-        std::vector<float> mono_log_scale_field =
-            solve_tile_seam_field(tiles_phase56.size(), mono_obs, true);
-        center_valid_field(mono_bg_field);
-        center_valid_field(mono_log_scale_field);
-
-        std::vector<float> bg_field_r = mono_bg_field;
-        std::vector<float> bg_field_g = mono_bg_field;
-        std::vector<float> bg_field_b = mono_bg_field;
+        tile_norm_scale[ti] = std::max(kEpsMedian, tile_full_scale_mono[ti]);
         if (osc_mode) {
-          const auto obs_r = build_observations(reconstructed_tiles_R);
-          const auto obs_g = build_observations(reconstructed_tiles_G);
-          const auto obs_b = build_observations(reconstructed_tiles_B);
-          if (!obs_r.empty()) {
-            bg_field_r =
-                solve_tile_seam_field(tiles_phase56.size(), obs_r, false);
-            center_valid_field(bg_field_r);
-          }
-          if (!obs_g.empty()) {
-            bg_field_g =
-                solve_tile_seam_field(tiles_phase56.size(), obs_g, false);
-            center_valid_field(bg_field_g);
-          }
-          if (!obs_b.empty()) {
-            bg_field_b =
-                solve_tile_seam_field(tiles_phase56.size(), obs_b, false);
-            center_valid_field(bg_field_b);
-          }
-        }
-
-        const float min_scale_factor =
-            1.0f / std::max(seam_cfg.scale_ceil_factor, 1.0e-6f);
-        const float max_scale_factor =
-            1.0f / std::max(seam_cfg.scale_floor_factor, 1.0e-6f);
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-          if (tile_reconstructed_valid[ti] == 0u) {
-            continue;
-          }
-          tile_norm_bg_r[ti] = -seam_cfg.strength * bg_field_r[ti];
-          tile_norm_bg_g[ti] = -seam_cfg.strength * bg_field_g[ti];
-          tile_norm_bg_b[ti] = -seam_cfg.strength * bg_field_b[ti];
-          const float raw_scale_factor =
-              std::exp(-seam_cfg.strength * mono_log_scale_field[ti]);
-          tile_norm_scale[ti] = std::clamp(
-              raw_scale_factor, min_scale_factor, max_scale_factor);
-        }
-      } else {
-        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-          if (tile_reconstructed_valid[ti] == 0u) {
-            continue;
-          }
-          tile_norm_scale[ti] =
-              std::max(kEpsMedian, tile_full_scale_mono[ti]);
-          if (osc_mode) {
-            tile_norm_bg_r[ti] = tile_full_bg_r[ti];
-            tile_norm_bg_g[ti] = tile_full_bg_g[ti];
-            tile_norm_bg_b[ti] = tile_full_bg_b[ti];
-          } else {
-            tile_norm_bg_r[ti] = tile_full_bg_mono[ti];
-          }
+          tile_norm_bg_r[ti] = tile_full_bg_r[ti];
+          tile_norm_bg_g[ti] = tile_full_bg_g[ti];
+          tile_norm_bg_b[ti] = tile_full_bg_b[ti];
+        } else {
+          tile_norm_bg_r[ti] = tile_full_bg_mono[ti];
         }
       }
+    }
+
+    {
+      auto summarize_abs_metric = [](std::vector<float> values) {
+        std::pair<float, float> summary{0.0f, 0.0f};
+        if (values.empty()) {
+          return summary;
+        }
+        summary.first =
+            std::accumulate(values.begin(), values.end(), 0.0f) /
+            static_cast<float>(values.size());
+        std::sort(values.begin(), values.end());
+        summary.second = core::percentile_from_sorted(values, 95.0f);
+        return summary;
+      };
+
+      auto build_boundary_input_tiles = [&](bool normalized) {
+        std::vector<Matrix2Df> boundary_input_tiles(tiles_phase56.size());
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+          if (tile_reconstructed_valid[ti] == 0u) {
+            continue;
+          }
+
+          if (osc_mode) {
+            Matrix2Df diag_r = reconstructed_tiles_R[ti];
+            Matrix2Df diag_g = reconstructed_tiles_G[ti];
+            Matrix2Df diag_b = reconstructed_tiles_B[ti];
+            if (normalized) {
+              const float inv = 1.0f / std::max(kEpsMedian, tile_norm_scale[ti]);
+              for (Eigen::Index i = 0; i < diag_r.size(); ++i) {
+                diag_r.data()[i] = (diag_r.data()[i] - tile_norm_bg_r[ti]) * inv;
+                diag_g.data()[i] = (diag_g.data()[i] - tile_norm_bg_g[ti]) * inv;
+                diag_b.data()[i] = (diag_b.data()[i] - tile_norm_bg_b[ti]) * inv;
+              }
+            }
+            boundary_input_tiles[ti] =
+                0.25f * diag_r + 0.5f * diag_g + 0.25f * diag_b;
+          } else {
+            Matrix2Df diag_tile = reconstructed_tiles[ti];
+            if (normalized) {
+              const float inv = 1.0f / std::max(kEpsMedian, tile_norm_scale[ti]);
+              for (Eigen::Index i = 0; i < diag_tile.size(); ++i) {
+                diag_tile.data()[i] =
+                    (diag_tile.data()[i] - tile_norm_bg_r[ti]) * inv;
+              }
+            }
+            boundary_input_tiles[ti] = std::move(diag_tile);
+          }
+        }
+        return boundary_input_tiles;
+      };
+
+      const auto boundary_input_tiles_raw = build_boundary_input_tiles(false);
+      boundary_diagnostics_raw = reconstruction::analyze_tile_boundaries(
+          tiles_phase56, boundary_input_tiles_raw, tile_reconstructed_valid,
+          common_valid_mask, canvas_width, canvas_height);
+
+      if (apply_phase7_tile_norm) {
+        const auto boundary_input_tiles_normalized = build_boundary_input_tiles(true);
+        boundary_diagnostics_normalized = reconstruction::analyze_tile_boundaries(
+            tiles_phase56, boundary_input_tiles_normalized,
+            tile_reconstructed_valid, common_valid_mask, canvas_width,
+            canvas_height);
+      } else {
+        boundary_diagnostics_normalized = boundary_diagnostics_raw;
+      }
+
+      std::vector<float> valid_count_deltas;
+      std::vector<float> background_deltas;
+      std::vector<float> snr_deltas;
+      std::vector<float> correlation_deltas;
+      valid_count_deltas.reserve(
+          boundary_diagnostics_normalized.pair_diagnostics.size());
+      background_deltas.reserve(
+          boundary_diagnostics_normalized.pair_diagnostics.size());
+      snr_deltas.reserve(boundary_diagnostics_normalized.pair_diagnostics.size());
+      correlation_deltas.reserve(
+          boundary_diagnostics_normalized.pair_diagnostics.size());
+      for (const auto &pair : boundary_diagnostics_normalized.pair_diagnostics) {
+        valid_count_deltas.push_back(static_cast<float>(
+            std::abs(tile_valid_counts[pair.lhs] - tile_valid_counts[pair.rhs])));
+        background_deltas.push_back(std::fabs(
+            tile_post_background[pair.lhs] - tile_post_background[pair.rhs]));
+        snr_deltas.push_back(
+            std::fabs(tile_post_snr[pair.lhs] - tile_post_snr[pair.rhs]));
+        correlation_deltas.push_back(std::fabs(tile_mean_correlations[pair.lhs] -
+                                               tile_mean_correlations[pair.rhs]));
+        if ((tile_fallback_used[pair.lhs] != 0u) !=
+            (tile_fallback_used[pair.rhs] != 0u)) {
+          ++boundary_fallback_mismatch_count;
+        }
+      }
+
+      auto valid_count_summary = summarize_abs_metric(std::move(valid_count_deltas));
+      boundary_valid_count_delta_mean_abs = valid_count_summary.first;
+      boundary_valid_count_delta_p95_abs = valid_count_summary.second;
+      auto background_summary = summarize_abs_metric(std::move(background_deltas));
+      boundary_post_background_delta_mean_abs = background_summary.first;
+      boundary_post_background_delta_p95_abs = background_summary.second;
+      auto snr_summary = summarize_abs_metric(std::move(snr_deltas));
+      boundary_post_snr_delta_mean_abs = snr_summary.first;
+      boundary_post_snr_delta_p95_abs = snr_summary.second;
+      auto correlation_summary =
+          summarize_abs_metric(std::move(correlation_deltas));
+      boundary_mean_correlation_delta_mean_abs = correlation_summary.first;
+      boundary_mean_correlation_delta_p95_abs = correlation_summary.second;
     }
 
     for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
@@ -1949,29 +1553,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         Matrix2Df tile_g = reconstructed_tiles_G[ti];
         Matrix2Df tile_b = reconstructed_tiles_B[ti];
         if (apply_phase7_tile_norm) {
-          if (use_overlap_seam) {
-            const float scale_factor = tile_norm_scale[ti];
-            const float base_r = tile_full_bg_r[ti];
-            const float base_g = tile_full_bg_g[ti];
-            const float base_b = tile_full_bg_b[ti];
-            const float corr_r = tile_norm_bg_r[ti];
-            const float corr_g = tile_norm_bg_g[ti];
-            const float corr_b = tile_norm_bg_b[ti];
-            for (Eigen::Index i = 0; i < tile_r.size(); ++i) {
-              tile_r.data()[i] =
-                  (tile_r.data()[i] - base_r) * scale_factor + base_r + corr_r;
-              tile_g.data()[i] =
-                  (tile_g.data()[i] - base_g) * scale_factor + base_g + corr_g;
-              tile_b.data()[i] =
-                  (tile_b.data()[i] - base_b) * scale_factor + base_b + corr_b;
-            }
-          } else {
-            const float inv = 1.0f / std::max(kEpsMedian, tile_norm_scale[ti]);
-            for (Eigen::Index i = 0; i < tile_r.size(); ++i) {
-              tile_r.data()[i] = (tile_r.data()[i] - tile_norm_bg_r[ti]) * inv;
-              tile_g.data()[i] = (tile_g.data()[i] - tile_norm_bg_g[ti]) * inv;
-              tile_b.data()[i] = (tile_b.data()[i] - tile_norm_bg_b[ti]) * inv;
-            }
+          const float inv = 1.0f / std::max(kEpsMedian, tile_norm_scale[ti]);
+          for (Eigen::Index i = 0; i < tile_r.size(); ++i) {
+            tile_r.data()[i] = (tile_r.data()[i] - tile_norm_bg_r[ti]) * inv;
+            tile_g.data()[i] = (tile_g.data()[i] - tile_norm_bg_g[ti]) * inv;
+            tile_b.data()[i] = (tile_b.data()[i] - tile_norm_bg_b[ti]) * inv;
           }
         }
 
@@ -2003,19 +1589,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       } else {
         Matrix2Df tile = reconstructed_tiles[ti];
         if (apply_phase7_tile_norm) {
-          if (use_overlap_seam) {
-            const float scale_factor = tile_norm_scale[ti];
-            const float base_bg = tile_full_bg_mono[ti];
-            const float bg_corr = tile_norm_bg_r[ti];
-            for (Eigen::Index i = 0; i < tile.size(); ++i) {
-              tile.data()[i] =
-                  (tile.data()[i] - base_bg) * scale_factor + base_bg + bg_corr;
-            }
-          } else {
-            const float inv = 1.0f / std::max(kEpsMedian, tile_norm_scale[ti]);
-            for (Eigen::Index i = 0; i < tile.size(); ++i) {
-              tile.data()[i] = (tile.data()[i] - tile_norm_bg_r[ti]) * inv;
-            }
+          const float inv = 1.0f / std::max(kEpsMedian, tile_norm_scale[ti]);
+          for (Eigen::Index i = 0; i < tile.size(); ++i) {
+            tile.data()[i] = (tile.data()[i] - tile_norm_bg_r[ti]) * inv;
           }
         }
 
@@ -2067,7 +1643,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
       }
 
-      if (apply_phase7_tile_norm && !use_overlap_seam) {
+      if (apply_phase7_tile_norm) {
         // Methodik v3.2 §5.7.2 (optional): global robust tile background
         // restore.
         std::vector<float> bg_r_vals;
@@ -2117,7 +1693,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
       }
 
-      if (apply_phase7_tile_norm && !use_overlap_seam) {
+      if (apply_phase7_tile_norm) {
         std::vector<float> bg_vals;
         std::vector<float> m_vals;
         bg_vals.reserve(tiles_phase56.size());
@@ -2147,6 +1723,38 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // Write reconstruction artifacts (v3)
     {
       core::json artifact;
+      auto append_boundary_pairs = [&](const char *key,
+                                       const reconstruction::TileBoundaryDiagnostics
+                                           &diagnostics) {
+        artifact[key] = core::json::array();
+        const size_t top_pair_count =
+            std::min<size_t>(8, diagnostics.pair_diagnostics.size());
+        for (size_t i = 0; i < top_pair_count; ++i) {
+          const auto &pair = diagnostics.pair_diagnostics[i];
+          core::json entry;
+          entry["lhs_index"] = static_cast<int>(pair.lhs);
+          entry["rhs_index"] = static_cast<int>(pair.rhs);
+          entry["lhs_row"] = tiles_phase56[pair.lhs].row;
+          entry["lhs_col"] = tiles_phase56[pair.lhs].col;
+          entry["rhs_row"] = tiles_phase56[pair.rhs].row;
+          entry["rhs_col"] = tiles_phase56[pair.rhs].col;
+          entry["sample_count"] = static_cast<int>(pair.sample_count);
+          entry["mean_abs_diff"] = pair.mean_abs_diff;
+          entry["p95_abs_diff"] = pair.p95_abs_diff;
+          entry["mean_signed_diff"] = pair.mean_signed_diff;
+          entry["lhs_valid_count"] = tile_valid_counts[pair.lhs];
+          entry["rhs_valid_count"] = tile_valid_counts[pair.rhs];
+          entry["lhs_fallback_used"] = tile_fallback_used[pair.lhs] != 0u;
+          entry["rhs_fallback_used"] = tile_fallback_used[pair.rhs] != 0u;
+          entry["lhs_post_background"] = tile_post_background[pair.lhs];
+          entry["rhs_post_background"] = tile_post_background[pair.rhs];
+          entry["lhs_post_snr_proxy"] = tile_post_snr[pair.lhs];
+          entry["rhs_post_snr_proxy"] = tile_post_snr[pair.rhs];
+          entry["lhs_mean_correlation"] = tile_mean_correlations[pair.lhs];
+          entry["rhs_mean_correlation"] = tile_mean_correlations[pair.rhs];
+          artifact[key].push_back(std::move(entry));
+        }
+      };
       artifact["num_frames"] = static_cast<int>(frames.size());
       artifact["num_tiles"] = static_cast<int>(tiles_phase56.size());
       artifact["tile_valid_counts"] = core::json::array();
@@ -2155,15 +1763,82 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       artifact["tile_post_contrast"] = core::json::array();
       artifact["tile_post_background"] = core::json::array();
       artifact["tile_post_snr_proxy"] = core::json::array();
-      artifact["tile_seam_mode"] =
-          use_overlap_seam ? "overlap_global" : (apply_phase7_tile_norm ? "local" : "disabled");
-      artifact["tile_seam_pair_count"] = static_cast<int>(seam_pair_count);
-      artifact["tile_seam_bg_observations"] =
-          static_cast<int>(seam_bg_observation_count);
-      artifact["tile_seam_scale_observations"] =
-          static_cast<int>(seam_scale_observation_count);
-      artifact["tile_seam_bg_correction"] = core::json::array();
-      artifact["tile_seam_scale_factor"] = core::json::array();
+      artifact["tile_norm_bg_r"] = core::json::array();
+      artifact["tile_norm_bg_g"] = core::json::array();
+      artifact["tile_norm_bg_b"] = core::json::array();
+      artifact["tile_norm_scale"] = core::json::array();
+      artifact["tile_boundary_analysis_uses_common_canvas_mask"] = true;
+      artifact["tile_boundary_raw_analysis_input"] = "pre_ola_raw";
+      artifact["tile_boundary_normalized_analysis_input"] =
+          apply_phase7_tile_norm ? "pre_ola_normalized" : "pre_ola_raw";
+      artifact["tile_boundary_analysis_input"] =
+          artifact["tile_boundary_normalized_analysis_input"];
+      artifact["tile_boundary_raw_pair_count"] =
+          static_cast<int>(boundary_diagnostics_raw.pair_count);
+      artifact["tile_boundary_raw_observation_count"] =
+          static_cast<int>(boundary_diagnostics_raw.observed_pair_count);
+      artifact["tile_boundary_raw_sample_count"] =
+          static_cast<int>(boundary_diagnostics_raw.sample_count);
+      artifact["tile_boundary_raw_pair_mean_abs_diff_mean"] =
+          boundary_diagnostics_raw.pair_mean_abs_diff_mean;
+      artifact["tile_boundary_raw_pair_mean_abs_diff_p95"] =
+          boundary_diagnostics_raw.pair_mean_abs_diff_p95;
+      artifact["tile_boundary_raw_pair_p95_abs_diff_mean"] =
+          boundary_diagnostics_raw.pair_p95_abs_diff_mean;
+      artifact["tile_boundary_raw_pair_p95_abs_diff_p95"] =
+          boundary_diagnostics_raw.pair_p95_abs_diff_p95;
+      artifact["tile_boundary_raw_pair_mean_signed_diff_mean_abs"] =
+          boundary_diagnostics_raw.pair_mean_signed_diff_mean_abs;
+      artifact["tile_boundary_normalized_pair_count"] =
+          static_cast<int>(boundary_diagnostics_normalized.pair_count);
+      artifact["tile_boundary_normalized_observation_count"] =
+          static_cast<int>(boundary_diagnostics_normalized.observed_pair_count);
+      artifact["tile_boundary_normalized_sample_count"] =
+          static_cast<int>(boundary_diagnostics_normalized.sample_count);
+      artifact["tile_boundary_normalized_pair_mean_abs_diff_mean"] =
+          boundary_diagnostics_normalized.pair_mean_abs_diff_mean;
+      artifact["tile_boundary_normalized_pair_mean_abs_diff_p95"] =
+          boundary_diagnostics_normalized.pair_mean_abs_diff_p95;
+      artifact["tile_boundary_normalized_pair_p95_abs_diff_mean"] =
+          boundary_diagnostics_normalized.pair_p95_abs_diff_mean;
+      artifact["tile_boundary_normalized_pair_p95_abs_diff_p95"] =
+          boundary_diagnostics_normalized.pair_p95_abs_diff_p95;
+      artifact["tile_boundary_normalized_pair_mean_signed_diff_mean_abs"] =
+          boundary_diagnostics_normalized.pair_mean_signed_diff_mean_abs;
+      artifact["tile_boundary_pair_count"] =
+          static_cast<int>(boundary_diagnostics_normalized.pair_count);
+      artifact["tile_boundary_observation_count"] =
+          static_cast<int>(boundary_diagnostics_normalized.observed_pair_count);
+      artifact["tile_boundary_sample_count"] =
+          static_cast<int>(boundary_diagnostics_normalized.sample_count);
+      artifact["tile_boundary_pair_mean_abs_diff_mean"] =
+          boundary_diagnostics_normalized.pair_mean_abs_diff_mean;
+      artifact["tile_boundary_pair_mean_abs_diff_p95"] =
+          boundary_diagnostics_normalized.pair_mean_abs_diff_p95;
+      artifact["tile_boundary_pair_p95_abs_diff_mean"] =
+          boundary_diagnostics_normalized.pair_p95_abs_diff_mean;
+      artifact["tile_boundary_pair_p95_abs_diff_p95"] =
+          boundary_diagnostics_normalized.pair_p95_abs_diff_p95;
+      artifact["tile_boundary_pair_mean_signed_diff_mean_abs"] =
+          boundary_diagnostics_normalized.pair_mean_signed_diff_mean_abs;
+      artifact["tile_boundary_valid_count_delta_mean_abs"] =
+          boundary_valid_count_delta_mean_abs;
+      artifact["tile_boundary_valid_count_delta_p95_abs"] =
+          boundary_valid_count_delta_p95_abs;
+      artifact["tile_boundary_post_background_delta_mean_abs"] =
+          boundary_post_background_delta_mean_abs;
+      artifact["tile_boundary_post_background_delta_p95_abs"] =
+          boundary_post_background_delta_p95_abs;
+      artifact["tile_boundary_post_snr_delta_mean_abs"] =
+          boundary_post_snr_delta_mean_abs;
+      artifact["tile_boundary_post_snr_delta_p95_abs"] =
+          boundary_post_snr_delta_p95_abs;
+      artifact["tile_boundary_mean_correlation_delta_mean_abs"] =
+          boundary_mean_correlation_delta_mean_abs;
+      artifact["tile_boundary_mean_correlation_delta_p95_abs"] =
+          boundary_mean_correlation_delta_p95_abs;
+      artifact["tile_boundary_fallback_mismatch_count"] =
+          boundary_fallback_mismatch_count;
       for (size_t i = 0; i < tiles_phase56.size(); ++i) {
         artifact["tile_valid_counts"].push_back(tile_valid_counts[i]);
         artifact["tile_fallback_used"].push_back(
@@ -2172,9 +1847,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         artifact["tile_post_contrast"].push_back(tile_post_contrast[i]);
         artifact["tile_post_background"].push_back(tile_post_background[i]);
         artifact["tile_post_snr_proxy"].push_back(tile_post_snr[i]);
-        artifact["tile_seam_bg_correction"].push_back(tile_norm_bg_r[i]);
-        artifact["tile_seam_scale_factor"].push_back(tile_norm_scale[i]);
+        artifact["tile_norm_bg_r"].push_back(tile_norm_bg_r[i]);
+        artifact["tile_norm_bg_g"].push_back(tile_norm_bg_g[i]);
+        artifact["tile_norm_bg_b"].push_back(tile_norm_bg_b[i]);
+        artifact["tile_norm_scale"].push_back(tile_norm_scale[i]);
       }
+      append_boundary_pairs("tile_boundary_raw_top_pairs",
+                            boundary_diagnostics_raw);
+      append_boundary_pairs("tile_boundary_normalized_top_pairs",
+                            boundary_diagnostics_normalized);
+      artifact["tile_boundary_top_pairs"] =
+          artifact["tile_boundary_normalized_top_pairs"];
       core::write_text(run_dir / "artifacts" / "tile_reconstruction.json",
                        artifact.dump(2));
     }
@@ -2189,14 +1872,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             {"fallback_tiles",
              std::count_if(tile_fallback_used.begin(), tile_fallback_used.end(),
                            [&](uint8_t v) { return v != 0u; })},
-            {"tile_seam_mode",
-             use_overlap_seam ? "overlap_global"
-                              : (apply_phase7_tile_norm ? "local" : "disabled")},
-            {"tile_seam_pairs", static_cast<int>(seam_pair_count)},
-            {"tile_seam_bg_observations",
-             static_cast<int>(seam_bg_observation_count)},
-            {"tile_seam_scale_observations",
-             static_cast<int>(seam_scale_observation_count)},
+            {"tile_boundary_analysis_input",
+             apply_phase7_tile_norm ? "pre_ola_normalized" : "pre_ola_raw"},
+            {"tile_boundary_pairs",
+             static_cast<int>(boundary_diagnostics_normalized.observed_pair_count)},
+            {"tile_boundary_raw_pair_mean_abs_diff_p95",
+             boundary_diagnostics_raw.pair_mean_abs_diff_p95},
+            {"tile_boundary_pair_mean_abs_diff_p95",
+             boundary_diagnostics_normalized.pair_mean_abs_diff_p95},
+            {"tile_boundary_post_background_delta_p95_abs",
+             boundary_post_background_delta_p95_abs},
+            {"tile_boundary_fallback_mismatch_count",
+             boundary_fallback_mismatch_count},
         },
         log_file);
 

@@ -375,6 +375,42 @@ Reconstruction image:
 
 Optionally, after OLA a global robust tile-background offset may be restored (median over `bg_t`).
 
+### 5.7.3 Boundary Diagnostics (Recommended, Non-Invasive)
+
+To diagnose visible tile boundaries without changing the reconstruction result, implementations may evaluate neighboring tiles on the actual OLA input `Y_t`.
+
+Recommended practice is to emit these diagnostics twice:
+
+- once on the raw reconstructed tiles before the optional per-tile normalization
+- once on the normalized OLA input `Y_t`
+
+For each neighboring tile pair `(a,b)` with overlap domain `Omega_ab`, define:
+
+`Delta_ab(p) = Y_b(p) - Y_a(p)`, for `p in Omega_ab`
+
+Only samples inside the common canvas-valid domain may contribute. Masked canvas zones must be excluded rather than treated as valid zero-valued pixels.
+
+Recommended pair diagnostics:
+
+- `mean_abs_diff_ab = mean_p |Delta_ab(p)|`
+- `p95_abs_diff_ab = p95_p |Delta_ab(p)|`
+- `mean_signed_diff_ab = mean_p Delta_ab(p)`
+- `n_ab = |Omega_ab|` valid finite overlap samples
+
+Additionally, implementations may summarize per-pair differences in:
+
+- valid frame support,
+- post-reconstruction background metrics,
+- post-reconstruction SNR proxies,
+- post-reconstruction mean correlation proxies,
+- and fallback mismatch flags.
+
+Binding semantics:
+
+1. These diagnostics must be **read-only** and must not alter `Y_t`, `A`, `S`, or the final OLA result.
+2. They may be emitted as runtime artifacts for analysis and regression testing.
+3. Because they do not feed back into the estimator, they do **not** change the linearity semantics of the reconstruction core.
+
 ---
 
 ## 5.8 Optional Local Denoisers (Explicitly Optional)

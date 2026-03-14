@@ -241,15 +241,6 @@ stacking:
     kappa_cluster: 1.0
     cap_enabled: true
     cap_ratio: 20.0
-  tile_seam_harmonization:
-    enabled: true
-    strength: 1.0
-    sample_quantile: 0.1
-    gradient_quantile: 0.3
-    min_sample_fraction: 0.01
-    min_samples: 24
-    scale_floor_factor: 0.9
-    scale_ceil_factor: 1.1    
   output_stretch: false
   cosmetic_correction: true
   cosmetic_correction_sigma: 4.0

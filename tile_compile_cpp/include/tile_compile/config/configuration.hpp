@@ -215,17 +215,6 @@ struct StackingConfig {
     float cap_ratio = 20.0f;
   } cluster_quality_weighting;
 
-  struct TileSeamHarmonizationConfig {
-    bool enabled = true;
-    float strength = 0.75f;
-    float sample_quantile = 0.30f;
-    float gradient_quantile = 0.70f;
-    float min_sample_fraction = 0.05f;
-    int min_samples = 64;
-    float scale_floor_factor = 0.50f;
-    float scale_ceil_factor = 2.00f;
-  } tile_seam_harmonization;
-
   std::string method = "rej";
   bool output_stretch = false;
   bool cosmetic_correction = false;

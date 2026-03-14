@@ -140,74 +140,35 @@ stacking:
 
 ---
 
-## Reduce visible tile boundaries (`stacking.tile_seam_harmonization.*`)
+## Diagnose visible tile boundaries (artifacts)
 
-This parameter block now works in an overlap-based way inside `TILE_RECONSTRUCTION`:
+There is currently no dedicated seam-correction config block.
 
-- neighboring tiles are compared in their real overlap regions
-- only smooth, dark background pixels are used
-- a globally consistent offset/scale field is solved across all tiles
+If you see visible tile structure, inspect `artifacts/tile_reconstruction.json` after the run and focus on:
 
-**Good starting point for visible tile structure:**
+- `tile_boundary_raw_pair_mean_abs_diff_p95`
+- `tile_boundary_normalized_pair_mean_abs_diff_p95`
+- `tile_boundary_pair_mean_abs_diff_p95`
+- `tile_boundary_post_background_delta_p95_abs`
+- `tile_boundary_post_snr_delta_p95_abs`
+- `tile_boundary_top_pairs`
+- `tile_norm_scale`
 
-```yaml
-stacking:
-  tile_seam_harmonization:
-    enabled: true
-    strength: 0.75
-    sample_quantile: 0.30
-    gradient_quantile: 0.70
-    min_sample_fraction: 0.05
-    min_samples: 64
-    scale_floor_factor: 0.50
-    scale_ceil_factor: 2.00
-```
+Interpretation:
 
-**For clearly visible tile seams in weak background regions:**
+- high `tile_boundary_raw_pair_mean_abs_diff_*` values indicate that neighboring tiles already differ before the optional tile normalization
+- if `tile_boundary_normalized_pair_mean_abs_diff_*` is much higher than the raw value, the per-tile normalization is amplifying the seam
+- high `tile_boundary_post_background_delta_*` values indicate strong tile-to-tile background drift
+- high `tile_boundary_post_snr_delta_*` values suggest support / quality divergence between neighboring tiles
+- `tile_boundary_top_pairs` shows the worst offending neighbors including tile indices, grid positions, valid counts, fallback flags, and post metrics
+- inspect `tile_norm_scale` and `tile_norm_bg_*` at those tile indices to see whether the normalization itself is splitting the tile population
 
-```yaml
-stacking:
-  tile_seam_harmonization:
-    enabled: true
-    strength: 0.90
-    sample_quantile: 0.20
-    gradient_quantile: 0.50
-    min_sample_fraction: 0.03
-    min_samples: 48
-    scale_floor_factor: 0.80
-    scale_ceil_factor: 1.25
-```
+If the tile pattern is visible and these boundary diagnostics are also high, check first:
 
-- Higher `strength` amplifies the globally solved seam correction.
-- Lower `sample_quantile` and `gradient_quantile` make the overlap mask more conservative.
-- Tighter `scale_*` limits prevent aggressive tile-wise contrast jumps.
-
-**For large diffuse targets (M31, M42, IC434) with nebulosity inside overlaps:**
-
-```yaml
-stacking:
-  tile_seam_harmonization:
-    enabled: true
-    strength: 0.85
-    sample_quantile: 0.12
-    gradient_quantile: 0.35
-    min_sample_fraction: 0.02
-    min_samples: 32
-    scale_floor_factor: 0.90
-    scale_ceil_factor: 1.10
-```
-
-- This version is stricter about selecting clean background pixels.
-- Useful when nebulosity or star structure would otherwise contaminate the overlap estimate.
-
-**If the tile pattern still barely reacts afterward:**
-
-- the issue is probably not primarily a level/scale seam problem
-- then check instead:
-  - `tile.overlap_fraction`
-  - `tile_denoise.*`
-  - `stacking.output_stretch`
-  - downstream differences introduced by `BGE` or `PCC`
+- `tile.overlap_fraction`
+- `tile_denoise.*`
+- `stacking.output_stretch`
+- downstream differences introduced by `BGE` or `PCC`
 
 ---
 
