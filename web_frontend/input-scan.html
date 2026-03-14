@@ -36,6 +36,20 @@
             <input class="ps-input" type="text" value="*.fits" id="inp-pattern" data-control="input_scan.pattern" title="Dateimuster fuer Input-Scan setzen.">
           </div>
           <div class="ps-row">
+            <label id="input-scan-label-runs-dir" data-i18n="ui.field.runs_dir">Ausgabeordner</label>
+            <div class="ps-inline-cluster">
+              <input class="ps-input ps-wide" type="text" value="" id="scan-runs-dir" data-control="input_scan.runs_dir" data-i18n-title="ui.tooltip.dashboard.runs_dir" title="Run-Ausgabeordner waehlen.">
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="scan-runs-dir-browse-btn" type="button" title="Runs-Ordner auswaehlen.">Browse…</button>
+            </div>
+          </div>
+          <div class="ps-row">
+            <label id="input-scan-label-run-name" data-i18n="ui.field.run_name">Run Name</label>
+            <div class="ps-inline-stack">
+              <input class="ps-input" type="text" value="" id="scan-run-name" data-control="input_scan.run_name" data-i18n-title="ui.tooltip.dashboard.run_name" title="Freien Run-Namen setzen.">
+              <span class="ps-hint">Output-Ordner wird automatisch als <code>runs_dir/run_name_YYYYMMDD_HHMMSS</code> erzeugt.</span>
+            </div>
+          </div>
+          <div class="ps-row">
             <label>Frames Minimum</label>
             <input class="ps-input ps-short" type="number" value="30" id="inp-frames-min" data-control="scan.frames_min" title="Mindestanzahl Frames fuer Scan-Bewertung.">
             <span class="ps-hint">Guardrail: unterhalb wird Reduced-/Emergency-Mode relevant.</span>

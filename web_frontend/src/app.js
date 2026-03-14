@@ -18,13 +18,13 @@ const PCC_LAST_OUTPUT_KEY = "gui2.tools.pcc.lastOutput";
 const PCC_LAST_CHANNELS_KEY = "gui2.tools.pcc.lastChannels";
 const PCC_LAST_RESULT_KEY = "gui2.tools.pcc.lastResult";
 const UI_STORAGE_KEYS = {
-  dashboardRunsDir: "gui2.dashboard.runsDir",
-  dashboardRunName: "gui2.dashboard.runName",
+  dashboardRunsDir: "gui2.run.runsDir",
+  dashboardRunName: "gui2.run.runName",
   dashboardQueue: "gui2.dashboard.queueDraft",
   dashboardPreset: "gui2.dashboard.presetPath",
   parameterPreset: "gui2.parameter.presetPath",
-  wizardRunsDir: "gui2.wizard.runsDir",
-  wizardRunName: "gui2.wizard.runName",
+  wizardRunsDir: "gui2.run.runsDir",
+  wizardRunName: "gui2.run.runName",
   wizardQueue: "gui2.wizard.queueDraft",
   wizardPreset: "gui2.wizard.presetPath",
   historySelectedRunId: "gui2.history.selectedRunId",
@@ -1385,6 +1385,14 @@ function preferredStoredRunName() {
   return "";
 }
 
+function preferredStoredRunsDir() {
+  const sharedRunsDir = String(storedTextValue(UI_STORAGE_KEYS.dashboardRunsDir, { absolute: true }) || "").trim();
+  if (sharedRunsDir) return sharedRunsDir;
+  const wizardRunsDir = String(storedTextValue(UI_STORAGE_KEYS.wizardRunsDir, { absolute: true }) || "").trim();
+  if (wizardRunsDir) return wizardRunsDir;
+  return "";
+}
+
 function preferredStoredPresetPath() {
   return firstNonEmptyText(
     storedTextValue(UI_STORAGE_KEYS.dashboardPreset, { absolute: true }),
@@ -1464,8 +1472,16 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
   persistLastInputDirs(inputDirsText);
   await flushServerUiState();
 
-  const runNameEl = useDashboardFields ? $("dashboard-run-name") : useWizardFields ? $("wizard-run-name") : null;
-  const runsDirEl = useDashboardFields ? $("dashboard-run-runs-dir") : useWizardFields ? $("wizard-runs-dir") : null;
+  const runNameEl = useDashboardFields
+    ? $("dashboard-run-name")
+    : useWizardFields
+      ? $("wizard-run-name")
+      : $("scan-run-name");
+  const runsDirEl = useDashboardFields
+    ? $("dashboard-run-runs-dir")
+    : useWizardFields
+      ? $("wizard-runs-dir")
+      : $("scan-runs-dir");
   const configYaml = await resolveConfigYamlForRun();
   const explicitRunName = useDashboardFields
     ? explicitRunNameValue("dashboard-run-name")
@@ -1478,7 +1494,7 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
       ? preferredRunName({ inputId: "wizard-run-name", storageKey: UI_STORAGE_KEYS.wizardRunName, fallbackDirs: inputDirs })
       : explicitRunName || preferredStoredRunName() || suggestRunNameFromInputs(inputDirs);
   if (runNameEl && explicitRunName) runNameEl.value = explicitRunName;
-  const runsDir = firstNonEmptyText(runsDirEl?.value, uiState.projectRunsDir);
+  const runsDir = firstNonEmptyText(runsDirEl?.value, preferredStoredRunsDir(), uiState.projectRunsDir);
   if (runsDirEl && !String(runsDirEl.value || "").trim() && runsDir) {
     runsDirEl.value = runsDir;
   }
@@ -2020,6 +2036,16 @@ function bindInputDirMemory(...ids) {
 
 function bindScanPages() {
   bindInputDirMemory("inp-dirs");
+  bindStoredField("scan-runs-dir", UI_STORAGE_KEYS.dashboardRunsDir, {
+    absolute: true,
+  });
+  bindStoredField("scan-run-name", UI_STORAGE_KEYS.dashboardRunName, {
+    normalize: sanitizeRunName,
+  });
+  const scanRunsDir = $("scan-runs-dir");
+  if (scanRunsDir && !String(scanRunsDir.value || "").trim() && uiState.projectRunsDir) {
+    scanRunsDir.value = uiState.projectRunsDir;
+  }
   if (!$("btn-scan")) return;
   window.runScan = () => {
     void executeScanFlow();

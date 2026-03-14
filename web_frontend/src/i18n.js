@@ -132,6 +132,8 @@ const PAGE_BINDINGS = {
     { selector: "main > .intro", key: "page.input_scan.intro" },
     { selector: ".app-content > h2", key: "page.input_scan.heading" },
     { selector: ".app-content > .ps-sub", key: "page.input_scan.sub" },
+    { selector: "#input-scan-label-runs-dir", key: "ui.field.runs_dir" },
+    { selector: "#input-scan-label-run-name", key: "ui.field.run_name" },
     { selector: ".ps-section-title", key: "page.input_scan.queue_title", index: 0 },
     { selector: ".ps-section-title", key: "page.input_scan.calibration_title", index: 1 },
     { selector: ".ps-result-title", key: "ui.panel.scan_results" },

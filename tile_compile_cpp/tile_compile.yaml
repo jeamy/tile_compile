@@ -15,11 +15,11 @@ astrometry:
   search_radius: 183
 bge:
   autotune:
-    alpha_flatness: 0.35
-    beta_roughness: 0.08
+    alpha_flatness: 0.55
+    beta_roughness: 0.05
     enabled: true
     holdout_fraction: 0.2
-    max_evals: 32
+    max_evals: 40
     strategy: extended
   enabled: true
   fit:
@@ -28,24 +28,24 @@ bge:
     irls_tolerance: 1.00e-04
     method: rbf
     polynomial_order: 2
-    rbf_epsilon: 0.8
-    rbf_lambda: 0.02
-    rbf_mu_factor: 1.6
+    rbf_epsilon: 0.6
+    rbf_lambda: 0.07
+    rbf_mu_factor: 2.2
     rbf_phi: multiquadric
     robust_loss: huber
   grid:
     G_max_fraction: 0.25
-    G_min_px: 64
-    N_g: 36
+    G_min_px: 52
+    N_g: 40
     insufficient_cell_strategy: radius_expand
   mask:
-    sat_dilate_px: 5
-    star_dilate_px: 5
+    sat_dilate_px: 7
+    star_dilate_px: 7
   min_tiles_per_cell: 3
-  min_valid_sample_fraction_for_apply: 0.3
+  min_valid_sample_fraction_for_apply: 0.25
   min_valid_samples_for_apply: 96
-  sample_quantile: 0.18
-  structure_thresh_percentile: 0.9
+  sample_quantile: 0.2
+  structure_thresh_percentile: 0.8
 calibration:
   bias_dir: ""
   bias_master: ""
@@ -67,20 +67,20 @@ calibration:
 chroma_denoise:
   apply_stage: post_stack_linear
   blend:
-    amount: 0.75
+    amount: 1
     mode: chroma_only
   chroma_bilateral:
     enabled: true
-    sigma_range: 0.06
+    sigma_range: 0.04
     sigma_spatial: 2
   chroma_wavelet:
     enabled: true
     levels: 4
-    soft_k: 1.1
-    threshold_scale: 1.6
+    soft_k: 1.2
+    threshold_scale: 2.2
   color_space: ycbcr_linear
   enabled: true
-  luma_guard_strength: 0.92
+  luma_guard_strength: 0.85
   protect_luma: true
   star_protection:
     dilate_px: 3
@@ -88,7 +88,7 @@ chroma_denoise:
     threshold_sigma: 3
   structure_protection:
     enabled: true
-    gradient_percentile: 94
+    gradient_percentile: 91
 data:
   color_mode: OSC
   linear_required: true
@@ -143,19 +143,19 @@ pcc:
   annulus_outer_px: 16
   aperture_fwhm_mult: 1.8
   aperture_radius_px: 8
-  apply_attenuation: false
-  background_model: plane
-  chroma_strength: 0.85
+  apply_attenuation: true
+  background_model: median
+  chroma_strength: 0.55
   enabled: true
-  k_max: 2.4
+  k_max: 2
   mag_bright_limit: 6
   mag_limit: 14
-  max_condition_number: 3
-  max_residual_rms: 0.5
+  max_condition_number: 2.5
+  max_residual_rms: 0.3
   min_aperture_px: 4
-  min_stars: 10
+  min_stars: 14
   radii_mode: auto_fwhm
-  sigma_clip: 2.5
+  sigma_clip: 2.2
   siril_catalog_dir: ""
   source: siril
 pipeline:
@@ -176,7 +176,7 @@ registration:
   star_inlier_tol_px: 4
   star_min_inliers: 4
   star_topk: 150
-run_dir: ./run_m31_background_gradient_balanced
+run_dir: ./run_ic434_background_gradient_chroma_suppression
 runtime_limits:
   allow_emergency_mode: true
   hard_abort_hours: 6
@@ -186,17 +186,17 @@ runtime_limits:
 scenario_profile:
   gui2_scenarios:
     - osc
-    - m31
-    - galaxy
+    - ic434
     - background_gradient
-    - broadband
-  id: m31_background_gradient_balanced
-  intent: M31/OSC mit Fokus auf Gradientreduktion bei moeglichst neutraler PCC-Farbkalibrierung ohne Gruenstich.
-  priority: balanced_color_and_background
+    - chroma_suppression
+    - nebula
+  id: ic434_background_gradient_chroma_suppression
+  intent: IC434/OSC mit Fokus auf weniger Hintergrund-Farbrauschen und weichere Links/Rechts-Gradienten.
+  priority: background_cleanliness
   recommended_for:
-    - M31 / grosse diffuse Galaxien mit Hintergrundgradient
-    - wenn ein nebula-orientiertes Chroma-Suppression-Preset die Galaxie zu gruen oder zu entsaettigt macht
-  title: M31 Background Gradient Balanced
+    - IC434 / Horsehead Nebula mit deutlichem Hintergrundgradient links/rechts
+    - wenn PCC den Hintergrund farbiger macht als BGE
+  title: IC434 Background Gradient Chroma Suppression
 stacking:
   cluster_quality_weighting:
     cap_enabled: true
@@ -231,7 +231,7 @@ tile:
   star_min_count: 5
 tile_denoise:
   soft_threshold:
-    alpha: 1.4
+    alpha: 1.6
     blur_kernel: 21
     enabled: true
     skip_star_tiles: true
