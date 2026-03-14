@@ -19,7 +19,7 @@ void print_usage() {
             << "  --runs-dir <path>     Directory for run outputs (run)\n"
             << "  --project-root <path> Project root directory (run)\n"
             << "  --run-dir <path>      Existing run directory (resume)\n"
-            << "  --from-phase <name>   Phase to resume from (resume; default: PCC)\n"
+            << "  --from-phase <name>   Phase to resume from (resume; default: PCC; supports SCAN_INPUT..PCC)\n"
             << "  --max-frames <n>      Limit number of frames (0 = no limit)\n"
             << "  --max-tiles <n>       Limit number of tiles in Phase 5/6 (0 "
                "= no limit)\n"
@@ -67,11 +67,11 @@ int main(int argc, char *argv[]) {
   run_cmd->add_flag("--stdin", config_from_stdin,
                     "Read config YAML from stdin (use with --config -)");
 
-  auto resume_cmd = app.add_subcommand("resume", "Resume an existing run (ASTROMETRY/BGE/PCC)");
+  auto resume_cmd = app.add_subcommand("resume", "Resume an existing run from a resumable phase");
   resume_cmd->add_option("--run-dir", resume_run_dir, "Existing run directory")
       ->required();
   resume_cmd->add_option("--from-phase", resume_from_phase,
-                         "Phase to resume from: ASTROMETRY|BGE|PCC")
+                         "Phase to resume from: SCAN_INPUT|CHANNEL_SPLIT|NORMALIZATION|GLOBAL_METRICS|TILE_GRID|REGISTRATION|PREWARP|COMMON_OVERLAP|LOCAL_METRICS|TILE_RECONSTRUCTION|STATE_CLUSTERING|SYNTHETIC_FRAMES|STACKING|DEBAYER|ASTROMETRY|BGE|PCC")
       ->default_val("PCC");
 
   CLI11_PARSE(app, argc, argv);

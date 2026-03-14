@@ -42,6 +42,12 @@ std::string phase_name_from_event(const nlohmann::json& ev) {
     return "";
 }
 
+int phase_order_index(const std::string& phase_name) {
+    auto it = std::find(PHASE_ORDER.begin(), PHASE_ORDER.end(), phase_name);
+    if (it == PHASE_ORDER.end()) return -1;
+    return static_cast<int>(std::distance(PHASE_ORDER.begin(), it));
+}
+
 double clamp_progress(const nlohmann::json& value) {
     double v = 0.0;
     try { v = value.get<double>(); } catch (...) { return -1.0; }
@@ -219,6 +225,16 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     std::string run_status = "unknown";
     std::string current_phase;
     std::string resume_from_phase;
+    bool resume_active = false;
+
+    auto is_resume_prereq_phase = [&](const std::string& phase_name) {
+        if (!resume_active || resume_from_phase.empty() || phase_name.empty() || phase_name == resume_from_phase) {
+            return false;
+        }
+        const int phase_idx = phase_order_index(phase_name);
+        const int resume_idx = phase_order_index(resume_from_phase);
+        return phase_idx >= 0 && resume_idx >= 0 && phase_idx < resume_idx;
+    };
 
     for (const auto& ev : iter_jsonl(*event_file)) {
         events_tail.push_back(ev);
@@ -240,7 +256,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                     (*phase_state)["pct"] = 0.0;
                 }
                 (*phase_state)["status"] = "running";
-                current_phase = phase_name;
+                if (!is_resume_prereq_phase(phase_name)) current_phase = phase_name;
                 if (run_status == "unknown" || run_status == "pending") run_status = "running";
             } else if (event_type == "phase_progress") {
                 double progress = ev.contains("progress") ? clamp_progress(ev["progress"]) : -1.0;
@@ -250,14 +266,28 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                     progress_map[phase_name] = (*phase_state)["pct"];
                 }
                 (*phase_state)["status"] = "running";
-                current_phase = phase_name;
+                if (!is_resume_prereq_phase(phase_name)) current_phase = phase_name;
                 if (run_status == "unknown" || run_status == "pending") run_status = "running";
             } else if (event_type == "phase_end") {
+                const std::string previous_status = (*phase_state).value("status", std::string());
                 std::string raw = ev.value("status", std::string("unknown"));
                 std::transform(raw.begin(), raw.end(), raw.begin(), ::tolower);
+                std::string reason = ev.value("reason", std::string());
+                if (reason.empty() && ev.contains("payload") && ev["payload"].is_object()) {
+                    reason = ev["payload"].value("reason", std::string());
+                }
+                std::transform(reason.begin(), reason.end(), reason.begin(), ::tolower);
+                if (resume_active && phase_name == "ASTROMETRY" &&
+                    resume_from_phase != "ASTROMETRY" && raw == "skipped" &&
+                    reason == "existing_wcs" &&
+                    (previous_status == "ok" || previous_status == "completed" || previous_status == "done")) {
+                    raw = "ok";
+                }
                 (*phase_state)["status"] = raw;
                 if (raw == "ok" || raw == "skipped") (*phase_state)["pct"] = 1.0;
-                if (current_phase == phase_name && (raw == "ok" || raw == "skipped" || raw == "error" || raw == "aborted")) {
+                if (!is_resume_prereq_phase(phase_name) &&
+                    current_phase == phase_name &&
+                    (raw == "ok" || raw == "skipped" || raw == "error" || raw == "aborted")) {
                     current_phase.clear();
                 }
                 if (raw == "error" || raw == "aborted") run_status = "failed";
@@ -272,6 +302,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
             }
             std::transform(resume_from_phase.begin(), resume_from_phase.end(), resume_from_phase.begin(), ::toupper);
             if (!resume_from_phase.empty()) {
+                resume_active = true;
                 current_phase = resume_from_phase;
                 if (run_status == "unknown" || run_status == "pending" || run_status == "completed") run_status = "running";
                 auto it = std::find(PHASE_ORDER.begin(), PHASE_ORDER.end(), resume_from_phase);
@@ -311,6 +342,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                 }
                 if (current_phase == resume_from_phase) current_phase.clear();
             }
+            resume_active = false;
         }
 
         if (event_type == "run_end") {

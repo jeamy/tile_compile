@@ -13,6 +13,7 @@
 #include "runner_shared.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -20,6 +21,8 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -31,6 +34,215 @@ using tile_compile::Tile;
 using tile_compile::TileGrid;
 using tile_compile::TileMetrics;
 using tile_compile::TileType;
+
+std::string shell_quote(const std::string &s) {
+  std::string out;
+  out.reserve(s.size() + 2);
+  out.push_back(static_cast<char>(39));
+  for (char c : s) {
+    if (c == static_cast<char>(39)) {
+      out += "'\\''";
+    } else {
+      out.push_back(c);
+    }
+  }
+  out.push_back(static_cast<char>(39));
+  return out;
+}
+
+std::string normalize_phase_name(std::string phase) {
+  std::transform(phase.begin(), phase.end(), phase.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+  return phase;
+}
+
+bool is_inplace_rerun_phase(const std::string &phase_upper) {
+  static const std::vector<std::string> kPhases = {
+      "SCAN_INPUT",        "CHANNEL_SPLIT",   "NORMALIZATION",
+      "GLOBAL_METRICS",    "TILE_GRID",       "REGISTRATION",
+      "PREWARP",           "COMMON_OVERLAP",  "LOCAL_METRICS",
+      "TILE_RECONSTRUCTION", "STATE_CLUSTERING", "SYNTHETIC_FRAMES",
+      "STACKING",          "DEBAYER"};
+  return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
+         kPhases.end();
+}
+
+std::optional<std::string> read_latest_run_start_input_dir(
+    const fs::path &run_events_path) {
+  if (!fs::exists(run_events_path)) {
+    return std::nullopt;
+  }
+  std::ifstream in(run_events_path);
+  if (!in) {
+    return std::nullopt;
+  }
+
+  std::optional<std::string> input_dir;
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    try {
+      const auto ev = tile_compile::core::json::parse(line);
+      if (ev.value("type", std::string()) != "run_start") {
+        continue;
+      }
+      const std::string value = ev.value("input_dir", std::string());
+      if (!value.empty()) {
+        input_dir = value;
+      }
+    } catch (const std::exception &) {
+    }
+  }
+  return input_dir;
+}
+
+fs::path current_executable_path() {
+  std::error_code ec;
+  const fs::path proc_self("/proc/self/exe");
+  if (fs::exists(proc_self, ec)) {
+    const fs::path resolved = fs::read_symlink(proc_self, ec);
+    if (!ec && !resolved.empty()) {
+      return resolved;
+    }
+  }
+  return fs::current_path() / "tile_compile_runner";
+}
+
+std::string make_run_revision_id() {
+  std::string ts = tile_compile::core::get_iso_timestamp();
+  std::string compact;
+  compact.reserve(ts.size());
+  for (char c : ts) {
+    if ((c >= '0' && c <= '9') || c == 'T' || c == 'Z') {
+      compact.push_back(c);
+    }
+  }
+  if (compact.empty()) {
+    compact = "unknown";
+  }
+  return "run_cfg_" + compact;
+}
+
+std::string add_run_config_revision(const fs::path &run_dir,
+                                    const std::string &yaml_text,
+                                    const std::string &source,
+                                    const std::string &run_id) {
+  if (yaml_text.empty()) {
+    return "";
+  }
+
+  namespace core = tile_compile::core;
+
+  std::error_code ec;
+  const fs::path revisions_dir = run_dir / "artifacts" / "config_revisions";
+  fs::create_directories(revisions_dir, ec);
+
+  const std::string revision_id = make_run_revision_id();
+  const fs::path yaml_path = revisions_dir / (revision_id + ".yaml");
+  {
+    std::ofstream yaml_out(yaml_path, std::ios::out | std::ios::trunc);
+    if (!yaml_out) {
+      return "";
+    }
+    yaml_out << yaml_text;
+    yaml_out.close();
+    if (!yaml_out) {
+      return "";
+    }
+  }
+
+  const fs::path index_path = revisions_dir / "index.json";
+  core::json index = core::json::array();
+  if (fs::exists(index_path)) {
+    try {
+      index = core::json::parse(core::read_text(index_path));
+      if (!index.is_array()) {
+        index = core::json::array();
+      }
+    } catch (const std::exception &) {
+      index = core::json::array();
+    }
+  }
+
+  index.push_back({
+      {"revision_id", revision_id},
+      {"file_name", yaml_path.filename().string()},
+      {"source", source},
+      {"created_at", core::get_iso_timestamp()},
+      {"run_id", run_id},
+  });
+  core::write_text(index_path, index.dump(2));
+  return revision_id;
+}
+
+int rerun_existing_run_in_place(const fs::path &run_dir,
+                                const std::string &run_id,
+                                const std::string &from_phase) {
+  namespace core = tile_compile::core;
+
+  const auto input_dir = read_latest_run_start_input_dir(
+      run_dir / "logs" / "run_events.jsonl");
+  if (!input_dir.has_value() || input_dir->empty()) {
+    std::cerr << "Error: cannot determine input_dir from existing run log"
+              << std::endl;
+    return 1;
+  }
+
+  const fs::path cfg_path = run_dir / "config.yaml";
+  std::ifstream cfg_in(cfg_path);
+  if (!cfg_in) {
+    std::cerr << "Error: config.yaml not found in run_dir: " << cfg_path
+              << std::endl;
+    return 1;
+  }
+  const std::string cfg_text((std::istreambuf_iterator<char>(cfg_in)),
+                             std::istreambuf_iterator<char>());
+  if (cfg_text.empty()) {
+    std::cerr << "Error: config.yaml is empty: " << cfg_path << std::endl;
+    return 1;
+  }
+
+  const std::string revision_id =
+      add_run_config_revision(run_dir, cfg_text, "resume_selected_config", run_id);
+  fs::path rerun_config_path = cfg_path;
+  if (!revision_id.empty()) {
+    rerun_config_path =
+        run_dir / "artifacts" / "config_revisions" / (revision_id + ".yaml");
+  }
+
+  const fs::path exe_path = current_executable_path();
+  std::ostringstream cmd;
+  cmd << shell_quote(exe_path.string()) << " run"
+      << " --config " << shell_quote(rerun_config_path.string())
+      << " --input-dir " << shell_quote(*input_dir)
+      << " --runs-dir " << shell_quote(run_dir.parent_path().string())
+      << " --project-root " << shell_quote(fs::current_path().string())
+      << " --run-id " << shell_quote(run_id);
+
+  std::cout << "[RESUME][rerun] Replaying full pipeline in place for requested "
+            << "phase " << from_phase << ": " << cmd.str() << std::endl;
+
+  const int ret = std::system(cmd.str().c_str());
+
+  std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl",
+                               std::ios::out | std::ios::app);
+  if (event_log_file) {
+    tile_compile::runner::TeeBuf tee_buf(std::cout.rdbuf(),
+                                         event_log_file.rdbuf());
+    std::ostream log_file(&tee_buf);
+    core::emit_event(
+        "resume_end", run_id,
+        {{"success", ret == 0},
+         {"status", ret == 0 ? "ok" : "rerun_failed"},
+         {"from_phase", from_phase},
+         {"mode", "inplace_full_rerun"}},
+        log_file);
+  }
+
+  return (ret == 0) ? 0 : 1;
+}
 
 TileMetrics parse_tile_metrics_json(const tile_compile::core::json &j) {
   TileMetrics tm{};
@@ -254,6 +466,16 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   }
 
   std::string run_id = run_dir.filename().string();
+  std::string phase_upper = normalize_phase_name(from_phase);
+  if (phase_upper.empty()) {
+    phase_upper = "PCC";
+  }
+  std::string phase_l = core::to_lower(phase_upper);
+
+  if (is_inplace_rerun_phase(phase_upper)) {
+    return rerun_existing_run_in_place(run_dir, run_id, phase_upper);
+  }
+
   fs::create_directories(run_dir / "logs");
 
   std::ofstream event_log_file(run_dir / "logs" / "run_events.jsonl",
@@ -262,12 +484,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   std::ostream log_file(&tee_buf);
 
   core::emit_event("resume_start", run_id,
-                   {{"run_dir", run_dir.string()}, {"from_phase", from_phase}},
+                   {{"run_dir", run_dir.string()}, {"from_phase", phase_upper}},
                    log_file);
-
-  std::string phase_l = core::to_lower(from_phase);
-  if (phase_l.empty())
-    phase_l = "pcc";
 
   fs::path rgb_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
   fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
@@ -370,20 +588,6 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                         log_file);
       return;
     }
-
-    auto shell_quote = [](const std::string &s) -> std::string {
-      std::string out;
-      out.reserve(s.size() + 2);
-      out.push_back(static_cast<char>(39));
-      for (char c : s) {
-        if (c == static_cast<char>(39))
-          out += "'\\''";
-        else
-          out.push_back(c);
-      }
-      out.push_back(static_cast<char>(39));
-      return out;
-    };
 
     std::string cmd = shell_quote(astap_bin) + " -f " +
                       shell_quote(rgb_path.string()) + " -d " +
@@ -675,10 +879,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
     phase_l = "pcc";
   } else if (phase_l != "pcc") {
-    std::cerr << "Error: resume --from-phase supports ASTROMETRY, BGE, or PCC"
+    std::cerr << "Error: unsupported resume phase: " << phase_upper
               << std::endl;
     core::emit_event("resume_end", run_id,
-                     {{"success", false}, {"status", "unsupported_phase"}},
+                     {{"success", false},
+                      {"status", "unsupported_phase"},
+                      {"from_phase", phase_upper}},
                      log_file);
     return 1;
   }

@@ -1,8 +1,12 @@
 #include "routes/config_routes.hpp"
 #include "subprocess_manager.hpp"
 #include <algorithm>
+#include <cerrno>
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <yaml-cpp/yaml.h>
@@ -37,6 +41,58 @@ std::string read_file_str(const fs::path& p) {
     std::ifstream f(p);
     if (!f) return "";
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
+bool scalar_looks_like_float(const std::string& raw) {
+    return raw.find('.') != std::string::npos ||
+           raw.find('e') != std::string::npos ||
+           raw.find('E') != std::string::npos;
+}
+
+std::string trim_trailing_zeros(std::string text) {
+    const auto dot = text.find('.');
+    if (dot == std::string::npos) return text;
+    while (!text.empty() && text.back() == '0') text.pop_back();
+    if (!text.empty() && text.back() == '.') text.pop_back();
+    if (text == "-0") return "0";
+    return text.empty() ? "0" : text;
+}
+
+std::string format_config_float_scalar(double value) {
+    if (!std::isfinite(value)) return "0";
+
+    const double rounded = std::round(value * 100.0) / 100.0;
+    if (rounded == 0.0 && value != 0.0 && std::fabs(value) < 0.01) {
+        std::ostringstream oss;
+        oss << std::scientific << std::setprecision(2) << value;
+        return oss.str();
+    }
+
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2) << rounded;
+    return trim_trailing_zeros(oss.str());
+}
+
+void round_yaml_numeric_scalars_inplace(YAML::Node node) {
+    if (!node || node.IsNull()) return;
+    if (node.IsMap()) {
+        for (auto it = node.begin(); it != node.end(); ++it) round_yaml_numeric_scalars_inplace(it->second);
+        return;
+    }
+    if (node.IsSequence()) {
+        for (auto it = node.begin(); it != node.end(); ++it) round_yaml_numeric_scalars_inplace(*it);
+        return;
+    }
+    if (!node.IsScalar()) return;
+
+    const std::string raw = node.Scalar();
+    if (!scalar_looks_like_float(raw)) return;
+
+    char* end = nullptr;
+    errno = 0;
+    const double value = std::strtod(raw.c_str(), &end);
+    if (errno != 0 || end == raw.c_str() || (end && *end != '\0') || !std::isfinite(value)) return;
+    node = format_config_float_scalar(value);
 }
 
 nlohmann::json allowed_roots_json(const BackendRuntime& runtime) {
@@ -113,8 +169,10 @@ nlohmann::json yaml_to_json(const YAML::Node& node) {
 }
 
 std::string yaml_dump(const nlohmann::json& value) {
+    YAML::Node node = json_to_yaml_node(value);
+    round_yaml_numeric_scalars_inplace(node);
     std::ostringstream oss;
-    oss << json_to_yaml_node(value);
+    oss << node;
     return oss.str();
 }
 

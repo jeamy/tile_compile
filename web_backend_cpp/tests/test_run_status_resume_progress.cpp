@@ -69,6 +69,37 @@ int main(int argc, char** argv) {
             }
         }
         expect_true(found_resumed_phase, "astrometry phase present after successful resume");
+
+        harness.create_run("pcc_resume_keeps_target_running", {
+            {{"ts", "2026-03-10T13:00:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
+            {{"ts", "2026-03-10T13:00:01Z"}, {"type", "phase_end"}, {"phase_name", "ASTROMETRY"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T13:00:02Z"}, {"type", "phase_start"}, {"phase_name", "PCC"}},
+            {{"ts", "2026-03-10T13:00:03Z"}, {"type", "phase_end"}, {"phase_name", "PCC"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T13:00:04Z"}, {"type", "run_end"}, {"success", true}},
+            {{"ts", "2026-03-10T13:05:00Z"}, {"type", "resume_start"}, {"from_phase", "PCC"}},
+            {{"ts", "2026-03-10T13:05:01Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
+            {{"ts", "2026-03-10T13:05:02Z"}, {"type", "phase_end"}, {"phase_name", "ASTROMETRY"}, {"status", "skipped"}, {"reason", "existing_wcs"}}
+        }, "OSC");
+
+        const auto pcc_resume_status = harness.get_json("/api/runs/pcc_resume_keeps_target_running/status");
+        expect_equal(pcc_resume_status["_http_status"].get<long>(), 200L, "pcc resume status code");
+        expect_equal(pcc_resume_status["status"].get<std::string>(), "running", "pcc resume run status");
+        expect_equal(pcc_resume_status["current_phase"].get<std::string>(), "PCC", "pcc resume keeps target current");
+        bool found_astrometry_after_pcc_resume = false;
+        bool found_pcc_after_pcc_resume = false;
+        for (const auto& item : pcc_resume_status["phases"]) {
+            if (item.value("phase", "") == "ASTROMETRY") {
+                found_astrometry_after_pcc_resume = true;
+                expect_equal(item["status"].get<std::string>(), "ok", "astrometry keeps ok when existing wcs is reused for pcc resume");
+            }
+            if (item.value("phase", "") == "PCC") {
+                found_pcc_after_pcc_resume = true;
+                expect_equal(item["status"].get<std::string>(), "running", "pcc remains running until resume_end");
+                expect_equal(item["pct"].get<double>(), 0.0, "pcc remains at 0 pct before phase_start", 1e-9);
+            }
+        }
+        expect_true(found_astrometry_after_pcc_resume, "astrometry phase present after pcc resume");
+        expect_true(found_pcc_after_pcc_resume, "pcc phase present after pcc resume");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());
