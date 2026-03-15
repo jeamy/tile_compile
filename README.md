@@ -459,6 +459,12 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.0.E (2026-03-15)
+
+- Wired `assumptions.frames_min` into the active runner mode-gate and `assumptions.reduced_mode_cluster_range` into reduced-mode clustering.
+- Removed stale `assumptions.pipeline_profile`, `assumptions.frames_optimal`, and `assumptions.exposure_time_tolerance_percent` from the active config/schema/frontend/docs/examples surface.
+- Regenerated the C++ schema and synchronized Parameter Studio, Assumptions UI, and methodology/reference docs with the active runtime semantics.
+
 ## v0.0.D (2026-03-15)
 
 - Expanded `TILE_RECONSTRUCTION` boundary diagnostics to separate raw vs. normalized tile mismatches and exclude masked canvas zones from the metric.
@@ -535,6 +541,15 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-03-15)
+
+**Assumptions runtime/config synchronization (`v0.0.E`):**
+
+- `assumptions.frames_min` is now used by the active C++ runner mode gate instead of the old hardcoded minimum-frame threshold.
+- `assumptions.reduced_mode_cluster_range` now affects reduced-mode clustering directly, so the exposed config field is no longer parser-only drift.
+- Removed dead assumptions fields from the active config surface: `pipeline_profile`, `frames_optimal`, and `exposure_time_tolerance_percent`.
+- Synchronized active C++ config code, generated schemas, example YAMLs, GUI2 Assumptions/Parameter Studio, and DE/EN docs to the remaining runtime-relevant assumptions fields.
 
 ### (2026-03-15)
 

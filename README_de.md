@@ -469,6 +469,12 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.0.E (2026-03-15)
+
+- `assumptions.frames_min` im aktiven Runner-Mode-Gate verdrahtet und `assumptions.reduced_mode_cluster_range` an das Reduced-Mode-Clustering angebunden.
+- Veraltete `assumptions.pipeline_profile`, `assumptions.frames_optimal` und `assumptions.exposure_time_tolerance_percent` aus aktiver Config-/Schema-/Frontend-/Doku-/Beispieloberfläche entfernt.
+- C++-Schema neu erzeugt und Parameter-Studio, Assumptions-UI sowie Methodik-/Referenzdokus mit der aktiven Runtime-Semantik synchronisiert.
+
 ## v0.0.D (2026-03-15)
 
 - `TILE_RECONSTRUCTION`-Boundary-Diagnostik um getrennte Raw-/Normalized-Metriken erweitert und maskierte Canvas-Zonen aus der Metrik ausgeschlossen.
@@ -545,6 +551,15 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-15)
+
+**Assumptions-Runtime-/Config-Synchronisierung (`v0.0.E`):**
+
+- `assumptions.frames_min` wird jetzt im aktiven C++-Runner tatsächlich für das Mode-Gate verwendet statt über einen fest verdrahteten Mindestwert.
+- `assumptions.reduced_mode_cluster_range` wirkt jetzt direkt auf das Reduced-Mode-Clustering und ist damit kein reiner Parser-/Schema-Rest mehr.
+- Tote Assumptions-Felder aus der aktiven Konfigurationsoberfläche entfernt: `pipeline_profile`, `frames_optimal` und `exposure_time_tolerance_percent`.
+- Aktiven C++-Config-Code, generierte Schemas, Beispiel-YAMLs, GUI2-Assumptions-/Parameter-Studio und DE/EN-Dokumentation auf die verbleibenden runtime-relevanten Assumptions-Felder zusammengezogen.
 
 ### (2026-03-15)
 
