@@ -14,6 +14,9 @@ struct TileBoundaryPairDiagnostic {
   float mean_abs_diff = 0.0f;
   float p95_abs_diff = 0.0f;
   float mean_signed_diff = 0.0f;
+  float mean_abs_residual = 0.0f;
+  float p95_abs_residual = 0.0f;
+  float scale_ratio = 1.0f;
   bool valid = false;
 };
 
@@ -26,6 +29,12 @@ struct TileBoundaryDiagnostics {
   float pair_p95_abs_diff_mean = 0.0f;
   float pair_p95_abs_diff_p95 = 0.0f;
   float pair_mean_signed_diff_mean_abs = 0.0f;
+  float pair_mean_abs_residual_mean = 0.0f;
+  float pair_mean_abs_residual_p95 = 0.0f;
+  float pair_p95_abs_residual_mean = 0.0f;
+  float pair_p95_abs_residual_p95 = 0.0f;
+  float pair_scale_ratio_deviation_mean = 0.0f;
+  float pair_scale_ratio_deviation_p95 = 0.0f;
   std::vector<TileBoundaryPairDiagnostic> pair_diagnostics;
 };
 

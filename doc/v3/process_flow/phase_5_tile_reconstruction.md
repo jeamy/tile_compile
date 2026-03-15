@@ -5,7 +5,7 @@
 
 ## Übersicht
 
-Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruiert als gewichtetes Mittel über alle Frames, wobei das effektive Gewicht `W_f,t = G_f × L_f,t` die Frame-Qualität (global) und die lokale Tile-Qualität kombiniert. Danach folgt die normative **Tile-Normalisierung vor OLA** sowie eine **Boundary-Diagnostik** der tatsächlichen OLA-Eingangstiles. Erst dann werden die Tiles mittels **Hanning-Overlap-Add** zu einem Gesamtbild zusammengefügt.
+Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruiert als gewichtetes Mittel über alle Frames, wobei das effektive Gewicht `W_f,t = G_f × L_f,t` die Frame-Qualität (global) und die lokale Tile-Qualität kombiniert. Anschließend werden die Tiles mittels **Hanning-Overlap-Add** zu einem Gesamtbild zusammengefügt.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -16,12 +16,10 @@ Phase 9 ist das **Herzstück der Pipeline**. Jedes Tile wird separat rekonstruie
 │  3. Gewichtetes Mittel:                              │
 │     tile_rec = Σ W_f,t · tile_f / Σ W_f,t            │
 │  4. Post-Metriken (Contrast, BG, SNR)                │
-│  5. Tile-Normalisierung vor OLA                      │
-│  6. Boundary-Diagnostik der Nachbar-Tiles            │
-│  7. Normalisiertes Tile → Hanning-Overlap-Add        │
+│  5. Tile → Hanning-Overlap-Add                       │
 │                                                      │
 │  Danach:                                             │
-│  8. recon(y,x) /= weight_sum(y,x)                    │
+│  6. recon(y,x) /= weight_sum(y,x)                    │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -115,66 +113,7 @@ tile_post_snr[ti] = snr;
 
 Diese Metriken werden im Artifact `tile_reconstruction.json` gespeichert und in der Report-Heatmap visualisiert.
 
-## 5. Robuste Tile-Normierung vor OLA
-
-In Full Mode werden die rekonstruierten Tiles vor dem Hanning-OLA weiterhin affine pro Tile normalisiert, aber jetzt mit einer festen Guard-Logik gegen kollabierende Skalen.
-
-Pro Tile:
-
-- `bg_t`: robuster Median nur aus endlichen, positiven Pixeln
-- `m_t`: robuster Median von `abs(R_t - bg_t)`, ebenfalls nur aus endlichen, positiven Pixeln
-
-Guard-Regeln:
-
-- Mindeststichprobe: `max(64, ceil(0.05 * tile_pixels))`
-- bei zu wenig gültigen Samples: Fallback auf globale robuste Referenzen
-- lokale Skala wird auf `[0.5 * m_global, 2.0 * m_global]` begrenzt
-
-Damit bleiben flache oder stark maskierte Tiles im linearen Pfad, können aber den OLA-Eingang nicht mehr durch extrem kleine `tile_norm_scale`-Werte sprengen.
-
-Die angewendeten Guard-Metriken stehen ebenfalls in `tile_reconstruction.json`, u.a.:
-
-- `tile_norm_global_scale`
-- `tile_norm_guard_used_global_scale_count`
-- `tile_norm_guard_clamped_low_scale_count`
-- `tile_norm_guard_clamped_high_scale_count`
-
-## 6. Boundary-Diagnostik vor OLA
-
-Die tatsächlich in OLA eingehenden Tiles werden paarweise über ihre realen Overlaps verglichen, ohne das Ergebnis zu verändern.
-
-Für jedes benachbarte Tile-Paar werden auf dem normalisierten OLA-Eingang unter anderem bestimmt:
-
-- `mean_abs_diff`
-- `p95_abs_diff`
-- `mean_signed_diff`
-- `sample_count`
-
-Damit wird gemessen, wie stark benachbarte Tiles bereits **vor** dem Hanning-Overlap-Add auseinanderlaufen.
-
-### 5.1 Zusätzliche Paar-Metadaten
-
-Neben den direkten Overlap-Differenzen werden pro Nachbarpaar auch tilebezogene Abweichungen zusammengefasst:
-
-- Differenz der `tile_valid_counts`
-- Differenz der `tile_post_background`-Werte
-- Differenz der `tile_post_snr_proxy`-Werte
-- Differenz der `tile_mean_correlations`
-- Fallback-Mismatch (`fallback_used` links/rechts unterschiedlich)
-
-Diese Diagnose erklärt oft besser als ein reiner Bildvergleich, warum sichtbare Kachelgrenzen entstehen.
-
-### 5.2 Nicht-invasive Diagnostik
-
-Die Boundary-Diagnostik ist bewusst **nicht-invasiv**:
-
-- keine Änderung der rekonstruierten Tiles
-- keine zusätzliche Tile-Korrektur
-- keine Rückkopplung in Gewichte, Clipping oder OLA
-
-Damit bleibt die lineare Rekonstruktionssemantik unverändert.
-
-## 7. Hanning-Overlap-Add
+## 5. Hanning-Overlap-Add
 
 ```cpp
 for (int yy = 0; yy < tile.rows(); ++yy) {

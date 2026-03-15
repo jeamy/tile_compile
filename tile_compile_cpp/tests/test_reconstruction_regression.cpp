@@ -86,6 +86,12 @@ TEST_CASE("tile_boundary_diagnostics_reports_constant_overlap_offset") {
           Catch::Approx(2.0f).margin(1e-6));
   REQUIRE(diagnostics.pair_diagnostics[0].mean_signed_diff ==
           Catch::Approx(2.0f).margin(1e-6));
+  REQUIRE(diagnostics.pair_diagnostics[0].mean_abs_residual ==
+          Catch::Approx(0.0f).margin(1e-6));
+  REQUIRE(diagnostics.pair_diagnostics[0].p95_abs_residual ==
+          Catch::Approx(0.0f).margin(1e-6));
+  REQUIRE(diagnostics.pair_diagnostics[0].scale_ratio ==
+          Catch::Approx(1.0f).margin(1e-6));
   REQUIRE(diagnostics.pair_diagnostics[0].p95_abs_diff ==
           Catch::Approx(2.0f).margin(1e-6));
 }
@@ -152,6 +158,26 @@ TEST_CASE("tile_boundary_diagnostics_respects_common_canvas_mask") {
           Catch::Approx(5.0f).margin(1e-6));
   REQUIRE(diagnostics.pair_diagnostics[0].p95_abs_diff ==
           Catch::Approx(5.0f).margin(1e-6));
+}
+
+TEST_CASE("tile_boundary_diagnostics_separates_offset_from_structural_residual") {
+  std::vector<Tile> tiles = {
+      Tile{0, 0, 4, 4, 0, 0},
+      Tile{2, 0, 4, 4, 0, 1},
+  };
+  std::vector<Matrix2Df> images(2, Matrix2Df::Zero(4, 4));
+  images[1].setConstant(2.0f);
+  images[1](0, 0) = 5.0f;
+  std::vector<uint8_t> valid = {1u, 1u};
+
+  const auto diagnostics = analyze_tile_boundaries(tiles, images, valid);
+
+  REQUIRE(diagnostics.observed_pair_count == 1);
+  REQUIRE(diagnostics.pair_diagnostics[0].mean_abs_diff >
+          diagnostics.pair_diagnostics[0].mean_abs_residual);
+  REQUIRE(diagnostics.pair_diagnostics[0].mean_signed_diff > 2.0f);
+  REQUIRE(diagnostics.pair_diagnostics[0].p95_abs_residual > 0.0f);
+  REQUIRE(diagnostics.pair_mean_abs_residual_mean > 0.0f);
 }
 
 TEST_CASE("tile_normalization_stats_ignore_masked_zero_pixels") {

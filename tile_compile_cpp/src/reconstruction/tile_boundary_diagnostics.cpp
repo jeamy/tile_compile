@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numeric>
 #include <unordered_map>
 
@@ -40,7 +41,13 @@ TileBoundaryPairDiagnostic analyze_pair(size_t lhs_index, size_t rhs_index,
   }
 
   std::vector<float> abs_diffs;
+  std::vector<float> signed_diffs;
+  std::vector<float> lhs_vals;
+  std::vector<float> rhs_vals;
   abs_diffs.reserve(static_cast<size_t>(overlap_w * overlap_h));
+  signed_diffs.reserve(static_cast<size_t>(overlap_w * overlap_h));
+  lhs_vals.reserve(static_cast<size_t>(overlap_w * overlap_h));
+  rhs_vals.reserve(static_cast<size_t>(overlap_w * overlap_h));
   double signed_sum = 0.0;
   for (int oy = 0; oy < overlap_h; ++oy) {
     const int lhs_y = overlap_y0 + oy - lhs_tile.y;
@@ -71,7 +78,10 @@ TileBoundaryPairDiagnostic analyze_pair(size_t lhs_index, size_t rhs_index,
       }
       const float diff = rhs_v - lhs_v;
       signed_sum += static_cast<double>(diff);
+      signed_diffs.push_back(diff);
       abs_diffs.push_back(std::fabs(diff));
+      lhs_vals.push_back(lhs_v);
+      rhs_vals.push_back(rhs_v);
     }
   }
 
@@ -87,6 +97,36 @@ TileBoundaryPairDiagnostic analyze_pair(size_t lhs_index, size_t rhs_index,
       static_cast<float>(signed_sum / static_cast<double>(out.sample_count));
   std::sort(abs_diffs.begin(), abs_diffs.end());
   out.p95_abs_diff = core::percentile_from_sorted(abs_diffs, 95.0f);
+
+  std::vector<float> abs_residuals;
+  abs_residuals.reserve(signed_diffs.size());
+  for (float diff : signed_diffs) {
+    abs_residuals.push_back(std::fabs(diff - out.mean_signed_diff));
+  }
+  const double residual_sum =
+      std::accumulate(abs_residuals.begin(), abs_residuals.end(), 0.0);
+  out.mean_abs_residual = static_cast<float>(
+      residual_sum / static_cast<double>(out.sample_count));
+  std::sort(abs_residuals.begin(), abs_residuals.end());
+  out.p95_abs_residual = core::percentile_from_sorted(abs_residuals, 95.0f);
+
+  auto overlap_mad = [](std::vector<float> values) {
+    if (values.empty()) {
+      return 0.0f;
+    }
+    const float center = core::median_of(values);
+    for (float &v : values) {
+      v = std::fabs(v - center);
+    }
+    return core::median_of(values);
+  };
+  const float lhs_mad = overlap_mad(lhs_vals);
+  const float rhs_mad = overlap_mad(rhs_vals);
+  constexpr float kScaleEps = 1.0e-6f;
+  out.scale_ratio =
+      (lhs_mad > kScaleEps) ? (rhs_mad / lhs_mad)
+                            : ((rhs_mad > kScaleEps) ? std::numeric_limits<float>::infinity()
+                                                     : 1.0f);
   out.valid = true;
   return out;
 }
@@ -159,9 +199,15 @@ TileBoundaryDiagnostics analyze_tile_boundaries(
   std::vector<float> pair_mean_abs;
   std::vector<float> pair_p95_abs;
   std::vector<float> pair_mean_signed_abs;
+  std::vector<float> pair_mean_abs_residual;
+  std::vector<float> pair_p95_abs_residual;
+  std::vector<float> pair_scale_ratio_deviation;
   pair_mean_abs.reserve(boundary_pairs.size());
   pair_p95_abs.reserve(boundary_pairs.size());
   pair_mean_signed_abs.reserve(boundary_pairs.size());
+  pair_mean_abs_residual.reserve(boundary_pairs.size());
+  pair_p95_abs_residual.reserve(boundary_pairs.size());
+  pair_scale_ratio_deviation.reserve(boundary_pairs.size());
   out.pair_diagnostics.reserve(boundary_pairs.size());
 
   for (const auto &[lhs, rhs] : boundary_pairs) {
@@ -176,6 +222,11 @@ TileBoundaryDiagnostics analyze_tile_boundaries(
     pair_mean_abs.push_back(pair.mean_abs_diff);
     pair_p95_abs.push_back(pair.p95_abs_diff);
     pair_mean_signed_abs.push_back(std::fabs(pair.mean_signed_diff));
+    pair_mean_abs_residual.push_back(pair.mean_abs_residual);
+    pair_p95_abs_residual.push_back(pair.p95_abs_residual);
+    if (std::isfinite(pair.scale_ratio) && pair.scale_ratio > 0.0f) {
+      pair_scale_ratio_deviation.push_back(std::fabs(pair.scale_ratio - 1.0f));
+    }
     out.pair_diagnostics.push_back(pair);
   }
 
@@ -193,12 +244,37 @@ TileBoundaryDiagnostics analyze_tile_boundaries(
       std::accumulate(pair_mean_signed_abs.begin(), pair_mean_signed_abs.end(),
                       0.0f) /
       static_cast<float>(pair_mean_signed_abs.size());
+  out.pair_mean_abs_residual_mean =
+      std::accumulate(pair_mean_abs_residual.begin(),
+                      pair_mean_abs_residual.end(), 0.0f) /
+      static_cast<float>(pair_mean_abs_residual.size());
+  out.pair_p95_abs_residual_mean =
+      std::accumulate(pair_p95_abs_residual.begin(),
+                      pair_p95_abs_residual.end(), 0.0f) /
+      static_cast<float>(pair_p95_abs_residual.size());
+  if (!pair_scale_ratio_deviation.empty()) {
+    out.pair_scale_ratio_deviation_mean =
+        std::accumulate(pair_scale_ratio_deviation.begin(),
+                        pair_scale_ratio_deviation.end(), 0.0f) /
+        static_cast<float>(pair_scale_ratio_deviation.size());
+  }
   std::sort(pair_mean_abs.begin(), pair_mean_abs.end());
   std::sort(pair_p95_abs.begin(), pair_p95_abs.end());
+  std::sort(pair_mean_abs_residual.begin(), pair_mean_abs_residual.end());
+  std::sort(pair_p95_abs_residual.begin(), pair_p95_abs_residual.end());
+  std::sort(pair_scale_ratio_deviation.begin(), pair_scale_ratio_deviation.end());
   out.pair_mean_abs_diff_p95 =
       core::percentile_from_sorted(pair_mean_abs, 95.0f);
   out.pair_p95_abs_diff_p95 =
       core::percentile_from_sorted(pair_p95_abs, 95.0f);
+  out.pair_mean_abs_residual_p95 =
+      core::percentile_from_sorted(pair_mean_abs_residual, 95.0f);
+  out.pair_p95_abs_residual_p95 =
+      core::percentile_from_sorted(pair_p95_abs_residual, 95.0f);
+  if (!pair_scale_ratio_deviation.empty()) {
+    out.pair_scale_ratio_deviation_p95 =
+        core::percentile_from_sorted(pair_scale_ratio_deviation, 95.0f);
+  }
 
   std::sort(out.pair_diagnostics.begin(), out.pair_diagnostics.end(),
             [](const TileBoundaryPairDiagnostic &a,

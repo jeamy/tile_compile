@@ -1791,6 +1791,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           entry["mean_abs_diff"] = pair.mean_abs_diff;
           entry["p95_abs_diff"] = pair.p95_abs_diff;
           entry["mean_signed_diff"] = pair.mean_signed_diff;
+          entry["mean_abs_residual"] = pair.mean_abs_residual;
+          entry["p95_abs_residual"] = pair.p95_abs_residual;
+          entry["scale_ratio"] = pair.scale_ratio;
           entry["lhs_valid_count"] = tile_valid_counts[pair.lhs];
           entry["rhs_valid_count"] = tile_valid_counts[pair.rhs];
           entry["lhs_fallback_used"] = tile_fallback_used[pair.lhs] != 0u;
@@ -1852,6 +1855,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           boundary_diagnostics_raw.pair_p95_abs_diff_p95;
       artifact["tile_boundary_raw_pair_mean_signed_diff_mean_abs"] =
           boundary_diagnostics_raw.pair_mean_signed_diff_mean_abs;
+      artifact["tile_boundary_raw_pair_mean_abs_residual_mean"] =
+          boundary_diagnostics_raw.pair_mean_abs_residual_mean;
+      artifact["tile_boundary_raw_pair_mean_abs_residual_p95"] =
+          boundary_diagnostics_raw.pair_mean_abs_residual_p95;
+      artifact["tile_boundary_raw_pair_p95_abs_residual_mean"] =
+          boundary_diagnostics_raw.pair_p95_abs_residual_mean;
+      artifact["tile_boundary_raw_pair_p95_abs_residual_p95"] =
+          boundary_diagnostics_raw.pair_p95_abs_residual_p95;
+      artifact["tile_boundary_raw_pair_scale_ratio_deviation_mean"] =
+          boundary_diagnostics_raw.pair_scale_ratio_deviation_mean;
+      artifact["tile_boundary_raw_pair_scale_ratio_deviation_p95"] =
+          boundary_diagnostics_raw.pair_scale_ratio_deviation_p95;
       artifact["tile_boundary_normalized_pair_count"] =
           static_cast<int>(boundary_diagnostics_normalized.pair_count);
       artifact["tile_boundary_normalized_observation_count"] =
@@ -1868,6 +1883,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           boundary_diagnostics_normalized.pair_p95_abs_diff_p95;
       artifact["tile_boundary_normalized_pair_mean_signed_diff_mean_abs"] =
           boundary_diagnostics_normalized.pair_mean_signed_diff_mean_abs;
+      artifact["tile_boundary_normalized_pair_mean_abs_residual_mean"] =
+          boundary_diagnostics_normalized.pair_mean_abs_residual_mean;
+      artifact["tile_boundary_normalized_pair_mean_abs_residual_p95"] =
+          boundary_diagnostics_normalized.pair_mean_abs_residual_p95;
+      artifact["tile_boundary_normalized_pair_p95_abs_residual_mean"] =
+          boundary_diagnostics_normalized.pair_p95_abs_residual_mean;
+      artifact["tile_boundary_normalized_pair_p95_abs_residual_p95"] =
+          boundary_diagnostics_normalized.pair_p95_abs_residual_p95;
+      artifact["tile_boundary_normalized_pair_scale_ratio_deviation_mean"] =
+          boundary_diagnostics_normalized.pair_scale_ratio_deviation_mean;
+      artifact["tile_boundary_normalized_pair_scale_ratio_deviation_p95"] =
+          boundary_diagnostics_normalized.pair_scale_ratio_deviation_p95;
       artifact["tile_boundary_pair_count"] =
           static_cast<int>(boundary_diagnostics_normalized.pair_count);
       artifact["tile_boundary_observation_count"] =
@@ -1884,6 +1911,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           boundary_diagnostics_normalized.pair_p95_abs_diff_p95;
       artifact["tile_boundary_pair_mean_signed_diff_mean_abs"] =
           boundary_diagnostics_normalized.pair_mean_signed_diff_mean_abs;
+      artifact["tile_boundary_pair_mean_abs_residual_mean"] =
+          boundary_diagnostics_normalized.pair_mean_abs_residual_mean;
+      artifact["tile_boundary_pair_mean_abs_residual_p95"] =
+          boundary_diagnostics_normalized.pair_mean_abs_residual_p95;
+      artifact["tile_boundary_pair_p95_abs_residual_mean"] =
+          boundary_diagnostics_normalized.pair_p95_abs_residual_mean;
+      artifact["tile_boundary_pair_p95_abs_residual_p95"] =
+          boundary_diagnostics_normalized.pair_p95_abs_residual_p95;
+      artifact["tile_boundary_pair_scale_ratio_deviation_mean"] =
+          boundary_diagnostics_normalized.pair_scale_ratio_deviation_mean;
+      artifact["tile_boundary_pair_scale_ratio_deviation_p95"] =
+          boundary_diagnostics_normalized.pair_scale_ratio_deviation_p95;
       artifact["tile_boundary_valid_count_delta_mean_abs"] =
           boundary_valid_count_delta_mean_abs;
       artifact["tile_boundary_valid_count_delta_p95_abs"] =
