@@ -1170,6 +1170,10 @@ function parseInputDirs(value) {
   return dirs;
 }
 
+function canonicalInputDirsText(rawValue) {
+  return parseInputDirs(rawValue).join(", ");
+}
+
 function isAbsolutePath(value) {
   const s = String(value || "").trim();
   return s.startsWith("/") || /^[A-Za-z]:[\\/]/.test(s) || s.startsWith("\\\\");
@@ -1185,6 +1189,28 @@ function persistLastInputDirs(rawValue) {
   const dirs = parseInputDirs(value);
   if (!allAbsolutePaths(dirs)) return;
   writeServerUiStateValue(LAST_INPUT_DIRS_KEY, value);
+}
+
+function clearUnifiedRunName() {
+  persistTextValue(UI_STORAGE_KEYS.dashboardRunName, "");
+  persistTextValue(UI_STORAGE_KEYS.wizardRunName, "");
+  ["dashboard-run-name", "wizard-run-name", "scan-run-name"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    if (String(el.value || "") === "") return;
+    el.value = "";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+function maybeResetUnifiedRunNameOnInputDirsChange(previousValue, rawValue) {
+  const next = canonicalInputDirsText(rawValue);
+  if (!next) return;
+  const prev = canonicalInputDirsText(previousValue);
+  const hasRunName = Boolean(preferredStoredRunName());
+  if (prev === next || !hasRunName) return;
+  clearUnifiedRunName();
 }
 
 function persistPresetsDir(rawValue) {
@@ -2027,8 +2053,13 @@ function bindInputDirMemory(...ids) {
   ids.forEach((id) => {
     const el = $(id);
     if (!el) return;
+    el.dataset.lastCommittedInputDirs = canonicalInputDirsText(el.value);
     el.addEventListener("input", () => persistLastInputDirs(el.value));
-    el.addEventListener("change", () => persistLastInputDirs(el.value));
+    el.addEventListener("change", () => {
+      maybeResetUnifiedRunNameOnInputDirsChange(el.dataset.lastCommittedInputDirs || "", el.value);
+      persistLastInputDirs(el.value);
+      el.dataset.lastCommittedInputDirs = canonicalInputDirsText(el.value);
+    });
   });
 }
 
