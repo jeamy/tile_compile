@@ -2054,7 +2054,10 @@ function bindInputDirMemory(...ids) {
     const el = $(id);
     if (!el) return;
     el.dataset.lastCommittedInputDirs = canonicalInputDirsText(el.value);
-    el.addEventListener("input", () => persistLastInputDirs(el.value));
+    el.addEventListener("input", () => {
+      maybeResetUnifiedRunNameOnInputDirsChange(el.dataset.lastCommittedInputDirs || "", el.value);
+      persistLastInputDirs(el.value);
+    });
     el.addEventListener("change", () => {
       maybeResetUnifiedRunNameOnInputDirsChange(el.dataset.lastCommittedInputDirs || "", el.value);
       persistLastInputDirs(el.value);
