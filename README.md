@@ -459,6 +459,12 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.0.F (2026-03-15)
+
+- Promoted the DSO tile-reconstruction methodology to `v3.3.8` in EN/DE and aligned it with the active runtime semantics.
+- Corrected the normative method text for runtime-configured mode thresholds, neighborhood-aware local metric normalization, sigma-clipped tile reconstruction, and affine post-OLA photometric restoration.
+- Fixed GUI2 run-name reset so changing the input directory clears the shared `run_name` across dashboard, wizard, and input-scan.
+
 ## v0.0.E (2026-03-15)
 
 - Wired `assumptions.frames_min` into the active runner mode-gate and `assumptions.reduced_mode_cluster_range` into reduced-mode clustering.
@@ -541,6 +547,14 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-03-15)
+
+**Methodology `v3.3.8` + GUI2 run-name reset (`v0.0.F`):**
+
+- Added new normative methodology documents `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_en.md` and `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_de.md`.
+- Corrected the method specification so it matches the active runtime for operating-mode thresholds, shared-core channel semantics, neighborhood-aware local metric normalization, sigma-clipped tile reconstruction, and affine post-OLA photometric restoration.
+- Fixed GUI2 so a changed input directory clears the shared `run_name` across dashboard, wizard, and input-scan.
 
 ### (2026-03-15)
 

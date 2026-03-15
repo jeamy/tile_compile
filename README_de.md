@@ -469,6 +469,12 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.0.F (2026-03-15)
+
+- DSO-Tile-Rekonstruktionsmethodik auf `v3.3.8` in DE/EN angehoben und auf die aktive Runtime-Semantik abgeglichen.
+- Normativen Methodiktext für runtime-konfigurierte Modusgrenzen, nachbarschaftsbewusste lokale Metrik-Normalisierung, sigma-geclippte Tile-Rekonstruktion und affine photometrische Restaurierung nach OLA korrigiert.
+- GUI2-Run-Name-Reset korrigiert: beim Wechsel des Eingabeordners wird der gemeinsame `run_name` nun in Dashboard, Wizard und Input&Scan geleert.
+
 ## v0.0.E (2026-03-15)
 
 - `assumptions.frames_min` im aktiven Runner-Mode-Gate verdrahtet und `assumptions.reduced_mode_cluster_range` an das Reduced-Mode-Clustering angebunden.
@@ -551,6 +557,14 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-15)
+
+**Methodik `v3.3.8` + GUI2-Run-Name-Reset (`v0.0.F`):**
+
+- Neue normative Methodikdokumente `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_en.md` und `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_de.md` ergänzt.
+- Die Methodikspezifikation so korrigiert, dass sie zur aktiven Runtime bei Modusgrenzen, Shared-Core-Kanal-Semantik, nachbarschaftsbewusster lokaler Metrik-Normalisierung, sigma-geclippter Tile-Rekonstruktion und affiner photometrischer Restaurierung nach OLA passt.
+- GUI2 so korrigiert, dass ein geänderter Eingabeordner den gemeinsamen `run_name` in Dashboard, Wizard und Input&Scan löscht.
 
 ### (2026-03-15)
 
