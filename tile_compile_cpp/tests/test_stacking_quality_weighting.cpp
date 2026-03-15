@@ -105,6 +105,44 @@ local_metrics:
   auto cfg = tile_compile::config::Config::from_yaml(node);
   REQUIRE_THROWS(cfg.validate());
 }
+
+TEST_CASE("local_metrics_neighborhood_normalization_parses_and_validates") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: OSC
+  linear_required: true
+local_metrics:
+  neighborhood_normalization:
+    enabled: true
+    radius: 1
+    blend: 0.5
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(cfg.local_metrics.neighborhood_normalization.enabled);
+  REQUIRE(cfg.local_metrics.neighborhood_normalization.radius == 1);
+  REQUIRE(std::fabs(cfg.local_metrics.neighborhood_normalization.blend - 0.5f) <
+          1e-6f);
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("local_metrics_neighborhood_normalization_rejects_invalid_blend") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: OSC
+  linear_required: true
+local_metrics:
+  neighborhood_normalization:
+    enabled: true
+    radius: 1
+    blend: 1.5
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE_THROWS(cfg.validate());
+}
 #else
 int tile_compile_tests_stacking_quality_weighting_stub() { return 0; }
 #endif

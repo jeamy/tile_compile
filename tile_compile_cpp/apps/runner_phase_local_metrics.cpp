@@ -8,10 +8,12 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace tile_compile::runner {
@@ -198,6 +200,9 @@ bool run_phase_local_metrics(
         frames.size(), std::vector<float>(tiles_phase56.size(), 0.0f));
     reconstruction::LocalWeightRegularizationSummary
         local_weight_regularization_summary;
+    double neighborhood_q_delta_sum = 0.0;
+    size_t neighborhood_q_delta_count = 0;
+    float neighborhood_q_delta_p95 = 0.0f;
     {
       // robust_tilde is now core::robust_zscore (canonical module function)
 
@@ -208,6 +213,87 @@ bool run_phase_local_metrics(
 
       const int star_thr = cfg.tile.star_min_count;
       const float eps = 1.0e-12f;
+      const bool neighborhood_enabled =
+          cfg.local_metrics.neighborhood_normalization.enabled &&
+          cfg.local_metrics.neighborhood_normalization.radius > 0 &&
+          cfg.local_metrics.neighborhood_normalization.blend > 0.0f;
+      const int neighborhood_radius =
+          cfg.local_metrics.neighborhood_normalization.radius;
+      const float neighborhood_blend =
+          cfg.local_metrics.neighborhood_normalization.blend;
+      auto tile_key = [](int row, int col) -> uint64_t {
+        return (static_cast<uint64_t>(static_cast<uint32_t>(row)) << 32) ^
+               static_cast<uint32_t>(col);
+      };
+      std::unordered_map<uint64_t, size_t> tile_by_grid;
+      tile_by_grid.reserve(tiles_phase56.size());
+      for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+        tile_by_grid.emplace(
+            tile_key(tiles_phase56[ti].row, tiles_phase56[ti].col), ti);
+      }
+      std::vector<std::vector<size_t>> tile_neighbors(tiles_phase56.size());
+      if (neighborhood_enabled) {
+        for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+          const auto &tile = tiles_phase56[ti];
+          auto &neighbors = tile_neighbors[ti];
+          for (int dy = -neighborhood_radius; dy <= neighborhood_radius; ++dy) {
+            for (int dx = -neighborhood_radius; dx <= neighborhood_radius; ++dx) {
+              if (dx == 0 && dy == 0) {
+                continue;
+              }
+              if (std::abs(dx) + std::abs(dy) > neighborhood_radius) {
+                continue;
+              }
+              auto it =
+                  tile_by_grid.find(tile_key(tile.row + dy, tile.col + dx));
+              if (it != tile_by_grid.end()) {
+                neighbors.push_back(it->second);
+              }
+            }
+          }
+        }
+      }
+      auto robust_location_scale = [](const std::vector<float> &values) {
+        std::pair<float, float> out{0.0f, 1.0f};
+        if (values.empty()) {
+          return out;
+        }
+        std::vector<float> tmp = values;
+        const float center = core::median_of(tmp);
+        for (float &v : tmp) {
+          v = std::fabs(v - center);
+        }
+        const float mad = core::median_of(tmp);
+        out.first = center;
+        out.second = std::max(1.4826f * mad, 1.0e-6f);
+        return out;
+      };
+      auto blended_zscores = [&](const std::vector<float> &local_values,
+                                 const std::vector<float> &pooled_values,
+                                 std::vector<float> *out_local_z,
+                                 std::vector<float> *out_blended_z) {
+        out_local_z->assign(local_values.size(), 0.0f);
+        out_blended_z->assign(local_values.size(), 0.0f);
+        if (local_values.empty()) {
+          return;
+        }
+        core::robust_zscore(local_values, *out_local_z);
+        if (!neighborhood_enabled || pooled_values.empty()) {
+          *out_blended_z = *out_local_z;
+          return;
+        }
+        const auto [center, scale] = robust_location_scale(pooled_values);
+        for (size_t i = 0; i < local_values.size(); ++i) {
+          const float z_pooled = (local_values[i] - center) / scale;
+          (*out_blended_z)[i] =
+              (1.0f - neighborhood_blend) * (*out_local_z)[i] +
+              neighborhood_blend * z_pooled;
+        }
+      };
+
+      std::vector<float> neighborhood_q_deltas;
+      neighborhood_q_deltas.reserve(
+          frames.size() * std::max<size_t>(1, tiles_phase56.size() / 4));
 
       const size_t n_frames = local_metrics.size();
       const size_t n_tiles = tiles_phase56.size();
@@ -218,6 +304,11 @@ bool run_phase_local_metrics(
         std::vector<float> bg;
         std::vector<float> energy_over_noise;
         std::vector<float> star_counts;
+        std::vector<float> pooled_fwhm;
+        std::vector<float> pooled_roundness;
+        std::vector<float> pooled_contrast;
+        std::vector<float> pooled_bg;
+        std::vector<float> pooled_energy_over_noise;
 
         fwhm.reserve(n_frames);
         roundness.reserve(n_frames);
@@ -245,6 +336,26 @@ bool run_phase_local_metrics(
           energy_over_noise.push_back(ratio);
           star_counts.push_back(static_cast<float>(tm.star_count));
         }
+        if (neighborhood_enabled) {
+          for (size_t fi = 0; fi < n_frames; ++fi) {
+            if (!frame_has_data[fi]) {
+              continue;
+            }
+            for (size_t ni : tile_neighbors[ti]) {
+              if (ni >= local_metrics[fi].size()) {
+                continue;
+              }
+              const TileMetrics &nm = local_metrics[fi][ni];
+              pooled_fwhm.push_back(nm.fwhm);
+              pooled_roundness.push_back(nm.roundness);
+              pooled_contrast.push_back(nm.contrast);
+              pooled_bg.push_back(nm.background);
+              const float denom = nm.noise;
+              pooled_energy_over_noise.push_back(
+                  (denom > eps) ? (nm.gradient_energy / denom) : 0.0f);
+            }
+          }
+        }
 
         std::vector<float> sc_tmp = star_counts;
         float sc_med = sc_tmp.empty() ? 0.0f : core::median_of(sc_tmp);
@@ -253,18 +364,34 @@ bool run_phase_local_metrics(
                                        : TileType::STRUCTURE;
         tile_star_flags[ti] = (tile_type == TileType::STAR) ? 1 : 0;
 
+        std::vector<float> fwhm_local_t, r_local_t, c_local_t, b_local_t,
+            en_local_t;
         std::vector<float> fwhm_t, r_t, c_t, b_t, en_t;
-        core::robust_zscore(fwhm, fwhm_t);
-        core::robust_zscore(roundness, r_t);
-        core::robust_zscore(contrast, c_t);
-        core::robust_zscore(bg, b_t);
-        core::robust_zscore(energy_over_noise, en_t);
+        blended_zscores(fwhm, pooled_fwhm, &fwhm_local_t, &fwhm_t);
+        blended_zscores(roundness, pooled_roundness, &r_local_t, &r_t);
+        blended_zscores(contrast, pooled_contrast, &c_local_t, &c_t);
+        blended_zscores(bg, pooled_bg, &b_local_t, &b_t);
+        blended_zscores(energy_over_noise, pooled_energy_over_noise,
+                        &en_local_t, &en_t);
 
         // Assign z-score-based weights to usable frames
         for (size_t ui = 0; ui < usable_indices.size(); ++ui) {
           size_t fi = usable_indices[ui];
           TileMetrics &tm = local_metrics[fi][ti];
           tm.type = tile_type;
+          float q_before = 0.0f;
+          if (tile_type == TileType::STAR) {
+            q_before =
+                cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_local_t[ui]) +
+                cfg.local_metrics.star_mode.weights.roundness * (r_local_t[ui]) +
+                cfg.local_metrics.star_mode.weights.contrast * (c_local_t[ui]);
+          } else {
+            q_before = cfg.local_metrics.structure_mode.metric_weight *
+                           (en_local_t[ui]) +
+                       cfg.local_metrics.structure_mode.background_weight *
+                           (-b_local_t[ui]);
+          }
+          q_before = clip3(q_before);
 
           float q = 0.0f;
           if (tile_type == TileType::STAR) {
@@ -278,7 +405,18 @@ bool run_phase_local_metrics(
 
           q = clip3(q);
           local_quality_scores[fi][ti] = q;
+          const float abs_delta = std::fabs(q - q_before);
+          if (abs_delta > 0.0f) {
+            neighborhood_q_delta_sum += static_cast<double>(abs_delta);
+            ++neighborhood_q_delta_count;
+            neighborhood_q_deltas.push_back(abs_delta);
+          }
         }
+      }
+      if (!neighborhood_q_deltas.empty()) {
+        std::sort(neighborhood_q_deltas.begin(), neighborhood_q_deltas.end());
+        neighborhood_q_delta_p95 =
+            core::percentile_from_sorted(neighborhood_q_deltas, 95.0f);
       }
 
       reconstruction::LocalWeightRegularizationConfig regularization_cfg;
@@ -322,6 +460,19 @@ bool run_phase_local_metrics(
       artifact["full_tile_metrics_written"] = write_full_local_metrics_artifact;
       artifact["entry_limit_full_write"] =
           static_cast<uint64_t>(kLocalMetricsArtifactMaxEntries);
+      artifact["neighborhood_normalization_enabled"] =
+          cfg.local_metrics.neighborhood_normalization.enabled;
+      artifact["neighborhood_normalization_radius"] =
+          cfg.local_metrics.neighborhood_normalization.radius;
+      artifact["neighborhood_normalization_blend"] =
+          cfg.local_metrics.neighborhood_normalization.blend;
+      artifact["neighborhood_normalization_mean_abs_q_delta"] =
+          neighborhood_q_delta_count > 0
+              ? static_cast<float>(neighborhood_q_delta_sum /
+                                   static_cast<double>(neighborhood_q_delta_count))
+              : 0.0f;
+      artifact["neighborhood_normalization_p95_abs_q_delta"] =
+          neighborhood_q_delta_p95;
       artifact["spatial_regularization_enabled"] =
           cfg.local_metrics.spatial_regularization.enabled;
       artifact["spatial_regularization_lambda"] =

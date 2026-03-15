@@ -794,6 +794,35 @@ Local quality metrics.
 
 **Purpose:** Clamp range before local exponential weighting.
 
+### `local_metrics.neighborhood_normalization.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enables neighborhood-pooled robust normalization of local tile metrics before local score composition.
+
+### `local_metrics.neighborhood_normalization.radius`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `0` |
+| **Default** | `1` |
+
+**Purpose:** Tile-neighborhood radius on the tile grid used to pool metric statistics for robust local z-score normalization.
+
+### `local_metrics.neighborhood_normalization.blend`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `0 .. 1` |
+| **Default** | `0.5` |
+
+**Purpose:** Blend factor between tile-local robust z-scores and neighborhood-pooled robust z-scores.
+
 ### `local_metrics.spatial_regularization.enabled`
 
 | Property | Value |
@@ -1748,6 +1777,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `tile.overlap_fraction`: overlap ratio for overlap-add blending smoothness.
 - `tile.star_min_count`: threshold for STAR vs STRUCTURE tile class.
 - `local_metrics.clamp`: local quality clamp before weight conversion.
+- `local_metrics.neighborhood_normalization.enabled`, `radius`, `blend`: stabilize local metric normalization by blending tile-local and neighborhood-pooled robust z-scores.
 - `local_metrics.spatial_regularization.enabled`, `lambda`, `passes`: regularize local tile scores across neighboring tiles before exponential local weighting.
 - `local_metrics.star_mode.weights.fwhm`, `roundness`, `contrast`: STAR tile quality composition.
 - `local_metrics.structure_mode.metric_weight`, `background_weight`: STRUCTURE tile quality composition.

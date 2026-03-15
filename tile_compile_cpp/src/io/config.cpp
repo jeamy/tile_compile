@@ -412,6 +412,18 @@ Config Config::from_yaml(const YAML::Node &node) {
   if (node["local_metrics"]) {
     auto lm = node["local_metrics"];
     read_float_pair(lm["clamp"], cfg.local_metrics.clamp);
+    if (lm["neighborhood_normalization"]) {
+      auto nn = lm["neighborhood_normalization"];
+      if (nn["enabled"])
+        cfg.local_metrics.neighborhood_normalization.enabled =
+            nn["enabled"].as<bool>();
+      if (nn["radius"])
+        cfg.local_metrics.neighborhood_normalization.radius =
+            nn["radius"].as<int>();
+      if (nn["blend"])
+        cfg.local_metrics.neighborhood_normalization.blend =
+            nn["blend"].as<float>();
+    }
     if (lm["spatial_regularization"]) {
       auto sr = lm["spatial_regularization"];
       if (sr["enabled"])
@@ -834,6 +846,12 @@ YAML::Node Config::to_yaml() const {
 
   node["local_metrics"]["clamp"].push_back(local_metrics.clamp[0]);
   node["local_metrics"]["clamp"].push_back(local_metrics.clamp[1]);
+  node["local_metrics"]["neighborhood_normalization"]["enabled"] =
+      local_metrics.neighborhood_normalization.enabled;
+  node["local_metrics"]["neighborhood_normalization"]["radius"] =
+      local_metrics.neighborhood_normalization.radius;
+  node["local_metrics"]["neighborhood_normalization"]["blend"] =
+      local_metrics.neighborhood_normalization.blend;
   node["local_metrics"]["spatial_regularization"]["enabled"] =
       local_metrics.spatial_regularization.enabled;
   node["local_metrics"]["spatial_regularization"]["lambda"] =
@@ -1174,6 +1192,15 @@ void Config::validate() const {
     throw ValidationError(
         "local_metrics.clamp must be [min,max] with min < max");
   }
+  if (local_metrics.neighborhood_normalization.radius < 0) {
+    throw ValidationError(
+        "local_metrics.neighborhood_normalization.radius must be >= 0");
+  }
+  if (local_metrics.neighborhood_normalization.blend < 0.0f ||
+      local_metrics.neighborhood_normalization.blend > 1.0f) {
+    throw ValidationError(
+        "local_metrics.neighborhood_normalization.blend must be between 0 and 1");
+  }
   if (local_metrics.spatial_regularization.lambda < 0.0f ||
       local_metrics.spatial_regularization.lambda > 1.0f) {
     throw ValidationError(
@@ -1456,6 +1483,7 @@ std::string get_schema_json() {
                       "star_min_count":{"type":"integer","minimum":0} } },
     "local_metrics": { "type":"object",
       "properties": { "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},
+                      "neighborhood_normalization":{"type":"object","properties":{"enabled":{"type":"boolean"},"radius":{"type":"integer","minimum":0},"blend":{"type":"number","minimum":0,"maximum":1}}},
                       "spatial_regularization":{"type":"object","properties":{"enabled":{"type":"boolean"},"lambda":{"type":"number","minimum":0,"maximum":1},"passes":{"type":"integer","minimum":0}}},
                       "star_mode":{"type":"object","properties":{"weights":{"type":"object","properties":{"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"contrast":{"type":"number","minimum":0,"maximum":1}}}}},
                       "structure_mode":{"type":"object","properties":{"background_weight":{"type":"number","minimum":0,"maximum":1},"metric_weight":{"type":"number","minimum":0,"maximum":1}}} } },

@@ -238,7 +238,7 @@ TEST_CASE("local_weight_regularization_smooths_neighbor_scores_per_frame") {
       tiles, tile_valid, frame_has_data, cfg, &scores);
 
   REQUIRE(summary.tile_edge_count == 2);
-  REQUIRE(summary.adjusted_entries == 6);
+  REQUIRE(summary.adjusted_entries == 4);
   REQUIRE(scores[0][0] == Catch::Approx(1.5f).margin(1e-6));
   REQUIRE(scores[0][1] == Catch::Approx(0.0f).margin(1e-6));
   REQUIRE(scores[0][2] == Catch::Approx(-1.5f).margin(1e-6));

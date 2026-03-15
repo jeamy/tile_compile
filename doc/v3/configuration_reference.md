@@ -1178,6 +1178,35 @@ Lokale Tile-Metriken und Qualitäts-Scoring (Phase 6: LOCAL_METRICS).
 
 **Formel:** `L_f,t = exp(clip(Q_f,t, clamp[0], clamp[1]))`
 
+### `local_metrics.neighborhood_normalization.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert eine nachbarschaftsgepoolte robuste Normierung lokaler Tile-Metriken vor der Bildung des lokalen Qualitätsscores.
+
+### `local_metrics.neighborhood_normalization.radius`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | `0` |
+| **Default** | `1` |
+
+**Zweck:** Nachbarschaftsradius auf dem Tile-Raster, aus dem robuste Statistik für die lokale z-Normierung mitgepoolt wird.
+
+### `local_metrics.neighborhood_normalization.blend`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | `0 .. 1` |
+| **Default** | `0.5` |
+
+**Zweck:** Mischfaktor zwischen rein tile-lokalen robusten z-Scores und nachbarschaftsgepoolten robusten z-Scores.
+
 ### `local_metrics.spatial_regularization.enabled`
 
 | Eigenschaft | Wert |
@@ -2632,6 +2661,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `tile.overlap_fraction`: Überlappungsanteil für glattes Overlap-Add.
 - `tile.star_min_count`: Schwelle STAR vs. STRUCTURE Tile-Klasse.
 - `local_metrics.clamp`: Clamp lokaler Qualität vor Gewichtsbildung.
+- `local_metrics.neighborhood_normalization.enabled`, `radius`, `blend`: stabilisieren die lokale Metrik-Normierung durch Mischung aus tile-lokalen und nachbarschaftsgepoolten robusten z-Scores.
 - `local_metrics.spatial_regularization.enabled`, `lambda`, `passes`: nachbarschaftsbasierte Regularisierung lokaler Tile-Scores vor der Exponential-Gewichtsbildung.
 - `local_metrics.star_mode.weights.fwhm`, `roundness`, `contrast`: STAR-Tile-Qualitätsmischung.
 - `local_metrics.structure_mode.metric_weight`, `background_weight`: STRUCTURE-Tile-Qualitätsmischung.

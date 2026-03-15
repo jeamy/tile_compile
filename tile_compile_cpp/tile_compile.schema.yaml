@@ -199,6 +199,12 @@ properties:
         items: {type: number}
         minItems: 2
         maxItems: 2
+      neighborhood_normalization:
+        type: object
+        properties:
+          enabled: {type: boolean}
+          radius: {type: integer, minimum: 0}
+          blend: {type: number, minimum: 0, maximum: 1}
       spatial_regularization:
         type: object
         properties:

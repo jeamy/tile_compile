@@ -115,6 +115,7 @@
                       "star_min_count":{"type":"integer","minimum":0} } },
     "local_metrics": { "type":"object",
       "properties": { "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},
+                      "neighborhood_normalization":{"type":"object","properties":{"enabled":{"type":"boolean"},"radius":{"type":"integer","minimum":0},"blend":{"type":"number","minimum":0,"maximum":1}}},
                       "spatial_regularization":{"type":"object","properties":{"enabled":{"type":"boolean"},"lambda":{"type":"number","minimum":0,"maximum":1},"passes":{"type":"integer","minimum":0}}},
                       "star_mode":{"type":"object","properties":{"weights":{"type":"object","properties":{"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"contrast":{"type":"number","minimum":0,"maximum":1}}}}},
                       "structure_mode":{"type":"object","properties":{"background_weight":{"type":"number","minimum":0,"maximum":1},"metric_weight":{"type":"number","minimum":0,"maximum":1}}} } },

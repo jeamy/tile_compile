@@ -174,6 +174,12 @@ struct TileConfig {
 };
 
 struct LocalMetricsConfig {
+  struct NeighborhoodNormalizationConfig {
+    bool enabled = true;
+    int radius = 1;
+    float blend = 0.5f;
+  } neighborhood_normalization;
+
   struct SpatialRegularizationConfig {
     bool enabled = true;
     float lambda = 0.35f;
