@@ -174,6 +174,12 @@ struct TileConfig {
 };
 
 struct LocalMetricsConfig {
+  struct SpatialRegularizationConfig {
+    bool enabled = true;
+    float lambda = 0.35f;
+    int passes = 1;
+  } spatial_regularization;
+
   struct StarModeConfig {
     struct Weights {
       float fwhm = 0.6f;

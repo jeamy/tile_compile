@@ -119,6 +119,10 @@ local_metrics:
   clamp:
     - -3
     - 3
+  spatial_regularization:
+    enabled: true
+    lambda: 0.35
+    passes: 1
   star_mode:
     weights:
       contrast: 0.2

@@ -17,6 +17,7 @@
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
 #include "tile_compile/reconstruction/tile_normalization.hpp"
+#include "tile_compile/reconstruction/tile_weight_profile_diagnostics.hpp"
 #include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/astrometry/gaia_catalog.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
@@ -1044,6 +1045,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::vector<uint8_t> tile_reconstructed_valid(tiles_phase56.size(), 0u);
     reconstruction::TileBoundaryDiagnostics boundary_diagnostics_raw;
     reconstruction::TileBoundaryDiagnostics boundary_diagnostics_normalized;
+    reconstruction::TileWeightProfileDiagnostics boundary_weight_profile_diagnostics;
     float boundary_valid_count_delta_mean_abs = 0.0f;
     float boundary_valid_count_delta_p95_abs = 0.0f;
     float boundary_post_background_delta_mean_abs = 0.0f;
@@ -1523,6 +1525,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       } else {
         boundary_diagnostics_normalized = boundary_diagnostics_raw;
       }
+      boundary_weight_profile_diagnostics =
+          reconstruction::analyze_tile_weight_profiles(
+              boundary_diagnostics_normalized.pair_diagnostics, local_weights,
+              frame_has_data);
 
       std::vector<float> valid_count_deltas;
       std::vector<float> background_deltas;
@@ -1772,6 +1778,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // Write reconstruction artifacts (v3)
     {
       core::json artifact;
+      std::unordered_map<uint64_t,
+                         reconstruction::TileWeightProfilePairDiagnostic>
+          weight_profile_by_pair;
+      weight_profile_by_pair.reserve(
+          boundary_weight_profile_diagnostics.pair_diagnostics.size());
+      auto pair_key = [](size_t lhs, size_t rhs) -> uint64_t {
+        return (static_cast<uint64_t>(lhs) << 32) ^ static_cast<uint64_t>(rhs);
+      };
+      for (const auto &pair :
+           boundary_weight_profile_diagnostics.pair_diagnostics) {
+        weight_profile_by_pair.emplace(pair_key(pair.lhs, pair.rhs), pair);
+      }
       auto append_boundary_pairs = [&](const char *key,
                                        const reconstruction::TileBoundaryDiagnostics
                                            &diagnostics) {
@@ -1804,6 +1822,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           entry["rhs_post_snr_proxy"] = tile_post_snr[pair.rhs];
           entry["lhs_mean_correlation"] = tile_mean_correlations[pair.lhs];
           entry["rhs_mean_correlation"] = tile_mean_correlations[pair.rhs];
+          const auto weight_it =
+              weight_profile_by_pair.find(pair_key(pair.lhs, pair.rhs));
+          if (weight_it != weight_profile_by_pair.end()) {
+            const auto &weights = weight_it->second;
+            entry["local_weight_usable_frame_count"] =
+                static_cast<int>(weights.usable_frame_count);
+            entry["local_weight_lhs_active_frame_count"] =
+                static_cast<int>(weights.lhs_active_frame_count);
+            entry["local_weight_rhs_active_frame_count"] =
+                static_cast<int>(weights.rhs_active_frame_count);
+            entry["local_weight_shared_active_frame_count"] =
+                static_cast<int>(weights.shared_active_frame_count);
+            entry["local_weight_activation_mismatch_count"] =
+                static_cast<int>(weights.activation_mismatch_count);
+            entry["local_weight_activation_mismatch_fraction"] =
+                weights.usable_frame_count > 0u
+                    ? static_cast<float>(weights.activation_mismatch_count) /
+                          static_cast<float>(weights.usable_frame_count)
+                    : 0.0f;
+            entry["local_weight_mean_abs_delta"] = weights.mean_abs_delta;
+            entry["local_weight_p95_abs_delta"] = weights.p95_abs_delta;
+            entry["local_weight_correlation"] = weights.correlation;
+          }
           artifact[key].push_back(std::move(entry));
         }
       };
@@ -1941,6 +1982,26 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           boundary_mean_correlation_delta_p95_abs;
       artifact["tile_boundary_fallback_mismatch_count"] =
           boundary_fallback_mismatch_count;
+      artifact["tile_boundary_local_weight_observation_count"] =
+          static_cast<int>(boundary_weight_profile_diagnostics.observed_pair_count);
+      artifact["tile_boundary_local_weight_mean_abs_delta_mean"] =
+          boundary_weight_profile_diagnostics.pair_mean_abs_delta_mean;
+      artifact["tile_boundary_local_weight_mean_abs_delta_p95"] =
+          boundary_weight_profile_diagnostics.pair_mean_abs_delta_p95;
+      artifact["tile_boundary_local_weight_p95_abs_delta_mean"] =
+          boundary_weight_profile_diagnostics.pair_p95_abs_delta_mean;
+      artifact["tile_boundary_local_weight_p95_abs_delta_p95"] =
+          boundary_weight_profile_diagnostics.pair_p95_abs_delta_p95;
+      artifact["tile_boundary_local_weight_activation_mismatch_fraction_mean"] =
+          boundary_weight_profile_diagnostics
+              .pair_activation_mismatch_fraction_mean;
+      artifact["tile_boundary_local_weight_activation_mismatch_fraction_p95"] =
+          boundary_weight_profile_diagnostics
+              .pair_activation_mismatch_fraction_p95;
+      artifact["tile_boundary_local_weight_correlation_mean"] =
+          boundary_weight_profile_diagnostics.pair_correlation_mean;
+      artifact["tile_boundary_local_weight_correlation_p05"] =
+          boundary_weight_profile_diagnostics.pair_correlation_p05;
       for (size_t i = 0; i < tiles_phase56.size(); ++i) {
         artifact["tile_valid_counts"].push_back(tile_valid_counts[i]);
         artifact["tile_fallback_used"].push_back(
@@ -1987,6 +2048,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
              boundary_diagnostics_normalized.pair_mean_abs_diff_p95},
             {"tile_boundary_post_background_delta_p95_abs",
              boundary_post_background_delta_p95_abs},
+            {"tile_boundary_local_weight_mean_abs_delta_p95",
+             boundary_weight_profile_diagnostics.pair_mean_abs_delta_p95},
+            {"tile_boundary_local_weight_correlation_p05",
+             boundary_weight_profile_diagnostics.pair_correlation_p05},
             {"tile_boundary_fallback_mismatch_count",
              boundary_fallback_mismatch_count},
         },

@@ -1178,6 +1178,35 @@ Lokale Tile-Metriken und Qualitäts-Scoring (Phase 6: LOCAL_METRICS).
 
 **Formel:** `L_f,t = exp(clip(Q_f,t, clamp[0], clamp[1]))`
 
+### `local_metrics.spatial_regularization.enabled`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert eine nachbarschaftsbasierte Regularisierung lokaler Tile-Qualitätsscores vor der Exponential-Gewichtsbildung.
+
+### `local_metrics.spatial_regularization.lambda`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | `0 .. 1` |
+| **Default** | `0.35` |
+
+**Zweck:** Kopplungsstärke zwischen lokalem Tile-Score und dem Mittelwert der direkten Tile-Nachbarn.
+
+### `local_metrics.spatial_regularization.passes`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | `0` |
+| **Default** | `1` |
+
+**Zweck:** Anzahl der Regularisierungs-Pässe über den Tile-Nachbarschaftsgraphen vor `L_f,t = exp(Q_f,t)`.
+
 ---
 
 ### `local_metrics.star_mode.weights.fwhm`
@@ -2603,6 +2632,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `tile.overlap_fraction`: Überlappungsanteil für glattes Overlap-Add.
 - `tile.star_min_count`: Schwelle STAR vs. STRUCTURE Tile-Klasse.
 - `local_metrics.clamp`: Clamp lokaler Qualität vor Gewichtsbildung.
+- `local_metrics.spatial_regularization.enabled`, `lambda`, `passes`: nachbarschaftsbasierte Regularisierung lokaler Tile-Scores vor der Exponential-Gewichtsbildung.
 - `local_metrics.star_mode.weights.fwhm`, `roundness`, `contrast`: STAR-Tile-Qualitätsmischung.
 - `local_metrics.structure_mode.metric_weight`, `background_weight`: STRUCTURE-Tile-Qualitätsmischung.
 - `synthetic.weighting`: Methode zur Synthetic-Frame-Erzeugung (`global` vs `tile_weighted`).

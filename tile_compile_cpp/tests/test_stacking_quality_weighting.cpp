@@ -67,6 +67,44 @@ stacking:
   auto cfg = tile_compile::config::Config::from_yaml(node);
   REQUIRE_THROWS(cfg.validate());
 }
+
+TEST_CASE("local_metrics_spatial_regularization_parses_and_validates") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: OSC
+  linear_required: true
+local_metrics:
+  spatial_regularization:
+    enabled: true
+    lambda: 0.35
+    passes: 2
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(cfg.local_metrics.spatial_regularization.enabled);
+  REQUIRE(std::fabs(cfg.local_metrics.spatial_regularization.lambda - 0.35f) <
+          1e-6f);
+  REQUIRE(cfg.local_metrics.spatial_regularization.passes == 2);
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("local_metrics_spatial_regularization_rejects_invalid_lambda") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: OSC
+  linear_required: true
+local_metrics:
+  spatial_regularization:
+    enabled: true
+    lambda: 1.5
+    passes: 1
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE_THROWS(cfg.validate());
+}
 #else
 int tile_compile_tests_stacking_quality_weighting_stub() { return 0; }
 #endif

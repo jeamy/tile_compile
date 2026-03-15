@@ -1,7 +1,9 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
 #include "tile_compile/reconstruction/reconstruction.hpp"
+#include "tile_compile/reconstruction/local_weight_regularization.hpp"
 #include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
 #include "tile_compile/reconstruction/tile_normalization.hpp"
+#include "tile_compile/reconstruction/tile_weight_profile_diagnostics.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -11,6 +13,9 @@ using tile_compile::Tile;
 using tile_compile::reconstruction::analyze_tile_boundaries;
 using tile_compile::reconstruction::estimate_tile_normalization_stats;
 using tile_compile::reconstruction::guard_tile_normalization_stats;
+using tile_compile::reconstruction::regularize_local_quality_scores;
+using tile_compile::reconstruction::LocalWeightRegularizationConfig;
+using tile_compile::reconstruction::analyze_tile_weight_profiles;
 using tile_compile::reconstruction::TileNormalizationGuardConfig;
 using tile_compile::reconstruction::TileNormalizationStats;
 using tile_compile::reconstruction::sigma_clip_weighted_tile_with_fallback;
@@ -178,6 +183,68 @@ TEST_CASE("tile_boundary_diagnostics_separates_offset_from_structural_residual")
   REQUIRE(diagnostics.pair_diagnostics[0].mean_signed_diff > 2.0f);
   REQUIRE(diagnostics.pair_diagnostics[0].p95_abs_residual > 0.0f);
   REQUIRE(diagnostics.pair_mean_abs_residual_mean > 0.0f);
+}
+
+TEST_CASE("tile_weight_profile_diagnostics_reports_pair_deltas_and_mismatch") {
+  std::vector<tile_compile::reconstruction::TileBoundaryPairDiagnostic> pairs = {
+      tile_compile::reconstruction::TileBoundaryPairDiagnostic{0, 1, 0, 0.0f,
+                                                               0.0f, 0.0f, 0.0f,
+                                                               0.0f, 1.0f, true},
+  };
+  std::vector<std::vector<float>> local_weights = {
+      {1.0f, 1.0f},
+      {2.0f, 0.0f},
+      {3.0f, 1.0f},
+      {0.0f, 0.0f},
+  };
+  std::vector<uint8_t> frame_has_data = {1u, 1u, 1u, 1u};
+
+  const auto diagnostics =
+      analyze_tile_weight_profiles(pairs, local_weights, frame_has_data);
+
+  REQUIRE(diagnostics.observed_pair_count == 1);
+  REQUIRE(diagnostics.pair_diagnostics.size() == 1);
+  const auto &pair = diagnostics.pair_diagnostics.front();
+  REQUIRE(pair.usable_frame_count == 4);
+  REQUIRE(pair.lhs_active_frame_count == 3);
+  REQUIRE(pair.rhs_active_frame_count == 2);
+  REQUIRE(pair.shared_active_frame_count == 2);
+  REQUIRE(pair.activation_mismatch_count == 1);
+  REQUIRE(pair.mean_abs_delta == Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(pair.p95_abs_delta == Catch::Approx(2.0f).margin(1e-6));
+  REQUIRE(pair.correlation < 0.5f);
+  REQUIRE(diagnostics.pair_activation_mismatch_fraction_mean ==
+          Catch::Approx(0.25f).margin(1e-6));
+}
+
+TEST_CASE("local_weight_regularization_smooths_neighbor_scores_per_frame") {
+  std::vector<Tile> tiles = {
+      Tile{0, 0, 16, 16, 0, 0},
+      Tile{16, 0, 16, 16, 0, 1},
+      Tile{32, 0, 16, 16, 0, 2},
+  };
+  std::vector<uint8_t> tile_valid = {1u, 1u, 1u};
+  std::vector<uint8_t> frame_has_data = {1u, 1u};
+  std::vector<std::vector<float>> scores = {
+      {3.0f, 0.0f, -3.0f},
+      {2.0f, 1.0f, 0.0f},
+  };
+  LocalWeightRegularizationConfig cfg;
+  cfg.enabled = true;
+  cfg.lambda = 0.5f;
+  cfg.passes = 1;
+
+  const auto summary = regularize_local_quality_scores(
+      tiles, tile_valid, frame_has_data, cfg, &scores);
+
+  REQUIRE(summary.tile_edge_count == 2);
+  REQUIRE(summary.adjusted_entries == 6);
+  REQUIRE(scores[0][0] == Catch::Approx(1.5f).margin(1e-6));
+  REQUIRE(scores[0][1] == Catch::Approx(0.0f).margin(1e-6));
+  REQUIRE(scores[0][2] == Catch::Approx(-1.5f).margin(1e-6));
+  REQUIRE(scores[1][0] == Catch::Approx(1.5f).margin(1e-6));
+  REQUIRE(scores[1][1] == Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(scores[1][2] == Catch::Approx(0.5f).margin(1e-6));
 }
 
 TEST_CASE("tile_normalization_stats_ignore_masked_zero_pixels") {

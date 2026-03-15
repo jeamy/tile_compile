@@ -3,6 +3,7 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/metrics/tile_metrics.hpp"
+#include "tile_compile/reconstruction/local_weight_regularization.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -193,6 +194,10 @@ bool run_phase_local_metrics(
     }
 
     std::vector<uint8_t> tile_star_flags(tiles_phase56.size(), 0);
+    std::vector<std::vector<float>> local_quality_scores(
+        frames.size(), std::vector<float>(tiles_phase56.size(), 0.0f));
+    reconstruction::LocalWeightRegularizationSummary
+        local_weight_regularization_summary;
     {
       // robust_tilde is now core::robust_zscore (canonical module function)
 
@@ -272,7 +277,34 @@ bool run_phase_local_metrics(
           }
 
           q = clip3(q);
-          tm.quality_score = q;
+          local_quality_scores[fi][ti] = q;
+        }
+      }
+
+      reconstruction::LocalWeightRegularizationConfig regularization_cfg;
+      regularization_cfg.enabled =
+          cfg.local_metrics.spatial_regularization.enabled;
+      regularization_cfg.lambda =
+          cfg.local_metrics.spatial_regularization.lambda;
+      regularization_cfg.passes =
+          cfg.local_metrics.spatial_regularization.passes;
+      local_weight_regularization_summary =
+          reconstruction::regularize_local_quality_scores(
+              tiles_phase56, tile_common_valid, frame_has_data,
+              regularization_cfg, &local_quality_scores);
+
+      for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
+        if (!frame_has_data[fi]) {
+          continue;
+        }
+        for (size_t ti = 0; ti < local_metrics[fi].size(); ++ti) {
+          if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0u) {
+            local_metrics[fi][ti].quality_score = 0.0f;
+            local_weights[fi][ti] = 0.0f;
+            continue;
+          }
+          const float q = clip3(local_quality_scores[fi][ti]);
+          local_metrics[fi][ti].quality_score = q;
           local_weights[fi][ti] = std::exp(q);
         }
       }
@@ -290,6 +322,20 @@ bool run_phase_local_metrics(
       artifact["full_tile_metrics_written"] = write_full_local_metrics_artifact;
       artifact["entry_limit_full_write"] =
           static_cast<uint64_t>(kLocalMetricsArtifactMaxEntries);
+      artifact["spatial_regularization_enabled"] =
+          cfg.local_metrics.spatial_regularization.enabled;
+      artifact["spatial_regularization_lambda"] =
+          cfg.local_metrics.spatial_regularization.lambda;
+      artifact["spatial_regularization_passes"] =
+          cfg.local_metrics.spatial_regularization.passes;
+      artifact["spatial_regularization_tile_edge_count"] =
+          static_cast<uint64_t>(local_weight_regularization_summary.tile_edge_count);
+      artifact["spatial_regularization_adjusted_entries"] =
+          static_cast<uint64_t>(local_weight_regularization_summary.adjusted_entries);
+      artifact["spatial_regularization_mean_abs_q_delta"] =
+          local_weight_regularization_summary.mean_abs_q_delta;
+      artifact["spatial_regularization_p95_abs_q_delta"] =
+          local_weight_regularization_summary.p95_abs_q_delta;
 
       if (write_full_local_metrics_artifact) {
         artifact["tile_metrics"] = core::json::array();

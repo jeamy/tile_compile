@@ -794,6 +794,35 @@ Local quality metrics.
 
 **Purpose:** Clamp range before local exponential weighting.
 
+### `local_metrics.spatial_regularization.enabled`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enables neighbor-aware regularization of local tile quality scores before exponential weight mapping.
+
+### `local_metrics.spatial_regularization.lambda`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `0 .. 1` |
+| **Default** | `0.35` |
+
+**Purpose:** Coupling strength between a tile-local score and the mean score of its direct tile neighbors.
+
+### `local_metrics.spatial_regularization.passes`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | `0` |
+| **Default** | `1` |
+
+**Purpose:** Number of regularization passes over the tile-neighborhood graph before `L_f,t = exp(Q_f,t)`.
+
 ### `local_metrics.star_mode.weights.fwhm`
 
 | Property | Value |
@@ -1719,6 +1748,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `tile.overlap_fraction`: overlap ratio for overlap-add blending smoothness.
 - `tile.star_min_count`: threshold for STAR vs STRUCTURE tile class.
 - `local_metrics.clamp`: local quality clamp before weight conversion.
+- `local_metrics.spatial_regularization.enabled`, `lambda`, `passes`: regularize local tile scores across neighboring tiles before exponential local weighting.
 - `local_metrics.star_mode.weights.fwhm`, `roundness`, `contrast`: STAR tile quality composition.
 - `local_metrics.structure_mode.metric_weight`, `background_weight`: STRUCTURE tile quality composition.
 - `synthetic.weighting`: synthetic frame generation method (`global` vs `tile_weighted`).

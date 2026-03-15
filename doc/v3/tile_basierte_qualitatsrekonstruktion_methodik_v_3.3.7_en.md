@@ -1,4 +1,4 @@
-# Tile-Based Quality Reconstruction for DSO - Methodology v3.3.6
+# Tile-Based Quality Reconstruction for DSO - Methodology v3.3.7
 
 **Status:** Normative reference specification  
 **Version:** v3.3.7 (2026-03-15)
@@ -6,7 +6,7 @@
 
 ---
 
-## 0. Objective of v3.3.6
+## 0. Objective of v3.3.7
 
 Core objectives:
 
@@ -293,9 +293,44 @@ Local index:
 
 `Q_{f,t,c}^{struct} = 0.7*z(E/sigma) - 0.3*z(B)`
 
-### 5.5.4 Local Weight
+### 5.5.4 Spatial Regularization of Local Scores (Binding in v3.3.7)
 
-`Q_{f,t,c}^{local} = clip(Q_{f,t,c}^{star|struct}, -3, +3)`
+First compute the unregularized local score:
+
+`Q_{f,t,c}^{raw} = Q_{f,t,c}^{star|struct}`
+
+To prevent neighboring tiles from diverging into incompatible local regimes, the local score field is regularized on the tile-neighborhood graph before exponential weighting.
+
+Let `N(t)` be the 4-neighborhood of tile `t` on the tile grid.
+
+For each frame `f`, tile `t`, and pass `k`:
+
+`Q_{f,t,c}^{(k+1)} = (1 - lambda_local) * Q_{f,t,c}^{(k)} + lambda_local * mean_{u in N(t)} Q_{f,u,c}^{(k)}`
+
+with initialization:
+
+`Q_{f,t,c}^{(0)} = Q_{f,t,c}^{raw}`
+
+and final regularized score after `P` passes:
+
+`Q_{f,t,c}^{reg} = Q_{f,t,c}^{(P)}`
+
+Normative default parameters:
+
+- `local_metrics.spatial_regularization.enabled = true`
+- `local_metrics.spatial_regularization.lambda = 0.35`
+- `local_metrics.spatial_regularization.passes = 1`
+
+Binding constraints:
+
+1. only valid/common tiles may participate,
+2. regularization is frame-local and must not couple different frames,
+3. tiles without valid neighbors keep `Q_{f,t,c}^{reg} = Q_{f,t,c}^{raw}`,
+4. regularization acts only on local quality scores, never directly on pixel values.
+
+### 5.5.5 Local Weight
+
+`Q_{f,t,c}^{local} = clip(Q_{f,t,c}^{reg}, -3, +3)`
 
 `L_{f,t,c} = exp(Q_{f,t,c}^{local})`
 

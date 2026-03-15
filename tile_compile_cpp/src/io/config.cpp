@@ -412,6 +412,18 @@ Config Config::from_yaml(const YAML::Node &node) {
   if (node["local_metrics"]) {
     auto lm = node["local_metrics"];
     read_float_pair(lm["clamp"], cfg.local_metrics.clamp);
+    if (lm["spatial_regularization"]) {
+      auto sr = lm["spatial_regularization"];
+      if (sr["enabled"])
+        cfg.local_metrics.spatial_regularization.enabled =
+            sr["enabled"].as<bool>();
+      if (sr["lambda"])
+        cfg.local_metrics.spatial_regularization.lambda =
+            sr["lambda"].as<float>();
+      if (sr["passes"])
+        cfg.local_metrics.spatial_regularization.passes =
+            sr["passes"].as<int>();
+    }
     if (lm["star_mode"] && lm["star_mode"]["weights"]) {
       auto w = lm["star_mode"]["weights"];
       if (w["fwhm"])
@@ -822,6 +834,12 @@ YAML::Node Config::to_yaml() const {
 
   node["local_metrics"]["clamp"].push_back(local_metrics.clamp[0]);
   node["local_metrics"]["clamp"].push_back(local_metrics.clamp[1]);
+  node["local_metrics"]["spatial_regularization"]["enabled"] =
+      local_metrics.spatial_regularization.enabled;
+  node["local_metrics"]["spatial_regularization"]["lambda"] =
+      local_metrics.spatial_regularization.lambda;
+  node["local_metrics"]["spatial_regularization"]["passes"] =
+      local_metrics.spatial_regularization.passes;
   node["local_metrics"]["star_mode"]["weights"]["fwhm"] =
       local_metrics.star_mode.weights.fwhm;
   node["local_metrics"]["star_mode"]["weights"]["roundness"] =
@@ -1156,6 +1174,15 @@ void Config::validate() const {
     throw ValidationError(
         "local_metrics.clamp must be [min,max] with min < max");
   }
+  if (local_metrics.spatial_regularization.lambda < 0.0f ||
+      local_metrics.spatial_regularization.lambda > 1.0f) {
+    throw ValidationError(
+        "local_metrics.spatial_regularization.lambda must be between 0 and 1");
+  }
+  if (local_metrics.spatial_regularization.passes < 0) {
+    throw ValidationError(
+        "local_metrics.spatial_regularization.passes must be >= 0");
+  }
   check_weight_sum(local_metrics.star_mode.weights.fwhm,
                    local_metrics.star_mode.weights.roundness,
                    local_metrics.star_mode.weights.contrast,
@@ -1429,6 +1456,7 @@ std::string get_schema_json() {
                       "star_min_count":{"type":"integer","minimum":0} } },
     "local_metrics": { "type":"object",
       "properties": { "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},
+                      "spatial_regularization":{"type":"object","properties":{"enabled":{"type":"boolean"},"lambda":{"type":"number","minimum":0,"maximum":1},"passes":{"type":"integer","minimum":0}}},
                       "star_mode":{"type":"object","properties":{"weights":{"type":"object","properties":{"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"contrast":{"type":"number","minimum":0,"maximum":1}}}}},
                       "structure_mode":{"type":"object","properties":{"background_weight":{"type":"number","minimum":0,"maximum":1},"metric_weight":{"type":"number","minimum":0,"maximum":1}}} } },
     "synthetic": { "type":"object",

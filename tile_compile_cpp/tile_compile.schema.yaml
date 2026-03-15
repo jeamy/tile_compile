@@ -199,6 +199,12 @@ properties:
         items: {type: number}
         minItems: 2
         maxItems: 2
+      spatial_regularization:
+        type: object
+        properties:
+          enabled: {type: boolean}
+          lambda: {type: number, minimum: 0, maximum: 1}
+          passes: {type: integer, minimum: 0}
       star_mode:
         type: object
         properties:

@@ -327,8 +327,10 @@ set(LIB_SOURCES
     src/metrics/tile_metrics.cpp
     src/metrics/linearity.cpp
     src/reconstruction/reconstruction.cpp
+    src/reconstruction/local_weight_regularization.cpp
     src/reconstruction/tile_boundary_diagnostics.cpp
     src/reconstruction/tile_normalization.cpp
+    src/reconstruction/tile_weight_profile_diagnostics.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/astrometry/wcs.cpp
     src/astrometry/gaia_catalog.cpp
