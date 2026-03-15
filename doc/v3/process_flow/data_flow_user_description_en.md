@@ -32,8 +32,8 @@ The primary product is a linear stacked image. Depending on configuration and da
   - Persisted diagnostic or intermediate data, typically written under `artifacts/`.
 - **Event timeline**
   - Chronological execution events written to `logs/run_events.jsonl`.
-- **Methodology profile**
-  - `assumptions.pipeline_profile` controls whether the pipeline follows a stricter normative interpretation (`strict`) or a more pragmatic robust profile (`practical`).
+- **Assumptions thresholds**
+  - `assumptions.frames_min` and `assumptions.frames_reduced_threshold` control whether the runner aborts, enters reduced mode, or runs the full pipeline.
 - **Resume**
   - Existing run directories can be reused for post-run phases, currently especially from `ASTROMETRY`, `BGE`, or `PCC` onward.
 

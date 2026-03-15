@@ -205,19 +205,11 @@ Config Config::from_yaml(const YAML::Node &node) {
 
   if (node["assumptions"]) {
     auto a = node["assumptions"];
-    if (a["pipeline_profile"])
-      cfg.assumptions.pipeline_profile = a["pipeline_profile"].as<std::string>();
     if (a["frames_min"])
       cfg.assumptions.frames_min = a["frames_min"].as<int>();
-    if (a["frames_optimal"])
-      cfg.assumptions.frames_optimal = a["frames_optimal"].as<int>();
     if (a["frames_reduced_threshold"])
       cfg.assumptions.frames_reduced_threshold =
           a["frames_reduced_threshold"].as<int>();
-    if (a["exposure_time_tolerance_percent"]) {
-      cfg.assumptions.exposure_time_tolerance_percent =
-          a["exposure_time_tolerance_percent"].as<float>();
-    }
     if (a["reduced_mode_skip_clustering"]) {
       cfg.assumptions.reduced_mode_skip_clustering =
           a["reduced_mode_skip_clustering"].as<bool>();
@@ -746,13 +738,9 @@ YAML::Node Config::to_yaml() const {
   node["calibration"]["flat_master"] = calibration.flat_master;
   node["calibration"]["pattern"] = calibration.pattern;
 
-  node["assumptions"]["pipeline_profile"] = assumptions.pipeline_profile;
   node["assumptions"]["frames_min"] = assumptions.frames_min;
-  node["assumptions"]["frames_optimal"] = assumptions.frames_optimal;
   node["assumptions"]["frames_reduced_threshold"] =
       assumptions.frames_reduced_threshold;
-  node["assumptions"]["exposure_time_tolerance_percent"] =
-      assumptions.exposure_time_tolerance_percent;
   node["assumptions"]["reduced_mode_skip_clustering"] =
       assumptions.reduced_mode_skip_clustering;
   node["assumptions"]["reduced_mode_cluster_range"].push_back(
@@ -1009,22 +997,11 @@ void Config::validate() const {
         "linearity.strictness must be 'strict', 'moderate', or 'permissive'");
   }
 
-  if (assumptions.pipeline_profile != "practical" &&
-      assumptions.pipeline_profile != "strict") {
-    throw ValidationError(
-        "assumptions.pipeline_profile must be 'practical' or 'strict'");
-  }
   if (assumptions.frames_min < 1)
     throw ValidationError("assumptions.frames_min must be >= 1");
-  if (assumptions.frames_optimal < 1)
-    throw ValidationError("assumptions.frames_optimal must be >= 1");
   if (assumptions.frames_reduced_threshold < assumptions.frames_min) {
     throw ValidationError("assumptions.frames_reduced_threshold must be >= "
                           "assumptions.frames_min");
-  }
-  if (assumptions.exposure_time_tolerance_percent < 0.0f) {
-    throw ValidationError(
-        "assumptions.exposure_time_tolerance_percent must be >= 0");
   }
   if (assumptions.reduced_mode_cluster_range[0] < 1 ||
       assumptions.reduced_mode_cluster_range[1] <
@@ -1401,11 +1378,8 @@ std::string get_schema_json() {
                       "bias_master":{"type":"string"}, "dark_master":{"type":"string"}, "flat_master":{"type":"string"},
                       "pattern":{"type":"string"} } },
     "assumptions": { "type":"object",
-      "properties": { "pipeline_profile":{"type":"string","enum":["practical","strict"]},
-                      "frames_min":{"type":"integer","minimum":1},
-                      "frames_optimal":{"type":"integer","minimum":1},
+      "properties": { "frames_min":{"type":"integer","minimum":1},
                       "frames_reduced_threshold":{"type":"integer","minimum":1},
-                      "exposure_time_tolerance_percent":{"type":"number","minimum":0},
                       "reduced_mode_skip_clustering":{"type":"boolean"},
                       "reduced_mode_cluster_range":{"type":"array","items":{"type":"integer","minimum":1},"minItems":2,"maxItems":2} } },
     "normalization": { "type":"object",

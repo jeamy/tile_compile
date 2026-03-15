@@ -265,19 +265,23 @@
             <div class="ps-section ps-parameter-group" data-category="assumptions">
               <div class="ps-section-title">Assumptions</div>
               <div class="ps-row">
-                <label for="parameter-ass-pipeline-profile">assumptions.pipeline_profile</label>
-                <select id="parameter-ass-pipeline-profile" class="ps-select" title="Profil fuer Full/Reduced/Emergency Verhalten.">
-                  <option selected>strict</option>
-                  <option>practical</option>
+                <label for="parameter-ass-frames-min">assumptions.frames_min</label>
+                <input id="parameter-ass-frames-min" class="ps-input ps-short" type="number" value="50" title="Mindestanzahl Frames vor Abort oder Emergency.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-ass-frames-reduced-threshold">assumptions.frames_reduced_threshold</label>
+                <input id="parameter-ass-frames-reduced-threshold" class="ps-input ps-short" type="number" value="200" title="Schwelle zwischen Reduced- und Full-Mode.">
+              </div>
+              <div class="ps-row">
+                <label for="parameter-ass-skip-cluster">assumptions.reduced_mode_skip_clustering</label>
+                <select id="parameter-ass-skip-cluster" class="ps-select" title="Clustering im Reduced-Mode ueberspringen.">
+                  <option selected>true</option>
+                  <option>false</option>
                 </select>
               </div>
               <div class="ps-row">
-                <label for="parameter-ass-frames-min">assumptions.frames_min</label>
-                <input id="parameter-ass-frames-min" class="ps-input ps-short" type="number" value="30" title="Mindestanzahl Frames.">
-              </div>
-              <div class="ps-row">
-                <label for="parameter-ass-frames-optimal">assumptions.frames_optimal</label>
-                <input id="parameter-ass-frames-optimal" class="ps-input ps-short" type="number" value="300" title="Optimale Frame-Anzahl.">
+                <label for="parameter-ass-cluster-range">assumptions.reduced_mode_cluster_range</label>
+                <input id="parameter-ass-cluster-range" class="ps-input ps-short" type="text" value="[5, 10]" title="K-Suchbereich fuer Reduced-Mode-Clustering.">
               </div>
             </div>
 

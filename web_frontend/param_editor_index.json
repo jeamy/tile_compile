@@ -1,14 +1,6 @@
 [
   {
     "category": "assumptions",
-    "minimum": 0,
-    "path": "assumptions.exposure_time_tolerance_percent",
-    "source": "schema",
-    "type": "number",
-    "yaml_default": 8.0
-  },
-  {
-    "category": "assumptions",
     "minimum": 1,
     "path": "assumptions.frames_min",
     "source": "schema",
@@ -17,15 +9,7 @@
   },
   {
     "category": "assumptions",
-    "minimum": 1,
-    "path": "assumptions.frames_optimal",
-    "source": "schema",
-    "type": "integer",
-    "yaml_default": 300
-  },
-  {
-    "category": "assumptions",
-    "description": "Schwelle fuer Full Mode: 50..(threshold-1) = Reduced Mode, ab threshold = Full Mode.",
+    "description": "Schwelle fuer Full Mode: frames_min..(threshold-1) = Reduced Mode, ab threshold = Full Mode.",
     "minimum": 1,
     "path": "assumptions.frames_reduced_threshold",
     "source": "schema",
@@ -34,23 +18,12 @@
   },
   {
     "category": "assumptions",
-    "description": "Pipeline behavior profile: practical keeps compatibility defaults, strict enforces v3.3.6 normative constraints.",
-    "enum": [
-      "practical",
-      "strict"
-    ],
-    "path": "assumptions.pipeline_profile",
-    "source": "schema",
-    "type": "string",
-    "yaml_default": "strict"
-  },
-  {
-    "category": "assumptions",
+    "description": "K-Suchbereich fuer Reduced-Mode-Clustering, wenn Clustering nicht uebersprungen wird.",
     "path": "assumptions.reduced_mode_cluster_range",
     "source": "schema",
     "type": "array",
     "yaml_default": [
-      3,
+      5,
       10
     ]
   },

@@ -251,19 +251,17 @@ const PARAM_ID_PATHS = {
   "parameter-cal-darks-dir": "calibration.darks_dir",
   "parameter-cal-use-flat": "calibration.use_flat",
   "parameter-cal-flats-dir": "calibration.flats_dir",
-  "parameter-ass-pipeline-profile": "assumptions.pipeline_profile",
   "parameter-ass-frames-min": "assumptions.frames_min",
-  "parameter-ass-frames-optimal": "assumptions.frames_optimal",
+  "parameter-ass-frames-reduced-threshold": "assumptions.frames_reduced_threshold",
+  "parameter-ass-skip-cluster": "assumptions.reduced_mode_skip_clustering",
+  "parameter-ass-cluster-range": "assumptions.reduced_mode_cluster_range",
 };
 
 const ASSUMPTION_ID_PATHS = {
-  "asmpt-profile": "assumptions.pipeline_profile",
   "asmpt-min": "assumptions.frames_min",
-  "asmpt-opt": "assumptions.frames_optimal",
   "asmpt-reduced": "assumptions.frames_reduced_threshold",
   "asmpt-skip-cluster": "assumptions.reduced_mode_skip_clustering",
   "asmpt-cluster-range": "assumptions.reduced_mode_cluster_range",
-  "asmpt-exp-tol": "assumptions.exposure_time_tolerance_percent",
 };
 
 const SCAN_CALIBRATION_BINDINGS = [

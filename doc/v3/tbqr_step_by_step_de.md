@@ -5,7 +5,7 @@ Diese Anleitung erklärt, wie die aktive C++-Pipeline (`tile_compile_cpp`) ausge
 **Update-Hinweis (2026-03-03):**
 - Resume unterstützt `ASTROMETRY`, `BGE` und `PCC`.
 - BGE läuft vor PCC; die BGE-Konfiguration enthält benutzernahe robuste Regler (`bge.fit.robust_loss`, `bge.fit.huber_delta`).
-- Das Methodikprofil wird explizit über `assumptions.pipeline_profile` (`practical` oder `strict`) gesteuert.
+- Die Assumptions werden über die aktiven Runtime-Schwellen (`frames_min`, `frames_reduced_threshold`) und Reduced-Mode-Regeln gesteuert.
 - Die streng ausgerichtete Registrierungskaskade kann Star-Pairs über `registration.enable_star_pair_fallback: false` deaktivieren.
 
 ## 1) Voraussetzungen
@@ -137,8 +137,8 @@ Kopiere eine Datei und passe mindestens Folgendes an:
 - `input.pattern`
 - `data.image_width` / `data.image_height` (falls nötig)
 - `data.bayer_pattern` (für OSC/CFA-Datensätze)
-- `assumptions.pipeline_profile` (`strict` für explizite kanalweise v3.3.6-Ausrichtung, `practical` für den CFA-Proxy-Core-Pfad)
-- `registration.enable_star_pair_fallback` (`false` im strikten Profil)
+- `assumptions.frames_min` / `assumptions.frames_reduced_threshold`
+- `registration.enable_star_pair_fallback` (`false` für strengeres Registrierungsverhalten)
 
 Beispiel:
 

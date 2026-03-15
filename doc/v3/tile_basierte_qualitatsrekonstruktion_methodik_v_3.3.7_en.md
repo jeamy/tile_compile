@@ -140,9 +140,7 @@ Acceptance criterion per attempt:
 - `NCC(warped, ref) > NCC(identity, ref) + delta_ncc`
 - Default `delta_ncc = 0.01`
 
-### 4.3 CFA-Proxy Core Path in Practical Profile (Binding)
-
-Allowed only when `assumptions.pipeline_profile: practical`.
+### 4.3 CFA-Proxy Core Path (Binding)
 
 - Global/local metrics and tile reconstruction may operate on CFA-proxy inputs instead of early explicit RGB planes.
 - This is conformant only if the channel semantics and linearity constraints from §2.5 are preserved.

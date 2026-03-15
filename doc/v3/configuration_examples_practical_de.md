@@ -9,14 +9,14 @@ Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen,
 - `bge.fit.robust_loss` und `bge.fit.huber_delta` sind wieder als Benutzerparameter verfügbar.
 - Neue BGE-Apply-Grenzwerte `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` dokumentiert.
 - PCC-Beispiele wurden auf den aktuellen Parametersatz (ohne `pcc.method`) aktualisiert.
-- `assumptions.pipeline_profile` (`practical|strict`) für explizite Methodik-Profile ergänzt.
+- Assumptions-Beispiele auf die aktiven Runtime-Felder (`frames_min`, `frames_reduced_threshold`, Reduced-Mode-Steuerung) abgeglichen.
 - `registration.enable_star_pair_fallback` ergänzt, um die optionale nicht-normative Star-Pair-Stufe zu steuern.
 
-**Strict-v3.3.6-Basis-Snippet:**
+**Strict-v3.3.7-Basis-Snippet:**
 
 ```yaml
 assumptions:
-  pipeline_profile: strict
+  frames_min: 50
   frames_reduced_threshold: 200
 
 registration:

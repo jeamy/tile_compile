@@ -32,8 +32,8 @@ Das primäre Ergebnis ist ein lineares Summenbild. Je nach Konfiguration entsteh
   - Persistierte Diagnose- oder Zwischeninformation, typischerweise als JSON oder Report-Datei unter `artifacts/`.
 - **Event-Timeline**
   - Zeitlich geordnete Laufereignisse in `logs/run_events.jsonl`.
-- **Methodik-Profil**
-  - `assumptions.pipeline_profile` bestimmt, ob die Pipeline eher streng normativ (`strict`) oder praktisch robust (`practical`) läuft.
+- **Assumptions-Schwellen**
+  - `assumptions.frames_min` und `assumptions.frames_reduced_threshold` bestimmen, ob der Runner abbricht, in Reduced Mode wechselt oder die volle Pipeline ausführt.
 - **Resume**
   - Bestehende Run-Verzeichnisse können für Post-Run-Phasen erneut verwendet werden, aktuell insbesondere ab `ASTROMETRY`, `BGE` oder `PCC`.
 

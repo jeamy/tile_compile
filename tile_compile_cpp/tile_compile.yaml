@@ -1,9 +1,6 @@
 assumptions:
-  exposure_time_tolerance_percent: 8
   frames_min: 30
-  frames_optimal: 300
   frames_reduced_threshold: 120
-  pipeline_profile: practical
   reduced_mode_cluster_range:
     - 3
     - 10

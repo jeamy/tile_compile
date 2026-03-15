@@ -286,66 +286,34 @@ Calibration frame processing.
 
 ## 6. Assumptions
 
-Physical assumptions about the data.
-
-### `assumptions.pipeline_profile`
-
-| Property | Value |
-|----------|-------|
-| **Type** | string (enum) |
-| **Values** | `practical`, `strict` |
-| **Default** | `"practical"` |
-
-**Purpose:** Select profile label for methodology traceability (`practical` / `strict`).
-
-| Aspect | `practical` | `strict` |
-|--------|-------------|----------|
-| Runtime core execution path | unified | unified |
-| Phase order | same runtime order | same runtime order |
-| Reduced→Full gate | `frames_reduced_threshold` | `frames_reduced_threshold` |
-| Registration cascade behavior | controlled by `registration.enable_star_pair_fallback` | controlled by `registration.enable_star_pair_fallback` |
-| Phase-7 tile normalization | full mode on, reduced/emergency per config | full mode on, reduced/emergency per config |
-| PCC `auto_fwhm` fallback | same runtime behavior | same runtime behavior |
-
-Current implementation note: `pipeline_profile` is retained for compatibility and reporting, while the image-processing core runs with a unified runtime path.
+Frame-count assumptions and reduced-mode behavior.
 
 ### `assumptions.frames_min`
-
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
+| **Minimum** | `1` |
 | **Default** | `50` |
 
-**Purpose:** Minimum usable frame count for normal mode.
-
-### `assumptions.frames_optimal`
-
-| Property | Value |
-|----------|-------|
-| **Type** | integer |
-| **Default** | `800` |
-
-**Purpose:** Informational target for best quality/stability.
+**Purpose:** Minimum usable frame count before the run aborts or drops into emergency reduced mode.
 
 ### `assumptions.frames_reduced_threshold`
 
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
+| **Minimum** | `1` |
 | **Default** | `200` |
 
-**Purpose:** Threshold for reduced mode decisions.
+**Purpose:** Switch point between reduced and full pipeline behavior.
 
-Runtime uses `frames_reduced_threshold` directly in both profiles.
+Runtime uses `frames_min` and `frames_reduced_threshold` directly:
 
-### `assumptions.exposure_time_tolerance_percent`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `5.0` |
-
-**Purpose:** Allowed exposure mismatch within one sequence.
+| Frame count | Mode |
+|-------------|------|
+| `< frames_min` | abort / emergency reduced mode |
+| `frames_min <= N < frames_reduced_threshold` | **Reduced Mode** |
+| `N >= frames_reduced_threshold` | **Full Mode** |
 
 ### `assumptions.reduced_mode_skip_clustering`
 
@@ -361,9 +329,9 @@ Runtime uses `frames_reduced_threshold` directly in both profiles.
 | Property | Value |
 |----------|-------|
 | **Type** | array [2 integers] |
-| **Default** | `[5, 20]` |
+| **Default** | `[5, 10]` |
 
-**Purpose:** Cluster range fallback when reduced mode still runs clustering.
+**Purpose:** Cluster search range used when reduced mode still runs clustering.
 
 ---
 
@@ -1705,13 +1673,10 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `calibration.bias_dir`, `darks_dir`, `flats_dir`: source folders for calibration frame discovery.
 - `calibration.bias_master`, `dark_master`, `flat_master`: explicit master calibration file paths.
 - `calibration.pattern`: file glob for calibration frame loading.
-- `assumptions.frames_min`: minimum frame count expectation for stable methodology.
-- `assumptions.pipeline_profile`: profile label for compatibility/reporting; runtime core path is unified.
-- `assumptions.frames_optimal`: target count for full-quality behavior.
+- `assumptions.frames_min`: minimum usable frame count before the run aborts or enters emergency reduced mode.
 - `assumptions.frames_reduced_threshold`: switch point between reduced and full pipeline behavior.
-- `assumptions.exposure_time_tolerance_percent`: acceptable sub-exposure dispersion.
 - `assumptions.reduced_mode_skip_clustering`: disables expensive state clustering in reduced mode.
-- `assumptions.reduced_mode_cluster_range`: bounded cluster search if clustering still runs in reduced mode.
+- `assumptions.reduced_mode_cluster_range`: reduced-mode cluster search range when clustering still runs.
 
 ### A.3 Normalization / Registration / Dithering
 

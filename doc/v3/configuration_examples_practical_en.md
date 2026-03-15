@@ -9,14 +9,14 @@ This guide complements the configuration reference with practical examples, edge
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are available again as user-facing parameters.
 - New BGE apply guards `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented.
 - PCC examples were aligned with the current parameter set (without `pcc.method`).
-- Added `assumptions.pipeline_profile` (`practical|strict`) for explicit methodology profile selection.
+- Assumptions examples were aligned with the active runtime fields (`frames_min`, `frames_reduced_threshold`, reduced-mode controls).
 - Added `registration.enable_star_pair_fallback` to control the optional non-normative star-pair stage.
 
-**Strict v3.3.6 baseline snippet:**
+**Strict v3.3.7 baseline snippet:**
 
 ```yaml
 assumptions:
-  pipeline_profile: strict
+  frames_min: 50
   frames_reduced_threshold: 200
 
 registration:

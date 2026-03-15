@@ -365,27 +365,6 @@ Kalibrierungs-Einstellungen (Bias, Dark, Flat). Wird **vor** der Pipeline auf di
 
 Schwellenwerte und Annahmen für Pipeline-Entscheidungen (Normal Mode vs. Reduced Mode).
 
-### `assumptions.pipeline_profile`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | string (enum) |
-| **Werte** | `practical`, `strict` |
-| **Default** | `"practical"` |
-
-**Zweck:** Profil-Label für Methodik-Traceability (`practical` / `strict`).
-
-| Aspekt | `practical` | `strict` |
-|--------|-------------|----------|
-| Runtime-Core-Ausführungspfad | vereinheitlicht | vereinheitlicht |
-| Phasenreihenfolge | gleiche Runtime-Reihenfolge | gleiche Runtime-Reihenfolge |
-| Reduced→Full Gate | `frames_reduced_threshold` | `frames_reduced_threshold` |
-| Registration-Cascade-Verhalten | über `registration.enable_star_pair_fallback` gesteuert | über `registration.enable_star_pair_fallback` gesteuert |
-| Phase-7 Tile-Normalisierung | Full-Mode aktiv, Reduced/Emergency konfigurationsabhängig | Full-Mode aktiv, Reduced/Emergency konfigurationsabhängig |
-| PCC `auto_fwhm` Fallback | gleiches Runtime-Verhalten | gleiches Runtime-Verhalten |
-
-Aktueller Implementierungs-Hinweis: `pipeline_profile` bleibt für Kompatibilität und Reporting erhalten; der Bildverarbeitungs-Core läuft über einen gemeinsamen Runtime-Pfad.
-
 ### `assumptions.frames_min`
 
 | Eigenschaft | Wert |
@@ -394,23 +373,7 @@ Aktueller Implementierungs-Hinweis: `pipeline_profile` bleibt für Kompatibilit�
 | **Minimum** | 1 |
 | **Default** | `50` |
 
-**Zweck:** Minimale Frame-Anzahl für eine sinnvolle Verarbeitung (Hard Assumption).
-
-**Verhalten:** Bei weniger Frames wird eine Warnung erzeugt. Der Abbruch hängt von `pipeline.abort_on_fail` ab.
-
----
-
-### `assumptions.frames_optimal`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | integer |
-| **Minimum** | 1 |
-| **Default** | `800` |
-
-**Zweck:** Optimale Frame-Anzahl für vollständige Methodik. Rein informativ — erzeugt eine Warnung bei Unterschreitung, aber keinen Abbruch.
-
----
+**Zweck:** Minimale nutzbare Frame-Anzahl, bevor der Run abbricht oder in den Emergency-Reduced-Mode fällt.
 
 ### `assumptions.frames_reduced_threshold`
 
@@ -422,27 +385,13 @@ Aktueller Implementierungs-Hinweis: `pipeline_profile` bleibt für Kompatibilit�
 
 **Zweck:** Schwellenwert für den Wechsel zwischen Normal Mode und Reduced Mode.
 
-Die Runtime verwendet in beiden Profilen direkt `frames_reduced_threshold`.
+Die Runtime verwendet `frames_min` und `frames_reduced_threshold` direkt.
 
 | Frame-Anzahl | Modus |
 |-------------|-------|
 | `< frames_min` | Warnung / Abbruch |
 | `frames_min ≤ N < frames_reduced_threshold` | **Reduced Mode** (kein Clustering, keine synthetischen Frames) |
 | `N ≥ frames_reduced_threshold` | **Normal Mode** (alle Phasen) |
-
----
-
-### `assumptions.exposure_time_tolerance_percent`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | number |
-| **Minimum** | 0 |
-| **Default** | `5.0` |
-
-**Zweck:** Maximale erlaubte Abweichung der Belichtungszeit in Prozent (Hard Assumption).
-
-**Beispiel:** Bei 5% und 10s Belichtung sind 9.5s – 10.5s erlaubt.
 
 ---
 
@@ -2360,7 +2309,6 @@ linearity:
 # Assumptions
 assumptions:
   frames_min: 50
-  frames_optimal: 800
   frames_reduced_threshold: 200
   reduced_mode_skip_clustering: true
 
@@ -2589,11 +2537,8 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `calibration.bias_dir`, `darks_dir`, `flats_dir`: Quellordner für Kalibrierframe-Findung.
 - `calibration.bias_master`, `dark_master`, `flat_master`: explizite Pfade zu Master-Kalibrierframes.
 - `calibration.pattern`: Glob-Muster für Kalibrierdatei-Lookup.
-- `assumptions.pipeline_profile`: Profil-Label für Kompatibilität/Reporting; der Runtime-Core-Pfad ist vereinheitlicht.
-- `assumptions.frames_min`: Mindestrahmenzahl-Erwartung für stabile Methodik.
-- `assumptions.frames_optimal`: Zielrahmenzahl für volle Qualitätsstabilität.
+- `assumptions.frames_min`: minimale nutzbare Frame-Anzahl vor Abort oder Emergency-Reduced-Mode.
 - `assumptions.frames_reduced_threshold`: Umschaltpunkt Reduced- vs. Full-Mode.
-- `assumptions.exposure_time_tolerance_percent`: tolerierte Sub-Exposure-Streuung.
 - `assumptions.reduced_mode_skip_clustering`: deaktiviert teures State-Clustering im Reduced-Mode.
 - `assumptions.reduced_mode_cluster_range`: begrenzter K-Suchraum falls Clustering im Reduced-Mode läuft.
 

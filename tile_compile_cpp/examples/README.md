@@ -3,10 +3,12 @@
 All example files in this folder are **complete standalone configurations** and include
 all currently available config options with inline explanations.
 
-They are kept in sync with v3.3 runner/config parser defaults, including:
+They are kept in sync with the active runner/config parser defaults, including:
 
-- `assumptions.pipeline_profile`
-  - selects `practical` (compatibility behavior) vs `strict` (v3.3.6 normative alignment).
+- `assumptions.frames_min`, `assumptions.frames_reduced_threshold`
+  - define abort/emergency, reduced mode, and full-mode thresholds.
+- `assumptions.reduced_mode_skip_clustering`, `assumptions.reduced_mode_cluster_range`
+  - control how reduced-mode clustering behaves when the run does not have enough frames for full mode.
 - `registration.enable_star_pair_fallback`
   - controls whether the optional Star-Pairs stage is used in the global registration cascade.
 

@@ -862,7 +862,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         log_file);
   }
 
-  constexpr int kReducedModeMinFrames = 50;
+  const int kReducedModeMinFrames = cfg.assumptions.frames_min;
   const int reduced_threshold = cfg.assumptions.frames_reduced_threshold;
   const core::ModeGateDecision gate = core::evaluate_mode_gate(
       n_usable_frames, reduced_threshold,
@@ -2159,6 +2159,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       // Determine cluster count: K = clip(floor(N/10), K_min, K_max)
       int k_min = cfg.synthetic.clustering.cluster_count_range[0];
       int k_max = cfg.synthetic.clustering.cluster_count_range[1];
+      if (reduced_mode) {
+        k_min = cfg.assumptions.reduced_mode_cluster_range[0];
+        k_max = cfg.assumptions.reduced_mode_cluster_range[1];
+      }
       int k_default = std::max(k_min, std::min(k_max, n_frames_cluster / 10));
 
       // Simple k-means clustering

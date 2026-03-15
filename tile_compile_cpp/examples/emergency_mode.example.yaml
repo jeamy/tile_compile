@@ -59,11 +59,8 @@ calibration:
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz" # Dateimaske fuer Kalibrierdaten (inkl. komprimierte .fz)
 
 assumptions:
-  pipeline_profile: practical # practical|strict
   frames_min: 50 # normative Untergrenze; darunter nur Emergency statt hartem Abort
-  frames_optimal: 800 # Zielbereich fuer optimale Robustheit
   frames_reduced_threshold: 200 # bei Emergency stets unterschritten
-  exposure_time_tolerance_percent: 5.0 # Toleranz fuer Input-Konsistenz
   reduced_mode_skip_clustering: true # Emergency-Modus: Clustering/Synthetic optional skip
   reduced_mode_cluster_range: [5, 10] # Cluster-Range in Reduced/Emergency-Betrieb
 

@@ -56,11 +56,8 @@ struct CalibrationConfig {
 };
 
 struct AssumptionsConfig {
-  std::string pipeline_profile = "practical"; // practical | strict
   int frames_min = 50;
-  int frames_optimal = 800;
   int frames_reduced_threshold = 200;
-  float exposure_time_tolerance_percent = 5.0f;
   bool reduced_mode_skip_clustering = true;
   std::array<int, 2> reduced_mode_cluster_range{5, 10};
 };

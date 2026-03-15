@@ -54,11 +54,8 @@ calibration:
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
 
 assumptions:
-  pipeline_profile: practical
   frames_min: 30
-  frames_optimal: 300
   frames_reduced_threshold: 120
-  exposure_time_tolerance_percent: 8.0
   reduced_mode_skip_clustering: true
   reduced_mode_cluster_range: [3, 10]
 
