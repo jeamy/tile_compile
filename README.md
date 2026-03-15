@@ -459,6 +459,12 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.0.D (2026-03-15)
+
+- Expanded `TILE_RECONSTRUCTION` boundary diagnostics to separate raw vs. normalized tile mismatches and exclude masked canvas zones from the metric.
+- Added artifact visibility for `tile_norm_bg_*` and `tile_norm_scale` to diagnose whether per-tile normalization itself amplifies visible seams.
+- Synchronized GUI2 `run_name` and `runs_dir` across dashboard, wizard, and input-scan, including direct editing on the input-scan page.
+
 ## v0.0.C (2026-03-13)
 
 - GUI2 parameter/config handling synchronized with the current C++ config schema, defaults, and reference docs.
@@ -529,6 +535,15 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-03-15)
+
+**Boundary diagnostics deepening + GUI2 run-field synchronization:**
+
+- Extended `TILE_RECONSTRUCTION` diagnostics so `tile_reconstruction.json` now exposes raw and normalized tile-boundary metrics separately, plus `tile_norm_bg_r/g/b` and `tile_norm_scale` for direct normalization analysis.
+- Corrected tile-boundary analysis to exclude masked `COMMON_OVERLAP` / canvas-invalid zones instead of counting them as valid zero-valued samples.
+- Updated the methodology/process/reference/practical docs to reflect the read-only raw/normalized boundary diagnostics and the common-canvas-mask requirement.
+- Added `run_name` and `runs_dir` editing to Input&Scan and unified both fields across dashboard, wizard, and input-scan via the shared GUI2 stored state.
 
 ### (2026-03-13)
 

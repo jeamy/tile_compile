@@ -1,6 +1,7 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
+#include "tile_compile/reconstruction/tile_normalization.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -8,6 +9,10 @@
 using tile_compile::Matrix2Df;
 using tile_compile::Tile;
 using tile_compile::reconstruction::analyze_tile_boundaries;
+using tile_compile::reconstruction::estimate_tile_normalization_stats;
+using tile_compile::reconstruction::guard_tile_normalization_stats;
+using tile_compile::reconstruction::TileNormalizationGuardConfig;
+using tile_compile::reconstruction::TileNormalizationStats;
 using tile_compile::reconstruction::sigma_clip_weighted_tile_with_fallback;
 
 TEST_CASE("tile_weighted_path_uses_all_frames_without_preselection") {
@@ -147,6 +152,42 @@ TEST_CASE("tile_boundary_diagnostics_respects_common_canvas_mask") {
           Catch::Approx(5.0f).margin(1e-6));
   REQUIRE(diagnostics.pair_diagnostics[0].p95_abs_diff ==
           Catch::Approx(5.0f).margin(1e-6));
+}
+
+TEST_CASE("tile_normalization_stats_ignore_masked_zero_pixels") {
+  Matrix2Df tile(1, 5);
+  tile << 0.0f, 1.0f, 2.0f, 3.0f, 0.0f;
+
+  const auto stats = estimate_tile_normalization_stats(tile);
+
+  REQUIRE(stats.sample_count == 3);
+  REQUIRE(stats.total_count == 5);
+  REQUIRE(stats.background == Catch::Approx(2.0f).margin(1e-6));
+  REQUIRE(stats.scale == Catch::Approx(1.0f).margin(1e-6));
+}
+
+TEST_CASE("tile_normalization_guard_clamps_unstable_low_scales") {
+  std::vector<TileNormalizationStats> stats = {
+      TileNormalizationStats{1.0f, 2.0f, 400, 400},
+      TileNormalizationStats{1.1f, 4.0f, 400, 400},
+      TileNormalizationStats{0.9f, 0.2f, 400, 400},
+      TileNormalizationStats{0.0f, 0.0f, 0, 400},
+  };
+  std::vector<uint8_t> valid = {1u, 1u, 1u, 1u};
+  TileNormalizationGuardConfig cfg;
+
+  const auto summary =
+      guard_tile_normalization_stats(&stats, valid, cfg, 1.0e-6f);
+
+  REQUIRE(summary.global_background ==
+          Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(summary.global_scale == Catch::Approx(2.0f).margin(1e-6));
+  REQUIRE(summary.clamped_low_scale_count == 1);
+  REQUIRE(summary.used_global_background_count == 1);
+  REQUIRE(summary.used_global_scale_count == 1);
+  REQUIRE(stats[2].scale == Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(stats[3].background == Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(stats[3].scale == Catch::Approx(2.0f).margin(1e-6));
 }
 #else
 int tile_compile_tests_reconstruction_regression_stub() { return 0; }

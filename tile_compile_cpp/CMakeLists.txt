@@ -328,6 +328,7 @@ set(LIB_SOURCES
     src/metrics/linearity.cpp
     src/reconstruction/reconstruction.cpp
     src/reconstruction/tile_boundary_diagnostics.cpp
+    src/reconstruction/tile_normalization.cpp
     src/pipeline/adaptive_tile_grid.cpp
     src/astrometry/wcs.cpp
     src/astrometry/gaia_catalog.cpp

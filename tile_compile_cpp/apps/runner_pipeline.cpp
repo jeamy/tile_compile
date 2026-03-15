@@ -16,6 +16,7 @@
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
+#include "tile_compile/reconstruction/tile_normalization.hpp"
 #include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/astrometry/gaia_catalog.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
@@ -61,25 +62,6 @@ using tile_compile::runner::format_bytes;
 using tile_compile::runner::message_indicates_disk_full;
 
 using NormalizationScales = image::NormalizationScales;
-
-static float median_from_matrix(const Matrix2Df &src, bool abs_values,
-                                float center = 0.0f) {
-  if (src.size() <= 0) {
-    return 0.0f;
-  }
-  std::vector<float> values(static_cast<size_t>(src.size()));
-  if (abs_values) {
-    for (Eigen::Index i = 0; i < src.size(); ++i) {
-      values[static_cast<size_t>(i)] = std::fabs(src.data()[i] - center);
-    }
-  } else {
-    std::copy(src.data(), src.data() + src.size(), values.begin());
-  }
-  const size_t mid = values.size() / 2;
-  std::nth_element(values.begin(), values.begin() + static_cast<long>(mid),
-                   values.end());
-  return values[mid];
-}
 
 bool write_canvas_mask_fits(const fs::path &mask_path,
                             const std::vector<uint8_t> &mask,
@@ -1047,11 +1029,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     tile_norm_bg_g.assign(tiles_phase56.size(), 0.0f);
     tile_norm_bg_b.assign(tiles_phase56.size(), 0.0f);
     tile_norm_scale.assign(tiles_phase56.size(), 1.0f);
-    std::vector<float> tile_full_bg_mono(tiles_phase56.size(), 0.0f);
-    std::vector<float> tile_full_bg_r(tiles_phase56.size(), 0.0f);
-    std::vector<float> tile_full_bg_g(tiles_phase56.size(), 0.0f);
-    std::vector<float> tile_full_bg_b(tiles_phase56.size(), 0.0f);
-    std::vector<float> tile_full_scale_mono(tiles_phase56.size(), 1.0f);
+    std::vector<reconstruction::TileNormalizationStats> tile_norm_stats(
+        tiles_phase56.size());
+    std::vector<reconstruction::PositiveMedianEstimate> tile_bg_r_estimates(
+        tiles_phase56.size());
+    std::vector<reconstruction::PositiveMedianEstimate> tile_bg_g_estimates(
+        tiles_phase56.size());
+    std::vector<reconstruction::PositiveMedianEstimate> tile_bg_b_estimates(
+        tiles_phase56.size());
+    reconstruction::TileNormalizationGuardSummary tile_norm_guard_summary;
     tile_post_snr.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dx.assign(tiles_phase56.size(), 0.0f);
     tile_mean_dy.assign(tiles_phase56.size(), 0.0f);
@@ -1388,35 +1374,87 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     }
 
     if (apply_phase7_tile_norm) {
+      constexpr reconstruction::TileNormalizationGuardConfig kTileNormGuardCfg{};
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
         if (tile_reconstructed_valid[ti] == 0u) {
           continue;
         }
-        tile_full_bg_mono[ti] = median_from_matrix(reconstructed_tiles[ti], false);
-        tile_full_scale_mono[ti] =
-            median_from_matrix(reconstructed_tiles[ti], true, tile_full_bg_mono[ti]);
+        tile_norm_stats[ti] = reconstruction::estimate_tile_normalization_stats(
+            reconstructed_tiles[ti]);
         if (osc_mode) {
-          tile_full_bg_r[ti] =
-              median_from_matrix(reconstructed_tiles_R[ti], false);
-          tile_full_bg_g[ti] =
-              median_from_matrix(reconstructed_tiles_G[ti], false);
-          tile_full_bg_b[ti] =
-              median_from_matrix(reconstructed_tiles_B[ti], false);
-        } else {
-          tile_full_bg_r[ti] = tile_full_bg_mono[ti];
+          tile_bg_r_estimates[ti] =
+              reconstruction::positive_median(reconstructed_tiles_R[ti]);
+          tile_bg_g_estimates[ti] =
+              reconstruction::positive_median(reconstructed_tiles_G[ti]);
+          tile_bg_b_estimates[ti] =
+              reconstruction::positive_median(reconstructed_tiles_B[ti]);
         }
       }
+      tile_norm_guard_summary = reconstruction::guard_tile_normalization_stats(
+          &tile_norm_stats, tile_reconstructed_valid, kTileNormGuardCfg,
+          kEpsMedian);
+
+      std::vector<float> valid_bg_r_vals;
+      std::vector<float> valid_bg_g_vals;
+      std::vector<float> valid_bg_b_vals;
+      valid_bg_r_vals.reserve(tiles_phase56.size());
+      valid_bg_g_vals.reserve(tiles_phase56.size());
+      valid_bg_b_vals.reserve(tiles_phase56.size());
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
         if (tile_reconstructed_valid[ti] == 0u) {
           continue;
         }
-        tile_norm_scale[ti] = std::max(kEpsMedian, tile_full_scale_mono[ti]);
+        const size_t min_required = reconstruction::minimum_tile_normalization_samples(
+            tile_norm_stats[ti].total_count, kTileNormGuardCfg);
+        if (!osc_mode) {
+          valid_bg_r_vals.push_back(tile_norm_stats[ti].background);
+          continue;
+        }
+        if (tile_bg_r_estimates[ti].sample_count >= min_required &&
+            std::isfinite(tile_bg_r_estimates[ti].value)) {
+          valid_bg_r_vals.push_back(tile_bg_r_estimates[ti].value);
+        }
+        if (tile_bg_g_estimates[ti].sample_count >= min_required &&
+            std::isfinite(tile_bg_g_estimates[ti].value)) {
+          valid_bg_g_vals.push_back(tile_bg_g_estimates[ti].value);
+        }
+        if (tile_bg_b_estimates[ti].sample_count >= min_required &&
+            std::isfinite(tile_bg_b_estimates[ti].value)) {
+          valid_bg_b_vals.push_back(tile_bg_b_estimates[ti].value);
+        }
+      }
+      const float global_bg_r = valid_bg_r_vals.empty()
+                                    ? tile_norm_guard_summary.global_background
+                                    : core::median_of(valid_bg_r_vals);
+      const float global_bg_g = valid_bg_g_vals.empty() ? global_bg_r
+                                                        : core::median_of(valid_bg_g_vals);
+      const float global_bg_b = valid_bg_b_vals.empty() ? global_bg_r
+                                                        : core::median_of(valid_bg_b_vals);
+      for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+        if (tile_reconstructed_valid[ti] == 0u) {
+          continue;
+        }
+        const size_t min_required = reconstruction::minimum_tile_normalization_samples(
+            tile_norm_stats[ti].total_count, kTileNormGuardCfg);
+        tile_norm_scale[ti] = std::max(kEpsMedian, tile_norm_stats[ti].scale);
         if (osc_mode) {
-          tile_norm_bg_r[ti] = tile_full_bg_r[ti];
-          tile_norm_bg_g[ti] = tile_full_bg_g[ti];
-          tile_norm_bg_b[ti] = tile_full_bg_b[ti];
+          tile_norm_bg_r[ti] =
+              (tile_bg_r_estimates[ti].sample_count >= min_required &&
+               std::isfinite(tile_bg_r_estimates[ti].value))
+                  ? tile_bg_r_estimates[ti].value
+                  : global_bg_r;
+          tile_norm_bg_g[ti] =
+              (tile_bg_g_estimates[ti].sample_count >= min_required &&
+               std::isfinite(tile_bg_g_estimates[ti].value))
+                  ? tile_bg_g_estimates[ti].value
+                  : global_bg_g;
+          tile_norm_bg_b[ti] =
+              (tile_bg_b_estimates[ti].sample_count >= min_required &&
+               std::isfinite(tile_bg_b_estimates[ti].value))
+                  ? tile_bg_b_estimates[ti].value
+                  : global_bg_b;
         } else {
-          tile_norm_bg_r[ti] = tile_full_bg_mono[ti];
+          tile_norm_bg_r[ti] = tile_norm_stats[ti].background;
         }
       }
     }
@@ -1720,6 +1758,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     weight_sum.resize(0, 0);
     first_img.resize(0, 0);
 
+    const int valid_tile_count = std::count_if(
+        tile_valid_counts.begin(), tile_valid_counts.end(),
+        [&](int c) { return c >= min_valid_frames; });
+    const int dead_tile_count = static_cast<int>(tiles_phase56.size()) -
+                                std::count_if(tile_reconstructed_valid.begin(),
+                                              tile_reconstructed_valid.end(),
+                                              [&](uint8_t v) { return v != 0u; });
+    const int full_support_tile_count = std::count_if(
+        tile_valid_counts.begin(), tile_valid_counts.end(),
+        [&](int c) { return c == static_cast<int>(frames.size()); });
+
     // Write reconstruction artifacts (v3)
     {
       core::json artifact;
@@ -1757,6 +1806,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       };
       artifact["num_frames"] = static_cast<int>(frames.size());
       artifact["num_tiles"] = static_cast<int>(tiles_phase56.size());
+      artifact["valid_tiles"] = valid_tile_count;
+      artifact["dead_tiles"] = dead_tile_count;
+      artifact["full_support_tiles"] = full_support_tile_count;
       artifact["tile_valid_counts"] = core::json::array();
       artifact["tile_fallback_used"] = core::json::array();
       artifact["tile_mean_correlations"] = core::json::array();
@@ -1767,6 +1819,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       artifact["tile_norm_bg_g"] = core::json::array();
       artifact["tile_norm_bg_b"] = core::json::array();
       artifact["tile_norm_scale"] = core::json::array();
+      artifact["tile_norm_global_background"] =
+          tile_norm_guard_summary.global_background;
+      artifact["tile_norm_global_scale"] = tile_norm_guard_summary.global_scale;
+      artifact["tile_norm_guard_used_global_background_count"] =
+          static_cast<int>(tile_norm_guard_summary.used_global_background_count);
+      artifact["tile_norm_guard_used_global_scale_count"] =
+          static_cast<int>(tile_norm_guard_summary.used_global_scale_count);
+      artifact["tile_norm_guard_clamped_low_scale_count"] =
+          static_cast<int>(tile_norm_guard_summary.clamped_low_scale_count);
+      artifact["tile_norm_guard_clamped_high_scale_count"] =
+          static_cast<int>(tile_norm_guard_summary.clamped_high_scale_count);
       artifact["tile_boundary_analysis_uses_common_canvas_mask"] = true;
       artifact["tile_boundary_raw_analysis_input"] = "pre_ola_raw";
       artifact["tile_boundary_normalized_analysis_input"] =
@@ -1866,12 +1929,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         run_id, Phase::TILE_RECONSTRUCTION, "ok",
         {
             {"output", (run_dir / "outputs" / "reconstructed_L.fit").string()},
-            {"valid_tiles",
-             std::count_if(tile_valid_counts.begin(), tile_valid_counts.end(),
-                           [&](int c) { return c >= min_valid_frames; })},
+            {"valid_tiles", valid_tile_count},
             {"fallback_tiles",
              std::count_if(tile_fallback_used.begin(), tile_fallback_used.end(),
                            [&](uint8_t v) { return v != 0u; })},
+            {"tile_norm_global_scale", tile_norm_guard_summary.global_scale},
+            {"tile_norm_guard_clamped_low_scale_count",
+             static_cast<int>(tile_norm_guard_summary.clamped_low_scale_count)},
+            {"tile_norm_guard_used_global_scale_count",
+             static_cast<int>(tile_norm_guard_summary.used_global_scale_count)},
             {"tile_boundary_analysis_input",
              apply_phase7_tile_norm ? "pre_ola_normalized" : "pre_ola_raw"},
             {"tile_boundary_pairs",

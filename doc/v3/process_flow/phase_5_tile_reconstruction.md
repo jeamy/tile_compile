@@ -115,7 +115,31 @@ tile_post_snr[ti] = snr;
 
 Diese Metriken werden im Artifact `tile_reconstruction.json` gespeichert und in der Report-Heatmap visualisiert.
 
-## 5. Boundary-Diagnostik vor OLA
+## 5. Robuste Tile-Normierung vor OLA
+
+In Full Mode werden die rekonstruierten Tiles vor dem Hanning-OLA weiterhin affine pro Tile normalisiert, aber jetzt mit einer festen Guard-Logik gegen kollabierende Skalen.
+
+Pro Tile:
+
+- `bg_t`: robuster Median nur aus endlichen, positiven Pixeln
+- `m_t`: robuster Median von `abs(R_t - bg_t)`, ebenfalls nur aus endlichen, positiven Pixeln
+
+Guard-Regeln:
+
+- Mindeststichprobe: `max(64, ceil(0.05 * tile_pixels))`
+- bei zu wenig gültigen Samples: Fallback auf globale robuste Referenzen
+- lokale Skala wird auf `[0.5 * m_global, 2.0 * m_global]` begrenzt
+
+Damit bleiben flache oder stark maskierte Tiles im linearen Pfad, können aber den OLA-Eingang nicht mehr durch extrem kleine `tile_norm_scale`-Werte sprengen.
+
+Die angewendeten Guard-Metriken stehen ebenfalls in `tile_reconstruction.json`, u.a.:
+
+- `tile_norm_global_scale`
+- `tile_norm_guard_used_global_scale_count`
+- `tile_norm_guard_clamped_low_scale_count`
+- `tile_norm_guard_clamped_high_scale_count`
+
+## 6. Boundary-Diagnostik vor OLA
 
 Die tatsächlich in OLA eingehenden Tiles werden paarweise über ihre realen Overlaps verglichen, ohne das Ergebnis zu verändern.
 
@@ -150,7 +174,7 @@ Die Boundary-Diagnostik ist bewusst **nicht-invasiv**:
 
 Damit bleibt die lineare Rekonstruktionssemantik unverändert.
 
-## 6. Hanning-Overlap-Add
+## 7. Hanning-Overlap-Add
 
 ```cpp
 for (int yy = 0; yy < tile.rows(); ++yy) {

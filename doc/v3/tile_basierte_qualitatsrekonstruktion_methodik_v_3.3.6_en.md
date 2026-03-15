@@ -1,7 +1,7 @@
 # Tile-Based Quality Reconstruction for DSO - Methodology v3.3.6
 
 **Status:** Normative reference specification  
-**Version:** v3.3.6 (2026-02-17)  
+**Version:** v3.3.7 (2026-03-15)
 **Applies to:** `tile_compile.yaml`
 
 ---
@@ -340,7 +340,26 @@ For reconstructed tile `R_{t,c}`:
 4. if `m_t >= eps_median`: `Y_t = X_t / m_t`, otherwise `Y_t = X_t`
 
 Default `eps_median = 1e-6`.
-#### 5.7.1a Photometric Preservation after OLA (Recommended)
+
+#### 5.7.1a Robust Tile-Normalization Guard (Binding)
+
+Implementations must prevent pathological amplification when `m_t` is estimated from too few valid pixels or collapses far below the dataset-wide tile scale.
+
+Required deterministic guard:
+
+1. estimate `bg_t` and `m_t` only from finite, strictly positive tile samples inside the valid reconstruction support
+2. require a minimum valid sample count per tile:
+   - `n_min = max(64, ceil(0.05 * N_t))`
+3. compute robust global references over valid tiles:
+   - `bg_global = median_t(bg_t)`
+   - `m_global = median_t(m_t)`
+4. if a tile does not meet `n_min`, replace its local normalization metadata with the global references
+5. clamp valid local scales to
+   - `m_t in [0.5 * m_global, 2.0 * m_global]`
+
+This guard is part of the linear affine normalization path. It does not introduce a nonlinear tone curve; it only prevents unstable tile-wise gain explosions from dominating the OLA input.
+
+#### 5.7.1b Photometric Preservation after OLA (Recommended)
 
 The normalization `Y_t = (R_{t,c} - bg_t)/m_t` equalizes local structure but can alter absolute photometric scale if left uncorrected.
 To preserve a consistent global affine flux scale, accumulate per-tile metadata during reconstruction and restore a global scale/offset after OLA:

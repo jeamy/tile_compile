@@ -469,6 +469,12 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.0.D (2026-03-15)
+
+- `TILE_RECONSTRUCTION`-Boundary-Diagnostik um getrennte Raw-/Normalized-Metriken erweitert und maskierte Canvas-Zonen aus der Metrik ausgeschlossen.
+- Artefakt-Sichtbarkeit für `tile_norm_bg_*` und `tile_norm_scale` ergänzt, damit erkennbar wird, ob die Tile-Normierung sichtbare Nähte selbst verstärkt.
+- GUI2-`run_name` und `runs_dir` zwischen Dashboard, Wizard und Input&Scan synchronisiert, inklusive direkter Bearbeitung auf der Input&Scan-Seite.
+
 ## v0.0.C (2026-03-13)
 
 - GUI2-Parameter- und Konfigurationshandling mit aktuellem C++-Config-Schema, Defaults und Referenzdokus synchronisiert.
@@ -539,6 +545,15 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-15)
+
+**Boundary-Diagnostik vertieft + GUI2-Run-Felder synchronisiert:**
+
+- `TILE_RECONSTRUCTION` so erweitert, dass `tile_reconstruction.json` Raw- und Normalized-Tile-Boundary-Metriken getrennt ausgibt, zusätzlich zu `tile_norm_bg_r/g/b` und `tile_norm_scale` für die direkte Analyse der Tile-Normierung.
+- Die Tile-Boundary-Analyse korrigiert, sodass maskierte `COMMON_OVERLAP`-/canvas-ungültige Zonen nicht mehr als gültige Nullsamples in die Diagnose eingehen.
+- Methodik-, Prozessfluss-, Referenz- und Praxisdokus auf die read-only Raw-/Normalized-Boundary-Diagnostik und die Pflicht zur Common-Canvas-Maskierung aktualisiert.
+- `run_name` und `runs_dir` auch auf Input&Scan eingebunden und beide Felder über Dashboard, Wizard und Input&Scan auf einen gemeinsamen GUI2-Zustand vereinheitlicht.
 
 ### (2026-03-13)
 
