@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <curl/curl.h>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <map>
 #include <filesystem>
@@ -25,12 +26,23 @@ constexpr int SIRIL_NUM_CHUNKS = 48;
 constexpr const char* SIRIL_URL_TEMPLATE_PREFIX = "https://zenodo.org/records/14738271/files/siril_cat1_healpix8_xpsamp_";
 constexpr const char* SIRIL_URL_TEMPLATE_SUFFIX = ".dat.bz2?download=1";
 
-const std::map<std::string, std::string> ASTAP_CATALOGS = {
-    {"d05", "d05_star_database.zip"},
-    {"d20", "d20_star_database.zip"},
-    {"d50", "d50_star_database.zip"},
-    {"d80", "d80_star_database.zip"},
-};
+constexpr std::array<const char*, 4> ASTAP_CATALOG_IDS = {"d05", "d20", "d50", "d80"};
+
+std::string astap_catalog_filename(const std::string& catalog_id) {
+    if (catalog_id == "d05") return "d05_star_database.zip";
+    if (catalog_id == "d20") return "d20_star_database.zip";
+    if (catalog_id == "d50") return "d50_star_database.zip";
+    if (catalog_id == "d80") {
+#ifdef _WIN32
+        return "d80_star_database.exe";
+#elif defined(__APPLE__)
+        return "d80_star_database.pkg";
+#else
+        return "d80_star_database.deb";
+#endif
+    }
+    return {};
+}
 
 std::string getenv_or(const char* name, const std::string& fallback = "") {
     const char* v = std::getenv(name);
@@ -344,6 +356,66 @@ bool extract_deb_archive(const fs::path& archive, const fs::path& dest, std::str
 #endif
 }
 
+bool extract_pkg_archive(const fs::path& archive, const fs::path& dest, std::string& error) {
+#ifdef __APPLE__
+    auto res = run_subprocess({"pkgutil", "--expand-full", archive.string(), dest.string()});
+    if (res.exit_code == 0) return true;
+    error = res.stderr_str.empty() ? res.stdout_str : res.stderr_str;
+    if (error.empty()) error = "pkgutil --expand-full failed";
+    return false;
+#else
+    error = "pkg extraction unsupported on this platform";
+    return false;
+#endif
+}
+
+bool extract_exe_archive(const fs::path& archive, const fs::path& dest, std::string& error) {
+#ifdef _WIN32
+    const auto capture_error = [](const SubprocessResult& res, const std::string& fallback) {
+        std::string out = res.stderr_str.empty() ? res.stdout_str : res.stderr_str;
+        return out.empty() ? fallback : out;
+    };
+
+    auto seven_zip = run_subprocess({"7z", "x", "-y", ("-o" + dest.string()), archive.string()});
+    if (seven_zip.exit_code == 0) return true;
+    std::string seven_zip_error = capture_error(seven_zip, "7z extraction failed");
+
+    auto tar_res = run_subprocess({"tar", "-xf", archive.string(), "-C", dest.string()});
+    if (tar_res.exit_code == 0) return true;
+    std::string tar_error = capture_error(tar_res, "tar extraction failed");
+
+    auto inno_res = run_subprocess({
+        archive.string(),
+        "/SP-",
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        "/CURRENTUSER",
+        ("/DIR=" + dest.string())
+    });
+    if (inno_res.exit_code == 0) return true;
+    std::string inno_error = capture_error(inno_res, "silent installer run failed");
+
+    auto nsis_res = run_subprocess({
+        archive.string(),
+        "/S",
+        ("/D=" + dest.string())
+    });
+    if (nsis_res.exit_code == 0) return true;
+    std::string nsis_error = capture_error(nsis_res, "NSIS silent installer run failed");
+
+    error = "exe extraction failed";
+    if (!seven_zip_error.empty()) error += " | 7z: " + seven_zip_error;
+    if (!tar_error.empty()) error += " | tar: " + tar_error;
+    if (!inno_error.empty()) error += " | inno: " + inno_error;
+    if (!nsis_error.empty()) error += " | nsis: " + nsis_error;
+    return false;
+#else
+    error = "exe extraction unsupported on this platform";
+    return false;
+#endif
+}
+
 bool decompress_bz2_archive(const fs::path& archive, std::string& error) {
 #ifdef _WIN32
     auto res = run_subprocess({"bzip2", "-d", "-f", archive.string()});
@@ -594,8 +666,8 @@ void register_tools_routes(CrowApp& app,
 
     auto start_astrometry_catalog_download = [state](nlohmann::json body) -> crow::response {
         const std::string catalog_id = body.value("catalog_id", std::string("d50"));
-        auto it = ASTAP_CATALOGS.find(catalog_id);
-        if (it == ASTAP_CATALOGS.end()) {
+        const std::string filename = astap_catalog_filename(catalog_id);
+        if (filename.empty()) {
             return err_resp("BAD_REQUEST", "unknown catalog_id '" + catalog_id + "'", 400, nlohmann::json::object());
         }
 
@@ -606,7 +678,7 @@ void register_tools_routes(CrowApp& app,
 
         const DownloadOptions options = download_options_from_payload(body, 1800);
         const bool force_restart = body.value("force_restart", false);
-        const std::string url = std::string(ASTAP_SF_BASE) + it->second + "/download";
+        const std::string url = std::string(ASTAP_SF_BASE) + filename + "/download";
         std::string job_id = state->job_store.create("astrometry_catalog_download");
         state->job_store.update_state(job_id, JobState::running, {
             {"catalog_id", catalog_id},
@@ -618,7 +690,7 @@ void register_tools_routes(CrowApp& app,
             {"retry_count", options.retry_count},
         });
 
-        std::thread([state, job_id, catalog_id, filename = it->second, data_dir, options, force_restart, url]() {
+        std::thread([state, job_id, catalog_id, filename, data_dir, options, force_restart, url]() {
             try {
                 fs::create_directories(data_dir);
                 fs::path archive = data_dir / filename;
@@ -652,6 +724,32 @@ void register_tools_routes(CrowApp& app,
                     fs::path tmp = data_dir / "_deb_extract";
                     fs::create_directories(tmp);
                     if (!extract_deb_archive(archive, tmp, error)) throw std::runtime_error(error);
+                    for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
+                        if (!entry.is_regular_file()) continue;
+                        const auto name = entry.path().filename().string();
+                        if (name.rfind(catalog_id + "_", 0) == 0) {
+                            fs::copy_file(entry.path(), data_dir / entry.path().filename(), fs::copy_options::overwrite_existing);
+                        }
+                    }
+                    std::error_code ec;
+                    fs::remove_all(tmp, ec);
+                } else if (archive.extension() == ".pkg") {
+                    fs::path tmp = data_dir / "_pkg_extract";
+                    fs::create_directories(tmp);
+                    if (!extract_pkg_archive(archive, tmp, error)) throw std::runtime_error(error);
+                    for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
+                        if (!entry.is_regular_file()) continue;
+                        const auto name = entry.path().filename().string();
+                        if (name.rfind(catalog_id + "_", 0) == 0) {
+                            fs::copy_file(entry.path(), data_dir / entry.path().filename(), fs::copy_options::overwrite_existing);
+                        }
+                    }
+                    std::error_code ec;
+                    fs::remove_all(tmp, ec);
+                } else if (archive.extension() == ".exe") {
+                    fs::path tmp = data_dir / "_exe_extract";
+                    fs::create_directories(tmp);
+                    if (!extract_exe_archive(archive, tmp, error)) throw std::runtime_error(error);
                     for (const auto& entry : fs::recursive_directory_iterator(tmp)) {
                         if (!entry.is_regular_file()) continue;
                         const auto name = entry.path().filename().string();
@@ -855,7 +953,7 @@ void register_tools_routes(CrowApp& app,
         bool installed = !binary_path.empty();
 
         nlohmann::json catalogs = nlohmann::json::object();
-        for (const auto& [catalog_id, _] : ASTAP_CATALOGS) catalogs[catalog_id] = is_astap_catalog_installed(catalog_dir, catalog_id);
+        for (const auto* catalog_id : ASTAP_CATALOG_IDS) catalogs[catalog_id] = is_astap_catalog_installed(catalog_dir, catalog_id);
 
         return json_resp({
             {"installed",  installed},

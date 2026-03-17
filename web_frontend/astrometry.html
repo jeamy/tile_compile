@@ -45,7 +45,9 @@
           </div>
           <div class="ps-actions" style="margin-top:8px;">
             <button data-control="tools.astrometry.detect" class="ps-btn ps-btn-secondary" title="ASTAP Binary im konfigurierten Pfad pruefen.">Detect ASTAP</button>
+            <span id="tools-astrometry-detect-status" class="shell-status-chip shell-status-chip-check" style="display:none;" title="Ergebnis der ASTAP-Erkennung."></span>
             <button data-control="tools.astrometry.install_cli" class="ps-btn" title="ASTAP CLI von SourceForge herunterladen und installieren.">Install/Reinstall ASTAP CLI</button>
+            <span id="tools-astrometry-install-status" class="shell-status-chip shell-status-chip-check" style="display:none;" title="Status des ASTAP-CLI-Downloads und der Installation."></span>
           </div>
         </section>
 
@@ -64,6 +66,7 @@
           <div class="ps-actions" style="margin-top:8px;">
             <button data-control="tools.astrometry.download_catalog" class="ps-btn" title="Ausgewaehlten ASTAP-Sternkatalog herunterladen und entpacken.">Download Catalog</button>
             <button data-control="tools.astrometry.cancel_download" class="ps-btn ps-btn-secondary" title="Aktiven ASTAP-Katalogdownload abbrechen.">Cancel Download</button>
+            <span id="tools-astrometry-catalog-status" class="shell-status-chip shell-status-chip-check" style="display:none;" title="Status des ASTAP-Katalogdownloads."></span>
           </div>
         </section>
 

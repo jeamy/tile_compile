@@ -2478,6 +2478,48 @@ function setInlineAsyncStatus(el, text = "", tone = "idle") {
   el.style.color = "#475569";
 }
 
+function setStatusChip(el, text = "", tone = "check") {
+  if (!el) return;
+  const message = String(text || "").trim();
+  el.textContent = message;
+  el.style.display = message ? "inline-flex" : "none";
+  if (!message) return;
+  const variant = tone === "ok" ? "ok" : tone === "error" ? "error" : tone === "running" ? "running" : "check";
+  el.className = `shell-status-chip shell-status-chip-${variant}`;
+}
+
+function updateTransferStatusChip(el, job, labels = {}) {
+  if (!el) return;
+  const {
+    running = "Download läuft",
+    extracting = "Entpacke",
+    ok = "Download OK",
+    cancelled = "Abgebrochen",
+    error = "Download nicht OK",
+  } = labels;
+  const state = String(job?.state || "").trim().toLowerCase();
+  const stage = String(job?.data?.stage || "").trim().toLowerCase();
+  const pct = formatLogPercent(job?.data?.progress);
+  if (["ok", "done", "completed", "finished"].includes(state)) {
+    setStatusChip(el, ok, "ok");
+    return;
+  }
+  if (["cancelled", "aborted"].includes(state)) {
+    setStatusChip(el, cancelled, "check");
+    return;
+  }
+  if (["error", "failed"].includes(state)) {
+    setStatusChip(el, error, "error");
+    return;
+  }
+  if (stage === "extract") {
+    setStatusChip(el, extracting, "running");
+    return;
+  }
+  const runningText = pct ? `${running} ${pct}` : running;
+  setStatusChip(el, runningText, "running");
+}
+
 function statsStartedMessage(jobId) {
   return t("ui.message.stats_started", "Stats-Generierung gestartet (Job {job_id}).")
     .replace("{job_id}", String(jobId || "-"));
@@ -4284,6 +4326,9 @@ async function bindAstrometryPage() {
   if (!$("tools-astrometry-bin")) return;
   const logBox = findLogBoxBySectionTitle("Log");
   const statusChip = document.querySelector("[data-control='tools.astrometry.status']");
+  const detectStatusChip = $("tools-astrometry-detect-status");
+  const installStatusChip = $("tools-astrometry-install-status");
+  const catalogStatusChip = $("tools-astrometry-catalog-status");
   if (logBox) logBox.textContent = "";
 
   const raField = $("tools-astrometry-ra");
@@ -4352,6 +4397,7 @@ async function bindAstrometryPage() {
       { fallbackPath: payload.astap_cli || payload.astap_data_dir },
     );
     if (statusChip) statusChip.textContent = result.installed ? "Installed" : "Missing";
+    setStatusChip(detectStatusChip, result.installed ? "ASTAP gefunden" : "ASTAP nicht gefunden", result.installed ? "ok" : "error");
     if (binaryInput && result.binary && !shouldKeepAstapSelection(selectedBinary, result.binary)) {
       binaryInput.value = String(result.binary);
       persistTextValue(UI_STORAGE_KEYS.astrometryBinary, binaryInput.value, { absolute: true });
@@ -4386,9 +4432,11 @@ async function bindAstrometryPage() {
 
   document.querySelector("[data-control='tools.astrometry.detect']")?.addEventListener("click", async () => {
     try {
+      setStatusChip(detectStatusChip, "Prüfe...", "running");
       const result = await detect();
       setFooter(result.installed ? `ASTAP gefunden: ${result.binary || "-"}` : "ASTAP nicht gefunden.", !result.installed);
     } catch (err) {
+      setStatusChip(detectStatusChip, "ASTAP nicht gefunden", "error");
       setFooter(`Astrometry detect fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
@@ -4396,15 +4444,33 @@ async function bindAstrometryPage() {
   document.querySelector("[data-control='tools.astrometry.install_cli']")?.addEventListener("click", async () => {
     try {
       const astapDataDir = $("tools-astrometry-data-dir")?.value || "";
+      setStatusChip(installStatusChip, "Download gestartet", "running");
       const accepted = await withPathGrantRetry(
         () => api.post(API_ENDPOINTS.astrometry.installCli, { astap_data_dir: astapDataDir }),
         { fallbackPath: astapDataDir },
       );
       append(accepted);
-      const job = await waitForJob(accepted.job_id, { onTick: (j) => append({ state: j.state, progress: j.data?.progress ?? null }) });
+      const job = await waitForJob(accepted.job_id, {
+        onTick: (j) => {
+          updateTransferStatusChip(installStatusChip, j, {
+            running: "Download läuft",
+            extracting: "Entpacke",
+            ok: "Install OK",
+            error: "Install nicht OK",
+          });
+          append({ state: j.state, progress: j.data?.progress ?? null, stage: j.data?.stage ?? null });
+        },
+      });
+      updateTransferStatusChip(installStatusChip, job, {
+        running: "Download läuft",
+        extracting: "Entpacke",
+        ok: "Install OK",
+        error: "Install nicht OK",
+      });
       append(job);
       await detect({ logResult: false });
     } catch (err) {
+      setStatusChip(installStatusChip, "Install nicht OK", "error");
       setFooter(`ASTAP Install fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
@@ -4416,6 +4482,7 @@ async function bindAstrometryPage() {
       const match = txt.match(/d\d+/);
       const catalogId = match ? match[0] : "d50";
       const astapDataDir = $("tools-astrometry-data-dir")?.value || "";
+      setStatusChip(catalogStatusChip, "Download gestartet", "running");
       const accepted = await withPathGrantRetry(
         () => api.post(API_ENDPOINTS.astrometry.downloadCatalog, {
           catalog_id: catalogId,
@@ -4424,9 +4491,26 @@ async function bindAstrometryPage() {
         { fallbackPath: astapDataDir },
       );
       append(accepted);
-      const job = await waitForJob(accepted.job_id, { onTick: (j) => append({ state: j.state, current_chunk: j.data?.current_chunk }) });
+      const job = await waitForJob(accepted.job_id, {
+        onTick: (j) => {
+          updateTransferStatusChip(catalogStatusChip, j, {
+            running: "Download läuft",
+            extracting: "Entpacke",
+            ok: "Download OK",
+            error: "Download nicht OK",
+          });
+          append({ state: j.state, current_chunk: j.data?.current_chunk, progress: j.data?.progress ?? null, stage: j.data?.stage ?? null });
+        },
+      });
+      updateTransferStatusChip(catalogStatusChip, job, {
+        running: "Download läuft",
+        extracting: "Entpacke",
+        ok: "Download OK",
+        error: "Download nicht OK",
+      });
       append(job);
     } catch (err) {
+      setStatusChip(catalogStatusChip, "Download nicht OK", "error");
       setFooter(`Catalog-Download fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
@@ -4434,8 +4518,10 @@ async function bindAstrometryPage() {
   document.querySelector("[data-control='tools.astrometry.cancel_download']")?.addEventListener("click", async () => {
     try {
       const result = await api.post(API_ENDPOINTS.astrometry.cancelDownload, {});
+      setStatusChip(catalogStatusChip, "Abgebrochen", "check");
       append(result);
     } catch (err) {
+      setStatusChip(catalogStatusChip, "Cancel nicht OK", "error");
       setFooter(`Catalog-Cancel fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
@@ -4504,6 +4590,7 @@ async function bindAstrometryPage() {
     await detect({ logResult: false });
   } catch {
     if (statusChip) statusChip.textContent = "Missing";
+    setStatusChip(detectStatusChip, "ASTAP nicht gefunden", "error");
   }
 }
 
@@ -4511,6 +4598,8 @@ async function bindPccPage() {
   if (!$("tools-pcc-rgb")) return;
   const logBox = findLogBoxBySectionTitle("Result + Log");
   const statusField = document.querySelector("[data-control='tools.pcc.siril_status']");
+  const downloadStatusChip = $("tools-pcc-download-status");
+  const onlineStatusChip = $("tools-pcc-online-status");
   if (logBox) logBox.textContent = "";
 
   [
@@ -4609,15 +4698,33 @@ async function bindPccPage() {
   document.querySelector("[data-control='tools.pcc.download_missing']")?.addEventListener("click", async () => {
     try {
       const catalogDir = $("tools-pcc-catalog-dir")?.value || "";
+      setStatusChip(downloadStatusChip, "Download gestartet", "running");
       const accepted = await withPathGrantRetry(
         () => api.post(API_ENDPOINTS.pcc.downloadMissing, { catalog_dir: catalogDir }),
         { fallbackPath: catalogDir },
       );
       append(accepted);
-      const job = await waitForJob(accepted.job_id, { onTick: (j) => append({ state: j.state, current_chunk: j.data?.current_chunk }) });
+      const job = await waitForJob(accepted.job_id, {
+        onTick: (j) => {
+          updateTransferStatusChip(downloadStatusChip, j, {
+            running: "Download läuft",
+            extracting: "Entpacke",
+            ok: "Download OK",
+            error: "Download nicht OK",
+          });
+          append({ state: j.state, current_chunk: j.data?.current_chunk, progress: j.data?.progress ?? null, stage: j.data?.stage ?? null });
+        },
+      });
+      updateTransferStatusChip(downloadStatusChip, job, {
+        running: "Download läuft",
+        extracting: "Entpacke",
+        ok: "Download OK",
+        error: "Download nicht OK",
+      });
       append(job);
       await refreshStatus();
     } catch (err) {
+      setStatusChip(downloadStatusChip, "Download nicht OK", "error");
       setFooter(`PCC Download fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
@@ -4625,18 +4732,27 @@ async function bindPccPage() {
   document.querySelector("[data-control='tools.pcc.cancel_download']")?.addEventListener("click", async () => {
     try {
       const result = await api.post(API_ENDPOINTS.pcc.cancelDownload, {});
+      setStatusChip(downloadStatusChip, "Abgebrochen", "check");
       append(result);
     } catch (err) {
+      setStatusChip(downloadStatusChip, "Cancel nicht OK", "error");
       setFooter(`PCC Cancel fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
 
   document.querySelector("[data-control='tools.pcc.check_online']")?.addEventListener("click", async () => {
     try {
+      setStatusChip(onlineStatusChip, "Prüfe...", "running");
       const result = await api.post(API_ENDPOINTS.pcc.checkOnline, {});
+      setStatusChip(
+        onlineStatusChip,
+        result.ok ? `OK${Number.isFinite(Number(result.latency_ms)) ? ` ${Math.round(Number(result.latency_ms))} ms` : ""}` : "nicht OK",
+        result.ok ? "ok" : "error",
+      );
       append(result);
       setFooter(result.ok ? `Online source OK (${result.latency_ms} ms)` : "Online source nicht erreichbar.", !result.ok);
     } catch (err) {
+      setStatusChip(onlineStatusChip, "nicht OK", "error");
       setFooter(`Online-Check fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
