@@ -473,11 +473,13 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
-## v0.0.F (2026-03-15)
+## v0.0.F (2026-03-17)
 
 - DSO-Tile-Rekonstruktionsmethodik auf `v3.3.8` in DE/EN angehoben und auf die aktive Runtime-Semantik abgeglichen.
 - Normativen Methodiktext für runtime-konfigurierte Modusgrenzen, nachbarschaftsbewusste lokale Metrik-Normalisierung, sigma-geclippte Tile-Rekonstruktion und affine photometrische Restaurierung nach OLA korrigiert.
 - GUI2-Run-Name-Reset korrigiert: beim Wechsel des Eingabeordners wird der gemeinsame `run_name` nun in Dashboard, Wizard und Input&Scan geleert.
+- Kurzen macOS-15-/Sequoia-Hinweis für Gatekeeper-blockierte `start_gui2.command` ergänzt.
+- ASTAP-`d80`-Katalogdownload auf die realen Upstream-Pakete je Plattform umgestellt: Linux `.deb`, macOS `.pkg`, Windows `.exe`.
 
 ## v0.0.E (2026-03-15)
 
@@ -562,13 +564,15 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Changelog
 
-### (2026-03-15)
+### (2026-03-17)
 
 **Methodik `v3.3.8` + GUI2-Run-Name-Reset (`v0.0.F`):**
 
 - Neue normative Methodikdokumente `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_en.md` und `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_de.md` ergänzt.
 - Die Methodikspezifikation so korrigiert, dass sie zur aktiven Runtime bei Modusgrenzen, Shared-Core-Kanal-Semantik, nachbarschaftsbewusster lokaler Metrik-Normalisierung, sigma-geclippter Tile-Rekonstruktion und affiner photometrischer Restaurierung nach OLA passt.
 - GUI2 so korrigiert, dass ein geänderter Eingabeordner den gemeinsamen `run_name` in Dashboard, Wizard und Input&Scan löscht.
+- Kurzen macOS-15-/Sequoia-Hinweis für Gatekeeper-blockierte `start_gui2.command`-/`astap.pkg`-Starts ergänzt.
+- ASTAP-`d80`-Downloads von der falschen gemeinsamen ZIP-Annahme auf die tatsächlichen Upstream-Pakete je Plattform umgestellt: Linux `.deb`, macOS `.pkg`, Windows `.exe`.
 
 ### (2026-03-15)
 

@@ -148,7 +148,7 @@ pcc:
   mag_bright_limit: 6
   mag_limit: 14
   max_condition_number: 2.5
-  max_residual_rms: 0.3
+  max_residual_rms: 0.55
   min_aperture_px: 4
   min_stars: 14
   radii_mode: auto_fwhm
@@ -203,7 +203,7 @@ stacking:
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   method: rej
-  output_stretch: false
+  output_stretch: true
   per_frame_cosmetic_correction: true
   per_frame_cosmetic_correction_sigma: 2.5
   sigma_clip:

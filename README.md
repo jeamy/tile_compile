@@ -463,11 +463,13 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
-## v0.0.F (2026-03-15)
+## v0.0.F (2026-03-17)
 
 - Promoted the DSO tile-reconstruction methodology to `v3.3.8` in EN/DE and aligned it with the active runtime semantics.
 - Corrected the normative method text for runtime-configured mode thresholds, neighborhood-aware local metric normalization, sigma-clipped tile reconstruction, and affine post-OLA photometric restoration.
 - Fixed GUI2 run-name reset so changing the input directory clears the shared `run_name` across dashboard, wizard, and input-scan.
+- Added a macOS 15 / Sequoia Gatekeeper note for `start_gui2.command` and blocked package approval via `System Settings -> Privacy & Security`.
+- Switched ASTAP `d80` catalog downloads to platform-specific upstream packages: Linux `.deb`, macOS `.pkg`, Windows `.exe`.
 
 ## v0.0.E (2026-03-15)
 
@@ -552,13 +554,15 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Changelog
 
-### (2026-03-15)
+### (2026-03-17)
 
 **Methodology `v3.3.8` + GUI2 run-name reset (`v0.0.F`):**
 
 - Added new normative methodology documents `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_en.md` and `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_de.md`.
 - Corrected the method specification so it matches the active runtime for operating-mode thresholds, shared-core channel semantics, neighborhood-aware local metric normalization, sigma-clipped tile reconstruction, and affine post-OLA photometric restoration.
 - Fixed GUI2 so a changed input directory clears the shared `run_name` across dashboard, wizard, and input-scan.
+- Added a short macOS 15 / Sequoia install note for Gatekeeper-blocked `start_gui2.command` / `astap.pkg` launches.
+- Changed ASTAP `d80` downloads from the invalid shared ZIP assumption to the real upstream platform packages: Linux `.deb`, macOS `.pkg`, Windows `.exe`.
 
 ### (2026-03-15)
 
