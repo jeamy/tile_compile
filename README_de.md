@@ -150,6 +150,10 @@ Release-Bundle-Start:
 
 Der Starter kopiert die gebündelte Payload in ein benutzerspezifisches Installationsverzeichnis, startet das Crow-Backend im Vordergrund und öffnet den Browser auf die lokale GUI2-URL.
 
+Hinweis zur macOS-Installation:
+
+- Unter macOS 15.x, einschließlich Sequoia 15.1, bietet Gatekeeper für unbekannte Entwickler teils nicht mehr den früheren Rechtsklick-Override an. Wenn `start_gui2.command` oder andere scripts blockiert werden, öffne `Systemeinstellungen -> Datenschutz & Sicherheit`, scrolle nach unten und erlaube dort den blockierten Eintrag wie `start_gui2.command` explizit, bevor du ihn erneut startest.
+
 Mindestbetriebssysteme für die aktuellen GUI2-Release-Bundles:
 
 - Linux: x86_64-Linux mit `glibc >= 2.39` (Ubuntu 24.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)

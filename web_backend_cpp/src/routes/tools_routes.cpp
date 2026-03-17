@@ -8,18 +8,13 @@
 #include <map>
 #include <filesystem>
 #include <fstream>
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
-#include <memory>
-#include <mutex>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <thread>
-#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -34,7 +29,7 @@ const std::map<std::string, std::string> ASTAP_CATALOGS = {
     {"d05", "d05_star_database.zip"},
     {"d20", "d20_star_database.zip"},
     {"d50", "d50_star_database.zip"},
-    {"d80", "d80_star_database.deb"},
+    {"d80", "d80_star_database.zip"},
 };
 
 std::string getenv_or(const char* name, const std::string& fallback = "") {

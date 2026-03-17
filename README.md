@@ -150,6 +150,10 @@ Release bundle start:
 
 The launcher copies the bundled payload into a per-user install directory, starts the Crow backend in the foreground, and opens the browser to the local GUI2 URL.
 
+macOS install note:
+
+- On macOS 15.x (including Sequoia 15.1), Gatekeeper may no longer offer the older right-click override path for unknown developers. If `start_gui2.command` or other scripts are blocked, open `System Settings -> Privacy & Security`, scroll to the bottom, and explicitly allow the blocked `start_gui2.command` there before starting it again.
+
 Minimum OS versions for the current GUI2 release bundles:
 
 - Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
