@@ -5,6 +5,7 @@
 
 int main(int argc, char** argv) {
     if (argc < 5) return 2;
+    setenv("TILE_COMPILE_GUI2_INSTALL_ROOT", argv[4], 1);
     BackendHarness harness(argv[1], argv[2], argv[3], argv[4]);
     try {
         harness.start();
@@ -44,6 +45,17 @@ int main(int argc, char** argv) {
         const auto ui = harness.get("/ui");
         expect_equal(ui.status_code, 200L, "ui status");
         expect_true(ui.body.find("<html") != std::string::npos || ui.body.find("<HTML") != std::string::npos, "ui html body");
+
+        const auto astrometry_detect = harness.post_json("/api/tools/astrometry/detect", nlohmann::json::object());
+        expect_equal(astrometry_detect["_http_status"].get<long>(), 200L, "astrometry detect status");
+        expect_equal(astrometry_detect["data_dir"].get<std::string>(), (std::filesystem::path(argv[4]) / "astap").string(), "astrometry default gui2 install dir");
+        expect_equal(astrometry_detect["catalog_dir"].get<std::string>(), (std::filesystem::path(argv[4]) / "astap").string(), "astrometry default catalog dir");
+
+        const auto pcc_status = harness.get_json("/api/tools/pcc/siril/status");
+        expect_equal(pcc_status["_http_status"].get<long>(), 200L, "pcc status");
+        expect_equal(pcc_status["catalog_dir"].get<std::string>(),
+                     (std::filesystem::path(argv[4]) / "pcc" / "siril_cat1_healpix8_xpsamp").string(),
+                     "pcc default gui2 install dir");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

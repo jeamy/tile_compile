@@ -20,13 +20,34 @@ have_command() {
   command -v "$1" >/dev/null 2>&1
 }
 
+has_installed_layout() {
+  [[ -x "${BACKEND_BIN}" && -d "${INSTALL_ROOT}/web_frontend" && -d "${INSTALL_ROOT}/tile_compile_cpp" ]]
+}
+
+install_launcher_scripts() {
+  local src_sh="${SCRIPT_DIR}/start_gui2.sh"
+  local src_command="${SCRIPT_DIR}/start_gui2.command"
+  local dst_sh="${INSTALL_ROOT}/start_gui2.sh"
+  local dst_command="${INSTALL_ROOT}/start_gui2.command"
+
+  if [[ -f "${src_sh}" && ! -f "${dst_sh}" ]]; then
+    cp -a "${src_sh}" "${dst_sh}"
+    chmod +x "${dst_sh}"
+  fi
+  if [[ -f "${src_command}" && ! -f "${dst_command}" ]]; then
+    cp -a "${src_command}" "${dst_command}"
+    chmod +x "${dst_command}"
+  fi
+}
+
 copy_payload() {
   mkdir -p "${INSTALL_ROOT}"
   if have_command rsync; then
     rsync -a --delete "${PAYLOAD_DIR}/" "${INSTALL_ROOT}/"
-    return
+  else
+    cp -a "${PAYLOAD_DIR}/." "${INSTALL_ROOT}/"
   fi
-  cp -a "${PAYLOAD_DIR}/." "${INSTALL_ROOT}/"
+  install_launcher_scripts
 }
 
 server_ready() {
@@ -72,6 +93,7 @@ run_backend_foreground() {
   export TILE_COMPILE_SCHEMA="${INSTALL_ROOT}/tile_compile_cpp/tile_compile.schema.yaml"
   export TILE_COMPILE_PRESETS_DIR="${INSTALL_ROOT}/tile_compile_cpp/examples"
   export TILE_COMPILE_UI_DIR="${INSTALL_ROOT}/web_frontend"
+  export TILE_COMPILE_GUI2_INSTALL_ROOT="${INSTALL_ROOT}"
   export TILE_COMPILE_ALLOWED_ROOTS="${INSTALL_ROOT}:$(printf '%s' "${HOME}"):/tmp:/media"
   local lib_paths=()
   if [[ -d "${lib_dir}" ]]; then
@@ -118,12 +140,13 @@ run_backend_foreground() {
 }
 
 main() {
-  if [[ ! -d "${PAYLOAD_DIR}" ]]; then
-    log "payload/ nicht gefunden."
+  if [[ -d "${PAYLOAD_DIR}" ]]; then
+    copy_payload
+  elif ! has_installed_layout; then
+    log "payload/ nicht gefunden und Installationslayout unvollstaendig."
     exit 1
   fi
 
-  copy_payload
   mkdir -p "${LOG_DIR}" "${RUNS_DIR}"
 
   if server_ready; then

@@ -25,7 +25,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char* ASTAP_CLI_URL = "https://sourceforge.net/projects/astap-program/files/linux_installer/astap_command-line_version_Linux_amd64.zip/download";
 constexpr const char* ASTAP_SF_BASE = "https://sourceforge.net/projects/astap-program/files/star_databases/";
 constexpr int SIRIL_NUM_CHUNKS = 48;
 constexpr const char* SIRIL_URL_TEMPLATE_PREFIX = "https://zenodo.org/records/14738271/files/siril_cat1_healpix8_xpsamp_";
@@ -52,11 +51,35 @@ fs::path user_home_dir() {
     return home.empty() ? fs::current_path() : fs::path(home);
 }
 
+fs::path gui2_install_root() {
+    const std::string raw = getenv_or("TILE_COMPILE_GUI2_INSTALL_ROOT");
+    if (raw.empty()) return {};
+    return fs::path(raw);
+}
+
+std::string astap_cli_download_url() {
+#ifdef __APPLE__
+#if defined(__aarch64__) || defined(__arm64__) || defined(__ARM_ARCH)
+    return "https://sourceforge.net/projects/astap-program/files/macOS%20installer/astap_command-line_version_macOS_M1.zip/download";
+#else
+    return "https://sourceforge.net/projects/astap-program/files/macOS%20installer/astap_command-line_version_macOS_x86_64.zip/download";
+#endif
+#else
+    return "https://sourceforge.net/projects/astap-program/files/linux_installer/astap_command-line_version_Linux_amd64.zip/download";
+#endif
+}
+
 fs::path default_astap_data_dir() {
+    if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
+        return install_root / "astap";
+    }
     return user_home_dir() / ".local" / "share" / "tile_compile" / "astap";
 }
 
 fs::path default_siril_catalog_dir() {
+    if (const fs::path install_root = gui2_install_root(); !install_root.empty()) {
+        return install_root / "pcc" / "siril_cat1_healpix8_xpsamp";
+    }
     return user_home_dir() / ".local" / "share" / "siril" / "siril_cat1_healpix8_xpsamp";
 }
 
@@ -497,6 +520,7 @@ void register_tools_routes(CrowApp& app,
 
     auto start_astrometry_install = [state](nlohmann::json body) -> crow::response {
         fs::path data_dir = path_from_user_input(body.value("astap_data_dir", ""), default_astap_data_dir());
+        const std::string cli_url = astap_cli_download_url();
         if (auto denied = denied_path(state->runtime, data_dir); denied) {
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
         }
@@ -506,14 +530,14 @@ void register_tools_routes(CrowApp& app,
         std::string job_id = state->job_store.create("astrometry_install_cli");
         state->job_store.update_state(job_id, JobState::running, {
             {"data_dir", data_dir.string()},
-            {"url", ASTAP_CLI_URL},
+            {"url", cli_url},
             {"stage", "download"},
             {"progress", 0.0},
             {"resume_enabled", options.resume},
             {"retry_count", options.retry_count},
         });
 
-        std::thread([state, job_id, data_dir, options, force_restart]() {
+        std::thread([state, job_id, data_dir, options, force_restart, cli_url]() {
             try {
                 fs::create_directories(data_dir);
                 fs::path archive = data_dir / "astap_cli.zip";
@@ -522,7 +546,7 @@ void register_tools_routes(CrowApp& app,
                     fs::remove(archive, ec);
                 }
                 auto dl = download_file_with_retry(
-                    ASTAP_CLI_URL,
+                    cli_url,
                     archive,
                     options,
                     [state, job_id]() { return state->job_store.is_cancelled(job_id); },
