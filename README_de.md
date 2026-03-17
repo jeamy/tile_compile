@@ -571,7 +571,7 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Neue normative Methodikdokumente `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_en.md` und `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_de.md` ergänzt.
 - Die Methodikspezifikation so korrigiert, dass sie zur aktiven Runtime bei Modusgrenzen, Shared-Core-Kanal-Semantik, nachbarschaftsbewusster lokaler Metrik-Normalisierung, sigma-geclippter Tile-Rekonstruktion und affiner photometrischer Restaurierung nach OLA passt.
 - GUI2 so korrigiert, dass ein geänderter Eingabeordner den gemeinsamen `run_name` in Dashboard, Wizard und Input&Scan löscht.
-- Kurzen macOS-15-/Sequoia-Hinweis für Gatekeeper-blockierte `start_gui2.command`-/`astap.pkg`-Starts ergänzt.
+- Kurzen macOS-15-/Sequoia-Hinweis für Gatekeeper-blockierte `start_gui2.command` Start ergänzt.
 - ASTAP-`d80`-Downloads von der falschen gemeinsamen ZIP-Annahme auf die tatsächlichen Upstream-Pakete je Plattform umgestellt: Linux `.deb`, macOS `.pkg`, Windows `.exe`.
 
 ### (2026-03-15)

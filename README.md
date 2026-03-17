@@ -561,7 +561,7 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - Added new normative methodology documents `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_en.md` and `doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.8_de.md`.
 - Corrected the method specification so it matches the active runtime for operating-mode thresholds, shared-core channel semantics, neighborhood-aware local metric normalization, sigma-clipped tile reconstruction, and affine post-OLA photometric restoration.
 - Fixed GUI2 so a changed input directory clears the shared `run_name` across dashboard, wizard, and input-scan.
-- Added a short macOS 15 / Sequoia install note for Gatekeeper-blocked `start_gui2.command` / `astap.pkg` launches.
+- Added a short macOS 15 / Sequoia install note for Gatekeeper-blocked `start_gui2.command` launch.
 - Changed ASTAP `d80` downloads from the invalid shared ZIP assumption to the real upstream platform packages: Linux `.deb`, macOS `.pkg`, Windows `.exe`.
 
 ### (2026-03-15)
