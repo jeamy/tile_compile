@@ -32,9 +32,48 @@ function Open-BrowserIfEnabled {
 
 function Sync-Payload {
   New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
-  $null = robocopy $PayloadDir $InstallRoot /MIR /NFL /NDL /NJH /NJS /NP
-  if ($LASTEXITCODE -ge 8) {
-    throw "robocopy fehlgeschlagen (ExitCode=$LASTEXITCODE)"
+  
+  # Check if this is an update (installation already exists)
+  $IsUpdate = $false
+  if ((Test-Path (Join-Path $InstallRoot "web_backend_cpp")) -or 
+      (Test-Path (Join-Path $InstallRoot "web_frontend")) -or 
+      (Test-Path (Join-Path $InstallRoot "tile_compile_cpp"))) {
+    $IsUpdate = $true
+    Write-Info "Existierende Installation gefunden - fuehre selektives Update durch"
+  } else {
+    Write-Info "Neue Installation - kopiere alle Dateien"
+  }
+  
+  if ($IsUpdate) {
+    # Selective update: only replace app directories, preserve user data
+    # Remove old app directories
+    $AppDirs = @("web_frontend", "web_backend_cpp", "tile_compile_cpp")
+    foreach ($dir in $AppDirs) {
+      $targetDir = Join-Path $InstallRoot $dir
+      if (Test-Path $targetDir) {
+        Remove-Item -Path $targetDir -Recurse -Force
+      }
+    }
+    
+    # Copy only app directories from payload
+    foreach ($dir in $AppDirs) {
+      $sourceDir = Join-Path $PayloadDir $dir
+      $targetDir = Join-Path $InstallRoot $dir
+      if (Test-Path $sourceDir) {
+        $null = robocopy $sourceDir $targetDir /E /NFL /NDL /NJH /NJS /NP
+        if ($LASTEXITCODE -ge 8) {
+          throw "robocopy fehlgeschlagen fuer $dir (ExitCode=$LASTEXITCODE)"
+        }
+      }
+    }
+    
+    Write-Info "App-Dateien aktualisiert. User-Daten (configs, runs, astap, pcc) bleiben erhalten."
+  } else {
+    # Fresh install: mirror everything
+    $null = robocopy $PayloadDir $InstallRoot /MIR /NFL /NDL /NJH /NJS /NP
+    if ($LASTEXITCODE -ge 8) {
+      throw "robocopy fehlgeschlagen (ExitCode=$LASTEXITCODE)"
+    }
   }
 }
 

@@ -42,11 +42,42 @@ install_launcher_scripts() {
 
 copy_payload() {
   mkdir -p "${INSTALL_ROOT}"
-  if have_command rsync; then
-    rsync -a --delete "${PAYLOAD_DIR}/" "${INSTALL_ROOT}/"
+  
+  # Check if this is an update (installation already exists)
+  local is_update=false
+  if [[ -d "${INSTALL_ROOT}/web_backend_cpp" || -d "${INSTALL_ROOT}/web_frontend" || -d "${INSTALL_ROOT}/tile_compile_cpp" ]]; then
+    is_update=true
+    log "Existierende Installation gefunden - fuehre selektives Update durch"
   else
-    cp -a "${PAYLOAD_DIR}/." "${INSTALL_ROOT}/"
+    log "Neue Installation - kopiere alle Dateien"
   fi
+  
+  if [[ "${is_update}" == "true" ]]; then
+    # Selective update: only replace app directories, preserve user data
+    # Remove old app directories
+    rm -rf "${INSTALL_ROOT}/web_frontend" "${INSTALL_ROOT}/web_backend_cpp" "${INSTALL_ROOT}/tile_compile_cpp"
+    
+    # Copy only app directories from payload
+    if [[ -d "${PAYLOAD_DIR}/web_frontend" ]]; then
+      cp -a "${PAYLOAD_DIR}/web_frontend" "${INSTALL_ROOT}/"
+    fi
+    if [[ -d "${PAYLOAD_DIR}/web_backend_cpp" ]]; then
+      cp -a "${PAYLOAD_DIR}/web_backend_cpp" "${INSTALL_ROOT}/"
+    fi
+    if [[ -d "${PAYLOAD_DIR}/tile_compile_cpp" ]]; then
+      cp -a "${PAYLOAD_DIR}/tile_compile_cpp" "${INSTALL_ROOT}/"
+    fi
+    
+    log "App-Dateien aktualisiert. User-Daten (configs, runs, astap, pcc) bleiben erhalten."
+  else
+    # Fresh install: copy everything
+    if have_command rsync; then
+      rsync -a --delete "${PAYLOAD_DIR}/" "${INSTALL_ROOT}/"
+    else
+      cp -a "${PAYLOAD_DIR}/." "${INSTALL_ROOT}/"
+    fi
+  fi
+  
   install_launcher_scripts
 }
 
