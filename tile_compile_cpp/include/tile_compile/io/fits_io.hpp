@@ -26,6 +26,8 @@ struct FitsHeader {
 
 bool is_fits_image_path(const fs::path& path);
 
+FitsHeader read_fits_header(const fs::path& path);
+Matrix2Df read_fits_pixels_float(const fs::path& path);
 std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path);
 
 struct RGBImage {

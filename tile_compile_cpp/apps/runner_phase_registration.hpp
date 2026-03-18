@@ -8,15 +8,20 @@
 #include "tile_compile/io/fits_io.hpp"
 
 #include <filesystem>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <vector>
 
 namespace tile_compile::runner {
 
+class RunnerFrameCache;
+
 struct PhaseRegistrationContext {
   DiskCacheFrameStore prewarped_frames;
   std::vector<uint8_t> frame_has_data;
+  std::vector<uint16_t> overlap_coverage_count;
+  std::vector<uint8_t> common_valid_mask;
   int n_usable_frames = 0;
   int min_valid_frames = 1;
   int canvas_width = 0;
@@ -30,6 +35,7 @@ bool run_phase_registration_prewarp(
     const std::vector<std::filesystem::path> &frames,
     const std::filesystem::path &run_dir, int height, int width,
     ColorMode detected_mode, const std::string &detected_bayer_str,
+    const std::shared_ptr<RunnerFrameCache> &frame_cache,
     const std::vector<image::NormalizationScales> &norm_scales,
     const std::vector<FrameMetrics> &frame_metrics,
     const VectorXf &global_weights, const io::FitsHeader &first_hdr,

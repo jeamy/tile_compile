@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace tile_compile::metrics {
@@ -89,6 +90,19 @@ struct StarMeasurement {
     float contrast = 0.0f;    // peak / background
 };
 
+struct TileMetricsScratch {
+    std::vector<float> px;
+    std::vector<float> resid_px;
+    std::vector<float> tmp;
+    std::vector<float> bg_vals;
+    std::vector<float> resid_bg;
+    std::vector<float> grad_vals;
+    std::vector<cv::Point2f> corners;
+    std::vector<float> fwhms;
+    std::vector<float> roundnesses;
+    std::vector<float> contrasts;
+};
+
 // Measure FWHM, roundness, and contrast from a small patch around a star.
 // Returns valid=true only if both X and Y fits succeed.
 bool measure_star_patch(const cv::Mat& tile_cv, const cv::Point2f& pt,
@@ -131,9 +145,8 @@ bool measure_star_patch(const cv::Mat& tile_cv, const cv::Point2f& pt,
     return true;
 }
 
-}
-
-TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
+TileMetrics calculate_tile_metrics_impl(const Matrix2Df& tile,
+                                        TileMetricsScratch& scratch) {
     TileMetrics m;
     m.fwhm = 0.0f;
     m.roundness = 0.0f;
@@ -155,58 +168,54 @@ TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
     cv::blur(tile_cv, bg_cv, cv::Size(31, 31), cv::Point(-1, -1), cv::BORDER_REFLECT_101);
     cv::Mat resid = tile_cv - bg_cv;
 
-    // Single pass: collect tile pixels and residual pixels simultaneously
     const size_t npx = static_cast<size_t>(tile.rows()) * static_cast<size_t>(tile.cols());
-    std::vector<float> px, resid_px;
-    px.reserve(npx);
-    resid_px.reserve(npx);
+    scratch.px.clear();
+    scratch.resid_px.clear();
+    scratch.px.reserve(npx);
+    scratch.resid_px.reserve(npx);
+    float tile_max = std::numeric_limits<float>::lowest();
     for (int y = 0; y < tile.rows(); ++y) {
         const float* trow = tile_cv.ptr<float>(y);
         const float* rrow = resid.ptr<float>(y);
         for (int x = 0; x < tile.cols(); ++x) {
-            px.push_back(trow[x]);
-            resid_px.push_back(rrow[x]);
+            const float tv = trow[x];
+            scratch.px.push_back(tv);
+            scratch.resid_px.push_back(rrow[x]);
+            tile_max = std::max(tile_max, tv);
         }
     }
 
-    // Use temporary copies for destructive median/MAD operations
-    std::vector<float> px_tmp = px;
-    float bg0 = core::median_of(px_tmp);
+    scratch.tmp = scratch.px;
+    const float bg0 = core::median_of(scratch.tmp);
 
-    std::vector<float> resid_tmp = resid_px;
-    float sigma0 = core::robust_sigma_mad(resid_tmp);
+    scratch.tmp = scratch.resid_px;
+    float sigma0 = core::robust_sigma_mad(scratch.tmp);
     if (!(sigma0 > 0.0f)) {
-        double sum = 0.0;
-        for (float v : resid_px) sum += static_cast<double>(v);
-        double mean = resid_px.empty() ? 0.0 : sum / static_cast<double>(resid_px.size());
-        double var = 0.0;
-        for (float v : resid_px) {
-            double d = static_cast<double>(v) - mean;
-            var += d * d;
-        }
-        var = resid_px.empty() ? 0.0 : var / static_cast<double>(resid_px.size());
-        sigma0 = static_cast<float>(std::sqrt(std::max(0.0, var)));
+        cv::Scalar mu, sd;
+        cv::meanStdDev(resid, mu, sd);
+        sigma0 = static_cast<float>(sd[0]);
     }
 
-    // Threshold-based split using already-collected vectors (no re-read)
-    float thr = bg0 + 3.0f * sigma0;
-    std::vector<float> bg_vals;
-    std::vector<float> resid_bg;
-    bg_vals.reserve(npx);
-    resid_bg.reserve(npx);
-    for (size_t i = 0; i < px.size(); ++i) {
-        if (px[i] <= thr) {
-            bg_vals.push_back(px[i]);
-            resid_bg.push_back(resid_px[i]);
+    const float thr = bg0 + 3.0f * sigma0;
+    scratch.bg_vals.clear();
+    scratch.resid_bg.clear();
+    scratch.bg_vals.reserve(npx);
+    scratch.resid_bg.reserve(npx);
+    for (size_t i = 0; i < scratch.px.size(); ++i) {
+        if (scratch.px[i] <= thr) {
+            scratch.bg_vals.push_back(scratch.px[i]);
+            scratch.resid_bg.push_back(scratch.resid_px[i]);
         }
     }
-    if (bg_vals.empty()) {
-        bg_vals = std::move(px);
-        resid_bg = std::move(resid_px);
+    if (scratch.bg_vals.empty()) {
+        scratch.bg_vals = scratch.px;
+        scratch.resid_bg = scratch.resid_px;
     }
 
-    m.background = core::median_of(bg_vals);
-    m.noise = core::robust_sigma_mad(resid_bg);
+    scratch.tmp = scratch.bg_vals;
+    m.background = core::median_of(scratch.tmp);
+    scratch.tmp = scratch.resid_bg;
+    m.noise = core::robust_sigma_mad(scratch.tmp);
 
     cv::Mat gx, gy;
     cv::Sobel(resid, gx, CV_32F, 1, 0, 3);
@@ -215,54 +224,68 @@ TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
     cv::multiply(gx, gx, gx2);
     cv::multiply(gy, gy, gy2);
     grad_sq = gx2 + gy2;
-    std::vector<float> grad_vals;
-    grad_vals.reserve(static_cast<size_t>(grad_sq.rows) * static_cast<size_t>(grad_sq.cols));
+    scratch.grad_vals.clear();
+    scratch.grad_vals.reserve(static_cast<size_t>(grad_sq.rows) *
+                              static_cast<size_t>(grad_sq.cols));
     for (int y = 0; y < grad_sq.rows; ++y) {
         const float* row = grad_sq.ptr<float>(y);
         for (int x = 0; x < grad_sq.cols; ++x) {
-            grad_vals.push_back(row[x]);
+            scratch.grad_vals.push_back(row[x]);
         }
     }
-    m.gradient_energy = grad_vals.empty() ? 0.0f : core::median_of(grad_vals);
+    if (!scratch.grad_vals.empty()) {
+        scratch.tmp = scratch.grad_vals;
+        m.gradient_energy = core::median_of(scratch.tmp);
+    }
 
-    // Star-based metrics: detect stars via goodFeaturesToTrack on residual,
-    // then measure FWHM (1D Gauss fit), roundness (axis ratio), and contrast
-    // (peak/background) per star.  This replaces the old pixel-counting proxies
-    // and is consistent with the global metrics.cpp approach.
-    constexpr int kPatchRadius = 5; // 11×11 patch per star
+    constexpr int kPatchRadius = 5;
     constexpr int kMaxCorners = 50;
     constexpr float kMinQuality = 0.01f;
     constexpr int kMinDist = 5;
 
-    std::vector<cv::Point2f> corners;
-    try {
-        cv::Mat resid_u8;
-        cv::Mat tmp;
-        cv::normalize(resid, tmp, 0.0, 255.0, cv::NORM_MINMAX);
-        tmp.convertTo(resid_u8, CV_8U);
-        cv::goodFeaturesToTrack(resid_u8, corners, kMaxCorners, kMinQuality, kMinDist);
-    } catch (...) {
-        corners.clear();
-    }
-
-    std::vector<float> fwhms, roundnesses, contrasts;
-    for (const auto& pt : corners) {
-        StarMeasurement sm;
-        if (measure_star_patch(tile_cv, pt, kPatchRadius, bg0, sigma0, sm)) {
-            fwhms.push_back(sm.fwhm);
-            roundnesses.push_back(sm.roundness);
-            contrasts.push_back(sm.contrast);
+    scratch.corners.clear();
+    if (tile_max > bg0 + 3.0f * sigma0) {
+        try {
+            cv::goodFeaturesToTrack(resid, scratch.corners, kMaxCorners,
+                                    kMinQuality, kMinDist);
+        } catch (...) {
+            scratch.corners.clear();
         }
     }
 
-    m.star_count = static_cast<int>(fwhms.size());
-    if (!fwhms.empty()) {
-        m.fwhm = core::median_of(fwhms);
-        m.roundness = core::median_of(roundnesses);
-        m.contrast = core::median_of(contrasts);
+    scratch.fwhms.clear();
+    scratch.roundnesses.clear();
+    scratch.contrasts.clear();
+    scratch.fwhms.reserve(scratch.corners.size());
+    scratch.roundnesses.reserve(scratch.corners.size());
+    scratch.contrasts.reserve(scratch.corners.size());
+    for (const auto& pt : scratch.corners) {
+        StarMeasurement sm;
+        if (measure_star_patch(tile_cv, pt, kPatchRadius, bg0, sigma0, sm)) {
+            scratch.fwhms.push_back(sm.fwhm);
+            scratch.roundnesses.push_back(sm.roundness);
+            scratch.contrasts.push_back(sm.contrast);
+        }
+    }
+
+    m.star_count = static_cast<int>(scratch.fwhms.size());
+    if (!scratch.fwhms.empty()) {
+        scratch.tmp = scratch.fwhms;
+        m.fwhm = core::median_of(scratch.tmp);
+        scratch.tmp = scratch.roundnesses;
+        m.roundness = core::median_of(scratch.tmp);
+        scratch.tmp = scratch.contrasts;
+        m.contrast = core::median_of(scratch.tmp);
     }
 
     return m;
+}
+
+}
+
+TileMetrics calculate_tile_metrics(const Matrix2Df& tile) {
+    thread_local TileMetricsScratch scratch;
+    return calculate_tile_metrics_impl(tile, scratch);
 }
 
 } // namespace tile_compile::metrics

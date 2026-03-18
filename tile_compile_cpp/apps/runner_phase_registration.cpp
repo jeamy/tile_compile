@@ -139,6 +139,47 @@ struct WarpBounds {
   int height() const { return max_y - min_y; }
 };
 
+WarpMatrix concatenate_affine_warps(const WarpMatrix &w1,
+                                    const WarpMatrix &w2) {
+  WarpMatrix result;
+  result(0, 0) = w2(0, 0) * w1(0, 0) + w2(0, 1) * w1(1, 0);
+  result(0, 1) = w2(0, 0) * w1(0, 1) + w2(0, 1) * w1(1, 1);
+  result(1, 0) = w2(1, 0) * w1(0, 0) + w2(1, 1) * w1(1, 0);
+  result(1, 1) = w2(1, 0) * w1(0, 1) + w2(1, 1) * w1(1, 1);
+  result(0, 2) = w2(0, 0) * w1(0, 2) + w2(0, 1) * w1(1, 2) + w2(0, 2);
+  result(1, 2) = w2(1, 0) * w1(0, 2) + w2(1, 1) * w1(1, 2) + w2(1, 2);
+  return result;
+}
+
+float compute_ncc_local(const Matrix2Df &a, const Matrix2Df &b) {
+  const int n = a.size();
+  if (n <= 0 || n != b.size()) {
+    return 0.0f;
+  }
+  const float *da = a.data();
+  const float *db = b.data();
+  double ma = 0.0;
+  double mb = 0.0;
+  for (int i = 0; i < n; ++i) {
+    ma += da[i];
+    mb += db[i];
+  }
+  ma /= static_cast<double>(n);
+  mb /= static_cast<double>(n);
+  double sab = 0.0;
+  double saa = 0.0;
+  double sbb = 0.0;
+  for (int i = 0; i < n; ++i) {
+    const double va = static_cast<double>(da[i]) - ma;
+    const double vb = static_cast<double>(db[i]) - mb;
+    sab += va * vb;
+    saa += va * va;
+    sbb += vb * vb;
+  }
+  const double den = std::sqrt(saa * sbb);
+  return (den > 1.0e-10) ? static_cast<float>(sab / den) : 0.0f;
+}
+
 bool invert_affine_warp(const WarpMatrix &w, WarpMatrix &inv) {
   const float a = w(0, 0);
   const float b = w(0, 1);
@@ -224,6 +265,7 @@ bool run_phase_registration_prewarp(
     const std::vector<std::filesystem::path> &frames,
     const std::filesystem::path &run_dir, int height, int width,
     ColorMode detected_mode, const std::string &detected_bayer_str,
+    const std::shared_ptr<RunnerFrameCache> &frame_cache,
     const std::vector<image::NormalizationScales> &norm_scales,
     const std::vector<FrameMetrics> &frame_metrics,
     const VectorXf &global_weights, const io::FitsHeader &first_header,
@@ -231,13 +273,33 @@ bool run_phase_registration_prewarp(
     PhaseRegistrationContext &out) {
   config::RegistrationConfig registration_cfg = cfg.registration;
 
-  auto load_frame_normalized =
-      [&](size_t frame_index) -> std::pair<Matrix2Df, io::FitsHeader> {
-    auto frame_pair = io::read_fits_float(frames[frame_index]);
-    Matrix2Df img = frame_pair.first;
+  auto load_frame_normalized = [&](size_t frame_index) -> Matrix2Df {
+    if (frame_cache && frame_cache->has_normalized(frame_index)) {
+      return frame_cache->load_normalized(frame_index);
+    }
+    Matrix2Df img = io::read_fits_pixels_float(frames[frame_index]);
     image::apply_normalization_inplace(img, norm_scales[frame_index],
                                        detected_mode, detected_bayer_str, 0, 0);
-    return {img, frame_pair.second};
+    if (frame_cache && img.size() > 0) {
+      frame_cache->store_normalized(frame_index, img);
+    }
+    return img;
+  };
+
+  auto load_registration_proxy = [&](size_t frame_index) -> Matrix2Df {
+    if (frame_cache) {
+      Matrix2Df proxy;
+      if (frame_cache->try_load_registration_proxy(frame_index, proxy)) {
+        return proxy;
+      }
+    }
+    Matrix2Df img = load_frame_normalized(frame_index);
+    Matrix2Df proxy =
+        build_registration_proxy(img, detected_mode, detected_bayer_str);
+    if (frame_cache && proxy.size() > 0) {
+      frame_cache->store_registration_proxy(frame_index, proxy);
+    }
+    return proxy;
   };
 
   emitter.phase_start(run_id, Phase::REGISTRATION, "REGISTRATION", log_file);
@@ -251,6 +313,50 @@ bool run_phase_registration_prewarp(
       frames.empty() ? 0 : static_cast<int>(frames.size() / 2);
   int global_ref_idx = temporal_center_idx;
   std::string ref_frame_strategy = "temporal_center";
+  float global_reg_scale = 1.0f;
+
+  auto write_global_registration_artifact = [&](float artifact_reg_scale) {
+    core::json j;
+    j["num_frames"] = static_cast<int>(frames.size());
+    j["scale"] = artifact_reg_scale;
+    j["ref_frame"] = global_ref_idx;
+    j["cc"] = core::json::array();
+    j["warps"] = core::json::array();
+    j["dithering"] = {
+        {"enabled", cfg.dithering.enabled},
+        {"min_shift_px", cfg.dithering.min_shift_px},
+        {"detected_fraction", 0.0},
+    };
+    int shifts_detected = 0;
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      const auto &w = global_frame_warps[fi];
+      j["cc"].push_back(global_frame_cc[fi]);
+      const float shift_mag =
+          std::sqrt(w(0, 2) * w(0, 2) + w(1, 2) * w(1, 2));
+      if (cfg.dithering.enabled &&
+          shift_mag >= cfg.dithering.min_shift_px) {
+        shifts_detected++;
+      }
+      j["warps"].push_back(core::json{
+          {"a00", w(0, 0)},
+          {"a01", w(0, 1)},
+          {"tx", w(0, 2)},
+          {"a10", w(1, 0)},
+          {"a11", w(1, 1)},
+          {"ty", w(1, 2)},
+          {"shift_px", shift_mag},
+      });
+    }
+    if (!frames.empty()) {
+      j["dithering"]["detected_fraction"] =
+          static_cast<double>(shifts_detected) /
+          static_cast<double>(frames.size());
+      j["dithering"]["detected_count"] = shifts_detected;
+      j["dithering"]["total_frames"] = static_cast<int>(frames.size());
+    }
+    core::write_text(run_dir / "artifacts" / "global_registration.json",
+                     j.dump(2));
+  };
 
   // Pick a reference frame that is both high quality and temporally central.
   // This is more stable for long Alt/Az sessions with strong field rotation
@@ -340,8 +446,7 @@ bool run_phase_registration_prewarp(
   if (!frames.empty()) {
     try {
       Matrix2Df ref_full;
-      auto pair = load_frame_normalized(static_cast<size_t>(global_ref_idx));
-      ref_full = std::move(pair.first);
+      ref_full = load_frame_normalized(static_cast<size_t>(global_ref_idx));
       if (ref_full.size() <= 0) {
         global_reg_status = "error";
         global_reg_extra["error"] = "ref_frame_empty";
@@ -350,7 +455,7 @@ bool run_phase_registration_prewarp(
                                 ? image::cfa_green_proxy_downsample2x2(
                                       ref_full, detected_bayer_str)
                                 : registration::downsample2x2_mean(ref_full);
-        float global_reg_scale = 1.0f;
+        global_reg_scale = 1.0f;
         if (ref_reg.rows() > 0) {
           int full_h2 = ref_full.rows() - (ref_full.rows() % 2);
           global_reg_scale =
@@ -391,20 +496,11 @@ bool run_phase_registration_prewarp(
                 global_frame_warps[fi] = registration::identity_warp();
                 global_frame_cc[fi] = 1.0f;
               } else {
-                Matrix2Df mov_full;
-                {
-                  auto pair = load_frame_normalized(fi);
-                  mov_full = std::move(pair.first);
-                }
-                if (mov_full.size() <= 0) {
+                Matrix2Df mov_reg = load_registration_proxy(fi);
+                if (mov_reg.size() <= 0) {
                   global_frame_warps[fi] = registration::identity_warp();
                   global_frame_cc[fi] = 0.0f;
                 } else {
-                  Matrix2Df mov_reg = (detected_mode == ColorMode::OSC)
-                                          ? image::cfa_green_proxy_downsample2x2(
-                                                mov_full, detected_bayer_str)
-                                          : registration::downsample2x2_mean(
-                                                mov_full);
                   // Diagnostic: first few moving frames
                   if (fi < 3) {
                     float mmin = mov_reg.minCoeff();
@@ -499,47 +595,105 @@ bool run_phase_registration_prewarp(
                                                      : reg_error);
         }
 
+        int reg_temporal_rescued_backward = 0;
+        int reg_temporal_rescued_forward = 0;
+        auto try_temporal_rescue = [&](size_t fi, size_t anchor_fi) -> bool {
+          if (fi >= frames.size() || anchor_fi >= frames.size()) {
+            return false;
+          }
+          if (global_frame_cc[anchor_fi] <= 0.0f) {
+            return false;
+          }
+
+          const Matrix2Df mov_reg = load_registration_proxy(fi);
+          const Matrix2Df anchor_reg = load_registration_proxy(anchor_fi);
+          if (mov_reg.size() <= 0 || anchor_reg.size() <= 0 ||
+              mov_reg.rows() != ref_reg.rows() ||
+              mov_reg.cols() != ref_reg.cols() ||
+              anchor_reg.rows() != ref_reg.rows() ||
+              anchor_reg.cols() != ref_reg.cols()) {
+            return false;
+          }
+
+          const auto sfr_temp =
+              registration::register_single_frame(mov_reg, anchor_reg,
+                                                  registration_cfg);
+          if (!sfr_temp.reg.success || sfr_temp.reg.correlation <= 0.15f) {
+            return false;
+          }
+
+          const float proxy_scale =
+              (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale) : 1.0f;
+          const WarpMatrix w_anchor_to_ref =
+              registration::scale_translation_warp(global_frame_warps[anchor_fi],
+                                                   proxy_scale);
+          const WarpMatrix w_chained =
+              concatenate_affine_warps(sfr_temp.reg.warp, w_anchor_to_ref);
+          const Matrix2Df warped = registration::apply_warp(mov_reg, w_chained);
+          const float ncc_identity = compute_ncc_local(mov_reg, ref_reg);
+          const float ncc_chained = compute_ncc_local(warped, ref_reg);
+          if (ncc_chained <= ncc_identity + 0.01f) {
+            return false;
+          }
+
+          global_frame_warps[fi] =
+              registration::scale_translation_warp(w_chained, global_reg_scale);
+          global_frame_cc[fi] = ncc_chained;
+          return true;
+        };
+
+        for (int fi = global_ref_idx - 1; fi >= 0; --fi) {
+          if (global_frame_cc[static_cast<size_t>(fi)] > 0.0f) {
+            continue;
+          }
+          int anchor = fi + 1;
+          while (anchor < static_cast<int>(frames.size()) &&
+                 global_frame_cc[static_cast<size_t>(anchor)] <= 0.0f) {
+            ++anchor;
+          }
+          if (anchor < static_cast<int>(frames.size()) &&
+              try_temporal_rescue(static_cast<size_t>(fi),
+                                  static_cast<size_t>(anchor))) {
+            ++reg_temporal_rescued_backward;
+          }
+        }
+
+        for (size_t fi = static_cast<size_t>(global_ref_idx + 1);
+             fi < frames.size(); ++fi) {
+          if (global_frame_cc[fi] > 0.0f) {
+            continue;
+          }
+          int anchor = static_cast<int>(fi) - 1;
+          while (anchor >= 0 &&
+                 global_frame_cc[static_cast<size_t>(anchor)] <= 0.0f) {
+            --anchor;
+          }
+          if (anchor >= 0 &&
+              try_temporal_rescue(fi, static_cast<size_t>(anchor))) {
+            ++reg_temporal_rescued_forward;
+          }
+        }
+
+        const int reg_temporal_rescued =
+            reg_temporal_rescued_backward + reg_temporal_rescued_forward;
+        global_reg_extra["reg_temporal_rescued"] = reg_temporal_rescued;
+        global_reg_extra["reg_temporal_rescued_backward"] =
+            reg_temporal_rescued_backward;
+        global_reg_extra["reg_temporal_rescued_forward"] =
+            reg_temporal_rescued_forward;
+        if (reg_temporal_rescued > 0) {
+          std::ostringstream msg;
+          msg << "REGISTRATION temporal rescue: recovered "
+              << reg_temporal_rescued << " frames (backward="
+              << reg_temporal_rescued_backward << ", forward="
+              << reg_temporal_rescued_forward << ")";
+          emitter.warning(run_id, msg.str(), log_file);
+          std::cout << "[REG-TEMPORAL] " << msg.str() << std::endl;
+        }
+
         global_reg_status = "ok";
         try {
-          core::json j;
-          j["num_frames"] = static_cast<int>(frames.size());
-          j["scale"] = global_reg_scale;
-          j["ref_frame"] = global_ref_idx;
-          j["cc"] = core::json::array();
-          j["warps"] = core::json::array();
-          j["dithering"] = {
-              {"enabled", cfg.dithering.enabled},
-              {"min_shift_px", cfg.dithering.min_shift_px},
-              {"detected_fraction", 0.0},
-          };
-          int shifts_detected = 0;
-          for (size_t fi = 0; fi < frames.size(); ++fi) {
-            const auto &w = global_frame_warps[fi];
-            j["cc"].push_back(global_frame_cc[fi]);
-            const float shift_mag =
-                std::sqrt(w(0, 2) * w(0, 2) + w(1, 2) * w(1, 2));
-            if (cfg.dithering.enabled && shift_mag >= cfg.dithering.min_shift_px) {
-              shifts_detected++;
-            }
-            j["warps"].push_back({
-                {"a00", w(0, 0)},
-                {"a01", w(0, 1)},
-                {"tx", w(0, 2)},
-                {"a10", w(1, 0)},
-                {"a11", w(1, 1)},
-                {"ty", w(1, 2)},
-                {"shift_px", shift_mag},
-            });
-          }
-          if (!frames.empty()) {
-            j["dithering"]["detected_fraction"] =
-                static_cast<double>(shifts_detected) /
-                static_cast<double>(frames.size());
-            j["dithering"]["detected_count"] = shifts_detected;
-            j["dithering"]["total_frames"] = static_cast<int>(frames.size());
-          }
-          core::write_text(run_dir / "artifacts" / "global_registration.json",
-                           j.dump(2));
+          write_global_registration_artifact(global_reg_scale);
 
           if (cfg.output.write_registered_frames) {
             fs::create_directories(run_dir / cfg.output.registered_dir);
@@ -550,8 +704,7 @@ bool run_phase_registration_prewarp(
                 continue;
               const auto &w = global_frame_warps[fi];
 
-              auto pair = load_frame_normalized(fi);
-              Matrix2Df img = std::move(pair.first);
+              Matrix2Df img = load_frame_normalized(fi);
               if (img.size() <= 0)
                 continue;
 
@@ -749,6 +902,8 @@ bool run_phase_registration_prewarp(
 
       const int nv = static_cast<int>(vfi.size());
       int reg_model_predicted = 0;
+      int reg_model_predicted_rejected = 0;
+      int reg_model_predicted_missing = 0;
       int reg_model_local_refined = 0;
       int reg_model_interpolated = 0;
       int reg_model_blended = 0;
@@ -969,7 +1124,9 @@ bool run_phase_registration_prewarp(
         // Predict warps for rejected frames and frames with cc=0
         // (completely failed registration, not caught by outlier filter)
         for (size_t fi = 0; fi < frames.size(); ++fi) {
-          if (!reg_rejected_mask[fi] && global_frame_cc[fi] > 0.0f) {
+          const bool is_rejected = reg_rejected_mask[fi] != 0;
+          const bool is_missing_registration = global_frame_cc[fi] <= 0.0f;
+          if (!is_rejected && !is_missing_registration) {
             continue;
           }
 
@@ -996,7 +1153,9 @@ bool run_phase_registration_prewarp(
           const auto bridge_candidate = build_bridge_candidate(fi);
 
           WarpPredictionCandidate chosen = global_candidate;
-          if (best_local.ok && bridge_candidate.ok) {
+          const bool outside_valid_span =
+              static_cast<float>(fi) < fi_lo || static_cast<float>(fi) > fi_hi;
+          if (!outside_valid_span && best_local.ok && bridge_candidate.ok) {
             chosen.ok = true;
             const float local_conf = 1.0f / (1.0f + std::max(0.0f, best_local.score));
             const float bridge_conf =
@@ -1037,15 +1196,22 @@ bool run_phase_registration_prewarp(
           // frames. Downstream tile-level quality metrics handle weighting.
           global_frame_cc[fi] = 1.0e-4f;
           ++reg_model_predicted;
+          if (is_rejected) {
+            ++reg_model_predicted_rejected;
+          } else {
+            ++reg_model_predicted_missing;
+          }
         }
 
         {
           std::ostringstream msg;
           msg << "REGISTRATION field-rotation model: predicted "
-              << reg_model_predicted << " rejected frames from " << nv
+              << reg_model_predicted << " non-valid frames from " << nv
               << " valid warps (max residual: angle="
               << std::fixed << std::setprecision(2) << res_ang
               << "deg tx=" << res_tx << "px ty=" << res_ty << "px"
+              << ", rejected=" << reg_model_predicted_rejected
+              << ", missing_registration=" << reg_model_predicted_missing
               << ", local_refined=" << reg_model_local_refined
               << ", interpolated=" << reg_model_interpolated
               << ", blended=" << reg_model_blended << ")";
@@ -1087,6 +1253,10 @@ bool run_phase_registration_prewarp(
       }
 
       global_reg_extra["reg_model_predicted"] = reg_model_predicted;
+      global_reg_extra["reg_model_predicted_rejected"] =
+          reg_model_predicted_rejected;
+      global_reg_extra["reg_model_predicted_missing"] =
+          reg_model_predicted_missing;
       global_reg_extra["reg_model_local_refined"] = reg_model_local_refined;
       global_reg_extra["reg_model_interpolated"] = reg_model_interpolated;
       global_reg_extra["reg_model_blended"] = reg_model_blended;
@@ -1132,6 +1302,13 @@ bool run_phase_registration_prewarp(
   global_reg_extra["frames_cc_positive"] = n_cc_positive;
   global_reg_extra["frames_cc_zero"] = n_cc_zero;
   global_reg_extra["frames_cc_negative"] = n_cc_negative;
+
+  if (global_reg_status == "ok") {
+    try {
+      write_global_registration_artifact(global_reg_scale);
+    } catch (...) {
+    }
+  }
 
   emitter.phase_end(run_id, Phase::REGISTRATION, global_reg_status,
                     global_reg_extra, log_file);
@@ -1202,8 +1379,14 @@ bool run_phase_registration_prewarp(
   DiskCacheFrameStore prewarped_frames(
       run_dir / ".prewarped_cache", frames.size(), canvas_height, canvas_width);
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
+  constexpr int required_common_frames = 1;
+  const size_t canvas_px =
+      static_cast<size_t>(std::max(0, canvas_height)) *
+      static_cast<size_t>(std::max(0, canvas_width));
   const int prewarp_workers = compute_adaptive_worker_count(
       cfg, frames.size(), frames, WorkerParallelProfile::IoHeavy);
+  std::vector<std::vector<uint16_t>> worker_overlap_coverage(
+      static_cast<size_t>(std::max(1, prewarp_workers)));
   std::cout << "[PREWARP] Using " << prewarp_workers
             << " parallel workers for " << frames.size() << " frames"
             << std::endl;
@@ -1215,15 +1398,15 @@ bool run_phase_registration_prewarp(
   std::atomic<bool> prewarp_failed{false};
   std::string prewarp_error;
 
-  auto prewarp_worker = [&]() {
+  auto prewarp_worker = [&](int worker_index) {
+    std::vector<uint16_t> local_overlap_coverage(canvas_px, 0);
     while (true) {
       const size_t fi = prewarp_next.fetch_add(1);
       if (fi >= frames.size()) {
         break;
       }
       try {
-        auto pair = load_frame_normalized(fi);
-        Matrix2Df img = std::move(pair.first);
+        Matrix2Df img = load_frame_normalized(fi);
         if (img.size() <= 0) {
           continue;
         }
@@ -1271,6 +1454,14 @@ bool run_phase_registration_prewarp(
           if (has_data) {
             frame_has_data[fi] = 1;
             n_frames_with_data.fetch_add(1, std::memory_order_relaxed);
+            const float *warped_ptr = warped.data();
+            for (size_t pi = 0; pi < canvas_px; ++pi) {
+              if (warped_ptr[pi] > 0.0f &&
+                  local_overlap_coverage[pi] <
+                      std::numeric_limits<uint16_t>::max()) {
+                ++local_overlap_coverage[pi];
+              }
+            }
           }
         }
       } catch (const std::exception &e) {
@@ -1297,13 +1488,15 @@ bool run_phase_registration_prewarp(
             "frames", log_file);
       }
     }
+    worker_overlap_coverage[static_cast<size_t>(worker_index)] =
+        std::move(local_overlap_coverage);
   };
 
   if (prewarp_workers > 1) {
     std::vector<std::thread> workers;
     workers.reserve(static_cast<size_t>(prewarp_workers));
     for (int w = 0; w < prewarp_workers; ++w) {
-      workers.emplace_back(prewarp_worker);
+      workers.emplace_back(prewarp_worker, w);
     }
     for (auto &worker : workers) {
       if (worker.joinable()) {
@@ -1311,7 +1504,7 @@ bool run_phase_registration_prewarp(
       }
     }
   } else {
-    prewarp_worker();
+    prewarp_worker(0);
   }
 
   if (prewarp_failed.load(std::memory_order_relaxed)) {
@@ -1331,6 +1524,26 @@ bool run_phase_registration_prewarp(
   out.canvas_height = canvas_height;
   out.tile_offset_x = offset_x;
   out.tile_offset_y = offset_y;
+  out.overlap_coverage_count.assign(canvas_px, 0);
+  for (const auto &local_overlap_coverage : worker_overlap_coverage) {
+    if (local_overlap_coverage.size() != canvas_px) {
+      continue;
+    }
+    for (size_t pi = 0; pi < canvas_px; ++pi) {
+      const uint32_t accum =
+          static_cast<uint32_t>(out.overlap_coverage_count[pi]) +
+          static_cast<uint32_t>(local_overlap_coverage[pi]);
+      out.overlap_coverage_count[pi] = static_cast<uint16_t>(
+          std::min<uint32_t>(accum, std::numeric_limits<uint16_t>::max()));
+    }
+  }
+  out.common_valid_mask.assign(canvas_px, static_cast<uint8_t>(0));
+  for (size_t pi = 0; pi < canvas_px; ++pi) {
+    if (static_cast<int>(out.overlap_coverage_count[pi]) >=
+        required_common_frames) {
+      out.common_valid_mask[pi] = static_cast<uint8_t>(1);
+    }
+  }
   
   emitter.phase_end(run_id, Phase::PREWARP, "ok",
                     {{"num_frames", static_cast<int>(frames.size())},
@@ -1344,7 +1557,7 @@ bool run_phase_registration_prewarp(
 
   out.frame_has_data = std::move(frame_has_data);
   out.prewarped_frames = std::move(prewarped_frames);
-  out.min_valid_frames = 1;
+  out.min_valid_frames = required_common_frames;
   return true;
 }
 

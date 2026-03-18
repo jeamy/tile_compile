@@ -60,6 +60,43 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::vector<float> B_r(frames.size(), 0.0f);
   std::vector<float> B_g(frames.size(), 0.0f);
   std::vector<float> B_b(frames.size(), 0.0f);
+  out.frame_cache.reset();
+
+  if (!frames.empty()) {
+    try {
+      const auto [cache_width, cache_height, cache_naxis] =
+          io::get_fits_dimensions(frames.front());
+      (void)cache_naxis;
+      if (cache_width > 0 && cache_height > 0) {
+        out.frame_cache = std::make_shared<RunnerFrameCache>(
+            run_dir / ".normalized_frame_cache", frames.size(), cache_height,
+            cache_width);
+      }
+    } catch (const std::exception &e) {
+      emitter.warning(run_id,
+                      std::string("FRAME_CACHE disabled: ") + e.what(),
+                      log_file);
+    }
+  }
+
+  auto load_or_build_normalized = [&](size_t frame_index) -> Matrix2Df {
+    if (out.frame_cache && out.frame_cache->has_normalized(frame_index)) {
+      return out.frame_cache->load_normalized(frame_index);
+    }
+    Matrix2Df img = io::read_fits_pixels_float(frames[frame_index]);
+    if (img.size() > 0) {
+      image::apply_normalization_inplace(img, norm_scales[frame_index],
+                                         detected_mode, detected_bayer_str, 0,
+                                         0);
+      if (out.frame_cache) {
+        out.frame_cache->store_normalized(frame_index, img);
+        out.frame_cache->store_registration_proxy(
+            frame_index,
+            build_registration_proxy(img, detected_mode, detected_bayer_str));
+      }
+    }
+    return img;
+  };
 
   const int normalization_workers = compute_adaptive_worker_count(
       cfg, frames.size(), frames, WorkerParallelProfile::MixedIo);
@@ -83,8 +120,7 @@ bool run_phase_channel_split_normalization_global_metrics(
       }
       const auto &path = frames[i];
       try {
-        auto frame_pair = io::read_fits_float(path);
-        const Matrix2Df &img = frame_pair.first;
+        Matrix2Df img = io::read_fits_pixels_float(path);
 
         image::NormalizationScales s;
         {
@@ -215,6 +251,14 @@ bool run_phase_channel_split_normalization_global_metrics(
           }
         }
         norm_scales[i] = s;
+        if (out.frame_cache && img.size() > 0) {
+          image::apply_normalization_inplace(img, s, detected_mode,
+                                             detected_bayer_str, 0, 0);
+          out.frame_cache->store_normalized(i, img);
+          out.frame_cache->store_registration_proxy(
+              i, build_registration_proxy(img, detected_mode,
+                                          detected_bayer_str));
+        }
       } catch (const std::exception &e) {
         norm_failed.store(true, std::memory_order_relaxed);
         std::lock_guard<std::mutex> lock(norm_error_mutex);
@@ -333,16 +377,14 @@ bool run_phase_channel_split_normalization_global_metrics(
       if (i >= frames.size()) {
         break;
       }
-      const auto &path = frames[i];
       try {
-        auto frame_pair = io::read_fits_float(path);
-        Matrix2Df img = frame_pair.first;
+        Matrix2Df img = load_or_build_normalized(i);
         if (img.size() <= 0) {
           {
             std::lock_guard<std::mutex> lock(gm_log_mutex);
             emitter.warning(run_id,
                             "GLOBAL_METRICS: empty frame for " +
-                                path.filename().string(),
+                                frames[i].filename().string(),
                             log_file);
           }
           FrameMetrics m;
@@ -353,8 +395,6 @@ bool run_phase_channel_split_normalization_global_metrics(
           frame_metrics[i] = m;
           frame_star_metrics[i] = metrics::FrameStarMetrics{};
         } else {
-          image::apply_normalization_inplace(img, norm_scales[i], detected_mode,
-                                             detected_bayer_str, 0, 0);
           FrameMetrics m = metrics::calculate_frame_metrics(img);
           // Methodik v3: for the global background metric B_f, use the raw
           // (pre-normalization) background estimate from the normalization

@@ -34,6 +34,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <numeric>
 #include <opencv2/opencv.hpp>
@@ -336,7 +337,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (idx == 0) {
         frame_img = first_frame;
       } else {
-        frame_img = io::read_fits_float(frames[idx]).first;
+        frame_img = io::read_fits_pixels_float(frames[idx]);
       }
       metrics::LinearityFrameResult res =
           metrics::validate_linearity_frame(frame_img, cfg.linearity.strictness);
@@ -470,6 +471,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   auto &norm_scales = phase_metrics_ctx.norm_scales;
   auto &frame_metrics = phase_metrics_ctx.frame_metrics;
   VectorXf global_weights = phase_metrics_ctx.global_weights;
+  const auto frame_cache = phase_metrics_ctx.frame_cache;
   const float output_pedestal = phase_metrics_ctx.output_pedestal;
   const float output_bg_mono = phase_metrics_ctx.output_bg_mono;
   const float output_bg_r = phase_metrics_ctx.output_bg_r;
@@ -591,13 +593,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                     log_file);
 
   // Helpers for Phase 5/6
-  auto load_frame_normalized =
-      [&](size_t frame_index) -> std::pair<Matrix2Df, io::FitsHeader> {
-    auto frame_pair = io::read_fits_float(frames[frame_index]);
-    Matrix2Df img = frame_pair.first;
-    image::apply_normalization_inplace(img, norm_scales[frame_index], detected_mode,
-                                detected_bayer_str, 0, 0);
-    return {img, frame_pair.second};
+  auto load_frame_normalized = [&](size_t frame_index) -> Matrix2Df {
+    if (frame_cache && frame_cache->has_normalized(frame_index)) {
+      return frame_cache->load_normalized(frame_index);
+    }
+    Matrix2Df img = io::read_fits_pixels_float(frames[frame_index]);
+    image::apply_normalization_inplace(img, norm_scales[frame_index],
+                                       detected_mode, detected_bayer_str, 0,
+                                       0);
+    if (frame_cache && img.size() > 0) {
+      frame_cache->store_normalized(frame_index, img);
+    }
+    return img;
   };
 
   // extract_tile is now image::extract_tile (canonical module function)
@@ -634,14 +641,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   Matrix2Df first_img;
   io::FitsHeader first_hdr;
   {
-    auto first_pair = load_frame_normalized(0);
-    first_img = std::move(first_pair.first);
-    first_hdr = std::move(first_pair.second);
+    first_img = load_frame_normalized(0);
+    first_hdr = first_header;
   }
 
   if (!runner::run_phase_registration_prewarp(
           run_id, cfg, frames, run_dir, height, width, detected_mode,
-          detected_bayer_str, norm_scales, frame_metrics, global_weights,
+          detected_bayer_str, frame_cache, norm_scales, frame_metrics, global_weights,
           first_header, emitter, log_file, phase_registration_ctx)) {
     return 1;
   }
@@ -706,34 +712,43 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   emitter.phase_start(run_id, Phase::COMMON_OVERLAP, "COMMON_OVERLAP", log_file);
 
-  // Post-PREWARP overlap extension:
-  //  - Maintain per-pixel coverage count across usable prewarped frames
-  //  - Derive a common-valid mask from any positive frame coverage
-  //    (explicit canvas exclusion only)
-  constexpr int required_common_frames = 1;
-
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *
       static_cast<size_t>(std::max(0, canvas_width));
-  std::vector<uint16_t> overlap_coverage_count(canvas_px, 0);
-  std::vector<uint8_t> common_valid_mask(canvas_px, 0);
+  const int required_common_frames = std::max(1, min_valid_frames);
+  std::vector<uint16_t> overlap_coverage_count_fallback;
+  std::vector<uint8_t> common_valid_mask_fallback;
+  std::vector<uint16_t> *overlap_coverage_count_ptr =
+      &phase_registration_ctx.overlap_coverage_count;
+  std::vector<uint8_t> *common_valid_mask_ptr =
+      &phase_registration_ctx.common_valid_mask;
   std::vector<float> tile_common_overlap_ratio(tiles_phase56.size(), 0.0f);
   std::vector<uint8_t> tile_common_valid(tiles_phase56.size(), 0);
 
   std::mutex common_overlap_progress_mutex;
+  size_t loaded_frames = static_cast<size_t>(n_usable_frames);
 
-  {
-    size_t loaded_frames = 0;
+  if (phase_registration_ctx.overlap_coverage_count.size() != canvas_px ||
+      phase_registration_ctx.common_valid_mask.size() != canvas_px) {
+    overlap_coverage_count_fallback.assign(canvas_px, 0);
+    common_valid_mask_fallback.assign(canvas_px, 0);
+    overlap_coverage_count_ptr = &overlap_coverage_count_fallback;
+    common_valid_mask_ptr = &common_valid_mask_fallback;
+    loaded_frames = 0;
     for (size_t fi = 0; fi < frames.size(); ++fi) {
-      if (!frame_has_data[fi])
+      if (!frame_has_data[fi]) {
         continue;
+      }
       const float *p = prewarped_frames.frame_data(fi);
-      if (p == nullptr)
+      if (p == nullptr) {
         continue;
+      }
       ++loaded_frames;
       for (size_t i = 0; i < canvas_px; ++i) {
-        if (p[i] > 0.0f) {
-          ++overlap_coverage_count[i];
+        if (p[i] > 0.0f &&
+            overlap_coverage_count_fallback[i] <
+                std::numeric_limits<uint16_t>::max()) {
+          ++overlap_coverage_count_fallback[i];
         }
       }
 
@@ -743,16 +758,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         emitter.phase_progress_counts(
             run_id, Phase::COMMON_OVERLAP, static_cast<int>(done),
             static_cast<int>(frames.size()),
-            "common_overlap coverage " + std::to_string(done) + "/" +
+            "common_overlap fallback coverage " + std::to_string(done) + "/" +
                 std::to_string(frames.size()),
             "frames", log_file);
       }
     }
 
+    for (size_t i = 0; i < canvas_px; ++i) {
+      if (static_cast<int>(overlap_coverage_count_fallback[i]) >=
+          required_common_frames) {
+        common_valid_mask_fallback[i] = static_cast<uint8_t>(1);
+      }
+    }
+  }
+
+  auto &overlap_coverage_count = *overlap_coverage_count_ptr;
+  auto &common_valid_mask = *common_valid_mask_ptr;
+
+  {
     size_t common_pixels = 0;
     for (size_t i = 0; i < canvas_px; ++i) {
-      if (static_cast<int>(overlap_coverage_count[i]) >= required_common_frames) {
-        common_valid_mask[i] = 1;
+      if (common_valid_mask[i] != 0) {
         ++common_pixels;
       }
     }
@@ -1086,17 +1112,115 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     const std::vector<float> shared_hann_x = reconstruction::make_hann_1d(uniform_tile_size);
     const std::vector<float> shared_hann_y = reconstruction::make_hann_1d(uniform_tile_size);
 
+    std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_r;
+    std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_g;
+    std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_b;
+    if (osc_mode && !frames.empty()) {
+      const fs::path cache_root = run_dir / "cache" / "phase9_osc_rgb";
+      osc_rgb_cache_r = std::make_unique<tile_compile::runner::DiskCacheFrameStore>(
+          cache_root / "R", frames.size(), canvas_height, canvas_width);
+      osc_rgb_cache_g = std::make_unique<tile_compile::runner::DiskCacheFrameStore>(
+          cache_root / "G", frames.size(), canvas_height, canvas_width);
+      osc_rgb_cache_b = std::make_unique<tile_compile::runner::DiskCacheFrameStore>(
+          cache_root / "B", frames.size(), canvas_height, canvas_width);
+
+      const int osc_cache_workers = std::max(
+          1, compute_adaptive_worker_count(cfg, frames.size(), frames,
+                                           tile_compile::runner::WorkerParallelProfile::MixedIo));
+      std::cout << "[Phase 6] Building OSC full-frame RGB cache with "
+                << osc_cache_workers << " workers" << std::endl;
+      std::atomic<size_t> rgb_next{0};
+      std::atomic<size_t> rgb_done{0};
+      std::atomic<bool> rgb_failed{false};
+      std::mutex rgb_error_mutex;
+      std::string rgb_error;
+
+      auto build_rgb_cache_worker = [&]() {
+        while (true) {
+          const size_t fi = rgb_next.fetch_add(1);
+          if (fi >= frames.size()) {
+            break;
+          }
+          try {
+            if (frame_has_data[fi]) {
+              Matrix2Df frame_mosaic = prewarped_frames.load(fi);
+              if (frame_mosaic.rows() == canvas_height &&
+                  frame_mosaic.cols() == canvas_width) {
+                auto deb = image::debayer_nearest_neighbor(
+                    frame_mosaic, detected_bayer, 0, 0);
+                if (tile_compile::runner::
+                        apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
+                            deb.R, deb.G, deb.B, common_valid_mask,
+                            canvas_width, canvas_height)) {
+                  osc_rgb_cache_r->store(fi, deb.R);
+                  osc_rgb_cache_g->store(fi, deb.G);
+                  osc_rgb_cache_b->store(fi, deb.B);
+                }
+              }
+            }
+          } catch (const std::exception &e) {
+            rgb_failed.store(true, std::memory_order_relaxed);
+            std::lock_guard<std::mutex> lock(rgb_error_mutex);
+            if (rgb_error.empty()) {
+              rgb_error = e.what();
+            }
+          } catch (...) {
+            rgb_failed.store(true, std::memory_order_relaxed);
+            std::lock_guard<std::mutex> lock(rgb_error_mutex);
+            if (rgb_error.empty()) {
+              rgb_error = "phase6_osc_rgb_cache_unknown_error";
+            }
+          }
+
+          const size_t done = rgb_done.fetch_add(1) + 1;
+          if (done % 32 == 0 || done == frames.size()) {
+            std::cout << "[Phase 6] OSC RGB cache " << done << "/"
+                      << frames.size() << std::endl;
+          }
+        }
+      };
+
+      if (osc_cache_workers > 1) {
+        std::vector<std::thread> rgb_workers;
+        rgb_workers.reserve(static_cast<size_t>(osc_cache_workers));
+        for (int w = 0; w < osc_cache_workers; ++w) {
+          rgb_workers.emplace_back(build_rgb_cache_worker);
+        }
+        for (auto &worker : rgb_workers) {
+          worker.join();
+        }
+      } else {
+        build_rgb_cache_worker();
+      }
+
+      if (rgb_failed.load(std::memory_order_relaxed)) {
+        const std::string err =
+            rgb_error.empty() ? "phase6_osc_rgb_cache_unknown_error" : rgb_error;
+        emitter.phase_end(run_id, Phase::TILE_RECONSTRUCTION, "error",
+                          {{"error", err}}, log_file);
+        emitter.run_end(run_id, false, "error", log_file);
+        std::cerr << "Error during Phase 6 OSC RGB cache build: " << err
+                  << std::endl;
+        return 1;
+      }
+    }
+
     // Worker function for parallel tile processing (v3: global warp only, no
     // local ECC)
     auto process_tile = [&](size_t ti) {
       const Tile &t = tiles_phase56[ti];
-
-      auto load_tile_normalized = [&](size_t fi) -> Matrix2Df {
-        // Extract tile from pre-warped full frame.
-        // PREWARP already composes the registration offset into stored frames.
-        // tiles_phase56 is built in canvas coordinates, so no extra offset here.
-        Matrix2Df tile = prewarped_frames.extract_tile(fi, t, 0, 0);
-        return tile;
+      const bool tile_has_common_overlap =
+          ti < tile_common_valid.size() && tile_common_valid[ti] != 0;
+      auto compute_frame_tile_weight = [&](size_t fi) -> float {
+        const float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                              ? global_weights[static_cast<int>(fi)]
+                              : 1.0f;
+        const float L_ft =
+            (fi < local_weights.size() && ti < local_weights[fi].size())
+                ? local_weights[fi][ti]
+                : 1.0f;
+        const float w = G_f * L_ft;
+        return (std::isfinite(w) && w > 0.0f) ? w : 0.0f;
       };
 
       std::vector<float> weights;
@@ -1111,11 +1235,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
       if (osc_mode) {
         // Methodik v3 (OSC): stack in RGB space (debayer-before-stack).
-        // Debayer each valid frame tile once, cache R/G/B tiles, then run
-        // per-channel sigma-clip stacks on the cached planes.
-
-        const int origin_x = std::max(0, t.x);
-        const int origin_y = std::max(0, t.y);
+        // Debayer each prewarped frame once into a full-frame RGB cache, then
+        // extract only the needed RGB tiles during stacking.
+        if (!tile_has_common_overlap || !osc_rgb_cache_r || !osc_rgb_cache_g ||
+            !osc_rgb_cache_b) {
+          tiles_failed++;
+          return;
+        }
 
         std::vector<float> channel_weights;
         std::vector<Matrix2Df> valid_tiles_R;
@@ -1125,42 +1251,36 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         valid_tiles_R.reserve(frames.size());
         valid_tiles_G.reserve(frames.size());
         valid_tiles_B.reserve(frames.size());
+        Matrix2Df tile_r;
+        Matrix2Df tile_g;
+        Matrix2Df tile_b;
 
-        // Single pass: extract tile, debayer once, apply overlap mask on all
-        // channels, cache R/G/B tiles, and compute shared channel weights.
+        // Single pass: extract RGB tiles from the prebuilt full-frame cache
+        // and compute shared channel weights.
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (!frame_has_data[fi])
             continue;
-          Matrix2Df tile_mosaic = load_tile_normalized(fi);
-          if (tile_mosaic.rows() != t.height || tile_mosaic.cols() != t.width)
+          const float frame_weight = compute_frame_tile_weight(fi);
+          if (!(frame_weight > 0.0f))
             continue;
-          if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0)
+          if (!osc_rgb_cache_r->extract_tile_into(fi, t, tile_r, 0, 0) ||
+              !osc_rgb_cache_g->extract_tile_into(fi, t, tile_g, 0, 0) ||
+              !osc_rgb_cache_b->extract_tile_into(fi, t, tile_b, 0, 0) ||
+              tile_r.rows() != t.height || tile_r.cols() != t.width ||
+              tile_g.rows() != t.height || tile_g.cols() != t.width ||
+              tile_b.rows() != t.height || tile_b.cols() != t.width) {
             continue;
+          }
+          if (!tile_compile::runner::tile_has_nonzero_common_data(tile_g, ti,
+                                                                  tile_common_valid)) {
+            continue;
+          }
 
-          auto deb = image::debayer_nearest_neighbor(tile_mosaic, detected_bayer,
-                                                     origin_x, origin_y);
-          // Apply common-overlap mask AFTER debayering so that all three
-          // channels are zeroed symmetrically at masked positions.
-          tile_compile::runner::apply_common_overlap_to_tile_inplace(
-              deb.R, t, common_valid_mask, canvas_width, canvas_height);
-          tile_compile::runner::apply_common_overlap_to_tile_inplace(
-              deb.G, t, common_valid_mask, canvas_width, canvas_height);
-          tile_compile::runner::apply_common_overlap_to_tile_inplace(
-              deb.B, t, common_valid_mask, canvas_width, canvas_height);
-
-          valid_tiles_R.push_back(std::move(deb.R));
-          valid_tiles_G.push_back(std::move(deb.G));
-          valid_tiles_B.push_back(std::move(deb.B));
+          valid_tiles_R.push_back(std::move(tile_r));
+          valid_tiles_G.push_back(std::move(tile_g));
+          valid_tiles_B.push_back(std::move(tile_b));
           frame_valid_tile_counts[fi].fetch_add(1);
-
-          float G_f = (fi < static_cast<size_t>(global_weights.size()))
-                          ? global_weights[static_cast<int>(fi)]
-                          : 1.0f;
-          float L_ft =
-              (fi < local_weights.size() && ti < local_weights[fi].size())
-                  ? local_weights[fi][ti]
-                  : 1.0f;
-          channel_weights.push_back(G_f * L_ft);
+          channel_weights.push_back(frame_weight);
         }
 
         if (valid_tiles_G.empty()) {
@@ -1207,29 +1327,33 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         std::vector<Matrix2Df> warped_tiles;
         warped_tiles.reserve(frames.size());
 
+        if (!tile_has_common_overlap) {
+          tiles_failed++;
+          return;
+        }
+
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (!frame_has_data[fi])
             continue;
-          Matrix2Df tile_img = load_tile_normalized(fi);
-          if (tile_img.rows() != t.height || tile_img.cols() != t.width)
+          const float frame_weight = compute_frame_tile_weight(fi);
+          if (!(frame_weight > 0.0f))
             continue;
-          tile_compile::runner::apply_common_overlap_to_tile_inplace(
-              tile_img, t, common_valid_mask, canvas_width, canvas_height);
-          // Skip tiles that fail strict common-overlap criteria.
-          if (!tile_compile::runner::tile_has_nonzero_common_data(
-                  tile_img, ti, tile_common_valid))
+          warped_tiles.emplace_back();
+          Matrix2Df &tile_img = warped_tiles.back();
+          if (!prewarped_frames.extract_tile_into(fi, t, tile_img, 0, 0) ||
+              tile_img.rows() != t.height || tile_img.cols() != t.width) {
+            warped_tiles.pop_back();
             continue;
-
-          warped_tiles.push_back(std::move(tile_img));
+          }
+          if (!tile_compile::runner::
+                  apply_common_overlap_to_tile_inplace_and_check_nonzero(
+                      tile_img, t, common_valid_mask, canvas_width,
+                      canvas_height)) {
+            warped_tiles.pop_back();
+            continue;
+          }
           frame_valid_tile_counts[fi].fetch_add(1);
-          float G_f = (fi < static_cast<size_t>(global_weights.size()))
-                          ? global_weights[static_cast<int>(fi)]
-                          : 1.0f;
-          float L_ft =
-              (fi < local_weights.size() && ti < local_weights[fi].size())
-                  ? local_weights[fi][ti]
-                  : 1.0f;
-          weights.push_back(G_f * L_ft);
+          weights.push_back(frame_weight);
         }
 
         if (warped_tiles.empty()) {
@@ -1373,6 +1497,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
         process_tile(ti);
       }
+    }
+
+    if (osc_rgb_cache_r) {
+      osc_rgb_cache_r->cleanup();
+      osc_rgb_cache_g->cleanup();
+      osc_rgb_cache_b->cleanup();
+      osc_rgb_cache_r.reset();
+      osc_rgb_cache_g.reset();
+      osc_rgb_cache_b.reset();
     }
 
     if (apply_phase7_tile_norm) {
@@ -2505,6 +2638,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 continue;
               if (ti >= tile_common_valid.size() || tile_common_valid[ti] == 0)
                 continue;
+              float G_f = (fi < static_cast<size_t>(global_weights.size()))
+                              ? global_weights[static_cast<int>(fi)]
+                              : 1.0f;
+              float L_ft =
+                  (fi < local_weights.size() && ti < local_weights[fi].size())
+                      ? local_weights[fi][ti]
+                      : 1.0f;
+              float w = G_f * L_ft;
+              if (!(std::isfinite(w) && w > 0.0f))
+                continue;
               cluster_tiles.emplace_back();
               Matrix2Df &tile_img = cluster_tiles.back();
               if (!prewarped_frames.extract_tile_into(fi, t, tile_img, 0, 0) ||
@@ -2519,17 +2662,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 cluster_tiles.pop_back();
                 continue;
               }
-
-              float G_f = (fi < static_cast<size_t>(global_weights.size()))
-                              ? global_weights[static_cast<int>(fi)]
-                              : 1.0f;
-              float L_ft =
-                  (fi < local_weights.size() && ti < local_weights[fi].size())
-                      ? local_weights[fi][ti]
-                      : 1.0f;
-              float w = G_f * L_ft;
-              cluster_weights.push_back((std::isfinite(w) && w > 0.0f) ? w
-                                                                        : 0.0f);
+              cluster_weights.push_back(w);
             }
 
             if (cluster_tiles.empty())

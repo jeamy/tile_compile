@@ -1,7 +1,9 @@
 #include "runner_shared.hpp"
 
 #include "tile_compile/core/utils.hpp"
+#include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/registration/global_registration.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -31,6 +33,7 @@ namespace core = tile_compile::core;
 namespace image = tile_compile::image;
 namespace config = tile_compile::config;
 namespace astrometry = tile_compile::astrometry;
+namespace registration = tile_compile::registration;
 
 namespace {
 
@@ -210,8 +213,7 @@ bool load_canvas_mask_fits(const fs::path &mask_path, int rows, int cols,
     return false;
   }
   try {
-    auto mask_pair = tile_compile::io::read_fits_float(mask_path);
-    const auto &mask_img = mask_pair.first;
+    const auto mask_img = tile_compile::io::read_fits_pixels_float(mask_path);
     if (mask_img.rows() != rows || mask_img.cols() != cols) {
       error_out = "canvas mask size mismatch: got " +
                   std::to_string(mask_img.cols()) + "x" +
@@ -313,6 +315,16 @@ astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src) {
   dst.chroma_strength = src.chroma_strength;
   dst.k_max = src.k_max;
   return dst;
+}
+
+Matrix2Df build_registration_proxy(const Matrix2Df &img, ColorMode detected_mode,
+                                   const std::string &detected_bayer_str) {
+  if (img.size() <= 0) {
+    return Matrix2Df();
+  }
+  return (detected_mode == ColorMode::OSC)
+             ? image::cfa_green_proxy_downsample2x2(img, detected_bayer_str)
+             : registration::downsample2x2_mean(img);
 }
 
 core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
@@ -820,6 +832,59 @@ void DiskCacheFrameStore::cleanup() {
 
 fs::path DiskCacheFrameStore::frame_path(size_t fi) const {
   return cache_dir_ / (std::to_string(fi) + ".raw");
+}
+
+RunnerFrameCache::RunnerFrameCache() = default;
+
+RunnerFrameCache::RunnerFrameCache(const fs::path &cache_dir, size_t n_frames,
+                                   int rows, int cols)
+    : normalized_frames_(cache_dir, n_frames, rows, cols),
+      has_registration_proxy_(n_frames, static_cast<uint8_t>(0)),
+      registration_proxies_(n_frames) {}
+
+void RunnerFrameCache::store_normalized(size_t fi, const Matrix2Df &frame) {
+  normalized_frames_.store(fi, frame);
+}
+
+Matrix2Df RunnerFrameCache::load_normalized(size_t fi) const {
+  return normalized_frames_.load(fi);
+}
+
+bool RunnerFrameCache::has_normalized(size_t fi) const {
+  return normalized_frames_.has_data(fi);
+}
+
+void RunnerFrameCache::store_registration_proxy(size_t fi,
+                                                const Matrix2Df &proxy) {
+  std::lock_guard<std::mutex> lock(proxy_mutex_);
+  if (fi >= has_registration_proxy_.size()) {
+    return;
+  }
+  registration_proxies_[fi] = proxy;
+  has_registration_proxy_[fi] = static_cast<uint8_t>(proxy.size() > 0 ? 1 : 0);
+}
+
+bool RunnerFrameCache::try_load_registration_proxy(size_t fi,
+                                                   Matrix2Df &out) const {
+  std::lock_guard<std::mutex> lock(proxy_mutex_);
+  if (fi >= has_registration_proxy_.size() || has_registration_proxy_[fi] == 0) {
+    return false;
+  }
+  out = registration_proxies_[fi];
+  return out.size() > 0;
+}
+
+size_t RunnerFrameCache::size() const { return normalized_frames_.size(); }
+
+int RunnerFrameCache::rows() const { return normalized_frames_.rows(); }
+
+int RunnerFrameCache::cols() const { return normalized_frames_.cols(); }
+
+void RunnerFrameCache::cleanup() {
+  normalized_frames_.cleanup();
+  std::lock_guard<std::mutex> lock(proxy_mutex_);
+  has_registration_proxy_.clear();
+  registration_proxies_.clear();
 }
 
 } // namespace tile_compile::runner

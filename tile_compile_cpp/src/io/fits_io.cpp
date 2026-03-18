@@ -114,6 +114,110 @@ bool move_to_first_image_hdu(fitsfile* fptr,
     return false;
 }
 
+FitsHeader read_current_header(fitsfile* fptr, int& status) {
+    FitsHeader header;
+
+    char card[FLEN_CARD];
+    int nkeys = 0;
+    fits_get_hdrspace(fptr, &nkeys, nullptr, &status);
+
+    for (int i = 1; i <= nkeys; ++i) {
+        fits_read_record(fptr, i, card, &status);
+        if (status) {
+            status = 0;
+            continue;
+        }
+
+        char keyname[FLEN_KEYWORD];
+        char value[FLEN_VALUE];
+        char comment[FLEN_COMMENT];
+        int keylen = 0;
+
+        fits_get_keyname(card, keyname, &keylen, &status);
+        if (status) {
+            status = 0;
+            continue;
+        }
+
+        const std::string key(keyname);
+        if (key.empty() || key == "COMMENT" || key == "HISTORY" || key == "END") {
+            continue;
+        }
+
+        char dtype;
+        fits_get_keytype(card, &dtype, &status);
+        if (status) {
+            status = 0;
+            continue;
+        }
+
+        fits_parse_value(card, value, comment, &status);
+        if (status) {
+            status = 0;
+            continue;
+        }
+
+        std::string val_str(value);
+        val_str.erase(0, val_str.find_first_not_of(" '"));
+        val_str.erase(val_str.find_last_not_of(" '") + 1);
+
+        switch (dtype) {
+            case 'C':
+                header.set(key, val_str);
+                break;
+            case 'L':
+                header.set(key, val_str == "T" || val_str == "1");
+                break;
+            case 'I':
+                try {
+                    header.set(key, std::stoi(val_str));
+                } catch (...) {
+                    header.set(key, val_str);
+                }
+                break;
+            case 'F':
+                try {
+                    header.set(key, std::stod(val_str));
+                } catch (...) {
+                    header.set(key, val_str);
+                }
+                break;
+            default:
+                header.set(key, val_str);
+                break;
+        }
+    }
+
+    status = 0;
+    return header;
+}
+
+Matrix2Df matrix_from_buffer(const std::vector<float>& buffer, long height, long width) {
+    Matrix2Df data(height, width);
+    const size_t nbytes =
+        static_cast<size_t>(std::max<long>(0, height)) *
+        static_cast<size_t>(std::max<long>(0, width)) * sizeof(float);
+    if (nbytes > 0) {
+        std::memcpy(data.data(), buffer.data(), nbytes);
+    }
+    return data;
+}
+
+Matrix2Df read_current_pixels_float(fitsfile* fptr, const fs::path& path,
+                                    long width, long height, long plane,
+                                    int& status) {
+    const long npixels = width * height;
+    std::vector<float> buffer(static_cast<size_t>(npixels));
+    long fpixel[3] = {1, 1, plane};
+
+    fits_read_pix(fptr, TFLOAT, fpixel, npixels, nullptr, buffer.data(), nullptr, &status);
+    if (status) {
+        throw FitsError("Cannot read FITS pixel data: " + path.string());
+    }
+
+    return matrix_from_buffer(buffer, height, width);
+}
+
 } // namespace
 
 std::optional<std::string> FitsHeader::get_string(const std::string& key) const {
@@ -198,97 +302,75 @@ std::pair<Matrix2Df, FitsHeader> read_fits_float(const fs::path& path) {
     
     long width = naxes[0];
     long height = naxes[1];
-    long npixels = width * height;
-    
-    std::vector<float> buffer(npixels);
-    long fpixel[3] = {1, 1, 1};
-    
-    fits_read_pix(fptr, TFLOAT, fpixel, npixels, nullptr, buffer.data(), nullptr, &status);
-    if (status) {
+    try {
+        Matrix2Df data = read_current_pixels_float(fptr, path, width, height, 1, status);
+        FitsHeader header = read_current_header(fptr, status);
         fits_close_file(fptr, &status);
-        throw FitsError("Cannot read FITS pixel data: " + path.string());
+        return {data, header};
+    } catch (...) {
+        fits_close_file(fptr, &status);
+        throw;
     }
-    
-    FitsHeader header;
-    
-    char card[FLEN_CARD];
-    int nkeys = 0;
-    fits_get_hdrspace(fptr, &nkeys, nullptr, &status);
-    
-    for (int i = 1; i <= nkeys; ++i) {
-        fits_read_record(fptr, i, card, &status);
-        if (status) continue;
-        
-        char keyname[FLEN_KEYWORD];
-        char value[FLEN_VALUE];
-        char comment[FLEN_COMMENT];
-        int keylen = 0;
-        
-        fits_get_keyname(card, keyname, &keylen, &status);
-        if (status) {
-            status = 0;
-            continue;
-        }
-        
-        std::string key(keyname);
-        if (key.empty() || key == "COMMENT" || key == "HISTORY" || key == "END") {
-            continue;
-        }
-        
-        char dtype;
-        fits_get_keytype(card, &dtype, &status);
-        if (status) {
-            status = 0;
-            continue;
-        }
-        
-        fits_parse_value(card, value, comment, &status);
-        if (status) {
-            status = 0;
-            continue;
-        }
-        
-        std::string val_str(value);
-        val_str.erase(0, val_str.find_first_not_of(" '"));
-        val_str.erase(val_str.find_last_not_of(" '") + 1);
-        
-        switch (dtype) {
-            case 'C':
-                header.set(key, val_str);
-                break;
-            case 'L':
-                header.set(key, val_str == "T" || val_str == "1");
-                break;
-            case 'I':
-                try {
-                    header.set(key, std::stoi(val_str));
-                } catch (...) {
-                    header.set(key, val_str);
-                }
-                break;
-            case 'F':
-                try {
-                    header.set(key, std::stod(val_str));
-                } catch (...) {
-                    header.set(key, val_str);
-                }
-                break;
-            default:
-                header.set(key, val_str);
-                break;
-        }
+}
+
+FitsHeader read_fits_header(const fs::path& path) {
+    fitsfile* fptr = nullptr;
+    int status = 0;
+
+    if (fits_open_file(&fptr, path.string().c_str(), READONLY, &status)) {
+        throw FitsError("Cannot open FITS file: " + path.string());
     }
-    
-    fits_close_file(fptr, &status);
-    
-    Matrix2Df data(height, width);
-    for (long y = 0; y < height; ++y) {
-        for (long x = 0; x < width; ++x) {
-            data(y, x) = buffer[y * width + x];
-        }
+
+    int naxis = 0;
+    long naxes[3] = {0, 0, 0};
+    int bitpix = 0;
+
+    if (!move_to_first_image_hdu(fptr, bitpix, naxis, naxes, status)) {
+        fits_close_file(fptr, &status);
+        throw FitsError("Cannot read FITS image parameters: " + path.string());
     }
-    
-    return {data, header};
+
+    try {
+        FitsHeader header = read_current_header(fptr, status);
+        fits_close_file(fptr, &status);
+        return header;
+    } catch (...) {
+        fits_close_file(fptr, &status);
+        throw;
+    }
+}
+
+Matrix2Df read_fits_pixels_float(const fs::path& path) {
+    fitsfile* fptr = nullptr;
+    int status = 0;
+
+    if (fits_open_file(&fptr, path.string().c_str(), READONLY, &status)) {
+        throw FitsError("Cannot open FITS file: " + path.string());
+    }
+
+    int naxis = 0;
+    long naxes[3] = {0, 0, 0};
+    int bitpix = 0;
+
+    if (!move_to_first_image_hdu(fptr, bitpix, naxis, naxes, status)) {
+        fits_close_file(fptr, &status);
+        throw FitsError("Cannot read FITS image parameters: " + path.string());
+    }
+
+    if (naxis < 2) {
+        fits_close_file(fptr, &status);
+        throw FitsError("FITS file has less than 2 dimensions: " + path.string());
+    }
+
+    try {
+        Matrix2Df data =
+            read_current_pixels_float(fptr, path, naxes[0], naxes[1], 1, status);
+        fits_close_file(fptr, &status);
+        return data;
+    } catch (...) {
+        fits_close_file(fptr, &status);
+        throw;
+    }
 }
 
 RGBImage read_fits_rgb(const fs::path& path) {
@@ -316,69 +398,35 @@ RGBImage read_fits_rgb(const fs::path& path) {
     long w = naxes[0];
     long h = naxes[1];
     long nplanes = (naxis >= 3) ? naxes[2] : 1;
-    long npixels = w * h;
-
     RGBImage result;
     result.width = static_cast<int>(w);
     result.height = static_cast<int>(h);
 
-    // Read header (same as read_fits_float)
-    int nkeys = 0;
-    fits_get_hdrspace(fptr, &nkeys, nullptr, &status);
-    for (int i = 1; i <= nkeys; ++i) {
-        char card[FLEN_CARD];
-        fits_read_record(fptr, i, card, &status);
-        if (status) { status = 0; continue; }
-        char keyname[FLEN_KEYWORD];
-        int keylen = 0;
-        fits_get_keyname(card, keyname, &keylen, &status);
-        if (status) { status = 0; continue; }
-        std::string key(keyname);
-        if (key.empty() || key == "COMMENT" || key == "HISTORY" || key == "END") continue;
-        char dtype;
-        fits_get_keytype(card, &dtype, &status);
-        if (status) { status = 0; continue; }
-        char value[FLEN_VALUE], comment[FLEN_COMMENT];
-        fits_parse_value(card, value, comment, &status);
-        if (status) { status = 0; continue; }
-        std::string val_str(value);
-        val_str.erase(0, val_str.find_first_not_of(" '"));
-        val_str.erase(val_str.find_last_not_of(" '") + 1);
-        switch (dtype) {
-            case 'C': result.header.set(key, val_str); break;
-            case 'L': result.header.set(key, val_str == "T" || val_str == "1"); break;
-            case 'I': try { result.header.set(key, std::stoi(val_str)); } catch (...) { result.header.set(key, val_str); } break;
-            case 'F': try { result.header.set(key, std::stod(val_str)); } catch (...) { result.header.set(key, val_str); } break;
-            default: result.header.set(key, val_str); break;
-        }
-    }
+    result.header = read_current_header(fptr, status);
 
     auto read_plane = [&](long plane) -> Matrix2Df {
-        std::vector<float> buf(static_cast<size_t>(npixels));
-        long fpixel[3] = {1, 1, plane};
         int st = 0;
-        fits_read_pix(fptr, TFLOAT, fpixel, npixels, nullptr, buf.data(), nullptr, &st);
-        if (st) throw FitsError("Cannot read FITS plane " + std::to_string(plane) + ": " + path.string());
-        Matrix2Df mat(h, w);
-        for (long y = 0; y < h; ++y)
-            for (long x = 0; x < w; ++x)
-                mat(y, x) = buf[static_cast<size_t>(y * w + x)];
-        return mat;
+        return read_current_pixels_float(fptr, path, w, h, plane, st);
     };
 
-    if (nplanes >= 3) {
-        result.R = read_plane(1);
-        result.G = read_plane(2);
-        result.B = read_plane(3);
-    } else {
-        // Mono image — duplicate to all channels
-        result.R = read_plane(1);
-        result.G = result.R;
-        result.B = result.R;
-    }
+    try {
+        if (nplanes >= 3) {
+            result.R = read_plane(1);
+            result.G = read_plane(2);
+            result.B = read_plane(3);
+        } else {
+            // Mono image — duplicate to all channels
+            result.R = read_plane(1);
+            result.G = result.R;
+            result.B = result.R;
+        }
 
-    fits_close_file(fptr, &status);
-    return result;
+        fits_close_file(fptr, &status);
+        return result;
+    } catch (...) {
+        fits_close_file(fptr, &status);
+        throw;
+    }
 }
 
 Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width, int height) {

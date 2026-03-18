@@ -6,16 +6,20 @@
 #include "tile_compile/image/normalization.hpp"
 
 #include <filesystem>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <vector>
 
 namespace tile_compile::runner {
 
+class RunnerFrameCache;
+
 struct PhaseMetricsContext {
   std::vector<image::NormalizationScales> norm_scales;
   std::vector<FrameMetrics> frame_metrics;
   VectorXf global_weights;
+  std::shared_ptr<RunnerFrameCache> frame_cache;
   float output_pedestal = 0.0f;
   float output_bg_mono = 1.0f;
   float output_bg_r = 1.0f;

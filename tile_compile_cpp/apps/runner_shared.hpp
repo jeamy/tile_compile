@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <streambuf>
@@ -121,6 +122,138 @@ inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
   return any_nonzero;
 }
 
+inline bool apply_common_overlap_to_frame_inplace_and_check_nonzero(
+    Matrix2Df &frame, const std::vector<uint8_t> &common_valid_mask,
+    int common_mask_width, int common_mask_height) {
+  if (frame.rows() != common_mask_height || frame.cols() != common_mask_width) {
+    return false;
+  }
+  if (common_mask_width <= 0 || common_mask_height <= 0 ||
+      common_valid_mask.empty()) {
+    return false;
+  }
+
+  const size_t mask_size = common_valid_mask.size();
+  float *frame_data = frame.data();
+  bool any_nonzero = false;
+  for (int y = 0; y < common_mask_height; ++y) {
+    const size_t row_off =
+        static_cast<size_t>(y) * static_cast<size_t>(common_mask_width);
+    for (int x = 0; x < common_mask_width; ++x) {
+      const size_t idx = row_off + static_cast<size_t>(x);
+      if (idx >= mask_size || common_valid_mask[idx] == 0) {
+        frame_data[idx] = 0.0f;
+        continue;
+      }
+      if (frame_data[idx] > 0.0f) {
+        any_nonzero = true;
+      }
+    }
+  }
+  return any_nonzero;
+}
+
+inline bool apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
+    Matrix2Df &r_frame, Matrix2Df &g_frame, Matrix2Df &b_frame,
+    const std::vector<uint8_t> &common_valid_mask, int common_mask_width,
+    int common_mask_height) {
+  if (r_frame.rows() != common_mask_height ||
+      r_frame.cols() != common_mask_width ||
+      g_frame.rows() != common_mask_height ||
+      g_frame.cols() != common_mask_width ||
+      b_frame.rows() != common_mask_height ||
+      b_frame.cols() != common_mask_width) {
+    return false;
+  }
+  if (common_mask_width <= 0 || common_mask_height <= 0 ||
+      common_valid_mask.empty()) {
+    return false;
+  }
+
+  const size_t mask_size = common_valid_mask.size();
+  float *r_data = r_frame.data();
+  float *g_data = g_frame.data();
+  float *b_data = b_frame.data();
+  bool any_nonzero = false;
+  const size_t total =
+      static_cast<size_t>(common_mask_width) * static_cast<size_t>(common_mask_height);
+  for (size_t idx = 0; idx < total; ++idx) {
+    if (idx >= mask_size || common_valid_mask[idx] == 0) {
+      r_data[idx] = 0.0f;
+      g_data[idx] = 0.0f;
+      b_data[idx] = 0.0f;
+      continue;
+    }
+    if (r_data[idx] > 0.0f || g_data[idx] > 0.0f || b_data[idx] > 0.0f) {
+      any_nonzero = true;
+    }
+  }
+  return any_nonzero;
+}
+
+inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
+    Matrix2Df &r_tile, Matrix2Df &g_tile, Matrix2Df &b_tile, const Tile &t,
+    const std::vector<uint8_t> &common_valid_mask, int common_mask_width,
+    int common_mask_height) {
+  if (r_tile.rows() != t.height || r_tile.cols() != t.width ||
+      g_tile.rows() != t.height || g_tile.cols() != t.width ||
+      b_tile.rows() != t.height || b_tile.cols() != t.width) {
+    return false;
+  }
+  if (common_mask_width <= 0 || common_mask_height <= 0 ||
+      common_valid_mask.empty()) {
+    return false;
+  }
+
+  const int tile_cols = static_cast<int>(r_tile.cols());
+  const size_t mask_size = common_valid_mask.size();
+  float *r_data = r_tile.data();
+  float *g_data = g_tile.data();
+  float *b_data = b_tile.data();
+  bool any_nonzero = false;
+
+  for (int yy = 0; yy < t.height; ++yy) {
+    const int gy = t.y + yy;
+    const size_t tile_row_off =
+        static_cast<size_t>(yy) * static_cast<size_t>(tile_cols);
+
+    if (gy < 0 || gy >= common_mask_height) {
+      for (int xx = 0; xx < t.width; ++xx) {
+        const size_t idx = tile_row_off + static_cast<size_t>(xx);
+        r_data[idx] = 0.0f;
+        g_data[idx] = 0.0f;
+        b_data[idx] = 0.0f;
+      }
+      continue;
+    }
+
+    const size_t row_off =
+        static_cast<size_t>(gy) * static_cast<size_t>(common_mask_width);
+
+    for (int xx = 0; xx < t.width; ++xx) {
+      const int gx = t.x + xx;
+      const size_t idx = tile_row_off + static_cast<size_t>(xx);
+      if (gx < 0 || gx >= common_mask_width) {
+        r_data[idx] = 0.0f;
+        g_data[idx] = 0.0f;
+        b_data[idx] = 0.0f;
+        continue;
+      }
+      const size_t mask_idx = row_off + static_cast<size_t>(gx);
+      if (mask_idx >= mask_size || common_valid_mask[mask_idx] == 0) {
+        r_data[idx] = 0.0f;
+        g_data[idx] = 0.0f;
+        b_data[idx] = 0.0f;
+        continue;
+      }
+      if (r_data[idx] > 0.0f || g_data[idx] > 0.0f || b_data[idx] > 0.0f) {
+        any_nonzero = true;
+      }
+    }
+  }
+  return any_nonzero;
+}
+
 // Fast tile-gating helper used after COMMON_OVERLAP masking.
 inline bool tile_has_nonzero_common_data(
     const Matrix2Df &tile, size_t tile_index,
@@ -151,6 +284,9 @@ bool load_canvas_mask_for_rgb(const std::filesystem::path &mask_path,
 
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src);
 astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src);
+
+Matrix2Df build_registration_proxy(const Matrix2Df &img, ColorMode detected_mode,
+                                   const std::string &detected_bayer_str);
 
 tile_compile::core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
                                           bool requested,
@@ -220,6 +356,36 @@ private:
   std::vector<uint8_t> has_data_;
   mutable std::mutex mapped_mutex_;
   mutable std::vector<void *> mapped_views_;
+};
+
+class RunnerFrameCache {
+public:
+  RunnerFrameCache();
+  RunnerFrameCache(const std::filesystem::path &cache_dir, size_t n_frames,
+                   int rows, int cols);
+
+  RunnerFrameCache(const RunnerFrameCache &) = delete;
+  RunnerFrameCache &operator=(const RunnerFrameCache &) = delete;
+  RunnerFrameCache(RunnerFrameCache &&) = delete;
+  RunnerFrameCache &operator=(RunnerFrameCache &&) = delete;
+
+  void store_normalized(size_t fi, const Matrix2Df &frame);
+  Matrix2Df load_normalized(size_t fi) const;
+  bool has_normalized(size_t fi) const;
+
+  void store_registration_proxy(size_t fi, const Matrix2Df &proxy);
+  bool try_load_registration_proxy(size_t fi, Matrix2Df &out) const;
+
+  size_t size() const;
+  int rows() const;
+  int cols() const;
+  void cleanup();
+
+private:
+  DiskCacheFrameStore normalized_frames_;
+  mutable std::mutex proxy_mutex_;
+  std::vector<uint8_t> has_registration_proxy_;
+  std::vector<Matrix2Df> registration_proxies_;
 };
 
 } // namespace tile_compile::runner

@@ -3050,6 +3050,98 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         ch.residual_stats = BGEValueStats{};
       }
     }
+
+    // Safety retry from a clean RGB state. Only do this once from the default
+    // guard regime to avoid recursive fallback loops.
+    if (!config.internal_relaxed_channel_guards) {
+      auto run_fallback = [&](const BGEConfig &fb_cfg, const char *name,
+                              Matrix2Df *outR, Matrix2Df *outG,
+                              Matrix2Df *outB, BGEDiagnostics *out_diag) {
+        *outR = R_input;
+        *outG = G_input;
+        *outB = B_input;
+        out_diag->channels.clear();
+        std::cout << "[BGE]   Trying partial-channel safety fallback method: "
+                  << name << std::endl;
+        return apply_background_extraction(*outR, *outG, *outB, tile_metrics,
+                                           tile_grid, fb_cfg, out_diag);
+      };
+
+      Matrix2Df R_fb;
+      Matrix2Df G_fb;
+      Matrix2Df B_fb;
+      BGEDiagnostics fb_diag;
+      bool fb_ok = false;
+      std::string chosen_method;
+
+      // Fallback #1: smoother low-order polynomial with relaxed guards.
+      BGEConfig fallback_poly = config;
+      fallback_poly.fit.method = "poly";
+      fallback_poly.fit.polynomial_order = 2;
+      fallback_poly.fit.robust_loss = "tukey";
+      fallback_poly.sample_quantile = std::min(config.sample_quantile, 0.16f);
+      fallback_poly.structure_thresh_percentile =
+          std::min(config.structure_thresh_percentile, 0.80f);
+      fallback_poly.autotune.enabled = false;
+      fallback_poly.internal_relaxed_channel_guards = true;
+      fb_ok =
+          run_fallback(fallback_poly, "poly", &R_fb, &G_fb, &B_fb, &fb_diag);
+      if (fb_ok) {
+        chosen_method = "poly";
+      }
+
+      // Fallback #2: conservative RBF with relaxed guards.
+      if (!fb_ok) {
+        std::cout << "[BGE]   Poly fallback failed; trying conservative RBF"
+                  << std::endl;
+        BGEConfig fallback_rbf = config;
+        fallback_rbf.fit.method = "rbf";
+        fallback_rbf.fit.robust_loss = "tukey";
+        fallback_rbf.fit.rbf_phi = "multiquadric";
+        fallback_rbf.fit.rbf_mu_factor =
+            std::max(1.2f, std::min(1.8f, config.fit.rbf_mu_factor));
+        fallback_rbf.fit.rbf_lambda =
+            std::max(1.0e-5f, config.fit.rbf_lambda);
+        fallback_rbf.sample_quantile = std::min(config.sample_quantile, 0.18f);
+        fallback_rbf.structure_thresh_percentile =
+            std::min(config.structure_thresh_percentile, 0.85f);
+        fallback_rbf.autotune.enabled = false;
+        fallback_rbf.internal_relaxed_channel_guards = true;
+        fb_ok = run_fallback(fallback_rbf, "rbf", &R_fb, &G_fb, &B_fb,
+                             &fb_diag);
+        if (fb_ok) {
+          chosen_method = "rbf";
+        }
+      }
+
+      if (fb_ok) {
+        R = std::move(R_fb);
+        G = std::move(G_fb);
+        B = std::move(B_fb);
+        any_channel_applied = true;
+        channels_applied_total = 3;
+        if (diagnostics != nullptr) {
+          diagnostics->safety_fallback_triggered = true;
+          diagnostics->safety_fallback_method = chosen_method;
+          diagnostics->safety_fallback_reason = "partial_channel_application";
+          diagnostics->method = chosen_method;
+          diagnostics->autotune_selected_fit_method = chosen_method;
+          diagnostics->robust_loss = fb_diag.robust_loss;
+          diagnostics->grid_spacing = fb_diag.grid_spacing;
+          diagnostics->channels = std::move(fb_diag.channels);
+        }
+      } else {
+        std::cerr
+            << "[BGE] partial-channel safety fallbacks failed; keeping pre-BGE RGB"
+            << std::endl;
+        if (diagnostics != nullptr) {
+          diagnostics->safety_fallback_triggered = true;
+          diagnostics->safety_fallback_method = "poly->rbf";
+          diagnostics->safety_fallback_reason =
+              "partial_channel_application_fallback_failed";
+        }
+      }
+    }
   }
 
   if (use_modeled_mask_mesh && any_channel_applied) {

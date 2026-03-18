@@ -124,11 +124,9 @@ bool run_phase_local_metrics(
 
               // Enforce COMMON_OVERLAP support before metric extraction so
               // canvas pixels are excluded from all downstream BGE weighting.
-              apply_common_overlap_to_tile_inplace(
-                  tile_img, t, common_valid_mask, common_mask_width,
-                  common_mask_height);
-              if (!tile_has_nonzero_common_data(tile_img, ti,
-                                                tile_common_valid)) {
+              if (!apply_common_overlap_to_tile_inplace_and_check_nonzero(
+                      tile_img, t, common_valid_mask, common_mask_width,
+                      common_mask_height)) {
                 local_metrics[fi].push_back(make_zero_metrics());
                 local_weights[fi].push_back(0.0f);
                 continue;
