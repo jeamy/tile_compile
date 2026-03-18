@@ -191,11 +191,32 @@ static std::string apply_color_mode_to_yaml(const std::string& base_yaml, const 
     }
 }
 
+static std::string apply_astrometry_paths_to_yaml(const std::string& base_yaml, 
+                                                   const std::string& astap_bin,
+                                                   const std::string& astap_data_dir) {
+    if (base_yaml.empty() || (astap_bin.empty() && astap_data_dir.empty())) return base_yaml;
+    try {
+        YAML::Node root = YAML::Load(base_yaml);
+        if (!root["astrometry"] || !root["astrometry"].IsMap()) root["astrometry"] = YAML::Node(YAML::NodeType::Map);
+        if (!astap_bin.empty()) root["astrometry"]["astap_bin"] = astap_bin;
+        if (!astap_data_dir.empty()) root["astrometry"]["astap_data_dir"] = astap_data_dir;
+        std::ostringstream oss;
+        oss << root;
+        return oss.str();
+    } catch (...) {
+        return base_yaml;
+    }
+}
+
 static std::string effective_config_yaml(const std::shared_ptr<AppState>& state,
                                          const std::string& config_yaml,
-                                         const std::string& color_mode) {
+                                         const std::string& color_mode,
+                                         const std::string& astap_bin = "",
+                                         const std::string& astap_data_dir = "") {
     std::string yaml = config_yaml.empty() ? read_file_str(state->runtime.default_config_path) : config_yaml;
-    return apply_color_mode_to_yaml(yaml, color_mode);
+    yaml = apply_color_mode_to_yaml(yaml, color_mode);
+    yaml = apply_astrometry_paths_to_yaml(yaml, astap_bin, astap_data_dir);
+    return yaml;
 }
 
 static fs::path materialize_queue_input(const fs::path& input_dir,
@@ -505,6 +526,8 @@ void register_runs_routes(CrowApp& app,
         std::string run_id      = make_effective_run_id(body);
         std::string color_mode  = body.value("color_mode", "");
         std::string config_yaml = body.value("config_yaml", "");
+        std::string astap_bin   = body.value("astap_bin", "");
+        std::string astap_data_dir = body.value("astap_data_dir", "");
         std::string base_run_id = sanitize_run_id(run_id.empty() ? "run" : run_id);
         auto queue_items = collect_queue_items(body, base_run_id);
 
@@ -541,7 +564,7 @@ void register_runs_routes(CrowApp& app,
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + runs_dir, 403, {{"path", runs_dir}});
         }
 
-        std::string prepared_config_yaml = effective_config_yaml(state, config_yaml, color_mode);
+        std::string prepared_config_yaml = effective_config_yaml(state, config_yaml, color_mode, astap_bin, astap_data_dir);
         std::string effective_config_path = state->runtime.default_config_path.string();
         if (!prepared_config_yaml.empty()) {
             std::ofstream out(state->runtime.default_config_path);

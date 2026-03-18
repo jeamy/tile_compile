@@ -1538,11 +1538,16 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
     "OSC",
   ).toUpperCase();
 
+  const astapBin = readStoredValue(UI_STORAGE_KEYS.astrometryBinary);
+  const astapDataDir = readStoredValue(UI_STORAGE_KEYS.astrometryDataDir);
+  
   const payload = {
     color_mode: colorMode,
     run_name: runName || undefined,
     runs_dir: runsDir || undefined,
     config_yaml: configYaml,
+    astap_bin: astapBin || undefined,
+    astap_data_dir: astapDataDir || undefined,
   };
   const queue = useDashboardFields || useWizardFields ? collectQueueRows() : [];
   if (queue.length > 0) {
