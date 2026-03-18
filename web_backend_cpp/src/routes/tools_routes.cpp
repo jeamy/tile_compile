@@ -191,8 +191,13 @@ fs::path resolve_astap_binary(const std::string& astap_cli_raw, const fs::path& 
         } else {
             const fs::path explicit_path = expand_user_path(fs::path(astap_cli_raw));
             std::error_code ec;
-            if (fs::is_directory(explicit_path, ec)) add_search_root(explicit_path);
-            else add_candidate(explicit_path);
+            if (fs::is_directory(explicit_path, ec)) {
+                add_search_root(explicit_path);
+            } else {
+                // User provided explicit binary path - check it first before fallbacks
+                if (astap_probe_ok(explicit_path)) return explicit_path;
+                add_candidate(explicit_path);
+            }
         }
     }
 

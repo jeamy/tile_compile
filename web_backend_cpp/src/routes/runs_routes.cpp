@@ -392,7 +392,9 @@ static std::vector<int> terminate_orphan_runner_processes(const BackendRuntime& 
                                                           const std::string& run_id,
                                                           const std::string& run_dir) {
     std::vector<int> killed;
+#ifdef __linux__
     const std::string runner_name = fs::path(runtime.runner_exe).filename().string();
+    if (!fs::exists("/proc")) return killed;
     for (const auto& entry : fs::directory_iterator("/proc")) {
         if (!entry.is_directory()) continue;
         const std::string pid_text = entry.path().filename().string();
@@ -435,6 +437,7 @@ static std::vector<int> terminate_orphan_runner_processes(const BackendRuntime& 
         if (joined.find(run_id) == std::string::npos && joined.find(run_dir) == std::string::npos) continue;
         if (terminate_pid_group(static_cast<pid_t>(pid))) killed.push_back(pid);
     }
+#endif
     return killed;
 }
 #endif
