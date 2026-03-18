@@ -1538,8 +1538,8 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
     "OSC",
   ).toUpperCase();
 
-  const astapBin = readStoredValue(UI_STORAGE_KEYS.astrometryBinary);
-  const astapDataDir = readStoredValue(UI_STORAGE_KEYS.astrometryDataDir);
+  const astapBin = storedTextValue(UI_STORAGE_KEYS.astrometryBinary, { absolute: true });
+  const astapDataDir = storedTextValue(UI_STORAGE_KEYS.astrometryDataDir, { absolute: true });
   
   const payload = {
     color_mode: colorMode,
