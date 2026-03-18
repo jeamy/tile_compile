@@ -473,6 +473,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.0 (2026-03-18)
+
+- Astrometry/PCC-Tool-Pfadeingaben werden nicht mehr durch Backend-Defaults überschrieben.
+
 ## v0.0.F (2026-03-17)
 
 - DSO-Tile-Rekonstruktionsmethodik auf `v3.3.8` in DE/EN angehoben und auf die aktive Runtime-Semantik abgeglichen.
@@ -563,6 +567,14 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+## Changelog (2026-03-18)
+
+- Astrometry-Datenverzeichnis-Eingabe wird nun korrekt respektiert wenn User den Pfad manuell ändert - nutzt `shouldKeepAstapSelection`-Logik zur Bewahrung der User-Eingabe.
+- Serverseitige Persistenz für Astrometry- und PCC-Tool-Parameter via UI-State-API hinzugefügt - Einstellungen überleben Server-Neustarts.
+- Intelligentere Katalog-Downloads: Astrometry-Kataloge überspringen Download wenn bereits installiert, PCC Siril lädt nur fehlende Chunks herunter.
+- Robustere Archiv-Extraktion für macOS `.pkg`, Linux `.deb` und Windows `.exe` mit besseren Fehlermeldungen und Validierung.
+- macOS-Release-Bundle-Library-Probleme behoben durch explizites Bundling von GCC-Runtime-Libraries (`libgcc_s`, `libgfortran`, `libquadmath`, `libgomp`) und Beibehaltung von `libstdc++` für Homebrew-kompilierte Dependencies.
 
 ### (2026-03-17)
 

@@ -463,6 +463,10 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.0 (2026-03-18)
+
+- Fixed Astrometry/PCC tool path inputs being overwritten by backend defaults.
+
 ## v0.0.F (2026-03-17)
 
 - Promoted the DSO tile-reconstruction methodology to `v3.3.8` in EN/DE and aligned it with the active runtime semantics.
@@ -553,6 +557,14 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+## Changelog (2026-03-18)
+
+- Fixed Astrometry data directory input not being respected when user manually changes the path - now uses `shouldKeepAstapSelection` logic to preserve user input.
+- Added server-side persistence for Astrometry and PCC tool parameters via UI state API - settings survive server restarts.
+- Improved catalog download intelligence: Astrometry catalogs skip download if already installed, PCC Siril only downloads missing chunks.
+- Enhanced archive extraction robustness for macOS `.pkg`, Linux `.deb`, and Windows `.exe` formats with better error messages and validation.
+- Fixed macOS release bundle library issues by explicitly bundling GCC runtime libraries (`libgcc_s`, `libgfortran`, `libquadmath`, `libgomp`) and preserving `libstdc++` for Homebrew-compiled dependencies.
 
 ### (2026-03-17)
 
