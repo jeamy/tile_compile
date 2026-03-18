@@ -358,10 +358,20 @@ bool extract_deb_archive(const fs::path& archive, const fs::path& dest, std::str
 
 bool extract_pkg_archive(const fs::path& archive, const fs::path& dest, std::string& error) {
 #ifdef __APPLE__
+    if (!fs::exists(archive)) {
+        error = "archive not found: " + archive.string();
+        return false;
+    }
+    std::error_code ec;
+    fs::create_directories(dest, ec);
+    if (ec) {
+        error = "failed to create destination directory: " + ec.message();
+        return false;
+    }
     auto res = run_subprocess({"pkgutil", "--expand-full", archive.string(), dest.string()});
     if (res.exit_code == 0) return true;
     error = res.stderr_str.empty() ? res.stdout_str : res.stderr_str;
-    if (error.empty()) error = "pkgutil --expand-full failed";
+    if (error.empty()) error = "pkgutil --expand-full failed with exit code " + std::to_string(res.exit_code);
     return false;
 #else
     error = "pkg extraction unsupported on this platform";
@@ -371,6 +381,17 @@ bool extract_pkg_archive(const fs::path& archive, const fs::path& dest, std::str
 
 bool extract_exe_archive(const fs::path& archive, const fs::path& dest, std::string& error) {
 #ifdef _WIN32
+    if (!fs::exists(archive)) {
+        error = "archive not found: " + archive.string();
+        return false;
+    }
+    std::error_code ec;
+    fs::create_directories(dest, ec);
+    if (ec) {
+        error = "failed to create destination directory: " + ec.message();
+        return false;
+    }
+
     const auto capture_error = [](const SubprocessResult& res, const std::string& fallback) {
         std::string out = res.stderr_str.empty() ? res.stdout_str : res.stderr_str;
         return out.empty() ? fallback : out;
@@ -386,11 +407,8 @@ bool extract_exe_archive(const fs::path& archive, const fs::path& dest, std::str
 
     auto inno_res = run_subprocess({
         archive.string(),
-        "/SP-",
         "/VERYSILENT",
         "/SUPPRESSMSGBOXES",
-        "/NORESTART",
-        "/CURRENTUSER",
         ("/DIR=" + dest.string())
     });
     if (inno_res.exit_code == 0) return true;
@@ -678,6 +696,21 @@ void register_tools_routes(CrowApp& app,
 
         const DownloadOptions options = download_options_from_payload(body, 1800);
         const bool force_restart = body.value("force_restart", false);
+        
+        if (!force_restart && is_astap_catalog_installed(data_dir, catalog_id)) {
+            std::string job_id = state->job_store.create("astrometry_catalog_download");
+            state->job_store.update_state(job_id, JobState::ok, {
+                {"catalog_id", catalog_id},
+                {"installed", true},
+                {"data_dir", data_dir.string()},
+                {"stage", "already_installed"},
+                {"progress", 1.0},
+                {"message", "Catalog " + catalog_id + " is already installed"},
+            });
+            state->ui_event_store.push("tools.astrometry.catalog.already_installed", "tools.astrometry_catalog_skip", {{"catalog_id", catalog_id}}, std::nullopt, job_id);
+            return json_resp({{"job_id", job_id}, {"state", "ok"}, {"already_installed", true}}, 200);
+        }
+
         const std::string url = std::string(ASTAP_SF_BASE) + filename + "/download";
         std::string job_id = state->job_store.create("astrometry_catalog_download");
         state->job_store.update_state(job_id, JobState::running, {
@@ -830,6 +863,20 @@ void register_tools_routes(CrowApp& app,
                 }
                 if (max_chunks > 0 && static_cast<int>(missing.size()) > max_chunks) {
                     missing.resize(static_cast<size_t>(max_chunks));
+                }
+
+                if (missing.empty() && !force_restart) {
+                    state->job_store.update_state(job_id, JobState::ok, {
+                        {"catalog_dir", catalog_dir.string()},
+                        {"installed", SIRIL_NUM_CHUNKS},
+                        {"total", SIRIL_NUM_CHUNKS},
+                        {"missing", nlohmann::json::array()},
+                        {"stage", "already_complete"},
+                        {"progress", 1.0},
+                        {"message", "All Siril catalog chunks are already downloaded"},
+                    });
+                    state->ui_event_store.push("tools.pcc.siril.already_complete", "tools.pcc_siril_skip", {{"catalog_dir", catalog_dir.string()}}, std::nullopt, job_id);
+                    return;
                 }
 
                 nlohmann::json pending_chunks = nlohmann::json::array();

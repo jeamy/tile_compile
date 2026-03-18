@@ -4388,9 +4388,10 @@ async function bindAstrometryPage() {
 
   async function detect({ logResult = true } = {}) {
     const selectedBinary = String(binaryInput?.value || "").trim();
+    const selectedDataDir = String(dataDirInput?.value || "").trim();
     const payload = {
       astap_cli: selectedBinary,
-      astap_data_dir: dataDirInput?.value || "",
+      astap_data_dir: selectedDataDir,
     };
     const result = await withPathGrantRetry(
       () => api.post(API_ENDPOINTS.astrometry.detect, payload),
@@ -4402,7 +4403,7 @@ async function bindAstrometryPage() {
       binaryInput.value = String(result.binary);
       persistTextValue(UI_STORAGE_KEYS.astrometryBinary, binaryInput.value, { absolute: true });
     }
-    if (dataDirInput && result.data_dir) {
+    if (dataDirInput && result.data_dir && !shouldKeepAstapSelection(selectedDataDir, result.data_dir)) {
       dataDirInput.value = String(result.data_dir);
       persistTextValue(UI_STORAGE_KEYS.astrometryDataDir, dataDirInput.value, { absolute: true });
     }
