@@ -2,6 +2,7 @@
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
+#include "tile_compile/metrics/metrics.hpp"
 
 #include <nlohmann/json.hpp>
 #include <yaml-cpp/yaml.h>
@@ -1086,19 +1087,49 @@ int cmd_pcc_run(const std::string& input_path,
         }
 
         io::RGBImage rgb = io::read_fits_rgb(fs::path(input_path));
-        auto pcc_result = astro::run_pcc(rgb.R, rgb.G, rgb.B, wcs, stars, config);
+        astro::PCCConfig resolved_config = config;
+        double estimated_fwhm_px = 0.0;
+        if (resolved_config.radii_mode == "auto_fwhm") {
+            estimated_fwhm_px = static_cast<double>(tile_compile::metrics::measure_fwhm_from_image(rgb.G));
+            if (!(estimated_fwhm_px > 0.0) || !std::isfinite(estimated_fwhm_px)) {
+                estimated_fwhm_px = static_cast<double>(tile_compile::metrics::measure_fwhm_from_image(rgb.R));
+            }
+            if (!(estimated_fwhm_px > 0.0) || !std::isfinite(estimated_fwhm_px)) {
+                estimated_fwhm_px = static_cast<double>(tile_compile::metrics::measure_fwhm_from_image(rgb.B));
+            }
+            if (estimated_fwhm_px > 0.0 && std::isfinite(estimated_fwhm_px)) {
+                const double r_ap = std::max(static_cast<double>(resolved_config.min_aperture_px),
+                                             resolved_config.aperture_fwhm_mult * estimated_fwhm_px);
+                const double r_in = std::max(r_ap + 1.0,
+                                             resolved_config.annulus_inner_fwhm_mult * estimated_fwhm_px);
+                const double r_out = std::max(r_in + 2.0,
+                                              resolved_config.annulus_outer_fwhm_mult * estimated_fwhm_px);
+                resolved_config.aperture_radius_px = r_ap;
+                resolved_config.annulus_inner_px = r_in;
+                resolved_config.annulus_outer_px = r_out;
+            }
+        }
+        result["radii_mode"] = resolved_config.radii_mode;
+        result["aperture_radius_px"] = resolved_config.aperture_radius_px;
+        result["annulus_inner_px"] = resolved_config.annulus_inner_px;
+        result["annulus_outer_px"] = resolved_config.annulus_outer_px;
+        if (estimated_fwhm_px > 0.0 && std::isfinite(estimated_fwhm_px)) {
+            result["estimated_fwhm_px"] = estimated_fwhm_px;
+        }
+        auto pcc_result = astro::run_pcc(rgb.R, rgb.G, rgb.B, wcs, stars, resolved_config);
 
         result["stars_matched"] = pcc_result.n_stars_matched;
         result["stars_used"] = pcc_result.n_stars_used;
         result["residual_rms"] = pcc_result.residual_rms;
         result["determinant"] = pcc_result.determinant;
         result["condition_number"] = pcc_result.condition_number;
-        result["apply_attenuation"] = config.apply_attenuation;
-        result["chroma_strength"] = config.chroma_strength;
-        result["k_max"] = config.k_max;
-        result["aperture_radius_px"] = config.aperture_radius_px;
-        result["annulus_inner_px"] = config.annulus_inner_px;
-        result["annulus_outer_px"] = config.annulus_outer_px;
+        result["apply_mode"] = pcc_result.apply_mode;
+        result["apply_attenuation"] = resolved_config.apply_attenuation;
+        result["chroma_strength"] = resolved_config.chroma_strength;
+        result["k_max"] = resolved_config.k_max;
+        result["background_model"] = resolved_config.background_model;
+        result["max_condition_number"] = resolved_config.max_condition_number;
+        result["max_residual_rms"] = resolved_config.max_residual_rms;
 
         json matrix_json = json::array();
         for (int r = 0; r < 3; ++r) {
@@ -1345,6 +1376,14 @@ int main(int argc, char* argv[]) {
         std::string apply_attenuation_str = get_arg("--apply-attenuation");
         std::string chroma_strength_str = get_arg("--chroma-strength");
         std::string k_max_str = get_arg("--k-max");
+        std::string radii_mode_str = get_arg("--radii-mode");
+        std::string aperture_fwhm_mult_str = get_arg("--aperture-fwhm-mult");
+        std::string annulus_inner_fwhm_mult_str = get_arg("--annulus-inner-fwhm-mult");
+        std::string annulus_outer_fwhm_mult_str = get_arg("--annulus-outer-fwhm-mult");
+        std::string min_aperture_px_str = get_arg("--min-aperture-px");
+        std::string background_model_str = get_arg("--background-model");
+        std::string max_condition_number_str = get_arg("--max-condition-number");
+        std::string max_residual_rms_str = get_arg("--max-residual-rms");
         if (!mag_limit_str.empty()) cfg.mag_limit = std::stod(mag_limit_str);
         if (!mag_bright_limit_str.empty()) cfg.mag_bright_limit = std::stod(mag_bright_limit_str);
         if (!min_stars_str.empty()) cfg.min_stars = std::stoi(min_stars_str);
@@ -1355,6 +1394,14 @@ int main(int argc, char* argv[]) {
         if (!apply_attenuation_str.empty()) cfg.apply_attenuation = parse_boolish(apply_attenuation_str);
         if (!chroma_strength_str.empty()) cfg.chroma_strength = std::stod(chroma_strength_str);
         if (!k_max_str.empty()) cfg.k_max = std::stod(k_max_str);
+        if (!radii_mode_str.empty()) cfg.radii_mode = radii_mode_str;
+        if (!aperture_fwhm_mult_str.empty()) cfg.aperture_fwhm_mult = std::stod(aperture_fwhm_mult_str);
+        if (!annulus_inner_fwhm_mult_str.empty()) cfg.annulus_inner_fwhm_mult = std::stod(annulus_inner_fwhm_mult_str);
+        if (!annulus_outer_fwhm_mult_str.empty()) cfg.annulus_outer_fwhm_mult = std::stod(annulus_outer_fwhm_mult_str);
+        if (!min_aperture_px_str.empty()) cfg.min_aperture_px = std::stod(min_aperture_px_str);
+        if (!background_model_str.empty()) cfg.background_model = background_model_str;
+        if (!max_condition_number_str.empty()) cfg.max_condition_number = std::stod(max_condition_number_str);
+        if (!max_residual_rms_str.empty()) cfg.max_residual_rms = std::stod(max_residual_rms_str);
         return cmd_pcc_run(in_path, out_path, wcs_path, source, siril_catalog_dir, cfg);
     }
 

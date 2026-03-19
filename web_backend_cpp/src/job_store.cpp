@@ -1,4 +1,5 @@
 #include "job_store.hpp"
+#include <algorithm>
 #include <sstream>
 #include <iomanip>
 #include <chrono>
@@ -55,7 +56,14 @@ std::string InMemoryJobStore::create(const std::string& type, const std::string&
     j.updated_at = j.created_at;
     _jobs[id] = std::move(j);
     _order.push_back(id);
+    prune_locked();
     return id;
+}
+
+void InMemoryJobStore::configure_retention(size_t max_retained_jobs) {
+    std::lock_guard<std::mutex> lk(_mutex);
+    _max_retained_jobs = std::max<size_t>(1, max_retained_jobs);
+    prune_locked();
 }
 
 std::optional<Job> InMemoryJobStore::get(const std::string& job_id) const {
@@ -80,6 +88,7 @@ bool InMemoryJobStore::update_state(const std::string& job_id, JobState state,
     if ((state == JobState::ok || state == JobState::error || state == JobState::cancelled) && it->second.ended_at.empty()) {
         it->second.ended_at = it->second.updated_at;
     }
+    prune_locked();
     return true;
 }
 
@@ -132,6 +141,7 @@ bool InMemoryJobStore::cancel(const std::string& job_id) {
         it->second.state = JobState::cancelled;
     it->second.updated_at = utc_now_iso();
     if (it->second.ended_at.empty()) it->second.ended_at = it->second.updated_at;
+    prune_locked();
     return true;
 }
 
@@ -145,4 +155,27 @@ std::vector<Job> InMemoryJobStore::list(int limit) const {
         if (it != _jobs.end()) result.push_back(it->second);
     }
     return result;
+}
+
+void InMemoryJobStore::prune_locked() {
+    while (_order.size() > _max_retained_jobs) {
+        bool removed = false;
+        for (auto it = _order.begin(); it != _order.end(); ++it) {
+            const auto job_it = _jobs.find(*it);
+            if (job_it == _jobs.end()) {
+                _order.erase(it);
+                removed = true;
+                break;
+            }
+
+            const JobState state = job_it->second.state;
+            if (state == JobState::pending || state == JobState::running) continue;
+
+            _jobs.erase(job_it);
+            _order.erase(it);
+            removed = true;
+            break;
+        }
+        if (!removed) break;
+    }
 }

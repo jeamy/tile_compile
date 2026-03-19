@@ -1,4 +1,5 @@
 #include "services/report_generator.hpp"
+#include "backend_runtime.hpp"
 #include "services/run_inspector.hpp"
 
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <ctime>
+#include <deque>
 #include <fstream>
 #include <iomanip>
 #include <map>
@@ -99,11 +101,15 @@ std::string sanitize_label(std::string s) {
 }
 
 std::string read_text(const fs::path& path) {
+    const BackendGuardLimits limits = backend_guard_limits_from_env();
     std::ifstream in(path, std::ios::binary);
     if (!in) return "";
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
+    std::string out;
+    out.resize(limits.report_text_bytes);
+    in.read(out.data(), static_cast<std::streamsize>(out.size()));
+    out.resize(static_cast<size_t>(in.gcount()));
+    if (in.peek() != EOF) out += "\n...[truncated]";
+    return out;
 }
 
 std::string env_or(const char* key, const std::string& fallback = "") {
@@ -166,6 +172,16 @@ std::string apply_report_translations(std::string html, const std::string& local
 }
 
 json read_json_if_exists(const fs::path& path) {
+    const BackendGuardLimits limits = backend_guard_limits_from_env();
+    std::error_code ec;
+    const auto size = fs::file_size(path, ec);
+    if (!ec && size > limits.report_json_file_bytes) {
+        return json{
+            {"_truncated", true},
+            {"_reason", "file_too_large"},
+            {"_size_bytes", static_cast<unsigned long long>(size)}
+        };
+    }
     std::ifstream in(path);
     if (!in) return json::object();
     auto parsed = json::parse(in, nullptr, false);
@@ -174,16 +190,69 @@ json read_json_if_exists(const fs::path& path) {
 }
 
 std::vector<json> read_jsonl_if_exists(const fs::path& path, int max_lines = 100000) {
+    const BackendGuardLimits limits = backend_guard_limits_from_env();
     std::ifstream in(path);
     std::vector<json> items;
     if (!in) return items;
+    std::deque<json> log_tail;
+    std::map<std::string, int> phase_progress_buckets;
+    std::map<std::string, int> queue_progress_buckets;
+    const auto raw_string = [](const json& obj, const char* key) {
+        return obj.contains(key) && obj[key].is_string() ? obj[key].get<std::string>() : std::string();
+    };
+    const auto raw_number = [](const json& obj, const char* key) {
+        return obj.contains(key) && obj[key].is_number() ? obj[key].get<double>() : 0.0;
+    };
+    const auto raw_percent = [&](const json& obj) {
+        double value = raw_number(obj, "progress");
+        if (value == 0.0) value = raw_number(obj, "pct");
+        return value >= 0.0 && value <= 1.0 ? value * 100.0 : value;
+    };
     std::string line;
     int n = 0;
     while (std::getline(in, line) && n < max_lines) {
         if (line.empty()) continue;
         auto j = json::parse(line, nullptr, false);
-        if (!j.is_discarded() && j.is_object()) items.push_back(std::move(j));
+        if (j.is_discarded() || !j.is_object()) {
+            ++n;
+            continue;
+        }
+
+        const std::string type = raw_string(j, "type");
+        if (type == "log_line") {
+            log_tail.push_back(std::move(j));
+            if (log_tail.size() > limits.report_log_tail) log_tail.pop_front();
+            ++n;
+            continue;
+        }
+
+        if (type == "phase_progress") {
+            std::string phase = raw_string(j, "phase");
+            if (phase.empty()) phase = raw_string(j, "phase_name");
+            int bucket = static_cast<int>(raw_percent(j) / 5.0);
+            auto it = phase_progress_buckets.find(phase);
+            if (it != phase_progress_buckets.end() && it->second == bucket) {
+                ++n;
+                continue;
+            }
+            phase_progress_buckets[phase] = bucket;
+        } else if (type == "queue_progress") {
+            std::string filter = raw_string(j, "filter");
+            int bucket = static_cast<int>(raw_percent(j) / 5.0);
+            auto it = queue_progress_buckets.find(filter);
+            if (it != queue_progress_buckets.end() && it->second == bucket) {
+                ++n;
+                continue;
+            }
+            queue_progress_buckets[filter] = bucket;
+        }
+
+        if (items.size() < limits.report_events_max) items.push_back(std::move(j));
         ++n;
+    }
+    for (const auto& item : log_tail) {
+        if (items.size() >= limits.report_events_max) break;
+        items.push_back(item);
     }
     return items;
 }

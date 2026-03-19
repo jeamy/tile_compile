@@ -4,6 +4,7 @@ export const API_ENDPOINTS = {
     openPath: "/api/fs/open",
   },
   jobs: {
+    list: "/api/jobs",
     byId: (jobId) => `/api/jobs/${encodeURIComponent(String(jobId || ""))}`,
   },
   guardrails: {

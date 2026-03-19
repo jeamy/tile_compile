@@ -125,7 +125,26 @@ run_backend_foreground() {
   export TILE_COMPILE_PRESETS_DIR="${INSTALL_ROOT}/tile_compile_cpp/examples"
   export TILE_COMPILE_UI_DIR="${INSTALL_ROOT}/web_frontend"
   export TILE_COMPILE_GUI2_INSTALL_ROOT="${INSTALL_ROOT}"
-  export TILE_COMPILE_ALLOWED_ROOTS="${INSTALL_ROOT}:$(printf '%s' "${HOME}"):/tmp:/media"
+  local allowed_roots=("${INSTALL_ROOT}" "$(printf '%s' "${HOME}")" "/tmp" "/media")
+  if [[ -n "${TMPDIR:-}" ]]; then
+    allowed_roots+=("${TMPDIR%/}")
+  fi
+  local allowed_roots_joined
+  allowed_roots_joined="$(IFS=:; printf '%s' "${allowed_roots[*]}")"
+  export TILE_COMPILE_ALLOWED_ROOTS="${allowed_roots_joined}"
+  # Optional backend memory guard overrides:
+  # TILE_COMPILE_BACKEND_SUBPROCESS_CAPTURE_BYTES (default 1048576)
+  # TILE_COMPILE_BACKEND_JOB_STDIO_STORE_BYTES (default 131072)
+  # TILE_COMPILE_BACKEND_SCAN_FRAMES_PREVIEW (default 256)
+  # TILE_COMPILE_BACKEND_SCAN_PER_DIR_FRAMES_PREVIEW (default 32)
+  # TILE_COMPILE_BACKEND_SCAN_PER_DIR_RESULTS_PREVIEW (default 64)
+  # TILE_COMPILE_BACKEND_SCAN_MESSAGES_PREVIEW (default 128)
+  # TILE_COMPILE_BACKEND_SCAN_COLOR_CANDIDATES_PREVIEW (default 32)
+  # TILE_COMPILE_BACKEND_REPORT_EVENTS_MAX (default 4096)
+  # TILE_COMPILE_BACKEND_REPORT_LOG_TAIL (default 128)
+  # TILE_COMPILE_BACKEND_REPORT_TEXT_BYTES (default 262144)
+  # TILE_COMPILE_BACKEND_REPORT_JSON_FILE_BYTES (default 4194304)
+  # TILE_COMPILE_BACKEND_RETAINED_JOBS (default 128)
   local lib_paths=()
   if [[ -d "${lib_dir}" ]]; then
     lib_paths+=("${lib_dir}")

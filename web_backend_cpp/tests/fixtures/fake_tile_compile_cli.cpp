@@ -17,6 +17,10 @@ std::string read_stdin() {
     return buffer.str();
 }
 
+std::string repeated(char ch, size_t count) {
+    return std::string(count, ch);
+}
+
 }
 
 int main(int argc, char** argv) {
@@ -84,18 +88,52 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (command == "scan" && argc >= 3) {
+        const fs::path input_dir = argv[2];
+        const std::string name = input_dir.filename().string();
+        const int frame_count = name.find("many_frames") != std::string::npos ? 600 : 12;
+        nlohmann::json frames = nlohmann::json::array();
+        for (int i = 0; i < frame_count; ++i) {
+            frames.push_back({
+                {"path", (input_dir / ("frame_" + std::to_string(i) + ".fits")).string()},
+                {"index", i},
+                {"quality", 0.95 - (static_cast<double>(i % 10) * 0.01)}
+            });
+        }
+        nlohmann::json payload = {
+            {"ok", true},
+            {"input_path", input_dir.string()},
+            {"frames_detected", frame_count},
+            {"image_width", 2048},
+            {"image_height", 1536},
+            {"color_mode", name.find("mono") != std::string::npos ? "MONO" : "OSC"},
+            {"color_mode_candidates", {"OSC", "MONO", "RGB"}},
+            {"bayer_pattern", name.find("mono") != std::string::npos ? nlohmann::json(nullptr) : nlohmann::json("RGGB")},
+            {"requires_user_confirmation", false},
+            {"errors", nlohmann::json::array()},
+            {"warnings", name.find("warn") != std::string::npos ? nlohmann::json::array({"fixture warning"}) : nlohmann::json::array()},
+            {"frames", frames}
+        };
+        std::cout << payload.dump() << std::endl;
+        return 0;
+    }
+
     if (command == "pcc-run" && argc >= 4) {
         const fs::path input_rgb = argv[2];
         const fs::path output_rgb = argv[3];
+        const std::string output_name = output_rgb.filename().string();
         fs::create_directories(output_rgb.parent_path());
-        if (output_rgb.filename().string().find("slow") != std::string::npos) {
+        if (output_name.find("slow") != std::string::npos) {
             std::this_thread::sleep_for(std::chrono::seconds(5));
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
+        if (output_name.find("loud") != std::string::npos) {
+            std::cerr << repeated('e', 300000);
+        }
         std::ofstream out(output_rgb, std::ios::binary);
         out << "fake pcc output\n";
-        std::cout << nlohmann::json{
+        nlohmann::json payload = {
             {"stars_matched", 42},
             {"stars_used", 37},
             {"residual_rms", 0.123},
@@ -108,7 +146,11 @@ int main(int argc, char** argv) {
             {"output_rgb", output_rgb.string()},
             {"output_channels", nlohmann::json::array()},
             {"input_rgb", input_rgb.string()}
-        }.dump() << std::endl;
+        };
+        if (output_name.find("widejson") != std::string::npos) {
+            payload["debug_blob"] = repeated('x', 200000);
+        }
+        std::cout << payload.dump() << std::endl;
         return 0;
     }
 

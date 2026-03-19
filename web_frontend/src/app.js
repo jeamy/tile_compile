@@ -14,9 +14,15 @@ const CALIBRATION_PATH_KEY_PREFIX = "gui2.calibrationPath";
 const LAST_SCAN_COLOR_MODE_KEY = "gui2.lastScanColorMode";
 const ASTROMETRY_LAST_RESULT_KEY = "gui2.tools.astrometry.lastResult";
 const ASTROMETRY_LAST_WCS_KEY = "gui2.tools.astrometry.lastWcs";
+const ASTROMETRY_INSTALL_JOB_KEY = "gui2.tools.astrometry.installJob";
+const ASTROMETRY_CATALOG_JOB_KEY = "gui2.tools.astrometry.catalogJob";
 const PCC_LAST_OUTPUT_KEY = "gui2.tools.pcc.lastOutput";
 const PCC_LAST_CHANNELS_KEY = "gui2.tools.pcc.lastChannels";
 const PCC_LAST_RESULT_KEY = "gui2.tools.pcc.lastResult";
+const PCC_DOWNLOAD_JOB_KEY = "gui2.tools.pcc.downloadJob";
+const PCC_TEMP_OUTPUT_KEY = "gui2.tools.pcc.tempOutput";
+const PCC_TEMP_CHANNELS_KEY = "gui2.tools.pcc.tempChannels";
+const PCC_TEMP_JOB_KEY = "gui2.tools.pcc.tempJob";
 const UI_STORAGE_KEYS = {
   dashboardRunsDir: "gui2.run.runsDir",
   dashboardRunName: "gui2.run.runName",
@@ -45,11 +51,20 @@ const UI_STORAGE_KEYS = {
   pccAperture: "gui2.tools.pcc.aperture",
   pccAnnulusInner: "gui2.tools.pcc.annulusInner",
   pccAnnulusOuter: "gui2.tools.pcc.annulusOuter",
+  pccApplyAttenuation: "gui2.tools.pcc.applyAttenuation",
+  pccChromaStrength: "gui2.tools.pcc.chromaStrength",
+  pccKMax: "gui2.tools.pcc.kMax",
   astrometryLastResult: ASTROMETRY_LAST_RESULT_KEY,
   astrometryLastWcs: ASTROMETRY_LAST_WCS_KEY,
+  astrometryInstallJob: ASTROMETRY_INSTALL_JOB_KEY,
+  astrometryCatalogJob: ASTROMETRY_CATALOG_JOB_KEY,
   pccLastOutput: PCC_LAST_OUTPUT_KEY,
   pccLastChannels: PCC_LAST_CHANNELS_KEY,
   pccLastResult: PCC_LAST_RESULT_KEY,
+  pccDownloadJob: PCC_DOWNLOAD_JOB_KEY,
+  pccTempOutput: PCC_TEMP_OUTPUT_KEY,
+  pccTempChannels: PCC_TEMP_CHANNELS_KEY,
+  pccTempJob: PCC_TEMP_JOB_KEY,
 };
 
 const uiState = {
@@ -77,6 +92,9 @@ const uiState = {
   lastPccOutput: "",
   lastPccChannels: [],
   lastPccResult: null,
+  currentPccTempOutput: "",
+  currentPccTempChannels: [],
+  currentPccTempJobId: "",
   locale: "de",
   projectRunsDir: "",
   projectPresetsDir: "",
@@ -85,6 +103,10 @@ const uiState = {
   runReadyStatus: "check",
   runProcessStatus: "",
   configSchemaPaths: null,
+};
+
+const appRuntime = {
+  tempRoot: "/tmp",
 };
 
 let serverUiState = {};
@@ -345,7 +367,12 @@ function pageName() {
 }
 
 function errorText(err) {
-  return err?.payload?.detail?.error?.message || err?.payload?.error?.message || err?.message || String(err);
+  const message = err?.payload?.detail?.error?.message || err?.payload?.error?.message || err?.message || String(err);
+  const detail = err?.payload?.detail?.error?.details?.detail || err?.payload?.error?.details?.detail || "";
+  if (detail && !String(message).includes(detail)) {
+    return `${message} (${detail})`;
+  }
+  return message;
 }
 
 function apiErrorCode(err) {
@@ -478,6 +505,88 @@ async function waitForJob(jobId, { timeoutMs = 240000, onTick, allowMissing = fa
   throw new Error(`job timeout: ${jobId}`);
 }
 
+function isActiveJobState(state) {
+  return ["pending", "queued", "starting", "running"].includes(String(state || "").trim().toLowerCase());
+}
+
+function isTerminalJobState(state) {
+  return ["ok", "done", "completed", "finished", "error", "failed", "cancelled", "aborted", "missing"]
+    .includes(String(state || "").trim().toLowerCase());
+}
+
+async function fetchJobSnapshot(jobId, { allowMissing = false } = {}) {
+  try {
+    return await api.get(API_ENDPOINTS.jobs.byId(jobId));
+  } catch (err) {
+    if (allowMissing && Number(err?.status) === 404) {
+      return { job_id: jobId, state: "missing", data: {} };
+    }
+    throw err;
+  }
+}
+
+function jobRecencyValue(job) {
+  return String(job?.updated_at || job?.started_at || job?.created_at || "");
+}
+
+async function resolveTrackedJob(storageKey, allowedTypes = []) {
+  const matchesType = (job) => allowedTypes.length === 0 || allowedTypes.includes(String(job?.type || ""));
+  const trackedJobId = storedTextValue(storageKey);
+  if (trackedJobId) {
+    const trackedJob = await fetchJobSnapshot(trackedJobId, { allowMissing: true });
+    if (trackedJob && matchesType(trackedJob)) return trackedJob;
+  }
+  const listed = await api.get(`${API_ENDPOINTS.jobs.list}?limit=100`).catch(() => null);
+  const jobs = Array.isArray(listed?.items) ? listed.items : [];
+  const active = jobs
+    .filter((job) => matchesType(job) && isActiveJobState(job?.state))
+    .sort((a, b) => jobRecencyValue(b).localeCompare(jobRecencyValue(a)));
+  return active[0] || null;
+}
+
+function trackedJobProgressPayload(job) {
+  return {
+    state: job?.state,
+    current_chunk: job?.data?.current_chunk ?? null,
+    progress: job?.data?.progress ?? job?.progress ?? null,
+    stage: job?.data?.stage ?? null,
+  };
+}
+
+async function resumeTrackedJob({
+  storageKey,
+  jobTypes = [],
+  statusChip,
+  labels = {},
+  append = null,
+  onTerminal = null,
+} = {}) {
+  const job = await resolveTrackedJob(storageKey, jobTypes);
+  if (!job) {
+    persistTextValue(storageKey, "");
+    return null;
+  }
+  persistTextValue(storageKey, job.job_id || "");
+  updateTransferStatusChip(statusChip, job, labels);
+  append?.(trackedJobProgressPayload(job));
+  if (!isActiveJobState(job.state)) {
+    persistTextValue(storageKey, "");
+    await onTerminal?.(job);
+    return job;
+  }
+  const finalJob = await waitForJob(job.job_id, {
+    allowMissing: true,
+    onTick: (snapshot) => {
+      updateTransferStatusChip(statusChip, snapshot, labels);
+      append?.(trackedJobProgressPayload(snapshot));
+    },
+  });
+  updateTransferStatusChip(statusChip, finalJob, labels);
+  if (isTerminalJobState(finalJob.state)) persistTextValue(storageKey, "");
+  await onTerminal?.(finalJob);
+  return finalJob;
+}
+
 function findLogBoxBySectionTitle(titlePrefix) {
   const sections = Array.from(document.querySelectorAll(".ps-section"));
   const sec = sections.find((s) => {
@@ -540,7 +649,8 @@ function formatLogPercent(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "";
   const pct = numeric <= 1 ? numeric * 100 : numeric;
-  return `${pct.toFixed(pct >= 10 ? 0 : 1)}%`;
+  const clamped = Math.max(0, Math.min(100, pct));
+  return `${clamped.toFixed(clamped >= 10 ? 0 : 1)}%`;
 }
 
 function formatLogBytes(value) {
@@ -1717,6 +1827,54 @@ function deriveOutputPath(inputPath, suffix) {
   return `${s.slice(0, idx)}${suffix}${s.slice(idx)}`;
 }
 
+function derivePccTempOutputPath(inputPath) {
+  const stem = pathBaseName(inputPath).replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "_") || "pcc";
+  const base = String(appRuntime.tempRoot || "/tmp").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  return `${base}/tile_compile_gui2/pcc/${stem}_${Date.now()}.fits`;
+}
+
+function derivePccTempStem(inputPath) {
+  return pathBaseName(inputPath).replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "_") || "pcc";
+}
+
+function isPccTempOutputPath(pathValue) {
+  const normalized = String(pathValue || "").trim().replace(/\\/g, "/");
+  const base = String(appRuntime.tempRoot || "/tmp").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  return normalized.startsWith(`${base}/tile_compile_gui2/pcc/`) && /\.(fit|fits|fts)$/i.test(normalized);
+}
+
+function derivePccTempChannelPaths(outputPath) {
+  const normalized = String(outputPath || "").trim();
+  if (!isPccTempOutputPath(normalized)) return [];
+  const dotIndex = normalized.lastIndexOf(".");
+  const stem = dotIndex > 0 ? normalized.slice(0, dotIndex) : normalized;
+  return [`${stem}_R.fit`, `${stem}_G.fit`, `${stem}_B.fit`];
+}
+
+function setCurrentPccTempArtifact({ outputRgb = "", outputChannels = [], jobId = "" } = {}) {
+  const normalizedOutput = String(outputRgb || "").trim();
+  if (!isPccTempOutputPath(normalizedOutput)) return false;
+  const normalizedChannels = (Array.isArray(outputChannels) ? outputChannels : derivePccTempChannelPaths(normalizedOutput))
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  uiState.currentPccTempOutput = normalizedOutput;
+  uiState.currentPccTempChannels = normalizedChannels;
+  uiState.currentPccTempJobId = String(jobId || "").trim();
+  persistTextValue(UI_STORAGE_KEYS.pccTempOutput, normalizedOutput, { absolute: true });
+  persistJsonValue(UI_STORAGE_KEYS.pccTempChannels, normalizedChannels);
+  persistTextValue(UI_STORAGE_KEYS.pccTempJob, uiState.currentPccTempJobId);
+  return true;
+}
+
+function clearCurrentPccTempArtifact() {
+  uiState.currentPccTempOutput = "";
+  uiState.currentPccTempChannels = [];
+  uiState.currentPccTempJobId = "";
+  persistTextValue(UI_STORAGE_KEYS.pccTempOutput, "");
+  persistJsonValue(UI_STORAGE_KEYS.pccTempChannels, null);
+  persistTextValue(UI_STORAGE_KEYS.pccTempJob, "");
+}
+
 function parentDirOfPath(pathValue) {
   const s = String(pathValue || "").trim();
   if (!s) return "";
@@ -1883,6 +2041,21 @@ async function chooseRunMonitorTemplateSavePath() {
   return normalizedPath || null;
 }
 
+async function chooseFitsSavePath(defaultPath, { label = "Datei speichern" } = {}) {
+  const normalizedDefault = String(defaultPath || "").trim();
+  const defaultName = pathBaseName(normalizedDefault) || "output.fits";
+  if (typeof window.gui2PickPathValue === "function") {
+    const pickedPath = await window.gui2PickPathValue(normalizedDefault, {
+      mode: "save-file",
+      defaultFileName: defaultName,
+      label,
+    });
+    return String(pickedPath || "").trim() || null;
+  }
+  const typedPath = window.prompt(label, normalizedDefault);
+  return String(typedPath || "").trim() || null;
+}
+
 function ensureRunIdFromHeader() {
   if (uiState.currentRunId) return uiState.currentRunId;
   const sub = document.querySelector(".app-content .ps-sub");
@@ -1906,10 +2079,13 @@ function ensureRunIdFromHeader() {
 
 async function initGlobalState() {
   try {
-    const [guardrails, appState] = await Promise.all([
+    const [guardrails, appState, appConstants] = await Promise.all([
       api.get(API_ENDPOINTS.guardrails.root),
       api.get(API_ENDPOINTS.app.state),
+      api.get(API_ENDPOINTS.app.constants).catch(() => null),
     ]);
+    const tempRoot = String(appConstants?.temp_root || "").trim();
+    if (tempRoot) appRuntime.tempRoot = tempRoot;
     hydrateServerUiState(appState?.ui_state || {});
     setRunReady(guardrails?.status || "check", appState?.run?.current?.status || "");
     const rid = String(appState?.project?.current_run_id || "").trim();
@@ -2504,7 +2680,7 @@ function updateTransferStatusChip(el, job, labels = {}) {
   } = labels;
   const state = String(job?.state || "").trim().toLowerCase();
   const stage = String(job?.data?.stage || "").trim().toLowerCase();
-  const pct = formatLogPercent(job?.data?.progress);
+  const pct = formatLogPercent(job?.data?.progress ?? job?.progress);
   if (["ok", "done", "completed", "finished"].includes(state)) {
     setStatusChip(el, ok, "ok");
     return;
@@ -4455,6 +4631,7 @@ async function bindAstrometryPage() {
         () => api.post(API_ENDPOINTS.astrometry.installCli, { astap_data_dir: astapDataDir }),
         { fallbackPath: astapDataDir },
       );
+      persistTextValue(UI_STORAGE_KEYS.astrometryInstallJob, accepted.job_id || "");
       append(accepted);
       const job = await waitForJob(accepted.job_id, {
         onTick: (j) => {
@@ -4467,6 +4644,7 @@ async function bindAstrometryPage() {
           append({ state: j.state, progress: j.data?.progress ?? null, stage: j.data?.stage ?? null });
         },
       });
+      persistTextValue(UI_STORAGE_KEYS.astrometryInstallJob, "");
       updateTransferStatusChip(installStatusChip, job, {
         running: "Download läuft",
         extracting: "Entpacke",
@@ -4476,6 +4654,7 @@ async function bindAstrometryPage() {
       append(job);
       await detect({ logResult: false });
     } catch (err) {
+      persistTextValue(UI_STORAGE_KEYS.astrometryInstallJob, "");
       setStatusChip(installStatusChip, "Install nicht OK", "error");
       setFooter(`ASTAP Install fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -4496,6 +4675,7 @@ async function bindAstrometryPage() {
         }),
         { fallbackPath: astapDataDir },
       );
+      persistTextValue(UI_STORAGE_KEYS.astrometryCatalogJob, accepted.job_id || "");
       append(accepted);
       const job = await waitForJob(accepted.job_id, {
         onTick: (j) => {
@@ -4508,6 +4688,7 @@ async function bindAstrometryPage() {
           append({ state: j.state, current_chunk: j.data?.current_chunk, progress: j.data?.progress ?? null, stage: j.data?.stage ?? null });
         },
       });
+      persistTextValue(UI_STORAGE_KEYS.astrometryCatalogJob, "");
       updateTransferStatusChip(catalogStatusChip, job, {
         running: "Download läuft",
         extracting: "Entpacke",
@@ -4516,6 +4697,7 @@ async function bindAstrometryPage() {
       });
       append(job);
     } catch (err) {
+      persistTextValue(UI_STORAGE_KEYS.astrometryCatalogJob, "");
       setStatusChip(catalogStatusChip, "Download nicht OK", "error");
       setFooter(`Catalog-Download fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -4524,6 +4706,7 @@ async function bindAstrometryPage() {
   document.querySelector("[data-control='tools.astrometry.cancel_download']")?.addEventListener("click", async () => {
     try {
       const result = await api.post(API_ENDPOINTS.astrometry.cancelDownload, {});
+      persistTextValue(UI_STORAGE_KEYS.astrometryCatalogJob, "");
       setStatusChip(catalogStatusChip, "Abgebrochen", "check");
       append(result);
     } catch (err) {
@@ -4568,7 +4751,7 @@ async function bindAstrometryPage() {
     try {
       const input = $("tools-astrometry-file")?.value || "";
       const defaultOutput = deriveOutputPath(input, "_solved");
-      const output = window.prompt("Output-FITS Pfad:", defaultOutput);
+      const output = await chooseFitsSavePath(defaultOutput, { label: "Astrometry-Ergebnis speichern" });
       if (!output) return;
       const result = await withPathGrantRetry(
         () => api.post(API_ENDPOINTS.astrometry.saveSolved, {
@@ -4598,6 +4781,35 @@ async function bindAstrometryPage() {
     if (statusChip) statusChip.textContent = "Missing";
     setStatusChip(detectStatusChip, "ASTAP nicht gefunden", "error");
   }
+  await resumeTrackedJob({
+    storageKey: UI_STORAGE_KEYS.astrometryInstallJob,
+    jobTypes: ["astrometry_install_cli"],
+    statusChip: installStatusChip,
+    labels: {
+      running: "Download läuft",
+      extracting: "Entpacke",
+      ok: "Install OK",
+      error: "Install nicht OK",
+    },
+    append,
+    onTerminal: async (job) => {
+      if (String(job?.state || "").toLowerCase() === "ok") {
+        await detect({ logResult: false }).catch(() => {});
+      }
+    },
+  }).catch(() => {});
+  await resumeTrackedJob({
+    storageKey: UI_STORAGE_KEYS.astrometryCatalogJob,
+    jobTypes: ["astrometry_catalog_download"],
+    statusChip: catalogStatusChip,
+    labels: {
+      running: "Download läuft",
+      extracting: "Entpacke",
+      ok: "Download OK",
+      error: "Download nicht OK",
+    },
+    append,
+  }).catch(() => {});
 }
 
 async function bindPccPage() {
@@ -4620,6 +4832,9 @@ async function bindPccPage() {
     ["tools-pcc-aperture", UI_STORAGE_KEYS.pccAperture, false],
     ["tools-pcc-annulus-in", UI_STORAGE_KEYS.pccAnnulusInner, false],
     ["tools-pcc-annulus-out", UI_STORAGE_KEYS.pccAnnulusOuter, false],
+    ["tools-pcc-apply-attenuation", UI_STORAGE_KEYS.pccApplyAttenuation, false],
+    ["tools-pcc-chroma-strength", UI_STORAGE_KEYS.pccChromaStrength, false],
+    ["tools-pcc-k-max", UI_STORAGE_KEYS.pccKMax, false],
   ].forEach(([id, key, absolute]) => bindStoredField(id, key, { absolute, overwrite: id === "tools-pcc-source" }));
 
   const missingField = $("tools-pcc-missing-chunks");
@@ -4627,6 +4842,11 @@ async function bindPccPage() {
   const starsUsedField = $("tools-pcc-stars-used");
   const residualField = $("tools-pcc-residual-rms");
   const matrixField = $("tools-pcc-matrix");
+  const rgbInput = $("tools-pcc-rgb");
+  const wcsInput = $("tools-pcc-wcs");
+  const configNote = $("tools-pcc-config-note");
+  const inputHint = $("tools-pcc-input-hint");
+  let importedPccExtras = {};
 
   const append = (msg) => appendStructuredLog(logBox, msg, { suppressRunStatus: true });
   const setInputValue = (el, value) => {
@@ -4648,6 +4868,200 @@ async function bindPccPage() {
       .filter(Boolean)
       .join("\n") || "-";
   };
+  const pathStem = (pathValue) => {
+    const baseName = pathBaseName(pathValue);
+    return baseName.replace(/\.[^.]+$/, "");
+  };
+  const dedupePaths = (items) => {
+    const seen = new Set();
+    return items.filter((item) => {
+      const normalized = String(item || "").trim();
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  };
+  const filteredObject = (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value).filter(([, item]) => item !== undefined && item !== null && item !== ""),
+    );
+  };
+  const refreshPccInputHint = () => {
+    if (!inputHint) return;
+    const notes = [];
+    if (lastImportedPccConfigPath) {
+      notes.push("solve.fits mit passender WCS ist der richtige PCC-Input. Manuelle Tool-Laeufe koennen trotzdem vom Pipeline-Run abweichen, weil z. B. canvas_mask und interne Seeing-Schaetzungen nicht 1:1 aus dem Run uebernommen werden.");
+    }
+    inputHint.textContent = notes.join(" ");
+    inputHint.style.display = notes.length ? "" : "none";
+  };
+  const inferRunConfigCandidates = (pathValue) => {
+    const normalized = String(pathValue || "").trim().replace(/\\/g, "/");
+    if (!normalized || !isAbsolutePath(normalized)) return [];
+    const candidates = [];
+    const markers = ["/outputs/", "/artifacts/", "/registered/", "/logs/"];
+    for (const marker of markers) {
+      const idx = normalized.lastIndexOf(marker);
+      if (idx > 0) {
+        candidates.push(`${normalized.slice(0, idx)}/config.yaml`);
+      }
+    }
+    const directParent = parentDirOfPath(normalized);
+    if (directParent) {
+      candidates.push(joinPath(directParent, "config.yaml"));
+      const parent = parentDirOfPath(directParent);
+      if (parent) candidates.push(joinPath(parent, "config.yaml"));
+      const grandParent = parentDirOfPath(parent);
+      if (grandParent) candidates.push(joinPath(grandParent, "config.yaml"));
+    }
+    return dedupePaths(candidates);
+  };
+  const applyPccConfigToUi = (configObject, sourcePath) => {
+    const pcc = configObject?.pcc;
+    if (!pcc || typeof pcc !== "object") return false;
+    importedPccExtras = filteredObject({
+      radii_mode: pcc.radii_mode,
+      aperture_fwhm_mult: pcc.aperture_fwhm_mult,
+      annulus_inner_fwhm_mult: pcc.annulus_inner_fwhm_mult,
+      annulus_outer_fwhm_mult: pcc.annulus_outer_fwhm_mult,
+      min_aperture_px: pcc.min_aperture_px,
+      background_model: pcc.background_model,
+      max_condition_number: pcc.max_condition_number,
+      max_residual_rms: pcc.max_residual_rms,
+    });
+    const fieldBindings = [
+      ["tools-pcc-source", UI_STORAGE_KEYS.pccSource, pcc.source],
+      ["tools-pcc-catalog-dir", UI_STORAGE_KEYS.pccCatalogDir, pcc.siril_catalog_dir],
+      ["tools-pcc-mag-limit", UI_STORAGE_KEYS.pccMagLimit, pcc.mag_limit],
+      ["tools-pcc-mag-bright", UI_STORAGE_KEYS.pccMagBrightLimit, pcc.mag_bright_limit],
+      ["tools-pcc-min-stars", UI_STORAGE_KEYS.pccMinStars, pcc.min_stars],
+      ["tools-pcc-sigma", UI_STORAGE_KEYS.pccSigma, pcc.sigma_clip],
+      ["tools-pcc-aperture", UI_STORAGE_KEYS.pccAperture, pcc.aperture_radius_px],
+      ["tools-pcc-annulus-in", UI_STORAGE_KEYS.pccAnnulusInner, pcc.annulus_inner_px],
+      ["tools-pcc-annulus-out", UI_STORAGE_KEYS.pccAnnulusOuter, pcc.annulus_outer_px],
+      ["tools-pcc-apply-attenuation", UI_STORAGE_KEYS.pccApplyAttenuation, pcc.apply_attenuation],
+      ["tools-pcc-chroma-strength", UI_STORAGE_KEYS.pccChromaStrength, pcc.chroma_strength],
+      ["tools-pcc-k-max", UI_STORAGE_KEYS.pccKMax, pcc.k_max],
+    ];
+    fieldBindings.forEach(([id, storageKey, value]) => {
+      const el = $(id);
+      if (value === undefined || value === null || !el) return;
+      writeFieldValue(el, value);
+      if (storageKey === UI_STORAGE_KEYS.pccCatalogDir) {
+        persistTextValue(storageKey, String(el.value || "").trim(), { absolute: true });
+      } else {
+        persistTextValue(storageKey, String(el.value || "").trim());
+      }
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    if (configNote) {
+      configNote.textContent = `PCC-Parameter automatisch aus ${pathBaseName(sourcePath)} übernommen.`;
+    }
+    refreshPccInputHint();
+    append(`PCC config geladen | ${sourcePath}`);
+    return true;
+  };
+  const loadPccConfigObjectFromPath = async (configPath) => {
+    const loaded = await withPathGrantRetry(
+      () => api.get(`${API_ENDPOINTS.config.current}?path=${encodeURIComponent(configPath)}`),
+      { fallbackPath: configPath },
+    );
+    if (!loaded?.config) return null;
+    const parsed = await api.post(API_ENDPOINTS.config.patch, {
+      yaml: String(loaded.config || ""),
+      updates: [],
+      persist: false,
+    });
+    return parsed?.config && typeof parsed.config === "object" ? parsed.config : null;
+  };
+  let lastImportedPccConfigPath = "";
+  let pccConfigImportTimer = null;
+  const maybeImportPccConfigFromPaths = async () => {
+    const candidates = dedupePaths([
+      ...inferRunConfigCandidates(String(rgbInput?.value || "")),
+      ...inferRunConfigCandidates(String(wcsInput?.value || "")),
+    ]);
+    if (!candidates.length) {
+      lastImportedPccConfigPath = "";
+      importedPccExtras = {};
+      if (configNote) {
+        configNote.textContent = "Wenn RGB/WCS aus einem Run stammen, werden PCC-Parameter automatisch aus der zugehörigen config.yaml übernommen.";
+      }
+      refreshPccInputHint();
+      return;
+    }
+    for (const configPath of candidates) {
+      if (configPath === lastImportedPccConfigPath) return;
+      const configObject = await loadPccConfigObjectFromPath(configPath).catch(() => null);
+      if (!configObject) continue;
+      if (applyPccConfigToUi(configObject, configPath)) {
+        lastImportedPccConfigPath = configPath;
+        return;
+      }
+    }
+    lastImportedPccConfigPath = "";
+    importedPccExtras = {};
+    refreshPccInputHint();
+  };
+  const schedulePccConfigImport = () => {
+    if (pccConfigImportTimer) window.clearTimeout(pccConfigImportTimer);
+    pccConfigImportTimer = window.setTimeout(() => {
+      pccConfigImportTimer = null;
+      void maybeImportPccConfigFromPaths();
+    }, 160);
+  };
+  let lastAutoDetectedWcs = "";
+  let lastRgbAutoLookup = "";
+  let rgbAutoLookupTimer = null;
+  const setWcsPath = (pathValue, { autoDetected = false } = {}) => {
+    const nextValue = String(pathValue || "").trim();
+    setInputValue(wcsInput, nextValue);
+    persistTextValue(UI_STORAGE_KEYS.pccWcs, nextValue, { absolute: true });
+    lastAutoDetectedWcs = autoDetected ? nextValue : "";
+  };
+  const findMatchingWcsPath = async (rgbPath) => {
+    const trimmedRgbPath = String(rgbPath || "").trim();
+    const dir = parentDirOfPath(trimmedRgbPath);
+    const stem = pathStem(trimmedRgbPath);
+    if (!dir || !stem) return "";
+    const expectedNames = new Set([
+      `${stem}.wcs`.toLowerCase(),
+      `${pathBaseName(trimmedRgbPath)}.wcs`.toLowerCase(),
+    ]);
+    const listing = await withPathGrantRetry(
+      () => api.get(`/api/fs/list?path=${encodeURIComponent(dir)}&include_files=1`),
+      { fallbackPath: dir },
+    );
+    const items = Array.isArray(listing?.items) ? listing.items : [];
+    const match = items.find((item) => {
+      if (String(item?.type || "") !== "file") return false;
+      return expectedNames.has(String(item?.name || "").toLowerCase());
+    });
+    return String(match?.path || "").trim();
+  };
+  const maybeAutoLoadPccWcs = async () => {
+    const rgbPath = String(rgbInput?.value || "").trim();
+    if (!rgbPath || !isAbsolutePath(rgbPath) || !/\.(fit|fits|fts)$/i.test(rgbPath)) return;
+    if (rgbPath === lastRgbAutoLookup) return;
+    const currentWcs = String(wcsInput?.value || "").trim();
+    if (currentWcs && currentWcs !== lastAutoDetectedWcs) return;
+    lastRgbAutoLookup = rgbPath;
+    const matchedWcs = await findMatchingWcsPath(rgbPath).catch(() => "");
+    if (!matchedWcs) return;
+    if (matchedWcs === currentWcs) {
+      lastAutoDetectedWcs = matchedWcs;
+      return;
+    }
+    setWcsPath(matchedWcs, { autoDetected: true });
+  };
+  const schedulePccWcsAutoLoad = () => {
+    if (rgbAutoLookupTimer) window.clearTimeout(rgbAutoLookupTimer);
+    rgbAutoLookupTimer = window.setTimeout(() => {
+      rgbAutoLookupTimer = null;
+      void maybeAutoLoadPccWcs();
+    }, 120);
+  };
   const applyPccResult = (payload) => {
     if (!payload || typeof payload !== "object") return;
     setInputValue(starsMatchedField, payload.stars_matched ?? payload.n_stars_matched ?? "");
@@ -4665,6 +5079,115 @@ async function bindPccPage() {
     uiState.lastPccResult = payload;
     persistJsonValue(UI_STORAGE_KEYS.pccLastResult, payload);
   };
+  const fileExistsPath = async (pathValue) => {
+    const absolutePath = String(pathValue || "").trim();
+    if (!absolutePath || !isAbsolutePath(absolutePath)) return false;
+    const dir = parentDirOfPath(absolutePath);
+    if (!dir) return false;
+    const listing = await withPathGrantRetry(
+      () => api.get(`/api/fs/list?path=${encodeURIComponent(dir)}&include_files=1`),
+      { fallbackPath: dir },
+    ).catch(() => null);
+    const items = Array.isArray(listing?.items) ? listing.items : [];
+    return items.some((item) => String(item?.type || "") === "file" && String(item?.path || "").trim() === absolutePath);
+  };
+  const ensureCurrentPccTempArtifact = async () => {
+    const candidates = [];
+    if (isPccTempOutputPath(uiState.currentPccTempOutput)) {
+      candidates.push({
+        outputRgb: uiState.currentPccTempOutput,
+        outputChannels: uiState.currentPccTempChannels,
+        jobId: uiState.currentPccTempJobId,
+      });
+    }
+    const resultOutput = String(uiState.lastPccResult?.output_rgb || "").trim();
+    if (isPccTempOutputPath(resultOutput)) {
+      candidates.push({
+        outputRgb: resultOutput,
+        outputChannels: Array.isArray(uiState.lastPccResult?.output_channels) ? uiState.lastPccResult.output_channels : [],
+        jobId: uiState.currentPccTempJobId,
+      });
+    }
+    const storedTempOutput = storedTextValue(UI_STORAGE_KEYS.pccTempOutput, { absolute: true });
+    if (isPccTempOutputPath(storedTempOutput)) {
+      candidates.push({
+        outputRgb: storedTempOutput,
+        outputChannels: storedJsonValue(UI_STORAGE_KEYS.pccTempChannels, []),
+        jobId: storedTextValue(UI_STORAGE_KEYS.pccTempJob) || "",
+      });
+    }
+
+    for (const candidate of candidates) {
+      if (await fileExistsPath(candidate.outputRgb)) {
+        setCurrentPccTempArtifact(candidate);
+        return candidate;
+      }
+    }
+
+    const currentInput = String(rgbInput?.value || "").trim();
+    const currentWcs = String(wcsInput?.value || "").trim();
+    const jobsResponse = await api.get(`${API_ENDPOINTS.jobs.list}?limit=100`).catch(() => null);
+    const jobs = Array.isArray(jobsResponse?.items) ? jobsResponse.items : [];
+    const scored = jobs
+      .filter((job) => String(job?.type || "") === "pcc_run" && String(job?.state || "") === "ok")
+      .map((job) => {
+        const result = job?.data?.result;
+        const outputRgb = String(result?.output_rgb || "").trim();
+        if (!isPccTempOutputPath(outputRgb)) return null;
+        let score = 0;
+        if (currentInput && String(job?.data?.input_rgb || "").trim() === currentInput) score += 4;
+        if (currentWcs && String(job?.data?.wcs_file || "").trim() === currentWcs) score += 2;
+        if (String(job?.job_id || "").trim() === String(uiState.currentPccTempJobId || "").trim()) score += 1;
+        return {
+          jobId: String(job?.job_id || "").trim(),
+          outputRgb,
+          outputChannels: Array.isArray(result?.output_channels) ? result.output_channels : derivePccTempChannelPaths(outputRgb),
+          score,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score);
+
+    for (const candidate of scored) {
+      if (await fileExistsPath(candidate.outputRgb)) {
+        setCurrentPccTempArtifact(candidate);
+        return candidate;
+      }
+    }
+
+    const tempDir = `${String(appRuntime.tempRoot || "/tmp").trim().replace(/\\/g, "/").replace(/\/+$/, "")}/tile_compile_gui2/pcc`;
+    const inputStem = derivePccTempStem(currentInput);
+    const tempListing = await withPathGrantRetry(
+      () => api.get(`/api/fs/list?path=${encodeURIComponent(tempDir)}&include_files=1`),
+      { fallbackPath: tempDir },
+    ).catch(() => null);
+    const tempItems = Array.isArray(tempListing?.items) ? tempListing.items : [];
+    const fallbackCandidates = tempItems
+      .filter((item) => String(item?.type || "") === "file")
+      .map((item) => {
+        const name = String(item?.name || "");
+        const match = name.match(new RegExp(`^${inputStem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_([0-9]+)\\.(fit|fits|fts)$`, "i"));
+        if (!match) return null;
+        return {
+          outputRgb: String(item?.path || "").trim(),
+          outputChannels: derivePccTempChannelPaths(String(item?.path || "").trim()),
+          jobId: "",
+          ts: Number(match[1]) || 0,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.ts - a.ts);
+
+    for (const candidate of fallbackCandidates) {
+      if (await fileExistsPath(candidate.outputRgb)) {
+        setCurrentPccTempArtifact(candidate);
+        return candidate;
+      }
+    }
+
+    clearCurrentPccTempArtifact();
+    return null;
+  };
 
   const storedPccOutput = storedTextValue(UI_STORAGE_KEYS.pccLastOutput, { absolute: true });
   if (storedPccOutput) {
@@ -4674,11 +5197,41 @@ async function bindPccPage() {
   if (Array.isArray(storedPccChannels)) {
     uiState.lastPccChannels = storedPccChannels.map((item) => String(item));
   }
+  const storedTempOutput = storedTextValue(UI_STORAGE_KEYS.pccTempOutput, { absolute: true });
+  if (storedTempOutput) {
+    uiState.currentPccTempOutput = storedTempOutput;
+  }
+  const storedTempChannels = storedJsonValue(UI_STORAGE_KEYS.pccTempChannels, []);
+  if (Array.isArray(storedTempChannels)) {
+    uiState.currentPccTempChannels = storedTempChannels.map((item) => String(item));
+  }
+  uiState.currentPccTempJobId = storedTextValue(UI_STORAGE_KEYS.pccTempJob) || "";
   const storedPccResult = storedJsonValue(UI_STORAGE_KEYS.pccLastResult, null);
   if (storedPccResult && typeof storedPccResult === "object") {
     uiState.lastPccResult = storedPccResult;
     applyPccResult(storedPccResult);
+  } else {
+    uiState.lastPccResult = null;
+    uiState.lastPccOutput = "";
+    uiState.lastPccChannels = [];
+    persistTextValue(UI_STORAGE_KEYS.pccLastOutput, "");
+    persistJsonValue(UI_STORAGE_KEYS.pccLastChannels, null);
   }
+  rgbInput?.addEventListener("input", schedulePccWcsAutoLoad);
+  rgbInput?.addEventListener("change", schedulePccWcsAutoLoad);
+  rgbInput?.addEventListener("input", schedulePccConfigImport);
+  rgbInput?.addEventListener("change", schedulePccConfigImport);
+  wcsInput?.addEventListener("input", schedulePccConfigImport);
+  wcsInput?.addEventListener("change", schedulePccConfigImport);
+  wcsInput?.addEventListener("input", () => {
+    if (String(wcsInput.value || "").trim() !== lastAutoDetectedWcs) {
+      lastAutoDetectedWcs = "";
+      lastRgbAutoLookup = "";
+    }
+  });
+  schedulePccWcsAutoLoad();
+  schedulePccConfigImport();
+  await ensureCurrentPccTempArtifact().catch(() => {});
 
   const refreshStatus = async () => {
     const catalogDir = $("tools-pcc-catalog-dir")?.value || "";
@@ -4709,6 +5262,7 @@ async function bindPccPage() {
         () => api.post(API_ENDPOINTS.pcc.downloadMissing, { catalog_dir: catalogDir }),
         { fallbackPath: catalogDir },
       );
+      persistTextValue(UI_STORAGE_KEYS.pccDownloadJob, accepted.job_id || "");
       append(accepted);
       const job = await waitForJob(accepted.job_id, {
         onTick: (j) => {
@@ -4721,6 +5275,7 @@ async function bindPccPage() {
           append({ state: j.state, current_chunk: j.data?.current_chunk, progress: j.data?.progress ?? null, stage: j.data?.stage ?? null });
         },
       });
+      persistTextValue(UI_STORAGE_KEYS.pccDownloadJob, "");
       updateTransferStatusChip(downloadStatusChip, job, {
         running: "Download läuft",
         extracting: "Entpacke",
@@ -4730,6 +5285,7 @@ async function bindPccPage() {
       append(job);
       await refreshStatus();
     } catch (err) {
+      persistTextValue(UI_STORAGE_KEYS.pccDownloadJob, "");
       setStatusChip(downloadStatusChip, "Download nicht OK", "error");
       setFooter(`PCC Download fehlgeschlagen: ${errorText(err)}`, true);
     }
@@ -4738,6 +5294,7 @@ async function bindPccPage() {
   document.querySelector("[data-control='tools.pcc.cancel_download']")?.addEventListener("click", async () => {
     try {
       const result = await api.post(API_ENDPOINTS.pcc.cancelDownload, {});
+      persistTextValue(UI_STORAGE_KEYS.pccDownloadJob, "");
       setStatusChip(downloadStatusChip, "Abgebrochen", "check");
       append(result);
     } catch (err) {
@@ -4766,8 +5323,7 @@ async function bindPccPage() {
   document.querySelector("[data-control='tools.pcc.run']")?.addEventListener("click", async () => {
     try {
       const input = $("tools-pcc-rgb")?.value || "";
-      const defaultOutput = deriveOutputPath(input, "_pcc");
-      const output = window.prompt("Output RGB FITS Pfad:", defaultOutput) || defaultOutput;
+      const output = derivePccTempOutputPath(input);
       const payload = {
         input_rgb: input,
         output_rgb: output,
@@ -4781,16 +5337,25 @@ async function bindPccPage() {
         aperture_radius_px: readNumber("tools-pcc-aperture"),
         annulus_inner_px: readNumber("tools-pcc-annulus-in"),
         annulus_outer_px: readNumber("tools-pcc-annulus-out"),
+        apply_attenuation: readFieldValue($("tools-pcc-apply-attenuation")),
+        chroma_strength: readNumber("tools-pcc-chroma-strength"),
+        k_max: readNumber("tools-pcc-k-max"),
+        ...importedPccExtras,
       };
       const accepted = await withPathGrantRetry(
         () => api.post(API_ENDPOINTS.pcc.run, payload),
-        { fallbackPath: input || payload.wcs_file || payload.catalog_dir || parentDirOfPath(output) },
+        { fallbackPath: input || payload.wcs_file || payload.catalog_dir || output },
       );
       append(accepted);
       const job = await waitForJob(accepted.job_id);
       const jobResult = job?.data?.result;
       if (jobResult) {
         applyPccResult(jobResult);
+        setCurrentPccTempArtifact({
+          outputRgb: jobResult.output_rgb,
+          outputChannels: jobResult.output_channels,
+          jobId: accepted.job_id || job?.job_id || "",
+        });
         append(jobResult);
       }
       append(job);
@@ -4805,17 +5370,53 @@ async function bindPccPage() {
 
   document.querySelector("[data-control='tools.pcc.save_corrected']")?.addEventListener("click", async () => {
     try {
-      const output = uiState.lastPccOutput || $("tools-pcc-rgb")?.value || "";
+      const currentTemp = await ensureCurrentPccTempArtifact();
+      const sourceOutput = String(currentTemp?.outputRgb || "").trim();
+      let sourceChannels = Array.isArray(currentTemp?.outputChannels)
+        ? currentTemp.outputChannels.map((item) => String(item))
+        : [];
+      if (!sourceOutput) {
+        throw new Error("Kein aktuelles PCC-Temp-Ergebnis zum Speichern vorhanden. Bitte Run PCC erneut ausführen.");
+      }
+      if (!sourceChannels.length || sourceChannels.some((value) => !String(value || "").trim())) {
+        sourceChannels = derivePccTempChannelPaths(sourceOutput);
+      }
+      const defaultOutput = deriveOutputPath($("tools-pcc-rgb")?.value || sourceOutput, "_pcc");
+      const output = await chooseFitsSavePath(defaultOutput, { label: "Korrigiertes PCC-Bild speichern" });
+      if (!output) return;
       const result = await withPathGrantRetry(
-        () => api.post(API_ENDPOINTS.pcc.saveCorrected, { output_rgb: output, output_channels: uiState.lastPccChannels }),
-        { fallbackPath: output },
+        () => api.post(API_ENDPOINTS.pcc.saveCorrected, {
+          source_output_rgb: sourceOutput,
+          source_output_channels: sourceChannels,
+          output_rgb: output,
+          wcs_file: $("tools-pcc-wcs")?.value || "",
+        }),
+        { fallbackPath: output || sourceOutput || $("tools-pcc-wcs")?.value || "" },
       );
       append(result);
-      setFooter(`Save Corrected: ${result.output_rgb || "-"}`);
+      setFooter(`Save Corrected: ${result.output_rgb || "-"}${Number.isFinite(Number(result?.size_bytes)) ? ` (${Math.round(Number(result.size_bytes) / 1024 / 1024)} MiB)` : ""}`);
     } catch (err) {
       setFooter(`Save Corrected fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
+
+  await resumeTrackedJob({
+    storageKey: UI_STORAGE_KEYS.pccDownloadJob,
+    jobTypes: ["pcc_siril_download"],
+    statusChip: downloadStatusChip,
+    labels: {
+      running: "Download läuft",
+      extracting: "Entpacke",
+      ok: "Download OK",
+      error: "Download nicht OK",
+    },
+    append,
+    onTerminal: async (job) => {
+      if (String(job?.state || "").toLowerCase() === "ok") {
+        await refreshStatus().catch(() => {});
+      }
+    },
+  }).catch(() => {});
 }
 
 async function bindLiveLogPage() {

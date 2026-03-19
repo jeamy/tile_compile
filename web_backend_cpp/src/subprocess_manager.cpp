@@ -1,4 +1,5 @@
 #include "subprocess_manager.hpp"
+#include <algorithm>
 #include <sstream>
 #include <array>
 #include <stdexcept>
@@ -16,6 +17,142 @@
 
 namespace {
 
+using json = nlohmann::json;
+constexpr size_t MAX_JSON_STRING_BYTES = 8 * 1024;
+constexpr size_t MAX_JSON_ARRAY_ITEMS = 256;
+constexpr size_t MAX_JSON_OBJECT_ITEMS = 256;
+constexpr int MAX_JSON_DEPTH = 8;
+
+struct CapturedText {
+    std::string text;
+    size_t total_bytes{0};
+    bool truncated{false};
+};
+
+std::string truncate_text(const std::string& raw, size_t max_bytes) {
+    if (raw.size() <= max_bytes) return raw;
+    if (max_bytes == 0) return {};
+    static const std::string suffix = "\n...[truncated]";
+    if (max_bytes <= suffix.size()) return raw.substr(0, max_bytes);
+    return raw.substr(0, max_bytes - suffix.size()) + suffix;
+}
+
+json compact_json_for_job_storage(const json& value,
+                                  const BackendGuardLimits& limits,
+                                  int depth = 0);
+
+json compact_json_array(const json& value,
+                        size_t max_items,
+                        const BackendGuardLimits& limits,
+                        int depth = 0) {
+    json out = json::array();
+    if (!value.is_array()) return out;
+    const size_t limit = std::min(value.size(), max_items);
+    for (size_t i = 0; i < limit; ++i) out.push_back(compact_json_for_job_storage(value[i], limits, depth + 1));
+    return out;
+}
+
+json compact_json_for_job_storage(const json& value,
+                                  const BackendGuardLimits& limits,
+                                  int depth) {
+    if (depth >= MAX_JSON_DEPTH) return "[truncated depth]";
+    if (value.is_string()) return truncate_text(value.get<std::string>(), MAX_JSON_STRING_BYTES);
+    if (value.is_array()) return compact_json_array(value, MAX_JSON_ARRAY_ITEMS, limits, depth);
+    if (value.is_object()) {
+        json out = json::object();
+        size_t count = 0;
+        for (auto it = value.begin(); it != value.end() && count < MAX_JSON_OBJECT_ITEMS; ++it, ++count) {
+            out[it.key()] = compact_json_for_job_storage(it.value(), limits, depth + 1);
+        }
+        if (value.size() > MAX_JSON_OBJECT_ITEMS) {
+            out["_truncated_fields"] = static_cast<long long>(value.size() - MAX_JSON_OBJECT_ITEMS);
+        }
+        return out;
+    }
+    return value;
+}
+
+json compact_scan_per_dir_result(const json& raw, const BackendGuardLimits& limits) {
+    json out = compact_json_for_job_storage(raw, limits);
+    if (!raw.is_object()) return out;
+
+    if (raw.contains("errors") && raw["errors"].is_array()) {
+        out["errors"] = compact_json_array(raw["errors"], limits.scan_messages_preview, limits);
+        out["errors_total"] = raw["errors"].size();
+        out["errors_truncated"] = raw["errors"].size() > limits.scan_messages_preview;
+    }
+    if (raw.contains("warnings") && raw["warnings"].is_array()) {
+        out["warnings"] = compact_json_array(raw["warnings"], limits.scan_messages_preview, limits);
+        out["warnings_total"] = raw["warnings"].size();
+        out["warnings_truncated"] = raw["warnings"].size() > limits.scan_messages_preview;
+    }
+    if (raw.contains("frames") && raw["frames"].is_array()) {
+        out["frames"] = compact_json_array(raw["frames"], limits.scan_per_dir_frames_preview, limits);
+        out["frames_total"] = raw["frames"].size();
+        out["frames_truncated"] = raw["frames"].size() > limits.scan_per_dir_frames_preview;
+    } else if (!out.contains("frames")) {
+        out["frames"] = json::array();
+        out["frames_total"] = 0;
+        out["frames_truncated"] = false;
+    }
+    if (raw.contains("color_mode_candidates") && raw["color_mode_candidates"].is_array()) {
+        out["color_mode_candidates"] = compact_json_array(raw["color_mode_candidates"], limits.scan_color_candidates_preview, limits);
+        out["color_mode_candidates_total"] = raw["color_mode_candidates"].size();
+        out["color_mode_candidates_truncated"] = raw["color_mode_candidates"].size() > limits.scan_color_candidates_preview;
+    }
+    return out;
+}
+
+json compact_scan_job_result(const json& raw, const BackendGuardLimits& limits) {
+    json out = compact_json_for_job_storage(raw, limits);
+    if (!raw.is_object()) return out;
+
+    if (raw.contains("errors") && raw["errors"].is_array()) {
+        out["errors"] = compact_json_array(raw["errors"], limits.scan_messages_preview, limits);
+        out["errors_total"] = raw["errors"].size();
+        out["errors_truncated"] = raw["errors"].size() > limits.scan_messages_preview;
+    }
+    if (raw.contains("warnings") && raw["warnings"].is_array()) {
+        out["warnings"] = compact_json_array(raw["warnings"], limits.scan_messages_preview, limits);
+        out["warnings_total"] = raw["warnings"].size();
+        out["warnings_truncated"] = raw["warnings"].size() > limits.scan_messages_preview;
+    }
+    if (raw.contains("frames") && raw["frames"].is_array()) {
+        out["frames"] = compact_json_array(raw["frames"], limits.scan_frames_preview, limits);
+        out["frames_total"] = raw["frames"].size();
+        out["frames_truncated"] = raw["frames"].size() > limits.scan_frames_preview;
+    } else if (!out.contains("frames")) {
+        out["frames"] = json::array();
+        out["frames_total"] = 0;
+        out["frames_truncated"] = false;
+    }
+    if (raw.contains("color_mode_candidates") && raw["color_mode_candidates"].is_array()) {
+        out["color_mode_candidates"] = compact_json_array(raw["color_mode_candidates"], limits.scan_color_candidates_preview, limits);
+        out["color_mode_candidates_total"] = raw["color_mode_candidates"].size();
+        out["color_mode_candidates_truncated"] = raw["color_mode_candidates"].size() > limits.scan_color_candidates_preview;
+    }
+    if (raw.contains("per_dir_results") && raw["per_dir_results"].is_array()) {
+        json per_dir = json::array();
+        const size_t limit = std::min(raw["per_dir_results"].size(), limits.scan_per_dir_results_preview);
+        for (size_t i = 0; i < limit; ++i) per_dir.push_back(compact_scan_per_dir_result(raw["per_dir_results"][i], limits));
+        out["per_dir_results"] = std::move(per_dir);
+        out["per_dir_results_total"] = raw["per_dir_results"].size();
+        out["per_dir_results_truncated"] = raw["per_dir_results"].size() > limits.scan_per_dir_results_preview;
+    }
+    return out;
+}
+
+void store_process_output(json& data,
+                          const char* key,
+                          const std::string& text,
+                          size_t total_bytes,
+                          bool truncated,
+                          const BackendGuardLimits& limits) {
+    data[key] = truncate_text(text, limits.job_stdio_store_bytes);
+    data[std::string(key) + "_bytes"] = total_bytes;
+    data[std::string(key) + "_truncated"] = truncated || text.size() > limits.job_stdio_store_bytes;
+}
+
 #ifndef _WIN32
 struct SpawnedProcess {
     pid_t pid{-1};
@@ -23,13 +160,19 @@ struct SpawnedProcess {
     int stderr_fd{-1};
 };
 
-std::string drain_fd(int fd) {
-    std::string out;
+CapturedText drain_fd(int fd, size_t capture_limit_bytes) {
+    CapturedText out;
     if (fd < 0) return out;
     char buf[4096];
     ssize_t n = 0;
     while ((n = read(fd, buf, sizeof(buf))) > 0) {
-        out.append(buf, static_cast<size_t>(n));
+        out.total_bytes += static_cast<size_t>(n);
+        const size_t remaining = out.text.size() < capture_limit_bytes
+            ? (capture_limit_bytes - out.text.size())
+            : 0;
+        const size_t to_copy = std::min(static_cast<size_t>(n), remaining);
+        if (to_copy > 0) out.text.append(buf, to_copy);
+        if (to_copy < static_cast<size_t>(n) || out.total_bytes > capture_limit_bytes) out.truncated = true;
     }
     close(fd);
     return out;
@@ -104,9 +247,11 @@ int wait_for_process(BackgroundProcess& proc) {
 
 SubprocessResult run_subprocess(const std::vector<std::string>& args,
                                 const std::string& cwd,
-                                const std::string& stdin_text) {
+                                const std::string& stdin_text,
+                                const BackendGuardLimits* limits_override) {
     SubprocessResult res;
     if (args.empty()) { res.exit_code = -1; return res; }
+    const BackendGuardLimits limits = limits_override ? *limits_override : backend_guard_limits_from_env();
 
 #ifdef _WIN32
     std::string cmd;
@@ -148,16 +293,29 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     }
     CloseHandle(hStdinW);
 
-    auto read_pipe = [](HANDLE h) {
-        std::string out;
+    auto read_pipe = [capture_limit = limits.subprocess_capture_bytes](HANDLE h) {
+        CapturedText out;
         char buf[4096];
         DWORD n;
-        while (ReadFile(h, buf, sizeof(buf), &n, nullptr) && n > 0)
-            out.append(buf, n);
+        while (ReadFile(h, buf, sizeof(buf), &n, nullptr) && n > 0) {
+            out.total_bytes += static_cast<size_t>(n);
+            const size_t remaining = out.text.size() < capture_limit
+                ? (capture_limit - out.text.size())
+                : 0;
+            const size_t to_copy = std::min(static_cast<size_t>(n), remaining);
+            if (to_copy > 0) out.text.append(buf, to_copy);
+            if (to_copy < static_cast<size_t>(n) || out.total_bytes > capture_limit) out.truncated = true;
+        }
         return out;
     };
-    res.stdout_str = read_pipe(hStdoutR);
-    res.stderr_str = read_pipe(hStderrR);
+    CapturedText stdout_capture = read_pipe(hStdoutR);
+    CapturedText stderr_capture = read_pipe(hStderrR);
+    res.stdout_str = std::move(stdout_capture.text);
+    res.stderr_str = std::move(stderr_capture.text);
+    res.stdout_bytes = stdout_capture.total_bytes;
+    res.stderr_bytes = stderr_capture.total_bytes;
+    res.stdout_truncated = stdout_capture.truncated;
+    res.stderr_truncated = stderr_capture.truncated;
     CloseHandle(hStdoutR);
     CloseHandle(hStderrR);
 
@@ -204,17 +362,14 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     }
     close(pfd_in[1]);
 
-    auto drain = [](int fd) {
-        std::string out;
-        char buf[4096];
-        ssize_t n;
-        while ((n = read(fd, buf, sizeof(buf))) > 0)
-            out.append(buf, (size_t)n);
-        close(fd);
-        return out;
-    };
-    res.stdout_str = drain(pfd_out[0]);
-    res.stderr_str = drain(pfd_err[0]);
+    const CapturedText stdout_capture = drain_fd(pfd_out[0], limits.subprocess_capture_bytes);
+    const CapturedText stderr_capture = drain_fd(pfd_err[0], limits.subprocess_capture_bytes);
+    res.stdout_str = stdout_capture.text;
+    res.stderr_str = stderr_capture.text;
+    res.stdout_bytes = stdout_capture.total_bytes;
+    res.stderr_bytes = stderr_capture.total_bytes;
+    res.stdout_truncated = stdout_capture.truncated;
+    res.stderr_truncated = stderr_capture.truncated;
 
     int status = 0;
     waitpid(pid, &status, 0);
@@ -241,10 +396,10 @@ std::string SubprocessManager::launch(const std::string& type,
         _procs[job_id] = proc;
     }
 
-    proc->thread = std::thread([this, job_id, args, cwd, stdin_text, proc]() {
+    proc->thread = std::thread([this, job_id, type, args, cwd, stdin_text, proc]() {
         SubprocessResult res;
 #ifdef _WIN32
-        res = run_subprocess(args, cwd, stdin_text);
+        res = run_subprocess(args, cwd, stdin_text, &_limits);
 #else
         SpawnedProcess spawned;
         if (!spawn_subprocess(args, cwd, stdin_text, spawned)) {
@@ -254,20 +409,24 @@ std::string SubprocessManager::launch(const std::string& type,
             proc->pid.store(static_cast<int>(spawned.pid));
             _store.set_pid(job_id, static_cast<int>(spawned.pid));
 
-            std::string stdout_str;
-            std::string stderr_str;
-            std::thread stdout_thread([&stdout_str, fd = spawned.stdout_fd]() {
-                stdout_str = drain_fd(fd);
+            CapturedText stdout_capture;
+            CapturedText stderr_capture;
+            std::thread stdout_thread([&stdout_capture, fd = spawned.stdout_fd, capture_limit = _limits.subprocess_capture_bytes]() {
+                stdout_capture = drain_fd(fd, capture_limit);
             });
-            std::thread stderr_thread([&stderr_str, fd = spawned.stderr_fd]() {
-                stderr_str = drain_fd(fd);
+            std::thread stderr_thread([&stderr_capture, fd = spawned.stderr_fd, capture_limit = _limits.subprocess_capture_bytes]() {
+                stderr_capture = drain_fd(fd, capture_limit);
             });
 
             int status = wait_for_process(*proc);
             stdout_thread.join();
             stderr_thread.join();
-            res.stdout_str = std::move(stdout_str);
-            res.stderr_str = std::move(stderr_str);
+            res.stdout_str = std::move(stdout_capture.text);
+            res.stderr_str = std::move(stderr_capture.text);
+            res.stdout_bytes = stdout_capture.total_bytes;
+            res.stderr_bytes = stderr_capture.total_bytes;
+            res.stdout_truncated = stdout_capture.truncated;
+            res.stderr_truncated = stderr_capture.truncated;
             if (status >= 0 && WIFEXITED(status)) res.exit_code = WEXITSTATUS(status);
             else if (status >= 0 && WIFSIGNALED(status)) res.exit_code = 128 + WTERMSIG(status);
             else res.exit_code = -1;
@@ -277,23 +436,26 @@ std::string SubprocessManager::launch(const std::string& type,
         if (auto snapshot = _store.get(job_id); snapshot.has_value() && snapshot->data.is_object()) {
             data = snapshot->data;
         }
-        data["stdout"] = res.stdout_str;
-        data["stderr"] = res.stderr_str;
+        store_process_output(data, "stdout", res.stdout_str, res.stdout_bytes, res.stdout_truncated, _limits);
+        store_process_output(data, "stderr", res.stderr_str, res.stderr_bytes, res.stderr_truncated, _limits);
         data["exit_code"] = res.exit_code;
+        auto parsed = nlohmann::json::parse(res.stdout_str, nullptr, false);
+        if (!parsed.is_discarded()) {
+            const json compact = (type == "scan")
+                ? compact_scan_job_result(parsed, _limits)
+                : compact_json_for_job_storage(parsed, _limits);
+            data["result"] = compact;
+            if (compact.is_object()) {
+                for (auto it = compact.begin(); it != compact.end(); ++it) {
+                    if (!data.contains(it.key()) || data[it.key()].is_null()) {
+                        data[it.key()] = it.value();
+                    }
+                }
+            }
+        }
         if (proc->cancelled.load()) {
             _store.update_state(job_id, JobState::cancelled, data);
         } else if (res.exit_code == 0) {
-            try {
-                auto j = nlohmann::json::parse(res.stdout_str);
-                data["result"] = j;
-                if (j.is_object()) {
-                    for (auto it = j.begin(); it != j.end(); ++it) {
-                        if (!data.contains(it.key()) || data[it.key()].is_null()) {
-                            data[it.key()] = it.value();
-                        }
-                    }
-                }
-            } catch (...) {}
             _store.update_state(job_id, JobState::ok, data);
         } else {
             _store.update_state(job_id, JobState::error, data,

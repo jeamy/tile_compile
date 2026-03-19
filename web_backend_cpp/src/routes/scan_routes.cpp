@@ -1,9 +1,81 @@
 #include "routes/scan_routes.hpp"
 #include "services/scan_summary.hpp"
+#include <algorithm>
 #include <nlohmann/json.hpp>
 #include <thread>
 
 namespace fs = std::filesystem;
+
+namespace {
+
+using json = nlohmann::json;
+
+json compact_array(const json& value, size_t max_items) {
+    json out = json::array();
+    if (!value.is_array()) return out;
+    const size_t limit = std::min(value.size(), max_items);
+    for (size_t i = 0; i < limit; ++i) out.push_back(value[i]);
+    return out;
+}
+
+void append_limited_unique(std::vector<std::string>& items, const std::string& value, size_t limit) {
+    if (value.empty()) return;
+    if (std::find(items.begin(), items.end(), value) != items.end()) return;
+    if (items.size() >= limit) return;
+    items.push_back(value);
+}
+
+void append_limited_array(json& target,
+                          const json& source,
+                          size_t limit,
+                          size_t& total_count,
+                          bool& truncated) {
+    if (!source.is_array()) return;
+    total_count += source.size();
+    for (const auto& item : source) {
+        if (target.size() < limit) target.push_back(item);
+        else truncated = true;
+    }
+}
+
+json make_scan_item(const std::string& input_path,
+                    const json& parsed,
+                    const json& item_errors,
+                    const json& item_warnings,
+                    bool ok,
+                    const BackendGuardLimits& limits) {
+    const json frames = parsed.contains("frames") && parsed["frames"].is_array()
+        ? parsed["frames"]
+        : json::array();
+    const json candidates = parsed.contains("color_mode_candidates") && parsed["color_mode_candidates"].is_array()
+        ? parsed["color_mode_candidates"]
+        : json::array();
+
+    return {
+        {"input_path", input_path},
+        {"ok", ok},
+        {"frames_detected", parsed.value("frames_detected", 0)},
+        {"image_width", parsed.value("image_width", 0)},
+        {"image_height", parsed.value("image_height", 0)},
+        {"color_mode", parsed.value("color_mode", "UNKNOWN")},
+        {"color_mode_candidates", compact_array(candidates, limits.scan_color_candidates_preview)},
+        {"color_mode_candidates_total", candidates.size()},
+        {"color_mode_candidates_truncated", candidates.size() > limits.scan_color_candidates_preview},
+        {"bayer_pattern", parsed.contains("bayer_pattern") ? parsed["bayer_pattern"] : json(nullptr)},
+        {"requires_user_confirmation", parsed.value("requires_user_confirmation", false)},
+        {"errors", compact_array(item_errors, limits.scan_messages_preview)},
+        {"errors_total", item_errors.is_array() ? item_errors.size() : 0},
+        {"errors_truncated", item_errors.is_array() && item_errors.size() > limits.scan_messages_preview},
+        {"warnings", compact_array(item_warnings, limits.scan_messages_preview)},
+        {"warnings_total", item_warnings.is_array() ? item_warnings.size() : 0},
+        {"warnings_truncated", item_warnings.is_array() && item_warnings.size() > limits.scan_messages_preview},
+        {"frames", compact_array(frames, limits.scan_per_dir_frames_preview)},
+        {"frames_total", frames.size()},
+        {"frames_truncated", frames.size() > limits.scan_per_dir_frames_preview},
+    };
+}
+
+}  // namespace
 
 static crow::response json_resp(const nlohmann::json& j, int status = 200) {
     crow::response res(status, j.dump());
@@ -102,7 +174,7 @@ void register_scan_routes(CrowApp& app,
         } else {
             job_id = state->job_store.create("scan");
             state->job_store.update_state(job_id, JobState::running, initial_data);
-            std::thread([state, job_id, resolved_inputs, frames_min, with_checksums]() {
+            std::thread([state, job_id, resolved_inputs, frames_min, with_checksums, limits = state->runtime.guard_limits]() {
                 try {
                     nlohmann::json per_dir_results = nlohmann::json::array();
                     std::vector<std::string> color_modes_detected;
@@ -116,6 +188,13 @@ void register_scan_routes(CrowApp& app,
                     nlohmann::json all_errors = nlohmann::json::array();
                     nlohmann::json all_warnings = nlohmann::json::array();
                     nlohmann::json all_frames = nlohmann::json::array();
+                    size_t errors_total = 0;
+                    size_t warnings_total = 0;
+                    size_t frames_total = 0;
+                    bool errors_truncated = false;
+                    bool warnings_truncated = false;
+                    bool frames_truncated = false;
+                    bool per_dir_results_truncated = false;
 
                     for (size_t index = 0; index < resolved_inputs.size(); ++index) {
                         auto snapshot = state->job_store.get(job_id);
@@ -130,7 +209,7 @@ void register_scan_routes(CrowApp& app,
                             "--json"
                         };
                         if (with_checksums) args.push_back("--with-checksums");
-                        SubprocessResult res = run_subprocess(args, state->runtime.project_root.string());
+                        SubprocessResult res = run_subprocess(args, state->runtime.project_root.string(), "", &limits);
                         auto parsed_opt = parse_scan_result(res);
                         nlohmann::json parsed = parsed_opt.has_value() ? *parsed_opt : nlohmann::json::object();
 
@@ -148,21 +227,15 @@ void register_scan_routes(CrowApp& app,
                             });
                         }
 
-                        nlohmann::json item = {
-                            {"input_path", resolved_inputs[index]},
-                            {"ok", res.exit_code == 0 && item_errors.empty()},
-                            {"frames_detected", parsed.value("frames_detected", 0)},
-                            {"image_width", parsed.value("image_width", 0)},
-                            {"image_height", parsed.value("image_height", 0)},
-                            {"color_mode", parsed.value("color_mode", "UNKNOWN")},
-                            {"color_mode_candidates", parsed.contains("color_mode_candidates") && parsed["color_mode_candidates"].is_array() ? parsed["color_mode_candidates"] : nlohmann::json::array()},
-                            {"bayer_pattern", parsed.contains("bayer_pattern") ? parsed["bayer_pattern"] : nlohmann::json(nullptr)},
-                            {"requires_user_confirmation", parsed.value("requires_user_confirmation", false)},
-                            {"errors", item_errors},
-                            {"warnings", item_warnings},
-                            {"frames", parsed.contains("frames") && parsed["frames"].is_array() ? parsed["frames"] : nlohmann::json::array()},
-                        };
-                        per_dir_results.push_back(item);
+                        nlohmann::json item = make_scan_item(
+                            resolved_inputs[index],
+                            parsed,
+                            item_errors,
+                            item_warnings,
+                            res.exit_code == 0 && item_errors.empty(),
+                            limits);
+                        if (per_dir_results.size() < limits.scan_per_dir_results_preview) per_dir_results.push_back(item);
+                        else per_dir_results_truncated = true;
 
                         ok = ok && item.value("ok", false);
                         frames_detected_total += item.value("frames_detected", 0);
@@ -170,25 +243,21 @@ void register_scan_routes(CrowApp& app,
                         if (image_height == 0) image_height = item.value("image_height", 0);
                         if (bayer_pattern.is_null() && item.contains("bayer_pattern") && !item["bayer_pattern"].is_null()) bayer_pattern = item["bayer_pattern"];
                         requires_confirmation = requires_confirmation || item.value("requires_user_confirmation", false);
-                        for (const auto& err : item_errors) all_errors.push_back(err);
-                        for (const auto& warning : item_warnings) all_warnings.push_back(warning);
-                        if (item.contains("frames") && item["frames"].is_array()) {
-                            for (const auto& frame : item["frames"]) all_frames.push_back(frame);
+                        append_limited_array(all_errors, item_errors, limits.scan_messages_preview, errors_total, errors_truncated);
+                        append_limited_array(all_warnings, item_warnings, limits.scan_messages_preview, warnings_total, warnings_truncated);
+                        if (parsed.contains("frames") && parsed["frames"].is_array()) {
+                            append_limited_array(all_frames, parsed["frames"], limits.scan_frames_preview, frames_total, frames_truncated);
                         }
 
                         std::string color_mode = item.value("color_mode", "UNKNOWN");
                         if (!color_mode.empty() && color_mode != "UNKNOWN") {
                             color_modes_detected.push_back(color_mode);
-                            if (std::find(color_candidates.begin(), color_candidates.end(), color_mode) == color_candidates.end()) {
-                                color_candidates.push_back(color_mode);
-                            }
+                            append_limited_unique(color_candidates, color_mode, limits.scan_color_candidates_preview);
                         }
                         if (item.contains("color_mode_candidates") && item["color_mode_candidates"].is_array()) {
                             for (const auto& candidate_raw : item["color_mode_candidates"]) {
                                 std::string candidate = candidate_raw.is_string() ? candidate_raw.get<std::string>() : "";
-                                if (!candidate.empty() && std::find(color_candidates.begin(), color_candidates.end(), candidate) == color_candidates.end()) {
-                                    color_candidates.push_back(candidate);
-                                }
+                                append_limited_unique(color_candidates, candidate, limits.scan_color_candidates_preview);
                             }
                         }
 
@@ -197,7 +266,10 @@ void register_scan_routes(CrowApp& app,
                             {"input_dirs", resolved_inputs},
                             {"current_index", static_cast<int>(index)},
                             {"progress", static_cast<double>(index + 1) / static_cast<double>(resolved_inputs.size())},
-                            {"per_dir_results", per_dir_results}
+                            {"frames_detected", frames_detected_total},
+                            {"per_dir_results", per_dir_results},
+                            {"per_dir_results_total", static_cast<int>(index + 1)},
+                            {"per_dir_results_truncated", per_dir_results_truncated}
                         });
                     }
 
@@ -219,9 +291,17 @@ void register_scan_routes(CrowApp& app,
                         {"bayer_pattern", bayer_pattern},
                         {"requires_user_confirmation", requires_confirmation},
                         {"errors", all_errors},
+                        {"errors_total", errors_total},
+                        {"errors_truncated", errors_truncated},
                         {"warnings", all_warnings},
+                        {"warnings_total", warnings_total},
+                        {"warnings_truncated", warnings_truncated},
                         {"frames", all_frames},
+                        {"frames_total", frames_total},
+                        {"frames_truncated", frames_truncated},
                         {"per_dir_results", per_dir_results},
+                        {"per_dir_results_total", resolved_inputs.size()},
+                        {"per_dir_results_truncated", per_dir_results_truncated},
                     };
                     state->job_store.update_state(job_id, summary.value("ok", false) ? JobState::ok : JobState::error, {
                         {"input_path", resolved_inputs.front()},

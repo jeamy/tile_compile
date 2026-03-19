@@ -22,6 +22,8 @@ namespace fs = std::filesystem;
 int main(int argc, char* argv[]) {
     auto state = std::make_shared<AppState>();
     state->runtime = BackendRuntime::from_env();
+    state->job_store.configure_retention(state->runtime.guard_limits.retained_jobs);
+    state->subprocess_manager.configure_limits(state->runtime.guard_limits);
     state->ui_event_store.configure(state->runtime.ui_events_path);
 
     CrowApp app;
@@ -42,15 +44,27 @@ int main(int argc, char* argv[]) {
     register_ws_routes(app, state);
     register_tools_routes(app, state);
 
-    auto serve_ui_file = [&state](const fs::path& relative_path) {
+    auto read_ui_file = [&state](const fs::path& relative_path) -> std::optional<std::pair<fs::path, std::string>> {
         fs::path f = state->runtime.ui_dir / relative_path;
-        if (!fs::exists(f) || fs::is_directory(f)) {
-            f = state->runtime.ui_dir / "index.html";
-        }
+        std::error_code ec;
+        f = f.lexically_normal();
+        const fs::path ui_root = state->runtime.ui_dir.lexically_normal();
+        const std::string ui_root_text = ui_root.string();
+        const std::string file_text = f.string();
+        if (file_text.compare(0, ui_root_text.size(), ui_root_text) != 0) return std::nullopt;
+        if (!fs::exists(f, ec) || fs::is_directory(f, ec)) return std::nullopt;
         std::ifstream in(f, std::ios::binary);
-        if (!in) return crow::response(404);
+        if (!in) return std::nullopt;
         std::string body((std::istreambuf_iterator<char>(in)),
                          std::istreambuf_iterator<char>());
+        return std::make_pair(f, std::move(body));
+    };
+
+    auto serve_ui_file = [&read_ui_file](const fs::path& relative_path, bool spa_fallback = true) {
+        auto loaded = read_ui_file(relative_path);
+        if (!loaded && spa_fallback) loaded = read_ui_file("index.html");
+        if (!loaded) return crow::response(404);
+        const auto& [f, body] = *loaded;
         crow::response res(200, body);
         std::string ext = f.extension().string();
         if      (ext == ".html") res.set_header("Content-Type", "text/html");
@@ -71,16 +85,18 @@ int main(int argc, char* argv[]) {
         });
 
         CROW_ROUTE(app, "/ui")
-        ([&serve_ui_file](const crow::request&) {
-            return serve_ui_file("index.html");
+        ([](const crow::request&) {
+            crow::response res(302);
+            res.set_header("Location", "/ui/");
+            return res;
         });
 
         CROW_ROUTE(app, "/<path>")
         ([&serve_ui_file](const crow::request&, std::string path) {
-            if (path == "ui/") {
+            if (path == "ui" || path == "ui/") {
                 return serve_ui_file("index.html");
             }
-            return crow::response(404);
+            return serve_ui_file(path, false);
         });
     }
 
@@ -101,7 +117,7 @@ int main(int argc, char* argv[]) {
     CROW_ROUTE(app, "/")
     ([]() {
         crow::response res(302);
-        res.set_header("Location", "/ui");
+        res.set_header("Location", "/ui/");
         return res;
     });
 

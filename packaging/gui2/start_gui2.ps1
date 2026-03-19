@@ -99,7 +99,23 @@ $env:TILE_COMPILE_CONFIG = Join-Path $InstallRoot "tile_compile_cpp\tile_compile
 $env:TILE_COMPILE_SCHEMA = Join-Path $InstallRoot "tile_compile_cpp\tile_compile.schema.yaml"
 $env:TILE_COMPILE_PRESETS_DIR = Join-Path $InstallRoot "tile_compile_cpp\examples"
 $env:TILE_COMPILE_UI_DIR = Join-Path $InstallRoot "web_frontend"
-$env:TILE_COMPILE_ALLOWED_ROOTS = "$InstallRoot;$env:USERPROFILE"
+$AllowedRoots = @($InstallRoot, $env:USERPROFILE)
+if ($env:TEMP) { $AllowedRoots += $env:TEMP }
+if ($env:TMP -and $env:TMP -ne $env:TEMP) { $AllowedRoots += $env:TMP }
+$env:TILE_COMPILE_ALLOWED_ROOTS = ($AllowedRoots | Where-Object { $_ } | Select-Object -Unique) -join ";"
+# Optionale Backend-Memory-Guard Overrides:
+# TILE_COMPILE_BACKEND_SUBPROCESS_CAPTURE_BYTES (default 1048576)
+# TILE_COMPILE_BACKEND_JOB_STDIO_STORE_BYTES (default 131072)
+# TILE_COMPILE_BACKEND_SCAN_FRAMES_PREVIEW (default 256)
+# TILE_COMPILE_BACKEND_SCAN_PER_DIR_FRAMES_PREVIEW (default 32)
+# TILE_COMPILE_BACKEND_SCAN_PER_DIR_RESULTS_PREVIEW (default 64)
+# TILE_COMPILE_BACKEND_SCAN_MESSAGES_PREVIEW (default 128)
+# TILE_COMPILE_BACKEND_SCAN_COLOR_CANDIDATES_PREVIEW (default 32)
+# TILE_COMPILE_BACKEND_REPORT_EVENTS_MAX (default 4096)
+# TILE_COMPILE_BACKEND_REPORT_LOG_TAIL (default 128)
+# TILE_COMPILE_BACKEND_REPORT_TEXT_BYTES (default 262144)
+# TILE_COMPILE_BACKEND_REPORT_JSON_FILE_BYTES (default 4194304)
+# TILE_COMPILE_BACKEND_RETAINED_JOBS (default 128)
 $LibDir = Join-Path $InstallRoot "tile_compile_cpp\lib"
 if (Test-Path $LibDir) {
   if ($env:PATH) {

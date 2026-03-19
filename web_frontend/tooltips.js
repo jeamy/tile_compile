@@ -294,29 +294,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
     overlay = document.createElement("div");
     overlay.id = "path-picker-overlay";
-    overlay.style.position = "fixed";
-    overlay.style.inset = "0";
-    overlay.style.background = "rgba(15,23,42,0.35)";
-    overlay.style.display = "none";
-    overlay.style.zIndex = "2000";
+    overlay.className = "ps-modal-backdrop";
+    overlay.hidden = true;
     overlay.innerHTML = [
-      "<div id='path-picker-dialog' style='width:min(920px,92vw);max-height:80vh;overflow:hidden;margin:6vh auto;background:#fff;border:1px solid #c8d4df;border-radius:12px;display:flex;flex-direction:column;'>",
-      "  <div style='padding:12px 14px;border-bottom:1px solid #d9e3ec;display:flex;gap:8px;align-items:center;'>",
-      "    <strong style='font-size:15px;'>Pfad auswählen</strong>",
-      "    <span id='path-picker-mode' style='margin-left:auto;font-size:12px;color:#64748b;'></span>",
+      "<div id='path-picker-dialog' class='ps-modal-card ps-path-picker-card'>",
+      "  <div class='ps-modal-head'>",
+      "    <strong>Pfad auswählen</strong>",
+      "    <span id='path-picker-mode' class='ps-path-picker-mode'></span>",
       "  </div>",
-      "  <div style='padding:10px 14px;border-bottom:1px solid #d9e3ec;display:flex;gap:8px;align-items:center;'>",
-      "    <input id='path-picker-current' type='text' style='flex:1;min-width:0;padding:7px 10px;border:1px solid #c8d4df;border-radius:8px;'>",
-      "    <button id='path-picker-go' type='button' style='padding:6px 10px;border:1px solid #c8d4df;border-radius:8px;background:#fff;cursor:pointer;'>Go</button>",
-      "  </div>",
-      "  <div id='path-picker-save-row' style='display:none;padding:10px 14px;border-bottom:1px solid #d9e3ec;gap:8px;align-items:center;'>",
-      "    <label id='path-picker-filename-label' for='path-picker-filename' style='font-size:13px;color:#475569;white-space:nowrap;'>Dateiname</label>",
-      "    <input id='path-picker-filename' type='text' style='flex:1;min-width:0;padding:7px 10px;border:1px solid #c8d4df;border-radius:8px;'>",
-      "  </div>",
-      "  <div id='path-picker-list' style='padding:6px 10px;overflow:auto;min-height:280px;'></div>",
-      "  <div style='padding:12px 14px;border-top:1px solid #d9e3ec;display:flex;gap:8px;justify-content:flex-end;'>",
-      "    <button id='path-picker-cancel' type='button' style='padding:8px 12px;border:1px solid #c8d4df;border-radius:8px;background:#fff;cursor:pointer;'>Abbrechen</button>",
-      "    <button id='path-picker-select' type='button' style='padding:8px 14px;border:1px solid #0f8fa0;border-radius:8px;background:#0f8fa0;color:#fff;cursor:pointer;'>Auswählen</button>",
+      "  <div class='ps-path-picker-body'>",
+      "    <div class='ps-path-picker-toolbar'>",
+      "      <input id='path-picker-current' class='ps-input' type='text'>",
+      "      <button id='path-picker-go' type='button' class='ps-btn ps-btn-secondary ps-btn-compact'>Go</button>",
+      "    </div>",
+      "    <div id='path-picker-save-row' class='ps-path-picker-save-row' hidden>",
+      "      <label id='path-picker-filename-label' for='path-picker-filename'>Dateiname</label>",
+      "      <input id='path-picker-filename' class='ps-input' type='text'>",
+      "    </div>",
+      "    <div id='path-picker-list' class='ps-path-picker-list'></div>",
+      "    <div class='ps-path-picker-actions'>",
+      "      <button id='path-picker-cancel' type='button' class='ps-btn ps-btn-secondary'>Abbrechen</button>",
+      "      <button id='path-picker-select' type='button' class='ps-btn'>Auswählen</button>",
+      "    </div>",
       "  </div>",
       "</div>",
     ].join("");
@@ -329,13 +328,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const fileSelectable = mode === "file" || mode === "save-file";
     if (data?.parent) {
       const parentRow = document.createElement("div");
-      parentRow.style.cssText =
-        "display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid #d7e2eb;border-radius:6px;font-weight:600;";
-      parentRow.style.cursor = "pointer";
+      parentRow.className = "ps-path-picker-entry ps-path-picker-entry-clickable ps-path-picker-entry-parent";
       parentRow.title = "Ins Elternverzeichnis wechseln";
       const parentName = document.createElement("span");
       parentName.textContent = "📁 ..";
-      parentName.style.cssText = "flex:1;min-width:0;";
+      parentName.className = "ps-path-picker-entry-name";
       parentRow.appendChild(parentName);
       parentRow.addEventListener("click", () => onPickPath(data.parent));
       parentRow.addEventListener("dblclick", () => onOpenDir(data.parent));
@@ -343,19 +340,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     (data?.items || []).forEach((item) => {
       const row = document.createElement("div");
-      row.style.cssText =
-        "display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid #eef3f7;border-radius:6px;";
+      row.className = "ps-path-picker-entry";
       const name = document.createElement("span");
       name.textContent = `${item.type === "dir" ? "📁" : "📄"} ${item.name}`;
-      name.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      name.className = "ps-path-picker-entry-name";
       row.appendChild(name);
       if (item.type === "dir") {
-        row.style.cursor = "pointer";
+        row.classList.add("ps-path-picker-entry-clickable");
         row.title = "Doppelklick: Verzeichnis öffnen";
         row.addEventListener("click", () => onPickPath(item.path));
         row.addEventListener("dblclick", () => onOpenDir(item.path));
       } else if (fileSelectable) {
-        row.style.cursor = "pointer";
+        row.classList.add("ps-path-picker-entry-clickable");
         row.title = mode === "save-file" ? "Klick: Datei zum Überschreiben auswählen" : "Doppelklick: Datei auswählen";
         row.addEventListener("click", () => onPickPath(item.path));
         row.addEventListener("dblclick", () => onPickFile(item.path));
@@ -398,11 +394,11 @@ document.addEventListener("DOMContentLoaded", () => {
     cancelBtn.textContent = i18nText("ui.button.cancel", "Abbrechen");
     goBtn.textContent = i18nText("ui.button.go", "Go");
     fileNameLabelEl.textContent = i18nText("ui.field.file_name", "Dateiname");
-    saveRowEl.style.display = isSaveFileMode ? "flex" : "none";
+    saveRowEl.hidden = !isSaveFileMode;
 
     let resolvePromise;
-    const done = (value) => {
-      overlay.style.display = "none";
+      const done = (value) => {
+      overlay.hidden = true;
       resolvePromise(value);
     };
 
@@ -548,7 +544,7 @@ document.addEventListener("DOMContentLoaded", () => {
     currentEl.addEventListener("keydown", onCurrentKeydown);
     fileNameEl.addEventListener("keydown", onFileNameKeydown);
     overlay.addEventListener("click", onOverlay);
-    overlay.style.display = "block";
+    overlay.hidden = false;
 
     return new Promise((resolve) => {
       resolvePromise = resolve;

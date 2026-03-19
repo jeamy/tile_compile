@@ -34,8 +34,8 @@
             <input id="tools-pcc-wcs" data-control="tools.pcc.wcs_file" class="ps-input ps-wide" type="text" value="" title="Pfad zur WCS-Datei.">
           </div>
           <div class="ps-actions" style="margin-top:8px;">
-            <button data-control="tools.pcc.browse_rgb" class="ps-btn ps-btn-secondary" title="RGB-FITS auswaehlen.">Browse RGB</button>
-            <button data-control="tools.pcc.browse_wcs" class="ps-btn ps-btn-secondary" title="WCS-Datei auswaehlen.">Browse WCS</button>
+            <button data-control="tools.pcc.browse_rgb" data-target-id="tools-pcc-rgb" type="button" class="ps-btn ps-btn-secondary" title="RGB-FITS auswaehlen.">Browse RGB</button>
+            <button data-control="tools.pcc.browse_wcs" data-target-id="tools-pcc-wcs" type="button" class="ps-btn ps-btn-secondary" title="WCS-Datei auswaehlen.">Browse WCS</button>
           </div>
         </section>
 
@@ -56,7 +56,7 @@
             <div class="ps-row"><label>Catalog Dir</label><input id="tools-pcc-catalog-dir" data-control="tools.pcc.siril_catalog_dir" class="ps-input" type="text" value="" title="Pfad zum Siril-Katalogordner."></div>
           </div>
           <div class="ps-actions" style="margin-top:8px;">
-            <button data-control="tools.pcc.browse_catalog_dir" class="ps-btn ps-btn-secondary" title="Siril-Katalogverzeichnis auswaehlen.">Browse Catalog Dir</button>
+            <button data-control="tools.pcc.browse_catalog_dir" data-target-id="tools-pcc-catalog-dir" type="button" class="ps-btn ps-btn-secondary" title="Siril-Katalogverzeichnis auswaehlen.">Browse Catalog Dir</button>
             <button data-control="tools.pcc.download_missing" class="ps-btn" title="Fehlende Siril-Katalogchunks herunterladen und entpacken.">Download Missing Chunks</button>
             <button data-control="tools.pcc.cancel_download" class="ps-btn ps-btn-secondary" title="Laufenden Katalogdownload abbrechen.">Cancel Download</button>
             <span id="tools-pcc-download-status" class="shell-status-chip shell-status-chip-check" style="display:none;" title="Status des Siril-Katalogdownloads."></span>
@@ -75,7 +75,12 @@
             <div class="ps-row"><label for="tools-pcc-aperture">aperture_radius_px</label><input id="tools-pcc-aperture" data-control="tools.pcc.aperture_radius_px" class="ps-input" type="number" step="0.1" value="8.0" title="Apertur-Radius in Pixel."></div>
             <div class="ps-row"><label for="tools-pcc-annulus-in">annulus_inner_px</label><input id="tools-pcc-annulus-in" data-control="tools.pcc.annulus_inner_px" class="ps-input" type="number" step="0.1" value="12.0" title="Innerer Annulus-Radius."></div>
             <div class="ps-row"><label for="tools-pcc-annulus-out">annulus_outer_px</label><input id="tools-pcc-annulus-out" data-control="tools.pcc.annulus_outer_px" class="ps-input" type="number" step="0.1" value="18.0" title="Aeusserer Annulus-Radius."></div>
+            <div class="ps-row"><label for="tools-pcc-apply-attenuation">apply_attenuation</label><select id="tools-pcc-apply-attenuation" data-control="tools.pcc.apply_attenuation" class="ps-select" title="Shadow-safe attenuated apply fuer starke Kanalgewinne."><option value="false" selected>false</option><option value="true">true</option></select></div>
+            <div class="ps-row"><label for="tools-pcc-chroma-strength">chroma_strength</label><input id="tools-pcc-chroma-strength" data-control="tools.pcc.chroma_strength" class="ps-input" type="number" step="0.01" value="1.0" title="Begrenzt die Staerke der Farbkorrektur."></div>
+            <div class="ps-row"><label for="tools-pcc-k-max">k_max</label><input id="tools-pcc-k-max" data-control="tools.pcc.k_max" class="ps-input" type="number" step="0.1" value="3.2" title="Maximale Kanalverstaerkung fuer PCC."></div>
           </div>
+          <div class="ps-note" id="tools-pcc-config-note">Wenn RGB/WCS aus einem Run stammen, werden PCC-Parameter automatisch aus der zugehörigen <code>config.yaml</code> übernommen.</div>
+          <div class="ps-note" id="tools-pcc-input-hint" style="display:none;"></div>
           <div class="ps-actions" style="margin-top:8px;">
             <button data-control="tools.pcc.run" class="ps-btn" title="PCC starten.">Run PCC</button>
             <button data-control="tools.pcc.save_corrected" class="ps-btn ps-btn-secondary" title="Farbkorrigiertes Ergebnis speichern.">Save Corrected</button>

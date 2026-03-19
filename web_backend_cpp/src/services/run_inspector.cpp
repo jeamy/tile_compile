@@ -4,9 +4,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <deque>
+#include <functional>
 #include <iomanip>
 #include <map>
 #include <optional>
+#include <unordered_set>
 #include <yaml-cpp/yaml.h>
 
 namespace {
@@ -23,17 +26,18 @@ std::optional<fs::path> find_event_file(const fs::path& run_dir) {
     return std::nullopt;
 }
 
-std::vector<nlohmann::json> iter_jsonl(const fs::path& path) {
-    std::vector<nlohmann::json> out;
+bool visit_jsonl(const fs::path& path,
+                 const std::function<bool(const nlohmann::json&)>& visitor) {
     std::ifstream f(path);
-    if (!f) return out;
+    if (!f) return false;
     std::string line;
     while (std::getline(f, line)) {
         if (line.empty()) continue;
         auto parsed = nlohmann::json::parse(line, nullptr, false);
-        if (!parsed.is_discarded() && parsed.is_object()) out.push_back(parsed);
+        if (parsed.is_discarded() || !parsed.is_object()) continue;
+        if (!visitor(parsed)) break;
     }
-    return out;
+    return true;
 }
 
 std::string phase_name_from_event(const nlohmann::json& ev) {
@@ -102,33 +106,39 @@ std::string read_run_color_mode(const fs::path& run_dir) {
     }
     auto event_file = find_event_file(run_dir);
     if (!event_file) return "UNKNOWN";
-    for (const auto& ev : iter_jsonl(*event_file)) {
+    std::string detected = "UNKNOWN";
+    visit_jsonl(*event_file, [&](const nlohmann::json& ev) {
         if (ev.contains("color_mode") && ev["color_mode"].is_string()) {
             std::string color_mode = ev["color_mode"].get<std::string>();
             if (!color_mode.empty()) {
                 std::transform(color_mode.begin(), color_mode.end(), color_mode.begin(), ::toupper);
-                return color_mode;
+                detected = color_mode;
+                return false;
             }
         }
         if (ev.contains("payload") && ev["payload"].is_object() && ev["payload"].contains("color_mode") && ev["payload"]["color_mode"].is_string()) {
             std::string color_mode = ev["payload"]["color_mode"].get<std::string>();
             if (!color_mode.empty()) {
                 std::transform(color_mode.begin(), color_mode.end(), color_mode.begin(), ::toupper);
-                return color_mode;
+                detected = color_mode;
+                return false;
             }
         }
-    }
-    return "UNKNOWN";
+        return true;
+    });
+    return detected;
 }
 
 std::string extract_run_id_from_events(const fs::path& event_file) {
-    for (const auto& ev : iter_jsonl(event_file)) {
+    std::string run_id;
+    visit_jsonl(event_file, [&](const nlohmann::json& ev) {
         if (ev.contains("run_id") && ev["run_id"].is_string()) {
-            std::string run_id = ev["run_id"].get<std::string>();
-            if (!run_id.empty()) return run_id;
+            run_id = ev["run_id"].get<std::string>();
+            if (!run_id.empty()) return false;
         }
-    }
-    return "";
+        return true;
+    });
+    return run_id;
 }
 
 std::string iso_utc_from_file_time(const fs::file_time_type& file_time) {
@@ -221,7 +231,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     for (const auto& phase : PHASE_ORDER) phases[phase] = {{"phase", phase}, {"status", "pending"}, {"pct", 0.0}};
     nlohmann::json extra_phases = nlohmann::json::object();
     nlohmann::json progress_map = nlohmann::json::object();
-    nlohmann::json events_tail = nlohmann::json::array();
+    std::deque<nlohmann::json> events_tail;
     std::string run_status = "unknown";
     std::string current_phase;
     std::string resume_from_phase;
@@ -236,10 +246,9 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         return phase_idx >= 0 && resume_idx >= 0 && phase_idx < resume_idx;
     };
 
-    for (const auto& ev : iter_jsonl(*event_file)) {
+    visit_jsonl(*event_file, [&](const nlohmann::json& ev) {
         events_tail.push_back(ev);
-        if (events_tail.size() > 200) events_tail.erase(events_tail.begin());
-
+        if (events_tail.size() > 200) events_tail.pop_front();
         std::string event_type = ev.value("type", std::string());
         std::string phase_name = phase_name_from_event(ev);
         if (!phase_name.empty()) {
@@ -279,8 +288,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                 std::transform(reason.begin(), reason.end(), reason.begin(), ::tolower);
                 if (resume_active && phase_name == "ASTROMETRY" &&
                     resume_from_phase != "ASTROMETRY" && raw == "skipped" &&
-                    reason == "existing_wcs" &&
-                    (previous_status == "ok" || previous_status == "completed" || previous_status == "done")) {
+                    reason == "existing_wcs") {
                     raw = "ok";
                 }
                 (*phase_state)["status"] = raw;
@@ -348,7 +356,8 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         if (event_type == "run_end") {
             run_status = ev.value("success", false) ? "completed" : "failed";
         }
-    }
+        return true;
+    });
 
     if (run_status == "unknown") {
         if (!current_phase.empty()) run_status = "running";
@@ -373,28 +382,26 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
     result["current_phase"] = current_phase.empty() ? nlohmann::json(nullptr) : nlohmann::json(current_phase);
     result["progress"] = std::round(progress * 10000.0) / 10000.0;
     result["phases"] = phase_list;
-    result["events"] = events_tail;
+    result["events"] = nlohmann::json::array();
+    for (const auto& ev : events_tail) result["events"].push_back(ev);
     return result;
 }
 
 std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit) {
     std::vector<nlohmann::json> result;
     if (!fs::exists(runs_dir)) return result;
+    if (limit <= 0) return result;
 
-    std::map<fs::path, fs::path> run_paths;
+    std::unordered_set<std::string> seen_run_dirs;
     for (auto& entry : fs::recursive_directory_iterator(runs_dir)) {
         if (!entry.is_regular_file()) continue;
         auto name = entry.path().filename().string();
         if (name != "run_events.jsonl" && name != "events.jsonl") continue;
+        const fs::path event_file = entry.path();
         fs::path run_dir = (name == "run_events.jsonl" && entry.path().parent_path().filename() == "logs")
             ? entry.path().parent_path().parent_path()
             : entry.path().parent_path();
-        run_paths.emplace(run_dir, entry.path());
-    }
-
-    for (const auto& item : run_paths) {
-        const auto& run_dir = item.first;
-        const auto& event_file = item.second;
+        if (!seen_run_dirs.insert(run_dir.string()).second) continue;
         if (!fs::exists(run_dir)) continue;
         std::string run_id = extract_run_id_from_events(event_file);
         if (run_id.empty()) {
@@ -411,11 +418,11 @@ std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit) {
             {"modified", iso_utc_from_file_time(modified_time)},
             {"status", status.value("status", "unknown")},
         });
+        std::sort(result.begin(), result.end(), [](const nlohmann::json& a, const nlohmann::json& b) {
+            return a.value("modified", std::string()) > b.value("modified", std::string());
+        });
+        if (result.size() > static_cast<size_t>(limit)) result.resize(static_cast<size_t>(limit));
     }
-    std::sort(result.begin(), result.end(), [](const nlohmann::json& a, const nlohmann::json& b) {
-        return a.value("modified", std::string()) > b.value("modified", std::string());
-    });
-    if (result.size() > static_cast<size_t>(limit)) result.resize(static_cast<size_t>(limit));
     return result;
 }
 
@@ -426,18 +433,16 @@ std::string read_run_logs(const fs::path& run_dir, int tail) {
     std::ifstream in(*event_file);
     if (!in) return "";
 
-    std::vector<std::string> lines;
+    std::deque<std::string> lines;
     std::string line;
     while (std::getline(in, line)) {
         if (line.empty()) continue;
         lines.push_back(line);
+        if (lines.size() > static_cast<size_t>(std::max(1, tail))) lines.pop_front();
     }
 
-    int start = static_cast<int>(lines.size()) - tail;
-    if (start < 0) start = 0;
     std::ostringstream oss;
-    for (int i = start; i < static_cast<int>(lines.size()); ++i)
-        oss << lines[i] << "\n";
+    for (const auto& item : lines) oss << item << "\n";
     return oss.str();
 }
 

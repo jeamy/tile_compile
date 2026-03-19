@@ -6,6 +6,8 @@
 #include <memory>
 #include <vector>
 #include <optional>
+#include <cstddef>
+#include <cstdint>
 
 namespace fs = std::filesystem;
 
@@ -15,6 +17,23 @@ struct PathResolution {
     PathStatus status{PathStatus::ok};
     fs::path path;
 };
+
+struct BackendGuardLimits {
+    size_t subprocess_capture_bytes{1024 * 1024};
+    size_t job_stdio_store_bytes{128 * 1024};
+    size_t scan_frames_preview{256};
+    size_t scan_per_dir_frames_preview{32};
+    size_t scan_per_dir_results_preview{64};
+    size_t scan_messages_preview{128};
+    size_t scan_color_candidates_preview{32};
+    size_t report_events_max{4096};
+    size_t report_log_tail{128};
+    size_t report_text_bytes{256 * 1024};
+    uintmax_t report_json_file_bytes{4 * 1024 * 1024};
+    size_t retained_jobs{128};
+};
+
+BackendGuardLimits backend_guard_limits_from_env();
 
 struct BackendRuntime {
     fs::path project_root;
@@ -29,6 +48,7 @@ struct BackendRuntime {
     std::string cli_exe;
     std::string runner_exe;
     int port{8000};
+    BackendGuardLimits guard_limits;
 
     BackendRuntime() : _roots_mutex(std::make_unique<std::mutex>()) {}
     BackendRuntime(BackendRuntime&&) = default;

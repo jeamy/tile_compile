@@ -41,34 +41,53 @@ static bool save_ui_state_unlocked(const std::shared_ptr<AppState>& state) {
     return static_cast<bool>(out);
 }
 
+static fs::path detect_temp_root(const std::shared_ptr<AppState>& state) {
+    std::error_code ec;
+    fs::path temp_root = fs::temp_directory_path(ec);
+    if (!ec && !temp_root.empty()) return temp_root;
+    return state->runtime.runtime_dir / "tmp";
+}
+
 void register_app_state_routes(CrowApp& app,
                                 std::shared_ptr<AppState> state) {
 
     CROW_ROUTE(app, "/api/app/state").methods("GET"_method)
     ([state](const crow::request&) {
-        std::lock_guard<std::mutex> lk(state->state_mutex);
-        load_ui_state_unlocked(state);
+        std::string current_run_id;
+        std::string active_config_revision_id;
+        std::string last_scan_input_path;
+        nlohmann::json ui_state = nlohmann::json::object();
+        int revision_count = 0;
         auto& rt = state->runtime;
+        {
+            std::lock_guard<std::mutex> lk(state->state_mutex);
+            load_ui_state_unlocked(state);
+            current_run_id = state->current_run_id;
+            active_config_revision_id = state->active_config_revision_id;
+            last_scan_input_path = state->last_scan_input_path;
+            ui_state = state->ui_state;
+            revision_count = state->revision_store.count();
+        }
 
         auto scan_job = latest_scan_job(state->job_store);
-        auto scan_summary = summarize_scan_job(scan_job, state->last_scan_input_path);
+        auto scan_summary = summarize_scan_job(scan_job, last_scan_input_path);
 
         nlohmann::json current_run = nlohmann::json::object();
-        if (!state->current_run_id.empty()) {
+        if (!current_run_id.empty()) {
             try {
-                auto run_dir    = rt.resolve_run_dir(state->current_run_id);
+                auto run_dir    = rt.resolve_run_dir(current_run_id);
                 auto run_status = read_run_status(run_dir);
-                apply_job_state_to_run_status(run_status, latest_run_job(state->job_store, state->current_run_id));
+                apply_job_state_to_run_status(run_status, latest_run_job(state->job_store, current_run_id));
                 current_run = {
-                    {"run_id",        state->current_run_id},
+                    {"run_id",        current_run_id},
                     {"run_dir",       run_dir.string()},
                     {"status",        run_status.value("status", "unknown")},
                     {"current_phase", run_status.value("current_phase", nullptr)},
                     {"progress",      run_status.value("progress", 0.0)},
                 };
             } catch (...) {
-                current_run = {{"run_id", state->current_run_id}, {"status", "unknown"}};
-                apply_job_state_to_run_status(current_run, latest_run_job(state->job_store, state->current_run_id));
+                current_run = {{"run_id", current_run_id}, {"status", "unknown"}};
+                apply_job_state_to_run_status(current_run, latest_run_job(state->job_store, current_run_id));
             }
         }
 
@@ -80,15 +99,15 @@ void register_app_state_routes(CrowApp& app,
             {"runs_dir",            rt.runs_dir.string()},
             {"presets_dir",         rt.presets_dir.string()},
             {"default_config_path", rt.default_config_path.string()},
-            {"current_run_id",      state->current_run_id},
+            {"current_run_id",      current_run_id},
         };
         resp["scan"] = {
             {"last_input_path", scan_summary.value("input_path", "")},
             {"last_scan",       scan_summary},
         };
         resp["config"] = {
-            {"active_revision_id", state->active_config_revision_id},
-            {"revision_count",     state->revision_store.count()},
+            {"active_revision_id", active_config_revision_id},
+            {"revision_count",     revision_count},
         };
         resp["queue"]   = nlohmann::json::object();
         resp["run"]     = {{"current", current_run}};
@@ -97,9 +116,9 @@ void register_app_state_routes(CrowApp& app,
             {"recent",     recent_runs},
         };
         resp["tools"]   = nlohmann::json::object();
-        resp["ui_state"] = state->ui_state;
+        resp["ui_state"] = ui_state;
         resp["events"]  = {{"latest_seq", state->ui_event_store.latest_seq()}};
-        resp["i18n"]    = {{"locale", state->ui_state.value("gui2.locale", std::string("de"))}};
+        resp["i18n"]    = {{"locale", ui_state.value("gui2.locale", std::string("de"))}};
         return json_resp(resp);
     });
 
@@ -133,11 +152,13 @@ void register_app_state_routes(CrowApp& app,
     });
 
     CROW_ROUTE(app, "/api/app/constants").methods("GET"_method)
-    ([](const crow::request&) {
+    ([state](const crow::request&) {
+        const fs::path temp_root = detect_temp_root(state);
         return json_resp({
             {"phases", PHASE_ORDER},
             {"resume_from", RESUME_FROM_PHASES},
             {"color_modes", {"OSC", "MONO", "RGB"}},
+            {"temp_root", temp_root.string()},
         });
     });
 

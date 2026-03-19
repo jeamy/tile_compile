@@ -1,4 +1,5 @@
 #include "backend_runtime.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <stdexcept>
 #include <sstream>
@@ -50,65 +51,142 @@ fs::path detect_default_project_root() {
     return weakly_normalize(fs::current_path());
 }
 
+std::string env_string(const char* name, const char* def = "") {
+    const char* v = std::getenv(name);
+    return v ? v : def;
+}
+
+size_t parse_size_t_env(const char* name, size_t fallback, size_t min_value, size_t max_value) {
+    const std::string raw = env_string(name, "");
+    if (raw.empty()) return fallback;
+    try {
+        const unsigned long long parsed = std::stoull(raw);
+        return std::clamp<size_t>(static_cast<size_t>(parsed), min_value, max_value);
+    } catch (...) {
+        return fallback;
+    }
+}
+
+uintmax_t parse_uintmax_env(const char* name, uintmax_t fallback, uintmax_t min_value, uintmax_t max_value) {
+    const std::string raw = env_string(name, "");
+    if (raw.empty()) return fallback;
+    try {
+        const unsigned long long parsed = std::stoull(raw);
+        return std::clamp<uintmax_t>(static_cast<uintmax_t>(parsed), min_value, max_value);
+    } catch (...) {
+        return fallback;
+    }
+}
+
+}
+
+BackendGuardLimits backend_guard_limits_from_env() {
+    BackendGuardLimits limits;
+    limits.subprocess_capture_bytes = parse_size_t_env("TILE_COMPILE_BACKEND_SUBPROCESS_CAPTURE_BYTES",
+                                                       limits.subprocess_capture_bytes,
+                                                       64 * 1024,
+                                                       8 * 1024 * 1024);
+    limits.job_stdio_store_bytes = parse_size_t_env("TILE_COMPILE_BACKEND_JOB_STDIO_STORE_BYTES",
+                                                    limits.job_stdio_store_bytes,
+                                                    8 * 1024,
+                                                    512 * 1024);
+    limits.scan_frames_preview = parse_size_t_env("TILE_COMPILE_BACKEND_SCAN_FRAMES_PREVIEW",
+                                                  limits.scan_frames_preview,
+                                                  1,
+                                                  4096);
+    limits.scan_per_dir_frames_preview = parse_size_t_env("TILE_COMPILE_BACKEND_SCAN_PER_DIR_FRAMES_PREVIEW",
+                                                          limits.scan_per_dir_frames_preview,
+                                                          1,
+                                                          512);
+    limits.scan_per_dir_results_preview = parse_size_t_env("TILE_COMPILE_BACKEND_SCAN_PER_DIR_RESULTS_PREVIEW",
+                                                           limits.scan_per_dir_results_preview,
+                                                           1,
+                                                           512);
+    limits.scan_messages_preview = parse_size_t_env("TILE_COMPILE_BACKEND_SCAN_MESSAGES_PREVIEW",
+                                                    limits.scan_messages_preview,
+                                                    1,
+                                                    1024);
+    limits.scan_color_candidates_preview = parse_size_t_env("TILE_COMPILE_BACKEND_SCAN_COLOR_CANDIDATES_PREVIEW",
+                                                            limits.scan_color_candidates_preview,
+                                                            1,
+                                                            128);
+    limits.report_events_max = parse_size_t_env("TILE_COMPILE_BACKEND_REPORT_EVENTS_MAX",
+                                                limits.report_events_max,
+                                                128,
+                                                32768);
+    limits.report_log_tail = parse_size_t_env("TILE_COMPILE_BACKEND_REPORT_LOG_TAIL",
+                                              limits.report_log_tail,
+                                              16,
+                                              2048);
+    limits.report_text_bytes = parse_size_t_env("TILE_COMPILE_BACKEND_REPORT_TEXT_BYTES",
+                                                limits.report_text_bytes,
+                                                32 * 1024,
+                                                2 * 1024 * 1024);
+    limits.report_json_file_bytes = parse_uintmax_env("TILE_COMPILE_BACKEND_REPORT_JSON_FILE_BYTES",
+                                                      limits.report_json_file_bytes,
+                                                      256 * 1024,
+                                                      64 * 1024 * 1024);
+    limits.retained_jobs = parse_size_t_env("TILE_COMPILE_BACKEND_RETAINED_JOBS",
+                                            limits.retained_jobs,
+                                            8,
+                                            1000);
+    return limits;
 }
 
 BackendRuntime BackendRuntime::from_env() {
     BackendRuntime rt;
 
-    auto env = [](const char* name, const char* def = "") -> std::string {
-        const char* v = std::getenv(name);
-        return v ? v : def;
-    };
+    rt.guard_limits = backend_guard_limits_from_env();
 
-    std::string project_root_str = env("TILE_COMPILE_PROJECT_ROOT", "");
+    std::string project_root_str = env_string("TILE_COMPILE_PROJECT_ROOT", "");
     if (project_root_str.empty()) {
         rt.project_root = detect_default_project_root();
     } else {
         rt.project_root = weakly_normalize(fs::path(project_root_str));
     }
 
-    std::string runs_dir_str = env("TILE_COMPILE_RUNS_DIR", "");
+    std::string runs_dir_str = env_string("TILE_COMPILE_RUNS_DIR", "");
     if (runs_dir_str.empty())
         rt.runs_dir = rt.project_root / "runs";
     else
         rt.runs_dir = fs::path(runs_dir_str);
 
-    std::string config_str = env("TILE_COMPILE_CONFIG", "");
+    std::string config_str = env_string("TILE_COMPILE_CONFIG", "");
     if (config_str.empty())
         rt.default_config_path = rt.project_root / "tile_compile_cpp" / "tile_compile.yaml";
     else
         rt.default_config_path = fs::path(config_str);
 
-    std::string schema_str = env("TILE_COMPILE_SCHEMA", "");
+    std::string schema_str = env_string("TILE_COMPILE_SCHEMA", "");
     if (schema_str.empty())
         rt.schema_path = rt.project_root / "tile_compile_cpp" / "tile_compile.schema.yaml";
     else
         rt.schema_path = fs::path(schema_str);
 
-    std::string presets_str = env("TILE_COMPILE_PRESETS_DIR", "");
+    std::string presets_str = env_string("TILE_COMPILE_PRESETS_DIR", "");
     if (presets_str.empty())
         rt.presets_dir = rt.project_root / "tile_compile_cpp" / "examples";
     else
         rt.presets_dir = fs::path(presets_str);
 
-    std::string ui_str = env("TILE_COMPILE_UI_DIR", "");
+    std::string ui_str = env_string("TILE_COMPILE_UI_DIR", "");
     if (ui_str.empty())
         rt.ui_dir = rt.project_root / "web_frontend";
     else
         rt.ui_dir = fs::path(ui_str);
 
-    std::string runtime_dir_str = env("TILE_COMPILE_RUNTIME_DIR", "");
+    std::string runtime_dir_str = env_string("TILE_COMPILE_RUNTIME_DIR", "");
     if (runtime_dir_str.empty())
         rt.runtime_dir = rt.project_root / "web_backend_cpp" / "runtime";
     else
         rt.runtime_dir = fs::path(runtime_dir_str);
     rt.ui_events_path = rt.runtime_dir / "ui_events.jsonl";
 
-    rt.host = env("TILE_COMPILE_HOST", env("HOST", "127.0.0.1").c_str());
-    rt.cli_exe    = env("TILE_COMPILE_CLI",    "tile_compile_cli");
-    rt.runner_exe = env("TILE_COMPILE_RUNNER", "tile_compile_runner");
+    rt.host = env_string("TILE_COMPILE_HOST", env_string("HOST", "127.0.0.1").c_str());
+    rt.cli_exe    = env_string("TILE_COMPILE_CLI",    "tile_compile_cli");
+    rt.runner_exe = env_string("TILE_COMPILE_RUNNER", "tile_compile_runner");
 
-    std::string port_str = env("TILE_COMPILE_PORT", "8000");
+    std::string port_str = env_string("TILE_COMPILE_PORT", "8000");
     try { rt.port = std::stoi(port_str); } catch (...) { rt.port = 8000; }
 
     for (const auto& root : {
@@ -121,7 +199,7 @@ BackendRuntime BackendRuntime::from_env() {
         if (!root.empty()) rt._allowed_roots.insert(rt.normalize_path(root).string());
     }
 
-    std::string allowed_roots = env("TILE_COMPILE_ALLOWED_ROOTS", "");
+    std::string allowed_roots = env_string("TILE_COMPILE_ALLOWED_ROOTS", "");
     if (!allowed_roots.empty()) {
         std::istringstream iss(allowed_roots);
         std::string root;
@@ -130,7 +208,7 @@ BackendRuntime BackendRuntime::from_env() {
         }
     }
 
-    std::string input_roots = env("TILE_COMPILE_INPUT_SEARCH_ROOTS", "");
+    std::string input_roots = env_string("TILE_COMPILE_INPUT_SEARCH_ROOTS", "");
     if (!input_roots.empty()) {
         std::istringstream iss(input_roots);
         std::string root;

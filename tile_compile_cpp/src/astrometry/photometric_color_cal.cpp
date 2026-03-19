@@ -618,9 +618,9 @@ std::vector<StarPhotometry> measure_stars(
         config.common_valid_mask.size() == static_cast<size_t>(rows * cols)) {
         common_support_mask = config.common_valid_mask;
     } else {
-        std::cout << "[PCC] Error: missing/invalid canvas mask; aborting star measurement"
+        std::cout << "[PCC] Warning: missing/invalid canvas mask; using full image support mask"
                   << std::endl;
-        return result;
+        common_support_mask.assign(static_cast<size_t>(rows * cols), static_cast<uint8_t>(1));
     }
     const std::vector<uint8_t> bg_safe_mask =
         image::build_chroma_background_mask_from_rgb(R, G, B, common_support_mask);
@@ -1809,21 +1809,14 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         config.common_mask_rows == rows &&
         config.common_mask_cols == cols &&
         image::canvas_mask_matches_image(config.common_valid_mask, rows, cols);
-    if (!have_canvas_mask) {
-        PCCResult fail;
-        fail.success = false;
-        fail.matrix = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
-        fail.n_stars_matched = 0;
-        fail.n_stars_used = 0;
-        fail.residual_rms = 0.0;
-        fail.determinant = 1.0;
-        fail.condition_number = 1.0;
-        fail.error_message = "Missing/invalid canvas mask for PCC";
-        return fail;
+    if (have_canvas_mask) {
+        // Hard policy when a common-overlap mask is available: masked pixels
+        // stay excluded globally from PCC.
+        image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
+    } else {
+        std::cout << "[PCC] Warning: missing/invalid canvas mask; proceeding without common-overlap masking"
+                  << std::endl;
     }
-    // Hard policy: canvas-masked pixels are excluded globally from PCC and
-    // always kept at zero.
-    image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
 
     std::cout << "[PCC] Measuring " << catalog_stars.size()
               << " catalog stars in image..." << std::endl;

@@ -85,7 +85,13 @@ size_t header_cb(char* buffer, size_t size, size_t nitems, void* userdata) {
         std::string http_version;
         long status = 0;
         iss >> http_version >> status;
-        if (status > 0) ctx->status_code = status;
+        if (status > 0) {
+            ctx->status_code = status;
+            // Followed redirects emit multiple header blocks; reset any total
+            // seen from an intermediate response so only the final payload
+            // drives progress reporting.
+            ctx->bytes_total = 0;
+        }
         ctx->headers_processed = true;
     } else {
         const auto colon = trimmed.find(':');

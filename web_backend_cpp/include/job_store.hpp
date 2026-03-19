@@ -39,6 +39,7 @@ nlohmann::json job_to_json(const Job& j);
 class InMemoryJobStore {
 public:
     std::string create(const std::string& type, const std::string& run_id = "");
+    void configure_retention(size_t max_retained_jobs);
     std::optional<Job> get(const std::string& job_id) const;
     bool update_state(const std::string& job_id, JobState state,
                       const nlohmann::json& data = {}, const std::string& error = "");
@@ -50,8 +51,11 @@ public:
     std::vector<Job> list(int limit = 100) const;
 
 private:
+    void prune_locked();
+
     mutable std::mutex _mutex;
     std::unordered_map<std::string, Job> _jobs;
     std::vector<std::string> _order;
+    size_t _max_retained_jobs{128};
     int _counter{0};
 };

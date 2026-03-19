@@ -106,3 +106,12 @@ Common options:
 - `--skip-smoke` to skip the launch test
 - `--build-type <type>` to switch CMake configuration
 - `--port <port>` to change the smoke-test port
+
+## Environment Example
+
+An example environment file is available at:
+
+- `packaging/gui2/.env.example`
+
+It documents the supported GUI2 launcher variables and the backend memory-guard limits.
+The launcher scripts do not auto-load this file; source it manually before starting GUI2 if you want to override defaults.

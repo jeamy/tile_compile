@@ -49,6 +49,88 @@ std::string getenv_or(const char* name, const std::string& fallback = "") {
     return v ? std::string(v) : fallback;
 }
 
+bool copy_file_portable(const fs::path& source, const fs::path& dest, std::string* error_detail = nullptr) {
+    std::error_code ec;
+    fs::copy_file(source, dest, fs::copy_options::overwrite_existing, ec);
+    if (!ec) return true;
+
+    const std::string fs_copy_error = ec.message();
+    ec.clear();
+
+    fs::path temp_dest = dest;
+    temp_dest += ".tmp-" + std::to_string(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+
+    std::ifstream input(source, std::ios::binary);
+    if (!input) {
+        if (error_detail) {
+            *error_detail = "open source failed: " + source.string() + " (filesystem copy failed first: " + fs_copy_error + ")";
+        }
+        return false;
+    }
+
+    std::ofstream output(temp_dest, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        if (error_detail) {
+            *error_detail = "open destination failed: " + temp_dest.string() + " (filesystem copy failed first: " + fs_copy_error + ")";
+        }
+        return false;
+    }
+
+    output << input.rdbuf();
+    output.flush();
+    const bool input_ok = input.good() || input.eof();
+    const bool output_ok = static_cast<bool>(output);
+    output.close();
+    input.close();
+
+    if (!input_ok || !output_ok) {
+        std::error_code cleanup_ec;
+        fs::remove(temp_dest, cleanup_ec);
+        if (error_detail) {
+            *error_detail = "stream copy failed from " + source.string() + " to " + dest.string()
+                + " (filesystem copy failed first: " + fs_copy_error + ")";
+        }
+        return false;
+    }
+
+    if (fs::exists(dest, ec)) {
+        ec.clear();
+        fs::remove(dest, ec);
+        if (ec) {
+            fs::remove(temp_dest, ec);
+            if (error_detail) {
+                *error_detail = "failed to replace existing destination: " + dest.string()
+                    + " (" + ec.message() + "; filesystem copy failed first: " + fs_copy_error + ")";
+            }
+            return false;
+        }
+    }
+    ec.clear();
+
+    fs::rename(temp_dest, dest, ec);
+    if (ec) {
+        const std::string rename_error = ec.message();
+        ec.clear();
+        fs::copy_file(temp_dest, dest, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            std::error_code cleanup_ec;
+            fs::remove(temp_dest, cleanup_ec);
+            if (error_detail) {
+                *error_detail = "rename/copy temp file failed: " + dest.string()
+                    + " (" + rename_error + "; fallback copy: " + ec.message()
+                    + "; filesystem copy failed first: " + fs_copy_error + ")";
+            }
+            return false;
+        }
+        std::error_code cleanup_ec;
+        fs::remove(temp_dest, cleanup_ec);
+    }
+
+    return true;
+}
+
 fs::path user_home_dir() {
 #ifdef _WIN32
     auto home = getenv_or("USERPROFILE");
@@ -553,21 +635,56 @@ static void throw_if_job_cancelled(const std::shared_ptr<AppState>& state, const
     if (state->job_store.is_cancelled(job_id)) throw JobCancelled();
 }
 
+static double clamp_progress_fraction(double value) {
+    if (!std::isfinite(value)) return 0.0;
+    return std::max(0.0, std::min(1.0, value));
+}
+
+static int json_int_or(const nlohmann::json& data, const char* key, int fallback = 0) {
+    if (!data.is_object() || !data.contains(key)) return fallback;
+    try {
+        return data.at(key).get<int>();
+    } catch (...) {
+        return fallback;
+    }
+}
+
+static double compose_download_progress(const nlohmann::json& data, double transfer_fraction) {
+    const int total_chunks = json_int_or(data, "total_chunks", 0);
+    if (total_chunks <= 0) return clamp_progress_fraction(transfer_fraction);
+    const int completed_chunks = std::max(0, std::min(total_chunks, json_int_or(data, "completed_chunks", 0)));
+    return clamp_progress_fraction(
+        (static_cast<double>(completed_chunks) + clamp_progress_fraction(transfer_fraction))
+        / static_cast<double>(total_chunks));
+}
+
 static void set_download_progress(const std::shared_ptr<AppState>& state,
                                   const std::string& job_id,
                                   std::uintmax_t received,
                                   std::uintmax_t total) {
     nlohmann::json progress_value = nullptr;
+    nlohmann::json transfer_progress = nullptr;
+    double progress_fraction = 0.0;
     if (total > 0) {
-        progress_value = static_cast<double>(received) / static_cast<double>(total);
+        const auto bounded_received = std::min(received, total);
+        const double transfer_fraction = clamp_progress_fraction(
+            static_cast<double>(bounded_received) / static_cast<double>(total));
+        transfer_progress = transfer_fraction;
+        if (auto snapshot = state->job_store.get(job_id); snapshot && snapshot->data.is_object()) {
+            progress_fraction = compose_download_progress(snapshot->data, transfer_fraction);
+        } else {
+            progress_fraction = transfer_fraction;
+        }
+        progress_value = progress_fraction;
     }
     nlohmann::json patch = {
         {"bytes_received", received},
         {"bytes_total", total},
         {"progress", progress_value},
+        {"transfer_progress", transfer_progress},
     };
     state->job_store.merge_data(job_id, patch);
-    if (total > 0) state->job_store.update_progress(job_id, (static_cast<double>(received) / static_cast<double>(total)) * 100.0);
+    if (total > 0) state->job_store.update_progress(job_id, progress_fraction * 100.0);
     throw_if_job_cancelled(state, job_id);
 }
 
@@ -1300,6 +1417,26 @@ void register_tools_routes(CrowApp& app,
             { args.push_back("--annulus-inner-px"); args.push_back(std::to_string(*value)); }
         if (auto value = payload_float(body, "annulus_outer_px"); value.has_value())
             { args.push_back("--annulus-outer-px"); args.push_back(std::to_string(*value)); }
+        if (body.contains("radii_mode") && body["radii_mode"].is_string()) {
+            args.push_back("--radii-mode");
+            args.push_back(body["radii_mode"].get<std::string>());
+        }
+        if (auto value = payload_float(body, "aperture_fwhm_mult"); value.has_value())
+            { args.push_back("--aperture-fwhm-mult"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "annulus_inner_fwhm_mult"); value.has_value())
+            { args.push_back("--annulus-inner-fwhm-mult"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "annulus_outer_fwhm_mult"); value.has_value())
+            { args.push_back("--annulus-outer-fwhm-mult"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "min_aperture_px"); value.has_value())
+            { args.push_back("--min-aperture-px"); args.push_back(std::to_string(*value)); }
+        if (body.contains("background_model") && body["background_model"].is_string()) {
+            args.push_back("--background-model");
+            args.push_back(body["background_model"].get<std::string>());
+        }
+        if (auto value = payload_float(body, "max_condition_number"); value.has_value())
+            { args.push_back("--max-condition-number"); args.push_back(std::to_string(*value)); }
+        if (auto value = payload_float(body, "max_residual_rms"); value.has_value())
+            { args.push_back("--max-residual-rms"); args.push_back(std::to_string(*value)); }
         if (auto value = payload_float(body, "chroma_strength"); value.has_value())
             { args.push_back("--chroma-strength"); args.push_back(std::to_string(*value)); }
         if (auto value = payload_float(body, "k_max"); value.has_value())
@@ -1329,25 +1466,102 @@ void register_tools_routes(CrowApp& app,
         if (body.is_discarded() || !body.contains("output_rgb"))
             return err_resp("BAD_REQUEST", "output_rgb is required", 400, nlohmann::json::object());
 
-        std::string output_rgb = body["output_rgb"].get<std::string>();
+        const std::string source_output_rgb = expand_user_path(fs::path(body.value("source_output_rgb", body.value("output_rgb", "")))).string();
+        const std::string output_rgb = expand_user_path(fs::path(body["output_rgb"].get<std::string>())).string();
+        const std::string wcs_file = expand_user_path(fs::path(body.value("wcs_file", ""))).string();
+
+        if (source_output_rgb.empty()) {
+            return err_resp("BAD_REQUEST", "source_output_rgb is required", 400, nlohmann::json::object());
+        }
+        if (auto denied = denied_path(state->runtime, fs::path(source_output_rgb)); denied) {
+            return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+        }
         if (auto denied = denied_path(state->runtime, fs::path(output_rgb)); denied) {
             return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
         }
+        if (!wcs_file.empty()) {
+            if (auto denied = denied_path(state->runtime, fs::path(wcs_file)); denied) {
+                return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
+            }
+        }
+        if (!fs::exists(fs::path(source_output_rgb))) {
+            return err_resp("PATH_NOT_FOUND", "source_output_rgb not found", 422, {{"path", source_output_rgb}});
+        }
 
-        nlohmann::json channels = nlohmann::json::array();
-        if (body.contains("output_channels") && body["output_channels"].is_array()) {
-            for (const auto& channel : body["output_channels"]) {
-                std::string channel_path = channel.get<std::string>();
+        const auto source_channels_json = body.contains("source_output_channels")
+            ? body["source_output_channels"]
+            : body.value("output_channels", nlohmann::json::array());
+        std::vector<std::string> source_channels;
+        if (source_channels_json.is_array()) {
+            for (const auto& channel : source_channels_json) {
+                const std::string channel_path = expand_user_path(fs::path(channel.get<std::string>())).string();
                 if (auto denied = denied_path(state->runtime, fs::path(channel_path)); denied) {
                     return err_resp("PATH_NOT_ALLOWED", "Path not allowed: " + *denied, 403, {{"path", *denied}});
                 }
-                channels.push_back(channel_path);
+                source_channels.push_back(channel_path);
             }
         }
+
+        std::error_code ec;
+        const fs::path source_path(source_output_rgb);
+        const fs::path output_path(output_rgb);
+        fs::path normalized_source = fs::weakly_canonical(source_path, ec);
+        ec.clear();
+        fs::path normalized_output_parent = output_path.has_parent_path()
+            ? fs::weakly_canonical(output_path.parent_path(), ec)
+            : fs::current_path();
+        ec.clear();
+        fs::path normalized_output = normalized_output_parent / output_path.filename();
+        if (!normalized_source.empty() && !normalized_output.empty() && normalized_source == normalized_output) {
+            return err_resp("BAD_REQUEST", "source and destination for corrected PCC output must differ", 400, {
+                {"source_output_rgb", normalized_source.string()},
+                {"output_rgb", normalized_output.string()}
+            });
+        }
+        if (output_path.has_parent_path()) fs::create_directories(output_path.parent_path(), ec);
+        std::string copy_error_detail;
+        if (!copy_file_portable(source_path, output_path, &copy_error_detail)) {
+            return err_resp("IO_ERROR", "failed to save corrected PCC output", 500, {{"path", output_rgb}, {"detail", copy_error_detail}});
+        }
+
+        nlohmann::json channels = nlohmann::json::array();
+        static constexpr std::array<const char*, 3> channel_suffixes = {"_R.fit", "_G.fit", "_B.fit"};
+        for (size_t index = 0; index < source_channels.size(); ++index) {
+            const fs::path channel_path(source_channels[index]);
+            if (!fs::exists(channel_path)) continue;
+            fs::path out_channel = output_path.parent_path() / output_path.stem();
+            if (index < channel_suffixes.size()) {
+                out_channel += channel_suffixes[index];
+            } else {
+                out_channel += "_ch" + std::to_string(index + 1) + channel_path.extension().string();
+            }
+            std::string channel_copy_error;
+            if (copy_file_portable(channel_path, out_channel, &channel_copy_error)) {
+                channels.push_back(out_channel.string());
+            }
+        }
+
+        std::string copied_wcs;
+        if (!wcs_file.empty() && fs::exists(fs::path(wcs_file))) {
+            fs::path out_wcs = output_path;
+            out_wcs.replace_extension(".wcs");
+            std::string wcs_copy_error;
+            if (copy_file_portable(fs::path(wcs_file), out_wcs, &wcs_copy_error)) {
+                copied_wcs = out_wcs.string();
+            }
+        }
+
+        if (!fs::exists(output_path)) {
+            return err_resp("IO_ERROR", "corrected PCC output missing after save", 500, {{"path", output_rgb}});
+        }
+        const auto size_bytes = static_cast<int64_t>(fs::file_size(output_path, ec));
+        if (ec) ec.clear();
 
         nlohmann::json response = {
             {"output_rgb",      output_rgb},
             {"output_channels", channels},
+            {"wcs_path", copied_wcs.empty() ? nlohmann::json(nullptr) : nlohmann::json(copied_wcs)},
+            {"size_bytes",      size_bytes},
         };
         state->ui_event_store.push("tools.pcc.save_corrected", "tools.pcc_save_corrected", response);
         return json_resp(response);
