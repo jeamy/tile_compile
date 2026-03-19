@@ -473,6 +473,11 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.1 (2026-03-19)
+
+- GUI2-Tool-Persistenz und PCC-Speicherworkflow verbessert, einschließlich temp-basierter Speicherung und plattformübergreifend konsistentem Verhalten bei Temp-Pfaden.
+- Backend-Speichernutzung gehärtet und die BGE-Autotune-Laufzeit auf dem IC434-Referenzlauf deutlich reduziert, ohne das gewählte Lösungsverhalten zu verändern.
+
 ## v0.1.0 (2026-03-18)
 
 - Astrometry/PCC-Tool-Pfadeingaben werden nicht mehr durch Backend-Defaults überschrieben.
@@ -568,7 +573,19 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Changelog
 
-## Changelog (2026-03-18)
+### (2026-03-19)
+
+**GUI2-Tool-Persistenz/PCC-UX, Backend-Memory-Guards und BGE-Autotune-Beschleunigung:**
+
+- `web_backend_cpp/` gegen OOM-anfällige API-/Tool-Pfade gehärtet: begrenzte Subprozess-/Stdout-Captures, beschränkte Scan-/Report-Payloads, gestreamte Event-Datei-Auswertung sowie Limits für behaltene Jobs mit per Environment konfigurierbaren Defaults für GUI2.
+- `packaging/gui2/.env.example` ergänzt und die neuen Backend-Runtime-Limit-Umgebungsvariablen für die GUI2-Starter dokumentiert.
+- GUI2-Frontend-/Backend-Asset-Auslieferung und Routenverhalten korrigiert, sodass `/ui` und direkte Asset-Pfade zuverlässig aufgelöst werden statt 404 zu liefern.
+- Astrometry-/PCC-Tool-UX verbessert: persistenter Downloadstatus über Seitenwechsel hinweg, korrigierte Download-Fortschrittsberechnung, automatische PCC-WCS-Vorbelegung aus gleichnamigen Dateien und automatische PCC-Parameterübernahme aus einer Run-`config.yaml` mit sichtbarer Herkunft im UI/Log.
+- PCC-Output-Handling in GUI2 überarbeitet: `Run PCC` schreibt zuerst in ein temporäres Ergebnis, `Save Corrected` nutzt einen GUI2-internen Speichern-Dialog, kopiert das RGB-Ergebnis plus `_R/_G/_B`-Sidecars aus dem Temp-Output und arbeitet konsistent über Linux/macOS/Windows-Temp-Verzeichnisse hinweg.
+- Standalone-PCC so korrigiert, dass bei fehlender `canvas_mask` ein sicherer Full-Image-Fallback verwendet wird statt den Tool-Lauf abzubrechen.
+- BGE-Phasen-Timings in `bge.json` ergänzt und den echten Hotspot in `tile_compile_cpp/` optimiert: Autotune-Prep verwendet vorbereitete Tile-Analyse jetzt über mehrere Quantil-Kandidaten hinweg wieder, wodurch die gemessene BGE-Laufzeit auf dem IC434-Referenzlauf von etwa `472s` auf etwa `181s` sank, ohne neuen Vollbild-Speicherdruck zu erzeugen.
+
+### (2026-03-18)
 
 - Astrometry-Datenverzeichnis-Eingabe wird nun korrekt respektiert wenn User den Pfad manuell ändert - nutzt `shouldKeepAstapSelection`-Logik zur Bewahrung der User-Eingabe.
 - Serverseitige Persistenz für Astrometry- und PCC-Tool-Parameter via UI-State-API hinzugefügt - Einstellungen überleben Server-Neustarts.

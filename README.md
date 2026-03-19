@@ -463,6 +463,11 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.1 (2026-03-19)
+
+- Improved GUI2 tool persistence and PCC save handling, including temporary-output based saving and cross-platform temp-path behavior.
+- Hardened backend memory usage and significantly reduced BGE autotune runtime on the IC434 reference run while preserving the selected solution behavior.
+
 ## v0.1.0 (2026-03-18)
 
 - Fixed Astrometry/PCC tool path inputs being overwritten by backend defaults.
@@ -558,7 +563,19 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Changelog
 
-## Changelog (2026-03-18)
+### (2026-03-19)
+
+**GUI2 tool persistence/PCC UX, backend memory guards, and BGE autotune speed-up:**
+
+- Hardened `web_backend_cpp/` against OOM-prone API/tool paths with capped subprocess/stdout capture, bounded scan/report payload retention, streamed event-file inspection, and retained-job limits plus environment-configurable defaults documented for GUI2.
+- Added `packaging/gui2/.env.example` and documented the new backend runtime limit environment variables used by GUI2 launchers.
+- Fixed GUI2 frontend/backend asset serving and route behavior so `/ui` and direct asset paths resolve reliably instead of producing 404s.
+- Improved Astrometry/PCC tool UX: persistent in-progress download state across page switches, corrected download progress calculation, automatic PCC WCS prefill from matching files, and automatic PCC parameter import from a run `config.yaml` with visible traceability in the UI/log.
+- Reworked PCC output handling in GUI2 so `Run PCC` writes to a temporary result, `Save Corrected` uses a styled in-app save dialog, copies the RGB result plus `_R/_G/_B` sidecar files from the temp output, and works consistently across Linux/macOS/Windows temp directories.
+- Fixed standalone PCC fallback behavior when `canvas_mask` is missing by using a safe full-image fallback instead of aborting the tool run.
+- Added BGE phase timing diagnostics to `bge.json` and optimized the real hotspot in `tile_compile_cpp/`: autotune prep now reuses prepared tile analysis across quantile candidates, reducing measured BGE wall time on the IC434 reference run from about `472s` to about `181s` without adding new full-frame memory pressure.
+
+### (2026-03-18)
 
 - Fixed Astrometry data directory input not being respected when user manually changes the path - now uses `shouldKeepAstapSelection` logic to preserve user input.
 - Added server-side persistence for Astrometry and PCC tool parameters via UI state API - settings survive server restarts.
