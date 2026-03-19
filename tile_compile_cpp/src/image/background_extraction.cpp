@@ -51,24 +51,28 @@ float robust_mad(const std::vector<float> &values, float center) {
   return robust_median(std::move(abs_dev));
 }
 
-std::vector<float> box_blur(const Matrix2Df &tile, int radius) {
-  const int h = static_cast<int>(tile.rows());
-  const int w = static_cast<int>(tile.cols());
-  std::vector<float> out(static_cast<size_t>(h * w), 0.0f);
+void box_blur_subregion(const Matrix2Df &image, int x0, int y0, int w, int h,
+                        int radius, std::vector<double> *integral,
+                        std::vector<float> *out) {
+  out->assign(static_cast<size_t>(std::max(0, h * w)), 0.0f);
   if (h <= 0 || w <= 0)
-    return out;
+    return;
   radius = std::max(0, radius);
 
-  std::vector<double> integral(static_cast<size_t>((h + 1) * (w + 1)), 0.0);
+  integral->assign(static_cast<size_t>((h + 1) * (w + 1)), 0.0);
   auto idx = [w](int y, int x) { return static_cast<size_t>(y * (w + 1) + x); };
+  const int stride = static_cast<int>(image.cols());
+  const float *base = image.data();
   for (int y = 0; y < h; ++y) {
     double row_sum = 0.0;
+    const float *src =
+        base + static_cast<size_t>(y0 + y) * static_cast<size_t>(stride) + x0;
     for (int x = 0; x < w; ++x) {
-      float v = tile(y, x);
+      float v = src[x];
       if (!std::isfinite(v))
         v = 0.0f;
       row_sum += static_cast<double>(v);
-      integral[idx(y + 1, x + 1)] = integral[idx(y, x + 1)] + row_sum;
+      (*integral)[idx(y + 1, x + 1)] = (*integral)[idx(y, x + 1)] + row_sum;
     }
   }
 
@@ -78,22 +82,22 @@ std::vector<float> box_blur(const Matrix2Df &tile, int radius) {
     for (int x = 0; x < w; ++x) {
       const int x0 = std::max(0, x - radius);
       const int x1 = std::min(w - 1, x + radius);
-      const double sum = integral[idx(y1 + 1, x1 + 1)] -
-                         integral[idx(y0, x1 + 1)] - integral[idx(y1 + 1, x0)] +
-                         integral[idx(y0, x0)];
+      const double sum = (*integral)[idx(y1 + 1, x1 + 1)] -
+                         (*integral)[idx(y0, x1 + 1)] -
+                         (*integral)[idx(y1 + 1, x0)] +
+                         (*integral)[idx(y0, x0)];
       const int area = (y1 - y0 + 1) * (x1 - x0 + 1);
-      out[static_cast<size_t>(y * w + x)] =
+      (*out)[static_cast<size_t>(y * w + x)] =
           static_cast<float>(sum / std::max(1, area));
     }
   }
-  return out;
 }
 
-std::vector<uint8_t> dilate_mask(const std::vector<uint8_t> &mask, int w, int h,
-                                 int radius) {
+void dilate_mask_in_place(std::vector<uint8_t> *mask, int w, int h, int radius,
+                          std::vector<uint8_t> *scratch) {
   if (radius <= 0)
-    return mask;
-  std::vector<uint8_t> out(mask.size(), 0);
+    return;
+  scratch->assign(mask->size(), 0);
   const int r2 = radius * radius;
   for (int y = 0; y < h; ++y) {
     for (int x = 0; x < w; ++x) {
@@ -108,16 +112,73 @@ std::vector<uint8_t> dilate_mask(const std::vector<uint8_t> &mask, int w, int h,
             continue;
           if (dx * dx + dy * dy > r2)
             continue;
-          if (mask[static_cast<size_t>(yy * w + xx)] != 0) {
+          if ((*mask)[static_cast<size_t>(yy * w + xx)] != 0) {
             hit = 1;
             break;
           }
         }
       }
-      out[static_cast<size_t>(y * w + x)] = hit;
+      (*scratch)[static_cast<size_t>(y * w + x)] = hit;
     }
   }
-  return out;
+  mask->swap(*scratch);
+}
+
+struct TileSampleScratch {
+  std::vector<float> finite_values;
+  std::vector<float> blur_small;
+  std::vector<float> blur_large;
+  std::vector<float> dog_vals;
+  std::vector<float> tile_gradients;
+  std::vector<float> supported_gradients;
+  std::vector<float> tile_pixels;
+  std::vector<uint8_t> tile_common_support;
+  std::vector<uint8_t> star_mask;
+  std::vector<uint8_t> sat_mask;
+  std::vector<uint8_t> dilate_scratch;
+  std::vector<double> blur_integral;
+
+  void prepare(int tw, int th) {
+    const size_t tile_px = static_cast<size_t>(std::max(0, tw * th));
+    finite_values.clear();
+    finite_values.reserve(tile_px);
+    blur_small.resize(tile_px);
+    blur_large.resize(tile_px);
+    dog_vals.resize(tile_px);
+    tile_gradients.resize(tile_px);
+    supported_gradients.clear();
+    supported_gradients.reserve(tile_px);
+    tile_pixels.clear();
+    tile_pixels.reserve(tile_px);
+    tile_common_support.resize(tile_px, 1);
+    star_mask.assign(tile_px, 0);
+    sat_mask.assign(tile_px, 0);
+    dilate_scratch.resize(tile_px);
+    blur_integral.resize(static_cast<size_t>((th + 1) * (tw + 1)));
+  }
+};
+
+enum class RBFKernelType { Multiquadric, ThinPlate, Gaussian };
+
+RBFKernelType resolve_rbf_kernel_type(const std::string &phi) {
+  if (phi == "thinplate")
+    return RBFKernelType::ThinPlate;
+  if (phi == "gaussian")
+    return RBFKernelType::Gaussian;
+  return RBFKernelType::Multiquadric;
+}
+
+float evaluate_rbf_kernel(RBFKernelType kernel, float d, float mu,
+                          float epsilon) {
+  switch (kernel) {
+  case RBFKernelType::ThinPlate:
+    return rbf_kernel_thinplate(d, epsilon);
+  case RBFKernelType::Gaussian:
+    return rbf_kernel_gaussian(d, mu);
+  case RBFKernelType::Multiquadric:
+  default:
+    return rbf_kernel_multiquadric(d, mu);
+  }
 }
 
 using RobustWeightFn = float (*)(float, float);
@@ -1206,6 +1267,9 @@ std::vector<TileBGSample> extract_tile_background_samples(
 
   std::vector<TileBGSample> samples;
   samples.reserve(tile_grid.tiles.size());
+  TileSampleScratch scratch;
+  const int stride = static_cast<int>(channel.cols());
+  const float *channel_data = channel.data();
 
   if (tile_metrics.size() < tile_grid.tiles.size()) {
     std::cout << "[BGE] Warning: tile_metrics smaller than tile_grid, "
@@ -1310,17 +1374,15 @@ std::vector<TileBGSample> extract_tile_background_samples(
       continue;
     }
 
-    // Collect tile pixels and local stats for deterministic masks.
-    std::vector<float> tile_pixels;
-    std::vector<float> tile_gradients;
-    tile_pixels.reserve((x1 - x0) * (y1 - y0));
-    tile_gradients.reserve((x1 - x0) * (y1 - y0));
-
-    Matrix2Df tile_view = channel.block(y0, x0, y1 - y0, x1 - x0);
     const int tw = x1 - x0;
     const int th = y1 - y0;
     const int tile_px = tw * th;
-    std::vector<uint8_t> tile_common_support(static_cast<size_t>(tile_px), 1);
+    scratch.prepare(tw, th);
+    auto tile_value = [&](int yy, int xx) -> float {
+      return channel_data[static_cast<size_t>(y0 + yy) *
+                              static_cast<size_t>(stride) +
+                          static_cast<size_t>(x0 + xx)];
+    };
     int supported_px = tile_px;
     if (have_common_mask) {
       supported_px = 0;
@@ -1334,31 +1396,34 @@ std::vector<TileBGSample> extract_tile_background_samples(
               config.common_valid_mask[row_off + static_cast<size_t>(gx)] != 0
                   ? 1
                   : 0;
-          tile_common_support[static_cast<size_t>(yy * tw + xx)] = supported;
+          scratch.tile_common_support[static_cast<size_t>(yy * tw + xx)] =
+              supported;
           supported_px += (supported != 0) ? 1 : 0;
         }
       }
     }
 
-    std::vector<float> finite_values;
-    finite_values.reserve(static_cast<size_t>(tw * th));
     int zero_pixel_count = 0;
     for (int yy = 0; yy < th; ++yy) {
+      const float *row = channel_data +
+                         static_cast<size_t>(y0 + yy) *
+                             static_cast<size_t>(stride) +
+                         x0;
       for (int xx = 0; xx < tw; ++xx) {
         const size_t i = static_cast<size_t>(yy * tw + xx);
-        if (tile_common_support[i] == 0) {
+        if (scratch.tile_common_support[i] == 0) {
           continue;
         }
-        float v = tile_view(yy, xx);
+        const float v = row[xx];
         if (std::isfinite(v)) {
-          finite_values.push_back(v);
+          scratch.finite_values.push_back(v);
           if (v == 0.0f)
             ++zero_pixel_count;
         }
       }
     }
 
-    if (finite_values.empty()) {
+    if (scratch.finite_values.empty()) {
       samples.push_back(sample);
       continue;
     }
@@ -1367,37 +1432,36 @@ std::vector<TileBGSample> extract_tile_background_samples(
     // regions created by field-rotation canvas expansion and would corrupt
     // the background model with near-zero values.
     const float zero_fraction = static_cast<float>(zero_pixel_count) /
-                                static_cast<float>(finite_values.size());
+                                static_cast<float>(scratch.finite_values.size());
     if (zero_fraction > 0.20f) {
       samples.push_back(sample);
       continue;
     }
 
-    const float sat_level = robust_quantile(finite_values, 0.999f);
+    const float sat_level = robust_quantile(scratch.finite_values, 0.999f);
 
     // Approximate star mask from deterministic DoG fallback (spec §6.3.2a).
     const int r_small = 1;
     const int r_large = std::max(2, std::min(tw, th) / 12);
-    std::vector<float> blur_small = box_blur(tile_view, r_small);
-    std::vector<float> blur_large = box_blur(tile_view, r_large);
-    std::vector<float> dog_vals;
-    dog_vals.reserve(static_cast<size_t>(tw * th));
-    for (size_t i = 0; i < blur_small.size(); ++i) {
-      dog_vals.push_back(blur_small[i] - blur_large[i]);
+    box_blur_subregion(channel, x0, y0, tw, th, r_small, &scratch.blur_integral,
+                       &scratch.blur_small);
+    box_blur_subregion(channel, x0, y0, tw, th, r_large, &scratch.blur_integral,
+                       &scratch.blur_large);
+    for (size_t i = 0; i < scratch.blur_small.size(); ++i) {
+      scratch.dog_vals[i] = scratch.blur_small[i] - scratch.blur_large[i];
     }
-    const float dog_med = robust_median(dog_vals);
-    const float dog_mad = robust_mad(dog_vals, dog_med);
+    const float dog_med = robust_median(scratch.dog_vals);
+    const float dog_mad = robust_mad(scratch.dog_vals, dog_med);
     const float dog_thresh =
         dog_med + 3.0f * std::max(1.4826f * dog_mad, 1.0e-6f);
-    const float bright_thresh = robust_quantile(finite_values, 0.80f);
-    std::vector<uint8_t> star_mask(static_cast<size_t>(tw * th), 0);
+    const float bright_thresh = robust_quantile(scratch.finite_values, 0.80f);
     for (int yy = 0; yy < th; ++yy) {
       for (int xx = 0; xx < tw; ++xx) {
         const size_t i = static_cast<size_t>(yy * tw + xx);
-        const float v = tile_view(yy, xx);
+        const float v = tile_value(yy, xx);
         if (std::isfinite(v) && v >= bright_thresh &&
-            dog_vals[i] > dog_thresh) {
-          star_mask[i] = 1;
+            scratch.dog_vals[i] > dog_thresh) {
+          scratch.star_mask[i] = 1;
         }
       }
     }
@@ -1407,65 +1471,70 @@ std::vector<TileBGSample> extract_tile_background_samples(
       star_dilate_px = std::clamp(star_dilate_px + std::max(0, add),
                                   star_dilate_px, star_dilate_px + 8);
     }
-    star_mask = dilate_mask(star_mask, tw, th, star_dilate_px);
+    dilate_mask_in_place(&scratch.star_mask, tw, th, star_dilate_px,
+                         &scratch.dilate_scratch);
 
-    std::vector<uint8_t> sat_mask(static_cast<size_t>(tw * th), 0);
     for (int yy = 0; yy < th; ++yy) {
       for (int xx = 0; xx < tw; ++xx) {
         const size_t i = static_cast<size_t>(yy * tw + xx);
-        float v = tile_view(yy, xx);
+        const float v = tile_value(yy, xx);
         if (std::isfinite(v) && v >= sat_level)
-          sat_mask[i] = 1;
+          scratch.sat_mask[i] = 1;
       }
     }
-    sat_mask =
-        dilate_mask(sat_mask, tw, th, std::max(0, config.mask.sat_dilate_px));
+    dilate_mask_in_place(&scratch.sat_mask, tw, th,
+                         std::max(0, config.mask.sat_dilate_px),
+                         &scratch.dilate_scratch);
 
     // Per-pixel structure metric from local gradients.
-    std::vector<float> supported_gradients;
-    supported_gradients.reserve(
-        static_cast<size_t>(supported_px > 0 ? supported_px : tile_px));
+    scratch.supported_gradients.clear();
     for (int yy = 0; yy < th; ++yy) {
       const int ym = std::max(0, yy - 1);
       const int yp = std::min(th - 1, yy + 1);
       for (int xx = 0; xx < tw; ++xx) {
         const int xm = std::max(0, xx - 1);
         const int xp = std::min(tw - 1, xx + 1);
-        const float gx = std::abs(tile_view(yy, xp) - tile_view(yy, xm));
-        const float gy = std::abs(tile_view(yp, xx) - tile_view(ym, xx));
+        const float gx = std::abs(tile_value(yy, xp) - tile_value(yy, xm));
+        const float gy = std::abs(tile_value(yp, xx) - tile_value(ym, xx));
         const float grad = gx + gy;
-        tile_gradients.push_back(grad);
-        if (tile_common_support[static_cast<size_t>(yy * tw + xx)] != 0) {
-          supported_gradients.push_back(grad);
+        scratch.tile_gradients[static_cast<size_t>(yy * tw + xx)] = grad;
+        if (scratch.tile_common_support[static_cast<size_t>(yy * tw + xx)] !=
+            0) {
+          scratch.supported_gradients.push_back(grad);
         }
       }
     }
+    const std::vector<float> &gradient_source =
+        scratch.supported_gradients.empty() ? scratch.tile_gradients
+                                            : scratch.supported_gradients;
     const float grad_thresh = robust_quantile(
-        supported_gradients.empty() ? tile_gradients : supported_gradients,
-        config.structure_thresh_percentile);
+        gradient_source, config.structure_thresh_percentile);
 
+    scratch.tile_pixels.clear();
     for (int yy = 0; yy < th; ++yy) {
       for (int xx = 0; xx < tw; ++xx) {
         const size_t i = static_cast<size_t>(yy * tw + xx);
-        if (tile_common_support[i] == 0) {
+        if (scratch.tile_common_support[i] == 0) {
           continue;
         }
-        float v = tile_view(yy, xx);
-        const bool structure_bad = tile_gradients[i] > grad_thresh;
+        const float v = tile_value(yy, xx);
+        const bool structure_bad = scratch.tile_gradients[i] > grad_thresh;
         const bool masked =
-            (star_mask[i] != 0) || (sat_mask[i] != 0) || structure_bad;
+            (scratch.star_mask[i] != 0) || (scratch.sat_mask[i] != 0) ||
+            structure_bad;
         if (!masked && std::isfinite(v) && v > 0.0f) {
-          tile_pixels.push_back(v);
+          scratch.tile_pixels.push_back(v);
         }
       }
     }
 
-    if (tile_pixels.empty()) {
+    if (scratch.tile_pixels.empty()) {
       samples.push_back(sample);
       continue;
     }
 
-    const float usable_fraction = static_cast<float>(tile_pixels.size()) /
+    const float usable_fraction =
+        static_cast<float>(scratch.tile_pixels.size()) /
                                   static_cast<float>((x1 - x0) * (y1 - y0));
     if (!(std::isfinite(usable_fraction)) ||
         usable_fraction < kMinUsableTileFraction) {
@@ -1475,7 +1544,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
 
     // Compute quantile (v3.3 §6.3.2b)
     sample.bg_value =
-        robust_quantile(std::move(tile_pixels), config.sample_quantile);
+        robust_quantile(scratch.tile_pixels, config.sample_quantile);
     if (!(std::isfinite(sample.bg_value) && sample.bg_value > 0.0f)) {
       samples.push_back(sample);
       continue;
@@ -1703,14 +1772,44 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
 }
 
 // RBF interpolation (v3.3 §6.3.7)
-Matrix2Df fit_rbf_surface(const std::vector<GridCell> &grid_cells,
-                          int image_width, int image_height, int grid_spacing,
-                          const BGEConfig &config) {
+struct RBFModelState {
+  const std::vector<GridCell> *grid_cells = nullptr;
+  Eigen::VectorXf coeffs;
+  RBFKernelType kernel = RBFKernelType::Multiquadric;
+  float mu = kTiny;
+  float epsilon = kTiny;
+  float lambda = kTiny;
+  float train_rms = std::numeric_limits<float>::infinity();
+  bool success = false;
+};
 
+struct PolynomialModelState {
+  Eigen::VectorXf coeffs;
+  int order = 0;
+  float x_scale = 0.0f;
+  float y_scale = 0.0f;
+  float x_offset = -1.0f;
+  float y_offset = -1.0f;
+  float train_rms = std::numeric_limits<float>::infinity();
+  bool success = false;
+};
+
+enum class SurfaceModelKind { None, Rbf, Poly };
+
+struct SurfaceModelSelection {
+  SurfaceModelKind kind = SurfaceModelKind::None;
+  RBFModelState rbf;
+  PolynomialModelState poly;
+  float rms = std::numeric_limits<float>::infinity();
+  bool success = false;
+};
+
+bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
+                     const BGEConfig &config, RBFModelState *out) {
   const int M = grid_cells.size();
   if (M < 3) {
     std::cout << "[BGE] Too few grid cells for RBF: " << M << std::endl;
-    return Matrix2Df::Zero(image_height, image_width);
+    return false;
   }
 
   // Compute mu (shape parameter, v3.3 §6.3.7)
@@ -1719,22 +1818,19 @@ Matrix2Df fit_rbf_surface(const std::vector<GridCell> &grid_cells,
       std::max(kTiny, config.fit.rbf_mu_factor * static_cast<float>(G));
   const float epsilon = std::max(kTiny, config.fit.rbf_epsilon);
   const float lambda_base = std::max(kTiny, config.fit.rbf_lambda);
+  const RBFKernelType kernel = resolve_rbf_kernel_type(config.fit.rbf_phi);
 
   // Build RBF matrix Phi (M x M)
   Eigen::MatrixXf Phi_base(M, M);
   for (int i = 0; i < M; ++i) {
-    for (int j = 0; j < M; ++j) {
+    Phi_base(i, i) = evaluate_rbf_kernel(kernel, 0.0f, mu, epsilon);
+    for (int j = i + 1; j < M; ++j) {
       float dx = grid_cells[i].center_x - grid_cells[j].center_x;
       float dy = grid_cells[i].center_y - grid_cells[j].center_y;
       float d = std::sqrt(dx * dx + dy * dy);
-
-      if (config.fit.rbf_phi == "multiquadric") {
-        Phi_base(i, j) = rbf_kernel_multiquadric(d, mu);
-      } else if (config.fit.rbf_phi == "thinplate") {
-        Phi_base(i, j) = rbf_kernel_thinplate(d, epsilon);
-      } else { // gaussian
-        Phi_base(i, j) = rbf_kernel_gaussian(d, mu);
-      }
+      const float phi = evaluate_rbf_kernel(kernel, d, mu, epsilon);
+      Phi_base(i, j) = phi;
+      Phi_base(j, i) = phi;
     }
   }
 
@@ -1850,7 +1946,7 @@ Matrix2Df fit_rbf_surface(const std::vector<GridCell> &grid_cells,
 
   if (!have_best) {
     std::cerr << "[BGE] RBF solve failed for all lambda trials" << std::endl;
-    return Matrix2Df::Zero(image_height, image_width);
+    return false;
   }
 
   float lambda = best_lambda;
@@ -1866,41 +1962,50 @@ Matrix2Df fit_rbf_surface(const std::vector<GridCell> &grid_cells,
             << " (limit=" << residual_limit << ", rms=" << rms_selected << ")"
             << std::endl;
 
-  // Evaluate RBF at all image pixels
-  Matrix2Df surface = Matrix2Df::Zero(image_height, image_width);
+  out->grid_cells = &grid_cells;
+  out->coeffs = std::move(u);
+  out->kernel = kernel;
+  out->mu = mu;
+  out->epsilon = epsilon;
+  out->lambda = lambda;
+  out->train_rms = rms_selected;
+  out->success = true;
+  return true;
+}
 
+float eval_rbf_model_at(const RBFModelState &state, float x, float y) {
+  if (!state.success || state.grid_cells == nullptr)
+    return std::numeric_limits<float>::quiet_NaN();
+  float sum = 0.0f;
+  const auto &grid_cells = *state.grid_cells;
+  for (int i = 0; i < state.coeffs.size(); ++i) {
+    const float dx = x - grid_cells[static_cast<size_t>(i)].center_x;
+    const float dy = y - grid_cells[static_cast<size_t>(i)].center_y;
+    const float d = std::sqrt(dx * dx + dy * dy);
+    sum += state.coeffs(i) *
+           evaluate_rbf_kernel(state.kernel, d, state.mu, state.epsilon);
+  }
+  return sum;
+}
+
+Matrix2Df render_rbf_surface(const RBFModelState &state, int image_width,
+                             int image_height) {
+  Matrix2Df surface = Matrix2Df::Zero(image_height, image_width);
 #pragma omp parallel for collapse(2)
   for (int y = 0; y < image_height; ++y) {
     for (int x = 0; x < image_width; ++x) {
-      float sum = 0.0f;
-      for (int i = 0; i < M; ++i) {
-        float dx = x - grid_cells[i].center_x;
-        float dy = y - grid_cells[i].center_y;
-        float d = std::sqrt(dx * dx + dy * dy);
-
-        float phi_val;
-        if (config.fit.rbf_phi == "multiquadric") {
-          phi_val = rbf_kernel_multiquadric(d, mu);
-        } else if (config.fit.rbf_phi == "thinplate") {
-          phi_val = rbf_kernel_thinplate(d, epsilon);
-        } else {
-          phi_val = rbf_kernel_gaussian(d, mu);
-        }
-
-        sum += u(i) * phi_val;
-      }
-      surface(y, x) = sum;
+      surface(y, x) = eval_rbf_model_at(state, static_cast<float>(x),
+                                        static_cast<float>(y));
     }
   }
-
   return surface;
 }
 
 // Polynomial surface fitting (v3.3 §6.3.7)
-Matrix2Df fit_polynomial_surface(const std::vector<GridCell> &grid_cells,
-                                 int image_width, int image_height,
-                                 const BGEConfig &config) {
-
+bool solve_polynomial_model(const std::vector<GridCell> &grid_cells,
+                            int image_width, int image_height,
+                            const BGEConfig &config,
+                            PolynomialModelState *out) {
   const int M = grid_cells.size();
   const int order = config.fit.polynomial_order;
 
@@ -1915,7 +2020,7 @@ Matrix2Df fit_polynomial_surface(const std::vector<GridCell> &grid_cells,
   if (M < n_terms) {
     std::cout << "[BGE] Too few grid cells for polynomial order " << order
               << ": " << M << " < " << n_terms << std::endl;
-    return Matrix2Df::Zero(image_height, image_width);
+    return false;
   }
 
   // Normalize coordinates to [-1, 1]
@@ -1983,28 +2088,75 @@ Matrix2Df fit_polynomial_surface(const std::vector<GridCell> &grid_cells,
     }
   }
 
-  // Evaluate polynomial at all image pixels
+  const Eigen::VectorXf residual = b - A * coeffs;
+  const float train_rms =
+      std::sqrt(residual.squaredNorm() / static_cast<float>(M));
+  if (!(std::isfinite(train_rms))) {
+    return false;
+  }
+
+  out->coeffs = std::move(coeffs);
+  out->order = order;
+  out->x_scale = x_scale;
+  out->y_scale = y_scale;
+  out->x_offset = x_offset;
+  out->y_offset = y_offset;
+  out->train_rms = train_rms;
+  out->success = true;
+  return true;
+}
+
+float eval_polynomial_model_at(const PolynomialModelState &state, float x,
+                               float y, std::vector<float> *x_pows,
+                               std::vector<float> *y_pows) {
+  if (!state.success)
+    return std::numeric_limits<float>::quiet_NaN();
+  const float x_norm = x * state.x_scale + state.x_offset;
+  const float y_norm = y * state.y_scale + state.y_offset;
+  x_pows->assign(static_cast<size_t>(state.order + 1), 1.0f);
+  y_pows->assign(static_cast<size_t>(state.order + 1), 1.0f);
+  for (int p = 1; p <= state.order; ++p) {
+    (*x_pows)[static_cast<size_t>(p)] =
+        (*x_pows)[static_cast<size_t>(p - 1)] * x_norm;
+    (*y_pows)[static_cast<size_t>(p)] =
+        (*y_pows)[static_cast<size_t>(p - 1)] * y_norm;
+  }
+
+  float sum = 0.0f;
+  int col = 0;
+  for (int m = 0; m <= state.order; ++m) {
+    for (int n = 0; n <= state.order - m; ++n) {
+      sum += state.coeffs(col) * (*x_pows)[static_cast<size_t>(m)] *
+             (*y_pows)[static_cast<size_t>(n)];
+      ++col;
+    }
+  }
+  return sum;
+}
+
+Matrix2Df render_polynomial_surface(const PolynomialModelState &state,
+                                    int image_width, int image_height) {
   Matrix2Df surface = Matrix2Df::Zero(image_height, image_width);
   std::vector<std::vector<float>> x_power_table(
       static_cast<size_t>(image_width),
-      std::vector<float>(static_cast<size_t>(order + 1), 1.0f));
+      std::vector<float>(static_cast<size_t>(state.order + 1), 1.0f));
   std::vector<std::vector<float>> y_power_table(
       static_cast<size_t>(image_height),
-      std::vector<float>(static_cast<size_t>(order + 1), 1.0f));
+      std::vector<float>(static_cast<size_t>(state.order + 1), 1.0f));
 
   for (int x = 0; x < image_width; ++x) {
-    const float x_norm = x * x_scale + x_offset;
+    const float x_norm = x * state.x_scale + state.x_offset;
     auto &xp = x_power_table[static_cast<size_t>(x)];
     xp[0] = 1.0f;
-    for (int p = 1; p <= order; ++p) {
+    for (int p = 1; p <= state.order; ++p) {
       xp[static_cast<size_t>(p)] = xp[static_cast<size_t>(p - 1)] * x_norm;
     }
   }
   for (int y = 0; y < image_height; ++y) {
-    const float y_norm = y * y_scale + y_offset;
+    const float y_norm = y * state.y_scale + state.y_offset;
     auto &yp = y_power_table[static_cast<size_t>(y)];
     yp[0] = 1.0f;
-    for (int p = 1; p <= order; ++p) {
+    for (int p = 1; p <= state.order; ++p) {
       yp[static_cast<size_t>(p)] = yp[static_cast<size_t>(p - 1)] * y_norm;
     }
   }
@@ -2017,9 +2169,9 @@ Matrix2Df fit_polynomial_surface(const std::vector<GridCell> &grid_cells,
 
       float sum = 0.0f;
       int col = 0;
-      for (int m = 0; m <= order; ++m) {
-        for (int n = 0; n <= order - m; ++n) {
-          sum += coeffs(col) * xp[static_cast<size_t>(m)] *
+      for (int m = 0; m <= state.order; ++m) {
+        for (int n = 0; n <= state.order - m; ++n) {
+          sum += state.coeffs(col) * xp[static_cast<size_t>(m)] *
                  yp[static_cast<size_t>(n)];
           ++col;
         }
@@ -2029,6 +2181,121 @@ Matrix2Df fit_polynomial_surface(const std::vector<GridCell> &grid_cells,
   }
 
   return surface;
+}
+
+bool select_background_surface_model(const std::vector<GridCell> &grid_cells,
+                                     int image_width, int image_height,
+                                     int grid_spacing, const BGEConfig &config,
+                                     SurfaceModelSelection *out,
+                                     std::string *error_message) {
+  out->kind = SurfaceModelKind::None;
+  out->success = false;
+  out->rms = std::numeric_limits<float>::infinity();
+  const std::string method = config.fit.method;
+
+  auto set_error = [&](const std::string &msg) {
+    if (error_message != nullptr)
+      *error_message = msg;
+  };
+
+  if (method == "rbf") {
+    RBFModelState rbf_state;
+    const bool have_rbf =
+        solve_rbf_model(grid_cells, grid_spacing, config, &rbf_state) &&
+        std::isfinite(rbf_state.train_rms);
+    if (have_rbf) {
+      out->kind = SurfaceModelKind::Rbf;
+      out->rbf = rbf_state;
+      out->rms = rbf_state.train_rms;
+      out->success = true;
+    }
+
+    constexpr float kRbfFallbackRmsThreshold = 0.25f;
+    if (!have_rbf || rbf_state.train_rms > kRbfFallbackRmsThreshold) {
+      BGEConfig poly_cfg = config;
+      poly_cfg.fit.method = "poly";
+      poly_cfg.fit.polynomial_order =
+          std::clamp(poly_cfg.fit.polynomial_order, 2, 3);
+      PolynomialModelState poly_state;
+      const bool have_poly = solve_polynomial_model(
+          grid_cells, image_width, image_height, poly_cfg, &poly_state);
+      if (have_poly &&
+          (!have_rbf || poly_state.train_rms <= rbf_state.train_rms * 1.05f)) {
+        std::cout << "[BGE]   RBF fallback -> poly(order="
+                  << poly_cfg.fit.polynomial_order
+                  << ") rms=" << poly_state.train_rms << " (rbf rms="
+                  << rbf_state.train_rms << ")" << std::endl;
+        out->kind = SurfaceModelKind::Poly;
+        out->poly = std::move(poly_state);
+        out->rms = out->poly.train_rms;
+        out->success = true;
+      }
+    }
+
+    if (!out->success) {
+      set_error("RBF solve failed");
+      return false;
+    }
+    return true;
+  }
+
+  if (method == "spline") {
+    BGEConfig spline_cfg = config;
+    spline_cfg.fit.method = "rbf";
+    spline_cfg.fit.rbf_phi = "thinplate";
+    spline_cfg.fit.rbf_lambda = std::max(1.0e-4f, spline_cfg.fit.rbf_lambda);
+    if (!solve_rbf_model(grid_cells, grid_spacing, spline_cfg, &out->rbf)) {
+      set_error("Spline fit failed");
+      return false;
+    }
+    out->kind = SurfaceModelKind::Rbf;
+    out->rms = out->rbf.train_rms;
+    out->success = true;
+    return true;
+  }
+
+  if (method == "poly" || method == "bicubic") {
+    BGEConfig poly_cfg = config;
+    if (method == "bicubic") {
+      poly_cfg.fit.polynomial_order =
+          std::max(3, poly_cfg.fit.polynomial_order);
+    }
+    if (!solve_polynomial_model(grid_cells, image_width, image_height,
+                                poly_cfg, &out->poly)) {
+      set_error("Polynomial fit failed");
+      return false;
+    }
+    out->kind = SurfaceModelKind::Poly;
+    out->rms = out->poly.train_rms;
+    out->success = true;
+    return true;
+  }
+
+  set_error("Unsupported fit method: " + method);
+  return false;
+}
+
+// RBF interpolation (v3.3 §6.3.7)
+Matrix2Df fit_rbf_surface(const std::vector<GridCell> &grid_cells,
+                          int image_width, int image_height, int grid_spacing,
+                          const BGEConfig &config) {
+  RBFModelState state;
+  if (!solve_rbf_model(grid_cells, grid_spacing, config, &state)) {
+    return Matrix2Df::Zero(image_height, image_width);
+  }
+  return render_rbf_surface(state, image_width, image_height);
+}
+
+// Polynomial surface fitting (v3.3 §6.3.7)
+Matrix2Df fit_polynomial_surface(const std::vector<GridCell> &grid_cells,
+                                 int image_width, int image_height,
+                                 const BGEConfig &config) {
+  PolynomialModelState state;
+  if (!solve_polynomial_model(grid_cells, image_width, image_height, config,
+                              &state)) {
+    return Matrix2Df::Zero(image_height, image_width);
+  }
+  return render_polynomial_surface(state, image_width, image_height);
 }
 
 // Fit background surface (v3.3 §6.3.7)
@@ -2049,89 +2316,30 @@ BackgroundModel fit_background_surface(const std::vector<GridCell> &grid_cells,
   }
 
   try {
-    auto rms_for_model = [&](const Matrix2Df &model) -> float {
-      if (model.rows() != image_height || model.cols() != image_width ||
-          !model.allFinite()) {
-        return std::numeric_limits<float>::infinity();
-      }
-      float sum_sq = 0.0f;
-      int n = 0;
-      for (const auto &cell : grid_cells) {
-        const int cx = static_cast<int>(cell.center_x);
-        const int cy = static_cast<int>(cell.center_y);
-        if (cx >= 0 && cx < image_width && cy >= 0 && cy < image_height) {
-          const float residual = cell.bg_value - model(cy, cx);
-          sum_sq += residual * residual;
-          ++n;
-        }
-      }
-      if (n <= 0)
-        return std::numeric_limits<float>::infinity();
-      return std::sqrt(sum_sq / static_cast<float>(n));
-    };
-
-    const std::string method = config.fit.method;
-    Matrix2Df selected_model = Matrix2Df::Zero(image_height, image_width);
-    float selected_rms = std::numeric_limits<float>::infinity();
-
-    if (method == "rbf") {
-      selected_model = fit_rbf_surface(grid_cells, image_width, image_height,
-                                       grid_spacing, config);
-      selected_rms = rms_for_model(selected_model);
-
-      // Safety fallback: if RBF fit is unstable on coarse cells, prefer
-      // a smoother low-order polynomial model.
-      constexpr float kRbfFallbackRmsThreshold = 0.25f;
-      if (!std::isfinite(selected_rms) ||
-          selected_rms > kRbfFallbackRmsThreshold) {
-        BGEConfig poly_cfg = config;
-        poly_cfg.fit.method = "poly";
-        poly_cfg.fit.polynomial_order =
-            std::clamp(poly_cfg.fit.polynomial_order, 2, 3);
-        Matrix2Df poly_model = fit_polynomial_surface(grid_cells, image_width,
-                                                      image_height, poly_cfg);
-        const float poly_rms = rms_for_model(poly_model);
-        if (std::isfinite(poly_rms) && poly_rms <= selected_rms * 1.05f) {
-          std::cout << "[BGE]   RBF fallback -> poly(order="
-                    << poly_cfg.fit.polynomial_order << ") rms=" << poly_rms
-                    << " (rbf rms=" << selected_rms << ")" << std::endl;
-          selected_model = std::move(poly_model);
-          selected_rms = poly_rms;
-        }
-      }
-    } else if (method == "spline") {
-      // Practical spline backend: thin-plate RBF with conservative smoothing.
-      BGEConfig spline_cfg = config;
-      spline_cfg.fit.method = "rbf";
-      spline_cfg.fit.rbf_phi = "thinplate";
-      spline_cfg.fit.rbf_lambda = std::max(1.0e-4f, spline_cfg.fit.rbf_lambda);
-      selected_model = fit_rbf_surface(grid_cells, image_width, image_height,
-                                       grid_spacing, spline_cfg);
-      selected_rms = rms_for_model(selected_model);
-    } else if (method == "poly") {
-      selected_model =
-          fit_polynomial_surface(grid_cells, image_width, image_height, config);
-      selected_rms = rms_for_model(selected_model);
-    } else if (method == "bicubic") {
-      // Fallback approximation: cubic polynomial surface.
-      BGEConfig cubic_cfg = config;
-      cubic_cfg.fit.polynomial_order =
-          std::max(3, cubic_cfg.fit.polynomial_order);
-      selected_model = fit_polynomial_surface(grid_cells, image_width,
-                                              image_height, cubic_cfg);
-      selected_rms = rms_for_model(selected_model);
-    } else {
-      result.error_message = "Unsupported fit method: " + method;
+    SurfaceModelSelection selection;
+    if (!select_background_surface_model(grid_cells, image_width, image_height,
+                                         grid_spacing, config, &selection,
+                                         &result.error_message)) {
       return result;
     }
 
-    if (!std::isfinite(selected_rms)) {
+    if (selection.kind == SurfaceModelKind::Rbf) {
+      result.model =
+          render_rbf_surface(selection.rbf, image_width, image_height);
+    } else if (selection.kind == SurfaceModelKind::Poly) {
+      result.model =
+          render_polynomial_surface(selection.poly, image_width, image_height);
+    } else {
+      result.error_message = "Surface fit did not select a model";
+      return result;
+    }
+
+    if (!result.model.allFinite()) {
       result.error_message = "Surface fit produced non-finite residuals";
       return result;
     }
 
-    result.model = std::move(selected_model);
-    result.rms_residual = selected_rms;
+    result.rms_residual = selection.rms;
     result.success = true;
 
   } catch (const std::exception &e) {
@@ -2204,6 +2412,26 @@ static float eval_model_rms_at_cells(const Matrix2Df &model,
   return static_cast<float>(std::sqrt(sum_sq / static_cast<double>(n)));
 }
 
+template <typename EvalFn>
+static float eval_predictor_rms_at_cells(const std::vector<GridCell> &cells,
+                                         EvalFn &&eval_fn) {
+  if (cells.empty())
+    return std::numeric_limits<float>::infinity();
+  double sum_sq = 0.0;
+  int n = 0;
+  for (const auto &c : cells) {
+    const float predicted = eval_fn(c.center_x, c.center_y);
+    if (!std::isfinite(predicted))
+      continue;
+    const double r = static_cast<double>(c.bg_value - predicted);
+    sum_sq += r * r;
+    ++n;
+  }
+  if (n <= 0)
+    return std::numeric_limits<float>::infinity();
+  return static_cast<float>(std::sqrt(sum_sq / static_cast<double>(n)));
+}
+
 static float eval_model_flatness(const Matrix2Df &model, int step) {
   step = std::max(1, step);
   std::vector<float> grad_energy;
@@ -2260,6 +2488,34 @@ static float eval_model_roughness(const Matrix2Df &model, int step) {
   return robust_median(std::move(curvature_energy));
 }
 
+struct SparseEvalGrid {
+  int sample_step = 1;
+  int width = 0;
+  int height = 0;
+  std::vector<float> x_coords;
+  std::vector<float> y_coords;
+};
+
+static SparseEvalGrid build_sparse_eval_grid(int image_width, int image_height,
+                                             int sample_step) {
+  SparseEvalGrid grid;
+  grid.sample_step = std::max(1, sample_step);
+  grid.width = std::max(1, (image_width + grid.sample_step - 1) / grid.sample_step);
+  grid.height =
+      std::max(1, (image_height + grid.sample_step - 1) / grid.sample_step);
+  grid.x_coords.resize(static_cast<size_t>(grid.width));
+  grid.y_coords.resize(static_cast<size_t>(grid.height));
+  for (int x = 0; x < grid.width; ++x) {
+    grid.x_coords[static_cast<size_t>(x)] =
+        static_cast<float>(std::min(image_width - 1, x * grid.sample_step));
+  }
+  for (int y = 0; y < grid.height; ++y) {
+    grid.y_coords[static_cast<size_t>(y)] =
+        static_cast<float>(std::min(image_height - 1, y * grid.sample_step));
+  }
+  return grid;
+}
+
 struct BGECandidatePrep {
   bool valid = false;
   std::vector<GridCell> train_cells;
@@ -2270,7 +2526,10 @@ struct BGECandidatePrep {
 struct BGECandidateJob {
   BGEConfig cfg;
   int grid_spacing = 0;
+  int image_width = 0;
+  int image_height = 0;
   const BGECandidatePrep *prep = nullptr;
+  const SparseEvalGrid *eval_grid = nullptr;
 };
 
 static BGECandidatePrep build_bge_candidate_prep(
@@ -2323,23 +2582,54 @@ static BGECandidatePrep build_bge_candidate_prep(
 }
 
 static BGECandidateResult
-try_bge_candidate_prepared(const Matrix2Df &channel, const BGEConfig &cfg_try,
-                           int grid_spacing, const BGECandidatePrep &prep) {
+try_bge_candidate_prepared(int image_width, int image_height,
+                           const BGEConfig &cfg_try, int grid_spacing,
+                           const BGECandidatePrep &prep,
+                           const SparseEvalGrid &eval_grid) {
   BGECandidateResult out;
   out.cfg = cfg_try;
   out.grid_spacing = grid_spacing;
   if (!prep.valid)
     return out;
 
-  auto bg_model = fit_background_surface(prep.train_cells, channel.cols(),
-                                         channel.rows(), grid_spacing, cfg_try);
-  if (!bg_model.success)
+  SurfaceModelSelection selection;
+  std::string error_message;
+  if (!select_background_surface_model(prep.train_cells, image_width,
+                                       image_height, grid_spacing, cfg_try,
+                                       &selection, &error_message)) {
     return out;
+  }
 
-  out.cv_rms = eval_model_rms_at_cells(bg_model.model, prep.val_cells);
-  const int step = std::max(4, grid_spacing / 4);
-  out.flatness = eval_model_flatness(bg_model.model, step);
-  out.roughness = eval_model_roughness(bg_model.model, step);
+  std::vector<float> poly_x_pows;
+  std::vector<float> poly_y_pows;
+  auto eval_selected_model = [&](float x, float y) -> float {
+    if (selection.kind == SurfaceModelKind::Rbf) {
+      return eval_rbf_model_at(selection.rbf, x, y);
+    }
+    if (selection.kind == SurfaceModelKind::Poly) {
+      return eval_polynomial_model_at(selection.poly, x, y, &poly_x_pows,
+                                      &poly_y_pows);
+    }
+    return std::numeric_limits<float>::quiet_NaN();
+  };
+
+  out.cv_rms =
+      eval_predictor_rms_at_cells(prep.val_cells, eval_selected_model);
+
+  Matrix2Df sampled_surface = Matrix2Df::Zero(eval_grid.height, eval_grid.width);
+  for (int y = 0; y < eval_grid.height; ++y) {
+    for (int x = 0; x < eval_grid.width; ++x) {
+      sampled_surface(y, x) =
+          eval_selected_model(eval_grid.x_coords[static_cast<size_t>(x)],
+                              eval_grid.y_coords[static_cast<size_t>(y)]);
+    }
+  }
+
+  const float scale = static_cast<float>(eval_grid.sample_step) *
+                      static_cast<float>(eval_grid.sample_step);
+  out.flatness = eval_model_flatness(sampled_surface, 1) / std::max(1.0f, scale);
+  out.roughness =
+      eval_model_roughness(sampled_surface, 1) / std::max(1.0f, scale);
 
   const float bmed = std::max(kTiny, prep.bg_median);
   const float n_cv = out.cv_rms / bmed;
@@ -2442,6 +2732,8 @@ static BGECandidateResult auto_tune_bge_config_conservative(
   }
 
   BGECandidateResult best;
+  const int channel_width = static_cast<int>(channel.cols());
+  const int channel_height = static_cast<int>(channel.rows());
   auto prep_cache_key = [](float q, float sp) -> uint64_t {
     const int32_t qk = static_cast<int32_t>(std::lround(q * 1.0e6f));
     const int32_t spk = static_cast<int32_t>(std::lround(sp * 1.0e6f));
@@ -2451,6 +2743,8 @@ static BGECandidateResult auto_tune_bge_config_conservative(
   std::unordered_map<uint64_t, BGECandidatePrep> prep_cache;
   std::vector<BGECandidateJob> jobs;
   jobs.reserve(static_cast<size_t>(std::max(1, base_cfg.autotune.max_evals)));
+  const SparseEvalGrid eval_grid = build_sparse_eval_grid(
+      channel_width, channel_height, std::max(4, base_grid_spacing / 4));
 
   for (const auto &fit_method : fit_methods) {
     std::vector<float> method_mu_factors;
@@ -2490,7 +2784,9 @@ static BGECandidateResult auto_tune_bge_config_conservative(
           if (fit_method == "rbf") {
             cfg_try.fit.rbf_mu_factor = std::max(0.2f, mf);
           }
-          jobs.push_back(BGECandidateJob{cfg_try, base_grid_spacing, &prep});
+          jobs.push_back(BGECandidateJob{
+              cfg_try, base_grid_spacing, channel_width, channel_height,
+              &prep, &eval_grid});
         }
         if (static_cast<int>(jobs.size()) >=
             std::max(1, base_cfg.autotune.max_evals))
@@ -2510,7 +2806,8 @@ static BGECandidateResult auto_tune_bge_config_conservative(
   for (int i = 0; i < static_cast<int>(jobs.size()); ++i) {
     const auto &job = jobs[static_cast<size_t>(i)];
     results[static_cast<size_t>(i)] = try_bge_candidate_prepared(
-        channel, job.cfg, job.grid_spacing, *job.prep);
+        job.image_width, job.image_height, job.cfg, job.grid_spacing,
+        *job.prep, *job.eval_grid);
   }
 
   for (const auto &res : results) {
