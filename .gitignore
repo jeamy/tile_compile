@@ -40,8 +40,8 @@ DartConfiguration.tcl
 
 # Runtime / outputs
 *runs*
-runs/
-/runs/
+runs/*
+/runs/*
 outputs/
 artifacts/
 logs/

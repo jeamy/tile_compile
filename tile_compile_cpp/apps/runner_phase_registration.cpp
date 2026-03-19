@@ -8,6 +8,8 @@
 #include "tile_compile/registration/registration.hpp"
 #include "tile_compile/runner/registration_outlier_utils.hpp"
 
+#include <opencv2/opencv.hpp>
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -175,6 +177,80 @@ float compute_ncc_local(const Matrix2Df &a, const Matrix2Df &b) {
     sab += va * vb;
     saa += va * va;
     sbb += vb * vb;
+  }
+  const double den = std::sqrt(saa * sbb);
+  return (den > 1.0e-10) ? static_cast<float>(sab / den) : 0.0f;
+}
+
+cv::Mat warp_valid_mask_local(const Matrix2Df &img, const WarpMatrix &warp) {
+  cv::Mat ones(img.rows(), img.cols(), CV_32F, cv::Scalar(1.0f));
+  cv::Mat warp_matrix(2, 3, CV_32F);
+  for (int i = 0; i < 2; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      warp_matrix.at<float>(i, j) = warp(i, j);
+    }
+  }
+  cv::Mat warped_mask;
+  cv::warpAffine(ones, warped_mask, warp_matrix, ones.size(),
+                 cv::INTER_NEAREST | cv::WARP_INVERSE_MAP,
+                 cv::BORDER_CONSTANT, cv::Scalar(0.0f));
+  return warped_mask;
+}
+
+float compute_ncc_local_masked(const Matrix2Df &a, const Matrix2Df &b,
+                               const cv::Mat &mask, int *used_pixels = nullptr) {
+  if (a.size() <= 0 || a.size() != b.size() || mask.empty() ||
+      mask.rows != a.rows() || mask.cols != a.cols()) {
+    if (used_pixels) {
+      *used_pixels = 0;
+    }
+    return 0.0f;
+  }
+
+  const float *da = a.data();
+  const float *db = b.data();
+  double ma = 0.0;
+  double mb = 0.0;
+  int n = 0;
+  for (int y = 0; y < mask.rows; ++y) {
+    const float *pm = mask.ptr<float>(y);
+    const int row_off = y * mask.cols;
+    for (int x = 0; x < mask.cols; ++x) {
+      if (pm[x] <= 0.5f) {
+        continue;
+      }
+      const int idx = row_off + x;
+      ma += da[idx];
+      mb += db[idx];
+      ++n;
+    }
+  }
+  if (used_pixels) {
+    *used_pixels = n;
+  }
+  if (n <= 1) {
+    return 0.0f;
+  }
+
+  ma /= static_cast<double>(n);
+  mb /= static_cast<double>(n);
+  double sab = 0.0;
+  double saa = 0.0;
+  double sbb = 0.0;
+  for (int y = 0; y < mask.rows; ++y) {
+    const float *pm = mask.ptr<float>(y);
+    const int row_off = y * mask.cols;
+    for (int x = 0; x < mask.cols; ++x) {
+      if (pm[x] <= 0.5f) {
+        continue;
+      }
+      const int idx = row_off + x;
+      const double va = static_cast<double>(da[idx]) - ma;
+      const double vb = static_cast<double>(db[idx]) - mb;
+      sab += va * vb;
+      saa += va * va;
+      sbb += vb * vb;
+    }
   }
   const double den = std::sqrt(saa * sbb);
   return (den > 1.0e-10) ? static_cast<float>(sab / den) : 0.0f;
@@ -630,9 +706,14 @@ bool run_phase_registration_prewarp(
           const WarpMatrix w_chained =
               concatenate_affine_warps(sfr_temp.reg.warp, w_anchor_to_ref);
           const Matrix2Df warped = registration::apply_warp(mov_reg, w_chained);
-          const float ncc_identity = compute_ncc_local(mov_reg, ref_reg);
-          const float ncc_chained = compute_ncc_local(warped, ref_reg);
-          if (ncc_chained <= ncc_identity + 0.01f) {
+          const cv::Mat valid_mask = warp_valid_mask_local(mov_reg, w_chained);
+          int overlap_pixels = 0;
+          const float ncc_identity =
+              compute_ncc_local_masked(mov_reg, ref_reg, valid_mask,
+                                       &overlap_pixels);
+          const float ncc_chained =
+              compute_ncc_local_masked(warped, ref_reg, valid_mask);
+          if (overlap_pixels <= 16 || ncc_chained <= ncc_identity + 0.01f) {
             return false;
           }
 
@@ -780,20 +861,11 @@ bool run_phase_registration_prewarp(
       return med;
     };
 
-    const float cc_median = robust_median(cc_positive);
-    float cc_mad = 0.0f;
-    if (!cc_positive.empty()) {
-      std::vector<float> abs_dev;
-      abs_dev.reserve(cc_positive.size());
-      for (float v : cc_positive) {
-        abs_dev.push_back(std::fabs(v - cc_median));
-      }
-      cc_mad = robust_median(abs_dev);
-    }
-    const float cc_threshold_abs = cfg.registration.reject_cc_min_abs;
-    const float cc_threshold_robust =
-        cc_median - cfg.registration.reject_cc_mad_multiplier * cc_mad;
-    const float cc_min_keep = std::max(cc_threshold_abs, cc_threshold_robust);
+    // For long Alt/Az sessions the correlation naturally varies with overlap
+    // and field rotation. A run-global MAD threshold becomes overly aggressive
+    // and rejects geometrically plausible edge frames solely for being less
+    // correlated than the central bulk. Keep CC rejection absolute here.
+    const float cc_min_keep = cfg.registration.reject_cc_min_abs;
 
     const float normal_shift_median = robust_median(normal_shift_mags_positive);
     const float normal_shift_limit =
@@ -1175,7 +1247,7 @@ bool run_phase_registration_prewarp(
             chosen.support = std::max(best_local.support, bridge_candidate.support);
             chosen.span = std::max(best_local.span, bridge_candidate.span);
             ++reg_model_blended;
-          } else if (best_local.ok) {
+          } else if (!outside_valid_span && best_local.ok) {
             chosen = best_local;
             ++reg_model_local_refined;
           } else if (bridge_candidate.ok) {

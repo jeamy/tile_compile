@@ -1243,6 +1243,80 @@ static float compute_ncc(const Matrix2Df &a, const Matrix2Df &b) {
   return (den > 1e-10) ? static_cast<float>(sab / den) : 0.0f;
 }
 
+static cv::Mat warp_valid_mask(const Matrix2Df &img, const WarpMatrix &warp) {
+  cv::Mat ones(img.rows(), img.cols(), CV_32F, cv::Scalar(1.0f));
+  cv::Mat warp_matrix(2, 3, CV_32F);
+  for (int i = 0; i < 2; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      warp_matrix.at<float>(i, j) = warp(i, j);
+    }
+  }
+  cv::Mat warped_mask;
+  cv::warpAffine(ones, warped_mask, warp_matrix, ones.size(),
+                 cv::INTER_NEAREST | cv::WARP_INVERSE_MAP,
+                 cv::BORDER_CONSTANT, cv::Scalar(0.0f));
+  return warped_mask;
+}
+
+static float compute_ncc_masked(const Matrix2Df &a, const Matrix2Df &b,
+                                const cv::Mat &mask, int *used_pixels = nullptr) {
+  if (a.size() <= 0 || a.size() != b.size() || mask.empty() ||
+      mask.rows != a.rows() || mask.cols != a.cols()) {
+    if (used_pixels) {
+      *used_pixels = 0;
+    }
+    return 0.0f;
+  }
+
+  const float *da = a.data();
+  const float *db = b.data();
+  double ma = 0.0;
+  double mb = 0.0;
+  int n = 0;
+  for (int y = 0; y < mask.rows; ++y) {
+    const float *pm = mask.ptr<float>(y);
+    const int row_off = y * mask.cols;
+    for (int x = 0; x < mask.cols; ++x) {
+      if (pm[x] <= 0.5f) {
+        continue;
+      }
+      const int idx = row_off + x;
+      ma += da[idx];
+      mb += db[idx];
+      ++n;
+    }
+  }
+  if (used_pixels) {
+    *used_pixels = n;
+  }
+  if (n <= 1) {
+    return 0.0f;
+  }
+
+  ma /= static_cast<double>(n);
+  mb /= static_cast<double>(n);
+  double sab = 0.0;
+  double saa = 0.0;
+  double sbb = 0.0;
+  for (int y = 0; y < mask.rows; ++y) {
+    const float *pm = mask.ptr<float>(y);
+    const int row_off = y * mask.cols;
+    for (int x = 0; x < mask.cols; ++x) {
+      if (pm[x] <= 0.5f) {
+        continue;
+      }
+      const int idx = row_off + x;
+      const double va = static_cast<double>(da[idx]) - ma;
+      const double vb = static_cast<double>(db[idx]) - mb;
+      sab += va * vb;
+      saa += va * va;
+      sbb += vb * vb;
+    }
+  }
+  const double den = std::sqrt(saa * sbb);
+  return (den > 1e-10) ? static_cast<float>(sab / den) : 0.0f;
+}
+
 SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
                                            const Matrix2Df &ref,
                                            const config::RegistrationConfig &rcfg) {
@@ -1282,15 +1356,21 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
       return false;
     }
     Matrix2Df warped = apply_warp(mov, rr.warp);
-    float ncc = compute_ncc(warped, ref);
+    const cv::Mat valid_mask = warp_valid_mask(mov, rr.warp);
+    int overlap_pixels = 0;
+    const float ncc_identity_overlap =
+        compute_ncc_masked(mov, ref, valid_mask, &overlap_pixels);
+    float ncc = compute_ncc_masked(warped, ref, valid_mask);
     if (diag) {
       std::cout << "[REG-DIAG#" << diag_id << "] " << method
                 << " success=" << rr.success << " ncc_warped=" << ncc
-                << " threshold=" << (out.ncc_identity + 0.01f)
+                << " ncc_identity_overlap=" << ncc_identity_overlap
+                << " overlap_px=" << overlap_pixels
+                << " threshold=" << (ncc_identity_overlap + 0.01f)
                 << " tx=" << rr.warp(0,2) << " ty=" << rr.warp(1,2)
                 << std::endl;
     }
-    if (ncc < out.ncc_identity + 0.01f)
+    if (overlap_pixels <= 16 || ncc < ncc_identity_overlap + 0.01f)
       return false; // warp doesn't improve alignment — reject
     out.reg = rr;
     out.reg.correlation = ncc;
