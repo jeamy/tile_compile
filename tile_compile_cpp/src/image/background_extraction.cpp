@@ -2,12 +2,12 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <limits>
 #include <queue>
-#include <unordered_map>
 
 namespace tile_compile::image {
 
@@ -15,6 +15,14 @@ namespace {
 
 constexpr float kTiny = 1.0e-12f;
 constexpr float kMinUsableTileFraction = 0.10f;
+
+using SteadyClock = std::chrono::steady_clock;
+
+double elapsed_seconds_since(const SteadyClock::time_point &start) {
+  return std::chrono::duration_cast<std::chrono::duration<double>>(
+             SteadyClock::now() - start)
+      .count();
+}
 
 float clamp01(float v) { return std::max(0.0f, std::min(1.0f, v)); }
 
@@ -39,6 +47,15 @@ float robust_quantile(std::vector<float> values, float q) {
       static_cast<size_t>(q * static_cast<float>(values.size() - 1));
   std::nth_element(values.begin(), values.begin() + idx, values.end());
   return values[idx];
+}
+
+float sorted_quantile(const std::vector<float> &sorted_values, float q) {
+  if (sorted_values.empty())
+    return 0.0f;
+  q = clamp01(q);
+  const size_t idx =
+      static_cast<size_t>(q * static_cast<float>(sorted_values.size() - 1));
+  return sorted_values[idx];
 }
 
 float robust_mad(const std::vector<float> &values, float center) {
@@ -156,6 +173,14 @@ struct TileSampleScratch {
     dilate_scratch.resize(tile_px);
     blur_integral.resize(static_cast<size_t>((th + 1) * (tw + 1)));
   }
+};
+
+struct AutoTunePreparedTileSample {
+  float x = 0.0f;
+  float y = 0.0f;
+  float weight = 0.0f;
+  bool valid = false;
+  std::vector<float> sorted_pixels;
 };
 
 enum class RBFKernelType { Multiquadric, ThinPlate, Gaussian };
@@ -1574,6 +1599,300 @@ std::vector<TileBGSample> extract_tile_background_samples(
   return samples;
 }
 
+static std::vector<AutoTunePreparedTileSample>
+extract_autotune_prepared_tile_samples(
+    const Matrix2Df &channel, const std::vector<TileMetrics> &tile_metrics,
+    const TileGrid &tile_grid, const BGEConfig &config) {
+
+  std::vector<AutoTunePreparedTileSample> prepared_samples;
+  prepared_samples.reserve(tile_grid.tiles.size());
+  TileSampleScratch scratch;
+  const int stride = static_cast<int>(channel.cols());
+  const float *channel_data = channel.data();
+
+  if (tile_metrics.size() < tile_grid.tiles.size()) {
+    std::cout << "[BGE] Warning: tile_metrics smaller than tile_grid, "
+                 "truncating to min size"
+              << std::endl;
+  }
+
+  const size_t n_tiles = std::min(tile_metrics.size(), tile_grid.tiles.size());
+  const bool have_common_mask =
+      config.common_mask_rows == channel.rows() &&
+      config.common_mask_cols == channel.cols() &&
+      config.common_valid_mask.size() ==
+          static_cast<size_t>(channel.rows() * channel.cols());
+  if (!have_common_mask) {
+    std::cout << "[BGE] Error: missing/invalid canvas mask in autotune tile "
+                 "sampling"
+              << std::endl;
+    return prepared_samples;
+  }
+
+  int informative_metric_tiles = 0;
+  for (size_t ti = 0; ti < n_tiles; ++ti) {
+    const auto &tm = tile_metrics[ti];
+    const bool has_structure = std::isfinite(tm.noise) && tm.noise > 1.0e-6f &&
+                               std::isfinite(tm.gradient_energy) &&
+                               tm.gradient_energy > 1.0e-6f;
+    const bool has_quality =
+        std::isfinite(tm.quality_score) && std::abs(tm.quality_score) > 1.0e-3f;
+    if (has_structure || has_quality)
+      ++informative_metric_tiles;
+  }
+  const float informative_fraction =
+      (n_tiles > 0) ? (static_cast<float>(informative_metric_tiles) /
+                       static_cast<float>(n_tiles))
+                    : 0.0f;
+  const bool use_tile_metrics = (informative_fraction >= 0.35f);
+
+  std::vector<float> structure_scores;
+  structure_scores.reserve(n_tiles);
+  if (use_tile_metrics) {
+    for (size_t ti = 0; ti < n_tiles; ++ti) {
+      const auto &tm = tile_metrics[ti];
+      if (tm.noise > 1e-6f && std::isfinite(tm.gradient_energy)) {
+        structure_scores.push_back(tm.gradient_energy / tm.noise);
+      }
+    }
+  }
+
+  float structure_thresh = 0.0f;
+  if (!structure_scores.empty()) {
+    structure_thresh = robust_quantile(std::move(structure_scores),
+                                       config.structure_thresh_percentile);
+  }
+
+  for (size_t t = 0; t < n_tiles; ++t) {
+    const auto &tile = tile_grid.tiles[t];
+    const auto &tm = tile_metrics[t];
+
+    AutoTunePreparedTileSample prepared;
+    prepared.x = tile.x + tile.width / 2.0f;
+    prepared.y = tile.y + tile.height / 2.0f;
+    prepared.valid = false;
+
+    if (use_tile_metrics && tm.type == TileType::STAR && tm.star_count >= 16) {
+      prepared_samples.push_back(std::move(prepared));
+      continue;
+    }
+    if (use_tile_metrics && tm.type == TileType::STRUCTURE &&
+        std::isfinite(tm.quality_score) && tm.quality_score >= 0.20f) {
+      prepared_samples.push_back(std::move(prepared));
+      continue;
+    }
+
+    const float tile_structure =
+        (tm.noise > 1e-6f) ? (tm.gradient_energy / tm.noise) : 0.0f;
+    if (use_tile_metrics && tile_structure > structure_thresh) {
+      prepared_samples.push_back(std::move(prepared));
+      continue;
+    }
+
+    int x0 = tile.x;
+    int y0 = tile.y;
+    int x1 = std::min(x0 + tile.width, static_cast<int>(channel.cols()));
+    int y1 = std::min(y0 + tile.height, static_cast<int>(channel.rows()));
+
+    if (x1 <= x0 || y1 <= y0) {
+      prepared_samples.push_back(std::move(prepared));
+      continue;
+    }
+
+    const int tw = x1 - x0;
+    const int th = y1 - y0;
+    const int tile_px = tw * th;
+    scratch.prepare(tw, th);
+    auto tile_value = [&](int yy, int xx) -> float {
+      return channel_data[static_cast<size_t>(y0 + yy) *
+                              static_cast<size_t>(stride) +
+                          static_cast<size_t>(x0 + xx)];
+    };
+
+    int supported_px = 0;
+    for (int yy = 0; yy < th; ++yy) {
+      const int gy = y0 + yy;
+      const size_t row_off = static_cast<size_t>(gy) *
+                             static_cast<size_t>(config.common_mask_cols);
+      for (int xx = 0; xx < tw; ++xx) {
+        const int gx = x0 + xx;
+        const uint8_t supported =
+            config.common_valid_mask[row_off + static_cast<size_t>(gx)] != 0
+                ? 1
+                : 0;
+        scratch.tile_common_support[static_cast<size_t>(yy * tw + xx)] =
+            supported;
+        supported_px += (supported != 0) ? 1 : 0;
+      }
+    }
+
+    if (supported_px <= 0) {
+      prepared_samples.push_back(std::move(prepared));
+      continue;
+    }
+
+    int zero_pixel_count = 0;
+    for (int yy = 0; yy < th; ++yy) {
+      const float *row = channel_data +
+                         static_cast<size_t>(y0 + yy) *
+                             static_cast<size_t>(stride) +
+                         x0;
+      for (int xx = 0; xx < tw; ++xx) {
+        const size_t i = static_cast<size_t>(yy * tw + xx);
+        if (scratch.tile_common_support[i] == 0) {
+          continue;
+        }
+        const float v = row[xx];
+        if (std::isfinite(v)) {
+          scratch.finite_values.push_back(v);
+          if (v == 0.0f)
+            ++zero_pixel_count;
+        }
+      }
+    }
+
+    if (scratch.finite_values.empty()) {
+      prepared_samples.push_back(std::move(prepared));
+      continue;
+    }
+
+    const float zero_fraction = static_cast<float>(zero_pixel_count) /
+                                static_cast<float>(scratch.finite_values.size());
+    if (zero_fraction > 0.20f) {
+      prepared_samples.push_back(std::move(prepared));
+      continue;
+    }
+
+    const float sat_level = robust_quantile(scratch.finite_values, 0.999f);
+
+    const int r_small = 1;
+    const int r_large = std::max(2, std::min(tw, th) / 12);
+    box_blur_subregion(channel, x0, y0, tw, th, r_small, &scratch.blur_integral,
+                       &scratch.blur_small);
+    box_blur_subregion(channel, x0, y0, tw, th, r_large, &scratch.blur_integral,
+                       &scratch.blur_large);
+    for (size_t i = 0; i < scratch.blur_small.size(); ++i) {
+      scratch.dog_vals[i] = scratch.blur_small[i] - scratch.blur_large[i];
+    }
+    const float dog_med = robust_median(scratch.dog_vals);
+    const float dog_mad = robust_mad(scratch.dog_vals, dog_med);
+    const float dog_thresh =
+        dog_med + 3.0f * std::max(1.4826f * dog_mad, 1.0e-6f);
+    const float bright_thresh = robust_quantile(scratch.finite_values, 0.80f);
+    for (int yy = 0; yy < th; ++yy) {
+      for (int xx = 0; xx < tw; ++xx) {
+        const size_t i = static_cast<size_t>(yy * tw + xx);
+        const float v = tile_value(yy, xx);
+        if (std::isfinite(v) && v >= bright_thresh &&
+            scratch.dog_vals[i] > dog_thresh) {
+          scratch.star_mask[i] = 1;
+        }
+      }
+    }
+    int star_dilate_px = std::max(0, config.mask.star_dilate_px);
+    if (std::isfinite(tm.fwhm) && tm.fwhm > 0.0f) {
+      const int add = static_cast<int>(std::lround(0.25f * tm.fwhm));
+      star_dilate_px = std::clamp(star_dilate_px + std::max(0, add),
+                                  star_dilate_px, star_dilate_px + 8);
+    }
+    dilate_mask_in_place(&scratch.star_mask, tw, th, star_dilate_px,
+                         &scratch.dilate_scratch);
+
+    for (int yy = 0; yy < th; ++yy) {
+      for (int xx = 0; xx < tw; ++xx) {
+        const size_t i = static_cast<size_t>(yy * tw + xx);
+        const float v = tile_value(yy, xx);
+        if (std::isfinite(v) && v >= sat_level)
+          scratch.sat_mask[i] = 1;
+      }
+    }
+    dilate_mask_in_place(&scratch.sat_mask, tw, th,
+                         std::max(0, config.mask.sat_dilate_px),
+                         &scratch.dilate_scratch);
+
+    scratch.supported_gradients.clear();
+    for (int yy = 0; yy < th; ++yy) {
+      const int ym = std::max(0, yy - 1);
+      const int yp = std::min(th - 1, yy + 1);
+      for (int xx = 0; xx < tw; ++xx) {
+        const int xm = std::max(0, xx - 1);
+        const int xp = std::min(tw - 1, xx + 1);
+        const float gx = std::abs(tile_value(yy, xp) - tile_value(yy, xm));
+        const float gy = std::abs(tile_value(yp, xx) - tile_value(ym, xx));
+        const float grad = gx + gy;
+        scratch.tile_gradients[static_cast<size_t>(yy * tw + xx)] = grad;
+        if (scratch.tile_common_support[static_cast<size_t>(yy * tw + xx)] !=
+            0) {
+          scratch.supported_gradients.push_back(grad);
+        }
+      }
+    }
+    const std::vector<float> &gradient_source =
+        scratch.supported_gradients.empty() ? scratch.tile_gradients
+                                            : scratch.supported_gradients;
+    const float grad_thresh = robust_quantile(
+        gradient_source, config.structure_thresh_percentile);
+
+    scratch.tile_pixels.clear();
+    for (int yy = 0; yy < th; ++yy) {
+      for (int xx = 0; xx < tw; ++xx) {
+        const size_t i = static_cast<size_t>(yy * tw + xx);
+        if (scratch.tile_common_support[i] == 0) {
+          continue;
+        }
+        const float v = tile_value(yy, xx);
+        const bool structure_bad = scratch.tile_gradients[i] > grad_thresh;
+        const bool masked =
+            (scratch.star_mask[i] != 0) || (scratch.sat_mask[i] != 0) ||
+            structure_bad;
+        if (!masked && std::isfinite(v) && v > 0.0f) {
+          scratch.tile_pixels.push_back(v);
+        }
+      }
+    }
+
+    if (scratch.tile_pixels.empty()) {
+      prepared_samples.push_back(std::move(prepared));
+      continue;
+    }
+
+    const float usable_fraction =
+        static_cast<float>(scratch.tile_pixels.size()) /
+        static_cast<float>(tile_px);
+    if (!(std::isfinite(usable_fraction)) ||
+        usable_fraction < kMinUsableTileFraction) {
+      prepared_samples.push_back(std::move(prepared));
+      continue;
+    }
+
+    std::sort(scratch.tile_pixels.begin(), scratch.tile_pixels.end());
+    if (!(std::isfinite(scratch.tile_pixels.front()) &&
+          scratch.tile_pixels.front() > 0.0f)) {
+      prepared_samples.push_back(std::move(prepared));
+      continue;
+    }
+
+    const float masked_fraction = 1.0f - usable_fraction;
+    const float q = (use_tile_metrics && std::isfinite(tm.quality_score))
+                        ? tm.quality_score
+                        : 0.0f;
+    const float quality_term =
+        std::clamp(1.0f / (1.0f + 0.10f * std::abs(q)), 0.70f, 1.0f);
+    const int star_count_for_weight =
+        use_tile_metrics ? std::max(0, tm.star_count - 4) : 0;
+    const float star_penalty =
+        1.0f / (1.0f + 0.04f * static_cast<float>(star_count_for_weight));
+    prepared.weight = std::exp(-2.0f * tile_structure) *
+                      (1.0f - masked_fraction) * quality_term * star_penalty;
+    prepared.weight = std::max(0.01f, std::min(1.0f, prepared.weight));
+    prepared.sorted_pixels = scratch.tile_pixels;
+    prepared.valid = true;
+    prepared_samples.push_back(std::move(prepared));
+  }
+
+  return prepared_samples;
+}
+
 // Aggregate tiles to coarse grid (v3.3 §6.3.3)
 std::vector<GridCell>
 aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
@@ -2316,13 +2635,19 @@ BackgroundModel fit_background_surface(const std::vector<GridCell> &grid_cells,
   }
 
   try {
+    const auto total_start = SteadyClock::now();
     SurfaceModelSelection selection;
+    const auto select_start = SteadyClock::now();
     if (!select_background_surface_model(grid_cells, image_width, image_height,
                                          grid_spacing, config, &selection,
                                          &result.error_message)) {
+      result.fit_select_seconds = elapsed_seconds_since(select_start);
+      result.total_seconds = elapsed_seconds_since(total_start);
       return result;
     }
+    result.fit_select_seconds = elapsed_seconds_since(select_start);
 
+    const auto render_start = SteadyClock::now();
     if (selection.kind == SurfaceModelKind::Rbf) {
       result.model =
           render_rbf_surface(selection.rbf, image_width, image_height);
@@ -2331,15 +2656,20 @@ BackgroundModel fit_background_surface(const std::vector<GridCell> &grid_cells,
           render_polynomial_surface(selection.poly, image_width, image_height);
     } else {
       result.error_message = "Surface fit did not select a model";
+      result.render_seconds = elapsed_seconds_since(render_start);
+      result.total_seconds = elapsed_seconds_since(total_start);
       return result;
     }
+    result.render_seconds = elapsed_seconds_since(render_start);
 
     if (!result.model.allFinite()) {
       result.error_message = "Surface fit produced non-finite residuals";
+      result.total_seconds = elapsed_seconds_since(total_start);
       return result;
     }
 
     result.rms_residual = selection.rms;
+    result.total_seconds = elapsed_seconds_since(total_start);
     result.success = true;
 
   } catch (const std::exception &e) {
@@ -2359,6 +2689,10 @@ struct BGECandidateResult {
   float cv_rms = std::numeric_limits<float>::infinity();
   float flatness = std::numeric_limits<float>::infinity();
   float roughness = std::numeric_limits<float>::infinity();
+  double total_seconds = 0.0;
+  double model_select_seconds = 0.0;
+  double surface_sample_seconds = 0.0;
+  double metric_seconds = 0.0;
   bool success = false;
 };
 
@@ -2523,24 +2857,31 @@ struct BGECandidatePrep {
   float bg_median = kTiny;
 };
 
-struct BGECandidateJob {
-  BGEConfig cfg;
-  int grid_spacing = 0;
-  int image_width = 0;
-  int image_height = 0;
-  const BGECandidatePrep *prep = nullptr;
-  const SparseEvalGrid *eval_grid = nullptr;
-};
-
 static BGECandidatePrep build_bge_candidate_prep(
-    const Matrix2Df &channel, const std::vector<TileMetrics> &tile_metrics,
-    const TileGrid &tile_grid, const BGEConfig &cfg_try, int grid_spacing) {
+    const std::vector<AutoTunePreparedTileSample> &prepared_tiles,
+    float sample_quantile, int image_width, int image_height,
+    const BGEConfig &cfg_try, int grid_spacing) {
   BGECandidatePrep prep;
 
-  auto tile_samples = extract_tile_background_samples(channel, tile_metrics,
-                                                      tile_grid, cfg_try);
+  std::vector<TileBGSample> tile_samples;
+  tile_samples.reserve(prepared_tiles.size());
+  for (const auto &prepared : prepared_tiles) {
+    TileBGSample sample{};
+    sample.x = prepared.x;
+    sample.y = prepared.y;
+    sample.valid = false;
+    if (prepared.valid && !prepared.sorted_pixels.empty()) {
+      sample.bg_value = sorted_quantile(prepared.sorted_pixels, sample_quantile);
+      sample.weight = prepared.weight;
+      sample.valid =
+          std::isfinite(sample.bg_value) && sample.bg_value > 0.0f &&
+          std::isfinite(sample.weight) && sample.weight > 0.0f;
+    }
+    tile_samples.push_back(sample);
+  }
+
   auto grid_cells_all = aggregate_to_coarse_grid(
-      tile_samples, channel.cols(), channel.rows(), grid_spacing, cfg_try);
+      tile_samples, image_width, image_height, grid_spacing, cfg_try);
 
   std::vector<GridCell> cells;
   cells.reserve(grid_cells_all.size());
@@ -2586,6 +2927,7 @@ try_bge_candidate_prepared(int image_width, int image_height,
                            const BGEConfig &cfg_try, int grid_spacing,
                            const BGECandidatePrep &prep,
                            const SparseEvalGrid &eval_grid) {
+  const auto total_start = SteadyClock::now();
   BGECandidateResult out;
   out.cfg = cfg_try;
   out.grid_spacing = grid_spacing;
@@ -2594,11 +2936,15 @@ try_bge_candidate_prepared(int image_width, int image_height,
 
   SurfaceModelSelection selection;
   std::string error_message;
+  const auto select_start = SteadyClock::now();
   if (!select_background_surface_model(prep.train_cells, image_width,
                                        image_height, grid_spacing, cfg_try,
                                        &selection, &error_message)) {
+    out.model_select_seconds = elapsed_seconds_since(select_start);
+    out.total_seconds = elapsed_seconds_since(total_start);
     return out;
   }
+  out.model_select_seconds = elapsed_seconds_since(select_start);
 
   std::vector<float> poly_x_pows;
   std::vector<float> poly_y_pows;
@@ -2616,6 +2962,7 @@ try_bge_candidate_prepared(int image_width, int image_height,
   out.cv_rms =
       eval_predictor_rms_at_cells(prep.val_cells, eval_selected_model);
 
+  const auto sample_start = SteadyClock::now();
   Matrix2Df sampled_surface = Matrix2Df::Zero(eval_grid.height, eval_grid.width);
   for (int y = 0; y < eval_grid.height; ++y) {
     for (int x = 0; x < eval_grid.width; ++x) {
@@ -2624,12 +2971,15 @@ try_bge_candidate_prepared(int image_width, int image_height,
                               eval_grid.y_coords[static_cast<size_t>(y)]);
     }
   }
+  out.surface_sample_seconds = elapsed_seconds_since(sample_start);
 
   const float scale = static_cast<float>(eval_grid.sample_step) *
                       static_cast<float>(eval_grid.sample_step);
+  const auto metric_start = SteadyClock::now();
   out.flatness = eval_model_flatness(sampled_surface, 1) / std::max(1.0f, scale);
   out.roughness =
       eval_model_roughness(sampled_surface, 1) / std::max(1.0f, scale);
+  out.metric_seconds = elapsed_seconds_since(metric_start);
 
   const float bmed = std::max(kTiny, prep.bg_median);
   const float n_cv = out.cv_rms / bmed;
@@ -2645,13 +2995,14 @@ try_bge_candidate_prepared(int image_width, int image_height,
   out.objective = out.objective_raw;
   out.success = std::isfinite(out.objective_raw) &&
                 std::isfinite(out.objective_normalized);
+  out.total_seconds = elapsed_seconds_since(total_start);
   return out;
 }
 
 static BGECandidateResult auto_tune_bge_config_conservative(
     const Matrix2Df &channel, const std::vector<TileMetrics> &tile_metrics,
     const TileGrid &tile_grid, int base_grid_spacing,
-    const BGEConfig &base_cfg) {
+    const BGEConfig &base_cfg, BGEProfileTiming *profile) {
 
   const bool extended = (base_cfg.autotune.strategy == "extended");
   auto push_unique = [](std::vector<float> &out, float v) {
@@ -2734,48 +3085,83 @@ static BGECandidateResult auto_tune_bge_config_conservative(
   BGECandidateResult best;
   const int channel_width = static_cast<int>(channel.cols());
   const int channel_height = static_cast<int>(channel.rows());
-  auto prep_cache_key = [](float q, float sp) -> uint64_t {
-    const int32_t qk = static_cast<int32_t>(std::lround(q * 1.0e6f));
-    const int32_t spk = static_cast<int32_t>(std::lround(sp * 1.0e6f));
-    return (static_cast<uint64_t>(static_cast<uint32_t>(qk)) << 32) |
-           static_cast<uint64_t>(static_cast<uint32_t>(spk));
-  };
-  std::unordered_map<uint64_t, BGECandidatePrep> prep_cache;
-  std::vector<BGECandidateJob> jobs;
-  jobs.reserve(static_cast<size_t>(std::max(1, base_cfg.autotune.max_evals)));
   const SparseEvalGrid eval_grid = build_sparse_eval_grid(
       channel_width, channel_height, std::max(4, base_grid_spacing / 4));
+  const int max_evals = std::max(1, base_cfg.autotune.max_evals);
+  int eval_count = 0;
 
-  for (const auto &fit_method : fit_methods) {
-    std::vector<float> method_mu_factors;
-    if (fit_method == "rbf") {
-      method_mu_factors = mu_factors;
-    } else {
-      method_mu_factors.push_back(base_cfg.fit.rbf_mu_factor);
+  auto accumulate_profile = [&](const BGECandidateResult &res) {
+    if (profile == nullptr)
+      return;
+    profile->autotune_candidate_jobs += 1;
+    profile->autotune_eval_seconds += res.total_seconds;
+    profile->autotune_eval_model_select_seconds += res.model_select_seconds;
+    profile->autotune_eval_surface_sample_seconds +=
+        res.surface_sample_seconds;
+    profile->autotune_eval_metric_seconds += res.metric_seconds;
+  };
+
+  auto consider_result = [&](const BGECandidateResult &res) {
+    if (!res.success)
+      return;
+    if (!best.success || res.objective < best.objective) {
+      best = res;
+    } else if (std::fabs(res.objective - best.objective) < 1e-6f) {
+      if (res.roughness < best.roughness) {
+        best = res;
+      } else if (std::fabs(res.roughness - best.roughness) < 1e-6f) {
+        if (res.cfg.fit.rbf_mu_factor > best.cfg.fit.rbf_mu_factor) {
+          best = res;
+        }
+      }
+    }
+  };
+
+  for (float sp : structure_p) {
+    if (eval_count >= max_evals)
+      break;
+
+    const float sp_clamped = std::clamp(sp, 0.50f, 0.99f);
+    BGEConfig prep_cfg = base_cfg;
+    prep_cfg.structure_thresh_percentile = sp_clamped;
+    const auto prep_extract_start = SteadyClock::now();
+    auto prepared_tiles = extract_autotune_prepared_tile_samples(
+        channel, tile_metrics, tile_grid, prep_cfg);
+    if (profile != nullptr) {
+      profile->autotune_prep_seconds +=
+          elapsed_seconds_since(prep_extract_start);
+      profile->autotune_prep_builds += 1;
     }
 
     for (float q : quantiles) {
-      for (float sp : structure_p) {
-        const float q_clamped = std::clamp(q, 0.05f, 0.50f);
-        const float sp_clamped = std::clamp(sp, 0.50f, 0.99f);
-        const uint64_t cache_key = prep_cache_key(q_clamped, sp_clamped);
-        auto prep_it = prep_cache.find(cache_key);
-        if (prep_it == prep_cache.end()) {
-          BGEConfig prep_cfg = base_cfg;
-          prep_cfg.sample_quantile = q_clamped;
-          prep_cfg.structure_thresh_percentile = sp_clamped;
-          prep_it = prep_cache
-                        .emplace(cache_key,
-                                 build_bge_candidate_prep(channel, tile_metrics,
-                                                          tile_grid, prep_cfg,
-                                                          base_grid_spacing))
-                        .first;
+      if (eval_count >= max_evals)
+        break;
+
+      const float q_clamped = std::clamp(q, 0.05f, 0.50f);
+      BGEConfig prep_materialize_cfg = base_cfg;
+      prep_materialize_cfg.sample_quantile = q_clamped;
+      prep_materialize_cfg.structure_thresh_percentile = sp_clamped;
+      const auto prep_materialize_start = SteadyClock::now();
+      BGECandidatePrep prep = build_bge_candidate_prep(
+          prepared_tiles, q_clamped, channel_width, channel_height,
+          prep_materialize_cfg, base_grid_spacing);
+      if (profile != nullptr) {
+        profile->autotune_prep_seconds +=
+            elapsed_seconds_since(prep_materialize_start);
+      }
+      if (!prep.valid)
+        continue;
+
+      for (const auto &fit_method : fit_methods) {
+        std::vector<float> method_mu_factors;
+        if (fit_method == "rbf") {
+          method_mu_factors = mu_factors;
+        } else {
+          method_mu_factors.push_back(base_cfg.fit.rbf_mu_factor);
         }
-        const BGECandidatePrep &prep = prep_it->second;
 
         for (float mf : method_mu_factors) {
-          if (static_cast<int>(jobs.size()) >=
-              std::max(1, base_cfg.autotune.max_evals))
+          if (eval_count >= max_evals)
             break;
           BGEConfig cfg_try = base_cfg;
           cfg_try.fit.method = fit_method;
@@ -2784,45 +3170,12 @@ static BGECandidateResult auto_tune_bge_config_conservative(
           if (fit_method == "rbf") {
             cfg_try.fit.rbf_mu_factor = std::max(0.2f, mf);
           }
-          jobs.push_back(BGECandidateJob{
-              cfg_try, base_grid_spacing, channel_width, channel_height,
-              &prep, &eval_grid});
-        }
-        if (static_cast<int>(jobs.size()) >=
-            std::max(1, base_cfg.autotune.max_evals))
-          break;
-      }
-      if (static_cast<int>(jobs.size()) >=
-          std::max(1, base_cfg.autotune.max_evals))
-        break;
-    }
-    if (static_cast<int>(jobs.size()) >=
-        std::max(1, base_cfg.autotune.max_evals))
-      break;
-  }
-
-  std::vector<BGECandidateResult> results(jobs.size());
-#pragma omp parallel for if(jobs.size() > 1)
-  for (int i = 0; i < static_cast<int>(jobs.size()); ++i) {
-    const auto &job = jobs[static_cast<size_t>(i)];
-    results[static_cast<size_t>(i)] = try_bge_candidate_prepared(
-        job.image_width, job.image_height, job.cfg, job.grid_spacing,
-        *job.prep, *job.eval_grid);
-  }
-
-  for (const auto &res : results) {
-    if (!res.success)
-      continue;
-
-    if (!best.success || res.objective < best.objective) {
-      best = res;
-    } else if (std::fabs(res.objective - best.objective) < 1e-6f) {
-      if (res.roughness < best.roughness) {
-        best = res;
-      } else if (std::fabs(res.roughness - best.roughness) < 1e-6f) {
-        // Deterministic tie-break: prefer coarser effective model.
-        if (res.cfg.fit.rbf_mu_factor > best.cfg.fit.rbf_mu_factor) {
-          best = res;
+          BGECandidateResult res = try_bge_candidate_prepared(
+              channel_width, channel_height, cfg_try, base_grid_spacing, prep,
+              eval_grid);
+          ++eval_count;
+          accumulate_profile(res);
+          consider_result(res);
         }
       }
     }
@@ -2832,7 +3185,7 @@ static BGECandidateResult auto_tune_bge_config_conservative(
     best.cfg = base_cfg;
     best.grid_spacing = base_grid_spacing;
   }
-  best.evals = static_cast<int>(jobs.size());
+  best.evals = eval_count;
   return best;
 }
 
@@ -2842,6 +3195,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                  const TileGrid &tile_grid,
                                  const BGEConfig &config,
                                  BGEDiagnostics *diagnostics) {
+  const auto bge_total_start = SteadyClock::now();
 
   if (diagnostics != nullptr) {
     diagnostics->attempted = config.enabled;
@@ -2871,6 +3225,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     diagnostics->safety_fallback_triggered = false;
     diagnostics->safety_fallback_method.clear();
     diagnostics->safety_fallback_reason.clear();
+    diagnostics->profile = BGEProfileTiming{};
     diagnostics->channels.clear();
   }
 
@@ -2926,6 +3281,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   float modeled_low_threshold = 0.0f;
   float modeled_sigma = 0.0f;
   if (use_modeled_mask_mesh) {
+    const auto modeled_prepass_start = SteadyClock::now();
     modeled_luma = Matrix2Df::Zero(H, W);
     for (int y = 0; y < H; ++y) {
       for (int x = 0; x < W; ++x) {
@@ -2962,6 +3318,10 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       std::cout << "[BGE] modeled_mask_mesh does not use autotune; "
                    "continuing with deterministic settings"
                 << std::endl;
+    }
+    if (diagnostics != nullptr) {
+      diagnostics->profile.modeled_prepass_seconds =
+          elapsed_seconds_since(modeled_prepass_start);
     }
   }
 
@@ -3003,6 +3363,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       }
     }
 
+    const auto correction_start = SteadyClock::now();
     ch_diag.model_stats = stats_from_matrix(bg_model.model);
     const float pedestal = ch_diag.model_stats.median;
     Matrix2Df corrected = channel_before;
@@ -3025,6 +3386,8 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         corrected(y, x) = vin - bg_model.model(y, x) + pedestal;
       }
     }
+    ch_diag.profile.apply_correction_seconds +=
+        elapsed_seconds_since(correction_start);
 
     auto flatness_from_grid = [&](bool corrected_values) -> float {
       std::vector<float> vals;
@@ -3049,6 +3412,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       return p90 - p10;
     };
 
+    const auto guard_start = SteadyClock::now();
     float flat_pre = std::numeric_limits<float>::infinity();
     float flat_post = std::numeric_limits<float>::infinity();
     if (!ch_diag.grid_cells.empty()) {
@@ -3069,6 +3433,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         coarse_background_plane_slope(channel_before, canvas_mask_ptr);
     const float slope_post =
         coarse_background_plane_slope(corrected, canvas_mask_ptr);
+    ch_diag.profile.guard_seconds += elapsed_seconds_since(guard_start);
     ch_diag.guard_flat_pre = flat_pre;
     ch_diag.guard_flat_post = flat_post;
     ch_diag.guard_slope_pre = slope_pre;
@@ -3123,6 +3488,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
   // Process each channel
   for (int c = 0; c < 3; ++c) {
+    const auto channel_total_start = SteadyClock::now();
     Matrix2Df *channel = (c == 0) ? &R : (c == 1) ? &G : &B;
     const char *channel_name = (c == 0) ? "R" : (c == 1) ? "G" : "B";
     const Matrix2Df channel_before = *channel;
@@ -3145,6 +3511,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       if (!mesh_model.success) {
         std::cout << "[BGE]   modeled_mask_mesh fit failed for channel "
                   << channel_name << std::endl;
+        ch_diag.profile.total_seconds = elapsed_seconds_since(channel_total_start);
         if (diagnostics != nullptr)
           diagnostics->channels.push_back(std::move(ch_diag));
         continue;
@@ -3178,6 +3545,12 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         ++channels_applied_total;
       }
 
+      ch_diag.profile.total_seconds = elapsed_seconds_since(channel_total_start);
+      std::cout << "[BGE]   Profile " << channel_name
+                << ": total=" << ch_diag.profile.total_seconds
+                << "s apply=" << ch_diag.profile.apply_correction_seconds
+                << "s guard=" << ch_diag.profile.guard_seconds << "s"
+                << std::endl;
       if (diagnostics != nullptr)
         diagnostics->channels.push_back(std::move(ch_diag));
       continue;
@@ -3186,8 +3559,12 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     BGEConfig channel_cfg = config;
     int channel_grid_spacing = grid_spacing;
     if (config.autotune.enabled) {
+      const auto autotune_start = SteadyClock::now();
       BGECandidateResult tune_res = auto_tune_bge_config_conservative(
-          *channel, tile_metrics, tile_grid, grid_spacing, config);
+          *channel, tile_metrics, tile_grid, grid_spacing, config,
+          &ch_diag.profile);
+      ch_diag.profile.autotune_total_seconds +=
+          elapsed_seconds_since(autotune_start);
       channel_cfg = tune_res.cfg;
       channel_grid_spacing = tune_res.grid_spacing;
 
@@ -3238,8 +3615,11 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       }
     }
 
+    const auto tile_sampling_start = SteadyClock::now();
     auto tile_samples = extract_tile_background_samples(*channel, tile_metrics,
                                                         tile_grid, channel_cfg);
+    ch_diag.profile.tile_sampling_seconds +=
+        elapsed_seconds_since(tile_sampling_start);
     int n_valid = std::count_if(tile_samples.begin(), tile_samples.end(),
                                 [](const auto &s) { return s.valid; });
     std::cout << "[BGE]   Tile samples: " << n_valid << "/"
@@ -3281,13 +3661,17 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
           << ", required>=" << min_valid_samples_for_apply
           << " and frac>=" << min_valid_fraction_for_apply
           << "), skipping channel" << std::endl;
+      ch_diag.profile.total_seconds = elapsed_seconds_since(channel_total_start);
       if (diagnostics != nullptr)
         diagnostics->channels.push_back(std::move(ch_diag));
       continue;
     }
 
+    const auto coarse_grid_start = SteadyClock::now();
     auto grid_cells = aggregate_to_coarse_grid(
         tile_samples, W, H, channel_grid_spacing, channel_cfg);
+    ch_diag.profile.coarse_grid_seconds +=
+        elapsed_seconds_since(coarse_grid_start);
     std::cout << "[BGE]   Grid cells: " << grid_cells.size() << " valid"
               << std::endl;
 
@@ -3297,6 +3681,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     if (grid_cells.size() < 3) {
       std::cout << "[BGE]   Warning: Too few grid cells, skipping channel "
                 << channel_name << std::endl;
+      ch_diag.profile.total_seconds = elapsed_seconds_since(channel_total_start);
       if (diagnostics != nullptr)
         diagnostics->channels.push_back(std::move(ch_diag));
       continue;
@@ -3304,8 +3689,12 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
     auto bg_model = fit_background_surface(grid_cells, W, H,
                                            channel_grid_spacing, channel_cfg);
+    ch_diag.profile.final_fit_total_seconds += bg_model.total_seconds;
+    ch_diag.profile.final_fit_select_seconds += bg_model.fit_select_seconds;
+    ch_diag.profile.final_fit_render_seconds += bg_model.render_seconds;
     if (!bg_model.success) {
       std::cerr << "[BGE]   Error: " << bg_model.error_message << std::endl;
+      ch_diag.profile.total_seconds = elapsed_seconds_since(channel_total_start);
       if (diagnostics != nullptr)
         diagnostics->channels.push_back(std::move(ch_diag));
       continue;
@@ -3317,6 +3706,19 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       ++channels_applied_total;
     }
 
+    ch_diag.profile.total_seconds = elapsed_seconds_since(channel_total_start);
+    std::cout << "[BGE]   Profile " << channel_name
+              << ": total=" << ch_diag.profile.total_seconds
+              << "s autotune=" << ch_diag.profile.autotune_total_seconds
+              << "s prep=" << ch_diag.profile.autotune_prep_seconds
+              << "s eval=" << ch_diag.profile.autotune_eval_seconds
+              << "s tile_sampling=" << ch_diag.profile.tile_sampling_seconds
+              << "s coarse_grid=" << ch_diag.profile.coarse_grid_seconds
+              << "s final_fit=" << ch_diag.profile.final_fit_total_seconds
+              << "s render=" << ch_diag.profile.final_fit_render_seconds
+              << "s apply=" << ch_diag.profile.apply_correction_seconds
+              << "s guard=" << ch_diag.profile.guard_seconds << "s"
+              << std::endl;
     if (diagnostics != nullptr)
       diagnostics->channels.push_back(std::move(ch_diag));
   }
@@ -3570,6 +3972,48 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
   std::cout << "[BGE] Background extraction complete" << std::endl;
   if (diagnostics != nullptr) {
+    diagnostics->profile.total_seconds = elapsed_seconds_since(bge_total_start);
+    for (const auto &ch : diagnostics->channels) {
+      diagnostics->profile.autotune_total_seconds +=
+          ch.profile.autotune_total_seconds;
+      diagnostics->profile.autotune_prep_seconds +=
+          ch.profile.autotune_prep_seconds;
+      diagnostics->profile.autotune_eval_seconds +=
+          ch.profile.autotune_eval_seconds;
+      diagnostics->profile.autotune_eval_model_select_seconds +=
+          ch.profile.autotune_eval_model_select_seconds;
+      diagnostics->profile.autotune_eval_surface_sample_seconds +=
+          ch.profile.autotune_eval_surface_sample_seconds;
+      diagnostics->profile.autotune_eval_metric_seconds +=
+          ch.profile.autotune_eval_metric_seconds;
+      diagnostics->profile.tile_sampling_seconds +=
+          ch.profile.tile_sampling_seconds;
+      diagnostics->profile.coarse_grid_seconds +=
+          ch.profile.coarse_grid_seconds;
+      diagnostics->profile.final_fit_total_seconds +=
+          ch.profile.final_fit_total_seconds;
+      diagnostics->profile.final_fit_select_seconds +=
+          ch.profile.final_fit_select_seconds;
+      diagnostics->profile.final_fit_render_seconds +=
+          ch.profile.final_fit_render_seconds;
+      diagnostics->profile.apply_correction_seconds +=
+          ch.profile.apply_correction_seconds;
+      diagnostics->profile.guard_seconds += ch.profile.guard_seconds;
+      diagnostics->profile.autotune_prep_builds +=
+          ch.profile.autotune_prep_builds;
+      diagnostics->profile.autotune_candidate_jobs +=
+          ch.profile.autotune_candidate_jobs;
+    }
+    std::cout << "[BGE] Profile total=" << diagnostics->profile.total_seconds
+              << "s autotune=" << diagnostics->profile.autotune_total_seconds
+              << "s prep=" << diagnostics->profile.autotune_prep_seconds
+              << "s eval=" << diagnostics->profile.autotune_eval_seconds
+              << "s tile_sampling=" << diagnostics->profile.tile_sampling_seconds
+              << "s final_render="
+              << diagnostics->profile.final_fit_render_seconds
+              << "s apply=" << diagnostics->profile.apply_correction_seconds
+              << "s guard=" << diagnostics->profile.guard_seconds << "s"
+              << std::endl;
     diagnostics->success = any_channel_applied;
   }
   return any_channel_applied;

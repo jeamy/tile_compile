@@ -93,8 +93,31 @@ struct BackgroundModel {
     std::vector<GridCell> grid_cells; // Grid cells used for fitting
     int n_valid_cells;    // Number of valid cells
     float rms_residual;   // RMS of fit residuals
+    double fit_select_seconds = 0.0;
+    double render_seconds = 0.0;
+    double total_seconds = 0.0;
     bool success;         // Model was successfully computed
     std::string error_message;
+};
+
+struct BGEProfileTiming {
+    double total_seconds = 0.0;
+    double modeled_prepass_seconds = 0.0;
+    double autotune_total_seconds = 0.0;
+    double autotune_prep_seconds = 0.0;
+    double autotune_eval_seconds = 0.0;
+    double autotune_eval_model_select_seconds = 0.0;
+    double autotune_eval_surface_sample_seconds = 0.0;
+    double autotune_eval_metric_seconds = 0.0;
+    double tile_sampling_seconds = 0.0;
+    double coarse_grid_seconds = 0.0;
+    double final_fit_total_seconds = 0.0;
+    double final_fit_select_seconds = 0.0;
+    double final_fit_render_seconds = 0.0;
+    double apply_correction_seconds = 0.0;
+    double guard_seconds = 0.0;
+    int autotune_prep_builds = 0;
+    int autotune_candidate_jobs = 0;
 };
 
 struct BGEValueStats {
@@ -134,6 +157,7 @@ struct BGEChannelDiagnostics {
     float guard_slope_pre = 0.0f;
     float guard_slope_post = 0.0f;
     bool guard_rejected = false;
+    BGEProfileTiming profile;
     BGEValueStats input_stats;
     BGEValueStats output_stats;
     BGEValueStats model_stats;
@@ -173,6 +197,7 @@ struct BGEDiagnostics {
     bool safety_fallback_triggered = false;
     std::string safety_fallback_method;
     std::string safety_fallback_reason;
+    BGEProfileTiming profile;
     std::vector<BGEChannelDiagnostics> channels;
 };
 

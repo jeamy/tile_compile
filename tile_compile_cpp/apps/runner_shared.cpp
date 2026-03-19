@@ -331,6 +331,30 @@ core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
                             bool requested,
                             bool have_tile_data,
                             bool metrics_tiles_match) {
+  auto bge_profile_to_json = [](const image::BGEProfileTiming &profile) {
+    return core::json{
+        {"total_seconds", profile.total_seconds},
+        {"modeled_prepass_seconds", profile.modeled_prepass_seconds},
+        {"autotune_total_seconds", profile.autotune_total_seconds},
+        {"autotune_prep_seconds", profile.autotune_prep_seconds},
+        {"autotune_eval_seconds", profile.autotune_eval_seconds},
+        {"autotune_eval_model_select_seconds",
+         profile.autotune_eval_model_select_seconds},
+        {"autotune_eval_surface_sample_seconds",
+         profile.autotune_eval_surface_sample_seconds},
+        {"autotune_eval_metric_seconds", profile.autotune_eval_metric_seconds},
+        {"tile_sampling_seconds", profile.tile_sampling_seconds},
+        {"coarse_grid_seconds", profile.coarse_grid_seconds},
+        {"final_fit_total_seconds", profile.final_fit_total_seconds},
+        {"final_fit_select_seconds", profile.final_fit_select_seconds},
+        {"final_fit_render_seconds", profile.final_fit_render_seconds},
+        {"apply_correction_seconds", profile.apply_correction_seconds},
+        {"guard_seconds", profile.guard_seconds},
+        {"autotune_prep_builds", profile.autotune_prep_builds},
+        {"autotune_candidate_jobs", profile.autotune_candidate_jobs},
+    };
+  };
+
   core::json out;
   out["requested"] = requested;
   out["attempted"] = diag.attempted;
@@ -343,6 +367,7 @@ core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
   out["method"] = diag.method;
   out["robust_loss"] = diag.robust_loss;
   out["insufficient_cell_strategy"] = diag.insufficient_cell_strategy;
+  out["timings"] = bge_profile_to_json(diag.profile);
   out["autotune"] = {
       {"enabled", diag.autotune_enabled},
       {"strategy", diag.autotune_strategy},
@@ -434,6 +459,7 @@ core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
     ch_json["guard_slope_pre"] = ch.guard_slope_pre;
     ch_json["guard_slope_post"] = ch.guard_slope_post;
     ch_json["guard_rejected"] = ch.guard_rejected;
+    ch_json["timings"] = bge_profile_to_json(ch.profile);
     ch_json["input_stats"] = bge_value_stats_to_json(ch.input_stats);
     ch_json["output_stats"] = bge_value_stats_to_json(ch.output_stats);
     ch_json["model_stats"] = bge_value_stats_to_json(ch.model_stats);
