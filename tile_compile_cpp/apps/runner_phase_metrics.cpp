@@ -113,6 +113,17 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::string norm_error;
 
   auto normalization_worker = [&]() {
+    std::vector<float> r_samples;
+    std::vector<float> g_samples;
+    std::vector<float> b_samples;
+    std::vector<float> mono_samples;
+    auto reset_samples = [](std::vector<float> &samples, size_t reserve_count) {
+      samples.clear();
+      if (samples.capacity() < reserve_count) {
+        samples.reserve(reserve_count);
+      }
+    };
+
     while (true) {
       const size_t i = norm_next.fetch_add(1);
       if (i >= frames.size()) {
@@ -124,16 +135,8 @@ bool run_phase_channel_split_normalization_global_metrics(
 
         image::NormalizationScales s;
         {
-          std::vector<float> all;
-          all.reserve(static_cast<size_t>(img.size()));
-          for (Eigen::Index k = 0; k < img.size(); ++k) {
-            all.push_back(img.data()[k]);
-          }
-          const float b0 = core::median_of(all);
-          const float coarse_scale = (b0 > eps_b) ? (1.0f / b0) : 1.0f;
-          Matrix2Df coarse_norm = img * coarse_scale;
-          cv::Mat coarse_cv(coarse_norm.rows(), coarse_norm.cols(), CV_32F,
-                            coarse_norm.data());
+          const size_t pixel_count = static_cast<size_t>(img.size());
+          cv::Mat coarse_cv(img.rows(), img.cols(), CV_32F, img.data());
           const cv::Mat1b bg_mask =
               metrics::build_background_mask_sigma_clip(coarse_cv, 3.0f, 3);
 
@@ -142,12 +145,9 @@ bool run_phase_channel_split_normalization_global_metrics(
             int r_row, r_col, b_row, b_col;
             image::bayer_offsets(detected_bayer_str, r_row, r_col, b_row, b_col);
 
-            std::vector<float> pr_bg;
-            std::vector<float> pg_bg;
-            std::vector<float> pb_bg;
-            pr_bg.reserve(static_cast<size_t>(img.size()) / 4);
-            pg_bg.reserve(static_cast<size_t>(img.size()) / 2);
-            pb_bg.reserve(static_cast<size_t>(img.size()) / 4);
+            reset_samples(r_samples, pixel_count / 4);
+            reset_samples(g_samples, pixel_count / 2);
+            reset_samples(b_samples, pixel_count / 4);
 
             for (int y = 0; y < img.rows(); ++y) {
               const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
@@ -158,58 +158,55 @@ bool run_phase_channel_split_normalization_global_metrics(
                 const int px = x & 1;
                 const float v = img(y, x);
                 if (py == r_row && px == r_col) {
-                  pr_bg.push_back(v);
+                  r_samples.push_back(v);
                 } else if (py == b_row && px == b_col) {
-                  pb_bg.push_back(v);
+                  b_samples.push_back(v);
                 } else {
-                  pg_bg.push_back(v);
+                  g_samples.push_back(v);
                 }
               }
             }
 
-            float br = pr_bg.empty() ? 0.0f : core::median_of(pr_bg);
-            float bg = pg_bg.empty() ? 0.0f : core::median_of(pg_bg);
-            float bb = pb_bg.empty() ? 0.0f : core::median_of(pb_bg);
+            float br = r_samples.empty() ? 0.0f : core::median_of(r_samples);
+            float bg = g_samples.empty() ? 0.0f : core::median_of(g_samples);
+            float bb = b_samples.empty() ? 0.0f : core::median_of(b_samples);
 
             if (!(br > eps_b)) {
-              std::vector<float> pr;
-              pr.reserve(static_cast<size_t>(img.size()) / 4);
+              reset_samples(r_samples, pixel_count / 4);
               for (int y = 0; y < img.rows(); ++y) {
                 const int py = y & 1;
                 for (int x = 0; x < img.cols(); ++x) {
                   const int px = x & 1;
                   if (py == r_row && px == r_col)
-                    pr.push_back(img(y, x));
+                    r_samples.push_back(img(y, x));
                 }
               }
-              br = core::estimate_background_sigma_clip(std::move(pr));
+              br = core::estimate_background_sigma_clip(std::move(r_samples));
             }
             if (!(bg > eps_b)) {
-              std::vector<float> pg;
-              pg.reserve(static_cast<size_t>(img.size()) / 2);
+              reset_samples(g_samples, pixel_count / 2);
               for (int y = 0; y < img.rows(); ++y) {
                 const int py = y & 1;
                 for (int x = 0; x < img.cols(); ++x) {
                   const int px = x & 1;
                   if (!((py == r_row && px == r_col) ||
                         (py == b_row && px == b_col)))
-                    pg.push_back(img(y, x));
+                    g_samples.push_back(img(y, x));
                 }
               }
-              bg = core::estimate_background_sigma_clip(std::move(pg));
+              bg = core::estimate_background_sigma_clip(std::move(g_samples));
             }
             if (!(bb > eps_b)) {
-              std::vector<float> pb;
-              pb.reserve(static_cast<size_t>(img.size()) / 4);
+              reset_samples(b_samples, pixel_count / 4);
               for (int y = 0; y < img.rows(); ++y) {
                 const int py = y & 1;
                 for (int x = 0; x < img.cols(); ++x) {
                   const int px = x & 1;
                   if (py == b_row && px == b_col)
-                    pb.push_back(img(y, x));
+                    b_samples.push_back(img(y, x));
                 }
               }
-              bb = core::estimate_background_sigma_clip(std::move(pb));
+              bb = core::estimate_background_sigma_clip(std::move(b_samples));
             }
 
             if (!(br > eps_b) || !(bg > eps_b) || !(bb > eps_b)) {
@@ -224,23 +221,21 @@ bool run_phase_channel_split_normalization_global_metrics(
             B_g[i] = bg;
             B_b[i] = bb;
           } else {
-            std::vector<float> p_bg;
-            p_bg.reserve(static_cast<size_t>(img.size()));
+            reset_samples(mono_samples, pixel_count);
             for (int y = 0; y < img.rows(); ++y) {
               const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
               for (int x = 0; x < img.cols(); ++x) {
                 if (mrow[x] != 0)
-                  p_bg.push_back(img(y, x));
+                  mono_samples.push_back(img(y, x));
               }
             }
-            float b = p_bg.empty() ? 0.0f : core::median_of(p_bg);
+            float b = mono_samples.empty() ? 0.0f : core::median_of(mono_samples);
             if (!(b > eps_b)) {
-              std::vector<float> p;
-              p.reserve(static_cast<size_t>(img.size()));
+              reset_samples(mono_samples, pixel_count);
               for (Eigen::Index k = 0; k < img.size(); ++k) {
-                p.push_back(img.data()[k]);
+                mono_samples.push_back(img.data()[k]);
               }
-              b = core::estimate_background_sigma_clip(std::move(p));
+              b = core::estimate_background_sigma_clip(std::move(mono_samples));
             }
             if (!(b > eps_b)) {
               throw std::runtime_error(

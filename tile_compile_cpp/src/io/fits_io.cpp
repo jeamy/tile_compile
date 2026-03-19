@@ -192,30 +192,67 @@ FitsHeader read_current_header(fitsfile* fptr, int& status) {
     return header;
 }
 
-Matrix2Df matrix_from_buffer(const std::vector<float>& buffer, long height, long width) {
-    Matrix2Df data(height, width);
-    const size_t nbytes =
-        static_cast<size_t>(std::max<long>(0, height)) *
-        static_cast<size_t>(std::max<long>(0, width)) * sizeof(float);
-    if (nbytes > 0) {
-        std::memcpy(data.data(), buffer.data(), nbytes);
+bool should_skip_header_key(const std::string& key, bool is_rgb_image) {
+    if (key == "SIMPLE" || key == "BITPIX" || key == "NAXIS" ||
+        key == "NAXIS1" || key == "NAXIS2" || key == "EXTEND" ||
+        key == "BZERO" || key == "BSCALE") {
+        return true;
     }
-    return data;
+    if (is_rgb_image && (key == "NAXIS3" || key == "BAYERPAT")) {
+        return true;
+    }
+    return false;
+}
+
+void write_header_keywords(fitsfile* fptr, const FitsHeader& header,
+                           bool is_rgb_image, int& status) {
+    for (const auto& [key, value] : header.string_values) {
+        if (key.size() <= 8 && !should_skip_header_key(key, is_rgb_image)) {
+            fits_update_key(fptr, TSTRING, key.c_str(),
+                           const_cast<char*>(value.c_str()), nullptr, &status);
+            if (status) status = 0;
+        }
+    }
+
+    for (const auto& [key, value] : header.numeric_values) {
+        if (key.size() <= 8 && !should_skip_header_key(key, is_rgb_image)) {
+            double val = value;
+            fits_update_key(fptr, TDOUBLE, key.c_str(), &val, nullptr, &status);
+            if (status) status = 0;
+        }
+    }
+
+    for (const auto& [key, value] : header.int_values) {
+        if (key.size() <= 8 && !should_skip_header_key(key, is_rgb_image)) {
+            int val = value;
+            fits_update_key(fptr, TINT, key.c_str(), &val, nullptr, &status);
+            if (status) status = 0;
+        }
+    }
+
+    for (const auto& [key, value] : header.bool_values) {
+        if (key.size() <= 8 && !should_skip_header_key(key, is_rgb_image)) {
+            int val = value ? 1 : 0;
+            fits_update_key(fptr, TLOGICAL, key.c_str(), &val, nullptr, &status);
+            if (status) status = 0;
+        }
+    }
 }
 
 Matrix2Df read_current_pixels_float(fitsfile* fptr, const fs::path& path,
                                     long width, long height, long plane,
                                     int& status) {
     const long npixels = width * height;
-    std::vector<float> buffer(static_cast<size_t>(npixels));
+    Matrix2Df data(height, width);
     long fpixel[3] = {1, 1, plane};
 
-    fits_read_pix(fptr, TFLOAT, fpixel, npixels, nullptr, buffer.data(), nullptr, &status);
+    fits_read_pix(fptr, TFLOAT, fpixel, npixels, nullptr, data.data(), nullptr,
+                  &status);
     if (status) {
         throw FitsError("Cannot read FITS pixel data: " + path.string());
     }
 
-    return matrix_from_buffer(buffer, height, width);
+    return data;
 }
 
 } // namespace
@@ -462,7 +499,7 @@ Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width
         return Matrix2Df();
     }
 
-    std::vector<float> buffer(static_cast<size_t>(rw) * static_cast<size_t>(rh));
+    Matrix2Df data(rh, rw);
 
     if (naxis >= 3) {
         // RGB cube: read ROI from first plane to keep scalar ROI API contract.
@@ -470,13 +507,13 @@ Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width
         long lpixel[3] = {static_cast<long>(rx0 + rw), static_cast<long>(ry0 + rh), 1};
         long inc[3] = {1, 1, 1};
         fits_read_subset(fptr, TFLOAT, fpixel, lpixel, inc, nullptr,
-                         buffer.data(), nullptr, &status);
+                         data.data(), nullptr, &status);
     } else {
         long fpixel[2] = {static_cast<long>(rx0 + 1), static_cast<long>(ry0 + 1)};
         long lpixel[2] = {static_cast<long>(rx0 + rw), static_cast<long>(ry0 + rh)};
         long inc[2] = {1, 1};
         fits_read_subset(fptr, TFLOAT, fpixel, lpixel, inc, nullptr,
-                         buffer.data(), nullptr, &status);
+                         data.data(), nullptr, &status);
     }
     fits_close_file(fptr, &status);
 
@@ -484,13 +521,6 @@ Matrix2Df read_fits_region_float(const fs::path& path, int x0, int y0, int width
         throw FitsError("Cannot read FITS ROI pixel data: " + path.string() +
                         " (cfitsio_status=" + std::to_string(status) +
                         ", reason=\"" + cfitsio_status_text(status) + "\")");
-    }
-
-    Matrix2Df data(rh, rw);
-    for (int yy = 0; yy < rh; ++yy) {
-        for (int xx = 0; xx < rw; ++xx) {
-            data(yy, xx) = buffer[static_cast<size_t>(yy) * static_cast<size_t>(rw) + static_cast<size_t>(xx)];
-        }
     }
 
     return data;
@@ -516,57 +546,12 @@ void write_fits_float(const fs::path& path, const Matrix2Df& data, const FitsHea
         throw FitsError(fits_write_error_message("create FITS image", path, write_status));
     }
 
-    auto should_skip_key = [](const std::string& key) -> bool {
-        return key == "SIMPLE" || key == "BITPIX" || key == "NAXIS" || key == "NAXIS1" || key == "NAXIS2" ||
-               key == "EXTEND" || key == "BZERO" || key == "BSCALE";
-    };
-    
-    for (const auto& [key, value] : header.string_values) {
-        if (key.size() <= 8) {
-            if (should_skip_key(key)) continue;
-            fits_update_key(fptr, TSTRING, key.c_str(), 
-                           const_cast<char*>(value.c_str()), nullptr, &status);
-            if (status) status = 0;
-        }
-    }
-    
-    for (const auto& [key, value] : header.numeric_values) {
-        if (key.size() <= 8) {
-            if (should_skip_key(key)) continue;
-            double val = value;
-            fits_update_key(fptr, TDOUBLE, key.c_str(), &val, nullptr, &status);
-            if (status) status = 0;
-        }
-    }
-    
-    for (const auto& [key, value] : header.int_values) {
-        if (key.size() <= 8) {
-            if (should_skip_key(key)) continue;
-            int val = value;
-            fits_update_key(fptr, TINT, key.c_str(), &val, nullptr, &status);
-            if (status) status = 0;
-        }
-    }
-    
-    for (const auto& [key, value] : header.bool_values) {
-        if (key.size() <= 8) {
-            if (should_skip_key(key)) continue;
-            int val = value ? 1 : 0;
-            fits_update_key(fptr, TLOGICAL, key.c_str(), &val, nullptr, &status);
-            if (status) status = 0;
-        }
-    }
-    
-    std::vector<float> buffer(data.size());
-    for (long y = 0; y < data.rows(); ++y) {
-        for (long x = 0; x < data.cols(); ++x) {
-            buffer[y * data.cols() + x] = data(y, x);
-        }
-    }
+    write_header_keywords(fptr, header, false, status);
     
     long fpixel[2] = {1, 1};
     long nelem = static_cast<long>(data.size());
-    fits_write_pix(fptr, TFLOAT, fpixel, nelem, buffer.data(), &status);
+    fits_write_pix(fptr, TFLOAT, fpixel, nelem,
+                   const_cast<float*>(data.data()), &status);
     if (status) {
         const int write_status = status;
         int close_status = 0;
@@ -605,54 +590,22 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
         throw FitsError(fits_write_error_message("create FITS RGB image", path, write_status));
     }
 
-    auto should_skip_key = [](const std::string& key) -> bool {
-        return key == "SIMPLE" || key == "BITPIX" || key == "NAXIS" || 
-               key == "NAXIS1" || key == "NAXIS2" || key == "NAXIS3" || key == "EXTEND" ||
-               key == "BAYERPAT" || key == "BZERO" || key == "BSCALE";
-    };
-    
-    for (const auto& [key, value] : header.string_values) {
-        if (key.size() <= 8 && !should_skip_key(key)) {
-            fits_update_key(fptr, TSTRING, key.c_str(), const_cast<char*>(value.c_str()), nullptr, &status);
-            if (status) status = 0;
-        }
-    }
-    
-    for (const auto& [key, value] : header.numeric_values) {
-        if (key.size() <= 8 && !should_skip_key(key)) {
-            double val = value;
-            fits_update_key(fptr, TDOUBLE, key.c_str(), &val, nullptr, &status);
-            if (status) status = 0;
-        }
-    }
+    write_header_keywords(fptr, header, true, status);
     
     // Write R plane (z=1)
-    std::vector<float> buffer(static_cast<size_t>(R.size()));
-    for (long y = 0; y < R.rows(); ++y) {
-        for (long x = 0; x < R.cols(); ++x) {
-            buffer[static_cast<size_t>(y * R.cols() + x)] = R(y, x);
-        }
-    }
     long fpixel_r[3] = {1, 1, 1};
-    fits_write_pix(fptr, TFLOAT, fpixel_r, static_cast<long>(R.size()), buffer.data(), &status);
+    fits_write_pix(fptr, TFLOAT, fpixel_r, static_cast<long>(R.size()),
+                   const_cast<float*>(R.data()), &status);
     
     // Write G plane (z=2)
-    for (long y = 0; y < G.rows(); ++y) {
-        for (long x = 0; x < G.cols(); ++x) {
-            buffer[static_cast<size_t>(y * G.cols() + x)] = G(y, x);
-        }
-    }
     long fpixel_g[3] = {1, 1, 2};
-    fits_write_pix(fptr, TFLOAT, fpixel_g, static_cast<long>(G.size()), buffer.data(), &status);
+    fits_write_pix(fptr, TFLOAT, fpixel_g, static_cast<long>(G.size()),
+                   const_cast<float*>(G.data()), &status);
     
     // Write B plane (z=3)
-    for (long y = 0; y < B.rows(); ++y) {
-        for (long x = 0; x < B.cols(); ++x) {
-            buffer[static_cast<size_t>(y * B.cols() + x)] = B(y, x);
-        }
-    }
     long fpixel_b[3] = {1, 1, 3};
-    fits_write_pix(fptr, TFLOAT, fpixel_b, static_cast<long>(B.size()), buffer.data(), &status);
+    fits_write_pix(fptr, TFLOAT, fpixel_b, static_cast<long>(B.size()),
+                   const_cast<float*>(B.data()), &status);
     
     if (status) {
         const int write_status = status;
@@ -661,6 +614,39 @@ void write_fits_rgb(const fs::path& path, const Matrix2Df& R, const Matrix2Df& G
         throw FitsError(fits_write_error_message("write FITS RGB pixel data", path, write_status));
     }
     
+    fits_close_file(fptr, &status);
+    if (status) {
+        throw FitsError(fits_write_error_message("close FITS file", path, status));
+    }
+}
+
+void update_fits_header_in_place(const fs::path& path, const FitsHeader& header) {
+    fitsfile* fptr = nullptr;
+    int status = 0;
+
+    if (fits_open_file(&fptr, path.string().c_str(), READWRITE, &status)) {
+        throw FitsError("Cannot open FITS file for header update: " +
+                        path.string());
+    }
+
+    int naxis = 0;
+    long naxes[3] = {0, 0, 0};
+    int bitpix = 0;
+    if (!move_to_first_image_hdu(fptr, bitpix, naxis, naxes, status)) {
+        fits_close_file(fptr, &status);
+        throw FitsError("Cannot read FITS image parameters: " + path.string());
+    }
+
+    const bool is_rgb_image = (naxis >= 3 && naxes[2] >= 3);
+    write_header_keywords(fptr, header, is_rgb_image, status);
+    if (status) {
+        const int update_status = status;
+        int close_status = 0;
+        fits_close_file(fptr, &close_status);
+        throw FitsError(fits_write_error_message("update FITS header", path,
+                                                 update_status));
+    }
+
     fits_close_file(fptr, &status);
     if (status) {
         throw FitsError(fits_write_error_message("close FITS file", path, status));
