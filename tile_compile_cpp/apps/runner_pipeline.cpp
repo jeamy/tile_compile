@@ -1115,7 +1115,31 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_r;
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_g;
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_b;
+    bool use_full_frame_osc_rgb_cache = false;
     if (osc_mode && !frames.empty()) {
+      const size_t budget_bytes =
+          static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget)) *
+          1024ull * 1024ull;
+      const size_t canvas_pixels =
+          static_cast<size_t>(std::max(0, canvas_width)) *
+          static_cast<size_t>(std::max(0, canvas_height));
+      const size_t full_frame_rgb_cache_bytes =
+          canvas_pixels * sizeof(float) * 3u *
+          static_cast<size_t>(std::max(1, n_usable_frames));
+      // The RGB cache is only safe when its full footprint fits into a
+      // conservative slice of the configured memory budget. Otherwise, fall
+      // back to tile-local debayering to avoid phase-9 OOM kills.
+      use_full_frame_osc_rgb_cache =
+          full_frame_rgb_cache_bytes <= (budget_bytes / 2u);
+      if (!use_full_frame_osc_rgb_cache) {
+        std::cout << "[Phase 6] Disabling OSC full-frame RGB cache: estimated "
+                  << (full_frame_rgb_cache_bytes / (1024.0 * 1024.0 * 1024.0))
+                  << " GiB exceeds conservative budget slice "
+                  << ((budget_bytes / 2u) / (1024.0 * 1024.0))
+                  << " MiB; using tile-local debayer fallback" << std::endl;
+      }
+    }
+    if (osc_mode && use_full_frame_osc_rgb_cache && !frames.empty()) {
       const fs::path cache_root = run_dir / "cache" / "phase9_osc_rgb";
       osc_rgb_cache_r = std::make_unique<tile_compile::runner::DiskCacheFrameStore>(
           cache_root / "R", frames.size(), canvas_height, canvas_width);
@@ -1235,10 +1259,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
       if (osc_mode) {
         // Methodik v3 (OSC): stack in RGB space (debayer-before-stack).
-        // Debayer each prewarped frame once into a full-frame RGB cache, then
-        // extract only the needed RGB tiles during stacking.
-        if (!tile_has_common_overlap || !osc_rgb_cache_r || !osc_rgb_cache_g ||
-            !osc_rgb_cache_b) {
+        // Prefer a full-frame RGB cache only when it fits the memory model;
+        // otherwise fall back to tile-local debayering.
+        if (!tile_has_common_overlap) {
           tiles_failed++;
           return;
         }
@@ -1251,36 +1274,71 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         valid_tiles_R.reserve(frames.size());
         valid_tiles_G.reserve(frames.size());
         valid_tiles_B.reserve(frames.size());
-        Matrix2Df tile_r;
-        Matrix2Df tile_g;
-        Matrix2Df tile_b;
+        if (use_full_frame_osc_rgb_cache && osc_rgb_cache_r && osc_rgb_cache_g &&
+            osc_rgb_cache_b) {
+          Matrix2Df tile_r;
+          Matrix2Df tile_g;
+          Matrix2Df tile_b;
 
-        // Single pass: extract RGB tiles from the prebuilt full-frame cache
-        // and compute shared channel weights.
-        for (size_t fi = 0; fi < frames.size(); ++fi) {
-          if (!frame_has_data[fi])
-            continue;
-          const float frame_weight = compute_frame_tile_weight(fi);
-          if (!(frame_weight > 0.0f))
-            continue;
-          if (!osc_rgb_cache_r->extract_tile_into(fi, t, tile_r, 0, 0) ||
-              !osc_rgb_cache_g->extract_tile_into(fi, t, tile_g, 0, 0) ||
-              !osc_rgb_cache_b->extract_tile_into(fi, t, tile_b, 0, 0) ||
-              tile_r.rows() != t.height || tile_r.cols() != t.width ||
-              tile_g.rows() != t.height || tile_g.cols() != t.width ||
-              tile_b.rows() != t.height || tile_b.cols() != t.width) {
-            continue;
-          }
-          if (!tile_compile::runner::tile_has_nonzero_common_data(tile_g, ti,
-                                                                  tile_common_valid)) {
-            continue;
-          }
+          // Single pass: extract RGB tiles from the prebuilt full-frame cache
+          // and compute shared channel weights.
+          for (size_t fi = 0; fi < frames.size(); ++fi) {
+            if (!frame_has_data[fi])
+              continue;
+            const float frame_weight = compute_frame_tile_weight(fi);
+            if (!(frame_weight > 0.0f))
+              continue;
+            if (!osc_rgb_cache_r->extract_tile_into(fi, t, tile_r, 0, 0) ||
+                !osc_rgb_cache_g->extract_tile_into(fi, t, tile_g, 0, 0) ||
+                !osc_rgb_cache_b->extract_tile_into(fi, t, tile_b, 0, 0) ||
+                tile_r.rows() != t.height || tile_r.cols() != t.width ||
+                tile_g.rows() != t.height || tile_g.cols() != t.width ||
+                tile_b.rows() != t.height || tile_b.cols() != t.width) {
+              continue;
+            }
+            if (!tile_compile::runner::tile_has_nonzero_common_data(tile_g, ti,
+                                                                    tile_common_valid)) {
+              continue;
+            }
 
-          valid_tiles_R.push_back(std::move(tile_r));
-          valid_tiles_G.push_back(std::move(tile_g));
-          valid_tiles_B.push_back(std::move(tile_b));
-          frame_valid_tile_counts[fi].fetch_add(1);
-          channel_weights.push_back(frame_weight);
+            valid_tiles_R.push_back(std::move(tile_r));
+            valid_tiles_G.push_back(std::move(tile_g));
+            valid_tiles_B.push_back(std::move(tile_b));
+            frame_valid_tile_counts[fi].fetch_add(1);
+            channel_weights.push_back(frame_weight);
+          }
+        } else {
+          const int origin_x = std::max(0, t.x);
+          const int origin_y = std::max(0, t.y);
+          Matrix2Df tile_mosaic;
+          for (size_t fi = 0; fi < frames.size(); ++fi) {
+            if (!frame_has_data[fi])
+              continue;
+            const float frame_weight = compute_frame_tile_weight(fi);
+            if (!(frame_weight > 0.0f))
+              continue;
+            if (!prewarped_frames.extract_tile_into(fi, t, tile_mosaic, 0, 0) ||
+                tile_mosaic.rows() != t.height ||
+                tile_mosaic.cols() != t.width) {
+              continue;
+            }
+
+            auto deb = image::debayer_nearest_neighbor(tile_mosaic,
+                                                       detected_bayer, origin_x,
+                                                       origin_y);
+            if (!tile_compile::runner::
+                    apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
+                        deb.R, deb.G, deb.B, t, common_valid_mask,
+                        canvas_width, canvas_height)) {
+              continue;
+            }
+
+            valid_tiles_R.push_back(std::move(deb.R));
+            valid_tiles_G.push_back(std::move(deb.G));
+            valid_tiles_B.push_back(std::move(deb.B));
+            frame_valid_tile_counts[fi].fetch_add(1);
+            channel_weights.push_back(frame_weight);
+          }
         }
 
         if (valid_tiles_G.empty()) {
