@@ -87,6 +87,7 @@ preflight_macos() {
   require_cmd ninja "Install Ninja, for example with: brew install ninja"
   require_cmd pkg-config "Install pkg-config, for example with: brew install pkg-config"
   require_cmd otool "Xcode Command Line Tools are required."
+  require_cmd install_name_tool "Xcode Command Line Tools are required."
   require_cmd ditto "macOS system tool 'ditto' is required."
   require_cmd python3 "Install Python 3, for example with: brew install python"
 
@@ -181,16 +182,37 @@ macos_should_skip_bundle_dep() {
   local dep="$1"
   local name="$2"
   case "$name" in
-    libc++*.dylib|libunwind*.dylib|libc++abi*.dylib|libstdc++*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
+    libc++*.dylib|libc++abi*.dylib|libstdc++*.dylib|libclang_rt*.dylib|libobjc.A.dylib)
       return 0
       ;;
   esac
   case "$dep" in
-    */lib/clang/*|*/opt/llvm/lib/*)
+    */lib/clang/*)
       return 0
       ;;
   esac
   return 1
+}
+
+macos_bundle_ref_for_target() {
+  local target="$1"
+  local name="$2"
+  local target_dir=""
+  target_dir="$(cd "$(dirname "$target")" && pwd)"
+  case "$target_dir" in
+    "${PAYLOAD}/tile_compile_cpp/lib")
+      printf '%s\n' "@loader_path/${name}"
+      ;;
+    "${PAYLOAD}/tile_compile_cpp/build")
+      printf '%s\n' "@loader_path/../lib/${name}"
+      ;;
+    "${PAYLOAD}/web_backend_cpp/build")
+      printf '%s\n' "@loader_path/../../tile_compile_cpp/lib/${name}"
+      ;;
+    *)
+      printf '%s\n' "@loader_path/${name}"
+      ;;
+  esac
 }
 
 expand_macos_special_path() {
@@ -318,6 +340,52 @@ verify_macos_bundle_refs() {
   fi
 }
 
+rewrite_macos_bundle_refs() {
+  local targets_file=""
+  local deps_file=""
+  local target=""
+  local dep=""
+  local name=""
+  local bundled=""
+  local new_ref=""
+
+  targets_file="$(mktemp)"
+  find "${PAYLOAD}" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.so*" \) -print > "$targets_file"
+
+  while IFS= read -r target || [[ -n "$target" ]]; do
+    [[ -n "$target" ]] || continue
+
+    if [[ "$target" == "${PAYLOAD}/tile_compile_cpp/lib/"*".dylib" ]]; then
+      name="$(basename "$target")"
+      install_name_tool -id "@loader_path/${name}" "$target"
+    fi
+
+    deps_file="$(mktemp)"
+    macos_list_deps "$target" > "$deps_file"
+    while IFS= read -r dep || [[ -n "$dep" ]]; do
+      [[ -n "$dep" ]] || continue
+      case "$dep" in
+        /usr/lib/*|/System/*|@loader_path/*|@executable_path/*)
+          continue
+          ;;
+      esac
+      name="$(basename "$dep")"
+      bundled="${PAYLOAD}/tile_compile_cpp/lib/${name}"
+      if [[ ! -f "$bundled" ]]; then
+        continue
+      fi
+      new_ref="$(macos_bundle_ref_for_target "$target" "$name")"
+      if [[ "$dep" != "$new_ref" ]]; then
+        install_name_tool -change "$dep" "$new_ref" "$target"
+      fi
+    done < "$deps_file"
+    rm -f "$deps_file"
+    deps_file=""
+  done < "$targets_file"
+
+  rm -f "$targets_file"
+}
+
 assemble_bundle() {
   rm -rf "${ROOT}"
   mkdir -p "${ARTIFACTS_DIR}" "${PAYLOAD}/tile_compile_cpp/build" "${PAYLOAD}/tile_compile_cpp/lib" "${PAYLOAD}/web_backend_cpp/build"
@@ -332,7 +400,6 @@ assemble_bundle() {
   cp "${RUNNER_BUILD_DIR}/tile_compile_runner" "${PAYLOAD}/tile_compile_cpp/build/"
   cp "${RUNNER_BUILD_DIR}/tile_compile_cli" "${PAYLOAD}/tile_compile_cpp/build/"
   cp "${BACKEND_BUILD_DIR}/tile_compile_web_backend" "${PAYLOAD}/web_backend_cpp/build/"
-  # Keep Homebrew install names untouched; the launcher exports DYLD_LIBRARY_PATH.
   echo "[gui2-package] Collecting macOS runtime libraries"
   collect_macos_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_runner"
   collect_macos_libs "${PAYLOAD}/tile_compile_cpp/build/tile_compile_cli"
@@ -340,9 +407,10 @@ assemble_bundle() {
   find "${PAYLOAD}/tile_compile_cpp/lib" -type f \( \
       -name "libc++*.dylib" -o \
       -name "libc++abi*.dylib" -o \
-      -name "libunwind*.dylib" -o \
       -name "libstdc++*.dylib" -o \
       -name "libclang_rt*.dylib" \) -delete
+  echo "[gui2-package] Rewriting macOS bundled library references"
+  rewrite_macos_bundle_refs
   printf '%s\n' "${TAG}" > "${PAYLOAD}/.gui2-release-tag"
   echo "[gui2-package] Verifying bundled library references"
   verify_macos_bundle_refs
