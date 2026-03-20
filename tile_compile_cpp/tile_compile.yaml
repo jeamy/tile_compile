@@ -148,7 +148,7 @@ pcc:
   mag_bright_limit: 6
   mag_limit: 14
   max_condition_number: 3
-  max_residual_rms: 0.5
+  max_residual_rms: 0.6
   min_aperture_px: 4
   min_stars: 10
   radii_mode: auto_fwhm
