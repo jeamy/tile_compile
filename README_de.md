@@ -473,6 +473,12 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.2 (2026-03-20)
+
+- Alt/Az-Registrierungsvalidierung korrigiert: Warps werden jetzt auf dem tatsächlichen gemeinsamen Überlapp bewertet statt auf dem beschnittenen Vollbild-Canvas.
+- Zu aggressive CC-Outlier-Verwerfung für lange rotierende Sessions entschärft: die CC-Schwelle ist jetzt absolut und nicht mehr relativ zur globalen Run-MAD-Verteilung.
+- Extrapolation des Feldrotationsmodells außerhalb des Bereichs echter Registrierungen korrigiert: Rand-/Tail-Frames verwenden jetzt eine begrenzte Bridge-Vorhersage statt instabiler lokaler Polynom-Explosion.
+
 ## v0.1.1 (2026-03-19)
 
 - GUI2-Tool-Persistenz und PCC-Speicherworkflow verbessert, einschließlich temp-basierter Speicherung und plattformübergreifend konsistentem Verhalten bei Temp-Pfaden.
@@ -572,6 +578,15 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-20)
+
+**Stabilisierung von Registrierung/Feldrotation für lange Alt/Az-Sessions (`v0.1.2`):**
+
+- Die globale Registrierungsvalidierung in `tile_compile_cpp/` so korrigiert, dass NCC-Vergleiche nur noch auf der tatsächlich gültigen Überlappungsmaske des gewarpten Frames berechnet werden statt auf dem beschnittenen Vollbild-Canvas. Dadurch werden korrekt größere Rotationswarps nicht mehr allein wegen abgeschnittener Ecken im festen Proxy-Bild verworfen.
+- Dieselbe overlap-maskierte NCC-Validierung auch auf das temporale Rescue-Chaining angewendet, sodass Nachbar-zu-Referenz-Rescues nicht mehr aus demselben Crop-Canvas-Grund scheitern.
+- Die CC-basierte Outlier-Verwerfung für lange rotierende Läufe überarbeitet: das `low_cc`-Reject-Gate verwendet jetzt direkt die konfigurierte absolute Mindestschwelle statt einer run-globalen Median/MAD-Schwelle, die viele geometrisch plausible Randframes fälschlich verworfen hat.
+- Die Vorhersage des Feldrotationsmodells außerhalb des Bereichs echter Registrierungen korrigiert: Tail-/Head-Frames nutzen keine instabile lokale Polynom-Extrapolation mehr, sondern fallen auf eine begrenzte Bridge-artige Randvorhersage zurück. Das verhindert die massiven Fächer-/Keil-Artefakte aus der M66-Alt/Az-Regression.
 
 ### (2026-03-19)
 

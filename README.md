@@ -463,6 +463,12 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.2 (2026-03-20)
+
+- Fixed Alt/Az registration validation to score warps on the actual common overlap instead of the cropped full-frame canvas.
+- Relaxed over-aggressive CC outlier rejection for long rotating sessions by keeping the CC threshold absolute instead of run-global MAD-relative.
+- Fixed field-rotation model extrapolation outside the span of valid registrations so edge/tail frames use bounded bridge prediction instead of unstable local polynomial blow-up.
+
 ## v0.1.1 (2026-03-19)
 
 - Improved GUI2 tool persistence and PCC save handling, including temporary-output based saving and cross-platform temp-path behavior.
@@ -562,6 +568,15 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-03-20)
+
+**Registration/field-rotation stabilization for long Alt/Az sessions (`v0.1.2`):**
+
+- Fixed global registration validation in `tile_compile_cpp/` so NCC comparisons are computed only on the actual valid overlap mask of the warped frame instead of on the cropped full-frame canvas. This prevents correct larger-rotation warps from being rejected just because rotated corners fall outside the fixed proxy image.
+- Applied the same overlap-masked NCC validation to temporal rescue chaining, so neighbor-to-reference rescue no longer fails for the same cropped-canvas reason.
+- Reworked global registration outlier CC filtering for long rotating runs: the `low_cc` reject gate now uses the configured absolute minimum directly instead of a run-global median/MAD threshold that incorrectly rejected many geometrically plausible edge frames.
+- Fixed field-rotation model prediction outside the span of real registrations: tail/head frames no longer use unstable local polynomial extrapolation and instead fall back to bounded bridge-style edge prediction, preventing the severe fan-out / wedge artifacts seen on the M66 Alt/Az regression run.
 
 ### (2026-03-19)
 
