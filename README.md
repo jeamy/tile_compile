@@ -463,6 +463,11 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.3 (2026-03-21)
+
+- Added per-frame registration provenance and chain-depth tracking in the C++ registration artifacts, including stricter blind-chain anchor rules to limit drift through weak sequential rescue chains.
+- Fixed GUI2 resume/run-monitor status updates so the active phase/status becomes visible immediately without requiring a manual page refresh.
+
 ## v0.1.2 (2026-03-20)
 
 - Fixed Alt/Az registration validation to score warps on the actual common overlap instead of the cropped full-frame canvas.
@@ -568,6 +573,15 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-03-21)
+
+**Registration provenance/depth diagnostics + resume status visibility (`v0.1.3`):**
+
+- Extended `tile_compile_cpp/apps/runner_phase_registration.cpp` so each frame now carries explicit registration provenance (`direct_global`, `sequential_rescue`, `temporal_rescue`, modeled variants, etc.) plus `chain_depth`, and writes that information into `global_registration.json`.
+- Tightened blind sequential chaining: weak `sequential_rescue` frames no longer act as effectively unlimited anchors; anchor reuse is now capped by chain depth unless correlation is strong enough.
+- Added aggregate registration diagnostics such as source counts, maximum observed chain depth, and blocked blind-chain-anchor attempts to the registration artifact metadata.
+- Fixed GUI2/backend resume status handling so the monitor subtitle and phase state update immediately after `resume`, including the case where the runner has started but the next `resume_start` event has not yet been written to the run log.
 
 ### (2026-03-20)
 

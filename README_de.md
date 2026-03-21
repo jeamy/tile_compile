@@ -473,6 +473,11 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.3 (2026-03-21)
+
+- Pro-Frame-Tracking für Registration-Herkunft und Kettentiefe in den C++-Registrierungsartefakten ergänzt, inklusive strengerer Blind-Chain-Ankerregeln zur Driftbegrenzung in schwachen sequentiellen Rescue-Ketten.
+- GUI2-Resume-/Run-Monitor-Statusaktualisierung korrigiert, sodass aktive Phase und Status ohne manuelles Seiten-Refresh sofort sichtbar werden.
+
 ## v0.1.2 (2026-03-20)
 
 - Alt/Az-Registrierungsvalidierung korrigiert: Warps werden jetzt auf dem tatsächlichen gemeinsamen Überlapp bewertet statt auf dem beschnittenen Vollbild-Canvas.
@@ -578,6 +583,15 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-21)
+
+**Registration-Provenance/Kettentiefe-Diagnostik + Resume-Statussichtbarkeit (`v0.1.3`):**
+
+- `tile_compile_cpp/apps/runner_phase_registration.cpp` erweitert: Jeder Frame trägt jetzt eine explizite Registration-Herkunft (`direct_global`, `sequential_rescue`, `temporal_rescue`, modellierte Varianten usw.) plus `chain_depth`, und diese Informationen werden in `global_registration.json` geschrieben.
+- Blindes sequentielles Chaining verschärft: Schwache `sequential_rescue`-Frames dienen nicht mehr praktisch unbegrenzt als neue Anker; die Weiterverwendung wird jetzt über Kettentiefe begrenzt, außer die Korrelation ist stark genug.
+- Zusätzliche Registration-Diagnostik in die Artefakt-Metadaten aufgenommen, darunter Source-Counts, maximale beobachtete Kettentiefe und blockierte Blind-Chain-Ankerversuche.
+- GUI2-/Backend-Resume-Statuspfad korrigiert, sodass Monitor-Untertitel und Phasenstatus direkt nach `resume` aktualisiert werden, auch wenn der Runner schon läuft, aber das nächste `resume_start`-Event noch nicht im Run-Log steht.
 
 ### (2026-03-20)
 
