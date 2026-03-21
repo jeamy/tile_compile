@@ -74,13 +74,13 @@ registration:
   engine: triangle_star_matching # triangle_star_matching|star_similarity|hybrid_phase_ecc|robust_phase_ecc
   enable_star_pair_fallback: true
   allow_rotation: true # PFLICHT fuer Alt/Az: Feldrotation erzeugt >20 Grad ueber eine Session
+  transform_model: affine # Alt/Az: affine verfeinert lokale Scale-/Shear-Reste besser
   star_topk: 150 # mehr Sterne fuer robustes Matching bei Rotation und Wolken
   star_min_inliers: 4 # Mindestzahl Inlier fuer Stern-Matching
   star_inlier_tol_px: 4.0 # etwas toleranter fuer Rotationsresiduen
   star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
   reject_outliers: true # globale Registrierungs-Ausreisser verwerfen
-  reject_cc_min_abs: 0.30 # etwas niedriger: bei Feldrotation koennen Rand-Frames niedrigeres CC haben
-  reject_cc_mad_multiplier: 4.0 # robuster CC-Schwellenfaktor (median - k*MAD)
+  reject_cc_min_abs: 0.25 # bei Feldrotation koennen Rand-Frames deutlich niedrigeres CC haben
   reject_shift_px_min: 100.0 # HOCH fuer Alt/Az: Feldrotation erzeugt natuerlich grosse Shifts (>500px moeglich)
   reject_shift_median_multiplier: 5.0 # weite Shift-Verteilung bei Feldrotation tolerieren
   reject_scale_min: 0.92 # minimale erlaubte Similarity-Skalierung

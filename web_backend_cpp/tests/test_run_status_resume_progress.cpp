@@ -1,9 +1,11 @@
 #include "backend_test_harness.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 
 int main(int argc, char** argv) {
     if (argc < 5) return 2;
+    ::setenv("FAKE_TILE_COMPILE_RUNNER_SLEEP_MS", "1500", 1);
     BackendHarness harness(argv[1], argv[2], argv[3], argv[4]);
     try {
         harness.start();
@@ -100,6 +102,47 @@ int main(int argc, char** argv) {
         }
         expect_true(found_astrometry_after_pcc_resume, "astrometry phase present after pcc resume");
         expect_true(found_pcc_after_pcc_resume, "pcc phase present after pcc resume");
+
+        harness.create_run("resume_overlay_without_events", {
+            {{"ts", "2026-03-10T14:00:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
+            {{"ts", "2026-03-10T14:00:01Z"}, {"type", "phase_end"}, {"phase_name", "ASTROMETRY"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T14:00:02Z"}, {"type", "phase_start"}, {"phase_name", "BGE"}},
+            {{"ts", "2026-03-10T14:00:03Z"}, {"type", "phase_end"}, {"phase_name", "BGE"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T14:00:04Z"}, {"type", "phase_start"}, {"phase_name", "PCC"}},
+            {{"ts", "2026-03-10T14:00:05Z"}, {"type", "phase_end"}, {"phase_name", "PCC"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T14:00:06Z"}, {"type", "run_end"}, {"success", true}}
+        }, "OSC");
+
+        const auto resumed = harness.post_json("/api/runs/resume_overlay_without_events/resume", {
+            {"from_phase", "BGE"},
+            {"run_dir", (harness.fixture_root() / "runs" / "resume_overlay_without_events").string()},
+            {"config_yaml", "data:\n  color_mode: OSC\n"}
+        });
+        expect_equal(resumed["_http_status"].get<long>(), 202L, "resume overlay launch status");
+
+        const auto overlay_status = harness.get_json("/api/runs/resume_overlay_without_events/status");
+        expect_equal(overlay_status["_http_status"].get<long>(), 200L, "resume overlay status code");
+        expect_equal(overlay_status["status"].get<std::string>(), "running", "resume overlay run status");
+        expect_equal(overlay_status["current_phase"].get<std::string>(), "BGE", "resume overlay current phase");
+        bool found_overlay_bge = false;
+        bool found_overlay_pcc = false;
+        for (const auto& item : overlay_status["phases"]) {
+            if (item.value("phase", "") == "BGE") {
+                found_overlay_bge = true;
+                expect_equal(item["status"].get<std::string>(), "running", "resume overlay bge status");
+                expect_equal(item["pct"].get<double>(), 0.0, "resume overlay bge pct", 1e-9);
+            }
+            if (item.value("phase", "") == "PCC") {
+                found_overlay_pcc = true;
+                expect_equal(item["status"].get<std::string>(), "pending", "resume overlay resets later phases");
+                expect_equal(item["pct"].get<double>(), 0.0, "resume overlay resets later phase pct", 1e-9);
+            }
+        }
+        expect_true(found_overlay_bge, "resume overlay target phase present");
+        expect_true(found_overlay_pcc, "resume overlay later phase present");
+
+        const auto resumed_job = harness.wait_for_job(resumed["job_id"].get<std::string>(), 5.0);
+        expect_equal(resumed_job["state"].get<std::string>(), "ok", "resume overlay job completes");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

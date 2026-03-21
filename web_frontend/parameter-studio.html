@@ -119,6 +119,14 @@
                 <span class="ps-hint">Kurz: fuer Alt/Az und starke Rotation aktiv lassen.</span>
               </div>
               <div class="ps-row">
+                <label for="parameter-registration-transform-model">registration.transform_model</label>
+                <select id="parameter-registration-transform-model" data-control="parameter.registration.transform_model" class="ps-select" title="Transformationsmodell fuer globale Registrierung.">
+                  <option>similarity</option>
+                  <option selected>affine</option>
+                </select>
+                <span class="ps-hint">Kurz: `similarity` fuer EQ, `affine` fuer Alt/Az und rotierende Felder.</span>
+              </div>
+              <div class="ps-row">
                 <label for="parameter-registration-star-topk">registration.star_topk</label>
                 <input id="parameter-registration-star-topk" data-control="parameter.registration.star_topk" class="ps-input ps-short" type="number" value="180" title="Anzahl Top-Sterne fuer Matching.">
                 <span class="ps-hint">Kurz: mehr Sterne erhoehen Robustheit, kosten aber Laufzeit.</span>
@@ -129,7 +137,7 @@
               </div>
               <div class="ps-row">
                 <label for="parameter-registration-reject-cc">registration.reject_cc_min_abs</label>
-                <input id="parameter-registration-reject-cc" data-control="parameter.registration.reject_cc_min_abs" class="ps-input ps-short" type="number" step="0.01" value="0.30" title="Mindestwert fuer Cross-Correlation bei Match-Reject.">
+                <input id="parameter-registration-reject-cc" data-control="parameter.registration.reject_cc_min_abs" class="ps-input ps-short" type="number" step="0.01" value="0.25" title="Mindestwert fuer Cross-Correlation bei Match-Reject.">
               </div>
             </div>
 

@@ -81,6 +81,10 @@ properties:
         type: string
         enum: [triangle_star_matching, star_similarity, hybrid_phase_ecc, robust_phase_ecc]
         description: "Primary registration engine. robust_phase_ecc recommended for nebula/clouds (LoG gradient preprocessing). triangle_star_matching for clear skies (faster, rotation-invariant)."
+      transform_model:
+        type: string
+        enum: [similarity, affine]
+        description: "Global transform family for star/feature registration. similarity keeps rotation plus uniform scale, affine additionally allows shear."
       enable_star_pair_fallback:
         type: boolean
         description: "Enable additional star-pair fallback between primary triangle and normative fallback cascade. strict profile disables this."
@@ -91,7 +95,6 @@ properties:
       star_dist_bin_px: {type: number, exclusiveMinimum: 0}
       reject_outliers: {type: boolean}
       reject_cc_min_abs: {type: number, minimum: 0, maximum: 1}
-      reject_cc_mad_multiplier: {type: number, exclusiveMinimum: 0}
       reject_shift_px_min: {type: number, minimum: 0}
       reject_shift_median_multiplier: {type: number, exclusiveMinimum: 0}
       reject_scale_min: {type: number, exclusiveMinimum: 0}

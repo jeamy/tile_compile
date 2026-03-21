@@ -8,6 +8,7 @@
   const PARAM_CONTROL_PATHS = {
     "parameter.registration.engine": "registration.engine",
     "parameter.registration.allow_rotation": "registration.allow_rotation",
+    "parameter.registration.transform_model": "registration.transform_model",
     "parameter.registration.star_topk": "registration.star_topk",
     "parameter.registration.star_inlier_tol_px": "registration.star_inlier_tol_px",
     "parameter.registration.reject_cc_min_abs": "registration.reject_cc_min_abs",
@@ -143,6 +144,7 @@
   const scenarioDeltas = {
     altaz: [
       ["registration.allow_rotation", "true", "allow_rotation"],
+      ["registration.transform_model", "affine", "affine_model_for_rotating_sessions"],
       ["registration.star_topk", "180", "more_star_candidates"],
       ["registration.reject_shift_px_min", "120", "tolerate_large_natural_shifts"],
       ["registration.reject_shift_median_multiplier", "5.0", "wider_shift_distribution"],
@@ -150,8 +152,9 @@
     rotation: [
       ["registration.engine", "robust_phase_ecc", "robust_for_field_rotation"],
       ["registration.allow_rotation", "true", "required_for_rotation"],
+      ["registration.transform_model", "affine", "affine_model_for_rotating_sessions"],
       ["registration.star_inlier_tol_px", "4.0", "more_tolerant_inlier_condition"],
-      ["registration.reject_cc_min_abs", "0.30", "avoid_too_strict_cc_limits"],
+      ["registration.reject_cc_min_abs", "0.25", "avoid_too_strict_cc_limits"],
     ],
     bright_stars: [
       ["pcc.mag_bright_limit", "6", "limit_very_bright_stars"],
@@ -582,6 +585,31 @@
     return "";
   }
 
+  function staticGroupsForCategory(category) {
+    return Array.from(document.querySelectorAll(`.ps-parameter-group[data-category="${category}"]`))
+      .filter((group) => group !== editorGroup && group.dataset.schemaVisible === "1");
+  }
+
+  function collectStaticPathsForCategory(category) {
+    const paths = new Set();
+    staticGroupsForCategory(category).forEach((group) => {
+      group.querySelectorAll(".ps-row").forEach((row) => {
+        const path = resolvePathFromElement(row) || String(row.querySelector("label")?.textContent || "").trim();
+        if (path && validSchemaPaths.has(path)) paths.add(path);
+      });
+    });
+    return paths;
+  }
+
+  function findStaticRowByPath(path) {
+    const normalized = String(path || "").trim();
+    if (!normalized) return null;
+    return staticRows.find((row) => {
+      const rowPath = resolvePathFromElement(row) || String(row.querySelector("label")?.textContent || "").trim();
+      return rowPath === normalized;
+    }) || null;
+  }
+
   function bindExplainInteractions(root = document) {
     root.querySelectorAll(".ps-row label, .ps-row input, .ps-row select, .ps-row textarea").forEach((el) => {
       if (el.dataset.explainBound === "1") return;
@@ -643,17 +671,21 @@
   }
 
   function renderDynamicEditor(category) {
-    if (!editorMetaEl || !editorFieldsEl) return;
+    if (!editorMetaEl || !editorFieldsEl) return { entryCount: 0, staticCount: 0 };
+    const staticPaths = category === "all" ? new Set() : collectStaticPathsForCategory(category);
     const entries = paramEditorIndex
-      .filter((entry) => category === "all" || entry.category === category)
+      .filter((entry) => (category === "all" || entry.category === category) && !staticPaths.has(entry.path))
       .sort((a, b) => String(a.path).localeCompare(String(b.path)));
+    const staticCount = staticPaths.size;
     editorMetaEl.innerHTML =
       category === "all"
         ? `<b>${escapeHtml(textFor("page.parameter_studio.editor.all", "All"))}</b> - ${entries.length} ${escapeHtml(textFor("page.parameter_studio.editor.editable_count", "editable parameters, grouped by category"))}`
-        : `<b>${escapeHtml(category)}</b> - ${entries.length} ${escapeHtml(textFor("page.parameter_studio.editor.editable_short", "editable parameters"))}`;
+        : `<b>${escapeHtml(category)}</b> - ${entries.length} ${escapeHtml(textFor("page.parameter_studio.editor.editable_short", "editable parameters"))}${staticCount > 0 ? ` (${staticCount} ${escapeHtml(textFor("page.parameter_studio.editor.handled_in_section", "already shown in the section above"))})` : ""}`;
     if (entries.length === 0) {
-      editorFieldsEl.innerHTML = `<div class="ps-note">${escapeHtml(textFor("page.parameter_studio.editor.none_in_category", "No parameters in this category."))}</div>`;
-      return;
+      editorFieldsEl.innerHTML = staticCount > 0
+        ? ""
+        : `<div class="ps-note">${escapeHtml(textFor("page.parameter_studio.editor.none_in_category", "No parameters in this category."))}</div>`;
+      return { entryCount: 0, staticCount };
     }
     if (category === "all") {
       const grouped = orderedCategories(entries)
@@ -672,6 +704,7 @@
       editorFieldsEl.innerHTML = renderDynamicRows(entries);
     }
     bindExplainInteractions(editorFieldsEl);
+    return { entryCount: entries.length, staticCount };
   }
 
   function setCategory(category) {
@@ -692,16 +725,23 @@
       bindExplainInteractions(document);
       return;
     }
-    if (editorGroup) editorGroup.style.display = "";
+    let hasStaticVisible = false;
     document.querySelectorAll(`.ps-parameter-group[data-category="${requested}"]`).forEach((group) => {
-      if (group === editorGroup || group.dataset.schemaVisible === "1") group.style.display = "";
+      if (group === editorGroup) return;
+      if (group.dataset.schemaVisible === "1") {
+        hasStaticVisible = true;
+        group.style.display = "";
+      }
     });
-    renderDynamicEditor(requested);
+    const editorState = renderDynamicEditor(requested);
+    if (editorGroup) {
+      editorGroup.style.display = editorState.entryCount > 0 || !hasStaticVisible ? "" : "none";
+    }
     bindExplainInteractions(document);
   }
 
   function clearSearchHits() {
-    document.querySelectorAll(".ps-dyn-row.ps-search-hit").forEach((row) => row.classList.remove("ps-search-hit"));
+    document.querySelectorAll(".ps-search-hit").forEach((row) => row.classList.remove("ps-search-hit"));
   }
 
   function jumpToPath(path) {
@@ -712,7 +752,7 @@
     }
     setCategory(entry.category || "all");
     clearSearchHits();
-    const row = editorFieldsEl.querySelector(`.ps-dyn-row[data-path="${CSS.escape(path)}"]`);
+    const row = editorFieldsEl.querySelector(`.ps-dyn-row[data-path="${CSS.escape(path)}"]`) || findStaticRowByPath(path);
     if (row) {
       row.classList.add("ps-search-hit");
       row.scrollIntoView({ behavior: "smooth", block: "center" });

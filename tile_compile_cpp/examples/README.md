@@ -41,7 +41,6 @@ They are kept in sync with the active runner/config parser defaults, including:
   - includes configurable global-registration outlier rejection:
     - `reject_outliers`
     - `reject_cc_min_abs`
-    - `reject_cc_mad_multiplier`
     - `reject_shift_px_min`
     - `reject_shift_median_multiplier`
     - `reject_scale_min`
@@ -157,9 +156,10 @@ Use stricter rejection to prevent false matches:
 
 ```yaml
 registration:
+  transform_model: similarity
   star_topk: 120
   star_inlier_tol_px: 2.5
-  reject_cc_min_abs: 0.35
+  reject_cc_min_abs: 0.30
   reject_shift_px_min: 40.0
   reject_shift_median_multiplier: 3.0
 stacking:
@@ -177,9 +177,10 @@ Use tolerant rejection because large shift/rotation is physically expected:
 
 ```yaml
 registration:
+  transform_model: affine
   star_topk: 150
   star_inlier_tol_px: 4.0
-  reject_cc_min_abs: 0.30
+  reject_cc_min_abs: 0.25
   reject_shift_px_min: 100.0
   reject_shift_median_multiplier: 5.0
 stacking:

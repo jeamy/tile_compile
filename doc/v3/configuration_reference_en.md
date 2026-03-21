@@ -433,7 +433,7 @@ All chained warps are validated with NCC against the reference frame. Particular
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
-| **Default** | `120` |
+| **Default** | `150` |
 
 **Purpose:** Number of strongest stars used for star-based matching.
 
@@ -442,7 +442,7 @@ All chained warps are validated with NCC against the reference frame. Particular
 | Property | Value |
 |----------|-------|
 | **Type** | integer |
-| **Default** | `6` |
+| **Default** | `4` |
 
 **Purpose:** Minimum inlier matches required for acceptance.
 
@@ -451,7 +451,7 @@ All chained warps are validated with NCC against the reference frame. Particular
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `2.5` |
+| **Default** | `4.0` |
 
 **Purpose:** Inlier tolerance in pixels for transformed star matches.
 
@@ -460,7 +460,7 @@ All chained warps are validated with NCC against the reference frame. Particular
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `2.5` |
+| **Default** | `5.0` |
 
 **Purpose:** Distance histogram bin size in `star_similarity`.
 
@@ -478,25 +478,16 @@ All chained warps are validated with NCC against the reference frame. Particular
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `0.35` |
+| **Default** | `0.25` |
 
 **Purpose:** Absolute minimum correlation coefficient threshold.
-
-### `registration.reject_cc_mad_multiplier`
-
-| Property | Value |
-|----------|-------|
-| **Type** | number |
-| **Default** | `4.0` |
-
-**Purpose:** MAD-based robustness for CC outlier threshold.
 
 ### `registration.reject_shift_px_min`
 
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `25.0` |
+| **Default** | `100.0` |
 
 **Purpose:** Fixed minimum shift threshold for rejection logic.
 
@@ -505,7 +496,7 @@ All chained warps are validated with NCC against the reference frame. Particular
 | Property | Value |
 |----------|-------|
 | **Type** | number |
-| **Default** | `3.0` |
+| **Default** | `5.0` |
 
 **Purpose:** Multiplier for robust shift threshold (`multiplier * median_shift`).
 
@@ -1692,7 +1683,6 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `registration.star_dist_bin_px`: distance histogram quantization for star-similarity engine.
 - `registration.reject_outliers`: enables robust rejection of implausible warps after matching.
 - `registration.reject_cc_min_abs`: absolute NCC floor in outlier logic.
-- `registration.reject_cc_mad_multiplier`: robust CC threshold scaling from MAD statistic.
 - `registration.reject_shift_px_min`: absolute shift floor for shift-outlier rejection.
 - `registration.reject_shift_median_multiplier`: relative shift threshold scale from median shift.
 - `registration.reject_scale_min`, `reject_scale_max`: accepted similarity scale band.

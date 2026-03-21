@@ -119,9 +119,66 @@ cv::Mat to_uint8_stretch(const Matrix2Df &src) {
   return out;
 }
 
+static cv::Mat estimate_affine_family_transform(
+    const std::vector<cv::Point2f> &pts_mov,
+    const std::vector<cv::Point2f> &pts_ref,
+    const std::string &transform_model, cv::Mat &inliers,
+    double ransac_threshold = 3.0, size_t max_iters = 2000,
+    double confidence = 0.99) {
+  if (transform_model == "affine") {
+    return cv::estimateAffine2D(pts_mov, pts_ref, inliers, cv::RANSAC,
+                                ransac_threshold, max_iters, confidence);
+  }
+  return cv::estimateAffinePartial2D(pts_mov, pts_ref, inliers, cv::RANSAC,
+                                     ransac_threshold, max_iters, confidence);
+}
+
+static bool invert_forward_affine_to_warp(const cv::Mat &A,
+                                          bool allow_rotation, WarpMatrix &warp,
+                                          std::string *error_message = nullptr) {
+  if (A.empty()) {
+    if (error_message) {
+      *error_message = "transform_fail";
+    }
+    return false;
+  }
+
+  float a00_fw = static_cast<float>(A.at<double>(0, 0));
+  float a01_fw = static_cast<float>(A.at<double>(0, 1));
+  float a10_fw = static_cast<float>(A.at<double>(1, 0));
+  float a11_fw = static_cast<float>(A.at<double>(1, 1));
+  float tx_fw = static_cast<float>(A.at<double>(0, 2));
+  float ty_fw = static_cast<float>(A.at<double>(1, 2));
+
+  if (!allow_rotation) {
+    a00_fw = 1.0f;
+    a01_fw = 0.0f;
+    a10_fw = 0.0f;
+    a11_fw = 1.0f;
+  }
+
+  const float det = a00_fw * a11_fw - a01_fw * a10_fw;
+  if (std::fabs(det) < 1e-8f) {
+    if (error_message) {
+      *error_message = "singular_matrix";
+    }
+    return false;
+  }
+  const float inv_det = 1.0f / det;
+  const float a00_inv = a11_fw * inv_det;
+  const float a01_inv = -a01_fw * inv_det;
+  const float a10_inv = -a10_fw * inv_det;
+  const float a11_inv = a00_fw * inv_det;
+  const float tx_inv = -(a00_inv * tx_fw + a01_inv * ty_fw);
+  const float ty_inv = -(a10_inv * tx_fw + a11_inv * ty_fw);
+  warp << a00_inv, a01_inv, tx_inv, a10_inv, a11_inv, ty_inv;
+  return true;
+}
+
 RegistrationResult feature_registration_similarity(const Matrix2Df &mov,
                                                    const Matrix2Df &ref,
-                                                   bool allow_rotation) {
+                                                   bool allow_rotation,
+                                                   const std::string &transform_model) {
   cv::Mat ref_cv = to_uint8_stretch(ref);
   cv::Mat mov_cv = to_uint8_stretch(mov);
 
@@ -170,44 +227,16 @@ RegistrationResult feature_registration_similarity(const Matrix2Df &mov,
   }
 
   cv::Mat inliers;
-  cv::Mat A = cv::estimateAffinePartial2D(pts_mov, pts_ref, inliers, cv::RANSAC,
-                                          3.0, 2000, 0.99);
+  cv::Mat A = estimate_affine_family_transform(pts_mov, pts_ref,
+                                               transform_model, inliers);
   if (A.empty()) {
-    res.error_message = "affine fail";
+    res.error_message = "transform_fail";
     return res;
   }
-
-  // Forward warp (M→R) from estimateAffinePartial2D
-  float a00_fw = static_cast<float>(A.at<double>(0, 0));
-  float a01_fw = static_cast<float>(A.at<double>(0, 1));
-  float a10_fw = static_cast<float>(A.at<double>(1, 0));
-  float a11_fw = static_cast<float>(A.at<double>(1, 1));
-  float tx_fw = static_cast<float>(A.at<double>(0, 2));
-  float ty_fw = static_cast<float>(A.at<double>(1, 2));
-
-  if (!allow_rotation) {
-    a00_fw = 1.0f;
-    a01_fw = 0.0f;
-    a10_fw = 0.0f;
-    a11_fw = 1.0f;
-  }
-  // No rotation limit: AKAZE features are rotation-invariant.
-
-  // Invert to (R→M) for apply_warp with WARP_INVERSE_MAP
-  const float det = a00_fw * a11_fw - a01_fw * a10_fw;
-  if (std::fabs(det) < 1e-8f) {
-    res.error_message = "singular matrix";
+  if (!invert_forward_affine_to_warp(A, allow_rotation, res.warp,
+                                     &res.error_message)) {
     return res;
   }
-  const float inv_det = 1.0f / det;
-  const float a00_inv = a11_fw * inv_det;
-  const float a01_inv = -a01_fw * inv_det;
-  const float a10_inv = -a10_fw * inv_det;
-  const float a11_inv = a00_fw * inv_det;
-  const float tx_inv = -(a00_inv * tx_fw + a01_inv * ty_fw);
-  const float ty_inv = -(a10_inv * tx_fw + a11_inv * ty_fw);
-
-  res.warp << a00_inv, a01_inv, tx_inv, a10_inv, a11_inv, ty_inv;
   int inl = inliers.empty() ? 0 : cv::countNonZero(inliers);
   res.correlation = matches.empty() ? 0.0f
                                     : static_cast<float>(inl) /
@@ -403,6 +432,111 @@ SimilarityResult score_similarity(const std::vector<StarPoint> &mov,
   return res;
 }
 
+static std::vector<std::pair<cv::Point2f, cv::Point2f>>
+build_similarity_consensus_pairs(const std::vector<StarPoint> &mov,
+                                 const std::vector<StarPoint> &ref,
+                                 const SimilarityResult &best,
+                                 float inlier_tol_px) {
+  struct Candidate {
+    int mov_idx = -1;
+    int ref_idx = -1;
+    float dist = 0.0f;
+  };
+
+  std::vector<Candidate> candidates;
+  candidates.reserve(mov.size());
+  const float ct = std::cos(best.theta);
+  const float st = std::sin(best.theta);
+  for (size_t mi = 0; mi < mov.size(); ++mi) {
+    const auto &m = mov[mi];
+    const float xr = best.scale * (ct * m.x - st * m.y) + best.t.x();
+    const float yr = best.scale * (st * m.x + ct * m.y) + best.t.y();
+    int best_ref_idx = -1;
+    float best_dist = std::numeric_limits<float>::max();
+    for (size_t ri = 0; ri < ref.size(); ++ri) {
+      const float dx = xr - ref[ri].x;
+      const float dy = yr - ref[ri].y;
+      const float d = std::sqrt(dx * dx + dy * dy);
+      if (d < best_dist) {
+        best_dist = d;
+        best_ref_idx = static_cast<int>(ri);
+      }
+    }
+    if (best_ref_idx >= 0 && best_dist < inlier_tol_px) {
+      candidates.push_back(
+          {static_cast<int>(mi), best_ref_idx, best_dist});
+    }
+  }
+
+  std::sort(candidates.begin(), candidates.end(),
+            [](const Candidate &a, const Candidate &b) {
+              return a.dist < b.dist;
+            });
+  std::vector<char> ref_used(ref.size(), 0);
+  std::vector<std::pair<cv::Point2f, cv::Point2f>> pairs;
+  pairs.reserve(candidates.size());
+  for (const Candidate &c : candidates) {
+    if (c.ref_idx < 0 || c.ref_idx >= static_cast<int>(ref.size()) ||
+        ref_used[static_cast<size_t>(c.ref_idx)] != 0) {
+      continue;
+    }
+    ref_used[static_cast<size_t>(c.ref_idx)] = 1;
+    pairs.emplace_back(cv::Point2f(mov[static_cast<size_t>(c.mov_idx)].x,
+                                   mov[static_cast<size_t>(c.mov_idx)].y),
+                       cv::Point2f(ref[static_cast<size_t>(c.ref_idx)].x,
+                                   ref[static_cast<size_t>(c.ref_idx)].y));
+  }
+  return pairs;
+}
+
+static bool maybe_refine_similarity_to_affine(
+    const std::vector<StarPoint> &mov, const std::vector<StarPoint> &ref,
+    const SimilarityResult &best, bool allow_rotation, float inlier_tol_px,
+    int min_inliers, const std::string &transform_model, WarpMatrix &warp,
+    float &correlation, std::string &error_message) {
+  if (transform_model != "affine") {
+    return false;
+  }
+
+  const auto pairs =
+      build_similarity_consensus_pairs(mov, ref, best, inlier_tol_px);
+  if (pairs.size() < 3) {
+    error_message = "few_affine_pairs";
+    return false;
+  }
+
+  std::vector<cv::Point2f> pts_mov;
+  std::vector<cv::Point2f> pts_ref;
+  pts_mov.reserve(pairs.size());
+  pts_ref.reserve(pairs.size());
+  for (const auto &p : pairs) {
+    pts_mov.push_back(p.first);
+    pts_ref.push_back(p.second);
+  }
+
+  cv::Mat inliers;
+  cv::Mat A = estimate_affine_family_transform(
+      pts_mov, pts_ref, "affine", inliers,
+      std::max(3.0f, inlier_tol_px * 1.5f));
+  if (A.empty()) {
+    error_message = "affine_refine_fail";
+    return false;
+  }
+  if (!invert_forward_affine_to_warp(A, allow_rotation, warp, &error_message)) {
+    return false;
+  }
+  const int inl = inliers.empty() ? 0 : cv::countNonZero(inliers);
+  if (inl < min_inliers) {
+    error_message = "few_affine_inliers";
+    return false;
+  }
+  correlation = pts_mov.empty()
+                    ? 0.0f
+                    : static_cast<float>(inl) /
+                          static_cast<float>(pts_mov.size());
+  return true;
+}
+
 bool similarity_from_pairs(const Eigen::Vector2f &m1, const Eigen::Vector2f &m2,
                            const Eigen::Vector2f &r1, const Eigen::Vector2f &r2,
                            bool allow_rotation, float &scale, float &theta,
@@ -425,271 +559,6 @@ bool similarity_from_pairs(const Eigen::Vector2f &m1, const Eigen::Vector2f &m2,
   R << ct, -st, st, ct;
   t = r1 - scale * (R * m1);
   return true;
-}
-
-// =====================================================================
-// Trail endpoint detection: finds bright endpoints of star trails
-// using morphological operations. Works when stars are smeared into arcs.
-// =====================================================================
-
-static std::vector<StarPoint>
-detect_trail_endpoints(const Matrix2Df &img, int topk) {
-  const int h = img.rows();
-  const int w = img.cols();
-  if (h < 10 || w < 10)
-    return {};
-
-  cv::Mat f(h, w, CV_32F, const_cast<float *>(img.data()));
-
-  // Estimate background and threshold
-  std::vector<float> pixels;
-  pixels.reserve(static_cast<size_t>(img.size()));
-  for (int y = 0; y < h; ++y) {
-    const float *row = img.data() + static_cast<size_t>(y) * w;
-    pixels.insert(pixels.end(), row, row + w);
-  }
-  float med = core::median_of(pixels);
-  float sigma = core::robust_sigma_mad(pixels);
-  if (sigma < 1.0e-6f)
-    sigma = 1.0f;
-
-  // White top-hat: extract bright thin structures (trails)
-  cv::Mat tophat;
-  cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(15, 15));
-  cv::morphologyEx(f, tophat, cv::MORPH_TOPHAT, kernel);
-
-  // Threshold the top-hat result to isolate trails
-  float trail_thresh = med + 2.0f * sigma;
-  cv::Mat binary;
-  cv::threshold(tophat, binary, static_cast<double>(trail_thresh - med), 255.0,
-                cv::THRESH_BINARY);
-  binary.convertTo(binary, CV_8U);
-
-  // Morphological thinning: erode to find trail skeleton endpoints
-  // Use successive erosion with small kernel to approximate skeleton
-  cv::Mat thin;
-  cv::Mat thin_kernel =
-      cv::getStructuringElement(cv::MORPH_CROSS, cv::Size(3, 3));
-  cv::erode(binary, thin, thin_kernel, cv::Point(-1, -1), 1);
-
-  // Find contours of the thinned trails
-  std::vector<std::vector<cv::Point>> contours;
-  cv::findContours(binary, contours, cv::RETR_EXTERNAL,
-                   cv::CHAIN_APPROX_NONE);
-
-  // Extract endpoints: start and end of each contour (trail)
-  std::vector<StarPoint> endpoints;
-  endpoints.reserve(contours.size() * 2);
-  for (const auto &contour : contours) {
-    if (contour.size() < 5)
-      continue; // skip tiny noise blobs
-
-    // Trail endpoints are the first and last points of the contour
-    // Use the brightest end as the primary endpoint
-    auto get_brightness = [&](const cv::Point &pt) -> float {
-      if (pt.y >= 0 && pt.y < h && pt.x >= 0 && pt.x < w)
-        return img(pt.y, pt.x);
-      return 0.0f;
-    };
-
-    // Find the two points in the contour that are farthest apart
-    // (these are the trail endpoints)
-    float max_dist = 0.0f;
-    int idx_a = 0, idx_b = 0;
-    const int step = std::max(1, static_cast<int>(contour.size()) / 20);
-    for (int i = 0; i < static_cast<int>(contour.size()); i += step) {
-      for (int j = i + 1; j < static_cast<int>(contour.size()); j += step) {
-        float dx = static_cast<float>(contour[j].x - contour[i].x);
-        float dy = static_cast<float>(contour[j].y - contour[i].y);
-        float d = dx * dx + dy * dy;
-        if (d > max_dist) {
-          max_dist = d;
-          idx_a = i;
-          idx_b = j;
-        }
-      }
-    }
-
-    // Refine: centroid of small neighborhood around each endpoint
-    auto refine_endpoint = [&](const cv::Point &pt) -> StarPoint {
-      const int r = 2;
-      float wsum = 0.0f, xs = 0.0f, ys = 0.0f;
-      for (int dy = -r; dy <= r; ++dy) {
-        for (int dx = -r; dx <= r; ++dx) {
-          int py = pt.y + dy;
-          int px = pt.x + dx;
-          if (py < 0 || py >= h || px < 0 || px >= w)
-            continue;
-          float val = img(py, px) - med;
-          if (val <= 0.0f)
-            continue;
-          wsum += val;
-          xs += static_cast<float>(px) * val;
-          ys += static_cast<float>(py) * val;
-        }
-      }
-      StarPoint sp;
-      if (wsum > 0.0f) {
-        sp.x = xs / wsum;
-        sp.y = ys / wsum;
-        sp.flux = wsum;
-      } else {
-        sp.x = static_cast<float>(pt.x);
-        sp.y = static_cast<float>(pt.y);
-        sp.flux = get_brightness(pt);
-      }
-      return sp;
-    };
-
-    StarPoint ep_a = refine_endpoint(contour[idx_a]);
-    StarPoint ep_b = refine_endpoint(contour[idx_b]);
-
-    // Only add the brighter endpoint (trail start = shutter open position)
-    if (ep_a.flux >= ep_b.flux) {
-      endpoints.push_back(ep_a);
-    } else {
-      endpoints.push_back(ep_b);
-    }
-  }
-
-  // Sort by flux and keep topk
-  std::sort(endpoints.begin(), endpoints.end(),
-            [](const StarPoint &a, const StarPoint &b) {
-              return a.flux > b.flux;
-            });
-  if (static_cast<int>(endpoints.size()) > topk)
-    endpoints.resize(static_cast<size_t>(topk));
-
-  return endpoints;
-}
-
-RegistrationResult
-trail_endpoint_registration(const Matrix2Df &mov, const Matrix2Df &ref,
-                            bool allow_rotation, int topk_stars,
-                            int min_inliers, float inlier_tol_px,
-                            float dist_bin_px) {
-  RegistrationResult res;
-  res.warp = identity_warp();
-  res.success = false;
-  res.correlation = 0.0f;
-
-  auto mov_eps = detect_trail_endpoints(mov, topk_stars);
-  auto ref_eps = detect_trail_endpoints(ref, topk_stars);
-
-  // If trail detection found enough points, also try combining with
-  // regular star detection for a richer point set
-  auto mov_stars = detect_stars_simple(mov, topk_stars);
-  auto ref_stars = detect_stars_simple(ref, topk_stars);
-  mov_eps.insert(mov_eps.end(), mov_stars.begin(), mov_stars.end());
-  ref_eps.insert(ref_eps.end(), ref_stars.begin(), ref_stars.end());
-
-  if (mov_eps.size() < 3 || ref_eps.size() < 3) {
-    res.error_message = "too_few_trail_endpoints";
-    return res;
-  }
-
-  // Use star_registration_similarity logic with the combined point set
-  // (pair-distance matching)
-  struct Pair {
-    int i, j;
-    float dist;
-  };
-  std::vector<Pair> ref_pairs, mov_pairs;
-
-  auto build_pairs = [](const std::vector<StarPoint> &stars,
-                        std::vector<Pair> &out) {
-    const int n = static_cast<int>(stars.size());
-    out.reserve(static_cast<size_t>(n) * static_cast<size_t>(n) / 2);
-    for (int i = 0; i < n; ++i) {
-      for (int j = i + 1; j < n; ++j) {
-        float dx = stars[j].x - stars[i].x;
-        float dy = stars[j].y - stars[i].y;
-        float d = std::sqrt(dx * dx + dy * dy);
-        if (d > 1.0f)
-          out.push_back({i, j, d});
-      }
-    }
-    std::sort(out.begin(), out.end(),
-              [](const Pair &a, const Pair &b) { return a.dist > b.dist; });
-    const size_t limit = std::min<size_t>(out.size(), 800);
-    out.resize(limit);
-  };
-
-  build_pairs(ref_eps, ref_pairs);
-  build_pairs(mov_eps, mov_pairs);
-  if (ref_pairs.empty() || mov_pairs.empty()) {
-    res.error_message = "no_trail_pairs";
-    return res;
-  }
-
-  std::unordered_map<int, std::vector<Pair>> ref_bucket;
-  ref_bucket.reserve(ref_pairs.size() * 2);
-  for (const auto &p : ref_pairs) {
-    int key = static_cast<int>(std::round(p.dist / dist_bin_px));
-    ref_bucket[key].push_back(p);
-  }
-
-  SimilarityResult best;
-  int attempts = 0;
-  for (const auto &pm : mov_pairs) {
-    int key = static_cast<int>(std::round(pm.dist / dist_bin_px));
-    for (int dk = -1; dk <= 1; ++dk) {
-      auto it = ref_bucket.find(key + dk);
-      if (it == ref_bucket.end())
-        continue;
-      for (const auto &pr : it->second) {
-        ++attempts;
-        float scale = 1.0f;
-        float theta = 0.0f;
-        Eigen::Vector2f t;
-        const Eigen::Vector2f m1(mov_eps[pm.i].x, mov_eps[pm.i].y);
-        const Eigen::Vector2f m2(mov_eps[pm.j].x, mov_eps[pm.j].y);
-        const Eigen::Vector2f r1(ref_eps[pr.i].x, ref_eps[pr.i].y);
-        const Eigen::Vector2f r2(ref_eps[pr.j].x, ref_eps[pr.j].y);
-        if (!similarity_from_pairs(m1, m2, r1, r2, allow_rotation, scale,
-                                   theta, t))
-          continue;
-        if (!std::isfinite(scale) || scale < 0.5f || scale > 2.0f)
-          continue;
-        SimilarityResult sr = score_similarity(mov_eps, ref_eps, scale, theta,
-                                               t, inlier_tol_px * 2.0f);
-        if (!sr.ok)
-          continue;
-        if (sr.inliers > best.inliers ||
-            (sr.inliers == best.inliers && sr.mean_err < best.mean_err)) {
-          best = sr;
-        }
-      }
-    }
-    if (attempts > 4000 && best.inliers >= min_inliers)
-      break;
-  }
-
-  if (best.inliers >= std::max(2, min_inliers / 2) &&
-      best.mean_err < inlier_tol_px * 3.0f) {
-    res.success = true;
-    res.correlation = static_cast<float>(best.inliers) /
-                      static_cast<float>(std::max<size_t>(1, mov_eps.size()));
-    float s_fw = best.scale;
-    float th_fw = best.theta;
-    float tx_fw = best.t.x();
-    float ty_fw = best.t.y();
-    float c_fw = std::cos(th_fw);
-    float sn_fw = std::sin(th_fw);
-    float s_inv = 1.0f / s_fw;
-    float c_inv = c_fw;
-    float sn_inv = -sn_fw;
-    float a00 = s_inv * c_inv;
-    float a01 = s_inv * -sn_inv;
-    float a10 = s_inv * sn_inv;
-    float a11 = s_inv * c_inv;
-    float tx_inv = -(a00 * tx_fw + a01 * ty_fw);
-    float ty_inv = -(a10 * tx_fw + a11 * ty_fw);
-    res.warp << a00, a01, tx_inv, a10, a11, ty_inv;
-  } else {
-    res.error_message = "no_trail_consensus";
-  }
-  return res;
 }
 
 // =====================================================================
@@ -798,11 +667,62 @@ RegistrationResult robust_phase_ecc(const Matrix2Df &mov,
   return res;
 }
 
+RegistrationResult robust_phase_ecc_seeded(const Matrix2Df &mov,
+                                           const Matrix2Df &ref,
+                                           bool allow_rotation,
+                                           const WarpMatrix &init_warp) {
+  RegistrationResult res;
+  res.warp = init_warp;
+  res.success = false;
+  res.correlation = 0.0f;
+
+  Matrix2Df mov_grad = gradient_preprocess(mov);
+  Matrix2Df ref_grad = gradient_preprocess(ref);
+
+  std::vector<Matrix2Df> mov_pyr = {mov_grad};
+  std::vector<Matrix2Df> ref_pyr = {ref_grad};
+  for (int level = 0; level < 2; ++level) {
+    mov_pyr.push_back(downsample2x2_mean(mov_pyr.back()));
+    ref_pyr.push_back(downsample2x2_mean(ref_pyr.back()));
+  }
+
+  WarpMatrix current_warp = init_warp;
+  const int coarsest_level = static_cast<int>(mov_pyr.size()) - 1;
+  const float coarsest_scale = std::pow(2.0f, static_cast<float>(coarsest_level));
+  current_warp(0, 2) /= coarsest_scale;
+  current_warp(1, 2) /= coarsest_scale;
+
+  for (int level = coarsest_level; level >= 0; --level) {
+    const Matrix2Df &m = mov_pyr[static_cast<size_t>(level)];
+    const Matrix2Df &r = ref_pyr[static_cast<size_t>(level)];
+
+    Matrix2Df m_ecc = prepare_ecc_image(m);
+    Matrix2Df r_ecc = prepare_ecc_image(r);
+
+    if (level < coarsest_level) {
+      current_warp(0, 2) *= 2.0f;
+      current_warp(1, 2) *= 2.0f;
+    }
+
+    const int iters = (level == 0) ? 250 : 120;
+    const float eps = (level == 0) ? 1e-6f : 1e-4f;
+    RegistrationResult level_res =
+        ecc_warp(m_ecc, r_ecc, allow_rotation, current_warp, iters, eps);
+    if (level_res.success) {
+      current_warp = level_res.warp;
+      res = level_res;
+    }
+  }
+
+  return res;
+}
+
 RegistrationResult
 star_registration_similarity(const Matrix2Df &mov, const Matrix2Df &ref,
                              bool allow_rotation,
                              int topk_stars, int min_inliers,
-                             float inlier_tol_px, float dist_bin_px) {
+                             float inlier_tol_px, float dist_bin_px,
+                             const std::string &transform_model) {
   RegistrationResult res;
   res.warp = identity_warp();
   res.success = false;
@@ -898,6 +818,12 @@ star_registration_similarity(const Matrix2Df &mov, const Matrix2Df &ref,
     res.success = true;
     res.correlation = static_cast<float>(best.inliers) /
                       static_cast<float>(std::max<size_t>(1, mov_stars.size()));
+    if (maybe_refine_similarity_to_affine(
+            mov_stars, ref_stars, best, allow_rotation, inlier_tol_px,
+            min_inliers, transform_model, res.warp, res.correlation,
+            res.error_message)) {
+      return res;
+    }
     // Construct Forward Matrix (M -> R)
     float s_fw = best.scale;
     float th_fw = best.theta;
@@ -1014,7 +940,8 @@ RegistrationResult
 triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
                        bool allow_rotation,
                        int topk_stars, int min_inliers,
-                       float inlier_tol_px) {
+                       float inlier_tol_px,
+                       const std::string &transform_model) {
   RegistrationResult res;
   res.warp = identity_warp();
   res.success = false;
@@ -1123,43 +1050,16 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
 
   // Use RANSAC to find the best similarity transform from correspondences
   cv::Mat inliers;
-  cv::Mat A = cv::estimateAffinePartial2D(pts_mov, pts_ref, inliers,
-                                          cv::RANSAC, 3.0, 2000, 0.99);
+  cv::Mat A = estimate_affine_family_transform(pts_mov, pts_ref,
+                                               transform_model, inliers);
   if (A.empty()) {
-    res.error_message = "affine_fail";
+    res.error_message = "transform_fail";
     return res;
   }
-
-  float a00_fw = static_cast<float>(A.at<double>(0, 0));
-  float a01_fw = static_cast<float>(A.at<double>(0, 1));
-  float a10_fw = static_cast<float>(A.at<double>(1, 0));
-  float a11_fw = static_cast<float>(A.at<double>(1, 1));
-  float tx_fw = static_cast<float>(A.at<double>(0, 2));
-  float ty_fw = static_cast<float>(A.at<double>(1, 2));
-
-  if (!allow_rotation) {
-    a00_fw = 1.0f;
-    a01_fw = 0.0f;
-    a10_fw = 0.0f;
-    a11_fw = 1.0f;
-  }
-  // No rotation limit: triangle asterism matching is rotation-invariant.
-
-  // Invert to (R→M) for apply_warp with WARP_INVERSE_MAP
-  const float det = a00_fw * a11_fw - a01_fw * a10_fw;
-  if (std::fabs(det) < 1e-8f) {
-    res.error_message = "singular_matrix";
+  if (!invert_forward_affine_to_warp(A, allow_rotation, res.warp,
+                                     &res.error_message)) {
     return res;
   }
-  const float inv_det = 1.0f / det;
-  const float a00_inv = a11_fw * inv_det;
-  const float a01_inv = -a01_fw * inv_det;
-  const float a10_inv = -a10_fw * inv_det;
-  const float a11_inv = a00_fw * inv_det;
-  const float tx_inv = -(a00_inv * tx_fw + a01_inv * ty_fw);
-  const float ty_inv = -(a10_inv * tx_fw + a11_inv * ty_fw);
-
-  res.warp << a00_inv, a01_inv, tx_inv, a10_inv, a11_inv, ty_inv;
   int inl = inliers.empty() ? 0 : cv::countNonZero(inliers);
   res.correlation =
       pts_mov.empty()
@@ -1319,7 +1219,8 @@ static float compute_ncc_masked(const Matrix2Df &a, const Matrix2Df &b,
 
 SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
                                            const Matrix2Df &ref,
-                                           const config::RegistrationConfig &rcfg) {
+                                           const config::RegistrationConfig &rcfg,
+                                           float min_ncc_improvement) {
   // Thread-safe diagnostic counter (only log first few calls)
   static std::atomic<int> diag_counter{0};
   const int diag_id = diag_counter.fetch_add(1);
@@ -1366,11 +1267,12 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
                 << " success=" << rr.success << " ncc_warped=" << ncc
                 << " ncc_identity_overlap=" << ncc_identity_overlap
                 << " overlap_px=" << overlap_pixels
-                << " threshold=" << (ncc_identity_overlap + 0.01f)
+                << " threshold=" << (ncc_identity_overlap + min_ncc_improvement)
                 << " tx=" << rr.warp(0,2) << " ty=" << rr.warp(1,2)
                 << std::endl;
     }
-    if (overlap_pixels <= 16 || ncc < ncc_identity_overlap + 0.01f)
+    if (overlap_pixels <= 16 ||
+        ncc < ncc_identity_overlap + min_ncc_improvement)
       return false; // warp doesn't improve alignment — reject
     out.reg = rr;
     out.reg.correlation = ncc;
@@ -1386,24 +1288,22 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
       accepted = try_method(
           triangle_star_matching(mov, ref, rcfg.allow_rotation,
                                 rcfg.star_topk, rcfg.star_min_inliers,
-                                rcfg.star_inlier_tol_px),
+                                rcfg.star_inlier_tol_px,
+                                rcfg.transform_model),
           "triangle");
       if (!accepted && rcfg.enable_star_pair_fallback) {
         accepted = try_method(
             star_registration_similarity(
                 mov, ref, rcfg.allow_rotation, rcfg.star_topk,
                 rcfg.star_min_inliers, rcfg.star_inlier_tol_px,
-                rcfg.star_dist_bin_px),
+                rcfg.star_dist_bin_px, rcfg.transform_model),
             "star_pair");
       }
     } else if (rcfg.engine == "opencv_feature") {
       accepted = try_method(
-          feature_registration_similarity(mov, ref, rcfg.allow_rotation),
+          feature_registration_similarity(mov, ref, rcfg.allow_rotation,
+                                          rcfg.transform_model),
           "akaze");
-    } else if (rcfg.engine == "hybrid_phase_ecc") {
-      accepted = try_method(
-          hybrid_phase_ecc(mov, ref, rcfg.allow_rotation),
-          "hybrid_phase_ecc");
     } else if (rcfg.engine == "robust_phase_ecc") {
       accepted = try_method(
           robust_phase_ecc(mov, ref, rcfg.allow_rotation),
@@ -1413,7 +1313,8 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
       accepted = try_method(
           triangle_star_matching(mov, ref, rcfg.allow_rotation,
                                 rcfg.star_topk, rcfg.star_min_inliers,
-                                rcfg.star_inlier_tol_px),
+                                rcfg.star_inlier_tol_px,
+                                rcfg.transform_model),
           "triangle");
     }
   }
@@ -1421,26 +1322,14 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
   // 2) Fallback cascade
   if (!accepted) {
     accepted = try_method(
-        trail_endpoint_registration(mov, ref, rcfg.allow_rotation,
-                                    rcfg.star_topk, rcfg.star_min_inliers,
-                                    rcfg.star_inlier_tol_px,
-                                    rcfg.star_dist_bin_px),
-        "trail_endpoint");
-  }
-  if (!accepted) {
-    accepted = try_method(
-        feature_registration_similarity(mov, ref, rcfg.allow_rotation),
+        feature_registration_similarity(mov, ref, rcfg.allow_rotation,
+                                        rcfg.transform_model),
         "akaze");
   }
   if (!accepted) {
     accepted = try_method(
         robust_phase_ecc(mov, ref, rcfg.allow_rotation),
         "robust_phase_ecc");
-  }
-  if (!accepted) {
-    accepted = try_method(
-        hybrid_phase_ecc(mov, ref, rcfg.allow_rotation),
-        "hybrid_phase_ecc");
   }
 
   // 3) Final fallback: identity
@@ -1456,18 +1345,17 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
 }
 
 // =====================================================================
-// Multi-frame registration (uses register_single_frame internally)
+// register_frames_to_reference — NOT used by runner (runner calls
+// register_single_frame directly with its own rescue passes).
+// Kept as a thin wrapper for tests/CLI that may call it.
 // =====================================================================
 
-// Helper: concatenate two 2x3 affine warps: result = w2 * w1
 static WarpMatrix concatenate_warps(const WarpMatrix &w1, const WarpMatrix &w2) {
   WarpMatrix result;
-  // Linear part: R2 * R1
   result(0,0) = w2(0,0)*w1(0,0) + w2(0,1)*w1(1,0);
   result(0,1) = w2(0,0)*w1(0,1) + w2(0,1)*w1(1,1);
   result(1,0) = w2(1,0)*w1(0,0) + w2(1,1)*w1(1,0);
   result(1,1) = w2(1,0)*w1(0,1) + w2(1,1)*w1(1,1);
-  // Translation: R2 * t1 + t2
   result(0,2) = w2(0,0)*w1(0,2) + w2(0,1)*w1(1,2) + w2(0,2);
   result(1,2) = w2(1,0)*w1(0,2) + w2(1,1)*w1(1,2) + w2(1,2);
   return result;
@@ -1542,15 +1430,11 @@ register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
 
   const Matrix2Df ref_p = proxy[static_cast<size_t>(out.ref_idx)];
 
-  // Store proxy-scale warps for temporal chaining
-  std::vector<WarpMatrix> warps_proxy(static_cast<size_t>(n), identity_warp());
-
   for (int i = 0; i < n; ++i) {
     if (i == out.ref_idx) {
       out.success[static_cast<size_t>(i)] = true;
       out.scores[static_cast<size_t>(i)] = 1.0f;
       out.warps_fullres[static_cast<size_t>(i)] = identity_warp();
-      warps_proxy[static_cast<size_t>(i)] = identity_warp();
       continue;
     }
 
@@ -1562,78 +1446,13 @@ register_frames_to_reference(const std::vector<Matrix2Df> &frames_fullres,
     if (sfr.reg.success) {
       out.success[static_cast<size_t>(i)] = true;
       out.scores[static_cast<size_t>(i)] = sfr.reg.correlation;
-      warps_proxy[static_cast<size_t>(i)] = sfr.reg.warp;
       out.warps_fullres[static_cast<size_t>(i)] =
           scale_translation_warp(sfr.reg.warp, out.downsample_scale);
     } else {
-      // 2) Temporal fallback: try registering to previous frame
-      // This helps with field rotation + clouds: neighbor frames are more similar
-      bool temporal_success = false;
-      
-      // Try i-1 (backward)
-      if (i > 0 && out.success[static_cast<size_t>(i-1)]) {
-        const Matrix2Df prev_p = proxy[static_cast<size_t>(i-1)];
-        SingleFrameRegResult sfr_temp = register_single_frame(mov_p, prev_p, rcfg);
-        
-        if (sfr_temp.reg.success && sfr_temp.reg.correlation > 0.15f) {
-          // Chain: i→(i-1)→ref
-          WarpMatrix w_to_prev = sfr_temp.reg.warp;
-          WarpMatrix w_prev_to_ref = warps_proxy[static_cast<size_t>(i-1)];
-          WarpMatrix w_chained = concatenate_warps(w_to_prev, w_prev_to_ref);
-          
-          // Validate chained warp
-          Matrix2Df warped = apply_warp(mov_p, w_chained);
-          float ncc_chained = compute_ncc(warped, ref_p);
-          
-          if (ncc_chained > sfr.ncc_identity + 0.01f) {
-            out.success[static_cast<size_t>(i)] = true;
-            out.scores[static_cast<size_t>(i)] = ncc_chained;
-            warps_proxy[static_cast<size_t>(i)] = w_chained;
-            out.warps_fullres[static_cast<size_t>(i)] =
-                scale_translation_warp(w_chained, out.downsample_scale);
-            out.errors[static_cast<size_t>(i)] = "temporal_i-1";
-            temporal_success = true;
-            
-            std::cout << "[REG-TEMPORAL] Frame " << i << " registered via i-1, ncc=" 
-                      << ncc_chained << std::endl;
-          }
-        }
-      }
-      
-      // Try i+1 (forward) if backward failed
-      if (!temporal_success && i < n-1 && out.success[static_cast<size_t>(i+1)]) {
-        const Matrix2Df next_p = proxy[static_cast<size_t>(i+1)];
-        SingleFrameRegResult sfr_temp = register_single_frame(mov_p, next_p, rcfg);
-        
-        if (sfr_temp.reg.success && sfr_temp.reg.correlation > 0.15f) {
-          WarpMatrix w_to_next = sfr_temp.reg.warp;
-          WarpMatrix w_next_to_ref = warps_proxy[static_cast<size_t>(i+1)];
-          WarpMatrix w_chained = concatenate_warps(w_to_next, w_next_to_ref);
-          
-          Matrix2Df warped = apply_warp(mov_p, w_chained);
-          float ncc_chained = compute_ncc(warped, ref_p);
-          
-          if (ncc_chained > sfr.ncc_identity + 0.01f) {
-            out.success[static_cast<size_t>(i)] = true;
-            out.scores[static_cast<size_t>(i)] = ncc_chained;
-            warps_proxy[static_cast<size_t>(i)] = w_chained;
-            out.warps_fullres[static_cast<size_t>(i)] =
-                scale_translation_warp(w_chained, out.downsample_scale);
-            out.errors[static_cast<size_t>(i)] = "temporal_i+1";
-            temporal_success = true;
-            
-            std::cout << "[REG-TEMPORAL] Frame " << i << " registered via i+1, ncc=" 
-                      << ncc_chained << std::endl;
-          }
-        }
-      }
-      
-      if (!temporal_success) {
-        out.warps_fullres[static_cast<size_t>(i)] = identity_warp();
-        out.scores[static_cast<size_t>(i)] = 0.0f;
-        out.success[static_cast<size_t>(i)] = false;
-        out.errors[static_cast<size_t>(i)] = sfr.reg.error_message;
-      }
+      out.warps_fullres[static_cast<size_t>(i)] = identity_warp();
+      out.scores[static_cast<size_t>(i)] = 0.0f;
+      out.success[static_cast<size_t>(i)] = false;
+      out.errors[static_cast<size_t>(i)] = sfr.reg.error_message;
     }
   }
 

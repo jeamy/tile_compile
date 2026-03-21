@@ -160,10 +160,10 @@ pipeline:
   mode: production
 registration:
   allow_rotation: true
+  transform_model: affine
   enable_star_pair_fallback: true
   engine: triangle_star_matching
-  reject_cc_mad_multiplier: 4
-  reject_cc_min_abs: 0.3
+  reject_cc_min_abs: 0.25
   reject_outliers: true
   reject_scale_max: 1.08
   reject_scale_min: 0.92

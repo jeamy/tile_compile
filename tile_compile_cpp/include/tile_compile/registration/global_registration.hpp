@@ -34,9 +34,8 @@ GlobalRegistrationOutput register_frames_to_reference(
 // Single-frame registration result (canonical cascade output)
 struct SingleFrameRegResult {
     RegistrationResult reg;         // warp (R→M direction), correlation, success
-    std::string method_used;        // "triangle" | "star_pair" | "trail_endpoint" |
-                                    // "akaze" | "robust_phase_ecc" | "hybrid_phase_ecc" |
-                                    // "identity"
+    std::string method_used;        // "triangle" | "star_pair" | "akaze" |
+                                    // "robust_phase_ecc" | "identity"
     float ncc_identity = 0.0f;      // NCC before warp (identity baseline)
     float ncc_warped   = 0.0f;      // NCC after warp
 };
@@ -46,7 +45,8 @@ struct SingleFrameRegResult {
 // mov and ref are proxy-resolution images (already downsampled).
 SingleFrameRegResult register_single_frame(
     const Matrix2Df& mov, const Matrix2Df& ref,
-    const config::RegistrationConfig& rcfg);
+    const config::RegistrationConfig& rcfg,
+    float min_ncc_improvement = 0.01f);
 
 // Sub-functions (canonical implementations — do NOT duplicate in runner)
 Matrix2Df downsample2x2_mean(const Matrix2Df& in);
@@ -56,30 +56,26 @@ RegistrationResult star_registration_similarity(
     const Matrix2Df& mov, const Matrix2Df& ref,
     bool allow_rotation,
     int topk_stars, int min_inliers,
-    float inlier_tol_px, float dist_bin_px);
+    float inlier_tol_px, float dist_bin_px,
+    const std::string& transform_model);
 
 RegistrationResult feature_registration_similarity(
     const Matrix2Df& mov, const Matrix2Df& ref,
-    bool allow_rotation);
+    bool allow_rotation, const std::string& transform_model);
 
 RegistrationResult triangle_star_matching(
     const Matrix2Df& mov, const Matrix2Df& ref,
     bool allow_rotation,
     int topk_stars, int min_inliers,
-    float inlier_tol_px);
-
-RegistrationResult hybrid_phase_ecc(
-    const Matrix2Df& mov, const Matrix2Df& ref,
-    bool allow_rotation);
-
-RegistrationResult trail_endpoint_registration(
-    const Matrix2Df& mov, const Matrix2Df& ref,
-    bool allow_rotation, int topk_stars, int min_inliers,
-    float inlier_tol_px, float dist_bin_px);
+    float inlier_tol_px, const std::string& transform_model);
 
 RegistrationResult robust_phase_ecc(
     const Matrix2Df& mov, const Matrix2Df& ref,
     bool allow_rotation);
+
+RegistrationResult robust_phase_ecc_seeded(
+    const Matrix2Df& mov, const Matrix2Df& ref,
+    bool allow_rotation, const WarpMatrix& init_warp);
 
 float estimate_rotation_logpolar(const cv::Mat& ref, const cv::Mat& mov);
 

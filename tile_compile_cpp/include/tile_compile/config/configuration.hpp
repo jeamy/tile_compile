@@ -72,17 +72,17 @@ struct RegistrationConfig {
   std::string engine = "triangle_star_matching"; // triangle_star_matching |
                                                  // star_similarity | hybrid_phase_ecc |
                                                  // robust_phase_ecc
+  std::string transform_model = "similarity";    // similarity | affine
   bool enable_star_pair_fallback = true;
   bool allow_rotation = true;
-  int star_topk = 120;
-  int star_min_inliers = 6;
-  float star_inlier_tol_px = 2.5f;
-  float star_dist_bin_px = 2.5f;
+  int star_topk = 150;
+  int star_min_inliers = 4;
+  float star_inlier_tol_px = 4.0f;
+  float star_dist_bin_px = 5.0f;
   bool reject_outliers = true;
-  float reject_cc_min_abs = 0.35f;
-  float reject_cc_mad_multiplier = 4.0f;
-  float reject_shift_px_min = 25.0f;
-  float reject_shift_median_multiplier = 3.0f;
+  float reject_cc_min_abs = 0.25f;
+  float reject_shift_px_min = 100.0f;
+  float reject_shift_median_multiplier = 5.0f;
   float reject_scale_min = 0.92f;
   float reject_scale_max = 1.08f;
 };

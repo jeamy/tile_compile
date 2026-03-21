@@ -141,6 +141,59 @@ std::string extract_run_id_from_events(const fs::path& event_file) {
     return run_id;
 }
 
+std::string normalize_phase_name(std::string phase_name) {
+    std::transform(phase_name.begin(), phase_name.end(), phase_name.begin(), ::toupper);
+    return phase_name;
+}
+
+bool is_run_tracking_job_type(const std::string& type) {
+    return type.rfind("run", 0) == 0 || type == "resume";
+}
+
+void ensure_phase_array(nlohmann::json& status) {
+    if (status.contains("phases") && status["phases"].is_array()) return;
+    status["phases"] = nlohmann::json::array();
+    for (const auto& phase : PHASE_ORDER) {
+        status["phases"].push_back(nlohmann::json{{"phase", phase}, {"status", "pending"}, {"pct", 0.0}});
+    }
+}
+
+void apply_resume_job_overlay(nlohmann::json& status, const Job& job) {
+    if (!job.data.is_object()) return;
+
+    std::string resume_phase = normalize_phase_name(job.data.value("from_phase", std::string()));
+    if (resume_phase.empty()) return;
+
+    ensure_phase_array(status);
+    status["current_phase"] = resume_phase;
+
+    const int resume_idx = phase_order_index(resume_phase);
+    for (auto& phase_state : status["phases"]) {
+        if (!phase_state.is_object()) continue;
+        const std::string phase_name = normalize_phase_name(phase_state.value("phase", std::string()));
+        const int phase_idx = phase_order_index(phase_name);
+        if (phase_idx < 0 || resume_idx < 0) continue;
+
+        if (phase_idx < resume_idx) {
+            const std::string phase_status = phase_state.value("status", std::string("pending"));
+            if (phase_status == "pending") {
+                phase_state["status"] = "ok";
+                phase_state["pct"] = 1.0;
+            }
+            continue;
+        }
+
+        if (phase_idx == resume_idx) {
+            phase_state["status"] = "running";
+            phase_state["pct"] = 0.0;
+            continue;
+        }
+
+        phase_state["status"] = "pending";
+        phase_state["pct"] = 0.0;
+    }
+}
+
 std::string iso_utc_from_file_time(const fs::file_time_type& file_time) {
     const auto system_now = std::chrono::system_clock::now();
     const auto file_now = fs::file_time_type::clock::now();
@@ -162,7 +215,7 @@ std::string iso_utc_from_file_time(const fs::file_time_type& file_time) {
 std::optional<Job> latest_run_job(const InMemoryJobStore& store, const std::string& run_id, int limit) {
     if (run_id.empty()) return std::nullopt;
     for (const auto& job : store.list(limit)) {
-        if (job.type.rfind("run", 0) != 0) continue;
+        if (!is_run_tracking_job_type(job.type)) continue;
         const std::string job_run_id = job.data.is_object()
             ? job.data.value("run_id", job.run_id)
             : job.run_id;
@@ -187,6 +240,7 @@ void apply_job_state_to_run_status(nlohmann::json& status, const std::optional<J
         } catch (...) {
             status["progress"] = job_progress;
         }
+        if (job->type == "resume") apply_resume_job_overlay(status, *job);
         return;
     }
 
@@ -342,7 +396,7 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                     else if (extra_phases.contains(resume_from_phase)) phase_state = &extra_phases[resume_from_phase];
                     if (phase_state) {
                         const std::string status_text = (*phase_state).value("status", std::string());
-                        if (status_text == "running" || status_text == "pending") {
+                        if (status_text == "running" || status_text == "pending" || status_text == "skipped") {
                             (*phase_state)["status"] = "ok";
                             (*phase_state)["pct"] = 1.0;
                         }

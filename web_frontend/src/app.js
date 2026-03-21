@@ -238,6 +238,7 @@ const DASHBOARD_PIPELINE_GROUPS = [
 const PARAM_CONTROL_PATHS = {
   "parameter.registration.engine": "registration.engine",
   "parameter.registration.allow_rotation": "registration.allow_rotation",
+  "parameter.registration.transform_model": "registration.transform_model",
   "parameter.registration.star_topk": "registration.star_topk",
   "parameter.registration.star_inlier_tol_px": "registration.star_inlier_tol_px",
   "parameter.registration.reject_cc_min_abs": "registration.reject_cc_min_abs",
@@ -328,6 +329,7 @@ const SCAN_CALIBRATION_BINDINGS = [
 const SCENARIO_DELTAS = {
   altaz: [
     ["registration.allow_rotation", true],
+    ["registration.transform_model", "affine"],
     ["registration.star_topk", 180],
     ["registration.reject_shift_px_min", 120],
     ["registration.reject_shift_median_multiplier", 5.0],
@@ -335,8 +337,9 @@ const SCENARIO_DELTAS = {
   rotation: [
     ["registration.engine", "robust_phase_ecc"],
     ["registration.allow_rotation", true],
+    ["registration.transform_model", "affine"],
     ["registration.star_inlier_tol_px", 4.0],
-    ["registration.reject_cc_min_abs", 0.3],
+    ["registration.reject_cc_min_abs", 0.25],
   ],
   bright_stars: [
     ["pcc.mag_bright_limit", 6.0],
@@ -1587,6 +1590,19 @@ function preferredRunName({ inputId = "", storageKey = "", fallbackDirs = [] } =
 }
 
 async function resolveConfigYamlForRun() {
+  const updates = collectParameterDirtyUpdates();
+  if (updates.length === 0) {
+    return await ensureConfigYaml();
+  }
+  const patched = await patchConfig({ updates, persist: false });
+  const resolvedYaml = String(patched?.config_yaml || "");
+  if (resolvedYaml) {
+    uiState.configYaml = resolvedYaml;
+    setConfigDraft(resolvedYaml);
+    uiState.parameterDirty = {};
+    clearParameterDirtyState();
+    return resolvedYaml;
+  }
   return await ensureConfigYaml();
 }
 
@@ -3444,6 +3460,12 @@ function setPhaseRow(phaseName, status, pctRaw) {
   pctEl.textContent = `${pct.toFixed(0)}%`;
 }
 
+function updateRunMonitorSubtitle(runId, runStatus, currentPhase) {
+  const sub = document.querySelector(".app-content .ps-sub");
+  if (!sub) return;
+  sub.innerHTML = `Run-ID <code>${runId}</code>, Status <code>${runStatus || "unknown"}</code>, Phase <code>${currentPhase || "-"}</code>.`;
+}
+
 async function loadRunStatus(runId) {
   const status = await api.get(API_ENDPOINTS.runs.status(runId));
   uiState.currentRunDir = String(status?.run_dir || "");
@@ -3456,10 +3478,7 @@ async function loadRunStatus(runId) {
       setPhaseRow(p.phase, p.status, p.pct);
     }
   }
-  const sub = document.querySelector(".app-content .ps-sub");
-  if (sub) {
-    sub.innerHTML = `Run-ID <code>${runId}</code>, Status <code>${status.status || "unknown"}</code>, Phase <code>${status.current_phase || "-"}</code>.`;
-  }
+  updateRunMonitorSubtitle(runId, status.status, status.current_phase);
   return status;
 }
 
@@ -3541,17 +3560,45 @@ function connectRunMonitorStream(runId) {
       const eventType = String(event?.type || "").trim().toLowerCase();
       const line = formatStructuredLogLine(event, { suppressRunStatus: true });
       if (line) enqueueRunMonitorLogLine(line);
+      const payload = event?.payload || {};
+      const eventPhase =
+        payload.phase_name ||
+        payload.phase ||
+        event?.phase_name ||
+        event?.phase ||
+        "";
+      const eventStatus =
+        payload.status ||
+        event?.status ||
+        (event.type === "phase_start" ? "running" : event.type === "phase_end" ? "ok" : "running");
+      const eventPct =
+        payload.progress ??
+        payload.pct ??
+        event?.progress ??
+        event?.pct ??
+        0;
       if (event?.type === "phase_progress" || event?.type === "phase_end" || event?.type === "phase_start") {
-        const payload = event.payload || {};
-        const phase = payload.phase_name || payload.phase || event.phase || "";
-        const status = payload.status || (event.type === "phase_start" ? "running" : event.type === "phase_end" ? "ok" : "running");
-        const pct = payload.progress ?? payload.pct ?? event.pct ?? 0;
-        if (phase) setPhaseRow(phase, status, pct);
+        if (eventPhase) setPhaseRow(eventPhase, eventStatus, eventPct);
+      }
+      if (eventType === "resume_start") {
+        const resumePhase =
+          payload.from_phase ||
+          event?.from_phase ||
+          "";
+        if (resumePhase) {
+          setPhaseRow(resumePhase, "running", 0);
+          updateRunMonitorSubtitle(runId, "running", resumePhase);
+        }
       }
       if (event?.type === "run_status" && event?.payload?.phases) {
         for (const p of event.payload.phases) {
           setPhaseRow(p.phase, p.status, p.pct);
         }
+        updateRunMonitorSubtitle(
+          runId,
+          event?.payload?.status || event?.state || "unknown",
+          event?.payload?.current_phase || event?.phase || "",
+        );
       }
       if (eventType === "queue_progress") {
         setRunMonitorFilterVisibility(uiState.currentRunColorMode, Array.isArray(event?.payload?.queue) ? event.payload.queue : null);
@@ -3990,6 +4037,9 @@ async function bindRunMonitor() {
         filter_context: runMonitorSelectedFilter() || undefined,
       });
       setConfigDraft(yaml);
+      setPhaseRow(phase, "running", 0);
+      updateRunMonitorSubtitle(uiState.currentRunId, "running", phase);
+      setMonitorActionState(true);
       setFooter(`Resume gestartet (Job ${accepted.job_id}).`);
       await refreshCurrentRunMonitorState({ reconnectSocket: true });
     } catch (err) {

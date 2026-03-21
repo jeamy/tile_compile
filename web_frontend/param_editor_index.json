@@ -1073,6 +1073,18 @@
   },
   {
     "category": "registration",
+    "description": "Global transform family used after correspondences are found. similarity is stricter and fits equatorial data well; affine is more tolerant for rotating Alt/Az sessions.",
+    "enum": [
+      "similarity",
+      "affine"
+    ],
+    "path": "registration.transform_model",
+    "source": "schema",
+    "type": "string",
+    "yaml_default": "similarity"
+  },
+  {
+    "category": "registration",
     "description": "Enable additional star-pair fallback between primary triangle and normative fallback cascade. strict profile disables this.",
     "path": "registration.enable_star_pair_fallback",
     "source": "schema",
@@ -1095,20 +1107,12 @@
   },
   {
     "category": "registration",
-    "exclusiveMinimum": 0,
-    "path": "registration.reject_cc_mad_multiplier",
-    "source": "schema",
-    "type": "number",
-    "yaml_default": 4.0
-  },
-  {
-    "category": "registration",
     "maximum": 1,
     "minimum": 0,
     "path": "registration.reject_cc_min_abs",
     "source": "schema",
     "type": "number",
-    "yaml_default": 0.3
+    "yaml_default": 0.25
   },
   {
     "category": "registration",

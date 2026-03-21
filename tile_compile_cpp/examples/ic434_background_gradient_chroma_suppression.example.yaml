@@ -69,13 +69,13 @@ registration:
   engine: triangle_star_matching
   enable_star_pair_fallback: true
   allow_rotation: true
+  transform_model: affine
   star_topk: 150
   star_min_inliers: 4
   star_inlier_tol_px: 4.0
   star_dist_bin_px: 5.0
   reject_outliers: true
-  reject_cc_min_abs: 0.30
-  reject_cc_mad_multiplier: 4.0
+  reject_cc_min_abs: 0.25
   reject_shift_px_min: 100.0
   reject_shift_median_multiplier: 5.0
   reject_scale_min: 0.92

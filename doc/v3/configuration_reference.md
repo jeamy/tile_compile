@@ -538,11 +538,11 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 3 |
-| **Default** | `120` |
+| **Default** | `150` |
 
 **Zweck:** Anzahl der hellsten Sterne, die für Star-basiertes Matching verwendet werden.
 
-**Hinweis:** In `tile_compile.yaml` steht `100`, der C++ Default ist `120`. Höhere Werte erhöhen die Robustheit bei schwierigen Feldern, aber auch die Rechenzeit.
+**Hinweis:** `tile_compile.yaml` und der C++ Default sind jetzt identisch. Höhere Werte erhöhen die Robustheit bei schwierigen Feldern, aber auch die Rechenzeit.
 
 ---
 
@@ -552,7 +552,7 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 |-------------|------|
 | **Typ** | integer |
 | **Minimum** | 2 |
-| **Default** | `6` |
+| **Default** | `4` |
 
 **Zweck:** Minimale Anzahl übereinstimmender Sterne (Inlier) für eine akzeptierte Registrierung.
 
@@ -566,11 +566,11 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 |-------------|------|
 | **Typ** | number |
 | **Minimum** | >0 |
-| **Default** | `2.5` |
+| **Default** | `4.0` |
 
 **Zweck:** Toleranz in Pixeln für die Zuordnung von Sternen als Inlier (nach Transformation).
 
-**Hinweis:** In `tile_compile.yaml` steht `3.0`, der C++ Default ist `2.5`. Bezieht sich auf die **halbe Auflösung** (2× Downsample in der Registrierung).
+**Hinweis:** `tile_compile.yaml` und der C++ Default sind jetzt identisch. Bezieht sich auf die **halbe Auflösung** (2× Downsample in der Registrierung).
 
 ---
 
@@ -580,11 +580,11 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 |-------------|------|
 | **Typ** | number |
 | **Minimum** | >0 |
-| **Default** | `2.5` |
+| **Default** | `5.0` |
 
 **Zweck:** Bin-Breite in Pixeln für das Paar-Abstands-Histogramm in der `star_similarity`-Methode.
 
-**Hinweis:** In `tile_compile.yaml` steht `5.0`, der C++ Default ist `2.5`. Kleinere Werte sind genauer, größere Werte toleranter.
+**Hinweis:** `tile_compile.yaml` und der C++ Default sind jetzt identisch. Kleinere Werte sind genauer, größere Werte toleranter.
 
 ---
 
@@ -610,26 +610,9 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 |-------------|------|
 | **Typ** | number |
 | **Bereich** | 0 – 1 |
-| **Default** | `0.35` |
+| **Default** | `0.25` |
 
 **Zweck:** Absolute Untergrenze für den Korrelationswert (CC) in der Registrierungs-Outlier-Erkennung.
-
-**Hinweis:** Effektiver CC-Schwellwert ist `max(reject_cc_min_abs, median(CC) - reject_cc_mad_multiplier * MAD(CC))`.
-
----
-
-### `registration.reject_cc_mad_multiplier`
-
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | number |
-| **Minimum** | >0 |
-| **Default** | `4.0` |
-
-**Zweck:** Robustheitsfaktor für den CC-basierten Outlier-Schwellenwert (MAD-basiert).
-
-Kleinere Werte verwerfen aggressiver, größere Werte konservativer.
-
 ---
 
 ### `registration.reject_shift_px_min`
@@ -638,7 +621,7 @@ Kleinere Werte verwerfen aggressiver, größere Werte konservativer.
 |-------------|------|
 | **Typ** | number |
 | **Minimum** | >=0 |
-| **Default** | `25.0` |
+| **Default** | `100.0` |
 
 **Zweck:** Feste Mindestgrenze (Pixel) für Shift-Outlier-Verwerfung.
 
@@ -652,7 +635,7 @@ Kleinere Werte verwerfen aggressiver, größere Werte konservativer.
 |-------------|------|
 | **Typ** | number |
 | **Minimum** | >0 |
-| **Default** | `3.0` |
+| **Default** | `5.0` |
 
 **Zweck:** Skalenfaktor für den robusten Shift-Outlier-Grenzwert relativ zur Medianverschiebung.
 
@@ -2484,9 +2467,12 @@ Die Datei `tile_compile.yaml` im Repository enthält eine **Beispiel-/Szenario-K
 | `global_metrics.weights.background` | `0.40` | `0.4` | Praktisch identisch |
 | `global_metrics.weights.noise` | `0.35` | `0.3` | Abweichende Gewichtung |
 | `global_metrics.weights.gradient` | `0.25` | `0.3` | Etwas geringere Gradient-Gewichtung |
-| `registration.star_topk` | `150` | `120` | Mehr Sterne |
-| `registration.star_inlier_tol_px` | `4.0` | `2.5` | Toleranter |
-| `registration.star_dist_bin_px` | `5.0` | `2.5` | Größere Bins |
+| `registration.star_topk` | `150` | `150` | Angeglichen |
+| `registration.star_inlier_tol_px` | `4.0` | `4.0` | Angeglichen |
+| `registration.star_dist_bin_px` | `5.0` | `5.0` | Angeglichen |
+| `registration.reject_cc_min_abs` | `0.25` | `0.25` | Angeglichen |
+| `registration.reject_shift_px_min` | `100.0` | `100.0` | Angeglichen |
+| `registration.reject_shift_median_multiplier` | `5.0` | `5.0` | Angeglichen |
 
 ### Schema-Validierung
 
@@ -2556,7 +2542,6 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `registration.star_dist_bin_px`: Distanzhistogramm-Quantisierung für Star-Similarity.
 - `registration.reject_outliers`: robustes Verwerfen unplausibler Warps nach Matching.
 - `registration.reject_cc_min_abs`: absolute NCC-Untergrenze in Outlier-Logik.
-- `registration.reject_cc_mad_multiplier`: MAD-Skalierung für robusten CC-Schwellwert.
 - `registration.reject_shift_px_min`: absolute Shift-Untergrenze für Shift-Outlier.
 - `registration.reject_shift_median_multiplier`: relativer Shift-Schwellwert zur Median-Shift.
 - `registration.reject_scale_min`, `reject_scale_max`: erlaubtes Similarity-Scale-Band.

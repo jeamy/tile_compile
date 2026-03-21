@@ -138,7 +138,6 @@ Quelle: `tile_compile_cpp/tile_compile.yaml`, `tile_compile_cpp/tile_compile.sch
 | `registration.allow_rotation` | `bool` | `true` | Erlaubt Rotationsanteile im Registrierungsmodell. | Alt/Az, Starke Rotation | Registration |
 | `registration.enable_star_pair_fallback` | `bool` | `false` | Enable additional star-pair fallback between primary triangle and normative fallback cascade. strict profile disables this. | Alt/Az, Starke Rotation | Registration |
 | `registration.engine` | `string` | `triangle_star_matching` | Waehlt die Hauptmethode fuer die Bildregistrierung. | Alt/Az, Starke Rotation | Registration |
-| `registration.reject_cc_mad_multiplier` | `float` | `4.0` | Steuert reject cc mad multiplier im Bereich registration. | Alt/Az, Starke Rotation | Registration |
 | `registration.reject_cc_min_abs` | `float` | `0.3` | Steuert reject cc min abs im Bereich registration. | Alt/Az, Starke Rotation | Registration |
 | `registration.reject_outliers` | `bool` | `true` | Steuert reject outliers im Bereich registration. | Alt/Az, Starke Rotation | Registration |
 | `registration.reject_scale_max` | `float` | `1.08` | Steuert reject scale max im Bereich registration. | Alt/Az, Starke Rotation | Registration |

@@ -912,9 +912,19 @@ void register_runs_routes(CrowApp& app,
         args.push_back("--run-dir"); args.push_back(run_dir.string());
         args.push_back("--from-phase"); args.push_back(from_phase);
 
+        nlohmann::json resume_job_data = {
+            {"run_id", run_id},
+            {"run_dir", run_dir.string()},
+            {"runs_dir", run_dir.parent_path().string()},
+            {"from_phase", from_phase},
+            {"config_revision_id", rev_id},
+            {"filter_context", filter_ctx.empty() ? nlohmann::json(nullptr) : nlohmann::json(filter_ctx)},
+            {"command", args}
+        };
         std::string job_id = state->subprocess_manager.launch("resume", args,
                                                                state->runtime.project_root.string(),
-                                                               run_id);
+                                                               run_id,
+                                                               resume_job_data);
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->current_run_id = run_id;

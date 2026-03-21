@@ -284,8 +284,7 @@ registration:
   star_dist_bin_px: 5.0
   
   reject_outliers: true
-  reject_cc_min_abs: 0.30
-  reject_cc_mad_multiplier: 4.0
+  reject_cc_min_abs: 0.25
   reject_shift_px_min: 100.0
   reject_shift_median_multiplier: 5.0
   reject_scale_min: 0.92

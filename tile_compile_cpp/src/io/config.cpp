@@ -232,6 +232,8 @@ Config Config::from_yaml(const YAML::Node &node) {
     auto r = node["registration"];
     if (r["engine"])
       cfg.registration.engine = r["engine"].as<std::string>();
+    if (r["transform_model"])
+      cfg.registration.transform_model = r["transform_model"].as<std::string>();
     if (r["enable_star_pair_fallback"])
       cfg.registration.enable_star_pair_fallback =
           r["enable_star_pair_fallback"].as<bool>();
@@ -249,8 +251,6 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.registration.reject_outliers = r["reject_outliers"].as<bool>();
     if (r["reject_cc_min_abs"])
       cfg.registration.reject_cc_min_abs = r["reject_cc_min_abs"].as<float>();
-    if (r["reject_cc_mad_multiplier"])
-      cfg.registration.reject_cc_mad_multiplier = r["reject_cc_mad_multiplier"].as<float>();
     if (r["reject_shift_px_min"])
       cfg.registration.reject_shift_px_min = r["reject_shift_px_min"].as<float>();
     if (r["reject_shift_median_multiplier"])
@@ -753,6 +753,7 @@ YAML::Node Config::to_yaml() const {
   node["normalization"]["per_channel"] = normalization.per_channel;
 
   node["registration"]["engine"] = registration.engine;
+  node["registration"]["transform_model"] = registration.transform_model;
   node["registration"]["enable_star_pair_fallback"] =
       registration.enable_star_pair_fallback;
   node["registration"]["allow_rotation"] = registration.allow_rotation;
@@ -762,7 +763,6 @@ YAML::Node Config::to_yaml() const {
   node["registration"]["star_dist_bin_px"] = registration.star_dist_bin_px;
   node["registration"]["reject_outliers"] = registration.reject_outliers;
   node["registration"]["reject_cc_min_abs"] = registration.reject_cc_min_abs;
-  node["registration"]["reject_cc_mad_multiplier"] = registration.reject_cc_mad_multiplier;
   node["registration"]["reject_shift_px_min"] = registration.reject_shift_px_min;
   node["registration"]["reject_shift_median_multiplier"] =
       registration.reject_shift_median_multiplier;
@@ -1026,6 +1026,11 @@ void Config::validate() const {
         "registration.engine must be 'triangle_star_matching', "
         "'star_similarity', 'hybrid_phase_ecc', or 'robust_phase_ecc'");
   }
+  if (registration.transform_model != "similarity" &&
+      registration.transform_model != "affine") {
+    throw ValidationError(
+        "registration.transform_model must be 'similarity' or 'affine'");
+  }
   if (registration.star_topk < 3) {
     throw ValidationError("registration.star_topk must be >= 3");
   }
@@ -1040,10 +1045,6 @@ void Config::validate() const {
   if (registration.reject_cc_min_abs < 0.0f ||
       registration.reject_cc_min_abs > 1.0f) {
     throw ValidationError("registration.reject_cc_min_abs must be in [0,1]");
-  }
-  if (registration.reject_cc_mad_multiplier <= 0.0f) {
-    throw ValidationError(
-        "registration.reject_cc_mad_multiplier must be > 0");
   }
   if (registration.reject_shift_px_min < 0.0f ||
       registration.reject_shift_median_multiplier <= 0.0f) {
@@ -1388,6 +1389,7 @@ std::string get_schema_json() {
                       "per_channel":{"type":"boolean"} } },
     "registration": { "type":"object",
       "properties": { "engine":{"type":"string","enum":["triangle_star_matching","star_similarity","hybrid_phase_ecc","robust_phase_ecc"]},
+                      "transform_model":{"type":"string","enum":["similarity","affine"]},
                       "enable_star_pair_fallback":{"type":"boolean"},
                       "allow_rotation":{"type":"boolean"},
                       "star_topk":{"type":"integer","minimum":3},
@@ -1396,7 +1398,6 @@ std::string get_schema_json() {
                       "star_dist_bin_px":{"type":"number","exclusiveMinimum":0},
                       "reject_outliers":{"type":"boolean"},
                       "reject_cc_min_abs":{"type":"number","minimum":0,"maximum":1},
-                      "reject_cc_mad_multiplier":{"type":"number","exclusiveMinimum":0},
                       "reject_shift_px_min":{"type":"number","minimum":0},
                       "reject_shift_median_multiplier":{"type":"number","exclusiveMinimum":0},
                       "reject_scale_min":{"type":"number","exclusiveMinimum":0},
