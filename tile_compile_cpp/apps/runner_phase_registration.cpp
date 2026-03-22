@@ -1,5 +1,6 @@
 #include "runner_phase_registration.hpp"
 
+#include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/image/processing.hpp"
@@ -33,6 +34,21 @@ namespace registration = tile_compile::registration;
 namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
+
+int compute_required_common_overlap_frames(int usable_frames) {
+  if (usable_frames <= 1) {
+    return 1;
+  }
+  constexpr float kCoverageFraction = 0.02f;
+  constexpr int kCoverageFloor = 2;
+  constexpr int kCoverageCap = 32;
+  int required = static_cast<int>(
+      std::ceil(static_cast<float>(usable_frames) * kCoverageFraction));
+  required = std::max(required, kCoverageFloor);
+  required = std::min(required, kCoverageCap);
+  required = std::min(required, usable_frames);
+  return std::max(required, 1);
+}
 
 float wrap_angle_near(float angle, float reference) {
   while (angle - reference > kPi) {
@@ -1481,8 +1497,13 @@ bool run_phase_registration_prewarp(
               if (img.size() <= 0)
                 continue;
 
-              Matrix2Df out_img =
-                  image::apply_global_warp(img, w, detected_mode);
+              Matrix2Df out_img;
+              if (detected_mode == ColorMode::OSC) {
+                out_img = image::warp_cfa_mosaic_via_subplanes(
+                    img, w, img.rows(), img.cols(), "reflect", "linear");
+              } else {
+                out_img = image::apply_global_warp(img, w, detected_mode);
+              }
 
               std::ostringstream name;
               name << "frame_" << std::setw(4) << std::setfill('0') << fi
@@ -2136,6 +2157,26 @@ bool run_phase_registration_prewarp(
       canvas_height = (canvas_height + 1) & ~1;  // keep canvas even
     }
   }
+
+  const auto prewarp_acceleration = core::select_acceleration_backend(
+      cfg.runtime_limits.acceleration_backend,
+      core::AccelerationPhase::prewarp);
+  const core::AccelerationOps prewarp_ops(prewarp_acceleration);
+  const auto prewarp_input_batch =
+      core::make_device_frame_batch(frames.size(), height, width, 1);
+  const auto prewarp_output_batch =
+      core::make_device_frame_batch(frames.size(), canvas_height, canvas_width,
+                                    1);
+  {
+    std::ostringstream msg;
+    msg << "PREWARP acceleration "
+        << core::acceleration_selection_summary(prewarp_acceleration);
+    if (!prewarp_acceleration.request_honored &&
+        !prewarp_acceleration.fallback_reason.empty()) {
+      emitter.warning(run_id, msg.str(), log_file);
+    }
+    std::cout << "[PREWARP] " << msg.str() << std::endl;
+  }
   
   // Apply offset correction to all warps
   if (offset_x != 0 || offset_y != 0) {
@@ -2171,7 +2212,6 @@ bool run_phase_registration_prewarp(
   DiskCacheFrameStore prewarped_frames(
       run_dir / ".prewarped_cache", frames.size(), canvas_height, canvas_width);
   std::vector<uint8_t> frame_has_data(frames.size(), 0);
-  constexpr int required_common_frames = 1;
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *
       static_cast<size_t>(std::max(0, canvas_width));
@@ -2213,45 +2253,35 @@ bool run_phase_registration_prewarp(
           }
         }
         const auto &w = global_frame_warps[fi];
-        const float eps = 1.0e-6f;
-        const bool is_identity =
-            std::fabs(w(0, 0) - 1.0f) < eps && std::fabs(w(0, 1)) < eps &&
-            std::fabs(w(1, 0)) < eps && std::fabs(w(1, 1) - 1.0f) < eps &&
-            std::fabs(w(0, 2)) < eps && std::fabs(w(1, 2)) < eps;
         Matrix2Df warped;
-        if (is_identity) {
-          // For identity warp, we still need to expand canvas if bbox requires it
-          if (canvas_width > width || canvas_height > height) {
-            // Create expanded canvas and place image at offset position
-            warped = Matrix2Df::Zero(canvas_height, canvas_width);
-            int src_h = img.rows();
-            int src_w = img.cols();
-            int dst_y = offset_y;
-            int dst_x = offset_x;
-            // Ensure we don't write outside canvas bounds
-            int copy_h = std::min(src_h, canvas_height - dst_y);
-            int copy_w = std::min(src_w, canvas_width - dst_x);
-            if (copy_h > 0 && copy_w > 0) {
-              warped.block(dst_y, dst_x, copy_h, copy_w) = img.block(0, 0, copy_h, copy_w);
-            }
-          } else {
-            warped = std::move(img);
-          }
-        } else {
-          warped = image::apply_global_warp(img, w, detected_mode, canvas_height, canvas_width);
-        }
+        std::vector<uint8_t> warped_valid_mask;
+        bool warped_has_data = false;
+        prewarp_ops.warp_affine_frame(std::move(img), w, detected_mode,
+                                      canvas_height, canvas_width, offset_x,
+                                      offset_y, warped, &warped_valid_mask,
+                                      &warped_has_data);
         if (warped.size() > 0) {
           prewarped_frames.store(fi, warped);
-          const bool has_data = prewarped_frames.has_data(fi);
-          if (has_data) {
+          const bool stored = prewarped_frames.has_data(fi);
+          if (stored && warped_has_data) {
             frame_has_data[fi] = 1;
             n_frames_with_data.fetch_add(1, std::memory_order_relaxed);
-            const float *warped_ptr = warped.data();
-            for (size_t pi = 0; pi < canvas_px; ++pi) {
-              if (warped_ptr[pi] > 0.0f &&
-                  local_overlap_coverage[pi] <
-                      std::numeric_limits<uint16_t>::max()) {
-                ++local_overlap_coverage[pi];
+            if (warped_valid_mask.size() == canvas_px) {
+              for (size_t pi = 0; pi < canvas_px; ++pi) {
+                if (warped_valid_mask[pi] != 0 &&
+                    local_overlap_coverage[pi] <
+                        std::numeric_limits<uint16_t>::max()) {
+                  ++local_overlap_coverage[pi];
+                }
+              }
+            } else {
+              const float *warped_ptr = warped.data();
+              for (size_t pi = 0; pi < canvas_px; ++pi) {
+                if (warped_ptr[pi] > 0.0f &&
+                    local_overlap_coverage[pi] <
+                        std::numeric_limits<uint16_t>::max()) {
+                  ++local_overlap_coverage[pi];
+                }
               }
             }
           }
@@ -2300,10 +2330,16 @@ bool run_phase_registration_prewarp(
   }
 
   if (prewarp_failed.load(std::memory_order_relaxed)) {
-    emitter.phase_end(run_id, Phase::PREWARP, "error",
-                      {{"error", prewarp_error.empty() ? "unknown_error"
-                                                         : prewarp_error}},
-                      log_file);
+    core::json extra = {
+        {"error", prewarp_error.empty() ? "unknown_error" : prewarp_error},
+        {"acceleration",
+         core::acceleration_selection_to_json(prewarp_acceleration)},
+        {"device_frame_batch_input",
+         core::device_frame_batch_to_json(prewarp_input_batch)},
+        {"device_frame_batch_output",
+         core::device_frame_batch_to_json(prewarp_output_batch)},
+    };
+    emitter.phase_end(run_id, Phase::PREWARP, "error", extra, log_file);
     std::cerr << "Error during PREWARP: "
               << (prewarp_error.empty() ? "unknown_error" : prewarp_error)
               << std::endl;
@@ -2312,6 +2348,8 @@ bool run_phase_registration_prewarp(
   }
 
   out.n_usable_frames = n_frames_with_data.load(std::memory_order_relaxed);
+  const int required_common_frames =
+      compute_required_common_overlap_frames(out.n_usable_frames);
   out.canvas_width = canvas_width;
   out.canvas_height = canvas_height;
   out.tile_offset_x = offset_x;
@@ -2336,16 +2374,25 @@ bool run_phase_registration_prewarp(
       out.common_valid_mask[pi] = static_cast<uint8_t>(1);
     }
   }
-  
-  emitter.phase_end(run_id, Phase::PREWARP, "ok",
-                    {{"num_frames", static_cast<int>(frames.size())},
-                     {"num_frames_with_data", out.n_usable_frames},
-                     {"canvas_width", canvas_width},
-                     {"canvas_height", canvas_height},
-                     {"tile_offset_x", offset_x},
-                     {"tile_offset_y", offset_y},
-                     {"workers", prewarp_workers}},
-                    log_file);
+
+  core::json prewarp_extra = {
+      {"num_frames", static_cast<int>(frames.size())},
+      {"num_frames_with_data", out.n_usable_frames},
+      {"canvas_width", canvas_width},
+      {"canvas_height", canvas_height},
+      {"tile_offset_x", offset_x},
+      {"tile_offset_y", offset_y},
+      {"workers", prewarp_workers},
+      {"common_overlap_mode", "inline_prewarp_coverage"},
+      {"required_common_frames", required_common_frames},
+      {"acceleration",
+       core::acceleration_selection_to_json(prewarp_acceleration)},
+      {"device_frame_batch_input",
+       core::device_frame_batch_to_json(prewarp_input_batch)},
+      {"device_frame_batch_output",
+       core::device_frame_batch_to_json(prewarp_output_batch)},
+  };
+  emitter.phase_end(run_id, Phase::PREWARP, "ok", prewarp_extra, log_file);
 
   out.frame_has_data = std::move(frame_has_data);
   out.prewarped_frames = std::move(prewarped_frames);

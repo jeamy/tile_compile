@@ -478,13 +478,21 @@ function setRunReady(status, runStatus = "") {
     applyChip(chip, "running", t("ui.status.run_ready_running", "Status: run running"));
     return;
   }
-  const normalized = String(status || "check").toLowerCase();
+  const validationState = currentRunReadyValidationState();
+  let normalized = String(status || "check").toLowerCase();
+  if (normalized !== "error" && (!validationState || !validationState.ok)) {
+    normalized = "error";
+  }
   const statusText = normalized === "ok"
     ? t("ui.status.run_ready_ok", "Status: ready to run")
     : normalized === "error"
       ? t("ui.status.run_ready_blocked", "Status: blocked")
       : t("ui.status.run_ready_check", "Status: check");
   applyChip(chip, normalized === "ok" ? "ok" : normalized === "error" ? "error" : "check", statusText);
+}
+
+function refreshRunReadyIndicators() {
+  setRunReady(uiState.runReadyStatus, uiState.runProcessStatus);
 }
 
 async function waitForJob(jobId, { timeoutMs = 240000, onTick, allowMissing = false } = {}) {
@@ -1060,6 +1068,7 @@ function setConfigDraft(yamlText) {
   if (!value) return;
   uiState.configYaml = value;
   writeServerUiStateValue(CONFIG_DRAFT_KEY, uiState.configYaml);
+  refreshRunReadyIndicators();
 }
 
 function getConfigValidationState() {
@@ -1069,6 +1078,12 @@ function getConfigValidationState() {
   } catch {
     return null;
   }
+}
+
+function currentRunReadyValidationState() {
+  const yamlText = String(uiState.configYaml || getConfigDraft() || "");
+  if (!yamlText.trim()) return getConfigValidationState();
+  return currentValidationStateForYaml(yamlText);
 }
 
 function setConfigValidationState({ yaml = "", ok = false, errors = [], warnings = [] } = {}) {
@@ -1082,10 +1097,12 @@ function setConfigValidationState({ yaml = "", ok = false, errors = [], warnings
       updated_at: new Date().toISOString(),
     }),
   );
+  refreshRunReadyIndicators();
 }
 
 function clearConfigValidationState() {
   writeServerUiStateValue(CONFIG_VALIDATION_STATE_KEY, "");
+  refreshRunReadyIndicators();
 }
 
 function getParameterDirtyState() {
@@ -2142,7 +2159,7 @@ function bindLocaleControls() {
 }
 
 document.addEventListener("gui2:locale-changed", () => {
-  setRunReady(uiState.runReadyStatus, uiState.runProcessStatus);
+  refreshRunReadyIndicators();
 });
 
 function buildScanPayloadFromDirs(dirs, framesMin, withChecksums) {

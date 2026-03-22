@@ -5,6 +5,97 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(_tile_compile_opencv_dir_candidates
+    "$ENV{TILE_COMPILE_OPENCV_DIR}"
+    "$ENV{OpenCV_DIR}"
+    "$ENV{HOME}/.local/opencv-cuda-4.11/lib64/cmake/opencv4"
+    "$ENV{HOME}/.local/opencv-cuda/lib64/cmake/opencv4")
+set(_tile_compile_preferred_opencv_dir "")
+foreach(_opencv_dir ${_tile_compile_opencv_dir_candidates})
+    if(_opencv_dir AND EXISTS "${_opencv_dir}/OpenCVConfig.cmake")
+        set(_tile_compile_preferred_opencv_dir "${_opencv_dir}")
+        break()
+    endif()
+endforeach()
+if((NOT DEFINED OpenCV_DIR OR "${OpenCV_DIR}" STREQUAL "") OR
+   (DEFINED TILE_COMPILE_OPENCV_DIR_AUTO_LAST AND
+    "${OpenCV_DIR}" STREQUAL "${TILE_COMPILE_OPENCV_DIR_AUTO_LAST}"))
+    if(_tile_compile_preferred_opencv_dir)
+        set(OpenCV_DIR "${_tile_compile_preferred_opencv_dir}" CACHE PATH
+            "Preferred OpenCV config directory for tile_compile" FORCE)
+    endif()
+endif()
+set(TILE_COMPILE_OPENCV_DIR_AUTO_LAST "${_tile_compile_preferred_opencv_dir}"
+    CACHE INTERNAL "Last auto-detected preferred OpenCV_DIR")
+
+set(_tile_compile_cuda_hints)
+if(DEFINED ENV{CUDA_NVCC_EXECUTABLE} AND NOT "$ENV{CUDA_NVCC_EXECUTABLE}" STREQUAL "")
+    get_filename_component(_tile_compile_env_nvcc_dir "$ENV{CUDA_NVCC_EXECUTABLE}" DIRECTORY)
+    if(_tile_compile_env_nvcc_dir)
+        list(APPEND _tile_compile_cuda_hints "${_tile_compile_env_nvcc_dir}")
+    endif()
+endif()
+foreach(_cuda_root "/usr/local/cuda-12.9"
+                   "$ENV{CUDA_TOOLKIT_ROOT_DIR}" "$ENV{CUDA_HOME}" "$ENV{CUDA_PATH}"
+                   "/usr/local/cuda" "/opt/cuda")
+    if(_cuda_root)
+        list(APPEND _tile_compile_cuda_hints "${_cuda_root}" "${_cuda_root}/bin")
+    endif()
+endforeach()
+set(_tile_compile_preferred_nvcc "")
+foreach(_cuda_hint ${_tile_compile_cuda_hints})
+    if(_cuda_hint AND EXISTS "${_cuda_hint}/nvcc")
+        set(_tile_compile_preferred_nvcc "${_cuda_hint}/nvcc")
+        break()
+    endif()
+endforeach()
+if((NOT DEFINED TILE_COMPILE_NVCC_EXECUTABLE OR
+    "${TILE_COMPILE_NVCC_EXECUTABLE}" STREQUAL "") OR
+   (DEFINED TILE_COMPILE_NVCC_EXECUTABLE_AUTO_LAST AND
+    "${TILE_COMPILE_NVCC_EXECUTABLE}" STREQUAL "${TILE_COMPILE_NVCC_EXECUTABLE_AUTO_LAST}"))
+    if(_tile_compile_preferred_nvcc)
+        set(TILE_COMPILE_NVCC_EXECUTABLE "${_tile_compile_preferred_nvcc}"
+            CACHE FILEPATH "Preferred nvcc executable for tile_compile" FORCE)
+    else()
+        find_program(TILE_COMPILE_NVCC_EXECUTABLE
+                     NAMES nvcc
+                     HINTS ${_tile_compile_cuda_hints})
+    endif()
+endif()
+set(TILE_COMPILE_NVCC_EXECUTABLE_AUTO_LAST "${_tile_compile_preferred_nvcc}"
+    CACHE INTERNAL "Last auto-detected preferred nvcc executable")
+set(_tile_compile_cuda_auto_default OFF)
+if(TILE_COMPILE_NVCC_EXECUTABLE)
+    set(_tile_compile_cuda_auto_default ON)
+endif()
+set(_tile_compile_cuda_help
+    "Enable experimental custom CUDA backend hooks (auto-defaults to ON when a CUDA compiler is available)")
+if(NOT DEFINED TILE_COMPILE_ENABLE_CUDA)
+    set(TILE_COMPILE_ENABLE_CUDA ${_tile_compile_cuda_auto_default}
+        CACHE BOOL "${_tile_compile_cuda_help}")
+elseif(DEFINED TILE_COMPILE_ENABLE_CUDA_AUTO_LAST AND
+       "${TILE_COMPILE_ENABLE_CUDA}" STREQUAL "${TILE_COMPILE_ENABLE_CUDA_AUTO_LAST}")
+    set(TILE_COMPILE_ENABLE_CUDA ${_tile_compile_cuda_auto_default}
+        CACHE BOOL "${_tile_compile_cuda_help}" FORCE)
+else()
+    set_property(CACHE TILE_COMPILE_ENABLE_CUDA PROPERTY HELPSTRING
+                 "${_tile_compile_cuda_help}")
+endif()
+set(TILE_COMPILE_ENABLE_CUDA_AUTO_LAST "${_tile_compile_cuda_auto_default}"
+    CACHE INTERNAL "Last auto-detected CUDA default")
+set(TILE_COMPILE_WITH_CUDA OFF)
+if(TILE_COMPILE_ENABLE_CUDA)
+    # There are currently no .cu translation units in the project. The custom
+    # CUDA backend hook is therefore a feature gate, not a separate CUDA build
+    # pipeline, and should not depend on CMake successfully enabling the CUDA
+    # language/compiler-id checks on this host.
+    if(TILE_COMPILE_NVCC_EXECUTABLE)
+        set(TILE_COMPILE_WITH_CUDA ON)
+    else()
+        message(WARNING "TILE_COMPILE_ENABLE_CUDA=ON but nvcc was not found; custom CUDA backend hooks will be compiled out.")
+    endif()
+endif()
+
 # Build type
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -315,6 +406,7 @@ set(LIB_SOURCES
     src/core/mode_gating.cpp
     src/core/utils.cpp
     src/core/events.cpp
+    src/core/acceleration.cpp
     src/io/fits_io.cpp
     src/io/config.cpp
     src/image/processing.cpp
@@ -339,6 +431,10 @@ set(LIB_SOURCES
 
 # Main library
 add_library(tile_compile_lib STATIC ${LIB_SOURCES})
+
+target_compile_definitions(tile_compile_lib PUBLIC
+    TILE_COMPILE_WITH_CUDA=$<BOOL:${TILE_COMPILE_WITH_CUDA}>
+)
 
 target_link_libraries(tile_compile_lib PUBLIC
     Eigen3::Eigen
@@ -420,6 +516,7 @@ if(BUILD_TESTS)
         enable_testing()
         add_executable(tests
             tests/test_main.cpp
+            tests/test_acceleration_backend.cpp
             tests/test_utils.cpp
             tests/test_fits.cpp
             tests/test_debayer.cpp
@@ -476,6 +573,9 @@ install(DIRECTORY include/tile_compile
 message(STATUS "")
 message(STATUS "=== Tile-Compile C++ Configuration ===")
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "TILE_COMPILE_ENABLE_CUDA: ${TILE_COMPILE_ENABLE_CUDA}")
+message(STATUS "TILE_COMPILE_WITH_CUDA: ${TILE_COMPILE_WITH_CUDA}")
+message(STATUS "CUDA nvcc: ${TILE_COMPILE_NVCC_EXECUTABLE}")
 message(STATUS "Eigen3: ${EIGEN3_VERSION}")
 message(STATUS "OpenCV: ${OpenCV_VERSION}")
 message(STATUS "CFITSIO: ${CFITSIO_VERSION}")

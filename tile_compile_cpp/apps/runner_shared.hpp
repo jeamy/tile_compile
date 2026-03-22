@@ -282,6 +282,27 @@ bool load_canvas_mask_for_rgb(const std::filesystem::path &mask_path,
                               int &rows_out, int &cols_out,
                               std::string &error_out);
 
+struct CropBox {
+  int x{0};
+  int y{0};
+  int width{0};
+  int height{0};
+
+  [[nodiscard]] bool valid() const { return width > 0 && height > 0; }
+};
+
+CropBox compute_nonzero_data_bbox(const Matrix2Df &luma,
+                                  const Matrix2Df *r = nullptr,
+                                  const Matrix2Df *g = nullptr,
+                                  const Matrix2Df *b = nullptr);
+
+CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
+                                       const std::vector<uint8_t> &common_valid_mask,
+                                       int mask_rows, int mask_cols,
+                                       const Matrix2Df *r = nullptr,
+                                       const Matrix2Df *g = nullptr,
+                                       const Matrix2Df *b = nullptr);
+
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src);
 astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src);
 

@@ -30,6 +30,16 @@ Erforderliche Core-Build-Abhängigkeiten:
 - OpenSSL
 - libcurl
 
+GPU-spezifische Voraussetzungen für echte Laufzeitbeschleunigung:
+
+- Das aktuelle GPU-Backend benötigt einen OpenCV-Build mit:
+  - `opencv2/core/cuda.hpp`
+  - `opencv2/cudawarping.hpp`
+  - `opencv2/cudaarithm.hpp`
+- Zusätzlich werden eine CUDA-fähige NVIDIA-GPU und eine funktionierende CUDA-/OpenCV-Runtime benötigt.
+- Fehlen diese OpenCV-CUDA-Module, funktioniert der Build weiterhin, aber `runtime_limits.acceleration_backend: auto` fällt auf CPU zurück.
+- `TILE_COMPILE_ENABLE_CUDA` aktiviert nur das CUDA-Hook-/Build-Gate. Es garantiert für sich allein noch keine echte GPU-Ausführung.
+
 Backend-spezifische Build-Abhängigkeiten:
 
 - Crow
@@ -39,6 +49,8 @@ Hinweise:
 
 - Crow und Asio werden über den CMake-Build des Backends eingebunden.
 - Das Frontend selbst benötigt für den normalen Betrieb keine JS-Build-Toolchain; es wird als statischer Dateisatz ausgeliefert.
+- Viele Standard-OpenCV-Pakete sind CPU-only. Für echte GPU-Ausführung wird ein OpenCV-Paket bzw. -Build mit aktivierter CUDA-Unterstützung und vorhandenen Modulen `cudawarping` und `cudaarithm` benötigt.
+- Unter macOS ist die aktuelle Implementierung zur Laufzeit effektiv CPU-only, weil für dieses Backend praktisch kein nutzbarer CUDA-Runtime-Pfad vorhanden ist.
 
 Beispielpakete je Plattform:
 
@@ -49,6 +61,7 @@ Beispielpakete je Plattform:
 macOS-Hinweis:
 
 - Die Standard-`opencv`-Formel von Homebrew setzt derzeit ein neueres macOS als macOS 12 voraus. Für den dokumentierten Homebrew-Pfad ist macOS 15 daher praktisch die sinnvolle Basis, sofern OpenCV nicht separat bereitgestellt wird.
+- Die obigen Paketbeispiele reichen für CPU-Builds aus. Sie garantieren keine GPU-Beschleunigung, weil das installierte OpenCV-Paket die vom Runner benötigten CUDA-Module enthalten muss.
 - Wenn ein heruntergeladenes GUI2-/Release-Bundle von Gatekeeper mit Meldungen wie „Entwickler kann nicht identifiziert werden“ blockiert wird oder eine mitgelieferte `.dylib` nicht geöffnet werden kann, entferne das Quarantine-Flag am entpackten Release-Ordner mit `xattr -dr com.apple.quarantine /pfad/zum/entpackten_release` und starte das Bundle danach erneut.
 
 ## 2) Die C++-Werkzeuge bauen

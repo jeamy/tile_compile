@@ -180,6 +180,22 @@ For a full beginner-friendly walkthrough, see:
 - yaml-cpp
 - nlohmann-json
 
+#### GPU acceleration requirements
+
+- The active GPU backend uses OpenCV CUDA modules and currently requires:
+  - `opencv2/core/cuda.hpp`
+  - `opencv2/cudawarping.hpp`
+  - `opencv2/cudaarithm.hpp`
+- At runtime, a CUDA-capable NVIDIA GPU and a working CUDA/OpenCV runtime are also required.
+- If these OpenCV CUDA modules are missing, the pipeline will still build and run, but `acceleration_backend: auto` will fall back to CPU.
+- `TILE_COMPILE_ENABLE_CUDA` only enables the CUDA hook/build gate. Real GPU execution additionally depends on the OpenCV CUDA modules above being available.
+
+Notes:
+
+- Many default distro/Homebrew/OpenCV packages provide CPU-only OpenCV builds. In that case GPU acceleration is not available even if `nvcc` is installed.
+- For real GPU execution, use an OpenCV build/package variant with CUDA enabled and with the `cudaarithm` and `cudawarping` modules present.
+- On macOS, the current GPU implementation does not provide a practical CUDA runtime path. macOS builds are therefore effectively CPU-only at runtime.
+
 #### Package install examples
 
 Linux (Ubuntu/Debian):
@@ -213,6 +229,7 @@ Notes:
 
 - `ninja` is required for the local GUI2 packaging scripts.
 - On macOS 12, the default Homebrew `opencv` formula is currently not supported. The Homebrew-based path therefore effectively requires macOS 15 for OpenCV, unless you provide a separate working OpenCV installation yourself.
+- The package examples above are sufficient for CPU builds. They do not guarantee GPU acceleration, because the OpenCV package on the host may not include CUDA modules.
 - If a downloaded GUI2/release bundle is blocked by Gatekeeper with messages such as “developer cannot be identified” or a bundled `.dylib` cannot be opened, remove the quarantine flag from the extracted release folder with `xattr -dr com.apple.quarantine /path/to/extracted_release` and then start the bundle again.
 
 Windows:
@@ -463,6 +480,11 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.4 (2026-03-22)
+
+- Added a real artifact-based `STACKING` resume path in the C++ runner so `resume --from-phase STACKING` rebuilds from `synthetic_*.fit`/`canvas_mask.fits` instead of replaying the entire pipeline.
+- Fixed one synthetic/tile overlap-add weighting failure mode so zero/invalid pixels no longer contribute Hann weights. This removes that specific darkening mechanism, but residual internal line artifacts may still have other causes.
+
 ## v0.1.3 (2026-03-21)
 
 - Added per-frame registration provenance and chain-depth tracking in the C++ registration artifacts, including stricter blind-chain anchor rules to limit drift through weak sequential rescue chains.
@@ -573,6 +595,13 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-03-22)
+
+**Real `STACKING` resume + synthetic OLA seam fix (`v0.1.4`):**
+
+- Implemented a true artifact-based `STACKING` resume path in `tile_compile_cpp/apps/runner_resume.cpp`, so `resume --from-phase STACKING` now rebuilds the stacked outputs directly from existing `synthetic_*.fit` plus `canvas_mask.fits` and continues with later phases instead of triggering an in-place full rerun.
+- Fixed one overlap-add accumulation failure mode in `tile_compile_cpp/src/core/acceleration.cpp`: zero/invalid tile pixels no longer add Hann weights to `weight_sum`. This removes that specific darkening path, but residual internal seams/lines may still have other causes.
 
 ### (2026-03-21)
 

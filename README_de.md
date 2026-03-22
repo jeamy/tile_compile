@@ -180,6 +180,22 @@ Für eine vollständige anfängerfreundliche Anleitung siehe:
 - yaml-cpp
 - nlohmann-json
 
+#### Voraussetzungen für GPU-Beschleunigung
+
+- Das aktive GPU-Backend verwendet OpenCV-CUDA-Module und benötigt derzeit:
+  - `opencv2/core/cuda.hpp`
+  - `opencv2/cudawarping.hpp`
+  - `opencv2/cudaarithm.hpp`
+- Zur Laufzeit werden zusätzlich eine CUDA-fähige NVIDIA-GPU und eine funktionierende CUDA-/OpenCV-Runtime benötigt.
+- Fehlen diese OpenCV-CUDA-Module, lässt sich die Pipeline zwar weiterhin bauen und ausführen, aber `acceleration_backend: auto` fällt sauber auf CPU zurück.
+- `TILE_COMPILE_ENABLE_CUDA` aktiviert nur das CUDA-Hook-/Build-Gate. Echte GPU-Ausführung hängt zusätzlich davon ab, dass die oben genannten OpenCV-CUDA-Module verfügbar sind.
+
+Hinweise:
+
+- Viele Standard-OpenCV-Pakete aus Distributionen, Homebrew oder allgemeinen Paketquellen sind CPU-only. Dann ist keine GPU-Beschleunigung verfügbar, auch wenn `nvcc` installiert ist.
+- Für echte GPU-Ausführung wird ein OpenCV-Build bzw. ein Paket mit aktivierter CUDA-Unterstützung und vorhandenen Modulen `cudaarithm` und `cudawarping` benötigt.
+- Unter macOS gibt es für die aktuelle Implementierung praktisch keinen nutzbaren CUDA-Runtime-Pfad. macOS-Builds laufen daher zur Laufzeit effektiv CPU-only.
+
 #### Paket-Installationsbeispiele
 
 Linux (Ubuntu/Debian):
@@ -209,6 +225,7 @@ brew install cmake pkg-config eigen opencv cfitsio yaml-cpp nlohmann-json openss
 
 Hinweise:
 
+- Die obigen Paketbeispiele reichen für CPU-Builds aus. Sie garantieren keine GPU-Beschleunigung, weil das jeweilige OpenCV-Paket auf dem Host die CUDA-Module enthalten muss.
 - Wenn ein heruntergeladenes GUI2-/Release-Bundle von Gatekeeper mit Meldungen wie „Entwickler kann nicht identifiziert werden“ blockiert wird oder eine mitgelieferte `.dylib` nicht geöffnet werden kann, entferne das Quarantine-Flag am entpackten Release-Ordner mit `xattr -dr com.apple.quarantine /pfad/zum/entpackten_release` und starte das Bundle danach erneut.
 
 Windows:
@@ -473,6 +490,11 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.4 (2026-03-22)
+
+- Echten artefaktbasierten `STACKING`-Resume-Pfad im C++-Runner ergänzt, sodass `resume --from-phase STACKING` aus `synthetic_*.fit`/`canvas_mask.fits` neu aufbaut statt die gesamte Pipeline erneut abzuspielen.
+- Einen konkreten Fehler in der OLA-Gewichtung für Synthetic-/Tile-Überlagerung korrigiert: Null-/Invalid-Pixel tragen keine Hann-Gewichte mehr bei. Dieser spezielle Abdunklungspfad ist damit behoben, verbleibende innere Linienartefakte können aber weiterhin andere Ursachen haben.
+
 ## v0.1.3 (2026-03-21)
 
 - Pro-Frame-Tracking für Registration-Herkunft und Kettentiefe in den C++-Registrierungsartefakten ergänzt, inklusive strengerer Blind-Chain-Ankerregeln zur Driftbegrenzung in schwachen sequentiellen Rescue-Ketten.
@@ -583,6 +605,13 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-22)
+
+**Echter `STACKING`-Resume + Synthetic-OLA-Seam-Fix (`v0.1.4`):**
+
+- In `tile_compile_cpp/apps/runner_resume.cpp` einen echten artefaktbasierten `STACKING`-Resume-Pfad implementiert: `resume --from-phase STACKING` baut die Stacking-Ausgaben jetzt direkt aus vorhandenen `synthetic_*.fit` plus `canvas_mask.fits` neu auf und läuft danach mit den späteren Phasen weiter, statt einen vollständigen In-Place-Rerun anzustoßen.
+- Einen konkreten Fehler in der Overlap-Add-Akkumulation in `tile_compile_cpp/src/core/acceleration.cpp` korrigiert: Null-/Invalid-Pixel eines Tiles addieren keine Hann-Gewichte mehr in `weight_sum`. Dieser spezielle Abdunklungspfad ist damit behoben, verbleibende innere Nähte/Linien können aber weiterhin andere Ursachen haben.
 
 ### (2026-03-21)
 

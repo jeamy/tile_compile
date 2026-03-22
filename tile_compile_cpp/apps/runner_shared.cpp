@@ -260,6 +260,124 @@ bool load_canvas_mask_for_rgb(const fs::path &mask_path, const Matrix2Df &R,
                                error_out);
 }
 
+CropBox compute_nonzero_data_bbox(const Matrix2Df &luma, const Matrix2Df *r,
+                                  const Matrix2Df *g, const Matrix2Df *b) {
+  constexpr float kCropNonZeroEps = 1.0e-12f;
+  if (luma.rows() <= 0 || luma.cols() <= 0) {
+    return {};
+  }
+
+  const int rows = static_cast<int>(luma.rows());
+  const int cols = static_cast<int>(luma.cols());
+  const bool have_rgb =
+      (r != nullptr && g != nullptr && b != nullptr &&
+       r->rows() == luma.rows() && r->cols() == luma.cols() &&
+       g->rows() == luma.rows() && g->cols() == luma.cols() &&
+       b->rows() == luma.rows() && b->cols() == luma.cols());
+  auto is_valid_value = [](float v) {
+    return std::isfinite(v) && std::fabs(v) > kCropNonZeroEps;
+  };
+
+  int min_x = cols;
+  int min_y = rows;
+  int max_x = -1;
+  int max_y = -1;
+  for (int y = 0; y < rows; ++y) {
+    for (int x = 0; x < cols; ++x) {
+      bool has_data = is_valid_value(luma(y, x));
+      if (!has_data && have_rgb) {
+        has_data = is_valid_value((*r)(y, x)) || is_valid_value((*g)(y, x)) ||
+                   is_valid_value((*b)(y, x));
+      }
+      if (!has_data) {
+        continue;
+      }
+      min_x = std::min(min_x, x);
+      min_y = std::min(min_y, y);
+      max_x = std::max(max_x, x);
+      max_y = std::max(max_y, y);
+    }
+  }
+
+  if (max_x < min_x || max_y < min_y) {
+    return {};
+  }
+  return CropBox{min_x, min_y, max_x - min_x + 1, max_y - min_y + 1};
+}
+
+CropBox compute_largest_valid_crop_box(const Matrix2Df &luma,
+                                       const std::vector<uint8_t> &common_valid_mask,
+                                       int mask_rows, int mask_cols,
+                                       const Matrix2Df *r,
+                                       const Matrix2Df *g,
+                                       const Matrix2Df *b) {
+  const CropBox data_box = compute_nonzero_data_bbox(luma, r, g, b);
+  if (!data_box.valid()) {
+    return {};
+  }
+
+  const size_t expected_mask_size =
+      static_cast<size_t>(std::max(0, mask_rows)) *
+      static_cast<size_t>(std::max(0, mask_cols));
+  if (mask_rows <= 0 || mask_cols <= 0 ||
+      common_valid_mask.size() != expected_mask_size) {
+    return data_box;
+  }
+
+  const int x0 = std::clamp(data_box.x, 0, mask_cols - 1);
+  const int y0 = std::clamp(data_box.y, 0, mask_rows - 1);
+  const int x1 =
+      std::clamp(data_box.x + data_box.width - 1, x0, mask_cols - 1);
+  const int y1 =
+      std::clamp(data_box.y + data_box.height - 1, y0, mask_rows - 1);
+  const int search_width = x1 - x0 + 1;
+  const int search_height = y1 - y0 + 1;
+  if (search_width <= 0 || search_height <= 0) {
+    return data_box;
+  }
+
+  std::vector<int> heights(static_cast<size_t>(search_width), 0);
+  CropBox best_box = data_box;
+  int best_area = 0;
+
+  for (int y = y0; y <= y1; ++y) {
+    const size_t row_off = static_cast<size_t>(y) * static_cast<size_t>(mask_cols);
+    for (int local_x = 0; local_x < search_width; ++local_x) {
+      const int gx = x0 + local_x;
+      const size_t idx = row_off + static_cast<size_t>(gx);
+      if (idx < common_valid_mask.size() && common_valid_mask[idx] != 0) {
+        heights[static_cast<size_t>(local_x)] += 1;
+      } else {
+        heights[static_cast<size_t>(local_x)] = 0;
+      }
+    }
+
+    std::vector<std::pair<int, int>> stack;
+    stack.reserve(static_cast<size_t>(search_width + 1));
+    for (int i = 0; i <= search_width; ++i) {
+      const int current_height =
+          (i < search_width) ? heights[static_cast<size_t>(i)] : 0;
+      int start = i;
+      while (!stack.empty() && stack.back().second > current_height) {
+        const auto [left, height] = stack.back();
+        stack.pop_back();
+        const int width = i - left;
+        const int area = height * width;
+        if (area > best_area && height > 0 && width > 0) {
+          best_area = area;
+          best_box = CropBox{ x0 + left, y - height + 1, width, height };
+        }
+        start = left;
+      }
+      if (stack.empty() || stack.back().second < current_height) {
+        stack.emplace_back(start, current_height);
+      }
+    }
+  }
+
+  return (best_area > 0) ? best_box : data_box;
+}
+
 image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   image::BGEConfig dst;
   dst.enabled = src.enabled;

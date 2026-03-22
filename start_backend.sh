@@ -9,9 +9,26 @@ BUILD_DIR="${BUILD_DIR:-${BUILD_DIR_DEFAULT}}"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 BACKEND_BIN_DEFAULT="${BUILD_DIR}/tile_compile_web_backend"
 BACKEND_BIN="${BACKEND_BIN:-${BACKEND_BIN_DEFAULT}}"
-CLI_BIN_DEFAULT="${PROJECT_ROOT}/tile_compile_cpp/build/tile_compile_cli"
+CPP_BUILD_DIR_DEFAULT="${PROJECT_ROOT}/tile_compile_cpp/build"
+CPP_BUILD_DIR="${CPP_BUILD_DIR:-${CPP_BUILD_DIR_DEFAULT}}"
+DEFAULT_OPENCV_CUDA_DIR="${HOME}/.local/opencv-cuda-4.11/lib64/cmake/opencv4"
+DEFAULT_CUDA_ROOT="/usr/local/cuda-12.9"
+DEFAULT_CUDA_NVCC="${DEFAULT_CUDA_ROOT}/bin/nvcc"
+TILE_COMPILE_OPENCV_DIR="${TILE_COMPILE_OPENCV_DIR:-${OpenCV_DIR:-}}"
+if [[ -z "${TILE_COMPILE_OPENCV_DIR}" && -f "${DEFAULT_OPENCV_CUDA_DIR}/OpenCVConfig.cmake" ]]; then
+  TILE_COMPILE_OPENCV_DIR="${DEFAULT_OPENCV_CUDA_DIR}"
+fi
+TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR="${TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR:-${CUDA_TOOLKIT_ROOT_DIR:-}}"
+if [[ -z "${TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR}" && -d "${DEFAULT_CUDA_ROOT}" ]]; then
+  TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR="${DEFAULT_CUDA_ROOT}"
+fi
+TILE_COMPILE_CUDA_NVCC_EXECUTABLE="${TILE_COMPILE_CUDA_NVCC_EXECUTABLE:-${CUDA_NVCC_EXECUTABLE:-}}"
+if [[ -z "${TILE_COMPILE_CUDA_NVCC_EXECUTABLE}" && -x "${DEFAULT_CUDA_NVCC}" ]]; then
+  TILE_COMPILE_CUDA_NVCC_EXECUTABLE="${DEFAULT_CUDA_NVCC}"
+fi
+CLI_BIN_DEFAULT="${CPP_BUILD_DIR}/tile_compile_cli"
 CLI_BIN="${TILE_COMPILE_CLI:-${CLI_BIN_DEFAULT}}"
-RUNNER_BIN_DEFAULT="${PROJECT_ROOT}/tile_compile_cpp/build/tile_compile_runner"
+RUNNER_BIN_DEFAULT="${CPP_BUILD_DIR}/tile_compile_runner"
 RUNNER_BIN="${TILE_COMPILE_RUNNER:-${RUNNER_BIN_DEFAULT}}"
 CONFIG_PATH_DEFAULT="${PROJECT_ROOT}/tile_compile_cpp/tile_compile.yaml"
 CONFIG_PATH="${TILE_COMPILE_CONFIG:-${CONFIG_PATH_DEFAULT}}"
@@ -38,6 +55,7 @@ Options:
   --host <host>         Backend bind host (default: ${HOST})
   --port <port>         Backend port (default: ${PORT})
   --build-dir <path>    CMake build directory (default: ${BUILD_DIR_DEFAULT})
+  --cpp-build-dir <p>   C++ core build directory (default: ${CPP_BUILD_DIR_DEFAULT})
   --backend-bin <path>  Backend binary path (default: ${BACKEND_BIN_DEFAULT})
   --build-type <type>   CMake build type (default: ${BUILD_TYPE})
   --runs-dir <path>     Runs directory (default: ${RUNS_DIR_DEFAULT})
@@ -45,11 +63,13 @@ Options:
   -h, --help            Show this help
 
 Env overrides:
-  HOST, PORT, BUILD_DIR, BUILD_TYPE, BACKEND_BIN,
+  HOST, PORT, BUILD_DIR, CPP_BUILD_DIR, BUILD_TYPE, BACKEND_BIN,
   TILE_COMPILE_CLI, TILE_COMPILE_RUNNER,
   TILE_COMPILE_CONFIG, TILE_COMPILE_SCHEMA,
   TILE_COMPILE_PRESETS_DIR, TILE_COMPILE_UI_DIR,
-  TILE_COMPILE_RUNS_DIR, TILE_COMPILE_ALLOWED_ROOTS
+  TILE_COMPILE_RUNS_DIR, TILE_COMPILE_ALLOWED_ROOTS,
+  TILE_COMPILE_OPENCV_DIR, TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR,
+  TILE_COMPILE_CUDA_NVCC_EXECUTABLE
 EOF
 }
 
@@ -62,6 +82,8 @@ while [[ $# -gt 0 ]]; do
       PORT="$2"; shift 2;;
     --build-dir)
       BUILD_DIR="$2"; shift 2;;
+    --cpp-build-dir)
+      CPP_BUILD_DIR="$2"; shift 2;;
     --backend-bin)
       BACKEND_BIN="$2"; shift 2;;
     --build-type)
@@ -96,6 +118,25 @@ fi
 mkdir -p "${RUNS_DIR}"
 
 if [[ "${DO_BUILD}" == "1" ]]; then
+  mkdir -p "${CPP_BUILD_DIR}"
+  CPP_CMAKE_ARGS=(
+    -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
+  )
+  if [[ -n "${TILE_COMPILE_OPENCV_DIR}" ]]; then
+    CPP_CMAKE_ARGS+=("-DOpenCV_DIR=${TILE_COMPILE_OPENCV_DIR}")
+  fi
+  if [[ -n "${TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR}" ]]; then
+    CPP_CMAKE_ARGS+=("-DCUDA_TOOLKIT_ROOT_DIR=${TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR}")
+  fi
+  if [[ -n "${TILE_COMPILE_CUDA_NVCC_EXECUTABLE}" ]]; then
+    CPP_CMAKE_ARGS+=("-DCUDA_NVCC_EXECUTABLE=${TILE_COMPILE_CUDA_NVCC_EXECUTABLE}")
+  fi
+
+  echo "[backend] Configuring C++ core in ${CPP_BUILD_DIR}"
+  cmake -S "${PROJECT_ROOT}/tile_compile_cpp" -B "${CPP_BUILD_DIR}" "${CPP_CMAKE_ARGS[@]}"
+  echo "[backend] Building tile_compile_runner and tile_compile_cli"
+  cmake --build "${CPP_BUILD_DIR}" --parallel "$(nproc)" --target tile_compile_runner tile_compile_cli
+
   echo "[backend] Configuring C++ backend in ${BUILD_DIR}"
   cmake -S "${PROJECT_ROOT}/web_backend_cpp" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}"
   echo "[backend] Building tile_compile_web_backend"
@@ -118,6 +159,9 @@ export TILE_COMPILE_PRESETS_DIR="${PRESETS_DIR}"
 export TILE_COMPILE_UI_DIR="${UI_DIR}"
 export TILE_COMPILE_RUNS_DIR="${RUNS_DIR}"
 export TILE_COMPILE_ALLOWED_ROOTS="${ALLOWED_ROOTS}"
+export TILE_COMPILE_OPENCV_DIR="${TILE_COMPILE_OPENCV_DIR}"
+export TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR="${TILE_COMPILE_CUDA_TOOLKIT_ROOT_DIR}"
+export TILE_COMPILE_CUDA_NVCC_EXECUTABLE="${TILE_COMPILE_CUDA_NVCC_EXECUTABLE}"
 
 BACKEND_CMD=(
   "${BACKEND_BIN}"

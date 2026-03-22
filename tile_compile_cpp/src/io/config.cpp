@@ -14,6 +14,19 @@ namespace {
 
 bool is_between_0_1(float v) { return v >= 0.0f && v <= 1.0f; }
 
+std::string normalize_acceleration_backend(std::string value) {
+  auto not_space = [](unsigned char c) { return !std::isspace(c); };
+  value.erase(value.begin(),
+              std::find_if(value.begin(), value.end(), not_space));
+  value.erase(std::find_if(value.rbegin(), value.rend(), not_space).base(),
+              value.end());
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  return value;
+}
+
 void read_float_pair(const YAML::Node &n, std::array<float, 2> &out) {
   if (n && n.IsSequence() && n.size() == 2) {
     out[0] = n[0].as<float>();
@@ -682,6 +695,11 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.runtime_limits.parallel_workers = rl["parallel_workers"].as<int>();
     if (rl["memory_budget"])
       cfg.runtime_limits.memory_budget = rl["memory_budget"].as<int>();
+    if (rl["acceleration_backend"]) {
+      cfg.runtime_limits.acceleration_backend =
+          normalize_acceleration_backend(
+              rl["acceleration_backend"].as<std::string>());
+    }
   }
 
   return cfg;
@@ -963,6 +981,8 @@ YAML::Node Config::to_yaml() const {
   node["runtime_limits"]["parallel_workers"] =
       runtime_limits.parallel_workers;
   node["runtime_limits"]["memory_budget"] = runtime_limits.memory_budget;
+  node["runtime_limits"]["acceleration_backend"] =
+      runtime_limits.acceleration_backend;
 
   return node;
 }
@@ -1341,6 +1361,13 @@ void Config::validate() const {
   if (runtime_limits.memory_budget < 1) {
     throw ValidationError("runtime_limits.memory_budget must be >= 1");
   }
+  const std::string backend =
+      normalize_acceleration_backend(runtime_limits.acceleration_backend);
+  if (backend != "auto" && backend != "cpu" && backend != "opencv_cuda" &&
+      backend != "cuda") {
+    throw ValidationError(
+        "runtime_limits.acceleration_backend must be auto, cpu, opencv_cuda, or cuda");
+  }
 }
 
 std::string get_schema_json() {
@@ -1525,7 +1552,8 @@ std::string get_schema_json() {
                       "hard_abort_hours":{"type":"number","exclusiveMinimum":0},
                       "allow_emergency_mode":{"type":"boolean"},
                       "parallel_workers":{"type":"integer","minimum":1},
-                      "memory_budget":{"type":"integer","minimum":1} } }
+                      "memory_budget":{"type":"integer","minimum":1},
+                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' prueft beim Start GPU-Verfuegbarkeit und nutzt GPU dort, wo ein Implementierungspfad vorhanden ist; sonst faellt der Lauf kontrolliert auf CPU zurueck."} } }
   }
 })";
 }

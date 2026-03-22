@@ -4,11 +4,15 @@
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
 #include "tile_compile/astrometry/wcs.hpp"
 #include "tile_compile/config/configuration.hpp"
+#include "tile_compile/core/acceleration.hpp"
 #include "tile_compile/core/events.hpp"
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/background_extraction.hpp"
+#include "tile_compile/image/cfa_processing.hpp"
+#include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/reconstruction/reconstruction.hpp"
 
 #include "runner_shared.hpp"
 
@@ -62,9 +66,179 @@ bool is_inplace_rerun_phase(const std::string &phase_upper) {
       "GLOBAL_METRICS",    "TILE_GRID",       "REGISTRATION",
       "PREWARP",           "COMMON_OVERLAP",  "LOCAL_METRICS",
       "TILE_RECONSTRUCTION", "STATE_CLUSTERING", "SYNTHETIC_FRAMES",
-      "STACKING",          "DEBAYER"};
+      "DEBAYER"};
   return std::find(kPhases.begin(), kPhases.end(), phase_upper) !=
          kPhases.end();
+}
+
+bool write_canvas_mask_fits(const fs::path &mask_path,
+                            const std::vector<uint8_t> &mask, int rows,
+                            int cols,
+                            const tile_compile::io::FitsHeader &header,
+                            std::string &error_out) {
+  if (rows <= 0 || cols <= 0) {
+    error_out = "invalid canvas mask dimensions";
+    return false;
+  }
+  if (mask.size() != static_cast<size_t>(rows * cols)) {
+    error_out = "canvas mask size mismatch while writing";
+    return false;
+  }
+  tile_compile::Matrix2Df mask_img(rows, cols);
+  for (int y = 0; y < rows; ++y) {
+    for (int x = 0; x < cols; ++x) {
+      mask_img(y, x) =
+          (mask[static_cast<size_t>(y * cols + x)] != 0) ? 1.0f : 0.0f;
+    }
+  }
+  try {
+    fs::create_directories(mask_path.parent_path());
+    tile_compile::io::write_fits_float(mask_path, mask_img, header);
+    return true;
+  } catch (const std::exception &e) {
+    error_out = std::string("cannot write canvas mask: ") + e.what();
+    return false;
+  }
+}
+
+struct WarpBounds {
+  int min_x = 0;
+  int min_y = 0;
+  int max_x = 0;
+  int max_y = 0;
+
+  [[nodiscard]] int width() const { return max_x - min_x; }
+  [[nodiscard]] int height() const { return max_y - min_y; }
+};
+
+bool invert_affine_warp(const tile_compile::WarpMatrix &w,
+                        tile_compile::WarpMatrix &inv) {
+  const float a = w(0, 0);
+  const float b = w(0, 1);
+  const float c = w(1, 0);
+  const float d = w(1, 1);
+  const float tx = w(0, 2);
+  const float ty = w(1, 2);
+  const float det = a * d - b * c;
+  if (std::fabs(det) < 1.0e-12f) {
+    return false;
+  }
+  const float inv_det = 1.0f / det;
+  inv(0, 0) = d * inv_det;
+  inv(0, 1) = -b * inv_det;
+  inv(1, 0) = -c * inv_det;
+  inv(1, 1) = a * inv_det;
+  inv(0, 2) = -(inv(0, 0) * tx + inv(0, 1) * ty);
+  inv(1, 2) = -(inv(1, 0) * tx + inv(1, 1) * ty);
+  return true;
+}
+
+WarpBounds compute_warps_bounds(int width, int height,
+                                const std::vector<tile_compile::WarpMatrix> &warps) {
+  WarpBounds b;
+  if (width <= 0 || height <= 0 || warps.empty()) {
+    b.max_x = std::max(0, width);
+    b.max_y = std::max(0, height);
+    return b;
+  }
+
+  const float corners_x[4] = {0.0f, static_cast<float>(width), 0.0f,
+                              static_cast<float>(width)};
+  const float corners_y[4] = {0.0f, 0.0f, static_cast<float>(height),
+                              static_cast<float>(height)};
+
+  bool init = false;
+  float min_xf = 0.0f;
+  float min_yf = 0.0f;
+  float max_xf = 0.0f;
+  float max_yf = 0.0f;
+  for (const auto &w : warps) {
+    tile_compile::WarpMatrix fwd;
+    if (!invert_affine_warp(w, fwd)) {
+      continue;
+    }
+    for (int i = 0; i < 4; ++i) {
+      const float x = corners_x[i];
+      const float y = corners_y[i];
+      const float tx = fwd(0, 0) * x + fwd(0, 1) * y + fwd(0, 2);
+      const float ty = fwd(1, 0) * x + fwd(1, 1) * y + fwd(1, 2);
+      if (!init) {
+        min_xf = max_xf = tx;
+        min_yf = max_yf = ty;
+        init = true;
+      } else {
+        min_xf = std::min(min_xf, tx);
+        min_yf = std::min(min_yf, ty);
+        max_xf = std::max(max_xf, tx);
+        max_yf = std::max(max_yf, ty);
+      }
+    }
+  }
+
+  if (!init) {
+    b.max_x = std::max(0, width);
+    b.max_y = std::max(0, height);
+    return b;
+  }
+
+  b.min_x = static_cast<int>(std::floor(min_xf));
+  b.min_y = static_cast<int>(std::floor(min_yf));
+  b.max_x = static_cast<int>(std::ceil(max_xf));
+  b.max_y = static_cast<int>(std::ceil(max_yf));
+  return b;
+}
+
+bool load_registration_canvas_offsets(const fs::path &run_dir, int frame_width,
+                                      int frame_height,
+                                      tile_compile::ColorMode detected_mode,
+                                      int &offset_x_out, int &offset_y_out,
+                                      std::string &error_out) {
+  const fs::path artifact_path = run_dir / "artifacts" / "global_registration.json";
+  if (!fs::exists(artifact_path)) {
+    error_out = "missing global_registration.json";
+    return false;
+  }
+
+  std::vector<tile_compile::WarpMatrix> warps;
+  try {
+    const auto j =
+        tile_compile::core::json::parse(tile_compile::core::read_text(artifact_path));
+    if (!j.contains("warps") || !j["warps"].is_array()) {
+      error_out = "global_registration.json has no warps array";
+      return false;
+    }
+    for (const auto &jw : j["warps"]) {
+      if (!jw.is_object()) {
+        continue;
+      }
+      tile_compile::WarpMatrix w = tile_compile::WarpMatrix::Identity();
+      w(0, 0) = jw.value("a00", 1.0f);
+      w(0, 1) = jw.value("a01", 0.0f);
+      w(1, 0) = jw.value("a10", 0.0f);
+      w(1, 1) = jw.value("a11", 1.0f);
+      w(0, 2) = jw.value("tx", 0.0f);
+      w(1, 2) = jw.value("ty", 0.0f);
+      warps.push_back(w);
+    }
+  } catch (const std::exception &e) {
+    error_out = std::string("failed to parse global_registration.json: ") + e.what();
+    return false;
+  }
+
+  const WarpBounds bbox = compute_warps_bounds(frame_width, frame_height, warps);
+  int offset_x = -bbox.min_x;
+  int offset_y = -bbox.min_y;
+  if (detected_mode == tile_compile::ColorMode::OSC) {
+    if ((offset_x & 1) != 0) {
+      offset_x = (offset_x + 1) & ~1;
+    }
+    if ((offset_y & 1) != 0) {
+      offset_y = (offset_y + 1) & ~1;
+    }
+  }
+  offset_x_out = offset_x;
+  offset_y_out = offset_y;
+  return true;
 }
 
 std::optional<std::string> read_latest_run_start_input_dir(
@@ -486,6 +660,545 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   core::emit_event("resume_start", run_id,
                    {{"run_dir", run_dir.string()}, {"from_phase", phase_upper}},
                    log_file);
+
+  if (phase_l == "stacking") {
+    namespace image = tile_compile::image;
+    namespace reconstruction = tile_compile::reconstruction;
+
+    core::EventEmitter emitter;
+    emitter.phase_start(run_id, Phase::STACKING, "STACKING", log_file);
+
+    std::vector<std::pair<int, fs::path>> synthetic_entries;
+    const fs::path outputs_dir = run_dir / "outputs";
+    if (fs::exists(outputs_dir) && fs::is_directory(outputs_dir)) {
+      for (const auto &entry : fs::directory_iterator(outputs_dir)) {
+        if (!entry.is_regular_file()) {
+          continue;
+        }
+        const fs::path path = entry.path();
+        if (path.extension() != ".fit" && path.extension() != ".fits") {
+          continue;
+        }
+        const std::string stem = path.stem().string();
+        const std::string prefix = "synthetic_";
+        if (stem.rfind(prefix, 0) != 0) {
+          continue;
+        }
+        try {
+          const int index = std::stoi(stem.substr(prefix.size()));
+          synthetic_entries.emplace_back(index, path);
+        } catch (const std::exception &) {
+        }
+      }
+    }
+    std::sort(synthetic_entries.begin(), synthetic_entries.end(),
+              [](const auto &a, const auto &b) { return a.first < b.first; });
+
+    if (synthetic_entries.empty()) {
+      const std::string msg = "missing synthetic_*.fit outputs for STACKING resume";
+      emitter.phase_end(run_id, Phase::STACKING, "error",
+                        {{"reason", "missing_synthetic_outputs"},
+                         {"outputs_dir", outputs_dir.string()},
+                         {"error", msg}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "missing_synthetic"}},
+                       log_file);
+      return 1;
+    }
+
+    io::FitsHeader first_hdr;
+    Matrix2Df first_synth;
+    try {
+      std::tie(first_synth, first_hdr) = io::read_fits_float(synthetic_entries.front().second);
+    } catch (const std::exception &e) {
+      emitter.phase_end(run_id, Phase::STACKING, "error",
+                        {{"reason", "read_synthetic_failed"},
+                         {"file", synthetic_entries.front().second.string()},
+                         {"error", e.what()}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "read_synthetic_failed"}},
+                       log_file);
+      return 1;
+    }
+    if (first_synth.size() <= 0) {
+      emitter.phase_end(run_id, Phase::STACKING, "error",
+                        {{"reason", "empty_synthetic"},
+                         {"file", synthetic_entries.front().second.string()}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "empty_synthetic"}},
+                       log_file);
+      return 1;
+    }
+
+    const ColorMode detected_mode = io::detect_color_mode(first_hdr, 2);
+    const BayerPattern detected_bayer = io::detect_bayer_pattern(first_hdr);
+    const std::string detected_bayer_str = bayer_pattern_to_string(detected_bayer);
+    std::vector<float> synthetic_cluster_quality;
+    const fs::path synthetic_artifact_path =
+        run_dir / "artifacts" / "synthetic_frames.json";
+    if (fs::exists(synthetic_artifact_path)) {
+      try {
+        const auto j = core::json::parse(core::read_text(synthetic_artifact_path));
+        if (j.contains("cluster_quality") && j["cluster_quality"].is_array()) {
+          for (const auto &jq : j["cluster_quality"]) {
+            synthetic_cluster_quality.push_back(jq.get<float>());
+          }
+        }
+      } catch (const std::exception &e) {
+        std::cout << "[STACKING][resume] Warning: failed to parse "
+                  << synthetic_artifact_path << ": " << e.what() << std::endl;
+      }
+    }
+
+    std::vector<uint8_t> common_valid_mask;
+    std::string canvas_mask_error;
+    if (!tile_compile::runner::load_canvas_mask_fits(
+            run_dir / "outputs" / "canvas_mask.fits", first_synth.rows(),
+            first_synth.cols(), common_valid_mask, canvas_mask_error)) {
+      emitter.phase_end(run_id, Phase::STACKING, "error",
+                        {{"reason", "canvas_mask_invalid"},
+                         {"canvas_mask",
+                          (run_dir / "outputs" / "canvas_mask.fits").string()},
+                         {"error", canvas_mask_error}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "canvas_mask_invalid"}},
+                       log_file);
+      return 1;
+    }
+
+    int debayer_tile_offset_x = 0;
+    int debayer_tile_offset_y = 0;
+    if (detected_mode == ColorMode::OSC) {
+      const auto input_dir = read_latest_run_start_input_dir(
+          run_dir / "logs" / "run_events.jsonl");
+      if (input_dir.has_value() && !input_dir->empty()) {
+        auto input_frames = core::discover_frames(fs::path(*input_dir), "*");
+        input_frames.erase(
+            std::remove_if(input_frames.begin(), input_frames.end(),
+                           [](const fs::path &p) {
+                             return !io::is_fits_image_path(p);
+                           }),
+            input_frames.end());
+        if (!input_frames.empty()) {
+          int frame_width = 0;
+          int frame_height = 0;
+          int naxis = 0;
+          try {
+            std::tie(frame_width, frame_height, naxis) =
+                io::get_fits_dimensions(input_frames.front());
+            std::string offset_error;
+            if (!load_registration_canvas_offsets(
+                    run_dir, frame_width, frame_height, detected_mode,
+                    debayer_tile_offset_x, debayer_tile_offset_y, offset_error)) {
+              std::cout << "[STACKING][resume] Warning: " << offset_error
+                        << std::endl;
+            }
+          } catch (const std::exception &e) {
+            std::cout << "[STACKING][resume] Warning: failed to determine input "
+                         "frame dimensions: "
+                      << e.what() << std::endl;
+          }
+        }
+      }
+    }
+
+    const auto stacking_acceleration = core::select_acceleration_backend(
+        cfg.runtime_limits.acceleration_backend,
+        core::AccelerationPhase::stacking);
+    const core::AccelerationOps stacking_ops(stacking_acceleration);
+    {
+      std::ostringstream msg;
+      msg << "STACKING acceleration "
+          << core::acceleration_selection_summary(stacking_acceleration);
+      if (!stacking_acceleration.request_honored &&
+          !stacking_acceleration.fallback_reason.empty()) {
+        emitter.warning(run_id, msg.str(), log_file);
+      }
+      std::cout << "[STACKING][resume] " << msg.str() << std::endl;
+    }
+
+    std::vector<Matrix2Df> valid_synth;
+    valid_synth.reserve(synthetic_entries.size());
+    std::vector<float> valid_synth_q;
+    valid_synth_q.reserve(synthetic_entries.size());
+    std::vector<Matrix2Df> synth_R;
+    std::vector<Matrix2Df> synth_G;
+    std::vector<Matrix2Df> synth_B;
+    if (detected_mode == ColorMode::OSC) {
+      synth_R.reserve(synthetic_entries.size());
+      synth_G.reserve(synthetic_entries.size());
+      synth_B.reserve(synthetic_entries.size());
+    }
+
+    for (const auto &[index, path] : synthetic_entries) {
+      Matrix2Df syn;
+      try {
+        syn = io::read_fits_pixels_float(path);
+      } catch (const std::exception &e) {
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "read_synthetic_failed"},
+                           {"file", path.string()},
+                           {"error", e.what()}},
+                          log_file);
+        core::emit_event("resume_end", run_id,
+                         {{"success", false}, {"status", "read_synthetic_failed"}},
+                         log_file);
+        return 1;
+      }
+      if (syn.size() <= 0) {
+        continue;
+      }
+      if (detected_mode == ColorMode::OSC) {
+        auto deb = image::debayer_nearest_neighbor(
+            syn, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
+        synth_R.push_back(std::move(deb.R));
+        synth_G.push_back(std::move(deb.G));
+        synth_B.push_back(std::move(deb.B));
+      }
+      valid_synth.push_back(std::move(syn));
+      if (index >= 0 &&
+          static_cast<size_t>(index) < synthetic_cluster_quality.size()) {
+        valid_synth_q.push_back(synthetic_cluster_quality[static_cast<size_t>(index)]);
+      } else {
+        valid_synth_q.push_back(0.0f);
+      }
+    }
+
+    if (valid_synth.empty()) {
+      emitter.phase_end(run_id, Phase::STACKING, "error",
+                        {{"reason", "no_valid_synthetic_frames"}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "no_valid_synthetic"}},
+                       log_file);
+      return 1;
+    }
+
+    constexpr float kEpsWeight = 1.0e-6f;
+    std::vector<float> cluster_stack_weights;
+    if (cfg.stacking.cluster_quality_weighting.enabled) {
+      cluster_stack_weights.resize(valid_synth_q.size(), 1.0f);
+      const float kappa = cfg.stacking.cluster_quality_weighting.kappa_cluster;
+      for (size_t i = 0; i < valid_synth_q.size(); ++i) {
+        cluster_stack_weights[i] = std::exp(kappa * valid_synth_q[i]);
+        if (!std::isfinite(cluster_stack_weights[i]) ||
+            cluster_stack_weights[i] <= 0.0f) {
+          cluster_stack_weights[i] = 1.0f;
+        }
+      }
+      if (cfg.stacking.cluster_quality_weighting.cap_enabled &&
+          !cluster_stack_weights.empty()) {
+        std::vector<float> tmp_w = cluster_stack_weights;
+        const float med_w = core::median_of(tmp_w);
+        const float cap =
+            std::max(kEpsWeight,
+                     cfg.stacking.cluster_quality_weighting.cap_ratio * med_w);
+        for (float &w : cluster_stack_weights) {
+          if (w > cap) {
+            w = cap;
+          }
+        }
+      }
+    }
+
+    Matrix2Df recon;
+    Matrix2Df recon_R;
+    Matrix2Df recon_G;
+    Matrix2Df recon_B;
+    const bool use_quality_weighting =
+        cfg.stacking.cluster_quality_weighting.enabled;
+    if (detected_mode == ColorMode::OSC && synth_R.size() == valid_synth.size()) {
+      if (!use_quality_weighting && cfg.stacking.method == "rej") {
+        recon_R = stacking_ops.sigma_clip_stack(
+            synth_R, cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high, cfg.stacking.sigma_clip.max_iters,
+            cfg.stacking.sigma_clip.min_fraction);
+        recon_G = stacking_ops.sigma_clip_stack(
+            synth_G, cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high, cfg.stacking.sigma_clip.max_iters,
+            cfg.stacking.sigma_clip.min_fraction);
+        recon_B = stacking_ops.sigma_clip_stack(
+            synth_B, cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high, cfg.stacking.sigma_clip.max_iters,
+            cfg.stacking.sigma_clip.min_fraction);
+      } else {
+        std::vector<float> stack_weights(synth_R.size(), 1.0f);
+        if (use_quality_weighting &&
+            cluster_stack_weights.size() == synth_R.size()) {
+          stack_weights = cluster_stack_weights;
+        }
+        auto wr_r = stacking_ops.sigma_clip_reduce(
+            synth_R, stack_weights, cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high, 0,
+            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+        auto wr_g = stacking_ops.sigma_clip_reduce(
+            synth_G, stack_weights, cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high, 0,
+            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+        auto wr_b = stacking_ops.sigma_clip_reduce(
+            synth_B, stack_weights, cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high, 0,
+            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+        recon_R = std::move(wr_r.tile);
+        recon_G = std::move(wr_g.tile);
+        recon_B = std::move(wr_b.tile);
+      }
+      recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+    } else {
+      if (!use_quality_weighting && cfg.stacking.method == "rej") {
+        recon = stacking_ops.sigma_clip_stack(
+            valid_synth, cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high, cfg.stacking.sigma_clip.max_iters,
+            cfg.stacking.sigma_clip.min_fraction);
+      } else {
+        std::vector<float> stack_weights(valid_synth.size(), 1.0f);
+        if (use_quality_weighting &&
+            cluster_stack_weights.size() == valid_synth.size()) {
+          stack_weights = cluster_stack_weights;
+        }
+        auto wr = stacking_ops.sigma_clip_reduce(
+            valid_synth, stack_weights, cfg.stacking.sigma_clip.sigma_low,
+            cfg.stacking.sigma_clip.sigma_high, 0,
+            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+        recon = std::move(wr.tile);
+      }
+    }
+
+    if (cfg.stacking.cosmetic_correction) {
+      const float cosmetic_sigma = cfg.stacking.cosmetic_correction_sigma;
+      recon = image::cosmetic_correction(recon, cosmetic_sigma, true);
+      if (detected_mode == ColorMode::OSC && recon_R.size() == recon.size()) {
+        recon_R = image::cosmetic_correction(recon_R, cosmetic_sigma, true);
+        recon_G = image::cosmetic_correction(recon_G, cosmetic_sigma, true);
+        recon_B = image::cosmetic_correction(recon_B, cosmetic_sigma, true);
+      }
+    }
+
+    if (detected_mode == ColorMode::OSC && cfg.chroma_denoise.enabled &&
+        cfg.chroma_denoise.apply_stage == "post_stack_linear" &&
+        recon_R.size() == recon.size()) {
+      reconstruction::chroma_denoise_rgb_inplace(
+          recon_R, recon_G, recon_B, cfg.chroma_denoise);
+      recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
+    }
+
+    auto stretch_luma_for_output = [&](Matrix2Df &luma) {
+      if (!cfg.stacking.output_stretch) {
+        return;
+      }
+      float vmin = std::numeric_limits<float>::max();
+      float vmax = std::numeric_limits<float>::lowest();
+      for (Eigen::Index k = 0; k < luma.size(); ++k) {
+        const float v = luma.data()[k];
+        if (std::isfinite(v) && v > 0.0f) {
+          vmin = std::min(vmin, v);
+          vmax = std::max(vmax, v);
+        }
+      }
+      const float range = vmax - vmin;
+      if (!(range > 1.0e-6f)) {
+        return;
+      }
+      const float scale = 65535.0f / range;
+      for (Eigen::Index k = 0; k < luma.size(); ++k) {
+        const float v = luma.data()[k];
+        if (std::isfinite(v) && v > 0.0f) {
+          luma.data()[k] = (v - vmin) * scale;
+        } else {
+          luma.data()[k] = 0.0f;
+        }
+      }
+      std::cout << "[STACKING][resume] Output stretch: [" << vmin << ".."
+                << vmax << "] -> [0..65535]" << std::endl;
+    };
+
+    runner::CropBox stacking_crop_box{
+        0, 0, static_cast<int>(recon.cols()), static_cast<int>(recon.rows())};
+    bool stacking_crop_applied = false;
+    if (cfg.output.crop_to_nonzero_bbox && recon.size() > 0) {
+      const int full_rows = recon.rows();
+      const int full_cols = recon.cols();
+      const bool have_rgb_full =
+          (recon_R.rows() == full_rows && recon_R.cols() == full_cols &&
+           recon_G.rows() == full_rows && recon_G.cols() == full_cols &&
+           recon_B.rows() == full_rows && recon_B.cols() == full_cols);
+      const size_t full_mask_px =
+          static_cast<size_t>(full_rows) * static_cast<size_t>(full_cols);
+      if (common_valid_mask.size() != full_mask_px) {
+        const std::string msg =
+            "internal canvas mask size mismatch during crop";
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "canvas_mask_size_mismatch"},
+                           {"error", msg},
+                           {"mask_pixels",
+                            static_cast<uint64_t>(common_valid_mask.size())},
+                           {"expected_mask_pixels",
+                            static_cast<uint64_t>(full_mask_px)}},
+                          log_file);
+        core::emit_event("resume_end", run_id,
+                         {{"success", false},
+                          {"status", "canvas_mask_size_mismatch"}},
+                         log_file);
+        return 1;
+      }
+
+      stacking_crop_box = tile_compile::runner::compute_nonzero_data_bbox(
+          recon, have_rgb_full ? &recon_R : nullptr,
+          have_rgb_full ? &recon_G : nullptr,
+          have_rgb_full ? &recon_B : nullptr);
+      if (!stacking_crop_box.valid()) {
+        emitter.phase_end(run_id, Phase::STACKING, "error",
+                          {{"reason", "empty_valid_crop"},
+                           {"error",
+                            "crop_to_nonzero_bbox produced empty valid canvas"}},
+                          log_file);
+        core::emit_event("resume_end", run_id,
+                         {{"success", false}, {"status", "empty_valid_crop"}},
+                         log_file);
+        return 1;
+      }
+
+      const int crop_x = stacking_crop_box.x;
+      const int crop_y = stacking_crop_box.y;
+      const int crop_w = stacking_crop_box.width;
+      const int crop_h = stacking_crop_box.height;
+      stacking_crop_applied =
+          (crop_x != 0 || crop_y != 0 || crop_w != full_cols ||
+           crop_h != full_rows);
+      if (stacking_crop_applied) {
+        recon = recon.block(crop_y, crop_x, crop_h, crop_w).eval();
+        if (have_rgb_full) {
+          recon_R = recon_R.block(crop_y, crop_x, crop_h, crop_w).eval();
+          recon_G = recon_G.block(crop_y, crop_x, crop_h, crop_w).eval();
+          recon_B = recon_B.block(crop_y, crop_x, crop_h, crop_w).eval();
+        }
+        debayer_tile_offset_x -= crop_x;
+        debayer_tile_offset_y -= crop_y;
+
+        std::vector<uint8_t> cropped_mask(
+            static_cast<size_t>(crop_h * crop_w), static_cast<uint8_t>(0));
+        for (int y = 0; y < crop_h; ++y) {
+          const int sy = crop_y + y;
+          const size_t src_row_off =
+              static_cast<size_t>(sy) * static_cast<size_t>(full_cols);
+          const size_t dst_row_off =
+              static_cast<size_t>(y) * static_cast<size_t>(crop_w);
+          for (int x = 0; x < crop_w; ++x) {
+            const int sx = crop_x + x;
+            cropped_mask[dst_row_off + static_cast<size_t>(x)] =
+                common_valid_mask[src_row_off + static_cast<size_t>(sx)];
+          }
+        }
+        common_valid_mask.swap(cropped_mask);
+
+        std::string mask_write_error;
+        if (!write_canvas_mask_fits(run_dir / "outputs" / "canvas_mask.fits",
+                                    common_valid_mask, crop_h, crop_w, first_hdr,
+                                    mask_write_error)) {
+          emitter.phase_end(run_id, Phase::STACKING, "error",
+                            {{"reason", "canvas_mask_write_failed"},
+                             {"error", mask_write_error}},
+                            log_file);
+          core::emit_event("resume_end", run_id,
+                           {{"success", false},
+                            {"status", "canvas_mask_write_failed"}},
+                           log_file);
+          return 1;
+        }
+      }
+    }
+
+    Matrix2Df recon_out = recon;
+    stretch_luma_for_output(recon_out);
+    try {
+      io::write_fits_float(run_dir / "outputs" / "stacked.fits", recon_out, first_hdr);
+      io::write_fits_float(run_dir / "outputs" / "reconstructed_L.fit", recon_out,
+                           first_hdr);
+    } catch (const std::exception &e) {
+      emitter.phase_end(run_id, Phase::STACKING, "error",
+                        {{"reason", "write_failed"}, {"error", e.what()}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", false}, {"status", "stack_write_failed"}},
+                       log_file);
+      return 1;
+    }
+
+    const auto stacking_input_batch = core::make_device_frame_batch(
+        valid_synth.size(), recon.rows(), recon.cols(),
+        detected_mode == ColorMode::OSC ? 3 : 1);
+    emitter.phase_end(
+        run_id, Phase::STACKING, "ok",
+        {{"acceleration",
+          core::acceleration_selection_to_json(stacking_acceleration)},
+         {"device_frame_batch_input",
+          core::device_frame_batch_to_json(stacking_input_batch)},
+         {"input_frames", static_cast<int>(valid_synth.size())},
+         {"crop_applied", stacking_crop_applied},
+         {"crop_x", stacking_crop_box.x},
+         {"crop_y", stacking_crop_box.y},
+         {"crop_width", stacking_crop_box.width},
+         {"crop_height", stacking_crop_box.height},
+         {"output_luma", (run_dir / "outputs" / "stacked.fits").string()}},
+        log_file);
+
+    emitter.phase_start(run_id, Phase::DEBAYER, "DEBAYER", log_file);
+    if (detected_mode == ColorMode::OSC) {
+      Matrix2Df R_out;
+      Matrix2Df G_out;
+      Matrix2Df B_out;
+      if (recon_R.size() == recon.size() && recon_R.size() > 0) {
+        R_out = recon_R;
+        G_out = recon_G;
+        B_out = recon_B;
+      } else {
+        auto debayer = image::debayer_nearest_neighbor(
+            recon, detected_bayer, -debayer_tile_offset_x, -debayer_tile_offset_y);
+        R_out = std::move(debayer.R);
+        G_out = std::move(debayer.G);
+        B_out = std::move(debayer.B);
+      }
+      try {
+        io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
+                             first_hdr);
+        io::write_fits_float(run_dir / "outputs" / "reconstructed_G.fit", G_out,
+                             first_hdr);
+        io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_out,
+                             first_hdr);
+        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb.fits", R_out, G_out,
+                           B_out, first_hdr);
+        io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_solve.fits", R_out,
+                           G_out, B_out, first_hdr);
+      } catch (const std::exception &e) {
+        emitter.phase_end(run_id, Phase::DEBAYER, "error",
+                          {{"reason", "write_failed"}, {"error", e.what()}},
+                          log_file);
+        core::emit_event("resume_end", run_id,
+                         {{"success", false}, {"status", "debayer_write_failed"}},
+                         log_file);
+        return 1;
+      }
+      emitter.phase_end(
+          run_id, Phase::DEBAYER, "ok",
+          {{"mode", "OSC"},
+           {"bayer_pattern", detected_bayer_str},
+           {"output_rgb", (run_dir / "outputs" / "stacked_rgb.fits").string()},
+           {"output_rgb_solve",
+            (run_dir / "outputs" / "stacked_rgb_solve.fits").string()}},
+          log_file);
+      phase_l = "astrometry";
+    } else {
+      emitter.phase_end(run_id, Phase::DEBAYER, "ok", {{"mode", "MONO"}},
+                        log_file);
+      core::emit_event("resume_end", run_id,
+                       {{"success", true}, {"status", "ok"}}, log_file);
+      return 0;
+    }
+  }
 
   fs::path rgb_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
   fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";

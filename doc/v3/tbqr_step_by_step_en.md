@@ -30,6 +30,16 @@ Required core build dependencies:
 - OpenSSL
 - libcurl
 
+GPU-specific requirements for actual runtime acceleration:
+
+- The current GPU backend requires an OpenCV build that includes:
+  - `opencv2/core/cuda.hpp`
+  - `opencv2/cudawarping.hpp`
+  - `opencv2/cudaarithm.hpp`
+- A CUDA-capable NVIDIA GPU and working CUDA/OpenCV runtime are also required.
+- If these OpenCV CUDA modules are missing, the build still works, but `runtime_limits.acceleration_backend: auto` falls back to CPU.
+- `TILE_COMPILE_ENABLE_CUDA` only enables the CUDA hook/build gate. It does not by itself guarantee real GPU execution.
+
 Backend-specific build dependencies:
 
 - Crow
@@ -39,6 +49,8 @@ Notes:
 
 - Crow and Asio are fetched by the backend CMake build.
 - The frontend itself does not require a JS build toolchain for normal use; it is shipped as static files.
+- Many default OpenCV packages are CPU-only. For real GPU execution you need an OpenCV package/build with CUDA enabled and with `cudawarping` and `cudaarithm` available.
+- On macOS, the current implementation is effectively CPU-only at runtime because there is no practical CUDA runtime path for this backend.
 
 Platform package examples:
 
@@ -49,6 +61,7 @@ Platform package examples:
 macOS note:
 
 - Homebrew's default `opencv` formula currently requires a newer macOS release than macOS 12. For the documented Homebrew path, macOS 15 is therefore the practical baseline unless OpenCV is provided separately.
+- The package examples above are sufficient for CPU builds. They do not guarantee GPU acceleration, because the installed OpenCV package may not include the CUDA modules required by the runner.
 - If a downloaded GUI2/release bundle is blocked by Gatekeeper with messages such as “developer cannot be identified” or a bundled `.dylib` cannot be opened, remove the quarantine flag from the extracted release folder with `xattr -dr com.apple.quarantine /path/to/extracted_release` and then start the bundle again.
 
 ## 2) Build the C++ tools
