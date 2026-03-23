@@ -6,8 +6,8 @@ assumptions:
     - 10
   reduced_mode_skip_clustering: true
 astrometry:
-  astap_bin: /home/mux/.local/share/tile_compile/astap/astap_cli
-  astap_data_dir: /home/mux/.local/share/tile_compile/astap
+  astap_bin: /home/lux/.local/share/tile_compile/astap/astap_cli
+  astap_data_dir: /home/lux/.local/share/tile_compile/astap
   enabled: true
   search_radius: 183
 bge:

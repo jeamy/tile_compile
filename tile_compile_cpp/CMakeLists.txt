@@ -3,6 +3,10 @@ project(tile_compile VERSION 1.0.0 LANGUAGES CXX)
 
 include(CheckIncludeFileCXX)
 
+if(POLICY CMP0146)
+    cmake_policy(SET CMP0146 OLD)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -581,26 +585,44 @@ message(STATUS "CUDA nvcc: ${TILE_COMPILE_NVCC_EXECUTABLE}")
 message(STATUS "Eigen3: ${EIGEN3_VERSION}")
 message(STATUS "OpenCV: ${OpenCV_VERSION}")
 
-# Detect available GPU acceleration backends based on the actual OpenCV headers
-# visible to this build, not on string matches in the source file.
+# Detect available GPU acceleration backends from the actual OpenCV include
+# directories visible to this build. The previous check used
+# `check_include_file_cxx(...)`, which can produce false negatives with custom
+# OpenCV CUDA installs even when the headers are present and the project builds.
 set(_tile_compile_gpu_backends "")
-set(_tile_compile_saved_required_includes "${CMAKE_REQUIRED_INCLUDES}")
 set(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDA_HEADER FALSE)
 set(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAWARPING_HEADER FALSE)
 set(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAARITHM_HEADER FALSE)
 set(TILE_COMPILE_CMAKE_HAS_OPENCV_OPENCL_HEADER FALSE)
-if(OpenCV_INCLUDE_DIRS)
-    set(CMAKE_REQUIRED_INCLUDES ${OpenCV_INCLUDE_DIRS})
-    check_include_file_cxx("opencv2/core/cuda.hpp"
-                           TILE_COMPILE_CMAKE_HAS_OPENCV_CUDA_HEADER)
-    check_include_file_cxx("opencv2/cudawarping.hpp"
-                           TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAWARPING_HEADER)
-    check_include_file_cxx("opencv2/cudaarithm.hpp"
-                           TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAARITHM_HEADER)
-    check_include_file_cxx("opencv2/core/ocl.hpp"
-                           TILE_COMPILE_CMAKE_HAS_OPENCV_OPENCL_HEADER)
-endif()
-set(CMAKE_REQUIRED_INCLUDES "${_tile_compile_saved_required_includes}")
+set(_tile_compile_opencv_include_dirs ${OpenCV_INCLUDE_DIRS})
+foreach(_opencv_target opencv_core OpenCV::opencv_core)
+    if(TARGET ${_opencv_target})
+        get_target_property(_target_includes ${_opencv_target}
+                            INTERFACE_INCLUDE_DIRECTORIES)
+        if(_target_includes AND NOT _target_includes STREQUAL "_target_includes-NOTFOUND")
+            list(APPEND _tile_compile_opencv_include_dirs ${_target_includes})
+        endif()
+    endif()
+endforeach()
+list(REMOVE_DUPLICATES _tile_compile_opencv_include_dirs)
+
+foreach(_inc_dir ${_tile_compile_opencv_include_dirs})
+    if(NOT _inc_dir OR _inc_dir MATCHES "^\\$<")
+        continue()
+    endif()
+    if(EXISTS "${_inc_dir}/opencv2/core/cuda.hpp")
+        set(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDA_HEADER TRUE)
+    endif()
+    if(EXISTS "${_inc_dir}/opencv2/cudawarping.hpp")
+        set(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAWARPING_HEADER TRUE)
+    endif()
+    if(EXISTS "${_inc_dir}/opencv2/cudaarithm.hpp")
+        set(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAARITHM_HEADER TRUE)
+    endif()
+    if(EXISTS "${_inc_dir}/opencv2/core/ocl.hpp")
+        set(TILE_COMPILE_CMAKE_HAS_OPENCV_OPENCL_HEADER TRUE)
+    endif()
+endforeach()
 
 if(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDA_HEADER AND
    (TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAWARPING_HEADER OR

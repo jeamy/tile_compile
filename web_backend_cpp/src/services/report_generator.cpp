@@ -100,6 +100,32 @@ std::string sanitize_label(std::string s) {
     return s;
 }
 
+std::string normalize_channel_label(std::string s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        if (std::isspace(static_cast<unsigned char>(c)) || c == '-' || c == '_') continue;
+        out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+    }
+    return out;
+}
+
+int preferred_channel_rank(const std::string& label) {
+    const std::string normalized = normalize_channel_label(label);
+    if (normalized == "R" || normalized == "RED") return 0;
+    if (normalized == "G" || normalized == "GREEN") return 1;
+    if (normalized == "B" || normalized == "BLUE") return 2;
+    return 100;
+}
+
+std::string preferred_channel_color(const std::string& label) {
+    const std::string normalized = normalize_channel_label(label);
+    if (normalized == "R" || normalized == "RED") return "#ef4444";
+    if (normalized == "G" || normalized == "GREEN") return "#22c55e";
+    if (normalized == "B" || normalized == "BLUE") return "#3b82f6";
+    return "";
+}
+
 std::string read_text(const fs::path& path) {
     const BackendGuardLimits limits = backend_guard_limits_from_env();
     std::ifstream in(path, std::ios::binary);
@@ -686,10 +712,19 @@ std::string svg_multi_timeseries(const std::map<std::string, std::vector<double>
     out << "<text x=\"" << (x0 + pw * 0.5) << "\" y=\"" << (height - 8)
         << "\" class=\"svg-label\" text-anchor=\"middle\">frame index</text>";
 
+    std::vector<std::pair<std::string, const std::vector<double>*>> ordered_series;
+    ordered_series.reserve(series.size());
+    for (const auto& [name, vals] : series) ordered_series.push_back({name, &vals});
+    std::stable_sort(ordered_series.begin(), ordered_series.end(),
+                     [](const auto& a, const auto& b) {
+                         return preferred_channel_rank(a.first) < preferred_channel_rank(b.first);
+                     });
+
     size_t color_index = 0;
     double legend_x = x0 + 6.0;
     const double legend_y = 32.0;
-    for (const auto& [name, vals] : series) {
+    for (const auto& [name, vals_ptr] : ordered_series) {
+        const auto& vals = *vals_ptr;
         std::ostringstream poly;
         bool has_any = false;
         for (size_t i = 0; i < vals.size(); ++i) {
@@ -700,7 +735,11 @@ std::string svg_multi_timeseries(const std::map<std::string, std::vector<double>
             poly << x << ',' << y << ' ';
         }
         if (!has_any) continue;
-        const std::string color = palette[color_index % palette.size()];
+        const std::string color = [&]() {
+            const std::string preferred = preferred_channel_color(name);
+            if (!preferred.empty()) return preferred;
+            return palette[color_index % palette.size()];
+        }();
         out << "<polyline fill=\"none\" stroke=\"" << color << "\" stroke-width=\"0.85\" vector-effect=\"non-scaling-stroke\" points=\""
             << poly.str() << "\"/>";
         out << "<line x1=\"" << legend_x << "\" y1=\"" << legend_y << "\" x2=\"" << (legend_x + 16)
@@ -901,7 +940,12 @@ std::string svg_bar(const std::vector<std::string>& labels,
 
     for (size_t i = 0; i < labels.size(); ++i) {
         const double x = x0 + i * step + (step - bar_w) * 0.5;
-        const std::string color = i < colors.size() ? colors[i] : colormap_hex("plasma", static_cast<double>(i) / std::max<size_t>(1, labels.size() - 1));
+        const std::string color = [&]() {
+            if (i < colors.size()) return colors[i];
+            const std::string preferred = preferred_channel_color(labels[i]);
+            if (!preferred.empty()) return preferred;
+            return colormap_hex("plasma", static_cast<double>(i) / std::max<size_t>(1, labels.size() - 1));
+        }();
         const double raw_h = std::max(0.0, scale_linear(values[i], 0.0, top_val, 0.0, ph));
         const double draw_h = raw_h > 0.0 ? std::max(raw_h, min_visible_h) : 0.0;
         const double y = y0 + ph - draw_h;

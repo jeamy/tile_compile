@@ -1,13 +1,11 @@
 #include "tile_compile/core/acceleration.hpp"
 
 #include "tile_compile/core/utils.hpp"
-#include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/image/normalization.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <limits>
 #include <mutex>
 #include <sstream>
 
