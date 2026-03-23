@@ -15,6 +15,7 @@ namespace tile_compile::core {
 enum class AccelerationBackend {
   cpu = 0,
   opencv_cuda,
+  opencv_opencl,
   cuda,
 };
 
@@ -58,6 +59,8 @@ struct AccelerationSelection {
   bool tile_compile_with_cuda = false;
   bool opencv_cuda_headers = false;
   bool opencv_cuda_runtime = false;
+  bool opencv_opencl_headers = false;
+  bool opencv_opencl_runtime = false;
   std::string fallback_reason;
 };
 

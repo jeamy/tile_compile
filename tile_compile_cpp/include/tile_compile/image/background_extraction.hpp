@@ -71,20 +71,20 @@ struct BGEConfig {
 
 // Tile background sample
 struct TileBGSample {
-    float x, y;           // Tile center position
-    float bg_value;       // Background estimate
-    float weight;         // Reliability weight
-    bool valid;           // Sample is valid
+    float x = 0.0f, y = 0.0f; // Tile center position
+    float bg_value = 0.0f;    // Background estimate
+    float weight = 0.0f;      // Reliability weight
+    bool valid = false;       // Sample is valid
 };
 
 // Grid cell for coarse aggregation
 struct GridCell {
-    int cell_x, cell_y;   // Grid cell indices
-    float center_x, center_y; // Cell center position
-    float bg_value;       // Aggregated background
-    float weight;         // Aggregated weight
-    int n_samples;        // Number of tile samples in cell
-    bool valid;           // Cell has sufficient samples
+    int cell_x = 0, cell_y = 0;     // Grid cell indices
+    float center_x = 0.0f, center_y = 0.0f; // Cell center position
+    float bg_value = 0.0f;          // Aggregated background
+    float weight = 0.0f;            // Aggregated weight
+    int n_samples = 0;              // Number of tile samples in cell
+    bool valid = false;             // Cell has sufficient samples
 };
 
 // Background model result

@@ -182,19 +182,34 @@ Für eine vollständige anfängerfreundliche Anleitung siehe:
 
 #### Voraussetzungen für GPU-Beschleunigung
 
-- Das aktive GPU-Backend verwendet OpenCV-CUDA-Module und benötigt derzeit:
+Die Pipeline unterstützt zwei GPU-Backends:
+
+**NVIDIA CUDA (opencv_cuda):**
+- Benötigt OpenCV-CUDA-Module:
   - `opencv2/core/cuda.hpp`
   - `opencv2/cudawarping.hpp`
   - `opencv2/cudaarithm.hpp`
-- Zur Laufzeit werden zusätzlich eine CUDA-fähige NVIDIA-GPU und eine funktionierende CUDA-/OpenCV-Runtime benötigt.
-- Fehlen diese OpenCV-CUDA-Module, lässt sich die Pipeline zwar weiterhin bauen und ausführen, aber `acceleration_backend: auto` fällt sauber auf CPU zurück.
-- `TILE_COMPILE_ENABLE_CUDA` aktiviert nur das CUDA-Hook-/Build-Gate. Echte GPU-Ausführung hängt zusätzlich davon ab, dass die oben genannten OpenCV-CUDA-Module verfügbar sind.
+- Zur Laufzeit: CUDA-fähige NVIDIA-GPU und funktionierende CUDA-/OpenCV-Runtime erforderlich.
+- `TILE_COMPILE_ENABLE_CUDA` aktiviert nur das CUDA-Hook-/Build-Gate.
+
+**AMD/Intel/NVIDIA OpenCL (opencv_opencl):**
+- Benötigt OpenCV-OpenCL-Modul:
+  - `opencv2/core/ocl.hpp`
+- Zur Laufzeit: OpenCL-fähige GPU (AMD, Intel, NVIDIA) und funktionierende OpenCL-Runtime erforderlich.
+- Funktioniert mit AMD Radeon (Polaris/Vega/RDNA), Intel integrierten GPUs und NVIDIA-GPUs.
+- Generell einfacher einzurichten als CUDA auf Nicht-NVIDIA-Hardware.
+
+**Automatische Auswahl:**
+- `acceleration_backend: auto` (Standard) erkennt verfügbare GPU-Backends automatisch zur Laufzeit.
+- Prioritätsreihenfolge: CUDA → OpenCL → CPU
+- Fällt sauber auf CPU zurück, wenn kein GPU-Backend verfügbar ist.
 
 Hinweise:
 
-- Viele Standard-OpenCV-Pakete aus Distributionen, Homebrew oder allgemeinen Paketquellen sind CPU-only. Dann ist keine GPU-Beschleunigung verfügbar, auch wenn `nvcc` installiert ist.
-- Für echte GPU-Ausführung wird ein OpenCV-Build bzw. ein Paket mit aktivierter CUDA-Unterstützung und vorhandenen Modulen `cudaarithm` und `cudawarping` benötigt.
-- Unter macOS gibt es für die aktuelle Implementierung praktisch keinen nutzbaren CUDA-Runtime-Pfad. macOS-Builds laufen daher zur Laufzeit effektiv CPU-only.
+- Viele Standard-OpenCV-Pakete aus Distributionen/Homebrew sind CPU-only. GPU-Beschleunigung benötigt OpenCV mit CUDA- oder OpenCL-Unterstützung.
+- Für NVIDIA-GPUs: CUDA-Backend bietet typischerweise bessere Performance als OpenCL.
+- Für AMD/Intel-GPUs: OpenCL ist das einzige unterstützte GPU-Backend.
+- Unter macOS: OpenCL-Unterstützung hängt vom OpenCV-Build ab; CUDA ist nicht praktikabel.
 
 #### Paket-Installationsbeispiele
 
@@ -490,6 +505,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.5 (2026-03-23)
+
+- `PREWARP` für OpenCL stabilisiert und die GPU-Beschleunigung um OpenCL-Äquivalente für die bisher CUDA-exklusiven Pfade in `TILE_RECONSTRUCTION` und `STACKING` erweitert, einschließlich Sigma-Clipping und Overlap-Add-Akkumulation.
+
 ## v0.1.4 (2026-03-22)
 
 - Echten artefaktbasierten `STACKING`-Resume-Pfad im C++-Runner ergänzt, sodass `resume --from-phase STACKING` aus `synthetic_*.fit`/`canvas_mask.fits` neu aufbaut statt die gesamte Pipeline erneut abzuspielen.
@@ -605,6 +624,13 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-23)
+
+**OpenCL-Ausbau für `PREWARP`, `TILE_RECONSTRUCTION` und `STACKING` (`v0.1.5`):**
+
+- Den OpenCL-`PREWARP`-Pfad für die Multi-Thread-Ausführung stabilisiert, indem OpenCV-OpenCL-/T-API-Zugriffe geschützt und bei Bedarf explizite Host-Kopien erzwungen werden.
+- `tile_compile_cpp/src/core/acceleration.cpp` um OpenCL-Äquivalente für die bisher CUDA-exklusiven Pfade in `TILE_RECONSTRUCTION` und `STACKING` erweitert, einschließlich Sigma-Clipping sowie Overlap-Add-Akkumulation und -Normalisierung.
 
 ### (2026-03-22)
 

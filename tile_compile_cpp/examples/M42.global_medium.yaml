@@ -178,6 +178,7 @@ runtime_limits:
   allow_emergency_mode: true
   hard_abort_hours: 6
   memory_budget: 2048
+  acceleration_backend: auto # GPU-Backend: auto (CUDA->OpenCL->CPU), opencv_cuda (NVIDIA), opencv_opencl (AMD/Intel), cpu
   parallel_workers: 8
   tile_analysis_max_factor_vs_stack: 3
 scenario_profile:

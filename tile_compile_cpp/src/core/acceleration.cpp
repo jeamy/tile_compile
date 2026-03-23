@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <sstream>
 
 #if __has_include(<opencv2/core/cuda.hpp>)
@@ -29,6 +30,14 @@
 #define TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM 1
 #else
 #define TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM 0
+#endif
+
+#if __has_include(<opencv2/core/ocl.hpp>)
+#include <opencv2/core/ocl.hpp>
+#include <opencv2/imgproc.hpp>
+#define TILE_COMPILE_HAS_OPENCV_OPENCL 1
+#else
+#define TILE_COMPILE_HAS_OPENCV_OPENCL 0
 #endif
 
 namespace tile_compile::core {
@@ -59,6 +68,10 @@ bool phase_supports_backend(AccelerationPhase phase,
     return phase == AccelerationPhase::prewarp ||
            phase == AccelerationPhase::tile_reconstruction ||
            phase == AccelerationPhase::stacking;
+  case AccelerationBackend::opencv_opencl:
+    return phase == AccelerationPhase::prewarp ||
+           phase == AccelerationPhase::tile_reconstruction ||
+           phase == AccelerationPhase::stacking;
   case AccelerationBackend::cuda:
     return false;
   }
@@ -77,10 +90,33 @@ bool opencv_cuda_runtime_available() {
 #endif
 }
 
+bool opencv_opencl_runtime_available() {
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  try {
+    if (!cv::ocl::haveOpenCL()) {
+      return false;
+    }
+    cv::ocl::setUseOpenCL(true);
+    return cv::ocl::useOpenCL();
+  } catch (...) {
+    return false;
+  }
+#else
+  return false;
+#endif
+}
+
+std::mutex &opencl_api_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
 std::string missing_backend_reason(AccelerationBackend backend,
                                    bool tile_compile_with_cuda,
                                    bool opencv_cuda_headers,
-                                   bool opencv_cuda_runtime) {
+                                   bool opencv_cuda_runtime,
+                                   bool opencv_opencl_headers,
+                                   bool opencv_opencl_runtime) {
   switch (backend) {
   case AccelerationBackend::cpu:
     return {};
@@ -90,6 +126,14 @@ std::string missing_backend_reason(AccelerationBackend backend,
     }
     if (!opencv_cuda_runtime) {
       return "opencv_cuda_runtime_unavailable";
+    }
+    return {};
+  case AccelerationBackend::opencv_opencl:
+    if (!opencv_opencl_headers) {
+      return "opencv_opencl_headers_unavailable";
+    }
+    if (!opencv_opencl_runtime) {
+      return "opencv_opencl_runtime_unavailable";
     }
     return {};
   case AccelerationBackend::cuda:
@@ -227,6 +271,623 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
     }
   }
   return out.size() > 0;
+}
+#endif
+
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+bool opencl_warp_affine_impl_locked(const cv::Mat &src,
+                                    const cv::Mat &warp_matrix,
+                                    cv::Size output_size, cv::Mat &dst,
+                                    cv::Mat *valid_mask_host = nullptr,
+                                    int *nonzero_count = nullptr) {
+  cv::UMat u_src;
+  src.copyTo(u_src);
+  cv::UMat u_dst;
+  cv::warpAffine(u_src, u_dst, warp_matrix, output_size,
+                 cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
+                 cv::BORDER_CONSTANT, cv::Scalar(0));
+
+  if (valid_mask_host != nullptr || nonzero_count != nullptr) {
+    cv::UMat u_mask;
+    cv::compare(u_dst, 0.0f, u_mask, cv::CMP_GT);
+    cv::Mat host_mask;
+    u_mask.copyTo(host_mask);
+    if (nonzero_count != nullptr) {
+      *nonzero_count = cv::countNonZero(host_mask);
+    }
+    if (valid_mask_host != nullptr) {
+      *valid_mask_host = std::move(host_mask);
+    }
+  }
+
+  cv::Mat host_dst;
+  u_dst.copyTo(host_dst);
+  dst = std::move(host_dst);
+  return !dst.empty();
+}
+
+bool opencl_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
+                             cv::Size output_size, cv::Mat &dst,
+                             cv::Mat *valid_mask_host = nullptr,
+                             int *nonzero_count = nullptr) {
+  std::lock_guard<std::mutex> lock(opencl_api_mutex());
+  try {
+    return opencl_warp_affine_impl_locked(src, warp_matrix, output_size, dst,
+                                          valid_mask_host, nonzero_count);
+  } catch (...) {
+    return false;
+  }
+}
+
+bool opencl_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
+                             int out_height, int out_width, Matrix2Df &out) {
+  const int h = static_cast<int>(mosaic.rows());
+  const int w = static_cast<int>(mosaic.cols());
+  const int h2 = h - (h % 2);
+  const int w2 = w - (w % 2);
+  const int out_h = (out_height > 0) ? out_height : h;
+  const int out_w = (out_width > 0) ? out_width : w;
+  const int out_h2 = out_h - (out_h % 2);
+  const int out_w2 = out_w - (out_w % 2);
+  const int sub_h = h2 / 2;
+  const int sub_w = w2 / 2;
+  const int out_h_sub = std::max(1, out_h2 / 2);
+  const int out_w_sub = std::max(1, out_w2 / 2);
+
+  Matrix2Df a(sub_h, sub_w), b(sub_h, sub_w), c(sub_h, sub_w), d(sub_h, sub_w);
+  for (int y = 0; y < sub_h; ++y) {
+    for (int x = 0; x < sub_w; ++x) {
+      a(y, x) = mosaic(y * 2, x * 2);
+      b(y, x) = mosaic(y * 2, x * 2 + 1);
+      c(y, x) = mosaic(y * 2 + 1, x * 2);
+      d(y, x) = mosaic(y * 2 + 1, x * 2 + 1);
+    }
+  }
+
+  const float a2_00 = warp(0, 0);
+  const float a2_01 = warp(0, 1);
+  const float a2_10 = warp(1, 0);
+  const float a2_11 = warp(1, 1);
+  const float t_x = warp(0, 2) * 0.5f;
+  const float t_y = warp(1, 2) * 0.5f;
+  auto make_warp = [&](float dx, float dy) -> cv::Mat {
+    const float new_tx = t_x + (a2_00 * dx + a2_01 * dy) - dx;
+    const float new_ty = t_y + (a2_10 * dx + a2_11 * dy) - dy;
+    return (cv::Mat_<float>(2, 3) << a2_00, a2_01, new_tx, a2_10, a2_11, new_ty);
+  };
+
+  cv::Mat a_cv(sub_h, sub_w, CV_32F, a.data());
+  cv::Mat b_cv(sub_h, sub_w, CV_32F, b.data());
+  cv::Mat c_cv(sub_h, sub_w, CV_32F, c.data());
+  cv::Mat d_cv(sub_h, sub_w, CV_32F, d.data());
+  cv::Mat a_w, b_w, c_w, d_w;
+  const cv::Size out_size(out_w_sub, out_h_sub);
+  try {
+    std::lock_guard<std::mutex> lock(opencl_api_mutex());
+    if (!opencl_warp_affine_impl_locked(a_cv, make_warp(-0.25f, -0.25f),
+                                        out_size, a_w) ||
+        !opencl_warp_affine_impl_locked(b_cv, make_warp(0.25f, -0.25f),
+                                        out_size, b_w) ||
+        !opencl_warp_affine_impl_locked(c_cv, make_warp(-0.25f, 0.25f),
+                                        out_size, c_w) ||
+        !opencl_warp_affine_impl_locked(d_cv, make_warp(0.25f, 0.25f),
+                                        out_size, d_w)) {
+      return false;
+    }
+  } catch (...) {
+    return false;
+  }
+
+  out = Matrix2Df::Zero(out_h, out_w);
+  for (int y = 0; y < out_h_sub; ++y) {
+    for (int x = 0; x < out_w_sub; ++x) {
+      out(y * 2, x * 2) = a_w.at<float>(y, x);
+      out(y * 2, x * 2 + 1) = b_w.at<float>(y, x);
+      out(y * 2 + 1, x * 2) = c_w.at<float>(y, x);
+      out(y * 2 + 1, x * 2 + 1) = d_w.at<float>(y, x);
+    }
+  }
+  return out.size() > 0;
+}
+
+bool opencl_sigma_clip_weighted_tile_impl(
+    const std::vector<Matrix2Df> &tiles, const std::vector<float> &weights,
+    float sigma_low, float sigma_high, int max_iters, float min_fraction,
+    float eps_weight, reconstruction::WeightedTileResult &out) {
+  out = reconstruction::WeightedTileResult{};
+  if (tiles.empty() || weights.empty() || tiles.size() != weights.size()) {
+    return true;
+  }
+
+  std::vector<float> effective_weights(weights);
+  double host_weight_sum = 0.0;
+  for (float &w : effective_weights) {
+    if (std::isfinite(w) && w > 0.0f) {
+      host_weight_sum += static_cast<double>(w);
+    } else {
+      w = 0.0f;
+    }
+  }
+  out.effective_weight_sum = static_cast<float>(host_weight_sum);
+  if (!(host_weight_sum > static_cast<double>(eps_weight))) {
+    out.fallback_used = true;
+    std::fill(effective_weights.begin(), effective_weights.end(), 1.0f);
+    out.effective_weight_sum = static_cast<float>(effective_weights.size());
+  }
+
+  std::vector<std::reference_wrapper<const Matrix2Df>> active_tiles;
+  std::vector<float> active_weights;
+  active_tiles.reserve(tiles.size());
+  active_weights.reserve(weights.size());
+  for (size_t i = 0; i < tiles.size(); ++i) {
+    if (effective_weights[i] > 0.0f && tiles[i].size() > 0) {
+      active_tiles.emplace_back(tiles[i]);
+      active_weights.push_back(effective_weights[i]);
+    }
+  }
+  if (active_tiles.empty()) {
+    out.tile = Matrix2Df();
+    return true;
+  }
+
+  const int rows = static_cast<int>(active_tiles[0].get().rows());
+  const int cols = static_cast<int>(active_tiles[0].get().cols());
+  if (rows <= 0 || cols <= 0) {
+    out.tile = Matrix2Df();
+    return true;
+  }
+
+  try {
+    std::vector<cv::UMat> gpu_tiles;
+    std::vector<cv::UMat> keep_masks;
+    std::vector<cv::UMat> valid_masks;
+    gpu_tiles.reserve(active_tiles.size());
+    keep_masks.reserve(active_tiles.size());
+    valid_masks.reserve(active_tiles.size());
+
+    cv::UMat zeros(rows, cols, CV_32F);
+    cv::UMat eps(rows, cols, CV_32F);
+    cv::UMat valid_count(rows, cols, CV_32F);
+    cv::Mat valid_count_host(rows, cols, CV_32F);
+    cv::Mat min_keep_host(rows, cols, CV_32F);
+    {
+      std::lock_guard<std::mutex> lock(opencl_api_mutex());
+      zeros.setTo(cv::Scalar(0.0f));
+      eps.setTo(cv::Scalar(1.0e-6f));
+      valid_count.setTo(cv::Scalar(0.0f));
+
+      for (const Matrix2Df &tile : active_tiles) {
+        cv::Mat host_view(rows, cols, CV_32F, const_cast<float *>(tile.data()));
+        cv::UMat gpu_tile;
+        host_view.copyTo(gpu_tile);
+        gpu_tiles.push_back(gpu_tile);
+
+        cv::UMat valid_mask;
+        cv::compare(gpu_tiles.back(), 0.0f, valid_mask, cv::CMP_GT);
+        valid_masks.push_back(valid_mask.clone());
+        keep_masks.push_back(valid_mask.clone());
+
+        cv::UMat valid_mask_f32;
+        valid_mask.convertTo(valid_mask_f32, CV_32F, 1.0 / 255.0);
+        cv::add(valid_count, valid_mask_f32, valid_count);
+      }
+
+      valid_count.copyTo(valid_count_host);
+    }
+    for (int y = 0; y < rows; ++y) {
+      const float *count_row = valid_count_host.ptr<float>(y);
+      float *min_keep_row = min_keep_host.ptr<float>(y);
+      for (int x = 0; x < cols; ++x) {
+        const int n_valid_here = static_cast<int>(std::lround(count_row[x]));
+        min_keep_row[x] = static_cast<float>(
+            std::max(1, static_cast<int>(std::ceil(min_fraction * n_valid_here))));
+      }
+    }
+
+    const bool enable_clipping =
+        static_cast<int>(gpu_tiles.size()) > 2 && max_iters > 0;
+    {
+      std::lock_guard<std::mutex> lock(opencl_api_mutex());
+      cv::UMat min_keep;
+      min_keep_host.copyTo(min_keep);
+
+      cv::UMat active_mask;
+      cv::compare(valid_count, 0.0f, active_mask, cv::CMP_GT);
+
+      if (enable_clipping) {
+        for (int iter = 0; iter < max_iters; ++iter) {
+          cv::UMat wsum(rows, cols, CV_32F);
+          cv::UMat wsum2(rows, cols, CV_32F);
+          cv::UMat wmean_num(rows, cols, CV_32F);
+          wsum.setTo(cv::Scalar(0.0f));
+          wsum2.setTo(cv::Scalar(0.0f));
+          wmean_num.setTo(cv::Scalar(0.0f));
+
+        for (size_t i = 0; i < gpu_tiles.size(); ++i) {
+          cv::UMat keep_f32;
+          keep_masks[i].convertTo(keep_f32, CV_32F, 1.0 / 255.0);
+
+          cv::UMat weighted_keep;
+          keep_f32.convertTo(weighted_keep, CV_32F, active_weights[i]);
+          cv::add(wsum, weighted_keep, wsum);
+
+          cv::UMat weighted_value;
+          cv::multiply(gpu_tiles[i], weighted_keep, weighted_value);
+          cv::add(wmean_num, weighted_value, wmean_num);
+
+          cv::UMat weighted_keep_sq;
+          keep_f32.convertTo(weighted_keep_sq, CV_32F,
+                             active_weights[i] * active_weights[i]);
+          cv::add(wsum2, weighted_keep_sq, wsum2);
+        }
+
+          cv::UMat wsum_safe;
+          cv::max(wsum, eps, wsum_safe);
+          cv::UMat mean;
+          cv::divide(wmean_num, wsum_safe, mean);
+
+          cv::UMat var_num(rows, cols, CV_32F);
+          var_num.setTo(cv::Scalar(0.0f));
+          for (size_t i = 0; i < gpu_tiles.size(); ++i) {
+          cv::UMat diff;
+          cv::subtract(gpu_tiles[i], mean, diff);
+          cv::UMat diff_sq;
+          cv::multiply(diff, diff, diff_sq);
+
+          cv::UMat keep_f32;
+          keep_masks[i].convertTo(keep_f32, CV_32F, 1.0 / 255.0);
+          cv::UMat weighted_keep;
+          keep_f32.convertTo(weighted_keep, CV_32F, active_weights[i]);
+          cv::UMat weighted_diff;
+          cv::multiply(diff_sq, weighted_keep, weighted_diff);
+          cv::add(var_num, weighted_diff, var_num);
+        }
+
+          cv::UMat wsum2_over_wsum;
+          cv::divide(wsum2, wsum_safe, wsum2_over_wsum);
+          cv::UMat denom;
+          cv::subtract(wsum, wsum2_over_wsum, denom);
+          cv::UMat denom_safe;
+          cv::max(denom, eps, denom_safe);
+          cv::UMat var;
+          cv::divide(var_num, denom_safe, var);
+          cv::max(var, zeros, var);
+
+          cv::UMat kept_gt_one_mask;
+          cv::compare(valid_count, 1.0f, kept_gt_one_mask, cv::CMP_GT);
+          cv::UMat denom_positive_mask;
+          cv::compare(denom, 0.0f, denom_positive_mask, cv::CMP_GT);
+          cv::UMat sd;
+          cv::sqrt(var, sd);
+          cv::UMat sd_positive_mask;
+          cv::compare(sd, 0.0f, sd_positive_mask, cv::CMP_GT);
+          cv::UMat can_continue;
+          cv::bitwise_and(kept_gt_one_mask, denom_positive_mask, can_continue);
+          cv::bitwise_and(can_continue, sd_positive_mask, can_continue);
+
+          cv::UMat sigma_low_sd;
+          cv::UMat sigma_high_sd;
+          sd.convertTo(sigma_low_sd, CV_32F, sigma_low);
+          sd.convertTo(sigma_high_sd, CV_32F, sigma_high);
+          cv::UMat lo;
+          cv::UMat hi;
+          cv::subtract(mean, sigma_low_sd, lo);
+          cv::add(mean, sigma_high_sd, hi);
+
+          std::vector<cv::UMat> new_keep_masks;
+          new_keep_masks.reserve(keep_masks.size());
+          cv::UMat new_valid_count(rows, cols, CV_32F);
+          new_valid_count.setTo(cv::Scalar(0.0f));
+          for (size_t i = 0; i < gpu_tiles.size(); ++i) {
+          cv::UMat ge_lo;
+          cv::UMat le_hi;
+          cv::UMat in_range;
+          cv::compare(gpu_tiles[i], lo, ge_lo, cv::CMP_GE);
+          cv::compare(gpu_tiles[i], hi, le_hi, cv::CMP_LE);
+          cv::bitwise_and(ge_lo, le_hi, in_range);
+
+          cv::UMat new_keep;
+          cv::bitwise_and(keep_masks[i], in_range, new_keep);
+          new_keep_masks.push_back(new_keep);
+
+          cv::UMat new_keep_f32;
+          new_keep.convertTo(new_keep_f32, CV_32F, 1.0 / 255.0);
+          cv::add(new_valid_count, new_keep_f32, new_valid_count);
+        }
+
+          cv::UMat meets_min;
+          cv::compare(new_valid_count, min_keep, meets_min, cv::CMP_GE);
+          cv::UMat update_mask;
+          cv::bitwise_and(active_mask, can_continue, update_mask);
+          cv::UMat next_active;
+          cv::bitwise_and(update_mask, meets_min, next_active);
+
+          cv::UMat update_mask_inv;
+          cv::bitwise_not(update_mask, update_mask_inv);
+          for (size_t i = 0; i < keep_masks.size(); ++i) {
+          cv::UMat old_region;
+          cv::UMat new_region;
+          cv::bitwise_and(keep_masks[i], update_mask_inv, old_region);
+          cv::bitwise_and(new_keep_masks[i], update_mask, new_region);
+          cv::bitwise_or(old_region, new_region, keep_masks[i]);
+        }
+          valid_count = new_valid_count;
+          active_mask = next_active;
+        }
+      }
+
+      cv::UMat final_wsum(rows, cols, CV_32F);
+      cv::UMat final_num(rows, cols, CV_32F);
+      cv::UMat fallback_wsum(rows, cols, CV_32F);
+      cv::UMat fallback_num(rows, cols, CV_32F);
+      final_wsum.setTo(cv::Scalar(0.0f));
+      final_num.setTo(cv::Scalar(0.0f));
+      fallback_wsum.setTo(cv::Scalar(0.0f));
+      fallback_num.setTo(cv::Scalar(0.0f));
+
+      for (size_t i = 0; i < gpu_tiles.size(); ++i) {
+        cv::UMat keep_f32;
+        keep_masks[i].convertTo(keep_f32, CV_32F, 1.0 / 255.0);
+        cv::UMat valid_f32;
+        valid_masks[i].convertTo(valid_f32, CV_32F, 1.0 / 255.0);
+
+        cv::UMat weighted_keep;
+        keep_f32.convertTo(weighted_keep, CV_32F, active_weights[i]);
+        cv::UMat weighted_valid;
+        valid_f32.convertTo(weighted_valid, CV_32F, active_weights[i]);
+        cv::add(final_wsum, weighted_keep, final_wsum);
+        cv::add(fallback_wsum, weighted_valid, fallback_wsum);
+
+        cv::UMat weighted_value;
+        cv::multiply(gpu_tiles[i], weighted_keep, weighted_value);
+        cv::UMat fallback_value;
+        cv::multiply(gpu_tiles[i], weighted_valid, fallback_value);
+        cv::add(final_num, weighted_value, final_num);
+        cv::add(fallback_num, fallback_value, fallback_num);
+      }
+
+      cv::UMat final_wsum_safe;
+      cv::UMat fallback_wsum_safe;
+      cv::max(final_wsum, eps, final_wsum_safe);
+      cv::max(fallback_wsum, eps, fallback_wsum_safe);
+      cv::UMat final_out;
+      cv::UMat fallback_out;
+      cv::divide(final_num, final_wsum_safe, final_out);
+      cv::divide(fallback_num, fallback_wsum_safe, fallback_out);
+
+      cv::UMat zero_wsum_mask;
+      cv::compare(final_wsum, eps_weight, zero_wsum_mask, cv::CMP_LE);
+      fallback_out.copyTo(final_out, zero_wsum_mask);
+      cv::UMat zero_fallback_mask;
+      cv::compare(fallback_wsum, eps_weight, zero_fallback_mask, cv::CMP_LE);
+      final_out.setTo(cv::Scalar(0.0f), zero_fallback_mask);
+
+      out.tile.resize(rows, cols);
+      cv::Mat out_host(rows, cols, CV_32F, out.tile.data());
+      final_out.copyTo(out_host);
+    }
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool opencl_sigma_clip_stack_impl(
+    const std::vector<Matrix2Df> &frames, float sigma_low, float sigma_high,
+    int max_iters, float min_fraction, Matrix2Df &out) {
+  std::vector<std::reference_wrapper<const Matrix2Df>> valid;
+  valid.reserve(frames.size());
+  for (const auto &frame : frames) {
+    if (frame.size() > 0) {
+      valid.emplace_back(frame);
+    }
+  }
+  if (valid.empty()) {
+    out.resize(0, 0);
+    return true;
+  }
+
+  const int rows = static_cast<int>(valid[0].get().rows());
+  const int cols = static_cast<int>(valid[0].get().cols());
+  if (rows <= 0 || cols <= 0) {
+    out.resize(0, 0);
+    return true;
+  }
+
+  try {
+    std::vector<cv::UMat> gpu_frames;
+    std::vector<cv::UMat> keep_masks;
+    gpu_frames.reserve(valid.size());
+    keep_masks.reserve(valid.size());
+
+    cv::UMat ones(rows, cols, CV_32F);
+    cv::UMat zeros(rows, cols, CV_32F);
+    cv::UMat initial_count(rows, cols, CV_32F);
+    cv::Mat initial_count_host(rows, cols, CV_32F);
+    cv::Mat min_keep_host(rows, cols, CV_32F);
+    {
+      std::lock_guard<std::mutex> lock(opencl_api_mutex());
+      ones.setTo(cv::Scalar(1.0f));
+      zeros.setTo(cv::Scalar(0.0f));
+      initial_count.setTo(cv::Scalar(0.0f));
+
+      for (const Matrix2Df &frame : valid) {
+        cv::Mat host_view(rows, cols, CV_32F, const_cast<float *>(frame.data()));
+        cv::UMat gpu_frame;
+        host_view.copyTo(gpu_frame);
+        gpu_frames.push_back(gpu_frame);
+
+        cv::UMat valid_mask;
+        cv::compare(gpu_frames.back(), 0.0f, valid_mask, cv::CMP_GT);
+        keep_masks.push_back(valid_mask.clone());
+
+        cv::UMat valid_mask_f32;
+        valid_mask.convertTo(valid_mask_f32, CV_32F, 1.0 / 255.0);
+        cv::add(initial_count, valid_mask_f32, initial_count);
+      }
+
+      initial_count.copyTo(initial_count_host);
+    }
+    for (int y = 0; y < rows; ++y) {
+      const float *count_row = initial_count_host.ptr<float>(y);
+      float *min_keep_row = min_keep_host.ptr<float>(y);
+      for (int x = 0; x < cols; ++x) {
+        const int n_valid_here = static_cast<int>(std::lround(count_row[x]));
+        min_keep_row[x] = static_cast<float>(
+            std::max(1, static_cast<int>(std::ceil(min_fraction * n_valid_here))));
+      }
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(opencl_api_mutex());
+      cv::UMat min_keep;
+      min_keep_host.copyTo(min_keep);
+
+      cv::UMat active_mask;
+      cv::compare(initial_count, 0.0f, active_mask, cv::CMP_GT);
+
+      for (int iter = 0; iter < max_iters; ++iter) {
+        cv::UMat sum(rows, cols, CV_32F);
+        cv::UMat sumsq(rows, cols, CV_32F);
+        cv::UMat count(rows, cols, CV_32F);
+        sum.setTo(cv::Scalar(0.0f));
+        sumsq.setTo(cv::Scalar(0.0f));
+        count.setTo(cv::Scalar(0.0f));
+
+        for (size_t i = 0; i < gpu_frames.size(); ++i) {
+          cv::UMat keep_f32;
+          keep_masks[i].convertTo(keep_f32, CV_32F, 1.0 / 255.0);
+
+          cv::UMat masked_frame;
+          cv::multiply(gpu_frames[i], keep_f32, masked_frame);
+          cv::add(sum, masked_frame, sum);
+
+          cv::UMat frame_sq;
+          cv::multiply(gpu_frames[i], gpu_frames[i], frame_sq);
+          cv::UMat masked_sq;
+          cv::multiply(frame_sq, keep_f32, masked_sq);
+          cv::add(sumsq, masked_sq, sumsq);
+          cv::add(count, keep_f32, count);
+        }
+
+        cv::UMat count_denom;
+        cv::max(count, ones, count_denom);
+        cv::UMat mean;
+        cv::divide(sum, count_denom, mean);
+
+        cv::UMat sumsq_mean;
+        cv::divide(sumsq, count_denom, sumsq_mean);
+        cv::UMat mean_sq;
+        cv::multiply(mean, mean, mean_sq);
+        cv::UMat var;
+        cv::subtract(sumsq_mean, mean_sq, var);
+        cv::max(var, zeros, var);
+
+        cv::UMat kept_gt_one_mask;
+        cv::compare(count, 1.0f, kept_gt_one_mask, cv::CMP_GT);
+        cv::UMat kept_gt_one_f32;
+        kept_gt_one_mask.convertTo(kept_gt_one_f32, CV_32F, 1.0 / 255.0);
+
+        cv::UMat count_minus_one;
+        cv::subtract(count, ones, count_minus_one);
+        cv::max(count_minus_one, ones, count_minus_one);
+        cv::UMat factor;
+        cv::divide(count, count_minus_one, factor);
+
+        cv::UMat one_minus_gt_one;
+        cv::subtract(ones, kept_gt_one_f32, one_minus_gt_one);
+        cv::UMat factor_when_gt_one;
+        cv::multiply(factor, kept_gt_one_f32, factor_when_gt_one);
+        cv::add(factor_when_gt_one, one_minus_gt_one, factor);
+        cv::multiply(var, factor, var);
+        cv::max(var, zeros, var);
+
+        cv::UMat sd;
+        cv::sqrt(var, sd);
+        cv::UMat sd_positive_mask;
+        cv::compare(sd, 0.0f, sd_positive_mask, cv::CMP_GT);
+        cv::UMat can_continue;
+        cv::bitwise_and(kept_gt_one_mask, sd_positive_mask, can_continue);
+
+        cv::UMat sigma_low_sd;
+        cv::UMat sigma_high_sd;
+        sd.convertTo(sigma_low_sd, CV_32F, sigma_low);
+        sd.convertTo(sigma_high_sd, CV_32F, sigma_high);
+        cv::UMat lo;
+        cv::UMat hi;
+        cv::subtract(mean, sigma_low_sd, lo);
+        cv::add(mean, sigma_high_sd, hi);
+
+        std::vector<cv::UMat> new_keep_masks;
+        new_keep_masks.reserve(keep_masks.size());
+        cv::UMat new_count(rows, cols, CV_32F);
+        new_count.setTo(cv::Scalar(0.0f));
+
+        for (size_t i = 0; i < gpu_frames.size(); ++i) {
+          cv::UMat ge_lo;
+          cv::UMat le_hi;
+          cv::UMat in_range;
+          cv::compare(gpu_frames[i], lo, ge_lo, cv::CMP_GE);
+          cv::compare(gpu_frames[i], hi, le_hi, cv::CMP_LE);
+          cv::bitwise_and(ge_lo, le_hi, in_range);
+
+          cv::UMat new_keep;
+          cv::bitwise_and(keep_masks[i], in_range, new_keep);
+          new_keep_masks.push_back(new_keep);
+
+          cv::UMat new_keep_f32;
+          new_keep.convertTo(new_keep_f32, CV_32F, 1.0 / 255.0);
+          cv::add(new_count, new_keep_f32, new_count);
+        }
+
+        cv::UMat meets_min;
+        cv::compare(new_count, min_keep, meets_min, cv::CMP_GE);
+        cv::UMat update_mask;
+        cv::bitwise_and(active_mask, can_continue, update_mask);
+        cv::UMat next_active;
+        cv::bitwise_and(update_mask, meets_min, next_active);
+
+        cv::UMat update_mask_inv;
+        cv::bitwise_not(update_mask, update_mask_inv);
+        for (size_t i = 0; i < keep_masks.size(); ++i) {
+          cv::UMat old_region;
+          cv::UMat new_region;
+          cv::bitwise_and(keep_masks[i], update_mask_inv, old_region);
+          cv::bitwise_and(new_keep_masks[i], update_mask, new_region);
+          cv::bitwise_or(old_region, new_region, keep_masks[i]);
+        }
+        active_mask = next_active;
+      }
+
+      cv::UMat final_sum(rows, cols, CV_32F);
+      cv::UMat final_count(rows, cols, CV_32F);
+      final_sum.setTo(cv::Scalar(0.0f));
+      final_count.setTo(cv::Scalar(0.0f));
+      for (size_t i = 0; i < gpu_frames.size(); ++i) {
+        cv::UMat keep_f32;
+        keep_masks[i].convertTo(keep_f32, CV_32F, 1.0 / 255.0);
+        cv::UMat masked_frame;
+        cv::multiply(gpu_frames[i], keep_f32, masked_frame);
+        cv::add(final_sum, masked_frame, final_sum);
+        cv::add(final_count, keep_f32, final_count);
+      }
+
+      cv::UMat final_count_denom;
+      cv::max(final_count, ones, final_count_denom);
+      cv::UMat final_out;
+      cv::divide(final_sum, final_count_denom, final_out);
+      cv::UMat dead_mask;
+      cv::compare(final_count, 0.0f, dead_mask, cv::CMP_LE);
+      final_out.setTo(cv::Scalar(0.0f), dead_mask);
+
+      out.resize(rows, cols);
+      cv::Mat out_host(rows, cols, CV_32F, out.data());
+      final_out.copyTo(out_host);
+    }
+    return true;
+  } catch (...) {
+    return false;
+  }
 }
 #endif
 
@@ -736,11 +1397,14 @@ bool auto_backend_requested(const std::string &name) {
 
 AccelerationBackend choose_auto_backend(AccelerationPhase phase,
                                         bool tile_compile_with_cuda,
-                                        bool opencv_cuda_runtime) {
+                                        bool opencv_cuda_runtime,
+                                        bool opencv_opencl_runtime) {
   const bool opencv_cuda_headers = opencv_cuda_headers_available(phase);
+  const bool opencv_opencl_headers = TILE_COMPILE_HAS_OPENCV_OPENCL != 0;
   const AccelerationBackend candidates[] = {
       AccelerationBackend::cuda,
       AccelerationBackend::opencv_cuda,
+      AccelerationBackend::opencv_opencl,
       AccelerationBackend::cpu,
   };
   for (AccelerationBackend candidate : candidates) {
@@ -749,7 +1413,9 @@ AccelerationBackend choose_auto_backend(AccelerationPhase phase,
     }
     if (missing_backend_reason(candidate, tile_compile_with_cuda,
                                opencv_cuda_headers,
-                               opencv_cuda_runtime)
+                               opencv_cuda_runtime,
+                               opencv_opencl_headers,
+                               opencv_opencl_runtime)
         .empty()) {
       return candidate;
     }
@@ -777,6 +1443,8 @@ std::string acceleration_backend_name(AccelerationBackend backend) {
     return "cpu";
   case AccelerationBackend::opencv_cuda:
     return "opencv_cuda";
+  case AccelerationBackend::opencv_opencl:
+    return "opencv_opencl";
   case AccelerationBackend::cuda:
     return "cuda";
   }
@@ -794,6 +1462,10 @@ bool parse_acceleration_backend(const std::string &name,
     backend_out = AccelerationBackend::opencv_cuda;
     return true;
   }
+  if (normalized == "opencv_opencl" || normalized == "opencl") {
+    backend_out = AccelerationBackend::opencv_opencl;
+    return true;
+  }
   if (normalized == "cuda") {
     backend_out = AccelerationBackend::cuda;
     return true;
@@ -808,6 +1480,8 @@ AccelerationSelection select_acceleration_backend(
   selection.tile_compile_with_cuda = TILE_COMPILE_WITH_CUDA != 0;
   selection.opencv_cuda_headers = opencv_cuda_headers_available(phase);
   selection.opencv_cuda_runtime = opencv_cuda_runtime_available();
+  selection.opencv_opencl_headers = TILE_COMPILE_HAS_OPENCV_OPENCL != 0;
+  selection.opencv_opencl_runtime = opencv_opencl_runtime_available();
 
   selection.requested_name = core::to_lower(requested_backend_name);
   if (selection.requested_name.empty()) {
@@ -818,7 +1492,8 @@ AccelerationSelection select_acceleration_backend(
   if (selection.auto_requested) {
     selection.selected =
         choose_auto_backend(phase, selection.tile_compile_with_cuda,
-                            selection.opencv_cuda_runtime);
+                            selection.opencv_cuda_runtime,
+                            selection.opencv_opencl_runtime);
     selection.requested = selection.selected;
     selection.gpu_requested = selection.selected != AccelerationBackend::cpu;
     selection.using_gpu = selection.selected != AccelerationBackend::cpu;
@@ -841,7 +1516,9 @@ AccelerationSelection select_acceleration_backend(
   const std::string missing_reason =
       missing_backend_reason(requested_backend, selection.tile_compile_with_cuda,
                              selection.opencv_cuda_headers,
-                             selection.opencv_cuda_runtime);
+                             selection.opencv_cuda_runtime,
+                             selection.opencv_opencl_headers,
+                             selection.opencv_opencl_runtime);
   if (!missing_reason.empty()) {
     selection.selected = AccelerationBackend::cpu;
     selection.request_honored = false;
@@ -873,6 +1550,8 @@ json acceleration_selection_to_json(const AccelerationSelection &selection) {
       {"tile_compile_with_cuda", selection.tile_compile_with_cuda},
       {"opencv_cuda_headers", selection.opencv_cuda_headers},
       {"opencv_cuda_runtime", selection.opencv_cuda_runtime},
+      {"opencv_opencl_headers", selection.opencv_opencl_headers},
+      {"opencv_opencl_runtime", selection.opencv_opencl_runtime},
   };
   if (!selection.fallback_reason.empty()) {
     out["fallback_reason"] = selection.fallback_reason;
@@ -885,18 +1564,20 @@ std::string acceleration_selection_summary(
   std::ostringstream oss;
   oss << "requested=" << selection.requested_name
       << " selected=" << acceleration_backend_name(selection.selected)
-      << " execution=" << (selection.using_gpu ? "gpu" : "cpu");
+      << " execution=" << (selection.using_gpu ? "GPU" : "CPU");
   if (selection.auto_requested) {
-    oss << " auto=true";
+    oss << " (auto-detected)";
   }
   if (!selection.request_honored && !selection.fallback_reason.empty()) {
-    oss << " reason=" << selection.fallback_reason;
+    oss << " [fallback: " << selection.fallback_reason << "]";
   }
   if (selection.using_gpu) {
     if (selection.selected == AccelerationBackend::opencv_cuda) {
-      oss << " gpu_backend=opencv_cuda";
+      oss << " [NVIDIA CUDA]";
+    } else if (selection.selected == AccelerationBackend::opencv_opencl) {
+      oss << " [OpenCL - AMD/Intel/NVIDIA]";
     } else if (selection.selected == AccelerationBackend::cuda) {
-      oss << " gpu_backend=cuda";
+      oss << " [native CUDA]";
     }
   }
   return oss.str();
@@ -974,6 +1655,9 @@ struct AccelerationOps::OverlapAddState {
   int cols = 0;
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
   cv::cuda::GpuMat gpu_mat;
+#endif
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  cv::UMat u_mat;
 #endif
 };
 
@@ -1087,6 +1771,56 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
   }
 #endif
 
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  if (selection_.selected == AccelerationBackend::opencv_opencl &&
+      selection_.phase == AccelerationPhase::prewarp) {
+    if (mode == ColorMode::OSC) {
+      if (opencl_warp_cfa_mosaic(img, warp, canvas_height, canvas_width,
+                                 warped_out)) {
+        update_valid_outputs(warped_out);
+        return true;
+      }
+    } else {
+      const cv::Mat src(static_cast<int>(img.rows()), static_cast<int>(img.cols()),
+                        CV_32F, const_cast<float *>(img.data()));
+      const cv::Mat warp_matrix = warp_matrix_to_cv(warp);
+      cv::Mat dst;
+      cv::Mat valid_mask_host;
+      int nonzero_count = -1;
+      if (opencl_warp_affine_impl(src, warp_matrix,
+                                  cv::Size(canvas_width, canvas_height), dst,
+                                  (valid_mask_out != nullptr) ? &valid_mask_host
+                                                              : nullptr,
+                                  (has_data_out != nullptr) ? &nonzero_count
+                                                            : nullptr)) {
+        warped_out.resize(canvas_height, canvas_width);
+        std::memcpy(warped_out.data(), dst.data,
+                    static_cast<size_t>(warped_out.size()) * sizeof(float));
+        if (valid_mask_out != nullptr) {
+          valid_mask_out->assign(static_cast<size_t>(canvas_height) *
+                                     static_cast<size_t>(canvas_width),
+                                 0u);
+          if (!valid_mask_host.empty()) {
+            for (int y = 0; y < valid_mask_host.rows; ++y) {
+              const uchar *row = valid_mask_host.ptr<uchar>(y);
+              for (int x = 0; x < valid_mask_host.cols; ++x) {
+                (*valid_mask_out)[static_cast<size_t>(y) *
+                                      static_cast<size_t>(canvas_width) +
+                                  static_cast<size_t>(x)] =
+                    (row[x] != 0) ? 1u : 0u;
+              }
+            }
+          }
+        }
+        if (has_data_out != nullptr) {
+          *has_data_out = nonzero_count > 0;
+        }
+        return true;
+      }
+    }
+  }
+#endif
+
   warped_out =
       image::apply_global_warp(img, warp, mode, canvas_height, canvas_width);
   update_valid_outputs(warped_out);
@@ -1109,6 +1843,18 @@ reconstruction::WeightedTileResult AccelerationOps::sigma_clip_reduce(
     }
   }
 #endif
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  if (selection_.selected == AccelerationBackend::opencv_opencl &&
+      (selection_.phase == AccelerationPhase::tile_reconstruction ||
+       selection_.phase == AccelerationPhase::stacking)) {
+    reconstruction::WeightedTileResult gpu_out;
+    if (opencl_sigma_clip_weighted_tile_impl(
+            tiles, weights, sigma_low, sigma_high, max_iters, min_fraction,
+            eps_weight, gpu_out)) {
+      return gpu_out;
+    }
+  }
+#endif
   return reconstruction::sigma_clip_weighted_tile_with_fallback(
       tiles, weights, sigma_low, sigma_high, max_iters, min_fraction,
       eps_weight);
@@ -1124,6 +1870,16 @@ Matrix2Df AccelerationOps::sigma_clip_stack(const std::vector<Matrix2Df> &frames
     Matrix2Df gpu_out;
     if (cuda_sigma_clip_stack_impl(frames, sigma_low, sigma_high, max_iters,
                                    min_fraction, gpu_out)) {
+      return gpu_out;
+    }
+  }
+#endif
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  if (selection_.selected == AccelerationBackend::opencv_opencl &&
+      selection_.phase == AccelerationPhase::stacking) {
+    Matrix2Df gpu_out;
+    if (opencl_sigma_clip_stack_impl(frames, sigma_low, sigma_high, max_iters,
+                                     min_fraction, gpu_out)) {
       return gpu_out;
     }
   }
@@ -1234,6 +1990,109 @@ void AccelerationOps::overlap_add(
   }
 #endif
 
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  if (selection_.selected == AccelerationBackend::opencv_opencl &&
+      selection_.phase == AccelerationPhase::tile_reconstruction) {
+    auto ensure_state = [&](Matrix2Df &host_matrix)
+        -> std::shared_ptr<OverlapAddState> {
+      auto &state = overlap_add_states_[&host_matrix];
+      if (!state) {
+        state = std::make_shared<OverlapAddState>();
+      }
+      if (host_matrix.rows() <= 0 || host_matrix.cols() <= 0) {
+        return state;
+      }
+      if (state->rows != host_matrix.rows() || state->cols != host_matrix.cols() ||
+          state->u_mat.empty()) {
+        state->rows = static_cast<int>(host_matrix.rows());
+        state->cols = static_cast<int>(host_matrix.cols());
+        cv::Mat host_view(state->rows, state->cols, CV_32F,
+                          host_matrix.data());
+        host_view.copyTo(state->u_mat);
+      }
+      return state;
+    };
+
+    const int x0 = std::max(0, tile_bounds.x);
+    const int y0 = std::max(0, tile_bounds.y);
+    const int clip_w = std::min<int>(tile.cols(), accum.cols() - x0);
+    const int clip_h = std::min<int>(tile.rows(), accum.rows() - y0);
+    if (clip_w <= 0 || clip_h <= 0) {
+      return;
+    }
+
+    Matrix2Df weighted_tile = Matrix2Df::Zero(clip_h, clip_w);
+    Matrix2Df weighted_mask;
+    if (accumulate_weight) {
+      weighted_mask = Matrix2Df::Zero(clip_h, clip_w);
+    }
+
+    bool has_valid_pixels = false;
+    for (int yy = 0; yy < clip_h; ++yy) {
+      const int iy = y0 + yy;
+      for (int xx = 0; xx < clip_w; ++xx) {
+        const int ix = x0 + xx;
+        const size_t common_idx =
+            static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
+            static_cast<size_t>(ix);
+        if (common_idx >= common_valid_mask.size() ||
+            common_valid_mask[common_idx] == 0) {
+          continue;
+        }
+        const float tile_value = tile(yy, xx);
+        if (!(std::isfinite(tile_value) && tile_value > 0.0f)) {
+          continue;
+        }
+        const float win =
+            hann_y[static_cast<size_t>(yy)] * hann_x[static_cast<size_t>(xx)];
+        weighted_tile(yy, xx) = tile_value * win;
+        if (accumulate_weight) {
+          weighted_mask(yy, xx) = win;
+        }
+        has_valid_pixels = true;
+      }
+    }
+
+    if (!has_valid_pixels) {
+      return;
+    }
+
+    auto accum_state = ensure_state(accum);
+    if (!accum_state || accum_state->u_mat.empty()) {
+      return;
+    }
+
+    const cv::Rect roi(x0, y0, clip_w, clip_h);
+    cv::UMat accum_roi = accum_state->u_mat(roi);
+    cv::Mat weighted_tile_host(clip_h, clip_w, CV_32F, weighted_tile.data());
+    thread_local cv::UMat weighted_tile_gpu;
+    if (weighted_tile_gpu.rows != clip_h || weighted_tile_gpu.cols != clip_w ||
+        weighted_tile_gpu.type() != CV_32F) {
+      weighted_tile_gpu.create(clip_h, clip_w, CV_32F);
+    }
+    weighted_tile_host.copyTo(weighted_tile_gpu);
+    cv::add(accum_roi, weighted_tile_gpu, accum_roi);
+
+    if (accumulate_weight) {
+      auto weight_state = ensure_state(weight_sum);
+      if (weight_state && !weight_state->u_mat.empty()) {
+        cv::UMat weight_roi = weight_state->u_mat(roi);
+        cv::Mat weighted_mask_host(clip_h, clip_w, CV_32F,
+                                   weighted_mask.data());
+        thread_local cv::UMat weighted_mask_gpu;
+        if (weighted_mask_gpu.rows != clip_h ||
+            weighted_mask_gpu.cols != clip_w ||
+            weighted_mask_gpu.type() != CV_32F) {
+          weighted_mask_gpu.create(clip_h, clip_w, CV_32F);
+        }
+        weighted_mask_host.copyTo(weighted_mask_gpu);
+        cv::add(weight_roi, weighted_mask_gpu, weight_roi);
+      }
+    }
+    return;
+  }
+#endif
+
   const int x0 = std::max(0, tile_bounds.x);
   const int y0 = std::max(0, tile_bounds.y);
   for (int yy = 0; yy < tile.rows(); ++yy) {
@@ -1272,74 +2131,131 @@ bool AccelerationOps::normalize_overlap_accum(Matrix2Df &accum,
                                               float eps_weight,
                                               float invalid_value) const {
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
-  if (selection_.selected != AccelerationBackend::opencv_cuda ||
-      selection_.phase != AccelerationPhase::tile_reconstruction) {
-    return false;
-  }
+  if (selection_.selected == AccelerationBackend::opencv_cuda &&
+      selection_.phase == AccelerationPhase::tile_reconstruction) {
+    auto accum_it = overlap_add_states_.find(&accum);
+    auto weight_it = overlap_add_states_.find(&weight_sum);
+    if (accum_it == overlap_add_states_.end() ||
+        weight_it == overlap_add_states_.end() || !accum_it->second ||
+        !weight_it->second) {
+      return false;
+    }
 
-  auto accum_it = overlap_add_states_.find(&accum);
-  auto weight_it = overlap_add_states_.find(&weight_sum);
-  if (accum_it == overlap_add_states_.end() || weight_it == overlap_add_states_.end() ||
-      !accum_it->second || !weight_it->second) {
-    return false;
-  }
+    OverlapAddState &accum_state = *accum_it->second;
+    OverlapAddState &weight_state = *weight_it->second;
+    if (accum_state.gpu_mat.empty() || weight_state.gpu_mat.empty() ||
+        accum_state.rows != weight_state.rows ||
+        accum_state.cols != weight_state.cols) {
+      return false;
+    }
 
-  OverlapAddState &accum_state = *accum_it->second;
-  OverlapAddState &weight_state = *weight_it->second;
-  if (accum_state.gpu_mat.empty() || weight_state.gpu_mat.empty() ||
-      accum_state.rows != weight_state.rows ||
-      accum_state.cols != weight_state.cols) {
-    return false;
+    cv::cuda::GpuMat eps_mat(accum_state.rows, accum_state.cols, CV_32F);
+    eps_mat.setTo(cv::Scalar(eps_weight));
+    cv::cuda::GpuMat denom;
+    cv::cuda::max(weight_state.gpu_mat, eps_mat, denom);
+    cv::cuda::divide(accum_state.gpu_mat, denom, accum_state.gpu_mat);
+    cv::cuda::GpuMat invalid_mask;
+    cv::cuda::compare(weight_state.gpu_mat, eps_weight, invalid_mask,
+                      cv::CMP_LE);
+    accum_state.gpu_mat.setTo(cv::Scalar(invalid_value), invalid_mask);
+    return true;
   }
+#endif
 
-  cv::cuda::GpuMat eps_mat(accum_state.rows, accum_state.cols, CV_32F);
-  eps_mat.setTo(cv::Scalar(eps_weight));
-  cv::cuda::GpuMat denom;
-  cv::cuda::max(weight_state.gpu_mat, eps_mat, denom);
-  cv::cuda::divide(accum_state.gpu_mat, denom, accum_state.gpu_mat);
-  cv::cuda::GpuMat invalid_mask;
-  cv::cuda::compare(weight_state.gpu_mat, eps_weight, invalid_mask, cv::CMP_LE);
-  accum_state.gpu_mat.setTo(cv::Scalar(invalid_value), invalid_mask);
-  return true;
-#else
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  if (selection_.selected == AccelerationBackend::opencv_opencl &&
+      selection_.phase == AccelerationPhase::tile_reconstruction) {
+    auto accum_it = overlap_add_states_.find(&accum);
+    auto weight_it = overlap_add_states_.find(&weight_sum);
+    if (accum_it == overlap_add_states_.end() ||
+        weight_it == overlap_add_states_.end() || !accum_it->second ||
+        !weight_it->second) {
+      return false;
+    }
+
+    OverlapAddState &accum_state = *accum_it->second;
+    OverlapAddState &weight_state = *weight_it->second;
+    if (accum_state.u_mat.empty() || weight_state.u_mat.empty() ||
+        accum_state.rows != weight_state.rows ||
+        accum_state.cols != weight_state.cols) {
+      return false;
+    }
+
+    cv::UMat eps_mat(accum_state.rows, accum_state.cols, CV_32F);
+    eps_mat.setTo(cv::Scalar(eps_weight));
+    cv::UMat denom;
+    cv::max(weight_state.u_mat, eps_mat, denom);
+    cv::divide(accum_state.u_mat, denom, accum_state.u_mat);
+    cv::UMat invalid_mask;
+    cv::compare(weight_state.u_mat, eps_weight, invalid_mask, cv::CMP_LE);
+    accum_state.u_mat.setTo(cv::Scalar(invalid_value), invalid_mask);
+    return true;
+  }
+#endif
+
   (void)accum;
   (void)weight_sum;
   (void)eps_weight;
   (void)invalid_value;
   return false;
-#endif
 }
 
 void AccelerationOps::flush_overlap_state(Matrix2Df &accum,
                                           Matrix2Df &weight_sum) const {
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
-  if (selection_.selected != AccelerationBackend::opencv_cuda ||
-      selection_.phase != AccelerationPhase::tile_reconstruction) {
+  if (selection_.selected == AccelerationBackend::opencv_cuda &&
+      selection_.phase == AccelerationPhase::tile_reconstruction) {
+    auto flush_cuda = [&](Matrix2Df &host_matrix) {
+      auto it = overlap_add_states_.find(&host_matrix);
+      if (it == overlap_add_states_.end() || !it->second) {
+        return;
+      }
+      OverlapAddState &state = *it->second;
+      if (state.rows > 0 && state.cols > 0 && !state.gpu_mat.empty()) {
+        if (host_matrix.rows() != state.rows ||
+            host_matrix.cols() != state.cols) {
+          host_matrix.resize(state.rows, state.cols);
+        }
+        cv::Mat host_view(state.rows, state.cols, CV_32F, host_matrix.data());
+        state.gpu_mat.download(host_view);
+      }
+      overlap_add_states_.erase(it);
+    };
+
+    flush_cuda(accum);
+    flush_cuda(weight_sum);
     return;
   }
+#endif
 
-  auto flush_one = [&](Matrix2Df &host_matrix) {
-    auto it = overlap_add_states_.find(&host_matrix);
-    if (it == overlap_add_states_.end() || !it->second) {
-      return;
-    }
-    OverlapAddState &state = *it->second;
-    if (state.rows > 0 && state.cols > 0 && !state.gpu_mat.empty()) {
-      if (host_matrix.rows() != state.rows || host_matrix.cols() != state.cols) {
-        host_matrix.resize(state.rows, state.cols);
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  if (selection_.selected == AccelerationBackend::opencv_opencl &&
+      selection_.phase == AccelerationPhase::tile_reconstruction) {
+    auto flush_opencl = [&](Matrix2Df &host_matrix) {
+      auto it = overlap_add_states_.find(&host_matrix);
+      if (it == overlap_add_states_.end() || !it->second) {
+        return;
       }
-      cv::Mat host_view(state.rows, state.cols, CV_32F, host_matrix.data());
-      state.gpu_mat.download(host_view);
-    }
-    overlap_add_states_.erase(it);
-  };
+      OverlapAddState &state = *it->second;
+      if (state.rows > 0 && state.cols > 0 && !state.u_mat.empty()) {
+        if (host_matrix.rows() != state.rows ||
+            host_matrix.cols() != state.cols) {
+          host_matrix.resize(state.rows, state.cols);
+        }
+        cv::Mat host_view(state.rows, state.cols, CV_32F, host_matrix.data());
+        state.u_mat.copyTo(host_view);
+      }
+      overlap_add_states_.erase(it);
+    };
 
-  flush_one(accum);
-  flush_one(weight_sum);
-#else
+    flush_opencl(accum);
+    flush_opencl(weight_sum);
+    return;
+  }
+#endif
+
   (void)accum;
   (void)weight_sum;
-#endif
 }
 
 } // namespace tile_compile::core

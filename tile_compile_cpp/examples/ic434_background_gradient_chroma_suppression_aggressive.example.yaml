@@ -253,6 +253,7 @@ validation:
 runtime_limits:
   parallel_workers: 8
   memory_budget: 2048
+  acceleration_backend: auto # GPU-Backend: auto (CUDA->OpenCL->CPU), opencv_cuda (NVIDIA), opencv_opencl (AMD/Intel), cpu
   tile_analysis_max_factor_vs_stack: 3.0
   hard_abort_hours: 6.0
   allow_emergency_mode: true

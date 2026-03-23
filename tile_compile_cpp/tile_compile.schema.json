@@ -180,6 +180,6 @@
                       "allow_emergency_mode":{"type":"boolean"},
                       "parallel_workers":{"type":"integer","minimum":1},
                       "memory_budget":{"type":"integer","minimum":1},
-                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' prueft beim Start GPU-Verfuegbarkeit und nutzt GPU dort, wo ein Implementierungspfad vorhanden ist; sonst faellt der Lauf kontrolliert auf CPU zurueck."} } }
+                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"default":"auto","description":"Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' (Standard) erkennt automatisch verfuegbare GPU-Backends (CUDA/OpenCL) zur Laufzeit. Prioritaet: CUDA -> OpenCL -> CPU. 'opencv_cuda' erzwingt NVIDIA CUDA, 'opencv_opencl'/'opencl' erzwingt OpenCL (AMD/Intel/NVIDIA), 'cpu' deaktiviert GPU. Faellt sauber auf CPU zurueck wenn Hardware nicht verfuegbar."} } }
   }
 }

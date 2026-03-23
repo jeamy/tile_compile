@@ -32,12 +32,14 @@ Required core build dependencies:
 
 GPU-specific requirements for actual runtime acceleration:
 
-- The current GPU backend requires an OpenCV build that includes:
+- The active GPU backend supports both CUDA and OpenCL runtime paths.
+- CUDA acceleration requires an OpenCV build that includes:
   - `opencv2/core/cuda.hpp`
   - `opencv2/cudawarping.hpp`
   - `opencv2/cudaarithm.hpp`
-- A CUDA-capable NVIDIA GPU and working CUDA/OpenCV runtime are also required.
-- If these OpenCV CUDA modules are missing, the build still works, but `runtime_limits.acceleration_backend: auto` falls back to CPU.
+- OpenCL acceleration requires an OpenCV build/runtime with T-API / `cv::UMat` OpenCL support enabled.
+- `runtime_limits.acceleration_backend: auto` prefers CUDA, then OpenCL, then CPU.
+- `runtime_limits.acceleration_backend: opencv_opencl` is the recommended explicit setting for AMD GPUs and for systems where OpenCV OpenCL is available but CUDA is not.
 - `TILE_COMPILE_ENABLE_CUDA` only enables the CUDA hook/build gate. It does not by itself guarantee real GPU execution.
 
 Backend-specific build dependencies:
@@ -49,8 +51,9 @@ Notes:
 
 - Crow and Asio are fetched by the backend CMake build.
 - The frontend itself does not require a JS build toolchain for normal use; it is shipped as static files.
-- Many default OpenCV packages are CPU-only. For real GPU execution you need an OpenCV package/build with CUDA enabled and with `cudawarping` and `cudaarithm` available.
-- On macOS, the current implementation is effectively CPU-only at runtime because there is no practical CUDA runtime path for this backend.
+- Many default OpenCV packages are CPU-only. For real GPU execution you need an OpenCV package/build with either CUDA support or working OpenCL support.
+- On systems without CUDA, OpenCL can still accelerate `PREWARP`, `TILE_RECONSTRUCTION`, and `STACKING` if OpenCV OpenCL is available at runtime.
+- On macOS, the practical path remains CPU-only in many setups unless a compatible OpenCV OpenCL runtime is actually available.
 
 Platform package examples:
 
@@ -152,6 +155,7 @@ Copy one file and adjust at least:
 - `data.bayer_pattern` (for OSC/CFA datasets)
 - `assumptions.frames_min` / `assumptions.frames_reduced_threshold`
 - `registration.enable_star_pair_fallback` (`false` for stricter registration behavior)
+- `runtime_limits.acceleration_backend` (`auto`, `opencv_cuda`, `opencv_opencl`, or `cpu` depending on your system)
 
 Example:
 
@@ -178,6 +182,10 @@ Useful options:
 - `--run-id <id>` force a run-id (useful to group related runs)
 - `--project-root <path>` set explicit project root
 - `--stdin` with `--config -` to pass YAML via stdin
+
+OpenCL note:
+
+- With `runtime_limits.acceleration_backend: opencv_opencl`, the runner can use OpenCL not only for `PREWARP`, but also for the OpenCL-enabled `TILE_RECONSTRUCTION` and `STACKING` paths.
 
 ## 5) Resume a finished/interrupted run
 

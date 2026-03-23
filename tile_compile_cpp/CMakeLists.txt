@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(tile_compile VERSION 1.0.0 LANGUAGES CXX)
 
+include(CheckIncludeFileCXX)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -578,6 +580,44 @@ message(STATUS "TILE_COMPILE_WITH_CUDA: ${TILE_COMPILE_WITH_CUDA}")
 message(STATUS "CUDA nvcc: ${TILE_COMPILE_NVCC_EXECUTABLE}")
 message(STATUS "Eigen3: ${EIGEN3_VERSION}")
 message(STATUS "OpenCV: ${OpenCV_VERSION}")
+
+# Detect available GPU acceleration backends based on the actual OpenCV headers
+# visible to this build, not on string matches in the source file.
+set(_tile_compile_gpu_backends "")
+set(_tile_compile_saved_required_includes "${CMAKE_REQUIRED_INCLUDES}")
+set(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDA_HEADER FALSE)
+set(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAWARPING_HEADER FALSE)
+set(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAARITHM_HEADER FALSE)
+set(TILE_COMPILE_CMAKE_HAS_OPENCV_OPENCL_HEADER FALSE)
+if(OpenCV_INCLUDE_DIRS)
+    set(CMAKE_REQUIRED_INCLUDES ${OpenCV_INCLUDE_DIRS})
+    check_include_file_cxx("opencv2/core/cuda.hpp"
+                           TILE_COMPILE_CMAKE_HAS_OPENCV_CUDA_HEADER)
+    check_include_file_cxx("opencv2/cudawarping.hpp"
+                           TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAWARPING_HEADER)
+    check_include_file_cxx("opencv2/cudaarithm.hpp"
+                           TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAARITHM_HEADER)
+    check_include_file_cxx("opencv2/core/ocl.hpp"
+                           TILE_COMPILE_CMAKE_HAS_OPENCV_OPENCL_HEADER)
+endif()
+set(CMAKE_REQUIRED_INCLUDES "${_tile_compile_saved_required_includes}")
+
+if(TILE_COMPILE_CMAKE_HAS_OPENCV_CUDA_HEADER AND
+   (TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAWARPING_HEADER OR
+    TILE_COMPILE_CMAKE_HAS_OPENCV_CUDAARITHM_HEADER))
+    list(APPEND _tile_compile_gpu_backends "CUDA")
+endif()
+if(TILE_COMPILE_CMAKE_HAS_OPENCV_OPENCL_HEADER)
+    list(APPEND _tile_compile_gpu_backends "OpenCL")
+endif()
+
+if(_tile_compile_gpu_backends)
+    string(REPLACE ";" ", " _gpu_backends_str "${_tile_compile_gpu_backends}")
+    message(STATUS "GPU acceleration: ${_gpu_backends_str} (runtime detection)")
+else()
+    message(STATUS "GPU acceleration: CPU-only (no GPU backends available)")
+endif()
+
 message(STATUS "CFITSIO: ${CFITSIO_VERSION}")
 message(STATUS "yaml-cpp: found")
 message(STATUS "nlohmann/json: ${nlohmann_json_FOUND}")

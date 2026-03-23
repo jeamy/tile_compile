@@ -32,12 +32,14 @@ Erforderliche Core-Build-Abhängigkeiten:
 
 GPU-spezifische Voraussetzungen für echte Laufzeitbeschleunigung:
 
-- Das aktuelle GPU-Backend benötigt einen OpenCV-Build mit:
+- Das aktive GPU-Backend unterstützt sowohl CUDA- als auch OpenCL-Laufzeitpfade.
+- CUDA-Beschleunigung benötigt einen OpenCV-Build mit:
   - `opencv2/core/cuda.hpp`
   - `opencv2/cudawarping.hpp`
   - `opencv2/cudaarithm.hpp`
-- Zusätzlich werden eine CUDA-fähige NVIDIA-GPU und eine funktionierende CUDA-/OpenCV-Runtime benötigt.
-- Fehlen diese OpenCV-CUDA-Module, funktioniert der Build weiterhin, aber `runtime_limits.acceleration_backend: auto` fällt auf CPU zurück.
+- OpenCL-Beschleunigung benötigt einen OpenCV-Build bzw. eine Runtime mit aktivierter T-API- / `cv::UMat`-OpenCL-Unterstützung.
+- `runtime_limits.acceleration_backend: auto` bevorzugt CUDA, dann OpenCL, dann CPU.
+- `runtime_limits.acceleration_backend: opencv_opencl` ist die empfohlene explizite Einstellung für AMD-GPUs und für Systeme, auf denen OpenCV-OpenCL verfügbar ist, aber kein CUDA.
 - `TILE_COMPILE_ENABLE_CUDA` aktiviert nur das CUDA-Hook-/Build-Gate. Es garantiert für sich allein noch keine echte GPU-Ausführung.
 
 Backend-spezifische Build-Abhängigkeiten:
@@ -49,8 +51,9 @@ Hinweise:
 
 - Crow und Asio werden über den CMake-Build des Backends eingebunden.
 - Das Frontend selbst benötigt für den normalen Betrieb keine JS-Build-Toolchain; es wird als statischer Dateisatz ausgeliefert.
-- Viele Standard-OpenCV-Pakete sind CPU-only. Für echte GPU-Ausführung wird ein OpenCV-Paket bzw. -Build mit aktivierter CUDA-Unterstützung und vorhandenen Modulen `cudawarping` und `cudaarithm` benötigt.
-- Unter macOS ist die aktuelle Implementierung zur Laufzeit effektiv CPU-only, weil für dieses Backend praktisch kein nutzbarer CUDA-Runtime-Pfad vorhanden ist.
+- Viele Standard-OpenCV-Pakete sind CPU-only. Für echte GPU-Ausführung wird ein OpenCV-Paket bzw. -Build mit entweder CUDA-Unterstützung oder funktionierender OpenCL-Unterstützung benötigt.
+- Auf Systemen ohne CUDA kann OpenCL trotzdem `PREWARP`, `TILE_RECONSTRUCTION` und `STACKING` beschleunigen, wenn OpenCV-OpenCL zur Laufzeit verfügbar ist.
+- Unter macOS bleibt der praktische Pfad in vielen Setups CPU-only, sofern nicht tatsächlich eine kompatible OpenCV-OpenCL-Runtime verfügbar ist.
 
 Beispielpakete je Plattform:
 
@@ -152,6 +155,7 @@ Kopiere eine Datei und passe mindestens Folgendes an:
 - `data.bayer_pattern` (für OSC/CFA-Datensätze)
 - `assumptions.frames_min` / `assumptions.frames_reduced_threshold`
 - `registration.enable_star_pair_fallback` (`false` für strengeres Registrierungsverhalten)
+- `runtime_limits.acceleration_backend` (`auto`, `opencv_cuda`, `opencv_opencl` oder `cpu`, abhängig von deinem System)
 
 Beispiel:
 
@@ -178,6 +182,10 @@ Nützliche Optionen:
 - `--run-id <id>` erzwingt eine Run-ID (nützlich, um verwandte Läufe zu gruppieren)
 - `--project-root <path>` setzt explizit den Projekt-Root
 - `--stdin` zusammen mit `--config -`, um YAML über stdin zu übergeben
+
+OpenCL-Hinweis:
+
+- Mit `runtime_limits.acceleration_backend: opencv_opencl` kann der Runner OpenCL nicht nur für `PREWARP`, sondern auch für die OpenCL-fähigen Pfade in `TILE_RECONSTRUCTION` und `STACKING` verwenden.
 
 ## 5) Einen beendeten oder unterbrochenen Lauf fortsetzen
 

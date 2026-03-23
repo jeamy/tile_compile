@@ -1364,9 +1364,9 @@ void Config::validate() const {
   const std::string backend =
       normalize_acceleration_backend(runtime_limits.acceleration_backend);
   if (backend != "auto" && backend != "cpu" && backend != "opencv_cuda" &&
-      backend != "cuda") {
+      backend != "opencv_opencl" && backend != "opencl" && backend != "cuda") {
     throw ValidationError(
-        "runtime_limits.acceleration_backend must be auto, cpu, opencv_cuda, or cuda");
+        "runtime_limits.acceleration_backend must be auto, cpu, opencv_cuda, opencv_opencl, opencl, or cuda");
   }
 }
 
@@ -1553,7 +1553,7 @@ std::string get_schema_json() {
                       "allow_emergency_mode":{"type":"boolean"},
                       "parallel_workers":{"type":"integer","minimum":1},
                       "memory_budget":{"type":"integer","minimum":1},
-                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' prueft beim Start GPU-Verfuegbarkeit und nutzt GPU dort, wo ein Implementierungspfad vorhanden ist; sonst faellt der Lauf kontrolliert auf CPU zurueck."} } }
+                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' prueft beim Start GPU-Verfuegbarkeit (CUDA/OpenCL) und nutzt GPU dort, wo ein Implementierungspfad vorhanden ist; sonst faellt der Lauf kontrolliert auf CPU zurueck."} } }
   }
 })";
 }

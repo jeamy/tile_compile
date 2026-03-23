@@ -1633,6 +1633,36 @@ Runtime and resource limits.
 
 ---
 
+### `runtime_limits.acceleration_backend`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string (enum) |
+| **Default** | `auto` |
+| **Valid values** | `auto`, `cpu`, `opencv_cuda`, `opencv_opencl`, `opencl`, `cuda` |
+
+**Purpose:** GPU acceleration backend selection for PREWARP, TILE_RECONSTRUCTION, and STACKING phases.
+
+**Options:**
+- `auto` (default): Automatically detects available GPU backends at runtime. Priority: CUDA → OpenCL → CPU. Falls back gracefully if hardware unavailable.
+- `opencv_cuda`: Forces NVIDIA CUDA backend (requires CUDA-enabled OpenCV build and NVIDIA GPU).
+- `opencv_opencl` / `opencl`: Forces OpenCL backend (requires OpenCL-enabled OpenCV build; works with AMD Radeon, Intel iGPU, NVIDIA GPUs).
+- `cpu`: Disables GPU acceleration entirely.
+- `cuda`: Experimental native CUDA backend (not yet implemented).
+
+**Hardware compatibility:**
+- **NVIDIA GPUs:** Both `opencv_cuda` (recommended for best performance) and `opencv_opencl` work.
+- **AMD GPUs (Radeon RX 470/480/570/580/590, Vega, RDNA):** Use `opencv_opencl` or `auto`.
+- **Intel integrated GPUs:** Use `opencv_opencl` or `auto`.
+
+**Build requirements:**
+- CUDA backend: OpenCV built with `WITH_CUDA=ON` and modules `opencv2/core/cuda.hpp`, `opencv2/cudawarping.hpp`, `opencv2/cudaarithm.hpp`.
+- OpenCL backend: OpenCV built with `WITH_OPENCL=ON` and module `opencv2/core/ocl.hpp`.
+
+**Note:** If requested backend is unavailable (missing OpenCV modules or hardware), the pipeline falls back to CPU with a warning.
+
+---
+
 ## Appendix A — Functional details for all options
 
 This appendix provides a compact but explicit **runtime behavior** description for every configuration key.

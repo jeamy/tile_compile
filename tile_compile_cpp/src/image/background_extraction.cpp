@@ -8,6 +8,9 @@
 #include <iostream>
 #include <limits>
 #include <queue>
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 namespace tile_compile::image {
 
@@ -24,9 +27,30 @@ double elapsed_seconds_since(const SteadyClock::time_point &start) {
       .count();
 }
 
+int bge_parallel_worker_count(int work_items, int min_items_per_worker) {
+  if (work_items <= 0) {
+    return 1;
+  }
+#if defined(_OPENMP)
+  if (omp_in_parallel()) {
+    return 1;
+  }
+  const int max_threads = std::max(1, omp_get_max_threads());
+  if (max_threads <= 1) {
+    return 1;
+  }
+  const int min_items = std::max(1, min_items_per_worker);
+  const int wanted = std::max(1, (work_items + min_items - 1) / min_items);
+  return std::max(1, std::min(max_threads, wanted));
+#else
+  (void)min_items_per_worker;
+  return 1;
+#endif
+}
+
 float clamp01(float v) { return std::max(0.0f, std::min(1.0f, v)); }
 
-float robust_median(std::vector<float> values) {
+float robust_median_inplace(std::vector<float> &values) {
   if (values.empty())
     return 0.0f;
   const size_t mid = values.size() / 2;
@@ -39,7 +63,11 @@ float robust_median(std::vector<float> values) {
   return med;
 }
 
-float robust_quantile(std::vector<float> values, float q) {
+float robust_median(std::vector<float> values) {
+  return robust_median_inplace(values);
+}
+
+float robust_quantile_inplace(std::vector<float> &values, float q) {
   if (values.empty())
     return 0.0f;
   q = clamp01(q);
@@ -47,6 +75,10 @@ float robust_quantile(std::vector<float> values, float q) {
       static_cast<size_t>(q * static_cast<float>(values.size() - 1));
   std::nth_element(values.begin(), values.begin() + idx, values.end());
   return values[idx];
+}
+
+float robust_quantile(std::vector<float> values, float q) {
+  return robust_quantile_inplace(values, q);
 }
 
 float sorted_quantile(const std::vector<float> &sorted_values, float q) {
@@ -65,7 +97,7 @@ float robust_mad(const std::vector<float> &values, float center) {
   abs_dev.reserve(values.size());
   for (float v : values)
     abs_dev.push_back(std::abs(v - center));
-  return robust_median(std::move(abs_dev));
+  return robust_median_inplace(abs_dev);
 }
 
 void box_blur_subregion(const Matrix2Df &image, int x0, int y0, int w, int h,
@@ -242,7 +274,7 @@ BGEValueStats stats_from_values(const std::vector<float> &values) {
   st.n = static_cast<int>(finite.size());
   st.min = *std::min_element(finite.begin(), finite.end());
   st.max = *std::max_element(finite.begin(), finite.end());
-  st.median = robust_median(finite);
+  st.median = robust_median_inplace(finite);
 
   double sum = 0.0;
   for (float v : finite)
@@ -326,7 +358,7 @@ float spatial_background_spread(const Matrix2Df &img,
   if (valid_values.size() < 4096)
     return std::numeric_limits<float>::infinity();
 
-  const float value_thresh = robust_quantile(valid_values, 0.65f);
+  const float value_thresh = robust_quantile_inplace(valid_values, 0.65f);
 
   std::vector<float> grad_map(static_cast<size_t>(H * W), 0.0f);
   std::vector<float> grad_values;
@@ -367,7 +399,7 @@ float spatial_background_spread(const Matrix2Df &img,
   if (grad_values.size() < 4096)
     return std::numeric_limits<float>::infinity();
 
-  const float grad_thresh = robust_quantile(grad_values, 0.70f);
+  const float grad_thresh = robust_quantile_inplace(grad_values, 0.70f);
   constexpr int kBlockSize = 128;
   constexpr int kMinPixelsPerBlock = 256;
 
@@ -398,7 +430,7 @@ float spatial_background_spread(const Matrix2Df &img,
       }
 
       if (static_cast<int>(block_values.size()) >= kMinPixelsPerBlock) {
-        block_medians.push_back(robust_median(block_values));
+        block_medians.push_back(robust_median_inplace(block_values));
       }
     }
   }
@@ -406,8 +438,9 @@ float spatial_background_spread(const Matrix2Df &img,
   if (block_medians.size() < 8)
     return std::numeric_limits<float>::infinity();
 
-  const float p10 = robust_quantile(block_medians, 0.10f);
-  const float p90 = robust_quantile(block_medians, 0.90f);
+  std::sort(block_medians.begin(), block_medians.end());
+  const float p10 = sorted_quantile(block_medians, 0.10f);
+  const float p90 = sorted_quantile(block_medians, 0.90f);
   return p90 - p10;
 }
 
@@ -437,7 +470,7 @@ float coarse_background_plane_slope(const Matrix2Df &img,
   if (valid_values.size() < 4096)
     return std::numeric_limits<float>::infinity();
 
-  const float value_thresh = robust_quantile(valid_values, 0.65f);
+  const float value_thresh = robust_quantile_inplace(valid_values, 0.65f);
 
   std::vector<float> grad_map(static_cast<size_t>(H * W), 0.0f);
   std::vector<float> grad_values;
@@ -477,7 +510,7 @@ float coarse_background_plane_slope(const Matrix2Df &img,
   if (grad_values.size() < 4096)
     return std::numeric_limits<float>::infinity();
 
-  const float grad_thresh = robust_quantile(grad_values, 0.70f);
+  const float grad_thresh = robust_quantile_inplace(grad_values, 0.70f);
   constexpr int kBlockSize = 128;
   constexpr int kMinPixelsPerBlock = 256;
 
@@ -507,7 +540,7 @@ float coarse_background_plane_slope(const Matrix2Df &img,
       }
       if (static_cast<int>(block_values.size()) < kMinPixelsPerBlock)
         continue;
-      const float z = robust_median(block_values);
+      const float z = robust_median_inplace(block_values);
       const float cx = 0.5f * static_cast<float>(x0 + x1 - 1);
       const float cy = 0.5f * static_cast<float>(y0 + y1 - 1);
       samples.push_back({cx, cy, z});
@@ -851,7 +884,7 @@ build_modeled_foreground_mask(const Matrix2Df &luma, const BGEConfig &config,
   if (sample_vals.size() < 256)
     return out_mask;
 
-  const float med = robust_median(sample_vals);
+  const float med = robust_median_inplace(sample_vals);
   const float sigma = std::max(1.0e-6f, 1.4826f * robust_mad(sample_vals, med));
   const float thresh = med + 0.8f * sigma;
   if (out_threshold)
@@ -901,7 +934,7 @@ float robust_mesh_background_estimate(std::vector<float> values) {
   if (values.size() < 16)
     return std::numeric_limits<float>::quiet_NaN();
   for (int iter = 0; iter < 4; ++iter) {
-    const float med = robust_median(values);
+    const float med = robust_median_inplace(values);
     const float sigma = 1.4826f * robust_mad(values, med);
     if (!(std::isfinite(sigma) && sigma > 1.0e-6f))
       break;
@@ -918,7 +951,7 @@ float robust_mesh_background_estimate(std::vector<float> values) {
   }
   if (values.size() < 8)
     return std::numeric_limits<float>::quiet_NaN();
-  return robust_median(std::move(values));
+  return robust_median_inplace(values);
 }
 
 float annulus_background_median(const Matrix2Df &img, int cx, int cy, int r_in,
@@ -956,7 +989,7 @@ float annulus_background_median(const Matrix2Df &img, int cx, int cy, int r_in,
   }
   if (vals.size() < 24)
     return std::numeric_limits<float>::quiet_NaN();
-  return robust_median(std::move(vals));
+  return robust_median_inplace(vals);
 }
 
 void subtract_bright_source_models(
@@ -1291,8 +1324,6 @@ std::vector<TileBGSample> extract_tile_background_samples(
     const TileGrid &tile_grid, const BGEConfig &config) {
 
   std::vector<TileBGSample> samples;
-  samples.reserve(tile_grid.tiles.size());
-  TileSampleScratch scratch;
   const int stride = static_cast<int>(channel.cols());
   const float *channel_data = channel.data();
 
@@ -1350,16 +1381,25 @@ std::vector<TileBGSample> extract_tile_background_samples(
 
   float structure_thresh = 0.0f;
   if (!structure_scores.empty()) {
-    structure_thresh = robust_quantile(std::move(structure_scores),
-                                       config.structure_thresh_percentile);
+    structure_thresh = robust_quantile_inplace(
+        structure_scores, config.structure_thresh_percentile);
   }
 
+  samples.resize(n_tiles);
+  const int parallel_workers =
+      bge_parallel_worker_count(static_cast<int>(n_tiles), 4);
+
   // Extract background sample per tile
-  for (size_t t = 0; t < n_tiles; ++t) {
+#pragma omp parallel num_threads(parallel_workers) if(parallel_workers > 1)
+  {
+    TileSampleScratch scratch;
+#pragma omp for schedule(dynamic, 1)
+    for (int ti = 0; ti < static_cast<int>(n_tiles); ++ti) {
+      const size_t t = static_cast<size_t>(ti);
     const auto &tile = tile_grid.tiles[t];
     const auto &tm = tile_metrics[t];
 
-    TileBGSample sample;
+    TileBGSample sample{};
     sample.x = tile.x + tile.width / 2.0f;
     sample.y = tile.y + tile.height / 2.0f;
     sample.valid = false;
@@ -1368,7 +1408,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
     // Keep moderately populated STAR tiles to avoid over-pruning in rich
     // fields.
     if (use_tile_metrics && tm.type == TileType::STAR && tm.star_count >= 16) {
-      samples.push_back(sample);
+      samples[t] = sample;
       continue;
     }
     // High local-quality STRUCTURE tiles are often bright extended object
@@ -1376,7 +1416,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
     // quality medians cluster near 0, so use a conservative threshold.
     if (use_tile_metrics && tm.type == TileType::STRUCTURE &&
         std::isfinite(tm.quality_score) && tm.quality_score >= 0.20f) {
-      samples.push_back(sample);
+      samples[t] = sample;
       continue;
     }
 
@@ -1384,7 +1424,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
     float tile_structure =
         (tm.noise > 1e-6f) ? (tm.gradient_energy / tm.noise) : 0.0f;
     if (use_tile_metrics && tile_structure > structure_thresh) {
-      samples.push_back(sample);
+      samples[t] = sample;
       continue;
     }
 
@@ -1395,7 +1435,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
     int y1 = std::min(y0 + tile.height, static_cast<int>(channel.rows()));
 
     if (x1 <= x0 || y1 <= y0) {
-      samples.push_back(sample);
+      samples[t] = sample;
       continue;
     }
 
@@ -1408,23 +1448,16 @@ std::vector<TileBGSample> extract_tile_background_samples(
                               static_cast<size_t>(stride) +
                           static_cast<size_t>(x0 + xx)];
     };
-    int supported_px = tile_px;
-    if (have_common_mask) {
-      supported_px = 0;
-      for (int yy = 0; yy < th; ++yy) {
-        const int gy = y0 + yy;
-        const size_t row_off = static_cast<size_t>(gy) *
-                               static_cast<size_t>(config.common_mask_cols);
-        for (int xx = 0; xx < tw; ++xx) {
-          const int gx = x0 + xx;
-          const uint8_t supported =
-              config.common_valid_mask[row_off + static_cast<size_t>(gx)] != 0
-                  ? 1
-                  : 0;
-          scratch.tile_common_support[static_cast<size_t>(yy * tw + xx)] =
-              supported;
-          supported_px += (supported != 0) ? 1 : 0;
-        }
+    for (int yy = 0; yy < th; ++yy) {
+      const int gy = y0 + yy;
+      const size_t row_off =
+          static_cast<size_t>(gy) * static_cast<size_t>(config.common_mask_cols);
+      for (int xx = 0; xx < tw; ++xx) {
+        const int gx = x0 + xx;
+        scratch.tile_common_support[static_cast<size_t>(yy * tw + xx)] =
+            config.common_valid_mask[row_off + static_cast<size_t>(gx)] != 0
+                ? 1
+                : 0;
       }
     }
 
@@ -1449,7 +1482,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
     }
 
     if (scratch.finite_values.empty()) {
-      samples.push_back(sample);
+      samples[t] = sample;
       continue;
     }
 
@@ -1459,11 +1492,12 @@ std::vector<TileBGSample> extract_tile_background_samples(
     const float zero_fraction = static_cast<float>(zero_pixel_count) /
                                 static_cast<float>(scratch.finite_values.size());
     if (zero_fraction > 0.20f) {
-      samples.push_back(sample);
+      samples[t] = sample;
       continue;
     }
 
-    const float sat_level = robust_quantile(scratch.finite_values, 0.999f);
+    const float sat_level =
+        robust_quantile_inplace(scratch.finite_values, 0.999f);
 
     // Approximate star mask from deterministic DoG fallback (spec §6.3.2a).
     const int r_small = 1;
@@ -1475,11 +1509,12 @@ std::vector<TileBGSample> extract_tile_background_samples(
     for (size_t i = 0; i < scratch.blur_small.size(); ++i) {
       scratch.dog_vals[i] = scratch.blur_small[i] - scratch.blur_large[i];
     }
-    const float dog_med = robust_median(scratch.dog_vals);
+    const float dog_med = robust_median_inplace(scratch.dog_vals);
     const float dog_mad = robust_mad(scratch.dog_vals, dog_med);
     const float dog_thresh =
         dog_med + 3.0f * std::max(1.4826f * dog_mad, 1.0e-6f);
-    const float bright_thresh = robust_quantile(scratch.finite_values, 0.80f);
+    const float bright_thresh =
+        robust_quantile_inplace(scratch.finite_values, 0.80f);
     for (int yy = 0; yy < th; ++yy) {
       for (int xx = 0; xx < tw; ++xx) {
         const size_t i = static_cast<size_t>(yy * tw + xx);
@@ -1529,10 +1564,10 @@ std::vector<TileBGSample> extract_tile_background_samples(
         }
       }
     }
-    const std::vector<float> &gradient_source =
+    std::vector<float> &gradient_source =
         scratch.supported_gradients.empty() ? scratch.tile_gradients
                                             : scratch.supported_gradients;
-    const float grad_thresh = robust_quantile(
+    const float grad_thresh = robust_quantile_inplace(
         gradient_source, config.structure_thresh_percentile);
 
     scratch.tile_pixels.clear();
@@ -1554,7 +1589,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
     }
 
     if (scratch.tile_pixels.empty()) {
-      samples.push_back(sample);
+      samples[t] = sample;
       continue;
     }
 
@@ -1563,15 +1598,15 @@ std::vector<TileBGSample> extract_tile_background_samples(
                                   static_cast<float>((x1 - x0) * (y1 - y0));
     if (!(std::isfinite(usable_fraction)) ||
         usable_fraction < kMinUsableTileFraction) {
-      samples.push_back(sample);
+      samples[t] = sample;
       continue;
     }
 
     // Compute quantile (v3.3 §6.3.2b)
     sample.bg_value =
-        robust_quantile(scratch.tile_pixels, config.sample_quantile);
+        robust_quantile_inplace(scratch.tile_pixels, config.sample_quantile);
     if (!(std::isfinite(sample.bg_value) && sample.bg_value > 0.0f)) {
-      samples.push_back(sample);
+      samples[t] = sample;
       continue;
     }
 
@@ -1593,7 +1628,8 @@ std::vector<TileBGSample> extract_tile_background_samples(
     sample.weight = std::max(0.01f, std::min(1.0f, sample.weight));
 
     sample.valid = true;
-    samples.push_back(sample);
+    samples[t] = sample;
+    }
   }
 
   return samples;
@@ -1605,8 +1641,6 @@ extract_autotune_prepared_tile_samples(
     const TileGrid &tile_grid, const BGEConfig &config) {
 
   std::vector<AutoTunePreparedTileSample> prepared_samples;
-  prepared_samples.reserve(tile_grid.tiles.size());
-  TileSampleScratch scratch;
   const int stride = static_cast<int>(channel.cols());
   const float *channel_data = channel.data();
 
@@ -1659,11 +1693,20 @@ extract_autotune_prepared_tile_samples(
 
   float structure_thresh = 0.0f;
   if (!structure_scores.empty()) {
-    structure_thresh = robust_quantile(std::move(structure_scores),
-                                       config.structure_thresh_percentile);
+    structure_thresh = robust_quantile_inplace(
+        structure_scores, config.structure_thresh_percentile);
   }
 
-  for (size_t t = 0; t < n_tiles; ++t) {
+  prepared_samples.resize(n_tiles);
+  const int parallel_workers =
+      bge_parallel_worker_count(static_cast<int>(n_tiles), 4);
+
+#pragma omp parallel num_threads(parallel_workers) if(parallel_workers > 1)
+  {
+    TileSampleScratch scratch;
+#pragma omp for schedule(dynamic, 1)
+    for (int ti = 0; ti < static_cast<int>(n_tiles); ++ti) {
+      const size_t t = static_cast<size_t>(ti);
     const auto &tile = tile_grid.tiles[t];
     const auto &tm = tile_metrics[t];
 
@@ -1673,19 +1716,19 @@ extract_autotune_prepared_tile_samples(
     prepared.valid = false;
 
     if (use_tile_metrics && tm.type == TileType::STAR && tm.star_count >= 16) {
-      prepared_samples.push_back(std::move(prepared));
+      prepared_samples[t] = std::move(prepared);
       continue;
     }
     if (use_tile_metrics && tm.type == TileType::STRUCTURE &&
         std::isfinite(tm.quality_score) && tm.quality_score >= 0.20f) {
-      prepared_samples.push_back(std::move(prepared));
+      prepared_samples[t] = std::move(prepared);
       continue;
     }
 
     const float tile_structure =
         (tm.noise > 1e-6f) ? (tm.gradient_energy / tm.noise) : 0.0f;
     if (use_tile_metrics && tile_structure > structure_thresh) {
-      prepared_samples.push_back(std::move(prepared));
+      prepared_samples[t] = std::move(prepared);
       continue;
     }
 
@@ -1695,7 +1738,7 @@ extract_autotune_prepared_tile_samples(
     int y1 = std::min(y0 + tile.height, static_cast<int>(channel.rows()));
 
     if (x1 <= x0 || y1 <= y0) {
-      prepared_samples.push_back(std::move(prepared));
+      prepared_samples[t] = std::move(prepared);
       continue;
     }
 
@@ -1727,7 +1770,7 @@ extract_autotune_prepared_tile_samples(
     }
 
     if (supported_px <= 0) {
-      prepared_samples.push_back(std::move(prepared));
+      prepared_samples[t] = std::move(prepared);
       continue;
     }
 
@@ -1752,18 +1795,19 @@ extract_autotune_prepared_tile_samples(
     }
 
     if (scratch.finite_values.empty()) {
-      prepared_samples.push_back(std::move(prepared));
+      prepared_samples[t] = std::move(prepared);
       continue;
     }
 
     const float zero_fraction = static_cast<float>(zero_pixel_count) /
                                 static_cast<float>(scratch.finite_values.size());
     if (zero_fraction > 0.20f) {
-      prepared_samples.push_back(std::move(prepared));
+      prepared_samples[t] = std::move(prepared);
       continue;
     }
 
-    const float sat_level = robust_quantile(scratch.finite_values, 0.999f);
+    const float sat_level =
+        robust_quantile_inplace(scratch.finite_values, 0.999f);
 
     const int r_small = 1;
     const int r_large = std::max(2, std::min(tw, th) / 12);
@@ -1774,11 +1818,12 @@ extract_autotune_prepared_tile_samples(
     for (size_t i = 0; i < scratch.blur_small.size(); ++i) {
       scratch.dog_vals[i] = scratch.blur_small[i] - scratch.blur_large[i];
     }
-    const float dog_med = robust_median(scratch.dog_vals);
+    const float dog_med = robust_median_inplace(scratch.dog_vals);
     const float dog_mad = robust_mad(scratch.dog_vals, dog_med);
     const float dog_thresh =
         dog_med + 3.0f * std::max(1.4826f * dog_mad, 1.0e-6f);
-    const float bright_thresh = robust_quantile(scratch.finite_values, 0.80f);
+    const float bright_thresh =
+        robust_quantile_inplace(scratch.finite_values, 0.80f);
     for (int yy = 0; yy < th; ++yy) {
       for (int xx = 0; xx < tw; ++xx) {
         const size_t i = static_cast<size_t>(yy * tw + xx);
@@ -1827,10 +1872,10 @@ extract_autotune_prepared_tile_samples(
         }
       }
     }
-    const std::vector<float> &gradient_source =
+    std::vector<float> &gradient_source =
         scratch.supported_gradients.empty() ? scratch.tile_gradients
                                             : scratch.supported_gradients;
-    const float grad_thresh = robust_quantile(
+    const float grad_thresh = robust_quantile_inplace(
         gradient_source, config.structure_thresh_percentile);
 
     scratch.tile_pixels.clear();
@@ -1852,7 +1897,7 @@ extract_autotune_prepared_tile_samples(
     }
 
     if (scratch.tile_pixels.empty()) {
-      prepared_samples.push_back(std::move(prepared));
+      prepared_samples[t] = std::move(prepared);
       continue;
     }
 
@@ -1861,14 +1906,14 @@ extract_autotune_prepared_tile_samples(
         static_cast<float>(tile_px);
     if (!(std::isfinite(usable_fraction)) ||
         usable_fraction < kMinUsableTileFraction) {
-      prepared_samples.push_back(std::move(prepared));
+      prepared_samples[t] = std::move(prepared);
       continue;
     }
 
     std::sort(scratch.tile_pixels.begin(), scratch.tile_pixels.end());
     if (!(std::isfinite(scratch.tile_pixels.front()) &&
           scratch.tile_pixels.front() > 0.0f)) {
-      prepared_samples.push_back(std::move(prepared));
+      prepared_samples[t] = std::move(prepared);
       continue;
     }
 
@@ -1887,7 +1932,8 @@ extract_autotune_prepared_tile_samples(
     prepared.weight = std::max(0.01f, std::min(1.0f, prepared.weight));
     prepared.sorted_pixels = scratch.tile_pixels;
     prepared.valid = true;
-    prepared_samples.push_back(std::move(prepared));
+    prepared_samples[t] = std::move(prepared);
+    }
   }
 
   return prepared_samples;
@@ -1918,8 +1964,11 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
     }
   }
 
-  // Assign tile samples to grid cells (v3.3 §6.3.3b)
-  std::vector<std::vector<TileBGSample>> cell_samples(n_cells_y * n_cells_x);
+  const int total_cells = n_cells_x * n_cells_y;
+  std::vector<std::vector<TileBGSample>> cell_samples(
+      static_cast<size_t>(total_cells));
+  std::vector<int> sample_cell_indices(tile_samples.size(), -1);
+  std::vector<int> cell_counts(static_cast<size_t>(total_cells), 0);
 
   // Robustly suppress globally implausible tile background samples before
   // cell aggregation (e.g., bright-object contamination, near-zero artifacts).
@@ -1935,14 +1984,15 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
   float bg_sigma = 0.0f;
   bool have_bg_guard = false;
   if (valid_bg_values.size() >= 16) {
-    bg_med = robust_median(valid_bg_values);
+    bg_med = robust_median_inplace(valid_bg_values);
     const float mad = robust_mad(valid_bg_values, bg_med);
     bg_sigma = 1.4826f * mad;
     have_bg_guard = std::isfinite(bg_sigma) && bg_sigma > kTiny;
   }
 
   int n_rejected_global_outliers = 0;
-  for (const auto &sample : tile_samples) {
+  for (size_t sample_idx = 0; sample_idx < tile_samples.size(); ++sample_idx) {
+    const auto &sample = tile_samples[sample_idx];
     if (!sample.valid)
       continue;
     if (!(std::isfinite(sample.bg_value) && sample.bg_value > 0.0f))
@@ -1961,9 +2011,25 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
     int cy = static_cast<int>(sample.y / grid_spacing);
 
     if (cx >= 0 && cx < n_cells_x && cy >= 0 && cy < n_cells_y) {
-      int cell_idx = cy * n_cells_x + cx;
-      cell_samples[cell_idx].push_back(sample);
+      const int cell_idx = cy * n_cells_x + cx;
+      sample_cell_indices[sample_idx] = cell_idx;
+      ++cell_counts[static_cast<size_t>(cell_idx)];
     }
+  }
+
+  for (int cell_idx = 0; cell_idx < total_cells; ++cell_idx) {
+    cell_samples[static_cast<size_t>(cell_idx)].resize(
+        static_cast<size_t>(cell_counts[static_cast<size_t>(cell_idx)]));
+  }
+  std::vector<int> cell_write_offsets(static_cast<size_t>(total_cells), 0);
+  for (size_t sample_idx = 0; sample_idx < tile_samples.size(); ++sample_idx) {
+    const int cell_idx = sample_cell_indices[sample_idx];
+    if (cell_idx < 0)
+      continue;
+    auto &samples = cell_samples[static_cast<size_t>(cell_idx)];
+    const size_t write_offset =
+        static_cast<size_t>(cell_write_offsets[static_cast<size_t>(cell_idx)]++);
+    samples[write_offset] = tile_samples[sample_idx];
   }
 
   if (n_rejected_global_outliers > 0) {
@@ -1972,22 +2038,27 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
   }
 
   // Aggregate per cell (v3.3 §6.3.3c)
-  for (int cy = 0; cy < n_cells_y; ++cy) {
-    for (int cx = 0; cx < n_cells_x; ++cx) {
-      int cell_idx = cy * n_cells_x + cx;
+  const int parallel_workers = bge_parallel_worker_count(total_cells, 8);
+#pragma omp parallel num_threads(parallel_workers) if(parallel_workers > 1)
+  {
+    std::vector<float> bg_values;
+    std::vector<float> weights;
+#pragma omp for schedule(static)
+    for (int cell_idx = 0; cell_idx < total_cells; ++cell_idx) {
+      const int cy = cell_idx / n_cells_x;
+      const int cx = cell_idx - cy * n_cells_x;
       auto &cell = grid[cy][cx];
-      const auto &samples = cell_samples[cell_idx];
+      const auto &samples = cell_samples[static_cast<size_t>(cell_idx)];
 
-      cell.n_samples = samples.size();
+      cell.n_samples = static_cast<int>(samples.size());
 
-      // Check if sufficient samples (v3.3 §6.3.3d)
       if (cell.n_samples < config.min_tiles_per_cell) {
         cell.valid = false;
         continue;
       }
 
-      // Compute median background and weight
-      std::vector<float> bg_values, weights;
+      bg_values.clear();
+      weights.clear();
       bg_values.reserve(samples.size());
       weights.reserve(samples.size());
 
@@ -1996,8 +2067,8 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
         weights.push_back(s.weight);
       }
 
-      cell.bg_value = robust_median(std::move(bg_values));
-      cell.weight = robust_median(std::move(weights));
+      cell.bg_value = robust_median_inplace(bg_values);
+      cell.weight = robust_median_inplace(weights);
       cell.valid = true;
     }
   }
@@ -2066,8 +2137,8 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
             }
           }
           if (total_samples >= config.min_tiles_per_cell) {
-            grid[cy][cx].bg_value = robust_median(std::move(bg_vals));
-            grid[cy][cx].weight = robust_median(std::move(wt_vals));
+            grid[cy][cx].bg_value = robust_median_inplace(bg_vals);
+            grid[cy][cx].weight = robust_median_inplace(wt_vals);
             grid[cy][cx].valid = true;
             grid[cy][cx].n_samples = total_samples;
             break;
@@ -2211,7 +2282,7 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
 
   // Dynamic lambda adaptation: test/adjust/test and prefer the smoothest
   // (highest lambda) model that still fits grid samples well enough.
-  const float bg_med = robust_median(bg_values);
+  const float bg_med = robust_median_inplace(bg_values);
   const float bg_sigma = 1.4826f * robust_mad(bg_values, bg_med);
   const float residual_limit =
       std::max(0.15f, 0.20f * std::max(bg_sigma, kTiny));
@@ -2310,7 +2381,10 @@ float eval_rbf_model_at(const RBFModelState &state, float x, float y) {
 Matrix2Df render_rbf_surface(const RBFModelState &state, int image_width,
                              int image_height) {
   Matrix2Df surface = Matrix2Df::Zero(image_height, image_width);
-#pragma omp parallel for collapse(2)
+  const int total_pixels = std::max(0, image_width * image_height);
+  const int parallel_workers = bge_parallel_worker_count(total_pixels, 32768);
+#pragma omp parallel for collapse(2) num_threads(parallel_workers) \
+    if(parallel_workers > 1)
   for (int y = 0; y < image_height; ++y) {
     for (int x = 0; x < image_width; ++x) {
       surface(y, x) = eval_rbf_model_at(state, static_cast<float>(x),
@@ -2480,7 +2554,10 @@ Matrix2Df render_polynomial_surface(const PolynomialModelState &state,
     }
   }
 
-#pragma omp parallel for collapse(2)
+  const int total_pixels = std::max(0, image_width * image_height);
+  const int parallel_workers = bge_parallel_worker_count(total_pixels, 32768);
+#pragma omp parallel for collapse(2) num_threads(parallel_workers) \
+    if(parallel_workers > 1)
   for (int y = 0; y < image_height; ++y) {
     for (int x = 0; x < image_width; ++x) {
       const auto &xp = x_power_table[static_cast<size_t>(x)];
@@ -2785,7 +2862,7 @@ static float eval_model_flatness(const Matrix2Df &model, int step) {
   }
   if (grad_energy.size() < 8)
     return std::numeric_limits<float>::infinity();
-  return robust_median(std::move(grad_energy));
+  return robust_median_inplace(grad_energy);
 }
 
 static float eval_model_roughness(const Matrix2Df &model, int step) {
@@ -2819,7 +2896,7 @@ static float eval_model_roughness(const Matrix2Df &model, int step) {
   }
   if (curvature_energy.size() < 8)
     return std::numeric_limits<float>::infinity();
-  return robust_median(std::move(curvature_energy));
+  return robust_median_inplace(curvature_energy);
 }
 
 struct SparseEvalGrid {
@@ -2916,7 +2993,7 @@ static BGECandidatePrep build_bge_candidate_prep(
   bvals.reserve(cells.size());
   for (const auto &gc : cells)
     bvals.push_back(gc.bg_value);
-  prep.bg_median = std::max(kTiny, robust_median(std::move(bvals)));
+  prep.bg_median = std::max(kTiny, robust_median_inplace(bvals));
   prep.valid = !prep.train_cells.empty() && !prep.val_cells.empty() &&
                std::isfinite(prep.bg_median) && prep.bg_median > 0.0f;
   return prep;
@@ -3030,7 +3107,7 @@ static BGECandidateResult auto_tune_bge_config_conservative(
       sum += static_cast<double>(v);
     img_mean =
         static_cast<float>(sum / static_cast<double>(valid_pixels.size()));
-    img_median = robust_median(std::move(valid_pixels));
+    img_median = robust_median_inplace(valid_pixels);
   }
   const float mean_median_ratio =
       (img_median > 1.0f) ? (img_mean / img_median) : 1.0f;
@@ -3339,8 +3416,9 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
     if (ch_diag.sample_bg_values.size() >= 16) {
       std::vector<float> sample_vals = ch_diag.sample_bg_values;
-      const float q05 = robust_quantile(sample_vals, 0.05f);
-      const float q95 = robust_quantile(std::move(sample_vals), 0.95f);
+      std::sort(sample_vals.begin(), sample_vals.end());
+      const float q05 = sorted_quantile(sample_vals, 0.05f);
+      const float q95 = sorted_quantile(sample_vals, 0.95f);
       const float guard_pad =
           std::max(0.75f, 2.0f * std::max(0.0f, bg_model.rms_residual));
       const float model_min = q05 - guard_pad;
@@ -3407,8 +3485,9 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       }
       if (vals.size() < 8)
         return std::numeric_limits<float>::infinity();
-      const float p10 = robust_quantile(vals, 0.10f);
-      const float p90 = robust_quantile(vals, 0.90f);
+      std::sort(vals.begin(), vals.end());
+      const float p10 = sorted_quantile(vals, 0.10f);
+      const float p90 = sorted_quantile(vals, 0.90f);
       return p90 - p10;
     };
 

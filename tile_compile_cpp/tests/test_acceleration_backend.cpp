@@ -18,6 +18,20 @@ runtime_limits:
   REQUIRE_NOTHROW(cfg.validate());
 }
 
+TEST_CASE("runtime_limits_acceleration_backend_accepts_opencl_alias") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  acceleration_backend: opencl
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(cfg.runtime_limits.acceleration_backend == "opencl");
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
 TEST_CASE("runtime_limits_acceleration_backend_rejects_invalid_value") {
   YAML::Node node = YAML::Load(R"(
 data:
@@ -54,11 +68,54 @@ TEST_CASE("acceleration_backend_selection_auto_chooses_supported_stacking_backen
     REQUIRE(tile_compile::core::acceleration_backend_name(selection.selected) ==
             "opencv_cuda");
     REQUIRE(selection.using_gpu);
+  } else if (selection.opencv_opencl_headers &&
+             selection.opencv_opencl_runtime) {
+    REQUIRE(tile_compile::core::acceleration_backend_name(selection.selected) ==
+            "opencv_opencl");
+    REQUIRE(selection.using_gpu);
   } else {
     REQUIRE(tile_compile::core::acceleration_backend_name(selection.selected) ==
             "cpu");
     REQUIRE_FALSE(selection.using_gpu);
   }
+}
+
+TEST_CASE("acceleration_backend_selection_parses_opencl_requests") {
+  tile_compile::core::AccelerationBackend backend =
+      tile_compile::core::AccelerationBackend::cpu;
+  REQUIRE(tile_compile::core::parse_acceleration_backend("opencl", backend));
+  REQUIRE(tile_compile::core::acceleration_backend_name(backend) ==
+          "opencv_opencl");
+
+  const auto selection = tile_compile::core::select_acceleration_backend(
+      "opencl", tile_compile::core::AccelerationPhase::stacking);
+  REQUIRE(selection.requested_name == "opencl");
+  REQUIRE(tile_compile::core::acceleration_backend_name(selection.requested) ==
+          "opencv_opencl");
+  if (selection.opencv_opencl_headers && selection.opencv_opencl_runtime) {
+    REQUIRE(selection.request_honored);
+    REQUIRE(tile_compile::core::acceleration_backend_name(selection.selected) ==
+            "opencv_opencl");
+    REQUIRE(selection.using_gpu);
+  } else {
+    REQUIRE_FALSE(selection.request_honored);
+    REQUIRE(tile_compile::core::acceleration_backend_name(selection.selected) ==
+            "cpu");
+    REQUIRE_FALSE(selection.fallback_reason.empty());
+    REQUIRE_FALSE(selection.using_gpu);
+  }
+}
+
+TEST_CASE("acceleration_selection_json_includes_opencl_capabilities") {
+  const auto selection = tile_compile::core::select_acceleration_backend(
+      "auto", tile_compile::core::AccelerationPhase::prewarp);
+  const auto json =
+      tile_compile::core::acceleration_selection_to_json(selection);
+
+  REQUIRE(json.find("opencv_cuda_headers") != json.end());
+  REQUIRE(json.find("opencv_cuda_runtime") != json.end());
+  REQUIRE(json.find("opencv_opencl_headers") != json.end());
+  REQUIRE(json.find("opencv_opencl_runtime") != json.end());
 }
 
 TEST_CASE("device_batch_descriptors_report_expected_sizes") {
