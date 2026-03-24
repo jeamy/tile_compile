@@ -1,6 +1,7 @@
 #include "backend_runtime.hpp"
 #include <algorithm>
 #include <cstdlib>
+#include <sstream>
 #include <system_error>
 
 namespace {
