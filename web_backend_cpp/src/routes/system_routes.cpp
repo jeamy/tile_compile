@@ -115,9 +115,11 @@ void register_system_routes(CrowApp& app,
         fs::path resolved_dir = normalized_existing_path(dir);
         std::string normalized_path = resolved_dir.string();
         nlohmann::json parent_path = nullptr;
+        bool parent_allowed = false;
         fs::path parent = resolved_dir.parent_path();
-        if (!parent.empty() && parent != resolved_dir && state->runtime.is_path_allowed(parent) && fs::exists(parent)) {
+        if (!parent.empty() && parent != resolved_dir && fs::exists(parent)) {
             parent_path = normalized_existing_path(parent).string();
+            parent_allowed = state->runtime.is_path_allowed(parent);
         }
 
         nlohmann::json items = nlohmann::json::array();
@@ -139,7 +141,7 @@ void register_system_routes(CrowApp& app,
                 {"type",  is_dir ? "dir" : "file"},
             });
         }
-        return json_response({{"path", normalized_path}, {"parent", parent_path}, {"items", items}});
+        return json_response({{"path", normalized_path}, {"parent", parent_path}, {"parent_allowed", parent_allowed}, {"items", items}});
     });
 
     CROW_ROUTE(app, "/api/fs/grant-root").methods("POST"_method)

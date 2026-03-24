@@ -328,10 +328,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const fileSelectable = mode === "file" || mode === "save-file";
     if (data?.parent) {
       const parentRow = document.createElement("div");
+      const parentAllowed = data?.parent_allowed !== false;
       parentRow.className = "ps-path-picker-entry ps-path-picker-entry-clickable ps-path-picker-entry-parent";
-      parentRow.title = "Ins Elternverzeichnis wechseln";
+      parentRow.title = parentAllowed ? "Ins Elternverzeichnis wechseln" : "Ins Elternverzeichnis wechseln (Freigabe erforderlich)";
       const parentName = document.createElement("span");
-      parentName.textContent = "📁 ..";
+      parentName.textContent = parentAllowed ? "📁 .." : "🔒 ..";
       parentName.className = "ps-path-picker-entry-name";
       parentRow.appendChild(parentName);
       parentRow.addEventListener("click", () => onPickPath(data.parent));

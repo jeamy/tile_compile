@@ -505,6 +505,11 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.7 (2026-03-24)
+
+- Linux-AppImage-Paketierung korrigiert: `TILE_COMPILE_INPUT_SEARCH_ROOTS` wird jetzt exportiert, sodass Verzeichnis-Scans in gepackten Releases funktionieren.
+- GUI2-Dateibrowser verbessert: Übergeordnetes Verzeichnis (..) wird immer angezeigt, auch wenn noch nicht freigegeben, und öffnet bei Klick den Freigabe-Dialog für nahtlose Navigation.
+
 ## v0.1.6 (2026-03-24)
 
 - GUI2-Queue-/Batch-Handling und Run-Monitor überarbeitet: Batch-Tabs im Run Monitor, batchbezogene Stats-/Report-Aktionen, Queue-Root-Benennung mit Stunden/Minuten sowie aktualisierte DE/EN-Dokumentation.
@@ -630,6 +635,12 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 ## Changelog
 
 ### (2026-03-24)
+
+**AppImage-Paketierung-Fix + Dateibrowser-Navigation-Verbesserung (`v0.1.7`):**
+
+- Linux-AppImage-Paketierung in `packaging/gui2/start_gui2.sh` korrigiert: Die Umgebungsvariable `TILE_COMPILE_INPUT_SEARCH_ROOTS` wird jetzt exportiert, wodurch Verzeichnis-Scan-Fehler in gepackten Releases behoben werden, bei denen relative Pfade nicht aufgelöst werden konnten.
+- GUI2-Dateibrowser (`web_frontend/tooltips.js`) verbessert: Das übergeordnete Verzeichnis (..) wird jetzt immer angezeigt, auch wenn der Parent-Pfad noch nicht freigegeben ist. Gesperrte Pfade zeigen ein Schloss-Icon (🔒) und öffnen bei Klick den Freigabe-Dialog für nahtlose Aufwärts-Navigation.
+- Backend-Dateilisten-Route (`web_backend_cpp/src/routes/system_routes.cpp`) aktualisiert: Liefert jetzt das `parent_allowed`-Flag zusammen mit dem `parent`-Pfad, sodass das Frontend zwischen zugänglichen und gesperrten Parent-Verzeichnissen unterscheiden kann.
 
 **GUI2-Batch-/Queue-Run-Monitor-Refresh + Doku-Update (`v0.1.6`):**
 

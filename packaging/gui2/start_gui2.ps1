@@ -103,6 +103,7 @@ $AllowedRoots = @($InstallRoot, $env:USERPROFILE)
 if ($env:TEMP) { $AllowedRoots += $env:TEMP }
 if ($env:TMP -and $env:TMP -ne $env:TEMP) { $AllowedRoots += $env:TMP }
 $env:TILE_COMPILE_ALLOWED_ROOTS = ($AllowedRoots | Where-Object { $_ } | Select-Object -Unique) -join ";"
+$env:TILE_COMPILE_INPUT_SEARCH_ROOTS = $env:TILE_COMPILE_ALLOWED_ROOTS
 # Optionale Backend-Memory-Guard Overrides:
 # TILE_COMPILE_BACKEND_SUBPROCESS_CAPTURE_BYTES (default 1048576)
 # TILE_COMPILE_BACKEND_JOB_STDIO_STORE_BYTES (default 131072)

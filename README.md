@@ -495,6 +495,11 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.7 (2026-03-24)
+
+- Fixed Linux AppImage packaging to export `TILE_COMPILE_INPUT_SEARCH_ROOTS` so directory scanning works correctly in packaged releases.
+- Enhanced GUI2 file browser to always show parent directory (..) even when not yet granted, triggering permission dialog on click for seamless navigation.
+
 ## v0.1.6 (2026-03-24)
 
 - Reworked GUI2 queue/batch handling and run monitoring: batch tabs in Run Monitor, batch-targeted stats/report actions, timestamped queue-root naming with hours/minutes, and updated EN/DE documentation.
@@ -620,6 +625,12 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 ## Changelog
 
 ### (2026-03-24)
+
+**AppImage packaging fix + file browser navigation enhancement (`v0.1.7`):**
+
+- Fixed Linux AppImage packaging in `packaging/gui2/start_gui2.sh` to export `TILE_COMPILE_INPUT_SEARCH_ROOTS` environment variable, resolving directory scanning failures in packaged releases where relative paths could not be resolved.
+- Enhanced GUI2 file browser (`web_frontend/tooltips.js`) to always display parent directory (..) navigation even when the parent path is not yet granted, showing a lock icon (🔒) for restricted paths and triggering the permission grant dialog on click for seamless upward navigation.
+- Updated backend file listing route (`web_backend_cpp/src/routes/system_routes.cpp`) to return `parent_allowed` flag alongside `parent` path, enabling frontend to distinguish between accessible and restricted parent directories.
 
 **GUI2 batch/queue run-monitor refresh + docs update (`v0.1.6`):**
 

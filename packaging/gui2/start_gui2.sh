@@ -132,6 +132,7 @@ run_backend_foreground() {
   local allowed_roots_joined
   allowed_roots_joined="$(IFS=:; printf '%s' "${allowed_roots[*]}")"
   export TILE_COMPILE_ALLOWED_ROOTS="${allowed_roots_joined}"
+  export TILE_COMPILE_INPUT_SEARCH_ROOTS="${allowed_roots_joined}"
   # Optional backend memory guard overrides:
   # TILE_COMPILE_BACKEND_SUBPROCESS_CAPTURE_BYTES (default 1048576)
   # TILE_COMPILE_BACKEND_JOB_STDIO_STORE_BYTES (default 131072)
