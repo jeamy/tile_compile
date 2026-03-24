@@ -111,6 +111,9 @@ const uiState = {
   runProcessStatus: "",
   configSchemaPaths: null,
   runMonitorSwitchHandler: null,
+  runMonitorResumePhases: ["ASTROMETRY", "BGE", "PCC"],
+  runPhaseSnapshots: {},
+  runMonitorSelectedBatchKey: "",
 };
 
 const appRuntime = {
@@ -241,6 +244,26 @@ const DASHBOARD_PIPELINE_GROUPS = [
   { key: "BGE", phases: ["BGE"] },
   { key: "PCC", phases: ["PCC"] },
   { key: "DONE", phases: [] },
+];
+
+const RUN_MONITOR_PHASE_ORDER = [
+  "SCAN_INPUT",
+  "CHANNEL_SPLIT",
+  "NORMALIZATION",
+  "GLOBAL_METRICS",
+  "TILE_GRID",
+  "REGISTRATION",
+  "PREWARP",
+  "COMMON_OVERLAP",
+  "LOCAL_METRICS",
+  "TILE_RECONSTRUCTION",
+  "STATE_CLUSTERING",
+  "SYNTHETIC_FRAMES",
+  "STACKING",
+  "DEBAYER",
+  "ASTROMETRY",
+  "BGE",
+  "PCC",
 ];
 
 const PARAM_CONTROL_PATHS = {
@@ -1815,10 +1838,13 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
       ? String($("inp-dirs")?.value || "")
       : firstNonEmptyText(readServerUiStateValue(LAST_INPUT_DIRS_KEY), $("dashboard-input-dirs")?.value, $("inp-dirs")?.value);
   const inputDirs = parseInputDirs(inputDirsText);
-  if (inputDirs.length === 0) {
+  const queue = queueRowsForRunStart(normalizedSource);
+  if (queue.length === 0 && inputDirs.length === 0) {
     throw new Error("Bitte mindestens einen Eingabeordner setzen.");
   }
-  persistLastInputDirs(inputDirsText);
+  if (inputDirs.length > 0) {
+    persistLastInputDirs(inputDirsText);
+  }
   await flushServerUiState();
 
   const runNameEl = useDashboardFields
@@ -1832,7 +1858,6 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
       ? $("wizard-runs-dir")
       : $("scan-runs-dir");
   const configYaml = await resolveConfigYamlForRun();
-  const queue = useDashboardFields || useWizardFields ? collectQueueRows() : [];
   const useQueueNaming = queue.length > 0;
   const explicitRunName = useDashboardFields
     ? explicitRunNameValue("dashboard-run-name")
@@ -1880,8 +1905,6 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
   };
   if (queue.length > 0) {
     payload.queue = queue;
-  } else if (inputDirs.length > 1) {
-    payload.input_dirs = inputDirs.map((dir) => ({ input_dir: dir }));
   } else {
     payload.input_dir = inputDirs[0] || "";
   }
@@ -2457,7 +2480,7 @@ async function initGlobalState() {
     setRunReady(guardrails?.status || "check", appState?.run?.current?.status || "");
     const rid = String(appState?.project?.current_run_id || "").trim();
     if (rid) setCurrentRunId(rid);
-    else clearCurrentRunId();
+    else if (!String(uiState.currentRunId || "").trim()) clearCurrentRunId();
     const runsDir = String(appState?.project?.runs_dir || "").trim();
     if (runsDir) uiState.projectRunsDir = runsDir;
     const presetsDir = String(appState?.project?.presets_dir || "").trim();
@@ -3622,6 +3645,234 @@ function runMonitorSelectedPhase() {
   return selected ? String(selected.textContent || "").trim().toUpperCase() : "";
 }
 
+function createEmptyRunPhaseSnapshot() {
+  const snapshot = {};
+  RUN_MONITOR_PHASE_ORDER.forEach((phase) => {
+    snapshot[phase] = { phase, status: "pending", pct: 0 };
+  });
+  return snapshot;
+}
+
+function normalizeRunMonitorPhaseName(raw) {
+  return String(raw || "").trim().toUpperCase();
+}
+
+function normalizeRunMonitorPct(pctRaw) {
+  let pct = Number(pctRaw || 0);
+  if (Number.isFinite(pct) && pct <= 1.0) pct *= 100.0;
+  if (!Number.isFinite(pct)) pct = 0;
+  return Math.max(0, Math.min(100, pct));
+}
+
+function normalizedRunPhaseStatus(statusRaw) {
+  const normalized = String(statusRaw || "pending").trim().toLowerCase();
+  if (normalized === "ok" || normalized === "completed" || normalized === "done") return "done";
+  if (normalized === "running") return "running";
+  if (normalized === "skipped") return "skipped";
+  if (normalized === "error" || normalized === "failed" || normalized === "aborted" || normalized === "cancelled") return "error";
+  return "pending";
+}
+
+function phaseStateBadgeText(statusRaw) {
+  const normalized = normalizedRunPhaseStatus(statusRaw);
+  if (normalized === "done") return "OK";
+  if (normalized === "running") return "RUN";
+  if (normalized === "skipped") return "SKIP";
+  if (normalized === "error") return "ERR";
+  return "P";
+}
+
+function orderedRunPhaseEntries(snapshotRaw) {
+  const snapshot = snapshotRaw && typeof snapshotRaw === "object" ? snapshotRaw : {};
+  return RUN_MONITOR_PHASE_ORDER.map((phase) => {
+    const entry = snapshot[phase];
+    return {
+      phase,
+      status: entry?.status || "pending",
+      pct: Number.isFinite(Number(entry?.pct)) ? Number(entry.pct) : 0,
+    };
+  });
+}
+
+function ensureRunPhaseSnapshot(runIdRaw) {
+  const runId = normalizeRunIdPath(runIdRaw);
+  if (!runId) return createEmptyRunPhaseSnapshot();
+  if (!uiState.runPhaseSnapshots[runId]) {
+    uiState.runPhaseSnapshots[runId] = createEmptyRunPhaseSnapshot();
+  }
+  return uiState.runPhaseSnapshots[runId];
+}
+
+function resetRunPhaseSnapshot(runIdRaw) {
+  const runId = normalizeRunIdPath(runIdRaw);
+  if (!runId) return createEmptyRunPhaseSnapshot();
+  uiState.runPhaseSnapshots[runId] = createEmptyRunPhaseSnapshot();
+  return uiState.runPhaseSnapshots[runId];
+}
+
+function setRunPhaseSnapshot(runIdRaw, phases) {
+  const runId = normalizeRunIdPath(runIdRaw);
+  if (!runId) return;
+  const snapshot = resetRunPhaseSnapshot(runId);
+  (Array.isArray(phases) ? phases : []).forEach((entry) => {
+    const phaseName = normalizeRunMonitorPhaseName(entry?.phase);
+    if (!phaseName || !snapshot[phaseName]) return;
+    snapshot[phaseName] = {
+      phase: phaseName,
+      status: String(entry?.status || "pending").trim().toLowerCase() || "pending",
+      pct: normalizeRunMonitorPct(entry?.pct ?? entry?.progress ?? 0),
+    };
+  });
+}
+
+function updateRunPhaseSnapshot(runIdRaw, phaseNameRaw, status, pctRaw) {
+  const runId = normalizeRunIdPath(runIdRaw);
+  const phaseName = normalizeRunMonitorPhaseName(phaseNameRaw);
+  if (!runId || !phaseName) return;
+  const snapshot = ensureRunPhaseSnapshot(runId);
+  if (!snapshot[phaseName]) return;
+  snapshot[phaseName] = {
+    phase: phaseName,
+    status: String(status || "pending").trim().toLowerCase() || "pending",
+    pct: normalizeRunMonitorPct(pctRaw),
+  };
+}
+
+function syntheticRunPhaseEntries(stateRaw) {
+  const state = String(stateRaw || "pending").trim().toLowerCase();
+  if (["ok", "completed", "done", "finished"].includes(state)) {
+    return RUN_MONITOR_PHASE_ORDER.map((phase) => ({ phase, status: "done", pct: 100 }));
+  }
+  return RUN_MONITOR_PHASE_ORDER.map((phase) => ({ phase, status: "pending", pct: 0 }));
+}
+
+function findRunMonitorPhaseRow(runIdRaw, phaseNameRaw) {
+  const runId = normalizeRunIdPath(runIdRaw);
+  const phaseName = normalizeRunMonitorPhaseName(phaseNameRaw);
+  return Array.from(document.querySelectorAll(".ps-phase-row")).find((row) => (
+    normalizeRunIdPath(row.dataset.runId || "") === runId
+    && normalizeRunMonitorPhaseName(row.dataset.phaseName || row.querySelector(".phase-name")?.textContent || "") === phaseName
+  )) || null;
+}
+
+function applyPhaseRowState(row, status, pctRaw) {
+  if (!row) return;
+  row.classList.remove("done", "running", "pending", "error", "skipped");
+  row.classList.add(normalizedRunPhaseStatus(status));
+  const stateEl = row.querySelector(".state");
+  if (stateEl) stateEl.textContent = phaseStateBadgeText(status);
+  const pctEl = row.querySelector(".phase-progress");
+  if (pctEl) pctEl.textContent = `${normalizeRunMonitorPct(pctRaw).toFixed(0)}%`;
+}
+
+function renderRunMonitorPhaseLists(selectedPhaseRaw = runMonitorSelectedPhase()) {
+  const host = $("monitor-phase-lists");
+  if (!host) return;
+  const selectedPhase = normalizeRunMonitorPhaseName(selectedPhaseRaw);
+  const queueItems = Array.isArray(uiState.currentRunQueue) ? uiState.currentRunQueue.filter((item) => item && typeof item === "object") : [];
+  const currentRunId = normalizeRunIdPath(uiState.currentRunId);
+  const groups = [];
+
+  if (queueItems.length > 0) {
+    queueItems.forEach((item, index) => {
+      const runId = normalizeRunIdPath(item?.run_id || "");
+      const label = canonicalQueueFilterLabel(item?.filter || "") || runIdLeaf(runId) || `Batch ${index + 1}`;
+      const state = String(item?.state || (runId === currentRunId ? uiState.runProcessStatus : "pending")).trim().toLowerCase() || "pending";
+      const entries = runId && uiState.runPhaseSnapshots[runId]
+        ? orderedRunPhaseEntries(uiState.runPhaseSnapshots[runId])
+        : syntheticRunPhaseEntries(state);
+      groups.push({
+        key: runId || `batch-${index + 1}`,
+        runId,
+        label,
+        meta: String(item?.input_dir || "").trim(),
+        state,
+        active: runId === currentRunId,
+        entries,
+      });
+    });
+  } else if (currentRunId || String(uiState.currentRunDir || "").trim() || String(uiState.runProcessStatus || "").trim()) {
+    const entries = currentRunId && uiState.runPhaseSnapshots[currentRunId]
+      ? orderedRunPhaseEntries(uiState.runPhaseSnapshots[currentRunId])
+      : syntheticRunPhaseEntries(uiState.runProcessStatus || "pending");
+    groups.push({
+      key: currentRunId || "single-run",
+      runId: currentRunId,
+      label: currentRunId ? runIdLeaf(currentRunId) || currentRunId : "Aktueller Run",
+      meta: String(uiState.currentRunDir || "").trim(),
+      state: String(uiState.runProcessStatus || "pending").trim().toLowerCase() || "pending",
+      active: true,
+      entries,
+    });
+  }
+
+  if (groups.length === 0) {
+    uiState.runMonitorSelectedBatchKey = "";
+    host.innerHTML = "<div class=\"ps-note\">Kein Run geladen.</div>";
+    return;
+  }
+
+  const selectedGroup = groups.find((group) => group.key === uiState.runMonitorSelectedBatchKey)
+    || groups.find((group) => group.active)
+    || groups[0];
+  uiState.runMonitorSelectedBatchKey = selectedGroup?.key || "";
+
+  const tabsHtml = groups.map((group) => {
+    const activeTabClass = group.key === uiState.runMonitorSelectedBatchKey ? " active" : "";
+    const currentRunClass = group.active ? " current-run" : "";
+    const title = group.meta || group.runId || group.label;
+    return `
+      <button
+        type="button"
+        class="ps-phase-tab${activeTabClass}${currentRunClass}"
+        data-batch-key="${escapeRunMonitorAttr(group.key)}"
+        title="${escapeRunMonitorAttr(title)}"
+      >
+        <span class="ps-phase-tab-label">${escapeRunMonitorHtml(group.label)}</span>
+      </button>
+    `;
+  }).join("");
+
+  const batchStateClass = queueItemStateClass(selectedGroup.state);
+  const rowsHtml = selectedGroup.entries.map((entry) => {
+    const rowStateClass = normalizedRunPhaseStatus(entry.status);
+    const selectedClass = selectedGroup.active && selectedPhase && entry.phase === selectedPhase ? " is-selected" : "";
+    const readonlyClass = selectedGroup.active ? "" : " is-readonly";
+    const title = selectedGroup.active ? `Resume ab ${entry.phase} starten.` : "Fortschritt dieses Batches.";
+    return `
+      <button
+        type="button"
+        class="ps-phase-row ${rowStateClass}${selectedClass}${readonlyClass}"
+        data-phase-name="${escapeRunMonitorAttr(entry.phase)}"
+        data-run-id="${escapeRunMonitorAttr(selectedGroup.runId || "")}"
+        data-active-batch="${selectedGroup.active ? "1" : "0"}"
+        title="${escapeRunMonitorAttr(title)}"
+      >
+        <span class="state">${phaseStateBadgeText(entry.status)}</span>
+        <span class="phase-name">${escapeRunMonitorHtml(entry.phase)}</span>
+        <span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">${normalizeRunMonitorPct(entry.pct).toFixed(0)}%</span>
+      </button>
+    `;
+  }).join("");
+
+  host.innerHTML = `
+    <div class="ps-phase-tabs" role="tablist" aria-label="Batch-Auswahl">
+      ${tabsHtml}
+    </div>
+    <section class="ps-phase-batch${selectedGroup.active ? " active" : ""}" data-run-id="${escapeRunMonitorAttr(selectedGroup.runId || "")}">
+      <div class="ps-phase-batch-header">
+        <div class="ps-phase-batch-title">
+          <div class="ps-phase-batch-name">${escapeRunMonitorHtml(selectedGroup.label)}</div>
+          <div class="ps-phase-batch-meta">${escapeRunMonitorHtml(selectedGroup.meta || selectedGroup.runId || "-")}</div>
+        </div>
+        <span class="ps-phase-batch-state ${batchStateClass}">${escapeRunMonitorHtml(selectedGroup.state || "pending")}</span>
+      </div>
+      <div class="ps-phase-list">${rowsHtml}</div>
+    </section>
+  `;
+  applyRunMonitorResumePhaseAvailability(uiState.runMonitorResumePhases);
+}
+
 function setMonitorResumeInfo(message = "") {
   const el = $("monitor-resume-info");
   if (!el) return;
@@ -3636,10 +3887,21 @@ function applyRunMonitorResumePhaseAvailability(resumePhases) {
       ? resumePhases.map((phase) => String(phase || "").trim().toUpperCase()).filter(Boolean)
       : ["ASTROMETRY", "BGE", "PCC"],
   );
+  uiState.runMonitorResumePhases = Array.from(allowed);
   document.querySelectorAll(".ps-phase-row").forEach((row) => {
     const phaseName = String(row.querySelector(".phase-name")?.textContent || "").trim().toUpperCase();
+    if (String(row.dataset.activeBatch || "") !== "1") {
+      row.dataset.resumeAllowed = "0";
+      row.classList.remove("is-selected");
+      row.classList.add("is-readonly");
+      row.style.opacity = "";
+      row.style.cursor = "default";
+      row.title = "Fortschritt dieses Batches.";
+      return;
+    }
     const resumable = allowed.has(phaseName);
     row.dataset.resumeAllowed = resumable ? "1" : "0";
+    row.classList.remove("is-readonly");
     if (!resumable) {
       row.classList.remove("is-selected");
       row.style.opacity = "0.6";
@@ -3798,6 +4060,12 @@ function ensureRunMonitorFilterButtons(filters) {
 function setRunMonitorFilterVisibility(colorModeRaw, queueItemsRaw = null) {
   const chipRow = $("monitor-filter-row");
   if (!chipRow) return;
+  const hasActiveRun = Boolean(String(uiState.currentRunId || "").trim());
+  if (!hasActiveRun && !Array.isArray(queueItemsRaw)) {
+    chipRow.innerHTML = "";
+    chipRow.style.display = "none";
+    return;
+  }
   const filterEntries = collectRunMonitorFilterEntries(queueItemsRaw);
   const chipButtons = ensureRunMonitorFilterButtons(filterEntries);
   const hideFilters = filterEntries.length === 0;
@@ -3815,6 +4083,10 @@ function escapeRunMonitorHtml(text) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+function escapeRunMonitorAttr(text) {
+  return escapeRunMonitorHtml(text).replaceAll("\"", "&quot;");
 }
 
 function normalizeRunIdPath(raw) {
@@ -3906,20 +4178,44 @@ function renderRunMonitorSummary(runId, runStatus, queueItemsRaw = null, runDirR
   const section = $("monitor-run-summary");
   const metaEl = $("monitor-run-summary-meta");
   const structureEl = $("monitor-run-structure");
-  const batchEl = $("monitor-run-batches");
-  if (!section || !metaEl || !structureEl || !batchEl) return;
+  if (!section || !metaEl || !structureEl) return;
 
   const queueItems = Array.isArray(queueItemsRaw) ? queueItemsRaw.filter((item) => item && typeof item === "object") : [];
-  if (!queueItems.length) {
+  const normalizedRunId = normalizeRunIdPath(runId);
+  const hasSingleRun = Boolean(normalizedRunId || String(runDirRaw || "").trim() || String(runStatus || "").trim());
+  if (!queueItems.length && !hasSingleRun) {
     section.hidden = true;
     metaEl.innerHTML = "";
     structureEl.innerHTML = "";
-    batchEl.innerHTML = "";
+    return;
+  }
+
+  if (queueItems.length > 0) {
+    section.hidden = true;
+    metaEl.innerHTML = "";
+    structureEl.innerHTML = "";
     return;
   }
 
   section.hidden = false;
-  const normalizedRunId = normalizeRunIdPath(runId);
+  if (!queueItems.length) {
+    const runDir = String(runDirRaw || "").trim();
+    metaEl.innerHTML = `
+      <strong>Run</strong><span><code>${escapeRunMonitorHtml(normalizedRunId || "-")}</code></span>
+      <strong>Status</strong><span><code>${escapeRunMonitorHtml(runStatus || "unknown")}</code></span>
+      <strong>Verzeichnis</strong><span><code>${escapeRunMonitorHtml(runDir || "-")}</code></span>
+      <strong>Batch-Fortschritt</strong><span>1/1</span>
+      <strong>Filter</strong><span>-</span>
+      <strong>Quelle</strong><span>-</span>
+    `;
+    structureEl.innerHTML = `
+      <div class="ps-monitor-run-node"><strong>Run</strong><code>${escapeRunMonitorHtml(normalizedRunId || "-")}</code></div>
+      <div class="ps-monitor-run-node"><strong>Status</strong><code>${escapeRunMonitorHtml(runStatus || "unknown")}</code></div>
+      <div class="ps-monitor-run-node"><strong>Run-Pfad</strong><code>${escapeRunMonitorHtml(runDir || "-")}</code></div>
+    `;
+    return;
+  }
+
   const activeItem = queueActiveItem(queueItems, { fallbackRunId: normalizedRunId });
   const activeItemRunId = normalizeRunIdPath(activeItem?.run_id || normalizedRunId);
   const doneCount = queueItems.filter((item) => ["ok", "completed", "done"].includes(String(item?.state || "").trim().toLowerCase())).length;
@@ -3959,26 +4255,6 @@ function renderRunMonitorSummary(runId, runStatus, queueItemsRaw = null, runDirR
     structureNodes.push(`<div class="ps-monitor-run-node"><strong>Aktiver Pfad</strong><code>${escapeRunMonitorHtml(activeRunDir)}</code></div>`);
   }
   structureEl.innerHTML = structureNodes.join("");
-
-  batchEl.innerHTML = queueItems.map((item, index) => {
-    const itemRunId = normalizeRunIdPath(item?.run_id || "");
-    const filter = canonicalQueueFilterLabel(item?.filter || "") || runIdLeaf(itemRunId) || `Batch ${index + 1}`;
-    const inputDir = String(item?.input_dir || "").trim();
-    const itemRunDir = runDirForRunId(runDirRaw, normalizedRunId || activeItemRunId, itemRunId);
-    const stateClass = queueItemStateClass(item?.state);
-    const stateLabel = String(item?.state || "pending").trim() || "pending";
-    const activeClass = itemRunId === activeItemRunId ? " active" : "";
-    return `
-      <div class="ps-monitor-batch-item${activeClass}">
-        <div><span class="ps-monitor-batch-chip ${stateClass}">${escapeRunMonitorHtml(filter)} · ${escapeRunMonitorHtml(stateLabel)}</span></div>
-        <div class="ps-monitor-batch-details">
-          <div class="ps-monitor-batch-title"><code>${escapeRunMonitorHtml(itemRunId || "-")}</code></div>
-          <div class="ps-monitor-batch-path">${escapeRunMonitorHtml(itemRunDir || "-")}</div>
-          <div class="ps-monitor-batch-source">Input: ${escapeRunMonitorHtml(inputDir || "-")}</div>
-        </div>
-      </div>
-    `;
-  }).join("");
 }
 
 function bindRunMonitorFilterSync() {
@@ -4003,6 +4279,43 @@ function bindRunMonitorFilterSync() {
 
 function runMonitorLogBox() {
   return findLogBoxBySectionTitle("Live Log");
+}
+
+function setRunMonitorLogLines(lines = []) {
+  uiState.runLogPending = [];
+  uiState.runLogLines = (Array.isArray(lines) ? lines : [])
+    .map((line) => String(line || "").trim())
+    .filter(Boolean)
+    .slice(-300);
+  const logBox = runMonitorLogBox();
+  if (!logBox) return;
+  logBox.textContent = uiState.runLogLines.join("\n");
+  scrollLogToEnd(logBox);
+}
+
+function structuredRunMonitorLogLines(entries) {
+  return (Array.isArray(entries) ? entries : [])
+    .map((entry) => formatStructuredLogLine(entry, { suppressRunStatus: true }) || String(entry || "").trim())
+    .filter(Boolean)
+    .slice(-300);
+}
+
+async function loadRunMonitorLogs(runId, fallbackEntries = []) {
+  if (!runId) {
+    setRunMonitorLogLines([]);
+    return;
+  }
+  let lines = [];
+  try {
+    const logs = await api.get(API_ENDPOINTS.runs.logs(runId, 250));
+    lines = structuredRunMonitorLogLines(logs?.lines || []);
+  } catch {
+    lines = [];
+  }
+  if (lines.length === 0) {
+    lines = structuredRunMonitorLogLines(fallbackEntries);
+  }
+  setRunMonitorLogLines(lines);
 }
 
 function artifactPathFromAbsolutePath(baseDir, targetPath, fallbackPath = "") {
@@ -4055,43 +4368,10 @@ function findReportArtifactPath(artifacts) {
 }
 
 function setPhaseRow(phaseName, status, pctRaw) {
-  const row = Array.from(document.querySelectorAll(".ps-phase-row")).find((el) => {
-    const name = el.querySelector(".phase-name");
-    return name && String(name.textContent || "").trim().toUpperCase() === String(phaseName || "").toUpperCase();
-  });
+  updateRunPhaseSnapshot(uiState.currentRunId, phaseName, status, pctRaw);
+  const row = findRunMonitorPhaseRow(uiState.currentRunId, phaseName);
   if (!row) return;
-
-  row.classList.remove("done", "running", "pending", "error", "skipped");
-  const normalized = String(status || "pending").toLowerCase();
-  if (normalized === "skipped") {
-    row.classList.add("skipped");
-    const stateEl = row.querySelector(".state");
-    if (stateEl) stateEl.textContent = "SKIP";
-  } else if (normalized === "ok" || normalized === "completed" || normalized === "done") {
-    row.classList.add("done");
-    const stateEl = row.querySelector(".state");
-    if (stateEl) stateEl.textContent = "OK";
-  } else if (normalized === "running") {
-    row.classList.add("running");
-    const stateEl = row.querySelector(".state");
-    if (stateEl) stateEl.textContent = "RUN";
-  } else if (normalized === "error" || normalized === "failed" || normalized === "aborted") {
-    row.classList.add("error");
-    const stateEl = row.querySelector(".state");
-    if (stateEl) stateEl.textContent = "ERR";
-  } else {
-    row.classList.add("pending");
-    const stateEl = row.querySelector(".state");
-    if (stateEl) stateEl.textContent = "P";
-  }
-
-  const pctEl = row.querySelector(".phase-progress");
-  if (!pctEl) return;
-  let pct = Number(pctRaw || 0);
-  if (Number.isFinite(pct) && pct <= 1.0) pct *= 100.0;
-  if (!Number.isFinite(pct)) pct = 0;
-  pct = Math.max(0, Math.min(100, pct));
-  pctEl.textContent = `${pct.toFixed(0)}%`;
+  applyPhaseRowState(row, status, pctRaw);
 }
 
 function updateRunMonitorSubtitle(runId, runStatus, currentPhase) {
@@ -4104,17 +4384,18 @@ async function loadRunStatus(runId) {
   const status = await api.get(API_ENDPOINTS.runs.status(runId));
   uiState.currentRunDir = String(status?.run_dir || "");
   uiState.currentRunQueue = Array.isArray(status?.queue) ? status.queue : [];
+  uiState.runProcessStatus = String(status?.status || "").trim().toLowerCase();
   const fallbackScanColorMode = String(readServerUiStateValue(LAST_SCAN_COLOR_MODE_KEY) || "").trim().toUpperCase();
   const effectiveColorMode = String(status?.color_mode || "").trim().toUpperCase() || fallbackScanColorMode;
   uiState.currentRunColorMode = effectiveColorMode;
   setRunMonitorFilterVisibility(effectiveColorMode, Array.isArray(status?.queue_filters) ? status.queue_filters : null);
   renderRunMonitorSummary(runId, status?.status || "unknown", uiState.currentRunQueue, uiState.currentRunDir);
-  if (Array.isArray(status?.phases)) {
-    for (const p of status.phases) {
-      setPhaseRow(p.phase, p.status, p.pct);
-    }
-  }
+  setRunPhaseSnapshot(runId, status?.phases);
+  renderRunMonitorPhaseLists();
   updateRunMonitorSubtitle(runId, status.status, status.current_phase);
+  if (!isRunActiveStatus(status?.status || "")) {
+    await loadRunMonitorLogs(runId, status?.events || []);
+  }
   return status;
 }
 
@@ -4230,9 +4511,8 @@ function connectRunMonitorStream(runId) {
         }
       }
       if (event?.type === "run_status" && event?.payload?.phases) {
-        for (const p of event.payload.phases) {
-          setPhaseRow(p.phase, p.status, p.pct);
-        }
+        uiState.runProcessStatus = String(event?.payload?.status || event?.state || "").trim().toLowerCase();
+        setRunPhaseSnapshot(runId, event.payload.phases);
         if (Array.isArray(event?.payload?.queue)) uiState.currentRunQueue = event.payload.queue;
         if (event?.payload?.run_dir) uiState.currentRunDir = String(event.payload.run_dir || uiState.currentRunDir || "");
         renderRunMonitorSummary(
@@ -4241,6 +4521,7 @@ function connectRunMonitorStream(runId) {
           uiState.currentRunQueue,
           uiState.currentRunDir,
         );
+        renderRunMonitorPhaseLists();
         updateRunMonitorSubtitle(
           runId,
           event?.payload?.status || event?.state || "unknown",
@@ -4248,6 +4529,7 @@ function connectRunMonitorStream(runId) {
         );
       }
       if (eventType === "queue_progress") {
+        uiState.runProcessStatus = String(event?.payload?.status || event?.state || uiState.runProcessStatus || "").trim().toLowerCase();
         if (Array.isArray(event?.payload?.queue)) uiState.currentRunQueue = event.payload.queue;
         const currentIndex = Number.isInteger(event?.payload?.current_index) ? event.payload.current_index : Number(event?.payload?.current_index ?? -1);
         const activeQueueRunId = queueActiveRunId(event?.payload?.queue, {
@@ -4259,6 +4541,7 @@ function connectRunMonitorStream(runId) {
         }
         setRunMonitorFilterVisibility(uiState.currentRunColorMode, Array.isArray(event?.payload?.queue) ? event.payload.queue : null);
         renderRunMonitorSummary(activeQueueRunId || streamRunId, uiState.runProcessStatus || event?.state || "unknown", uiState.currentRunQueue, uiState.currentRunDir);
+        renderRunMonitorPhaseLists();
         if (activeQueueRunId && activeQueueRunId !== currentRunId) {
           void uiState.runMonitorSwitchHandler?.(activeQueueRunId, {
             queue: Array.isArray(event?.payload?.queue) ? event.payload.queue : null,
@@ -4336,16 +4619,30 @@ async function bindRunMonitor() {
         : "",
     );
   };
-  document.querySelectorAll(".ps-phase-row").forEach((row) => {
-    row.addEventListener("click", () => {
-      if (String(row.dataset.resumeAllowed || "") !== "1") {
-        setFooter("Resume ist aktuell nur ab ASTROMETRY, BGE oder PCC unterstützt.", true);
-        return;
+  $("monitor-phase-lists")?.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const tab = target.closest(".ps-phase-tab");
+    if (tab) {
+      const nextBatchKey = String(tab.dataset.batchKey || "").trim();
+      if (nextBatchKey && nextBatchKey !== uiState.runMonitorSelectedBatchKey) {
+        uiState.runMonitorSelectedBatchKey = nextBatchKey;
+        renderRunMonitorPhaseLists();
+        updateResumeEnabled();
       }
-      document.querySelectorAll(".ps-phase-row").forEach((x) => x.classList.remove("is-selected"));
-      row.classList.add("is-selected");
-      updateResumeEnabled();
-    });
+      return;
+    }
+    const row = target.closest(".ps-phase-row");
+    if (!row) return;
+    if (String(row.dataset.activeBatch || "") !== "1") return;
+    if (normalizeRunIdPath(row.dataset.runId || "") !== normalizeRunIdPath(uiState.currentRunId)) return;
+    if (String(row.dataset.resumeAllowed || "") !== "1") {
+      setFooter("Resume ist aktuell nur ab ASTROMETRY, BGE oder PCC unterstützt.", true);
+      return;
+    }
+    document.querySelectorAll(".ps-phase-row").forEach((x) => x.classList.remove("is-selected"));
+    row.classList.add("is-selected");
+    updateResumeEnabled();
   });
   $("monitor-filter-row")?.addEventListener("click", (event) => {
     const target = event.target;
@@ -4504,7 +4801,6 @@ async function bindRunMonitor() {
   };
   const setMonitorActionState = (isActive) => {
     const hasRun = Boolean(String(uiState.currentRunId || "").trim());
-    uiState.runProcessStatus = isActive ? "running" : "idle";
     setDisabledLike(startBtn, isActive);
     setDisabledLike(stopBtn, !isActive);
     setDisabledLike(statsGenerateBtn, isActive || !hasRun);
@@ -4513,16 +4809,11 @@ async function bindRunMonitor() {
       setMonitorReportAvailable(false);
       if (!hasRun) setInlineAsyncStatus(statsStatusEl, "");
     }
+    renderRunMonitorPhaseLists();
   };
   const resetPhaseRows = () => {
-    document.querySelectorAll(".ps-phase-row").forEach((row) => {
-      row.classList.remove("done", "running", "error", "skipped", "is-selected");
-      row.classList.add("pending");
-      const stateEl = row.querySelector(".state");
-      if (stateEl) stateEl.textContent = "P";
-      const pctEl = row.querySelector(".phase-progress");
-      if (pctEl) pctEl.textContent = "0%";
-    });
+    if (uiState.currentRunId) resetRunPhaseSnapshot(uiState.currentRunId);
+    renderRunMonitorPhaseLists();
   };
   const renderNoRunState = (text) => {
     if (uiState.runSocket) {
@@ -4537,6 +4828,9 @@ async function bindRunMonitor() {
     uiState.runLogPending = [];
     uiState.currentRunDir = "";
     uiState.runProcessStatus = "";
+    uiState.currentRunQueue = [];
+    uiState.runPhaseSnapshots = {};
+    uiState.runMonitorSelectedBatchKey = "";
     resetPhaseRows();
     renderArtifacts([]);
     setMonitorReportAvailable(false);
@@ -4580,7 +4874,10 @@ async function bindRunMonitor() {
       await refreshStatsActions();
       const isActive = isRunActiveStatus(status?.status || "");
       setMonitorActionState(isActive);
-      if (isActive) connectRunMonitorStream(uiState.currentRunId);
+      if (isActive) {
+        setRunMonitorLogLines([]);
+        connectRunMonitorStream(uiState.currentRunId);
+      }
       updateResumeEnabled();
       return status;
     }).catch((err) => {
@@ -4604,6 +4901,7 @@ async function bindRunMonitor() {
     setMonitorActionState(isActive);
     if (reconnectSocket) {
       if (isActive) {
+        setRunMonitorLogLines([]);
         connectRunMonitorStream(uiState.currentRunId);
       } else if (uiState.runSocket) {
         uiState.runSocket.close();
@@ -4625,24 +4923,30 @@ async function bindRunMonitor() {
   void refreshRunMonitorValidationMessage();
 
   $("monitor-start")?.addEventListener("click", async () => {
+    setDisabledLike(startBtn, true);
     try {
       const validationMessage = await refreshRunMonitorValidationMessage();
       if (validationMessage) {
+        setMonitorActionState(isRunActiveStatus(uiState.runProcessStatus || ""));
         setFooter(validationMessage, true);
         return;
       }
       const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} }, project: {} }));
       const currentStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
       if (currentStatus === "running") {
+        uiState.runProcessStatus = currentStatus;
         setMonitorActionState(true);
         setFooter("Es läuft bereits ein aktiver Run.", true);
         return;
       }
       const latestGuardrails = await api.get(API_ENDPOINTS.guardrails.root);
       if (String(latestGuardrails?.status || "").toLowerCase() === "error") {
+        setMonitorActionState(isRunActiveStatus(uiState.runProcessStatus || ""));
         setFooter("Run blockiert: Guardrail-Status ist ERROR.", true);
         return;
       }
+      uiState.runProcessStatus = "running";
+      setMonitorActionState(true);
       const accepted = await startRunFromCurrentForm({ source: "monitor" });
       setCurrentRunId(accepted?.run_id || uiState.currentRunId);
       clearCurrentRunHistoryMark();
@@ -4650,6 +4954,9 @@ async function bindRunMonitor() {
       setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
       await refreshCurrentRunMonitorState({ reconnectSocket: true });
     } catch (err) {
+      const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} } }));
+      uiState.runProcessStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
+      setMonitorActionState(isRunActiveStatus(uiState.runProcessStatus || ""));
       setFooter(`Run-Start fehlgeschlagen: ${errorText(err)}`, true);
     }
   });
@@ -4876,6 +5183,7 @@ async function bindRunMonitor() {
     setMonitorActionState(isActive);
     if (isActive) {
       setMonitorStartValidationMessage("");
+      setRunMonitorLogLines([]);
       connectRunMonitorStream(uiState.currentRunId);
     } else if (uiState.runSocket) {
       uiState.runSocket.close();
@@ -6348,6 +6656,41 @@ function collectQueueRows() {
     out.push(item);
   }
   return out;
+}
+
+function normalizePersistedQueueItems(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const filter = String(item?.filter || "").trim();
+      const inputDir = String(item?.input_dir || item?.input_path || "").trim();
+      const pattern = String(item?.pattern || "").trim();
+      const runLabel = String(item?.run_id || "").trim();
+      const enabled = item?.enabled !== false;
+      if (!enabled || !inputDir) return null;
+      const normalized = { filter, input_dir: inputDir };
+      if (pattern) normalized.pattern = pattern;
+      if (runLabel) normalized.run_id = runLabel;
+      return normalized;
+    })
+    .filter(Boolean);
+}
+
+function persistedQueueRowsForMonitor() {
+  const preferred = normalizePersistedQueueItems(storedJsonValue(activeQueueStorageKey(), []));
+  if (preferred.length > 0) return preferred;
+  const dashboard = normalizePersistedQueueItems(storedJsonValue(UI_STORAGE_KEYS.dashboardQueue, []));
+  if (dashboard.length > 0) return dashboard;
+  return normalizePersistedQueueItems(storedJsonValue(UI_STORAGE_KEYS.wizardQueue, []));
+}
+
+function queueRowsForRunStart(source = "") {
+  const normalizedSource = String(source || "").trim().toLowerCase();
+  if (normalizedSource === "dashboard" || normalizedSource === "wizard") {
+    return collectQueueRows();
+  }
+  const currentPageRows = collectQueueRows();
+  if (currentPageRows.length > 0) return currentPageRows;
+  return persistedQueueRowsForMonitor();
 }
 
 function renderGuardrailRow(row, status, label) {

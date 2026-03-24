@@ -690,6 +690,123 @@
   margin-top: 4px;
 }
 
+.ps-phase-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ps-phase-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ps-phase-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ps-phase-tab.active {
+  border-color: #7ccfd8;
+  background: #ecfbfd;
+}
+
+.ps-phase-tab.current-run {
+  box-shadow: inset 0 0 0 1px rgba(21, 128, 141, 0.16);
+}
+
+.ps-phase-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ps-phase-batch {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #f8fbfd;
+}
+
+.ps-phase-batch.active {
+  border-color: #7ccfd8;
+  background: #eefbfd;
+}
+
+.ps-phase-batch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ps-phase-batch-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ps-phase-batch-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ps-phase-batch-meta {
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.ps-phase-batch-state {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: #eef2f7;
+  color: var(--muted);
+}
+
+.ps-phase-batch-state.done {
+  background: #d1f4e0;
+  color: #15808d;
+}
+
+.ps-phase-batch-state.running {
+  background: #fde68a;
+  color: #a16207;
+}
+
+.ps-phase-batch-state.error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.ps-phase-batch-state.pending {
+  background: #eef2f7;
+  color: var(--muted);
+}
+
 .ps-phase-list {
   display: flex;
   flex-direction: column;
@@ -771,6 +888,11 @@
 .ps-phase-row.is-selected {
   border-color: #7ccfd8;
   background: #ecfbfd;
+}
+
+.ps-phase-row.is-readonly {
+  opacity: 0.78;
+  cursor: default;
 }
 
 .ps-list {
