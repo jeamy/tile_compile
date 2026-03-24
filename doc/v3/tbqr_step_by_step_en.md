@@ -298,6 +298,8 @@ Use this sequence for a complete run from scan to outputs.
 
 Use the batch function when multiple input directories should be processed one after another with the same configuration.
 
+It is primarily intended for processing MONO frames from different filters serially with one shared configuration.
+
 1. Create multiple queue entries in **Dashboard** or in the **Wizard**.
 2. For each entry, provide at least the input directory; for MONO datasets you can also set filter/label context and an optional pattern.
 3. The queue is processed serially: GUI2 starts batch 1, then batch 2, then batch 3, and so on.

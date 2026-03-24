@@ -298,6 +298,8 @@ Verwende diese Reihenfolge für einen vollständigen Lauf vom Scan bis zu den En
 
 Verwende die Batch-Funktion, wenn mehrere Eingabeverzeichnisse nacheinander mit derselben Konfiguration verarbeitet werden sollen.
 
+Sie ist primär dafür gedacht, MONO-Frames mit verschiedenen Filtern mit einer gemeinsamen Konfiguration seriell zu verarbeiten.
+
 1. Lege im **Dashboard** oder im **Wizard** mehrere Queue-Einträge an.
 2. Trage pro Eintrag mindestens das Eingabeverzeichnis ein; bei MONO-Datensätzen kannst du zusätzlich Filter-/Label-Kontext und bei Bedarf ein Pattern setzen.
 3. Die Queue wird seriell abgearbeitet: GUI2 startet Batch 1, danach Batch 2, danach Batch 3 usw.
