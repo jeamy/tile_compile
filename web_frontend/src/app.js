@@ -67,9 +67,16 @@ const UI_STORAGE_KEYS = {
   pccTempJob: PCC_TEMP_JOB_KEY,
 };
 
+const QUEUE_FILTER_PRESETS = ["", "OSC", "L", "R", "G", "B", "Ha", "OIII", "SII"];
+
+function activeQueueStorageKey() {
+  return pageName() === "wizard.html" ? UI_STORAGE_KEYS.wizardQueue : UI_STORAGE_KEYS.dashboardQueue;
+}
+
 const uiState = {
   currentRunId: "",
   currentRunDir: "",
+  currentRunQueue: [],
   currentRunColorMode: "",
   parameterBaseYaml: "",
   missingHistoryRunIds: new Set(),
@@ -103,6 +110,7 @@ const uiState = {
   runReadyStatus: "check",
   runProcessStatus: "",
   configSchemaPaths: null,
+  runMonitorSwitchHandler: null,
 };
 
 const appRuntime = {
@@ -882,7 +890,11 @@ function formatRunStreamLog(entry, { suppressRunStatus = false } = {}) {
     return `${prefix}${parts.join(" | ")}`;
   }
   if (type === "run_end") {
-    const parts = ["Run beendet", humanizeLogToken(payload.state || entry.status || "done")];
+    const stateLabel = humanizeLogToken(
+      payload.state || entry.status || (entry.success === false ? "failed" : entry.success === true ? "completed" : ""),
+    );
+    const parts = ["Run beendet"];
+    if (stateLabel) parts.push(stateLabel);
     const currentPhase = humanizeLogToken(payload.current_phase || "");
     if (currentPhase) parts.push(currentPhase);
     return `${prefix}${parts.filter(Boolean).join(" | ")}`;
@@ -1147,6 +1159,14 @@ function timestampSuffix(now = new Date()) {
   const mi = pad(now.getMinutes());
   const ss = pad(now.getSeconds());
   return `${yyyy}${mm}${dd}_${hh}${mi}${ss}`;
+}
+
+function dateStamp(now = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const yyyy = String(now.getFullYear());
+  const mm = pad(now.getMonth() + 1);
+  const dd = pad(now.getDate());
+  return `${yyyy}${mm}${dd}`;
 }
 
 function readFieldValue(el) {
@@ -1424,16 +1444,122 @@ function bindStoredSelect(selectId, key, { absolute = false } = {}) {
   select.addEventListener("change", persist);
 }
 
+function canonicalQueueFilterLabel(raw) {
+  const normalized = normalizeMonitorFilterName(raw);
+  if (!normalized) return "";
+  if (normalized === "HA") return "Ha";
+  if (normalized === "OSC") return "OSC";
+  if (normalized === "OIII") return "OIII";
+  if (normalized === "SII") return "SII";
+  if (["L", "R", "G", "B"].includes(normalized)) return normalized;
+  return String(raw || "").trim();
+}
+
+function splitQueueFilterValue(raw) {
+  const canonical = canonicalQueueFilterLabel(raw);
+  if (!canonical) return { preset: "", custom: "" };
+  return QUEUE_FILTER_PRESETS.includes(canonical)
+    ? { preset: canonical, custom: "" }
+    : { preset: "", custom: canonical };
+}
+
+function queueBlock(scope = document) {
+  return scope.querySelector(".ps-queue-block");
+}
+
+function ensureQueueBody(scope = document) {
+  const block = queueBlock(scope);
+  if (!block) return null;
+  let body = block.querySelector(".ps-queue-body");
+  if (!body) {
+    body = document.createElement("div");
+    body.className = "ps-queue-body";
+    Array.from(block.children)
+      .filter((child) => child instanceof Element && child.classList.contains("ps-queue-row"))
+      .forEach((child) => body.appendChild(child));
+    block.appendChild(body);
+  }
+  return body;
+}
+
+function updateQueueRowToggleLabel(row) {
+  if (!row) return;
+  const checkbox = row.querySelector("[data-queue-field='enabled']");
+  const label = row.querySelector(".ps-queue-toggle span");
+  if (label) label.textContent = checkbox?.checked ? "on" : "off";
+}
+
+function createQueueRowElement(item = {}) {
+  const row = document.createElement("div");
+  row.className = "ps-queue-row";
+  const filterParts = splitQueueFilterValue(item.filter || "");
+  const inputDir = String(item.input_dir || "").trim();
+  const pattern = String(item.pattern || "").trim();
+  const runId = String(item.run_id || "").trim();
+  const enabled = item.enabled !== false;
+  row.innerHTML = `
+    <div class="ps-queue-cell">
+      <div class="ps-queue-filter-stack">
+        <select class="ps-select" data-queue-field="filter-select" title="Vordefinierten Filter fuer Queue-Eintrag setzen.">
+          ${QUEUE_FILTER_PRESETS.map((value) => `<option value="${value}">${value || "-"}</option>`).join("")}
+        </select>
+        <input class="ps-input" data-queue-field="filter-custom" type="text" value="" placeholder="frei" title="Beliebigen Filternamen fuer Queue-Eintrag setzen.">
+      </div>
+    </div>
+    <div class="ps-queue-cell">
+      <div class="ps-inline-cluster">
+        <input class="ps-input" data-queue-field="input_dir" type="text" value="" placeholder="Verzeichnis waehlen" title="Input-Ordner fuer Queue-Eintrag setzen.">
+        <button class="ps-btn ps-btn-secondary ps-btn-compact" data-queue-action="browse" type="button" title="Ordnerdialog fuer Queue-Eintrag oeffnen.">Browse…</button>
+      </div>
+    </div>
+    <div class="ps-queue-cell"><input class="ps-input" data-queue-field="pattern" type="text" value="" placeholder="optional, z. B. *.fits" title="Optionales Pattern fuer Queue-Eintrag."></div>
+    <div class="ps-queue-cell"><input class="ps-input" data-queue-field="run_id" type="text" value="" placeholder="optional" title="Optionales Run-Label/Subfolder fuer Queue-Eintrag."></div>
+    <div class="ps-queue-toggle"><input type="checkbox" data-queue-field="enabled" title="Queue-Eintrag aktiv/inaktiv setzen."><span>on</span></div>
+    <div class="ps-queue-actions">
+      <button class="ps-btn ps-btn-secondary ps-btn-compact ps-queue-remove-btn" data-queue-action="remove" type="button" title="Queue-Eintrag entfernen.">-</button>
+    </div>
+  `;
+  const select = row.querySelector("[data-queue-field='filter-select']");
+  const custom = row.querySelector("[data-queue-field='filter-custom']");
+  const input = row.querySelector("[data-queue-field='input_dir']");
+  const patternInput = row.querySelector("[data-queue-field='pattern']");
+  const runIdInput = row.querySelector("[data-queue-field='run_id']");
+  const checkbox = row.querySelector("[data-queue-field='enabled']");
+  if (select) select.value = filterParts.preset;
+  if (custom) custom.value = filterParts.custom;
+  if (input) input.value = inputDir;
+  if (patternInput) patternInput.value = pattern;
+  if (runIdInput) runIdInput.value = runId;
+  if (checkbox) checkbox.checked = enabled;
+  checkbox?.addEventListener("change", () => updateQueueRowToggleLabel(row));
+  updateQueueRowToggleLabel(row);
+  return row;
+}
+
+function renderQueueRows(items = [], scope = document) {
+  const body = ensureQueueBody(scope);
+  if (!body) return [];
+  body.innerHTML = "";
+  const rows = Array.isArray(items) && items.length > 0 ? items : [{}];
+  rows.forEach((item) => body.appendChild(createQueueRowElement(item)));
+  return Array.from(body.querySelectorAll(".ps-queue-row"));
+}
+
 function collectQueueDraftRows(scope = document) {
-  return Array.from(scope.querySelectorAll(".ps-queue-row")).map((row) => {
-    const select = row.querySelector("select");
-    const inputs = Array.from(row.querySelectorAll("input[type='text']"));
-    const enabled = row.querySelector("input[type='checkbox']");
+  const body = ensureQueueBody(scope);
+  const rows = body ? Array.from(body.querySelectorAll(".ps-queue-row")) : [];
+  return rows.map((row) => {
+    const select = row.querySelector("[data-queue-field='filter-select']");
+    const custom = row.querySelector("[data-queue-field='filter-custom']");
+    const inputDir = row.querySelector("[data-queue-field='input_dir']");
+    const pattern = row.querySelector("[data-queue-field='pattern']");
+    const runId = row.querySelector("[data-queue-field='run_id']");
+    const enabled = row.querySelector("[data-queue-field='enabled']");
     return {
-      filter: String(select?.value || "").trim(),
-      input_dir: String(inputs[0]?.value || "").trim(),
-      pattern: String(inputs[1]?.value || "").trim(),
-      run_id: String(inputs[2]?.value || "").trim(),
+      filter: String(custom?.value || "").trim() || canonicalQueueFilterLabel(select?.value || ""),
+      input_dir: String(inputDir?.value || "").trim(),
+      pattern: String(pattern?.value || "").trim(),
+      run_id: String(runId?.value || "").trim(),
       enabled: enabled ? Boolean(enabled.checked) : true,
     };
   });
@@ -1446,42 +1572,65 @@ function restoreQueueDraftRows(key, scope = document) {
     rows = Array.isArray(parsed) ? parsed : [];
   } catch {
     writeServerUiStateValue(key, "");
+    renderQueueRows([], scope);
+    return [];
+  }
+  renderQueueRows(rows, scope);
+  return rows;
+}
+
+function persistQueueDraftRows(key, scope = document) {
+  const items = collectQueueDraftRows(scope);
+  const hasContent = items.some((item) => !item.enabled || item.filter || item.input_dir || item.pattern || item.run_id);
+  if (!hasContent) {
+    writeServerUiStateValue(key, "");
     return;
   }
-  if (rows.length === 0) return;
-  Array.from(scope.querySelectorAll(".ps-queue-row")).forEach((row, index) => {
-    const item = rows[index];
-    if (!item || typeof item !== "object") return;
-    const select = row.querySelector("select");
-    const inputs = Array.from(row.querySelectorAll("input[type='text']"));
-    const enabled = row.querySelector("input[type='checkbox']");
-    if (select) select.value = String(item.filter || "");
-    if (inputs[0]) inputs[0].value = String(item.input_dir || "");
-    if (inputs[1]) inputs[1].value = String(item.pattern || "");
-    if (inputs[2]) inputs[2].value = String(item.run_id || "");
-    if (enabled) enabled.checked = item.enabled !== false;
-  });
+  writeServerUiStateValue(key, JSON.stringify(items));
 }
 
 function bindQueueDraftPersistence(key, scope = document) {
-  const rows = Array.from(scope.querySelectorAll(".ps-queue-row"));
-  if (rows.length === 0) return;
+  const block = queueBlock(scope);
+  if (!block) return;
   restoreQueueDraftRows(key, scope);
-  const persist = () => {
-    const items = collectQueueDraftRows(scope);
-    const hasContent = items.some((item) => !item.enabled || item.filter || item.input_dir || item.pattern || item.run_id);
-    if (!hasContent) {
-      writeServerUiStateValue(key, "");
+  const persist = () => persistQueueDraftRows(key, scope);
+  if (block.dataset.queuePersistenceBound === "1") {
+    persist();
+    return;
+  }
+  block.dataset.queuePersistenceBound = "1";
+  block.addEventListener("input", persist);
+  block.addEventListener("change", persist);
+  block.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const removeBtn = target.closest("[data-queue-action='remove']");
+    if (removeBtn) {
+      const row = removeBtn.closest(".ps-queue-row");
+      if (!row) return;
+      row.remove();
+      const remainingRows = Array.from(block.querySelectorAll(".ps-queue-row"));
+      if (remainingRows.length === 0) renderQueueRows([], scope);
+      persist();
+      document.dispatchEvent(new CustomEvent("gui2:queue-changed"));
       return;
     }
-    writeServerUiStateValue(key, JSON.stringify(items));
-  };
-  rows.forEach((row) => {
-    row.querySelectorAll("input,select").forEach((el) => {
-      el.addEventListener("input", persist);
-      el.addEventListener("change", persist);
-    });
+    const browseBtn = target.closest("[data-queue-action='browse']");
+    if (!browseBtn) return;
+    const row = browseBtn.closest(".ps-queue-row");
+    const input = row?.querySelector("[data-queue-field='input_dir']");
+    if (!(input instanceof HTMLInputElement)) return;
+    try {
+      const chosen = await pickDirectoryPath(String(input.value || "").trim() || firstNonEmptyText(readServerUiStateValue(LAST_INPUT_DIRS_KEY), uiState.projectRunsDir, ""));
+      if (!chosen) return;
+      input.value = chosen;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    } catch (err) {
+      setFooter(`Queue-Ordner konnte nicht gesetzt werden: ${errorText(err)}`, true);
+    }
   });
+  persist();
 }
 
 function persistHistorySelectionState() {
@@ -1606,6 +1755,39 @@ function preferredRunName({ inputId = "", storageKey = "", fallbackDirs = [] } =
   return suggestRunNameFromInputs(fallbackDirs);
 }
 
+function deriveQueueLeafNames(queueItems = []) {
+  const counts = new Map();
+  return (Array.isArray(queueItems) ? queueItems : []).map((item, index) => {
+    let leaf = sanitizeRunName(item?.filter || "");
+    if (!leaf) leaf = `item-${index + 1}`;
+    const nextCount = (counts.get(leaf) || 0) + 1;
+    counts.set(leaf, nextCount);
+    return nextCount > 1 ? `${leaf}-${nextCount}` : leaf;
+  });
+}
+
+function buildRunPathPreview({
+  runsDir = "",
+  explicitRunName = "",
+  fallbackRunName = "",
+  queueItems = [],
+} = {}) {
+  const baseDir = String(runsDir || "").trim().replace(/\/+$/g, "");
+  if (!baseDir) return "";
+
+  const explicit = sanitizeRunName(explicitRunName);
+  const queueLeaves = deriveQueueLeafNames(queueItems);
+  if (queueLeaves.length > 0) {
+    const root = explicit ? `${explicit}_${timestampSuffix()}` : dateStamp();
+    if (queueLeaves.length === 1) return `${baseDir}/${root}/${queueLeaves[0]}`;
+    return `${baseDir}/${root}/{${queueLeaves.join(", ")}}`;
+  }
+
+  const runName = explicit || sanitizeRunName(fallbackRunName);
+  if (!runName) return "";
+  return `${baseDir}/${runName}_${timestampSuffix()}`;
+}
+
 async function resolveConfigYamlForRun() {
   const updates = collectParameterDirtyUpdates();
   if (updates.length === 0) {
@@ -1650,16 +1832,20 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
       ? $("wizard-runs-dir")
       : $("scan-runs-dir");
   const configYaml = await resolveConfigYamlForRun();
+  const queue = useDashboardFields || useWizardFields ? collectQueueRows() : [];
+  const useQueueNaming = queue.length > 0;
   const explicitRunName = useDashboardFields
     ? explicitRunNameValue("dashboard-run-name")
     : useWizardFields
       ? explicitRunNameValue("wizard-run-name")
       : sanitizeRunName(runNameEl?.value || "");
-  const runName = useDashboardFields
-    ? preferredRunName({ inputId: "dashboard-run-name", storageKey: UI_STORAGE_KEYS.dashboardRunName, fallbackDirs: inputDirs })
-    : useWizardFields
-      ? preferredRunName({ inputId: "wizard-run-name", storageKey: UI_STORAGE_KEYS.wizardRunName, fallbackDirs: inputDirs })
-      : explicitRunName || preferredStoredRunName() || suggestRunNameFromInputs(inputDirs);
+  const runName = useQueueNaming
+    ? explicitRunName
+    : useDashboardFields
+      ? preferredRunName({ inputId: "dashboard-run-name", storageKey: UI_STORAGE_KEYS.dashboardRunName, fallbackDirs: inputDirs })
+      : useWizardFields
+        ? preferredRunName({ inputId: "wizard-run-name", storageKey: UI_STORAGE_KEYS.wizardRunName, fallbackDirs: inputDirs })
+        : explicitRunName || preferredStoredRunName() || suggestRunNameFromInputs(inputDirs);
   if (runNameEl && explicitRunName) runNameEl.value = explicitRunName;
   const runsDir = firstNonEmptyText(runsDirEl?.value, preferredStoredRunsDir(), uiState.projectRunsDir);
   if (runsDirEl && !String(runsDirEl.value || "").trim() && runsDir) {
@@ -1692,10 +1878,9 @@ async function startRunFromCurrentForm({ source = "" } = {}) {
     astap_bin: astapBin || undefined,
     astap_data_dir: astapDataDir || undefined,
   };
-  const queue = useDashboardFields || useWizardFields ? collectQueueRows() : [];
   if (queue.length > 0) {
     payload.queue = queue;
-  } else if (inputDirs.length > 1 && colorMode === "MONO") {
+  } else if (inputDirs.length > 1) {
     payload.input_dirs = inputDirs.map((dir) => ({ input_dir: dir }));
   } else {
     payload.input_dir = inputDirs[0] || "";
@@ -1721,6 +1906,7 @@ function summarizeScanResult(raw, fallbackInputPath = "") {
   const hasScan = typeof src.has_scan === "boolean" ? src.has_scan : Object.keys(src).length > 0;
   const ok = typeof src.ok === "boolean" ? src.ok : errors.length === 0;
   const inputDirs = Array.isArray(src.input_dirs) ? src.input_dirs.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const perDirResults = Array.isArray(src.per_dir_results) ? src.per_dir_results : [];
   const colorMode = String(src.color_mode || "");
   const normalizedColorMode = normalizeDetectedColorMode(colorMode);
   if (normalizedColorMode) {
@@ -1740,6 +1926,7 @@ function summarizeScanResult(raw, fallbackInputPath = "") {
     requires_user_confirmation: Boolean(src.requires_user_confirmation),
     errors,
     warnings,
+    per_dir_results: perDirResults,
   };
 }
 
@@ -1774,6 +1961,129 @@ function renderScanSummary(prefix, summary) {
 function normalizeDetectedColorMode(value) {
   const normalized = String(value || "").trim().toUpperCase();
   return normalized === "MONO" || normalized === "OSC" ? normalized : "";
+}
+
+function scanSummaryInputDirs(summary) {
+  const src = summary && typeof summary === "object" ? summary : {};
+  const dirs = Array.isArray(src.input_dirs) ? src.input_dirs.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  if (dirs.length > 0) return dirs;
+  const single = String(src.input_path || "").trim();
+  return single ? [single] : [];
+}
+
+function sameInputDirSet(left, right) {
+  const a = canonicalInputDirsText(Array.isArray(left) ? left.join(", ") : "");
+  const b = canonicalInputDirsText(Array.isArray(right) ? right.join(", ") : "");
+  return Boolean(a) && a === b;
+}
+
+function collectNonEmptyQueueItems(scope = document) {
+  return collectQueueDraftRows(scope).filter((item) => {
+    const inputDir = String(item?.input_dir || "").trim();
+    const filter = String(item?.filter || "").trim();
+    const pattern = String(item?.pattern || "").trim();
+    const runId = String(item?.run_id || "").trim();
+    return Boolean(inputDir || filter || pattern || runId || item?.enabled === false);
+  });
+}
+
+function queueItemsForInputDirs(inputDirs, { selectedColorMode = "", summary = null } = {}) {
+  const dirs = Array.isArray(inputDirs) ? inputDirs.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  if (dirs.length === 0) return [];
+  const summaryMatches = summary && sameInputDirSet(dirs, scanSummaryInputDirs(summary));
+  const detectedByDir = new Map();
+  if (summaryMatches) {
+    const perDir = Array.isArray(summary.per_dir_results) ? summary.per_dir_results : [];
+    if (perDir.length > 0) {
+      perDir.forEach((item) => {
+        const inputDir = String(item?.input_path || item?.input_dir || "").trim();
+        const mode = normalizeDetectedColorMode(item?.color_mode || "");
+        if (inputDir && mode) detectedByDir.set(inputDir, mode);
+      });
+    } else {
+      const mode = normalizeDetectedColorMode(summary.color_mode || "");
+      if (mode) dirs.forEach((dir) => detectedByDir.set(dir, mode));
+    }
+  }
+  const fallbackMode = normalizeDetectedColorMode(selectedColorMode);
+  return dirs.map((dir) => {
+    const detectedMode = detectedByDir.get(dir) || fallbackMode;
+    return {
+      filter: detectedMode === "OSC" ? "OSC" : "",
+      input_dir: dir,
+      pattern: "",
+      run_id: "",
+      enabled: true,
+    };
+  });
+}
+
+function mergeQueueItems(existingItems, additions) {
+  const merged = [];
+  const byDir = new Map();
+  (Array.isArray(existingItems) ? existingItems : []).forEach((item) => {
+    const normalized = {
+      filter: String(item?.filter || "").trim(),
+      input_dir: String(item?.input_dir || "").trim(),
+      pattern: String(item?.pattern || "").trim(),
+      run_id: String(item?.run_id || "").trim(),
+      enabled: item?.enabled !== false,
+    };
+    if (!normalized.input_dir && !normalized.filter && !normalized.pattern && !normalized.run_id) return;
+    merged.push(normalized);
+    if (normalized.input_dir) byDir.set(normalized.input_dir, normalized);
+  });
+  (Array.isArray(additions) ? additions : []).forEach((item) => {
+    const inputDir = String(item?.input_dir || "").trim();
+    if (!inputDir) return;
+    const existing = byDir.get(inputDir);
+    if (existing) {
+      if (!existing.filter && item.filter) existing.filter = String(item.filter);
+      return;
+    }
+    const normalized = {
+      filter: String(item?.filter || "").trim(),
+      input_dir: inputDir,
+      pattern: String(item?.pattern || "").trim(),
+      run_id: String(item?.run_id || "").trim(),
+      enabled: item?.enabled !== false,
+    };
+    merged.push(normalized);
+    byDir.set(inputDir, normalized);
+  });
+  return merged;
+}
+
+async function addCurrentInputDirsToQueue({
+  inputId,
+  colorModeId,
+  storageKey = "",
+  scope = document,
+} = {}) {
+  const input = $(inputId);
+  const dirs = parseInputDirs(String(input?.value || ""));
+  if (dirs.length === 0) {
+    setFooter("Bitte zuerst einen Eingabeordner waehlen und scannen.", true);
+    return;
+  }
+  let summary = null;
+  try {
+    const latest = await api.get(API_ENDPOINTS.scan.latest);
+    const parsed = summarizeScanResult(latest, dirs[0] || "");
+    if (parsed?.has_scan) summary = parsed;
+  } catch {
+    summary = null;
+  }
+  const additions = queueItemsForInputDirs(dirs, {
+    selectedColorMode: String($(colorModeId)?.value || "").trim(),
+    summary,
+  });
+  const merged = mergeQueueItems(collectNonEmptyQueueItems(scope), additions);
+  renderQueueRows(merged, scope);
+  if (storageKey) persistQueueDraftRows(storageKey, scope);
+  document.dispatchEvent(new CustomEvent("gui2:queue-changed"));
+  setRunQueueVisible(String($(colorModeId)?.value || "").trim());
+  setFooter(`${additions.length} Eingabeordner in die Run-Queue uebernommen.`);
 }
 
 function applyDetectedColorModeToSelect(selectEl, scanSummary) {
@@ -1967,6 +2277,30 @@ async function pickDirectoryPath(initialPath) {
   }
   const typed = window.prompt("Verzeichnis eingeben", initialPath || "");
   return String(typed || "").trim() || null;
+}
+
+async function bindInputDirectoryPicker({ inputId, browseId }) {
+  const input = $(inputId);
+  if (!input) return;
+  const setValue = (value) => {
+    input.value = String(value || "").trim();
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  const pick = async () => {
+    const currentDirs = parseInputDirs(String(input.value || ""));
+    const initial = currentDirs[0] || "";
+    const chosen = await pickDirectoryPath(initial || firstNonEmptyText(readServerUiStateValue(LAST_INPUT_DIRS_KEY), ""));
+    if (!chosen) return;
+    setValue(chosen);
+  };
+  $(browseId)?.addEventListener("click", async () => {
+    try {
+      await pick();
+    } catch (err) {
+      setFooter(`Input-Ordner konnte nicht gesetzt werden: ${errorText(err)}`, true);
+    }
+  });
 }
 
 async function fetchPresetsForDir(dir = "") {
@@ -2217,11 +2551,6 @@ async function executeScanFlow({
         "Scan-Status war kurzzeitig nicht abrufbar (Backend-Reload). Letztes Scan-Ergebnis wurde geladen.",
         true,
       );
-      const mergedInputText = summary.input_dirs?.length > 0 ? summary.input_dirs.join(", ") : summary.input_path;
-      if (mergedInputText) {
-        if ($(inputDirsId)) $(inputDirsId).value = mergedInputText;
-        persistLastInputDirs(summary.input_path);
-      }
       await initGlobalState();
       return;
     }
@@ -2237,11 +2566,6 @@ async function executeScanFlow({
     renderScanSummary(summaryPrefix, summary);
     applyDetectedColorModeToSelect($("inp-colormode"), summary);
     applyDetectedColorModeToSelect($("dashboard-color-mode"), summary);
-    const mergedInputText = summary.input_dirs?.length > 0 ? summary.input_dirs.join(", ") : summary.input_path;
-    if (mergedInputText) {
-      if ($(inputDirsId)) $(inputDirsId).value = mergedInputText;
-      persistLastInputDirs(summary.input_path);
-    }
     if (job.state === "ok") {
       setFooter("Scan abgeschlossen.");
     } else {
@@ -2281,7 +2605,10 @@ function bindInputDirMemory(...ids) {
 }
 
 function bindScanPages() {
+  const queueStorageKey = activeQueueStorageKey();
+  const queueColorModeId = pageName() === "wizard.html" ? "inp-colormode" : "inp-colormode";
   bindInputDirMemory("inp-dirs");
+  bindQueueDraftPersistence(queueStorageKey);
   bindStoredField("scan-runs-dir", UI_STORAGE_KEYS.dashboardRunsDir, {
     absolute: true,
   });
@@ -2293,6 +2620,36 @@ function bindScanPages() {
     scanRunsDir.value = uiState.projectRunsDir;
   }
   if (!$("btn-scan")) return;
+  void bindInputDirectoryPicker({
+    inputId: "inp-dirs",
+    browseId: "inp-dirs-browse-btn",
+  });
+  void bindInputDirectoryPicker({
+    inputId: "inp-dirs",
+    browseId: "wizard-inp-dirs-browse-btn",
+  });
+  $("inp-dirs-add-btn")?.addEventListener("click", async () => {
+    try {
+      await addCurrentInputDirsToQueue({
+        inputId: "inp-dirs",
+        colorModeId: queueColorModeId,
+        storageKey: queueStorageKey,
+      });
+    } catch (err) {
+      setFooter(`Run-Queue konnte nicht erweitert werden: ${errorText(err)}`, true);
+    }
+  });
+  $("wizard-inp-dirs-add-btn")?.addEventListener("click", async () => {
+    try {
+      await addCurrentInputDirsToQueue({
+        inputId: "inp-dirs",
+        colorModeId: queueColorModeId,
+        storageKey: queueStorageKey,
+      });
+    } catch (err) {
+      setFooter(`Run-Queue konnte nicht erweitert werden: ${errorText(err)}`, true);
+    }
+  });
   window.runScan = () => {
     void executeScanFlow();
   };
@@ -2353,7 +2710,7 @@ function bindScanPages() {
   });
   const colorModeEl = $("inp-colormode");
   if (colorModeEl) {
-    const updateQueue = () => setMonoQueueVisible(colorModeEl.value || "");
+    const updateQueue = () => setRunQueueVisible(colorModeEl.value || "");
     colorModeEl.addEventListener("change", updateQueue);
     updateQueue();
   }
@@ -2375,7 +2732,7 @@ function bindScanPages() {
         const mergedInputText = summary.input_dirs?.length > 0 ? summary.input_dirs.join(", ") : summary.input_path;
         if (mergedInputText) {
           $("inp-dirs").value = mergedInputText;
-          persistLastInputDirs(summary.input_path);
+          persistLastInputDirs(mergedInputText);
         }
       }
     } catch {
@@ -3298,13 +3655,14 @@ function applyRunMonitorResumePhaseAvailability(resumePhases) {
 function runMonitorSelectedFilter() {
   const chipRow = $("monitor-filter-row");
   if (chipRow && chipRow.style.display === "none") return "";
-  const selected = document.querySelector(".ps-chip-btn.active[id^='monitor-filter-']");
+  const selected = chipRow?.querySelector(".ps-chip-btn.active");
   if (!selected) return "";
   return String(selected.textContent || "").trim().toUpperCase();
 }
 
 function runMonitorFilterButtons() {
-  return Array.from(document.querySelectorAll(".ps-chip-btn[id^='monitor-filter-']"));
+  const chipRow = $("monitor-filter-row");
+  return chipRow ? Array.from(chipRow.querySelectorAll(".ps-chip-btn")) : [];
 }
 
 function normalizeMonitorFilterName(raw) {
@@ -3331,37 +3689,296 @@ function collectActiveRunMonitorFilters(queueItemsRaw = null) {
   return out;
 }
 
-function runMonitorEffectiveColorMode(colorModeRaw = "") {
-  return normalizeDetectedColorMode(
-    firstNonEmptyText(colorModeRaw, uiState.currentRunColorMode, getPersistedDetectedColorMode(), ""),
-  );
+function collectRunMonitorFilterEntries(queueItemsRaw = null) {
+  const source = Array.isArray(queueItemsRaw) ? queueItemsRaw : collectQueueRows();
+  const grouped = new Map();
+  for (const item of source) {
+    const rawFilter = typeof item === "string" ? item : item?.filter || item?.filter_name || "";
+    const token = normalizeMonitorFilterName(rawFilter);
+    if (!token) continue;
+    const label = canonicalQueueFilterLabel(rawFilter) || token;
+    if (!grouped.has(token)) {
+      grouped.set(token, {
+        token,
+        label,
+        total: 0,
+        done: 0,
+        running: 0,
+        pending: 0,
+        error: 0,
+        cancelled: 0,
+      });
+    }
+    const entry = grouped.get(token);
+    if (typeof item === "string") {
+      entry.total += 1;
+      entry.pending += 1;
+      continue;
+    }
+    const explicitTotal = Number(item?.total);
+    const explicitDone = Number(item?.done);
+    if (Number.isFinite(explicitTotal) && explicitTotal > 0) {
+      entry.total += explicitTotal;
+      if (Number.isFinite(explicitDone) && explicitDone >= 0) {
+        entry.done += explicitDone;
+      }
+      const state = String(item?.state || "pending").trim().toLowerCase();
+      if (state === "ok" || state === "completed" || state === "done") entry.done += 0;
+      else if (state === "running") entry.running += 1;
+      else if (state === "error" || state === "failed") entry.error += 1;
+      else if (state === "cancelled") entry.cancelled += 1;
+      else entry.pending += 1;
+      continue;
+    }
+    entry.total += 1;
+    const state = String(item?.state || "pending").trim().toLowerCase();
+    if (state === "ok" || state === "completed" || state === "done") entry.done += 1;
+    else if (state === "running") entry.running += 1;
+    else if (state === "error" || state === "failed") entry.error += 1;
+    else if (state === "cancelled") entry.cancelled += 1;
+    else entry.pending += 1;
+  }
+  return Array.from(grouped.values()).map((entry) => {
+    let state = "pending";
+    if (entry.error > 0) state = "error";
+    else if (entry.cancelled > 0) state = "cancelled";
+    else if (entry.done > 0 && entry.done >= entry.total && entry.total > 0) state = "done";
+    else if (entry.running > 0 || entry.done > 0) state = "running";
+    return {
+      filter: entry.label,
+      state,
+      done: entry.done,
+      total: entry.total,
+    };
+  });
+}
+
+function ensureRunMonitorFilterButtons(filters) {
+  const chipRow = $("monitor-filter-row");
+  if (!chipRow) return [];
+  const previous = normalizeMonitorFilterName(runMonitorSelectedFilter());
+  const normalizedFilters = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(filters) ? filters : []) {
+    const rawFilter = typeof raw === "string" ? raw : raw?.filter || raw?.filter_name || "";
+    const token = normalizeMonitorFilterName(rawFilter);
+    if (!token || seen.has(token)) continue;
+    seen.add(token);
+    normalizedFilters.push({
+      filter: canonicalQueueFilterLabel(rawFilter) || token,
+      state: typeof raw === "string" ? "pending" : String(raw?.state || "pending").trim().toLowerCase(),
+    });
+  }
+  chipRow.innerHTML = "";
+  normalizedFilters.forEach((entry, index) => {
+    const filter = entry.filter;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ps-chip-btn";
+    btn.id = `monitor-filter-${normalizeMonitorFilterName(filter) || index}`;
+    btn.dataset.control = `monitor.filter.${filter}`;
+    btn.dataset.state = entry.state || "pending";
+    btn.title = `Filterkontext ${filter} waehlen.`;
+    btn.textContent = filter;
+    if (entry.state === "ok" || entry.state === "completed" || entry.state === "done") {
+      btn.classList.add("done");
+    } else if (entry.state === "running") {
+      btn.classList.add("running");
+    } else if (entry.state === "error" || entry.state === "failed") {
+      btn.classList.add("error");
+    }
+    if ((previous && normalizeMonitorFilterName(filter) === previous) || (!previous && index === 0)) {
+      btn.classList.add("active");
+    }
+    chipRow.appendChild(btn);
+  });
+  return runMonitorFilterButtons();
 }
 
 function setRunMonitorFilterVisibility(colorModeRaw, queueItemsRaw = null) {
   const chipRow = $("monitor-filter-row");
   if (!chipRow) return;
-  const chipButtons = runMonitorFilterButtons();
-  const colorMode = runMonitorEffectiveColorMode(colorModeRaw);
-  const activeFilters = collectActiveRunMonitorFilters(queueItemsRaw).filter((filter) => chipButtons.some((btn) => normalizeMonitorFilterName(btn.textContent) === filter));
-  const hideFilters = colorMode !== "MONO" || activeFilters.length === 0;
+  const filterEntries = collectRunMonitorFilterEntries(queueItemsRaw);
+  const chipButtons = ensureRunMonitorFilterButtons(filterEntries);
+  const hideFilters = filterEntries.length === 0;
   chipRow.style.display = hideFilters ? "none" : "";
   if (hideFilters) {
-    chipButtons.forEach((btn) => {
-      btn.style.display = "";
-      btn.classList.remove("active");
-    });
     return;
   }
-  const activeSet = new Set(activeFilters);
-  chipButtons.forEach((btn) => {
-    const filter = normalizeMonitorFilterName(btn.textContent);
-    const visible = activeSet.has(filter);
-    btn.style.display = visible ? "" : "none";
-    if (!visible) btn.classList.remove("active");
-  });
-  if (!document.querySelector(".ps-chip-btn.active[id^='monitor-filter-']")) {
-    chipButtons.find((btn) => btn.style.display !== "none")?.classList.add("active");
+  if (!chipRow.querySelector(".ps-chip-btn.active")) {
+    chipButtons[0]?.classList.add("active");
   }
+}
+
+function escapeRunMonitorHtml(text) {
+  return String(text ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function normalizeRunIdPath(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "");
+}
+
+function normalizeFsPath(raw) {
+  return String(raw || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+$/g, "");
+}
+
+function queueItemStateClass(stateRaw) {
+  const state = String(stateRaw || "pending").trim().toLowerCase();
+  if (["ok", "completed", "done"].includes(state)) return "done";
+  if (["error", "failed", "aborted"].includes(state)) return "error";
+  if (state === "running") return "running";
+  return "pending";
+}
+
+function basenameSafe(pathRaw) {
+  const normalized = String(pathRaw || "").trim().replace(/\\/g, "/").replace(/\/+$/g, "");
+  if (!normalized) return "";
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] || normalized;
+}
+
+function runIdParentPath(runIdRaw) {
+  const normalized = normalizeRunIdPath(runIdRaw);
+  if (!normalized || !normalized.includes("/")) return "";
+  return normalized.split("/").slice(0, -1).join("/");
+}
+
+function runIdLeaf(runIdRaw) {
+  const normalized = normalizeRunIdPath(runIdRaw);
+  if (!normalized) return "";
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] || normalized;
+}
+
+function runDirForRunId(runDirRaw, currentRunIdRaw, targetRunIdRaw) {
+  const runDir = normalizeFsPath(runDirRaw);
+  const currentRunId = normalizeRunIdPath(currentRunIdRaw);
+  const targetRunId = normalizeRunIdPath(targetRunIdRaw);
+  if (!runDir || !targetRunId) return "";
+  if (!currentRunId) return runDir;
+  const suffix = `/${currentRunId}`;
+  if (runDir.endsWith(suffix)) return `${runDir.slice(0, -suffix.length)}/${targetRunId}`;
+  return runDir;
+}
+
+function queueRootRunId(queueItemsRaw = [], fallbackRunId = "") {
+  const parents = Array.from(new Set(
+    (Array.isArray(queueItemsRaw) ? queueItemsRaw : [])
+      .map((item) => runIdParentPath(item?.run_id || ""))
+      .filter(Boolean),
+  ));
+  if (parents.length === 1) return parents[0];
+  const fallback = normalizeRunIdPath(fallbackRunId);
+  if (parents.includes(fallback)) return fallback;
+  const fallbackParent = runIdParentPath(fallback);
+  if (fallbackParent && parents.includes(fallbackParent)) return fallbackParent;
+  return parents[0] || fallbackParent || fallback;
+}
+
+function queueActiveItem(queueItemsRaw = [], { currentIndex = -1, fallbackRunId = "" } = {}) {
+  const queueItems = Array.isArray(queueItemsRaw) ? queueItemsRaw.filter((item) => item && typeof item === "object") : [];
+  if (!queueItems.length) return null;
+  const runningItem = queueItems.find((item) => String(item?.state || "").trim().toLowerCase() === "running");
+  if (runningItem) return runningItem;
+  if (Number.isInteger(currentIndex) && currentIndex >= 0 && currentIndex < queueItems.length) return queueItems[currentIndex];
+  const normalizedFallback = normalizeRunIdPath(fallbackRunId);
+  if (normalizedFallback) {
+    const exactItem = queueItems.find((item) => normalizeRunIdPath(item?.run_id || "") === normalizedFallback);
+    if (exactItem) return exactItem;
+  }
+  return queueItems[0] || null;
+}
+
+function queueActiveRunId(queueItemsRaw = [], { currentIndex = -1, fallbackRunId = "" } = {}) {
+  return String(queueActiveItem(queueItemsRaw, { currentIndex, fallbackRunId })?.run_id || "").trim();
+}
+
+function renderRunMonitorSummary(runId, runStatus, queueItemsRaw = null, runDirRaw = "") {
+  const section = $("monitor-run-summary");
+  const metaEl = $("monitor-run-summary-meta");
+  const structureEl = $("monitor-run-structure");
+  const batchEl = $("monitor-run-batches");
+  if (!section || !metaEl || !structureEl || !batchEl) return;
+
+  const queueItems = Array.isArray(queueItemsRaw) ? queueItemsRaw.filter((item) => item && typeof item === "object") : [];
+  if (!queueItems.length) {
+    section.hidden = true;
+    metaEl.innerHTML = "";
+    structureEl.innerHTML = "";
+    batchEl.innerHTML = "";
+    return;
+  }
+
+  section.hidden = false;
+  const normalizedRunId = normalizeRunIdPath(runId);
+  const activeItem = queueActiveItem(queueItems, { fallbackRunId: normalizedRunId });
+  const activeItemRunId = normalizeRunIdPath(activeItem?.run_id || normalizedRunId);
+  const doneCount = queueItems.filter((item) => ["ok", "completed", "done"].includes(String(item?.state || "").trim().toLowerCase())).length;
+  const rootRunId = queueRootRunId(queueItems, activeItemRunId || normalizedRunId);
+  const activeFilter = canonicalQueueFilterLabel(activeItem?.filter || "") || runIdLeaf(activeItemRunId || normalizedRunId) || "-";
+  const activeInputDir = String(activeItem?.input_dir || "").trim();
+  const activeRunDir = runDirForRunId(runDirRaw, normalizedRunId || activeItemRunId, activeItemRunId || normalizedRunId);
+  const rootRunDir = rootRunId ? runDirForRunId(runDirRaw, normalizedRunId || activeItemRunId, rootRunId) : "";
+
+  metaEl.innerHTML = `
+    <strong>Root</strong><span><code>${escapeRunMonitorHtml(rootRunId || "-")}</code></span>
+    <strong>Root Dir</strong><span><code>${escapeRunMonitorHtml(rootRunDir || "-")}</code></span>
+    <strong>Aktiv</strong><span><code>${escapeRunMonitorHtml(activeItemRunId || normalizedRunId || "-")}</code></span>
+    <strong>Status</strong><span><code>${escapeRunMonitorHtml(runStatus || "unknown")}</code></span>
+    <strong>Batch-Fortschritt</strong><span>${doneCount}/${queueItems.length}</span>
+    <strong>Filter</strong><span>${escapeRunMonitorHtml(activeFilter || "-")}</span>
+    <strong>Quelle</strong><span>${escapeRunMonitorHtml(activeInputDir || "-")}</span>
+  `;
+
+  const structureNodes = [];
+  if (rootRunId) {
+    structureNodes.push(`<div class="ps-monitor-run-node"><strong>Root</strong><code>${escapeRunMonitorHtml(rootRunId)}</code></div>`);
+  }
+  if (rootRunDir) {
+    structureNodes.push(`<div class="ps-monitor-run-node"><strong>Root-Pfad</strong><code>${escapeRunMonitorHtml(rootRunDir)}</code></div>`);
+  }
+  queueItems.forEach((item, index) => {
+    const itemRunId = normalizeRunIdPath(item?.run_id || "");
+    const itemLabel = canonicalQueueFilterLabel(item?.filter || "") || runIdLeaf(itemRunId) || `Batch ${index + 1}`;
+    const stateLabel = String(item?.state || "pending").trim() || "pending";
+    const nodeLabel = itemRunId === activeItemRunId ? `Aktiv ${itemLabel}` : `${itemLabel} (${stateLabel})`;
+    structureNodes.push(
+      `<div class="ps-monitor-run-node"><strong>${escapeRunMonitorHtml(nodeLabel)}</strong><code>${escapeRunMonitorHtml(itemRunId || "-")}</code></div>`,
+    );
+  });
+  if (activeRunDir) {
+    structureNodes.push(`<div class="ps-monitor-run-node"><strong>Aktiver Pfad</strong><code>${escapeRunMonitorHtml(activeRunDir)}</code></div>`);
+  }
+  structureEl.innerHTML = structureNodes.join("");
+
+  batchEl.innerHTML = queueItems.map((item, index) => {
+    const itemRunId = normalizeRunIdPath(item?.run_id || "");
+    const filter = canonicalQueueFilterLabel(item?.filter || "") || runIdLeaf(itemRunId) || `Batch ${index + 1}`;
+    const inputDir = String(item?.input_dir || "").trim();
+    const itemRunDir = runDirForRunId(runDirRaw, normalizedRunId || activeItemRunId, itemRunId);
+    const stateClass = queueItemStateClass(item?.state);
+    const stateLabel = String(item?.state || "pending").trim() || "pending";
+    const activeClass = itemRunId === activeItemRunId ? " active" : "";
+    return `
+      <div class="ps-monitor-batch-item${activeClass}">
+        <div><span class="ps-monitor-batch-chip ${stateClass}">${escapeRunMonitorHtml(filter)} · ${escapeRunMonitorHtml(stateLabel)}</span></div>
+        <div class="ps-monitor-batch-details">
+          <div class="ps-monitor-batch-title"><code>${escapeRunMonitorHtml(itemRunId || "-")}</code></div>
+          <div class="ps-monitor-batch-path">${escapeRunMonitorHtml(itemRunDir || "-")}</div>
+          <div class="ps-monitor-batch-source">Input: ${escapeRunMonitorHtml(inputDir || "-")}</div>
+        </div>
+      </div>
+    `;
+  }).join("");
 }
 
 function bindRunMonitorFilterSync() {
@@ -3486,10 +4103,12 @@ function updateRunMonitorSubtitle(runId, runStatus, currentPhase) {
 async function loadRunStatus(runId) {
   const status = await api.get(API_ENDPOINTS.runs.status(runId));
   uiState.currentRunDir = String(status?.run_dir || "");
+  uiState.currentRunQueue = Array.isArray(status?.queue) ? status.queue : [];
   const fallbackScanColorMode = String(readServerUiStateValue(LAST_SCAN_COLOR_MODE_KEY) || "").trim().toUpperCase();
   const effectiveColorMode = String(status?.color_mode || "").trim().toUpperCase() || fallbackScanColorMode;
   uiState.currentRunColorMode = effectiveColorMode;
   setRunMonitorFilterVisibility(effectiveColorMode, Array.isArray(status?.queue_filters) ? status.queue_filters : null);
+  renderRunMonitorSummary(runId, status?.status || "unknown", uiState.currentRunQueue, uiState.currentRunDir);
   if (Array.isArray(status?.phases)) {
     for (const p of status.phases) {
       setPhaseRow(p.phase, p.status, p.pct);
@@ -3575,6 +4194,9 @@ function connectRunMonitorStream(runId) {
     API_ENDPOINTS.ws.run(runId),
     (event) => {
       const eventType = String(event?.type || "").trim().toLowerCase();
+      const streamRunId = String(runId || "").trim();
+      const currentRunId = String(uiState.currentRunId || "").trim();
+      if (currentRunId && streamRunId && currentRunId !== streamRunId) return;
       const line = formatStructuredLogLine(event, { suppressRunStatus: true });
       if (line) enqueueRunMonitorLogLine(line);
       const payload = event?.payload || {};
@@ -3611,6 +4233,14 @@ function connectRunMonitorStream(runId) {
         for (const p of event.payload.phases) {
           setPhaseRow(p.phase, p.status, p.pct);
         }
+        if (Array.isArray(event?.payload?.queue)) uiState.currentRunQueue = event.payload.queue;
+        if (event?.payload?.run_dir) uiState.currentRunDir = String(event.payload.run_dir || uiState.currentRunDir || "");
+        renderRunMonitorSummary(
+          runId,
+          event?.payload?.status || event?.state || "unknown",
+          uiState.currentRunQueue,
+          uiState.currentRunDir,
+        );
         updateRunMonitorSubtitle(
           runId,
           event?.payload?.status || event?.state || "unknown",
@@ -3618,7 +4248,24 @@ function connectRunMonitorStream(runId) {
         );
       }
       if (eventType === "queue_progress") {
+        if (Array.isArray(event?.payload?.queue)) uiState.currentRunQueue = event.payload.queue;
+        const currentIndex = Number.isInteger(event?.payload?.current_index) ? event.payload.current_index : Number(event?.payload?.current_index ?? -1);
+        const activeQueueRunId = queueActiveRunId(event?.payload?.queue, {
+          currentIndex: Number.isFinite(currentIndex) ? currentIndex : -1,
+          fallbackRunId: runId,
+        }) || streamRunId;
+        if (event?.payload?.runs_dir && activeQueueRunId) {
+          uiState.currentRunDir = `${String(event.payload.runs_dir).replace(/\/+$/, "")}/${normalizeRunIdPath(activeQueueRunId)}`;
+        }
         setRunMonitorFilterVisibility(uiState.currentRunColorMode, Array.isArray(event?.payload?.queue) ? event.payload.queue : null);
+        renderRunMonitorSummary(activeQueueRunId || streamRunId, uiState.runProcessStatus || event?.state || "unknown", uiState.currentRunQueue, uiState.currentRunDir);
+        if (activeQueueRunId && activeQueueRunId !== currentRunId) {
+          void uiState.runMonitorSwitchHandler?.(activeQueueRunId, {
+            queue: Array.isArray(event?.payload?.queue) ? event.payload.queue : null,
+            runsDir: String(event?.payload?.runs_dir || "").trim(),
+          });
+          return;
+        }
       }
       const terminalRunStatus = String(event?.payload?.status || event?.status || "").trim().toLowerCase();
       const isTerminalRunEvent =
@@ -3700,11 +4347,13 @@ async function bindRunMonitor() {
       updateResumeEnabled();
     });
   });
-  document.querySelectorAll(".ps-chip-btn[id^='monitor-filter-']").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".ps-chip-btn[id^='monitor-filter-']").forEach((x) => x.classList.remove("active"));
-      btn.classList.add("active");
-    });
+  $("monitor-filter-row")?.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const btn = target.closest(".ps-chip-btn");
+    if (!btn) return;
+    runMonitorFilterButtons().forEach((x) => x.classList.remove("active"));
+    btn.classList.add("active");
   });
   $("monitor-resume-config-revision")?.addEventListener("change", updateResumeEnabled);
   resumePresetSelect?.addEventListener("change", updateResumeEnabled);
@@ -3902,6 +4551,45 @@ async function bindRunMonitor() {
     }
     if (sub) sub.textContent = text;
   };
+  let runMonitorSwitchPromise = Promise.resolve(null);
+  const switchRunMonitorToRunId = (nextRunId, { queue = null, runsDir = "" } = {}) => {
+    const normalizedNextRunId = normalizeRunIdPath(nextRunId);
+    if (!normalizedNextRunId) return Promise.resolve(null);
+    if (normalizedNextRunId === normalizeRunIdPath(uiState.currentRunId)) return Promise.resolve(null);
+    runMonitorSwitchPromise = runMonitorSwitchPromise.then(async () => {
+      if (normalizedNextRunId === normalizeRunIdPath(uiState.currentRunId)) return null;
+      const previousRunId = normalizeRunIdPath(uiState.currentRunId);
+      const previousRunDir = String(uiState.currentRunDir || "").trim();
+      setCurrentRunId(normalizedNextRunId);
+      clearCurrentRunHistoryMark();
+      if (Array.isArray(queue)) uiState.currentRunQueue = queue;
+      if (runsDir) {
+        uiState.currentRunDir = `${String(runsDir).replace(/\/+$/g, "")}/${normalizedNextRunId}`;
+      } else if (previousRunDir && previousRunId) {
+        uiState.currentRunDir = runDirForRunId(previousRunDir, previousRunId, normalizedNextRunId);
+      }
+      if (uiState.runSocket) {
+        uiState.runSocket.close();
+        uiState.runSocket = null;
+      }
+      const status = await loadRunStatus(normalizedNextRunId);
+      uiState.runProcessStatus = String(status?.status || "").trim().toLowerCase();
+      await loadRunRevisions();
+      await loadRunMonitorCurrentConfig().catch(() => {});
+      await refreshArtifacts();
+      await refreshStatsActions();
+      const isActive = isRunActiveStatus(status?.status || "");
+      setMonitorActionState(isActive);
+      if (isActive) connectRunMonitorStream(uiState.currentRunId);
+      updateResumeEnabled();
+      return status;
+    }).catch((err) => {
+      setFooter(`Aktiver Queue-Batch konnte nicht geladen werden: ${errorText(err)}`, true);
+      return null;
+    });
+    return runMonitorSwitchPromise;
+  };
+  uiState.runMonitorSwitchHandler = switchRunMonitorToRunId;
   const refreshCurrentRunMonitorState = async ({ reconnectSocket = false } = {}) => {
     if (!uiState.currentRunId) return null;
     const status = await loadRunStatus(uiState.currentRunId);
@@ -5625,38 +6313,23 @@ async function bindLiveLogPage() {
   }
 }
 
-function findMonoQueueSection() {
-  return Array.from(document.querySelectorAll(".ps-section")).find((sec) => {
-    const title = sec.querySelector(".ps-section-title");
-    const normalized = String(title?.textContent || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
-    return normalized.includes("mono filter queue");
-  });
+function findRunQueueSection() {
+  return document.querySelector("[data-queue-section='run']");
 }
 
 function getPersistedDetectedColorMode() {
   return normalizeDetectedColorMode(readServerUiStateValue(LAST_SCAN_COLOR_MODE_KEY) || "");
 }
 
-function shouldShowMonoUi(selectedModeRaw) {
-  const selectedMode = normalizeDetectedColorMode(selectedModeRaw);
-  const detectedMode = getPersistedDetectedColorMode();
-  if (detectedMode === "OSC") return false;
-  return selectedMode === "MONO";
-}
-
-function setMonoQueueVisible(selectedModeRaw) {
-  const isMono = shouldShowMonoUi(selectedModeRaw);
+function setRunQueueVisible(selectedModeRaw) {
   const dashboardAdvancedBtn = $("dashboard-guided-mode-advanced");
   const dashboardHasModeToggle = Boolean($("dashboard-guided-mode-simple") || dashboardAdvancedBtn);
   const dashboardAdvancedVisible = !dashboardHasModeToggle || Boolean(dashboardAdvancedBtn?.classList.contains("active"));
-  document.querySelectorAll(".guided-mono-only").forEach((el) => {
-    el.style.display = isMono && dashboardAdvancedVisible ? "" : "none";
+  document.querySelectorAll(".guided-queue-only").forEach((el) => {
+    el.style.display = dashboardAdvancedVisible ? "" : "none";
   });
-  const sec = findMonoQueueSection();
-  if (sec) sec.style.display = isMono ? "" : "none";
+  const sec = findRunQueueSection();
+  if (sec) sec.style.display = dashboardAdvancedVisible ? "" : "none";
   setRunMonitorFilterVisibility(selectedModeRaw);
 }
 
@@ -5888,6 +6561,21 @@ async function bindDashboard() {
   setDashboardValidateStatus(null, "Validierung: nicht geprüft");
   setDashboardValidateDetails(null);
   bindInputDirMemory("dashboard-input-dirs");
+  void bindInputDirectoryPicker({
+    inputId: "dashboard-input-dirs",
+    browseId: "dashboard-input-dirs-browse-btn",
+  });
+  $("dashboard-input-dirs-add-btn")?.addEventListener("click", async () => {
+    try {
+      await addCurrentInputDirsToQueue({
+        inputId: "dashboard-input-dirs",
+        colorModeId: "dashboard-color-mode",
+        storageKey: UI_STORAGE_KEYS.dashboardQueue,
+      });
+    } catch (err) {
+      setFooter(`Run-Queue konnte nicht erweitert werden: ${errorText(err)}`, true);
+    }
+  });
   bindStoredField("dashboard-run-runs-dir", UI_STORAGE_KEYS.dashboardRunsDir, { absolute: true });
   bindStoredField("dashboard-run-name", UI_STORAGE_KEYS.dashboardRunName, { normalize: sanitizeRunName });
   bindQueueDraftPersistence(UI_STORAGE_KEYS.dashboardQueue);
@@ -5945,28 +6633,33 @@ async function bindDashboard() {
       const runsDir = String($("dashboard-run-runs-dir")?.value || "").trim();
       const rawRunName = String($("dashboard-run-name")?.value || "");
       const sanitizedRunName = sanitizeRunName(rawRunName);
-      const runName = sanitizedRunName || preferredRunName({
+      const fallbackRunName = preferredRunName({
         inputId: "dashboard-run-name",
         storageKey: UI_STORAGE_KEYS.dashboardRunName,
         fallbackDirs: parseInputDirs($("dashboard-input-dirs")?.value || ""),
       });
+      const queueItems = collectQueueRows();
       if ($("dashboard-run-name") && sanitizedRunName) $("dashboard-run-name").value = sanitizedRunName;
       persistTextValue(UI_STORAGE_KEYS.dashboardRunsDir, runsDir, { absolute: true });
       if (!$("dashboard-run-path-preview")) return;
-      if (!runsDir || !runName) {
-        $("dashboard-run-path-preview").value = "";
-        return;
-      }
-      $("dashboard-run-path-preview").value = `${runsDir}/${runName}_${timestampSuffix()}`;
+      $("dashboard-run-path-preview").value = buildRunPathPreview({
+        runsDir,
+        explicitRunName: sanitizedRunName,
+        fallbackRunName,
+        queueItems,
+      });
     };
     $("dashboard-run-runs-dir")?.addEventListener("input", preview);
     $("dashboard-run-name")?.addEventListener("input", preview);
+    findRunQueueSection()?.addEventListener("input", preview);
+    findRunQueueSection()?.addEventListener("change", preview);
+    document.addEventListener("gui2:queue-changed", preview);
     preview();
 
     $("dashboard-color-mode")?.addEventListener("change", () => {
-      setMonoQueueVisible($("dashboard-color-mode")?.value || "");
+      setRunQueueVisible($("dashboard-color-mode")?.value || "");
     });
-    setMonoQueueVisible($("dashboard-color-mode")?.value || "");
+    setRunQueueVisible($("dashboard-color-mode")?.value || "");
     $("dashboard-input-dirs")?.addEventListener("change", preview);
     $("dashboard-input-dirs")?.addEventListener("input", preview);
     preview();
@@ -6199,20 +6892,22 @@ async function bindWizard() {
     const dirs = parseInputDirs(String($("inp-dirs")?.value || ""));
     const rawRunName = String($("wizard-run-name")?.value || "");
     const sanitizedRunName = sanitizeRunName(rawRunName);
-    const suggested = sanitizedRunName || preferredRunName({
+    const fallbackRunName = preferredRunName({
       inputId: "wizard-run-name",
       storageKey: UI_STORAGE_KEYS.wizardRunName,
       fallbackDirs: dirs,
     });
+    const queueItems = collectQueueRows();
     if ($("wizard-run-name") && sanitizedRunName) $("wizard-run-name").value = sanitizedRunName;
     persistTextValue(UI_STORAGE_KEYS.wizardRunsDir, runsDir, { absolute: true });
     const previewEl = $("wizard-run-path-preview");
     if (!previewEl) return;
-    if (!runsDir || !suggested) {
-      previewEl.value = "";
-      return;
-    }
-    previewEl.value = `${runsDir}/${suggested}_${timestampSuffix()}`;
+    previewEl.value = buildRunPathPreview({
+      runsDir,
+      explicitRunName: sanitizedRunName,
+      fallbackRunName,
+      queueItems,
+    });
   };
   try {
     await bindPresetDirectoryControl({
@@ -6229,9 +6924,12 @@ async function bindWizard() {
   }
 
   $("inp-colormode")?.addEventListener("change", () => {
-    setMonoQueueVisible($("inp-colormode")?.value || "");
+    setRunQueueVisible($("inp-colormode")?.value || "");
   });
-  setMonoQueueVisible($("inp-colormode")?.value || "");
+  setRunQueueVisible($("inp-colormode")?.value || "");
+  findRunQueueSection()?.addEventListener("input", updateWizardPreview);
+  findRunQueueSection()?.addEventListener("change", updateWizardPreview);
+  document.addEventListener("gui2:queue-changed", updateWizardPreview);
   $("wizard-runs-dir")?.addEventListener("input", updateWizardPreview);
   $("wizard-run-name")?.addEventListener("input", updateWizardPreview);
   $("inp-dirs")?.addEventListener("input", updateWizardPreview);

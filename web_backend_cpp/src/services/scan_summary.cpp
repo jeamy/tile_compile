@@ -140,10 +140,10 @@ nlohmann::json scan_guardrails(const InMemoryJobStore& store) {
     std::string color_mode_label = color_mode_status == "check" ? "Color mode bestaetigen" : "Color mode: " + color_mode;
 
     nlohmann::json checks = nlohmann::json::array({
-        {{"id", "scan_ok"}, {"status", errors.empty() ? "ok" : "error"}, {"label", errors.empty() ? "Scan erfolgreich" : "Scan mit Fehlern"}, {"count", errors.size()}},
+        {{"id", "scan_ok"}, {"status", errors.empty() ? "ok" : "check"}, {"label", errors.empty() ? "Scan erfolgreich" : "Scan mit Fehlern"}, {"count", errors.size()}},
         {{"id", "color_mode"}, {"status", color_mode_status}, {"label", color_mode_label}, {"value", color_mode}},
         {{"id", "scan_warnings"}, {"status", warnings.empty() ? "ok" : "check"}, {"label", warnings.empty() ? "Keine Scan-Warnungen" : "Warnungen vorhanden"}, {"count", warnings.size()}},
     });
-    std::string status = !errors.empty() ? "error" : (!warnings.empty() ? "check" : "ok");
+    std::string status = (!errors.empty() || !warnings.empty() || color_mode_status == "check") ? "check" : "ok";
     return {{"status", status}, {"checks", checks}};
 }

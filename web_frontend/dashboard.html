@@ -68,7 +68,7 @@
             <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">1) Input/Run-Ziel  2) Preset + Parameter  3) Validieren  4) Batch starten</div>
             <div class="ps-chip-row" style="margin-bottom:12px;">
               <button id="dashboard-guided-mode-simple" data-control="dashboard.guided.mode_simple" class="ps-chip-btn active" type="button" title="Einfacher Modus: nur Kernfelder anzeigen.">Einfach</button>
-              <button id="dashboard-guided-mode-advanced" data-control="dashboard.guided.mode_advanced" class="ps-chip-btn" type="button" title="Erweiterter Modus: Runs Dir, Name, Preview und MONO-Queue anzeigen.">Erweitert</button>
+              <button id="dashboard-guided-mode-advanced" data-control="dashboard.guided.mode_advanced" class="ps-chip-btn" type="button" title="Erweiterter Modus: Runs Dir, Name, Preview und Run-Queue anzeigen.">Erweitert</button>
               <a id="dashboard-guided-open-wizard" data-control="dashboard.quick.start_wizard" class="ps-btn ps-btn-secondary ps-btn-compact" href="wizard.html" title="Vollen Wizard-Flow auf eigener Seite oeffnen." style="margin-left:auto;">Wizard Seite</a>
             </div>
             
@@ -76,7 +76,8 @@
               <label>Input Dirs</label>
               <div class="ps-inline-cluster">
                 <input id="dashboard-input-dirs" data-control="dashboard.input_dirs" class="ps-input ps-wide" type="text" value="" title="Input-Ordner fuer Guided Run setzen.">
-                <button class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
+                <button id="dashboard-input-dirs-browse-btn" class="ps-btn ps-btn-secondary ps-btn-compact" type="button">Browse…</button>
+                <button id="dashboard-input-dirs-add-btn" class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Aktuell ausgewaehlten Eingabeordner in die Run-Queue uebernehmen.">+</button>
               </div>
             </div>
             <div class="ps-row guided-advanced">
@@ -96,28 +97,29 @@
               <label>Run Name</label>
               <div class="ps-inline-stack">
                 <input id="dashboard-run-name" data-control="dashboard.run.name" class="ps-input" type="text" value="" style="width:220px;" title="Freien Run-Namen setzen.">
-                <span class="ps-hint">Output-Ordner wird automatisch als <code>runs_dir/run_name_YYYYMMDD_HHMMSS</code> erzeugt.</span>
+                <span class="ps-hint">Mit Run-Name: <code>runs_dir/run_name_YYYYMMDD_HHMMSS</code>. Queue ohne Run-Name: <code>runs_dir/YYYYMMDD/&lt;filter&gt;</code>.</span>
               </div>
             </div>
             <div class="ps-row guided-advanced">
               <label>Output Dir Preview</label>
               <div class="ps-inline-stack">
                 <input id="dashboard-run-path-preview" data-control="dashboard.run.path_preview" class="ps-input ps-wide ps-preview-field" type="text" value="" readonly title="Finalen Run-Pfad vor Start anzeigen.">
-                <span class="ps-hint">Suffix: aktueller Startzeitpunkt des Runs im Format <code>YYYYMMDD_HHMMSS</code>.</span>
+                <span class="ps-hint">Queue ohne Run-Name nutzt <code>YYYYMMDD</code> als Root; Batch-Subdirs folgen den Filternamen, Dubletten erhalten <code>-2</code>, <code>-3</code> usw.</span>
               </div>
             </div>
-            <div class="guided-advanced" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;margin-bottom:4px;">
-              <div class="ps-section-title" style="margin:0;">MONO Queue</div>
+            <div class="guided-advanced guided-queue-only" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;margin-bottom:4px;">
+              <div class="ps-section-title" style="margin:0;">Run-Queue</div>
               <button id="dashboard-queue-edit" data-control="dashboard.queue.edit" class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Queue-Editor oeffnen und Reihenfolge bearbeiten.">Queue Editor</button>
             </div>
-            <div class="ps-hint guided-advanced" style="margin-bottom:10px;">Pro Filter eigener Input-Ordner, optionales Pattern und Run-Label. Reihenfolge wird seriell als <code>Filter i/N</code> abgearbeitet.</div>
-            <div class="ps-queue-block guided-advanced" style="margin-top:0;">
+            <div class="ps-hint guided-advanced guided-queue-only" style="margin-bottom:10px;">Fuege Eingabeordner nur mit <code>+</code> explizit zur Run-Queue hinzu. Fuer <code>MONO</code> kann ein Filter frei gesetzt werden, fuer <code>OSC</code> wird automatisch <code>OSC</code> verwendet.</div>
+            <div class="ps-queue-block guided-advanced guided-queue-only" data-queue-section="run" style="margin-top:0;">
               <div class="ps-queue-head">
                 <div>Filter</div>
                 <div>Input Dir</div>
                 <div>Pattern</div>
                 <div>Run Label</div>
                 <div>Aktiv</div>
+                <div></div>
               </div>
               <div class="ps-queue-row">
                 <div class="ps-queue-cell"><select class="ps-select" data-control="dashboard.queue.row.filter_name" title="Filterbezeichner fuer Queue-Eintrag setzen."><option selected value="">-</option><option>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
@@ -125,6 +127,7 @@
                 <div class="ps-queue-cell"><input class="ps-input" data-control="dashboard.queue.row.pattern" type="text" value="" placeholder="optional, z. B. *.fits" title="Optionales Pattern fuer Queue-Eintrag."></div>
                 <div class="ps-queue-cell"><input class="ps-input" data-control="dashboard.queue.row.run_label" type="text" value="" placeholder="optional" title="Optionales Run-Label/Subfolder fuer Queue-Eintrag."></div>
                 <div class="ps-queue-toggle"><input type="checkbox" data-control="dashboard.queue.row.enabled" checked title="Queue-Eintrag aktiv/inaktiv setzen."><span>on</span></div>
+                <div class="ps-queue-actions"><button class="ps-btn ps-btn-secondary ps-btn-compact ps-queue-remove-btn" type="button" title="Queue-Eintrag entfernen.">-</button></div>
               </div>
             </div>
             <div class="ps-actions">

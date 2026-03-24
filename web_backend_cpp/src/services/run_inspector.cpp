@@ -150,6 +150,28 @@ bool is_run_tracking_job_type(const std::string& type) {
     return type.rfind("run", 0) == 0 || type == "resume";
 }
 
+std::string normalize_run_id_path(std::string run_id) {
+    std::replace(run_id.begin(), run_id.end(), '\\', '/');
+    while (!run_id.empty() && run_id.front() == '/') run_id.erase(run_id.begin());
+    while (!run_id.empty() && run_id.back() == '/') run_id.pop_back();
+    return run_id;
+}
+
+std::string parent_run_id(const std::string& run_id) {
+    const std::string normalized = normalize_run_id_path(run_id);
+    const auto slash = normalized.find_last_of('/');
+    if (slash == std::string::npos) return "";
+    return normalized.substr(0, slash);
+}
+
+bool run_id_matches_queue_item(const std::string& run_id, const std::string& item_run_id) {
+    const std::string normalized_run_id = normalize_run_id_path(run_id);
+    const std::string normalized_item_run_id = normalize_run_id_path(item_run_id);
+    if (normalized_run_id.empty() || normalized_item_run_id.empty()) return false;
+    if (normalized_run_id == normalized_item_run_id) return true;
+    return normalized_run_id == parent_run_id(normalized_item_run_id);
+}
+
 void ensure_phase_array(nlohmann::json& status) {
     if (status.contains("phases") && status["phases"].is_array()) return;
     status["phases"] = nlohmann::json::array();
@@ -212,16 +234,60 @@ std::string iso_utc_from_file_time(const fs::file_time_type& file_time) {
 
 }
 
+bool queue_contains_run_id(const nlohmann::json& queue, const std::string& run_id) {
+    if (!queue.is_array() || run_id.empty()) return false;
+    for (const auto& item : queue) {
+        if (!item.is_object()) continue;
+        if (!item.contains("run_id") || !item["run_id"].is_string()) continue;
+        if (run_id_matches_queue_item(run_id, item["run_id"].get<std::string>())) return true;
+    }
+    return false;
+}
+
+bool job_references_run_id(const Job& job, const std::string& run_id) {
+    if (run_id.empty()) return false;
+    const std::string job_run_id = job.data.is_object()
+        ? job.data.value("run_id", job.run_id)
+        : job.run_id;
+    if (run_id_matches_queue_item(run_id, job_run_id)) return true;
+    if (!job.data.is_object()) return false;
+    return queue_contains_run_id(job.data.value("queue", nlohmann::json::array()), run_id);
+}
+
 std::optional<Job> latest_run_job(const InMemoryJobStore& store, const std::string& run_id, int limit) {
     if (run_id.empty()) return std::nullopt;
+    const std::string normalized_run_id = normalize_run_id_path(run_id);
+    std::optional<Job> active_queue_job;
+    std::optional<Job> exact_match;
+    std::optional<Job> fallback_match;
     for (const auto& job : store.list(limit)) {
         if (!is_run_tracking_job_type(job.type)) continue;
-        const std::string job_run_id = job.data.is_object()
-            ? job.data.value("run_id", job.run_id)
-            : job.run_id;
-        if (job_run_id == run_id) return job;
+        if (!job_references_run_id(job, run_id)) continue;
+
+        const std::string job_run_id = normalize_run_id_path(
+            job.data.is_object() ? job.data.value("run_id", job.run_id) : job.run_id);
+        const bool is_exact_match = !normalized_run_id.empty() && job_run_id == normalized_run_id;
+        const bool is_active_queue_job =
+            job.type == "run_queue" &&
+            (job.state == JobState::pending || job.state == JobState::running);
+
+        if (is_exact_match && job.type != "run_queue" &&
+            (job.state == JobState::pending || job.state == JobState::running)) {
+            return job;
+        }
+        if (is_active_queue_job && !active_queue_job.has_value()) {
+            active_queue_job = job;
+            continue;
+        }
+        if (is_exact_match && !exact_match.has_value()) {
+            exact_match = job;
+            continue;
+        }
+        if (!fallback_match.has_value()) fallback_match = job;
     }
-    return std::nullopt;
+    if (active_queue_job.has_value()) return active_queue_job;
+    if (exact_match.has_value()) return exact_match;
+    return fallback_match;
 }
 
 void apply_job_state_to_run_status(nlohmann::json& status, const std::optional<Job>& job) {

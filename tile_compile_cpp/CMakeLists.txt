@@ -525,6 +525,7 @@ if(BUILD_TESTS)
             tests/test_acceleration_backend.cpp
             tests/test_utils.cpp
             tests/test_fits.cpp
+            tests/test_fits_hdu_selection.cpp
             tests/test_debayer.cpp
             tests/test_mode_gating.cpp
             tests/test_registration_outlier_utils.cpp

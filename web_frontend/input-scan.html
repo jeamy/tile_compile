@@ -29,6 +29,7 @@
             <div class="ps-inline-cluster">
               <input class="ps-input ps-wide" type="text" value="" id="inp-dirs" data-control="input_scan.input_dirs" title="Mehrere Input-Ordner fuer den Scan setzen.">
               <button class="ps-btn ps-btn-secondary ps-btn-compact" id="inp-dirs-browse-btn" type="button" title="Input-Ordner per Verzeichnisdialog auswaehlen.">Browse…</button>
+              <button class="ps-btn ps-btn-secondary ps-btn-compact" id="inp-dirs-add-btn" type="button" title="Aktuell ausgewaehlten Eingabeordner in die Run-Queue uebernehmen.">+</button>
             </div>
           </div>
           <div class="ps-row">
@@ -84,9 +85,9 @@
           </div>
         </div>
 
-        <div class="ps-section">
-          <div class="ps-section-title">MONO Filter-Queue</div>
-          <div class="ps-sub" style="margin-bottom:12px;">Bei <code>MONO</code> wird pro Filter ein eigener <code>input_dir</code> erfasst und seriell als <code>Filter i/N</code> abgearbeitet.</div>
+        <div class="ps-section" data-queue-section="run">
+          <div class="ps-section-title">Run-Queue</div>
+          <div class="ps-sub" style="margin-bottom:12px;">Fuege Eingabeordner nur mit <code>+</code> explizit zur Run-Queue hinzu. Fuer <code>MONO</code> kann ein Filter frei zugeordnet werden, fuer <code>OSC</code> wird automatisch <code>OSC</code> gesetzt.</div>
           <div class="ps-queue-block">
             <div class="ps-queue-head">
               <div>Filter</div>
@@ -94,6 +95,7 @@
               <div>Pattern</div>
               <div>Run Label</div>
               <div>Aktiv</div>
+              <div></div>
             </div>
             <div class="ps-queue-row">
               <div class="ps-queue-cell"><select class="ps-select"><option selected value="">-</option><option>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
@@ -101,6 +103,7 @@
               <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
               <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
               <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+              <div class="ps-queue-actions"><button class="ps-btn ps-btn-secondary ps-btn-compact ps-queue-remove-btn" type="button" title="Queue-Eintrag entfernen.">-</button></div>
             </div>
           </div>
         </div>

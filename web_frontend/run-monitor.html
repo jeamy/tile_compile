@@ -22,6 +22,22 @@
       <div class="app-content">
         <h2>Run Monitor</h2>
         <p class="ps-sub">Aktueller Run wird aus App-State geladen; Phase und Status werden live synchronisiert.</p>
+        <section id="monitor-run-summary" class="ps-monitor-run-summary" hidden>
+          <div class="ps-monitor-run-summary-grid">
+            <div class="ps-monitor-run-summary-card">
+              <div class="ps-section-title">Batch</div>
+              <div id="monitor-run-summary-meta" class="ps-kv"></div>
+            </div>
+            <div class="ps-monitor-run-summary-card">
+              <div class="ps-section-title">Verzeichnisstruktur</div>
+              <div id="monitor-run-structure" class="ps-monitor-run-structure"></div>
+            </div>
+          </div>
+          <div class="ps-monitor-run-summary-card">
+            <div class="ps-section-title">Batches</div>
+            <div id="monitor-run-batches" class="ps-monitor-batch-list"></div>
+          </div>
+        </section>
 
         <div class="ps-layout-3">
           <section class="ps-col">

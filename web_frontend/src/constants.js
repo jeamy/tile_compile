@@ -1,3 +1,14 @@
+function encodeRunIdPathSegment(runId) {
+  const text = String(runId || "");
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  bytes.forEach((value) => {
+    binary += String.fromCharCode(value);
+  });
+  const base64 = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return `b64_${base64}`;
+}
+
 export const API_ENDPOINTS = {
   fs: {
     grantRoot: "/api/fs/grant-root",
@@ -39,29 +50,29 @@ export const API_ENDPOINTS = {
   runs: {
     list: "/api/runs",
     start: "/api/runs/start",
-    status: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/status`,
-    config: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/config`,
-    configRevisions: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/config-revisions`,
-    configRevision: (runId, revisionId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/config-revisions/${encodeURIComponent(String(revisionId || ""))}`,
-    artifacts: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/artifacts`,
-    artifactView: (runId, path = "") => `/api/runs/${encodeURIComponent(String(runId || ""))}/artifacts/view?path=${encodeURIComponent(String(path || ""))}`,
-    artifactRaw: (runId, path = "") => `/api/runs/${encodeURIComponent(String(runId || ""))}/artifacts/raw/${String(path || "").split("/").map((part) => encodeURIComponent(part)).join("/")}`,
-    delete: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/delete`,
-    stop: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/stop`,
-    resume: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/resume`,
-    stats: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/stats`,
+    status: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/status`,
+    config: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config`,
+    configRevisions: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions`,
+    configRevision: (runId, revisionId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions/${encodeURIComponent(String(revisionId || ""))}`,
+    artifacts: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts`,
+    artifactView: (runId, path = "") => `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts/view?path=${encodeURIComponent(String(path || ""))}`,
+    artifactRaw: (runId, path = "") => `/api/runs/${encodeRunIdPathSegment(runId)}/artifacts/raw/${String(path || "").split("/").map((part) => encodeURIComponent(part)).join("/")}`,
+    delete: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/delete`,
+    stop: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/stop`,
+    resume: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/resume`,
+    stats: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/stats`,
     statsStatus: (runId, runDir = "") => {
       const query = String(runDir || "").trim()
-        ? `?run_dir=${encodeURIComponent(String(runDir || ""))}`
+        ? `?run_dir=${encodeURIComponent(String(runDir || "").trim())}`
         : "";
-      return `/api/runs/${encodeURIComponent(String(runId || ""))}/stats/status${query}`;
+      return `/api/runs/${encodeRunIdPathSegment(runId)}/stats/status${query}`;
     },
-    logs: (runId, tail = 250) => `/api/runs/${encodeURIComponent(String(runId || ""))}/logs?tail=${encodeURIComponent(String(tail))}`,
-    setCurrent: (runId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/set-current`,
-    restoreRevision: (runId, revisionId) => `/api/runs/${encodeURIComponent(String(runId || ""))}/config-revisions/${encodeURIComponent(String(revisionId || ""))}/restore`,
+    logs: (runId, tail = 250) => `/api/runs/${encodeRunIdPathSegment(runId)}/logs?tail=${encodeURIComponent(String(tail))}`,
+    setCurrent: (runId) => `/api/runs/${encodeRunIdPathSegment(runId)}/set-current`,
+    restoreRevision: (runId, revisionId) => `/api/runs/${encodeRunIdPathSegment(runId)}/config-revisions/${encodeURIComponent(String(revisionId || ""))}/restore`,
   },
   ws: {
-    run: (runId) => `/api/ws/runs/${encodeURIComponent(String(runId || ""))}`,
+    run: (runId) => `/api/ws/runs/${encodeRunIdPathSegment(runId)}`,
   },
   astrometry: {
     detect: "/api/tools/astrometry/detect",

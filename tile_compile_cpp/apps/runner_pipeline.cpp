@@ -13,7 +13,6 @@
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/linearity.hpp"
 #include "tile_compile/metrics/metrics.hpp"
-#include "tile_compile/metrics/tile_metrics.hpp"
 #include "tile_compile/pipeline/adaptive_tile_grid.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
@@ -57,7 +56,6 @@ using tile_compile::WarpMatrix;
 
 namespace image = tile_compile::image;
 namespace astro = tile_compile::astrometry;
-namespace core = tile_compile::core;
 namespace reconstruction = tile_compile::reconstruction;
 using tile_compile::runner::TeeBuf;
 using tile_compile::runner::estimate_total_file_bytes;
@@ -336,6 +334,48 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                     "FITS header missing image_height; using "
                     "config.data.image_height fallback",
                     log_file);
+  }
+
+  for (size_t idx = 1; idx < frames.size(); ++idx) {
+    try {
+      auto [frame_width, frame_height, frame_naxis] =
+          io::get_fits_dimensions(frames[idx]);
+      (void)frame_naxis;
+      if (frame_width <= 0 && cfg.data.image_width > 0) {
+        frame_width = cfg.data.image_width;
+      }
+      if (frame_height <= 0 && cfg.data.image_height > 0) {
+        frame_height = cfg.data.image_height;
+      }
+      if (frame_width != width || frame_height != height) {
+        const std::string msg =
+            "Inconsistent image size: expected " + std::to_string(width) + "x" +
+            std::to_string(height) + ", got " + std::to_string(frame_width) +
+            "x" + std::to_string(frame_height) + " in " +
+            frames[idx].filename().string();
+        emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
+                          {{"error", msg},
+                           {"input_dir", input_dir},
+                           {"expected_width", width},
+                           {"expected_height", height},
+                           {"frame", frames[idx].filename().string()},
+                           {"frame_width", frame_width},
+                           {"frame_height", frame_height}},
+                          log_file);
+        emitter.run_end(run_id, false, "error", log_file);
+        std::cerr << "Error during SCAN_INPUT: " << msg << std::endl;
+        return 1;
+      }
+    } catch (const std::exception &e) {
+      emitter.phase_end(run_id, Phase::SCAN_INPUT, "error",
+                        {{"error", e.what()},
+                         {"input_dir", input_dir},
+                         {"frame", frames[idx].filename().string()}},
+                        log_file);
+      emitter.run_end(run_id, false, "error", log_file);
+      std::cerr << "Error during SCAN_INPUT: " << e.what() << std::endl;
+      return 1;
+    }
   }
 
   if (header_has_color_hint && !cfg.data.color_mode.empty() &&

@@ -16,6 +16,7 @@
 #include <chrono>
 #include <ctime>
 #include <set>
+#include <unordered_map>
 #include <cctype>
 #include <cerrno>
 #include <cstdlib>
@@ -60,6 +61,62 @@ static std::string sanitize_run_id(std::string value) {
     return value;
 }
 
+static std::string url_decode_component(const std::string& value) {
+    std::string out;
+    out.reserve(value.size());
+    for (size_t i = 0; i < value.size(); ++i) {
+        const char ch = value[i];
+        if (ch == '%' && i + 2 < value.size() &&
+            std::isxdigit(static_cast<unsigned char>(value[i + 1])) &&
+            std::isxdigit(static_cast<unsigned char>(value[i + 2]))) {
+            const std::string hex = value.substr(i + 1, 2);
+            out.push_back(static_cast<char>(std::stoi(hex, nullptr, 16)));
+            i += 2;
+            continue;
+        }
+        if (ch == '+') {
+            out.push_back(' ');
+            continue;
+        }
+        out.push_back(ch);
+    }
+    return out;
+}
+
+static std::string decode_base64url(std::string value) {
+    for (char& ch : value) {
+        if (ch == '-') ch = '+';
+        else if (ch == '_') ch = '/';
+    }
+    while (value.size() % 4 != 0) value.push_back('=');
+    static const std::string alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    int buffer = 0;
+    int bits_collected = 0;
+    for (char ch : value) {
+        if (ch == '=') break;
+        const auto pos = alphabet.find(ch);
+        if (pos == std::string::npos) return "";
+        buffer = (buffer << 6) | static_cast<int>(pos);
+        bits_collected += 6;
+        if (bits_collected >= 8) {
+            bits_collected -= 8;
+            out.push_back(static_cast<char>((buffer >> bits_collected) & 0xFF));
+        }
+    }
+    return out;
+}
+
+static std::string decode_run_id_param(std::string run_id) {
+    if (run_id.rfind("b64_", 0) == 0) {
+        const std::string decoded = decode_base64url(run_id.substr(4));
+        return decoded.empty() ? run_id : decoded;
+    }
+    if (run_id.find('%') == std::string::npos && run_id.find('+') == std::string::npos) return run_id;
+    return url_decode_component(run_id);
+}
+
 static std::string current_run_timestamp() {
     const auto now = std::chrono::system_clock::now();
     const auto time_t_now = std::chrono::system_clock::to_time_t(now);
@@ -75,6 +132,21 @@ static std::string current_run_timestamp() {
     return oss.str();
 }
 
+static std::string current_run_date() {
+    const auto now = std::chrono::system_clock::now();
+    const auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_buf{};
+#ifdef _WIN32
+    localtime_s(&tm_buf, &time_t_now);
+#else
+    localtime_r(&time_t_now, &tm_buf);
+#endif
+
+    std::ostringstream oss;
+    oss << std::put_time(&tm_buf, "%Y%m%d");
+    return oss.str();
+}
+
 static std::string make_effective_run_id(const nlohmann::json& body) {
     const std::string raw_run_id = body.value("run_id", "");
     if (!raw_run_id.empty()) return sanitize_run_id(raw_run_id);
@@ -83,6 +155,18 @@ static std::string make_effective_run_id(const nlohmann::json& body) {
     const std::string base_name = raw_run_name.empty() ? std::string("run")
                                                        : sanitize_run_id(raw_run_name);
     return base_name + "_" + current_run_timestamp();
+}
+
+static std::string make_queue_root_run_id(const nlohmann::json& body) {
+    const std::string raw_run_id = body.value("run_id", "");
+    if (!raw_run_id.empty()) return sanitize_run_id(raw_run_id);
+
+    const std::string raw_run_name = body.value("run_name", "");
+    if (!raw_run_name.empty()) {
+        return sanitize_run_id(raw_run_name) + "_" + current_run_timestamp();
+    }
+
+    return current_run_date();
 }
 
 static std::string wildcard_to_regex(const std::string& pattern) {
@@ -245,19 +329,31 @@ static fs::path materialize_queue_input(const fs::path& input_dir,
 
 static std::string derive_queue_run_id(const std::string& base_run_id,
                                        const nlohmann::json& item,
-                                       int index) {
-    std::string explicit_run_id = item.value("run_id", "");
-    if (!explicit_run_id.empty()) return sanitize_run_id(explicit_run_id);
-    std::string filter = item.value("filter", "mono");
-    std::ostringstream oss;
-    oss << sanitize_run_id(base_run_id) << "_" << sanitize_run_id(filter) << "_" << (index + 1);
-    return oss.str();
+                                       int index,
+                                       std::unordered_map<std::string, int>& filter_counts) {
+    std::string filter = sanitize_run_id(item.value("filter", ""));
+    if (filter.empty() || filter == "run") {
+        std::ostringstream fallback;
+        fallback << "item-" << (index + 1);
+        filter = fallback.str();
+    }
+
+    int& count = filter_counts[filter];
+    count += 1;
+    std::string leaf = filter;
+    if (count > 1) {
+        leaf += "-" + std::to_string(count);
+    }
+
+    if (base_run_id.empty()) return leaf;
+    return (fs::path(base_run_id) / leaf).generic_string();
 }
 
 static nlohmann::json collect_queue_items(const nlohmann::json& body, const std::string& base_run_id) {
     nlohmann::json queue = nlohmann::json::array();
     if (!body.contains("queue") || !body["queue"].is_array()) return queue;
     int index = 0;
+    std::unordered_map<std::string, int> filter_counts;
     for (const auto& raw : body["queue"]) {
         if (!raw.is_object()) continue;
         std::string input_dir = raw.value("input_dir", raw.value("input_path", ""));
@@ -266,7 +362,7 @@ static nlohmann::json collect_queue_items(const nlohmann::json& body, const std:
             {"filter", raw.value("filter", "")},
             {"input_dir", input_dir},
             {"pattern", raw.value("pattern", "")},
-            {"run_id", derive_queue_run_id(base_run_id, raw, index)},
+            {"run_id", derive_queue_run_id(base_run_id, raw, index, filter_counts)},
             {"state", "pending"}
         };
         queue.push_back(item);
@@ -274,6 +370,7 @@ static nlohmann::json collect_queue_items(const nlohmann::json& body, const std:
     }
     if (!queue.empty()) return queue;
     if (!body.contains("input_dirs") || !body["input_dirs"].is_array()) return queue;
+    filter_counts.clear();
     for (const auto& raw : body["input_dirs"]) {
         std::string input_dir;
         if (raw.is_string()) {
@@ -286,7 +383,7 @@ static nlohmann::json collect_queue_items(const nlohmann::json& body, const std:
             {"filter", raw.is_object() ? raw.value("filter", "") : ""},
             {"input_dir", input_dir},
             {"pattern", raw.is_object() ? raw.value("pattern", "") : ""},
-            {"run_id", derive_queue_run_id(base_run_id, raw.is_object() ? raw : nlohmann::json::object(), index)},
+            {"run_id", derive_queue_run_id(base_run_id, raw.is_object() ? raw : nlohmann::json::object(), index, filter_counts)},
             {"state", "pending"}
         };
         queue.push_back(item);
@@ -334,26 +431,69 @@ static std::string normalize_queue_filter_name(const std::string& raw) {
     return out;
 }
 
-static nlohmann::json queue_filters_for_run(InMemoryJobStore& store, const std::string& run_id) {
+static nlohmann::json queue_items_for_run(InMemoryJobStore& store, const std::string& run_id) {
     for (const auto& job : store.list(200)) {
         if (job.type != "run_queue") continue;
         if (!job.data.is_object()) continue;
-        if (job.data.value("run_id", std::string()) != run_id) continue;
         const auto queue = job.data.value("queue", nlohmann::json::array());
+        if (job.data.value("run_id", std::string()) != run_id && !queue_contains_run_id(queue, run_id)) continue;
         if (!queue.is_array()) return nlohmann::json::array();
-
-        nlohmann::json filters = nlohmann::json::array();
-        std::set<std::string> seen;
-        for (const auto& item : queue) {
-            if (!item.is_object()) continue;
-            std::string filter = normalize_queue_filter_name(item.value("filter", std::string()));
-            if (filter.empty() || seen.find(filter) != seen.end()) continue;
-            seen.insert(filter);
-            filters.push_back(filter);
-        }
-        return filters;
+        return queue;
     }
     return nlohmann::json::array();
+}
+
+static nlohmann::json queue_filters_for_run(InMemoryJobStore& store, const std::string& run_id) {
+    const auto queue = queue_items_for_run(store, run_id);
+    if (!queue.is_array()) return nlohmann::json::array();
+    if (queue.empty()) return nlohmann::json::array();
+
+    struct FilterAggregate {
+        std::string label;
+        int total{0};
+        int ok{0};
+        int running{0};
+        int pending{0};
+        int error{0};
+        int cancelled{0};
+    };
+
+    nlohmann::json filters = nlohmann::json::array();
+    std::vector<std::string> order;
+    std::unordered_map<std::string, FilterAggregate> grouped;
+    for (const auto& item : queue) {
+        if (!item.is_object()) continue;
+        std::string filter = normalize_queue_filter_name(item.value("filter", std::string()));
+        if (filter.empty()) continue;
+        if (grouped.find(filter) == grouped.end()) {
+            order.push_back(filter);
+            grouped.emplace(filter, FilterAggregate{filter});
+        }
+        auto& agg = grouped[filter];
+        agg.total += 1;
+        const std::string state = item.value("state", std::string("pending"));
+        if (state == "ok") agg.ok += 1;
+        else if (state == "running") agg.running += 1;
+        else if (state == "error") agg.error += 1;
+        else if (state == "cancelled") agg.cancelled += 1;
+        else agg.pending += 1;
+    }
+
+    for (const auto& filter : order) {
+        const auto& agg = grouped.at(filter);
+        std::string state = "pending";
+        if (agg.error > 0) state = "error";
+        else if (agg.cancelled > 0) state = "cancelled";
+        else if (agg.running > 0 || (agg.ok > 0 && agg.ok < agg.total)) state = "running";
+        else if (agg.ok > 0 && agg.ok == agg.total) state = "ok";
+        filters.push_back({
+            {"filter", agg.label},
+            {"state", state},
+            {"done", agg.ok},
+            {"total", agg.total}
+        });
+    }
+    return filters;
 }
 
 static std::optional<nlohmann::json> pending_run_status(const std::shared_ptr<AppState>& state,
@@ -370,6 +510,7 @@ static std::optional<nlohmann::json> pending_run_status(const std::shared_ptr<Ap
         {"run_dir", predicted_run_dir.string()},
         {"status", "unknown"},
         {"color_mode", "UNKNOWN"},
+        {"queue", queue_items_for_run(state->job_store, run_id)},
         {"queue_filters", queue_filters_for_run(state->job_store, run_id)},
         {"current_phase", nullptr},
         {"progress", 0.0},
@@ -529,6 +670,10 @@ void register_runs_routes(CrowApp& app,
         std::string astap_bin   = body.value("astap_bin", "");
         std::string astap_data_dir = body.value("astap_data_dir", "");
         std::string base_run_id = sanitize_run_id(run_id.empty() ? "run" : run_id);
+        if ((body.contains("queue") && body["queue"].is_array()) ||
+            (body.contains("input_dirs") && body["input_dirs"].is_array() && !body["input_dirs"].empty())) {
+            base_run_id = make_queue_root_run_id(body);
+        }
         auto queue_items = collect_queue_items(body, base_run_id);
 
         if (input_dirs.empty() && queue_items.empty())
@@ -706,6 +851,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/status").methods("GET"_method)
     ([state](const crow::request&, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             auto status  = read_run_status(run_dir);
@@ -715,6 +861,7 @@ void register_runs_routes(CrowApp& app,
                 {"run_dir", run_dir.string()},
                 {"status", status.value("status", "unknown")},
                 {"color_mode", status.value("color_mode", "UNKNOWN")},
+                {"queue", queue_items_for_run(state->job_store, run_id)},
                 {"queue_filters", queue_filters_for_run(state->job_store, run_id)},
                 {"current_phase", status.contains("current_phase") ? status["current_phase"] : nlohmann::json(nullptr)},
                 {"progress", status.value("progress", 0.0)},
@@ -731,6 +878,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/config").methods("GET"_method)
     ([state](const crow::request&, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             const fs::path config_path = run_dir / "config.yaml";
@@ -747,6 +895,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/config-revisions").methods("GET"_method)
     ([state](const crow::request&, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             auto revisions = list_run_config_revisions(run_dir);
@@ -765,6 +914,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/config-revisions/<string>").methods("GET"_method)
     ([state](const crow::request&, std::string run_id, std::string rev_id) {
+        run_id = decode_run_id_param(run_id);
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             auto revision = get_run_config_revision(run_dir, rev_id);
@@ -784,6 +934,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/stop").methods("POST"_method)
     ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         std::string runs_dir = req.url_params.get("runs_dir") ? req.url_params.get("runs_dir") : state->runtime.runs_dir.string();
         fs::path resolved_run_dir;
         bool has_resolved_run_dir = false;
@@ -861,6 +1012,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/resume").methods("POST"_method)
     ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         if (body.is_discarded()) return err_resp("Invalid JSON");
 
@@ -940,6 +1092,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/logs").methods("GET"_method)
     ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         int tail = 250;
         if (req.url_params.get("tail"))
             try { tail = std::stoi(req.url_params.get("tail")); } catch (...) {}
@@ -958,6 +1111,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/artifacts").methods("GET"_method)
     ([state](const crow::request&, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             auto items   = list_run_artifacts(run_dir);
@@ -972,6 +1126,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/artifacts/view").methods("GET"_method)
     ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         std::string rel_path = req.url_params.get("path") ? req.url_params.get("path") : "";
         if (rel_path.empty()) {
             return err_resp("BAD_REQUEST", "path is required", 400, nlohmann::json::object());
@@ -1003,6 +1158,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/artifacts/raw/<path>").methods("GET"_method)
     ([state](const crow::request&, std::string run_id, std::string rel_path) {
+        run_id = decode_run_id_param(run_id);
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             auto full = resolve_artifact_path(run_dir, rel_path);
@@ -1025,6 +1181,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/delete").methods("POST"_method)
     ([state](const crow::request&, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             auto jobs = state->job_store.list(500);
@@ -1050,6 +1207,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/set-current").methods("POST"_method)
     ([state](const crow::request&, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         {
             std::lock_guard<std::mutex> lk(state->state_mutex);
             state->current_run_id = run_id;
@@ -1060,6 +1218,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/stats").methods("POST"_method)
     ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         auto body = nlohmann::json::parse(req.body, nullptr, false);
         std::string run_dir_str;
         if (!body.is_discarded()) run_dir_str = body.value("run_dir", "");
@@ -1113,6 +1272,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/stats/status").methods("GET"_method)
     ([state](const crow::request& req, std::string run_id) {
+        run_id = decode_run_id_param(run_id);
         try {
             std::string run_dir_str = req.url_params.get("run_dir") ? req.url_params.get("run_dir") : "";
             fs::path run_dir;
@@ -1150,6 +1310,7 @@ void register_runs_routes(CrowApp& app,
 
     CROW_ROUTE(app, "/api/runs/<string>/config-revisions/<string>/restore").methods("POST"_method)
     ([state](const crow::request&, std::string run_id, std::string rev_id) {
+        run_id = decode_run_id_param(run_id);
         fs::path run_dir;
         try {
             run_dir = state->runtime.resolve_run_dir(run_id);

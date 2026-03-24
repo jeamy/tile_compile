@@ -48,6 +48,8 @@ static const std::vector<std::string> RESUME_FROM_PHASES = {
 };
 
 nlohmann::json read_run_status(const fs::path& run_dir);
+bool queue_contains_run_id(const nlohmann::json& queue, const std::string& run_id);
+bool job_references_run_id(const Job& job, const std::string& run_id);
 std::optional<Job> latest_run_job(const InMemoryJobStore& store, const std::string& run_id, int limit = 500);
 void apply_job_state_to_run_status(nlohmann::json& status, const std::optional<Job>& job);
 std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit = 50);

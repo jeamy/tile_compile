@@ -8,6 +8,7 @@
 #include <sstream>
 #include <optional>
 #include <iomanip>
+#include <cctype>
 
 namespace fs = std::filesystem;
 
@@ -146,6 +147,70 @@ std::string last_path_component(const std::string& path) {
     return path.substr(pos + 1);
 }
 
+std::string url_decode(std::string value) {
+    std::string out;
+    out.reserve(value.size());
+    for (size_t i = 0; i < value.size(); ++i) {
+        const char ch = value[i];
+        if (ch == '%' && i + 2 < value.size() &&
+            std::isxdigit(static_cast<unsigned char>(value[i + 1])) &&
+            std::isxdigit(static_cast<unsigned char>(value[i + 2]))) {
+            const std::string hex = value.substr(i + 1, 2);
+            out.push_back(static_cast<char>(std::stoi(hex, nullptr, 16)));
+            i += 2;
+            continue;
+        }
+        if (ch == '+') {
+            out.push_back(' ');
+            continue;
+        }
+        out.push_back(ch);
+    }
+    return out;
+}
+
+std::string decode_base64url(std::string value) {
+    for (char& ch : value) {
+        if (ch == '-') ch = '+';
+        else if (ch == '_') ch = '/';
+    }
+    while (value.size() % 4 != 0) value.push_back('=');
+    static const std::string alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    int buffer = 0;
+    int bits_collected = 0;
+    for (char ch : value) {
+        if (ch == '=') break;
+        const auto pos = alphabet.find(ch);
+        if (pos == std::string::npos) return "";
+        buffer = (buffer << 6) | static_cast<int>(pos);
+        bits_collected += 6;
+        if (bits_collected >= 8) {
+            bits_collected -= 8;
+            out.push_back(static_cast<char>((buffer >> bits_collected) & 0xFF));
+        }
+    }
+    return out;
+}
+
+std::string run_id_from_ws_url(const std::string& url) {
+    static const std::string prefix = "/api/ws/runs/";
+    const size_t start = url.find(prefix);
+    if (start == std::string::npos) return last_path_component(url);
+    std::string suffix = url.substr(start + prefix.size());
+    const size_t query_pos = suffix.find('?');
+    if (query_pos != std::string::npos) {
+        suffix = suffix.substr(0, query_pos);
+    }
+    suffix = url_decode(suffix);
+    if (suffix.rfind("b64_", 0) == 0) {
+        const std::string decoded = decode_base64url(suffix.substr(4));
+        if (!decoded.empty()) return decoded;
+    }
+    return suffix;
+}
+
 std::shared_ptr<RunWsContext> make_run_ctx(const std::shared_ptr<AppState>& state, const std::string& run_id) {
     auto ctx = std::make_shared<RunWsContext>();
     ctx->state = state;
@@ -170,11 +235,12 @@ json queue_event_for_run(const AppState& state, const std::string& run_id) {
     for (const auto& job : state.job_store.list(200)) {
         if (job.type != "run_queue") continue;
         if (!job.data.is_object()) continue;
-        if (job.data.value("run_id", std::string()) != run_id) continue;
+        if (!job_references_run_id(job, run_id)) continue;
         const auto queue = job.data.value("queue", json::array());
         int total = static_cast<int>(queue.is_array() ? queue.size() : 0);
         int done = 0;
         std::string running_filter;
+        std::string current_run_id = job.data.value("run_id", std::string());
         if (queue.is_array()) {
             for (const auto& item : queue) {
                 if (!item.is_object()) continue;
@@ -192,6 +258,7 @@ json queue_event_for_run(const AppState& state, const std::string& run_id) {
             {"pct", pct},
             {"ts", utc_now_iso()},
             {"payload", {
+                {"current_run_id", current_run_id.empty() ? json(nullptr) : json(current_run_id)},
                 {"current_index", job.data.value("current_index", -1)},
                 {"total", total},
                 {"done", done},
@@ -386,7 +453,7 @@ void register_ws_routes(CrowApp& app,
         destroy_ctx<RunWsContext>(conn);
     })
     .onaccept([state](const crow::request& req, void** userdata) -> bool {
-        std::string run_id = last_path_component(req.url);
+        std::string run_id = run_id_from_ws_url(req.url);
         *userdata = new std::shared_ptr<RunWsContext>(make_run_ctx(state, run_id));
         return !run_id.empty();
     });

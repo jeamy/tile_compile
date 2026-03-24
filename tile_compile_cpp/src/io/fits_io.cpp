@@ -48,6 +48,10 @@ bool move_to_first_image_hdu(fitsfile* fptr,
                              int& naxis,
                              long naxes[3],
                              int& status) {
+    auto has_valid_image_shape = [&](int current_naxis, const long current_naxes[3]) -> bool {
+        return current_naxis >= 2 && current_naxes[0] > 0 && current_naxes[1] > 0;
+    };
+
     auto try_read_znaxis = [&](int& out_naxis, long out_naxes[3]) -> bool {
         int st = 0;
         long znaxis = 0;
@@ -77,7 +81,7 @@ bool move_to_first_image_hdu(fitsfile* fptr,
 
     status = 0;
     fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
-    if (status == 0 && naxis >= 2) {
+    if (status == 0 && has_valid_image_shape(naxis, naxes)) {
         return true;
     }
     if (try_read_znaxis(naxis, naxes)) {
@@ -102,7 +106,7 @@ bool move_to_first_image_hdu(fitsfile* fptr,
 
         status = 0;
         fits_get_img_param(fptr, 3, &bitpix, &naxis, naxes, &status);
-        if (status == 0 && naxis >= 2) {
+        if (status == 0 && has_valid_image_shape(naxis, naxes)) {
             return true;
         }
         if (try_read_znaxis(naxis, naxes)) {

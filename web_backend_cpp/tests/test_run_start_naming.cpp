@@ -61,6 +61,66 @@ int main(int argc, char** argv) {
         });
         expect_equal(explicit_id["_http_status"].get<long>(), 202L, "explicit run id start status");
         expect_equal(explicit_id["run_id"].get<std::string>(), "manual_id", "explicit run id should be preserved");
+
+        const auto queued = harness.post_json("/api/runs/start", {
+            {"runs_dir", (harness.fixture_root() / "runs").string()},
+            {"color_mode", "OSC"},
+            {"queue", nlohmann::json::array({
+                {
+                    {"input_dir", input_dir},
+                    {"filter", "L"}
+                },
+                {
+                    {"input_dir", input_dir},
+                    {"filter", "L"}
+                },
+                {
+                    {"input_dir", input_dir},
+                    {"filter", "R"}
+                }
+            })}
+        });
+        expect_equal(queued["_http_status"].get<long>(), 202L, "queued run start status");
+        const std::string queued_run_id = queued["run_id"].get<std::string>();
+        expect_true(
+            std::regex_match(queued_run_id, std::regex(R"(^[0-9]{8}/L$)")),
+            "queued run id should use start date root and first filter leaf");
+
+        const auto queue_job = harness.wait_for_job(queued["job_id"].get<std::string>());
+        expect_true(queue_job["data"]["queue"].is_array(), "queue payload should expose queue items");
+        expect_equal(queue_job["data"]["queue"][0]["run_id"].get<std::string>(), queued_run_id, "first queue item run id");
+        expect_true(
+            std::regex_match(queue_job["data"]["queue"][1]["run_id"].get<std::string>(), std::regex(R"(^[0-9]{8}/L-2$)")),
+            "duplicate filter should receive -2 suffix");
+        expect_true(
+            std::regex_match(queue_job["data"]["queue"][2]["run_id"].get<std::string>(), std::regex(R"(^[0-9]{8}/R$)")),
+            "different filter should use own leaf without numeric suffix");
+
+        const auto queued_named = harness.post_json("/api/runs/start", {
+            {"runs_dir", (harness.fixture_root() / "runs").string()},
+            {"run_name", "M66 Batch"},
+            {"color_mode", "OSC"},
+            {"queue", nlohmann::json::array({
+                {
+                    {"input_dir", input_dir},
+                    {"filter", "HA"}
+                },
+                {
+                    {"input_dir", input_dir},
+                    {"filter", "OIII"}
+                }
+            })}
+        });
+        expect_equal(queued_named["_http_status"].get<long>(), 202L, "named queued run start status");
+        const std::string queued_named_run_id = queued_named["run_id"].get<std::string>();
+        expect_true(
+            std::regex_match(queued_named_run_id, std::regex(R"(^M66_Batch_[0-9]{8}_[0-9]{6}/HA$)")),
+            "queued run id with run_name should keep run_name_timestamp root");
+
+        const auto queued_named_job = harness.wait_for_job(queued_named["job_id"].get<std::string>());
+        expect_true(
+            std::regex_match(queued_named_job["data"]["queue"][1]["run_id"].get<std::string>(), std::regex(R"(^M66_Batch_[0-9]{8}_[0-9]{6}/OIII$)")),
+            "named queue should keep run_name_timestamp root for all filters");
     } catch (const std::exception& e) {
         harness.stop();
         std::fprintf(stderr, "%s\n", e.what());

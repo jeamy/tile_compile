@@ -15,7 +15,7 @@
 
   <main>
     <div class="content-panel">
-      <p class="intro">Guided Run Wizard. Step 1-3 sind identisch zu Input &amp; Scan (Input, MONO Queue, Kalibrierung).</p>
+      <p class="intro">Guided Run Wizard. Step 1-3 sind identisch zu Input &amp; Scan (Input, Run-Queue, Kalibrierung).</p>
 
       <div class="ps-layout-2">
         <section class="ps-col">
@@ -26,6 +26,7 @@
               <div class="ps-inline-cluster">
                 <input class="ps-input ps-wide" type="text" value="" id="inp-dirs" data-control="input_scan.input_dirs" title="Mehrere Input-Ordner fuer den Scan setzen.">
                 <button class="ps-btn ps-btn-secondary ps-btn-compact" id="wizard-inp-dirs-browse-btn" type="button" title="Input-Ordner per Verzeichnisdialog auswaehlen.">Browse…</button>
+                <button class="ps-btn ps-btn-secondary ps-btn-compact" id="wizard-inp-dirs-add-btn" type="button" title="Aktuell ausgewaehlten Eingabeordner in die Run-Queue uebernehmen.">+</button>
               </div>
             </div>
             <div class="ps-row">
@@ -38,7 +39,7 @@
             <div class="ps-row">
               <label data-i18n="ui.field.run_name">Run Name</label>
               <input class="ps-input" type="text" value="" id="wizard-run-name" data-control="wizard.input.run_name" title="Freien Run-Namen setzen.">
-              <span class="ps-hint">Suffix wird automatisch als <code>_YYYYMMDD_HHMMSS</code> gesetzt.</span>
+              <span class="ps-hint">Mit Run-Name: <code>run_name_YYYYMMDD_HHMMSS</code>. Queue ohne Run-Name nutzt <code>YYYYMMDD/&lt;filter&gt;</code>.</span>
             </div>
             <div class="ps-row">
               <label data-i18n="ui.field.run_path_preview">Run path</label>
@@ -83,9 +84,9 @@
             </div>
           </div>
 
-          <div class="ps-section">
-            <div class="ps-section-title">Step 2: Optionale MONO Filter-Queue</div>
-            <div class="ps-sub" style="margin-bottom:12px;">Optional: Bei <code>MONO</code> wird pro Filter ein eigener <code>input_dir</code> erfasst und seriell als <code>Filter i/N</code> abgearbeitet.</div>
+          <div class="ps-section" data-queue-section="run">
+            <div class="ps-section-title">Step 2: Optionale Run-Queue</div>
+            <div class="ps-sub" style="margin-bottom:12px;">Fuege Eingabeordner nur mit <code>+</code> explizit zur Run-Queue hinzu. Fuer <code>MONO</code> kann ein Filter frei zugeordnet werden, fuer <code>OSC</code> wird automatisch <code>OSC</code> gesetzt.</div>
             <div class="ps-queue-block">
               <div class="ps-queue-head">
                 <div>Filter</div>
@@ -93,6 +94,7 @@
                 <div>Pattern</div>
                 <div>Run Label</div>
                 <div>Aktiv</div>
+                <div></div>
               </div>
               <div class="ps-queue-row">
                 <div class="ps-queue-cell"><select class="ps-select"><option selected value="">-</option><option>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
@@ -100,6 +102,7 @@
                 <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional, z. B. *.fits"></div>
                 <div class="ps-queue-cell"><input class="ps-input" type="text" value="" placeholder="optional"></div>
                 <div class="ps-queue-toggle"><input type="checkbox" checked><span>on</span></div>
+                <div class="ps-queue-actions"><button class="ps-btn ps-btn-secondary ps-btn-compact ps-queue-remove-btn" type="button" title="Queue-Eintrag entfernen.">-</button></div>
               </div>
             </div>
           </div>

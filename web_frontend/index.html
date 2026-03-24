@@ -68,7 +68,7 @@
             <div style="font-size:13px;color:var(--muted);margin-bottom:16px;" data-i18n="page.dashboard.guided_steps">1) Input/Run-Ziel  2) Preset + Parameter  3) Validieren  4) Batch starten</div>
             <div class="ps-chip-row" style="margin-bottom:12px;">
               <button id="dashboard-guided-mode-simple" data-control="dashboard.guided.mode_simple" data-i18n="ui.mode.simple" data-i18n-title="ui.tooltip.dashboard.guided_mode_simple" class="ps-chip-btn active" type="button" title="Einfacher Modus: nur Kernfelder anzeigen.">Einfach</button>
-              <button id="dashboard-guided-mode-advanced" data-control="dashboard.guided.mode_advanced" data-i18n="ui.mode.advanced" data-i18n-title="ui.tooltip.dashboard.guided_mode_advanced" class="ps-chip-btn" type="button" title="Erweiterter Modus: Runs Dir, Name, Preview und MONO-Queue anzeigen.">Erweitert</button>
+              <button id="dashboard-guided-mode-advanced" data-control="dashboard.guided.mode_advanced" data-i18n="ui.mode.advanced" data-i18n-title="ui.tooltip.dashboard.guided_mode_advanced" class="ps-chip-btn" type="button" title="Erweiterter Modus: Runs Dir, Name, Preview und Run-Queue anzeigen.">Erweitert</button>
               <a id="dashboard-guided-open-wizard" data-control="dashboard.quick.start_wizard" data-i18n="page.dashboard.wizard_page" data-i18n-title="ui.tooltip.dashboard.start_wizard" class="ps-btn ps-btn-secondary ps-btn-compact" href="wizard.html" title="Vollen Wizard-Flow auf eigener Seite oeffnen." style="margin-left:auto;">Wizard Seite</a>
             </div>
             
@@ -76,7 +76,8 @@
               <label id="dashboard-label-input-dirs" data-i18n="ui.field.input_dirs">Input Dirs</label>
               <div class="ps-inline-cluster">
                 <input id="dashboard-input-dirs" data-control="dashboard.input_dirs" data-i18n-title="ui.tooltip.dashboard.input_dirs" class="ps-input ps-wide" type="text" value="" title="Input-Ordner fuer Guided Run setzen.">
-                <button class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.browse" type="button">Browse…</button>
+                <button id="dashboard-input-dirs-browse-btn" class="ps-btn ps-btn-secondary ps-btn-compact" data-i18n="ui.button.browse" type="button">Browse…</button>
+                <button id="dashboard-input-dirs-add-btn" class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Aktuell ausgewaehlten Eingabeordner in die Run-Queue uebernehmen.">+</button>
               </div>
             </div>
             <div class="ps-row">
@@ -116,18 +117,19 @@
                 <span class="ps-hint">Suffix: aktueller Startzeitpunkt des Runs im Format <code>YYYYMMDD_HHMMSS</code>.</span>
               </div>
             </div>
-            <div class="guided-advanced guided-mono-only" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;margin-bottom:4px;">
-              <div class="ps-section-title" style="margin:0;">MONO Queue</div>
+            <div class="guided-advanced guided-queue-only" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;margin-bottom:4px;">
+              <div class="ps-section-title" style="margin:0;">Run-Queue</div>
               <button id="dashboard-queue-edit" data-control="dashboard.queue.edit" class="ps-btn ps-btn-secondary ps-btn-compact" type="button" title="Queue-Editor oeffnen und Reihenfolge bearbeiten.">Queue Editor</button>
             </div>
-            <div class="ps-hint guided-advanced guided-mono-only" style="margin-bottom:10px;">Pro Filter eigener Input-Ordner, optionales Pattern und Run-Label. Reihenfolge wird seriell als <code>Filter i/N</code> abgearbeitet.</div>
-            <div class="ps-queue-block guided-advanced guided-mono-only" style="margin-top:0;">
+            <div class="ps-hint guided-advanced guided-queue-only" style="margin-bottom:10px;">Fuege Eingabeordner nur mit <code>+</code> explizit zur Run-Queue hinzu. Fuer <code>MONO</code> kann ein Filter frei gesetzt werden, fuer <code>OSC</code> wird automatisch <code>OSC</code> verwendet.</div>
+            <div class="ps-queue-block guided-advanced guided-queue-only" data-queue-section="run" style="margin-top:0;">
               <div class="ps-queue-head">
                 <div>Filter</div>
                 <div>Input Dir</div>
                 <div>Pattern</div>
                 <div>Run Label</div>
                 <div>Aktiv</div>
+                <div></div>
               </div>
               <div class="ps-queue-row">
                 <div class="ps-queue-cell"><select class="ps-select" data-control="dashboard.queue.row.filter_name" title="Filterbezeichner fuer Queue-Eintrag setzen."><option selected value="">-</option><option>L</option><option>R</option><option>G</option><option>B</option><option>Ha</option></select></div>
@@ -135,6 +137,7 @@
                 <div class="ps-queue-cell"><input class="ps-input" data-control="dashboard.queue.row.pattern" type="text" value="" placeholder="optional, z. B. *.fits" title="Optionales Pattern fuer Queue-Eintrag."></div>
                 <div class="ps-queue-cell"><input class="ps-input" data-control="dashboard.queue.row.run_label" type="text" value="" placeholder="optional" title="Optionales Run-Label/Subfolder fuer Queue-Eintrag."></div>
                 <div class="ps-queue-toggle"><input type="checkbox" data-control="dashboard.queue.row.enabled" checked title="Queue-Eintrag aktiv/inaktiv setzen."><span>on</span></div>
+                <div class="ps-queue-actions"><button class="ps-btn ps-btn-secondary ps-btn-compact ps-queue-remove-btn" type="button" title="Queue-Eintrag entfernen.">-</button></div>
               </div>
             </div>
             <div class="ps-actions">
@@ -203,10 +206,8 @@
     const MODE_KEY = 'gui2.dashboard.guidedMode';
     const btnSimple = document.getElementById('dashboard-guided-mode-simple');
     const btnAdvanced = document.getElementById('dashboard-guided-mode-advanced');
-    const advancedNodes = document.querySelectorAll('.guided-advanced:not(.guided-mono-only)');
-    const monoOnlyNodes = document.querySelectorAll('.guided-mono-only');
-    const colorMode = document.getElementById('dashboard-color-mode');
-    const detectedMode = String(localStorage.getItem('gui2.lastScanColorMode') || '').trim().toUpperCase();
+    const advancedNodes = document.querySelectorAll('.guided-advanced:not(.guided-queue-only)');
+    const queueNodes = document.querySelectorAll('.guided-queue-only');
 
     function setMode(mode) {
       const isAdvanced = mode === 'advanced';
@@ -214,9 +215,8 @@
       advancedNodes.forEach((el) => {
         el.style.display = isAdvanced ? '' : 'none';
       });
-      const isMono = detectedMode === 'OSC' ? false : String(colorMode?.value || '').toUpperCase() === 'MONO';
-      monoOnlyNodes.forEach((el) => {
-        el.style.display = isAdvanced && isMono ? '' : 'none';
+      queueNodes.forEach((el) => {
+        el.style.display = isAdvanced ? '' : 'none';
       });
       btnSimple.classList.toggle('active', !isAdvanced);
       btnAdvanced.classList.toggle('active', isAdvanced);
@@ -224,9 +224,6 @@
 
     btnSimple.addEventListener('click', () => setMode('simple'));
     btnAdvanced.addEventListener('click', () => setMode('advanced'));
-    colorMode?.addEventListener('change', () => {
-      setMode(btnAdvanced.classList.contains('active') ? 'advanced' : 'simple');
-    });
     const storedMode = String(localStorage.getItem(MODE_KEY) || '').trim().toLowerCase();
     setMode(storedMode === 'advanced' ? 'advanced' : 'simple');
   })();
