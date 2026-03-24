@@ -294,6 +294,16 @@ Use this sequence for a complete run from scan to outputs.
    - image size
    - Bayer pattern (for OSC)
 
+### Step 2a: Use the batch/queue function
+
+Use the batch function when multiple input directories should be processed one after another with the same configuration.
+
+1. Create multiple queue entries in **Dashboard** or in the **Wizard**.
+2. For each entry, provide at least the input directory; for MONO datasets you can also set filter/label context and an optional pattern.
+3. The queue is processed serially: GUI2 starts batch 1, then batch 2, then batch 3, and so on.
+4. If the queue is empty, **Start run** will process the currently selected input directory as a normal single run instead.
+5. In **Run Monitor**, each queue entry appears as its own tab; click the queue name to switch to the corresponding phase block.
+
 ### Step 3: Review calibration inputs
 
 1. Configure bias/dark/flat only if the dataset is not already calibrated.

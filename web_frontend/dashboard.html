@@ -97,14 +97,14 @@
               <label>Run Name</label>
               <div class="ps-inline-stack">
                 <input id="dashboard-run-name" data-control="dashboard.run.name" class="ps-input" type="text" value="" style="width:220px;" title="Freien Run-Namen setzen.">
-                <span class="ps-hint">Mit Run-Name: <code>runs_dir/run_name_YYYYMMDD_HHMMSS</code>. Queue ohne Run-Name: <code>runs_dir/YYYYMMDD/&lt;filter&gt;</code>.</span>
+                <span class="ps-hint">Mit Run-Name: <code>runs_dir/run_name_YYYYMMDD_HHMMSS</code>. Queue ohne Run-Name: <code>runs_dir/YYYYMMDD_HHMM/&lt;filter&gt;</code>.</span>
               </div>
             </div>
             <div class="ps-row guided-advanced">
               <label>Output Dir Preview</label>
               <div class="ps-inline-stack">
                 <input id="dashboard-run-path-preview" data-control="dashboard.run.path_preview" class="ps-input ps-wide ps-preview-field" type="text" value="" readonly title="Finalen Run-Pfad vor Start anzeigen.">
-                <span class="ps-hint">Queue ohne Run-Name nutzt <code>YYYYMMDD</code> als Root; Batch-Subdirs folgen den Filternamen, Dubletten erhalten <code>-2</code>, <code>-3</code> usw.</span>
+                <span class="ps-hint">Queue ohne Run-Name nutzt <code>YYYYMMDD_HHMM</code> als Root; Batch-Subdirs folgen den Filternamen, Dubletten erhalten <code>-2</code>, <code>-3</code> usw.</span>
               </div>
             </div>
             <div class="guided-advanced guided-queue-only" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;margin-bottom:4px;">

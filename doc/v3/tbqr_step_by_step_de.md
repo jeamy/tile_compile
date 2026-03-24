@@ -294,6 +294,16 @@ Verwende diese Reihenfolge für einen vollständigen Lauf vom Scan bis zu den En
    - Bildgröße
    - Bayer-Muster (bei OSC)
 
+### Schritt 2a: Batch-/Queue-Funktion verwenden
+
+Verwende die Batch-Funktion, wenn mehrere Eingabeverzeichnisse nacheinander mit derselben Konfiguration verarbeitet werden sollen.
+
+1. Lege im **Dashboard** oder im **Wizard** mehrere Queue-Einträge an.
+2. Trage pro Eintrag mindestens das Eingabeverzeichnis ein; bei MONO-Datensätzen kannst du zusätzlich Filter-/Label-Kontext und bei Bedarf ein Pattern setzen.
+3. Die Queue wird seriell abgearbeitet: GUI2 startet Batch 1, danach Batch 2, danach Batch 3 usw.
+4. Wenn die Queue leer ist, verarbeitet **Run starten** stattdessen einfach das aktuell ausgewählte Eingabeverzeichnis als Einzel-Run.
+5. Im **Run Monitor** erscheint jeder Queue-Eintrag als eigener Tab; per Klick auf den Queue-Namen wechselst du zum zugehörigen Phasenblock.
+
 ### Schritt 3: Kalibrier-Eingaben prüfen
 
 1. Konfiguriere Bias/Dark/Flat nur dann, wenn der Datensatz noch nicht kalibriert ist.

@@ -1189,7 +1189,9 @@ function dateStamp(now = new Date()) {
   const yyyy = String(now.getFullYear());
   const mm = pad(now.getMonth() + 1);
   const dd = pad(now.getDate());
-  return `${yyyy}${mm}${dd}`;
+  const hh = pad(now.getHours());
+  const mi = pad(now.getMinutes());
+  return `${yyyy}${mm}${dd}_${hh}${mi}`;
 }
 
 function readFieldValue(el) {
@@ -4184,13 +4186,6 @@ function renderRunMonitorSummary(runId, runStatus, queueItemsRaw = null, runDirR
   const normalizedRunId = normalizeRunIdPath(runId);
   const hasSingleRun = Boolean(normalizedRunId || String(runDirRaw || "").trim() || String(runStatus || "").trim());
   if (!queueItems.length && !hasSingleRun) {
-    section.hidden = true;
-    metaEl.innerHTML = "";
-    structureEl.innerHTML = "";
-    return;
-  }
-
-  if (queueItems.length > 0) {
     section.hidden = true;
     metaEl.innerHTML = "";
     structureEl.innerHTML = "";
