@@ -15,9 +15,130 @@
 #include <fstream>
 #include <memory>
 #include <filesystem>
+#include <system_error>
+#include <set>
 #include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
+
+namespace {
+
+bool is_queue_staging_job_dir(const fs::path& path) {
+    if (path.empty()) return false;
+    const std::string name = path.filename().string();
+    return name.rfind("job_", 0) == 0;
+}
+
+#ifdef __linux__
+bool process_cmdline_references_path(const fs::path& target_path,
+                                     const std::string& runner_name,
+                                     int self_pid) {
+    const std::string target = target_path.string();
+    std::error_code ec;
+    if (!fs::exists("/proc", ec)) return false;
+
+    for (const auto& entry : fs::directory_iterator("/proc", ec)) {
+        if (ec || !entry.is_directory()) continue;
+        const std::string pid_text = entry.path().filename().string();
+        if (pid_text.empty() ||
+            !std::all_of(pid_text.begin(), pid_text.end(),
+                         [](unsigned char ch) { return std::isdigit(ch) != 0; })) {
+            continue;
+        }
+
+        int pid = 0;
+        try {
+            pid = std::stoi(pid_text);
+        } catch (...) {
+            continue;
+        }
+        if (pid == self_pid) continue;
+
+        std::ifstream cmdline(entry.path() / "cmdline", std::ios::binary);
+        if (!cmdline) continue;
+        std::string raw((std::istreambuf_iterator<char>(cmdline)),
+                        std::istreambuf_iterator<char>());
+        if (raw.empty()) continue;
+
+        std::vector<std::string> argv;
+        size_t start = 0;
+        while (start < raw.size()) {
+            size_t end = raw.find('\0', start);
+            if (end == std::string::npos) end = raw.size();
+            if (end > start) argv.push_back(raw.substr(start, end - start));
+            start = end + 1;
+        }
+        if (argv.empty()) continue;
+
+        const std::string exe_name = fs::path(argv.front()).filename().string();
+        const bool is_runner =
+            exe_name == runner_name ||
+            exe_name.find("tile_compile_runner") != std::string::npos;
+        if (!is_runner) continue;
+
+        if (std::any_of(argv.begin(), argv.end(), [&target](const std::string& arg) {
+                return arg.find(target) != std::string::npos;
+            })) {
+            return true;
+        }
+    }
+
+    return false;
+}
+#endif
+
+void cleanup_orphan_queue_staging(const BackendRuntime& runtime) {
+    const fs::path staging_root = runtime.runs_dir / ".queue_staging";
+    std::error_code ec;
+    if (!fs::exists(staging_root, ec) || !fs::is_directory(staging_root, ec)) return;
+
+    const std::string runner_name = fs::path(runtime.runner_exe).filename().string();
+    int removed = 0;
+    int kept = 0;
+    int failed = 0;
+
+    for (const auto& entry : fs::directory_iterator(staging_root, ec)) {
+        if (ec) break;
+        if (!entry.is_directory()) continue;
+        if (!is_queue_staging_job_dir(entry.path())) continue;
+
+        bool is_live = false;
+#ifdef __linux__
+        is_live = process_cmdline_references_path(entry.path(), runner_name, static_cast<int>(::getpid()));
+#endif
+        if (is_live) {
+            ++kept;
+            continue;
+        }
+
+        fs::remove_all(entry.path(), ec);
+        if (ec) {
+            ++failed;
+            std::cerr << "[tile_compile_web_backend] Failed to remove stale queue staging dir: "
+                      << entry.path() << " (" << ec.message() << ")" << std::endl;
+            ec.clear();
+            continue;
+        }
+        ++removed;
+    }
+
+    bool root_empty = false;
+    if (!ec) {
+        root_empty = fs::is_empty(staging_root, ec);
+    }
+    if (!ec && root_empty) {
+        fs::remove(staging_root, ec);
+        ec.clear();
+    }
+
+    if (removed > 0 || kept > 0 || failed > 0) {
+        std::cout << "[tile_compile_web_backend] Queue staging cleanup: removed="
+                  << removed << " kept_live=" << kept << " failed=" << failed
+                  << std::endl;
+    }
+}
+
+}  // namespace
 
 int main(int argc, char* argv[]) {
     auto state = std::make_shared<AppState>();
@@ -25,6 +146,7 @@ int main(int argc, char* argv[]) {
     state->job_store.configure_retention(state->runtime.guard_limits.retained_jobs);
     state->subprocess_manager.configure_limits(state->runtime.guard_limits);
     state->ui_event_store.configure(state->runtime.ui_events_path);
+    cleanup_orphan_queue_staging(state->runtime);
 
     CrowApp app;
 
