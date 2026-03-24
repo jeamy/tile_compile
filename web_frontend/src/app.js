@@ -106,6 +106,8 @@ const uiState = {
   projectRunsDir: "",
   projectPresetsDir: "",
   monitorStatsStatus: null,
+  monitorStatsRunId: "",
+  monitorStatsRunDir: "",
   dashboardGuardrailStatus: "",
   runReadyStatus: "check",
   runProcessStatus: "",
@@ -4133,6 +4135,52 @@ function runIdLeaf(runIdRaw) {
   return parts[parts.length - 1] || normalized;
 }
 
+function selectedRunMonitorBatchItem() {
+  const queueItems = Array.isArray(uiState.currentRunQueue) ? uiState.currentRunQueue.filter((item) => item && typeof item === "object") : [];
+  if (queueItems.length === 0) return null;
+  const selectedKey = String(uiState.runMonitorSelectedBatchKey || "").trim();
+  if (selectedKey) {
+    for (let index = 0; index < queueItems.length; index += 1) {
+      const item = queueItems[index];
+      const runId = normalizeRunIdPath(item?.run_id || "");
+      const key = runId || `batch-${index + 1}`;
+      if (key === selectedKey) return item;
+    }
+  }
+  const currentRunId = normalizeRunIdPath(uiState.currentRunId);
+  if (currentRunId) {
+    const activeItem = queueItems.find((item) => normalizeRunIdPath(item?.run_id || "") === currentRunId);
+    if (activeItem) return activeItem;
+  }
+  return queueItems[0] || null;
+}
+
+function runMonitorTargetContext() {
+  const batchItem = selectedRunMonitorBatchItem();
+  if (batchItem) {
+    const runId = normalizeRunIdPath(batchItem?.run_id || "");
+    return {
+      runId,
+      runDir: runDirForRunId(uiState.currentRunDir, uiState.currentRunId, runId),
+      state: String(batchItem?.state || (runId === normalizeRunIdPath(uiState.currentRunId) ? uiState.runProcessStatus : "pending")).trim().toLowerCase() || "pending",
+      isSelectedBatch: true,
+      isActiveRun: runId === normalizeRunIdPath(uiState.currentRunId),
+    };
+  }
+  return {
+    runId: normalizeRunIdPath(uiState.currentRunId),
+    runDir: normalizeFsPath(uiState.currentRunDir),
+    state: String(uiState.runProcessStatus || "").trim().toLowerCase(),
+    isSelectedBatch: false,
+    isActiveRun: true,
+  };
+}
+
+function isTerminalRunStatus(statusRaw) {
+  const status = String(statusRaw || "").trim().toLowerCase();
+  return ["ok", "done", "completed", "finished", "error", "failed", "cancelled", "aborted"].includes(status);
+}
+
 function runDirForRunId(runDirRaw, currentRunIdRaw, targetRunIdRaw) {
   const runDir = normalizeFsPath(runDirRaw);
   const currentRunId = normalizeRunIdPath(currentRunIdRaw);
@@ -4624,6 +4672,9 @@ async function bindRunMonitor() {
         uiState.runMonitorSelectedBatchKey = nextBatchKey;
         renderRunMonitorPhaseLists();
         updateResumeEnabled();
+        void refreshStatsActions().then(() => {
+          setMonitorActionState(isRunActiveStatus(uiState.runProcessStatus || ""));
+        });
       }
       return;
     }
@@ -4775,14 +4826,19 @@ async function bindRunMonitor() {
     renderArtifacts(result?.items || []);
   };
   const refreshStatsActions = async () => {
-    if (!uiState.currentRunId) {
+    const target = runMonitorTargetContext();
+    if (!target.runId) {
       uiState.monitorStatsStatus = null;
+      uiState.monitorStatsRunId = "";
+      uiState.monitorStatsRunDir = "";
       setMonitorReportAvailable(false);
       setInlineAsyncStatus(statsStatusEl, "");
       return null;
     }
-    const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId, uiState.currentRunDir)).catch(() => null);
+    const status = await api.get(API_ENDPOINTS.runs.statsStatus(target.runId, target.runDir)).catch(() => null);
     uiState.monitorStatsStatus = status;
+    uiState.monitorStatsRunId = target.runId;
+    uiState.monitorStatsRunDir = target.runDir;
     const hasReport = Boolean(String(status?.report_path || "").trim());
     setMonitorReportAvailable(hasReport);
     if (String(status?.state || "").toLowerCase() === "running") {
@@ -4795,11 +4851,15 @@ async function bindRunMonitor() {
     return status;
   };
   const setMonitorActionState = (isActive) => {
-    const hasRun = Boolean(String(uiState.currentRunId || "").trim());
+    const target = runMonitorTargetContext();
+    const hasRun = Boolean(String(target.runId || "").trim());
+    const statsTargetMatches = normalizeRunIdPath(uiState.monitorStatsRunId || "") === normalizeRunIdPath(target.runId || "");
+    const canGenerateStats = hasRun && isTerminalRunStatus(target.state) && !(statsTargetMatches && String(uiState.monitorStatsStatus?.state || "").toLowerCase() === "running");
+    const hasStatsOutput = statsTargetMatches && Boolean(String(uiState.monitorStatsStatus?.output_dir || "").trim());
     setDisabledLike(startBtn, isActive);
     setDisabledLike(stopBtn, !isActive);
-    setDisabledLike(statsGenerateBtn, isActive || !hasRun);
-    setDisabledLike(statsOpenFolderBtn, isActive || !hasRun);
+    setDisabledLike(statsGenerateBtn, !canGenerateStats);
+    setDisabledLike(statsOpenFolderBtn, !hasStatsOutput);
     if (isActive || !hasRun) {
       setMonitorReportAvailable(false);
       if (!hasRun) setInlineAsyncStatus(statsStatusEl, "");
@@ -5071,21 +5131,24 @@ async function bindRunMonitor() {
 
   $("monitor-stats-generate")?.addEventListener("click", async () => {
     try {
-      const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} } }));
-      const currentStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
-      if (isRunActiveStatus(currentStatus)) {
-        setMonitorActionState(true);
-        setFooter("Stats erst nach beendetem Run verfuegbar.", true);
+      const target = runMonitorTargetContext();
+      if (!target.runId || !isTerminalRunStatus(target.state)) {
+        setMonitorActionState(isRunActiveStatus(uiState.runProcessStatus || ""));
+        setFooter("Stats erst nach beendetem Batch verfuegbar.", true);
         return;
       }
-      const accepted = await api.post(API_ENDPOINTS.runs.stats(uiState.currentRunId), {
-        run_dir: uiState.currentRunDir || undefined,
+      const accepted = await api.post(API_ENDPOINTS.runs.stats(target.runId), {
+        run_dir: target.runDir || undefined,
       });
+      uiState.monitorStatsRunId = target.runId;
+      uiState.monitorStatsRunDir = target.runDir;
+      uiState.monitorStatsStatus = { ...(uiState.monitorStatsStatus || {}), state: "running" };
       setInlineAsyncStatus(statsStatusEl, t("ui.status.stats_running", "Stats laeuft"), "running");
       setFooter(statsStartedMessage(accepted.job_id));
       await waitForJob(accepted.job_id);
       await refreshArtifacts();
       await refreshStatsActions();
+      setMonitorActionState(isRunActiveStatus(uiState.runProcessStatus || ""));
       setFooter(t("ui.message.stats_completed", "Stats-Generierung beendet."));
     } catch (err) {
       setFooter(statsFailedMessage(err), true);
@@ -5094,14 +5157,8 @@ async function bindRunMonitor() {
 
   $("monitor-stats-open-folder")?.addEventListener("click", async () => {
     try {
-      const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} } }));
-      const currentStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
-      if (isRunActiveStatus(currentStatus)) {
-        setMonitorActionState(true);
-        setFooter("Stats-Ordner erst nach beendetem Run verfuegbar.", true);
-        return;
-      }
-      const status = await api.get(API_ENDPOINTS.runs.statsStatus(uiState.currentRunId, uiState.currentRunDir));
+      const target = runMonitorTargetContext();
+      const status = await api.get(API_ENDPOINTS.runs.statsStatus(target.runId, target.runDir));
       const targetDir = String(status.output_dir || "").trim();
       if (!targetDir) {
         setFooter("Stats-Ordner nicht verfuegbar.", true);
@@ -5120,15 +5177,18 @@ async function bindRunMonitor() {
 
   $("monitor-report")?.addEventListener("click", async () => {
     try {
-      const status = uiState.monitorStatsStatus;
+      const target = runMonitorTargetContext();
+      const status = await api.get(API_ENDPOINTS.runs.statsStatus(target.runId, target.runDir)).catch(() => uiState.monitorStatsStatus);
       if (!status?.report_path) {
         setFooter("Report erst nach Generate Stats verfuegbar.", true);
         return;
       }
-      const runStatus = uiState.currentRunDir ? { run_dir: uiState.currentRunDir } : await ensureCurrentRunStatus();
+      const targetRunId = target.runId || normalizeRunIdPath(uiState.monitorStatsRunId || "");
+      const targetRunDir = target.runDir || normalizeFsPath(uiState.monitorStatsRunDir || "");
+      const runStatus = targetRunDir ? { run_dir: targetRunDir } : await ensureCurrentRunStatus();
       const { artifactPath } = openRunReportInNewTab(
-        uiState.currentRunId,
-        runStatus?.run_dir || uiState.currentRunDir,
+        targetRunId,
+        runStatus?.run_dir || targetRunDir,
         status.report_path,
       );
       setFooter(`Report: ${status.report_path || artifactPath}`);

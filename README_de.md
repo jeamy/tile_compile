@@ -505,6 +505,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.6 (2026-03-24)
+
+- GUI2-Queue-/Batch-Handling und Run-Monitor überarbeitet: Batch-Tabs im Run Monitor, batchbezogene Stats-/Report-Aktionen, Queue-Root-Benennung mit Stunden/Minuten sowie aktualisierte DE/EN-Dokumentation.
+
 ## v0.1.5 (2026-03-23)
 
 - `PREWARP` für OpenCL stabilisiert und die GPU-Beschleunigung um OpenCL-Äquivalente für die bisher CUDA-exklusiven Pfade in `TILE_RECONSTRUCTION` und `STACKING` erweitert, einschließlich Sigma-Clipping und Overlap-Add-Akkumulation.
@@ -624,6 +628,15 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-24)
+
+**GUI2-Batch-/Queue-Run-Monitor-Refresh + Doku-Update (`v0.1.6`):**
+
+- Den GUI2-Run-Monitor für Queue-/Batch-Läufe überarbeitet: Queue-Einträge erscheinen jetzt als Tabs, redundante doppelte Batch-/Filter-Zeilen wurden entfernt, und die obere Batch-/Verzeichnisstruktur-Zusammenfassung wird bei Queue-Runs wieder korrekt angezeigt.
+- Batchbezogene Post-Run-Aktionen im Run Monitor aktiviert, sodass `Stats erstellen`, Stats-Ordner und Report auf den aktuell ausgewählten beendeten Batch-Tab arbeiten können, statt nur auf den aktiven Root-/Current-Run.
+- Die Benennung unbenannter Queue-Root-Verzeichnisse von reinem Datum auf `YYYYMMDD_HHMM` umgestellt; dadurch sinkt das Kollisionsrisiko und die Dashboard-/Wizard-Hinweise stimmen wieder mit dem tatsächlichen Verhalten überein.
+- Die EN-/DE-Schritt-für-Schritt-Anleitungen um explizite Batch-/Queue-Hinweise ergänzt, inklusive des primären MONO-Mehrfilter-Anwendungsfalls und des Tab-Verhaltens im Run Monitor.
 
 ### (2026-03-23)
 

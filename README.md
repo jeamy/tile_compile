@@ -495,6 +495,10 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.6 (2026-03-24)
+
+- Reworked GUI2 queue/batch handling and run monitoring: batch tabs in Run Monitor, batch-targeted stats/report actions, timestamped queue-root naming with hours/minutes, and updated EN/DE documentation.
+
 ## v0.1.5 (2026-03-23)
 
 - Stabilized `PREWARP` for OpenCL and extended GPU acceleration with OpenCL equivalents for the previously CUDA-only `TILE_RECONSTRUCTION` and `STACKING` paths, including sigma-clipping and overlap-add accumulation.
@@ -614,6 +618,15 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-03-24)
+
+**GUI2 batch/queue run-monitor refresh + docs update (`v0.1.6`):**
+
+- Reworked the GUI2 Run Monitor for queue/batch runs: queue entries now appear as tabs, redundant duplicate batch/filter rows were removed, and top-level batch/structure summary visibility was corrected again for queued runs.
+- Enabled batch-targeted post-run actions in the Run Monitor so `Generate Stats`, stats-folder opening, and report opening can operate on the currently selected finished batch tab instead of only the active root/current run.
+- Changed unnamed queue-root naming from date-only to `YYYYMMDD_HHMM`, making batch-root directories less collision-prone and aligning the dashboard/wizard path hints with the actual behavior.
+- Expanded the EN/DE step-by-step guides with explicit batch/queue usage notes, including the primary MONO multi-filter use case and Run Monitor tab behavior.
 
 ### (2026-03-23)
 
