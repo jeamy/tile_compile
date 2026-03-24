@@ -3143,6 +3143,30 @@ function historyDeleteFailedMessage(err) {
     .replace("{error}", errorText(err));
 }
 
+function formatI18n(key, fallback = "", replacements = {}) {
+  let text = t(key, fallback);
+  Object.entries(replacements || {}).forEach(([name, value]) => {
+    text = text.replaceAll(`{${name}}`, String(value ?? ""));
+  });
+  return text;
+}
+
+function localizedRunMonitorState(stateRaw) {
+  const state = String(stateRaw || "").trim().toLowerCase();
+  if (state === "running") return t("ui.status.run_monitor_state_running", "Läuft");
+  if (["ok", "completed", "done", "finished"].includes(state)) return t("ui.status.run_monitor_state_done", "Fertig");
+  if (["error", "failed", "aborted"].includes(state)) return t("ui.status.run_monitor_state_error", "Fehler");
+  if (state === "cancelled") return t("ui.status.run_monitor_state_cancelled", "Abgebrochen");
+  if (state === "pending") return t("ui.status.run_monitor_state_pending", "Ausstehend");
+  return t("ui.status.run_monitor_state_unknown", "Unbekannt");
+}
+
+function localizedRunMonitorPhaseName(phaseRaw) {
+  const phase = String(phaseRaw || "").trim().toUpperCase();
+  if (!phase) return "";
+  return t(`phase.${phase.toLowerCase()}`, phase);
+}
+
 function isRunActiveStatus(status) {
   return ["running", "queued", "starting"].includes(String(status || "").trim().toLowerCase());
 }
@@ -3645,8 +3669,8 @@ async function populatePresetSelect(selectId, preserveCurrentValue = true) {
 }
 
 function runMonitorSelectedPhase() {
-  const selected = document.querySelector(".ps-phase-row.is-selected .phase-name");
-  return selected ? String(selected.textContent || "").trim().toUpperCase() : "";
+  const selected = document.querySelector(".ps-phase-row.is-selected");
+  return selected ? normalizeRunMonitorPhaseName(selected.dataset.phaseName || "") : "";
 }
 
 function createEmptyRunPhaseSnapshot() {
@@ -3780,7 +3804,7 @@ function renderRunMonitorPhaseLists(selectedPhaseRaw = runMonitorSelectedPhase()
   if (queueItems.length > 0) {
     queueItems.forEach((item, index) => {
       const runId = normalizeRunIdPath(item?.run_id || "");
-      const label = canonicalQueueFilterLabel(item?.filter || "") || runIdLeaf(runId) || `Batch ${index + 1}`;
+      const label = canonicalQueueFilterLabel(item?.filter || "") || runIdLeaf(runId) || `${t("page.run_monitor.batch", "Batch")} ${index + 1}`;
       const state = String(item?.state || (runId === currentRunId ? uiState.runProcessStatus : "pending")).trim().toLowerCase() || "pending";
       const entries = runId && uiState.runPhaseSnapshots[runId]
         ? orderedRunPhaseEntries(uiState.runPhaseSnapshots[runId])
@@ -3802,7 +3826,7 @@ function renderRunMonitorPhaseLists(selectedPhaseRaw = runMonitorSelectedPhase()
     groups.push({
       key: currentRunId || "single-run",
       runId: currentRunId,
-      label: currentRunId ? runIdLeaf(currentRunId) || currentRunId : "Aktueller Run",
+      label: currentRunId ? runIdLeaf(currentRunId) || currentRunId : t("page.run_monitor.current_run", "Aktueller Run"),
       meta: String(uiState.currentRunDir || "").trim(),
       state: String(uiState.runProcessStatus || "pending").trim().toLowerCase() || "pending",
       active: true,
@@ -3812,7 +3836,7 @@ function renderRunMonitorPhaseLists(selectedPhaseRaw = runMonitorSelectedPhase()
 
   if (groups.length === 0) {
     uiState.runMonitorSelectedBatchKey = "";
-    host.innerHTML = "<div class=\"ps-note\">Kein Run geladen.</div>";
+    host.innerHTML = `<div class="ps-note">${escapeRunMonitorHtml(t("ui.message.monitor_no_run_loaded", "Kein Run geladen."))}</div>`;
     return;
   }
 
@@ -3842,7 +3866,9 @@ function renderRunMonitorPhaseLists(selectedPhaseRaw = runMonitorSelectedPhase()
     const rowStateClass = normalizedRunPhaseStatus(entry.status);
     const selectedClass = selectedGroup.active && selectedPhase && entry.phase === selectedPhase ? " is-selected" : "";
     const readonlyClass = selectedGroup.active ? "" : " is-readonly";
-    const title = selectedGroup.active ? `Resume ab ${entry.phase} starten.` : "Fortschritt dieses Batches.";
+    const title = selectedGroup.active
+      ? formatI18n("ui.message.monitor_resume_from_phase", "Resume ab {phase} starten.", { phase: localizedRunMonitorPhaseName(entry.phase) || entry.phase })
+      : t("ui.message.monitor_batch_progress", "Fortschritt dieses Batches.");
     return `
       <button
         type="button"
@@ -3853,14 +3879,14 @@ function renderRunMonitorPhaseLists(selectedPhaseRaw = runMonitorSelectedPhase()
         title="${escapeRunMonitorAttr(title)}"
       >
         <span class="state">${phaseStateBadgeText(entry.status)}</span>
-        <span class="phase-name">${escapeRunMonitorHtml(entry.phase)}</span>
-        <span class="phase-progress" data-control="monitor.phase.progress_pct" title="Prozentfortschritt je Phase.">${normalizeRunMonitorPct(entry.pct).toFixed(0)}%</span>
+        <span class="phase-name">${escapeRunMonitorHtml(localizedRunMonitorPhaseName(entry.phase) || entry.phase)}</span>
+        <span class="phase-progress" data-control="monitor.phase.progress_pct" title="${escapeRunMonitorAttr(t("ui.tooltip.monitor.phase_progress_pct", "Prozentwert für den aktuellen Fortschritt dieser Phase"))}">${normalizeRunMonitorPct(entry.pct).toFixed(0)}%</span>
       </button>
     `;
   }).join("");
 
   host.innerHTML = `
-    <div class="ps-phase-tabs" role="tablist" aria-label="Batch-Auswahl">
+    <div class="ps-phase-tabs" role="tablist" aria-label="${escapeRunMonitorAttr(t("page.run_monitor.batch_selection", "Batch-Auswahl"))}">
       ${tabsHtml}
     </div>
     <section class="ps-phase-batch${selectedGroup.active ? " active" : ""}" data-run-id="${escapeRunMonitorAttr(selectedGroup.runId || "")}">
@@ -3869,7 +3895,7 @@ function renderRunMonitorPhaseLists(selectedPhaseRaw = runMonitorSelectedPhase()
           <div class="ps-phase-batch-name">${escapeRunMonitorHtml(selectedGroup.label)}</div>
           <div class="ps-phase-batch-meta">${escapeRunMonitorHtml(selectedGroup.meta || selectedGroup.runId || "-")}</div>
         </div>
-        <span class="ps-phase-batch-state ${batchStateClass}">${escapeRunMonitorHtml(selectedGroup.state || "pending")}</span>
+        <span class="ps-phase-batch-state ${batchStateClass}">${escapeRunMonitorHtml(localizedRunMonitorState(selectedGroup.state || "pending"))}</span>
       </div>
       <div class="ps-phase-list">${rowsHtml}</div>
     </section>
@@ -3893,14 +3919,14 @@ function applyRunMonitorResumePhaseAvailability(resumePhases) {
   );
   uiState.runMonitorResumePhases = Array.from(allowed);
   document.querySelectorAll(".ps-phase-row").forEach((row) => {
-    const phaseName = String(row.querySelector(".phase-name")?.textContent || "").trim().toUpperCase();
+    const phaseName = normalizeRunMonitorPhaseName(row.dataset.phaseName || "");
     if (String(row.dataset.activeBatch || "") !== "1") {
       row.dataset.resumeAllowed = "0";
       row.classList.remove("is-selected");
       row.classList.add("is-readonly");
       row.style.opacity = "";
       row.style.cursor = "default";
-      row.title = "Fortschritt dieses Batches.";
+      row.title = t("ui.message.monitor_batch_progress", "Fortschritt dieses Batches.");
       return;
     }
     const resumable = allowed.has(phaseName);
@@ -3910,7 +3936,11 @@ function applyRunMonitorResumePhaseAvailability(resumePhases) {
       row.classList.remove("is-selected");
       row.style.opacity = "0.6";
       row.style.cursor = "not-allowed";
-      row.title = `Resume aktuell nur ab ${Array.from(allowed).join(", ")} unterstützt.`;
+      row.title = formatI18n(
+        "ui.message.monitor_resume_supported_from",
+        "Resume aktuell nur ab {phases} unterstützt.",
+        { phases: Array.from(allowed).map((phase) => localizedRunMonitorPhaseName(phase) || phase).join(", ") },
+      );
       return;
     }
     row.style.opacity = "";
@@ -4044,7 +4074,7 @@ function ensureRunMonitorFilterButtons(filters) {
     btn.id = `monitor-filter-${normalizeMonitorFilterName(filter) || index}`;
     btn.dataset.control = `monitor.filter.${filter}`;
     btn.dataset.state = entry.state || "pending";
-    btn.title = `Filterkontext ${filter} waehlen.`;
+    btn.title = formatI18n("ui.message.monitor_filter_context_select", "Filterkontext {filter} wählen.", { filter });
     btn.textContent = filter;
     if (entry.state === "ok" || entry.state === "completed" || entry.state === "done") {
       btn.classList.add("done");
@@ -4244,17 +4274,17 @@ function renderRunMonitorSummary(runId, runStatus, queueItemsRaw = null, runDirR
   if (!queueItems.length) {
     const runDir = String(runDirRaw || "").trim();
     metaEl.innerHTML = `
-      <strong>Run</strong><span><code>${escapeRunMonitorHtml(normalizedRunId || "-")}</code></span>
-      <strong>Status</strong><span><code>${escapeRunMonitorHtml(runStatus || "unknown")}</code></span>
-      <strong>Verzeichnis</strong><span><code>${escapeRunMonitorHtml(runDir || "-")}</code></span>
-      <strong>Batch-Fortschritt</strong><span>1/1</span>
-      <strong>Filter</strong><span>-</span>
-      <strong>Quelle</strong><span>-</span>
+      <strong>${escapeRunMonitorHtml(t("ui.nav.run_monitor", "Run Monitor"))}</strong><span><code>${escapeRunMonitorHtml(normalizedRunId || "-")}</code></span>
+      <strong>${escapeRunMonitorHtml(t("ui.field.status", "Status"))}</strong><span><code>${escapeRunMonitorHtml(localizedRunMonitorState(runStatus || "unknown"))}</code></span>
+      <strong>${escapeRunMonitorHtml(t("page.run_monitor.directory", "Verzeichnis"))}</strong><span><code>${escapeRunMonitorHtml(runDir || "-")}</code></span>
+      <strong>${escapeRunMonitorHtml(t("page.run_monitor.batch_progress", "Batch-Fortschritt"))}</strong><span>1/1</span>
+      <strong>${escapeRunMonitorHtml(t("queue.filter.title", "Filter"))}</strong><span>-</span>
+      <strong>${escapeRunMonitorHtml(t("page.run_monitor.source", "Quelle"))}</strong><span>-</span>
     `;
     structureEl.innerHTML = `
-      <div class="ps-monitor-run-node"><strong>Run</strong><code>${escapeRunMonitorHtml(normalizedRunId || "-")}</code></div>
-      <div class="ps-monitor-run-node"><strong>Status</strong><code>${escapeRunMonitorHtml(runStatus || "unknown")}</code></div>
-      <div class="ps-monitor-run-node"><strong>Run-Pfad</strong><code>${escapeRunMonitorHtml(runDir || "-")}</code></div>
+      <div class="ps-monitor-run-node"><strong>${escapeRunMonitorHtml(t("ui.nav.run_monitor", "Run Monitor"))}</strong><code>${escapeRunMonitorHtml(normalizedRunId || "-")}</code></div>
+      <div class="ps-monitor-run-node"><strong>${escapeRunMonitorHtml(t("ui.field.status", "Status"))}</strong><code>${escapeRunMonitorHtml(localizedRunMonitorState(runStatus || "unknown"))}</code></div>
+      <div class="ps-monitor-run-node"><strong>${escapeRunMonitorHtml(t("page.run_monitor.run_path", "Run-Pfad"))}</strong><code>${escapeRunMonitorHtml(runDir || "-")}</code></div>
     `;
     return;
   }
@@ -4269,33 +4299,35 @@ function renderRunMonitorSummary(runId, runStatus, queueItemsRaw = null, runDirR
   const rootRunDir = rootRunId ? runDirForRunId(runDirRaw, normalizedRunId || activeItemRunId, rootRunId) : "";
 
   metaEl.innerHTML = `
-    <strong>Root</strong><span><code>${escapeRunMonitorHtml(rootRunId || "-")}</code></span>
-    <strong>Root Dir</strong><span><code>${escapeRunMonitorHtml(rootRunDir || "-")}</code></span>
-    <strong>Aktiv</strong><span><code>${escapeRunMonitorHtml(activeItemRunId || normalizedRunId || "-")}</code></span>
-    <strong>Status</strong><span><code>${escapeRunMonitorHtml(runStatus || "unknown")}</code></span>
-    <strong>Batch-Fortschritt</strong><span>${doneCount}/${queueItems.length}</span>
-    <strong>Filter</strong><span>${escapeRunMonitorHtml(activeFilter || "-")}</span>
-    <strong>Quelle</strong><span>${escapeRunMonitorHtml(activeInputDir || "-")}</span>
+    <strong>${escapeRunMonitorHtml(t("page.run_monitor.root", "Root"))}</strong><span><code>${escapeRunMonitorHtml(rootRunId || "-")}</code></span>
+    <strong>${escapeRunMonitorHtml(t("page.run_monitor.root_dir", "Root Dir"))}</strong><span><code>${escapeRunMonitorHtml(rootRunDir || "-")}</code></span>
+    <strong>${escapeRunMonitorHtml(t("page.run_monitor.active", "Aktiv"))}</strong><span><code>${escapeRunMonitorHtml(activeItemRunId || normalizedRunId || "-")}</code></span>
+    <strong>${escapeRunMonitorHtml(t("ui.field.status", "Status"))}</strong><span><code>${escapeRunMonitorHtml(localizedRunMonitorState(runStatus || "unknown"))}</code></span>
+    <strong>${escapeRunMonitorHtml(t("page.run_monitor.batch_progress", "Batch-Fortschritt"))}</strong><span>${doneCount}/${queueItems.length}</span>
+    <strong>${escapeRunMonitorHtml(t("queue.filter.title", "Filter"))}</strong><span>${escapeRunMonitorHtml(activeFilter || "-")}</span>
+    <strong>${escapeRunMonitorHtml(t("page.run_monitor.source", "Quelle"))}</strong><span>${escapeRunMonitorHtml(activeInputDir || "-")}</span>
   `;
 
   const structureNodes = [];
   if (rootRunId) {
-    structureNodes.push(`<div class="ps-monitor-run-node"><strong>Root</strong><code>${escapeRunMonitorHtml(rootRunId)}</code></div>`);
+    structureNodes.push(`<div class="ps-monitor-run-node"><strong>${escapeRunMonitorHtml(t("page.run_monitor.root", "Root"))}</strong><code>${escapeRunMonitorHtml(rootRunId)}</code></div>`);
   }
   if (rootRunDir) {
-    structureNodes.push(`<div class="ps-monitor-run-node"><strong>Root-Pfad</strong><code>${escapeRunMonitorHtml(rootRunDir)}</code></div>`);
+    structureNodes.push(`<div class="ps-monitor-run-node"><strong>${escapeRunMonitorHtml(t("page.run_monitor.root_path", "Root-Pfad"))}</strong><code>${escapeRunMonitorHtml(rootRunDir)}</code></div>`);
   }
   queueItems.forEach((item, index) => {
     const itemRunId = normalizeRunIdPath(item?.run_id || "");
-    const itemLabel = canonicalQueueFilterLabel(item?.filter || "") || runIdLeaf(itemRunId) || `Batch ${index + 1}`;
-    const stateLabel = String(item?.state || "pending").trim() || "pending";
-    const nodeLabel = itemRunId === activeItemRunId ? `Aktiv ${itemLabel}` : `${itemLabel} (${stateLabel})`;
+    const itemLabel = canonicalQueueFilterLabel(item?.filter || "") || runIdLeaf(itemRunId) || `${t("page.run_monitor.batch", "Batch")} ${index + 1}`;
+    const stateLabel = localizedRunMonitorState(String(item?.state || "pending").trim() || "pending");
+    const nodeLabel = itemRunId === activeItemRunId
+      ? formatI18n("page.run_monitor.active_batch_label", "Aktiv {label}", { label: itemLabel })
+      : formatI18n("page.run_monitor.batch_state_label", "{label} ({state})", { label: itemLabel, state: stateLabel });
     structureNodes.push(
       `<div class="ps-monitor-run-node"><strong>${escapeRunMonitorHtml(nodeLabel)}</strong><code>${escapeRunMonitorHtml(itemRunId || "-")}</code></div>`,
     );
   });
   if (activeRunDir) {
-    structureNodes.push(`<div class="ps-monitor-run-node"><strong>Aktiver Pfad</strong><code>${escapeRunMonitorHtml(activeRunDir)}</code></div>`);
+    structureNodes.push(`<div class="ps-monitor-run-node"><strong>${escapeRunMonitorHtml(t("page.run_monitor.active_path", "Aktiver Pfad"))}</strong><code>${escapeRunMonitorHtml(activeRunDir)}</code></div>`);
   }
   structureEl.innerHTML = structureNodes.join("");
 }
@@ -4377,7 +4409,7 @@ function setMonitorReportAvailable(enabled) {
 
 async function openExternalPath(path) {
   const targetPath = String(path || "").trim();
-  if (!targetPath) throw new Error("Pfad fehlt.");
+  if (!targetPath) throw new Error(t("ui.message.monitor_path_missing", "Pfad fehlt."));
   return withPathGrantRetry(
     () => api.post(API_ENDPOINTS.fs.openPath, { path: targetPath }),
     { fallbackPath: targetPath },
@@ -4391,12 +4423,12 @@ function reportArtifactPath(runDir, reportPath) {
 function openRunReportInNewTab(runId, runDir, reportPath) {
   const artifactPath = reportArtifactPath(runDir, reportPath);
   if (!runId || !artifactPath) {
-    throw new Error("Report nicht verfuegbar.");
+    throw new Error(t("ui.message.monitor_report_unavailable", "Report nicht verfuegbar."));
   }
   const reportUrl = api.httpUrl(API_ENDPOINTS.runs.artifactRaw(runId, artifactPath));
   const targetWindow = window.open(reportUrl, "_blank");
   if (!targetWindow) {
-    throw new Error("Report konnte nicht in neuem Tab geoeffnet werden.");
+    throw new Error(t("ui.message.monitor_report_open_failed", "Report konnte nicht in neuem Tab geoeffnet werden."));
   }
   return { artifactPath, reportUrl };
 }
@@ -4420,7 +4452,15 @@ function setPhaseRow(phaseName, status, pctRaw) {
 function updateRunMonitorSubtitle(runId, runStatus, currentPhase) {
   const sub = document.querySelector(".app-content .ps-sub");
   if (!sub) return;
-  sub.innerHTML = `Run-ID <code>${runId}</code>, Status <code>${runStatus || "unknown"}</code>, Phase <code>${currentPhase || "-"}</code>.`;
+  sub.innerHTML = formatI18n(
+    "page.run_monitor.sub_status",
+    "Run-ID <code>{run_id}</code>, Status <code>{status}</code>, Phase <code>{phase}</code>.",
+    {
+      run_id: escapeRunMonitorHtml(runId || "-"),
+      status: escapeRunMonitorHtml(localizedRunMonitorState(runStatus || "unknown")),
+      phase: escapeRunMonitorHtml(localizedRunMonitorPhaseName(currentPhase || "") || currentPhase || "-"),
+    },
+  );
 }
 
 async function loadRunStatus(runId) {
@@ -4483,9 +4523,9 @@ function setRunMonitorConfigEditor(yamlText = "", { source = "", revisionId = ""
   editor.dataset.source = String(source || "");
   editor.dataset.revisionId = String(revisionId || "");
   const parts = [];
-  if (source) parts.push(`Quelle: ${source}`);
-  if (revisionId) parts.push(`Revision: ${revisionId}`);
-  parts.push(`Zeilen: ${value ? value.split(/\r?\n/).length : 0}`);
+  if (source) parts.push(formatI18n("page.run_monitor.config_status_source", "Quelle: {source}", { source }));
+  if (revisionId) parts.push(formatI18n("page.run_monitor.config_status_revision", "Revision: {revision}", { revision: revisionId }));
+  parts.push(formatI18n("page.run_monitor.config_status_lines", "Zeilen: {count}", { count: value ? value.split(/\r?\n/).length : 0 }));
   setRunMonitorConfigStatus(parts.join(" | "));
 }
 
@@ -4683,7 +4723,12 @@ async function bindRunMonitor() {
     if (String(row.dataset.activeBatch || "") !== "1") return;
     if (normalizeRunIdPath(row.dataset.runId || "") !== normalizeRunIdPath(uiState.currentRunId)) return;
     if (String(row.dataset.resumeAllowed || "") !== "1") {
-      setFooter("Resume ist aktuell nur ab ASTROMETRY, BGE oder PCC unterstützt.", true);
+      setFooter(
+        formatI18n("ui.message.monitor_resume_supported_from", "Resume aktuell nur ab {phases} unterstützt.", {
+          phases: ["ASTROMETRY", "BGE", "PCC"].map((phase) => localizedRunMonitorPhaseName(phase) || phase).join(", "),
+        }),
+        true,
+      );
       return;
     }
     document.querySelectorAll(".ps-phase-row").forEach((x) => x.classList.remove("is-selected"));
@@ -4716,7 +4761,7 @@ async function bindRunMonitor() {
 
   const artifactSection = Array.from(document.querySelectorAll(".ps-section")).find((sec) => {
     const title = sec.querySelector(".ps-section-title");
-    return title && String(title.textContent || "").trim() === "Artefakte";
+    return title && String(title.textContent || "").trim() === t("page.run_monitor.artifacts", "Artefakte");
   });
   const artifactList = $("monitor-artifact-list") || artifactSection?.querySelector("ul.ps-list") || null;
   const artifactViewer = $("monitor-artifact-viewer");
@@ -4766,14 +4811,14 @@ async function bindRunMonitor() {
   const openArtifactViewer = async (path, title) => {
     if (!uiState.currentRunId || !artifactViewer || !artifactViewerBody) return;
     artifactViewer.hidden = false;
-    if (artifactViewerTitle) artifactViewerTitle.textContent = title || "Artefakt";
-    artifactViewerBody.textContent = "Lade Artefakt ...";
+    if (artifactViewerTitle) artifactViewerTitle.textContent = title || t("page.run_monitor.artifact", "Artefakt");
+    artifactViewerBody.textContent = t("ui.message.monitor_artifact_loading", "Lade Artefakt ...");
     try {
       const payload = await api.get(API_ENDPOINTS.runs.artifactView(uiState.currentRunId, path));
-      if (artifactViewerTitle) artifactViewerTitle.textContent = String(payload?.filename || title || "Artefakt");
+      if (artifactViewerTitle) artifactViewerTitle.textContent = String(payload?.filename || title || t("page.run_monitor.artifact", "Artefakt"));
       artifactViewerBody.textContent = formatArtifactContent(payload);
     } catch (err) {
-      artifactViewerBody.textContent = `Artefakt konnte nicht geladen werden:\n${errorText(err)}`;
+      artifactViewerBody.textContent = formatI18n("ui.message.monitor_artifact_load_failed", "Artefakt konnte nicht geladen werden:\n{error}", { error: errorText(err) });
     }
   };
   const ensureCurrentRunStatus = async () => {
@@ -4795,7 +4840,7 @@ async function bindRunMonitor() {
     if (!artifactList) return;
     const artifacts = (Array.isArray(items) ? items : []).filter(isDisplayArtifact);
     if (artifacts.length === 0) {
-      artifactList.innerHTML = "<li><button>Keine Artefakte gefunden</button></li>";
+      artifactList.innerHTML = `<li><button>${escapeRunMonitorHtml(t("ui.message.monitor_no_artifacts", "Keine Artefakte gefunden"))}</button></li>`;
       return;
     }
     artifactList.innerHTML = artifacts
@@ -4812,7 +4857,7 @@ async function bindRunMonitor() {
       btn.addEventListener("click", () => {
         void openArtifactViewer(
           btn.getAttribute("data-artifact-path") || "",
-          btn.textContent || btn.getAttribute("title") || "Artefakt",
+          btn.textContent || btn.getAttribute("title") || t("page.run_monitor.artifact", "Artefakt"),
         );
       });
     });
@@ -4936,7 +4981,7 @@ async function bindRunMonitor() {
       updateResumeEnabled();
       return status;
     }).catch((err) => {
-      setFooter(`Aktiver Queue-Batch konnte nicht geladen werden: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_active_batch_load_failed", "Aktiver Queue-Batch konnte nicht geladen werden: {error}", { error: errorText(err) }), true);
       return null;
     });
     return runMonitorSwitchPromise;
@@ -4991,13 +5036,13 @@ async function bindRunMonitor() {
       if (currentStatus === "running") {
         uiState.runProcessStatus = currentStatus;
         setMonitorActionState(true);
-        setFooter("Es läuft bereits ein aktiver Run.", true);
+        setFooter(t("ui.message.monitor_run_already_active", "Es läuft bereits ein aktiver Run."), true);
         return;
       }
       const latestGuardrails = await api.get(API_ENDPOINTS.guardrails.root);
       if (String(latestGuardrails?.status || "").toLowerCase() === "error") {
         setMonitorActionState(isRunActiveStatus(uiState.runProcessStatus || ""));
-        setFooter("Run blockiert: Guardrail-Status ist ERROR.", true);
+        setFooter(t("ui.message.monitor_guardrail_blocked", "Run blockiert: Guardrail-Status ist ERROR."), true);
         return;
       }
       uiState.runProcessStatus = "running";
@@ -5006,13 +5051,13 @@ async function bindRunMonitor() {
       setCurrentRunId(accepted?.run_id || uiState.currentRunId);
       clearCurrentRunHistoryMark();
       setMonitorStartValidationMessage("");
-      setFooter(`Run gestartet (Job ${accepted?.job_id || "-"}).`);
+      setFooter(formatI18n("ui.message.monitor_run_started", "Run gestartet (Job {job_id}).", { job_id: accepted?.job_id || "-" }));
       await refreshCurrentRunMonitorState({ reconnectSocket: true });
     } catch (err) {
       const appState = await api.get(API_ENDPOINTS.app.state).catch(() => ({ run: { current: {} } }));
       uiState.runProcessStatus = String(appState?.run?.current?.status || "").trim().toLowerCase();
       setMonitorActionState(isRunActiveStatus(uiState.runProcessStatus || ""));
-      setFooter(`Run-Start fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_run_start_failed", "Run-Start fehlgeschlagen: {error}", { error: errorText(err) }), true);
     }
   });
 
@@ -5023,24 +5068,24 @@ async function bindRunMonitor() {
       if (result.ok) {
         const stoppedJobs = Array.isArray(result.cancelled_jobs) ? result.cancelled_jobs.length : 0;
         const killedPids = Array.isArray(result.killed_pids) ? result.killed_pids.length : 0;
-        setFooter(`Stop gesendet. Jobs beendet: ${stoppedJobs}, verwaiste Prozesse beendet: ${killedPids}.`);
+        setFooter(formatI18n("ui.message.monitor_stop_sent", "Stop gesendet. Jobs beendet: {jobs}, verwaiste Prozesse beendet: {pids}.", { jobs: stoppedJobs, pids: killedPids }));
       } else {
-        setFooter("Kein laufender Job/Prozess fuer diesen Run gefunden.", true);
+        setFooter(t("ui.message.monitor_stop_not_found", "Kein laufender Job/Prozess fuer diesen Run gefunden."), true);
       }
       const status = await loadRunStatus(uiState.currentRunId);
       setMonitorActionState(String(status?.status || "").toLowerCase() === "running");
     } catch (err) {
-      setFooter(`Stop fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_stop_failed", "Stop fehlgeschlagen: {error}", { error: errorText(err) }), true);
     }
   });
 
   resumeLoadCurrentBtn?.addEventListener("click", async () => {
     try {
       await loadRunMonitorCurrentConfig();
-      setFooter("Run-Config in den Resume-Editor geladen.");
+      setFooter(t("ui.message.monitor_run_config_loaded", "Run-Config in den Resume-Editor geladen."));
       updateResumeEnabled();
     } catch (err) {
-      setFooter(`Run-Config laden fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_run_config_load_failed", "Run-Config laden fehlgeschlagen: {error}", { error: errorText(err) }), true);
     }
   });
 
@@ -5048,7 +5093,7 @@ async function bindRunMonitor() {
     try {
       const path = String(resumePresetSelect?.value || "").trim();
       if (!path) {
-        setFooter("Kein Template ausgewaehlt.", true);
+        setFooter(t("ui.message.monitor_no_template_selected", "Kein Template ausgewaehlt."), true);
         return;
       }
       syncUnifiedPresetSelection(path);
@@ -5057,10 +5102,10 @@ async function bindRunMonitor() {
         source: path,
         revisionId: "",
       });
-      setFooter("Template in den Resume-Editor geladen.");
+      setFooter(t("ui.message.monitor_template_loaded", "Template in den Resume-Editor geladen."));
       updateResumeEnabled();
     } catch (err) {
-      setFooter(`Template laden fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_template_load_failed", "Template laden fehlgeschlagen: {error}", { error: errorText(err) }), true);
     }
   });
 
@@ -5068,7 +5113,7 @@ async function bindRunMonitor() {
     try {
       const yaml = runMonitorConfigEditorValue();
       if (!String(yaml || "").trim()) {
-        setFooter("Keine Resume-Config zum Speichern vorhanden.", true);
+        setFooter(t("ui.message.monitor_no_resume_config_to_save", "Keine Resume-Config zum Speichern vorhanden."), true);
         return;
       }
       const targetPath = await chooseRunMonitorTemplateSavePath();
@@ -5079,22 +5124,22 @@ async function bindRunMonitor() {
       });
       await populatePresetSelect("monitor-resume-preset-select", false);
       restoreUnifiedPresetSelectValue("monitor-resume-preset-select");
-      setFooter(`Template gespeichert unter ${saved?.path || targetPath}.`);
+      setFooter(formatI18n("ui.message.monitor_template_saved", "Template gespeichert unter {path}.", { path: saved?.path || targetPath }));
     } catch (err) {
-      setFooter(`Template speichern fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_template_save_failed", "Template speichern fehlgeschlagen: {error}", { error: errorText(err) }), true);
     }
   });
 
   $("monitor-resume")?.addEventListener("click", async () => {
     const phase = runMonitorSelectedPhase();
     if (!phase) {
-      setFooter("Bitte Zielphase waehlen.", true);
+      setFooter(t("ui.message.monitor_choose_target_phase", "Bitte Zielphase waehlen."), true);
       return;
     }
     try {
       const yaml = runMonitorConfigEditorValue();
       if (!String(yaml || "").trim()) {
-        setFooter("Bitte zuerst eine Resume-Config laden oder eingeben.", true);
+        setFooter(t("ui.message.monitor_enter_resume_config", "Bitte zuerst eine Resume-Config laden oder eingeben."), true);
         return;
       }
       const accepted = await api.post(API_ENDPOINTS.runs.resume(uiState.currentRunId), {
@@ -5107,25 +5152,25 @@ async function bindRunMonitor() {
       setPhaseRow(phase, "running", 0);
       updateRunMonitorSubtitle(uiState.currentRunId, "running", phase);
       setMonitorActionState(true);
-      setFooter(`Resume gestartet (Job ${accepted.job_id}).`);
+      setFooter(formatI18n("ui.message.monitor_resume_started", "Resume gestartet (Job {job_id}).", { job_id: accepted.job_id }));
       await refreshCurrentRunMonitorState({ reconnectSocket: true });
     } catch (err) {
-      setFooter(`Resume fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_resume_failed", "Resume fehlgeschlagen: {error}", { error: errorText(err) }), true);
     }
   });
 
   $("monitor-resume-restore-revision")?.addEventListener("click", async () => {
     const revisionId = $("monitor-resume-config-revision")?.value || "";
     if (!revisionId) {
-      setFooter("Bitte Config-Revision waehlen.", true);
+      setFooter(t("ui.message.monitor_choose_config_revision", "Bitte Config-Revision waehlen."), true);
       return;
     }
     try {
       await loadRunMonitorSelectedRevision();
-      setFooter(`Revision ${revisionId} in den Resume-Editor geladen.`);
+      setFooter(formatI18n("ui.message.monitor_revision_loaded", "Revision {revision_id} in den Resume-Editor geladen.", { revision_id: revisionId }));
       updateResumeEnabled();
     } catch (err) {
-      setFooter(`Revision laden fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_revision_load_failed", "Revision laden fehlgeschlagen: {error}", { error: errorText(err) }), true);
     }
   });
 
@@ -5134,7 +5179,7 @@ async function bindRunMonitor() {
       const target = runMonitorTargetContext();
       if (!target.runId || !isTerminalRunStatus(target.state)) {
         setMonitorActionState(isRunActiveStatus(uiState.runProcessStatus || ""));
-        setFooter("Stats erst nach beendetem Batch verfuegbar.", true);
+        setFooter(t("ui.message.monitor_stats_after_batch", "Stats erst nach beendetem Batch verfuegbar."), true);
         return;
       }
       const accepted = await api.post(API_ENDPOINTS.runs.stats(target.runId), {
@@ -5161,18 +5206,27 @@ async function bindRunMonitor() {
       const status = await api.get(API_ENDPOINTS.runs.statsStatus(target.runId, target.runDir));
       const targetDir = String(status.output_dir || "").trim();
       if (!targetDir) {
-        setFooter("Stats-Ordner nicht verfuegbar.", true);
+        setFooter(t("ui.message.monitor_stats_folder_unavailable", "Stats-Ordner nicht verfuegbar."), true);
         return;
       }
       await openExternalPath(targetDir);
-      setFooter(`Stats-Ordner: ${targetDir}`);
+      setFooter(formatI18n("ui.message.monitor_stats_folder", "Stats-Ordner: {path}", { path: targetDir }));
     } catch (err) {
-      setFooter(`Stats-Status fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_stats_status_failed", "Stats-Status fehlgeschlagen: {error}", { error: errorText(err) }), true);
     }
   });
 
   document.addEventListener("gui2:locale-changed", () => {
     void refreshRunMonitorValidationMessage();
+    renderRunMonitorPhaseLists();
+    renderRunMonitorSummary(uiState.currentRunId, uiState.runProcessStatus || "unknown", uiState.currentRunQueue, uiState.currentRunDir);
+    updateRunMonitorSubtitle(uiState.currentRunId, uiState.runProcessStatus || "unknown", runMonitorSelectedPhase());
+    if (String(runMonitorConfigEditorValue() || "").trim()) {
+      setRunMonitorConfigEditor(runMonitorConfigEditorValue(), {
+        source: String($("monitor-resume-config-editor")?.dataset?.source || ""),
+        revisionId: String($("monitor-resume-config-editor")?.dataset?.revisionId || ""),
+      });
+    }
   });
 
   $("monitor-report")?.addEventListener("click", async () => {
@@ -5180,7 +5234,7 @@ async function bindRunMonitor() {
       const target = runMonitorTargetContext();
       const status = await api.get(API_ENDPOINTS.runs.statsStatus(target.runId, target.runDir)).catch(() => uiState.monitorStatsStatus);
       if (!status?.report_path) {
-        setFooter("Report erst nach Generate Stats verfuegbar.", true);
+        setFooter(t("ui.message.monitor_report_after_stats", "Report erst nach Generate Stats verfuegbar."), true);
         return;
       }
       const targetRunId = target.runId || normalizeRunIdPath(uiState.monitorStatsRunId || "");
@@ -5191,9 +5245,9 @@ async function bindRunMonitor() {
         runStatus?.run_dir || targetRunDir,
         status.report_path,
       );
-      setFooter(`Report: ${status.report_path || artifactPath}`);
+      setFooter(formatI18n("ui.message.monitor_report_path", "Report: {path}", { path: status.report_path || artifactPath }));
     } catch (err) {
-      setFooter(`Report-Status fehlgeschlagen: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_report_status_failed", "Report-Status fehlgeschlagen: {error}", { error: errorText(err) }), true);
     }
   });
 
@@ -5202,13 +5256,13 @@ async function bindRunMonitor() {
       const runStatus = await ensureCurrentRunStatus();
       const runDir = String(runStatus?.run_dir || uiState.currentRunDir || "").trim();
       if (!runDir) {
-        setFooter("Run-Ordner nicht verfuegbar.", true);
+        setFooter(t("ui.message.monitor_run_folder_unavailable", "Run-Ordner nicht verfuegbar."), true);
         return;
       }
       await openExternalPath(runDir);
-      setFooter(`Run-Ordner: ${runDir}`);
+      setFooter(formatI18n("ui.message.monitor_run_folder", "Run-Ordner: {path}", { path: runDir }));
     } catch (err) {
-      setFooter(`Run-Ordner konnte nicht geoeffnet werden: ${errorText(err)}`, true);
+      setFooter(formatI18n("ui.message.monitor_run_folder_open_failed", "Run-Ordner konnte nicht geoeffnet werden: {error}", { error: errorText(err) }), true);
     }
   });
 
@@ -5223,7 +5277,7 @@ async function bindRunMonitor() {
     if (!currentRunId && !hintedRunId) {
       clearCurrentRunId();
       setMonitorActionState(false);
-      renderNoRunState("Kein aktiver Run. Start über Run starten.");
+      renderNoRunState(t("ui.message.monitor_no_active_run", "Kein aktiver Run. Start über Run starten."));
       updateResumeEnabled();
       return;
     }
@@ -5246,7 +5300,7 @@ async function bindRunMonitor() {
     }
     updateResumeEnabled();
   } catch (err) {
-    setFooter(`Run-Monitor Initialisierung fehlgeschlagen: ${errorText(err)}`, true);
+    setFooter(formatI18n("ui.message.monitor_init_failed", "Run-Monitor Initialisierung fehlgeschlagen: {error}", { error: errorText(err) }), true);
   }
 }
 
