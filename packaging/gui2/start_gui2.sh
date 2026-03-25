@@ -117,8 +117,19 @@ run_backend_foreground() {
   export TILE_COMPILE_PROJECT_ROOT="${INSTALL_ROOT}"
   export TILE_COMPILE_HOST="${HOST}"
   export TILE_COMPILE_PORT="${PORT}"
-  export TILE_COMPILE_CLI="${INSTALL_ROOT}/tile_compile_cpp/build/tile_compile_cli"
-  export TILE_COMPILE_RUNNER="${INSTALL_ROOT}/tile_compile_cpp/build/tile_compile_runner"
+  
+  local cli_bin="${INSTALL_ROOT}/tile_compile_cpp/build/tile_compile_cli"
+  local runner_bin="${INSTALL_ROOT}/tile_compile_cpp/build/tile_compile_runner"
+  
+  if [[ ! -x "${cli_bin}" ]]; then
+    log "WARNUNG: tile_compile_cli nicht gefunden oder nicht ausfuehrbar: ${cli_bin}"
+  fi
+  if [[ ! -x "${runner_bin}" ]]; then
+    log "WARNUNG: tile_compile_runner nicht gefunden oder nicht ausfuehrbar: ${runner_bin}"
+  fi
+  
+  export TILE_COMPILE_CLI="${cli_bin}"
+  export TILE_COMPILE_RUNNER="${runner_bin}"
   export TILE_COMPILE_RUNS_DIR="${RUNS_DIR}"
   export TILE_COMPILE_CONFIG="${INSTALL_ROOT}/tile_compile_cpp/tile_compile.yaml"
   export TILE_COMPILE_SCHEMA="${INSTALL_ROOT}/tile_compile_cpp/tile_compile.schema.yaml"
@@ -160,33 +171,20 @@ run_backend_foreground() {
     export DYLD_LIBRARY_PATH="${joined_libs}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
   fi
 
-  cleanup_backend() {
-    local exit_code="${1:-0}"
-    trap - EXIT INT TERM
-    if [[ -n "${backend_pid}" ]] && kill -0 "${backend_pid}" 2>/dev/null; then
-      log "Beende Crow-Backend."
-      kill "${backend_pid}" 2>/dev/null || true
-      wait "${backend_pid}" 2>/dev/null || true
-    fi
-    return "${exit_code}"
-  }
-
   log "Starte Crow-Backend im Vordergrund auf ${URL} (Ctrl+C zum Beenden)."
+  log "Konsole bleibt sichtbar - Backend-Ausgaben werden hier angezeigt."
   ( sleep 1; open_browser ) &
-  "${BACKEND_BIN}" &
-  backend_pid="$!"
-  log "Crow-Backend laeuft mit PID ${backend_pid}."
-
-  trap 'cleanup_backend $?' EXIT
-  trap 'exit 130' INT TERM
-
+  
   local exit_code=0
-  if wait "${backend_pid}"; then
-    exit_code=0
-  else
-    exit_code=$?
+  "${BACKEND_BIN}" || exit_code=$?
+  
+  if [[ "${exit_code}" -ne 0 ]]; then
+    log ""
+    log "Backend wurde mit Exit-Code ${exit_code} beendet."
+    log "Druecke Enter zum Schliessen..."
+    read -r
   fi
-  cleanup_backend "${exit_code}"
+  
   return "${exit_code}"
 }
 

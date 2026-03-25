@@ -113,8 +113,11 @@ jobs:
               | sort -u \
               | while read -r dep; do
                   [[ -f "$dep" ]] || continue
-                  case "$dep" in
-                    /lib/*|/lib64/*) continue ;;
+                  local basename="$(basename "$dep")"
+                  # Skip only core system libraries guaranteed on all Linux systems
+                  case "$basename" in
+                    libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*) continue ;;
+                    ld-linux*.so.*|linux-vdso.so.*) continue ;;
                   esac
                   cp -n "$dep" "${PAYLOAD}/tile_compile_cpp/lib/" || true
                 done
