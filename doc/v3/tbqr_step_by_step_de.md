@@ -269,7 +269,7 @@ Release-Bundles starten GUI2 über:
 
 Mindestbetriebssysteme für die aktuellen GUI2-Release-Bundles:
 
-- Linux: x86_64-Linux mit `glibc >= 2.31` (Ubuntu 20.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)
+- Linux: x86_64-Linux mit `glibc >= 2.35` (Ubuntu 22.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)
 - macOS: macOS 15
 - Windows: Windows 10 x64 oder neuer
 

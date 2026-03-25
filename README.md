@@ -162,7 +162,7 @@ macOS install note:
 
 Minimum OS versions for the current GUI2 release bundles:
 
-- Linux: x86_64 Linux with `glibc >= 2.31` (Ubuntu 20.04 or equivalent is the safe baseline for the current CI-built ZIPs)
+- Linux: x86_64 Linux with `glibc >= 2.35` (Ubuntu 22.04 or equivalent is the safe baseline for the current CI-built ZIPs)
 - macOS: macOS 15
 - Windows: Windows 10 x64 or newer
 
@@ -500,6 +500,10 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 
 ## Versions
+
+## v0.1.8 (2026-03-25)
+
+- Improved Linux packaging scripts to bundle all required shared libraries (OpenCV, CFITSIO, yaml-cpp, etc.) for better cross-distribution compatibility and reduced dependency issues.
 
 ## v0.1.7 (2026-03-24)
 

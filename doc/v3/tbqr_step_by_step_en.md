@@ -269,7 +269,7 @@ Release bundles start GUI2 via:
 
 Minimum OS versions for the current GUI2 release bundles:
 
-- Linux: x86_64 Linux with `glibc >= 2.31` (Ubuntu 20.04 or equivalent is the safe baseline for the current CI-built ZIPs)
+- Linux: x86_64 Linux with `glibc >= 2.35` (Ubuntu 22.04 or equivalent is the safe baseline for the current CI-built ZIPs)
 - macOS: macOS 15
 - Windows: Windows 10 x64 or newer
 

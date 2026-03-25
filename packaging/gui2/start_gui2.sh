@@ -104,6 +104,37 @@ open_browser() {
   log "Kein Browser-Launcher gefunden. Oeffne ${URL} manuell."
 }
 
+launch_in_terminal() {
+  # If already in terminal, just run directly
+  if [[ -t 0 ]] && [[ -t 1 ]]; then
+    return 1
+  fi
+  
+  # Try to launch in a new terminal window
+  local script_path="$0"
+  local script_args="$*"
+  
+  # Try common Linux terminal emulators
+  if have_command gnome-terminal; then
+    gnome-terminal -- bash -c "cd '${PWD}' && exec '${script_path}' ${script_args}; read -p 'Press Enter to close...'"
+    return 0
+  elif have_command konsole; then
+    konsole -e bash -c "cd '${PWD}' && exec '${script_path}' ${script_args}; read -p 'Press Enter to close...'"
+    return 0
+  elif have_command xfce4-terminal; then
+    xfce4-terminal -e "bash -c \"cd '${PWD}' && exec '${script_path}' ${script_args}; read -p 'Press Enter to close...'\""
+    return 0
+  elif have_command xterm; then
+    xterm -e bash -c "cd '${PWD}' && exec '${script_path}' ${script_args}; read -p 'Press Enter to close...'"
+    return 0
+  elif have_command x-terminal-emulator; then
+    x-terminal-emulator -e bash -c "cd '${PWD}' && exec '${script_path}' ${script_args}; read -p 'Press Enter to close...'"
+    return 0
+  fi
+  
+  return 1
+}
+
 run_backend_foreground() {
   local lib_dir="${INSTALL_ROOT}/tile_compile_cpp/lib"
   local backend_lib_dir="${INSTALL_ROOT}/web_backend_cpp/lib"
@@ -173,7 +204,15 @@ run_backend_foreground() {
 
   log "Starte Crow-Backend im Vordergrund auf ${URL} (Ctrl+C zum Beenden)."
   log "Konsole bleibt sichtbar - Backend-Ausgaben werden hier angezeigt."
-  ( sleep 1; open_browser ) &
+  log ""
+  log "==================================================================="
+  log "  Oeffne im Browser: ${URL}"
+  log "==================================================================="
+  log ""
+  
+  if [[ "${TILE_COMPILE_GUI2_NO_BROWSER:-0}" != "1" ]]; then
+    ( sleep 2; open_browser ) &
+  fi
   
   local exit_code=0
   "${BACKEND_BIN}" || exit_code=$?
@@ -189,6 +228,11 @@ run_backend_foreground() {
 }
 
 main() {
+  # If not running in a terminal, launch in new terminal window
+  if launch_in_terminal "$@"; then
+    exit 0
+  fi
+  
   if [[ -d "${PAYLOAD_DIR}" ]]; then
     copy_payload
   elif ! has_installed_layout; then
