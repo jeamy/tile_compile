@@ -261,9 +261,15 @@ Release bundles start GUI2 via:
 - macOS: `start_gui2.command`
 - Windows: `start_gui2.bat`
 
+**Installation and update behavior:**
+
+- On first start, the launcher copies all application files to `~/tilecompile/` (Linux/macOS) or `%USERPROFILE%\tilecompile\` (Windows).
+- After the first successful start, you can safely delete the downloaded package archive and extracted folder—all data has been copied to your user directory.
+- On updates, only the application files (`web_frontend/`, `web_backend_cpp/`, `tile_compile_cpp/`) are replaced. Your user data (configurations, runs, ASTAP catalog, PCC database) remains untouched.
+
 Minimum OS versions for the current GUI2 release bundles:
 
-- Linux: x86_64 Linux with `glibc >= 2.39` (Ubuntu 24.04 or equivalent is the safe baseline for the current CI-built ZIPs)
+- Linux: x86_64 Linux with `glibc >= 2.31` (Ubuntu 20.04 or equivalent is the safe baseline for the current CI-built ZIPs)
 - macOS: macOS 15
 - Windows: Windows 10 x64 or newer
 

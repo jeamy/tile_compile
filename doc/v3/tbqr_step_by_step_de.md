@@ -261,9 +261,15 @@ Release-Bundles starten GUI2 über:
 - macOS: `start_gui2.command`
 - Windows: `start_gui2.bat`
 
+**Installations- und Update-Verhalten:**
+
+- Beim ersten Start kopiert der Starter alle Anwendungsdateien nach `~/tilecompile/` (Linux/macOS) bzw. `%USERPROFILE%\tilecompile\` (Windows).
+- Nach dem ersten erfolgreichen Start können Sie das heruntergeladene Paket-Archiv und den entpackten Ordner bedenkenlos löschen – alle Daten wurden in Ihr Benutzerverzeichnis kopiert.
+- Bei Updates werden nur die Anwendungsdateien (`web_frontend/`, `web_backend_cpp/`, `tile_compile_cpp/`) ersetzt. Ihre Benutzerdaten (Konfigurationen, Runs, ASTAP-Katalog, PCC-Datenbank) bleiben unberührt.
+
 Mindestbetriebssysteme für die aktuellen GUI2-Release-Bundles:
 
-- Linux: x86_64-Linux mit `glibc >= 2.39` (Ubuntu 24.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)
+- Linux: x86_64-Linux mit `glibc >= 2.31` (Ubuntu 20.04 oder äquivalent ist die sichere Basis für die derzeitigen CI-ZIP-Builds)
 - macOS: macOS 15
 - Windows: Windows 10 x64 oder neuer
 
