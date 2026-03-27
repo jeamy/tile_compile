@@ -1065,28 +1065,31 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     const int passes_total = 1;
     // Helper: post-warp metrics (// Methodik v3 §6)
-    auto compute_post_warp_metrics =
-        [&](const Matrix2Df &warped) -> std::tuple<float, float, float> {
-      if (warped.size() <= 0)
-        return {0.0f, 0.0f, 0.0f};
-      cv::Mat wcv(warped.rows(), warped.cols(), CV_32F,
-                  const_cast<float *>(warped.data()));
-      cv::Mat valid_mask(warped.rows(), warped.cols(), CV_8U,
-                         cv::Scalar(0));
-      int valid_count = 0;
-      for (int y = 0; y < warped.rows(); ++y) {
-        uchar *mrow = valid_mask.ptr<uchar>(y);
-        for (int x = 0; x < warped.cols(); ++x) {
-          if (std::isfinite(warped(y, x))) {
-            mrow[x] = 255;
-            ++valid_count;
-          }
-        }
-      }
-      if (valid_count <= 0) {
-        return {0.0f, 0.0f, 0.0f};
-      }
-      cv::Mat lap;
+	    auto compute_post_warp_metrics =
+	        [&](const Matrix2Df &warped) -> std::tuple<float, float, float> {
+	      if (warped.size() <= 0)
+	        return {0.0f, 0.0f, 0.0f};
+	      Matrix2Df finite_only = warped;
+	      cv::Mat valid_mask(warped.rows(), warped.cols(), CV_8U,
+	                         cv::Scalar(0));
+	      int valid_count = 0;
+	      for (int y = 0; y < warped.rows(); ++y) {
+	        uchar *mrow = valid_mask.ptr<uchar>(y);
+	        for (int x = 0; x < warped.cols(); ++x) {
+	          if (std::isfinite(warped(y, x))) {
+	            mrow[x] = 255;
+	            ++valid_count;
+	          } else {
+	            finite_only(y, x) = 0.0f;
+	          }
+	        }
+	      }
+	      if (valid_count <= 0) {
+	        return {0.0f, 0.0f, 0.0f};
+	      }
+	      cv::Mat wcv(finite_only.rows(), finite_only.cols(), CV_32F,
+	                  finite_only.data());
+	      cv::Mat lap;
       cv::Laplacian(wcv, lap, CV_32F);
       cv::Scalar mean_sd, stddev_sd;
       cv::meanStdDev(lap, mean_sd, stddev_sd, valid_mask);
@@ -1406,6 +1409,41 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       Matrix2Df tile_rec_B;
       size_t n_valid = 0;
       bool used_weight_fallback = false;
+      std::vector<uint8_t> tile_support_mask;
+      std::vector<uint8_t> tile_support_mask_r;
+      std::vector<uint8_t> tile_support_mask_g;
+      std::vector<uint8_t> tile_support_mask_b;
+      auto capture_finite_mask = [](const Matrix2Df &img) {
+        std::vector<uint8_t> mask(static_cast<size_t>(std::max<Eigen::Index>(0, img.size())),
+                                  0u);
+        for (Eigen::Index i = 0; i < img.size(); ++i) {
+          if (std::isfinite(img.data()[i])) {
+            mask[static_cast<size_t>(i)] = 1u;
+          }
+        }
+        return mask;
+      };
+      auto has_any_supported = [](const std::vector<uint8_t> &mask) {
+        return std::any_of(mask.begin(), mask.end(),
+                           [](uint8_t v) { return v != 0u; });
+      };
+      auto replace_nonfinite_with_zero = [](Matrix2Df &img) {
+        for (Eigen::Index i = 0; i < img.size(); ++i) {
+          if (!std::isfinite(img.data()[i])) {
+            img.data()[i] = 0.0f;
+          }
+        }
+      };
+      auto apply_support_mask = [](Matrix2Df &img,
+                                   const std::vector<uint8_t> &mask) {
+        const float invalid = std::numeric_limits<float>::quiet_NaN();
+        for (Eigen::Index i = 0; i < img.size(); ++i) {
+          if (static_cast<size_t>(i) >= mask.size() ||
+              mask[static_cast<size_t>(i)] == 0u) {
+            img.data()[i] = invalid;
+          }
+        }
+      };
 
       if (osc_mode) {
         // Methodik v3 (OSC): stack in RGB space (debayer-before-stack).
@@ -1528,6 +1566,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           return;
         }
 
+        tile_support_mask_r = capture_finite_mask(tile_rec_R);
+        tile_support_mask_g = capture_finite_mask(tile_rec_G);
+        tile_support_mask_b = capture_finite_mask(tile_rec_B);
+        if (!has_any_supported(tile_support_mask_g)) {
+          tiles_failed++;
+          return;
+        }
+        replace_nonfinite_with_zero(tile_rec_R);
+        replace_nonfinite_with_zero(tile_rec_G);
+        replace_nonfinite_with_zero(tile_rec_B);
         // Post-metrics are computed on G as a stable luminance proxy.
         tile_rec = tile_rec_G;
         n_valid = valid_tiles_G.size();
@@ -1576,6 +1624,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
         tile_rec = std::move(wr.tile);
         used_weight_fallback = used_weight_fallback || wr.fallback_used;
+        tile_support_mask = capture_finite_mask(tile_rec);
+        if (!has_any_supported(tile_support_mask)) {
+          tiles_failed++;
+          return;
+        }
+        replace_nonfinite_with_zero(tile_rec);
         n_valid = warped_tiles.size();
       }
 
@@ -1649,7 +1703,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           cfg.chroma_denoise.apply_stage == "pre_stack_tiles") {
         reconstruction::chroma_denoise_rgb_inplace(
             tile_rec_R, tile_rec_G, tile_rec_B, cfg.chroma_denoise);
-        tile_rec = 0.25f * tile_rec_R + 0.5f * tile_rec_G + 0.25f * tile_rec_B;
+      }
+
+      if (osc_mode) {
+        apply_support_mask(tile_rec_R, tile_support_mask_r);
+        apply_support_mask(tile_rec_G, tile_support_mask_g);
+        apply_support_mask(tile_rec_B, tile_support_mask_b);
+        tile_rec = tile_rec_G;
+      } else {
+        apply_support_mask(tile_rec, tile_support_mask);
       }
 
       auto [c, b, s] = compute_post_warp_metrics(tile_rec);
@@ -2388,6 +2450,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     const auto &boundary_diagnostics_active =
         apply_phase7_tile_norm ? boundary_diagnostics_normalized
                                : boundary_diagnostics_raw;
+    const auto synthetic_weighting_decision =
+        runner::decide_synthetic_weighting(
+            cfg.synthetic.weighting,
+            static_cast<int>(boundary_diagnostics_active.observed_pair_count),
+            boundary_diagnostics_active.pair_mean_abs_diff_p95,
+            boundary_diagnostics_active.pair_scale_ratio_deviation_p95,
+            boundary_weight_profile_diagnostics.pair_mean_abs_delta_p95,
+            boundary_weight_profile_diagnostics.pair_correlation_p05);
+    if (synthetic_weighting_decision.tile_seam_guard_triggered) {
+      std::ostringstream msg;
+      msg << "SYNTHETIC_FRAMES seam guard: fallback tile_weighted -> global"
+          << " (pairs=" << synthetic_weighting_decision.boundary_pair_count
+          << ", boundary_mean_abs_diff_p95="
+          << synthetic_weighting_decision.boundary_pair_mean_abs_diff_p95
+          << ", boundary_scale_ratio_dev_p95="
+          << synthetic_weighting_decision
+                 .boundary_pair_scale_ratio_deviation_p95
+          << ", local_weight_delta_p95="
+          << synthetic_weighting_decision.local_weight_mean_abs_delta_p95
+          << ", local_weight_corr_p05="
+          << synthetic_weighting_decision.local_weight_correlation_p05 << ")";
+      emitter.warning(run_id, msg.str(), log_file);
+    }
     emitter.phase_end(
         run_id, Phase::TILE_RECONSTRUCTION, "ok",
         {
@@ -2804,7 +2889,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     auto reconstruct_subset =
         [&](const std::vector<char> &frame_mask) -> Matrix2Df {
-      if (cfg.synthetic.weighting == "tile_weighted") {
+      if (synthetic_weighting_decision.effective_weighting == "tile_weighted") {
         Matrix2Df out = Matrix2Df::Zero(canvas_height, canvas_width);
         Matrix2Df weight_ola = Matrix2Df::Zero(canvas_height, canvas_width);
         std::atomic<bool> any_tile{false};
@@ -2976,8 +3061,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           if (ws > kEpsWeightSum) {
             out.data()[i] /= ws;
           } else {
-            // Keep non-overlapped pixels at zero; do not backfill from a frame.
-            out.data()[i] = 0.0f;
+            out.data()[i] = std::numeric_limits<float>::quiet_NaN();
           }
         }
         return out;
@@ -3173,7 +3257,24 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         artifact["num_synthetic"] = static_cast<int>(synthetic_frames.size());
         artifact["frames_min"] = synth_min;
         artifact["frames_max"] = synth_max;
-        artifact["weighting"] = cfg.synthetic.weighting;
+        artifact["requested_weighting"] =
+            synthetic_weighting_decision.requested_weighting;
+        artifact["effective_weighting"] =
+            synthetic_weighting_decision.effective_weighting;
+        artifact["tile_seam_guard_triggered"] =
+            synthetic_weighting_decision.tile_seam_guard_triggered;
+        artifact["tile_seam_guard_boundary_pair_count"] =
+            synthetic_weighting_decision.boundary_pair_count;
+        artifact["tile_seam_guard_boundary_pair_mean_abs_diff_p95"] =
+            synthetic_weighting_decision.boundary_pair_mean_abs_diff_p95;
+        artifact["tile_seam_guard_boundary_pair_scale_ratio_deviation_p95"] =
+            synthetic_weighting_decision
+                .boundary_pair_scale_ratio_deviation_p95;
+        artifact["tile_seam_guard_local_weight_mean_abs_delta_p95"] =
+            synthetic_weighting_decision.local_weight_mean_abs_delta_p95;
+        artifact["tile_seam_guard_local_weight_correlation_p05"] =
+            synthetic_weighting_decision.local_weight_correlation_p05;
+        artifact["weighting"] = synthetic_weighting_decision.effective_weighting;
         artifact["cluster_quality"] = core::json::array();
         artifact["cluster_mass"] = core::json::array();
         for (float qk : synthetic_cluster_quality) {
@@ -3189,7 +3290,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       emitter.phase_end(
           run_id, Phase::SYNTHETIC_FRAMES, "ok",
           {{"num_synthetic", static_cast<int>(synthetic_frames.size())},
-           {"weighting", cfg.synthetic.weighting}},
+           {"requested_weighting",
+            synthetic_weighting_decision.requested_weighting},
+           {"effective_weighting",
+            synthetic_weighting_decision.effective_weighting},
+           {"tile_seam_guard_triggered",
+            synthetic_weighting_decision.tile_seam_guard_triggered}},
           log_file);
     }
 

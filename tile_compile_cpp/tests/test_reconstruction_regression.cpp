@@ -1,4 +1,5 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
+#include "../apps/runner_shared.hpp"
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/reconstruction/local_weight_regularization.hpp"
@@ -8,6 +9,8 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+
+#include <limits>
 
 using tile_compile::Matrix2Df;
 using tile_compile::Tile;
@@ -88,6 +91,36 @@ TEST_CASE("tile_weighted_path_keeps_finite_negative_samples") {
 
   REQUIRE_FALSE(out.fallback_used);
   REQUIRE(out.tile(0, 0) == Catch::Approx(0.0f).margin(1e-6));
+}
+
+TEST_CASE("tile_weighted_path_marks_empty_pixels_nonfinite") {
+  std::vector<Matrix2Df> tiles(2, Matrix2Df::Zero(1, 2));
+  const float invalid = std::numeric_limits<float>::quiet_NaN();
+  tiles[0] << 1.0f, invalid;
+  tiles[1] << 3.0f, invalid;
+  std::vector<float> weights = {1.0f, 1.0f};
+
+  auto out = sigma_clip_weighted_tile_with_fallback(
+      tiles, weights, 3.0f, 3.0f, 1, 1.0f, 1e-6f);
+
+  REQUIRE(std::isfinite(out.tile(0, 0)));
+  REQUIRE_FALSE(std::isfinite(out.tile(0, 1)));
+}
+
+TEST_CASE("synthetic_tile_weighting_seam_guard_falls_back_to_global") {
+  const auto decision = tile_compile::runner::decide_synthetic_weighting(
+      "tile_weighted", 388, 0.014f, 0.091f, 8.11f, -0.06f);
+
+  REQUIRE(decision.tile_seam_guard_triggered);
+  REQUIRE(decision.effective_weighting == "global");
+}
+
+TEST_CASE("synthetic_tile_weighting_seam_guard_keeps_tile_weighted_when_stable") {
+  const auto decision = tile_compile::runner::decide_synthetic_weighting(
+      "tile_weighted", 388, 0.003f, 0.015f, 0.8f, 0.45f);
+
+  REQUIRE_FALSE(decision.tile_seam_guard_triggered);
+  REQUIRE(decision.effective_weighting == "tile_weighted");
 }
 
 TEST_CASE("partition_window_forms_unity_in_overlap") {

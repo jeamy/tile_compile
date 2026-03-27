@@ -709,11 +709,13 @@ If `synthetic.weighting=tile_weighted`:
 
 - reconstruct per tile/channel with `W_{f,t,c}`
 - assemble to `S_{k,c}` via the same support-aware OLA semantics from §5.7.1
+- implementations must monitor the tile-boundary diagnostics from §5.7/§11; if tile-weighted synthesis shows simultaneous boundary regression and cross-tile weight disagreement, they must deterministically fall back to §5.10.1 (`global`) for synthetic-frame formation instead of reintroducing nonlinear per-tile renormalization
+- the requested and effective synthetic weighting modes must be recorded in diagnostics
 
 ### 5.10.3 Semantics of Phase 7 vs 9
 
 - Full mode with `global`: phase 7 primarily provides local quality modeling/diagnostics; the final product is generated from phases 9+10.
-- Full mode with `tile_weighted`: local tile quality is explicitly propagated into synthetic frames.
+- Full mode with `tile_weighted`: local tile quality is explicitly propagated into synthetic frames unless the seam guard above falls back to `global`.
 - Reduced mode: the output from phase 7 is the direct final product.
 
 ---
@@ -835,17 +837,19 @@ Associate each sample with the tile center `(x_t, y_t)`.
 
 Tiles may be assigned a reliability weight for later fitting:
 
-`w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`
+`w_t = exp(-lambda_structure * structure_score_t) * (1 - masked_fraction_t)`
 
 where:
 - `masked_fraction_t = (number of M_bg=0 pixels in tile t) / (total canvas-valid pixels in tile t)` — the fraction of canvas-valid pixels excluded by the background mask.
-- `structure_score_t` is defined as:
+- `structure_score_t` is defined as the dimensionless relative high-pass energy:
 
-  `structure_score_t = median_{p in M_bg_t} (hp(R_{t,c}(p))^2)`
+  `structure_score_t = median_{p in M_bg_t} ( hp(R_{t,c}(p)) / max(sigma_{t,c}^{bg}, eps_sigma) )^2`
 
-  where `hp(x)` is the high-pass residual after box-blur with radius `bge.structure_blur_px` (recommended default: 5 px), applied only to canvas-valid pixels within the tile. If no M_bg pixels are available in the tile, `structure_score_t = +inf` and `w_t = 0`.
+  where `hp(x)` is the high-pass residual after box-blur with radius `bge.structure_blur_px` (recommended default: 5 px), applied only to canvas-valid pixels within the tile, and `sigma_{t,c}^{bg}` is the local background noise scale on the same tile/channel. Preferred source: the local STRUCTURE noise proxy from §5.5.3 when available; deterministic fallback: a robust MAD-based estimate on the unmasked background pixels `M_bg_t`. If no `M_bg` pixels are available in the tile, `structure_score_t = +inf` and `w_t = 0`.
 
-- `lambda > 0` is a damping factor (recommended default: `lambda = 1.0`).
+- `lambda_structure > 0` is a damping factor (recommended default: `lambda_structure = 2.0`).
+
+This normalization is binding: a global multiplicative intensity rescaling of the same image content must not, by itself, change `structure_score_t` or `w_t` apart from floating-point noise.
 
 This formula is binding and applies to both §6.3.2(c) and §6.3.4. **Canvas-invalid pixels must not contribute to `masked_fraction_t` or `structure_score_t`.**
 
@@ -901,7 +905,7 @@ Fit a smooth background surface per channel using:
 - Radial Basis Function (RBF) surface with smoothing (recommended only with explicit regularization), or
 - Foreground-aware modeled-mask mesh sky surface (`modeled_mask_mesh`) for scenes with large diffuse foreground structures.
 
-Optional weights: use `w_t` as defined in §6.3.2(c) (binding formula: `exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`). Canvas-invalid pixels must be excluded from both `structure_score_t` and `masked_fraction_t` as specified there.
+Optional weights: use `w_t` as defined in §6.3.2(c) (binding formula: `exp(-lambda_structure * structure_score_t) * (1 - masked_fraction_t)`, with dimensionless `structure_score_t`). Canvas-invalid pixels must be excluded from both `structure_score_t` and `masked_fraction_t` as specified there.
 
 Use robust loss (Huber/Tukey).
 
@@ -928,18 +932,22 @@ This optional extension enables deterministic **test–adjust–test** tuning of
 
 ##### 6.3.7.1 Objective (Binding)
 
-For a given channel, define a deterministic objective:
+For a given channel, define a deterministic brightness-normalized objective:
 
-`J = E_cv + alpha_f * E_flat + beta_r * E_rough`
+`B_ref = max(abs(median_i b_i), eps_bg)`
+
+`J = E_cv / B_ref + alpha_f * E_flat / B_ref^2 + beta_r * E_rough / B_ref`
 
 with:
 - `E_cv`: holdout RMS of background sample residuals evaluated on a deterministic validation split,
 - `E_flat`: large-scale gradient energy of the fitted background model,
 - `E_rough`: second-derivative energy of the fitted model (penalizes overfit waviness).
+- `B_ref`: robust background amplitude from the same candidate's grid-cell values `{b_i}`.
+- `eps_bg > 0`: zero-safe normalization floor (recommended default: `1e-12` in normalized data units).
 
 **Notation:** `alpha_f` (flatness weight) and `beta_r` (roughness weight) are distinct from the global quality index weights `alpha`, `beta`, `gamma` (§5.3.2).
 
-All terms must be computed deterministically from the same grid-cell set.
+All terms must be computed deterministically from the same grid-cell set. This normalization is binding: a global multiplicative rescaling of the input intensities must not change candidate ranking except for negligible floating-point differences.
 
 ##### 6.3.7.2 Deterministic Holdout Split (Binding)
 
@@ -981,7 +989,8 @@ Minimum diagnostic fields (binding):
 - `autotune.best.sample_quantile`
 - `autotune.best.structure_thresh_percentile`
 - `autotune.best.rbf_mu_factor`
-- `autotune.best.objective`
+- `autotune.best.objective` (binding normalized objective `J`)
+- `autotune.best.objective_raw` (recommended auxiliary diagnostic)
 - `autotune.best.cv_rms`
 - `autotune.best.flatness`
 - `autotune.best.roughness`
@@ -1215,6 +1224,8 @@ Permissible downstream step, applied to linear data.
 20. STRUCTURE metric coefficient sum (unsigned): `0.7 + 0.3 = 1.0` (§5.5.3)
 21. canvas-invalid pixels contribute zero to OLA accumulators `A` and `S` (§5.7.1), zero to local metrics (§5.5), and zero to BGE sampling (§6.3.2)
 22. clustering threshold matches mode framework: active iff `N >= max(N_red, 50)` (§5.9)
+23. BGE tile reliability weights remain stable under global multiplicative intensity rescaling when the local noise scale is rescaled consistently (§6.3.2(c))
+24. BGE autotune candidate ranking uses the normalized objective `J`; `autotune.best.objective` reports that normalized value (§6.3.7.1)
 
 Note: The legacy PCC test "no negative matrix element" is **no longer** required as a hard criterion in v3.3+.
 

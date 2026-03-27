@@ -293,7 +293,9 @@ struct BGEConfig {
     std::string strategy = "conservative"; // conservative | extended
   } autotune;
 
-  // Tile reliability weight (§6.3.2c): w_t = exp(-lambda_structure * structure_score_t) * (1 - masked_fraction_t)
+  // Tile reliability weight (§6.3.2c): w_t = exp(-lambda_structure *
+  // structure_score_t) * (1 - masked_fraction_t), with dimensionless
+  // structure_score_t after local noise normalization.
   float tile_weight_lambda_structure = 2.0f;
 };
 

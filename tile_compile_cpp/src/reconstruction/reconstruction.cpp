@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -13,6 +14,10 @@ namespace {
 
 constexpr double kSigmaClipEpsNeff = 1.0e-6;
 constexpr double kSigmaClipEpsVar = 1.0e-12;
+
+inline float invalid_reconstruction_sample() {
+    return std::numeric_limits<float>::quiet_NaN();
+}
 
 inline bool is_valid_sample(float v) {
     return std::isfinite(v);
@@ -447,7 +452,7 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
         }
 
         if (n_valid_here <= 0) {
-            out.data()[idx] = 0.0f; // dead area
+            out.data()[idx] = invalid_reconstruction_sample();
             continue;
         }
 
@@ -503,7 +508,9 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
                 if (is_valid_sample(v)) { sum += static_cast<double>(v); count++; }
             }
         }
-        out.data()[idx] = (count > 0) ? static_cast<float>(sum / static_cast<double>(count)) : 0.0f;
+        out.data()[idx] =
+            (count > 0) ? static_cast<float>(sum / static_cast<double>(count))
+                        : invalid_reconstruction_sample();
     }
 
     return out;
@@ -547,7 +554,9 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
                 wsum += wi;
                 wmean += wi * static_cast<double>(v);
             }
-            out.data()[idx] = (wsum > 0.0) ? static_cast<float>(wmean / wsum) : 0.0f;
+            out.data()[idx] =
+                (wsum > 0.0) ? static_cast<float>(wmean / wsum)
+                             : invalid_reconstruction_sample();
         }
         return out;
     }
@@ -566,7 +575,7 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
         }
 
         if (n_valid_here <= 0) {
-            out.data()[idx] = 0.0f;
+            out.data()[idx] = invalid_reconstruction_sample();
             continue;
         }
 
@@ -644,7 +653,9 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
                 wsum += wi;
                 wmean += wi * static_cast<double>(v);
             }
-            out.data()[idx] = (wsum > 0.0) ? static_cast<float>(wmean / wsum) : 0.0f;
+            out.data()[idx] =
+                (wsum > 0.0) ? static_cast<float>(wmean / wsum)
+                             : invalid_reconstruction_sample();
         }
     }
 

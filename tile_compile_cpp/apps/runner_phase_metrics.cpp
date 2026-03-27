@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <opencv2/opencv.hpp>
 #include <thread>
@@ -21,6 +22,34 @@ namespace core = tile_compile::core;
 namespace image = tile_compile::image;
 namespace io = tile_compile::io;
 namespace metrics = tile_compile::metrics;
+
+namespace {
+
+std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
+  auto read_positive = [&](const char *key) -> std::optional<double> {
+    if (auto value = header.get_double(key);
+        value && std::isfinite(*value) && *value > 0.0) {
+      return value;
+    }
+    if (auto value = header.get_int(key); value && *value > 0) {
+      return static_cast<double>(*value);
+    }
+    return std::nullopt;
+  };
+
+  if (auto value = read_positive("EXPTIME")) {
+    return value;
+  }
+  if (auto value = read_positive("EXPOSURE")) {
+    return value;
+  }
+  if (auto value = read_positive("EXPOS")) {
+    return value;
+  }
+  return std::nullopt;
+}
+
+} // namespace
 
 bool run_phase_channel_split_normalization_global_metrics(
     const std::string &run_id, const config::Config &cfg,
@@ -66,6 +95,43 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::vector<float> P_g(frames.size(), 1.0f);
   std::vector<float> P_b(frames.size(), 1.0f);
   out.frame_cache.reset();
+
+  std::vector<float> frame_photometric_scale(
+      frames.size(), 1.0f);
+  std::string photometric_scale_method = "identity_fallback";
+  if (!frames.empty()) {
+    std::vector<float> exposure_seconds(
+        frames.size(), std::numeric_limits<float>::quiet_NaN());
+    bool all_exposures_available = true;
+    for (size_t i = 0; i < frames.size(); ++i) {
+      try {
+        const auto header = io::read_fits_header(frames[i]);
+        const auto exposure = extract_exposure_seconds(header);
+        if (!exposure || !std::isfinite(*exposure) || *exposure <= 0.0) {
+          all_exposures_available = false;
+          break;
+        }
+        exposure_seconds[i] = static_cast<float>(*exposure);
+      } catch (...) {
+        all_exposures_available = false;
+        break;
+      }
+    }
+    const float ref_exposure =
+        exposure_seconds.empty() ? std::numeric_limits<float>::quiet_NaN()
+                                 : exposure_seconds.front();
+    if (all_exposures_available && std::isfinite(ref_exposure) &&
+        ref_exposure > 0.0f) {
+      for (size_t i = 0; i < frames.size(); ++i) {
+        const float exposure = exposure_seconds[i];
+        frame_photometric_scale[i] =
+            (std::isfinite(exposure) && exposure > 0.0f)
+                ? (exposure / ref_exposure)
+                : 1.0f;
+      }
+      photometric_scale_method = "exposure_ratio";
+    }
+  }
 
   if (!frames.empty()) {
     try {
@@ -140,32 +206,15 @@ bool run_phase_channel_split_normalization_global_metrics(
 
         image::NormalizationScales s;
         {
-          auto estimate_signal_scale = [&](const std::vector<float> &samples,
-                                           float background) -> float {
-            std::vector<float> positive_residuals;
-            positive_residuals.reserve(samples.size());
-            for (float v : samples) {
-              if (!std::isfinite(v)) {
-                continue;
-              }
-              const float signal = v - background;
-              if (signal > eps_b) {
-                positive_residuals.push_back(signal);
-              }
-            }
-            if (positive_residuals.size() < 32u) {
-              return 1.0f;
-            }
-            std::sort(positive_residuals.begin(), positive_residuals.end());
-            const float q =
-                core::percentile_from_sorted(positive_residuals, 99.5f);
-            return (std::isfinite(q) && q > eps_b) ? q : 1.0f;
-          };
-
           const size_t pixel_count = static_cast<size_t>(img.size());
           cv::Mat coarse_cv(img.rows(), img.cols(), CV_32F, img.data());
           const cv::Mat1b bg_mask =
               metrics::build_background_mask_sigma_clip(coarse_cv, 3.0f, 3);
+          const float p_frame = (i < frame_photometric_scale.size() &&
+                                 std::isfinite(frame_photometric_scale[i]) &&
+                                 frame_photometric_scale[i] > 0.0f)
+                                    ? frame_photometric_scale[i]
+                                    : 1.0f;
 
           if (detected_mode == ColorMode::OSC) {
             s.is_osc = true;
@@ -241,9 +290,9 @@ bool run_phase_channel_split_normalization_global_metrics(
                   "NORMALIZATION: invalid background estimate");
             }
 
-            const float pr = estimate_signal_scale(r_samples, br);
-            const float pg = estimate_signal_scale(g_samples, bg);
-            const float pb = estimate_signal_scale(b_samples, bb);
+            const float pr = p_frame;
+            const float pg = p_frame;
+            const float pb = p_frame;
 
             s.background_r = br;
             s.background_g = bg;
@@ -278,7 +327,7 @@ bool run_phase_channel_split_normalization_global_metrics(
               throw std::runtime_error(
                   "NORMALIZATION: invalid background estimate");
             }
-            const float p = estimate_signal_scale(mono_samples, b);
+            const float p = p_frame;
             s.background_mono = b;
             s.scale_mono = 1.0f / std::max(p, eps_b);
             B_mono[i] = b;
@@ -364,6 +413,7 @@ bool run_phase_channel_split_normalization_global_metrics(
     artifact["P_r"] = core::json::array();
     artifact["P_g"] = core::json::array();
     artifact["P_b"] = core::json::array();
+    artifact["photometric_scale_method"] = photometric_scale_method;
     for (size_t i = 0; i < frames.size(); ++i) {
       artifact["B_mono"].push_back(B_mono[i]);
       artifact["B_r"].push_back(B_r[i]);
@@ -391,6 +441,7 @@ bool run_phase_channel_split_normalization_global_metrics(
   emitter.phase_end(run_id, Phase::NORMALIZATION, "ok",
                     {
                         {"num_frames", static_cast<int>(frames.size())},
+                        {"photometric_scale_method", photometric_scale_method},
                     },
                     log_file);
 

@@ -523,6 +523,7 @@ if(BUILD_TESTS)
         add_executable(tests
             tests/test_main.cpp
             tests/test_acceleration_backend.cpp
+            tests/test_background_extraction.cpp
             tests/test_utils.cpp
             tests/test_fits.cpp
             tests/test_fits_hdu_selection.cpp

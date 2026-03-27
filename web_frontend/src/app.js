@@ -3341,6 +3341,11 @@ function parameterPathFromElement(el) {
     const path = String(dynRow.getAttribute("data-path") || "");
     return isKnownConfigSchemaPath(path) ? path : "";
   }
+  const staticRow = el.closest(".ps-row[data-path]:not(.ps-dyn-row)");
+  if (staticRow) {
+    const path = String(staticRow.getAttribute("data-path") || "");
+    return isKnownConfigSchemaPath(path) ? path : "";
+  }
   const control = String(el.getAttribute("data-control") || "");
   if (control && PARAM_CONTROL_PATHS[control]) {
     const path = PARAM_CONTROL_PATHS[control];
@@ -3398,6 +3403,13 @@ function syncParameterFieldsFromConfig(config) {
   document.querySelectorAll(".ps-dyn-row[data-path]").forEach((row) => {
     const path = String(row.getAttribute("data-path") || "");
     if (!path) return;
+    const el = row.querySelector("input,select,textarea");
+    if (!el) return;
+    writeFieldValue(el, getByPath(config, path));
+  });
+  document.querySelectorAll(".ps-row[data-path]:not(.ps-dyn-row)").forEach((row) => {
+    const path = String(row.getAttribute("data-path") || "");
+    if (!path || !isKnownConfigSchemaPath(path)) return;
     const el = row.querySelector("input,select,textarea");
     if (!el) return;
     writeFieldValue(el, getByPath(config, path));

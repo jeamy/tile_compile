@@ -143,7 +143,7 @@
 
             <div class="ps-section ps-parameter-group" data-category="bge">
               <div class="ps-section-title">BGE</div>
-              <div class="ps-row">
+              <div class="ps-row" data-path="bge.enabled">
                 <label for="parameter-bge-enabled">bge.enabled</label>
                 <select id="parameter-bge-enabled" data-control="parameter.bge.enabled" class="ps-select" title="Aktiviert Background Extraction.">
                   <option selected>true</option>
@@ -151,25 +151,81 @@
                 </select>
                 <span class="ps-tag reco">Empfohlen: Gradient</span>
               </div>
-              <div class="ps-row">
+              <div class="ps-row" data-path="bge.fit.method">
                 <label for="parameter-bge-fit-method">bge.fit.method</label>
                 <select id="parameter-bge-fit-method" data-control="parameter.bge.fit_method" class="ps-select" title="BGE-Fit-Methode.">
+                  <option>poly</option>
+                  <option>spline</option>
+                  <option>bicubic</option>
                   <option selected>rbf</option>
-                  <option>polynomial</option>
+                  <option>modeled_mask_mesh</option>
                 </select>
               </div>
-              <div class="ps-row">
+              <div class="ps-row" data-path="bge.fit.robust_loss">
+                <label for="parameter-bge-robust-loss">bge.fit.robust_loss</label>
+                <select id="parameter-bge-robust-loss" class="ps-select" title="Robuste Verlustfunktion fuer den BGE-Fit.">
+                  <option selected>huber</option>
+                  <option>tukey</option>
+                </select>
+              </div>
+              <div class="ps-row" data-path="bge.fit.rbf_lambda">
                 <label for="parameter-bge-rbf-lambda">bge.fit.rbf_lambda</label>
                 <input id="parameter-bge-rbf-lambda" data-control="parameter.bge.rbf_lambda" class="ps-input ps-short" type="text" value="1e-2" title="Regularisierung fuer RBF-Fit.">
                 <span class="ps-hint">Kurz: hoehere Werte stabilisieren bei starkem Gradient.</span>
               </div>
-              <div class="ps-row">
+              <div class="ps-row" data-path="bge.sample_quantile">
                 <label for="parameter-bge-sample-quantile">bge.sample_quantile</label>
-                <input id="parameter-bge-sample-quantile" class="ps-input ps-short" type="number" step="0.01" value="0.15" title="Quantil fuer robuste Hintergrund-Samples.">
+                <input id="parameter-bge-sample-quantile" class="ps-input ps-short" type="number" step="0.01" value="0.18" title="Quantil fuer robuste Hintergrund-Samples.">
               </div>
-              <div class="ps-row">
+              <div class="ps-row" data-path="bge.structure_thresh_percentile">
+                <label for="parameter-bge-structure-thresh">bge.structure_thresh_percentile</label>
+                <input id="parameter-bge-structure-thresh" class="ps-input ps-short" type="number" step="0.01" value="0.90" title="Perzentilgrenze zur Trennung von Struktur und Hintergrund.">
+              </div>
+              <div class="ps-row" data-path="bge.tile_weight_lambda_structure">
+                <label for="parameter-bge-tile-weight-lambda">bge.tile_weight_lambda_structure</label>
+                <input id="parameter-bge-tile-weight-lambda" class="ps-input ps-short" type="number" step="0.1" value="2.0" title="Daempfung der Tile-Reliability ueber die Strukturenergie.">
+              </div>
+              <div class="ps-row" data-path="bge.min_tiles_per_cell">
                 <label for="parameter-bge-min-tiles">bge.min_tiles_per_cell</label>
                 <input id="parameter-bge-min-tiles" class="ps-input ps-short" type="number" value="3" title="Mindestanzahl Tiles je BGE-Zelle.">
+              </div>
+              <div class="ps-row" data-path="bge.min_valid_sample_fraction_for_apply">
+                <label for="parameter-bge-min-valid-frac">bge.min_valid_sample_fraction_for_apply</label>
+                <input id="parameter-bge-min-valid-frac" class="ps-input ps-short" type="number" step="0.01" value="0.30" title="Minimaler Anteil valider robuster Tile-Samples pro Kanal vor dem BGE-Apply.">
+              </div>
+              <div class="ps-row" data-path="bge.min_valid_samples_for_apply">
+                <label for="parameter-bge-min-valid-count">bge.min_valid_samples_for_apply</label>
+                <input id="parameter-bge-min-valid-count" class="ps-input ps-short" type="number" value="96" title="Absolute Untergrenze valider robuster Tile-Samples pro Kanal vor dem BGE-Apply.">
+              </div>
+              <div class="ps-row" data-path="bge.autotune.enabled">
+                <label for="parameter-bge-autotune-enabled">bge.autotune.enabled</label>
+                <select id="parameter-bge-autotune-enabled" class="ps-select" title="Deterministisches BGE-Autotuning aktivieren.">
+                  <option selected>true</option>
+                  <option>false</option>
+                </select>
+              </div>
+              <div class="ps-row" data-path="bge.autotune.strategy">
+                <label for="parameter-bge-autotune-strategy">bge.autotune.strategy</label>
+                <select id="parameter-bge-autotune-strategy" class="ps-select" title="Suchstrategie fuer das BGE-Autotuning.">
+                  <option>conservative</option>
+                  <option selected>extended</option>
+                </select>
+              </div>
+              <div class="ps-row" data-path="bge.autotune.max_evals">
+                <label for="parameter-bge-autotune-max-evals">bge.autotune.max_evals</label>
+                <input id="parameter-bge-autotune-max-evals" class="ps-input ps-short" type="number" value="32" title="Maximale Anzahl deterministischer BGE-Autotune-Auswertungen.">
+              </div>
+              <div class="ps-row" data-path="bge.autotune.holdout_fraction">
+                <label for="parameter-bge-autotune-holdout">bge.autotune.holdout_fraction</label>
+                <input id="parameter-bge-autotune-holdout" class="ps-input ps-short" type="number" step="0.05" value="0.20" title="Holdout-Anteil fuer das BGE-Autotuning.">
+              </div>
+              <div class="ps-row" data-path="bge.autotune.alpha_flatness">
+                <label for="parameter-bge-autotune-alpha">bge.autotune.alpha_flatness</label>
+                <input id="parameter-bge-autotune-alpha" class="ps-input ps-short" type="number" step="0.01" value="0.35" title="Gewicht fuer Flatness im BGE-Autotune-Ziel.">
+              </div>
+              <div class="ps-row" data-path="bge.autotune.beta_roughness">
+                <label for="parameter-bge-autotune-beta">bge.autotune.beta_roughness</label>
+                <input id="parameter-bge-autotune-beta" class="ps-input ps-short" type="number" step="0.01" value="0.08" title="Gewicht fuer Roughness im BGE-Autotune-Ziel.">
               </div>
             </div>
 

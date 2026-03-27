@@ -182,6 +182,21 @@ TEST_CASE("common_overlap_tile_gate_keeps_negative_finite_samples") {
   REQUIRE(tile_compile::runner::tile_has_nonzero_common_data(tile, 0,
                                                              {1u}));
 }
+
+TEST_CASE("common_overlap_tile_gate_marks_canvas_invalid_pixels_nonfinite") {
+  tile_compile::Matrix2Df tile(2, 2);
+  tile << 1.0f, 2.0f, 3.0f, 4.0f;
+
+  const tile_compile::Tile bounds{0, 0, 2, 2, 0, 0};
+  const std::vector<uint8_t> common_valid_mask = {1u, 0u, 1u, 0u};
+
+  REQUIRE(tile_compile::runner::apply_common_overlap_to_tile_inplace_and_check_nonzero(
+      tile, bounds, common_valid_mask, 2, 2));
+  REQUIRE(std::isfinite(tile(0, 0)));
+  REQUIRE_FALSE(std::isfinite(tile(0, 1)));
+  REQUIRE(std::isfinite(tile(1, 0)));
+  REQUIRE_FALSE(std::isfinite(tile(1, 1)));
+}
 #else
 int tile_compile_tests_acceleration_backend_stub() { return 0; }
 #endif

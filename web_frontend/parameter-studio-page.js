@@ -566,6 +566,8 @@
   function resolvePathFromElement(el) {
     const dynamicRow = el.closest(".ps-dyn-row");
     if (dynamicRow?.dataset.path) return dynamicRow.dataset.path;
+    const staticRow = el.closest(".ps-row[data-path]:not(.ps-dyn-row)");
+    if (staticRow?.dataset.path) return staticRow.dataset.path;
     const controlPath = el.getAttribute("data-control");
     if (controlPath && PARAM_CONTROL_PATHS[controlPath]) return PARAM_CONTROL_PATHS[controlPath];
     if (el.id && PARAM_ID_PATHS[el.id]) return PARAM_ID_PATHS[el.id];

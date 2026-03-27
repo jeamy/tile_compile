@@ -68,7 +68,9 @@ struct BGEConfig {
         std::string strategy = "conservative"; // conservative | extended
     } autotune;
 
-    // Tile reliability weight (§6.3.2c): w_t = exp(-lambda_structure * structure_score_t) * (1 - masked_fraction_t)
+    // Tile reliability weight (§6.3.2c): w_t = exp(-lambda_structure *
+    // structure_score_t) * (1 - masked_fraction_t), where structure_score_t is
+    // dimensionless via local noise normalization.
     float tile_weight_lambda_structure = 2.0f;
 };
 
@@ -140,7 +142,7 @@ struct BGEChannelDiagnostics {
     int autotune_evals = 0;
     bool autotune_fallback_used = false;
     std::string autotune_selected_fit_method;
-    float autotune_best_objective = 0.0f; // Backward-compatible alias of objective_raw
+    float autotune_best_objective = 0.0f; // Binding autotune objective
     float autotune_best_objective_raw = 0.0f;
     float autotune_best_objective_normalized = 0.0f;
     float autotune_best_cv_rms = 0.0f;
@@ -187,7 +189,7 @@ struct BGEDiagnostics {
     int autotune_max_evals = 0;
     int autotune_evals = 0;
     std::string autotune_selected_fit_method;
-    float autotune_best_objective = 0.0f; // Backward-compatible alias of objective_raw
+    float autotune_best_objective = 0.0f; // Binding autotune objective
     float autotune_best_objective_raw = 0.0f;
     float autotune_best_objective_normalized = 0.0f;
     float autotune_best_cv_rms = 0.0f;
