@@ -6,6 +6,7 @@
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/metrics.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <iostream>
@@ -60,6 +61,10 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::vector<float> B_r(frames.size(), 0.0f);
   std::vector<float> B_g(frames.size(), 0.0f);
   std::vector<float> B_b(frames.size(), 0.0f);
+  std::vector<float> P_mono(frames.size(), 1.0f);
+  std::vector<float> P_r(frames.size(), 1.0f);
+  std::vector<float> P_g(frames.size(), 1.0f);
+  std::vector<float> P_b(frames.size(), 1.0f);
   out.frame_cache.reset();
 
   if (!frames.empty()) {
@@ -135,6 +140,28 @@ bool run_phase_channel_split_normalization_global_metrics(
 
         image::NormalizationScales s;
         {
+          auto estimate_signal_scale = [&](const std::vector<float> &samples,
+                                           float background) -> float {
+            std::vector<float> positive_residuals;
+            positive_residuals.reserve(samples.size());
+            for (float v : samples) {
+              if (!std::isfinite(v)) {
+                continue;
+              }
+              const float signal = v - background;
+              if (signal > eps_b) {
+                positive_residuals.push_back(signal);
+              }
+            }
+            if (positive_residuals.size() < 32u) {
+              return 1.0f;
+            }
+            std::sort(positive_residuals.begin(), positive_residuals.end());
+            const float q =
+                core::percentile_from_sorted(positive_residuals, 99.5f);
+            return (std::isfinite(q) && q > eps_b) ? q : 1.0f;
+          };
+
           const size_t pixel_count = static_cast<size_t>(img.size());
           cv::Mat coarse_cv(img.rows(), img.cols(), CV_32F, img.data());
           const cv::Mat1b bg_mask =
@@ -181,7 +208,7 @@ bool run_phase_channel_split_normalization_global_metrics(
                     r_samples.push_back(img(y, x));
                 }
               }
-              br = core::estimate_background_sigma_clip(std::move(r_samples));
+              br = core::estimate_background_sigma_clip(r_samples);
             }
             if (!(bg > eps_b)) {
               reset_samples(g_samples, pixel_count / 2);
@@ -194,7 +221,7 @@ bool run_phase_channel_split_normalization_global_metrics(
                     g_samples.push_back(img(y, x));
                 }
               }
-              bg = core::estimate_background_sigma_clip(std::move(g_samples));
+              bg = core::estimate_background_sigma_clip(g_samples);
             }
             if (!(bb > eps_b)) {
               reset_samples(b_samples, pixel_count / 4);
@@ -206,7 +233,7 @@ bool run_phase_channel_split_normalization_global_metrics(
                     b_samples.push_back(img(y, x));
                 }
               }
-              bb = core::estimate_background_sigma_clip(std::move(b_samples));
+              bb = core::estimate_background_sigma_clip(b_samples);
             }
 
             if (!(br > eps_b) || !(bg > eps_b) || !(bb > eps_b)) {
@@ -214,12 +241,22 @@ bool run_phase_channel_split_normalization_global_metrics(
                   "NORMALIZATION: invalid background estimate");
             }
 
-            s.scale_r = 1.0f / br;
-            s.scale_g = 1.0f / bg;
-            s.scale_b = 1.0f / bb;
+            const float pr = estimate_signal_scale(r_samples, br);
+            const float pg = estimate_signal_scale(g_samples, bg);
+            const float pb = estimate_signal_scale(b_samples, bb);
+
+            s.background_r = br;
+            s.background_g = bg;
+            s.background_b = bb;
+            s.scale_r = 1.0f / std::max(pr, eps_b);
+            s.scale_g = 1.0f / std::max(pg, eps_b);
+            s.scale_b = 1.0f / std::max(pb, eps_b);
             B_r[i] = br;
             B_g[i] = bg;
             B_b[i] = bb;
+            P_r[i] = pr;
+            P_g[i] = pg;
+            P_b[i] = pb;
           } else {
             reset_samples(mono_samples, pixel_count);
             for (int y = 0; y < img.rows(); ++y) {
@@ -235,14 +272,17 @@ bool run_phase_channel_split_normalization_global_metrics(
               for (Eigen::Index k = 0; k < img.size(); ++k) {
                 mono_samples.push_back(img.data()[k]);
               }
-              b = core::estimate_background_sigma_clip(std::move(mono_samples));
+              b = core::estimate_background_sigma_clip(mono_samples);
             }
             if (!(b > eps_b)) {
               throw std::runtime_error(
                   "NORMALIZATION: invalid background estimate");
             }
-            s.scale_mono = 1.0f / b;
+            const float p = estimate_signal_scale(mono_samples, b);
+            s.background_mono = b;
+            s.scale_mono = 1.0f / std::max(p, eps_b);
             B_mono[i] = b;
+            P_mono[i] = p;
           }
         }
         norm_scales[i] = s;
@@ -320,21 +360,33 @@ bool run_phase_channel_split_normalization_global_metrics(
     artifact["B_r"] = core::json::array();
     artifact["B_g"] = core::json::array();
     artifact["B_b"] = core::json::array();
+    artifact["P_mono"] = core::json::array();
+    artifact["P_r"] = core::json::array();
+    artifact["P_g"] = core::json::array();
+    artifact["P_b"] = core::json::array();
     for (size_t i = 0; i < frames.size(); ++i) {
       artifact["B_mono"].push_back(B_mono[i]);
       artifact["B_r"].push_back(B_r[i]);
       artifact["B_g"].push_back(B_g[i]);
       artifact["B_b"].push_back(B_b[i]);
+      artifact["P_mono"].push_back(P_mono[i]);
+      artifact["P_r"].push_back(P_r[i]);
+      artifact["P_g"].push_back(P_g[i]);
+      artifact["P_b"].push_back(P_b[i]);
     }
     core::write_text(run_dir / "artifacts" / "normalization.json",
                      artifact.dump(2));
   }
 
   out.output_pedestal = 0.0f;
-  out.output_bg_mono = core::median_finite_positive(B_mono, 1.0f);
-  out.output_bg_r = core::median_finite_positive(B_r, 1.0f);
-  out.output_bg_g = core::median_finite_positive(B_g, 1.0f);
-  out.output_bg_b = core::median_finite_positive(B_b, 1.0f);
+  out.output_scale_mono = core::median_finite_positive(P_mono, 1.0f);
+  out.output_scale_r = core::median_finite_positive(P_r, 1.0f);
+  out.output_scale_g = core::median_finite_positive(P_g, 1.0f);
+  out.output_scale_b = core::median_finite_positive(P_b, 1.0f);
+  out.output_bg_mono = core::median_finite(B_mono, 0.0f);
+  out.output_bg_r = core::median_finite(B_r, 0.0f);
+  out.output_bg_g = core::median_finite(B_g, 0.0f);
+  out.output_bg_b = core::median_finite(B_b, 0.0f);
 
   emitter.phase_end(run_id, Phase::NORMALIZATION, "ok",
                     {

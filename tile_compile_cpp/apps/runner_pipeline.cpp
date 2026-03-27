@@ -68,6 +68,61 @@ constexpr float kTileCommonMinOverlapRatio = 0.10f;
 constexpr float kTileNormBoundaryRegressionFactor = 8.0f;
 constexpr float kTileNormBoundaryRegressionAbsP95 = 0.25f;
 
+uint64_t tile_grid_key(int row, int col) {
+  return (static_cast<uint64_t>(static_cast<uint32_t>(row)) << 32) ^
+         static_cast<uint32_t>(col);
+}
+
+struct TileWindowCacheEntry {
+  std::vector<float> x;
+  std::vector<float> y;
+};
+
+std::vector<TileWindowCacheEntry>
+build_tile_window_cache(const std::vector<Tile> &tiles) {
+  std::vector<TileWindowCacheEntry> out(tiles.size());
+  std::unordered_map<uint64_t, size_t> tile_by_grid;
+  tile_by_grid.reserve(tiles.size());
+  for (size_t ti = 0; ti < tiles.size(); ++ti) {
+    tile_by_grid.emplace(tile_grid_key(tiles[ti].row, tiles[ti].col), ti);
+  }
+
+  for (size_t ti = 0; ti < tiles.size(); ++ti) {
+    const auto &tile = tiles[ti];
+    int left_overlap = 0;
+    int right_overlap = 0;
+    int top_overlap = 0;
+    int bottom_overlap = 0;
+
+    auto left_it = tile_by_grid.find(tile_grid_key(tile.row, tile.col - 1));
+    if (left_it != tile_by_grid.end()) {
+      const auto &nbr = tiles[left_it->second];
+      left_overlap = std::max(0, (nbr.x + nbr.width) - tile.x);
+    }
+    auto right_it = tile_by_grid.find(tile_grid_key(tile.row, tile.col + 1));
+    if (right_it != tile_by_grid.end()) {
+      const auto &nbr = tiles[right_it->second];
+      right_overlap = std::max(0, (tile.x + tile.width) - nbr.x);
+    }
+    auto up_it = tile_by_grid.find(tile_grid_key(tile.row - 1, tile.col));
+    if (up_it != tile_by_grid.end()) {
+      const auto &nbr = tiles[up_it->second];
+      top_overlap = std::max(0, (nbr.y + nbr.height) - tile.y);
+    }
+    auto down_it = tile_by_grid.find(tile_grid_key(tile.row + 1, tile.col));
+    if (down_it != tile_by_grid.end()) {
+      const auto &nbr = tiles[down_it->second];
+      bottom_overlap = std::max(0, (tile.y + tile.height) - nbr.y);
+    }
+
+    out[ti].x = reconstruction::make_partition_window_1d(
+        tile.width, left_overlap, right_overlap);
+    out[ti].y = reconstruction::make_partition_window_1d(
+        tile.height, top_overlap, bottom_overlap);
+  }
+  return out;
+}
+
 float safe_boundary_metric(float value) {
   constexpr float kBoundaryMetricFloor = 1.0e-4f;
   if (!std::isfinite(value)) {
@@ -544,6 +599,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   VectorXf global_weights = phase_metrics_ctx.global_weights;
   const auto frame_cache = phase_metrics_ctx.frame_cache;
   const float output_pedestal = phase_metrics_ctx.output_pedestal;
+  const float output_scale_mono = phase_metrics_ctx.output_scale_mono;
+  const float output_scale_r = phase_metrics_ctx.output_scale_r;
+  const float output_scale_g = phase_metrics_ctx.output_scale_g;
+  const float output_scale_b = phase_metrics_ctx.output_scale_b;
   const float output_bg_mono = phase_metrics_ctx.output_bg_mono;
   const float output_bg_r = phase_metrics_ctx.output_bg_r;
   const float output_bg_g = phase_metrics_ctx.output_bg_g;
@@ -1018,7 +1077,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       for (int y = 0; y < warped.rows(); ++y) {
         uchar *mrow = valid_mask.ptr<uchar>(y);
         for (int x = 0; x < warped.cols(); ++x) {
-          if (warped(y, x) > 0.0f) {
+          if (std::isfinite(warped(y, x))) {
             mrow[x] = 255;
             ++valid_count;
           }
@@ -1037,7 +1096,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       px.reserve(static_cast<size_t>(valid_count));
       for (Eigen::Index k = 0; k < warped.size(); ++k) {
         const float v = warped.data()[k];
-        if (v > 0.0f)
+        if (std::isfinite(v))
           px.push_back(v);
       }
       if (px.empty())
@@ -1189,29 +1248,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     for (auto &c : frame_valid_tile_counts)
       c.store(0);
 
-    // NOTE (2026-02): In reduced/emergency mode, Phase 7 output is the final
-    // stack (Phase 8/9 skipped). For small DSLR-derived sets (Canon/Nikon RAW
-    // -> FITS) the v3.2 per-tile median(abs)-scale normalization before OLA can
-    // imprint the tile lattice (stride-sized checker/grid) into the final image.
-    // Therefore:
-    //  - Full mode: keep v3.2 §5.7.1 normalization (used as intermediate stage)
-    //  - Reduced/emergency: disable per-tile normalization to preserve visual
-    //    continuity and avoid tile-contrast pumping in the final output
-	    const bool phase7_tile_norm_requested = !skip_clustering_in_reduced;
-	    bool apply_phase7_tile_norm = phase7_tile_norm_requested;
-	    bool tile_norm_disabled_due_boundary_regression = false;
-	    float tile_norm_boundary_regression_ratio = 1.0f;
-	    std::string tile_norm_application =
-	        apply_phase7_tile_norm ? "enabled" : "disabled_reduced_mode";
+    // v3.3.9: tile-wise median/MAD normalization before OLA is no longer part
+    // of the mandatory linear reconstruction core.
+    const bool phase7_tile_norm_requested = false;
+    bool apply_phase7_tile_norm = false;
+    bool tile_norm_disabled_due_boundary_regression = false;
+    float tile_norm_boundary_regression_ratio = 1.0f;
+    std::string tile_norm_application = "disabled_v3_3_9_linear_core";
 
     std::mutex progress_mutex;
     std::atomic<size_t> tiles_completed{0};
     std::atomic<size_t> tiles_failed{0};
 
-    // Pre-compute Hanning windows once for the uniform tile size (all tiles
-    // share the same dimensions), avoiding redundant recomputation per tile.
-    const std::vector<float> shared_hann_x = reconstruction::make_hann_1d(uniform_tile_size);
-    const std::vector<float> shared_hann_y = reconstruction::make_hann_1d(uniform_tile_size);
+    const auto tile_window_cache = build_tile_window_cache(tiles_phase56);
 
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_r;
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_g;
@@ -1886,18 +1935,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         continue;
       }
       const Tile &t = tiles_phase56[ti];
-      std::vector<float> hann_x_local;
-      std::vector<float> hann_y_local;
-      if (t.width != uniform_tile_size) {
-        hann_x_local = reconstruction::make_hann_1d(t.width);
+      if (ti >= tile_window_cache.size()) {
+        continue;
       }
-      if (t.height != uniform_tile_size) {
-        hann_y_local = reconstruction::make_hann_1d(t.height);
-      }
-      const std::vector<float> &hann_x =
-          (t.width == uniform_tile_size) ? shared_hann_x : hann_x_local;
-      const std::vector<float> &hann_y =
-          (t.height == uniform_tile_size) ? shared_hann_y : hann_y_local;
+      const std::vector<float> &window_x = tile_window_cache[ti].x;
+      const std::vector<float> &window_y = tile_window_cache[ti].y;
 
       const int x0 = std::max(0, t.x);
       const int y0 = std::max(0, t.y);
@@ -1916,13 +1958,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
 
         tile_reconstruction_ops.overlap_add(
-            tile_r, t, hann_x, hann_y, common_valid_mask, canvas_width,
+            tile_r, t, window_x, window_y, common_valid_mask, canvas_width,
             recon_R, weight_sum, true);
         tile_reconstruction_ops.overlap_add(
-            tile_g, t, hann_x, hann_y, common_valid_mask, canvas_width,
+            tile_g, t, window_x, window_y, common_valid_mask, canvas_width,
             recon_G, weight_sum, false);
         tile_reconstruction_ops.overlap_add(
-            tile_b, t, hann_x, hann_y, common_valid_mask, canvas_width,
+            tile_b, t, window_x, window_y, common_valid_mask, canvas_width,
             recon_B, weight_sum, false);
       } else {
         Matrix2Df tile = reconstructed_tiles[ti];
@@ -1934,7 +1976,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
 
         tile_reconstruction_ops.overlap_add(
-            tile, t, hann_x, hann_y, common_valid_mask, canvas_width, recon,
+            tile, t, window_x, window_y, common_valid_mask, canvas_width, recon,
             weight_sum, true);
       }
     }
@@ -2758,6 +2800,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::vector<Matrix2Df> synthetic_frames;
     std::vector<RGBFrame> synthetic_rgb_frames;
     std::vector<float> synthetic_cluster_quality;
+    std::vector<float> synthetic_cluster_mass;
 
     auto reconstruct_subset =
         [&](const std::vector<char> &frame_mask) -> Matrix2Df {
@@ -2788,22 +2831,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           // Preserve synthetic-frame photometric scale. Per-tile median/scale
           // normalization here can imprint tile structure and compress signal.
         };
-
-        struct HannCacheEntry {
-          std::vector<float> x;
-          std::vector<float> y;
-        };
-        std::unordered_map<uint64_t, HannCacheEntry> hann_cache;
-        hann_cache.reserve(tiles_phase56.size());
-        for (const auto &tile : tiles_phase56) {
-          const uint64_t key =
-              (static_cast<uint64_t>(static_cast<uint32_t>(tile.width)) << 32) |
-              static_cast<uint32_t>(tile.height);
-          if (hann_cache.find(key) != hann_cache.end())
-            continue;
-          hann_cache.emplace(key, HannCacheEntry{reconstruction::make_hann_1d(tile.width),
-                                                 reconstruction::make_hann_1d(tile.height)});
-        }
 
         std::atomic<size_t> next_tile{0};
 
@@ -2888,14 +2915,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             // v3.2 §5.7.1: normalize tile before overlap-add.
             normalize_tile_for_ola(tile_rec, norm_tmp);
 
-            const uint64_t key =
-                (static_cast<uint64_t>(static_cast<uint32_t>(t.width)) << 32) |
-                static_cast<uint32_t>(t.height);
-            const auto cache_it = hann_cache.find(key);
-            if (cache_it == hann_cache.end())
+            if (ti >= tile_window_cache.size())
               continue;
-            const std::vector<float> &hann_x = cache_it->second.x;
-            const std::vector<float> &hann_y = cache_it->second.y;
+            const std::vector<float> &window_x = tile_window_cache[ti].x;
+            const std::vector<float> &window_y = tile_window_cache[ti].y;
 
             const int x0 = std::max(0, t.x);
             const int y0 = std::max(0, t.y);
@@ -2918,11 +2941,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                   continue;
                 }
                 const float tile_value = tile_rec(yy, xx);
-                if (!(std::isfinite(tile_value) && tile_value > 0.0f)) {
+                if (!std::isfinite(tile_value)) {
                   continue;
                 }
-                const float win = hann_y[static_cast<size_t>(yy)] *
-                                  hann_x[static_cast<size_t>(xx)];
+                const float win = window_y[static_cast<size_t>(yy)] *
+                                  window_x[static_cast<size_t>(xx)];
                 out(iy, ix) += tile_value * win;
                 weight_ola(iy, ix) += win;
               }
@@ -2978,7 +3001,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
         const size_t px_count = static_cast<size_t>(std::max<Eigen::Index>(0, src.size()));
         for (size_t i = 0; i < px_count && i < common_valid_mask.size(); ++i) {
-          if (common_valid_mask[i] != 0 && src.data()[static_cast<Eigen::Index>(i)] > 0.0f) {
+          if (common_valid_mask[i] != 0 &&
+              std::isfinite(src.data()[static_cast<Eigen::Index>(i)])) {
             out.data()[static_cast<Eigen::Index>(i)] +=
                 src.data()[static_cast<Eigen::Index>(i)] * w;
           }
@@ -3035,6 +3059,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         int count = 0;
         std::vector<float> cluster_q_values;
         cluster_q_values.reserve(frames.size());
+        float cluster_mass = 0.0f;
         const float k_global =
             std::max(cfg.global_metrics.weight_exponent_scale, kEpsWeight);
         const float q_min = cfg.global_metrics.clamp[0];
@@ -3052,6 +3077,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                 std::log(std::max(G_f, kEpsWeight)) / k_global, q_min, q_max);
             if (std::isfinite(q_f)) {
               cluster_q_values.push_back(q_f);
+            }
+            if (std::isfinite(G_f) && G_f > 0.0f) {
+              cluster_mass += G_f;
             }
           }
         }
@@ -3083,6 +3111,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
         synthetic_frames.push_back(std::move(syn));
         synthetic_cluster_quality.push_back(q_k);
+        synthetic_cluster_mass.push_back(
+            (std::isfinite(cluster_mass) && cluster_mass > kEpsWeight)
+                ? cluster_mass
+                : static_cast<float>(count));
         synth_done = static_cast<int>(synthetic_frames.size());
         if (static_cast<int>(synthetic_frames.size()) >= synth_max)
           break;
@@ -3117,12 +3149,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         for (Eigen::Index pi = 0; pi < out.size(); ++pi) {
           const float v = out.data()[pi];
           valid_mask.data()[pi] =
-              (std::isfinite(v) && v > 0.0f) ? 1.0f : 0.0f;
+              (std::isfinite(v) &&
+               static_cast<size_t>(pi) < common_valid_mask.size() &&
+               common_valid_mask[static_cast<size_t>(pi)] != 0)
+                  ? 1.0f
+                  : 0.0f;
         }
         image::apply_output_scaling_inplace(out, -canvas_tile_offset_x,
             -canvas_tile_offset_y, detected_mode,
-            detected_bayer_str, output_bg_mono, output_bg_r, output_bg_g,
-            output_bg_b, output_pedestal);
+            detected_bayer_str, output_scale_mono, output_scale_r,
+            output_scale_g, output_scale_b, output_bg_mono, output_bg_r,
+            output_bg_g, output_bg_b, output_pedestal);
         for (Eigen::Index pi = 0; pi < out.size(); ++pi) {
           if (valid_mask.data()[pi] == 0.0f) {
             out.data()[pi] = 0.0f;
@@ -3138,8 +3175,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         artifact["frames_max"] = synth_max;
         artifact["weighting"] = cfg.synthetic.weighting;
         artifact["cluster_quality"] = core::json::array();
+        artifact["cluster_mass"] = core::json::array();
         for (float qk : synthetic_cluster_quality) {
           artifact["cluster_quality"].push_back(qk);
+        }
+        for (float mk : synthetic_cluster_mass) {
+          artifact["cluster_mass"].push_back(mk);
         }
         core::write_text(run_dir / "artifacts" / "synthetic_frames.json",
                          artifact.dump(2));
@@ -3181,6 +3222,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       valid_synth.reserve(synthetic_frames.size());
       std::vector<float> valid_synth_q;
       valid_synth_q.reserve(synthetic_frames.size());
+      std::vector<float> valid_synth_mass;
+      valid_synth_mass.reserve(synthetic_frames.size());
 
       // For OSC: keep a parallel list of per-frame RGB planes so we can
       // stack in RGB space and avoid debayering after sigma-clipped stacking.
@@ -3219,6 +3262,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         } else {
           valid_synth_q.push_back(0.0f);
         }
+        if (i < synthetic_cluster_mass.size()) {
+          valid_synth_mass.push_back(synthetic_cluster_mass[i]);
+        } else {
+          valid_synth_mass.push_back(1.0f);
+        }
       }
 
       std::cerr << "[STACKING] " << valid_synth.size() << " / "
@@ -3233,8 +3281,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         if (use_quality_weighting) {
           cluster_stack_weights.resize(valid_synth_q.size(), 1.0f);
           const float kappa = cfg.stacking.cluster_quality_weighting.kappa_cluster;
+          std::vector<float> q_values = valid_synth_q;
+          const float q_ref =
+              q_values.empty() ? 0.0f : core::median_of(q_values);
           for (size_t i = 0; i < valid_synth_q.size(); ++i) {
-            cluster_stack_weights[i] = std::exp(kappa * valid_synth_q[i]);
+            const float mass =
+                (i < valid_synth_mass.size() && std::isfinite(valid_synth_mass[i]) &&
+                 valid_synth_mass[i] > kEpsWeight)
+                    ? valid_synth_mass[i]
+                    : 1.0f;
+            const float q_rel =
+                std::clamp(valid_synth_q[i] - q_ref, -3.0f, 3.0f);
+            cluster_stack_weights[i] = mass * std::exp(kappa * q_rel);
             if (!std::isfinite(cluster_stack_weights[i]) ||
                 cluster_stack_weights[i] <= 0.0f) {
               cluster_stack_weights[i] = 1.0f;
@@ -3343,15 +3401,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     auto write_stacking_outputs = [&](const Matrix2Df &stack_luma) -> bool {
       Matrix2Df recon_out = stack_luma;
       if (detected_mode == ColorMode::OSC) {
+        const float scale_luma = 0.25f * output_scale_r + 0.5f * output_scale_g +
+                                 0.25f * output_scale_b;
         const float bg_luma = 0.25f * output_bg_r + 0.5f * output_bg_g +
                               0.25f * output_bg_b;
-        recon_out *= bg_luma;
-        recon_out.array() += output_pedestal;
+        recon_out *= scale_luma;
+        recon_out.array() += (bg_luma + output_pedestal);
       } else {
         image::apply_output_scaling_inplace(recon_out, -debayer_tile_offset_x,
             -debayer_tile_offset_y, detected_mode,
-            detected_bayer_str, output_bg_mono, output_bg_r, output_bg_g,
-            output_bg_b, output_pedestal);
+            detected_bayer_str, output_scale_mono, output_scale_r,
+            output_scale_g, output_scale_b, output_bg_mono, output_bg_r,
+            output_bg_g, output_bg_b, output_pedestal);
       }
 
       if (cfg.stacking.output_stretch) {
@@ -3771,15 +3832,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         B_out = std::move(debayer.B);
       }
       have_rgb = true;
-      // Restore per-channel background levels to undo the per-channel
-      // normalization (scale_r=1/bg_r etc.).  This preserves the camera's
-      // native color response and produces a neutral sky background.
-      R_out *= output_bg_r;
-      G_out *= output_bg_g;
-      B_out *= output_bg_b;
-      R_out.array() += output_pedestal;
-      G_out.array() += output_pedestal;
-      B_out.array() += output_pedestal;
+      // Restore photometric scale and additive background per channel.
+      R_out *= output_scale_r;
+      G_out *= output_scale_g;
+      B_out *= output_scale_b;
+      R_out.array() += (output_bg_r + output_pedestal);
+      G_out.array() += (output_bg_g + output_pedestal);
+      B_out.array() += (output_bg_b + output_pedestal);
 
       io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
                            first_hdr);

@@ -2277,7 +2277,7 @@ bool run_phase_registration_prewarp(
             } else {
               const float *warped_ptr = warped.data();
               for (size_t pi = 0; pi < canvas_px; ++pi) {
-                if (warped_ptr[pi] > 0.0f &&
+                if (std::isfinite(warped_ptr[pi]) &&
                     local_overlap_coverage[pi] <
                         std::numeric_limits<uint16_t>::max()) {
                   ++local_overlap_coverage[pi];

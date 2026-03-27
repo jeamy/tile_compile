@@ -23,7 +23,8 @@ LocalWeightRegularizationSummary regularize_local_quality_scores(
     const std::vector<Tile> &tiles, const std::vector<uint8_t> &tile_valid,
     const std::vector<uint8_t> &frame_has_data,
     const LocalWeightRegularizationConfig &cfg,
-    std::vector<std::vector<float>> *quality_scores) {
+    std::vector<std::vector<float>> *quality_scores,
+    const std::vector<std::vector<float>> *confidence_scores) {
   LocalWeightRegularizationSummary out;
   if (!quality_scores || !cfg.enabled || cfg.passes <= 0 || tiles.empty() ||
       tile_valid.size() != tiles.size()) {
@@ -34,6 +35,9 @@ LocalWeightRegularizationSummary regularize_local_quality_scores(
   if (scores.empty() || scores.size() != frame_has_data.size()) {
     return out;
   }
+  const bool use_confidence =
+      confidence_scores != nullptr &&
+      confidence_scores->size() == quality_scores->size();
 
   std::unordered_map<uint64_t, size_t> tile_by_grid;
   tile_by_grid.reserve(tiles.size());
@@ -86,22 +90,36 @@ LocalWeightRegularizationSummary regularize_local_quality_scores(
             neighbors[ti].empty()) {
           continue;
         }
+        float confidence = 0.0f;
+        if (use_confidence && fi < confidence_scores->size() &&
+            ti < (*confidence_scores)[fi].size() &&
+            std::isfinite((*confidence_scores)[fi][ti])) {
+          confidence = std::clamp((*confidence_scores)[fi][ti], 0.0f, 1.0f);
+        }
+        const float lambda_eff = cfg.lambda * (1.0f - confidence);
+        if (!(lambda_eff > 0.0f)) {
+          continue;
+        }
         double neighbor_sum = 0.0;
-        size_t neighbor_count = 0u;
+        double affinity_sum = 0.0;
         for (size_t ni : neighbors[ti]) {
           if (ni >= current.size() || tile_valid[ni] == 0u ||
               !std::isfinite(current[ni])) {
             continue;
           }
-          neighbor_sum += current[ni];
-          ++neighbor_count;
+          const double affinity =
+              std::exp(-std::fabs(static_cast<double>(current[ti] - current[ni])) /
+                       std::max(1.0e-6, static_cast<double>(cfg.tau_local)));
+          neighbor_sum += affinity * static_cast<double>(current[ni]);
+          affinity_sum += affinity;
         }
-        if (neighbor_count == 0u) {
+        if (!(affinity_sum > 0.0)) {
           continue;
         }
         const float neighbor_mean =
-            static_cast<float>(neighbor_sum / static_cast<double>(neighbor_count));
-        next[ti] = (1.0f - cfg.lambda) * current[ti] + cfg.lambda * neighbor_mean;
+            static_cast<float>(neighbor_sum / affinity_sum);
+        next[ti] =
+            (1.0f - lambda_eff) * current[ti] + lambda_eff * neighbor_mean;
       }
       current.swap(next);
     }

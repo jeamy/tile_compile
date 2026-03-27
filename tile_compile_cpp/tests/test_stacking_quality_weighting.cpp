@@ -79,6 +79,7 @@ local_metrics:
     enabled: true
     lambda: 0.35
     passes: 2
+    tau_local: 1.25
 )");
 
   auto cfg = tile_compile::config::Config::from_yaml(node);
@@ -86,6 +87,8 @@ local_metrics:
   REQUIRE(std::fabs(cfg.local_metrics.spatial_regularization.lambda - 0.35f) <
           1e-6f);
   REQUIRE(cfg.local_metrics.spatial_regularization.passes == 2);
+  REQUIRE(std::fabs(cfg.local_metrics.spatial_regularization.tau_local - 1.25f) <
+          1e-6f);
   REQUIRE_NOTHROW(cfg.validate());
 }
 
@@ -138,6 +141,41 @@ local_metrics:
     enabled: true
     radius: 1
     blend: 1.5
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE_THROWS(cfg.validate());
+}
+
+TEST_CASE("tile_soft_star_count_parses_and_validates") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: OSC
+  linear_required: true
+tile:
+  star_min_count: 10
+  star_soft_count: 14
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(cfg.tile.star_min_count == 10);
+  REQUIRE(cfg.tile.star_soft_count == 14);
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("local_metrics_spatial_regularization_rejects_non_positive_tau_local") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: OSC
+  linear_required: true
+local_metrics:
+  spatial_regularization:
+    enabled: true
+    lambda: 0.35
+    passes: 1
+    tau_local: 0.0
 )");
 
   auto cfg = tile_compile::config::Config::from_yaml(node);

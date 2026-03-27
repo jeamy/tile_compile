@@ -49,6 +49,7 @@ void robust_zscore(const std::vector<float>& v, std::vector<float>& out);
 
 // Median of finite positive values, with fallback
 float median_finite_positive(const std::vector<float>& v, float fallback);
+float median_finite(const std::vector<float>& v, float fallback);
 
 // String utilities
 std::string to_lower(const std::string& s);

@@ -737,6 +737,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     const BayerPattern detected_bayer = io::detect_bayer_pattern(first_hdr);
     const std::string detected_bayer_str = bayer_pattern_to_string(detected_bayer);
     std::vector<float> synthetic_cluster_quality;
+    std::vector<float> synthetic_cluster_mass;
     const fs::path synthetic_artifact_path =
         run_dir / "artifacts" / "synthetic_frames.json";
     if (fs::exists(synthetic_artifact_path)) {
@@ -745,6 +746,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         if (j.contains("cluster_quality") && j["cluster_quality"].is_array()) {
           for (const auto &jq : j["cluster_quality"]) {
             synthetic_cluster_quality.push_back(jq.get<float>());
+          }
+        }
+        if (j.contains("cluster_mass") && j["cluster_mass"].is_array()) {
+          for (const auto &jm : j["cluster_mass"]) {
+            synthetic_cluster_mass.push_back(jm.get<float>());
           }
         }
       } catch (const std::exception &e) {
@@ -825,6 +831,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     valid_synth.reserve(synthetic_entries.size());
     std::vector<float> valid_synth_q;
     valid_synth_q.reserve(synthetic_entries.size());
+    std::vector<float> valid_synth_mass;
+    valid_synth_mass.reserve(synthetic_entries.size());
     std::vector<Matrix2Df> synth_R;
     std::vector<Matrix2Df> synth_G;
     std::vector<Matrix2Df> synth_B;
@@ -866,6 +874,13 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       } else {
         valid_synth_q.push_back(0.0f);
       }
+      if (index >= 0 &&
+          static_cast<size_t>(index) < synthetic_cluster_mass.size()) {
+        valid_synth_mass.push_back(
+            synthetic_cluster_mass[static_cast<size_t>(index)]);
+      } else {
+        valid_synth_mass.push_back(1.0f);
+      }
     }
 
     if (valid_synth.empty()) {
@@ -883,8 +898,16 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     if (cfg.stacking.cluster_quality_weighting.enabled) {
       cluster_stack_weights.resize(valid_synth_q.size(), 1.0f);
       const float kappa = cfg.stacking.cluster_quality_weighting.kappa_cluster;
+      std::vector<float> q_values = valid_synth_q;
+      const float q_ref = q_values.empty() ? 0.0f : core::median_of(q_values);
       for (size_t i = 0; i < valid_synth_q.size(); ++i) {
-        cluster_stack_weights[i] = std::exp(kappa * valid_synth_q[i]);
+        const float mass =
+            (i < valid_synth_mass.size() && std::isfinite(valid_synth_mass[i]) &&
+             valid_synth_mass[i] > kEpsWeight)
+                ? valid_synth_mass[i]
+                : 1.0f;
+        const float q_rel = std::clamp(valid_synth_q[i] - q_ref, -3.0f, 3.0f);
+        cluster_stack_weights[i] = mass * std::exp(kappa * q_rel);
         if (!std::isfinite(cluster_stack_weights[i]) ||
             cluster_stack_weights[i] <= 0.0f) {
           cluster_stack_weights[i] = 1.0f;

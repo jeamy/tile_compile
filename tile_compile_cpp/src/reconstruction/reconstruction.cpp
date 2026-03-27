@@ -11,6 +11,13 @@ namespace tile_compile::reconstruction {
 
 namespace {
 
+constexpr double kSigmaClipEpsNeff = 1.0e-6;
+constexpr double kSigmaClipEpsVar = 1.0e-12;
+
+inline bool is_valid_sample(float v) {
+    return std::isfinite(v);
+}
+
 float median_inplace(std::vector<float>& v) {
     if (v.empty()) return 0.0f;
     const size_t mid = v.size() / 2;
@@ -170,7 +177,9 @@ Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
                     if (ly < 0 || lx < 0 || ly >= static_cast<int>(wy.size()) || lx >= static_cast<int>(wx.size())) continue;
                     float win = wy[static_cast<size_t>(ly)] * wx[static_cast<size_t>(lx)];
                     float ww = weight * win;
-                    result(y, x) += frames[f](y, x) * ww;
+                    const float v = frames[f](y, x);
+                    if (!is_valid_sample(v)) continue;
+                    result(y, x) += v * ww;
                     weight_sum(y, x) += ww;
                 }
             }
@@ -252,24 +261,36 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
     const int w = tile.cols();
     if (h <= 0 || w <= 0) return tile;
 
-    // 1. Background estimation via box blur
     cv::Mat tile_cv(h, w, CV_32F, const_cast<float*>(tile.data()));
-
-    // Build mask: pixels with data (> 0) are valid frame area;
-    // zero pixels are canvas dead area and must not influence statistics.
     cv::Mat valid_mask;
-    cv::compare(tile_cv, 0.0f, valid_mask, cv::CMP_GT);
+    valid_mask = cv::Mat::zeros(h, w, CV_8U);
+    cv::Mat tile_for_filter = tile_cv.clone();
+    int valid_count = 0;
+    for (int y = 0; y < h; ++y) {
+        uchar* mask_row = valid_mask.ptr<uchar>(y);
+        float* filter_row = tile_for_filter.ptr<float>(y);
+        for (int x = 0; x < w; ++x) {
+            if (std::isfinite(filter_row[x])) {
+                mask_row[x] = 255;
+                ++valid_count;
+            } else {
+                filter_row[x] = 0.0f;
+            }
+        }
+    }
+    if (valid_count <= 0) return tile;
 
+    // 1. Background estimation via box blur over finite support only.
     cv::Mat bg;
     int k = cfg.blur_kernel | 1; // ensure odd
-    cv::blur(tile_cv, bg, cv::Size(k, k), cv::Point(-1, -1),
+    cv::blur(tile_for_filter, bg, cv::Size(k, k), cv::Point(-1, -1),
              cv::BORDER_REFLECT_101);
 
     // 2. Highpass residual: R = T - B
-    cv::Mat resid = tile_cv - bg;
+    cv::Mat resid = tile_for_filter - bg;
 
     // 3. Robust noise estimate: σ = 1.4826 · median(|R - median(R)|)
-    //    Only use valid (non-zero) pixels to avoid canvas dead area bias.
+    //    Only use finite pixels so negative calibrated samples remain valid.
     std::vector<float> rv;
     rv.reserve(static_cast<size_t>(resid.total()));
     for (int i = 0; i < static_cast<int>(resid.total()); ++i) {
@@ -310,12 +331,11 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
     cv::subtract(cv::Scalar(0.0f), shrunk, neg_shrunk);
     neg_shrunk.copyTo(result_resid, neg_mask);
 
-    // 5. Reconstruct: T' = B + R'
-    //    Preserve zero pixels (canvas dead area) — do not filter them.
+    // 5. Reconstruct: T' = B + R'. Non-finite input support stays invalid.
     cv::Mat out_cv = bg + result_resid;
-    cv::Mat zero_mask;
-    cv::compare(tile_cv, 0.0f, zero_mask, cv::CMP_LE);
-    out_cv.setTo(0.0f, zero_mask);
+    cv::Mat invalid_mask;
+    cv::bitwise_not(valid_mask, invalid_mask);
+    out_cv.setTo(0.0f, invalid_mask);
 
     Matrix2Df out(h, w);
     if (out_cv.isContinuous()) {
@@ -411,14 +431,13 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
     std::vector<uint8_t> keep(static_cast<size_t>(n), 1);
 
     for (int idx = 0; idx < out.size(); ++idx) {
-        // Collect only frames that have valid data (> 0) at this pixel.
-        // Zero pixels are canvas dead area and must not enter statistics.
+        // Collect only finite frames at this pixel.
         values.clear();
         std::fill(keep.begin(), keep.end(), static_cast<uint8_t>(0));
         int n_valid_here = 0;
         for (int i = 0; i < n; ++i) {
             float v = valid[static_cast<size_t>(i)].get().data()[idx];
-            if (v > 0.0f) {
+            if (is_valid_sample(v)) {
                 values.push_back(v);
                 keep[static_cast<size_t>(i)] = 1;
                 n_valid_here++;
@@ -454,17 +473,19 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
             int new_kept = 0;
             const double lo = mean - static_cast<double>(sigma_low) * sd;
             const double hi = mean + static_cast<double>(sigma_high) * sd;
+            std::vector<uint8_t> proposed_keep = keep;
             for (int i = 0; i < n; ++i) {
                 if (!keep[static_cast<size_t>(i)]) continue;
                 float v = values[static_cast<size_t>(i)];
                 if (v < lo || v > hi) {
-                    keep[static_cast<size_t>(i)] = 0;
+                    proposed_keep[static_cast<size_t>(i)] = 0;
                 } else {
                     new_kept++;
                 }
             }
 
             if (new_kept < min_keep_here) break;
+            keep.swap(proposed_keep);
             kept = new_kept;
         }
 
@@ -476,10 +497,10 @@ Matrix2Df sigma_clip_stack(const std::vector<Matrix2Df>& frames,
             count++;
         }
         if (count <= 0) {
-            // Fallback: average all valid-data frames at this pixel
+            // Fallback: average all finite-data frames at this pixel
             for (int i = 0; i < n; ++i) {
                 float v = valid[static_cast<size_t>(i)].get().data()[idx];
-                if (v > 0.0f) { sum += static_cast<double>(v); count++; }
+                if (is_valid_sample(v)) { sum += static_cast<double>(v); count++; }
             }
         }
         out.data()[idx] = (count > 0) ? static_cast<float>(sum / static_cast<double>(count)) : 0.0f;
@@ -521,7 +542,7 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
             double wmean = 0.0;
             for (int i = 0; i < n; ++i) {
                 const float v = tile_ptrs[static_cast<size_t>(i)][idx];
-                if (!(std::isfinite(v) && v > 0.0f)) continue;
+                if (!is_valid_sample(v)) continue;
                 const double wi = active_weights[static_cast<size_t>(i)];
                 wsum += wi;
                 wmean += wi * static_cast<double>(v);
@@ -539,7 +560,7 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
         for (int i = 0; i < n; ++i) {
             const float v = tile_ptrs[static_cast<size_t>(i)][idx];
             values[static_cast<size_t>(i)] = v;
-            const bool valid_here = std::isfinite(v) && v > 0.0f;
+            const bool valid_here = is_valid_sample(v);
             keep[static_cast<size_t>(i)] = valid_here ? 1 : 0;
             if (valid_here) n_valid_here++;
         }
@@ -574,25 +595,31 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
                 var += wi * d * d;
                 wsum2 += wi * wi;
             }
+            const double n_eff = (wsum * wsum) / std::max(wsum2, kSigmaClipEpsVar);
             // Bessel correction for reliability (non-frequency) weights:
             // var_unbiased = (Σ wi·d²) / (V1 - V2/V1)  where V1=wsum, V2=Σwi²
-            double denom = wsum - wsum2 / wsum;
+            double denom = wsum - wsum2 / std::max(wsum, kSigmaClipEpsVar);
+            if (!(n_eff > 2.0 + kSigmaClipEpsNeff) || !(denom > kSigmaClipEpsVar)) {
+                break;
+            }
             double sd = (var > 0.0 && denom > 0.0) ? std::sqrt(var / denom) : 0.0;
             if (!(sd > 0.0)) break;
 
             const double lo = wmean - static_cast<double>(sigma_low) * sd;
             const double hi = wmean + static_cast<double>(sigma_high) * sd;
             int new_kept = 0;
+            std::vector<uint8_t> proposed_keep = keep;
             for (int i = 0; i < n; ++i) {
                 if (!keep[static_cast<size_t>(i)]) continue;
                 double v = static_cast<double>(values[static_cast<size_t>(i)]);
                 if (v < lo || v > hi) {
-                    keep[static_cast<size_t>(i)] = 0;
+                    proposed_keep[static_cast<size_t>(i)] = 0;
                 } else {
                     new_kept++;
                 }
             }
             if (new_kept < min_keep_here) break;
+            keep.swap(proposed_keep);
             if (new_kept == kept) break; // converged
             kept = new_kept;
         }
@@ -608,11 +635,11 @@ Matrix2Df sigma_clip_weighted_tile(const std::vector<Matrix2Df>& tiles,
         if (wsum > 0.0) {
             out.data()[idx] = static_cast<float>(wmean / wsum);
         } else {
-            // Fallback: use all valid (non-zero) values for this pixel.
+            // Fallback: use all finite values for this pixel.
             wsum = 0.0; wmean = 0.0;
             for (int i = 0; i < n; ++i) {
                 const float v = values[static_cast<size_t>(i)];
-                if (!(std::isfinite(v) && v > 0.0f)) continue;
+                if (!is_valid_sample(v)) continue;
                 double wi = active_weights[static_cast<size_t>(i)];
                 wsum += wi;
                 wmean += wi * static_cast<double>(v);
@@ -667,6 +694,40 @@ std::vector<float> make_hann_1d(int n) {
     for (int i = 0; i < n; ++i) {
         float x = static_cast<float>(i) / static_cast<float>(n - 1);
         w[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * pi * x));
+    }
+    return w;
+}
+
+std::vector<float> make_partition_window_1d(int n, int left_overlap,
+                                            int right_overlap) {
+    std::vector<float> w;
+    if (n <= 0) {
+        return w;
+    }
+    w.assign(static_cast<size_t>(n), 1.0f);
+    left_overlap = std::clamp(left_overlap, 0, n);
+    right_overlap = std::clamp(right_overlap, 0, n);
+    if (left_overlap + right_overlap > n) {
+        const int overflow = left_overlap + right_overlap - n;
+        right_overlap = std::max(0, right_overlap - overflow);
+    }
+    const float pi = 3.14159265358979323846f;
+    if (left_overlap > 0) {
+        for (int i = 0; i < left_overlap; ++i) {
+            const float s =
+                (static_cast<float>(i) + 0.5f) / static_cast<float>(left_overlap);
+            const float angle = 0.5f * pi * s;
+            w[static_cast<size_t>(i)] = std::sin(angle) * std::sin(angle);
+        }
+    }
+    if (right_overlap > 0) {
+        for (int i = 0; i < right_overlap; ++i) {
+            const int idx = n - right_overlap + i;
+            const float s =
+                (static_cast<float>(i) + 0.5f) / static_cast<float>(right_overlap);
+            const float angle = 0.5f * pi * s;
+            w[static_cast<size_t>(idx)] = std::cos(angle) * std::cos(angle);
+        }
     }
     return w;
 }

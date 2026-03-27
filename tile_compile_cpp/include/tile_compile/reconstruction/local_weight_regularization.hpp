@@ -12,6 +12,7 @@ struct LocalWeightRegularizationConfig {
   bool enabled = true;
   float lambda = 0.35f;
   int passes = 1;
+  float tau_local = 1.0f;
 };
 
 struct LocalWeightRegularizationSummary {
@@ -25,6 +26,7 @@ LocalWeightRegularizationSummary regularize_local_quality_scores(
     const std::vector<Tile> &tiles, const std::vector<uint8_t> &tile_valid,
     const std::vector<uint8_t> &frame_has_data,
     const LocalWeightRegularizationConfig &cfg,
-    std::vector<std::vector<float>> *quality_scores);
+    std::vector<std::vector<float>> *quality_scores,
+    const std::vector<std::vector<float>> *confidence_scores = nullptr);
 
 } // namespace tile_compile::reconstruction

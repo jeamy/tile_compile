@@ -412,6 +412,10 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.tile.overlap_fraction = t["overlap_fraction"].as<float>();
     if (t["star_min_count"])
       cfg.tile.star_min_count = t["star_min_count"].as<int>();
+    if (t["star_soft_count"])
+      cfg.tile.star_soft_count = t["star_soft_count"].as<int>();
+    else
+      cfg.tile.star_soft_count = cfg.tile.star_min_count;
   }
 
   if (node["local_metrics"]) {
@@ -440,6 +444,9 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (sr["passes"])
         cfg.local_metrics.spatial_regularization.passes =
             sr["passes"].as<int>();
+      if (sr["tau_local"])
+        cfg.local_metrics.spatial_regularization.tau_local =
+            sr["tau_local"].as<float>();
     }
     if (lm["star_mode"] && lm["star_mode"]["weights"]) {
       auto w = lm["star_mode"]["weights"];
@@ -461,6 +468,8 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.local_metrics.structure_mode.metric_weight =
             sm["metric_weight"].as<float>();
     }
+    if (lm["k_local"])
+      cfg.local_metrics.k_local = lm["k_local"].as<float>();
   }
 
   if (node["synthetic"]) {
@@ -571,6 +580,9 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (a["strategy"])
         cfg.bge.autotune.strategy = a["strategy"].as<std::string>();
     }
+    if (b["tile_weight_lambda_structure"])
+      cfg.bge.tile_weight_lambda_structure =
+          b["tile_weight_lambda_structure"].as<float>();
   }
 
   if (node["pcc"]) {
@@ -849,6 +861,7 @@ YAML::Node Config::to_yaml() const {
   node["tile"]["max_divisor"] = tile.max_divisor;
   node["tile"]["overlap_fraction"] = tile.overlap_fraction;
   node["tile"]["star_min_count"] = tile.star_min_count;
+  node["tile"]["star_soft_count"] = tile.star_soft_count;
 
   node["local_metrics"]["clamp"].push_back(local_metrics.clamp[0]);
   node["local_metrics"]["clamp"].push_back(local_metrics.clamp[1]);
@@ -864,6 +877,8 @@ YAML::Node Config::to_yaml() const {
       local_metrics.spatial_regularization.lambda;
   node["local_metrics"]["spatial_regularization"]["passes"] =
       local_metrics.spatial_regularization.passes;
+  node["local_metrics"]["spatial_regularization"]["tau_local"] =
+      local_metrics.spatial_regularization.tau_local;
   node["local_metrics"]["star_mode"]["weights"]["fwhm"] =
       local_metrics.star_mode.weights.fwhm;
   node["local_metrics"]["star_mode"]["weights"]["roundness"] =
@@ -1185,6 +1200,8 @@ void Config::validate() const {
   }
   if (tile.star_min_count < 0)
     throw ValidationError("tile.star_min_count must be >= 0");
+  if (tile.star_soft_count < 0)
+    throw ValidationError("tile.star_soft_count must be >= 0");
 
   if (local_metrics.clamp[0] >= local_metrics.clamp[1]) {
     throw ValidationError(
@@ -1208,6 +1225,10 @@ void Config::validate() const {
     throw ValidationError(
         "local_metrics.spatial_regularization.passes must be >= 0");
   }
+  if (local_metrics.spatial_regularization.tau_local <= 0.0f) {
+    throw ValidationError(
+        "local_metrics.spatial_regularization.tau_local must be > 0");
+  }
   check_weight_sum(local_metrics.star_mode.weights.fwhm,
                    local_metrics.star_mode.weights.roundness,
                    local_metrics.star_mode.weights.contrast,
@@ -1216,6 +1237,15 @@ void Config::validate() const {
                 local_metrics.structure_mode.metric_weight - 1.0f) > 1.0e-3f) {
     throw ValidationError(
         "local_metrics.structure_mode weights must sum to 1.0");
+  }
+  if (local_metrics.k_local <= 0.0f) {
+    throw ValidationError("local_metrics.k_local must be > 0");
+  }
+
+  if (assumptions.frames_reduced_threshold < assumptions.frames_min) {
+    throw ValidationError(
+        "assumptions.frames_reduced_threshold must be >= assumptions.frames_min "
+        "(i.e. N_red >= frames_min, enforcing N >= max(N_red, frames_min) for clustering)");
   }
 
   if (synthetic.clustering.cluster_count_range[0] < 1 ||
@@ -1240,6 +1270,9 @@ void Config::validate() const {
     throw ValidationError("synthetic.frames_max must be >= frames_min");
   }
 
+  if (bge.tile_weight_lambda_structure <= 0.0f) {
+    throw ValidationError("bge.tile_weight_lambda_structure must be > 0");
+  }
   if (bge.sample_quantile <= 0.0f || bge.sample_quantile > 0.5f) {
     throw ValidationError("bge.sample_quantile must be in (0,0.5]");
   }
@@ -1482,11 +1515,12 @@ std::string get_schema_json() {
                       "min_size":{"type":"integer","minimum":1},
                       "max_divisor":{"type":"integer","minimum":1},
                       "overlap_fraction":{"type":"number","minimum":0,"maximum":0.5},
-                      "star_min_count":{"type":"integer","minimum":0} } },
+                      "star_min_count":{"type":"integer","minimum":0},
+                      "star_soft_count":{"type":"integer","minimum":0} } },
     "local_metrics": { "type":"object",
       "properties": { "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},
                       "neighborhood_normalization":{"type":"object","properties":{"enabled":{"type":"boolean"},"radius":{"type":"integer","minimum":0},"blend":{"type":"number","minimum":0,"maximum":1}}},
-                      "spatial_regularization":{"type":"object","properties":{"enabled":{"type":"boolean"},"lambda":{"type":"number","minimum":0,"maximum":1},"passes":{"type":"integer","minimum":0}}},
+                      "spatial_regularization":{"type":"object","properties":{"enabled":{"type":"boolean"},"lambda":{"type":"number","minimum":0,"maximum":1},"passes":{"type":"integer","minimum":0},"tau_local":{"type":"number","exclusiveMinimum":0}}},
                       "star_mode":{"type":"object","properties":{"weights":{"type":"object","properties":{"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"contrast":{"type":"number","minimum":0,"maximum":1}}}}},
                       "structure_mode":{"type":"object","properties":{"background_weight":{"type":"number","minimum":0,"maximum":1},"metric_weight":{"type":"number","minimum":0,"maximum":1}}} } },
     "synthetic": { "type":"object",

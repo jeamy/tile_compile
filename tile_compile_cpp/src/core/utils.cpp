@@ -435,4 +435,16 @@ float median_finite_positive(const std::vector<float>& v, float fallback) {
     return median_of(p);
 }
 
+float median_finite(const std::vector<float>& v, float fallback) {
+    std::vector<float> p;
+    p.reserve(v.size());
+    for (float x : v) {
+        if (std::isfinite(x))
+            p.push_back(x);
+    }
+    if (p.empty())
+        return fallback;
+    return median_of(p);
+}
+
 } // namespace tile_compile::core

@@ -63,10 +63,13 @@ struct BGEConfig {
         bool enabled = false;
         int max_evals = 24;
         float holdout_fraction = 0.25f;
-        float alpha_flatness = 0.25f;
-        float beta_roughness = 0.10f;
+        float alpha_flatness = 0.25f;  // renamed alpha_f in §6.3.7.1
+        float beta_roughness = 0.10f;  // renamed beta_r in §6.3.7.1
         std::string strategy = "conservative"; // conservative | extended
     } autotune;
+
+    // Tile reliability weight (§6.3.2c): w_t = exp(-lambda_structure * structure_score_t) * (1 - masked_fraction_t)
+    float tile_weight_lambda_structure = 2.0f;
 };
 
 // Tile background sample

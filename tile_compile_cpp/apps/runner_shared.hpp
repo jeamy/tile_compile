@@ -7,6 +7,7 @@
 #include "tile_compile/image/background_extraction.hpp"
 
 #include <cstdint>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -85,7 +86,7 @@ inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
   const int tile_cols = static_cast<int>(tile.cols());
   const size_t mask_size = common_valid_mask.size();
   float *tile_data = tile.data();
-  bool any_nonzero = false;
+  bool any_valid = false;
 
   for (int yy = 0; yy < t.height; ++yy) {
     const int gy = t.y + yy;
@@ -114,12 +115,12 @@ inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
         v = 0.0f;
         continue;
       }
-      if (v > 0.0f) {
-        any_nonzero = true;
+      if (std::isfinite(v)) {
+        any_valid = true;
       }
     }
   }
-  return any_nonzero;
+  return any_valid;
 }
 
 inline bool apply_common_overlap_to_frame_inplace_and_check_nonzero(
@@ -135,7 +136,7 @@ inline bool apply_common_overlap_to_frame_inplace_and_check_nonzero(
 
   const size_t mask_size = common_valid_mask.size();
   float *frame_data = frame.data();
-  bool any_nonzero = false;
+  bool any_valid = false;
   for (int y = 0; y < common_mask_height; ++y) {
     const size_t row_off =
         static_cast<size_t>(y) * static_cast<size_t>(common_mask_width);
@@ -145,12 +146,12 @@ inline bool apply_common_overlap_to_frame_inplace_and_check_nonzero(
         frame_data[idx] = 0.0f;
         continue;
       }
-      if (frame_data[idx] > 0.0f) {
-        any_nonzero = true;
+      if (std::isfinite(frame_data[idx])) {
+        any_valid = true;
       }
     }
   }
-  return any_nonzero;
+  return any_valid;
 }
 
 inline bool apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
@@ -174,7 +175,7 @@ inline bool apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
   float *r_data = r_frame.data();
   float *g_data = g_frame.data();
   float *b_data = b_frame.data();
-  bool any_nonzero = false;
+  bool any_valid = false;
   const size_t total =
       static_cast<size_t>(common_mask_width) * static_cast<size_t>(common_mask_height);
   for (size_t idx = 0; idx < total; ++idx) {
@@ -184,11 +185,12 @@ inline bool apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
       b_data[idx] = 0.0f;
       continue;
     }
-    if (r_data[idx] > 0.0f || g_data[idx] > 0.0f || b_data[idx] > 0.0f) {
-      any_nonzero = true;
+    if (std::isfinite(r_data[idx]) || std::isfinite(g_data[idx]) ||
+        std::isfinite(b_data[idx])) {
+      any_valid = true;
     }
   }
-  return any_nonzero;
+  return any_valid;
 }
 
 inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
@@ -210,7 +212,7 @@ inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
   float *r_data = r_tile.data();
   float *g_data = g_tile.data();
   float *b_data = b_tile.data();
-  bool any_nonzero = false;
+  bool any_valid = false;
 
   for (int yy = 0; yy < t.height; ++yy) {
     const int gy = t.y + yy;
@@ -246,12 +248,13 @@ inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
         b_data[idx] = 0.0f;
         continue;
       }
-      if (r_data[idx] > 0.0f || g_data[idx] > 0.0f || b_data[idx] > 0.0f) {
-        any_nonzero = true;
+      if (std::isfinite(r_data[idx]) || std::isfinite(g_data[idx]) ||
+          std::isfinite(b_data[idx])) {
+        any_valid = true;
       }
     }
   }
-  return any_nonzero;
+  return any_valid;
 }
 
 // Fast tile-gating helper used after COMMON_OVERLAP masking.
@@ -262,7 +265,7 @@ inline bool tile_has_nonzero_common_data(
     return false;
   const float *ptr = tile.data();
   for (Eigen::Index i = 0; i < tile.size(); ++i) {
-    if (ptr[i] > 0.0f) {
+    if (std::isfinite(ptr[i])) {
       return true;
     }
   }

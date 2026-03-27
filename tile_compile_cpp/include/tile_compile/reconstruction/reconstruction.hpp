@@ -50,4 +50,10 @@ void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
 // Generate a 1D Hann (raised cosine) window of length n.
 std::vector<float> make_hann_1d(int n);
 
+// Generate a 1D support-aware partition window with optional left/right
+// overlap ramps. For interior overlap zones, adjacent tiles should use
+// complementary overlap lengths so their weights sum to 1.
+std::vector<float> make_partition_window_1d(int n, int left_overlap,
+                                            int right_overlap);
+
 } // namespace tile_compile::reconstruction

@@ -1,4 +1,5 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
+#include "tile_compile/image/normalization.hpp"
 #include "tile_compile/reconstruction/reconstruction.hpp"
 #include "tile_compile/reconstruction/local_weight_regularization.hpp"
 #include "tile_compile/reconstruction/tile_boundary_diagnostics.hpp"
@@ -10,6 +11,9 @@
 
 using tile_compile::Matrix2Df;
 using tile_compile::Tile;
+using tile_compile::image::NormalizationScales;
+using tile_compile::image::apply_normalization_inplace;
+using tile_compile::image::apply_output_scaling_inplace;
 using tile_compile::reconstruction::analyze_tile_boundaries;
 using tile_compile::reconstruction::estimate_tile_normalization_stats;
 using tile_compile::reconstruction::guard_tile_normalization_stats;
@@ -18,6 +22,7 @@ using tile_compile::reconstruction::LocalWeightRegularizationConfig;
 using tile_compile::reconstruction::analyze_tile_weight_profiles;
 using tile_compile::reconstruction::TileNormalizationGuardConfig;
 using tile_compile::reconstruction::TileNormalizationStats;
+using tile_compile::reconstruction::make_partition_window_1d;
 using tile_compile::reconstruction::sigma_clip_weighted_tile_with_fallback;
 
 TEST_CASE("tile_weighted_path_uses_all_frames_without_preselection") {
@@ -70,6 +75,52 @@ TEST_CASE("tile_weighted_path_is_deterministic") {
       REQUIRE(out_a.tile(y, x) == Catch::Approx(out_b.tile(y, x)).margin(1e-12));
     }
   }
+}
+
+TEST_CASE("tile_weighted_path_keeps_finite_negative_samples") {
+  std::vector<Matrix2Df> tiles(2, Matrix2Df::Zero(1, 1));
+  tiles[0](0, 0) = -1.0f;
+  tiles[1](0, 0) = 1.0f;
+  std::vector<float> weights = {1.0f, 1.0f};
+
+  auto out = sigma_clip_weighted_tile_with_fallback(
+      tiles, weights, 3.0f, 3.0f, 0, 1.0f, 1e-6f);
+
+  REQUIRE_FALSE(out.fallback_used);
+  REQUIRE(out.tile(0, 0) == Catch::Approx(0.0f).margin(1e-6));
+}
+
+TEST_CASE("partition_window_forms_unity_in_overlap") {
+  const auto lhs = make_partition_window_1d(4, 0, 2);
+  const auto rhs = make_partition_window_1d(4, 2, 0);
+
+  REQUIRE(lhs.size() == 4);
+  REQUIRE(rhs.size() == 4);
+  REQUIRE(lhs[2] + rhs[0] == Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(lhs[3] + rhs[1] == Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(lhs[0] == Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(rhs[3] == Catch::Approx(1.0f).margin(1e-6));
+}
+
+TEST_CASE("normalization_roundtrip_preserves_affine_scale") {
+  Matrix2Df img(1, 3);
+  img << 10.0f, 12.0f, 14.0f;
+
+  NormalizationScales s;
+  s.background_mono = 10.0f;
+  s.scale_mono = 0.5f;
+
+  apply_normalization_inplace(img, s, tile_compile::ColorMode::MONO, "", 0, 0);
+  REQUIRE(img(0, 0) == Catch::Approx(0.0f).margin(1e-6));
+  REQUIRE(img(0, 1) == Catch::Approx(1.0f).margin(1e-6));
+  REQUIRE(img(0, 2) == Catch::Approx(2.0f).margin(1e-6));
+
+  apply_output_scaling_inplace(img, 0, 0, tile_compile::ColorMode::MONO, "",
+                               2.0f, 1.0f, 1.0f, 1.0f, 10.0f, 0.0f, 0.0f,
+                               0.0f, 0.0f);
+  REQUIRE(img(0, 0) == Catch::Approx(10.0f).margin(1e-6));
+  REQUIRE(img(0, 1) == Catch::Approx(12.0f).margin(1e-6));
+  REQUIRE(img(0, 2) == Catch::Approx(14.0f).margin(1e-6));
 }
 
 TEST_CASE("tile_boundary_diagnostics_reports_constant_overlap_offset") {
