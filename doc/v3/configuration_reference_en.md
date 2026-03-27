@@ -856,6 +856,16 @@ Local quality metrics.
 
 **Purpose:** Weight of background penalty in STRUCTURE-tile mode.
 
+### `local_metrics.k_local`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `> 0` |
+| **Default** | `1.0` |
+
+**Purpose:** Exponent scale for local weight `L_{f,t} = exp(k_local * Q_local)`. Default `1.0`; values `> 1` increase local differentiation, `< 1` soften it. Symmetric to `global_metrics.weight_exponent_scale`.
+
 ---
 
 ## 13. Synthetic
@@ -995,6 +1005,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 
 **Key BGE parameters:**
 - `bge.enabled`: Enable/disable (default: `false`)
+- `bge.tile_weight_lambda_structure`: Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)` (range `> 0`, default `2.0`)
 - `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
 - `bge.min_valid_sample_fraction_for_apply`: Minimum valid tile-sample fraction required per channel before BGE apply (range `(0, 1]`, default `0.30`)
 - `bge.min_valid_samples_for_apply`: Minimum absolute valid tile-sample count required per channel before BGE apply (minimum `1`, default `96`)
@@ -1019,6 +1030,16 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 | **Default** | `false` |
 
 **Purpose:** Enable or disable BGE before PCC.
+
+### `bge.tile_weight_lambda_structure`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `> 0` |
+| **Default** | `2.0` |
+
+**Purpose:** Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`. Higher values down-weight structure-rich tiles more aggressively.
 
 ### `bge.sample_quantile`
 

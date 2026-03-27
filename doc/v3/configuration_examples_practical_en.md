@@ -45,6 +45,7 @@ bge:
     holdout_fraction: 0.25
     alpha_flatness: 0.25
     beta_roughness: 0.10
+  tile_weight_lambda_structure: 2.0  # Standard down-weighting for structure-rich tiles
   sample_quantile: 0.20  # Conservative, resistant to faint objects
   min_valid_sample_fraction_for_apply: 0.30  # Per-channel apply guard (fraction)
   min_valid_samples_for_apply: 96  # Per-channel apply guard (absolute count)
@@ -393,6 +394,19 @@ local_metrics:
   sharpness_method: gradient_energy
   sharpness_kernel_size: 5
   contrast_percentile: 0.7
+  k_local: 1.0  # Standard local weight scaling
+```
+
+**For stronger local differentiation (e.g. fields with variable seeing):**
+```yaml
+local_metrics:
+  k_local: 1.5  # Increase local weight contrast
+```
+
+**For softer local weighting (e.g. very uniform fields):**
+```yaml
+local_metrics:
+  k_local: 0.7  # Reduce local weight contrast
 ```
 
 ---

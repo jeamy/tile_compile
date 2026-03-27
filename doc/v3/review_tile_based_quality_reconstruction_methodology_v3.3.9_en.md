@@ -5,8 +5,6 @@
 **Reviewer:** Cascade (automated analysis)  
 **Scope:** Mathematical correctness, logical consistency, notation, specification gaps, structural issues
 
-> **Status: ALL 27 ISSUES FIXED.** All identified issues have been corrected directly in the methodology document. See §0.1 of the methodology document for the complete fix log.
-
 Issues are categorized by severity:
 - **[CRITICAL]** — Formula produces wrong or undefined results
 - **[MAJOR]** — Logic error, unreachable code, specification gap that breaks conformance

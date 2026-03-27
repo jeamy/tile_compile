@@ -491,7 +491,7 @@ bool run_phase_local_metrics(
           }
           const float q = clip3(local_quality_scores[fi][ti]);
           local_metrics[fi][ti].quality_score = q;
-          local_weights[fi][ti] = std::exp(q);
+          local_weights[fi][ti] = std::exp(cfg.local_metrics.k_local * q);
         }
       }
 

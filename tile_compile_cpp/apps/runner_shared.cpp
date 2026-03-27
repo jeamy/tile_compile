@@ -409,6 +409,7 @@ image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   dst.autotune.alpha_flatness = src.autotune.alpha_flatness;
   dst.autotune.beta_roughness = src.autotune.beta_roughness;
   dst.autotune.strategy = src.autotune.strategy;
+  dst.tile_weight_lambda_structure = src.tile_weight_lambda_structure;
   return dst;
 }
 

@@ -43,6 +43,7 @@ bge:
   min_valid_samples_for_apply: 96
   sample_quantile: 0.18
   structure_thresh_percentile: 0.9
+  tile_weight_lambda_structure: 2.0
 calibration:
   bias_dir: ""
   bias_master: ""
@@ -116,6 +117,7 @@ local_metrics:
   clamp:
     - -3
     - 3
+  k_local: 1.0
   star_mode:
     weights:
       contrast: 0.2

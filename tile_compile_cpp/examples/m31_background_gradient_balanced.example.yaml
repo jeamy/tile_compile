@@ -144,6 +144,7 @@ tile:
 
 local_metrics:
   clamp: [-3.0, 3.0]
+  k_local: 1.0
   star_mode:
     weights:
       fwhm: 0.6
@@ -171,6 +172,7 @@ astrometry:
 
 bge:
   enabled: true
+  tile_weight_lambda_structure: 2.0
   autotune:
     enabled: true
     strategy: extended

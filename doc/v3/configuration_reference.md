@@ -1238,6 +1238,16 @@ Niedriger FWHM = besser → wird negiert. Höchstes Gewicht = dominiert die loka
 
 **Constraint:** **metric_weight + background_weight = 1.0**
 
+### `local_metrics.k_local`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | `> 0` |
+| **Default** | `1.0` |
+
+**Zweck:** Exponent-Skala für lokales Gewicht `L_{f,t} = exp(k_local * Q_local)`. Default `1.0`; Werte `> 1` erhöhen lokale Differenzierung, `< 1` weichen sie ab. Symmetrisch zu `global_metrics.weight_exponent_scale`.
+
 ---
 
 ## 13. Synthetic
@@ -1423,6 +1433,16 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 **Zweck:** Aktiviert/deaktiviert Background Gradient Extraction.
 
 **Empfehlung:** Aktivieren bei sichtbaren Gradienten (städtische Lichtverschmutzung, Mondlicht) oder wenn PCC Farbverschiebungen über das Bildfeld zeigt.
+
+### `bge.tile_weight_lambda_structure`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | float |
+| **Bereich** | `> 0` |
+| **Default** | `2.0` |
+
+**Zweck:** Lambda in Tile-Reliabilitätsgewicht `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`. Höhere Werte gewichten strukturreiche Tiles aggressiver ab.
 
 ### `bge.sample_quantile`
 

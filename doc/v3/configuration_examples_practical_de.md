@@ -45,6 +45,7 @@ bge:
     holdout_fraction: 0.25
     alpha_flatness: 0.25
     beta_roughness: 0.10
+  tile_weight_lambda_structure: 2.0  # Standard-Down-Weighting für strukturreiche Tiles
   sample_quantile: 0.20  # Konservativ, resistent gegen schwache Objekte
   min_valid_sample_fraction_for_apply: 0.30  # Kanal-Apply-Grenze (rel. Anteil)
   min_valid_samples_for_apply: 96  # Kanal-Apply-Grenze (absolute Samples)
@@ -394,6 +395,19 @@ local_metrics:
   sharpness_method: gradient_energy
   sharpness_kernel_size: 5
   contrast_percentile: 0.7
+  k_local: 1.0  # Standard lokale Gewichtsskalierung
+```
+
+**Für stärkere lokale Differenzierung (z.B. Felder mit variabelm Seeing):**
+```yaml
+local_metrics:
+  k_local: 1.5  # Lokalen Gewichtskontrast erhöhen
+```
+
+**Für weichere lokale Gewichtung (z.B. sehr gleichmäßige Felder):**
+```yaml
+local_metrics:
+  k_local: 0.7  # Lokalen Gewichtskontrast reduzieren
 ```
 
 ---

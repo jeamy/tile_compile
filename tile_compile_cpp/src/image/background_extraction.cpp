@@ -1315,6 +1315,16 @@ int compute_grid_spacing(int image_width, int image_height, int tile_size,
   int G = std::max(G_floor, G_from_resolution);
   G = std::min(G, G_max);
 
+  // §6.3.9 compact-tile warning: when tile size forces G >> resolution-based
+  // estimate, the BGE grid is coarser than ideal (compact-tile mode).
+  if (G_from_tiles > G_from_resolution && G_from_resolution > 0) {
+    std::cout << "[BGE] Warning: compact-tile mode detected (2*T=" << G_from_tiles
+              << " > G_res=" << G_from_resolution
+              << "); grid spacing forced to G=" << G
+              << " (§6.3.9). BGE accuracy may be reduced."
+              << std::endl;
+  }
+
   return G;
 }
 
@@ -1623,7 +1633,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
         use_tile_metrics ? std::max(0, tm.star_count - 4) : 0;
     const float star_penalty =
         1.0f / (1.0f + 0.04f * static_cast<float>(star_count_for_weight));
-    sample.weight = std::exp(-2.0f * tile_structure) *
+    sample.weight = std::exp(-config.tile_weight_lambda_structure * tile_structure) *
                     (1.0f - masked_fraction) * quality_term * star_penalty;
     sample.weight = std::max(0.01f, std::min(1.0f, sample.weight));
 
@@ -1927,7 +1937,7 @@ extract_autotune_prepared_tile_samples(
         use_tile_metrics ? std::max(0, tm.star_count - 4) : 0;
     const float star_penalty =
         1.0f / (1.0f + 0.04f * static_cast<float>(star_count_for_weight));
-    prepared.weight = std::exp(-2.0f * tile_structure) *
+    prepared.weight = std::exp(-config.tile_weight_lambda_structure * tile_structure) *
                       (1.0f - masked_fraction) * quality_term * star_penalty;
     prepared.weight = std::max(0.01f, std::min(1.0f, prepared.weight));
     prepared.sorted_pixels = scratch.tile_pixels;

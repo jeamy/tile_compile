@@ -222,6 +222,10 @@ properties:
         properties:
           background_weight: {type: number, minimum: 0, maximum: 1}
           metric_weight: {type: number, minimum: 0, maximum: 1}
+      k_local:
+        type: number
+        exclusiveMinimum: 0
+        description: "Exponent scale for local weight L_{f,t}=exp(k_local*Q_local). Default 1.0; >1 increases local differentiation, <1 softens it."
   synthetic:
     type: object
     properties:
@@ -285,6 +289,10 @@ properties:
           holdout_fraction: {type: number, minimum: 0.05, maximum: 0.5}
           alpha_flatness: {type: number, minimum: 0}
           beta_roughness: {type: number, minimum: 0}
+      tile_weight_lambda_structure:
+        type: number
+        exclusiveMinimum: 0
+        description: "Lambda in tile reliability weight w_t=exp(-lambda*structure_score_t)*(1-masked_fraction_t). Default 2.0."
       sample_quantile: {type: number, exclusiveMinimum: 0, maximum: 0.5}
       structure_thresh_percentile: {type: number, minimum: 0, maximum: 1}
       min_tiles_per_cell: {type: integer, minimum: 1}
