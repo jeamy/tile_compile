@@ -130,7 +130,7 @@ For the CFA-proxy-equivalent variant, all of the following remain mandatory:
 11. Post-processing (optional, not part of the quality core)
 
 Mandatory core: 1-10.  
-Optional/feature-gated: local denoisers, alternative post-stack clipping policies, WCS/PCC.
+Optional/feature-gated: local denoisers, deterministic defect-pixel suppression / cosmetic correction, alternative post-stack clipping policies, WCS/PCC, post-PCC isolated chroma-speckle suppression.
 
 ---
 
@@ -146,6 +146,18 @@ From phase 3 onward, one of the binding shared-core variants from §2.5 applies:
 - Registration on a CFA luminance proxy
 - CFA-aware warp by subplanes (`warp_cfa_mosaic_via_subplanes`)
 - Channel separation afterwards (explicit per-channel variant) or deferred split at channel-stack stage (CFA-proxy-equivalent variant)
+
+#### 4.1.1 Optional Pre-Warp CFA Defect-Pixel Suppression (Feature-Gated)
+
+Before CFA-aware warp, implementations may apply a deterministic per-frame CFA cosmetic-correction step to suppress isolated defect pixels on the raw mosaic.
+
+Binding conditions for this optional step:
+
+1. CFA phase and sample geometry must remain unchanged; no demosaic or cross-channel resampling is permitted before warp.
+2. Corrections must remain local and sparse, limited to isolated same-parity outliers (for example hot / cold / chromatically unstable sensels) or an equivalent deterministic defect-pixel signature.
+3. Replacement values must be derived from finite same-parity CFA neighbors only, or from an equivalent CFA-phase-preserving local estimator.
+4. Compact real image structure must be protected by a deterministic structure guard; implementations must not erase supported multi-pixel image content under the guise of defect suppression.
+5. This step is optional and is not part of the mandatory linear quality core from phases 3-10.
 
 ### 4.2 Registration Cascade
 
@@ -1182,6 +1194,19 @@ These changes must preserve determinism.
 
 Permissible downstream step, applied to linear data.
 
+#### 6.4.4 Optional Post-PCC Isolated Chroma-Speckle Suppression
+
+After successful PCC, implementations may apply a deterministic cleanup step for isolated chromatic speckles before writing the final RGB outputs.
+
+Binding conditions for this optional step:
+
+1. The step operates only in the explicit RGB domain after PCC.
+2. It must be restricted to pixels inside valid canvas support.
+3. A correction is permitted only when exactly one channel is an isolated local outlier relative to neighboring valid RGB samples, or an equivalent deterministic single-channel chroma-outlier condition is satisfied.
+4. Bright stellar cores, compact real structures, and supported multi-pixel chromatic image content must be protected by deterministic luma and/or structure guards.
+5. Replacement values must be derived from robust local neighborhood statistics of the affected channel, or from an equivalent deterministic local estimator.
+6. This step belongs to optional post-processing and is not part of the mandatory linear quality core.
+
 ---
 
 ## 7. Validation and Abort
@@ -1266,9 +1291,11 @@ Note: The legacy PCC test "no negative matrix element" is **no longer** required
 
 ### Optional Extension
 
+- deterministic CFA defect-pixel suppression / cosmetic correction
 - soft-threshold / Wiener
 - alternative sigma-clipping strategies
 - WCS/PCC
+- post-PCC isolated chroma-speckle suppression
 - specialized performance backends (GPU, queue workers)
 
 ### 9.1 Operational Example Configurations (tile_compile_cpp)

@@ -15,7 +15,7 @@ While the methodology was originally conceived to address the specific challenge
 - Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.3.6](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.7_en.md)
 - Methodology paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](doc/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
 - Implementation process flow: [Process flow (English)](doc/v3/process_flow/README_en.md)
-- English step-by-step guide: [Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
+- English step-by-step guide: [Step-by-Step Guide](doc/tbqr_step_by_step_en.md)
 - GUI2 expert input guide (English): [Expert Input Step-by-Step](doc/gui2/expert_input_step_by_step.md)
 - GUI2 guided wizard guide (English): [Guided Wizard Step-by-Step](doc/gui2/guided_wizard_step_by_step.md)
 - GUI2 dashboard run guide (English): [Dashboard Run Step-by-Step](doc/gui2/dashboard_run_step_by_step.md)
@@ -91,8 +91,8 @@ Detailed phase docs: `doc/v3/process_flow/`
 
 - Main config file: `tile_compile.yaml`
 - Schemas: `tile_compile.schema.json`, `tile_compile.schema.yaml`
-- Reference document: [Configuration Reference](doc/v3/configuration_reference_en.md)
-- Practical examples: [Configuration Examples & Best Practices](doc/v3/configuration_examples_practical_en.md)
+- Reference document: [Configuration Reference](doc/configuration_reference_en.md)
+- Practical examples: [Configuration Examples & Best Practices](doc/configuration_examples_practical_en.md)
 
 ### Example profiles
 
@@ -174,7 +174,7 @@ Notes:
 ### C++ CLI / runner
 
 For a full beginner-friendly walkthrough, see:
-[Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
+[Step-by-Step Guide](doc/tbqr_step_by_step_en.md)
 
 ### Build Requirements
 
@@ -501,6 +501,10 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.9 (2026-03-28)
+
+- Promoted the `v3.3.9` methodology into the active reference state across code, frontend, and documentation: the linear reconstruction core, BGE/PCC semantics, Parameter Studio visibility, and process-flow docs now align to the same runtime baseline; backend startup handling was hardened as well.
+
 ## v0.1.8 (2026-03-25)
 
 - Improved Linux packaging scripts to bundle all required shared libraries (OpenCV, CFITSIO, yaml-cpp, etc.) for better cross-distribution compatibility and reduced dependency issues.
@@ -633,6 +637,14 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-03-28)
+
+**Implementation and rollout of the `v3.3.9` methodology (`v0.1.9`):**
+
+- Moved the key `v3.3.9` methodology changes into the active runtime path: linear reconstruction core without the old pre-OLA tile normalization, cleaner BGE/PCC semantics, more robust support/seam handling, and updated guards/diagnostics.
+- Updated the frontend and configuration surface to the current schema/methodology baseline so new `v3.3.9` parameters are exposed more consistently in Parameter Studio and related documentation.
+- Refreshed the process-flow, reference, and comparison documents for `v3.3.9`, and additionally hardened Crow/C++ web-backend startup so failures now report a clear fatal error instead of producing a core dump.
 
 ### (2026-03-24)
 
@@ -881,4 +893,4 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 **Documentation:**
 
-- **New**: [Practical Configuration Examples & Best Practices](doc/v3/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.3.4.
+- **New**: [Practical Configuration Examples & Best Practices](doc/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.3.4.

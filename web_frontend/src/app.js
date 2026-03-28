@@ -3306,11 +3306,161 @@ function flattenConfigSchemaPaths(node, prefix = [], out = new Set()) {
   return out;
 }
 
+function splitSchemaYamlTopLevel(text, delimiter = ",") {
+  const parts = [];
+  let current = "";
+  let depthCurly = 0;
+  let depthSquare = 0;
+  let inQuote = false;
+  let quoteChar = "";
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const prev = i > 0 ? text[i - 1] : "";
+    if ((ch === '"' || ch === "'") && prev !== "\\") {
+      if (!inQuote) {
+        inQuote = true;
+        quoteChar = ch;
+      } else if (quoteChar === ch) {
+        inQuote = false;
+        quoteChar = "";
+      }
+      current += ch;
+      continue;
+    }
+    if (!inQuote) {
+      if (ch === "{") depthCurly += 1;
+      else if (ch === "}") depthCurly = Math.max(0, depthCurly - 1);
+      else if (ch === "[") depthSquare += 1;
+      else if (ch === "]") depthSquare = Math.max(0, depthSquare - 1);
+      else if (ch === delimiter && depthCurly === 0 && depthSquare === 0) {
+        if (current.trim()) parts.push(current.trim());
+        current = "";
+        continue;
+      }
+    }
+    current += ch;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+function splitSchemaYamlKeyValue(text) {
+  let depthCurly = 0;
+  let depthSquare = 0;
+  let inQuote = false;
+  let quoteChar = "";
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const prev = i > 0 ? text[i - 1] : "";
+    if ((ch === '"' || ch === "'") && prev !== "\\") {
+      if (!inQuote) {
+        inQuote = true;
+        quoteChar = ch;
+      } else if (quoteChar === ch) {
+        inQuote = false;
+        quoteChar = "";
+      }
+      continue;
+    }
+    if (inQuote) continue;
+    if (ch === "{") depthCurly += 1;
+    else if (ch === "}") depthCurly = Math.max(0, depthCurly - 1);
+    else if (ch === "[") depthSquare += 1;
+    else if (ch === "]") depthSquare = Math.max(0, depthSquare - 1);
+    else if (ch === ":" && depthCurly === 0 && depthSquare === 0) {
+      return [text.slice(0, i).trim(), text.slice(i + 1).trim()];
+    }
+  }
+  return [text.trim(), ""];
+}
+
+function parseSchemaYamlScalar(rawValue) {
+  const trimmed = String(rawValue || "").trim();
+  if (!trimmed) return "";
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
+  if (trimmed === "null") return null;
+  if (/^-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/.test(trimmed)) return Number(trimmed);
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    const inner = trimmed.slice(1, -1).trim();
+    if (!inner) return [];
+    return splitSchemaYamlTopLevel(inner).map((part) => parseSchemaYamlScalar(part));
+  }
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    const inner = trimmed.slice(1, -1).trim();
+    const out = {};
+    if (!inner) return out;
+    splitSchemaYamlTopLevel(inner).forEach((part) => {
+      const [key, value] = splitSchemaYamlKeyValue(part);
+      if (!key) return;
+      out[key] = parseSchemaYamlScalar(value);
+    });
+    return out;
+  }
+  return trimmed;
+}
+
+function parseSchemaYamlObject(lines, startIndex = 0, parentIndent = -1) {
+  const out = {};
+  let index = startIndex;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim() || /^\s*#/.test(line)) {
+      index += 1;
+      continue;
+    }
+    const indent = line.match(/^(\s*)/)[1].length;
+    if (indent <= parentIndent) break;
+    const match = line.match(/^\s*([A-Za-z0-9_]+):(?:\s*(.*))?$/);
+    if (!match) {
+      index += 1;
+      continue;
+    }
+    const key = match[1];
+    const rawRest = match[2] || "";
+    if (rawRest.trim()) {
+      out[key] = parseSchemaYamlScalar(rawRest);
+      index += 1;
+      continue;
+    }
+    const [child, nextIndex] = parseSchemaYamlObject(lines, index + 1, indent);
+    out[key] = child;
+    index = nextIndex;
+  }
+  return [out, index];
+}
+
+function parseConfigSchemaYaml(text) {
+  try {
+    const [parsed] = parseSchemaYamlObject(String(text || "").split(/\r?\n/), 0, -1);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 async function ensureConfigSchemaPaths() {
   if (uiState.configSchemaPaths instanceof Set) return uiState.configSchemaPaths;
   try {
-    const schema = await api.get(API_ENDPOINTS.config.schema);
-    uiState.configSchemaPaths = flattenConfigSchemaPaths(schema);
+    const [apiSchema, localSchema, localSchemaYamlText] = await Promise.all([
+      api.get(API_ENDPOINTS.config.schema).catch(() => ({})),
+      fetch("../tile_compile_cpp/tile_compile.schema.json")
+        .then((response) => (response.ok ? response.json() : {}))
+        .catch(() => ({})),
+      fetch("../tile_compile_cpp/tile_compile.schema.yaml")
+        .then((response) => (response.ok ? response.text() : ""))
+        .catch(() => ""),
+    ]);
+    const localSchemaYaml = parseConfigSchemaYaml(localSchemaYamlText);
+    const merged = new Set([
+      ...flattenConfigSchemaPaths(apiSchema),
+      ...flattenConfigSchemaPaths(localSchema),
+      ...flattenConfigSchemaPaths(localSchemaYaml),
+    ]);
+    uiState.configSchemaPaths = merged.size > 0 ? merged : null;
   } catch {
     uiState.configSchemaPaths = null;
   }

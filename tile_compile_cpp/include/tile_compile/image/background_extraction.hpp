@@ -162,6 +162,7 @@ struct BGEChannelDiagnostics {
     float guard_slope_pre = 0.0f;
     float guard_slope_post = 0.0f;
     bool guard_rejected = false;
+    std::string guard_reason;
     BGEProfileTiming profile;
     BGEValueStats input_stats;
     BGEValueStats output_stats;
@@ -178,6 +179,7 @@ struct BGEChannelDiagnostics {
 struct BGEDiagnostics {
     bool attempted = false;
     bool success = false;
+    std::string failure_reason;
     int image_width = 0;
     int image_height = 0;
     int grid_spacing = 0;

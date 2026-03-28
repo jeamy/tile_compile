@@ -81,6 +81,52 @@ float robust_quantile(std::vector<float> values, float q) {
   return robust_quantile_inplace(values, q);
 }
 
+std::string infer_bge_failure_reason(const BGEDiagnostics &diag) {
+  if (diag.success) {
+    return "";
+  }
+  if (diag.safety_fallback_triggered && !diag.safety_fallback_reason.empty()) {
+    return diag.safety_fallback_reason;
+  }
+  if (diag.channels.empty()) {
+    return diag.attempted ? "no_channels_processed" : "not_attempted";
+  }
+
+  int fit_success_count = 0;
+  int guard_rejected_count = 0;
+  bool all_slope_rejected = true;
+  bool all_flatness_rejected = true;
+
+  for (const auto &ch : diag.channels) {
+    if (ch.fit_success) {
+      ++fit_success_count;
+    }
+    if (ch.guard_rejected) {
+      ++guard_rejected_count;
+    }
+    all_slope_rejected =
+        all_slope_rejected && ch.guard_rejected &&
+        ch.guard_reason == "slope_worsened";
+    all_flatness_rejected =
+        all_flatness_rejected && ch.guard_rejected &&
+        ch.guard_reason == "flatness_worsened";
+  }
+
+  if (guard_rejected_count == static_cast<int>(diag.channels.size())) {
+    if (all_slope_rejected) {
+      return "all_channels_guard_rejected_slope";
+    }
+    if (all_flatness_rejected) {
+      return "all_channels_guard_rejected_flatness";
+    }
+    return "all_channels_guard_rejected";
+  }
+  if (fit_success_count > 0) {
+    return "no_channel_applied";
+  }
+  return "surface_fit_failed";
+}
+
 float sorted_quantile(const std::vector<float> &sorted_values, float q) {
   if (sorted_values.empty())
     return 0.0f;
@@ -3337,6 +3383,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   if (diagnostics != nullptr) {
     diagnostics->attempted = config.enabled;
     diagnostics->success = false;
+    diagnostics->failure_reason.clear();
     diagnostics->image_width = 0;
     diagnostics->image_height = 0;
     diagnostics->grid_spacing = 0;
@@ -3577,6 +3624,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     ch_diag.guard_flat_post = flat_post;
     ch_diag.guard_slope_pre = slope_pre;
     ch_diag.guard_slope_post = slope_post;
+    ch_diag.guard_reason.clear();
     bool accept_correction = true;
     const float max_flatness_worsen_factor =
         config.internal_relaxed_channel_guards ? 1.35f : 1.15f;
@@ -3588,6 +3636,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                 << " (pre=" << flat_pre << ", post=" << flat_post << ")"
                 << std::endl;
       accept_correction = false;
+      ch_diag.guard_reason = "flatness_worsened";
     }
     if (accept_correction && std::isfinite(slope_pre) &&
         std::isfinite(slope_post) &&
@@ -3596,10 +3645,14 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                 << " (pre=" << slope_pre << ", post=" << slope_post << ")"
                 << std::endl;
       accept_correction = false;
+      ch_diag.guard_reason = "slope_worsened";
     }
 
     ch_diag.guard_rejected = !accept_correction;
     if (!accept_correction) {
+      if (ch_diag.guard_reason.empty()) {
+        ch_diag.guard_reason = "channel_guard_rejected";
+      }
       ch_diag.applied = false;
       ch_diag.output_stats = stats_from_matrix(channel_before);
       ch_diag.mean_shift = 0.0f;
@@ -4154,6 +4207,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
               << "s guard=" << diagnostics->profile.guard_seconds << "s"
               << std::endl;
     diagnostics->success = any_channel_applied;
+    diagnostics->failure_reason = infer_bge_failure_reason(*diagnostics);
   }
   return any_channel_applied;
 }

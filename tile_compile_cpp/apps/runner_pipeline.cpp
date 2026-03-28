@@ -3953,8 +3953,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_out,
                            first_hdr);
 
-      // Save stacked_rgb.fits as 3-plane RGB cube (NAXIS3=3) for viewing
-      io::write_fits_rgb(stacked_rgb_path, R_out, G_out, B_out, first_hdr);
+      Matrix2Df R_stack_disk = R_out;
+      Matrix2Df G_stack_disk = G_out;
+      Matrix2Df B_stack_disk = B_out;
+      if (cfg.stacking.output_stretch) {
+        stretch_rgb_for_output(R_stack_disk, G_stack_disk, B_stack_disk,
+                               "STACKING");
+      }
+
+      // Save stacked_rgb.fits as the stack-stage display output.
+      io::write_fits_rgb(stacked_rgb_path, R_stack_disk, G_stack_disk,
+                         B_stack_disk, first_hdr);
       // Write an additional linear (non-stretched) cube for plate solving.
       io::write_fits_rgb(stacked_rgb_solve_path, R_out, G_out, B_out, first_hdr);
 
@@ -4091,19 +4100,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"exit_code", ret}}, log_file);
         }
       }
-    }
-
-    // Apply stretch only to the final RGB outputs when no downstream color stage
-    // is enabled: stacked_rgb + stacked_rgb_solve are the final products here.
-    if (have_rgb && cfg.stacking.output_stretch &&
-        !cfg.bge.enabled && !cfg.pcc.enabled) {
-      Matrix2Df R_final = R_out;
-      Matrix2Df G_final = G_out;
-      Matrix2Df B_final = B_out;
-      stretch_rgb_for_output(R_final, G_final, B_final, "FINAL");
-      io::write_fits_rgb(stacked_rgb_path, R_final, G_final, B_final, first_hdr);
-      io::write_fits_rgb(stacked_rgb_solve_path,
-                         R_final, G_final, B_final, first_hdr);
     }
 
     const fs::path canvas_mask_path = run_dir / "outputs" / "canvas_mask.fits";
@@ -4264,6 +4260,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           {"min_valid_sample_fraction_for_apply",
            cfg.bge.min_valid_sample_fraction_for_apply},
           {"min_valid_samples_for_apply", cfg.bge.min_valid_samples_for_apply},
+          {"tile_weight_lambda_structure",
+           cfg.bge.tile_weight_lambda_structure},
           {"mask",
            {
                {"star_dilate_px", cfg.bge.mask.star_dilate_px},
@@ -4318,7 +4316,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       } else if (!bge_metrics_tiles_match) {
         bge_phase_extra["reason"] = "tile_metric_grid_mismatch";
       } else if (bge_diag.attempted && !bge_diag.success) {
-        bge_phase_extra["reason"] = "fit_failed";
+        bge_phase_extra["reason"] =
+            bge_diag.failure_reason.empty() ? "fit_failed"
+                                            : bge_diag.failure_reason;
       }
 
       emitter.phase_progress_counts(run_id, Phase::BGE, 4, bge_progress_total,
@@ -4334,20 +4334,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
     fs::path stacked_rgb_bge_path = run_dir / "outputs" / "stacked_rgb_bge.fits";
     if (have_rgb) {
-      // Persist explicit pre-PCC snapshot (after BGE/astrometry preparation)
-      // to allow a direct BGE-only vs BGE+PCC comparison.
-      const bool bge_is_final_output = cfg.bge.enabled && !cfg.pcc.enabled;
-      if (cfg.stacking.output_stretch && bge_is_final_output) {
-        Matrix2Df R_bge_disk = R_out;
-        Matrix2Df G_bge_disk = G_out;
-        Matrix2Df B_bge_disk = B_out;
-        stretch_rgb_for_output(R_bge_disk, G_bge_disk, B_bge_disk, "BGE");
-        io::write_fits_rgb(stacked_rgb_bge_path,
-                           R_bge_disk, G_bge_disk, B_bge_disk, first_hdr);
-      } else {
-        io::write_fits_rgb(stacked_rgb_bge_path,
-                           R_out, G_out, B_out, first_hdr);
-      }
+      // Persist explicit pre-PCC snapshot as linear data.
+      io::write_fits_rgb(stacked_rgb_bge_path, R_out, G_out, B_out, first_hdr);
     }
 
     if (!cfg.pcc.enabled) {
@@ -4428,30 +4416,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         auto result = astro::run_pcc(R_out, G_out, B_out, wcs, stars, pcc_cfg);
 
         if (result.success) {
-          // Save PCC-corrected RGB as separate files (originals stay intact)
-          if (cfg.stacking.output_stretch) {
-            Matrix2Df R_pcc_disk = R_out;
-            Matrix2Df G_pcc_disk = G_out;
-            Matrix2Df B_pcc_disk = B_out;
-            stretch_rgb_for_output(R_pcc_disk, G_pcc_disk, B_pcc_disk, "PCC");
-            io::write_fits_float(run_dir / "outputs" / "pcc_R.fit",
-                                 R_pcc_disk, first_hdr);
-            io::write_fits_float(run_dir / "outputs" / "pcc_G.fit",
-                                 G_pcc_disk, first_hdr);
-            io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
-                                 B_pcc_disk, first_hdr);
-            io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
-                               R_pcc_disk, G_pcc_disk, B_pcc_disk, first_hdr);
-          } else {
-            io::write_fits_float(run_dir / "outputs" / "pcc_R.fit",
-                                 R_out, first_hdr);
-            io::write_fits_float(run_dir / "outputs" / "pcc_G.fit",
-                                 G_out, first_hdr);
-            io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
-                                 B_out, first_hdr);
-            io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
-                               R_out, G_out, B_out, first_hdr);
+          const auto chroma_speckle_stats =
+              image::suppress_isolated_chroma_speckles_rgb_inplace(
+                  R_out, G_out, B_out, &pcc_cfg.common_valid_mask,
+                  pcc_cfg.common_mask_rows, pcc_cfg.common_mask_cols);
+          if (chroma_speckle_stats.corrected_pixels > 0) {
+            std::cout << "[PCC] Post-PCC chroma speckle suppressor corrected "
+                      << chroma_speckle_stats.corrected_pixels
+                      << " isolated pixels (candidates="
+                      << chroma_speckle_stats.candidate_pixels << ")"
+                      << std::endl;
           }
+
+          // Save PCC-corrected RGB as linear post-processing outputs.
+          io::write_fits_float(run_dir / "outputs" / "pcc_R.fit",
+                               R_out, first_hdr);
+          io::write_fits_float(run_dir / "outputs" / "pcc_G.fit",
+                               G_out, first_hdr);
+          io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
+                               B_out, first_hdr);
+          io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
+                             R_out, G_out, B_out, first_hdr);
 
           core::json matrix_json = core::json::array();
           for (int r = 0; r < 3; ++r) {
@@ -4474,6 +4459,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"aperture_radius_px", pcc_cfg.aperture_radius_px},
                              {"annulus_inner_px", pcc_cfg.annulus_inner_px},
                              {"annulus_outer_px", pcc_cfg.annulus_outer_px},
+                             {"isolated_chroma_speckles_corrected",
+                              chroma_speckle_stats.corrected_pixels},
+                             {"isolated_chroma_speckle_candidates",
+                              chroma_speckle_stats.candidate_pixels},
                              {"matrix", matrix_json},
                              {"source", used_source},
                              {"input_rgb_bge", stacked_rgb_bge_path.string()}},

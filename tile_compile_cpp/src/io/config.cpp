@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -11,6 +12,8 @@
 namespace tile_compile::config {
 
 namespace {
+
+namespace fs = std::filesystem;
 
 bool is_between_0_1(float v) { return v >= 0.0f && v <= 1.0f; }
 
@@ -1404,6 +1407,26 @@ void Config::validate() const {
 }
 
 std::string get_schema_json() {
+  for (const fs::path &candidate : {
+           fs::path("tile_compile.schema.json"),
+           fs::path("tile_compile_cpp") / "tile_compile.schema.json",
+       }) {
+    std::error_code ec;
+    if (!fs::exists(candidate, ec) || ec) {
+      continue;
+    }
+    std::ifstream in(candidate);
+    if (!in) {
+      continue;
+    }
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    const std::string text = buffer.str();
+    if (!text.empty()) {
+      return text;
+    }
+  }
+
   return R"({
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "tile_compile v3 config",

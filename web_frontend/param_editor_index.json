@@ -313,6 +313,14 @@
     "yaml_default": 0.8
   },
   {
+    "category": "bge",
+    "exclusiveMinimum": 0,
+    "path": "bge.tile_weight_lambda_structure",
+    "source": "schema",
+    "type": "number",
+    "yaml_default": 2.0
+  },
+  {
     "category": "calibration",
     "path": "calibration.bias_dir",
     "source": "schema",

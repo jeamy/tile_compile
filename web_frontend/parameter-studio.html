@@ -29,7 +29,7 @@
             <div class="ps-section">
               <div class="ps-section-title">Kategorien</div>
               <div id="parameter-category-list" class="ps-list">
-                <button id="parameter-category-all" data-control="parameter.category.all" data-category="all" data-tooltip="Alle Kategorien anzeigen.">Alle</button>
+                <button id="parameter-category-all" class="is-active" data-control="parameter.category.all" data-category="all" data-i18n="page.parameter_studio.category.all" data-tooltip="Alle Kategorien anzeigen.">Alle</button>
                 <button id="parameter-category-system" data-control="parameter.category.system" data-category="system" data-tooltip="run_dir und log_level bearbeiten.">System</button>
                 <button id="parameter-category-pipeline" data-control="parameter.category.pipeline" data-category="pipeline" data-tooltip="Pipeline-Parameter bearbeiten.">Pipeline</button>
                 <button id="parameter-category-output" data-control="parameter.category.output" data-category="output" data-tooltip="Output-Parameter bearbeiten.">Output</button>
@@ -38,7 +38,7 @@
                 <button id="parameter-category-calibration" data-control="parameter.category.calibration" data-category="calibration" data-tooltip="Calibration-Parameter bearbeiten.">Calibration</button>
                 <button id="parameter-category-assumptions" data-control="parameter.category.assumptions" data-category="assumptions" data-tooltip="Assumptions-Parameter bearbeiten.">Assumptions</button>
                 <button id="parameter-category-normalization" data-control="parameter.category.normalization" data-category="normalization" data-tooltip="Normalization-Parameter bearbeiten.">Normalization</button>
-                <button id="parameter-category-registration" class="is-active" data-control="parameter.category.registration" data-category="registration" data-tooltip="Registration-Parameter bearbeiten.">Registration</button>
+                <button id="parameter-category-registration" data-control="parameter.category.registration" data-category="registration" data-tooltip="Registration-Parameter bearbeiten.">Registration</button>
                 <button id="parameter-category-dithering" data-control="parameter.category.dithering" data-category="dithering" data-tooltip="Dithering-Parameter bearbeiten.">Dithering</button>
                 <button id="parameter-category-tile-denoise" data-control="parameter.category.tile_denoise" data-category="tile_denoise" data-tooltip="Tile-Denoise-Parameter bearbeiten.">Tile Denoise</button>
                 <button id="parameter-category-chroma-denoise" data-control="parameter.category.chroma_denoise" data-category="chroma_denoise" data-tooltip="Chroma-Denoise-Parameter bearbeiten.">Chroma Denoise</button>
@@ -62,8 +62,8 @@
             <div class="ps-section">
               <div class="ps-section-title">Suche + Aktionen</div>
               <div class="ps-row">
-                <label for="parameter-preset-select">Preset</label>
-                <select id="parameter-preset-select" data-control="parameter.preset.select" class="ps-select" title="Preset fuer das Parameter Studio auswaehlen."></select>
+                <label for="parameter-preset-select" data-i18n="ui.field.preset">Preset</label>
+                <select id="parameter-preset-select" data-control="parameter.preset.select" data-i18n-title="ui.tooltip.parameter.preset_select" class="ps-select" title="Preset fuer das Parameter Studio auswaehlen."></select>
               </div>
               <div class="ps-row">
                 <label for="parameter-preset-dir" data-i18n="ui.field.preset_dir">Preset Dir</label>
@@ -74,26 +74,26 @@
                 </div>
               </div>
               <div class="ps-row">
-                <label for="parameter-search">Parameter suchen</label>
-                <input id="parameter-search" data-control="parameter.search" class="ps-input ps-wide" type="text" value="" placeholder="z. B. registration.star_topk oder pcc.k_max" title="Live-Suche ueber section.key.subkey; Enter springt zum ersten Treffer.">
+                <label for="parameter-search" data-i18n="page.parameter_studio.search.label">Parameter suchen</label>
+                <input id="parameter-search" data-control="parameter.search" data-i18n-placeholder="page.parameter_studio.search.placeholder" data-i18n-title="ui.tooltip.parameter.search" class="ps-input ps-wide" type="text" value="" placeholder="z. B. registration.star_topk oder pcc.k_max" title="Live-Suche ueber section.key.subkey; Enter springt zum ersten Treffer.">
               </div>
               <div class="ps-actions" style="margin-top:8px;">
-                <button id="parameter-preset-apply" data-control="parameter.preset_apply" class="ps-btn ps-btn-secondary" title="Preset auf aktuelle Konfiguration anwenden.">Preset anwenden</button>
-                <button id="parameter-yaml-sync" data-control="parameter.yaml_sync" class="ps-btn ps-btn-secondary" title="YAML laden/synchronisieren.">YAML Sync</button>
-                <button id="parameter-validate" data-control="parameter.validate" class="ps-btn ps-btn-secondary" title="Schema- und Semantikvalidierung ausfuehren.">Validieren</button>
+                <button id="parameter-preset-apply" data-control="parameter.preset_apply" data-i18n-title="ui.tooltip.parameter.preset_apply" class="ps-btn ps-btn-secondary" title="Preset auf aktuelle Konfiguration anwenden.">Preset anwenden</button>
+                <button id="parameter-yaml-sync" data-control="parameter.yaml_sync" data-i18n-title="ui.tooltip.parameter.yaml_sync" class="ps-btn ps-btn-secondary" title="YAML laden/synchronisieren.">YAML Sync</button>
+                <button id="parameter-validate" data-control="parameter.validate" data-i18n-title="ui.tooltip.parameter.validate" class="ps-btn ps-btn-secondary" title="Schema- und Semantikvalidierung ausfuehren.">Validieren</button>
                 <span id="parameter-preset-status" class="ps-hint" style="margin-left:6px;display:none;"></span>
-                <span id="parameter-validate-status" class="ps-hint" style="margin-left:6px;">Validierung: nicht geprüft</span>
+                <span id="parameter-validate-status" data-i18n="page.parameter_studio.validate.initial" class="ps-hint" style="margin-left:6px;">Validierung: nicht geprüft</span>
               </div>
               <div id="parameter-validate-details" class="ps-note" style="margin-top:10px;display:none;white-space:normal;"></div>
               <div id="parameter-search-results-panel" data-control="parameter.search.results" class="ps-search-panel">
-                <div id="parameter-search-summary" class="ps-note">Keine Suche aktiv.</div>
+                <div id="parameter-search-summary" data-i18n="page.parameter_studio.search.none_active" class="ps-note">Keine Suche aktiv.</div>
                 <div id="parameter-search-results" class="ps-search-list"></div>
               </div>
             </div>
 
             <div id="parameter-full-editor-group" class="ps-section ps-parameter-group" data-control="parameter.full_editor" data-category="editor_dynamic">
               <div class="ps-section-title">Abschnittseditor</div>
-              <p class="ps-note">Alle Parameter der gewaehlten Kategorie sind editierbar. Es wird nicht alles gleichzeitig angezeigt.</p>
+              <p class="ps-note" data-i18n="page.parameter_studio.full_editor_note">Alle Parameter der gewaehlten Kategorie sind editierbar. Es wird nicht alles gleichzeitig angezeigt.</p>
               <div id="parameter-editor-meta" class="ps-note" style="margin-top:8px;"></div>
               <div id="parameter-editor-fields"></div>
             </div>
@@ -183,7 +183,8 @@
               </div>
               <div class="ps-row" data-path="bge.tile_weight_lambda_structure">
                 <label for="parameter-bge-tile-weight-lambda">bge.tile_weight_lambda_structure</label>
-                <input id="parameter-bge-tile-weight-lambda" class="ps-input ps-short" type="number" step="0.1" value="2.0" title="Daempfung der Tile-Reliability ueber die Strukturenergie.">
+                <input id="parameter-bge-tile-weight-lambda" data-control="parameter.bge.tile_weight_lambda_structure" class="ps-input ps-short" type="number" step="0.1" value="2.0" title="Daempfung der Tile-Reliability ueber die Strukturenergie.">
+                <span class="ps-hint">Kurz: hoehere Werte entwerten strukturreiche Tiles staerker.</span>
               </div>
               <div class="ps-row" data-path="bge.min_tiles_per_cell">
                 <label for="parameter-bge-min-tiles">bge.min_tiles_per_cell</label>
@@ -350,10 +351,10 @@
             </div>
 
             <div class="ps-actions">
-              <button id="parameter-reset-default" data-control="parameter.reset_default" class="ps-btn ps-btn-secondary" title="Alle Werte auf Default zuruecksetzen.">Auf Default</button>
-              <button id="parameter-review-changes" data-control="parameter.review_changes" class="ps-btn ps-btn-secondary" title="Aenderungen und Auswirkungen im Diff anzeigen.">Aenderungen pruefen</button>
-              <button id="parameter-save" data-control="parameter.save" class="ps-btn" title="Neue Config-Revision speichern (append-only).">Speichern</button>
-              <button id="parameter-save-as" data-control="parameter.save_as" class="ps-btn ps-btn-secondary" title="Konfiguration unter neuem Pfad speichern.">Speichern unter</button>
+              <button id="parameter-reset-default" data-control="parameter.reset_default" data-i18n-title="ui.tooltip.parameter.reset_default" class="ps-btn ps-btn-secondary" title="Alle Werte auf Default zuruecksetzen.">Auf Default</button>
+              <button id="parameter-review-changes" data-control="parameter.review_changes" data-i18n-title="ui.tooltip.parameter.review_changes" class="ps-btn ps-btn-secondary" title="Aenderungen und Auswirkungen im Diff anzeigen.">Aenderungen pruefen</button>
+              <button id="parameter-save" data-control="parameter.save" data-i18n-title="ui.tooltip.parameter.save" class="ps-btn" title="Neue Config-Revision speichern (append-only).">Speichern</button>
+              <button id="parameter-save-as" data-control="parameter.save_as" data-i18n-title="ui.tooltip.parameter.save_as" class="ps-btn ps-btn-secondary" title="Konfiguration unter neuem Pfad speichern.">Speichern unter</button>
             </div>
           </section>
 
@@ -372,7 +373,7 @@
               </div>
               <div class="ps-note" style="margin-top:12px;">
                 <div style="font-weight:700;margin-bottom:6px;" data-i18n="page.parameter_studio.explain.what_it_does">Was macht der Parameter?</div>
-                <div id="parameter-explain-short" style="white-space:pre-wrap;">Anzahl Top-Sterne fuer Matching; mehr Robustheit bei schwieriger Registrierung.</div>
+                <div id="parameter-explain-short" data-i18n="page.parameter_studio.explain.short_default" style="white-space:pre-wrap;">Anzahl Top-Sterne fuer Matching; mehr Robustheit bei schwieriger Registrierung.</div>
               </div>
             </div>
 
@@ -388,8 +389,8 @@
               <div id="parameter-situation-summary" class="ps-note" style="margin-top:10px;"></div>
               <div id="parameter-situation-deltas" class="ps-note" style="margin-top:8px;"></div>
               <div class="ps-actions" style="margin-top:12px;">
-                <button id="parameter-situation-apply" data-control="parameter.situation_apply" class="ps-btn ps-btn-secondary" title="Alle ausgewaehlten Szenario-Deltas auf die Konfiguration anwenden.">Situation anwenden</button>
-                <span id="parameter-situation-apply-status" class="ps-hint" style="display:none;padding:6px 10px;border-radius:999px;background:#ecfdf3;border:1px solid #86efac;color:#166534;font-weight:600;">Angewendet</span>
+                <button id="parameter-situation-apply" data-control="parameter.situation_apply" data-i18n-title="ui.tooltip.parameter.situation_apply" class="ps-btn ps-btn-secondary" title="Alle ausgewaehlten Szenario-Deltas auf die Konfiguration anwenden.">Situation anwenden</button>
+                <span id="parameter-situation-apply-status" data-i18n="page.parameter_studio.situation.applied" class="ps-hint" style="display:none;padding:6px 10px;border-radius:999px;background:#ecfdf3;border:1px solid #86efac;color:#166534;font-weight:600;">Angewendet</span>
               </div>
             </div>
 

@@ -478,6 +478,7 @@ core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
   out["requested"] = requested;
   out["attempted"] = diag.attempted;
   out["success"] = diag.success;
+  out["failure_reason"] = diag.failure_reason;
   out["have_tile_data"] = have_tile_data;
   out["metrics_tiles_match"] = metrics_tiles_match;
   out["image_width"] = diag.image_width;
@@ -578,6 +579,7 @@ core::json bge_diag_to_json(const image::BGEDiagnostics &diag,
     ch_json["guard_slope_pre"] = ch.guard_slope_pre;
     ch_json["guard_slope_post"] = ch.guard_slope_post;
     ch_json["guard_rejected"] = ch.guard_rejected;
+    ch_json["guard_reason"] = ch.guard_reason;
     ch_json["timings"] = bge_profile_to_json(ch.profile);
     ch_json["input_stats"] = bge_value_stats_to_json(ch.input_stats);
     ch_json["output_stats"] = bge_value_stats_to_json(ch.output_stats);

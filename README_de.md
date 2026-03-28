@@ -15,7 +15,7 @@ Während die Methodik ursprünglich entwickelt wurde, um die spezifischen Heraus
 - Methodik (normativ): [Tile-Based Quality Reconstruction Methodology v3.3.6](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.7_en.md)
 - Methodik-Paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](doc/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
 - Prozessfluss (Implementierung): [Process flow (German)](doc/v3/process_flow/README_de.md)
-- Deutsche Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](doc/v3/tbqr_step_by_step_de.md)
+- Deutsche Schritt-für-Schritt-Anleitung: [Schritt-für-Schritt-Anleitung](doc/tbqr_step_by_step_de.md)
 - GUI2 Experteneingabe (Deutsch): [Experteneingabe Schritt-fuer-Schritt](doc/gui2/wizard_schritt_fuer_schritt.md)
 - GUI2 gefuehrter Wizard (Deutsch): [Gefuehrter Wizard Schritt-fuer-Schritt](doc/gui2/wizard_gefuehrter_run_schritt_fuer_schritt.md)
 - GUI2 Dashboard-Run (Deutsch): [Dashboard Run Schritt-fuer-Schritt](doc/gui2/dashboard_run_schritt_fuer_schritt.md)
@@ -91,8 +91,8 @@ Detaillierte Phasen-Dokumentation: `doc/v3/process_flow/`
 
 - Hauptkonfigurationsdatei: `tile_compile.yaml`
 - Schemas: `tile_compile.schema.json`, `tile_compile.schema.yaml`
-- Referenzdokument: [Konfigurationsreferenz](doc/v3/configuration_reference.md)
-- Praktische Beispiele: [Konfigurationsbeispiele & Best Practices](doc/v3/configuration_examples_practical_de.md)
+- Referenzdokument: [Konfigurationsreferenz](doc/configuration_reference.md)
+- Praktische Beispiele: [Konfigurationsbeispiele & Best Practices](doc/configuration_examples_practical_de.md)
 
 ### Beispielprofile
 
@@ -174,7 +174,7 @@ Hinweise:
 ### C++ CLI / Runner
 
 Für eine vollständige anfängerfreundliche Anleitung siehe:
-[Step-by-Step Guide](doc/v3/tbqr_step_by_step_en.md)
+[Step-by-Step Guide](doc/tbqr_step_by_step_en.md)
 
 ### Build-Voraussetzungen
 
@@ -511,6 +511,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.9 (2026-03-28)
+
+- Die `v3.3.9`-Methodik ist jetzt als aktiver Referenzstand in Code, Frontend und Dokumentation durchgezogen: der lineare Rekonstruktionskern, BGE/PCC-Semantik, Parameter-Studio-Sichtbarkeit und die Prozessdokumentation wurden auf denselben Stand gebracht; zusaetzlich wurde das Web-Backend bei Startfehlern gehaertet.
+
 ## v0.1.8 (2026-03-25)
 
 - Linux-Paketierungs-Skripte verbessert: Alle benötigten Shared Libraries (OpenCV, CFITSIO, yaml-cpp, etc.) werden jetzt gebündelt für bessere Kompatibilität über verschiedene Distributionen hinweg und weniger Abhängigkeitsprobleme.
@@ -643,6 +647,14 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-28)
+
+**Implementierung und Durchzug der `v3.3.9`-Methodik (`v0.1.9`):**
+
+- Die in `v3.3.9` definierten Kernpunkte in den aktiven Codepfad uebernommen: linearer Rekonstruktionskern ohne alte Tile-Vor-OLA-Normalisierung, sauberere BGE-/PCC-Semantik, robustere Support-/Seam-Behandlung und aktualisierte Guard-/Diagnostikpfade.
+- Frontend und Konfigurationsoberflaeche auf den aktiven Schema-/Methodikstand nachgezogen, sodass neue Parameter aus `v3.3.9` im Parameter Studio und in der Dokumentation konsistenter verfuegbar sind.
+- Die Prozessfluss-, Referenz- und Vergleichsdokumente auf `v3.3.9` aktualisiert und das Crow/C++-Web-Backend bei Startfehlern zusaetzlich gehaertet, sodass statt Core Dumps klare Fehlermeldungen erscheinen.
 
 ### (2026-03-24)
 
@@ -884,4 +896,4 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 **Dokumentation:**
 
-- **Neu**: [Praktische Konfigurationsbeispiele & Best Practices](doc/v3/configuration_examples_practical_de.md) - Umfassender Leitfaden mit Anwendungsfällen für verschiedene Brennweiten, Seeing-Bedingungen, Montierungstypen und Kamera-Setups (DWARF, Seestar, DSLR, Mono CCD). Enthält Parameter-Empfehlungen basierend auf Methodik v3.3.4.
+- **Neu**: [Praktische Konfigurationsbeispiele & Best Practices](doc/configuration_examples_practical_de.md) - Umfassender Leitfaden mit Anwendungsfällen für verschiedene Brennweiten, Seeing-Bedingungen, Montierungstypen und Kamera-Setups (DWARF, Seestar, DSLR, Mono CCD). Enthält Parameter-Empfehlungen basierend auf Methodik v3.3.4.
