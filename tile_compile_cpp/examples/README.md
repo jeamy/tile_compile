@@ -107,6 +107,9 @@ They are kept in sync with the active runner/config parser defaults, including:
 - `very_bright_star_anti_seam.example.yaml`
   - Suggested OSC config for datasets dominated by one or a few very bright/saturated stars.
   - Anti-seam focus: larger tiles, softer local weighting, stronger halo protection in BGE/PCC-related settings.
+- `m66_galaxy_background_balanced.example.yaml`
+  - Suggested OSC config for broadband galaxy fields like M66/M65/NGC 3628 with mild background gradient.
+  - Keeps the balanced galaxy-style BGE/PCC tuning and pre-stack defect suppression that behaved better than the IC434/chroma-suppression preset on this target class.
 - `canon_equatorial_balanced.example.yaml`
   - Suggested OSC config for Canon/DSLR on equatorial mount (well-tracked, balanced quality/safety).
   - Registration is intentionally stricter than Alt/Az while still compatible with modeled fallback for failed direct registrations.

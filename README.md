@@ -12,7 +12,7 @@ While the methodology was originally conceived to address the specific challenge
 
 ## Documentation (v3.3)
 
-- Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.3.6](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.7_en.md)
+- Normative methodology: [Tile-Based Quality Reconstruction Methodology v3.3.9](doc/v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md)
 - Methodology paper PDF v3.3.6: [paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf](doc/v3/paper-tile_based_quality_reconstruction_methodology_v_3.3.6_en.pdf)
 - Implementation process flow: [Process flow (English)](doc/v3/process_flow/README_en.md)
 - English step-by-step guide: [Step-by-Step Guide](doc/tbqr_step_by_step_en.md)

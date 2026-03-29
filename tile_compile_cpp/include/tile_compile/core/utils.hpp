@@ -1,6 +1,7 @@
 #pragma once
 
 #include "types.hpp"
+#include <cstddef>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -50,6 +51,27 @@ void robust_zscore(const std::vector<float>& v, std::vector<float>& out);
 // Median of finite positive values, with fallback
 float median_finite_positive(const std::vector<float>& v, float fallback);
 float median_finite(const std::vector<float>& v, float fallback);
+
+struct QuantileStretchResult {
+    bool applied = false;
+    float low = 0.0f;
+    float high = 0.0f;
+    size_t sample_count = 0;
+};
+
+QuantileStretchResult stretch_to_u16_quantile_inplace(
+    Matrix2Df& img,
+    float low_pct,
+    float high_pct,
+    bool positive_only = true);
+
+QuantileStretchResult stretch_rgb_to_u16_quantile_inplace(
+    Matrix2Df& r,
+    Matrix2Df& g,
+    Matrix2Df& b,
+    float low_pct,
+    float high_pct,
+    bool positive_only = true);
 
 // String utilities
 std::string to_lower(const std::string& s);

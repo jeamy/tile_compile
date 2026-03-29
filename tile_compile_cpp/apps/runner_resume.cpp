@@ -1045,30 +1045,15 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       if (!cfg.stacking.output_stretch) {
         return;
       }
-      float vmin = std::numeric_limits<float>::max();
-      float vmax = std::numeric_limits<float>::lowest();
-      for (Eigen::Index k = 0; k < luma.size(); ++k) {
-        const float v = luma.data()[k];
-        if (std::isfinite(v) && v > 0.0f) {
-          vmin = std::min(vmin, v);
-          vmax = std::max(vmax, v);
-        }
-      }
-      const float range = vmax - vmin;
-      if (!(range > 1.0e-6f)) {
+      const auto stretch =
+          tile_compile::core::stretch_to_u16_quantile_inplace(
+              luma, 0.1f, 99.9f, true);
+      if (!stretch.applied) {
         return;
       }
-      const float scale = 65535.0f / range;
-      for (Eigen::Index k = 0; k < luma.size(); ++k) {
-        const float v = luma.data()[k];
-        if (std::isfinite(v) && v > 0.0f) {
-          luma.data()[k] = (v - vmin) * scale;
-        } else {
-          luma.data()[k] = 0.0f;
-        }
-      }
-      std::cout << "[STACKING][resume] Output stretch: [" << vmin << ".."
-                << vmax << "] -> [0..65535]" << std::endl;
+      std::cout << "[STACKING][resume] Output stretch q[0.1,99.9]: ["
+                << stretch.low << ".." << stretch.high << "] -> [0..65535]"
+                << " samples=" << stretch.sample_count << std::endl;
     };
 
     runner::CropBox stacking_crop_box{
@@ -1506,32 +1491,14 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     Matrix2Df G_disk = rgb.G;
     Matrix2Df B_disk = rgb.B;
     if (apply_stretch) {
-      float vmin = std::numeric_limits<float>::max();
-      float vmax = std::numeric_limits<float>::lowest();
-      for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
-        for (Eigen::Index k = 0; k < ch->size(); ++k) {
-          const float v = ch->data()[k];
-          if (std::isfinite(v) && v > 0.0f) {
-            if (v < vmin) vmin = v;
-            if (v > vmax) vmax = v;
-          }
-        }
-      }
-      const float range = vmax - vmin;
-      if (range > 1.0e-6f) {
-        const float scale = 65535.0f / range;
-        for (auto *ch : {&R_disk, &G_disk, &B_disk}) {
-          for (Eigen::Index k = 0; k < ch->size(); ++k) {
-            const float v = ch->data()[k];
-            if (std::isfinite(v) && v > 0.0f) {
-              ch->data()[k] = (v - vmin) * scale;
-            } else {
-              ch->data()[k] = 0.0f;
-            }
-          }
-        }
-        std::cout << "[" << stage_tag << "][resume] RGB output stretch: ["
-                  << vmin << ".." << vmax << "] -> [0..65535]" << std::endl;
+      const auto stretch =
+          tile_compile::core::stretch_rgb_to_u16_quantile_inplace(
+              R_disk, G_disk, B_disk, 0.1f, 99.9f, true);
+      if (stretch.applied) {
+        std::cout << "[" << stage_tag
+                  << "][resume] RGB output stretch q[0.1,99.9]: ["
+                  << stretch.low << ".." << stretch.high << "] -> [0..65535]"
+                  << " samples=" << stretch.sample_count << std::endl;
       }
     }
     std::error_code ec;

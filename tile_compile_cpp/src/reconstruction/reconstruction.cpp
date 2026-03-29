@@ -339,11 +339,11 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
 
     cv::Mat cropped = restored(cv::Rect(pad_w, pad_h, w, h));
     
-    if (cfg.strength > 0.05f && std::fabs(sigma) > 1e-6f) {
+    if (filter_strength > 0.05f && std::fabs(sigma) > 1e-6f) {
         double minV, maxV;
         cv::minMaxLoc(cropped, &minV, &maxV);
         std::cout << "[Wiener] sigma=" << sigma << " snr=" << snr_tile 
-                  << " q=" << q_struct_tile << " strength=" << cfg.strength 
+                  << " q=" << q_struct_tile << " strength=" << filter_strength
                   << " range=[" << minV << ".." << maxV << "]" << std::endl;
     }
     Matrix2Df out(h, w);

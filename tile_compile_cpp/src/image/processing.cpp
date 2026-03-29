@@ -216,42 +216,6 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
                 }
             }
 
-            std::vector<float> immediate_neighbors;
-            immediate_neighbors.reserve(8);
-            for (int dy = -1; dy <= 1; ++dy) {
-                for (int dx = -1; dx <= 1; ++dx) {
-                    if (dy == 0 && dx == 0) continue;
-                    const int yy = y + dy;
-                    const int xx = x + dx;
-                    if (!in_bounds(yy, xx)) continue;
-                    const float neighbor = mosaic(yy, xx);
-                    if (std::isfinite(neighbor)) {
-                        immediate_neighbors.push_back(neighbor);
-                    }
-                }
-            }
-
-            bool mixed_color_structure = false;
-            float immediate_median = 0.0f;
-            if (immediate_neighbors.size() >= 5u) {
-                immediate_median = median_small(immediate_neighbors);
-                const float immediate_sigma =
-                    1.4826f * mad_small(immediate_neighbors, immediate_median);
-                const float immediate_floor = std::max(
-                    {2.0f * immediate_sigma,
-                     0.01f * std::max(1.0f, std::abs(immediate_median)),
-                     1.0e-6f});
-                const float support_threshold =
-                    immediate_median + 0.5f * immediate_floor;
-                int structure_support = 0;
-                for (float neighbor : immediate_neighbors) {
-                    if (neighbor > support_threshold) {
-                        ++structure_support;
-                    }
-                }
-                mixed_color_structure = structure_support >= 2;
-            }
-
             const bool global_candidate_raw =
                 (v > s.threshold) &&
                 (hot_neighbor_count <= 1);
@@ -267,12 +231,6 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
                      0.35f * sigma_threshold * s.sigma,
                      0.01f * std::max(1.0f, std::abs(local_median)),
                      1.0e-6f});
-                mixed_color_structure =
-                    mixed_color_structure ||
-                    (immediate_neighbors.size() >= 5u &&
-                     immediate_median >
-                         local_median + std::max(0.75f * local_floor,
-                                                 1.0e-6f));
                 const float support_threshold =
                     local_median + 0.5f * local_floor;
                 int same_color_support = 0;
@@ -288,7 +246,6 @@ Matrix2Df cosmetic_correction_cfa(const Matrix2Df& mosaic, float sigma_threshold
             }
 
             const bool should_correct =
-                !mixed_color_structure &&
                 (global_candidate_raw || local_candidate);
 
             if (should_correct) {
@@ -464,9 +421,6 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
                 }
 
                 if (neighR.size() < 12u) continue;
-                if (pass == 0) {
-                    ++stats.candidate_pixels;
-                }
 
                 const float medR = median_small(neighR);
                 const float medG = median_small(neighG);
@@ -488,12 +442,6 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
                     }
                 }
 
-                // Guard real compact structure: fix faint/small chroma defects,
-                // not stars or coherent bright detail.
-                const float luma_guard = std::max(10.0f * madL, 0.30f * medL);
-                if (curL > medL + luma_guard) continue;
-                if (bright_support >= 4) continue;
-
                 const float resR = std::abs(curR - medR);
                 const float resG = std::abs(curG - medG);
                 const float resB = std::abs(curB - medB);
@@ -511,25 +459,80 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
                 const bool badB = resB > thrB;
                 const int badCount = static_cast<int>(badR) + static_cast<int>(badG) +
                                      static_cast<int>(badB);
-                if (badCount != 1) continue;
+                if (badCount == 0 || badCount > 2) continue;
 
-                std::array<float, 3> residuals{resR, resG, resB};
-                std::sort(residuals.begin(), residuals.end(), std::greater<float>());
-                if (!(residuals[0] > residuals[1] * 1.45f)) continue;
-
+                // Guard real compact structure: fix isolated color defects,
+                // not stars or coherent bright detail. Allow strongly chromatic
+                // defects to pass this guard even if their luma is elevated.
                 const float curMax = std::max({curR, curG, curB});
                 const float curMin = std::min({curR, curG, curB});
                 const float medMax = std::max({medR, medG, medB});
                 const float medMin = std::min({medR, medG, medB});
-                const float curRatio = curMax / std::max(curMin, 1.0e-6f);
-                const float medRatio = medMax / std::max(medMin, 1.0e-6f);
-                if (curRatio < std::max(1.45f, medRatio + 0.20f)) continue;
+                const float luma_guard = std::max(8.0f * madL, 0.35f * medL);
+                const float chroma_guard =
+                    std::max(6.0f * madL, 0.20f * std::max(1.0f, medL));
+                if (curL > medL + luma_guard &&
+                    (curMax - curMin) < (medMax - medMin) + chroma_guard) {
+                    continue;
+                }
+                if (bright_support >= 6) continue;
+
+                std::array<float, 3> residuals{resR, resG, resB};
+                std::sort(residuals.begin(), residuals.end(), std::greater<float>());
+                if (badCount == 1) {
+                    if (!(residuals[0] >
+                          std::max(1.20f * residuals[1], 1.10f * thrFloor))) {
+                        continue;
+                    }
+                } else {
+                    if (!(residuals[1] >
+                          std::max(1.05f * residuals[2], 1.05f * thrFloor))) {
+                        continue;
+                    }
+                }
+
+                const float curSpan = curMax - curMin;
+                const float medSpan = medMax - medMin;
+                if (curSpan < medSpan + std::max(4.0f * madL, 0.05f * medL)) continue;
+
+                int similar_bad_support = 0;
+                for (int dy = -kRadius; dy <= kRadius; ++dy) {
+                    for (int dx = -kRadius; dx <= kRadius; ++dx) {
+                        if (dx == 0 && dy == 0) continue;
+                        const int yy = y + dy;
+                        const int xx = x + dx;
+                        if (!is_supported(srcR, srcG, srcB, yy, xx)) continue;
+                        int supporting_channels = 0;
+                        if (badR &&
+                            std::abs(srcR(yy, xx) - medR) > 0.75f * thrR) {
+                            ++supporting_channels;
+                        }
+                        if (badG &&
+                            std::abs(srcG(yy, xx) - medG) > 0.75f * thrG) {
+                            ++supporting_channels;
+                        }
+                        if (badB &&
+                            std::abs(srcB(yy, xx) - medB) > 0.75f * thrB) {
+                            ++supporting_channels;
+                        }
+                        if (supporting_channels > 0) {
+                            ++similar_bad_support;
+                        }
+                    }
+                }
+
+                if (similar_bad_support > 3) continue;
+                if (pass == 0) {
+                    ++stats.candidate_pixels;
+                }
 
                 if (badR) {
                     R(y, x) = medR;
-                } else if (badG) {
+                }
+                if (badG) {
                     G(y, x) = medG;
-                } else {
+                }
+                if (badB) {
                     B(y, x) = medB;
                 }
                 ++stats.corrected_pixels;

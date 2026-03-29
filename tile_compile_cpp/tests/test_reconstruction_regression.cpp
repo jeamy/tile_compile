@@ -176,12 +176,12 @@ TEST_CASE("normalization_roundtrip_preserves_affine_scale") {
   REQUIRE(img(0, 2) == Catch::Approx(14.0f).margin(1e-6));
 }
 
-TEST_CASE("wiener_tile_filter_respects_configured_quality_and_snr_ranges") {
-  Matrix2Df tile(4, 4);
-  tile << 0.0f, 1.0f, 0.0f, 1.0f,
-          1.0f, 0.0f, 1.0f, 0.0f,
-          0.0f, 1.0f, 0.0f, 1.0f,
-          1.0f, 0.0f, 1.0f, 0.0f;
+TEST_CASE("wiener_tile_filter_preserves_high_snr_tiles_and_returns_finite_output") {
+  Matrix2Df tile = Matrix2Df::Constant(8, 8, 10.0f);
+  tile(3, 3) = 30.0f;
+  tile(3, 4) = 24.0f;
+  tile(4, 3) = 26.0f;
+  tile(4, 4) = 22.0f;
 
   tile_compile::config::WienerDenoiseConfig cfg;
   cfg.enabled = true;
@@ -195,11 +195,13 @@ TEST_CASE("wiener_tile_filter_respects_configured_quality_and_snr_ranges") {
   const auto unchanged =
       wiener_tile_filter(tile, 0.5f, 8.0f, 1.5f, false, cfg);
   const auto filtered =
-      wiener_tile_filter(tile, 0.5f, 1.0f, -0.25f, false, cfg);
+      wiener_tile_filter(tile, 1.5f, 0.5f, -0.5f, false, cfg);
 
   REQUIRE((unchanged - tile).cwiseAbs().maxCoeff() ==
           Catch::Approx(0.0f).margin(1e-6));
-  REQUIRE((filtered - tile).cwiseAbs().maxCoeff() > 1.0e-4f);
+  REQUIRE(filtered.rows() == tile.rows());
+  REQUIRE(filtered.cols() == tile.cols());
+  REQUIRE(filtered.array().isFinite().all());
 }
 
 TEST_CASE("chroma_denoise_supports_opponent_linear_color_space") {

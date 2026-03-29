@@ -447,4 +447,82 @@ float median_finite(const std::vector<float>& v, float fallback) {
     return median_of(p);
 }
 
+QuantileStretchResult stretch_to_u16_quantile_inplace(Matrix2Df& img,
+                                                      float low_pct,
+                                                      float high_pct,
+                                                      bool positive_only) {
+    QuantileStretchResult result;
+    std::vector<float> samples;
+    samples.reserve(static_cast<size_t>(img.size()));
+    for (Eigen::Index i = 0; i < img.size(); ++i) {
+        const float v = img.data()[i];
+        if (!std::isfinite(v)) continue;
+        if (positive_only && !(v > 0.0f)) continue;
+        samples.push_back(v);
+    }
+    result.sample_count = samples.size();
+    if (samples.empty()) return result;
+
+    std::sort(samples.begin(), samples.end());
+    result.low = percentile_from_sorted(samples, low_pct);
+    result.high = percentile_from_sorted(samples, high_pct);
+    if (!(result.high > result.low + 1.0e-6f)) return result;
+
+    const float scale = 65535.0f / (result.high - result.low);
+    for (Eigen::Index i = 0; i < img.size(); ++i) {
+        const float v = img.data()[i];
+        if (std::isfinite(v) && (!positive_only || v > 0.0f)) {
+            const float mapped = (v - result.low) * scale;
+            img.data()[i] = std::clamp(mapped, 0.0f, 65535.0f);
+        } else {
+            img.data()[i] = 0.0f;
+        }
+    }
+    result.applied = true;
+    return result;
+}
+
+QuantileStretchResult stretch_rgb_to_u16_quantile_inplace(Matrix2Df& r,
+                                                          Matrix2Df& g,
+                                                          Matrix2Df& b,
+                                                          float low_pct,
+                                                          float high_pct,
+                                                          bool positive_only) {
+    QuantileStretchResult result;
+    const size_t reserve_hint =
+        static_cast<size_t>(std::max<Eigen::Index>(0, r.size() + g.size() + b.size()));
+    std::vector<float> samples;
+    samples.reserve(reserve_hint);
+    for (Matrix2Df* ch : {&r, &g, &b}) {
+        for (Eigen::Index i = 0; i < ch->size(); ++i) {
+            const float v = ch->data()[i];
+            if (!std::isfinite(v)) continue;
+            if (positive_only && !(v > 0.0f)) continue;
+            samples.push_back(v);
+        }
+    }
+    result.sample_count = samples.size();
+    if (samples.empty()) return result;
+
+    std::sort(samples.begin(), samples.end());
+    result.low = percentile_from_sorted(samples, low_pct);
+    result.high = percentile_from_sorted(samples, high_pct);
+    if (!(result.high > result.low + 1.0e-6f)) return result;
+
+    const float scale = 65535.0f / (result.high - result.low);
+    for (Matrix2Df* ch : {&r, &g, &b}) {
+        for (Eigen::Index i = 0; i < ch->size(); ++i) {
+            const float v = ch->data()[i];
+            if (std::isfinite(v) && (!positive_only || v > 0.0f)) {
+                const float mapped = (v - result.low) * scale;
+                ch->data()[i] = std::clamp(mapped, 0.0f, 65535.0f);
+            } else {
+                ch->data()[i] = 0.0f;
+            }
+        }
+    }
+    result.applied = true;
+    return result;
+}
+
 } // namespace tile_compile::core
