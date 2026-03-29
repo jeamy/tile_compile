@@ -297,8 +297,17 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
     const int pad_w = std::max(1, w / 4);
 
     cv::Mat tile_cv(h, w, CV_32F, const_cast<float*>(tile.data()));
+    cv::Mat bg;
+    int k_bg = std::max(1, (h / 8) | 1);
+    cv::blur(tile_cv, bg, cv::Size(k_bg, k_bg), cv::Point(-1, -1), cv::BORDER_REFLECT_101);
+    cv::Mat tile_for_fft = tile_cv - bg;
+
     cv::Mat padded;
-    cv::copyMakeBorder(tile_cv, padded, pad_h, pad_h, pad_w, pad_w,
+    cv::copyMakeBorder(tile_for_fft, padded, pad_h, pad_h, pad_w, pad_w,
+                       cv::BORDER_REFLECT_101);
+    
+    cv::Mat padded_bg;
+    cv::copyMakeBorder(bg, padded_bg, pad_h, pad_h, pad_w, pad_w,
                        cv::BORDER_REFLECT_101);
 
     cv::Mat F;

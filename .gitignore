@@ -52,6 +52,8 @@ bundle/
 smoke-home-linux/
 smoke-home-macos/
 smoke-home-windows/
+.codex
+
 
 # GUI state files
 .tile_compile/

@@ -2294,9 +2294,20 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           cv::blur(m, bg_m, cv::Size(31, 31), cv::Point(-1, -1),
                    cv::BORDER_REFLECT_101);
           cv::Mat r = m - bg_m;
-          cv::Scalar mu, sd;
-          cv::meanStdDev(r, mu, sd);
-          return static_cast<float>(sd[0]);
+          
+          std::vector<float> rv;
+          rv.reserve(static_cast<size_t>(r.total()));
+          for (int i = 0; i < static_cast<int>(r.total()); ++i) {
+            float v = r.ptr<float>()[i];
+            if (std::isfinite(v)) rv.push_back(v);
+          }
+          if (rv.empty()) return 0.0f;
+          size_t mid = rv.size() / 2;
+          std::nth_element(rv.begin(), rv.begin() + mid, rv.end());
+          float med = rv[mid];
+          for (float &v : rv) v = std::fabs(v - med);
+          std::nth_element(rv.begin(), rv.begin() + mid, rv.end());
+          return 1.4826f * rv[mid];
         };
         float sigma_est = estimate_tile_noise(tile_rec);
         tile_rec = reconstruction::wiener_tile_filter(
@@ -4172,28 +4183,37 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
 
       if (cfg.stacking.output_stretch) {
-        float vmin = std::numeric_limits<float>::max();
-        float vmax = std::numeric_limits<float>::lowest();
+        std::vector<float> samples;
+        samples.reserve(static_cast<size_t>(recon_out.size()));
         for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
           const float v = recon_out.data()[k];
           if (std::isfinite(v) && v > 0.0f) {
-            if (v < vmin) vmin = v;
-            if (v > vmax) vmax = v;
+            samples.push_back(v);
           }
         }
-        const float range = vmax - vmin;
-        if (range > 1.0e-6f) {
-          const float scale = 65535.0f / range;
-          for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
-            const float v = recon_out.data()[k];
-            if (std::isfinite(v) && v > 0.0f) {
-              recon_out.data()[k] = (v - vmin) * scale;
-            } else {
-              recon_out.data()[k] = 0.0f;
+        
+        if (samples.size() > 100) {
+          const size_t vmin_idx = static_cast<size_t>(samples.size() * 0.001);
+          const size_t vmax_idx = static_cast<size_t>(samples.size() * 0.999);
+          std::nth_element(samples.begin(), samples.begin() + vmin_idx, samples.end());
+          const float vmin = samples[vmin_idx];
+          std::nth_element(samples.begin(), samples.begin() + vmax_idx, samples.end());
+          const float vmax = samples[vmax_idx];
+          
+          const float range = vmax - vmin;
+          if (range > 1.0e-6f) {
+            const float scale = 65535.0f / range;
+            for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
+              const float v = recon_out.data()[k];
+              if (std::isfinite(v)) {
+                recon_out.data()[k] = std::clamp((v - vmin) * scale, 0.0f, 65535.0f);
+              } else {
+                recon_out.data()[k] = 0.0f;
+              }
             }
+            std::cout << "[Stacking] Robust output stretch (0.1%-99.9%): [" << vmin << ".." << vmax
+                      << "] -> [0..65535]" << std::endl;
           }
-          std::cout << "[Stacking] Output stretch: [" << vmin << ".." << vmax
-                    << "] -> [0..65535]" << std::endl;
         }
       }
 
