@@ -1,0 +1,19 @@
+UNUSED PROPERTIES:
+ - bias_dir
+ - bias_master
+ - bias_use_master
+ - dark_auto_select
+ - dark_master
+ - dark_match_exposure_tolerance_percent
+ - dark_match_temp_tolerance_c
+ - dark_match_use_temp
+ - dark_use_master
+ - darks_dir
+ - flat_master
+ - flat_use_master
+ - flats_dir
+ - hard_abort_hours
+ - tile_analysis_max_factor_vs_stack
+ - use_bias
+ - use_dark
+ - use_flat

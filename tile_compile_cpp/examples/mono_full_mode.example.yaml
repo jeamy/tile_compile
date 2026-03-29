@@ -175,7 +175,6 @@ synthetic:
     cluster_count_range: [5, 30] # [k_min, k_max]
 
 
-debayer: false # MONO-Ausgabe bleibt monochrom
 
 astrometry:
   enabled: true # WCS-Solve aktiv

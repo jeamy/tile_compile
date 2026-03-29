@@ -32,7 +32,7 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 12. [Local Metrics](#12-local-metrics)
 13. [Synthetic](#13-synthetic)
 14. [Reconstruction](#14-reconstruction)
-15. [Debayer](#15-debayer)
+15. [Debayer (automatische Phase)](#15-debayer-automatische-phase)
 16. [Astrometry](#16-astrometry)
 17. [BGE (Background Gradient Extraction)](#17-bge-background-gradient-extraction) **NEU in v3.3**
 18. [PCC](#18-pcc)
@@ -280,6 +280,11 @@ Kalibrierungs-Einstellungen (Bias, Dark, Flat). Wird **vor** der Pipeline auf di
 - **Bias**: Subtrahiert das Ausleserauschen (Offset)
 - **Dark**: Subtrahiert thermisches Rauschen (Dunkelstrom)
 - **Flat**: Korrigiert Vignettierung und Staubkörner
+
+**Laufzeitverhalten:** Jede aktivierte Stufe benötigt mindestens eine
+konfigurierte Quelle:
+- Verzeichnis über `*_dir`
+- oder explizites Master-Frame über `*_master`
 
 ---
 
@@ -1347,21 +1352,13 @@ Gewichtete Tile-Rekonstruktion, Hanning-OLA und die Boundary-Diagnostik sind Lau
 
 ---
 
-## 15. Debayer
+## 15. Debayer (automatische Phase)
 
-### `debayer`
+Es gibt keinen eigenständigen `debayer`-Konfigurationsschlüssel mehr.
 
-| Eigenschaft | Wert |
-|-------------|------|
-| **Typ** | boolean |
-| **Default** | `true` |
-
-**Zweck:** Demosaicing des finalen gestackten CFA-Mosaiks in Phase 11.
-
-- **`true`**: Nearest-Neighbor-Demosaic → R/G/B FITS + `stacked_rgb.fits` (3-Plane FITS-Cube)
-- **`false`**: Nur CFA-Mosaik `stacked.fits` wird erzeugt (für externe Debayer-Tools)
-
-**Hinweis:** Bei `color_mode=MONO` wird die Debayer-Phase als "ok/MONO" beendet ohne Aktion.
+Das Verhalten ist fest:
+- `OSC`: Der Runner debayert den finalen CFA-Stack immer automatisch in RGB-Ausgaben.
+- `MONO`: Die Phase ist ein No-Op und endet als `ok/MONO`.
 
 ---
 
@@ -2257,6 +2254,10 @@ Laufzeit-Beschränkungen.
 
 **Zweck:** Maximaler Zeitfaktor für Tile-Analyse relativ zum einfachen Stack. Wenn die Tile-Analyse länger als `factor × stack_time` dauert, wird eine Warnung erzeugt.
 
+**Laufzeitverhalten:** Der Runner schreibt das gemessene Verhältnis nach
+`artifacts/runtime_limits.json` und erzeugt bei Überschreitung der Schwelle
+eine Warnung. Dieser Parameter bricht den Lauf nicht selbst ab.
+
 ---
 
 ### `runtime_limits.hard_abort_hours`
@@ -2268,6 +2269,10 @@ Laufzeit-Beschränkungen.
 | **Default** | `6.0` |
 
 **Zweck:** Maximale Laufzeit in Stunden bevor die Pipeline abgebrochen wird (Hard Limit).
+
+**Laufzeitverhalten:** Wird im Hauptlauf und im Resume-Pfad nach größeren
+Phasengrenzen geprüft. Bei Überschreitung endet der Lauf mit
+`runtime_limit_exceeded`.
 
 ---
 
@@ -2446,9 +2451,6 @@ synthetic:
   clustering:
     mode: kmeans
     cluster_count_range: [5, 30]
-
-# Debayer
-debayer: true
 
 # Astrometry
 astrometry:
@@ -2654,7 +2656,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 
 ### A.6 Debayer / Astrometry / PCC / Stacking / Validation / Runtime
 
-- `debayer`: aktiviert finale OSC-CFA→RGB-Konvertierung.
+- Debayer ist eine automatische OSC-Pipeline-Phase und kein separater Config-Schalter mehr.
 - `astrometry.enabled`: aktiviert Plate-Solving-Phase.
 - `astrometry.astap_bin`: Pfad zur ASTAP-Binary.
 - `astrometry.astap_data_dir`: Pfad zu ASTAP-Katalogdaten.

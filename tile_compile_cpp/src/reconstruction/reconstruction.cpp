@@ -59,6 +59,66 @@ float percentile_from_mat(const cv::Mat& m, float p) {
     return vals[idx];
 }
 
+float quantize_to_step(float value, float lo, float hi, float step) {
+    if (!(std::isfinite(value) && std::isfinite(lo) && std::isfinite(hi))) {
+        return lo;
+    }
+    if (!(step > 0.0f) || !(hi > lo)) {
+        return std::clamp(value, lo, hi);
+    }
+    const float clamped = std::clamp(value, lo, hi);
+    const float buckets = std::round((clamped - lo) / step);
+    return std::clamp(lo + buckets * step, lo, hi);
+}
+
+float select_wiener_quality_target(float q_struct_tile,
+                                   const config::WienerDenoiseConfig& cfg) {
+    float best_q = cfg.q_min;
+    float best_cost = std::numeric_limits<float>::infinity();
+    int iter = 0;
+    for (float q = cfg.q_min;
+         q <= cfg.q_max + 0.5f * cfg.q_step && iter < cfg.max_iterations;
+         q += cfg.q_step, ++iter) {
+        const float q_candidate = std::clamp(q, cfg.q_min, cfg.q_max);
+        const float cost = std::fabs(q_struct_tile - q_candidate);
+        if (cost < best_cost) {
+            best_cost = cost;
+            best_q = q_candidate;
+        }
+    }
+    return quantize_to_step(best_q, cfg.q_min, cfg.q_max, cfg.q_step);
+}
+
+void rgb_to_chroma_space(const cv::Mat& R, const cv::Mat& G, const cv::Mat& B,
+                         const std::string& color_space,
+                         cv::Mat& Y, cv::Mat& C1, cv::Mat& C2) {
+    if (color_space == "opponent_linear") {
+        Y = (R + G + B) / 3.0f;
+        C1 = R - G;
+        C2 = B - G;
+        return;
+    }
+
+    Y = 0.25f * R + 0.5f * G + 0.25f * B;
+    C1 = B - Y;
+    C2 = R - Y;
+}
+
+void chroma_space_to_rgb(const cv::Mat& Y, const cv::Mat& C1, const cv::Mat& C2,
+                         const std::string& color_space,
+                         cv::Mat& R, cv::Mat& G, cv::Mat& B) {
+    if (color_space == "opponent_linear") {
+        G = Y - (C1 + C2) / 3.0f;
+        R = G + C1;
+        B = G + C2;
+        return;
+    }
+
+    R = Y + C2;
+    B = Y + C1;
+    G = 2.0f * Y - 0.5f * (R + B);
+}
+
 cv::Mat soft_threshold_signed(const cv::Mat& src, float tau) {
     if (!(tau > 0.0f)) return src.clone();
     cv::Mat abs_src = cv::abs(src);
@@ -206,8 +266,28 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
     if (!cfg.enabled) return tile;
     if (is_star_tile) return tile;
     if (!(sigma > 0.0f)) return tile;
-    if (snr_tile >= cfg.snr_threshold) return tile;
-    if (q_struct_tile <= cfg.q_min) return tile;
+    const float q_target = select_wiener_quality_target(q_struct_tile, cfg);
+    if (q_target >= cfg.q_max && snr_tile >= cfg.snr_threshold) return tile;
+
+    const float q_span = std::max(1.0e-6f, cfg.q_max - cfg.q_min);
+    const float q_factor =
+        1.0f - std::clamp((q_target - cfg.q_min) / q_span, 0.0f, 1.0f);
+
+    const float snr_floor = std::max(0.0f, std::min(cfg.min_snr, cfg.snr_threshold));
+    const float snr_ceiling = std::max(cfg.min_snr, cfg.snr_threshold);
+    const float snr_stable = std::max(snr_tile, snr_floor);
+    float snr_factor = 1.0f;
+    if (snr_ceiling > snr_floor + 1.0e-6f) {
+        snr_factor = 1.0f -
+                     std::clamp((snr_stable - snr_floor) /
+                                    (snr_ceiling - snr_floor),
+                                0.0f, 1.0f);
+    } else if (snr_tile >= cfg.snr_threshold) {
+        snr_factor = 0.0f;
+    }
+
+    const float filter_strength = std::clamp(q_factor * snr_factor, 0.0f, 1.0f);
+    if (!(filter_strength > 1.0e-3f)) return tile;
 
     const int h = static_cast<int>(tile.rows());
     const int w = static_cast<int>(tile.cols());
@@ -228,7 +308,8 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
     cv::split(F, planes);
     cv::Mat power = planes[0].mul(planes[0]) + planes[1].mul(planes[1]);
 
-    const float sigma_sq = sigma * sigma;
+    const float sigma_sq =
+        sigma * sigma * (0.25f + 0.75f * filter_strength);
     const float eps = 1.0e-12f;
     cv::Mat H = power - sigma_sq;
     cv::threshold(H, H, 0.0, 0.0, cv::THRESH_TOZERO);
@@ -244,7 +325,18 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
     cv::Mat filtered;
     cv::dft(F, filtered, cv::DFT_INVERSE | cv::DFT_SCALE | cv::DFT_REAL_OUTPUT);
 
-    cv::Mat cropped = filtered(cv::Rect(pad_w, pad_h, w, h));
+    // FIX: Add back the background estimate that was subtracted before FFT
+    cv::Mat restored = filtered + padded_bg;
+
+    cv::Mat cropped = restored(cv::Rect(pad_w, pad_h, w, h));
+    
+    if (cfg.strength > 0.05f && std::fabs(sigma) > 1e-6f) {
+        double minV, maxV;
+        cv::minMaxLoc(cropped, &minV, &maxV);
+        std::cout << "[Wiener] sigma=" << sigma << " snr=" << snr_tile 
+                  << " q=" << q_struct_tile << " strength=" << cfg.strength 
+                  << " range=[" << minV << ".." << maxV << "]" << std::endl;
+    }
     Matrix2Df out(h, w);
     if (cropped.isContinuous()) {
         std::memcpy(out.data(), cropped.ptr<float>(),
@@ -255,6 +347,10 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
             float* dst = out.data() + static_cast<size_t>(r) * static_cast<size_t>(w);
             std::memcpy(dst, src, static_cast<size_t>(w) * sizeof(float));
         }
+    }
+    if (filter_strength < 1.0f) {
+        out = ((1.0f - filter_strength) * tile.array() +
+               filter_strength * out.array()).matrix();
     }
     return out;
 }
@@ -338,6 +434,13 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
 
     // 5. Reconstruct: T' = B + R'. Non-finite input support stays invalid.
     cv::Mat out_cv = bg + result_resid;
+    
+    if (cfg.alpha > 0.1f && std::fabs(sigma) > 1e-6f) {
+        double minV, maxV;
+        cv::minMaxLoc(out_cv, &minV, &maxV);
+        std::cout << "[SoftThreshold] sigma=" << sigma << " alpha=" << cfg.alpha 
+                  << " tau=" << tau << " range=[" << minV << ".." << maxV << "]" << std::endl;
+    }
     cv::Mat invalid_mask;
     cv::bitwise_not(valid_mask, invalid_mask);
     out_cv.setTo(0.0f, invalid_mask);
@@ -369,17 +472,17 @@ void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
     cv::Mat G(g.rows(), g.cols(), CV_32F, g.data());
     cv::Mat B(b.rows(), b.cols(), CV_32F, b.data());
 
-    // Linear Y + opponent chroma representation.
-    cv::Mat Y = 0.25f * R + 0.5f * G + 0.25f * B;
-    cv::Mat Cb = B - Y;
-    cv::Mat Cr = R - Y;
+    if (cfg.blend.mode != "chroma_only") return;
+
+    cv::Mat Y, C1, C2;
+    rgb_to_chroma_space(R, G, B, cfg.color_space, Y, C1, C2);
 
     // Dataset-aware adaptation: scale denoise strength from measured chroma noise.
     // This keeps fine detail on clean data and increases suppression on noisy data.
     config::ChromaDenoiseConfig tuned = cfg;
-    const float sigma_cb = robust_sigma_mad_from_mat(Cb);
-    const float sigma_cr = robust_sigma_mad_from_mat(Cr);
-    const float chroma_sigma = 0.5f * (sigma_cb + sigma_cr);
+    const float sigma_c1 = robust_sigma_mad_from_mat(C1);
+    const float sigma_c2 = robust_sigma_mad_from_mat(C2);
+    const float chroma_sigma = 0.5f * (sigma_c1 + sigma_c2);
     const float ref_sigma = 0.02f;
     const float adapt = std::clamp(chroma_sigma / ref_sigma, 0.8f, 1.4f);
     tuned.blend.amount = std::clamp(cfg.blend.amount * adapt, 0.0f, 1.0f);
@@ -388,11 +491,11 @@ void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
     tuned.chroma_bilateral.sigma_range =
         std::max(1.0e-4f, cfg.chroma_bilateral.sigma_range * std::sqrt(adapt));
 
-    cv::Mat Cb_orig = Cb.clone();
-    cv::Mat Cr_orig = Cr.clone();
+    cv::Mat C1_orig = C1.clone();
+    cv::Mat C2_orig = C2.clone();
 
-    denoise_chroma_plane_inplace(Cb, tuned);
-    denoise_chroma_plane_inplace(Cr, tuned);
+    denoise_chroma_plane_inplace(C1, tuned);
+    denoise_chroma_plane_inplace(C2, tuned);
 
     cv::Mat amount_map(Y.size(), CV_32F, cv::Scalar(tuned.blend.amount));
     if (tuned.protect_luma) {
@@ -403,12 +506,11 @@ void chroma_denoise_rgb_inplace(Matrix2Df& r, Matrix2Df& g, Matrix2Df& b,
     }
 
     cv::Mat one_minus = 1.0f - amount_map;
-    cv::Mat Cb_mix = Cb_orig.mul(one_minus) + Cb.mul(amount_map);
-    cv::Mat Cr_mix = Cr_orig.mul(one_minus) + Cr.mul(amount_map);
+    cv::Mat C1_mix = C1_orig.mul(one_minus) + C1.mul(amount_map);
+    cv::Mat C2_mix = C2_orig.mul(one_minus) + C2.mul(amount_map);
 
-    cv::Mat R_new = Y + Cr_mix;
-    cv::Mat B_new = Y + Cb_mix;
-    cv::Mat G_new = 2.0f * Y - 0.5f * (R_new + B_new);
+    cv::Mat R_new, G_new, B_new;
+    chroma_space_to_rgb(Y, C1_mix, C2_mix, cfg.color_space, R_new, G_new, B_new);
 
     R_new.copyTo(R);
     G_new.copyTo(G);

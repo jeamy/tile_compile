@@ -188,6 +188,7 @@ properties:
       max_divisor: {type: integer, minimum: 1}
       overlap_fraction: {type: number, minimum: 0, maximum: 0.5}
       star_min_count: {type: integer, minimum: 0}
+      star_soft_count: {type: integer, minimum: 0}
   local_metrics:
     type: object
     properties:
@@ -208,6 +209,7 @@ properties:
           enabled: {type: boolean}
           lambda: {type: number, minimum: 0, maximum: 1}
           passes: {type: integer, minimum: 0}
+          tau_local: {type: number, exclusiveMinimum: 0}
       star_mode:
         type: object
         properties:
@@ -244,7 +246,6 @@ properties:
             items: {type: integer, minimum: 1}
             minItems: 2
             maxItems: 2
-  debayer: {type: boolean}
   astrometry:
     type: object
     properties:

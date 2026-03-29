@@ -60,6 +60,25 @@
      REQUIRE(B(3, 3) == Catch::Approx(150.0f).epsilon(1e-5));
  }
 
+ TEST_CASE("suppress_isolated_chroma_speckles_fixes_small_red_cluster") {
+     tile_compile::Matrix2Df R = tile_compile::Matrix2Df::Constant(9, 9, 100.0f);
+     tile_compile::Matrix2Df G = tile_compile::Matrix2Df::Constant(9, 9, 100.0f);
+     tile_compile::Matrix2Df B = tile_compile::Matrix2Df::Constant(9, 9, 100.0f);
+
+     R(4, 4) = 175.0f;
+     R(4, 5) = 172.0f;
+     R(5, 4) = 178.0f;
+
+     std::vector<uint8_t> mask(static_cast<size_t>(9 * 9), 1u);
+     const auto stats = tile_compile::image::suppress_isolated_chroma_speckles_rgb_inplace(
+         R, G, B, &mask, 9, 9);
+
+     REQUIRE(stats.corrected_pixels >= 3);
+     REQUIRE(R(4, 4) == Catch::Approx(100.0f).epsilon(1e-5));
+     REQUIRE(R(4, 5) == Catch::Approx(100.0f).epsilon(1e-5));
+     REQUIRE(R(5, 4) == Catch::Approx(100.0f).epsilon(1e-5));
+ }
+
  TEST_CASE("cosmetic_correction_cfa_fixes_local_same_parity_outlier") {
      tile_compile::Matrix2Df mosaic = tile_compile::Matrix2Df::Constant(9, 9, 100.0f);
 

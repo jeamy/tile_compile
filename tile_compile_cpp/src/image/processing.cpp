@@ -395,11 +395,8 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
         (valid_mask != nullptr && mask_rows == h && mask_cols == w &&
          static_cast<int>(valid_mask->size()) == h * w);
 
-    const Matrix2Df srcR = R;
-    const Matrix2Df srcG = G;
-    const Matrix2Df srcB = B;
-
-    auto is_supported = [&](int y, int x) -> bool {
+    auto is_supported = [&](const Matrix2Df& srcR, const Matrix2Df& srcG,
+                            const Matrix2Df& srcB, int y, int x) -> bool {
         if (use_mask && (*valid_mask)[static_cast<size_t>(y * w + x)] == 0u) {
             return false;
         }
@@ -428,91 +425,115 @@ ChromaSpeckleSuppressionStats suppress_isolated_chroma_speckles_rgb_inplace(
         return median_small(std::move(devs));
     };
 
-    for (int y = 1; y < h - 1; ++y) {
-        for (int x = 1; x < w - 1; ++x) {
-            if (!is_supported(y, x)) continue;
+    constexpr int kRadius = 2;
+    constexpr int kPasses = 2;
 
-            std::vector<float> neighR;
-            std::vector<float> neighG;
-            std::vector<float> neighB;
-            std::vector<float> neighL;
-            neighR.reserve(8);
-            neighG.reserve(8);
-            neighB.reserve(8);
-            neighL.reserve(8);
+    for (int pass = 0; pass < kPasses; ++pass) {
+        const Matrix2Df srcR = R;
+        const Matrix2Df srcG = G;
+        const Matrix2Df srcB = B;
 
-            for (int dy = -1; dy <= 1; ++dy) {
-                for (int dx = -1; dx <= 1; ++dx) {
-                    if (dx == 0 && dy == 0) continue;
-                    const int yy = y + dy;
-                    const int xx = x + dx;
-                    if (!is_supported(yy, xx)) continue;
-                    const float nr = srcR(yy, xx);
-                    const float ng = srcG(yy, xx);
-                    const float nb = srcB(yy, xx);
-                    neighR.push_back(nr);
-                    neighG.push_back(ng);
-                    neighB.push_back(nb);
-                    neighL.push_back(luma(nr, ng, nb));
+        for (int y = kRadius; y < h - kRadius; ++y) {
+            for (int x = kRadius; x < w - kRadius; ++x) {
+                if (!is_supported(srcR, srcG, srcB, y, x)) continue;
+
+                std::vector<float> neighR;
+                std::vector<float> neighG;
+                std::vector<float> neighB;
+                std::vector<float> neighL;
+                neighR.reserve(24);
+                neighG.reserve(24);
+                neighB.reserve(24);
+                neighL.reserve(24);
+
+                int bright_support = 0;
+                for (int dy = -kRadius; dy <= kRadius; ++dy) {
+                    for (int dx = -kRadius; dx <= kRadius; ++dx) {
+                        if (dx == 0 && dy == 0) continue;
+                        const int yy = y + dy;
+                        const int xx = x + dx;
+                        if (!is_supported(srcR, srcG, srcB, yy, xx)) continue;
+                        const float nr = srcR(yy, xx);
+                        const float ng = srcG(yy, xx);
+                        const float nb = srcB(yy, xx);
+                        neighR.push_back(nr);
+                        neighG.push_back(ng);
+                        neighB.push_back(nb);
+                        neighL.push_back(luma(nr, ng, nb));
+                    }
                 }
+
+                if (neighR.size() < 12u) continue;
+                if (pass == 0) {
+                    ++stats.candidate_pixels;
+                }
+
+                const float medR = median_small(neighR);
+                const float medG = median_small(neighG);
+                const float medB = median_small(neighB);
+                const float medL = median_small(neighL);
+                if (!(std::isfinite(medL) && medL > 0.0f)) continue;
+
+                const float madL = 1.4826f * mad_small(neighL, medL);
+                const float curR = srcR(y, x);
+                const float curG = srcG(y, x);
+                const float curB = srcB(y, x);
+                const float curL = luma(curR, curG, curB);
+
+                const float bright_support_threshold =
+                    medL + std::max(3.0f * madL, 0.08f * medL);
+                for (float nl : neighL) {
+                    if (nl > bright_support_threshold) {
+                        ++bright_support;
+                    }
+                }
+
+                // Guard real compact structure: fix faint/small chroma defects,
+                // not stars or coherent bright detail.
+                const float luma_guard = std::max(10.0f * madL, 0.30f * medL);
+                if (curL > medL + luma_guard) continue;
+                if (bright_support >= 4) continue;
+
+                const float resR = std::abs(curR - medR);
+                const float resG = std::abs(curG - medG);
+                const float resB = std::abs(curB - medB);
+
+                const float thrFloor = 0.010f * medL + 1.0e-3f;
+                const float thrR =
+                    std::max(4.5f * 1.4826f * mad_small(neighR, medR), thrFloor);
+                const float thrG =
+                    std::max(4.5f * 1.4826f * mad_small(neighG, medG), thrFloor);
+                const float thrB =
+                    std::max(4.5f * 1.4826f * mad_small(neighB, medB), thrFloor);
+
+                const bool badR = resR > thrR;
+                const bool badG = resG > thrG;
+                const bool badB = resB > thrB;
+                const int badCount = static_cast<int>(badR) + static_cast<int>(badG) +
+                                     static_cast<int>(badB);
+                if (badCount != 1) continue;
+
+                std::array<float, 3> residuals{resR, resG, resB};
+                std::sort(residuals.begin(), residuals.end(), std::greater<float>());
+                if (!(residuals[0] > residuals[1] * 1.45f)) continue;
+
+                const float curMax = std::max({curR, curG, curB});
+                const float curMin = std::min({curR, curG, curB});
+                const float medMax = std::max({medR, medG, medB});
+                const float medMin = std::min({medR, medG, medB});
+                const float curRatio = curMax / std::max(curMin, 1.0e-6f);
+                const float medRatio = medMax / std::max(medMin, 1.0e-6f);
+                if (curRatio < std::max(1.45f, medRatio + 0.20f)) continue;
+
+                if (badR) {
+                    R(y, x) = medR;
+                } else if (badG) {
+                    G(y, x) = medG;
+                } else {
+                    B(y, x) = medB;
+                }
+                ++stats.corrected_pixels;
             }
-
-            if (neighR.size() < 5u) continue;
-            ++stats.candidate_pixels;
-
-            const float medR = median_small(neighR);
-            const float medG = median_small(neighG);
-            const float medB = median_small(neighB);
-            const float medL = median_small(neighL);
-            if (!(std::isfinite(medL) && medL > 0.0f)) continue;
-
-            const float madL = 1.4826f * mad_small(neighL, medL);
-            const float curR = srcR(y, x);
-            const float curG = srcG(y, x);
-            const float curB = srcB(y, x);
-            const float curL = luma(curR, curG, curB);
-
-            // Guard bright stellar structure: fix faint isolated chroma defects,
-            // not real star cores or sharp nebular edges.
-            const float luma_guard = std::max(10.0f * madL, 0.18f * medL);
-            if (curL > medL + luma_guard) continue;
-
-            const float resR = std::abs(curR - medR);
-            const float resG = std::abs(curG - medG);
-            const float resB = std::abs(curB - medB);
-
-            const float thrFloor = 0.015f * medL + 1.0e-3f;
-            const float thrR = std::max(5.5f * 1.4826f * mad_small(neighR, medR), thrFloor);
-            const float thrG = std::max(5.5f * 1.4826f * mad_small(neighG, medG), thrFloor);
-            const float thrB = std::max(5.5f * 1.4826f * mad_small(neighB, medB), thrFloor);
-
-            const bool badR = resR > thrR;
-            const bool badG = resG > thrG;
-            const bool badB = resB > thrB;
-            const int badCount = static_cast<int>(badR) + static_cast<int>(badG) +
-                                 static_cast<int>(badB);
-            if (badCount != 1) continue;
-
-            std::array<float, 3> residuals{resR, resG, resB};
-            std::sort(residuals.begin(), residuals.end(), std::greater<float>());
-            if (!(residuals[0] > residuals[1] * 1.6f)) continue;
-
-            const float curMax = std::max({curR, curG, curB});
-            const float curMin = std::min({curR, curG, curB});
-            const float medMax = std::max({medR, medG, medB});
-            const float medMin = std::min({medR, medG, medB});
-            const float curRatio = curMax / std::max(curMin, 1.0e-6f);
-            const float medRatio = medMax / std::max(medMin, 1.0e-6f);
-            if (curRatio < std::max(1.6f, medRatio + 0.35f)) continue;
-
-            if (badR) {
-                R(y, x) = medR;
-            } else if (badG) {
-                G(y, x) = medG;
-            } else {
-                B(y, x) = medB;
-            }
-            ++stats.corrected_pixels;
         }
     }
 

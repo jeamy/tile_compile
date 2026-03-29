@@ -492,9 +492,6 @@ Config Config::from_yaml(const YAML::Node &node) {
     }
   }
 
-  if (node["debayer"])
-    cfg.debayer = node["debayer"].as<bool>();
-
   if (node["astrometry"]) {
     auto a = node["astrometry"];
     if (a["enabled"])
@@ -902,8 +899,6 @@ YAML::Node Config::to_yaml() const {
   node["synthetic"]["clustering"]["cluster_count_range"].push_back(
       synthetic.clustering.cluster_count_range[1]);
 
-  node["debayer"] = debayer;
-
   node["astrometry"]["enabled"] = astrometry.enabled;
   node["astrometry"]["astap_bin"] = astrometry.astap_bin;
   node["astrometry"]["astap_data_dir"] = astrometry.astap_data_dir;
@@ -1033,6 +1028,30 @@ void Config::validate() const {
       linearity.strictness != "permissive") {
     throw ValidationError(
         "linearity.strictness must be 'strict', 'moderate', or 'permissive'");
+  }
+
+  if (calibration.dark_match_exposure_tolerance_percent < 0.0f) {
+    throw ValidationError(
+        "calibration.dark_match_exposure_tolerance_percent must be >= 0");
+  }
+  if (calibration.dark_match_temp_tolerance_c < 0.0f) {
+    throw ValidationError(
+        "calibration.dark_match_temp_tolerance_c must be >= 0");
+  }
+  if (calibration.use_bias && calibration.bias_dir.empty() &&
+      calibration.bias_master.empty()) {
+    throw ValidationError(
+        "calibration.use_bias requires calibration.bias_dir or calibration.bias_master");
+  }
+  if (calibration.use_dark && calibration.darks_dir.empty() &&
+      calibration.dark_master.empty()) {
+    throw ValidationError(
+        "calibration.use_dark requires calibration.darks_dir or calibration.dark_master");
+  }
+  if (calibration.use_flat && calibration.flats_dir.empty() &&
+      calibration.flat_master.empty()) {
+    throw ValidationError(
+        "calibration.use_flat requires calibration.flats_dir or calibration.flat_master");
   }
 
   if (assumptions.frames_min < 1)
@@ -1551,7 +1570,6 @@ std::string get_schema_json() {
                       "frames_min":{"type":"integer","minimum":1},
                       "frames_max":{"type":"integer","minimum":1},
                       "clustering":{"type":"object","properties":{"mode":{"type":"string","enum":["kmeans","quantile"]},"cluster_count_range":{"type":"array","items":{"type":"integer","minimum":1},"minItems":2,"maxItems":2}}} } },
-    "debayer": {"type":"boolean"},
     "astrometry": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "astap_bin":{"type":"string"},

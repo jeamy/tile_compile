@@ -678,11 +678,6 @@ data:
   mode: OSC
   bayer_pattern: RGGB  # Camera-dependent!
   
-debayer:
-  enabled: true
-  method: bilinear
-  preserve_bayer_normalization: true
-  
 pcc:
   enabled: true
   source: auto
@@ -695,9 +690,6 @@ pcc:
 ```yaml
 data:
   mode: MONO
-  
-debayer:
-  enabled: false
   
 # No PCC for mono (only for RGB composite)
 ```
@@ -785,10 +777,6 @@ reconstruction:
   ola_window: hann
   quality_weight_exponent: 1.0
   
-debayer:
-  enabled: true
-  method: bilinear
-  
 pcc:
   enabled: true
   source: auto
@@ -815,10 +803,6 @@ global_metrics:
   
 reconstruction:
   quality_weight_exponent: 1.5
-  
-debayer:
-  enabled: true
-  method: bilinear
   
 pcc:
   enabled: true

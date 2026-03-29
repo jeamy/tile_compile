@@ -361,7 +361,6 @@ struct Config {
   TileConfig tile;
   LocalMetricsConfig local_metrics;
   SyntheticConfig synthetic;
-  bool debayer = true;
   AstrometryConfig astrometry;
   BGEConfig bge;
   PCCConfig pcc;

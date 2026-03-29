@@ -144,7 +144,6 @@ synthetic:
     cluster_count_range:
     - 3
     - 12
-debayer: true
 astrometry:
   enabled: true
   astap_bin: ''

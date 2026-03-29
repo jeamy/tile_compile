@@ -47,6 +47,37 @@ runtime_limits:
   REQUIRE_THROWS(cfg.validate());
 }
 
+TEST_CASE("runtime_limits_thresholds_parse_and_validate") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  tile_analysis_max_factor_vs_stack: 2.5
+  hard_abort_hours: 3.5
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(cfg.runtime_limits.tile_analysis_max_factor_vs_stack ==
+          Catch::Approx(2.5f));
+  REQUIRE(cfg.runtime_limits.hard_abort_hours == Catch::Approx(3.5f));
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("runtime_limits_thresholds_reject_non_positive_values") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  tile_analysis_max_factor_vs_stack: 0.0
+  hard_abort_hours: -1.0
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE_THROWS(cfg.validate());
+}
+
 TEST_CASE("acceleration_backend_selection_keeps_cpu_requests") {
   const auto selection = tile_compile::core::select_acceleration_backend(
       "cpu", tile_compile::core::AccelerationPhase::prewarp);

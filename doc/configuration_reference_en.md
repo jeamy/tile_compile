@@ -30,7 +30,7 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 12. [Local Metrics](#12-local-metrics)
 13. [Synthetic](#13-synthetic)
 14. [Reconstruction](#14-reconstruction)
-15. [Debayer](#15-debayer)
+15. [Debayer (automatic phase)](#15-debayer-automatic-phase)
 16. [Astrometry](#16-astrometry)
 17. [BGE (Background Gradient Extraction)](#17-bge-background-gradient-extraction) **NEW in v3.3**
 18. [PCC](#18-pcc)
@@ -217,6 +217,11 @@ Calibration frame processing.
 | **Default** | `false` (all three) |
 
 **Purpose:** Enable per-frame-type calibration stages.
+
+**Runtime behavior:** Each enabled stage requires at least one configured
+source:
+- directory input via `*_dir`
+- or explicit master via `*_master`
 
 ### `calibration.bias_use_master` / `calibration.dark_use_master` / `calibration.flat_use_master`
 
@@ -934,18 +939,13 @@ Weighted tile reconstruction, Hanning OLA, and boundary diagnostics are runtime 
 
 ---
 
-## 15. Debayer
+## 15. Debayer (automatic phase)
 
-Debayering settings for OSC data.
+There is no standalone `debayer` config key anymore.
 
-### `debayer`
-
-| Property | Value |
-|----------|-------|
-| **Type** | boolean |
-| **Default** | `true` |
-
-**Purpose:** Debayer final CFA stack (OSC). For MONO data, this phase is skipped.
+Debayering is automatic:
+- `OSC`: the runner always debayers the final CFA stack into RGB outputs after stacking.
+- `MONO`: the phase is a no-op and ends as `ok/MONO`.
 
 ---
 
@@ -1634,6 +1634,10 @@ Runtime and resource limits.
 
 **Purpose:** Warn when tile analysis exceeds this factor vs baseline stack time.
 
+**Runtime behavior:** The runner writes the measured ratio to
+`artifacts/runtime_limits.json` and emits a warning when the configured
+threshold is exceeded. This parameter does not stop the run by itself.
+
 ### `runtime_limits.hard_abort_hours`
 
 | Property | Value |
@@ -1642,6 +1646,10 @@ Runtime and resource limits.
 | **Default** | `6.0` |
 
 **Purpose:** Hard upper runtime limit in hours.
+
+**Runtime behavior:** Checked after major phase boundaries in the main run and
+resume path. Exceeding the limit aborts the run with
+`runtime_limit_exceeded`.
 
 ### `runtime_limits.allow_emergency_mode`
 
@@ -1796,7 +1804,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 
 ### A.6 Debayer / Astrometry / PCC / Stacking / Validation / Runtime
 
-- `debayer`: enables OSC CFA-to-RGB final conversion stage.
+- Debayer is an automatic OSC pipeline phase and no longer a standalone config key.
 - `astrometry.enabled`: enables plate-solving stage.
 - `astrometry.astap_bin`: ASTAP executable path.
 - `astrometry.astap_data_dir`: ASTAP star catalog/data path.

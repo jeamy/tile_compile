@@ -36,6 +36,7 @@ struct SyntheticWeightingDecision {
   int boundary_pair_count = 0;
   float boundary_pair_mean_abs_diff_p95 = 0.0f;
   float boundary_pair_scale_ratio_deviation_p95 = 0.0f;
+  float boundary_post_background_delta_p95_abs = 0.0f;
   float local_weight_mean_abs_delta_p95 = 0.0f;
   float local_weight_correlation_p05 = 1.0f;
 };
@@ -49,6 +50,7 @@ inline SyntheticWeightingDecision decide_synthetic_weighting(
     const std::string &requested_weighting, int boundary_pair_count,
     float boundary_pair_mean_abs_diff_p95,
     float boundary_pair_scale_ratio_deviation_p95,
+    float boundary_post_background_delta_p95_abs,
     float local_weight_mean_abs_delta_p95,
     float local_weight_correlation_p05) {
   SyntheticWeightingDecision out;
@@ -58,6 +60,8 @@ inline SyntheticWeightingDecision decide_synthetic_weighting(
   out.boundary_pair_mean_abs_diff_p95 = boundary_pair_mean_abs_diff_p95;
   out.boundary_pair_scale_ratio_deviation_p95 =
       boundary_pair_scale_ratio_deviation_p95;
+  out.boundary_post_background_delta_p95_abs =
+      boundary_post_background_delta_p95_abs;
   out.local_weight_mean_abs_delta_p95 = local_weight_mean_abs_delta_p95;
   out.local_weight_correlation_p05 = local_weight_correlation_p05;
 
@@ -66,24 +70,20 @@ inline SyntheticWeightingDecision decide_synthetic_weighting(
   }
 
   constexpr int kMinObservedBoundaryPairs = 8;
-  constexpr float kBoundaryMeanAbsDiffP95 = 0.010f;
-  constexpr float kBoundaryScaleRatioDeviationP95 = 0.050f;
-  constexpr float kLocalWeightMeanAbsDeltaP95 = 3.0f;
-  constexpr float kLocalWeightCorrelationP05 = 0.10f;
+  // Guard only against clearly visible, severe seam regressions.
+  // Earlier thresholds were tight enough to reject historically good runs.
+  constexpr float kBoundaryMeanAbsDiffP95 = 0.25f;
+  constexpr float kBoundaryPostBackgroundDeltaP95 = 0.25f;
 
   const bool enough_pairs = boundary_pair_count >= kMinObservedBoundaryPairs;
-  const bool boundary_regression =
+  const bool severe_boundary_regression =
       (std::isfinite(boundary_pair_mean_abs_diff_p95) &&
-       boundary_pair_mean_abs_diff_p95 > kBoundaryMeanAbsDiffP95) ||
-      (std::isfinite(boundary_pair_scale_ratio_deviation_p95) &&
-       boundary_pair_scale_ratio_deviation_p95 > kBoundaryScaleRatioDeviationP95);
-  const bool weight_disagreement =
-      (std::isfinite(local_weight_mean_abs_delta_p95) &&
-       local_weight_mean_abs_delta_p95 > kLocalWeightMeanAbsDeltaP95) ||
-      (std::isfinite(local_weight_correlation_p05) &&
-       local_weight_correlation_p05 < kLocalWeightCorrelationP05);
+       boundary_pair_mean_abs_diff_p95 > kBoundaryMeanAbsDiffP95);
+  const bool severe_background_step =
+      (std::isfinite(boundary_post_background_delta_p95_abs) &&
+       boundary_post_background_delta_p95_abs > kBoundaryPostBackgroundDeltaP95);
 
-  if (enough_pairs && boundary_regression && weight_disagreement) {
+  if (enough_pairs && severe_boundary_regression && severe_background_step) {
     out.effective_weighting = "global";
     out.tile_seam_guard_triggered = true;
   }

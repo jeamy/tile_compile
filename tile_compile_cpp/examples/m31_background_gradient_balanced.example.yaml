@@ -162,7 +162,6 @@ synthetic:
     mode: kmeans
     cluster_count_range: [3, 12]
 
-debayer: true
 
 astrometry:
   enabled: true

@@ -89,7 +89,6 @@ chroma_denoise:
 data:
   color_mode: OSC
   linear_required: true
-debayer: true
 dithering:
   enabled: true
   min_shift_px: 0.7

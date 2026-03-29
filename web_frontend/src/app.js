@@ -10,7 +10,6 @@ const HISTORY_CURRENT_RUN_KEY = "gui2.historyCurrentRunId";
 const LOCALE_KEY = "gui2.locale";
 const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
 const PRESETS_DIR_KEY = "gui2.presetsDir";
-const CALIBRATION_PATH_KEY_PREFIX = "gui2.calibrationPath";
 const LAST_SCAN_COLOR_MODE_KEY = "gui2.lastScanColorMode";
 const ASTROMETRY_LAST_RESULT_KEY = "gui2.tools.astrometry.lastResult";
 const ASTROMETRY_LAST_WCS_KEY = "gui2.tools.astrometry.lastWcs";
@@ -126,6 +125,7 @@ let serverUiState = {};
 let serverUiStateLoaded = false;
 let serverUiStateSaveTimer = null;
 let serverUiStateSavePromise = Promise.resolve();
+let configPatchRequestSeq = 0;
 const SERVER_UI_STATE_MIGRATION_KEYS = [
   CONFIG_DRAFT_KEY,
   CONFIG_VALIDATION_STATE_KEY,
@@ -1255,33 +1255,6 @@ function scanCalibrationActivePath(binding, useMaster = scanCalibrationUseMaster
   return useMaster ? binding.masterPath : binding.dirPath;
 }
 
-function calibrationStorageKey(binding, useMaster) {
-  const stem = String(binding?.storageKey || binding?.inputId || "cal").trim();
-  return `${CALIBRATION_PATH_KEY_PREFIX}.${stem}.${useMaster ? "master" : "dir"}`;
-}
-
-function storedCalibrationPath(binding, useMaster) {
-  const value = String(readServerUiStateValue(calibrationStorageKey(binding, useMaster)) || "").trim();
-  if (!value) return "";
-  if (!isAbsolutePath(value)) {
-    writeServerUiStateValue(calibrationStorageKey(binding, useMaster), "");
-    return "";
-  }
-  return value;
-}
-
-function persistCalibrationPath(binding, useMaster, rawValue) {
-  if (!binding) return;
-  const key = calibrationStorageKey(binding, useMaster);
-  const value = String(rawValue || "").trim();
-  if (!value) {
-    writeServerUiStateValue(key, "");
-    return;
-  }
-  if (!isAbsolutePath(value)) return;
-  writeServerUiStateValue(key, value);
-}
-
 function syncScanCalibrationInputPresentation(binding, useMaster) {
   const input = $(binding?.inputId);
   if (!input) return;
@@ -1298,32 +1271,9 @@ function syncScanCalibrationUiFromConfig(config) {
     writeFieldValue(sourceEl, useMaster);
     syncScanCalibrationInputPresentation(binding, useMaster);
     const activeValue = getByPath(config, scanCalibrationActivePath(binding, useMaster));
-    const preferredValue =
-      activeValue === undefined || activeValue === null || String(activeValue).trim() === ""
-        ? storedCalibrationPath(binding, useMaster)
-        : String(activeValue);
-    inputEl.value = preferredValue;
+    inputEl.value =
+      activeValue === undefined || activeValue === null ? "" : String(activeValue);
   });
-}
-
-async function restoreStoredCalibrationPathsIntoConfig(config) {
-  if (!config || typeof config !== "object") return config;
-  const updates = [];
-  SCAN_CALIBRATION_BINDINGS.forEach((binding) => {
-    const useMaster = Boolean(getByPath(config, binding.useMasterPath));
-    const activePath = scanCalibrationActivePath(binding, useMaster);
-    const currentValue = String(getByPath(config, activePath) || "").trim();
-    if (currentValue) {
-      persistCalibrationPath(binding, useMaster, currentValue);
-      return;
-    }
-    const storedValue = storedCalibrationPath(binding, useMaster);
-    if (!storedValue) return;
-    updates.push({ path: activePath, value: storedValue });
-  });
-  if (updates.length === 0) return config;
-  const patched = await patchConfig({ updates, persist: false });
-  return patched?.config && typeof patched.config === "object" ? patched.config : config;
 }
 
 function updatesFromMap(pathBySelector) {
@@ -2684,18 +2634,31 @@ function bindScanPages() {
     const calibrationBinding = scanCalibrationBindingForElement(el);
     try {
       if (calibrationBinding) {
+        const sourceChanged = String(el.id || "") === calibrationBinding.sourceId;
         const updates = [];
-        if (String(el.id || "") === calibrationBinding.sourceId) {
+        if (sourceChanged) {
+          const inputEl = $(calibrationBinding.inputId);
+          const nextUseMaster = Boolean(readFieldValue(el));
+          const currentInputValue = inputEl ? readFieldValue(inputEl) : "";
+          if (inputEl) {
+            updates.push({
+              path: nextUseMaster
+                ? calibrationBinding.masterPath
+                : calibrationBinding.dirPath,
+              value: currentInputValue,
+            });
+          }
+          updates.push({
+            path: nextUseMaster
+              ? calibrationBinding.dirPath
+              : calibrationBinding.masterPath,
+            value: "",
+          });
           updates.push({
             path: calibrationBinding.useMasterPath,
-            value: readFieldValue(el),
+            value: nextUseMaster,
           });
         } else if (String(el.id || "") === calibrationBinding.inputId) {
-          persistCalibrationPath(
-            calibrationBinding,
-            scanCalibrationUseMaster(calibrationBinding),
-            readFieldValue(el),
-          );
           updates.push({
             path: scanCalibrationActivePath(calibrationBinding),
             value: readFieldValue(el),
@@ -2704,17 +2667,12 @@ function bindScanPages() {
         if (updates.length === 0) return;
         const patched = await patchConfig({ updates, persist: false });
         if (patched?.config) {
-          const hydratedConfig = await restoreStoredCalibrationPathsIntoConfig(patched.config);
-          syncScanCalibrationUiFromConfig(hydratedConfig);
+          syncScanCalibrationUiFromConfig(patched.config);
         } else {
-          syncScanCalibrationInputPresentation(calibrationBinding, scanCalibrationUseMaster(calibrationBinding));
-          const inputEl = $(calibrationBinding.inputId);
-          if (inputEl && !String(inputEl.value || "").trim()) {
-            inputEl.value = storedCalibrationPath(
-              calibrationBinding,
-              scanCalibrationUseMaster(calibrationBinding),
-            );
-          }
+          syncScanCalibrationInputPresentation(
+            calibrationBinding,
+            scanCalibrationUseMaster(calibrationBinding),
+          );
         }
         return;
       }
@@ -2745,8 +2703,7 @@ function bindScanPages() {
     try {
       const parsed = await patchConfig({ updates: [], persist: false });
       if (parsed?.config) {
-        const hydratedConfig = await restoreStoredCalibrationPathsIntoConfig(parsed.config);
-        syncParameterFieldsFromConfig(hydratedConfig);
+        syncParameterFieldsFromConfig(parsed.config);
       }
       const latest = await api.get(API_ENDPOINTS.scan.latest);
       const summary = summarizeScanResult(latest);
@@ -3261,6 +3218,7 @@ async function ensureConfigYaml() {
 }
 
 async function patchConfig({ updates = [], persist = false, yamlText } = {}) {
+  const requestSeq = ++configPatchRequestSeq;
   const baseYaml = yamlText !== undefined ? String(yamlText || "") : await ensureConfigYaml();
   const result = await api.post(API_ENDPOINTS.config.patch, {
     yaml: baseYaml,
@@ -3268,11 +3226,23 @@ async function patchConfig({ updates = [], persist = false, yamlText } = {}) {
     parse_values: true,
     persist,
   });
-  if (result?.config_yaml) {
+  const isLatestRequest = requestSeq === configPatchRequestSeq;
+  if (isLatestRequest && result?.config_yaml) {
     setConfigDraft(result.config_yaml);
   }
-  if (result?.config && typeof result.config === "object") {
+  if (isLatestRequest && result?.config && typeof result.config === "object") {
     uiState.configObject = result.config;
+  }
+  if (!isLatestRequest) {
+    return {
+      ...result,
+      stale: true,
+      config_yaml: String(uiState.configYaml || result?.config_yaml || ""),
+      config:
+        uiState.configObject && typeof uiState.configObject === "object"
+          ? uiState.configObject
+          : result?.config,
+    };
   }
   return result;
 }

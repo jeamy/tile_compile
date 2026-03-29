@@ -132,7 +132,7 @@ static std::string current_run_timestamp() {
     return oss.str();
 }
 
-static std::string current_run_date() {
+static std::string current_run_date_minutes() {
     const auto now = std::chrono::system_clock::now();
     const auto time_t_now = std::chrono::system_clock::to_time_t(now);
     std::tm tm_buf{};
@@ -143,7 +143,7 @@ static std::string current_run_date() {
 #endif
 
     std::ostringstream oss;
-    oss << std::put_time(&tm_buf, "%Y%m%d");
+    oss << std::put_time(&tm_buf, "%Y%m%d_%H%M");
     return oss.str();
 }
 
@@ -166,7 +166,7 @@ static std::string make_queue_root_run_id(const nlohmann::json& body) {
         return sanitize_run_id(raw_run_name) + "_" + current_run_timestamp();
     }
 
-    return current_run_date();
+    return current_run_date_minutes();
 }
 
 static std::string wildcard_to_regex(const std::string& pattern) {

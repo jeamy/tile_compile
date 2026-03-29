@@ -17,6 +17,7 @@
 #include "runner_shared.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -660,6 +661,33 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   core::emit_event("resume_start", run_id,
                    {{"run_dir", run_dir.string()}, {"from_phase", phase_upper}},
                    log_file);
+  const auto resume_started_at = std::chrono::steady_clock::now();
+  auto abort_if_runtime_limit_exceeded =
+      [&](const std::string &checkpoint) -> bool {
+    const double elapsed_hours =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                      resume_started_at)
+            .count() /
+        3600.0;
+    if (elapsed_hours <= cfg.runtime_limits.hard_abort_hours) {
+      return false;
+    }
+    core::emit_event("runtime_limit_exceeded", run_id,
+                     {{"checkpoint", checkpoint},
+                      {"elapsed_hours", elapsed_hours},
+                      {"hard_abort_hours",
+                       cfg.runtime_limits.hard_abort_hours}},
+                     log_file);
+    core::emit_event("resume_end", run_id,
+                     {{"success", false},
+                      {"status", "runtime_limit_exceeded"},
+                      {"checkpoint", checkpoint}},
+                     log_file);
+    std::cerr << "Error: runtime limit exceeded during resume at "
+              << checkpoint << " (" << elapsed_hours << " h > "
+              << cfg.runtime_limits.hard_abort_hours << " h)" << std::endl;
+    return true;
+  };
 
   if (phase_l == "stacking") {
     namespace image = tile_compile::image;
@@ -956,15 +984,18 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         }
         auto wr_r = stacking_ops.sigma_clip_reduce(
             synth_R, stack_weights, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high, 0,
+            cfg.stacking.sigma_clip.sigma_high,
+            cfg.stacking.sigma_clip.max_iters,
             cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
         auto wr_g = stacking_ops.sigma_clip_reduce(
             synth_G, stack_weights, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high, 0,
+            cfg.stacking.sigma_clip.sigma_high,
+            cfg.stacking.sigma_clip.max_iters,
             cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
         auto wr_b = stacking_ops.sigma_clip_reduce(
             synth_B, stack_weights, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high, 0,
+            cfg.stacking.sigma_clip.sigma_high,
+            cfg.stacking.sigma_clip.max_iters,
             cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
         recon_R = std::move(wr_r.tile);
         recon_G = std::move(wr_g.tile);
@@ -985,7 +1016,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         }
         auto wr = stacking_ops.sigma_clip_reduce(
             valid_synth, stack_weights, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high, 0,
+            cfg.stacking.sigma_clip.sigma_high,
+            cfg.stacking.sigma_clip.max_iters,
             cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
         recon = std::move(wr.tile);
       }
@@ -1168,6 +1200,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
          {"crop_height", stacking_crop_box.height},
          {"output_luma", (run_dir / "outputs" / "stacked.fits").string()}},
         log_file);
+    if (abort_if_runtime_limit_exceeded("STACKING")) {
+      return 1;
+    }
 
     emitter.phase_start(run_id, Phase::DEBAYER, "DEBAYER", log_file);
     if (detected_mode == ColorMode::OSC) {
@@ -1252,6 +1287,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       core::emit_event("resume_end", run_id,
                        {{"success", true}, {"status", "ok"}}, log_file);
       return 0;
+    }
+    if (abort_if_runtime_limit_exceeded("DEBAYER")) {
+      return 1;
     }
   }
 
@@ -1513,7 +1551,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     if (!cfg.bge.enabled) {
       write_stretched_rgb_snapshot(
-          stacked_rgb_bge_path, bge_hdr, false, "BGE");
+          stacked_rgb_bge_path, bge_hdr, cfg.stacking.output_stretch, "BGE");
       emitter.phase_end(run_id, Phase::BGE, "skipped",
                         {{"reason", "disabled"},
                          {"artifact", (run_dir / "artifacts" / "bge.json").string()}},
@@ -1608,7 +1646,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     const fs::path bge_artifact_path = run_dir / "artifacts" / "bge.json";
     core::write_text(bge_artifact_path, bge_artifact.dump(2));
     write_stretched_rgb_snapshot(
-        stacked_rgb_bge_path, bge_hdr, false, "BGE");
+        stacked_rgb_bge_path, bge_hdr, cfg.stacking.output_stretch, "BGE");
 
     core::json phase_extra = {
         {"requested", cfg.bge.enabled},
@@ -1635,14 +1673,23 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
   if (phase_l == "astrometry") {
     run_astrometry_if_needed(true);
+    if (abort_if_runtime_limit_exceeded("ASTROMETRY")) {
+      return 1;
+    }
     phase_l = "bge";
   }
   if (phase_l == "bge") {
     run_astrometry_if_needed();
+    if (abort_if_runtime_limit_exceeded("ASTROMETRY")) {
+      return 1;
+    }
     if (!run_bge_phase()) {
       core::emit_event("resume_end", run_id,
                        {{"success", false}, {"status", "canvas_mask_invalid"}},
                        log_file);
+      return 1;
+    }
+    if (abort_if_runtime_limit_exceeded("BGE")) {
       return 1;
     }
     phase_l = "pcc";
@@ -1659,6 +1706,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
   if (phase_l == "pcc") {
     run_astrometry_if_needed();
+    if (abort_if_runtime_limit_exceeded("ASTROMETRY")) {
+      return 1;
+    }
 
     if (cfg.bge.enabled && fs::exists(stacked_rgb_bge_path)) {
       try {
@@ -1819,7 +1869,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     io::write_fits_float(pcc_r_path, rgb.R, out_hdr);
     io::write_fits_float(pcc_g_path, rgb.G, out_hdr);
     io::write_fits_float(pcc_b_path, rgb.B, out_hdr);
-    io::write_fits_rgb(pcc_rgb_path, rgb.R, rgb.G, rgb.B, out_hdr);
+    write_stretched_rgb_snapshot(
+        pcc_rgb_path, out_hdr, cfg.stacking.output_stretch, "PCC");
 
     core::json matrix_json = core::json::array();
     for (int r = 0; r < 3; ++r) {
@@ -1849,6 +1900,9 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                        {"source", used_source},
                        {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                       log_file);
+    if (abort_if_runtime_limit_exceeded("PCC")) {
+      return 1;
+    }
   }
 
   core::emit_event("resume_end", run_id, {{"success", true}, {"status", "ok"}},

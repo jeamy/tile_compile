@@ -165,7 +165,6 @@ synthetic:
     cluster_count_range: [5, 30] # [k_min, k_max]
 
 
-debayer: true # OSC-Mosaik am Ende in RGB debayern
 
 astrometry:
   enabled: true # WCS-Solve aktiv

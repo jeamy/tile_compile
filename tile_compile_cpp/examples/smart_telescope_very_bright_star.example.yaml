@@ -162,7 +162,6 @@ synthetic:
     mode: kmeans # kmeans|quantile
     cluster_count_range: [3, 12] # [k_min, k_max] fuer kleinere Datensaetze
 
-debayer: true # OSC-Mosaik am Ende in RGB debayern
 
 astrometry:
   enabled: true # WCS-Solve aktiv
