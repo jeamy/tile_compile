@@ -54,10 +54,17 @@ struct PCCConfig {
     int common_mask_cols = 0;
     double min_aperture_common_fraction = 0.85;
     double min_annulus_common_fraction = 0.70;
+
+    // Optional output canvas mask. Unlike `common_valid_mask`, this governs
+    // only which pixels may be written to the visible PCC output.
+    std::vector<uint8_t> output_valid_mask;
+    int output_mask_rows = 0;
+    int output_mask_cols = 0;
     
     bool apply_attenuation = false;
     double chroma_strength = 1.00;
     double k_max = 3.20;
+    std::string background_neutralization_mode = "auto"; // always | auto | off
 };
 
 // PCC result

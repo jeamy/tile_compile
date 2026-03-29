@@ -525,4 +525,74 @@ QuantileStretchResult stretch_rgb_to_u16_quantile_inplace(Matrix2Df& r,
     return result;
 }
 
+QuantileStretchResult stretch_rgb_luma_to_u16_quantile_inplace(
+    Matrix2Df& r,
+    Matrix2Df& g,
+    Matrix2Df& b,
+    float low_pct,
+    float high_pct,
+    bool positive_only) {
+    QuantileStretchResult result;
+    if (r.rows() != g.rows() || r.rows() != b.rows() ||
+        r.cols() != g.cols() || r.cols() != b.cols()) {
+        return result;
+    }
+
+    std::vector<float> samples;
+    samples.reserve(static_cast<size_t>(std::max<Eigen::Index>(0, r.size())));
+    for (Eigen::Index i = 0; i < r.size(); ++i) {
+        const float rv = r.data()[i];
+        const float gv = g.data()[i];
+        const float bv = b.data()[i];
+        if (!(std::isfinite(rv) && std::isfinite(gv) && std::isfinite(bv))) continue;
+        const float luma = 0.2126f * rv + 0.7152f * gv + 0.0722f * bv;
+        if (positive_only && !(luma > 0.0f)) continue;
+        samples.push_back(luma);
+    }
+    result.sample_count = samples.size();
+    if (samples.empty()) return result;
+
+    std::sort(samples.begin(), samples.end());
+    result.low = percentile_from_sorted(samples, low_pct);
+    result.high = percentile_from_sorted(samples, high_pct);
+    if (!(result.high > result.low + 1.0e-6f)) return result;
+
+    const float span = result.high - result.low;
+    for (Eigen::Index i = 0; i < r.size(); ++i) {
+        const float rv = r.data()[i];
+        const float gv = g.data()[i];
+        const float bv = b.data()[i];
+        if (!(std::isfinite(rv) && std::isfinite(gv) && std::isfinite(bv))) {
+            r.data()[i] = 0.0f;
+            g.data()[i] = 0.0f;
+            b.data()[i] = 0.0f;
+            continue;
+        }
+
+        const float luma = 0.2126f * rv + 0.7152f * gv + 0.0722f * bv;
+        if (positive_only && !(luma > 0.0f)) {
+            r.data()[i] = 0.0f;
+            g.data()[i] = 0.0f;
+            b.data()[i] = 0.0f;
+            continue;
+        }
+
+        const float lifted = std::clamp((luma - result.low) / span, 0.0f, 1.0f);
+        if (lifted <= 0.0f || !(luma > 1.0e-12f)) {
+            r.data()[i] = 0.0f;
+            g.data()[i] = 0.0f;
+            b.data()[i] = 0.0f;
+            continue;
+        }
+
+        const float scale = 65535.0f * lifted / luma;
+        r.data()[i] = std::clamp(rv * scale, 0.0f, 65535.0f);
+        g.data()[i] = std::clamp(gv * scale, 0.0f, 65535.0f);
+        b.data()[i] = std::clamp(bv * scale, 0.0f, 65535.0f);
+    }
+
+    result.applied = true;
+    return result;
+}
+
 } // namespace tile_compile::core

@@ -630,6 +630,9 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.pcc.chroma_strength = p["chroma_strength"].as<float>();
     if (p["k_max"])
       cfg.pcc.k_max = p["k_max"].as<float>();
+    if (p["background_neutralization_mode"])
+      cfg.pcc.background_neutralization_mode =
+          p["background_neutralization_mode"].as<std::string>();
   }
 
   if (node["stacking"]) {
@@ -956,6 +959,8 @@ YAML::Node Config::to_yaml() const {
   node["pcc"]["apply_attenuation"] = pcc.apply_attenuation;
   node["pcc"]["chroma_strength"] = pcc.chroma_strength;
   node["pcc"]["k_max"] = pcc.k_max;
+  node["pcc"]["background_neutralization_mode"] =
+      pcc.background_neutralization_mode;
 
   node["stacking"]["method"] = stacking.method;
   node["stacking"]["sigma_clip"]["sigma_low"] = stacking.sigma_clip.sigma_low;
@@ -1376,6 +1381,12 @@ void Config::validate() const {
   }
   if (pcc.k_max <= 0.0f) {
     throw ValidationError("pcc.k_max must be > 0");
+  }
+  if (pcc.background_neutralization_mode != "always" &&
+      pcc.background_neutralization_mode != "auto" &&
+      pcc.background_neutralization_mode != "off") {
+    throw ValidationError(
+        "pcc.background_neutralization_mode must be 'always', 'auto', or 'off'");
   }
 
   if (stacking.method != "average" && stacking.method != "rej") {

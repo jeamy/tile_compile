@@ -73,6 +73,14 @@ QuantileStretchResult stretch_rgb_to_u16_quantile_inplace(
     float high_pct,
     bool positive_only = true);
 
+QuantileStretchResult stretch_rgb_luma_to_u16_quantile_inplace(
+    Matrix2Df& r,
+    Matrix2Df& g,
+    Matrix2Df& b,
+    float low_pct,
+    float high_pct,
+    bool positive_only = true);
+
 // String utilities
 std::string to_lower(const std::string& s);
 bool ends_with(const std::string& str, const std::string& suffix);

@@ -161,6 +161,7 @@
                       "siril_catalog_dir":{"type":"string"},
                       "apply_attenuation":{"type":"boolean"},
                       "chroma_strength":{"type":"number","minimum":0,"maximum":1},
+                      "background_neutralization_mode":{"type":"string","enum":["always","auto","off"]},
                       "k_max":{"type":"number","exclusiveMinimum":0} } },
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},

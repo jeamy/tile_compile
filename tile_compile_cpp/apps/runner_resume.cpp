@@ -1426,6 +1426,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   };
 
   fs::path stacked_rgb_bge_path = run_dir / "outputs" / "stacked_rgb_bge.fits";
+  fs::path stacked_rgb_bge_linear_path =
+      run_dir / "outputs" / "stacked_rgb_bge_linear.fits";
   std::vector<TileMetrics> bge_tile_metrics;
   TileGrid bge_tile_grid;
   bool bge_have_local_metrics = false;
@@ -1492,11 +1494,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     Matrix2Df B_disk = rgb.B;
     if (apply_stretch) {
       const auto stretch =
-          tile_compile::core::stretch_rgb_to_u16_quantile_inplace(
+          tile_compile::core::stretch_rgb_luma_to_u16_quantile_inplace(
               R_disk, G_disk, B_disk, 0.1f, 99.9f, true);
       if (stretch.applied) {
         std::cout << "[" << stage_tag
-                  << "][resume] RGB output stretch q[0.1,99.9]: ["
+                  << "][resume] RGB output luma stretch q[0.1,99.9]: ["
                   << stretch.low << ".." << stretch.high << "] -> [0..65535]"
                   << " samples=" << stretch.sample_count << std::endl;
       }
@@ -1504,6 +1506,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     std::error_code ec;
     fs::remove(path, ec);
     io::write_fits_rgb(path, R_disk, G_disk, B_disk, hdr);
+  };
+
+  auto write_linear_rgb_snapshot = [&](const fs::path &path,
+                                       const io::FitsHeader &hdr) {
+    io::write_fits_rgb(path, rgb.R, rgb.G, rgb.B, hdr);
   };
 
   auto run_bge_phase = [&]() -> bool {
@@ -1517,6 +1524,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
 
     if (!cfg.bge.enabled) {
+      write_linear_rgb_snapshot(stacked_rgb_bge_linear_path, bge_hdr);
       write_stretched_rgb_snapshot(
           stacked_rgb_bge_path, bge_hdr, cfg.stacking.output_stretch, "BGE");
       emitter.phase_end(run_id, Phase::BGE, "skipped",
@@ -1533,23 +1541,25 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     if (bge_have_tile_data && bge_metrics_tiles_match) {
       image::BGEConfig bge_cfg =
           tile_compile::runner::to_image_bge_config(cfg.bge);
-      const fs::path canvas_mask_path = run_dir / "outputs" / "canvas_mask.fits";
       std::string mask_error;
-      int rows = 0;
-      int cols = 0;
-      if (!tile_compile::runner::load_canvas_mask_for_rgb(
-              canvas_mask_path, rgb.R, rgb.G, rgb.B, bge_cfg.common_valid_mask,
-              rows, cols, mask_error)) {
+      const int rows = static_cast<int>(rgb.R.rows());
+      const int cols = static_cast<int>(rgb.R.cols());
+      if (rows <= 0 || cols <= 0 || rgb.G.rows() != rows ||
+          rgb.B.rows() != rows || rgb.G.cols() != cols ||
+          rgb.B.cols() != cols) {
+        mask_error = "invalid RGB dimensions";
         emitter.phase_end(run_id, Phase::BGE, "error",
-                          {{"reason", "canvas_mask_invalid"},
-                           {"error", mask_error},
-                           {"canvas_mask", canvas_mask_path.string()}},
+                          {{"reason", "output_canvas_mask_invalid"},
+                           {"error", mask_error}},
                           log_file);
         return false;
       }
+      bge_cfg.common_valid_mask.assign(
+          static_cast<size_t>(rows) * static_cast<size_t>(cols),
+          static_cast<uint8_t>(1));
       bge_cfg.common_mask_rows = rows;
       bge_cfg.common_mask_cols = cols;
-      std::cout << "[BGE][resume] Loaded canvas_mask.fits ("
+      std::cout << "[BGE][resume] Using full output canvas mask ("
                 << cols << "x" << rows << ")" << std::endl;
 
       (void)image::apply_background_extraction(rgb.R, rgb.G, rgb.B,
@@ -1612,6 +1622,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     };
     const fs::path bge_artifact_path = run_dir / "artifacts" / "bge.json";
     core::write_text(bge_artifact_path, bge_artifact.dump(2));
+    write_linear_rgb_snapshot(stacked_rgb_bge_linear_path, bge_hdr);
     write_stretched_rgb_snapshot(
         stacked_rgb_bge_path, bge_hdr, cfg.stacking.output_stretch, "BGE");
 
@@ -1677,10 +1688,19 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       return 1;
     }
 
-    if (cfg.bge.enabled && fs::exists(stacked_rgb_bge_path)) {
+    if (cfg.bge.enabled && fs::exists(stacked_rgb_bge_linear_path)) {
+      try {
+        rgb = io::read_fits_rgb(stacked_rgb_bge_linear_path);
+        std::cout << "[PCC][resume] Using precomputed linear BGE snapshot: "
+                  << stacked_rgb_bge_linear_path << std::endl;
+      } catch (const std::exception &e) {
+        std::cout << "[PCC][resume] Warning: failed to load stacked_rgb_bge_linear.fits: "
+                  << e.what() << std::endl;
+      }
+    } else if (cfg.bge.enabled && fs::exists(stacked_rgb_bge_path)) {
       try {
         rgb = io::read_fits_rgb(stacked_rgb_bge_path);
-        std::cout << "[PCC][resume] Using precomputed BGE snapshot: "
+        std::cout << "[PCC][resume] Warning: linear BGE snapshot missing; using stretched snapshot fallback: "
                   << stacked_rgb_bge_path << std::endl;
       } catch (const std::exception &e) {
         std::cout << "[PCC][resume] Warning: failed to load stacked_rgb_bge.fits: "
@@ -1740,26 +1760,49 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     astro::PCCConfig pcc_cfg =
         tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
     {
-      const fs::path canvas_mask_path = run_dir / "outputs" / "canvas_mask.fits";
       std::string mask_error;
-      int rows = 0;
-      int cols = 0;
-      if (!tile_compile::runner::load_canvas_mask_for_rgb(
-              canvas_mask_path, rgb.R, rgb.G, rgb.B, pcc_cfg.common_valid_mask,
-              rows, cols, mask_error)) {
+      const int rows = static_cast<int>(rgb.R.rows());
+      const int cols = static_cast<int>(rgb.R.cols());
+      if (rows <= 0 || cols <= 0 || rgb.G.rows() != rows ||
+          rgb.B.rows() != rows || rgb.G.cols() != cols ||
+          rgb.B.cols() != cols) {
+        mask_error = "invalid RGB dimensions";
         emitter.phase_end(run_id, Phase::PCC, "error",
-                          {{"reason", "canvas_mask_invalid"},
-                           {"error", mask_error},
-                           {"canvas_mask", canvas_mask_path.string()}},
+                          {{"reason", "output_canvas_mask_invalid"},
+                           {"error", mask_error}},
                           log_file);
         core::emit_event(
             "resume_end", run_id,
-            {{"success", false}, {"status", "canvas_mask_invalid"}}, log_file);
+            {{"success", false}, {"status", "output_canvas_mask_invalid"}},
+            log_file);
         return 1;
       }
-      pcc_cfg.common_mask_rows = rows;
-      pcc_cfg.common_mask_cols = cols;
-      std::cout << "[PCC][resume] Loaded canvas_mask.fits ("
+      pcc_cfg.output_valid_mask.assign(
+          static_cast<size_t>(rows) * static_cast<size_t>(cols),
+          static_cast<uint8_t>(1));
+      std::vector<uint8_t> analysis_mask;
+      std::string analysis_mask_error;
+      int analysis_rows = 0;
+      int analysis_cols = 0;
+      if (!tile_compile::runner::load_canvas_mask_for_rgb(
+              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
+              analysis_mask, analysis_rows, analysis_cols, analysis_mask_error)) {
+        emitter.phase_end(run_id, Phase::PCC, "error",
+                          {{"reason", "analysis_mask_invalid"},
+                           {"error", analysis_mask_error}},
+                          log_file);
+        core::emit_event(
+            "resume_end", run_id,
+            {{"success", false}, {"status", "analysis_mask_invalid"}},
+            log_file);
+        return 1;
+      }
+      pcc_cfg.common_valid_mask = std::move(analysis_mask);
+      pcc_cfg.common_mask_rows = analysis_rows;
+      pcc_cfg.common_mask_cols = analysis_cols;
+      pcc_cfg.output_mask_rows = rows;
+      pcc_cfg.output_mask_cols = cols;
+      std::cout << "[PCC][resume] Using COMMON_OVERLAP analysis mask and full output canvas mask ("
                 << cols << "x" << rows << ")" << std::endl;
     }
 

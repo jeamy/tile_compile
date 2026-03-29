@@ -4659,10 +4659,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                      Matrix2Df& B_ch,
                                      const char* stage_tag) -> bool {
       const auto stretch =
-          core::stretch_rgb_to_u16_quantile_inplace(R_ch, G_ch, B_ch, 0.1f,
-                                                    99.9f, true);
+          core::stretch_rgb_luma_to_u16_quantile_inplace(R_ch, G_ch, B_ch,
+                                                         0.1f, 99.9f, true);
       if (!stretch.applied) return false;
-      std::cout << "[" << stage_tag << "] RGB output stretch q[0.1,99.9]: ["
+      std::cout << "[" << stage_tag
+                << "] RGB output luma stretch q[0.1,99.9]: ["
                 << stretch.low << ".." << stretch.high << "] -> [0..65535]"
                 << " samples=" << stretch.sample_count << std::endl;
       return true;
@@ -4853,8 +4854,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       return 1;
     }
 
-    const fs::path canvas_mask_path = run_dir / "outputs" / "canvas_mask.fits";
-    auto assign_common_canvas_mask_for_rgb =
+    auto assign_output_canvas_mask_for_rgb =
         [&](std::vector<uint8_t> &out_mask, int &rows_out, int &cols_out,
             std::string &error_out) -> bool {
       rows_out = 0;
@@ -4870,22 +4870,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       cols_out = static_cast<int>(R_out.cols());
       const size_t expected_size =
           static_cast<size_t>(rows_out) * static_cast<size_t>(cols_out);
-      if (common_valid_mask.size() != expected_size) {
-        error_out = "canvas mask size mismatch: got " +
-                    std::to_string(common_valid_mask.size()) + " px, expected " +
-                    std::to_string(expected_size);
-        return false;
-      }
-
-      const auto valid_count = std::count_if(
-          common_valid_mask.begin(), common_valid_mask.end(),
-          [](uint8_t v) { return v != 0; });
-      if (valid_count <= 0) {
-        error_out = "canvas mask contains zero valid pixels";
-        return false;
-      }
-
-      out_mask = common_valid_mask;
+      out_mask.assign(expected_size, static_cast<uint8_t>(1));
       return true;
     };
 
@@ -4956,12 +4941,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         std::string mask_error;
         int rows = 0;
         int cols = 0;
-        if (!assign_common_canvas_mask_for_rgb(bge_cfg.common_valid_mask, rows,
+        if (!assign_output_canvas_mask_for_rgb(bge_cfg.common_valid_mask, rows,
                                                cols, mask_error)) {
           emitter.phase_end(run_id, Phase::BGE, "error",
-                            {{"reason", "canvas_mask_invalid"},
-                             {"error", mask_error},
-                             {"canvas_mask", canvas_mask_path.string()}},
+                            {{"reason", "output_canvas_mask_invalid"},
+                             {"error", mask_error}},
                             log_file);
           emitter.run_end(run_id, false, "error", log_file);
           std::cerr << "Error: " << mask_error << std::endl;
@@ -4969,7 +4953,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
         bge_cfg.common_mask_rows = rows;
         bge_cfg.common_mask_cols = cols;
-        std::cout << "[BGE] Reusing COMMON_OVERLAP canvas mask (" << cols << "x"
+        std::cout << "[BGE] Using full output canvas mask (" << cols << "x"
                   << rows << ")" << std::endl;
 
         if (!bge_metrics_tiles_match) {
@@ -5087,7 +5071,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
 
     fs::path stacked_rgb_bge_path = run_dir / "outputs" / "stacked_rgb_bge.fits";
+    fs::path stacked_rgb_bge_linear_path =
+        run_dir / "outputs" / "stacked_rgb_bge_linear.fits";
     if (have_rgb) {
+      io::write_fits_rgb(stacked_rgb_bge_linear_path, R_out, G_out, B_out,
+                         first_hdr);
       Matrix2Df R_bge_disk = R_out;
       Matrix2Df G_bge_disk = G_out;
       Matrix2Df B_bge_disk = B_out;
@@ -5133,28 +5121,46 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // Build PCC config from pipeline config
         astro::PCCConfig pcc_cfg =
             tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
-        // PCC canvas policy:
-        // - Use only the explicit canvas mask from COMMON_OVERLAP phase.
-        // - Do not use tile-based star weighting.
+        // PCC uses COMMON_OVERLAP only as an analysis/support mask. The visible
+        // output canvas must remain intact inside the cropped output image.
         std::string mask_error;
         int rows = 0;
         int cols = 0;
-        if (!assign_common_canvas_mask_for_rgb(pcc_cfg.common_valid_mask, rows,
+        if (!assign_output_canvas_mask_for_rgb(pcc_cfg.output_valid_mask, rows,
                                                cols, mask_error)) {
           emitter.phase_end(run_id, Phase::PCC, "error",
-                            {{"reason", "canvas_mask_invalid"},
+                            {{"reason", "output_canvas_mask_invalid"},
                              {"error", mask_error},
-                             {"canvas_mask", canvas_mask_path.string()},
                              {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                             log_file);
           emitter.run_end(run_id, false, "error", log_file);
           std::cerr << "Error: " << mask_error << std::endl;
           return 1;
         }
+        const size_t expected_size =
+            static_cast<size_t>(rows) * static_cast<size_t>(cols);
+        if (common_valid_mask.size() != expected_size) {
+          emitter.phase_end(run_id, Phase::PCC, "error",
+                            {{"reason", "analysis_mask_invalid"},
+                             {"error", "common_valid_mask size mismatch"},
+                             {"mask_pixels",
+                              static_cast<uint64_t>(common_valid_mask.size())},
+                             {"expected_pixels",
+                              static_cast<uint64_t>(expected_size)},
+                             {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                            log_file);
+          emitter.run_end(run_id, false, "error", log_file);
+          std::cerr << "Error: common_valid_mask size mismatch for PCC analysis"
+                    << std::endl;
+          return 1;
+        }
+        pcc_cfg.common_valid_mask = common_valid_mask;
         pcc_cfg.common_mask_rows = rows;
         pcc_cfg.common_mask_cols = cols;
-        std::cout << "[PCC] Reusing COMMON_OVERLAP canvas mask (" << cols << "x"
-                  << rows << ")" << std::endl;
+        pcc_cfg.output_mask_rows = rows;
+        pcc_cfg.output_mask_cols = cols;
+        std::cout << "[PCC] Using COMMON_OVERLAP analysis mask and full output canvas mask ("
+                  << cols << "x" << rows << ")" << std::endl;
 
         if (pcc_cfg.radii_mode == "auto_fwhm") {
           const double F = have_seeing_fwhm

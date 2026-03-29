@@ -1386,6 +1386,16 @@ Photometric Color Calibration settings.
 
 **Purpose:** Enables adaptive attenuation during PCC matrix application (helps in deep shadows/highlights).
 
+### `pcc.background_neutralization_mode`
+
+| Property | Value |
+|----------|-------|
+| **Type** | string |
+| **Default** | `auto` |
+| **Allowed Values** | `always`, `auto`, `off` |
+
+**Purpose:** Controls the post-PCC background neutralization step. `always` forces neutral background offsets, `off` disables the step, and `auto` attenuates or skips it when the measured "background" looks nebulosity-dominated rather than truly neutral sky.
+
 ### `pcc.chroma_strength`
 
 | Property | Value |
@@ -1819,7 +1829,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `pcc.max_condition_number`, `pcc.max_residual_rms`: matrix/fit stability limits.
 - `pcc.radii_mode`, `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`: adaptive radius controls.
 - `pcc.siril_catalog_dir`: local Siril catalog path override.
-- `pcc.apply_attenuation`, `pcc.chroma_strength`, `pcc.k_max`: optional apply attenuation/chroma controls.
+- `pcc.apply_attenuation`, `pcc.background_neutralization_mode`, `pcc.chroma_strength`, `pcc.k_max`: optional PCC apply/background-neutralization controls.
 - `stacking.method`: final combine mode (`rej` sigma-clip vs `average`).
 - `stacking.sigma_clip.sigma_low`, `sigma_high`: lower/upper rejection thresholds.
 - `stacking.sigma_clip.max_iters`: clipping iteration cap.

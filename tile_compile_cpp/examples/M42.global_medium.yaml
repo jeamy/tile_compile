@@ -140,6 +140,7 @@ pcc:
   aperture_fwhm_mult: 1.8
   aperture_radius_px: 8
   apply_attenuation: false
+  background_neutralization_mode: auto
   background_model: plane
   chroma_strength: 0.85
   enabled: true

@@ -183,6 +183,38 @@ normalization:
   REQUIRE_NOTHROW(cfg.validate());
 }
 
+TEST_CASE("pcc_background_neutralization_mode_parses_and_validates") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: OSC
+  linear_required: true
+pcc:
+  enabled: true
+  background_neutralization_mode: off
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(cfg.pcc.enabled);
+  REQUIRE(cfg.pcc.background_neutralization_mode == "off");
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("pcc_background_neutralization_mode_rejects_invalid_value") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: OSC
+  linear_required: true
+pcc:
+  enabled: true
+  background_neutralization_mode: maybe
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE_THROWS(cfg.validate());
+}
+
 TEST_CASE("calibration_block_parses_and_validates") {
   YAML::Node node = YAML::Load(R"(
 data:

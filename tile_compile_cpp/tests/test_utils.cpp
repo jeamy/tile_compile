@@ -49,6 +49,43 @@
      REQUIRE(R(0, 0) == Catch::Approx(65535.0f).margin(1e-3));
  }
 
+ TEST_CASE("luma_quantile_rgb_stretch_does_not_amplify_small_background_color_bias") {
+     tile_compile::Matrix2Df R(64, 64);
+     tile_compile::Matrix2Df G(64, 64);
+     tile_compile::Matrix2Df B(64, 64);
+     for (int y = 0; y < 64; ++y) {
+         for (int x = 0; x < 64; ++x) {
+             const float ramp = 289.0f + 0.15f * static_cast<float>(x);
+             R(y, x) = ramp;
+             G(y, x) = ramp + 1.0f;
+             B(y, x) = ramp + 8.0f;
+         }
+     }
+
+     for (int y = 24; y < 40; ++y) {
+         for (int x = 24; x < 40; ++x) {
+             R(y, x) = 520.0f;
+             G(y, x) = 540.0f;
+             B(y, x) = 500.0f;
+         }
+     }
+
+     const auto stretch =
+         tile_compile::core::stretch_rgb_luma_to_u16_quantile_inplace(
+             R, G, B, 0.1f, 99.9f, true);
+
+     REQUIRE(stretch.applied);
+
+     const float bg_r = R(32, 48);
+     const float bg_g = G(32, 48);
+     const float bg_b = B(32, 48);
+     REQUIRE(bg_r > 0.0f);
+     REQUIRE(bg_g > 0.0f);
+     REQUIRE(bg_b > 0.0f);
+     REQUIRE(bg_b / bg_r < 1.12f);
+     REQUIRE(bg_g / bg_r < 1.05f);
+ }
+
  TEST_CASE("suppress_isolated_chroma_speckles_fixes_single_channel_outlier") {
      tile_compile::Matrix2Df R = tile_compile::Matrix2Df::Constant(7, 7, 100.0f);
      tile_compile::Matrix2Df G = tile_compile::Matrix2Df::Constant(7, 7, 100.0f);

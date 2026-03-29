@@ -77,6 +77,9 @@ They are kept in sync with the active runner/config parser defaults, including:
 - `pcc.*` (Photometric Color Calibration, v3.3.6 §6.4)
   - Includes local annulus background model:
     - `pcc.background_model` (`median|plane`)
+  - Includes post-apply background neutralization control:
+    - `pcc.background_neutralization_mode` (`always|auto|off`)
+    - examples default to `auto` so nebulous fields are not forced back to gray sky
   - Includes FWHM-adaptive radii controls:
     - `pcc.radii_mode` (`fixed|auto_fwhm`)
     - `pcc.aperture_fwhm_mult`

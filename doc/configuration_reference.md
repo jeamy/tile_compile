@@ -1876,6 +1876,16 @@ Tiles mit `E/sigma > threshold` werden von der Hintergrund-Schätzung ausgeschlo
 
 **Zweck:** Aktiviert adaptive Daempfung der PCC-Matrixanwendung in Schatten/Highlights.
 
+### `pcc.background_neutralization_mode`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | string |
+| **Default** | `auto` |
+| **Erlaubte Werte** | `always`, `auto`, `off` |
+
+**Zweck:** Steuert die Hintergrundneutralisierung nach dem PCC-Apply. `always` erzwingt neutrale Hintergrund-Offsets, `off` deaktiviert den Schritt, und `auto` schwaecht ihn ab oder ueberspringt ihn, wenn der gemessene "Hintergrund" eher wie Nebel/Feldstruktur als wie neutraler Himmel aussieht.
+
 ### `pcc.chroma_strength`
 
 | Eigenschaft | Wert |
@@ -2671,7 +2681,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `pcc.max_condition_number`, `pcc.max_residual_rms`: Stabilitaetsgrenzen fuer Matrix/Fit.
 - `pcc.radii_mode`, `pcc.aperture_fwhm_mult`, `pcc.annulus_inner_fwhm_mult`, `pcc.annulus_outer_fwhm_mult`, `pcc.min_aperture_px`: adaptive Radiussteuerung.
 - `pcc.siril_catalog_dir`: optionaler lokaler Siril-Katalogpfad.
-- `pcc.apply_attenuation`, `pcc.chroma_strength`, `pcc.k_max`: optionale Apply-Daempfung/Chroma-Staerke.
+- `pcc.apply_attenuation`, `pcc.background_neutralization_mode`, `pcc.chroma_strength`, `pcc.k_max`: optionale PCC-Apply-/Hintergrundneutralisierungs-Kontrollen.
 - `stacking.method`: finaler Kombinationsmodus (`rej` vs `average`).
 - `stacking.sigma_clip.sigma_low`, `sigma_high`: untere/obere Rejection-Schwellen.
 - `stacking.sigma_clip.max_iters`: maximale Clip-Iterationen.

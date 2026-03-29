@@ -327,6 +327,7 @@ struct PCCConfig {
   bool apply_attenuation = false;
   float chroma_strength = 1.00f;
   float k_max = 3.20f;
+  std::string background_neutralization_mode = "auto"; // always | auto | off
 };
 
 struct ValidationConfig {

@@ -1,4 +1,5 @@
 #include "tile_compile/astrometry/photometric_color_cal.hpp"
+#include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/background_extraction.hpp"
 
 #include <algorithm>
@@ -1436,6 +1437,22 @@ struct PCCBackgroundSample {
     float atten;
 };
 
+struct PCCBackgroundNeutralizationDecision {
+    bool apply = false;
+    float strength = 0.0f;
+    float bg_mask_fraction = 0.0f;
+    float bg_luma_sigma = 0.0f;
+    float rg_std = std::numeric_limits<float>::infinity();
+    float bg_std = std::numeric_limits<float>::infinity();
+    float max_abs_shift = 0.0f;
+    float shift_sigma_ratio = 0.0f;
+    double bg_r = 0.0;
+    double bg_g = 0.0;
+    double bg_b = 0.0;
+    double bg_ref = 0.0;
+    std::string reason = "disabled";
+};
+
 static std::vector<PCCBackgroundSample> build_pcc_background_samples(
     const Matrix2Df &R, const Matrix2Df &G, const Matrix2Df &B,
     const std::vector<uint8_t> &bg_mask,
@@ -1560,6 +1577,16 @@ static PCCBackgroundStdPair sampled_background_std_after_matrix(
     return out;
 }
 
+static float robust_sigma_from_samples(std::vector<float> values) {
+    if (values.size() < 32) return 0.0f;
+    std::sort(values.begin(), values.end());
+    const float median = core::percentile_from_sorted(values, 50.0f);
+    for (float &v : values) v = std::abs(v - median);
+    std::sort(values.begin(), values.end());
+    const float mad = core::percentile_from_sorted(values, 50.0f);
+    return 1.4826f * mad;
+}
+
 static bool estimate_channel_background_median(
     const Matrix2Df &ch, const std::vector<uint8_t> &bg_mask, double *median_out) {
     if (median_out == nullptr) return false;
@@ -1580,33 +1607,135 @@ static bool estimate_channel_background_median(
     return std::isfinite(*median_out);
 }
 
-static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
-                                          const std::vector<uint8_t> &canvas_mask) {
-    if (canvas_mask.size() != static_cast<size_t>(R.rows() * R.cols())) {
-        return;
+static PCCBackgroundNeutralizationDecision decide_pcc_background_neutralization(
+    const Matrix2Df &R, const Matrix2Df &G, const Matrix2Df &B,
+    const std::vector<uint8_t> &analysis_mask,
+    const std::string &mode) {
+    PCCBackgroundNeutralizationDecision out;
+    if (analysis_mask.size() != static_cast<size_t>(R.rows() * R.cols())) {
+        out.reason = "invalid_analysis_mask";
+        return out;
     }
+    if (mode == "off") {
+        out.reason = "disabled_by_config";
+        return out;
+    }
+
     const std::vector<uint8_t> bg_mask =
-        image::build_chroma_background_mask_from_rgb(R, G, B, canvas_mask);
-    if (bg_mask.empty()) return;
-
-    double bg_r = 0.0;
-    double bg_g = 0.0;
-    double bg_b = 0.0;
-    if (!estimate_channel_background_median(R, bg_mask, &bg_r) ||
-        !estimate_channel_background_median(G, bg_mask, &bg_g) ||
-        !estimate_channel_background_median(B, bg_mask, &bg_b)) {
-        return;
+        image::build_chroma_background_mask_from_rgb(R, G, B, analysis_mask);
+    if (bg_mask.empty()) {
+        out.reason = "empty_background_mask";
+        return out;
     }
 
-    const double bg_ref = (bg_r + bg_g + bg_b) / 3.0;
-    const float dr = static_cast<float>(bg_ref - bg_r);
-    const float dg = static_cast<float>(bg_ref - bg_g);
-    const float db = static_cast<float>(bg_ref - bg_b);
+    if (!estimate_channel_background_median(R, bg_mask, &out.bg_r) ||
+        !estimate_channel_background_median(G, bg_mask, &out.bg_g) ||
+        !estimate_channel_background_median(B, bg_mask, &out.bg_b)) {
+        out.reason = "insufficient_background_samples";
+        return out;
+    }
+
+    size_t analysis_count = 0;
+    size_t bg_count = 0;
+    std::vector<float> luma_samples;
+    luma_samples.reserve(bg_mask.size() / 2);
+    for (int y = 0; y < R.rows(); ++y) {
+        for (int x = 0; x < R.cols(); ++x) {
+            const size_t idx = static_cast<size_t>(y * R.cols() + x);
+            if (analysis_mask[idx] != 0) ++analysis_count;
+            if (bg_mask[idx] == 0) continue;
+            ++bg_count;
+            const float rv = R(y, x);
+            const float gv = G(y, x);
+            const float bv = B(y, x);
+            if (!(std::isfinite(rv) && std::isfinite(gv) && std::isfinite(bv))) continue;
+            luma_samples.push_back(0.2126f * rv + 0.7152f * gv + 0.0722f * bv);
+        }
+    }
+
+    out.bg_ref = (out.bg_r + out.bg_g + out.bg_b) / 3.0;
+    const float dr = static_cast<float>(out.bg_ref - out.bg_r);
+    const float dg = static_cast<float>(out.bg_ref - out.bg_g);
+    const float db = static_cast<float>(out.bg_ref - out.bg_b);
+    out.max_abs_shift = std::max({std::abs(dr), std::abs(dg), std::abs(db)});
+    out.bg_luma_sigma = robust_sigma_from_samples(std::move(luma_samples));
+    out.shift_sigma_ratio =
+        out.max_abs_shift / std::max(out.bg_luma_sigma, 1.0e-3f);
+    out.bg_mask_fraction =
+        (analysis_count > 0)
+            ? static_cast<float>(bg_count) / static_cast<float>(analysis_count)
+            : 0.0f;
+    out.rg_std = image::log_chroma_std_background(R, G, bg_mask);
+    out.bg_std = image::log_chroma_std_background(B, G, bg_mask);
+
+    if (mode == "always") {
+        out.apply = true;
+        out.strength = 1.0f;
+        out.reason = "forced_by_config";
+        return out;
+    }
+
+    const float coverage_factor =
+        std::clamp((out.bg_mask_fraction - 0.35f) / 0.45f, 0.0f, 1.0f);
+    const float shift_factor =
+        (out.shift_sigma_ratio <= 3.0f)
+            ? 1.0f
+            : std::clamp(3.0f / out.shift_sigma_ratio, 0.0f, 1.0f);
+    const float chroma_std = std::max(
+        std::isfinite(out.rg_std) ? out.rg_std : 0.0f,
+        std::isfinite(out.bg_std) ? out.bg_std : 0.0f);
+    const float chroma_factor =
+        (chroma_std <= 0.015f)
+            ? 1.0f
+            : std::clamp(0.03f / chroma_std, 0.0f, 1.0f);
+
+    out.strength = coverage_factor * shift_factor * chroma_factor;
+    if (out.strength >= 0.999f) {
+        out.apply = true;
+        out.strength = 1.0f;
+        out.reason = "auto_full";
+    } else if (out.strength >= 0.05f) {
+        out.apply = true;
+        out.reason = "auto_attenuated";
+    } else {
+        out.apply = false;
+        out.strength = 0.0f;
+        out.reason = "auto_suppressed_nebulous_background";
+    }
+    return out;
+}
+
+static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
+                                          const std::vector<uint8_t> &analysis_mask,
+                                          const std::string &mode,
+                                          const std::vector<uint8_t> *output_mask = nullptr) {
+    const PCCBackgroundNeutralizationDecision decision =
+        decide_pcc_background_neutralization(R, G, B, analysis_mask, mode);
+    std::cout << "[PCC] Background neutralization decision: mode=" << mode
+              << " reason=" << decision.reason
+              << " strength=" << decision.strength
+              << " bg_fraction=" << decision.bg_mask_fraction
+              << " bg_sigma=" << decision.bg_luma_sigma
+              << " shift=" << decision.max_abs_shift
+              << " shift_sigma_ratio=" << decision.shift_sigma_ratio
+              << " rg_std=" << decision.rg_std
+              << " bg_std=" << decision.bg_std << std::endl;
+    if (!decision.apply) return;
+
+    const float dr =
+        static_cast<float>((decision.bg_ref - decision.bg_r) * decision.strength);
+    const float dg =
+        static_cast<float>((decision.bg_ref - decision.bg_g) * decision.strength);
+    const float db =
+        static_cast<float>((decision.bg_ref - decision.bg_b) * decision.strength);
+    const bool use_output_mask =
+        (output_mask != nullptr &&
+         output_mask->size() == static_cast<size_t>(R.rows() * R.cols()));
 
     for (int y = 0; y < R.rows(); ++y) {
         for (int x = 0; x < R.cols(); ++x) {
             const size_t idx = static_cast<size_t>(y * R.cols() + x);
-            if (canvas_mask[idx] == 0) {
+            if (use_output_mask && (*output_mask)[idx] == 0) {
                 R(y, x) = 0.0f;
                 G(y, x) = 0.0f;
                 B(y, x) = 0.0f;
@@ -1630,26 +1759,29 @@ static void neutralize_background_offsets(Matrix2Df &R, Matrix2Df &G, Matrix2Df 
     }
 
     std::cout << "[PCC] Background neutralization applied: "
-              << "medians R/G/B=" << bg_r << "/" << bg_g << "/" << bg_b
-              << " -> target=" << bg_ref << std::endl;
+              << "medians R/G/B=" << decision.bg_r << "/" << decision.bg_g
+              << "/" << decision.bg_b
+              << " -> target=" << decision.bg_ref
+              << " strength=" << decision.strength << std::endl;
 }
 
 
 static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                            const ColorMatrix &m, bool verbose,
-                                           const std::vector<uint8_t> *valid_mask = nullptr) {
+                                           const std::vector<uint8_t> *stats_mask = nullptr,
+                                           const std::vector<uint8_t> *output_mask = nullptr) {
     const int rows = R.rows();
     const int cols = R.cols();
     if (rows <= 0 || cols <= 0) return;
-    const bool use_mask =
-        (valid_mask != nullptr &&
-         valid_mask->size() == static_cast<size_t>(rows * cols));
+    const bool use_output_mask =
+        (output_mask != nullptr &&
+         output_mask->size() == static_cast<size_t>(rows * cols));
 
     // Linear application with shared background anchoring.
     // Keeping a common background pivot avoids colored sky bias when
     // `apply_attenuation=false` and channel gains differ strongly.
     const PCCAttenuationContext ctx =
-        build_pcc_attenuation_context(R, G, B, valid_mask);
+        build_pcc_attenuation_context(R, G, B, stats_mask);
 
     size_t valid_px = 0;
     const size_t total_px = static_cast<size_t>(rows) * static_cast<size_t>(cols);
@@ -1657,7 +1789,7 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
             const size_t idx = static_cast<size_t>(y * cols + x);
-            if (use_mask && (*valid_mask)[idx] == 0) {
+            if (use_output_mask && (*output_mask)[idx] == 0) {
                 R(y, x) = 0.0f;
                 G(y, x) = 0.0f;
                 B(y, x) = 0.0f;
@@ -1700,18 +1832,19 @@ static void apply_color_matrix_impl_simple(Matrix2Df &R, Matrix2Df &G, Matrix2Df
 
 static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                                     const ColorMatrix &m, bool verbose,
-                                    const std::vector<uint8_t> *valid_mask = nullptr,
+                                    const std::vector<uint8_t> *stats_mask = nullptr,
+                                    const std::vector<uint8_t> *output_mask = nullptr,
                                     float shadow_floor = kShadowAttenFloor,
                                     float highlight_floor = kHighlightAttenFloor) {
     const PCCAttenuationContext ctx =
-        build_pcc_attenuation_context(R, G, B, valid_mask,
+        build_pcc_attenuation_context(R, G, B, stats_mask,
                                       shadow_floor, highlight_floor);
     const int rows = ctx.rows;
     const int cols = ctx.cols;
     if (rows <= 0 || cols <= 0) return;
-    const bool use_mask =
-        (valid_mask != nullptr &&
-         valid_mask->size() == static_cast<size_t>(rows * cols));
+    const bool use_output_mask =
+        (output_mask != nullptr &&
+         output_mask->size() == static_cast<size_t>(rows * cols));
 
     if (verbose) {
         std::cout << "[PCC] Background levels: R=" << ctx.bg_r
@@ -1731,7 +1864,7 @@ static void apply_color_matrix_impl(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
             const size_t idx = static_cast<size_t>(y * cols + x);
-            if (use_mask && (*valid_mask)[idx] == 0) {
+            if (use_output_mask && (*output_mask)[idx] == 0) {
                 R(y, x) = 0.0f;
                 G(y, x) = 0.0f;
                 B(y, x) = 0.0f;
@@ -1803,20 +1936,34 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         (rows > 0 && cols > 0 &&
          G.rows() == rows && B.rows() == rows &&
          G.cols() == cols && B.cols() == cols);
-    const bool have_canvas_mask =
+    const bool have_analysis_mask =
         valid_rgb_dims &&
         !config.common_valid_mask.empty() &&
         config.common_mask_rows == rows &&
         config.common_mask_cols == cols &&
         image::canvas_mask_matches_image(config.common_valid_mask, rows, cols);
-    if (have_canvas_mask) {
-        // Hard policy when a common-overlap mask is available: masked pixels
-        // stay excluded globally from PCC.
-        image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
-    } else {
-        std::cout << "[PCC] Warning: missing/invalid canvas mask; proceeding without common-overlap masking"
-                  << std::endl;
+    const bool have_output_mask =
+        valid_rgb_dims &&
+        !config.output_valid_mask.empty() &&
+        config.output_mask_rows == rows &&
+        config.output_mask_cols == cols &&
+        image::canvas_mask_matches_image(config.output_valid_mask, rows, cols);
+    if (have_output_mask) {
+        image::enforce_canvas_mask_on_rgb(R, G, B, config.output_valid_mask);
     }
+
+    std::vector<uint8_t> analysis_mask;
+    if (have_analysis_mask) {
+        analysis_mask = config.common_valid_mask;
+    } else {
+        std::cout << "[PCC] Warning: missing/invalid analysis mask; using full image support for PCC analysis"
+                  << std::endl;
+        analysis_mask.assign(static_cast<size_t>(rows * cols), static_cast<uint8_t>(1));
+    }
+    const std::vector<uint8_t>* analysis_mask_ptr =
+        analysis_mask.empty() ? nullptr : &analysis_mask;
+    const std::vector<uint8_t>* output_mask_ptr =
+        have_output_mask ? &config.output_valid_mask : nullptr;
 
     std::cout << "[PCC] Measuring " << catalog_stars.size()
               << " catalog stars in image..." << std::endl;
@@ -1845,9 +1992,9 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         const Matrix2Df B_in = B;
         const std::vector<uint8_t> bg_mask =
             image::build_chroma_background_mask_from_rgb(
-                R_in, G_in, B_in, config.common_valid_mask);
-        std::cerr << "[PCC] Using canvas valid mask for background chroma analysis ("
-                  << config.common_mask_rows << "x" << config.common_mask_cols << ")" << std::endl;
+                R_in, G_in, B_in, analysis_mask);
+        std::cerr << "[PCC] Using analysis mask for background chroma analysis ("
+                  << rows << "x" << cols << ")" << std::endl;
         const double pre_rg_std_full =
             static_cast<double>(image::log_chroma_std_background(R_in, G_in, bg_mask));
         const double pre_bg_std_full =
@@ -1879,7 +2026,7 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         }
         const PCCAttenuationContext sample_ctx =
             build_pcc_attenuation_context(R_in, G_in, B_in,
-                                          &config.common_valid_mask,
+                                          analysis_mask_ptr,
                                           effective_shadow_floor,
                                           effective_highlight_floor);
         const std::vector<PCCBackgroundSample> bg_samples =
@@ -1973,12 +2120,14 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                 Matrix2Df Bt = B_in;
                 if (effective_apply_attenuation) {
                     apply_color_matrix_impl(Rt, Gt, Bt, candidate, false,
-                                            &config.common_valid_mask,
+                                            analysis_mask_ptr,
+                                            analysis_mask_ptr,
                                             effective_shadow_floor,
                                             effective_highlight_floor);
                 } else {
                     apply_color_matrix_impl_simple(Rt, Gt, Bt, candidate, false,
-                                                   &config.common_valid_mask);
+                                                   analysis_mask_ptr,
+                                                   analysis_mask_ptr);
                 }
                 PCCBackgroundStdPair out;
                 out.rg_std =
@@ -2155,23 +2304,31 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
         if (effective_apply_attenuation) {
             apply_color_matrix_impl(R, G, B, result.matrix, true,
-                                    &config.common_valid_mask,
+                                    analysis_mask_ptr,
+                                    output_mask_ptr,
                                     effective_shadow_floor,
                                     effective_highlight_floor);
         } else {
             apply_color_matrix_impl_simple(R, G, B, result.matrix, true,
-                                           &config.common_valid_mask);
+                                           analysis_mask_ptr,
+                                           output_mask_ptr);
         }
         result.apply_mode = effective_apply_attenuation
                                 ? (config.apply_attenuation ? "attenuated"
                                                             : "attenuated_auto")
                                 : "linear";
-        image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
+        if (have_output_mask) {
+            image::enforce_canvas_mask_on_rgb(R, G, B, config.output_valid_mask);
+        }
         std::cout << "[PCC] Apply mode: "
                   << result.apply_mode
                   << std::endl;
-        neutralize_background_offsets(R, G, B, config.common_valid_mask);
-        image::enforce_canvas_mask_on_rgb(R, G, B, config.common_valid_mask);
+        neutralize_background_offsets(R, G, B, analysis_mask,
+                                      config.background_neutralization_mode,
+                                      output_mask_ptr);
+        if (have_output_mask) {
+            image::enforce_canvas_mask_on_rgb(R, G, B, config.output_valid_mask);
+        }
         std::cout << "[PCC] Color correction applied." << std::endl;
     } else {
         std::cerr << "[PCC] Failed: " << result.error_message << std::endl;

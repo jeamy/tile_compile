@@ -433,6 +433,7 @@ astrometry::PCCConfig to_astrometry_pcc_config(const config::PCCConfig &src) {
   dst.apply_attenuation = src.apply_attenuation;
   dst.chroma_strength = src.chroma_strength;
   dst.k_max = src.k_max;
+  dst.background_neutralization_mode = src.background_neutralization_mode;
   return dst;
 }
 
