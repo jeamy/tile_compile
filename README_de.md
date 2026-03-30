@@ -511,6 +511,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.A (2026-03-29)
+
+- Den spaeten RGB-/PCC-Ausgabepfad nach dem `v3.3.9`-Rollout stabilisiert: der sichtbare RGB-Stretch erhaelt jetzt die Chroma statt schwache Hintergrund-Kanalabweichungen aufzublasen, die PCC-Hintergrundneutralisierung besitzt nun die neue Steuerung `always|auto|off` mit einem nebelbewussten Auto-Guard, und der neue Parameter wurde in Schema, Doku und allen Beispielkonfigurationen nachgezogen.
+
 ## v0.1.9 (2026-03-28)
 
 - Die `v3.3.9`-Methodik ist jetzt als aktiver Referenzstand in Code, Frontend und Dokumentation durchgezogen: der lineare Rekonstruktionskern, BGE/PCC-Semantik, Parameter-Studio-Sichtbarkeit und die Prozessdokumentation wurden auf denselben Stand gebracht; zusaetzlich wurde das Web-Backend bei Startfehlern gehaertet.
@@ -647,6 +651,14 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-03-29)
+
+**Stabilisierung des RGB-/PCC-Ausgabepfads nach dem `v3.3.9`-Rollout (`v0.1.A`):**
+
+- Den sichtbaren RGB-Output-Stretch so umgestellt, dass er luminanzbewusst arbeitet und die Chroma stabil haelt, statt kleine Hintergrund-Kanalabweichungen zu grossen blauen/grauen Randflaechen aufzubauschen.
+- `pcc.background_neutralization_mode = always|auto|off` ergaenzt und mit einem neuen Auto-Guard versehen, der die Hintergrundneutralisierung abschwaecht oder unterdrueckt, wenn der gemessene "Hintergrund" eher diffuses Feldsignal als neutraler Himmel ist.
+- Die neue PCC-Steuerung durch Schema, Defaults, Referenzdokumentation und alle Beispielkonfigurationen synchronisiert, sodass Runtime, Doku und Beispieloberflaeche jetzt denselben Stand zeigen.
 
 ### (2026-03-28)
 

@@ -501,6 +501,10 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.A (2026-03-29)
+
+- Stabilized the late RGB/PCC output path after the `v3.3.9` rollout: visible RGB stretching now preserves chroma instead of amplifying weak background channel offsets, PCC background neutralization gained the new `always|auto|off` control with a nebulosity-aware auto guard, and the new parameter was propagated through schema, docs, and all example configs.
+
 ## v0.1.9 (2026-03-28)
 
 - Promoted the `v3.3.9` methodology into the active reference state across code, frontend, and documentation: the linear reconstruction core, BGE/PCC semantics, Parameter Studio visibility, and process-flow docs now align to the same runtime baseline; backend startup handling was hardened as well.
@@ -637,6 +641,14 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-03-29)
+
+**RGB/PCC output-path stabilization after the `v3.3.9` rollout (`v0.1.A`):**
+
+- Reworked the visible RGB output stretch so it operates luminance-aware and keeps chroma stable instead of exaggerating small background channel offsets into large blue/gray edge bands.
+- Added `pcc.background_neutralization_mode = always|auto|off` with a new auto guard that attenuates or suppresses background neutralization when the measured "background" behaves like diffuse field signal rather than neutral sky.
+- Synchronized the new PCC control through schema, defaults, reference docs, and all example configurations so the runtime, documentation, and example surface now expose the same behavior.
 
 ### (2026-03-28)
 

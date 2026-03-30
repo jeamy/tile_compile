@@ -2009,18 +2009,13 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             std::abs(result.matrix[2][1]) < 1.0e-9;
         const double diagonal_r_gain = std::abs(result.matrix[0][0]);
         const double diagonal_b_gain = std::abs(result.matrix[2][2]);
-        const bool auto_diagonal_attenuation =
-            (!config.apply_attenuation && matrix_is_diagonal &&
-             std::max(diagonal_r_gain, diagonal_b_gain) > 1.15);
-        const bool effective_apply_attenuation =
-            (config.apply_attenuation || auto_diagonal_attenuation);
-        const float effective_shadow_floor =
-            auto_diagonal_attenuation ? 0.0f : kShadowAttenFloor;
-        const float effective_highlight_floor =
-            auto_diagonal_attenuation ? 1.0f : kHighlightAttenFloor;
-        if (auto_diagonal_attenuation) {
-            std::cout << "[PCC] Linear diagonal PCC: auto-enabling attenuated apply "
-                         "for strong channel gains"
+        const bool effective_apply_attenuation = config.apply_attenuation;
+        const float effective_shadow_floor = kShadowAttenFloor;
+        const float effective_highlight_floor = kHighlightAttenFloor;
+        if (!config.apply_attenuation && matrix_is_diagonal &&
+            std::max(diagonal_r_gain, diagonal_b_gain) > 1.15) {
+            std::cout << "[PCC] Strong diagonal gains detected, but respecting "
+                         "apply_attenuation=false; using linear apply"
                       << " (R=" << result.matrix[0][0]
                       << ", B=" << result.matrix[2][2] << ")" << std::endl;
         }
@@ -2048,22 +2043,7 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             std::cout << "[PCC] Chroma strength limit active: " << chroma_strength
                       << std::endl;
         }
-        if (auto_diagonal_attenuation) {
-            if (chroma_strength < 0.999) {
-                result.matrix = blend_matrix_with_identity_per_channel(
-                    result.matrix, chroma_strength, chroma_strength);
-                update_result_matrix_metrics(&result);
-            }
-            const PCCBackgroundStdPair post_std =
-                sampled_background_std_after_matrix(bg_samples, result.matrix);
-            std::cout << "[PCC] Auto attenuated diagonal apply: using full fitted gains "
-                         "with shadow-safe attenuation"
-                      << std::endl;
-            std::cout << "[PCC] Background chroma std pre/post: rg="
-                      << pre_rg_std << " -> " << post_std.rg_std
-                      << ", bg=" << pre_bg_std << " -> " << post_std.bg_std
-                      << std::endl;
-        } else {
+        {
             const bool use_sampled_eval = bg_samples.size() >= 512;
             if (use_sampled_eval) {
                 std::cout << "[PCC] Damping evaluator: sampled background points="
