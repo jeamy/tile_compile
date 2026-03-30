@@ -1515,19 +1515,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 	      image::enforce_canvas_mask_on_rgb(R_disk, G_disk, B_disk, canvas_mask);
 	    }
 	    if (apply_stretch) {
-	      const std::string tag = stage_tag != nullptr ? stage_tag : "";
-	      const bool preserve_channel_ratios = (tag == "PCC");
 	      const auto stretch =
-	          preserve_channel_ratios
-	              ? tile_compile::core::stretch_rgb_to_u16_quantile_inplace(
-	                    R_disk, G_disk, B_disk, 0.1f, 99.9f, true)
-	              : tile_compile::core::stretch_rgb_luma_to_u16_quantile_inplace(
-	                    R_disk, G_disk, B_disk, 0.1f, 99.9f, true);
+	          tile_compile::core::stretch_rgb_luma_to_u16_quantile_inplace(
+	              R_disk, G_disk, B_disk, 0.1f, 99.9f, true);
       if (stretch.applied) {
         std::cout << "[" << stage_tag
-                  << "][resume] RGB output "
-                  << (preserve_channel_ratios ? "shared-channel" : "luma")
-                  << " stretch q[0.1,99.9]: ["
+                  << "][resume] RGB output luma stretch q[0.1,99.9]: ["
                   << stretch.low << ".." << stretch.high << "] -> [0..65535]"
                   << " samples=" << stretch.sample_count << std::endl;
       }

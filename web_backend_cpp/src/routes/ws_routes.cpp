@@ -357,7 +357,9 @@ void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsCo
             }
 
             auto status = read_run_status(run_dir);
-            apply_job_state_to_run_status(status, latest_run_job(ctx->state->job_store, ctx->run_id));
+            const auto job = latest_run_job(ctx->state->job_store, ctx->run_id);
+            apply_job_state_to_run_status(status, job);
+            apply_runtime_liveness_to_run_status(status, job, ctx->state->runtime.runner_exe, ctx->run_id, run_dir.string());
             const std::string state = status.value("status", std::string("unknown"));
             if (!send_json(conn, {
                 {"type", "run_status"},

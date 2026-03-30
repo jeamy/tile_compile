@@ -18,9 +18,9 @@ int main(int argc, char** argv) {
         auto status = harness.get_json("/api/runs/sample_run/status");
         expect_equal(status["_http_status"].get<long>(), 200L, "run status code");
         expect_equal(status["run_id"].get<std::string>(), "sample_run", "run id");
-        expect_equal(status["status"].get<std::string>(), "running", "run status");
+        expect_equal(status["status"].get<std::string>(), "aborted", "stale incomplete run status");
         expect_equal(status["color_mode"].get<std::string>(), "MONO", "run color mode");
-        expect_equal(status["current_phase"].get<std::string>(), "ASTROMETRY", "current phase");
+        expect_true(status["current_phase"].is_null(), "stale current phase cleared");
         expect_true(status["phases"].is_array(), "phases array");
         expect_true(status["events"].is_array(), "events array");
         expect_true(status["queue_filters"].is_array(), "queue filters array");
@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
         for (const auto& item : status["phases"]) {
             if (item.value("phase", "") == "ASTROMETRY") {
                 found_astrometry = true;
-                expect_equal(item["status"].get<std::string>(), "running", "astrometry status");
+                expect_equal(item["status"].get<std::string>(), "aborted", "astrometry status");
                 expect_equal(item["pct"].get<double>(), 0.5, "astrometry pct", 1e-6);
             }
         }

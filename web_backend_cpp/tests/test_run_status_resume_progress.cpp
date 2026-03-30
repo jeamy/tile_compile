@@ -21,13 +21,13 @@ int main(int argc, char** argv) {
 
         const auto status = harness.get_json("/api/runs/resume_progress_run/status");
         expect_equal(status["_http_status"].get<long>(), 200L, "resume status code");
-        expect_equal(status["status"].get<std::string>(), "running", "resume run status");
-        expect_equal(status["current_phase"].get<std::string>(), "BGE", "resume current phase");
+        expect_equal(status["status"].get<std::string>(), "aborted", "stale resume run without live job becomes aborted");
+        expect_true(status["current_phase"].is_null(), "stale resume current phase cleared");
         bool found_bge = false;
         for (const auto& item : status["phases"]) {
             if (item.value("phase", "") == "BGE") {
                 found_bge = true;
-                expect_equal(item["status"].get<std::string>(), "running", "bge resumed status");
+                expect_equal(item["status"].get<std::string>(), "aborted", "bge stale resumed status");
                 expect_equal(item["pct"].get<double>(), 0.0, "bge resumed pct", 1e-9);
             }
         }
@@ -50,6 +50,28 @@ int main(int argc, char** argv) {
             }
         }
         expect_true(found_skipped, "state clustering phase present");
+
+        harness.create_run("completed_without_run_end", {
+            {{"ts", "2026-03-10T11:30:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
+            {{"ts", "2026-03-10T11:30:01Z"}, {"type", "phase_end"}, {"phase_name", "ASTROMETRY"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T11:30:02Z"}, {"type", "phase_start"}, {"phase_name", "BGE"}},
+            {{"ts", "2026-03-10T11:30:03Z"}, {"type", "phase_end"}, {"phase_name", "BGE"}, {"status", "ok"}},
+            {{"ts", "2026-03-10T11:30:04Z"}, {"type", "phase_start"}, {"phase_name", "PCC"}},
+            {{"ts", "2026-03-10T11:30:05Z"}, {"type", "phase_end"}, {"phase_name", "PCC"}, {"status", "ok"}}
+        }, "OSC");
+
+        const auto completed_without_run_end = harness.get_json("/api/runs/completed_without_run_end/status");
+        expect_equal(completed_without_run_end["_http_status"].get<long>(), 200L, "completed without run_end status code");
+        expect_equal(completed_without_run_end["status"].get<std::string>(), "completed", "pcc terminal phase implies completed");
+
+        harness.create_run("partial_without_run_end", {
+            {{"ts", "2026-03-10T11:45:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
+            {{"ts", "2026-03-10T11:45:01Z"}, {"type", "phase_end"}, {"phase_name", "ASTROMETRY"}, {"status", "ok"}}
+        }, "OSC");
+
+        const auto partial_without_run_end = harness.get_json("/api/runs/partial_without_run_end/status");
+        expect_equal(partial_without_run_end["_http_status"].get<long>(), 200L, "partial without run_end status code");
+        expect_equal(partial_without_run_end["status"].get<std::string>(), "unknown", "partial run without active phase must not imply running");
 
         harness.create_run("skipped_then_resume_ok_run", {
             {{"ts", "2026-03-10T12:00:00Z"}, {"type", "phase_start"}, {"phase_name", "ASTROMETRY"}},
@@ -85,8 +107,8 @@ int main(int argc, char** argv) {
 
         const auto pcc_resume_status = harness.get_json("/api/runs/pcc_resume_keeps_target_running/status");
         expect_equal(pcc_resume_status["_http_status"].get<long>(), 200L, "pcc resume status code");
-        expect_equal(pcc_resume_status["status"].get<std::string>(), "running", "pcc resume run status");
-        expect_equal(pcc_resume_status["current_phase"].get<std::string>(), "PCC", "pcc resume keeps target current");
+        expect_equal(pcc_resume_status["status"].get<std::string>(), "aborted", "stale pcc resume run becomes aborted");
+        expect_true(pcc_resume_status["current_phase"].is_null(), "stale pcc resume current phase cleared");
         bool found_astrometry_after_pcc_resume = false;
         bool found_pcc_after_pcc_resume = false;
         for (const auto& item : pcc_resume_status["phases"]) {
@@ -96,7 +118,7 @@ int main(int argc, char** argv) {
             }
             if (item.value("phase", "") == "PCC") {
                 found_pcc_after_pcc_resume = true;
-                expect_equal(item["status"].get<std::string>(), "running", "pcc remains running until resume_end");
+                expect_equal(item["status"].get<std::string>(), "aborted", "stale pcc phase becomes aborted without live job");
                 expect_equal(item["pct"].get<double>(), 0.0, "pcc remains at 0 pct before phase_start", 1e-9);
             }
         }
