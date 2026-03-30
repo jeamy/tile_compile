@@ -27,6 +27,7 @@ using tile_compile::reconstruction::TileNormalizationGuardConfig;
 using tile_compile::reconstruction::TileNormalizationStats;
 using tile_compile::reconstruction::make_partition_window_1d;
 using tile_compile::reconstruction::chroma_denoise_rgb_inplace;
+using tile_compile::reconstruction::reconstruct_tiles;
 using tile_compile::reconstruction::sigma_clip_weighted_tile_with_fallback;
 using tile_compile::reconstruction::wiener_tile_filter;
 
@@ -155,6 +156,33 @@ TEST_CASE("partition_window_forms_unity_in_overlap") {
   REQUIRE(rhs[3] == Catch::Approx(1.0f).margin(1e-6));
 }
 
+TEST_CASE("reconstruct_tiles_preserves_outer_boundary_support_with_partition_windows") {
+  Matrix2Df frame(1, 6);
+  frame << 10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f;
+
+  tile_compile::TileGrid grid;
+  grid.tile_size = 4;
+  grid.overlap_fraction = 0.5f;
+  grid.rows = 1;
+  grid.cols = 2;
+  grid.tiles = {
+      Tile{0, 0, 4, 1, 0, 0},
+      Tile{2, 0, 4, 1, 0, 1},
+  };
+
+  const std::vector<Matrix2Df> frames{frame};
+  const std::vector<std::vector<float>> tile_weights{{1.0f, 1.0f}};
+
+  const auto out = reconstruct_tiles(frames, grid, tile_weights);
+
+  REQUIRE(out.rows() == 1);
+  REQUIRE(out.cols() == 6);
+  REQUIRE(out(0, 0) == Catch::Approx(10.0f).margin(1e-6));
+  REQUIRE(out(0, 5) == Catch::Approx(60.0f).margin(1e-6));
+  REQUIRE(out(0, 2) == Catch::Approx(30.0f).margin(1e-6));
+  REQUIRE(out(0, 3) == Catch::Approx(40.0f).margin(1e-6));
+}
+
 TEST_CASE("normalization_roundtrip_preserves_affine_scale") {
   Matrix2Df img(1, 3);
   img << 10.0f, 12.0f, 14.0f;
@@ -174,6 +202,40 @@ TEST_CASE("normalization_roundtrip_preserves_affine_scale") {
   REQUIRE(img(0, 0) == Catch::Approx(10.0f).margin(1e-6));
   REQUIRE(img(0, 1) == Catch::Approx(12.0f).margin(1e-6));
   REQUIRE(img(0, 2) == Catch::Approx(14.0f).margin(1e-6));
+}
+
+TEST_CASE("output_scaling_ignores_unstable_near_zero_restore_scale") {
+  Matrix2Df img(1, 2);
+  img << 1.5f, -0.5f;
+
+  apply_output_scaling_inplace(img, 0, 0, tile_compile::ColorMode::MONO, "",
+                               1.0e-7f, 1.0f, 1.0f, 1.0f, 2.0f, 0.0f, 0.0f,
+                               0.0f, 0.5f);
+
+  REQUIRE(img(0, 0) == Catch::Approx(4.0f).margin(1e-6));
+  REQUIRE(img(0, 1) == Catch::Approx(2.0f).margin(1e-6));
+}
+
+TEST_CASE("canvas_mask_zeroes_rgb_channels_consistently") {
+  Matrix2Df R(2, 2);
+  Matrix2Df G(2, 2);
+  Matrix2Df B(2, 2);
+  R << 10.0f, 20.0f, 30.0f, 40.0f;
+  G << 11.0f, 21.0f, 31.0f, 41.0f;
+  B << 12.0f, 22.0f, 32.0f, 42.0f;
+
+  const std::vector<uint8_t> mask = {1u, 0u, 1u, 0u};
+  tile_compile::image::enforce_canvas_mask_on_rgb(R, G, B, mask);
+
+  REQUIRE(R(0, 0) == Catch::Approx(10.0f).margin(1e-6));
+  REQUIRE(G(0, 0) == Catch::Approx(11.0f).margin(1e-6));
+  REQUIRE(B(0, 0) == Catch::Approx(12.0f).margin(1e-6));
+  REQUIRE(R(0, 1) == Catch::Approx(0.0f).margin(1e-6));
+  REQUIRE(G(0, 1) == Catch::Approx(0.0f).margin(1e-6));
+  REQUIRE(B(0, 1) == Catch::Approx(0.0f).margin(1e-6));
+  REQUIRE(R(1, 1) == Catch::Approx(0.0f).margin(1e-6));
+  REQUIRE(G(1, 1) == Catch::Approx(0.0f).margin(1e-6));
+  REQUIRE(B(1, 1) == Catch::Approx(0.0f).margin(1e-6));
 }
 
 TEST_CASE("wiener_tile_filter_preserves_high_snr_tiles_and_returns_finite_output") {

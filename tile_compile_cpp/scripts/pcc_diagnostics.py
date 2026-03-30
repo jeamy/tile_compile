@@ -3,7 +3,7 @@
 
 Compares internal pipeline stages only (no Siril dependency):
   - solve (stacked_rgb_solve.fits)
-  - bge   (stacked_rgb_bge.fits)
+  - bge   (prefer stacked_rgb_bge_linear.fits, fallback stacked_rgb_bge.fits)
   - pcc   (stacked_rgb_pcc.fits)
 
 Outputs (default in <run_dir>/artifacts/pcc_diagnostics):
@@ -121,7 +121,8 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     p_solve = outputs / "stacked_rgb_solve.fits"
-    p_bge = outputs / "stacked_rgb_bge.fits"
+    p_bge_linear = outputs / "stacked_rgb_bge_linear.fits"
+    p_bge = p_bge_linear if p_bge_linear.exists() else (outputs / "stacked_rgb_bge.fits")
     p_pcc = outputs / "stacked_rgb_pcc.fits"
 
     for p in (p_solve, p_bge, p_pcc):

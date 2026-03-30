@@ -228,6 +228,8 @@ struct StackingConfig {
   } cluster_quality_weighting;
 
   std::string method = "rej";
+  float common_overlap_required_fraction = 1.0f;
+  float tile_common_valid_min_fraction = 1.0f;
   bool output_stretch = false;
   bool cosmetic_correction = false;
   float cosmetic_correction_sigma = 5.0f;
@@ -296,7 +298,7 @@ struct BGEConfig {
   // Tile reliability weight (§6.3.2c): w_t = exp(-lambda_structure *
   // structure_score_t) * (1 - masked_fraction_t), with dimensionless
   // structure_score_t after local noise normalization.
-  float tile_weight_lambda_structure = 2.0f;
+  float tile_weight_lambda_structure = 1.0f;
 };
 
 struct PCCConfig {

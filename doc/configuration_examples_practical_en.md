@@ -4,15 +4,18 @@
 
 This guide complements the configuration reference with practical examples, edge cases, and use cases based on methodology v3.3.
 
-## Update Status (2026-03-03)
+## Update Status (2026-03-30)
 
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are available again as user-facing parameters.
 - New BGE apply guards `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented.
 - PCC examples were aligned with the current parameter set (without `pcc.method`).
 - Assumptions examples were aligned with the active runtime fields (`frames_min`, `frames_reduced_threshold`, reduced-mode controls).
 - Added `registration.enable_star_pair_fallback` to control the optional non-normative star-pair stage.
+- `bge.tile_weight_lambda_structure` was aligned to the current default `1.0`.
+- `stacking.common_overlap_required_fraction` and `stacking.tile_common_valid_min_fraction` are now documented with the current strict defaults `1.0 / 1.0`.
+- The baseline snippet was updated to the strict `v3.3.9` profile.
 
-**Strict v3.3.7 baseline snippet:**
+**Strict v3.3.9 baseline snippet:**
 
 ```yaml
 assumptions:
@@ -22,6 +25,10 @@ assumptions:
 registration:
   engine: triangle_star_matching
   enable_star_pair_fallback: false
+
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
 ```
 
 ---
@@ -45,7 +52,7 @@ bge:
     holdout_fraction: 0.25
     alpha_flatness: 0.25
     beta_roughness: 0.10
-  tile_weight_lambda_structure: 2.0  # Standard down-weighting for structure-rich tiles
+  tile_weight_lambda_structure: 1.0  # Current default: moderate down-weighting for structure-rich tiles
   sample_quantile: 0.20  # Conservative, resistant to faint objects
   min_valid_sample_fraction_for_apply: 0.30  # Per-channel apply guard (fraction)
   min_valid_samples_for_apply: 96  # Per-channel apply guard (absolute count)
@@ -120,24 +127,25 @@ pcc:
 
 ## Common overlap after PREWARP (`stacking.common_overlap_*`)
 
-**New sensible defaults:**
+**Current sensible defaults:**
 
 ```yaml
 stacking:
   common_overlap_required_fraction: 1.0
-  tile_common_valid_min_fraction: 0.90
+  tile_common_valid_min_fraction: 1.0
 ```
 
 - `common_overlap_required_fraction: 1.0` enforces strict intersection across all usable frames.
-- `tile_common_valid_min_fraction: 0.90` prevents edge-heavy tiles from biasing local metrics.
+- `tile_common_valid_min_fraction: 1.0` means a tile is only valid when its full area lies inside `COMMON_OVERLAP`.
+- The tile coverage ratio is computed over the full tile area, not just the in-bounds remainder.
 
 **Recommendations by setup:**
 
-- **Alt/Az with field rotation:** keep `1.0 / 0.90` (recommended)
-- **EQ with very stable tracking:** `1.0 / 0.85-0.90`
-- **Only when intentionally accepting more edge area:** `0.95 / 0.80-0.85`
+- **Alt/Az with field rotation:** keep `1.0 / 1.0` (recommended)
+- **EQ with very stable tracking:** keep `1.0 / 1.0` when you want neutral border/background statistics
+- **Only when intentionally accepting more edge area:** for example `0.98 / 0.95` or `0.95 / 0.90`
 
-**Important:** Lower values can reintroduce dynamic-range/background bias from uneven edge coverage.
+**Important:** Lower values re-admit partially covered edge pixels and edge tiles into local metrics, BGE/PCC, and background statistics.
 
 ---
 
@@ -195,489 +203,265 @@ stacking:
 
 ---
 
-## Tile Size (`tile.size`)
+## Audit Note on Legacy Parameters
 
-**Default:** `256`  
-**Range:** `64` - `512`  
-**Methodology requirement:** Must be large enough for local sharpness metrics, small enough for spatial resolution
+During the code/schema audit, several outdated example parameters were removed or replaced.
 
-### Use Cases:
+Removed legacy keys included:
+- `tile.size`, `tile.overlap`, `tile.min_valid_fraction`
+- `registration.method`, `registration.max_rotation_deg`, `registration.fallback_to_identity`, `registration.identity_correlation_threshold`, `registration.trail_endpoint_enabled`
+- `global_metrics.fwhm_percentile`, `global_metrics.fwhm_outlier_sigma`, `global_metrics.use_robust_background`
+- `local_metrics.sharpness_method`, `local_metrics.sharpness_kernel_size`, `local_metrics.sharpness_percentile`, `local_metrics.contrast_percentile`
+- the old standalone `reconstruction.*` block
+- `runtime.min_frames`, `runtime.allow_reduced_mode`, `runtime.max_memory_gb`, `runtime.use_disk_cache`
+- `data.mode`
+- `output.write_tile_weights`, `output.write_quality_maps`
 
-**Short focal length (< 200mm), good seeing:**
+The practical examples below now use only parameters that are active in the current code and schema.
+
+---
+
+## Tile Generation (`tile.*`)
+
+Tile generation is now **adaptive**. Instead of a fixed `tile.size`, the runner derives tiles from `tile.size_factor`, `tile.min_size`, `tile.max_divisor`, and `tile.overlap_fraction`.
+
+**Short focal length / good seeing:**
 ```yaml
 tile:
-  size: 128
-  overlap: 32
+  size_factor: 24
+  min_size: 48
+  max_divisor: 6
+  overlap_fraction: 0.30
 ```
-- Smaller tiles capture local quality differences better
-- With good seeing, structures are more finely distributed
-- Example: DWARF II (f=100mm), Seestar S50 (f=250mm)
 
-**Medium focal length (200-800mm), normal seeing:**
+**General-purpose / close to defaults:**
 ```yaml
 tile:
-  size: 256  # Default
-  overlap: 64
+  size_factor: 32
+  min_size: 64
+  max_divisor: 6
+  overlap_fraction: 0.25
 ```
-- Standard for most applications
-- Good compromise between resolution and computation time
-- Example: 80mm refractor, 8" SCT
 
-**Long focal length (> 800mm), poor seeing:**
+**Long focal length / large structures / poor seeing:**
 ```yaml
 tile:
-  size: 384
-  overlap: 96
+  size_factor: 40
+  min_size: 96
+  max_divisor: 5
+  overlap_fraction: 0.30
 ```
-- Larger tiles avoid tile artifacts with large structures
-- With poor seeing, local quality differences are coarser
-- Example: 12" SCT (f=2000mm), large refractors
 
-**Alt/Az mount with field rotation:**
+**Alt/Az with strict edge handling:**
 ```yaml
 tile:
-  size: 320
-  overlap: 80
-  min_valid_fraction: 0.6  # More tolerant with rotation
+  size_factor: 24
+  min_size: 48
+  max_divisor: 6
+  overlap_fraction: 0.30
+
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
 ```
-- Larger tiles compensate rotation effects better
-- Higher overlap for smoother transitions
 
 ---
 
 ## Registration (`registration.*`)
 
-### `registration.method`
+The active key is `registration.engine`, not `registration.method`.
 
-**Default:** `"triangle_star_matching"`  
-**Alternatives:** `star_similarity`, `hybrid_phase_ecc`, `robust_phase_ecc`
-
-**Star-rich fields (> 50 stars):**
-```yaml
-registration:
-  method: triangle_star_matching
-  min_stars: 15
-  max_shift_px: 50
-  max_rotation_deg: 5.0
-```
-- Triangle matching is robust and precise
-- Works even with rotation and translation
-
-**Star-poor fields (< 20 stars), nebulae:**
-```yaml
-registration:
-  method: robust_phase_ecc
-  fallback_to_identity: true
-  identity_correlation_threshold: 0.3
-```
-- Phase correlation uses gradient structures
-- Works even with diffuse nebulae
-- Fallback prevents abort on difficult frames
-
-**Alt/Az with field rotation (current):**
+**Strict / methodology-aligned:**
 ```yaml
 registration:
   engine: triangle_star_matching
-  allow_rotation: true  # REQUIRED for Alt/Az near pole
-  star_topk: 150  # More stars for robust solution
+  enable_star_pair_fallback: false
+  allow_rotation: true
+```
+
+**Alt/Az / field rotation / difficult star fields:**
+```yaml
+registration:
+  engine: triangle_star_matching
+  allow_rotation: true
+  enable_star_pair_fallback: true
+  star_topk: 150
   star_min_inliers: 4
-  star_inlier_tol_px: 4.0  # More tolerant for drift/field rotation
+  star_inlier_tol_px: 4.0
   star_dist_bin_px: 5.0
-  
+  max_shift_px: 80
   reject_outliers: true
   reject_cc_min_abs: 0.25
   reject_shift_px_min: 100.0
   reject_shift_median_multiplier: 5.0
   reject_scale_min: 0.92
   reject_scale_max: 1.08
-
-  # Frames with failed direct registration are predicted using
-  # a polynomial field-rotation model, so all frames remain usable.
 ```
-**Note:** This behavior matches the current Alt/Az example profiles.
 
-### `registration.max_shift_px`
-
-**Default:** `50`  
-**Range:** `10` - `200`
-
-**Well-tracked (equatorial):**
+**Star-poor / nebula-heavy / cloudy data:**
 ```yaml
 registration:
-  max_shift_px: 30
-```
-- Low drift expected
-- Stricter limits prevent misregistrations
-
-**Alt/Az without field derotator:**
-```yaml
-registration:
-  max_shift_px: 100
-```
-- Higher drift due to field rotation
-- More tolerance needed
-
-**Smart telescope (DWARF, Seestar) - short exposures:**
-```yaml
-registration:
+  engine: robust_phase_ecc
+  allow_rotation: true
   max_shift_px: 80
-  max_rotation_deg: 8.0
-```
-- Moderate drift from tracking inaccuracies
-- Rotation from Alt/Az mount
-
----
-
-## Global Metrics (`global_metrics.*`)
-
-### `global_metrics.fwhm_percentile`
-
-**Default:** `0.5` (median)  
-**Range:** `0.1` - `0.9`
-
-**Good seeing (FWHM < 2.5"):**
-```yaml
-global_metrics:
-  fwhm_percentile: 0.3  # Use best 30% of stars
-  fwhm_outlier_sigma: 2.5
-```
-- With good seeing, best stars are very sharp
-- Lower percentile focuses on peak values
-
-**Poor seeing (FWHM > 4"):**
-```yaml
-global_metrics:
-  fwhm_percentile: 0.7  # Use majority of stars
-  fwhm_outlier_sigma: 3.5
-```
-- With poor seeing, large scatter
-- Higher percentile avoids outlier dominance
-
-**Turbulent seeing (highly variable):**
-```yaml
-global_metrics:
-  fwhm_percentile: 0.5
-  fwhm_outlier_sigma: 4.0  # Very tolerant
-  use_robust_background: true
+  reject_outliers: true
 ```
 
----
-
-## Local Metrics (`local_metrics.*`)
-
-### `local_metrics.sharpness_method`
-
-**Default:** `"gradient_energy"`  
-**Alternatives:** `laplacian_variance`, `tenengrad`
-
-**High-resolution data (sampling < 1"/px):**
-```yaml
-local_metrics:
-  sharpness_method: tenengrad
-  sharpness_kernel_size: 5
-```
-- Tenengrad is more sensitive to fine details
-- Smaller kernel for high resolution
-
-**Low-resolution data (sampling > 3"/px):**
-```yaml
-local_metrics:
-  sharpness_method: gradient_energy
-  sharpness_kernel_size: 7
-```
-- Gradient energy more robust with coarse sampling
-- Larger kernel for low resolution
-
-**Smart telescopes (DWARF: 5.57"/px, Seestar: 3.97"/px):**
-```yaml
-local_metrics:
-  sharpness_method: gradient_energy
-  sharpness_kernel_size: 5
-  contrast_percentile: 0.7
-  k_local: 1.0  # Standard local weight scaling
-```
-
-**For stronger local differentiation (e.g. fields with variable seeing):**
-```yaml
-local_metrics:
-  k_local: 1.5  # Increase local weight contrast
-```
-
-**For softer local weighting (e.g. very uniform fields):**
-```yaml
-local_metrics:
-  k_local: 0.7  # Reduce local weight contrast
-```
-
----
-
-## Reconstruction (`reconstruction.*`)
-
-### `reconstruction.ola_window`
-
-**Default:** `"hann"`  
-**Alternatives:** `bartlett`, `blackman`, `hamming`
-
-**Many frames (N > 500), good SNR:**
-```yaml
-reconstruction:
-  ola_window: hann
-  ola_normalize_per_tile: true
-```
-- Hann window: good compromise
-- Per-tile normalization safe with high SNR
-
-**Few frames (50 < N < 200), low SNR:**
-```yaml
-reconstruction:
-  ola_window: blackman  # Smoother transitions
-  ola_normalize_per_tile: false
-  sigma_clip_threshold: 4.0  # More tolerant
-```
-- Blackman reduces tile edges
-- No tile normalization avoids noise amplification
-
-**Emergency mode (N < 50):**
-```yaml
-reconstruction:
-  ola_window: blackman
-  ola_normalize_per_tile: false
-  sigma_clip_threshold: 5.0
-  min_frames_per_pixel: 3  # Very low
-```
-
----
-
-## Frame Count and Modes
-
-**Methodology v3.2.2 requirements:**
-- **Full mode:** N ≥ 200 (clustering + synthetic frames active)
-- **Reduced mode:** 50 ≤ N < 200 (clustering disabled)
-- **Emergency mode:** N < 50 (only with `runtime.allow_emergency_mode: true`)
-
-### Full Mode (N ≥ 200)
-
-```yaml
-runtime:
-  min_frames: 200
-  allow_reduced_mode: false
-  
-synthetic:
-  enabled: true
-  min_cluster_size: 20
-  max_clusters: 10
-```
-
-### Reduced Mode (50 ≤ N < 200)
-
-```yaml
-runtime:
-  min_frames: 50
-  allow_reduced_mode: true
-  
-synthetic:
-  enabled: false  # Automatically disabled
-```
-
-### Emergency Mode (N < 50) - Testing only!
-
-```yaml
-runtime:
-  min_frames: 10
-  allow_emergency_mode: true  # WARNING!
-  
-tile:
-  size: 384  # Larger tiles
-  min_valid_fraction: 0.4  # Very tolerant
-  
-reconstruction:
-  sigma_clip_threshold: 5.0
-  min_frames_per_pixel: 2
-```
-
-**⚠️ Warning:** Emergency mode is not suitable for production!
-
----
-
-## Focal Length Specific Recommendations
-
-### Short Focal Length (< 200mm)
-
-**Example: DWARF II (100mm f/4.4), Seestar S50 (250mm f/5)**
-
-```yaml
-tile:
-  size: 128
-  overlap: 32
-  
-registration:
-  method: triangle_star_matching
-  min_stars: 20  # Many stars in field
-  max_shift_px: 60
-  
-local_metrics:
-  sharpness_kernel_size: 5
-  contrast_percentile: 0.7
-```
-
-### Medium Focal Length (200-800mm)
-
-**Example: 80mm refractor (480mm f/6), 8" SCT (2000mm f/10)**
-
-```yaml
-tile:
-  size: 256
-  overlap: 64
-  
-registration:
-  method: triangle_star_matching
-  min_stars: 10
-  max_shift_px: 40
-  
-local_metrics:
-  sharpness_kernel_size: 5
-  contrast_percentile: 0.5
-```
-
-### Long Focal Length (> 800mm)
-
-**Example: 12" SCT (3000mm f/10), large refractors**
-
-```yaml
-tile:
-  size: 384
-  overlap: 96
-  
-registration:
-  method: triangle_star_matching
-  min_stars: 5  # Fewer stars in field
-  max_shift_px: 30  # Precise guiding expected
-  max_rotation_deg: 2.0
-  
-local_metrics:
-  sharpness_kernel_size: 7
-  contrast_percentile: 0.3
-```
-
----
-
-## Seeing Conditions
-
-### Excellent Seeing (FWHM < 2")
-
-```yaml
-global_metrics:
-  fwhm_percentile: 0.2
-  fwhm_outlier_sigma: 2.0
-  
-local_metrics:
-  sharpness_percentile: 0.3
-  
-reconstruction:
-  quality_weight_exponent: 2.0  # Stronger weighting
-```
-
-### Good Seeing (FWHM 2-3")
-
-```yaml
-global_metrics:
-  fwhm_percentile: 0.4
-  fwhm_outlier_sigma: 2.5
-  
-local_metrics:
-  sharpness_percentile: 0.5
-  
-reconstruction:
-  quality_weight_exponent: 1.5
-```
-
-### Moderate Seeing (FWHM 3-4")
-
-```yaml
-global_metrics:
-  fwhm_percentile: 0.5
-  fwhm_outlier_sigma: 3.0
-  
-local_metrics:
-  sharpness_percentile: 0.6
-  
-reconstruction:
-  quality_weight_exponent: 1.0  # Default
-```
-
-### Poor Seeing (FWHM > 4")
-
-```yaml
-global_metrics:
-  fwhm_percentile: 0.7
-  fwhm_outlier_sigma: 3.5
-  use_robust_background: true
-  
-local_metrics:
-  sharpness_percentile: 0.7
-  
-reconstruction:
-  quality_weight_exponent: 0.8  # Weaker weighting
-  sigma_clip_threshold: 4.0
-```
-
----
-
-## Mount-Specific Settings
-
-### Equatorial Mount (well-tracked)
-
+**Well-tracked equatorial mount:**
 ```yaml
 registration:
-  method: triangle_star_matching
+  engine: triangle_star_matching
+  allow_rotation: true
   max_shift_px: 30
-  max_rotation_deg: 2.0
-  allow_reflection: false
-  
-tile:
-  min_valid_fraction: 0.8  # Strict
-```
-
-### Alt/Az without derotator
-
-```yaml
-registration:
-  method: triangle_star_matching
-  max_shift_px: 100
-  max_rotation_deg: 15.0
-  trail_endpoint_enabled: true
-  
-tile:
-  size: 320  # Larger due to rotation
-  overlap: 80
-  min_valid_fraction: 0.6  # More tolerant
-```
-
-### Alt/Az with derotator (DWARF, Seestar)
-
-```yaml
-registration:
-  method: triangle_star_matching
-  max_shift_px: 60
-  max_rotation_deg: 8.0
-  
-tile:
-  size: 256
-  overlap: 64
-  min_valid_fraction: 0.7
 ```
 
 ---
 
-## Camera-Specific Settings
+## Global Weighting (`global_metrics.*`)
 
-### OSC (One-Shot Color)
+Global weighting now uses the three metric weights `background`, `noise`, `gradient` plus `adaptive_weights`, `clamp`, and `weight_exponent_scale`.
 
+**Balanced / near-default:**
+```yaml
+global_metrics:
+  adaptive_weights: true
+  weight_exponent_scale: 1.2
+  weights:
+    background: 0.40
+    noise: 0.35
+    gradient: 0.25
+  clamp: [-3.0, 3.0]
+```
+
+**Stronger separation between good and bad frames:**
+```yaml
+global_metrics:
+  adaptive_weights: true
+  weight_exponent_scale: 1.3
+  weights:
+    background: 0.40
+    noise: 0.35
+    gradient: 0.25
+  clamp: [-2.5, 2.5]
+```
+
+**Softer weighting for homogeneous sessions:**
+```yaml
+global_metrics:
+  adaptive_weights: false
+  weight_exponent_scale: 0.8
+```
+
+---
+
+## Local Weighting (`local_metrics.*`)
+
+Instead of old sharpness-kernel and percentile controls, the live knobs are `k_local`, neighborhood normalization, spatial regularization, and the STAR/STRUCTURE weight splits.
+
+**Default-like / robust:**
+```yaml
+local_metrics:
+  clamp: [-3.0, 3.0]
+  k_local: 1.0
+  neighborhood_normalization:
+    enabled: true
+    radius: 1
+    blend: 0.5
+  spatial_regularization:
+    enabled: true
+    lambda: 0.35
+    passes: 1
+```
+
+**Stronger local differentiation:**
+```yaml
+local_metrics:
+  k_local: 1.5
+```
+
+**Softer local weighting:**
+```yaml
+local_metrics:
+  k_local: 0.7
+```
+
+**Favor star-driven local scoring:**
+```yaml
+local_metrics:
+  star_mode:
+    weights:
+      fwhm: 0.7
+      roundness: 0.2
+      contrast: 0.1
+```
+
+**Favor diffuse-structure scoring:**
+```yaml
+local_metrics:
+  structure_mode:
+    metric_weight: 0.7
+    background_weight: 0.3
+```
+
+---
+
+## Frame Count and Modes (`assumptions.*`, `synthetic.*`, `runtime_limits.*`)
+
+Mode switching is now controlled by `assumptions.frames_min` and `assumptions.frames_reduced_threshold`, not by an older `runtime.min_frames` block.
+
+**Full mode (N >= 200):**
+```yaml
+assumptions:
+  frames_min: 50
+  frames_reduced_threshold: 200
+  reduced_mode_skip_clustering: false
+
+synthetic:
+  weighting: tile_weighted
+  frames_min: 4
+  frames_max: 20
+  clustering:
+    mode: kmeans
+    cluster_count_range: [3, 12]
+```
+
+**Reduced mode (50 <= N < 200):**
+```yaml
+assumptions:
+  frames_min: 50
+  frames_reduced_threshold: 200
+  reduced_mode_skip_clustering: true
+  reduced_mode_cluster_range: [5, 10]
+```
+
+**Emergency mode (intentional only):**
+```yaml
+runtime_limits:
+  allow_emergency_mode: true
+
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
+  sigma_clip:
+    sigma_low: 2.5
+    sigma_high: 2.5
+    max_iters: 2
+```
+
+**Warning:** `allow_emergency_mode` is for rescue/test runs, not normal production.
+
+---
+
+## Camera-Specific Notes (`data.*`, `pcc.*`)
+
+The active color-mode key is `data.color_mode`, not `data.mode`.
+
+**OSC / Bayer camera:**
 ```yaml
 data:
-  mode: OSC
-  bayer_pattern: RGGB  # Camera-dependent!
-  
+  color_mode: OSC
+  bayer_pattern: RGGB
+
 pcc:
   enabled: true
   source: auto
@@ -685,63 +469,55 @@ pcc:
   radii_mode: auto_fwhm
 ```
 
-### Monochrome
-
+**Mono:**
 ```yaml
 data:
-  mode: MONO
-  
-# No PCC for mono (only for RGB composite)
+  color_mode: MONO
 ```
 
 ---
 
-## Performance Optimization
+## Performance Optimization (`pipeline.*`, `runtime_limits.*`, `output.*`)
 
-### Fast test run
-
+**Fast debug run:**
 ```yaml
 pipeline:
   mode: test
-  max_frames: 50
-  
-tile:
-  size: 256
-  
+
+linearity:
+  max_frames: 4
+
+runtime_limits:
+  parallel_workers: 2
+  memory_budget: 256
+  acceleration_backend: cpu
+
 output:
   write_registered_frames: false
-  write_tile_weights: false
 ```
 
-### Production (maximum quality)
-
+**Production / high quality:**
 ```yaml
 pipeline:
   mode: production
-  
-tile:
-  size: 256
-  overlap: 64
-  
-reconstruction:
-  ola_normalize_per_tile: true
-  
+
+runtime_limits:
+  parallel_workers: 8
+  memory_budget: 2048
+  acceleration_backend: auto
+  hard_abort_hours: 6.0
+
 output:
   write_registered_frames: true
-  write_tile_weights: true
-  write_quality_maps: true
 ```
 
-### Memory-limited
-
+**Memory-limited:**
 ```yaml
-runtime:
-  max_memory_gb: 8.0
-  use_disk_cache: true
-  
-tile:
-  size: 192  # Smaller = less RAM
-  
+runtime_limits:
+  parallel_workers: 2
+  memory_budget: 256
+  acceleration_backend: cpu
+
 output:
   write_registered_frames: false
 ```
@@ -754,94 +530,88 @@ output:
 
 ```yaml
 data:
-  mode: OSC
+  color_mode: OSC
   bayer_pattern: RGGB
-  
+
 tile:
-  size: 128
-  overlap: 32
-  
+  size_factor: 24
+  min_size: 48
+  max_divisor: 6
+  overlap_fraction: 0.30
+
 registration:
-  method: triangle_star_matching
+  engine: triangle_star_matching
+  enable_star_pair_fallback: true
+  allow_rotation: true
   max_shift_px: 80
-  max_rotation_deg: 8.0
-  
-global_metrics:
-  fwhm_percentile: 0.5
-  
-local_metrics:
-  sharpness_method: gradient_energy
-  sharpness_kernel_size: 5
-  
-reconstruction:
-  ola_window: hann
-  quality_weight_exponent: 1.0
-  
+
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
+  per_frame_cosmetic_correction: true
+  per_frame_cosmetic_correction_sigma: 2.5
+
 pcc:
   enabled: true
   source: auto
 ```
 
-### DSLR on Equatorial Mount
+### DSLR on equatorial mount
 
 ```yaml
 data:
-  mode: OSC
-  bayer_pattern: RGGB  # Canon usually RGGB, Nikon usually GBRG
-  
+  color_mode: OSC
+  bayer_pattern: RGGB
+
 tile:
-  size: 256
-  overlap: 64
-  
+  size_factor: 36
+  min_size: 96
+  max_divisor: 6
+  overlap_fraction: 0.35
+
 registration:
-  method: triangle_star_matching
+  engine: triangle_star_matching
+  allow_rotation: true
   max_shift_px: 40
-  max_rotation_deg: 3.0
-  
+
 global_metrics:
-  fwhm_percentile: 0.4
-  
-reconstruction:
-  quality_weight_exponent: 1.5
-  
+  adaptive_weights: false
+  weight_exponent_scale: 1.0
+
 pcc:
   enabled: true
 ```
 
-Ready-to-use profile:
-- `tile_compile_cpp/examples/tile_compile.canon_equatorial_balanced.example.yaml`
+Ready-to-use repository profiles:
+- `tile_compile_cpp/examples/ic434.example.yaml`
+- `tile_compile_cpp/examples/m31_background_gradient_balanced.example.yaml`
 
-### Mono CCD on Large Telescope
+### Mono on a large telescope
 
 ```yaml
 data:
-  mode: MONO
-  
+  color_mode: MONO
+
 tile:
-  size: 384
-  overlap: 96
-  
+  size_factor: 40
+  min_size: 96
+  max_divisor: 5
+  overlap_fraction: 0.30
+
 registration:
-  method: triangle_star_matching
-  min_stars: 5
+  engine: triangle_star_matching
+  allow_rotation: true
   max_shift_px: 20
-  max_rotation_deg: 1.0
-  
-global_metrics:
-  fwhm_percentile: 0.3
-  
+
 local_metrics:
-  sharpness_kernel_size: 7
-  
-reconstruction:
-  quality_weight_exponent: 2.0
+  k_local: 1.2
+  structure_mode:
+    metric_weight: 0.7
+    background_weight: 0.3
 ```
 
 ---
 
-These examples are based on:
-- Methodology v3.2.2 requirements (linearity, no frame selection, tile-based reconstruction)
-- Practical experience with various setups
-- Physical constraints (seeing, focal length, mount type)
+These examples now reflect the active parameters in code and schema (`v3.3.9` status) and stay closer to the maintained repository profiles.
 
-Adjust values to your specific hardware and conditions!
+Adjust values to your specific hardware and conditions.

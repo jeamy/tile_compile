@@ -1,14 +1,14 @@
-run_dir: ./run_ic434_background_gradient_chroma_suppression_aggressive
+run_dir: ./run_ic434_background_gradient
 log_level: info
 
 scenario_profile:
-  id: ic434_background_gradient_chroma_suppression_aggressive
-  title: IC434 Background Gradient Chroma Suppression Aggressive
-  intent: "IC434/OSC mit maximalem Fokus auf Hintergrundberuhigung, starke Gradientglaettung und minimale PCC-Chroma-Ausweitung."
-  gui2_scenarios: [osc, ic434, background_gradient, chroma_suppression, aggressive, nebula]
+  id: ic434_background_gradient
+  title: IC434 Background Gradient
+  intent: "IC434/OSC mit maximalem Fokus auf Hintergrundberuhigung und starke Gradientglaettung."
+  gui2_scenarios: [osc, ic434, background_gradient, nebula]
   recommended_for:
     - "IC434 / Horsehead Nebula mit hartnaeckigem links/rechts-Gradienten im Hintergrund"
-    - "wenn die normale IC434-Chroma-Suppression noch sichtbar zu viel Hintergrundfarbe uebrig laesst"
+    - "wenn der Standard-IC434-Run noch sichtbare Hintergrundgradienten zuruecklaesst"
   priority: maximum_background_suppression
 
 pipeline:
@@ -103,7 +103,7 @@ tile_denoise:
 chroma_denoise:
   enabled: true
   color_space: ycbcr_linear
-  apply_stage: post_stack_linear
+  apply_stage: post_pcc
   protect_luma: true
   luma_guard_strength: 0.90
   star_protection:
@@ -215,26 +215,28 @@ pcc:
   siril_catalog_dir: ""
   background_model: median
   max_condition_number: 2.2
-  max_residual_rms: 0.30
+  max_residual_rms: 0.90
   radii_mode: auto_fwhm
   aperture_fwhm_mult: 1.8
   annulus_inner_fwhm_mult: 3.0
   annulus_outer_fwhm_mult: 5.0
   min_aperture_px: 4.0
   apply_attenuation: true
-  background_neutralization_mode: auto
-  chroma_strength: 0.35
+  background_neutralization_mode: always
+  chroma_strength: 1.0
   k_max: 1.8
 
 stacking:
   method: rej
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
   sigma_clip:
     sigma_low: 1.8
     sigma_high: 1.8
     max_iters: 4
     min_fraction: 0.4
   cluster_quality_weighting:
-    enabled: false
+    enabled: true
     kappa_cluster: 1.0
     cap_enabled: true
     cap_ratio: 20.0

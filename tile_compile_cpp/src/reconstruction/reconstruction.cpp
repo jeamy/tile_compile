@@ -3,9 +3,11 @@
 #include <opencv2/opencv.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <unordered_map>
 #include <vector>
 
 namespace tile_compile::reconstruction {
@@ -21,6 +23,11 @@ inline float invalid_reconstruction_sample() {
 
 inline bool is_valid_sample(float v) {
     return std::isfinite(v);
+}
+
+uint64_t tile_grid_key(int row, int col) {
+    return (static_cast<uint64_t>(static_cast<uint32_t>(row)) << 32) ^
+           static_cast<uint32_t>(col);
 }
 
 float median_inplace(std::vector<float>& v) {
@@ -215,22 +222,45 @@ Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
     Matrix2Df result = Matrix2Df::Zero(h, w);
     Matrix2Df weight_sum = Matrix2Df::Zero(h, w);
 
-    // Cache Hanning windows: most grids use uniform tile sizes, so avoid
-    // recomputing identical windows for every tile.
-    int cached_w = -1, cached_h = -1;
-    std::vector<float> wx, wy;
+    std::unordered_map<uint64_t, size_t> tile_by_grid;
+    tile_by_grid.reserve(grid.tiles.size());
+    for (size_t ti = 0; ti < grid.tiles.size(); ++ti) {
+        tile_by_grid.emplace(tile_grid_key(grid.tiles[ti].row, grid.tiles[ti].col),
+                             ti);
+    }
 
     for (size_t t = 0; t < grid.tiles.size(); ++t) {
         const Tile& tile = grid.tiles[t];
+        int left_overlap = 0;
+        int right_overlap = 0;
+        int top_overlap = 0;
+        int bottom_overlap = 0;
 
-        if (tile.width != cached_w) {
-            wx = make_hann_1d(tile.width);
-            cached_w = tile.width;
+        auto left_it = tile_by_grid.find(tile_grid_key(tile.row, tile.col - 1));
+        if (left_it != tile_by_grid.end()) {
+            const auto& nbr = grid.tiles[left_it->second];
+            left_overlap = std::max(0, (nbr.x + nbr.width) - tile.x);
         }
-        if (tile.height != cached_h) {
-            wy = make_hann_1d(tile.height);
-            cached_h = tile.height;
+        auto right_it = tile_by_grid.find(tile_grid_key(tile.row, tile.col + 1));
+        if (right_it != tile_by_grid.end()) {
+            const auto& nbr = grid.tiles[right_it->second];
+            right_overlap = std::max(0, (tile.x + tile.width) - nbr.x);
         }
+        auto up_it = tile_by_grid.find(tile_grid_key(tile.row - 1, tile.col));
+        if (up_it != tile_by_grid.end()) {
+            const auto& nbr = grid.tiles[up_it->second];
+            top_overlap = std::max(0, (nbr.y + nbr.height) - tile.y);
+        }
+        auto down_it = tile_by_grid.find(tile_grid_key(tile.row + 1, tile.col));
+        if (down_it != tile_by_grid.end()) {
+            const auto& nbr = grid.tiles[down_it->second];
+            bottom_overlap = std::max(0, (tile.y + tile.height) - nbr.y);
+        }
+
+        const std::vector<float> wx =
+            make_partition_window_1d(tile.width, left_overlap, right_overlap);
+        const std::vector<float> wy =
+            make_partition_window_1d(tile.height, top_overlap, bottom_overlap);
         
         for (size_t f = 0; f < frames.size(); ++f) {
             float weight = tile_weights[f][t];
@@ -339,13 +369,6 @@ Matrix2Df wiener_tile_filter(const Matrix2Df& tile, float sigma, float snr_tile,
 
     cv::Mat cropped = restored(cv::Rect(pad_w, pad_h, w, h));
     
-    if (filter_strength > 0.05f && std::fabs(sigma) > 1e-6f) {
-        double minV, maxV;
-        cv::minMaxLoc(cropped, &minV, &maxV);
-        std::cout << "[Wiener] sigma=" << sigma << " snr=" << snr_tile 
-                  << " q=" << q_struct_tile << " strength=" << filter_strength
-                  << " range=[" << minV << ".." << maxV << "]" << std::endl;
-    }
     Matrix2Df out(h, w);
     if (cropped.isContinuous()) {
         std::memcpy(out.data(), cropped.ptr<float>(),
@@ -444,12 +467,6 @@ Matrix2Df soft_threshold_tile_filter(const Matrix2Df& tile,
     // 5. Reconstruct: T' = B + R'. Non-finite input support stays invalid.
     cv::Mat out_cv = bg + result_resid;
     
-    if (cfg.alpha > 0.1f && std::fabs(sigma) > 1e-6f) {
-        double minV, maxV;
-        cv::minMaxLoc(out_cv, &minV, &maxV);
-        std::cout << "[SoftThreshold] sigma=" << sigma << " alpha=" << cfg.alpha 
-                  << " tau=" << tau << " range=[" << minV << ".." << maxV << "]" << std::endl;
-    }
     cv::Mat invalid_mask;
     cv::bitwise_not(valid_mask, invalid_mask);
     out_cv.setTo(0.0f, invalid_mask);

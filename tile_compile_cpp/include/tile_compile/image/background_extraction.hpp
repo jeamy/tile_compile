@@ -71,7 +71,7 @@ struct BGEConfig {
     // Tile reliability weight (§6.3.2c): w_t = exp(-lambda_structure *
     // structure_score_t) * (1 - masked_fraction_t), where structure_score_t is
     // dimensionless via local noise normalization.
-    float tile_weight_lambda_structure = 2.0f;
+    float tile_weight_lambda_structure = 1.0f;
 };
 
 // Tile background sample

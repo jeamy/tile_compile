@@ -826,8 +826,12 @@ std::vector<StarPhotometry> measure_stars(
 //   3. Evaluate fit at a white reference
 //   4. Normalize with green anchor (kg=1)
 //
-// Note: Siril SPCC evaluates at a selected white reference spectrum. Here we
-// derive an adaptive white reference from the catalog colors present in-frame.
+// Siril SPCC evaluates at a chosen white reference spectrum rather than at
+// the dominant color mix of the current field. Using an adaptive in-frame
+// reference can bias the solution on strongly reddened or nebula-heavy fields
+// and systematically suppress red, which is exactly the failure mode that
+// shows up as a green cast on IC434-like data. Keep the evaluation anchored
+// to a neutral white reference instead of the field's median catalog color.
 //
 // The repeated median fit (Siegel 1982) is breakdown-point 0.5 and
 // handles both slope and intercept robustly unlike simple ratio medians.
@@ -1103,10 +1107,8 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
         return res;
     }
 
-    double wrg = weighted_median(cat_rg_vec, w_vec);
-    double wbg = weighted_median(cat_bg_vec, w_vec);
-    if (!(std::isfinite(wrg) && wrg > 0.0)) wrg = 1.0;
-    if (!(std::isfinite(wbg) && wbg > 0.0)) wbg = 1.0;
+    const double wrg = 1.0;
+    const double wbg = 1.0;
 
     double kw_r = 1.0 / (a_rg + b_rg * wrg);
     double kw_g = 1.0;

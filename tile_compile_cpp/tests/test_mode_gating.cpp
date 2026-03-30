@@ -38,6 +38,20 @@ TEST_CASE("mode_gate_full_at_or_above_threshold") {
   REQUIRE_FALSE(d.emergency_mode);
   REQUIRE(d.mode == FrameMode::Full);
 }
+
+TEST_CASE("mode_gate_uses_effective_threshold_floor_of_50") {
+  ModeGateDecision reduced = evaluate_mode_gate(49, 20, false, 50);
+  REQUIRE(reduced.should_abort);
+  REQUIRE(reduced.mode == FrameMode::AbortInsufficient);
+}
+
+TEST_CASE("mode_gate_full_when_frame_count_reaches_effective_floor") {
+  ModeGateDecision d = evaluate_mode_gate(50, 20, false, 50);
+  REQUIRE_FALSE(d.should_abort);
+  REQUIRE_FALSE(d.reduced_mode);
+  REQUIRE_FALSE(d.emergency_mode);
+  REQUIRE(d.mode == FrameMode::Full);
+}
 #else
 int tile_compile_tests_mode_gating_stub() { return 0; }
 #endif

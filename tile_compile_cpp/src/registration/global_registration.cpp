@@ -1230,9 +1230,27 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
   out.reg.warp = identity_warp();
   out.reg.success = false;
   out.reg.correlation = 0.0f;
+  out.reg.error_message.clear();
   out.method_used = "identity";
   out.ncc_identity = compute_ncc(mov, ref);
   out.ncc_warped = out.ncc_identity;
+
+  const float identity_gate_margin = std::max(min_ncc_improvement, 0.0f);
+  if (out.ncc_identity >= 1.0f - identity_gate_margin) {
+    // Spec §4.2 binding edge case: if identity is already near-perfect,
+    // no warp can satisfy the strict NCC improvement gate. Accept identity
+    // directly and do not count it as a cascade failure.
+    out.reg.success = true;
+    out.reg.correlation = out.ncc_identity;
+    if (diag) {
+      std::cout << "[REG-DIAG#" << diag_id
+                << "] identity accepted directly: ncc_identity="
+                << out.ncc_identity
+                << " threshold=" << (1.0f - identity_gate_margin)
+                << std::endl;
+    }
+    return out;
+  }
 
   if (diag) {
     auto stars_ref = detect_stars_simple(ref, rcfg.star_topk);
@@ -1337,6 +1355,7 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
     out.reg.warp = identity_warp();
     out.reg.correlation = 0.0f;
     out.reg.success = false;
+    out.reg.error_message = "identity_fallback";
     out.method_used = "identity";
     out.ncc_warped = out.ncc_identity;
   }

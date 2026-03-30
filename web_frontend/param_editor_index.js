@@ -437,7 +437,8 @@ window.PARAM_EDITOR_INDEX = [
     "category": "chroma_denoise",
     "enum": [
       "pre_stack_tiles",
-      "post_stack_linear"
+      "post_stack_linear",
+      "post_pcc"
     ],
     "path": "chroma_denoise.apply_stage",
     "source": "schema",

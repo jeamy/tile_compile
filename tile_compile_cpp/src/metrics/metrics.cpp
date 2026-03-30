@@ -2,6 +2,7 @@
 #include "tile_compile/core/types.hpp"
 #include "tile_compile/core/utils.hpp"
 #include <opencv2/opencv.hpp>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -101,6 +102,23 @@ VectorXf robust_normalize_median_mad(const VectorXf& v) {
     return (v.array() - med) / sigma_robust;
 }
 
+float positive_pearson_correlation(const VectorXf& a, const VectorXf& b) {
+    if (a.size() <= 1 || a.size() != b.size()) return 0.0f;
+
+    const float mean_a = a.mean();
+    const float mean_b = b.mean();
+    const VectorXf da = a.array() - mean_a;
+    const VectorXf db = b.array() - mean_b;
+    const float var_a = da.array().square().mean();
+    const float var_b = db.array().square().mean();
+    if (!(var_a > 1.0e-12f) || !(var_b > 1.0e-12f)) return 0.0f;
+
+    const float cov = (da.array() * db.array()).mean();
+    const float corr = cov / std::sqrt(var_a * var_b);
+    if (!std::isfinite(corr)) return 0.0f;
+    return std::max(0.0f, corr);
+}
+
 }
 
 FrameMetrics calculate_frame_metrics(const Matrix2Df& frame) {
@@ -182,40 +200,67 @@ VectorXf calculate_global_weights(const std::vector<FrameMetrics>& metrics,
     VectorXf noise_n = robust_normalize_median_mad(noise);
     VectorXf grad_n = robust_normalize_median_mad(grad);
 
-    // Methodik 3.1E §3.2: adaptive variance-based weight adjustment
+    // Methodik v3.3.9 §5.3.3: optional adaptive weighting must be based on a
+    // deterministic predictive-utility criterion, not merely on Var(z(.)).
+    //
+    // Utility target:
+    // - Re-orient the normalized metrics so "higher is better":
+    //   s_bg = -z(background), s_noise = -z(noise), s_grad = z(gradient).
+    // - For each metric i, predict a leave-one-out consensus target from the
+    //   other two signals using the static weights renormalized over the
+    //   remaining metrics.
+    // - Utility_i = max(corr(signal_i, target_i), 0)^2.
+    //
+    // Tie-break / fallback:
+    // - If utilities are degenerate or nearly tied, keep the static weights.
+    // - Otherwise clip to [0.1, 0.7] and renormalize to sum 1.
     if (adaptive_weights && n > 2) {
-        // 1. Compute variance of each normalized metric across frames
-        auto variance_of = [](const VectorXf& v) -> float {
-            float mean = v.mean();
-            float var = (v.array() - mean).square().mean();
-            return var;
-        };
+        const std::array<float, 3> static_weights{w_bg, w_noise, w_grad};
+        const std::array<VectorXf, 3> signals{-bg_n, -noise_n, grad_n};
+        std::array<float, 3> utility{0.0f, 0.0f, 0.0f};
 
-        float var_bg = variance_of(bg_n);
-        float var_noise = variance_of(noise_n);
-        float var_grad = variance_of(grad_n);
-        float var_sum = var_bg + var_noise + var_grad;
+        for (int i = 0; i < 3; ++i) {
+            float other_weight_sum = 0.0f;
+            for (int j = 0; j < 3; ++j) {
+                if (j == i) continue;
+                other_weight_sum += static_weights[static_cast<size_t>(j)];
+            }
+            if (!(other_weight_sum > 1.0e-12f)) continue;
 
-        if (var_sum > 1e-12f) {
-            // 2. Weights proportional to variance (higher variance → more discriminative)
-            float a_bg = var_bg / var_sum;
-            float a_noise = var_noise / var_sum;
-            float a_grad = var_grad / var_sum;
+            VectorXf target = VectorXf::Zero(n);
+            for (int j = 0; j < 3; ++j) {
+                if (j == i) continue;
+                const float weight =
+                    static_weights[static_cast<size_t>(j)] / other_weight_sum;
+                target += weight * signals[static_cast<size_t>(j)];
+            }
 
-            // 3. Clip to [0.1, 0.7]
+            const float corr = positive_pearson_correlation(
+                signals[static_cast<size_t>(i)], target);
+            utility[static_cast<size_t>(i)] = corr * corr;
+        }
+
+        const float utility_sum = utility[0] + utility[1] + utility[2];
+        const float utility_min = std::min({utility[0], utility[1], utility[2]});
+        const float utility_max = std::max({utility[0], utility[1], utility[2]});
+
+        if (utility_sum > 1.0e-12f && (utility_max - utility_min) > 1.0e-3f) {
+            float a_bg = utility[0] / utility_sum;
+            float a_noise = utility[1] / utility_sum;
+            float a_grad = utility[2] / utility_sum;
+
             constexpr float kMinW = 0.1f;
             constexpr float kMaxW = 0.7f;
             a_bg = std::min(std::max(a_bg, kMinW), kMaxW);
             a_noise = std::min(std::max(a_noise, kMinW), kMaxW);
             a_grad = std::min(std::max(a_grad, kMinW), kMaxW);
 
-            // 4. Renormalize to sum = 1
             float s = a_bg + a_noise + a_grad;
             w_bg = a_bg / s;
             w_noise = a_noise / s;
             w_grad = a_grad / s;
         }
-        // else: all variances zero → keep static weights (fallback)
+        // else: degenerate / near-tied utilities → keep static defaults
     }
 
     VectorXf Q = w_bg * (-bg_n.array()) + w_noise * (-noise_n.array()) + w_grad * (grad_n.array());

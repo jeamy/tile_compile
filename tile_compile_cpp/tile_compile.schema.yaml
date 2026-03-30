@@ -294,7 +294,7 @@ properties:
       tile_weight_lambda_structure:
         type: number
         exclusiveMinimum: 0
-        description: "Lambda in tile reliability weight w_t=exp(-lambda*structure_score_t)*(1-masked_fraction_t). Default 2.0."
+        description: "Lambda in tile reliability weight w_t=exp(-lambda*structure_score_t)*(1-masked_fraction_t). Default 1.0."
       sample_quantile: {type: number, exclusiveMinimum: 0, maximum: 0.5}
       structure_thresh_percentile: {type: number, minimum: 0, maximum: 1}
       min_tiles_per_cell: {type: integer, minimum: 1}
@@ -329,6 +329,16 @@ properties:
     type: object
     properties:
       method: {type: string, enum: [rej, average]}
+      common_overlap_required_fraction:
+        type: number
+        exclusiveMinimum: 0
+        maximum: 1
+        description: "Erforderlicher Pixel-Anteil ueber alle nutzbaren Frames fuer COMMON_OVERLAP. Default 1.0 = strikte Schnittmenge."
+      tile_common_valid_min_fraction:
+        type: number
+        exclusiveMinimum: 0
+        maximum: 1
+        description: "Mindestanteil gueltiger COMMON_OVERLAP-Pixel pro Tile. Default 1.0 = nur vollstaendig innerhalb der Support-Maske liegende Tiles."
       sigma_clip:
         type: object
         properties:

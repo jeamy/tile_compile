@@ -538,6 +538,31 @@ QuantileStretchResult stretch_rgb_luma_to_u16_quantile_inplace(
         return result;
     }
 
+    // Step 1: Estimate per-channel background as the low_pct quantile of
+    // positive finite values.  This is subtracted before luma computation so
+    // that the stretch range and the luma-proportional scale are derived from
+    // the signal-only component, not from the dominant flat background.
+    // Without this subtraction, scale = 65535*lifted/luma preserves the R/G/B
+    // ratio pixel-by-pixel exactly — but since all channels share the same
+    // large background offset the ratio is close to 1 everywhere, yielding a
+    // near-grey output even when the underlying signal carries real colour.
+    auto channel_bg = [&](const Matrix2Df& ch) -> float {
+        std::vector<float> vals;
+        vals.reserve(static_cast<size_t>(ch.size()));
+        for (Eigen::Index i = 0; i < ch.size(); ++i) {
+            const float v = ch.data()[i];
+            if (std::isfinite(v) && v > 0.0f) vals.push_back(v);
+        }
+        if (vals.empty()) return 0.0f;
+        std::sort(vals.begin(), vals.end());
+        return percentile_from_sorted(vals, low_pct);
+    };
+    const float bg_r = channel_bg(r);
+    const float bg_g = channel_bg(g);
+    const float bg_b = channel_bg(b);
+
+    // Step 2: Collect luma samples from background-subtracted values to
+    // determine the stretch range.
     std::vector<float> samples;
     samples.reserve(static_cast<size_t>(std::max<Eigen::Index>(0, r.size())));
     for (Eigen::Index i = 0; i < r.size(); ++i) {
@@ -545,7 +570,10 @@ QuantileStretchResult stretch_rgb_luma_to_u16_quantile_inplace(
         const float gv = g.data()[i];
         const float bv = b.data()[i];
         if (!(std::isfinite(rv) && std::isfinite(gv) && std::isfinite(bv))) continue;
-        const float luma = 0.2126f * rv + 0.7152f * gv + 0.0722f * bv;
+        const float rd = rv - bg_r;
+        const float gd = gv - bg_g;
+        const float bd = bv - bg_b;
+        const float luma = 0.2126f * rd + 0.7152f * gd + 0.0722f * bd;
         if (positive_only && !(luma > 0.0f)) continue;
         samples.push_back(luma);
     }
@@ -553,6 +581,8 @@ QuantileStretchResult stretch_rgb_luma_to_u16_quantile_inplace(
     if (samples.empty()) return result;
 
     std::sort(samples.begin(), samples.end());
+    // result.low is the low_pct of bg-subtracted luma — will be near 0 since
+    // we already removed the background, but keeps the clamp semantics intact.
     result.low = percentile_from_sorted(samples, low_pct);
     result.high = percentile_from_sorted(samples, high_pct);
     if (!(result.high > result.low + 1.0e-6f)) return result;
@@ -569,7 +599,10 @@ QuantileStretchResult stretch_rgb_luma_to_u16_quantile_inplace(
             continue;
         }
 
-        const float luma = 0.2126f * rv + 0.7152f * gv + 0.0722f * bv;
+        const float rd = rv - bg_r;
+        const float gd = gv - bg_g;
+        const float bd = bv - bg_b;
+        const float luma = 0.2126f * rd + 0.7152f * gd + 0.0722f * bd;
         if (positive_only && !(luma > 0.0f)) {
             r.data()[i] = 0.0f;
             g.data()[i] = 0.0f;
@@ -585,10 +618,13 @@ QuantileStretchResult stretch_rgb_luma_to_u16_quantile_inplace(
             continue;
         }
 
+        // Scale the background-subtracted deltas proportionally to luma-lift.
+        // Using the delta (not the raw value) prevents the background from
+        // diluting the colour ratio in the output.
         const float scale = 65535.0f * lifted / luma;
-        r.data()[i] = std::clamp(rv * scale, 0.0f, 65535.0f);
-        g.data()[i] = std::clamp(gv * scale, 0.0f, 65535.0f);
-        b.data()[i] = std::clamp(bv * scale, 0.0f, 65535.0f);
+        r.data()[i] = std::clamp(rd * scale, 0.0f, 65535.0f);
+        g.data()[i] = std::clamp(gd * scale, 0.0f, 65535.0f);
+        b.data()[i] = std::clamp(bd * scale, 0.0f, 65535.0f);
     }
 
     result.applied = true;

@@ -685,6 +685,15 @@ bool run_phase_channel_split_normalization_global_metrics(
     artifact["clamp"] = {cfg.global_metrics.clamp[0],
                           cfg.global_metrics.clamp[1]};
     artifact["adaptive_weights"] = cfg.global_metrics.adaptive_weights;
+    artifact["adaptive_weighting_method"] =
+        "leave_one_out_positive_correlation_squared";
+    artifact["adaptive_weighting_target"] =
+        "For each metric, predict the leave-one-out consensus of the other two "
+        "higher-is-better normalized signals using static weights renormalized "
+        "over the remaining metrics.";
+    artifact["adaptive_weighting_tie_break"] =
+        "If utilities are degenerate or nearly tied, keep the static weights. "
+        "Otherwise clip adaptive weights to [0.1,0.7] and renormalize.";
     core::write_text(run_dir / "artifacts" / "global_metrics.json",
                      artifact.dump(2));
   }

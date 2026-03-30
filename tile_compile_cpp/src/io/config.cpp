@@ -639,6 +639,12 @@ Config Config::from_yaml(const YAML::Node &node) {
     auto st = node["stacking"];
     if (st["method"])
       cfg.stacking.method = st["method"].as<std::string>();
+    if (st["common_overlap_required_fraction"])
+      cfg.stacking.common_overlap_required_fraction =
+          st["common_overlap_required_fraction"].as<float>();
+    if (st["tile_common_valid_min_fraction"])
+      cfg.stacking.tile_common_valid_min_fraction =
+          st["tile_common_valid_min_fraction"].as<float>();
     if (st["sigma_clip"]) {
       auto sc = st["sigma_clip"];
       if (sc["sigma_low"])
@@ -963,6 +969,10 @@ YAML::Node Config::to_yaml() const {
       pcc.background_neutralization_mode;
 
   node["stacking"]["method"] = stacking.method;
+  node["stacking"]["common_overlap_required_fraction"] =
+      stacking.common_overlap_required_fraction;
+  node["stacking"]["tile_common_valid_min_fraction"] =
+      stacking.tile_common_valid_min_fraction;
   node["stacking"]["sigma_clip"]["sigma_low"] = stacking.sigma_clip.sigma_low;
   node["stacking"]["sigma_clip"]["sigma_high"] = stacking.sigma_clip.sigma_high;
   node["stacking"]["sigma_clip"]["max_iters"] = stacking.sigma_clip.max_iters;
@@ -1151,9 +1161,10 @@ void Config::validate() const {
         "chroma_denoise.color_space must be 'ycbcr_linear' or 'opponent_linear'");
   }
   if (chroma_denoise.apply_stage != "pre_stack_tiles" &&
-      chroma_denoise.apply_stage != "post_stack_linear") {
+      chroma_denoise.apply_stage != "post_stack_linear" &&
+      chroma_denoise.apply_stage != "post_pcc") {
     throw ValidationError(
-        "chroma_denoise.apply_stage must be 'pre_stack_tiles' or 'post_stack_linear'");
+        "chroma_denoise.apply_stage must be 'pre_stack_tiles', 'post_stack_linear' or 'post_pcc'");
   }
   if (!is_between_0_1(chroma_denoise.luma_guard_strength)) {
     throw ValidationError("chroma_denoise.luma_guard_strength must be in [0,1]");
@@ -1392,6 +1403,16 @@ void Config::validate() const {
   if (stacking.method != "average" && stacking.method != "rej") {
     throw ValidationError("stacking.method must be 'average' or 'rej'");
   }
+  if (!is_between_0_1(stacking.common_overlap_required_fraction) ||
+      stacking.common_overlap_required_fraction <= 0.0f) {
+    throw ValidationError(
+        "stacking.common_overlap_required_fraction must be in (0,1]");
+  }
+  if (!is_between_0_1(stacking.tile_common_valid_min_fraction) ||
+      stacking.tile_common_valid_min_fraction <= 0.0f) {
+    throw ValidationError(
+        "stacking.tile_common_valid_min_fraction must be in (0,1]");
+  }
   if (stacking.sigma_clip.sigma_low <= 0.0f ||
       stacking.sigma_clip.sigma_high <= 0.0f) {
     throw ValidationError("stacking.sigma_clip.sigma_low/high must be > 0");
@@ -1536,7 +1557,7 @@ std::string get_schema_json() {
     "chroma_denoise": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "color_space":{"type":"string","enum":["ycbcr_linear","opponent_linear"]},
-                      "apply_stage":{"type":"string","enum":["pre_stack_tiles","post_stack_linear"]},
+                      "apply_stage":{"type":"string","enum":["pre_stack_tiles","post_stack_linear","post_pcc"]},
                       "protect_luma":{"type":"boolean"},
                       "luma_guard_strength":{"type":"number","minimum":0,"maximum":1},
                       "star_protection":{"type":"object","properties":{

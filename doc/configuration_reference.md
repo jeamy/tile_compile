@@ -6,12 +6,13 @@ Diese Dokumentation beschreibt alle Konfigurationsoptionen für `tile_compile.ya
 **Schema-Version:** v3  
 **Referenz:** Methodik v3.3
 
-**Dokumentationsstand (2026-03-13):**
+**Dokumentationsstand (2026-03-30):**
 - `bge.fit.robust_loss` und `bge.fit.huber_delta` sind als Benutzerparameter dokumentiert und konfigurierbar.
 - `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` sind als kanalweise BGE-Apply-Grenzwerte dokumentiert.
 - PCC-Dokumentation umfasst die aktiven Stabilitäts- und Apply-Parameter (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
 - `TILE_RECONSTRUCTION`-Boundary-Diagnostik ist als Laufzeit-Artefakt dokumentiert; es gibt aktuell keinen dedizierten Seam-Korrektur-Config-Block.
-- Referenzdoku, JSON-/YAML-Schema, Beispiel-Configs und GUI2-Parameter-Studio sind auf den aktuellen C++-Config-Stand abgeglichen.
+- `bge.tile_weight_lambda_structure` ist auf den aktuellen Default `1.0` abgeglichen.
+- `stacking.common_overlap_required_fraction` und `stacking.tile_common_valid_min_fraction` sind als aktive Stacking-Parameter mit den strikten Defaults `1.0 / 1.0` dokumentiert.
 
 
 **💡 Für praktische Beispiele und Anwendungsfälle siehe:** [Konfigurationsbeispiele & Best Practices](configuration_examples_practical_de.md)
@@ -118,7 +119,7 @@ Steuerung der Ausgabeverzeichnisse und welche Zwischenergebnisse geschrieben wer
 - **`true`**: Entfernt leere Ränder vom finalen Bild. Nur Pixel mit Werten > 0 werden behalten. Reduziert die Dateigröße und entfernt unnötige schwarze Ränder.
 - **`false`**: Behält die volle Canvas-Größe bei, inklusive leerer Ränder.
 
-**Hinweis:** Die Funktion wird nach der Stack-Phase aber vor dem Debayer (bei OSC) angewendet. Die Tile-Offsets werden entsprechend angepasst.
+**Hinweis:** Die Funktion wird nach der Stack-Phase aber vor dem Debayer (bei OSC) angewendet. Die Tile-Offsets werden entsprechend angepasst. Ungueltige Canvas-Bereiche bleiben maskiert und sollen nicht in nachgelagerte Berechnungen wie Debayer/BGE/PCC einfliessen.
 
 ---
 
@@ -512,6 +513,8 @@ Geometrische Registrierung (Ausrichtung) aller Frames auf einen Referenz-Frame.
 **Zweck:** Aktiviert/deaktiviert den zusätzlichen Star-Pairs-Fallback zwischen Triangle Stars und Trail Endpoints.
 
 Auf `false` setzen, um die Star-Pairs-Stufe für eine strengere Fallback-Policy zu deaktivieren.
+
+**Hinweis (Strict v3.3.9):** Fuer das strikte Profil `registration.enable_star_pair_fallback: false` setzen.
 
 **Temporal-Smoothing (v3.2.3+, automatisch aktiv):** Bei fehlgeschlagener direkter Registrierung `i→ref` wird automatisch versucht:
 1. `i→(i-1)→ref` — Registrierung zum Vorgänger-Frame, dann Warp-Verkettung
@@ -1437,9 +1440,9 @@ BGE entfernt großräumige Hintergrundgradienten (Lichtverschmutzung, Mondlicht,
 |-------------|------|
 | **Typ** | float |
 | **Bereich** | `> 0` |
-| **Default** | `2.0` |
+| **Default** | `1.0` |
 
-**Zweck:** Lambda in Tile-Reliabilitätsgewicht `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`. Höhere Werte gewichten strukturreiche Tiles aggressiver ab.
+**Zweck:** Lambda in Tile-Reliabilitätsgewicht `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`. Hoehere Werte gewichten strukturreiche Tiles aggressiver ab; `1.0` ist der aktuelle moderate Basiswert.
 
 ### `bge.sample_quantile`
 
@@ -1924,6 +1927,44 @@ Finales Stacking der synthetischen Frames (Phase 10: STACKING).
 |---------|-------------|------------|
 | **`rej`** | Sigma-Clipping Rejection → dann Mittelwert | **Empfohlen** — entfernt verbleibende Ausreißer |
 | **`average`** | Einfacher linearer Mittelwert | Schneller, aber keine Ausreißer-Entfernung |
+
+---
+
+### `stacking.common_overlap_required_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | `(0, 1]` |
+| **Default** | `1.0` |
+
+**Zweck:** Mindestanteil nutzbarer Frames, in denen ein Pixel gueltig sein muss, um zu `COMMON_OVERLAP` zu gehoeren.
+
+- **`1.0`**: strikte Schnittmenge aller nutzbaren Frames
+- **`< 1.0`**: laesst Randpixel zu, die nur in einem Teil der Frames vorhanden sind
+
+**Hinweis:** Niedrigere Werte vergroessern die nutzbare Randflaeche, koennen aber Hintergrund- und Farbstatistiken durch ungleichmaessig ueberdeckte Bildraender verzerren.
+
+**Hinweis (Strict v3.3.9):** Auf `1.0` belassen.
+
+---
+
+### `stacking.tile_common_valid_min_fraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Bereich** | `(0, 1]` |
+| **Default** | `1.0` |
+
+**Zweck:** Mindestanteil der **vollen Tile-Flaeche**, der innerhalb von `COMMON_OVERLAP` liegen muss, damit ein Tile fuer lokale Metriken und nachgelagerte Schritte als gueltig gilt.
+
+- **`1.0`**: nur Tiles, die vollstaendig innerhalb der Support-Maske liegen
+- **`< 1.0`**: erlaubt teilweise ueberdeckte Rand-Tiles
+
+**Hinweis:** Die Quote wird ueber die gesamte Tile-Flaeche berechnet, nicht nur ueber den zufaellig im Canvas liegenden Ausschnitt.
+
+**Hinweis (Strict v3.3.9):** Auf `1.0` belassen.
 
 ---
 
@@ -2485,6 +2526,8 @@ pcc:
 # Stacking
 stacking:
   method: rej
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
   sigma_clip:
     sigma_low: 2.0
     sigma_high: 2.0
@@ -2683,6 +2726,8 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `pcc.siril_catalog_dir`: optionaler lokaler Siril-Katalogpfad.
 - `pcc.apply_attenuation`, `pcc.background_neutralization_mode`, `pcc.chroma_strength`, `pcc.k_max`: optionale PCC-Apply-/Hintergrundneutralisierungs-Kontrollen.
 - `stacking.method`: finaler Kombinationsmodus (`rej` vs `average`).
+- `stacking.common_overlap_required_fraction`: erforderliche Pixel-Abdeckung ueber alle nutzbaren Frames fuer `COMMON_OVERLAP`.
+- `stacking.tile_common_valid_min_fraction`: minimale `COMMON_OVERLAP`-Abdeckung pro voller Tile-Flaeche.
 - `stacking.sigma_clip.sigma_low`, `sigma_high`: untere/obere Rejection-Schwellen.
 - `stacking.sigma_clip.max_iters`: maximale Clip-Iterationen.
 - `stacking.sigma_clip.min_fraction`: Mindestanteil verbleibender Samples (Fallback-Schutz).

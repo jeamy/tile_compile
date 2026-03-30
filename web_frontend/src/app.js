@@ -53,6 +53,7 @@ const UI_STORAGE_KEYS = {
   pccApplyAttenuation: "gui2.tools.pcc.applyAttenuation",
   pccChromaStrength: "gui2.tools.pcc.chromaStrength",
   pccKMax: "gui2.tools.pcc.kMax",
+  pccBgNeutralizationMode: "gui2.tools.pcc.bgNeutralizationMode",
   astrometryLastResult: ASTROMETRY_LAST_RESULT_KEY,
   astrometryLastWcs: ASTROMETRY_LAST_WCS_KEY,
   astrometryInstallJob: ASTROMETRY_INSTALL_JOB_KEY,
@@ -6139,6 +6140,7 @@ async function bindPccPage() {
     ["tools-pcc-apply-attenuation", UI_STORAGE_KEYS.pccApplyAttenuation, false],
     ["tools-pcc-chroma-strength", UI_STORAGE_KEYS.pccChromaStrength, false],
     ["tools-pcc-k-max", UI_STORAGE_KEYS.pccKMax, false],
+    ["tools-pcc-bg-neutralization", UI_STORAGE_KEYS.pccBgNeutralizationMode, false],
   ].forEach(([id, key, absolute]) => bindStoredField(id, key, { absolute, overwrite: id === "tools-pcc-source" }));
 
   const missingField = $("tools-pcc-missing-chunks");
@@ -6247,6 +6249,7 @@ async function bindPccPage() {
       ["tools-pcc-apply-attenuation", UI_STORAGE_KEYS.pccApplyAttenuation, pcc.apply_attenuation],
       ["tools-pcc-chroma-strength", UI_STORAGE_KEYS.pccChromaStrength, pcc.chroma_strength],
       ["tools-pcc-k-max", UI_STORAGE_KEYS.pccKMax, pcc.k_max],
+      ["tools-pcc-bg-neutralization", UI_STORAGE_KEYS.pccBgNeutralizationMode, pcc.background_neutralization_mode],
     ];
     fieldBindings.forEach(([id, storageKey, value]) => {
       const el = $(id);
@@ -6644,6 +6647,7 @@ async function bindPccPage() {
         apply_attenuation: readFieldValue($("tools-pcc-apply-attenuation")),
         chroma_strength: readNumber("tools-pcc-chroma-strength"),
         k_max: readNumber("tools-pcc-k-max"),
+        background_neutralization_mode: $("tools-pcc-bg-neutralization")?.value || undefined,
         ...importedPccExtras,
       };
       const accepted = await withPathGrantRetry(

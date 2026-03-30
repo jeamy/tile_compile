@@ -30,6 +30,42 @@ stacking:
   REQUIRE_NOTHROW(cfg.validate());
 }
 
+TEST_CASE("stacking_common_overlap_thresholds_parse_and_validate") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: OSC
+  linear_required: true
+stacking:
+  method: average
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(std::fabs(cfg.stacking.common_overlap_required_fraction - 1.0f) <
+          1e-6f);
+  REQUIRE(std::fabs(cfg.stacking.tile_common_valid_min_fraction - 1.0f) <
+          1e-6f);
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("stacking_common_overlap_thresholds_reject_out_of_range_values") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: OSC
+  linear_required: true
+stacking:
+  method: average
+  common_overlap_required_fraction: 0.0
+  tile_common_valid_min_fraction: 1.1
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE_THROWS(cfg.validate());
+}
+
 TEST_CASE("stacking_cluster_quality_weighting_rejects_non_positive_kappa") {
   YAML::Node node = YAML::Load(R"(
 data:

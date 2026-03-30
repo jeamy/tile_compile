@@ -46,6 +46,12 @@ int compute_adaptive_worker_count(
     const std::vector<std::filesystem::path> &frames,
     WorkerParallelProfile profile);
 
+double resolve_pcc_auto_fwhm_px(const Matrix2Df &R, const Matrix2Df &G,
+                                const Matrix2Df &B,
+                                bool have_fallback_fwhm = false,
+                                double fallback_fwhm_px = 0.0,
+                                std::string *source_out = nullptr);
+
 inline SyntheticWeightingDecision decide_synthetic_weighting(
     const std::string &requested_weighting, int boundary_pair_count,
     float boundary_pair_mean_abs_diff_p95,

@@ -171,7 +171,7 @@ astrometry:
 
 bge:
   enabled: true
-  tile_weight_lambda_structure: 2.0
+  tile_weight_lambda_structure: 1.0
   autotune:
     enabled: true
     strategy: extended

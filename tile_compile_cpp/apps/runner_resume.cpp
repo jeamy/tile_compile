@@ -1281,6 +1281,19 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   fs::path rgb_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
   fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
   fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
+  auto cleanup_snapshot_if_exists = [&](const fs::path &path,
+                                        const char *reason) {
+    std::error_code ec;
+    const bool removed = fs::remove(path, ec);
+    if (removed) {
+      std::cout << "[CLEANUP][resume] Removed " << path.filename().string()
+                << " (" << reason << ")" << std::endl;
+    } else if (ec) {
+      std::cout << "[CLEANUP][resume] Warning: could not remove "
+                << path.filename().string() << ": " << ec.message()
+                << std::endl;
+    }
+  };
   if (!fs::exists(rgb_path)) {
     rgb_path = stacked_rgb_path;
   }
@@ -1485,20 +1498,36 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
   };
 
-  auto write_stretched_rgb_snapshot = [&](const fs::path &path,
-                                          const io::FitsHeader &hdr,
-                                          bool apply_stretch,
-                                          const char* stage_tag) {
-    Matrix2Df R_disk = rgb.R;
-    Matrix2Df G_disk = rgb.G;
-    Matrix2Df B_disk = rgb.B;
-    if (apply_stretch) {
-      const auto stretch =
-          tile_compile::core::stretch_rgb_luma_to_u16_quantile_inplace(
-              R_disk, G_disk, B_disk, 0.1f, 99.9f, true);
+	  auto write_stretched_rgb_snapshot = [&](const fs::path &path,
+	                                          const io::FitsHeader &hdr,
+	                                          bool apply_stretch,
+	                                          const char* stage_tag) {
+	    Matrix2Df R_disk = rgb.R;
+	    Matrix2Df G_disk = rgb.G;
+	    Matrix2Df B_disk = rgb.B;
+	    std::vector<uint8_t> canvas_mask;
+	    std::string canvas_mask_error;
+	    int canvas_rows = 0;
+	    int canvas_cols = 0;
+	    if (tile_compile::runner::load_canvas_mask_for_rgb(
+	            run_dir / "outputs" / "canvas_mask.fits", R_disk, G_disk, B_disk,
+	            canvas_mask, canvas_rows, canvas_cols, canvas_mask_error)) {
+	      image::enforce_canvas_mask_on_rgb(R_disk, G_disk, B_disk, canvas_mask);
+	    }
+	    if (apply_stretch) {
+	      const std::string tag = stage_tag != nullptr ? stage_tag : "";
+	      const bool preserve_channel_ratios = (tag == "PCC");
+	      const auto stretch =
+	          preserve_channel_ratios
+	              ? tile_compile::core::stretch_rgb_to_u16_quantile_inplace(
+	                    R_disk, G_disk, B_disk, 0.1f, 99.9f, true)
+	              : tile_compile::core::stretch_rgb_luma_to_u16_quantile_inplace(
+	                    R_disk, G_disk, B_disk, 0.1f, 99.9f, true);
       if (stretch.applied) {
         std::cout << "[" << stage_tag
-                  << "][resume] RGB output luma stretch q[0.1,99.9]: ["
+                  << "][resume] RGB output "
+                  << (preserve_channel_ratios ? "shared-channel" : "luma")
+                  << " stretch q[0.1,99.9]: ["
                   << stretch.low << ".." << stretch.high << "] -> [0..65535]"
                   << " samples=" << stretch.sample_count << std::endl;
       }
@@ -1548,19 +1577,25 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
           rgb.B.rows() != rows || rgb.G.cols() != cols ||
           rgb.B.cols() != cols) {
         mask_error = "invalid RGB dimensions";
-        emitter.phase_end(run_id, Phase::BGE, "error",
-                          {{"reason", "output_canvas_mask_invalid"},
-                           {"error", mask_error}},
-                          log_file);
-        return false;
-      }
-      bge_cfg.common_valid_mask.assign(
-          static_cast<size_t>(rows) * static_cast<size_t>(cols),
-          static_cast<uint8_t>(1));
-      bge_cfg.common_mask_rows = rows;
-      bge_cfg.common_mask_cols = cols;
-      std::cout << "[BGE][resume] Using full output canvas mask ("
-                << cols << "x" << rows << ")" << std::endl;
+	        emitter.phase_end(run_id, Phase::BGE, "error",
+	                          {{"reason", "output_canvas_mask_invalid"},
+	                           {"error", mask_error}},
+	                          log_file);
+	        return false;
+	      }
+	      if (!tile_compile::runner::load_canvas_mask_for_rgb(
+	              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
+	              bge_cfg.common_valid_mask, bge_cfg.common_mask_rows,
+	              bge_cfg.common_mask_cols, mask_error)) {
+	        emitter.phase_end(run_id, Phase::BGE, "error",
+	                          {{"reason", "output_canvas_mask_invalid"},
+	                           {"error", mask_error}},
+	                          log_file);
+	        return false;
+	      }
+	      std::cout << "[BGE][resume] Using canvas mask from outputs/canvas_mask.fits ("
+	                << bge_cfg.common_mask_cols << "x" << bge_cfg.common_mask_rows
+	                << ")" << std::endl;
 
       (void)image::apply_background_extraction(rgb.R, rgb.G, rgb.B,
                                                bge_tile_metrics, bge_tile_grid,
@@ -1759,10 +1794,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     astro::PCCConfig pcc_cfg =
         tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
-    {
-      std::string mask_error;
-      const int rows = static_cast<int>(rgb.R.rows());
-      const int cols = static_cast<int>(rgb.R.cols());
+	    {
+	      std::string mask_error;
+	      int rows = static_cast<int>(rgb.R.rows());
+	      int cols = static_cast<int>(rgb.R.cols());
       if (rows <= 0 || cols <= 0 || rgb.G.rows() != rows ||
           rgb.B.rows() != rows || rgb.G.cols() != cols ||
           rgb.B.cols() != cols) {
@@ -1777,10 +1812,20 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             log_file);
         return 1;
       }
-      pcc_cfg.output_valid_mask.assign(
-          static_cast<size_t>(rows) * static_cast<size_t>(cols),
-          static_cast<uint8_t>(1));
-      std::vector<uint8_t> analysis_mask;
+	      if (!tile_compile::runner::load_canvas_mask_for_rgb(
+	              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
+	              pcc_cfg.output_valid_mask, rows, cols, mask_error)) {
+	        emitter.phase_end(run_id, Phase::PCC, "error",
+	                          {{"reason", "output_canvas_mask_invalid"},
+	                           {"error", mask_error}},
+	                          log_file);
+	        core::emit_event(
+	            "resume_end", run_id,
+	            {{"success", false}, {"status", "output_canvas_mask_invalid"}},
+	            log_file);
+	        return 1;
+	      }
+	      std::vector<uint8_t> analysis_mask;
       std::string analysis_mask_error;
       int analysis_rows = 0;
       int analysis_cols = 0;
@@ -1807,10 +1852,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
 
     if (pcc_cfg.radii_mode == "auto_fwhm") {
-      // Resume path prefers persisted seeing estimate from tile_grid artifact
-      // and keeps deterministic fallback FWHM=0 when unavailable.
       load_seeing_fwhm_if_needed();
-      const double F = have_seeing_fwhm ? seeing_fwhm_median : 0.0;
+      std::string pcc_auto_fwhm_source;
+      const double F = tile_compile::runner::resolve_pcc_auto_fwhm_px(
+          rgb.R, rgb.G, rgb.B, have_seeing_fwhm, seeing_fwhm_median,
+          &pcc_auto_fwhm_source);
       const double r_ap = std::max(static_cast<double>(pcc_cfg.min_aperture_px),
                                    pcc_cfg.aperture_fwhm_mult * F);
       const double r_in = std::max(r_ap + 1.0,
@@ -1821,7 +1867,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       pcc_cfg.annulus_inner_px = r_in;
       pcc_cfg.annulus_outer_px = r_out;
       std::cout << "[PCC][resume] auto_fwhm radii source: "
-                << (have_seeing_fwhm ? "tile_grid.seeing_fwhm_median" : "fallback_F=0")
+                << pcc_auto_fwhm_source
                 << " (F=" << F << ")" << std::endl;
     }
 
@@ -1910,6 +1956,17 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                        {"source", used_source},
                        {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                       log_file);
+    cleanup_snapshot_if_exists(
+        stacked_rgb_path, "superseded by stacked_rgb_pcc.fits");
+    cleanup_snapshot_if_exists(
+        stacked_rgb_bge_path, "superseded by stacked_rgb_pcc.fits");
+    if (io::detect_color_mode(rgb.header, 2) == ColorMode::OSC &&
+        cfg.chroma_denoise.enabled &&
+        cfg.chroma_denoise.apply_stage == "post_pcc") {
+      reconstruction::chroma_denoise_rgb_inplace(
+          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise);
+    }
+
     if (abort_if_runtime_limit_exceeded("PCC")) {
       return 1;
     }

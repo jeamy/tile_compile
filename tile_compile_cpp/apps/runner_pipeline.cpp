@@ -70,7 +70,6 @@ using tile_compile::runner::message_indicates_disk_full;
 
 using NormalizationScales = image::NormalizationScales;
 
-constexpr float kTileCommonMinOverlapRatio = 0.10f;
 constexpr float kTileNormBoundaryRegressionFactor = 8.0f;
 constexpr float kTileNormBoundaryRegressionAbsP95 = 0.25f;
 constexpr float kCalibrationFlatFloor = 1.0e-6f;
@@ -1455,7 +1454,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   const size_t canvas_px =
       static_cast<size_t>(std::max(0, canvas_height)) *
       static_cast<size_t>(std::max(0, canvas_width));
-  const int required_common_frames = std::max(1, min_valid_frames);
+  const int required_common_frames = std::max(
+      1, static_cast<int>(std::ceil(
+             cfg.stacking.common_overlap_required_fraction *
+             static_cast<float>(std::max(1, n_usable_frames)))));
   std::vector<uint16_t> overlap_coverage_count_fallback;
   std::vector<uint8_t> common_valid_mask_fallback;
   std::vector<uint16_t> *overlap_coverage_count_ptr =
@@ -1523,30 +1525,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
-    for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
-      const Tile &t = tiles_phase56[ti];
-      const int x0 = std::max(0, t.x);
-      const int y0 = std::max(0, t.y);
-      const int x1 = std::min(canvas_width, t.x + t.width);
-      const int y1 = std::min(canvas_height, t.y + t.height);
-      int tile_total = 0;
-      int tile_common = 0;
-      for (int y = y0; y < y1; ++y) {
-        const size_t row_off = static_cast<size_t>(y) *
-                               static_cast<size_t>(canvas_width);
-        for (int x = x0; x < x1; ++x) {
-          ++tile_total;
-          if (common_valid_mask[row_off + static_cast<size_t>(x)] != 0) {
-            ++tile_common;
-          }
-        }
+	    for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
+	      const Tile &t = tiles_phase56[ti];
+	      const int x0 = std::max(0, t.x);
+	      const int y0 = std::max(0, t.y);
+	      const int x1 = std::min(canvas_width, t.x + t.width);
+	      const int y1 = std::min(canvas_height, t.y + t.height);
+	      const int tile_total = std::max(0, t.width) * std::max(0, t.height);
+	      int tile_common = 0;
+	      for (int y = y0; y < y1; ++y) {
+	        const size_t row_off = static_cast<size_t>(y) *
+	                               static_cast<size_t>(canvas_width);
+	        for (int x = x0; x < x1; ++x) {
+	          if (common_valid_mask[row_off + static_cast<size_t>(x)] != 0) {
+	            ++tile_common;
+	          }
+	        }
       }
       const float ratio =
           (tile_total > 0)
               ? (static_cast<float>(tile_common) / static_cast<float>(tile_total))
               : 0.0f;
       tile_common_overlap_ratio[ti] = ratio;
-      if (ratio >= kTileCommonMinOverlapRatio) {
+      if (ratio + 1.0e-6f >= cfg.stacking.tile_common_valid_min_fraction) {
         tile_common_valid[ti] = 1;
       }
 
@@ -1568,8 +1569,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     overlap_artifact["usable_frames"] = n_usable_frames;
     overlap_artifact["loaded_frames"] = static_cast<int>(loaded_frames);
     overlap_artifact["required_common_frames"] = required_common_frames;
-    overlap_artifact["tile_common_min_overlap_ratio"] =
-        kTileCommonMinOverlapRatio;
+    overlap_artifact["common_overlap_required_fraction"] =
+        cfg.stacking.common_overlap_required_fraction;
+    overlap_artifact["tile_common_valid_min_fraction"] =
+        cfg.stacking.tile_common_valid_min_fraction;
     overlap_artifact["common_pixels"] = static_cast<uint64_t>(common_pixels);
     overlap_artifact["common_fraction"] =
         (canvas_px > 0)
@@ -1617,7 +1620,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             {"usable_frames", n_usable_frames},
 	            {"loaded_frames", static_cast<int>(loaded_frames)},
 	            {"required_common_frames", required_common_frames},
-	            {"tile_common_min_overlap_ratio", kTileCommonMinOverlapRatio},
+	            {"common_overlap_required_fraction",
+	             cfg.stacking.common_overlap_required_fraction},
+	            {"tile_common_valid_min_fraction",
+	             cfg.stacking.tile_common_valid_min_fraction},
 	            {"common_pixels", static_cast<uint64_t>(common_pixels)},
             {"common_fraction",
              (canvas_px > 0)
@@ -4165,8 +4171,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       recon = 0.25f * recon_R + 0.5f * recon_G + 0.25f * recon_B;
     }
 
-    auto write_stacking_outputs = [&](const Matrix2Df &stack_luma) -> bool {
-      Matrix2Df recon_out = stack_luma;
+	    auto write_stacking_outputs = [&](const Matrix2Df &stack_luma) -> bool {
+	      Matrix2Df recon_out = stack_luma;
       if (detected_mode == ColorMode::OSC) {
         const float scale_luma = 0.25f * output_scale_r + 0.5f * output_scale_g +
                                  0.25f * output_scale_b;
@@ -4174,13 +4180,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                               0.25f * output_bg_b;
         recon_out *= scale_luma;
         recon_out.array() += (bg_luma + output_pedestal);
-      } else {
-        image::apply_output_scaling_inplace(recon_out, -debayer_tile_offset_x,
-            -debayer_tile_offset_y, detected_mode,
-            detected_bayer_str, output_scale_mono, output_scale_r,
-            output_scale_g, output_scale_b, output_bg_mono, output_bg_r,
-            output_bg_g, output_bg_b, output_pedestal);
-      }
+	      } else {
+	        image::apply_output_scaling_inplace(recon_out, -debayer_tile_offset_x,
+	            -debayer_tile_offset_y, detected_mode,
+	            detected_bayer_str, output_scale_mono, output_scale_r,
+	            output_scale_g, output_scale_b, output_bg_mono, output_bg_r,
+	            output_bg_g, output_bg_b, output_pedestal);
+	      }
+	      for (Eigen::Index k = 0; k < recon_out.size(); ++k) {
+	        if (static_cast<size_t>(k) >= common_valid_mask.size() ||
+	            common_valid_mask[static_cast<size_t>(k)] == 0) {
+	          recon_out.data()[k] = 0.0f;
+	        }
+	      }
 
       if (cfg.stacking.output_stretch) {
         std::vector<float> samples;
@@ -4655,21 +4667,41 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     bool have_rgb = false;
     fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
     fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
+    auto cleanup_snapshot_if_exists = [&](const fs::path &path,
+                                          const char *reason) {
+      std::error_code ec;
+      const bool removed = fs::remove(path, ec);
+      if (removed) {
+        std::cout << "[CLEANUP] Removed " << path.filename().string()
+                  << " (" << reason << ")" << std::endl;
+      } else if (ec) {
+        std::cout << "[CLEANUP] Warning: could not remove "
+                  << path.filename().string() << ": " << ec.message()
+                  << std::endl;
+      }
+    };
     auto stretch_rgb_for_output = [](Matrix2Df& R_ch, Matrix2Df& G_ch,
                                      Matrix2Df& B_ch,
                                      const char* stage_tag) -> bool {
+      const std::string tag = stage_tag != nullptr ? stage_tag : "";
+      const bool preserve_channel_ratios = (tag == "PCC");
       const auto stretch =
-          core::stretch_rgb_luma_to_u16_quantile_inplace(R_ch, G_ch, B_ch,
-                                                         0.1f, 99.9f, true);
+          preserve_channel_ratios
+              ? core::stretch_rgb_to_u16_quantile_inplace(
+                    R_ch, G_ch, B_ch, 0.1f, 99.9f, true)
+              : core::stretch_rgb_luma_to_u16_quantile_inplace(
+                    R_ch, G_ch, B_ch, 0.1f, 99.9f, true);
       if (!stretch.applied) return false;
       std::cout << "[" << stage_tag
-                << "] RGB output luma stretch q[0.1,99.9]: ["
+                << "] RGB output "
+                << (preserve_channel_ratios ? "shared-channel" : "luma")
+                << " stretch q[0.1,99.9]: ["
                 << stretch.low << ".." << stretch.high << "] -> [0..65535]"
                 << " samples=" << stretch.sample_count << std::endl;
       return true;
     };
 
-    if (detected_mode == ColorMode::OSC) {
+	    if (detected_mode == ColorMode::OSC) {
       if (recon_R.size() == recon.size() && recon_R.size() > 0 &&
           recon_G.size() == recon.size() && recon_B.size() == recon.size()) {
         R_out = std::move(recon_R);
@@ -4684,13 +4716,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         B_out = std::move(debayer.B);
       }
       have_rgb = true;
-      // Restore photometric scale and additive background per channel.
-      R_out *= output_scale_r;
-      G_out *= output_scale_g;
-      B_out *= output_scale_b;
-      R_out.array() += (output_bg_r + output_pedestal);
-      G_out.array() += (output_bg_g + output_pedestal);
-      B_out.array() += (output_bg_b + output_pedestal);
+	      // Restore photometric scale and additive background per channel.
+	      R_out *= output_scale_r;
+	      G_out *= output_scale_g;
+	      B_out *= output_scale_b;
+	      R_out.array() += (output_bg_r + output_pedestal);
+	      G_out.array() += (output_bg_g + output_pedestal);
+	      B_out.array() += (output_bg_b + output_pedestal);
+	      image::enforce_canvas_mask_on_rgb(R_out, G_out, B_out, common_valid_mask);
 
       io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
                            first_hdr);
@@ -4699,13 +4732,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       io::write_fits_float(run_dir / "outputs" / "reconstructed_B.fit", B_out,
                            first_hdr);
 
-      Matrix2Df R_stack_disk = R_out;
-      Matrix2Df G_stack_disk = G_out;
-      Matrix2Df B_stack_disk = B_out;
-      if (cfg.stacking.output_stretch) {
-        stretch_rgb_for_output(R_stack_disk, G_stack_disk, B_stack_disk,
-                               "STACKING");
-      }
+	      Matrix2Df R_stack_disk = R_out;
+	      Matrix2Df G_stack_disk = G_out;
+	      Matrix2Df B_stack_disk = B_out;
+	      if (cfg.stacking.output_stretch) {
+	        stretch_rgb_for_output(R_stack_disk, G_stack_disk, B_stack_disk,
+	                               "STACKING");
+	      }
+	      image::enforce_canvas_mask_on_rgb(R_stack_disk, G_stack_disk, B_stack_disk,
+	                                        common_valid_mask);
 
       // Save stacked_rgb.fits as the stack-stage display output.
       io::write_fits_rgb(stacked_rgb_path, R_stack_disk, G_stack_disk,
@@ -4854,9 +4889,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       return 1;
     }
 
-    auto assign_output_canvas_mask_for_rgb =
-        [&](std::vector<uint8_t> &out_mask, int &rows_out, int &cols_out,
-            std::string &error_out) -> bool {
+	    auto assign_output_canvas_mask_for_rgb =
+	        [&](std::vector<uint8_t> &out_mask, int &rows_out, int &cols_out,
+	            std::string &error_out) -> bool {
       rows_out = 0;
       cols_out = 0;
       if (R_out.rows() <= 0 || R_out.cols() <= 0 || R_out.rows() != G_out.rows() ||
@@ -4868,11 +4903,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
       rows_out = static_cast<int>(R_out.rows());
       cols_out = static_cast<int>(R_out.cols());
-      const size_t expected_size =
-          static_cast<size_t>(rows_out) * static_cast<size_t>(cols_out);
-      out_mask.assign(expected_size, static_cast<uint8_t>(1));
-      return true;
-    };
+	      const size_t expected_size =
+	          static_cast<size_t>(rows_out) * static_cast<size_t>(cols_out);
+	      if (common_valid_mask.size() != expected_size) {
+	        error_out = "common_valid_mask size mismatch";
+	        return false;
+	      }
+	      out_mask = common_valid_mask;
+	      return true;
+	    };
 
     // Phase 11.5: BGE (Background Gradient Extraction) - v3.3 §6.3
     // Must run BEFORE PCC to remove gradients that would bias color calibration
@@ -4928,6 +4967,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       bool bge_have_bge_grid = !bge_tile_grid.tiles.empty();
       bool bge_have_tile_data = bge_have_local_metrics && bge_have_bge_grid;
       bool bge_metrics_tiles_match = false;
+      bool bge_compact_tile_mode = false;
+      if (bge_have_bge_grid && bge_tile_grid.tiles.size() == 1) {
+        const auto &only_tile = bge_tile_grid.tiles.front();
+        bge_compact_tile_mode =
+            only_tile.x == 0 && only_tile.y == 0 &&
+            only_tile.width == R_out.cols() &&
+            only_tile.height == R_out.rows();
+      }
       emitter.phase_progress_counts(run_id, Phase::BGE, 1, bge_progress_total,
                                     "collect_tiles", "BGE", log_file);
 
@@ -4956,7 +5003,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         std::cout << "[BGE] Using full output canvas mask (" << cols << "x"
                   << rows << ")" << std::endl;
 
-        if (!bge_metrics_tiles_match) {
+        if (bge_compact_tile_mode) {
+          const std::string compact_reason = "compact_tile_mode_auto_disabled";
+          std::ostringstream msg;
+          msg << "BGE auto-disabled: compact-tile mode detected (single tile "
+              << bge_tile_grid.tiles.front().width << "x"
+              << bge_tile_grid.tiles.front().height
+              << " covers full output canvas).";
+          emitter.warning(run_id, msg.str(), log_file);
+          std::cerr << "[BGE] Warning: " << msg.str() << std::endl;
+          bge_diag.failure_reason = compact_reason;
+        } else if (!bge_metrics_tiles_match) {
           std::cerr << "[BGE] Warning: tile metric/grid size mismatch (metrics="
                     << tile_metrics_for_bge.size() << ", tiles="
                     << bge_tile_grid.tiles.size() << "), skipping BGE"
@@ -4988,6 +5045,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       bge_artifact["local_metrics_tiles"] =
           static_cast<int>(bge_tile_metrics_cache.size());
       bge_artifact["bge_grid_tiles"] = static_cast<int>(bge_tile_grid.tiles.size());
+      bge_artifact["compact_tile_mode_detected"] = bge_compact_tile_mode;
+      bge_artifact["auto_disabled_reason"] =
+          bge_compact_tile_mode ? core::json("compact_tile_mode_auto_disabled")
+                                : core::json(nullptr);
       bge_artifact["config"] = {
           {"sample_quantile", cfg.bge.sample_quantile},
           {"structure_thresh_percentile", cfg.bge.structure_thresh_percentile},
@@ -5044,10 +5105,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           {"success", bge_diag.success},
           {"have_tile_data", bge_have_tile_data},
           {"metrics_tiles_match", bge_metrics_tiles_match},
+          {"compact_tile_mode_detected", bge_compact_tile_mode},
           {"artifact", bge_artifact_path.string()},
       };
       if (!bge_have_tile_data) {
         bge_phase_extra["reason"] = "no_tile_data";
+      } else if (bge_compact_tile_mode) {
+        bge_phase_extra["reason"] = "compact_tile_mode_auto_disabled";
       } else if (!bge_metrics_tiles_match) {
         bge_phase_extra["reason"] = "tile_metric_grid_mismatch";
       } else if (bge_diag.attempted && !bge_diag.success) {
@@ -5073,18 +5137,20 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     fs::path stacked_rgb_bge_path = run_dir / "outputs" / "stacked_rgb_bge.fits";
     fs::path stacked_rgb_bge_linear_path =
         run_dir / "outputs" / "stacked_rgb_bge_linear.fits";
-    if (have_rgb) {
-      io::write_fits_rgb(stacked_rgb_bge_linear_path, R_out, G_out, B_out,
-                         first_hdr);
-      Matrix2Df R_bge_disk = R_out;
-      Matrix2Df G_bge_disk = G_out;
-      Matrix2Df B_bge_disk = B_out;
-      if (cfg.stacking.output_stretch) {
-        stretch_rgb_for_output(R_bge_disk, G_bge_disk, B_bge_disk, "BGE");
-      }
-      io::write_fits_rgb(stacked_rgb_bge_path, R_bge_disk, G_bge_disk,
-                         B_bge_disk, first_hdr);
-    }
+	    if (have_rgb) {
+	      io::write_fits_rgb(stacked_rgb_bge_linear_path, R_out, G_out, B_out,
+	                         first_hdr);
+	      Matrix2Df R_bge_disk = R_out;
+	      Matrix2Df G_bge_disk = G_out;
+	      Matrix2Df B_bge_disk = B_out;
+	      if (cfg.stacking.output_stretch) {
+	        stretch_rgb_for_output(R_bge_disk, G_bge_disk, B_bge_disk, "BGE");
+	      }
+	      image::enforce_canvas_mask_on_rgb(R_bge_disk, G_bge_disk, B_bge_disk,
+	                                        common_valid_mask);
+	      io::write_fits_rgb(stacked_rgb_bge_path, R_bge_disk, G_bge_disk,
+	                         B_bge_disk, first_hdr);
+	    }
 
     if (!cfg.pcc.enabled) {
       emitter.phase_end(run_id, Phase::PCC, "skipped",
@@ -5104,6 +5170,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       // auto: siril → vizier_gaia → vizier_apass
       double search_r = wcs.search_radius_deg();
       std::string source = cfg.pcc.source;
+      double pcc_auto_fwhm_px = 0.0;
+      std::string pcc_auto_fwhm_source = "disabled";
       tile_compile::runner::PCCCatalogQueryResult catalog =
           tile_compile::runner::query_pcc_catalog_stars(
               wcs, cfg.pcc, std::cerr, "[PCC]");
@@ -5163,10 +5231,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                   << cols << "x" << rows << ")" << std::endl;
 
         if (pcc_cfg.radii_mode == "auto_fwhm") {
-          const double F = have_seeing_fwhm
-                               ? std::max(0.0,
-                                          static_cast<double>(seeing_fwhm_med))
-                               : 0.0;
+          pcc_auto_fwhm_px = runner::resolve_pcc_auto_fwhm_px(
+              R_out, G_out, B_out, have_seeing_fwhm,
+              static_cast<double>(seeing_fwhm_med), &pcc_auto_fwhm_source);
+          const double F = pcc_auto_fwhm_px;
           const double r_ap = std::max(static_cast<double>(pcc_cfg.min_aperture_px),
                                        pcc_cfg.aperture_fwhm_mult * F);
           const double r_in = std::max(r_ap + 1.0,
@@ -5177,6 +5245,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           pcc_cfg.aperture_radius_px = r_ap;
           pcc_cfg.annulus_inner_px = r_in;
           pcc_cfg.annulus_outer_px = r_out;
+          std::cout << "[PCC] auto_fwhm radii source: "
+                    << pcc_auto_fwhm_source << " (F=" << F << ")"
+                    << std::endl;
         }
 
         auto result = astro::run_pcc(R_out, G_out, B_out, wcs, stars, pcc_cfg);
@@ -5202,14 +5273,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                G_out, first_hdr);
           io::write_fits_float(run_dir / "outputs" / "pcc_B.fit",
                                B_out, first_hdr);
-          Matrix2Df R_pcc_disk = R_out;
-          Matrix2Df G_pcc_disk = G_out;
-          Matrix2Df B_pcc_disk = B_out;
-          if (cfg.stacking.output_stretch) {
-            stretch_rgb_for_output(R_pcc_disk, G_pcc_disk, B_pcc_disk, "PCC");
-          }
-          io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
-                             R_pcc_disk, G_pcc_disk, B_pcc_disk, first_hdr);
+	          Matrix2Df R_pcc_disk = R_out;
+	          Matrix2Df G_pcc_disk = G_out;
+	          Matrix2Df B_pcc_disk = B_out;
+	          if (cfg.stacking.output_stretch) {
+	            stretch_rgb_for_output(R_pcc_disk, G_pcc_disk, B_pcc_disk, "PCC");
+	          }
+	          image::enforce_canvas_mask_on_rgb(R_pcc_disk, G_pcc_disk, B_pcc_disk,
+	                                            common_valid_mask);
+	          io::write_fits_rgb(run_dir / "outputs" / "stacked_rgb_pcc.fits",
+	                             R_pcc_disk, G_pcc_disk, B_pcc_disk, first_hdr);
 
           core::json matrix_json = core::json::array();
           for (int r = 0; r < 3; ++r) {
@@ -5229,6 +5302,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"chroma_strength", pcc_cfg.chroma_strength},
                              {"k_max", pcc_cfg.k_max},
                              {"radii_mode", pcc_cfg.radii_mode},
+                             {"auto_fwhm_px", pcc_auto_fwhm_px},
+                             {"auto_fwhm_source", pcc_auto_fwhm_source},
                              {"aperture_radius_px", pcc_cfg.aperture_radius_px},
                              {"annulus_inner_px", pcc_cfg.annulus_inner_px},
                              {"annulus_outer_px", pcc_cfg.annulus_outer_px},
@@ -5240,6 +5315,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"source", used_source},
                              {"input_rgb_bge", stacked_rgb_bge_path.string()}},
                             log_file);
+          cleanup_snapshot_if_exists(
+              stacked_rgb_path,
+              "superseded by stacked_rgb_pcc.fits");
+          cleanup_snapshot_if_exists(
+              stacked_rgb_bge_path,
+              "superseded by stacked_rgb_pcc.fits");
         } else {
           emitter.phase_end(run_id, Phase::PCC, "skipped",
                             {{"reason", "fit_failed"},
@@ -5254,6 +5335,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                              {"chroma_strength", pcc_cfg.chroma_strength},
                              {"k_max", pcc_cfg.k_max},
                              {"radii_mode", pcc_cfg.radii_mode},
+                             {"auto_fwhm_px", pcc_auto_fwhm_px},
+                             {"auto_fwhm_source", pcc_auto_fwhm_source},
                              {"aperture_radius_px", pcc_cfg.aperture_radius_px},
                              {"annulus_inner_px", pcc_cfg.annulus_inner_px},
                              {"annulus_outer_px", pcc_cfg.annulus_outer_px},
@@ -5263,6 +5346,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
       }
     }
+    if (detected_mode == ColorMode::OSC && cfg.chroma_denoise.enabled &&
+        cfg.chroma_denoise.apply_stage == "post_pcc") {
+      reconstruction::chroma_denoise_rgb_inplace(
+          R_out, G_out, B_out, cfg.chroma_denoise);
+    }
+
     if (abort_if_runtime_limit_exceeded("PCC")) {
       return 1;
     }

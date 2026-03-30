@@ -529,6 +529,7 @@ if(BUILD_TESTS)
             tests/test_fits_hdu_selection.cpp
             tests/test_debayer.cpp
             tests/test_mode_gating.cpp
+            tests/test_registration_cascade.cpp
             tests/test_registration_outlier_utils.cpp
             tests/test_reconstruction_regression.cpp
             tests/test_stacking_quality_weighting.cpp

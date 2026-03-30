@@ -6,11 +6,13 @@ This documentation describes all configuration options for `tile_compile.yaml` b
 **Schema version:** v3  
 **Reference:** Methodology v3.3
 
-**Documentation status (2026-03-13):**
+**Documentation status (2026-03-30):**
 - `bge.fit.robust_loss` and `bge.fit.huber_delta` are documented and user-configurable.
 - `bge.min_valid_sample_fraction_for_apply` and `bge.min_valid_samples_for_apply` are documented as BGE channel-apply guards.
 - PCC coverage includes active stability and apply controls (`max_condition_number`, `max_residual_rms`, `apply_attenuation`, `chroma_strength`, `k_max`).
 - `TILE_RECONSTRUCTION` boundary diagnostics are documented as runtime artifacts; there is currently no dedicated seam-correction config block.
+- `bge.tile_weight_lambda_structure` is aligned with the current default `1.0`.
+- `stacking.common_overlap_required_fraction` and `stacking.tile_common_valid_min_fraction` are documented as active stacking controls with strict defaults `1.0 / 1.0`.
 
 **💡 For practical examples and use cases, see:** [Configuration Examples & Best Practices](configuration_examples_practical_en.md)
 
@@ -105,7 +107,7 @@ Output file and directory configuration.
 - **`true`**: Removes empty borders from final image. Only pixels with values > 0 are kept. Reduces file size and removes unnecessary black borders.
 - **`false`**: Keeps full canvas size, including empty borders.
 
-**Note:** Applied after stacking phase but before debayer (for OSC). Tile offsets are adjusted accordingly.
+**Note:** Applied after stacking phase but before debayer (for OSC). Tile offsets are adjusted accordingly. Invalid canvas areas remain masked and are not intended to contribute to downstream debayer/BGE/PCC calculations.
 
 ---
 
@@ -415,6 +417,8 @@ Image registration settings.
 **Purpose:** Enable/disable the extra Star-Pairs fallback stage between Triangle Stars and Trail Endpoints.
 
 Set to `false` to disable the Star-Pairs stage for a stricter fallback policy.
+
+**Note (Strict v3.3.9):** Set `registration.enable_star_pair_fallback: false` for the strict profile.
 
 **Temporal-Smoothing (v3.2.3+, automatically active):** When direct registration `i→ref` fails, the runner automatically tries:
 1. `i→(i-1)→ref` — register to previous frame, then chain warps
@@ -1005,7 +1009,7 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 
 **Key BGE parameters:**
 - `bge.enabled`: Enable/disable (default: `false`)
-- `bge.tile_weight_lambda_structure`: Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)` (range `> 0`, default `2.0`)
+- `bge.tile_weight_lambda_structure`: Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)` (range `> 0`, default `1.0`)
 - `bge.sample_quantile`: Tile background quantile (range `(0, 0.5]`, default `0.20`)
 - `bge.min_valid_sample_fraction_for_apply`: Minimum valid tile-sample fraction required per channel before BGE apply (range `(0, 1]`, default `0.30`)
 - `bge.min_valid_samples_for_apply`: Minimum absolute valid tile-sample count required per channel before BGE apply (minimum `1`, default `96`)
@@ -1037,9 +1041,9 @@ BGE removes large-scale background gradients (light pollution, moonlight, airglo
 |----------|-------|
 | **Type** | number |
 | **Range** | `> 0` |
-| **Default** | `2.0` |
+| **Default** | `1.0` |
 
-**Purpose:** Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`. Higher values down-weight structure-rich tiles more aggressively.
+**Purpose:** Lambda in tile reliability weight `w_t = exp(-lambda * structure_score_t) * (1 - masked_fraction_t)`. Higher values down-weight structure-rich tiles more aggressively; `1.0` is the current moderate baseline.
 
 ### `bge.sample_quantile`
 
@@ -1429,6 +1433,40 @@ Final stacking settings.
 | **Default** | `"rej"` |
 
 **Purpose:** Final stacking method.
+
+### `stacking.common_overlap_required_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `(0, 1]` |
+| **Default** | `1.0` |
+
+**Purpose:** Required fraction of usable frames in which a pixel must be valid to belong to `COMMON_OVERLAP`.
+
+- **`1.0`**: strict intersection across all usable frames
+- **`< 1.0`**: allows edge pixels that are present in only a subset of frames
+
+**Note:** Lower values increase border area but can bias background and color statistics through uneven edge coverage.
+
+**Note (Strict v3.3.9):** Keep this at `1.0`.
+
+### `stacking.tile_common_valid_min_fraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Range** | `(0, 1]` |
+| **Default** | `1.0` |
+
+**Purpose:** Minimum fraction of the **full tile area** that must lie inside `COMMON_OVERLAP` for a tile to remain valid for local metrics and downstream processing.
+
+- **`1.0`**: only tiles fully inside the support mask are valid
+- **`< 1.0`**: allows partially covered edge tiles
+
+**Note:** The ratio is computed over the full tile area, not only the in-bounds remainder.
+
+**Note (Strict v3.3.9):** Keep this at `1.0`.
 
 ### `stacking.sigma_clip.sigma_low` / `stacking.sigma_clip.sigma_high`
 
@@ -1831,6 +1869,8 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `pcc.siril_catalog_dir`: local Siril catalog path override.
 - `pcc.apply_attenuation`, `pcc.background_neutralization_mode`, `pcc.chroma_strength`, `pcc.k_max`: optional PCC apply/background-neutralization controls.
 - `stacking.method`: final combine mode (`rej` sigma-clip vs `average`).
+- `stacking.common_overlap_required_fraction`: required pixel coverage across usable frames for `COMMON_OVERLAP`.
+- `stacking.tile_common_valid_min_fraction`: minimum `COMMON_OVERLAP` coverage over the full tile area.
 - `stacking.sigma_clip.sigma_low`, `sigma_high`: lower/upper rejection thresholds.
 - `stacking.sigma_clip.max_iters`: clipping iteration cap.
 - `stacking.sigma_clip.min_fraction`: minimum retained sample ratio fallback guard.

@@ -8,6 +8,10 @@
 
 namespace tile_compile::image {
 
+namespace {
+constexpr float kMinRestoreScale = 1.0e-6f;
+}
+
 void apply_normalization_inplace(Matrix2Df &img, const NormalizationScales &s,
                                  ColorMode mode,
                                  const std::string &bayer_pattern,
@@ -50,7 +54,7 @@ void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
     return;
   if (mode != ColorMode::OSC) {
     const float restore_scale =
-        (std::isfinite(scale_mono) && std::fabs(scale_mono) > 1.0e-12f)
+        (std::isfinite(scale_mono) && std::fabs(scale_mono) > kMinRestoreScale)
             ? scale_mono
             : 1.0f;
     img *= restore_scale;
@@ -68,19 +72,19 @@ void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
       const int px = gx & 1;
       if (py == r_row && px == r_col) {
         const float restore_scale =
-            (std::isfinite(scale_r) && std::fabs(scale_r) > 1.0e-12f)
+            (std::isfinite(scale_r) && std::fabs(scale_r) > kMinRestoreScale)
                 ? scale_r
                 : 1.0f;
         img(y, x) = img(y, x) * restore_scale + bg_r + pedestal;
       } else if (py == b_row && px == b_col) {
         const float restore_scale =
-            (std::isfinite(scale_b) && std::fabs(scale_b) > 1.0e-12f)
+            (std::isfinite(scale_b) && std::fabs(scale_b) > kMinRestoreScale)
                 ? scale_b
                 : 1.0f;
         img(y, x) = img(y, x) * restore_scale + bg_b + pedestal;
       } else {
         const float restore_scale =
-            (std::isfinite(scale_g) && std::fabs(scale_g) > 1.0e-12f)
+            (std::isfinite(scale_g) && std::fabs(scale_g) > kMinRestoreScale)
                 ? scale_g
                 : 1.0f;
         img(y, x) = img(y, x) * restore_scale + bg_g + pedestal;

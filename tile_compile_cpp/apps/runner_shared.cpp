@@ -3,6 +3,7 @@
 #include "tile_compile/core/utils.hpp"
 #include "tile_compile/image/cfa_processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/metrics/metrics.hpp"
 #include "tile_compile/registration/global_registration.hpp"
 
 #include <algorithm>
@@ -34,6 +35,7 @@ namespace image = tile_compile::image;
 namespace config = tile_compile::config;
 namespace astrometry = tile_compile::astrometry;
 namespace registration = tile_compile::registration;
+namespace metrics = tile_compile::metrics;
 
 namespace {
 
@@ -123,6 +125,44 @@ int cap_workers_for_io_profile(size_t avg_frame_bytes, size_t task_count,
 }
 
 } // namespace
+
+double resolve_pcc_auto_fwhm_px(const Matrix2Df &R, const Matrix2Df &G,
+                                const Matrix2Df &B,
+                                bool have_fallback_fwhm,
+                                double fallback_fwhm_px,
+                                std::string *source_out) {
+  auto try_channel = [&](const Matrix2Df &img, const char *label) -> double {
+    const double f = static_cast<double>(metrics::measure_fwhm_from_image(img));
+    if (std::isfinite(f) && f > 0.0) {
+      if (source_out != nullptr) {
+        *source_out = label;
+      }
+      return f;
+    }
+    return 0.0;
+  };
+
+  if (const double f = try_channel(G, "current_rgb.G"); f > 0.0) {
+    return f;
+  }
+  if (const double f = try_channel(R, "current_rgb.R"); f > 0.0) {
+    return f;
+  }
+  if (const double f = try_channel(B, "current_rgb.B"); f > 0.0) {
+    return f;
+  }
+  if (have_fallback_fwhm && std::isfinite(fallback_fwhm_px) &&
+      fallback_fwhm_px > 0.0) {
+    if (source_out != nullptr) {
+      *source_out = "tile_grid.seeing_fwhm_median";
+    }
+    return fallback_fwhm_px;
+  }
+  if (source_out != nullptr) {
+    *source_out = "fallback_F=0";
+  }
+  return 0.0;
+}
 
 std::string format_bytes(uint64_t bytes) {
   static const char *kUnits[] = {"B", "KiB", "MiB", "GiB", "TiB"};
