@@ -95,6 +95,39 @@ inline float average_neighbors_of_color(const float* data,
     return (std::isfinite(fallback) && fallback > 0.0f) ? fallback : 0.0f;
 }
 
+inline float average_neighbors_of_color_absolute(const float* data,
+                                                int h,
+                                                int w,
+                                                const uint8_t color_lut[4],
+                                                const int* ys,
+                                                const int* xs,
+                                                int n,
+                                                CfaColor desired_color) {
+    float sum = 0.0f;
+    int count = 0;
+    const uint8_t desired = static_cast<uint8_t>(desired_color);
+    for (int i = 0; i < n; ++i) {
+        const int cy = clamp_index(ys[i], 0, h - 1);
+        const int cx = clamp_index(xs[i], 0, w - 1);
+        const int parity_idx = ((cy & 1) << 1) | (cx & 1);
+        if (color_lut[parity_idx] != desired) {
+            continue;
+        }
+        const float v = data[static_cast<size_t>(cy) * static_cast<size_t>(w) +
+                             static_cast<size_t>(cx)];
+        if (!(std::isfinite(v) && v > 0.0f)) {
+            continue;
+        }
+        sum += v;
+        ++count;
+    }
+    if (count > 0) {
+        return sum / static_cast<float>(count);
+    }
+    const float fallback = sample_clamped(data, h, w, ys[0], xs[0]);
+    return (std::isfinite(fallback) && fallback > 0.0f) ? fallback : 0.0f;
+}
+
 } // namespace
 
 Matrix2Df cfa_green_mask(int height, int width, const std::string& bayer_pattern) {
@@ -489,6 +522,108 @@ DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
                     b_val = average_neighbors_of_color(src, h, w, origin_y, origin_x,
                                                        color_lut, by, bx, 2,
                                                        CfaColor::Blue);
+                }
+            }
+
+            out.R(y, x) = r_val;
+            out.G(y, x) = g_val;
+            out.B(y, x) = b_val;
+        }
+    }
+
+    return out;
+}
+
+DebayerResult debayer_bilinear_region(const float* mosaic,
+                                      int mosaic_height,
+                                      int mosaic_width,
+                                      int region_x,
+                                      int region_y,
+                                      int region_width,
+                                      int region_height,
+                                      BayerPattern pattern) {
+    DebayerResult out;
+    if (mosaic == nullptr || mosaic_height <= 0 || mosaic_width <= 0 ||
+        region_width <= 0 || region_height <= 0) {
+        return out;
+    }
+
+    out.R = Matrix2Df::Zero(region_height, region_width);
+    out.G = Matrix2Df::Zero(region_height, region_width);
+    out.B = Matrix2Df::Zero(region_height, region_width);
+
+    int r_row = 1, r_col = 0;
+    if (pattern == BayerPattern::UNKNOWN) {
+        pattern = BayerPattern::GBRG;
+    } else if (pattern == BayerPattern::RGGB) {
+        r_row = 0; r_col = 0;
+    } else if (pattern == BayerPattern::BGGR) {
+        r_row = 1; r_col = 1;
+    } else if (pattern == BayerPattern::GRBG) {
+        r_row = 0; r_col = 1;
+    }
+    uint8_t color_lut[4] = {0, 0, 0, 0};
+    fill_bayer_color_lut(pattern, color_lut);
+
+    for (int y = 0; y < region_height; ++y) {
+        for (int x = 0; x < region_width; ++x) {
+            const int gy0 = region_y + y;
+            const int gx0 = region_x + x;
+            const int parity_idx = ((gy0 & 1) << 1) | (gx0 & 1);
+            const uint8_t color = color_lut[parity_idx];
+            float r_val = 0.0f;
+            float g_val = 0.0f;
+            float b_val = 0.0f;
+
+            if (color == static_cast<uint8_t>(CfaColor::Red)) {
+                r_val = sample_clamped(mosaic, mosaic_height, mosaic_width, gy0, gx0);
+                const int gy[4] = {gy0 - 1, gy0 + 1, gy0, gy0};
+                const int gx[4] = {gx0, gx0, gx0 - 1, gx0 + 1};
+                g_val = average_neighbors_of_color_absolute(
+                    mosaic, mosaic_height, mosaic_width, color_lut, gy, gx, 4,
+                    CfaColor::Green);
+                const int by[4] = {gy0 - 1, gy0 - 1, gy0 + 1, gy0 + 1};
+                const int bx[4] = {gx0 - 1, gx0 + 1, gx0 - 1, gx0 + 1};
+                b_val = average_neighbors_of_color_absolute(
+                    mosaic, mosaic_height, mosaic_width, color_lut, by, bx, 4,
+                    CfaColor::Blue);
+            } else if (color == static_cast<uint8_t>(CfaColor::Blue)) {
+                b_val = sample_clamped(mosaic, mosaic_height, mosaic_width, gy0, gx0);
+                const int gy[4] = {gy0 - 1, gy0 + 1, gy0, gy0};
+                const int gx[4] = {gx0, gx0, gx0 - 1, gx0 + 1};
+                g_val = average_neighbors_of_color_absolute(
+                    mosaic, mosaic_height, mosaic_width, color_lut, gy, gx, 4,
+                    CfaColor::Green);
+                const int ry[4] = {gy0 - 1, gy0 - 1, gy0 + 1, gy0 + 1};
+                const int rx[4] = {gx0 - 1, gx0 + 1, gx0 - 1, gx0 + 1};
+                r_val = average_neighbors_of_color_absolute(
+                    mosaic, mosaic_height, mosaic_width, color_lut, ry, rx, 4,
+                    CfaColor::Red);
+            } else {
+                g_val = sample_clamped(mosaic, mosaic_height, mosaic_width, gy0, gx0);
+                const bool green_on_red_row = ((gy0 & 1) == r_row);
+                if (green_on_red_row) {
+                    const int ry[2] = {gy0, gy0};
+                    const int rx[2] = {gx0 - 1, gx0 + 1};
+                    r_val = average_neighbors_of_color_absolute(
+                        mosaic, mosaic_height, mosaic_width, color_lut, ry, rx, 2,
+                        CfaColor::Red);
+                    const int by[2] = {gy0 - 1, gy0 + 1};
+                    const int bx[2] = {gx0, gx0};
+                    b_val = average_neighbors_of_color_absolute(
+                        mosaic, mosaic_height, mosaic_width, color_lut, by, bx, 2,
+                        CfaColor::Blue);
+                } else {
+                    const int ry[2] = {gy0 - 1, gy0 + 1};
+                    const int rx[2] = {gx0, gx0};
+                    r_val = average_neighbors_of_color_absolute(
+                        mosaic, mosaic_height, mosaic_width, color_lut, ry, rx, 2,
+                        CfaColor::Red);
+                    const int by[2] = {gy0, gy0};
+                    const int bx[2] = {gx0 - 1, gx0 + 1};
+                    b_val = average_neighbors_of_color_absolute(
+                        mosaic, mosaic_height, mosaic_width, color_lut, by, bx, 2,
+                        CfaColor::Blue);
                 }
             }
 

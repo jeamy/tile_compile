@@ -1883,6 +1883,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     bool tile_norm_disabled_due_boundary_regression = false;
     float tile_norm_boundary_regression_ratio = 1.0f;
     std::string tile_norm_application = "disabled_v3_3_9_linear_core";
+    const bool collect_tile_boundary_diagnostics =
+        cfg.runtime_limits.tile_reconstruction_collect_boundary_diagnostics;
 
     std::mutex progress_mutex;
     std::atomic<size_t> tiles_completed{0};
@@ -1945,11 +1947,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
           try {
             if (frame_has_data[fi]) {
-              Matrix2Df frame_mosaic = prewarped_frames.load(fi);
-              if (frame_mosaic.rows() == canvas_height &&
-                  frame_mosaic.cols() == canvas_width) {
-                auto deb = image::debayer_nearest_neighbor(
-                    frame_mosaic, detected_bayer, 0, 0);
+              const float *frame_mosaic = prewarped_frames.frame_data(fi);
+              if (frame_mosaic != nullptr) {
+                auto deb = image::debayer_bilinear_region(
+                    frame_mosaic, canvas_height, canvas_width, 0, 0,
+                    canvas_width, canvas_height, detected_bayer);
                 if (tile_compile::runner::
                         apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
                             deb.R, deb.G, deb.B, common_valid_mask,
@@ -2087,6 +2089,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         valid_tiles_R.reserve(frames.size());
         valid_tiles_G.reserve(frames.size());
         valid_tiles_B.reserve(frames.size());
+        const bool use_shared_rgb_sigma_clip =
+            tile_reconstruction_ops.selection().selected ==
+            core::AccelerationBackend::cpu;
         if (use_full_frame_osc_rgb_cache && osc_rgb_cache_r && osc_rgb_cache_g &&
             osc_rgb_cache_b) {
           Matrix2Df tile_r;
@@ -2123,22 +2128,23 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         } else {
           const int origin_x = std::max(0, t.x);
           const int origin_y = std::max(0, t.y);
-          Matrix2Df tile_mosaic;
           for (size_t fi = 0; fi < frames.size(); ++fi) {
             if (!frame_has_data[fi])
               continue;
             const float frame_weight = compute_frame_tile_weight(fi);
             if (!(frame_weight > 0.0f))
               continue;
-            if (!prewarped_frames.extract_tile_into(fi, t, tile_mosaic, 0, 0) ||
-                tile_mosaic.rows() != t.height ||
-                tile_mosaic.cols() != t.width) {
+            if (origin_x + t.width > canvas_width ||
+                origin_y + t.height > canvas_height) {
               continue;
             }
-
-            auto deb = image::debayer_nearest_neighbor(tile_mosaic,
-                                                       detected_bayer, origin_x,
-                                                       origin_y);
+            const float *frame_mosaic = prewarped_frames.frame_data(fi);
+            if (frame_mosaic == nullptr) {
+              continue;
+            }
+            auto deb = image::debayer_bilinear_region(
+                frame_mosaic, canvas_height, canvas_width, origin_x, origin_y,
+                t.width, t.height, detected_bayer);
             if (!tile_compile::runner::
                     apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
                         deb.R, deb.G, deb.B, t, common_valid_mask,
@@ -2159,31 +2165,53 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           return;
         }
 
-        auto stack_channel = [&](const std::vector<Matrix2Df> &chan_tiles)
-            -> Matrix2Df {
-          if (channel_weights.size() != chan_tiles.size()) {
-            std::vector<float> fallback_weights(chan_tiles.size(), 1.0f);
+        if (use_shared_rgb_sigma_clip) {
+          const bool use_channel_weights =
+              channel_weights.size() == valid_tiles_G.size();
+          const std::vector<float> fallback_weights(
+              valid_tiles_G.size(), 1.0f);
+          const auto &weights_for_stack =
+              use_channel_weights ? channel_weights : fallback_weights;
+          auto wr = reconstruction::sigma_clip_weighted_rgb_tile_shared_mask(
+              valid_tiles_R, valid_tiles_G, valid_tiles_B, weights_for_stack,
+              cfg.stacking.sigma_clip.sigma_low,
+              cfg.stacking.sigma_clip.sigma_high,
+              cfg.stacking.sigma_clip.max_iters,
+              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+          used_weight_fallback = used_weight_fallback || wr.fallback_used ||
+                                 !use_channel_weights;
+          tile_rec_R = std::move(wr.R);
+          tile_rec_G = std::move(wr.G);
+          tile_rec_B = std::move(wr.B);
+        } else {
+          auto stack_channel = [&](const std::vector<Matrix2Df> &chan_tiles)
+              -> Matrix2Df {
+            if (channel_weights.size() != chan_tiles.size()) {
+              std::vector<float> fallback_weights(chan_tiles.size(), 1.0f);
+              auto wr = tile_reconstruction_ops.sigma_clip_reduce(
+                  chan_tiles, fallback_weights,
+                  cfg.stacking.sigma_clip.sigma_low,
+                  cfg.stacking.sigma_clip.sigma_high,
+                  cfg.stacking.sigma_clip.max_iters,
+                  cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+              used_weight_fallback = used_weight_fallback || wr.fallback_used;
+              return std::move(wr.tile);
+            }
+
             auto wr = tile_reconstruction_ops.sigma_clip_reduce(
-                chan_tiles, fallback_weights, cfg.stacking.sigma_clip.sigma_low,
+                chan_tiles, channel_weights,
+                cfg.stacking.sigma_clip.sigma_low,
                 cfg.stacking.sigma_clip.sigma_high,
                 cfg.stacking.sigma_clip.max_iters,
                 cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
             used_weight_fallback = used_weight_fallback || wr.fallback_used;
             return std::move(wr.tile);
-          }
+          };
 
-          auto wr = tile_reconstruction_ops.sigma_clip_reduce(
-              chan_tiles, channel_weights, cfg.stacking.sigma_clip.sigma_low,
-              cfg.stacking.sigma_clip.sigma_high,
-              cfg.stacking.sigma_clip.max_iters,
-              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
-          used_weight_fallback = used_weight_fallback || wr.fallback_used;
-          return std::move(wr.tile);
-        };
-
-        tile_rec_R = stack_channel(valid_tiles_R);
-        tile_rec_G = stack_channel(valid_tiles_G);
-        tile_rec_B = stack_channel(valid_tiles_B);
+          tile_rec_R = stack_channel(valid_tiles_R);
+          tile_rec_G = stack_channel(valid_tiles_G);
+          tile_rec_B = stack_channel(valid_tiles_B);
+        }
 
         if (tile_rec_R.size() <= 0 || tile_rec_G.size() <= 0 ||
             tile_rec_B.size() <= 0) {
@@ -2500,7 +2528,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
-    {
+    if (collect_tile_boundary_diagnostics) {
       auto summarize_abs_metric = [](std::vector<float> values) {
         std::pair<float, float> summary{0.0f, 0.0f};
         if (values.empty()) {
@@ -2579,12 +2607,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       } else {
         boundary_diagnostics_normalized = boundary_diagnostics_raw;
       }
-      const auto &active_boundary_diagnostics =
+      const auto &boundary_diagnostics_active =
           apply_phase7_tile_norm ? boundary_diagnostics_normalized
                                  : boundary_diagnostics_raw;
 	      boundary_weight_profile_diagnostics =
 	          reconstruction::analyze_tile_weight_profiles(
-	              active_boundary_diagnostics.pair_diagnostics, local_weights,
+	              boundary_diagnostics_active.pair_diagnostics, local_weights,
 	              frame_has_data);
 
       std::vector<float> valid_count_deltas;
@@ -2592,13 +2620,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       std::vector<float> snr_deltas;
       std::vector<float> correlation_deltas;
 	      valid_count_deltas.reserve(
-	          active_boundary_diagnostics.pair_diagnostics.size());
+	          boundary_diagnostics_active.pair_diagnostics.size());
 	      background_deltas.reserve(
-	          active_boundary_diagnostics.pair_diagnostics.size());
-	      snr_deltas.reserve(active_boundary_diagnostics.pair_diagnostics.size());
+	          boundary_diagnostics_active.pair_diagnostics.size());
+	      snr_deltas.reserve(boundary_diagnostics_active.pair_diagnostics.size());
 	      correlation_deltas.reserve(
-	          active_boundary_diagnostics.pair_diagnostics.size());
-	      for (const auto &pair : active_boundary_diagnostics.pair_diagnostics) {
+	          boundary_diagnostics_active.pair_diagnostics.size());
+	      for (const auto &pair : boundary_diagnostics_active.pair_diagnostics) {
 	        valid_count_deltas.push_back(static_cast<float>(
 	            std::abs(tile_valid_counts[pair.lhs] - tile_valid_counts[pair.rhs])));
         background_deltas.push_back(std::fabs(
@@ -2641,6 +2669,49 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
       const int x0 = std::max(0, t.x);
       const int y0 = std::max(0, t.y);
+      Matrix2Df overlap_weight_mask = Matrix2Df::Zero(t.height, t.width);
+      bool has_overlap_weight = false;
+      for (int yy = 0; yy < t.height; ++yy) {
+        const int iy = y0 + yy;
+        if (iy < 0 || iy >= canvas_height) {
+          continue;
+        }
+        for (int xx = 0; xx < t.width; ++xx) {
+          const int ix = x0 + xx;
+          if (ix < 0 || ix >= canvas_width) {
+            continue;
+          }
+          const size_t common_idx =
+              static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
+              static_cast<size_t>(ix);
+          if (common_idx >= common_valid_mask.size() ||
+              common_valid_mask[common_idx] == 0u) {
+            continue;
+          }
+          const float win = window_y[static_cast<size_t>(yy)] *
+                            window_x[static_cast<size_t>(xx)];
+          if (!(win > 0.0f)) {
+            continue;
+          }
+          overlap_weight_mask(yy, xx) = win;
+          has_overlap_weight = true;
+        }
+      }
+      if (!has_overlap_weight) {
+        continue;
+      }
+
+      auto build_weighted_tile = [&](const Matrix2Df &src) {
+        Matrix2Df weighted = Matrix2Df::Zero(src.rows(), src.cols());
+        for (Eigen::Index i = 0; i < src.size(); ++i) {
+          const float v = src.data()[i];
+          const float w = overlap_weight_mask.data()[i];
+          if (w > 0.0f && std::isfinite(v)) {
+            weighted.data()[i] = v * w;
+          }
+        }
+        return weighted;
+      };
 
       if (osc_mode) {
         Matrix2Df tile_r = reconstructed_tiles_R[ti];
@@ -2655,15 +2726,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
         }
 
-        tile_reconstruction_ops.overlap_add(
-            tile_r, t, window_x, window_y, common_valid_mask, canvas_width,
-            recon_R, weight_sum, true);
-        tile_reconstruction_ops.overlap_add(
-            tile_g, t, window_x, window_y, common_valid_mask, canvas_width,
-            recon_G, weight_sum, false);
-        tile_reconstruction_ops.overlap_add(
-            tile_b, t, window_x, window_y, common_valid_mask, canvas_width,
-            recon_B, weight_sum, false);
+        Matrix2Df weighted_r = build_weighted_tile(tile_r);
+        Matrix2Df weighted_g = build_weighted_tile(tile_g);
+        Matrix2Df weighted_b = build_weighted_tile(tile_b);
+        tile_reconstruction_ops.overlap_add_preweighted(
+            weighted_r, t, recon_R, weight_sum, &overlap_weight_mask, true);
+        tile_reconstruction_ops.overlap_add_preweighted(
+            weighted_g, t, recon_G, weight_sum, nullptr, false);
+        tile_reconstruction_ops.overlap_add_preweighted(
+            weighted_b, t, recon_B, weight_sum, nullptr, false);
       } else {
         Matrix2Df tile = reconstructed_tiles[ti];
         if (apply_phase7_tile_norm) {
@@ -2673,9 +2744,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
         }
 
-        tile_reconstruction_ops.overlap_add(
-            tile, t, window_x, window_y, common_valid_mask, canvas_width, recon,
-            weight_sum, true);
+        Matrix2Df weighted = build_weighted_tile(tile);
+        tile_reconstruction_ops.overlap_add_preweighted(
+            weighted, t, recon, weight_sum, &overlap_weight_mask, true);
       }
     }
 
@@ -2893,6 +2964,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       artifact["num_tiles"] = static_cast<int>(tiles_phase56.size());
       artifact["valid_tiles"] = valid_tile_count;
       artifact["dead_tiles"] = dead_tile_count;
+      artifact["tile_boundary_diagnostics_enabled"] =
+          collect_tile_boundary_diagnostics;
       artifact["full_support_tiles"] = full_support_tile_count;
       artifact["tile_valid_counts"] = core::json::array();
       artifact["tile_fallback_used"] = core::json::array();
@@ -2923,12 +2996,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           tile_norm_disabled_due_boundary_regression;
       artifact["tile_norm_boundary_regression_ratio"] =
           tile_norm_boundary_regression_ratio;
-      artifact["tile_boundary_analysis_uses_common_canvas_mask"] = true;
-      artifact["tile_boundary_raw_analysis_input"] = "pre_ola_raw";
+      artifact["tile_boundary_analysis_uses_common_canvas_mask"] =
+          collect_tile_boundary_diagnostics;
+      artifact["tile_boundary_raw_analysis_input"] =
+          collect_tile_boundary_diagnostics ? "pre_ola_raw" : "disabled";
       artifact["tile_boundary_normalized_analysis_input"] =
-          phase7_tile_norm_requested ? "pre_ola_normalized" : "pre_ola_raw";
+          collect_tile_boundary_diagnostics
+              ? (phase7_tile_norm_requested ? "pre_ola_normalized"
+                                            : "pre_ola_raw")
+              : "disabled";
       artifact["tile_boundary_analysis_input"] =
-          apply_phase7_tile_norm ? "pre_ola_normalized" : "pre_ola_raw";
+          collect_tile_boundary_diagnostics
+              ? (apply_phase7_tile_norm ? "pre_ola_normalized" : "pre_ola_raw")
+              : "disabled";
       artifact["tile_boundary_raw_pair_count"] =
           static_cast<int>(boundary_diagnostics_raw.pair_count);
       artifact["tile_boundary_raw_observation_count"] =
@@ -3131,7 +3211,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             {"tile_norm_boundary_regression_ratio",
              tile_norm_boundary_regression_ratio},
             {"tile_boundary_analysis_input",
-             apply_phase7_tile_norm ? "pre_ola_normalized" : "pre_ola_raw"},
+             collect_tile_boundary_diagnostics
+                 ? (apply_phase7_tile_norm ? "pre_ola_normalized"
+                                           : "pre_ola_raw")
+                 : "disabled"},
             {"tile_boundary_pairs",
              static_cast<int>(boundary_diagnostics_active.observed_pair_count)},
             {"tile_boundary_raw_pair_mean_abs_diff_p95",

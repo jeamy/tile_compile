@@ -820,6 +820,205 @@ WeightedTileResult sigma_clip_weighted_tile_with_fallback(
     return out;
 }
 
+RGBSharedSigmaClipResult sigma_clip_weighted_rgb_tile_shared_mask(
+    const std::vector<Matrix2Df>& tiles_r,
+    const std::vector<Matrix2Df>& tiles_g,
+    const std::vector<Matrix2Df>& tiles_b,
+    const std::vector<float>& weights,
+    float sigma_low,
+    float sigma_high,
+    int max_iters,
+    float min_fraction,
+    float eps_weight) {
+    RGBSharedSigmaClipResult out;
+    if (tiles_r.empty() || tiles_g.empty() || tiles_b.empty() || weights.empty()) {
+        return out;
+    }
+    if (tiles_r.size() != tiles_g.size() || tiles_r.size() != tiles_b.size()) {
+        return out;
+    }
+
+    const int rows = tiles_g[0].rows();
+    const int cols = tiles_g[0].cols();
+    out.R = Matrix2Df::Zero(rows, cols);
+    out.G = Matrix2Df::Zero(rows, cols);
+    out.B = Matrix2Df::Zero(rows, cols);
+
+    std::vector<const float*> ptr_r;
+    std::vector<const float*> ptr_g;
+    std::vector<const float*> ptr_b;
+    std::vector<double> active_weights;
+    ptr_r.reserve(tiles_r.size());
+    ptr_g.reserve(tiles_g.size());
+    ptr_b.reserve(tiles_b.size());
+    active_weights.reserve(weights.size());
+
+    double wsum = 0.0;
+    for (size_t i = 0; i < weights.size() && i < tiles_g.size(); ++i) {
+        const float w = weights[i];
+        if (!(std::isfinite(w) && w > 0.0f)) {
+            continue;
+        }
+        if (tiles_r[i].rows() != rows || tiles_r[i].cols() != cols ||
+            tiles_g[i].rows() != rows || tiles_g[i].cols() != cols ||
+            tiles_b[i].rows() != rows || tiles_b[i].cols() != cols) {
+            continue;
+        }
+        ptr_r.push_back(tiles_r[i].data());
+        ptr_g.push_back(tiles_g[i].data());
+        ptr_b.push_back(tiles_b[i].data());
+        active_weights.push_back(static_cast<double>(w));
+        wsum += static_cast<double>(w);
+    }
+    out.effective_weight_sum = static_cast<float>(wsum);
+    if (ptr_g.empty()) {
+        return out;
+    }
+    if (!(wsum > static_cast<double>(eps_weight))) {
+        out.fallback_used = true;
+        std::fill(active_weights.begin(), active_weights.end(), 1.0);
+        out.effective_weight_sum = static_cast<float>(active_weights.size());
+    }
+
+    const int n = static_cast<int>(ptr_g.size());
+    std::vector<float> values(static_cast<size_t>(n));
+    std::vector<uint8_t> keep(static_cast<size_t>(n), 0u);
+
+    auto reduce_channel = [&](const std::vector<const float*>& ptrs, int idx) {
+        double local_wsum = 0.0;
+        double local_wmean = 0.0;
+        for (int i = 0; i < n; ++i) {
+            if (!keep[static_cast<size_t>(i)]) {
+                continue;
+            }
+            const float v = ptrs[static_cast<size_t>(i)][idx];
+            if (!is_valid_sample(v)) {
+                continue;
+            }
+            const double wi = active_weights[static_cast<size_t>(i)];
+            local_wsum += wi;
+            local_wmean += wi * static_cast<double>(v);
+        }
+        if (local_wsum > 0.0) {
+            return static_cast<float>(local_wmean / local_wsum);
+        }
+        local_wsum = 0.0;
+        local_wmean = 0.0;
+        for (int i = 0; i < n; ++i) {
+            const float v = ptrs[static_cast<size_t>(i)][idx];
+            if (!is_valid_sample(v)) {
+                continue;
+            }
+            const double wi = active_weights[static_cast<size_t>(i)];
+            local_wsum += wi;
+            local_wmean += wi * static_cast<double>(v);
+        }
+        return (local_wsum > 0.0)
+                   ? static_cast<float>(local_wmean / local_wsum)
+                   : invalid_reconstruction_sample();
+    };
+
+    for (int idx = 0; idx < out.G.size(); ++idx) {
+        int n_valid_here = 0;
+        for (int i = 0; i < n; ++i) {
+            const float v = ptr_g[static_cast<size_t>(i)][idx];
+            values[static_cast<size_t>(i)] = v;
+            const bool valid_here = is_valid_sample(v);
+            keep[static_cast<size_t>(i)] = valid_here ? 1u : 0u;
+            if (valid_here) {
+                ++n_valid_here;
+            }
+        }
+
+        if (n_valid_here <= 0) {
+            out.R.data()[idx] = invalid_reconstruction_sample();
+            out.G.data()[idx] = invalid_reconstruction_sample();
+            out.B.data()[idx] = invalid_reconstruction_sample();
+            continue;
+        }
+
+        if (n > 2 && max_iters > 0) {
+            const int min_keep_here = std::max(
+                1, static_cast<int>(std::ceil(min_fraction * n_valid_here)));
+            int kept = n_valid_here;
+            for (int iter = 0; iter < max_iters; ++iter) {
+                if (kept <= 1) {
+                    break;
+                }
+                double local_wsum = 0.0;
+                double local_wmean = 0.0;
+                for (int i = 0; i < n; ++i) {
+                    if (!keep[static_cast<size_t>(i)]) {
+                        continue;
+                    }
+                    const double wi = active_weights[static_cast<size_t>(i)];
+                    local_wsum += wi;
+                    local_wmean += wi * static_cast<double>(values[static_cast<size_t>(i)]);
+                }
+                if (!(local_wsum > 0.0)) {
+                    break;
+                }
+                local_wmean /= local_wsum;
+
+                double var = 0.0;
+                double local_wsum2 = 0.0;
+                for (int i = 0; i < n; ++i) {
+                    if (!keep[static_cast<size_t>(i)]) {
+                        continue;
+                    }
+                    const double wi = active_weights[static_cast<size_t>(i)];
+                    const double d = static_cast<double>(values[static_cast<size_t>(i)]) - local_wmean;
+                    var += wi * d * d;
+                    local_wsum2 += wi * wi;
+                }
+                const double n_eff =
+                    (local_wsum * local_wsum) / std::max(local_wsum2, kSigmaClipEpsVar);
+                const double denom =
+                    local_wsum - local_wsum2 / std::max(local_wsum, kSigmaClipEpsVar);
+                if (!(n_eff > 2.0 + kSigmaClipEpsNeff) ||
+                    !(denom > kSigmaClipEpsVar)) {
+                    break;
+                }
+                const double sd =
+                    (var > 0.0 && denom > 0.0) ? std::sqrt(var / denom) : 0.0;
+                if (!(sd > 0.0)) {
+                    break;
+                }
+
+                const double lo = local_wmean - static_cast<double>(sigma_low) * sd;
+                const double hi = local_wmean + static_cast<double>(sigma_high) * sd;
+                int new_kept = 0;
+                std::vector<uint8_t> proposed_keep = keep;
+                for (int i = 0; i < n; ++i) {
+                    if (!keep[static_cast<size_t>(i)]) {
+                        continue;
+                    }
+                    const double v = static_cast<double>(values[static_cast<size_t>(i)]);
+                    if (v < lo || v > hi) {
+                        proposed_keep[static_cast<size_t>(i)] = 0u;
+                    } else {
+                        ++new_kept;
+                    }
+                }
+                if (new_kept < min_keep_here) {
+                    break;
+                }
+                keep.swap(proposed_keep);
+                if (new_kept == kept) {
+                    break;
+                }
+                kept = new_kept;
+            }
+        }
+
+        out.R.data()[idx] = reduce_channel(ptr_r, idx);
+        out.G.data()[idx] = reduce_channel(ptr_g, idx);
+        out.B.data()[idx] = reduce_channel(ptr_b, idx);
+    }
+
+    return out;
+}
+
 std::vector<float> make_hann_1d(int n) {
     std::vector<float> w;
     if (n <= 0)

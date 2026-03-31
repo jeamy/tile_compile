@@ -95,4 +95,13 @@ DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
                                int origin_x,
                                int origin_y);
 
+DebayerResult debayer_bilinear_region(const float* mosaic,
+                                       int mosaic_height,
+                                       int mosaic_width,
+                                       int region_x,
+                                       int region_y,
+                                       int region_width,
+                                       int region_height,
+                                       BayerPattern pattern);
+
 } // namespace tile_compile::image

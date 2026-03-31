@@ -2136,6 +2136,167 @@ void AccelerationOps::overlap_add(
   }
 }
 
+void AccelerationOps::overlap_add_preweighted(const Matrix2Df &weighted_tile,
+                                              const Tile &tile_bounds,
+                                              Matrix2Df &accum,
+                                              Matrix2Df &weight_sum,
+                                              const Matrix2Df *weight_mask,
+                                              bool accumulate_weight) const {
+  if (weighted_tile.rows() != tile_bounds.height ||
+      weighted_tile.cols() != tile_bounds.width) {
+    return;
+  }
+
+  const int x0 = std::max(0, tile_bounds.x);
+  const int y0 = std::max(0, tile_bounds.y);
+  const int clip_w = std::min<int>(weighted_tile.cols(), accum.cols() - x0);
+  const int clip_h = std::min<int>(weighted_tile.rows(), accum.rows() - y0);
+  if (clip_w <= 0 || clip_h <= 0) {
+    return;
+  }
+
+  bool has_any = false;
+  for (int yy = 0; yy < clip_h && !has_any; ++yy) {
+    const float *row = weighted_tile.data() +
+                       static_cast<size_t>(yy) * static_cast<size_t>(weighted_tile.cols());
+    for (int xx = 0; xx < clip_w; ++xx) {
+      if (std::isfinite(row[xx]) && row[xx] != 0.0f) {
+        has_any = true;
+        break;
+      }
+    }
+  }
+  if (!has_any) {
+    return;
+  }
+
+  const Matrix2Df clipped_weighted =
+      weighted_tile.block(0, 0, clip_h, clip_w);
+  Matrix2Df clipped_weight_mask;
+  const bool has_weight_mask =
+      accumulate_weight && weight_mask != nullptr &&
+      weight_mask->rows() == weighted_tile.rows() &&
+      weight_mask->cols() == weighted_tile.cols();
+  if (has_weight_mask) {
+    clipped_weight_mask = weight_mask->block(0, 0, clip_h, clip_w);
+  }
+
+#if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
+  if (selection_.selected == AccelerationBackend::opencv_cuda &&
+      selection_.phase == AccelerationPhase::tile_reconstruction) {
+    auto ensure_state = [&](Matrix2Df &host_matrix)
+        -> std::shared_ptr<OverlapAddState> {
+      auto &state = overlap_add_states_[&host_matrix];
+      if (!state) {
+        state = std::make_shared<OverlapAddState>();
+      }
+      if (host_matrix.rows() <= 0 || host_matrix.cols() <= 0) {
+        return state;
+      }
+      if (state->rows != host_matrix.rows() || state->cols != host_matrix.cols() ||
+          state->gpu_mat.empty()) {
+        state->rows = static_cast<int>(host_matrix.rows());
+        state->cols = static_cast<int>(host_matrix.cols());
+        cv::Mat host_view(state->rows, state->cols, CV_32F,
+                          host_matrix.data());
+        state->gpu_mat.upload(host_view);
+      }
+      return state;
+    };
+
+    auto accum_state = ensure_state(accum);
+    if (!accum_state || accum_state->gpu_mat.empty()) {
+      return;
+    }
+    const cv::Rect roi(x0, y0, clip_w, clip_h);
+    cv::cuda::GpuMat accum_roi(accum_state->gpu_mat, roi);
+    cv::Mat weighted_tile_host(clip_h, clip_w, CV_32F,
+                               const_cast<float *>(clipped_weighted.data()));
+    cv::cuda::GpuMat weighted_tile_gpu;
+    weighted_tile_gpu.upload(weighted_tile_host);
+    cv::cuda::add(accum_roi, weighted_tile_gpu, accum_roi);
+
+    if (has_weight_mask) {
+      auto weight_state = ensure_state(weight_sum);
+      if (weight_state && !weight_state->gpu_mat.empty()) {
+        cv::cuda::GpuMat weight_roi(weight_state->gpu_mat, roi);
+        cv::Mat weight_mask_host(clip_h, clip_w, CV_32F,
+                                 const_cast<float *>(clipped_weight_mask.data()));
+        cv::cuda::GpuMat weight_mask_gpu;
+        weight_mask_gpu.upload(weight_mask_host);
+        cv::cuda::add(weight_roi, weight_mask_gpu, weight_roi);
+      }
+    }
+    return;
+  }
+#endif
+
+#if TILE_COMPILE_HAS_OPENCV_OPENCL
+  if (selection_.selected == AccelerationBackend::opencv_opencl &&
+      selection_.phase == AccelerationPhase::tile_reconstruction) {
+    auto ensure_state = [&](Matrix2Df &host_matrix)
+        -> std::shared_ptr<OverlapAddState> {
+      auto &state = overlap_add_states_[&host_matrix];
+      if (!state) {
+        state = std::make_shared<OverlapAddState>();
+      }
+      if (host_matrix.rows() <= 0 || host_matrix.cols() <= 0) {
+        return state;
+      }
+      if (state->rows != host_matrix.rows() || state->cols != host_matrix.cols() ||
+          state->u_mat.empty()) {
+        state->rows = static_cast<int>(host_matrix.rows());
+        state->cols = static_cast<int>(host_matrix.cols());
+        cv::Mat host_view(state->rows, state->cols, CV_32F,
+                          host_matrix.data());
+        host_view.copyTo(state->u_mat);
+      }
+      return state;
+    };
+
+    auto accum_state = ensure_state(accum);
+    if (!accum_state || accum_state->u_mat.empty()) {
+      return;
+    }
+    const cv::Rect roi(x0, y0, clip_w, clip_h);
+    cv::UMat accum_roi = accum_state->u_mat(roi);
+    cv::Mat weighted_tile_host(clip_h, clip_w, CV_32F,
+                               const_cast<float *>(clipped_weighted.data()));
+    thread_local cv::UMat weighted_tile_gpu;
+    if (weighted_tile_gpu.rows != clip_h || weighted_tile_gpu.cols != clip_w ||
+        weighted_tile_gpu.type() != CV_32F) {
+      weighted_tile_gpu.create(clip_h, clip_w, CV_32F);
+    }
+    weighted_tile_host.copyTo(weighted_tile_gpu);
+    cv::add(accum_roi, weighted_tile_gpu, accum_roi);
+
+    if (has_weight_mask) {
+      auto weight_state = ensure_state(weight_sum);
+      if (weight_state && !weight_state->u_mat.empty()) {
+        cv::UMat weight_roi = weight_state->u_mat(roi);
+        cv::Mat weight_mask_host(clip_h, clip_w, CV_32F,
+                                 const_cast<float *>(clipped_weight_mask.data()));
+        thread_local cv::UMat weight_mask_gpu;
+        if (weight_mask_gpu.rows != clip_h || weight_mask_gpu.cols != clip_w ||
+            weight_mask_gpu.type() != CV_32F) {
+          weight_mask_gpu.create(clip_h, clip_w, CV_32F);
+        }
+        weight_mask_host.copyTo(weight_mask_gpu);
+        cv::add(weight_roi, weight_mask_gpu, weight_roi);
+      }
+    }
+    return;
+  }
+#endif
+
+  accum.block(y0, x0, clip_h, clip_w).array() +=
+      clipped_weighted.array();
+  if (has_weight_mask) {
+    weight_sum.block(y0, x0, clip_h, clip_w).array() +=
+        clipped_weight_mask.array();
+  }
+}
+
 bool AccelerationOps::normalize_overlap_accum(Matrix2Df &accum,
                                               Matrix2Df &weight_sum,
                                               float eps_weight,
