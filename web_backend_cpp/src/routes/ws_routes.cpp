@@ -128,17 +128,21 @@ struct RunWsContext {
     size_t cursor{0};
     std::string last_terminal_state;
     std::string last_queue_fingerprint;
+    std::string last_status_fingerprint;
+    std::thread worker;
 };
 
 struct JobWsContext {
     std::shared_ptr<AppState> state;
     std::string job_id;
     std::atomic<bool> stop{false};
+    std::thread worker;
 };
 
 struct SystemWsContext {
     std::shared_ptr<AppState> state;
     std::atomic<bool> stop{false};
+    std::thread worker;
 };
 
 std::string last_path_component(const std::string& path) {
@@ -295,8 +299,13 @@ std::optional<json> pending_run_status_event(const std::shared_ptr<AppState>& st
     };
 }
 
-void send_json(crow::websocket::connection& conn, const json& j) {
-    conn.send_text(j.dump());
+bool send_json(crow::websocket::connection& conn, const json& j) {
+    try {
+        conn.send_text(j.dump());
+        return true;
+    } catch (...) {
+        return false;
+    }
 }
 
 void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsContext>& ctx) {
@@ -313,9 +322,12 @@ void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsCo
                     if (line_no <= ctx->cursor) continue;
                     if (line.empty()) continue;
                     try {
-                        send_json(conn, normalize_event(json::parse(line), ctx->run_id));
+                        if (!send_json(conn, normalize_event(json::parse(line), ctx->run_id))) {
+                            ctx->stop.store(true);
+                            break;
+                        }
                     } catch (...) {
-                        send_json(conn, {
+                        if (!send_json(conn, {
                             {"type", "log_line"},
                             {"run_id", ctx->run_id},
                             {"phase", nullptr},
@@ -323,37 +335,59 @@ void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsCo
                             {"pct", nullptr},
                             {"ts", utc_now_iso()},
                             {"payload", {{"message", line}, {"raw", line}}}
-                        });
+                        })) {
+                            ctx->stop.store(true);
+                            break;
+                        }
                     }
                     ctx->cursor = line_no;
                 }
             }
+            if (ctx->stop.load()) break;
 
             const auto queue_event = queue_event_for_run(*ctx->state, ctx->run_id);
             if (!queue_event.is_null()) {
                 const std::string fingerprint = queue_event.dump();
                 if (fingerprint != ctx->last_queue_fingerprint) {
-                    send_json(conn, queue_event);
+                    if (!send_json(conn, queue_event)) {
+                        ctx->stop.store(true);
+                        break;
+                    }
                     ctx->last_queue_fingerprint = fingerprint;
                 }
             }
 
             auto status = read_run_status(run_dir);
-            apply_job_state_to_run_status(status, latest_run_job(ctx->state->job_store, ctx->run_id));
+            const auto job = latest_run_job(ctx->state->job_store, ctx->run_id);
+            apply_job_state_to_run_status(status, job);
+            apply_runtime_liveness_to_run_status(status, job, ctx->state->runtime.runner_exe, ctx->run_id, run_dir.string());
             const std::string state = status.value("status", std::string("unknown"));
-            send_json(conn, {
-                {"type", "run_status"},
-                {"run_id", ctx->run_id},
+            const json status_fingerprint_json = {
                 {"state", state},
                 {"phase", status.contains("current_phase") ? status["current_phase"] : json(nullptr)},
                 {"pct", to_pct(status)},
-                {"ts", utc_now_iso()},
                 {"payload", status}
-            });
+            };
+            const std::string status_fingerprint = status_fingerprint_json.dump();
+            if (status_fingerprint != ctx->last_status_fingerprint) {
+                if (!send_json(conn, {
+                    {"type", "run_status"},
+                    {"run_id", ctx->run_id},
+                    {"state", state},
+                    {"phase", status.contains("current_phase") ? status["current_phase"] : json(nullptr)},
+                    {"pct", to_pct(status)},
+                    {"ts", utc_now_iso()},
+                    {"payload", status}
+                })) {
+                    ctx->stop.store(true);
+                    break;
+                }
+                ctx->last_status_fingerprint = status_fingerprint;
+            }
 
             if ((state == "completed" || state == "failed" || state == "cancelled" || state == "aborted") &&
                 ctx->last_terminal_state != state) {
-                send_json(conn, {
+                if (!send_json(conn, {
                     {"type", "run_end"},
                     {"run_id", ctx->run_id},
                     {"status", state == "completed" ? "ok" : "error"},
@@ -364,19 +398,28 @@ void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsCo
                         {"current_phase", status.contains("current_phase") ? status["current_phase"] : json(nullptr)},
                         {"status", state}
                     }}
-                });
+                })) {
+                    ctx->stop.store(true);
+                    break;
+                }
                 ctx->last_terminal_state = state;
             }
         } catch (const std::exception& e) {
             if (auto pending = pending_run_status_event(ctx->state, ctx->run_id)) {
-                send_json(conn, *pending);
+                if (!send_json(conn, *pending)) {
+                    ctx->stop.store(true);
+                    break;
+                }
             } else {
-                send_json(conn, {
+                if (!send_json(conn, {
                     {"type", "run_stream_error"},
                     {"run_id", ctx->run_id},
                     {"ts", utc_now_iso()},
                     {"payload", {{"message", e.what()}}}
-                });
+                })) {
+                    ctx->stop.store(true);
+                    break;
+                }
             }
         }
         for (int i = 0; i < 10 && !ctx->stop.load(); ++i) {
@@ -397,7 +440,10 @@ void stream_job(crow::websocket::connection& conn, const std::shared_ptr<JobWsCo
             {"ts", utc_now_iso()},
             {"data", job ? job->data : json::object()}
         };
-        send_json(conn, ev);
+        if (!send_json(conn, ev)) {
+            ctx->stop.store(true);
+            break;
+        }
         for (int i = 0; i < 10 && !ctx->stop.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
@@ -406,7 +452,7 @@ void stream_job(crow::websocket::connection& conn, const std::shared_ptr<JobWsCo
 
 void stream_system(crow::websocket::connection& conn, const std::shared_ptr<SystemWsContext>& ctx) {
     while (!ctx->stop.load()) {
-        send_json(conn, {
+        if (!send_json(conn, {
             {"type", "system_heartbeat"},
             {"ts", utc_now_iso()},
             {"status", "ok"},
@@ -414,7 +460,10 @@ void stream_system(crow::websocket::connection& conn, const std::shared_ptr<Syst
                 {"cli", ctx->state->runtime.cli_exe},
                 {"runner", ctx->state->runtime.runner_exe}
             }}
-        });
+        })) {
+            ctx->stop.store(true);
+            break;
+        }
         for (int i = 0; i < 50 && !ctx->stop.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
@@ -433,6 +482,13 @@ void destroy_ctx(crow::websocket::connection& conn) {
     auto holder = static_cast<std::shared_ptr<T>*>(conn.userdata());
     if (!holder) return;
     (*holder)->stop.store(true);
+    if ((*holder)->worker.joinable()) {
+        if ((*holder)->worker.get_id() == std::this_thread::get_id()) {
+            (*holder)->worker.detach();
+        } else {
+            (*holder)->worker.join();
+        }
+    }
     delete holder;
     conn.userdata(nullptr);
 }
@@ -446,7 +502,7 @@ void register_ws_routes(CrowApp& app,
     .onopen([](crow::websocket::connection& conn) {
         auto ctx = take_ctx<RunWsContext>(conn);
         if (!ctx) return;
-        std::thread([&conn, ctx]() { stream_run(conn, ctx); }).detach();
+        ctx->worker = std::thread([&conn, ctx]() { stream_run(conn, ctx); });
     })
     .onmessage([](crow::websocket::connection&, const std::string&, bool) {})
     .onclose([](crow::websocket::connection& conn, const std::string&) {
@@ -462,7 +518,7 @@ void register_ws_routes(CrowApp& app,
     .onopen([](crow::websocket::connection& conn) {
         auto ctx = take_ctx<JobWsContext>(conn);
         if (!ctx) return;
-        std::thread([&conn, ctx]() { stream_job(conn, ctx); }).detach();
+        ctx->worker = std::thread([&conn, ctx]() { stream_job(conn, ctx); });
     })
     .onmessage([](crow::websocket::connection&, const std::string&, bool) {})
     .onclose([](crow::websocket::connection& conn, const std::string&) {
@@ -478,7 +534,7 @@ void register_ws_routes(CrowApp& app,
     .onopen([](crow::websocket::connection& conn) {
         auto ctx = take_ctx<SystemWsContext>(conn);
         if (!ctx) return;
-        std::thread([&conn, ctx]() { stream_system(conn, ctx); }).detach();
+        ctx->worker = std::thread([&conn, ctx]() { stream_system(conn, ctx); });
     })
     .onmessage([](crow::websocket::connection&, const std::string&, bool) {})
     .onclose([](crow::websocket::connection& conn, const std::string&) {

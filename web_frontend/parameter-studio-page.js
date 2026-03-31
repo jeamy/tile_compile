@@ -66,7 +66,8 @@
     log_level: "SYSTEM",
   };
 
-  const categoryButtons = Array.from(document.querySelectorAll("#parameter-category-list button[data-category]"));
+  const categoryListEl = document.getElementById("parameter-category-list");
+  let categoryButtons = Array.from(document.querySelectorAll("#parameter-category-list button[data-category]"));
   const parameterGroups = Array.from(document.querySelectorAll(".ps-parameter-group"));
   const editorGroup = document.getElementById("parameter-full-editor-group");
   const editorMetaEl = document.getElementById("parameter-editor-meta");
@@ -80,8 +81,25 @@
   const validSchemaPaths = new Set();
   const staticRows = Array.from(document.querySelectorAll(".ps-section.ps-parameter-group .ps-row"));
   let localeMessages = {};
-  let activeCategory = "registration";
+  let schemaCategoryOrder = [];
+  let activeCategory = "all";
   let activeExplainPath = "registration.star_topk";
+
+  function refreshCategoryButtons() {
+    categoryButtons = Array.from(document.querySelectorAll("#parameter-category-list button[data-category]"));
+    return categoryButtons;
+  }
+
+  function humanizeCategory(category) {
+    const normalized = String(category || "").trim();
+    if (!normalized) return "";
+    if (normalized === "all") return textFor("page.parameter_studio.category.all", "All");
+    return normalized
+      .split("_")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
 
   function persistCategory(category) {
     const value = String(category || "").trim();
@@ -112,6 +130,10 @@
     return localeMessages[key] || fallback;
   }
 
+  function isGermanLocale() {
+    return getLocale() !== "en";
+  }
+
   const scenarioNames = {
     altaz: () => textFor("page.parameter_studio.scenario.altaz", "Alt/Az"),
     rotation: () => textFor("page.parameter_studio.scenario.rotation", "Starke Rotation"),
@@ -121,11 +143,13 @@
   };
 
   function categoryLabel(category) {
+    refreshCategoryButtons();
     const button = categoryButtons.find((item) => item.dataset.category === category);
-    return String(button?.textContent || category || "").trim();
+    return String(button?.textContent || humanizeCategory(category) || category || "").trim();
   }
 
   function orderedCategories(entries) {
+    refreshCategoryButtons();
     const fromButtons = categoryButtons
       .filter((button) => !button.hidden)
       .map((button) => String(button.dataset.category || "").trim())
@@ -133,8 +157,9 @@
     const entryCategories = Array.from(
       new Set(entries.map((entry) => String(entry.category || "").trim()).filter(Boolean)),
     );
+    const preferred = schemaCategoryOrder.filter((category) => category && category !== "all");
     const seen = new Set();
-    return [...fromButtons, ...entryCategories].filter((category) => {
+    return [...fromButtons, ...preferred, ...entryCategories].filter((category) => {
       if (seen.has(category)) return false;
       seen.add(category);
       return true;
@@ -239,6 +264,43 @@
       .trim();
   }
 
+  function looksGermanText(value) {
+    const text = normalizeExplainText(value).toLowerCase();
+    if (!text) return false;
+    if (/[äöüß]/.test(text)) return true;
+    return /\b(und|oder|fuer|für|mit|ohne|bei|nur|mehr|wenig|wert|werte|bereich|hintergrund|sterne|aktivieren|deaktivieren|schwelle|mindest|maximale|minimale|anzahl|pfad|bild|stark|robust|feld|zulaessig|zulässig|empfohlen|bearbeiten|erklaer|erklär)\b/.test(text);
+  }
+
+  function firstNonEmpty(values) {
+    return values.map((value) => normalizeExplainText(value)).find(Boolean) || "";
+  }
+
+  function chooseLocalizedExplainText({ schemaDescription, katalogShortExplanation, refDePurpose, refEnPurpose, editorDescription }) {
+    const schemaText = normalizeExplainText(schemaDescription);
+    const katalogText = normalizeExplainText(katalogShortExplanation);
+    const refDeText = normalizeExplainText(refDePurpose);
+    const refEnText = normalizeExplainText(refEnPurpose);
+    const editorText = normalizeExplainText(editorDescription);
+    if (isGermanLocale()) {
+      return firstNonEmpty([
+        katalogText,
+        editorText,
+        refDeText,
+        schemaText,
+        refEnText,
+      ]);
+    }
+    return firstNonEmpty([
+      schemaText,
+      refEnText,
+      looksGermanText(katalogText) ? "" : katalogText,
+      looksGermanText(editorText) ? "" : editorText,
+      refDeText,
+      editorText,
+      katalogText,
+    ]);
+  }
+
   function sameExplainText(a, b) {
     return normalizeExplainText(a).toLowerCase() === normalizeExplainText(b).toLowerCase();
   }
@@ -310,6 +372,142 @@
     });
     flush();
     return map;
+  }
+
+  function splitTopLevel(text, delimiter = ",") {
+    const parts = [];
+    let current = "";
+    let depthCurly = 0;
+    let depthSquare = 0;
+    let inQuote = false;
+    let quoteChar = "";
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      const prev = i > 0 ? text[i - 1] : "";
+      if ((ch === '"' || ch === "'") && prev !== "\\") {
+        if (!inQuote) {
+          inQuote = true;
+          quoteChar = ch;
+        } else if (quoteChar === ch) {
+          inQuote = false;
+          quoteChar = "";
+        }
+        current += ch;
+        continue;
+      }
+      if (!inQuote) {
+        if (ch === "{") depthCurly += 1;
+        else if (ch === "}") depthCurly = Math.max(0, depthCurly - 1);
+        else if (ch === "[") depthSquare += 1;
+        else if (ch === "]") depthSquare = Math.max(0, depthSquare - 1);
+        else if (ch === delimiter && depthCurly === 0 && depthSquare === 0) {
+          if (current.trim()) parts.push(current.trim());
+          current = "";
+          continue;
+        }
+      }
+      current += ch;
+    }
+    if (current.trim()) parts.push(current.trim());
+    return parts;
+  }
+
+  function splitKeyValueTopLevel(text) {
+    let depthCurly = 0;
+    let depthSquare = 0;
+    let inQuote = false;
+    let quoteChar = "";
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i];
+      const prev = i > 0 ? text[i - 1] : "";
+      if ((ch === '"' || ch === "'") && prev !== "\\") {
+        if (!inQuote) {
+          inQuote = true;
+          quoteChar = ch;
+        } else if (quoteChar === ch) {
+          inQuote = false;
+          quoteChar = "";
+        }
+        continue;
+      }
+      if (inQuote) continue;
+      if (ch === "{") depthCurly += 1;
+      else if (ch === "}") depthCurly = Math.max(0, depthCurly - 1);
+      else if (ch === "[") depthSquare += 1;
+      else if (ch === "]") depthSquare = Math.max(0, depthSquare - 1);
+      else if (ch === ":" && depthCurly === 0 && depthSquare === 0) {
+        return [text.slice(0, i).trim(), text.slice(i + 1).trim()];
+      }
+    }
+    return [text.trim(), ""];
+  }
+
+  function parseYamlScalar(rawValue) {
+    const trimmed = String(rawValue || "").trim();
+    if (!trimmed) return "";
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+      return trimmed.slice(1, -1);
+    }
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+    if (trimmed === "null") return null;
+    if (/^-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/.test(trimmed)) return Number(trimmed);
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      const inner = trimmed.slice(1, -1).trim();
+      if (!inner) return [];
+      return splitTopLevel(inner).map((part) => parseYamlScalar(part));
+    }
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      const inner = trimmed.slice(1, -1).trim();
+      const out = {};
+      if (!inner) return out;
+      splitTopLevel(inner).forEach((part) => {
+        const [key, value] = splitKeyValueTopLevel(part);
+        if (!key) return;
+        out[key] = parseYamlScalar(value);
+      });
+      return out;
+    }
+    return trimmed;
+  }
+
+  function parseYamlObject(lines, startIndex = 0, parentIndent = -1) {
+    const out = {};
+    let index = startIndex;
+    while (index < lines.length) {
+      const line = lines[index];
+      if (!line.trim() || /^\s*#/.test(line)) {
+        index += 1;
+        continue;
+      }
+      const indent = line.match(/^(\s*)/)[1].length;
+      if (indent <= parentIndent) break;
+      const match = line.match(/^\s*([A-Za-z0-9_]+):(?:\s*(.*))?$/);
+      if (!match) {
+        index += 1;
+        continue;
+      }
+      const key = match[1];
+      const rawRest = match[2] || "";
+      if (rawRest.trim()) {
+        out[key] = parseYamlScalar(rawRest);
+        index += 1;
+        continue;
+      }
+      const [child, nextIndex] = parseYamlObject(lines, index + 1, indent);
+      out[key] = child;
+      index = nextIndex;
+    }
+    return [out, index];
+  }
+
+  function parseYamlSchema(text) {
+    try {
+      const [parsed] = parseYamlObject(String(text || "").split(/\r?\n/), 0, -1);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
   }
 
   function flattenSchema(node, prefix = [], out = new Map()) {
@@ -387,7 +585,13 @@
   function buildExplainEntry(path, schemaEntry, katalogEntry, refDeEntry, refEnEntry, editorEntry) {
     const firstKey = topLevelKeyForPath(path);
     const range = computeRange({ ...(schemaEntry || {}), ...(editorEntry || {}) });
-    const description = editorEntry?.description || katalogEntry?.shortExplanation || schemaEntry?.description || refDeEntry?.purpose || refEnEntry?.purpose || "";
+    const description = chooseLocalizedExplainText({
+      schemaDescription: schemaEntry?.description,
+      katalogShortExplanation: katalogEntry?.shortExplanation,
+      refDePurpose: refDeEntry?.purpose,
+      refEnPurpose: refEnEntry?.purpose,
+      editorDescription: editorEntry?.description,
+    });
     const category = categoryForPath(path, editorEntry);
     return {
       path,
@@ -397,7 +601,13 @@
       defaultValue: editorEntry?.yaml_default ?? katalogEntry?.katalogDefault ?? "",
       range,
       description,
-      shortExplanation: katalogEntry?.shortExplanation || description,
+      shortExplanation: chooseLocalizedExplainText({
+        schemaDescription: schemaEntry?.description,
+        katalogShortExplanation: katalogEntry?.shortExplanation,
+        refDePurpose: refDeEntry?.purpose,
+        refEnPurpose: refEnEntry?.purpose,
+        editorDescription: editorEntry?.description,
+      }) || description,
       guiTarget: katalogEntry?.guiTarget || category,
       deprecated: Boolean(schemaEntry?.deprecated || editorEntry?.deprecated),
       type: editorEntry?.type || schemaEntry?.type || katalogEntry?.katalogType || "",
@@ -431,19 +641,22 @@
   }
 
   async function buildExplainIndex() {
-    const [katalogText, schemaJson, defaultsJson, refDeText, refEnText] = await Promise.all([
+    const [katalogText, apiSchemaJson, localSchemaJson, localSchemaYamlText, defaultsJson, refDeText, refEnText] = await Promise.all([
       fetchText("../doc/gui2/parameter_katalog.md")
         .catch(() => fetchText("../doc/gui2/attic/parameter_katalog.md"))
         .catch(() => ""),
-      fetchJson("../api/config/schema")
-        .catch(() => fetchJson("../tile_compile_cpp/tile_compile.schema.json"))
-        .catch(() => ({})),
+      fetchJson("../api/config/schema").catch(() => ({})),
+      fetchJson("../tile_compile_cpp/tile_compile.schema.json").catch(() => ({})),
+      fetchText("../tile_compile_cpp/tile_compile.schema.yaml").catch(() => ""),
       fetchJson("../api/config/defaults").catch(() => ({ config: {} })),
       fetchText("../doc/v3/configuration_reference.md").catch(() => ""),
       fetchText("../doc/v3/configuration_reference_en.md").catch(() => ""),
     ]);
     const katalogMap = parseParameterKatalog(katalogText);
-    const schemaMap = flattenSchema(schemaJson);
+    const apiSchemaMap = flattenSchema(apiSchemaJson);
+    const localSchemaMap = flattenSchema(localSchemaJson);
+    const yamlSchemaMap = flattenSchema(parseYamlSchema(localSchemaYamlText));
+    const schemaMap = new Map([...apiSchemaMap, ...localSchemaMap, ...yamlSchemaMap]);
     const defaultsMap = flattenConfigValues(defaultsJson?.config || {});
     const refDeMap = parseReferenceMarkdown(refDeText);
     const refEnMap = parseReferenceMarkdown(refEnText);
@@ -455,26 +668,31 @@
 
     explainIndex.clear();
     validSchemaPaths.clear();
-    paramEditorIndex = Array.from(schemaMap.entries())
-      .map(([path, schemaEntry]) => {
+    const allPaths = Array.from(schemaMap.keys());
+    paramEditorIndex = allPaths
+      .map((path) => {
+        const schemaEntry = schemaMap.get(path) || {};
         validSchemaPaths.add(path);
         const legacyEntry = legacyByPath.get(path) || {};
         return {
           path,
-          category: categoryForPath(path, legacyEntry),
-          source: legacyEntry?.source || "schema",
-          type: legacyEntry?.type || schemaEntry?.type || "",
-          enum: legacyEntry?.enum || schemaEntry?.enum || [],
-          minimum: legacyEntry?.minimum ?? schemaEntry?.minimum,
-          maximum: legacyEntry?.maximum ?? schemaEntry?.maximum,
-          exclusiveMinimum: legacyEntry?.exclusiveMinimum ?? schemaEntry?.exclusiveMinimum,
-          exclusiveMaximum: legacyEntry?.exclusiveMaximum ?? schemaEntry?.exclusiveMaximum,
-          description: legacyEntry?.description || schemaEntry?.description || "",
-          deprecated: Boolean(legacyEntry?.deprecated || schemaEntry?.deprecated),
+          category: categoryForPath(path),
+          source: "schema",
+          type: schemaEntry?.type || legacyEntry?.type || "",
+          enum: schemaEntry?.enum || legacyEntry?.enum || [],
+          minimum: schemaEntry?.minimum ?? legacyEntry?.minimum,
+          maximum: schemaEntry?.maximum ?? legacyEntry?.maximum,
+          exclusiveMinimum: schemaEntry?.exclusiveMinimum ?? legacyEntry?.exclusiveMinimum,
+          exclusiveMaximum: schemaEntry?.exclusiveMaximum ?? legacyEntry?.exclusiveMaximum,
+          description: schemaEntry?.description || legacyEntry?.description || "",
+          deprecated: Boolean(schemaEntry?.deprecated || legacyEntry?.deprecated),
           yaml_default: defaultsMap.has(path) ? defaultsMap.get(path) : legacyEntry?.yaml_default,
         };
       })
       .sort((a, b) => String(a.path || "").localeCompare(String(b.path || "")));
+    schemaCategoryOrder = Array.from(
+      new Set(allPaths.map((path) => categoryForPath(path)).filter(Boolean)),
+    );
 
     paramEditorIndex.forEach((editorEntry) => {
       const path = String(editorEntry.path || "").trim();
@@ -494,6 +712,7 @@
   }
 
   function syncStaticGroupsToSchema() {
+    refreshCategoryButtons();
     parameterGroups.forEach((group) => {
       if (group === editorGroup) return;
       const rows = Array.from(group.querySelectorAll(".ps-row"));
@@ -531,6 +750,38 @@
     }
   }
 
+  function syncCategoryButtonsToSchema() {
+    if (!categoryListEl) return;
+    const existing = new Map(
+      refreshCategoryButtons().map((button) => [String(button.dataset.category || "").trim(), button]),
+    );
+    schemaCategoryOrder.forEach((category) => {
+      const normalized = String(category || "").trim();
+      if (!normalized || normalized === "all" || existing.has(normalized)) return;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.category = normalized;
+      button.dataset.control = `parameter.category.${normalized}`;
+      button.dataset.tooltip = `${humanizeCategory(normalized)} ${textFor(
+        "page.parameter_studio.category.tooltip_suffix",
+        isGermanLocale() ? "Parameter bearbeiten." : "Edit parameters.",
+      )}`;
+      button.textContent = humanizeCategory(normalized);
+      categoryListEl.appendChild(button);
+    });
+    refreshCategoryButtons();
+  }
+
+  function bindCategoryNavigation() {
+    if (!categoryListEl || categoryListEl.dataset.bound === "1") return;
+    categoryListEl.dataset.bound = "1";
+    categoryListEl.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-category]");
+      if (!button) return;
+      setCategory(button.dataset.category || "all");
+    });
+  }
+
   function setExplainField(id, value) {
     const el = document.getElementById(id);
     if (el) el.textContent = formatValue(value);
@@ -563,9 +814,49 @@
     setExplainField("parameter-explain-target", entry.guiTarget || "-");
   }
 
+  function localizeCategoryButtons() {
+    refreshCategoryButtons().forEach((button) => {
+      const category = String(button.dataset.category || "").trim();
+      if (!category) return;
+      if (category === "all") button.textContent = humanizeCategory(category);
+      const tooltip = `${humanizeCategory(category) || String(button.textContent || "").trim()} ${textFor(
+        "page.parameter_studio.category.tooltip_suffix",
+        isGermanLocale() ? "Parameter bearbeiten." : "Edit parameters.",
+      )}`.trim();
+      button.dataset.tooltip = tooltip;
+      button.setAttribute("title", tooltip);
+    });
+  }
+
+  function localizeStaticParameterRows() {
+    staticRows.forEach((row) => {
+      const path = resolvePathFromElement(row) || String(row.querySelector("label")?.textContent || "").trim();
+      if (!path || !validSchemaPaths.has(path)) return;
+      const entry = explainIndex.get(path) || {
+        path,
+        shortExplanation: "",
+        description: "",
+      };
+      const tooltip = tooltipForEntry(entry, "");
+      if (tooltip && tooltip !== "-") {
+        row.setAttribute("title", tooltip);
+        row.querySelectorAll("label, input, select, textarea").forEach((el) => {
+          el.setAttribute("title", tooltip);
+        });
+      }
+      const hintEl = row.querySelector(".ps-hint");
+      if (hintEl) {
+        const shortHelp = shortHelpForPath(path, entry.shortExplanation || entry.description || "");
+        if (shortHelp && shortHelp !== "-") hintEl.textContent = shortHelp;
+      }
+    });
+  }
+
   function resolvePathFromElement(el) {
     const dynamicRow = el.closest(".ps-dyn-row");
     if (dynamicRow?.dataset.path) return dynamicRow.dataset.path;
+    const staticRow = el.closest(".ps-row[data-path]:not(.ps-dyn-row)");
+    if (staticRow?.dataset.path) return staticRow.dataset.path;
     const controlPath = el.getAttribute("data-control");
     if (controlPath && PARAM_CONTROL_PATHS[controlPath]) return PARAM_CONTROL_PATHS[controlPath];
     if (el.id && PARAM_ID_PATHS[el.id]) return PARAM_ID_PATHS[el.id];
@@ -627,7 +918,14 @@
     const path = String(entry?.path || "").trim();
     const explainEntry = explainIndex.get(path) || entry || {};
     const localized = path ? localeMessages[`param.${path}.short_help`] : "";
-    return localized || explainEntry.shortExplanation || explainEntry.description || entry?.shortExplanation || entry?.description || "-";
+    if (localized) return localized;
+    if (explainEntry.shortExplanation) return explainEntry.shortExplanation;
+    if (explainEntry.description) return explainEntry.description;
+    if (isGermanLocale()) return entry?.shortExplanation || entry?.description || "-";
+    const englishSafeFallback = [entry?.shortExplanation, entry?.description]
+      .map((candidate) => normalizeExplainText(candidate))
+      .find((candidate) => candidate && !looksGermanText(candidate));
+    return englishSafeFallback || "-";
   }
 
   function inputControlHtml(entry, value, fieldId) {
@@ -708,6 +1006,7 @@
   }
 
   function setCategory(category) {
+    refreshCategoryButtons();
     const requested = categoryButtons.find((btn) => btn.dataset.category === category && !btn.hidden)
       ? category
       : (categoryButtons.find((btn) => (btn.dataset.category || "") !== "all" && !btn.hidden)?.dataset.category || "all");
@@ -836,7 +1135,11 @@
 
   async function refreshLocaleSensitiveUi() {
     await loadLocaleMessages();
+    await buildExplainIndex();
+    localizeCategoryButtons();
+    localizeStaticParameterRows();
     if (activeExplainPath) updateExplainPanel(activeExplainPath);
+    setCategory(activeCategory);
     renderSearchResults();
     renderSituationDeltas();
   }
@@ -844,10 +1147,11 @@
   async function init() {
     await loadLocaleMessages();
     await buildExplainIndex();
+    syncCategoryButtonsToSchema();
     syncStaticGroupsToSchema();
-    categoryButtons.forEach((btn) => {
-      btn.addEventListener("click", () => setCategory(btn.dataset.category || "all"));
-    });
+    localizeCategoryButtons();
+    localizeStaticParameterRows();
+    bindCategoryNavigation();
     document.querySelectorAll(".ps-chip-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         btn.classList.toggle("active");
@@ -872,6 +1176,7 @@
       window.setTimeout(() => void refreshLocaleSensitiveUi(), 0);
     });
     const storedCategory = String(localStorage.getItem(PARAMETER_UI_KEYS.category) || "").trim();
+    refreshCategoryButtons();
     if (storedCategory && categoryButtons.some((btn) => btn.dataset.category === storedCategory)) {
       activeCategory = storedCategory;
     }
@@ -900,6 +1205,7 @@
         explainIndex.set(path, buildExplainEntry(path, {}, {}, {}, {}, { path, category: path.split(".")[0], type: "string", source: "manual" }));
       }
     });
+    localizeStaticParameterRows();
   }
 
   if (document.readyState === "loading") {

@@ -523,11 +523,13 @@ if(BUILD_TESTS)
         add_executable(tests
             tests/test_main.cpp
             tests/test_acceleration_backend.cpp
+            tests/test_background_extraction.cpp
             tests/test_utils.cpp
             tests/test_fits.cpp
             tests/test_fits_hdu_selection.cpp
             tests/test_debayer.cpp
             tests/test_mode_gating.cpp
+            tests/test_registration_cascade.cpp
             tests/test_registration_outlier_utils.cpp
             tests/test_reconstruction_regression.cpp
             tests/test_stacking_quality_weighting.cpp

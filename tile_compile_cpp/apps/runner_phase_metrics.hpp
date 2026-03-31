@@ -21,10 +21,14 @@ struct PhaseMetricsContext {
   VectorXf global_weights;
   std::shared_ptr<RunnerFrameCache> frame_cache;
   float output_pedestal = 0.0f;
-  float output_bg_mono = 1.0f;
-  float output_bg_r = 1.0f;
-  float output_bg_g = 1.0f;
-  float output_bg_b = 1.0f;
+  float output_scale_mono = 1.0f;
+  float output_scale_r = 1.0f;
+  float output_scale_g = 1.0f;
+  float output_scale_b = 1.0f;
+  float output_bg_mono = 0.0f;
+  float output_bg_r = 0.0f;
+  float output_bg_g = 0.0f;
+  float output_bg_b = 0.0f;
 };
 
 bool run_phase_channel_split_normalization_global_metrics(

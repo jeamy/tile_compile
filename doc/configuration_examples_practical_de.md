@@ -1,0 +1,617 @@
+# Praktische Konfigurationsbeispiele für tile_compile
+
+**[🇬🇧 English Version](configuration_examples_practical_en.md)**
+
+Dieser Leitfaden ergänzt die Konfigurationsreferenz mit praktischen Beispielen, Grenzbereichen und Anwendungsfällen basierend auf der Methodik v3.3.
+
+## Änderungsstand (2026-03-30)
+
+- `bge.fit.robust_loss` und `bge.fit.huber_delta` sind wieder als Benutzerparameter verfügbar.
+- Neue BGE-Apply-Grenzwerte `bge.min_valid_sample_fraction_for_apply` und `bge.min_valid_samples_for_apply` dokumentiert.
+- PCC-Beispiele wurden auf den aktuellen Parametersatz (ohne `pcc.method`) aktualisiert.
+- Assumptions-Beispiele auf die aktiven Runtime-Felder (`frames_min`, `frames_reduced_threshold`, Reduced-Mode-Steuerung) abgeglichen.
+- `registration.enable_star_pair_fallback` ergänzt, um die optionale nicht-normative Star-Pair-Stufe zu steuern.
+- `bge.tile_weight_lambda_structure` auf den aktuellen Default `1.0` abgeglichen.
+- `stacking.common_overlap_required_fraction` und `stacking.tile_common_valid_min_fraction` mit der aktuellen strikten Default-Semantik `1.0 / 1.0` dokumentiert.
+- Das Basis-Snippet wurde auf das strikte `v3.3.9`-Profil aktualisiert.
+
+**Strict-v3.3.9-Basis-Snippet:**
+
+```yaml
+assumptions:
+  frames_min: 50
+  frames_reduced_threshold: 200
+
+registration:
+  engine: triangle_star_matching
+  enable_star_pair_fallback: false
+
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
+```
+
+---
+
+## Background Gradient Extraction (BGE) - NEU in v3.3
+
+**Wann aktivieren:**
+- Sichtbare Hintergrundgradienten (Lichtverschmutzung, Mondlicht)
+- PCC zeigt Farbverschiebungen über das Bildfeld
+- Städtische/vorstädtische Standorte
+
+**Empfohlene Konfiguration:**
+
+```yaml
+bge:
+  enabled: true
+  autotune:
+    enabled: false
+    strategy: conservative
+    max_evals: 24
+    holdout_fraction: 0.25
+    alpha_flatness: 0.25
+    beta_roughness: 0.10
+  tile_weight_lambda_structure: 1.0  # Aktueller Default: moderates Down-Weighting für strukturreiche Tiles
+  sample_quantile: 0.20  # Konservativ, resistent gegen schwache Objekte
+  min_valid_sample_fraction_for_apply: 0.30  # Kanal-Apply-Grenze (rel. Anteil)
+  min_valid_samples_for_apply: 96  # Kanal-Apply-Grenze (absolute Samples)
+  fit:
+    method: rbf  # Flexibel, empfohlen
+    robust_loss: huber  # huber | tukey
+    huber_delta: 1.5
+    rbf_phi: multiquadric  # Guter Kompromiss
+    rbf_mu_factor: 1.0  # Standard-Glättung
+```
+
+**Für starke Gradienten (z.B. Stadtrand):**
+
+```yaml
+bge:
+  enabled: true
+  sample_quantile: 0.15  # Noch konservativer
+  structure_thresh_percentile: 0.95  # Mehr Tiles ausschließen
+  min_valid_sample_fraction_for_apply: 0.30
+  min_valid_samples_for_apply: 96
+  fit:
+    method: rbf
+    robust_loss: tukey  # aggressivere Outlier-Daempfung
+    rbf_phi: multiquadric
+    rbf_mu_factor: 0.8  # Etwas weniger Glättung für Details
+```
+
+**Für großflächige diffuse Vordergrundobjekte (z.B. M31 / M42):**
+
+```yaml
+bge:
+  enabled: true
+  min_valid_sample_fraction_for_apply: 0.28  # Toleranter fuer dichte Nebel-/Sternfelder
+  min_valid_samples_for_apply: 96
+  fit:
+    method: modeled_mask_mesh  # Vordergrundbewusstes Mesh-Himmelsmodell
+```
+
+**Für schwache Gradienten (z.B. Mondlicht):**
+
+```yaml
+bge:
+  enabled: true
+  sample_quantile: 0.25  # Weniger konservativ
+  min_valid_sample_fraction_for_apply: 0.30
+  min_valid_samples_for_apply: 96
+  fit:
+    method: poly  # Einfacher für schwache Gradienten
+    polynomial_order: 2
+```
+
+**Wichtig:** BGE läuft **vor** PCC. Wenn BGE aktiviert ist, sollte PCC danach bessere Ergebnisse liefern.
+
+**PCC-v3.3.6-Optionen (empfohlen mit BGE):**
+
+```yaml
+pcc:
+  background_model: plane      # median | plane
+  max_condition_number: 3.0
+  max_residual_rms: 0.35
+  radii_mode: auto_fwhm        # fixed | auto_fwhm
+  aperture_fwhm_mult: 1.8
+  annulus_inner_fwhm_mult: 3.0
+  annulus_outer_fwhm_mult: 5.0
+  min_aperture_px: 4.0
+  apply_attenuation: false
+  chroma_strength: 1.0
+  k_max: 3.2
+```
+
+---
+
+## Gemeinsamer Overlap nach PREWARP (`stacking.common_overlap_*`)
+
+**Aktuelle sinnvolle Standardwerte:**
+
+```yaml
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
+```
+
+- `common_overlap_required_fraction: 1.0` erzwingt die strikte Schnittmenge aller nutzbaren Frames.
+- `tile_common_valid_min_fraction: 1.0` bedeutet: Ein Tile ist nur dann gueltig, wenn seine komplette Flaeche innerhalb von `COMMON_OVERLAP` liegt.
+- Die Tile-Quote wird ueber die volle Tile-Flaeche berechnet, nicht nur ueber den zufaellig im Canvas liegenden Rest.
+
+**Empfehlungen nach Setup:**
+
+- **Alt/Az mit Feldrotation:** `1.0 / 1.0` (empfohlen)
+- **EQ mit sehr stabiler Nachfuehrung:** `1.0 / 1.0` (empfohlen, wenn Randbias vermieden werden soll)
+- **Nur wenn bewusst mehr Randflaeche zugelassen werden soll:** z. B. `0.98 / 0.95` oder `0.95 / 0.90`
+
+**Wichtig:** Niedrigere Werte lassen wieder teilweise ueberdeckte Randpixel und Rand-Tiles in lokale Metriken, BGE/PCC und Hintergrundstatistiken einsickern.
+
+---
+
+## Sichtbare Kachelgrenzen diagnostizieren (Artefakte)
+
+Es gibt aktuell keinen dedizierten Seam-Korrektur-Parameterblock.
+
+Wenn sichtbare Kachelstruktur auftritt, prüfe nach dem Run `artifacts/tile_reconstruction.json`, insbesondere:
+
+- `tile_boundary_raw_pair_mean_abs_diff_p95`
+- `tile_boundary_normalized_pair_mean_abs_diff_p95`
+- `tile_boundary_pair_mean_abs_diff_p95`
+- `tile_boundary_post_background_delta_p95_abs`
+- `tile_boundary_post_snr_delta_p95_abs`
+- `tile_boundary_top_pairs`
+- `tile_norm_scale`
+
+Interpretation:
+
+- hohe `tile_boundary_raw_pair_mean_abs_diff_*`-Werte bedeuten, dass sich benachbarte Tiles schon vor der optionalen Tile-Normalisierung deutlich unterscheiden
+- wenn `tile_boundary_normalized_pair_mean_abs_diff_*` deutlich höher liegt als der Raw-Wert, verschärft die Tile-Normalisierung die Naht
+- hohe `tile_boundary_post_background_delta_*`-Werte deuten auf tileweisen Hintergrunddrift
+- hohe `tile_boundary_post_snr_delta_*`-Werte sprechen für divergierende Support-/Qualitätslage benachbarter Tiles
+- `tile_boundary_top_pairs` listet die problematischsten Nachbarpaare mit Tile-Indizes, Grid-Positionen, Valid-Counts, Fallback-Flags und Post-Metriken
+- über `tile_norm_scale` und `tile_norm_bg_*` an genau diesen Tile-Indizes lässt sich prüfen, ob die Normierung die Tile-Population auseinanderzieht
+
+Wenn die Kachelstruktur sichtbar ist und diese Boundary-Diagnostik ebenfalls hoch ausfällt, zuerst prüfen:
+
+- `tile.overlap_fraction`
+- `tile_denoise.*`
+- `stacking.output_stretch`
+- nachgelagerte Unterschiede aus `BGE` oder `PCC`
+
+---
+
+## Hotpixel / RGB-Einzelpixel-Artefakte (fixe Sensordefekte)
+
+Wenn im finalen Bild **isolierte rote/grüne/blaue Einzelpixel** bleiben, sind das meist **fixe Hot Pixel** (Sensorfehler), die in jedem Frame an der gleichen Position auftreten. Diese überleben Sigma-Clipping im Stack, weil sie nicht als Ausreißer über Frames hinweg erscheinen.
+
+**Empfehlung:** Hotpixel **pro Frame vor dem Stack** korrigieren.
+
+```yaml
+stacking:
+  per_frame_cosmetic_correction: true
+  per_frame_cosmetic_correction_sigma: 5.0
+```
+
+Optional kann zusätzlich eine sehr konservative Post-Stack-Kosmetik aktiv bleiben:
+
+```yaml
+stacking:
+  cosmetic_correction: true
+  cosmetic_correction_sigma: 10.0
+```
+
+---
+
+## Audit-Hinweis zu Legacy-Parametern
+
+Im Rahmen des Code-/Schema-Abgleichs wurden mehrere veraltete Beispielparameter aus diesem Leitfaden entfernt oder ersetzt.
+
+Nicht mehr aktive Legacy-Keys waren unter anderem:
+- `tile.size`, `tile.overlap`, `tile.min_valid_fraction`
+- `registration.method`, `registration.max_rotation_deg`, `registration.fallback_to_identity`, `registration.identity_correlation_threshold`, `registration.trail_endpoint_enabled`
+- `global_metrics.fwhm_percentile`, `global_metrics.fwhm_outlier_sigma`, `global_metrics.use_robust_background`
+- `local_metrics.sharpness_method`, `local_metrics.sharpness_kernel_size`, `local_metrics.sharpness_percentile`, `local_metrics.contrast_percentile`
+- der komplette alte Block `reconstruction.*`
+- `runtime.min_frames`, `runtime.allow_reduced_mode`, `runtime.max_memory_gb`, `runtime.use_disk_cache`
+- `data.mode`
+- `output.write_tile_weights`, `output.write_quality_maps`
+
+Die folgenden Praxisbeispiele verwenden nur noch aktuell aktive Parameter aus Code und Schema.
+
+---
+
+## Tile-Erzeugung (`tile.*`)
+
+Die Tile-Erzeugung ist im aktuellen Runner **adaptiv**. Statt eines festen `tile.size` werden die Tiles aus `tile.size_factor`, `tile.min_size`, `tile.max_divisor` und `tile.overlap_fraction` abgeleitet.
+
+**Kurze Brennweite / gutes Seeing:**
+```yaml
+tile:
+  size_factor: 24
+  min_size: 48
+  max_divisor: 6
+  overlap_fraction: 0.30
+```
+
+**Allround / Default-nah:**
+```yaml
+tile:
+  size_factor: 32
+  min_size: 64
+  max_divisor: 6
+  overlap_fraction: 0.25
+```
+
+**Lange Brennweite / grobe Strukturen / schlechtes Seeing:**
+```yaml
+tile:
+  size_factor: 40
+  min_size: 96
+  max_divisor: 5
+  overlap_fraction: 0.30
+```
+
+**Alt/Az mit striktem Randverhalten:**
+```yaml
+tile:
+  size_factor: 24
+  min_size: 48
+  max_divisor: 6
+  overlap_fraction: 0.30
+
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
+```
+
+---
+
+## Registrierung (`registration.*`)
+
+Der aktive Schlüssel ist `registration.engine`, nicht mehr `registration.method`.
+
+**Strikt / normnah:**
+```yaml
+registration:
+  engine: triangle_star_matching
+  enable_star_pair_fallback: false
+  allow_rotation: true
+```
+
+**Alt/Az / Feldrotation / schwierige Sterne:**
+```yaml
+registration:
+  engine: triangle_star_matching
+  allow_rotation: true
+  enable_star_pair_fallback: true
+  star_topk: 150
+  star_min_inliers: 4
+  star_inlier_tol_px: 4.0
+  star_dist_bin_px: 5.0
+  max_shift_px: 80
+  reject_outliers: true
+  reject_cc_min_abs: 0.25
+  reject_shift_px_min: 100.0
+  reject_shift_median_multiplier: 5.0
+  reject_scale_min: 0.92
+  reject_scale_max: 1.08
+```
+
+**Sternenarm / Nebel / wolkige Daten:**
+```yaml
+registration:
+  engine: robust_phase_ecc
+  allow_rotation: true
+  max_shift_px: 80
+  reject_outliers: true
+```
+
+**Gut nachgefuehrte EQ-Montierung:**
+```yaml
+registration:
+  engine: triangle_star_matching
+  allow_rotation: true
+  max_shift_px: 30
+```
+
+---
+
+## Globale Gewichtung (`global_metrics.*`)
+
+Die globale Gewichtung nutzt aktuell die drei Metrikgewichte `background`, `noise`, `gradient` sowie `adaptive_weights`, `clamp` und `weight_exponent_scale`.
+
+**Ausgewogen / Default-nah:**
+```yaml
+global_metrics:
+  adaptive_weights: true
+  weight_exponent_scale: 1.2
+  weights:
+    background: 0.40
+    noise: 0.35
+    gradient: 0.25
+  clamp: [-3.0, 3.0]
+```
+
+**Staerkere Trennung guter/schlechter Frames:**
+```yaml
+global_metrics:
+  adaptive_weights: true
+  weight_exponent_scale: 1.3
+  weights:
+    background: 0.40
+    noise: 0.35
+    gradient: 0.25
+  clamp: [-2.5, 2.5]
+```
+
+**Weichere Gewichtung bei homogener Session:**
+```yaml
+global_metrics:
+  adaptive_weights: false
+  weight_exponent_scale: 0.8
+```
+
+---
+
+## Lokale Gewichtung (`local_metrics.*`)
+
+Statt alter Schärfe-Kernel-/Percentile-Schalter sind aktuell die Exponent-Skala `k_local`, die Nachbarschafts-Normierung, die räumliche Regularisierung und die STAR-/STRUCTURE-Gewichte relevant.
+
+**Default-nah / robust:**
+```yaml
+local_metrics:
+  clamp: [-3.0, 3.0]
+  k_local: 1.0
+  neighborhood_normalization:
+    enabled: true
+    radius: 1
+    blend: 0.5
+  spatial_regularization:
+    enabled: true
+    lambda: 0.35
+    passes: 1
+```
+
+**Staerkere lokale Differenzierung:**
+```yaml
+local_metrics:
+  k_local: 1.5
+```
+
+**Weichere lokale Gewichtung:**
+```yaml
+local_metrics:
+  k_local: 0.7
+```
+
+**Sternfelder priorisieren:**
+```yaml
+local_metrics:
+  star_mode:
+    weights:
+      fwhm: 0.7
+      roundness: 0.2
+      contrast: 0.1
+```
+
+**Diffuse Struktur priorisieren:**
+```yaml
+local_metrics:
+  structure_mode:
+    metric_weight: 0.7
+    background_weight: 0.3
+```
+
+---
+
+## Frame-Anzahl und Modi (`assumptions.*`, `synthetic.*`, `runtime_limits.*`)
+
+Die Umschaltung erfolgt aktuell ueber `assumptions.frames_min` und `assumptions.frames_reduced_threshold`, nicht mehr ueber einen alten `runtime.min_frames`-Block.
+
+**Full Mode (N >= 200):**
+```yaml
+assumptions:
+  frames_min: 50
+  frames_reduced_threshold: 200
+  reduced_mode_skip_clustering: false
+
+synthetic:
+  weighting: tile_weighted
+  frames_min: 4
+  frames_max: 20
+  clustering:
+    mode: kmeans
+    cluster_count_range: [3, 12]
+```
+
+**Reduced Mode (50 <= N < 200):**
+```yaml
+assumptions:
+  frames_min: 50
+  frames_reduced_threshold: 200
+  reduced_mode_skip_clustering: true
+  reduced_mode_cluster_range: [5, 10]
+```
+
+**Emergency Mode (nur bewusst):**
+```yaml
+runtime_limits:
+  allow_emergency_mode: true
+
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
+  sigma_clip:
+    sigma_low: 2.5
+    sigma_high: 2.5
+    max_iters: 2
+```
+
+**Warnung:** `allow_emergency_mode` ist fuer Test-/Rettungslaeufe gedacht, nicht fuer normale Produktion.
+
+---
+
+## Kamera-spezifische Hinweise (`data.*`, `pcc.*`)
+
+Der aktive Farbmodus-Schluessel ist `data.color_mode`, nicht mehr `data.mode`.
+
+**OSC / Bayer-Kamera:**
+```yaml
+data:
+  color_mode: OSC
+  bayer_pattern: RGGB
+
+pcc:
+  enabled: true
+  source: auto
+  background_model: plane
+  radii_mode: auto_fwhm
+```
+
+**Mono:**
+```yaml
+data:
+  color_mode: MONO
+```
+
+---
+
+## Performance-Optimierung (`pipeline.*`, `runtime_limits.*`, `output.*`)
+
+**Schneller Debug-Lauf:**
+```yaml
+pipeline:
+  mode: test
+
+linearity:
+  max_frames: 4
+
+runtime_limits:
+  parallel_workers: 2
+  memory_budget: 256
+  acceleration_backend: cpu
+
+output:
+  write_registered_frames: false
+```
+
+**Produktion / hohe Qualitaet:**
+```yaml
+pipeline:
+  mode: production
+
+runtime_limits:
+  parallel_workers: 8
+  memory_budget: 2048
+  acceleration_backend: auto
+  hard_abort_hours: 6.0
+
+output:
+  write_registered_frames: true
+```
+
+**Speicher-limitiert:**
+```yaml
+runtime_limits:
+  parallel_workers: 2
+  memory_budget: 256
+  acceleration_backend: cpu
+
+output:
+  write_registered_frames: false
+```
+
+---
+
+## Zusammenfassung: Typische Setups
+
+### DWARF II / Seestar S50
+
+```yaml
+data:
+  color_mode: OSC
+  bayer_pattern: RGGB
+
+tile:
+  size_factor: 24
+  min_size: 48
+  max_divisor: 6
+  overlap_fraction: 0.30
+
+registration:
+  engine: triangle_star_matching
+  enable_star_pair_fallback: true
+  allow_rotation: true
+  max_shift_px: 80
+
+stacking:
+  common_overlap_required_fraction: 1.0
+  tile_common_valid_min_fraction: 1.0
+  per_frame_cosmetic_correction: true
+  per_frame_cosmetic_correction_sigma: 2.5
+
+pcc:
+  enabled: true
+  source: auto
+```
+
+### DSLR auf EQ-Montierung
+
+```yaml
+data:
+  color_mode: OSC
+  bayer_pattern: RGGB
+
+tile:
+  size_factor: 36
+  min_size: 96
+  max_divisor: 6
+  overlap_fraction: 0.35
+
+registration:
+  engine: triangle_star_matching
+  allow_rotation: true
+  max_shift_px: 40
+
+global_metrics:
+  adaptive_weights: false
+  weight_exponent_scale: 1.0
+
+pcc:
+  enabled: true
+```
+
+Fertige Profile im Repository:
+- `tile_compile_cpp/examples/ic434.example.yaml`
+- `tile_compile_cpp/examples/m31_background_gradient_balanced.example.yaml`
+
+### Mono auf grossem Teleskop
+
+```yaml
+data:
+  color_mode: MONO
+
+tile:
+  size_factor: 40
+  min_size: 96
+  max_divisor: 5
+  overlap_fraction: 0.30
+
+registration:
+  engine: triangle_star_matching
+  allow_rotation: true
+  max_shift_px: 20
+
+local_metrics:
+  k_local: 1.2
+  structure_mode:
+    metric_weight: 0.7
+    background_weight: 0.3
+```
+
+---
+
+Diese Beispiele basieren jetzt auf den aktiven Parametern von Code und Schema (`v3.3.9`-Stand) und sind enger an die gepflegten Repository-Profile angelehnt.
+
+Passen Sie die Werte an Ihre spezifische Hardware und Bedingungen an.

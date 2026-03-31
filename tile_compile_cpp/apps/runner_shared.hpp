@@ -7,7 +7,9 @@
 #include "tile_compile/image/background_extraction.hpp"
 
 #include <cstdint>
+#include <cmath>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -27,10 +29,77 @@ enum class WorkerParallelProfile {
   IoHeavy,
 };
 
+struct SyntheticWeightingDecision {
+  std::string requested_weighting = "global";
+  std::string effective_weighting = "global";
+  bool tile_seam_guard_triggered = false;
+  int boundary_pair_count = 0;
+  float boundary_pair_mean_abs_diff_p95 = 0.0f;
+  float boundary_pair_scale_ratio_deviation_p95 = 0.0f;
+  float boundary_post_background_delta_p95_abs = 0.0f;
+  float local_weight_mean_abs_delta_p95 = 0.0f;
+  float local_weight_correlation_p05 = 1.0f;
+};
+
 int compute_adaptive_worker_count(
     const config::Config &cfg, size_t task_count,
     const std::vector<std::filesystem::path> &frames,
     WorkerParallelProfile profile);
+
+double resolve_pcc_auto_fwhm_px(const Matrix2Df &R, const Matrix2Df &G,
+                                const Matrix2Df &B,
+                                bool have_fallback_fwhm = false,
+                                double fallback_fwhm_px = 0.0,
+                                std::string *source_out = nullptr);
+
+inline SyntheticWeightingDecision decide_synthetic_weighting(
+    const std::string &requested_weighting, int boundary_pair_count,
+    float boundary_pair_mean_abs_diff_p95,
+    float boundary_pair_scale_ratio_deviation_p95,
+    float boundary_post_background_delta_p95_abs,
+    float local_weight_mean_abs_delta_p95,
+    float local_weight_correlation_p05) {
+  SyntheticWeightingDecision out;
+  out.requested_weighting = requested_weighting;
+  out.effective_weighting = requested_weighting;
+  out.boundary_pair_count = boundary_pair_count;
+  out.boundary_pair_mean_abs_diff_p95 = boundary_pair_mean_abs_diff_p95;
+  out.boundary_pair_scale_ratio_deviation_p95 =
+      boundary_pair_scale_ratio_deviation_p95;
+  out.boundary_post_background_delta_p95_abs =
+      boundary_post_background_delta_p95_abs;
+  out.local_weight_mean_abs_delta_p95 = local_weight_mean_abs_delta_p95;
+  out.local_weight_correlation_p05 = local_weight_correlation_p05;
+
+  if (requested_weighting != "tile_weighted") {
+    return out;
+  }
+
+  constexpr int kMinObservedBoundaryPairs = 8;
+  // Guard only against clearly visible, severe seam regressions.
+  // Earlier thresholds were tight enough to reject historically good runs.
+  constexpr float kBoundaryMeanAbsDiffP95 = 0.25f;
+  constexpr float kBoundaryPostBackgroundDeltaP95 = 0.25f;
+
+  const bool enough_pairs = boundary_pair_count >= kMinObservedBoundaryPairs;
+  const bool severe_boundary_regression =
+      (std::isfinite(boundary_pair_mean_abs_diff_p95) &&
+       boundary_pair_mean_abs_diff_p95 > kBoundaryMeanAbsDiffP95);
+  const bool severe_background_step =
+      (std::isfinite(boundary_post_background_delta_p95_abs) &&
+       boundary_post_background_delta_p95_abs > kBoundaryPostBackgroundDeltaP95);
+
+  if (enough_pairs && severe_boundary_regression && severe_background_step) {
+    out.effective_weighting = "global";
+    out.tile_seam_guard_triggered = true;
+  }
+
+  return out;
+}
+
+inline float common_overlap_invalid_value() {
+  return std::numeric_limits<float>::quiet_NaN();
+}
 
 // Hot-path helper: applies COMMON_OVERLAP mask to a tile in-place.
 // Keeps behavior consistent across pipeline phases and avoids duplicate lambdas.
@@ -47,26 +116,31 @@ inline void apply_common_overlap_to_tile_inplace(
   const int tile_cols = static_cast<int>(tile.cols());
   const size_t mask_size = common_valid_mask.size();
   float *tile_data = tile.data();
+  const float invalid = common_overlap_invalid_value();
 
   for (int yy = 0; yy < t.height; ++yy) {
     const int gy = t.y + yy;
-    if (gy < 0 || gy >= common_mask_height)
+    const size_t tile_row_off =
+        static_cast<size_t>(yy) * static_cast<size_t>(tile_cols);
+    if (gy < 0 || gy >= common_mask_height) {
+      for (int xx = 0; xx < t.width; ++xx) {
+        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
+      }
       continue;
+    }
 
     const size_t row_off =
         static_cast<size_t>(gy) * static_cast<size_t>(common_mask_width);
-    const size_t tile_row_off =
-        static_cast<size_t>(yy) * static_cast<size_t>(tile_cols);
 
     for (int xx = 0; xx < t.width; ++xx) {
       const int gx = t.x + xx;
       if (gx < 0 || gx >= common_mask_width) {
-        tile_data[tile_row_off + static_cast<size_t>(xx)] = 0.0f;
+        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
         continue;
       }
       const size_t mask_idx = row_off + static_cast<size_t>(gx);
       if (mask_idx >= mask_size || common_valid_mask[mask_idx] == 0) {
-        tile_data[tile_row_off + static_cast<size_t>(xx)] = 0.0f;
+        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
       }
     }
   }
@@ -85,7 +159,8 @@ inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
   const int tile_cols = static_cast<int>(tile.cols());
   const size_t mask_size = common_valid_mask.size();
   float *tile_data = tile.data();
-  bool any_nonzero = false;
+  bool any_valid = false;
+  const float invalid = common_overlap_invalid_value();
 
   for (int yy = 0; yy < t.height; ++yy) {
     const int gy = t.y + yy;
@@ -94,7 +169,7 @@ inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
 
     if (gy < 0 || gy >= common_mask_height) {
       for (int xx = 0; xx < t.width; ++xx) {
-        tile_data[tile_row_off + static_cast<size_t>(xx)] = 0.0f;
+        tile_data[tile_row_off + static_cast<size_t>(xx)] = invalid;
       }
       continue;
     }
@@ -106,20 +181,20 @@ inline bool apply_common_overlap_to_tile_inplace_and_check_nonzero(
       const int gx = t.x + xx;
       float &v = tile_data[tile_row_off + static_cast<size_t>(xx)];
       if (gx < 0 || gx >= common_mask_width) {
-        v = 0.0f;
+        v = invalid;
         continue;
       }
       const size_t mask_idx = row_off + static_cast<size_t>(gx);
       if (mask_idx >= mask_size || common_valid_mask[mask_idx] == 0) {
-        v = 0.0f;
+        v = invalid;
         continue;
       }
-      if (v > 0.0f) {
-        any_nonzero = true;
+      if (std::isfinite(v)) {
+        any_valid = true;
       }
     }
   }
-  return any_nonzero;
+  return any_valid;
 }
 
 inline bool apply_common_overlap_to_frame_inplace_and_check_nonzero(
@@ -135,22 +210,23 @@ inline bool apply_common_overlap_to_frame_inplace_and_check_nonzero(
 
   const size_t mask_size = common_valid_mask.size();
   float *frame_data = frame.data();
-  bool any_nonzero = false;
+  bool any_valid = false;
+  const float invalid = common_overlap_invalid_value();
   for (int y = 0; y < common_mask_height; ++y) {
     const size_t row_off =
         static_cast<size_t>(y) * static_cast<size_t>(common_mask_width);
     for (int x = 0; x < common_mask_width; ++x) {
       const size_t idx = row_off + static_cast<size_t>(x);
       if (idx >= mask_size || common_valid_mask[idx] == 0) {
-        frame_data[idx] = 0.0f;
+        frame_data[idx] = invalid;
         continue;
       }
-      if (frame_data[idx] > 0.0f) {
-        any_nonzero = true;
+      if (std::isfinite(frame_data[idx])) {
+        any_valid = true;
       }
     }
   }
-  return any_nonzero;
+  return any_valid;
 }
 
 inline bool apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
@@ -174,21 +250,23 @@ inline bool apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
   float *r_data = r_frame.data();
   float *g_data = g_frame.data();
   float *b_data = b_frame.data();
-  bool any_nonzero = false;
+  bool any_valid = false;
+  const float invalid = common_overlap_invalid_value();
   const size_t total =
       static_cast<size_t>(common_mask_width) * static_cast<size_t>(common_mask_height);
   for (size_t idx = 0; idx < total; ++idx) {
     if (idx >= mask_size || common_valid_mask[idx] == 0) {
-      r_data[idx] = 0.0f;
-      g_data[idx] = 0.0f;
-      b_data[idx] = 0.0f;
+      r_data[idx] = invalid;
+      g_data[idx] = invalid;
+      b_data[idx] = invalid;
       continue;
     }
-    if (r_data[idx] > 0.0f || g_data[idx] > 0.0f || b_data[idx] > 0.0f) {
-      any_nonzero = true;
+    if (std::isfinite(r_data[idx]) || std::isfinite(g_data[idx]) ||
+        std::isfinite(b_data[idx])) {
+      any_valid = true;
     }
   }
-  return any_nonzero;
+  return any_valid;
 }
 
 inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
@@ -210,7 +288,8 @@ inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
   float *r_data = r_tile.data();
   float *g_data = g_tile.data();
   float *b_data = b_tile.data();
-  bool any_nonzero = false;
+  bool any_valid = false;
+  const float invalid = common_overlap_invalid_value();
 
   for (int yy = 0; yy < t.height; ++yy) {
     const int gy = t.y + yy;
@@ -220,9 +299,9 @@ inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
     if (gy < 0 || gy >= common_mask_height) {
       for (int xx = 0; xx < t.width; ++xx) {
         const size_t idx = tile_row_off + static_cast<size_t>(xx);
-        r_data[idx] = 0.0f;
-        g_data[idx] = 0.0f;
-        b_data[idx] = 0.0f;
+        r_data[idx] = invalid;
+        g_data[idx] = invalid;
+        b_data[idx] = invalid;
       }
       continue;
     }
@@ -234,24 +313,25 @@ inline bool apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
       const int gx = t.x + xx;
       const size_t idx = tile_row_off + static_cast<size_t>(xx);
       if (gx < 0 || gx >= common_mask_width) {
-        r_data[idx] = 0.0f;
-        g_data[idx] = 0.0f;
-        b_data[idx] = 0.0f;
+        r_data[idx] = invalid;
+        g_data[idx] = invalid;
+        b_data[idx] = invalid;
         continue;
       }
       const size_t mask_idx = row_off + static_cast<size_t>(gx);
       if (mask_idx >= mask_size || common_valid_mask[mask_idx] == 0) {
-        r_data[idx] = 0.0f;
-        g_data[idx] = 0.0f;
-        b_data[idx] = 0.0f;
+        r_data[idx] = invalid;
+        g_data[idx] = invalid;
+        b_data[idx] = invalid;
         continue;
       }
-      if (r_data[idx] > 0.0f || g_data[idx] > 0.0f || b_data[idx] > 0.0f) {
-        any_nonzero = true;
+      if (std::isfinite(r_data[idx]) || std::isfinite(g_data[idx]) ||
+          std::isfinite(b_data[idx])) {
+        any_valid = true;
       }
     }
   }
-  return any_nonzero;
+  return any_valid;
 }
 
 // Fast tile-gating helper used after COMMON_OVERLAP masking.
@@ -262,7 +342,7 @@ inline bool tile_has_nonzero_common_data(
     return false;
   const float *ptr = tile.data();
   for (Eigen::Index i = 0; i < tile.size(); ++i) {
-    if (ptr[i] > 0.0f) {
+    if (std::isfinite(ptr[i])) {
       return true;
     }
   }

@@ -81,6 +81,52 @@ float robust_quantile(std::vector<float> values, float q) {
   return robust_quantile_inplace(values, q);
 }
 
+std::string infer_bge_failure_reason(const BGEDiagnostics &diag) {
+  if (diag.success) {
+    return "";
+  }
+  if (diag.safety_fallback_triggered && !diag.safety_fallback_reason.empty()) {
+    return diag.safety_fallback_reason;
+  }
+  if (diag.channels.empty()) {
+    return diag.attempted ? "no_channels_processed" : "not_attempted";
+  }
+
+  int fit_success_count = 0;
+  int guard_rejected_count = 0;
+  bool all_slope_rejected = true;
+  bool all_flatness_rejected = true;
+
+  for (const auto &ch : diag.channels) {
+    if (ch.fit_success) {
+      ++fit_success_count;
+    }
+    if (ch.guard_rejected) {
+      ++guard_rejected_count;
+    }
+    all_slope_rejected =
+        all_slope_rejected && ch.guard_rejected &&
+        ch.guard_reason == "slope_worsened";
+    all_flatness_rejected =
+        all_flatness_rejected && ch.guard_rejected &&
+        ch.guard_reason == "flatness_worsened";
+  }
+
+  if (guard_rejected_count == static_cast<int>(diag.channels.size())) {
+    if (all_slope_rejected) {
+      return "all_channels_guard_rejected_slope";
+    }
+    if (all_flatness_rejected) {
+      return "all_channels_guard_rejected_flatness";
+    }
+    return "all_channels_guard_rejected";
+  }
+  if (fit_success_count > 0) {
+    return "no_channel_applied";
+  }
+  return "surface_fit_failed";
+}
+
 float sorted_quantile(const std::vector<float> &sorted_values, float q) {
   if (sorted_values.empty())
     return 0.0f;
@@ -180,6 +226,7 @@ struct TileSampleScratch {
   std::vector<float> dog_vals;
   std::vector<float> tile_gradients;
   std::vector<float> supported_gradients;
+  std::vector<float> structure_values;
   std::vector<float> tile_pixels;
   std::vector<uint8_t> tile_common_support;
   std::vector<uint8_t> star_mask;
@@ -197,6 +244,8 @@ struct TileSampleScratch {
     tile_gradients.resize(tile_px);
     supported_gradients.clear();
     supported_gradients.reserve(tile_px);
+    structure_values.clear();
+    structure_values.reserve(tile_px);
     tile_pixels.clear();
     tile_pixels.reserve(tile_px);
     tile_common_support.resize(tile_px, 1);
@@ -206,6 +255,54 @@ struct TileSampleScratch {
     blur_integral.resize(static_cast<size_t>((th + 1) * (tw + 1)));
   }
 };
+
+float estimate_structure_noise_scale(const TileMetrics &tm,
+                                     const std::vector<float> &bg_pixels) {
+  if (std::isfinite(tm.noise) && tm.noise > kTiny) {
+    return tm.noise;
+  }
+  if (!bg_pixels.empty()) {
+    std::vector<float> tmp = bg_pixels;
+    const float med = robust_median_inplace(tmp);
+    const float sigma = 1.4826f * robust_mad(bg_pixels, med);
+    if (std::isfinite(sigma) && sigma > kTiny) {
+      return sigma;
+    }
+  }
+  return 1.0f;
+}
+
+float compute_structure_score_from_background_mask(
+    const Matrix2Df &channel, int x0, int y0, int tw, int th, float grad_thresh,
+    float noise_scale, const TileSampleScratch &scratch,
+    TileSampleScratch *scratch_mut) {
+  constexpr int kStructureBlurRadiusPx = 5;
+  const float noise2 =
+      std::max(kTiny * kTiny, noise_scale * noise_scale);
+  box_blur_subregion(channel, x0, y0, tw, th, kStructureBlurRadiusPx,
+                     &scratch_mut->blur_integral, &scratch_mut->blur_large);
+  scratch_mut->structure_values.clear();
+  for (int yy = 0; yy < th; ++yy) {
+    for (int xx = 0; xx < tw; ++xx) {
+      const size_t i = static_cast<size_t>(yy * tw + xx);
+      if (scratch.tile_common_support[i] == 0 || scratch.star_mask[i] != 0 ||
+          scratch.sat_mask[i] != 0 || scratch.tile_gradients[i] > grad_thresh) {
+        continue;
+      }
+      const float v =
+          channel(y0 + yy, x0 + xx);
+      if (!std::isfinite(v)) {
+        continue;
+      }
+      const float hp = v - scratch_mut->blur_large[i];
+      scratch_mut->structure_values.push_back((hp * hp) / noise2);
+    }
+  }
+  if (scratch_mut->structure_values.empty()) {
+    return std::numeric_limits<float>::infinity();
+  }
+  return robust_median_inplace(scratch_mut->structure_values);
+}
 
 struct AutoTunePreparedTileSample {
   float x = 0.0f;
@@ -1315,6 +1412,16 @@ int compute_grid_spacing(int image_width, int image_height, int tile_size,
   int G = std::max(G_floor, G_from_resolution);
   G = std::min(G, G_max);
 
+  // §6.3.9 compact-tile warning: when tile size forces G >> resolution-based
+  // estimate, the BGE grid is coarser than ideal (compact-tile mode).
+  if (G_from_tiles > G_from_resolution && G_from_resolution > 0) {
+    std::cout << "[BGE] Warning: compact-tile mode detected (2*T=" << G_from_tiles
+              << " > G_res=" << G_from_resolution
+              << "); grid spacing forced to G=" << G
+              << " (§6.3.9). BGE accuracy may be reduced."
+              << std::endl;
+  }
+
   return G;
 }
 
@@ -1441,7 +1548,6 @@ std::vector<TileBGSample> extract_tile_background_samples(
 
     const int tw = x1 - x0;
     const int th = y1 - y0;
-    const int tile_px = tw * th;
     scratch.prepare(tw, th);
     auto tile_value = [&](int yy, int xx) -> float {
       return channel_data[static_cast<size_t>(y0 + yy) *
@@ -1461,6 +1567,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
       }
     }
 
+    int supported_px = 0;
     int zero_pixel_count = 0;
     for (int yy = 0; yy < th; ++yy) {
       const float *row = channel_data +
@@ -1472,6 +1579,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
         if (scratch.tile_common_support[i] == 0) {
           continue;
         }
+        ++supported_px;
         const float v = row[xx];
         if (std::isfinite(v)) {
           scratch.finite_values.push_back(v);
@@ -1582,7 +1690,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
         const bool masked =
             (scratch.star_mask[i] != 0) || (scratch.sat_mask[i] != 0) ||
             structure_bad;
-        if (!masked && std::isfinite(v) && v > 0.0f) {
+        if (!masked && std::isfinite(v)) {
           scratch.tile_pixels.push_back(v);
         }
       }
@@ -1595,7 +1703,7 @@ std::vector<TileBGSample> extract_tile_background_samples(
 
     const float usable_fraction =
         static_cast<float>(scratch.tile_pixels.size()) /
-                                  static_cast<float>((x1 - x0) * (y1 - y0));
+        static_cast<float>(std::max(1, supported_px));
     if (!(std::isfinite(usable_fraction)) ||
         usable_fraction < kMinUsableTileFraction) {
       samples[t] = sample;
@@ -1605,27 +1713,26 @@ std::vector<TileBGSample> extract_tile_background_samples(
     // Compute quantile (v3.3 §6.3.2b)
     sample.bg_value =
         robust_quantile_inplace(scratch.tile_pixels, config.sample_quantile);
-    if (!(std::isfinite(sample.bg_value) && sample.bg_value > 0.0f)) {
+    if (!std::isfinite(sample.bg_value)) {
       samples[t] = sample;
       continue;
     }
 
     // Compute reliability weight (v3.3 §6.3.2c)
-    float masked_fraction = 1.0f - usable_fraction;
-    const float q = (use_tile_metrics && std::isfinite(tm.quality_score))
-                        ? tm.quality_score
-                        : 0.0f;
-    // Do not up-weight high local-quality tiles for BGE: they are often
-    // object-rich and can imprint cloud-like structures into the model.
-    const float quality_term =
-        std::clamp(1.0f / (1.0f + 0.10f * std::abs(q)), 0.70f, 1.0f);
-    const int star_count_for_weight =
-        use_tile_metrics ? std::max(0, tm.star_count - 4) : 0;
-    const float star_penalty =
-        1.0f / (1.0f + 0.04f * static_cast<float>(star_count_for_weight));
-    sample.weight = std::exp(-2.0f * tile_structure) *
-                    (1.0f - masked_fraction) * quality_term * star_penalty;
-    sample.weight = std::max(0.01f, std::min(1.0f, sample.weight));
+    const float masked_fraction = 1.0f - usable_fraction;
+    const float structure_noise =
+        estimate_structure_noise_scale(tm, scratch.tile_pixels);
+    const float structure_score = compute_structure_score_from_background_mask(
+        channel, x0, y0, tw, th, grad_thresh, structure_noise, scratch,
+        &scratch);
+    sample.weight =
+        std::exp(-config.tile_weight_lambda_structure * structure_score) *
+        (1.0f - masked_fraction);
+    sample.weight = std::clamp(sample.weight, 0.0f, 1.0f);
+    if (!(std::isfinite(sample.weight) && sample.weight > 0.0f)) {
+      samples[t] = sample;
+      continue;
+    }
 
     sample.valid = true;
     samples[t] = sample;
@@ -1744,7 +1851,6 @@ extract_autotune_prepared_tile_samples(
 
     const int tw = x1 - x0;
     const int th = y1 - y0;
-    const int tile_px = tw * th;
     scratch.prepare(tw, th);
     auto tile_value = [&](int yy, int xx) -> float {
       return channel_data[static_cast<size_t>(y0 + yy) *
@@ -1890,7 +1996,7 @@ extract_autotune_prepared_tile_samples(
         const bool masked =
             (scratch.star_mask[i] != 0) || (scratch.sat_mask[i] != 0) ||
             structure_bad;
-        if (!masked && std::isfinite(v) && v > 0.0f) {
+        if (!masked && std::isfinite(v)) {
           scratch.tile_pixels.push_back(v);
         }
       }
@@ -1903,7 +2009,7 @@ extract_autotune_prepared_tile_samples(
 
     const float usable_fraction =
         static_cast<float>(scratch.tile_pixels.size()) /
-        static_cast<float>(tile_px);
+        static_cast<float>(std::max(1, supported_px));
     if (!(std::isfinite(usable_fraction)) ||
         usable_fraction < kMinUsableTileFraction) {
       prepared_samples[t] = std::move(prepared);
@@ -1911,25 +2017,25 @@ extract_autotune_prepared_tile_samples(
     }
 
     std::sort(scratch.tile_pixels.begin(), scratch.tile_pixels.end());
-    if (!(std::isfinite(scratch.tile_pixels.front()) &&
-          scratch.tile_pixels.front() > 0.0f)) {
+    if (!std::isfinite(scratch.tile_pixels.front())) {
       prepared_samples[t] = std::move(prepared);
       continue;
     }
 
     const float masked_fraction = 1.0f - usable_fraction;
-    const float q = (use_tile_metrics && std::isfinite(tm.quality_score))
-                        ? tm.quality_score
-                        : 0.0f;
-    const float quality_term =
-        std::clamp(1.0f / (1.0f + 0.10f * std::abs(q)), 0.70f, 1.0f);
-    const int star_count_for_weight =
-        use_tile_metrics ? std::max(0, tm.star_count - 4) : 0;
-    const float star_penalty =
-        1.0f / (1.0f + 0.04f * static_cast<float>(star_count_for_weight));
-    prepared.weight = std::exp(-2.0f * tile_structure) *
-                      (1.0f - masked_fraction) * quality_term * star_penalty;
-    prepared.weight = std::max(0.01f, std::min(1.0f, prepared.weight));
+    const float structure_noise =
+        estimate_structure_noise_scale(tm, scratch.tile_pixels);
+    const float structure_score = compute_structure_score_from_background_mask(
+        channel, x0, y0, tw, th, grad_thresh, structure_noise, scratch,
+        &scratch);
+    prepared.weight =
+        std::exp(-config.tile_weight_lambda_structure * structure_score) *
+        (1.0f - masked_fraction);
+    prepared.weight = std::clamp(prepared.weight, 0.0f, 1.0f);
+    if (!(std::isfinite(prepared.weight) && prepared.weight > 0.0f)) {
+      prepared_samples[t] = std::move(prepared);
+      continue;
+    }
     prepared.sorted_pixels = scratch.tile_pixels;
     prepared.valid = true;
     prepared_samples[t] = std::move(prepared);
@@ -1975,7 +2081,7 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
   std::vector<float> valid_bg_values;
   valid_bg_values.reserve(tile_samples.size());
   for (const auto &s : tile_samples) {
-    if (s.valid && std::isfinite(s.bg_value) && s.bg_value > 0.0f) {
+    if (s.valid && std::isfinite(s.bg_value)) {
       valid_bg_values.push_back(s.bg_value);
     }
   }
@@ -1995,7 +2101,7 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
     const auto &sample = tile_samples[sample_idx];
     if (!sample.valid)
       continue;
-    if (!(std::isfinite(sample.bg_value) && sample.bg_value > 0.0f))
+    if (!std::isfinite(sample.bg_value))
       continue;
 
     if (have_bg_guard) {
@@ -2951,7 +3057,7 @@ static BGECandidatePrep build_bge_candidate_prep(
       sample.bg_value = sorted_quantile(prepared.sorted_pixels, sample_quantile);
       sample.weight = prepared.weight;
       sample.valid =
-          std::isfinite(sample.bg_value) && sample.bg_value > 0.0f &&
+          std::isfinite(sample.bg_value) &&
           std::isfinite(sample.weight) && sample.weight > 0.0f;
     }
     tile_samples.push_back(sample);
@@ -2993,9 +3099,9 @@ static BGECandidatePrep build_bge_candidate_prep(
   bvals.reserve(cells.size());
   for (const auto &gc : cells)
     bvals.push_back(gc.bg_value);
-  prep.bg_median = std::max(kTiny, robust_median_inplace(bvals));
+  prep.bg_median = robust_median_inplace(bvals);
   prep.valid = !prep.train_cells.empty() && !prep.val_cells.empty() &&
-               std::isfinite(prep.bg_median) && prep.bg_median > 0.0f;
+               std::isfinite(prep.bg_median);
   return prep;
 }
 
@@ -3058,9 +3164,10 @@ try_bge_candidate_prepared(int image_width, int image_height,
       eval_model_roughness(sampled_surface, 1) / std::max(1.0f, scale);
   out.metric_seconds = elapsed_seconds_since(metric_start);
 
-  const float bmed = std::max(kTiny, prep.bg_median);
+  const float bmed = std::max(kTiny, std::abs(prep.bg_median));
+  const float bmed2 = std::max(kTiny * kTiny, bmed * bmed);
   const float n_cv = out.cv_rms / bmed;
-  const float n_flat = out.flatness / bmed;
+  const float n_flat = out.flatness / bmed2;
   const float n_rough = out.roughness / bmed;
 
   out.objective_raw = out.cv_rms +
@@ -3068,8 +3175,7 @@ try_bge_candidate_prepared(int image_width, int image_height,
                       cfg_try.autotune.beta_roughness * out.roughness;
   out.objective_normalized = n_cv + cfg_try.autotune.alpha_flatness * n_flat +
                              cfg_try.autotune.beta_roughness * n_rough;
-  // Deterministic ranking uses raw objective for spec-conform scale behavior.
-  out.objective = out.objective_raw;
+  out.objective = out.objective_normalized;
   out.success = std::isfinite(out.objective_raw) &&
                 std::isfinite(out.objective_normalized);
   out.total_seconds = elapsed_seconds_since(total_start);
@@ -3277,6 +3383,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   if (diagnostics != nullptr) {
     diagnostics->attempted = config.enabled;
     diagnostics->success = false;
+    diagnostics->failure_reason.clear();
     diagnostics->image_width = 0;
     diagnostics->image_height = 0;
     diagnostics->grid_spacing = 0;
@@ -3517,6 +3624,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     ch_diag.guard_flat_post = flat_post;
     ch_diag.guard_slope_pre = slope_pre;
     ch_diag.guard_slope_post = slope_post;
+    ch_diag.guard_reason.clear();
     bool accept_correction = true;
     const float max_flatness_worsen_factor =
         config.internal_relaxed_channel_guards ? 1.35f : 1.15f;
@@ -3528,6 +3636,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                 << " (pre=" << flat_pre << ", post=" << flat_post << ")"
                 << std::endl;
       accept_correction = false;
+      ch_diag.guard_reason = "flatness_worsened";
     }
     if (accept_correction && std::isfinite(slope_pre) &&
         std::isfinite(slope_post) &&
@@ -3536,10 +3645,14 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
                 << " (pre=" << slope_pre << ", post=" << slope_post << ")"
                 << std::endl;
       accept_correction = false;
+      ch_diag.guard_reason = "slope_worsened";
     }
 
     ch_diag.guard_rejected = !accept_correction;
     if (!accept_correction) {
+      if (ch_diag.guard_reason.empty()) {
+        ch_diag.guard_reason = "channel_guard_rejected";
+      }
       ch_diag.applied = false;
       ch_diag.output_stats = stats_from_matrix(channel_before);
       ch_diag.mean_shift = 0.0f;
@@ -3653,9 +3766,9 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             diagnostics->autotune_fallback_used || !tune_res.success;
         if (tune_res.success) {
           if (!global_autotune_set ||
-              tune_res.objective < diagnostics->autotune_best_objective_raw) {
+              tune_res.objective < diagnostics->autotune_best_objective) {
             global_autotune_set = true;
-            diagnostics->autotune_best_objective = tune_res.objective_raw;
+            diagnostics->autotune_best_objective = tune_res.objective;
             diagnostics->autotune_best_objective_raw = tune_res.objective_raw;
             diagnostics->autotune_best_objective_normalized =
                 tune_res.objective_normalized;
@@ -3678,7 +3791,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       ch_diag.autotune_selected_grid_spacing = channel_grid_spacing;
       ch_diag.autotune_fallback_used = !tune_res.success;
       if (tune_res.success) {
-        ch_diag.autotune_best_objective = tune_res.objective_raw;
+        ch_diag.autotune_best_objective = tune_res.objective;
         ch_diag.autotune_best_objective_raw = tune_res.objective_raw;
         ch_diag.autotune_best_objective_normalized =
             tune_res.objective_normalized;
@@ -4094,6 +4207,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
               << "s guard=" << diagnostics->profile.guard_seconds << "s"
               << std::endl;
     diagnostics->success = any_channel_applied;
+    diagnostics->failure_reason = infer_bge_failure_reason(*diagnostics);
   }
   return any_channel_applied;
 }

@@ -1,7 +1,9 @@
 #if __has_include(<catch2/catch_test_macros.hpp>)
+#include "../apps/runner_shared.hpp"
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/acceleration.hpp"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 TEST_CASE("runtime_limits_acceleration_backend_parses_and_validates") {
@@ -39,6 +41,37 @@ data:
   color_mode: MONO
 runtime_limits:
   acceleration_backend: vulkan
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE_THROWS(cfg.validate());
+}
+
+TEST_CASE("runtime_limits_thresholds_parse_and_validate") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  tile_analysis_max_factor_vs_stack: 2.5
+  hard_abort_hours: 3.5
+)");
+
+  auto cfg = tile_compile::config::Config::from_yaml(node);
+  REQUIRE(cfg.runtime_limits.tile_analysis_max_factor_vs_stack ==
+          Catch::Approx(2.5f));
+  REQUIRE(cfg.runtime_limits.hard_abort_hours == Catch::Approx(3.5f));
+  REQUIRE_NOTHROW(cfg.validate());
+}
+
+TEST_CASE("runtime_limits_thresholds_reject_non_positive_values") {
+  YAML::Node node = YAML::Load(R"(
+data:
+  frames_min: 1
+  color_mode: MONO
+runtime_limits:
+  tile_analysis_max_factor_vs_stack: 0.0
+  hard_abort_hours: -1.0
 )");
 
   auto cfg = tile_compile::config::Config::from_yaml(node);
@@ -142,6 +175,58 @@ TEST_CASE("device_batch_descriptors_report_expected_sizes") {
   REQUIRE(tile_batch.total_pixels == static_cast<size_t>(32 * 32 + 32 * 24));
   REQUIRE(tile_batch.total_bytes ==
           static_cast<size_t>((32 * 32 + 32 * 24) * 3 * sizeof(float)));
+}
+
+TEST_CASE("warp_affine_frame_preserves_support_for_negative_samples") {
+  tile_compile::core::AccelerationSelection selection;
+  selection.phase = tile_compile::core::AccelerationPhase::prewarp;
+  selection.requested = tile_compile::core::AccelerationBackend::cpu;
+  selection.selected = tile_compile::core::AccelerationBackend::cpu;
+  selection.requested_name = "cpu";
+
+  tile_compile::core::AccelerationOps ops(selection);
+  tile_compile::Matrix2Df frame(2, 2);
+  frame << -1.0f, -2.0f, -3.0f, -4.0f;
+
+  tile_compile::WarpMatrix warp = tile_compile::WarpMatrix::Identity();
+  tile_compile::Matrix2Df warped;
+  std::vector<uint8_t> valid_mask;
+  bool has_data = false;
+
+  REQUIRE(ops.warp_affine_frame(frame, warp, tile_compile::ColorMode::MONO, 2,
+                                2, 0, 0, warped, &valid_mask, &has_data));
+  REQUIRE(has_data);
+  REQUIRE(valid_mask == std::vector<uint8_t>({1u, 1u, 1u, 1u}));
+  REQUIRE(warped(0, 0) == Catch::Approx(-1.0f));
+  REQUIRE(warped(1, 1) == Catch::Approx(-4.0f));
+}
+
+TEST_CASE("common_overlap_tile_gate_keeps_negative_finite_samples") {
+  tile_compile::Matrix2Df tile(2, 2);
+  tile << -0.5f, 0.0f, 0.0f, 0.0f;
+
+  const tile_compile::Tile bounds{0, 0, 2, 2, 0, 0};
+  const std::vector<uint8_t> common_valid_mask = {1u, 1u, 1u, 1u};
+
+  REQUIRE(tile_compile::runner::apply_common_overlap_to_tile_inplace_and_check_nonzero(
+      tile, bounds, common_valid_mask, 2, 2));
+  REQUIRE(tile_compile::runner::tile_has_nonzero_common_data(tile, 0,
+                                                             {1u}));
+}
+
+TEST_CASE("common_overlap_tile_gate_marks_canvas_invalid_pixels_nonfinite") {
+  tile_compile::Matrix2Df tile(2, 2);
+  tile << 1.0f, 2.0f, 3.0f, 4.0f;
+
+  const tile_compile::Tile bounds{0, 0, 2, 2, 0, 0};
+  const std::vector<uint8_t> common_valid_mask = {1u, 0u, 1u, 0u};
+
+  REQUIRE(tile_compile::runner::apply_common_overlap_to_tile_inplace_and_check_nonzero(
+      tile, bounds, common_valid_mask, 2, 2));
+  REQUIRE(std::isfinite(tile(0, 0)));
+  REQUIRE_FALSE(std::isfinite(tile(0, 1)));
+  REQUIRE(std::isfinite(tile(1, 0)));
+  REQUIRE_FALSE(std::isfinite(tile(1, 1)));
 }
 #else
 int tile_compile_tests_acceleration_backend_stub() { return 0; }

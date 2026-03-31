@@ -3,9 +3,14 @@
 
 #include <opencv2/opencv.hpp>
 
+#include <cmath>
 #include <cstring>
 
 namespace tile_compile::image {
+
+namespace {
+constexpr float kMinRestoreScale = 1.0e-6f;
+}
 
 void apply_normalization_inplace(Matrix2Df &img, const NormalizationScales &s,
                                  ColorMode mode,
@@ -14,6 +19,7 @@ void apply_normalization_inplace(Matrix2Df &img, const NormalizationScales &s,
   if (img.size() <= 0)
     return;
   if (mode != ColorMode::OSC) {
+    img.array() -= s.background_mono;
     img *= s.scale_mono;
     return;
   }
@@ -21,17 +27,17 @@ void apply_normalization_inplace(Matrix2Df &img, const NormalizationScales &s,
   int r_row, r_col, b_row, b_col;
   bayer_offsets(bayer_pattern, r_row, r_col, b_row, b_col);
   for (int y = 0; y < img.rows(); ++y) {
-    const int gy = origin_y + y;
+      const int gy = origin_y + y;
     for (int x = 0; x < img.cols(); ++x) {
       const int gx = origin_x + x;
       const int py = gy & 1;
       const int px = gx & 1;
       if (py == r_row && px == r_col) {
-        img(y, x) *= s.scale_r;
+        img(y, x) = (img(y, x) - s.background_r) * s.scale_r;
       } else if (py == b_row && px == b_col) {
-        img(y, x) *= s.scale_b;
+        img(y, x) = (img(y, x) - s.background_b) * s.scale_b;
       } else {
-        img(y, x) *= s.scale_g;
+        img(y, x) = (img(y, x) - s.background_g) * s.scale_g;
       }
     }
   }
@@ -40,13 +46,19 @@ void apply_normalization_inplace(Matrix2Df &img, const NormalizationScales &s,
 void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
                                   ColorMode mode,
                                   const std::string &bayer_pattern,
-                                  float bg_mono, float bg_r, float bg_g,
-                                  float bg_b, float pedestal) {
+                                  float scale_mono, float scale_r,
+                                  float scale_g, float scale_b, float bg_mono,
+                                  float bg_r, float bg_g, float bg_b,
+                                  float pedestal) {
   if (img.size() <= 0)
     return;
   if (mode != ColorMode::OSC) {
-    img *= bg_mono;
-    img.array() += pedestal;
+    const float restore_scale =
+        (std::isfinite(scale_mono) && std::fabs(scale_mono) > kMinRestoreScale)
+            ? scale_mono
+            : 1.0f;
+    img *= restore_scale;
+    img.array() += (bg_mono + pedestal);
     return;
   }
 
@@ -59,11 +71,23 @@ void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
       const int py = gy & 1;
       const int px = gx & 1;
       if (py == r_row && px == r_col) {
-        img(y, x) = img(y, x) * bg_r + pedestal;
+        const float restore_scale =
+            (std::isfinite(scale_r) && std::fabs(scale_r) > kMinRestoreScale)
+                ? scale_r
+                : 1.0f;
+        img(y, x) = img(y, x) * restore_scale + bg_r + pedestal;
       } else if (py == b_row && px == b_col) {
-        img(y, x) = img(y, x) * bg_b + pedestal;
+        const float restore_scale =
+            (std::isfinite(scale_b) && std::fabs(scale_b) > kMinRestoreScale)
+                ? scale_b
+                : 1.0f;
+        img(y, x) = img(y, x) * restore_scale + bg_b + pedestal;
       } else {
-        img(y, x) = img(y, x) * bg_g + pedestal;
+        const float restore_scale =
+            (std::isfinite(scale_g) && std::fabs(scale_g) > kMinRestoreScale)
+                ? scale_g
+                : 1.0f;
+        img(y, x) = img(y, x) * restore_scale + bg_g + pedestal;
       }
     }
   }

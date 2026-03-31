@@ -83,17 +83,17 @@ int main(int argc, char** argv) {
         expect_equal(queued["_http_status"].get<long>(), 202L, "queued run start status");
         const std::string queued_run_id = queued["run_id"].get<std::string>();
         expect_true(
-            std::regex_match(queued_run_id, std::regex(R"(^[0-9]{8}/L$)")),
-            "queued run id should use start date root and first filter leaf");
+            std::regex_match(queued_run_id, std::regex(R"(^[0-9]{8}_[0-9]{4}/L$)")),
+            "queued run id should use start date+time root and first filter leaf");
 
         const auto queue_job = harness.wait_for_job(queued["job_id"].get<std::string>());
         expect_true(queue_job["data"]["queue"].is_array(), "queue payload should expose queue items");
         expect_equal(queue_job["data"]["queue"][0]["run_id"].get<std::string>(), queued_run_id, "first queue item run id");
         expect_true(
-            std::regex_match(queue_job["data"]["queue"][1]["run_id"].get<std::string>(), std::regex(R"(^[0-9]{8}/L-2$)")),
+            std::regex_match(queue_job["data"]["queue"][1]["run_id"].get<std::string>(), std::regex(R"(^[0-9]{8}_[0-9]{4}/L-2$)")),
             "duplicate filter should receive -2 suffix");
         expect_true(
-            std::regex_match(queue_job["data"]["queue"][2]["run_id"].get<std::string>(), std::regex(R"(^[0-9]{8}/R$)")),
+            std::regex_match(queue_job["data"]["queue"][2]["run_id"].get<std::string>(), std::regex(R"(^[0-9]{8}_[0-9]{4}/R$)")),
             "different filter should use own leaf without numeric suffix");
 
         const auto queued_named = harness.post_json("/api/runs/start", {

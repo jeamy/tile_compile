@@ -188,6 +188,7 @@ properties:
       max_divisor: {type: integer, minimum: 1}
       overlap_fraction: {type: number, minimum: 0, maximum: 0.5}
       star_min_count: {type: integer, minimum: 0}
+      star_soft_count: {type: integer, minimum: 0}
   local_metrics:
     type: object
     properties:
@@ -208,6 +209,7 @@ properties:
           enabled: {type: boolean}
           lambda: {type: number, minimum: 0, maximum: 1}
           passes: {type: integer, minimum: 0}
+          tau_local: {type: number, exclusiveMinimum: 0}
       star_mode:
         type: object
         properties:
@@ -222,6 +224,10 @@ properties:
         properties:
           background_weight: {type: number, minimum: 0, maximum: 1}
           metric_weight: {type: number, minimum: 0, maximum: 1}
+      k_local:
+        type: number
+        exclusiveMinimum: 0
+        description: "Exponent scale for local weight L_{f,t}=exp(k_local*Q_local). Default 1.0; >1 increases local differentiation, <1 softens it."
   synthetic:
     type: object
     properties:
@@ -240,7 +246,6 @@ properties:
             items: {type: integer, minimum: 1}
             minItems: 2
             maxItems: 2
-  debayer: {type: boolean}
   astrometry:
     type: object
     properties:
@@ -254,6 +259,7 @@ properties:
       enabled: {type: boolean}
       apply_attenuation: {type: boolean}
       chroma_strength: {type: number, minimum: 0, maximum: 1}
+      background_neutralization_mode: {type: string, enum: [always, auto, off]}
       source: {type: string, enum: [auto, siril, vizier_gaia, vizier_apass]}
       mag_limit: {type: number, minimum: 1, maximum: 22}
       mag_bright_limit: {type: number, minimum: 0, maximum: 15}
@@ -285,6 +291,10 @@ properties:
           holdout_fraction: {type: number, minimum: 0.05, maximum: 0.5}
           alpha_flatness: {type: number, minimum: 0}
           beta_roughness: {type: number, minimum: 0}
+      tile_weight_lambda_structure:
+        type: number
+        exclusiveMinimum: 0
+        description: "Lambda in tile reliability weight w_t=exp(-lambda*structure_score_t)*(1-masked_fraction_t). Default 1.0."
       sample_quantile: {type: number, exclusiveMinimum: 0, maximum: 0.5}
       structure_thresh_percentile: {type: number, minimum: 0, maximum: 1}
       min_tiles_per_cell: {type: integer, minimum: 1}
@@ -319,6 +329,16 @@ properties:
     type: object
     properties:
       method: {type: string, enum: [rej, average]}
+      common_overlap_required_fraction:
+        type: number
+        exclusiveMinimum: 0
+        maximum: 1
+        description: "Erforderlicher Pixel-Anteil ueber alle nutzbaren Frames fuer COMMON_OVERLAP. Default 1.0 = strikte Schnittmenge."
+      tile_common_valid_min_fraction:
+        type: number
+        exclusiveMinimum: 0
+        maximum: 1
+        description: "Mindestanteil gueltiger COMMON_OVERLAP-Pixel pro Tile. Default 1.0 = nur vollstaendig innerhalb der Support-Maske liegende Tiles."
       sigma_clip:
         type: object
         properties:

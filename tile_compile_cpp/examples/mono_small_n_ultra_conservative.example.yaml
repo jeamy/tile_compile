@@ -174,7 +174,6 @@ synthetic:
     cluster_count_range: [2, 8] # [k_min, k_max] fuer sehr kleine Datensaetze
 
 
-debayer: false # MONO-Ausgabe bleibt monochrom
 
 astrometry:
   enabled: true # WCS-Solve aktiv
@@ -229,6 +228,7 @@ pcc:
   min_stars: 3 # Mindestanzahl Referenzsterne
   sigma_clip: 2.5 # Sigma-Clipping fuer Regressionsfit
   background_model: plane # median | plane
+  background_neutralization_mode: auto
   radii_mode: auto_fwhm # fixed | auto_fwhm
   aperture_fwhm_mult: 1.8
   annulus_inner_fwhm_mult: 3.0

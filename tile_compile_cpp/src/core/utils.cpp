@@ -435,4 +435,88 @@ float median_finite_positive(const std::vector<float>& v, float fallback) {
     return median_of(p);
 }
 
+float median_finite(const std::vector<float>& v, float fallback) {
+    std::vector<float> p;
+    p.reserve(v.size());
+    for (float x : v) {
+        if (std::isfinite(x))
+            p.push_back(x);
+    }
+    if (p.empty())
+        return fallback;
+    return median_of(p);
+}
+
+StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
+    StretchResult result;
+    float max_value = 0.0f;
+    size_t sample_count = 0;
+    for (Eigen::Index i = 0; i < img.size(); ++i) {
+        const float v = img.data()[i];
+        if (!std::isfinite(v) || v < 0.0f) continue;
+        max_value = std::max(max_value, v);
+        ++sample_count;
+    }
+
+    result.sample_count = sample_count;
+    result.low = 0.0f;
+    result.high = max_value;
+    if (!(max_value > 1.0e-6f)) return result;
+
+    const float scale = 65535.0f / max_value;
+    for (Eigen::Index i = 0; i < img.size(); ++i) {
+        const float v = img.data()[i];
+        if (std::isfinite(v) && v >= 0.0f) {
+            img.data()[i] = std::clamp(v * scale, 0.0f, 65535.0f);
+        } else {
+            img.data()[i] = 0.0f;
+        }
+    }
+
+    result.applied = true;
+    return result;
+}
+
+StretchResult stretch_rgb_to_u16_linear_from_zero_inplace(
+    Matrix2Df& r,
+    Matrix2Df& g,
+    Matrix2Df& b) {
+    StretchResult result;
+    if (r.rows() != g.rows() || r.rows() != b.rows() ||
+        r.cols() != g.cols() || r.cols() != b.cols()) {
+        return result;
+    }
+
+    float max_value = 0.0f;
+    size_t sample_count = 0;
+    for (Matrix2Df* ch : {&r, &g, &b}) {
+        for (Eigen::Index i = 0; i < ch->size(); ++i) {
+            const float v = ch->data()[i];
+            if (!std::isfinite(v) || v < 0.0f) continue;
+            max_value = std::max(max_value, v);
+            ++sample_count;
+        }
+    }
+
+    result.sample_count = sample_count;
+    result.low = 0.0f;
+    result.high = max_value;
+    if (!(max_value > 1.0e-6f)) return result;
+
+    const float scale = 65535.0f / max_value;
+    for (Matrix2Df* ch : {&r, &g, &b}) {
+        for (Eigen::Index i = 0; i < ch->size(); ++i) {
+            const float v = ch->data()[i];
+            if (std::isfinite(v) && v >= 0.0f) {
+                ch->data()[i] = std::clamp(v * scale, 0.0f, 65535.0f);
+            } else {
+                ch->data()[i] = 0.0f;
+            }
+        }
+    }
+
+    result.applied = true;
+    return result;
+}
+
 } // namespace tile_compile::core

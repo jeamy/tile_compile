@@ -168,6 +168,7 @@ struct TileConfig {
   int max_divisor = 6;
   float overlap_fraction = 0.25f;
   int star_min_count = 10;
+  int star_soft_count = 10;
 };
 
 struct LocalMetricsConfig {
@@ -181,6 +182,7 @@ struct LocalMetricsConfig {
     bool enabled = true;
     float lambda = 0.35f;
     int passes = 1;
+    float tau_local = 1.0f;
   } spatial_regularization;
 
   struct StarModeConfig {
@@ -197,6 +199,7 @@ struct LocalMetricsConfig {
   } structure_mode;
 
   std::array<float, 2> clamp{-3.0f, 3.0f};
+  float k_local = 1.0f; // §5.5.6: L_{f,t} = exp(k_local * Q^local), symmetric with k_global
 };
 
 struct SyntheticConfig {
@@ -225,6 +228,8 @@ struct StackingConfig {
   } cluster_quality_weighting;
 
   std::string method = "rej";
+  float common_overlap_required_fraction = 1.0f;
+  float tile_common_valid_min_fraction = 1.0f;
   bool output_stretch = false;
   bool cosmetic_correction = false;
   float cosmetic_correction_sigma = 5.0f;
@@ -285,10 +290,15 @@ struct BGEConfig {
     bool enabled = false;
     int max_evals = 24;
     float holdout_fraction = 0.25f;
-    float alpha_flatness = 0.25f;
-    float beta_roughness = 0.10f;
+    float alpha_flatness = 0.25f;  // renamed alpha_f in §6.3.7.1
+    float beta_roughness = 0.10f;  // renamed beta_r in §6.3.7.1
     std::string strategy = "conservative"; // conservative | extended
   } autotune;
+
+  // Tile reliability weight (§6.3.2c): w_t = exp(-lambda_structure *
+  // structure_score_t) * (1 - masked_fraction_t), with dimensionless
+  // structure_score_t after local noise normalization.
+  float tile_weight_lambda_structure = 1.0f;
 };
 
 struct PCCConfig {
@@ -319,6 +329,7 @@ struct PCCConfig {
   bool apply_attenuation = false;
   float chroma_strength = 1.00f;
   float k_max = 3.20f;
+  std::string background_neutralization_mode = "auto"; // always | auto | off
 };
 
 struct ValidationConfig {
@@ -353,7 +364,6 @@ struct Config {
   TileConfig tile;
   LocalMetricsConfig local_metrics;
   SyntheticConfig synthetic;
-  bool debayer = true;
   AstrometryConfig astrometry;
   BGEConfig bge;
   PCCConfig pcc;

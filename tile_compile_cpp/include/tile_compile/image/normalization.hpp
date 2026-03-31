@@ -12,6 +12,10 @@ struct NormalizationScales {
   float scale_r = 1.0f;
   float scale_g = 1.0f;
   float scale_b = 1.0f;
+  float background_mono = 0.0f;
+  float background_r = 0.0f;
+  float background_g = 0.0f;
+  float background_b = 0.0f;
 };
 
 void apply_normalization_inplace(Matrix2Df &img, const NormalizationScales &s,
@@ -24,6 +28,8 @@ void apply_normalization_inplace(Matrix2Df &img, const NormalizationScales &s,
 void apply_output_scaling_inplace(Matrix2Df &img, int origin_x, int origin_y,
                                   ColorMode mode,
                                   const std::string &bayer_pattern,
+                                  float scale_mono, float scale_r,
+                                  float scale_g, float scale_b,
                                   float bg_mono, float bg_r, float bg_g,
                                   float bg_b, float pedestal);
 

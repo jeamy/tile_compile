@@ -6,9 +6,11 @@
 #include "tile_compile/io/fits_io.hpp"
 #include "tile_compile/metrics/metrics.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <opencv2/opencv.hpp>
 #include <thread>
@@ -20,6 +22,34 @@ namespace core = tile_compile::core;
 namespace image = tile_compile::image;
 namespace io = tile_compile::io;
 namespace metrics = tile_compile::metrics;
+
+namespace {
+
+std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
+  auto read_positive = [&](const char *key) -> std::optional<double> {
+    if (auto value = header.get_double(key);
+        value && std::isfinite(*value) && *value > 0.0) {
+      return value;
+    }
+    if (auto value = header.get_int(key); value && *value > 0) {
+      return static_cast<double>(*value);
+    }
+    return std::nullopt;
+  };
+
+  if (auto value = read_positive("EXPTIME")) {
+    return value;
+  }
+  if (auto value = read_positive("EXPOSURE")) {
+    return value;
+  }
+  if (auto value = read_positive("EXPOS")) {
+    return value;
+  }
+  return std::nullopt;
+}
+
+} // namespace
 
 bool run_phase_channel_split_normalization_global_metrics(
     const std::string &run_id, const config::Config &cfg,
@@ -60,7 +90,48 @@ bool run_phase_channel_split_normalization_global_metrics(
   std::vector<float> B_r(frames.size(), 0.0f);
   std::vector<float> B_g(frames.size(), 0.0f);
   std::vector<float> B_b(frames.size(), 0.0f);
+  std::vector<float> P_mono(frames.size(), 1.0f);
+  std::vector<float> P_r(frames.size(), 1.0f);
+  std::vector<float> P_g(frames.size(), 1.0f);
+  std::vector<float> P_b(frames.size(), 1.0f);
   out.frame_cache.reset();
+
+  std::vector<float> frame_photometric_scale(
+      frames.size(), 1.0f);
+  std::string photometric_scale_method = "identity_fallback";
+  if (!frames.empty()) {
+    std::vector<float> exposure_seconds(
+        frames.size(), std::numeric_limits<float>::quiet_NaN());
+    bool all_exposures_available = true;
+    for (size_t i = 0; i < frames.size(); ++i) {
+      try {
+        const auto header = io::read_fits_header(frames[i]);
+        const auto exposure = extract_exposure_seconds(header);
+        if (!exposure || !std::isfinite(*exposure) || *exposure <= 0.0) {
+          all_exposures_available = false;
+          break;
+        }
+        exposure_seconds[i] = static_cast<float>(*exposure);
+      } catch (...) {
+        all_exposures_available = false;
+        break;
+      }
+    }
+    const float ref_exposure =
+        exposure_seconds.empty() ? std::numeric_limits<float>::quiet_NaN()
+                                 : exposure_seconds.front();
+    if (all_exposures_available && std::isfinite(ref_exposure) &&
+        ref_exposure > 0.0f) {
+      for (size_t i = 0; i < frames.size(); ++i) {
+        const float exposure = exposure_seconds[i];
+        frame_photometric_scale[i] =
+            (std::isfinite(exposure) && exposure > 0.0f)
+                ? (exposure / ref_exposure)
+                : 1.0f;
+      }
+      photometric_scale_method = "exposure_ratio";
+    }
+  }
 
   if (!frames.empty()) {
     try {
@@ -117,6 +188,7 @@ bool run_phase_channel_split_normalization_global_metrics(
     std::vector<float> g_samples;
     std::vector<float> b_samples;
     std::vector<float> mono_samples;
+    std::vector<float> shared_samples;
     auto reset_samples = [](std::vector<float> &samples, size_t reserve_count) {
       samples.clear();
       if (samples.capacity() < reserve_count) {
@@ -139,6 +211,32 @@ bool run_phase_channel_split_normalization_global_metrics(
           cv::Mat coarse_cv(img.rows(), img.cols(), CV_32F, img.data());
           const cv::Mat1b bg_mask =
               metrics::build_background_mask_sigma_clip(coarse_cv, 3.0f, 3);
+          const bool median_mode = (cfg.normalization.mode == "median");
+          const bool per_channel_norm =
+              (detected_mode != ColorMode::OSC) || cfg.normalization.per_channel;
+          const float p_frame = (i < frame_photometric_scale.size() &&
+                                 std::isfinite(frame_photometric_scale[i]) &&
+                                 frame_photometric_scale[i] > 0.0f)
+                                    ? frame_photometric_scale[i]
+                                    : 1.0f;
+
+          auto estimate_center =
+              [&](std::vector<float> &samples,
+                  const auto &fallback_fill) -> float {
+            if (median_mode) {
+              if (samples.empty()) {
+                fallback_fill();
+              }
+              return samples.empty() ? 0.0f : core::median_of(samples);
+            }
+
+            float center = samples.empty() ? 0.0f : core::median_of(samples);
+            if (!std::isfinite(center)) {
+              fallback_fill();
+              center = core::estimate_background_sigma_clip(samples);
+            }
+            return center;
+          };
 
           if (detected_mode == ColorMode::OSC) {
             s.is_osc = true;
@@ -148,15 +246,22 @@ bool run_phase_channel_split_normalization_global_metrics(
             reset_samples(r_samples, pixel_count / 4);
             reset_samples(g_samples, pixel_count / 2);
             reset_samples(b_samples, pixel_count / 4);
+            reset_samples(shared_samples, pixel_count);
 
             for (int y = 0; y < img.rows(); ++y) {
               const uint8_t *mrow = bg_mask.ptr<uint8_t>(y);
               const int py = y & 1;
               for (int x = 0; x < img.cols(); ++x) {
-                if (mrow[x] == 0)
-                  continue;
-                const int px = x & 1;
                 const float v = img(y, x);
+                if (!std::isfinite(v)) {
+                  continue;
+                }
+                const bool use_sample = median_mode || (mrow[x] != 0);
+                if (!use_sample) {
+                  continue;
+                }
+                const int px = x & 1;
+                shared_samples.push_back(v);
                 if (py == r_row && px == r_col) {
                   r_samples.push_back(v);
                 } else if (py == b_row && px == b_col) {
@@ -167,59 +272,90 @@ bool run_phase_channel_split_normalization_global_metrics(
               }
             }
 
-            float br = r_samples.empty() ? 0.0f : core::median_of(r_samples);
-            float bg = g_samples.empty() ? 0.0f : core::median_of(g_samples);
-            float bb = b_samples.empty() ? 0.0f : core::median_of(b_samples);
-
-            if (!(br > eps_b)) {
+            auto refill_shared = [&]() {
+              reset_samples(shared_samples, pixel_count);
+              for (Eigen::Index k = 0; k < img.size(); ++k) {
+                const float v = img.data()[k];
+                if (std::isfinite(v)) {
+                  shared_samples.push_back(v);
+                }
+              }
+            };
+            auto refill_r = [&]() {
               reset_samples(r_samples, pixel_count / 4);
               for (int y = 0; y < img.rows(); ++y) {
                 const int py = y & 1;
                 for (int x = 0; x < img.cols(); ++x) {
                   const int px = x & 1;
-                  if (py == r_row && px == r_col)
+                  if (py == r_row && px == r_col && std::isfinite(img(y, x))) {
                     r_samples.push_back(img(y, x));
+                  }
                 }
               }
-              br = core::estimate_background_sigma_clip(std::move(r_samples));
-            }
-            if (!(bg > eps_b)) {
+            };
+            auto refill_g = [&]() {
               reset_samples(g_samples, pixel_count / 2);
               for (int y = 0; y < img.rows(); ++y) {
                 const int py = y & 1;
                 for (int x = 0; x < img.cols(); ++x) {
                   const int px = x & 1;
                   if (!((py == r_row && px == r_col) ||
-                        (py == b_row && px == b_col)))
+                        (py == b_row && px == b_col)) &&
+                      std::isfinite(img(y, x))) {
                     g_samples.push_back(img(y, x));
+                  }
                 }
               }
-              bg = core::estimate_background_sigma_clip(std::move(g_samples));
-            }
-            if (!(bb > eps_b)) {
+            };
+            auto refill_b = [&]() {
               reset_samples(b_samples, pixel_count / 4);
               for (int y = 0; y < img.rows(); ++y) {
                 const int py = y & 1;
                 for (int x = 0; x < img.cols(); ++x) {
                   const int px = x & 1;
-                  if (py == b_row && px == b_col)
+                  if (py == b_row && px == b_col && std::isfinite(img(y, x))) {
                     b_samples.push_back(img(y, x));
+                  }
                 }
               }
-              bb = core::estimate_background_sigma_clip(std::move(b_samples));
+            };
+
+            float br = 0.0f;
+            float bg = 0.0f;
+            float bb = 0.0f;
+            if (per_channel_norm) {
+              br = estimate_center(r_samples, refill_r);
+              bg = estimate_center(g_samples, refill_g);
+              bb = estimate_center(b_samples, refill_b);
+            } else {
+              const float shared_center =
+                  estimate_center(shared_samples, refill_shared);
+              br = shared_center;
+              bg = shared_center;
+              bb = shared_center;
             }
 
-            if (!(br > eps_b) || !(bg > eps_b) || !(bb > eps_b)) {
+            if (!std::isfinite(br) || !std::isfinite(bg) || !std::isfinite(bb)) {
               throw std::runtime_error(
                   "NORMALIZATION: invalid background estimate");
             }
 
-            s.scale_r = 1.0f / br;
-            s.scale_g = 1.0f / bg;
-            s.scale_b = 1.0f / bb;
+            const float pr = p_frame;
+            const float pg = p_frame;
+            const float pb = p_frame;
+
+            s.background_r = br;
+            s.background_g = bg;
+            s.background_b = bb;
+            s.scale_r = 1.0f / std::max(pr, eps_b);
+            s.scale_g = 1.0f / std::max(pg, eps_b);
+            s.scale_b = 1.0f / std::max(pb, eps_b);
             B_r[i] = br;
             B_g[i] = bg;
             B_b[i] = bb;
+            P_r[i] = pr;
+            P_g[i] = pg;
+            P_b[i] = pb;
           } else {
             reset_samples(mono_samples, pixel_count);
             for (int y = 0; y < img.rows(); ++y) {
@@ -230,19 +366,36 @@ bool run_phase_channel_split_normalization_global_metrics(
               }
             }
             float b = mono_samples.empty() ? 0.0f : core::median_of(mono_samples);
-            if (!(b > eps_b)) {
+            if (median_mode) {
+              if (!std::isfinite(b)) {
+                reset_samples(mono_samples, pixel_count);
+                for (Eigen::Index k = 0; k < img.size(); ++k) {
+                  const float v = img.data()[k];
+                  if (std::isfinite(v)) {
+                    mono_samples.push_back(v);
+                  }
+                }
+                b = mono_samples.empty() ? 0.0f : core::median_of(mono_samples);
+              }
+            } else if (!std::isfinite(b)) {
               reset_samples(mono_samples, pixel_count);
               for (Eigen::Index k = 0; k < img.size(); ++k) {
-                mono_samples.push_back(img.data()[k]);
+                const float v = img.data()[k];
+                if (std::isfinite(v)) {
+                  mono_samples.push_back(v);
+                }
               }
-              b = core::estimate_background_sigma_clip(std::move(mono_samples));
+              b = core::estimate_background_sigma_clip(mono_samples);
             }
-            if (!(b > eps_b)) {
+            if (!std::isfinite(b)) {
               throw std::runtime_error(
                   "NORMALIZATION: invalid background estimate");
             }
-            s.scale_mono = 1.0f / b;
+            const float p = p_frame;
+            s.background_mono = b;
+            s.scale_mono = 1.0f / std::max(p, eps_b);
             B_mono[i] = b;
+            P_mono[i] = p;
           }
         }
         norm_scales[i] = s;
@@ -316,29 +469,48 @@ bool run_phase_channel_split_normalization_global_metrics(
     core::json artifact;
     artifact["mode"] = (detected_mode == ColorMode::OSC) ? "OSC" : "MONO";
     artifact["bayer_pattern"] = detected_bayer_str;
+    artifact["normalization_mode"] = cfg.normalization.mode;
+    artifact["normalization_per_channel"] = cfg.normalization.per_channel;
     artifact["B_mono"] = core::json::array();
     artifact["B_r"] = core::json::array();
     artifact["B_g"] = core::json::array();
     artifact["B_b"] = core::json::array();
+    artifact["P_mono"] = core::json::array();
+    artifact["P_r"] = core::json::array();
+    artifact["P_g"] = core::json::array();
+    artifact["P_b"] = core::json::array();
+    artifact["photometric_scale_method"] = photometric_scale_method;
     for (size_t i = 0; i < frames.size(); ++i) {
       artifact["B_mono"].push_back(B_mono[i]);
       artifact["B_r"].push_back(B_r[i]);
       artifact["B_g"].push_back(B_g[i]);
       artifact["B_b"].push_back(B_b[i]);
+      artifact["P_mono"].push_back(P_mono[i]);
+      artifact["P_r"].push_back(P_r[i]);
+      artifact["P_g"].push_back(P_g[i]);
+      artifact["P_b"].push_back(P_b[i]);
     }
     core::write_text(run_dir / "artifacts" / "normalization.json",
                      artifact.dump(2));
   }
 
   out.output_pedestal = 0.0f;
-  out.output_bg_mono = core::median_finite_positive(B_mono, 1.0f);
-  out.output_bg_r = core::median_finite_positive(B_r, 1.0f);
-  out.output_bg_g = core::median_finite_positive(B_g, 1.0f);
-  out.output_bg_b = core::median_finite_positive(B_b, 1.0f);
+  out.output_scale_mono = core::median_finite_positive(P_mono, 1.0f);
+  out.output_scale_r = core::median_finite_positive(P_r, 1.0f);
+  out.output_scale_g = core::median_finite_positive(P_g, 1.0f);
+  out.output_scale_b = core::median_finite_positive(P_b, 1.0f);
+  out.output_bg_mono = core::median_finite(B_mono, 0.0f);
+  out.output_bg_r = core::median_finite(B_r, 0.0f);
+  out.output_bg_g = core::median_finite(B_g, 0.0f);
+  out.output_bg_b = core::median_finite(B_b, 0.0f);
 
   emitter.phase_end(run_id, Phase::NORMALIZATION, "ok",
                     {
                         {"num_frames", static_cast<int>(frames.size())},
+                        {"normalization_mode", cfg.normalization.mode},
+                        {"normalization_per_channel",
+                         cfg.normalization.per_channel},
+                        {"photometric_scale_method", photometric_scale_method},
                     },
                     log_file);
 
@@ -513,6 +685,15 @@ bool run_phase_channel_split_normalization_global_metrics(
     artifact["clamp"] = {cfg.global_metrics.clamp[0],
                           cfg.global_metrics.clamp[1]};
     artifact["adaptive_weights"] = cfg.global_metrics.adaptive_weights;
+    artifact["adaptive_weighting_method"] =
+        "leave_one_out_positive_correlation_squared";
+    artifact["adaptive_weighting_target"] =
+        "For each metric, predict the leave-one-out consensus of the other two "
+        "higher-is-better normalized signals using static weights renormalized "
+        "over the remaining metrics.";
+    artifact["adaptive_weighting_tie_break"] =
+        "If utilities are degenerate or nearly tied, keep the static weights. "
+        "Otherwise clip adaptive weights to [0.1,0.7] and renormalize.";
     core::write_text(run_dir / "artifacts" / "global_metrics.json",
                      artifact.dump(2));
   }

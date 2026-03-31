@@ -196,6 +196,9 @@ bool run_phase_local_metrics(
     std::vector<uint8_t> tile_star_flags(tiles_phase56.size(), 0);
     std::vector<std::vector<float>> local_quality_scores(
         frames.size(), std::vector<float>(tiles_phase56.size(), 0.0f));
+    std::vector<std::vector<float>> local_quality_confidence(
+        frames.size(), std::vector<float>(tiles_phase56.size(), 0.0f));
+    std::vector<float> tile_star_support_blend(tiles_phase56.size(), 0.0f);
     reconstruction::LocalWeightRegularizationSummary
         local_weight_regularization_summary;
     double neighborhood_q_delta_sum = 0.0;
@@ -210,6 +213,8 @@ bool run_phase_local_metrics(
       };
 
       const int star_thr = cfg.tile.star_min_count;
+      const float star_soft_count =
+          static_cast<float>(std::max(1, cfg.tile.star_soft_count));
       const float eps = 1.0e-12f;
       const bool neighborhood_enabled =
           cfg.local_metrics.neighborhood_normalization.enabled &&
@@ -357,10 +362,14 @@ bool run_phase_local_metrics(
 
         std::vector<float> sc_tmp = star_counts;
         float sc_med = sc_tmp.empty() ? 0.0f : core::median_of(sc_tmp);
-        const TileType tile_type = (sc_med >= static_cast<float>(star_thr))
-                                       ? TileType::STAR
-                                       : TileType::STRUCTURE;
+        const float eta =
+            std::clamp(sc_med / std::max(star_soft_count, 1.0f), 0.0f, 1.0f);
+        const TileType tile_type =
+            (eta >= 0.5f || sc_med >= static_cast<float>(star_thr))
+                ? TileType::STAR
+                : TileType::STRUCTURE;
         tile_star_flags[ti] = (tile_type == TileType::STAR) ? 1 : 0;
+        tile_star_support_blend[ti] = eta;
 
         std::vector<float> fwhm_local_t, r_local_t, c_local_t, b_local_t,
             en_local_t;
@@ -377,32 +386,70 @@ bool run_phase_local_metrics(
           size_t fi = usable_indices[ui];
           TileMetrics &tm = local_metrics[fi][ti];
           tm.type = tile_type;
+          const bool star_available =
+              std::isfinite(tm.fwhm) && tm.fwhm > 0.0f &&
+              std::isfinite(tm.roundness) && std::isfinite(tm.contrast);
+          const float energy_ratio =
+              (std::isfinite(tm.noise) && std::fabs(tm.noise) > eps)
+                  ? (tm.gradient_energy / tm.noise)
+                  : 0.0f;
+          const bool struct_available =
+              std::isfinite(tm.background) && std::isfinite(energy_ratio);
+
+          float q_before_star =
+              cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_local_t[ui]) +
+              cfg.local_metrics.star_mode.weights.roundness * (r_local_t[ui]) +
+              cfg.local_metrics.star_mode.weights.contrast * (c_local_t[ui]);
+          float q_before_struct =
+              cfg.local_metrics.structure_mode.metric_weight * (en_local_t[ui]) +
+              cfg.local_metrics.structure_mode.background_weight * (-b_local_t[ui]);
+          float q_star =
+              cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_t[ui]) +
+              cfg.local_metrics.star_mode.weights.roundness * (r_t[ui]) +
+              cfg.local_metrics.star_mode.weights.contrast * (c_t[ui]);
+          float q_struct =
+              cfg.local_metrics.structure_mode.metric_weight * (en_t[ui]) +
+              cfg.local_metrics.structure_mode.background_weight * (-b_t[ui]);
+
           float q_before = 0.0f;
-          if (tile_type == TileType::STAR) {
-            q_before =
-                cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_local_t[ui]) +
-                cfg.local_metrics.star_mode.weights.roundness * (r_local_t[ui]) +
-                cfg.local_metrics.star_mode.weights.contrast * (c_local_t[ui]);
+          if (star_available && struct_available) {
+            q_before = eta * q_before_star + (1.0f - eta) * q_before_struct;
+          } else if (star_available) {
+            q_before = q_before_star;
           } else {
-            q_before = cfg.local_metrics.structure_mode.metric_weight *
-                           (en_local_t[ui]) +
-                       cfg.local_metrics.structure_mode.background_weight *
-                           (-b_local_t[ui]);
+            q_before = q_before_struct;
           }
           q_before = clip3(q_before);
 
           float q = 0.0f;
-          if (tile_type == TileType::STAR) {
-            q = cfg.local_metrics.star_mode.weights.fwhm * (-fwhm_t[ui]) +
-                cfg.local_metrics.star_mode.weights.roundness * (r_t[ui]) +
-                cfg.local_metrics.star_mode.weights.contrast * (c_t[ui]);
+          if (star_available && struct_available) {
+            q = eta * q_star + (1.0f - eta) * q_struct;
+          } else if (star_available) {
+            q = q_star;
           } else {
-            q = cfg.local_metrics.structure_mode.metric_weight * (en_t[ui]) +
-                cfg.local_metrics.structure_mode.background_weight * (-b_t[ui]);
+            q = q_struct;
           }
-
           q = clip3(q);
           local_quality_scores[fi][ti] = q;
+          int valid_metric_count = 0;
+          if (std::isfinite(tm.fwhm) && tm.fwhm > 0.0f) {
+            ++valid_metric_count;
+          }
+          if (std::isfinite(tm.roundness)) {
+            ++valid_metric_count;
+          }
+          if (std::isfinite(tm.contrast)) {
+            ++valid_metric_count;
+          }
+          if (std::isfinite(tm.background)) {
+            ++valid_metric_count;
+          }
+          if (std::isfinite(energy_ratio)) {
+            ++valid_metric_count;
+          }
+          local_quality_confidence[fi][ti] =
+              std::clamp(static_cast<float>(valid_metric_count) / 5.0f, 0.0f,
+                         1.0f);
           const float abs_delta = std::fabs(q - q_before);
           if (abs_delta > 0.0f) {
             neighborhood_q_delta_sum += static_cast<double>(abs_delta);
@@ -424,10 +471,13 @@ bool run_phase_local_metrics(
           cfg.local_metrics.spatial_regularization.lambda;
       regularization_cfg.passes =
           cfg.local_metrics.spatial_regularization.passes;
+      regularization_cfg.tau_local =
+          cfg.local_metrics.spatial_regularization.tau_local;
       local_weight_regularization_summary =
           reconstruction::regularize_local_quality_scores(
               tiles_phase56, tile_common_valid, frame_has_data,
-              regularization_cfg, &local_quality_scores);
+              regularization_cfg, &local_quality_scores,
+              &local_quality_confidence);
 
       for (size_t fi = 0; fi < local_metrics.size(); ++fi) {
         if (!frame_has_data[fi]) {
@@ -441,7 +491,7 @@ bool run_phase_local_metrics(
           }
           const float q = clip3(local_quality_scores[fi][ti]);
           local_metrics[fi][ti].quality_score = q;
-          local_weights[fi][ti] = std::exp(q);
+          local_weights[fi][ti] = std::exp(cfg.local_metrics.k_local * q);
         }
       }
 
@@ -477,6 +527,12 @@ bool run_phase_local_metrics(
           cfg.local_metrics.spatial_regularization.lambda;
       artifact["spatial_regularization_passes"] =
           cfg.local_metrics.spatial_regularization.passes;
+      artifact["spatial_regularization_tau_local"] =
+          cfg.local_metrics.spatial_regularization.tau_local;
+      artifact["tile_star_support_blend"] = core::json::array();
+      for (float eta : tile_star_support_blend) {
+        artifact["tile_star_support_blend"].push_back(eta);
+      }
       artifact["spatial_regularization_tile_edge_count"] =
           static_cast<uint64_t>(local_weight_regularization_summary.tile_edge_count);
       artifact["spatial_regularization_adjusted_entries"] =

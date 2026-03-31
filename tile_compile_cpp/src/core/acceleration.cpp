@@ -174,11 +174,76 @@ cv::Mat warp_matrix_to_cv(const WarpMatrix &warp) {
   return warp_matrix;
 }
 
+cv::Mat make_host_finite_mask(const Matrix2Df &matrix) {
+  cv::Mat mask(static_cast<int>(matrix.rows()), static_cast<int>(matrix.cols()),
+               CV_8U, cv::Scalar(0));
+  for (int y = 0; y < mask.rows; ++y) {
+    uchar *mask_row = mask.ptr<uchar>(y);
+    for (int x = 0; x < mask.cols; ++x) {
+      if (std::isfinite(matrix(y, x))) {
+        mask_row[x] = 255;
+      }
+    }
+  }
+  return mask;
+}
+
+void write_valid_outputs_from_mask(const cv::Mat &mask,
+                                   std::vector<uint8_t> *valid_mask_out,
+                                   bool *has_data_out) {
+  if (valid_mask_out == nullptr && has_data_out == nullptr) {
+    return;
+  }
+
+  const int rows = std::max(0, mask.rows);
+  const int cols = std::max(0, mask.cols);
+  const size_t pixel_count =
+      static_cast<size_t>(rows) * static_cast<size_t>(cols);
+  if (valid_mask_out != nullptr) {
+    valid_mask_out->assign(pixel_count, 0u);
+  }
+
+  bool has_data = false;
+  for (int y = 0; y < rows; ++y) {
+    const uchar *row = mask.ptr<uchar>(y);
+    const size_t row_off = static_cast<size_t>(y) * static_cast<size_t>(cols);
+    for (int x = 0; x < cols; ++x) {
+      if (row[x] == 0) {
+        continue;
+      }
+      has_data = true;
+      if (valid_mask_out != nullptr) {
+        (*valid_mask_out)[row_off + static_cast<size_t>(x)] = 1u;
+      }
+    }
+  }
+
+  if (has_data_out != nullptr) {
+    *has_data_out = has_data;
+  }
+}
+
+bool build_warped_support_mask(const cv::Mat &warp_matrix, int src_rows,
+                               int src_cols, cv::Size output_size,
+                               cv::Mat &support_mask) {
+  if (src_rows <= 0 || src_cols <= 0 || output_size.width <= 0 ||
+      output_size.height <= 0) {
+    support_mask.release();
+    return false;
+  }
+
+  cv::Mat ones(src_rows, src_cols, CV_32F, cv::Scalar(1.0f));
+  cv::Mat warped_support;
+  cv::warpAffine(ones, warped_support, warp_matrix, output_size,
+                 cv::INTER_NEAREST | cv::WARP_INVERSE_MAP,
+                 cv::BORDER_CONSTANT, cv::Scalar(0.0f));
+  cv::compare(warped_support, 0.5f, support_mask, cv::CMP_GT);
+  return !support_mask.empty();
+}
+
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_WARPING
 bool cuda_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
-                           cv::Size output_size, cv::Mat &dst,
-                           cv::Mat *valid_mask_host = nullptr,
-                           int *nonzero_count = nullptr) {
+                           cv::Size output_size, cv::Mat &dst) {
   try {
     cv::cuda::GpuMat d_src;
     cv::cuda::GpuMat d_dst;
@@ -186,21 +251,6 @@ bool cuda_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
     cv::cuda::warpAffine(d_src, d_dst, warp_matrix, output_size,
                          cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
                          cv::BORDER_CONSTANT, cv::Scalar(0));
-#if TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
-    if (valid_mask_host != nullptr || nonzero_count != nullptr) {
-      cv::cuda::GpuMat d_mask;
-      cv::cuda::compare(d_dst, 0.0f, d_mask, cv::CMP_GT);
-      if (nonzero_count != nullptr) {
-        *nonzero_count = cv::cuda::countNonZero(d_mask);
-      }
-      if (valid_mask_host != nullptr) {
-        d_mask.download(*valid_mask_host);
-      }
-    }
-#else
-    (void)valid_mask_host;
-    (void)nonzero_count;
-#endif
     d_dst.download(dst);
     return !dst.empty();
   } catch (...) {
@@ -275,28 +325,13 @@ bool cuda_warp_cfa_mosaic(const Matrix2Df &mosaic, const WarpMatrix &warp,
 #if TILE_COMPILE_HAS_OPENCV_OPENCL
 bool opencl_warp_affine_impl_locked(const cv::Mat &src,
                                     const cv::Mat &warp_matrix,
-                                    cv::Size output_size, cv::Mat &dst,
-                                    cv::Mat *valid_mask_host = nullptr,
-                                    int *nonzero_count = nullptr) {
+                                    cv::Size output_size, cv::Mat &dst) {
   cv::UMat u_src;
   src.copyTo(u_src);
   cv::UMat u_dst;
   cv::warpAffine(u_src, u_dst, warp_matrix, output_size,
                  cv::INTER_LINEAR | cv::WARP_INVERSE_MAP,
                  cv::BORDER_CONSTANT, cv::Scalar(0));
-
-  if (valid_mask_host != nullptr || nonzero_count != nullptr) {
-    cv::UMat u_mask;
-    cv::compare(u_dst, 0.0f, u_mask, cv::CMP_GT);
-    cv::Mat host_mask;
-    u_mask.copyTo(host_mask);
-    if (nonzero_count != nullptr) {
-      *nonzero_count = cv::countNonZero(host_mask);
-    }
-    if (valid_mask_host != nullptr) {
-      *valid_mask_host = std::move(host_mask);
-    }
-  }
 
   cv::Mat host_dst;
   u_dst.copyTo(host_dst);
@@ -305,13 +340,10 @@ bool opencl_warp_affine_impl_locked(const cv::Mat &src,
 }
 
 bool opencl_warp_affine_impl(const cv::Mat &src, const cv::Mat &warp_matrix,
-                             cv::Size output_size, cv::Mat &dst,
-                             cv::Mat *valid_mask_host = nullptr,
-                             int *nonzero_count = nullptr) {
+                             cv::Size output_size, cv::Mat &dst) {
   std::lock_guard<std::mutex> lock(opencl_api_mutex());
   try {
-    return opencl_warp_affine_impl_locked(src, warp_matrix, output_size, dst,
-                                          valid_mask_host, nonzero_count);
+    return opencl_warp_affine_impl_locked(src, warp_matrix, output_size, dst);
   } catch (...) {
     return false;
   }
@@ -460,8 +492,9 @@ bool opencl_sigma_clip_weighted_tile_impl(
         host_view.copyTo(gpu_tile);
         gpu_tiles.push_back(gpu_tile);
 
+        cv::Mat valid_mask_host = make_host_finite_mask(tile);
         cv::UMat valid_mask;
-        cv::compare(gpu_tiles.back(), 0.0f, valid_mask, cv::CMP_GT);
+        valid_mask_host.copyTo(valid_mask);
         valid_masks.push_back(valid_mask.clone());
         keep_masks.push_back(valid_mask.clone());
 
@@ -551,16 +584,22 @@ bool opencl_sigma_clip_weighted_tile_impl(
           cv::divide(var_num, denom_safe, var);
           cv::max(var, zeros, var);
 
-          cv::UMat kept_gt_one_mask;
-          cv::compare(valid_count, 1.0f, kept_gt_one_mask, cv::CMP_GT);
+          cv::UMat wsum_sq;
+          cv::multiply(wsum, wsum, wsum_sq);
+          cv::UMat wsum2_safe;
+          cv::max(wsum2, eps, wsum2_safe);
+          cv::UMat n_eff;
+          cv::divide(wsum_sq, wsum2_safe, n_eff);
+          cv::UMat neff_mask;
+          cv::compare(n_eff, 2.0f + 1.0e-6f, neff_mask, cv::CMP_GT);
           cv::UMat denom_positive_mask;
-          cv::compare(denom, 0.0f, denom_positive_mask, cv::CMP_GT);
+          cv::compare(denom, 1.0e-12f, denom_positive_mask, cv::CMP_GT);
           cv::UMat sd;
           cv::sqrt(var, sd);
           cv::UMat sd_positive_mask;
           cv::compare(sd, 0.0f, sd_positive_mask, cv::CMP_GT);
           cv::UMat can_continue;
-          cv::bitwise_and(kept_gt_one_mask, denom_positive_mask, can_continue);
+          cv::bitwise_and(neff_mask, denom_positive_mask, can_continue);
           cv::bitwise_and(can_continue, sd_positive_mask, can_continue);
 
           cv::UMat sigma_low_sd;
@@ -597,19 +636,20 @@ bool opencl_sigma_clip_weighted_tile_impl(
           cv::compare(new_valid_count, min_keep, meets_min, cv::CMP_GE);
           cv::UMat update_mask;
           cv::bitwise_and(active_mask, can_continue, update_mask);
+          cv::UMat apply_new_keep;
+          cv::bitwise_and(update_mask, meets_min, apply_new_keep);
           cv::UMat next_active;
-          cv::bitwise_and(update_mask, meets_min, next_active);
+          apply_new_keep.copyTo(next_active);
 
-          cv::UMat update_mask_inv;
-          cv::bitwise_not(update_mask, update_mask_inv);
+          cv::UMat apply_new_keep_inv;
+          cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
           for (size_t i = 0; i < keep_masks.size(); ++i) {
           cv::UMat old_region;
           cv::UMat new_region;
-          cv::bitwise_and(keep_masks[i], update_mask_inv, old_region);
-          cv::bitwise_and(new_keep_masks[i], update_mask, new_region);
+          cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
+          cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
           cv::bitwise_or(old_region, new_region, keep_masks[i]);
         }
-          valid_count = new_valid_count;
           active_mask = next_active;
         }
       }
@@ -715,8 +755,9 @@ bool opencl_sigma_clip_stack_impl(
         host_view.copyTo(gpu_frame);
         gpu_frames.push_back(gpu_frame);
 
+        cv::Mat valid_mask_host = make_host_finite_mask(frame);
         cv::UMat valid_mask;
-        cv::compare(gpu_frames.back(), 0.0f, valid_mask, cv::CMP_GT);
+        valid_mask_host.copyTo(valid_mask);
         keep_masks.push_back(valid_mask.clone());
 
         cv::UMat valid_mask_f32;
@@ -842,16 +883,18 @@ bool opencl_sigma_clip_stack_impl(
         cv::compare(new_count, min_keep, meets_min, cv::CMP_GE);
         cv::UMat update_mask;
         cv::bitwise_and(active_mask, can_continue, update_mask);
+        cv::UMat apply_new_keep;
+        cv::bitwise_and(update_mask, meets_min, apply_new_keep);
         cv::UMat next_active;
-        cv::bitwise_and(update_mask, meets_min, next_active);
+        apply_new_keep.copyTo(next_active);
 
-        cv::UMat update_mask_inv;
-        cv::bitwise_not(update_mask, update_mask_inv);
+        cv::UMat apply_new_keep_inv;
+        cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
         for (size_t i = 0; i < keep_masks.size(); ++i) {
           cv::UMat old_region;
           cv::UMat new_region;
-          cv::bitwise_and(keep_masks[i], update_mask_inv, old_region);
-          cv::bitwise_and(new_keep_masks[i], update_mask, new_region);
+          cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
+          cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
           cv::bitwise_or(old_region, new_region, keep_masks[i]);
         }
         active_mask = next_active;
@@ -961,8 +1004,9 @@ bool cuda_sigma_clip_weighted_tile_impl(
       gpu_tile.upload(host_view);
       gpu_tiles.push_back(gpu_tile);
 
+      cv::Mat valid_mask_host = make_host_finite_mask(tile);
       cv::cuda::GpuMat valid_mask;
-      cv::cuda::compare(gpu_tiles.back(), 0.0f, valid_mask, cv::CMP_GT);
+      valid_mask.upload(valid_mask_host);
       valid_masks.push_back(valid_mask.clone());
       keep_masks.push_back(valid_mask.clone());
 
@@ -1054,17 +1098,22 @@ bool cuda_sigma_clip_weighted_tile_impl(
         cv::cuda::divide(var_num, denom_safe, var);
         cv::cuda::max(var, zeros, var);
 
-        cv::cuda::GpuMat kept_gt_one_mask;
-        cv::cuda::compare(valid_count, 1.0f, kept_gt_one_mask, cv::CMP_GT);
+        cv::cuda::GpuMat wsum_sq;
+        cv::cuda::multiply(wsum, wsum, wsum_sq);
+        cv::cuda::GpuMat wsum2_safe;
+        cv::cuda::max(wsum2, eps, wsum2_safe);
+        cv::cuda::GpuMat n_eff;
+        cv::cuda::divide(wsum_sq, wsum2_safe, n_eff);
+        cv::cuda::GpuMat neff_mask;
+        cv::cuda::compare(n_eff, 2.0f + 1.0e-6f, neff_mask, cv::CMP_GT);
         cv::cuda::GpuMat denom_positive_mask;
-        cv::cuda::compare(denom, 0.0f, denom_positive_mask, cv::CMP_GT);
+        cv::cuda::compare(denom, 1.0e-12f, denom_positive_mask, cv::CMP_GT);
         cv::cuda::GpuMat sd;
         cv::cuda::sqrt(var, sd);
         cv::cuda::GpuMat sd_positive_mask;
         cv::cuda::compare(sd, 0.0f, sd_positive_mask, cv::CMP_GT);
         cv::cuda::GpuMat can_continue;
-        cv::cuda::bitwise_and(kept_gt_one_mask, denom_positive_mask,
-                              can_continue);
+        cv::cuda::bitwise_and(neff_mask, denom_positive_mask, can_continue);
         cv::cuda::bitwise_and(can_continue, sd_positive_mask, can_continue);
 
         cv::cuda::GpuMat sigma_low_sd;
@@ -1101,19 +1150,20 @@ bool cuda_sigma_clip_weighted_tile_impl(
         cv::cuda::compare(new_valid_count, min_keep, meets_min, cv::CMP_GE);
         cv::cuda::GpuMat update_mask;
         cv::cuda::bitwise_and(active_mask, can_continue, update_mask);
+        cv::cuda::GpuMat apply_new_keep;
+        cv::cuda::bitwise_and(update_mask, meets_min, apply_new_keep);
         cv::cuda::GpuMat next_active;
-        cv::cuda::bitwise_and(update_mask, meets_min, next_active);
+        apply_new_keep.copyTo(next_active);
 
-        cv::cuda::GpuMat update_mask_inv;
-        cv::cuda::bitwise_not(update_mask, update_mask_inv);
+        cv::cuda::GpuMat apply_new_keep_inv;
+        cv::cuda::bitwise_not(apply_new_keep, apply_new_keep_inv);
         for (size_t i = 0; i < keep_masks.size(); ++i) {
           cv::cuda::GpuMat old_region;
           cv::cuda::GpuMat new_region;
-          cv::cuda::bitwise_and(keep_masks[i], update_mask_inv, old_region);
-          cv::cuda::bitwise_and(new_keep_masks[i], update_mask, new_region);
+          cv::cuda::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
+          cv::cuda::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
           cv::cuda::bitwise_or(old_region, new_region, keep_masks[i]);
         }
-        valid_count = new_valid_count;
         active_mask = next_active;
       }
     }
@@ -1215,8 +1265,9 @@ bool cuda_sigma_clip_stack_impl(
       gpu_frame.upload(host_view);
       gpu_frames.push_back(gpu_frame);
 
+      cv::Mat valid_mask_host = make_host_finite_mask(frame);
       cv::cuda::GpuMat valid_mask;
-      cv::cuda::compare(gpu_frames.back(), 0.0f, valid_mask, cv::CMP_GT);
+      valid_mask.upload(valid_mask_host);
       keep_masks.push_back(valid_mask.clone());
 
       cv::cuda::GpuMat valid_mask_f32;
@@ -1343,16 +1394,18 @@ bool cuda_sigma_clip_stack_impl(
       cv::cuda::compare(new_count, min_keep, meets_min, cv::CMP_GE);
       cv::cuda::GpuMat update_mask;
       cv::cuda::bitwise_and(active_mask, can_continue, update_mask);
+      cv::cuda::GpuMat apply_new_keep;
+      cv::cuda::bitwise_and(update_mask, meets_min, apply_new_keep);
       cv::cuda::GpuMat next_active;
-      cv::cuda::bitwise_and(update_mask, meets_min, next_active);
+      apply_new_keep.copyTo(next_active);
 
-      cv::cuda::GpuMat update_mask_inv;
-      cv::cuda::bitwise_not(update_mask, update_mask_inv);
+      cv::cuda::GpuMat apply_new_keep_inv;
+      cv::cuda::bitwise_not(apply_new_keep, apply_new_keep_inv);
       for (size_t i = 0; i < keep_masks.size(); ++i) {
         cv::cuda::GpuMat old_region;
         cv::cuda::GpuMat new_region;
-        cv::cuda::bitwise_and(keep_masks[i], update_mask_inv, old_region);
-        cv::cuda::bitwise_and(new_keep_masks[i], update_mask, new_region);
+        cv::cuda::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
+        cv::cuda::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
         cv::cuda::bitwise_or(old_region, new_region, keep_masks[i]);
       }
       active_mask = next_active;
@@ -1665,27 +1718,28 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
                                         int offset_y, Matrix2Df &warped_out,
                                         std::vector<uint8_t> *valid_mask_out,
                                         bool *has_data_out) const {
-  auto update_valid_outputs = [&](const Matrix2Df &matrix) {
-    if (valid_mask_out == nullptr && has_data_out == nullptr) {
-      return;
+  auto update_valid_outputs_from_rect = [&](int dst_y, int dst_x, int copy_h,
+                                            int copy_w) {
+    cv::Mat mask(canvas_height, canvas_width, CV_8U, cv::Scalar(0));
+    if (copy_h > 0 && copy_w > 0 && dst_y >= 0 && dst_x >= 0 &&
+        (dst_y + copy_h) <= canvas_height &&
+        (dst_x + copy_w) <= canvas_width) {
+      mask(cv::Rect(dst_x, dst_y, copy_w, copy_h)).setTo(cv::Scalar(255));
     }
-    const size_t pixel_count =
-        static_cast<size_t>(std::max<Eigen::Index>(0, matrix.size()));
-    if (valid_mask_out != nullptr) {
-      valid_mask_out->assign(pixel_count, 0u);
+    write_valid_outputs_from_mask(mask, valid_mask_out, has_data_out);
+  };
+
+  auto update_valid_outputs_from_warp = [&](int src_height,
+                                            int src_width) {
+    cv::Mat support_mask;
+    if (!build_warped_support_mask(warp_matrix_to_cv(warp), src_height,
+                                   src_width,
+                                   cv::Size(canvas_width, canvas_height),
+                                   support_mask)) {
+      support_mask = cv::Mat(canvas_height, canvas_width, CV_8U,
+                             cv::Scalar(0));
     }
-    bool has_data = false;
-    for (size_t i = 0; i < pixel_count; ++i) {
-      if (matrix.data()[static_cast<Eigen::Index>(i)] > 0.0f) {
-        has_data = true;
-        if (valid_mask_out != nullptr) {
-          (*valid_mask_out)[i] = 1u;
-        }
-      }
-    }
-    if (has_data_out != nullptr) {
-      *has_data_out = has_data;
-    }
+    write_valid_outputs_from_mask(support_mask, valid_mask_out, has_data_out);
   };
 
   if (img.size() <= 0) {
@@ -1702,20 +1756,26 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
   const int src_height = static_cast<int>(img.rows());
   const int src_width = static_cast<int>(img.cols());
   if (warp_is_identity(warp)) {
+    int dst_y = 0;
+    int dst_x = 0;
+    int copy_h = src_height;
+    int copy_w = src_width;
     if (canvas_width > src_width || canvas_height > src_height) {
       warped_out = Matrix2Df::Zero(canvas_height, canvas_width);
-      const int dst_y = std::max(0, offset_y);
-      const int dst_x = std::max(0, offset_x);
-      const int copy_h = std::min(src_height, canvas_height - dst_y);
-      const int copy_w = std::min(src_width, canvas_width - dst_x);
+      dst_y = std::max(0, offset_y);
+      dst_x = std::max(0, offset_x);
+      copy_h = std::min(src_height, canvas_height - dst_y);
+      copy_w = std::min(src_width, canvas_width - dst_x);
       if (copy_h > 0 && copy_w > 0) {
         warped_out.block(dst_y, dst_x, copy_h, copy_w) =
             img.block(0, 0, copy_h, copy_w);
       }
     } else {
       warped_out = std::move(img);
+      copy_h = std::min(src_height, canvas_height);
+      copy_w = std::min(src_width, canvas_width);
     }
-    update_valid_outputs(warped_out);
+    update_valid_outputs_from_rect(dst_y, dst_x, copy_h, copy_w);
     return warped_out.size() > 0;
   }
 
@@ -1725,7 +1785,7 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
     if (mode == ColorMode::OSC) {
       if (cuda_warp_cfa_mosaic(img, warp, canvas_height, canvas_width,
                                warped_out)) {
-        update_valid_outputs(warped_out);
+        update_valid_outputs_from_warp(src_height, src_width);
         return true;
       }
     } else {
@@ -1733,36 +1793,12 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
                         CV_32F, const_cast<float *>(img.data()));
       const cv::Mat warp_matrix = warp_matrix_to_cv(warp);
       cv::Mat dst;
-      cv::Mat valid_mask_host;
-      int nonzero_count = -1;
       if (cuda_warp_affine_impl(src, warp_matrix,
-                                cv::Size(canvas_width, canvas_height), dst,
-                                (valid_mask_out != nullptr) ? &valid_mask_host
-                                                            : nullptr,
-                                (has_data_out != nullptr) ? &nonzero_count
-                                                          : nullptr)) {
+                                cv::Size(canvas_width, canvas_height), dst)) {
         warped_out.resize(canvas_height, canvas_width);
         std::memcpy(warped_out.data(), dst.data,
                     static_cast<size_t>(warped_out.size()) * sizeof(float));
-        if (valid_mask_out != nullptr) {
-          valid_mask_out->assign(static_cast<size_t>(canvas_height) *
-                                     static_cast<size_t>(canvas_width),
-                                 0u);
-          if (!valid_mask_host.empty()) {
-            for (int y = 0; y < valid_mask_host.rows; ++y) {
-              const uchar *row = valid_mask_host.ptr<uchar>(y);
-              for (int x = 0; x < valid_mask_host.cols; ++x) {
-                (*valid_mask_out)[static_cast<size_t>(y) *
-                                      static_cast<size_t>(canvas_width) +
-                                  static_cast<size_t>(x)] =
-                    (row[x] != 0) ? 1u : 0u;
-              }
-            }
-          }
-        }
-        if (has_data_out != nullptr) {
-          *has_data_out = nonzero_count > 0;
-        }
+        update_valid_outputs_from_warp(src_height, src_width);
         return true;
       }
     }
@@ -1775,7 +1811,7 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
     if (mode == ColorMode::OSC) {
       if (opencl_warp_cfa_mosaic(img, warp, canvas_height, canvas_width,
                                  warped_out)) {
-        update_valid_outputs(warped_out);
+        update_valid_outputs_from_warp(src_height, src_width);
         return true;
       }
     } else {
@@ -1783,36 +1819,12 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
                         CV_32F, const_cast<float *>(img.data()));
       const cv::Mat warp_matrix = warp_matrix_to_cv(warp);
       cv::Mat dst;
-      cv::Mat valid_mask_host;
-      int nonzero_count = -1;
       if (opencl_warp_affine_impl(src, warp_matrix,
-                                  cv::Size(canvas_width, canvas_height), dst,
-                                  (valid_mask_out != nullptr) ? &valid_mask_host
-                                                              : nullptr,
-                                  (has_data_out != nullptr) ? &nonzero_count
-                                                            : nullptr)) {
+                                  cv::Size(canvas_width, canvas_height), dst)) {
         warped_out.resize(canvas_height, canvas_width);
         std::memcpy(warped_out.data(), dst.data,
                     static_cast<size_t>(warped_out.size()) * sizeof(float));
-        if (valid_mask_out != nullptr) {
-          valid_mask_out->assign(static_cast<size_t>(canvas_height) *
-                                     static_cast<size_t>(canvas_width),
-                                 0u);
-          if (!valid_mask_host.empty()) {
-            for (int y = 0; y < valid_mask_host.rows; ++y) {
-              const uchar *row = valid_mask_host.ptr<uchar>(y);
-              for (int x = 0; x < valid_mask_host.cols; ++x) {
-                (*valid_mask_out)[static_cast<size_t>(y) *
-                                      static_cast<size_t>(canvas_width) +
-                                  static_cast<size_t>(x)] =
-                    (row[x] != 0) ? 1u : 0u;
-              }
-            }
-          }
-        }
-        if (has_data_out != nullptr) {
-          *has_data_out = nonzero_count > 0;
-        }
+        update_valid_outputs_from_warp(src_height, src_width);
         return true;
       }
     }
@@ -1821,7 +1833,7 @@ bool AccelerationOps::warp_affine_frame(Matrix2Df img, const WarpMatrix &warp,
 
   warped_out =
       image::apply_global_warp(img, warp, mode, canvas_height, canvas_width);
-  update_valid_outputs(warped_out);
+  update_valid_outputs_from_warp(src_height, src_width);
   return warped_out.size() > 0;
 }
 
@@ -1945,7 +1957,7 @@ void AccelerationOps::overlap_add(
           continue;
         }
         const float tile_value = tile(yy, xx);
-        if (!(std::isfinite(tile_value) && tile_value > 0.0f)) {
+        if (!std::isfinite(tile_value)) {
           continue;
         }
         const float win =
@@ -2038,7 +2050,7 @@ void AccelerationOps::overlap_add(
           continue;
         }
         const float tile_value = tile(yy, xx);
-        if (!(std::isfinite(tile_value) && tile_value > 0.0f)) {
+        if (!std::isfinite(tile_value)) {
           continue;
         }
         const float win =
@@ -2111,7 +2123,7 @@ void AccelerationOps::overlap_add(
         continue;
       }
       const float tile_value = tile(yy, xx);
-      if (!(std::isfinite(tile_value) && tile_value > 0.0f)) {
+      if (!std::isfinite(tile_value)) {
         continue;
       }
       const float win =

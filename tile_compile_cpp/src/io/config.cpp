@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -11,6 +12,8 @@
 namespace tile_compile::config {
 
 namespace {
+
+namespace fs = std::filesystem;
 
 bool is_between_0_1(float v) { return v >= 0.0f && v <= 1.0f; }
 
@@ -412,6 +415,10 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.tile.overlap_fraction = t["overlap_fraction"].as<float>();
     if (t["star_min_count"])
       cfg.tile.star_min_count = t["star_min_count"].as<int>();
+    if (t["star_soft_count"])
+      cfg.tile.star_soft_count = t["star_soft_count"].as<int>();
+    else
+      cfg.tile.star_soft_count = cfg.tile.star_min_count;
   }
 
   if (node["local_metrics"]) {
@@ -440,6 +447,9 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (sr["passes"])
         cfg.local_metrics.spatial_regularization.passes =
             sr["passes"].as<int>();
+      if (sr["tau_local"])
+        cfg.local_metrics.spatial_regularization.tau_local =
+            sr["tau_local"].as<float>();
     }
     if (lm["star_mode"] && lm["star_mode"]["weights"]) {
       auto w = lm["star_mode"]["weights"];
@@ -461,6 +471,8 @@ Config Config::from_yaml(const YAML::Node &node) {
         cfg.local_metrics.structure_mode.metric_weight =
             sm["metric_weight"].as<float>();
     }
+    if (lm["k_local"])
+      cfg.local_metrics.k_local = lm["k_local"].as<float>();
   }
 
   if (node["synthetic"]) {
@@ -479,9 +491,6 @@ Config Config::from_yaml(const YAML::Node &node) {
                     cfg.synthetic.clustering.cluster_count_range);
     }
   }
-
-  if (node["debayer"])
-    cfg.debayer = node["debayer"].as<bool>();
 
   if (node["astrometry"]) {
     auto a = node["astrometry"];
@@ -571,6 +580,9 @@ Config Config::from_yaml(const YAML::Node &node) {
       if (a["strategy"])
         cfg.bge.autotune.strategy = a["strategy"].as<std::string>();
     }
+    if (b["tile_weight_lambda_structure"])
+      cfg.bge.tile_weight_lambda_structure =
+          b["tile_weight_lambda_structure"].as<float>();
   }
 
   if (node["pcc"]) {
@@ -618,12 +630,21 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.pcc.chroma_strength = p["chroma_strength"].as<float>();
     if (p["k_max"])
       cfg.pcc.k_max = p["k_max"].as<float>();
+    if (p["background_neutralization_mode"])
+      cfg.pcc.background_neutralization_mode =
+          p["background_neutralization_mode"].as<std::string>();
   }
 
   if (node["stacking"]) {
     auto st = node["stacking"];
     if (st["method"])
       cfg.stacking.method = st["method"].as<std::string>();
+    if (st["common_overlap_required_fraction"])
+      cfg.stacking.common_overlap_required_fraction =
+          st["common_overlap_required_fraction"].as<float>();
+    if (st["tile_common_valid_min_fraction"])
+      cfg.stacking.tile_common_valid_min_fraction =
+          st["tile_common_valid_min_fraction"].as<float>();
     if (st["sigma_clip"]) {
       auto sc = st["sigma_clip"];
       if (sc["sigma_low"])
@@ -849,6 +870,7 @@ YAML::Node Config::to_yaml() const {
   node["tile"]["max_divisor"] = tile.max_divisor;
   node["tile"]["overlap_fraction"] = tile.overlap_fraction;
   node["tile"]["star_min_count"] = tile.star_min_count;
+  node["tile"]["star_soft_count"] = tile.star_soft_count;
 
   node["local_metrics"]["clamp"].push_back(local_metrics.clamp[0]);
   node["local_metrics"]["clamp"].push_back(local_metrics.clamp[1]);
@@ -864,6 +886,8 @@ YAML::Node Config::to_yaml() const {
       local_metrics.spatial_regularization.lambda;
   node["local_metrics"]["spatial_regularization"]["passes"] =
       local_metrics.spatial_regularization.passes;
+  node["local_metrics"]["spatial_regularization"]["tau_local"] =
+      local_metrics.spatial_regularization.tau_local;
   node["local_metrics"]["star_mode"]["weights"]["fwhm"] =
       local_metrics.star_mode.weights.fwhm;
   node["local_metrics"]["star_mode"]["weights"]["roundness"] =
@@ -883,8 +907,6 @@ YAML::Node Config::to_yaml() const {
       synthetic.clustering.cluster_count_range[0]);
   node["synthetic"]["clustering"]["cluster_count_range"].push_back(
       synthetic.clustering.cluster_count_range[1]);
-
-  node["debayer"] = debayer;
 
   node["astrometry"]["enabled"] = astrometry.enabled;
   node["astrometry"]["astap_bin"] = astrometry.astap_bin;
@@ -943,8 +965,14 @@ YAML::Node Config::to_yaml() const {
   node["pcc"]["apply_attenuation"] = pcc.apply_attenuation;
   node["pcc"]["chroma_strength"] = pcc.chroma_strength;
   node["pcc"]["k_max"] = pcc.k_max;
+  node["pcc"]["background_neutralization_mode"] =
+      pcc.background_neutralization_mode;
 
   node["stacking"]["method"] = stacking.method;
+  node["stacking"]["common_overlap_required_fraction"] =
+      stacking.common_overlap_required_fraction;
+  node["stacking"]["tile_common_valid_min_fraction"] =
+      stacking.tile_common_valid_min_fraction;
   node["stacking"]["sigma_clip"]["sigma_low"] = stacking.sigma_clip.sigma_low;
   node["stacking"]["sigma_clip"]["sigma_high"] = stacking.sigma_clip.sigma_high;
   node["stacking"]["sigma_clip"]["max_iters"] = stacking.sigma_clip.max_iters;
@@ -1015,6 +1043,30 @@ void Config::validate() const {
       linearity.strictness != "permissive") {
     throw ValidationError(
         "linearity.strictness must be 'strict', 'moderate', or 'permissive'");
+  }
+
+  if (calibration.dark_match_exposure_tolerance_percent < 0.0f) {
+    throw ValidationError(
+        "calibration.dark_match_exposure_tolerance_percent must be >= 0");
+  }
+  if (calibration.dark_match_temp_tolerance_c < 0.0f) {
+    throw ValidationError(
+        "calibration.dark_match_temp_tolerance_c must be >= 0");
+  }
+  if (calibration.use_bias && calibration.bias_dir.empty() &&
+      calibration.bias_master.empty()) {
+    throw ValidationError(
+        "calibration.use_bias requires calibration.bias_dir or calibration.bias_master");
+  }
+  if (calibration.use_dark && calibration.darks_dir.empty() &&
+      calibration.dark_master.empty()) {
+    throw ValidationError(
+        "calibration.use_dark requires calibration.darks_dir or calibration.dark_master");
+  }
+  if (calibration.use_flat && calibration.flats_dir.empty() &&
+      calibration.flat_master.empty()) {
+    throw ValidationError(
+        "calibration.use_flat requires calibration.flats_dir or calibration.flat_master");
   }
 
   if (assumptions.frames_min < 1)
@@ -1109,9 +1161,10 @@ void Config::validate() const {
         "chroma_denoise.color_space must be 'ycbcr_linear' or 'opponent_linear'");
   }
   if (chroma_denoise.apply_stage != "pre_stack_tiles" &&
-      chroma_denoise.apply_stage != "post_stack_linear") {
+      chroma_denoise.apply_stage != "post_stack_linear" &&
+      chroma_denoise.apply_stage != "post_pcc") {
     throw ValidationError(
-        "chroma_denoise.apply_stage must be 'pre_stack_tiles' or 'post_stack_linear'");
+        "chroma_denoise.apply_stage must be 'pre_stack_tiles', 'post_stack_linear' or 'post_pcc'");
   }
   if (!is_between_0_1(chroma_denoise.luma_guard_strength)) {
     throw ValidationError("chroma_denoise.luma_guard_strength must be in [0,1]");
@@ -1185,6 +1238,8 @@ void Config::validate() const {
   }
   if (tile.star_min_count < 0)
     throw ValidationError("tile.star_min_count must be >= 0");
+  if (tile.star_soft_count < 0)
+    throw ValidationError("tile.star_soft_count must be >= 0");
 
   if (local_metrics.clamp[0] >= local_metrics.clamp[1]) {
     throw ValidationError(
@@ -1208,6 +1263,10 @@ void Config::validate() const {
     throw ValidationError(
         "local_metrics.spatial_regularization.passes must be >= 0");
   }
+  if (local_metrics.spatial_regularization.tau_local <= 0.0f) {
+    throw ValidationError(
+        "local_metrics.spatial_regularization.tau_local must be > 0");
+  }
   check_weight_sum(local_metrics.star_mode.weights.fwhm,
                    local_metrics.star_mode.weights.roundness,
                    local_metrics.star_mode.weights.contrast,
@@ -1216,6 +1275,15 @@ void Config::validate() const {
                 local_metrics.structure_mode.metric_weight - 1.0f) > 1.0e-3f) {
     throw ValidationError(
         "local_metrics.structure_mode weights must sum to 1.0");
+  }
+  if (local_metrics.k_local <= 0.0f) {
+    throw ValidationError("local_metrics.k_local must be > 0");
+  }
+
+  if (assumptions.frames_reduced_threshold < assumptions.frames_min) {
+    throw ValidationError(
+        "assumptions.frames_reduced_threshold must be >= assumptions.frames_min "
+        "(i.e. N_red >= frames_min, enforcing N >= max(N_red, frames_min) for clustering)");
   }
 
   if (synthetic.clustering.cluster_count_range[0] < 1 ||
@@ -1240,6 +1308,9 @@ void Config::validate() const {
     throw ValidationError("synthetic.frames_max must be >= frames_min");
   }
 
+  if (bge.tile_weight_lambda_structure <= 0.0f) {
+    throw ValidationError("bge.tile_weight_lambda_structure must be > 0");
+  }
   if (bge.sample_quantile <= 0.0f || bge.sample_quantile > 0.5f) {
     throw ValidationError("bge.sample_quantile must be in (0,0.5]");
   }
@@ -1322,9 +1393,25 @@ void Config::validate() const {
   if (pcc.k_max <= 0.0f) {
     throw ValidationError("pcc.k_max must be > 0");
   }
+  if (pcc.background_neutralization_mode != "always" &&
+      pcc.background_neutralization_mode != "auto" &&
+      pcc.background_neutralization_mode != "off") {
+    throw ValidationError(
+        "pcc.background_neutralization_mode must be 'always', 'auto', or 'off'");
+  }
 
   if (stacking.method != "average" && stacking.method != "rej") {
     throw ValidationError("stacking.method must be 'average' or 'rej'");
+  }
+  if (!is_between_0_1(stacking.common_overlap_required_fraction) ||
+      stacking.common_overlap_required_fraction <= 0.0f) {
+    throw ValidationError(
+        "stacking.common_overlap_required_fraction must be in (0,1]");
+  }
+  if (!is_between_0_1(stacking.tile_common_valid_min_fraction) ||
+      stacking.tile_common_valid_min_fraction <= 0.0f) {
+    throw ValidationError(
+        "stacking.tile_common_valid_min_fraction must be in (0,1]");
   }
   if (stacking.sigma_clip.sigma_low <= 0.0f ||
       stacking.sigma_clip.sigma_high <= 0.0f) {
@@ -1371,6 +1458,26 @@ void Config::validate() const {
 }
 
 std::string get_schema_json() {
+  for (const fs::path &candidate : {
+           fs::path("tile_compile.schema.json"),
+           fs::path("tile_compile_cpp") / "tile_compile.schema.json",
+       }) {
+    std::error_code ec;
+    if (!fs::exists(candidate, ec) || ec) {
+      continue;
+    }
+    std::ifstream in(candidate);
+    if (!in) {
+      continue;
+    }
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    const std::string text = buffer.str();
+    if (!text.empty()) {
+      return text;
+    }
+  }
+
   return R"({
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "tile_compile v3 config",
@@ -1450,7 +1557,7 @@ std::string get_schema_json() {
     "chroma_denoise": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "color_space":{"type":"string","enum":["ycbcr_linear","opponent_linear"]},
-                      "apply_stage":{"type":"string","enum":["pre_stack_tiles","post_stack_linear"]},
+                      "apply_stage":{"type":"string","enum":["pre_stack_tiles","post_stack_linear","post_pcc"]},
                       "protect_luma":{"type":"boolean"},
                       "luma_guard_strength":{"type":"number","minimum":0,"maximum":1},
                       "star_protection":{"type":"object","properties":{
@@ -1482,11 +1589,12 @@ std::string get_schema_json() {
                       "min_size":{"type":"integer","minimum":1},
                       "max_divisor":{"type":"integer","minimum":1},
                       "overlap_fraction":{"type":"number","minimum":0,"maximum":0.5},
-                      "star_min_count":{"type":"integer","minimum":0} } },
+                      "star_min_count":{"type":"integer","minimum":0},
+                      "star_soft_count":{"type":"integer","minimum":0} } },
     "local_metrics": { "type":"object",
       "properties": { "clamp":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},
                       "neighborhood_normalization":{"type":"object","properties":{"enabled":{"type":"boolean"},"radius":{"type":"integer","minimum":0},"blend":{"type":"number","minimum":0,"maximum":1}}},
-                      "spatial_regularization":{"type":"object","properties":{"enabled":{"type":"boolean"},"lambda":{"type":"number","minimum":0,"maximum":1},"passes":{"type":"integer","minimum":0}}},
+                      "spatial_regularization":{"type":"object","properties":{"enabled":{"type":"boolean"},"lambda":{"type":"number","minimum":0,"maximum":1},"passes":{"type":"integer","minimum":0},"tau_local":{"type":"number","exclusiveMinimum":0}}},
                       "star_mode":{"type":"object","properties":{"weights":{"type":"object","properties":{"fwhm":{"type":"number","minimum":0,"maximum":1},"roundness":{"type":"number","minimum":0,"maximum":1},"contrast":{"type":"number","minimum":0,"maximum":1}}}}},
                       "structure_mode":{"type":"object","properties":{"background_weight":{"type":"number","minimum":0,"maximum":1},"metric_weight":{"type":"number","minimum":0,"maximum":1}}} } },
     "synthetic": { "type":"object",
@@ -1494,7 +1602,6 @@ std::string get_schema_json() {
                       "frames_min":{"type":"integer","minimum":1},
                       "frames_max":{"type":"integer","minimum":1},
                       "clustering":{"type":"object","properties":{"mode":{"type":"string","enum":["kmeans","quantile"]},"cluster_count_range":{"type":"array","items":{"type":"integer","minimum":1},"minItems":2,"maxItems":2}}} } },
-    "debayer": {"type":"boolean"},
     "astrometry": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "astap_bin":{"type":"string"},
@@ -1532,6 +1639,7 @@ std::string get_schema_json() {
                       "siril_catalog_dir":{"type":"string"},
                       "apply_attenuation":{"type":"boolean"},
                       "chroma_strength":{"type":"number","minimum":0,"maximum":1},
+                      "background_neutralization_mode":{"type":"string","enum":["always","auto","off"]},
                       "k_max":{"type":"number","exclusiveMinimum":0} } },
     "stacking": { "type":"object",
       "properties": { "method":{"type":"string","enum":["rej","average"]},
