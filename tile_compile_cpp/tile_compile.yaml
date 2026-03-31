@@ -64,20 +64,20 @@ calibration:
 chroma_denoise:
   apply_stage: post_stack_linear
   blend:
-    amount: 0.75
+    amount: 0.82
     mode: chroma_only
   chroma_bilateral:
     enabled: true
-    sigma_range: 0.06
+    sigma_range: 0.05
     sigma_spatial: 2
   chroma_wavelet:
     enabled: true
     levels: 4
-    soft_k: 1.1
-    threshold_scale: 1.6
+    soft_k: 1.2
+    threshold_scale: 1.9
   color_space: ycbcr_linear
   enabled: true
-  luma_guard_strength: 0.92
+  luma_guard_strength: 0.88
   protect_luma: true
   star_protection:
     dilate_px: 3
@@ -142,13 +142,13 @@ pcc:
   apply_attenuation: true
   background_model: plane
   background_neutralization_mode: auto
-  chroma_strength: 0.85
+  chroma_strength: 0.7
   enabled: true
   k_max: 2.4
   mag_bright_limit: 6
   mag_limit: 14
   max_condition_number: 3
-  max_residual_rms: 0.5
+  max_residual_rms: 0.9
   min_aperture_px: 4
   min_stars: 10
   radii_mode: auto_fwhm
@@ -229,18 +229,18 @@ tile:
   star_min_count: 5
 tile_denoise:
   soft_threshold:
-    alpha: 1.4
+    alpha: 1.55
     blur_kernel: 21
     enabled: true
     skip_star_tiles: true
   wiener:
     enabled: true
     max_iterations: 10
-    min_snr: 2
+    min_snr: 2.5
     q_max: 1
     q_min: -0.5
     q_step: 0.1
-    snr_threshold: 4
+    snr_threshold: 3.5
 validation:
   max_background_rms_increase_percent: 2
   min_fwhm_improvement_percent: 3

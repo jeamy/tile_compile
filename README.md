@@ -501,6 +501,10 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.B (2026-03-31)
+
+- Fixed the late PCC/output path semantics: `stacked_rgb.fits` remains the stacking output, successful `BGE`/`PCC` snapshots stay separated as `stacked_rgb_bge.fits` / `stacked_rgb_pcc.fits`, and `output_stretch` now uses only a pure linear `0..max -> 0..65535` scaling with obsolete nonlinear/quantile stretch code removed.
+
 ## v0.1.A (2026-03-29)
 
 - Stabilized the late RGB/PCC output path after the `v3.3.9` rollout: visible RGB stretching now preserves chroma instead of amplifying weak background channel offsets, PCC background neutralization gained the new `always|auto|off` control with a nebulosity-aware auto guard, and the new parameter was propagated through schema, docs, and all example configs.

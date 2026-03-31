@@ -511,6 +511,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.B (2026-03-31)
+
+- PCC-/Output-Pfad korrigiert: `stacked_rgb.fits` bleibt der reine Stacking-Output, erfolgreiche `BGE`-/`PCC`-Snapshots bleiben sauber getrennt als `stacked_rgb_bge.fits` / `stacked_rgb_pcc.fits`, und `output_stretch` verwendet jetzt ausschliesslich ein lineares `0..max -> 0..65535`-Scaling; obsoletter nichtlinearer/Quantil-Stretch-Code wurde entfernt.
+
 ## v0.1.A (2026-03-29)
 
 - Den spaeten RGB-/PCC-Ausgabepfad nach dem `v3.3.9`-Rollout stabilisiert: der sichtbare RGB-Stretch erhaelt jetzt die Chroma statt schwache Hintergrund-Kanalabweichungen aufzublasen, die PCC-Hintergrundneutralisierung besitzt nun die neue Steuerung `always|auto|off` mit einem nebelbewussten Auto-Guard, und der neue Parameter wurde in Schema, Doku und allen Beispielkonfigurationen nachgezogen.
