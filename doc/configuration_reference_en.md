@@ -1548,7 +1548,7 @@ Visible tile boundaries are instead analyzed through runtime artifacts written b
 | **Type** | boolean |
 | **Default** | `false` |
 
-**Purpose:** Optional output stretch for preview-style output.
+**Purpose:** Optional linear post-scaling of the output data from `0..max` to the full `0..65535` range.
 
 ### `stacking.cosmetic_correction`
 
@@ -1879,7 +1879,7 @@ This appendix provides a compact but explicit **runtime behavior** description f
 - `stacking.cluster_quality_weighting.cap_enabled`: explicit dominance cap toggle.
 - `stacking.cluster_quality_weighting.cap_ratio`: dominance cap level when enabled.
 - **Runtime safeguard:** for synthetic stacking, a default dominance cap is applied even when `cap_enabled=false` to avoid diffuse-signal collapse from a few dominant clusters.
-- `stacking.output_stretch`: optional display-oriented post-scale to 16-bit span.
+- `stacking.output_stretch`: optional linear post-scale of the output data to the full 16-bit range.
 - `stacking.cosmetic_correction`: optional hot-pixel style correction after stacking.
 - `stacking.cosmetic_correction_sigma`: detection threshold for cosmetic correction.
 - `validation.min_fwhm_improvement_percent`: required sharpness improvement check.

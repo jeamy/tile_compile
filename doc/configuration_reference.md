@@ -2143,7 +2143,7 @@ Sichtbare Tile-Grenzen werden stattdessen über Laufzeit-Artefakte aus `TILE_REC
 | **Typ** | boolean |
 | **Default** | `false` |
 
-**Zweck:** Optionales lineares Display-Stretching auf den Ausgabedaten (Post-Processing, nicht Teil des linearen Kerns).
+**Zweck:** Optionales lineares Nachskalieren der Ausgabedaten von `0..max` auf den vollen Bereich `0..65535`.
 
 ---
 
@@ -2736,7 +2736,7 @@ Dieser Anhang beschreibt pro Schlüssel explizit das **Laufzeitverhalten** (Wirk
 - `stacking.cluster_quality_weighting.cap_enabled`: expliziter Dominanz-Cap-Schalter.
 - `stacking.cluster_quality_weighting.cap_ratio`: Dominanz-Cap-Level bei aktivem Cap.
 - **Laufzeit-Schutz:** Für Synthetic-Stacking wird standardmäßig ein Dominanz-Cap angewendet, auch wenn `cap_enabled=false`, um Dynamik-Kollaps diffuser Signale zu verhindern.
-- `stacking.output_stretch`: optionales display-orientiertes Post-Scaling auf 16-bit-Spanne.
+- `stacking.output_stretch`: optionales lineares Nachskalieren der Ausgabedaten auf den vollen 16-bit-Bereich.
 - `stacking.cosmetic_correction`: optionale Hotpixel-artige Korrektur nach dem Stacking.
 - `stacking.cosmetic_correction_sigma`: Schwellwert der Cosmetic-Korrektur.
 - `validation.min_fwhm_improvement_percent`: notwendige Schärfeverbesserung.

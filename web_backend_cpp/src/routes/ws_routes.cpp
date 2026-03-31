@@ -128,6 +128,7 @@ struct RunWsContext {
     size_t cursor{0};
     std::string last_terminal_state;
     std::string last_queue_fingerprint;
+    std::string last_status_fingerprint;
     std::thread worker;
 };
 
@@ -361,17 +362,27 @@ void stream_run(crow::websocket::connection& conn, const std::shared_ptr<RunWsCo
             apply_job_state_to_run_status(status, job);
             apply_runtime_liveness_to_run_status(status, job, ctx->state->runtime.runner_exe, ctx->run_id, run_dir.string());
             const std::string state = status.value("status", std::string("unknown"));
-            if (!send_json(conn, {
-                {"type", "run_status"},
-                {"run_id", ctx->run_id},
+            const json status_fingerprint_json = {
                 {"state", state},
                 {"phase", status.contains("current_phase") ? status["current_phase"] : json(nullptr)},
                 {"pct", to_pct(status)},
-                {"ts", utc_now_iso()},
                 {"payload", status}
-            })) {
-                ctx->stop.store(true);
-                break;
+            };
+            const std::string status_fingerprint = status_fingerprint_json.dump();
+            if (status_fingerprint != ctx->last_status_fingerprint) {
+                if (!send_json(conn, {
+                    {"type", "run_status"},
+                    {"run_id", ctx->run_id},
+                    {"state", state},
+                    {"phase", status.contains("current_phase") ? status["current_phase"] : json(nullptr)},
+                    {"pct", to_pct(status)},
+                    {"ts", utc_now_iso()},
+                    {"payload", status}
+                })) {
+                    ctx->stop.store(true);
+                    break;
+                }
+                ctx->last_status_fingerprint = status_fingerprint;
             }
 
             if ((state == "completed" || state == "failed" || state == "cancelled" || state == "aborted") &&

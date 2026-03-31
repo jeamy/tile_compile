@@ -447,184 +447,72 @@ float median_finite(const std::vector<float>& v, float fallback) {
     return median_of(p);
 }
 
-QuantileStretchResult stretch_to_u16_quantile_inplace(Matrix2Df& img,
-                                                      float low_pct,
-                                                      float high_pct,
-                                                      bool positive_only) {
-    QuantileStretchResult result;
-    std::vector<float> samples;
-    samples.reserve(static_cast<size_t>(img.size()));
+StretchResult stretch_to_u16_linear_from_zero_inplace(Matrix2Df& img) {
+    StretchResult result;
+    float max_value = 0.0f;
+    size_t sample_count = 0;
     for (Eigen::Index i = 0; i < img.size(); ++i) {
         const float v = img.data()[i];
-        if (!std::isfinite(v)) continue;
-        if (positive_only && !(v > 0.0f)) continue;
-        samples.push_back(v);
+        if (!std::isfinite(v) || v < 0.0f) continue;
+        max_value = std::max(max_value, v);
+        ++sample_count;
     }
-    result.sample_count = samples.size();
-    if (samples.empty()) return result;
 
-    std::sort(samples.begin(), samples.end());
-    result.low = percentile_from_sorted(samples, low_pct);
-    result.high = percentile_from_sorted(samples, high_pct);
-    if (!(result.high > result.low + 1.0e-6f)) return result;
+    result.sample_count = sample_count;
+    result.low = 0.0f;
+    result.high = max_value;
+    if (!(max_value > 1.0e-6f)) return result;
 
-    const float scale = 65535.0f / (result.high - result.low);
+    const float scale = 65535.0f / max_value;
     for (Eigen::Index i = 0; i < img.size(); ++i) {
         const float v = img.data()[i];
-        if (std::isfinite(v) && (!positive_only || v > 0.0f)) {
-            const float mapped = (v - result.low) * scale;
-            img.data()[i] = std::clamp(mapped, 0.0f, 65535.0f);
+        if (std::isfinite(v) && v >= 0.0f) {
+            img.data()[i] = std::clamp(v * scale, 0.0f, 65535.0f);
         } else {
             img.data()[i] = 0.0f;
         }
     }
+
     result.applied = true;
     return result;
 }
 
-QuantileStretchResult stretch_rgb_to_u16_quantile_inplace(Matrix2Df& r,
-                                                          Matrix2Df& g,
-                                                          Matrix2Df& b,
-                                                          float low_pct,
-                                                          float high_pct,
-                                                          bool positive_only) {
-    QuantileStretchResult result;
-    const size_t reserve_hint =
-        static_cast<size_t>(std::max<Eigen::Index>(0, r.size() + g.size() + b.size()));
-    std::vector<float> samples;
-    samples.reserve(reserve_hint);
-    for (Matrix2Df* ch : {&r, &g, &b}) {
-        for (Eigen::Index i = 0; i < ch->size(); ++i) {
-            const float v = ch->data()[i];
-            if (!std::isfinite(v)) continue;
-            if (positive_only && !(v > 0.0f)) continue;
-            samples.push_back(v);
-        }
-    }
-    result.sample_count = samples.size();
-    if (samples.empty()) return result;
-
-    std::sort(samples.begin(), samples.end());
-    result.low = percentile_from_sorted(samples, low_pct);
-    result.high = percentile_from_sorted(samples, high_pct);
-    if (!(result.high > result.low + 1.0e-6f)) return result;
-
-    const float scale = 65535.0f / (result.high - result.low);
-    for (Matrix2Df* ch : {&r, &g, &b}) {
-        for (Eigen::Index i = 0; i < ch->size(); ++i) {
-            const float v = ch->data()[i];
-            if (std::isfinite(v) && (!positive_only || v > 0.0f)) {
-                const float mapped = (v - result.low) * scale;
-                ch->data()[i] = std::clamp(mapped, 0.0f, 65535.0f);
-            } else {
-                ch->data()[i] = 0.0f;
-            }
-        }
-    }
-    result.applied = true;
-    return result;
-}
-
-QuantileStretchResult stretch_rgb_luma_to_u16_quantile_inplace(
+StretchResult stretch_rgb_to_u16_linear_from_zero_inplace(
     Matrix2Df& r,
     Matrix2Df& g,
-    Matrix2Df& b,
-    float low_pct,
-    float high_pct,
-    bool positive_only) {
-    QuantileStretchResult result;
+    Matrix2Df& b) {
+    StretchResult result;
     if (r.rows() != g.rows() || r.rows() != b.rows() ||
         r.cols() != g.cols() || r.cols() != b.cols()) {
         return result;
     }
 
-    // Step 1: Estimate per-channel background as the low_pct quantile of
-    // positive finite values.  This is subtracted before luma computation so
-    // that the stretch range and the luma-proportional scale are derived from
-    // the signal-only component, not from the dominant flat background.
-    // Without this subtraction, scale = 65535*lifted/luma preserves the R/G/B
-    // ratio pixel-by-pixel exactly — but since all channels share the same
-    // large background offset the ratio is close to 1 everywhere, yielding a
-    // near-grey output even when the underlying signal carries real colour.
-    auto channel_bg = [&](const Matrix2Df& ch) -> float {
-        std::vector<float> vals;
-        vals.reserve(static_cast<size_t>(ch.size()));
-        for (Eigen::Index i = 0; i < ch.size(); ++i) {
-            const float v = ch.data()[i];
-            if (std::isfinite(v) && v > 0.0f) vals.push_back(v);
+    float max_value = 0.0f;
+    size_t sample_count = 0;
+    for (Matrix2Df* ch : {&r, &g, &b}) {
+        for (Eigen::Index i = 0; i < ch->size(); ++i) {
+            const float v = ch->data()[i];
+            if (!std::isfinite(v) || v < 0.0f) continue;
+            max_value = std::max(max_value, v);
+            ++sample_count;
         }
-        if (vals.empty()) return 0.0f;
-        std::sort(vals.begin(), vals.end());
-        return percentile_from_sorted(vals, low_pct);
-    };
-    const float bg_r = channel_bg(r);
-    const float bg_g = channel_bg(g);
-    const float bg_b = channel_bg(b);
-
-    // Step 2: Collect luma samples from background-subtracted values to
-    // determine the stretch range.
-    std::vector<float> samples;
-    samples.reserve(static_cast<size_t>(std::max<Eigen::Index>(0, r.size())));
-    for (Eigen::Index i = 0; i < r.size(); ++i) {
-        const float rv = r.data()[i];
-        const float gv = g.data()[i];
-        const float bv = b.data()[i];
-        if (!(std::isfinite(rv) && std::isfinite(gv) && std::isfinite(bv))) continue;
-        const float rd = rv - bg_r;
-        const float gd = gv - bg_g;
-        const float bd = bv - bg_b;
-        const float luma = 0.2126f * rd + 0.7152f * gd + 0.0722f * bd;
-        if (positive_only && !(luma > 0.0f)) continue;
-        samples.push_back(luma);
     }
-    result.sample_count = samples.size();
-    if (samples.empty()) return result;
 
-    std::sort(samples.begin(), samples.end());
-    // result.low is the low_pct of bg-subtracted luma — will be near 0 since
-    // we already removed the background, but keeps the clamp semantics intact.
-    result.low = percentile_from_sorted(samples, low_pct);
-    result.high = percentile_from_sorted(samples, high_pct);
-    if (!(result.high > result.low + 1.0e-6f)) return result;
+    result.sample_count = sample_count;
+    result.low = 0.0f;
+    result.high = max_value;
+    if (!(max_value > 1.0e-6f)) return result;
 
-    const float span = result.high - result.low;
-    for (Eigen::Index i = 0; i < r.size(); ++i) {
-        const float rv = r.data()[i];
-        const float gv = g.data()[i];
-        const float bv = b.data()[i];
-        if (!(std::isfinite(rv) && std::isfinite(gv) && std::isfinite(bv))) {
-            r.data()[i] = 0.0f;
-            g.data()[i] = 0.0f;
-            b.data()[i] = 0.0f;
-            continue;
+    const float scale = 65535.0f / max_value;
+    for (Matrix2Df* ch : {&r, &g, &b}) {
+        for (Eigen::Index i = 0; i < ch->size(); ++i) {
+            const float v = ch->data()[i];
+            if (std::isfinite(v) && v >= 0.0f) {
+                ch->data()[i] = std::clamp(v * scale, 0.0f, 65535.0f);
+            } else {
+                ch->data()[i] = 0.0f;
+            }
         }
-
-        const float rd = rv - bg_r;
-        const float gd = gv - bg_g;
-        const float bd = bv - bg_b;
-        const float luma = 0.2126f * rd + 0.7152f * gd + 0.0722f * bd;
-        if (positive_only && !(luma > 0.0f)) {
-            r.data()[i] = 0.0f;
-            g.data()[i] = 0.0f;
-            b.data()[i] = 0.0f;
-            continue;
-        }
-
-        const float lifted = std::clamp((luma - result.low) / span, 0.0f, 1.0f);
-        if (lifted <= 0.0f || !(luma > 1.0e-12f)) {
-            r.data()[i] = 0.0f;
-            g.data()[i] = 0.0f;
-            b.data()[i] = 0.0f;
-            continue;
-        }
-
-        // Scale the background-subtracted deltas proportionally to luma-lift.
-        // Using the delta (not the raw value) prevents the background from
-        // diluting the colour ratio in the output.
-        const float scale = 65535.0f * lifted / luma;
-        r.data()[i] = std::clamp(rd * scale, 0.0f, 65535.0f);
-        g.data()[i] = std::clamp(gd * scale, 0.0f, 65535.0f);
-        b.data()[i] = std::clamp(bd * scale, 0.0f, 65535.0f);
     }
 
     result.applied = true;

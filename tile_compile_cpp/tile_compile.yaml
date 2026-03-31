@@ -6,8 +6,8 @@ assumptions:
     - 10
   reduced_mode_skip_clustering: true
 astrometry:
-  astap_bin: /home/mux/.local/share/tile_compile/astap/astap_cli
-  astap_data_dir: /home/mux/.local/share/tile_compile/astap
+  astap_bin: ""
+  astap_data_dir: /media/data/Astro/astap
   enabled: true
   search_radius: 183
 bge:
@@ -43,7 +43,6 @@ bge:
   min_valid_samples_for_apply: 96
   sample_quantile: 0.18
   structure_thresh_percentile: 0.9
-  tile_weight_lambda_structure: 1
 calibration:
   bias_dir: ""
   bias_master: ""
@@ -116,7 +115,6 @@ local_metrics:
   clamp:
     - -3
     - 3
-  k_local: 1
   star_mode:
     weights:
       contrast: 0.2
@@ -128,7 +126,7 @@ local_metrics:
 log_level: info
 normalization:
   enabled: true
-  mode: background
+  mode: median
   per_channel: true
 output:
   crop_to_nonzero_bbox: true
@@ -141,7 +139,7 @@ pcc:
   annulus_outer_px: 16
   aperture_fwhm_mult: 1.8
   aperture_radius_px: 8
-  apply_attenuation: false
+  apply_attenuation: true
   background_model: plane
   background_neutralization_mode: auto
   chroma_strength: 0.85
@@ -226,8 +224,8 @@ synthetic:
 tile:
   max_divisor: 6
   min_size: 48
-  overlap_fraction: 0.3
-  size_factor: 24
+  overlap_fraction: 0.4
+  size_factor: 28
   star_min_count: 5
 tile_denoise:
   soft_threshold:

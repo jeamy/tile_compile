@@ -1046,12 +1046,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         return;
       }
       const auto stretch =
-          tile_compile::core::stretch_to_u16_quantile_inplace(
-              luma, 0.1f, 99.9f, true);
+          tile_compile::core::stretch_to_u16_linear_from_zero_inplace(luma);
       if (!stretch.applied) {
         return;
       }
-      std::cout << "[STACKING][resume] Output stretch q[0.1,99.9]: ["
+      std::cout << "[STACKING][resume] Output linear stretch ["
                 << stretch.low << ".." << stretch.high << "] -> [0..65535]"
                 << " samples=" << stretch.sample_count << std::endl;
     };
@@ -1281,19 +1280,6 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   fs::path rgb_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
   fs::path stacked_rgb_path = run_dir / "outputs" / "stacked_rgb.fits";
   fs::path stacked_rgb_solve_path = run_dir / "outputs" / "stacked_rgb_solve.fits";
-  auto cleanup_snapshot_if_exists = [&](const fs::path &path,
-                                        const char *reason) {
-    std::error_code ec;
-    const bool removed = fs::remove(path, ec);
-    if (removed) {
-      std::cout << "[CLEANUP][resume] Removed " << path.filename().string()
-                << " (" << reason << ")" << std::endl;
-    } else if (ec) {
-      std::cout << "[CLEANUP][resume] Warning: could not remove "
-                << path.filename().string() << ": " << ec.message()
-                << std::endl;
-    }
-  };
   if (!fs::exists(rgb_path)) {
     rgb_path = stacked_rgb_path;
   }
@@ -1499,12 +1485,15 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   };
 
 	  auto write_stretched_rgb_snapshot = [&](const fs::path &path,
+	                                          const Matrix2Df &R_src,
+	                                          const Matrix2Df &G_src,
+	                                          const Matrix2Df &B_src,
 	                                          const io::FitsHeader &hdr,
 	                                          bool apply_stretch,
 	                                          const char* stage_tag) {
-	    Matrix2Df R_disk = rgb.R;
-	    Matrix2Df G_disk = rgb.G;
-	    Matrix2Df B_disk = rgb.B;
+	    Matrix2Df R_disk = R_src;
+	    Matrix2Df G_disk = G_src;
+	    Matrix2Df B_disk = B_src;
 	    std::vector<uint8_t> canvas_mask;
 	    std::string canvas_mask_error;
 	    int canvas_rows = 0;
@@ -1516,13 +1505,13 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 	    }
 	    if (apply_stretch) {
 	      const auto stretch =
-	          tile_compile::core::stretch_rgb_luma_to_u16_quantile_inplace(
-	              R_disk, G_disk, B_disk, 0.1f, 99.9f, true);
+	          tile_compile::core::stretch_rgb_to_u16_linear_from_zero_inplace(
+	              R_disk, G_disk, B_disk);
       if (stretch.applied) {
         std::cout << "[" << stage_tag
                   << "][resume] RGB output "
-                  << "luma"
-                  << " stretch q[0.1,99.9]: ["
+                  << "linear"
+                  << " stretch ["
                   << stretch.low << ".." << stretch.high << "] -> [0..65535]"
                   << " samples=" << stretch.sample_count << std::endl;
       }
@@ -1533,8 +1522,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
   };
 
   auto write_linear_rgb_snapshot = [&](const fs::path &path,
+                                       const Matrix2Df &R_src,
+                                       const Matrix2Df &G_src,
+                                       const Matrix2Df &B_src,
                                        const io::FitsHeader &hdr) {
-    io::write_fits_rgb(path, rgb.R, rgb.G, rgb.B, hdr);
+    io::write_fits_rgb(path, R_src, G_src, B_src, hdr);
   };
 
   auto run_bge_phase = [&]() -> bool {
@@ -1548,9 +1540,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     }
 
     if (!cfg.bge.enabled) {
-      write_linear_rgb_snapshot(stacked_rgb_bge_linear_path, bge_hdr);
-      write_stretched_rgb_snapshot(
-          stacked_rgb_bge_path, bge_hdr, cfg.stacking.output_stretch, "BGE");
+      std::error_code ec_linear;
+      std::error_code ec_display;
+      fs::remove(stacked_rgb_bge_linear_path, ec_linear);
+      fs::remove(stacked_rgb_bge_path, ec_display);
       emitter.phase_end(run_id, Phase::BGE, "skipped",
                         {{"reason", "disabled"},
                          {"artifact", (run_dir / "artifacts" / "bge.json").string()}},
@@ -1572,29 +1565,37 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
           rgb.B.rows() != rows || rgb.G.cols() != cols ||
           rgb.B.cols() != cols) {
         mask_error = "invalid RGB dimensions";
-	        emitter.phase_end(run_id, Phase::BGE, "error",
-	                          {{"reason", "output_canvas_mask_invalid"},
-	                           {"error", mask_error}},
-	                          log_file);
-	        return false;
-	      }
-	      if (!tile_compile::runner::load_canvas_mask_for_rgb(
-	              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
-	              bge_cfg.common_valid_mask, bge_cfg.common_mask_rows,
-	              bge_cfg.common_mask_cols, mask_error)) {
-	        emitter.phase_end(run_id, Phase::BGE, "error",
-	                          {{"reason", "output_canvas_mask_invalid"},
-	                           {"error", mask_error}},
-	                          log_file);
-	        return false;
-	      }
-	      std::cout << "[BGE][resume] Using canvas mask from outputs/canvas_mask.fits ("
-	                << bge_cfg.common_mask_cols << "x" << bge_cfg.common_mask_rows
-	                << ")" << std::endl;
+        emitter.phase_end(run_id, Phase::BGE, "error",
+                          {{"reason", "output_canvas_mask_invalid"},
+                           {"error", mask_error}},
+                          log_file);
+        return false;
+      }
+      if (!tile_compile::runner::load_canvas_mask_for_rgb(
+              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
+              bge_cfg.common_valid_mask, bge_cfg.common_mask_rows,
+              bge_cfg.common_mask_cols, mask_error)) {
+        emitter.phase_end(run_id, Phase::BGE, "error",
+                          {{"reason", "output_canvas_mask_invalid"},
+                           {"error", mask_error}},
+                          log_file);
+        return false;
+      }
+      std::cout << "[BGE][resume] Using canvas mask from outputs/canvas_mask.fits ("
+                << bge_cfg.common_mask_cols << "x" << bge_cfg.common_mask_rows
+                << ")" << std::endl;
 
-      (void)image::apply_background_extraction(rgb.R, rgb.G, rgb.B,
-                                               bge_tile_metrics, bge_tile_grid,
-                                               bge_cfg, &bge_diag);
+      Matrix2Df R_bge = rgb.R;
+      Matrix2Df G_bge = rgb.G;
+      Matrix2Df B_bge = rgb.B;
+      const bool bge_success = image::apply_background_extraction(
+          R_bge, G_bge, B_bge, bge_tile_metrics, bge_tile_grid,
+          bge_cfg, &bge_diag);
+      if (bge_success) {
+        rgb.R = std::move(R_bge);
+        rgb.G = std::move(G_bge);
+        rgb.B = std::move(B_bge);
+      }
     } else {
       std::cout << "[BGE][resume] Skipping BGE fit (missing/mismatched tile artifacts)"
                 << std::endl;
@@ -1652,9 +1653,17 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     };
     const fs::path bge_artifact_path = run_dir / "artifacts" / "bge.json";
     core::write_text(bge_artifact_path, bge_artifact.dump(2));
-    write_linear_rgb_snapshot(stacked_rgb_bge_linear_path, bge_hdr);
-    write_stretched_rgb_snapshot(
-        stacked_rgb_bge_path, bge_hdr, cfg.stacking.output_stretch, "BGE");
+    if (bge_diag.success) {
+      write_linear_rgb_snapshot(stacked_rgb_bge_linear_path, rgb.R, rgb.G, rgb.B,
+                                bge_hdr);
+      write_stretched_rgb_snapshot(stacked_rgb_bge_path, rgb.R, rgb.G, rgb.B,
+                                  bge_hdr, cfg.stacking.output_stretch, "BGE");
+    } else {
+      std::error_code ec_linear;
+      std::error_code ec_display;
+      fs::remove(stacked_rgb_bge_linear_path, ec_linear);
+      fs::remove(stacked_rgb_bge_path, ec_display);
+    }
 
     core::json phase_extra = {
         {"requested", cfg.bge.enabled},
@@ -1718,7 +1727,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
       return 1;
     }
 
-    if (cfg.bge.enabled && fs::exists(stacked_rgb_bge_linear_path)) {
+    if (fs::exists(stacked_rgb_bge_linear_path)) {
       try {
         rgb = io::read_fits_rgb(stacked_rgb_bge_linear_path);
         std::cout << "[PCC][resume] Using precomputed linear BGE snapshot: "
@@ -1727,16 +1736,11 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
         std::cout << "[PCC][resume] Warning: failed to load stacked_rgb_bge_linear.fits: "
                   << e.what() << std::endl;
       }
-    } else if (cfg.bge.enabled && fs::exists(stacked_rgb_bge_path)) {
-      try {
-        rgb = io::read_fits_rgb(stacked_rgb_bge_path);
-        std::cout << "[PCC][resume] Warning: linear BGE snapshot missing; using stretched snapshot fallback: "
-                  << stacked_rgb_bge_path << std::endl;
-      } catch (const std::exception &e) {
-        std::cout << "[PCC][resume] Warning: failed to load stacked_rgb_bge.fits: "
-                  << e.what() << std::endl;
-      }
     }
+
+    const fs::path pcc_input_rgb_path =
+        fs::exists(stacked_rgb_bge_linear_path) ? stacked_rgb_bge_linear_path
+                                                : rgb_path;
 
     core::EventEmitter emitter;
     emitter.phase_start(run_id, Phase::PCC, "PCC", log_file);
@@ -1749,7 +1753,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     if (!cfg.pcc.enabled) {
       emitter.phase_end(run_id, Phase::PCC, "skipped",
                         {{"reason", "disabled"},
-                         {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                         {"input_rgb", pcc_input_rgb_path.string()}},
                         log_file);
       core::emit_event("resume_end", run_id,
                        {{"success", true}, {"status", "ok"}}, log_file);
@@ -1759,7 +1763,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     if (!have_wcs) {
       emitter.phase_end(run_id, Phase::PCC, "skipped",
                         {{"reason", "no_wcs"},
-                         {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                         {"input_rgb", pcc_input_rgb_path.string()}},
                         log_file);
       core::emit_event("resume_end", run_id,
                        {{"success", false}, {"status", "no_wcs"}}, log_file);
@@ -1779,7 +1783,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                         {{"reason", "no_catalog_stars"},
                          {"search_radius_deg", search_r},
                          {"source", source},
-                         {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                         {"input_rgb", pcc_input_rgb_path.string()}},
                         log_file);
       core::emit_event(
           "resume_end", run_id,
@@ -1789,10 +1793,10 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
 
     astro::PCCConfig pcc_cfg =
         tile_compile::runner::to_astrometry_pcc_config(cfg.pcc);
-	    {
-	      std::string mask_error;
-	      int rows = static_cast<int>(rgb.R.rows());
-	      int cols = static_cast<int>(rgb.R.cols());
+    {
+      std::string mask_error;
+      int rows = static_cast<int>(rgb.R.rows());
+      int cols = static_cast<int>(rgb.R.cols());
       if (rows <= 0 || cols <= 0 || rgb.G.rows() != rows ||
           rgb.B.rows() != rows || rgb.G.cols() != cols ||
           rgb.B.cols() != cols) {
@@ -1807,20 +1811,20 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
             log_file);
         return 1;
       }
-	      if (!tile_compile::runner::load_canvas_mask_for_rgb(
-	              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
-	              pcc_cfg.output_valid_mask, rows, cols, mask_error)) {
-	        emitter.phase_end(run_id, Phase::PCC, "error",
-	                          {{"reason", "output_canvas_mask_invalid"},
-	                           {"error", mask_error}},
-	                          log_file);
-	        core::emit_event(
-	            "resume_end", run_id,
-	            {{"success", false}, {"status", "output_canvas_mask_invalid"}},
-	            log_file);
-	        return 1;
-	      }
-	      std::vector<uint8_t> analysis_mask;
+      if (!tile_compile::runner::load_canvas_mask_for_rgb(
+              run_dir / "outputs" / "canvas_mask.fits", rgb.R, rgb.G, rgb.B,
+              pcc_cfg.output_valid_mask, rows, cols, mask_error)) {
+        emitter.phase_end(run_id, Phase::PCC, "error",
+                          {{"reason", "output_canvas_mask_invalid"},
+                           {"error", mask_error}},
+                          log_file);
+        core::emit_event(
+            "resume_end", run_id,
+            {{"success", false}, {"status", "output_canvas_mask_invalid"}},
+            log_file);
+        return 1;
+      }
+      std::vector<uint8_t> analysis_mask;
       std::string analysis_mask_error;
       int analysis_rows = 0;
       int analysis_cols = 0;
@@ -1886,7 +1890,7 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                          {"annulus_inner_px", pcc_cfg.annulus_inner_px},
                          {"annulus_outer_px", pcc_cfg.annulus_outer_px},
                          {"source", used_source},
-                         {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                         {"input_rgb", pcc_input_rgb_path.string()}},
                         log_file);
       core::emit_event("resume_end", run_id,
                        {{"success", false}, {"status", "fit_failed"}},
@@ -1921,7 +1925,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     io::write_fits_float(pcc_g_path, rgb.G, out_hdr);
     io::write_fits_float(pcc_b_path, rgb.B, out_hdr);
     write_stretched_rgb_snapshot(
-        pcc_rgb_path, out_hdr, cfg.stacking.output_stretch, "PCC");
+        pcc_rgb_path, rgb.R, rgb.G, rgb.B, out_hdr,
+        cfg.stacking.output_stretch, "PCC");
 
     core::json matrix_json = core::json::array();
     for (int r = 0; r < 3; ++r) {
@@ -1949,12 +1954,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                         chroma_speckle_stats.candidate_pixels},
                        {"matrix", matrix_json},
                        {"source", used_source},
-                       {"input_rgb_bge", stacked_rgb_bge_path.string()}},
+                       {"input_rgb", pcc_input_rgb_path.string()}},
                       log_file);
-    cleanup_snapshot_if_exists(
-        stacked_rgb_path, "superseded by stacked_rgb_pcc.fits");
-    cleanup_snapshot_if_exists(
-        stacked_rgb_bge_path, "superseded by stacked_rgb_pcc.fits");
     if (io::detect_color_mode(rgb.header, 2) == ColorMode::OSC &&
         cfg.chroma_denoise.enabled &&
         cfg.chroma_denoise.apply_stage == "post_pcc") {

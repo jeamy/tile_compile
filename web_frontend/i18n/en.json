@@ -997,7 +997,7 @@
   "param.stacking.method.label": "Method",
   "param.stacking.method.short_help": "Final stacking method. Allowed values: rej, average. Default: rej.",
   "param.stacking.output_stretch.label": "Output Stretch",
-  "param.stacking.output_stretch.short_help": "Optional output stretch for preview-style output. Default: false.",
+  "param.stacking.output_stretch.short_help": "Optional linear post-scaling of output data from 0..max to the full 0..65535 range. Default: false.",
   "param.stacking.per_frame_cosmetic_correction.label": "Per Frame Cosmetic Correction",
   "param.stacking.per_frame_cosmetic_correction.short_help": "Hot-pixel correction per frame before PREWARP/stacking. This targets fixed sensor defects (RGB single-pixel speckles) that appear at the same coordinates in every frame and therefore can survive stack sigma clipping. Default: true.",
   "param.stacking.per_frame_cosmetic_correction_sigma.label": "Per Frame Cosmetic Correction Sigma",

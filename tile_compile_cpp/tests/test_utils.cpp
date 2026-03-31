@@ -39,51 +39,31 @@
      G(0, 0) = 60000.0f;
      B(0, 0) = 60000.0f;
 
-     const auto stretch = tile_compile::core::stretch_rgb_to_u16_quantile_inplace(
-         R, G, B, 0.1f, 99.9f, true);
+     const auto stretch = tile_compile::core::stretch_rgb_to_u16_linear_from_zero_inplace(
+         R, G, B);
 
      REQUIRE(stretch.applied);
-     REQUIRE(stretch.high < 400.0f);
+     REQUIRE(stretch.low == Catch::Approx(0.0f).margin(1e-6));
+     REQUIRE(stretch.high == Catch::Approx(60000.0f).margin(1e-3));
      REQUIRE(R(50, 50) > 0.0f);
      REQUIRE(R(50, 50) < 65535.0f);
      REQUIRE(R(0, 0) == Catch::Approx(65535.0f).margin(1e-3));
  }
 
- TEST_CASE("luma_quantile_rgb_stretch_does_not_amplify_small_background_color_bias") {
-     tile_compile::Matrix2Df R(64, 64);
-     tile_compile::Matrix2Df G(64, 64);
-     tile_compile::Matrix2Df B(64, 64);
-     for (int y = 0; y < 64; ++y) {
-         for (int x = 0; x < 64; ++x) {
-             const float ramp = 289.0f + 0.15f * static_cast<float>(x);
-             R(y, x) = ramp;
-             G(y, x) = ramp + 1.0f;
-             B(y, x) = ramp + 8.0f;
-         }
-     }
-
-     for (int y = 24; y < 40; ++y) {
-         for (int x = 24; x < 40; ++x) {
-             R(y, x) = 520.0f;
-             G(y, x) = 540.0f;
-             B(y, x) = 500.0f;
-         }
-     }
+ TEST_CASE("linear_grayscale_stretch_scales_zero_to_max_into_full_u16_range") {
+     tile_compile::Matrix2Df img(2, 3);
+     img << 0.0f, 100.0f, 200.0f,
+            300.0f, 400.0f, 800.0f;
 
      const auto stretch =
-         tile_compile::core::stretch_rgb_luma_to_u16_quantile_inplace(
-             R, G, B, 0.1f, 99.9f, true);
+         tile_compile::core::stretch_to_u16_linear_from_zero_inplace(img);
 
      REQUIRE(stretch.applied);
-
-     const float bg_r = R(32, 48);
-     const float bg_g = G(32, 48);
-     const float bg_b = B(32, 48);
-     REQUIRE(bg_r > 0.0f);
-     REQUIRE(bg_g > 0.0f);
-     REQUIRE(bg_b > 0.0f);
-     REQUIRE(bg_b / bg_r < 1.12f);
-     REQUIRE(bg_g / bg_r < 1.05f);
+     REQUIRE(stretch.low == Catch::Approx(0.0f).margin(1e-6));
+     REQUIRE(stretch.high == Catch::Approx(800.0f).margin(1e-6));
+     REQUIRE(img(0, 0) == Catch::Approx(0.0f).margin(1e-6));
+     REQUIRE(img(1, 2) == Catch::Approx(65535.0f).margin(1e-3));
+     REQUIRE(img(0, 2) == Catch::Approx(65535.0f * 0.25f).margin(1.0f));
  }
 
  TEST_CASE("suppress_isolated_chroma_speckles_fixes_single_channel_outlier") {
