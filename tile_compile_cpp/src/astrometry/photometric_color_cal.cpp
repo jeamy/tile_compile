@@ -709,6 +709,7 @@ std::vector<StarPhotometry> measure_stars(
             sp.px = px;
             sp.py = py;
             sp.mag = star.mag;
+            sp.teff = star.teff;
             sp.quality_weight = 1.0;
 
             const double aperture_common_fraction = radial_support_fraction(
@@ -826,12 +827,16 @@ std::vector<StarPhotometry> measure_stars(
 //   3. Evaluate fit at a white reference
 //   4. Normalize with green anchor (kg=1)
 //
-// Siril SPCC evaluates at a chosen white reference spectrum rather than at
-// the dominant color mix of the current field. Using an adaptive in-frame
-// reference can bias the solution on strongly reddened or nebula-heavy fields
-// and systematically suppress red, which is exactly the failure mode that
-// shows up as a green cast on IC434-like data. Keep the evaluation anchored
-// to a neutral white reference instead of the field's median catalog color.
+// White reference selection (critical for field-independent color correction):
+//   1. Prefer white/neutral stars (Teff 5500-7000K, Sun-like) from catalog
+//   2. Fallback to broader Teff range (4500-8000K) if insufficient
+//   3. Last resort: use all stars but clamp to [0.8, 1.2] to prevent bias
+//   4. Final fallback: neutral 1.0
+//
+// Why this matters:
+//   - Using all-star median biases correction on red fields (IC434) → green cast
+//   - Using fixed 1.0 ignores field-specific systematic shifts → color errors
+//   - Using catalog-white stars gives field-independent neutral reference
 //
 // The repeated median fit (Siegel 1982) is breakdown-point 0.5 and
 // handles both slope and intercept robustly unlike simple ratio medians.
@@ -1107,8 +1112,76 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
         return res;
     }
 
-    const double wrg = 1.0;
-    const double wbg = 1.0;
+    // Select white reference from catalog-neutral stars (Teff ≈ Sun-like).
+    // This avoids bias from fields dominated by red (IC434) or blue stars.
+    // Fallback: use all stars with clamping, then neutral 1.0 as last resort.
+    std::vector<double> white_cat_rg, white_cat_bg, white_weights;
+    white_cat_rg.reserve(valid.size());
+    white_cat_bg.reserve(valid.size());
+    white_weights.reserve(valid.size());
+
+    // Pass 1: Select white stars (Teff 5500-7000K, Sun-like)
+    // Note: teff=0 means unknown temperature, skip those stars in this pass
+    for (const auto *s : valid) {
+        const double teff = static_cast<double>(s->teff);
+        
+        if (teff >= 5500.0 && teff <= 7000.0) {
+            const double c_rg = s->cat_r / s->cat_g;
+            const double c_bg = s->cat_b / s->cat_g;
+            if (std::isfinite(c_rg) && c_rg > 0.0 &&
+                std::isfinite(c_bg) && c_bg > 0.0) {
+                white_cat_rg.push_back(c_rg);
+                white_cat_bg.push_back(c_bg);
+                white_weights.push_back(std::clamp(s->quality_weight, 1.0e-3, 10.0));
+            }
+        }
+    }
+
+    double wrg = 1.0, wbg = 1.0;
+    std::string ref_method = "neutral_default";
+
+    if (white_cat_rg.size() >= 5) {
+        // Sufficient white stars found
+        wrg = weighted_median(white_cat_rg, white_weights);
+        wbg = weighted_median(white_cat_bg, white_weights);
+        ref_method = "white_stars_5500_7000K";
+    } else if (!valid.empty()) {
+        // Pass 2: Fallback to broader Teff range (4500-8000K)
+        white_cat_rg.clear();
+        white_cat_bg.clear();
+        white_weights.clear();
+        for (const auto *s : valid) {
+            const double teff = static_cast<double>(s->teff);
+            
+            if (teff >= 4500.0 && teff <= 8000.0) {
+                const double c_rg = s->cat_r / s->cat_g;
+                const double c_bg = s->cat_b / s->cat_g;
+                if (std::isfinite(c_rg) && c_rg > 0.0 &&
+                    std::isfinite(c_bg) && c_bg > 0.0) {
+                    white_cat_rg.push_back(c_rg);
+                    white_cat_bg.push_back(c_bg);
+                    white_weights.push_back(std::clamp(s->quality_weight, 1.0e-3, 10.0));
+                }
+            }
+        }
+        
+        if (white_cat_rg.size() >= 3) {
+            wrg = weighted_median(white_cat_rg, white_weights);
+            wbg = weighted_median(white_cat_bg, white_weights);
+            ref_method = "white_stars_broad_4500_8000K";
+        } else {
+            // Pass 3: Use all stars but clamp to prevent extreme bias
+            wrg = weighted_median(cat_rg_vec, w_vec);
+            wbg = weighted_median(cat_bg_vec, w_vec);
+            wrg = std::clamp(wrg, 0.80, 1.20);
+            wbg = std::clamp(wbg, 0.80, 1.20);
+            ref_method = "all_stars_clamped";
+        }
+    }
+
+    // Ensure valid reference point
+    if (!(std::isfinite(wrg) && wrg > 0.0)) wrg = 1.0;
+    if (!(std::isfinite(wbg) && wbg > 0.0)) wbg = 1.0;
 
     double kw_r = 1.0 / (a_rg + b_rg * wrg);
     double kw_g = 1.0;
@@ -1138,8 +1211,10 @@ PCCResult fit_color_matrix(const std::vector<StarPhotometry> &stars,
     kw_r = std::min(kw_r, raw_k_max);
     kw_b = std::min(kw_b, raw_k_max);
 
-    std::cout << "[PCC] Adaptive white reference: wrg=" << wrg
-              << " wbg=" << wbg << std::endl;
+    std::cout << "[PCC] White reference: wrg=" << wrg
+              << " wbg=" << wbg
+              << " method=" << ref_method
+              << " white_stars=" << white_cat_rg.size() << std::endl;
     std::cout << "[PCC] Repeated-median fit R/G: a=" << a_rg
               << " b=" << b_rg << " dev=" << dev_rg << std::endl;
     std::cout << "[PCC] Repeated-median fit B/G: a=" << a_bg

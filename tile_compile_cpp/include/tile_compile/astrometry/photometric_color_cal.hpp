@@ -21,6 +21,7 @@ struct StarPhotometry {
     double cat_r, cat_g, cat_b;     // catalog synthetic flux
     double quality_weight;    // robust-fit weight (currently uniform)
     float  mag;               // catalog magnitude
+    float  teff = 0.0f;       // effective temperature (K), 0 = unknown
     bool   valid;             // true if measurement is usable
 };
 
