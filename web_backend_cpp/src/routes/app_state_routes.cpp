@@ -77,7 +77,9 @@ void register_app_state_routes(CrowApp& app,
             try {
                 auto run_dir    = rt.resolve_run_dir(current_run_id);
                 auto run_status = read_run_status(run_dir);
-                apply_job_state_to_run_status(run_status, latest_run_job(state->job_store, current_run_id));
+                const auto job = latest_run_job(state->job_store, current_run_id);
+                apply_job_state_to_run_status(run_status, job);
+                apply_runtime_liveness_to_run_status(run_status, job, rt.runner_exe, current_run_id, run_dir.string());
                 current_run = {
                     {"run_id",        current_run_id},
                     {"run_dir",       run_dir.string()},
@@ -87,7 +89,9 @@ void register_app_state_routes(CrowApp& app,
                 };
             } catch (...) {
                 current_run = {{"run_id", current_run_id}, {"status", "unknown"}};
-                apply_job_state_to_run_status(current_run, latest_run_job(state->job_store, current_run_id));
+                const auto job = latest_run_job(state->job_store, current_run_id);
+                apply_job_state_to_run_status(current_run, job);
+                apply_runtime_liveness_to_run_status(current_run, job, rt.runner_exe, current_run_id, std::string());
             }
         }
 

@@ -855,7 +855,9 @@ void register_runs_routes(CrowApp& app,
         try {
             auto run_dir = state->runtime.resolve_run_dir(run_id);
             auto status  = read_run_status(run_dir);
-            apply_job_state_to_run_status(status, latest_run_job(state->job_store, run_id));
+            const auto job = latest_run_job(state->job_store, run_id);
+            apply_job_state_to_run_status(status, job);
+            apply_runtime_liveness_to_run_status(status, job, state->runtime.runner_exe, run_id, run_dir.string());
             return json_resp({
                 {"run_id", run_id},
                 {"run_dir", run_dir.string()},

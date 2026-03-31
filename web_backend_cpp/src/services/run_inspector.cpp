@@ -11,6 +11,9 @@
 #include <optional>
 #include <unordered_set>
 #include <yaml-cpp/yaml.h>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -232,6 +235,27 @@ std::string iso_utc_from_file_time(const fs::file_time_type& file_time) {
     return oss.str();
 }
 
+void mark_active_phase_aborted(nlohmann::json& status) {
+    std::string current_phase;
+    if (status.contains("current_phase") && status["current_phase"].is_string()) {
+        current_phase = status["current_phase"].get<std::string>();
+    }
+    if (status.contains("phases") && status["phases"].is_array()) {
+        for (auto& item : status["phases"]) {
+            if (!item.is_object()) continue;
+            const std::string phase_name = item.value("phase", std::string());
+            const std::string phase_status = item.value("status", std::string());
+            if ((!current_phase.empty() && phase_name == current_phase) || phase_status == "running") {
+                item["status"] = "aborted";
+            }
+        }
+    }
+    status["status"] = "aborted";
+    status["current_phase"] = nullptr;
+    status["stale_incomplete"] = true;
+    status["stale_reason"] = "no_live_job_or_process";
+}
+
 }
 
 bool queue_contains_run_id(const nlohmann::json& queue, const std::string& run_id) {
@@ -329,6 +353,82 @@ void apply_job_state_to_run_status(nlohmann::json& status, const std::optional<J
     }
 }
 
+bool has_live_runner_process(const std::string& runner_exe,
+                             const std::string& run_id,
+                             const std::string& run_dir) {
+#ifdef _WIN32
+    (void)runner_exe;
+    (void)run_id;
+    (void)run_dir;
+    return false;
+#else
+    const std::string runner_name = fs::path(runner_exe).filename().string();
+    if (run_id.empty() || runner_name.empty() || !fs::exists("/proc")) return false;
+    const int self_pid = static_cast<int>(::getpid());
+    for (const auto& entry : fs::directory_iterator("/proc")) {
+        if (!entry.is_directory()) continue;
+        const std::string pid_text = entry.path().filename().string();
+        if (pid_text.empty() || !std::all_of(pid_text.begin(), pid_text.end(), ::isdigit)) continue;
+        int pid = 0;
+        try {
+            pid = std::stoi(pid_text);
+        } catch (...) {
+            continue;
+        }
+        if (pid == self_pid) continue;
+
+        std::ifstream cmdline(entry.path() / "cmdline", std::ios::binary);
+        if (!cmdline) continue;
+        std::string raw((std::istreambuf_iterator<char>(cmdline)), std::istreambuf_iterator<char>());
+        if (raw.empty()) continue;
+
+        std::vector<std::string> argv;
+        size_t start = 0;
+        while (start < raw.size()) {
+            size_t end = raw.find('\0', start);
+            if (end == std::string::npos) end = raw.size();
+            if (end > start) argv.push_back(raw.substr(start, end - start));
+            start = end + 1;
+        }
+        if (argv.empty()) continue;
+
+        const std::string exe_name = fs::path(argv.front()).filename().string();
+        if (exe_name != runner_name && exe_name.find("tile_compile_runner") == std::string::npos) continue;
+        const bool is_runner = std::any_of(argv.begin() + 1, argv.end(), [](const std::string& arg) {
+            return arg == "run" || arg == "resume";
+        });
+        if (!is_runner) continue;
+
+        std::string joined;
+        for (const auto& part : argv) {
+            if (!joined.empty()) joined += ' ';
+            joined += part;
+        }
+        if (joined.find(run_id) == std::string::npos &&
+            (run_dir.empty() || joined.find(run_dir) == std::string::npos)) {
+            continue;
+        }
+        return true;
+    }
+    return false;
+#endif
+}
+
+void apply_runtime_liveness_to_run_status(nlohmann::json& status,
+                                          const std::optional<Job>& job,
+                                          const std::string& runner_exe,
+                                          const std::string& run_id,
+                                          const std::string& run_dir) {
+    const std::string state = status.value("status", std::string());
+    if (state != "running" && state != "pending") return;
+    if (job.has_value()) {
+        const std::string job_state = job_state_str(job->state);
+        if (job_state == "running" || job_state == "pending") return;
+    }
+    if (has_live_runner_process(runner_exe, run_id, run_dir)) return;
+    mark_active_phase_aborted(status);
+}
+
 nlohmann::json read_run_status(const fs::path& run_dir) {
     nlohmann::json result = {
         {"run_dir", run_dir.string()},
@@ -419,6 +519,11 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
                     current_phase.clear();
                 }
                 if (raw == "error" || raw == "aborted") run_status = "failed";
+                if ((phase_name == "PCC" || phase_name == "DONE") &&
+                    (raw == "ok" || raw == "skipped") &&
+                    !resume_active) {
+                    run_status = "completed";
+                }
             }
         }
 
@@ -479,14 +584,24 @@ nlohmann::json read_run_status(const fs::path& run_dir) {
         return true;
     });
 
+    if (run_status == "running" && current_phase.empty()) {
+        run_status = "unknown";
+    }
+
     if (run_status == "unknown") {
-        if (!current_phase.empty()) run_status = "running";
-        else {
-            for (auto it = phases.begin(); it != phases.end(); ++it) {
-                const std::string phase_status = it.value().value("status", std::string());
-                if (phase_status == "ok" || phase_status == "skipped") {
-                    run_status = "running";
-                    break;
+        if (!current_phase.empty()) {
+            run_status = "running";
+        } else {
+            if (phases.contains("PCC")) {
+                const std::string pcc_status = phases["PCC"].value("status", std::string());
+                if (pcc_status == "ok" || pcc_status == "skipped") {
+                    run_status = "completed";
+                }
+            }
+            if (run_status == "unknown" && extra_phases.contains("DONE")) {
+                const std::string done_status = extra_phases["DONE"].value("status", std::string());
+                if (done_status == "ok" || done_status == "skipped") {
+                    run_status = "completed";
                 }
             }
         }
