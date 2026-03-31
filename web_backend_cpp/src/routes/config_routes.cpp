@@ -2,6 +2,7 @@
 #include "subprocess_manager.hpp"
 #include <algorithm>
 #include <cerrno>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -178,11 +179,55 @@ std::string yaml_dump(const nlohmann::json& value) {
 
 nlohmann::json parse_scalar_value(const nlohmann::json& raw_value, bool parse_values) {
     if (!parse_values || !raw_value.is_string()) return raw_value;
-    try {
-        return yaml_to_json(YAML::Load(raw_value.get<std::string>()));
-    } catch (...) {
-        return raw_value;
+
+    const std::string text = raw_value.get<std::string>();
+    std::string trimmed = text;
+    trimmed.erase(trimmed.begin(), std::find_if(trimmed.begin(), trimmed.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }));
+    trimmed.erase(std::find_if(trimmed.rbegin(), trimmed.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }).base(), trimmed.end());
+
+    if (trimmed.empty()) return raw_value;
+
+    std::string lowered = trimmed;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+
+    if (lowered == "true") return true;
+    if (lowered == "false") return false;
+    if (lowered == "null" || lowered == "~") return nullptr;
+
+    char* end = nullptr;
+    errno = 0;
+    const double numeric = std::strtod(trimmed.c_str(), &end);
+    if (errno == 0 && end != trimmed.c_str() && end && *end == '\0' && std::isfinite(numeric)) {
+        if (trimmed.find('.') == std::string::npos &&
+            trimmed.find('e') == std::string::npos &&
+            trimmed.find('E') == std::string::npos) {
+            try {
+                return std::stoll(trimmed);
+            } catch (...) {
+                return numeric;
+            }
+        }
+        return numeric;
     }
+
+    const bool looks_structured_yaml =
+        !trimmed.empty() &&
+        (trimmed.front() == '{' || trimmed.front() == '[' || trimmed.find('\n') != std::string::npos);
+    if (looks_structured_yaml) {
+        try {
+            return yaml_to_json(YAML::Load(trimmed));
+        } catch (...) {
+            return raw_value;
+        }
+    }
+
+    return raw_value;
 }
 
 void set_dotted(nlohmann::json& root, const std::string& dotted_path, const nlohmann::json& value) {

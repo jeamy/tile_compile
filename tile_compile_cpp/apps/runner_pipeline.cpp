@@ -4683,18 +4683,13 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     auto stretch_rgb_for_output = [](Matrix2Df& R_ch, Matrix2Df& G_ch,
                                      Matrix2Df& B_ch,
                                      const char* stage_tag) -> bool {
-      const std::string tag = stage_tag != nullptr ? stage_tag : "";
-      const bool preserve_channel_ratios = (tag == "PCC");
       const auto stretch =
-          preserve_channel_ratios
-              ? core::stretch_rgb_to_u16_quantile_inplace(
-                    R_ch, G_ch, B_ch, 0.1f, 99.9f, true)
-              : core::stretch_rgb_luma_to_u16_quantile_inplace(
-                    R_ch, G_ch, B_ch, 0.1f, 99.9f, true);
+          core::stretch_rgb_luma_to_u16_quantile_inplace(
+              R_ch, G_ch, B_ch, 0.1f, 99.9f, true);
       if (!stretch.applied) return false;
       std::cout << "[" << stage_tag
                 << "] RGB output "
-                << (preserve_channel_ratios ? "shared-channel" : "luma")
+                << "luma"
                 << " stretch q[0.1,99.9]: ["
                 << stretch.low << ".." << stretch.high << "] -> [0..65535]"
                 << " samples=" << stretch.sample_count << std::endl;
