@@ -2169,6 +2169,15 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         const Matrix2Df R_in = R;
         const Matrix2Df G_in = G;
         const Matrix2Df B_in = B;
+        const std::vector<uint8_t> bg_mask =
+            image::build_chroma_background_mask_from_rgb(
+                R_in, G_in, B_in, analysis_mask);
+        std::cerr << "[PCC] Using analysis mask for background chroma analysis ("
+                  << rows << "x" << cols << ")" << std::endl;
+        const double pre_rg_std_full =
+            static_cast<double>(image::log_chroma_std_background(R_in, G_in, bg_mask));
+        const double pre_bg_std_full =
+            static_cast<double>(image::log_chroma_std_background(B_in, G_in, bg_mask));
 
         const bool matrix_is_diagonal =
             std::abs(result.matrix[0][1]) < 1.0e-9 &&
@@ -2177,19 +2186,19 @@ PCCResult run_pcc(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             std::abs(result.matrix[1][2]) < 1.0e-9 &&
             std::abs(result.matrix[2][0]) < 1.0e-9 &&
             std::abs(result.matrix[2][1]) < 1.0e-9;
+        const double diagonal_r_gain = std::abs(result.matrix[0][0]);
+        const double diagonal_b_gain = std::abs(result.matrix[2][2]);
         const bool effective_apply_attenuation = config.apply_attenuation;
         const float effective_shadow_floor = kShadowAttenFloor;
         const float effective_highlight_floor = kHighlightAttenFloor;
+        if (!config.apply_attenuation && matrix_is_diagonal &&
+            std::max(diagonal_r_gain, diagonal_b_gain) > 1.15) {
+            std::cout << "[PCC] Strong diagonal gains detected, but respecting "
+                         "apply_attenuation=false; using linear apply"
+                      << " (R=" << result.matrix[0][0]
+                      << ", B=" << result.matrix[2][2] << ")" << std::endl;
+        }
         if (!matrix_is_diagonal) {
-            const std::vector<uint8_t> bg_mask =
-                image::build_chroma_background_mask_from_rgb(
-                    R_in, G_in, B_in, analysis_mask);
-            std::cerr << "[PCC] Using analysis mask for background chroma analysis ("
-                      << rows << "x" << cols << ")" << std::endl;
-            const double pre_rg_std_full =
-                static_cast<double>(image::log_chroma_std_background(R_in, G_in, bg_mask));
-            const double pre_bg_std_full =
-                static_cast<double>(image::log_chroma_std_background(B_in, G_in, bg_mask));
             const PCCAttenuationContext sample_ctx =
                 build_pcc_attenuation_context(R_in, G_in, B_in,
                                               analysis_mask_ptr,

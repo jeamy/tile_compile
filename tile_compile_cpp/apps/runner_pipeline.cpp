@@ -2090,8 +2090,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         valid_tiles_G.reserve(frames.size());
         valid_tiles_B.reserve(frames.size());
         const bool use_shared_rgb_sigma_clip =
+            !use_full_frame_osc_rgb_cache ||
             tile_reconstruction_ops.selection().selected ==
-            core::AccelerationBackend::cpu;
+                core::AccelerationBackend::cpu;
         if (use_full_frame_osc_rgb_cache && osc_rgb_cache_r && osc_rgb_cache_g &&
             osc_rgb_cache_b) {
           Matrix2Df tile_r;
@@ -2126,35 +2127,38 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             channel_weights.push_back(frame_weight);
           }
         } else {
-          const int origin_x = std::max(0, t.x);
-          const int origin_y = std::max(0, t.y);
           for (size_t fi = 0; fi < frames.size(); ++fi) {
             if (!frame_has_data[fi])
               continue;
             const float frame_weight = compute_frame_tile_weight(fi);
             if (!(frame_weight > 0.0f))
               continue;
-            if (origin_x + t.width > canvas_width ||
-                origin_y + t.height > canvas_height) {
-              continue;
-            }
             const float *frame_mosaic = prewarped_frames.frame_data(fi);
             if (frame_mosaic == nullptr) {
               continue;
             }
             auto deb = image::debayer_bilinear_region(
-                frame_mosaic, canvas_height, canvas_width, origin_x, origin_y,
-                t.width, t.height, detected_bayer);
+                frame_mosaic, canvas_height, canvas_width, 0, 0, canvas_width,
+                canvas_height, detected_bayer);
             if (!tile_compile::runner::
-                    apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
-                        deb.R, deb.G, deb.B, t, common_valid_mask,
-                        canvas_width, canvas_height)) {
+                    apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
+                        deb.R, deb.G, deb.B, common_valid_mask, canvas_width,
+                        canvas_height)) {
               continue;
             }
 
-            valid_tiles_R.push_back(std::move(deb.R));
-            valid_tiles_G.push_back(std::move(deb.G));
-            valid_tiles_B.push_back(std::move(deb.B));
+            Matrix2Df tile_r = image::extract_tile(deb.R, t);
+            Matrix2Df tile_g = image::extract_tile(deb.G, t);
+            Matrix2Df tile_b = image::extract_tile(deb.B, t);
+            if (tile_r.rows() != t.height || tile_r.cols() != t.width ||
+                tile_g.rows() != t.height || tile_g.cols() != t.width ||
+                tile_b.rows() != t.height || tile_b.cols() != t.width) {
+              continue;
+            }
+
+            valid_tiles_R.push_back(std::move(tile_r));
+            valid_tiles_G.push_back(std::move(tile_g));
+            valid_tiles_B.push_back(std::move(tile_b));
             frame_valid_tile_counts[fi].fetch_add(1);
             channel_weights.push_back(frame_weight);
           }
@@ -2713,6 +2717,28 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         return weighted;
       };
 
+      auto restrict_weight_mask_to_finite = [&](const Matrix2Df &src0,
+                                                const Matrix2Df *src1 = nullptr,
+                                                const Matrix2Df *src2 = nullptr) {
+        bool any = false;
+        for (Eigen::Index i = 0; i < overlap_weight_mask.size(); ++i) {
+          float &w = overlap_weight_mask.data()[i];
+          if (!(w > 0.0f)) {
+            w = 0.0f;
+            continue;
+          }
+          const bool valid0 = std::isfinite(src0.data()[i]);
+          const bool valid1 = (src1 == nullptr) || std::isfinite(src1->data()[i]);
+          const bool valid2 = (src2 == nullptr) || std::isfinite(src2->data()[i]);
+          if (!(valid0 && valid1 && valid2)) {
+            w = 0.0f;
+            continue;
+          }
+          any = true;
+        }
+        return any;
+      };
+
       if (osc_mode) {
         Matrix2Df tile_r = reconstructed_tiles_R[ti];
         Matrix2Df tile_g = reconstructed_tiles_G[ti];
@@ -2724,6 +2750,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             tile_g.data()[i] = (tile_g.data()[i] - tile_norm_bg_g[ti]) * inv;
             tile_b.data()[i] = (tile_b.data()[i] - tile_norm_bg_b[ti]) * inv;
           }
+        }
+
+        if (!restrict_weight_mask_to_finite(tile_g, &tile_r, &tile_b)) {
+          continue;
         }
 
         Matrix2Df weighted_r = build_weighted_tile(tile_r);
@@ -2742,6 +2772,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           for (Eigen::Index i = 0; i < tile.size(); ++i) {
             tile.data()[i] = (tile.data()[i] - tile_norm_bg_r[ti]) * inv;
           }
+        }
+
+        if (!restrict_weight_mask_to_finite(tile)) {
+          continue;
         }
 
         Matrix2Df weighted = build_weighted_tile(tile);

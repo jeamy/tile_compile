@@ -425,6 +425,7 @@ bool opencl_sigma_clip_weighted_tile_impl(
     float sigma_low, float sigma_high, int max_iters, float min_fraction,
     float eps_weight, reconstruction::WeightedTileResult &out) {
   out = reconstruction::WeightedTileResult{};
+  const float invalid_sample = std::numeric_limits<float>::quiet_NaN();
   if (tiles.empty() || weights.empty() || tiles.size() != weights.size()) {
     return true;
   }
@@ -698,7 +699,7 @@ bool opencl_sigma_clip_weighted_tile_impl(
       fallback_out.copyTo(final_out, zero_wsum_mask);
       cv::UMat zero_fallback_mask;
       cv::compare(fallback_wsum, eps_weight, zero_fallback_mask, cv::CMP_LE);
-      final_out.setTo(cv::Scalar(0.0f), zero_fallback_mask);
+      final_out.setTo(cv::Scalar(invalid_sample), zero_fallback_mask);
 
       out.tile.resize(rows, cols);
       cv::Mat out_host(rows, cols, CV_32F, out.tile.data());
@@ -713,6 +714,7 @@ bool opencl_sigma_clip_weighted_tile_impl(
 bool opencl_sigma_clip_stack_impl(
     const std::vector<Matrix2Df> &frames, float sigma_low, float sigma_high,
     int max_iters, float min_fraction, Matrix2Df &out) {
+  const float invalid_sample = std::numeric_limits<float>::quiet_NaN();
   std::vector<std::reference_wrapper<const Matrix2Df>> valid;
   valid.reserve(frames.size());
   for (const auto &frame : frames) {
@@ -919,7 +921,7 @@ bool opencl_sigma_clip_stack_impl(
       cv::divide(final_sum, final_count_denom, final_out);
       cv::UMat dead_mask;
       cv::compare(final_count, 0.0f, dead_mask, cv::CMP_LE);
-      final_out.setTo(cv::Scalar(0.0f), dead_mask);
+      final_out.setTo(cv::Scalar(invalid_sample), dead_mask);
 
       out.resize(rows, cols);
       cv::Mat out_host(rows, cols, CV_32F, out.data());
@@ -938,6 +940,7 @@ bool cuda_sigma_clip_weighted_tile_impl(
     float sigma_low, float sigma_high, int max_iters, float min_fraction,
     float eps_weight, reconstruction::WeightedTileResult &out) {
   out = reconstruction::WeightedTileResult{};
+  const float invalid_sample = std::numeric_limits<float>::quiet_NaN();
   if (tiles.empty() || weights.empty() || tiles.size() != weights.size()) {
     return true;
   }
@@ -1212,7 +1215,7 @@ bool cuda_sigma_clip_weighted_tile_impl(
     fallback_out.copyTo(final_out, zero_wsum_mask);
     cv::cuda::GpuMat zero_fallback_mask;
     cv::cuda::compare(fallback_wsum, eps_weight, zero_fallback_mask, cv::CMP_LE);
-    final_out.setTo(cv::Scalar(0.0f), zero_fallback_mask);
+    final_out.setTo(cv::Scalar(invalid_sample), zero_fallback_mask);
 
     out.tile.resize(rows, cols);
     cv::Mat out_host(rows, cols, CV_32F, out.tile.data());
@@ -1226,6 +1229,7 @@ bool cuda_sigma_clip_weighted_tile_impl(
 bool cuda_sigma_clip_stack_impl(
     const std::vector<Matrix2Df> &frames, float sigma_low, float sigma_high,
     int max_iters, float min_fraction, Matrix2Df &out) {
+  const float invalid_sample = std::numeric_limits<float>::quiet_NaN();
   std::vector<std::reference_wrapper<const Matrix2Df>> valid;
   valid.reserve(frames.size());
   for (const auto &frame : frames) {
@@ -1430,7 +1434,7 @@ bool cuda_sigma_clip_stack_impl(
     cv::cuda::divide(final_sum, final_count_denom, final_out);
     cv::cuda::GpuMat dead_mask;
     cv::cuda::compare(final_count, 0.0f, dead_mask, cv::CMP_LE);
-    final_out.setTo(cv::Scalar(0.0f), dead_mask);
+    final_out.setTo(cv::Scalar(invalid_sample), dead_mask);
 
     out.resize(rows, cols);
     cv::Mat out_host(rows, cols, CV_32F, out.data());
