@@ -1464,8 +1464,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       &phase_registration_ctx.overlap_coverage_count;
   std::vector<uint8_t> *common_valid_mask_ptr =
       &phase_registration_ctx.common_valid_mask;
+  std::vector<uint8_t> reconstruction_valid_mask;
   std::vector<float> tile_common_overlap_ratio(tiles_phase56.size(), 0.0f);
   std::vector<uint8_t> tile_common_valid(tiles_phase56.size(), 0);
+  std::vector<uint8_t> tile_reconstruction_valid(tiles_phase56.size(), 0);
 
   std::mutex common_overlap_progress_mutex;
   size_t loaded_frames = static_cast<size_t>(n_usable_frames);
@@ -1487,7 +1489,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
       ++loaded_frames;
       for (size_t i = 0; i < canvas_px; ++i) {
-        if (p[i] > 0.0f &&
+        if (std::isfinite(p[i]) &&
             overlap_coverage_count_fallback[i] <
                 std::numeric_limits<uint16_t>::max()) {
           ++overlap_coverage_count_fallback[i];
@@ -1516,12 +1518,27 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
   auto &overlap_coverage_count = *overlap_coverage_count_ptr;
   auto &common_valid_mask = *common_valid_mask_ptr;
+  if (overlap_coverage_count.size() == canvas_px) {
+    reconstruction_valid_mask.assign(canvas_px, 0u);
+    for (size_t i = 0; i < canvas_px; ++i) {
+      if (overlap_coverage_count[i] > 0) {
+        reconstruction_valid_mask[i] = 1u;
+      }
+    }
+  } else {
+    reconstruction_valid_mask = common_valid_mask;
+  }
 
   {
     size_t common_pixels = 0;
+    size_t reconstruction_pixels = 0;
     for (size_t i = 0; i < canvas_px; ++i) {
       if (common_valid_mask[i] != 0) {
         ++common_pixels;
+      }
+      if (i < reconstruction_valid_mask.size() &&
+          reconstruction_valid_mask[i] != 0) {
+        ++reconstruction_pixels;
       }
     }
 
@@ -1533,15 +1550,21 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 	      const int y1 = std::min(canvas_height, t.y + t.height);
 	      const int tile_total = std::max(0, t.width) * std::max(0, t.height);
 	      int tile_common = 0;
+	      int tile_reconstruction = 0;
 	      for (int y = y0; y < y1; ++y) {
 	        const size_t row_off = static_cast<size_t>(y) *
 	                               static_cast<size_t>(canvas_width);
 	        for (int x = x0; x < x1; ++x) {
-	          if (common_valid_mask[row_off + static_cast<size_t>(x)] != 0) {
+	          const size_t idx = row_off + static_cast<size_t>(x);
+	          if (common_valid_mask[idx] != 0) {
 	            ++tile_common;
 	          }
+	          if (idx < reconstruction_valid_mask.size() &&
+	              reconstruction_valid_mask[idx] != 0) {
+	            ++tile_reconstruction;
+	          }
 	        }
-      }
+	      }
       const float ratio =
           (tile_total > 0)
               ? (static_cast<float>(tile_common) / static_cast<float>(tile_total))
@@ -1549,6 +1572,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       tile_common_overlap_ratio[ti] = ratio;
       if (ratio + 1.0e-6f >= cfg.stacking.tile_common_valid_min_fraction) {
         tile_common_valid[ti] = 1;
+      }
+      if (tile_reconstruction > 0) {
+        tile_reconstruction_valid[ti] = 1;
       }
 
       const size_t done = ti + 1;
@@ -1574,9 +1600,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     overlap_artifact["tile_common_valid_min_fraction"] =
         cfg.stacking.tile_common_valid_min_fraction;
     overlap_artifact["common_pixels"] = static_cast<uint64_t>(common_pixels);
+    overlap_artifact["reconstruction_pixels"] =
+        static_cast<uint64_t>(reconstruction_pixels);
     overlap_artifact["common_fraction"] =
         (canvas_px > 0)
             ? (static_cast<double>(common_pixels) /
+               static_cast<double>(canvas_px))
+            : 0.0;
+    overlap_artifact["reconstruction_fraction"] =
+        (canvas_px > 0)
+            ? (static_cast<double>(reconstruction_pixels) /
                static_cast<double>(canvas_px))
             : 0.0;
     overlap_artifact["tiles"] = core::json::array();
@@ -1590,6 +1623,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           {"height", t.height},
           {"common_ratio", tile_common_overlap_ratio[ti]},
           {"common_valid", tile_common_valid[ti] != 0},
+          {"reconstruction_valid", tile_reconstruction_valid[ti] != 0},
       });
     }
     core::write_text(run_dir / "artifacts" / "common_overlap.json",
@@ -1954,7 +1988,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                     canvas_width, canvas_height, detected_bayer);
                 if (tile_compile::runner::
                         apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
-                            deb.R, deb.G, deb.B, common_valid_mask,
+                            deb.R, deb.G, deb.B, reconstruction_valid_mask,
                             canvas_width, canvas_height)) {
                   osc_rgb_cache_r->store(fi, deb.R);
                   osc_rgb_cache_g->store(fi, deb.G);
@@ -2015,6 +2049,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       const Tile &t = tiles_phase56[ti];
       const bool tile_has_common_overlap =
           ti < tile_common_valid.size() && tile_common_valid[ti] != 0;
+      const bool tile_has_reconstruction_support =
+          ti < tile_reconstruction_valid.size() &&
+          tile_reconstruction_valid[ti] != 0;
       auto compute_frame_tile_weight = [&](size_t fi) -> float {
         const float G_f = (fi < static_cast<size_t>(global_weights.size()))
                               ? global_weights[static_cast<int>(fi)]
@@ -2023,7 +2060,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             (fi < local_weights.size() && ti < local_weights[fi].size())
                 ? local_weights[fi][ti]
                 : 1.0f;
-        const float w = G_f * L_ft;
+        const float local_weight =
+            (!(L_ft > 0.0f) && !tile_has_common_overlap &&
+             tile_has_reconstruction_support)
+                ? 1.0f
+                : L_ft;
+        const float w = G_f * local_weight;
         return (std::isfinite(w) && w > 0.0f) ? w : 0.0f;
       };
 
@@ -2076,7 +2118,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         // Methodik v3 (OSC): stack in RGB space (debayer-before-stack).
         // Prefer a full-frame RGB cache only when it fits the memory model;
         // otherwise fall back to tile-local debayering.
-        if (!tile_has_common_overlap) {
+        if (!tile_has_reconstruction_support) {
           tiles_failed++;
           return;
         }
@@ -2089,10 +2131,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         valid_tiles_R.reserve(frames.size());
         valid_tiles_G.reserve(frames.size());
         valid_tiles_B.reserve(frames.size());
-        const bool use_shared_rgb_sigma_clip =
-            !use_full_frame_osc_rgb_cache ||
-            tile_reconstruction_ops.selection().selected ==
-                core::AccelerationBackend::cpu;
+        const bool use_shared_rgb_sigma_clip = false;
         if (use_full_frame_osc_rgb_cache && osc_rgb_cache_r && osc_rgb_cache_g &&
             osc_rgb_cache_b) {
           Matrix2Df tile_r;
@@ -2116,7 +2155,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               continue;
             }
             if (!tile_compile::runner::tile_has_nonzero_common_data(tile_g, ti,
-                                                                    tile_common_valid)) {
+                                                                    tile_reconstruction_valid)) {
               continue;
             }
 
@@ -2127,38 +2166,34 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             channel_weights.push_back(frame_weight);
           }
         } else {
+          const int origin_x = std::max(0, t.x);
+          const int origin_y = std::max(0, t.y);
+          Matrix2Df tile_mosaic;
           for (size_t fi = 0; fi < frames.size(); ++fi) {
             if (!frame_has_data[fi])
               continue;
             const float frame_weight = compute_frame_tile_weight(fi);
             if (!(frame_weight > 0.0f))
               continue;
-            const float *frame_mosaic = prewarped_frames.frame_data(fi);
-            if (frame_mosaic == nullptr) {
+            if (!prewarped_frames.extract_tile_into(fi, t, tile_mosaic, 0, 0) ||
+                tile_mosaic.rows() != t.height ||
+                tile_mosaic.cols() != t.width) {
               continue;
             }
-            auto deb = image::debayer_bilinear_region(
-                frame_mosaic, canvas_height, canvas_width, 0, 0, canvas_width,
-                canvas_height, detected_bayer);
+
+            auto deb = image::debayer_nearest_neighbor(tile_mosaic,
+                                                       detected_bayer, origin_x,
+                                                       origin_y);
             if (!tile_compile::runner::
-                    apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
-                        deb.R, deb.G, deb.B, common_valid_mask, canvas_width,
-                        canvas_height)) {
+                    apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
+                        deb.R, deb.G, deb.B, t, reconstruction_valid_mask,
+                        canvas_width, canvas_height)) {
               continue;
             }
 
-            Matrix2Df tile_r = image::extract_tile(deb.R, t);
-            Matrix2Df tile_g = image::extract_tile(deb.G, t);
-            Matrix2Df tile_b = image::extract_tile(deb.B, t);
-            if (tile_r.rows() != t.height || tile_r.cols() != t.width ||
-                tile_g.rows() != t.height || tile_g.cols() != t.width ||
-                tile_b.rows() != t.height || tile_b.cols() != t.width) {
-              continue;
-            }
-
-            valid_tiles_R.push_back(std::move(tile_r));
-            valid_tiles_G.push_back(std::move(tile_g));
-            valid_tiles_B.push_back(std::move(tile_b));
+            valid_tiles_R.push_back(std::move(deb.R));
+            valid_tiles_G.push_back(std::move(deb.G));
+            valid_tiles_B.push_back(std::move(deb.B));
             frame_valid_tile_counts[fi].fetch_add(1);
             channel_weights.push_back(frame_weight);
           }
@@ -2240,7 +2275,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         std::vector<Matrix2Df> warped_tiles;
         warped_tiles.reserve(frames.size());
 
-        if (!tile_has_common_overlap) {
+        if (!tile_has_reconstruction_support) {
           tiles_failed++;
           return;
         }
@@ -2260,7 +2295,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
           if (!tile_compile::runner::
                   apply_common_overlap_to_tile_inplace_and_check_nonzero(
-                      tile_img, t, common_valid_mask, canvas_width,
+                      tile_img, t, reconstruction_valid_mask, canvas_width,
                       canvas_height)) {
             warped_tiles.pop_back();
             continue;
@@ -2671,74 +2706,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       const std::vector<float> &window_x = tile_window_cache[ti].x;
       const std::vector<float> &window_y = tile_window_cache[ti].y;
 
-      const int x0 = std::max(0, t.x);
-      const int y0 = std::max(0, t.y);
-      Matrix2Df overlap_weight_mask = Matrix2Df::Zero(t.height, t.width);
-      bool has_overlap_weight = false;
-      for (int yy = 0; yy < t.height; ++yy) {
-        const int iy = y0 + yy;
-        if (iy < 0 || iy >= canvas_height) {
-          continue;
-        }
-        for (int xx = 0; xx < t.width; ++xx) {
-          const int ix = x0 + xx;
-          if (ix < 0 || ix >= canvas_width) {
-            continue;
-          }
-          const size_t common_idx =
-              static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
-              static_cast<size_t>(ix);
-          if (common_idx >= common_valid_mask.size() ||
-              common_valid_mask[common_idx] == 0u) {
-            continue;
-          }
-          const float win = window_y[static_cast<size_t>(yy)] *
-                            window_x[static_cast<size_t>(xx)];
-          if (!(win > 0.0f)) {
-            continue;
-          }
-          overlap_weight_mask(yy, xx) = win;
-          has_overlap_weight = true;
-        }
-      }
-      if (!has_overlap_weight) {
-        continue;
-      }
-
-      auto build_weighted_tile = [&](const Matrix2Df &src) {
-        Matrix2Df weighted = Matrix2Df::Zero(src.rows(), src.cols());
-        for (Eigen::Index i = 0; i < src.size(); ++i) {
-          const float v = src.data()[i];
-          const float w = overlap_weight_mask.data()[i];
-          if (w > 0.0f && std::isfinite(v)) {
-            weighted.data()[i] = v * w;
-          }
-        }
-        return weighted;
-      };
-
-      auto restrict_weight_mask_to_finite = [&](const Matrix2Df &src0,
-                                                const Matrix2Df *src1 = nullptr,
-                                                const Matrix2Df *src2 = nullptr) {
-        bool any = false;
-        for (Eigen::Index i = 0; i < overlap_weight_mask.size(); ++i) {
-          float &w = overlap_weight_mask.data()[i];
-          if (!(w > 0.0f)) {
-            w = 0.0f;
-            continue;
-          }
-          const bool valid0 = std::isfinite(src0.data()[i]);
-          const bool valid1 = (src1 == nullptr) || std::isfinite(src1->data()[i]);
-          const bool valid2 = (src2 == nullptr) || std::isfinite(src2->data()[i]);
-          if (!(valid0 && valid1 && valid2)) {
-            w = 0.0f;
-            continue;
-          }
-          any = true;
-        }
-        return any;
-      };
-
       if (osc_mode) {
         Matrix2Df tile_r = reconstructed_tiles_R[ti];
         Matrix2Df tile_g = reconstructed_tiles_G[ti];
@@ -2752,19 +2719,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
         }
 
-        if (!restrict_weight_mask_to_finite(tile_g, &tile_r, &tile_b)) {
-          continue;
-        }
-
-        Matrix2Df weighted_r = build_weighted_tile(tile_r);
-        Matrix2Df weighted_g = build_weighted_tile(tile_g);
-        Matrix2Df weighted_b = build_weighted_tile(tile_b);
-        tile_reconstruction_ops.overlap_add_preweighted(
-            weighted_r, t, recon_R, weight_sum, &overlap_weight_mask, true);
-        tile_reconstruction_ops.overlap_add_preweighted(
-            weighted_g, t, recon_G, weight_sum, nullptr, false);
-        tile_reconstruction_ops.overlap_add_preweighted(
-            weighted_b, t, recon_B, weight_sum, nullptr, false);
+        tile_reconstruction_ops.overlap_add(
+            tile_r, t, window_x, window_y, reconstruction_valid_mask,
+            canvas_width,
+            recon_R, weight_sum, true);
+        tile_reconstruction_ops.overlap_add(
+            tile_g, t, window_x, window_y, reconstruction_valid_mask,
+            canvas_width,
+            recon_G, weight_sum, false);
+        tile_reconstruction_ops.overlap_add(
+            tile_b, t, window_x, window_y, reconstruction_valid_mask,
+            canvas_width,
+            recon_B, weight_sum, false);
       } else {
         Matrix2Df tile = reconstructed_tiles[ti];
         if (apply_phase7_tile_norm) {
@@ -2774,13 +2740,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
         }
 
-        if (!restrict_weight_mask_to_finite(tile)) {
-          continue;
-        }
-
-        Matrix2Df weighted = build_weighted_tile(tile);
-        tile_reconstruction_ops.overlap_add_preweighted(
-            weighted, t, recon, weight_sum, &overlap_weight_mask, true);
+        tile_reconstruction_ops.overlap_add(
+            tile, t, window_x, window_y, reconstruction_valid_mask,
+            canvas_width, recon, weight_sum, true);
       }
     }
 
@@ -4789,7 +4751,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         stretch_rgb_for_output(R_disk, G_disk, B_disk, stage_tag);
       }
       image::enforce_canvas_mask_on_rgb(R_disk, G_disk, B_disk,
-                                        common_valid_mask);
+                                        reconstruction_valid_mask);
       std::error_code ec;
       fs::remove(path, ec);
       io::write_fits_rgb(path, R_disk, G_disk, B_disk, hdr);
@@ -4822,7 +4784,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       R_out.array() += (output_bg_r + output_pedestal);
       G_out.array() += (output_bg_g + output_pedestal);
       B_out.array() += (output_bg_b + output_pedestal);
-      image::enforce_canvas_mask_on_rgb(R_out, G_out, B_out, common_valid_mask);
+      image::enforce_canvas_mask_on_rgb(R_out, G_out, B_out,
+                                        reconstruction_valid_mask);
 
       io::write_fits_float(run_dir / "outputs" / "reconstructed_R.fit", R_out,
                            first_hdr);
@@ -4992,11 +4955,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       cols_out = static_cast<int>(R_out.cols());
       const size_t expected_size =
           static_cast<size_t>(rows_out) * static_cast<size_t>(cols_out);
-      if (common_valid_mask.size() != expected_size) {
-        error_out = "common_valid_mask size mismatch";
+      if (reconstruction_valid_mask.size() != expected_size) {
+        error_out = "reconstruction_valid_mask size mismatch";
         return false;
       }
-      out_mask = common_valid_mask;
+      out_mask = reconstruction_valid_mask;
       return true;
     };
 
@@ -5095,7 +5058,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
         bge_cfg.common_mask_rows = rows;
         bge_cfg.common_mask_cols = cols;
-        std::cout << "[BGE] Using full output canvas mask (" << cols << "x"
+        std::cout << "[BGE] Using reconstruction output canvas mask (" << cols << "x"
                   << rows << ")" << std::endl;
 
         if (bge_compact_tile_mode) {
@@ -5325,7 +5288,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         pcc_cfg.common_mask_cols = cols;
         pcc_cfg.output_mask_rows = rows;
         pcc_cfg.output_mask_cols = cols;
-        std::cout << "[PCC] Using COMMON_OVERLAP analysis mask and full output canvas mask ("
+        std::cout << "[PCC] Using COMMON_OVERLAP analysis mask and reconstruction output canvas mask ("
                   << cols << "x" << rows << ")" << std::endl;
 
         if (pcc_cfg.radii_mode == "auto_fwhm") {
@@ -5353,8 +5316,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         if (result.success) {
           const auto chroma_speckle_stats =
               image::suppress_isolated_chroma_speckles_rgb_inplace(
-                  R_out, G_out, B_out, &pcc_cfg.common_valid_mask,
-                  pcc_cfg.common_mask_rows, pcc_cfg.common_mask_cols);
+                  R_out, G_out, B_out, &pcc_cfg.output_valid_mask,
+                  pcc_cfg.output_mask_rows, pcc_cfg.output_mask_cols);
           if (chroma_speckle_stats.corrected_pixels > 0) {
             std::cout << "[PCC] Post-PCC chroma speckle suppressor corrected "
                       << chroma_speckle_stats.corrected_pixels
