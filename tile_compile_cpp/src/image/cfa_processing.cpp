@@ -401,22 +401,37 @@ void bayer_offsets(const std::string& bayer_pattern,
     }
 }
 
-DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
-                               BayerPattern pattern) {
-    return debayer_bilinear(mosaic, pattern, 0, 0);
+void debayer_bilinear_into(const Matrix2Df& mosaic,
+                           BayerPattern pattern,
+                           Matrix2Df& R_out,
+                           Matrix2Df& G_out,
+                           Matrix2Df& B_out) {
+    debayer_bilinear_into(mosaic, pattern, 0, 0, R_out, G_out, B_out);
 }
 
 DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
-                               BayerPattern pattern,
-                               int origin_x,
-                               int origin_y) {
+                               BayerPattern pattern) {
+    DebayerResult out;
+    debayer_bilinear_into(mosaic, pattern, out.R, out.G, out.B);
+    return out;
+}
+
+void debayer_bilinear_into(const Matrix2Df& mosaic,
+                           BayerPattern pattern,
+                           int origin_x,
+                           int origin_y,
+                           Matrix2Df& R_out,
+                           Matrix2Df& G_out,
+                           Matrix2Df& B_out) {
     const int h = static_cast<int>(mosaic.rows());
     const int w = static_cast<int>(mosaic.cols());
 
-    DebayerResult out;
-    out.R = Matrix2Df::Zero(h, w);
-    out.G = Matrix2Df::Zero(h, w);
-    out.B = Matrix2Df::Zero(h, w);
+    R_out.resize(h, w);
+    G_out.resize(h, w);
+    B_out.resize(h, w);
+    R_out.setZero();
+    G_out.setZero();
+    B_out.setZero();
 
     int r_row = 1, r_col = 0;
     if (pattern == BayerPattern::UNKNOWN) {
@@ -492,25 +507,57 @@ DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
                 }
             }
 
-            out.R(y, x) = r_val;
-            out.G(y, x) = g_val;
-            out.B(y, x) = b_val;
+            R_out(y, x) = r_val;
+            G_out(y, x) = g_val;
+            B_out(y, x) = b_val;
         }
     }
+}
 
+DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
+                               BayerPattern pattern,
+                               int origin_x,
+                               int origin_y) {
+    DebayerResult out;
+    debayer_bilinear_into(mosaic, pattern, origin_x, origin_y,
+                          out.R, out.G, out.B);
     return out;
+}
+
+void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
+                                   BayerPattern pattern,
+                                   Matrix2Df& R_out,
+                                   Matrix2Df& G_out,
+                                   Matrix2Df& B_out) {
+    debayer_bilinear_into(mosaic, pattern, 0, 0, R_out, G_out, B_out);
 }
 
 DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
                                        BayerPattern pattern) {
-    return debayer_bilinear(mosaic, pattern, 0, 0);
+    DebayerResult out;
+    debayer_nearest_neighbor_into(mosaic, pattern, out.R, out.G, out.B);
+    return out;
+}
+
+void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
+                                   BayerPattern pattern,
+                                   int origin_x,
+                                   int origin_y,
+                                   Matrix2Df& R_out,
+                                   Matrix2Df& G_out,
+                                   Matrix2Df& B_out) {
+    debayer_bilinear_into(mosaic, pattern, origin_x, origin_y,
+                          R_out, G_out, B_out);
 }
 
 DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
                                        BayerPattern pattern,
                                        int origin_x,
                                        int origin_y) {
-    return debayer_bilinear(mosaic, pattern, origin_x, origin_y);
+    DebayerResult out;
+    debayer_nearest_neighbor_into(mosaic, pattern, origin_x, origin_y,
+                                  out.R, out.G, out.B);
+    return out;
 }
 
 } // namespace tile_compile::image

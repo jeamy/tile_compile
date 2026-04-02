@@ -1938,6 +1938,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       std::string rgb_error;
 
       auto build_rgb_cache_worker = [&]() {
+        Matrix2Df deb_r;
+        Matrix2Df deb_g;
+        Matrix2Df deb_b;
         while (true) {
           const size_t fi = rgb_next.fetch_add(1);
           if (fi >= frames.size()) {
@@ -1948,15 +1951,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               Matrix2Df frame_mosaic = prewarped_frames.load(fi);
               if (frame_mosaic.rows() == canvas_height &&
                   frame_mosaic.cols() == canvas_width) {
-                auto deb = image::debayer_nearest_neighbor(
-                    frame_mosaic, detected_bayer, 0, 0);
+                image::debayer_nearest_neighbor_into(
+                    frame_mosaic, detected_bayer, 0, 0, deb_r, deb_g, deb_b);
                 if (tile_compile::runner::
                         apply_common_overlap_to_rgb_frames_inplace_and_check_nonzero(
-                            deb.R, deb.G, deb.B, common_valid_mask,
+                            deb_r, deb_g, deb_b, common_valid_mask,
                             canvas_width, canvas_height)) {
-                  osc_rgb_cache_r->store(fi, deb.R);
-                  osc_rgb_cache_g->store(fi, deb.G);
-                  osc_rgb_cache_b->store(fi, deb.B);
+                  osc_rgb_cache_r->store(fi, deb_r);
+                  osc_rgb_cache_g->store(fi, deb_g);
+                  osc_rgb_cache_b->store(fi, deb_b);
                 }
               }
             }
@@ -2124,6 +2127,9 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           const int origin_x = std::max(0, t.x);
           const int origin_y = std::max(0, t.y);
           Matrix2Df tile_mosaic;
+          Matrix2Df tile_r;
+          Matrix2Df tile_g;
+          Matrix2Df tile_b;
           for (size_t fi = 0; fi < frames.size(); ++fi) {
             if (!frame_has_data[fi])
               continue;
@@ -2136,19 +2142,19 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               continue;
             }
 
-            auto deb = image::debayer_nearest_neighbor(tile_mosaic,
-                                                       detected_bayer, origin_x,
-                                                       origin_y);
+            image::debayer_nearest_neighbor_into(tile_mosaic, detected_bayer,
+                                                 origin_x, origin_y, tile_r,
+                                                 tile_g, tile_b);
             if (!tile_compile::runner::
                     apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
-                        deb.R, deb.G, deb.B, t, common_valid_mask,
+                        tile_r, tile_g, tile_b, t, common_valid_mask,
                         canvas_width, canvas_height)) {
               continue;
             }
 
-            valid_tiles_R.push_back(std::move(deb.R));
-            valid_tiles_G.push_back(std::move(deb.G));
-            valid_tiles_B.push_back(std::move(deb.B));
+            valid_tiles_R.push_back(std::move(tile_r));
+            valid_tiles_G.push_back(std::move(tile_g));
+            valid_tiles_B.push_back(std::move(tile_b));
             frame_valid_tile_counts[fi].fetch_add(1);
             channel_weights.push_back(frame_weight);
           }
@@ -2550,10 +2556,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         return boundary_input_tiles;
       };
 
-      const auto boundary_input_tiles_raw = build_boundary_input_tiles(false);
-      boundary_diagnostics_raw = reconstruction::analyze_tile_boundaries(
-          tiles_phase56, boundary_input_tiles_raw, tile_reconstructed_valid,
-          common_valid_mask, canvas_width, canvas_height);
+      if (osc_mode) {
+        const auto boundary_input_tiles_raw = build_boundary_input_tiles(false);
+        boundary_diagnostics_raw = reconstruction::analyze_tile_boundaries(
+            tiles_phase56, boundary_input_tiles_raw, tile_reconstructed_valid,
+            common_valid_mask, canvas_width, canvas_height);
+      } else {
+        boundary_diagnostics_raw = reconstruction::analyze_tile_boundaries(
+            tiles_phase56, reconstructed_tiles, tile_reconstructed_valid,
+            common_valid_mask, canvas_width, canvas_height);
+      }
 
       if (phase7_tile_norm_requested) {
         const auto boundary_input_tiles_normalized = build_boundary_input_tiles(true);

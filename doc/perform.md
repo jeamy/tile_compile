@@ -81,6 +81,121 @@ Reduce OSC sigma clipping to one shared outlier decision pass and reuse that kee
 
 Reduce overlap-add staging overhead by batching/precomputing weighted tile contributions and reusing device-side accumulation state more efficiently.
 
+## Implemented So Far
+
+The first implementation steps were limited to behavior-preserving performance work only.
+
+Constraints kept during implementation:
+
+- no algorithm changes
+- no change to strict behavior
+- no new tile structure
+- no new canvas crop/bounds logic
+
+### 1. Overlap-add staging buffer reuse
+
+Implemented in:
+
+- `tile_compile_cpp/src/core/acceleration.cpp`
+
+What changed:
+
+- temporary host-side weighted tile buffers are now reused instead of being recreated for every overlap-add call
+- temporary host-side weighted mask buffers are also reused
+- temporary CUDA/OpenCL upload buffers are reused per thread in the accelerated overlap-add path
+
+What did not change:
+
+- overlap-add weights
+- support-mask handling
+- accumulation order inside each overlap-add call
+- normalization semantics
+
+### 2. Debayer output buffer reuse for hot OSC paths
+
+Implemented in:
+
+- `tile_compile_cpp/include/tile_compile/image/cfa_processing.hpp`
+- `tile_compile_cpp/src/image/cfa_processing.cpp`
+- `tile_compile_cpp/apps/runner_pipeline.cpp`
+
+What changed:
+
+- `debayer_bilinear_into(...)` and `debayer_nearest_neighbor_into(...)` overloads were added so caller-provided output buffers can be filled directly
+- existing `DebayerResult` returning functions were kept and now delegate to the new `*_into(...)` variants
+- Phase 6 hot paths now reuse debayer output matrices instead of rebuilding temporary `DebayerResult` objects for each iteration
+
+What did not change:
+
+- Bayer parity handling
+- interpolation behavior
+- mask application order
+- RGB tile stacking logic
+
+### 3. OSC full-frame RGB cache worker reuse
+
+Implemented in:
+
+- `tile_compile_cpp/apps/runner_pipeline.cpp`
+
+What changed:
+
+- the OSC full-frame RGB cache worker now keeps reusable debayer output matrices per worker thread
+
+What did not change:
+
+- full-frame cache eligibility logic
+- cache contents
+- frame masking behavior
+- cache storage format
+
+### 4. OSC fallback tile-path copy reduction
+
+Implemented in:
+
+- `tile_compile_cpp/apps/runner_pipeline.cpp`
+
+What changed:
+
+- tile-local OSC fallback now debayers into reusable matrices
+- debayered tile planes are moved into the channel tile vectors instead of being carried through a temporary result object
+
+What did not change:
+
+- tile extraction
+- common-overlap masking
+- per-channel sigma clipping behavior
+- tile validity decisions
+
+### 5. Boundary diagnostics raw mono path copy reduction
+
+Implemented in:
+
+- `tile_compile_cpp/apps/runner_pipeline.cpp`
+
+What changed:
+
+- the non-OSC raw boundary diagnostics path now uses `reconstructed_tiles` directly for the raw diagnostics pass instead of first rebuilding an equivalent temporary tile vector
+
+What did not change:
+
+- boundary pair selection
+- diagnostic metric definitions
+- normalization decision logic
+- emitted boundary artifact values
+
+## Explicitly Not Changed Yet
+
+### Shared RGB sigma clipping
+
+This hotspot was reviewed but intentionally not changed yet.
+
+Reason:
+
+- the current OSC path performs independent channel reductions
+- replacing that with one shared keep-mask/outlier decision path would risk changing strict behavior
+- under the current constraint set, this is not considered safe enough for the first optimization pass
+
 ## Expected Impact
 
 ### Boundary diagnostics gating

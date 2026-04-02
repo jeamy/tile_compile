@@ -1938,10 +1938,13 @@ void AccelerationOps::overlap_add(
       return;
     }
 
-    Matrix2Df weighted_tile = Matrix2Df::Zero(clip_h, clip_w);
-    Matrix2Df weighted_mask;
+    thread_local Matrix2Df weighted_tile;
+    weighted_tile.resize(clip_h, clip_w);
+    weighted_tile.setZero();
+    thread_local Matrix2Df weighted_mask;
     if (accumulate_weight) {
-      weighted_mask = Matrix2Df::Zero(clip_h, clip_w);
+      weighted_mask.resize(clip_h, clip_w);
+      weighted_mask.setZero();
     }
 
     bool has_valid_pixels = false;
@@ -1982,7 +1985,7 @@ void AccelerationOps::overlap_add(
     const cv::Rect roi(x0, y0, clip_w, clip_h);
     cv::cuda::GpuMat accum_roi(accum_state->gpu_mat, roi);
     cv::Mat weighted_tile_host(clip_h, clip_w, CV_32F, weighted_tile.data());
-    cv::cuda::GpuMat weighted_tile_gpu;
+    thread_local cv::cuda::GpuMat weighted_tile_gpu;
     weighted_tile_gpu.upload(weighted_tile_host);
     cv::cuda::add(accum_roi, weighted_tile_gpu, accum_roi);
 
@@ -1991,7 +1994,7 @@ void AccelerationOps::overlap_add(
       if (weight_state && !weight_state->gpu_mat.empty()) {
         cv::cuda::GpuMat weight_roi(weight_state->gpu_mat, roi);
         cv::Mat weighted_mask_host(clip_h, clip_w, CV_32F, weighted_mask.data());
-        cv::cuda::GpuMat weighted_mask_gpu;
+        thread_local cv::cuda::GpuMat weighted_mask_gpu;
         weighted_mask_gpu.upload(weighted_mask_host);
         cv::cuda::add(weight_roi, weighted_mask_gpu, weight_roi);
       }
@@ -2031,10 +2034,13 @@ void AccelerationOps::overlap_add(
       return;
     }
 
-    Matrix2Df weighted_tile = Matrix2Df::Zero(clip_h, clip_w);
-    Matrix2Df weighted_mask;
+    thread_local Matrix2Df weighted_tile;
+    weighted_tile.resize(clip_h, clip_w);
+    weighted_tile.setZero();
+    thread_local Matrix2Df weighted_mask;
     if (accumulate_weight) {
-      weighted_mask = Matrix2Df::Zero(clip_h, clip_w);
+      weighted_mask.resize(clip_h, clip_w);
+      weighted_mask.setZero();
     }
 
     bool has_valid_pixels = false;
