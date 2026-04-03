@@ -501,6 +501,10 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.C (2026-04-03)
+
+- Stabilized tile reconstruction after the recent performance optimization rollout, with follow-up fixes and analysis focused on visible tile-seam artifacts in the final reconstruction output.
+
 ## v0.1.B (2026-03-31)
 
 - Fixed the late PCC/output path semantics: `stacked_rgb.fits` remains the stacking output, successful `BGE`/`PCC` snapshots stay separated as `stacked_rgb_bge.fits` / `stacked_rgb_pcc.fits`, and `output_stretch` now uses only a pure linear `0..max -> 0..65535` scaling with obsolete nonlinear/quantile stretch code removed.
@@ -645,6 +649,12 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-04-03)
+
+**Tile-reconstruction stabilization after recent optimization rollout (`v0.1.C`):**
+
+- Stabilized tile reconstruction after the recent performance optimization rollout, with follow-up fixes and analysis focused on visible tile-seam artifacts in the final reconstruction output.
 
 ### (2026-03-29)
 

@@ -346,7 +346,7 @@ struct RuntimeLimitsConfig {
   int parallel_workers = 4;
   int memory_budget = 512;
   std::string acceleration_backend = "auto";
-  bool tile_reconstruction_collect_boundary_diagnostics = false;
+  std::string tile_reconstruction_diagnostics = "full";
 };
 
 struct Config {

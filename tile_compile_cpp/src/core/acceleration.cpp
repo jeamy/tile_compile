@@ -1911,6 +1911,45 @@ void AccelerationOps::overlap_add(
     return;
   }
 
+  Matrix2Df coeff(tile_bounds.height, tile_bounds.width);
+  coeff.setZero();
+  const int x0 = std::max(0, tile_bounds.x);
+  const int y0 = std::max(0, tile_bounds.y);
+  for (int yy = 0; yy < tile.rows(); ++yy) {
+    const int iy = y0 + yy;
+    if (iy < 0 || iy >= accum.rows()) {
+      continue;
+    }
+    for (int xx = 0; xx < tile.cols(); ++xx) {
+      const int ix = x0 + xx;
+      if (ix < 0 || ix >= accum.cols()) {
+        continue;
+      }
+      const size_t common_idx =
+          static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
+          static_cast<size_t>(ix);
+      if (common_idx >= common_valid_mask.size() ||
+          common_valid_mask[common_idx] == 0) {
+        continue;
+      }
+      coeff(yy, xx) =
+          hann_y[static_cast<size_t>(yy)] * hann_x[static_cast<size_t>(xx)];
+    }
+  }
+  overlap_add(tile, tile_bounds, coeff, accum, weight_sum, accumulate_weight);
+}
+
+void AccelerationOps::overlap_add(const Matrix2Df &tile, const Tile &tile_bounds,
+                                  const Matrix2Df &coeff, Matrix2Df &accum,
+                                  Matrix2Df &weight_sum,
+                                  bool accumulate_weight) const {
+  if (tile.rows() != tile_bounds.height || tile.cols() != tile_bounds.width) {
+    return;
+  }
+  if (coeff.rows() != tile.rows() || coeff.cols() != tile.cols()) {
+    return;
+  }
+
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
   if (selection_.selected == AccelerationBackend::opencv_cuda &&
       selection_.phase == AccelerationPhase::tile_reconstruction) {
@@ -1933,6 +1972,25 @@ void AccelerationOps::overlap_add(
       }
       return state;
     };
+    auto ensure_coeff_state = [&](const Matrix2Df &host_matrix)
+        -> std::shared_ptr<OverlapAddState> {
+      auto &state = overlap_add_coeff_states_[&host_matrix];
+      if (!state) {
+        state = std::make_shared<OverlapAddState>();
+      }
+      if (host_matrix.rows() <= 0 || host_matrix.cols() <= 0) {
+        return state;
+      }
+      if (state->rows != host_matrix.rows() || state->cols != host_matrix.cols() ||
+          state->gpu_mat.empty()) {
+        state->rows = static_cast<int>(host_matrix.rows());
+        state->cols = static_cast<int>(host_matrix.cols());
+        cv::Mat host_view(state->rows, state->cols, CV_32F,
+                          const_cast<float *>(host_matrix.data()));
+        state->gpu_mat.upload(host_view);
+      }
+      return state;
+    };
 
     const int x0 = std::max(0, tile_bounds.x);
     const int y0 = std::max(0, tile_bounds.y);
@@ -1942,34 +2000,22 @@ void AccelerationOps::overlap_add(
       return;
     }
 
-    Matrix2Df weighted_tile = Matrix2Df::Zero(clip_h, clip_w);
-    Matrix2Df weighted_mask;
-    if (accumulate_weight) {
-      weighted_mask = Matrix2Df::Zero(clip_h, clip_w);
-    }
+    thread_local Matrix2Df weighted_tile;
+    weighted_tile.resize(clip_h, clip_w);
+    weighted_tile.setZero();
 
     bool has_valid_pixels = false;
     for (int yy = 0; yy < clip_h; ++yy) {
-      const int iy = y0 + yy;
       for (int xx = 0; xx < clip_w; ++xx) {
-        const int ix = x0 + xx;
-        const size_t common_idx =
-            static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
-            static_cast<size_t>(ix);
-        if (common_idx >= common_valid_mask.size() ||
-            common_valid_mask[common_idx] == 0) {
+        const float coeff_value = coeff(yy, xx);
+        if (!(coeff_value > 0.0f)) {
           continue;
         }
         const float tile_value = tile(yy, xx);
         if (!std::isfinite(tile_value)) {
           continue;
         }
-        const float win =
-            hann_y[static_cast<size_t>(yy)] * hann_x[static_cast<size_t>(xx)];
-        weighted_tile(yy, xx) = tile_value * win;
-        if (accumulate_weight) {
-          weighted_mask(yy, xx) = win;
-        }
+        weighted_tile(yy, xx) = tile_value * coeff_value;
         has_valid_pixels = true;
       }
     }
@@ -1984,20 +2030,21 @@ void AccelerationOps::overlap_add(
     }
 
     const cv::Rect roi(x0, y0, clip_w, clip_h);
+    const cv::Rect coeff_roi_rect(0, 0, clip_w, clip_h);
     cv::cuda::GpuMat accum_roi(accum_state->gpu_mat, roi);
     cv::Mat weighted_tile_host(clip_h, clip_w, CV_32F, weighted_tile.data());
-    cv::cuda::GpuMat weighted_tile_gpu;
+    thread_local cv::cuda::GpuMat weighted_tile_gpu;
     weighted_tile_gpu.upload(weighted_tile_host);
     cv::cuda::add(accum_roi, weighted_tile_gpu, accum_roi);
 
     if (accumulate_weight) {
       auto weight_state = ensure_state(weight_sum);
-      if (weight_state && !weight_state->gpu_mat.empty()) {
+      auto coeff_state = ensure_coeff_state(coeff);
+      if (weight_state && !weight_state->gpu_mat.empty() && coeff_state &&
+          !coeff_state->gpu_mat.empty()) {
         cv::cuda::GpuMat weight_roi(weight_state->gpu_mat, roi);
-        cv::Mat weighted_mask_host(clip_h, clip_w, CV_32F, weighted_mask.data());
-        cv::cuda::GpuMat weighted_mask_gpu;
-        weighted_mask_gpu.upload(weighted_mask_host);
-        cv::cuda::add(weight_roi, weighted_mask_gpu, weight_roi);
+        cv::cuda::GpuMat coeff_roi(coeff_state->gpu_mat, coeff_roi_rect);
+        cv::cuda::add(weight_roi, coeff_roi, weight_roi);
       }
     }
     return;
@@ -2026,6 +2073,25 @@ void AccelerationOps::overlap_add(
       }
       return state;
     };
+    auto ensure_coeff_state = [&](const Matrix2Df &host_matrix)
+        -> std::shared_ptr<OverlapAddState> {
+      auto &state = overlap_add_coeff_states_[&host_matrix];
+      if (!state) {
+        state = std::make_shared<OverlapAddState>();
+      }
+      if (host_matrix.rows() <= 0 || host_matrix.cols() <= 0) {
+        return state;
+      }
+      if (state->rows != host_matrix.rows() || state->cols != host_matrix.cols() ||
+          state->u_mat.empty()) {
+        state->rows = static_cast<int>(host_matrix.rows());
+        state->cols = static_cast<int>(host_matrix.cols());
+        cv::Mat host_view(state->rows, state->cols, CV_32F,
+                          const_cast<float *>(host_matrix.data()));
+        host_view.copyTo(state->u_mat);
+      }
+      return state;
+    };
 
     const int x0 = std::max(0, tile_bounds.x);
     const int y0 = std::max(0, tile_bounds.y);
@@ -2035,34 +2101,22 @@ void AccelerationOps::overlap_add(
       return;
     }
 
-    Matrix2Df weighted_tile = Matrix2Df::Zero(clip_h, clip_w);
-    Matrix2Df weighted_mask;
-    if (accumulate_weight) {
-      weighted_mask = Matrix2Df::Zero(clip_h, clip_w);
-    }
+    thread_local Matrix2Df weighted_tile;
+    weighted_tile.resize(clip_h, clip_w);
+    weighted_tile.setZero();
 
     bool has_valid_pixels = false;
     for (int yy = 0; yy < clip_h; ++yy) {
-      const int iy = y0 + yy;
       for (int xx = 0; xx < clip_w; ++xx) {
-        const int ix = x0 + xx;
-        const size_t common_idx =
-            static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
-            static_cast<size_t>(ix);
-        if (common_idx >= common_valid_mask.size() ||
-            common_valid_mask[common_idx] == 0) {
+        const float coeff_value = coeff(yy, xx);
+        if (!(coeff_value > 0.0f)) {
           continue;
         }
         const float tile_value = tile(yy, xx);
         if (!std::isfinite(tile_value)) {
           continue;
         }
-        const float win =
-            hann_y[static_cast<size_t>(yy)] * hann_x[static_cast<size_t>(xx)];
-        weighted_tile(yy, xx) = tile_value * win;
-        if (accumulate_weight) {
-          weighted_mask(yy, xx) = win;
-        }
+        weighted_tile(yy, xx) = tile_value * coeff_value;
         has_valid_pixels = true;
       }
     }
@@ -2077,6 +2131,7 @@ void AccelerationOps::overlap_add(
     }
 
     const cv::Rect roi(x0, y0, clip_w, clip_h);
+    const cv::Rect coeff_roi_rect(0, 0, clip_w, clip_h);
     cv::UMat accum_roi = accum_state->u_mat(roi);
     cv::Mat weighted_tile_host(clip_h, clip_w, CV_32F, weighted_tile.data());
     thread_local cv::UMat weighted_tile_gpu;
@@ -2089,18 +2144,12 @@ void AccelerationOps::overlap_add(
 
     if (accumulate_weight) {
       auto weight_state = ensure_state(weight_sum);
-      if (weight_state && !weight_state->u_mat.empty()) {
+      auto coeff_state = ensure_coeff_state(coeff);
+      if (weight_state && !weight_state->u_mat.empty() && coeff_state &&
+          !coeff_state->u_mat.empty()) {
         cv::UMat weight_roi = weight_state->u_mat(roi);
-        cv::Mat weighted_mask_host(clip_h, clip_w, CV_32F,
-                                   weighted_mask.data());
-        thread_local cv::UMat weighted_mask_gpu;
-        if (weighted_mask_gpu.rows != clip_h ||
-            weighted_mask_gpu.cols != clip_w ||
-            weighted_mask_gpu.type() != CV_32F) {
-          weighted_mask_gpu.create(clip_h, clip_w, CV_32F);
-        }
-        weighted_mask_host.copyTo(weighted_mask_gpu);
-        cv::add(weight_roi, weighted_mask_gpu, weight_roi);
+        cv::UMat coeff_roi = coeff_state->u_mat(coeff_roi_rect);
+        cv::add(weight_roi, coeff_roi, weight_roi);
       }
     }
     return;
@@ -2119,22 +2168,17 @@ void AccelerationOps::overlap_add(
       if (ix < 0 || ix >= accum.cols()) {
         continue;
       }
-      const size_t common_idx =
-          static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
-          static_cast<size_t>(ix);
-      if (common_idx >= common_valid_mask.size() ||
-          common_valid_mask[common_idx] == 0) {
+      const float coeff_value = coeff(yy, xx);
+      if (!(coeff_value > 0.0f)) {
         continue;
       }
       const float tile_value = tile(yy, xx);
       if (!std::isfinite(tile_value)) {
         continue;
       }
-      const float win =
-          hann_y[static_cast<size_t>(yy)] * hann_x[static_cast<size_t>(xx)];
-      accum(iy, ix) += tile_value * win;
+      accum(iy, ix) += tile_value * coeff_value;
       if (accumulate_weight) {
-        weight_sum(iy, ix) += win;
+        weight_sum(iy, ix) += coeff_value;
       }
     }
   }
@@ -2399,6 +2443,7 @@ void AccelerationOps::flush_overlap_state(Matrix2Df &accum,
 
     flush_cuda(accum);
     flush_cuda(weight_sum);
+    overlap_add_coeff_states_.clear();
     return;
   }
 #endif
@@ -2425,12 +2470,14 @@ void AccelerationOps::flush_overlap_state(Matrix2Df &accum,
 
     flush_opencl(accum);
     flush_opencl(weight_sum);
+    overlap_add_coeff_states_.clear();
     return;
   }
 #endif
 
   (void)accum;
   (void)weight_sum;
+  overlap_add_coeff_states_.clear();
 }
 
 } // namespace tile_compile::core

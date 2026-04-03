@@ -403,6 +403,10 @@ properties:
         enum: [auto, cpu, opencv_cuda, opencv_opencl, opencl, cuda]
         default: auto
         description: "Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' (Standard) erkennt automatisch verfuegbare GPU-Backends (CUDA/OpenCL) zur Laufzeit. Prioritaet: CUDA -> OpenCL -> CPU. 'opencv_cuda' erzwingt NVIDIA CUDA, 'opencv_opencl'/'opencl' erzwingt OpenCL (AMD/Intel/NVIDIA), 'cpu' deaktiviert GPU. Faellt sauber auf CPU zurueck wenn Hardware nicht verfuegbar."
+      tile_reconstruction_diagnostics:
+        type: string
+        enum: [full, minimal, off]
+        default: full
       tile_analysis_max_factor_vs_stack: {type: number, exclusiveMinimum: 0}
       hard_abort_hours: {type: number, exclusiveMinimum: 0}
       allow_emergency_mode:

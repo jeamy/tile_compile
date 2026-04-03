@@ -37,7 +37,7 @@ words = [
     "star_dilate_px", "star_dist_bin_px", "star_inlier_tol_px", "star_min_count", "star_min_inliers",
     "star_mode", "star_protection", "star_topk", "strategy", "strictness",
     "structure_mode", "structure_protection", "structure_thresh_percentile", "synthetic", "threshold_scale",
-    "threshold_sigma", "tile_analysis_max_factor_vs_stack", "tile_denoise", "tile_weight_lambda_structure", "transform_model",
+    "threshold_sigma", "tile_analysis_max_factor_vs_stack", "tile_denoise", "tile_reconstruction_diagnostics", "tile_weight_lambda_structure", "transform_model",
     "use_bias", "use_dark", "use_flat", "weight_exponent_scale", "weighting",
     "weights", "wiener", "write_registered_frames"
 ]

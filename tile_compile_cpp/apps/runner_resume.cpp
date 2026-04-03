@@ -1908,6 +1908,12 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                 << " isolated pixels (candidates="
                 << chroma_speckle_stats.candidate_pixels << ")" << std::endl;
     }
+    if (io::detect_color_mode(rgb.header, 2) == ColorMode::OSC &&
+        cfg.chroma_denoise.enabled &&
+        cfg.chroma_denoise.apply_stage == "post_pcc") {
+      reconstruction::chroma_denoise_rgb_inplace(
+          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise);
+    }
 
     const fs::path pcc_r_path = run_dir / "outputs" / "pcc_R.fit";
     const fs::path pcc_g_path = run_dir / "outputs" / "pcc_G.fit";
@@ -1956,12 +1962,6 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
                        {"source", used_source},
                        {"input_rgb", pcc_input_rgb_path.string()}},
                       log_file);
-    if (io::detect_color_mode(rgb.header, 2) == ColorMode::OSC &&
-        cfg.chroma_denoise.enabled &&
-        cfg.chroma_denoise.apply_stage == "post_pcc") {
-      reconstruction::chroma_denoise_rgb_inplace(
-          rgb.R, rgb.G, rgb.B, cfg.chroma_denoise);
-    }
 
     if (abort_if_runtime_limit_exceeded("PCC")) {
       return 1;

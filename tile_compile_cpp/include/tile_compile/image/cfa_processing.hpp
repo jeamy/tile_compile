@@ -74,6 +74,12 @@ struct DebayerResult {
     Matrix2Df B;
 };
 
+void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
+                                   BayerPattern pattern,
+                                   Matrix2Df& R_out,
+                                   Matrix2Df& G_out,
+                                   Matrix2Df& B_out);
+
 DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
                                        BayerPattern pattern);
 
@@ -81,14 +87,58 @@ DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
 // origin_x/origin_y are the top-left pixel coordinates of this subregion in the
 // full image. This is required when demosaicing tiles extracted from a full
 // frame, to keep Bayer parity consistent across tiles.
+void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
+                                   BayerPattern pattern,
+                                   int origin_x,
+                                   int origin_y,
+                                   Matrix2Df& R_out,
+                                   Matrix2Df& G_out,
+                                   Matrix2Df& B_out);
+
+void debayer_nearest_neighbor_strided_into(const float* mosaic_data,
+                                           int mosaic_rows,
+                                           int mosaic_cols,
+                                           int mosaic_stride,
+                                           BayerPattern pattern,
+                                           int origin_x,
+                                           int origin_y,
+                                           Matrix2Df& R_out,
+                                           Matrix2Df& G_out,
+                                           Matrix2Df& B_out);
+
 DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,
                                        BayerPattern pattern,
                                        int origin_x,
                                        int origin_y);
 
 // Bilinear debayer with Bayer-parity aware tile origin handling.
+void debayer_bilinear_into(const Matrix2Df& mosaic,
+                           BayerPattern pattern,
+                           Matrix2Df& R_out,
+                           Matrix2Df& G_out,
+                           Matrix2Df& B_out);
+
 DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
                                BayerPattern pattern);
+
+void debayer_bilinear_into(const Matrix2Df& mosaic,
+                           BayerPattern pattern,
+                           int origin_x,
+                           int origin_y,
+                           Matrix2Df& R_out,
+                           Matrix2Df& G_out,
+                           Matrix2Df& B_out);
+
+void debayer_bilinear_strided_into(const float* mosaic_data,
+                                   int mosaic_rows,
+                                   int mosaic_cols,
+                                   int mosaic_stride,
+                                   BayerPattern pattern,
+                                   int origin_x,
+                                   int origin_y,
+                                   Matrix2Df& R_out,
+                                   Matrix2Df& G_out,
+                                   Matrix2Df& B_out);
 
 DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
                                BayerPattern pattern,

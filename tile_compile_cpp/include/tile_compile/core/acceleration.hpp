@@ -113,11 +113,10 @@ public:
                    int canvas_width, Matrix2Df &accum, Matrix2Df &weight_sum,
                    bool accumulate_weight = true) const;
 
-  void overlap_add_preweighted(const Matrix2Df &weighted_tile,
-                               const Tile &tile_bounds, Matrix2Df &accum,
-                               Matrix2Df &weight_sum,
-                               const Matrix2Df *weight_mask = nullptr,
-                               bool accumulate_weight = true) const;
+  void overlap_add(const Matrix2Df &tile, const Tile &tile_bounds,
+                   const Matrix2Df &coeff, Matrix2Df &accum,
+                   Matrix2Df &weight_sum,
+                   bool accumulate_weight = true) const;
 
   bool normalize_overlap_accum(Matrix2Df &accum, Matrix2Df &weight_sum,
                                float eps_weight,
@@ -130,6 +129,9 @@ private:
   mutable std::unordered_map<const Matrix2Df *,
                              std::shared_ptr<OverlapAddState>>
       overlap_add_states_;
+  mutable std::unordered_map<const Matrix2Df *,
+                             std::shared_ptr<OverlapAddState>>
+      overlap_add_coeff_states_;
 };
 
 } // namespace tile_compile::core
