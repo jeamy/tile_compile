@@ -511,6 +511,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.C (2026-04-03)
+
+- Tile-Rekonstruktion nach dem Rollout der letzten Performance-Optimierungen stabilisiert; der Schwerpunkt lag auf Nachbesserungen und Analyse sichtbarer Kachel- bzw. Nahtartefakte im finalen Rekonstruktionsergebnis.
+
 ## v0.1.B (2026-03-31)
 
 - PCC-/Output-Pfad korrigiert: `stacked_rgb.fits` bleibt der reine Stacking-Output, erfolgreiche `BGE`-/`PCC`-Snapshots bleiben sauber getrennt als `stacked_rgb_bge.fits` / `stacked_rgb_pcc.fits`, und `output_stretch` verwendet jetzt ausschliesslich ein lineares `0..max -> 0..65535`-Scaling; obsoletter nichtlinearer/Quantil-Stretch-Code wurde entfernt.
@@ -655,6 +659,12 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-04-03)
+
+**Stabilisierung der Tile-Rekonstruktion nach dem letzten Optimierungs-Rollout (`v0.1.C`):**
+
+- Tile-Rekonstruktion nach dem Rollout der letzten Performance-Optimierungen stabilisiert; der Schwerpunkt lag auf Nachbesserungen und Analyse sichtbarer Kachel- bzw. Nahtartefakte im finalen Rekonstruktionsergebnis.
 
 ### (2026-03-29)
 
