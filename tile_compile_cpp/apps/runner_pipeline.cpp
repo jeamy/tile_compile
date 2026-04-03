@@ -2725,7 +2725,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       if (tile_reconstruction_diagnostics_full) {
         boundary_weight_profile_diagnostics =
             reconstruction::analyze_tile_weight_profiles(
-                active_boundary_diagnostics.pair_diagnostics, local_weights,
+                boundary_diagnostics_active.pair_diagnostics, local_weights,
                 frame_has_data);
       }
 
@@ -2734,15 +2734,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       std::vector<float> snr_deltas;
       std::vector<float> correlation_deltas;
       valid_count_deltas.reserve(
-          active_boundary_diagnostics.pair_diagnostics.size());
+          boundary_diagnostics_active.pair_diagnostics.size());
       background_deltas.reserve(
-          active_boundary_diagnostics.pair_diagnostics.size());
+          boundary_diagnostics_active.pair_diagnostics.size());
       if (tile_reconstruction_diagnostics_full) {
-        snr_deltas.reserve(active_boundary_diagnostics.pair_diagnostics.size());
+        snr_deltas.reserve(boundary_diagnostics_active.pair_diagnostics.size());
         correlation_deltas.reserve(
-            active_boundary_diagnostics.pair_diagnostics.size());
+            boundary_diagnostics_active.pair_diagnostics.size());
       }
-      for (const auto &pair : active_boundary_diagnostics.pair_diagnostics) {
+      for (const auto &pair : boundary_diagnostics_active.pair_diagnostics) {
         valid_count_deltas.push_back(static_cast<float>(
             std::abs(tile_valid_counts[pair.lhs] - tile_valid_counts[pair.rhs])));
         background_deltas.push_back(std::fabs(
@@ -3040,7 +3040,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       artifact["valid_tiles"] = valid_tile_count;
       artifact["dead_tiles"] = dead_tile_count;
       artifact["tile_boundary_diagnostics_enabled"] =
-          collect_tile_boundary_diagnostics;
+          tile_reconstruction_diagnostics_enabled;
       artifact["full_support_tiles"] = full_support_tile_count;
       artifact["tile_reconstruction_diagnostics_mode"] =
           tile_reconstruction_diagnostics_mode;
@@ -3064,16 +3064,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       artifact["tile_norm_boundary_regression_ratio"] =
           tile_norm_boundary_regression_ratio;
       artifact["tile_boundary_analysis_uses_common_canvas_mask"] =
-          collect_tile_boundary_diagnostics;
+          tile_reconstruction_diagnostics_enabled;
       artifact["tile_boundary_raw_analysis_input"] =
-          collect_tile_boundary_diagnostics ? "pre_ola_raw" : "disabled";
+          tile_reconstruction_diagnostics_enabled ? "pre_ola_raw" : "disabled";
       artifact["tile_boundary_normalized_analysis_input"] =
-          collect_tile_boundary_diagnostics
+          tile_reconstruction_diagnostics_enabled
               ? (phase7_tile_norm_requested ? "pre_ola_normalized"
                                             : "pre_ola_raw")
               : "disabled";
       artifact["tile_boundary_analysis_input"] =
-          collect_tile_boundary_diagnostics
+          tile_reconstruction_diagnostics_enabled
               ? (apply_phase7_tile_norm ? "pre_ola_normalized" : "pre_ola_raw")
               : "disabled";
       artifact["tile_boundary_raw_pair_count"] =
@@ -3293,7 +3293,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             {"tile_norm_boundary_regression_ratio",
              tile_norm_boundary_regression_ratio},
             {"tile_boundary_analysis_input",
-             collect_tile_boundary_diagnostics
+             tile_reconstruction_diagnostics_enabled
                  ? (apply_phase7_tile_norm ? "pre_ola_normalized"
                                            : "pre_ola_raw")
                  : "disabled"},

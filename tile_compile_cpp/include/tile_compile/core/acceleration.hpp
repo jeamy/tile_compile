@@ -118,6 +118,12 @@ public:
                    Matrix2Df &weight_sum,
                    bool accumulate_weight = true) const;
 
+  void overlap_add_preweighted(const Matrix2Df &weighted_tile,
+                               const Tile &tile_bounds, Matrix2Df &accum,
+                               Matrix2Df &weight_sum,
+                               const Matrix2Df *weight_mask = nullptr,
+                               bool accumulate_weight = true) const;
+
   bool normalize_overlap_accum(Matrix2Df &accum, Matrix2Df &weight_sum,
                                float eps_weight,
                                float invalid_value) const;
