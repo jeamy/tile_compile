@@ -612,6 +612,11 @@ struct TileWindowCacheEntry {
   std::vector<float> y;
 };
 
+struct TileOlaCoeffCacheEntry {
+  Matrix2Df coeff;
+  bool has_nonzero = false;
+};
+
 std::vector<TileWindowCacheEntry>
 build_tile_window_cache(const std::vector<Tile> &tiles) {
   std::vector<TileWindowCacheEntry> out(tiles.size());
@@ -653,6 +658,51 @@ build_tile_window_cache(const std::vector<Tile> &tiles) {
         tile.width, left_overlap, right_overlap);
     out[ti].y = reconstruction::make_partition_window_1d(
         tile.height, top_overlap, bottom_overlap);
+  }
+  return out;
+}
+
+std::vector<TileOlaCoeffCacheEntry> build_tile_ola_coeff_cache(
+    const std::vector<Tile> &tiles,
+    const std::vector<TileWindowCacheEntry> &tile_window_cache,
+    const std::vector<uint8_t> &common_valid_mask, int canvas_width,
+    int canvas_height) {
+  std::vector<TileOlaCoeffCacheEntry> out(tiles.size());
+  for (size_t ti = 0; ti < tiles.size(); ++ti) {
+    if (ti >= tile_window_cache.size()) {
+      continue;
+    }
+    const Tile &tile = tiles[ti];
+    auto &entry = out[ti];
+    if (tile.width <= 0 || tile.height <= 0) {
+      continue;
+    }
+    entry.coeff.resize(tile.height, tile.width);
+    entry.coeff.setZero();
+    for (int yy = 0; yy < tile.height; ++yy) {
+      const int iy = tile.y + yy;
+      if (iy < 0 || iy >= canvas_height) {
+        continue;
+      }
+      const float wy = tile_window_cache[ti].y[static_cast<size_t>(yy)];
+      for (int xx = 0; xx < tile.width; ++xx) {
+        const int ix = tile.x + xx;
+        if (ix < 0 || ix >= canvas_width) {
+          continue;
+        }
+        const size_t common_idx =
+            static_cast<size_t>(iy) * static_cast<size_t>(canvas_width) +
+            static_cast<size_t>(ix);
+        if (common_idx >= common_valid_mask.size() ||
+            common_valid_mask[common_idx] == 0) {
+          continue;
+        }
+        const float coeff =
+            wy * tile_window_cache[ti].x[static_cast<size_t>(xx)];
+        entry.coeff(yy, xx) = coeff;
+        entry.has_nonzero = entry.has_nonzero || (coeff > 0.0f);
+      }
+    }
   }
   return out;
 }
@@ -1883,12 +1933,21 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     bool tile_norm_disabled_due_boundary_regression = false;
     float tile_norm_boundary_regression_ratio = 1.0f;
     std::string tile_norm_application = "disabled_v3_3_9_linear_core";
+    const std::string &tile_reconstruction_diagnostics_mode =
+        cfg.runtime_limits.tile_reconstruction_diagnostics;
+    const bool tile_reconstruction_diagnostics_enabled =
+        tile_reconstruction_diagnostics_mode != "off";
+    const bool tile_reconstruction_diagnostics_full =
+        tile_reconstruction_diagnostics_mode == "full";
 
     std::mutex progress_mutex;
     std::atomic<size_t> tiles_completed{0};
     std::atomic<size_t> tiles_failed{0};
 
     const auto tile_window_cache = build_tile_window_cache(tiles_phase56);
+    const auto tile_ola_coeff_cache = build_tile_ola_coeff_cache(
+        tiles_phase56, tile_window_cache, common_valid_mask, canvas_width,
+        canvas_height);
 
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_r;
     std::unique_ptr<tile_compile::runner::DiskCacheFrameStore> osc_rgb_cache_g;
@@ -2126,7 +2185,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         } else {
           const int origin_x = std::max(0, t.x);
           const int origin_y = std::max(0, t.y);
-          Matrix2Df tile_mosaic;
           Matrix2Df tile_r;
           Matrix2Df tile_g;
           Matrix2Df tile_b;
@@ -2136,15 +2194,20 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             const float frame_weight = compute_frame_tile_weight(fi);
             if (!(frame_weight > 0.0f))
               continue;
-            if (!prewarped_frames.extract_tile_into(fi, t, tile_mosaic, 0, 0) ||
-                tile_mosaic.rows() != t.height ||
-                tile_mosaic.cols() != t.width) {
+            const float *frame_ptr = prewarped_frames.frame_data(fi);
+            if (frame_ptr == nullptr || origin_x < 0 || origin_y < 0 ||
+                origin_x + t.width > canvas_width ||
+                origin_y + t.height > canvas_height) {
               continue;
             }
-
-            image::debayer_nearest_neighbor_into(tile_mosaic, detected_bayer,
-                                                 origin_x, origin_y, tile_r,
-                                                 tile_g, tile_b);
+            const float *tile_ptr =
+                frame_ptr +
+                static_cast<size_t>(origin_y) *
+                    static_cast<size_t>(canvas_width) +
+                static_cast<size_t>(origin_x);
+            image::debayer_nearest_neighbor_strided_into(
+                tile_ptr, t.height, t.width, canvas_width, detected_bayer,
+                origin_x, origin_y, tile_r, tile_g, tile_b);
             if (!tile_compile::runner::
                     apply_common_overlap_to_rgb_tiles_inplace_and_check_nonzero(
                         tile_r, tile_g, tile_b, t, common_valid_mask,
@@ -2506,7 +2569,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       }
     }
 
-    {
+    if (tile_reconstruction_diagnostics_enabled) {
       auto summarize_abs_metric = [](std::vector<float> values) {
         std::pair<float, float> summary{0.0f, 0.0f};
         if (values.empty()) {
@@ -2594,31 +2657,38 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       const auto &active_boundary_diagnostics =
           apply_phase7_tile_norm ? boundary_diagnostics_normalized
                                  : boundary_diagnostics_raw;
-	      boundary_weight_profile_diagnostics =
-	          reconstruction::analyze_tile_weight_profiles(
-	              active_boundary_diagnostics.pair_diagnostics, local_weights,
-	              frame_has_data);
+      if (tile_reconstruction_diagnostics_full) {
+        boundary_weight_profile_diagnostics =
+            reconstruction::analyze_tile_weight_profiles(
+                active_boundary_diagnostics.pair_diagnostics, local_weights,
+                frame_has_data);
+      }
 
       std::vector<float> valid_count_deltas;
       std::vector<float> background_deltas;
       std::vector<float> snr_deltas;
       std::vector<float> correlation_deltas;
-	      valid_count_deltas.reserve(
-	          active_boundary_diagnostics.pair_diagnostics.size());
-	      background_deltas.reserve(
-	          active_boundary_diagnostics.pair_diagnostics.size());
-	      snr_deltas.reserve(active_boundary_diagnostics.pair_diagnostics.size());
-	      correlation_deltas.reserve(
-	          active_boundary_diagnostics.pair_diagnostics.size());
-	      for (const auto &pair : active_boundary_diagnostics.pair_diagnostics) {
-	        valid_count_deltas.push_back(static_cast<float>(
-	            std::abs(tile_valid_counts[pair.lhs] - tile_valid_counts[pair.rhs])));
+      valid_count_deltas.reserve(
+          active_boundary_diagnostics.pair_diagnostics.size());
+      background_deltas.reserve(
+          active_boundary_diagnostics.pair_diagnostics.size());
+      if (tile_reconstruction_diagnostics_full) {
+        snr_deltas.reserve(active_boundary_diagnostics.pair_diagnostics.size());
+        correlation_deltas.reserve(
+            active_boundary_diagnostics.pair_diagnostics.size());
+      }
+      for (const auto &pair : active_boundary_diagnostics.pair_diagnostics) {
+        valid_count_deltas.push_back(static_cast<float>(
+            std::abs(tile_valid_counts[pair.lhs] - tile_valid_counts[pair.rhs])));
         background_deltas.push_back(std::fabs(
             tile_post_background[pair.lhs] - tile_post_background[pair.rhs]));
-        snr_deltas.push_back(
-            std::fabs(tile_post_snr[pair.lhs] - tile_post_snr[pair.rhs]));
-        correlation_deltas.push_back(std::fabs(tile_mean_correlations[pair.lhs] -
-                                               tile_mean_correlations[pair.rhs]));
+        if (tile_reconstruction_diagnostics_full) {
+          snr_deltas.push_back(
+              std::fabs(tile_post_snr[pair.lhs] - tile_post_snr[pair.rhs]));
+          correlation_deltas.push_back(
+              std::fabs(tile_mean_correlations[pair.lhs] -
+                        tile_mean_correlations[pair.rhs]));
+        }
         if ((tile_fallback_used[pair.lhs] != 0u) !=
             (tile_fallback_used[pair.rhs] != 0u)) {
           ++boundary_fallback_mismatch_count;
@@ -2631,13 +2701,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       auto background_summary = summarize_abs_metric(std::move(background_deltas));
       boundary_post_background_delta_mean_abs = background_summary.first;
       boundary_post_background_delta_p95_abs = background_summary.second;
-      auto snr_summary = summarize_abs_metric(std::move(snr_deltas));
-      boundary_post_snr_delta_mean_abs = snr_summary.first;
-      boundary_post_snr_delta_p95_abs = snr_summary.second;
-      auto correlation_summary =
-          summarize_abs_metric(std::move(correlation_deltas));
-      boundary_mean_correlation_delta_mean_abs = correlation_summary.first;
-      boundary_mean_correlation_delta_p95_abs = correlation_summary.second;
+      if (tile_reconstruction_diagnostics_full) {
+        auto snr_summary = summarize_abs_metric(std::move(snr_deltas));
+        boundary_post_snr_delta_mean_abs = snr_summary.first;
+        boundary_post_snr_delta_p95_abs = snr_summary.second;
+        auto correlation_summary =
+            summarize_abs_metric(std::move(correlation_deltas));
+        boundary_mean_correlation_delta_mean_abs = correlation_summary.first;
+        boundary_mean_correlation_delta_p95_abs = correlation_summary.second;
+      }
     }
 
     for (size_t ti = 0; ti < tiles_phase56.size(); ++ti) {
@@ -2645,14 +2717,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         continue;
       }
       const Tile &t = tiles_phase56[ti];
-      if (ti >= tile_window_cache.size()) {
+      if (ti >= tile_ola_coeff_cache.size() ||
+          !tile_ola_coeff_cache[ti].has_nonzero) {
         continue;
       }
-      const std::vector<float> &window_x = tile_window_cache[ti].x;
-      const std::vector<float> &window_y = tile_window_cache[ti].y;
-
-      const int x0 = std::max(0, t.x);
-      const int y0 = std::max(0, t.y);
+      const Matrix2Df &tile_ola_coeff = tile_ola_coeff_cache[ti].coeff;
 
       if (osc_mode) {
         Matrix2Df tile_r = reconstructed_tiles_R[ti];
@@ -2667,15 +2736,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
         }
 
-        tile_reconstruction_ops.overlap_add(
-            tile_r, t, window_x, window_y, common_valid_mask, canvas_width,
-            recon_R, weight_sum, true);
-        tile_reconstruction_ops.overlap_add(
-            tile_g, t, window_x, window_y, common_valid_mask, canvas_width,
-            recon_G, weight_sum, false);
-        tile_reconstruction_ops.overlap_add(
-            tile_b, t, window_x, window_y, common_valid_mask, canvas_width,
-            recon_B, weight_sum, false);
+        tile_reconstruction_ops.overlap_add(tile_r, t, tile_ola_coeff, recon_R,
+                                            weight_sum, true);
+        tile_reconstruction_ops.overlap_add(tile_g, t, tile_ola_coeff, recon_G,
+                                            weight_sum, false);
+        tile_reconstruction_ops.overlap_add(tile_b, t, tile_ola_coeff, recon_B,
+                                            weight_sum, false);
       } else {
         Matrix2Df tile = reconstructed_tiles[ti];
         if (apply_phase7_tile_norm) {
@@ -2685,9 +2751,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           }
         }
 
-        tile_reconstruction_ops.overlap_add(
-            tile, t, window_x, window_y, common_valid_mask, canvas_width, recon,
-            weight_sum, true);
+        tile_reconstruction_ops.overlap_add(tile, t, tile_ola_coeff, recon,
+                                            weight_sum, true);
       }
     }
 
@@ -2831,17 +2896,21 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // Write reconstruction artifacts (v3)
     {
       core::json artifact;
+      const bool write_full_tile_reconstruction_artifacts =
+          tile_reconstruction_diagnostics_full;
       std::unordered_map<uint64_t,
                          reconstruction::TileWeightProfilePairDiagnostic>
           weight_profile_by_pair;
-      weight_profile_by_pair.reserve(
-          boundary_weight_profile_diagnostics.pair_diagnostics.size());
       auto pair_key = [](size_t lhs, size_t rhs) -> uint64_t {
         return (static_cast<uint64_t>(lhs) << 32) ^ static_cast<uint64_t>(rhs);
       };
-      for (const auto &pair :
-           boundary_weight_profile_diagnostics.pair_diagnostics) {
-        weight_profile_by_pair.emplace(pair_key(pair.lhs, pair.rhs), pair);
+      if (write_full_tile_reconstruction_artifacts) {
+        weight_profile_by_pair.reserve(
+            boundary_weight_profile_diagnostics.pair_diagnostics.size());
+        for (const auto &pair :
+             boundary_weight_profile_diagnostics.pair_diagnostics) {
+          weight_profile_by_pair.emplace(pair_key(pair.lhs, pair.rhs), pair);
+        }
       }
       auto append_boundary_pairs = [&](const char *key,
                                        const reconstruction::TileBoundaryDiagnostics
@@ -2906,16 +2975,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       artifact["valid_tiles"] = valid_tile_count;
       artifact["dead_tiles"] = dead_tile_count;
       artifact["full_support_tiles"] = full_support_tile_count;
-      artifact["tile_valid_counts"] = core::json::array();
-      artifact["tile_fallback_used"] = core::json::array();
-      artifact["tile_mean_correlations"] = core::json::array();
-      artifact["tile_post_contrast"] = core::json::array();
-      artifact["tile_post_background"] = core::json::array();
-      artifact["tile_post_snr_proxy"] = core::json::array();
-      artifact["tile_norm_bg_r"] = core::json::array();
-      artifact["tile_norm_bg_g"] = core::json::array();
-      artifact["tile_norm_bg_b"] = core::json::array();
-      artifact["tile_norm_scale"] = core::json::array();
+      artifact["tile_reconstruction_diagnostics_mode"] =
+          tile_reconstruction_diagnostics_mode;
       artifact["tile_norm_global_background"] =
           tile_norm_guard_summary.global_background;
       artifact["tile_norm_global_scale"] = tile_norm_guard_summary.global_scale;
@@ -3033,36 +3094,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           boundary_post_background_delta_mean_abs;
       artifact["tile_boundary_post_background_delta_p95_abs"] =
           boundary_post_background_delta_p95_abs;
-      artifact["tile_boundary_post_snr_delta_mean_abs"] =
-          boundary_post_snr_delta_mean_abs;
-      artifact["tile_boundary_post_snr_delta_p95_abs"] =
-          boundary_post_snr_delta_p95_abs;
-      artifact["tile_boundary_mean_correlation_delta_mean_abs"] =
-          boundary_mean_correlation_delta_mean_abs;
-      artifact["tile_boundary_mean_correlation_delta_p95_abs"] =
-          boundary_mean_correlation_delta_p95_abs;
       artifact["tile_boundary_fallback_mismatch_count"] =
           boundary_fallback_mismatch_count;
-      artifact["tile_boundary_local_weight_observation_count"] =
-          static_cast<int>(boundary_weight_profile_diagnostics.observed_pair_count);
-      artifact["tile_boundary_local_weight_mean_abs_delta_mean"] =
-          boundary_weight_profile_diagnostics.pair_mean_abs_delta_mean;
-      artifact["tile_boundary_local_weight_mean_abs_delta_p95"] =
-          boundary_weight_profile_diagnostics.pair_mean_abs_delta_p95;
-      artifact["tile_boundary_local_weight_p95_abs_delta_mean"] =
-          boundary_weight_profile_diagnostics.pair_p95_abs_delta_mean;
-      artifact["tile_boundary_local_weight_p95_abs_delta_p95"] =
-          boundary_weight_profile_diagnostics.pair_p95_abs_delta_p95;
-      artifact["tile_boundary_local_weight_activation_mismatch_fraction_mean"] =
-          boundary_weight_profile_diagnostics
-              .pair_activation_mismatch_fraction_mean;
-      artifact["tile_boundary_local_weight_activation_mismatch_fraction_p95"] =
-          boundary_weight_profile_diagnostics
-              .pair_activation_mismatch_fraction_p95;
-      artifact["tile_boundary_local_weight_correlation_mean"] =
-          boundary_weight_profile_diagnostics.pair_correlation_mean;
-      artifact["tile_boundary_local_weight_correlation_p05"] =
-          boundary_weight_profile_diagnostics.pair_correlation_p05;
       artifact["common_overlap_source"] = "prewarp_inline_coverage";
       artifact["acceleration"] =
           core::acceleration_selection_to_json(
@@ -3071,26 +3104,69 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           core::device_frame_batch_to_json(tile_reconstruction_frame_batch);
       artifact["device_tile_batch"] =
           core::device_tile_batch_to_json(tile_reconstruction_tile_batch);
-      for (size_t i = 0; i < tiles_phase56.size(); ++i) {
-        artifact["tile_valid_counts"].push_back(tile_valid_counts[i]);
-        artifact["tile_fallback_used"].push_back(
-            tile_fallback_used[i] != 0u);
-        artifact["tile_mean_correlations"].push_back(tile_mean_correlations[i]);
-        artifact["tile_post_contrast"].push_back(tile_post_contrast[i]);
-        artifact["tile_post_background"].push_back(tile_post_background[i]);
-        artifact["tile_post_snr_proxy"].push_back(tile_post_snr[i]);
-        artifact["tile_norm_bg_r"].push_back(tile_norm_bg_r[i]);
-        artifact["tile_norm_bg_g"].push_back(tile_norm_bg_g[i]);
-        artifact["tile_norm_bg_b"].push_back(tile_norm_bg_b[i]);
-        artifact["tile_norm_scale"].push_back(tile_norm_scale[i]);
+      if (write_full_tile_reconstruction_artifacts) {
+        artifact["tile_valid_counts"] = core::json::array();
+        artifact["tile_fallback_used"] = core::json::array();
+        artifact["tile_mean_correlations"] = core::json::array();
+        artifact["tile_post_contrast"] = core::json::array();
+        artifact["tile_post_background"] = core::json::array();
+        artifact["tile_post_snr_proxy"] = core::json::array();
+        artifact["tile_norm_bg_r"] = core::json::array();
+        artifact["tile_norm_bg_g"] = core::json::array();
+        artifact["tile_norm_bg_b"] = core::json::array();
+        artifact["tile_norm_scale"] = core::json::array();
+        artifact["tile_boundary_post_snr_delta_mean_abs"] =
+            boundary_post_snr_delta_mean_abs;
+        artifact["tile_boundary_post_snr_delta_p95_abs"] =
+            boundary_post_snr_delta_p95_abs;
+        artifact["tile_boundary_mean_correlation_delta_mean_abs"] =
+            boundary_mean_correlation_delta_mean_abs;
+        artifact["tile_boundary_mean_correlation_delta_p95_abs"] =
+            boundary_mean_correlation_delta_p95_abs;
+        artifact["tile_boundary_local_weight_observation_count"] =
+            static_cast<int>(
+                boundary_weight_profile_diagnostics.observed_pair_count);
+        artifact["tile_boundary_local_weight_mean_abs_delta_mean"] =
+            boundary_weight_profile_diagnostics.pair_mean_abs_delta_mean;
+        artifact["tile_boundary_local_weight_mean_abs_delta_p95"] =
+            boundary_weight_profile_diagnostics.pair_mean_abs_delta_p95;
+        artifact["tile_boundary_local_weight_p95_abs_delta_mean"] =
+            boundary_weight_profile_diagnostics.pair_p95_abs_delta_mean;
+        artifact["tile_boundary_local_weight_p95_abs_delta_p95"] =
+            boundary_weight_profile_diagnostics.pair_p95_abs_delta_p95;
+        artifact["tile_boundary_local_weight_activation_mismatch_fraction_mean"] =
+            boundary_weight_profile_diagnostics
+                .pair_activation_mismatch_fraction_mean;
+        artifact["tile_boundary_local_weight_activation_mismatch_fraction_p95"] =
+            boundary_weight_profile_diagnostics
+                .pair_activation_mismatch_fraction_p95;
+        artifact["tile_boundary_local_weight_correlation_mean"] =
+            boundary_weight_profile_diagnostics.pair_correlation_mean;
+        artifact["tile_boundary_local_weight_correlation_p05"] =
+            boundary_weight_profile_diagnostics.pair_correlation_p05;
+        for (size_t i = 0; i < tiles_phase56.size(); ++i) {
+          artifact["tile_valid_counts"].push_back(tile_valid_counts[i]);
+          artifact["tile_fallback_used"].push_back(
+              tile_fallback_used[i] != 0u);
+          artifact["tile_mean_correlations"].push_back(
+              tile_mean_correlations[i]);
+          artifact["tile_post_contrast"].push_back(tile_post_contrast[i]);
+          artifact["tile_post_background"].push_back(tile_post_background[i]);
+          artifact["tile_post_snr_proxy"].push_back(tile_post_snr[i]);
+          artifact["tile_norm_bg_r"].push_back(tile_norm_bg_r[i]);
+          artifact["tile_norm_bg_g"].push_back(tile_norm_bg_g[i]);
+          artifact["tile_norm_bg_b"].push_back(tile_norm_bg_b[i]);
+          artifact["tile_norm_scale"].push_back(tile_norm_scale[i]);
+        }
+        append_boundary_pairs("tile_boundary_raw_top_pairs",
+                              boundary_diagnostics_raw);
+        append_boundary_pairs("tile_boundary_normalized_top_pairs",
+                              boundary_diagnostics_normalized);
+        artifact["tile_boundary_top_pairs"] =
+            apply_phase7_tile_norm
+                ? artifact["tile_boundary_normalized_top_pairs"]
+                : artifact["tile_boundary_raw_top_pairs"];
       }
-      append_boundary_pairs("tile_boundary_raw_top_pairs",
-                            boundary_diagnostics_raw);
-      append_boundary_pairs("tile_boundary_normalized_top_pairs",
-                            boundary_diagnostics_normalized);
-      artifact["tile_boundary_top_pairs"] =
-          apply_phase7_tile_norm ? artifact["tile_boundary_normalized_top_pairs"]
-                                 : artifact["tile_boundary_raw_top_pairs"];
       core::write_text(run_dir / "artifacts" / "tile_reconstruction.json",
                        artifact.dump(2));
     }
@@ -5257,6 +5333,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                       << chroma_speckle_stats.candidate_pixels << ")"
                       << std::endl;
           }
+          if (cfg.chroma_denoise.enabled &&
+              cfg.chroma_denoise.apply_stage == "post_pcc") {
+            reconstruction::chroma_denoise_rgb_inplace(
+                R_out, G_out, B_out, cfg.chroma_denoise);
+          }
 
           // Keep per-channel PCC outputs linear, but write the visible RGB
           // snapshot with the configured output stretch semantics.
@@ -5324,11 +5405,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                             log_file);
         }
       }
-    }
-    if (detected_mode == ColorMode::OSC && cfg.chroma_denoise.enabled &&
-        cfg.chroma_denoise.apply_stage == "post_pcc") {
-      reconstruction::chroma_denoise_rgb_inplace(
-          R_out, G_out, B_out, cfg.chroma_denoise);
     }
 
     if (abort_if_runtime_limit_exceeded("PCC")) {

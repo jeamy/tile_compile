@@ -53,11 +53,52 @@ inline void fill_bayer_color_lut(BayerPattern pattern, uint8_t color_lut[4]) {
     }
 }
 
-inline float sample_clamped(const float* data, int h, int w, int y, int x) {
+inline float sample_clamped_strided(const float* data, int h, int w, int stride,
+                                    int y, int x) {
     const int cy = clamp_index(y, 0, h - 1);
     const int cx = clamp_index(x, 0, w - 1);
-    return data[static_cast<size_t>(cy) * static_cast<size_t>(w) +
+    return data[static_cast<size_t>(cy) * static_cast<size_t>(stride) +
                 static_cast<size_t>(cx)];
+}
+
+inline float sample_clamped(const float* data, int h, int w, int y, int x) {
+    return sample_clamped_strided(data, h, w, w, y, x);
+}
+
+inline float average_neighbors_of_color_strided(const float* data,
+                                                int h,
+                                                int w,
+                                                int stride,
+                                                int origin_y,
+                                                int origin_x,
+                                                const uint8_t color_lut[4],
+                                                const int* ys,
+                                                const int* xs,
+                                                int n,
+                                                CfaColor desired_color) {
+    float sum = 0.0f;
+    int count = 0;
+    const uint8_t desired = static_cast<uint8_t>(desired_color);
+    for (int i = 0; i < n; ++i) {
+        const int cy = clamp_index(ys[i], 0, h - 1);
+        const int cx = clamp_index(xs[i], 0, w - 1);
+        const int parity_idx = (((origin_y + cy) & 1) << 1) | ((origin_x + cx) & 1);
+        if (color_lut[parity_idx] != desired) {
+            continue;
+        }
+        const float v = data[static_cast<size_t>(cy) * static_cast<size_t>(stride) +
+                             static_cast<size_t>(cx)];
+        if (!(std::isfinite(v) && v > 0.0f)) {
+            continue;
+        }
+        sum += v;
+        ++count;
+    }
+    if (count > 0) {
+        return sum / static_cast<float>(count);
+    }
+    const float fallback = sample_clamped_strided(data, h, w, stride, ys[0], xs[0]);
+    return (std::isfinite(fallback) && fallback > 0.0f) ? fallback : 0.0f;
 }
 
 inline float average_neighbors_of_color(const float* data,
@@ -70,29 +111,100 @@ inline float average_neighbors_of_color(const float* data,
                                         const int* xs,
                                         int n,
                                         CfaColor desired_color) {
-    float sum = 0.0f;
-    int count = 0;
-    const uint8_t desired = static_cast<uint8_t>(desired_color);
-    for (int i = 0; i < n; ++i) {
-        const int cy = clamp_index(ys[i], 0, h - 1);
-        const int cx = clamp_index(xs[i], 0, w - 1);
-        const int parity_idx = (((origin_y + cy) & 1) << 1) | ((origin_x + cx) & 1);
-        if (color_lut[parity_idx] != desired) {
-            continue;
-        }
-        const float v = data[static_cast<size_t>(cy) * static_cast<size_t>(w) +
-                             static_cast<size_t>(cx)];
-        if (!(std::isfinite(v) && v > 0.0f)) {
-            continue;
-        }
-        sum += v;
-        ++count;
+    return average_neighbors_of_color_strided(
+        data, h, w, w, origin_y, origin_x, color_lut, ys, xs, n,
+        desired_color);
+}
+
+void debayer_bilinear_core(const float* src, int h, int w, int stride,
+                           BayerPattern pattern, int origin_x, int origin_y,
+                           Matrix2Df& R_out, Matrix2Df& G_out,
+                           Matrix2Df& B_out) {
+    R_out.resize(h, w);
+    G_out.resize(h, w);
+    B_out.resize(h, w);
+    R_out.setZero();
+    G_out.setZero();
+    B_out.setZero();
+
+    int r_row = 1, r_col = 0;
+    if (pattern == BayerPattern::UNKNOWN) {
+        pattern = BayerPattern::GBRG;
+    } else if (pattern == BayerPattern::RGGB) {
+        r_row = 0; r_col = 0;
+    } else if (pattern == BayerPattern::BGGR) {
+        r_row = 1; r_col = 1;
+    } else if (pattern == BayerPattern::GRBG) {
+        r_row = 0; r_col = 1;
     }
-    if (count > 0) {
-        return sum / static_cast<float>(count);
+    uint8_t color_lut[4] = {0, 0, 0, 0};
+    fill_bayer_color_lut(pattern, color_lut);
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const int parity_idx = (((origin_y + y) & 1) << 1) | ((origin_x + x) & 1);
+            const uint8_t color = color_lut[parity_idx];
+            float r_val = 0.0f;
+            float g_val = 0.0f;
+            float b_val = 0.0f;
+
+            if (color == static_cast<uint8_t>(CfaColor::Red)) {
+                r_val = sample_clamped_strided(src, h, w, stride, y, x);
+                const int gy[4] = {y - 1, y + 1, y, y};
+                const int gx[4] = {x, x, x - 1, x + 1};
+                g_val = average_neighbors_of_color_strided(
+                    src, h, w, stride, origin_y, origin_x, color_lut, gy, gx,
+                    4, CfaColor::Green);
+                const int by[4] = {y - 1, y - 1, y + 1, y + 1};
+                const int bx[4] = {x - 1, x + 1, x - 1, x + 1};
+                b_val = average_neighbors_of_color_strided(
+                    src, h, w, stride, origin_y, origin_x, color_lut, by, bx,
+                    4, CfaColor::Blue);
+            } else if (color == static_cast<uint8_t>(CfaColor::Blue)) {
+                b_val = sample_clamped_strided(src, h, w, stride, y, x);
+                const int gy[4] = {y - 1, y + 1, y, y};
+                const int gx[4] = {x, x, x - 1, x + 1};
+                g_val = average_neighbors_of_color_strided(
+                    src, h, w, stride, origin_y, origin_x, color_lut, gy, gx,
+                    4, CfaColor::Green);
+                const int ry[4] = {y - 1, y - 1, y + 1, y + 1};
+                const int rx[4] = {x - 1, x + 1, x - 1, x + 1};
+                r_val = average_neighbors_of_color_strided(
+                    src, h, w, stride, origin_y, origin_x, color_lut, ry, rx,
+                    4, CfaColor::Red);
+            } else {
+                g_val = sample_clamped_strided(src, h, w, stride, y, x);
+                const bool green_on_red_row = (((origin_y + y) & 1) == r_row);
+                if (green_on_red_row) {
+                    const int ry[2] = {y, y};
+                    const int rx[2] = {x - 1, x + 1};
+                    r_val = average_neighbors_of_color_strided(
+                        src, h, w, stride, origin_y, origin_x, color_lut,
+                        ry, rx, 2, CfaColor::Red);
+                    const int by[2] = {y - 1, y + 1};
+                    const int bx[2] = {x, x};
+                    b_val = average_neighbors_of_color_strided(
+                        src, h, w, stride, origin_y, origin_x, color_lut,
+                        by, bx, 2, CfaColor::Blue);
+                } else {
+                    const int ry[2] = {y - 1, y + 1};
+                    const int rx[2] = {x, x};
+                    r_val = average_neighbors_of_color_strided(
+                        src, h, w, stride, origin_y, origin_x, color_lut,
+                        ry, rx, 2, CfaColor::Red);
+                    const int by[2] = {y, y};
+                    const int bx[2] = {x - 1, x + 1};
+                    b_val = average_neighbors_of_color_strided(
+                        src, h, w, stride, origin_y, origin_x, color_lut,
+                        by, bx, 2, CfaColor::Blue);
+                }
+            }
+
+            R_out(y, x) = r_val;
+            G_out(y, x) = g_val;
+            B_out(y, x) = b_val;
+        }
     }
-    const float fallback = sample_clamped(data, h, w, ys[0], xs[0]);
-    return (std::isfinite(fallback) && fallback > 0.0f) ? fallback : 0.0f;
 }
 
 } // namespace
@@ -425,93 +537,29 @@ void debayer_bilinear_into(const Matrix2Df& mosaic,
                            Matrix2Df& B_out) {
     const int h = static_cast<int>(mosaic.rows());
     const int w = static_cast<int>(mosaic.cols());
+    debayer_bilinear_core(mosaic.data(), h, w, w, pattern, origin_x, origin_y,
+                          R_out, G_out, B_out);
+}
 
-    R_out.resize(h, w);
-    G_out.resize(h, w);
-    B_out.resize(h, w);
-    R_out.setZero();
-    G_out.setZero();
-    B_out.setZero();
-
-    int r_row = 1, r_col = 0;
-    if (pattern == BayerPattern::UNKNOWN) {
-        pattern = BayerPattern::GBRG;
-    } else if (pattern == BayerPattern::RGGB) {
-        r_row = 0; r_col = 0;
-    } else if (pattern == BayerPattern::BGGR) {
-        r_row = 1; r_col = 1;
-    } else if (pattern == BayerPattern::GRBG) {
-        r_row = 0; r_col = 1;
+void debayer_bilinear_strided_into(const float* mosaic_data,
+                                   int mosaic_rows,
+                                   int mosaic_cols,
+                                   int mosaic_stride,
+                                   BayerPattern pattern,
+                                   int origin_x,
+                                   int origin_y,
+                                   Matrix2Df& R_out,
+                                   Matrix2Df& G_out,
+                                   Matrix2Df& B_out) {
+    if (mosaic_data == nullptr || mosaic_rows <= 0 || mosaic_cols <= 0 ||
+        mosaic_stride < mosaic_cols) {
+        R_out.resize(0, 0);
+        G_out.resize(0, 0);
+        B_out.resize(0, 0);
+        return;
     }
-    uint8_t color_lut[4] = {0, 0, 0, 0};
-    fill_bayer_color_lut(pattern, color_lut);
-    const float* src = mosaic.data();
-
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-            const int parity_idx = (((origin_y + y) & 1) << 1) | ((origin_x + x) & 1);
-            const uint8_t color = color_lut[parity_idx];
-            float r_val = 0.0f;
-            float g_val = 0.0f;
-            float b_val = 0.0f;
-
-            if (color == static_cast<uint8_t>(CfaColor::Red)) {
-                r_val = sample_clamped(src, h, w, y, x);
-                const int gy[4] = {y - 1, y + 1, y, y};
-                const int gx[4] = {x, x, x - 1, x + 1};
-                g_val = average_neighbors_of_color(src, h, w, origin_y, origin_x,
-                                                   color_lut, gy, gx, 4,
-                                                   CfaColor::Green);
-                const int by[4] = {y - 1, y - 1, y + 1, y + 1};
-                const int bx[4] = {x - 1, x + 1, x - 1, x + 1};
-                b_val = average_neighbors_of_color(src, h, w, origin_y, origin_x,
-                                                   color_lut, by, bx, 4,
-                                                   CfaColor::Blue);
-            } else if (color == static_cast<uint8_t>(CfaColor::Blue)) {
-                b_val = sample_clamped(src, h, w, y, x);
-                const int gy[4] = {y - 1, y + 1, y, y};
-                const int gx[4] = {x, x, x - 1, x + 1};
-                g_val = average_neighbors_of_color(src, h, w, origin_y, origin_x,
-                                                   color_lut, gy, gx, 4,
-                                                   CfaColor::Green);
-                const int ry[4] = {y - 1, y - 1, y + 1, y + 1};
-                const int rx[4] = {x - 1, x + 1, x - 1, x + 1};
-                r_val = average_neighbors_of_color(src, h, w, origin_y, origin_x,
-                                                   color_lut, ry, rx, 4,
-                                                   CfaColor::Red);
-            } else {
-                g_val = sample_clamped(src, h, w, y, x);
-                const bool green_on_red_row = (((origin_y + y) & 1) == r_row);
-                if (green_on_red_row) {
-                    const int ry[2] = {y, y};
-                    const int rx[2] = {x - 1, x + 1};
-                    r_val = average_neighbors_of_color(src, h, w, origin_y, origin_x,
-                                                       color_lut, ry, rx, 2,
-                                                       CfaColor::Red);
-                    const int by[2] = {y - 1, y + 1};
-                    const int bx[2] = {x, x};
-                    b_val = average_neighbors_of_color(src, h, w, origin_y, origin_x,
-                                                       color_lut, by, bx, 2,
-                                                       CfaColor::Blue);
-                } else {
-                    const int ry[2] = {y - 1, y + 1};
-                    const int rx[2] = {x, x};
-                    r_val = average_neighbors_of_color(src, h, w, origin_y, origin_x,
-                                                       color_lut, ry, rx, 2,
-                                                       CfaColor::Red);
-                    const int by[2] = {y, y};
-                    const int bx[2] = {x - 1, x + 1};
-                    b_val = average_neighbors_of_color(src, h, w, origin_y, origin_x,
-                                                       color_lut, by, bx, 2,
-                                                       CfaColor::Blue);
-                }
-            }
-
-            R_out(y, x) = r_val;
-            G_out(y, x) = g_val;
-            B_out(y, x) = b_val;
-        }
-    }
+    debayer_bilinear_core(mosaic_data, mosaic_rows, mosaic_cols, mosaic_stride,
+                          pattern, origin_x, origin_y, R_out, G_out, B_out);
 }
 
 DebayerResult debayer_bilinear(const Matrix2Df& mosaic,
@@ -548,6 +596,21 @@ void debayer_nearest_neighbor_into(const Matrix2Df& mosaic,
                                    Matrix2Df& B_out) {
     debayer_bilinear_into(mosaic, pattern, origin_x, origin_y,
                           R_out, G_out, B_out);
+}
+
+void debayer_nearest_neighbor_strided_into(const float* mosaic_data,
+                                           int mosaic_rows,
+                                           int mosaic_cols,
+                                           int mosaic_stride,
+                                           BayerPattern pattern,
+                                           int origin_x,
+                                           int origin_y,
+                                           Matrix2Df& R_out,
+                                           Matrix2Df& G_out,
+                                           Matrix2Df& B_out) {
+    debayer_bilinear_strided_into(mosaic_data, mosaic_rows, mosaic_cols,
+                                  mosaic_stride, pattern, origin_x, origin_y,
+                                  R_out, G_out, B_out);
 }
 
 DebayerResult debayer_nearest_neighbor(const Matrix2Df& mosaic,

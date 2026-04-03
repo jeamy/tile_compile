@@ -721,6 +721,10 @@ Config Config::from_yaml(const YAML::Node &node) {
           normalize_acceleration_backend(
               rl["acceleration_backend"].as<std::string>());
     }
+    if (rl["tile_reconstruction_diagnostics"]) {
+      cfg.runtime_limits.tile_reconstruction_diagnostics =
+          rl["tile_reconstruction_diagnostics"].as<std::string>();
+    }
   }
 
   return cfg;
@@ -1011,6 +1015,8 @@ YAML::Node Config::to_yaml() const {
   node["runtime_limits"]["memory_budget"] = runtime_limits.memory_budget;
   node["runtime_limits"]["acceleration_backend"] =
       runtime_limits.acceleration_backend;
+  node["runtime_limits"]["tile_reconstruction_diagnostics"] =
+      runtime_limits.tile_reconstruction_diagnostics;
 
   return node;
 }
@@ -1455,6 +1461,12 @@ void Config::validate() const {
     throw ValidationError(
         "runtime_limits.acceleration_backend must be auto, cpu, opencv_cuda, opencv_opencl, opencl, or cuda");
   }
+  if (runtime_limits.tile_reconstruction_diagnostics != "full" &&
+      runtime_limits.tile_reconstruction_diagnostics != "minimal" &&
+      runtime_limits.tile_reconstruction_diagnostics != "off") {
+    throw ValidationError(
+        "runtime_limits.tile_reconstruction_diagnostics must be full, minimal, or off");
+  }
 }
 
 std::string get_schema_json() {
@@ -1661,7 +1673,8 @@ std::string get_schema_json() {
                       "allow_emergency_mode":{"type":"boolean"},
                       "parallel_workers":{"type":"integer","minimum":1},
                       "memory_budget":{"type":"integer","minimum":1},
-                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' prueft beim Start GPU-Verfuegbarkeit (CUDA/OpenCL) und nutzt GPU dort, wo ein Implementierungspfad vorhanden ist; sonst faellt der Lauf kontrolliert auf CPU zurueck."} } }
+                      "acceleration_backend":{"type":"string","enum":["auto","cpu","opencv_cuda","opencv_opencl","opencl","cuda"],"description":"Beschleunigungs-Backend fuer PREWARP/TILE_RECONSTRUCTION/STACKING. 'auto' prueft beim Start GPU-Verfuegbarkeit (CUDA/OpenCL) und nutzt GPU dort, wo ein Implementierungspfad vorhanden ist; sonst faellt der Lauf kontrolliert auf CPU zurueck."},
+                      "tile_reconstruction_diagnostics":{"type":"string","enum":["full","minimal","off"]} } }
   }
 })";
 }
