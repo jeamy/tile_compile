@@ -1299,24 +1299,29 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
     return true;
   };
 
+  auto try_star_methods = [&]() -> bool {
+    bool ok = try_method(
+        triangle_star_matching(mov, ref, rcfg.allow_rotation,
+                               rcfg.star_topk, rcfg.star_min_inliers,
+                               rcfg.star_inlier_tol_px,
+                               rcfg.transform_model),
+        "triangle");
+    if (!ok && rcfg.enable_star_pair_fallback) {
+      ok = try_method(
+          star_registration_similarity(
+              mov, ref, rcfg.allow_rotation, rcfg.star_topk,
+              rcfg.star_min_inliers, rcfg.star_inlier_tol_px,
+              rcfg.star_dist_bin_px, rcfg.transform_model),
+          "star_pair");
+    }
+    return ok;
+  };
+
   // 1) Primary engine
   if (!accepted) {
     if (rcfg.engine == "triangle_star_matching" ||
         rcfg.engine == "star_similarity" || rcfg.engine.empty()) {
-      accepted = try_method(
-          triangle_star_matching(mov, ref, rcfg.allow_rotation,
-                                rcfg.star_topk, rcfg.star_min_inliers,
-                                rcfg.star_inlier_tol_px,
-                                rcfg.transform_model),
-          "triangle");
-      if (!accepted && rcfg.enable_star_pair_fallback) {
-        accepted = try_method(
-            star_registration_similarity(
-                mov, ref, rcfg.allow_rotation, rcfg.star_topk,
-                rcfg.star_min_inliers, rcfg.star_inlier_tol_px,
-                rcfg.star_dist_bin_px, rcfg.transform_model),
-            "star_pair");
-      }
+      accepted = try_star_methods();
     } else if (rcfg.engine == "opencv_feature") {
       accepted = try_method(
           feature_registration_similarity(mov, ref, rcfg.allow_rotation,

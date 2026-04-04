@@ -34,17 +34,23 @@ std::optional<double> extract_exposure_seconds(const io::FitsHeader &header) {
     if (auto value = header.get_int(key); value && *value > 0) {
       return static_cast<double>(*value);
     }
+    if (auto value = header.get_string(key)) {
+      char *end = nullptr;
+      errno = 0;
+      const double d = std::strtod(value->c_str(), &end);
+      if (errno == 0 && end != value->c_str() && *end == '\0' &&
+          std::isfinite(d) && d > 0.0) {
+        return d;
+      }
+    }
     return std::nullopt;
   };
 
-  if (auto value = read_positive("EXPTIME")) {
-    return value;
-  }
-  if (auto value = read_positive("EXPOSURE")) {
-    return value;
-  }
-  if (auto value = read_positive("EXPOS")) {
-    return value;
+  for (const char *key : {"EXPTIME", "EXPOSURE", "EXPOSURETIME",
+                           "EXPOSURE_TIME", "EXP_TIME", "DURATION", "EXPOS"}) {
+    if (auto value = read_positive(key)) {
+      return value;
+    }
   }
   return std::nullopt;
 }

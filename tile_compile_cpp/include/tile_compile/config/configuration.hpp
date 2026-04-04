@@ -75,6 +75,13 @@ struct RegistrationConfig {
   std::string transform_model = "similarity";    // similarity | affine
   bool enable_star_pair_fallback = true;
   bool allow_rotation = true;
+  // When true, the pipeline detects strong field rotation (Alt/Az mount) from
+  // the first few frames and automatically overrides engine to
+  // triangle_star_matching + transform_model=affine if the configured engine
+  // would likely fail (e.g. robust_phase_ecc with allow_rotation=true).
+  bool auto_engine = true;
+  // Rotation threshold in degrees per frame above which auto_engine triggers.
+  float auto_engine_rotation_threshold_deg = 0.05f;
   int star_topk = 150;
   int star_min_inliers = 4;
   float star_inlier_tol_px = 4.0f;

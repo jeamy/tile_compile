@@ -276,6 +276,11 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.registration.reject_scale_min = r["reject_scale_min"].as<float>();
     if (r["reject_scale_max"])
       cfg.registration.reject_scale_max = r["reject_scale_max"].as<float>();
+    if (r["auto_engine"])
+      cfg.registration.auto_engine = r["auto_engine"].as<bool>();
+    if (r["auto_engine_rotation_threshold_deg"])
+      cfg.registration.auto_engine_rotation_threshold_deg =
+          r["auto_engine_rotation_threshold_deg"].as<float>();
   }
 
   if (node["dithering"]) {
@@ -811,6 +816,9 @@ YAML::Node Config::to_yaml() const {
       registration.reject_shift_median_multiplier;
   node["registration"]["reject_scale_min"] = registration.reject_scale_min;
   node["registration"]["reject_scale_max"] = registration.reject_scale_max;
+  node["registration"]["auto_engine"] = registration.auto_engine;
+  node["registration"]["auto_engine_rotation_threshold_deg"] =
+      registration.auto_engine_rotation_threshold_deg;
 
   node["dithering"]["enabled"] = dithering.enabled;
   node["dithering"]["min_shift_px"] = dithering.min_shift_px;
@@ -1103,6 +1111,10 @@ void Config::validate() const {
     throw ValidationError(
         "registration.engine must be 'triangle_star_matching', "
         "'star_similarity', 'hybrid_phase_ecc', or 'robust_phase_ecc'");
+  }
+  if (registration.auto_engine_rotation_threshold_deg <= 0.0f) {
+    throw ValidationError(
+        "registration.auto_engine_rotation_threshold_deg must be > 0");
   }
   if (registration.transform_model != "similarity" &&
       registration.transform_model != "affine") {

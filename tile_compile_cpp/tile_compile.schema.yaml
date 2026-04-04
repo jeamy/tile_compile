@@ -99,6 +99,13 @@ properties:
       reject_shift_median_multiplier: {type: number, exclusiveMinimum: 0}
       reject_scale_min: {type: number, exclusiveMinimum: 0}
       reject_scale_max: {type: number, exclusiveMinimum: 0}
+      auto_engine:
+        type: boolean
+        description: "Wenn true, werden vor der Registrierung einige Probe-Frames analysiert. Bei erkannter starker Feldrotation (Alt/Az-Montierung) wird die Engine automatisch auf triangle_star_matching+affine umgestellt. Default: true."
+      auto_engine_rotation_threshold_deg:
+        type: number
+        exclusiveMinimum: 0
+        description: "Rotationsschwelle in Grad/Frame, ab der auto_engine den Override ausloest. Default: 0.05 (entspricht ~0.6 Grad/min bei 5s-Belichtungen — deutlich ueber EQ-Residualrotation <0.01 Grad/Frame, sicher unter jedem Alt/Az-Wert)."
   dithering:
     type: object
     properties:

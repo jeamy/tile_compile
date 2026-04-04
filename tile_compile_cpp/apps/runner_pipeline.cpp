@@ -3044,38 +3044,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
       artifact["full_support_tiles"] = full_support_tile_count;
       artifact["tile_reconstruction_diagnostics_mode"] =
           tile_reconstruction_diagnostics_mode;
-      artifact["tile_norm_global_background"] =
-          tile_norm_guard_summary.global_background;
-      artifact["tile_norm_global_scale"] = tile_norm_guard_summary.global_scale;
-      artifact["tile_norm_guard_used_global_background_count"] =
-          static_cast<int>(tile_norm_guard_summary.used_global_background_count);
-      artifact["tile_norm_guard_used_global_scale_count"] =
-          static_cast<int>(tile_norm_guard_summary.used_global_scale_count);
-      const auto &boundary_diagnostics_active =
-          apply_phase7_tile_norm ? boundary_diagnostics_normalized
-                                 : boundary_diagnostics_raw;
-      artifact["tile_norm_guard_clamped_low_scale_count"] =
-          static_cast<int>(tile_norm_guard_summary.clamped_low_scale_count);
-      artifact["tile_norm_guard_clamped_high_scale_count"] =
-          static_cast<int>(tile_norm_guard_summary.clamped_high_scale_count);
       artifact["tile_norm_application"] = tile_norm_application;
-      artifact["tile_norm_disabled_due_boundary_regression"] =
-          tile_norm_disabled_due_boundary_regression;
-      artifact["tile_norm_boundary_regression_ratio"] =
-          tile_norm_boundary_regression_ratio;
       artifact["tile_boundary_analysis_uses_common_canvas_mask"] =
           tile_reconstruction_diagnostics_enabled;
-      artifact["tile_boundary_raw_analysis_input"] =
-          tile_reconstruction_diagnostics_enabled ? "pre_ola_raw" : "disabled";
-      artifact["tile_boundary_normalized_analysis_input"] =
-          tile_reconstruction_diagnostics_enabled
-              ? (phase7_tile_norm_requested ? "pre_ola_normalized"
-                                            : "pre_ola_raw")
-              : "disabled";
       artifact["tile_boundary_analysis_input"] =
-          tile_reconstruction_diagnostics_enabled
-              ? (apply_phase7_tile_norm ? "pre_ola_normalized" : "pre_ola_raw")
-              : "disabled";
+          tile_reconstruction_diagnostics_enabled ? "pre_ola_raw" : "disabled";
       artifact["tile_boundary_raw_pair_count"] =
           static_cast<int>(boundary_diagnostics_raw.pair_count);
       artifact["tile_boundary_raw_observation_count"] =
@@ -3104,62 +3077,34 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           boundary_diagnostics_raw.pair_scale_ratio_deviation_mean;
       artifact["tile_boundary_raw_pair_scale_ratio_deviation_p95"] =
           boundary_diagnostics_raw.pair_scale_ratio_deviation_p95;
-      artifact["tile_boundary_normalized_pair_count"] =
-          static_cast<int>(boundary_diagnostics_normalized.pair_count);
-      artifact["tile_boundary_normalized_observation_count"] =
-          static_cast<int>(boundary_diagnostics_normalized.observed_pair_count);
-      artifact["tile_boundary_normalized_sample_count"] =
-          static_cast<int>(boundary_diagnostics_normalized.sample_count);
-      artifact["tile_boundary_normalized_pair_mean_abs_diff_mean"] =
-          boundary_diagnostics_normalized.pair_mean_abs_diff_mean;
-      artifact["tile_boundary_normalized_pair_mean_abs_diff_p95"] =
-          boundary_diagnostics_normalized.pair_mean_abs_diff_p95;
-      artifact["tile_boundary_normalized_pair_p95_abs_diff_mean"] =
-          boundary_diagnostics_normalized.pair_p95_abs_diff_mean;
-      artifact["tile_boundary_normalized_pair_p95_abs_diff_p95"] =
-          boundary_diagnostics_normalized.pair_p95_abs_diff_p95;
-      artifact["tile_boundary_normalized_pair_mean_signed_diff_mean_abs"] =
-          boundary_diagnostics_normalized.pair_mean_signed_diff_mean_abs;
-      artifact["tile_boundary_normalized_pair_mean_abs_residual_mean"] =
-          boundary_diagnostics_normalized.pair_mean_abs_residual_mean;
-      artifact["tile_boundary_normalized_pair_mean_abs_residual_p95"] =
-          boundary_diagnostics_normalized.pair_mean_abs_residual_p95;
-      artifact["tile_boundary_normalized_pair_p95_abs_residual_mean"] =
-          boundary_diagnostics_normalized.pair_p95_abs_residual_mean;
-      artifact["tile_boundary_normalized_pair_p95_abs_residual_p95"] =
-          boundary_diagnostics_normalized.pair_p95_abs_residual_p95;
-      artifact["tile_boundary_normalized_pair_scale_ratio_deviation_mean"] =
-          boundary_diagnostics_normalized.pair_scale_ratio_deviation_mean;
-      artifact["tile_boundary_normalized_pair_scale_ratio_deviation_p95"] =
-          boundary_diagnostics_normalized.pair_scale_ratio_deviation_p95;
       artifact["tile_boundary_pair_count"] =
-          static_cast<int>(boundary_diagnostics_active.pair_count);
+          static_cast<int>(boundary_diagnostics_raw.pair_count);
       artifact["tile_boundary_observation_count"] =
-          static_cast<int>(boundary_diagnostics_active.observed_pair_count);
+          static_cast<int>(boundary_diagnostics_raw.observed_pair_count);
       artifact["tile_boundary_sample_count"] =
-          static_cast<int>(boundary_diagnostics_active.sample_count);
+          static_cast<int>(boundary_diagnostics_raw.sample_count);
       artifact["tile_boundary_pair_mean_abs_diff_mean"] =
-          boundary_diagnostics_active.pair_mean_abs_diff_mean;
+          boundary_diagnostics_raw.pair_mean_abs_diff_mean;
       artifact["tile_boundary_pair_mean_abs_diff_p95"] =
-          boundary_diagnostics_active.pair_mean_abs_diff_p95;
+          boundary_diagnostics_raw.pair_mean_abs_diff_p95;
       artifact["tile_boundary_pair_p95_abs_diff_mean"] =
-          boundary_diagnostics_active.pair_p95_abs_diff_mean;
+          boundary_diagnostics_raw.pair_p95_abs_diff_mean;
       artifact["tile_boundary_pair_p95_abs_diff_p95"] =
-          boundary_diagnostics_active.pair_p95_abs_diff_p95;
+          boundary_diagnostics_raw.pair_p95_abs_diff_p95;
       artifact["tile_boundary_pair_mean_signed_diff_mean_abs"] =
-          boundary_diagnostics_active.pair_mean_signed_diff_mean_abs;
+          boundary_diagnostics_raw.pair_mean_signed_diff_mean_abs;
       artifact["tile_boundary_pair_mean_abs_residual_mean"] =
-          boundary_diagnostics_active.pair_mean_abs_residual_mean;
+          boundary_diagnostics_raw.pair_mean_abs_residual_mean;
       artifact["tile_boundary_pair_mean_abs_residual_p95"] =
-          boundary_diagnostics_active.pair_mean_abs_residual_p95;
+          boundary_diagnostics_raw.pair_mean_abs_residual_p95;
       artifact["tile_boundary_pair_p95_abs_residual_mean"] =
-          boundary_diagnostics_active.pair_p95_abs_residual_mean;
+          boundary_diagnostics_raw.pair_p95_abs_residual_mean;
       artifact["tile_boundary_pair_p95_abs_residual_p95"] =
-          boundary_diagnostics_active.pair_p95_abs_residual_p95;
+          boundary_diagnostics_raw.pair_p95_abs_residual_p95;
       artifact["tile_boundary_pair_scale_ratio_deviation_mean"] =
-          boundary_diagnostics_active.pair_scale_ratio_deviation_mean;
+          boundary_diagnostics_raw.pair_scale_ratio_deviation_mean;
       artifact["tile_boundary_pair_scale_ratio_deviation_p95"] =
-          boundary_diagnostics_active.pair_scale_ratio_deviation_p95;
+          boundary_diagnostics_raw.pair_scale_ratio_deviation_p95;
       artifact["tile_boundary_valid_count_delta_mean_abs"] =
           boundary_valid_count_delta_mean_abs;
       artifact["tile_boundary_valid_count_delta_p95_abs"] =
@@ -3185,10 +3130,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         artifact["tile_post_contrast"] = core::json::array();
         artifact["tile_post_background"] = core::json::array();
         artifact["tile_post_snr_proxy"] = core::json::array();
-        artifact["tile_norm_bg_r"] = core::json::array();
-        artifact["tile_norm_bg_g"] = core::json::array();
-        artifact["tile_norm_bg_b"] = core::json::array();
-        artifact["tile_norm_scale"] = core::json::array();
         artifact["tile_boundary_post_snr_delta_mean_abs"] =
             boundary_post_snr_delta_mean_abs;
         artifact["tile_boundary_post_snr_delta_p95_abs"] =
@@ -3227,33 +3168,22 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           artifact["tile_post_contrast"].push_back(tile_post_contrast[i]);
           artifact["tile_post_background"].push_back(tile_post_background[i]);
           artifact["tile_post_snr_proxy"].push_back(tile_post_snr[i]);
-          artifact["tile_norm_bg_r"].push_back(tile_norm_bg_r[i]);
-          artifact["tile_norm_bg_g"].push_back(tile_norm_bg_g[i]);
-          artifact["tile_norm_bg_b"].push_back(tile_norm_bg_b[i]);
-          artifact["tile_norm_scale"].push_back(tile_norm_scale[i]);
         }
         append_boundary_pairs("tile_boundary_raw_top_pairs",
                               boundary_diagnostics_raw);
-        append_boundary_pairs("tile_boundary_normalized_top_pairs",
-                              boundary_diagnostics_normalized);
         artifact["tile_boundary_top_pairs"] =
-            apply_phase7_tile_norm
-                ? artifact["tile_boundary_normalized_top_pairs"]
-                : artifact["tile_boundary_raw_top_pairs"];
+            artifact["tile_boundary_raw_top_pairs"];
       }
       core::write_text(run_dir / "artifacts" / "tile_reconstruction.json",
                        artifact.dump(2));
     }
 
-    const auto &boundary_diagnostics_active =
-        apply_phase7_tile_norm ? boundary_diagnostics_normalized
-                               : boundary_diagnostics_raw;
     const auto synthetic_weighting_decision =
         runner::decide_synthetic_weighting(
             cfg.synthetic.weighting,
-            static_cast<int>(boundary_diagnostics_active.observed_pair_count),
-            boundary_diagnostics_active.pair_mean_abs_diff_p95,
-            boundary_diagnostics_active.pair_scale_ratio_deviation_p95,
+            static_cast<int>(boundary_diagnostics_raw.observed_pair_count),
+            boundary_diagnostics_raw.pair_mean_abs_diff_p95,
+            boundary_diagnostics_raw.pair_scale_ratio_deviation_p95,
             boundary_post_background_delta_p95_abs,
             boundary_weight_profile_diagnostics.pair_mean_abs_delta_p95,
             boundary_weight_profile_diagnostics.pair_correlation_p05);
@@ -3288,21 +3218,14 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             {"tile_norm_guard_used_global_scale_count",
              static_cast<int>(tile_norm_guard_summary.used_global_scale_count)},
             {"tile_norm_application", tile_norm_application},
-            {"tile_norm_disabled_due_boundary_regression",
-             tile_norm_disabled_due_boundary_regression},
-            {"tile_norm_boundary_regression_ratio",
-             tile_norm_boundary_regression_ratio},
             {"tile_boundary_analysis_input",
-             tile_reconstruction_diagnostics_enabled
-                 ? (apply_phase7_tile_norm ? "pre_ola_normalized"
-                                           : "pre_ola_raw")
-                 : "disabled"},
+             tile_reconstruction_diagnostics_enabled ? "pre_ola_raw" : "disabled"},
             {"tile_boundary_pairs",
-             static_cast<int>(boundary_diagnostics_active.observed_pair_count)},
+             static_cast<int>(boundary_diagnostics_raw.observed_pair_count)},
             {"tile_boundary_raw_pair_mean_abs_diff_p95",
              boundary_diagnostics_raw.pair_mean_abs_diff_p95},
             {"tile_boundary_pair_mean_abs_diff_p95",
-             boundary_diagnostics_active.pair_mean_abs_diff_p95},
+             boundary_diagnostics_raw.pair_mean_abs_diff_p95},
             {"tile_boundary_post_background_delta_p95_abs",
              boundary_post_background_delta_p95_abs},
             {"tile_boundary_local_weight_mean_abs_delta_p95",
@@ -4709,8 +4632,16 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         debayer_tile_offset_x -= crop_x;
         debayer_tile_offset_y -= crop_y;
 
-        std::vector<uint8_t> cropped_mask(
+        std::vector<uint8_t> cropped_common_mask(
             static_cast<size_t>(crop_h * crop_w), static_cast<uint8_t>(0));
+        std::vector<uint8_t> cropped_recon_mask;
+        const bool have_recon_mask =
+            (reconstruction_valid_mask.size() == full_mask_px);
+        if (have_recon_mask) {
+          cropped_recon_mask.assign(static_cast<size_t>(crop_h * crop_w),
+                                     static_cast<uint8_t>(0));
+        }
+
         for (int y = 0; y < crop_h; ++y) {
           const int sy = crop_y + y;
           const size_t src_row_off =
@@ -4719,11 +4650,18 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
               static_cast<size_t>(y) * static_cast<size_t>(crop_w);
           for (int x = 0; x < crop_w; ++x) {
             const int sx = crop_x + x;
-            cropped_mask[dst_row_off + static_cast<size_t>(x)] =
+            cropped_common_mask[dst_row_off + static_cast<size_t>(x)] =
                 common_valid_mask[src_row_off + static_cast<size_t>(sx)];
+            if (have_recon_mask) {
+              cropped_recon_mask[dst_row_off + static_cast<size_t>(x)] =
+                  reconstruction_valid_mask[src_row_off + static_cast<size_t>(sx)];
+            }
           }
         }
-        common_valid_mask.swap(cropped_mask);
+        common_valid_mask.swap(cropped_common_mask);
+        if (have_recon_mask) {
+          reconstruction_valid_mask.swap(cropped_recon_mask);
+        }
 
         const fs::path mask_path = run_dir / "outputs" / "canvas_mask.fits";
         std::string mask_write_error;
