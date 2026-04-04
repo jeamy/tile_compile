@@ -501,6 +501,10 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.D (2026-04-04)
+
+- Added `registration.auto_engine` (default: `true`): automatically detects strong field rotation from a small frame probe before registration and overrides the engine to `triangle_star_matching` + `transform_model: affine` when a rotation-blind engine (`robust_phase_ecc`, `hybrid_phase_ecc`) is configured for an Alt/Az dataset. The override threshold is controlled by `auto_engine_rotation_threshold_deg` (default: `0.05°/frame`).
+
 ## v0.1.C (2026-04-03)
 
 - Stabilized tile reconstruction after the recent performance optimization rollout, with follow-up fixes and analysis focused on visible tile-seam artifacts in the final reconstruction output.
@@ -569,7 +573,7 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## v0.0.E (2026-03-15)
 
-- Wired `assumptions.frames_min` into the active runner mode-gate and `assumptions.reduced_mode_cluster_range` into reduced-mode clustering.
+- Wired `assumptions.frames_min` into the active runner mode-gate and `assumptions.reduced_mode_cluster_range` into reduced-mode clustering.engine
 - Removed stale `assumptions.pipeline_profile`, `assumptions.frames_optimal`, and `assumptions.exposure_time_tolerance_percent` from the active config/schema/frontend/docs/examples surface.
 - Regenerated the C++ schema and synchronized Parameter Studio, Assumptions UI, and methodology/reference docs with the active runtime semantics.
 
@@ -649,6 +653,15 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-04-04)
+
+**Auto-engine for Alt/Az field rotation + registration failure fix (`v0.1.D`):**
+
+- Added `registration.auto_engine` (default: `true`): probes a small set of frames before registration starts and automatically overrides the engine to `triangle_star_matching` + `transform_model: affine` when a rotation-blind engine (`robust_phase_ecc`, `hybrid_phase_ecc`) is configured but strong field rotation is detected. Threshold: `auto_engine_rotation_threshold_deg` (default: `0.05°/frame`, covers Alt/Az at any exposure time while staying well below EQ residual rotation).
+- Fixed a complete registration failure mode: `engine: robust_phase_ecc` with `allow_rotation: true` on Alt/Az datasets produced NCC ≈ 0 for all frames, causing 469/470 frames to fall back to identity transform (`model_nearest_copy`) with no actual alignment.
+- Updated `tile_compile.yaml` default engine to `triangle_star_matching` and `reject_cc_min_abs` to `0.05`.
+- Propagated new config fields to all schemas, example configs, and documentation.
 
 ### (2026-04-03)
 
@@ -920,3 +933,4 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 **Documentation:**
 
 - **New**: [Practical Configuration Examples & Best Practices](doc/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.3.4.
+

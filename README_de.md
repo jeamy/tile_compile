@@ -511,6 +511,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.D (2026-04-04)
+
+- `registration.auto_engine` ergänzt (Standard: `true`): Erkennt starke Feldrotation automatisch aus einer kleinen Frame-Probe vor der Registrierung und überschreibt die Engine auf `triangle_star_matching` + `transform_model: affine`, wenn eine rotationsblinde Engine (`robust_phase_ecc`, `hybrid_phase_ecc`) für einen Alt/Az-Datensatz konfiguriert ist. Schwellwert: `auto_engine_rotation_threshold_deg` (Standard: `0.05°/Frame` — greift bei Alt/Az bei jeder Belichtungszeit, liegt sicher unter EQ-Residualrotation).
+
 ## v0.1.C (2026-04-03)
 
 - Tile-Rekonstruktion nach dem Rollout der letzten Performance-Optimierungen stabilisiert; der Schwerpunkt lag auf Nachbesserungen und Analyse sichtbarer Kachel- bzw. Nahtartefakte im finalen Rekonstruktionsergebnis.
@@ -659,6 +663,14 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-04-04)
+
+**Auto-Engine für Alt/Az-Feldrotation + Registrierungsausfall-Fix (`v0.1.D`):**
+
+- `registration.auto_engine` ergänzt (Standard: `true`): Sondiert vor der Registrierung einige Frames und überschreibt die Engine automatisch auf `triangle_star_matching` + `transform_model: affine`, wenn eine rotationsblinde Engine konfiguriert ist und starke Feldrotation erkannt wird. Schwellwert: `auto_engine_rotation_threshold_deg` (Standard: `0.05°/Frame`).
+- Vollständigen Registrierungsausfall behoben: `engine: robust_phase_ecc` mit `allow_rotation: true` auf Alt/Az-Datensätzen lieferte NCC ≈ 0 für alle Frames — 469/470 Frames fielen auf Identity-Transform zurück ohne echte Ausrichtung.
+- Neue Config-Felder in alle Schemas, Beispielkonfigurationen und Dokumentation übertragen.
 
 ### (2026-04-03)
 
