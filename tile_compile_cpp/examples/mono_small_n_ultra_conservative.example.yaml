@@ -86,6 +86,8 @@ registration:
   reject_shift_median_multiplier: 5.0 # weite Shift-Verteilung zulassen
   reject_scale_min: 0.92 # minimale erlaubte Similarity-Skalierung
   reject_scale_max: 1.08 # maximale erlaubte Similarity-Skalierung
+  auto_engine: true  # bei erkannter Feldrotation automatisch auf triangle_star_matching+affine wechseln (Alt/Az)
+  auto_engine_rotation_threshold_deg: 0.05  # Schwelle in Grad/Frame fuer Auto-Engine-Override
   # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
   # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
 

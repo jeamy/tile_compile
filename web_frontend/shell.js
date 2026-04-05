@@ -27,7 +27,7 @@
 
   function currentPageKey() {
     const file = (window.location.pathname.split("/").pop() || "index.html").toLowerCase();
-    if (file === "index.html" || file === "dashboard.html") return "dashboard";
+    if (file === "index.html") return "dashboard";
     if (file === "input-scan.html") return "input_scan";
     if (file === "parameter-studio.html") return "parameter_studio";
     if (file === "assumptions.html") return "assumptions";

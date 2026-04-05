@@ -4652,7 +4652,10 @@ function setRunMonitorConfigEditor(yamlText = "", { source = "", revisionId = ""
   const editor = $("monitor-resume-config-editor");
   if (!editor) return;
   const value = String(yamlText || "");
-  editor.value = value;
+  // Only update if value actually changed to avoid input event loops
+  if (editor.value !== value) {
+    editor.value = value;
+  }
   editor.dataset.source = String(source || "");
   editor.dataset.revisionId = String(revisionId || "");
   const parts = [];
@@ -4687,6 +4690,7 @@ function connectRunMonitorStream(runId) {
   if (uiState.runSocket) uiState.runSocket.close();
   const logBox = runMonitorLogBox();
   if (logBox) scrollLogToEnd(logBox);
+  let terminalDispatched = false; // pro Socket-Instanz: Terminal-Event nur einmal dispatchen
   uiState.runSocket = api.ws(
     API_ENDPOINTS.ws.run(runId),
     (event) => {
@@ -4776,6 +4780,8 @@ function connectRunMonitorStream(runId) {
         );
       if (isTerminalRunEvent) {
         window.setTimeout(() => {
+          if (terminalDispatched) return;
+          terminalDispatched = true;
           document.dispatchEvent(
             new CustomEvent("gui2:run-monitor-terminal", {
               detail: {
@@ -5149,7 +5155,14 @@ async function bindRunMonitor() {
     if (String(detail.runId || "").trim() && String(detail.runId || "").trim() !== String(uiState.currentRunId || "").trim()) {
       return;
     }
-    void refreshCurrentRunMonitorState({ reconnectSocket: true });
+    // Socket sofort schließen — der Run ist beendet.
+    // reconnectSocket: false verhindert, dass ein neuer Socket geöffnet wird,
+    // der sofort wieder Terminal-Events liefert und die Schleife neu startet.
+    if (uiState.runSocket) {
+      uiState.runSocket.close();
+      uiState.runSocket = null;
+    }
+    void refreshCurrentRunMonitorState({ reconnectSocket: false });
   });
 
   updateResumeEnabled();

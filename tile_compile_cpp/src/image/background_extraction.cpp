@@ -3918,7 +3918,14 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
   // Hard chroma policy: BGE must be applied atomically across RGB.
   // A partial per-channel apply can introduce color casts (e.g. green bias)
   // that PCC cannot reliably undo in bright nebulosity.
-  if (channels_applied_total > 0 && channels_applied_total < 3) {
+  // In relaxed-guard fallback mode (internal_relaxed_channel_guards): accept
+  // 2/3 partial application rather than failing completely. A minor color cast
+  // from one unapplied channel is better than skipping BGE entirely.
+  // In normal mode: require all 3 channels to avoid color casts that PCC
+  // cannot reliably undo.
+  const int min_channels_required =
+      config.internal_relaxed_channel_guards ? 2 : 3;
+  if (channels_applied_total > 0 && channels_applied_total < min_channels_required) {
     std::cerr << "[BGE] Partial channel application (" << channels_applied_total
               << "/3) rejected; reverting all channels to pre-BGE state"
               << std::endl;

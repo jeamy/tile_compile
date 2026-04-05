@@ -65,6 +65,8 @@ registration:
   reject_shift_median_multiplier: 5
   reject_scale_min: 0.92
   reject_scale_max: 1.08
+  auto_engine: true  # bei erkannter Feldrotation (Alt/Az) automatisch auf triangle_star_matching+affine wechseln; hier besonders relevant da engine: robust_phase_ecc gesetzt ist
+  auto_engine_rotation_threshold_deg: 0.05  # Schwelle in Grad/Frame fuer Auto-Engine-Override
 dithering:
   enabled: true
   min_shift_px: 0.7

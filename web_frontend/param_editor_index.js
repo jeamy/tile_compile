@@ -1187,6 +1187,23 @@ window.PARAM_EDITOR_INDEX = [
     "yaml_default": 150
   },
   {
+    "category": "registration",
+    "description": "Wenn true, wird vor der Registrierung automatisch auf Feldrotation geprueft und bei Bedarf auf triangle_star_matching+affine umgeschaltet (Alt/Az-Schutz).",
+    "path": "registration.auto_engine",
+    "source": "schema",
+    "type": "boolean",
+    "yaml_default": true
+  },
+  {
+    "category": "registration",
+    "description": "Schwelle in Grad/Frame fuer den Auto-Engine-Override. Wird die mittlere Rotationsrate der Probe-Frames ueberschritten, greift auto_engine.",
+    "exclusiveMinimum": 0,
+    "path": "registration.auto_engine_rotation_threshold_deg",
+    "source": "schema",
+    "type": "number",
+    "yaml_default": 0.05
+  },
+  {
     "category": "system",
     "path": "run_dir",
     "source": "yaml_only",

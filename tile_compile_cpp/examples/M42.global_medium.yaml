@@ -167,6 +167,8 @@ registration:
   reject_outliers: true
   reject_scale_max: 1.08
   reject_scale_min: 0.92
+  auto_engine: true  # bei erkannter Feldrotation automatisch auf triangle_star_matching+affine wechseln (Alt/Az)
+  auto_engine_rotation_threshold_deg: 0.05  # Schwelle in Grad/Frame fuer Auto-Engine-Override
   reject_shift_median_multiplier: 5
   reject_shift_px_min: 100
   star_dist_bin_px: 5

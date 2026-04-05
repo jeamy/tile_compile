@@ -175,7 +175,8 @@
       ["registration.reject_shift_median_multiplier", "5.0", "wider_shift_distribution"],
     ],
     rotation: [
-      ["registration.engine", "robust_phase_ecc", "robust_for_field_rotation"],
+      ["registration.engine", "triangle_star_matching", "star_matching_required_for_rotation"],
+      ["registration.auto_engine", "true", "auto_engine_detects_rotation"],
       ["registration.allow_rotation", "true", "required_for_rotation"],
       ["registration.transform_model", "affine", "affine_model_for_rotating_sessions"],
       ["registration.star_inlier_tol_px", "4.0", "more_tolerant_inlier_condition"],

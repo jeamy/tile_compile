@@ -28,7 +28,7 @@ Release-Bundles starten ueber die jeweiligen GUI2-Starter und liefern dieses Fro
 
 ## Produktive Screens
 
-- `index.html` / `dashboard.html`
+- `index.html`
 - `input-scan.html`
 - `wizard.html`
 - `parameter-studio.html`
