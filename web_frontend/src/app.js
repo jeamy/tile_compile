@@ -127,6 +127,7 @@ let serverUiStateLoaded = false;
 let serverUiStateSaveTimer = null;
 let serverUiStateSavePromise = Promise.resolve();
 let configPatchRequestSeq = 0;
+let pendingScanConfigSync = Promise.resolve();
 const SERVER_UI_STATE_MIGRATION_KEYS = [
   CONFIG_DRAFT_KEY,
   CONFIG_VALIDATION_STATE_KEY,
@@ -326,6 +327,7 @@ const SCAN_CALIBRATION_BINDINGS = [
     storageKey: "bias",
     sourceId: "cal-bias-source",
     inputId: "cal-bias-dir",
+    usePath: "calibration.use_bias",
     useMasterPath: "calibration.bias_use_master",
     dirPath: "calibration.bias_dir",
     masterPath: "calibration.bias_master",
@@ -338,6 +340,7 @@ const SCAN_CALIBRATION_BINDINGS = [
     storageKey: "dark",
     sourceId: "cal-dark-source",
     inputId: "cal-dark-dir",
+    usePath: "calibration.use_dark",
     useMasterPath: "calibration.dark_use_master",
     dirPath: "calibration.darks_dir",
     masterPath: "calibration.dark_master",
@@ -350,6 +353,7 @@ const SCAN_CALIBRATION_BINDINGS = [
     storageKey: "flat",
     sourceId: "cal-flat-source",
     inputId: "cal-flat-dir",
+    usePath: "calibration.use_flat",
     useMasterPath: "calibration.flat_use_master",
     dirPath: "calibration.flats_dir",
     masterPath: "calibration.flat_master",
@@ -1174,6 +1178,40 @@ function clearParameterDirtyState() {
   writeServerUiStateValue(PARAMETER_DIRTY_STATE_KEY, "");
 }
 
+function currentDraftValueForPath(path) {
+  const normalized = String(path || "").trim();
+  if (!normalized) return undefined;
+  if (uiState.parameterDirty && typeof uiState.parameterDirty === "object"
+      && Object.prototype.hasOwnProperty.call(uiState.parameterDirty, normalized)) {
+    return uiState.parameterDirty[normalized];
+  }
+  return getByPath(uiState.configObject, normalized);
+}
+
+function rememberParameterDirtyUpdates(updates = []) {
+  const next = {
+    ...(uiState.parameterDirty && typeof uiState.parameterDirty === "object" ? uiState.parameterDirty : {}),
+  };
+  let changed = false;
+  for (const entry of Array.isArray(updates) ? updates : []) {
+    const path = String(entry?.path || "").trim();
+    if (!path || !isKnownConfigSchemaPath(path)) continue;
+    next[path] = entry?.value;
+    changed = true;
+  }
+  if (!changed) return;
+  uiState.parameterDirty = next;
+  setParameterDirtyState(next);
+}
+
+function enqueueScanConfigSync(task) {
+  const next = pendingScanConfigSync
+    .catch(() => {})
+    .then(() => task());
+  pendingScanConfigSync = next.catch(() => {});
+  return next;
+}
+
 function setDisabledLike(el, disabled) {
   if (!el) return;
   const isOff = Boolean(disabled);
@@ -1774,6 +1812,7 @@ function buildRunPathPreview({
 }
 
 async function resolveConfigYamlForRun() {
+  await pendingScanConfigSync.catch(() => {});
   const updates = collectParameterDirtyUpdates();
   if (updates.length === 0) {
     return await ensureConfigYaml();
@@ -2264,6 +2303,14 @@ async function pickDirectoryPath(initialPath) {
   return String(typed || "").trim() || null;
 }
 
+async function pickFilePath(initialPath, filter = "") {
+  if (typeof window.gui2PickPathValue === "function") {
+    return window.gui2PickPathValue(initialPath, "file", filter);
+  }
+  const typed = window.prompt("Dateipfad eingeben", initialPath || "");
+  return String(typed || "").trim() || null;
+}
+
 async function bindInputDirectoryPicker({ inputId, browseId }) {
   const input = $(inputId);
   if (!input) return;
@@ -2477,6 +2524,42 @@ function bindLocaleControls() {
   });
 }
 
+function bindUiStateNavigationFlush() {
+  if (document.body?.dataset?.uiStateNavFlushBound === "1") return;
+  if (document.body) document.body.dataset.uiStateNavFlushBound = "1";
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const anchor = target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+    if (anchor.target && anchor.target !== "_self") return;
+    const href = String(anchor.getAttribute("href") || "").trim();
+    if (!href || href.startsWith("#")) return;
+    let url;
+    try {
+      url = new URL(anchor.href, window.location.href);
+    } catch {
+      return;
+    }
+    if (url.origin !== window.location.origin) return;
+    const current = new URL(window.location.href);
+    if (url.pathname === current.pathname && url.search === current.search && url.hash) return;
+    if (!/\.html$/i.test(url.pathname.split("/").pop() || "")) return;
+    event.preventDefault();
+    void (async () => {
+      try {
+        await pendingScanConfigSync.catch(() => {});
+        await flushServerUiState();
+      } catch {
+        // best effort before navigation
+      }
+      window.location.href = url.href;
+    })();
+  }, true);
+}
+
 document.addEventListener("gui2:locale-changed", () => {
   refreshRunReadyIndicators();
 });
@@ -2613,6 +2696,30 @@ function bindScanPages() {
     inputId: "inp-dirs",
     browseId: "wizard-inp-dirs-browse-btn",
   });
+
+  // Browse-Handler für Calibration-Felder
+  SCAN_CALIBRATION_BINDINGS.forEach((binding) => {
+    const browseId = `${binding.inputId.replace("-dir", "")}-browse`;
+    const browseBtn = $(browseId);
+    if (!browseBtn) return;
+    browseBtn.addEventListener("click", async () => {
+      try {
+        const inputEl = $(binding.inputId);
+        if (!inputEl) return;
+        const useMaster = scanCalibrationUseMaster(binding);
+        const current = String(inputEl.value || "").trim();
+        const chosen = useMaster
+          ? await pickFilePath(current, "*.fits;*.fit;*.fts;*.fits.fz")
+          : await pickDirectoryPath(current);
+        if (!chosen) return;
+        inputEl.value = chosen;
+        inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+        inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+      } catch (err) {
+        setFooter(`Kalibrierpfad konnte nicht gesetzt werden: ${errorText(err)}`, true);
+      }
+    });
+  });
   $("inp-dirs-add-btn")?.addEventListener("click", async () => {
     try {
       await addCurrentInputDirsToQueue({
@@ -2647,32 +2754,42 @@ function bindScanPages() {
         if (sourceChanged) {
           const inputEl = $(calibrationBinding.inputId);
           const nextUseMaster = Boolean(readFieldValue(el));
-          const currentInputValue = inputEl ? readFieldValue(inputEl) : "";
-          if (inputEl) {
-            updates.push({
-              path: nextUseMaster
-                ? calibrationBinding.masterPath
-                : calibrationBinding.dirPath,
-              value: currentInputValue,
-            });
-          }
-          updates.push({
-            path: nextUseMaster
-              ? calibrationBinding.dirPath
-              : calibrationBinding.masterPath,
-            value: "",
-          });
           updates.push({
             path: calibrationBinding.useMasterPath,
             value: nextUseMaster,
           });
+          syncScanCalibrationInputPresentation(calibrationBinding, nextUseMaster);
+          if (inputEl) {
+            const nextValue = currentDraftValueForPath(
+              scanCalibrationActivePath(calibrationBinding, nextUseMaster),
+            );
+            inputEl.value = nextValue === undefined || nextValue === null ? "" : String(nextValue);
+          }
         } else if (String(el.id || "") === calibrationBinding.inputId) {
+          const newValue = String(readFieldValue(el) || "").trim();
+          // Wenn eine einzelne FITS-Datei eingegeben wird, automatisch auf Master-Modus umschalten
+          const isFitsFile = /\.(fits?|fts)(\.fz)?$/i.test(newValue);
+          if (isFitsFile && !scanCalibrationUseMaster(calibrationBinding)) {
+            const sourceEl = $(calibrationBinding.sourceId);
+            if (sourceEl) writeFieldValue(sourceEl, true);
+            syncScanCalibrationInputPresentation(calibrationBinding, true);
+            updates.push({ path: calibrationBinding.useMasterPath, value: true });
+          }
+          const useMaster = isFitsFile ? true : scanCalibrationUseMaster(calibrationBinding);
           updates.push({
-            path: scanCalibrationActivePath(calibrationBinding),
-            value: readFieldValue(el),
+            path: useMaster ? calibrationBinding.masterPath : calibrationBinding.dirPath,
+            value: newValue,
           });
+          // use_* automatisch setzen: true wenn Pfad gesetzt, false wenn leer
+          if (calibrationBinding.usePath) {
+            updates.push({
+              path: calibrationBinding.usePath,
+              value: Boolean(newValue),
+            });
+          }
         }
         if (updates.length === 0) return;
+        rememberParameterDirtyUpdates(updates);
         const patched = await patchConfig({ updates, persist: false });
         if (patched?.config) {
           syncScanCalibrationUiFromConfig(patched.config);
@@ -2686,19 +2803,22 @@ function bindScanPages() {
       }
       const path = parameterPathFromElement(el);
       if (!path) return;
-      await patchConfig({ updates: [{ path, value: readFieldValue(el) }], persist: false });
+      const updates = [{ path, value: readFieldValue(el) }];
+      rememberParameterDirtyUpdates(updates);
+      await patchConfig({ updates, persist: false });
     } catch (err) {
       setFooter(`Input-Config-Update fehlgeschlagen: ${errorText(err)}`, true);
     }
   };
   document.querySelectorAll(".app-content [data-control]").forEach((el) => {
     const path = parameterPathFromElement(el);
-    if (!path) return;
+    const calibrationBinding = scanCalibrationBindingForElement(el);
+    if (!path && !calibrationBinding) return;
     el.addEventListener("input", () => {
-      void syncScanConfigField(el);
+      void enqueueScanConfigSync(() => syncScanConfigField(el));
     });
     el.addEventListener("change", () => {
-      void syncScanConfigField(el);
+      void enqueueScanConfigSync(() => syncScanConfigField(el));
     });
   });
   const colorModeEl = $("inp-colormode");
@@ -3554,6 +3674,12 @@ function activeScenarioKeys(scopeSelector = "#parameter-studio-root") {
 async function bindParameterStudio() {
   const presetSelect = $("parameter-preset-select");
   if (!presetSelect) return;
+  const syncRenderedFields = () => {
+    if (uiState.configObject && typeof uiState.configObject === "object") {
+      syncParameterFieldsFromConfig(uiState.configObject);
+    }
+  };
+  document.addEventListener("gui2:parameter-studio-rendered", syncRenderedFields);
 
   await ensureConfigSchemaPaths();
   bindParameterDirtyTracking();
@@ -7692,6 +7818,7 @@ async function bindAssumptions() {
 
 async function init() {
   await initGlobalState();
+  bindUiStateNavigationFlush();
   bindLocaleControls();
   bindRunMonitorFilterSync();
   bindScanPages();

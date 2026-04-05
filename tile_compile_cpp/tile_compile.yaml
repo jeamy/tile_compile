@@ -6,13 +6,13 @@ assumptions:
     - 10
   reduced_mode_skip_clustering: true
 astrometry:
-  astap_bin: ""
-  astap_data_dir: /media/data/Astro/astap
+  astap_bin: /home/lux/.local/share/tile_compile/astap/astap_cli
+  astap_data_dir: /home/lux/.local/share/tile_compile/astap
   enabled: true
   search_radius: 183
 bge:
   autotune:
-    alpha_flatness: 0.35
+    alpha_flatness: 0.4
     beta_roughness: 0.08
     enabled: true
     holdout_fraction: 0.2
@@ -25,68 +25,67 @@ bge:
     irls_tolerance: 1.00e-04
     method: rbf
     polynomial_order: 2
-    rbf_epsilon: 0.8
-    rbf_lambda: 0.01
-    rbf_mu_factor: 1.6
+    rbf_epsilon: 0.7
+    rbf_lambda: 0.03
+    rbf_mu_factor: 1.8
     rbf_phi: multiquadric
     robust_loss: huber
   grid:
     G_max_fraction: 0.25
-    G_min_px: 64
+    G_min_px: 56
     N_g: 36
     insufficient_cell_strategy: radius_expand
   mask:
-    sat_dilate_px: 5
-    star_dilate_px: 5
+    sat_dilate_px: 6
+    star_dilate_px: 6
   min_tiles_per_cell: 3
-  min_valid_sample_fraction_for_apply: 0.3
+  min_valid_sample_fraction_for_apply: 0.28
   min_valid_samples_for_apply: 96
   sample_quantile: 0.15
   structure_thresh_percentile: 0.8
-  tile_weight_lambda_structure: 1
 calibration:
-  bias_dir: ""
+  bias_dir: /media/data/Astro/DwarfII/Astronomy/DWARF_BIAS/DWARF_RAW_TELE_EXP_0.0001_GAIN_60_2026-01-10-14-54-22-483
   bias_master: ""
   bias_use_master: false
   dark_auto_select: true
-  dark_master: ""
+  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_15.000000_gain_60_bin_1_stack_10.fits
   dark_match_exposure_tolerance_percent: 8
   dark_match_temp_tolerance_c: 3
   dark_match_use_temp: false
-  dark_use_master: false
+  dark_use_master: true
   darks_dir: ""
   flat_master: ""
   flat_use_master: false
   flats_dir: ""
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
-  use_bias: false
-  use_dark: false
+  use_bias: true
+  use_dark: true
   use_flat: false
 chroma_denoise:
   apply_stage: post_stack_linear
   blend:
-    amount: 0.75
+    amount: 0.9
     mode: chroma_only
   chroma_bilateral:
     enabled: true
-    sigma_range: 0.06
-    sigma_spatial: 2
+    sigma_range: 0.05
+    sigma_spatial: 1.5
   chroma_wavelet:
     enabled: true
-    levels: 4
-    soft_k: 1.1
-    threshold_scale: 1.6
+    levels: 3
+    soft_k: 1
+    threshold_scale: 1.5
   color_space: ycbcr_linear
   enabled: true
-  luma_guard_strength: 0.92
+  luma_guard_strength: 0.75
   protect_luma: true
   star_protection:
-    dilate_px: 3
+    dilate_px: 2
     enabled: true
-    threshold_sigma: 3
+    threshold_sigma: 2.5
   structure_protection:
     enabled: true
-    gradient_percentile: 94
+    gradient_percentile: 87
 data:
   color_mode: OSC
   linear_required: true
@@ -116,7 +115,6 @@ local_metrics:
   clamp:
     - -3
     - 3
-  k_local: 1
   star_mode:
     weights:
       contrast: 0.2
@@ -141,10 +139,10 @@ pcc:
   annulus_outer_px: 16
   aperture_fwhm_mult: 1.8
   aperture_radius_px: 8
-  apply_attenuation: false
+  apply_attenuation: true
   background_model: plane
-  background_neutralization_mode: auto
-  chroma_strength: 0.85
+  background_neutralization_mode: always
+  chroma_strength: 1
   enabled: true
   k_max: 2.4
   mag_bright_limit: 6
@@ -162,6 +160,8 @@ pipeline:
   mode: production
 registration:
   allow_rotation: true
+  auto_engine: true
+  auto_engine_rotation_threshold_deg: 0.05
   enable_star_pair_fallback: true
   engine: triangle_star_matching
   reject_cc_min_abs: 0.25
@@ -169,13 +169,13 @@ registration:
   reject_scale_max: 1.08
   reject_scale_min: 0.92
   reject_shift_median_multiplier: 5
-  reject_shift_px_min: 120
+  reject_shift_px_min: 100
   star_dist_bin_px: 5
   star_inlier_tol_px: 4
   star_min_inliers: 4
-  star_topk: 180
+  star_topk: 150
   transform_model: affine
-run_dir: ./run_m31_background_gradient_balanced
+run_dir: ./run_ic434_test
 runtime_limits:
   acceleration_backend: auto
   allow_emergency_mode: true
@@ -183,26 +183,13 @@ runtime_limits:
   memory_budget: 2048
   parallel_workers: 8
   tile_analysis_max_factor_vs_stack: 3
-scenario_profile:
-  gui2_scenarios:
-    - osc
-    - m31
-    - galaxy
-    - background_gradient
-    - broadband
-  id: m31_background_gradient_balanced
-  intent: M31/OSC mit Fokus auf Gradientreduktion bei moeglichst neutraler PCC-Farbkalibrierung ohne Gruenstich.
-  priority: balanced_color_and_background
-  recommended_for:
-    - M31 / grosse diffuse Galaxien mit Hintergrundgradient
-    - wenn ein nebula-orientiertes Chroma-Suppression-Preset die Galaxie zu gruen oder zu entsaettigt macht
-  title: M31 Background Gradient Balanced
 stacking:
   cluster_quality_weighting:
     cap_enabled: true
     cap_ratio: 20
     enabled: false
     kappa_cluster: 1
+  common_overlap_required_fraction: 1
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   method: rej
@@ -214,6 +201,7 @@ stacking:
     min_fraction: 0.4
     sigma_high: 1.8
     sigma_low: 1.8
+  tile_common_valid_min_fraction: 1
 synthetic:
   clustering:
     cluster_count_range:
@@ -231,7 +219,7 @@ tile:
   star_min_count: 5
 tile_denoise:
   soft_threshold:
-    alpha: 1.4
+    alpha: 1.6
     blur_kernel: 21
     enabled: true
     skip_star_tiles: true

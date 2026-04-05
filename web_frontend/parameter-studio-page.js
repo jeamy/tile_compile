@@ -1023,6 +1023,9 @@
       if (editorGroup) editorGroup.style.display = "";
       renderDynamicEditor("all");
       bindExplainInteractions(document);
+      document.dispatchEvent(new CustomEvent("gui2:parameter-studio-rendered", {
+        detail: { category: requested },
+      }));
       return;
     }
     let hasStaticVisible = false;
@@ -1038,6 +1041,9 @@
       editorGroup.style.display = editorState.entryCount > 0 || !hasStaticVisible ? "" : "none";
     }
     bindExplainInteractions(document);
+    document.dispatchEvent(new CustomEvent("gui2:parameter-studio-rendered", {
+      detail: { category: requested },
+    }));
   }
 
   function clearSearchHits() {
