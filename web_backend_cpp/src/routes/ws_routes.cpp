@@ -121,6 +121,20 @@ fs::path find_event_file(const fs::path& run_dir) {
     return {};
 }
 
+size_t count_existing_event_lines(const fs::path& run_dir) {
+    const fs::path event_file = find_event_file(run_dir);
+    if (event_file.empty()) return 0;
+    std::ifstream in(event_file);
+    if (!in) return 0;
+
+    size_t line_count = 0;
+    std::string line;
+    while (std::getline(in, line)) {
+        ++line_count;
+    }
+    return line_count;
+}
+
 struct RunWsContext {
     std::shared_ptr<AppState> state;
     std::string run_id;
@@ -219,6 +233,15 @@ std::shared_ptr<RunWsContext> make_run_ctx(const std::shared_ptr<AppState>& stat
     auto ctx = std::make_shared<RunWsContext>();
     ctx->state = state;
     ctx->run_id = run_id;
+    try {
+        const fs::path run_dir = state->runtime.resolve_run_dir(run_id);
+        // Stream only events appended after the websocket is opened.
+        // Historical logs are loaded via the REST endpoints and replaying old
+        // terminal events breaks resume monitoring by closing the fresh stream.
+        ctx->cursor = count_existing_event_lines(run_dir);
+    } catch (...) {
+        ctx->cursor = 0;
+    }
     return ctx;
 }
 

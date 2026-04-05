@@ -965,6 +965,13 @@ function formatRunStreamLog(entry, { suppressRunStatus = false } = {}) {
   return "";
 }
 
+function parseEventTimestampMs(tsRaw) {
+  const ts = String(tsRaw || "").trim();
+  if (!ts) return Number.NaN;
+  const ms = Date.parse(ts);
+  return Number.isFinite(ms) ? ms : Number.NaN;
+}
+
 function formatAstrometryLog(entry) {
   if (!entry || typeof entry !== "object") return "";
   if (Object.prototype.hasOwnProperty.call(entry, "installed") && (Object.prototype.hasOwnProperty.call(entry, "binary") || Object.prototype.hasOwnProperty.call(entry, "catalogs"))) {
@@ -4691,10 +4698,19 @@ function connectRunMonitorStream(runId) {
   const logBox = runMonitorLogBox();
   if (logBox) scrollLogToEnd(logBox);
   let terminalDispatched = false; // pro Socket-Instanz: Terminal-Event nur einmal dispatchen
+  const streamOpenedAtMs = Date.now();
   uiState.runSocket = api.ws(
     API_ENDPOINTS.ws.run(runId),
     (event) => {
       const eventType = String(event?.type || "").trim().toLowerCase();
+      const eventTsMs = parseEventTimestampMs(event?.ts);
+      const isStaleTerminalReplay =
+        (eventType === "run_end" || eventType === "resume_end")
+        && Number.isFinite(eventTsMs)
+        && eventTsMs < (streamOpenedAtMs - 1000);
+      if (isStaleTerminalReplay) {
+        return;
+      }
       const streamRunId = String(runId || "").trim();
       const currentRunId = String(uiState.currentRunId || "").trim();
       if (currentRunId && streamRunId && currentRunId !== streamRunId) return;
@@ -5138,6 +5154,9 @@ async function bindRunMonitor() {
     await refreshStatsActions();
     const isActive = isRunActiveStatus(status?.status || "");
     setMonitorActionState(isActive);
+    // Socket schließen wenn Run nicht mehr aktiv — nur wenn reconnectSocket aktiv,
+    // damit ein manuell geöffneter Socket (z.B. beim Resume) nicht sofort wieder
+    // geschlossen wird bevor der Backend-Job als "running" sichtbar ist.
     if (reconnectSocket) {
       if (isActive) {
         setRunMonitorLogLines([]);
@@ -5156,13 +5175,19 @@ async function bindRunMonitor() {
       return;
     }
     // Socket sofort schließen — der Run ist beendet.
-    // reconnectSocket: false verhindert, dass ein neuer Socket geöffnet wird,
-    // der sofort wieder Terminal-Events liefert und die Schleife neu startet.
     if (uiState.runSocket) {
       uiState.runSocket.close();
       uiState.runSocket = null;
     }
-    void refreshCurrentRunMonitorState({ reconnectSocket: false });
+    // Finalen Status laden. Retry bis der Backend-Status nicht mehr "running" ist,
+    // da das Backend den Status nach run_end/resume_end kurz verzögert schreibt.
+    const pollFinalStatus = async (attemptsLeft) => {
+      await refreshCurrentRunMonitorState({ reconnectSocket: false });
+      if (attemptsLeft > 0 && isRunActiveStatus(uiState.runProcessStatus || "")) {
+        window.setTimeout(() => pollFinalStatus(attemptsLeft - 1), 600);
+      }
+    };
+    window.setTimeout(() => pollFinalStatus(5), 300);
   });
 
   updateResumeEnabled();
@@ -5299,7 +5324,13 @@ async function bindRunMonitor() {
       updateRunMonitorSubtitle(uiState.currentRunId, "running", phase);
       setMonitorActionState(true);
       setFooter(formatI18n("ui.message.monitor_resume_started", "Resume gestartet (Job {job_id}).", { job_id: accepted.job_id }));
-      await refreshCurrentRunMonitorState({ reconnectSocket: true });
+      // Socket sofort öffnen — nicht auf loadRunStatus warten, da der Backend-Job
+      // möglicherweise noch nicht als "running" sichtbar ist wenn wir abfragen.
+      // Der Socket liefert run_status Events sobald der Job aktiv ist.
+      setRunMonitorLogLines([]);
+      connectRunMonitorStream(uiState.currentRunId);
+      // Parallel den State aktualisieren (Artifacts, Revisions etc.) ohne Socket-Reconnect
+      await refreshCurrentRunMonitorState({ reconnectSocket: false });
     } catch (err) {
       setFooter(formatI18n("ui.message.monitor_resume_failed", "Resume fehlgeschlagen: {error}", { error: errorText(err) }), true);
     }
