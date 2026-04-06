@@ -41,6 +41,7 @@ struct CalibrationConfig {
   bool use_flat = false;
   bool bias_use_master = false;
   bool dark_use_master = false;
+  bool dark_already_bias_corrected = false;
   bool flat_use_master = false;
   bool dark_auto_select = true;
   float dark_match_exposure_tolerance_percent = 5.0f;

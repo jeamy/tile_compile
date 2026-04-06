@@ -73,6 +73,7 @@ using NormalizationScales = image::NormalizationScales;
 constexpr float kTileNormBoundaryRegressionFactor = 8.0f;
 constexpr float kTileNormBoundaryRegressionAbsP95 = 0.25f;
 constexpr float kCalibrationFlatFloor = 1.0e-6f;
+constexpr double kCalibrationGainMismatchWarningAbs = 0.25;
 
 struct CalibrationMaster {
   Matrix2Df data;
@@ -149,6 +150,65 @@ std::optional<double> extract_temperature_celsius(const io::FitsHeader &header) 
       header, {"CCD-TEMP", "CCD_TEMP", "CCD_TEMP_C", "SENSOR_T",
                "SENSORTEMP", "TEMP", "TEMPERAT"},
       false);
+}
+
+std::optional<double> extract_gain_value(const io::FitsHeader &header) {
+  return read_header_numeric(header, {"GAIN"}, true);
+}
+
+template <typename Extractor>
+std::optional<double> sample_header_median(const std::vector<fs::path> &paths,
+                                           size_t max_samples,
+                                           Extractor extractor) {
+  if (paths.empty()) {
+    return std::nullopt;
+  }
+  const size_t sample_count = std::min(max_samples, paths.size());
+  std::vector<float> values;
+  values.reserve(sample_count);
+  for (size_t i = 0; i < sample_count; ++i) {
+    try {
+      const io::FitsHeader hdr = io::read_fits_header(paths[i]);
+      if (auto value = extractor(hdr);
+          value && std::isfinite(*value)) {
+        values.push_back(static_cast<float>(*value));
+      }
+    } catch (const std::exception &) {
+    }
+  }
+  if (values.empty()) {
+    return std::nullopt;
+  }
+  return static_cast<double>(core::median_of(values));
+}
+
+void warn_if_gain_mismatch(const std::vector<fs::path> &light_frames,
+                           const std::vector<fs::path> &calibration_frames,
+                           const std::string &calibration_label,
+                           const std::string &run_id,
+                           core::EventEmitter &emitter,
+                           std::ostream &log_file,
+                           core::json &artifact_step) {
+  const auto light_gain =
+      sample_header_median(light_frames, 10, extract_gain_value);
+  const auto calibration_gain =
+      sample_header_median(calibration_frames, 10, extract_gain_value);
+  if (!light_gain || !calibration_gain) {
+    return;
+  }
+  artifact_step["light_gain"] = *light_gain;
+  artifact_step["calibration_gain"] = *calibration_gain;
+  const double diff = std::fabs(*light_gain - *calibration_gain);
+  if (diff <= kCalibrationGainMismatchWarningAbs) {
+    return;
+  }
+  artifact_step["gain_mismatch_warning"] = true;
+  emitter.warning(
+      run_id,
+      "Calibration " + calibration_label + " gain mismatch: lights use GAIN " +
+          std::to_string(*light_gain) + ", calibration uses GAIN " +
+          std::to_string(*calibration_gain),
+      log_file);
 }
 
 fs::path resolve_config_path(const fs::path &project_root,
@@ -488,6 +548,8 @@ bool run_scan_input_calibration(
     out.artifact["steps"]["bias"]["path"] = bias_master.source_path;
     out.artifact["steps"]["bias"]["input_count"] =
         static_cast<int>(bias_master.input_frames.size());
+    warn_if_gain_mismatch(input_frames, bias_master.input_frames, "bias", run_id,
+                          emitter, log_file, out.artifact["steps"]["bias"]);
   }
 
   std::vector<fs::path> selected_dark_inputs;
@@ -519,6 +581,15 @@ bool run_scan_input_calibration(
     out.artifact["steps"]["dark"]["input_count"] =
         static_cast<int>(dark_master.input_frames.size());
     out.artifact["steps"]["dark"]["selection"] = dark_selection;
+    warn_if_gain_mismatch(input_frames, dark_master.input_frames, "dark", run_id,
+                          emitter, log_file, out.artifact["steps"]["dark"]);
+    const bool dark_needs_bias_correction =
+        cal.use_bias && !cal.dark_already_bias_corrected;
+    out.artifact["steps"]["dark"]["bias_corrected_before_apply"] =
+        dark_needs_bias_correction;
+    if (dark_needs_bias_correction) {
+      dark_master.data -= bias_master.data;
+    }
   }
 
   if (cal.use_flat) {

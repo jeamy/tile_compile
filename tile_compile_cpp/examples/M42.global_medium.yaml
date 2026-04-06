@@ -53,6 +53,7 @@ calibration:
   dark_match_temp_tolerance_c: 3
   dark_match_use_temp: false
   dark_use_master: false
+  dark_already_bias_corrected: false
   darks_dir: ""
   flat_master: ""
   flat_use_master: false

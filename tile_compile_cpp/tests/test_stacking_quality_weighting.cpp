@@ -263,6 +263,7 @@ calibration:
   use_flat: true
   bias_use_master: true
   dark_use_master: false
+  dark_already_bias_corrected: true
   flat_use_master: true
   dark_auto_select: true
   dark_match_exposure_tolerance_percent: 7.5
@@ -280,6 +281,7 @@ calibration:
   REQUIRE(cfg.calibration.use_flat);
   REQUIRE(cfg.calibration.bias_use_master);
   REQUIRE_FALSE(cfg.calibration.dark_use_master);
+  REQUIRE(cfg.calibration.dark_already_bias_corrected);
   REQUIRE(cfg.calibration.flat_use_master);
   REQUIRE(cfg.calibration.dark_auto_select);
   REQUIRE(std::fabs(

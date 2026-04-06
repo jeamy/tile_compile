@@ -24,7 +24,7 @@
                       "strictness":{"type":"string","enum":["strict","moderate","permissive"]} } },
     "calibration": { "type":"object",
       "properties": { "use_bias":{"type":"boolean"}, "use_dark":{"type":"boolean"}, "use_flat":{"type":"boolean"},
-                      "bias_use_master":{"type":"boolean"}, "dark_use_master":{"type":"boolean"}, "flat_use_master":{"type":"boolean"},
+                      "bias_use_master":{"type":"boolean"}, "dark_use_master":{"type":"boolean"}, "dark_already_bias_corrected":{"type":"boolean","description":"Set true only for master darks whose bias pedestal has already been removed."}, "flat_use_master":{"type":"boolean"},
                       "dark_auto_select":{"type":"boolean"},
                       "dark_match_exposure_tolerance_percent":{"type":"number","minimum":0},
                       "dark_match_use_temp":{"type":"boolean"},

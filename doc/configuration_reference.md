@@ -300,6 +300,17 @@ konfigurierte Quelle:
 
 ---
 
+### `calibration.dark_already_bias_corrected`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Kennzeichnet ein Master-Dark als bereits bias-korrigiert. Wenn `false` und `use_bias: true`, zieht der Runner den Bias intern zuerst vom Dark ab, damit der Offset nicht doppelt vom Light subtrahiert wird.
+
+---
+
 ### `calibration.dark_auto_select`
 
 | Eigenschaft | Wert |

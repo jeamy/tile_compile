@@ -92,8 +92,8 @@
             </div>
 
             <div id="parameter-full-editor-group" class="ps-section ps-parameter-group" data-control="parameter.full_editor" data-category="editor_dynamic">
-              <div class="ps-section-title">Abschnittseditor</div>
-              <p class="ps-note" data-i18n="page.parameter_studio.full_editor_note">Alle Parameter der gewaehlten Kategorie sind editierbar. Es wird nicht alles gleichzeitig angezeigt.</p>
+              <div id="parameter-full-editor-title" class="ps-section-title">all</div>
+              <p id="parameter-full-editor-note" class="ps-note" data-i18n="page.parameter_studio.full_editor_note">Alle Parameter der gewaehlten Kategorie sind editierbar.</p>
               <div id="parameter-editor-meta" class="ps-note" style="margin-top:8px;"></div>
               <div id="parameter-editor-fields"></div>
             </div>
@@ -108,7 +108,6 @@
                   <option>hybrid_phase_ecc</option>
                   <option>robust_phase_ecc</option>
                 </select>
-                <span class="ps-tag reco">Empfohlen: Alt/Az</span>
               </div>
               <div class="ps-row">
                 <label for="parameter-registration-allow-rotation">registration.allow_rotation</label>
@@ -116,7 +115,6 @@
                   <option selected>true</option>
                   <option>false</option>
                 </select>
-                <span class="ps-hint">Kurz: fuer Alt/Az und starke Rotation aktiv lassen.</span>
               </div>
               <div class="ps-row">
                 <label for="parameter-registration-transform-model">registration.transform_model</label>
@@ -124,12 +122,10 @@
                   <option>similarity</option>
                   <option selected>affine</option>
                 </select>
-                <span class="ps-hint">Kurz: `similarity` fuer EQ, `affine` fuer Alt/Az und rotierende Felder.</span>
               </div>
               <div class="ps-row">
                 <label for="parameter-registration-star-topk">registration.star_topk</label>
                 <input id="parameter-registration-star-topk" data-control="parameter.registration.star_topk" class="ps-input ps-short" type="number" value="180" title="Anzahl Top-Sterne fuer Matching.">
-                <span class="ps-hint">Kurz: mehr Sterne erhoehen Robustheit, kosten aber Laufzeit.</span>
               </div>
               <div class="ps-row">
                 <label for="parameter-registration-star-inlier">registration.star_inlier_tol_px</label>
@@ -263,7 +259,6 @@
                   <option>false</option>
                 </select>
                 <span class="ps-tag">deprecated</span>
-                <span class="ps-hint">Dieses Feld wird spaeter entfernt. Standardwert beibehalten.</span>
               </div>
             </div>
 
@@ -312,6 +307,13 @@
                 <select id="parameter-cal-use-dark" class="ps-select" title="Dark-Kalibrierung aktivieren/deaktivieren.">
                   <option selected>true</option>
                   <option>false</option>
+                </select>
+              </div>
+              <div class="ps-row">
+                <label for="parameter-cal-dark-bias-corrected">calibration.dark_already_bias_corrected</label>
+                <select id="parameter-cal-dark-bias-corrected" class="ps-select" title="True nur wenn das verwendete Master-Dark bereits bias-korrigiert ist.">
+                  <option selected>false</option>
+                  <option>true</option>
                 </select>
               </div>
               <div class="ps-row">

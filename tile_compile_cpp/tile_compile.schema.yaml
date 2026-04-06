@@ -39,6 +39,9 @@ properties:
       use_flat: {type: boolean}
       bias_use_master: {type: boolean}
       dark_use_master: {type: boolean}
+      dark_already_bias_corrected:
+        type: boolean
+        description: "True nur fuer Master-Darks, deren Bias-Pedestal bereits entfernt wurde."
       flat_use_master: {type: boolean}
       dark_auto_select: {type: boolean}
       dark_match_exposure_tolerance_percent: {type: number, minimum: 0}

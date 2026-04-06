@@ -458,6 +458,7 @@ The report aggregates data from artifact JSON files, `logs/run_events.jsonl`, an
 
 - Master frames (`bias_master`, `dark_master`, `flat_master`) can be used directly
 - Directory-based masters (`bias_dir`, `darks_dir`, `flats_dir`) can be built automatically
+- When `use_bias: true` and `use_dark: true`, raw darks are bias-corrected internally unless `dark_already_bias_corrected: true` is set
 - `dark_auto_select: true` matches darks by exposure time (±5%)
 
 ## Project Structure
@@ -933,4 +934,3 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 **Documentation:**
 
 - **New**: [Practical Configuration Examples & Best Practices](doc/configuration_examples_practical_en.md) - Comprehensive guide with use cases for different focal lengths, seeing conditions, mount types, and camera setups (DWARF, Seestar, DSLR, Mono CCD). Includes parameter recommendations based on methodology v3.3.4.
-

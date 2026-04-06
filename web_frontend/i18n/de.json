@@ -667,7 +667,7 @@
   "page.parameter_studio.editor.none_in_category": "Keine Parameter in dieser Kategorie.",
   "page.parameter_studio.category.all": "Alle",
   "page.parameter_studio.category.tooltip_suffix": "Parameter bearbeiten.",
-  "page.parameter_studio.full_editor_note": "Alle Parameter der gewaehlten Kategorie sind editierbar. Es wird nicht alles gleichzeitig angezeigt.",
+  "page.parameter_studio.full_editor_note": "Alle Parameter der gewaehlten Kategorie sind editierbar.",
   "page.parameter_studio.search.none_active": "Keine Suche aktiv.",
   "page.parameter_studio.search.label": "Parameter suchen",
   "page.parameter_studio.search.hits_for": "Treffer für",

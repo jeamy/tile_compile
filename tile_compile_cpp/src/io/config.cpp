@@ -190,6 +190,10 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.calibration.bias_use_master = c["bias_use_master"].as<bool>();
     if (c["dark_use_master"])
       cfg.calibration.dark_use_master = c["dark_use_master"].as<bool>();
+    if (c["dark_already_bias_corrected"]) {
+      cfg.calibration.dark_already_bias_corrected =
+          c["dark_already_bias_corrected"].as<bool>();
+    }
     if (c["flat_use_master"])
       cfg.calibration.flat_use_master = c["flat_use_master"].as<bool>();
     if (c["dark_auto_select"])
@@ -771,6 +775,8 @@ YAML::Node Config::to_yaml() const {
   node["calibration"]["use_flat"] = calibration.use_flat;
   node["calibration"]["bias_use_master"] = calibration.bias_use_master;
   node["calibration"]["dark_use_master"] = calibration.dark_use_master;
+  node["calibration"]["dark_already_bias_corrected"] =
+      calibration.dark_already_bias_corrected;
   node["calibration"]["flat_use_master"] = calibration.flat_use_master;
   node["calibration"]["dark_auto_select"] = calibration.dark_auto_select;
   node["calibration"]["dark_match_exposure_tolerance_percent"] =
@@ -1528,7 +1534,7 @@ std::string get_schema_json() {
                       "strictness":{"type":"string","enum":["strict","moderate","permissive"]} } },
     "calibration": { "type":"object",
       "properties": { "use_bias":{"type":"boolean"}, "use_dark":{"type":"boolean"}, "use_flat":{"type":"boolean"},
-                      "bias_use_master":{"type":"boolean"}, "dark_use_master":{"type":"boolean"}, "flat_use_master":{"type":"boolean"},
+                      "bias_use_master":{"type":"boolean"}, "dark_use_master":{"type":"boolean"}, "dark_already_bias_corrected":{"type":"boolean"}, "flat_use_master":{"type":"boolean"},
                       "dark_auto_select":{"type":"boolean"},
                       "dark_match_exposure_tolerance_percent":{"type":"number","minimum":0},
                       "dark_match_use_temp":{"type":"boolean"},

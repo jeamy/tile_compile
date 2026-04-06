@@ -30,6 +30,7 @@
     "parameter-runtime-memory": "runtime_limits.memory_budget",
     "parameter-runtime-hard-abort": "runtime_limits.hard_abort_hours",
     "parameter-cal-use-dark": "calibration.use_dark",
+    "parameter-cal-dark-bias-corrected": "calibration.dark_already_bias_corrected",
     "parameter-cal-darks-dir": "calibration.darks_dir",
     "parameter-cal-use-flat": "calibration.use_flat",
     "parameter-cal-flats-dir": "calibration.flats_dir",
@@ -70,6 +71,8 @@
   let categoryButtons = Array.from(document.querySelectorAll("#parameter-category-list button[data-category]"));
   const parameterGroups = Array.from(document.querySelectorAll(".ps-parameter-group"));
   const editorGroup = document.getElementById("parameter-full-editor-group");
+  const editorTitleEl = document.getElementById("parameter-full-editor-title");
+  const editorNoteEl = document.getElementById("parameter-full-editor-note");
   const editorMetaEl = document.getElementById("parameter-editor-meta");
   const editorFieldsEl = document.getElementById("parameter-editor-fields");
   const searchInput = document.getElementById("parameter-search");
@@ -882,6 +885,16 @@
       .filter((group) => group !== editorGroup && group.dataset.schemaVisible === "1");
   }
 
+  function clearDynamicCategoryExtensions() {
+    document.querySelectorAll(".ps-dyn-extension").forEach((el) => el.remove());
+  }
+
+  function setGroupTitle(group, title) {
+    const titleEl = group?.querySelector(".ps-section-title");
+    if (!titleEl) return;
+    titleEl.textContent = String(title || "").trim();
+  }
+
   function collectStaticPathsForCategory(category) {
     const paths = new Set();
     staticGroupsForCategory(category).forEach((group) => {
@@ -893,13 +906,15 @@
     return paths;
   }
 
-  function findStaticRowByPath(path) {
+  function findRenderedRowByPath(path) {
     const normalized = String(path || "").trim();
     if (!normalized) return null;
-    return staticRows.find((row) => {
-      const rowPath = resolvePathFromElement(row) || String(row.querySelector("label")?.textContent || "").trim();
-      return rowPath === normalized;
-    }) || null;
+    return Array.from(document.querySelectorAll(".ps-row"))
+      .find((row) => {
+        if (row.offsetParent === null) return false;
+        const rowPath = resolvePathFromElement(row) || String(row.querySelector("label")?.textContent || "").trim();
+        return rowPath === normalized;
+      }) || null;
   }
 
   function bindExplainInteractions(root = document) {
@@ -969,21 +984,38 @@
     }).join("");
   }
 
-  function renderDynamicEditor(category) {
+  function renderDynamicEditor(category, options = {}) {
     if (!editorMetaEl || !editorFieldsEl) return { entryCount: 0, staticCount: 0 };
-    const staticPaths = category === "all" ? new Set() : collectStaticPathsForCategory(category);
+    const targetStaticGroups = Array.isArray(options.targetStaticGroups) ? options.targetStaticGroups : [];
+    const staticPaths = category === "all" || targetStaticGroups.length === 0
+      ? new Set()
+      : collectStaticPathsForCategory(category);
     const entries = paramEditorIndex
       .filter((entry) => (category === "all" || entry.category === category) && !staticPaths.has(entry.path))
       .sort((a, b) => String(a.path).localeCompare(String(b.path)));
     const staticCount = staticPaths.size;
+    if (editorTitleEl) {
+      editorTitleEl.textContent =
+        category === "all"
+          ? textFor("page.parameter_studio.category.all", "All")
+          : String(category);
+    }
+    if (editorNoteEl) {
+      editorNoteEl.style.display = category === "all" ? "" : "none";
+    }
+    editorMetaEl.style.display = category === "all" ? "" : "none";
     editorMetaEl.innerHTML =
       category === "all"
         ? `<b>${escapeHtml(textFor("page.parameter_studio.editor.all", "All"))}</b> - ${entries.length} ${escapeHtml(textFor("page.parameter_studio.editor.editable_count", "editable parameters, grouped by category"))}`
-        : `<b>${escapeHtml(category)}</b> - ${entries.length} ${escapeHtml(textFor("page.parameter_studio.editor.editable_short", "editable parameters"))}${staticCount > 0 ? ` (${staticCount} ${escapeHtml(textFor("page.parameter_studio.editor.handled_in_section", "already shown in the section above"))})` : ""}`;
+        : "";
     if (entries.length === 0) {
-      editorFieldsEl.innerHTML = staticCount > 0
-        ? ""
-        : `<div class="ps-note">${escapeHtml(textFor("page.parameter_studio.editor.none_in_category", "No parameters in this category."))}</div>`;
+      if (targetStaticGroups.length > 0) {
+        editorFieldsEl.innerHTML = "";
+      } else {
+        editorFieldsEl.innerHTML = staticCount > 0
+          ? ""
+          : `<div class="ps-note">${escapeHtml(textFor("page.parameter_studio.editor.none_in_category", "No parameters in this category."))}</div>`;
+      }
       return { entryCount: 0, staticCount };
     }
     if (category === "all") {
@@ -999,10 +1031,21 @@
         .filter(Boolean)
         .join("");
       editorFieldsEl.innerHTML = grouped;
+      bindExplainInteractions(editorFieldsEl);
+      return { entryCount: entries.length, staticCount };
+    }
+
+    if (targetStaticGroups.length > 0) {
+      const targetGroup = targetStaticGroups[targetStaticGroups.length - 1];
+      const extension = document.createElement("div");
+      extension.className = "ps-dyn-extension";
+      extension.innerHTML = renderDynamicRows(entries);
+      targetGroup.appendChild(extension);
+      bindExplainInteractions(extension);
     } else {
       editorFieldsEl.innerHTML = renderDynamicRows(entries);
+      bindExplainInteractions(editorFieldsEl);
     }
-    bindExplainInteractions(editorFieldsEl);
     return { entryCount: entries.length, staticCount };
   }
 
@@ -1016,6 +1059,7 @@
     categoryButtons.forEach((btn) => {
       btn.classList.toggle("is-active", btn.dataset.category === requested);
     });
+    clearDynamicCategoryExtensions();
     parameterGroups.forEach((group) => {
       group.style.display = "none";
     });
@@ -1028,17 +1072,18 @@
       }));
       return;
     }
-    let hasStaticVisible = false;
-    document.querySelectorAll(`.ps-parameter-group[data-category="${requested}"]`).forEach((group) => {
-      if (group === editorGroup) return;
-      if (group.dataset.schemaVisible === "1") {
-        hasStaticVisible = true;
-        group.style.display = "";
-      }
+    const visibleStaticGroups = staticGroupsForCategory(requested);
+    visibleStaticGroups.forEach((group) => {
+      group.style.display = "";
+      setGroupTitle(group, requested);
     });
-    const editorState = renderDynamicEditor(requested);
+    const editorState = renderDynamicEditor(requested, {
+      targetStaticGroups: visibleStaticGroups,
+    });
     if (editorGroup) {
-      editorGroup.style.display = editorState.entryCount > 0 || !hasStaticVisible ? "" : "none";
+      editorGroup.style.display = visibleStaticGroups.length > 0
+        ? "none"
+        : (editorState.entryCount > 0 ? "" : "none");
     }
     bindExplainInteractions(document);
     document.dispatchEvent(new CustomEvent("gui2:parameter-studio-rendered", {
@@ -1058,7 +1103,7 @@
     }
     setCategory(entry.category || "all");
     clearSearchHits();
-    const row = editorFieldsEl.querySelector(`.ps-dyn-row[data-path="${CSS.escape(path)}"]`) || findStaticRowByPath(path);
+    const row = findRenderedRowByPath(path);
     if (row) {
       row.classList.add("ps-search-hit");
       row.scrollIntoView({ behavior: "smooth", block: "center" });

@@ -468,6 +468,7 @@ Der Bericht aggregiert Daten aus Artifact-JSON-Dateien, `logs/run_events.jsonl` 
 
 - Master-Frames (`bias_master`, `dark_master`, `flat_master`) können direkt verwendet werden
 - Verzeichnis-basierte Master (`bias_dir`, `darks_dir`, `flats_dir`) können automatisch erstellt werden
+- Wenn `use_bias: true` und `use_dark: true`, werden rohe Darks intern bias-korrigiert, außer `dark_already_bias_corrected: true` ist gesetzt
 - `dark_auto_select: true` ordnet Darks nach Belichtungszeit zu (±5%)
 
 ## Projektstruktur

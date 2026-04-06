@@ -234,6 +234,15 @@ source:
 
 **Purpose:** Use prebuilt master calibration files instead of stacking directories.
 
+### `calibration.dark_already_bias_corrected`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Marks a master dark as already bias-corrected. When `false` and `use_bias: true`, the runner subtracts the bias from the dark internally before applying calibration so the light-frame offset is not removed twice.
+
 ### `calibration.dark_auto_select`
 
 | Property | Value |

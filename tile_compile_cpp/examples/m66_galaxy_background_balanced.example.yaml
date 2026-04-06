@@ -42,6 +42,7 @@ calibration:
   use_flat: false
   bias_use_master: false
   dark_use_master: false
+  dark_already_bias_corrected: false
   flat_use_master: false
   dark_auto_select: true
   dark_match_exposure_tolerance_percent: 8.0

@@ -10,6 +10,7 @@ const HISTORY_CURRENT_RUN_KEY = "gui2.historyCurrentRunId";
 const LOCALE_KEY = "gui2.locale";
 const LAST_INPUT_DIRS_KEY = "gui2.lastInputDirs";
 const PRESETS_DIR_KEY = "gui2.presetsDir";
+const CALIBRATION_PATH_CACHE_KEY = "gui2.calibrationPathCache";
 const LAST_SCAN_COLOR_MODE_KEY = "gui2.lastScanColorMode";
 const ASTROMETRY_LAST_RESULT_KEY = "gui2.tools.astrometry.lastResult";
 const ASTROMETRY_LAST_WCS_KEY = "gui2.tools.astrometry.lastWcs";
@@ -306,6 +307,7 @@ const PARAM_ID_PATHS = {
   "parameter-runtime-memory": "runtime_limits.memory_budget",
   "parameter-runtime-hard-abort": "runtime_limits.hard_abort_hours",
   "parameter-cal-use-dark": "calibration.use_dark",
+  "parameter-cal-dark-bias-corrected": "calibration.dark_already_bias_corrected",
   "parameter-cal-darks-dir": "calibration.darks_dir",
   "parameter-cal-use-flat": "calibration.use_flat",
   "parameter-cal-flats-dir": "calibration.flats_dir",
@@ -325,6 +327,7 @@ const ASSUMPTION_ID_PATHS = {
 const SCAN_CALIBRATION_BINDINGS = [
   {
     storageKey: "bias",
+    toggleId: "cal-bias",
     sourceId: "cal-bias-source",
     inputId: "cal-bias-dir",
     usePath: "calibration.use_bias",
@@ -338,6 +341,7 @@ const SCAN_CALIBRATION_BINDINGS = [
   },
   {
     storageKey: "dark",
+    toggleId: "cal-dark",
     sourceId: "cal-dark-source",
     inputId: "cal-dark-dir",
     usePath: "calibration.use_dark",
@@ -351,6 +355,7 @@ const SCAN_CALIBRATION_BINDINGS = [
   },
   {
     storageKey: "flat",
+    toggleId: "cal-flat",
     sourceId: "cal-flat-source",
     inputId: "cal-flat-dir",
     usePath: "calibration.use_flat",
@@ -1290,15 +1295,75 @@ function getByPath(root, dotted) {
 function scanCalibrationBindingForElement(el) {
   if (!el) return null;
   const id = String(el.id || "");
-  return SCAN_CALIBRATION_BINDINGS.find((binding) => binding.sourceId === id || binding.inputId === id) || null;
+  return SCAN_CALIBRATION_BINDINGS.find((binding) => (
+    binding.toggleId === id
+    || binding.sourceId === id
+    || binding.inputId === id
+  )) || null;
 }
 
 function scanCalibrationUseMaster(binding) {
   return readFieldValue($(binding?.sourceId)) === true;
 }
 
+function scanCalibrationEnabled(binding) {
+  return readFieldValue($(binding?.toggleId)) === true;
+}
+
 function scanCalibrationActivePath(binding, useMaster = scanCalibrationUseMaster(binding)) {
   return useMaster ? binding.masterPath : binding.dirPath;
+}
+
+function scanCalibrationStoredPaths(binding, config = null) {
+  const readValue = (path) => {
+    const raw = config ? getByPath(config, path) : currentDraftValueForPath(path);
+    return raw === undefined || raw === null ? "" : String(raw).trim();
+  };
+  return {
+    [binding.dirPath]: readValue(binding.dirPath),
+    [binding.masterPath]: readValue(binding.masterPath),
+  };
+}
+
+function calibrationPathCacheState() {
+  const raw = storedJsonValue(CALIBRATION_PATH_CACHE_KEY, {});
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+}
+
+function calibrationPathCacheEntry(binding) {
+  if (!binding?.storageKey) return {};
+  const cache = calibrationPathCacheState();
+  const entry = cache[binding.storageKey];
+  return entry && typeof entry === "object" && !Array.isArray(entry) ? entry : {};
+}
+
+function persistCalibrationPathCache(binding, values = {}) {
+  if (!binding?.storageKey) return;
+  const paths = [binding.dirPath, binding.masterPath];
+  const explicit = paths.filter((path) => Object.prototype.hasOwnProperty.call(values, path));
+  if (explicit.length === 0) return;
+  const cache = calibrationPathCacheState();
+  const current = calibrationPathCacheEntry(binding);
+  const next = {
+    ...current,
+  };
+  let changed = false;
+  explicit.forEach((path) => {
+    const normalized = String(values[path] ?? "").trim();
+    if (String(next[path] ?? "") === normalized) return;
+    next[path] = normalized;
+    changed = true;
+  });
+  if (!changed) return;
+  cache[binding.storageKey] = next;
+  persistJsonValue(CALIBRATION_PATH_CACHE_KEY, cache);
+}
+
+function scanCalibrationRestoreUpdates(binding) {
+  const cached = calibrationPathCacheEntry(binding);
+  return [binding.dirPath, binding.masterPath]
+    .filter((path) => Object.prototype.hasOwnProperty.call(cached, path))
+    .map((path) => ({ path, value: String(cached[path] ?? "").trim() }));
 }
 
 function syncScanCalibrationInputPresentation(binding, useMaster) {
@@ -1310,13 +1375,20 @@ function syncScanCalibrationInputPresentation(binding, useMaster) {
 
 function syncScanCalibrationUiFromConfig(config) {
   SCAN_CALIBRATION_BINDINGS.forEach((binding) => {
+    const toggleEl = $(binding.toggleId);
     const sourceEl = $(binding.sourceId);
     const inputEl = $(binding.inputId);
     if (!sourceEl || !inputEl) return;
+    const enabled = Boolean(getByPath(config, binding.usePath));
     const useMaster = Boolean(getByPath(config, binding.useMasterPath));
+    const pathValues = scanCalibrationStoredPaths(binding, config);
+    if (Object.values(pathValues).some(Boolean)) {
+      persistCalibrationPathCache(binding, pathValues);
+    }
+    if (toggleEl) writeFieldValue(toggleEl, enabled);
     writeFieldValue(sourceEl, useMaster);
     syncScanCalibrationInputPresentation(binding, useMaster);
-    const activeValue = getByPath(config, scanCalibrationActivePath(binding, useMaster));
+    const activeValue = enabled ? getByPath(config, scanCalibrationActivePath(binding, useMaster)) : "";
     inputEl.value =
       activeValue === undefined || activeValue === null ? "" : String(activeValue);
   });
@@ -2749,9 +2821,24 @@ function bindScanPages() {
     const calibrationBinding = scanCalibrationBindingForElement(el);
     try {
       if (calibrationBinding) {
+        const toggleChanged = String(el.id || "") === calibrationBinding.toggleId;
         const sourceChanged = String(el.id || "") === calibrationBinding.sourceId;
         const updates = [];
-        if (sourceChanged) {
+        if (toggleChanged) {
+          const enabled = Boolean(readFieldValue(el));
+          if (!enabled) {
+            const currentPaths = scanCalibrationStoredPaths(calibrationBinding);
+            persistCalibrationPathCache(calibrationBinding, currentPaths);
+            updates.push({ path: calibrationBinding.usePath, value: false });
+            updates.push({ path: calibrationBinding.dirPath, value: "" });
+            updates.push({ path: calibrationBinding.masterPath, value: "" });
+            const inputEl = $(calibrationBinding.inputId);
+            if (inputEl) inputEl.value = "";
+          } else {
+            updates.push({ path: calibrationBinding.usePath, value: true });
+            updates.push(...scanCalibrationRestoreUpdates(calibrationBinding));
+          }
+        } else if (sourceChanged) {
           const inputEl = $(calibrationBinding.inputId);
           const nextUseMaster = Boolean(readFieldValue(el));
           updates.push({
@@ -2760,9 +2847,9 @@ function bindScanPages() {
           });
           syncScanCalibrationInputPresentation(calibrationBinding, nextUseMaster);
           if (inputEl) {
-            const nextValue = currentDraftValueForPath(
-              scanCalibrationActivePath(calibrationBinding, nextUseMaster),
-            );
+            const nextValue = scanCalibrationEnabled(calibrationBinding)
+              ? currentDraftValueForPath(scanCalibrationActivePath(calibrationBinding, nextUseMaster))
+              : "";
             inputEl.value = nextValue === undefined || nextValue === null ? "" : String(nextValue);
           }
         } else if (String(el.id || "") === calibrationBinding.inputId) {
@@ -2776,9 +2863,13 @@ function bindScanPages() {
             updates.push({ path: calibrationBinding.useMasterPath, value: true });
           }
           const useMaster = isFitsFile ? true : scanCalibrationUseMaster(calibrationBinding);
+          const activePath = useMaster ? calibrationBinding.masterPath : calibrationBinding.dirPath;
           updates.push({
-            path: useMaster ? calibrationBinding.masterPath : calibrationBinding.dirPath,
+            path: activePath,
             value: newValue,
+          });
+          persistCalibrationPathCache(calibrationBinding, {
+            [activePath]: newValue,
           });
           // use_* automatisch setzen: true wenn Pfad gesetzt, false wenn leer
           if (calibrationBinding.usePath) {

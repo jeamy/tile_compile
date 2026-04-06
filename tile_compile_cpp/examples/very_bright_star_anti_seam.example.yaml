@@ -38,6 +38,7 @@ calibration:
   use_flat: false # Flat-Korrektur aktivieren
   bias_use_master: false # vorhandenes Master-Bias direkt nutzen
   dark_use_master: false # vorhandenes Master-Dark direkt nutzen
+  dark_already_bias_corrected: false
   flat_use_master: false # vorhandenes Master-Flat direkt nutzen
   dark_auto_select: true # passendes Dark automatisch waehlen
   dark_match_exposure_tolerance_percent: 8.0 # Toleranz bei Dark-Auswahl

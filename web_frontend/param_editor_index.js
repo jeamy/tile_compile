@@ -379,6 +379,14 @@ window.PARAM_EDITOR_INDEX = [
   },
   {
     "category": "calibration",
+    "description": "Markiert ein Master-Dark als bereits bias-korrigiert. Wenn false und use_bias=true, wird der Bias vor dem Anwenden intern vom Dark abgezogen.",
+    "path": "calibration.dark_already_bias_corrected",
+    "source": "schema",
+    "type": "boolean",
+    "yaml_default": false
+  },
+  {
+    "category": "calibration",
     "path": "calibration.darks_dir",
     "source": "schema",
     "type": "string",
