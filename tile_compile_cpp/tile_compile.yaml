@@ -12,7 +12,7 @@ astrometry:
   search_radius: 183
 bge:
   autotune:
-    alpha_flatness: 0.4
+    alpha_flatness: 0.35
     beta_roughness: 0.08
     enabled: true
     holdout_fraction: 0.2
@@ -25,35 +25,36 @@ bge:
     irls_tolerance: 1.00e-04
     method: rbf
     polynomial_order: 2
-    rbf_epsilon: 0.7
-    rbf_lambda: 0.03
-    rbf_mu_factor: 1.8
+    rbf_epsilon: 0.8
+    rbf_lambda: 0.02
+    rbf_mu_factor: 1.6
     rbf_phi: multiquadric
     robust_loss: huber
   grid:
     G_max_fraction: 0.25
-    G_min_px: 56
+    G_min_px: 64
     N_g: 36
     insufficient_cell_strategy: radius_expand
   mask:
-    sat_dilate_px: 6
-    star_dilate_px: 6
+    sat_dilate_px: 5
+    star_dilate_px: 5
   min_tiles_per_cell: 3
-  min_valid_sample_fraction_for_apply: 0.28
+  min_valid_sample_fraction_for_apply: 0.3
   min_valid_samples_for_apply: 96
-  sample_quantile: 0.15
-  structure_thresh_percentile: 0.8
+  sample_quantile: 0.18
+  structure_thresh_percentile: 0.9
+  tile_weight_lambda_structure: 1
 calibration:
   bias_dir: /media/data/Astro/DwarfII/Astronomy/DWARF_BIAS/DWARF_RAW_TELE_EXP_0.0001_GAIN_60_2026-01-10-14-54-22-483
   bias_master: ""
   bias_use_master: false
+  dark_already_bias_corrected: false
   dark_auto_select: true
-  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_15.000000_gain_60_bin_1_stack_10.fits
+  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_10.000000_gain_60_bin_1_stack_10.fits
   dark_match_exposure_tolerance_percent: 8
   dark_match_temp_tolerance_c: 3
   dark_match_use_temp: false
   dark_use_master: true
-  dark_already_bias_corrected: false
   darks_dir: ""
   flat_master: ""
   flat_use_master: false
@@ -65,28 +66,28 @@ calibration:
 chroma_denoise:
   apply_stage: post_stack_linear
   blend:
-    amount: 0.9
+    amount: 0.75
     mode: chroma_only
   chroma_bilateral:
     enabled: true
-    sigma_range: 0.05
-    sigma_spatial: 1.5
+    sigma_range: 0.06
+    sigma_spatial: 2
   chroma_wavelet:
     enabled: true
-    levels: 3
-    soft_k: 1
-    threshold_scale: 1.5
+    levels: 4
+    soft_k: 1.1
+    threshold_scale: 1.6
   color_space: ycbcr_linear
   enabled: true
-  luma_guard_strength: 0.75
+  luma_guard_strength: 0.92
   protect_luma: true
   star_protection:
-    dilate_px: 2
+    dilate_px: 3
     enabled: true
-    threshold_sigma: 2.5
+    threshold_sigma: 3
   structure_protection:
     enabled: true
-    gradient_percentile: 87
+    gradient_percentile: 94
 data:
   color_mode: OSC
   linear_required: true
@@ -116,6 +117,7 @@ local_metrics:
   clamp:
     - -3
     - 3
+  k_local: 1
   star_mode:
     weights:
       contrast: 0.2
@@ -140,10 +142,10 @@ pcc:
   annulus_outer_px: 16
   aperture_fwhm_mult: 1.8
   aperture_radius_px: 8
-  apply_attenuation: true
+  apply_attenuation: false
   background_model: plane
   background_neutralization_mode: always
-  chroma_strength: 1
+  chroma_strength: 0.85
   enabled: true
   k_max: 2.4
   mag_bright_limit: 6
@@ -176,7 +178,7 @@ registration:
   star_min_inliers: 4
   star_topk: 150
   transform_model: affine
-run_dir: ./run_ic434_test
+run_dir: ./run_m31_background_gradient_balanced
 runtime_limits:
   acceleration_backend: auto
   allow_emergency_mode: true
@@ -184,13 +186,26 @@ runtime_limits:
   memory_budget: 2048
   parallel_workers: 8
   tile_analysis_max_factor_vs_stack: 3
+scenario_profile:
+  gui2_scenarios:
+    - osc
+    - m31
+    - galaxy
+    - background_gradient
+    - broadband
+  id: m31_background_gradient_balanced
+  intent: M31/OSC mit Fokus auf Gradientreduktion bei moeglichst neutraler PCC-Farbkalibrierung ohne Gruenstich.
+  priority: balanced_color_and_background
+  recommended_for:
+    - M31 / grosse diffuse Galaxien mit Hintergrundgradient
+    - wenn ein nebula-orientiertes Chroma-Suppression-Preset die Galaxie zu gruen oder zu entsaettigt macht
+  title: M31 Background Gradient Balanced
 stacking:
   cluster_quality_weighting:
     cap_enabled: true
     cap_ratio: 20
     enabled: false
     kappa_cluster: 1
-  common_overlap_required_fraction: 1
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   method: rej
@@ -202,7 +217,6 @@ stacking:
     min_fraction: 0.4
     sigma_high: 1.8
     sigma_low: 1.8
-  tile_common_valid_min_fraction: 1
 synthetic:
   clustering:
     cluster_count_range:
@@ -220,7 +234,7 @@ tile:
   star_min_count: 5
 tile_denoise:
   soft_threshold:
-    alpha: 1.6
+    alpha: 1.4
     blur_kernel: 21
     enabled: true
     skip_star_tiles: true
