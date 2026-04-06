@@ -41,6 +41,7 @@ DartConfiguration.tcl
 # Runtime / outputs
 *runs*
 runs/*
+tmp/
 /runs/*
 outputs/
 artifacts/

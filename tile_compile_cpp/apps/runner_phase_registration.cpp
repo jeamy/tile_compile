@@ -415,22 +415,31 @@ bool run_phase_registration_prewarp(
     PhaseRegistrationContext &out) {
   config::RegistrationConfig registration_cfg = cfg.registration;
 
-  // Auto-engine: detect strong field rotation (Alt/Az mount) from a small
-  // probe sample and override the engine when the configured one would fail.
+  // Auto-engine: detect conditions where the configured engine would fail and
+  // override with triangle_star_matching. Two triggers:
+  //   1) Strong field rotation (Alt/Az mount): median |rotation| per frame
+  //      exceeds auto_engine_rotation_threshold_deg.
+  //   2) ECC failure on dominant bright objects: when engine is
+  //      robust_phase_ecc or hybrid_phase_ecc, probe ECC CC on a small sample;
+  //      if the median CC of successful ECC results is below reject_cc_min_abs
+  //      (or ECC succeeds on fewer than half the probe frames), override.
   // Triggered when auto_engine=true AND the configured engine is one that
-  // cannot handle rotation well (robust_phase_ecc, hybrid_phase_ecc).
+  // cannot handle rotation or dominant bright objects well.
   if (registration_cfg.auto_engine && frames.size() >= 3) {
     const bool engine_rotation_blind =
         (registration_cfg.engine == "robust_phase_ecc" ||
          registration_cfg.engine == "hybrid_phase_ecc");
 
     if (engine_rotation_blind && registration_cfg.allow_rotation) {
-      // Probe: measure rotation angle between 3 evenly-spaced frames using
-      // a quick triangle_star_matching pass. If median |rotation| per frame
-      // exceeds the threshold, override the engine.
+      // Probe: measure rotation angle between evenly-spaced frames using
+      // a quick triangle_star_matching pass. Simultaneously probe ECC CC
+      // to detect failure on dominant bright objects.
       const size_t n_probe = std::min<size_t>(4, frames.size());
       std::vector<float> probe_rotations;
+      std::vector<float> probe_ecc_cc;
+      int probe_ecc_attempted = 0;
       probe_rotations.reserve(n_probe);
+      probe_ecc_cc.reserve(n_probe);
 
       const int probe_ref_idx =
           static_cast<int>(frames.size() / 2);
@@ -443,9 +452,13 @@ bool run_phase_registration_prewarp(
       } catch (...) {}
 
       if (probe_ref.size() > 0) {
-        config::RegistrationConfig probe_cfg = registration_cfg;
-        probe_cfg.engine = "triangle_star_matching";
-        probe_cfg.transform_model = "affine";
+        config::RegistrationConfig probe_star_cfg = registration_cfg;
+        probe_star_cfg.engine = "triangle_star_matching";
+        probe_star_cfg.transform_model = "affine";
+
+        config::RegistrationConfig probe_ecc_cfg = registration_cfg;
+        // probe ECC directly without fallback cascade
+        probe_ecc_cfg.enable_star_pair_fallback = false;
 
         for (size_t pi = 0; pi < n_probe; ++pi) {
           const size_t fi =
@@ -465,27 +478,36 @@ bool run_phase_registration_prewarp(
                 probe_mov.cols() != probe_ref.cols()) {
               continue;
             }
-            auto sfr = registration::register_single_frame(
-                probe_mov, probe_ref, probe_cfg);
-            if (sfr.reg.success) {
-              // Extract rotation angle from affine matrix:
-              // a00=cos(θ), a01=-sin(θ) for pure rotation
-              const float a00 = sfr.reg.warp(0, 0);
-              const float a01 = sfr.reg.warp(0, 1);
+            // Star-based probe for rotation measurement
+            auto sfr_star = registration::register_single_frame(
+                probe_mov, probe_ref, probe_star_cfg);
+            if (sfr_star.reg.success) {
+              const float a00 = sfr_star.reg.warp(0, 0);
+              const float a01 = sfr_star.reg.warp(0, 1);
               const float angle_rad = std::atan2(-a01, a00);
               const float angle_deg =
                   std::fabs(angle_rad) * (180.0f / kPi);
-              // Normalize to per-frame rotation
               const float frame_dist = std::max(
                   1.0f,
                   std::fabs(static_cast<float>(fi) -
                             static_cast<float>(probe_ref_idx)));
               probe_rotations.push_back(angle_deg / frame_dist);
             }
+            // ECC probe for CC quality check
+            ++probe_ecc_attempted;
+            auto sfr_ecc = registration::register_single_frame(
+                probe_mov, probe_ref, probe_ecc_cfg);
+            if (sfr_ecc.reg.success) {
+              probe_ecc_cc.push_back(sfr_ecc.ncc_warped);
+            }
           } catch (...) {}
         }
       }
 
+      bool override_engine = false;
+      std::string override_reason;
+
+      // Check 1: field rotation
       if (!probe_rotations.empty()) {
         std::sort(probe_rotations.begin(), probe_rotations.end());
         const float median_rot_per_frame =
@@ -494,18 +516,12 @@ bool run_phase_registration_prewarp(
             registration_cfg.auto_engine_rotation_threshold_deg;
 
         if (median_rot_per_frame >= threshold) {
-          const std::string old_engine = registration_cfg.engine;
-          registration_cfg.engine = "triangle_star_matching";
-          registration_cfg.transform_model = "affine";
-          std::ostringstream msg;
-          msg << "auto_engine: detected field rotation "
-              << median_rot_per_frame
+          override_engine = true;
+          std::ostringstream oss;
+          oss << "detected field rotation " << median_rot_per_frame
               << " deg/frame (threshold=" << threshold
-              << ") — overriding engine '" << old_engine
-              << "' -> 'triangle_star_matching' + transform_model=affine"
-              << " (Alt/Az mount / strong rotation)";
-          emitter.warning(run_id, msg.str(), log_file);
-          std::cout << "[REGISTRATION] " << msg.str() << std::endl;
+              << ") — Alt/Az mount / strong rotation";
+          override_reason = oss.str();
         } else {
           std::cout << "[REGISTRATION] auto_engine probe: rotation="
                     << median_rot_per_frame
@@ -513,6 +529,49 @@ bool run_phase_registration_prewarp(
                     << ", keeping engine='" << registration_cfg.engine
                     << "'" << std::endl;
         }
+      }
+
+      // Check 2: ECC CC quality (dominant bright object / low texture)
+      // Override if: fewer than half the probed frames succeeded with ECC,
+      // OR median CC of successful ECC results is below reject_cc_min_abs.
+      if (!override_engine && probe_ecc_attempted > 0) {
+        const float ecc_success_rate =
+            static_cast<float>(probe_ecc_cc.size()) /
+            static_cast<float>(probe_ecc_attempted);
+        float median_ecc_cc = 0.0f;
+        if (!probe_ecc_cc.empty()) {
+          std::vector<float> sorted_cc = probe_ecc_cc;
+          std::sort(sorted_cc.begin(), sorted_cc.end());
+          median_ecc_cc = sorted_cc[sorted_cc.size() / 2];
+        }
+        const float cc_threshold = registration_cfg.reject_cc_min_abs;
+        if (ecc_success_rate < 0.5f || median_ecc_cc < cc_threshold) {
+          override_engine = true;
+          std::ostringstream oss;
+          oss << "ECC quality too low (success_rate=" << ecc_success_rate
+              << ", median_cc=" << median_ecc_cc
+              << ", threshold=" << cc_threshold
+              << ") — dominant bright object or low texture scene";
+          override_reason = oss.str();
+        } else {
+          std::cout << "[REGISTRATION] auto_engine probe: ECC ok"
+                    << " (success_rate=" << ecc_success_rate
+                    << ", median_cc=" << median_ecc_cc
+                    << "), keeping engine='" << registration_cfg.engine
+                    << "'" << std::endl;
+        }
+      }
+
+      if (override_engine) {
+        const std::string old_engine = registration_cfg.engine;
+        registration_cfg.engine = "triangle_star_matching";
+        registration_cfg.transform_model = "affine";
+        std::ostringstream msg;
+        msg << "auto_engine: " << override_reason
+            << " — overriding engine '" << old_engine
+            << "' -> 'triangle_star_matching' + transform_model=affine";
+        emitter.warning(run_id, msg.str(), log_file);
+        std::cout << "[REGISTRATION] " << msg.str() << std::endl;
       }
     }
   }

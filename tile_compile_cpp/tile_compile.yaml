@@ -44,23 +44,23 @@ bge:
   sample_quantile: 0.15
   structure_thresh_percentile: 0.8
 calibration:
-  bias_dir: /media/data/Astro/DwarfII/Astronomy/DWARF_BIAS/DWARF_RAW_TELE_EXP_0.0001_GAIN_40_2026-01-10-14-53-39-184
+  bias_dir: ""
   bias_master: ""
   bias_use_master: false
   dark_already_bias_corrected: false
   dark_auto_select: true
-  dark_master: /media/data/Astro/DwarfII/Astronomy/CALI_FRAME/dark/cam_0/dark_exp_5.000000_gain_40_bin_1_stack_20.fits
+  dark_master: ""
   dark_match_exposure_tolerance_percent: 8
   dark_match_temp_tolerance_c: 3
   dark_match_use_temp: false
-  dark_use_master: true
+  dark_use_master: false
   darks_dir: ""
   flat_master: ""
   flat_use_master: false
   flats_dir: ""
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
-  use_bias: true
-  use_dark: true
+  use_bias: false
+  use_dark: false
   use_flat: false
 chroma_denoise:
   apply_stage: post_stack_linear
@@ -88,8 +88,8 @@ chroma_denoise:
     enabled: true
     gradient_percentile: 90
 data:
-  color_mode: OSC
   linear_required: true
+  color_mode: OSC
 dithering:
   enabled: true
   min_shift_px: 0.7
@@ -149,7 +149,7 @@ pcc:
   mag_bright_limit: 6
   mag_limit: 14
   max_condition_number: 2.5
-  max_residual_rms: 1
+  max_residual_rms: 0.5
   min_aperture_px: 4
   min_stars: 20
   radii_mode: auto_fwhm
@@ -164,7 +164,7 @@ registration:
   auto_engine: true
   auto_engine_rotation_threshold_deg: 0.05
   enable_star_pair_fallback: true
-  engine: triangle_star_matching
+  engine: hybrid_phase_ecc
   reject_cc_min_abs: 0.25
   reject_outliers: true
   reject_scale_max: 1.08
@@ -193,7 +193,7 @@ stacking:
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   method: rej
-  output_stretch: true
+  output_stretch: false
   per_frame_cosmetic_correction: true
   per_frame_cosmetic_correction_sigma: 2.5
   sigma_clip:
