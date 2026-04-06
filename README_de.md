@@ -512,6 +512,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 
 ## Versionen
 
+## v0.1.E (2026-04-06)
+
+- Calibration-/GUI2-Nachzug: Die Dark/Bias-Kalibrierung behandelt rohe Darks jetzt korrekt ohne doppelten Bias-Abzug, `dark_already_bias_corrected` wurde in Backend, Schema, Beispiel-YAMLs und Parameter Studio ergänzt, und das Parameter Studio zeigt pro gewählter Kategorie nur noch einen zusammenhängenden Abschnitt statt einer getrennten Doppelansicht.
+
 ## v0.1.D (2026-04-04)
 
 - `registration.auto_engine` ergänzt (Standard: `true`): Erkennt starke Feldrotation automatisch aus einer kleinen Frame-Probe vor der Registrierung und überschreibt die Engine auf `triangle_star_matching` + `transform_model: affine`, wenn eine rotationsblinde Engine (`robust_phase_ecc`, `hybrid_phase_ecc`) für einen Alt/Az-Datensatz konfiguriert ist. Schwellwert: `auto_engine_rotation_threshold_deg` (Standard: `0.05°/Frame` — greift bei Alt/Az bei jeder Belichtungszeit, liegt sicher unter EQ-Residualrotation).
@@ -664,6 +668,21 @@ Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmier
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-04-06)
+
+**Calibration-Fix + Parameter-Studio-Umorganisation (`v0.1.E`):**
+
+- Fehler in der Bias/Dark-Verarbeitung korrigiert: bei aktivem Bias und Dark wird ein rohes Dark nun intern bias-korrigiert, bevor es auf Lights angewendet wird; damit wird der Bias-Pedestal nicht mehr doppelt subtrahiert.
+- Neues Config-Feld `calibration.dark_already_bias_corrected` in Runner, Schema, Doku, Defaults, Beispielkonfigurationen und GUI2 aufgenommen, damit bereits bias-korrigierte Master-Darks explizit markiert werden können.
+- Parameter Studio umorganisiert: bei Auswahl einer Kategorie wie `registration` oder `calibration` wird nur noch ein einziger zusammenhängender Abschnitt angezeigt; fehlende Schema-Parameter werden in denselben Block ergänzt statt separat im Abschnittseditor dargestellt.
+
+### (2026-04-05)
+
+**Calibration-Guardrails und Backend-Persistenz für Kalibrierpfade:**
+
+- Kalibrierpfade in GUI2 beim Deaktivieren einer Calibration-Stufe aus der aktiven Config entfernt und beim erneuten Aktivieren aus dem serverseitigen UI-State wiederhergestellt, ohne Browser-Storage zu verwenden.
+- Zusätzliche Guardrails für Kalibrationsdaten ergänzt, unter anderem Warnungen bei offensichtlichen Gain-Mismatches zwischen Lights und Calibration-Dateien.
 
 ### (2026-04-04)
 

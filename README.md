@@ -502,6 +502,10 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 
 ## Versions
 
+## v0.1.E (2026-04-06)
+
+- Calibration/UI follow-up: dark+bias calibration now handles raw darks without double bias subtraction, `dark_already_bias_corrected` was propagated through backend, schema, example YAMLs, and Parameter Studio, and the Parameter Studio now shows one consolidated section per selected category instead of a split double view.
+
 ## v0.1.D (2026-04-04)
 
 - Added `registration.auto_engine` (default: `true`): automatically detects strong field rotation from a small frame probe before registration and overrides the engine to `triangle_star_matching` + `transform_model: affine` when a rotation-blind engine (`robust_phase_ecc`, `hybrid_phase_ecc`) is configured for an Alt/Az dataset. The override threshold is controlled by `auto_engine_rotation_threshold_deg` (default: `0.05°/frame`).
@@ -654,6 +658,21 @@ This project was built with assistance from Windsurf (agentic AI coding assistan
 - First public release
 
 ## Changelog
+
+### (2026-04-06)
+
+**Calibration fix + Parameter Studio reorganization (`v0.1.E`):**
+
+- Fixed the bias/dark calibration path: when bias and dark are both enabled, a raw dark is now bias-corrected internally before being applied to lights, preventing double subtraction of the bias pedestal.
+- Added the new config field `calibration.dark_already_bias_corrected` across runner, schema, docs, defaults, example configs, and GUI2 so pre-bias-corrected master darks can be marked explicitly.
+- Reorganized Parameter Studio: selecting a category such as `registration` or `calibration` now shows exactly one consolidated section; missing schema parameters are injected into that same block instead of being rendered in a separate section editor above it.
+
+### (2026-04-05)
+
+**Calibration guardrails and backend persistence for calibration paths:**
+
+- Updated GUI2 calibration-path handling so disabling a calibration stage removes its paths from the active config immediately and re-enabling restores the previously used paths from backend UI state, without using browser storage.
+- Added extra calibration guardrails, including warnings for obvious gain mismatches between light frames and calibration files.
 
 ### (2026-04-04)
 
