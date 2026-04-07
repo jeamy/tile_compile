@@ -355,6 +355,7 @@ struct RuntimeLimitsConfig {
   int memory_budget = 512;
   std::string acceleration_backend = "auto";
   std::string tile_reconstruction_diagnostics = "full";
+  bool tile_boundary_diagnostics_enabled = false; // opt-in, default off
 };
 
 struct Config {

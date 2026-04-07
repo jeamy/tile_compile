@@ -77,6 +77,8 @@ Thumbs.db
 *.swo
 .idea/
 .vscode/
+.kiro/
+.windsurf/
 
 *.tar.gz
 

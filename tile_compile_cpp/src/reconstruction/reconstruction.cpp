@@ -1071,3 +1071,159 @@ std::vector<float> make_partition_window_1d(int n, int left_overlap,
 }
 
 } // namespace tile_compile::reconstruction
+
+// ---------------------------------------------------------------------------
+// reconstruct_tiles_parallel — parallel implementation (B1 + B2 + B3)
+// ---------------------------------------------------------------------------
+#include "tile_compile/reconstruction/dead_tile_detector.hpp"
+#include "tile_compile/reconstruction/memory_budget.hpp"
+#include "tile_compile/reconstruction/progress_reporter.hpp"
+#include "tile_compile/reconstruction/tile_scheduler.hpp"
+
+#include <mutex>
+
+namespace tile_compile::reconstruction {
+
+ReconstructTilesResult reconstruct_tiles_parallel(
+    const std::vector<Matrix2Df>&          frames,
+    const TileGrid&                        grid,
+    const std::vector<std::vector<float>>& tile_weights,
+    const std::vector<bool>&               dead_tile_mask,
+    const ReconstructionConfig&            cfg)
+{
+    ReconstructTilesResult result;
+    if (frames.empty() || grid.tiles.empty()) return result;
+
+    const int h = frames[0].rows();
+    const int w = frames[0].cols();
+    const int num_frames   = static_cast<int>(frames.size());
+    const int num_tiles    = static_cast<int>(grid.tiles.size());
+    const int frame_ch     = 1; // single-channel (mono) frames
+    const int tile_ch      = 1;
+
+    // Determine max tile dimensions for OLA buffer sizing.
+    int max_tw = 0, max_th = 0;
+    for (const auto& t : grid.tiles) {
+        max_tw = std::max(max_tw, t.width);
+        max_th = std::max(max_th, t.height);
+    }
+
+    // --- B2: Memory budget plan ---
+    const MemoryBudgetPlan plan = compute_memory_budget_plan(
+        num_frames, h, w, frame_ch,
+        num_tiles, max_tw, max_th, tile_ch,
+        cfg.memory_budget_bytes,
+        cfg.parallel_workers);
+
+    result.allocated_frame_batch_bytes = plan.allocated_frame_batch_bytes;
+    result.allocated_tile_batch_bytes  = plan.allocated_tile_batch_bytes;
+
+    // --- B3: Dead tile mask (caller-supplied; may be empty → all alive) ---
+    const std::vector<bool>& dead = dead_tile_mask;
+
+    // --- OLA accumulators (shared, mutex-protected) ---
+    Matrix2Df accum      = Matrix2Df::Zero(h, w);
+    Matrix2Df weight_sum = Matrix2Df::Zero(h, w);
+    std::mutex ola_mutex;
+
+    // Pre-build neighbour lookup for partition windows (same as legacy impl).
+    std::unordered_map<uint64_t, size_t> tile_by_grid;
+    tile_by_grid.reserve(static_cast<size_t>(num_tiles));
+    for (size_t ti = 0; ti < static_cast<size_t>(num_tiles); ++ti) {
+        const auto& t = grid.tiles[ti];
+        const uint64_t key =
+            (static_cast<uint64_t>(static_cast<uint32_t>(t.row)) << 32) |
+             static_cast<uint64_t>(static_cast<uint32_t>(t.col));
+        tile_by_grid.emplace(key, ti);
+    }
+
+    auto get_neighbour = [&](int row, int col) -> const Tile* {
+        const uint64_t key =
+            (static_cast<uint64_t>(static_cast<uint32_t>(row)) << 32) |
+             static_cast<uint64_t>(static_cast<uint32_t>(col));
+        auto it = tile_by_grid.find(key);
+        return (it != tile_by_grid.end()) ? &grid.tiles[it->second] : nullptr;
+    };
+
+    // --- Scheduler config ---
+    TileSchedulerConfig sched_cfg;
+    sched_cfg.num_workers          = plan.effective_workers;
+    sched_cfg.frame_sub_batch_size = plan.frame_sub_batch_size;
+    sched_cfg.gpu_tile_batch_size  = cfg.gpu_tile_batch_size;
+
+    // Process function called per tile per sub-batch.
+    auto process_fn = [&](const Tile& tile, size_t tile_idx,
+                          size_t sb_start, size_t sb_end) {
+        // Build partition window for this tile.
+        int left_ov = 0, right_ov = 0, top_ov = 0, bot_ov = 0;
+        if (const Tile* nb = get_neighbour(tile.row, tile.col - 1))
+            left_ov  = std::max(0, (nb->x + nb->width)  - tile.x);
+        if (const Tile* nb = get_neighbour(tile.row, tile.col + 1))
+            right_ov = std::max(0, (tile.x + tile.width) - nb->x);
+        if (const Tile* nb = get_neighbour(tile.row - 1, tile.col))
+            top_ov   = std::max(0, (nb->y + nb->height) - tile.y);
+        if (const Tile* nb = get_neighbour(tile.row + 1, tile.col))
+            bot_ov   = std::max(0, (tile.y + tile.height) - nb->y);
+
+        const auto wx = make_partition_window_1d(tile.width,  left_ov, right_ov);
+        const auto wy = make_partition_window_1d(tile.height, top_ov,  bot_ov);
+
+        // Local accumulators for this sub-batch contribution.
+        Matrix2Df local_accum      = Matrix2Df::Zero(h, w);
+        Matrix2Df local_weight_sum = Matrix2Df::Zero(h, w);
+
+        for (size_t f = sb_start; f < sb_end; ++f) {
+            const float weight = (tile_idx < tile_weights[f].size())
+                                 ? tile_weights[f][tile_idx]
+                                 : 0.0f;
+            if (weight == 0.0f) continue;
+
+            for (int y = tile.y; y < tile.y + tile.height && y < h; ++y) {
+                for (int x = tile.x; x < tile.x + tile.width && x < w; ++x) {
+                    const int ly = y - tile.y;
+                    const int lx = x - tile.x;
+                    if (ly < 0 || lx < 0 ||
+                        ly >= static_cast<int>(wy.size()) ||
+                        lx >= static_cast<int>(wx.size())) continue;
+                    const float win = wy[static_cast<size_t>(ly)] *
+                                      wx[static_cast<size_t>(lx)];
+                    const float ww  = weight * win;
+                    const float v   = frames[f](y, x);
+                    if (!std::isfinite(v)) continue;
+                    local_accum(y, x)      += v * ww;
+                    local_weight_sum(y, x) += ww;
+                }
+            }
+        }
+
+        // Merge local accumulators into shared ones.
+        {
+            std::lock_guard<std::mutex> lk(ola_mutex);
+            for (int y = tile.y; y < tile.y + tile.height && y < h; ++y)
+                for (int x = tile.x; x < tile.x + tile.width && x < w; ++x) {
+                    accum(y, x)      += local_accum(y, x);
+                    weight_sum(y, x) += local_weight_sum(y, x);
+                }
+        }
+    };
+
+    // --- Run scheduler ---
+    const TileSchedulerResult sched = run_tile_scheduler(
+        grid, static_cast<size_t>(num_frames), dead, sched_cfg, process_fn);
+
+    // --- Normalise ---
+    for (int i = 0; i < accum.size(); ++i) {
+        if (weight_sum.data()[i] > 0.0f)
+            accum.data()[i] /= weight_sum.data()[i];
+    }
+
+    result.output                          = std::move(accum);
+    result.tiles_processed                 = sched.tiles_processed;
+    result.tiles_skipped_dead              = sched.tiles_skipped_dead;
+    result.duration_s                      = sched.processing_time_s;
+    result.dead_tile_time_saved_estimate_s = sched.dead_tile_time_saved_estimate_s;
+    result.workers_used                    = sched.workers_used;
+    return result;
+}
+
+} // namespace tile_compile::reconstruction

@@ -129,6 +129,31 @@ public:
                                float invalid_value) const;
   void flush_overlap_state(Matrix2Df &accum, Matrix2Df &weight_sum) const;
 
+  // --- GPU batch interface (B6) ---
+
+  /// Input bundle for one tile in a batch sigma-clip dispatch.
+  struct BatchSigmaClipInput {
+      std::vector<Matrix2Df> tile_frames; // per-frame tile crops
+      std::vector<float>     weights;     // per-frame quality weights
+  };
+
+  /// Process multiple tiles in a single GPU dispatch (reduces kernel-launch overhead).
+  /// Falls back to sequential sigma_clip_reduce() calls on CPU or on OpenCL error.
+  ///
+  /// @param tile_inputs   One entry per tile.
+  /// @param sigma_low     Lower sigma threshold for clipping.
+  /// @param sigma_high    Upper sigma threshold for clipping.
+  /// @param max_iters     Maximum sigma-clip iterations.
+  /// @param min_fraction  Minimum surviving pixel fraction.
+  /// @param eps_weight    Minimum weight to consider a frame.
+  std::vector<reconstruction::WeightedTileResult> sigma_clip_reduce_batch(
+      const std::vector<BatchSigmaClipInput>& tile_inputs,
+      float sigma_low,
+      float sigma_high,
+      int   max_iters,
+      float min_fraction,
+      float eps_weight) const;
+
 private:
   struct OverlapAddState;
   AccelerationSelection selection_;

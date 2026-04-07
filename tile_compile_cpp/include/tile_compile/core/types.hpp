@@ -86,6 +86,8 @@ struct Tile {
     int height;
     int row;     // Grid row index
     int col;     // Grid column index
+    bool  is_dead          = false; // true if no frame coverage (skip stacking)
+    float coverage_fraction = 1.0f; // fraction of tile pixels with frame coverage
 };
 
 // Tile grid
@@ -95,6 +97,7 @@ struct TileGrid {
     int rows;
     int cols;
     std::vector<Tile> tiles;
+    int coverage_filtered_tiles = 0; // tiles removed due to missing frame coverage
 };
 
 // Frame metrics (global)

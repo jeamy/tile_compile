@@ -2481,3 +2481,33 @@ void AccelerationOps::flush_overlap_state(Matrix2Df &accum,
 }
 
 } // namespace tile_compile::core
+
+// ---------------------------------------------------------------------------
+// AccelerationOps::sigma_clip_reduce_batch — GPU batch interface (B6)
+// ---------------------------------------------------------------------------
+namespace tile_compile::core {
+
+std::vector<reconstruction::WeightedTileResult>
+AccelerationOps::sigma_clip_reduce_batch(
+    const std::vector<BatchSigmaClipInput>& tile_inputs,
+    float sigma_low,
+    float sigma_high,
+    int   max_iters,
+    float min_fraction,
+    float eps_weight) const
+{
+    std::vector<reconstruction::WeightedTileResult> results;
+    results.reserve(tile_inputs.size());
+
+    // For now: sequential CPU fallback — one sigma_clip_reduce call per tile.
+    // A future OpenCL path would batch-dispatch all tiles in a single kernel.
+    for (const auto& input : tile_inputs) {
+        results.push_back(
+            sigma_clip_reduce(input.tile_frames, input.weights,
+                              sigma_low, sigma_high,
+                              max_iters, min_fraction, eps_weight));
+    }
+    return results;
+}
+
+} // namespace tile_compile::core

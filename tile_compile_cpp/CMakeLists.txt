@@ -425,7 +425,13 @@ set(LIB_SOURCES
     src/metrics/tile_metrics.cpp
     src/metrics/linearity.cpp
     src/reconstruction/reconstruction.cpp
+    src/reconstruction/memory_budget.cpp
+    src/reconstruction/dead_tile_detector.cpp
+    src/reconstruction/progress_reporter.cpp
+    src/reconstruction/tile_scheduler.cpp
     src/reconstruction/local_weight_regularization.cpp
+    src/reconstruction/progress_reporter.cpp
+    src/reconstruction/tile_scheduler.cpp
     src/reconstruction/tile_boundary_diagnostics.cpp
     src/reconstruction/tile_normalization.cpp
     src/reconstruction/tile_weight_profile_diagnostics.cpp
@@ -533,6 +539,11 @@ if(BUILD_TESTS)
             tests/test_registration_outlier_utils.cpp
             tests/test_reconstruction_regression.cpp
             tests/test_stacking_quality_weighting.cpp
+            tests/test_memory_budget.cpp
+            tests/test_dead_tile_detector.cpp
+            tests/test_coverage_filtered_grid.cpp
+            tests/test_tile_scheduler.cpp
+            tests/test_reconstruction_parallel.cpp
         )
         target_link_libraries(tests PRIVATE tile_compile_lib Catch2::Catch2WithMain)
         include(CTest)

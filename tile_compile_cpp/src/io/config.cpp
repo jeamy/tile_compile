@@ -734,6 +734,14 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.runtime_limits.tile_reconstruction_diagnostics =
           rl["tile_reconstruction_diagnostics"].as<std::string>();
     }
+    if (rl["tile_boundary_diagnostics_enabled"]) {
+      cfg.runtime_limits.tile_boundary_diagnostics_enabled =
+          rl["tile_boundary_diagnostics_enabled"].as<bool>();
+    } else {
+      // Derive from legacy string field: "full" or "minimal" → enabled, "off" → disabled.
+      cfg.runtime_limits.tile_boundary_diagnostics_enabled =
+          (cfg.runtime_limits.tile_reconstruction_diagnostics != "off");
+    }
   }
 
   return cfg;

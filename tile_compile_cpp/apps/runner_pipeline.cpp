@@ -1406,6 +1406,22 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
   tiles = tile_compile::pipeline::build_initial_tile_grid(
       width, height, uniform_tile_size, overlap_fraction);
 
+  // Overlap-fraction performance warning (Anforderung 9.1, 9.3).
+  if (overlap_fraction >= 0.5f) {
+    // Estimate tile count at overlap=0.3 for comparison.
+    const auto tiles_at_30 = tile_compile::pipeline::build_initial_tile_grid(
+        width, height, uniform_tile_size, 0.3f);
+    const float ratio = (tiles_at_30.empty())
+        ? 1.0f
+        : static_cast<float>(tiles.size()) / static_cast<float>(tiles_at_30.size());
+    std::ostringstream msg;
+    msg << "overlap_fraction=" << overlap_fraction
+        << " produces " << tiles.size() << " tiles"
+        << " vs. ~" << tiles_at_30.size() << " at overlap=0.3"
+        << " (factor " << ratio << "x more tiles, proportionally longer TILE_RECONSTRUCTION)";
+    emitter.warning(run_id, msg.str(), log_file);
+  }
+
   {
     core::json artifact;
     artifact["image_width"] = width;
@@ -1424,6 +1440,17 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         {"overlap_clipped", overlap_clipped},
     };
     artifact["uniform_tile_size"] = uniform_tile_size;
+
+    // Estimated TILE_RECONSTRUCTION time (Anforderung 9.2).
+    // Calibration constant k ≈ 0.012 s/tile/frame/worker (empirical).
+    constexpr float k_tile_frame_worker = 0.012f;
+    const int pw = std::max(1, cfg.runtime_limits.parallel_workers);
+    artifact["estimated_reconstruction_time_s"] =
+        static_cast<float>(tiles.size()) *
+        static_cast<float>(frames.size()) /
+        static_cast<float>(pw) *
+        k_tile_frame_worker;
+    artifact["coverage_filtered_tiles"] = 0; // updated after PREWARP if canvas expands
 
     artifact["tiles"] = core::json::array();
     for (const auto &t : tiles) {
@@ -1553,6 +1580,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         {"overlap_clipped", overlap_clipped},
     };
     artifact["uniform_tile_size"] = uniform_tile_size;
+    // Estimated TILE_RECONSTRUCTION time for expanded canvas.
+    constexpr float k_tile_frame_worker_exp = 0.012f;
+    const int pw_exp = std::max(1, cfg.runtime_limits.parallel_workers);
+    artifact["estimated_reconstruction_time_s"] =
+        static_cast<float>(tiles.size()) *
+        static_cast<float>(frames.size()) /
+        static_cast<float>(pw_exp) *
+        k_tile_frame_worker_exp;
+    artifact["coverage_filtered_tiles"] = 0; // canvas mask not yet available here
     artifact["tiles"] = core::json::array();
     for (const auto &t : tiles) {
       artifact["tiles"].push_back({
@@ -1842,6 +1878,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     // Phase 6: TILE_RECONSTRUCTION (Methodik v3)
     emitter.phase_start(run_id, Phase::TILE_RECONSTRUCTION,
                         "TILE_RECONSTRUCTION", log_file);
+    const auto tile_reconstruction_started_at = std::chrono::steady_clock::now();
 
     const int passes_total = 1;
     // Helper: post-warp metrics (// Methodik v3 §6)
@@ -2040,10 +2077,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     std::string tile_norm_application = "disabled_v3_3_9_linear_core";
     const std::string &tile_reconstruction_diagnostics_mode =
         cfg.runtime_limits.tile_reconstruction_diagnostics;
+    // Use the explicit bool field (set by YAML or derived from the legacy string field).
     const bool tile_reconstruction_diagnostics_enabled =
-        tile_reconstruction_diagnostics_mode != "off";
+        cfg.runtime_limits.tile_boundary_diagnostics_enabled;
     const bool tile_reconstruction_diagnostics_full =
-        tile_reconstruction_diagnostics_mode == "full";
+        tile_reconstruction_diagnostics_enabled &&
+        (tile_reconstruction_diagnostics_mode == "full");
 
     std::mutex progress_mutex;
     std::atomic<size_t> tiles_completed{0};
@@ -3278,6 +3317,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     emitter.phase_end(
         run_id, Phase::TILE_RECONSTRUCTION, "ok",
         {
+            {"duration_s",
+             std::chrono::duration<double>(
+                 std::chrono::steady_clock::now() -
+                 tile_reconstruction_started_at).count()},
             {"output", (run_dir / "outputs" / "reconstructed_L.fit").string()},
             {"valid_tiles", valid_tile_count},
             {"fallback_tiles",
@@ -4797,6 +4840,15 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                   " exceeds runtime_limits.tile_analysis_max_factor_vs_stack=" +
                   std::to_string(
                       cfg.runtime_limits.tile_analysis_max_factor_vs_stack),
+              log_file);
+        }
+        // Anforderung 7.2: always warn when ratio > 10.
+        if (ratio > 10.0 && ratio_ok) {
+          emitter.warning(
+              run_id,
+              "TILE_RECONSTRUCTION took " + std::to_string(ratio) +
+                  "x longer than STACKING (threshold: 10). "
+                  "Consider reducing overlap_fraction or increasing memory_budget.",
               log_file);
         }
       } else {

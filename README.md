@@ -497,7 +497,7 @@ ctest --output-on-failure
 
 ## Attribution
 
-This project was built with assistance from Windsurf (agentic AI coding assistant), GPT 5.*,Claude 4.* Sonnet. Babysitting by a human in a virtual environment.
+This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*,Claude 4.* Sonnet, ***. Babysitting by a human in a virtual environment.
 
 
 ## Versions

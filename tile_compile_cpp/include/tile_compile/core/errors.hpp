@@ -47,6 +47,24 @@ public:
         : TileCompileError("Pipeline error: " + message) {}
 };
 
+class ReconstructionError : public PipelineError {
+public:
+    enum class Code {
+        memory_budget_too_small_for_frame,
+        memory_budget_too_small_for_tiles,
+        no_valid_tiles,
+        coverage_invariant_violated,
+    };
+
+    ReconstructionError(Code code, const std::string& message)
+        : PipelineError("Reconstruction error: " + message), code_(code) {}
+
+    Code code() const { return code_; }
+
+private:
+    Code code_;
+};
+
 class StopRequested : public TileCompileError {
 public:
     StopRequested() : TileCompileError("Stop requested by user") {}

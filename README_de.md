@@ -507,7 +507,7 @@ ctest --output-on-failure
 
 ## Danksagung
 
-Dieses Projekt wurde mit Unterstützung von Windsurf (agentischer KI-Programmierassistent), GPT 5.*, Claude 4.* Sonnet entwickelt. Überwachung durch einen Menschen in einer virtuellen Umgebung.
+Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*,Claude 4.* Sonnet, ***. Überwachung durch einen Menschen in einer virtuellen Umgebung.
 
 
 ## Versionen

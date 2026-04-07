@@ -3,9 +3,13 @@
 #include "tile_compile/config/configuration.hpp"
 #include "tile_compile/core/types.hpp"
 
+#include <cstddef>
 #include <vector>
 
 namespace tile_compile::reconstruction {
+
+// Forward declaration
+namespace core { class AccelerationOps; }
 
 struct WeightedTileResult {
   Matrix2Df tile;
@@ -21,6 +25,38 @@ struct RGBSharedSigmaClipResult {
   float effective_weight_sum = 0.0f;
 };
 
+// Configuration for the parallel reconstruction phase.
+struct ReconstructionConfig {
+    int    parallel_workers                    = 1;
+    size_t memory_budget_bytes                 = 512ULL * 1024 * 1024;
+    bool   tile_boundary_diagnostics_enabled   = false;
+    float  dead_tile_min_coverage_fraction     = 0.01f;
+    int    gpu_tile_batch_size                 = 8;
+};
+
+// Result returned by reconstruct_tiles_parallel().
+struct ReconstructTilesResult {
+    Matrix2Df output;
+    int    tiles_processed                        = 0;
+    int    tiles_skipped_dead                     = 0;
+    double duration_s                             = 0.0;
+    double dead_tile_time_saved_estimate_s        = 0.0;
+    int    workers_used                           = 0;
+    size_t allocated_frame_batch_bytes            = 0;
+    size_t allocated_tile_batch_bytes             = 0;
+};
+
+// Parallel implementation — replaces reconstruct_tiles() for new callers.
+// dead_tile_mask must have the same size as grid.tiles; pass all-false to
+// disable dead-tile skipping.
+ReconstructTilesResult reconstruct_tiles_parallel(
+    const std::vector<Matrix2Df>&          frames,
+    const TileGrid&                        grid,
+    const std::vector<std::vector<float>>& tile_weights,
+    const std::vector<bool>&               dead_tile_mask,
+    const ReconstructionConfig&            cfg);
+
+// Legacy wrapper — kept for backward compatibility.
 Matrix2Df reconstruct_tiles(const std::vector<Matrix2Df>& frames,
                             const TileGrid& grid,
                             const std::vector<std::vector<float>>& tile_weights);
