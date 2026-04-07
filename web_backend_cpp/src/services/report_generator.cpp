@@ -170,13 +170,27 @@ json load_report_translations(const std::string& locale) {
     return json::object();
 }
 
-void replace_all_in_place(std::string& text, const std::string& needle, const std::string& replacement) {
-    if (needle.empty() || needle == replacement) return;
-    std::string::size_type pos = 0;
-    while ((pos = text.find(needle, pos)) != std::string::npos) {
-        text.replace(pos, needle.size(), replacement);
-        pos += replacement.size();
+/// Single-pass multi-replacement: builds the output string in one scan.
+/// Pairs must be sorted longest-key-first to avoid partial matches.
+std::string apply_replacements(const std::string& text,
+                               const std::vector<std::pair<std::string, std::string>>& pairs) {
+    std::string out;
+    out.reserve(text.size());
+    size_t pos = 0;
+    while (pos < text.size()) {
+        bool matched = false;
+        for (const auto& [needle, replacement] : pairs) {
+            if (needle.empty()) continue;
+            if (text.compare(pos, needle.size(), needle) == 0) {
+                out.append(replacement);
+                pos += needle.size();
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) out.push_back(text[pos++]);
     }
+    return out;
 }
 
 std::string apply_report_translations(std::string html, const std::string& locale) {
@@ -184,17 +198,17 @@ std::string apply_report_translations(std::string html, const std::string& local
     if (!translations.is_object() || translations.empty()) return html;
 
     std::vector<std::pair<std::string, std::string>> pairs;
-    pairs.reserve(translations.size());
+    pairs.reserve(translations.size() + 1);
     for (auto it = translations.begin(); it != translations.end(); ++it) {
         if (!it.value().is_string()) continue;
         pairs.emplace_back(it.key(), it.value().get<std::string>());
     }
+    pairs.emplace_back("lang=\"en\"", "lang=\"" + locale + "\"");
+    // Sort longest key first to avoid partial-match shadowing.
     std::sort(pairs.begin(), pairs.end(), [](const auto& a, const auto& b) {
         return a.first.size() > b.first.size();
     });
-    for (const auto& [src, dst] : pairs) replace_all_in_place(html, src, dst);
-    replace_all_in_place(html, "lang=\"en\"", "lang=\"" + locale + "\"");
-    return html;
+    return apply_replacements(html, pairs);
 }
 
 json read_json_if_exists(const fs::path& path) {

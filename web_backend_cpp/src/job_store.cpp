@@ -1,40 +1,33 @@
 #include "job_store.hpp"
+#include "time_utils.hpp"
 #include <algorithm>
 #include <sstream>
-#include <iomanip>
-#include <chrono>
 
 namespace {
 
-std::string utc_now_iso() {
-    using namespace std::chrono;
-    const auto now = system_clock::now();
-    const auto tt = system_clock::to_time_t(now);
-    std::tm tm{};
-#ifdef _WIN32
-    gmtime_s(&tm, &tt);
-#else
-    gmtime_r(&tt, &tm);
-#endif
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
-    return oss.str();
+/// Returns a JSON string or null if the string is empty.
+inline nlohmann::json json_str_or_null(const std::string& s) {
+    return s.empty() ? nlohmann::json(nullptr) : nlohmann::json(s);
 }
 
-}
+} // namespace
 
 nlohmann::json job_to_json(const Job& j) {
+    // Prefer run_id from data payload if present, fall back to j.run_id.
+    nlohmann::json run_id_val = (j.data.is_object() && j.data.contains("run_id"))
+        ? j.data["run_id"]
+        : json_str_or_null(j.run_id);
     return {
         {"job_id",    j.job_id},
         {"type",      j.type},
-        {"run_id",    j.data.is_object() && j.data.contains("run_id") ? j.data["run_id"] : (j.run_id.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.run_id))},
+        {"run_id",    run_id_val},
         {"state",     job_state_str(j.state)},
         {"pid",       j.pid.has_value() ? nlohmann::json(*j.pid) : nlohmann::json(nullptr)},
         {"exit_code", j.data.is_object() && j.data.contains("exit_code") ? j.data["exit_code"] : nlohmann::json(nullptr)},
-        {"created_at", j.created_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.created_at)},
-        {"updated_at", j.updated_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.updated_at)},
-        {"started_at", j.started_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.started_at)},
-        {"ended_at",   j.ended_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(j.ended_at)},
+        {"created_at", json_str_or_null(j.created_at)},
+        {"updated_at", json_str_or_null(j.updated_at)},
+        {"started_at", json_str_or_null(j.started_at)},
+        {"ended_at",   json_str_or_null(j.ended_at)},
         {"data",      j.data},
         {"error",     j.error_message},
         {"progress",  j.progress},
@@ -43,9 +36,9 @@ nlohmann::json job_to_json(const Job& j) {
 
 std::string InMemoryJobStore::create(const std::string& type, const std::string& run_id) {
     std::lock_guard<std::mutex> lk(_mutex);
-    auto now = std::chrono::system_clock::now().time_since_epoch().count();
+    const auto epoch_mod = std::chrono::system_clock::now().time_since_epoch().count() % 100000;
     std::ostringstream oss;
-    oss << "job_" << (++_counter) << "_" << (now % 100000);
+    oss << "job_" << (++_counter) << "_" << epoch_mod;
     std::string id = oss.str();
     Job j;
     j.job_id = id;
@@ -87,8 +80,8 @@ bool InMemoryJobStore::update_state(const std::string& job_id, JobState state,
     it->second.updated_at = utc_now_iso();
     if ((state == JobState::ok || state == JobState::error || state == JobState::cancelled) && it->second.ended_at.empty()) {
         it->second.ended_at = it->second.updated_at;
+        prune_locked();
     }
-    prune_locked();
     return true;
 }
 
@@ -141,13 +134,13 @@ bool InMemoryJobStore::cancel(const std::string& job_id) {
         it->second.state = JobState::cancelled;
     it->second.updated_at = utc_now_iso();
     if (it->second.ended_at.empty()) it->second.ended_at = it->second.updated_at;
-    prune_locked();
     return true;
 }
 
 std::vector<Job> InMemoryJobStore::list(int limit) const {
     std::lock_guard<std::mutex> lk(_mutex);
     std::vector<Job> result;
+    result.reserve(std::min(static_cast<size_t>(limit), _order.size()));
     int start = (int)_order.size() - limit;
     if (start < 0) start = 0;
     for (int i = (int)_order.size() - 1; i >= start; --i) {

@@ -186,7 +186,13 @@ bool spawn_subprocess(const std::vector<std::string>& args,
     if (pipe(pfd_out) || pipe(pfd_err) || pipe(pfd_in)) return false;
 
     pid_t pid = fork();
-    if (pid < 0) return false;
+    if (pid < 0) {
+        // Close all pipe ends to avoid FD leak.
+        close(pfd_out[0]); close(pfd_out[1]);
+        close(pfd_err[0]); close(pfd_err[1]);
+        close(pfd_in[0]);  close(pfd_in[1]);
+        return false;
+    }
 
     if (pid == 0) {
         close(pfd_out[0]); close(pfd_err[0]); close(pfd_in[1]);
@@ -195,7 +201,7 @@ bool spawn_subprocess(const std::vector<std::string>& args,
         dup2(pfd_in[0], STDIN_FILENO);
         close(pfd_out[1]); close(pfd_err[1]); close(pfd_in[0]);
         setpgid(0, 0);
-        if (!cwd.empty()) chdir(cwd.c_str());
+        if (!cwd.empty() && chdir(cwd.c_str()) != 0) _exit(126);
 
         std::vector<const char*> argv;
         for (auto& a : args) argv.push_back(a.c_str());
@@ -225,6 +231,9 @@ bool spawn_subprocess(const std::vector<std::string>& args,
 int wait_for_process(BackgroundProcess& proc) {
     int status = 0;
     bool term_sent = false;
+    int term_wait_cycles = 0;
+    // Allow up to ~3 s for graceful shutdown after SIGTERM before sending SIGKILL.
+    constexpr int SIGKILL_AFTER_CYCLES = 20; // 20 * 150 ms = 3 s
     while (true) {
         pid_t rc = waitpid(static_cast<pid_t>(proc.pid.load()), &status, WNOHANG);
         if (rc == static_cast<pid_t>(proc.pid.load())) return status;
@@ -234,7 +243,8 @@ int wait_for_process(BackgroundProcess& proc) {
             if (!term_sent) {
                 kill(-static_cast<pid_t>(proc.pid.load()), SIGTERM);
                 term_sent = true;
-            } else {
+                term_wait_cycles = 0;
+            } else if (++term_wait_cycles >= SIGKILL_AFTER_CYCLES) {
                 kill(-static_cast<pid_t>(proc.pid.load()), SIGKILL);
             }
         }
@@ -290,6 +300,7 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     if (!stdin_text.empty()) {
         DWORD written = 0;
         WriteFile(hStdinW, stdin_text.data(), static_cast<DWORD>(stdin_text.size()), &written, nullptr);
+        // Ignore partial write; child will receive what was written before pipe closes.
     }
     CloseHandle(hStdinW);
 
@@ -331,7 +342,13 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     if (pipe(pfd_out) || pipe(pfd_err) || pipe(pfd_in)) { res.exit_code = -1; return res; }
 
     pid_t pid = fork();
-    if (pid < 0) { res.exit_code = -1; return res; }
+    if (pid < 0) {
+        close(pfd_out[0]); close(pfd_out[1]);
+        close(pfd_err[0]); close(pfd_err[1]);
+        close(pfd_in[0]);  close(pfd_in[1]);
+        res.exit_code = -1;
+        return res;
+    }
 
     if (pid == 0) {
         close(pfd_out[0]); close(pfd_err[0]); close(pfd_in[1]);
@@ -341,7 +358,7 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
         close(pfd_out[1]); close(pfd_err[1]);
         close(pfd_in[0]);
 
-        if (!cwd.empty()) chdir(cwd.c_str());
+        if (!cwd.empty() && chdir(cwd.c_str()) != 0) _exit(126);
 
         std::vector<const char*> argv;
         for (auto& a : args) argv.push_back(a.c_str());
@@ -362,10 +379,20 @@ SubprocessResult run_subprocess(const std::vector<std::string>& args,
     }
     close(pfd_in[1]);
 
-    const CapturedText stdout_capture = drain_fd(pfd_out[0], limits.subprocess_capture_bytes);
-    const CapturedText stderr_capture = drain_fd(pfd_err[0], limits.subprocess_capture_bytes);
-    res.stdout_str = stdout_capture.text;
-    res.stderr_str = stderr_capture.text;
+    // Read stdout and stderr concurrently to avoid deadlock when either pipe
+    // buffer fills up while the parent is blocked reading the other pipe.
+    CapturedText stdout_capture, stderr_capture;
+    std::thread stdout_thread([&stdout_capture, fd = pfd_out[0], cap = limits.subprocess_capture_bytes]() {
+        stdout_capture = drain_fd(fd, cap);
+    });
+    std::thread stderr_thread([&stderr_capture, fd = pfd_err[0], cap = limits.subprocess_capture_bytes]() {
+        stderr_capture = drain_fd(fd, cap);
+    });
+    stdout_thread.join();
+    stderr_thread.join();
+
+    res.stdout_str = std::move(stdout_capture.text);
+    res.stderr_str = std::move(stderr_capture.text);
     res.stdout_bytes = stdout_capture.total_bytes;
     res.stderr_bytes = stderr_capture.total_bytes;
     res.stdout_truncated = stdout_capture.truncated;

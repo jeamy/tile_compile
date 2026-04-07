@@ -1,8 +1,7 @@
 #include "services/config_revisions.hpp"
+#include "time_utils.hpp"
 #include <algorithm>
-#include <chrono>
 #include <fstream>
-#include <iomanip>
 #include <nlohmann/json.hpp>
 #include <sstream>
 
@@ -10,19 +9,7 @@ namespace {
 
 using json = nlohmann::json;
 
-std::string now_iso() {
-    auto now = std::chrono::system_clock::now();
-    auto t   = std::chrono::system_clock::to_time_t(now);
-    std::tm tm{};
-#ifdef _WIN32
-    gmtime_s(&tm, &t);
-#else
-    gmtime_r(&t, &tm);
-#endif
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
-    return oss.str();
-}
+// now_compact_utc() bleibt lokal – anderes Format als utc_utc_now_iso()
 
 std::string now_compact_utc() {
     auto now = std::chrono::system_clock::now();
@@ -108,7 +95,7 @@ std::string ConfigRevisionStore::add(const fs::path& path,
     r.revision_id = "cfg_" + std::to_string(++_counter);
     r.path = path.string();
     r.source = source;
-    r.created_at = now_iso();
+    r.created_at = utc_now_iso();
     r.run_id = run_id;
     r.yaml_text = yaml_text;
     _revisions.push_back(r);
@@ -124,9 +111,7 @@ std::optional<ConfigRevision> ConfigRevisionStore::get(const std::string& revisi
 
 std::vector<ConfigRevision> ConfigRevisionStore::list() const {
     std::lock_guard<std::mutex> lk(_mutex);
-    auto copy = _revisions;
-    std::reverse(copy.begin(), copy.end());
-    return copy;
+    return std::vector<ConfigRevision>(_revisions.rbegin(), _revisions.rend());
 }
 
 int ConfigRevisionStore::count() const {
@@ -166,7 +151,7 @@ std::string add_run_config_revision(const fs::path& run_dir,
         {"revision_id", revision_id},
         {"file_name", yaml_path.filename().string()},
         {"source", source},
-        {"created_at", now_iso()},
+        {"created_at", utc_now_iso()},
         {"run_id", run_id.has_value() ? json(*run_id) : json(nullptr)},
     });
     if (!write_run_revision_index(run_dir, index)) return "";

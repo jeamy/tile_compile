@@ -45,7 +45,10 @@ bool visit_jsonl(const fs::path& path,
 
 std::string phase_name_from_event(const nlohmann::json& ev) {
     if (ev.contains("phase_name") && ev["phase_name"].is_string()) return ev["phase_name"].get<std::string>();
-    if (ev.contains("phase") && ev["phase"].is_string()) return ev["phase"].get<std::string>();
+    if (ev.contains("phase")) {
+        if (ev["phase"].is_string()) return ev["phase"].get<std::string>();
+        if (ev["phase"].is_number_integer()) return std::to_string(ev["phase"].get<int>());
+    }
     return "";
 }
 
@@ -653,11 +656,12 @@ std::vector<nlohmann::json> discover_runs(const fs::path& runs_dir, int limit) {
             {"modified", iso_utc_from_file_time(modified_time)},
             {"status", status.value("status", "unknown")},
         });
-        std::sort(result.begin(), result.end(), [](const nlohmann::json& a, const nlohmann::json& b) {
-            return a.value("modified", std::string()) > b.value("modified", std::string());
-        });
-        if (result.size() > static_cast<size_t>(limit)) result.resize(static_cast<size_t>(limit));
     }
+    // Sort once after collecting all entries (newest first).
+    std::sort(result.begin(), result.end(), [](const nlohmann::json& a, const nlohmann::json& b) {
+        return a.value("modified", std::string()) > b.value("modified", std::string());
+    });
+    if (result.size() > static_cast<size_t>(limit)) result.resize(static_cast<size_t>(limit));
     return result;
 }
 

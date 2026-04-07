@@ -1,28 +1,7 @@
 #include "ui_event_store.hpp"
+#include "time_utils.hpp"
 #include <algorithm>
-#include <chrono>
 #include <fstream>
-#include <iomanip>
-#include <sstream>
-
-namespace {
-
-std::string utc_now_iso() {
-    using namespace std::chrono;
-    const auto now = system_clock::now();
-    const auto tt = system_clock::to_time_t(now);
-    std::tm tm{};
-#ifdef _WIN32
-    gmtime_s(&tm, &tt);
-#else
-    gmtime_r(&tt, &tm);
-#endif
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
-    return oss.str();
-}
-
-}
 
 nlohmann::json ui_event_to_json(const UiEvent& e) {
     return {
@@ -41,10 +20,17 @@ void UiEventStore::configure(const fs::path& path) {
     _path = path;
     _events.clear();
     _seq = 0;
+    _log_out.close();
     if (!_path.empty()) {
         std::error_code ec;
         fs::create_directories(_path.parent_path(), ec);
+        if (ec) {
+            // Directory creation failed; log appending will be silently disabled.
+            _path.clear();
+            return;
+        }
         load_jsonl_locked();
+        _log_out.open(_path, std::ios::app);
     }
 }
 
@@ -70,8 +56,10 @@ void UiEventStore::push(const std::string& event,
 std::vector<UiEvent> UiEventStore::list(int since_seq, int limit) const {
     std::lock_guard<std::mutex> lk(_mutex);
     std::vector<UiEvent> result;
-    for (auto& e : _events) {
-        if (e.seq > since_seq) result.push_back(e);
+    // _events is ordered by seq; skip events up to since_seq with lower_bound.
+    for (auto it = _events.begin(); it != _events.end(); ++it) {
+        if (it->seq <= since_seq) continue;
+        result.push_back(*it);
         if ((int)result.size() >= limit) break;
     }
     return result;
@@ -82,11 +70,10 @@ int UiEventStore::latest_seq() const {
     return _seq;
 }
 
-void UiEventStore::append_jsonl(const UiEvent& e) const {
-    if (_path.empty()) return;
-    std::ofstream out(_path, std::ios::app);
-    if (!out) return;
-    out << ui_event_to_json(e).dump() << '\n';
+void UiEventStore::append_jsonl(const UiEvent& e) {
+    if (!_log_out.is_open()) return;
+    _log_out << ui_event_to_json(e).dump() << '\n';
+    _log_out.flush();
 }
 
 void UiEventStore::load_jsonl_locked() {

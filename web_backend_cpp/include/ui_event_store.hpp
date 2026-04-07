@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <deque>
+#include <fstream>
 #include <mutex>
 #include <filesystem>
 #include <optional>
@@ -35,7 +36,7 @@ public:
     int latest_seq() const;
 
 private:
-    void append_jsonl(const UiEvent& e) const;
+    void append_jsonl(const UiEvent& e);
     void load_jsonl_locked();
 
     mutable std::mutex _mutex;
@@ -43,4 +44,5 @@ private:
     int _seq{0};
     int _max_size;
     fs::path _path;
+    mutable std::ofstream _log_out; // persistent append stream
 };

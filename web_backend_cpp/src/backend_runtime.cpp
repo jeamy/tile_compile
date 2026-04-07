@@ -55,6 +55,17 @@ std::string env_string(const char* name, const char* def = "") {
     return v ? v : def;
 }
 
+/// Splits a colon-separated path list string into individual path strings.
+std::vector<std::string> split_colon_paths(const std::string& s) {
+    std::vector<std::string> result;
+    std::istringstream iss(s);
+    std::string part;
+    while (std::getline(iss, part, ':')) {
+        if (!part.empty()) result.push_back(std::move(part));
+    }
+    return result;
+}
+
 size_t parse_size_t_env(const char* name, size_t fallback, size_t min_value, size_t max_value) {
     const std::string raw = env_string(name, "");
     if (raw.empty()) return fallback;
@@ -188,32 +199,28 @@ BackendRuntime BackendRuntime::from_env() {
     std::string port_str = env_string("TILE_COMPILE_PORT", "8000");
     try { rt.port = std::stoi(port_str); } catch (...) { rt.port = 8000; }
 
+    const char* home_env = std::getenv("HOME");
     for (const auto& root : {
              rt.project_root,
              rt.runs_dir,
-             fs::path(std::getenv("HOME") ? std::getenv("HOME") : ""),
+             fs::path(home_env ? home_env : ""),
              fs::path("/tmp"),
              fs::path("/media"),
          }) {
-        if (!root.empty()) rt._allowed_roots.insert(rt.normalize_path(root).string());
+        if (!root.empty()) {
+            const std::string normalized = rt.normalize_path(root).string();
+            if (!normalized.empty()) rt._allowed_roots.insert(normalized);
+        }
     }
 
     std::string allowed_roots = env_string("TILE_COMPILE_ALLOWED_ROOTS", "");
-    if (!allowed_roots.empty()) {
-        std::istringstream iss(allowed_roots);
-        std::string root;
-        while (std::getline(iss, root, ':')) {
-            if (!root.empty()) rt._allowed_roots.insert(rt.normalize_path(fs::path(root)).string());
-        }
+    for (const auto& root : split_colon_paths(allowed_roots)) {
+        rt._allowed_roots.insert(rt.normalize_path(fs::path(root)).string());
     }
 
     std::string input_roots = env_string("TILE_COMPILE_INPUT_SEARCH_ROOTS", "");
-    if (!input_roots.empty()) {
-        std::istringstream iss(input_roots);
-        std::string root;
-        while (std::getline(iss, root, ':')) {
-            if (!root.empty()) rt._input_search_roots.push_back(rt.normalize_path(fs::path(root)));
-        }
+    for (const auto& root : split_colon_paths(input_roots)) {
+        rt._input_search_roots.push_back(rt.normalize_path(fs::path(root)));
     }
 
     return rt;
