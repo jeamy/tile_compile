@@ -1984,8 +1984,10 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
     if (parallel_tiles < 1)
       parallel_tiles = 1;
 
-    // OSC RGB stacking can be memory-heavy. Cap worker count based on an
-    // estimate of per-tile storage (debayer cache for R/G/B frame tiles).
+    // OSC RGB stacking can be memory-heavy. Instead of reducing worker count,
+    // compute a frame sub-batch size so that N workers × sub_batch × tile_px × 3ch
+    // fits within the memory budget. This preserves full parallelism.
+    size_t frame_sub_batch_size = static_cast<size_t>(n_usable_frames); // default: all frames
     if (osc_mode && !tiles_phase56.empty()) {
       size_t max_tile_px = 0;
       for (const auto &t : tiles_phase56) {
@@ -1994,25 +1996,30 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         if (px > max_tile_px)
           max_tile_px = px;
       }
-      // Peak per worker is ~ N_frames * tile_pixels * sizeof(float) * 3
-      // because OSC tile debayer results are cached once as R/G/B planes.
-      const int n_frames_with_data_i = n_usable_frames;
-      const size_t bytes_per_worker =
-          max_tile_px * static_cast<size_t>(std::max(1, n_frames_with_data_i)) *
-          sizeof(float) * 3u;
       const size_t budget =
           static_cast<size_t>(std::max(1, cfg.runtime_limits.memory_budget)) *
           1024ull * 1024ull;
-      if (bytes_per_worker > 0) {
-        int max_workers_by_mem = static_cast<int>(budget / bytes_per_worker);
-        if (max_workers_by_mem < 1)
-          max_workers_by_mem = 1;
-        if (parallel_tiles > max_workers_by_mem) {
-          std::cout << "[Phase 6] OSC memory cap: reducing parallel workers from "
-                    << parallel_tiles << " to " << max_workers_by_mem
-                    << " (est. " << (bytes_per_worker / (1024.0 * 1024.0))
-                    << " MiB per worker)" << std::endl;
-          parallel_tiles = max_workers_by_mem;
+      // Bytes per frame per worker (R+G+B tile crops).
+      const size_t bytes_per_frame_per_worker = max_tile_px * sizeof(float) * 3u;
+      if (bytes_per_frame_per_worker > 0) {
+        // How many frames fit across all workers simultaneously?
+        const size_t total_frame_budget =
+            static_cast<size_t>(budget * 0.8) /
+            (bytes_per_frame_per_worker * static_cast<size_t>(std::max(1, parallel_tiles)));
+        if (total_frame_budget < 1) {
+          // Even 1 frame per worker doesn't fit — fall back to 1 worker.
+          parallel_tiles = 1;
+          frame_sub_batch_size = static_cast<size_t>(n_usable_frames);
+          std::cout << "[Phase 6] OSC memory cap: budget too small, using 1 worker"
+                    << std::endl;
+        } else if (total_frame_budget < static_cast<size_t>(n_usable_frames)) {
+          frame_sub_batch_size = total_frame_budget;
+          std::cout << "[Phase 6] OSC sub-batch: " << parallel_tiles
+                    << " workers × " << frame_sub_batch_size
+                    << " frames/batch (budget "
+                    << (budget / (1024 * 1024)) << " MB, "
+                    << (bytes_per_frame_per_worker / (1024 * 1024))
+                    << " MB/frame/worker)" << std::endl;
         }
       }
     }
@@ -2239,13 +2246,12 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         return (std::isfinite(w) && w > 0.0f) ? w : 0.0f;
       };
 
-      std::vector<float> weights;
-      weights.reserve(frames.size());
+      std::vector<float> weights; // kept for potential future use
 
       Matrix2Df tile_rec;
-      Matrix2Df tile_rec_R;
-      Matrix2Df tile_rec_G;
-      Matrix2Df tile_rec_B;
+      Matrix2Df tile_rec_R = Matrix2Df::Zero(t.height, t.width);
+      Matrix2Df tile_rec_G = Matrix2Df::Zero(t.height, t.width);
+      Matrix2Df tile_rec_B = Matrix2Df::Zero(t.height, t.width);
       size_t n_valid = 0;
       bool used_weight_fallback = false;
       std::vector<uint8_t> tile_support_mask;
@@ -2284,6 +2290,11 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
       };
 
+      // Sub-batch size: limits peak RAM per worker to sub_batch × tile_pixels × channels.
+      const size_t n_frames_total = frames.size();
+      const size_t sub_batch = (frame_sub_batch_size > 0 && frame_sub_batch_size < n_frames_total)
+                               ? frame_sub_batch_size : n_frames_total;
+
       if (osc_mode) {
         // Methodik v3 (OSC): stack in RGB space (debayer-before-stack).
         // Prefer a full-frame RGB cache only when it fits the memory model;
@@ -2293,14 +2304,29 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           return;
         }
 
-        std::vector<float> channel_weights;
-        std::vector<Matrix2Df> valid_tiles_R;
-        std::vector<Matrix2Df> valid_tiles_G;
-        std::vector<Matrix2Df> valid_tiles_B;
-        channel_weights.reserve(frames.size());
-        valid_tiles_R.reserve(frames.size());
-        valid_tiles_G.reserve(frames.size());
-        valid_tiles_B.reserve(frames.size());
+        // Sub-batch stacking: process frames in chunks of frame_sub_batch_size
+        // to keep peak RAM at sub_batch × tile_pixels × 3ch × workers
+        // instead of all_frames × tile_pixels × 3ch × workers.
+        // Results are accumulated as a weighted mean across batches.
+        Matrix2Df accum_R = Matrix2Df::Zero(t.height, t.width);
+        Matrix2Df accum_G = Matrix2Df::Zero(t.height, t.width);
+        Matrix2Df accum_B = Matrix2Df::Zero(t.height, t.width);
+        Matrix2Df wsum_R  = Matrix2Df::Zero(t.height, t.width);
+        Matrix2Df wsum_G  = Matrix2Df::Zero(t.height, t.width);
+        Matrix2Df wsum_B  = Matrix2Df::Zero(t.height, t.width);
+        size_t total_valid = 0;
+
+        for (size_t batch_start = 0; batch_start < n_frames_total; batch_start += sub_batch) {
+          const size_t batch_end = std::min(batch_start + sub_batch, n_frames_total);
+
+          std::vector<float> channel_weights;
+          std::vector<Matrix2Df> valid_tiles_R;
+          std::vector<Matrix2Df> valid_tiles_G;
+          std::vector<Matrix2Df> valid_tiles_B;
+          channel_weights.reserve(batch_end - batch_start);
+          valid_tiles_R.reserve(batch_end - batch_start);
+          valid_tiles_G.reserve(batch_end - batch_start);
+          valid_tiles_B.reserve(batch_end - batch_start);
         const bool use_shared_rgb_sigma_clip = false;
         if (use_full_frame_osc_rgb_cache && osc_rgb_cache_r && osc_rgb_cache_g &&
             osc_rgb_cache_b) {
@@ -2310,7 +2336,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
 
           // Single pass: extract RGB tiles from the prebuilt full-frame cache
           // and compute shared channel weights.
-          for (size_t fi = 0; fi < frames.size(); ++fi) {
+          for (size_t fi = batch_start; fi < batch_end; ++fi) {
             if (!frame_has_data[fi])
               continue;
             const float frame_weight = compute_frame_tile_weight(fi);
@@ -2341,7 +2367,7 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           Matrix2Df tile_r;
           Matrix2Df tile_g;
           Matrix2Df tile_b;
-          for (size_t fi = 0; fi < frames.size(); ++fi) {
+          for (size_t fi = batch_start; fi < batch_end; ++fi) {
             if (!frame_has_data[fi])
               continue;
             const float frame_weight = compute_frame_tile_weight(fi);
@@ -2377,56 +2403,63 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         }
 
         if (valid_tiles_G.empty()) {
-          tiles_failed++;
-          return;
+          continue; // skip empty batch, try next
         }
 
-        if (use_shared_rgb_sigma_clip) {
-          const bool use_channel_weights =
-              channel_weights.size() == valid_tiles_G.size();
-          const std::vector<float> fallback_weights(
-              valid_tiles_G.size(), 1.0f);
-          const auto &weights_for_stack =
-              use_channel_weights ? channel_weights : fallback_weights;
-          auto wr = reconstruction::sigma_clip_weighted_rgb_tile_shared_mask(
-              valid_tiles_R, valid_tiles_G, valid_tiles_B, weights_for_stack,
-              cfg.stacking.sigma_clip.sigma_low,
-              cfg.stacking.sigma_clip.sigma_high,
-              cfg.stacking.sigma_clip.max_iters,
-              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
-          used_weight_fallback = used_weight_fallback || wr.fallback_used ||
-                                 !use_channel_weights;
-          tile_rec_R = std::move(wr.R);
-          tile_rec_G = std::move(wr.G);
-          tile_rec_B = std::move(wr.B);
-        } else {
-          auto stack_channel = [&](const std::vector<Matrix2Df> &chan_tiles)
-              -> Matrix2Df {
-            if (channel_weights.size() != chan_tiles.size()) {
-              std::vector<float> fallback_weights(chan_tiles.size(), 1.0f);
-              auto wr = tile_reconstruction_ops.sigma_clip_reduce(
-                  chan_tiles, fallback_weights,
-                  cfg.stacking.sigma_clip.sigma_low,
-                  cfg.stacking.sigma_clip.sigma_high,
-                  cfg.stacking.sigma_clip.max_iters,
-                  cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
-              used_weight_fallback = used_weight_fallback || wr.fallback_used;
-              return std::move(wr.tile);
-            }
-
+        // Stack this sub-batch and accumulate into weighted mean.
+        auto stack_channel_batch = [&](const std::vector<Matrix2Df> &chan_tiles)
+            -> Matrix2Df {
+          if (channel_weights.size() != chan_tiles.size()) {
+            std::vector<float> fw(chan_tiles.size(), 1.0f);
             auto wr = tile_reconstruction_ops.sigma_clip_reduce(
-                chan_tiles, channel_weights,
+                chan_tiles, fw,
                 cfg.stacking.sigma_clip.sigma_low,
                 cfg.stacking.sigma_clip.sigma_high,
                 cfg.stacking.sigma_clip.max_iters,
                 cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
             used_weight_fallback = used_weight_fallback || wr.fallback_used;
             return std::move(wr.tile);
-          };
+          }
+          auto wr = tile_reconstruction_ops.sigma_clip_reduce(
+              chan_tiles, channel_weights,
+              cfg.stacking.sigma_clip.sigma_low,
+              cfg.stacking.sigma_clip.sigma_high,
+              cfg.stacking.sigma_clip.max_iters,
+              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+          used_weight_fallback = used_weight_fallback || wr.fallback_used;
+          return std::move(wr.tile);
+        };
 
-          tile_rec_R = stack_channel(valid_tiles_R);
-          tile_rec_G = stack_channel(valid_tiles_G);
-          tile_rec_B = stack_channel(valid_tiles_B);
+        Matrix2Df batch_R = stack_channel_batch(valid_tiles_R);
+        Matrix2Df batch_G = stack_channel_batch(valid_tiles_G);
+        Matrix2Df batch_B = stack_channel_batch(valid_tiles_B);
+
+        if (batch_G.size() <= 0) continue;
+
+        // Weighted accumulation: weight = number of valid frames in this batch.
+        const float batch_w = static_cast<float>(valid_tiles_G.size());
+        total_valid += valid_tiles_G.size();
+        for (int py = 0; py < t.height; ++py) {
+          for (int px = 0; px < t.width; ++px) {
+            if (std::isfinite(batch_R(py, px))) { accum_R(py, px) += batch_R(py, px) * batch_w; wsum_R(py, px) += batch_w; }
+            if (std::isfinite(batch_G(py, px))) { accum_G(py, px) += batch_G(py, px) * batch_w; wsum_G(py, px) += batch_w; }
+            if (std::isfinite(batch_B(py, px))) { accum_B(py, px) += batch_B(py, px) * batch_w; wsum_B(py, px) += batch_w; }
+          }
+        }
+      } // end sub-batch loop
+
+        if (total_valid == 0) {
+          tiles_failed++;
+          return;
+        }
+
+        // Normalise accumulators.
+        for (int py = 0; py < t.height; ++py) {
+          for (int px = 0; px < t.width; ++px) {
+            tile_rec_R(py, px) = (wsum_R(py, px) > 0.0f) ? accum_R(py, px) / wsum_R(py, px) : std::numeric_limits<float>::quiet_NaN();
+            tile_rec_G(py, px) = (wsum_G(py, px) > 0.0f) ? accum_G(py, px) / wsum_G(py, px) : std::numeric_limits<float>::quiet_NaN();
+            tile_rec_B(py, px) = (wsum_B(py, px) > 0.0f) ? accum_B(py, px) / wsum_B(py, px) : std::numeric_limits<float>::quiet_NaN();
+          }
         }
 
         if (tile_rec_R.size() <= 0 || tile_rec_G.size() <= 0 ||
@@ -2447,59 +2480,85 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
         replace_nonfinite_with_zero(tile_rec_B);
         // Post-metrics are computed on G as a stable luminance proxy.
         tile_rec = tile_rec_G;
-        n_valid = valid_tiles_G.size();
+        n_valid = total_valid;
       } else {
-        std::vector<Matrix2Df> warped_tiles;
-        warped_tiles.reserve(frames.size());
-
         if (!tile_has_reconstruction_support) {
           tiles_failed++;
           return;
         }
 
-        for (size_t fi = 0; fi < frames.size(); ++fi) {
-          if (!frame_has_data[fi])
-            continue;
-          const float frame_weight = compute_frame_tile_weight(fi);
-          if (!(frame_weight > 0.0f))
-            continue;
-          warped_tiles.emplace_back();
-          Matrix2Df &tile_img = warped_tiles.back();
-          if (!prewarped_frames.extract_tile_into(fi, t, tile_img, 0, 0) ||
-              tile_img.rows() != t.height || tile_img.cols() != t.width) {
-            warped_tiles.pop_back();
-            continue;
+        // MONO sub-batch stacking: accumulate weighted mean across frame batches.
+        Matrix2Df accum_mono = Matrix2Df::Zero(t.height, t.width);
+        Matrix2Df wsum_mono  = Matrix2Df::Zero(t.height, t.width);
+        size_t total_valid_mono = 0;
+
+        for (size_t batch_start = 0; batch_start < frames.size(); batch_start += sub_batch) {
+          const size_t batch_end = std::min(batch_start + sub_batch, frames.size());          std::vector<Matrix2Df> warped_tiles;
+          warped_tiles.reserve(batch_end - batch_start);
+          std::vector<float> batch_weights;
+          batch_weights.reserve(batch_end - batch_start);
+
+          for (size_t fi = batch_start; fi < batch_end; ++fi) {
+            if (!frame_has_data[fi])
+              continue;
+            const float frame_weight = compute_frame_tile_weight(fi);
+            if (!(frame_weight > 0.0f))
+              continue;
+            warped_tiles.emplace_back();
+            Matrix2Df &tile_img = warped_tiles.back();
+            if (!prewarped_frames.extract_tile_into(fi, t, tile_img, 0, 0) ||
+                tile_img.rows() != t.height || tile_img.cols() != t.width) {
+              warped_tiles.pop_back();
+              continue;
+            }
+            if (!tile_compile::runner::
+                    apply_common_overlap_to_tile_inplace_and_check_nonzero(
+                        tile_img, t, reconstruction_valid_mask, canvas_width,
+                        canvas_height)) {
+              warped_tiles.pop_back();
+              continue;
+            }
+            frame_valid_tile_counts[fi].fetch_add(1);
+            batch_weights.push_back(frame_weight);
           }
-          if (!tile_compile::runner::
-                  apply_common_overlap_to_tile_inplace_and_check_nonzero(
-                      tile_img, t, reconstruction_valid_mask, canvas_width,
-                      canvas_height)) {
-            warped_tiles.pop_back();
-            continue;
-          }
-          frame_valid_tile_counts[fi].fetch_add(1);
-          weights.push_back(frame_weight);
+
+          if (warped_tiles.empty()) continue;
+
+          auto wr = tile_reconstruction_ops.sigma_clip_reduce(
+              warped_tiles, batch_weights, cfg.stacking.sigma_clip.sigma_low,
+              cfg.stacking.sigma_clip.sigma_high,
+              cfg.stacking.sigma_clip.max_iters,
+              cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
+          used_weight_fallback = used_weight_fallback || wr.fallback_used;
+
+          const float bw = static_cast<float>(warped_tiles.size());
+          total_valid_mono += warped_tiles.size();
+          for (int py = 0; py < t.height; ++py)
+            for (int px = 0; px < t.width; ++px)
+              if (std::isfinite(wr.tile(py, px))) {
+                accum_mono(py, px) += wr.tile(py, px) * bw;
+                wsum_mono(py, px)  += bw;
+              }
         }
 
-        if (warped_tiles.empty()) {
+        if (total_valid_mono == 0) {
           tiles_failed++;
           return;
         }
 
-        auto wr = tile_reconstruction_ops.sigma_clip_reduce(
-            warped_tiles, weights, cfg.stacking.sigma_clip.sigma_low,
-            cfg.stacking.sigma_clip.sigma_high,
-            cfg.stacking.sigma_clip.max_iters,
-            cfg.stacking.sigma_clip.min_fraction, kEpsWeight);
-        tile_rec = std::move(wr.tile);
-        used_weight_fallback = used_weight_fallback || wr.fallback_used;
+        tile_rec = Matrix2Df(t.height, t.width);
+        for (int py = 0; py < t.height; ++py)
+          for (int px = 0; px < t.width; ++px)
+            tile_rec(py, px) = (wsum_mono(py, px) > 0.0f)
+                               ? accum_mono(py, px) / wsum_mono(py, px)
+                               : std::numeric_limits<float>::quiet_NaN();
         tile_support_mask = capture_finite_mask(tile_rec);
         if (!has_any_supported(tile_support_mask)) {
           tiles_failed++;
           return;
         }
         replace_nonfinite_with_zero(tile_rec);
-        n_valid = warped_tiles.size();
+        n_valid = total_valid_mono;
       }
 
       tile_valid_counts[ti] = static_cast<int>(n_valid);
