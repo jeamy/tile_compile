@@ -512,6 +512,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versionen
 
+## v0.1.F (2026-04-07)
+
+- TILE_RECONSTRUCTION-Performance: Die speicherbedingte Worker-Reduktion (3 statt 8 Worker) wurde durch Frame-Sub-Batching ersetzt. Worker laufen jetzt immer mit dem konfigurierten `parallel_workers`-Wert; das Memory-Budget steuert die Batch-Größe (Frames pro Batch) statt die Thread-Anzahl. Erwarteter Speedup: ~2,7× für OSC-Läufe mit 600+ Frames bei 2 GB Memory-Budget.
+
 ## v0.1.E (2026-04-06)
 
 - Calibration-/GUI2-Nachzug: Die Dark/Bias-Kalibrierung behandelt rohe Darks jetzt korrekt ohne doppelten Bias-Abzug, `dark_already_bias_corrected` wurde in Backend, Schema, Beispiel-YAMLs und Parameter Studio ergänzt, und das Parameter Studio zeigt pro gewählter Kategorie nur noch einen zusammenhängenden Abschnitt statt einer getrennten Doppelansicht.
@@ -668,6 +672,17 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-04-07)
+
+**TILE_RECONSTRUCTION-Performance: Sub-Batch-Stacking ersetzt Worker-Reduktion (`v0.1.F`):**
+
+- Die speicherbedingte Worker-Reduktion in TILE_RECONSTRUCTION durch Frame-Sub-Batching ersetzt. Bisher begrenzte ein 2-GB-Memory-Budget OSC-Läufe auf 3 parallele Worker (statt der konfigurierten 8), weil die Peak-RAM-Schätzung alle Frames gleichzeitig pro Worker annahm. Worker laufen jetzt immer mit dem konfigurierten `parallel_workers`-Wert; das Budget steuert die Sub-Batch-Größe (Frames pro Batch). Für den Referenzlauf (610 Frames, 475 Tiles, 8 Worker, 2 GB Budget) ergeben sich ~3 Batches à ~205 Frames — gleiche Qualität, ~2,7× schnellere TILE_RECONSTRUCTION.
+- `tile_boundary_diagnostics_enabled` in `runtime_limits` ergänzt (Standard: `false`). Boundary-Diagnostik ist jetzt opt-in; der bisherige Standard, sie immer auszuführen, verursachte ~5–10 % Overhead pro Produktionslauf.
+- `tile_grid.json` enthält jetzt `estimated_reconstruction_time_s` (kalibrierte Schätzung auf Basis von Tile-Anzahl, Frame-Anzahl und Worker-Anzahl) und `coverage_filtered_tiles`.
+- `runtime_limits.json` enthält jetzt `tile_analysis_to_stack_ratio`; eine Warnung wird geloggt wenn der Wert 10 überschreitet.
+- `phase_end`-Ereignis für TILE_RECONSTRUCTION enthält jetzt `duration_s`.
+- web_backend_cpp Code-Qualitätsfixes: drei doppelte `utc_now_iso()`-Implementierungen in einen gemeinsamen Header konsolidiert, SIGKILL-Versand bei jedem Polling-Zyklus nach SIGTERM korrigiert (wartet jetzt ~3 s), FD-Leak bei `fork()`-Fehler behoben, sequentiellen stdout/stderr-Deadlock in `run_subprocess()` behoben und `prune_locked()`-Aufrufhäufigkeit von jeder Mutation auf Terminal-Zustandsübergänge reduziert.
 
 ### (2026-04-06)
 
