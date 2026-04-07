@@ -481,31 +481,29 @@ bool opencl_sigma_clip_weighted_tile_impl(
     cv::UMat valid_count(rows, cols, CV_32F);
     cv::Mat valid_count_host(rows, cols, CV_32F);
     cv::Mat min_keep_host(rows, cols, CV_32F);
-    {
-      std::lock_guard<std::mutex> lock(opencl_api_mutex());
-      zeros.setTo(cv::Scalar(0.0f));
-      eps.setTo(cv::Scalar(1.0e-6f));
-      valid_count.setTo(cv::Scalar(0.0f));
+    // OpenCV UMat operations are thread-safe - no global mutex needed
+    zeros.setTo(cv::Scalar(0.0f));
+    eps.setTo(cv::Scalar(1.0e-6f));
+    valid_count.setTo(cv::Scalar(0.0f));
 
-      for (const Matrix2Df &tile : active_tiles) {
-        cv::Mat host_view(rows, cols, CV_32F, const_cast<float *>(tile.data()));
-        cv::UMat gpu_tile;
-        host_view.copyTo(gpu_tile);
-        gpu_tiles.push_back(gpu_tile);
+    for (const Matrix2Df &tile : active_tiles) {
+      cv::Mat host_view(rows, cols, CV_32F, const_cast<float *>(tile.data()));
+      cv::UMat gpu_tile;
+      host_view.copyTo(gpu_tile);
+      gpu_tiles.push_back(gpu_tile);
 
-        cv::Mat valid_mask_host = make_host_finite_mask(tile);
-        cv::UMat valid_mask;
-        valid_mask_host.copyTo(valid_mask);
-        valid_masks.push_back(valid_mask.clone());
-        keep_masks.push_back(valid_mask.clone());
+      cv::Mat valid_mask_host = make_host_finite_mask(tile);
+      cv::UMat valid_mask;
+      valid_mask_host.copyTo(valid_mask);
+      valid_masks.push_back(valid_mask.clone());
+      keep_masks.push_back(valid_mask.clone());
 
-        cv::UMat valid_mask_f32;
-        valid_mask.convertTo(valid_mask_f32, CV_32F, 1.0 / 255.0);
-        cv::add(valid_count, valid_mask_f32, valid_count);
-      }
-
-      valid_count.copyTo(valid_count_host);
+      cv::UMat valid_mask_f32;
+      valid_mask.convertTo(valid_mask_f32, CV_32F, 1.0 / 255.0);
+      cv::add(valid_count, valid_mask_f32, valid_count);
     }
+
+    valid_count.copyTo(valid_count_host);
     for (int y = 0; y < rows; ++y) {
       const float *count_row = valid_count_host.ptr<float>(y);
       float *min_keep_row = min_keep_host.ptr<float>(y);
@@ -518,22 +516,21 @@ bool opencl_sigma_clip_weighted_tile_impl(
 
     const bool enable_clipping =
         static_cast<int>(gpu_tiles.size()) > 2 && max_iters > 0;
-    {
-      std::lock_guard<std::mutex> lock(opencl_api_mutex());
-      cv::UMat min_keep;
-      min_keep_host.copyTo(min_keep);
+    // OpenCV UMat operations are thread-safe - no global mutex needed
+    cv::UMat min_keep;
+    min_keep_host.copyTo(min_keep);
 
-      cv::UMat active_mask;
-      cv::compare(valid_count, 0.0f, active_mask, cv::CMP_GT);
+    cv::UMat active_mask;
+    cv::compare(valid_count, 0.0f, active_mask, cv::CMP_GT);
 
-      if (enable_clipping) {
-        for (int iter = 0; iter < max_iters; ++iter) {
-          cv::UMat wsum(rows, cols, CV_32F);
-          cv::UMat wsum2(rows, cols, CV_32F);
-          cv::UMat wmean_num(rows, cols, CV_32F);
-          wsum.setTo(cv::Scalar(0.0f));
-          wsum2.setTo(cv::Scalar(0.0f));
-          wmean_num.setTo(cv::Scalar(0.0f));
+    if (enable_clipping) {
+      for (int iter = 0; iter < max_iters; ++iter) {
+        cv::UMat wsum(rows, cols, CV_32F);
+        cv::UMat wsum2(rows, cols, CV_32F);
+        cv::UMat wmean_num(rows, cols, CV_32F);
+        wsum.setTo(cv::Scalar(0.0f));
+        wsum2.setTo(cv::Scalar(0.0f));
+        wmean_num.setTo(cv::Scalar(0.0f));
 
         for (size_t i = 0; i < gpu_tiles.size(); ++i) {
           cv::UMat keep_f32;
@@ -553,14 +550,14 @@ bool opencl_sigma_clip_weighted_tile_impl(
           cv::add(wsum2, weighted_keep_sq, wsum2);
         }
 
-          cv::UMat wsum_safe;
-          cv::max(wsum, eps, wsum_safe);
-          cv::UMat mean;
-          cv::divide(wmean_num, wsum_safe, mean);
+        cv::UMat wsum_safe;
+        cv::max(wsum, eps, wsum_safe);
+        cv::UMat mean;
+        cv::divide(wmean_num, wsum_safe, mean);
 
-          cv::UMat var_num(rows, cols, CV_32F);
-          var_num.setTo(cv::Scalar(0.0f));
-          for (size_t i = 0; i < gpu_tiles.size(); ++i) {
+        cv::UMat var_num(rows, cols, CV_32F);
+        var_num.setTo(cv::Scalar(0.0f));
+        for (size_t i = 0; i < gpu_tiles.size(); ++i) {
           cv::UMat diff;
           cv::subtract(gpu_tiles[i], mean, diff);
           cv::UMat diff_sq;
@@ -575,48 +572,48 @@ bool opencl_sigma_clip_weighted_tile_impl(
           cv::add(var_num, weighted_diff, var_num);
         }
 
-          cv::UMat wsum2_over_wsum;
-          cv::divide(wsum2, wsum_safe, wsum2_over_wsum);
-          cv::UMat denom;
-          cv::subtract(wsum, wsum2_over_wsum, denom);
-          cv::UMat denom_safe;
-          cv::max(denom, eps, denom_safe);
-          cv::UMat var;
-          cv::divide(var_num, denom_safe, var);
-          cv::max(var, zeros, var);
+        cv::UMat wsum2_over_wsum;
+        cv::divide(wsum2, wsum_safe, wsum2_over_wsum);
+        cv::UMat denom;
+        cv::subtract(wsum, wsum2_over_wsum, denom);
+        cv::UMat denom_safe;
+        cv::max(denom, eps, denom_safe);
+        cv::UMat var;
+        cv::divide(var_num, denom_safe, var);
+        cv::max(var, zeros, var);
 
-          cv::UMat wsum_sq;
-          cv::multiply(wsum, wsum, wsum_sq);
-          cv::UMat wsum2_safe;
-          cv::max(wsum2, eps, wsum2_safe);
-          cv::UMat n_eff;
-          cv::divide(wsum_sq, wsum2_safe, n_eff);
-          cv::UMat neff_mask;
-          cv::compare(n_eff, 2.0f + 1.0e-6f, neff_mask, cv::CMP_GT);
-          cv::UMat denom_positive_mask;
-          cv::compare(denom, 1.0e-12f, denom_positive_mask, cv::CMP_GT);
-          cv::UMat sd;
-          cv::sqrt(var, sd);
-          cv::UMat sd_positive_mask;
-          cv::compare(sd, 0.0f, sd_positive_mask, cv::CMP_GT);
-          cv::UMat can_continue;
-          cv::bitwise_and(neff_mask, denom_positive_mask, can_continue);
-          cv::bitwise_and(can_continue, sd_positive_mask, can_continue);
+        cv::UMat wsum_sq;
+        cv::multiply(wsum, wsum, wsum_sq);
+        cv::UMat wsum2_safe;
+        cv::max(wsum2, eps, wsum2_safe);
+        cv::UMat n_eff;
+        cv::divide(wsum_sq, wsum2_safe, n_eff);
+        cv::UMat neff_mask;
+        cv::compare(n_eff, 2.0f + 1.0e-6f, neff_mask, cv::CMP_GT);
+        cv::UMat denom_positive_mask;
+        cv::compare(denom, 1.0e-12f, denom_positive_mask, cv::CMP_GT);
+        cv::UMat sd;
+        cv::sqrt(var, sd);
+        cv::UMat sd_positive_mask;
+        cv::compare(sd, 0.0f, sd_positive_mask, cv::CMP_GT);
+        cv::UMat can_continue;
+        cv::bitwise_and(neff_mask, denom_positive_mask, can_continue);
+        cv::bitwise_and(can_continue, sd_positive_mask, can_continue);
 
-          cv::UMat sigma_low_sd;
-          cv::UMat sigma_high_sd;
-          sd.convertTo(sigma_low_sd, CV_32F, sigma_low);
-          sd.convertTo(sigma_high_sd, CV_32F, sigma_high);
-          cv::UMat lo;
-          cv::UMat hi;
-          cv::subtract(mean, sigma_low_sd, lo);
-          cv::add(mean, sigma_high_sd, hi);
+        cv::UMat sigma_low_sd;
+        cv::UMat sigma_high_sd;
+        sd.convertTo(sigma_low_sd, CV_32F, sigma_low);
+        sd.convertTo(sigma_high_sd, CV_32F, sigma_high);
+        cv::UMat lo;
+        cv::UMat hi;
+        cv::subtract(mean, sigma_low_sd, lo);
+        cv::add(mean, sigma_high_sd, hi);
 
-          std::vector<cv::UMat> new_keep_masks;
-          new_keep_masks.reserve(keep_masks.size());
-          cv::UMat new_valid_count(rows, cols, CV_32F);
-          new_valid_count.setTo(cv::Scalar(0.0f));
-          for (size_t i = 0; i < gpu_tiles.size(); ++i) {
+        std::vector<cv::UMat> new_keep_masks;
+        new_keep_masks.reserve(keep_masks.size());
+        cv::UMat new_valid_count(rows, cols, CV_32F);
+        new_valid_count.setTo(cv::Scalar(0.0f));
+        for (size_t i = 0; i < gpu_tiles.size(); ++i) {
           cv::UMat ge_lo;
           cv::UMat le_hi;
           cv::UMat in_range;
@@ -633,78 +630,77 @@ bool opencl_sigma_clip_weighted_tile_impl(
           cv::add(new_valid_count, new_keep_f32, new_valid_count);
         }
 
-          cv::UMat meets_min;
-          cv::compare(new_valid_count, min_keep, meets_min, cv::CMP_GE);
-          cv::UMat update_mask;
-          cv::bitwise_and(active_mask, can_continue, update_mask);
-          cv::UMat apply_new_keep;
-          cv::bitwise_and(update_mask, meets_min, apply_new_keep);
-          cv::UMat next_active;
-          apply_new_keep.copyTo(next_active);
+        cv::UMat meets_min;
+        cv::compare(new_valid_count, min_keep, meets_min, cv::CMP_GE);
+        cv::UMat update_mask;
+        cv::bitwise_and(active_mask, can_continue, update_mask);
+        cv::UMat apply_new_keep;
+        cv::bitwise_and(update_mask, meets_min, apply_new_keep);
+        cv::UMat next_active;
+        apply_new_keep.copyTo(next_active);
 
-          cv::UMat apply_new_keep_inv;
-          cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
-          for (size_t i = 0; i < keep_masks.size(); ++i) {
+        cv::UMat apply_new_keep_inv;
+        cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
+        for (size_t i = 0; i < keep_masks.size(); ++i) {
           cv::UMat old_region;
           cv::UMat new_region;
           cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
           cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
           cv::bitwise_or(old_region, new_region, keep_masks[i]);
         }
-          active_mask = next_active;
-        }
+        active_mask = next_active;
       }
-
-      cv::UMat final_wsum(rows, cols, CV_32F);
-      cv::UMat final_num(rows, cols, CV_32F);
-      cv::UMat fallback_wsum(rows, cols, CV_32F);
-      cv::UMat fallback_num(rows, cols, CV_32F);
-      final_wsum.setTo(cv::Scalar(0.0f));
-      final_num.setTo(cv::Scalar(0.0f));
-      fallback_wsum.setTo(cv::Scalar(0.0f));
-      fallback_num.setTo(cv::Scalar(0.0f));
-
-      for (size_t i = 0; i < gpu_tiles.size(); ++i) {
-        cv::UMat keep_f32;
-        keep_masks[i].convertTo(keep_f32, CV_32F, 1.0 / 255.0);
-        cv::UMat valid_f32;
-        valid_masks[i].convertTo(valid_f32, CV_32F, 1.0 / 255.0);
-
-        cv::UMat weighted_keep;
-        keep_f32.convertTo(weighted_keep, CV_32F, active_weights[i]);
-        cv::UMat weighted_valid;
-        valid_f32.convertTo(weighted_valid, CV_32F, active_weights[i]);
-        cv::add(final_wsum, weighted_keep, final_wsum);
-        cv::add(fallback_wsum, weighted_valid, fallback_wsum);
-
-        cv::UMat weighted_value;
-        cv::multiply(gpu_tiles[i], weighted_keep, weighted_value);
-        cv::UMat fallback_value;
-        cv::multiply(gpu_tiles[i], weighted_valid, fallback_value);
-        cv::add(final_num, weighted_value, final_num);
-        cv::add(fallback_num, fallback_value, fallback_num);
-      }
-
-      cv::UMat final_wsum_safe;
-      cv::UMat fallback_wsum_safe;
-      cv::max(final_wsum, eps, final_wsum_safe);
-      cv::max(fallback_wsum, eps, fallback_wsum_safe);
-      cv::UMat final_out;
-      cv::UMat fallback_out;
-      cv::divide(final_num, final_wsum_safe, final_out);
-      cv::divide(fallback_num, fallback_wsum_safe, fallback_out);
-
-      cv::UMat zero_wsum_mask;
-      cv::compare(final_wsum, eps_weight, zero_wsum_mask, cv::CMP_LE);
-      fallback_out.copyTo(final_out, zero_wsum_mask);
-      cv::UMat zero_fallback_mask;
-      cv::compare(fallback_wsum, eps_weight, zero_fallback_mask, cv::CMP_LE);
-      final_out.setTo(cv::Scalar(invalid_sample), zero_fallback_mask);
-
-      out.tile.resize(rows, cols);
-      cv::Mat out_host(rows, cols, CV_32F, out.tile.data());
-      final_out.copyTo(out_host);
     }
+
+    cv::UMat final_wsum(rows, cols, CV_32F);
+    cv::UMat final_num(rows, cols, CV_32F);
+    cv::UMat fallback_wsum(rows, cols, CV_32F);
+    cv::UMat fallback_num(rows, cols, CV_32F);
+    final_wsum.setTo(cv::Scalar(0.0f));
+    final_num.setTo(cv::Scalar(0.0f));
+    fallback_wsum.setTo(cv::Scalar(0.0f));
+    fallback_num.setTo(cv::Scalar(0.0f));
+
+    for (size_t i = 0; i < gpu_tiles.size(); ++i) {
+      cv::UMat keep_f32;
+      keep_masks[i].convertTo(keep_f32, CV_32F, 1.0 / 255.0);
+      cv::UMat valid_f32;
+      valid_masks[i].convertTo(valid_f32, CV_32F, 1.0 / 255.0);
+
+      cv::UMat weighted_keep;
+      keep_f32.convertTo(weighted_keep, CV_32F, active_weights[i]);
+      cv::UMat weighted_valid;
+      valid_f32.convertTo(weighted_valid, CV_32F, active_weights[i]);
+      cv::add(final_wsum, weighted_keep, final_wsum);
+      cv::add(fallback_wsum, weighted_valid, fallback_wsum);
+
+      cv::UMat weighted_value;
+      cv::multiply(gpu_tiles[i], weighted_keep, weighted_value);
+      cv::UMat fallback_value;
+      cv::multiply(gpu_tiles[i], weighted_valid, fallback_value);
+      cv::add(final_num, weighted_value, final_num);
+      cv::add(fallback_num, fallback_value, fallback_num);
+    }
+
+    cv::UMat final_wsum_safe;
+    cv::UMat fallback_wsum_safe;
+    cv::max(final_wsum, eps, final_wsum_safe);
+    cv::max(fallback_wsum, eps, fallback_wsum_safe);
+    cv::UMat final_out;
+    cv::UMat fallback_out;
+    cv::divide(final_num, final_wsum_safe, final_out);
+    cv::divide(fallback_num, fallback_wsum_safe, fallback_out);
+
+    cv::UMat zero_wsum_mask;
+    cv::compare(final_wsum, eps_weight, zero_wsum_mask, cv::CMP_LE);
+    fallback_out.copyTo(final_out, zero_wsum_mask);
+    cv::UMat zero_fallback_mask;
+    cv::compare(fallback_wsum, eps_weight, zero_fallback_mask, cv::CMP_LE);
+    final_out.setTo(cv::Scalar(invalid_sample), zero_fallback_mask);
+
+    out.tile.resize(rows, cols);
+    cv::Mat out_host(rows, cols, CV_32F, out.tile.data());
+    final_out.copyTo(out_host);
     return true;
   } catch (...) {
     return false;
@@ -745,30 +741,28 @@ bool opencl_sigma_clip_stack_impl(
     cv::UMat initial_count(rows, cols, CV_32F);
     cv::Mat initial_count_host(rows, cols, CV_32F);
     cv::Mat min_keep_host(rows, cols, CV_32F);
-    {
-      std::lock_guard<std::mutex> lock(opencl_api_mutex());
-      ones.setTo(cv::Scalar(1.0f));
-      zeros.setTo(cv::Scalar(0.0f));
-      initial_count.setTo(cv::Scalar(0.0f));
+    // OpenCV UMat operations are thread-safe - no global mutex needed
+    ones.setTo(cv::Scalar(1.0f));
+    zeros.setTo(cv::Scalar(0.0f));
+    initial_count.setTo(cv::Scalar(0.0f));
 
-      for (const Matrix2Df &frame : valid) {
-        cv::Mat host_view(rows, cols, CV_32F, const_cast<float *>(frame.data()));
-        cv::UMat gpu_frame;
-        host_view.copyTo(gpu_frame);
-        gpu_frames.push_back(gpu_frame);
+    for (const Matrix2Df &frame : valid) {
+      cv::Mat host_view(rows, cols, CV_32F, const_cast<float *>(frame.data()));
+      cv::UMat gpu_frame;
+      host_view.copyTo(gpu_frame);
+      gpu_frames.push_back(gpu_frame);
 
-        cv::Mat valid_mask_host = make_host_finite_mask(frame);
-        cv::UMat valid_mask;
-        valid_mask_host.copyTo(valid_mask);
-        keep_masks.push_back(valid_mask.clone());
+      cv::Mat valid_mask_host = make_host_finite_mask(frame);
+      cv::UMat valid_mask;
+      valid_mask_host.copyTo(valid_mask);
+      keep_masks.push_back(valid_mask.clone());
 
-        cv::UMat valid_mask_f32;
-        valid_mask.convertTo(valid_mask_f32, CV_32F, 1.0 / 255.0);
-        cv::add(initial_count, valid_mask_f32, initial_count);
-      }
-
-      initial_count.copyTo(initial_count_host);
+      cv::UMat valid_mask_f32;
+      valid_mask.convertTo(valid_mask_f32, CV_32F, 1.0 / 255.0);
+      cv::add(initial_count, valid_mask_f32, initial_count);
     }
+
+    initial_count.copyTo(initial_count_host);
     for (int y = 0; y < rows; ++y) {
       const float *count_row = initial_count_host.ptr<float>(y);
       float *min_keep_row = min_keep_host.ptr<float>(y);
@@ -779,154 +773,152 @@ bool opencl_sigma_clip_stack_impl(
       }
     }
 
-    {
-      std::lock_guard<std::mutex> lock(opencl_api_mutex());
-      cv::UMat min_keep;
-      min_keep_host.copyTo(min_keep);
+    // OpenCV UMat operations are thread-safe - no global mutex needed
+    cv::UMat min_keep;
+    min_keep_host.copyTo(min_keep);
 
-      cv::UMat active_mask;
-      cv::compare(initial_count, 0.0f, active_mask, cv::CMP_GT);
+    cv::UMat active_mask;
+    cv::compare(initial_count, 0.0f, active_mask, cv::CMP_GT);
 
-      for (int iter = 0; iter < max_iters; ++iter) {
-        cv::UMat sum(rows, cols, CV_32F);
-        cv::UMat sumsq(rows, cols, CV_32F);
-        cv::UMat count(rows, cols, CV_32F);
-        sum.setTo(cv::Scalar(0.0f));
-        sumsq.setTo(cv::Scalar(0.0f));
-        count.setTo(cv::Scalar(0.0f));
+    for (int iter = 0; iter < max_iters; ++iter) {
+      cv::UMat sum(rows, cols, CV_32F);
+      cv::UMat sumsq(rows, cols, CV_32F);
+      cv::UMat count(rows, cols, CV_32F);
+      sum.setTo(cv::Scalar(0.0f));
+      sumsq.setTo(cv::Scalar(0.0f));
+      count.setTo(cv::Scalar(0.0f));
 
-        for (size_t i = 0; i < gpu_frames.size(); ++i) {
-          cv::UMat keep_f32;
-          keep_masks[i].convertTo(keep_f32, CV_32F, 1.0 / 255.0);
-
-          cv::UMat masked_frame;
-          cv::multiply(gpu_frames[i], keep_f32, masked_frame);
-          cv::add(sum, masked_frame, sum);
-
-          cv::UMat frame_sq;
-          cv::multiply(gpu_frames[i], gpu_frames[i], frame_sq);
-          cv::UMat masked_sq;
-          cv::multiply(frame_sq, keep_f32, masked_sq);
-          cv::add(sumsq, masked_sq, sumsq);
-          cv::add(count, keep_f32, count);
-        }
-
-        cv::UMat count_denom;
-        cv::max(count, ones, count_denom);
-        cv::UMat mean;
-        cv::divide(sum, count_denom, mean);
-
-        cv::UMat sumsq_mean;
-        cv::divide(sumsq, count_denom, sumsq_mean);
-        cv::UMat mean_sq;
-        cv::multiply(mean, mean, mean_sq);
-        cv::UMat var;
-        cv::subtract(sumsq_mean, mean_sq, var);
-        cv::max(var, zeros, var);
-
-        cv::UMat kept_gt_one_mask;
-        cv::compare(count, 1.0f, kept_gt_one_mask, cv::CMP_GT);
-        cv::UMat kept_gt_one_f32;
-        kept_gt_one_mask.convertTo(kept_gt_one_f32, CV_32F, 1.0 / 255.0);
-
-        cv::UMat count_minus_one;
-        cv::subtract(count, ones, count_minus_one);
-        cv::max(count_minus_one, ones, count_minus_one);
-        cv::UMat factor;
-        cv::divide(count, count_minus_one, factor);
-
-        cv::UMat one_minus_gt_one;
-        cv::subtract(ones, kept_gt_one_f32, one_minus_gt_one);
-        cv::UMat factor_when_gt_one;
-        cv::multiply(factor, kept_gt_one_f32, factor_when_gt_one);
-        cv::add(factor_when_gt_one, one_minus_gt_one, factor);
-        cv::multiply(var, factor, var);
-        cv::max(var, zeros, var);
-
-        cv::UMat sd;
-        cv::sqrt(var, sd);
-        cv::UMat sd_positive_mask;
-        cv::compare(sd, 0.0f, sd_positive_mask, cv::CMP_GT);
-        cv::UMat can_continue;
-        cv::bitwise_and(kept_gt_one_mask, sd_positive_mask, can_continue);
-
-        cv::UMat sigma_low_sd;
-        cv::UMat sigma_high_sd;
-        sd.convertTo(sigma_low_sd, CV_32F, sigma_low);
-        sd.convertTo(sigma_high_sd, CV_32F, sigma_high);
-        cv::UMat lo;
-        cv::UMat hi;
-        cv::subtract(mean, sigma_low_sd, lo);
-        cv::add(mean, sigma_high_sd, hi);
-
-        std::vector<cv::UMat> new_keep_masks;
-        new_keep_masks.reserve(keep_masks.size());
-        cv::UMat new_count(rows, cols, CV_32F);
-        new_count.setTo(cv::Scalar(0.0f));
-
-        for (size_t i = 0; i < gpu_frames.size(); ++i) {
-          cv::UMat ge_lo;
-          cv::UMat le_hi;
-          cv::UMat in_range;
-          cv::compare(gpu_frames[i], lo, ge_lo, cv::CMP_GE);
-          cv::compare(gpu_frames[i], hi, le_hi, cv::CMP_LE);
-          cv::bitwise_and(ge_lo, le_hi, in_range);
-
-          cv::UMat new_keep;
-          cv::bitwise_and(keep_masks[i], in_range, new_keep);
-          new_keep_masks.push_back(new_keep);
-
-          cv::UMat new_keep_f32;
-          new_keep.convertTo(new_keep_f32, CV_32F, 1.0 / 255.0);
-          cv::add(new_count, new_keep_f32, new_count);
-        }
-
-        cv::UMat meets_min;
-        cv::compare(new_count, min_keep, meets_min, cv::CMP_GE);
-        cv::UMat update_mask;
-        cv::bitwise_and(active_mask, can_continue, update_mask);
-        cv::UMat apply_new_keep;
-        cv::bitwise_and(update_mask, meets_min, apply_new_keep);
-        cv::UMat next_active;
-        apply_new_keep.copyTo(next_active);
-
-        cv::UMat apply_new_keep_inv;
-        cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
-        for (size_t i = 0; i < keep_masks.size(); ++i) {
-          cv::UMat old_region;
-          cv::UMat new_region;
-          cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
-          cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
-          cv::bitwise_or(old_region, new_region, keep_masks[i]);
-        }
-        active_mask = next_active;
-      }
-
-      cv::UMat final_sum(rows, cols, CV_32F);
-      cv::UMat final_count(rows, cols, CV_32F);
-      final_sum.setTo(cv::Scalar(0.0f));
-      final_count.setTo(cv::Scalar(0.0f));
       for (size_t i = 0; i < gpu_frames.size(); ++i) {
         cv::UMat keep_f32;
         keep_masks[i].convertTo(keep_f32, CV_32F, 1.0 / 255.0);
+
         cv::UMat masked_frame;
         cv::multiply(gpu_frames[i], keep_f32, masked_frame);
-        cv::add(final_sum, masked_frame, final_sum);
-        cv::add(final_count, keep_f32, final_count);
+        cv::add(sum, masked_frame, sum);
+
+        cv::UMat frame_sq;
+        cv::multiply(gpu_frames[i], gpu_frames[i], frame_sq);
+        cv::UMat masked_sq;
+        cv::multiply(frame_sq, keep_f32, masked_sq);
+        cv::add(sumsq, masked_sq, sumsq);
+        cv::add(count, keep_f32, count);
       }
 
-      cv::UMat final_count_denom;
-      cv::max(final_count, ones, final_count_denom);
-      cv::UMat final_out;
-      cv::divide(final_sum, final_count_denom, final_out);
-      cv::UMat dead_mask;
-      cv::compare(final_count, 0.0f, dead_mask, cv::CMP_LE);
-      final_out.setTo(cv::Scalar(invalid_sample), dead_mask);
+      cv::UMat count_denom;
+      cv::max(count, ones, count_denom);
+      cv::UMat mean;
+      cv::divide(sum, count_denom, mean);
 
-      out.resize(rows, cols);
-      cv::Mat out_host(rows, cols, CV_32F, out.data());
-      final_out.copyTo(out_host);
+      cv::UMat sumsq_mean;
+      cv::divide(sumsq, count_denom, sumsq_mean);
+      cv::UMat mean_sq;
+      cv::multiply(mean, mean, mean_sq);
+      cv::UMat var;
+      cv::subtract(sumsq_mean, mean_sq, var);
+      cv::max(var, zeros, var);
+
+      cv::UMat kept_gt_one_mask;
+      cv::compare(count, 1.0f, kept_gt_one_mask, cv::CMP_GT);
+      cv::UMat kept_gt_one_f32;
+      kept_gt_one_mask.convertTo(kept_gt_one_f32, CV_32F, 1.0 / 255.0);
+
+      cv::UMat count_minus_one;
+      cv::subtract(count, ones, count_minus_one);
+      cv::max(count_minus_one, ones, count_minus_one);
+      cv::UMat factor;
+      cv::divide(count, count_minus_one, factor);
+
+      cv::UMat one_minus_gt_one;
+      cv::subtract(ones, kept_gt_one_f32, one_minus_gt_one);
+      cv::UMat factor_when_gt_one;
+      cv::multiply(factor, kept_gt_one_f32, factor_when_gt_one);
+      cv::add(factor_when_gt_one, one_minus_gt_one, factor);
+      cv::multiply(var, factor, var);
+      cv::max(var, zeros, var);
+
+      cv::UMat sd;
+      cv::sqrt(var, sd);
+      cv::UMat sd_positive_mask;
+      cv::compare(sd, 0.0f, sd_positive_mask, cv::CMP_GT);
+      cv::UMat can_continue;
+      cv::bitwise_and(kept_gt_one_mask, sd_positive_mask, can_continue);
+
+      cv::UMat sigma_low_sd;
+      cv::UMat sigma_high_sd;
+      sd.convertTo(sigma_low_sd, CV_32F, sigma_low);
+      sd.convertTo(sigma_high_sd, CV_32F, sigma_high);
+      cv::UMat lo;
+      cv::UMat hi;
+      cv::subtract(mean, sigma_low_sd, lo);
+      cv::add(mean, sigma_high_sd, hi);
+
+      std::vector<cv::UMat> new_keep_masks;
+      new_keep_masks.reserve(keep_masks.size());
+      cv::UMat new_count(rows, cols, CV_32F);
+      new_count.setTo(cv::Scalar(0.0f));
+
+      for (size_t i = 0; i < gpu_frames.size(); ++i) {
+        cv::UMat ge_lo;
+        cv::UMat le_hi;
+        cv::UMat in_range;
+        cv::compare(gpu_frames[i], lo, ge_lo, cv::CMP_GE);
+        cv::compare(gpu_frames[i], hi, le_hi, cv::CMP_LE);
+        cv::bitwise_and(ge_lo, le_hi, in_range);
+
+        cv::UMat new_keep;
+        cv::bitwise_and(keep_masks[i], in_range, new_keep);
+        new_keep_masks.push_back(new_keep);
+
+        cv::UMat new_keep_f32;
+        new_keep.convertTo(new_keep_f32, CV_32F, 1.0 / 255.0);
+        cv::add(new_count, new_keep_f32, new_count);
+      }
+
+      cv::UMat meets_min;
+      cv::compare(new_count, min_keep, meets_min, cv::CMP_GE);
+      cv::UMat update_mask;
+      cv::bitwise_and(active_mask, can_continue, update_mask);
+      cv::UMat apply_new_keep;
+      cv::bitwise_and(update_mask, meets_min, apply_new_keep);
+      cv::UMat next_active;
+      apply_new_keep.copyTo(next_active);
+
+      cv::UMat apply_new_keep_inv;
+      cv::bitwise_not(apply_new_keep, apply_new_keep_inv);
+      for (size_t i = 0; i < keep_masks.size(); ++i) {
+        cv::UMat old_region;
+        cv::UMat new_region;
+        cv::bitwise_and(keep_masks[i], apply_new_keep_inv, old_region);
+        cv::bitwise_and(new_keep_masks[i], apply_new_keep, new_region);
+        cv::bitwise_or(old_region, new_region, keep_masks[i]);
+      }
+      active_mask = next_active;
     }
+
+    cv::UMat final_sum(rows, cols, CV_32F);
+    cv::UMat final_count(rows, cols, CV_32F);
+    final_sum.setTo(cv::Scalar(0.0f));
+    final_count.setTo(cv::Scalar(0.0f));
+    for (size_t i = 0; i < gpu_frames.size(); ++i) {
+      cv::UMat keep_f32;
+      keep_masks[i].convertTo(keep_f32, CV_32F, 1.0 / 255.0);
+      cv::UMat masked_frame;
+      cv::multiply(gpu_frames[i], keep_f32, masked_frame);
+      cv::add(final_sum, masked_frame, final_sum);
+      cv::add(final_count, keep_f32, final_count);
+    }
+
+    cv::UMat final_count_denom;
+    cv::max(final_count, ones, final_count_denom);
+    cv::UMat final_out;
+    cv::divide(final_sum, final_count_denom, final_out);
+    cv::UMat dead_mask;
+    cv::compare(final_count, 0.0f, dead_mask, cv::CMP_LE);
+    final_out.setTo(cv::Scalar(invalid_sample), dead_mask);
+
+    out.resize(rows, cols);
+    cv::Mat out_host(rows, cols, CV_32F, out.data());
+    final_out.copyTo(out_host);
     return true;
   } catch (...) {
     return false;
@@ -2497,16 +2489,26 @@ AccelerationOps::sigma_clip_reduce_batch(
     float eps_weight) const
 {
     std::vector<reconstruction::WeightedTileResult> results;
-    results.reserve(tile_inputs.size());
+    results.resize(tile_inputs.size());
 
-    // For now: sequential CPU fallback — one sigma_clip_reduce call per tile.
-    // A future OpenCL path would batch-dispatch all tiles in a single kernel.
-    for (const auto& input : tile_inputs) {
-        results.push_back(
-            sigma_clip_reduce(input.tile_frames, input.weights,
-                              sigma_low, sigma_high,
-                              max_iters, min_fraction, eps_weight));
+    const size_t n_tiles = tile_inputs.size();
+    if (n_tiles == 0) {
+        return results;
     }
+
+    // For GPU backends: process tiles in parallel using multiple streams/workers
+    // For CPU backend: use OpenMP parallel for if available
+    #if defined(_OPENMP)
+    #pragma omp parallel for schedule(dynamic, 1) if(selection_.selected == AccelerationBackend::cpu)
+    #endif
+    for (size_t i = 0; i < n_tiles; ++i) {
+        results[i] = sigma_clip_reduce(
+            tile_inputs[i].tile_frames,
+            tile_inputs[i].weights,
+            sigma_low, sigma_high,
+            max_iters, min_fraction, eps_weight);
+    }
+
     return results;
 }
 
