@@ -12,37 +12,37 @@ astrometry:
   search_radius: 183
 bge:
   autotune:
-    alpha_flatness: 0.5
-    beta_roughness: 0.06
+    alpha_flatness: 0.55
+    beta_roughness: 0.05
     enabled: true
     holdout_fraction: 0.25
-    max_evals: 32
+    max_evals: 24
     strategy: conservative
   enabled: true
   fit:
-    huber_delta: 1.5
-    irls_max_iterations: 12
+    huber_delta: 1.8
+    irls_max_iterations: 10
     irls_tolerance: 1.00e-04
     method: poly
-    polynomial_order: 2
+    polynomial_order: 3
     rbf_epsilon: 1.00e-06
-    rbf_lambda: 1.00e-03
-    rbf_mu_factor: 1.5
+    rbf_lambda: 0.01
+    rbf_mu_factor: 2
     rbf_phi: multiquadric
-    robust_loss: tukey
+    robust_loss: huber
   grid:
-    G_max_fraction: 0.2
-    G_min_px: 64
-    N_g: 48
+    G_max_fraction: 0.22
+    G_min_px: 56
+    N_g: 40
     insufficient_cell_strategy: nearest
   mask:
-    sat_dilate_px: 10
-    star_dilate_px: 10
+    sat_dilate_px: 8
+    star_dilate_px: 8
   min_tiles_per_cell: 3
-  min_valid_sample_fraction_for_apply: 0.2
-  min_valid_samples_for_apply: 80
-  sample_quantile: 0.15
-  structure_thresh_percentile: 0.85
+  min_valid_sample_fraction_for_apply: 0.25
+  min_valid_samples_for_apply: 100
+  sample_quantile: 0.2
+  structure_thresh_percentile: 0.82
 calibration:
   bias_dir: ""
   bias_master: ""

@@ -174,39 +174,41 @@ astrometry:
 
 bge:
   enabled: true
-  # NOTE: Switched to polynomial method to avoid RBF edge extrapolation artifacts
-  # that cause gradient residuals at image boundaries (left side gradient issue)
+  # NOTE: Balanced config to avoid both RBF edge artifacts AND color casts
+  # - poly order 3 provides enough flexibility without wild extrapolation
+  # - huber loss is less aggressive than tukey (prevents channel rejection)
+  # - higher sample_quantile prevents over-selection of dark pixels
   autotune:
     enabled: true
-    strategy: conservative  # conservative = smoother, better edge behavior
-    max_evals: 32
+    strategy: conservative
+    max_evals: 24          # reduced to avoid overfitting
     holdout_fraction: 0.25
-    alpha_flatness: 0.50   # slightly reduced for flatter result
-    beta_roughness: 0.06   # slightly increased for smoother transitions
-  sample_quantile: 0.15    # lower = more dark pixels as background samples
-  structure_thresh_percentile: 0.85  # lower = more structure masked out
+    alpha_flatness: 0.55   # balanced flatness/roughness
+    beta_roughness: 0.05
+  sample_quantile: 0.20    # balanced - not too aggressive
+  structure_thresh_percentile: 0.82  # moderate structure masking
   min_tiles_per_cell: 3
-  min_valid_sample_fraction_for_apply: 0.20
-  min_valid_samples_for_apply: 80
+  min_valid_sample_fraction_for_apply: 0.25  # slightly higher threshold
+  min_valid_samples_for_apply: 100   # more samples required = more stable
   mask:
-    star_dilate_px: 10     # larger mask to protect bright structures
-    sat_dilate_px: 10
+    star_dilate_px: 8      # back to 8 - 10 was too aggressive
+    sat_dilate_px: 8
   grid:
-    N_g: 48                # finer grid for better edge coverage
-    G_min_px: 64
-    G_max_fraction: 0.20   # smaller cells = more local adaptivity
-    insufficient_cell_strategy: nearest  # nearest = no radius extrapolation
+    N_g: 40                # balanced grid density
+    G_min_px: 56
+    G_max_fraction: 0.22
+    insufficient_cell_strategy: nearest  # prevents extrapolation artifacts
   fit:
-    method: poly           # polynomial = stable at edges, no extrapolation artifacts
-    robust_loss: tukey     # tukey = more aggressive outlier rejection
-    huber_delta: 1.5
-    irls_max_iterations: 12
+    method: poly
+    robust_loss: huber     # huber = less aggressive than tukey (prevents partial rejection)
+    huber_delta: 1.8       # slightly increased = more tolerance
+    irls_max_iterations: 10
     irls_tolerance: 1e-4
-    polynomial_order: 2    # order 2 = smooth plane/paraboloid, no wild edge extrapolation
-    # RBF params kept as fallback if poly fails, but much more conservative
+    polynomial_order: 3    # order 3 = more flexible than 2, captures real gradients
+    # RBF fallback params (used if poly fails)
     rbf_phi: multiquadric
-    rbf_mu_factor: 1.5     # reduced from 2.5 = tighter kernel
-    rbf_lambda: 1e-3       # reduced from 1e-1 = smoother fit
+    rbf_mu_factor: 2.0     # balanced kernel width
+    rbf_lambda: 1e-2       # moderate smoothing
     rbf_epsilon: 1e-6
 
 pcc:
