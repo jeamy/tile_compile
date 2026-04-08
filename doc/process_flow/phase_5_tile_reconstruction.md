@@ -234,6 +234,44 @@ Die Boundary-Diagnostik verwendet nur Pixel innerhalb der `COMMON_OVERLAP`-/Canv
 | weight_sum = 0 an Pixel | Pixel bleibt außerhalb des gültigen Supports und wird als `NaN` markiert |
 | Auffällige Nachbargrenzen | erscheinen nur in der Boundary-Diagnostik, nicht als Tile-Eingriff |
 
+## Tile-Ausschluss und Canvas-Bounds
+
+### Dead-Tile-Detection
+
+Vor der parallelen Verarbeitung klassifiziert `detect_dead_tiles()` jedes Tile basierend auf der Canvas-Überdeckung:
+
+| Kategorie | Bedingung | Ergebnis |
+|-----------|-----------|----------|
+| **Vollständig außerhalb** | `x1 <= x0 \|\| y1 <= y0` | `dead_mask[ti] = true` |
+| **Unter Mindest-Coverage** | `coverage < dead_tile_min_coverage_fraction` (Standard: 1%) | Tile wird übersprungen |
+| **Teilweise außerhalb** | Tile überlappt Canvas nur teilweise | Nur sichtbarer Teil wird berechnet |
+
+**Bounds-Klammerung:**
+```cpp
+const int x0 = std::max(0, t.x);
+const int y0 = std::max(0, t.y);
+const int x1 = std::min(canvas_width,  t.x + t.width);
+const int y1 = std::min(canvas_height, t.y + t.height);
+```
+
+### Bounds-Checking in Code-Pfaden
+
+| Code-Pfad | Implementierung | Beispiel |
+|-----------|-----------------|----------|
+| **CPU Reconstruction** | Schleifen-Bounds | `y < tile.y + tile.height && y < h` |
+| **CUDA Acceleration** | Clip-Berechnung | `clip_w = std::min(tile.cols(), accum.cols() - x0)` |
+| **OpenCL Acceleration** | Clip-Berechnung | Gleiches Pattern wie CUDA |
+| **Runner Pipeline** | Null-Check | `if (iy < 0 \|\| iy >= canvas_height) continue` |
+
+### Konfigurationsparameter
+
+| Parameter | Standard | Beschreibung |
+|-----------|----------|--------------|
+| `dead_tile_min_coverage_fraction` | 0.01 (1%) | Mindest-Überdeckung für lebendige Tiles |
+| `tile_boundary_diagnostics_enabled` | false | Diagnose zu Tile-Grenzen aktivieren |
+
+Der Tile-Scheduler verarbeitet **nur** Tiles, die nicht in `dead_tile_mask` markiert sind. Tiles außerhalb des Canvas werden somit gar nicht berechnet.
+
 ## Nächste Phase
 
 → **Phase 10: STATE_CLUSTERING — Zustandsbasierte Clusterung**
