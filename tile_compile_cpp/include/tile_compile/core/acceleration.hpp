@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -163,6 +164,7 @@ private:
   mutable std::unordered_map<const Matrix2Df *,
                              std::shared_ptr<OverlapAddState>>
       overlap_add_coeff_states_;
+  mutable std::shared_mutex overlap_add_mutex_;
 };
 
 } // namespace tile_compile::core

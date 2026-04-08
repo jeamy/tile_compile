@@ -468,6 +468,8 @@ bool opencl_sigma_clip_weighted_tile_impl(
     return true;
   }
 
+  std::lock_guard<std::mutex> lock(opencl_api_mutex());
+
   try {
     std::vector<cv::UMat> gpu_tiles;
     std::vector<cv::UMat> keep_masks;
@@ -481,7 +483,7 @@ bool opencl_sigma_clip_weighted_tile_impl(
     cv::UMat valid_count(rows, cols, CV_32F);
     cv::Mat valid_count_host(rows, cols, CV_32F);
     cv::Mat min_keep_host(rows, cols, CV_32F);
-    // OpenCV UMat operations are thread-safe - no global mutex needed
+    // OpenCL operations protected by opencl_api_mutex
     zeros.setTo(cv::Scalar(0.0f));
     eps.setTo(cv::Scalar(1.0e-6f));
     valid_count.setTo(cv::Scalar(0.0f));
@@ -1947,6 +1949,7 @@ void AccelerationOps::overlap_add(const Matrix2Df &tile, const Tile &tile_bounds
       selection_.phase == AccelerationPhase::tile_reconstruction) {
     auto ensure_state = [&](Matrix2Df &host_matrix)
         -> std::shared_ptr<OverlapAddState> {
+      std::lock_guard<std::shared_mutex> lock(overlap_add_mutex_);
       auto &state = overlap_add_states_[&host_matrix];
       if (!state) {
         state = std::make_shared<OverlapAddState>();
@@ -1966,6 +1969,7 @@ void AccelerationOps::overlap_add(const Matrix2Df &tile, const Tile &tile_bounds
     };
     auto ensure_coeff_state = [&](const Matrix2Df &host_matrix)
         -> std::shared_ptr<OverlapAddState> {
+      std::lock_guard<std::shared_mutex> lock(overlap_add_mutex_);
       auto &state = overlap_add_coeff_states_[&host_matrix];
       if (!state) {
         state = std::make_shared<OverlapAddState>();
@@ -2048,6 +2052,7 @@ void AccelerationOps::overlap_add(const Matrix2Df &tile, const Tile &tile_bounds
       selection_.phase == AccelerationPhase::tile_reconstruction) {
     auto ensure_state = [&](Matrix2Df &host_matrix)
         -> std::shared_ptr<OverlapAddState> {
+      std::lock_guard<std::shared_mutex> lock(overlap_add_mutex_);
       auto &state = overlap_add_states_[&host_matrix];
       if (!state) {
         state = std::make_shared<OverlapAddState>();
@@ -2067,6 +2072,7 @@ void AccelerationOps::overlap_add(const Matrix2Df &tile, const Tile &tile_bounds
     };
     auto ensure_coeff_state = [&](const Matrix2Df &host_matrix)
         -> std::shared_ptr<OverlapAddState> {
+      std::lock_guard<std::shared_mutex> lock(overlap_add_mutex_);
       auto &state = overlap_add_coeff_states_[&host_matrix];
       if (!state) {
         state = std::make_shared<OverlapAddState>();
@@ -2226,6 +2232,7 @@ void AccelerationOps::overlap_add_preweighted(const Matrix2Df &weighted_tile,
       selection_.phase == AccelerationPhase::tile_reconstruction) {
     auto ensure_state = [&](Matrix2Df &host_matrix)
         -> std::shared_ptr<OverlapAddState> {
+      std::lock_guard<std::shared_mutex> lock(overlap_add_mutex_);
       auto &state = overlap_add_states_[&host_matrix];
       if (!state) {
         state = std::make_shared<OverlapAddState>();
@@ -2276,6 +2283,7 @@ void AccelerationOps::overlap_add_preweighted(const Matrix2Df &weighted_tile,
       selection_.phase == AccelerationPhase::tile_reconstruction) {
     auto ensure_state = [&](Matrix2Df &host_matrix)
         -> std::shared_ptr<OverlapAddState> {
+      std::lock_guard<std::shared_mutex> lock(overlap_add_mutex_);
       auto &state = overlap_add_states_[&host_matrix];
       if (!state) {
         state = std::make_shared<OverlapAddState>();
@@ -2344,6 +2352,7 @@ bool AccelerationOps::normalize_overlap_accum(Matrix2Df &accum,
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
   if (selection_.selected == AccelerationBackend::opencv_cuda &&
       selection_.phase == AccelerationPhase::tile_reconstruction) {
+    std::lock_guard<std::shared_mutex> lock(overlap_add_mutex_);
     auto accum_it = overlap_add_states_.find(&accum);
     auto weight_it = overlap_add_states_.find(&weight_sum);
     if (accum_it == overlap_add_states_.end() ||
@@ -2376,6 +2385,7 @@ bool AccelerationOps::normalize_overlap_accum(Matrix2Df &accum,
 #if TILE_COMPILE_HAS_OPENCV_OPENCL
   if (selection_.selected == AccelerationBackend::opencv_opencl &&
       selection_.phase == AccelerationPhase::tile_reconstruction) {
+    std::lock_guard<std::shared_mutex> lock(overlap_add_mutex_);
     auto accum_it = overlap_add_states_.find(&accum);
     auto weight_it = overlap_add_states_.find(&weight_sum);
     if (accum_it == overlap_add_states_.end() ||
@@ -2416,6 +2426,7 @@ void AccelerationOps::flush_overlap_state(Matrix2Df &accum,
 #if TILE_COMPILE_HAS_OPENCV_CUDA_HEADERS && TILE_COMPILE_HAS_OPENCV_CUDA_ARITHM
   if (selection_.selected == AccelerationBackend::opencv_cuda &&
       selection_.phase == AccelerationPhase::tile_reconstruction) {
+    std::lock_guard<std::shared_mutex> lock(overlap_add_mutex_);
     auto flush_cuda = [&](Matrix2Df &host_matrix) {
       auto it = overlap_add_states_.find(&host_matrix);
       if (it == overlap_add_states_.end() || !it->second) {
@@ -2443,6 +2454,7 @@ void AccelerationOps::flush_overlap_state(Matrix2Df &accum,
 #if TILE_COMPILE_HAS_OPENCV_OPENCL
   if (selection_.selected == AccelerationBackend::opencv_opencl &&
       selection_.phase == AccelerationPhase::tile_reconstruction) {
+    std::lock_guard<std::shared_mutex> lock(overlap_add_mutex_);
     auto flush_opencl = [&](Matrix2Df &host_matrix) {
       auto it = overlap_add_states_.find(&host_matrix);
       if (it == overlap_add_states_.end() || !it->second) {
