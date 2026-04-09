@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <numeric>
@@ -868,6 +869,7 @@ struct Triangle {
   float sides[3];       // sorted side lengths (ascending)
   float perimeter;
   float ratios[2];      // sides[0]/sides[2], sides[1]/sides[2] — invariants
+  float signed_area2;   // orientation-preserving triangle discriminator
 };
 
 static std::vector<Triangle>
@@ -877,8 +879,10 @@ build_triangles(const std::vector<StarPoint> &stars, int max_triangles) {
   if (n < 3)
     return tris;
 
-  // Limit combinatorial explosion: use top stars only
-  const int limit = std::min(n, 30);
+  // Limit combinatorial explosion: use a wider star subset. The previous
+  // hard cap of 30 caused dense fields to collapse into many ambiguous
+  // asterisms, even though plenty of stars were available.
+  const int limit = std::min(n, 60);
   tris.reserve(static_cast<size_t>(limit * (limit - 1) * (limit - 2) / 6));
 
   for (int i = 0; i < limit; ++i) {
@@ -894,9 +898,12 @@ build_triangles(const std::vector<StarPoint> &stars, int max_triangles) {
         float d_ij = std::sqrt(dx_ij * dx_ij + dy_ij * dy_ij);
         float d_ik = std::sqrt(dx_ik * dx_ik + dy_ik * dy_ik);
         float d_jk = std::sqrt(dx_jk * dx_jk + dy_jk * dy_jk);
+        const float signed_area2 = dx_ij * dy_ik - dy_ij * dx_ik;
 
         // Skip degenerate triangles
         if (d_ij < 3.0f || d_ik < 3.0f || d_jk < 3.0f)
+          continue;
+        if (std::fabs(signed_area2) < 9.0f)
           continue;
 
         Triangle t;
@@ -918,6 +925,13 @@ build_triangles(const std::vector<StarPoint> &stars, int max_triangles) {
         // Invariant ratios (scale + rotation invariant)
         t.ratios[0] = s[0] / s[2];
         t.ratios[1] = s[1] / s[2];
+        t.signed_area2 = signed_area2;
+
+        // Near-equilateral and near-isosceles triangles are highly ambiguous
+        // under ratio-only matching and poison the downstream affine fit.
+        if (t.ratios[1] > 0.97f || (t.ratios[1] - t.ratios[0]) < 0.02f) {
+          continue;
+        }
 
         tris.push_back(t);
       }
@@ -966,28 +980,42 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
 
   // Match triangles by invariant ratios
   const float ratio_tol = 0.03f; // tolerance for ratio matching
+  const float ambiguity_margin = 0.004f;
 
-  // Collect star correspondences from matched triangles
-  std::vector<cv::Point2f> pts_mov, pts_ref;
-  pts_mov.reserve(mov_tris.size() * 3);
-  pts_ref.reserve(ref_tris.size() * 3);
+  struct PairVote {
+    int mov_idx = -1;
+    int ref_idx = -1;
+    int votes = 0;
+    float score_sum = 0.0f;
+  };
+  std::unordered_map<std::uint64_t, PairVote> pair_votes;
+  pair_votes.reserve(static_cast<size_t>(max_tris));
 
   int matches_found = 0;
   for (const auto &mt : mov_tris) {
     float best_dist = ratio_tol * 2.0f;
+    float second_best_dist = ratio_tol * 2.0f;
     const Triangle *best_rt = nullptr;
 
     for (const auto &rt : ref_tris) {
+      if ((mt.signed_area2 > 0.0f) != (rt.signed_area2 > 0.0f)) {
+        continue;
+      }
       float dr0 = mt.ratios[0] - rt.ratios[0];
       float dr1 = mt.ratios[1] - rt.ratios[1];
       float d = std::sqrt(dr0 * dr0 + dr1 * dr1);
       if (d < best_dist) {
+        second_best_dist = best_dist;
         best_dist = d;
         best_rt = &rt;
+      } else if (d < second_best_dist) {
+        second_best_dist = d;
       }
     }
 
     if (!best_rt || best_dist >= ratio_tol)
+      continue;
+    if (second_best_dist - best_dist < ambiguity_margin)
       continue;
 
     matches_found++;
@@ -1033,17 +1061,62 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
     auto ref_order = vertex_order(ref_stars, *best_rt);
 
     for (int v = 0; v < 3; ++v) {
-      pts_mov.push_back(cv::Point2f(mov_stars[mov_order[v]].x,
-                                     mov_stars[mov_order[v]].y));
-      pts_ref.push_back(cv::Point2f(ref_stars[ref_order[v]].x,
-                                     ref_stars[ref_order[v]].y));
+      const int mov_idx = mov_order[v];
+      const int ref_idx = ref_order[v];
+      const std::uint64_t key =
+          (static_cast<std::uint64_t>(static_cast<std::uint32_t>(mov_idx))
+           << 32) |
+          static_cast<std::uint32_t>(ref_idx);
+      auto &vote = pair_votes[key];
+      vote.mov_idx = mov_idx;
+      vote.ref_idx = ref_idx;
+      vote.votes += 1;
+      vote.score_sum += best_dist;
     }
 
     if (matches_found > 200)
       break;
   }
 
-  if (pts_mov.size() < 6) {
+  std::vector<PairVote> ranked_pairs;
+  ranked_pairs.reserve(pair_votes.size());
+  for (const auto &entry : pair_votes) {
+    ranked_pairs.push_back(entry.second);
+  }
+  std::sort(ranked_pairs.begin(), ranked_pairs.end(),
+            [](const PairVote &a, const PairVote &b) {
+              if (a.votes != b.votes) {
+                return a.votes > b.votes;
+              }
+              return a.score_sum < b.score_sum;
+            });
+
+  std::vector<cv::Point2f> pts_mov, pts_ref;
+  pts_mov.reserve(ranked_pairs.size());
+  pts_ref.reserve(ranked_pairs.size());
+  std::vector<uint8_t> mov_used(mov_stars.size(), 0);
+  std::vector<uint8_t> ref_used(ref_stars.size(), 0);
+  for (const PairVote &vote : ranked_pairs) {
+    if (vote.mov_idx < 0 || vote.ref_idx < 0) {
+      continue;
+    }
+    if (vote.mov_idx >= static_cast<int>(mov_used.size()) ||
+        vote.ref_idx >= static_cast<int>(ref_used.size())) {
+      continue;
+    }
+    if (mov_used[static_cast<size_t>(vote.mov_idx)] != 0 ||
+        ref_used[static_cast<size_t>(vote.ref_idx)] != 0) {
+      continue;
+    }
+    mov_used[static_cast<size_t>(vote.mov_idx)] = 1;
+    ref_used[static_cast<size_t>(vote.ref_idx)] = 1;
+    pts_mov.push_back(cv::Point2f(mov_stars[static_cast<size_t>(vote.mov_idx)].x,
+                                  mov_stars[static_cast<size_t>(vote.mov_idx)].y));
+    pts_ref.push_back(cv::Point2f(ref_stars[static_cast<size_t>(vote.ref_idx)].x,
+                                  ref_stars[static_cast<size_t>(vote.ref_idx)].y));
+  }
+
+  if (pts_mov.size() < static_cast<size_t>(std::max(3, min_inliers))) {
     res.error_message = "few_triangle_matches";
     return res;
   }
@@ -1065,7 +1138,7 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
       pts_mov.empty()
           ? 0.0f
           : static_cast<float>(inl) / static_cast<float>(pts_mov.size());
-  res.success = inl >= min_inliers && res.correlation > 0.05f;
+  res.success = inl >= min_inliers;
   return res;
 }
 
