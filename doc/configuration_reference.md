@@ -672,7 +672,89 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 - Scale außerhalb `[reject_scale_min, reject_scale_max]` wird als Outlier verworfen.
 - Zusätzlich werden Reflection-Warps (`det < 0`) immer verworfen.
 
----
+----
+
+### `registration.max_blind_chain_depth`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 0 |
+| **Maximum** | 100 |
+| **Default** | `0` |
+
+**Zweck:** Maximale Tiefe für Blind-Chain-Rescue. `0` = automatisch (N/10, min 12, max 50).
+
+- **Wert 0 (auto):** Automatische Berechnung basierend auf Frame-Anzahl N. Formel: `clamp(N/10, 12, 50)`
+- **Wert >0:** Manuelle Überschreibung der maximalen Chain-Tiefe
+
+**Hinweis:** Höhere Werte erlauben längere Ketten bei Wolkenblöcken, erhöhen aber auch das Risiko von Drift-Fehlern.
+
+----
+
+### `registration.blind_chain_strong_anchor_cc`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0.01 |
+| **Maximum** | 0.5 |
+| **Default** | `0.08` |
+
+**Zweck:** CC-Schwelle für "starke Anker" in Blind-Chains. Frames mit höherem CC können tiefere Ketten starten.
+
+**Hinweis:** Niedrigere Werte erlauben mehr Frames als starke Anker (aggressiver), höhere Werte sind konservativer.
+
+----
+
+### `registration.blind_chain_drift_threshold_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0.5 |
+| **Maximum** | 10.0 |
+| **Default** | `2.0` |
+
+**Zweck:** Maximal erlaubte Drift in Pixeln pro Frame innerhalb einer Blind-Chain.
+
+- Die Kette wird abgebrochen wenn die kumulative Drift diesen Wert überschreitet
+- Schützt vor akkumulierenden Fehlern in langen Ketten
+
+----
+
+### `registration.use_astrometry`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert astrometrische Rescue für Frames, die alle anderen Algorithmen nicht registrieren können.
+
+**Voraussetzungen:**
+- ASTAP-Binary muss verfügbar sein (siehe `astrometry.astap_bin`)
+- Lokaler Sternenkatalog muss vorhanden sein (siehe `astrometry.astap_data_dir`)
+
+**Hinweis:** Bei sehr hellen Sternen (z.B. Capella) auf `false` setzen, da ASTAP Probleme mit überbelichteten Zentren hat.
+
+----
+
+### `registration.enable_local_background_subtraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert lokale Hintergrundsubtraktion vor der Sternerkennung.
+
+**Empfohlen bei:**
+- Starkem Mondlicht mit Gradienten
+- Starmer Hintergrundstruktur (Nebel, Galaxien)
+- Unebenem Hintergrund durch Flat-Korrektur-Fehler
+
+----
 
 ## 8b. Dithering
 

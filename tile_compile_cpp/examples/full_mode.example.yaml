@@ -80,6 +80,14 @@ registration:
   reject_scale_max: 1.08 # maximale erlaubte Similarity-Skalierung
   auto_engine: true # automatisch auf triangle_star_matching+affine wechseln bei erkannter Feldrotation (Alt/Az)
   auto_engine_rotation_threshold_deg: 0.05 # Schwelle in Grad/Frame fuer Auto-Engine-Override
+  # Neue Blind-Chain Parameter (v2.0)
+  max_blind_chain_depth: 0 # 0 = auto (N/10), 12-50 bei Bedarf manuell setzen
+  blind_chain_strong_anchor_cc: 0.08 # CC-Schwelle fuer starke Anker in Blind-Chains
+  blind_chain_drift_threshold_px: 2.0 # Max. Drift pro Frame in Chain
+  # Astrometrische Rescue (v2.0)
+  use_astrometry: true # Astrometrische Rescue fuer unresolved Frames (erfordert ASTAP)
+  # Lokale Hintergrundsubtraktion (v2.0)
+  enable_local_background_subtraction: false # Bei Mondlicht/Gradienten aktivieren
   # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
   # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
 

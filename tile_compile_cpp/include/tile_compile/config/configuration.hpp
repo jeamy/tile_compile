@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <string>
@@ -93,7 +94,25 @@ struct RegistrationConfig {
   float reject_shift_median_multiplier = 5.0f;
   float reject_scale_min = 0.92f;
   float reject_scale_max = 1.08f;
+  // Neue Parameter für Blind-Chain Rescue (§4.1, §8.B)
+  int max_blind_chain_depth = 0;               // 0 = auto (N/10), >0 = manual
+  float blind_chain_strong_anchor_cc = 0.08f;  // CC threshold for strong anchors
+  float blind_chain_drift_threshold_px = 2.0f; // Max drift per frame in chain
+  // Astrometric rescue (§4.13)
+  bool use_astrometry = true;                  // Enable astrometric rescue
+  // Local background subtraction for star detection (§4.4, §8.D)
+  bool enable_local_background_subtraction = false;
 };
+
+// §4.1, §8.B — Berechnung effektiver Chain-Tiefe
+// 0 = auto (N/10, min 12, max 50), >0 = manuelle Überschreibung
+inline int get_effective_chain_depth(int num_frames, const RegistrationConfig& cfg) {
+  if (cfg.max_blind_chain_depth > 0) {
+    return cfg.max_blind_chain_depth;  // Manuelle Überschreibung
+  }
+  // Auto: N/10, mindestens 12, maximal 50
+  return std::clamp(num_frames / 10, 12, 50);
+}
 
 struct WienerDenoiseConfig {
   bool enabled = false;

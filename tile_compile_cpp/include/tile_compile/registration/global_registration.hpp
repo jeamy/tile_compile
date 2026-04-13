@@ -57,7 +57,8 @@ RegistrationResult star_registration_similarity(
     bool allow_rotation,
     int topk_stars, int min_inliers,
     float inlier_tol_px, float dist_bin_px,
-    const std::string& transform_model);
+    const std::string& transform_model,
+    bool enable_local_background_subtraction = false);
 
 RegistrationResult feature_registration_similarity(
     const Matrix2Df& mov, const Matrix2Df& ref,
@@ -67,7 +68,8 @@ RegistrationResult triangle_star_matching(
     const Matrix2Df& mov, const Matrix2Df& ref,
     bool allow_rotation,
     int topk_stars, int min_inliers,
-    float inlier_tol_px, const std::string& transform_model);
+    float inlier_tol_px, const std::string& transform_model,
+    bool enable_local_background_subtraction = false);
 
 RegistrationResult robust_phase_ecc(
     const Matrix2Df& mov, const Matrix2Df& ref,
@@ -78,5 +80,10 @@ RegistrationResult robust_phase_ecc_seeded(
     bool allow_rotation, const WarpMatrix& init_warp);
 
 float estimate_rotation_logpolar(const cv::Mat& ref, const cv::Mat& mov);
+
+// §4.13 — Helper für astrometrische Rescue und interne Verwendung
+cv::Mat warp_valid_mask(const Matrix2Df& img, const WarpMatrix& warp);
+float compute_ncc_masked(const Matrix2Df& a, const Matrix2Df& b,
+                         const cv::Mat& mask, int* used_pixels = nullptr);
 
 } // namespace tile_compile::registration

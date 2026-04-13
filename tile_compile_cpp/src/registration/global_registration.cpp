@@ -350,16 +350,45 @@ static std::vector<StarPoint> detect_stars_with_threshold(
   return stars;
 }
 
-std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk) {
+std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk,
+                                           bool enable_local_background_subtraction) {
   const int h = img.rows();
   const int w = img.cols();
   if (h < 5 || w < 5)
     return {};
 
+  // §4.4, §8.D — Lokale Hintergrundsubtraktion bei Gradienten/Mondlicht
+  Matrix2Df processed_img;
+  const Matrix2Df *img_ptr = &img;
+  if (enable_local_background_subtraction) {
+    // Lokale Hintergrundschätzung mit Box-Blur (31x31 Pixel)
+    processed_img = img;  // Kopie
+    const int kernel_size = 31;
+    const int half_k = kernel_size / 2;
+    // Einfacher Box-Blur für Hintergrundschätzung
+    for (int y = 0; y < h; ++y) {
+      for (int x = 0; x < w; ++x) {
+        float sum = 0.0f;
+        int count = 0;
+        for (int dy = -half_k; dy <= half_k; ++dy) {
+          int py = std::clamp(y + dy, 0, h - 1);
+          for (int dx = -half_k; dx <= half_k; ++dx) {
+            int px = std::clamp(x + dx, 0, w - 1);
+            sum += img(py, px);
+            ++count;
+          }
+        }
+        float background = sum / count;
+        processed_img(y, x) = std::max(0.0f, img(y, x) - background);
+      }
+    }
+    img_ptr = &processed_img;
+  }
+
   std::vector<float> pixels;
-  pixels.reserve(static_cast<size_t>(img.size()));
+  pixels.reserve(static_cast<size_t>(img_ptr->size()));
   for (int y = 0; y < h; ++y) {
-    const float *row = img.data() + static_cast<size_t>(y) * w;
+    const float *row = img_ptr->data() + static_cast<size_t>(y) * w;
     pixels.insert(pixels.end(), row, row + w);
   }
   float med = core::median_of(pixels);
@@ -367,19 +396,19 @@ std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk) {
   if (sigma < 1.0e-6f)
     sigma = 1.0f;
 
-  // Try standard threshold (3.5σ)
-  std::vector<StarPoint> stars = detect_stars_with_threshold(img, topk, 3.5f, med, sigma);
-  
+  // Try standard threshold (3.5σ) — mit optionaler Hintergrundsubtraktion
+  std::vector<StarPoint> stars = detect_stars_with_threshold(*img_ptr, topk, 3.5f, med, sigma);
+
   // Adaptive fallback: if we found very few stars, retry with lower threshold
   // This helps with clouds/nebula where stars appear fainter
   const int min_expected = std::max(4, topk / 2);
   if (static_cast<int>(stars.size()) < min_expected) {
-    std::vector<StarPoint> stars_relaxed = detect_stars_with_threshold(img, topk, 2.5f, med, sigma);
+    std::vector<StarPoint> stars_relaxed = detect_stars_with_threshold(*img_ptr, topk, 2.5f, med, sigma);
     if (stars_relaxed.size() > stars.size()) {
       stars = std::move(stars_relaxed);
     }
   }
-  
+
   return stars;
 }
 
@@ -723,14 +752,15 @@ star_registration_similarity(const Matrix2Df &mov, const Matrix2Df &ref,
                              bool allow_rotation,
                              int topk_stars, int min_inliers,
                              float inlier_tol_px, float dist_bin_px,
-                             const std::string &transform_model) {
+                             const std::string &transform_model,
+                             bool enable_local_background_subtraction) {
   RegistrationResult res;
   res.warp = identity_warp();
   res.success = false;
   res.correlation = 0.0f;
 
-  auto mov_stars = detect_stars_simple(mov, topk_stars);
-  auto ref_stars = detect_stars_simple(ref, topk_stars);
+  auto mov_stars = detect_stars_simple(mov, topk_stars, enable_local_background_subtraction);
+  auto ref_stars = detect_stars_simple(ref, topk_stars, enable_local_background_subtraction);
   if (mov_stars.size() < 3 || ref_stars.size() < 3) {
     res.error_message = "too_few_stars";
     return res;
@@ -955,14 +985,15 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
                        bool allow_rotation,
                        int topk_stars, int min_inliers,
                        float inlier_tol_px,
-                       const std::string &transform_model) {
+                       const std::string &transform_model,
+                       bool enable_local_background_subtraction) {
   RegistrationResult res;
   res.warp = identity_warp();
   res.success = false;
   res.correlation = 0.0f;
 
-  auto mov_stars = detect_stars_simple(mov, topk_stars);
-  auto ref_stars = detect_stars_simple(ref, topk_stars);
+  auto mov_stars = detect_stars_simple(mov, topk_stars, enable_local_background_subtraction);
+  auto ref_stars = detect_stars_simple(ref, topk_stars, enable_local_background_subtraction);
 
   if (mov_stars.size() < 3 || ref_stars.size() < 3) {
     res.error_message = "too_few_stars";
@@ -1216,7 +1247,7 @@ static float compute_ncc(const Matrix2Df &a, const Matrix2Df &b) {
   return (den > 1e-10) ? static_cast<float>(sab / den) : 0.0f;
 }
 
-static cv::Mat warp_valid_mask(const Matrix2Df &img, const WarpMatrix &warp) {
+cv::Mat warp_valid_mask(const Matrix2Df &img, const WarpMatrix &warp) {
   cv::Mat ones(img.rows(), img.cols(), CV_32F, cv::Scalar(1.0f));
   cv::Mat warp_matrix(2, 3, CV_32F);
   for (int i = 0; i < 2; ++i) {
@@ -1231,8 +1262,8 @@ static cv::Mat warp_valid_mask(const Matrix2Df &img, const WarpMatrix &warp) {
   return warped_mask;
 }
 
-static float compute_ncc_masked(const Matrix2Df &a, const Matrix2Df &b,
-                                const cv::Mat &mask, int *used_pixels = nullptr) {
+float compute_ncc_masked(const Matrix2Df &a, const Matrix2Df &b,
+                         const cv::Mat &mask, int *used_pixels) {
   if (a.size() <= 0 || a.size() != b.size() || mask.empty() ||
       mask.rows != a.rows() || mask.cols != a.cols()) {
     if (used_pixels) {
@@ -1326,8 +1357,8 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
   }
 
   if (diag) {
-    auto stars_ref = detect_stars_simple(ref, rcfg.star_topk);
-    auto stars_mov = detect_stars_simple(mov, rcfg.star_topk);
+    auto stars_ref = detect_stars_simple(ref, rcfg.star_topk, rcfg.enable_local_background_subtraction);
+    auto stars_mov = detect_stars_simple(mov, rcfg.star_topk, rcfg.enable_local_background_subtraction);
     std::cout << "[REG-DIAG#" << diag_id << "] ncc_identity=" << out.ncc_identity
               << " stars_ref=" << stars_ref.size()
               << " stars_mov=" << stars_mov.size()
@@ -1377,14 +1408,16 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
         triangle_star_matching(mov, ref, rcfg.allow_rotation,
                                rcfg.star_topk, rcfg.star_min_inliers,
                                rcfg.star_inlier_tol_px,
-                               rcfg.transform_model),
+                               rcfg.transform_model,
+                               rcfg.enable_local_background_subtraction),
         "triangle");
     if (!ok && rcfg.enable_star_pair_fallback) {
       ok = try_method(
           star_registration_similarity(
               mov, ref, rcfg.allow_rotation, rcfg.star_topk,
               rcfg.star_min_inliers, rcfg.star_inlier_tol_px,
-              rcfg.star_dist_bin_px, rcfg.transform_model),
+              rcfg.star_dist_bin_px, rcfg.transform_model,
+              rcfg.enable_local_background_subtraction),
           "star_pair");
     }
     return ok;
@@ -1410,7 +1443,8 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
           triangle_star_matching(mov, ref, rcfg.allow_rotation,
                                 rcfg.star_topk, rcfg.star_min_inliers,
                                 rcfg.star_inlier_tol_px,
-                                rcfg.transform_model),
+                                rcfg.transform_model,
+                                rcfg.enable_local_background_subtraction),
           "triangle");
     }
   }

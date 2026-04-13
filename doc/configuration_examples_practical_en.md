@@ -296,6 +296,12 @@ registration:
   reject_shift_median_multiplier: 5.0
   reject_scale_min: 0.92
   reject_scale_max: 1.08
+  # New parameters (v2.0)
+  max_blind_chain_depth: 0        # auto (N/10) for cloud blocks
+  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_drift_threshold_px: 2.0
+  use_astrometry: true            # Astrometric rescue when needed
+  enable_local_background_subtraction: false
 ```
 
 **Star-poor / nebula-heavy / cloudy data:**
@@ -305,6 +311,12 @@ registration:
   allow_rotation: true
   max_shift_px: 80
   reject_outliers: true
+  # New parameters (v2.0) — for strong gradients
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_drift_threshold_px: 2.0
+  use_astrometry: true
+  enable_local_background_subtraction: true  # For moonlight/gradients
 ```
 
 **Well-tracked equatorial mount:**
@@ -313,6 +325,12 @@ registration:
   engine: triangle_star_matching
   allow_rotation: true
   max_shift_px: 30
+  # New parameters (v2.0) — defaults
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_drift_threshold_px: 2.0
+  use_astrometry: true
+  enable_local_background_subtraction: false
 ```
 
 ---

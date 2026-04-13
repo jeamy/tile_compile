@@ -7,6 +7,7 @@
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/registration/astrometric_rescue.hpp"
 #include "tile_compile/registration/global_registration.hpp"
 #include "tile_compile/registration/registration.hpp"
 #include "tile_compile/runner/registration_outlier_utils.hpp"
@@ -110,6 +111,7 @@ enum class RegistrationProvenance : uint8_t {
   temporal_rescue,
   seeded_ecc_rescue,
   local_reference_rescue,
+  astrometric_rescue,  // §4.13 — Plate-Solving via ASTAP
   model_global_poly,
   model_local_poly,
   model_interpolated,
@@ -135,6 +137,8 @@ const char *registration_provenance_name(RegistrationProvenance provenance) {
     return "seeded_ecc_rescue";
   case RegistrationProvenance::local_reference_rescue:
     return "local_reference_rescue";
+  case RegistrationProvenance::astrometric_rescue:
+    return "astrometric_rescue";
   case RegistrationProvenance::model_global_poly:
     return "model_global_poly";
   case RegistrationProvenance::model_local_poly:
@@ -621,8 +625,19 @@ bool run_phase_registration_prewarp(
   int global_ref_idx = temporal_center_idx;
   std::string ref_frame_strategy = "temporal_center";
   float global_reg_scale = 1.0f;
-  constexpr int kMaxBlindChainAnchorDepth = 12;
-  constexpr float kBlindChainStrongAnchorCc = 0.08f;
+  // §4.1, §8.B — Konfigurierbare Blind-Chain Parameter aus Config
+  const int kMaxBlindChainAnchorDepth = get_effective_chain_depth(
+      static_cast<int>(frames.size()), cfg.registration);
+  const float kBlindChainStrongAnchorCc = cfg.registration.blind_chain_strong_anchor_cc;
+  const float kBlindChainDriftThresholdPx = cfg.registration.blind_chain_drift_threshold_px;
+  // §4.13 — Astrometrische Rescue
+  const bool kUseAstrometry = cfg.registration.use_astrometry;
+
+  // Logging der effektiven Chain-Tiefe
+  std::cout << "[REG-CHAIN] Using max_blind_chain_depth=" << kMaxBlindChainAnchorDepth
+            << " (config=" << (cfg.registration.max_blind_chain_depth == 0 ? "auto" :
+                              std::to_string(cfg.registration.max_blind_chain_depth))
+            << ", N=" << frames.size() << ")" << std::endl;
 
   auto set_registration_state =
       [&](size_t fi, const WarpMatrix &warp, float cc, bool chain_validated,
@@ -645,6 +660,7 @@ bool run_phase_registration_prewarp(
     case RegistrationProvenance::temporal_rescue:
     case RegistrationProvenance::seeded_ecc_rescue:
     case RegistrationProvenance::local_reference_rescue:
+    case RegistrationProvenance::astrometric_rescue:
       return true;
     case RegistrationProvenance::sequential_rescue:
       return (reg_chain_depth[fi] >= 0 &&
@@ -1648,6 +1664,47 @@ bool run_phase_registration_prewarp(
           emitter.warning(run_id, msg.str(), log_file);
           std::cout << "[REG-LOCAL-REF] " << msg.str() << std::endl;
         }
+
+        // §4.13 — Astrometrische Rescue für verbliebene nicht-registrierte Frames
+        int reg_astrometric_rescued = 0;
+        if (kUseAstrometry) {
+          // Prüfe ASTAP-Verfügbarkeit
+          if (registration::is_astap_available(cfg.astrometry.astap_bin,
+                                                cfg.astrometry.astap_data_dir)) {
+            for (size_t fi = 0; fi < frames.size(); ++fi) {
+              if (global_frame_cc[fi] > 0.0f) continue;  // Bereits registriert
+
+              const Matrix2Df mov = load_registration_proxy(fi);
+              const Matrix2Df ref = load_registration_proxy(global_ref_idx);
+
+              auto astro_res = registration::try_astrometric_rescue(
+                  mov, ref,
+                  cfg.astrometry.astap_bin,
+                  cfg.astrometry.astap_data_dir,
+                  cfg.astrometry.search_radius,
+                  0.20f);  // NCC threshold
+
+              if (astro_res.success) {
+                set_registration_state(
+                    fi, registration::scale_translation_warp(astro_res.warp, global_reg_scale),
+                    astro_res.correlation, true, 0,
+                    RegistrationProvenance::astrometric_rescue);
+                ++reg_astrometric_rescued;
+              }
+            }
+
+            if (reg_astrometric_rescued > 0) {
+              std::ostringstream msg;
+              msg << "REGISTRATION astrometric rescue: recovered "
+                  << reg_astrometric_rescued << " frames via plate-solving";
+              emitter.warning(run_id, msg.str(), log_file);
+              std::cout << "[REG-ASTROMETRY] " << msg.str() << std::endl;
+            }
+          } else {
+            std::cout << "[REG-ASTROMETRY] ASTAP not available, skipping astrometric rescue" << std::endl;
+          }
+        }
+        global_reg_extra["reg_astrometric_rescued"] = reg_astrometric_rescued;
 
         global_reg_status = "ok";
         try {
