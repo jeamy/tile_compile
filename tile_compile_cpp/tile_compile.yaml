@@ -97,9 +97,9 @@ dithering:
 global_metrics:
   adaptive_weights: true
   clamp:
-    - -3
-    - 3
-  weight_exponent_scale: 1.2
+    - -2.5
+    - 2.5
+  weight_exponent_scale: 1.3
   weights:
     background: 0.4
     gradient: 0.25
@@ -184,7 +184,7 @@ registration:
   star_topk: 150
   transform_model: affine
   use_astrometry: true
-run_dir: ./run_m31_background_gradient_balanced
+run_dir: ./run_m104_altaz_rotation_poor_seeing
 runtime_limits:
   acceleration_backend: auto
   allow_emergency_mode: true
@@ -195,17 +195,19 @@ runtime_limits:
 scenario_profile:
   gui2_scenarios:
     - osc
-    - m31
+    - m104
     - galaxy
-    - background_gradient
-    - broadband
-  id: m31_background_gradient_balanced
-  intent: M31/OSC mit Fokus auf Gradientreduktion bei moeglichst neutraler PCC-Farbkalibrierung ohne Gruenstich.
-  priority: balanced_color_and_background
+    - altaz
+    - rotation
+    - poor_seeing
+  id: m104_altaz_rotation_poor_seeing
+  intent: OSC-Galaxienfeld wie M104 mit etwas staerkerer Alt/Az-Feldrotation, wechselhaftem Seeing und Prioritaet auf robuster Registrierung sowie staerkerer Gewichtung guter Frames.
+  priority: robust_registration_and_stronger_quality_separation
   recommended_for:
-    - M31 / grosse diffuse Galaxien mit Hintergrundgradient
-    - wenn ein nebula-orientiertes Chroma-Suppression-Preset die Galaxie zu gruen oder zu entsaettigt macht
-  title: M31 Background Gradient Balanced
+    - M104 und aehnliche kompakte Galaxienfelder auf Alt/Az-Montierung mit sichtbarer Feldrotation
+    - Sessions mit brauchbaren, aber ungleich guten Frames, bei denen gute Frames staerker gewichtet werden sollen
+    - Datensaetze, bei denen eine Ein-Referenz-Registrierung zu langen Sequential-Ketten fuehrt
+  title: M104 AltAz Rotation Poor Seeing
 stacking:
   cluster_quality_weighting:
     cap_enabled: true
@@ -238,20 +240,6 @@ tile:
   overlap_fraction: 0.3
   size_factor: 24
   star_min_count: 5
-tile_denoise:
-  soft_threshold:
-    alpha: 1.4
-    blur_kernel: 21
-    enabled: true
-    skip_star_tiles: true
-  wiener:
-    enabled: true
-    max_iterations: 10
-    min_snr: 2
-    q_max: 1
-    q_min: -0.5
-    q_step: 0.1
-    snr_threshold: 4
 validation:
   max_background_rms_increase_percent: 2
   min_fwhm_improvement_percent: 3

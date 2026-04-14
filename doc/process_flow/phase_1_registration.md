@@ -53,7 +53,9 @@ Nach der Anchor-Auswahl laeuft die direkte Registrierung so:
 - Angeforderte Anchor-Frames werden zuerst gegen bereits aktive Anchors verankert.
 - Jedes normale Frame wird direkt gegen den **zeitlich naechsten aktiven Anchor** registriert, nicht zwangslaeufig gegen den Master-Anchor.
 - Starke `direct_global`-Treffer koennen zu weiteren aktiven Anchors promoted werden.
-- Dieser direkte Pass kann bis zu drei weitere Male wiederholt werden (`reg_direct_anchor_rounds`), damit sich das Anchor-Netz ueber wirklich erfolgreiche Direktmatches aufbaut.
+- Die Promotion skaliert ebenfalls mit `N`: Zielgroesse fuer aktive Anchors ist aktuell ungefaehr **1 aktiver Anchor pro 60 Frames**, begrenzt auf `21`.
+- Pro Promote-Runde duerfen aktuell ungefaehr **1 neue Anchors pro 160 Frames** dazukommen, begrenzt auf `2..8` pro Runde.
+- Die Anzahl zusaetzlicher Direktpaesse skaliert ebenfalls mit `N` und ist aktuell auf `ceil(N / 240)` begrenzt, mindestens `3`, maximal `8`.
 
 ## 1.2 Rescue-Hierarchie nach dem Direktpass
 
@@ -284,6 +286,9 @@ Die resultierenden Canvas-Daten werden im PREWARP-Output (`canvas_width/height`,
     "ref_frame_strategy": "quality_segmented_multi_anchor",
     "requested_ref_frames": [5, 42, 88],
     "active_ref_frames": [18, 42, 63, 88],
+    "reg_target_active_anchor_count": 5,
+    "reg_promote_limit_per_round": 2,
+    "reg_max_direct_anchor_rounds": 3,
     "reg_direct_anchor_rounds": 2,
     "reg_source_counts": {
       "direct_global": 61,
@@ -301,6 +306,9 @@ Wichtige aktuelle Felder:
 - `chain_depth`: effektive Verkettungstiefe pro Frame
 - `extra.requested_ref_frames`: angeforderte Quality-Anker
 - `extra.active_ref_frames`: tatsaechlich aktive Anchors nach Promotion
+- `extra.reg_target_active_anchor_count`: Zielgroesse fuer aktive Anchors nach N-Skalierung
+- `extra.reg_promote_limit_per_round`: wie viele neue Anchors eine Promote-Runde maximal aktivieren darf
+- `extra.reg_max_direct_anchor_rounds`: hartes Limit fuer wiederholte Direktpaesse
 - `extra.reg_source_counts`: Summen je Registrierungsweg
 - `extra.reg_direct_anchor_rounds`: wie oft nach Anchor-Promotion nochmals teure Direktpaesse gelaufen sind
 

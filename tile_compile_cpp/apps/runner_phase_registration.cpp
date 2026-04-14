@@ -626,6 +626,7 @@ bool run_phase_registration_prewarp(
   std::string ref_frame_strategy = "temporal_center";
   float global_reg_scale = 1.0f;
   std::vector<int> requested_anchor_indices;
+  int requested_anchor_count = 1;
   // §4.1, §8.B — Konfigurierbare Blind-Chain Parameter aus Config
   const int kMaxBlindChainAnchorDepth = get_effective_chain_depth(
       static_cast<int>(frames.size()), cfg.registration);
@@ -758,7 +759,7 @@ bool run_phase_registration_prewarp(
     }
 
     const int n = static_cast<int>(candidates.size());
-    int requested_anchor_count = 1;
+    requested_anchor_count = 1;
     if (n >= 120) {
       // Scale anchors with sequence length so very long Alt/Az sessions do not
       // rely on a coarse fixed bucket like 1/3/5. Keep the count odd so one
@@ -1237,7 +1238,19 @@ bool run_phase_registration_prewarp(
                                                      : reg_error);
         }
 
+        const int target_active_anchor_count =
+            std::max(requested_anchor_count,
+                     std::min(21, std::max(3, (static_cast<int>(frames.size()) + 59) / 60)));
+        const int promote_limit_per_round =
+            std::clamp((static_cast<int>(frames.size()) + 159) / 160, 2, 8);
+        const int max_direct_anchor_rounds =
+            std::clamp((static_cast<int>(frames.size()) + 239) / 240, 3, 8);
+
         auto promote_strong_direct_anchors = [&]() -> int {
+          if (static_cast<int>(active_anchor_indices.size()) >=
+              target_active_anchor_count) {
+            return 0;
+          }
           const float min_cc =
               std::max(0.35f, cfg.registration.reject_cc_min_abs + 0.10f);
           const int min_spacing = std::max(24, static_cast<int>(frames.size()) / 20);
@@ -1275,7 +1288,9 @@ bool run_phase_registration_prewarp(
             (void)score;
             if (maybe_add_active_anchor(idx)) {
               ++promoted;
-              if (promoted >= 4) {
+              if (promoted >= promote_limit_per_round ||
+                  static_cast<int>(active_anchor_indices.size()) >=
+                      target_active_anchor_count) {
                 break;
               }
             }
@@ -1285,7 +1300,7 @@ bool run_phase_registration_prewarp(
 
         int reg_direct_anchor_rounds = 0;
         int reg_promoted_active_anchors = 0;
-        for (int round = 0; round < 3; ++round) {
+        for (int round = 0; round < max_direct_anchor_rounds; ++round) {
           const int promoted = promote_strong_direct_anchors();
           if (promoted <= 0) {
             break;
@@ -1307,6 +1322,12 @@ bool run_phase_registration_prewarp(
         global_reg_extra["active_ref_frames"] = active_anchor_indices_sorted;
         global_reg_extra["active_ref_frame_count"] =
             static_cast<int>(active_anchor_indices_sorted.size());
+        global_reg_extra["reg_target_active_anchor_count"] =
+            target_active_anchor_count;
+        global_reg_extra["reg_promote_limit_per_round"] =
+            promote_limit_per_round;
+        global_reg_extra["reg_max_direct_anchor_rounds"] =
+            max_direct_anchor_rounds;
         global_reg_extra["reg_direct_anchor_rounds"] = reg_direct_anchor_rounds;
         global_reg_extra["reg_promoted_active_anchors"] =
             reg_promoted_active_anchors;
