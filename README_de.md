@@ -512,6 +512,10 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versionen
 
+## v0.2.0 (2026-04-14)
+
+- Registrierung fuer lange Alt/Az-Sessions deutlich erweitert: N-skalierende Multi-Anchor-Referenzwahl, N-skalierende Anchor-Promotion, astrometrische Registrierung/Rescue fuer schwache oder ungelöste Frames sowie neue Praxisbeispiele und aktualisierte Prozessdokumentation fuer schwierige Rotations- und Seeing-Faelle.
+
 ## v0.1.F (2026-04-07)
 
 - TILE_RECONSTRUCTION-Performance: Die speicherbedingte Worker-Reduktion (3 statt 8 Worker) wurde durch Frame-Sub-Batching ersetzt. Worker laufen jetzt immer mit dem konfigurierten `parallel_workers`-Wert; das Memory-Budget steuert die Batch-Größe (Frames pro Batch) statt die Thread-Anzahl. Erwarteter Speedup: ~2,7× für OSC-Läufe mit 600+ Frames bei 2 GB Memory-Budget.
@@ -672,6 +676,17 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-04-14)
+
+**Registrierung v0.2.0: Multi-Anchor-Skalierung + astrometrische Registrierung/Rescue:**
+
+- Die globale Registrierung verwendet nicht mehr nur starre `1/3/5`-Referenz-Buckets, sondern eine N-skalierende Anchor-Auswahl mit ungefaehr einem angeforderten Anchor pro 80 Frames, auf ungerade Anchor-Zahlen erzwungen und aktuell auf 15 begrenzt.
+- Die Anchor-Promotion nach starken direkten Treffern skaliert jetzt ebenfalls mit `N`: Zielgroesse der aktiven Anchors ist ungefaehr ein Anchor pro 60 Frames, Promotions pro Runde und die Zahl der zusaetzlichen Direktpaesse wachsen fuer lange Sessions kontrolliert mit.
+- Direkte Registrierung laeuft damit auf langen Alt/Az-Datensaetzen deutlich weniger in späte Ein-Referenz-Fallen; fruehe und spaete Sequenzbereiche koennen direkt an naeheren zeitlichen Anchors haengen.
+- Astrometrische Registrierung/Rescue wurde im Registrierungs-Runner praktisch aufgewertet: ASTAP-basierte Loesungen greifen nicht mehr nur bei `cc <= 0`, sondern auch fuer schwache bzw. tief verkettete Ergebnisse und verwenden den naechsten aktiven Anchor als Referenzbasis.
+- Neue Registration-Telemetrie in `global_registration.json`: unter anderem `requested_ref_frames`, `active_ref_frames`, `reg_target_active_anchor_count`, `reg_promote_limit_per_round`, `reg_max_direct_anchor_rounds`, `reg_direct_anchor_rounds` und `reg_source_counts`.
+- Neues Beispielprofil [tile_compile_cpp/examples/m104.example.yaml](tile_compile_cpp/examples/m104.example.yaml) fuer den Problemfall "Alt/Az, etwas staerkere Rotation, schlechtes Seeing, gute Frames staerker gewichten" hinzugefuegt; DE/EN-Praxisbeispiele sowie [doc/process_flow/phase_1_registration.md](doc/process_flow/phase_1_registration.md) auf den aktuellen Registrierungsablauf aktualisiert.
 
 ### (2026-04-07)
 
