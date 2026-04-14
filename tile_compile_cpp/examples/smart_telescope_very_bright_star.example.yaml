@@ -68,7 +68,7 @@ registration:
   enable_star_pair_fallback: true
   allow_rotation: true # PFLICHT fuer Alt/Az: Feldrotation erzeugt >20 Grad ueber eine Session
   transform_model: affine # Alt/Az: affine verfeinert lokale Scale-/Shear-Reste besser
-  star_topk: 180 # trotz dominanter heller Sterne genug schwaechere Sterne einbeziehen
+  star_topk: 80 # reduziert fuer schnelleres Matching
   star_min_inliers: 5 # Mindestzahl Inlier fuer Stern-Matching
   star_inlier_tol_px: 4.0 # toleranter fuer Rotationsresiduen
   star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
@@ -81,12 +81,12 @@ registration:
   auto_engine: true  # bei erkannter Feldrotation automatisch auf triangle_star_matching+affine wechseln (Alt/Az)
   auto_engine_rotation_threshold_deg: 0.05  # Schwelle in Grad/Frame fuer Auto-Engine-Override
   # Neue Parameter (v2.0) — use_astrometry false bei sehr hellen Sternen
-  max_blind_chain_depth: 0
-  blind_chain_strong_anchor_cc: 0.08
+  max_blind_chain_depth: 3
+  blind_chain_strong_anchor_cc: 0.5
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: false  # ASTAP hat Probleme mit sehr hellen Sternen
   enable_local_background_subtraction: false
-  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
+  star_shift_radius_px: 150       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
 
 dithering:
   enabled: false # Smart-Telescope Session typischerweise ohne klassisches Dithering
@@ -246,7 +246,7 @@ stacking:
     max_iters: 3 # maximale Clip-Iterationen
     min_fraction: 0.4 # bei vielen bewoelkten Frames darf mehr geclippt werden
   cluster_quality_weighting:
-    enabled: false # konservativ ohne zusaetzliche Clustergewichtung
+    enabled: true # konservativ ohne zusaetzliche Clustergewichtung
     kappa_cluster: 1.0 # Exponentfaktor fuer Clusterqualitaet Q_k
     cap_enabled: true # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 10.0 # konservativer als Default

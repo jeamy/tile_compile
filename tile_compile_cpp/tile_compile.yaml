@@ -6,8 +6,8 @@ assumptions:
     - 10
   reduced_mode_skip_clustering: true
 astrometry:
-  astap_bin: /home/mux/.local/share/tile_compile/astap/astap_cli
-  astap_data_dir: /home/mux/.local/share/tile_compile/astap
+  astap_bin: /home/lux/.local/share/tile_compile/astap/astap_cli
+  astap_data_dir: /home/lux/.local/share/tile_compile/astap
   enabled: true
   search_radius: 183
 bge:
@@ -166,12 +166,12 @@ registration:
   auto_engine: true
   auto_engine_rotation_threshold_deg: 0.05
   blind_chain_drift_threshold_px: 2
-  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_strong_anchor_cc: 0.5
   enable_local_background_subtraction: true
   enable_star_pair_fallback: true
   engine: triangle_star_matching
-  max_blind_chain_depth: 0
-  reject_cc_min_abs: 0.25
+  max_blind_chain_depth: 3
+  reject_cc_min_abs: 0.15
   reject_outliers: true
   reject_scale_max: 1.08
   reject_scale_min: 0.92
@@ -180,8 +180,8 @@ registration:
   star_dist_bin_px: 5
   star_inlier_tol_px: 4
   star_min_inliers: 4
-  star_shift_radius_px: 200
-  star_topk: 150
+  star_shift_radius_px: 150
+  star_topk: 80
   transform_model: affine
   use_astrometry: true
 run_dir: ./run_m104_altaz_rotation_poor_seeing
@@ -212,8 +212,8 @@ stacking:
   cluster_quality_weighting:
     cap_enabled: true
     cap_ratio: 20
-    enabled: false
-    kappa_cluster: 1
+    enabled: true
+    kappa_cluster: 120
   cosmetic_correction: true
   cosmetic_correction_sigma: 4
   method: rej
@@ -222,9 +222,9 @@ stacking:
   per_frame_cosmetic_correction_sigma: 2.5
   sigma_clip:
     max_iters: 4
-    min_fraction: 0.4
-    sigma_high: 1.8
-    sigma_low: 1.8
+    min_fraction: 0.5
+    sigma_high: 3
+    sigma_low: 3
 synthetic:
   clustering:
     cluster_count_range:

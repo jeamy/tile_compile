@@ -67,7 +67,7 @@ registration:
   enable_star_pair_fallback: true
   allow_rotation: true # auch bei EQ sinnvoll (Residualrotation, leichtes Drift)
   transform_model: similarity # EQ: weniger Freiheitsgrade, dadurch stabiler bei kleinen Residuen
-  star_topk: 120 # ausreichend bei stabilen EQ-Serien
+  star_topk: 80 # reduziert fuer schnelleres Matching
   star_min_inliers: 5 # Mindestzahl Inlier fuer Stern-Matching
   star_inlier_tol_px: 2.5 # etwas strikter als Alt/Az
   star_dist_bin_px: 3.0 # Distanz-Binning fuer Sternpaare
@@ -80,12 +80,12 @@ registration:
   auto_engine: true  # bei erkannter Feldrotation automatisch auf triangle_star_matching+affine wechseln (Alt/Az)
   auto_engine_rotation_threshold_deg: 0.05  # Schwelle in Grad/Frame fuer Auto-Engine-Override
   # Neue Parameter (v2.0) — Defaults
-  max_blind_chain_depth: 0
-  blind_chain_strong_anchor_cc: 0.08
+  max_blind_chain_depth: 3
+  blind_chain_strong_anchor_cc: 0.5
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
-  star_shift_radius_px: 60        # EQ-Montierung mit gutem Tracking; Alt/Az: 200-400
+  star_shift_radius_px: 150       # EQ: reduziert fuer schnelleres Matching
   # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
   # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
 
@@ -244,7 +244,7 @@ stacking:
     max_iters: 3 # maximale Clip-Iterationen
     min_fraction: 0.5 # Mindestanteil verbleibender Samples
   cluster_quality_weighting:
-    enabled: false # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
+    enabled: true # v3.2.2: gewichtet finale Clusteraggregation mit w_k=exp(kappa_cluster*Q_k)
     kappa_cluster: 0.7 # moderat: vermeidet Dominanz einzelner Cluster
     cap_enabled: true # Dominanz einzelner Cluster begrenzen
     cap_ratio: 20.0 # w_k <= 20 * median_j(w_j)

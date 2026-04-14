@@ -74,19 +74,19 @@ registration:
   enable_star_pair_fallback: true
   allow_rotation: true
   transform_model: affine
-  star_topk: 150
+  star_topk: 80
   star_min_inliers: 4
   star_inlier_tol_px: 4.0
   star_dist_bin_px: 5.0
-  star_shift_radius_px: 200
+  star_shift_radius_px: 150
   reject_outliers: true
-  reject_cc_min_abs: 0.25
+  reject_cc_min_abs: 0.15
   reject_shift_px_min: 100.0
   reject_shift_median_multiplier: 5.0
   reject_scale_min: 0.92
   reject_scale_max: 1.08
-  max_blind_chain_depth: 0
-  blind_chain_strong_anchor_cc: 0.08
+  max_blind_chain_depth: 3
+  blind_chain_strong_anchor_cc: 0.5
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: true
@@ -225,13 +225,13 @@ chroma_denoise:
 stacking:
   method: rej
   sigma_clip:
-    sigma_low: 1.8
-    sigma_high: 1.8
+    sigma_low: 3
+    sigma_high: 3
     max_iters: 4
-    min_fraction: 0.4
+    min_fraction: 0.5
   cluster_quality_weighting:
-    enabled: false
-    kappa_cluster: 1.0
+    enabled: true
+    kappa_cluster: 120.0
     cap_enabled: true
     cap_ratio: 20.0
   output_stretch: true
