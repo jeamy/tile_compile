@@ -609,6 +609,26 @@ All chained warps are validated with NCC against the reference frame. Particular
 - Bright background structures (nebulae, galaxies)
 - Uneven background from flat correction errors
 
+---
+
+### `registration.star_shift_radius_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `200.0` |
+| **Minimum** | `10` |
+| **Maximum** | `2000` |
+
+**Purpose:** Search radius for the shift-consistency filter in `triangle_star_matching` (pixels on the proxy image at half resolution). After triangle voting, each star pair is checked against others to find how many imply a similar shift (within this radius). The cluster with the highest support becomes the anchor; all inconsistent pairs are discarded. The radius must cover the **maximum expected inter-frame shift**.
+
+**When to adjust:**
+- **Equatorial mount** with good tracking (small shifts): `60`
+- **Alt/Az mount** (DWARF II, Seestar, multi-hour session): `200–400`
+- **Very long Alt/Az session** (>4h, large shift range): `400–600`
+
+> ⚠️ Too small a radius (e.g. 60 px on Alt/Az) causes false-match clusters to win the anchor vote over the real shift cluster → all frames fail triangle matching.
+
 ----
 
 ## 8b. Dithering

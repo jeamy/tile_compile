@@ -109,6 +109,16 @@ properties:
         type: number
         exclusiveMinimum: 0
         description: "Rotationsschwelle in Grad/Frame, ab der auto_engine den Override ausloest. Default: 0.05 (entspricht ~0.6 Grad/min bei 5s-Belichtungen — deutlich ueber EQ-Residualrotation <0.01 Grad/Frame, sicher unter jedem Alt/Az-Wert)."
+      max_blind_chain_depth: {type: integer, minimum: 0, maximum: 100}
+      blind_chain_strong_anchor_cc: {type: number, minimum: 0.01, maximum: 0.5}
+      blind_chain_drift_threshold_px: {type: number, minimum: 0.5, maximum: 10.0}
+      use_astrometry: {type: boolean}
+      enable_local_background_subtraction: {type: boolean}
+      star_shift_radius_px:
+        type: number
+        minimum: 10
+        maximum: 2000
+        description: "Suchradius fuer den Shift-Konsistenz-Filter in triangle_star_matching (px im Proxy-Bild). Muss den maximalen erwarteten Inter-Frame-Shift abdecken. Aequatorial: 60, Alt/Az (z.B. DWARF II): 200-400. Default: 200."
   dithering:
     type: object
     properties:

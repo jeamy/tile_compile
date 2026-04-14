@@ -162,8 +162,12 @@ pipeline:
   mode: production
 registration:
   allow_rotation: true
+  blind_chain_drift_threshold_px: 2
+  blind_chain_strong_anchor_cc: 0.08
+  enable_local_background_subtraction: false
   enable_star_pair_fallback: true
   engine: triangle_star_matching
+  max_blind_chain_depth: 0
   reject_cc_min_abs: 0.25
   reject_outliers: true
   reject_scale_max: 1.08
@@ -171,10 +175,12 @@ registration:
   reject_shift_median_multiplier: 5
   reject_shift_px_min: 120
   star_dist_bin_px: 5
-  star_inlier_tol_px: 6
+  star_inlier_tol_px: 4
   star_min_inliers: 4
+  star_shift_radius_px: 200
   star_topk: 180
   transform_model: affine
+  use_astrometry: true
 run_dir: ./run_m31_background_gradient_balanced
 runtime_limits:
   acceleration_backend: auto

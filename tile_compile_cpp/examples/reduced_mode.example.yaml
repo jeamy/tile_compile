@@ -86,6 +86,7 @@ registration:
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: false  # Schnelligkeit: kein Plate-Solving
   enable_local_background_subtraction: false
+  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
   # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
   # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
 

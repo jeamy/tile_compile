@@ -1671,22 +1671,32 @@ bool run_phase_registration_prewarp(
           // Prüfe ASTAP-Verfügbarkeit
           if (registration::is_astap_available(cfg.astrometry.astap_bin,
                                                 cfg.astrometry.astap_data_dir)) {
+            const Matrix2Df ref_proxy_astro =
+                load_registration_proxy(static_cast<size_t>(global_ref_idx));
+            const std::string ref_fits_path =
+                frames[static_cast<size_t>(global_ref_idx)].string();
+
             for (size_t fi = 0; fi < frames.size(); ++fi) {
-              if (global_frame_cc[fi] > 0.0f) continue;  // Bereits registriert
+              if (global_frame_cc[fi] > 0.0f) continue;
 
-              const Matrix2Df mov = load_registration_proxy(fi);
-              const Matrix2Df ref = load_registration_proxy(global_ref_idx);
+              const Matrix2Df mov_proxy_astro = load_registration_proxy(fi);
+              const std::string mov_fits_path = frames[fi].string();
 
-              auto astro_res = registration::try_astrometric_rescue(
-                  mov, ref,
-                  cfg.astrometry.astap_bin,
-                  cfg.astrometry.astap_data_dir,
-                  cfg.astrometry.search_radius,
-                  0.20f);  // NCC threshold
+              auto astro_res =
+                  registration::try_astrometric_rescue_from_paths(
+                      mov_fits_path, ref_fits_path,
+                      mov_proxy_astro, ref_proxy_astro,
+                      cfg.astrometry.astap_bin,
+                      cfg.astrometry.astap_data_dir,
+                      global_reg_scale,
+                      static_cast<float>(cfg.astrometry.search_radius),
+                      0.20f);
 
               if (astro_res.success) {
                 set_registration_state(
-                    fi, registration::scale_translation_warp(astro_res.warp, global_reg_scale),
+                    fi,
+                    registration::scale_translation_warp(astro_res.warp,
+                                                         global_reg_scale),
                     astro_res.correlation, true, 0,
                     RegistrationProvenance::astrometric_rescue);
                 ++reg_astrometric_rescued;

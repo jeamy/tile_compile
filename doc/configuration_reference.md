@@ -754,6 +754,26 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 - Starmer Hintergrundstruktur (Nebel, Galaxien)
 - Unebenem Hintergrund durch Flat-Korrektur-Fehler
 
+---
+
+### `registration.star_shift_radius_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Default** | `200.0` |
+| **Minimum** | `10` |
+| **Maximum** | `2000` |
+
+**Zweck:** Suchradius für den Shift-Konsistenz-Filter in `triangle_star_matching` (Pixel im Proxy-Bild, halbe Auflösung). Nach dem Dreiecks-Voting wird für jedes Stern-Paar geprüft, welche anderen Paare einen ähnlichen Shift implizieren (innerhalb dieses Radius). Das Paare-Cluster mit dem höchsten Support wird als Anker gewählt; alle inkonsistenten Paare werden verworfen. Der Radius muss den **maximalen erwarteten Inter-Frame-Shift** abdecken.
+
+**Wann anpassen:**
+- **Äquatoriale Montierung** mit gutem Tracking (kleine Shifts): `60`
+- **Alt/Az-Montierung** (DWARF II, Seestar, mehrstündige Session): `200–400`
+- **Sehr lange Alt/Az-Session** (>4h, großer Shift-Bereich): `400–600`
+
+> ⚠️ Zu kleiner Radius (z.B. 60px bei Alt/Az) führt dazu, dass falsche Match-Cluster den echten Shift-Cluster als Anker verdrängen → alle Frames scheitern beim Triangle-Matching.
+
 ----
 
 ## 8b. Dithering

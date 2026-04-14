@@ -92,10 +92,21 @@ TEST_CASE("detect_stars_simple with local background subtraction") {
         }
     }
     
-    // Füge einige "Sterne" hinzu
-    img(h/4, w/4) += 100.0f;
-    img(h/2, w/2) += 150.0f;
-    img(3*h/4, 3*w/4) += 120.0f;
+    // Füge einige realistischere Sterne als Gauß-Peaks hinzu.
+    // Einzelpixel würden von der Hotpixel-Filterung korrekt verworfen.
+    auto add_star = [&](int cx, int cy, float amplitude) {
+        for (int y = std::max(0, cy - 3); y < std::min(h, cy + 4); ++y) {
+            for (int x = std::max(0, cx - 3); x < std::min(w, cx + 4); ++x) {
+                float dx = static_cast<float>(x - cx);
+                float dy = static_cast<float>(y - cy);
+                img(y, x) += amplitude * std::exp(-(dx * dx + dy * dy) / 2.0f);
+            }
+        }
+    };
+
+    add_star(w / 4, h / 4, 100.0f);
+    add_star(w / 2, h / 2, 150.0f);
+    add_star(3 * w / 4, 3 * h / 4, 120.0f);
     
     // Ohne Hintergrundsubtraktion sollten weniger Sterne gefunden werden
     // (wegen des hohen Gradienten)
@@ -106,6 +117,7 @@ TEST_CASE("detect_stars_simple with local background subtraction") {
     
     // Mit Hintergrundsubtraktion sollten mindestens so viele Sterne gefunden werden
     REQUIRE(stars_with_bg.size() >= stars_no_bg.size());
+    REQUIRE(stars_with_bg.size() >= 3);
 }
 
 TEST_CASE("detect_stars_simple basic functionality") {

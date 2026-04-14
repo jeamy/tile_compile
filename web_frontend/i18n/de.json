@@ -980,6 +980,8 @@
   "param.registration.max_blind_chain_depth.short_help": "Maximale Tiefe für Blind-Chain-Rettung. 0 = auto (N/10, min 12, max 50). >0 = manuelle Überschreibung. Bereich: 0 - 100. Default: 0.",
   "param.registration.use_astrometry.label": "Astrometrie verwenden",
   "param.registration.use_astrometry.short_help": "Aktiviert astrometrische Rescue für Frames, die alle anderen Algorithmen nicht registrieren können. Erfordert ASTAP-Binary und Katalog in astrometry.*. Bereich: true/false. Default: true.",
+  "param.registration.star_shift_radius_px.label": "Shift-Suchradius",
+  "param.registration.star_shift_radius_px.short_help": "Suchradius für den Shift-Konsistenz-Filter in triangle_star_matching (px im Proxy-Bild). Muss den maximalen erwarteten Inter-Frame-Shift abdecken. Äquatorial-Montierung: 60, Alt/Az-Montierung (z.B. DWARF II, mehrstündige Session): 200–400. Bereich: 10–2000. Default: 200.",
   "param.run_dir.label": "Run Ordner",
   "param.run_dir.short_help": "Default: ./run_smart_telescope.",
   "param.runtime_limits.allow_emergency_mode.label": "Allow Emergency Modus",

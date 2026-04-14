@@ -181,6 +181,7 @@ registration:
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: false  # ASTAP hat Probleme mit sehr hellen Sternen
   enable_local_background_subtraction: false
+  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
 run_dir: ./run_very_bright_star_anti_seam
 runtime_limits:
   acceleration_backend: auto

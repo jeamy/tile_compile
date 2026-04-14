@@ -85,6 +85,7 @@ registration:
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
+  star_shift_radius_px: 60        # EQ-Montierung mit gutem Tracking; Alt/Az: 200-400
   # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
   # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
 

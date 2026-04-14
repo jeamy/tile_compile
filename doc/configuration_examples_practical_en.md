@@ -302,6 +302,7 @@ registration:
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true            # Astrometric rescue when needed
   enable_local_background_subtraction: false
+  star_shift_radius_px: 200       # Alt/Az: 200-400, equatorial: 60
 ```
 
 **Star-poor / nebula-heavy / cloudy data:**
@@ -317,6 +318,7 @@ registration:
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: true  # For moonlight/gradients
+  star_shift_radius_px: 200
 ```
 
 **Well-tracked equatorial mount:**
@@ -331,6 +333,7 @@ registration:
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
+  star_shift_radius_px: 60        # Equatorial with good tracking
 ```
 
 ---
@@ -562,6 +565,7 @@ registration:
   enable_star_pair_fallback: true
   allow_rotation: true
   max_shift_px: 80
+  star_shift_radius_px: 200       # Alt/Az: shift search radius for multi-hour sessions
 
 stacking:
   common_overlap_required_fraction: 1.0

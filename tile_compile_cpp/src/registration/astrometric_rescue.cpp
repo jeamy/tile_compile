@@ -222,49 +222,187 @@ AstrometricRescueResult try_astrometric_rescue(
   return result;
 }
 
+AstrometricRescueResult try_astrometric_rescue_from_paths(
+    const std::string& mov_fits_path,
+    const std::string& ref_fits_path,
+    const Matrix2Df& mov_proxy,
+    const Matrix2Df& ref_proxy,
+    const std::string& astap_bin_in,
+    const std::string& astap_data_dir_in,
+    float scale_factor,
+    float search_radius_deg,
+    float ncc_threshold) {
+
+  AstrometricRescueResult result;
+  result.success = false;
+  result.correlation = 0.0f;
+
+  std::string astap_data = astap_data_dir_in;
+  if (astap_data.empty()) {
+    const char* home = std::getenv("HOME");
+    if (home) astap_data = std::string(home) + "/.local/share/tile_compile/astap";
+  }
+  std::string astap_bin = astap_bin_in;
+  if (astap_bin.empty()) astap_bin = astap_data + "/astap_cli";
+
+  if (!fs::exists(astap_bin)) {
+    result.error_message = "astap_not_found";
+    return result;
+  }
+  if (!fs::exists(mov_fits_path) || !fs::exists(ref_fits_path)) {
+    result.error_message = "fits_path_not_found";
+    return result;
+  }
+
+  // ASTAP derives the .wcs output next to the input file
+  fs::path mov_wcs_path = fs::path(mov_fits_path);
+  mov_wcs_path.replace_extension(".wcs");
+  fs::path ref_wcs_path = fs::path(ref_fits_path);
+  ref_wcs_path.replace_extension(".wcs");
+
+  struct TempCleaner {
+    std::vector<fs::path> paths;
+    ~TempCleaner() {
+      for (const auto& p : paths) {
+        if (fs::exists(p)) fs::remove(p);
+      }
+    }
+  } cleaner;
+  cleaner.paths.push_back(mov_wcs_path);
+  cleaner.paths.push_back(ref_wcs_path);
+
+  // Solve moving frame
+  std::string cmd_mov = shell_quote(astap_bin) + " -f " +
+      shell_quote(mov_fits_path) +
+      " -d " + shell_quote(astap_data) +
+      " -r " + std::to_string(search_radius_deg);
+  int ret_mov = std::system(cmd_mov.c_str());
+
+  astro::WCS wcs_mov;
+  bool have_wcs_mov = false;
+  if (ret_mov == 0 && fs::exists(mov_wcs_path)) {
+    try {
+      wcs_mov = astro::parse_wcs_file(mov_wcs_path.string());
+      have_wcs_mov = wcs_mov.valid();
+    } catch (...) {}
+  }
+  if (!have_wcs_mov) {
+    result.error_message = "plate_solve_failed";
+    return result;
+  }
+
+  // Solve reference frame
+  std::string cmd_ref = shell_quote(astap_bin) + " -f " +
+      shell_quote(ref_fits_path) +
+      " -d " + shell_quote(astap_data) +
+      " -r " + std::to_string(search_radius_deg);
+  int ret_ref = std::system(cmd_ref.c_str());
+
+  astro::WCS wcs_ref;
+  bool have_wcs_ref = false;
+  if (ret_ref == 0 && fs::exists(ref_wcs_path)) {
+    try {
+      wcs_ref = astro::parse_wcs_file(ref_wcs_path.string());
+      have_wcs_ref = wcs_ref.valid();
+    } catch (...) {}
+  }
+  if (!have_wcs_ref) {
+    result.error_message = "ref_plate_solve_failed";
+    return result;
+  }
+
+  // Build warp at proxy scale (full-res WCS -> proxy-res warp)
+  result.wcs = wcs_mov;
+  result.warp = wcs_to_similarity_warp(wcs_mov, wcs_ref, 1.0f / scale_factor);
+
+  // Validate with NCC on proxy images
+  Matrix2Df warped = apply_warp(mov_proxy, result.warp);
+  cv::Mat valid_mask = warp_valid_mask(mov_proxy, result.warp);
+  result.correlation = compute_ncc_masked(warped, ref_proxy, valid_mask);
+
+  if (result.correlation >= ncc_threshold) {
+    result.success = true;
+  } else {
+    result.error_message = "ncc_too_low";
+  }
+
+  return result;
+}
+
 WarpMatrix wcs_to_similarity_warp(
     const astro::WCS& wcs_mov,
     const astro::WCS& wcs_ref,
     float scale_factor) {
 
-  // CD-Matrix zu Similarity-Parameter
-  // CD = [cd1_1 cd1_2; cd2_1 cd2_2] enthält Scale + Rotation
+  // Build a similarity warp (inverse map: ref pixel -> mov pixel) from two
+  // WCS solutions.  The approach:
+  //   1. Derive relative rotation and scale from the CD matrices.
+  //   2. Compute the translation by picking N reference-frame pixel positions,
+  //      projecting them through wcs_ref to sky coords, then back through
+  //      wcs_mov to moving-frame pixel coords.  The median delta is the
+  //      translation component.
+  // This is correct even when CRPIX values differ arbitrarily between frames.
 
-  // Extrahiere Rotation und Scale aus CD-Matrix (moving frame)
+  // ---- Rotation + scale from CD matrices ----
   double theta_mov = std::atan2(wcs_mov.cd2_1, wcs_mov.cd1_1);
   double scale_mov = std::sqrt(wcs_mov.cd1_1 * wcs_mov.cd1_1 +
-                                wcs_mov.cd2_1 * wcs_mov.cd2_1);
+                               wcs_mov.cd2_1 * wcs_mov.cd2_1);
 
-  // Extrahiere Rotation und Scale aus CD-Matrix (reference frame)
   double theta_ref = std::atan2(wcs_ref.cd2_1, wcs_ref.cd1_1);
   double scale_ref = std::sqrt(wcs_ref.cd1_1 * wcs_ref.cd1_1 +
-                                wcs_ref.cd2_1 * wcs_ref.cd2_1);
+                               wcs_ref.cd2_1 * wcs_ref.cd2_1);
 
-  // Relative Transformation
+  if (scale_ref < 1e-20) {
+    return WarpMatrix::Identity();  // degenerate WCS
+  }
+
   double dtheta = theta_mov - theta_ref;
-  double dscale = scale_mov / scale_ref;
+  double dscale = (scale_mov / scale_ref) * static_cast<double>(scale_factor);
 
-  // Konvertiere Referenz-CRPIX zu Pixel-Koordinaten
-  // Wir müssen das Moving-Frame so transformieren, dass sein CRPIX
-  // auf den Referenz-CRPIX abgebildet wird
+  float ct = static_cast<float>(std::cos(dtheta) * dscale);
+  float st = static_cast<float>(std::sin(dtheta) * dscale);
+
+  // ---- Translation via sky-projection of reference image corners ----
+  // Sample several points in reference pixel space, project to sky via
+  // wcs_ref, then back to pixel space via wcs_mov.  Average the offset.
+  const int W = (wcs_ref.naxis1 > 0) ? wcs_ref.naxis1 : 512;
+  const int H = (wcs_ref.naxis2 > 0) ? wcs_ref.naxis2 : 512;
+
+  // 5-point sample: centre + 4 midpoints of image quadrants
+  const double sample_px[5] = { W * 0.5, W * 0.25, W * 0.75, W * 0.25, W * 0.75 };
+  const double sample_py[5] = { H * 0.5, H * 0.25, H * 0.25, H * 0.75, H * 0.75 };
+
+  double sum_dx = 0.0, sum_dy = 0.0;
+  int valid = 0;
+  for (int s = 0; s < 5; ++s) {
+    double ra, dec;
+    wcs_ref.pixel_to_sky(sample_px[s], sample_py[s], ra, dec);
+
+    double mov_px, mov_py;
+    if (!wcs_mov.sky_to_pixel(ra, dec, mov_px, mov_py)) {
+      continue;
+    }
+
+    // The warp is inverse (ref -> mov), so the translation is mov - ref
+    sum_dx += mov_px - sample_px[s];
+    sum_dy += mov_py - sample_py[s];
+    ++valid;
+  }
+
+  if (valid == 0) {
+    return WarpMatrix::Identity();  // projections failed
+  }
+
+  float tx = static_cast<float>(sum_dx / valid);
+  float ty = static_cast<float>(sum_dy / valid);
 
   WarpMatrix w = WarpMatrix::Identity();
-
-  // Rotation
-  float ct = std::cos(dtheta);
-  float st = std::sin(dtheta);
-  w(0, 0) = ct * dscale * scale_factor;
-  w(0, 1) = -st * dscale * scale_factor;
-  w(1, 0) = st * dscale * scale_factor;
-  w(1, 1) = ct * dscale * scale_factor;
-
-  // Translation: CRPIX对齐
-  // Ziel: mov.crpix sollte auf ref.crpix abgebildet werden
-  double dx = wcs_ref.crpix1 - wcs_mov.crpix1;
-  double dy = wcs_ref.crpix2 - wcs_mov.crpix2;
-
-  w(0, 2) = dx;
-  w(1, 2) = dy;
+  w(0, 0) =  ct;
+  w(0, 1) = -st;
+  w(1, 0) =  st;
+  w(1, 1) =  ct;
+  w(0, 2) =  tx;
+  w(1, 2) =  ty;
 
   return w;
 }

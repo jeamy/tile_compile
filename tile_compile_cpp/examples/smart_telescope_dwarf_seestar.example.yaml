@@ -94,6 +94,7 @@ registration:
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
+  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
   # Hinweis: Frames mit gescheiterter Registrierung (z.B. Wolken, zu wenige Sterne)
   # werden NICHT verworfen, sondern per Polynomial-Feldrotationsmodell vorhergesagt.
   # Die Tile-Level-Qualitaetsmetrik (v3.2.2 §5.5) gewichtet schlechte Frames

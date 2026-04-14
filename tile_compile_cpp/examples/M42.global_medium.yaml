@@ -176,6 +176,7 @@ registration:
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
+  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
   reject_shift_median_multiplier: 5
   reject_shift_px_min: 100
   star_dist_bin_px: 5

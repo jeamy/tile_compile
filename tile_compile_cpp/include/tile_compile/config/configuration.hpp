@@ -102,6 +102,10 @@ struct RegistrationConfig {
   bool use_astrometry = true;                  // Enable astrometric rescue
   // Local background subtraction for star detection (§4.4, §8.D)
   bool enable_local_background_subtraction = false;
+  // Shift-consistency filter radius for triangle_star_matching (px on proxy).
+  // Must cover the maximum expected inter-frame shift.  For equatorial mounts
+  // 60 px is sufficient; for Alt/Az sessions (e.g. DWARF II) use 200-400 px.
+  float star_shift_radius_px = 200.0f;
 };
 
 // §4.1, §8.B — Berechnung effektiver Chain-Tiefe
