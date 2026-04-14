@@ -6,8 +6,8 @@ assumptions:
     - 10
   reduced_mode_skip_clustering: true
 astrometry:
-  astap_bin: /home/lux/.local/share/tile_compile/astap/astap_cli
-  astap_data_dir: /home/lux/.local/share/tile_compile/astap
+  astap_bin: /home/mux/.local/share/tile_compile/astap/astap_cli
+  astap_data_dir: /home/mux/.local/share/tile_compile/astap
   enabled: true
   search_radius: 183
 bge:
@@ -26,7 +26,7 @@ bge:
     method: rbf
     polynomial_order: 2
     rbf_epsilon: 0.8
-    rbf_lambda: 0.01
+    rbf_lambda: 0.02
     rbf_mu_factor: 1.6
     rbf_phi: multiquadric
     robust_loss: huber
@@ -41,13 +41,14 @@ bge:
   min_tiles_per_cell: 3
   min_valid_sample_fraction_for_apply: 0.3
   min_valid_samples_for_apply: 96
-  sample_quantile: 0.15
-  structure_thresh_percentile: 0.8
+  sample_quantile: 0.18
+  structure_thresh_percentile: 0.9
   tile_weight_lambda_structure: 1
 calibration:
   bias_dir: ""
   bias_master: ""
   bias_use_master: false
+  dark_already_bias_corrected: false
   dark_auto_select: true
   dark_master: ""
   dark_match_exposure_tolerance_percent: 8
@@ -143,7 +144,7 @@ pcc:
   aperture_radius_px: 8
   apply_attenuation: false
   background_model: plane
-  background_neutralization_mode: auto
+  background_neutralization_mode: always
   chroma_strength: 0.85
   enabled: true
   k_max: 2.4
@@ -162,9 +163,11 @@ pipeline:
   mode: production
 registration:
   allow_rotation: true
+  auto_engine: true
+  auto_engine_rotation_threshold_deg: 0.05
   blind_chain_drift_threshold_px: 2
   blind_chain_strong_anchor_cc: 0.08
-  enable_local_background_subtraction: false
+  enable_local_background_subtraction: true
   enable_star_pair_fallback: true
   engine: triangle_star_matching
   max_blind_chain_depth: 0
@@ -173,12 +176,12 @@ registration:
   reject_scale_max: 1.08
   reject_scale_min: 0.92
   reject_shift_median_multiplier: 5
-  reject_shift_px_min: 120
+  reject_shift_px_min: 100
   star_dist_bin_px: 5
   star_inlier_tol_px: 4
   star_min_inliers: 4
   star_shift_radius_px: 200
-  star_topk: 180
+  star_topk: 150
   transform_model: affine
   use_astrometry: true
 run_dir: ./run_m31_background_gradient_balanced
