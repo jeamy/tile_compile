@@ -7,6 +7,7 @@
 #include "tile_compile/image/normalization.hpp"
 #include "tile_compile/image/processing.hpp"
 #include "tile_compile/io/fits_io.hpp"
+#include "tile_compile/registration/astrometric_rescue.hpp"
 #include "tile_compile/registration/global_registration.hpp"
 #include "tile_compile/registration/registration.hpp"
 #include "tile_compile/runner/registration_outlier_utils.hpp"
@@ -110,6 +111,7 @@ enum class RegistrationProvenance : uint8_t {
   temporal_rescue,
   seeded_ecc_rescue,
   local_reference_rescue,
+  astrometric_rescue,  // §4.13 — Plate-Solving via ASTAP
   model_global_poly,
   model_local_poly,
   model_interpolated,
@@ -135,6 +137,8 @@ const char *registration_provenance_name(RegistrationProvenance provenance) {
     return "seeded_ecc_rescue";
   case RegistrationProvenance::local_reference_rescue:
     return "local_reference_rescue";
+  case RegistrationProvenance::astrometric_rescue:
+    return "astrometric_rescue";
   case RegistrationProvenance::model_global_poly:
     return "model_global_poly";
   case RegistrationProvenance::model_local_poly:
@@ -621,8 +625,21 @@ bool run_phase_registration_prewarp(
   int global_ref_idx = temporal_center_idx;
   std::string ref_frame_strategy = "temporal_center";
   float global_reg_scale = 1.0f;
-  constexpr int kMaxBlindChainAnchorDepth = 12;
-  constexpr float kBlindChainStrongAnchorCc = 0.08f;
+  std::vector<int> requested_anchor_indices;
+  int requested_anchor_count = 1;
+  // §4.1, §8.B — Konfigurierbare Blind-Chain Parameter aus Config
+  const int kMaxBlindChainAnchorDepth = get_effective_chain_depth(
+      static_cast<int>(frames.size()), cfg.registration);
+  const float kBlindChainStrongAnchorCc = cfg.registration.blind_chain_strong_anchor_cc;
+  const float kBlindChainDriftThresholdPx = cfg.registration.blind_chain_drift_threshold_px;
+  // §4.13 — Astrometrische Rescue
+  const bool kUseAstrometry = cfg.registration.use_astrometry;
+
+  // Logging der effektiven Chain-Tiefe
+  std::cout << "[REG-CHAIN] Using max_blind_chain_depth=" << kMaxBlindChainAnchorDepth
+            << " (config=" << (cfg.registration.max_blind_chain_depth == 0 ? "auto" :
+                              std::to_string(cfg.registration.max_blind_chain_depth))
+            << ", N=" << frames.size() << ")" << std::endl;
 
   auto set_registration_state =
       [&](size_t fi, const WarpMatrix &warp, float cc, bool chain_validated,
@@ -645,6 +662,7 @@ bool run_phase_registration_prewarp(
     case RegistrationProvenance::temporal_rescue:
     case RegistrationProvenance::seeded_ecc_rescue:
     case RegistrationProvenance::local_reference_rescue:
+    case RegistrationProvenance::astrometric_rescue:
       return true;
     case RegistrationProvenance::sequential_rescue:
       return (reg_chain_depth[fi] >= 0 &&
@@ -718,9 +736,9 @@ bool run_phase_registration_prewarp(
                      j.dump(2));
   };
 
-  // Pick a reference frame that is both high quality and temporally central.
-  // This is more stable for long Alt/Az sessions with strong field rotation
-  // than selecting the single highest-weight frame near sequence edges.
+  // Pick one or more anchor reference frames that are both high quality and
+  // temporally distributed. Long Alt/Az sessions often cannot be matched
+  // robustly against a single late-session reference frame.
   if (!frame_metrics.empty()) {
     struct RefCandidate {
       int idx = 0;
@@ -730,9 +748,6 @@ bool run_phase_registration_prewarp(
 
     std::vector<RefCandidate> candidates;
     candidates.reserve(frame_metrics.size());
-    std::vector<float> scores;
-    scores.reserve(frame_metrics.size());
-
     for (int i = 0; i < static_cast<int>(frame_metrics.size()); ++i) {
       float score = (i < global_weights.size()) ? global_weights[i]
                                                 : frame_metrics[i].quality_score;
@@ -741,67 +756,130 @@ bool run_phase_registration_prewarp(
       }
       candidates.push_back(
           {i, score, static_cast<float>(frame_metrics[i].quality_score)});
-      scores.push_back(score);
     }
 
     const int n = static_cast<int>(candidates.size());
-    const int top_count = std::max(1, std::min(n, std::max(16, n / 5)));
-    std::nth_element(scores.begin(),
-                     scores.begin() + static_cast<long>(top_count - 1),
-                     scores.end(), std::greater<float>());
-    const float top_cutoff = scores[static_cast<size_t>(top_count - 1)];
-
-    bool found_top_centered = false;
-    int best_dist = std::numeric_limits<int>::max();
-    float best_score = -std::numeric_limits<float>::infinity();
-    for (const auto &c : candidates) {
-      if (c.score < top_cutoff) {
-        continue;
+    requested_anchor_count = 1;
+    if (n >= 120) {
+      // Scale anchors with sequence length so very long Alt/Az sessions do not
+      // rely on a coarse fixed bucket like 1/3/5. Keep the count odd so one
+      // anchor can always be forced to the temporal center.
+      requested_anchor_count = std::max(3, (n + 79) / 80);  // ceil(n / 80)
+      if ((requested_anchor_count % 2) == 0) {
+        ++requested_anchor_count;
       }
-      const int d = std::abs(c.idx - temporal_center_idx);
-      if (!found_top_centered || d < best_dist ||
-          (d == best_dist && c.score > best_score)) {
-        found_top_centered = true;
-        best_dist = d;
-        best_score = c.score;
-        global_ref_idx = c.idx;
+      const int max_odd_anchor_count = (n % 2 == 0) ? (n - 1) : n;
+      requested_anchor_count =
+          std::min(requested_anchor_count, std::max(1, max_odd_anchor_count));
+      requested_anchor_count = std::min(requested_anchor_count, 15);
+    }
+    std::vector<int> desired_positions;
+    desired_positions.reserve(static_cast<size_t>(requested_anchor_count));
+    if (requested_anchor_count <= 1) {
+      desired_positions.push_back(temporal_center_idx);
+    } else {
+      for (int ai = 0; ai < requested_anchor_count; ++ai) {
+        const float alpha = static_cast<float>(ai) /
+                            static_cast<float>(requested_anchor_count - 1);
+        desired_positions.push_back(
+            static_cast<int>(std::round(alpha * static_cast<float>(n - 1))));
       }
+      desired_positions[static_cast<size_t>(requested_anchor_count / 2)] =
+          temporal_center_idx;
     }
 
-    if (found_top_centered) {
-      ref_frame_strategy = "quality_topk_centered";
-    }
+    for (int ai = 0; ai < requested_anchor_count; ++ai) {
+      const int target = desired_positions[static_cast<size_t>(ai)];
+      const int lo =
+          (ai == 0)
+              ? 0
+              : (desired_positions[static_cast<size_t>(ai - 1)] + target) / 2;
+      const int hi =
+          (ai + 1 >= requested_anchor_count)
+              ? (n - 1)
+              : (target +
+                 desired_positions[static_cast<size_t>(ai + 1)]) /
+                    2;
 
-    if (!found_top_centered || best_score < 0.05f) {
-      bool found_quality = false;
-      int quality_dist = std::numeric_limits<int>::max();
-      float best_quality = -std::numeric_limits<float>::infinity();
+      bool found = false;
+      RefCandidate best;
+      int best_dist = std::numeric_limits<int>::max();
       for (const auto &c : candidates) {
-        const int d = std::abs(c.idx - temporal_center_idx);
-        if (!found_quality || c.quality > best_quality ||
-            (c.quality == best_quality && d < quality_dist)) {
-          found_quality = true;
-          best_quality = c.quality;
-          quality_dist = d;
-          global_ref_idx = c.idx;
+        if (c.idx < lo || c.idx > hi) {
+          continue;
+        }
+        const int d = std::abs(c.idx - target);
+        if (!found || c.score > best.score ||
+            (c.score == best.score && d < best_dist) ||
+            (c.score == best.score && d == best_dist &&
+             c.quality > best.quality)) {
+          found = true;
+          best = c;
+          best_dist = d;
         }
       }
-      if (found_quality) {
-        ref_frame_strategy = "quality_score_fallback";
-      } else {
-        global_ref_idx = temporal_center_idx;
-        ref_frame_strategy = "temporal_center_fallback";
-      }
+
+      requested_anchor_indices.push_back(found ? best.idx : target);
     }
+
+    std::sort(requested_anchor_indices.begin(), requested_anchor_indices.end());
+    requested_anchor_indices.erase(
+        std::unique(requested_anchor_indices.begin(),
+                    requested_anchor_indices.end()),
+        requested_anchor_indices.end());
+
+    if (requested_anchor_indices.empty()) {
+      requested_anchor_indices.push_back(temporal_center_idx);
+      ref_frame_strategy = "temporal_center_fallback";
+    } else {
+      auto candidate_score = [&](int idx) -> float {
+        if (idx >= 0 && idx < static_cast<int>(global_weights.size()) &&
+            std::isfinite(global_weights[idx])) {
+          return global_weights[idx];
+        }
+        if (idx >= 0 && idx < static_cast<int>(frame_metrics.size())) {
+          return static_cast<float>(frame_metrics[idx].quality_score);
+        }
+        return -std::numeric_limits<float>::infinity();
+      };
+
+      global_ref_idx = requested_anchor_indices.front();
+      int best_dist = std::numeric_limits<int>::max();
+      float best_score = -std::numeric_limits<float>::infinity();
+      for (int idx : requested_anchor_indices) {
+        const int d = std::abs(idx - temporal_center_idx);
+        const float score = candidate_score(idx);
+        if (d < best_dist || (d == best_dist && score > best_score)) {
+          best_dist = d;
+          best_score = score;
+          global_ref_idx = idx;
+        }
+      }
+
+      ref_frame_strategy =
+          (requested_anchor_indices.size() > 1)
+              ? "quality_segmented_multi_anchor"
+              : "quality_topk_centered";
+    }
+  }
+
+  if (requested_anchor_indices.empty()) {
+    requested_anchor_indices.push_back(global_ref_idx);
   }
 
   if (global_ref_idx < 0 || global_ref_idx >= static_cast<int>(frames.size())) {
     global_ref_idx = temporal_center_idx;
     ref_frame_strategy = "temporal_center_bounds_fallback";
   }
+  if (std::find(requested_anchor_indices.begin(), requested_anchor_indices.end(),
+                global_ref_idx) == requested_anchor_indices.end()) {
+    requested_anchor_indices.push_back(global_ref_idx);
+    std::sort(requested_anchor_indices.begin(), requested_anchor_indices.end());
+  }
   global_reg_extra["ref_frame"] = global_ref_idx;
   global_reg_extra["ref_frame_center"] = temporal_center_idx;
   global_reg_extra["ref_frame_strategy"] = ref_frame_strategy;
+  global_reg_extra["requested_ref_frames"] = requested_anchor_indices;
   global_reg_extra["effective_engine"] = registration_cfg.engine;
   global_reg_extra["effective_transform_model"] = registration_cfg.transform_model;
   global_reg_extra["auto_engine_enabled"] = cfg.registration.auto_engine;
@@ -848,6 +926,167 @@ bool run_phase_registration_prewarp(
         std::atomic<size_t> reg_done{0};
         std::atomic<bool> reg_failed{false};
         std::string reg_error;
+        const auto proxy_scale = [&]() {
+          return (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale)
+                                              : 1.0f;
+        };
+        std::vector<int> active_anchor_indices;
+        std::vector<Matrix2Df> active_anchor_proxies;
+        std::vector<uint8_t> is_active_anchor_frame(frames.size(), 0);
+        auto maybe_add_active_anchor = [&](int anchor_idx,
+                                           const Matrix2Df *proxy_override =
+                                               nullptr) -> bool {
+          if (anchor_idx < 0 ||
+              anchor_idx >= static_cast<int>(frames.size()) ||
+              is_active_anchor_frame[static_cast<size_t>(anchor_idx)] != 0) {
+            return false;
+          }
+          Matrix2Df proxy;
+          if (proxy_override) {
+            proxy = *proxy_override;
+          } else {
+            proxy = load_registration_proxy(static_cast<size_t>(anchor_idx));
+          }
+          if (proxy.size() <= 0 || proxy.rows() != ref_reg.rows() ||
+              proxy.cols() != ref_reg.cols()) {
+            return false;
+          }
+          active_anchor_indices.push_back(anchor_idx);
+          active_anchor_proxies.push_back(proxy);
+          is_active_anchor_frame[static_cast<size_t>(anchor_idx)] = 1;
+          return true;
+        };
+
+        std::vector<Matrix2Df> requested_anchor_proxies(
+            requested_anchor_indices.size());
+        for (size_t i = 0; i < requested_anchor_indices.size(); ++i) {
+          const int anchor_idx = requested_anchor_indices[i];
+          if (anchor_idx == global_ref_idx) {
+            requested_anchor_proxies[i] = ref_reg;
+          } else {
+            requested_anchor_proxies[i] =
+                load_registration_proxy(static_cast<size_t>(anchor_idx));
+          }
+        }
+
+        set_registration_state(static_cast<size_t>(global_ref_idx),
+                               registration::identity_warp(), 1.0f, false, 0,
+                               RegistrationProvenance::reference);
+        maybe_add_active_anchor(global_ref_idx, &ref_reg);
+
+        auto requested_anchor_pos = [&](int idx) -> int {
+          for (size_t pos = 0; pos < requested_anchor_indices.size(); ++pos) {
+            if (requested_anchor_indices[pos] == idx) {
+              return static_cast<int>(pos);
+            }
+          }
+          return -1;
+        };
+        auto nearest_active_anchor_slot = [&](int frame_idx) -> size_t {
+          size_t best_slot = 0;
+          int best_dist = std::numeric_limits<int>::max();
+          for (size_t slot = 0; slot < active_anchor_indices.size(); ++slot) {
+            const int d = std::abs(active_anchor_indices[slot] - frame_idx);
+            if (d < best_dist) {
+              best_dist = d;
+              best_slot = slot;
+            }
+          }
+          return best_slot;
+        };
+
+        std::vector<uint8_t> requested_anchor_resolved(
+            requested_anchor_indices.size(), 0);
+        const int master_anchor_pos = requested_anchor_pos(global_ref_idx);
+        if (master_anchor_pos >= 0) {
+          requested_anchor_resolved[static_cast<size_t>(master_anchor_pos)] = 1;
+        }
+
+        auto resolve_requested_anchor = [&](int anchor_pos,
+                                            int parent_pos) -> bool {
+          if (anchor_pos < 0 ||
+              anchor_pos >= static_cast<int>(requested_anchor_indices.size()) ||
+              parent_pos < 0 ||
+              parent_pos >= static_cast<int>(requested_anchor_indices.size())) {
+            return false;
+          }
+          if (requested_anchor_resolved[static_cast<size_t>(anchor_pos)] != 0) {
+            return true;
+          }
+          if (requested_anchor_resolved[static_cast<size_t>(parent_pos)] == 0) {
+            return false;
+          }
+
+          const int anchor_idx =
+              requested_anchor_indices[static_cast<size_t>(anchor_pos)];
+          const int parent_idx =
+              requested_anchor_indices[static_cast<size_t>(parent_pos)];
+          const Matrix2Df &anchor_proxy =
+              requested_anchor_proxies[static_cast<size_t>(anchor_pos)];
+          const Matrix2Df &parent_proxy =
+              requested_anchor_proxies[static_cast<size_t>(parent_pos)];
+
+          if (anchor_proxy.size() <= 0 || parent_proxy.size() <= 0 ||
+              anchor_proxy.rows() != ref_reg.rows() ||
+              anchor_proxy.cols() != ref_reg.cols() ||
+              parent_proxy.rows() != ref_reg.rows() ||
+              parent_proxy.cols() != ref_reg.cols()) {
+            return false;
+          }
+
+          const auto sfr_anchor = registration::register_single_frame(
+              anchor_proxy, parent_proxy, registration_cfg);
+          if (!sfr_anchor.reg.success) {
+            return false;
+          }
+
+          const WarpMatrix w_parent_proxy = registration::scale_translation_warp(
+              global_frame_warps[static_cast<size_t>(parent_idx)],
+              proxy_scale());
+          const WarpMatrix w_chained =
+              concatenate_affine_warps(sfr_anchor.reg.warp, w_parent_proxy);
+          const Matrix2Df warped_global =
+              registration::apply_warp(anchor_proxy, w_chained);
+          const cv::Mat valid_mask_global =
+              warp_valid_mask_local(anchor_proxy, w_chained);
+          int overlap_px = 0;
+          const float ncc_global = compute_ncc_local_masked(
+              warped_global, ref_reg, valid_mask_global, &overlap_px);
+          if (overlap_px <= 16) {
+            return false;
+          }
+
+          set_registration_state(
+              static_cast<size_t>(anchor_idx),
+              registration::scale_translation_warp(w_chained, global_reg_scale),
+              std::max(ncc_global, 0.01f),
+              parent_idx != global_ref_idx,
+              std::max(0, reg_chain_depth[static_cast<size_t>(parent_idx)]) + 1,
+              RegistrationProvenance::direct_global);
+          requested_anchor_resolved[static_cast<size_t>(anchor_pos)] = 1;
+          maybe_add_active_anchor(anchor_idx, &anchor_proxy);
+          return true;
+        };
+
+        if (master_anchor_pos >= 0) {
+          for (int pos = master_anchor_pos - 1; pos >= 0; --pos) {
+            int parent_pos = pos + 1;
+            while (parent_pos < static_cast<int>(requested_anchor_indices.size()) &&
+                   requested_anchor_resolved[static_cast<size_t>(parent_pos)] == 0) {
+              ++parent_pos;
+            }
+            resolve_requested_anchor(pos, parent_pos);
+          }
+          for (int pos = master_anchor_pos + 1;
+               pos < static_cast<int>(requested_anchor_indices.size()); ++pos) {
+            int parent_pos = pos - 1;
+            while (parent_pos >= 0 &&
+                   requested_anchor_resolved[static_cast<size_t>(parent_pos)] == 0) {
+              --parent_pos;
+            }
+            resolve_requested_anchor(pos, parent_pos);
+          }
+        }
 
         auto reg_worker = [&]() {
           while (true) {
@@ -856,10 +1095,8 @@ bool run_phase_registration_prewarp(
               break;
             }
             try {
-              if (static_cast<int>(fi) == global_ref_idx) {
-                set_registration_state(fi, registration::identity_warp(), 1.0f,
-                                       false, 0,
-                                       RegistrationProvenance::reference);
+              if (global_frame_cc[fi] > 0.0f) {
+                // Pre-resolved anchor frame.
               } else {
                 Matrix2Df mov_reg = load_registration_proxy(fi);
                 if (mov_reg.size() <= 0) {
@@ -885,17 +1122,53 @@ bool run_phase_registration_prewarp(
                                            false, -1,
                                            RegistrationProvenance::unresolved);
                   } else {
-                    // Delegate to canonical cascade in module
+                    const size_t anchor_slot =
+                        nearest_active_anchor_slot(static_cast<int>(fi));
+                    const int anchor_idx = active_anchor_indices[anchor_slot];
+                    const Matrix2Df &anchor_reg =
+                        active_anchor_proxies[anchor_slot];
+
                     auto sfr = registration::register_single_frame(
-                        mov_reg, ref_reg, registration_cfg);
+                        mov_reg, anchor_reg, registration_cfg);
 
                     if (sfr.reg.success) {
-                      WarpMatrix w_full = sfr.reg.warp;
-                      w_full(0, 2) *= global_reg_scale;
-                      w_full(1, 2) *= global_reg_scale;
-                      set_registration_state(
-                          fi, w_full, sfr.reg.correlation, false, 0,
-                          RegistrationProvenance::direct_global);
+                      const WarpMatrix w_anchor_proxy =
+                          registration::scale_translation_warp(
+                              global_frame_warps[static_cast<size_t>(anchor_idx)],
+                              proxy_scale());
+                      const WarpMatrix w_chained =
+                          concatenate_affine_warps(sfr.reg.warp, w_anchor_proxy);
+                      const Matrix2Df warped_global =
+                          registration::apply_warp(mov_reg, w_chained);
+                      const cv::Mat valid_mask_global =
+                          warp_valid_mask_local(mov_reg, w_chained);
+                      int overlap_px = 0;
+                      const float ncc_global = compute_ncc_local_masked(
+                          warped_global, ref_reg, valid_mask_global,
+                          &overlap_px);
+
+                      if (overlap_px <= 16) {
+                        set_registration_state(
+                            fi, registration::identity_warp(), 0.0f, false, -1,
+                            RegistrationProvenance::unresolved);
+                      } else {
+                        const bool chained_anchor = anchor_idx != global_ref_idx;
+                        const int chained_depth =
+                            chained_anchor
+                                ? (std::max(
+                                       0,
+                                       reg_chain_depth[static_cast<size_t>(
+                                           anchor_idx)]) +
+                                   1)
+                                : 0;
+                        const WarpMatrix w_full =
+                            registration::scale_translation_warp(
+                                w_chained, global_reg_scale);
+                        set_registration_state(
+                            fi, w_full, std::max(ncc_global, 0.01f),
+                            chained_anchor, chained_depth,
+                            RegistrationProvenance::direct_global);
+                      }
                     } else {
                       set_registration_state(fi, registration::identity_warp(), 0.0f,
                                              false, -1,
@@ -906,6 +1179,7 @@ bool run_phase_registration_prewarp(
                     if (fi < 5 || fi == frames.size() - 1 || (fi % 50 == 0)) {
                       std::lock_guard<std::mutex> lock(reg_log_mutex);
                       std::cout << "[REG] frame " << fi << "/" << frames.size()
+                                << " anchor=" << anchor_idx
                                 << " method=" << sfr.method_used
                                 << " ncc_id=" << sfr.ncc_identity
                                 << " cc=" << global_frame_cc[fi] << std::endl;
@@ -964,10 +1238,99 @@ bool run_phase_registration_prewarp(
                                                      : reg_error);
         }
 
-        const auto proxy_scale = [&]() {
-          return (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale)
-                                              : 1.0f;
+        const int target_active_anchor_count =
+            std::max(requested_anchor_count,
+                     std::min(21, std::max(3, (static_cast<int>(frames.size()) + 59) / 60)));
+        const int promote_limit_per_round =
+            std::clamp((static_cast<int>(frames.size()) + 159) / 160, 2, 8);
+        const int max_direct_anchor_rounds =
+            std::clamp((static_cast<int>(frames.size()) + 239) / 240, 3, 8);
+
+        auto promote_strong_direct_anchors = [&]() -> int {
+          if (static_cast<int>(active_anchor_indices.size()) >=
+              target_active_anchor_count) {
+            return 0;
+          }
+          const float min_cc =
+              std::max(0.35f, cfg.registration.reject_cc_min_abs + 0.10f);
+          const int min_spacing = std::max(24, static_cast<int>(frames.size()) / 20);
+          std::vector<std::pair<float, int>> candidates;
+          candidates.reserve(frames.size());
+          for (size_t fi = 0; fi < frames.size(); ++fi) {
+            if (is_active_anchor_frame[fi] != 0 ||
+                reg_provenance[fi] != RegistrationProvenance::direct_global ||
+                global_frame_cc[fi] < min_cc) {
+              continue;
+            }
+            const size_t nearest_slot =
+                nearest_active_anchor_slot(static_cast<int>(fi));
+            const int nearest_dist =
+                std::abs(active_anchor_indices[nearest_slot] -
+                         static_cast<int>(fi));
+            if (nearest_dist < min_spacing) {
+              continue;
+            }
+            const float score =
+                global_frame_cc[fi] +
+                0.002f * static_cast<float>(std::min(nearest_dist, 100));
+            candidates.emplace_back(score, static_cast<int>(fi));
+          }
+          std::sort(candidates.begin(), candidates.end(),
+                    [](const auto &a, const auto &b) {
+                      if (a.first != b.first) {
+                        return a.first > b.first;
+                      }
+                      return a.second < b.second;
+                    });
+
+          int promoted = 0;
+          for (const auto &[score, idx] : candidates) {
+            (void)score;
+            if (maybe_add_active_anchor(idx)) {
+              ++promoted;
+              if (promoted >= promote_limit_per_round ||
+                  static_cast<int>(active_anchor_indices.size()) >=
+                      target_active_anchor_count) {
+                break;
+              }
+            }
+          }
+          return promoted;
         };
+
+        int reg_direct_anchor_rounds = 0;
+        int reg_promoted_active_anchors = 0;
+        for (int round = 0; round < max_direct_anchor_rounds; ++round) {
+          const int promoted = promote_strong_direct_anchors();
+          if (promoted <= 0) {
+            break;
+          }
+          reg_promoted_active_anchors += promoted;
+          ++reg_direct_anchor_rounds;
+          reg_next.store(0, std::memory_order_relaxed);
+          reg_done.store(0, std::memory_order_relaxed);
+          reg_worker();
+          if (reg_failed.load(std::memory_order_relaxed)) {
+            throw std::runtime_error(reg_error.empty() ? "registration_failed"
+                                                       : reg_error);
+          }
+        }
+
+        std::vector<int> active_anchor_indices_sorted = active_anchor_indices;
+        std::sort(active_anchor_indices_sorted.begin(),
+                  active_anchor_indices_sorted.end());
+        global_reg_extra["active_ref_frames"] = active_anchor_indices_sorted;
+        global_reg_extra["active_ref_frame_count"] =
+            static_cast<int>(active_anchor_indices_sorted.size());
+        global_reg_extra["reg_target_active_anchor_count"] =
+            target_active_anchor_count;
+        global_reg_extra["reg_promote_limit_per_round"] =
+            promote_limit_per_round;
+        global_reg_extra["reg_max_direct_anchor_rounds"] =
+            max_direct_anchor_rounds;
+        global_reg_extra["reg_direct_anchor_rounds"] = reg_direct_anchor_rounds;
+        global_reg_extra["reg_promoted_active_anchors"] =
+            reg_promoted_active_anchors;
 
         // ----------------------------------------------------------------
         // Sequential refinement pass:
@@ -1648,6 +2011,113 @@ bool run_phase_registration_prewarp(
           emitter.warning(run_id, msg.str(), log_file);
           std::cout << "[REG-LOCAL-REF] " << msg.str() << std::endl;
         }
+
+        // §4.13 — Astrometrische Rescue für verbliebene nicht-registrierte
+        // oder sehr schwach/extrem tief verkettete Frames.
+        int reg_astrometric_rescued = 0;
+        int reg_astrometric_attempted = 0;
+        int reg_astrometric_replaced_weak = 0;
+        if (kUseAstrometry) {
+          const float astrometry_cc_threshold = std::clamp(
+              cfg.registration.reject_cc_min_abs * 0.5f, 0.05f, 0.15f);
+          const int astrometry_chain_depth_threshold =
+              std::max(12, kMaxBlindChainAnchorDepth * 2);
+          auto should_try_astrometry = [&](size_t fi) -> bool {
+            if (fi >= frames.size() || is_active_anchor_frame[fi] != 0 ||
+                reg_provenance[fi] == RegistrationProvenance::astrometric_rescue) {
+              return false;
+            }
+            const bool unresolved = global_frame_cc[fi] <= 0.0f;
+            const bool weak_chained =
+                reg_chain_validated[fi] != 0 &&
+                global_frame_cc[fi] < astrometry_cc_threshold;
+            const bool extreme_chain =
+                reg_chain_depth[fi] >= astrometry_chain_depth_threshold;
+            return unresolved || weak_chained || extreme_chain;
+          };
+          auto nearest_astrometry_anchor_slot = [&](int frame_idx) -> size_t {
+            size_t best_slot = 0;
+            int best_dist = std::numeric_limits<int>::max();
+            for (size_t slot = 0; slot < active_anchor_indices.size(); ++slot) {
+              const int d = std::abs(active_anchor_indices[slot] - frame_idx);
+              if (d < best_dist) {
+                best_dist = d;
+                best_slot = slot;
+              }
+            }
+            return best_slot;
+          };
+
+          if (registration::is_astap_available(cfg.astrometry.astap_bin,
+                                                cfg.astrometry.astap_data_dir)) {
+            for (size_t fi = 0; fi < frames.size(); ++fi) {
+              if (!should_try_astrometry(fi)) {
+                continue;
+              }
+
+              const size_t anchor_slot =
+                  nearest_astrometry_anchor_slot(static_cast<int>(fi));
+              const int ref_anchor_idx = active_anchor_indices[anchor_slot];
+              const Matrix2Df &ref_proxy_astro = active_anchor_proxies[anchor_slot];
+              const std::string ref_fits_path =
+                  frames[static_cast<size_t>(ref_anchor_idx)].string();
+              ++reg_astrometric_attempted;
+
+              const Matrix2Df mov_proxy_astro = load_registration_proxy(fi);
+              const std::string mov_fits_path = frames[fi].string();
+
+              auto astro_res =
+                  registration::try_astrometric_rescue_from_paths(
+                      mov_fits_path, ref_fits_path,
+                      mov_proxy_astro, ref_proxy_astro,
+                      cfg.astrometry.astap_bin,
+                      cfg.astrometry.astap_data_dir,
+                      global_reg_scale,
+                      static_cast<float>(cfg.astrometry.search_radius),
+                      0.20f);
+
+              if (astro_res.success) {
+                const float prev_cc = global_frame_cc[fi];
+                const bool weak_or_unresolved =
+                    prev_cc <= 0.0f || prev_cc < astrometry_cc_threshold;
+                const bool replace_existing =
+                    prev_cc <= 0.0f ||
+                    astro_res.correlation > prev_cc + 0.02f ||
+                    reg_chain_depth[fi] >= astrometry_chain_depth_threshold;
+                if (!replace_existing) {
+                  continue;
+                }
+                set_registration_state(
+                    fi,
+                    registration::scale_translation_warp(astro_res.warp,
+                                                         global_reg_scale),
+                    astro_res.correlation, true, 0,
+                    RegistrationProvenance::astrometric_rescue);
+                ++reg_astrometric_rescued;
+                if (weak_or_unresolved && prev_cc > 0.0f) {
+                  ++reg_astrometric_replaced_weak;
+                }
+              }
+            }
+
+            if (reg_astrometric_rescued > 0) {
+              std::ostringstream msg;
+              msg << "REGISTRATION astrometric rescue: recovered "
+                  << reg_astrometric_rescued
+                  << " frames via plate-solving (attempted="
+                  << reg_astrometric_attempted << ", weak_replaced="
+                  << reg_astrometric_replaced_weak << ")";
+              emitter.warning(run_id, msg.str(), log_file);
+              std::cout << "[REG-ASTROMETRY] " << msg.str() << std::endl;
+            }
+          } else {
+            std::cout << "[REG-ASTROMETRY] ASTAP not available, skipping astrometric rescue" << std::endl;
+          }
+        }
+        global_reg_extra["reg_astrometric_rescued"] = reg_astrometric_rescued;
+        global_reg_extra["reg_astrometric_attempted"] = reg_astrometric_attempted;
+        global_reg_extra["reg_astrometric_replaced_weak"] =
+            reg_astrometric_replaced_weak;
 
         global_reg_status = "ok";
         try {

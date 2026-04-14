@@ -672,7 +672,109 @@ Alle verketteten Warps werden mit NCC gegen den Referenz-Frame validiert. Besond
 - Scale außerhalb `[reject_scale_min, reject_scale_max]` wird als Outlier verworfen.
 - Zusätzlich werden Reflection-Warps (`det < 0`) immer verworfen.
 
+----
+
+### `registration.max_blind_chain_depth`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | integer |
+| **Minimum** | 0 |
+| **Maximum** | 100 |
+| **Default** | `0` |
+
+**Zweck:** Maximale Tiefe für Blind-Chain-Rescue. `0` = automatisch (N/10, min 12, max 50).
+
+- **Wert 0 (auto):** Automatische Berechnung basierend auf Frame-Anzahl N. Formel: `clamp(N/10, 12, 50)`
+- **Wert >0:** Manuelle Überschreibung der maximalen Chain-Tiefe
+
+**Hinweis:** Höhere Werte erlauben längere Ketten bei Wolkenblöcken, erhöhen aber auch das Risiko von Drift-Fehlern.
+
+----
+
+### `registration.blind_chain_strong_anchor_cc`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0.01 |
+| **Maximum** | 0.5 |
+| **Default** | `0.08` |
+
+**Zweck:** CC-Schwelle für "starke Anker" in Blind-Chains. Frames mit höherem CC können tiefere Ketten starten.
+
+**Hinweis:** Niedrigere Werte erlauben mehr Frames als starke Anker (aggressiver), höhere Werte sind konservativer.
+
+----
+
+### `registration.blind_chain_drift_threshold_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Minimum** | 0.5 |
+| **Maximum** | 10.0 |
+| **Default** | `2.0` |
+
+**Zweck:** Maximal erlaubte Drift in Pixeln pro Frame innerhalb einer Blind-Chain.
+
+- Die Kette wird abgebrochen wenn die kumulative Drift diesen Wert überschreitet
+- Schützt vor akkumulierenden Fehlern in langen Ketten
+
+----
+
+### `registration.use_astrometry`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `true` |
+
+**Zweck:** Aktiviert astrometrische Rescue für Frames, die alle anderen Algorithmen nicht registrieren können.
+
+**Voraussetzungen:**
+- ASTAP-Binary muss verfügbar sein (siehe `astrometry.astap_bin`)
+- Lokaler Sternenkatalog muss vorhanden sein (siehe `astrometry.astap_data_dir`)
+
+**Hinweis:** Bei sehr hellen Sternen (z.B. Capella) auf `false` setzen, da ASTAP Probleme mit überbelichteten Zentren hat.
+
+----
+
+### `registration.enable_local_background_subtraction`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | boolean |
+| **Default** | `false` |
+
+**Zweck:** Aktiviert lokale Hintergrundsubtraktion vor der Sternerkennung.
+
+**Empfohlen bei:**
+- Starkem Mondlicht mit Gradienten
+- Starmer Hintergrundstruktur (Nebel, Galaxien)
+- Unebenem Hintergrund durch Flat-Korrektur-Fehler
+
 ---
+
+### `registration.star_shift_radius_px`
+
+| Eigenschaft | Wert |
+|-------------|------|
+| **Typ** | number |
+| **Default** | `200.0` |
+| **Minimum** | `10` |
+| **Maximum** | `2000` |
+
+**Zweck:** Suchradius für den Shift-Konsistenz-Filter in `triangle_star_matching` (Pixel im Proxy-Bild, halbe Auflösung). Nach dem Dreiecks-Voting wird für jedes Stern-Paar geprüft, welche anderen Paare einen ähnlichen Shift implizieren (innerhalb dieses Radius). Das Paare-Cluster mit dem höchsten Support wird als Anker gewählt; alle inkonsistenten Paare werden verworfen. Der Radius muss den **maximalen erwarteten Inter-Frame-Shift** abdecken.
+
+**Wann anpassen:**
+- **Äquatoriale Montierung** mit gutem Tracking (kleine Shifts): `60`
+- **Alt/Az-Montierung** (DWARF II, Seestar, mehrstündige Session): `200–400`
+- **Sehr lange Alt/Az-Session** (>4h, großer Shift-Bereich): `400–600`
+
+> ⚠️ Zu kleiner Radius (z.B. 60px bei Alt/Az) führt dazu, dass falsche Match-Cluster den echten Shift-Cluster als Anker verdrängen → alle Frames scheitern beim Triangle-Matching.
+
+----
 
 ## 8b. Dithering
 

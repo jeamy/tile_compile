@@ -246,12 +246,6 @@ RegistrationResult feature_registration_similarity(const Matrix2Df &mov,
   return res;
 }
 
-struct StarPoint {
-  float x = 0.0f;
-  float y = 0.0f;
-  float flux = 0.0f;
-};
-
 // Internal helper for star detection with configurable threshold
 static std::vector<StarPoint> detect_stars_with_threshold(
     const Matrix2Df &img, int topk, float sigma_multiplier, 
@@ -350,16 +344,45 @@ static std::vector<StarPoint> detect_stars_with_threshold(
   return stars;
 }
 
-std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk) {
+std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk,
+                                           bool enable_local_background_subtraction) {
   const int h = img.rows();
   const int w = img.cols();
   if (h < 5 || w < 5)
     return {};
 
+  // §4.4, §8.D — Lokale Hintergrundsubtraktion bei Gradienten/Mondlicht
+  Matrix2Df processed_img;
+  const Matrix2Df *img_ptr = &img;
+  if (enable_local_background_subtraction) {
+    // Lokale Hintergrundschätzung mit Box-Blur (31x31 Pixel)
+    processed_img = img;  // Kopie
+    const int kernel_size = 31;
+    const int half_k = kernel_size / 2;
+    // Einfacher Box-Blur für Hintergrundschätzung
+    for (int y = 0; y < h; ++y) {
+      for (int x = 0; x < w; ++x) {
+        float sum = 0.0f;
+        int count = 0;
+        for (int dy = -half_k; dy <= half_k; ++dy) {
+          int py = std::clamp(y + dy, 0, h - 1);
+          for (int dx = -half_k; dx <= half_k; ++dx) {
+            int px = std::clamp(x + dx, 0, w - 1);
+            sum += img(py, px);
+            ++count;
+          }
+        }
+        float background = sum / count;
+        processed_img(y, x) = std::max(0.0f, img(y, x) - background);
+      }
+    }
+    img_ptr = &processed_img;
+  }
+
   std::vector<float> pixels;
-  pixels.reserve(static_cast<size_t>(img.size()));
+  pixels.reserve(static_cast<size_t>(img_ptr->size()));
   for (int y = 0; y < h; ++y) {
-    const float *row = img.data() + static_cast<size_t>(y) * w;
+    const float *row = img_ptr->data() + static_cast<size_t>(y) * w;
     pixels.insert(pixels.end(), row, row + w);
   }
   float med = core::median_of(pixels);
@@ -367,19 +390,19 @@ std::vector<StarPoint> detect_stars_simple(const Matrix2Df &img, int topk) {
   if (sigma < 1.0e-6f)
     sigma = 1.0f;
 
-  // Try standard threshold (3.5σ)
-  std::vector<StarPoint> stars = detect_stars_with_threshold(img, topk, 3.5f, med, sigma);
-  
+  // Try standard threshold (3.5σ) — mit optionaler Hintergrundsubtraktion
+  std::vector<StarPoint> stars = detect_stars_with_threshold(*img_ptr, topk, 3.5f, med, sigma);
+
   // Adaptive fallback: if we found very few stars, retry with lower threshold
   // This helps with clouds/nebula where stars appear fainter
   const int min_expected = std::max(4, topk / 2);
   if (static_cast<int>(stars.size()) < min_expected) {
-    std::vector<StarPoint> stars_relaxed = detect_stars_with_threshold(img, topk, 2.5f, med, sigma);
+    std::vector<StarPoint> stars_relaxed = detect_stars_with_threshold(*img_ptr, topk, 2.5f, med, sigma);
     if (stars_relaxed.size() > stars.size()) {
       stars = std::move(stars_relaxed);
     }
   }
-  
+
   return stars;
 }
 
@@ -723,14 +746,15 @@ star_registration_similarity(const Matrix2Df &mov, const Matrix2Df &ref,
                              bool allow_rotation,
                              int topk_stars, int min_inliers,
                              float inlier_tol_px, float dist_bin_px,
-                             const std::string &transform_model) {
+                             const std::string &transform_model,
+                             bool enable_local_background_subtraction) {
   RegistrationResult res;
   res.warp = identity_warp();
   res.success = false;
   res.correlation = 0.0f;
 
-  auto mov_stars = detect_stars_simple(mov, topk_stars);
-  auto ref_stars = detect_stars_simple(ref, topk_stars);
+  auto mov_stars = detect_stars_simple(mov, topk_stars, enable_local_background_subtraction);
+  auto ref_stars = detect_stars_simple(ref, topk_stars, enable_local_background_subtraction);
   if (mov_stars.size() < 3 || ref_stars.size() < 3) {
     res.error_message = "too_few_stars";
     return res;
@@ -955,14 +979,16 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
                        bool allow_rotation,
                        int topk_stars, int min_inliers,
                        float inlier_tol_px,
-                       const std::string &transform_model) {
+                       const std::string &transform_model,
+                       bool enable_local_background_subtraction,
+                       float shift_radius_px) {
   RegistrationResult res;
   res.warp = identity_warp();
   res.success = false;
   res.correlation = 0.0f;
 
-  auto mov_stars = detect_stars_simple(mov, topk_stars);
-  auto ref_stars = detect_stars_simple(ref, topk_stars);
+  auto mov_stars = detect_stars_simple(mov, topk_stars, enable_local_background_subtraction);
+  auto ref_stars = detect_stars_simple(ref, topk_stars, enable_local_background_subtraction);
 
   if (mov_stars.size() < 3 || ref_stars.size() < 3) {
     res.error_message = "too_few_stars";
@@ -979,8 +1005,11 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
   }
 
   // Match triangles by invariant ratios
-  const float ratio_tol = 0.03f; // tolerance for ratio matching
-  const float ambiguity_margin = 0.004f;
+  // Calibrated via Python simulation on M104 star data:
+  // ratio_tol=0.03 -> too many false matches (crowded fields)
+  // ratio_tol=0.008, ambiguity_margin=0.007 -> correct balance
+  const float ratio_tol = 0.008f;
+  const float ambiguity_margin = 0.007f;
 
   struct PairVote {
     int mov_idx = -1;
@@ -1091,29 +1120,85 @@ triangle_star_matching(const Matrix2Df &mov, const Matrix2Df &ref,
               return a.score_sum < b.score_sum;
             });
 
+  // Shift-consistency filter: each candidate pair implies a translation
+  // (dx,dy). Compute per-pair support = sum of votes of other pairs whose
+  // implied shift is within shift_radius px. The pair with highest support
+  // is the shift-cluster anchor; keep only pairs within shift_radius of it.
+  // This eliminates false matches that dominate vote counts in crowded fields.
+  const float shift_radius = shift_radius_px;
+  struct PairShift {
+    int mov_idx, ref_idx, votes;
+    float dx, dy;
+    int support;
+  };
+  std::vector<PairShift> cand_pairs;
+  cand_pairs.reserve(ranked_pairs.size());
+  for (const PairVote &vote : ranked_pairs) {
+    if (vote.mov_idx < 0 || vote.ref_idx < 0) continue;
+    if (vote.mov_idx >= static_cast<int>(mov_stars.size()) ||
+        vote.ref_idx >= static_cast<int>(ref_stars.size())) continue;
+    float dx = ref_stars[static_cast<size_t>(vote.ref_idx)].x -
+               mov_stars[static_cast<size_t>(vote.mov_idx)].x;
+    float dy = ref_stars[static_cast<size_t>(vote.ref_idx)].y -
+               mov_stars[static_cast<size_t>(vote.mov_idx)].y;
+    cand_pairs.push_back({vote.mov_idx, vote.ref_idx, vote.votes, dx, dy, 0});
+  }
+  // Compute shift support for each pair (O(n^2), n <= ~150 pairs — fast enough)
+  for (size_t i = 0; i < cand_pairs.size(); ++i) {
+    int sup = 0;
+    for (size_t j = 0; j < cand_pairs.size(); ++j) {
+      if (i == j) continue;
+      float ddx = cand_pairs[i].dx - cand_pairs[j].dx;
+      float ddy = cand_pairs[i].dy - cand_pairs[j].dy;
+      if (std::sqrt(ddx * ddx + ddy * ddy) <= shift_radius)
+        sup += cand_pairs[j].votes;
+    }
+    cand_pairs[i].support = sup;
+  }
+  // Find anchor = pair with maximum weighted shift support
+  size_t best_anchor = 0;
+  int best_anchor_sup = -1;
+  for (size_t i = 0; i < cand_pairs.size(); ++i) {
+    if (cand_pairs[i].support > best_anchor_sup) {
+      best_anchor_sup = cand_pairs[i].support;
+      best_anchor = i;
+    }
+  }
+  // Keep only pairs consistent with the anchor shift
+  if (!cand_pairs.empty()) {
+    float anchor_dx = cand_pairs[best_anchor].dx;
+    float anchor_dy = cand_pairs[best_anchor].dy;
+    cand_pairs.erase(
+        std::remove_if(cand_pairs.begin(), cand_pairs.end(),
+                       [anchor_dx, anchor_dy, shift_radius](const PairShift &p) {
+                         float ddx = p.dx - anchor_dx;
+                         float ddy = p.dy - anchor_dy;
+                         return std::sqrt(ddx * ddx + ddy * ddy) > shift_radius;
+                       }),
+        cand_pairs.end());
+  }
+  // Re-sort by vote count
+  std::sort(cand_pairs.begin(), cand_pairs.end(),
+            [](const PairShift &a, const PairShift &b) {
+              return a.votes > b.votes;
+            });
+
   std::vector<cv::Point2f> pts_mov, pts_ref;
-  pts_mov.reserve(ranked_pairs.size());
-  pts_ref.reserve(ranked_pairs.size());
+  pts_mov.reserve(cand_pairs.size());
+  pts_ref.reserve(cand_pairs.size());
   std::vector<uint8_t> mov_used(mov_stars.size(), 0);
   std::vector<uint8_t> ref_used(ref_stars.size(), 0);
-  for (const PairVote &vote : ranked_pairs) {
-    if (vote.mov_idx < 0 || vote.ref_idx < 0) {
+  for (const PairShift &p : cand_pairs) {
+    if (mov_used[static_cast<size_t>(p.mov_idx)] != 0 ||
+        ref_used[static_cast<size_t>(p.ref_idx)] != 0) {
       continue;
     }
-    if (vote.mov_idx >= static_cast<int>(mov_used.size()) ||
-        vote.ref_idx >= static_cast<int>(ref_used.size())) {
-      continue;
-    }
-    if (mov_used[static_cast<size_t>(vote.mov_idx)] != 0 ||
-        ref_used[static_cast<size_t>(vote.ref_idx)] != 0) {
-      continue;
-    }
-    mov_used[static_cast<size_t>(vote.mov_idx)] = 1;
-    ref_used[static_cast<size_t>(vote.ref_idx)] = 1;
-    pts_mov.push_back(cv::Point2f(mov_stars[static_cast<size_t>(vote.mov_idx)].x,
-                                  mov_stars[static_cast<size_t>(vote.mov_idx)].y));
-    pts_ref.push_back(cv::Point2f(ref_stars[static_cast<size_t>(vote.ref_idx)].x,
-                                  ref_stars[static_cast<size_t>(vote.ref_idx)].y));
+    mov_used[static_cast<size_t>(p.mov_idx)] = 1;
+    ref_used[static_cast<size_t>(p.ref_idx)] = 1;
+    pts_mov.push_back(cv::Point2f(mov_stars[static_cast<size_t>(p.mov_idx)].x,
+                                  mov_stars[static_cast<size_t>(p.mov_idx)].y));
+    pts_ref.push_back(cv::Point2f(ref_stars[static_cast<size_t>(p.ref_idx)].x,
+                                  ref_stars[static_cast<size_t>(p.ref_idx)].y));
   }
 
   if (pts_mov.size() < static_cast<size_t>(std::max(3, min_inliers))) {
@@ -1216,7 +1301,7 @@ static float compute_ncc(const Matrix2Df &a, const Matrix2Df &b) {
   return (den > 1e-10) ? static_cast<float>(sab / den) : 0.0f;
 }
 
-static cv::Mat warp_valid_mask(const Matrix2Df &img, const WarpMatrix &warp) {
+cv::Mat warp_valid_mask(const Matrix2Df &img, const WarpMatrix &warp) {
   cv::Mat ones(img.rows(), img.cols(), CV_32F, cv::Scalar(1.0f));
   cv::Mat warp_matrix(2, 3, CV_32F);
   for (int i = 0; i < 2; ++i) {
@@ -1231,8 +1316,8 @@ static cv::Mat warp_valid_mask(const Matrix2Df &img, const WarpMatrix &warp) {
   return warped_mask;
 }
 
-static float compute_ncc_masked(const Matrix2Df &a, const Matrix2Df &b,
-                                const cv::Mat &mask, int *used_pixels = nullptr) {
+float compute_ncc_masked(const Matrix2Df &a, const Matrix2Df &b,
+                         const cv::Mat &mask, int *used_pixels) {
   if (a.size() <= 0 || a.size() != b.size() || mask.empty() ||
       mask.rows != a.rows() || mask.cols != a.cols()) {
     if (used_pixels) {
@@ -1297,7 +1382,7 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
   // Thread-safe diagnostic counter (only log first few calls)
   static std::atomic<int> diag_counter{0};
   const int diag_id = diag_counter.fetch_add(1);
-  const bool diag = (diag_id < 3);
+  const bool diag = (diag_id < 10);
 
   SingleFrameRegResult out;
   out.reg.warp = identity_warp();
@@ -1326,8 +1411,8 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
   }
 
   if (diag) {
-    auto stars_ref = detect_stars_simple(ref, rcfg.star_topk);
-    auto stars_mov = detect_stars_simple(mov, rcfg.star_topk);
+    auto stars_ref = detect_stars_simple(ref, rcfg.star_topk, rcfg.enable_local_background_subtraction);
+    auto stars_mov = detect_stars_simple(mov, rcfg.star_topk, rcfg.enable_local_background_subtraction);
     std::cout << "[REG-DIAG#" << diag_id << "] ncc_identity=" << out.ncc_identity
               << " stars_ref=" << stars_ref.size()
               << " stars_mov=" << stars_mov.size()
@@ -1350,25 +1435,70 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
     Matrix2Df warped = apply_warp(mov, rr.warp);
     const cv::Mat valid_mask = warp_valid_mask(mov, rr.warp);
     int overlap_pixels = 0;
+    // Blur before NCC: makes the quality metric robust against hot pixels and
+    // sharp point sources that cause extreme NCC sensitivity to sub-pixel shifts.
+    // sigma=1.5 matches the ECC pre-processing blur (prepare_ecc_image).
+    // Important: clamp to zero first so that negative background-subtracted
+    // values do not bleed into star peaks via Gaussian blur.
+    auto blur_for_ncc = [](const Matrix2Df &img) -> Matrix2Df {
+      cv::Mat m(img.rows(), img.cols(), CV_32F,
+                const_cast<float *>(img.data()));
+      cv::Mat clamped;
+      cv::max(m, 0.0f, clamped);          // remove negative background artefacts
+      cv::GaussianBlur(clamped, clamped, cv::Size(0, 0), 1.5);
+      Matrix2Df result(img.rows(), img.cols());
+      std::memcpy(result.data(), clamped.data,
+                  static_cast<size_t>(img.size()) * sizeof(float));
+      return result;
+    };
+    const Matrix2Df mov_b    = blur_for_ncc(mov);
+    const Matrix2Df warped_b = blur_for_ncc(warped);
+    const Matrix2Df ref_b    = blur_for_ncc(ref);
     const float ncc_identity_overlap =
-        compute_ncc_masked(mov, ref, valid_mask, &overlap_pixels);
-    float ncc = compute_ncc_masked(warped, ref, valid_mask);
+        compute_ncc_masked(mov_b, ref_b, valid_mask, &overlap_pixels);
+    float ncc = compute_ncc_masked(warped_b, ref_b, valid_mask);
     if (diag) {
+      const float angle_deg = std::atan2(-rr.warp(0,1), rr.warp(0,0)) * (180.0f / 3.14159265f);
+      const float scale = std::sqrt(rr.warp(0,0)*rr.warp(0,0) + rr.warp(0,1)*rr.warp(0,1));
       std::cout << "[REG-DIAG#" << diag_id << "] " << method
                 << " success=" << rr.success << " ncc_warped=" << ncc
                 << " ncc_identity_overlap=" << ncc_identity_overlap
                 << " overlap_px=" << overlap_pixels
                 << " threshold=" << (ncc_identity_overlap + min_ncc_improvement)
                 << " tx=" << rr.warp(0,2) << " ty=" << rr.warp(1,2)
+                << " rot_deg=" << angle_deg << " scale=" << scale
+                << " a00=" << rr.warp(0,0) << " a01=" << rr.warp(0,1)
+                << " a10=" << rr.warp(1,0) << " a11=" << rr.warp(1,1)
                 << std::endl;
     }
+    // Near-identity bypass: if the warp is geometrically trivial (sub-pixel
+    // shift + negligible rotation) AND does not degrade NCC significantly,
+    // bilinear interpolation may slightly lower NCC vs. identity. Accept the
+    // warp and report ncc_identity_overlap as the quality score so downstream
+    // metrics are not penalised by interpolation blur.
+    const float shift_total = std::sqrt(rr.warp(0,2)*rr.warp(0,2) +
+                                        rr.warp(1,2)*rr.warp(1,2));
+    const float angle_rad   = std::atan2(-rr.warp(0,1), rr.warp(0,0));
+    const float angle_abs   = std::fabs(angle_rad) * (180.0f / 3.14159265f);
+    // Only bypass the NCC gate when the warp is small AND non-degrading AND
+    // the frame is already well-aligned with the reference (ncc_identity > 0.7).
+    // For frames far from the reference a near-zero warp from star_pair just
+    // means the method found no valid shift, not that the frame is already
+    // aligned. A drop > 0.02 below blurred-identity indicates a false warp
+    // even at small shifts, so we keep the NCC gate in that case.
+    const bool near_identity = (shift_total < rcfg.star_inlier_tol_px) &&
+                               (angle_abs   < 0.1f) &&
+                               (ncc >= ncc_identity_overlap - 0.02f) &&
+                               (out.ncc_identity > 0.7f);
     if (overlap_pixels <= 16 ||
-        ncc < ncc_identity_overlap + min_ncc_improvement)
+        (!near_identity && ncc < ncc_identity_overlap + min_ncc_improvement))
       return false; // warp doesn't improve alignment — reject
     out.reg = rr;
-    out.reg.correlation = ncc;
+    // For near-identity warps use the uninterpolated NCC so downstream
+    // quality metrics are not degraded by interpolation blur.
+    out.reg.correlation = near_identity ? ncc_identity_overlap : ncc;
     out.method_used = method;
-    out.ncc_warped = ncc;
+    out.ncc_warped   = out.reg.correlation;
     return true;
   };
 
@@ -1377,14 +1507,17 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
         triangle_star_matching(mov, ref, rcfg.allow_rotation,
                                rcfg.star_topk, rcfg.star_min_inliers,
                                rcfg.star_inlier_tol_px,
-                               rcfg.transform_model),
+                               rcfg.transform_model,
+                               rcfg.enable_local_background_subtraction,
+                               rcfg.star_shift_radius_px),
         "triangle");
     if (!ok && rcfg.enable_star_pair_fallback) {
       ok = try_method(
           star_registration_similarity(
               mov, ref, rcfg.allow_rotation, rcfg.star_topk,
               rcfg.star_min_inliers, rcfg.star_inlier_tol_px,
-              rcfg.star_dist_bin_px, rcfg.transform_model),
+              rcfg.star_dist_bin_px, rcfg.transform_model,
+              rcfg.enable_local_background_subtraction),
           "star_pair");
     }
     return ok;
@@ -1410,7 +1543,9 @@ SingleFrameRegResult register_single_frame(const Matrix2Df &mov,
           triangle_star_matching(mov, ref, rcfg.allow_rotation,
                                 rcfg.star_topk, rcfg.star_min_inliers,
                                 rcfg.star_inlier_tol_px,
-                                rcfg.transform_model),
+                                rcfg.transform_model,
+                                rcfg.enable_local_background_subtraction,
+                                rcfg.star_shift_radius_px),
           "triangle");
     }
   }

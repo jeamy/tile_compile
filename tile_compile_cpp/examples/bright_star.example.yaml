@@ -175,6 +175,13 @@ registration:
   star_min_inliers: 5
   star_topk: 180
   transform_model: affine
+  # Neue Parameter (v2.0) — use_astrometry false bei sehr hellen Sternen
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_drift_threshold_px: 2.0
+  use_astrometry: false  # ASTAP hat Probleme mit sehr hellen Sternen
+  enable_local_background_subtraction: false
+  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
 run_dir: ./run_very_bright_star_anti_seam
 runtime_limits:
   acceleration_backend: auto

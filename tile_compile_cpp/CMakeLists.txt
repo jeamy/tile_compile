@@ -421,6 +421,7 @@ set(LIB_SOURCES
     src/image/background_extraction.cpp
     src/registration/registration.cpp
     src/registration/global_registration.cpp
+    src/registration/astrometric_rescue.cpp
     src/metrics/metrics.cpp
     src/metrics/tile_metrics.cpp
     src/metrics/linearity.cpp
@@ -536,6 +537,7 @@ if(BUILD_TESTS)
             tests/test_debayer.cpp
             tests/test_mode_gating.cpp
             tests/test_registration_cascade.cpp
+            tests/test_registration_new_features.cpp
             tests/test_registration_outlier_utils.cpp
             tests/test_reconstruction_regression.cpp
             tests/test_stacking_quality_weighting.cpp

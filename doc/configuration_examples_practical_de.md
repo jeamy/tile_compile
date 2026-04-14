@@ -296,6 +296,13 @@ registration:
   reject_shift_median_multiplier: 5.0
   reject_scale_min: 0.92
   reject_scale_max: 1.08
+  # Neue Parameter (v2.0)
+  max_blind_chain_depth: 0        # auto (N/10) für Wolkenblöcke
+  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_drift_threshold_px: 2.0
+  use_astrometry: true            # Astrometrische Rescue bei Bedarf
+  enable_local_background_subtraction: false
+  star_shift_radius_px: 200       # Alt/Az: 200-400, Äquatorial: 60
 ```
 
 **Sternenarm / Nebel / wolkige Daten:**
@@ -305,6 +312,13 @@ registration:
   allow_rotation: true
   max_shift_px: 80
   reject_outliers: true
+  # Neue Parameter (v2.0) — bei starken Gradienten
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_drift_threshold_px: 2.0
+  use_astrometry: true
+  enable_local_background_subtraction: true  # Bei Mondlicht/Gradienten
+  star_shift_radius_px: 200
 ```
 
 **Gut nachgefuehrte EQ-Montierung:**
@@ -313,7 +327,40 @@ registration:
   engine: triangle_star_matching
   allow_rotation: true
   max_shift_px: 30
+  # Neue Parameter (v2.0) — Defaults
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_drift_threshold_px: 2.0
+  use_astrometry: true
+  enable_local_background_subtraction: false
+  star_shift_radius_px: 60        # Äquatorial mit gutem Tracking
 ```
+
+**Praxisprofil: M104 / Alt-Az / etwas staerkere Rotation / schlechtes Seeing:**
+```yaml
+registration:
+  engine: triangle_star_matching
+  auto_engine: true
+  transform_model: affine
+  enable_star_pair_fallback: true
+  allow_rotation: true
+  star_topk: 150
+  star_min_inliers: 4
+  star_inlier_tol_px: 4.0
+  star_shift_radius_px: 200
+  reject_outliers: true
+  reject_cc_min_abs: 0.25
+  use_astrometry: true
+  enable_local_background_subtraction: true
+
+global_metrics:
+  adaptive_weights: true
+  weight_exponent_scale: 1.3
+  clamp: [-2.5, 2.5]
+```
+
+- Konkretes Vollbeispiel: [tile_compile_cpp/examples/m104.example.yaml](/home/mux/programme/tile_compile/tile_compile_cpp/examples/m104.example.yaml)
+- Sinn dieses Profils: Multi-Anchor-Registration fuer Alt/Az-Rotation aktiv lassen, schwache Frames nicht wegwerfen, aber gute Frames bei der globalen Gewichtung klar bevorzugen.
 
 ---
 
@@ -344,6 +391,9 @@ global_metrics:
     gradient: 0.25
   clamp: [-2.5, 2.5]
 ```
+
+- Empfehlenswert fuer Sessions mit sichtbar wechselhaftem Seeing oder transparenzbedingten Qualitaetsschwankungen.
+- Genau diese staerkere Trennung nutzt auch [tile_compile_cpp/examples/m104.example.yaml](/home/mux/programme/tile_compile/tile_compile_cpp/examples/m104.example.yaml).
 
 **Weichere Gewichtung bei homogener Session:**
 ```yaml
@@ -544,6 +594,7 @@ registration:
   enable_star_pair_fallback: true
   allow_rotation: true
   max_shift_px: 80
+  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius für mehrstündige Sessions
 
 stacking:
   common_overlap_required_fraction: 1.0

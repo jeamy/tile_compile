@@ -527,7 +527,109 @@ All chained warps are validated with NCC against the reference frame. Particular
 
 **Purpose:** Allowed similarity scale range. Warps outside `[reject_scale_min, reject_scale_max]` or with negative determinant (reflection) are rejected.
 
+----
+
+### `registration.max_blind_chain_depth`
+
+| Property | Value |
+|----------|-------|
+| **Type** | integer |
+| **Minimum** | 0 |
+| **Maximum** | 100 |
+| **Default** | `0` |
+
+**Purpose:** Maximum depth for blind-chain rescue. `0` = automatic (N/10, min 12, max 50).
+
+- **Value 0 (auto):** Automatic calculation based on frame count N. Formula: `clamp(N/10, 12, 50)`
+- **Value >0:** Manual override of maximum chain depth
+
+**Note:** Higher values allow longer chains during cloud blocks but increase drift error risk.
+
+----
+
+### `registration.blind_chain_strong_anchor_cc`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | 0.01 |
+| **Maximum** | 0.5 |
+| **Default** | `0.08` |
+
+**Purpose:** CC threshold for "strong anchors" in blind chains. Frames with higher CC can start deeper chains.
+
+**Note:** Lower values allow more frames as strong anchors (aggressive), higher values are more conservative.
+
+----
+
+### `registration.blind_chain_drift_threshold_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Minimum** | 0.5 |
+| **Maximum** | 10.0 |
+| **Default** | `2.0` |
+
+**Purpose:** Maximum allowed drift in pixels per frame within a blind chain.
+
+- Chain is aborted when cumulative drift exceeds this value
+- Protects against accumulating errors in long chains
+
+----
+
+### `registration.use_astrometry`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `true` |
+
+**Purpose:** Enable astrometric rescue for frames that fail all other registration algorithms.
+
+**Requirements:**
+- ASTAP binary must be available (see `astrometry.astap_bin`)
+- Local star catalog must be present (see `astrometry.astap_data_dir`)
+
+**Note:** Set to `false` for very bright stars (e.g., Capella) as ASTAP has issues with overexposed centers.
+
+----
+
+### `registration.enable_local_background_subtraction`
+
+| Property | Value |
+|----------|-------|
+| **Type** | boolean |
+| **Default** | `false` |
+
+**Purpose:** Enable local background subtraction before star detection.
+
+**Recommended for:**
+- Strong moonlight with gradients
+- Bright background structures (nebulae, galaxies)
+- Uneven background from flat correction errors
+
 ---
+
+### `registration.star_shift_radius_px`
+
+| Property | Value |
+|----------|-------|
+| **Type** | number |
+| **Default** | `200.0` |
+| **Minimum** | `10` |
+| **Maximum** | `2000` |
+
+**Purpose:** Search radius for the shift-consistency filter in `triangle_star_matching` (pixels on the proxy image at half resolution). After triangle voting, each star pair is checked against others to find how many imply a similar shift (within this radius). The cluster with the highest support becomes the anchor; all inconsistent pairs are discarded. The radius must cover the **maximum expected inter-frame shift**.
+
+**When to adjust:**
+- **Equatorial mount** with good tracking (small shifts): `60`
+- **Alt/Az mount** (DWARF II, Seestar, multi-hour session): `200–400`
+- **Very long Alt/Az session** (>4h, large shift range): `400–600`
+
+> ⚠️ Too small a radius (e.g. 60 px on Alt/Az) causes false-match clusters to win the anchor vote over the real shift cluster → all frames fail triangle matching.
+
+----
 
 ## 8b. Dithering
 

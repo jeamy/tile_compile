@@ -1,16 +1,16 @@
-run_dir: ./run_m66_galaxy_background_balanced
+run_dir: ./run_m104_altaz_rotation_poor_seeing
 log_level: info
 
 scenario_profile:
-  id: m66_galaxy_background_balanced
-  title: M66 Galaxy Background Balanced
-  intent: "OSC-Galaxienfeld wie M66 mit Fokus auf robuster Hotpixel-Unterdrueckung, neutralem Hintergrund und ohne ueberaggressives Chroma-Suppression-Preset."
-  gui2_scenarios: [osc, m66, galaxy, background_gradient, broadband]
+  id: m104_altaz_rotation_poor_seeing
+  title: M104 AltAz Rotation Poor Seeing
+  intent: "OSC-Galaxienfeld wie M104 mit etwas staerkerer Alt/Az-Feldrotation, wechselhaftem Seeing und Prioritaet auf robuster Registrierung sowie staerkerer Gewichtung guter Frames."
+  gui2_scenarios: [osc, m104, galaxy, altaz, rotation, poor_seeing]
   recommended_for:
-    - "M66 / M65 / NGC 3628 und aehnliche broadband-Galaxienfelder mit schwachem Hintergrundgradient"
-    - "wenn ein nebula-/IC434-orientiertes Preset zu gruener oder zu flacher Galaxiendynamik fuehrt"
-    - "wenn fixe RGB-Speckles trotz Sigma-Clipping sichtbar bleiben"
-  priority: balanced_color_background_and_defect_rejection
+    - "M104 und aehnliche kompakte Galaxienfelder auf Alt/Az-Montierung mit sichtbarer Feldrotation"
+    - "Sessions mit brauchbaren, aber ungleich guten Frames, bei denen gute Frames staerker gewichtet werden sollen"
+    - "Datensaetze, bei denen eine Ein-Referenz-Registrierung zu langen Sequential-Ketten fuehrt"
+  priority: robust_registration_and_stronger_quality_separation
 
 pipeline:
   mode: production
@@ -22,8 +22,8 @@ output:
   crop_to_nonzero_bbox: true
 
 data:
-  linear_required: true
   color_mode: OSC
+  linear_required: true
 
 input:
   pattern: ./data/*.fits
@@ -69,6 +69,8 @@ normalization:
 
 registration:
   engine: triangle_star_matching
+  auto_engine: true
+  auto_engine_rotation_threshold_deg: 0.05
   enable_star_pair_fallback: true
   allow_rotation: true
   transform_model: affine
@@ -76,82 +78,31 @@ registration:
   star_min_inliers: 4
   star_inlier_tol_px: 4.0
   star_dist_bin_px: 5.0
+  star_shift_radius_px: 200
   reject_outliers: true
   reject_cc_min_abs: 0.25
   reject_shift_px_min: 100.0
   reject_shift_median_multiplier: 5.0
   reject_scale_min: 0.92
   reject_scale_max: 1.08
-  auto_engine: true  # bei erkannter Feldrotation automatisch auf triangle_star_matching+affine wechseln (Alt/Az)
-  auto_engine_rotation_threshold_deg: 0.05  # Schwelle in Grad/Frame fuer Auto-Engine-Override
-  # Neue Parameter (v2.0) — Defaults + Background subtraction
   max_blind_chain_depth: 0
   blind_chain_strong_anchor_cc: 0.08
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: true
-  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
 
 dithering:
   enabled: true
   min_shift_px: 0.7
 
-tile_denoise:
-  soft_threshold:
-    enabled: true
-    blur_kernel: 21
-    alpha: 1.4
-    skip_star_tiles: true
-  wiener:
-    enabled: true
-    snr_threshold: 4.0
-    q_min: -0.5
-    q_max: 1.0
-    q_step: 0.1
-    min_snr: 2.0
-    max_iterations: 10
-
-chroma_denoise:
-  enabled: true
-  color_space: ycbcr_linear
-  apply_stage: post_stack_linear
-  protect_luma: true
-  luma_guard_strength: 0.92
-  star_protection:
-    enabled: true
-    threshold_sigma: 3.0
-    dilate_px: 3
-  structure_protection:
-    enabled: true
-    gradient_percentile: 94
-  chroma_wavelet:
-    enabled: true
-    levels: 4
-    threshold_scale: 1.6
-    soft_k: 1.1
-  chroma_bilateral:
-    enabled: true
-    sigma_spatial: 2.0
-    sigma_range: 0.06
-  blend:
-    mode: chroma_only
-    amount: 0.75
-
 global_metrics:
   adaptive_weights: true
-  weight_exponent_scale: 1.2
+  weight_exponent_scale: 1.3
   weights:
     background: 0.40
     noise: 0.35
     gradient: 0.25
-  clamp: [-3.0, 3.0]
-
-tile:
-  size_factor: 24
-  min_size: 48
-  max_divisor: 6
-  overlap_fraction: 0.30
-  star_min_count: 5
+  clamp: [-2.5, 2.5]
 
 local_metrics:
   clamp: [-3.0, 3.0]
@@ -165,6 +116,13 @@ local_metrics:
     metric_weight: 0.7
     background_weight: 0.3
 
+tile:
+  size_factor: 24
+  min_size: 48
+  max_divisor: 6
+  overlap_fraction: 0.30
+  star_min_count: 5
+
 synthetic:
   weighting: tile_weighted
   frames_min: 4
@@ -175,8 +133,8 @@ synthetic:
 
 astrometry:
   enabled: true
-  astap_bin: ""
-  astap_data_dir: /media/data/Astro/astap
+  astap_bin: /home/mux/.local/share/tile_compile/astap/astap_cli
+  astap_data_dir: /home/mux/.local/share/tile_compile/astap
   search_radius: 183
 
 bge:
@@ -211,7 +169,7 @@ bge:
     polynomial_order: 2
     rbf_phi: multiquadric
     rbf_mu_factor: 1.6
-    rbf_lambda: 2e-2
+    rbf_lambda: 0.02
     rbf_epsilon: 0.8
 
 pcc:
@@ -227,16 +185,42 @@ pcc:
   siril_catalog_dir: ""
   background_model: plane
   max_condition_number: 3.0
-  max_residual_rms: 0.7
+  max_residual_rms: 0.9
   radii_mode: auto_fwhm
   aperture_fwhm_mult: 1.8
   annulus_inner_fwhm_mult: 3.0
   annulus_outer_fwhm_mult: 5.0
   min_aperture_px: 4.0
   apply_attenuation: false
-  background_neutralization_mode: auto
+  background_neutralization_mode: always
   chroma_strength: 0.85
   k_max: 2.4
+
+chroma_denoise:
+  enabled: true
+  color_space: ycbcr_linear
+  apply_stage: post_stack_linear
+  protect_luma: true
+  luma_guard_strength: 0.92
+  star_protection:
+    enabled: true
+    threshold_sigma: 3.0
+    dilate_px: 3
+  structure_protection:
+    enabled: true
+    gradient_percentile: 94
+  chroma_wavelet:
+    enabled: true
+    levels: 4
+    threshold_scale: 1.6
+    soft_k: 1.1
+  chroma_bilateral:
+    enabled: true
+    sigma_spatial: 2.0
+    sigma_range: 0.06
+  blend:
+    mode: chroma_only
+    amount: 0.75
 
 stacking:
   method: rej
@@ -246,7 +230,7 @@ stacking:
     max_iters: 4
     min_fraction: 0.4
   cluster_quality_weighting:
-    enabled: true
+    enabled: false
     kappa_cluster: 1.0
     cap_enabled: true
     cap_ratio: 20.0
@@ -256,16 +240,16 @@ stacking:
   per_frame_cosmetic_correction: true
   per_frame_cosmetic_correction_sigma: 2.5
 
+runtime_limits:
+  acceleration_backend: auto
+  allow_emergency_mode: true
+  hard_abort_hours: 6
+  memory_budget: 2048
+  parallel_workers: 8
+  tile_analysis_max_factor_vs_stack: 3
+
 validation:
-  min_fwhm_improvement_percent: 3.0
-  max_background_rms_increase_percent: 2.0
+  max_background_rms_increase_percent: 2
+  min_fwhm_improvement_percent: 3
   min_tile_weight_variance: 0.05
   require_no_tile_pattern: true
-
-runtime_limits:
-  parallel_workers: 8
-  memory_budget: 2048
-  acceleration_backend: auto
-  tile_analysis_max_factor_vs_stack: 3.0
-  hard_abort_hours: 6.0
-  allow_emergency_mode: true

@@ -79,6 +79,13 @@ registration:
   reject_scale_max: 1.08 # maximale erlaubte Similarity-Skalierung
   auto_engine: true  # bei erkannter Feldrotation automatisch auf triangle_star_matching+affine wechseln (Alt/Az)
   auto_engine_rotation_threshold_deg: 0.05  # Schwelle in Grad/Frame fuer Auto-Engine-Override
+  # Neue Parameter (v2.0) — Low N: auto
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.08
+  blind_chain_drift_threshold_px: 2.0
+  use_astrometry: true
+  enable_local_background_subtraction: false
+  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
   # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
   # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
 

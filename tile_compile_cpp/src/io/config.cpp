@@ -285,6 +285,21 @@ Config Config::from_yaml(const YAML::Node &node) {
     if (r["auto_engine_rotation_threshold_deg"])
       cfg.registration.auto_engine_rotation_threshold_deg =
           r["auto_engine_rotation_threshold_deg"].as<float>();
+    // Neue Blind-Chain Parameter (§4.1, §8.B)
+    if (r["max_blind_chain_depth"])
+      cfg.registration.max_blind_chain_depth = r["max_blind_chain_depth"].as<int>();
+    if (r["blind_chain_strong_anchor_cc"])
+      cfg.registration.blind_chain_strong_anchor_cc = r["blind_chain_strong_anchor_cc"].as<float>();
+    if (r["blind_chain_drift_threshold_px"])
+      cfg.registration.blind_chain_drift_threshold_px = r["blind_chain_drift_threshold_px"].as<float>();
+    // Astrometric rescue (§4.13)
+    if (r["use_astrometry"])
+      cfg.registration.use_astrometry = r["use_astrometry"].as<bool>();
+    // Local background subtraction (§4.4, §8.D)
+    if (r["enable_local_background_subtraction"])
+      cfg.registration.enable_local_background_subtraction = r["enable_local_background_subtraction"].as<bool>();
+    if (r["star_shift_radius_px"])
+      cfg.registration.star_shift_radius_px = r["star_shift_radius_px"].as<float>();
   }
 
   if (node["dithering"]) {
@@ -833,6 +848,15 @@ YAML::Node Config::to_yaml() const {
   node["registration"]["auto_engine"] = registration.auto_engine;
   node["registration"]["auto_engine_rotation_threshold_deg"] =
       registration.auto_engine_rotation_threshold_deg;
+  // Neue Blind-Chain Parameter (§4.1, §8.B)
+  node["registration"]["max_blind_chain_depth"] = registration.max_blind_chain_depth;
+  node["registration"]["blind_chain_strong_anchor_cc"] = registration.blind_chain_strong_anchor_cc;
+  node["registration"]["blind_chain_drift_threshold_px"] = registration.blind_chain_drift_threshold_px;
+  // Astrometric rescue (§4.13)
+  node["registration"]["use_astrometry"] = registration.use_astrometry;
+  // Local background subtraction (§4.4, §8.D)
+  node["registration"]["enable_local_background_subtraction"] = registration.enable_local_background_subtraction;
+  node["registration"]["star_shift_radius_px"] = registration.star_shift_radius_px;
 
   node["dithering"]["enabled"] = dithering.enabled;
   node["dithering"]["min_shift_px"] = dithering.min_shift_px;
@@ -1161,6 +1185,22 @@ void Config::validate() const {
     throw ValidationError(
         "registration.reject_scale_min must be > 0 and "
         "registration.reject_scale_max must be >= reject_scale_min");
+  }
+  // Neue Parameter Validierung (§4.1, §4.4, §4.13)
+  if (registration.max_blind_chain_depth < 0 || registration.max_blind_chain_depth > 100) {
+    throw ValidationError("registration.max_blind_chain_depth must be in [0, 100]");
+  }
+  if (registration.blind_chain_strong_anchor_cc < 0.01f ||
+      registration.blind_chain_strong_anchor_cc > 0.5f) {
+    throw ValidationError("registration.blind_chain_strong_anchor_cc must be in [0.01, 0.5]");
+  }
+  if (registration.blind_chain_drift_threshold_px < 0.5f ||
+      registration.blind_chain_drift_threshold_px > 10.0f) {
+    throw ValidationError("registration.blind_chain_drift_threshold_px must be in [0.5, 10.0]");
+  }
+  if (registration.star_shift_radius_px < 10.0f ||
+      registration.star_shift_radius_px > 2000.0f) {
+    throw ValidationError("registration.star_shift_radius_px must be in [10, 2000]");
   }
 
   if (dithering.min_shift_px < 0.0f) {
@@ -1573,7 +1613,13 @@ std::string get_schema_json() {
                       "reject_shift_px_min":{"type":"number","minimum":0},
                       "reject_shift_median_multiplier":{"type":"number","exclusiveMinimum":0},
                       "reject_scale_min":{"type":"number","exclusiveMinimum":0},
-                      "reject_scale_max":{"type":"number","exclusiveMinimum":0} } },
+                      "reject_scale_max":{"type":"number","exclusiveMinimum":0},
+                      "max_blind_chain_depth":{"type":"integer","minimum":0,"maximum":100},
+                      "blind_chain_strong_anchor_cc":{"type":"number","minimum":0.01,"maximum":0.5},
+                      "blind_chain_drift_threshold_px":{"type":"number","minimum":0.5,"maximum":10.0},
+                      "use_astrometry":{"type":"boolean"},
+                      "enable_local_background_subtraction":{"type":"boolean"},
+                      "star_shift_radius_px":{"type":"number","minimum":10,"maximum":2000} } },
     "dithering": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "min_shift_px":{"type":"number","minimum":0} } },

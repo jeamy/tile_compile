@@ -9,6 +9,12 @@
 
 namespace tile_compile::registration {
 
+struct StarPoint {
+    float x = 0.0f;
+    float y = 0.0f;
+    float flux = 0.0f;
+};
+
 struct GlobalRegistrationOutput {
     int ref_idx = 0;
     std::string ref_selection_method; // "global_weight" | "quality_score" | "middle"
@@ -51,13 +57,17 @@ SingleFrameRegResult register_single_frame(
 // Sub-functions (canonical implementations — do NOT duplicate in runner)
 Matrix2Df downsample2x2_mean(const Matrix2Df& in);
 WarpMatrix scale_translation_warp(const WarpMatrix& w, float scale);
+std::vector<StarPoint> detect_stars_simple(
+    const Matrix2Df& img, int topk,
+    bool enable_local_background_subtraction = false);
 
 RegistrationResult star_registration_similarity(
     const Matrix2Df& mov, const Matrix2Df& ref,
     bool allow_rotation,
     int topk_stars, int min_inliers,
     float inlier_tol_px, float dist_bin_px,
-    const std::string& transform_model);
+    const std::string& transform_model,
+    bool enable_local_background_subtraction = false);
 
 RegistrationResult feature_registration_similarity(
     const Matrix2Df& mov, const Matrix2Df& ref,
@@ -67,7 +77,9 @@ RegistrationResult triangle_star_matching(
     const Matrix2Df& mov, const Matrix2Df& ref,
     bool allow_rotation,
     int topk_stars, int min_inliers,
-    float inlier_tol_px, const std::string& transform_model);
+    float inlier_tol_px, const std::string& transform_model,
+    bool enable_local_background_subtraction = false,
+    float shift_radius_px = 200.0f);
 
 RegistrationResult robust_phase_ecc(
     const Matrix2Df& mov, const Matrix2Df& ref,
@@ -78,5 +90,10 @@ RegistrationResult robust_phase_ecc_seeded(
     bool allow_rotation, const WarpMatrix& init_warp);
 
 float estimate_rotation_logpolar(const cv::Mat& ref, const cv::Mat& mov);
+
+// §4.13 — Helper für astrometrische Rescue und interne Verwendung
+cv::Mat warp_valid_mask(const Matrix2Df& img, const WarpMatrix& warp);
+float compute_ncc_masked(const Matrix2Df& a, const Matrix2Df& b,
+                         const cv::Mat& mask, int* used_pixels = nullptr);
 
 } // namespace tile_compile::registration
