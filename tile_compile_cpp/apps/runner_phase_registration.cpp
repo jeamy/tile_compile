@@ -758,8 +758,20 @@ bool run_phase_registration_prewarp(
     }
 
     const int n = static_cast<int>(candidates.size());
-    const int requested_anchor_count =
-        (n >= 240) ? 5 : ((n >= 120) ? 3 : 1);
+    int requested_anchor_count = 1;
+    if (n >= 120) {
+      // Scale anchors with sequence length so very long Alt/Az sessions do not
+      // rely on a coarse fixed bucket like 1/3/5. Keep the count odd so one
+      // anchor can always be forced to the temporal center.
+      requested_anchor_count = std::max(3, (n + 79) / 80);  // ceil(n / 80)
+      if ((requested_anchor_count % 2) == 0) {
+        ++requested_anchor_count;
+      }
+      const int max_odd_anchor_count = (n % 2 == 0) ? (n - 1) : n;
+      requested_anchor_count =
+          std::min(requested_anchor_count, std::max(1, max_odd_anchor_count));
+      requested_anchor_count = std::min(requested_anchor_count, 15);
+    }
     std::vector<int> desired_positions;
     desired_positions.reserve(static_cast<size_t>(requested_anchor_count));
     if (requested_anchor_count <= 1) {

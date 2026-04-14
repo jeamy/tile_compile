@@ -336,6 +336,32 @@ registration:
   star_shift_radius_px: 60        # Equatorial with good tracking
 ```
 
+**Practical profile: M104 / Alt-Az / somewhat stronger rotation / poor seeing:**
+```yaml
+registration:
+  engine: triangle_star_matching
+  auto_engine: true
+  transform_model: affine
+  enable_star_pair_fallback: true
+  allow_rotation: true
+  star_topk: 150
+  star_min_inliers: 4
+  star_inlier_tol_px: 4.0
+  star_shift_radius_px: 200
+  reject_outliers: true
+  reject_cc_min_abs: 0.25
+  use_astrometry: true
+  enable_local_background_subtraction: true
+
+global_metrics:
+  adaptive_weights: true
+  weight_exponent_scale: 1.3
+  clamp: [-2.5, 2.5]
+```
+
+- Full example file: [tile_compile_cpp/examples/m104.example.yaml](/home/mux/programme/tile_compile/tile_compile_cpp/examples/m104.example.yaml)
+- Intent of this profile: keep the multi-anchor Alt/Az registration path active, retain weak frames, but weight clearly better frames more strongly in the global ranking.
+
 ---
 
 ## Global Weighting (`global_metrics.*`)
@@ -365,6 +391,9 @@ global_metrics:
     gradient: 0.25
   clamp: [-2.5, 2.5]
 ```
+
+- Recommended when seeing or transparency varies noticeably across the session.
+- This stronger separation is also used in [tile_compile_cpp/examples/m104.example.yaml](/home/mux/programme/tile_compile/tile_compile_cpp/examples/m104.example.yaml).
 
 **Softer weighting for homogeneous sessions:**
 ```yaml

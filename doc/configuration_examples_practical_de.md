@@ -336,6 +336,32 @@ registration:
   star_shift_radius_px: 60        # Äquatorial mit gutem Tracking
 ```
 
+**Praxisprofil: M104 / Alt-Az / etwas staerkere Rotation / schlechtes Seeing:**
+```yaml
+registration:
+  engine: triangle_star_matching
+  auto_engine: true
+  transform_model: affine
+  enable_star_pair_fallback: true
+  allow_rotation: true
+  star_topk: 150
+  star_min_inliers: 4
+  star_inlier_tol_px: 4.0
+  star_shift_radius_px: 200
+  reject_outliers: true
+  reject_cc_min_abs: 0.25
+  use_astrometry: true
+  enable_local_background_subtraction: true
+
+global_metrics:
+  adaptive_weights: true
+  weight_exponent_scale: 1.3
+  clamp: [-2.5, 2.5]
+```
+
+- Konkretes Vollbeispiel: [tile_compile_cpp/examples/m104.example.yaml](/home/mux/programme/tile_compile/tile_compile_cpp/examples/m104.example.yaml)
+- Sinn dieses Profils: Multi-Anchor-Registration fuer Alt/Az-Rotation aktiv lassen, schwache Frames nicht wegwerfen, aber gute Frames bei der globalen Gewichtung klar bevorzugen.
+
 ---
 
 ## Globale Gewichtung (`global_metrics.*`)
@@ -365,6 +391,9 @@ global_metrics:
     gradient: 0.25
   clamp: [-2.5, 2.5]
 ```
+
+- Empfehlenswert fuer Sessions mit sichtbar wechselhaftem Seeing oder transparenzbedingten Qualitaetsschwankungen.
+- Genau diese staerkere Trennung nutzt auch [tile_compile_cpp/examples/m104.example.yaml](/home/mux/programme/tile_compile/tile_compile_cpp/examples/m104.example.yaml).
 
 **Weichere Gewichtung bei homogener Session:**
 ```yaml

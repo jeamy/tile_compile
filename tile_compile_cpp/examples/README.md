@@ -113,6 +113,9 @@ They are kept in sync with the active runner/config parser defaults, including:
 - `m66_galaxy_background_balanced.example.yaml`
   - Suggested OSC config for broadband galaxy fields like M66/M65/NGC 3628 with mild background gradient.
   - Keeps the balanced galaxy-style BGE/PCC tuning and pre-stack defect suppression that behaved better than the IC434/chroma-suppression preset on this target class.
+- `m104.example.yaml`
+  - Suggested OSC config for M104-like Alt/Az galaxy sessions with somewhat stronger rotation, poor/variable seeing, and mixed frame quality.
+  - Derived from the real `m104-reg3` problem run and tuned to separate good and bad frames more strongly via `global_metrics.weight_exponent_scale: 1.3`.
 - `canon_equatorial_balanced.example.yaml`
   - Suggested OSC config for Canon/DSLR on equatorial mount (well-tracked, balanced quality/safety).
   - Registration is intentionally stricter than Alt/Az while still compatible with modeled fallback for failed direct registrations.

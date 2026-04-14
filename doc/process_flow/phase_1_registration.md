@@ -5,9 +5,9 @@
 
 ## Übersicht
 
-Die Registrierung richtet alle Frames geometrisch auf einen Referenz-Frame aus. Die C++ Implementierung verwendet eine **6-stufige Registrierungskaskade** mit robusten Fallbacks, die auch bei schwierigen Bedingungen (wenige Sterne, Star Trails durch Feldrotation, Nebel/Wolken) funktioniert. Anschließend werden alle Frames in der **eigenen Pipeline-Phase `PREWARP`** vollständig auf Bildauflösung vorgewrapt, bevor lokale Tile-Metriken berechnet werden.
+Die Registrierung richtet alle Frames geometrisch auf ein gemeinsames Referenzsystem aus. Der aktuelle C++-Runner kombiniert eine **6-stufige Einzelbild-Registrierungskaskade** mit einer **Multi-Anchor-Strategie**, sequentiellen Frame-zu-Frame-Rescues und optionaler Astrometrie. Das ist speziell fuer lange Alt/Az-Sequenzen mit Feldrotation wichtig, bei denen ein einziger spaeter Referenzframe fuer fruehe Frames oft geometrisch zu weit entfernt ist. Anschliessend werden alle Frames in der **eigenen Pipeline-Phase `PREWARP`** vollaufgeloest vorgewrapt, bevor lokale Tile-Metriken berechnet werden.
 
-**Kernprinzip:** Keine Frame-Selektion. Jeder Frame wird behalten, auch bei fehlgeschlagener Registrierung (Identity-Warp mit CC=0).
+**Kernprinzip:** Keine Frame-Selektion. Jeder Frame bleibt im Datenfluss; die Provenienz wird ueber `source`, `chain_depth` und Registration-Telemetrie dokumentiert.
 
 `v3.3.9` ergänzt hier zwei normative Punkte:
 
@@ -16,39 +16,54 @@ Die Registrierung richtet alle Frames geometrisch auf einen Referenz-Frame aus. 
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Für jeden Frame f ≠ ref:                                │
+│  Fuer jeden Frame f != master_ref:                       │
 │                                                          │
-│  1. Lade + normalisiere Frame                            │
-│  2. Downsample 2× (CFA: Green-Proxy, Mono: Mean)         │
-│  3. Kaskade (6 Stufen):                                  │
-│     ├─ Triangle Star Matching    → OK? → accept          │
-│     ├─ Trail Endpoint Matching   → OK? → accept  [NEU]   │
-│     ├─ AKAZE Feature Match       → OK? → accept          │
-│     ├─ Robust Phase+ECC (Multi)  → OK? → accept  [NEU]   │
-│     ├─ Hybrid Phase+ECC          → OK? → accept          │
-│     └─ Fallback: Identity Warp (CC=0)                    │
-│  4. Skaliere Translation auf Vollauflösung               │
-│  5. Pre-warp ganzes Bild (CFA-aware bei OSC)             │
+│  1. Waehle 1/3/5 hochwertige, zeitlich verteilte Anker   │
+│  2. Verankere Anchor-Frames gegen den Master-Anchor      │
+│  3. Registriere jedes Frame direkt gegen den naechsten   │
+│     aktiven Anchor (Einzelbild-Kaskade darunter)         │
+│  4. Promote starke direkte Treffer zu weiteren Anchors   │
+│     und wiederhole direkte Paesse                        │
+│  5. Rescue-Stufen: sequential refine -> phase-corr       │
+│     -> temporal/local/ECC -> optional Astrometrie        │
+│  6. Optionales Feldrotationsmodell fuer Restfaelle       │
+│  7. Pre-warp ganzes Bild (CFA-aware bei OSC)             │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ## 1. Referenz-Frame-Auswahl
 
-```cpp
-// Wähle Frame mit höchstem globalem Gewicht G_f
-float best_w = -1.0f;
-for (int i = 0; i < frame_metrics.size(); ++i) {
-    float w = global_weights[i];
-    if (w > best_w) { best_w = w; global_ref_idx = i; }
-}
-// Fallback: höchster quality_score, dann Mitte
-```
+Der Runner verwendet nicht mehr nur einen einzelnen Qualitaets-Ref-Frame, sondern ein **Master-Anchor plus mehrere zeitlich verteilte Referenzanker**:
 
-- **Primär:** Frame mit höchstem `G_f` (globales Gewicht aus Phase 4)
-- **Fallback 1:** Frame mit höchstem `quality_score`
-- **Fallback 2:** Mittlerer Frame (`frames.size() / 2`)
-- Der Referenz-Frame erhält Identity-Warp und CC=1.0
-- In `v3.3.9` ist diese bedingungslose Identity-Akzeptanz für den Referenzframe ausdrücklich bindend.
+- Unter `120` Frames: `1` Anchor
+- Ab `120` Frames: ungerade Anchor-Zahl mit etwa **1 Anchor pro 80 Frames**
+- Formel im aktuellen Runner: `requested_anchor_count = ceil(N / 80)`, dann auf die naechste ungerade Zahl angehoben
+- Obergrenze aktuell: `15` angeforderte Anchors
+- Beispiele: `120 -> 3`, `240 -> 3`, `325 -> 5`, `1000 -> 13`
+- Die Zielpositionen der Anchors werden ueber die Zeitachse verteilt; innerhalb jedes Segments wird der beste Frame nach `global_weights` bzw. `quality_score` gewaehlt.
+- Der **Master-Anchor** ist der aktive Referenzframe, der unter den gewaehlten Anchors am naechsten zur Sequenzmitte liegt.
+- Der Master-Anchor erhaelt Identity-Warp und `CC=1.0`.
+
+Das verhindert, dass fruehe Frames in langen Alt/Az-Sessions direkt gegen einen viel spaeteren Referenzframe registriert werden muessen.
+
+## 1.1 Multi-Anchor-Direktpass
+
+Nach der Anchor-Auswahl laeuft die direkte Registrierung so:
+
+- Angeforderte Anchor-Frames werden zuerst gegen bereits aktive Anchors verankert.
+- Jedes normale Frame wird direkt gegen den **zeitlich naechsten aktiven Anchor** registriert, nicht zwangslaeufig gegen den Master-Anchor.
+- Starke `direct_global`-Treffer koennen zu weiteren aktiven Anchors promoted werden.
+- Dieser direkte Pass kann bis zu drei weitere Male wiederholt werden (`reg_direct_anchor_rounds`), damit sich das Anchor-Netz ueber wirklich erfolgreiche Direktmatches aufbaut.
+
+## 1.2 Rescue-Hierarchie nach dem Direktpass
+
+Wenn die direkte Registrierung fuer ein Frame nicht ausreicht, folgen in dieser Reihenfolge weitere Stufen:
+
+1. `sequential_refined`: direktes Frame-zu-Frame-Matching gegen den zeitlichen Nachbarn mit anschliessender globaler Konsistenzpruefung.
+2. `sequential_rescue`: Phase-Correlation-Rescue gegen den Nachbarn fuer Bloecke, in denen die globale Korrelation verloren ging.
+3. `temporal_rescue`, `seeded_ecc_rescue`, `local_reference_rescue`: weitere Bruecken- und Unterstuetzungsstufen fuer verbleibende Ausfaelle.
+4. `astrometric_rescue`: ASTAP-basierte Plate-Solve-Rettung fuer unresolved oder sehr schwache/chained Ergebnisse.
+5. `model_predicted` / `model_blended`: Feldrotationsmodell als letzter geometrischer Rueckfall.
 
 ## 2. Downsample für Registrierung
 
@@ -233,17 +248,22 @@ Die resultierenden Canvas-Daten werden im PREWARP-Output (`canvas_width/height`,
 
 | Parameter | Beschreibung | C++ Default |
 |-----------|-------------|-------------|
-| `registration.enabled` | Registrierung aktivieren | `true` |
 | `registration.engine` | Primäre Engine | `triangle_star_matching` |
+| `registration.transform_model` | Globales Warp-Modell | `similarity` |
+| `registration.enable_star_pair_fallback` | Optionale Star-Pair-Zwischenstufe | `true` |
 | `registration.allow_rotation` | Rotation erlauben (Alt/Az) | `true` |
-| `registration.min_score` | Min. Correlation-Score | `0.05` |
-| `registration.fallback_to_identity` | Identity-Fallback erlauben | `true` |
-| `registration.star_topk` | Top-K Sterne für Matching | `120` |
-| `registration.star_min_inliers` | Mindest-Inlier für Akzeptanz | `6` |
-| `registration.star_inlier_tol_px` | Inlier-Toleranz in Pixel | `2.5` |
-| `registration.star_dist_bin_px` | Distanz-Bin für Star Pairs | `2.5` |
+| `registration.auto_engine` | Alt/Az-Override auf `triangle_star_matching+affine` | `true` |
+| `registration.auto_engine_rotation_threshold_deg` | Trigger fuer Auto-Engine | `0.05` |
+| `registration.star_topk` | Top-K Sterne fuer Matching | `150` |
+| `registration.star_min_inliers` | Mindest-Inlier fuer Akzeptanz | `4` |
+| `registration.star_inlier_tol_px` | Inlier-Toleranz in Pixel | `4.0` |
+| `registration.star_dist_bin_px` | Distanz-Bin fuer Star Pairs | `5.0` |
+| `registration.star_shift_radius_px` | Shift-Konsistenzradius auf Proxy | `200.0` |
+| `registration.max_blind_chain_depth` | Maximale Blind-Chain-Tiefe (`0` = auto) | `0` |
+| `registration.blind_chain_strong_anchor_cc` | CC-Schwelle fuer starke Chain-Anker | `0.08` |
+| `registration.use_astrometry` | ASTAP-Rescue erlauben | `true` |
+| `registration.enable_local_background_subtraction` | Lokale Hintergrundsubtraktion fuer Sterndetektion | `false` |
 | `output.write_registered_frames` | Registrierte Frames speichern | `false` |
-| `output.write_global_registration` | Registration-Artifact schreiben | `true` |
 
 ## Artifact: `global_registration.json`
 
@@ -252,14 +272,37 @@ Die resultierenden Canvas-Daten werden im PREWARP-Output (`canvas_width/height`,
   "num_frames": 100,
   "scale": 2.0,
   "ref_frame": 42,
+  "source": ["direct_global", "sequential_refined", "..."],
+  "chain_depth": [0, 2, "..."],
   "cc": [1.0, 0.95, 0.87, ...],
   "warps": [
     {"a00": 1.0, "a01": 0.0, "tx": 0.0, "a10": 0.0, "a11": 1.0, "ty": 0.0},
     {"a00": 0.999, "a01": -0.012, "tx": 3.5, "a10": 0.012, "a11": 0.999, "ty": -1.2},
     ...
-  ]
+  ],
+  "extra": {
+    "ref_frame_strategy": "quality_segmented_multi_anchor",
+    "requested_ref_frames": [5, 42, 88],
+    "active_ref_frames": [18, 42, 63, 88],
+    "reg_direct_anchor_rounds": 2,
+    "reg_source_counts": {
+      "direct_global": 61,
+      "sequential_refined": 37,
+      "reference": 1,
+      "astrometric_rescue": 1
+    }
+  }
 }
 ```
+
+Wichtige aktuelle Felder:
+
+- `source`: Provenienz pro Frame, z. B. `reference`, `direct_global`, `sequential_refined`, `sequential_rescue`, `astrometric_rescue`, `model_predicted`
+- `chain_depth`: effektive Verkettungstiefe pro Frame
+- `extra.requested_ref_frames`: angeforderte Quality-Anker
+- `extra.active_ref_frames`: tatsaechlich aktive Anchors nach Promotion
+- `extra.reg_source_counts`: Summen je Registrierungsweg
+- `extra.reg_direct_anchor_rounds`: wie oft nach Anchor-Promotion nochmals teure Direktpaesse gelaufen sind
 
 ## Fehlerbehandlung
 
@@ -267,7 +310,7 @@ Die resultierenden Canvas-Daten werden im PREWARP-Output (`canvas_width/height`,
 |-----------|-----------|
 | Ref-Frame leer | `global_reg_status = "error"` |
 | Frame leer | Identity-Warp, CC=0 |
-| Alle 5 Methoden fehlgeschlagen | Identity-Warp, CC=0 (Frame bleibt!) |
+| Direkte und indirekte Registrierung scheitern komplett | Identity-Warp oder modellierter Rueckfall; Frame bleibt dokumentiert |
 | Exception in Registrierung | Gesamte Phase → "error", Pipeline weiter |
 | Star Trails (Feldrotation) | Stufe 2 (Trail Endpoints) übernimmt |
 | Nebel/Wolken (keine Sterne) | Stufe 4 (Robust Phase+ECC) übernimmt |
