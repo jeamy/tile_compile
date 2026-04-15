@@ -171,18 +171,18 @@ registration:
   auto_engine: true  # bei erkannter Feldrotation automatisch auf triangle_star_matching+affine wechseln (Alt/Az)
   auto_engine_rotation_threshold_deg: 0.05  # Schwelle in Grad/Frame fuer Auto-Engine-Override
   # Neue Parameter (v2.0)
-  max_blind_chain_depth: 3
-  blind_chain_strong_anchor_cc: 0.5
+  max_blind_chain_depth: 0  # auto
+  blind_chain_strong_anchor_cc: 0.05  # niedriger = mehr direkte Anker
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
-  star_shift_radius_px: 150       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
+  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
   reject_shift_median_multiplier: 5
   reject_shift_px_min: 100
   star_dist_bin_px: 5
   star_inlier_tol_px: 4
   star_min_inliers: 4
-  star_topk: 80
+  star_topk: 150
 run_dir: ./run_m31_background_gradient_balanced
 runtime_limits:
   allow_emergency_mode: true
@@ -216,7 +216,7 @@ stacking:
   method: rej
   output_stretch: true
   per_frame_cosmetic_correction: true
-  per_frame_cosmetic_correction_sigma: 2.5
+  per_frame_cosmetic_correction_sigma: 2.0
   sigma_clip:
     max_iters: 4
     min_fraction: 0.4

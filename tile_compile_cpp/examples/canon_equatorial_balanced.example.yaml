@@ -67,7 +67,7 @@ registration:
   enable_star_pair_fallback: true
   allow_rotation: true # auch bei EQ sinnvoll (Residualrotation, leichtes Drift)
   transform_model: similarity # EQ: weniger Freiheitsgrade, dadurch stabiler bei kleinen Residuen
-  star_topk: 80 # reduziert fuer schnelleres Matching
+  star_topk: 120 # ausreichend bei stabilen EQ-Serien
   star_min_inliers: 5 # Mindestzahl Inlier fuer Stern-Matching
   star_inlier_tol_px: 2.5 # etwas strikter als Alt/Az
   star_dist_bin_px: 3.0 # Distanz-Binning fuer Sternpaare
@@ -80,12 +80,12 @@ registration:
   auto_engine: true  # bei erkannter Feldrotation automatisch auf triangle_star_matching+affine wechseln (Alt/Az)
   auto_engine_rotation_threshold_deg: 0.05  # Schwelle in Grad/Frame fuer Auto-Engine-Override
   # Neue Parameter (v2.0) — Defaults
-  max_blind_chain_depth: 3
-  blind_chain_strong_anchor_cc: 0.5
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.05  # niedriger = mehr direkte Anker
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: true
   enable_local_background_subtraction: false
-  star_shift_radius_px: 150       # EQ: reduziert fuer schnelleres Matching
+  star_shift_radius_px: 60        # EQ-Montierung mit gutem Tracking; Alt/Az: 200-400
   # Gescheiterte Registrierungen werden per Polynomial-Feldrotationsmodell
   # vorhergesagt (statt Frame-Verwerfen), damit alle Frames nutzbar bleiben.
 
@@ -252,7 +252,7 @@ stacking:
   cosmetic_correction: false # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 4.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, empfohlen fuer OSC: 10.0)
   per_frame_cosmetic_correction: false # Hotpixel-Korrektur pro Frame vor dem Stack (fixe Sensordefekte)
-  per_frame_cosmetic_correction_sigma: 2.5 # Sigma-Schwelle fuer per_frame_cosmetic_correction (Default: 5.0)
+  per_frame_cosmetic_correction_sigma: 2.0 # Sigma-Schwelle fuer per_frame_cosmetic_correction (Default: 5.0)
 
 validation:
   min_fwhm_improvement_percent: 1.0 # bei bereits guten EQ-Daten moderat

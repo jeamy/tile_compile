@@ -68,7 +68,7 @@ registration:
   enable_star_pair_fallback: true
   allow_rotation: true # robust fuer Alt/Az und rotierende Felder
   transform_model: affine # rotierende/inhomogene Felder profitieren von affine-Verfeinerung
-  star_topk: 80 # reduziert fuer schnelleres Matching
+  star_topk: 180 # trotz dominanter heller Sterne genug schwaechere Sterne einbeziehen
   star_min_inliers: 5 # Mindestzahl Inlier fuer Stern-Matching
   star_inlier_tol_px: 4.0 # toleranter fuer Feldrotation/Restresiduen
   star_dist_bin_px: 5.0 # Distanz-Binning fuer Sternpaare
@@ -81,12 +81,12 @@ registration:
   auto_engine: true  # bei erkannter Feldrotation automatisch auf triangle_star_matching+affine wechseln (Alt/Az)
   auto_engine_rotation_threshold_deg: 0.05  # Schwelle in Grad/Frame fuer Auto-Engine-Override
   # Neue Parameter (v2.0) — use_astrometry false bei sehr hellen Sternen
-  max_blind_chain_depth: 3
-  blind_chain_strong_anchor_cc: 0.5
+  max_blind_chain_depth: 0
+  blind_chain_strong_anchor_cc: 0.05  # niedriger = mehr direkte Anker
   blind_chain_drift_threshold_px: 2.0
   use_astrometry: false  # ASTAP hat Probleme mit sehr hellen Sternen
   enable_local_background_subtraction: false
-  star_shift_radius_px: 150       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
+  star_shift_radius_px: 200       # Alt/Az: Shift-Suchradius (px im Proxy); EQ-Montierung: 60
 
 dithering:
   enabled: true # true bei aktivem Dithering waehrend Aufnahme
@@ -254,7 +254,7 @@ stacking:
   cosmetic_correction: true # optionale Kosmetik (Post)
   cosmetic_correction_sigma: 4.0 # Hotpixel-Schwelle in MAD-Sigma
   per_frame_cosmetic_correction: true # fixe Sensordefekte frueh entfernen
-  per_frame_cosmetic_correction_sigma: 2.5 # Sigma-Schwelle fuer per-frame Korrektur
+  per_frame_cosmetic_correction_sigma: 2.0 # Sigma-Schwelle fuer per-frame Korrektur
 
 validation:
   min_fwhm_improvement_percent: 0.0 # nicht auf FWHM-Gewinn versteifen

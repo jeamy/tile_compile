@@ -1362,17 +1362,53 @@ bool run_phase_registration_prewarp(
               return false;
             }
 
-            const auto sfr_local =
-                registration::register_single_frame(mov_p, nbr_p,
-                                                    registration_cfg, -0.002f);
-            if (!sfr_local.reg.success) {
-              return false;
+            // Fast path: phase-corr + optional log-polar rotation for delta warp.
+            // Sufficient for consecutive frames where drift is typically < 30px.
+            // Fallback to full register_single_frame only when phase-corr indicates
+            // a large shift (> 100px), which likely means a phase-corr alias.
+            const Matrix2Df mov_ecc_img = registration::prepare_ecc_image(mov_p);
+            const Matrix2Df nbr_ecc_img = registration::prepare_ecc_image(nbr_p);
+            auto [dx, dy] = registration::phasecorr_translation(mov_ecc_img, nbr_ecc_img);
+
+            WarpMatrix w_local = registration::identity_warp();
+            if (registration_cfg.allow_rotation) {
+              cv::Mat r_cv(nbr_ecc_img.rows(), nbr_ecc_img.cols(), CV_32F,
+                           const_cast<float *>(nbr_ecc_img.data()));
+              cv::Mat m_cv(mov_ecc_img.rows(), mov_ecc_img.cols(), CV_32F,
+                           const_cast<float *>(mov_ecc_img.data()));
+              const float rot_deg =
+                  registration::estimate_rotation_logpolar(r_cv, m_cv);
+              const float th = rot_deg * 3.14159265f / 180.0f;
+              const float ct = std::cos(th);
+              const float st = std::sin(th);
+              const float cx = static_cast<float>(mov_p.cols()) * 0.5f;
+              const float cy = static_cast<float>(mov_p.rows()) * 0.5f;
+              w_local(0, 0) = ct; w_local(0, 1) = -st;
+              w_local(1, 0) = st; w_local(1, 1) =  ct;
+              w_local(0, 2) = dx + cx * (1.0f - ct) + cy * st;
+              w_local(1, 2) = dy + cy * (1.0f - ct) - cx * st;
+            } else {
+              w_local(0, 2) = dx;
+              w_local(1, 2) = dy;
+            }
+
+            // If phase-corr gives a suspiciously large shift, fall back to full
+            // star-matching which is more robust against aliasing.
+            const float shift_sq = dx * dx + dy * dy;
+            if (shift_sq > 10000.0f) { // > 100px: phase-corr likely aliased
+              const auto sfr_local =
+                  registration::register_single_frame(mov_p, nbr_p,
+                                                      registration_cfg, -0.002f);
+              if (!sfr_local.reg.success) {
+                return false;
+              }
+              w_local = sfr_local.reg.warp;
             }
 
             const WarpMatrix w_nbr_proxy = registration::scale_translation_warp(
                 global_frame_warps[neighbor_fi], proxy_scale());
             const WarpMatrix w_chained =
-                concatenate_affine_warps(sfr_local.reg.warp, w_nbr_proxy);
+                concatenate_affine_warps(w_local, w_nbr_proxy);
 
             const Matrix2Df warped_global =
                 registration::apply_warp(mov_p, w_chained);
@@ -1385,12 +1421,18 @@ bool run_phase_registration_prewarp(
               return false;
             }
 
+            // Compute local NCC (warped mov vs neighbor) as proxy for local correlation.
+            const Matrix2Df warped_to_nbr = registration::apply_warp(mov_p, w_local);
+            const cv::Mat valid_mask_local = warp_valid_mask_local(mov_p, w_local);
+            const float ncc_local = compute_ncc_local_masked(
+                warped_to_nbr, nbr_p, valid_mask_local);
+
             const float current_cc = global_frame_cc[fi];
             const bool missing_direct = current_cc <= 0.0f;
             const bool clearly_better = ncc_global > current_cc + 0.005f;
             const bool comparable_but_prefer_sequential =
                 !missing_direct && ncc_global >= current_cc - 0.01f &&
-                sfr_local.reg.correlation >= std::max(0.12f, current_cc * 0.25f);
+                ncc_local >= std::max(0.12f, current_cc * 0.25f);
 
             if (!missing_direct && !clearly_better &&
                 !comparable_but_prefer_sequential) {
