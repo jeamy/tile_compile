@@ -225,8 +225,8 @@ chroma_denoise:
 stacking:
   method: rej
   sigma_clip:
-    sigma_low: 3
-    sigma_high: 3
+    sigma_low: 3.0
+    sigma_high: 2.0  # asymmetrisch: wandernde Hotpixel-Streifen aggressiv kappen
     max_iters: 4
     min_fraction: 0.5
   cluster_quality_weighting:

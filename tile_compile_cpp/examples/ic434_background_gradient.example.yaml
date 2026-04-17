@@ -248,8 +248,8 @@ stacking:
   common_overlap_required_fraction: 1.0
   tile_common_valid_min_fraction: 1.0
   sigma_clip:
-    sigma_low: 1.8
-    sigma_high: 1.8
+    sigma_low: 2.0
+    sigma_high: 1.5  # asymmetrisch: wandernde Hotpixel-Streifen aggressiv kappen
     max_iters: 4
     min_fraction: 0.4
   cluster_quality_weighting:

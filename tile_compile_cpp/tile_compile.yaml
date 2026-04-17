@@ -50,18 +50,18 @@ calibration:
   bias_use_master: false
   dark_already_bias_corrected: false
   dark_auto_select: true
-  dark_master: ""
+  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_10.000000_gain_60_bin_1_stack_10.fits
   dark_match_exposure_tolerance_percent: 8
   dark_match_temp_tolerance_c: 3
   dark_match_use_temp: false
-  dark_use_master: false
+  dark_use_master: true
   darks_dir: ""
   flat_master: ""
   flat_use_master: false
   flats_dir: ""
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
   use_bias: false
-  use_dark: false
+  use_dark: true
   use_flat: false
 chroma_denoise:
   apply_stage: post_stack_linear

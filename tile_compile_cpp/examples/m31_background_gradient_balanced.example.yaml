@@ -241,8 +241,10 @@ pcc:
 stacking:
   method: rej
   sigma_clip:
-    sigma_low: 1.8
-    sigma_high: 1.8
+    # Asymmetrisches Clipping: unten tolerant (Hintergrundrauschen erhalten),
+    # oben strikt um wandernde Hotpixel-Streifen aggressiv zu kappen.
+    sigma_low: 2.0
+    sigma_high: 1.5
     max_iters: 4
     min_fraction: 0.4
   cluster_quality_weighting:

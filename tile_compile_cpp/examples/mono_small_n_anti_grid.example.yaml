@@ -261,9 +261,9 @@ stacking:
     cap_enabled: false # optional: begrenzt Dominanz einzelner Cluster im finalen Stack
     cap_ratio: 20.0 # nur mit cap_enabled=true: w_k <= cap_ratio * median_j(w_j)
   output_stretch: false # optionales Display-Stretch (Post)
-  cosmetic_correction: false # optionale Kosmetik (Post)
+  cosmetic_correction: false # bei kleinem N und method=average: Post-Kosmetik vermeiden (Galaxienkerne)
   cosmetic_correction_sigma: 4.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0)
-  per_frame_cosmetic_correction: false # Hotpixel-Korrektur pro Frame vor dem Stack (fixe Sensordefekte)
+  per_frame_cosmetic_correction: true # Per-Frame Hotpixel-Korrektur (CFA-aware) vor dem Warp - bei method=average essentiell, da Sigma-Clip nicht kappt
   per_frame_cosmetic_correction_sigma: 2.0 # Sigma-Schwelle fuer per_frame_cosmetic_correction (Default: 5.0)
 
 validation:

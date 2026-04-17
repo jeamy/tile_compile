@@ -239,8 +239,8 @@ pcc:
 stacking:
   method: rej # rej|average
   sigma_clip:
-    sigma_low: 1.8 # EQ kann meist strikter geclippt werden
-    sigma_high: 1.8 # symmetrisch
+    sigma_low: 2.0 # Hintergrundrauschen breit halten
+    sigma_high: 1.5 # asymmetrisch: wandernde Hotpixel-Streifen aggressiv kappen
     max_iters: 3 # maximale Clip-Iterationen
     min_fraction: 0.5 # Mindestanteil verbleibender Samples
   cluster_quality_weighting:
@@ -249,9 +249,9 @@ stacking:
     cap_enabled: true # Dominanz einzelner Cluster begrenzen
     cap_ratio: 20.0 # w_k <= 20 * median_j(w_j)
   output_stretch: false # optionales Display-Stretch (Post)
-  cosmetic_correction: false # optionale Kosmetik (Post)
+  cosmetic_correction: true # Post-Stack Hotpixel-Kosmetik
   cosmetic_correction_sigma: 4.0 # Hotpixel-Schwelle in MAD-Sigma (Default: 5.0, empfohlen fuer OSC: 10.0)
-  per_frame_cosmetic_correction: false # Hotpixel-Korrektur pro Frame vor dem Stack (fixe Sensordefekte)
+  per_frame_cosmetic_correction: true # Per-Frame Hotpixel-Korrektur (CFA-aware) vor dem Warp
   per_frame_cosmetic_correction_sigma: 2.0 # Sigma-Schwelle fuer per_frame_cosmetic_correction (Default: 5.0)
 
 validation:

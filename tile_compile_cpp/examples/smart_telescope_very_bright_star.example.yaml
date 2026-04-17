@@ -241,8 +241,8 @@ pcc:
 stacking:
   method: rej # rej|average
   sigma_clip:
-    sigma_low: 1.8 # moderater Outlier-Schutz
-    sigma_high: 1.8 # symmetrisch
+    sigma_low: 2.0 # Hintergrundrauschen breit halten
+    sigma_high: 1.5 # asymmetrisch: wandernde Hotpixel-Streifen aggressiv kappen
     max_iters: 3 # maximale Clip-Iterationen
     min_fraction: 0.4 # bei vielen bewoelkten Frames darf mehr geclippt werden
   cluster_quality_weighting:

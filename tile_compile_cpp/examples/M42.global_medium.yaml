@@ -220,8 +220,8 @@ stacking:
   sigma_clip:
     max_iters: 4
     min_fraction: 0.4
-    sigma_high: 1.8
-    sigma_low: 1.8
+    sigma_high: 1.5
+    sigma_low: 2.0
 synthetic:
   clustering:
     cluster_count_range:
