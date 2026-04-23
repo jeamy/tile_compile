@@ -2327,7 +2327,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           valid_tiles_R.reserve(batch_end - batch_start);
           valid_tiles_G.reserve(batch_end - batch_start);
           valid_tiles_B.reserve(batch_end - batch_start);
-        const bool use_shared_rgb_sigma_clip = false;
         if (use_full_frame_osc_rgb_cache && osc_rgb_cache_r && osc_rgb_cache_g &&
             osc_rgb_cache_b) {
           Matrix2Df tile_r;
@@ -3822,14 +3821,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           return std::min(recon_stripe_mutexes.size() - 1, num / den);
         };
 
-        auto normalize_tile_for_ola = [&](Matrix2Df &t_img,
-                                          std::vector<float> &tmp) {
-          (void)t_img;
-          (void)tmp;
-          // Preserve synthetic-frame photometric scale. Per-tile median/scale
-          // normalization here can imprint tile structure and compress signal.
-        };
-
         std::atomic<size_t> next_tile{0};
 
         int subset_workers = 1;
@@ -3849,8 +3840,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
           std::vector<float> cluster_weights;
           cluster_tiles.reserve(frame_mask.size());
           cluster_weights.reserve(frame_mask.size());
-          std::vector<float> norm_tmp;
-
           while (true) {
             const size_t ti = next_tile.fetch_add(1);
             if (ti >= tiles_phase56.size())
@@ -3909,9 +3898,6 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
             }
             if (tile_rec.rows() != t.height || tile_rec.cols() != t.width)
               continue;
-
-            // v3.2 §5.7.1: normalize tile before overlap-add.
-            normalize_tile_for_ola(tile_rec, norm_tmp);
 
             if (ti >= tile_window_cache.size())
               continue;

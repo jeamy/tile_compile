@@ -362,6 +362,21 @@ bool load_canvas_mask_for_rgb(const std::filesystem::path &mask_path,
                               int &rows_out, int &cols_out,
                               std::string &error_out);
 
+struct WarpBounds {
+  int min_x = 0;
+  int min_y = 0;
+  int max_x = 0;
+  int max_y = 0;
+
+  [[nodiscard]] int width() const { return max_x - min_x; }
+  [[nodiscard]] int height() const { return max_y - min_y; }
+};
+
+bool invert_affine_warp(const WarpMatrix &w, WarpMatrix &inv);
+
+WarpBounds compute_warps_bounds(int width, int height,
+                                const std::vector<WarpMatrix> &warps);
+
 struct CropBox {
   int x{0};
   int y{0};

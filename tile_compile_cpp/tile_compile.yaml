@@ -26,7 +26,7 @@ bge:
     method: rbf
     polynomial_order: 2
     rbf_epsilon: 0.8
-    rbf_lambda: 0.02
+    rbf_lambda: 0.01
     rbf_mu_factor: 1.6
     rbf_phi: multiquadric
     robust_loss: huber
@@ -41,27 +41,26 @@ bge:
   min_tiles_per_cell: 3
   min_valid_sample_fraction_for_apply: 0.3
   min_valid_samples_for_apply: 96
-  sample_quantile: 0.18
-  structure_thresh_percentile: 0.9
+  sample_quantile: 0.15
+  structure_thresh_percentile: 0.8
   tile_weight_lambda_structure: 1
 calibration:
   bias_dir: ""
   bias_master: ""
   bias_use_master: false
-  dark_already_bias_corrected: false
   dark_auto_select: true
-  dark_master: /media/data/Astro/DwarfII/Astronomy/DWARF_DARK/dark_exp_10.000000_gain_60_bin_1_stack_10.fits
+  dark_master: ""
   dark_match_exposure_tolerance_percent: 8
   dark_match_temp_tolerance_c: 3
   dark_match_use_temp: false
-  dark_use_master: true
+  dark_use_master: false
   darks_dir: ""
   flat_master: ""
   flat_use_master: false
   flats_dir: ""
   pattern: "*.fit;*.fits;*.fts;*.fit.fz;*.fits.fz;*.fts.fz"
   use_bias: false
-  use_dark: true
+  use_dark: false
   use_flat: false
 chroma_denoise:
   apply_stage: post_stack_linear
@@ -144,7 +143,7 @@ pcc:
   aperture_radius_px: 8
   apply_attenuation: false
   background_model: plane
-  background_neutralization_mode: always
+  background_neutralization_mode: auto
   chroma_strength: 0.85
   enabled: true
   k_max: 2.4
@@ -163,11 +162,9 @@ pipeline:
   mode: production
 registration:
   allow_rotation: true
-  auto_engine: true
-  auto_engine_rotation_threshold_deg: 0.05
   blind_chain_drift_threshold_px: 2
   blind_chain_strong_anchor_cc: 0.05
-  enable_local_background_subtraction: true
+  enable_local_background_subtraction: false
   enable_star_pair_fallback: true
   engine: triangle_star_matching
   max_blind_chain_depth: 0
@@ -176,12 +173,12 @@ registration:
   reject_scale_max: 1.08
   reject_scale_min: 0.92
   reject_shift_median_multiplier: 5
-  reject_shift_px_min: 100
+  reject_shift_px_min: 120
   star_dist_bin_px: 5
   star_inlier_tol_px: 4
   star_min_inliers: 4
   star_shift_radius_px: 200
-  star_topk: 150
+  star_topk: 180
   transform_model: affine
   use_astrometry: true
 run_dir: ./run_m31_background_gradient_balanced
@@ -221,8 +218,8 @@ stacking:
   sigma_clip:
     max_iters: 4
     min_fraction: 0.4
-    sigma_high: 1.8
-    sigma_low: 1.8
+    sigma_high: 1.5
+    sigma_low: 2
 synthetic:
   clustering:
     cluster_count_range:

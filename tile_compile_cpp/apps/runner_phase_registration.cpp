@@ -85,7 +85,6 @@ struct TemporalWarpSample {
 struct ScalarPolyFit {
   Eigen::VectorXf coeffs;
   float max_abs_residual = std::numeric_limits<float>::infinity();
-  float rms_residual = std::numeric_limits<float>::infinity();
   bool ok = false;
 };
 
@@ -183,7 +182,6 @@ ScalarPolyFit fit_weighted_poly(const std::vector<float> &xs,
     return out;
   }
   float max_abs = 0.0f;
-  float sum_sq = 0.0f;
   for (int i = 0; i < n; ++i) {
     float pred = 0.0f;
     float xpow = 1.0f;
@@ -193,23 +191,11 @@ ScalarPolyFit fit_weighted_poly(const std::vector<float> &xs,
     }
     const float r = pred - ys[static_cast<size_t>(i)];
     max_abs = std::max(max_abs, std::fabs(r));
-    sum_sq += r * r;
   }
   out.max_abs_residual = max_abs;
-  out.rms_residual = std::sqrt(sum_sq / static_cast<float>(n));
   out.ok = true;
   return out;
 }
-
-struct WarpBounds {
-  int min_x = 0;
-  int min_y = 0;
-  int max_x = 0;
-  int max_y = 0;
-
-  int width() const { return max_x - min_x; }
-  int height() const { return max_y - min_y; }
-};
 
 WarpMatrix concatenate_affine_warps(const WarpMatrix &w1,
                                     const WarpMatrix &w2) {
@@ -221,187 +207,6 @@ WarpMatrix concatenate_affine_warps(const WarpMatrix &w1,
   result(0, 2) = w2(0, 0) * w1(0, 2) + w2(0, 1) * w1(1, 2) + w2(0, 2);
   result(1, 2) = w2(1, 0) * w1(0, 2) + w2(1, 1) * w1(1, 2) + w2(1, 2);
   return result;
-}
-
-float compute_ncc_local(const Matrix2Df &a, const Matrix2Df &b) {
-  const int n = a.size();
-  if (n <= 0 || n != b.size()) {
-    return 0.0f;
-  }
-  const float *da = a.data();
-  const float *db = b.data();
-  double ma = 0.0;
-  double mb = 0.0;
-  for (int i = 0; i < n; ++i) {
-    ma += da[i];
-    mb += db[i];
-  }
-  ma /= static_cast<double>(n);
-  mb /= static_cast<double>(n);
-  double sab = 0.0;
-  double saa = 0.0;
-  double sbb = 0.0;
-  for (int i = 0; i < n; ++i) {
-    const double va = static_cast<double>(da[i]) - ma;
-    const double vb = static_cast<double>(db[i]) - mb;
-    sab += va * vb;
-    saa += va * va;
-    sbb += vb * vb;
-  }
-  const double den = std::sqrt(saa * sbb);
-  return (den > 1.0e-10) ? static_cast<float>(sab / den) : 0.0f;
-}
-
-cv::Mat warp_valid_mask_local(const Matrix2Df &img, const WarpMatrix &warp) {
-  cv::Mat ones(img.rows(), img.cols(), CV_32F, cv::Scalar(1.0f));
-  cv::Mat warp_matrix(2, 3, CV_32F);
-  for (int i = 0; i < 2; ++i) {
-    for (int j = 0; j < 3; ++j) {
-      warp_matrix.at<float>(i, j) = warp(i, j);
-    }
-  }
-  cv::Mat warped_mask;
-  cv::warpAffine(ones, warped_mask, warp_matrix, ones.size(),
-                 cv::INTER_NEAREST | cv::WARP_INVERSE_MAP,
-                 cv::BORDER_CONSTANT, cv::Scalar(0.0f));
-  return warped_mask;
-}
-
-float compute_ncc_local_masked(const Matrix2Df &a, const Matrix2Df &b,
-                               const cv::Mat &mask, int *used_pixels = nullptr) {
-  if (a.size() <= 0 || a.size() != b.size() || mask.empty() ||
-      mask.rows != a.rows() || mask.cols != a.cols()) {
-    if (used_pixels) {
-      *used_pixels = 0;
-    }
-    return 0.0f;
-  }
-
-  const float *da = a.data();
-  const float *db = b.data();
-  double ma = 0.0;
-  double mb = 0.0;
-  int n = 0;
-  for (int y = 0; y < mask.rows; ++y) {
-    const float *pm = mask.ptr<float>(y);
-    const int row_off = y * mask.cols;
-    for (int x = 0; x < mask.cols; ++x) {
-      if (pm[x] <= 0.5f) {
-        continue;
-      }
-      const int idx = row_off + x;
-      ma += da[idx];
-      mb += db[idx];
-      ++n;
-    }
-  }
-  if (used_pixels) {
-    *used_pixels = n;
-  }
-  if (n <= 1) {
-    return 0.0f;
-  }
-
-  ma /= static_cast<double>(n);
-  mb /= static_cast<double>(n);
-  double sab = 0.0;
-  double saa = 0.0;
-  double sbb = 0.0;
-  for (int y = 0; y < mask.rows; ++y) {
-    const float *pm = mask.ptr<float>(y);
-    const int row_off = y * mask.cols;
-    for (int x = 0; x < mask.cols; ++x) {
-      if (pm[x] <= 0.5f) {
-        continue;
-      }
-      const int idx = row_off + x;
-      const double va = static_cast<double>(da[idx]) - ma;
-      const double vb = static_cast<double>(db[idx]) - mb;
-      sab += va * vb;
-      saa += va * va;
-      sbb += vb * vb;
-    }
-  }
-  const double den = std::sqrt(saa * sbb);
-  return (den > 1.0e-10) ? static_cast<float>(sab / den) : 0.0f;
-}
-
-bool invert_affine_warp(const WarpMatrix &w, WarpMatrix &inv) {
-  const float a = w(0, 0);
-  const float b = w(0, 1);
-  const float c = w(1, 0);
-  const float d = w(1, 1);
-  const float tx = w(0, 2);
-  const float ty = w(1, 2);
-  const float det = a * d - b * c;
-  if (std::fabs(det) < 1.0e-12f) {
-    return false;
-  }
-  const float inv_det = 1.0f / det;
-  inv(0, 0) = d * inv_det;
-  inv(0, 1) = -b * inv_det;
-  inv(1, 0) = -c * inv_det;
-  inv(1, 1) = a * inv_det;
-  inv(0, 2) = -(inv(0, 0) * tx + inv(0, 1) * ty);
-  inv(1, 2) = -(inv(1, 0) * tx + inv(1, 1) * ty);
-  return true;
-}
-
-WarpBounds compute_warps_bounds(int width, int height,
-                                const std::vector<WarpMatrix> &warps) {
-  WarpBounds b;
-  if (width <= 0 || height <= 0 || warps.empty()) {
-    b.max_x = std::max(0, width);
-    b.max_y = std::max(0, height);
-    return b;
-  }
-
-  const float corners_x[4] = {0.0f, static_cast<float>(width), 0.0f,
-                              static_cast<float>(width)};
-  const float corners_y[4] = {0.0f, 0.0f, static_cast<float>(height),
-                              static_cast<float>(height)};
-
-  bool init = false;
-  float min_xf = 0.0f;
-  float min_yf = 0.0f;
-  float max_xf = 0.0f;
-  float max_yf = 0.0f;
-  for (const auto &w : warps) {
-    // Warps are used with cv::WARP_INVERSE_MAP (dst -> src). For output canvas
-    // bounds we need source -> dst, i.e. inverse affine.
-    WarpMatrix fwd;
-    if (!invert_affine_warp(w, fwd)) {
-      continue;
-    }
-    for (int i = 0; i < 4; ++i) {
-      const float x = corners_x[i];
-      const float y = corners_y[i];
-      const float tx = fwd(0, 0) * x + fwd(0, 1) * y + fwd(0, 2);
-      const float ty = fwd(1, 0) * x + fwd(1, 1) * y + fwd(1, 2);
-      if (!init) {
-        min_xf = max_xf = tx;
-        min_yf = max_yf = ty;
-        init = true;
-      } else {
-        min_xf = std::min(min_xf, tx);
-        min_yf = std::min(min_yf, ty);
-        max_xf = std::max(max_xf, tx);
-        max_yf = std::max(max_yf, ty);
-      }
-    }
-  }
-
-  if (!init) {
-    b.max_x = std::max(0, width);
-    b.max_y = std::max(0, height);
-    return b;
-  }
-
-  b.min_x = static_cast<int>(std::floor(min_xf));
-  b.min_y = static_cast<int>(std::floor(min_yf));
-  b.max_x = static_cast<int>(std::ceil(max_xf));
-  b.max_y = static_cast<int>(std::ceil(max_yf));
-  return b;
 }
 
 } // namespace
@@ -1048,9 +853,9 @@ bool run_phase_registration_prewarp(
           const Matrix2Df warped_global =
               registration::apply_warp(anchor_proxy, w_chained);
           const cv::Mat valid_mask_global =
-              warp_valid_mask_local(anchor_proxy, w_chained);
+              registration::warp_valid_mask(anchor_proxy, w_chained);
           int overlap_px = 0;
-          const float ncc_global = compute_ncc_local_masked(
+          const float ncc_global = registration::compute_ncc_masked(
               warped_global, ref_reg, valid_mask_global, &overlap_px);
           if (overlap_px <= 16) {
             return false;
@@ -1141,9 +946,9 @@ bool run_phase_registration_prewarp(
                       const Matrix2Df warped_global =
                           registration::apply_warp(mov_reg, w_chained);
                       const cv::Mat valid_mask_global =
-                          warp_valid_mask_local(mov_reg, w_chained);
+                          registration::warp_valid_mask(mov_reg, w_chained);
                       int overlap_px = 0;
-                      const float ncc_global = compute_ncc_local_masked(
+                      const float ncc_global = registration::compute_ncc_masked(
                           warped_global, ref_reg, valid_mask_global,
                           &overlap_px);
 
@@ -1413,9 +1218,9 @@ bool run_phase_registration_prewarp(
             const Matrix2Df warped_global =
                 registration::apply_warp(mov_p, w_chained);
             const cv::Mat valid_mask_global =
-                warp_valid_mask_local(mov_p, w_chained);
+                registration::warp_valid_mask(mov_p, w_chained);
             int overlap_px = 0;
-            const float ncc_global = compute_ncc_local_masked(
+            const float ncc_global = registration::compute_ncc_masked(
                 warped_global, ref_reg, valid_mask_global, &overlap_px);
             if (overlap_px <= 16) {
               return false;
@@ -1423,8 +1228,8 @@ bool run_phase_registration_prewarp(
 
             // Compute local NCC (warped mov vs neighbor) as proxy for local correlation.
             const Matrix2Df warped_to_nbr = registration::apply_warp(mov_p, w_local);
-            const cv::Mat valid_mask_local = warp_valid_mask_local(mov_p, w_local);
-            const float ncc_local = compute_ncc_local_masked(
+            const cv::Mat valid_mask_local = registration::warp_valid_mask(mov_p, w_local);
+            const float ncc_local = registration::compute_ncc_masked(
                 warped_to_nbr, nbr_p, valid_mask_local);
 
             const float current_cc = global_frame_cc[fi];
@@ -1526,11 +1331,11 @@ bool run_phase_registration_prewarp(
             // 2. Validate Delta against NEIGHBOR (not global ref)
             // Warp mov using delta -> should match neighbor
             const Matrix2Df warped_to_nbr = registration::apply_warp(mov_p, w_delta);
-            const cv::Mat valid_mask = warp_valid_mask_local(mov_p, w_delta);
+            const cv::Mat valid_mask = registration::warp_valid_mask(mov_p, w_delta);
             
             // Calculate NCC between warped_mov and neighbor
             int overlap_px = 0;
-            const float ncc_neighbor = compute_ncc_local_masked(
+            const float ncc_neighbor = registration::compute_ncc_masked(
                 warped_to_nbr, nbr_p, valid_mask, &overlap_px);
 
             // Relaxed thresholds for "Blind Chaining"
@@ -1567,8 +1372,8 @@ bool run_phase_registration_prewarp(
 
             // 4. Calculate Global NCC (just for record, not for validation)
             const Matrix2Df warped_global = registration::apply_warp(mov_p, w_chained);
-            const cv::Mat valid_mask_global = warp_valid_mask_local(mov_p, w_chained);
-            const float ncc_global = compute_ncc_local_masked(
+            const cv::Mat valid_mask_global = registration::warp_valid_mask(mov_p, w_chained);
+            const float ncc_global = registration::compute_ncc_masked(
                 warped_global, ref_reg, valid_mask_global);
 
             // Keep a tiny positive CC so downstream logic sees a valid warp,
@@ -1643,13 +1448,13 @@ bool run_phase_registration_prewarp(
           const WarpMatrix w_chained =
               concatenate_affine_warps(sfr_temp.reg.warp, w_anchor_to_ref);
           const Matrix2Df warped = registration::apply_warp(mov_reg, w_chained);
-          const cv::Mat valid_mask = warp_valid_mask_local(mov_reg, w_chained);
+          const cv::Mat valid_mask = registration::warp_valid_mask(mov_reg, w_chained);
           int overlap_pixels = 0;
           const float ncc_identity =
-              compute_ncc_local_masked(mov_reg, ref_reg, valid_mask,
+              registration::compute_ncc_masked(mov_reg, ref_reg, valid_mask,
                                        &overlap_pixels);
           const float ncc_chained =
-              compute_ncc_local_masked(warped, ref_reg, valid_mask);
+              registration::compute_ncc_masked(warped, ref_reg, valid_mask);
           if (overlap_pixels <= 16 || ncc_chained <= ncc_identity + 0.01f) {
             return false;
           }
@@ -1776,13 +1581,13 @@ bool run_phase_registration_prewarp(
           }
 
           const Matrix2Df warped = registration::apply_warp(mov_reg, ecc_res.warp);
-          const cv::Mat valid_mask = warp_valid_mask_local(mov_reg, ecc_res.warp);
+          const cv::Mat valid_mask = registration::warp_valid_mask(mov_reg, ecc_res.warp);
           int overlap_pixels = 0;
           const float ncc_identity =
-              compute_ncc_local_masked(mov_reg, ref_reg, valid_mask,
+              registration::compute_ncc_masked(mov_reg, ref_reg, valid_mask,
                                        &overlap_pixels);
           const float ncc_warped =
-              compute_ncc_local_masked(warped, ref_reg, valid_mask);
+              registration::compute_ncc_masked(warped, ref_reg, valid_mask);
           if (overlap_pixels <= 16 || ncc_warped <= ncc_identity + 0.005f) {
             return false;
           }
@@ -1820,7 +1625,7 @@ bool run_phase_registration_prewarp(
             const WarpMatrix w_proxy = registration::scale_translation_warp(
                 global_frame_warps[s.idx], proxy_scale);
             const Matrix2Df warped = registration::apply_warp(src, w_proxy);
-            const cv::Mat valid_mask = warp_valid_mask_local(src, w_proxy);
+            const cv::Mat valid_mask = registration::warp_valid_mask(src, w_proxy);
             for (int y = 0; y < ref_reg.rows(); ++y) {
               const float *pm = valid_mask.ptr<float>(y);
               for (int x = 0; x < ref_reg.cols(); ++x) {
@@ -1909,13 +1714,13 @@ bool run_phase_registration_prewarp(
           const Matrix2Df warped =
               registration::apply_warp(mov_reg, robust_res.warp);
           const cv::Mat valid_mask =
-              warp_valid_mask_local(mov_reg, robust_res.warp);
+              registration::warp_valid_mask(mov_reg, robust_res.warp);
           int overlap_pixels = 0;
           const float ncc_identity =
-              compute_ncc_local_masked(mov_reg, ref_reg, valid_mask,
+              registration::compute_ncc_masked(mov_reg, ref_reg, valid_mask,
                                        &overlap_pixels);
           const float ncc_warped =
-              compute_ncc_local_masked(warped, ref_reg, valid_mask);
+              registration::compute_ncc_masked(warped, ref_reg, valid_mask);
           if (overlap_pixels <= 16 || ncc_warped <= ncc_identity + 0.003f) {
             return false;
           }
@@ -2271,6 +2076,67 @@ bool run_phase_registration_prewarp(
         std::max(cfg.registration.reject_shift_px_min,
                  cfg.registration.reject_shift_median_multiplier * half_turn_shift_median);
 
+    // Robust rotation-trend fit: alt-az sessions have a smooth, monotonic
+    // field-rotation curve. False 90°/180° star-triangle matches produce
+    // rotations that deviate sharply from this smooth trend. Use only
+    // high-cc frames as trend anchors so local clusters of false positives
+    // (whose cc is low) cannot pollute the fit. This catches bogus warps
+    // even when their shift is small enough to slip past the shift-outlier
+    // guard (or when the half-turn-shift median is itself polluted by the
+    // false cluster, which happens when a bad cluster is locally dense).
+    constexpr float kOrientationTrendCcMin = 0.35f;
+    constexpr float kOrientationTrendDeviationDeg = 15.0f;
+    constexpr int kOrientationTrendMinAnchors = 8;
+    std::vector<float> trend_fi_anchors;
+    std::vector<float> trend_ang_anchors;
+    trend_fi_anchors.reserve(frames.size());
+    trend_ang_anchors.reserve(frames.size());
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      if (global_frame_cc[fi] < kOrientationTrendCcMin) {
+        continue;
+      }
+      const auto &w = global_frame_warps[fi];
+      trend_fi_anchors.push_back(static_cast<float>(fi));
+      trend_ang_anchors.push_back(std::atan2(w(0, 1), w(0, 0)));
+    }
+    const bool have_orientation_trend =
+        static_cast<int>(trend_fi_anchors.size()) >= kOrientationTrendMinAnchors;
+    float trend_fi_lo = 0.0f;
+    float trend_fi_span = 1.0f;
+    Eigen::VectorXf trend_coeffs(3);
+    trend_coeffs.setZero();
+    if (have_orientation_trend) {
+      // Unwrap so the fit sees a continuous curve (no 2pi jumps).
+      const std::vector<float> trend_ang_unwrapped =
+          unwrap_angle_sequence(trend_ang_anchors);
+      trend_fi_lo = trend_fi_anchors.front();
+      trend_fi_span =
+          std::max(1.0f, trend_fi_anchors.back() - trend_fi_anchors.front());
+      const int na = static_cast<int>(trend_fi_anchors.size());
+      Eigen::MatrixXf V(na, 3);
+      Eigen::VectorXf ya(na);
+      for (int i = 0; i < na; ++i) {
+        const float t = (trend_fi_anchors[static_cast<size_t>(i)] -
+                         trend_fi_lo) /
+                        trend_fi_span;
+        V(i, 0) = 1.0f;
+        V(i, 1) = t;
+        V(i, 2) = t * t;
+        ya(i) = trend_ang_unwrapped[static_cast<size_t>(i)];
+      }
+      trend_coeffs = V.householderQr().solve(ya);
+      const float res_ang_deg =
+          (V * trend_coeffs - ya).cwiseAbs().maxCoeff() * 57.29577951f;
+      std::cout << "[REG-FILTER] orientation-trend fit: "
+                << na << " anchors (cc>=" << kOrientationTrendCcMin
+                << "), max_residual=" << res_ang_deg << " deg, tolerance="
+                << kOrientationTrendDeviationDeg << " deg" << std::endl;
+    }
+    auto predicted_trend_angle_rad = [&](size_t fi) -> float {
+      const float t = (static_cast<float>(fi) - trend_fi_lo) / trend_fi_span;
+      return trend_coeffs(0) + trend_coeffs(1) * t + trend_coeffs(2) * t * t;
+    };
+
     for (size_t fi = 0; fi < frames.size(); ++fi) {
       if (global_frame_cc[fi] <= 0.0f)
         continue;
@@ -2307,6 +2173,34 @@ bool run_phase_registration_prewarp(
           reject_reasons.push_back("low_cc");
         } else if (cc < cc_min_keep) {
           ++reg_reject_low_cc_protected;
+        }
+      }
+
+      // Orientation-trend check: alt-az field rotation is smooth across the
+      // session, so any frame whose rotation deviates by more than
+      // kOrientationTrendDeviationDeg from the polynomial trend is a false
+      // star-triangle match (typically 90°/180° of the correct solution).
+      // This catches frames that would otherwise slip past the shift-outlier
+      // guard when the half-turn median is polluted by a locally dense
+      // cluster of false solutions.
+      if (!reject && have_orientation_trend) {
+        const float ang_rad = std::atan2(w(0, 1), w(0, 0));
+        const float predicted_rad = predicted_trend_angle_rad(fi);
+        // Wrap residual into [-pi, pi] so that a false 180° match counts as
+        // ~180° deviation, not ~0°.
+        float diff = ang_rad - predicted_rad;
+        constexpr float kTwoPi = 6.2831853071795864f;
+        while (diff > 3.14159265f) {
+          diff -= kTwoPi;
+        }
+        while (diff < -3.14159265f) {
+          diff += kTwoPi;
+        }
+        const float diff_deg = std::fabs(diff) * 57.29577951f;
+        if (diff_deg > kOrientationTrendDeviationDeg) {
+          reject = true;
+          ++reg_reject_orientation_outliers;
+          reject_reasons.push_back("orientation_trend");
         }
       }
 
@@ -2591,6 +2485,36 @@ bool run_phase_registration_prewarp(
           return out;
         };
 
+        // Bounds of the valid-anchor shift hull — predictions that fall far
+        // outside are geometrically implausible (e.g. the polynomial is
+        // extrapolating across a locally dense rejected cluster with no
+        // nearby valid anchors). In that case we must NOT set a bogus
+        // model warp: the resulting frame would land far off-canvas and
+        // create ghost patches at the canvas borders during stacking.
+        const float anchor_tx_min =
+            *std::min_element(vtx.begin(), vtx.end());
+        const float anchor_tx_max =
+            *std::max_element(vtx.begin(), vtx.end());
+        const float anchor_ty_min =
+            *std::min_element(vty.begin(), vty.end());
+        const float anchor_ty_max =
+            *std::max_element(vty.begin(), vty.end());
+        const float anchor_tx_range = anchor_tx_max - anchor_tx_min;
+        const float anchor_ty_range = anchor_ty_max - anchor_ty_min;
+        const float kPredictionMarginPx = 50.0f;
+        const float kPredictionMarginFrac = 0.25f;
+        const float tx_margin =
+            std::max(kPredictionMarginPx,
+                     kPredictionMarginFrac * anchor_tx_range);
+        const float ty_margin =
+            std::max(kPredictionMarginPx,
+                     kPredictionMarginFrac * anchor_ty_range);
+        const float tx_lo = anchor_tx_min - tx_margin;
+        const float tx_hi = anchor_tx_max + tx_margin;
+        const float ty_lo = anchor_ty_min - ty_margin;
+        const float ty_hi = anchor_ty_max + ty_margin;
+        int reg_model_predicted_out_of_bounds = 0;
+
         // Predict warps for rejected frames and frames with cc=0
         // (completely failed registration, not caught by outlier filter)
         for (size_t fi = 0; fi < frames.size(); ++fi) {
@@ -2641,11 +2565,6 @@ bool run_phase_registration_prewarp(
             chosen.tx = wl * best_local.tx + wb * bridge_candidate.tx;
             chosen.ty = wl * best_local.ty + wb * bridge_candidate.ty;
             chosen.score = std::min(best_local.score, bridge_candidate.score);
-            chosen.res_ang_deg = best_local.res_ang_deg;
-            chosen.res_tx = best_local.res_tx;
-            chosen.res_ty = best_local.res_ty;
-            chosen.support = std::max(best_local.support, bridge_candidate.support);
-            chosen.span = std::max(best_local.span, bridge_candidate.span);
             chosen_provenance = RegistrationProvenance::model_blended;
             ++reg_model_blended;
           } else if (!outside_valid_span && best_local.ok) {
@@ -2656,6 +2575,21 @@ bool run_phase_registration_prewarp(
             chosen = bridge_candidate;
             chosen_provenance = RegistrationProvenance::model_interpolated;
             ++reg_model_interpolated;
+          }
+
+          // Reject predictions that fall outside the anchor shift hull: these
+          // are extrapolations across a locally dense rejected cluster where
+          // the polynomial has no nearby valid anchors and produces wildly
+          // off-canvas warps. Leave such frames as `unresolved` so they are
+          // skipped in prewarp (see below) and do not expand the canvas nor
+          // pollute the stack with ghost patches at the borders.
+          if (chosen.tx < tx_lo || chosen.tx > tx_hi ||
+              chosen.ty < ty_lo || chosen.ty > ty_hi) {
+            set_registration_state(fi, registration::identity_warp(), 0.0f,
+                                   false, -1,
+                                   RegistrationProvenance::unresolved);
+            ++reg_model_predicted_out_of_bounds;
+            continue;
           }
 
           WarpMatrix w;
@@ -2677,6 +2611,19 @@ bool run_phase_registration_prewarp(
             ++reg_model_predicted_missing;
           }
         }
+        if (reg_model_predicted_out_of_bounds > 0) {
+          std::ostringstream msg;
+          msg << "REGISTRATION field-rotation model: "
+              << reg_model_predicted_out_of_bounds
+              << " predictions dropped as out-of-bounds extrapolations"
+              << " (tx hull=[" << anchor_tx_min << "," << anchor_tx_max
+              << "] ty hull=[" << anchor_ty_min << "," << anchor_ty_max
+              << "], margin_frac=" << kPredictionMarginFrac << ")";
+          emitter.warning(run_id, msg.str(), log_file);
+          std::cout << "[REG-MODEL] " << msg.str() << std::endl;
+        }
+        global_reg_extra["reg_model_predicted_out_of_bounds"] =
+            reg_model_predicted_out_of_bounds;
 
         {
           std::ostringstream msg;
@@ -2695,6 +2642,16 @@ bool run_phase_registration_prewarp(
         }
       } else if (nv >= 1) {
         // Too few points for polynomial — copy nearest valid warp.
+        const float nc_tx_min = *std::min_element(vtx.begin(), vtx.end());
+        const float nc_tx_max = *std::max_element(vtx.begin(), vtx.end());
+        const float nc_ty_min = *std::min_element(vty.begin(), vty.end());
+        const float nc_ty_max = *std::max_element(vty.begin(), vty.end());
+        constexpr float kNCMarginPx = 50.0f;
+        const float nc_tx_lo = nc_tx_min - kNCMarginPx;
+        const float nc_tx_hi = nc_tx_max + kNCMarginPx;
+        const float nc_ty_lo = nc_ty_min - kNCMarginPx;
+        const float nc_ty_hi = nc_ty_max + kNCMarginPx;
+        int nc_out_of_bounds = 0;
         for (size_t fi = 0; fi < frames.size(); ++fi) {
           if (!reg_rejected_mask[fi] && global_frame_cc[fi] > 0.0f) {
             continue;
@@ -2711,11 +2668,27 @@ bool run_phase_registration_prewarp(
             }
           }
           if (best >= 0) {
+            const auto &bw = global_frame_warps[static_cast<size_t>(best)];
+            if (bw(0, 2) < nc_tx_lo || bw(0, 2) > nc_tx_hi ||
+                bw(1, 2) < nc_ty_lo || bw(1, 2) > nc_ty_hi) {
+              set_registration_state(fi, registration::identity_warp(), 0.0f,
+                                     false, -1,
+                                     RegistrationProvenance::unresolved);
+              ++nc_out_of_bounds;
+              continue;
+            }
             set_registration_state(
-                fi, global_frame_warps[static_cast<size_t>(best)], 1.0e-4f,
+                fi, bw, 1.0e-4f,
                 false, -1, RegistrationProvenance::model_nearest_copy);
             ++reg_model_predicted;
           }
+        }
+        if (nc_out_of_bounds > 0) {
+          std::ostringstream msg;
+          msg << "REGISTRATION nearest-copy: " << nc_out_of_bounds
+              << " warp(s) dropped as out-of-bounds";
+          emitter.warning(run_id, msg.str(), log_file);
+          std::cout << "[REG-MODEL] " << msg.str() << std::endl;
         }
         if (reg_model_predicted > 0) {
           std::ostringstream msg;
@@ -2811,8 +2784,20 @@ bool run_phase_registration_prewarp(
 
   // Compute bounding box for field rotation: output canvas must be large enough
   // to contain all rotated frames (Alt/Az mounts near pole).
-  // All warps are now meaningful (valid registration or polynomial prediction).
-  WarpBounds bbox = compute_warps_bounds(width, height, global_frame_warps);
+  // Skip frames that are `unresolved` (either never registered or whose model
+  // prediction was rejected as out-of-bounds extrapolation). Including them
+  // would either use identity warps (harmless) or — before the bounds guard
+  // existed — bogus model warps that inflated the canvas by thousands of
+  // pixels and produced ghost patches at the borders during stacking.
+  std::vector<WarpMatrix> bbox_warps;
+  bbox_warps.reserve(frames.size());
+  for (size_t fi = 0; fi < frames.size(); ++fi) {
+    if (reg_provenance[fi] == RegistrationProvenance::unresolved) {
+      continue;
+    }
+    bbox_warps.push_back(global_frame_warps[fi]);
+  }
+  WarpBounds bbox = compute_warps_bounds(width, height, bbox_warps);
   
   // Round canvas to even dimensions for CFA (Bayer) compatibility.
   // warp_cfa_mosaic_via_subplanes works on half-resolution subplanes, so
@@ -2917,6 +2902,14 @@ bool run_phase_registration_prewarp(
       const size_t fi = prewarp_next.fetch_add(1);
       if (fi >= frames.size()) {
         break;
+      }
+      // Skip frames whose registration is unresolved (never registered, or
+      // rejected as outlier with no usable model prediction). frame_has_data
+      // stays 0 for these, so downstream phases exclude them from stacking
+      // entirely rather than placing them at identity on the canvas.
+      if (reg_provenance[fi] == RegistrationProvenance::unresolved) {
+        prewarp_done.fetch_add(1, std::memory_order_relaxed);
+        continue;
       }
       try {
         Matrix2Df img = load_frame_normalized(fi);
