@@ -83,7 +83,7 @@ struct TemporalWarpSample {
 };
 
 struct ScalarPolyFit {
-  Eigen::VectorXf coeffs;
+  VectorXf coeffs;
   float max_abs_residual = std::numeric_limits<float>::infinity();
   bool ok = false;
 };
@@ -162,8 +162,8 @@ ScalarPolyFit fit_weighted_poly(const std::vector<float> &xs,
     return out;
   }
   const int deg = std::max(0, std::min(degree, n - 1));
-  Eigen::MatrixXf A(n, deg + 1);
-  Eigen::VectorXf b(n);
+  Eigen::MatrixXf A(n, deg + 1); // ColMajor — correct for Eigen QR decomposition
+  VectorXf b(n);
   for (int i = 0; i < n; ++i) {
     const float w = std::sqrt(std::max(weights[static_cast<size_t>(i)], 1.0e-6f));
     float xpow = 1.0f;
@@ -173,7 +173,7 @@ ScalarPolyFit fit_weighted_poly(const std::vector<float> &xs,
     }
     b(i) = w * ys[static_cast<size_t>(i)];
   }
-  Eigen::ColPivHouseholderQR<Eigen::MatrixXf> qr(A);
+  Eigen::ColPivHouseholderQR<Eigen::MatrixXf> qr(A); // Eigen::MatrixXf = ColMajor, not Matrix2Df (RowMajor)
   if (qr.rank() <= 0) {
     return out;
   }
@@ -2103,7 +2103,7 @@ bool run_phase_registration_prewarp(
         static_cast<int>(trend_fi_anchors.size()) >= kOrientationTrendMinAnchors;
     float trend_fi_lo = 0.0f;
     float trend_fi_span = 1.0f;
-    Eigen::VectorXf trend_coeffs(3);
+    VectorXf trend_coeffs(3);
     trend_coeffs.setZero();
     if (have_orientation_trend) {
       // Unwrap so the fit sees a continuous curve (no 2pi jumps).
@@ -2114,7 +2114,7 @@ bool run_phase_registration_prewarp(
           std::max(1.0f, trend_fi_anchors.back() - trend_fi_anchors.front());
       const int na = static_cast<int>(trend_fi_anchors.size());
       Eigen::MatrixXf V(na, 3);
-      Eigen::VectorXf ya(na);
+      VectorXf ya(na);
       for (int i = 0; i < na; ++i) {
         const float t = (trend_fi_anchors[static_cast<size_t>(i)] -
                          trend_fi_lo) /
@@ -2281,7 +2281,7 @@ bool run_phase_registration_prewarp(
 
         // Degree-2 Vandermonde
         Eigen::MatrixXf V(nv, 3);
-        Eigen::VectorXf ya(nv), yx(nv), yy(nv);
+        VectorXf ya(nv), yx(nv), yy(nv);
         for (int i = 0; i < nv; ++i) {
           const float t = (vfi[static_cast<size_t>(i)] - fi_lo) / fi_span;
           V(i, 0) = 1.0f;
@@ -2293,9 +2293,9 @@ bool run_phase_registration_prewarp(
         }
 
         auto qr = V.householderQr();
-        Eigen::VectorXf ca = qr.solve(ya);
-        Eigen::VectorXf cx = qr.solve(yx);
-        Eigen::VectorXf cy = qr.solve(yy);
+        VectorXf ca = qr.solve(ya);
+        VectorXf cx = qr.solve(yx);
+        VectorXf cy = qr.solve(yy);
 
         // Residual stats for diagnostics
         const float res_ang =
