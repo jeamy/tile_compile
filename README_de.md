@@ -512,6 +512,14 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versionen
 
+## v0.2.2 (2026-04-24)
+
+- **Hot/Dead-Pixel-Korrektur repariert** (`cosmetic_correction_cfa`): Defekte Pixel in Sternbereichen wurden bisher nicht erkannt, da `neighbor_threshold` zu niedrig gesetzt war — Sternhalo-Pixel wurden fälschlicherweise als "heiße Nachbarn" gewertet und blockierten die Korrektur. Der Threshold wurde auf den vollen globalen Schwellwert angehoben. Zusätzlich: Pixel die das 5-fache des lokalen Floors übersteigen werden jetzt bedingungslos ersetzt (`extreme_outlier`-Bypass). Dead/Cold-Pixel-Erkennung neu hinzugefügt. Funktioniert auch ohne Darks.
+
+## v0.2.1 (2026-04-23)
+
+- Registrierungsphase: NCC-Berechnung vor Registrierung robuster gegen Hintergrundsubtraktion und Hot-Pixel gemacht (Clamp + Gaussblur vor NCC); Near-Identity-Bypass-Bedingung mit `ncc_identity > 0.7`-Guard gestärkt um False-Accepts bei weit vom Referenzframe entfernten Frames zu verhindern.
+
 ## v0.2.0 (2026-04-14)
 
 - Registrierung fuer lange Alt/Az-Sessions deutlich erweitert: N-skalierende Multi-Anchor-Referenzwahl, N-skalierende Anchor-Promotion, astrometrische Registrierung/Rescue fuer schwache oder ungelöste Frames sowie neue Praxisbeispiele und aktualisierte Prozessdokumentation fuer schwierige Rotations- und Seeing-Faelle.
@@ -676,6 +684,24 @@ Dieses Projekt wurde mit Unterstützung von Windsurf, Kiro, Antigravity, GPT 5.*
 - Erste öffentliche Version
 
 ## Changelog
+
+### (2026-04-24)
+
+**Hot/Dead-Pixel-Korrektur repariert + Registrierungs-Code-Qualitaet (`v0.2.2`):**
+
+- `cosmetic_correction_cfa` korrigierte defekte Pixel in Sternbereichen bisher stillschweigend nicht: `neighbor_threshold` war auf `0.5 × global_threshold` gesetzt, sodass Sternhalo-Pixel (die deutlich ueber dieser niedrigen Grenze liegen) als "heiße Nachbarn" gezählt wurden und die Korrektur echter hot Pixel in ihrer Naehe blockierten. Der Schwellwert wurde auf den vollen globalen Hot-Pixel-Threshold angehoben — nur noch Pixel die selbst Hot-Pixel-Kandidaten waeren zaehlen als heiße Nachbarn.
+- `extreme_outlier`-Bypass hinzugefuegt: Pixel die `local_median + 5 × local_floor` ueberschreiten werden bedingungslos ersetzt, unabhaengig vom Neighborhood-Support. Kein echtes Sternprofil-Pixel erreicht diesen Wert relativ zu seinen gleichfarbigen Nachbarn.
+- Dead/Cold-Pixel-Erkennung hinzugefuegt: `global_candidate_cold` (`< median − σ_threshold × σ`) und `cold_outlier` (`< local_median − local_floor`) werden jetzt ebenfalls durch den lokalen gleichfarbigen Median ersetzt.
+- Alle drei Fixes arbeiten auf dem rohen CFA-Mosaik vor dem Warping und benoetigen keine Dark Frames.
+- Diagnostische Keys in `global_reg_extra` in ein `diag`-Subobjekt verschoben (4.2); downstream-relevante Keys bleiben auf oberster Ebene.
+- Section-Header in `run_phase_registration_prewarp` fuer die sieben Hauptphasen eingefuegt (4.1).
+
+### (2026-04-23)
+
+**Registrierungs-NCC-Robustheit + Near-Identity-Guard (`v0.2.1`):**
+
+- NCC-Berechnung in `try_method` klemmt negative Werte jetzt ab und wendet einen Gaussblur (σ=1.5) vor der Berechnung von `ncc_identity_overlap` und `ncc_warped` an. Rohe normalisierte Proxy-Bilder enthalten negative Hintergrundwerte und Hot Pixel, die die NCC von ~0.88 auf ~0.05 bei Sub-Pixel-Verschiebungen kollabieren liessen und damit falsche Near-Identity-Ablehnungen ausloesten.
+- Near-Identity-Bypass-Bedingung mit `ncc_identity > 0.7`-Guard gestaerkt: ein nahezu-null Warp wird nur dann als gueltiges Near-Identity-Ergebnis akzeptiert wenn der Frame bereits nah am Referenzframe liegt — verhindert falsche Bypasses bei Frames die schlicht keinen Shift gefunden haben.
 
 ### (2026-04-14)
 

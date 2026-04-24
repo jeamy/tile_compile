@@ -682,13 +682,13 @@ bool run_phase_registration_prewarp(
     std::sort(requested_anchor_indices.begin(), requested_anchor_indices.end());
   }
   global_reg_extra["ref_frame"] = global_ref_idx;
-  global_reg_extra["ref_frame_center"] = temporal_center_idx;
-  global_reg_extra["ref_frame_strategy"] = ref_frame_strategy;
-  global_reg_extra["requested_ref_frames"] = requested_anchor_indices;
-  global_reg_extra["effective_engine"] = registration_cfg.engine;
-  global_reg_extra["effective_transform_model"] = registration_cfg.transform_model;
-  global_reg_extra["auto_engine_enabled"] = cfg.registration.auto_engine;
-  global_reg_extra["auto_engine_overridden"] =
+  global_reg_extra["diag"]["ref_frame_center"] = temporal_center_idx;
+  global_reg_extra["diag"]["ref_frame_strategy"] = ref_frame_strategy;
+  global_reg_extra["diag"]["requested_ref_frames"] = requested_anchor_indices;
+  global_reg_extra["diag"]["effective_engine"] = registration_cfg.engine;
+  global_reg_extra["diag"]["effective_transform_model"] = registration_cfg.transform_model;
+  global_reg_extra["diag"]["auto_engine_enabled"] = cfg.registration.auto_engine;
+  global_reg_extra["diag"]["auto_engine_overridden"] =
       (registration_cfg.engine != cfg.registration.engine ||
        registration_cfg.transform_model != cfg.registration.transform_model);
 
@@ -720,6 +720,9 @@ bool run_phase_registration_prewarp(
                     << std::endl;
         }
 
+        // ================================================================
+        // SECTION 1: Direct global registration (parallel, multi-anchor)
+        // ================================================================
         const int reg_workers = compute_adaptive_worker_count(
             cfg, frames.size(), frames, WorkerParallelProfile::MixedIo);
         std::cout << "[REGISTRATION] Using " << reg_workers
@@ -1124,20 +1127,22 @@ bool run_phase_registration_prewarp(
         std::vector<int> active_anchor_indices_sorted = active_anchor_indices;
         std::sort(active_anchor_indices_sorted.begin(),
                   active_anchor_indices_sorted.end());
-        global_reg_extra["active_ref_frames"] = active_anchor_indices_sorted;
-        global_reg_extra["active_ref_frame_count"] =
+        global_reg_extra["diag"]["active_ref_frames"] = active_anchor_indices_sorted;
+        global_reg_extra["diag"]["active_ref_frame_count"] =
             static_cast<int>(active_anchor_indices_sorted.size());
-        global_reg_extra["reg_target_active_anchor_count"] =
+        global_reg_extra["diag"]["reg_target_active_anchor_count"] =
             target_active_anchor_count;
-        global_reg_extra["reg_promote_limit_per_round"] =
+        global_reg_extra["diag"]["reg_promote_limit_per_round"] =
             promote_limit_per_round;
-        global_reg_extra["reg_max_direct_anchor_rounds"] =
+        global_reg_extra["diag"]["reg_max_direct_anchor_rounds"] =
             max_direct_anchor_rounds;
-        global_reg_extra["reg_direct_anchor_rounds"] = reg_direct_anchor_rounds;
-        global_reg_extra["reg_promoted_active_anchors"] =
+        global_reg_extra["diag"]["reg_direct_anchor_rounds"] = reg_direct_anchor_rounds;
+        global_reg_extra["diag"]["reg_promoted_active_anchors"] =
             reg_promoted_active_anchors;
 
-        // ----------------------------------------------------------------
+        // ================================================================
+        // SECTION 2: Sequential refinement + blind-chain rescue
+        // ================================================================
         // Sequential refinement pass:
         // register each frame against its direct temporal neighbor and chain
         // that warp to the global reference. This gives us real frame-to-frame
@@ -1409,6 +1414,9 @@ bool run_phase_registration_prewarp(
           std::cout << "[REG-SEQ] " << msg.str() << std::endl;
         }
 
+        // ================================================================
+        // SECTION 3: Temporal / seeded-ECC / local-reference rescue
+        // ================================================================
         int reg_temporal_rescued_backward = 0;
         int reg_temporal_rescued_forward = 0;
         int reg_seeded_ecc_rescued_backward = 0;
@@ -1811,25 +1819,25 @@ bool run_phase_registration_prewarp(
         const int reg_local_reference_rescued =
             reg_local_reference_rescued_backward +
             reg_local_reference_rescued_forward;
-        global_reg_extra["reg_sequential_refined"] = reg_sequential_refined;
-        global_reg_extra["reg_sequential_rescued"] = reg_sequential_rescued;
-        global_reg_extra["reg_sequential_anchor_blocked"] =
+        global_reg_extra["diag"]["reg_sequential_refined"] = reg_sequential_refined;
+        global_reg_extra["diag"]["reg_sequential_rescued"] = reg_sequential_rescued;
+        global_reg_extra["diag"]["reg_sequential_anchor_blocked"] =
             reg_sequential_anchor_blocked;
-        global_reg_extra["reg_temporal_rescued"] = reg_temporal_rescued;
-        global_reg_extra["reg_temporal_rescued_backward"] =
+        global_reg_extra["diag"]["reg_temporal_rescued"] = reg_temporal_rescued;
+        global_reg_extra["diag"]["reg_temporal_rescued_backward"] =
             reg_temporal_rescued_backward;
-        global_reg_extra["reg_temporal_rescued_forward"] =
+        global_reg_extra["diag"]["reg_temporal_rescued_forward"] =
             reg_temporal_rescued_forward;
-        global_reg_extra["reg_seeded_ecc_rescued"] = reg_seeded_ecc_rescued;
-        global_reg_extra["reg_seeded_ecc_rescued_backward"] =
+        global_reg_extra["diag"]["reg_seeded_ecc_rescued"] = reg_seeded_ecc_rescued;
+        global_reg_extra["diag"]["reg_seeded_ecc_rescued_backward"] =
             reg_seeded_ecc_rescued_backward;
-        global_reg_extra["reg_seeded_ecc_rescued_forward"] =
+        global_reg_extra["diag"]["reg_seeded_ecc_rescued_forward"] =
             reg_seeded_ecc_rescued_forward;
-        global_reg_extra["reg_local_reference_rescued"] =
+        global_reg_extra["diag"]["reg_local_reference_rescued"] =
             reg_local_reference_rescued;
-        global_reg_extra["reg_local_reference_rescued_backward"] =
+        global_reg_extra["diag"]["reg_local_reference_rescued_backward"] =
             reg_local_reference_rescued_backward;
-        global_reg_extra["reg_local_reference_rescued_forward"] =
+        global_reg_extra["diag"]["reg_local_reference_rescued_forward"] =
             reg_local_reference_rescued_forward;
         if (reg_temporal_rescued > 0) {
           std::ostringstream msg;
@@ -1859,6 +1867,9 @@ bool run_phase_registration_prewarp(
           std::cout << "[REG-LOCAL-REF] " << msg.str() << std::endl;
         }
 
+        // ================================================================
+        // SECTION 4: Astrometric rescue (ASTAP plate-solving)
+        // ================================================================
         // §4.13 — Astrometrische Rescue für verbliebene nicht-registrierte
         // oder sehr schwach/extrem tief verkettete Frames.
         int reg_astrometric_rescued = 0;
@@ -1961,9 +1972,9 @@ bool run_phase_registration_prewarp(
             std::cout << "[REG-ASTROMETRY] ASTAP not available, skipping astrometric rescue" << std::endl;
           }
         }
-        global_reg_extra["reg_astrometric_rescued"] = reg_astrometric_rescued;
-        global_reg_extra["reg_astrometric_attempted"] = reg_astrometric_attempted;
-        global_reg_extra["reg_astrometric_replaced_weak"] =
+        global_reg_extra["diag"]["reg_astrometric_rescued"] = reg_astrometric_rescued;
+        global_reg_extra["diag"]["reg_astrometric_attempted"] = reg_astrometric_attempted;
+        global_reg_extra["diag"]["reg_astrometric_replaced_weak"] =
             reg_astrometric_replaced_weak;
 
         global_reg_status = "ok";
@@ -2014,6 +2025,9 @@ bool run_phase_registration_prewarp(
     global_reg_extra["reason"] = "no_frames";
   }
 
+  // ================================================================
+  // SECTION 5: Outlier rejection (orientation / reflection / scale / cc)
+  // ================================================================
   // Reject implausible global registration outliers before downstream phases.
   // These outliers can pass NCC but still produce heavy tile/grid artifacts.
   int reg_reject_orientation_outliers = 0;
@@ -2245,6 +2259,9 @@ bool run_phase_registration_prewarp(
       }
     }
 
+    // ================================================================
+    // SECTION 6: Warp prediction (field-rotation polynomial / nearest-copy)
+    // ================================================================
     // Predict warps for rejected frames using a polynomial field rotation
     // model fitted to the valid registrations.  For alt-az mounts the warp
     // parameters (angle, tx, ty) follow smooth trajectories that are well
@@ -2622,7 +2639,7 @@ bool run_phase_registration_prewarp(
           emitter.warning(run_id, msg.str(), log_file);
           std::cout << "[REG-MODEL] " << msg.str() << std::endl;
         }
-        global_reg_extra["reg_model_predicted_out_of_bounds"] =
+        global_reg_extra["diag"]["reg_model_predicted_out_of_bounds"] =
             reg_model_predicted_out_of_bounds;
 
         {
@@ -2700,14 +2717,14 @@ bool run_phase_registration_prewarp(
         }
       }
 
-      global_reg_extra["reg_model_predicted"] = reg_model_predicted;
-      global_reg_extra["reg_model_predicted_rejected"] =
+      global_reg_extra["diag"]["reg_model_predicted"] = reg_model_predicted;
+      global_reg_extra["diag"]["reg_model_predicted_rejected"] =
           reg_model_predicted_rejected;
-      global_reg_extra["reg_model_predicted_missing"] =
+      global_reg_extra["diag"]["reg_model_predicted_missing"] =
           reg_model_predicted_missing;
-      global_reg_extra["reg_model_local_refined"] = reg_model_local_refined;
-      global_reg_extra["reg_model_interpolated"] = reg_model_interpolated;
-      global_reg_extra["reg_model_blended"] = reg_model_blended;
+      global_reg_extra["diag"]["reg_model_local_refined"] = reg_model_local_refined;
+      global_reg_extra["diag"]["reg_model_interpolated"] = reg_model_interpolated;
+      global_reg_extra["diag"]["reg_model_blended"] = reg_model_blended;
     }
   }
   if (reg_reject_orientation_outliers > 0 ||
@@ -2725,15 +2742,16 @@ bool run_phase_registration_prewarp(
               << " low_cc_protected=" << reg_reject_low_cc_protected
               << std::endl;
   }
-  global_reg_extra["reg_reject_orientation_outliers"] =
+  global_reg_extra["diag"]["reg_reject_orientation_outliers"] =
       reg_reject_orientation_outliers;
-  global_reg_extra["reg_reject_reflection_outliers"] =
+  global_reg_extra["diag"]["reg_reject_reflection_outliers"] =
       reg_reject_reflection_outliers;
-  global_reg_extra["reg_reject_scale_outliers"] = reg_reject_scale_outliers;
-  global_reg_extra["reg_reject_cc_outliers"] = reg_reject_cc_outliers;
-  global_reg_extra["reg_reject_shift_outliers"] = reg_reject_shift_outliers;
-  global_reg_extra["reg_reject_low_cc_protected"] = reg_reject_low_cc_protected;
-  global_reg_extra["reg_rejected_frames"] = reg_rejected_frames;
+  global_reg_extra["diag"]["reg_reject_scale_outliers"] = reg_reject_scale_outliers;
+  global_reg_extra["diag"]["reg_reject_cc_outliers"] = reg_reject_cc_outliers;
+  global_reg_extra["diag"]["reg_reject_shift_outliers"] = reg_reject_shift_outliers;
+  global_reg_extra["diag"]["reg_reject_low_cc_protected"] = reg_reject_low_cc_protected;
+  global_reg_extra["reg_rejected_frames"] = static_cast<int>(reg_rejected_frames.size());
+  global_reg_extra["diag"]["reg_rejected_frames"] = reg_rejected_frames;
 
   // All frames now have warps (valid registration or polynomial prediction).
   // Tile-level quality metrics handle downstream weighting (v3.2.2 §1.2).
@@ -2763,11 +2781,11 @@ bool run_phase_registration_prewarp(
       reg_max_chain_depth = reg_chain_depth[fi];
     }
   }
-  global_reg_extra["reg_source_counts"] = reg_source_counts;
-  global_reg_extra["reg_max_chain_depth"] = reg_max_chain_depth;
-  global_reg_extra["reg_blind_chain_anchor_depth_limit"] =
+  global_reg_extra["diag"]["reg_source_counts"] = reg_source_counts;
+  global_reg_extra["diag"]["reg_max_chain_depth"] = reg_max_chain_depth;
+  global_reg_extra["diag"]["reg_blind_chain_anchor_depth_limit"] =
       kMaxBlindChainAnchorDepth;
-  global_reg_extra["reg_blind_chain_anchor_strong_cc"] =
+  global_reg_extra["diag"]["reg_blind_chain_anchor_strong_cc"] =
       kBlindChainStrongAnchorCc;
 
   if (global_reg_status == "ok") {
@@ -2782,6 +2800,9 @@ bool run_phase_registration_prewarp(
 
   emitter.phase_start(run_id, Phase::PREWARP, "PREWARP", log_file);
 
+  // ================================================================
+  // SECTION 7: Canvas bounds computation
+  // ================================================================
   // Compute bounding box for field rotation: output canvas must be large enough
   // to contain all rotated frames (Alt/Az mounts near pole).
   // Skip frames that are `unresolved` (either never registered or whose model

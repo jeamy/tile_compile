@@ -502,6 +502,14 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 
 ## Versions
 
+## v0.2.2 (2026-04-24)
+
+- **Hot/dead-pixel correction fixed** (`cosmetic_correction_cfa`): defective pixels inside star regions were not corrected because `neighbor_threshold` was set too low — star-halo pixels were incorrectly counted as "hot neighbours" and suppressed the correction. The threshold is now aligned with the full global hot-pixel threshold. Additionally: pixels exceeding 5× the local floor are now replaced unconditionally (`extreme_outlier` bypass). Dead/cold-pixel detection added. Works without dark frames.
+
+## v0.2.1 (2026-04-23)
+
+- Registration phase: NCC computation made more robust against background subtraction and hot pixels (clamp + Gaussian blur before NCC); the near-identity bypass condition strengthened with an `ncc_identity > 0.7` guard to prevent false acceptance for frames far from the reference.
+
 ## v0.2.0 (2026-04-14)
 
 - Registration for long Alt/Az sessions was expanded substantially: N-scaled multi-anchor reference selection, N-scaled anchor promotion, astrometric registration/rescue for weak or unresolved frames, plus new practical example configs and refreshed process documentation for difficult rotation/seeing cases.
@@ -666,6 +674,24 @@ This project was built with assistance from Windsurf, Kiro, Antigravity, GPT 5.*
 - First public release
 
 ## Changelog
+
+### (2026-04-24)
+
+**Hot/dead-pixel correction fix + registration code quality (`v0.2.2`):**
+
+- Fixed `cosmetic_correction_cfa` silently skipping defective pixels inside star regions: `neighbor_threshold` was set to `0.5 × global_threshold`, so star-halo pixels (which sit well above that low bar) were counted as "hot neighbours" and blocked correction of genuine hot pixels nearby. The threshold is now raised to the full global hot-pixel threshold, so only pixels that are themselves hot-pixel candidates count as hot neighbours.
+- Added `extreme_outlier` bypass: pixels exceeding `local_median + 5 × local_floor` are replaced unconditionally regardless of neighbourhood support. No real star-PSF pixel reaches that level relative to its same-colour neighbours.
+- Added dead/cold-pixel correction: `global_candidate_cold` (`< median − σ_threshold × σ`) and `cold_outlier` (`< local_median − local_floor`) are now also replaced with the local same-colour median.
+- All three fixes operate on the raw CFA mosaic before warping and require no dark frames.
+- Diagnostic keys in `global_reg_extra` moved into a `diag` sub-object (4.2); downstream-facing keys remain at top level.
+- Section headers added to `run_phase_registration_prewarp` to mark the seven major processing phases (4.1).
+
+### (2026-04-23)
+
+**Registration NCC robustness + near-identity guard (`v0.2.1`):**
+
+- NCC computation in `try_method` now clamps negative values and applies a Gaussian blur (σ=1.5) before computing `ncc_identity_overlap` and `ncc_warped`. Raw normalized proxy images carry negative background values and hot pixels that caused NCC to collapse from ~0.88 to ~0.05 for sub-pixel shifts, triggering false near-identity rejections.
+- Near-identity bypass condition strengthened with an `ncc_identity > 0.7` guard: a near-zero warp is only accepted as a valid near-identity result when the frame is already close to the reference, preventing false bypasses for frames that simply failed to find a shift.
 
 ### (2026-04-14)
 
