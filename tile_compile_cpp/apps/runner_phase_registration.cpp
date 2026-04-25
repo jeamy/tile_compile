@@ -744,6 +744,7 @@ bool run_phase_registration_prewarp(
         std::atomic<size_t> reg_done{0};
         std::atomic<bool> reg_failed{false};
         std::string reg_error;
+        const std::vector<size_t> *current_reg_targets = nullptr;
         const auto proxy_scale = [&]() {
           return (global_reg_scale > 1.0e-6f) ? (1.0f / global_reg_scale)
                                               : 1.0f;
@@ -905,12 +906,17 @@ bool run_phase_registration_prewarp(
           }
         }
 
+        int current_reg_pass_workers = reg_workers;
         auto reg_worker = [&]() {
           while (true) {
-            const size_t fi = reg_next.fetch_add(1);
-            if (fi >= frames.size()) {
+            const size_t job = reg_next.fetch_add(1);
+            const size_t job_count =
+                current_reg_targets ? current_reg_targets->size() : frames.size();
+            if (job >= job_count) {
               break;
             }
+            const size_t fi =
+                current_reg_targets ? (*current_reg_targets)[job] : job;
             try {
               if (global_frame_cc[fi] > 0.0f) {
                 // Pre-resolved anchor frame.
@@ -1019,41 +1025,58 @@ bool run_phase_registration_prewarp(
             }
 
             const size_t done = reg_done.fetch_add(1) + 1;
-            if (done % 5 == 0 || done == frames.size()) {
-              const float p = frames.empty()
+            if (done % 5 == 0 || done == job_count) {
+              const float p = job_count == 0
                                   ? 1.0f
                                   : static_cast<float>(done) /
-                                        static_cast<float>(frames.size());
+                                        static_cast<float>(job_count);
               std::lock_guard<std::mutex> lock(reg_progress_mutex);
               emitter.phase_progress(
                   run_id, Phase::REGISTRATION, p,
                   "global_reg " + std::to_string(done) + "/" +
-                      std::to_string(frames.size()) + " workers=" +
-                      std::to_string(reg_workers),
+                      std::to_string(job_count) + " workers=" +
+                      std::to_string(current_reg_pass_workers),
                   log_file);
             }
           }
         };
 
-        if (reg_workers > 1) {
-          std::vector<std::thread> workers;
-          workers.reserve(static_cast<size_t>(reg_workers));
-          for (int w = 0; w < reg_workers; ++w) {
-            workers.emplace_back(reg_worker);
+        auto run_registration_pass =
+            [&](int pass_workers, const std::vector<size_t> *targets = nullptr) {
+          current_reg_pass_workers = std::max(1, pass_workers);
+          current_reg_targets = targets;
+          reg_next.store(0, std::memory_order_relaxed);
+          reg_done.store(0, std::memory_order_relaxed);
+          reg_failed.store(false, std::memory_order_relaxed);
+          reg_error.clear();
+          const size_t job_count =
+              current_reg_targets ? current_reg_targets->size() : frames.size();
+          if (job_count == 0) {
+            current_reg_targets = nullptr;
+            return;
           }
-          for (auto &worker : workers) {
-            if (worker.joinable()) {
-              worker.join();
+          if (current_reg_pass_workers > 1) {
+            std::vector<std::thread> workers;
+            workers.reserve(static_cast<size_t>(current_reg_pass_workers));
+            for (int w = 0; w < current_reg_pass_workers; ++w) {
+              workers.emplace_back(reg_worker);
             }
+            for (auto &worker : workers) {
+              if (worker.joinable()) {
+                worker.join();
+              }
+            }
+          } else {
+            reg_worker();
           }
-        } else {
-          reg_worker();
-        }
+          if (reg_failed.load(std::memory_order_relaxed)) {
+            throw std::runtime_error(reg_error.empty() ? "registration_failed"
+                                                       : reg_error);
+          }
+          current_reg_targets = nullptr;
+        };
 
-        if (reg_failed.load(std::memory_order_relaxed)) {
-          throw std::runtime_error(reg_error.empty() ? "registration_failed"
-                                                     : reg_error);
-        }
+        run_registration_pass(reg_workers);
 
         // Adaptive Anker-Anzahl: mehr Anker bei vielen Frames oder schlechtem Seeing
         // Alt: min(21, max(3, (N+59)/60)) -> bei 325 Frames nur 6 Anker
@@ -1066,10 +1089,11 @@ bool run_phase_registration_prewarp(
         const int max_direct_anchor_rounds =
             std::clamp((static_cast<int>(frames.size()) + 239) / 240, 3, 8);
 
-        auto promote_strong_direct_anchors = [&]() -> int {
+        auto promote_strong_direct_anchors = [&]() -> std::vector<int> {
+          std::vector<int> promoted_indices;
           if (static_cast<int>(active_anchor_indices.size()) >=
               target_active_anchor_count) {
-            return 0;
+            return promoted_indices;
           }
           const float min_cc =
               std::max(0.35f, cfg.registration.reject_cc_min_abs + 0.10f);
@@ -1103,37 +1127,48 @@ bool run_phase_registration_prewarp(
                       return a.second < b.second;
                     });
 
-          int promoted = 0;
           for (const auto &[score, idx] : candidates) {
             (void)score;
             if (maybe_add_active_anchor(idx)) {
-              ++promoted;
-              if (promoted >= promote_limit_per_round ||
+              promoted_indices.push_back(idx);
+              if (static_cast<int>(promoted_indices.size()) >=
+                      promote_limit_per_round ||
                   static_cast<int>(active_anchor_indices.size()) >=
                       target_active_anchor_count) {
                 break;
               }
             }
           }
-          return promoted;
+          return promoted_indices;
         };
 
         int reg_direct_anchor_rounds = 0;
         int reg_promoted_active_anchors = 0;
+        int reg_promotion_retry_frames = 0;
         for (int round = 0; round < max_direct_anchor_rounds; ++round) {
-          const int promoted = promote_strong_direct_anchors();
-          if (promoted <= 0) {
+          const std::vector<int> promoted = promote_strong_direct_anchors();
+          if (promoted.empty()) {
             break;
           }
-          reg_promoted_active_anchors += promoted;
+          reg_promoted_active_anchors += static_cast<int>(promoted.size());
           ++reg_direct_anchor_rounds;
-          reg_next.store(0, std::memory_order_relaxed);
-          reg_done.store(0, std::memory_order_relaxed);
-          reg_worker();
-          if (reg_failed.load(std::memory_order_relaxed)) {
-            throw std::runtime_error(reg_error.empty() ? "registration_failed"
-                                                       : reg_error);
+
+          std::vector<size_t> retry_targets;
+          retry_targets.reserve(frames.size());
+          for (size_t fi = 0; fi < frames.size(); ++fi) {
+            if (global_frame_cc[fi] > 0.0f) {
+              continue;
+            }
+            const size_t nearest_slot =
+                nearest_active_anchor_slot(static_cast<int>(fi));
+            const int nearest_anchor = active_anchor_indices[nearest_slot];
+            if (std::find(promoted.begin(), promoted.end(), nearest_anchor) !=
+                promoted.end()) {
+              retry_targets.push_back(fi);
+            }
           }
+          reg_promotion_retry_frames += static_cast<int>(retry_targets.size());
+          run_registration_pass(reg_workers, &retry_targets);
         }
 
         std::vector<int> active_anchor_indices_sorted = active_anchor_indices;
@@ -1151,6 +1186,8 @@ bool run_phase_registration_prewarp(
         global_reg_extra["diag"]["reg_direct_anchor_rounds"] = reg_direct_anchor_rounds;
         global_reg_extra["diag"]["reg_promoted_active_anchors"] =
             reg_promoted_active_anchors;
+        global_reg_extra["diag"]["reg_promotion_retry_frames"] =
+            reg_promotion_retry_frames;
 
         // ================================================================
         // SECTION 2: Sequential refinement + blind-chain rescue

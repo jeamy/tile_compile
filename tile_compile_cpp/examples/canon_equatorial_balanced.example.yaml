@@ -67,7 +67,7 @@ registration:
   enable_star_pair_fallback: true
   allow_rotation: true # auch bei EQ sinnvoll (Residualrotation, leichtes Drift)
   transform_model: similarity # EQ: weniger Freiheitsgrade, dadurch stabiler bei kleinen Residuen
-  star_topk: 120 # ausreichend bei stabilen EQ-Serien
+  star_topk: 80 # ausreichend bei stabilen EQ-Serien
   star_min_inliers: 5 # Mindestzahl Inlier fuer Stern-Matching
   star_inlier_tol_px: 2.5 # etwas strikter als Alt/Az
   star_dist_bin_px: 3.0 # Distanz-Binning fuer Sternpaare

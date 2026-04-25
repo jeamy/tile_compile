@@ -181,7 +181,7 @@ registration:
   star_inlier_tol_px: 4
   star_min_inliers: 4
   star_shift_radius_px: 200
-  star_topk: 150
+  star_topk: 80
   transform_model: affine
   use_astrometry: true
 run_dir: ./run_m104_altaz_rotation_poor_seeing

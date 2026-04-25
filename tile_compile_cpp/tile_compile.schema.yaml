@@ -92,7 +92,7 @@ properties:
         type: boolean
         description: "Enable additional star-pair fallback between primary triangle and normative fallback cascade. strict profile disables this."
       allow_rotation: {type: boolean}
-      star_topk: {type: integer, minimum: 3}
+      star_topk: 80{type: integer, minimum: 3}
       star_min_inliers: {type: integer, minimum: 2}
       star_inlier_tol_px: {type: number, exclusiveMinimum: 0}
       star_dist_bin_px: {type: number, exclusiveMinimum: 0}

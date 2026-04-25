@@ -70,7 +70,7 @@ registration:
   enable_star_pair_fallback: true
   allow_rotation: true
   transform_model: affine
-  star_topk: 150
+  star_topk: 80
   star_min_inliers: 4
   star_inlier_tol_px: 4.0
   star_dist_bin_px: 5.0

@@ -182,7 +182,7 @@ registration:
   star_dist_bin_px: 5
   star_inlier_tol_px: 4
   star_min_inliers: 4
-  star_topk: 150
+  star_topk: 80
 run_dir: ./run_m31_background_gradient_balanced
 runtime_limits:
   allow_emergency_mode: true
