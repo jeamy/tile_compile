@@ -1,0 +1,7 @@
+<map id="tile_compile::core::acceleration_selection_to_json" name="tile_compile::core::acceleration_selection_to_json">
+<area shape="rect" id="Node000001" title="Implements acceleration selection to json." alt="" coords="5,30,164,83"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#aff9a08bc437d7b73daa9663132dec5b1" title="Implements acceleration backend name." alt="" coords="212,5,405,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="163,43,196,38,197,43,164,48"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#add0fc4a88c3af7b61d1d03a4239575a0" title="Implements acceleration phase name." alt="" coords="218,68,398,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="164,65,203,70,202,75,163,70"/>
+</map>

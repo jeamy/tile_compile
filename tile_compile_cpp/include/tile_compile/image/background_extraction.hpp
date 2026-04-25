@@ -21,6 +21,10 @@ struct BGEConfig {
     
     // Tile sampling (§6.3.2)
     float sample_quantile = 0.20f;
+    // Per-tile background statistic. `quantile` preserves the historical
+    // behavior; the other modes are more robust in crowded/contaminated meshes.
+    std::string sample_estimator = "quantile"; // quantile | sigma_clipped_median | sextractor_mode | biweight
+    float min_sample_bg_value = 1.0f;
     float structure_thresh_percentile = 0.90f;
     int min_tiles_per_cell = 3;
     float min_valid_sample_fraction_for_apply = 0.30f;

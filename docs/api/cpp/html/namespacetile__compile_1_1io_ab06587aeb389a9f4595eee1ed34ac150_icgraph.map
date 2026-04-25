@@ -1,0 +1,15 @@
+<map id="tile_compile::io::get_fits_dimensions" name="tile_compile::io::get_fits_dimensions">
+<area shape="rect" id="Node000001" title="Implements get fits dimensions." alt="" coords="701,60,835,98"/>
+<area shape="rect" id="Node000002" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="267,5,395,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="702,57,652,43,584,32,515,25,396,20,396,15,516,20,585,27,653,38,703,51"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="456,53,653,105"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="685,82,653,82,653,76,685,76"/>
+<area shape="rect" id="Node000005" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,67,408,91"/>
+<area shape="poly" id="edge7_Node000001_Node000005" title=" " alt="" coords="706,107,653,120,598,128,555,131,511,128,456,120,407,109,364,94,365,89,408,104,457,115,512,123,555,125,598,123,652,115,704,101"/>
+<area shape="rect" id="Node000003" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,36,55,61"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="252,28,55,49,55,43,251,23"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="441,82,409,82,409,76,441,76"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,60,206,85"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="238,78,206,77,207,72,239,73"/>
+<area shape="poly" id="edge6_Node000006_Node000003" title=" " alt="" coords="87,62,54,56,55,50,88,57"/>
+</map>

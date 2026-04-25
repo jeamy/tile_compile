@@ -1,0 +1,12 @@
+<map id="tile_compile::astrometry::estimate_channel_background_median" name="tile_compile::astrometry::estimate_channel_background_median">
+<area shape="rect" id="Node000001" title="Estimates channel background median." alt="" coords="640,51,894,90"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a9edd11f0298e713fdd46e0a0fa9d658a" title="Applies diagonal color matrix affine." alt="" coords="215,5,376,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="625,61,376,41,377,36,625,56"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#a1fe6e20802bf2190e2983d34538663a5" title="Implements decide pcc background neutralization." alt="" coords="424,76,592,129"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="625,91,593,95,593,89,625,85"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="5,51,167,90"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="200,52,168,58,167,53,199,47"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1astrometry.html#aa6a658bdc6664bc7973b445eca6d0191" title="Implements neutralize background offsets." alt="" coords="215,83,376,135"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="409,108,376,109,376,104,409,103"/>
+<area shape="poly" id="edge5_Node000005_Node000003" title=" " alt="" coords="199,94,167,88,168,83,200,89"/>
+</map>

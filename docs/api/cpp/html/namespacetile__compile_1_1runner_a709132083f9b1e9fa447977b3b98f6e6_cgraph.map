@@ -1,0 +1,18 @@
+<map id="tile_compile::runner::resolve_pcc_auto_fwhm_px" name="tile_compile::runner::resolve_pcc_auto_fwhm_px">
+<area shape="rect" id="Node000001" title="Resolves pcc auto fwhm px." alt="" coords="5,177,196,216"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#a06842cfeb63e01e8e9a562c7b48e045c" title="Implements measure fwhm from image." alt="" coords="244,177,437,216"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="196,194,228,194,228,199,196,199"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1metrics.html#a5114c81cc86ef92a1d5c470af5ba93b0" title="Estimates fwhm from patch." alt="" coords="485,92,675,131"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="396,174,508,134,510,139,398,179"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="913,149,1036,188"/>
+<area shape="poly" id="edge9_Node000002_Node000005" title=" " alt="" coords="437,190,897,169,897,175,438,195"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1metrics.html#a4ea1548393f4997e58317de8a03d1730" title="Implements keep indices by mad clip." alt="" coords="488,235,672,273"/>
+<area shape="poly" id="edge7_Node000002_Node000007" title=" " alt="" coords="425,214,482,228,481,233,423,219"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1metrics.html#a526c21d35f9187dfb95a0ae88bdcc1ea" title="Implements fit elliptical psf 2d." alt="" coords="723,5,865,44"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="629,89,729,48,731,53,631,94"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="675,95,768,92,817,96,865,105,903,119,936,138,934,143,901,124,864,110,817,101,768,97,676,100"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="724,120,864,159"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="676,121,709,126,709,131,676,127"/>
+<area shape="poly" id="edge6_Node000006_Node000005" title=" " alt="" coords="864,148,898,154,897,159,864,153"/>
+<area shape="poly" id="edge8_Node000007_Node000005" title=" " alt="" coords="672,245,766,234,864,213,919,192,921,197,865,218,767,239,673,251"/>
+</map>

@@ -1,0 +1,122 @@
+<map id="main" name="main">
+<area shape="rect" id="Node000001" title="Implements main." alt="" coords="5,580,55,605"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#ad27c64c0e6ccca63928254a83a9bd88d" title="Handles CLI command dump default config." alt="" coords="103,183,276,208"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="29,580,35,507,48,400,69,293,83,251,101,222,108,214,112,218,105,225,88,253,74,295,53,401,41,507,35,580"/>
+<area shape="rect" id="Node000010" href="$cli__main_8cpp.html#a99bbdb1e94c5bf1ad01a4516539ee7fc" title="Handles CLI command fits stats." alt="" coords="136,284,243,309"/>
+<area shape="poly" id="edge11_Node000001_Node000010" title=" " alt="" coords="28,580,28,532,36,463,45,424,58,387,76,351,101,320,120,307,123,311,105,324,81,354,63,389,50,426,41,463,34,532,33,580"/>
+<area shape="rect" id="Node000013" href="$cli__main_8cpp.html#a5011497db7523eb4534c1246507f7f16" title="Handles CLI command get run logs." alt="" coords="126,383,253,408"/>
+<area shape="poly" id="edge15_Node000001_Node000013" title=" " alt="" coords="30,579,36,547,49,504,69,458,84,437,101,419,110,412,114,416,104,423,88,441,74,461,54,506,41,548,36,580"/>
+<area shape="rect" id="Node000014" href="$cli__main_8cpp.html#aed7dbbbe2dc2bf2afb2fe930174723a6" title="Handles CLI command get run status." alt="" coords="120,432,259,457"/>
+<area shape="poly" id="edge17_Node000001_Node000014" title=" " alt="" coords="33,579,56,525,75,494,101,468,109,462,112,467,104,472,80,498,60,528,38,581"/>
+<area shape="rect" id="Node000015" href="$cli__main_8cpp.html#a9da33ac088b5f37da1d9a21aa9de66c5" title="Handles CLI command get schema." alt="" coords="127,235,252,260"/>
+<area shape="poly" id="edge19_Node000001_Node000015" title=" " alt="" coords="30,579,37,515,51,423,72,332,85,296,101,271,112,262,115,266,105,274,90,298,77,333,56,424,42,516,35,580"/>
+<area shape="rect" id="Node000017" href="$cli__main_8cpp.html#a24694495ceb4454cd00bd9d1c680ed9f" title="Handles CLI command list artifacts." alt="" coords="127,482,252,506"/>
+<area shape="poly" id="edge21_Node000001_Node000017" title=" " alt="" coords="38,578,64,548,101,517,115,510,117,515,104,522,68,551,42,582"/>
+<area shape="rect" id="Node000018" href="$cli__main_8cpp.html#abe756c8c2f5babce5bd6f7c83c8af663" title="Handles CLI command list runs." alt="" coords="138,531,240,556"/>
+<area shape="poly" id="edge23_Node000001_Node000018" title=" " alt="" coords="54,582,102,566,128,558,129,563,103,571,56,587"/>
+<area shape="rect" id="Node000019" href="$cli__main_8cpp.html#a055ba646cf830065004adecbfa8c589f" title="Handles CLI command load config." alt="" coords="130,580,249,605"/>
+<area shape="poly" id="edge25_Node000001_Node000019" title=" " alt="" coords="55,590,114,590,114,595,55,595"/>
+<area shape="rect" id="Node000021" href="$cli__main_8cpp.html#a5ae92305560c708370940a65d35edbcb" title="Handles CLI command load gui state." alt="" coords="121,630,258,654"/>
+<area shape="poly" id="edge28_Node000001_Node000021" title=" " alt="" coords="56,598,103,614,129,622,128,627,102,619,54,603"/>
+<area shape="rect" id="Node000024" href="$cli__main_8cpp.html#a428b9c9a45f72da49e414f3be3ee2ff3" title="Handles CLI command pcc apply." alt="" coords="133,334,246,358"/>
+<area shape="poly" id="edge33_Node000001_Node000024" title=" " alt="" coords="29,580,32,540,42,483,64,423,80,394,101,369,118,358,121,362,104,373,84,397,68,425,47,485,37,540,34,580"/>
+<area shape="rect" id="Node000025" href="$cli__main_8cpp.html#a57422c002c0f59964de82201a9319b3d" title="Handles CLI command pcc run." alt="" coords="140,679,239,704"/>
+<area shape="poly" id="edge35_Node000001_Node000025" title=" " alt="" coords="42,604,68,634,104,664,126,674,124,679,101,668,64,638,38,607"/>
+<area shape="rect" id="Node000033" href="$cli__main_8cpp.html#a3d88560fc7a740dead44063c0a636221" title="Handles CLI command save config." alt="" coords="128,827,250,852"/>
+<area shape="poly" id="edge47_Node000001_Node000033" title=" " alt="" coords="34,605,37,645,47,701,68,760,84,788,105,812,115,821,112,825,101,816,80,791,64,763,42,702,32,646,29,605"/>
+<area shape="rect" id="Node000036" href="$cli__main_8cpp.html#aa5f2860acca0ac992bb0672ff2f833ea" title="Handles CLI command save gui state." alt="" coords="119,778,260,802"/>
+<area shape="poly" id="edge51_Node000001_Node000036" title=" " alt="" coords="36,605,41,637,54,680,74,724,88,745,104,763,110,767,107,772,101,767,84,748,69,727,49,681,36,638,30,606"/>
+<area shape="rect" id="Node000037" href="$cli__main_8cpp.html#a93c01834fe61eb1808a8aa1087e1ae27" title="Handles CLI command scan." alt="" coords="149,876,230,901"/>
+<area shape="poly" id="edge56_Node000001_Node000037" title=" " alt="" coords="33,605,34,653,41,722,50,759,63,796,81,831,105,861,118,872,135,879,133,884,116,877,101,865,76,834,58,798,45,761,36,723,28,653,28,606"/>
+<area shape="rect" id="Node000044" href="$cli__main_8cpp.html#af778e37211a3f2c45ebad2f39e746435" title="Handles CLI command validate config." alt="" coords="120,926,259,950"/>
+<area shape="poly" id="edge64_Node000001_Node000044" title=" " alt="" coords="35,605,42,670,56,762,77,852,90,887,105,911,109,915,105,919,101,914,85,890,72,854,51,763,37,670,30,606"/>
+<area shape="rect" id="Node000047" href="$cli__main_8cpp.html#a4bc9ef8e47a0313b4f426c8c4d1c9489" title="Parses boolish." alt="" coords="138,728,240,753"/>
+<area shape="poly" id="edge70_Node000001_Node000047" title=" " alt="" coords="38,605,60,658,80,688,104,713,125,725,122,730,101,717,75,691,56,660,33,607"/>
+<area shape="rect" id="Node000048" href="$cli__main_8cpp.html#ae5ad5cbeccaedc03a48d3c7eaa803e79" title="Implements print usage." alt="" coords="145,975,234,1000"/>
+<area shape="poly" id="edge72_Node000001_Node000048" title=" " alt="" coords="35,605,40,678,53,785,74,891,88,932,105,960,117,970,132,977,129,982,114,975,101,964,83,935,69,892,48,786,35,679,29,606"/>
+<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#ad7c2baf48d95cb011952a1d3359d9a54" title="Implements print json." alt="" coords="382,524,459,549"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="253,206,278,221,299,247,309,272,315,298,326,330,409,509,404,511,322,332,310,300,304,273,295,250,274,225,250,210"/>
+<area shape="rect" id="Node000004" href="$cli__main_8cpp.html#ab66ba18cd0563fd1a39a3bc8ef0710d0" title="Implements round yaml numeric scalars inplace." alt="" coords="350,33,491,72"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="201,180,251,133,285,105,323,81,335,75,338,80,325,86,288,109,254,137,205,184"/>
+<area shape="rect" id="Node000008" href="$structtile__compile_1_1config_1_1Config.html#a1433db62185ea00bf2e6a6c983bc6c6a" title="Converts yaml." alt="" coords="354,96,487,135"/>
+<area shape="poly" id="edge8_Node000002_Node000008" title=" " alt="" coords="225,180,323,145,344,138,346,143,325,150,227,185"/>
+<area shape="rect" id="Node000009" href="$cli__main_8cpp.html#a3dbcba75f363e60f88964254b4329de3" title="Implements yaml node to json." alt="" coords="354,183,487,208"/>
+<area shape="poly" id="edge9_Node000002_Node000009" title=" " alt="" coords="276,193,339,193,339,198,276,198"/>
+<area shape="poly" id="edge6_Node000004_Node000004" title=" " alt="" coords="378,34,375,24,382,14,397,9,421,7,446,9,461,15,459,20,445,14,421,12,398,14,385,19,380,25,383,32"/>
+<area shape="rect" id="Node000005" href="$cli__main_8cpp.html#a4394aacd29a0cf2f1d62c0815ebf7059" title="Formats config float scalar." alt="" coords="594,5,727,44"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="491,42,579,31,579,37,492,47"/>
+<area shape="rect" id="Node000007" href="$cli__main_8cpp.html#a8aa30dc1915e53f0bf6ea22a0af93aa2" title="Implements scalar looks like float." alt="" coords="584,68,737,93"/>
+<area shape="poly" id="edge7_Node000004_Node000007" title=" " alt="" coords="492,58,569,67,569,73,491,63"/>
+<area shape="rect" id="Node000006" href="$cli__main_8cpp.html#ae29a509e5ac08c3600032d99cdb6b606" title="Implements trim trailing zeros." alt="" coords="833,12,959,37"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="727,22,817,22,817,27,727,27"/>
+<area shape="poly" id="edge10_Node000009_Node000009" title=" " alt="" coords="383,184,375,175,379,165,395,158,421,156,450,159,464,166,461,171,448,164,421,162,396,164,383,168,380,174,387,181"/>
+<area shape="poly" id="edge14_Node000010_Node000003" title=" " alt="" coords="245,304,278,320,325,364,363,416,392,467,411,509,406,511,387,469,358,419,321,368,274,324,242,309"/>
+<area shape="rect" id="Node000011" href="$cli__main_8cpp.html#aade1cd59fdd883571a160f1cd0c2142a" title="Implements fits stats file." alt="" coords="371,295,470,320"/>
+<area shape="poly" id="edge12_Node000010_Node000011" title=" " alt="" coords="243,296,356,302,355,307,243,302"/>
+<area shape="rect" id="Node000012" href="$cli__main_8cpp.html#a5f79d18255942adaba446ef57cc057f4" title="Computes fits stats buffer." alt="" coords="594,288,727,327"/>
+<area shape="poly" id="edge13_Node000011_Node000012" title=" " alt="" coords="471,305,579,305,579,310,471,310"/>
+<area shape="poly" id="edge16_Node000013_Node000003" title=" " alt="" coords="247,406,277,418,312,440,346,464,398,511,395,515,342,469,309,444,275,423,245,411"/>
+<area shape="poly" id="edge18_Node000014_Node000003" title=" " alt="" coords="240,455,277,468,382,515,380,519,275,472,238,460"/>
+<area shape="rect" id="Node000016" href="$namespacetile__compile_1_1config.html#a28fdc34a95d7aaeb9fef2bc2d2dcfba2" title="Implements get schema json." alt="" coords="354,232,487,271"/>
+<area shape="poly" id="edge20_Node000015_Node000016" title=" " alt="" coords="252,246,339,247,338,253,252,251"/>
+<area shape="poly" id="edge22_Node000017_Node000003" title=" " alt="" coords="253,503,367,524,366,529,252,508"/>
+<area shape="poly" id="edge24_Node000018_Node000003" title=" " alt="" coords="241,539,367,536,367,541,241,545"/>
+<area shape="poly" id="edge26_Node000019_Node000003" title=" " alt="" coords="243,577,366,547,368,552,244,582"/>
+<area shape="rect" id="Node000020" href="$cli__main_8cpp.html#a767b6c755c7544cd406d00c3dac24b47" title="Reads file text." alt="" coords="371,574,470,598"/>
+<area shape="poly" id="edge27_Node000019_Node000020" title=" " alt="" coords="249,588,355,585,356,591,250,594"/>
+<area shape="poly" id="edge31_Node000021_Node000003" title=" " alt="" coords="249,627,275,614,289,601,298,588,307,574,323,560,366,542,368,547,325,564,311,577,302,591,293,605,277,619,251,632"/>
+<area shape="poly" id="edge32_Node000021_Node000020" title=" " alt="" coords="243,626,355,599,357,604,244,632"/>
+<area shape="rect" id="Node000022" href="$cli__main_8cpp.html#a1926bf9f6e93b04a95603cd66303804e" title="Returns the default gui state path." alt="" coords="344,735,497,760"/>
+<area shape="poly" id="edge29_Node000021_Node000022" title=" " alt="" coords="251,652,277,665,293,679,302,693,311,707,326,720,338,726,335,731,322,724,307,710,298,696,289,683,275,670,249,657"/>
+<area shape="rect" id="Node000023" href="$cli__main_8cpp.html#a217b5d96d6ce7b13a00417208381907a" title="Implements get executable dir." alt="" coords="596,735,725,760"/>
+<area shape="poly" id="edge30_Node000022_Node000023" title=" " alt="" coords="497,745,580,745,580,750,497,750"/>
+<area shape="poly" id="edge34_Node000024_Node000003" title=" " alt="" coords="247,355,277,369,319,402,355,440,406,509,402,512,351,443,315,406,275,374,245,360"/>
+<area shape="poly" id="edge45_Node000025_Node000003" title=" " alt="" coords="238,682,258,675,274,664,285,652,292,639,297,613,303,586,310,573,322,560,343,547,366,540,368,545,345,552,326,564,314,576,308,588,302,614,297,641,290,655,278,668,260,680,240,687"/>
+<area shape="rect" id="Node000026" href="$namespacetile__compile_1_1metrics.html#a06842cfeb63e01e8e9a562c7b48e045c" title="Implements measure fwhm from image." alt="" coords="324,623,517,661"/>
+<area shape="poly" id="edge36_Node000025_Node000026" title=" " alt="" coords="239,678,312,663,313,668,240,683"/>
+<area shape="rect" id="Node000032" href="$cli__main_8cpp.html#aeb45a8493cfcdcfe04af8d5ce2a27632" title="Converts lower copy." alt="" coords="368,686,473,710"/>
+<area shape="poly" id="edge46_Node000025_Node000032" title=" " alt="" coords="239,690,353,693,353,699,239,695"/>
+<area shape="rect" id="Node000027" href="$namespacetile__compile_1_1metrics.html#a5114c81cc86ef92a1d5c470af5ba93b0" title="Estimates fwhm from patch." alt="" coords="565,540,756,579"/>
+<area shape="poly" id="edge37_Node000026_Node000027" title=" " alt="" coords="481,620,516,607,589,582,591,587,518,613,483,625"/>
+<area shape="rect" id="Node000029" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="1036,597,1159,636"/>
+<area shape="poly" id="edge44_Node000026_Node000029" title=" " alt="" coords="518,636,1020,617,1020,622,518,641"/>
+<area shape="rect" id="Node000031" href="$namespacetile__compile_1_1metrics.html#a4ea1548393f4997e58317de8a03d1730" title="Implements keep indices by mad clip." alt="" coords="804,680,988,719"/>
+<area shape="poly" id="edge42_Node000026_Node000031" title=" " alt="" coords="518,652,566,658,788,685,788,690,565,663,518,657"/>
+<area shape="rect" id="Node000028" href="$namespacetile__compile_1_1metrics.html#a526c21d35f9187dfb95a0ae88bdcc1ea" title="Implements fit elliptical psf 2d." alt="" coords="825,515,966,553"/>
+<area shape="poly" id="edge38_Node000027_Node000028" title=" " alt="" coords="756,546,809,541,810,546,756,552"/>
+<area shape="poly" id="edge39_Node000027_Node000029" title=" " alt="" coords="756,569,1021,604,1020,609,756,574"/>
+<area shape="rect" id="Node000030" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="826,452,966,491"/>
+<area shape="poly" id="edge40_Node000027_Node000030" title=" " alt="" coords="708,537,803,500,819,494,820,499,805,504,710,542"/>
+<area shape="poly" id="edge41_Node000030_Node000029" title=" " alt="" coords="967,488,989,500,1038,540,1075,583,1071,587,1034,544,987,504,965,493"/>
+<area shape="poly" id="edge43_Node000031_Node000029" title=" " alt="" coords="944,677,1033,640,1035,645,946,682"/>
+<area shape="poly" id="edge48_Node000033_Node000003" title=" " alt="" coords="250,828,274,812,294,781,302,750,302,719,297,688,292,656,292,624,300,592,322,560,342,546,366,538,368,543,345,550,326,564,305,594,297,625,297,656,302,687,307,719,307,751,299,783,278,816,253,833"/>
+<area shape="rect" id="Node000034" href="$cli__main_8cpp.html#a0986090e6631ffd28236ca9c6fb54ff0" title="Reads stdin." alt="" coords="380,834,461,858"/>
+<area shape="poly" id="edge49_Node000033_Node000034" title=" " alt="" coords="251,838,365,842,364,847,251,844"/>
+<area shape="rect" id="Node000035" href="$cli__main_8cpp.html#a23b7fe71f4b7eb2e37bb6ae615e36c6f" title="Writes file text." alt="" coords="370,784,472,809"/>
+<area shape="poly" id="edge50_Node000033_Node000035" title=" " alt="" coords="250,826,354,806,355,811,251,831"/>
+<area shape="poly" id="edge53_Node000036_Node000003" title=" " alt="" coords="258,775,274,763,291,738,299,714,299,689,297,663,295,638,296,612,304,586,322,560,343,546,366,538,368,543,345,551,326,564,308,588,301,613,300,637,302,663,305,688,304,714,296,741,278,767,261,779"/>
+<area shape="poly" id="edge52_Node000036_Node000022" title=" " alt="" coords="259,774,334,760,335,766,260,780"/>
+<area shape="poly" id="edge54_Node000036_Node000034" title=" " alt="" coords="244,800,366,830,364,835,243,806"/>
+<area shape="poly" id="edge55_Node000036_Node000035" title=" " alt="" coords="260,789,354,792,354,797,260,795"/>
+<area shape="poly" id="edge62_Node000037_Node000003" title=" " alt="" coords="230,883,254,876,274,862,298,824,306,787,304,750,297,713,290,675,288,637,297,599,322,560,342,545,366,537,368,542,345,550,326,564,302,601,293,637,295,674,302,712,309,749,311,788,302,826,278,865,256,881,231,889"/>
+<area shape="rect" id="Node000038" href="$cli__main_8cpp.html#a84063476d19cd76ec32821d5072c9d13" title="Computes sha256 file." alt="" coords="348,883,493,908"/>
+<area shape="poly" id="edge57_Node000037_Node000038" title=" " alt="" coords="231,887,333,890,333,895,230,892"/>
+<area shape="rect" id="Node000039" href="$cli__main_8cpp.html#aed3eaab5bfceeb39a4d41802d42c138d" title="Implements find fits files." alt="" coords="372,932,470,957"/>
+<area shape="poly" id="edge58_Node000037_Node000039" title=" " alt="" coords="231,896,357,927,356,932,230,901"/>
+<area shape="rect" id="Node000043" href="$cli__main_8cpp.html#a1334b3a44c3e080ed1393220aa5213fb" title="Reads fits header info." alt="" coords="348,982,493,1006"/>
+<area shape="poly" id="edge63_Node000037_Node000043" title=" " alt="" coords="231,893,255,900,277,912,293,926,302,940,311,954,326,966,338,973,335,978,322,971,307,957,298,943,289,929,275,916,253,905,230,898"/>
+<area shape="rect" id="Node000040" href="$namespacetile__compile_1_1io.html#a1f483e98e366336b023d04a23e038ac3" title="Checks fits image path." alt="" coords="597,925,724,964"/>
+<area shape="poly" id="edge59_Node000039_Node000040" title=" " alt="" coords="470,942,581,942,581,947,470,947"/>
+<area shape="rect" id="Node000041" href="$namespacetile__compile_1_1core.html#a72f3c7d6cde700425cba6bae612b2969" title="Implements ends with." alt="" coords="834,893,958,932"/>
+<area shape="poly" id="edge60_Node000040_Node000041" title=" " alt="" coords="724,933,818,920,819,926,725,939"/>
+<area shape="rect" id="Node000042" href="$namespacetile__compile_1_1core.html#ab5d2831c0f54e10fb0f33f96047e7953" title="Converts lower." alt="" coords="834,956,958,995"/>
+<area shape="poly" id="edge61_Node000040_Node000042" title=" " alt="" coords="725,950,819,963,818,968,724,956"/>
+<area shape="poly" id="edge66_Node000044_Node000003" title=" " alt="" coords="258,924,274,911,290,889,301,867,309,824,306,781,297,737,287,694,284,650,287,627,294,605,305,583,322,560,342,545,366,537,368,542,345,550,326,564,310,585,299,607,292,628,290,650,293,693,302,736,311,780,315,824,306,869,295,892,278,915,261,928"/>
+<area shape="poly" id="edge67_Node000044_Node000020" title=" " alt="" coords="258,924,274,911,288,892,298,873,306,836,304,799,297,761,289,723,288,685,297,647,307,627,322,608,337,596,355,589,357,594,340,601,326,612,312,630,302,649,293,686,295,723,302,760,309,798,311,837,303,875,293,895,278,915,261,928"/>
+<area shape="poly" id="edge68_Node000044_Node000034" title=" " alt="" coords="246,923,275,910,289,900,298,890,308,879,323,869,364,853,366,858,325,874,311,883,302,894,292,904,277,915,248,928"/>
+<area shape="rect" id="Node000045" href="$structtile__compile_1_1config_1_1Config.html#aba42592f437b98add0261742302ce062" title="Implements from yaml." alt="" coords="353,1093,488,1132"/>
+<area shape="poly" id="edge65_Node000044_Node000045" title=" " alt="" coords="258,949,278,961,291,976,298,992,303,1022,307,1052,314,1066,326,1080,341,1091,338,1095,322,1084,309,1069,302,1053,298,1023,293,993,286,979,274,965,255,953"/>
+<area shape="rect" id="Node000046" href="$structtile__compile_1_1config_1_1Config.html#ad3b2b071a9b5ec3fbf03cf03a115f1af" title="Implements validate." alt="" coords="354,1031,487,1069"/>
+<area shape="poly" id="edge69_Node000044_Node000046" title=" " alt="" coords="251,948,277,961,293,975,302,989,311,1003,326,1016,341,1025,338,1029,322,1020,307,1006,298,992,289,978,275,966,249,953"/>
+<area shape="poly" id="edge71_Node000047_Node000032" title=" " alt="" coords="240,729,353,708,354,713,241,734"/>
+</map>

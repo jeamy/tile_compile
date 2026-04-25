@@ -1,0 +1,26 @@
+<map id="tile_compile::astrometry::ensure_curl_ready" name="tile_compile::astrometry::ensure_curl_ready">
+<area shape="rect" id="Node000001" title="Implements ensure curl ready." alt="" coords="1152,37,1314,76"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a8112ab94998a2f9b62585fa76c99bd60" title="Implements http download." alt="" coords="943,5,1104,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1136,45,1104,40,1105,34,1137,39"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#aa74e4b2a36ce1316e828e71e463c2848" title="Implements http get." alt="" coords="943,68,1104,107"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="1137,73,1105,78,1104,73,1136,68"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a61e0d36d8809aff92c88c40c65b10477" title="Downloads chunk if needed." alt="" coords="706,5,895,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="927,27,895,27,895,22,927,22"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1astrometry.html#a2698e2ec0807f8f1321d2a41e5c685a5" title="Implements vizier apass cone search." alt="" coords="709,68,892,107"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="927,90,892,90,892,85,927,85"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile_1_1astrometry.html#a8a61470dcaaa23574b80242b961ea581" title="Implements vizier gaia cone search." alt="" coords="715,131,886,169"/>
+<area shape="poly" id="edge12_Node000004_Node000011" title=" " alt="" coords="939,114,873,133,871,128,938,109"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1runner.html#a413fd9ebd818a0df44ae1a0ccd267628" title="Queries pcc catalog stars." alt="" coords="481,100,658,139"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="694,105,658,110,658,104,693,99"/>
+<area shape="poly" id="edge6_Node000006_Node000006" title=" " alt="" coords="605,87,592,81,569,79,549,81,537,85,532,91,535,99,530,101,527,90,533,81,548,75,570,73,593,76,607,82"/>
+<area shape="rect" id="Node000007" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="103,82,231,106"/>
+<area shape="poly" id="edge7_Node000006_Node000007" title=" " alt="" coords="466,116,231,101,231,95,466,110"/>
+<area shape="rect" id="Node000009" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="279,131,433,156"/>
+<area shape="poly" id="edge9_Node000006_Node000009" title=" " alt="" coords="467,134,434,137,433,132,466,128"/>
+<area shape="rect" id="Node000008" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,107,55,132"/>
+<area shape="poly" id="edge8_Node000007_Node000008" title=" " alt="" coords="88,111,56,117,55,112,87,106"/>
+<area shape="rect" id="Node000010" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="115,131,218,156"/>
+<area shape="poly" id="edge10_Node000009_Node000010" title=" " alt="" coords="263,146,219,146,219,141,263,141"/>
+<area shape="poly" id="edge11_Node000010_Node000008" title=" " alt="" coords="100,134,55,126,56,121,101,129"/>
+<area shape="poly" id="edge13_Node000011_Node000006" title=" " alt="" coords="699,139,658,134,659,128,699,134"/>
+</map>

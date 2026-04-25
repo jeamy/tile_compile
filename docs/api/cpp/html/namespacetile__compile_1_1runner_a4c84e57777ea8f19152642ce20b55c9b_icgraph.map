@@ -1,0 +1,21 @@
+<map id="tile_compile::runner::common_overlap_invalid_value" name="tile_compile::runner::common_overlap_invalid_value">
+<area shape="rect" id="Node000001" title="Sentinel used for pixels outside the common&#45;overlap mask." alt="" coords="923,201,1130,239"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#a441d4a09b7ea94409f7463865087bf5f" title="Apply the common&#45;overlap mask to a full mono/luma frame in&#45;place." alt="" coords="678,5,875,72"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="995,191,941,139,873,86,854,75,857,70,877,82,944,135,999,188"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#aaf4e068f0aeb15715e6118e575b5d66b" title="Apply the common&#45;overlap mask consistently to full RGB frames." alt="" coords="694,96,859,163"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="956,197,858,162,860,157,958,192"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1runner.html#a01a61752e85352137cb2974534ec5803" title="Apply the common&#45;overlap mask consistently to RGB tile planes." alt="" coords="691,187,862,253"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="907,223,863,223,863,217,907,217"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1runner.html#acaee010ea51ffeca350848ef7097a8a5" title="Apply the COMMON_OVERLAP mask to one tile in&#45;place." alt="" coords="694,278,859,330"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="953,247,858,280,856,275,951,242"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1runner.html#a9a85911bb12842ab5464a3c9c26b8252" title="Apply a common&#45;overlap mask to a tile and report whether finite data remains." alt="" coords="686,355,867,421"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="995,252,941,298,876,345,856,356,854,352,874,340,938,294,992,248"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1runner.html#a044cd053f52b6b643eaf716a7956e6e4" title="Runs phase local metrics." alt="" coords="456,369,630,407"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="670,391,630,391,630,385,670,385"/>
+<area shape="rect" id="Node000008" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,376,408,400"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="441,391,409,391,409,385,441,385"/>
+<area shape="rect" id="Node000009" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,376,206,400"/>
+<area shape="poly" id="edge8_Node000008_Node000009" title=" " alt="" coords="238,391,206,391,206,385,238,385"/>
+<area shape="rect" id="Node000010" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,376,55,400"/>
+<area shape="poly" id="edge9_Node000009_Node000010" title=" " alt="" coords="87,391,55,391,55,385,87,385"/>
+</map>

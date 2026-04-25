@@ -1,0 +1,7 @@
+<map id="tile_compile::astrometry::parse_wcs_file" name="tile_compile::astrometry::parse_wcs_file">
+<area shape="rect" id="Node000001" title="Parses wcs file." alt="" coords="5,37,167,76"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#ac510deb5708eb9de4fbd26d49119d424" title="Parses fits double." alt="" coords="215,5,376,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,42,199,37,200,42,168,47"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a0c41ca333965bb79c369a8a6afd8d69d" title="Implements wcs from cdelt crota." alt="" coords="215,68,376,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="168,66,200,71,199,76,167,71"/>
+</map>

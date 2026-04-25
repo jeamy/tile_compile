@@ -1,0 +1,10 @@
+<map id="round_yaml_numeric_scalars_inplace" name="round_yaml_numeric_scalars_inplace">
+<area shape="rect" id="Node000001" title="Implements round yaml numeric scalars inplace." alt="" coords="5,33,146,72"/>
+<area shape="poly" id="edge3_Node000001_Node000001" title=" " alt="" coords="39,34,37,24,42,15,55,9,76,7,97,9,110,16,107,20,96,14,75,12,57,14,46,19,42,25,44,32"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#a4394aacd29a0cf2f1d62c0815ebf7059" title="Formats config float scalar." alt="" coords="204,5,336,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="146,40,188,34,189,39,146,45"/>
+<area shape="rect" id="Node000004" href="$cli__main_8cpp.html#a8aa30dc1915e53f0bf6ea22a0af93aa2" title="Implements scalar looks like float." alt="" coords="194,68,346,93"/>
+<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="146,60,179,65,178,70,146,65"/>
+<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#ae29a509e5ac08c3600032d99cdb6b606" title="Implements trim trailing zeros." alt="" coords="394,12,520,37"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="336,22,379,22,379,27,336,27"/>
+</map>

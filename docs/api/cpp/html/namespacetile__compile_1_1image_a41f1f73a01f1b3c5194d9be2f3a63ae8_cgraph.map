@@ -1,0 +1,5 @@
+<map id="tile_compile::image::apply_output_scaling_inplace" name="tile_compile::image::apply_output_scaling_inplace">
+<area shape="rect" id="Node000001" title="Applies output scaling inplace." alt="" coords="5,5,157,58"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a217f42074971d46783a5e494559a22ca" title="Implements bayer offsets." alt="" coords="205,12,338,51"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="157,29,189,29,189,34,157,34"/>
+</map>

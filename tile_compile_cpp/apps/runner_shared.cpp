@@ -565,6 +565,8 @@ image::BGEConfig to_image_bge_config(const config::BGEConfig &src) {
   image::BGEConfig dst;
   dst.enabled = src.enabled;
   dst.sample_quantile = src.sample_quantile;
+  dst.sample_estimator = src.sample_estimator;
+  dst.min_sample_bg_value = src.min_sample_bg_value;
   dst.structure_thresh_percentile = src.structure_thresh_percentile;
   dst.min_tiles_per_cell = src.min_tiles_per_cell;
   dst.min_valid_sample_fraction_for_apply =

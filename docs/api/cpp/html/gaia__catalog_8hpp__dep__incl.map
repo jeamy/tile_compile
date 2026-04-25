@@ -1,0 +1,36 @@
+<map id="include/tile_compile/astrometry/gaia_catalog.hpp" name="include/tile_compile/astrometry/gaia_catalog.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="768,5,958,44"/>
+<area shape="rect" id="Node000002" href="$runner__pipeline_8cpp.html" title=" " alt="" coords="348,373,514,398"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="752,32,613,45,444,72,354,93,265,120,177,154,95,195,66,212,45,229,29,250,15,280,8,300,9,308,14,316,36,333,68,346,155,365,255,376,348,381,348,386,255,381,154,371,66,351,33,337,10,320,4,310,3,299,10,278,24,247,41,225,63,208,92,190,175,149,263,115,353,88,443,67,613,39,752,27"/>
+<area shape="rect" id="Node000003" href="$runner__resume_8cpp.html" title=" " alt="" coords="994,286,1158,311"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="889,55,1069,284,1065,287,885,58"/>
+<area shape="rect" id="Node000004" href="$photometric__color__cal_8hpp.html" title=" " alt="" coords="597,92,758,145"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="813,54,731,94,728,89,810,49"/>
+<area shape="rect" id="Node000014" href="$gaia__catalog_8cpp.html" title=" " alt="" coords="993,99,1127,138"/>
+<area shape="poly" id="edge20_Node000001_Node000014" title=" " alt="" coords="918,49,1021,96,1019,101,916,53"/>
+<area shape="poly" id="edge5_Node000004_Node000002" title=" " alt="" coords="583,131,436,150,268,180,189,200,119,224,63,251,43,265,28,281,20,299,28,316,48,332,79,345,162,364,259,375,348,380,348,385,258,380,162,369,77,350,45,337,23,320,15,299,23,278,39,261,61,246,117,219,187,195,267,175,435,145,582,126"/>
+<area shape="poly" id="edge6_Node000004_Node000003" title=" " alt="" coords="774,146,828,166,881,190,911,209,939,229,998,260,1050,283,1048,288,996,264,936,234,908,214,879,195,826,171,772,151"/>
+<area shape="rect" id="Node000005" href="$cli__main_8cpp.html" title=" " alt="" coords="354,200,481,224"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="591,153,452,202,450,197,590,148"/>
+<area shape="rect" id="Node000006" href="$runner__shared_8hpp.html" title=" " alt="" coords="505,200,666,224"/>
+<area shape="poly" id="edge7_Node000004_Node000006" title=" " alt="" coords="643,157,599,201,595,198,639,154"/>
+<area shape="rect" id="Node000013" href="$photometric__color__cal_8cpp.html" title=" " alt="" coords="690,193,868,231"/>
+<area shape="poly" id="edge19_Node000004_Node000013" title=" " alt="" coords="719,153,760,190,756,194,715,157"/>
+<area shape="poly" id="edge16_Node000006_Node000002" title=" " alt="" coords="552,235,521,255,493,281,474,305,459,331,438,374,433,371,454,328,470,302,489,278,518,251,549,230"/>
+<area shape="poly" id="edge17_Node000006_Node000003" title=" " alt="" coords="659,225,678,229,975,277,1012,283,1011,288,974,282,677,234,658,230"/>
+<area shape="rect" id="Node000007" href="$runner__phase__local__metrics_8hpp.html" title=" " alt="" coords="503,279,668,318"/>
+<area shape="poly" id="edge8_Node000006_Node000007" title=" " alt="" coords="588,240,588,279,583,279,583,240"/>
+<area shape="rect" id="Node000009" href="$runner__phase__metrics_8cpp.html" title=" " alt="" coords="37,286,243,311"/>
+<area shape="poly" id="edge11_Node000006_Node000009" title=" " alt="" coords="511,230,493,234,203,288,202,283,492,229,510,225"/>
+<area shape="rect" id="Node000010" href="$runner__phase__registration_8cpp.html" title=" " alt="" coords="767,373,994,398"/>
+<area shape="poly" id="edge12_Node000006_Node000010" title=" " alt="" coords="659,225,678,229,736,235,812,240,884,252,913,263,933,278,940,290,941,304,932,331,914,355,895,374,892,371,910,352,927,328,936,303,935,292,929,281,911,267,883,257,811,245,735,240,677,234,658,230"/>
+<area shape="rect" id="Node000011" href="$runner__phase__registration_8hpp.html" title=" " alt="" coords="692,286,919,311"/>
+<area shape="poly" id="edge13_Node000006_Node000011" title=" " alt="" coords="631,228,776,283,774,288,629,233"/>
+<area shape="rect" id="Node000012" href="$runner__shared_8cpp.html" title=" " alt="" coords="268,286,428,311"/>
+<area shape="poly" id="edge18_Node000006_Node000012" title=" " alt="" coords="540,232,382,288,380,283,538,227"/>
+<area shape="poly" id="edge10_Node000007_Node000002" title=" " alt="" coords="539,328,454,375,451,370,536,324"/>
+<area shape="rect" id="Node000008" href="$runner__phase__local__metrics_8cpp.html" title=" " alt="" coords="538,366,703,405"/>
+<area shape="poly" id="edge9_Node000007_Node000008" title=" " alt="" coords="601,331,615,364,610,366,596,333"/>
+<area shape="poly" id="edge15_Node000011_Node000002" title=" " alt="" coords="739,318,483,375,482,370,738,312"/>
+<area shape="poly" id="edge14_Node000011_Node000010" title=" " alt="" coords="828,321,872,371,868,375,824,324"/>
+</map>

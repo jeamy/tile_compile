@@ -1,0 +1,7 @@
+<map id="tile_compile::image::apply_global_warp" name="tile_compile::image::apply_global_warp">
+<area shape="rect" id="Node000001" title="Applies global warp." alt="" coords="5,12,142,51"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#afb90e89c53e0e649e24be1e43e890448" title="Applies global warp." alt="" coords="190,12,326,51"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="142,29,174,29,174,34,142,34"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a9d7ec5b083d20d93e9c2dd8fc077c770" title="Implements warp cfa mosaic via subplanes." alt="" coords="374,5,529,58"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="327,29,359,29,359,34,327,34"/>
+</map>

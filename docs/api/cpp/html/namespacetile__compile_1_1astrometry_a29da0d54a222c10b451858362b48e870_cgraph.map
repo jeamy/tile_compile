@@ -1,0 +1,5 @@
+<map id="tile_compile::astrometry::query_disc_nested" name="tile_compile::astrometry::query_disc_nested">
+<area shape="rect" id="Node000001" title="Queries disc nested." alt="" coords="5,5,167,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a5b17209c7c5234c3567d633d3d35094d" title="Implements ang2pix nest." alt="" coords="215,5,376,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,22,199,22,199,27,167,27"/>
+</map>

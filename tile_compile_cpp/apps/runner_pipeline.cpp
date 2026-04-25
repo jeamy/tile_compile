@@ -5403,6 +5403,8 @@ int run_pipeline_command(const std::string &config_path, const std::string &inpu
                                 : core::json(nullptr);
       bge_artifact["config"] = {
           {"sample_quantile", cfg.bge.sample_quantile},
+          {"sample_estimator", cfg.bge.sample_estimator},
+          {"min_sample_bg_value", cfg.bge.min_sample_bg_value},
           {"structure_thresh_percentile", cfg.bge.structure_thresh_percentile},
           {"min_tiles_per_cell", cfg.bge.min_tiles_per_cell},
           {"min_valid_sample_fraction_for_apply",

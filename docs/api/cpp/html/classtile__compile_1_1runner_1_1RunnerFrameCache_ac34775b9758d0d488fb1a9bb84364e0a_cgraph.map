@@ -1,0 +1,7 @@
+<map id="tile_compile::runner::RunnerFrameCache::RunnerFrameCache" name="tile_compile::runner::RunnerFrameCache::RunnerFrameCache">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,30,238,83"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1runner_1_1RunnerFrameCache.html#a5866d9152de4730b97ec22af03849acc" title="Normalized frame column count." alt="" coords="288,5,465,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="238,39,272,35,272,40,239,45"/>
+<area shape="rect" id="Node000003" href="$classtile__compile_1_1runner_1_1RunnerFrameCache.html#aa71d27cfc0f0da5fa0a9d3ec073d4fa2" title="Normalized frame row count." alt="" coords="286,68,467,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="239,68,271,72,270,77,238,73"/>
+</map>

@@ -574,6 +574,10 @@ Config Config::from_yaml(const YAML::Node &node) {
       cfg.bge.enabled = b["enabled"].as<bool>();
     if (b["sample_quantile"])
       cfg.bge.sample_quantile = b["sample_quantile"].as<float>();
+    if (b["sample_estimator"])
+      cfg.bge.sample_estimator = b["sample_estimator"].as<std::string>();
+    if (b["min_sample_bg_value"])
+      cfg.bge.min_sample_bg_value = b["min_sample_bg_value"].as<float>();
     if (b["structure_thresh_percentile"])
       cfg.bge.structure_thresh_percentile = b["structure_thresh_percentile"].as<float>();
     if (b["min_tiles_per_cell"])
@@ -1013,6 +1017,8 @@ YAML::Node Config::to_yaml() const {
 
   node["bge"]["enabled"] = bge.enabled;
   node["bge"]["sample_quantile"] = bge.sample_quantile;
+  node["bge"]["sample_estimator"] = bge.sample_estimator;
+  node["bge"]["min_sample_bg_value"] = bge.min_sample_bg_value;
   node["bge"]["structure_thresh_percentile"] = bge.structure_thresh_percentile;
   node["bge"]["min_tiles_per_cell"] = bge.min_tiles_per_cell;
   node["bge"]["min_valid_sample_fraction_for_apply"] =
@@ -1438,6 +1444,16 @@ void Config::validate() const {
   if (bge.sample_quantile <= 0.0f || bge.sample_quantile > 0.5f) {
     throw ValidationError("bge.sample_quantile must be in (0,0.5]");
   }
+  if (bge.sample_estimator != "quantile" &&
+      bge.sample_estimator != "sigma_clipped_median" &&
+      bge.sample_estimator != "sextractor_mode" &&
+      bge.sample_estimator != "biweight") {
+    throw ValidationError(
+        "bge.sample_estimator must be one of: quantile|sigma_clipped_median|sextractor_mode|biweight");
+  }
+  if (bge.min_sample_bg_value < 0.0f) {
+    throw ValidationError("bge.min_sample_bg_value must be >= 0");
+  }
   if (bge.structure_thresh_percentile < 0.0f ||
       bge.structure_thresh_percentile > 1.0f) {
     throw ValidationError("bge.structure_thresh_percentile must be in [0,1]");
@@ -1750,6 +1766,8 @@ std::string get_schema_json() {
     "bge": { "type":"object",
       "properties": { "enabled":{"type":"boolean"},
                       "sample_quantile":{"type":"number","exclusiveMinimum":0,"maximum":0.5},
+                      "sample_estimator":{"type":"string","enum":["quantile","sigma_clipped_median","sextractor_mode","biweight"]},
+                      "min_sample_bg_value":{"type":"number","minimum":0},
                       "structure_thresh_percentile":{"type":"number","minimum":0,"maximum":1},
                       "min_tiles_per_cell":{"type":"integer","minimum":1},
                       "min_valid_sample_fraction_for_apply":{"type":"number","exclusiveMinimum":0,"maximum":1},

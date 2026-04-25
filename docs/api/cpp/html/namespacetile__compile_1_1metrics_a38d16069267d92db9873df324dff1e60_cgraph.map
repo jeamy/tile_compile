@@ -1,0 +1,11 @@
+<map id="tile_compile::metrics::calculate_frame_metrics" name="tile_compile::metrics::calculate_frame_metrics">
+<area shape="rect" id="Node000001" title="Calculates frame metrics." alt="" coords="5,49,177,88"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#a774ced236c218289eca86e7006d6805e" title="Builds background mask sigma clip." alt="" coords="225,10,393,63"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="176,53,209,49,209,54,177,59"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="628,24,752,63"/>
+<area shape="poly" id="edge5_Node000001_Node000003" title=" " alt="" coords="177,75,262,81,363,85,472,83,580,73,617,65,618,70,581,78,472,88,363,90,261,87,177,80"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="393,15,441,9,511,3,581,9,618,17,617,22,580,14,511,8,441,14,394,21"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1core.html#a7fb791cfec7ebd2622d6c04182f19286" title="Implements robust sigma mad." alt="" coords="441,24,580,63"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="394,37,426,38,425,43,393,42"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="581,41,613,41,613,46,581,46"/>
+</map>

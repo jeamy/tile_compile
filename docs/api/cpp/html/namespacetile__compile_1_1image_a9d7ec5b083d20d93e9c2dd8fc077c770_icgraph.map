@@ -1,0 +1,18 @@
+<map id="tile_compile::image::warp_cfa_mosaic_via_subplanes" name="tile_compile::image::warp_cfa_mosaic_via_subplanes">
+<area shape="rect" id="Node000001" title="Implements warp cfa mosaic via subplanes." alt="" coords="850,108,1005,160"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#afb90e89c53e0e649e24be1e43e890448" title="Applies global warp." alt="" coords="666,80,802,119"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="834,120,802,114,803,109,835,115"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1runner.html#a1df23fe6a9ac933de8904e5aadf1eec4" title="Runs phase registration prewarp." alt="" coords="457,145,617,198"/>
+<area shape="poly" id="edge8_Node000001_Node000004" title=" " alt="" coords="835,145,618,166,618,161,834,140"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#ab99beda6dfaa709c49d52ce997e384dd" title="Applies global warp." alt="" coords="469,5,605,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="666,77,589,47,591,42,668,72"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="666,127,612,147,610,142,664,122"/>
+<area shape="rect" id="Node000008" href="$classtile__compile_1_1core_1_1AccelerationOps.html#ae3ee6124d98591dcea6069e18c4edd4e" title="Implements warp affine frame." alt="" coords="456,68,618,120"/>
+<area shape="poly" id="edge7_Node000002_Node000008" title=" " alt="" coords="650,100,618,99,618,94,650,94"/>
+<area shape="rect" id="Node000005" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,159,408,184"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="442,174,408,174,408,169,442,169"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,159,206,184"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="238,174,206,174,206,169,238,169"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,159,55,184"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="87,174,55,174,55,169,87,169"/>
+</map>

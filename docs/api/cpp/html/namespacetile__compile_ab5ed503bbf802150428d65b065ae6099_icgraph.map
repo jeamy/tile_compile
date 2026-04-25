@@ -1,0 +1,30 @@
+<map id="tile_compile::phase_to_string" name="tile_compile::phase_to_string">
+<area shape="rect" id="Node000001" title=" " alt="" coords="924,173,1057,212"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1core_1_1EventEmitter.html#ac2beef30323e742c7122800733fb1681" title="Implements phase end." alt="" coords="701,104,876,142"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="917,170,846,146,848,140,919,165"/>
+<area shape="rect" id="Node000009" href="$classtile__compile_1_1core_1_1EventEmitter.html#ac5f928efb17e2f29aeae678fec2a43d3" title="Implements phase progress." alt="" coords="715,166,862,219"/>
+<area shape="poly" id="edge11_Node000001_Node000009" title=" " alt="" coords="908,195,862,195,862,190,908,190"/>
+<area shape="rect" id="Node000011" href="$classtile__compile_1_1core_1_1EventEmitter.html#a71d0ac7f908d5db9209ae5f8ff0b9642" title="Implements phase progress counts." alt="" coords="715,271,862,324"/>
+<area shape="poly" id="edge16_Node000001_Node000011" title=" " alt="" coords="940,221,842,273,839,268,937,217"/>
+<area shape="rect" id="Node000003" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="267,5,395,30"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="738,98,697,78,652,62,585,45,516,34,395,23,396,17,517,29,586,40,653,56,699,73,741,94"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="456,97,653,149"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="685,126,653,126,653,120,685,120"/>
+<area shape="rect" id="Node000006" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,163,408,187"/>
+<area shape="poly" id="edge10_Node000002_Node000006" title=" " alt="" coords="718,101,661,86,595,76,525,74,491,78,457,87,423,102,392,123,346,164,343,160,389,119,420,98,455,82,490,73,525,69,595,70,662,81,720,96"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1runner.html#a044cd053f52b6b643eaf716a7956e6e4" title="Runs phase local metrics." alt="" coords="468,173,641,212"/>
+<area shape="poly" id="edge8_Node000002_Node000008" title=" " alt="" coords="707,150,623,175,622,170,706,145"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,72,55,97"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="258,37,56,82,55,76,257,31"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="442,152,388,165,386,160,441,147"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,96,206,121"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="281,159,188,124,190,119,283,154"/>
+<area shape="poly" id="edge7_Node000007_Node000004" title=" " alt="" coords="87,98,54,92,55,86,88,93"/>
+<area shape="poly" id="edge9_Node000008_Node000006" title=" " alt="" coords="452,187,409,184,409,178,452,182"/>
+<area shape="poly" id="edge12_Node000009_Node000005" title=" " alt="" coords="699,169,645,152,646,147,701,164"/>
+<area shape="poly" id="edge13_Node000009_Node000008" title=" " alt="" coords="700,195,641,195,641,190,700,190"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1runner.html#a1df23fe6a9ac933de8904e5aadf1eec4" title="Runs phase registration prewarp." alt="" coords="474,235,635,288"/>
+<area shape="poly" id="edge14_Node000009_Node000010" title=" " alt="" coords="701,221,636,240,635,235,699,216"/>
+<area shape="poly" id="edge15_Node000010_Node000006" title=" " alt="" coords="469,232,364,190,366,185,471,227"/>
+<area shape="poly" id="edge17_Node000011_Node000006" title=" " alt="" coords="699,319,643,326,581,327,517,321,455,303,415,279,382,247,355,215,338,189,342,186,360,212,386,244,419,275,457,298,518,315,581,322,643,320,699,314"/>
+</map>

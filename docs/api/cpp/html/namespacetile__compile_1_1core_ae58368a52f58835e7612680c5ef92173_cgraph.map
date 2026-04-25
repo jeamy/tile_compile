@@ -1,0 +1,5 @@
+<map id="tile_compile::core::make_device_frame_batch" name="tile_compile::core::make_device_frame_batch">
+<area shape="rect" id="Node000001" title="Creates device frame batch." alt="" coords="5,5,190,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#ac58c45699a9c0a84b4a4b7cfe547f5ed" title="Creates device frame." alt="" coords="238,5,383,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="190,22,223,22,223,27,190,27"/>
+</map>

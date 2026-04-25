@@ -1,0 +1,9 @@
+<map id="tile_compile::registration::maybe_refine_similarity_to_affine" name="tile_compile::registration::maybe_refine_similarity_to_affine">
+<area shape="rect" id="Node000001" title="Implements maybe refine similarity to affine." alt="" coords="5,68,172,120"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a2e2e33db68394b6fae247c7aebdd7c6d" title="Builds similarity consensus pairs." alt="" coords="220,5,441,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="171,67,219,53,242,46,244,51,220,58,173,72"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#ace44bae6c0411d49266a57c3fb8f4586" title="Estimates affine family transform." alt="" coords="249,68,412,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="172,91,233,91,233,97,172,97"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1registration.html#a21d5634496fa1f12ce276a444c75e7f4" title="Inverts forward affine to warp." alt="" coords="249,145,412,198"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="173,118,235,138,234,143,171,123"/>
+</map>

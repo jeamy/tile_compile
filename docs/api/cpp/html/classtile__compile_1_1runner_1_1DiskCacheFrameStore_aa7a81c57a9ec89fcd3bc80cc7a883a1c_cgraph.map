@@ -1,0 +1,5 @@
+<map id="tile_compile::runner::DiskCacheFrameStore::extract_tile" name="tile_compile::runner::DiskCacheFrameStore::extract_tile">
+<area shape="rect" id="Node000001" title="Extract a tile by value, applying optional canvas coordinate offsets." alt="" coords="5,5,167,58"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1runner_1_1DiskCacheFrameStore.html#a563c8ecbb137d3ef3ae6f7b426f6ce47" title="Extract a tile into an existing matrix to avoid repeated allocations." alt="" coords="215,5,376,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,29,199,29,199,34,167,34"/>
+</map>

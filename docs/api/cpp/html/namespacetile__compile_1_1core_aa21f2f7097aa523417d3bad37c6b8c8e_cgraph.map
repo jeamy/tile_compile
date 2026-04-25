@@ -1,0 +1,8 @@
+<map id="tile_compile::core::select_acceleration_backend" name="tile_compile::core::select_acceleration_backend">
+<area shape="rect" id="Node000001" title="Implements select acceleration backend." alt="" coords="5,37,147,90"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#aab861d9b26881be5d73ddee08971609b" title="Parses acceleration backend." alt="" coords="195,5,334,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="147,49,179,43,180,49,147,54"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#ab5d2831c0f54e10fb0f33f96047e7953" title="Converts lower." alt="" coords="382,44,505,83"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="147,66,195,68,334,68,366,66,367,72,334,73,195,73,147,71"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="335,42,367,47,366,53,334,47"/>
+</map>

@@ -1,0 +1,30 @@
+<map id="include/tile_compile/image/background_extraction.hpp" name="include/tile_compile/image/background_extraction.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="581,5,801,44"/>
+<area shape="rect" id="Node000002" href="$runner__pipeline_8cpp.html" title=" " alt="" coords="371,272,536,297"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="566,39,415,56,249,84,172,103,105,125,51,151,31,165,16,180,8,198,16,216,39,233,73,247,117,258,166,266,273,277,370,281,370,286,273,282,166,272,116,263,71,252,36,237,12,219,3,198,11,177,27,161,48,147,103,120,171,98,248,79,414,51,565,33"/>
+<area shape="rect" id="Node000003" href="$runner__resume_8cpp.html" title=" " alt="" coords="982,186,1146,210"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="693,59,699,96,707,114,718,128,750,138,821,153,993,182,992,188,820,158,749,143,715,133,702,117,694,98,688,60"/>
+<area shape="rect" id="Node000004" href="$runner__shared_8hpp.html" title=" " alt="" coords="493,99,654,124"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="654,55,591,101,588,96,651,51"/>
+<area shape="rect" id="Node000011" href="$photometric__color__cal_8cpp.html" title=" " alt="" coords="728,92,907,131"/>
+<area shape="poly" id="edge15_Node000001_Node000011" title=" " alt="" coords="733,51,791,89,788,94,730,55"/>
+<area shape="rect" id="Node000012" href="$background__extraction_8cpp.html" title=" " alt="" coords="931,92,1080,131"/>
+<area shape="poly" id="edge16_Node000001_Node000012" title=" " alt="" coords="776,46,937,89,935,94,775,51"/>
+<area shape="poly" id="edge12_Node000004_Node000002" title=" " alt="" coords="536,134,506,154,481,180,469,204,462,229,456,272,451,272,457,228,464,202,477,177,503,150,533,129"/>
+<area shape="poly" id="edge13_Node000004_Node000003" title=" " alt="" coords="651,124,673,128,963,176,1000,182,999,188,963,181,672,133,650,130"/>
+<area shape="rect" id="Node000005" href="$runner__phase__local__metrics_8hpp.html" title=" " alt="" coords="491,179,656,217"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="576,139,576,178,571,178,571,139"/>
+<area shape="rect" id="Node000007" href="$runner__phase__metrics_8cpp.html" title=" " alt="" coords="25,186,231,210"/>
+<area shape="poly" id="edge7_Node000004_Node000007" title=" " alt="" coords="498,130,190,188,189,182,497,124"/>
+<area shape="rect" id="Node000008" href="$runner__phase__registration_8cpp.html" title=" " alt="" coords="789,272,1017,297"/>
+<area shape="poly" id="edge8_Node000004_Node000008" title=" " alt="" coords="653,124,921,177,931,201,930,228,922,253,912,273,907,271,917,251,925,227,926,202,917,181,652,130"/>
+<area shape="rect" id="Node000009" href="$runner__phase__registration_8hpp.html" title=" " alt="" coords="680,186,907,210"/>
+<area shape="poly" id="edge9_Node000004_Node000009" title=" " alt="" coords="619,127,764,183,762,188,617,132"/>
+<area shape="rect" id="Node000010" href="$runner__shared_8cpp.html" title=" " alt="" coords="256,186,416,210"/>
+<area shape="poly" id="edge14_Node000004_Node000010" title=" " alt="" coords="528,132,370,188,368,183,526,127"/>
+<area shape="poly" id="edge6_Node000005_Node000002" title=" " alt="" coords="536,229,472,274,469,270,533,224"/>
+<area shape="rect" id="Node000006" href="$runner__phase__local__metrics_8cpp.html" title=" " alt="" coords="560,265,726,304"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="601,228,630,263,626,266,597,231"/>
+<area shape="poly" id="edge11_Node000009_Node000002" title=" " alt="" coords="733,217,501,274,500,269,731,212"/>
+<area shape="poly" id="edge10_Node000009_Node000008" title=" " alt="" coords="822,218,890,270,886,274,819,222"/>
+</map>

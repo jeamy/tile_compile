@@ -1,0 +1,26 @@
+var searchData=
+[
+  ['dark_5falready_5fbias_5fcorrected_0',['dark_already_bias_corrected',['../structtile__compile_1_1config_1_1CalibrationConfig.html#a77a6129b3f53784f9902ae1eb5a4cc76',1,'tile_compile::config::CalibrationConfig']]],
+  ['dark_5fauto_5fselect_1',['dark_auto_select',['../structtile__compile_1_1config_1_1CalibrationConfig.html#a0398781c3f032c116d47766e07a36b13',1,'tile_compile::config::CalibrationConfig']]],
+  ['dark_5fmaster_2',['dark_master',['../structtile__compile_1_1config_1_1CalibrationConfig.html#af91b5da6d5d2882853f325f445a208cf',1,'tile_compile::config::CalibrationConfig']]],
+  ['dark_5fmatch_5fexposure_5ftolerance_5fpercent_3',['dark_match_exposure_tolerance_percent',['../structtile__compile_1_1config_1_1CalibrationConfig.html#a534b6d276300c00ea840dc65317b3d26',1,'tile_compile::config::CalibrationConfig']]],
+  ['dark_5fmatch_5ftemp_5ftolerance_5fc_4',['dark_match_temp_tolerance_c',['../structtile__compile_1_1config_1_1CalibrationConfig.html#aefb9763ef147e36eeffa7bf75828bc25',1,'tile_compile::config::CalibrationConfig']]],
+  ['dark_5fmatch_5fuse_5ftemp_5',['dark_match_use_temp',['../structtile__compile_1_1config_1_1CalibrationConfig.html#ae728738981482be6e5a03c94d2327f71',1,'tile_compile::config::CalibrationConfig']]],
+  ['dark_5fuse_5fmaster_6',['dark_use_master',['../structtile__compile_1_1config_1_1CalibrationConfig.html#a7dcceceb1e1e1b3b074690ce3528207a',1,'tile_compile::config::CalibrationConfig']]],
+  ['darks_5fdir_7',['darks_dir',['../structtile__compile_1_1config_1_1CalibrationConfig.html#aa4530f44a6c0f91b79b66c2e01a416c3',1,'tile_compile::config::CalibrationConfig']]],
+  ['data_8',['data',['../structtile__compile_1_1config_1_1Config.html#a3e7c640bb0c1a356b60b1ffa80c32790',1,'tile_compile::config::Config']]],
+  ['db_9',['db',['../structtile__compile_1_1astrometry_1_1PCCBackgroundSample.html#a3907c0bfba2499c51a962072d7507c47',1,'tile_compile::astrometry::PCCBackgroundSample']]],
+  ['ddec_5fscaled_10',['ddec_scaled',['../structtile__compile_1_1astrometry_1_1SourceEntryXPsamp.html#a18c7011220736f3f2f236fd251e67417',1,'tile_compile::astrometry::SourceEntryXPsamp']]],
+  ['dead_5ftile_5fmin_5fcoverage_5ffraction_11',['dead_tile_min_coverage_fraction',['../structtile__compile_1_1reconstruction_1_1ReconstructionConfig.html#a98bd8e5367070d6d41dc3b98c577937d',1,'tile_compile::reconstruction::ReconstructionConfig']]],
+  ['dead_5ftile_5ftime_5fsaved_5festimate_5fs_12',['dead_tile_time_saved_estimate_s',['../structtile__compile_1_1reconstruction_1_1ReconstructTilesResult.html#a4a99f3f2f0f9f53dba8cbd0762d379f9',1,'tile_compile::reconstruction::ReconstructTilesResult::dead_tile_time_saved_estimate_s'],['../structtile__compile_1_1reconstruction_1_1TileSchedulerResult.html#a8e4720d78ebe94e74d3a447a831e2070',1,'tile_compile::reconstruction::TileSchedulerResult::dead_tile_time_saved_estimate_s']]],
+  ['dec_13',['dec',['../structtile__compile_1_1astrometry_1_1GaiaStar.html#a041e547ece3e6c8390ec3ae57f21083d',1,'tile_compile::astrometry::GaiaStar::dec'],['../structtile__compile_1_1astrometry_1_1StarPhotometry.html#afb96cda0d691222be18ca246041aeb9c',1,'tile_compile::astrometry::StarPhotometry::dec']]],
+  ['dec_5fscaled_14',['dec_scaled',['../structtile__compile_1_1astrometry_1_1SourceEntryXPsamp.html#a375aceaff94f6a7eef92c615dc7c3c26',1,'tile_compile::astrometry::SourceEntryXPsamp']]],
+  ['determinant_15',['determinant',['../structtile__compile_1_1astrometry_1_1PCCResult.html#a8bf944ff5a3aa30aee457e65399c5008',1,'tile_compile::astrometry::PCCResult']]],
+  ['dg_16',['dg',['../structtile__compile_1_1astrometry_1_1PCCBackgroundSample.html#ab844aca3e584f93106ef6ef1bfb71dbd',1,'tile_compile::astrometry::PCCBackgroundSample']]],
+  ['dilate_5fpx_17',['dilate_px',['../structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1StarProtectionConfig.html#a83e8b74c376b00ea7655654197aa3f28',1,'tile_compile::config::ChromaDenoiseConfig::StarProtectionConfig']]],
+  ['dithering_18',['dithering',['../structtile__compile_1_1config_1_1Config.html#acf651141483303918c28684ca6889699',1,'tile_compile::config::Config']]],
+  ['downsample_5fscale_19',['downsample_scale',['../structtile__compile_1_1registration_1_1GlobalRegistrationOutput.html#a7c0283753e9ebaea21f25cdd639a076e',1,'tile_compile::registration::GlobalRegistrationOutput']]],
+  ['dr_20',['dr',['../structtile__compile_1_1astrometry_1_1PCCBackgroundSample.html#a0e7974547bfdaff2a989c8fa8c475634',1,'tile_compile::astrometry::PCCBackgroundSample']]],
+  ['dra_5fscaled_21',['dra_scaled',['../structtile__compile_1_1astrometry_1_1SourceEntryXPsamp.html#a32729440351535c56f67de80bb9ebc31',1,'tile_compile::astrometry::SourceEntryXPsamp']]],
+  ['duration_5fs_22',['duration_s',['../structtile__compile_1_1reconstruction_1_1ReconstructTilesResult.html#a95d70c9ddc76ac98657bc254faac285c',1,'tile_compile::reconstruction::ReconstructTilesResult']]]
+];

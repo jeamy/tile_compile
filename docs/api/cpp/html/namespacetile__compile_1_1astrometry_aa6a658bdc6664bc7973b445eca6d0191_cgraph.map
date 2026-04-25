@@ -1,0 +1,15 @@
+<map id="tile_compile::astrometry::neutralize_background_offsets" name="tile_compile::astrometry::neutralize_background_offsets">
+<area shape="rect" id="Node000001" title="Implements neutralize background offsets." alt="" coords="5,107,167,159"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a1fe6e20802bf2190e2983d34538663a5" title="Implements decide pcc background neutralization." alt="" coords="215,107,383,159"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,130,199,130,199,136,167,136"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a5abad731013264bf536833d91e60c52a" title="Builds chroma background mask from rgb." alt="" coords="468,5,647,58"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="349,104,430,67,452,58,454,63,432,71,351,109"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#afcaf4ee1a9c64f3b0958af88a0ec2494" title="Estimates channel background median." alt="" coords="431,82,684,120"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="383,120,415,116,416,121,384,125"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1image.html#adba510b587172f627de3f16713481fb2" title="Implements log chroma std background." alt="" coords="460,144,655,183"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="384,140,446,148,445,153,383,146"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1astrometry.html#a904a9137a78d7f5a51b36fe5e3f0a83e" title="Implements robust sigma from samples." alt="" coords="460,207,656,246"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="352,157,432,192,456,200,454,205,430,197,350,162"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1core.html#a6d8db894d4113d414b07806df2db8a3f" title="Implements percentile from sorted." alt="" coords="732,207,895,246"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="656,224,717,224,717,229,656,229"/>
+</map>

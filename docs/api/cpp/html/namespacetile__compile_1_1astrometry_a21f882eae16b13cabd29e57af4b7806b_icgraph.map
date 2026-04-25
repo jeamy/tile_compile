@@ -1,0 +1,7 @@
+<map id="tile_compile::astrometry::keep_largest_connected_component" name="tile_compile::astrometry::keep_largest_connected_component">
+<area shape="rect" id="Node000001" title="Implements keep largest connected component." alt="" coords="424,5,593,58"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a237ef970c25463bb423609d9a1db06b4" title="Implements measure stars." alt="" coords="215,12,376,51"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="408,34,376,34,376,29,408,29"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="5,12,167,51"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="199,34,167,34,167,29,199,29"/>
+</map>

@@ -1,0 +1,104 @@
+site_name: tile_compile
+docs_dir: docs
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+  - tags
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 4
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/jeamy/tile_compile
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: getting_started/quickstart.md
+    - Installation: getting_started/installation.md
+    - CLI Reference: getting_started/cli_reference.md
+    - Configuration: getting_started/configuration.md
+  - User Guide:
+    - Pipeline Overview: process_flow/phase_0_overview.md
+    - Phase 1 – Registration: process_flow/phase_1_registration.md
+    - Phase 2 – Normalization & Metrics: process_flow/phase_2_normalization_metrics.md
+    - Phase 3 – Tile Grid: process_flow/phase_3_tile_generation.md
+    - Phase 4 – Local Metrics: process_flow/phase_4_local_metrics.md
+    - Phase 5 – Reconstruction: process_flow/phase_5_tile_reconstruction.md
+    - Phase 6 – Clustering: process_flow/phase_6_clustering.md
+    - Phase 7 – Final Stacking: process_flow/phase_7_final_stacking.md
+    - Data Flow: process_flow/data_flow_user_description_en.md
+  - Configuration:
+    - Reference: configuration_reference.md
+    - Examples (EN): configuration_examples_practical_en.md
+    - Examples (DE): configuration_examples_practical_de.md
+  - Methodology:
+    - v3.3.9 Specification (EN): v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_en.md
+    - v3.3.9 Specification (DE): v3/tile_basierte_qualitatsrekonstruktion_methodik_v_3.3.9_de.md
+    - TBQR Step-by-Step (EN): tbqr_step_by_step_en.md
+    - TBQR Step-by-Step (DE): tbqr_step_by_step_de.md
+  - API Reference:
+    - C++ API (Doxygen): api/cpp/html/index.md
+    - REST API: api/rest/index.md
+  - About:
+    - Readme: about.md
+    - Changelog: about/#changelog

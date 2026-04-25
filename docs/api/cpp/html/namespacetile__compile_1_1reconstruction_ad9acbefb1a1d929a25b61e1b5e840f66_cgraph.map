@@ -1,0 +1,7 @@
+<map id="tile_compile::reconstruction::guard_tile_normalization_stats" name="tile_compile::reconstruction::guard_tile_normalization_stats">
+<area shape="rect" id="Node000001" title="Implements guard tile normalization stats." alt="" coords="5,40,211,79"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="292,5,416,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="211,42,277,33,277,38,211,47"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#adaed0cbb41e7dcbfb2324bb0fc1d76e7" title="Implements minimum tile normalization samples." alt="" coords="259,68,449,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="211,71,244,76,243,81,211,76"/>
+</map>

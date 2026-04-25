@@ -1,0 +1,28 @@
+<map id="tile_compile::image::build_chroma_background_mask_from_rgb" name="tile_compile::image::build_chroma_background_mask_from_rgb">
+<area shape="rect" id="Node000001" title="Builds chroma background mask from rgb." alt="" coords="767,167,946,220"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ae69ac18100643d03739fb64eaae72b29" title="Applies background extraction." alt="" coords="521,48,719,86"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="794,162,717,120,659,89,662,85,720,115,796,157"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1astrometry.html#a9edd11f0298e713fdd46e0a0fa9d658a" title="Applies diagonal color matrix affine." alt="" coords="312,103,473,156"/>
+<area shape="poly" id="edge8_Node000001_Node000007" title=" " alt="" coords="751,182,473,143,474,138,752,177"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="103,206,264,245"/>
+<area shape="poly" id="edge15_Node000001_Node000008" title=" " alt="" coords="751,201,312,222,265,224,264,219,312,216,751,196"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1astrometry.html#a1fe6e20802bf2190e2983d34538663a5" title="Implements decide pcc background neutralization." alt="" coords="536,231,704,284"/>
+<area shape="poly" id="edge10_Node000001_Node000009" title=" " alt="" coords="753,224,705,237,704,232,752,219"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile_1_1astrometry.html#a237ef970c25463bb423609d9a1db06b4" title="Implements measure stars." alt="" coords="539,308,701,346"/>
+<area shape="poly" id="edge13_Node000001_Node000011" title=" " alt="" coords="816,232,771,267,720,299,695,310,693,305,717,294,768,263,812,228"/>
+<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="658,35,644,29,620,26,598,28,585,33,580,39,583,47,578,48,575,38,582,29,597,23,620,21,645,23,660,30"/>
+<area shape="rect" id="Node000003" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="119,5,248,30"/>
+<area shape="poly" id="edge3_Node000002_Node000003" title=" " alt="" coords="505,50,473,46,248,24,248,19,474,40,506,45"/>
+<area shape="rect" id="Node000005" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="316,55,470,79"/>
+<area shape="poly" id="edge5_Node000002_Node000005" title=" " alt="" coords="506,70,470,70,470,64,506,64"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,31,55,55"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="104,33,56,42,55,36,103,28"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="132,55,235,79"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="300,70,236,70,236,64,300,64"/>
+<area shape="poly" id="edge7_Node000006_Node000004" title=" " alt="" coords="116,59,55,49,55,44,117,54"/>
+<area shape="poly" id="edge9_Node000007_Node000008" title=" " alt="" coords="321,165,228,208,226,203,318,161"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1astrometry.html#aa6a658bdc6664bc7973b445eca6d0191" title="Implements neutralize background offsets." alt="" coords="312,231,473,284"/>
+<area shape="poly" id="edge11_Node000009_Node000010" title=" " alt="" coords="521,260,474,260,474,255,521,255"/>
+<area shape="poly" id="edge12_Node000010_Node000008" title=" " alt="" coords="296,246,264,241,265,235,297,240"/>
+<area shape="poly" id="edge14_Node000011_Node000008" title=" " alt="" coords="523,330,420,322,365,313,311,299,257,275,211,248,214,243,259,270,313,294,366,307,421,316,524,325"/>
+</map>

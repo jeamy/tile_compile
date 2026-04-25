@@ -1,0 +1,7 @@
+<map id="tile_compile::core::AccelerationOps::sigma_clip_reduce" name="tile_compile::core::AccelerationOps::sigma_clip_reduce">
+<area shape="rect" id="Node000001" title="Implements sigma clip reduce." alt="" coords="5,5,174,58"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#a76890a54d71d7b8b46802b4a2516d597" title="Implements sigma clip weighted tile with fallback." alt="" coords="222,5,402,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="174,29,206,29,206,34,174,34"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#a9dbfb8302bce017247294b9e13bb2a56" title="Implements sigma clip weighted tile." alt="" coords="450,12,630,51"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="402,29,434,29,434,34,402,34"/>
+</map>

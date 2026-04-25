@@ -1,0 +1,11 @@
+<map id="tile_compile::registration::robust_phase_ecc_seeded" name="tile_compile::registration::robust_phase_ecc_seeded">
+<area shape="rect" id="Node000001" title="Implements robust phase ecc seeded." alt="" coords="5,100,190,139"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a1d7266ab0ff8cbbbda8d1f0a1871b40f" title="Implements downsample2x2 mean." alt="" coords="238,5,400,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="139,97,237,53,249,48,251,53,239,58,141,102"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#a0f29af2e7ea6328333dd11714dd0fc7d" title="Implements ecc warp." alt="" coords="238,68,400,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="190,103,222,99,223,104,191,109"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1registration.html#aa8d7e38058a69f0ab49b5d493feb74b9" title="Implements gradient preprocess." alt="" coords="238,131,400,169"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="191,130,223,134,222,139,190,135"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1registration.html#af3f5c2303bc73db7e0111e5d8cf48ba6" title="Implements prepare ecc image." alt="" coords="238,193,400,232"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="144,137,239,178,254,185,252,190,237,183,141,142"/>
+</map>

@@ -186,6 +186,112 @@ float robust_mad(const std::vector<float> &values, float center) {
   return robust_median_inplace(abs_dev);
 }
 
+float robust_mean(const std::vector<float> &values) {
+  if (values.empty())
+    return 0.0f;
+  double sum = 0.0;
+  for (float v : values)
+    sum += static_cast<double>(v);
+  return static_cast<float>(sum / static_cast<double>(values.size()));
+}
+
+std::vector<float> sigma_clipped_values(std::vector<float> values,
+                                        float sigma = 3.0f,
+                                        int max_iters = 5) {
+  values.erase(std::remove_if(values.begin(), values.end(),
+                              [](float v) { return !std::isfinite(v); }),
+               values.end());
+  for (int iter = 0; iter < max_iters && values.size() >= 8; ++iter) {
+    std::vector<float> work = values;
+    const float center = robust_median_inplace(work);
+    const float scale = 1.4826f * robust_mad(values, center);
+    if (!(std::isfinite(scale) && scale > kTiny))
+      break;
+    const float limit = sigma * scale;
+    std::vector<float> kept;
+    kept.reserve(values.size());
+    for (float v : values) {
+      if (std::abs(v - center) <= limit)
+        kept.push_back(v);
+    }
+    if (kept.size() == values.size() || kept.size() < 8)
+      break;
+    values.swap(kept);
+  }
+  return values;
+}
+
+float biweight_location(std::vector<float> values) {
+  values.erase(std::remove_if(values.begin(), values.end(),
+                              [](float v) { return !std::isfinite(v); }),
+               values.end());
+  if (values.empty())
+    return std::numeric_limits<float>::quiet_NaN();
+  std::vector<float> work = values;
+  const float m = robust_median_inplace(work);
+  const float mad = robust_mad(values, m);
+  const float scale = 9.0f * std::max(mad, kTiny);
+  double num = 0.0;
+  double den = 0.0;
+  for (float v : values) {
+    const float u = (v - m) / scale;
+    if (std::abs(u) >= 1.0f)
+      continue;
+    const float one_minus_u2 = 1.0f - u * u;
+    const float w = one_minus_u2 * one_minus_u2;
+    num += static_cast<double>(v) * static_cast<double>(w);
+    den += static_cast<double>(w);
+  }
+  if (den <= 0.0)
+    return m;
+  return static_cast<float>(num / den);
+}
+
+float estimate_tile_background_value(std::vector<float> pixels,
+                                     const BGEConfig &config) {
+  pixels.erase(std::remove_if(pixels.begin(), pixels.end(),
+                              [](float v) { return !std::isfinite(v); }),
+               pixels.end());
+  if (pixels.empty())
+    return std::numeric_limits<float>::quiet_NaN();
+
+  if (config.sample_estimator == "sigma_clipped_median") {
+    auto clipped = sigma_clipped_values(std::move(pixels));
+    if (clipped.empty())
+      return std::numeric_limits<float>::quiet_NaN();
+    return robust_median_inplace(clipped);
+  }
+
+  if (config.sample_estimator == "sextractor_mode") {
+    auto clipped = sigma_clipped_values(std::move(pixels));
+    if (clipped.empty())
+      return std::numeric_limits<float>::quiet_NaN();
+    std::vector<float> med_work = clipped;
+    const float median = robust_median_inplace(med_work);
+    const float mean = robust_mean(clipped);
+    const float mode = 2.5f * median - 1.5f * mean;
+    const float denom = std::max(1.0f, std::abs(median));
+    if (!std::isfinite(mode) || std::abs(mode - median) > 0.30f * denom)
+      return median;
+    return mode;
+  }
+
+  if (config.sample_estimator == "biweight") {
+    return biweight_location(std::move(pixels));
+  }
+
+  return robust_quantile_inplace(pixels, config.sample_quantile);
+}
+
+float estimate_tile_background_from_sorted(const std::vector<float> &sorted_pixels,
+                                           const BGEConfig &config) {
+  if (sorted_pixels.empty())
+    return std::numeric_limits<float>::quiet_NaN();
+  if (config.sample_estimator == "quantile")
+    return sorted_quantile(sorted_pixels, config.sample_quantile);
+  return estimate_tile_background_value(sorted_pixels, config);
+}
+
 /// @brief Implements box blur subregion.
 /// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
 /// localized in this translation unit and preserves the surrounding phase,
@@ -486,6 +592,11 @@ BGEValueStats stats_from_matrix(const Matrix2Df &m) {
 }
 
 } // namespace
+
+static std::vector<AutoTunePreparedTileSample>
+extract_autotune_prepared_tile_samples(
+    const Matrix2Df &channel, const std::vector<TileMetrics> &tile_metrics,
+    const TileGrid &tile_grid, const BGEConfig &config);
 
 /// @brief Implements canvas mask matches image.
 /// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
@@ -1610,315 +1721,24 @@ std::vector<TileBGSample> extract_tile_background_samples(
     const Matrix2Df &channel, const std::vector<TileMetrics> &tile_metrics,
     const TileGrid &tile_grid, const BGEConfig &config) {
 
+  const auto prepared = extract_autotune_prepared_tile_samples(
+      channel, tile_metrics, tile_grid, config);
   std::vector<TileBGSample> samples;
-  const int stride = static_cast<int>(channel.cols());
-  const float *channel_data = channel.data();
-
-  if (tile_metrics.size() < tile_grid.tiles.size()) {
-    std::cout << "[BGE] Warning: tile_metrics smaller than tile_grid, "
-                 "truncating to min size"
-              << std::endl;
-  }
-
-  const size_t n_tiles = std::min(tile_metrics.size(), tile_grid.tiles.size());
-  const bool have_common_mask =
-      config.common_mask_rows == channel.rows() &&
-      config.common_mask_cols == channel.cols() &&
-      config.common_valid_mask.size() ==
-          static_cast<size_t>(channel.rows() * channel.cols());
-  if (!have_common_mask) {
-    std::cout << "[BGE] Error: missing/invalid canvas mask in tile sampling"
-              << std::endl;
-    return samples;
-  }
-
-  int informative_metric_tiles = 0;
-  for (size_t ti = 0; ti < n_tiles; ++ti) {
-    const auto &tm = tile_metrics[ti];
-    const bool has_structure = std::isfinite(tm.noise) && tm.noise > 1.0e-6f &&
-                               std::isfinite(tm.gradient_energy) &&
-                               tm.gradient_energy > 1.0e-6f;
-    const bool has_quality =
-        std::isfinite(tm.quality_score) && std::abs(tm.quality_score) > 1.0e-3f;
-    if (has_structure || has_quality)
-      ++informative_metric_tiles;
-  }
-  const float informative_fraction =
-      (n_tiles > 0) ? (static_cast<float>(informative_metric_tiles) /
-                       static_cast<float>(n_tiles))
-                    : 0.0f;
-  const bool use_tile_metrics = (informative_fraction >= 0.35f);
-  if (!use_tile_metrics && n_tiles > 0) {
-    std::cout << "[BGE]   Tile metrics look degenerate (informative="
-              << informative_metric_tiles << "/" << n_tiles
-              << "), switching to image-only sample selection" << std::endl;
-  }
-
-  // Compute structure threshold (percentile over E/sigma)
-  std::vector<float> structure_scores;
-  structure_scores.reserve(n_tiles);
-  if (use_tile_metrics) {
-    for (size_t ti = 0; ti < n_tiles; ++ti) {
-      const auto &tm = tile_metrics[ti];
-      if (tm.noise > 1e-6f && std::isfinite(tm.gradient_energy)) {
-        structure_scores.push_back(tm.gradient_energy / tm.noise);
-      }
-    }
-  }
-
-  float structure_thresh = 0.0f;
-  if (!structure_scores.empty()) {
-    structure_thresh = robust_quantile_inplace(
-        structure_scores, config.structure_thresh_percentile);
-  }
-
-  samples.resize(n_tiles);
-  const int parallel_workers =
-      bge_parallel_worker_count(static_cast<int>(n_tiles), 4);
-
-  // Extract background sample per tile
-#pragma omp parallel num_threads(parallel_workers) if(parallel_workers > 1)
-  {
-    TileSampleScratch scratch;
-#pragma omp for schedule(dynamic, 1)
-    for (int ti = 0; ti < static_cast<int>(n_tiles); ++ti) {
-      const size_t t = static_cast<size_t>(ti);
-    const auto &tile = tile_grid.tiles[t];
-    const auto &tm = tile_metrics[t];
-
+  samples.reserve(prepared.size());
+  for (const auto &p : prepared) {
     TileBGSample sample{};
-    sample.x = tile.x + tile.width / 2.0f;
-    sample.y = tile.y + tile.height / 2.0f;
+    sample.x = p.x;
+    sample.y = p.y;
+    sample.weight = p.weight;
     sample.valid = false;
-
-    // Extremely star-dense STAR tiles are weak background candidates.
-    // Keep moderately populated STAR tiles to avoid over-pruning in rich
-    // fields.
-    if (use_tile_metrics && tm.type == TileType::STAR && tm.star_count >= 16) {
-      samples[t] = sample;
-      continue;
+    if (p.valid && !p.sorted_pixels.empty()) {
+      sample.bg_value = estimate_tile_background_from_sorted(p.sorted_pixels,
+                                                             config);
+      sample.valid = std::isfinite(sample.bg_value) &&
+                     std::isfinite(sample.weight) && sample.weight > 0.0f;
     }
-    // High local-quality STRUCTURE tiles are often bright extended object
-    // signal (nebula/galaxy detail), not sky background. Aggregated
-    // quality medians cluster near 0, so use a conservative threshold.
-    if (use_tile_metrics && tm.type == TileType::STRUCTURE &&
-        std::isfinite(tm.quality_score) && tm.quality_score >= 0.20f) {
-      samples[t] = sample;
-      continue;
-    }
-
-    // Exclude high-structure tiles (v3.3 §6.3.2a)
-    float tile_structure =
-        (tm.noise > 1e-6f) ? (tm.gradient_energy / tm.noise) : 0.0f;
-    if (use_tile_metrics && tile_structure > structure_thresh) {
-      samples[t] = sample;
-      continue;
-    }
-
-    // Extract tile region
-    int x0 = tile.x;
-    int y0 = tile.y;
-    int x1 = std::min(x0 + tile.width, static_cast<int>(channel.cols()));
-    int y1 = std::min(y0 + tile.height, static_cast<int>(channel.rows()));
-
-    if (x1 <= x0 || y1 <= y0) {
-      samples[t] = sample;
-      continue;
-    }
-
-    const int tw = x1 - x0;
-    const int th = y1 - y0;
-    scratch.prepare(tw, th);
-    auto tile_value = [&](int yy, int xx) -> float {
-      return channel_data[static_cast<size_t>(y0 + yy) *
-                              static_cast<size_t>(stride) +
-                          static_cast<size_t>(x0 + xx)];
-    };
-    for (int yy = 0; yy < th; ++yy) {
-      const int gy = y0 + yy;
-      const size_t row_off =
-          static_cast<size_t>(gy) * static_cast<size_t>(config.common_mask_cols);
-      for (int xx = 0; xx < tw; ++xx) {
-        const int gx = x0 + xx;
-        scratch.tile_common_support[static_cast<size_t>(yy * tw + xx)] =
-            config.common_valid_mask[row_off + static_cast<size_t>(gx)] != 0
-                ? 1
-                : 0;
-      }
-    }
-
-    int supported_px = 0;
-    int zero_pixel_count = 0;
-    for (int yy = 0; yy < th; ++yy) {
-      const float *row = channel_data +
-                         static_cast<size_t>(y0 + yy) *
-                             static_cast<size_t>(stride) +
-                         x0;
-      for (int xx = 0; xx < tw; ++xx) {
-        const size_t i = static_cast<size_t>(yy * tw + xx);
-        if (scratch.tile_common_support[i] == 0) {
-          continue;
-        }
-        ++supported_px;
-        const float v = row[xx];
-        if (std::isfinite(v)) {
-          scratch.finite_values.push_back(v);
-          if (v == 0.0f)
-            ++zero_pixel_count;
-        }
-      }
-    }
-
-    if (scratch.finite_values.empty()) {
-      samples[t] = sample;
-      continue;
-    }
-
-    // Reject tiles with high zero-pixel fraction: these are canvas padding
-    // regions created by field-rotation canvas expansion and would corrupt
-    // the background model with near-zero values.
-    const float zero_fraction = static_cast<float>(zero_pixel_count) /
-                                static_cast<float>(scratch.finite_values.size());
-    if (zero_fraction > 0.20f) {
-      samples[t] = sample;
-      continue;
-    }
-
-    const float sat_level =
-        robust_quantile_inplace(scratch.finite_values, 0.999f);
-
-    // Approximate star mask from deterministic DoG fallback (spec §6.3.2a).
-    const int r_small = 1;
-    const int r_large = std::max(2, std::min(tw, th) / 12);
-    box_blur_subregion(channel, x0, y0, tw, th, r_small, &scratch.blur_integral,
-                       &scratch.blur_small);
-    box_blur_subregion(channel, x0, y0, tw, th, r_large, &scratch.blur_integral,
-                       &scratch.blur_large);
-    for (size_t i = 0; i < scratch.blur_small.size(); ++i) {
-      scratch.dog_vals[i] = scratch.blur_small[i] - scratch.blur_large[i];
-    }
-    const float dog_med = robust_median_inplace(scratch.dog_vals);
-    const float dog_mad = robust_mad(scratch.dog_vals, dog_med);
-    const float dog_thresh =
-        dog_med + 3.0f * std::max(1.4826f * dog_mad, 1.0e-6f);
-    const float bright_thresh =
-        robust_quantile_inplace(scratch.finite_values, 0.80f);
-    for (int yy = 0; yy < th; ++yy) {
-      for (int xx = 0; xx < tw; ++xx) {
-        const size_t i = static_cast<size_t>(yy * tw + xx);
-        const float v = tile_value(yy, xx);
-        if (std::isfinite(v) && v >= bright_thresh &&
-            scratch.dog_vals[i] > dog_thresh) {
-          scratch.star_mask[i] = 1;
-        }
-      }
-    }
-    int star_dilate_px = std::max(0, config.mask.star_dilate_px);
-    if (std::isfinite(tm.fwhm) && tm.fwhm > 0.0f) {
-      const int add = static_cast<int>(std::lround(0.25f * tm.fwhm));
-      star_dilate_px = std::clamp(star_dilate_px + std::max(0, add),
-                                  star_dilate_px, star_dilate_px + 8);
-    }
-    dilate_mask_in_place(&scratch.star_mask, tw, th, star_dilate_px,
-                         &scratch.dilate_scratch);
-
-    for (int yy = 0; yy < th; ++yy) {
-      for (int xx = 0; xx < tw; ++xx) {
-        const size_t i = static_cast<size_t>(yy * tw + xx);
-        const float v = tile_value(yy, xx);
-        if (std::isfinite(v) && v >= sat_level)
-          scratch.sat_mask[i] = 1;
-      }
-    }
-    dilate_mask_in_place(&scratch.sat_mask, tw, th,
-                         std::max(0, config.mask.sat_dilate_px),
-                         &scratch.dilate_scratch);
-
-    // Per-pixel structure metric from local gradients.
-    scratch.supported_gradients.clear();
-    for (int yy = 0; yy < th; ++yy) {
-      const int ym = std::max(0, yy - 1);
-      const int yp = std::min(th - 1, yy + 1);
-      for (int xx = 0; xx < tw; ++xx) {
-        const int xm = std::max(0, xx - 1);
-        const int xp = std::min(tw - 1, xx + 1);
-        const float gx = std::abs(tile_value(yy, xp) - tile_value(yy, xm));
-        const float gy = std::abs(tile_value(yp, xx) - tile_value(ym, xx));
-        const float grad = gx + gy;
-        scratch.tile_gradients[static_cast<size_t>(yy * tw + xx)] = grad;
-        if (scratch.tile_common_support[static_cast<size_t>(yy * tw + xx)] !=
-            0) {
-          scratch.supported_gradients.push_back(grad);
-        }
-      }
-    }
-    std::vector<float> &gradient_source =
-        scratch.supported_gradients.empty() ? scratch.tile_gradients
-                                            : scratch.supported_gradients;
-    const float grad_thresh = robust_quantile_inplace(
-        gradient_source, config.structure_thresh_percentile);
-
-    scratch.tile_pixels.clear();
-    for (int yy = 0; yy < th; ++yy) {
-      for (int xx = 0; xx < tw; ++xx) {
-        const size_t i = static_cast<size_t>(yy * tw + xx);
-        if (scratch.tile_common_support[i] == 0) {
-          continue;
-        }
-        const float v = tile_value(yy, xx);
-        const bool structure_bad = scratch.tile_gradients[i] > grad_thresh;
-        const bool masked =
-            (scratch.star_mask[i] != 0) || (scratch.sat_mask[i] != 0) ||
-            structure_bad;
-        if (!masked && std::isfinite(v)) {
-          scratch.tile_pixels.push_back(v);
-        }
-      }
-    }
-
-    if (scratch.tile_pixels.empty()) {
-      samples[t] = sample;
-      continue;
-    }
-
-    const float usable_fraction =
-        static_cast<float>(scratch.tile_pixels.size()) /
-        static_cast<float>(std::max(1, supported_px));
-    if (!(std::isfinite(usable_fraction)) ||
-        usable_fraction < kMinUsableTileFraction) {
-      samples[t] = sample;
-      continue;
-    }
-
-    // Compute quantile (v3.3 §6.3.2b)
-    sample.bg_value =
-        robust_quantile_inplace(scratch.tile_pixels, config.sample_quantile);
-    if (!std::isfinite(sample.bg_value)) {
-      samples[t] = sample;
-      continue;
-    }
-
-    // Compute reliability weight (v3.3 §6.3.2c)
-    const float masked_fraction = 1.0f - usable_fraction;
-    const float structure_noise =
-        estimate_structure_noise_scale(tm, scratch.tile_pixels);
-    const float structure_score = compute_structure_score_from_background_mask(
-        channel, x0, y0, tw, th, grad_thresh, structure_noise, scratch,
-        &scratch);
-    sample.weight =
-        std::exp(-config.tile_weight_lambda_structure * structure_score) *
-        (1.0f - masked_fraction);
-    sample.weight = std::clamp(sample.weight, 0.0f, 1.0f);
-    if (!(std::isfinite(sample.weight) && sample.weight > 0.0f)) {
-      samples[t] = sample;
-      continue;
-    }
-
-    sample.valid = true;
-    samples[t] = sample;
-    }
+    samples.push_back(sample);
   }
-
   return samples;
 }
 
@@ -2269,7 +2089,8 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
   std::vector<float> valid_bg_values;
   valid_bg_values.reserve(tile_samples.size());
   for (const auto &s : tile_samples) {
-    if (s.valid && std::isfinite(s.bg_value)) {
+    if (s.valid && std::isfinite(s.bg_value) &&
+        s.bg_value >= config.min_sample_bg_value) {
       valid_bg_values.push_back(s.bg_value);
     }
   }
@@ -2290,6 +2111,8 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
     if (!sample.valid)
       continue;
     if (!std::isfinite(sample.bg_value))
+      continue;
+    if (sample.bg_value < config.min_sample_bg_value)
       continue;
 
     if (have_bg_guard) {
@@ -2459,10 +2282,13 @@ aggregate_to_coarse_grid(const std::vector<TileBGSample> &tile_samples,
 struct RBFModelState {
   const std::vector<GridCell> *grid_cells = nullptr;
   Eigen::VectorXf coeffs;
+  Eigen::VectorXf poly_coeffs;
   RBFKernelType kernel = RBFKernelType::Multiquadric;
   float mu = kTiny;
   float epsilon = kTiny;
   float lambda = kTiny;
+  float poly_x_scale = 1.0f;
+  float poly_y_scale = 1.0f;
   float train_rms = std::numeric_limits<float>::infinity();
   bool success = false;
 };
@@ -2487,6 +2313,126 @@ struct SurfaceModelSelection {
   float rms = std::numeric_limits<float>::infinity();
   bool success = false;
 };
+
+float catmull_rom(float p0, float p1, float p2, float p3, float t) {
+  const float t2 = t * t;
+  const float t3 = t2 * t;
+  return 0.5f * ((2.0f * p1) + (-p0 + p2) * t +
+                 (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t2 +
+                 (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3);
+}
+
+Matrix2Df render_bicubic_mesh_surface(const std::vector<GridCell> &grid_cells,
+                                      int image_width, int image_height,
+                                      int grid_spacing,
+                                      float *out_rms) {
+  const int nx = std::max(1, (image_width + grid_spacing - 1) / grid_spacing);
+  const int ny = std::max(1, (image_height + grid_spacing - 1) / grid_spacing);
+  std::vector<float> mesh(static_cast<size_t>(nx * ny),
+                          std::numeric_limits<float>::quiet_NaN());
+  std::vector<uint8_t> valid(static_cast<size_t>(nx * ny), 0);
+  for (const auto &gc : grid_cells) {
+    if (!gc.valid || !std::isfinite(gc.bg_value))
+      continue;
+    if (gc.cell_x < 0 || gc.cell_x >= nx || gc.cell_y < 0 || gc.cell_y >= ny)
+      continue;
+    const size_t idx = static_cast<size_t>(gc.cell_y * nx + gc.cell_x);
+    mesh[idx] = gc.bg_value;
+    valid[idx] = 1;
+  }
+
+  std::vector<int> valid_idx;
+  valid_idx.reserve(grid_cells.size());
+  for (int i = 0; i < nx * ny; ++i) {
+    if (valid[static_cast<size_t>(i)] != 0)
+      valid_idx.push_back(i);
+  }
+  if (valid_idx.size() < 4)
+    return Matrix2Df();
+
+  for (int cy = 0; cy < ny; ++cy) {
+    for (int cx = 0; cx < nx; ++cx) {
+      const size_t idx = static_cast<size_t>(cy * nx + cx);
+      if (valid[idx] != 0)
+        continue;
+      float best_d2 = std::numeric_limits<float>::infinity();
+      float best_v = std::numeric_limits<float>::quiet_NaN();
+      for (int vi : valid_idx) {
+        const int vy = vi / nx;
+        const int vx = vi - vy * nx;
+        const float dx = static_cast<float>(cx - vx);
+        const float dy = static_cast<float>(cy - vy);
+        const float d2 = dx * dx + dy * dy;
+        if (d2 < best_d2) {
+          best_d2 = d2;
+          best_v = mesh[static_cast<size_t>(vi)];
+        }
+      }
+      mesh[idx] = best_v;
+    }
+  }
+
+  auto mesh_at = [&](int y, int x) -> float {
+    x = std::clamp(x, 0, nx - 1);
+    y = std::clamp(y, 0, ny - 1);
+    return mesh[static_cast<size_t>(y * nx + x)];
+  };
+
+  Matrix2Df surface(image_height, image_width);
+  const int total_pixels = std::max(0, image_width * image_height);
+  const int parallel_workers = bge_parallel_worker_count(total_pixels, 32768);
+#pragma omp parallel for collapse(2) num_threads(parallel_workers) \
+    if(parallel_workers > 1)
+  for (int y = 0; y < image_height; ++y) {
+    for (int x = 0; x < image_width; ++x) {
+      const float gx =
+          (static_cast<float>(x) + 0.5f) / static_cast<float>(grid_spacing) -
+          0.5f;
+      const float gy =
+          (static_cast<float>(y) + 0.5f) / static_cast<float>(grid_spacing) -
+          0.5f;
+      const int ix = static_cast<int>(std::floor(gx));
+      const int iy = static_cast<int>(std::floor(gy));
+      const float tx = gx - static_cast<float>(ix);
+      const float ty = gy - static_cast<float>(iy);
+      float row_vals[4];
+      for (int ky = -1; ky <= 2; ++ky) {
+        const float p0 = mesh_at(iy + ky, ix - 1);
+        const float p1 = mesh_at(iy + ky, ix);
+        const float p2 = mesh_at(iy + ky, ix + 1);
+        const float p3 = mesh_at(iy + ky, ix + 2);
+        row_vals[ky + 1] = catmull_rom(p0, p1, p2, p3, tx);
+      }
+      surface(y, x) =
+          catmull_rom(row_vals[0], row_vals[1], row_vals[2], row_vals[3], ty);
+    }
+  }
+
+  if (out_rms != nullptr) {
+    double sum_sq = 0.0;
+    int n = 0;
+    for (const auto &gc : grid_cells) {
+      if (!gc.valid)
+        continue;
+      const int px =
+          std::clamp(static_cast<int>(std::lround(gc.center_x)), 0,
+                     image_width - 1);
+      const int py =
+          std::clamp(static_cast<int>(std::lround(gc.center_y)), 0,
+                     image_height - 1);
+      const float pred = surface(py, px);
+      if (!std::isfinite(pred))
+        continue;
+      const double r = static_cast<double>(gc.bg_value - pred);
+      sum_sq += r * r;
+      ++n;
+    }
+    *out_rms = (n > 0) ? static_cast<float>(
+                             std::sqrt(sum_sq / static_cast<double>(n)))
+                       : std::numeric_limits<float>::infinity();
+  }
+  return surface;
+}
 
 /// @brief Implements solve rbf model.
 /// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
@@ -2529,37 +2475,66 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
   bg_values.reserve(static_cast<size_t>(M));
   const auto robust_weight_fn =
       resolve_robust_weight_fn(config.fit.robust_loss);
+  float min_x = std::numeric_limits<float>::infinity();
+  float max_x = -std::numeric_limits<float>::infinity();
+  float min_y = std::numeric_limits<float>::infinity();
+  float max_y = -std::numeric_limits<float>::infinity();
   for (int i = 0; i < M; ++i) {
     b(i) = grid_cells[i].bg_value;
     w_rel(i) = std::max(1.0e-3f, grid_cells[i].weight);
     bg_values.push_back(grid_cells[i].bg_value);
+    min_x = std::min(min_x, grid_cells[i].center_x);
+    max_x = std::max(max_x, grid_cells[i].center_x);
+    min_y = std::min(min_y, grid_cells[i].center_y);
+    max_y = std::max(max_y, grid_cells[i].center_y);
   }
+  const float poly_x_scale =
+      2.0f / std::max(1.0f, max_x - min_x + static_cast<float>(G));
+  const float poly_y_scale =
+      2.0f / std::max(1.0f, max_y - min_y + static_cast<float>(G));
 
   auto solve_rbf_coeffs = [&](float lambda, Eigen::VectorXf *out_u,
+                              Eigen::VectorXf *out_poly,
                               float *out_rms) -> bool {
-    const Eigen::MatrixXf Phi_reg =
-        Phi_base + lambda * Eigen::MatrixXf::Identity(M, M);
-
     Eigen::VectorXf u = Eigen::VectorXf::Zero(M);
+    Eigen::VectorXf poly = Eigen::VectorXf::Zero(3);
     Eigen::VectorXf w_rob = Eigen::VectorXf::Ones(M);
+
+    Eigen::MatrixXf P(M, 3);
+    for (int i = 0; i < M; ++i) {
+      P(i, 0) = 1.0f;
+      P(i, 1) = grid_cells[i].center_x * poly_x_scale;
+      P(i, 2) = grid_cells[i].center_y * poly_y_scale;
+    }
+
     for (int iter = 0; iter < std::max(1, config.fit.irls_max_iterations);
          ++iter) {
       Eigen::VectorXf w = w_rel.cwiseProduct(w_rob).cwiseMax(1.0e-6f);
-      Eigen::MatrixXf W = w.asDiagonal();
-      Eigen::MatrixXf lhs = Phi_reg.transpose() * W * Phi_reg +
-                            lambda * Eigen::MatrixXf::Identity(M, M);
-      Eigen::VectorXf rhs = Phi_reg.transpose() * W * b;
-      Eigen::VectorXf u_new = lhs.ldlt().solve(rhs);
 
-      if (!u_new.allFinite()) {
+      Eigen::MatrixXf lhs = Eigen::MatrixXf::Zero(M + 3, M + 3);
+      lhs.block(0, 0, M, M) = Phi_base;
+      for (int i = 0; i < M; ++i) {
+        lhs(i, i) += lambda / std::max(w(i), 1.0e-6f);
+      }
+      lhs.block(0, M, M, 3) = P;
+      lhs.block(M, 0, 3, M) = P.transpose();
+
+      Eigen::VectorXf rhs = Eigen::VectorXf::Zero(M + 3);
+      rhs.segment(0, M) = b;
+      Eigen::VectorXf solution = lhs.fullPivLu().solve(rhs);
+
+      if (!solution.allFinite()) {
         return false;
       }
 
-      const float step = (u_new - u).norm();
-      const float scale = 1.0f + u.norm();
-      u = u_new;
+      Eigen::VectorXf u_new = solution.segment(0, M);
+      Eigen::VectorXf poly_new = solution.segment(M, 3);
+      const float step = (u_new - u).norm() + (poly_new - poly).norm();
+      const float scale = 1.0f + u.norm() + poly.norm();
+      u = std::move(u_new);
+      poly = std::move(poly_new);
 
-      Eigen::VectorXf residual = b - Phi_base * u;
+      Eigen::VectorXf residual = b - (Phi_base * u + P * poly);
       update_robust_weights(residual, config.fit.huber_delta, robust_weight_fn,
                             &w_rob);
 
@@ -2567,13 +2542,14 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
         break;
     }
 
-    Eigen::VectorXf residual = b - Phi_base * u;
+    Eigen::VectorXf residual = b - (Phi_base * u + P * poly);
     const float rms = std::sqrt(residual.squaredNorm() / static_cast<float>(M));
     if (!(std::isfinite(rms))) {
       return false;
     }
 
     *out_u = std::move(u);
+    *out_poly = std::move(poly);
     *out_rms = rms;
     return true;
   };
@@ -2599,16 +2575,20 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
   float best_lambda = lambda_base;
   float best_rms = std::numeric_limits<float>::infinity();
   Eigen::VectorXf best_u = Eigen::VectorXf::Zero(M);
+  Eigen::VectorXf best_poly = Eigen::VectorXf::Zero(3);
   bool have_best = false;
 
   float accepted_lambda = -1.0f;
   float accepted_rms = std::numeric_limits<float>::infinity();
   Eigen::VectorXf accepted_u = Eigen::VectorXf::Zero(M);
+  Eigen::VectorXf accepted_poly = Eigen::VectorXf::Zero(3);
 
   for (float lambda_try : lambda_trials) {
     Eigen::VectorXf u_try = Eigen::VectorXf::Zero(M);
+    Eigen::VectorXf poly_try = Eigen::VectorXf::Zero(3);
     float rms_try = std::numeric_limits<float>::infinity();
-    const bool ok = solve_rbf_coeffs(lambda_try, &u_try, &rms_try);
+    const bool ok =
+        solve_rbf_coeffs(lambda_try, &u_try, &poly_try, &rms_try);
     if (!ok) {
       std::cout << "[BGE]   RBF lambda=" << lambda_try << " fit failed"
                 << std::endl;
@@ -2622,6 +2602,7 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
       best_lambda = lambda_try;
       best_rms = rms_try;
       best_u = u_try;
+      best_poly = poly_try;
       have_best = true;
     }
 
@@ -2629,6 +2610,7 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
       accepted_lambda = lambda_try;
       accepted_rms = rms_try;
       accepted_u = u_try;
+      accepted_poly = poly_try;
     }
   }
 
@@ -2640,10 +2622,12 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
   float lambda = best_lambda;
   float rms_selected = best_rms;
   Eigen::VectorXf u = best_u;
+  Eigen::VectorXf poly = best_poly;
   if (accepted_lambda > 0.0f) {
     lambda = accepted_lambda;
     rms_selected = accepted_rms;
     u = accepted_u;
+    poly = accepted_poly;
   }
 
   std::cout << "[BGE]   RBF selected lambda=" << lambda
@@ -2652,10 +2636,13 @@ bool solve_rbf_model(const std::vector<GridCell> &grid_cells, int grid_spacing,
 
   out->grid_cells = &grid_cells;
   out->coeffs = std::move(u);
+  out->poly_coeffs = std::move(poly);
   out->kernel = kernel;
   out->mu = mu;
   out->epsilon = epsilon;
   out->lambda = lambda;
+  out->poly_x_scale = poly_x_scale;
+  out->poly_y_scale = poly_y_scale;
   out->train_rms = rms_selected;
   out->success = true;
   return true;
@@ -2676,6 +2663,10 @@ float eval_rbf_model_at(const RBFModelState &state, float x, float y) {
     const float d = std::sqrt(dx * dx + dy * dy);
     sum += state.coeffs(i) *
            evaluate_rbf_kernel(state.kernel, d, state.mu, state.epsilon);
+  }
+  if (state.poly_coeffs.size() >= 3) {
+    sum += state.poly_coeffs(0) + state.poly_coeffs(1) * x * state.poly_x_scale +
+           state.poly_coeffs(2) * y * state.poly_y_scale;
   }
   return sum;
 }
@@ -2972,12 +2963,8 @@ bool select_background_surface_model(const std::vector<GridCell> &grid_cells,
     return true;
   }
 
-  if (method == "poly" || method == "bicubic") {
+  if (method == "poly") {
     BGEConfig poly_cfg = config;
-    if (method == "bicubic") {
-      poly_cfg.fit.polynomial_order =
-          std::max(3, poly_cfg.fit.polynomial_order);
-    }
     if (!solve_polynomial_model(grid_cells, image_width, image_height,
                                 poly_cfg, &out->poly)) {
       set_error("Polynomial fit failed");
@@ -3047,6 +3034,23 @@ BackgroundModel fit_background_surface(const std::vector<GridCell> &grid_cells,
 
   try {
     const auto total_start = SteadyClock::now();
+    if (config.fit.method == "bicubic") {
+      const auto render_start = SteadyClock::now();
+      result.model = render_bicubic_mesh_surface(
+          grid_cells, image_width, image_height, grid_spacing,
+          &result.rms_residual);
+      result.render_seconds = elapsed_seconds_since(render_start);
+      result.fit_select_seconds = 0.0;
+      result.total_seconds = elapsed_seconds_since(total_start);
+      if (result.model.size() == 0 || !result.model.allFinite() ||
+          !std::isfinite(result.rms_residual)) {
+        result.error_message = "Bicubic mesh interpolation failed";
+        return result;
+      }
+      result.success = true;
+      return result;
+    }
+
     SurfaceModelSelection selection;
     const auto select_start = SteadyClock::now();
     if (!select_background_surface_model(grid_cells, image_width, image_height,
@@ -3139,30 +3143,6 @@ static void deterministic_split_indices(int n, float holdout_fraction,
     if (val_idx->empty() && n > 1)
       val_idx->push_back(0);
   }
-}
-
-/// @brief Implements eval model rms at cells.
-/// @details Part of background-gradient extraction, mesh sampling, RBF fitting, robust weighting, and autotune evaluation; this helper keeps the implementation
-/// localized in this translation unit and preserves the surrounding phase,
-/// artifact, and error-handling semantics expected by callers.
-static float eval_model_rms_at_cells(const Matrix2Df &model,
-                                     const std::vector<GridCell> &cells) {
-  if (cells.empty())
-    return std::numeric_limits<float>::infinity();
-  double sum_sq = 0.0;
-  int n = 0;
-  for (const auto &c : cells) {
-    const int x = static_cast<int>(c.center_x);
-    const int y = static_cast<int>(c.center_y);
-    if (x < 0 || x >= model.cols() || y < 0 || y >= model.rows())
-      continue;
-    const double r = static_cast<double>(c.bg_value - model(y, x));
-    sum_sq += r * r;
-    ++n;
-  }
-  if (n <= 0)
-    return std::numeric_limits<float>::infinity();
-  return static_cast<float>(std::sqrt(sum_sq / static_cast<double>(n)));
 }
 
 template <typename EvalFn>
@@ -3310,7 +3290,11 @@ static BGECandidatePrep build_bge_candidate_prep(
     sample.y = prepared.y;
     sample.valid = false;
     if (prepared.valid && !prepared.sorted_pixels.empty()) {
-      sample.bg_value = sorted_quantile(prepared.sorted_pixels, sample_quantile);
+      BGEConfig sample_cfg = cfg_try;
+      sample_cfg.sample_quantile = sample_quantile;
+      sample.bg_value =
+          estimate_tile_background_from_sorted(prepared.sorted_pixels,
+                                               sample_cfg);
       sample.weight = prepared.weight;
       sample.valid =
           std::isfinite(sample.bg_value) &&
@@ -3465,45 +3449,44 @@ static BGECandidateResult auto_tune_bge_config_conservative(
   std::vector<float> valid_pixels;
   valid_pixels.reserve(static_cast<size_t>(channel.size() / 16));
   for (int i = 0; i < channel.size(); i += 16) {
+    if (base_cfg.common_valid_mask.size() == static_cast<size_t>(channel.size()) &&
+        base_cfg.common_valid_mask[static_cast<size_t>(i)] == 0) {
+      continue;
+    }
     const float v = channel.data()[i];
     if (std::isfinite(v) && v > 0.0f)
       valid_pixels.push_back(v);
   }
-  float img_mean = 0.0f;
   float img_median = 0.0f;
+  float img_p10 = 0.0f;
+  float img_p90 = 0.0f;
   if (valid_pixels.size() >= 1024) {
-    double sum = 0.0;
-    for (float v : valid_pixels)
-      sum += static_cast<double>(v);
-    img_mean =
-        static_cast<float>(sum / static_cast<double>(valid_pixels.size()));
-    img_median = robust_median_inplace(valid_pixels);
+    std::sort(valid_pixels.begin(), valid_pixels.end());
+    img_p10 = sorted_quantile(valid_pixels, 0.10f);
+    img_median = sorted_quantile(valid_pixels, 0.50f);
+    img_p90 = sorted_quantile(valid_pixels, 0.90f);
   }
-  const float mean_median_ratio =
-      (img_median > 1.0f) ? (img_mean / img_median) : 1.0f;
-
-  // mean/median < 0.90 → diffuse nebula (M42): use higher quantiles (0.25-0.45)
-  // mean/median ≥ 0.90 → compact object (M31): use lower quantiles (0.20-0.35)
-  const bool is_diffuse_field = (mean_median_ratio < 0.90f);
+  const float lower_span = std::max(kTiny, img_median - img_p10);
+  const float upper_span = std::max(kTiny, img_p90 - img_median);
+  const bool upper_tail_dominant = upper_span > 1.5f * lower_span;
 
   std::vector<float> quantiles;
-  if (is_diffuse_field) {
-    // Diffuse nebula: avoid dark emission regions, sample true sky
-    push_unique(quantiles, std::clamp(base_cfg.sample_quantile, 0.25f, 0.50f));
-    push_unique(quantiles, 0.30f);
-    push_unique(quantiles, 0.35f);
-    push_unique(quantiles, 0.40f);
-    if (extended)
-      push_unique(quantiles, 0.45f);
-  } else {
-    // Compact/large galaxy (e.g. M31, M33): galaxy halo is diffuse and
-    // structure-free, so higher quantiles incorrectly include halo emission
-    // as background.  Restrict to low quantiles only to stay below the halo.
-    push_unique(quantiles, std::clamp(base_cfg.sample_quantile, 0.05f, 0.15f));
+  if (upper_tail_dominant) {
+    push_unique(quantiles, std::clamp(base_cfg.sample_quantile, 0.05f, 0.20f));
     push_unique(quantiles, 0.10f);
     push_unique(quantiles, 0.15f);
-    if (extended)
-      push_unique(quantiles, 0.20f);
+    push_unique(quantiles, 0.20f);
+    push_unique(quantiles, 0.25f);
+  } else {
+    push_unique(quantiles, std::clamp(base_cfg.sample_quantile, 0.10f, 0.35f));
+    push_unique(quantiles, 0.15f);
+    push_unique(quantiles, 0.20f);
+    push_unique(quantiles, 0.25f);
+    push_unique(quantiles, 0.30f);
+  }
+  if (extended) {
+    push_unique(quantiles, 0.35f);
+    push_unique(quantiles, 0.40f);
   }
 
   std::vector<float> structure_p;
@@ -3522,10 +3505,9 @@ static BGECandidateResult auto_tune_bge_config_conservative(
 
   std::vector<std::string> fit_methods;
   fit_methods.push_back(base_cfg.fit.method);
-  if (!is_diffuse_field && base_cfg.fit.method == "rbf") {
-    // Compact galaxy fields are prone to diffuse-halo leakage in flexible RBF
-    // fits. Also evaluate low-order polynomial surfaces and let CV/objective
-    // decide.
+  if (base_cfg.fit.method == "rbf") {
+    // Flexible RBF fits can absorb diffuse object halos; always evaluate a
+    // low-order polynomial candidate and let validation/roughness decide.
     fit_methods.push_back("poly");
   }
 
@@ -3879,9 +3861,16 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
          static_cast<int>(config.common_valid_mask.size()) == H * W)
             ? &config.common_valid_mask
             : nullptr;
-    if (!(std::isfinite(flat_pre) && std::isfinite(flat_post))) {
-      flat_pre = spatial_background_spread(channel_before, canvas_mask_ptr);
-      flat_post = spatial_background_spread(corrected, canvas_mask_ptr);
+    const float image_flat_pre =
+        spatial_background_spread(channel_before, canvas_mask_ptr);
+    const float image_flat_post =
+        spatial_background_spread(corrected, canvas_mask_ptr);
+    if (std::isfinite(image_flat_pre) && std::isfinite(image_flat_post)) {
+      flat_pre = image_flat_pre;
+      flat_post = image_flat_post;
+    } else if (!(std::isfinite(flat_pre) && std::isfinite(flat_post))) {
+      flat_pre = image_flat_pre;
+      flat_post = image_flat_post;
     }
     const float slope_pre =
         coarse_background_plane_slope(channel_before, canvas_mask_ptr);
@@ -4095,7 +4084,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       // Exclude near-zero samples (zero-padding tiles that slipped through
       // the >20% zero-pixel filter but still have near-zero bg_value).
       // These corrupt the model clamp range and pull RBF knots to ~0.
-      if (s.bg_value < 1.0f)
+      if (s.bg_value < channel_cfg.min_sample_bg_value)
         continue;
       ch_diag.sample_bg_values.push_back(s.bg_value);
       ch_diag.sample_weight_values.push_back(s.weight);

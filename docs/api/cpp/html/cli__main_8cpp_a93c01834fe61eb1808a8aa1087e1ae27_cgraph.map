@@ -1,0 +1,17 @@
+<map id="cmd_scan" name="cmd_scan">
+<area shape="rect" id="Node000001" title="Handles CLI command scan." alt="" coords="5,80,87,105"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#a84063476d19cd76ec32821d5072c9d13" title="Computes sha256 file." alt="" coords="135,5,280,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="66,77,134,41,151,33,153,38,136,45,69,82"/>
+<area shape="rect" id="Node000003" href="$cli__main_8cpp.html#aed3eaab5bfceeb39a4d41802d42c138d" title="Implements find fits files." alt="" coords="158,55,256,79"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="87,83,143,74,143,80,87,89"/>
+<area shape="rect" id="Node000007" href="$cli__main_8cpp.html#ad7c2baf48d95cb011952a1d3359d9a54" title="Implements print json." alt="" coords="169,104,246,129"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="87,96,154,106,153,111,87,101"/>
+<area shape="rect" id="Node000008" href="$cli__main_8cpp.html#a1334b3a44c3e080ed1393220aa5213fb" title="Reads fits header info." alt="" coords="135,153,280,178"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="70,103,136,138,153,145,151,150,134,143,67,108"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1io.html#a1f483e98e366336b023d04a23e038ac3" title="Checks fits image path." alt="" coords="328,48,454,86"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="257,64,313,64,313,70,257,70"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1core.html#a72f3c7d6cde700425cba6bae612b2969" title="Implements ends with." alt="" coords="502,16,626,54"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="454,53,487,47,488,52,455,58"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1core.html#ab5d2831c0f54e10fb0f33f96047e7953" title="Converts lower." alt="" coords="502,78,626,117"/>
+<area shape="poly" id="edge5_Node000004_Node000006" title=" " alt="" coords="455,76,487,81,487,87,454,81"/>
+</map>

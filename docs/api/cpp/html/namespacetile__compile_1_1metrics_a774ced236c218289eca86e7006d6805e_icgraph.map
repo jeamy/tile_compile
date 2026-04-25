@@ -1,0 +1,15 @@
+<map id="tile_compile::metrics::build_background_mask_sigma_clip" name="tile_compile::metrics::build_background_mask_sigma_clip">
+<area shape="rect" id="Node000001" title="Builds background mask sigma clip." alt="" coords="920,56,1088,108"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1metrics.html#a38d16069267d92db9873df324dff1e60" title="Calculates frame metrics." alt="" coords="701,5,872,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="904,58,862,47,863,42,906,53"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#aae0fe88d47fdd0240e1a979b84f4088d" title="Runs phase channel split normalization global metrics." alt="" coords="456,42,653,95"/>
+<area shape="poly" id="edge6_Node000001_Node000003" title=" " alt="" coords="905,82,653,74,653,69,905,76"/>
+<area shape="rect" id="Node000004" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,88,408,113"/>
+<area shape="poly" id="edge7_Node000001_Node000004" title=" " alt="" coords="905,94,653,110,555,112,456,110,408,108,409,103,456,105,555,107,653,105,904,88"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="686,46,654,53,653,47,685,41"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="441,88,409,92,408,87,440,82"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,88,206,113"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="238,103,206,103,206,98,238,98"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,88,55,113"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="87,103,55,103,55,98,87,98"/>
+</map>

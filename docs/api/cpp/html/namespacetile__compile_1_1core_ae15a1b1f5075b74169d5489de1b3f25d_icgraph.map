@@ -1,0 +1,5 @@
+<map id="tile_compile::core::compute_mad" name="tile_compile::core::compute_mad">
+<area shape="rect" id="Node000001" title="Computes mad." alt="" coords="218,5,341,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a7588b883cf1951ae6392bbf52a297fad" title="Computes robust sigma." alt="" coords="5,5,170,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="202,27,170,27,170,22,202,22"/>
+</map>

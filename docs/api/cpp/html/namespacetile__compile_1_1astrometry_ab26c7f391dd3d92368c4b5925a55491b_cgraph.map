@@ -1,0 +1,9 @@
+<map id="tile_compile::astrometry::build_pcc_attenuation_context" name="tile_compile::astrometry::build_pcc_attenuation_context">
+<area shape="rect" id="Node000001" title="Builds pcc attenuation context." alt="" coords="5,61,167,114"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a8168c08b75855ebab23619c50fb59bd8" title="Implements box blur with valid mask." alt="" coords="215,5,396,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="166,62,220,46,221,51,168,67"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a9a07e7572d0c142e10daf6717804d96f" title="Estimates background." alt="" coords="225,68,386,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="167,85,209,85,209,90,167,90"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#a76b568f446cff5464eac476d2886feea" title="Implements percentile sorted." alt="" coords="225,131,386,169"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="168,108,221,123,220,128,166,113"/>
+</map>

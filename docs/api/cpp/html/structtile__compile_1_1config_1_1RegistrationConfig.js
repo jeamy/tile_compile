@@ -1,0 +1,25 @@
+var structtile__compile_1_1config_1_1RegistrationConfig =
+[
+    [ "allow_rotation", "structtile__compile_1_1config_1_1RegistrationConfig.html#a6f5565e37f6f81a7e6327856f8edd02a", null ],
+    [ "auto_engine", "structtile__compile_1_1config_1_1RegistrationConfig.html#a6acd0c26a2e3a44025c654209d1d0b79", null ],
+    [ "auto_engine_rotation_threshold_deg", "structtile__compile_1_1config_1_1RegistrationConfig.html#af3146d40742dda0e2c886f24f524eaca", null ],
+    [ "blind_chain_drift_threshold_px", "structtile__compile_1_1config_1_1RegistrationConfig.html#ad279da34a9ff0d51b9fb6dd84791b48a", null ],
+    [ "blind_chain_strong_anchor_cc", "structtile__compile_1_1config_1_1RegistrationConfig.html#a14cc4bf54fe0966c58aafb208a124a7f", null ],
+    [ "enable_local_background_subtraction", "structtile__compile_1_1config_1_1RegistrationConfig.html#aad08b2427c01b0837c268963b6ce6a79", null ],
+    [ "enable_star_pair_fallback", "structtile__compile_1_1config_1_1RegistrationConfig.html#a5df0e4ffc85e10eeeeddc8963a965b61", null ],
+    [ "engine", "structtile__compile_1_1config_1_1RegistrationConfig.html#a8ac07d7bb278b5599717fceefd80791c", null ],
+    [ "max_blind_chain_depth", "structtile__compile_1_1config_1_1RegistrationConfig.html#a430c57030f47839ab6096a11fb9cd2ab", null ],
+    [ "reject_cc_min_abs", "structtile__compile_1_1config_1_1RegistrationConfig.html#a4aa352aaf4c9c795179d0d85c776ed46", null ],
+    [ "reject_outliers", "structtile__compile_1_1config_1_1RegistrationConfig.html#aaff06824e6d7dea92f1b3705d79c8751", null ],
+    [ "reject_scale_max", "structtile__compile_1_1config_1_1RegistrationConfig.html#ac99a36a7bbd9f00f750e49e8d4c0b410", null ],
+    [ "reject_scale_min", "structtile__compile_1_1config_1_1RegistrationConfig.html#a9880e52ac487192de3f2a180b72f46e4", null ],
+    [ "reject_shift_median_multiplier", "structtile__compile_1_1config_1_1RegistrationConfig.html#ab4ddea5d38bb75ffb2eeeefb01f26358", null ],
+    [ "reject_shift_px_min", "structtile__compile_1_1config_1_1RegistrationConfig.html#adc45154f2e2be6fb3560279b95113671", null ],
+    [ "star_dist_bin_px", "structtile__compile_1_1config_1_1RegistrationConfig.html#a0a72277d360e865e825ee7d842a0c30c", null ],
+    [ "star_inlier_tol_px", "structtile__compile_1_1config_1_1RegistrationConfig.html#a1c8b3267b86877ad2efa8aea4b25ebd4", null ],
+    [ "star_min_inliers", "structtile__compile_1_1config_1_1RegistrationConfig.html#a6302f6b02706d3377833c7302785332b", null ],
+    [ "star_shift_radius_px", "structtile__compile_1_1config_1_1RegistrationConfig.html#a5ff0b411db50f3f4a66172d2fd208c74", null ],
+    [ "star_topk", "structtile__compile_1_1config_1_1RegistrationConfig.html#a51582b818dc1035f6069c05ed1277349", null ],
+    [ "transform_model", "structtile__compile_1_1config_1_1RegistrationConfig.html#a8cf4226e7848b13d249a5b3fb7443f7a", null ],
+    [ "use_astrometry", "structtile__compile_1_1config_1_1RegistrationConfig.html#a25d2ab1f948dd50576689d8147d56a16", null ]
+];

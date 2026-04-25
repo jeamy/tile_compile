@@ -1,0 +1,5 @@
+<map id="tile_compile::runner::TeeBuf" name="tile_compile::runner::TeeBuf">
+<area shape="rect" id="Node000001" title="Stream buffer that mirrors writes to two destination stream buffers." alt="" coords="5,78,140,117"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="20,5,125,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="75,46,75,77,70,77,70,46"/>
+</map>

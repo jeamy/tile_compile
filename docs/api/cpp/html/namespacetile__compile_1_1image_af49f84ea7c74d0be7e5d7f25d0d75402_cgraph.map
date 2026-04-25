@@ -1,0 +1,19 @@
+<map id="tile_compile::image::try_bge_candidate_prepared" name="tile_compile::image::try_bge_candidate_prepared">
+<area shape="rect" id="Node000001" title="Implements try bge candidate prepared." alt="" coords="5,158,143,211"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ab9bf5da9eaddef0d4a46fe3d6d76c3e2" title="Implements eval model flatness." alt="" coords="208,5,355,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="91,156,132,104,159,77,189,53,196,49,199,54,192,58,163,81,136,108,95,159"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a82a2ea52d35060a88b8175abe6aed2ac" title="Implements eval model roughness." alt="" coords="201,68,362,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="116,156,190,116,202,110,204,115,192,120,118,160"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1image.html#a05e03e6cb95991c79dd45ebda3f7b5a3" title="Implements eval polynomial model at." alt="" coords="191,131,372,169"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="142,171,175,165,176,170,143,176"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1image.html#a3cde8ffd8244ec7f92fc57780c4d5d14" title="Implements eval predictor rms at cells." alt="" coords="212,193,350,246"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="143,193,197,203,197,208,142,199"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1image.html#a7214bcb26eabad9def034e55f2aa2852" title="Implements eval rbf model at." alt="" coords="214,269,349,308"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="114,209,151,233,192,256,203,261,201,265,189,260,148,238,111,214"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1image.html#ab65028e319506601ae2a396b3dc64e23" title="Implements select background surface model." alt="" coords="213,332,350,384"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="95,210,136,264,163,292,192,317,201,323,198,327,189,321,159,296,132,267,91,213"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1image.html#ad91ab5763b468f2a4dc3fe164282bd84" title="Implements solve polynomial model." alt="" coords="420,307,590,345"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="350,346,404,338,405,343,351,351"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1image.html#a96698c7472382a55450e53db00ad2e34" title="Implements solve rbf model." alt="" coords="438,369,572,408"/>
+<area shape="poly" id="edge8_Node000007_Node000009" title=" " alt="" coords="351,365,424,375,423,380,350,370"/>
+</map>

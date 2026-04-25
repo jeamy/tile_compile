@@ -1,0 +1,9 @@
+<map id="tile_compile::astrometry::apply_diagonal_color_matrix_affine" name="tile_compile::astrometry::apply_diagonal_color_matrix_affine">
+<area shape="rect" id="Node000001" title="Applies diagonal color matrix affine." alt="" coords="5,75,167,127"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a5abad731013264bf536833d91e60c52a" title="Builds chroma background mask from rgb." alt="" coords="252,5,431,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,76,236,57,238,62,168,82"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a9a07e7572d0c142e10daf6717804d96f" title="Estimates background." alt="" coords="261,82,422,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="167,98,245,98,245,104,167,104"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#afcaf4ee1a9c64f3b0958af88a0ec2494" title="Estimates channel background median." alt="" coords="215,144,468,183"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="168,118,246,137,244,143,167,123"/>
+</map>

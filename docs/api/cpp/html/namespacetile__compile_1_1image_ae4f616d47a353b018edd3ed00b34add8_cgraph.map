@@ -1,0 +1,5 @@
+<map id="tile_compile::image::cfa_green_proxy" name="tile_compile::image::cfa_green_proxy">
+<area shape="rect" id="Node000001" title="Implements cfa green proxy." alt="" coords="5,5,139,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a35224abf3795fc0671535191057f21d2" title="Implements cfa green mask." alt="" coords="187,5,320,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="139,22,171,22,171,27,139,27"/>
+</map>

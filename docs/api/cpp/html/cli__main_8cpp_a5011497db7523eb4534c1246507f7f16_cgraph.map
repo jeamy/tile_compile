@@ -1,0 +1,5 @@
+<map id="cmd_get_run_logs" name="cmd_get_run_logs">
+<area shape="rect" id="Node000001" title="Handles CLI command get run logs." alt="" coords="5,5,133,30"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#ad7c2baf48d95cb011952a1d3359d9a54" title="Implements print json." alt="" coords="181,5,258,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="133,15,165,15,165,20,133,20"/>
+</map>

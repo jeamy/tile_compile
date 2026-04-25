@@ -1,0 +1,15 @@
+<map id="tile_compile::bayer_pattern_to_string" name="tile_compile::bayer_pattern_to_string">
+<area shape="rect" id="Node000001" title=" " alt="" coords="525,87,655,125"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a373bf47bd5c03acc7734445a99c7f85b" title="Implements register frames to reference." alt="" coords="279,29,477,68"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="510,87,451,71,453,66,511,82"/>
+<area shape="rect" id="Node000003" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="103,94,231,118"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="510,109,232,109,232,103,510,103"/>
+<area shape="rect" id="Node000005" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="301,143,455,168"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="510,127,435,145,434,140,509,122"/>
+<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="413,16,400,10,378,8,358,10,346,15,341,21,344,28,339,30,336,20,342,11,356,5,378,3,402,5,415,12"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,119,55,144"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="88,123,56,129,55,124,87,118"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="115,143,218,168"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="286,158,219,158,219,153,286,153"/>
+<area shape="poly" id="edge7_Node000006_Node000004" title=" " alt="" coords="100,146,55,138,56,133,101,141"/>
+</map>

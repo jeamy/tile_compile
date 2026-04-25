@@ -1,0 +1,17 @@
+<map id="tile_compile::io::write_fits_float" name="tile_compile::io::write_fits_float">
+<area shape="rect" id="Node000001" title="Writes fits float." alt="" coords="668,92,812,130"/>
+<area shape="rect" id="Node000002" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="267,5,395,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="700,85,662,62,619,43,561,29,502,21,396,17,396,12,502,16,562,24,621,38,664,57,702,80"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1runner.html#a1df23fe6a9ac933de8904e5aadf1eec4" title="Runs phase registration prewarp." alt="" coords="458,53,618,105"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="652,100,618,94,619,89,653,94"/>
+<area shape="rect" id="Node000005" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,67,408,91"/>
+<area shape="poly" id="edge7_Node000001_Node000005" title=" " alt="" coords="652,123,558,127,506,126,456,120,407,109,364,94,365,89,408,104,457,115,507,120,558,122,652,118"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1registration.html#a48f410ac9531580ec468ed3ed785b502" title="Implements try astrometric rescue." alt="" coords="456,181,620,220"/>
+<area shape="poly" id="edge8_Node000001_Node000007" title=" " alt="" coords="682,139,585,183,583,178,680,135"/>
+<area shape="rect" id="Node000003" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,36,55,61"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="252,28,55,49,55,43,251,23"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="443,82,409,82,409,76,443,76"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,60,206,85"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="238,78,206,77,207,72,239,73"/>
+<area shape="poly" id="edge6_Node000006_Node000003" title=" " alt="" coords="87,62,54,56,55,50,88,57"/>
+</map>

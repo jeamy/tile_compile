@@ -1,0 +1,5 @@
+<map id="cmd_list_artifacts" name="cmd_list_artifacts">
+<area shape="rect" id="Node000001" title="Handles CLI command list artifacts." alt="" coords="5,5,131,30"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#ad7c2baf48d95cb011952a1d3359d9a54" title="Implements print json." alt="" coords="179,5,256,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="131,15,163,15,163,20,131,20"/>
+</map>

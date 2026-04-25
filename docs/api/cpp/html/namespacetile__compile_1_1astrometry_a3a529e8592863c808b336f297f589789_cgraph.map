@@ -1,0 +1,21 @@
+<map id="tile_compile::astrometry::apply_color_matrix" name="tile_compile::astrometry::apply_color_matrix">
+<area shape="rect" id="Node000001" title="Applies color matrix." alt="" coords="5,107,167,145"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a76ad2f1309bfdc9228cfacd6c1b48fb1" title="Applies color matrix impl." alt="" coords="237,137,406,176"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,134,222,141,221,146,167,139"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1astrometry.html#abfb6c70138ada6b0d90a51f1815a43ce" title="Applies color matrix impl simple." alt="" coords="215,75,429,113"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="167,112,199,108,200,113,167,118"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a733d330c25947207ac6c2dfbfca3177a" title="Applies color matrix to deltas." alt="" coords="477,137,675,176"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="407,154,461,154,461,159,407,159"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#a86defddfb0754840f39af78db6ecd14c" title="Implements attenuation from luma." alt="" coords="496,200,657,239"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="404,174,481,193,480,198,402,179"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1astrometry.html#ab26c7f391dd3d92368c4b5925a55491b" title="Builds pcc attenuation context." alt="" coords="496,61,657,114"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="395,134,480,111,481,116,396,139"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1astrometry.html#a8168c08b75855ebab23619c50fb59bd8" title="Implements box blur with valid mask." alt="" coords="723,5,905,44"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="656,64,722,46,724,51,658,69"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1astrometry.html#a9a07e7572d0c142e10daf6717804d96f" title="Estimates background." alt="" coords="733,68,895,107"/>
+<area shape="poly" id="edge6_Node000005_Node000007" title=" " alt="" coords="657,85,718,85,718,90,657,90"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1astrometry.html#a76b568f446cff5464eac476d2886feea" title="Implements percentile sorted." alt="" coords="733,131,895,169"/>
+<area shape="poly" id="edge7_Node000005_Node000008" title=" " alt="" coords="658,106,724,124,722,129,656,111"/>
+<area shape="poly" id="edge9_Node000009_Node000003" title=" " alt="" coords="404,111,481,130,479,136,402,117"/>
+<area shape="poly" id="edge10_Node000009_Node000005" title=" " alt="" coords="429,89,480,87,480,93,430,94"/>
+</map>

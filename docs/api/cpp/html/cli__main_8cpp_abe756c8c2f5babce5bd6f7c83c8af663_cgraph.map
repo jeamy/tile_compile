@@ -1,0 +1,5 @@
+<map id="cmd_list_runs" name="cmd_list_runs">
+<area shape="rect" id="Node000001" title="Handles CLI command list runs." alt="" coords="5,5,108,30"/>
+<area shape="rect" id="Node000002" href="$cli__main_8cpp.html#ad7c2baf48d95cb011952a1d3359d9a54" title="Implements print json." alt="" coords="156,5,233,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="108,15,140,15,140,20,108,20"/>
+</map>

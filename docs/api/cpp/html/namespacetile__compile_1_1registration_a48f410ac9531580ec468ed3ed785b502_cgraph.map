@@ -1,0 +1,17 @@
+<map id="tile_compile::registration::try_astrometric_rescue" name="tile_compile::registration::try_astrometric_rescue">
+<area shape="rect" id="Node000001" title="Implements try astrometric rescue." alt="" coords="5,199,169,237"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a00335e03bcc56984bbced1cc964ef769" title="Applies warp." alt="" coords="218,5,380,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="97,197,143,127,176,88,215,53,220,50,223,54,218,57,180,92,147,131,101,200"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1registration.html#af799f6cbe7b272aa9ae6c48915360aa6" title="Computes ncc masked." alt="" coords="218,92,380,131"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="117,196,163,168,215,140,226,135,228,140,218,144,165,172,120,200"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1registration.html#a80a96e86e068158d1e820df508631b0a" title="Implements shell quote." alt="" coords="218,155,380,193"/>
+<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="168,199,202,191,203,197,169,204"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1registration.html#aaedc5684f1f2262d26e5754008969a32" title="Implements warp valid mask." alt="" coords="218,241,380,280"/>
+<area shape="poly" id="edge5_Node000001_Node000005" title=" " alt="" coords="169,232,203,239,202,244,168,237"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1registration.html#a26a6b18def61c6c9ee021897840f83f8" title="Implements wcs to similarity warp." alt="" coords="217,304,382,343"/>
+<area shape="poly" id="edge7_Node000001_Node000006" title=" " alt="" coords="121,235,218,289,231,295,229,300,215,294,119,240"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1io.html#a15169cf8465698108ab58b2ea8bb76b3" title="Writes fits float." alt="" coords="227,367,372,405"/>
+<area shape="poly" id="edge8_Node000001_Node000007" title=" " alt="" coords="104,236,151,293,183,324,218,352,226,357,223,361,215,356,180,328,147,296,100,239"/>
+<area shape="poly" id="edge3_Node000003_Node000003" title=" " alt="" coords="260,93,257,82,263,73,277,67,299,65,323,68,337,74,334,79,321,73,299,71,279,73,267,77,262,83,265,91"/>
+<area shape="poly" id="edge6_Node000005_Node000005" title=" " alt="" coords="260,242,257,232,263,223,277,217,299,215,323,217,337,224,334,228,321,222,299,220,279,222,267,227,262,233,265,240"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="tile_compile::core::read_text" name="tile_compile::core::read_text">
+<area shape="rect" id="Node000001" title="Reads text." alt="" coords="279,5,402,44"/>
+<area shape="rect" id="Node000002" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="103,12,231,37"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="263,27,231,27,231,22,263,22"/>
+<area shape="rect" id="Node000003" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,12,55,37"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="87,27,55,27,55,22,87,22"/>
+</map>

@@ -1,0 +1,7 @@
+<map id="tile_compile::astrometry::apply_color_matrix_impl" name="tile_compile::astrometry::apply_color_matrix_impl">
+<area shape="rect" id="Node000001" title="Applies color matrix impl." alt="" coords="215,37,384,76"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a3a529e8592863c808b336f297f589789" title="Applies color matrix." alt="" coords="5,5,167,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="199,44,167,39,168,34,199,39"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="5,68,167,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="199,74,168,78,167,73,199,68"/>
+</map>

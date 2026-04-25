@@ -1,0 +1,19 @@
+<map id="tile_compile::image::enforce_canvas_mask_on_rgb" name="tile_compile::image::enforce_canvas_mask_on_rgb">
+<area shape="rect" id="Node000001" title="Implements enforce canvas mask on rgb." alt="" coords="702,78,861,131"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ae69ac18100643d03739fb64eaae72b29" title="Applies background extraction." alt="" coords="456,56,654,94"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="686,95,654,90,654,85,687,89"/>
+<area shape="rect" id="Node000003" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="267,39,395,63"/>
+<area shape="poly" id="edge8_Node000001_Node000003" title=" " alt="" coords="739,70,699,43,653,22,615,13,576,9,497,13,426,25,370,41,369,36,425,20,497,7,576,4,616,8,655,16,701,38,742,66"/>
+<area shape="rect" id="Node000005" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,88,408,113"/>
+<area shape="poly" id="edge10_Node000001_Node000005" title=" " alt="" coords="686,109,456,110,408,108,409,102,456,104,686,104"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="474,170,636,209"/>
+<area shape="poly" id="edge9_Node000001_Node000007" title=" " alt="" coords="696,139,610,172,608,167,694,134"/>
+<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="592,43,578,37,555,34,533,36,520,41,516,47,519,55,513,56,511,46,517,37,532,31,555,29,580,31,594,38"/>
+<area shape="poly" id="edge3_Node000002_Node000003" title=" " alt="" coords="441,65,396,61,396,55,441,60"/>
+<area shape="poly" id="edge5_Node000002_Node000005" title=" " alt="" coords="441,91,409,94,408,89,441,85"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,64,55,89"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="252,60,55,77,55,72,251,55"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,88,206,113"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="238,103,206,103,206,98,238,98"/>
+<area shape="poly" id="edge7_Node000006_Node000004" title=" " alt="" coords="87,90,54,84,55,78,88,85"/>
+</map>

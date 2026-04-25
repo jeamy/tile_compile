@@ -1,0 +1,7 @@
+<map id="tile_compile::image::fit_polynomial_surface" name="tile_compile::image::fit_polynomial_surface">
+<area shape="rect" id="Node000001" title="Implements fit polynomial surface." alt="" coords="5,47,166,86"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#a028381a7920cf67a4ac8b0e03e2641f7" title="Implements render polynomial surface." alt="" coords="232,5,366,58"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="165,51,216,42,217,48,166,56"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#ad91ab5763b468f2a4dc3fe164282bd84" title="Implements solve polynomial model." alt="" coords="214,82,384,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="166,77,198,82,198,87,165,82"/>
+</map>

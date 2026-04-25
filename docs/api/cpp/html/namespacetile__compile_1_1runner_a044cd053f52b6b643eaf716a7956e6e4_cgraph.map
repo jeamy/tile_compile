@@ -1,0 +1,44 @@
+<map id="tile_compile::runner::run_phase_local_metrics" name="tile_compile::runner::run_phase_local_metrics">
+<area shape="rect" id="Node000001" title="Runs phase local metrics." alt="" coords="5,455,179,494"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1runner.html#a9a85911bb12842ab5464a3c9c26b8252" title="Apply a common&#45;overlap mask to a tile and report whether finite data remains." alt="" coords="245,5,426,72"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="92,454,100,386,121,287,138,233,160,179,189,128,225,82,231,76,235,80,229,86,194,131,165,181,143,235,126,288,105,386,97,455"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1image.html#aaf7a8e75484ffc12723842f814c606a1" title="Applies normalization inplace." alt="" coords="264,96,408,149"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="93,454,105,397,128,318,145,275,167,233,193,193,225,158,248,142,251,146,228,162,198,196,172,235,150,277,133,319,110,398,99,455"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1metrics.html#aa4a80ff5e25ad2868ee9739f4d6f3806" title="Calculates tile metrics." alt="" coords="258,173,414,211"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="96,454,110,407,135,343,173,277,197,247,225,221,242,209,245,214,228,225,201,251,178,280,140,346,115,408,101,456"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1runner.html#ad2cff3fcc09ba05bd2a3c59d5b6e742b" title="Computes adaptive worker count." alt="" coords="227,235,445,274"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="99,453,117,417,145,371,181,324,225,283,231,279,234,284,228,287,185,327,149,374,122,419,104,456"/>
+<area shape="rect" id="Node000008" href="$classtile__compile_1_1runner_1_1DiskCacheFrameStore.html#a563c8ecbb137d3ef3ae6f7b426f6ce47" title="Extract a tile into an existing matrix to avoid repeated allocations." alt="" coords="255,298,416,350"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="113,453,162,411,225,367,248,355,251,359,228,372,166,415,116,457"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1core.html#a5c735b4cc8e9e2559c67d36b2c36092b" title="Implements median of." alt="" coords="535,398,658,437"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="125,452,171,429,226,411,304,399,382,396,456,398,520,404,519,409,456,404,382,401,304,405,227,416,173,434,127,457"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1core.html#a6d8db894d4113d414b07806df2db8a3f" title="Implements percentile from sorted." alt="" coords="516,513,678,551"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="179,482,500,518,500,524,179,487"/>
+<area shape="rect" id="Node000011" href="$classtile__compile_1_1core_1_1EventEmitter.html#ac2beef30323e742c7122800733fb1681" title="Implements phase end." alt="" coords="248,666,424,705"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="105,493,124,528,151,570,186,614,228,651,236,656,233,661,225,655,182,618,147,573,119,530,100,496"/>
+<area shape="rect" id="Node000014" href="$classtile__compile_1_1core_1_1EventEmitter.html#ac5f928efb17e2f29aeae678fec2a43d3" title="Implements phase progress." alt="" coords="262,728,410,781"/>
+<area shape="poly" id="edge13_Node000001_Node000014" title=" " alt="" coords="102,494,117,539,143,598,180,660,203,689,228,714,249,728,246,732,225,718,199,692,176,663,138,600,112,541,96,496"/>
+<area shape="rect" id="Node000015" href="$classtile__compile_1_1core_1_1EventEmitter.html#ae4f750fa40ee224aa2fb7209622b6e80" title="Implements phase start." alt="" coords="245,603,426,642"/>
+<area shape="poly" id="edge16_Node000001_Node000015" title=" " alt="" coords="113,492,162,540,194,566,228,588,240,595,238,599,225,593,190,570,158,544,109,496"/>
+<area shape="rect" id="Node000016" href="$namespacetile__compile_1_1reconstruction.html#a17b0e6df04ad15e055dda9c6ed1676b3" title="Implements regularize local quality scores." alt="" coords="231,541,440,579"/>
+<area shape="poly" id="edge18_Node000001_Node000016" title=" " alt="" coords="150,492,265,533,263,538,148,497"/>
+<area shape="rect" id="Node000017" href="$namespacetile__compile_1_1core.html#a6ec29f5d2f2ce4d3cf75afe0161de709" title="Implements robust zscore." alt="" coords="274,426,398,465"/>
+<area shape="poly" id="edge20_Node000001_Node000017" title=" " alt="" coords="179,462,258,452,259,457,179,467"/>
+<area shape="rect" id="Node000018" href="$classtile__compile_1_1core_1_1EventEmitter.html#a4f1149245ab47596fbe23d0b3c9fab7c" title="Runs end." alt="" coords="257,805,415,843"/>
+<area shape="poly" id="edge22_Node000001_Node000018" title=" " alt="" coords="98,494,109,552,131,633,148,676,170,718,197,757,228,791,244,802,241,807,225,795,192,761,165,721,144,678,126,635,104,554,93,495"/>
+<area shape="rect" id="Node000019" href="$namespacetile__compile_1_1core.html#aa310a4552a4bc539bb9ea638d5eab4b3" title="Writes text." alt="" coords="274,867,398,906"/>
+<area shape="poly" id="edge23_Node000001_Node000019" title=" " alt="" coords="97,494,104,563,124,660,140,712,163,764,192,812,228,854,243,865,261,873,258,878,241,870,225,858,188,815,158,766,135,714,118,661,98,564,92,495"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#a4c84e57777ea8f19152642ce20b55c9b" title="Sentinel used for pixels outside the common&#45;overlap mask." alt="" coords="493,19,700,58"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="427,36,477,36,477,41,427,41"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1image.html#a217f42074971d46783a5e494559a22ca" title="Implements bayer offsets." alt="" coords="530,103,663,142"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="408,120,514,120,514,125,408,125"/>
+<area shape="rect" id="Node000012" href="$namespacetile__compile.html#a1c7655a51de00a8395dd85c762ec0e1f" title=" " alt="" coords="530,666,663,705"/>
+<area shape="poly" id="edge11_Node000011_Node000012" title=" " alt="" coords="424,683,515,683,515,688,424,688"/>
+<area shape="rect" id="Node000013" href="$namespacetile__compile.html#ab5ed503bbf802150428d65b065ae6099" title=" " alt="" coords="530,731,663,770"/>
+<area shape="poly" id="edge12_Node000011_Node000013" title=" " alt="" coords="417,703,516,728,514,733,415,708"/>
+<area shape="poly" id="edge14_Node000014_Node000012" title=" " alt="" coords="409,733,514,704,516,709,411,738"/>
+<area shape="poly" id="edge15_Node000014_Node000013" title=" " alt="" coords="410,751,515,749,515,755,410,756"/>
+<area shape="poly" id="edge17_Node000015_Node000012" title=" " alt="" coords="420,640,516,663,514,668,419,645"/>
+<area shape="poly" id="edge19_Node000016_Node000010" title=" " alt="" coords="441,546,500,540,500,545,441,551"/>
+<area shape="poly" id="edge21_Node000017_Node000009" title=" " alt="" coords="397,436,519,423,520,428,398,441"/>
+</map>

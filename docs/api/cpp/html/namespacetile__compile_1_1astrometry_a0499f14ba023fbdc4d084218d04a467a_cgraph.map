@@ -1,0 +1,5 @@
+<map id="tile_compile::astrometry::repeated_median_fit" name="tile_compile::astrometry::repeated_median_fit">
+<area shape="rect" id="Node000001" title="Implements repeated median fit." alt="" coords="5,5,167,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#abe1aa9ea98f835f5e7fa889f9cd324ac" title="Implements simple median." alt="" coords="215,5,376,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="167,22,199,22,199,27,167,27"/>
+</map>

@@ -1,0 +1,23 @@
+var searchData=
+[
+  ['sigmaclipconfig_0',['SigmaClipConfig',['../structtile__compile_1_1config_1_1StackingConfig_1_1SigmaClipConfig.html',1,'tile_compile::config::StackingConfig']]],
+  ['similarityresult_1',['SimilarityResult',['../structtile__compile_1_1registration_1_1SimilarityResult.html',1,'tile_compile::registration']]],
+  ['singleframeregresult_2',['SingleFrameRegResult',['../structtile__compile_1_1registration_1_1SingleFrameRegResult.html',1,'tile_compile::registration']]],
+  ['sirilcatheader_3',['SirilCatHeader',['../structtile__compile_1_1astrometry_1_1SirilCatHeader.html',1,'tile_compile::astrometry']]],
+  ['softthresholdconfig_4',['SoftThresholdConfig',['../structtile__compile_1_1config_1_1SoftThresholdConfig.html',1,'tile_compile::config']]],
+  ['sourceentryxpsamp_5',['SourceEntryXPsamp',['../structtile__compile_1_1astrometry_1_1SourceEntryXPsamp.html',1,'tile_compile::astrometry']]],
+  ['sparseevalgrid_6',['SparseEvalGrid',['../structtile__compile_1_1image_1_1SparseEvalGrid.html',1,'tile_compile::image']]],
+  ['spatialregularizationconfig_7',['SpatialRegularizationConfig',['../structtile__compile_1_1config_1_1LocalMetricsConfig_1_1SpatialRegularizationConfig.html',1,'tile_compile::config::LocalMetricsConfig']]],
+  ['stackingconfig_8',['StackingConfig',['../structtile__compile_1_1config_1_1StackingConfig.html',1,'tile_compile::config']]],
+  ['starmodeconfig_9',['StarModeConfig',['../structtile__compile_1_1config_1_1LocalMetricsConfig_1_1StarModeConfig.html',1,'tile_compile::config::LocalMetricsConfig']]],
+  ['starphotometry_10',['StarPhotometry',['../structtile__compile_1_1astrometry_1_1StarPhotometry.html',1,'tile_compile::astrometry']]],
+  ['starpoint_11',['StarPoint',['../structtile__compile_1_1registration_1_1StarPoint.html',1,'tile_compile::registration']]],
+  ['starprotectionconfig_12',['StarProtectionConfig',['../structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1StarProtectionConfig.html',1,'tile_compile::config::ChromaDenoiseConfig']]],
+  ['stoprequested_13',['StopRequested',['../classtile__compile_1_1StopRequested.html',1,'tile_compile']]],
+  ['stretchresult_14',['StretchResult',['../structtile__compile_1_1core_1_1StretchResult.html',1,'tile_compile::core']]],
+  ['structuremodeconfig_15',['StructureModeConfig',['../structtile__compile_1_1config_1_1LocalMetricsConfig_1_1StructureModeConfig.html',1,'tile_compile::config::LocalMetricsConfig']]],
+  ['structureprotectionconfig_16',['StructureProtectionConfig',['../structtile__compile_1_1config_1_1ChromaDenoiseConfig_1_1StructureProtectionConfig.html',1,'tile_compile::config::ChromaDenoiseConfig']]],
+  ['surfacemodelselection_17',['SurfaceModelSelection',['../structtile__compile_1_1image_1_1SurfaceModelSelection.html',1,'tile_compile::image']]],
+  ['syntheticconfig_18',['SyntheticConfig',['../structtile__compile_1_1config_1_1SyntheticConfig.html',1,'tile_compile::config']]],
+  ['syntheticweightingdecision_19',['SyntheticWeightingDecision',['../structtile__compile_1_1runner_1_1SyntheticWeightingDecision.html',1,'tile_compile::runner']]]
+];

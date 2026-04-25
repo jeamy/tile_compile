@@ -1,0 +1,13 @@
+<map id="tile_compile::astrometry::weighted_median" name="tile_compile::astrometry::weighted_median">
+<area shape="rect" id="Node000001" title="Implements weighted median." alt="" coords="854,31,1015,69"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#abcc0011d70255aef67a2f39787e837fd" title="Implements fit color matrix." alt="" coords="215,5,376,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="838,49,376,31,376,25,838,44"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#a9f2a51bb6c55cd0ccbf8c27aee3820a2" title="Implements robust mean weighted." alt="" coords="643,59,806,97"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="839,65,807,70,806,65,838,60"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="5,35,167,73"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="199,41,167,45,167,40,199,35"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1astrometry.html#a5b088cd326757c985e7744d378d21cd4" title="Implements recompute residual rms for matrix." alt="" coords="424,56,595,108"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="628,82,596,83,596,78,628,77"/>
+<area shape="poly" id="edge5_Node000005_Node000002" title=" " alt="" coords="408,58,370,47,371,42,410,52"/>
+<area shape="poly" id="edge6_Node000005_Node000003" title=" " alt="" coords="409,78,167,62,167,57,409,73"/>
+</map>

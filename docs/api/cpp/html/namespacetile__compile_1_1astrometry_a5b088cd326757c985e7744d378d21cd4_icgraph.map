@@ -1,0 +1,8 @@
+<map id="tile_compile::astrometry::recompute_residual_rms_for_matrix" name="tile_compile::astrometry::recompute_residual_rms_for_matrix">
+<area shape="rect" id="Node000001" title="Implements recompute residual rms for matrix." alt="" coords="424,28,595,80"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#abcc0011d70255aef67a2f39787e837fd" title="Implements fit color matrix." alt="" coords="215,5,376,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="408,43,376,38,377,33,409,38"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="5,35,167,73"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="408,58,376,58,215,58,167,58,167,52,215,53,376,53,408,52"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="199,41,167,45,167,40,199,35"/>
+</map>

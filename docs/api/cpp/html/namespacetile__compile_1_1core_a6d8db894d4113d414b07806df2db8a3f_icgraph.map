@@ -1,0 +1,32 @@
+<map id="tile_compile::core::percentile_from_sorted" name="tile_compile::core::percentile_from_sorted">
+<area shape="rect" id="Node000001" title="Implements percentile from sorted." alt="" coords="1017,169,1179,208"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#ae5ab7ebd4b6a31fd15c95e4e2de38249" title="Implements analyze tile boundaries." alt="" coords="526,61,707,100"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="1054,163,1013,140,968,122,901,105,832,94,707,84,707,78,833,88,902,100,970,117,1015,136,1056,158"/>
+<area shape="rect" id="Node000003" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="316,126,470,150"/>
+<area shape="poly" id="edge15_Node000001_Node000003" title=" " alt="" coords="1001,179,969,175,694,155,470,144,471,138,694,150,969,170,1002,173"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1reconstruction.html#a0e50865d2680a1ec1ac0a79179f36ab7" title="Implements analyze tile weight profiles." alt="" coords="521,176,712,215"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="1001,193,712,197,712,191,1001,187"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1reconstruction.html#a17b0e6df04ad15e055dda9c6ed1676b3" title="Implements regularize local quality scores." alt="" coords="760,227,969,265"/>
+<area shape="poly" id="edge7_Node000001_Node000007" title=" " alt="" coords="1003,215,947,229,945,223,1001,210"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1runner.html#a044cd053f52b6b643eaf716a7956e6e4" title="Runs phase local metrics." alt="" coords="530,239,703,277"/>
+<area shape="poly" id="edge14_Node000001_Node000008" title=" " alt="" coords="1067,220,1024,253,997,268,970,279,899,293,827,296,759,290,698,281,699,275,759,285,827,290,899,288,968,274,995,263,1021,249,1064,216"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1astrometry.html#a904a9137a78d7f5a51b36fe5e3f0a83e" title="Implements robust sigma from samples." alt="" coords="766,341,962,380"/>
+<area shape="poly" id="edge10_Node000001_Node000009" title=" " alt="" coords="1075,222,1030,274,1002,301,970,324,934,343,931,338,968,320,998,297,1026,270,1071,219"/>
+<area shape="rect" id="Node000013" href="$namespacetile__compile_1_1metrics.html#a529fda1329b6f428cbb6a828abffe4d4" title="Validates linearity frame." alt="" coords="782,5,947,44"/>
+<area shape="poly" id="edge16_Node000001_Node000013" title=" " alt="" coords="1069,159,1024,113,968,68,925,47,928,42,970,64,1027,109,1072,155"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="524,107,444,128,443,123,523,102"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="132,126,235,150"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="300,141,236,141,236,135,300,135"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,126,55,150"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="117,141,55,141,55,135,117,135"/>
+<area shape="poly" id="edge6_Node000006_Node000003" title=" " alt="" coords="523,174,443,153,444,148,524,169"/>
+<area shape="poly" id="edge8_Node000007_Node000008" title=" " alt="" coords="744,254,704,256,704,251,744,249"/>
+<area shape="poly" id="edge9_Node000008_Node000003" title=" " alt="" coords="534,235,520,228,456,189,408,153,411,149,459,185,523,224,536,230"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1astrometry.html#a1fe6e20802bf2190e2983d34538663a5" title="Implements decide pcc background neutralization." alt="" coords="532,334,701,387"/>
+<area shape="poly" id="edge11_Node000009_Node000010" title=" " alt="" coords="751,363,701,363,701,358,751,358"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile_1_1astrometry.html#aa6a658bdc6664bc7973b445eca6d0191" title="Implements neutralize background offsets." alt="" coords="312,334,473,387"/>
+<area shape="poly" id="edge12_Node000010_Node000011" title=" " alt="" coords="517,363,474,363,474,358,517,358"/>
+<area shape="rect" id="Node000012" href="$namespacetile__compile_1_1astrometry.html#a0149d1f87eb95241b798c5d069ff6ec0" title="Runs pcc." alt="" coords="103,341,264,380"/>
+<area shape="poly" id="edge13_Node000011_Node000012" title=" " alt="" coords="296,363,264,363,264,358,296,358"/>
+<area shape="poly" id="edge17_Node000013_Node000003" title=" " alt="" coords="766,21,710,21,647,25,584,34,522,51,488,67,456,88,409,127,405,123,453,83,485,62,520,46,583,29,647,19,709,15,766,15"/>
+</map>

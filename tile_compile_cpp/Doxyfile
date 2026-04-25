@@ -1,0 +1,147 @@
+# Doxyfile for tile_compile C++ API documentation
+# Generated for MkDocs Material + Doxygen hybrid setup
+
+PROJECT_NAME           = "tile_compile"
+PROJECT_NUMBER         = "0.2.3"
+PROJECT_BRIEF          = "Tile-based quality reconstruction for astrophotography"
+OUTPUT_DIRECTORY       = ../docs/api/cpp
+
+# Input paths
+INPUT                  = src \
+                         apps \
+                         include
+FILE_PATTERNS          = *.hpp *.h *.cpp *.c
+RECURSIVE              = YES
+EXCLUDE                = src/opencl \
+                         build \
+                         build_*
+
+# Extraction settings
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_PACKAGE        = NO
+EXTRACT_LOCAL_CLASSES  = YES
+
+# Warnings
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+
+# C++ standard
+OPTIMIZE_OUTPUT_FOR_C  = NO
+CPP_CLI_SUPPORT        = NO
+
+# Diagrams (requires graphviz)
+HAVE_DOT               = YES
+DOT_NUM_THREADS        = 4
+CLASS_DIAGRAMS         = YES
+COLLABORATION_GRAPH    = YES
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+GRAPHICAL_HIERARCHY    = YES
+DIRECTORY_GRAPH        = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+DOT_PATH               =
+DOTFILE_DIRS           =
+MSCFILE_DIRS           =
+
+# HTML output tuned for modern embedding
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_FILE_EXTENSION    = .html
+HTML_HEADER            =
+HTML_FOOTER            =
+HTML_STYLESHEET        =
+HTML_EXTRA_STYLESHEET  =
+HTML_EXTRA_FILES       =
+HTML_COLORSTYLE        = AUTO_LIGHT
+HTML_DYNAMIC_MENUS     = YES
+HTML_DYNAMIC_SECTIONS  = YES
+HTML_INDEX_NUM_ENTRIES = 100
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = NO
+HTML_TIMESTAMP         = NO
+
+# No other backends needed (MkDocs handles the rest)
+GENERATE_LATEX         = NO
+GENERATE_RTF           = NO
+GENERATE_MAN           = NO
+GENERATE_XML           = NO
+GENERATE_DOCBOOK       = NO
+GENERATE_AUTOGEN_DEF   = NO
+GENERATE_PERLMOD       = NO
+GENERATE_QHP           = NO
+GENERATE_ECLIPSEHELP   = NO
+
+# Search engine (Doxygen's own; MkDocs search is primary)
+SEARCHENGINE           = YES
+SERVER_BASED_SEARCH    = NO
+EXTERNAL_SEARCH        = NO
+
+# Source browsing
+SOURCE_BROWSER         = YES
+INLINE_SOURCES       = NO
+STRIP_CODE_COMMENTS    = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+REFERENCES_LINK_SOURCE = YES
+
+# Preprocessor
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = NO
+SEARCH_INCLUDES        = YES
+
+# External references
+TAGFILES               =
+GENERATE_TAGFILE       =
+
+# Layout
+LAYOUT_FILE            =
+CITE_BIB_FILES         =
+
+# Aliases for common patterns
+ALIASES                =
+
+# Qt-style / Javadoc comments
+QT_AUTOBRIEF           = NO
+JAVADOC_AUTOBRIEF      = YES
+AUTOBRIEF              = YES
+
+# Brief member descriptions in file list
+BRIEF_MEMBER_DESC      = YES
+REPEAT_BRIEF           = YES
+ALWAYS_DETAILED_SEC    = NO
+INLINE_INHERITED_MEMB  = NO
+
+# Full path names
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = ../tile_compile_cpp
+STRIP_FROM_INC_PATH    =
+
+# Code fragment size
+MAX_INITIALIZER_LINES  = 30
+
+# Grouping
+GROUP_NESTED_COMPOUNDS = YES
+SUBGROUPING            = YES
+
+# Examples
+EXAMPLE_PATH           =
+EXAMPLE_PATTERNS       =
+EXAMPLE_RECURSIVE      = NO
+
+# Images
+IMAGE_PATH             =
+
+# Dot graph limits
+DOT_GRAPH_MAX_NODES    = 50
+MAX_DOT_GRAPH_DEPTH    = 0
+DOT_TRANSPARENT        = YES
+DOT_MULTI_TARGETS      = YES
+TEMPLATE_RELATIONS     = YES

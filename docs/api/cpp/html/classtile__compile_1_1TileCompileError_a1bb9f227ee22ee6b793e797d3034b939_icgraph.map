@@ -1,0 +1,19 @@
+<map id="tile_compile::TileCompileError::TileCompileError" name="tile_compile::TileCompileError::TileCompileError">
+<area shape="rect" id="Node000001" title=" " alt="" coords="474,163,641,201"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1ConfigError.html#a9acb73c9ec60498974f497d71c56dcd7" title=" " alt="" coords="250,5,414,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="529,152,483,104,455,79,425,58,404,47,406,42,427,53,458,75,487,100,533,148"/>
+<area shape="rect" id="Node000003" href="$classtile__compile_1_1IOError.html#a27d12e2ece43255306cc931ba4a74bea" title=" " alt="" coords="262,68,402,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="505,158,425,120,397,110,399,105,427,116,507,153"/>
+<area shape="rect" id="Node000005" href="$classtile__compile_1_1PipelineError.html#a23ae3e32e80258309848c73e255e42bc" title=" " alt="" coords="246,131,418,169"/>
+<area shape="poly" id="edge4_Node000001_Node000005" title=" " alt="" coords="458,171,419,165,419,160,459,165"/>
+<area shape="rect" id="Node000007" href="$classtile__compile_1_1RegistrationError.html#acd09ab2b3fcfecfb62f71114e1104be1" title=" " alt="" coords="249,193,416,232"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="459,198,417,204,416,199,458,193"/>
+<area shape="rect" id="Node000008" href="$classtile__compile_1_1StopRequested.html#a5b79979dd47fe71eb9374ca70f66c390" title=" " alt="" coords="239,256,426,295"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="505,211,427,246,395,258,393,253,425,241,503,206"/>
+<area shape="rect" id="Node000009" href="$classtile__compile_1_1ValidationError.html#a7ef55223cacc6396fbf0b87a36f9212d" title=" " alt="" coords="255,319,410,357"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="532,215,486,263,458,287,427,308,403,321,401,316,425,304,455,283,483,259,528,211"/>
+<area shape="rect" id="Node000004" href="$classtile__compile_1_1FitsError.html#a028aca61b8b86d1ceeac3483e92b19ed" title=" " alt="" coords="24,68,172,107"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="247,90,173,90,173,85,247,85"/>
+<area shape="rect" id="Node000006" href="$classtile__compile_1_1ReconstructionError.html#ac8aedf81cc90e02ec576873413879bc3" title=" " alt="" coords="5,131,191,169"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="231,153,191,153,191,147,231,147"/>
+</map>

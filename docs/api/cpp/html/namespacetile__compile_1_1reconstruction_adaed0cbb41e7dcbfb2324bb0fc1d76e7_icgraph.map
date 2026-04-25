@@ -1,0 +1,12 @@
+<map id="tile_compile::reconstruction::minimum_tile_normalization_samples" name="tile_compile::reconstruction::minimum_tile_normalization_samples">
+<area shape="rect" id="Node000001" title="Implements minimum tile normalization samples." alt="" coords="710,28,900,80"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1reconstruction.html#ad9acbefb1a1d929a25b61e1b5e840f66" title="Implements guard tile normalization stats." alt="" coords="456,5,662,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="694,43,662,40,663,34,695,38"/>
+<area shape="rect" id="Node000003" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,42,408,66"/>
+<area shape="poly" id="edge5_Node000001_Node000003" title=" " alt="" coords="694,58,662,58,456,58,408,58,408,52,456,53,662,53,694,52"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="442,42,409,47,408,41,441,37"/>
+<area shape="rect" id="Node000004" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,42,206,66"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="238,57,206,57,206,51,238,51"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,42,55,66"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="87,57,55,57,55,51,87,51"/>
+</map>

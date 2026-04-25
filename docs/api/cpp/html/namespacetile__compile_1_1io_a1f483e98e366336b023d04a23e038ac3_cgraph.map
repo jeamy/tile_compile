@@ -1,0 +1,7 @@
+<map id="tile_compile::io::is_fits_image_path" name="tile_compile::io::is_fits_image_path">
+<area shape="rect" id="Node000001" title="Checks fits image path." alt="" coords="5,37,132,76"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1core.html#a72f3c7d6cde700425cba6bae612b2969" title="Implements ends with." alt="" coords="180,5,303,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="132,42,164,36,165,42,133,48"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1core.html#ab5d2831c0f54e10fb0f33f96047e7953" title="Converts lower." alt="" coords="180,68,303,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="133,65,165,71,164,76,132,71"/>
+</map>

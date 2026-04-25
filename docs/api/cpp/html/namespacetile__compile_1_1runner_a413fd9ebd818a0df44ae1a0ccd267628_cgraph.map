@@ -1,0 +1,53 @@
+<map id="tile_compile::runner::query_pcc_catalog_stars" name="tile_compile::runner::query_pcc_catalog_stars">
+<area shape="rect" id="Node000001" title="Queries pcc catalog stars." alt="" coords="5,225,182,264"/>
+<area shape="poly" id="edge3_Node000001_Node000001" title=" " alt="" coords="50,226,47,216,54,206,70,201,94,199,119,201,134,207,132,212,118,206,93,204,71,206,57,211,52,217,55,224"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#ac27fb86fcc76fd9df807f0c769eabdb7" title="Returns the default siril gaia catalog dir." alt="" coords="230,55,426,93"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="107,223,156,164,190,131,228,102,236,98,239,103,231,107,193,135,160,168,111,227"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a6b86beef7d851942c01272e6a131e253" title="Checks siril gaia catalog available." alt="" coords="247,117,408,170"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="133,222,229,178,240,173,242,178,231,183,136,227"/>
+<area shape="rect" id="Node000004" href="$structtile__compile_1_1astrometry_1_1WCS.html#ac58cff044fd54193026a7f57d655fbb3" title=" " alt="" coords="240,193,416,232"/>
+<area shape="poly" id="edge4_Node000001_Node000004" title=" " alt="" coords="181,230,224,224,224,229,182,235"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1astrometry.html#ada7d14cc80c80cca347f50e597fe2485" title="Implements siril gaia cone search." alt="" coords="247,256,408,295"/>
+<area shape="poly" id="edge6_Node000001_Node000006" title=" " alt="" coords="182,254,232,260,231,265,181,259"/>
+<area shape="rect" id="Node000015" href="$namespacetile__compile_1_1astrometry.html#a2698e2ec0807f8f1321d2a41e5c685a5" title="Implements vizier apass cone search." alt="" coords="237,507,419,545"/>
+<area shape="poly" id="edge15_Node000001_Node000015" title=" " alt="" coords="113,263,303,493,298,496,109,266"/>
+<area shape="rect" id="Node000024" href="$namespacetile__compile_1_1astrometry.html#a8a61470dcaaa23574b80242b961ea581" title="Implements vizier gaia cone search." alt="" coords="242,569,414,608"/>
+<area shape="poly" id="edge24_Node000001_Node000024" title=" " alt="" coords="100,264,112,321,135,399,153,441,174,482,200,521,232,555,236,558,232,562,228,559,196,524,170,485,148,443,130,401,107,322,95,265"/>
+<area shape="rect" id="Node000005" href="$structtile__compile_1_1astrometry_1_1WCS.html#a5936f48f6e7c2be2a5ba0723ee1f5714" title=" " alt="" coords="474,5,651,44"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="410,191,424,180,437,165,443,150,448,119,452,86,459,70,472,54,474,51,478,55,476,57,464,73,457,88,453,119,448,151,441,168,428,184,413,195"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1astrometry.html#a7f90a6adddde53abc5b41ce4a5228e7d" title="Implements angular dist sq." alt="" coords="482,256,643,295"/>
+<area shape="poly" id="edge7_Node000006_Node000007" title=" " alt="" coords="409,273,467,273,467,278,409,278"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1astrometry.html#a8ae294e6e8780e1eec6c2f8a3cc1fe6f" title="Implements convert healpix level." alt="" coords="482,319,643,357"/>
+<area shape="poly" id="edge8_Node000006_Node000008" title=" " alt="" coords="403,293,474,312,473,317,402,298"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1astrometry.html#ab40c1499e65883d20523c66fcfaf5a9d" title="Implements decode entry." alt="" coords="482,381,643,420"/>
+<area shape="poly" id="edge9_Node000006_Node000009" title=" " alt="" coords="357,293,411,329,475,366,489,373,486,377,473,371,408,334,354,297"/>
+<area shape="rect" id="Node000011" href="$namespacetile__compile_1_1astrometry.html#a15871f9f9b24210369308304cc34205a" title="Implements find first chunk." alt="" coords="482,68,643,107"/>
+<area shape="poly" id="edge11_Node000006_Node000011" title=" " alt="" coords="407,254,424,241,436,226,443,211,448,180,452,149,459,132,472,116,474,114,478,118,476,120,464,135,457,150,453,181,448,213,441,229,428,245,410,258"/>
+<area shape="rect" id="Node000012" href="$namespacetile__compile_1_1astrometry.html#a29da0d54a222c10b451858362b48e870" title="Queries disc nested." alt="" coords="482,131,643,169"/>
+<area shape="poly" id="edge12_Node000006_Node000012" title=" " alt="" coords="404,253,424,241,439,226,448,211,456,195,472,179,477,175,480,180,476,183,461,198,452,213,444,229,428,245,406,258"/>
+<area shape="rect" id="Node000014" href="$namespacetile__compile_1_1astrometry.html#a4ede6a14cb49ca00b40eeb54c47af60d" title="Reads header." alt="" coords="482,193,643,232"/>
+<area shape="poly" id="edge14_Node000006_Node000014" title=" " alt="" coords="402,253,473,234,474,239,403,258"/>
+<area shape="rect" id="Node000010" href="$namespacetile__compile_1_1astrometry.html#a75e68ca96c6f38685b04fe25f49006d0" title="Implements half to float." alt="" coords="702,381,864,420"/>
+<area shape="poly" id="edge10_Node000009_Node000010" title=" " alt="" coords="644,398,687,398,687,403,644,403"/>
+<area shape="rect" id="Node000013" href="$namespacetile__compile_1_1astrometry.html#a5b17209c7c5234c3567d633d3d35094d" title="Implements ang2pix nest." alt="" coords="702,131,864,169"/>
+<area shape="poly" id="edge13_Node000012_Node000013" title=" " alt="" coords="644,147,687,147,687,153,644,153"/>
+<area shape="rect" id="Node000016" href="$namespacetile__compile_1_1astrometry.html#af32565bbeefe081d7c1a87dfbe380eac" title="Implements bv to teff." alt="" coords="482,444,643,483"/>
+<area shape="poly" id="edge16_Node000015_Node000016" title=" " alt="" coords="402,504,473,485,474,490,403,509"/>
+<area shape="rect" id="Node000017" href="$namespacetile__compile_1_1astrometry.html#aa74e4b2a36ce1316e828e71e463c2848" title="Implements http get." alt="" coords="482,507,643,545"/>
+<area shape="poly" id="edge17_Node000015_Node000017" title=" " alt="" coords="420,523,466,523,466,529,420,529"/>
+<area shape="rect" id="Node000022" href="$namespacetile__compile_1_1astrometry.html#af0f406026214539be07cd54b371cbd08" title="Parses vizier tsv." alt="" coords="482,569,643,608"/>
+<area shape="poly" id="edge22_Node000015_Node000022" title=" " alt="" coords="403,543,474,562,473,567,402,548"/>
+<area shape="rect" id="Node000023" href="$namespacetile__compile_1_1astrometry.html#a8331cc5e7751ebd3c60bcf7c0255e7be" title="Implements trim." alt="" coords="482,632,643,671"/>
+<area shape="poly" id="edge23_Node000015_Node000023" title=" " alt="" coords="408,543,428,555,444,570,453,586,461,602,476,617,483,622,480,626,472,621,456,605,448,589,440,574,424,559,406,548"/>
+<area shape="rect" id="Node000018" href="$namespacetile__compile_1_1astrometry.html#a48a439df5b900c3b98fd7fc810f4ceb8" title="Implements configure curl common." alt="" coords="699,569,867,608"/>
+<area shape="poly" id="edge18_Node000017_Node000018" title=" " alt="" coords="634,543,699,562,697,567,632,548"/>
+<area shape="rect" id="Node000019" href="$namespacetile__compile_1_1astrometry.html#ae31bc02ba71268e0507d5da5cef687c7" title="Implements curl error message." alt="" coords="702,632,864,671"/>
+<area shape="poly" id="edge19_Node000017_Node000019" title=" " alt="" coords="635,544,653,555,669,571,678,587,686,602,701,617,708,622,705,626,698,621,682,605,673,589,665,574,650,559,632,548"/>
+<area shape="rect" id="Node000020" href="$namespacetile__compile_1_1astrometry.html#a325b179a10ee33f66302bd52df892389" title="Implements curl write callback." alt="" coords="702,444,864,483"/>
+<area shape="poly" id="edge20_Node000017_Node000020" title=" " alt="" coords="632,504,697,485,699,490,634,509"/>
+<area shape="rect" id="Node000021" href="$namespacetile__compile_1_1astrometry.html#ac6486ef2bce8aa92a6bdf3236fbc06a6" title="Implements ensure curl ready." alt="" coords="702,507,864,545"/>
+<area shape="poly" id="edge21_Node000017_Node000021" title=" " alt="" coords="644,523,687,523,687,529,644,529"/>
+<area shape="poly" id="edge25_Node000024_Node000017" title=" " alt="" coords="402,566,473,547,474,552,403,571"/>
+<area shape="poly" id="edge26_Node000024_Node000022" title=" " alt="" coords="414,586,466,586,466,591,414,591"/>
+<area shape="poly" id="edge27_Node000024_Node000023" title=" " alt="" coords="403,606,474,625,473,630,402,611"/>
+</map>

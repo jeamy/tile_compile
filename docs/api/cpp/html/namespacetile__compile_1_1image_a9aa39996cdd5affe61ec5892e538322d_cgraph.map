@@ -1,0 +1,7 @@
+<map id="tile_compile::image::cfa_green_proxy_downsample2x2" name="tile_compile::image::cfa_green_proxy_downsample2x2">
+<area shape="rect" id="Node000001" title="Implements cfa green proxy downsample2x2." alt="" coords="5,5,232,44"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ae4f616d47a353b018edd3ed00b34add8" title="Implements cfa green proxy." alt="" coords="280,5,413,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="232,22,264,22,264,27,232,27"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1image.html#a35224abf3795fc0671535191057f21d2" title="Implements cfa green mask." alt="" coords="461,5,594,44"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="413,22,446,22,446,27,413,27"/>
+</map>

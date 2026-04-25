@@ -1,0 +1,19 @@
+<map id="tile_compile::astrometry::siril_gaia_cone_search" name="tile_compile::astrometry::siril_gaia_cone_search">
+<area shape="rect" id="Node000001" title="Implements siril gaia cone search." alt="" coords="5,163,167,201"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a7f90a6adddde53abc5b41ce4a5228e7d" title="Implements angular dist sq." alt="" coords="215,5,376,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="101,161,148,108,179,79,213,53,220,49,223,54,216,58,182,83,151,112,105,164"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1astrometry.html#a8ae294e6e8780e1eec6c2f8a3cc1fe6f" title="Implements convert healpix level." alt="" coords="215,68,376,107"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="123,160,214,116,225,110,228,115,216,120,125,165"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1astrometry.html#ab40c1499e65883d20523c66fcfaf5a9d" title="Implements decode entry." alt="" coords="215,131,376,169"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="167,167,199,162,200,167,168,172"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1astrometry.html#a15871f9f9b24210369308304cc34205a" title="Implements find first chunk." alt="" coords="215,193,376,232"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="168,191,200,196,199,201,167,196"/>
+<area shape="rect" id="Node000007" href="$namespacetile__compile_1_1astrometry.html#a29da0d54a222c10b451858362b48e870" title="Queries disc nested." alt="" coords="215,256,376,295"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="128,199,216,241,230,247,228,252,214,246,125,204"/>
+<area shape="rect" id="Node000009" href="$namespacetile__compile_1_1astrometry.html#a4ede6a14cb49ca00b40eeb54c47af60d" title="Reads header." alt="" coords="215,319,376,357"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="105,200,152,251,183,279,216,304,225,309,222,314,213,308,179,283,148,255,101,203"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile_1_1astrometry.html#a75e68ca96c6f38685b04fe25f49006d0" title="Implements half to float." alt="" coords="424,131,585,169"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="377,147,409,147,409,153,377,153"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1astrometry.html#a5b17209c7c5234c3567d633d3d35094d" title="Implements ang2pix nest." alt="" coords="424,256,585,295"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="377,273,409,273,409,278,377,278"/>
+</map>

@@ -1,0 +1,15 @@
+<map id="tile_compile::image::apply_global_warp" name="tile_compile::image::apply_global_warp">
+<area shape="rect" id="Node000001" title="Applies global warp." alt="" coords="666,75,802,113"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1image.html#ab99beda6dfaa709c49d52ce997e384dd" title="Applies global warp." alt="" coords="469,5,605,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="662,72,593,47,595,42,663,66"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#a1df23fe6a9ac933de8904e5aadf1eec4" title="Runs phase registration prewarp." alt="" coords="457,68,617,120"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="650,97,618,97,618,91,650,91"/>
+<area shape="rect" id="Node000007" href="$classtile__compile_1_1core_1_1AccelerationOps.html#ae3ee6124d98591dcea6069e18c4edd4e" title="Implements warp affine frame." alt="" coords="456,145,618,198"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="669,122,607,147,605,142,667,117"/>
+<area shape="rect" id="Node000004" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,82,408,106"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="442,97,408,97,408,91,442,91"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,82,206,106"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="238,97,206,97,206,91,238,91"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,82,55,106"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="87,97,55,97,55,91,87,91"/>
+</map>

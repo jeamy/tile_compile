@@ -1,0 +1,5 @@
+<map id="tile_compile::io::RGBImage" name="tile_compile::io::RGBImage">
+<area shape="rect" id="Node000001" title=" " alt="" coords="5,100,186,125"/>
+<area shape="rect" id="Node000002" href="$structtile__compile_1_1io_1_1FitsHeader.html" title=" " alt="" coords="5,5,186,30"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="98,46,98,100,93,100,93,46"/>
+</map>

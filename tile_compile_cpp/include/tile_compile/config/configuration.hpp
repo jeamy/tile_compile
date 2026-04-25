@@ -280,6 +280,8 @@ struct BGEConfig {
   
   // Tile sampling (v3.3 §6.3.2)
   float sample_quantile = 0.20f;
+  std::string sample_estimator = "quantile";
+  float min_sample_bg_value = 1.0f;
   float structure_thresh_percentile = 0.90f;
   int min_tiles_per_cell = 3;
   // Minimum robust tile sample coverage required before attempting per-channel

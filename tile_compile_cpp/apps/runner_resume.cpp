@@ -1583,6 +1583,8 @@ int resume_command(const std::string &run_dir_path, const std::string &from_phas
     bge_artifact["bge_grid_tiles"] = static_cast<int>(bge_tile_grid.tiles.size());
     bge_artifact["config"] = {
         {"sample_quantile", cfg.bge.sample_quantile},
+        {"sample_estimator", cfg.bge.sample_estimator},
+        {"min_sample_bg_value", cfg.bge.min_sample_bg_value},
         {"structure_thresh_percentile", cfg.bge.structure_thresh_percentile},
         {"min_tiles_per_cell", cfg.bge.min_tiles_per_cell},
         {"min_valid_sample_fraction_for_apply",

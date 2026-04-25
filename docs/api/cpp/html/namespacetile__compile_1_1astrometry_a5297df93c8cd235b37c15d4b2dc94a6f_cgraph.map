@@ -1,0 +1,5 @@
+<map id="tile_compile::astrometry::sampled_background_std_after_matrix" name="tile_compile::astrometry::sampled_background_std_after_matrix">
+<area shape="rect" id="Node000001" title="Implements sampled background std after matrix." alt="" coords="5,5,182,58"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1astrometry.html#a733d330c25947207ac6c2dfbfca3177a" title="Applies color matrix to deltas." alt="" coords="230,12,428,51"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="182,29,214,29,214,34,182,34"/>
+</map>

@@ -1,0 +1,37 @@
+<map id="tile_compile::core::to_lower" name="tile_compile::core::to_lower">
+<area shape="rect" id="Node000001" title="Converts lower." alt="" coords="901,177,1024,216"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1io.html#acd1422bc0aa98116383422a85d79b2c4" title="Detects bayer pattern." alt="" coords="679,5,831,44"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="940,166,902,115,878,88,851,66,818,47,821,42,855,61,882,85,906,111,944,163"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1io.html#adf81e82a18e16187f6850cc42c8c48d3" title="Detects color mode." alt="" coords="456,56,609,95"/>
+<area shape="poly" id="edge10_Node000001_Node000003" title=" " alt="" coords="919,171,887,152,852,136,790,117,725,102,609,84,610,79,726,97,791,112,854,132,889,148,922,166"/>
+<area shape="rect" id="Node000004" href="$runner__resume_8cpp.html#a8c577f323a184a77704a04f4cac47191" title="Implements resume command." alt="" coords="267,120,395,145"/>
+<area shape="poly" id="edge20_Node000001_Node000004" title=" " alt="" coords="903,224,854,238,741,259,652,272,609,272,563,267,513,256,455,238,419,219,386,194,341,148,345,144,390,190,422,215,457,233,515,251,564,262,609,267,652,266,741,254,852,233,902,219"/>
+<area shape="rect" id="Node000008" href="$namespacetile__compile_1_1io.html#a1f483e98e366336b023d04a23e038ac3" title="Checks fits image path." alt="" coords="692,299,818,337"/>
+<area shape="poly" id="edge11_Node000001_Node000008" title=" " alt="" coords="930,228,894,255,854,282,815,300,813,296,852,277,891,251,926,224"/>
+<area shape="rect" id="Node000012" href="$namespacetile__compile_1_1runner.html#afe3a19e5b583cd408d497d7455185170" title="Implements message indicates disk full." alt="" coords="657,361,853,400"/>
+<area shape="poly" id="edge15_Node000001_Node000012" title=" " alt="" coords="948,231,911,293,885,325,855,352,836,363,833,359,851,348,881,321,907,290,944,228"/>
+<area shape="rect" id="Node000013" href="$namespacetile__compile_1_1core.html#aab861d9b26881be5d73ddee08971609b" title="Parses acceleration backend." alt="" coords="685,170,824,223"/>
+<area shape="poly" id="edge16_Node000001_Node000013" title=" " alt="" coords="886,199,825,199,825,194,886,194"/>
+<area shape="rect" id="Node000014" href="$namespacetile__compile_1_1core.html#aa21f2f7097aa523417d3bad37c6b8c8e" title="Implements select acceleration backend." alt="" coords="462,170,603,223"/>
+<area shape="poly" id="edge21_Node000001_Node000014" title=" " alt="" coords="902,174,852,161,798,153,755,150,712,153,657,161,604,173,603,168,656,155,711,148,755,145,798,147,854,155,903,169"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="664,48,610,61,609,55,663,43"/>
+<area shape="poly" id="edge8_Node000002_Node000004" title=" " alt="" coords="715,55,666,84,610,109,554,122,497,131,396,137,396,131,497,125,553,117,608,103,664,80,712,51"/>
+<area shape="rect" id="Node000006" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,64,408,89"/>
+<area shape="poly" id="edge9_Node000002_Node000006" title=" " alt="" coords="664,28,564,34,457,46,373,66,372,61,456,41,563,28,663,23"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="448,102,378,122,376,117,447,97"/>
+<area shape="poly" id="edge5_Node000003_Node000006" title=" " alt="" coords="441,79,408,79,408,73,441,73"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,91,55,116"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="251,128,55,108,55,103,252,122"/>
+<area shape="rect" id="Node000007" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,66,206,90"/>
+<area shape="poly" id="edge6_Node000006_Node000007" title=" " alt="" coords="238,80,206,80,206,75,238,75"/>
+<area shape="poly" id="edge7_Node000007_Node000005" title=" " alt="" coords="88,94,55,101,54,96,87,89"/>
+<area shape="rect" id="Node000009" href="$cli__main_8cpp.html#aed3eaab5bfceeb39a4d41802d42c138d" title="Implements find fits files." alt="" coords="483,306,582,330"/>
+<area shape="poly" id="edge12_Node000008_Node000009" title=" " alt="" coords="676,321,582,321,582,315,676,315"/>
+<area shape="rect" id="Node000010" href="$cli__main_8cpp.html#a93c01834fe61eb1808a8aa1087e1ae27" title="Handles CLI command scan." alt="" coords="290,306,372,330"/>
+<area shape="poly" id="edge13_Node000009_Node000010" title=" " alt="" coords="468,321,372,321,372,315,468,315"/>
+<area shape="rect" id="Node000011" href="$cli__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="130,306,179,330"/>
+<area shape="poly" id="edge14_Node000010_Node000011" title=" " alt="" coords="275,321,179,321,179,315,275,315"/>
+<area shape="poly" id="edge17_Node000013_Node000014" title=" " alt="" coords="670,199,604,199,604,194,670,194"/>
+<area shape="poly" id="edge18_Node000014_Node000004" title=" " alt="" coords="446,172,372,148,374,143,448,167"/>
+<area shape="poly" id="edge19_Node000014_Node000006" title=" " alt="" coords="485,163,407,111,366,92,369,87,410,106,488,159"/>
+</map>

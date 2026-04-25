@@ -1,0 +1,10 @@
+<map id="tile_compile::core::AccelerationOps::sigma_clip_reduce_batch" name="tile_compile::core::AccelerationOps::sigma_clip_reduce_batch">
+<area shape="rect" id="Node000001" title="Process multiple tiles in a single GPU dispatch (reduces kernel&#45;launch overhead)." alt="" coords="5,29,174,82"/>
+<area shape="poly" id="edge4_Node000001_Node000001" title=" " alt="" coords="47,29,47,19,55,10,69,5,90,3,113,5,127,12,124,17,111,10,89,8,70,10,58,15,52,21,52,29"/>
+<area shape="rect" id="Node000002" href="$classtile__compile_1_1core_1_1AccelerationOps.html#a98aecceaf431ac476a757457ffb9e305" title="Implements sigma clip reduce." alt="" coords="222,29,390,82"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="174,53,206,53,206,58,174,58"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1reconstruction.html#a76890a54d71d7b8b46802b4a2516d597" title="Implements sigma clip weighted tile with fallback." alt="" coords="438,29,618,82"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="390,53,422,53,422,58,390,58"/>
+<area shape="rect" id="Node000004" href="$namespacetile__compile_1_1reconstruction.html#a9dbfb8302bce017247294b9e13bb2a56" title="Implements sigma clip weighted tile." alt="" coords="666,36,847,75"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="619,53,651,53,651,58,619,58"/>
+</map>

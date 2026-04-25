@@ -1,0 +1,14 @@
+<map id="tile_compile::registration::scale_translation_warp" name="tile_compile::registration::scale_translation_warp">
+<area shape="rect" id="Node000001" title="Implements scale translation warp." alt="" coords="703,64,865,103"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1registration.html#a373bf47bd5c03acc7734445a99c7f85b" title="Implements register frames to reference." alt="" coords="456,29,655,68"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="687,71,655,66,655,61,688,66"/>
+<area shape="rect" id="Node000003" href="$namespacetile__compile_1_1runner.html#a1df23fe6a9ac933de8904e5aadf1eec4" title="Runs phase registration prewarp." alt="" coords="475,92,636,144"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="688,101,636,108,636,103,687,95"/>
+<area shape="poly" id="edge2_Node000002_Node000002" title=" " alt="" coords="592,16,579,10,555,8,534,10,521,15,516,21,519,28,514,30,511,20,517,11,532,5,556,3,580,5,595,11"/>
+<area shape="rect" id="Node000004" href="$runner__pipeline_8cpp.html#a6517f835026198833adf9a1d4b70569e" title="Runs pipeline command." alt="" coords="254,106,408,130"/>
+<area shape="poly" id="edge4_Node000003_Node000004" title=" " alt="" coords="459,121,409,121,409,115,459,115"/>
+<area shape="rect" id="Node000005" href="$runner__main_8cpp.html#a20bf0ba1953bf233e543b412a04c8d5a" title="Runs command." alt="" coords="103,106,206,130"/>
+<area shape="poly" id="edge5_Node000004_Node000005" title=" " alt="" coords="238,121,206,121,206,115,238,115"/>
+<area shape="rect" id="Node000006" href="$runner__main_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97" title="Implements main." alt="" coords="5,106,55,130"/>
+<area shape="poly" id="edge6_Node000005_Node000006" title=" " alt="" coords="87,121,55,121,55,115,87,115"/>
+</map>

@@ -1,0 +1,15 @@
+<map id="tile_compile::io::detect_color_mode" name="tile_compile::io::detect_color_mode">
+<area shape="rect" id="Node000001" title="Detects color mode." alt="" coords="5,113,158,152"/>
+<area shape="rect" id="Node000002" href="$namespacetile__compile_1_1io.html#acd1422bc0aa98116383422a85d79b2c4" title="Detects bayer pattern." alt="" coords="206,113,358,152"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="158,130,190,130,190,135,158,135"/>
+<area shape="rect" id="Node000004" href="$structtile__compile_1_1io_1_1FitsHeader.html#a772d96a6cff28a4144ea678c052f19c1" title="Implements get string." alt="" coords="406,5,586,44"/>
+<area shape="poly" id="edge6_Node000001_Node000004" title=" " alt="" coords="157,110,403,46,405,51,159,116"/>
+<area shape="rect" id="Node000006" href="$namespacetile__compile_1_1core.html#ab5d2831c0f54e10fb0f33f96047e7953" title="Converts lower." alt="" coords="434,193,558,232"/>
+<area shape="poly" id="edge7_Node000001_Node000006" title=" " alt="" coords="159,150,206,161,420,199,419,204,205,166,157,155"/>
+<area shape="rect" id="Node000003" href="$structtile__compile_1_1io_1_1FitsHeader.html#a73021e72ebf77938e73e9657e24178ab" title="Implements get int." alt="" coords="406,68,586,107"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="358,114,390,107,391,112,359,119"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="309,111,353,82,405,53,416,48,418,53,407,58,356,86,312,115"/>
+<area shape="rect" id="Node000005" href="$namespacetile__compile.html#ad4e114e09ae7f66d9aa605b587d57596" title=" " alt="" coords="431,131,561,169"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="359,136,415,141,415,146,358,141"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="334,150,407,178,426,185,424,190,405,183,332,155"/>
+</map>
