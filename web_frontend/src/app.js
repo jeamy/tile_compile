@@ -298,6 +298,8 @@ const PARAM_CONTROL_PATHS = {
 
 const PARAM_ID_PATHS = {
   "parameter-bge-sample-quantile": "bge.sample_quantile",
+  "parameter-bge-sample-estimator": "bge.sample_estimator",
+  "parameter-bge-min-sample-bg-value": "bge.min_sample_bg_value",
   "parameter-bge-min-tiles": "bge.min_tiles_per_cell",
   "parameter-pcc-min-stars": "pcc.min_stars",
   "parameter-input-pattern": "input.pattern",
@@ -400,6 +402,7 @@ const SCENARIO_DELTAS = {
     ["bge.enabled", true],
     ["bge.fit.method", "rbf"],
     ["bge.fit.rbf_lambda", "1e-2"],
+    ["bge.sample_estimator", "quantile"],
     ["bge.sample_quantile", 0.15],
     ["bge.structure_thresh_percentile", 0.8],
   ],

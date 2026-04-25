@@ -140,6 +140,8 @@
       "properties": { "enabled":{"type":"boolean"},
                       "tile_weight_lambda_structure":{"type":"number","exclusiveMinimum":0,"description":"Lambda in tile reliability weight w_t=exp(-lambda*structure_score_t)*(1-masked_fraction_t). Default 1.0."},
                       "sample_quantile":{"type":"number","exclusiveMinimum":0,"maximum":0.5},
+                      "sample_estimator":{"type":"string","enum":["quantile","sigma_clipped_median","sextractor_mode","biweight"],"description":"Tile background sample estimator. quantile uses bge.sample_quantile; sigma_clipped_median, sextractor_mode and biweight use robust tile-pixel estimators."},
+                      "min_sample_bg_value":{"type":"number","minimum":0,"description":"Minimum tile background sample value accepted for BGE aggregation."},
                       "structure_thresh_percentile":{"type":"number","minimum":0,"maximum":1},
                       "min_tiles_per_cell":{"type":"integer","minimum":1},
                       "min_valid_sample_fraction_for_apply":{"type":"number","exclusiveMinimum":0,"maximum":1},

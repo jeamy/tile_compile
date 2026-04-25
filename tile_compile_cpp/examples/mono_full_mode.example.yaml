@@ -203,6 +203,8 @@ bge:
     alpha_flatness: 0.25 # Gewicht E_flat im Ziel J
     beta_roughness: 0.10 # Gewicht E_rough im Ziel J
 
+  sample_estimator: quantile # quantile|sigma_clipped_median|sextractor_mode|biweight
+  min_sample_bg_value: 1.0
   sample_quantile: 0.20 # Quantil fuer Tile-Background (0.20 = konservativ, 0.50 = median)
   structure_thresh_percentile: 0.90 # High-Structure-Tiles ausschliessen
   min_tiles_per_cell: 3 # Mindestanzahl Tiles pro Grid-Cell

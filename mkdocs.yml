@@ -1,4 +1,5 @@
 site_name: tile_compile
+site_url: https://jeamy.github.io/tile_compile/
 docs_dir: docs
 theme:
   name: material

@@ -173,6 +173,19 @@
                 <label for="parameter-bge-sample-quantile">bge.sample_quantile</label>
                 <input id="parameter-bge-sample-quantile" class="ps-input ps-short" type="number" step="0.01" value="0.18" title="Quantil fuer robuste Hintergrund-Samples.">
               </div>
+              <div class="ps-row" data-path="bge.sample_estimator">
+                <label for="parameter-bge-sample-estimator">bge.sample_estimator</label>
+                <select id="parameter-bge-sample-estimator" class="ps-select" title="Estimator fuer robuste Tile-Hintergrund-Samples.">
+                  <option value="quantile">quantile</option>
+                  <option value="sigma_clipped_median">sigma_clipped_median</option>
+                  <option value="sextractor_mode">sextractor_mode</option>
+                  <option value="biweight">biweight</option>
+                </select>
+              </div>
+              <div class="ps-row" data-path="bge.min_sample_bg_value">
+                <label for="parameter-bge-min-sample-bg-value">bge.min_sample_bg_value</label>
+                <input id="parameter-bge-min-sample-bg-value" class="ps-input ps-short" type="number" step="0.1" value="1.0" title="Minimale Tile-Hintergrund-Sample-Helligkeit fuer BGE-Aggregation.">
+              </div>
               <div class="ps-row" data-path="bge.structure_thresh_percentile">
                 <label for="parameter-bge-structure-thresh">bge.structure_thresh_percentile</label>
                 <input id="parameter-bge-structure-thresh" class="ps-input ps-short" type="number" step="0.01" value="0.90" title="Perzentilgrenze zur Trennung von Struktur und Hintergrund.">

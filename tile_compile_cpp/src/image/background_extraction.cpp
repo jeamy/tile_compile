@@ -3104,6 +3104,8 @@ struct BGECandidateResult {
   float cv_rms = std::numeric_limits<float>::infinity();
   float flatness = std::numeric_limits<float>::infinity();
   float roughness = std::numeric_limits<float>::infinity();
+  float sample_spread = 0.0f;
+  float surface_spread = 0.0f;
   double total_seconds = 0.0;
   double model_select_seconds = 0.0;
   double surface_sample_seconds = 0.0;
@@ -3233,6 +3235,27 @@ static float eval_model_roughness(const Matrix2Df &model, int step) {
   return robust_median_inplace(curvature_energy);
 }
 
+static float robust_p10_p90_spread(std::vector<float> values) {
+  values.erase(std::remove_if(values.begin(), values.end(),
+                              [](float v) { return !std::isfinite(v); }),
+               values.end());
+  if (values.size() < 8)
+    return 0.0f;
+  std::sort(values.begin(), values.end());
+  return sorted_quantile(values, 0.90f) - sorted_quantile(values, 0.10f);
+}
+
+static float matrix_p10_p90_spread(const Matrix2Df &model) {
+  std::vector<float> values;
+  values.reserve(static_cast<size_t>(model.size()));
+  for (int i = 0; i < model.size(); ++i) {
+    const float v = model.data()[i];
+    if (std::isfinite(v))
+      values.push_back(v);
+  }
+  return robust_p10_p90_spread(std::move(values));
+}
+
 struct SparseEvalGrid {
   int sample_step = 1;
   int width = 0;
@@ -3270,6 +3293,8 @@ struct BGECandidatePrep {
   std::vector<GridCell> train_cells;
   std::vector<GridCell> val_cells;
   float bg_median = kTiny;
+  float tile_bg_spread = 0.0f;
+  float grid_bg_spread = 0.0f;
 };
 
 /// @brief Builds bge candidate prep.
@@ -3283,7 +3308,9 @@ static BGECandidatePrep build_bge_candidate_prep(
   BGECandidatePrep prep;
 
   std::vector<TileBGSample> tile_samples;
+  std::vector<float> tile_bg_values;
   tile_samples.reserve(prepared_tiles.size());
+  tile_bg_values.reserve(prepared_tiles.size());
   for (const auto &prepared : prepared_tiles) {
     TileBGSample sample{};
     sample.x = prepared.x;
@@ -3299,9 +3326,12 @@ static BGECandidatePrep build_bge_candidate_prep(
       sample.valid =
           std::isfinite(sample.bg_value) &&
           std::isfinite(sample.weight) && sample.weight > 0.0f;
+      if (sample.valid)
+        tile_bg_values.push_back(sample.bg_value);
     }
     tile_samples.push_back(sample);
   }
+  prep.tile_bg_spread = robust_p10_p90_spread(std::move(tile_bg_values));
 
   auto grid_cells_all = aggregate_to_coarse_grid(
       tile_samples, image_width, image_height, grid_spacing, cfg_try);
@@ -3339,6 +3369,7 @@ static BGECandidatePrep build_bge_candidate_prep(
   bvals.reserve(cells.size());
   for (const auto &gc : cells)
     bvals.push_back(gc.bg_value);
+  prep.grid_bg_spread = robust_p10_p90_spread(bvals);
   prep.bg_median = robust_median_inplace(bvals);
   prep.valid = !prep.train_cells.empty() && !prep.val_cells.empty() &&
                std::isfinite(prep.bg_median);
@@ -3406,6 +3437,8 @@ try_bge_candidate_prepared(int image_width, int image_height,
   out.flatness = eval_model_flatness(sampled_surface, 1) / std::max(1.0f, scale);
   out.roughness =
       eval_model_roughness(sampled_surface, 1) / std::max(1.0f, scale);
+  out.surface_spread = matrix_p10_p90_spread(sampled_surface);
+  out.sample_spread = std::max(prep.tile_bg_spread, prep.grid_bg_spread);
   out.metric_seconds = elapsed_seconds_since(metric_start);
 
   const float bmed = std::max(kTiny, std::abs(prep.bg_median));
@@ -3413,12 +3446,30 @@ try_bge_candidate_prepared(int image_width, int image_height,
   const float n_cv = out.cv_rms / bmed;
   const float n_flat = out.flatness / bmed2;
   const float n_rough = out.roughness / bmed;
+  float n_degenerate = 0.0f;
+  const float spread_floor = std::max(1.5f, 0.003f * bmed);
+  if (out.sample_spread > spread_floor) {
+    const float spread_ratio = out.surface_spread / std::max(kTiny, out.sample_spread);
+    if (spread_ratio < 0.08f) {
+      n_degenerate =
+          8.0f * (out.sample_spread / bmed) * (0.08f - spread_ratio) / 0.08f;
+      if (spread_ratio < 0.015f && out.sample_spread > 2.0f * spread_floor) {
+        out.objective_raw = std::numeric_limits<float>::infinity();
+        out.objective_normalized = std::numeric_limits<float>::infinity();
+        out.objective = std::numeric_limits<float>::infinity();
+        out.success = false;
+        out.total_seconds = elapsed_seconds_since(total_start);
+        return out;
+      }
+    }
+  }
 
   out.objective_raw = out.cv_rms +
                       cfg_try.autotune.alpha_flatness * out.flatness +
                       cfg_try.autotune.beta_roughness * out.roughness;
   out.objective_normalized = n_cv + cfg_try.autotune.alpha_flatness * n_flat +
-                             cfg_try.autotune.beta_roughness * n_rough;
+                             cfg_try.autotune.beta_roughness * n_rough +
+                             n_degenerate;
   out.objective = out.objective_normalized;
   out.success = std::isfinite(out.objective_raw) &&
                 std::isfinite(out.objective_normalized);
@@ -3439,6 +3490,16 @@ static BGECandidateResult auto_tune_bge_config_conservative(
   auto push_unique = [](std::vector<float> &out, float v) {
     for (float e : out) {
       if (std::fabs(e - v) < 1.0e-6f)
+        return;
+    }
+    out.push_back(v);
+  };
+  auto push_unique_string = [](std::vector<std::string> &out,
+                               const std::string &v) {
+    if (v.empty())
+      return;
+    for (const auto &e : out) {
+      if (e == v)
         return;
     }
     out.push_back(v);
@@ -3487,6 +3548,17 @@ static BGECandidateResult auto_tune_bge_config_conservative(
   if (extended) {
     push_unique(quantiles, 0.35f);
     push_unique(quantiles, 0.40f);
+  }
+
+  std::vector<std::string> estimators;
+  push_unique_string(estimators, base_cfg.sample_estimator);
+  // Always compare the historical quantile estimator against the robust
+  // mode-like estimator. In extended mode, sweep all supported estimators.
+  push_unique_string(estimators, "quantile");
+  push_unique_string(estimators, "sextractor_mode");
+  if (extended) {
+    push_unique_string(estimators, "sigma_clipped_median");
+    push_unique_string(estimators, "biweight");
   }
 
   std::vector<float> structure_p;
@@ -3567,44 +3639,55 @@ static BGECandidateResult auto_tune_bge_config_conservative(
         break;
 
       const float q_clamped = std::clamp(q, 0.05f, 0.50f);
-      BGEConfig prep_materialize_cfg = base_cfg;
-      prep_materialize_cfg.sample_quantile = q_clamped;
-      prep_materialize_cfg.structure_thresh_percentile = sp_clamped;
-      const auto prep_materialize_start = SteadyClock::now();
-      BGECandidatePrep prep = build_bge_candidate_prep(
-          prepared_tiles, q_clamped, channel_width, channel_height,
-          prep_materialize_cfg, base_grid_spacing);
-      if (profile != nullptr) {
-        profile->autotune_prep_seconds +=
-            elapsed_seconds_since(prep_materialize_start);
-      }
-      if (!prep.valid)
-        continue;
-
-      for (const auto &fit_method : fit_methods) {
-        std::vector<float> method_mu_factors;
-        if (fit_method == "rbf") {
-          method_mu_factors = mu_factors;
-        } else {
-          method_mu_factors.push_back(base_cfg.fit.rbf_mu_factor);
+      for (const auto &estimator : estimators) {
+        if (eval_count >= max_evals)
+          break;
+        if (estimator != "quantile" &&
+            std::fabs(q_clamped - quantiles.front()) > 1.0e-6f) {
+          continue;
         }
 
-        for (float mf : method_mu_factors) {
-          if (eval_count >= max_evals)
-            break;
-          BGEConfig cfg_try = base_cfg;
-          cfg_try.fit.method = fit_method;
-          cfg_try.sample_quantile = q_clamped;
-          cfg_try.structure_thresh_percentile = sp_clamped;
+        BGEConfig prep_materialize_cfg = base_cfg;
+        prep_materialize_cfg.sample_estimator = estimator;
+        prep_materialize_cfg.sample_quantile = q_clamped;
+        prep_materialize_cfg.structure_thresh_percentile = sp_clamped;
+        const auto prep_materialize_start = SteadyClock::now();
+        BGECandidatePrep prep = build_bge_candidate_prep(
+            prepared_tiles, q_clamped, channel_width, channel_height,
+            prep_materialize_cfg, base_grid_spacing);
+        if (profile != nullptr) {
+          profile->autotune_prep_seconds +=
+              elapsed_seconds_since(prep_materialize_start);
+        }
+        if (!prep.valid)
+          continue;
+
+        for (const auto &fit_method : fit_methods) {
+          std::vector<float> method_mu_factors;
           if (fit_method == "rbf") {
-            cfg_try.fit.rbf_mu_factor = std::max(0.2f, mf);
+            method_mu_factors = mu_factors;
+          } else {
+            method_mu_factors.push_back(base_cfg.fit.rbf_mu_factor);
           }
-          BGECandidateResult res = try_bge_candidate_prepared(
-              channel_width, channel_height, cfg_try, base_grid_spacing, prep,
-              eval_grid);
-          ++eval_count;
-          accumulate_profile(res);
-          consider_result(res);
+
+          for (float mf : method_mu_factors) {
+            if (eval_count >= max_evals)
+              break;
+            BGEConfig cfg_try = base_cfg;
+            cfg_try.fit.method = fit_method;
+            cfg_try.sample_estimator = estimator;
+            cfg_try.sample_quantile = q_clamped;
+            cfg_try.structure_thresh_percentile = sp_clamped;
+            if (fit_method == "rbf") {
+              cfg_try.fit.rbf_mu_factor = std::max(0.2f, mf);
+            }
+            BGECandidateResult res = try_bge_candidate_prepared(
+                channel_width, channel_height, cfg_try, base_grid_spacing, prep,
+                eval_grid);
+            ++eval_count;
+            accumulate_profile(res);
+            consider_result(res);
+          }
         }
       }
     }
@@ -3652,6 +3735,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     diagnostics->autotune_best_cv_rms = 0.0f;
     diagnostics->autotune_best_flatness = 0.0f;
     diagnostics->autotune_best_roughness = 0.0f;
+    diagnostics->autotune_selected_sample_estimator = config.sample_estimator;
     diagnostics->autotune_selected_sample_quantile = 0.0f;
     diagnostics->autotune_selected_structure_thresh_percentile = 0.0f;
     diagnostics->autotune_selected_rbf_mu_factor = 0.0f;
@@ -3947,6 +4031,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     ch_diag.autotune_enabled =
         config.autotune.enabled && !use_modeled_mask_mesh;
     ch_diag.autotune_selected_fit_method = config.fit.method;
+    ch_diag.autotune_selected_sample_estimator = config.sample_estimator;
     ch_diag.autotune_selected_grid_spacing = grid_spacing;
     ch_diag.input_stats = stats_from_matrix(channel_before);
 
@@ -4033,6 +4118,8 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
             diagnostics->autotune_best_flatness = tune_res.flatness;
             diagnostics->autotune_best_roughness = tune_res.roughness;
             diagnostics->autotune_selected_fit_method = tune_res.cfg.fit.method;
+            diagnostics->autotune_selected_sample_estimator =
+                tune_res.cfg.sample_estimator;
             diagnostics->autotune_selected_sample_quantile =
                 tune_res.cfg.sample_quantile;
             diagnostics->autotune_selected_structure_thresh_percentile =
@@ -4045,6 +4132,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
 
       ch_diag.autotune_evals = tune_res.evals;
       ch_diag.autotune_selected_fit_method = channel_cfg.fit.method;
+      ch_diag.autotune_selected_sample_estimator = channel_cfg.sample_estimator;
       ch_diag.autotune_selected_grid_spacing = channel_grid_spacing;
       ch_diag.autotune_fallback_used = !tune_res.success;
       if (tune_res.success) {
@@ -4055,6 +4143,8 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
         ch_diag.autotune_best_cv_rms = tune_res.cv_rms;
         ch_diag.autotune_best_flatness = tune_res.flatness;
         ch_diag.autotune_best_roughness = tune_res.roughness;
+        ch_diag.autotune_selected_sample_estimator =
+            tune_res.cfg.sample_estimator;
         ch_diag.autotune_selected_sample_quantile =
             tune_res.cfg.sample_quantile;
         ch_diag.autotune_selected_structure_thresh_percentile =
@@ -4281,6 +4371,8 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
           diagnostics->safety_fallback_reason = "partial_channel_application";
           diagnostics->method = chosen_method;
           diagnostics->autotune_selected_fit_method = chosen_method;
+          diagnostics->autotune_selected_sample_estimator =
+              fb_diag.autotune_selected_sample_estimator;
           diagnostics->robust_loss = fb_diag.robust_loss;
           diagnostics->grid_spacing = fb_diag.grid_spacing;
           diagnostics->channels = std::move(fb_diag.channels);
@@ -4299,7 +4391,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
     }
   }
 
-  if (use_modeled_mask_mesh && any_channel_applied) {
+  if (any_channel_applied && !config.internal_relaxed_channel_guards) {
     const std::vector<uint8_t> bg_mask =
         build_chroma_background_mask_from_rgb(
             R_input, G_input, B_input, config.common_valid_mask);
@@ -4321,14 +4413,14 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       chroma_guard_failed = true;
     }
 
-    std::cout << "[BGE] modeled_mask_mesh chroma guard: pre_rg_std="
+    std::cout << "[BGE] chroma guard: pre_rg_std="
               << pre_rg_std << " post_rg_std=" << post_rg_std
               << " pre_bg_std=" << pre_bg_std << " post_bg_std=" << post_bg_std
               << std::endl;
 
     if (chroma_guard_failed) {
       std::cout
-          << "[BGE] modeled_mask_mesh increased background chroma spread; "
+          << "[BGE] BGE increased background chroma spread; "
              "falling back to conservative fits"
           << std::endl;
 
@@ -4357,6 +4449,7 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
       fallback_rbf.structure_thresh_percentile =
           std::min(config.structure_thresh_percentile, 0.85f);
       fallback_rbf.autotune.enabled = false;
+      fallback_rbf.internal_relaxed_channel_guards = true;
 
       Matrix2Df R_fb;
       Matrix2Df G_fb;
@@ -4401,6 +4494,8 @@ bool apply_background_extraction(Matrix2Df &R, Matrix2Df &G, Matrix2Df &B,
           diagnostics->safety_fallback_reason = "background_chroma_worsened";
           diagnostics->method = chosen_method;
           diagnostics->autotune_selected_fit_method = chosen_method;
+          diagnostics->autotune_selected_sample_estimator =
+              fb_diag.autotune_selected_sample_estimator;
           diagnostics->robust_loss = fb_diag.robust_loss;
           diagnostics->grid_spacing = fb_diag.grid_spacing;
           diagnostics->channels = std::move(fb_diag.channels);

@@ -21,6 +21,8 @@
   };
   const PARAM_ID_PATHS = {
     "parameter-bge-sample-quantile": "bge.sample_quantile",
+    "parameter-bge-sample-estimator": "bge.sample_estimator",
+    "parameter-bge-min-sample-bg-value": "bge.min_sample_bg_value",
     "parameter-bge-min-tiles": "bge.min_tiles_per_cell",
     "parameter-pcc-min-stars": "pcc.min_stars",
     "parameter-input-pattern": "input.pattern",
@@ -201,6 +203,7 @@
       ["bge.enabled", "true", "model_gradient_explicitly"],
       ["bge.fit.method", "rbf", "flexible_gradient_model"],
       ["bge.fit.rbf_lambda", "1e-2", "regularization_against_overshoot"],
+      ["bge.sample_estimator", "quantile", "robust_background_samples"],
       ["bge.sample_quantile", "0.15", "robust_background_samples"],
       ["bge.structure_thresh_percentile", "0.80", "separate_structure_from_background"],
     ],

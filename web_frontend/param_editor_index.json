@@ -296,6 +296,27 @@
   },
   {
     "category": "bge",
+    "minimum": 0,
+    "path": "bge.min_sample_bg_value",
+    "source": "schema",
+    "type": "number",
+    "yaml_default": 1.0
+  },
+  {
+    "category": "bge",
+    "enum": [
+      "quantile",
+      "sigma_clipped_median",
+      "sextractor_mode",
+      "biweight"
+    ],
+    "path": "bge.sample_estimator",
+    "source": "schema",
+    "type": "string",
+    "yaml_default": "quantile"
+  },
+  {
+    "category": "bge",
     "exclusiveMinimum": 0,
     "maximum": 0.5,
     "path": "bge.sample_quantile",

@@ -152,6 +152,7 @@ struct BGEChannelDiagnostics {
     float autotune_best_cv_rms = 0.0f;
     float autotune_best_flatness = 0.0f;
     float autotune_best_roughness = 0.0f;
+    std::string autotune_selected_sample_estimator;
     float autotune_selected_sample_quantile = 0.0f;
     float autotune_selected_structure_thresh_percentile = 0.0f;
     float autotune_selected_rbf_mu_factor = 0.0f;
@@ -201,6 +202,7 @@ struct BGEDiagnostics {
     float autotune_best_cv_rms = 0.0f;
     float autotune_best_flatness = 0.0f;
     float autotune_best_roughness = 0.0f;
+    std::string autotune_selected_sample_estimator;
     float autotune_selected_sample_quantile = 0.0f;
     float autotune_selected_structure_thresh_percentile = 0.0f;
     float autotune_selected_rbf_mu_factor = 0.0f;

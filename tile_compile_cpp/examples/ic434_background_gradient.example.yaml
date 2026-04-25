@@ -182,41 +182,43 @@ astrometry:
 
 bge:
   enabled: true
-  # NOTE: Balanced config to avoid both RBF edge artifacts AND color casts
-  # - poly order 3 provides enough flexibility without wild extrapolation
-  # - huber loss is less aggressive than tukey (prevents channel rejection)
-  # - higher sample_quantile prevents over-selection of dark pixels
+  # IC434/Horsehead: preserve real H-alpha nebulosity while suppressing
+  # large-scale chromatic sky gradients. Use robust sky sampling and a smooth
+  # RBF surface instead of poly3, because the previous run fitted R/B almost
+  # flat while G received a real correction surface.
   autotune:
     enabled: true
-    strategy: conservative
-    max_evals: 24          # reduced to avoid overfitting
+    strategy: extended
+    max_evals: 48
     holdout_fraction: 0.25
-    alpha_flatness: 0.55   # balanced flatness/roughness
-    beta_roughness: 0.05
-  sample_quantile: 0.20    # balanced - not too aggressive
-  structure_thresh_percentile: 0.82  # moderate structure masking
+    alpha_flatness: 0.8
+    beta_roughness: 0.15
+  sample_estimator: sextractor_mode # quantile|sigma_clipped_median|sextractor_mode|biweight
+  min_sample_bg_value: 1.0
+  sample_quantile: 0.18
+  structure_thresh_percentile: 0.72
+  tile_weight_lambda_structure: 2.5
   min_tiles_per_cell: 3
-  min_valid_sample_fraction_for_apply: 0.25  # slightly higher threshold
-  min_valid_samples_for_apply: 100   # more samples required = more stable
+  min_valid_sample_fraction_for_apply: 0.25
+  min_valid_samples_for_apply: 100
   mask:
-    star_dilate_px: 8      # back to 8 - 10 was too aggressive
-    sat_dilate_px: 8
+    star_dilate_px: 12
+    sat_dilate_px: 12
   grid:
-    N_g: 40                # balanced grid density
-    G_min_px: 56
-    G_max_fraction: 0.22
-    insufficient_cell_strategy: nearest  # prevents extrapolation artifacts
+    N_g: 64
+    G_min_px: 40
+    G_max_fraction: 0.14
+    insufficient_cell_strategy: radius_expand
   fit:
-    method: poly
-    robust_loss: huber     # huber = less aggressive than tukey (prevents partial rejection)
-    huber_delta: 1.8       # slightly increased = more tolerance
-    irls_max_iterations: 10
+    method: rbf
+    robust_loss: tukey
+    huber_delta: 1.5
+    irls_max_iterations: 12
     irls_tolerance: 1e-4
-    polynomial_order: 3    # order 3 = more flexible than 2, captures real gradients
-    # RBF fallback params (used if poly fails)
+    polynomial_order: 3
     rbf_phi: multiquadric
-    rbf_mu_factor: 2.0     # balanced kernel width
-    rbf_lambda: 1e-2       # moderate smoothing
+    rbf_mu_factor: 2.5
+    rbf_lambda: 3e-2
     rbf_epsilon: 1e-6
 
 pcc:

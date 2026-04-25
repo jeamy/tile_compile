@@ -41,6 +41,8 @@ bge:
   min_tiles_per_cell: 3
   min_valid_sample_fraction_for_apply: 0.3
   min_valid_samples_for_apply: 96
+  sample_estimator: quantile # quantile|sigma_clipped_median|sextractor_mode|biweight
+  min_sample_bg_value: 1.0
   sample_quantile: 0.18
   structure_thresh_percentile: 0.9
 calibration:
